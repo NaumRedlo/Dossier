@@ -25,6 +25,57 @@ crates/dossier-cli        the `dossier` program the bridge runs
 client/                   the Python bridge, and the render client
 ```
 
+A replay file records where the cursor was and which buttons were down. It does
+**not** record what each click hit — that has to be reconstructed, and doing so
+is the difference between rendering a replay and animating a beatmap.
+
+### What it models
+
+| Piece | |
+|---|---|
+| **Judgement** | Notelock, hit windows, slider heads, ticks, reverses and tails, spinner rotations, combo and accuracy |
+| **Tracking** | The follow circle only opens once a slide has started, and closes the moment the cursor leaves — as stable does it |
+| **Rendering** | Playfield transform, combo colours and numbers, approach circles, reverse arrows, sliders that grow in and retract behind the ball, a HUD |
+| **Audio** | The map's own track, plus hit sounds that follow the *judgement* — a missed note is audible by its silence |
+
+### How it is checked
+
+Synthetic tests only say the engine does what its author intended. The thing
+that says it is *right* is the `.osr` header, because osu! wrote it: every
+replay carries the score it earned, and the engine's totals are held up against
+that figure. Where they disagree, the CLI is built to say **where** — which
+slider part was dropped, how hits fall around a window edge, which object the
+game's extra combo break must have landed on.
+
+Every judgement rule that changed was measured over a corpus of real replays
+before and after, and several plausible-sounding changes were reverted because
+the corpus got worse. Six rendering optimisations were measured and rejected the
+same way; the numbers are kept as `#[ignore]` benchmarks so nobody builds them
+twice.
+
+### CLI
+
+```
+dossier inspect [--json] <replay.osr>...     read the header alone, no map needed
+dossier judge   [OPTIONS] <replay.osr>...    judge, and compare with the header
+dossier corpus  [OPTIONS] <replay.osr>...    judge a folder of them, against expectations
+dossier sliders [OPTIONS] <replay.osr>...    break slider verdicts down by part
+dossier errors  [OPTIONS] <replay.osr>...    how hits fall around the windows
+dossier score   [OPTIONS] <replay.osr>...    the score, term by term
+dossier health  [OPTIONS] <replay.osr>...    where the drain would have killed the play
+dossier debug   [OPTIONS] --from <ms> --to <ms> <replay.osr>   one span, object by object
+dossier frame   [OPTIONS] --at <ms> <replay.osr>   one frame to PNG
+dossier video   [OPTIONS] <replay.osr>       the whole play to MP4
+dossier exhibit [OPTIONS] <replay.osr>       the few seconds worth watching, and why
+dossier sounds  [OPTIONS] [-o kit.wav]       audition a hit-sound kit
+dossier skin    [OPTIONS] -o <folder>        write the skin out for osu! itself
+```
+
+Video encoding shells out to `ffmpeg`; frames are piped to it already converted
+to YUV, never touching the disk. Everything else — 65 dependencies — is pure
+Rust with no C to build, which is why this compiles on a Raspberry Pi as
+readily as on a laptop.
+
 ## Building it
 
 Rust, and nothing else:

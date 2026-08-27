@@ -5141,3 +5141,156 @@ fn a_skin_that_says_not_to_turn_the_cursor_is_obeyed() {
     assert!(at_rest > 0, "the cursor was not drawn at all");
     assert_eq!(at_rest, later, "it turned a cursor that asked to stay still");
 }
+
+/// A `spinner-rpm` plate of the size the default skin ships, in a colour
+/// nothing else in a frame has.
+///
+/// The figure goes on top of it in the spinner's own pale colour, so the two
+/// are told apart by hue rather than by brightness. Drawn dark grey first,
+/// which the spinner's own body also is — the plate then measured as the whole
+/// frame and the test passed against every size it was shown.
+fn write_rpm_plate(dir: &std::path::Path) {
+    let mut pixmap = tiny_skia::Pixmap::new(280, 56).expect("a canvas");
+    for pixel in pixmap.pixels_mut() {
+        // Magenta, which nothing else in a frame is. Dark grey was tried and
+        // the spinner's own body is dark grey too, so the "plate" measured as
+        // the whole frame and the test agreed with itself whatever it was
+        // shown.
+        *pixel = tiny_skia::PremultipliedColorU8::from_rgba(200, 0, 200, 255).expect("a colour");
+    }
+    std::fs::write(
+        dir.join("spinner-rpm.png"),
+        pixmap.encode_png().expect("png"),
+    )
+    .expect("written");
+
+    // And a digit of the size the default skin's is, filled solid so that what
+    // is measured is the height it was drawn at rather than the shape of a nought.
+    let mut digit = tiny_skia::Pixmap::new(33, 46).expect("a canvas");
+    for pixel in digit.pixels_mut() {
+        *pixel = tiny_skia::PremultipliedColorU8::from_rgba(255, 255, 255, 255).expect("white");
+    }
+    std::fs::write(dir.join("score-0.png"), digit.encode_png().expect("png")).expect("written");
+}
+
+/// The plate's drawn height, and the figure's, in pixels of the frame.
+///
+/// Both measured down the column the figure sits in — a little right of
+/// centre, where `SPIN_READOUT_OFFSET` puts it — by brightness: the plate is
+/// dark and the number is not.
+fn plate_and_figure(dir: &std::path::Path) -> (u32, u32) {
+    use dossier_render::elements::Element;
+    use dossier_render::imported::Sprites;
+
+    let map = beatmap(ONE_SPINNER);
+    let replay = replay_over(vec![
+        dossier_replay::ReplayFrame { time_ms: 0, x: 256.0, y: 120.0, keys: dossier_replay::Keys(0) },
+        dossier_replay::ReplayFrame { time_ms: 8_000, x: 256.0, y: 120.0, keys: dossier_replay::Keys(0) },
+    ]);
+    let state = GameState::new(&map, &replay);
+    let layout = Layout::new(640, 480);
+
+    // With a font: the readout returns without drawing anything at all when
+    // there is none, which is what made the first version of this test pass
+    // against a frame that had no plate in it.
+    let mut skin = Skin::with_combo_colours(map.combo_colours()).with_font(font());
+    // The skin's own `score-0` as well as the plate, so the figure goes
+    // through the path a real skin takes: there the requested height *is* the
+    // glyph's height, where our vector font leaves room above and below for
+    // letters this string does not contain.
+    let wanted = [Element::SpinnerRpm, Element::Score('0')];
+    let sprites = Sprites::read(dir, &wanted).tint_for(&skin.combo_colours);
+    skin.sprites = Some(std::sync::Arc::new(sprites));
+    // Mid-spinner: the one in `ONE_SPINNER` runs from two seconds to six.
+    let frame = Scene::new(&state, skin).frame(4_000.0, &layout);
+
+    if std::env::var("DOSSIER_PROBE").is_ok() {
+        let x0 = (layout.width as f32 * 0.5) as u32;
+        for y in (layout.height - 60)..layout.height {
+            let mut row = String::new();
+            for x in x0..(x0 + 60) {
+                let p = frame.pixel(x, y).expect("inside");
+                row.push(match (p.red(), p.green(), p.blue()) {
+                    (12, 12, 16) => '.',
+                    (r, g, bl) if r > 120 || g > 120 || bl > 120 => '#',
+                    _ => '-',
+                });
+            }
+            eprintln!("{y:>4} {row}");
+        }
+    }
+    // The plate first, by its own colour and nothing else. Its band is then
+    // the only place the figure can be, which keeps the spinner's own bright
+    // body — which fills most of the frame — out of the count entirely. The
+    // first version of this test scanned whole columns and measured that body
+    // twice, and so passed against the size it was meant to catch.
+    let is_plate = |p: tiny_skia::PremultipliedColorU8| {
+        p.red() > 150 && p.blue() > 150 && p.green() < 90
+    };
+    let (mut top, mut bottom) = (u32::MAX, 0);
+    let (mut left, mut right) = (u32::MAX, 0);
+    for y in 0..layout.height {
+        for x in 0..layout.width {
+            if is_plate(frame.pixel(x, y).expect("inside the frame")) {
+                top = top.min(y);
+                bottom = bottom.max(y);
+                left = left.min(x);
+                right = right.max(x);
+            }
+        }
+    }
+    if top == u32::MAX {
+        return (0, 0);
+    }
+    let plate = bottom - top + 1;
+
+    // And the figure, as the rows it reaches rather than the tallest column
+    // through it. A `0` is a ring: no column crosses it from top to bottom, so
+    // counting down columns measures the thickness of a stroke and calls that
+    // the height of the number.
+    // Inside the plate's own edges, or the spinner's body — which is bright
+    // and reaches most of the frame — is counted as the number. That is what
+    // the second version of this test did, and it agreed with itself whatever
+    // size the figure was drawn at.
+    let figure = (top..=bottom)
+        .filter(|&y| {
+            (left..=right).any(|x| {
+                let p = frame.pixel(x, y).expect("inside the frame");
+                // The figure is drawn in the spinner's colour, which is pale —
+                // and pale is exactly what the plate under it is not.
+                p.green() > 120 && p.red() > 120 && p.blue() > 120
+            })
+        })
+        .count() as u32;
+    (plate, figure)
+}
+
+/// The default skin ships both halves of this pairing and so states the
+/// answer: `spinner-rpm` is 56 units tall and `score-0` is 46, a figure four
+/// fifths the height of the plate it sits in.
+///
+/// It was a fixed share of the frame's height before, which came out at a
+/// third — and the plate read as oversized when it was the number that was
+/// small.
+#[test]
+fn the_speed_figure_fills_its_plate_the_way_the_game_fills_it() {
+    let dir = skin_folder("rpm-plate");
+    write_rpm_plate(&dir);
+
+    let (plate, figure) = plate_and_figure(&dir);
+    assert!(plate > 0, "the plate was not drawn");
+    assert!(figure > 0, "the figure was not drawn");
+
+    let share = figure as f32 / plate as f32;
+    // The game's own pairing is 46 in 56, which is 82%. This measures 83: the
+    // digit is drawn at the height asked for and the plate at its own, and the
+    // one pixel is the rounding of both onto a 480-tall frame.
+    //
+    // Before this was sized against the plate it came out at 37%.
+    assert!(
+        (0.75..=0.92).contains(&share),
+        "the figure is {figure}px in a {plate}px plate — {:.0}%; the game's own \
+         fills four fifths",
+        share * 100.0
+    );
+}

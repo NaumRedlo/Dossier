@@ -254,10 +254,23 @@ const SPIN_READOUT_OFFSET: f32 = 80.0 / 289.0;
 /// the plate reads as oversized because the number in it is half the height it
 /// should be.
 ///
-/// Left alone for now rather than changed on the way past: it is shared with
-/// the caption drawn when a skin ships no plate at all, where there is no
-/// reference to match and the same number looks right.
+/// It is right for the caption and wrong inside a plate, so the two are sized
+/// separately now — see `SPIN_READOUT_IN_PLATE`. This one is what the caption
+/// keeps: no plate, nothing to match, and at this size it reads well.
 const SPIN_READOUT_SIZE: f64 = 0.026;
+
+/// How much of its plate the speed figure fills, top to bottom.
+///
+/// The default skin ships both halves of this pairing, so the game states the
+/// answer itself: `spinner-rpm` is 56 units tall and `score-0` is 46. A figure
+/// four fifths the height of the plate it sits in.
+///
+/// Taken from the plate rather than from the frame, so that a skin drawing a
+/// taller bar gets a taller number and keeps it in the gap it left. The share
+/// is the default skin's because that is the one pairing anybody has drawn on
+/// purpose; a skin that wants another gap moves it by drawing a different
+/// plate, which is the only lever it has.
+const SPIN_READOUT_IN_PLATE: f32 = 46.0 / 56.0;
 
 /// How far below the centre the bonus total sits.
 const SPINNER_BONUS_BELOW: f64 = 52.0;

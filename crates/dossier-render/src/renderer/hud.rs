@@ -1153,7 +1153,13 @@ impl Scene<'_> {
                     None,
                 );
                 let at = centre + label_w / 2.0 * SPIN_READOUT_OFFSET;
-                if !self.draw_hud_text(pixmap, &figure, at, baseline, size, Align::Centre, presence)
+                // Sized against the plate it sits in, not against the frame.
+                // A share of the frame's height had the figure at a third of
+                // the plate where the game's own is at four fifths, and the
+                // plate read as oversized when it was the number that was
+                // small.
+                let inside = label_h * SPIN_READOUT_IN_PLATE;
+                if !self.draw_hud_text(pixmap, &figure, at, baseline, inside, Align::Centre, presence)
                 {
                     font.draw(
                         pixmap,
@@ -1161,7 +1167,7 @@ impl Scene<'_> {
                             text: &figure,
                             x: at,
                             y: baseline,
-                            size,
+                            size: inside,
                             colour: with_alpha(self.skin.spinner, presence),
                             align: Align::Centre,
                         },

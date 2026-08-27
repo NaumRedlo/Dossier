@@ -218,27 +218,27 @@ async def test_a_refused_token_can_still_be_kept_on_purpose(monkeypatch, tmp_pat
     """The bot may be down, or behind. Refusing to save is a worse answer than
     saying so and letting somebody decide."""
     path = str(tmp_path / "worker.env")
-    _answers(monkeypatch, "https://example.org", "maybe-fine", "да")
+    _answers(monkeypatch, "https://example.org", "f" * 64, "да")
 
     async def refuses(_server, _token, _name):
         return False, "could not reach the bot"
 
     monkeypatch.setattr(console, "_try_the_bot", refuses)
     after = await console.connection(path, {})
-    assert after["RENDER_WORKER_TOKEN"] == "maybe-fine"
-    assert read_pairs(path)["RENDER_WORKER_TOKEN"] == "maybe-fine"
+    assert after["RENDER_WORKER_TOKEN"] == "f" * 64
+    assert read_pairs(path)["RENDER_WORKER_TOKEN"] == "f" * 64
 
 
 async def test_a_token_the_bot_accepts_is_saved(monkeypatch, tmp_path):
     path = str(tmp_path / "worker.env")
-    _answers(monkeypatch, "https://example.org", "good-token")
+    _answers(monkeypatch, "https://example.org", "e" * 64)
 
     async def accepts(_server, _token, _name):
         return True, "reached, and the builds agree"
 
     monkeypatch.setattr(console, "_try_the_bot", accepts)
     after = await console.connection(path, {})
-    assert after["RENDER_WORKER_TOKEN"] == "good-token"
+    assert after["RENDER_WORKER_TOKEN"] == "e" * 64
     assert read_pairs(path)["RENDER_SERVER"] == "https://example.org"
 
 
@@ -422,3 +422,84 @@ def test_a_window_is_never_held_when_there_is_no_terminal(monkeypatch):
 
     monkeypatch.setattr("builtins.input", never)
     console.hold_the_window()
+
+
+# ── the code, which is what anybody actually types now ───────────────────────
+#
+# A sixty-four character token pasted out of a chat was the step that went
+# wrong twice. The bot hands out eight characters instead, good for ten minutes
+# and one machine, and the program swaps them for a token nobody ever sees.
+
+
+@pytest.mark.parametrize("said, is_code", [
+    ("ABCD-EFGH", True),
+    ("abcd efgh", True),
+    ("K7M2QPRS", True),
+    ("f" * 64, False),
+    ("", False),
+])
+def test_short_is_a_code_and_long_is_a_token(said, is_code):
+    """One field and no question about which they have — which is a question
+    that means nothing to the person being asked."""
+    assert console.looks_like_a_code(said) is is_code
+
+
+async def test_a_code_is_swapped_for_a_token_and_the_token_is_saved(
+    monkeypatch, tmp_path
+):
+    path = str(tmp_path / "worker.env")
+    _answers(monkeypatch, "https://example.org", "ABCD-EFGH")
+    asked = {}
+
+    async def swapped(server, code, name):
+        asked.update(server=server, code=code)
+        return "t" * 64, ""
+
+    async def accepts(_server, _token, _name):
+        return True, "fine"
+
+    monkeypatch.setattr(console, "redeem", swapped)
+    monkeypatch.setattr(console, "_try_the_bot", accepts)
+
+    after = await console.connection(path, {})
+    assert asked["code"] == "ABCD-EFGH", "the code goes as typed; the bot tidies it"
+    assert after["RENDER_WORKER_TOKEN"] == "t" * 64
+    assert read_pairs(path)["RENDER_WORKER_TOKEN"] == "t" * 64
+
+
+async def test_a_code_the_bot_will_not_take_saves_nothing(monkeypatch, tmp_path):
+    """Wrong, used or expired all read the same from here, and none of them is
+    something to write down."""
+    path = str(tmp_path / "worker.env")
+    _answers(monkeypatch, "https://example.org", "ABCD-EFGH")
+
+    async def refused(_server, _code, _name):
+        return "", "код не подошёл"
+
+    async def never(*_a):
+        raise AssertionError("it went on to ask about a token it never got")
+
+    monkeypatch.setattr(console, "redeem", refused)
+    monkeypatch.setattr(console, "_try_the_bot", never)
+
+    assert "RENDER_WORKER_TOKEN" not in await console.connection(path, {})
+    assert not os.path.exists(path)
+
+
+async def test_keeping_the_existing_key_redeems_nothing(monkeypatch, tmp_path):
+    """Enter on what is already there means "leave it", and a token is not a
+    code however short somebody's old one happens to be."""
+    path = str(tmp_path / "worker.env")
+    _answers(monkeypatch, "https://example.org", "kept")
+
+    async def never(*_a):
+        raise AssertionError("it tried to redeem the token it already had")
+
+    async def accepts(_server, _token, _name):
+        return True, "fine"
+
+    monkeypatch.setattr(console, "redeem", never)
+    monkeypatch.setattr(console, "_try_the_bot", accepts)
+
+    after = await console.connection(path, {"RENDER_WORKER_TOKEN": "kept"})
+    assert after["RENDER_WORKER_TOKEN"] == "kept"

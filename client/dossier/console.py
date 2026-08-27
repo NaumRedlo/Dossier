@@ -226,6 +226,54 @@ def write_pairs(path: str, pairs: dict[str, str]) -> str:
 # ── screens ─────────────────────────────────────────────────────────────────
 
 
+# A token is sixty-four hex characters; a code is eight. Nothing in between is
+# either, so the two never have to be told apart by asking somebody which they
+# have — which is a question that means nothing to the person being asked.
+CODE_AT_MOST = 16
+
+
+def looks_like_a_code(said: str) -> bool:
+    return 0 < len("".join(said.split())) <= CODE_AT_MOST
+
+
+async def redeem(server: str, code: str, name: str) -> tuple[str, str]:
+    """Swap a code for this machine's own token. Returns `(token, why not)`.
+
+    The one request this program makes without a token, because it is where a
+    token comes from.
+    """
+    import aiohttp
+
+    from dossier.worker import trusted
+
+    try:
+        async with aiohttp.ClientSession(
+            timeout=aiohttp.ClientTimeout(total=20),
+            connector=aiohttp.TCPConnector(ssl=trusted()),
+        ) as session:
+            async with session.post(
+                f"{server.rstrip('/')}/render/join",
+                json={"code": code, "name": _machine_name()},
+            ) as reply:
+                if reply.status == 200:
+                    return (await reply.json()).get("token", ""), ""
+                if reply.status == 403:
+                    return "", ("код не подошёл — он уже использован, просрочен "
+                                "или набран с ошибкой. Попроси новый.")
+                if reply.status == 404:
+                    return "", ("этот бот ещё не умеет коды — попроси токен "
+                                "по-старому")
+                return "", f"бот ответил {reply.status}"
+    except Exception as exc:  # noqa: BLE001 — every network failure reads the same
+        return "", f"не удалось связаться с ботом: {exc}"
+
+
+def _machine_name() -> str:
+    import platform
+
+    return platform.node() or "worker"
+
+
 async def _try_the_bot(server: str, token: str, name: str) -> tuple[bool, str]:
     """Ask the bot whether it knows this token, before anything is saved.
 
@@ -262,20 +310,38 @@ async def connection(path: str, pairs: dict[str, str], name: str = "worker") -> 
     from dossier.worker import fingerprint
 
     _title("Подключение")
-    print("  Токен даёт право брать задачи. Никому его не показывай.")
+    print("  Нужен код — попроси его у того, кто позвал тебя в ферму.")
+    print("  В боте он берётся командой cltoken.")
     print()
 
     server = _ask("Адрес бота", pairs.get("RENDER_SERVER") or DEFAULT_SERVER)
     was = pairs.get("RENDER_WORKER_TOKEN", "")
     if was:
-        print(f"\n  Сейчас записан токен: {fingerprint(was)}")
+        print(f"\n  Сейчас записан ключ: {fingerprint(was)}")
         print("  Enter — оставить как есть.")
-    token = _ask("Токен", was)
+    said = _ask("Код", was)
 
-    if not token:
-        print("\n  Без токена работать не выйдет — бот не поймёт, кто это.")
+    if not said:
+        print("\n  Без кода работать не выйдет — бот не поймёт, кто это.")
         _pause()
         return pairs
+
+    if said == was:
+        # Enter on an existing token: nothing to redeem, only to re-check.
+        token = was
+    elif looks_like_a_code(said):
+        print("\n  Меняю код на ключ…")
+        token, why = await redeem(server, said, name)
+        if not token:
+            print(f"  ✗ {why}")
+            _pause()
+            return pairs
+        print("  ✓ готово — ключ выдан этой машине и записан")
+    else:
+        # A sixty-four character string is somebody who was given a token the
+        # old way, before codes existed. Still accepted; nothing about this
+        # should make an existing worker re-enrol.
+        token = said
 
     print("\n  Спрашиваю бота…")
     good, said = await _try_the_bot(server, token, name)

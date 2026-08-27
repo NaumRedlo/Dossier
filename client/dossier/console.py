@@ -456,8 +456,8 @@ async def run(options) -> str:
     if not pairs.get("RENDER_WORKER_TOKEN"):
         _clear()
         _title("Dossier — рендер-воркер")
-        print("  Первый запуск. Нужны две вещи, и обе у того, кто позвал тебя")
-        print("  в ферму: адрес бота и токен.")
+        print("  Первый запуск. Нужен код — его выдаёт тот, кто позвал тебя")
+        print("  в ферму. Адрес бота уже подставлен.")
         pairs = await connection(path, pairs, options.name)
 
     while True:

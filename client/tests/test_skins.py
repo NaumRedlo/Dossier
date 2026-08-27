@@ -182,7 +182,15 @@ def _sample(path: str) -> None:
     the same path through the code, so the fixture picks the one that can be
     made anywhere.
     """
+    import shutil
     import subprocess
+
+    # The fixture needs the same program the code under test does. CI installs
+    # it so these actually run; skipping is for a machine that has not, where
+    # the alternative is a traceback out of `subprocess` that reads like the
+    # code is broken rather than like a tool is missing.
+    if not shutil.which("ffmpeg"):
+        pytest.skip("ffmpeg is not on PATH, and this fixture is made with it")
 
     subprocess.run(
         ["ffmpeg", "-nostdin", "-v", "error", "-y", "-f", "lavfi",

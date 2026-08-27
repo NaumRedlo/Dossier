@@ -1,0 +1,176 @@
+# Build a release somebody can run rather than install.
+#
+# The whole point is the person on the other end. Setting a worker up used to
+# mean rustup, git, Python and a `cargo build`, and four installations is where
+# most people stopped — not because any one of them is hard, but because each
+# is a place to get stuck alone on a machine nobody else can see.
+#
+# What comes out of this is a folder: the engine, the client, the font, and a
+# page of Russian telling somebody which two lines to type. `ffmpeg` is the one
+# thing still to install, and the README names the command for each system.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  # For rehearsing the packaging without spending a tag on it. Builds
+  # everything and uploads the artifacts; publishes nothing.
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: ${{ matrix.label }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            label: windows-x64
+            engine: dossier.exe
+            client: dossier-worker.exe
+          - os: ubuntu-latest
+            label: linux-x64
+            engine: dossier
+            client: dossier-worker
+          - os: macos-latest
+            label: macos-arm64
+            engine: dossier
+            client: dossier-worker
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      # The engine's tests decide whether this ships. A release is the one
+      # build nobody is watching go past, and it goes to machines we cannot
+      # reach. The client's tests ran in `ci.yml` on this same commit; what
+      # this workflow checks about the client is the thing CI cannot — that
+      # the frozen executable starts at all, below.
+      - run: cargo test --release
+      - run: cargo build --release
+
+      # The stamp is how a worker and the bot agree they are running the same
+      # program, and `unknown` is let through deliberately — a build that
+      # cannot say what it is gets the benefit of the doubt rather than
+      # halting the farm. That is right for somebody's hand-built checkout and
+      # exactly wrong for a release: it would ship a binary that matches
+      # everything and checks nothing.
+      #
+      # `+` means the tree had edits in it, which a tagged build must not.
+      - name: The stamp has to be real
+        shell: bash
+        run: |
+          said=$(./target/release/${{ matrix.engine }} --version)
+          echo "$said"
+          case "$said" in
+            *unknown*) echo "::error::the engine cannot say which build it is"; exit 1 ;;
+            *+\)*)    echo "::error::built from an edited tree"; exit 1 ;;
+          esac
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Freeze the client
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install ./client pyinstaller
+          # `--collect-submodules` is not optional. `dossier/__init__.py`
+          # re-exports on demand through `import_module`, by string, so
+          # PyInstaller's static analysis sees no reference to `dossier.runner`
+          # or `dossier.skins` at all and would freeze a package with holes in
+          # it that only fail when a render is actually asked for.
+          pyinstaller --onefile --clean --noconfirm \
+            --name dossier-worker \
+            --paths client \
+            --collect-submodules dossier \
+            client/worker.py
+
+      - name: Assemble the folder
+        shell: bash
+        run: |
+          out="dossier-${{ github.ref_type == 'tag' && github.ref_name || 'dev' }}-${{ matrix.label }}"
+          mkdir -p "$out/assets/fonts"
+          cp "target/release/${{ matrix.engine }}" "$out/"
+          cp "dist/${{ matrix.client }}" "$out/"
+          # The engine draws the play and leaves out the score, the accuracy
+          # and the combo without this, and says so only on stderr. It travels
+          # with the binaries for that reason.
+          cp assets/fonts/TorusNotched-Bold.ttf "$out/assets/fonts/"
+          cp assets/README.md "$out/assets/"
+          # ASCII filename on purpose. The text is Russian; the name is not,
+          # because PowerShell's Compress-Archive has been inconsistent about
+          # UTF-8 in zip entries across versions and a mojibake filename is a
+          # worse first impression than an English one.
+          cp packaging/README.txt "$out/"
+          cp LICENSE "$out/"
+          echo "PACKAGE=$out" >> "$GITHUB_ENV"
+
+      # Proof it runs at all, on the machine that built it. `--check` reaches
+      # for the engine, the font and this machine's own limits and prints what
+      # it found; with no server and no token it stops short of the network.
+      # A frozen executable that cannot start is the failure this catches, and
+      # it is the one that would otherwise be found by a friend.
+      - name: Try it
+        shell: bash
+        run: |
+          cd "$PACKAGE"
+          ./${{ matrix.client }} --check --config /nonexistent || true
+          ./${{ matrix.client }} --check --config /nonexistent | grep -q '\[+\] engine'
+          ./${{ matrix.client }} --check --config /nonexistent | grep -q '\[+\] font'
+
+      - name: Zip it
+        shell: bash
+        run: |
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            powershell -Command "Compress-Archive -Path '$PACKAGE' -DestinationPath '$PACKAGE.zip'"
+          else
+            zip -qr "$PACKAGE.zip" "$PACKAGE"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.PACKAGE }}
+          path: ${{ env.PACKAGE }}.zip
+          if-no-files-found: error
+
+  publish:
+    name: publish
+    needs: build
+    runs-on: ubuntu-latest
+    # Only a tag becomes a release. A manual run is a rehearsal, and its
+    # artifacts are on the run's own page.
+    if: github.ref_type == 'tag'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: downloaded
+          merge-multiple: true
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # The standing text first — what this is and how to run it — then
+          # what changed, which `gh` writes from the commits. Not
+          # `--generate-notes`, which would replace the first with the second.
+          {
+            cat packaging/release-notes.md
+            echo
+            gh api "repos/${{ github.repository }}/releases/generate-notes" \
+              -f tag_name="${{ github.ref_name }}" --jq .body
+          } > notes.md
+          gh release create "${{ github.ref_name }}" downloaded/*.zip \
+            --title "Dossier ${{ github.ref_name }}" \
+            --notes-file notes.md

@@ -47,6 +47,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
+      # The skin store converts a skin's samples with ffmpeg, and the tests
+      # for it build their fixtures the same way. Without it here those five
+      # skip, and the conversion — a thing that has broken twice — goes
+      # unchecked on every run.
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - run: pip install -e "./client[dev]"
       - run: python -m pytest -q
         working-directory: client

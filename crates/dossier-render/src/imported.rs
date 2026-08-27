@@ -276,7 +276,19 @@ impl Ini {
                 // `Colour1..N` of its own meaning something else entirely, and
                 // reading those as combo colours would repaint every note on a
                 // map from a section about a ruleset we do not draw.
-                ("general", "hitcircleoverlayabovenumber") => {
+                // Two spellings, because stable reads two. Its skin.ini
+                // reader calls the same setter twice with two different key
+                // names, and the second is the missing `b` — a typo old enough
+                // that the game had to keep honouring it.
+                //
+                // Not a curiosity: of the twenty-six skins in the store here,
+                // one uses the correct spelling and *five* use the typo. Every
+                // one of those five happens to say `1`, which is the default,
+                // so nothing looks different today — and a skin that says `0`
+                // would have had its overlay drawn on the wrong side of the
+                // number with nothing to show why.
+                ("general", "hitcircleoverlayabovenumber")
+                | ("general", "hitcircleoverlayabovenumer") => {
                     out.overlay_above_number = value != "0";
                 }
                 ("general", "layeredhitsounds") => {
@@ -779,6 +791,23 @@ mod tests {
     /// default is a hit with a whistle over it. Default-on, and off only when
     /// the file says `0` — every other value, including nonsense, leaves the
     /// game's own behaviour alone.
+    /// Read out of stable itself: its `skin.ini` reader calls the same setter
+    /// twice, under two key names, and the second is the missing `b` — a typo
+    /// old enough that the game had to keep honouring it.
+    ///
+    /// Measured against the twenty-six skins in the store here: one writes the
+    /// key correctly and five write the typo. Reading only the correct
+    /// spelling meant those five were silently given the default.
+    #[test]
+    fn the_overlay_key_is_honoured_under_the_spelling_skins_actually_use() {
+        assert!(!Ini::parse("[General]\nHitCircleOverlayAboveNumer: 0\n").overlay_above_number);
+        assert!(Ini::parse("[General]\nHitCircleOverlayAboveNumer: 1\n").overlay_above_number);
+        // And the correct one still works.
+        assert!(!Ini::parse("[General]\nHitCircleOverlayAboveNumber: 0\n").overlay_above_number);
+        // Unset is stable's own default, taken from its constructor.
+        assert!(Ini::parse("[General]\n").overlay_above_number);
+    }
+
     #[test]
     fn a_skin_can_turn_off_the_hit_under_its_decorations() {
         assert!(Ini::default().layered_hit_sounds);

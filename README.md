@@ -72,9 +72,9 @@ dossier skin    [OPTIONS] -o <folder>        write the skin out for osu! itself
 ```
 
 Video encoding shells out to `ffmpeg`; frames are piped to it already converted
-to YUV, never touching the disk. Everything else — 65 dependencies — is pure
-Rust with no C to build, which is why this compiles on a Raspberry Pi as
-readily as on a laptop.
+to YUV, never touching the disk. The rest is 57 crates deep and not one of them
+builds C — no `-sys`, no `cc`, no `nasm`, no `pkg-config` — which is the whole
+of why the claim above about a Raspberry Pi is a fact rather than a hope.
 
 ## Building it
 

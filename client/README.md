@@ -1,6 +1,6 @@
 # `dossier` — the Python bridge
 
-Six modules and a program:
+Seven modules and a program, all under `dossier/`:
 
 | | |
 |---|---|
@@ -8,10 +8,15 @@ Six modules and a program:
 | `build.py` | which build the engine is, so two machines can agree |
 | `runner.py` | run the engine: judge a replay, render a video, cut a reel |
 | `maps.py` | put the map a replay was played on onto disk |
+| `osu/` | where a map comes from: a mirror for the archive, ppy for the notes |
 | `skins.py` | unpack, keep and prune `.osk` skins |
 | `machine.py` | how hard this machine may work right now |
 | `log.py` | name the loggers, and let the host decide where they go |
 | `worker.py` | the render client — poll a bot for jobs and answer them |
+
+`client/worker.py`, at the top level, is a launcher rather than a module: it is
+what makes `python client/worker.py` work from a checkout with nothing
+installed.
 
 Two things use it: the bot at [NaumRedlo/1984](https://github.com/NaumRedlo/1984),
 which takes render requests, and the render client, which answers them on

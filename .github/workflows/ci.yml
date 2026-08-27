@@ -50,3 +50,7 @@ jobs:
       - run: pip install -e "./client[dev]"
       - run: python -m pytest -q
         working-directory: client
+      # Once, rather than per Python: it reads the source and does not run it,
+      # so three interpreters would give the same answer three times.
+      - if: matrix.python == '3.13'
+        run: pip install ruff && ruff check client tools

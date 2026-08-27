@@ -18,7 +18,6 @@ from dossier.settings import (
     DOSSIER_BIN,
     DOSSIER_CRF,
     DOSSIER_ENCODER_THREADS,
-    DOSSIER_FFMPEG,
     DOSSIER_GAME_SOUNDS,
     DOSSIER_PRESET,
     DOSSIER_SKIN,

@@ -24,23 +24,49 @@ _HERE = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__
 # a successful build reports itself as missing.
 _ENGINE = "dossier.exe" if os.name == "nt" else "dossier"
 
+def _next_to_the_program() -> str:
+    """The directory the running program is in, whatever kind of program it is.
+
+    A release is a folder somebody unzipped: the engine and the client sit side
+    by side in it, and there is no checkout, no virtual environment and no
+    `PATH` entry. Frozen into one executable, `__file__` points inside a
+    temporary directory that gets deleted, so `sys.executable` is the only
+    thing that still names where the user actually put this.
+    """
+    if getattr(sys, "frozen", False):
+        return os.path.dirname(os.path.abspath(sys.executable))
+    # Run as a script from a checkout: `client/worker.py` or `python -m`.
+    main = getattr(sys.modules.get("__main__"), "__file__", None)
+    return os.path.dirname(os.path.abspath(main)) if main else os.getcwd()
+
+
 def _find_engine() -> str:
     """Where the engine is, for somebody who has not said where.
 
-    A built checkout is the render client's case, and it should need no
-    configuration at all — so the binary beside this package wins. Installed
-    with `pip` there is no checkout above it, only the virtual environment, and
-    `.../venv/target/release/dossier` is a path that has never existed; `PATH`
-    is asked instead.
+    Three places, in the order of how sure each one is:
 
-    If neither answers, the checkout path is returned anyway. A message that
-    says the engine is not at `<checkout>/target/release/dossier` tells
-    somebody to build it; one that says the engine is nowhere tells them
+    **Next to the program.** This is a release — a folder somebody unzipped,
+    with `dossier` and the client in it together. Nothing is configured and
+    nothing should have to be; it is the case with the least room to guess
+    wrong, so it is asked first.
+
+    **The checkout.** `<repo>/target/release/dossier`, which is where cargo
+    writes. A built clone works with no configuration either.
+
+    **`PATH`.** Installed with `pip` there is no checkout above the package,
+    only the virtual environment, and `.../venv/target/release/dossier` is a
+    path that has never existed anywhere.
+
+    If none of them answers, the checkout path is returned regardless. A
+    message that says the engine is not at `<checkout>/target/release/dossier`
+    tells somebody to build it; one that says the engine is nowhere tells them
     nothing.
     """
     beside = os.path.join(_HERE, "target", "release", _ENGINE)
-    if os.path.isfile(beside):
-        return beside
+    unpacked = os.path.join(_next_to_the_program(), _ENGINE)
+    for candidate in (unpacked, beside):
+        if os.path.isfile(candidate):
+            return candidate
     return shutil.which(_ENGINE) or beside
 
 
@@ -72,6 +98,7 @@ SKIN_STORE_DIR = os.getenv("SKIN_STORE_DIR", os.path.expanduser("~/.dossier/skin
 # The largest `.osk` this deployment will take, in megabytes.
 MAX_SKIN_MB = int(os.getenv("MAX_SKIN_MB", "128"))
 
+# Every capital in this module and nothing else — which is what keeps `__all__`
+# from having to be kept in step by hand. `sys` and `os` are lower case and so
+# is `shutil`, and `_find_engine` starts with an underscore.
 __all__ = [name for name in dir() if name.isupper() and not name.startswith("_")]
-
-del sys

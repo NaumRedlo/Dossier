@@ -11,7 +11,7 @@ import types
 
 from dossier import machine
 from dossier.machine import (
-    BATTERY_ABORT, BATTERY_FLOOR, Capacity, decide, parse_battery,
+    BATTERY_ABORT, BATTERY_FLOOR, decide, parse_battery,
     parse_idle_seconds, parse_power_mode, parse_thermal_pressure, should_abort,
 )
 

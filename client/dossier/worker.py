@@ -1050,6 +1050,16 @@ async def main() -> None:
         # whether it found a file, and which keys the file gave it.
         raise SystemExit(await check(options))
 
+    # A person at a terminal, started with no instructions: show them the
+    # program rather than a refusal about a file they have not made yet.
+    # Imported here rather than at the top — a worker running as a service
+    # never reaches this line, and should not pay for the module.
+    from dossier import console
+
+    if console.wanted(options, sys.argv[1:]):
+        if await console.run(options) == "quit":
+            return
+
     load_config(options.config)
     options.server = options.server or os.getenv("RENDER_SERVER", "")
 

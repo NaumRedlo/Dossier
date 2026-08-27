@@ -1233,10 +1233,31 @@ def run() -> None:
     log.
     """
     _readable_output()
+    code = 0
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
+        # How a worker is meant to be stopped: it is a program somebody leaves
+        # running on their own laptop.
         pass
+    except SystemExit as exc:
+        # `raise SystemExit("...")` is how everything here refuses, and Python
+        # prints the message on the way out — after this function has returned,
+        # which on a window that closes with the process is too late to read.
+        # So it is printed here, before the window is held.
+        if isinstance(exc.code, str):
+            print(exc.code, file=sys.stderr)
+            code = 1
+        elif exc.code:
+            code = exc.code
+
+    # Double-clicked from Explorer, the console belongs to this process and is
+    # destroyed with it. See `console.own_console`.
+    from dossier import console
+
+    console.hold_the_window()
+    if code:
+        raise SystemExit(code)
 
 
 if __name__ == "__main__":

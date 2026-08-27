@@ -367,3 +367,58 @@ def test_the_stand_in_options_answer_everything_the_bot_check_will_ask():
         f"_ask_the_bot reads options.{', options.'.join(sorted(missing))} and "
         f"_try_the_bot does not supply it"
     )
+
+
+# ── the window that closes with the program ──────────────────────────────────
+
+
+def test_nothing_is_held_open_on_a_system_that_does_not_do_that(monkeypatch):
+    """Only Windows makes a console for a double-clicked program and destroys
+    it with the process. Holding a terminal anywhere else is a keypress in the
+    way of somebody who was never going to lose the output."""
+    monkeypatch.setattr(console.sys, "platform", "darwin")
+    assert not console.own_console()
+    monkeypatch.setattr(console.sys, "platform", "linux")
+    assert not console.own_console()
+
+
+def test_a_console_with_a_shell_in_it_is_not_held(monkeypatch):
+    """Two processes attached means somebody started this from a terminal, and
+    that terminal was there first and stays."""
+    import types
+
+    monkeypatch.setattr(console.sys, "platform", "win32")
+    kernel = types.SimpleNamespace(GetConsoleProcessList=lambda _slots, _n: 2)
+    monkeypatch.setitem(
+        sys.modules, "ctypes", types.SimpleNamespace(
+            c_uint=int, windll=types.SimpleNamespace(kernel32=kernel),
+        ),
+    )
+    assert not console.own_console()
+
+
+def test_holding_is_never_a_reason_to_fail(monkeypatch):
+    """A program that will not finish because it could not wait for a keypress
+    is worse than one whose last line was missed."""
+    monkeypatch.setattr(console, "own_console", lambda: True)
+    monkeypatch.setattr(console, "interactive", lambda: True)
+
+    def refuses(_prompt):
+        raise EOFError
+
+    monkeypatch.setattr("builtins.input", refuses)
+    console.hold_the_window()  # the assertion is that this returns
+
+
+def test_a_window_is_never_held_when_there_is_no_terminal(monkeypatch):
+    """Belt and braces over `own_console`. No arrangement of pipes should be
+    able to leave a build waiting for a keypress that will not come — a run
+    that hangs is worse than a message that scrolled."""
+    monkeypatch.setattr(console, "own_console", lambda: True)
+    monkeypatch.setattr(console, "interactive", lambda: False)
+
+    def never(_prompt):
+        raise AssertionError("it waited with nobody there")
+
+    monkeypatch.setattr("builtins.input", never)
+    console.hold_the_window()

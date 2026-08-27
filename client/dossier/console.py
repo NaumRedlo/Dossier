@@ -47,6 +47,51 @@ def interactive() -> bool:
         return False
 
 
+def own_console() -> bool:
+    """Whether this window belongs to this program and closes with it.
+
+    Double-clicked from Explorer, Windows makes a console for the process and
+    destroys it the moment the process ends — so a refusal, a traceback or a
+    goodbye is gone before anybody can read it. The window flashes and nothing
+    has happened, which is the single most confusing way for a program to fail
+    on that system.
+
+    Started from a terminal the console was there first and stays, and holding
+    it would just be a keypress in the way.
+
+    `GetConsoleProcessList` answers it: one process attached is ours alone, two
+    or more means a shell is in here with us. Nothing on the other systems
+    behaves this way, so nothing else asks.
+    """
+    if sys.platform != "win32":
+        return False
+    try:
+        import ctypes
+
+        # Two slots is enough to tell "one" from "more than one", which is the
+        # whole question. The call returns how many there actually are.
+        attached = (ctypes.c_uint * 2)()
+        return ctypes.windll.kernel32.GetConsoleProcessList(attached, 2) == 1
+    except Exception:  # noqa: BLE001 — not worth failing to start over
+        return False
+
+
+def hold_the_window() -> None:
+    """Keep a window that would otherwise vanish with whatever it last said.
+
+    `interactive()` as well as `own_console()`, which is belt and braces: a
+    double-clicked program has a terminal on both ends, and requiring it means
+    no arrangement of pipes can ever leave this waiting for a keypress that
+    will not come. A build that hangs is worse than a message that scrolled.
+    """
+    if not own_console() or not interactive():
+        return
+    try:
+        input("\n  — Enter, чтобы закрыть окно —")
+    except (EOFError, KeyboardInterrupt):
+        pass
+
+
 def wanted(options, given: list[str]) -> bool:
     """Whether to offer the menu at all.
 

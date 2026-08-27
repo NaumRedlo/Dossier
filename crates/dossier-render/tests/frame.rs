@@ -168,7 +168,7 @@ Combo2 : 0,0,255
 fn font() -> dossier_render::Font {
     let path = concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../../../assets/fonts/TorusNotched-Bold.ttf"
+        "/../../assets/fonts/TorusNotched-Bold.ttf"
     );
     let bytes = std::fs::read(path).expect("the repo ships this font");
     dossier_render::Font::from_bytes(&bytes).expect("and it parses")

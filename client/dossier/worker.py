@@ -792,6 +792,19 @@ async def check(options) -> int:
                         shutil.which("ffmpeg") or "not on PATH",
                         "needed to convert a skin's samples and to mux audio"))
 
+    # Worth a row of its own because its absence is silent. Without a font the
+    # engine draws the play and leaves out the score, the accuracy and the
+    # combo — a video that looks finished, is not, and that nobody watching
+    # would think to report as a setup problem.
+    from dossier.settings import DOSSIER_FONT
+
+    checks.append(Check("font", bool(DOSSIER_FONT) and os.path.isfile(DOSSIER_FONT),
+                        where(DOSSIER_FONT) if DOSSIER_FONT else "not found",
+                        "renders come out with no score, no accuracy and no "
+                        "combo without it — it ships beside the engine, so this "
+                        "usually means a file was moved out of the folder it "
+                        "came in"))
+
     songs = where(maps.songs_dir())
     checks.append(Check("map store", os.path.isdir(songs) or _can_make(songs), songs,
                         "the worker downloads maps here and could not create it"))

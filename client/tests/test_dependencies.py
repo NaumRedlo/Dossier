@@ -160,8 +160,23 @@ def test_the_client_has_its_own_settings():
     test rather than a note because it would close again quietly."""
     from dossier import settings
 
-    assert settings.__all__, "settings declares nothing"
-    assert len(settings.__all__) == 10, settings.__all__
+    # Named rather than counted. A number tells whoever broke this that
+    # something moved; a list tells them what, and reads as documentation the
+    # rest of the time.
+    assert set(settings.__all__) == {
+        "DOSSIER_BIN",              # the compiled engine
+        "DOSSIER_FONT",             # the face the HUD is set in
+        "DOSSIER_FFMPEG",           # the encoder the engine shells out to
+        "DOSSIER_CRF",              # how hard it is compressed
+        "DOSSIER_PRESET",           # how long it spends compressing
+        "DOSSIER_ENCODER_THREADS",  # empty leaves it to ffmpeg
+        "DOSSIER_SKIN",             # the look when nobody chose one
+        "DOSSIER_GAME_SOUNDS",      # osu!'s own kit, for what a skin leaves out
+        "BEATMAP_STORE_DIR",        # where maps are kept
+        "SKIN_STORE_DIR",           # where skins are unpacked
+        "MAX_SKIN_MB",              # the largest `.osk` this will take
+    }, settings.__all__
+
     body = open(os.path.join(PACKAGE, "settings.py"), encoding="utf-8").read()
     for name in settings.__all__:
         assert f"{name} = os.getenv" in body or f'"{name}"' in body, (

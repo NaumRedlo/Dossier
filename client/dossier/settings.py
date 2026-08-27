@@ -74,6 +74,32 @@ def _find_engine() -> str:
 # the ordinary case for the bot, whose checkout is not this one.
 DOSSIER_BIN = os.getenv("DOSSIER_BIN") or _find_engine()
 
+def _find_font() -> str:
+    """The typeface the HUD and the combo numbers are set in.
+
+    The engine looks for `assets/fonts/` relative to its *working directory*
+    and draws the play without numbers when it finds nothing — which is a
+    render that looks finished and is wrong, reported by nobody. That is fine
+    while the working directory is always the checkout, and it stops being fine
+    the moment somebody runs an unpacked release from anywhere else.
+
+    So the client names the file outright rather than leaving the engine to
+    guess: next to the program for a release, then the checkout. Empty when
+    there is no font to be found, which leaves the engine's own search exactly
+    as it was.
+    """
+    here = os.path.join("assets", "fonts", "TorusNotched-Bold.ttf")
+    for root in (_next_to_the_program(), _HERE):
+        found = os.path.join(root, here)
+        if os.path.isfile(found):
+            return found
+    return ""
+
+
+# Named rather than searched for; see above. The engine takes it from the
+# environment, and `runner` puts it there.
+DOSSIER_FONT = os.getenv("DOSSIER_FONT") or _find_font()
+
 # The encoder the engine shells out to.
 DOSSIER_FFMPEG = os.getenv("DOSSIER_FFMPEG", "ffmpeg")
 DOSSIER_CRF = os.getenv("DOSSIER_CRF", "20")

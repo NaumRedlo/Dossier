@@ -18,6 +18,7 @@ from dossier.settings import (
     DOSSIER_BIN,
     DOSSIER_CRF,
     DOSSIER_ENCODER_THREADS,
+    DOSSIER_FONT,
     DOSSIER_GAME_SOUNDS,
     DOSSIER_PRESET,
     DOSSIER_SKIN,
@@ -25,6 +26,23 @@ from dossier.settings import (
 from dossier.log import get_logger
 
 logger = get_logger("runner")
+
+
+def _engine_environment() -> dict:
+    """What the engine is run with.
+
+    Only one thing is added, and it is added because the engine's own way of
+    finding it is relative to the working directory: without a font the play
+    still draws and the numbers do not, which is a render that looks finished,
+    is wrong, and is reported by nobody.
+
+    Whoever set `DOSSIER_FONT` themselves already has it in `os.environ` and
+    this puts back the same value.
+    """
+    environment = dict(os.environ)
+    if DOSSIER_FONT:
+        environment["DOSSIER_FONT"] = DOSSIER_FONT
+    return environment
 
 
 def _plural(n: int, one: str, few: str, many: str) -> str:
@@ -83,6 +101,7 @@ async def _launch(args: tuple[str, ...], timeout: int) -> tuple[int, str, str]:
             *args,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            env=_engine_environment(),
         )
     except OSError as exc:
         raise DossierError(f"не удалось запустить движок: {exc}") from exc
@@ -230,6 +249,7 @@ async def _launch_watched(
             *argv,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            env=_engine_environment(),
         )
     except OSError as exc:
         raise DossierError(f"не удалось запустить движок: {exc}") from exc

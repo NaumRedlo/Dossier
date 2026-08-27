@@ -107,6 +107,59 @@ def wanted(options, given: list[str]) -> bool:
     return not any(argument.startswith("--server") for argument in given)
 
 
+class Line:
+    """One line that rewrites itself, for something that is happening now.
+
+    A worker whose bot has gone away used to say so once a second, for as long
+    as it took to come back — twenty identical lines to scroll past afterwards,
+    and the last one no more informative than the first. What somebody wants
+    there is one line that is *still true*, and the way to know it is alive is
+    that it moves.
+
+    Written to stderr, where the logs go: `stdout` is the menu, and a program
+    whose output is being kept should get the menu without a carriage return
+    dragged through it.
+
+    Nothing at all when there is no terminal. A service writing `\r` into a
+    journal produces a line nobody can read and a file nobody can grep.
+    """
+
+    def __init__(self, stream=None) -> None:
+        self._to = stream if stream is not None else sys.stderr
+        self._width = 0
+        self._showing = False
+
+    def _live(self) -> bool:
+        try:
+            return bool(self._to) and self._to.isatty()
+        except (AttributeError, ValueError):
+            return False
+
+    def say(self, text: str) -> None:
+        if not self._live():
+            return
+        # Padded to whatever the last line was, so a shorter message does not
+        # leave the tail of a longer one behind it.
+        self._to.write("\r" + text + " " * max(0, self._width - len(text)))
+        self._to.flush()
+        self._width = len(text)
+        self._showing = True
+
+    def clear(self) -> None:
+        """Take the line away, leaving the screen as it was."""
+        if not self._showing or not self._live():
+            self._showing = False
+            return
+        self._to.write("\r" + " " * self._width + "\r")
+        self._to.flush()
+        self._width = 0
+        self._showing = False
+
+    @property
+    def showing(self) -> bool:
+        return self._showing
+
+
 # ── drawing ─────────────────────────────────────────────────────────────────
 #
 # No curses and no third-party anything: this has to work inside a frozen
@@ -417,6 +470,36 @@ def limits(path: str, pairs: dict[str, str]) -> dict[str, str]:
     return pairs
 
 
+def journal(lines: int = 40) -> None:
+    """The last of the log, and where the whole of it is.
+
+    Shown rather than only pointed at, because the answer to "что случилось"
+    is usually in the last few lines and opening a file in a folder beginning
+    with a dot is a thing people ask how to do.
+
+    The path is printed underneath all the same: what gets sent to somebody who
+    can help is the file, not a screenshot of a screen.
+    """
+    from dossier import log
+
+    _title("Журнал")
+    said = log.tail(lines)
+    if not said:
+        print("  Пока пусто — здесь появится то, что происходило во время работы.")
+    else:
+        for one in said:
+            print(f"  {one}")
+
+    print()
+    print("  Весь журнал лежит здесь — этот файл и надо присылать:")
+    print(f"    {log.FILE}")
+    if sys.platform == "darwin":
+        print("\n  Открыть папку с ним:  open ~/.dossier")
+    elif sys.platform == "win32":
+        print("\n  Открыть папку с ним:  explorer %USERPROFILE%\\.dossier")
+    _pause()
+
+
 async def _standing(pairs: dict[str, str]) -> list[str]:
     """The four lines at the top of the menu: who, where, what, and how much."""
     from dossier import machine, runner
@@ -469,7 +552,8 @@ async def run(options) -> str:
         print("   1  начать работу")
         print("   2  проверить, всё ли готово")
         print("   3  сколько отдавать этой машины")
-        print("   4  подключение — сервер и токен")
+        print("   4  подключение — сервер и код")
+        print("   5  журнал — что было и что сломалось")
         print("   0  выход")
 
         said = _ask("\n  Что делаем", "1")
@@ -503,3 +587,6 @@ async def run(options) -> str:
         elif said == "4":
             _clear()
             pairs = await connection(path, pairs, options.name)
+        elif said == "5":
+            _clear()
+            journal()

@@ -45,6 +45,7 @@ import sys
 import zipfile
 import tempfile
 from datetime import datetime
+from time import monotonic
 
 import aiohttp
 
@@ -70,6 +71,11 @@ MISMATCH_SECONDS = 30.0
 # on — a charger, a cooler room, a hand leaving the trackpad — changes in a
 # second, and the poll is only still made at all so the farm can see it is here.
 RESTING_SECONDS = 15.0
+
+# How long "Соединение восстановлено!" stays on the screen before the line is
+# taken away. Long enough to be read by somebody who looked up at the right
+# moment, short enough not to be still sitting there being untrue.
+SETTLED_SECONDS = 5.0
 
 # Where a worker keeps what it would otherwise be told on the command line.
 # The secret is the reason this file exists: a token pasted into a shell is a
@@ -1185,11 +1191,20 @@ async def _offer_the_right_build(release: str) -> bool:
 async def _watch(options, token: str) -> None:
     """Poll for jobs until told to stop. Split out so `main` can own the
     lifetimes of the things it opened."""
+    from dossier.console import Line
+
     cores = os.cpu_count() or 4
     refused = None
     standing_by = None
     told_so = None
     done = handed_back = 0
+
+    # The bot going away is the one thing that happens over and over and is the
+    # same each time. It gets a line that moves rather than twenty that repeat.
+    line = Line()
+    away_since = None
+    dots = 0
+    settle_at = None
 
     # Asked once, here, rather than at every claim: the binary does not change
     # under a running process. A worker restarted after a rebuild says the new
@@ -1263,9 +1278,35 @@ async def _watch(options, token: str) -> None:
                 engine = await engine_build.local(refresh=True)
                 continue
             except aiohttp.ClientError as exc:
-                logger.warning("could not reach the bot: %s", exc)
+                if away_since is None:
+                    # Once, into the log, with the reason in it — that is what
+                    # somebody sends when they ask what happened. Everything
+                    # after this is the moving line, which is for the person
+                    # watching now and is worth nothing afterwards.
+                    away_since = monotonic()
+                    logger.warning("lost the bot: %s", exc)
+                dots = dots % 3 + 1
+                line.say(f"  Потеряно соединение с ботом{'.' * dots}"
+                         f"  Повторяю подключение{'.' * dots}")
                 await asyncio.sleep(POLL_SECONDS)
                 continue
+
+            if away_since is not None:
+                # The moving line comes down *before* the log line goes out,
+                # or the two land on the same row and the log reads as the tail
+                # of a sentence about dots.
+                line.clear()
+                # Back. Said where the losing was said, so the two read as one
+                # event, and taken off the screen after a moment — it is news
+                # for exactly as long as somebody is looking at it.
+                logger.info("the bot is back after %.0fs", monotonic() - away_since)
+                line.say("  Соединение восстановлено!")
+                settle_at = monotonic() + SETTLED_SECONDS
+                away_since = None
+                dots = 0
+            elif settle_at is not None and monotonic() >= settle_at:
+                line.clear()
+                settle_at = None
 
             if standing_by is not None:
                 logger.info("the builds agree again (%s) — taking work", engine)
@@ -1339,6 +1380,18 @@ def run() -> None:
     log.
     """
     _readable_output()
+
+    # Neither of these was ever switched on, so a worker printed warnings and
+    # nothing else — no "took a job", no "delivered", no tally — and kept no
+    # copy at all. "Пришли лог" had nothing to answer with.
+    #
+    # The file is always on, including for a service: the moment somebody needs
+    # a log is never the moment they had thought to start keeping one.
+    from dossier import log as _log
+
+    _log.to_console()
+    _log.to_file()
+
     code = 0
     try:
         asyncio.run(main())

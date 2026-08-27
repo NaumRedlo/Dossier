@@ -799,7 +799,10 @@ mod tests {
             "the mark belongs at the tail (240), not at {}",
             at.x
         );
-        assert!((at.x - object.pos.x).abs() > 100.0, "and the head is not it");
+        assert!(
+            (at.x - object.pos.x).abs() > 100.0,
+            "and the head is not it"
+        );
     }
 
     /// An even number of slides brings the ball home, so the head *is* where
@@ -822,8 +825,7 @@ mod tests {
              [TimingPoints]\n0,500,4,2,0,60,1,0\n\n[HitObjects]\n256,192,1000,5,0\n",
         )
         .expect("a map");
-        let state =
-            dossier_sim::GameState::from_beatmap(&map, dossier_replay::Mods::default());
+        let state = dossier_sim::GameState::from_beatmap(&map, dossier_replay::Mods::default());
         let object = &state.timeline().objects[0];
         assert_eq!(verdict_place(object).x, object.pos.x);
         assert_eq!(verdict_place(object).y, object.pos.y);

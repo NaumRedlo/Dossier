@@ -59,7 +59,12 @@ pub struct Written {
 
 /// Write `skin` into `folder` as an osu! skin, with `samples` copied in if a
 /// folder of them was found.
-pub fn write(skin: &Skin, name: &str, folder: &Path, samples: Option<&Path>) -> Result<Written, String> {
+pub fn write(
+    skin: &Skin,
+    name: &str,
+    folder: &Path,
+    samples: Option<&Path>,
+) -> Result<Written, String> {
     std::fs::create_dir_all(folder).map_err(|e| format!("{}: {e}", folder.display()))?;
     let ini = folder.join("skin.ini");
     std::fs::write(&ini, ini_text(skin, name)).map_err(|e| format!("{}: {e}", ini.display()))?;
@@ -96,8 +101,7 @@ pub fn write(skin: &Skin, name: &str, folder: &Path, samples: Option<&Path>) -> 
             let path = folder.join(format!("{}{suffix}.png", element.stem()));
             match pixmap.encode_png() {
                 Ok(png) => {
-                    std::fs::write(&path, png)
-                        .map_err(|e| format!("{}: {e}", path.display()))?;
+                    std::fs::write(&path, png).map_err(|e| format!("{}: {e}", path.display()))?;
                     images += 1;
                 }
                 Err(error) => return Err(format!("{}: {error}", path.display())),
@@ -188,10 +192,18 @@ mod tests {
                 .find(|l| l.starts_with(slot))
                 .unwrap_or_else(|| panic!("no {slot} in {text}"))
         };
-        assert_eq!(at("Combo2:"), "Combo2: 255,192,0", "ours first is shown first");
+        assert_eq!(
+            at("Combo2:"),
+            "Combo2: 255,192,0",
+            "ours first is shown first"
+        );
         assert_eq!(at("Combo3:"), "Combo3: 0,202,0");
         assert_eq!(at("Combo4:"), "Combo4: 18,124,255");
-        assert_eq!(at("Combo1:"), "Combo1: 242,24,57", "ours last is shown last");
+        assert_eq!(
+            at("Combo1:"),
+            "Combo1: 242,24,57",
+            "ours last is shown last"
+        );
     }
 
     #[test]

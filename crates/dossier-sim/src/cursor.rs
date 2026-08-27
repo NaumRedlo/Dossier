@@ -128,8 +128,6 @@ impl CursorTrack {
         ])
     }
 
-
-
     /// When each of `N` lanes was held, in time order.
     ///
     /// A button still down when the recording stops is closed a millisecond
@@ -137,10 +135,7 @@ impl CursorTrack {
     /// otherwise be an interval of no length and read as never held, and a
     /// millisecond is the finest the format distinguishes — frame times are
     /// whole ones — so this claims exactly "for the instant it was recorded in".
-    fn spans<const N: usize>(
-        &self,
-        lanes: [fn(Keys) -> bool; N],
-    ) -> [Vec<(f64, f64)>; N] {
+    fn spans<const N: usize>(&self, lanes: [fn(Keys) -> bool; N]) -> [Vec<(f64, f64)>; N] {
         let mut out: [Vec<(f64, f64)>; N] = std::array::from_fn(|_| Vec::new());
         let mut down = [None::<f64>; N];
         for frame in &self.frames {

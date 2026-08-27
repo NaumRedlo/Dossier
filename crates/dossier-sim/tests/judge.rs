@@ -1648,7 +1648,11 @@ fn a_slider_is_worth_its_head_in_lazer_and_its_pieces_in_stable() {
             t,
             100.0 + 100.0 * progress,
             100.0,
-            if (1060..=1560).contains(&t) { Keys::K1 } else { 0 },
+            if (1060..=1560).contains(&t) {
+                Keys::K1
+            } else {
+                0
+            },
         ));
     }
 
@@ -1713,7 +1717,11 @@ fn landing_a_late_head_starts_the_slide_in_lazer_but_not_in_stable() {
             t,
             x,
             100.0,
-            if (1050..=1250).contains(&t) { Keys::K1 } else { 0 },
+            if (1050..=1250).contains(&t) {
+                Keys::K1
+            } else {
+                0
+            },
         ));
     }
 
@@ -1783,7 +1791,11 @@ fn score_v2_still_wants_the_pieces_after_the_head_is_in() {
     // alone this is a 300 and the replay says 100 — twenty-one of them on one
     // map. The verdict is the worse of the two readings, not the head's.
     let dropped = score_v2_slider(0, 1200, dossier_replay::bits::SCORE_V2);
-    assert_eq!((dropped.count_300, dropped.count_100), (0, 1), "{dropped:?}");
+    assert_eq!(
+        (dropped.count_300, dropped.count_100),
+        (0, 1),
+        "{dropped:?}"
+    );
 
     // And a slider that keeps everything is untouched by the mod.
     let whole = score_v2_slider(0, 1600, dossier_replay::bits::SCORE_V2);
@@ -1809,7 +1821,11 @@ OverallDifficulty:5
 ",
     );
     let mut frames = Vec::new();
-    for (at, x, offset) in [(1000i64, 100.0f32, -20i64), (2000, 200.0, 0), (3000, 300.0, 20)] {
+    for (at, x, offset) in [
+        (1000i64, 100.0f32, -20i64),
+        (2000, 200.0, 0),
+        (3000, 300.0, 20),
+    ] {
         let click = at + offset;
         frames.push(frame(click - 5, x, 100.0, 0));
         frames.push(frame(click, x, 100.0, Keys::K1));
@@ -1818,7 +1834,9 @@ OverallDifficulty:5
     let state = GameState::new(&map, &replay_with(frames, 0));
     let judge = state.judge().expect("a replay was judged");
 
-    let rate = judge.unstable_rate(f64::MAX).expect("three hits have a spread");
+    let rate = judge
+        .unstable_rate(f64::MAX)
+        .expect("three hits have a spread");
     let expected = (800.0f64 / 3.0).sqrt() * 10.0;
     assert!(
         (rate - expected).abs() < 1.0,
@@ -1850,7 +1868,10 @@ OverallDifficulty:5
     let state = GameState::new(&map, &replay_with(frames, 0));
     let judge = state.judge().expect("a replay was judged");
 
-    assert!(judge.unstable_rate(1500.0).is_none(), "one hit is not a spread");
+    assert!(
+        judge.unstable_rate(1500.0).is_none(),
+        "one hit is not a spread"
+    );
     assert!(judge.unstable_rate(2500.0).is_some(), "two are");
 }
 
@@ -1877,8 +1898,7 @@ fn a_live_spinner_takes_a_press_wherever_the_cursor_is() {
     lazer.game_version = 30_000_018;
     let lazer_counts = judged(&map, &lazer);
 
-    let stable_landed =
-        stable_counts.count_300 + stable_counts.count_100 + stable_counts.count_50;
+    let stable_landed = stable_counts.count_300 + stable_counts.count_100 + stable_counts.count_50;
     let lazer_landed = lazer_counts.count_300 + lazer_counts.count_100 + lazer_counts.count_50;
     assert_eq!(
         stable_landed, 0,
@@ -1902,10 +1922,30 @@ fn a_relax_replay_is_clicked_for_rather_than_read() {
     // ever held. Without the mod that is two misses; with it the game clicks.
     let map = beatmap(TWO_CIRCLES);
     let frames = vec![
-        dossier_replay::ReplayFrame { time_ms: 900, x: 100.0, y: 100.0, keys: dossier_replay::Keys(0) },
-        dossier_replay::ReplayFrame { time_ms: 1000, x: 100.0, y: 100.0, keys: dossier_replay::Keys(0) },
-        dossier_replay::ReplayFrame { time_ms: 1100, x: 300.0, y: 100.0, keys: dossier_replay::Keys(0) },
-        dossier_replay::ReplayFrame { time_ms: 1200, x: 300.0, y: 100.0, keys: dossier_replay::Keys(0) },
+        dossier_replay::ReplayFrame {
+            time_ms: 900,
+            x: 100.0,
+            y: 100.0,
+            keys: dossier_replay::Keys(0),
+        },
+        dossier_replay::ReplayFrame {
+            time_ms: 1000,
+            x: 100.0,
+            y: 100.0,
+            keys: dossier_replay::Keys(0),
+        },
+        dossier_replay::ReplayFrame {
+            time_ms: 1100,
+            x: 300.0,
+            y: 100.0,
+            keys: dossier_replay::Keys(0),
+        },
+        dossier_replay::ReplayFrame {
+            time_ms: 1200,
+            x: 300.0,
+            y: 100.0,
+            keys: dossier_replay::Keys(0),
+        },
     ];
 
     let mut plain = replay_with(frames.clone(), 0);
@@ -2053,4 +2093,3 @@ fn a_spinner_cannot_be_what_blocks_a_note_under_lazer() {
         judge.trace()
     );
 }
-

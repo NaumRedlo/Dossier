@@ -25,9 +25,7 @@
 use std::f64::consts::PI;
 
 use crate::preprocessing::{DiffObject, NORMALISED_DIAMETER, NORMALISED_RADIUS};
-use crate::utils::{
-    milliseconds_to_bpm_at, reverse_lerp, smoothstep, smootherstep,
-};
+use crate::utils::{milliseconds_to_bpm_at, reverse_lerp, smootherstep, smoothstep};
 
 fn radians(degrees: f64) -> f64 {
     degrees * PI / 180.0
@@ -55,7 +53,11 @@ pub fn agility_difficulty_of(objects: &[DiffObject], at: usize) -> f64 {
     }
     const DISTANCE_CAP: f64 = NORMALISED_DIAMETER * 1.2;
 
-    let travel = if at > 0 { objects[at - 1].lazy_travel_distance } else { 0.0 };
+    let travel = if at > 0 {
+        objects[at - 1].lazy_travel_distance
+    } else {
+        0.0
+    };
     let distance = travel + current.lazy_jump_distance;
     let scaled = distance.min(DISTANCE_CAP) / DISTANCE_CAP;
 
@@ -88,8 +90,16 @@ pub fn flow_difficulty_of(objects: &[DiffObject], at: usize, with_sliders: bool)
     const VELOCITY_CHANGE_MULTIPLIER: f64 = 0.52;
     let last_last = &objects[at - 2];
 
-    let curr_distance = if with_sliders { current.lazy_jump_distance } else { current.jump_distance };
-    let prev_distance = if with_sliders { last.lazy_jump_distance } else { last.jump_distance };
+    let curr_distance = if with_sliders {
+        current.lazy_jump_distance
+    } else {
+        current.jump_distance
+    };
+    let prev_distance = if with_sliders {
+        last.lazy_jump_distance
+    } else {
+        last.jump_distance
+    };
     let mut curr_velocity = curr_distance / current.adjusted_delta_time;
 
     if last.is_slider && with_sliders {
@@ -180,7 +190,9 @@ fn vector_angle_repetition(objects: &[DiffObject], at: usize) -> f64 {
 
     let mut constant_angle_count = 0.0;
     for index in 0..NOTE_LIMIT {
-        let Some(prev) = at.checked_sub(index + 1).map(|i| &objects[i]) else { break };
+        let Some(prev) = at.checked_sub(index + 1).map(|i| &objects[i]) else {
+            break;
+        };
         // Only vectors in the same run count: stopping to change rhythm breaks
         // the momentum that makes repetition easy.
         if current.adjusted_delta_time.max(prev.adjusted_delta_time)
@@ -188,7 +200,10 @@ fn vector_angle_repetition(objects: &[DiffObject], at: usize) -> f64 {
         {
             break;
         }
-        if let (Some(a), Some(b)) = (current.normalised_vector_angle, prev.normalised_vector_angle) {
+        if let (Some(a), Some(b)) = (
+            current.normalised_vector_angle,
+            prev.normalised_vector_angle,
+        ) {
             let difference = (a - b).abs();
             constant_angle_count += (8.0 * radians(11.25).min(difference)).cos();
         }
@@ -197,8 +212,7 @@ fn vector_angle_repetition(objects: &[DiffObject], at: usize) -> f64 {
     let vector_repetition = (0.5 / constant_angle_count).min(1.0).powi(2);
     // A jump shorter than a diameter is a stack, and stacks are not repetition.
     let stack_factor = smootherstep(current.lazy_jump_distance, 0.0, NORMALISED_DIAMETER);
-    let adjusted =
-        (2.0 * radians(45.0).min((curr_angle - last_angle).abs() * stack_factor)).cos();
+    let adjusted = (2.0 * radians(45.0).min((curr_angle - last_angle).abs() * stack_factor)).cos();
     let base = 1.0 - MAXIMUM_REPETITION_NERF * angle_acuteness(last_angle) * adjusted;
 
     (base + (1.0 - base) * vector_repetition * MAXIMUM_VECTOR_INFLUENCE * stack_factor).powi(2)
@@ -225,13 +239,21 @@ pub fn snap_difficulty_of(objects: &[DiffObject], at: usize, with_sliders: bool)
 
     let last2 = at.checked_sub(3).map(|i| &objects[i]);
 
-    let curr_distance = if with_sliders { current.lazy_jump_distance } else { current.jump_distance };
+    let curr_distance = if with_sliders {
+        current.lazy_jump_distance
+    } else {
+        current.jump_distance
+    };
     let mut curr_velocity = curr_distance / current.adjusted_delta_time;
     if last.is_slider && with_sliders {
         let slider_distance = last.lazy_travel_distance + current.lazy_jump_distance;
         curr_velocity = curr_velocity.max(slider_distance / current.adjusted_delta_time);
     }
-    let prev_distance = if with_sliders { last.lazy_jump_distance } else { last.jump_distance };
+    let prev_distance = if with_sliders {
+        last.lazy_jump_distance
+    } else {
+        last.jump_distance
+    };
     let prev_velocity = prev_distance / last.adjusted_delta_time;
 
     let mut difficulty = curr_velocity;
@@ -249,8 +271,8 @@ pub fn snap_difficulty_of(objects: &[DiffObject], at: usize, with_sliders: bool)
             acute_bonus = angle_acuteness(curr_angle);
             // Compared raw, before anything multiplies it, so that repeating a
             // sharp corner is what gets punished rather than repeating a fast one.
-            acute_bonus *= 0.08
-                + 0.92 * (1.0 - acute_bonus.min(angle_acuteness(last_angle).powi(3)));
+            acute_bonus *=
+                0.08 + 0.92 * (1.0 - acute_bonus.min(angle_acuteness(last_angle).powi(3)));
             acute_bonus *= velocity_influence
                 * smootherstep(
                     milliseconds_to_bpm_at(current.adjusted_delta_time, 2.0),
@@ -282,15 +304,26 @@ pub fn snap_difficulty_of(objects: &[DiffObject], at: usize, with_sliders: bool)
             }
         }
 
-        difficulty += (acute_bonus * ACUTE_ANGLE_MULTIPLIER).max(wide_bonus * WIDE_ANGLE_MULTIPLIER);
+        difficulty +=
+            (acute_bonus * ACUTE_ANGLE_MULTIPLIER).max(wide_bonus * WIDE_ANGLE_MULTIPLIER);
 
         // A wiggle: two short jumps in a row, both turning sharply.
         let wiggle = velocity_influence
             * smootherstep(curr_distance, NORMALISED_RADIUS, NORMALISED_DIAMETER)
-            * reverse_lerp(curr_distance, NORMALISED_DIAMETER * 3.0, NORMALISED_DIAMETER).powf(1.8)
+            * reverse_lerp(
+                curr_distance,
+                NORMALISED_DIAMETER * 3.0,
+                NORMALISED_DIAMETER,
+            )
+            .powf(1.8)
             * smootherstep(curr_angle, radians(110.0), radians(60.0))
             * smootherstep(prev_distance, NORMALISED_RADIUS, NORMALISED_DIAMETER)
-            * reverse_lerp(prev_distance, NORMALISED_DIAMETER * 3.0, NORMALISED_DIAMETER).powf(1.8)
+            * reverse_lerp(
+                prev_distance,
+                NORMALISED_DIAMETER * 3.0,
+                NORMALISED_DIAMETER,
+            )
+            .powf(1.8)
             * smootherstep(last_angle, radians(110.0), radians(60.0));
         difficulty += wiggle * WIGGLE_MULTIPLIER;
     }
@@ -320,7 +353,11 @@ pub fn snap_difficulty_of(objects: &[DiffObject], at: usize, with_sliders: bool)
 
     if current.is_slider && with_sliders {
         let slider = current.travel_distance / current.travel_time;
-        difficulty += (if slider < 1.0 { slider } else { slider.powf(0.75) }) * SLIDER_MULTIPLIER;
+        difficulty += (if slider < 1.0 {
+            slider
+        } else {
+            slider.powf(0.75)
+        }) * SLIDER_MULTIPLIER;
     }
 
     difficulty *= current.small_circle_bonus();
@@ -388,8 +425,13 @@ fn combine(snap: f64, agility: f64, flow: f64, relax: bool, touch: bool) -> f64 
 
 impl Aim {
     /// Walk the map, collecting sections.
-    pub fn of(objects: &[DiffObject], with_sliders: bool, relax: bool, touch: bool,
-              autopilot: bool) -> Self {
+    pub fn of(
+        objects: &[DiffObject],
+        with_sliders: bool,
+        relax: bool,
+        touch: bool,
+        autopilot: bool,
+    ) -> Self {
         const SKILL_MULTIPLIER_SNAP: f64 = 70.9;
         const SKILL_MULTIPLIER_AGILITY: f64 = 2.35;
         const SKILL_MULTIPLIER_FLOW: f64 = 242.0;
@@ -434,7 +476,11 @@ impl Aim {
             }
         }
 
-        Self { sections, strains, slider_strains }
+        Self {
+            sections,
+            strains,
+            slider_strains,
+        }
     }
 
     /// The weighted sum of this skill's sections.
@@ -493,11 +539,7 @@ impl Aim {
     /// slider rather than against the map, so it answers "how much of this map
     /// is demanding sliders" and not "how hard is this map".
     pub fn difficult_sliders(&self) -> f64 {
-        let hardest = self
-            .slider_strains
-            .iter()
-            .copied()
-            .fold(0.0f64, f64::max);
+        let hardest = self.slider_strains.iter().copied().fold(0.0f64, f64::max);
         if self.slider_strains.is_empty() || hardest == 0.0 {
             return 0.0;
         }

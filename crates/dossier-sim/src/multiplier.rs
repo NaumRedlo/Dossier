@@ -69,11 +69,7 @@ impl Generation {
 /// are consulted in the order they were registered and each one *consumes* its
 /// mods, so Hidden with Blinds is priced once at 1.24 rather than twice; and a
 /// mod with no entry contributes nothing at all rather than being an error.
-pub fn lazer_multiplier(
-    generation: Generation,
-    mods: &[LazerMod],
-    difficulty: &Difficulty,
-) -> f64 {
+pub fn lazer_multiplier(generation: Generation, mods: &[LazerMod], difficulty: &Difficulty) -> f64 {
     if mods.is_empty() {
         return 1.0;
     }
@@ -110,11 +106,15 @@ fn combinations(generation: Generation) -> Vec<(&'static [&'static str], Price)>
             (&["HD", "BL"], (|_, _| BLINDS_V2) as Price),
             (&["HD", "WG"], |m, _| hidden_v2(m[0], true)),
             (&["HD", "GR"], |m, _| hidden_v2(m[0], true)),
-            (&["HD", "DF"], |m, _| hidden_v2(m[0], true) * deflate_v2(m[1])),
+            (&["HD", "DF"], |m, _| {
+                hidden_v2(m[0], true) * deflate_v2(m[1])
+            }),
             (&["HD", "RP"], |m, _| hidden_v2(m[0], true)),
             (&["HD", "DP"], |m, _| hidden_v2(m[0], true)),
             (&["TC", "BL"], |_, _| BLINDS_V2),
-            (&["FL", "FF"], |m, _| 1.0 + (flashlight_v2(m[0]) - 1.0) / 2.0),
+            (&["FL", "FF"], |m, _| {
+                1.0 + (flashlight_v2(m[0]) - 1.0) / 2.0
+            }),
         ],
     }
 }
@@ -126,11 +126,35 @@ fn single(generation: Generation, m: &LazerMod, difficulty: &Difficulty) -> f64 
             "EZ" => 0.5,
             "NF" => 0.5,
             "HT" | "DC" => rate_adjust_v1(m.number("speed_change", 0.75)),
-            "HR" => if plain { 1.06 } else { 1.0 },
+            "HR" => {
+                if plain {
+                    1.06
+                } else {
+                    1.0
+                }
+            }
             "DT" | "NC" => rate_adjust_v1(m.number("speed_change", 1.5)),
-            "HD" => if plain { 1.06 } else { 1.0 },
-            "FL" => if plain { 1.12 } else { 1.0 },
-            "BL" => if plain { 1.12 } else { 1.0 },
+            "HD" => {
+                if plain {
+                    1.06
+                } else {
+                    1.0
+                }
+            }
+            "FL" => {
+                if plain {
+                    1.12
+                } else {
+                    1.0
+                }
+            }
+            "BL" => {
+                if plain {
+                    1.12
+                } else {
+                    1.0
+                }
+            }
             "TP" => 0.1,
             "DA" => 0.5,
             "CL" => 0.96,
@@ -157,7 +181,13 @@ fn single(generation: Generation, m: &LazerMod, difficulty: &Difficulty) -> f64 
             // Classic's own note-lock switch is priced, which is the only
             // place a mod's setting changes a multiplier by more than a
             // rounding: keeping stable's lock is worth more than not.
-            "CL" => if m.switch("classic_note_lock", true) { 0.985 } else { 0.96 },
+            "CL" => {
+                if m.switch("classic_note_lock", true) {
+                    0.985
+                } else {
+                    0.96
+                }
+            }
             "RD" => 0.7,
             "RX" | "AP" => 0.1,
             "SO" => 0.95,
@@ -200,7 +230,11 @@ fn half_time_v2(speed: f64) -> f64 {
 /// DoubleTime is 1.23.
 fn double_time_v2(speed: f64) -> f64 {
     let value = (speed * 10.0) as i64 as f64 / 10.0;
-    let penalty = if value != 1.5 && value != 1.0 { 0.01 } else { 0.0 };
+    let penalty = if value != 1.5 && value != 1.0 {
+        0.01
+    } else {
+        0.0
+    };
     (value - 1.0) * 0.46 + 1.0 - penalty
 }
 
@@ -325,7 +359,10 @@ mod tests {
         let bl = lazer_multiplier(Generation::V2, &plain(&["BL"]), &difficulty());
         assert!((hd - 1.04).abs() < 1e-9);
         assert!((bl - BLINDS_V2).abs() < 1e-9);
-        assert!(priced < hd * bl, "the combination should be the cheaper one");
+        assert!(
+            priced < hd * bl,
+            "the combination should be the cheaper one"
+        );
 
         // V1 knows no combinations at all, so there it *is* the product.
         let v1 = lazer_multiplier(Generation::V1, &together, &difficulty());
@@ -369,7 +406,10 @@ mod tests {
             lazer_multiplier(Generation::V2, &[LazerMod::plain("CL")], &difficulty()),
             0.985
         );
-        assert_eq!(lazer_multiplier(Generation::V2, &[loose], &difficulty()), 0.96);
+        assert_eq!(
+            lazer_multiplier(Generation::V2, &[loose], &difficulty()),
+            0.96
+        );
     }
 
     #[test]

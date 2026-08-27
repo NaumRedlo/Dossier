@@ -293,8 +293,9 @@ pub fn difficulty_objects(beatmap: &Beatmap, mods: Mods) -> Vec<DiffObject> {
             delta_time,
             adjusted_delta_time,
             last_object_end_delta_time: match out.last() {
-                Some(previous) => (object.start_ms / clock_rate - previous.end_time)
-                    .max(MIN_DELTA_TIME),
+                Some(previous) => {
+                    (object.start_ms / clock_rate - previous.end_time).max(MIN_DELTA_TIME)
+                }
                 // Nothing before it to have ended, so the plain gap stands.
                 None => adjusted_delta_time,
             },
@@ -350,7 +351,12 @@ fn compute_slider_cursor_position(
     parts: &[NestedObject],
     radius: f64,
 ) {
-    let TimedKind::Slider { path, slide_duration_ms, .. } = &object.kind else {
+    let TimedKind::Slider {
+        path,
+        slide_duration_ms,
+        ..
+    } = &object.kind
+    else {
         return;
     };
     if parts.is_empty() {
@@ -364,9 +370,7 @@ fn compute_slider_cursor_position(
         .max(object.start_ms + duration / 2.0);
 
     let mut ordered: Vec<NestedObject> = parts.to_vec();
-    let last_tick = ordered
-        .iter()
-        .rposition(|part| part.kind == Nested::Tick);
+    let last_tick = ordered.iter().rposition(|part| part.kind == Nested::Tick);
     if let Some(at) = last_tick {
         if ordered[at].time_ms > tracking_end {
             tracking_end = ordered[at].time_ms;
@@ -477,7 +481,10 @@ fn set_distances(
 
     let scaling = NORMALISED_RADIUS / radius;
     let last_diff = previous.last();
-    let last_last_diff = previous.len().checked_sub(2).and_then(|at| previous.get(at));
+    let last_last_diff = previous
+        .len()
+        .checked_sub(2)
+        .and_then(|at| previous.get(at));
 
     let mut last_cursor = last_diff
         .and_then(|diff| diff.lazy_end_position)
@@ -513,7 +520,9 @@ fn set_distances(
         }
     }
 
-    let Some(last_last_diff) = last_last_diff else { return };
+    let Some(last_last_diff) = last_last_diff else {
+        return;
+    };
     if last_last_diff.is_spinner {
         return;
     }
@@ -564,8 +573,14 @@ fn slider_angle(
 
 /// The turn at `middle`, in radians, always positive.
 fn corner(current: Point, middle: Point, before: Point) -> f64 {
-    let v1 = Point { x: before.x - middle.x, y: before.y - middle.y };
-    let v2 = Point { x: current.x - middle.x, y: current.y - middle.y };
+    let v1 = Point {
+        x: before.x - middle.x,
+        y: before.y - middle.y,
+    };
+    let v2 = Point {
+        x: current.x - middle.x,
+        y: current.y - middle.y,
+    };
     let dot = v1.x * v2.x + v1.y * v2.y;
     let det = v1.x * v2.y - v1.y * v2.x;
     det.atan2(dot).abs()

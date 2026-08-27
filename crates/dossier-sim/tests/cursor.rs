@@ -1,4 +1,3 @@
-
 /// lazer's own input has two actions and no idea which finger made them, so
 /// its replays carry the mouse bits alone — never a keyboard bit, on any
 /// frame, in any play. Measured across the corpus: stable writes `M1+K1` for a
@@ -23,7 +22,12 @@ mod which_finger {
 
     fn held(track: &CursorTrack, lazer: bool) -> [usize; 4] {
         let spans = track.holds_each(lazer);
-        [spans[0].len(), spans[1].len(), spans[2].len(), spans[3].len()]
+        [
+            spans[0].len(),
+            spans[1].len(),
+            spans[2].len(),
+            spans[3].len(),
+        ]
     }
 
     #[test]
@@ -47,8 +51,20 @@ mod which_finger {
         // Every press on the mouse bit and no keyboard bit anywhere. Read by
         // stable's rule this is "they played the whole map with two mouse
         // buttons", which is not unknown — it is false.
-        let lazer = track(&[(0, 0), (10, Keys::M1), (20, 0), (30, Keys::M2), (40, 0), (50, Keys::M1), (60, 0)]);
-        assert_eq!(held(&lazer, true), [2, 1, 0, 0], "the actions belong in the key lanes");
+        let lazer = track(&[
+            (0, 0),
+            (10, Keys::M1),
+            (20, 0),
+            (30, Keys::M2),
+            (40, 0),
+            (50, Keys::M1),
+            (60, 0),
+        ]);
+        assert_eq!(
+            held(&lazer, true),
+            [2, 1, 0, 0],
+            "the actions belong in the key lanes"
+        );
     }
 
     #[test]

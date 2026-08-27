@@ -1755,7 +1755,16 @@ impl Scene<'_> {
     ) {
         let own = self.own_width(layout, element);
         if own > 0.0 {
-            self.draw_wide(pixmap, element, Point::CENTRE, own, alpha, layout, degrees, 0);
+            self.draw_wide(
+                pixmap,
+                element,
+                Point::CENTRE,
+                own,
+                alpha,
+                layout,
+                degrees,
+                0,
+            );
         }
     }
 

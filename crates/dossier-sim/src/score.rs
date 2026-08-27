@@ -335,9 +335,14 @@ impl ScoreTrack {
         let mut track = match ruleset.client() {
             Client::Stable if score_v2 => Self::stable_v2(judge, mods, played),
             Client::Stable => Self::stable(judge, beatmap, mods, played),
-            Client::Lazer => {
-                Self::lazer(judge, beatmap, lazer_mods, recorded_multiplier, played, ruleset)
-            }
+            Client::Lazer => Self::lazer(
+                judge,
+                beatmap,
+                lazer_mods,
+                recorded_multiplier,
+                played,
+                ruleset,
+            ),
         };
         track.ruleset = Some(ruleset);
         track
@@ -700,7 +705,8 @@ mod tests {
         let plain = map("[HitObjects]\n0,0,1000,1,0\n0,0,11000,1,0\n");
         assert!((drain_seconds(&plain) - 10.0).abs() < 1e-9);
 
-        let with_break = map("[Events]\n2,3000,7000\n\n[HitObjects]\n0,0,1000,1,0\n0,0,11000,1,0\n");
+        let with_break =
+            map("[Events]\n2,3000,7000\n\n[HitObjects]\n0,0,1000,1,0\n0,0,11000,1,0\n");
         assert!(
             (drain_seconds(&with_break) - 6.0).abs() < 1e-9,
             "{}",

@@ -161,7 +161,10 @@ impl Part {
     /// slider's own summary, whose pieces already moved the counter as they
     /// happened, and a spinner's turns, which are worth points and never combo.
     pub fn adds_combo(self) -> bool {
-        !matches!(self, Self::Slider | Self::SpinnerSpin | Self::SpinnerPoints | Self::SpinnerBonus)
+        !matches!(
+            self,
+            Self::Slider | Self::SpinnerSpin | Self::SpinnerPoints | Self::SpinnerBonus
+        )
     }
 
     /// Whether this is bonus rather than part of the scored play.
@@ -169,7 +172,10 @@ impl Part {
     /// `IsBonus()` — a spinner's turns, and nothing else. Under ScoreV2 they
     /// are added on top of the million rather than counted inside it.
     pub fn is_bonus(self) -> bool {
-        matches!(self, Self::SpinnerSpin | Self::SpinnerPoints | Self::SpinnerBonus)
+        matches!(
+            self,
+            Self::SpinnerSpin | Self::SpinnerPoints | Self::SpinnerBonus
+        )
     }
 
     /// ...but the tail doesn't take the combo away when it's dropped.
@@ -297,7 +303,15 @@ impl Judge {
         } = judge_heads(timeline, cursor, ruleset);
         let mut events = Vec::new();
         for (index, object) in timeline.objects.iter().enumerate() {
-            build_events(timeline, cursor, index, object, heads[index], ruleset, &mut events);
+            build_events(
+                timeline,
+                cursor,
+                index,
+                object,
+                heads[index],
+                ruleset,
+                &mut events,
+            );
         }
 
         // Ties keep object order, which a stable sort preserves.
@@ -560,8 +574,7 @@ fn relax_presses(
             }
             when += 1;
         }
-        let landed = when < frames.len()
-            && f64::from(frames[when].time_ms as i32) <= deadline;
+        let landed = when < frames.len() && f64::from(frames[when].time_ms as i32) <= deadline;
         let frame = &frames[if landed { when } else { at }];
         let now = f64::from(frame.time_ms as i32);
         if now < want {
@@ -644,17 +657,15 @@ fn judge_heads(timeline: &Timeline, cursor: &CursorTrack, ruleset: Ruleset) -> H
 
     // Under Relax the game does the clicking and does not record it, so the
     // presses are made here instead — see `relax_presses`.
-    let made = ruleset
-        .relax
-        .then(|| {
-            relax_presses(
-                cursor.frames(),
-                objects,
-                window,
-                radius,
-                ruleset.client() == crate::ruleset::Client::Lazer,
-            )
-        });
+    let made = ruleset.relax.then(|| {
+        relax_presses(
+            cursor.frames(),
+            objects,
+            window,
+            radius,
+            ruleset.client() == crate::ruleset::Client::Lazer,
+        )
+    });
     let clicks = made.unwrap_or_else(|| presses(cursor.frames()));
     for press in clicks {
         // Anything the game had already swept up by the moment it last looked
@@ -826,13 +837,13 @@ fn judge_heads(timeline: &Timeline, cursor: &CursorTrack, ruleset: Ruleset) -> H
                 .filter(|(_, object)| object.start_ms < objects[target].start_ms)
                 .last()
                 .filter(|(index, object)| {
-                !judged[*index]
-                    && ruleset.blocks(
-                        object.end_ms,
-                        object.start_ms,
-                        objects[target].start_ms,
-                        press.time_ms,
-                    )
+                    !judged[*index]
+                        && ruleset.blocks(
+                            object.end_ms,
+                            object.start_ms,
+                            objects[target].start_ms,
+                            press.time_ms,
+                        )
                 })
         } else {
             // stable: the first unjudged one that qualifies, however far back.
@@ -1121,8 +1132,7 @@ fn build_slider_events(
         head_time_for_tracking,
         ruleset.slider_is_scored_by_its_head(),
         ruleset.relax,
-    )
-    {
+    ) {
         parts_total += 1;
         parts_hit += u32::from(hit);
         out.push(Event {
@@ -1234,7 +1244,10 @@ fn score_v2_slider(from_pieces: Judgement, from_head: Judgement) -> Judgement {
 /// than a measure-zero edge case. On a dense map dozens of hits land exactly on
 /// it — enough to move the accuracy in the second decimal place, and invisible
 /// to any test that doesn't probe the boundary itself.
-pub(crate) fn window_judgement(error_ms: f64, difficulty: &dossier_beatmap::Difficulty) -> Judgement {
+pub(crate) fn window_judgement(
+    error_ms: f64,
+    difficulty: &dossier_beatmap::Difficulty,
+) -> Judgement {
     let error = error_ms.abs();
     if error < difficulty.hit_window_300() {
         Judgement::Great
@@ -1436,7 +1449,11 @@ fn track_slider(
         let head_landing = head_hit_ms.is_some_and(|at| now >= at) && !sliding;
         let allowable = match (object.ball_at(now), cursor.sample(now)) {
             (Some(ball), Some(sample)) => {
-                let needed = if sliding || head_landing { follow } else { radius };
+                let needed = if sliding || head_landing {
+                    follow
+                } else {
+                    radius
+                };
                 button_down(sample.keys, relax) && sample.pos.distance_to(ball) <= needed
             }
             _ => false,
@@ -1576,11 +1593,7 @@ fn spinner_sweep(cursor: &CursorTrack, start_ms: f64, end_ms: f64) -> (f64, Vec<
 /// So a skin's needle turned the same way whatever the player did, and on a
 /// spinner played anticlockwise it turned against them — reported as "the
 /// spinner went left while I was spinning right".
-fn spinner_sweep_signed(
-    cursor: &CursorTrack,
-    start_ms: f64,
-    end_ms: f64,
-) -> (f64, f64, Vec<f64>) {
+fn spinner_sweep_signed(cursor: &CursorTrack, start_ms: f64, end_ms: f64) -> (f64, f64, Vec<f64>) {
     if end_ms <= start_ms || cursor.is_empty() {
         return (0.0, 0.0, Vec::new());
     }

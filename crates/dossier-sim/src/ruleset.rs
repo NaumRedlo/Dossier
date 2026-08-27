@@ -136,7 +136,8 @@ impl Ruleset {
         // stable's ScoreV2 makes a slider worth what its head was worth. Only
         // the verdict: the slide is still tracked stable's way, so this is not
         // `whole_sliders` and must not be — see `head_carries_verdict`.
-        if ruleset.client == Client::Stable && replay.mods.contains(dossier_replay::bits::SCORE_V2) {
+        if ruleset.client == Client::Stable && replay.mods.contains(dossier_replay::bits::SCORE_V2)
+        {
             ruleset.head_carries_verdict = true;
         }
         // A replay carries the score its client computed at the time, and
@@ -484,7 +485,10 @@ mod tests {
         // setting.
         let all_on = Ruleset::of_replay(&replay_with(30_000_016, vec![classic(&[])]));
         assert!(all_on.slider_swallows_notes_beneath(), "note lock restored");
-        assert!(!all_on.slider_is_scored_by_its_head(), "sliders whole again");
+        assert!(
+            !all_on.slider_is_scored_by_its_head(),
+            "sliders whole again"
+        );
         assert!(all_on.legacy_health());
         // Still a lazer score for everything the mod does not touch.
         assert_eq!(all_on.client(), Client::Lazer);
@@ -504,7 +508,10 @@ mod tests {
             vec![classic(&[("classic_note_lock", false)])],
         ));
         assert!(!no_lock.slider_swallows_notes_beneath());
-        assert!(!no_lock.slider_is_scored_by_its_head(), "sliders still whole");
+        assert!(
+            !no_lock.slider_is_scored_by_its_head(),
+            "sliders still whole"
+        );
     }
 
     fn stable_replay_with_mods(mods: u32) -> dossier_replay::Replay {
@@ -522,7 +529,10 @@ mod tests {
         // tracking rules that no build of stable has ever had.
         let v2 = Ruleset::of_replay(&stable_replay_with_mods(dossier_replay::bits::SCORE_V2));
         assert_eq!(v2.client(), Client::Stable);
-        assert!(v2.slider_verdict_from_head(), "the head decides the verdict");
+        assert!(
+            v2.slider_verdict_from_head(),
+            "the head decides the verdict"
+        );
         assert!(
             !v2.slider_is_scored_by_its_head(),
             "and the slide is still tracked stable's way"

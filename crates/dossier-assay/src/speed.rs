@@ -83,7 +83,12 @@ struct Island {
 
 impl Island {
     fn unset() -> Self {
-        Self { delta: i64::MAX, count: 1, occurrences: 1, empty: true }
+        Self {
+            delta: i64::MAX,
+            count: 1,
+            occurrences: 1,
+            empty: true,
+        }
     }
 
     fn new(delta: i64) -> Self {
@@ -163,7 +168,8 @@ pub fn rhythm_multiplier_of(objects: &[DiffObject], at: usize) -> f64 {
     // starts one later, so its own position is what bounds the history.
     let historical_note_count = at.min(HISTORY_OBJECTS_MAX);
 
-    let previous = |back: usize| -> Option<&DiffObject> { at.checked_sub(back + 1).map(|i| &objects[i]) };
+    let previous =
+        |back: usize| -> Option<&DiffObject> { at.checked_sub(back + 1).map(|i| &objects[i]) };
 
     let mut rhythm_start = 0;
     while rhythm_start + 2 < historical_note_count
@@ -173,20 +179,24 @@ pub fn rhythm_multiplier_of(objects: &[DiffObject], at: usize) -> f64 {
         rhythm_start += 1;
     }
 
-    let Some(mut prev_obj) = previous(rhythm_start) else { return 1.0 };
+    let Some(mut prev_obj) = previous(rhythm_start) else {
+        return 1.0;
+    };
     let mut prev_prev_obj = previous(rhythm_start + 1);
 
     // From the furthest object back towards this one.
     for i in (1..=rhythm_start).rev() {
-        let Some(curr_obj) = previous(i - 1) else { continue };
+        let Some(curr_obj) = previous(i - 1) else {
+            continue;
+        };
         if curr_obj.is_spinner {
             continue;
         }
 
         // Nothing counts fully forever: whichever runs out first, time or
         // object count, fades this change away.
-        let time_decay = (HISTORY_TIME_MAX - (current.start_time - curr_obj.start_time))
-            / HISTORY_TIME_MAX;
+        let time_decay =
+            (HISTORY_TIME_MAX - (current.start_time - curr_obj.start_time)) / HISTORY_TIME_MAX;
         let note_decay = (historical_note_count - i) as f64 / historical_note_count as f64;
         let historical_decay = note_decay.min(time_decay);
 
@@ -211,8 +221,7 @@ pub fn rhythm_multiplier_of(objects: &[DiffObject], at: usize) -> f64 {
         // than as a single into a double.
         if prev_obj.is_slider {
             let lazy_end_delta = curr_obj.minimum_jump_time;
-            let lazy_ratio =
-                lazy_end_delta.max(curr_delta) / lazy_end_delta.min(curr_delta);
+            let lazy_ratio = lazy_end_delta.max(curr_delta) / lazy_end_delta.min(curr_delta);
             let real_end_delta = curr_obj.last_object_end_delta_time;
             let real_ratio = real_end_delta.max(curr_delta) / real_end_delta.min(curr_delta);
             let slider_difficulty =
@@ -356,7 +365,11 @@ impl Speed {
             strains.push(total);
         }
 
-        Self { strains, slider_strains, weight_sum: 0.0 }
+        Self {
+            strains,
+            slider_strains,
+            weight_sum: 0.0,
+        }
     }
 
     /// The strains summed with the hardest counting most.

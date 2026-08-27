@@ -337,7 +337,11 @@ impl SamplePack {
         for (store, at, step) in [
             (&self.skin, (set, voice), Found::SkinPlain),
             (&self.game, (set, voice), Found::Game),
-            (&self.skin, (SampleSet::Normal, voice), Found::SkinNormalBank),
+            (
+                &self.skin,
+                (SampleSet::Normal, voice),
+                Found::SkinNormalBank,
+            ),
         ] {
             if let Some(sound) = store.get(&at) {
                 return if sound.is_empty() { Found::Blank } else { step };
@@ -464,18 +468,22 @@ fn guess_sample_name(stem: &str) -> Option<(SampleSet, Voice, u32)> {
         squeezed.push(ch);
     }
     let (bank, rest) = squeezed.split_once('-')?;
-    let set = SampleSet::ALL
-        .into_iter()
-        .find(|s| bank == s.name() || bank.starts_with(s.name()) || one_edit_apart(bank, s.name()))?;
+    let set = SampleSet::ALL.into_iter().find(|s| {
+        bank == s.name() || bank.starts_with(s.name()) || one_edit_apart(bank, s.name())
+    })?;
 
     // A trailing number is an index wherever it appears; anything else trailing
     // is scribble, and the voice in front of it is what was meant.
     let digits = rest.len() - rest.trim_end_matches(|c: char| c.is_ascii_digit()).len();
     let (word, tail) = rest.split_at(rest.len() - digits);
-    let index = if tail.is_empty() { 1 } else { tail.parse().ok()? };
-    let (voice, _) = BANKED.into_iter().find(|(_, name)| {
-        word == *name || word.starts_with(name) || one_edit_apart(word, name)
-    })?;
+    let index = if tail.is_empty() {
+        1
+    } else {
+        tail.parse().ok()?
+    };
+    let (voice, _) = BANKED
+        .into_iter()
+        .find(|(_, name)| word == *name || word.starts_with(name) || one_edit_apart(word, name))?;
     Some((set, voice, index))
 }
 
@@ -487,7 +495,11 @@ fn one_edit_apart(a: &str, b: &str) -> bool {
     }
     // Walk both, and allow exactly one place where they disagree: on a
     // substitution both advance, on an insertion only the longer one does.
-    let (long, short) = if a.len() >= b.len() { (&a, &b) } else { (&b, &a) };
+    let (long, short) = if a.len() >= b.len() {
+        (&a, &b)
+    } else {
+        (&b, &a)
+    };
     let mut skipped = false;
     let (mut i, mut j) = (0usize, 0usize);
     while i < long.len() && j < short.len() {
@@ -778,7 +790,9 @@ mod tests {
             ("soft-hitwhistle", Some(QUIET)),
         ]);
         let pack = SamplePack::load(&dressed).with_game_sounds(&osu);
-        let heard = pack.get(SampleSet::Soft, Voice::Whistle, 1).expect("a sound");
+        let heard = pack
+            .get(SampleSet::Soft, Voice::Whistle, 1)
+            .expect("a sound");
         assert!(heard[0] < 0.2, "the skin's normal bank was used instead");
         assert_eq!(pack.trace(SampleSet::Soft, Voice::Whistle, 1), Found::Game);
     }
@@ -806,12 +820,22 @@ mod tests {
         let dressed = skin(&[("soft-hitwhistle", Some(LOUD))]);
         let osu = skin(&[("soft-hitwhistle", Some(QUIET))]);
         let pack = SamplePack::load(&dressed).with_game_sounds(&osu);
-        assert_eq!(pack.trace(SampleSet::Soft, Voice::Whistle, 1), Found::SkinPlain);
-        assert!(pack.get(SampleSet::Soft, Voice::Whistle, 1).expect("a sound")[0] > 0.4);
+        assert_eq!(
+            pack.trace(SampleSet::Soft, Voice::Whistle, 1),
+            Found::SkinPlain
+        );
+        assert!(
+            pack.get(SampleSet::Soft, Voice::Whistle, 1)
+                .expect("a sound")[0]
+                > 0.4
+        );
 
         let map = skin(&[("soft-hitwhistle4", Some(&[8_192, -8_192, 8_192]))]);
         let pack = pack.with_beatmap(&map);
-        assert_eq!(pack.trace(SampleSet::Soft, Voice::Whistle, 4), Found::Beatmap(4));
+        assert_eq!(
+            pack.trace(SampleSet::Soft, Voice::Whistle, 4),
+            Found::Beatmap(4)
+        );
     }
 
     #[test]
@@ -845,8 +869,13 @@ mod tests {
             ("soft-hitnormal1", Some(&[512, -512, 512])),
         ]);
         let pack = SamplePack::load(&dir);
-        let heard = pack.get(SampleSet::Soft, Voice::Normal, 1).expect("a sound");
-        assert!(heard[0] > 0.4, "the numbered file was played as the plain one");
+        let heard = pack
+            .get(SampleSet::Soft, Voice::Normal, 1)
+            .expect("a sound");
+        assert!(
+            heard[0] > 0.4,
+            "the numbered file was played as the plain one"
+        );
         assert!(
             pack.unused().contains(&"soft-hitnormal1".to_owned()),
             "a name the game never asks for should be reported, not used"
@@ -861,8 +890,14 @@ mod tests {
             ("soft-hitnormal", Some(LOUD)),
             ("soft-hitnormal2", Some(&[512, -512, 512])),
         ]));
-        assert_eq!(pack.trace(SampleSet::Soft, Voice::Normal, 1), Found::Beatmap(1));
-        assert_eq!(pack.trace(SampleSet::Soft, Voice::Normal, 2), Found::Beatmap(2));
+        assert_eq!(
+            pack.trace(SampleSet::Soft, Voice::Normal, 1),
+            Found::Beatmap(1)
+        );
+        assert_eq!(
+            pack.trace(SampleSet::Soft, Voice::Normal, 2),
+            Found::Beatmap(2)
+        );
     }
 
     #[test]
@@ -886,8 +921,11 @@ mod tests {
         ));
         std::fs::create_dir_all(&dir).expect("a folder");
         for name in ["Soft-HitClap.WAV", "NORMAL-HitWhistle.Wav"] {
-            std::fs::write(dir.join(name), wav(1, 16, 44_100, &[1000, -1000, 1000, -1000]))
-                .expect("a file");
+            std::fs::write(
+                dir.join(name),
+                wav(1, 16, 44_100, &[1000, -1000, 1000, -1000]),
+            )
+            .expect("a file");
         }
 
         let pack = SamplePack::load(&dir);
@@ -932,16 +970,31 @@ mod tests {
         let dir = skin(&[
             ("soft-hitnormal", Some(&[4_000])),
             ("soft-hitnormal2", Some(&[4_000, 4_000])),
-            ("soft-hitnormal6", Some(&[4_000, 4_000, 4_000, 4_000, 4_000, 4_000])),
+            (
+                "soft-hitnormal6",
+                Some(&[4_000, 4_000, 4_000, 4_000, 4_000, 4_000]),
+            ),
         ]);
         let pack = SamplePack::default().with_beatmap(&dir);
 
-        assert_eq!(pack.get(SampleSet::Soft, Voice::Normal, 1).unwrap().len(), 1);
-        assert_eq!(pack.get(SampleSet::Soft, Voice::Normal, 2).unwrap().len(), 2);
-        assert_eq!(pack.get(SampleSet::Soft, Voice::Normal, 6).unwrap().len(), 6);
+        assert_eq!(
+            pack.get(SampleSet::Soft, Voice::Normal, 1).unwrap().len(),
+            1
+        );
+        assert_eq!(
+            pack.get(SampleSet::Soft, Voice::Normal, 2).unwrap().len(),
+            2
+        );
+        assert_eq!(
+            pack.get(SampleSet::Soft, Voice::Normal, 6).unwrap().len(),
+            6
+        );
         // Index 0 means "whatever the first is", which osu! writes without a
         // suffix at all.
-        assert_eq!(pack.get(SampleSet::Soft, Voice::Normal, 0).unwrap().len(), 1);
+        assert_eq!(
+            pack.get(SampleSet::Soft, Voice::Normal, 0).unwrap().len(),
+            1
+        );
     }
 
     #[test]
@@ -956,10 +1009,7 @@ mod tests {
         // Here the plain file is a blank, which is what makes it audible: every
         // index finds the blank and is silent, and the numbered file beside it
         // is never asked for.
-        let dir = skin(&[
-            ("soft-hitwhistle", None),
-            ("soft-hitwhistle2", Some(LOUD)),
-        ]);
+        let dir = skin(&[("soft-hitwhistle", None), ("soft-hitwhistle2", Some(LOUD))]);
         let pack = SamplePack::load(&dir);
         for asked in [1, 2, 4] {
             let got = pack.get(SampleSet::Soft, Voice::Whistle, asked);
@@ -1007,9 +1057,9 @@ mod tests {
         // author expected to hear and the game never will, and that is what
         // this is for.
         let dir = skin(&[
-            ("normal-hitwistle", Some(LOUD)),   // the only whistle, misspelt
+            ("normal-hitwistle", Some(LOUD)), // the only whistle, misspelt
             ("soft-hitfinish", Some(LOUD)),
-            ("softl-hitfinish", Some(&[99])),   // a slip, but the slot is taken
+            ("softl-hitfinish", Some(&[99])), // a slip, but the slot is taken
         ]);
         let pack = SamplePack::load(&dir);
 
@@ -1034,8 +1084,8 @@ mod tests {
         // this. A blank is a deletion, and a typo is not a licence to reverse
         // one.
         let dir = skin(&[
-            ("normal-hitwhistle", None),        // forty-four bytes, on purpose
-            ("normal-hitwistle", Some(LOUD)),   // the joke, parked out of reach
+            ("normal-hitwhistle", None),      // forty-four bytes, on purpose
+            ("normal-hitwistle", Some(LOUD)), // the joke, parked out of reach
         ]);
         let pack = SamplePack::load(&dir);
         assert_eq!(
@@ -1043,7 +1093,10 @@ mod tests {
             Some(&[][..]),
             "a guess put back a sound the skin removed"
         );
-        assert_eq!(pack.trace(SampleSet::Normal, Voice::Whistle, 1), Found::Blank);
+        assert_eq!(
+            pack.trace(SampleSet::Normal, Voice::Whistle, 1),
+            Found::Blank
+        );
         assert_eq!(pack.unused(), ["normal-hitwistle"]);
     }
 
@@ -1052,10 +1105,7 @@ mod tests {
         // The whole safety of the above. `drum--hitwhistle.wav` in the skin
         // this was written against is a *blank*, and taking it for
         // `drum-hitwhistle` would silence the real one lying beside it.
-        let dir = skin(&[
-            ("drum-hitwhistle", Some(LOUD)),
-            ("drum--hitwhistle", None),
-        ]);
+        let dir = skin(&[("drum-hitwhistle", Some(LOUD)), ("drum--hitwhistle", None)]);
         let pack = SamplePack::load(&dir);
         assert_eq!(
             pack.get(SampleSet::Drum, Voice::Whistle, 1).unwrap().len(),
@@ -1082,8 +1132,8 @@ mod tests {
         // hear and nobody ever will — here or in the game.
         let dir = skin(&[
             ("soft-hitnormal", Some(LOUD)),
-            ("menu-play-click", Some(LOUD)),    // never heard during a play
-            ("combobreak", Some(LOUD)),         // bankless, and filed
+            ("menu-play-click", Some(LOUD)), // never heard during a play
+            ("combobreak", Some(LOUD)),      // bankless, and filed
         ]);
         let pack = SamplePack::load(&dir);
         assert_eq!(
@@ -1091,7 +1141,10 @@ mod tests {
             ["menu-play-click"],
             "the list is what it could neither file nor place"
         );
-        assert!(pack.get(SampleSet::Normal, Voice::Miss, 1).is_some(), "combobreak is filed");
+        assert!(
+            pack.get(SampleSet::Normal, Voice::Miss, 1).is_some(),
+            "combobreak is filed"
+        );
     }
 
     #[test]
@@ -1109,5 +1162,4 @@ mod tests {
         assert_eq!(parse_sample_name("bg"), None);
         assert_eq!(parse_sample_name("taiko-normal-hitclap"), None);
     }
-
 }

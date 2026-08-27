@@ -12,7 +12,7 @@ use dossier_sim::GameState;
 /// osu!'s rounding allowance, because the stack offset is derived from the
 /// same scale the radius is:
 ///
-/// 
+///
 const STEP: f64 = 3.2 * 1.00041;
 const EPS: f64 = 1e-9;
 

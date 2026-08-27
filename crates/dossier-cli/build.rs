@@ -59,8 +59,14 @@ fn main() {
     for input in INPUTS {
         println!("cargo:rerun-if-changed={}", root.join(input).display());
     }
-    println!("cargo:rerun-if-changed={}", root.join(".git/HEAD").display());
-    println!("cargo:rerun-if-changed={}", root.join("../.git/HEAD").display());
+    println!(
+        "cargo:rerun-if-changed={}",
+        root.join(".git/HEAD").display()
+    );
+    println!(
+        "cargo:rerun-if-changed={}",
+        root.join("../.git/HEAD").display()
+    );
 
     let id = describe(&root).unwrap_or_else(|| "unknown".to_owned());
     println!("cargo:rustc-env=DOSSIER_BUILD={id}");
@@ -92,7 +98,11 @@ fn describe(root: &Path) -> Option<String> {
 
     // One id over the three, so the stamp is a single word however many inputs
     // it comes to cover.
-    let folded = git(root, &["hash-object".to_owned(), "--stdin".to_owned()], Some(&ids))?;
+    let folded = git(
+        root,
+        &["hash-object".to_owned(), "--stdin".to_owned()],
+        Some(&ids),
+    )?;
     let short: String = folded.chars().take(7).collect();
     if short.len() < 7 {
         return None;
@@ -115,7 +125,11 @@ fn git(root: &Path, args: &[String], stdin: Option<&str>) -> Option<String> {
     let mut child = Command::new("git")
         .args(args)
         .current_dir(root)
-        .stdin(if stdin.is_some() { Stdio::piped() } else { Stdio::null() })
+        .stdin(if stdin.is_some() {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        })
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()

@@ -75,17 +75,21 @@ impl Score {
     /// A classic score keeps the old arithmetic, which is the whole of what the
     /// old scoring counted.
     pub fn lazer_accuracy(&self, slider_count: u32, large_tick_count: u32) -> f64 {
-        let judged = 300.0 * f64::from(self.great)
-            + 100.0 * f64::from(self.ok)
-            + 50.0 * f64::from(self.meh);
+        let judged =
+            300.0 * f64::from(self.great) + 100.0 * f64::from(self.ok) + 50.0 * f64::from(self.meh);
         let possible = 300.0 * f64::from(self.total_hits());
         if self.classic {
-            return if possible > 0.0 { (judged / possible).clamp(0.0, 1.0) } else { 0.0 };
+            return if possible > 0.0 {
+                (judged / possible).clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
         }
         let achieved = judged
             + 150.0 * f64::from(self.slider_tail_hit.min(slider_count))
             + 30.0 * f64::from(large_tick_count.saturating_sub(self.large_tick_miss));
-        let maximum = possible + 150.0 * f64::from(slider_count) + 30.0 * f64::from(large_tick_count);
+        let maximum =
+            possible + 150.0 * f64::from(slider_count) + 30.0 * f64::from(large_tick_count);
         if maximum <= 0.0 {
             return 0.0;
         }
@@ -101,9 +105,8 @@ impl Score {
         if total == 0 {
             return 0.0;
         }
-        let weighted = 300.0 * f64::from(self.great)
-            + 100.0 * f64::from(self.ok)
-            + 50.0 * f64::from(self.meh);
+        let weighted =
+            300.0 * f64::from(self.great) + 100.0 * f64::from(self.ok) + 50.0 * f64::from(self.meh);
         (weighted / (300.0 * f64::from(total))).clamp(0.0, 1.0)
     }
 }
@@ -136,7 +139,8 @@ pub fn combo_based_miss_count(score: &Score, attributes: &Attributes) -> f64 {
         // Hard sliders get dropped at the end; easy ones get broken in the
         // middle. Which of the two a map invites is what its top-weighted
         // slider factor says.
-        let likely_dropped = 0.04 + 0.06 * attributes.aim_top_weighted_slider_factor.min(1.0).powi(2);
+        let likely_dropped =
+            0.04 + 0.06 * attributes.aim_top_weighted_slider_factor.min(1.0).powi(2);
         let sliders = f64::from(attributes.slider_count);
         // A dropped tail costs no combo and breaks none, so a full combo is the
         // maximum less however many were let go.
@@ -157,7 +161,11 @@ pub fn combo_based_miss_count(score: &Score, attributes: &Attributes) -> f64 {
             count = misses + max_breaks;
         }
     } else {
-        let dropped = f64::from(attributes.slider_count.saturating_sub(score.slider_tail_hit));
+        let dropped = f64::from(
+            attributes
+                .slider_count
+                .saturating_sub(score.slider_tail_hit),
+        );
         let threshold = max_combo - dropped;
         if score_combo < threshold {
             count = threshold / score_combo.max(1.0);
@@ -214,8 +222,7 @@ pub struct Effective {
 ///
 /// `mods` is needed only for the score-based path, which has to undo the old
 /// scoring's own mod multipliers before a total means anything.
-pub fn effective(score: &Score, attributes: &Attributes, mods: dossier_replay::Mods)
-    -> Effective {
+pub fn effective(score: &Score, attributes: &Attributes, mods: dossier_replay::Mods) -> Effective {
     let combo_based = combo_based_miss_count(score, attributes);
 
     // A classic score that carries a total gets read out of the total instead,
@@ -233,10 +240,18 @@ pub fn effective(score: &Score, attributes: &Attributes, mods: dossier_replay::M
 
     let (aim_breaks, speed_breaks) = if miss_count > 0.0 {
         (
-            estimated_slider_breaks(score, attributes, miss_count,
-                                    attributes.aim_top_weighted_slider_factor),
-            estimated_slider_breaks(score, attributes, miss_count,
-                                    attributes.speed_top_weighted_slider_factor),
+            estimated_slider_breaks(
+                score,
+                attributes,
+                miss_count,
+                attributes.aim_top_weighted_slider_factor,
+            ),
+            estimated_slider_breaks(
+                score,
+                attributes,
+                miss_count,
+                attributes.speed_top_weighted_slider_factor,
+            ),
         )
     } else {
         (0.0, 0.0)
@@ -280,9 +295,12 @@ pub fn miss_penalty(miss_count: f64, difficult_strain_count: f64) -> f64 {
 /// only logarithmically.
 fn length_bonus(total_hits: u32) -> f64 {
     let hits = f64::from(total_hits);
-    0.95
-        + 0.35 * (hits / 2000.0).min(1.0)
-        + if hits > 2000.0 { (hits / 2000.0).log10() * 0.5 } else { 0.0 }
+    0.95 + 0.35 * (hits / 2000.0).min(1.0)
+        + if hits > 2000.0 {
+            (hits / 2000.0).log10() * 0.5
+        } else {
+            0.0
+        }
 }
 
 /// What the aim was worth.
@@ -297,10 +315,14 @@ pub fn aim_value(score: &Score, attributes: &Attributes, effective: &Effective) 
         // how many judgements were imperfect.
         let dropped = if score.classic {
             f64::from(score.total_imperfect_hits())
-                .min(f64::from(attributes.max_combo.saturating_sub(score.max_combo)))
+                .min(f64::from(
+                    attributes.max_combo.saturating_sub(score.max_combo),
+                ))
                 .clamp(0.0, attributes.aim_difficult_slider_count)
         } else {
-            let ends = attributes.slider_count.saturating_sub(score.slider_tail_hit);
+            let ends = attributes
+                .slider_count
+                .saturating_sub(score.slider_tail_hit);
             f64::from(ends + score.large_tick_miss)
                 .clamp(0.0, attributes.aim_difficult_slider_count)
         };
@@ -317,8 +339,9 @@ pub fn aim_value(score: &Score, attributes: &Attributes, effective: &Effective) 
     value *= length_bonus(score.total_hits());
 
     if effective.miss_count > 0.0 {
-        let relevant = (effective.miss_count + effective.aim_slider_breaks)
-            .min(f64::from(score.total_imperfect_hits() + score.large_tick_miss));
+        let relevant = (effective.miss_count + effective.aim_slider_breaks).min(f64::from(
+            score.total_imperfect_hits() + score.large_tick_miss,
+        ));
         value *= miss_penalty(relevant, attributes.aim_difficult_strain_count);
     }
 
@@ -356,7 +379,11 @@ pub fn accuracy_value(score: &Score, attributes: &Attributes, overall_difficulty
     let mut value = 1.52163f64.powf(overall_difficulty) * better.powi(24) * 2.83;
     // A map with more objects to be accurate on is a longer test of it.
     let share = f64::from(with_accuracy) / 1000.0;
-    value *= if with_accuracy < 1000 { share.powf(0.3) } else { share.powf(0.1) };
+    value *= if with_accuracy < 1000 {
+        share.powf(0.3)
+    } else {
+        share.powf(0.1)
+    };
     value
 }
 
@@ -418,9 +445,7 @@ pub fn deviation(
     // Mehs are treated as uniform across the band between the two windows.
     let meh_variance =
         (meh_window * meh_window + ok_window * meh_window + ok_window * ok_window) / 3.0;
-    Some(
-        (((great + ok) * value.powi(2) + meh * meh_variance) / (great + ok + meh)).sqrt(),
-    )
+    Some((((great + ok) * value.powi(2) + meh * meh_variance) / (great + ok + meh)).sqrt())
 }
 
 /// The same, over the notes that speed actually cares about.
@@ -429,8 +454,11 @@ pub fn deviation(
 /// subset of its notes, and mistakes are assumed to have fallen there first:
 /// misses before mehs, mehs before oks. The remaining notes are Greats by
 /// construction.
-pub fn speed_deviation(score: &Score, attributes: &Attributes, windows: (f64, f64, f64))
-    -> Option<f64> {
+pub fn speed_deviation(
+    score: &Score,
+    attributes: &Attributes,
+    windows: (f64, f64, f64),
+) -> Option<f64> {
     if score.total_successful_hits() == 0 {
         return None;
     }
@@ -457,7 +485,9 @@ pub fn speed_value(
     deviation: Option<f64>,
     relax: bool,
 ) -> f64 {
-    let Some(deviation) = deviation else { return 0.0 };
+    let Some(deviation) = deviation else {
+        return 0.0;
+    };
     if relax {
         // Relax presses nothing.
         return 0.0;
@@ -466,8 +496,9 @@ pub fn speed_value(
     let mut value = crate::speed::harmonic_to_performance(attributes.speed_difficulty);
 
     if effective.miss_count > 0.0 {
-        let relevant = (effective.miss_count + effective.speed_slider_breaks)
-            .min(f64::from(score.total_imperfect_hits() + score.large_tick_miss));
+        let relevant = (effective.miss_count + effective.speed_slider_breaks).min(f64::from(
+            score.total_imperfect_hits() + score.large_tick_miss,
+        ));
         value *= miss_penalty(relevant, attributes.speed_difficult_strain_count);
     }
 
@@ -533,7 +564,8 @@ pub fn flashlight_value(
     if effective.miss_count > 0.0 {
         let hits = f64::from(score.total_hits()).max(1.0);
         value *= 0.97
-            * (1.0 - (effective.miss_count / hits).powf(0.775)).powf(effective.miss_count.powf(0.875));
+            * (1.0 - (effective.miss_count / hits).powf(0.775))
+                .powf(effective.miss_count.powf(0.875));
     }
     value *= combo_scaling(score, attributes);
     value * (0.5 + score.accuracy() / 2.0)
@@ -565,8 +597,11 @@ pub struct Performance {
 /// Ported from `CreatePerformanceAttributes`. The four components are added as
 /// a p-norm rather than summed, so a play strong at everything is worth more
 /// than any one of its parts and less than their total.
-pub fn performance(score: &Score, attributes: &Attributes, mods: dossier_replay::Mods)
-    -> Performance {
+pub fn performance(
+    score: &Score,
+    attributes: &Attributes,
+    mods: dossier_replay::Mods,
+) -> Performance {
     use dossier_replay::bits;
     let relax = mods.contains(bits::RELAX);
     let no_fail = mods.contains(bits::NO_FAIL);
@@ -586,13 +621,18 @@ pub fn performance(score: &Score, attributes: &Attributes, mods: dossier_replay:
     }
     if spun_out && hits > 0 {
         // Spun Out does the spinners, so the map is worth less its spinners.
-        multiplier *= 1.0
-            - (f64::from(attributes.spinner_count) / f64::from(hits)).powf(0.85);
+        multiplier *= 1.0 - (f64::from(attributes.spinner_count) / f64::from(hits)).powf(0.85);
     }
     if relax {
         // Under Relax an Ok or a Meh is closer to a miss than to a hit, because
         // the only thing being judged is aim.
-        let ok_multiplier = 0.75 * if difficulty > 0.0 { 1.0 - difficulty / 13.33 } else { 1.0 }.max(0.0);
+        let ok_multiplier = 0.75
+            * if difficulty > 0.0 {
+                1.0 - difficulty / 13.33
+            } else {
+                1.0
+            }
+            .max(0.0);
         let meh_multiplier = if difficulty > 0.0 {
             1.0 - (difficulty / 13.33).powi(5)
         } else {
@@ -608,22 +648,27 @@ pub fn performance(score: &Score, attributes: &Attributes, mods: dossier_replay:
     let deviation = speed_deviation(score, attributes, windows);
     let aim = aim_value(score, attributes, &effective);
     let speed = speed_value(score, attributes, &effective, deviation, relax);
-    let accuracy = if relax { 0.0 } else { accuracy_value(score, attributes, difficulty) };
+    let accuracy = if relax {
+        0.0
+    } else {
+        accuracy_value(score, attributes, difficulty)
+    };
     let reading = reading_value(score, attributes, &effective);
     let flashlight = flashlight_value(score, attributes, &effective, has_flashlight);
 
-    let cognition = crate::flashlight::sum_cognition(
-        reading,
-        flashlight,
-        crate::PERFORMANCE_NORM_EXPONENT,
-    );
+    let cognition =
+        crate::flashlight::sum_cognition(reading, flashlight, crate::PERFORMANCE_NORM_EXPONENT);
     let pp = crate::utils::norm(
         crate::PERFORMANCE_NORM_EXPONENT,
         &[aim, speed, accuracy, cognition],
     ) * multiplier;
 
     Performance {
-        aim, speed, accuracy, reading, flashlight,
+        aim,
+        speed,
+        accuracy,
+        reading,
+        flashlight,
         effective_miss_count: effective.miss_count,
         speed_deviation: deviation,
         pp,

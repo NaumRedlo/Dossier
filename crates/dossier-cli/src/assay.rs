@@ -101,8 +101,7 @@ pub fn score_from(
     classic: bool,
     legacy_total: Option<u64>,
 ) -> Score {
-    let objects =
-        attributes.hit_circle_count + attributes.slider_count + attributes.spinner_count;
+    let objects = attributes.hit_circle_count + attributes.slider_count + attributes.spinner_count;
 
     let (great, ok, meh) = match (n300, n100, n50) {
         // Counts given: they are the truth and the accuracy is derived.
@@ -152,11 +151,7 @@ pub fn score_from(
 }
 
 /// The whole answer for one map, and one play if there is one.
-pub fn run(
-    map_path: &Path,
-    mods: Mods,
-    play: Option<Score>,
-) -> Result<String, String> {
+pub fn run(map_path: &Path, mods: Mods, play: Option<Score>) -> Result<String, String> {
     let text = std::fs::read_to_string(map_path)
         .map_err(|error| format!("could not read {}: {error}", map_path.display()))?;
     let map = Beatmap::parse(&text).map_err(|error| format!("could not parse the map: {error}"))?;
@@ -165,14 +160,38 @@ pub fn run(
     let mut out = String::from("{\n");
     out.push_str(&format!("  \"star_rating\": {},\n", attributes.star_rating));
     out.push_str(&format!("  \"max_combo\": {},\n", attributes.max_combo));
-    out.push_str(&format!("  \"aim_difficulty\": {},\n", attributes.aim_difficulty));
-    out.push_str(&format!("  \"speed_difficulty\": {},\n", attributes.speed_difficulty));
-    out.push_str(&format!("  \"reading_difficulty\": {},\n", attributes.reading_difficulty));
-    out.push_str(&format!("  \"flashlight_difficulty\": {},\n", attributes.flashlight_difficulty));
-    out.push_str(&format!("  \"slider_factor\": {},\n", attributes.slider_factor));
-    out.push_str(&format!("  \"hit_circle_count\": {},\n", attributes.hit_circle_count));
-    out.push_str(&format!("  \"slider_count\": {},\n", attributes.slider_count));
-    out.push_str(&format!("  \"spinner_count\": {}", attributes.spinner_count));
+    out.push_str(&format!(
+        "  \"aim_difficulty\": {},\n",
+        attributes.aim_difficulty
+    ));
+    out.push_str(&format!(
+        "  \"speed_difficulty\": {},\n",
+        attributes.speed_difficulty
+    ));
+    out.push_str(&format!(
+        "  \"reading_difficulty\": {},\n",
+        attributes.reading_difficulty
+    ));
+    out.push_str(&format!(
+        "  \"flashlight_difficulty\": {},\n",
+        attributes.flashlight_difficulty
+    ));
+    out.push_str(&format!(
+        "  \"slider_factor\": {},\n",
+        attributes.slider_factor
+    ));
+    out.push_str(&format!(
+        "  \"hit_circle_count\": {},\n",
+        attributes.hit_circle_count
+    ));
+    out.push_str(&format!(
+        "  \"slider_count\": {},\n",
+        attributes.slider_count
+    ));
+    out.push_str(&format!(
+        "  \"spinner_count\": {}",
+        attributes.spinner_count
+    ));
 
     if let Some(play) = play {
         let performance = dossier_assay::performance::performance(&play, &attributes, mods);
@@ -191,9 +210,8 @@ pub fn run(
         // An unbroken run catches every tail and every tick, and both count
         // towards accuracy — reading it off the four judgements alone put this
         // figure 0.8% low against a bot running ppy's own calculator.
-        unbroken.accuracy = Some(
-            unbroken.lazer_accuracy(attributes.slider_count, attributes.large_tick_count),
-        );
+        unbroken.accuracy =
+            Some(unbroken.lazer_accuracy(attributes.slider_count, attributes.large_tick_count));
         let if_unbroken = dossier_assay::performance::performance(&unbroken, &attributes, mods);
 
         let perfect = Score {
@@ -218,7 +236,10 @@ pub fn run(
         out.push_str(&format!("  \"accuracy\": {},\n", play.accuracy() * 100.0));
         out.push_str(&format!("  \"aim\": {},\n", performance.aim));
         out.push_str(&format!("  \"speed\": {},\n", performance.speed));
-        out.push_str(&format!("  \"accuracy_value\": {},\n", performance.accuracy));
+        out.push_str(&format!(
+            "  \"accuracy_value\": {},\n",
+            performance.accuracy
+        ));
         out.push_str(&format!("  \"reading\": {},\n", performance.reading));
         out.push_str(&format!("  \"flashlight\": {},\n", performance.flashlight));
         out.push_str(&format!(
@@ -240,7 +261,10 @@ mod tests {
         // by the API, comma-joined by a row, bare from a card.
         for text in ["HDDT", "hddt", "HD,DT", "hd dt"] {
             let mods = parse_mods(text).expect(text);
-            assert!(mods.contains(bits::HIDDEN) && mods.contains(bits::DOUBLE_TIME), "{text}");
+            assert!(
+                mods.contains(bits::HIDDEN) && mods.contains(bits::DOUBLE_TIME),
+                "{text}"
+            );
         }
     }
 
@@ -273,8 +297,19 @@ mod tests {
     fn an_accuracy_alone_is_turned_into_the_judgements_that_produce_it() {
         // What a caller asking "what would 98% be worth" has, and what the
         // calculator needs instead.
-        let score = score_from(&attributes(), Some(98.0), None, 0, None, None, None, None, 0,
-                               false, None);
+        let score = score_from(
+            &attributes(),
+            Some(98.0),
+            None,
+            0,
+            None,
+            None,
+            None,
+            None,
+            0,
+            false,
+            None,
+        );
         let objects = 904;
         assert_eq!(score.great + score.ok + score.meh + score.miss, objects);
         // Solved rather than guessed: the counts really do give the accuracy.
@@ -289,8 +324,19 @@ mod tests {
         // judgements — slider tails and large ticks count towards it — so a
         // figure worked out here would be the old accuracy wearing the new
         // name. The game's own is what every score the bot has carries.
-        let score = score_from(&attributes(), Some(99.5), None, 1, Some(800), Some(100),
-                               Some(3), None, 0, false, None);
+        let score = score_from(
+            &attributes(),
+            Some(99.5),
+            None,
+            1,
+            Some(800),
+            Some(100),
+            Some(3),
+            None,
+            0,
+            false,
+            None,
+        );
         assert!((score.accuracy() - 0.995).abs() < 1e-12);
         assert_eq!(score.great, 800, "the counts are still the caller's");
     }
@@ -299,8 +345,19 @@ mod tests {
     fn a_play_that_said_nothing_about_slider_ends_is_assumed_to_have_caught_them() {
         // Which is what a play with none dropped looks like, and the only
         // honest reading of a caller that cannot say.
-        let score = score_from(&attributes(), Some(97.0), None, 0, None, None, None, None, 0,
-                               false, None);
+        let score = score_from(
+            &attributes(),
+            Some(97.0),
+            None,
+            0,
+            None,
+            None,
+            None,
+            None,
+            0,
+            false,
+            None,
+        );
         assert_eq!(score.slider_tail_hit, 300);
     }
 }

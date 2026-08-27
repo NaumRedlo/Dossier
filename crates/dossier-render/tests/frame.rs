@@ -2196,6 +2196,15 @@ fn write_element(dir: &std::path::Path, name: &str, size: u32, alpha: u8) {
     std::fs::write(dir.join(name), pixmap.encode_png().expect("png")).expect("written");
 }
 
+fn write_panel(dir: &std::path::Path, name: &str, width: u32, height: u32, alpha: u8) {
+    let mut pixmap = tiny_skia::Pixmap::new(width, height).expect("a canvas");
+    for pixel in pixmap.pixels_mut() {
+        *pixel = tiny_skia::PremultipliedColorU8::from_rgba(alpha, alpha, alpha, alpha)
+            .expect("a colour");
+    }
+    std::fs::write(dir.join(name), pixmap.encode_png().expect("png")).expect("written");
+}
+
 fn one_note() -> Beatmap {
     beatmap(
         "
@@ -2885,6 +2894,56 @@ fn the_skins_overlay_hangs_off_the_edge_of_the_frame() {
         })
         .count();
     assert!(lit > 0, "the panel does not reach the edge of the frame");
+}
+
+/// The topmost row the skin's own key reaches.
+///
+/// Told from the panel behind it by brightness, and from the score and the dial
+/// above it by starting below them and by asking for a solid run of bright
+/// columns — a key is a filled block and a figure is not.
+fn first_key_row(dir: &std::path::Path) -> u32 {
+    use dossier_render::elements::Element;
+    use dossier_render::imported::Sprites;
+    let (map, replay) = tapped();
+    let mut skin = Skin::with_combo_colours(map.combo_colours()).with_font(font());
+    let wanted = [Element::InputOverlayKey, Element::InputOverlayBackground];
+    skin.sprites = Some(std::sync::Arc::new(
+        Sprites::read(dir, &wanted).tint_for(&skin.combo_colours),
+    ));
+    let state = GameState::new(&map, &replay);
+    let frame = Scene::new(&state, skin).frame(4200.0, &Layout::new(640, 480));
+    (100..480u32)
+        .find(|&y| (618..632u32).all(|x| frame.pixel(x, y).is_some_and(|p| p.red() > 200)))
+        .expect("the skin's key is drawn somewhere below the score")
+}
+
+#[test]
+fn the_keys_sit_where_they_sit_whatever_the_panel_measures() {
+    // The whole of osu!'s rule is what it leaves *out*: the plate's size is in
+    // none of the arithmetic. The plate and the row of keys hang off one number
+    // — `height / 2 - 40`, stated in the 640×480 space — so a skin shipping a
+    // longer panel moves the panel and leaves the keys exactly where they were.
+    //
+    // Centring the plate instead, which is what this did, dragged the keys with
+    // it: these two panels came out 80px apart in a 480-tall frame.
+    let short = skin_folder("keys-panel-short");
+    write_element(&short, "inputoverlay-key.png", 46, 255);
+    write_panel(&short, "inputoverlay-background.png", 55, 55, 90);
+
+    let long = skin_folder("keys-panel-long");
+    write_element(&long, "inputoverlay-key.png", 46, 255);
+    write_panel(&long, "inputoverlay-background.png", 300, 55, 90);
+
+    let (a, b) = (first_key_row(&short), first_key_row(&long));
+    assert_eq!(a, b, "the panel's length moved the keys: {a} against {b}");
+
+    // And at the place osu! puts it rather than merely the same place twice:
+    // 64 units above the middle for the plate's top and seven more for the key,
+    // which in a 480-tall frame is 240 - 40 + 4.4.
+    assert!(
+        (202..=207).contains(&a),
+        "the keys start at {a}, not the 204 osu! starts them at"
+    );
 }
 
 // ── how big a judgement is ───────────────────────────────────────────────
@@ -4618,7 +4677,11 @@ fn a_bar_file_with_something_else_in_it_draws_only_the_bar() {
     let frame = Scene::new(&state, skin).frame(4200.0, &Layout::new(640, 480));
 
     let lit = |x: u32| {
-        (0..40u32).any(|y| frame.pixel(x, y).is_some_and(|p| p.red() > 200 && p.green() > 200))
+        (0..40u32).any(|y| {
+            frame
+                .pixel(x, y)
+                .is_some_and(|p| p.red() > 200 && p.green() > 200)
+        })
     };
     // The file is drawn at its own size in the 768-tall space, so 400 of its
     // pixels come to 250 on a 480-tall frame: the bar ends near 125 and the
@@ -4696,8 +4759,14 @@ SliderTickRate:1
 
     let tick = ticks[0];
     let (before, on) = (reach(tick - 60.0), reach(tick + 5.0));
-    println!("КОЛЬЦО: до тика {before}, на тике {on}, после конца {}", reach(ends + 100.0));
-    assert!(on > before, "the ring did not move on a tick: {before} then {on}");
+    println!(
+        "КОЛЬЦО: до тика {before}, на тике {on}, после конца {}",
+        reach(ends + 100.0)
+    );
+    assert!(
+        on > before,
+        "the ring did not move on a tick: {before} then {on}"
+    );
 
     // And it is still there after the ball has arrived, on its way out, and
     // gone a fifth of a second later. Measured against the note's own radius
@@ -4765,7 +4834,11 @@ fn dial_and_accuracy(dir: &std::path::Path) -> (Option<u32>, Option<u32>) {
     for y in 0..120u32 {
         for x in 320..640u32 {
             let Some(p) = frame.pixel(x, y) else { continue };
-            let (r, g, b) = (i32::from(p.red()), i32::from(p.green()), i32::from(p.blue()));
+            let (r, g, b) = (
+                i32::from(p.red()),
+                i32::from(p.green()),
+                i32::from(p.blue()),
+            );
             let blue = b - r.max(g) > 60;
             let grey = (r - g).abs() < 24 && (g - b).abs() < 24 && r + g + b > 120;
             if blue {
@@ -4787,7 +4860,11 @@ fn the_dial_stays_clear_of_a_skins_own_accuracy_however_wide_it_is() {
     for digit in 0..10 {
         write_glyph_sized(&dir, &format!("score-{digit}.png"), 96, 24, (0, 0, 255));
     }
-    for (name, glyph) in [("score-percent", '%'), ("score-dot", '.'), ("score-comma", ',')] {
+    for (name, glyph) in [
+        ("score-percent", '%'),
+        ("score-dot", '.'),
+        ("score-comma", ','),
+    ] {
         let _ = glyph;
         write_glyph_sized(&dir, &format!("{name}.png"), 96, 24, (0, 0, 255));
     }
@@ -4829,7 +4906,11 @@ fn the_field_stays_on_screen_at_any_shape_of_frame() {
         (1920, 1080, "16:9, the ordinary one"),
         (1280, 720, "16:9, small"),
         (1440, 1080, "4:3, somebody's old monitor"),
-        (1080, 1920, "9:16, vertical — the one non-standard sizes are for"),
+        (
+            1080,
+            1920,
+            "9:16, vertical — the one non-standard sizes are for",
+        ),
         (1080, 1080, "square"),
         (3840, 720, "absurdly wide"),
         (256, 256, "the smallest the bot accepts"),
@@ -4938,15 +5019,13 @@ fn verdict_ink_at(time_ms: f64, x: f64, y: f64) -> usize {
     let (map, replay) = held_slider();
     let state = GameState::new(&map, &replay);
     let layout = Layout::new(640, 480);
-    let frame =
-        Scene::new(&state, Skin::default().with_font(font())).frame(time_ms, &layout);
+    let frame = Scene::new(&state, Skin::default().with_font(font())).frame(time_ms, &layout);
     let (cx, cy) = layout.map(dossier_beatmap::Point { x, y });
 
     let mut count = 0;
     for dy in -34i32..34 {
         for dx in -34i32..34 {
-            let Some(p) = frame.pixel((cx as i32 + dx) as u32, (cy as i32 + dy) as u32)
-            else {
+            let Some(p) = frame.pixel((cx as i32 + dx) as u32, (cy as i32 + dy) as u32) else {
                 continue;
             };
             // The 300's own blue — (102, 204, 255) — by the *ratio* of its
@@ -4990,8 +5069,11 @@ fn skinned_ink_at(dir: &std::path::Path, time_ms: f64, x: f64, y: f64) -> usize 
     let (map, replay) = held_slider();
     let mut skin = Skin::with_combo_colours(map.combo_colours()).with_font(font());
     skin.sprites = Some(std::sync::Arc::new(
-        Sprites::read(dir, &[Element::Verdict(dossier_render::elements::Verdict::Three)])
-            .tint_for(&skin.combo_colours),
+        Sprites::read(
+            dir,
+            &[Element::Verdict(dossier_render::elements::Verdict::Three)],
+        )
+        .tint_for(&skin.combo_colours),
     ));
     let state = GameState::new(&map, &replay);
     let layout = Layout::new(640, 480);
@@ -5001,8 +5083,7 @@ fn skinned_ink_at(dir: &std::path::Path, time_ms: f64, x: f64, y: f64) -> usize 
     let mut count = 0;
     for dy in -40i32..40 {
         for dx in -40i32..40 {
-            let Some(p) = frame.pixel((cx as i32 + dx) as u32, (cy as i32 + dy) as u32)
-            else {
+            let Some(p) = frame.pixel((cx as i32 + dx) as u32, (cy as i32 + dy) as u32) else {
                 continue;
             };
             // The fixture's own magenta, which nothing else on the field wears.
@@ -5026,15 +5107,17 @@ fn a_skins_own_verdict_is_drawn_at_the_end_of_a_slider_too() {
     let dir = skin_folder("verdict-at-the-end");
     let mut art = tiny_skia::Pixmap::new(64, 32).expect("a canvas");
     for pixel in art.pixels_mut() {
-        *pixel = tiny_skia::PremultipliedColorU8::from_rgba(200, 0, 200, 255)
-            .expect("a colour");
+        *pixel = tiny_skia::PremultipliedColorU8::from_rgba(200, 0, 200, 255).expect("a colour");
     }
     std::fs::write(dir.join("hit300.png"), art.encode_png().expect("png")).expect("written");
 
     let at_head = skinned_ink_at(&dir, 1700.0, 100.0, 192.0);
     let at_tail = skinned_ink_at(&dir, 1700.0, 240.0, 192.0);
 
-    assert!(at_tail > 100, "the skin's mark was not drawn at all: {at_tail}");
+    assert!(
+        at_tail > 100,
+        "the skin's mark was not drawn at all: {at_tail}"
+    );
     assert!(
         at_tail > at_head * 3,
         "the skin's mark is at the head: {at_head} there against {at_tail} at the tail"
@@ -5059,11 +5142,7 @@ fn write_half_cursor(dir: &std::path::Path) {
             tiny_skia::PremultipliedColorU8::from_rgba(0, 0, 0, 0).expect("nothing")
         };
     }
-    std::fs::write(
-        dir.join("cursor.png"),
-        pixmap.encode_png().expect("png"),
-    )
-    .expect("written");
+    std::fs::write(dir.join("cursor.png"), pixmap.encode_png().expect("png")).expect("written");
 }
 
 /// How much ink sits a little to the left of where the cursor is.
@@ -5076,8 +5155,18 @@ fn ink_left_of_the_cursor(dir: &std::path::Path, at_ms: f64) -> u32 {
     let held = dossier_beatmap::Point { x: 100.0, y: 100.0 };
     let map = beatmap(ONE_CIRCLE);
     let replay = replay_over(vec![
-        dossier_replay::ReplayFrame { time_ms: 0, x: 100.0, y: 100.0, keys: dossier_replay::Keys(0) },
-        dossier_replay::ReplayFrame { time_ms: 30_000, x: 100.0, y: 100.0, keys: dossier_replay::Keys(0) },
+        dossier_replay::ReplayFrame {
+            time_ms: 0,
+            x: 100.0,
+            y: 100.0,
+            keys: dossier_replay::Keys(0),
+        },
+        dossier_replay::ReplayFrame {
+            time_ms: 30_000,
+            x: 100.0,
+            y: 100.0,
+            keys: dossier_replay::Keys(0),
+        },
     ]);
     let state = GameState::new(&map, &replay);
     let layout = Layout::new(640, 480);
@@ -5139,7 +5228,10 @@ fn a_skin_that_says_not_to_turn_the_cursor_is_obeyed() {
     let later = ink_left_of_the_cursor(&dir, 15_000.0);
 
     assert!(at_rest > 0, "the cursor was not drawn at all");
-    assert_eq!(at_rest, later, "it turned a cursor that asked to stay still");
+    assert_eq!(
+        at_rest, later,
+        "it turned a cursor that asked to stay still"
+    );
 }
 
 /// A `spinner-rpm` plate of the size the default skin ships, in a colour
@@ -5184,8 +5276,18 @@ fn plate_and_figure(dir: &std::path::Path) -> (u32, u32) {
 
     let map = beatmap(ONE_SPINNER);
     let replay = replay_over(vec![
-        dossier_replay::ReplayFrame { time_ms: 0, x: 256.0, y: 120.0, keys: dossier_replay::Keys(0) },
-        dossier_replay::ReplayFrame { time_ms: 8_000, x: 256.0, y: 120.0, keys: dossier_replay::Keys(0) },
+        dossier_replay::ReplayFrame {
+            time_ms: 0,
+            x: 256.0,
+            y: 120.0,
+            keys: dossier_replay::Keys(0),
+        },
+        dossier_replay::ReplayFrame {
+            time_ms: 8_000,
+            x: 256.0,
+            y: 120.0,
+            keys: dossier_replay::Keys(0),
+        },
     ]);
     let state = GameState::new(&map, &replay);
     let layout = Layout::new(640, 480);
@@ -5224,9 +5326,8 @@ fn plate_and_figure(dir: &std::path::Path) -> (u32, u32) {
     // body — which fills most of the frame — out of the count entirely. The
     // first version of this test scanned whole columns and measured that body
     // twice, and so passed against the size it was meant to catch.
-    let is_plate = |p: tiny_skia::PremultipliedColorU8| {
-        p.red() > 150 && p.blue() > 150 && p.green() < 90
-    };
+    let is_plate =
+        |p: tiny_skia::PremultipliedColorU8| p.red() > 150 && p.blue() > 150 && p.green() < 90;
     let (mut top, mut bottom) = (u32::MAX, 0);
     let (mut left, mut right) = (u32::MAX, 0);
     for y in 0..layout.height {

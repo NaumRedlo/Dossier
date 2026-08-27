@@ -185,7 +185,11 @@ impl Track {
         // Asked before the cache, because the cache stores the empty vector a
         // blanked sound resolves to and cannot be told from a sound that simply
         // has no samples yet.
-        if self.pack.get(set, voice, index).is_some_and(<[f32]>::is_empty) {
+        if self
+            .pack
+            .get(set, voice, index)
+            .is_some_and(<[f32]>::is_empty)
+        {
             *self.silenced.entry((set, voice)).or_insert(0) += 1;
         }
         let found = self.pack.trace(set, voice, index);
@@ -221,7 +225,11 @@ impl Track {
         let live = self.sounding.entry((set, voice, index)).or_default();
         live.retain(|old| start < old.began + rendered.len());
         let cut = (live.len() >= CONCURRENCY).then(|| live.remove(0));
-        live.push(Sounding { began: start, gain, balance });
+        live.push(Sounding {
+            began: start,
+            gain,
+            balance,
+        });
         if let Some(old) = cut {
             let (l, r) = pan(old.balance);
             for (offset, value) in rendered.iter().enumerate().skip(start - old.began) {
@@ -610,10 +618,8 @@ mod levels {
     /// A sine rather than noise because two of these tests measure *pitch*, and
     /// the only honest way to measure a pitch is to put a known one in.
     fn folder_with(name: &str, hz: f32, seconds: f32) -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join(format!(
-            "dossier-loop-{name}-{}-{hz}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("dossier-loop-{name}-{}-{hz}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("a folder");
 
@@ -659,11 +665,17 @@ mod levels {
         let mut track = Track::new(1.0, Kit::default()).with_samples(SamplePack::load(&dir));
         track.sustain(Voice::Slide, (0.2, 0.8), SampleSet::Normal, 1, 1.0, |_| 1.0);
 
-        assert!(loudness(&track, 0.0, 0.19) < 1e-6, "silent before it starts");
+        assert!(
+            loudness(&track, 0.0, 0.19) < 1e-6,
+            "silent before it starts"
+        );
         assert!(loudness(&track, 0.3, 0.4) > 0.01, "sounding at the start");
         // The source is fifty milliseconds and the span is six hundred, so
         // anything audible here got there by looping.
-        assert!(loudness(&track, 0.7, 0.78) > 0.01, "still sounding at the end");
+        assert!(
+            loudness(&track, 0.7, 0.78) > 0.01,
+            "still sounding at the end"
+        );
         assert!(loudness(&track, 0.81, 1.0) < 1e-6, "silent after it stops");
     }
 
@@ -710,7 +722,10 @@ mod levels {
         let early = crossings(0.3, 0.5);
         let late = crossings(1.5, 1.7);
         assert!(early > 0, "it is sounding at all: {early}");
-        assert!(late > early * 2, "the pitch did not climb: {early} then {late}");
+        assert!(
+            late > early * 2,
+            "the pitch did not climb: {early} then {late}"
+        );
     }
 
     #[test]

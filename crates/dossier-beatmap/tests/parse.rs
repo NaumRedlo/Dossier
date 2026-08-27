@@ -178,7 +178,10 @@ fn a_green_line_asking_for_more_than_the_game_allows_gets_what_it_allows() {
 
     assert_eq!(t.inherited[0].velocity, 0.1, "0.01 is below the floor");
     assert_eq!(t.inherited[1].velocity, 10.0, "20 is above the ceiling");
-    assert_eq!(t.inherited[2].velocity, 1.0, "and an ordinary one is untouched");
+    assert_eq!(
+        t.inherited[2].velocity, 1.0,
+        "and an ordinary one is untouched"
+    );
 }
 
 #[test]
@@ -442,11 +445,19 @@ fn kiai_turned_off_where_it_began_is_not_a_section() {
 5000,500,4,2,0,60,1,1
 5000,-100,4,2,0,60,0,0
 ");
-    assert!(Beatmap::parse(&text).unwrap().timing.kiai_spans().is_empty());
+    assert!(Beatmap::parse(&text)
+        .unwrap()
+        .timing
+        .kiai_spans()
+        .is_empty());
 }
 
 #[test]
 fn a_map_with_no_kiai_has_no_spans() {
     let text = map("[TimingPoints]\n0,500,4,2,0,60,1,0\n");
-    assert!(Beatmap::parse(&text).unwrap().timing.kiai_spans().is_empty());
+    assert!(Beatmap::parse(&text)
+        .unwrap()
+        .timing
+        .kiai_spans()
+        .is_empty());
 }

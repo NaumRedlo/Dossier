@@ -142,8 +142,8 @@ fn stitch(parts: &[Part], settings: &video::Settings) -> Result<(), String> {
     // is an error rather than silence. Either every clip has sound or the reel
     // has none — which is what happens: the setting is per render, not per clip.
     let sound = parts.iter().all(|part| part.sound);
-    let total = parts.iter().map(|part| part.seconds).sum::<f64>()
-        - CROSSFADE_S * (parts.len() - 1) as f64;
+    let total =
+        parts.iter().map(|part| part.seconds).sum::<f64>() - CROSSFADE_S * (parts.len() - 1) as f64;
     if total <= 0.0 {
         return Err("the crossfades are longer than the clips they join".to_owned());
     }
@@ -205,7 +205,10 @@ fn stitch(parts: &[Part], settings: &video::Settings) -> Result<(), String> {
     // them. A filter graph is long enough that a typo in it is unrecognisable
     // from anything but the complaint it produces.
     let said = String::from_utf8_lossy(&output.stderr);
-    let lines: Vec<&str> = said.lines().filter(|line| !line.trim().is_empty()).collect();
+    let lines: Vec<&str> = said
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .collect();
     Err(format!(
         "cutting the reel together failed ({}){}",
         output.status,
@@ -319,7 +322,8 @@ fn slows_into_a_mistake(clip: &Clip) -> bool {
 }
 
 fn about_a_mistake(clip: &Clip) -> bool {
-    let mistake = |reason: &Reason| matches!(reason, Reason::Choke { .. } | Reason::Scramble { .. });
+    let mistake =
+        |reason: &Reason| matches!(reason, Reason::Choke { .. } | Reason::Scramble { .. });
     mistake(&clip.reason) || clip.with.as_ref().is_some_and(mistake)
 }
 
@@ -392,8 +396,14 @@ mod tests {
 
     fn a_choke(with: Option<Reason>) -> Clip {
         Clip {
-            span: dossier_exhibit::Span { from_ms: 1_000.0, to_ms: 7_000.0 },
-            reason: Reason::Choke { combo: 400, through: 0.6 },
+            span: dossier_exhibit::Span {
+                from_ms: 1_000.0,
+                to_ms: 7_000.0,
+            },
+            reason: Reason::Choke {
+                combo: 400,
+                through: 0.6,
+            },
             with,
             rank: 0,
             score: 0.9,
@@ -413,7 +423,9 @@ mod tests {
             "a choke is still what the dip would be for — only the dip is off"
         );
         assert!(!slows_into_a_mistake(&a_choke(None)));
-        assert!(!slows_into_a_mistake(&a_choke(Some(Reason::Peak { combo: 300 }))));
+        assert!(!slows_into_a_mistake(&a_choke(Some(Reason::Peak {
+            combo: 300
+        }))));
     }
 
     /// A muted render has no audio stream to ask for, and asking anyway is an

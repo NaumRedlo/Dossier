@@ -32,9 +32,11 @@ fn corpus() -> Vec<(String, Beatmap)> {
         .map(|entry| {
             let id = entry["beatmap_id"].as_u64().expect("an id");
             let path = dir.join("maps").join(format!("{id}.osu"));
-            let map = Beatmap::parse(&std::fs::read_to_string(path).expect("read"))
-                .expect("parse");
-            (format!("{} ({id})", entry["title"].as_str().unwrap_or("?")), map)
+            let map = Beatmap::parse(&std::fs::read_to_string(path).expect("read")).expect("parse");
+            (
+                format!("{} ({id})", entry["title"].as_str().unwrap_or("?")),
+                map,
+            )
         })
         .collect()
 }
@@ -92,7 +94,9 @@ fn no_two_objects_are_ever_closer_together_than_the_floor() {
         for object in difficulty_objects(&map, Mods::new(0)) {
             assert!(
                 object.adjusted_delta_time >= MIN_DELTA_TIME,
-                "{title} #{}: {} ms", object.index, object.adjusted_delta_time
+                "{title} #{}: {} ms",
+                object.index,
+                object.adjusted_delta_time
             );
             assert!(object.last_object_end_delta_time >= MIN_DELTA_TIME);
             assert!(object.minimum_jump_time >= MIN_DELTA_TIME);
@@ -114,7 +118,9 @@ fn a_slider_starts_where_the_slider_is() {
             assert!(
                 (head.pos.x - object.pos.x).abs() < 0.001
                     && (head.pos.y - object.pos.y).abs() < 0.001,
-                "head at {:?}, slider at {:?}", head.pos, object.pos
+                "head at {:?}, slider at {:?}",
+                head.pos,
+                object.pos
             );
         }
     }
@@ -147,7 +153,10 @@ fn distances_are_measured_against_a_circle_of_one_size_on_every_map() {
             let raw = (here.pos.x - before.pos.x).hypot(here.pos.y - before.pos.y);
             assert!(
                 (object.jump_distance - raw * scaling).abs() < 0.001,
-                "{title} #{}: {} against {}", object.index, object.jump_distance, raw * scaling
+                "{title} #{}: {} against {}",
+                object.index,
+                object.jump_distance,
+                raw * scaling
             );
             checked += 1;
         }
@@ -165,7 +174,9 @@ fn the_shortest_reading_of_a_jump_off_a_slider_is_the_one_taken() {
             assert!(
                 object.minimum_jump_distance <= object.lazy_jump_distance + 0.001,
                 "{title} #{}: minimum {} over lazy {}",
-                object.index, object.minimum_jump_distance, object.lazy_jump_distance
+                object.index,
+                object.minimum_jump_distance,
+                object.lazy_jump_distance
             );
         }
     }
@@ -197,7 +208,8 @@ fn a_slider_followed_lazily_never_travels_further_than_its_path() {
             assert!(
                 object.lazy_travel_distance <= normalised_path + 1.0,
                 "{title} #{}: lazy {} over path {normalised_path}",
-                object.index, object.lazy_travel_distance
+                object.index,
+                object.lazy_travel_distance
             );
         }
     }

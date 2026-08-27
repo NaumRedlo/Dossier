@@ -76,9 +76,11 @@ fn cases() -> Vec<Case> {
                 .collect();
             Case {
                 map,
-                title: format!("{} [{}] ({id})",
+                title: format!(
+                    "{} [{}] ({id})",
                     entry["title"].as_str().unwrap_or("?"),
-                    entry["version"].as_str().unwrap_or("?")),
+                    entry["version"].as_str().unwrap_or("?")
+                ),
                 expected,
             }
         })
@@ -91,7 +93,10 @@ fn the_corpus_is_there_and_is_worth_checking_against() {
     let cases = cases();
     assert!(cases.len() >= 5, "only {} maps in the corpus", cases.len());
     let pairs: usize = cases.iter().map(|c| c.expected.len()).sum();
-    assert!(pairs >= 100, "only {pairs} map-and-mods pairs to check against");
+    assert!(
+        pairs >= 100,
+        "only {pairs} map-and-mods pairs to check against"
+    );
 }
 
 #[test]
@@ -106,7 +111,9 @@ fn the_greatest_combo_a_map_allows_is_the_one_ppy_reports() {
     for case in cases() {
         for (key, attrs) in &case.expected {
             let Some(mods) = mods_of(key) else { continue };
-            let Some(theirs) = attrs["max_combo"].as_u64() else { continue };
+            let Some(theirs) = attrs["max_combo"].as_u64() else {
+                continue;
+            };
             let ours = u64::from(dossier_assay::max_combo(&case.map, mods));
             checked += 1;
             if ours != theirs {
@@ -138,12 +145,22 @@ fn the_pressing_difficulty_is_the_one_ppy_reports() {
     for case in cases() {
         for (key, attrs) in &case.expected {
             let Some(mods) = mods_of(key) else { continue };
-            let Some(theirs) = attrs["speed_difficulty"].as_f64() else { continue };
+            let Some(theirs) = attrs["speed_difficulty"].as_f64() else {
+                continue;
+            };
             let ours = dossier_assay::speed_difficulty(&case.map, mods);
             checked += 1;
-            let off = if theirs > 0.0 { (ours - theirs).abs() / theirs } else { (ours - theirs).abs() };
+            let off = if theirs > 0.0 {
+                (ours - theirs).abs() / theirs
+            } else {
+                (ours - theirs).abs()
+            };
             if worst.as_ref().is_none_or(|(_, _, w)| off > *w) {
-                worst = Some((format!("{} {key}: наш {ours:.4}, ppy {theirs:.4}", case.title), ours, off));
+                worst = Some((
+                    format!("{} {key}: наш {ours:.4}, ppy {theirs:.4}", case.title),
+                    ours,
+                    off,
+                ));
             }
         }
     }
@@ -155,7 +172,11 @@ fn the_pressing_difficulty_is_the_one_ppy_reports() {
     // which took the last third away. The second was found on the performance
     // side, where a map at overall difficulty 9.2 made a five per cent
     // difference impossible to miss.
-    assert!(off < 0.001, "худшее расхождение {:.2}% на {checked} парах — {what}", off * 100.0);
+    assert!(
+        off < 0.001,
+        "худшее расхождение {:.2}% на {checked} парах — {what}",
+        off * 100.0
+    );
 }
 
 /// The same walk for any attribute the corpus carries, reported as the worst
@@ -166,13 +187,18 @@ fn worst_against_ppy(field: &str, ours: impl Fn(&Beatmap, Mods) -> f64) -> (usiz
     for case in cases() {
         for (key, attrs) in &case.expected {
             let Some(mods) = mods_of(key) else { continue };
-            let Some(theirs) = attrs[field].as_f64() else { continue };
+            let Some(theirs) = attrs[field].as_f64() else {
+                continue;
+            };
             let mine = ours(&case.map, mods);
             checked += 1;
             let scale = theirs.abs().max(1e-9);
             let off = (mine - theirs).abs() / scale;
             if off > worst.0 {
-                worst = (off, format!("{} {key}: наш {mine:.6}, ppy {theirs:.6}", case.title));
+                worst = (
+                    off,
+                    format!("{} {key}: наш {mine:.6}, ppy {theirs:.6}", case.title),
+                );
             }
         }
     }
@@ -190,7 +216,11 @@ fn the_aiming_difficulty_is_the_one_ppy_reports() {
         dossier_assay::aim_difficulty(map, mods).0
     });
     assert!(checked >= 150, "only {checked} pairs");
-    assert!(off < 0.001, "худшее расхождение {:.2}% на {checked} парах — {what}", off * 100.0);
+    assert!(
+        off < 0.001,
+        "худшее расхождение {:.2}% на {checked} парах — {what}",
+        off * 100.0
+    );
 }
 
 #[test]
@@ -203,7 +233,11 @@ fn the_slider_factor_is_the_one_ppy_reports() {
         dossier_assay::aim_difficulty(map, mods).1
     });
     assert!(checked >= 150, "only {checked} pairs");
-    assert!(off < 0.005, "худшее расхождение {:.2}% на {checked} парах — {what}", off * 100.0);
+    assert!(
+        off < 0.005,
+        "худшее расхождение {:.2}% на {checked} парах — {what}",
+        off * 100.0
+    );
 }
 
 #[test]
@@ -221,15 +255,26 @@ fn the_counts_of_difficult_things_are_the_ones_ppy_reports() {
     // divides by the sum of the weights its strains were actually summed with,
     // which is why it can only be asked after the summation has run.
     for (field, get) in [
-        ("aim_difficult_slider_count",
-         (|a: &dossier_assay::Attributes| a.aim_difficult_slider_count) as fn(&_) -> f64),
-        ("aim_difficult_strain_count", |a| a.aim_difficult_strain_count),
-        ("speed_difficult_strain_count", |a| a.speed_difficult_strain_count),
+        (
+            "aim_difficult_slider_count",
+            (|a: &dossier_assay::Attributes| a.aim_difficult_slider_count) as fn(&_) -> f64,
+        ),
+        ("aim_difficult_strain_count", |a| {
+            a.aim_difficult_strain_count
+        }),
+        ("speed_difficult_strain_count", |a| {
+            a.speed_difficult_strain_count
+        }),
     ] {
-        let (checked, off, what) =
-            worst_against_ppy(field, |map, mods| get(&dossier_assay::attributes(map, mods)));
+        let (checked, off, what) = worst_against_ppy(field, |map, mods| {
+            get(&dossier_assay::attributes(map, mods))
+        });
         assert!(checked >= 150, "{field}: only {checked} pairs");
-        assert!(off < 0.005, "{field}: худшее расхождение {:.2}% — {what}", off * 100.0);
+        assert!(
+            off < 0.005,
+            "{field}: худшее расхождение {:.2}% — {what}",
+            off * 100.0
+        );
     }
 }
 
@@ -260,7 +305,11 @@ fn the_reading_difficulty_is_close_to_the_one_ppy_reports() {
         dossier_assay::attributes(map, mods).reading_difficulty
     });
     assert!(checked >= 150, "only {checked} pairs");
-    assert!(off < 0.04, "худшее расхождение {:.2}% на {checked} парах — {what}", off * 100.0);
+    assert!(
+        off < 0.04,
+        "худшее расхождение {:.2}% на {checked} парах — {what}",
+        off * 100.0
+    );
 }
 
 #[test]
@@ -273,7 +322,11 @@ fn the_count_of_hard_to_read_notes_is_close_too() {
         dossier_assay::attributes(map, mods).reading_difficult_note_count
     });
     assert!(checked >= 150, "only {checked} pairs");
-    assert!(off < 0.03, "худшее расхождение {:.2}% на {checked} парах — {what}", off * 100.0);
+    assert!(
+        off < 0.03,
+        "худшее расхождение {:.2}% на {checked} парах — {what}",
+        off * 100.0
+    );
 }
 
 #[test]
@@ -287,8 +340,15 @@ fn the_flashlight_difficulty_is_close_to_the_one_ppy_reports() {
     let (checked, off, what) = worst_against_ppy("flashlight_difficulty", |map, mods| {
         dossier_assay::attributes(map, mods).flashlight_difficulty
     });
-    assert!(checked >= 20, "only {checked} pairs — is the corpus missing the field?");
-    assert!(off < 0.03, "худшее расхождение {:.2}% на {checked} парах — {what}", off * 100.0);
+    assert!(
+        checked >= 20,
+        "only {checked} pairs — is the corpus missing the field?"
+    );
+    assert!(
+        off < 0.03,
+        "худшее расхождение {:.2}% на {checked} парах — {what}",
+        off * 100.0
+    );
 }
 
 #[test]
@@ -305,5 +365,9 @@ fn the_star_rating_is_close_to_the_one_ppy_reports() {
         dossier_assay::attributes(map, mods).star_rating
     });
     assert!(checked >= 150, "only {checked} pairs");
-    assert!(off < 0.015, "худшее расхождение {:.2}% на {checked} парах — {what}", off * 100.0);
+    assert!(
+        off < 0.015,
+        "худшее расхождение {:.2}% на {checked} парах — {what}",
+        off * 100.0
+    );
 }

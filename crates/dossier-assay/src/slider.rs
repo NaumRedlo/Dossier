@@ -86,9 +86,16 @@ pub fn nested_objects(
     velocity: f64,
 ) -> Vec<NestedObject> {
     let mut out = Vec::new();
-    let at = |progress: f64| path.position_at(progress).unwrap_or(Point { x: 0.0, y: 0.0 });
+    let at = |progress: f64| {
+        path.position_at(progress)
+            .unwrap_or(Point { x: 0.0, y: 0.0 })
+    };
 
-    out.push(NestedObject { kind: Nested::Head, time_ms: start_ms, pos: at(0.0) });
+    out.push(NestedObject {
+        kind: Nested::Head,
+        time_ms: start_ms,
+        pos: at(0.0),
+    });
     if span_duration_ms <= 0.0 || spans == 0 {
         return out;
     }
@@ -113,7 +120,11 @@ pub fn nested_objects(
                     break;
                 }
                 let path_progress = d / length;
-                let time_progress = if reversed { 1.0 - path_progress } else { path_progress };
+                let time_progress = if reversed {
+                    1.0 - path_progress
+                } else {
+                    path_progress
+                };
                 ticks.push(NestedObject {
                     kind: Nested::Tick,
                     time_ms: span_start + time_progress * span_duration_ms,

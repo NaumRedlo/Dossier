@@ -265,10 +265,7 @@ mod tests {
     fn a_partial_run_keeps_the_rows_it_did_not_see() {
         // The whole point: eleven replays on the disk must not delete the
         // other hundred and twenty-three.
-        let measured = vec![Expectation {
-            error: 0,
-            ..row()
-        }];
+        let measured = vec![Expectation { error: 0, ..row() }];
         let (rows, dropped) = after_run(&was(), measured, &on_disk(&[&"a".repeat(32)]), false);
         assert_eq!(rows.len(), 2);
         assert_eq!(dropped, 0);
@@ -327,7 +324,8 @@ mod tests {
 
     #[test]
     fn a_row_survives_being_written_and_read_back() {
-        let directory = std::env::temp_dir().join(format!("dossier-manifest-{}", std::process::id()));
+        let directory =
+            std::env::temp_dir().join(format!("dossier-manifest-{}", std::process::id()));
         std::fs::create_dir_all(&directory).expect("a scratch directory");
         let path = directory.join("corpus.tsv");
         let mut rows = BTreeMap::new();

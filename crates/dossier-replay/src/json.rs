@@ -271,10 +271,7 @@ mod tests {
 
         let mods = v.get("mods").and_then(Value::as_array).expect("an array");
         assert_eq!(mods.len(), 2);
-        assert_eq!(
-            mods[0].get("acronym").and_then(Value::as_str),
-            Some("CL")
-        );
+        assert_eq!(mods[0].get("acronym").and_then(Value::as_str), Some("CL"));
         assert_eq!(
             mods[0]
                 .get("settings")

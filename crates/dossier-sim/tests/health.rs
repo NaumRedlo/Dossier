@@ -198,7 +198,10 @@ fn the_calibration_settles_on_a_real_drain_rate() {
         assert!(rate > 0.0, "HP {hp} drains at nothing");
         // Strictly faster, not merely no slower — a constant would satisfy the
         // weaker form and a constant is exactly the thing being ruled out.
-        assert!(rate > last, "HP {hp} drains at {rate}, no faster than {last}");
+        assert!(
+            rate > last,
+            "HP {hp} drains at {rate}, no faster than {last}"
+        );
         last = rate;
     }
 }
@@ -252,7 +255,10 @@ fn nothing_drains_during_a_break() {
          [Events]\n2,4000,14000\n\n[HitObjects]\n",
     );
     let mut frames = Vec::new();
-    for (n, t) in [1000, 2000, 3000, 15_000, 16_000, 17_000].into_iter().enumerate() {
+    for (n, t) in [1000, 2000, 3000, 15_000, 16_000, 17_000]
+        .into_iter()
+        .enumerate()
+    {
         let (x, y) = note_at(n as i64);
         body.push_str(&format!("{x},{y},{t},1,0\n"));
         frames.extend(click(t, x, y));
@@ -373,7 +379,10 @@ fn the_model_draws_even_when_the_replay_brought_a_graph() {
 
     let state = GameState::new(&map, &replay);
     let bar = state.health_at(10_000.0).expect("a bar");
-    assert!(bar > 0.5, "the model should not believe the graph here: {bar}");
+    assert!(
+        bar > 0.5,
+        "the model should not believe the graph here: {bar}"
+    );
 
     // …and the graph is still kept, because it is what the model is measured
     // against. Losing it would make the model unfalsifiable.
@@ -424,5 +433,3 @@ fn halftime_drains_more_gently_per_millisecond() {
         floors[0]
     );
 }
-
-

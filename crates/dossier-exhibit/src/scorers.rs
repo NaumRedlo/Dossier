@@ -168,7 +168,6 @@ impl Scorer {
     }
 }
 
-
 /// A saturating curve from 0 to 1, reaching a half at `half`.
 ///
 /// The shape the play-side scorers needed and did not have. They anchor at
@@ -556,7 +555,6 @@ fn scramble(state: &GameState, settings: Settings) -> Vec<Candidate> {
         .collect()
 }
 
-
 /// Where the tapping is hardest, in presses a second.
 ///
 /// The third thing that can be busy, and it is not the other two. `storm`
@@ -717,8 +715,6 @@ fn storm(state: &GameState, settings: Settings) -> Vec<Candidate> {
         .collect()
 }
 
-
-
 // ── how close it came ────────────────────────────────────────────────────
 
 /// Health at or under this counts as the brink.
@@ -878,8 +874,8 @@ fn finale(state: &GameState) -> Vec<Candidate> {
         None => judge.final_state(),
     };
     let accuracy = final_state.accuracy();
-    let full_combo = final_state.max_combo >= state.max_possible_combo()
-        && state.max_possible_combo() > 0;
+    let full_combo =
+        final_state.max_combo >= state.max_possible_combo() && state.max_possible_combo() > 0;
 
     // A death is always the story, and a full combo is worth watching land
     // whatever the accuracy — an FC is an FC. Everything else is graded on the
@@ -943,8 +939,7 @@ fn travel(state: &GameState, settings: Settings) -> Vec<Candidate> {
         return Vec::new();
     }
     let spinners = outside_spinners(state);
-    let in_spinner =
-        |at: f64| spinners.iter().any(|&(from, to)| at >= from && at <= to);
+    let in_spinner = |at: f64| spinners.iter().any(|&(from, to)| at >= from && at <= to);
 
     // Distance covered between each frame and the one before it, dropped where
     // a spinner would drown it.

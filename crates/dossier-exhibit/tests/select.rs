@@ -97,7 +97,10 @@ fn clips_come_back_in_time_order() {
     let replay = played_perfectly(&map);
     let clips = choose(&GameState::new(&map, &replay), settings());
 
-    assert!(clips.len() > 1, "a minute of map should yield several clips");
+    assert!(
+        clips.len() > 1,
+        "a minute of map should yield several clips"
+    );
     for pair in clips.windows(2) {
         assert!(
             pair[0].span.from_ms <= pair[1].span.from_ms,
@@ -116,7 +119,12 @@ fn no_two_clips_overlap() {
 
     for (i, a) in clips.iter().enumerate() {
         for b in &clips[i + 1..] {
-            assert!(!a.span.overlaps(&b.span), "{:?} overlaps {:?}", a.span, b.span);
+            assert!(
+                !a.span.overlaps(&b.span),
+                "{:?} overlaps {:?}",
+                a.span,
+                b.span
+            );
         }
     }
 }
@@ -129,9 +137,16 @@ fn the_budget_is_a_ceiling() {
     settings.budget_ms = 18_000.0;
     let clips = choose(&GameState::new(&map, &replay), settings);
 
-    assert!(clips.len() <= 3, "18s of budget at 6s a clip is three clips, got {}", clips.len());
+    assert!(
+        clips.len() <= 3,
+        "18s of budget at 6s a clip is three clips, got {}",
+        clips.len()
+    );
     let total: f64 = clips.iter().map(|c| c.span.length_ms()).sum();
-    assert!(total <= settings.budget_ms + 1.0, "{total}ms of clips against an 18000ms budget");
+    assert!(
+        total <= settings.budget_ms + 1.0,
+        "{total}ms of clips against an 18000ms budget"
+    );
 }
 
 /// A clip is at least the length it was asked for and at most that much again
@@ -150,8 +165,7 @@ fn a_clip_runs_from_the_asked_length_up_to_the_stretch() {
             continue;
         }
         assert!(
-            clip.span.length_ms() >= 4_000.0 - 1e-6
-                && clip.span.length_ms() <= longest + 1e-6,
+            clip.span.length_ms() >= 4_000.0 - 1e-6 && clip.span.length_ms() <= longest + 1e-6,
             "{:?} is {:.0}ms, outside 4000..{longest:.0}",
             clip.reason.scorer().name(),
             clip.span.length_ms()
@@ -251,7 +265,10 @@ fn the_same_replay_gives_the_same_clips() {
     let replay = played_perfectly(&map);
     let once = choose(&GameState::new(&map, &replay), settings());
     let again = choose(&GameState::new(&map, &replay), settings());
-    assert_eq!(once, again, "selection has to be reproducible to be arguable");
+    assert_eq!(
+        once, again,
+        "selection has to be reproducible to be arguable"
+    );
 }
 
 /// A reel is a highlight and not a retelling: past a few clips it may not be
@@ -269,7 +286,11 @@ fn a_reel_is_not_most_of_a_long_enough_play() {
     let clips = choose(&state, settings());
 
     let reel: f64 = clips.iter().map(|c| c.span.length_ms()).sum();
-    assert!(clips.len() > 3, "a long play should still fill a reel, got {}", clips.len());
+    assert!(
+        clips.len() > 3,
+        "a long play should still fill a reel, got {}",
+        clips.len()
+    );
     assert!(
         reel <= (to - from) * 0.4 + 1.0,
         "{:.0}ms of reel is over two fifths of a {:.0}ms play",
@@ -319,7 +340,10 @@ fn the_proportion_never_cuts_below_three_clips_of_room() {
 fn a_long_play_earns_more_looks_than_a_short_one() {
     let short = map_of(&circles(1_000, 60_000, 250), "0,500,4,2,0,60,1,0");
     let long = map_of(&circles(1_000, 300_000, 250), "0,500,4,2,0,60,1,0");
-    let short_clips = choose(&GameState::new(&short, &played_perfectly(&short)), settings());
+    let short_clips = choose(
+        &GameState::new(&short, &played_perfectly(&short)),
+        settings(),
+    );
     let long_clips = choose(&GameState::new(&long, &played_perfectly(&long)), settings());
 
     assert!(
@@ -350,8 +374,18 @@ fn a_choke_is_chosen_over_a_quiet_stretch() {
             continue;
         }
         let keys = if i % 2 == 0 { 1 } else { 2 };
-        frames.push(ReplayFrame { time_ms: at - 8, x: object.pos.x as f32, y: object.pos.y as f32, keys: Keys(0) });
-        frames.push(ReplayFrame { time_ms: at, x: object.pos.x as f32, y: object.pos.y as f32, keys: Keys(keys) });
+        frames.push(ReplayFrame {
+            time_ms: at - 8,
+            x: object.pos.x as f32,
+            y: object.pos.y as f32,
+            keys: Keys(0),
+        });
+        frames.push(ReplayFrame {
+            time_ms: at,
+            x: object.pos.x as f32,
+            y: object.pos.y as f32,
+            keys: Keys(keys),
+        });
     }
     let state = GameState::new(&map, &replay_with(frames));
 
@@ -370,7 +404,10 @@ fn a_choke_is_chosen_over_a_quiet_stretch() {
                 && broke_at <= clip.span.to_ms
         }),
         "the break at {broke_at}ms is not in any clip: {:?}",
-        clips.iter().map(|c| (c.reason.scorer().name(), c.span)).collect::<Vec<_>>()
+        clips
+            .iter()
+            .map(|c| (c.reason.scorer().name(), c.span))
+            .collect::<Vec<_>>()
     );
 }
 
@@ -384,7 +421,9 @@ fn a_clean_play_falls_back_to_the_map() {
 
     assert!(!clips.is_empty(), "a clean play still deserves a reel");
     assert!(
-        clips.iter().all(|clip| !matches!(clip.reason, Reason::Choke { .. })),
+        clips
+            .iter()
+            .all(|clip| !matches!(clip.reason, Reason::Choke { .. })),
         "nothing broke, so nothing may be called a choke"
     );
 }
@@ -485,7 +524,10 @@ fn a_trivial_break_does_not_earn_a_choke_clip() {
         .into_iter()
         .filter(|(scorer, _)| *scorer == Scorer::Choke)
         .collect();
-    assert!(!chokes.is_empty(), "the play did break — the scorer should see it");
+    assert!(
+        !chokes.is_empty(),
+        "the play did break — the scorer should see it"
+    );
     for (_, candidate) in &chokes {
         assert!(
             candidate.strength < 0.05,
@@ -497,9 +539,14 @@ fn a_trivial_break_does_not_earn_a_choke_clip() {
 
     let clips = choose(&state, settings());
     assert!(
-        clips.iter().all(|clip| !matches!(clip.reason, Reason::Choke { .. })),
+        clips
+            .iter()
+            .all(|clip| !matches!(clip.reason, Reason::Choke { .. })),
         "a trivial break won a clip: {:?}",
-        clips.iter().map(|c| (c.reason.scorer().name(), c.score)).collect::<Vec<_>>()
+        clips
+            .iter()
+            .map(|c| (c.reason.scorer().name(), c.score))
+            .collect::<Vec<_>>()
     );
 }
 
@@ -559,7 +606,13 @@ fn a_play_that_ends_well_gets_its_ending_shown() {
         finale.span
     );
     assert!(
-        matches!(finale.reason, Reason::Finale { full_combo: true, .. }),
+        matches!(
+            finale.reason,
+            Reason::Finale {
+                full_combo: true,
+                ..
+            }
+        ),
         "{}",
         finale.reason.describe()
     );
@@ -727,7 +780,11 @@ fn a_typical_best_run_outscores_a_map_that_merely_exists() {
     // The map's busiest window is 1.0 by construction — that is what "against
     // its own busiest" means, and it is why the other side has to be graded on
     // a curve rather than a ratio.
-    assert!((best(Scorer::Storm) - 1.0).abs() < 1e-6, "{}", best(Scorer::Storm));
+    assert!(
+        (best(Scorer::Storm) - 1.0).abs() < 1e-6,
+        "{}",
+        best(Scorer::Storm)
+    );
 
     let run = best(Scorer::Peak);
     assert!(
@@ -897,10 +954,7 @@ fn played_with_a_gap(map: &Beatmap, from_ms: i64, to_ms: i64, mods: u32) -> Repl
 /// the game and the only thing here a viewer watches happen rather than infers.
 #[test]
 fn a_bar_that_nearly_empties_and_recovers_is_a_moment() {
-    let map = map_of(
-        &circles(1_000, 120_000, 300),
-        "0,500,4,2,0,60,1,0",
-    );
+    let map = map_of(&circles(1_000, 120_000, 300), "0,500,4,2,0,60,1,0");
     let state = GameState::new(&map, &played_with_a_gap(&map, 40_000, 55_000, 0));
 
     let brinks: Vec<_> = dossier_exhibit::candidates(&state, settings())
@@ -917,7 +971,10 @@ fn a_bar_that_nearly_empties_and_recovers_is_a_moment() {
         lowest < dossier_sim::DANGER_LEVEL,
         "the fixture never put the bar in danger (lowest {lowest:.2})"
     );
-    assert!(!brinks.is_empty(), "a bar in danger that recovered was not noticed");
+    assert!(
+        !brinks.is_empty(),
+        "a bar in danger that recovered was not noticed"
+    );
     for (_, candidate) in &brinks {
         assert!(
             (40_000.0..70_000.0).contains(&candidate.anchor_ms),
@@ -943,7 +1000,10 @@ fn a_play_that_cannot_die_has_no_brink() {
             .filter(|(scorer, _)| *scorer == Scorer::Brink)
             .count()
     };
-    assert!(count(&with) > 0, "the fixture should find a dip without NoFail");
+    assert!(
+        count(&with) > 0,
+        "the fixture should find a dip without NoFail"
+    );
     assert_eq!(count(&without), 0, "NoFail still produced a brink");
 }
 
@@ -1124,7 +1184,10 @@ fn the_hardest_tapping_is_found_where_the_presses_are() {
         "the burst is at 60s, the hardest tapping was found at {}",
         best.1.anchor_ms
     );
-    assert!((best.1.strength - 1.0).abs() < 1e-6, "the busiest window is the scale");
+    assert!(
+        (best.1.strength - 1.0).abs() < 1e-6,
+        "the busiest window is the scale"
+    );
 }
 
 /// A spinner is held, not tapped, and a player who mashes through one would
@@ -1182,6 +1245,3 @@ fn a_spinner_is_not_the_hardest_tapping() {
         );
     }
 }
-
-
-

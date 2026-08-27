@@ -53,12 +53,7 @@ pub fn build(
             // `combobreak` — and that is the one worth having: it marks the
             // moment a play changed rather than every note that went past.
             if event.part.breaks_combo() && run >= COMBO_BREAK_THRESHOLD {
-                track.strike_with(
-                    Voice::Miss,
-                    at_video(event.time_ms),
-                    SampleSet::Normal,
-                    1.0,
-                );
+                track.strike_with(Voice::Miss, at_video(event.time_ms), SampleSet::Normal, 1.0);
             }
             continue;
         }
@@ -136,22 +131,15 @@ fn sustained(
                 let level = voice_level(Voice::Slide);
                 track.sustain(Voice::Slide, span, set, bank, volume * level, |_| 1.0);
                 if object.hit_sound & sound_bits::WHISTLE != 0 {
-                    let (set, bank, volume) =
-                        bank_for(beatmap, object, Voice::Whistle, None);
+                    let (set, bank, volume) = bank_for(beatmap, object, Voice::Whistle, None);
                     let level = voice_level(Voice::SlideWhistle);
-                    track.sustain(
-                        Voice::SlideWhistle,
-                        span,
-                        set,
-                        bank,
-                        volume * level,
-                        |_| 1.0,
-                    );
+                    track.sustain(Voice::SlideWhistle, span, set, bank, volume * level, |_| {
+                        1.0
+                    });
                 }
             }
             dossier_beatmap::ObjectKind::Spinner { .. } => {
-                let needed =
-                    dossier_sim::required_spins(state.difficulty(), timed.duration_ms());
+                let needed = dossier_sim::required_spins(state.difficulty(), timed.duration_ms());
                 let (set, bank, volume) = bank_for(beatmap, object, Voice::Normal, None);
                 let held = timed.end_ms - timed.start_ms;
                 track.sustain(Voice::Spin, span, set, bank, volume, |seconds| {
@@ -225,12 +213,7 @@ fn bits_for(object: &HitObject, edge: Option<usize>) -> u8 {
 }
 
 /// Which sound a part of an object makes.
-fn voices_for(
-    part: Part,
-    object: &HitObject,
-    edge: Option<usize>,
-    layering: bool,
-) -> Vec<Voice> {
+fn voices_for(part: Part, object: &HitObject, edge: Option<usize>, layering: bool) -> Vec<Voice> {
     match part {
         // The slider's overall verdict is a score, not a strike, and a spinner
         // has no single moment to sound at.
@@ -521,7 +504,10 @@ mod tests {
             layered(sound_bits::FINISH, true),
             vec![Voice::Normal, Voice::Finish]
         );
-        assert_eq!(layered(sound_bits::CLAP, true), vec![Voice::Normal, Voice::Clap]);
+        assert_eq!(
+            layered(sound_bits::CLAP, true),
+            vec![Voice::Normal, Voice::Clap]
+        );
     }
 
     #[test]
@@ -872,11 +858,31 @@ mod miss_tests {
         for i in 0..25usize {
             let at = (1000 + i * 300) as i64;
             let (x, y) = ((60 + (i % 8) * 50) as f32, (60 + (i / 8) * 50) as f32);
-            frames.push(ReplayFrame { time_ms: at - 10, x, y, keys: Keys(0) });
-            frames.push(ReplayFrame { time_ms: at, x, y, keys: Keys(Keys::K1) });
-            frames.push(ReplayFrame { time_ms: at + 10, x, y, keys: Keys(0) });
+            frames.push(ReplayFrame {
+                time_ms: at - 10,
+                x,
+                y,
+                keys: Keys(0),
+            });
+            frames.push(ReplayFrame {
+                time_ms: at,
+                x,
+                y,
+                keys: Keys(Keys::K1),
+            });
+            frames.push(ReplayFrame {
+                time_ms: at + 10,
+                x,
+                y,
+                keys: Keys(0),
+            });
         }
-        frames.push(ReplayFrame { time_ms: 12_000, x: 0.0, y: 0.0, keys: Keys(0) });
+        frames.push(ReplayFrame {
+            time_ms: 12_000,
+            x: 0.0,
+            y: 0.0,
+            keys: Keys(0),
+        });
 
         let state = GameState::new(&map, &replay(frames));
         let track = build(
@@ -930,11 +936,31 @@ mod miss_tests {
         for i in 0..25usize {
             let at = (1000 + i * 300) as i64;
             let (x, y) = ((60 + (i % 8) * 50) as f32, (60 + (i / 8) * 50) as f32);
-            frames.push(ReplayFrame { time_ms: at - 10, x, y, keys: Keys(0) });
-            frames.push(ReplayFrame { time_ms: at, x, y, keys: Keys(Keys::K1) });
-            frames.push(ReplayFrame { time_ms: at + 10, x, y, keys: Keys(0) });
+            frames.push(ReplayFrame {
+                time_ms: at - 10,
+                x,
+                y,
+                keys: Keys(0),
+            });
+            frames.push(ReplayFrame {
+                time_ms: at,
+                x,
+                y,
+                keys: Keys(Keys::K1),
+            });
+            frames.push(ReplayFrame {
+                time_ms: at + 10,
+                x,
+                y,
+                keys: Keys(0),
+            });
         }
-        frames.push(ReplayFrame { time_ms: 12_000, x: 0.0, y: 0.0, keys: Keys(0) });
+        frames.push(ReplayFrame {
+            time_ms: 12_000,
+            x: 0.0,
+            y: 0.0,
+            keys: Keys(0),
+        });
         let state = GameState::new(&map, &replay(frames));
 
         // Total energy rather than a window. Every other sound in the two
@@ -1051,7 +1077,12 @@ mod held {
     }
 
     fn held_replay() -> Replay {
-        let mut frames = vec![ReplayFrame { time_ms: 900, x: 100.0, y: 192.0, keys: Keys(0) }];
+        let mut frames = vec![ReplayFrame {
+            time_ms: 900,
+            x: 100.0,
+            y: 192.0,
+            keys: Keys(0),
+        }];
         // Down on the head and following the ball to the end.
         for step in 0..=25i64 {
             let at = 1000 + step * 20;
@@ -1063,7 +1094,12 @@ mod held {
                 keys: Keys(Keys::K1),
             });
         }
-        frames.push(ReplayFrame { time_ms: 1600, x: 240.0, y: 192.0, keys: Keys(0) });
+        frames.push(ReplayFrame {
+            time_ms: 1600,
+            x: 240.0,
+            y: 192.0,
+            keys: Keys(0),
+        });
         replay(frames)
     }
 
@@ -1164,7 +1200,10 @@ mod held {
         };
 
         let plain = sounded("");
-        assert!(plain > 8, "the skin's own hit is not sounding at all: {plain}");
+        assert!(
+            plain > 8,
+            "the skin's own hit is not sounding at all: {plain}"
+        );
         assert_eq!(
             sounded(",0:0:0:0:map-clap.wav"),
             plain,
@@ -1224,10 +1263,23 @@ mod held {
         // silence is the information.
         let dir = samples_with(&["normal-sliderslide"]);
         let map = slider_map(0);
-        let state = GameState::new(&map, &replay(vec![
-            ReplayFrame { time_ms: 900, x: 0.0, y: 0.0, keys: Keys(0) },
-            ReplayFrame { time_ms: 2000, x: 0.0, y: 0.0, keys: Keys(0) },
-        ]));
+        let state = GameState::new(
+            &map,
+            &replay(vec![
+                ReplayFrame {
+                    time_ms: 900,
+                    x: 0.0,
+                    y: 0.0,
+                    keys: Keys(0),
+                },
+                ReplayFrame {
+                    time_ms: 2000,
+                    x: 0.0,
+                    y: 0.0,
+                    keys: Keys(0),
+                },
+            ]),
+        );
         let track = build(
             &state,
             &map,

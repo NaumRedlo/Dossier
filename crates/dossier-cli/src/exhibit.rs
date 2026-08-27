@@ -194,7 +194,6 @@ mod tests {
     }
 }
 
-
 // ── the survey ───────────────────────────────────────────────────────────
 
 /// What a run of Exhibit over many replays came to.
@@ -298,7 +297,10 @@ impl Survey {
             lengths[lengths.len() / 2],
             total,
         );
-        out.push_str(&format!("{:<11}{:>7}{:>10}{:>8}\n", "scorer", "clips", "per reel", "share"));
+        out.push_str(&format!(
+            "{:<11}{:>7}{:>10}{:>8}\n",
+            "scorer", "clips", "per reel", "share"
+        ));
 
         // Busiest first: the question this table answers is what a reel is
         // *made of*, and alphabetical order buries it.
@@ -322,10 +324,7 @@ impl Survey {
             ));
         }
         if self.merged > 0 {
-            out.push_str(&format!(
-                "\n{} clip(s) hold two moments\n",
-                self.merged
-            ));
+            out.push_str(&format!("\n{} clip(s) hold two moments\n", self.merged));
         }
         out.push_str(&format!(
             "\nreels with nothing about the run: {} of {} ({:.0}%)\n",
@@ -366,23 +365,54 @@ mod survey_tests {
         // happen to it.
         survey.add(
             &[
-                clip(Reason::Storm { objects: 60, of_densest: 1.0 }, 0.0, 6000.0),
-                clip(Reason::Travel { speed: 500.0, of_fastest: 1.0 }, 9000.0, 15000.0),
+                clip(
+                    Reason::Storm {
+                        objects: 60,
+                        of_densest: 1.0,
+                    },
+                    0.0,
+                    6000.0,
+                ),
+                clip(
+                    Reason::Travel {
+                        speed: 500.0,
+                        of_fastest: 1.0,
+                    },
+                    9000.0,
+                    15000.0,
+                ),
             ],
             1.0,
         );
         // …and one that did notice.
         survey.add(
             &[
-                clip(Reason::Storm { objects: 60, of_densest: 1.0 }, 0.0, 6000.0),
-                clip(Reason::Choke { combo: 900, through: 0.8 }, 9000.0, 15000.0),
+                clip(
+                    Reason::Storm {
+                        objects: 60,
+                        of_densest: 1.0,
+                    },
+                    0.0,
+                    6000.0,
+                ),
+                clip(
+                    Reason::Choke {
+                        combo: 900,
+                        through: 0.8,
+                    },
+                    9000.0,
+                    15000.0,
+                ),
             ],
             1.0,
         );
         assert_eq!((survey.reels, survey.no_run, survey.map_only), (2, 1, 0));
 
         let report = survey.report();
-        assert!(report.contains("nothing about the run: 1 of 2 (50%)"), "{report}");
+        assert!(
+            report.contains("nothing about the run: 1 of 2 (50%)"),
+            "{report}"
+        );
     }
 
     /// A replay with nothing to show is a real answer — twelve seconds of
@@ -392,7 +422,11 @@ mod survey_tests {
         let mut survey = Survey::default();
         survey.add(&[], 1.0);
         assert_eq!((survey.reels, survey.empty), (0, 1));
-        assert!(survey.report().starts_with("no reels:"), "{}", survey.report());
+        assert!(
+            survey.report().starts_with("no reels:"),
+            "{}",
+            survey.report()
+        );
     }
 
     /// The spans are map time; a rate mod compresses them into fewer seconds of

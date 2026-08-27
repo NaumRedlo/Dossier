@@ -60,8 +60,8 @@ pub fn flashlight_difficulty_of(objects: &[DiffObject], at: usize, hidden: bool)
             }
             // Only the first object of a stack is worth remembering.
             let stack_nerf = ((object.lazy_jump_distance / scaling) / 25.0).min(1.0);
-            let opacity_bonus = 1.0
-                + MAX_OPACITY_BONUS * (1.0 - current.opacity_at(object.raw_start_time, hidden));
+            let opacity_bonus =
+                1.0 + MAX_OPACITY_BONUS * (1.0 - current.opacity_at(object.raw_start_time, hidden));
             difficulty += stack_nerf * opacity_bonus * scaling * jump / cumulative_strain_time;
 
             if let (Some(here), Some(there)) = (current.angle, object.angle) {
@@ -85,7 +85,9 @@ pub fn flashlight_difficulty_of(objects: &[DiffObject], at: usize, hidden: bool)
     if current.is_slider {
         // Undone, to get the distance the cursor really covers.
         let pixels = current.lazy_travel_distance / scaling;
-        slider_bonus = (pixels / current.travel_time - MIN_VELOCITY).max(0.0).sqrt();
+        slider_bonus = (pixels / current.travel_time - MIN_VELOCITY)
+            .max(0.0)
+            .sqrt();
         // A longer slider is more to memorise.
         slider_bonus *= pixels;
         if current.repeat_count > 0 {
@@ -159,7 +161,10 @@ impl Flashlight {
         }
         peaks.push(section_peak);
 
-        Self { peaks, total_objects }
+        Self {
+            peaks,
+            total_objects,
+        }
     }
 
     /// The plain sum of the sections, held back on short maps.

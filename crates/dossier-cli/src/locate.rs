@@ -5,9 +5,9 @@
 //! and searched too, since that's how maps arrive from the website.
 
 use std::fs;
-use std::process::Command;
 use std::io::{Cursor, Read};
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 use md5::{Digest, Md5};
 

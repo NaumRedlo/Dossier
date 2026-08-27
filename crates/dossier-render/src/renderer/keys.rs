@@ -556,6 +556,29 @@ const OVERLAY_PRESSED: f32 = 0.75;
 /// units, which is the same answer arrived at honestly.
 const OVERLAY_KEY_INSET: f32 = 1.5;
 const OVERLAY_KEY_DROP: f32 = 7.0;
+/// How far above the middle of the frame the plate's *top* edge hangs.
+///
+/// ```csharp
+/// // the plate, and then every key, off one number
+/// y = height / 2 + (teams ? 40 : -40);
+/// plate  = new pSprite(…, new Vector2(width,      y));       // TopRight
+/// key[i] = new pSprite(…, new Vector2(width - 15, y + 19 + 29.5f * i));
+/// ```
+///
+/// Stated in the 640×480 space, so ×1.6 into the 768 one this engine uses:
+/// 64 above the middle, keys 30.4 below that and 47.2 apart, 24 in from the
+/// right edge. Two of those check the reading: a 46-unit key centred 30.4
+/// down starts 7.4 below the plate's top, and centred 24 in from the right
+/// stops 1 short of the edge — which are the seven and the one-and-a-half
+/// above, arrived at from the other side.
+///
+/// The point of it is what is *missing*: the plate's size is in none of it.
+/// osu! hangs the row off a fixed point and draws the panel behind it, so a
+/// skin shipping a taller or longer panel moves the panel and not the keys.
+/// Centring the plate instead — which is what this did — moved the keys with
+/// it, by 37 units on osu!'s own panel and 94 on the longest of the skins
+/// here.
+const OVERLAY_PLATE_RISE: f32 = 64.0;
 /// How much wider than tall the game draws the plate before standing it up.
 ///
 /// ```csharp
@@ -604,24 +627,20 @@ impl Scene<'_> {
         // down and the game turns it a quarter turn, so the strip's width is
         // the *height* the skin drew and its length is the width.
         //
-        // The panel is the visible object, so the panel is what sits in the
-        // middle of the frame, and the keys go where osu! puts them inside it —
-        // seven units down from its top.
+        // Where it hangs is fixed, and deliberately not derived from the plate:
+        // osu! puts the plate's top 64 units above the middle whatever the plate
+        // measures, and the keys seven below that. See `OVERLAY_PLATE_RISE`.
         let (plate, length) = self.plate_size(layout);
-        let top = if length > 0.0 {
-            let plate_top = (layout.height as f32 - length) / 2.0;
+        let plate_top = layout.height as f32 / 2.0 - self.skin_pixels(layout, OVERLAY_PLATE_RISE);
+        if length > 0.0 {
             self.draw_upright(
                 pixmap,
                 Element::InputOverlayBackground,
                 (right - plate, plate_top, plate, length),
                 presence,
             );
-            plate_top + self.skin_pixels(layout, OVERLAY_KEY_DROP)
-        } else {
-            // No plate to hang them off: centre the keys themselves.
-            let keys = KEY_NAMES.len() as f32;
-            (layout.height as f32 - (key_tall * keys + gap * (keys - 1.0))) / 2.0
-        };
+        }
+        let top = plate_top + self.skin_pixels(layout, OVERLAY_KEY_DROP);
 
         let rate = self.state.playback_rate().max(0.001);
         for index in 0..KEY_NAMES.len() {
@@ -767,7 +786,11 @@ impl Scene<'_> {
     /// cropped the way osu!'s own is behaves exactly as it did — its canvas and
     /// its button are the same rectangle.
     fn key_art(&self) -> Option<(&tiny_skia::Pixmap, f32, f32, f32, f32)> {
-        let (art, per) = self.skin.sprites.as_ref()?.coloured(Element::InputOverlayKey, 0)?;
+        let (art, per) = self
+            .skin
+            .sprites
+            .as_ref()?
+            .coloured(Element::InputOverlayKey, 0)?;
         let (mut x0, mut y0, mut x1, mut y1) = (u32::MAX, u32::MAX, 0u32, 0u32);
         for (index, pixel) in art.pixels().iter().enumerate() {
             if pixel.alpha() == 0 {

@@ -125,7 +125,11 @@ fn the_pieces_of_a_slider_score_flat_however_long_the_combo() {
             time_ms: t,
             x: 100.0 + 100.0 * progress,
             y: 100.0,
-            keys: Keys(if (4000..=4500).contains(&t) { Keys::K1 } else { 0 }),
+            keys: Keys(if (4000..=4500).contains(&t) {
+                Keys::K1
+            } else {
+                0
+            }),
         });
     }
 
@@ -320,7 +324,12 @@ fn stables_score_never_goes_backwards() {
     clean.sort_by_key(|f| f.time_ms);
     let replay = replay_with(clean, 0);
     let state = GameState::new(&map, &replay);
-    let track = ScoreTrack::build(state.judge().expect("judged"), &map, Mods::new(0), Ruleset::STABLE);
+    let track = ScoreTrack::build(
+        state.judge().expect("judged"),
+        &map,
+        Mods::new(0),
+        Ruleset::STABLE,
+    );
     assert!(
         track.total() > 1200,
         "the clean play should carry a combo bonus: {}",
@@ -343,7 +352,10 @@ fn lazers_score_falls_when_a_note_is_missed() {
 
     let before = track.at(2500.0);
     let after = track.at(3500.0);
-    assert!(after < before, "the miss cost nothing: {before} then {after}");
+    assert!(
+        after < before,
+        "the miss cost nothing: {before} then {after}"
+    );
 }
 
 #[test]
@@ -367,8 +379,9 @@ fn lazers_combo_half_is_weighted_by_what_the_note_was_worth_at_best() {
     //
     // Weighted by the earned value instead, the combo half would also fall to a
     // third and the total to about 58000.
-    let mut body =
-        String::from("[Difficulty]\nHPDrainRate:5\nCircleSize:5\nOverallDifficulty:5\n\n[HitObjects]\n");
+    let mut body = String::from(
+        "[Difficulty]\nHPDrainRate:5\nCircleSize:5\nOverallDifficulty:5\n\n[HitObjects]\n",
+    );
     let mut frames = Vec::new();
     for n in 0..12i64 {
         // Spread out: a pile of circles on one spot is a stack, and stable
@@ -386,7 +399,12 @@ fn lazers_combo_half_is_weighted_by_what_the_note_was_worth_at_best() {
     let judge = state.judge().expect("judged");
 
     // The premise: twelve hundreds, nothing missed, combo unbroken.
-    assert_eq!(judge.final_state().counts.count_100, 12, "{:?}", judge.events());
+    assert_eq!(
+        judge.final_state().counts.count_100,
+        12,
+        "{:?}",
+        judge.events()
+    );
     assert_eq!(judge.final_state().combo, 12);
 
     let track = ScoreTrack::build(judge, &map, Mods::new(0), Ruleset::LAZER);

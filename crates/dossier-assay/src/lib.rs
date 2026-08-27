@@ -121,7 +121,11 @@ pub fn hit_windows(overall_difficulty: f64, clock_rate: f64) -> (f64, f64, f64) 
         (dossier_beatmap::difficulty_range(overall_difficulty, min, mid, max).floor() - 0.5)
             / clock_rate
     };
-    (at(80.0, 50.0, 20.0), at(140.0, 100.0, 60.0), at(200.0, 150.0, 100.0))
+    (
+        at(80.0, 50.0, 20.0),
+        at(140.0, 100.0, 60.0),
+        at(200.0, 150.0, 100.0),
+    )
 }
 
 /// Work the map out once, under `mods`.
@@ -151,7 +155,13 @@ pub fn attributes(beatmap: &Beatmap, mods: Mods) -> Attributes {
 
     let has_flashlight = mods.contains(bits::FLASHLIGHT);
     let torch = flashlight::Flashlight::of(
-        &objects, has_flashlight, hidden, relax, touch, autopilot, objects.len() + 1,
+        &objects,
+        has_flashlight,
+        hidden,
+        relax,
+        touch,
+        autopilot,
+        objects.len() + 1,
     );
     let flashlight_rating = if has_flashlight {
         flashlight::difficulty_rating(torch.difficulty_value())
@@ -237,7 +247,9 @@ pub fn attributes(beatmap: &Beatmap, mods: Mods) -> Attributes {
             })
             .sum(),
         nested_score_per_object: legacy::nested_score_per_object(
-            beatmap, mods, circles + sliders + spinners,
+            beatmap,
+            mods,
+            circles + sliders + spinners,
         ),
         legacy_score_base_multiplier: f64::from(legacy::difficulty_peppy_stars(beatmap)),
         maximum_legacy_combo_score: legacy::maximum_combo_score(beatmap, mods),
@@ -281,7 +293,13 @@ pub fn speed_difficulty(beatmap: &Beatmap, mods: Mods) -> f64 {
 /// The tick spacing needs the tempo in force where the slider starts, which is
 /// the one number a resolved object does not carry, so the map is asked.
 pub fn slider_parts(beatmap: &Beatmap, object: &TimedObject) -> Vec<NestedObject> {
-    let TimedKind::Slider { path, slides, slide_duration_ms, .. } = &object.kind else {
+    let TimedKind::Slider {
+        path,
+        slides,
+        slide_duration_ms,
+        ..
+    } = &object.kind
+    else {
         return Vec::new();
     };
     let velocity = if *slide_duration_ms > 0.0 {
@@ -331,4 +349,3 @@ pub fn max_combo(beatmap: &Beatmap, mods: Mods) -> u32 {
         })
         .sum()
 }
-

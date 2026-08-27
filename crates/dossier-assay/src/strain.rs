@@ -28,7 +28,10 @@ pub struct StrainPeak {
 
 impl StrainPeak {
     pub fn new(value: f64, section_length: f64) -> Self {
-        Self { value, section_length: section_length.round() }
+        Self {
+            value,
+            section_length: section_length.round(),
+        }
     }
 }
 
@@ -139,9 +142,7 @@ impl Sections {
         }
 
         let peak = StrainPeak::new(self.peak, section_length);
-        let at = self
-            .peaks
-            .partition_point(|other| other.value > peak.value);
+        let at = self.peaks.partition_point(|other| other.value > peak.value);
         self.peaks.insert(at, peak);
         self.total_length += peak.section_length;
 
@@ -159,9 +160,7 @@ impl Sections {
     pub fn peaks(&mut self) -> &[StrainPeak] {
         if self.final_peak.is_none() {
             let peak = StrainPeak::new(self.peak, self.end - self.begin);
-            let at = self
-                .peaks
-                .partition_point(|other| other.value > peak.value);
+            let at = self.peaks.partition_point(|other| other.value > peak.value);
             self.peaks.insert(at, peak);
             self.final_peak = Some(peak);
         }
@@ -189,8 +188,11 @@ pub fn reduced_peaks(peaks: &[StrainPeak]) -> Vec<StrainPeak> {
     const REDUCED_STRAIN_BASELINE: f64 = 0.727;
     const CHUNK_SIZE: f64 = 20.0;
 
-    let mut strains: Vec<StrainPeak> =
-        peaks.iter().copied().filter(|peak| peak.value > 0.0).collect();
+    let mut strains: Vec<StrainPeak> = peaks
+        .iter()
+        .copied()
+        .filter(|peak| peak.value > 0.0)
+        .collect();
 
     let mut time = 0.0;
     let mut skip = 0usize;
@@ -198,8 +200,12 @@ pub fn reduced_peaks(peaks: &[StrainPeak]) -> Vec<StrainPeak> {
         let strain = strains[skip];
         let mut added = 0.0;
         while added < strain.section_length {
-            let scale =
-                lerp(1.0, 10.0, ((time + added) / REDUCED_SECTION_TIME).clamp(0.0, 1.0)).log10();
+            let scale = lerp(
+                1.0,
+                10.0,
+                ((time + added) / REDUCED_SECTION_TIME).clamp(0.0, 1.0),
+            )
+            .log10();
             // Added at the end and sorted afterwards, which ppy note is cheaper.
             strains.push(StrainPeak::new(
                 strain.value * lerp(REDUCED_STRAIN_BASELINE, 1.0, scale),
@@ -212,7 +218,11 @@ pub fn reduced_peaks(peaks: &[StrainPeak]) -> Vec<StrainPeak> {
     }
 
     let mut out: Vec<StrainPeak> = strains.split_off(skip.min(strains.len()));
-    out.sort_by(|a, b| b.value.partial_cmp(&a.value).unwrap_or(std::cmp::Ordering::Equal));
+    out.sort_by(|a, b| {
+        b.value
+            .partial_cmp(&a.value)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     out
 }
 

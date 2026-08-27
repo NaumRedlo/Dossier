@@ -1,17 +1,25 @@
 //! Where the speed figure disagrees with ppy, grouped by mods.
-use std::collections::BTreeMap;
 use dossier_beatmap::Beatmap;
 use dossier_replay::{bits, Mods};
+use std::collections::BTreeMap;
 
 fn mods_of(key: &str) -> Option<Mods> {
-    if key == "NM" { return Some(Mods::new(0)); }
+    if key == "NM" {
+        return Some(Mods::new(0));
+    }
     let mut raw = 0u32;
     for pair in key.as_bytes().chunks(2) {
         raw |= match std::str::from_utf8(pair).ok()? {
-            "NF" => bits::NO_FAIL, "EZ" => bits::EASY, "TD" => bits::TOUCH_DEVICE,
-            "HD" => bits::HIDDEN, "HR" => bits::HARD_ROCK, "DT" => bits::DOUBLE_TIME,
-            "HT" => bits::HALF_TIME, "NC" => bits::NIGHTCORE | bits::DOUBLE_TIME,
-            "FL" => bits::FLASHLIGHT, _ => return None,
+            "NF" => bits::NO_FAIL,
+            "EZ" => bits::EASY,
+            "TD" => bits::TOUCH_DEVICE,
+            "HD" => bits::HIDDEN,
+            "HR" => bits::HARD_ROCK,
+            "DT" => bits::DOUBLE_TIME,
+            "HT" => bits::HALF_TIME,
+            "NC" => bits::NIGHTCORE | bits::DOUBLE_TIME,
+            "FL" => bits::FLASHLIGHT,
+            _ => return None,
         };
     }
     Some(Mods::new(raw))
@@ -25,12 +33,21 @@ fn main() {
 
     for entry in corpus["maps"].as_array().unwrap() {
         let id = entry["beatmap_id"].as_u64().unwrap();
-        let map = Beatmap::parse(&std::fs::read_to_string(dir.join("maps").join(format!("{id}.osu"))).unwrap()).unwrap();
+        let map = Beatmap::parse(
+            &std::fs::read_to_string(dir.join("maps").join(format!("{id}.osu"))).unwrap(),
+        )
+        .unwrap();
         for (key, attrs) in entry["attributes"].as_object().unwrap() {
             let Some(mods) = mods_of(key) else { continue };
-            let field = std::env::args().nth(1).unwrap_or_else(|| "speed_difficulty".into());
-            let Some(theirs) = attrs[field.as_str()].as_f64() else { continue };
-            let field = std::env::args().nth(1).unwrap_or_else(|| "speed_difficulty".into());
+            let field = std::env::args()
+                .nth(1)
+                .unwrap_or_else(|| "speed_difficulty".into());
+            let Some(theirs) = attrs[field.as_str()].as_f64() else {
+                continue;
+            };
+            let field = std::env::args()
+                .nth(1)
+                .unwrap_or_else(|| "speed_difficulty".into());
             let a = dossier_assay::attributes(&map, mods);
             let ours = match field.as_str() {
                 "aim_difficulty" => a.aim_difficulty,
@@ -51,8 +68,11 @@ fn main() {
             };
             let off = (ours - theirs) / theirs * 100.0;
             if std::env::args().nth(2).is_some() && off.abs() > 0.5 {
-                println!("  {key:8} {:.2}% — {} ({id})", off,
-                         entry["title"].as_str().unwrap_or("?"));
+                println!(
+                    "  {key:8} {:.2}% — {} ({id})",
+                    off,
+                    entry["title"].as_str().unwrap_or("?")
+                );
             }
             by_mods.entry(key.clone()).or_default().push(off);
         }

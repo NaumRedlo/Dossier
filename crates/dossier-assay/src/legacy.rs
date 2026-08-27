@@ -225,7 +225,9 @@ pub fn score_based_miss_count(
     attributes: &crate::Attributes,
     mods: Mods,
 ) -> f64 {
-    let Some(total) = score.legacy_total_score else { return 0.0 };
+    let Some(total) = score.legacy_total_score else {
+        return 0.0;
+    };
     if attributes.max_combo == 0 {
         return 0.0;
     }
@@ -234,8 +236,13 @@ pub fn score_based_miss_count(
     let combo_per_object = relevant_combo_per_object(attributes);
     let maximum = maximum_combo_based_miss_count(score, attributes);
 
-    let during_max_combo =
-        score_at_combo(score, attributes, f64::from(score.max_combo), combo_per_object, v1_multiplier);
+    let during_max_combo = score_at_combo(
+        score,
+        attributes,
+        f64::from(score.max_combo),
+        combo_per_object,
+        v1_multiplier,
+    );
     let remaining = total as f64 - during_max_combo;
     if remaining <= 0.0 {
         // The total is entirely accounted for by the best combo, so nothing can
@@ -244,7 +251,13 @@ pub fn score_based_miss_count(
     }
 
     let remaining_combo = f64::from(attributes.max_combo.saturating_sub(score.max_combo));
-    let expected = score_at_combo(score, attributes, remaining_combo, combo_per_object, v1_multiplier);
+    let expected = score_at_combo(
+        score,
+        attributes,
+        remaining_combo,
+        combo_per_object,
+        v1_multiplier,
+    );
 
     // How many times the remainder had to be started over.
     (expected / remaining).max(1.0).min(maximum)
@@ -303,11 +316,9 @@ fn maximum_combo_based_miss_count(
     if attributes.slider_count == 0 {
         return misses;
     }
-    let likely_dropped =
-        0.04 + 0.06 * attributes.aim_top_weighted_slider_factor.min(1.0).powi(2);
+    let likely_dropped = 0.04 + 0.06 * attributes.aim_top_weighted_slider_factor.min(1.0).powi(2);
     let sliders = f64::from(attributes.slider_count);
-    let threshold =
-        f64::from(attributes.max_combo) - (4.0 + likely_dropped * sliders).min(sliders);
+    let threshold = f64::from(attributes.max_combo) - (4.0 + likely_dropped * sliders).min(sliders);
 
     let mut count = 0.0;
     if f64::from(score.max_combo) < threshold {

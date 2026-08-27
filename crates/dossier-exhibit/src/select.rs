@@ -199,9 +199,9 @@ pub(crate) fn choose(
     // Two ceilings, and the tighter one wins: what the caller will sit through,
     // and how much of this particular play a reel may be. The floor under the
     // second is what keeps a very short play from being cut to a single clip.
-    let mut budget_left = settings.budget_ms.min(
-        ((play.1 - play.0) * MOST_OF_A_PLAY).max(LEAST_REEL_CLIPS * settings.clip_ms),
-    );
+    let mut budget_left = settings
+        .budget_ms
+        .min(((play.1 - play.0) * MOST_OF_A_PLAY).max(LEAST_REEL_CLIPS * settings.clip_ms));
     loop {
         let mut best: Option<Pick> = None;
         for (index, candidate) in ranked.iter().enumerate() {
@@ -255,7 +255,11 @@ pub(crate) fn choose(
                     let near = (1.0 - (already.anchor_ms - candidate.anchor_ms).abs() / reach)
                         .clamp(0.0, 1.0);
                     (
-                        same + if already.scorer == candidate.scorer { near } else { 0.0 },
+                        same + if already.scorer == candidate.scorer {
+                            near
+                        } else {
+                            0.0
+                        },
                         kind + i32::from(already.scorer.facet() == candidate.scorer.facet()),
                     )
                 })
@@ -335,7 +339,6 @@ struct Chosen {
     reason: crate::Reason,
     with: Option<crate::Reason>,
 }
-
 
 /// The best candidate this pass found, and what taking it would mean.
 #[derive(Clone, Copy)]

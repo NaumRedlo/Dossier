@@ -310,7 +310,11 @@ impl Replay {
     /// lazer knows its own version and says so; stable's header carries a date
     /// stamp instead, which is rendered here the way the game writes it.
     pub fn client_version(&self) -> String {
-        match self.score_info.as_ref().and_then(|i| i.client_version.clone()) {
+        match self
+            .score_info
+            .as_ref()
+            .and_then(|i| i.client_version.clone())
+        {
             Some(version) => version,
             None => {
                 let v = self.game_version;
@@ -540,7 +544,10 @@ pub fn life_points(life_bar: &str) -> Vec<(f64, f32)> {
         .split(',')
         .filter_map(|entry| {
             let (time, value) = entry.trim().split_once('|')?;
-            Some((time.parse().ok()?, value.parse::<f32>().ok()?.clamp(0.0, 1.0)))
+            Some((
+                time.parse().ok()?,
+                value.parse::<f32>().ok()?.clamp(0.0, 1.0),
+            ))
         })
         .collect();
     out.sort_by(|a, b| a.0.total_cmp(&b.0));

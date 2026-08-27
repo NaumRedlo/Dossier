@@ -662,8 +662,7 @@ fn combo_end_map(judge: &Judge, timeline: &Timeline) -> std::collections::HashMa
         }
 
         let object = event.object_index;
-        let ends = object + 1 >= timeline.objects.len()
-            || timeline.objects[object + 1].new_combo;
+        let ends = object + 1 >= timeline.objects.len() || timeline.objects[object + 1].new_combo;
         if !ends {
             continue;
         }

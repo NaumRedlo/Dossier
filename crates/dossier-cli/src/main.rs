@@ -95,10 +95,7 @@ const DRAWN_FROM_SKINS: &[Element] = &[
 /// The health bar's pieces, including all three of its marks.
 fn scorebar_pieces() -> Vec<Element> {
     let mut all = vec![Element::ScoreBarBackground, Element::ScoreBarFill];
-    all.extend(
-        [Health::Fine, Health::Low, Health::Critical]
-            .map(Element::ScoreBarMark),
-    );
+    all.extend([Health::Fine, Health::Low, Health::Critical].map(Element::ScoreBarMark));
     all
 }
 
@@ -425,21 +422,56 @@ impl Command {
             "--to",
         ];
         // The hit-sound kit, shared by `sounds`, `video` and `exhibit`.
-        const HITSOUND: &[&str] =
-            &["--samples", "--game-sounds", "--kit", "--pitch", "--decay", "--level"];
+        const HITSOUND: &[&str] = &[
+            "--samples",
+            "--game-sounds",
+            "--kit",
+            "--pitch",
+            "--decay",
+            "--level",
+        ];
 
         let groups: &[&[&str]] = match self {
             Self::Assay => &[
                 &["--map", "--mods"],
-                &["--accuracy", "--combo", "--misses", "--n300", "--n100", "--n50"],
-                &["--slider-ends", "--large-tick-misses", "--classic", "--legacy-total"],
+                &[
+                    "--accuracy",
+                    "--combo",
+                    "--misses",
+                    "--n300",
+                    "--n100",
+                    "--n50",
+                ],
+                &[
+                    "--slider-ends",
+                    "--large-tick-misses",
+                    "--classic",
+                    "--legacy-total",
+                ],
             ],
             Self::Inspect => &[&["--json"]],
             Self::Judge => &[
                 MAP,
-                &["--json", "--explain", "--trace", "--marginal", "--strict", "--from", "--to"],
+                &[
+                    "--json",
+                    "--explain",
+                    "--trace",
+                    "--marginal",
+                    "--strict",
+                    "--from",
+                    "--to",
+                ],
             ],
-            Self::Corpus => &[MAP, &["--expect", "--update-expect", "--prune", "--strict", "--threads"]],
+            Self::Corpus => &[
+                MAP,
+                &[
+                    "--expect",
+                    "--update-expect",
+                    "--prune",
+                    "--strict",
+                    "--threads",
+                ],
+            ],
             Self::Debug => &[MAP, &["--from", "--to"]],
             Self::Sliders | Self::Errors | Self::Score => &[MAP],
             Self::Health => &[MAP, &["--trace"]],
@@ -451,7 +483,22 @@ impl Command {
                 &["--background"],
                 // `exhibit` encodes like `video` but chooses its own spans, so
                 // it takes the encode options save the two that name a span.
-                &["--fps", "--crf", "--preset", "--mute", "--volume", "--music", "--hitsounds", "--no-map-hitsounds", "--trace-hitsounds", "--dim", "--ffmpeg", "--threads", "--encoder-threads", "--events"],
+                &[
+                    "--fps",
+                    "--crf",
+                    "--preset",
+                    "--mute",
+                    "--volume",
+                    "--music",
+                    "--hitsounds",
+                    "--no-map-hitsounds",
+                    "--trace-hitsounds",
+                    "--dim",
+                    "--ffmpeg",
+                    "--threads",
+                    "--encoder-threads",
+                    "--events",
+                ],
                 HITSOUND,
                 &["--json", "--for", "--worth", "--clip", "--survey"],
             ],
@@ -502,26 +549,86 @@ fn canonical(flag: &str) -> &str {
 /// placeholder, and a one-line summary. The single source a per-command help is
 /// built from — [`Command::accepts`] picks which rows each command shows.
 const OPTIONS_TABLE: &[(&str, &str, &str)] = &[
-    ("--map", "<path>", "the .osu or .osz to judge against (short -m)"),
-    ("--songs", "<dir>", "where to search for the map (short -s; $DOSSIER_SONGS_DIR)"),
-    ("--json", "", "one JSON object per replay, on its own line (short -j)"),
-    ("--explain", "", "list every miss and what the input says near it (short -e)"),
-    ("--trace", "", "account for every click; with --from/--to, list that window (short -t)"),
-    ("--marginal", "<n>", "the n hits that came closest to not being hits"),
-    ("--strict", "[n]", "fail on a mismatch; with n, fail when the corpus total is worse"),
+    (
+        "--map",
+        "<path>",
+        "the .osu or .osz to judge against (short -m)",
+    ),
+    (
+        "--songs",
+        "<dir>",
+        "where to search for the map (short -s; $DOSSIER_SONGS_DIR)",
+    ),
+    (
+        "--json",
+        "",
+        "one JSON object per replay, on its own line (short -j)",
+    ),
+    (
+        "--explain",
+        "",
+        "list every miss and what the input says near it (short -e)",
+    ),
+    (
+        "--trace",
+        "",
+        "account for every click; with --from/--to, list that window (short -t)",
+    ),
+    (
+        "--marginal",
+        "<n>",
+        "the n hits that came closest to not being hits",
+    ),
+    (
+        "--strict",
+        "[n]",
+        "fail on a mismatch; with n, fail when the corpus total is worse",
+    ),
     ("--expect", "<tsv>", "the corpus manifest to check against"),
-    ("--update-expect", "", "write what this run measured into the manifest"),
-    ("--prune", "", "with --update-expect, drop rows this run did not see"),
-    ("--threads", "<n>", "threads drawing frames, or judging replays for corpus"),
+    (
+        "--update-expect",
+        "",
+        "write what this run measured into the manifest",
+    ),
+    (
+        "--prune",
+        "",
+        "with --update-expect, drop rows this run did not see",
+    ),
+    (
+        "--threads",
+        "<n>",
+        "threads drawing frames, or judging replays for corpus",
+    ),
     ("--at", "<ms>", "the instant to draw, in map time"),
-    ("--slow", "<ms>", "a map instant to slow into and back out of"),
-    ("--background", "", "draw the map's own artwork behind the play"),
+    (
+        "--slow",
+        "<ms>",
+        "a map instant to slow into and back out of",
+    ),
+    (
+        "--background",
+        "",
+        "draw the map's own artwork behind the play",
+    ),
     ("--from", "<ms>", "start of the span, in map time"),
     ("--to", "<ms>", "end of the span, in map time"),
-    ("--for", "<s>", "the most video a reel may come to (a ceiling, not a target)"),
-    ("--worth", "<0..1>", "the score under which a moment is not worth its seconds"),
+    (
+        "--for",
+        "<s>",
+        "the most video a reel may come to (a ceiling, not a target)",
+    ),
+    (
+        "--worth",
+        "<0..1>",
+        "the score under which a moment is not worth its seconds",
+    ),
     ("--clip", "<s>", "shortest clip, in seconds"),
-    ("--survey", "", "aggregate over every replay instead of answering about one"),
+    (
+        "--survey",
+        "",
+        "aggregate over every replay instead of answering about one",
+    ),
     ("--out", "<path>", "where to write the output (short -o)"),
     ("--size", "<WxH>", "output size"),
     ("--fps", "<n>", "frames per second"),
@@ -530,25 +637,69 @@ const OPTIONS_TABLE: &[(&str, &str, &str)] = &[
     ("--mute", "", "skip the map's audio"),
     ("--ffmpeg", "<path>", "the encoder to run"),
     ("--encoder-threads", "<n>", "cap the encoder's own threads"),
-    ("--events", "", "report what the render is doing on stdout, as JSON lines"),
+    (
+        "--events",
+        "",
+        "report what the render is doing on stdout, as JSON lines",
+    ),
     ("--skin", "<name>", "`1984` (default) or `classic`"),
-    ("--bare", "", "draw the play and nothing that talks about it"),
+    (
+        "--bare",
+        "",
+        "draw the play and nothing that talks about it",
+    ),
     ("--no-map-hitsounds", "", "play the skin's hit sounds alone"),
     ("--dim", "<0-100>", "how far the map's artwork is darkened"),
     ("--blur", "<0-100>", "how hard the map's artwork is blurred"),
-    ("--meter-scale", "<0.5-3>", "how big the hit-error meter is drawn"),
-    ("--cursor-scale", "<0.4-2>", "how big the cursor and its trail are drawn"),
-    ("--skin-as-written", "", "date a skin the way osu! does, rocking arrows and all"),
-    ("--trace-hitsounds", "", "say what every sound resolved to, and how often"),
-    ("--volume", "<0-200>", "how loud everything is, over the two below"),
+    (
+        "--meter-scale",
+        "<0.5-3>",
+        "how big the hit-error meter is drawn",
+    ),
+    (
+        "--cursor-scale",
+        "<0.4-2>",
+        "how big the cursor and its trail are drawn",
+    ),
+    (
+        "--skin-as-written",
+        "",
+        "date a skin the way osu! does, rocking arrows and all",
+    ),
+    (
+        "--trace-hitsounds",
+        "",
+        "say what every sound resolved to, and how often",
+    ),
+    (
+        "--volume",
+        "<0-200>",
+        "how loud everything is, over the two below",
+    ),
     ("--music", "<0-100>", "how loud the map's own track is"),
     ("--hitsounds", "<0-100>", "how loud the hit sounds are"),
-    ("--effects", "<list>", "which optional movements are on, comma separated"),
+    (
+        "--effects",
+        "<list>",
+        "which optional movements are on, comma separated",
+    ),
     ("--font", "<path>", "typeface for the HUD ($DOSSIER_FONT)"),
-    ("--leaderboard", "<tsv>", "who else has played this map, down the left"),
-    ("--my-pictures", "<a> <c>", "the player's own avatar and cover"),
+    (
+        "--leaderboard",
+        "<tsv>",
+        "who else has played this map, down the left",
+    ),
+    (
+        "--my-pictures",
+        "<a> <c>",
+        "the player's own avatar and cover",
+    ),
     ("--samples", "<dir>", "a skin folder of hit-sound WAVs"),
-    ("--game-sounds", "<dir>", "osu!'s own sounds, for what a skin leaves out ($DOSSIER_GAME_SOUNDS)"),
+    (
+        "--game-sounds",
+        "<dir>",
+        "osu!'s own sounds, for what a skin leaves out ($DOSSIER_GAME_SOUNDS)",
+    ),
     ("--kit", "<name>", "click, soft, drum, glass or wood"),
     ("--pitch", "<x>", "multiply every hit-sound frequency"),
     ("--decay", "<x>", "multiply every hit-sound decay"),
@@ -913,7 +1064,10 @@ impl Options {
             return pack;
         }
         let pack = pack.with_beatmap(&dir);
-        eprintln!("dossier: {} sound(s) from the map itself", pack.from_beatmap());
+        eprintln!(
+            "dossier: {} sound(s) from the map itself",
+            pack.from_beatmap()
+        );
         pack
     }
 
@@ -1007,9 +1161,9 @@ impl SkinChoice {
             // Named plainly rather than dismissed: a deployment that still
             // asks for the house skin should be told it is gone, not told its
             // spelling is wrong.
-            "1984" | "dossier" => Err(
-                "the `1984` skin was removed — use `classic`, or import a skin".to_owned(),
-            ),
+            "1984" | "dossier" => {
+                Err("the `1984` skin was removed — use `classic`, or import a skin".to_owned())
+            }
             other => Err(format!(
                 "unknown skin `{other}` — try classic, or the path to a skin folder"
             )),
@@ -1019,7 +1173,11 @@ impl SkinChoice {
     fn visual(&self, beatmap: &Beatmap, effects: Option<&str>) -> Skin {
         let mut skin = Skin::with_combo_colours(beatmap.combo_colours());
         if let Self::Folder(path) = self {
-            skin = dress(skin, path, effects.map(|list| Effects::asked_for(list, "slider-ball-tint")));
+            skin = dress(
+                skin,
+                path,
+                effects.map(|list| Effects::asked_for(list, "slider-ball-tint")),
+            );
         }
         // After the folder, not before: an imported skin may say `CursorExpand:
         // 0` and that is the skin's own refusal, which the flag below turns on
@@ -1246,7 +1404,9 @@ impl Options {
                         .parse()
                         .map_err(|_| "--cursor-scale wants a number from 0.4 to 2")?;
                     if !(0.4..=2.0).contains(&at) {
-                        return Err(format!("--cursor-scale runs from 0.4 to 2 — {at} is outside it"));
+                        return Err(format!(
+                            "--cursor-scale runs from 0.4 to 2 — {at} is outside it"
+                        ));
                     }
                     options.cursor_scale = Some(at);
                 }
@@ -1268,19 +1428,32 @@ impl Options {
                         .parse()
                         .map_err(|_| "--meter-scale wants a number from 0.5 to 3")?;
                     if !(0.5..=3.0).contains(&at) {
-                        return Err(format!("--meter-scale runs from 0.5 to 3 — {at} is outside it"));
+                        return Err(format!(
+                            "--meter-scale runs from 0.5 to 3 — {at} is outside it"
+                        ));
                     }
                     options.meter_scale = Some(at);
                 }
                 "--mods" => {
                     options.mods = Some(
-                        rest.next().ok_or("--mods needs acronyms, e.g. HDDT")?.to_owned(),
+                        rest.next()
+                            .ok_or("--mods needs acronyms, e.g. HDDT")?
+                            .to_owned(),
                     );
                 }
                 "--classic" => options.classic = true,
-                flag @ ("--accuracy" | "--combo" | "--misses" | "--n300" | "--n100" | "--n50"
-                        | "--slider-ends" | "--large-tick-misses" | "--legacy-total") => {
-                    let raw = rest.next().ok_or_else(|| format!("{flag} needs a number"))?;
+                flag @ ("--accuracy"
+                | "--combo"
+                | "--misses"
+                | "--n300"
+                | "--n100"
+                | "--n50"
+                | "--slider-ends"
+                | "--large-tick-misses"
+                | "--legacy-total") => {
+                    let raw = rest
+                        .next()
+                        .ok_or_else(|| format!("{flag} needs a number"))?;
                     let number: f64 = raw
                         .parse()
                         .map_err(|_| format!("{flag} wants a number, not {raw:?}"))?;
@@ -1468,14 +1641,17 @@ impl Options {
                 "--prune" => options.prune = true,
                 "--events" => options.events = true,
                 "--leaderboard" => {
-                    options.leaderboard =
-                        Some(PathBuf::from(rest.next().ok_or("--leaderboard needs a path")?));
+                    options.leaderboard = Some(PathBuf::from(
+                        rest.next().ok_or("--leaderboard needs a path")?,
+                    ));
                 }
                 "--my-pictures" => {
-                    options.my_avatar =
-                        Some(PathBuf::from(rest.next().ok_or("--my-pictures needs two paths")?));
-                    options.my_cover =
-                        Some(PathBuf::from(rest.next().ok_or("--my-pictures needs two paths")?));
+                    options.my_avatar = Some(PathBuf::from(
+                        rest.next().ok_or("--my-pictures needs two paths")?,
+                    ));
+                    options.my_cover = Some(PathBuf::from(
+                        rest.next().ok_or("--my-pictures needs two paths")?,
+                    ));
                 }
                 other if other.starts_with('-') => {
                     return Err(format!("unknown option `{other}`"));
@@ -1613,8 +1789,7 @@ fn corpus(options: Options) -> ExitCode {
                         // apart: it is one number against one number, where the
                         // four counts trade against each other and a slider read
                         // the wrong way moves two of them at once.
-                        let error = u32::from(ours.count_300)
-                            .abs_diff(u32::from(theirs.count_300))
+                        let error = u32::from(ours.count_300).abs_diff(u32::from(theirs.count_300))
                             + u32::from(ours.count_100).abs_diff(u32::from(theirs.count_100))
                             + u32::from(ours.count_50).abs_diff(u32::from(theirs.count_50))
                             + u32::from(ours.count_miss).abs_diff(u32::from(theirs.count_miss));
@@ -1664,10 +1839,7 @@ fn corpus(options: Options) -> ExitCode {
     let mut rows: Vec<Row> = ordered.into_iter().map(|(_, row)| row).collect();
 
     let total: u32 = rows.iter().map(|r| r.error).sum();
-    let exact = rows
-        .iter()
-        .filter(|r| r.error == 0 && r.combo == 0)
-        .count();
+    let exact = rows.iter().filter(|r| r.error == 0 && r.combo == 0).count();
     let lazer = rows.iter().filter(|r| r.client == "lazer").count();
 
     rows.sort_by(|a, b| {
@@ -1738,7 +1910,10 @@ fn corpus(options: Options) -> ExitCode {
                 })
                 .collect();
             let (updated, dropped) = manifest::after_run(expected, measured, &seen, options.prune);
-            let fresh = rows.iter().filter(|row| !expected.contains_key(&row.md5)).count();
+            let fresh = rows
+                .iter()
+                .filter(|row| !expected.contains_key(&row.md5))
+                .count();
             match manifest::write(path, &updated) {
                 Ok(()) => {
                     let kept = updated.len() - rows.len();
@@ -2440,7 +2615,12 @@ fn read_header(replay_path: &Path) -> Result<Header, String> {
         statistics: replay
             .score_info
             .as_ref()
-            .map(|info| info.statistics.iter().map(|(k, v)| (k.clone(), *v)).collect())
+            .map(|info| {
+                info.statistics
+                    .iter()
+                    .map(|(k, v)| (k.clone(), *v))
+                    .collect()
+            })
             .unwrap_or_default(),
     })
 }
@@ -2684,7 +2864,10 @@ fn survey(options: &Options) -> ExitCode {
             continue;
         };
         let state = GameState::new(&beatmap, &replay);
-        survey.add(&dossier_exhibit::choose(&state, settings), state.playback_rate());
+        survey.add(
+            &dossier_exhibit::choose(&state, settings),
+            state.playback_rate(),
+        );
     }
     print!("{}", survey.report());
     ExitCode::SUCCESS
@@ -2854,16 +3037,11 @@ fn exhibit_command(options: Options) -> ExitCode {
         settings.out.display()
     );
 
-    match reel::render(
-        &scene,
-        &state,
-        &clips,
-        &settings,
-        scratch.as_ref(),
-        &sounds,
-    ) {
+    match reel::render(&scene, &state, &clips, &settings, scratch.as_ref(), &sounds) {
         Ok(()) => {
-            let size = std::fs::metadata(&settings.out).map(|m| m.len()).unwrap_or(0);
+            let size = std::fs::metadata(&settings.out)
+                .map(|m| m.len())
+                .unwrap_or(0);
             // With `--events` stdout is the watcher's channel and this line
             // would be a stray object in the middle of it. The same fact goes
             // out as an event instead, and the person keeps their sentence.
@@ -2984,13 +3162,15 @@ fn backdrop(
         &bytes,
         size.0,
         size.1,
-        options.dim.map_or(skin.background_dim, |at| at as f32 / 100.0),
+        options
+            .dim
+            .map_or(skin.background_dim, |at| at as f32 / 100.0),
         // A share of what the skin blurs by, so zero is a sharp picture and a
         // hundred is what a render has always looked like — rather than a
         // figure in frame-heights that means nothing to anybody setting it.
-        options
-            .blur
-            .map_or(skin.background_blur, |at| skin.background_blur * at as f32 / 100.0),
+        options.blur.map_or(skin.background_blur, |at| {
+            skin.background_blur * at as f32 / 100.0
+        }),
         skin.background,
     );
     if prepared.is_none() {
@@ -3006,7 +3186,10 @@ fn load_leaderboard(path: Option<&Path>, player: &str) -> dossier_render::Leader
     match std::fs::read_to_string(path) {
         Ok(text) => dossier_render::Leaderboard::parse(&text, player),
         Err(error) => {
-            eprintln!("dossier: {}: {error} — drawing without a scoreboard", path.display());
+            eprintln!(
+                "dossier: {}: {error} — drawing without a scoreboard",
+                path.display()
+            );
             dossier_render::Leaderboard::default()
         }
     }
@@ -3200,7 +3383,9 @@ fn video_command(options: Options) -> ExitCode {
         state.ending().map(|end| end.time_ms),
     ) {
         Ok(()) => {
-            let size = std::fs::metadata(&settings.out).map(|m| m.len()).unwrap_or(0);
+            let size = std::fs::metadata(&settings.out)
+                .map(|m| m.len())
+                .unwrap_or(0);
             settings.events.wrote(&settings.out, size);
             ExitCode::SUCCESS
         }
@@ -3352,12 +3537,21 @@ fn report_resolution(track: &dossier_audio::Track) {
         return;
     }
     rows.sort_by_key(|&((set, voice, index), _, count)| {
-        (std::cmp::Reverse(count), set.name(), voice.file_name(), index)
+        (
+            std::cmp::Reverse(count),
+            set.name(),
+            voice.file_name(),
+            index,
+        )
     });
     eprintln!("dossier: hit sounds, as resolved —");
     for ((set, voice, index), found, count) in rows {
         let asked = if voice.banked() {
-            let suffix = if index > 1 { index.to_string() } else { String::new() };
+            let suffix = if index > 1 {
+                index.to_string()
+            } else {
+                String::new()
+            };
             format!("{}-{}{suffix}", set.name(), voice.file_name())
         } else {
             voice.file_name().to_owned()
@@ -3391,7 +3585,10 @@ fn report_unused(pack: &dossier_audio::SamplePack) {
                 .any(|bank| name.starts_with(bank))
         })
         .collect();
-    eprint!("dossier: {} file(s) in the skin no voice uses", unused.len());
+    eprint!(
+        "dossier: {} file(s) in the skin no voice uses",
+        unused.len()
+    );
     if suspect.is_empty() {
         eprintln!(" — menu sounds, which never play here");
     } else {
@@ -3646,12 +3843,36 @@ mod options_per_command {
             assert!(Command::Judge.accepts(f), "judge {f}");
         }
         for f in [
-            "--events", "--skin", "--preset", "--crf", "--songs", "--size", "--fps", "--mute",
-            "--leaderboard", "--my-pictures", "--encoder-threads", "--out",
+            "--events",
+            "--skin",
+            "--preset",
+            "--crf",
+            "--songs",
+            "--size",
+            "--fps",
+            "--mute",
+            "--leaderboard",
+            "--my-pictures",
+            "--encoder-threads",
+            "--out",
         ] {
             assert!(Command::Video.accepts(f), "video {f}");
         }
-        for f in ["--events", "--skin", "--preset", "--crf", "--songs", "--size", "--fps", "--for", "--clip", "--out", "--leaderboard", "--my-pictures", "--encoder-threads"] {
+        for f in [
+            "--events",
+            "--skin",
+            "--preset",
+            "--crf",
+            "--songs",
+            "--size",
+            "--fps",
+            "--for",
+            "--clip",
+            "--out",
+            "--leaderboard",
+            "--my-pictures",
+            "--encoder-threads",
+        ] {
             assert!(Command::Exhibit.accepts(f), "exhibit {f}");
         }
     }
@@ -3662,9 +3883,18 @@ mod options_per_command {
     #[test]
     fn the_table_and_the_gate_agree() {
         const ALL: &[Command] = &[
-            Command::Inspect, Command::Judge, Command::Corpus, Command::Debug,
-            Command::Sliders, Command::Errors, Command::Score, Command::Health,
-            Command::Frame, Command::Video, Command::Exhibit, Command::Sounds,
+            Command::Inspect,
+            Command::Judge,
+            Command::Corpus,
+            Command::Debug,
+            Command::Sliders,
+            Command::Errors,
+            Command::Score,
+            Command::Health,
+            Command::Frame,
+            Command::Video,
+            Command::Exhibit,
+            Command::Sounds,
         ];
         for (flag, _, _) in OPTIONS_TABLE {
             assert!(
@@ -3731,7 +3961,6 @@ mod skin_choice_tests {
         assert_eq!(SkinChoice::Classic.samples_dir(), None);
     }
 }
-
 
 /// `dossier assay` — the map's difficulty, and a play's worth if one was given.
 fn assay_command(options: Options) -> Result<(), String> {

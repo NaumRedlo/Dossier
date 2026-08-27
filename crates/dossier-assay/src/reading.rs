@@ -53,7 +53,11 @@ fn past_object_influence(objects: &[DiffObject], at: usize) -> f64 {
         let mut difficulty = current.opacity_at(object.raw_start_time, false);
         // A note the cursor barely has to move to is one whose placement can be
         // cheesed, so how confusingly it was arranged stops mattering.
-        difficulty *= smootherstep(object.lazy_jump_distance, 15.0, DISTANCE_INFLUENCE_THRESHOLD);
+        difficulty *= smootherstep(
+            object.lazy_jump_distance,
+            15.0,
+            DISTANCE_INFLUENCE_THRESHOLD,
+        );
         difficulty *= time_nerf_factor(current.start_time - object.start_time);
         influence += difficulty;
     }
@@ -98,7 +102,9 @@ fn constant_angle_nerf_factor(objects: &[DiffObject], at: usize) -> f64 {
     let mut prev2: Option<&DiffObject> = None;
 
     while gap < MINIMUM_ANGLE_RELEVANCY_TIME {
-        let Some(object) = at.checked_sub(index + 1).map(|i| &objects[i]) else { break };
+        let Some(object) = at.checked_sub(index + 1).map(|i| &objects[i]) else {
+            break;
+        };
 
         // An object far enough back in time is barely part of the same reading.
         let long_interval = 1.0
@@ -122,8 +128,8 @@ fn constant_angle_nerf_factor(objects: &[DiffObject], at: usize) -> f64 {
                     let mut weight = 1.0;
                     weight *= reverse_lerp(ao.min(a0) * 180.0 / std::f64::consts::PI, 20.0, 5.0);
                     weight *= reverse_lerp(ao.max(a0) * 180.0 / std::f64::consts::PI, 60.0, 120.0);
-                    alternating = std::f64::consts::PI
-                        + (0.1 * alternating - std::f64::consts::PI) * weight;
+                    alternating =
+                        std::f64::consts::PI + (0.1 * alternating - std::f64::consts::PI) * weight;
                 }
             }
 
@@ -148,8 +154,11 @@ fn constant_angle_nerf_factor(objects: &[DiffObject], at: usize) -> f64 {
 /// Exposed because this figure is the one place in the whole calculator where
 /// knowing the total is not enough to know what went wrong — see the note on
 /// [`density_difficulty`] for why.
-pub fn reading_parts(objects: &[DiffObject], at: usize, hidden: bool)
-    -> (f64, f64, f64, f64, f64, f64) {
+pub fn reading_parts(
+    objects: &[DiffObject],
+    at: usize,
+    hidden: bool,
+) -> (f64, f64, f64, f64, f64, f64) {
     let current = &objects[at];
     if current.is_spinner || at == 0 {
         return (0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
@@ -233,7 +242,8 @@ fn preempt_difficulty(velocity: f64, nerf: f64, preempt: f64) -> f64 {
     const PREEMPT_STARTING_POINT: f64 = 500.0;
 
     // `(a - x + |x - a|) / 2` is `max(0, a - x)` written without a branch.
-    let over = ((PREEMPT_STARTING_POINT - preempt) + (preempt - PREEMPT_STARTING_POINT).abs()) / 2.0;
+    let over =
+        ((PREEMPT_STARTING_POINT - preempt) + (preempt - PREEMPT_STARTING_POINT).abs()) / 2.0;
     over.powf(2.5) / PREEMPT_BALANCING_FACTOR * nerf * velocity
 }
 
@@ -279,8 +289,13 @@ pub struct Reading {
 }
 
 impl Reading {
-    pub fn of(objects: &[DiffObject], hidden: bool, relax: bool, touch: bool,
-              autopilot: bool) -> Self {
+    pub fn of(
+        objects: &[DiffObject],
+        hidden: bool,
+        relax: bool,
+        touch: bool,
+        autopilot: bool,
+    ) -> Self {
         const SKILL_MULTIPLIER: f64 = 2.5;
         const REDUCED_DIFFICULTY_DURATION: f64 = 60.0 * 1000.0;
 
@@ -308,14 +323,19 @@ impl Reading {
             current_strain *= decay;
             current_strain += difficulty * (1.0 - decay) * SKILL_MULTIPLIER;
 
-            let until = *reduced_until.get_or_insert(objects[at].start_time + REDUCED_DIFFICULTY_DURATION);
+            let until =
+                *reduced_until.get_or_insert(objects[at].start_time + REDUCED_DIFFICULTY_DURATION);
             if objects[at].start_time <= until {
                 reduced_note_count += 1.0;
             }
             difficulties.push(current_strain);
         }
 
-        Self { difficulties, reduced_note_count, weight_sum: 0.0 }
+        Self {
+            difficulties,
+            reduced_note_count,
+            weight_sum: 0.0,
+        }
     }
 
     /// The difficulties with the first minute's held back.
@@ -330,14 +350,22 @@ impl Reading {
     /// because it is about *when* they happened.
     fn transformed(&self) -> Vec<f64> {
         const REDUCED_DIFFICULTY_BASE_LINE: f64 = 0.0;
-        let mut out: Vec<f64> = self.difficulties.iter().copied().filter(|v| *v > 0.0).collect();
+        let mut out: Vec<f64> = self
+            .difficulties
+            .iter()
+            .copied()
+            .filter(|v| *v > 0.0)
+            .collect();
         let count = self.reduced_note_count;
         let limit = (out.len() as f64).min(count) as usize;
         for (index, value) in out.iter_mut().enumerate().take(limit) {
-            let at = if count > 0.0 { (index as f64 / count).clamp(0.0, 1.0) } else { 0.0 };
+            let at = if count > 0.0 {
+                (index as f64 / count).clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
             let scale = (1.0 + 9.0 * at).log10();
-            *value *= REDUCED_DIFFICULTY_BASE_LINE
-                + (1.0 - REDUCED_DIFFICULTY_BASE_LINE) * scale;
+            *value *= REDUCED_DIFFICULTY_BASE_LINE + (1.0 - REDUCED_DIFFICULTY_BASE_LINE) * scale;
         }
         out
     }

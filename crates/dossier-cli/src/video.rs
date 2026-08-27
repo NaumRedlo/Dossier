@@ -165,7 +165,10 @@ impl AudioSync {
             .then_some(self.tempo);
         if self.delay_seconds > 0.0005 {
             let in_the_musics_own_time = self.delay_seconds * tempo.unwrap_or(1.0);
-            chain.push(format!("adelay={:.0}:all=1", in_the_musics_own_time * 1000.0));
+            chain.push(format!(
+                "adelay={:.0}:all=1",
+                in_the_musics_own_time * 1000.0
+            ));
         }
         if let Some(tempo) = tempo {
             chain.push(format!("atempo={tempo:.6}"));
@@ -266,9 +269,10 @@ impl Plan {
         // Whether a slow-motion pass applies, and where. Not over a failed play
         // for now — the fail already has its own slow-down, and dwelling on a
         // mistake earlier in a run that ends by dying is a second feature.
-        let slow_at = settings.slow_at_ms.filter(|_| fail_at_ms.is_none()).filter(|at| {
-            *at > from_ms + SLOW_SPAN_MS * 0.25 && *at < to_ms - SLOW_SPAN_MS * 0.25
-        });
+        let slow_at = settings
+            .slow_at_ms
+            .filter(|_| fail_at_ms.is_none())
+            .filter(|at| *at > from_ms + SLOW_SPAN_MS * 0.25 && *at < to_ms - SLOW_SPAN_MS * 0.25);
 
         let schedule = match slow_at {
             None => vec![Segment {
@@ -306,9 +310,12 @@ impl Plan {
         for (i, segment) in self.schedule.iter().enumerate() {
             let span_ms = segment.video_seconds * 1000.0;
             if video_ms <= span_ms || i == last {
-                let fraction = if span_ms > 1e-9 { video_ms / span_ms } else { 0.0 };
-                return segment.map_from_ms
-                    + fraction * (segment.map_to_ms - segment.map_from_ms);
+                let fraction = if span_ms > 1e-9 {
+                    video_ms / span_ms
+                } else {
+                    0.0
+                };
+                return segment.map_from_ms + fraction * (segment.map_to_ms - segment.map_from_ms);
             }
             video_ms -= span_ms;
         }
@@ -328,8 +335,11 @@ impl Plan {
         for (i, segment) in self.schedule.iter().enumerate() {
             let span_map = segment.map_to_ms - segment.map_from_ms;
             if map_ms <= segment.map_to_ms || i == last {
-                let fraction =
-                    if span_map.abs() > 1e-9 { (map_ms - segment.map_from_ms) / span_map } else { 0.0 };
+                let fraction = if span_map.abs() > 1e-9 {
+                    (map_ms - segment.map_from_ms) / span_map
+                } else {
+                    0.0
+                };
                 return video_offset + fraction * segment.video_seconds;
             }
             video_offset += segment.video_seconds;
@@ -772,8 +782,7 @@ fn spawn(
         music_warp,
         video_seconds,
         (settings.music_level, settings.hitsound_level),
-    )
-    {
+    ) {
         command.args(["-filter_complex", &filter, "-map", "0:v", "-map", "[a]"]);
         command.args(["-c:a", "aac", "-b:a", "192k"]);
         // `-shortest` ends the output with whichever input runs out first, and
@@ -833,19 +842,17 @@ fn spawn(
     if std::env::var("DOSSIER_FFMPEG_ARGS").is_ok() {
         eprintln!("ffmpeg {:?}", command.get_args().collect::<Vec<_>>());
     }
-    command
-        .spawn()
-        .map_err(|error| {
-            if error.kind() == std::io::ErrorKind::NotFound {
-                format!(
-                    "{} not found. Install it (macOS: brew install ffmpeg, \
+    command.spawn().map_err(|error| {
+        if error.kind() == std::io::ErrorKind::NotFound {
+            format!(
+                "{} not found. Install it (macOS: brew install ffmpeg, \
                      Debian: apt install ffmpeg) or pass --ffmpeg <path>.",
-                    settings.ffmpeg
-                )
-            } else {
-                format!("could not start {}: {error}", settings.ffmpeg)
-            }
-        })
+                settings.ffmpeg
+            )
+        } else {
+            format!("could not start {}: {error}", settings.ffmpeg)
+        }
+    })
 }
 
 /// How much of ffmpeg's complaint is kept.
@@ -888,7 +895,11 @@ fn ffmpeg_said(drained: Option<std::thread::JoinHandle<String>>) -> String {
         return String::new();
     };
     let text = handle.join().unwrap_or_default();
-    let lines: Vec<&str> = text.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
+    let lines: Vec<&str> = text
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .collect();
     lines.join("; ")
 }
 
@@ -977,21 +988,31 @@ mod tests {
         // picture.
         assert!((slices[0].start_s - 0.0).abs() < 1e-9);
         for pair in slices.windows(2) {
-            assert!((pair[0].end_s - pair[1].start_s).abs() < 1e-9, "a seam moved");
+            assert!(
+                (pair[0].end_s - pair[1].start_s).abs() < 1e-9,
+                "a seam moved"
+            );
         }
 
         // Each slice lasts its map span divided by its tempo — its segment's
         // video — and the slices together fill the whole video, so the music
         // ends exactly with the picture.
         let played: f64 = slices.iter().map(|s| (s.end_s - s.start_s) / s.tempo).sum();
-        assert!((played - plan.video_seconds).abs() < 1e-6, "{played} vs {}", plan.video_seconds);
+        assert!(
+            (played - plan.video_seconds).abs() < 1e-6,
+            "{played} vs {}",
+            plan.video_seconds
+        );
 
         // The dip is really there: some slice plays well under the mod rate.
         let slowest = slices.iter().map(|s| s.tempo).fold(f64::INFINITY, f64::min);
         assert!(slowest < 0.5, "slowest tempo {slowest}");
 
         // …and an even render has nothing to slice.
-        assert!(Plan::new((0.0, 10_000.0), 1.0, &settings(), None).unwrap().music_warp().is_none());
+        assert!(Plan::new((0.0, 10_000.0), 1.0, &settings(), None)
+            .unwrap()
+            .music_warp()
+            .is_none());
     }
 
     #[test]
@@ -1003,7 +1024,10 @@ mod tests {
         let plan = Plan::new((0.0, 10_000.0), 1.5, &settings(), None).unwrap();
         // Ten seconds of map at one and a half is under seven to watch — and the
         // tail is real time, so it is not compressed with them.
-        assert_eq!(plan.frames, ((10.0 / 1.5 + tail) * settings().fps).ceil() as u64);
+        assert_eq!(
+            plan.frames,
+            ((10.0 / 1.5 + tail) * settings().fps).ceil() as u64
+        );
 
         // …and the clock still advances at the map's pace, not the viewer's:
         // one second of video (60 frames at 60fps) is 1.5s of map under DT.
@@ -1014,7 +1038,10 @@ mod tests {
     fn halftime_stretches_it_the_other_way() {
         let tail = dossier_render::OUTRO_FADE_MS / 1000.0;
         let plan = Plan::new((0.0, 10_000.0), 0.75, &settings(), None).unwrap();
-        assert_eq!(plan.frames, ((10.0 / 0.75 + tail) * settings().fps).ceil() as u64);
+        assert_eq!(
+            plan.frames,
+            ((10.0 / 0.75 + tail) * settings().fps).ceil() as u64
+        );
     }
 
     /// The map-time and video-time clocks are inverses of each other, through a
@@ -1054,7 +1081,11 @@ mod tests {
         let slow = Plan::new((0.0, 10_000.0), 1.0, &slowed, None).unwrap();
 
         // The dip buys time — the same ten seconds of map take longer to watch.
-        assert!(slow.video_seconds > plain.video_seconds + 0.5, "{}", slow.video_seconds);
+        assert!(
+            slow.video_seconds > plain.video_seconds + 0.5,
+            "{}",
+            slow.video_seconds
+        );
 
         // The clock never stops or reverses: map time only ever moves forward,
         // which is what makes this the ramp and not the rewind.
@@ -1337,7 +1368,11 @@ fn audio_filter(
     // — the seek, the tempo, the padding to the picture's length — and dropping
     // the stream would take the timing with it.
     let stretched = |index: usize, duck: bool| {
-        let level = if duck { MUSIC_DUCK * music_level } else { music_level };
+        let level = if duck {
+            MUSIC_DUCK * music_level
+        } else {
+            music_level
+        };
         let ducked = if (level - 1.0).abs() > f32::EPSILON {
             format!(",volume={level}")
         } else {
@@ -1352,7 +1387,10 @@ fn audio_filter(
         // nothing, which would slide everything after the gap earlier.
         if let Some(slices) = music_warp {
             let reach = slices.last().map_or(0.0, |s| s.end_s);
-            let mut graph = format!("[{index}:a]apad=whole_dur={reach:.3},asplit={}", slices.len());
+            let mut graph = format!(
+                "[{index}:a]apad=whole_dur={reach:.3},asplit={}",
+                slices.len()
+            );
             for k in 0..slices.len() {
                 graph.push_str(&format!("[w{k}]"));
             }
@@ -1510,7 +1548,10 @@ mod filter_tests {
         let filter =
             audio_filter(Some(1), Some(2), &sync(1.0), None, None, 10.0, (0.3, 1.0)).unwrap();
         // The music carries the duck as well as the choice, on one filter.
-        assert!(filter.contains(&format!("volume={}", MUSIC_DUCK * 0.3)), "{filter}");
+        assert!(
+            filter.contains(&format!("volume={}", MUSIC_DUCK * 0.3)),
+            "{filter}"
+        );
         assert!(
             filter.contains("[m][2:a]amix"),
             "the hits were touched: {filter}"
@@ -1531,7 +1572,10 @@ mod filter_tests {
             audio_filter(Some(1), Some(2), &sync(1.5), None, None, 10.0, (0.0, 1.0)).unwrap();
         assert!(filter.contains("[1:a]atempo=1.500000,volume=0"), "{filter}");
         assert!(filter.contains("apad=whole_dur=10.000[m]"), "{filter}");
-        assert!(filter.contains("amix=inputs=2"), "the mix lost an input: {filter}");
+        assert!(
+            filter.contains("amix=inputs=2"),
+            "the mix lost an input: {filter}"
+        );
     }
 
     #[test]
@@ -1552,7 +1596,8 @@ mod filter_tests {
         // gameplay — a cut version, and shorter still under a rate mod — then
         // lost every hit sound after the cut, silently, with a perfectly valid
         // file to show for it.
-        let filter = audio_filter(Some(1), Some(2), &sync(1.5), None, None, 60.0, (1.0, 1.0)).unwrap();
+        let filter =
+            audio_filter(Some(1), Some(2), &sync(1.5), None, None, 60.0, (1.0, 1.0)).unwrap();
         assert!(filter.contains("duration=longest"), "{filter}");
         assert!(!filter.contains("duration=first"), "{filter}");
         // And the music itself reaches the end of the picture.
@@ -1563,7 +1608,8 @@ mod filter_tests {
     fn the_two_streams_are_mixed_without_being_quietened() {
         // amix divides by the input count unless told not to, which would drop
         // the music by half the moment hit sounds were switched on.
-        let filter = audio_filter(Some(1), Some(2), &sync(1.0), None, None, 10.0, (1.0, 1.0)).unwrap();
+        let filter =
+            audio_filter(Some(1), Some(2), &sync(1.0), None, None, 10.0, (1.0, 1.0)).unwrap();
         assert!(filter.contains("normalize=0"), "{filter}");
         assert!(filter.contains("amix=inputs=2"), "{filter}");
     }
@@ -1572,7 +1618,8 @@ mod filter_tests {
     fn hit_sounds_are_never_stretched() {
         // They're built on the video's timebase, so the rate is already in
         // them; applying atempo again would double the correction.
-        let filter = audio_filter(Some(1), Some(2), &sync(1.5), None, None, 10.0, (1.0, 1.0)).unwrap();
+        let filter =
+            audio_filter(Some(1), Some(2), &sync(1.5), None, None, 10.0, (1.0, 1.0)).unwrap();
         assert!(filter.contains("[1:a]atempo"), "{filter}");
         assert!(!filter.contains("[2:a]atempo"), "{filter}");
     }
@@ -1600,7 +1647,8 @@ mod filter_tests {
         // refuses outright. So the pad has to be there, on every path, and it
         // has to say how long.
         for stall in [None, Some(30.0)] {
-            let filter = audio_filter(Some(1), Some(2), &sync(1.0), stall, None, 10.0, (1.0, 1.0)).unwrap();
+            let filter =
+                audio_filter(Some(1), Some(2), &sync(1.0), stall, None, 10.0, (1.0, 1.0)).unwrap();
             assert!(
                 filter.ends_with("apad=whole_dur=10.000[a]"),
                 "stall {stall:?}: {filter}"
@@ -1615,7 +1663,16 @@ mod filter_tests {
         // the mismatch before the eye catches the stall. `asetrate` takes
         // pitch down with tempo, which is a tape losing power rather than a
         // slow-motion effect.
-        let filter = audio_filter(Some(1), None, &sync(1.0), Some(12.5), None, 10.0, (1.0, 1.0)).unwrap();
+        let filter = audio_filter(
+            Some(1),
+            None,
+            &sync(1.0),
+            Some(12.5),
+            None,
+            10.0,
+            (1.0, 1.0),
+        )
+        .unwrap();
         assert!(filter.contains("atrim=0:12.500"), "{filter}");
         // The same fraction the picture drops to, so the two give out
         // together rather than as two separate failures.
@@ -1755,8 +1812,7 @@ mod fail_timing {
         // seconds however fast the map was going.
         let plain = Plan::new((0.0, 2000.0), 1.0, &settings(), None).expect("a plan");
         for rate in [1.0, 1.5] {
-            let failed =
-                Plan::new((0.0, 2000.0), rate, &settings(), Some(1000.0)).expect("a plan");
+            let failed = Plan::new((0.0, 2000.0), rate, &settings(), Some(1000.0)).expect("a plan");
             let base = Plan::new((0.0, 2000.0), rate, &settings(), None).expect("a plan");
             // Against the tail a *successful* play already carries for its own
             // closing fade, not against nothing.
@@ -1790,8 +1846,7 @@ mod fail_timing {
         // ending all of this was written to replace — and it would go unseen,
         // because a truncated video is still a valid video.
         assert!(
-            (fail_tail_ms()
-                - (dossier_render::FAIL_ANIMATION_MS + dossier_render::FAIL_EMPTY_MS))
+            (fail_tail_ms() - (dossier_render::FAIL_ANIMATION_MS + dossier_render::FAIL_EMPTY_MS))
                 .abs()
                 < 1e-9
         );

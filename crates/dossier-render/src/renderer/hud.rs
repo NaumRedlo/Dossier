@@ -871,7 +871,15 @@ impl Scene<'_> {
         // is continuous, so everything before the gap is the bar and its
         // lettering and everything after it is something else the author put in
         // the same file.
-        self.blit_bar(pixmap, frame, 0.0, 0.0, self.bar_share(frame), alpha, layout);
+        self.blit_bar(
+            pixmap,
+            frame,
+            0.0,
+            0.0,
+            self.bar_share(frame),
+            alpha,
+            layout,
+        );
 
         // The fill, cut to the health rather than squashed to it: a bar at half
         // health is half a bar, not a whole bar drawn narrow.
@@ -1159,8 +1167,15 @@ impl Scene<'_> {
                 // plate read as oversized when it was the number that was
                 // small.
                 let inside = label_h * SPIN_READOUT_IN_PLATE;
-                if !self.draw_hud_text(pixmap, &figure, at, baseline, inside, Align::Centre, presence)
-                {
+                if !self.draw_hud_text(
+                    pixmap,
+                    &figure,
+                    at,
+                    baseline,
+                    inside,
+                    Align::Centre,
+                    presence,
+                ) {
                     font.draw(
                         pixmap,
                         Label {

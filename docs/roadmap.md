@@ -246,10 +246,10 @@ replays — turned out to be back, which is what produced the numbers above.
    stable's rules. Either they belong in the corpus and the difference is
    documented per replay, or they do not and the totals stop being muddied by
    them. Cheap, and it changes what every number above means.
-3. **A release.** `dossier.exe` and the client, built by CI from a tag. This is
-   what makes a worker something a person can run rather than something a
-   person can install, and it is the difference between five friends rendering
-   and one.
+3. **Tell a mismatched worker where to get the right build.** The release
+   exists; the message that turns a worker away still ends at "git pull". The
+   bot knows its own stamp and the release that carries it, and saying so turns
+   a dead end into a link.
 4. **Write the baseline.** `--update-expect` over what is on disk, once the
    nine are looked at. Then back the replays up somewhere, because losing them
    cost months the last time.

@@ -932,14 +932,21 @@ def service(options) -> int:
     worker reads for itself at startup, so a unit file can be pasted into a
     chat without anything going with it.
     """
-    python = sys.executable
-    # The launcher rather than this file. A unit that names a module inside a
-    # package has to be told where the package is; one that names
-    # `client/worker.py` does not, because that file works it out itself.
-    here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    script = os.path.join(here, "worker.py")
-    root = os.path.dirname(here)
-    args = [python, script]
+    if getattr(sys, "frozen", False):
+        # A release: one executable, and it is its own command line. `__file__`
+        # here points inside a temporary directory PyInstaller unpacks and then
+        # deletes, so a unit built from it would name a path that stops
+        # existing the moment the process ends.
+        args = [os.path.abspath(sys.executable)]
+        root = os.path.dirname(args[0])
+    else:
+        # A checkout. The launcher rather than this file: a unit that names a
+        # module inside a package has to be told where the package is; one that
+        # names `client/worker.py` does not, because that file works it out
+        # itself.
+        here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        args = [sys.executable, os.path.join(here, "worker.py")]
+        root = os.path.dirname(here)
     if options.server:
         args += ["--server", options.server]
     if options.name:

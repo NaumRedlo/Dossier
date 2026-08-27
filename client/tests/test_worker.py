@@ -989,3 +989,71 @@ def test_a_half_unpacked_skin_is_not_counted_as_one(tmp_path, monkeypatch):
     _a_cached_skin(tmp_path, "abc.incoming", 5, time.time() - 90_000)
     worker.prune_skins(cap=1)
     assert (tmp_path / "abc.incoming").exists()
+
+
+# ── `--service`, printed rather than installed ───────────────────────────────
+#
+# It writes into the part of somebody's machine that decides what runs at boot,
+# so the worker prints the unit and the two commands to install it rather than
+# doing it itself. Which means the thing worth testing is that what it prints
+# names paths that exist — a unit naming a path that does not is a worker that
+# silently never starts, found weeks later.
+
+
+def _printed_service(monkeypatch, capsys, **options):
+    worker = _worker_module()
+    settings = types.SimpleNamespace(
+        server="https://example.org", name="w", polite=False,
+        threads=0, config=worker.CONFIG,
+    )
+    for name, value in options.items():
+        setattr(settings, name, value)
+    worker.service(settings)
+    return worker, capsys.readouterr().out
+
+
+def test_a_unit_from_a_checkout_names_the_launcher(monkeypatch, capsys):
+    """`client/worker.py` rather than `dossier/worker.py`: a unit that names a
+    module inside a package has to be told where the package is, and the
+    launcher works that out for itself."""
+    worker, said = _printed_service(monkeypatch, capsys)
+
+    assert sys.executable in said, "it has to name the interpreter it ran under"
+    launcher = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(worker.__file__))),
+        "worker.py",
+    )
+    assert launcher in said
+    assert os.path.isfile(launcher), "the unit names a file that is not there"
+
+
+def test_a_unit_from_a_release_names_the_executable_and_not_a_temporary_file(
+    monkeypatch, capsys
+):
+    """Frozen, `__file__` points inside a directory PyInstaller unpacks and then
+    deletes. A unit built from it would name a path that stops existing the
+    moment the process ends — installed happily, and never starting again."""
+    worker = _worker_module()
+    monkeypatch.setattr(worker.sys, "frozen", True, raising=False)
+    monkeypatch.setattr(worker.sys, "executable", "/opt/dossier/dossier-worker")
+
+    settings = types.SimpleNamespace(
+        server="https://example.org", name="w", polite=False,
+        threads=0, config=worker.CONFIG,
+    )
+    worker.service(settings)
+    said = capsys.readouterr().out
+
+    assert "/opt/dossier/dossier-worker" in said
+    assert "worker.py" not in said, "a release has no script to run"
+    # The working directory is the folder it was unpacked into, since that is
+    # where `assets/` sits and the engine looks for the font relative to it.
+    assert "/opt/dossier" in said
+
+
+def test_the_unit_carries_no_token(monkeypatch, capsys):
+    """It is printed so it can be pasted into a chat. The token lives in the
+    config file and the worker reads it for itself at startup."""
+    monkeypatch.setenv("RENDER_WORKER_TOKEN", "a-secret-nobody-should-see")
+    _worker, said = _printed_service(monkeypatch, capsys)
+    assert "a-secret-nobody-should-see" not in said

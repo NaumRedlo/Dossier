@@ -316,7 +316,14 @@ async def connection(path: str, pairs: dict[str, str], name: str = "worker") -> 
 
     server = _ask("Адрес бота", pairs.get("RENDER_SERVER") or DEFAULT_SERVER)
     was = pairs.get("RENDER_WORKER_TOKEN", "")
-    if was:
+    if was and looks_like_a_code(was):
+        # A code sitting where a key belongs: an older version of this program
+        # had no idea what a code was and wrote it down as though it were one.
+        # Saying so is better than showing a fingerprint of something that was
+        # never going to work.
+        print(f"\n  Записано «{was}» — это код, а не ключ.")
+        print("  Enter — обменяю его на ключ прямо сейчас.")
+    elif was:
         print(f"\n  Сейчас записан ключ: {fingerprint(was)}")
         print("  Enter — оставить как есть.")
     said = _ask("Код", was)
@@ -326,8 +333,8 @@ async def connection(path: str, pairs: dict[str, str], name: str = "worker") -> 
         _pause()
         return pairs
 
-    if said == was:
-        # Enter on an existing token: nothing to redeem, only to re-check.
+    if said == was and not looks_like_a_code(said):
+        # Enter on an existing key: nothing to redeem, only to re-check.
         token = was
     elif looks_like_a_code(said):
         print("\n  Меняю код на ключ…")

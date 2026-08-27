@@ -487,13 +487,14 @@ async def test_a_code_the_bot_will_not_take_saves_nothing(monkeypatch, tmp_path)
 
 
 async def test_keeping_the_existing_key_redeems_nothing(monkeypatch, tmp_path):
-    """Enter on what is already there means "leave it", and a token is not a
-    code however short somebody's old one happens to be."""
+    """Enter on a key that is already there means "leave it". A *code* sitting
+    there is a different case and is redeemed — see below."""
     path = str(tmp_path / "worker.env")
-    _answers(monkeypatch, "https://example.org", "kept")
+    kept = "k" * 64
+    _answers(monkeypatch, "https://example.org", kept)
 
     async def never(*_a):
-        raise AssertionError("it tried to redeem the token it already had")
+        raise AssertionError("it tried to redeem the key it already had")
 
     async def accepts(_server, _token, _name):
         return True, "fine"
@@ -501,5 +502,51 @@ async def test_keeping_the_existing_key_redeems_nothing(monkeypatch, tmp_path):
     monkeypatch.setattr(console, "redeem", never)
     monkeypatch.setattr(console, "_try_the_bot", accepts)
 
-    after = await console.connection(path, {"RENDER_WORKER_TOKEN": "kept"})
-    assert after["RENDER_WORKER_TOKEN"] == "kept"
+    after = await console.connection(path, {"RENDER_WORKER_TOKEN": kept})
+    assert after["RENDER_WORKER_TOKEN"] == kept
+
+
+async def test_a_code_saved_as_a_key_by_an_older_version_is_redeemed(
+    monkeypatch, tmp_path
+):
+    """Found by a real run. An older copy of this program had never heard of
+    codes, so somebody who typed one had it written down as though it were a
+    key — and then "Enter to keep what is there" meant keeping a string that
+    was never going to work, for ever.
+
+    Pressing Enter on a stored *code* redeems it.
+    """
+    path = str(tmp_path / "worker.env")
+    _answers(monkeypatch, "https://example.org", "Q9YB-VKKR")
+    swapped = {}
+
+    async def redeem(_server, code, _name):
+        swapped["code"] = code
+        return "k" * 64, ""
+
+    async def accepts(_server, _token, _name):
+        return True, "fine"
+
+    monkeypatch.setattr(console, "redeem", redeem)
+    monkeypatch.setattr(console, "_try_the_bot", accepts)
+
+    after = await console.connection(path, {"RENDER_WORKER_TOKEN": "Q9YB-VKKR"})
+    assert swapped["code"] == "Q9YB-VKKR", "it kept the code instead of spending it"
+    assert after["RENDER_WORKER_TOKEN"] == "k" * 64
+
+
+async def test_a_stored_code_is_named_as_one_rather_than_fingerprinted(
+    monkeypatch, tmp_path, capsys
+):
+    """A fingerprint of something that was never a key tells nobody anything.
+    Saying "this is a code" tells them what happened."""
+    path = str(tmp_path / "worker.env")
+    _answers(monkeypatch, "https://example.org", "")
+
+    async def never(*_a):
+        raise AssertionError("nothing should have been redeemed")
+
+    monkeypatch.setattr(console, "redeem", never)
+    monkeypatch.setattr(console, "_try_the_bot", never)
+    await console.connection(path, {"RENDER_WORKER_TOKEN": "Q9YB-VKKR"})
+    assert "это код, а не ключ" in capsys.readouterr().out

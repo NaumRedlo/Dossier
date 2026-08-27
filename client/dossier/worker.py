@@ -88,13 +88,21 @@ class Abandoned(Exception):
 
 
 class BuildMismatch(RuntimeError):
-    """The server renders with a different build of the engine than this one.
+    """The bot renders with one build of the engine and this machine another.
 
-    Fatal rather than a pause. The machine cannot fix this by waiting: somebody
-    has to `git pull` and `cargo build` on one side or the other, and a worker
-    that quietly polls for ever while the bot renders everything itself is a
-    worker that looks like it is working.
+    Not something waiting fixes: the two are different programs, and a worker
+    that quietly polls for ever against a bot it can never satisfy is a worker
+    that looks like it is working.
+
+    It carries the release the bot is on, because that is the name of the thing
+    to download. Without it the only advice this program could give was to
+    `git pull` and `cargo build` — in a checkout most people running it do not
+    have, since they downloaded a zip.
     """
+
+    def __init__(self, said: str, release: str = "") -> None:
+        super().__init__(said)
+        self.release = release
 
 
 def trusted() -> "ssl.SSLContext | None":
@@ -178,7 +186,10 @@ class Server:
                 raise SystemExit("the server rejected the token")
             if reply.status == 409:
                 body = await reply.json()
-                raise BuildMismatch(body.get("reason", "the builds do not match"))
+                raise BuildMismatch(
+                    body.get("reason", "the builds do not match"),
+                    str(body.get("release", "")),
+                )
             reply.raise_for_status()
             return await reply.json()
 
@@ -1116,6 +1127,61 @@ async def main() -> None:
     await _watch(options, token)
 
 
+async def _offer_the_right_build(release: str) -> bool:
+    """Fetch the release the bot is on, if somebody here says so.
+
+    Returns True when the program has handed over and this one should stop —
+    which on every system but Windows it will never get to say, because the
+    process has already been replaced by then.
+
+    Three cases and each gets its own answer:
+
+    **Nobody at the keyboard.** A service cannot be asked, and updating one
+    behind its owner's back is not something to do. It is told the address
+    instead, which is still the whole of what "git pull" never was.
+
+    **Running from a checkout.** Downloading a zip over somebody's working copy
+    would replace their source with a build. They get told to pull.
+
+    **Somebody is here.** Ask, fetch, hand over.
+    """
+    from dossier import console, update
+
+    if not release:
+        return False  # a bot too old to say; nothing to offer
+
+    if update.from_a_checkout():
+        logger.info("this is a checkout — `git pull && cargo build --release`")
+        return False
+    if update.already_handed_over():
+        # We fetched a release once already this run and are *still* wrong.
+        # Fetching it again would be a loop with a download in it.
+        logger.warning("already updated once and the builds still differ — "
+                       "the bot may have moved again since")
+        return False
+    if not console.interactive():
+        logger.warning("the bot is on %s — download it and restart:\n  %s",
+                       release, update.where_to_get_it(release))
+        return False
+
+    print(f"\n  Бот работает на версии {release}, а эта — другая.")
+    print("  Поэтому задачи и не берутся: разные сборки рисуют по-разному.")
+    if console._ask("  Скачать нужную и перезапуститься? (да/нет)", "да").lower() \
+            not in ("да", "д", "y", "yes"):
+        print("  Хорошо, стою и жду.")
+        return False
+
+    try:
+        landing = update.fetch(release)
+    except update.Cannot as exc:
+        print(f"  ✗ {exc}")
+        return False
+
+    print("  Перезапускаюсь на новой версии.\n")
+    update.hand_over(landing)
+    return True
+
+
 async def _watch(options, token: str) -> None:
     """Poll for jobs until told to stop. Split out so `main` can own the
     lifetimes of the things it opened."""
@@ -1184,6 +1250,13 @@ async def _watch(options, token: str) -> None:
                 if str(exc) != standing_by:
                     logger.warning("standing by — %s", exc)
                     standing_by = str(exc)
+                    # The bot says which release it is on, so there is now
+                    # something to do about this besides waiting for somebody
+                    # to notice. Offered rather than done: this is a program on
+                    # a computer that is not ours, and replacing it is not a
+                    # thing to do behind its owner's back.
+                    if await _offer_the_right_build(exc.release):
+                        return
                 await asyncio.sleep(MISMATCH_SECONDS)
                 # Re-asked rather than remembered: the binary can be rebuilt
                 # under a running process, and that is the whole point.

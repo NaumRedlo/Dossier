@@ -87,11 +87,17 @@ def test_nothing_is_declared_that_is_not_imported():
     assert not idle, f"declared and never imported: {', '.join(sorted(idle))}"
 
 
-def test_the_client_is_only_two_dependencies():
-    """The number itself, because it is the thing that makes this installable
-    on a machine you are not standing in front of. aiohttp to talk to the bot,
-    requests to fetch maps, and nothing else."""
-    assert _declared() == {"aiohttp", "requests"}, _declared()
+def test_the_client_is_three_dependencies_and_they_are_named():
+    """The list itself, because it is the thing that makes this installable on
+    a machine you are not standing in front of. Every addition is an install
+    somebody waits for and a thing that can fail there.
+
+    `certifi` came third and was already present as `requests`' own
+    dependency. It is named because this imports it directly: Python does not
+    read the system certificate store on macOS, and `aiohttp` was refusing a
+    server every browser trusts.
+    """
+    assert _declared() == {"aiohttp", "requests", "certifi"}, _declared()
 
 
 def _loaded_by_the_client() -> set[str]:
@@ -148,9 +154,17 @@ def test_nothing_is_deferred_past_the_probe():
     # a blank line and reports a top-level import as an indented one.
     deferred = set(re.findall(r"^[ \t]+(?:from|import) ([\w.]+)", source, re.M))
     outside = {name.split(".")[0] for name in deferred} - sys.stdlib_module_names
-    assert not outside - {"dossier"}, (
-        f"the client defers {', '.join(sorted(outside))}, which this probe "
-        f"never loads — so the guard above is not looking at what a run would"
+
+    # `certifi` is deferred on purpose, and the purpose is the opposite of what
+    # this guards against. It sits inside a `try` in `trusted()` so that a
+    # machine without it falls back to OpenSSL's own store rather than failing
+    # to start — an import whose absence is *handled* is not one that can
+    # surprise a worker mid-render.
+    allowed = {"dossier", "certifi"}
+    assert not outside - allowed, (
+        f"the client defers {', '.join(sorted(outside - allowed))}, which this "
+        f"probe never loads — so the guard above is not looking at what a run "
+        f"would"
     )
 
 

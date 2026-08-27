@@ -1,0 +1,52 @@
+# Both halves of this repository, on every push.
+#
+# The engine and the client are one thing to the person running a worker: they
+# `git pull` and `cargo build` and expect the result to work. So a change to
+# either has to be checked against both, and the release workflow refuses to
+# ship anything this has not passed.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  engine:
+    name: engine (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # Three, because a worker runs on whatever machine somebody has spare
+        # and the differences that bite are the platform ones — paths, the
+        # `.exe`, and what the machine will say about its own battery.
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release
+      - run: cargo test --release
+
+  client:
+    name: client (python ${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # The floor the package declares, and current. A worker installs on
+        # whatever Python is already on the machine.
+        python: ["3.10", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: pip install -e "./client[dev]"
+      - run: python -m pytest -q
+        working-directory: client

@@ -1057,3 +1057,38 @@ def test_the_unit_carries_no_token(monkeypatch, capsys):
     monkeypatch.setenv("RENDER_WORKER_TOKEN", "a-secret-nobody-should-see")
     _worker, said = _printed_service(monkeypatch, capsys)
     assert "a-secret-nobody-should-see" not in said
+
+
+def test_the_output_is_made_readable_before_anything_is_printed(monkeypatch):
+    """Half of what a worker prints is Russian and the rest has dashes in it. A
+    Windows console starts on a legacy code page, and `--check` came back from
+    the runner reading `dossier render worker ? runnervm6iq3x` — which somebody
+    meeting the program for the first time cannot tell from a broken install.
+    """
+    worker = _worker_module()
+    asked = []
+
+    class Stream:
+        def reconfigure(self, **how):
+            asked.append(how)
+
+    monkeypatch.setattr(worker.sys, "stdout", Stream())
+    monkeypatch.setattr(worker.sys, "stderr", Stream())
+    worker._readable_output()
+
+    assert asked == [{"encoding": "utf-8", "errors": "replace"}] * 2
+
+
+def test_a_stream_that_cannot_be_reconfigured_is_not_a_crash(monkeypatch):
+    """Redirected to a file or a pipe, a stream may not offer it at all — and a
+    program that will not start because it could not improve its own output is
+    worse than a dash somebody has to squint at."""
+    worker = _worker_module()
+
+    class Awkward:
+        def reconfigure(self, **_how):
+            raise AttributeError("not that kind of stream")
+
+    monkeypatch.setattr(worker.sys, "stdout", Awkward())
+    monkeypatch.setattr(worker.sys, "stderr", Awkward())
+    worker._readable_output()  # the assertion is that this returns

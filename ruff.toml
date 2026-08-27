@@ -1,0 +1,22 @@
+# One policy for every Python in the repository — `client/` and `tools/` alike.
+#
+# At the root rather than in `client/pyproject.toml`, because ruff reads the
+# nearest config and `tools/` has none above it: the two halves were being
+# checked under different rules, and only one of them was being checked at all.
+
+target-version = "py310"
+
+[lint]
+# Ruff's classic defaults, written down rather than inherited. Inherited, they
+# are whatever version CI happened to install this morning — which is how a
+# clean tree came back with sixty-nine findings about code nobody had touched.
+# Widening this is a decision, and it should look like one.
+select = ["E4", "E7", "E9", "F"]
+
+[lint.per-file-ignores]
+# `dossier/__init__.py` re-exports on demand: `__all__` is built at runtime
+# from `_EXPORTS`, and the `if TYPE_CHECKING:` block exists so editors and type
+# checkers still see the real names. Ruff cannot see the connection between the
+# two and reports every one of them as an unused import — fourteen complaints
+# about the one thing in the file that is on purpose.
+"client/dossier/__init__.py" = ["F401"]

@@ -38,6 +38,12 @@ packages = ["dossier", "dossier.osu"]
 dev = [
     "pytest>=8",
     "pytest-asyncio>=0.23",
+    # Pinned to a minor. An unpinned linter means CI can start failing on a
+    # morning when nobody changed a line — which it did: a newer ruff arrived
+    # with a wider default rule set and reported sixty-nine things about code
+    # that had not moved. The rules themselves live in `ruff.toml` at the root,
+    # so `client/` and `tools/` are held to one policy.
+    "ruff~=0.15.0",
 ]
 
 [tool.pytest.ini_options]
@@ -45,17 +51,3 @@ testpaths = ["tests"]
 # Every test here that touches the engine is async, and marking each one is a
 # line of ceremony per test that says nothing.
 asyncio_mode = "auto"
-
-[tool.ruff]
-# The code is written to about eighty and occasionally runs past it in a table
-# or a message; reflowing those would make them worse. E501 is not in ruff's
-# default rule set, and it is deliberately not turned on.
-target-version = "py310"
-
-[tool.ruff.lint.per-file-ignores]
-# `__init__.py` re-exports on demand: `__all__` is built at runtime from
-# `_EXPORTS`, and the `if TYPE_CHECKING:` block exists so that editors and type
-# checkers still see the real names. Ruff cannot see the connection between the
-# two and reports every one of them as an unused import — fourteen complaints
-# about the one thing in the file that is on purpose.
-"dossier/__init__.py" = ["F401"]

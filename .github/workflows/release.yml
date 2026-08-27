@@ -124,10 +124,20 @@ jobs:
       - name: Try it
         shell: bash
         run: |
-          cd "$PACKAGE"
-          ./${{ matrix.client }} --check --config /nonexistent || true
-          ./${{ matrix.client }} --check --config /nonexistent | grep -q '\[+\] engine'
-          ./${{ matrix.client }} --check --config /nonexistent | grep -q '\[+\] font'
+          # Once, into a file outside the folder being shipped. Piping straight
+          # into grep looks tidier and is wrong under `pipefail`: `--check`
+          # exits non-zero here because there is no token and no ffmpeg on a
+          # runner, so the pipeline fails however well the grep goes — which is
+          # how this step first failed against a program that was working
+          # perfectly.
+          said="$RUNNER_TEMP/checked.txt"
+          ( cd "$PACKAGE" && ./${{ matrix.client }} --check --config /nonexistent ) > "$said" 2>&1 || true
+          cat "$said"
+          grep -q '\[+\] engine' "$said"
+          grep -q '\[+\] font' "$said"
+          # Not `unknown`, and not a `+`: see the stamp check above. This one
+          # asks the shipped pair rather than the freshly built binary.
+          grep -qE '\[\+\] build: dossier [0-9.]+ \([0-9a-f]{7}\)$' "$said"
 
       - name: Zip it
         shell: bash

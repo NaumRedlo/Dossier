@@ -1174,6 +1174,46 @@ async def _watch(options, token: str) -> None:
                 return
 
 
+def _readable_output() -> None:
+    """Make this terminal able to show what this program says.
+
+    Half of what a worker prints is Russian — every message a render fails
+    with — and the rest is punctuated with dashes. A Windows console starts on
+    a legacy code page, so `--check` came back reading
+
+        dossier render worker ? runnervm6iq3x
+
+    on the machine that built it. Somebody meeting the program for the first
+    time cannot tell a mangled dash from a broken install, and the first thing
+    they see should not need interpreting.
+
+    Two halves and both are needed: the console is told to accept UTF-8, and
+    Python is told to write it. `errors="replace"` because a terminal that
+    still cannot show a character should lose the character rather than the
+    line — a `UnicodeEncodeError` in the middle of an error message replaces
+    the message with a traceback about the message.
+
+    Every call is guarded. This is a courtesy, and a program that will not
+    start because it could not improve its own output is worse than a dash
+    somebody has to squint at.
+    """
+    if sys.platform == "win32":
+        try:
+            import ctypes
+
+            # 65001 is UTF-8. `SetConsoleOutputCP` fails harmlessly when
+            # output is a pipe or a file rather than a console.
+            ctypes.windll.kernel32.SetConsoleOutputCP(65001)
+        except Exception:  # noqa: BLE001 — an unreadable dash is not a reason to stop
+            pass
+
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:  # noqa: BLE001 — a redirected stream may not offer it
+            pass
+
+
 def run() -> None:
     """The client, as something that can be called rather than only run.
 
@@ -1182,6 +1222,7 @@ def run() -> None:
     than with the traceback asyncio would otherwise print over the last of the
     log.
     """
+    _readable_output()
     try:
         asyncio.run(main())
     except KeyboardInterrupt:

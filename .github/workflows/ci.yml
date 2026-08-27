@@ -55,7 +55,13 @@ jobs:
       - run: pip install -e "./client[dev]"
       - run: python -m pytest -q
         working-directory: client
-      # Once, rather than per Python: it reads the source and does not run it,
-      # so three interpreters would give the same answer three times.
+      # The pinned one from `[dev]`, already installed above — not a fresh
+      # `pip install ruff`, which is how a clean tree came back with sixty-nine
+      # findings on a morning nobody had changed a line.
+      #
+      # From the root, so `client` and `tools` are held to the one policy in
+      # `ruff.toml`. Once rather than per Python: it reads the source and does
+      # not run it, so three interpreters would give the same answer three
+      # times.
       - if: matrix.python == '3.13'
-        run: pip install ruff && ruff check client tools
+        run: ruff check .

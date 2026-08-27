@@ -56,6 +56,9 @@ pub struct Ini {
     /// out as one ring rather than two side by side. Clamping this to
     /// something "sensible" would break the skin it was measured from.
     pub hit_circle_overlap: f32,
+    /// Whether the cursor turns as it goes. Stable's own default is on, from
+    /// `SkinOsu`'s constructor: `stfld CursorRotate` after `ldc.i4.1`.
+    pub cursor_rotate: bool,
     /// The same, for the smaller lettering in the corners. A separate key
     /// because osu! skins the two sets separately and they are rarely drawn to
     /// the same metrics.
@@ -172,6 +175,7 @@ impl Default for Ini {
             // are drawn to overlap slightly by default, and a skin that says
             // nothing expects that. Both lazer and danser ship -2.
             hit_circle_overlap: -2.0,
+            cursor_rotate: true,
             score_overlap: 0.0,
             combo_overlap: 0.0,
             // The newest rules, which is what a folder with no `skin.ini` gets.
@@ -295,6 +299,7 @@ impl Ini {
                     out.layered_hit_sounds = value != "0";
                 }
                 ("general", "cursorexpand") => out.cursor_expand = value != "0",
+                ("general", "cursorrotate") => out.cursor_rotate = value != "0",
                 ("general", "allowsliderballtint") => out.slider_ball_tint = value == "1",
                 ("general", "animationframerate") => {
                     if let Ok(n) = value.parse::<f32>() {

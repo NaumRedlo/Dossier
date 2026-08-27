@@ -550,6 +550,14 @@ const SHAKE_CYCLES: f64 = 3.0;
 const TRAIL_STEP_MS: f64 = 1000.0 / 60.0;
 const TRAIL_DISJOINT_MS: f64 = 150.0;
 
+/// How long the cursor takes to come back round to where it started.
+///
+/// Stable's own number, out of the method that builds the cursor: a looping
+/// rotation from nought to `6.28319` over `10000`, linear. Not a guess and not
+/// a taste — a skin drawn with a shaped cursor turns at exactly this rate in
+/// the game, and at any other rate it is a different video.
+const CURSOR_TURN_MS: f64 = 10_000.0;
+
 /// The other kind, for a skin that ships `cursormiddle`: a ribbon rather than a
 /// row of dots. Its marks are laid along the path by *distance* — one every
 /// `Texture.DisplayWidth * CursorScale / 2.5` — added together rather than over

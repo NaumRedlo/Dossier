@@ -5040,3 +5040,104 @@ fn a_skins_own_verdict_is_drawn_at_the_end_of_a_slider_too() {
         "the skin's mark is at the head: {at_head} there against {at_tail} at the tail"
     );
 }
+
+/// A cursor that is not a circle, so that turning it shows.
+///
+/// Half opaque and half empty, split down the middle. At rest the ink is on
+/// the left; half a turn later it is on the right, and that is the whole
+/// difference this test is looking for. A round cursor — which is what most
+/// skins ship and what our own is — hides the behaviour completely, which is
+/// why it went unnoticed until stable itself was read.
+fn write_half_cursor(dir: &std::path::Path) {
+    let mut pixmap = tiny_skia::Pixmap::new(64, 64).expect("a canvas");
+    let width = pixmap.width();
+    for (at, pixel) in pixmap.pixels_mut().iter_mut().enumerate() {
+        let x = at as u32 % width;
+        *pixel = if x < width / 2 {
+            tiny_skia::PremultipliedColorU8::from_rgba(255, 255, 255, 255).expect("a colour")
+        } else {
+            tiny_skia::PremultipliedColorU8::from_rgba(0, 0, 0, 0).expect("nothing")
+        };
+    }
+    std::fs::write(
+        dir.join("cursor.png"),
+        pixmap.encode_png().expect("png"),
+    )
+    .expect("written");
+}
+
+/// How much ink sits a little to the left of where the cursor is.
+fn ink_left_of_the_cursor(dir: &std::path::Path, at_ms: f64) -> u32 {
+    use dossier_render::elements::Element;
+    use dossier_render::imported::Sprites;
+
+    // Held well away from the note, and read long after it: the circle at
+    // 5000 is bigger than the cursor and would be counted as ink.
+    let held = dossier_beatmap::Point { x: 100.0, y: 100.0 };
+    let map = beatmap(ONE_CIRCLE);
+    let replay = replay_over(vec![
+        dossier_replay::ReplayFrame { time_ms: 0, x: 100.0, y: 100.0, keys: dossier_replay::Keys(0) },
+        dossier_replay::ReplayFrame { time_ms: 30_000, x: 100.0, y: 100.0, keys: dossier_replay::Keys(0) },
+    ]);
+    let state = GameState::new(&map, &replay);
+    let layout = Layout::new(640, 480);
+
+    let mut skin = Skin::with_combo_colours(map.combo_colours());
+    // `tint_for` as well as `read`: the coloured copy is what the renderer
+    // asks for, and a skin read without it hands back nothing at all.
+    let sprites = Sprites::read(dir, &[Element::Cursor]).tint_for(&skin.combo_colours);
+    skin.sprites = Some(std::sync::Arc::new(sprites));
+    let frame = Scene::new(&state, skin).frame(at_ms, &layout);
+
+    let (x, y) = layout.map(held);
+    // Well inside the half that is opaque at rest, and clear of the seam:
+    // measured off the frame, the disc spans about sixteen pixels either side
+    // of where the cursor is, so a window that straddles the middle counts the
+    // same ink whichever way round it has turned.
+    let mut ink = 0;
+    for dx in -18..-10_i32 {
+        for dy in -6..6_i32 {
+            let p = frame
+                .pixel((x as i32 + dx) as u32, (y as i32 + dy) as u32)
+                .expect("inside the frame");
+            if p.red() > 60 {
+                ink += 1;
+            }
+        }
+    }
+    ink
+}
+
+/// Read out of stable: the cursor carries one looping rotation, nought to
+/// `6.28319` over `10000` milliseconds, linear. So half a turn is five seconds
+/// and the half that was on the left is then on the right.
+#[test]
+fn the_cursor_turns_the_way_the_game_turns_it() {
+    let dir = skin_folder("cursor-turns");
+    write_half_cursor(&dir);
+
+    let at_rest = ink_left_of_the_cursor(&dir, 10_000.0);
+    let half_a_turn = ink_left_of_the_cursor(&dir, 15_000.0);
+
+    assert!(at_rest > 0, "the cursor was not drawn at all");
+    assert!(
+        half_a_turn * 4 < at_rest,
+        "five seconds in, the cursor has not turned: {at_rest} against {half_a_turn}"
+    );
+}
+
+/// Nineteen of the twenty-six skins on the machine this was written on say
+/// `CursorRotate: 0`, and stable answers that by setting the rotation back to
+/// nothing rather than by slowing it.
+#[test]
+fn a_skin_that_says_not_to_turn_the_cursor_is_obeyed() {
+    let dir = skin_folder("cursor-still");
+    write_half_cursor(&dir);
+    std::fs::write(dir.join("skin.ini"), "[General]\nCursorRotate: 0\n").expect("written");
+
+    let at_rest = ink_left_of_the_cursor(&dir, 10_000.0);
+    let later = ink_left_of_the_cursor(&dir, 15_000.0);
+
+    assert!(at_rest > 0, "the cursor was not drawn at all");
+    assert_eq!(at_rest, later, "it turned a cursor that asked to stay still");
+}

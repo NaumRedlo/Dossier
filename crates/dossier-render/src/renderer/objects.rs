@@ -985,6 +985,20 @@ impl Scene<'_> {
         self.draw_wide(pixmap, element, centre, width, alpha, layout, 0.0, 0);
     }
 
+    /// The same, turned about its own centre.
+    pub(super) fn draw_sprite_wide_turned(
+        &self,
+        pixmap: &mut Pixmap,
+        element: Element,
+        centre: Point,
+        width: f32,
+        alpha: f32,
+        layout: &Layout,
+        degrees: f32,
+    ) {
+        self.draw_wide(pixmap, element, centre, width, alpha, layout, degrees, 0);
+    }
+
     /// The same, on the frame this element is showing `elapsed_ms` after it
     /// appeared.
     ///
@@ -1997,6 +2011,48 @@ impl Scene<'_> {
         }
     }
 
+    /// How far round the cursor has turned by now, in degrees.
+    ///
+    /// Stable adds one looping transformation to the cursor when the skin
+    /// allows it, and the numbers are its own rather than ours — from the
+    /// method that builds the cursor:
+    ///
+    /// ```text
+    ///     ldfld  CursorRotate
+    ///     brtrue.s L0165
+    ///     ...Clear();  rotation = 0        // the skin said no
+    ///   L0165:
+    ///     ldc.i4.8                         // a rotation
+    ///     ldc.r4 0        ldc.r4 6.28319   // nought to two pi
+    ///     ldc.i4.0        ldc.i4 10000     // linear, ten seconds
+    ///     ...  stfld Loop = 1
+    /// ```
+    ///
+    /// So: one turn every ten seconds, evenly, for ever. Off, it is not slowed
+    /// or stopped where it stands — it is set back to nothing.
+    ///
+    /// Only the outer disc turns. `cursormiddle` is a separate sprite and
+    /// stays where it is, which is the whole reason a skin ships one.
+    ///
+    /// Worth having at all because nineteen of the twenty-six skins on this
+    /// machine set `CursorRotate: 0` — and the seven that say nothing get
+    /// stable's default, which is on. A round cursor hides this; a shaped one
+    /// does not, and the cursor is on screen for every frame of the video.
+    fn cursor_turn(&self, time_ms: f64) -> f32 {
+        let allowed = self
+            .skin
+            .sprites
+            .as_ref()
+            .is_none_or(|sprites| sprites.ini().cursor_rotate);
+        if !allowed {
+            return 0.0;
+        }
+        // `rem_euclid` rather than `%`: a replay's clock starts before its
+        // first note, and a negative remainder would turn the cursor backwards
+        // for the lead-in and then jump.
+        (time_ms.rem_euclid(CURSOR_TURN_MS) / CURSOR_TURN_MS * 360.0) as f32
+    }
+
     pub(super) fn draw_cursor(&self, pixmap: &mut Pixmap, time_ms: f64, layout: &Layout) {
         let track = self.state.cursor_track();
         let radius = layout.length(9.0);
@@ -2042,7 +2098,15 @@ impl Scene<'_> {
                         self.skin_pixels(layout, sprite.width()) * self.skin.cursor_scale
                     });
                 let wide = own * if held { 1.25 } else { 1.0 };
-                self.draw_sprite_wide(pixmap, Element::Cursor, sample.pos, wide, 1.0, layout);
+                self.draw_sprite_wide_turned(
+                    pixmap,
+                    Element::Cursor,
+                    sample.pos,
+                    wide,
+                    1.0,
+                    layout,
+                    self.cursor_turn(time_ms),
+                );
                 if self.skin_speaks_for(Element::CursorMiddle) {
                     // Drawn over the top and never expanded — that part is the
                     // game's own behaviour rather than a choice.

@@ -12,6 +12,7 @@ to run.
 """
 
 import os
+import shutil
 import sys
 
 # Where this file is, up three: `client/dossier/settings.py` to the checkout
@@ -23,9 +24,29 @@ _HERE = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__
 # a successful build reports itself as missing.
 _ENGINE = "dossier.exe" if os.name == "nt" else "dossier"
 
+def _find_engine() -> str:
+    """Where the engine is, for somebody who has not said where.
+
+    A built checkout is the render client's case, and it should need no
+    configuration at all — so the binary beside this package wins. Installed
+    with `pip` there is no checkout above it, only the virtual environment, and
+    `.../venv/target/release/dossier` is a path that has never existed; `PATH`
+    is asked instead.
+
+    If neither answers, the checkout path is returned anyway. A message that
+    says the engine is not at `<checkout>/target/release/dossier` tells
+    somebody to build it; one that says the engine is nowhere tells them
+    nothing.
+    """
+    beside = os.path.join(_HERE, "target", "release", _ENGINE)
+    if os.path.isfile(beside):
+        return beside
+    return shutil.which(_ENGINE) or beside
+
+
 # The compiled engine. Set explicitly when it lives somewhere else — which is
 # the ordinary case for the bot, whose checkout is not this one.
-DOSSIER_BIN = os.getenv("DOSSIER_BIN", os.path.join(_HERE, "target", "release", _ENGINE))
+DOSSIER_BIN = os.getenv("DOSSIER_BIN") or _find_engine()
 
 # The encoder the engine shells out to.
 DOSSIER_FFMPEG = os.getenv("DOSSIER_FFMPEG", "ffmpeg")

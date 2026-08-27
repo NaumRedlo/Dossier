@@ -16,11 +16,32 @@ dependencies = [
     "requests>=2.31",
 ]
 
+# Installed, the client is a command. `python -m dossier.worker` works too, and
+# `python client/worker.py` works from a checkout with nothing installed at all
+# — three ways in, because the people running this did not all arrive the same
+# way.
+[project.scripts]
+dossier-worker = "dossier.worker:run"
+
 [project.urls]
 Homepage = "https://github.com/NaumRedlo/Dossier"
 
-# Two packages and no more. `worker.py` sits beside them rather than inside:
-# it is a program, not part of the library, and a checkout should be able to
-# run it with nothing installed.
+# Two packages and no more — the tests are not shipped, and `client/worker.py`
+# is a launcher for people running from a checkout rather than something to
+# install.
 [tool.setuptools]
 packages = ["dossier", "dossier.osu"]
+
+# The tests, for anyone changing this and for the workflow that builds a
+# release — nothing ships to somebody's laptop that these did not pass.
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "pytest-asyncio>=0.23",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Every test here that touches the engine is async, and marking each one is a
+# line of ceremony per test that says nothing.
+asyncio_mode = "auto"

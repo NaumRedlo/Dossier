@@ -236,7 +236,6 @@ const BOARD_RIVAL_DIM: f32 = 0.35;
 /// How long the error bar takes to give the bottom of the frame over to the
 /// spinner's speed, and to take it back.
 const SPIN_SWAP_MS: f64 = 260.0;
-/// The size of that readout, as a share of the frame's height.
 /// Where the speed figure sits inside its plate, as a share of the plate's
 /// half-width from its centre.
 ///
@@ -245,6 +244,19 @@ const SPIN_SWAP_MS: f64 = 260.0;
 /// lands a little over a quarter of the way out. A skin that drew its gap where
 /// osu!'s skin has it gets its figure on it.
 const SPIN_READOUT_OFFSET: f32 = 80.0 / 289.0;
+
+/// The size of that readout, as a share of the frame's height.
+///
+/// This one is ours and is not grounded in anything, which shows: `spinner-rpm`
+/// is 56 units tall in the interface's own 768, and the default skin's score
+/// digits are 46 — a figure that fills four fifths of the plate it sits in.
+/// `0.026` of the frame is twenty of those units, a little over a third, and
+/// the plate reads as oversized because the number in it is half the height it
+/// should be.
+///
+/// Left alone for now rather than changed on the way past: it is shared with
+/// the caption drawn when a skin ships no plate at all, where there is no
+/// reference to match and the same number looks right.
 const SPIN_READOUT_SIZE: f64 = 0.026;
 
 /// How far below the centre the bonus total sits.

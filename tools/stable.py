@@ -35,6 +35,28 @@ numbers are not obfuscated at all — which is what `consts` is for. Asking for
 `80,140,200` lands on the one method that states stable's whole difficulty
 table, and reading it needs no names.
 
+## Read it as C# first
+
+Everything below reads the assembly by hand, which is what this was for before
+there was anything better. There is: ILSpy decompiles `osu!.exe` to 312k lines
+of C# in half a minute, and while the names stay mangled, everything the
+obfuscator could not touch comes back — `Origins.TopLeft`, `MatchTeamTypes`,
+`ButtonType`, `SliderBallFlip`, the XNA types, and the whole control flow as
+`if`/`foreach` instead of branch labels.
+
+    dotnet tool install -g ilspycmd
+    export DOTNET_ROOT=/opt/homebrew/Cellar/dotnet/<version>/libexec
+    ilspycmd "osu!.exe" -o <somewhere outside this repository>
+
+`DOTNET_ROOT` is not optional with homebrew's dotnet — the app host looks in
+the standard locations, and homebrew is not one of them.
+
+Then grep the C#. `consts` below is still the way in when all you have is a
+number, but reading what it finds is a `sed -n` on the decompiled file now.
+
+Decompiled osu! source is ppy's, exactly like the assets: it goes next to the
+game, never into this repository.
+
 ## Usage
 
     stable.py assets <assembly> <out-dir>     write every picture and sound out

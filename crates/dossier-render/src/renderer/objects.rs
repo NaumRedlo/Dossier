@@ -672,15 +672,29 @@ impl Scene<'_> {
                             // ours for reading progress off, and painting it over
                             // somebody's artwork would be drawing on their skin.
                             let _ = done;
-                            self.draw_sprite(
-                                pixmap,
-                                Element::SliderBall,
-                                annotation.colour,
-                                ball,
-                                radius,
-                                carried,
-                                layout,
-                            );
+                            // `SliderBallFlip`: plain on the way out, turned
+                            // over on the way back.
+                            if self.ball_is_mirrored(object, time_ms) {
+                                self.draw_sprite_mirrored(
+                                    pixmap,
+                                    Element::SliderBall,
+                                    annotation.colour,
+                                    ball,
+                                    radius,
+                                    carried,
+                                    layout,
+                                );
+                            } else {
+                                self.draw_sprite(
+                                    pixmap,
+                                    Element::SliderBall,
+                                    annotation.colour,
+                                    ball,
+                                    radius,
+                                    carried,
+                                    layout,
+                                );
+                            }
                         } else {
                             self.dot(pixmap, ball, radius, colour, carried, layout);
                             self.dot(
@@ -941,6 +955,42 @@ impl Scene<'_> {
     /// note. It is why the skin this was written against works at all — its
     /// `hitcircleoverlay` is 320 against a 128 circle, and reading either file's
     /// size as "the size of a note" would put one of them badly wrong.
+    /// Whether the ball is on a return leg and the skin asked for it to be
+    /// turned over when it is.
+    ///
+    /// stable numbers the legs from one and mirrors the even ones, which is
+    /// the same parity as this timeline's slide index counting from zero:
+    /// slide zero is the way out. See `Ini::slider_ball_flip` for where that
+    /// is read from.
+    ///
+    /// One thing stable does here that this does not. It takes the leg from
+    /// the last scoring point the ball passed, and that counter starts at zero
+    /// rather than before the first point — so on a slider whose legs carry no
+    /// ticks, where a leg is a single point and that point is its end, the
+    /// count is a whole leg out and the *first* leg comes up mirrored. It
+    /// falls out of the counter's initial value rather than out of anything
+    /// the game means, it shows on no other element, and reproducing it would
+    /// turn the ball the wrong way round on exactly the sliders where having
+    /// it wrong is easiest to see.
+    fn ball_is_mirrored(&self, object: &TimedObject, time_ms: f64) -> bool {
+        if !self
+            .skin
+            .sprites
+            .as_ref()
+            .is_some_and(|sprites| sprites.ini().slider_ball_flip)
+        {
+            return false;
+        }
+        let Some(slide) = object.slide_duration_ms().filter(|ms| *ms > 0.0) else {
+            return false;
+        };
+        // Held off the very last instant, where the floor would otherwise
+        // count a leg that never starts.
+        let last = (object.end_ms - object.start_ms - 1e-6).max(0.0);
+        let along = (time_ms - object.start_ms).clamp(0.0, last);
+        (along / slide).floor() as i64 % 2 == 1
+    }
+
     pub(super) fn draw_sprite(
         &self,
         pixmap: &mut Pixmap,
@@ -1099,6 +1149,38 @@ impl Scene<'_> {
             layout,
             degrees,
             tiny_skia::BlendMode::SourceOver,
+            false,
+        );
+    }
+
+    /// The same, mirrored left-to-right about its own centre.
+    ///
+    /// `SliderBallFlip`, and nothing else asks for it. A negative scale on one
+    /// axis is the whole of it: the step back by half the picture that follows
+    /// puts the middle on the point either way round, so the sprite turns over
+    /// where it stands.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn draw_sprite_mirrored(
+        &self,
+        pixmap: &mut Pixmap,
+        element: Element,
+        combo: usize,
+        centre: Point,
+        radius: f32,
+        alpha: f32,
+        layout: &Layout,
+    ) {
+        self.draw_sprite_blended(
+            pixmap,
+            element,
+            combo,
+            centre,
+            radius,
+            alpha,
+            layout,
+            0.0,
+            tiny_skia::BlendMode::SourceOver,
+            true,
         );
     }
 
@@ -1119,6 +1201,7 @@ impl Scene<'_> {
         layout: &Layout,
         degrees: f32,
         blend_mode: tiny_skia::BlendMode,
+        mirror: bool,
     ) {
         let Some(sprites) = &self.skin.sprites else {
             return;
@@ -1137,9 +1220,10 @@ impl Scene<'_> {
         // Built outwards from where it lands: move to the point, turn about
         // it, scale, then step back by half the picture so the middle of the
         // sprite is what sits on the point.
+        let across = if mirror { -scale } else { scale };
         let transform = Transform::from_translate(x, y)
             .pre_rotate(degrees)
-            .pre_scale(scale, scale)
+            .pre_scale(across, scale)
             .pre_translate(-(art.width() as f32) / 2.0, -(art.height() as f32) / 2.0);
         pixmap.draw_pixmap(
             0,

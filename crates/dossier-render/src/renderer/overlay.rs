@@ -763,6 +763,7 @@ impl Scene<'_> {
                 layout,
                 0.0,
                 tiny_skia::BlendMode::Plus,
+                false,
             );
         }
     }

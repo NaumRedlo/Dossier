@@ -159,6 +159,24 @@ pub struct Ini {
     /// otherwise. Ours tinted it always, which is the one element where the
     /// game's default is "leave it alone" and we had it the other way round.
     pub slider_ball_tint: bool,
+    /// > Should the slider ball be mirrored on the way back?
+    ///
+    /// Default **`0`**. Read out of stable, which hangs it off the number of
+    /// the leg the ball is travelling — the outward legs plain, the return
+    /// legs mirrored:
+    ///
+    /// ```csharp
+    /// int perLeg = points.Count / repeats;               // ticks, plus each leg's end
+    /// ball.reverse(((last + perLeg + 1) / perLeg & 1) == 0);
+    /// ball.flip   ((last + perLeg + 1) / perLeg % 2 == 0 && skin.SliderBallFlip);
+    /// ```
+    ///
+    /// `(last + 1) / perLeg` is how many legs are behind the ball — the same
+    /// expression decides, two lines further down, whether a passed point was
+    /// a tick or the end of a leg. Adding `perLeg` to the numerator adds one
+    /// to the quotient, so what both flags read is the number of the leg being
+    /// travelled, counting from one.
+    pub slider_ball_flip: bool,
     pub slider_border: Option<Color>,
     /// A flat colour for the body itself, in place of the combo colour.
     ///
@@ -190,6 +208,7 @@ impl Default for Ini {
             animation_framerate: -1.0,
             cursor_expand: true,
             slider_ball_tint: false,
+            slider_ball_flip: false,
             slider_border: None,
             slider_track: None,
         }
@@ -301,6 +320,7 @@ impl Ini {
                 ("general", "cursorexpand") => out.cursor_expand = value != "0",
                 ("general", "cursorrotate") => out.cursor_rotate = value != "0",
                 ("general", "allowsliderballtint") => out.slider_ball_tint = value == "1",
+                ("general", "sliderballflip") => out.slider_ball_flip = value == "1",
                 ("general", "animationframerate") => {
                     if let Ok(n) = value.parse::<f32>() {
                         out.animation_framerate = n;
@@ -1331,6 +1351,16 @@ mod tests {
             "off unless a skin says otherwise"
         );
         assert!(Ini::parse("[General]\nAllowSliderBallTint: 1\n").slider_ball_tint);
+    }
+
+    #[test]
+    fn the_ball_is_only_mirrored_where_a_skin_said_so() {
+        assert!(
+            !Ini::default().slider_ball_flip,
+            "the game's default is a ball that comes back the way it went"
+        );
+        assert!(Ini::parse("[General]\nSliderBallFlip: 1\n").slider_ball_flip);
+        assert!(!Ini::parse("[General]\nSliderBallFlip: 0\n").slider_ball_flip);
     }
 
     #[test]

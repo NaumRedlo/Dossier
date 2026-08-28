@@ -5395,3 +5395,136 @@ fn the_speed_figure_fills_its_plate_the_way_the_game_fills_it() {
         share * 100.0
     );
 }
+
+// ── the slider ball, turned over on the way back ─────────────────────────
+
+/// Half a picture: transparent on the left, red on the right. Which way round
+/// it is drawn is then a question anybody can answer by looking.
+fn write_lopsided_ball(dir: &std::path::Path, name: &str, size: u32) {
+    let mut pixmap = tiny_skia::Pixmap::new(size, size).expect("a canvas");
+    let width = pixmap.width();
+    for (at, pixel) in pixmap.pixels_mut().iter_mut().enumerate() {
+        let x = at as u32 % width;
+        *pixel = if x >= width / 2 {
+            tiny_skia::PremultipliedColorU8::from_rgba(220, 0, 0, 255).expect("a colour")
+        } else {
+            tiny_skia::PremultipliedColorU8::from_rgba(0, 0, 0, 0).expect("a colour")
+        };
+    }
+    std::fs::write(dir.join(name), pixmap.encode_png().expect("png")).expect("written");
+}
+
+/// How much of the ball's red half falls either side of where the ball is,
+/// counted in a box around it and nowhere else.
+///
+/// Counting red across the whole frame was tried first and measured the slider
+/// body along with it — 3,400 pixels spread over x 239..631 for a ball 60
+/// across. The ball's own place is known exactly, so the question is asked
+/// there.
+fn red_sides(frame: &tiny_skia::Pixmap, centre: (f32, f32)) -> (usize, usize) {
+    let (cx, cy) = centre;
+    let (mut left, mut right) = (0usize, 0usize);
+    for y in (cy - 45.0).max(0.0) as u32..((cy + 45.0) as u32).min(frame.height()) {
+        for x in (cx - 45.0).max(0.0) as u32..((cx + 45.0) as u32).min(frame.width()) {
+            let Some(p) = frame.pixel(x, y) else { continue };
+            if p.red() > 150 && p.green() < 90 && p.blue() < 90 {
+                if f32::from(u16::try_from(x).unwrap_or(0)) < cx {
+                    left += 1;
+                } else {
+                    right += 1;
+                }
+            }
+        }
+    }
+    (left, right)
+}
+
+/// The ball a quarter along the way out, and three quarters along the way back
+/// — which `position_at_slide` puts at the same point on the path, reached
+/// from the two directions. Anything differing between the two frames is the
+/// ball turning over and nothing else.
+fn ball_at_two_legs(flip: bool) -> ((usize, usize), (usize, usize)) {
+    use dossier_render::elements::Element;
+    use dossier_render::imported::Sprites;
+
+    let dir = skin_folder(if flip { "ball-flip" } else { "ball-plain" });
+    write_lopsided_ball(&dir, "sliderb.png", 128);
+    std::fs::write(
+        dir.join("skin.ini"),
+        if flip {
+            "[General]\nSliderBallFlip: 1\n"
+        } else {
+            "[General]\nSliderBallFlip: 0\n"
+        },
+    )
+    .expect("written");
+
+    let map = beatmap(REPEATING_SLIDER);
+    // Held down and on the path, so the ball is being followed rather than
+    // dropped.
+    let frames: Vec<_> = (0..260)
+        .map(|i| dossier_replay::ReplayFrame {
+            time_ms: 1900 + i * 20,
+            x: 250.0,
+            y: 192.0,
+            keys: dossier_replay::Keys(dossier_replay::Keys::K1),
+        })
+        .collect();
+    let replay = replay_over(frames);
+    let state = GameState::new(&map, &replay);
+
+    let object = &state.timeline().objects[0];
+    let slide = object.slide_duration_ms().expect("a slider");
+    let (out_ms, back_ms) = (
+        object.start_ms + slide * 0.25,
+        object.start_ms + slide * 1.75,
+    );
+
+    // The skin keeps its own colours on the ball: `AllowSliderBallTint`
+    // defaults to off, which is what leaves the red there to be counted.
+    let mut skin = Skin::with_combo_colours(map.combo_colours()).with_font(font());
+    skin.sprites = Some(std::sync::Arc::new(
+        Sprites::read(&dir, &[Element::SliderBall]).tint_for(&skin.combo_colours),
+    ));
+    let layout = Layout::new(640, 480);
+    let where_it_is = |ms: f64| layout.map(object.ball_at(ms).expect("the ball is out"));
+    let scene = Scene::new(&state, skin);
+    (
+        red_sides(&scene.frame(out_ms, &layout), where_it_is(out_ms)),
+        red_sides(&scene.frame(back_ms, &layout), where_it_is(back_ms)),
+    )
+}
+
+#[test]
+fn the_slider_ball_turns_over_on_the_way_back_when_the_skin_asks() {
+    // Three skins here ship a ball drawn to be mirrored and were getting it
+    // the same way round both ways. stable numbers the legs from one and turns
+    // the even ones over; see `Ini::slider_ball_flip`.
+    let ((out_left, out_right), (back_left, back_right)) = ball_at_two_legs(true);
+    assert!(
+        out_right > 200 && out_left * 4 < out_right,
+        "on the way out the red half should be on the right: {out_left} left, {out_right} right"
+    );
+    assert!(
+        back_left > 200 && back_right * 4 < back_left,
+        "on the way back it should have turned over: {back_left} left, {back_right} right"
+    );
+}
+
+#[test]
+fn a_skin_that_did_not_ask_gets_the_ball_the_same_way_round_both_ways() {
+    // The half that makes the other test mean anything: both frames are the
+    // same point on the path reached from opposite directions, so with nothing
+    // asking for a flip they have to agree. Without this, that test would pass
+    // just as well on a ball that turned over for some other reason.
+    let ((out_left, out_right), (back_left, back_right)) = ball_at_two_legs(false);
+    assert!(
+        out_right > 200 && back_right > 200,
+        "the ball was not drawn"
+    );
+    assert!(
+        out_left * 4 < out_right && back_left * 4 < back_right,
+        "nothing asked for a flip and it turned over anyway: \
+         out {out_left}/{out_right}, back {back_left}/{back_right}"
+    );
+}

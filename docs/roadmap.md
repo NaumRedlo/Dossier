@@ -155,6 +155,27 @@ rather than compositing elements is the right answer, since at full size a
 frame shows exactly what a video will look like.
 
 
+**The storyboard and the video are in, and three things about them are
+not.** Both are behind flags — `--storyboard` and `--video` — and off by
+default, like the artwork.
+
+- *Triggers* (`T,HitSoundClap,…`) are parsed far enough to be skipped whole.
+  They fire on things the storyboard cannot know by itself, and a trigger
+  expanded on a guess is a sprite that appears when nothing happened. Doing
+  them properly means handing the storyboard the hit sounds as they are
+  played, which is a thing the renderer does not have and the audio side does.
+- *`--video` is `video` only.* `frame` would need a seek per picture and
+  `exhibit` a seek per clip; neither is hard and neither is written.
+- *A tinted sprite allocates.* tiny-skia carries an opacity through a blit but
+  not a colour, so a sprite under a `C` command is multiplied into a scratch
+  copy first. White sprites — nearly all of them — cost nothing. A storyboard
+  that tints hundreds at once would want a cache keyed by picture and colour.
+
+**Cursor rotation should be a setting.** It follows the game now — a full turn
+every ten seconds, off when the skin says `CursorRotate: 0` — and asked for as
+something a person can turn off for themselves rather than only the skin.
+Wanted 2026-08-28.
+
 **Exhibit's remaining list.** Slow motion at the first mistake is built — the
 picture, the hit sounds, the music and the camera all follow one schedule, and a
 reel finds the moment itself — but it is **switched off for reels** as of the

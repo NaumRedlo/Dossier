@@ -16,7 +16,7 @@ use tiny_skia::{Color, Pixmap, PixmapPaint, Transform};
 /// Both, because a beatmap's background is nearly always a `.jpg` while every
 /// picture the bot hands us is a `.png`, and the file's own name is not to be
 /// trusted about which it is — maps ship `bg.jpg` files that are PNGs.
-fn decode(bytes: &[u8]) -> Option<Pixmap> {
+pub(crate) fn decode(bytes: &[u8]) -> Option<Pixmap> {
     if let Ok(pixmap) = Pixmap::decode_png(bytes) {
         return Some(pixmap);
     }

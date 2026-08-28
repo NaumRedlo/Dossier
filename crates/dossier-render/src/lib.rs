@@ -26,6 +26,7 @@ mod layout;
 mod leaderboard;
 mod renderer;
 mod skin;
+pub mod storyboard;
 mod text;
 
 pub use layout::Layout;

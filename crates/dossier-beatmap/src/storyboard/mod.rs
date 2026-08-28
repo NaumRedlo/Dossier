@@ -147,8 +147,11 @@ pub struct Drawn<'a> {
     pub layer: Layer,
     pub origin: Origin,
     pub path: &'a str,
-    /// Which picture of an animation, already wrapped or held.
+    /// Which picture of an animation, already wrapped or held. Meaningless
+    /// unless `animated` — a still sprite is its own file, not frame nought of
+    /// it.
     pub frame: u32,
+    pub animated: bool,
     pub x: f32,
     pub y: f32,
     pub scale: (f32, f32),
@@ -196,6 +199,7 @@ impl Sprite {
             origin: self.origin,
             path: &self.path,
             frame: 0,
+            animated: self.animation.is_some(),
             x: self.x,
             y: self.y,
             scale: (1.0, 1.0),

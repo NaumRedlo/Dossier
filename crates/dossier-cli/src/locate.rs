@@ -359,3 +359,134 @@ fn normalise(name: &str) -> String {
         .unwrap_or(name)
         .to_ascii_lowercase()
 }
+
+/// Every file that came with the map, findable by the name a storyboard writes.
+///
+/// `read_background` above opens the archive, finds one file and closes it,
+/// which is right for the one picture it is asked for. A storyboard names
+/// hundreds, and doing that hundreds of times would read a thirty-megabyte
+/// archive off disk hundreds of times.
+///
+/// So the names are indexed once. Two things about the index are not
+/// tidiness: it is keyed by the *whole* relative path rather than by the file
+/// name, because `sb/1.png` and `sb/parts/1.png` are different pictures and
+/// most storyboards have both; and it is keyed in lower case with the
+/// separators evened out, because maps are authored on Windows and shipped to
+/// machines that care about neither.
+pub struct Assets {
+    inside: Option<zip::ZipArchive<Cursor<Vec<u8>>>>,
+    /// Normalised name to where it is: an index into the archive, or a path.
+    index: std::collections::HashMap<String, Entry>,
+}
+
+enum Entry {
+    Inside(usize),
+    OnDisk(PathBuf),
+}
+
+impl Assets {
+    /// Index what came with the map. An unreadable archive is an empty index
+    /// rather than a failure — the map still renders, without its scenery.
+    #[must_use]
+    pub fn open(origin: &Origin) -> Self {
+        let mut index = std::collections::HashMap::new();
+        match origin {
+            Origin::Archive(path) => {
+                let Some(zip) = fs::read(path)
+                    .ok()
+                    .and_then(|bytes| zip::ZipArchive::new(Cursor::new(bytes)).ok())
+                else {
+                    return Self {
+                        inside: None,
+                        index,
+                    };
+                };
+                let mut zip = zip;
+                for at in 0..zip.len() {
+                    if let Ok(file) = zip.by_index(at) {
+                        if !file.is_dir() {
+                            index.insert(flatten(file.name()), Entry::Inside(at));
+                        }
+                    }
+                }
+                Self {
+                    inside: Some(zip),
+                    index,
+                }
+            }
+            Origin::Folder(folder) => {
+                walk(folder, folder, &mut index, 0);
+                Self {
+                    inside: None,
+                    index,
+                }
+            }
+        }
+    }
+
+    /// The bytes of one file, by whatever name the storyboard called it.
+    pub fn read(&mut self, name: &str) -> Option<Vec<u8>> {
+        let mut out = Vec::new();
+        match self.index.get(&flatten(name))? {
+            Entry::OnDisk(path) => fs::read(path).ok(),
+            Entry::Inside(at) => {
+                let mut file = self.inside.as_mut()?.by_index(*at).ok()?;
+                file.read_to_end(&mut out).ok()?;
+                Some(out)
+            }
+        }
+    }
+
+    /// The set's own storyboard, which is a `.osb` beside the `.osu`.
+    ///
+    /// There is at most one that matters and its name is the set's, which
+    /// nothing here knows — so it is found by its extension.
+    #[must_use]
+    pub fn osb(&self) -> Option<String> {
+        let mut found: Vec<&String> = self
+            .index
+            .keys()
+            .filter(|name| name.ends_with(".osb"))
+            .collect();
+        // Sorted, so a folder holding two of them picks the same one twice
+        // rather than whichever the hash map felt like.
+        found.sort();
+        found.first().map(|name| (*name).clone())
+    }
+}
+
+/// One spelling for a name: forward slashes, lower case, no leading `./`.
+fn flatten(name: &str) -> String {
+    name.replace('\\', "/")
+        .trim_start_matches("./")
+        .to_ascii_lowercase()
+}
+
+/// Index a folder and its children.
+///
+/// Depth-limited because a storyboard reaches one folder down and a map folder
+/// somebody has pointed at their whole drive should not be walked to the end.
+fn walk(
+    root: &Path,
+    at: &Path,
+    index: &mut std::collections::HashMap<String, Entry>,
+    depth: usize,
+) {
+    if depth > 4 {
+        return;
+    }
+    let Ok(entries) = fs::read_dir(at) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            walk(root, &path, index, depth + 1);
+        } else if let Ok(relative) = path.strip_prefix(root) {
+            index.insert(
+                flatten(&relative.to_string_lossy()),
+                Entry::OnDisk(path.clone()),
+            );
+        }
+    }
+}

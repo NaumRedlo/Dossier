@@ -475,12 +475,18 @@ impl Command {
             Self::Debug => &[MAP, &["--from", "--to"]],
             Self::Sliders | Self::Errors | Self::Score => &[MAP],
             Self::Health => &[MAP, &["--trace"]],
-            Self::Frame => &[MAP, LOOK, &["--at", "--background"]],
-            Self::Video => &[MAP, LOOK, ENCODE, HITSOUND, &["--slow", "--background"]],
+            Self::Frame => &[MAP, LOOK, &["--at", "--background", "--storyboard"]],
+            Self::Video => &[
+                MAP,
+                LOOK,
+                ENCODE,
+                HITSOUND,
+                &["--slow", "--background", "--storyboard"],
+            ],
             Self::Exhibit => &[
                 MAP,
                 LOOK,
-                &["--background"],
+                &["--background", "--storyboard"],
                 // `exhibit` encodes like `video` but chooses its own spans, so
                 // it takes the encode options save the two that name a span.
                 &[
@@ -610,6 +616,11 @@ const OPTIONS_TABLE: &[(&str, &str, &str)] = &[
         "--background",
         "",
         "draw the map's own artwork behind the play",
+    ),
+    (
+        "--storyboard",
+        "",
+        "draw the map's own storyboard, when it has one",
     ),
     ("--from", "<ms>", "start of the span, in map time"),
     ("--to", "<ms>", "end of the span, in map time"),
@@ -818,6 +829,8 @@ struct Options {
     slow_at_ms: Option<f64>,
     /// video/frame: draw the map's own artwork behind the play.
     background: bool,
+    /// video/frame: draw the map's own storyboard.
+    storyboard: bool,
     /// exhibit: the most video it may come to, in seconds. A ceiling, not a
     /// target — how long a reel should be is a property of the play.
     exhibit_budget_s: Option<f64>,
@@ -1275,6 +1288,7 @@ impl Options {
             at_ms: None,
             slow_at_ms: None,
             background: false,
+            storyboard: false,
             exhibit_budget_s: None,
             exhibit_worth: None,
             survey: false,
@@ -1356,6 +1370,7 @@ impl Options {
                     );
                 }
                 "--background" => options.background = true,
+                "--storyboard" => options.storyboard = true,
                 "--slow" => {
                     options.slow_at_ms = Some(
                         rest.next()
@@ -2528,7 +2543,7 @@ fn errors(options: Options) -> ExitCode {
 }
 
 fn load(replay_path: &Path, options: &Options) -> Result<(Beatmap, Replay), String> {
-    load_with_origin(replay_path, options).map(|(b, r, _)| (b, r))
+    load_with_origin(replay_path, options).map(|(b, r, _, _)| (b, r))
 }
 
 /// Same, but keeping the human-readable note of where the map came from.
@@ -2553,7 +2568,7 @@ fn load_found(replay_path: &Path, options: &Options) -> Result<(Beatmap, Replay,
 fn load_with_origin(
     replay_path: &Path,
     options: &Options,
-) -> Result<(Beatmap, Replay, locate::Origin), String> {
+) -> Result<(Beatmap, Replay, locate::Origin, String), String> {
     let bytes = std::fs::read(replay_path).map_err(|e| format!("{e}"))?;
     let replay = Replay::parse(&bytes).map_err(|e| format!("{e}"))?;
     let found = match &options.map {
@@ -2568,7 +2583,9 @@ fn load_with_origin(
         }
     };
     let beatmap = Beatmap::parse(&found.text).map_err(|e| format!("{e}"))?;
-    Ok((beatmap, replay, found.origin))
+    // The text as well as the map: a storyboard lives in `[Events]`, which
+    // `Beatmap` reads for the background and the breaks and then forgets.
+    Ok((beatmap, replay, found.origin, found.text))
 }
 
 /// Which client wrote a replay, for the report headers.
@@ -2885,7 +2902,7 @@ fn exhibit_command(options: Options) -> ExitCode {
     // `load_with_origin` rather than `load`: the origin is where the audio
     // track is unpacked from, and by the time a reel is wanted the archive has
     // long since gone out of scope.
-    let (beatmap, replay, origin) = match load_with_origin(replay_path, &options) {
+    let (beatmap, replay, origin, map_text) = match load_with_origin(replay_path, &options) {
         Ok(triple) => triple,
         Err(message) => {
             eprintln!("dossier: {message}");
@@ -2979,6 +2996,10 @@ fn exhibit_command(options: Options) -> ExitCode {
     let scene = if options.bare { scene.bare() } else { scene };
     let scene = match backdrop(&options, &beatmap, &origin, scene.skin(), options.size) {
         Some(art) => scene.with_backdrop(art),
+        None => scene,
+    };
+    let scene = match scenery(&options, &map_text, &origin) {
+        Some(show) => scene.with_storyboard(show),
         None => scene,
     };
     let settings = video::Settings {
@@ -3075,7 +3096,7 @@ fn frame(options: Options) -> ExitCode {
 
     // With the origin, because a background lives beside the map — in the same
     // folder, or inside the same `.osz`.
-    let (beatmap, replay, origin) = match load_with_origin(replay_path, &options) {
+    let (beatmap, replay, origin, map_text) = match load_with_origin(replay_path, &options) {
         Ok(triple) => triple,
         Err(message) => {
             eprintln!("dossier: {message}");
@@ -3102,6 +3123,10 @@ fn frame(options: Options) -> ExitCode {
     let scene = if options.bare { scene.bare() } else { scene };
     let scene = match backdrop(&options, &beatmap, &origin, scene.skin(), options.size) {
         Some(art) => scene.with_backdrop(art),
+        None => scene,
+    };
+    let scene = match scenery(&options, &map_text, &origin) {
+        Some(show) => scene.with_storyboard(show),
         None => scene,
     };
     let layout = Layout::new(options.size.0, options.size.1);
@@ -3179,6 +3204,48 @@ fn backdrop(
     prepared
 }
 
+/// The map's own storyboard, with every picture it names.
+///
+/// Never a hard failure, for the same reason as the artwork: a storyboard is
+/// the one part of a render the play does not depend on.
+///
+/// Both files are read. A `.osb` belongs to the whole set and is read first; a
+/// difficulty's own `[Events]` is added over it, which is the order the game
+/// draws them in.
+fn scenery(
+    options: &Options,
+    map_text: &str,
+    origin: &locate::Origin,
+) -> Option<dossier_render::storyboard::Show> {
+    use dossier_beatmap::storyboard;
+
+    if !options.storyboard {
+        return None;
+    }
+    let mut assets = locate::Assets::open(origin);
+    let mut board = assets
+        .osb()
+        .and_then(|name| assets.read(&name))
+        // Lossily: a stray byte in a comment somewhere should not cost the
+        // whole storyboard, and every line this cares about is ASCII.
+        .map(|bytes| storyboard::parse(&String::from_utf8_lossy(&bytes)))
+        .unwrap_or_default();
+    board.absorb(storyboard::parse(map_text));
+    if board.sprites.is_empty() {
+        return None;
+    }
+    let sprites = board.sprites.len();
+    let show = dossier_render::storyboard::Show::load(board, |path| assets.read(path));
+    if show.is_empty() {
+        eprintln!(
+            "dossier: the storyboard names {sprites} sprite(s) and none of their \
+             pictures came with the map — rendering without it"
+        );
+        return None;
+    }
+    Some(show)
+}
+
 fn load_leaderboard(path: Option<&Path>, player: &str) -> dossier_render::Leaderboard {
     let Some(path) = path else {
         return dossier_render::Leaderboard::default();
@@ -3242,7 +3309,7 @@ fn video_command(options: Options) -> ExitCode {
         return ExitCode::FAILURE;
     }
 
-    let (beatmap, replay, origin) = match load_with_origin(replay_path, &options) {
+    let (beatmap, replay, origin, map_text) = match load_with_origin(replay_path, &options) {
         Ok(triple) => triple,
         Err(message) => {
             eprintln!("dossier: {message}");
@@ -3337,6 +3404,10 @@ fn video_command(options: Options) -> ExitCode {
     let scene = if options.bare { scene.bare() } else { scene };
     let scene = match backdrop(&options, &beatmap, &origin, scene.skin(), options.size) {
         Some(art) => scene.with_backdrop(art),
+        None => scene,
+    };
+    let scene = match scenery(&options, &map_text, &origin) {
+        Some(show) => scene.with_storyboard(show),
         None => scene,
     };
     // Where the camera draws in to: where the cursor is at the moment being

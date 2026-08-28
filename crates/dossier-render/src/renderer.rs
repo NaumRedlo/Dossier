@@ -692,6 +692,7 @@ pub struct Scene<'a> {
     /// The map's own artwork, already scaled, blurred and dimmed to the output
     /// size — see [`crate::background`]. Drawn under everything.
     backdrop: Option<Pixmap>,
+    show: Option<crate::storyboard::Show>,
 }
 
 /// How far the field is drawn in, and towards what.
@@ -843,6 +844,7 @@ impl<'a> Scene<'a> {
             keys: KeyTrack::build(state.cursor_track(), state.is_lazer()),
             bare: false,
             backdrop: None,
+            show: None,
         }
     }
 
@@ -896,6 +898,26 @@ impl<'a> Scene<'a> {
     pub fn with_backdrop(mut self, backdrop: Pixmap) -> Self {
         self.backdrop = Some(backdrop);
         self
+    }
+
+    /// The map's own storyboard, drawn under the play and — for its `Overlay`
+    /// layer — over it.
+    #[must_use]
+    pub fn with_storyboard(mut self, show: crate::storyboard::Show) -> Self {
+        self.show = Some(show);
+        self
+    }
+
+    /// The storyboard, if this scene was given one.
+    #[must_use]
+    pub fn storyboard(&self) -> Option<&crate::storyboard::Show> {
+        self.show.as_ref()
+    }
+
+    fn draw_storyboard(&self, pixmap: &mut Pixmap, time_ms: f64, layout: &Layout, over: bool) {
+        if let Some(show) = &self.show {
+            show.draw(pixmap, time_ms, layout, over);
+        }
     }
 
     pub fn bare(mut self) -> Self {
@@ -1210,7 +1232,11 @@ impl<'a> Scene<'a> {
     /// one — and `layout` is the plain one everything laid over the play keeps.
     fn draw_play(&self, pixmap: &mut Pixmap, time_ms: f64, layout: &Layout, close: &Layout) {
         self.ground(pixmap);
+        // Under the notes, which is where nearly all of a storyboard goes, and
+        // over them for the one layer a mapper put there on purpose.
+        self.draw_storyboard(pixmap, time_ms, layout, false);
         self.draw_field(pixmap, time_ms, layout, close);
+        self.draw_storyboard(pixmap, time_ms, layout, true);
         self.draw_overlay(pixmap, time_ms, layout);
     }
 

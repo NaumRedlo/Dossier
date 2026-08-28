@@ -286,6 +286,7 @@ fn clone_settings(settings: &video::Settings) -> video::Settings {
         threads: settings.threads,
         encoder_threads: settings.encoder_threads,
         audio: settings.audio.clone(),
+        video: settings.video.clone(),
         hitsounds: settings.hitsounds.clone(),
         // Each clip reports its own frames, which is the only way a watcher
         // can show movement during the twenty seconds one of them takes.

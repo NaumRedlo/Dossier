@@ -693,6 +693,7 @@ pub struct Scene<'a> {
     /// size — see [`crate::background`]. Drawn under everything.
     backdrop: Option<Pixmap>,
     show: Option<crate::storyboard::Show>,
+    over_video: bool,
 }
 
 /// How far the field is drawn in, and towards what.
@@ -845,6 +846,7 @@ impl<'a> Scene<'a> {
             bare: false,
             backdrop: None,
             show: None,
+            over_video: false,
         }
     }
 
@@ -905,6 +907,18 @@ impl<'a> Scene<'a> {
     #[must_use]
     pub fn with_storyboard(mut self, show: crate::storyboard::Show) -> Self {
         self.show = Some(show);
+        self
+    }
+
+    /// Draw on nothing rather than on the skin's background.
+    ///
+    /// For a render that is going over the map's own video: the compositing is
+    /// ffmpeg's, so what this has to produce is the play and its scenery with
+    /// the empty parts left empty. A ground filled here would be a flat colour
+    /// over the video and no video at all.
+    #[must_use]
+    pub fn over_video(mut self) -> Self {
+        self.over_video = true;
         self
     }
 
@@ -1153,6 +1167,13 @@ impl<'a> Scene<'a> {
     /// used is the base of the opening and closing fades, which is the black
     /// the whole picture — artwork included — comes up from and returns to.
     pub(super) fn ground(&self, pixmap: &mut Pixmap) {
+        if self.over_video {
+            // Cleared rather than left: this buffer held the previous frame,
+            // and a transparent frame that keeps what was under it is the
+            // previous play smeared under this one.
+            pixmap.fill(tiny_skia::Color::TRANSPARENT);
+            return;
+        }
         let Some(backdrop) = &self.backdrop else {
             pixmap.fill(self.skin.background);
             return;

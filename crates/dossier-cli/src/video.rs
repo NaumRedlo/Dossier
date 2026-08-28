@@ -19,6 +19,27 @@ use std::process::{Child, Command, Stdio};
 use dossier_render::{Layout, Scene};
 use tiny_skia::Pixmap;
 
+/// A video to lay the render over.
+///
+/// The compositing is ffmpeg's rather than ours, and the reason is upstream of
+/// taste: frames are drawn by several threads that take whichever number is
+/// next, so no thread knows which frame comes after the one it is holding. A
+/// video decoder is sequential by nature, and the only ways to serve it out of
+/// order are to keep the decoded frames — ninety gigabytes for three minutes at
+/// 1080p — or to seek per frame, which is slower than drawing.
+///
+/// So the play is drawn on nothing, goes down the pipe with its alpha, and
+/// ffmpeg puts the video underneath. It decodes in order because it is the one
+/// part of this that reads frames in order.
+#[derive(Debug, Clone)]
+pub struct Backdrop {
+    pub path: std::path::PathBuf,
+    /// When the video starts, in map time. Routinely negative.
+    pub start_ms: f64,
+    /// How far towards black, nought to one — the same dim the artwork gets.
+    pub dim: f32,
+}
+
 pub struct Settings {
     pub out: std::path::PathBuf,
     pub fps: f64,
@@ -39,6 +60,12 @@ pub struct Settings {
     pub encoder_threads: Option<usize>,
     /// The map's audio track. Absent means a silent render.
     pub audio: Option<std::path::PathBuf>,
+    /// The map's background video, when it has one and it was asked for.
+    ///
+    /// Present changes how a frame is carried: with a video the render is laid
+    /// *over* it, so the frames go down the pipe with alpha and ffmpeg does the
+    /// compositing. See [`Backdrop`].
+    pub video: Option<Backdrop>,
     /// Raw stereo PCM of the hit sounds, already on the video's timebase.
     pub hitsounds: Option<std::path::PathBuf>,
     /// How loud each half of the mix is, as a share of its natural level.
@@ -498,6 +525,7 @@ pub fn encode(
         stall_at_seconds,
         warp.as_deref(),
         plan.video_seconds,
+        plan.from_ms,
     )?;
     let drained = drain_stderr(&mut child);
     let mut stdin = child
@@ -526,7 +554,8 @@ pub fn encode(
     for _ in 0..workers {
         let (tx, rx) = std::sync::mpsc::channel::<Frame>();
         for _ in 0..OWNED {
-            let frame = Frame::new(width, height).ok_or("could not allocate a frame")?;
+            let frame = Frame::new(width, height, settings.video.is_some())
+                .ok_or("could not allocate a frame")?;
             tx.send(frame).map_err(|e| e.to_string())?;
         }
         returns.push(tx);
@@ -583,7 +612,22 @@ pub fn encode(
                         camera,
                     );
                     let Frame { pixmap, yuv } = &mut buffer;
-                    to_yuv420(pixmap, yuv);
+                    if settings.video.is_some() {
+                        // Left premultiplied, and ffmpeg is told so. Undoing it
+                        // here was tried and was the wrong shape of fix: a
+                        // pixmap cannot hold an unpremultiplied colour — its
+                        // channels may not exceed its alpha — so the alpha had
+                        // to be raised to match, which turned every faint
+                        // overlay into an opaque one and the whole frame into a
+                        // flat fill over the video.
+                        let plane = (pixmap.width() * pixmap.height()) as usize;
+                        let split = yuv.len() - plane;
+                        let (colour, alpha) = yuv.split_at_mut(split);
+                        write_alpha(pixmap, alpha);
+                        to_yuv420(pixmap, colour);
+                    } else {
+                        to_yuv420(pixmap, yuv);
+                    }
                     drawing.fetch_add(
                         mark.elapsed().as_micros() as u64,
                         std::sync::atomic::Ordering::Relaxed,
@@ -723,6 +767,7 @@ fn spawn(
     stall_at_seconds: Option<f64>,
     music_warp: Option<&[MusicSlice]>,
     video_seconds: f64,
+    from_ms: f64,
 ) -> Result<Child, String> {
     let (width, height) = settings.size;
     let mut command = Command::new(&settings.ffmpeg);
@@ -735,7 +780,13 @@ fn spawn(
         "-f",
         "rawvideo",
         "-pixel_format",
-        "yuv420p",
+        // With a video underneath, the frames go out with their alpha and
+        // ffmpeg does the compositing — see `Backdrop`.
+        if settings.video.is_some() {
+            "yuva420p"
+        } else {
+            "yuv420p"
+        },
         "-video_size",
         &format!("{width}x{height}"),
         "-framerate",
@@ -774,7 +825,51 @@ fn spawn(
         hits = Some(command_input_index(&mut inputs));
     }
 
-    if let Some(filter) = audio_filter(
+    // The video input, and the chain that puts the render on top of it.
+    //
+    // Last of the inputs so that the ones counted above keep their numbers, and
+    // `-ss` immediately before its own `-i` because a seek binds to the input
+    // that follows it.
+    let mut over_video = None;
+    if let Some(film) = &settings.video {
+        // Where the render starts, in the video's own seconds. A video that
+        // starts before the map does — which is most of them — is seeked into.
+        let seek = (from_ms - film.start_ms) / 1000.0;
+        if seek > 0.0 {
+            command.arg("-ss").arg(format!("{seek:.3}"));
+        }
+        command.arg("-i").arg(&film.path);
+        let at = command_input_index(&mut inputs);
+
+        // A rate mod compresses the video with everything else, so it is walked
+        // through at the same tempo the music is stretched by.
+        //
+        // Cover, not fit, exactly like the artwork: a video with bars down its
+        // sides reads as a mistake.
+        let keep = 1.0 - film.dim.clamp(0.0, 1.0);
+        let mut chain = format!(
+            "[{at}:v]setpts=(PTS-STARTPTS)/{tempo},\
+             scale={width}:{height}:force_original_aspect_ratio=increase,\
+             crop={width}:{height},setsar=1,\
+             colorchannelmixer=rr={keep}:gg={keep}:bb={keep}",
+            tempo = sync.tempo,
+        );
+        // Black in front of a video that starts after the render does, and
+        // black behind one that runs out first — which is what the game shows
+        // on either side of it.
+        let late = (-seek).max(0.0) / sync.tempo;
+        if late > 0.000_5 {
+            chain.push_str(&format!(",tpad=start_duration={late:.3}"));
+        }
+        chain.push_str(&format!(",tpad=stop_duration={video_seconds:.3}[bg];"));
+        // `endall`: the render is the secondary input, and when it runs out
+        // there is nothing further to make. Without it a padded background
+        // holds the last drawn frame for as long as the padding lasts.
+        chain.push_str("[bg][0:v]overlay=eof_action=endall:format=auto:alpha=premultiplied[v]");
+        over_video = Some(chain);
+    }
+
+    let audio = audio_filter(
         music,
         hits,
         &sync,
@@ -782,8 +877,22 @@ fn spawn(
         music_warp,
         video_seconds,
         (settings.music_level, settings.hitsound_level),
-    ) {
-        command.args(["-filter_complex", &filter, "-map", "0:v", "-map", "[a]"]);
+    );
+    let picture = if over_video.is_some() { "[v]" } else { "0:v" };
+    match (&over_video, &audio) {
+        (Some(video), None) => {
+            command.args(["-filter_complex", video, "-map", picture]);
+        }
+        (video, Some(_)) => {
+            let filter = match video {
+                Some(video) => format!("{video};{}", audio.as_deref().unwrap_or_default()),
+                None => audio.clone().unwrap_or_default(),
+            };
+            command.args(["-filter_complex", &filter, "-map", picture, "-map", "[a]"]);
+        }
+        (None, None) => {}
+    }
+    if audio.is_some() {
         command.args(["-c:a", "aac", "-b:a", "192k"]);
         // `-shortest` ends the output with whichever input runs out first, and
         // the chain above ends in `apad`, which makes the audio endless. The
@@ -944,6 +1053,7 @@ mod tests {
             threads: None,
             encoder_threads: None,
             audio: None,
+            video: None,
             hitsounds: None,
             events: crate::events::Events::wanted(false),
             slow_at_ms: None,
@@ -1209,11 +1319,23 @@ struct Frame {
 }
 
 impl Frame {
-    fn new(width: u32, height: u32) -> Option<Self> {
+    fn new(width: u32, height: u32, with_alpha: bool) -> Option<Self> {
+        let (w, h) = (width as usize, height as usize);
         Some(Self {
             pixmap: Pixmap::new(width, height)?,
-            yuv: vec![0; yuv_len(width as usize, height as usize)],
+            yuv: vec![0; yuv_len(w, h) + if with_alpha { w * h } else { 0 }],
         })
+    }
+}
+
+/// The alpha plane that turns `yuv420p` into `yuva420p`: one byte a pixel,
+/// full resolution, after the chroma.
+///
+/// The colours beside it stay premultiplied, which is what a pixmap holds and
+/// what `overlay=alpha=premultiplied` reads.
+fn write_alpha(pixmap: &Pixmap, out: &mut [u8]) {
+    for (pixel, slot) in pixmap.pixels().iter().zip(out.iter_mut()) {
+        *slot = pixel.alpha();
     }
 }
 
@@ -1783,6 +1905,7 @@ mod fail_timing {
             threads: Some(1),
             encoder_threads: Some(1),
             audio: None,
+            video: None,
             hitsounds: None,
             events: crate::events::Events::wanted(false),
             slow_at_ms: None,
@@ -1849,6 +1972,68 @@ mod fail_timing {
             (fail_tail_ms() - (dossier_render::FAIL_ANIMATION_MS + dossier_render::FAIL_EMPTY_MS))
                 .abs()
                 < 1e-9
+        );
+    }
+}
+
+#[cfg(test)]
+mod video_tests {
+    use super::*;
+
+    fn a_frame(with_alpha: bool) -> Frame {
+        Frame::new(4, 2, with_alpha).expect("a frame")
+    }
+
+    #[test]
+    fn a_frame_over_a_video_carries_an_alpha_plane_and_one_without_does_not() {
+        // yuva420p is yuv420p with a full-resolution alpha plane after it, and
+        // ffmpeg reads a fixed number of bytes per frame — a buffer of the
+        // wrong length does not fail, it shears the picture.
+        assert_eq!(a_frame(false).yuv.len(), yuv_len(4, 2));
+        assert_eq!(a_frame(true).yuv.len(), yuv_len(4, 2) + 4 * 2);
+    }
+
+    #[test]
+    fn the_alpha_plane_is_what_was_drawn_and_not_what_was_left_behind() {
+        // The plane is written from the pixmap rather than assumed, and this is
+        // the half that has to be right for a video to show through at all: an
+        // empty frame is transparent everywhere, and the play is what puts
+        // anything else in it.
+        let mut frame = a_frame(true);
+        frame.pixmap.fill(tiny_skia::Color::TRANSPARENT);
+        let mut plane = vec![9u8; 8];
+        write_alpha(&frame.pixmap, &mut plane);
+        assert!(
+            plane.iter().all(|&a| a == 0),
+            "an empty frame was not empty"
+        );
+
+        frame
+            .pixmap
+            .fill(tiny_skia::Color::from_rgba8(20, 30, 40, 255));
+        write_alpha(&frame.pixmap, &mut plane);
+        assert!(
+            plane.iter().all(|&a| a == 255),
+            "a solid frame was not solid"
+        );
+    }
+
+    #[test]
+    fn the_colours_stay_premultiplied() {
+        // Which is what `overlay=alpha=premultiplied` is told. Undoing it here
+        // was tried first and could not work: a pixmap's channels may not
+        // exceed its alpha, so straightening one means raising its alpha, and
+        // every faint overlay in the frame became an opaque one. It rendered as
+        // a flat fill over the video.
+        let mut frame = a_frame(true);
+        frame
+            .pixmap
+            .fill(tiny_skia::Color::from_rgba8(255, 255, 255, 128));
+        let pixel = frame.pixmap.pixels()[0];
+        assert_eq!(pixel.alpha(), 128);
+        assert!(
+            pixel.red() <= pixel.alpha(),
+            "a premultiplied pixel cannot be brighter than its own alpha"
         );
     }
 }

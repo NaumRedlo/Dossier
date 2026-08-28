@@ -200,6 +200,30 @@ pub fn extract_audio(origin: &Origin, filename: &str, into: &Path) -> Option<Pat
     }
 }
 
+/// The map's background video, put somewhere ffmpeg can open by name.
+///
+/// The same shape as the audio and for the same reason: ffmpeg takes a path,
+/// and a file inside an `.osz` is not one.
+pub fn extract_video(origin: &Origin, filename: &str, into: &Path) -> Option<PathBuf> {
+    if filename.trim().is_empty() {
+        return None;
+    }
+    match origin {
+        Origin::Folder(folder) => {
+            let path = folder.join(filename);
+            path.is_file().then_some(path)
+        }
+        Origin::Archive(_) => {
+            let mut assets = Assets::open(origin);
+            let bytes = assets.read(filename)?;
+            let extension = Path::new(filename).extension().and_then(|e| e.to_str());
+            let out = into.join(format!("video.{}", extension.unwrap_or("mp4")));
+            fs::write(&out, bytes).ok()?;
+            Some(out)
+        }
+    }
+}
+
 /// The map's own hit sounds, written into `into` as `.wav` the engine can read.
 ///
 /// A hitsounded map ships its samples beside the `.osu`, and they are the only

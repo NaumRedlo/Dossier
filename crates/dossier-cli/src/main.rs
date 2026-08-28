@@ -481,7 +481,7 @@ impl Command {
                 LOOK,
                 ENCODE,
                 HITSOUND,
-                &["--slow", "--background", "--storyboard"],
+                &["--slow", "--background", "--storyboard", "--video"],
             ],
             Self::Exhibit => &[
                 MAP,
@@ -621,6 +621,11 @@ const OPTIONS_TABLE: &[(&str, &str, &str)] = &[
         "--storyboard",
         "",
         "draw the map's own storyboard, when it has one",
+    ),
+    (
+        "--video",
+        "",
+        "lay the render over the map's own background video",
     ),
     ("--from", "<ms>", "start of the span, in map time"),
     ("--to", "<ms>", "end of the span, in map time"),
@@ -831,6 +836,8 @@ struct Options {
     background: bool,
     /// video/frame: draw the map's own storyboard.
     storyboard: bool,
+    /// video: lay the render over the map's own background video.
+    video: bool,
     /// exhibit: the most video it may come to, in seconds. A ceiling, not a
     /// target — how long a reel should be is a property of the play.
     exhibit_budget_s: Option<f64>,
@@ -1289,6 +1296,7 @@ impl Options {
             slow_at_ms: None,
             background: false,
             storyboard: false,
+            video: false,
             exhibit_budget_s: None,
             exhibit_worth: None,
             survey: false,
@@ -1371,6 +1379,7 @@ impl Options {
                 }
                 "--background" => options.background = true,
                 "--storyboard" => options.storyboard = true,
+                "--video" => options.video = true,
                 "--slow" => {
                     options.slow_at_ms = Some(
                         rest.next()
@@ -3016,6 +3025,10 @@ fn exhibit_command(options: Options) -> ExitCode {
         threads: options.threads,
         encoder_threads: options.encoder_threads,
         audio,
+        // exhibit does not take --video: a reel is cuts out of the middle of a
+        // map, and each one would need its own seek into the film. The flag is
+        // not offered for it, so this is never anything else.
+        video: None,
         hitsounds: None,
         events: events::Events::wanted(options.events),
         // exhibit chooses its own moments to slow into; the per-clip render is
@@ -3204,6 +3217,38 @@ fn backdrop(
     prepared
 }
 
+/// The map's background video, put where ffmpeg can open it.
+///
+/// The dim is the artwork's, so a render with `--video` and one with
+/// `--background` are lit the same — turning one on should not change how
+/// bright the play looks.
+fn film(
+    options: &Options,
+    map_text: &str,
+    origin: &locate::Origin,
+    skin: &Skin,
+    scratch: Option<&Path>,
+) -> Option<video::Backdrop> {
+    if !options.video {
+        return None;
+    }
+    let named = dossier_beatmap::storyboard::parse(map_text).video?;
+    let Some(path) = scratch.and_then(|dir| locate::extract_video(origin, &named.path, dir)) else {
+        eprintln!(
+            "dossier: the map names a video `{}` that did not come with it — rendering without it",
+            named.path
+        );
+        return None;
+    };
+    Some(video::Backdrop {
+        path,
+        start_ms: named.start_ms,
+        dim: options
+            .dim
+            .map_or(skin.background_dim, |at| at as f32 / 100.0),
+    })
+}
+
 /// The map's own storyboard, with every picture it names.
 ///
 /// Never a hard failure, for the same reason as the artwork: a storyboard is
@@ -3366,6 +3411,7 @@ fn video_command(options: Options) -> ExitCode {
         threads: options.threads,
         encoder_threads: options.encoder_threads,
         audio: audio.clone(),
+        video: None,
         hitsounds: None,
         // This one only works out a span; nothing is drawn from it, so there
         // is nothing for it to report.
@@ -3410,6 +3456,14 @@ fn video_command(options: Options) -> ExitCode {
         Some(show) => scene.with_storyboard(show),
         None => scene,
     };
+    // Settled before the scene is finished with, because it decides what the
+    // scene stands on: over a video the play is drawn on nothing.
+    let film = film(&options, &map_text, &origin, scene.skin(), scratch.as_ref());
+    let scene = if film.is_some() {
+        scene.over_video()
+    } else {
+        scene
+    };
     // Where the camera draws in to: where the cursor is at the moment being
     // slowed into — the place on the field the play is at, which is where the
     // eye already is. Only when there is a moment to slow into at all.
@@ -3431,6 +3485,7 @@ fn video_command(options: Options) -> ExitCode {
         threads: options.threads,
         encoder_threads: options.encoder_threads,
         audio,
+        video: film,
         hitsounds,
         events: events::Events::wanted(options.events),
         slow_at_ms: options.slow_at_ms,

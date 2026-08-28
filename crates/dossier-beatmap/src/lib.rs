@@ -25,6 +25,7 @@ mod error;
 mod hitobject;
 mod parser;
 mod path;
+pub mod storyboard;
 mod timing;
 
 pub use difficulty::{difficulty_range, Difficulty};

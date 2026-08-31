@@ -239,3 +239,61 @@ async def test_a_download_that_fails_leaves_the_worker_standing(monkeypatch, cap
 
 def _never(*_args, **_kwargs):
     raise AssertionError("it downloaded something it should not have")
+
+
+# ── the certificates the download needs ──────────────────────────────────
+
+
+def test_the_download_is_given_the_same_authorities_as_everything_else(monkeypatch):
+    """Reported from a Mac, at the one moment it stops everything:
+
+        беру dossier-v0.11.0-macos-arm64.zip…
+        ✗ не удалось скачать: [SSL: CERTIFICATE_VERIFY_FAILED]
+
+    Python does not read the system certificate store on macOS, so `certifi`
+    is handed to `aiohttp` — and this, which is `urllib`, inherited nothing.
+    A machine that could reach the bot could not update from it, which is
+    worse than not reaching it at all: the worker is turned away for having
+    the wrong build and cannot get the right one.
+    """
+    import ssl
+    import urllib.request
+
+    given = {}
+
+    class _Reply:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            return False
+
+        def read(self, _n):
+            return b"body"
+
+    def urlopen(url, timeout=None, context=None):
+        given["context"] = context
+        return _Reply()
+
+    monkeypatch.setattr(urllib.request, "urlopen", urlopen)
+    assert update._fetch("https://example.invalid/x") == b"body"
+    assert isinstance(given["context"], ssl.SSLContext), (
+        "the release is fetched with whatever OpenSSL happens to trust"
+    )
+    assert given["context"].get_ca_certs(), "an SSL context with no authorities in it"
+
+
+def test_a_machine_without_certifi_is_left_exactly_as_it_was(monkeypatch):
+    """A machine whose OpenSSL *is* set up works fine on the default, and
+    refusing to start over a missing package would be the worse answer."""
+    import builtins
+
+    real = builtins.__import__
+
+    def no_certifi(name, *args, **kwargs):
+        if name == "certifi":
+            raise ImportError(name)
+        return real(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", no_certifi)
+    assert update.trusted() is None

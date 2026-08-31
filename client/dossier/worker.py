@@ -111,34 +111,6 @@ class BuildMismatch(RuntimeError):
         self.release = release
 
 
-def trusted() -> "ssl.SSLContext | None":
-    """The certificate authorities this machine should believe, for HTTPS.
-
-    Reported from a friend's Mac, against a server every browser is happy with:
-
-        [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed:
-        unable to get local issuer certificate
-
-    Python does not read the system's certificate store on macOS — it asks
-    OpenSSL, which looks in a directory that a Homebrew or python.org install
-    leaves empty. `requests` never showed this because it carries `certifi` and
-    uses it by default; `aiohttp` builds a default context and inherits the
-    hole. So the same authorities are handed to both.
-
-    Frozen into one executable it matters more rather than less: there is no
-    system Python whose install script somebody might once have run.
-
-    `None` — meaning aiohttp's own default — if `certifi` is somehow absent,
-    because a machine whose OpenSSL *is* set up works fine that way and
-    refusing to start would be the worse answer.
-    """
-    try:
-        import certifi
-    except ImportError:
-        return None
-    return ssl.create_default_context(cafile=certifi.where())
-
-
 class Server:
     """The bot's render endpoints, as this worker sees them."""
 
@@ -150,7 +122,7 @@ class Server:
     async def __aenter__(self):
         self.session = aiohttp.ClientSession(
             headers=self.headers,
-            connector=aiohttp.TCPConnector(ssl=trusted()),
+            connector=aiohttp.TCPConnector(ssl=update.trusted()),
         )
         return self
 
@@ -913,7 +885,7 @@ async def _ask_the_bot(options, token: str, engine: str | None) -> list:
         async with aiohttp.ClientSession(
             headers={"Authorization": f"Bearer {token}", "X-Render-Worker": options.name},
             timeout=aiohttp.ClientTimeout(total=15),
-            connector=aiohttp.TCPConnector(ssl=trusted()),
+            connector=aiohttp.TCPConnector(ssl=update.trusted()),
         ) as session:
             async with session.get(
                 f"{base}/render/hello", params={"engine": engine or ""}

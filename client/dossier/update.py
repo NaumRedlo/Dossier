@@ -22,6 +22,7 @@ heals rather than needing to be tidied.
 
 import hashlib
 import os
+import ssl
 import platform
 import shutil
 import subprocess
@@ -47,6 +48,37 @@ MOST_BYTES = 200 * 1024 * 1024
 # cannot become two processes replacing each other for ever.
 HANDED_OVER = "DOSSIER_HANDED_OVER"
 
+
+def trusted() -> "ssl.SSLContext | None":
+    """The certificate authorities this machine should believe, for HTTPS.
+
+    Reported from a friend's Mac, against a server every browser is happy with:
+
+        [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed:
+        unable to get local issuer certificate
+
+    Python does not read the system's certificate store on macOS — it asks
+    OpenSSL, which looks in a directory that a Homebrew or python.org install
+    leaves empty. `requests` never showed this because it carries `certifi` and
+    uses it by default; `aiohttp` builds a default context and inherits the
+    hole. So the same authorities are handed to both — `aiohttp`, which the
+    worker talks to the bot with, and `urllib` here, which fetches the
+    release. This lived beside the first of those and the second inherited
+    nothing, so a Mac that could reach the bot could not update from it:
+    the same error, at the one moment it stops everything.
+
+    Frozen into one executable it matters more rather than less: there is no
+    system Python whose install script somebody might once have run.
+
+    `None` — meaning aiohttp's own default — if `certifi` is somehow absent,
+    because a machine whose OpenSSL *is* set up works fine that way and
+    refusing to start would be the worse answer.
+    """
+    try:
+        import certifi
+    except ImportError:
+        return None
+    return ssl.create_default_context(cafile=certifi.where())
 
 class Cannot(RuntimeError):
     """Said to a person, not to a traceback."""
@@ -84,7 +116,7 @@ def already_handed_over() -> bool:
 
 def _fetch(url: str) -> bytes:
     try:
-        with urllib.request.urlopen(url, timeout=120) as reply:  # noqa: S310
+        with urllib.request.urlopen(url, timeout=120, context=trusted()) as reply:  # noqa: S310
             body = reply.read(MOST_BYTES + 1)
     except urllib.error.HTTPError as exc:
         if exc.code == 404:

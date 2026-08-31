@@ -297,7 +297,7 @@ async def redeem(server: str, code: str, name: str) -> tuple[str, str]:
     """
     import aiohttp
 
-    from dossier.worker import trusted
+    from dossier.update import trusted
 
     try:
         async with aiohttp.ClientSession(

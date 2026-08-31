@@ -546,3 +546,55 @@ fn there_are_no_break_suspects_when_our_combo_is_not_the_higher_one() {
         "1 and 2 into the run"
     );
 }
+
+#[test]
+fn a_relax_play_can_be_read_press_by_press() {
+    // The deepest diagnostic the engine has, and for Relax replays it showed
+    // nothing at all: `press_detail` walked the replay's recorded keys to line
+    // each verdict up with its click, and a Relax replay has none — the game
+    // does the clicking and records none of it. The zip against an empty list
+    // threw every entry away, so `--trace` answered `none` for every window of
+    // every Relax replay there is. Half of what the corpus still disagrees
+    // about is Relax, and it was the one thing that could not be looked at.
+    let map = beatmap(
+        "
+[Difficulty]
+CircleSize:4
+ApproachRate:9
+OverallDifficulty:8
+
+[TimingPoints]
+0,500,4,2,0,60,1,0
+
+[HitObjects]
+100,100,1000,1,0
+200,100,1500,1,0
+",
+    );
+    // Over both circles, and never a key: exactly what a Relax replay is.
+    let frames = vec![
+        frame(900, 100.0, 100.0, 0),
+        frame(1000, 100.0, 100.0, 0),
+        frame(1400, 200.0, 100.0, 0),
+        frame(1500, 200.0, 100.0, 0),
+    ];
+    let relaxed = replay_with(frames.clone(), dossier_replay::bits::RELAX);
+    let state = GameState::new(&map, &relaxed);
+
+    let detail = state.press_detail();
+    assert!(
+        !detail.is_empty(),
+        "a Relax play cannot be read press by press"
+    );
+    // And what it shows is the presses the judge actually used, so the times
+    // are the replay's frames rather than nought.
+    assert!(
+        detail.iter().all(|p| p.time_ms > 0.0),
+        "the detail is there and says nothing about when"
+    );
+
+    // Without Relax the same frames press nothing, and there is nothing to
+    // show — which is the case that used to be the only one working.
+    let plain = replay_with(frames, 0);
+    assert!(GameState::new(&map, &plain).press_detail().is_empty());
+}

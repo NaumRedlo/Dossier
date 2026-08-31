@@ -478,13 +478,17 @@ impl GameState {
         let Some(judge) = &self.judge else {
             return Vec::new();
         };
-        let presses = crate::judge::presses(self.cursor.frames());
+        // The judge's own list, not the replay's keys walked again: under
+        // Relax the game did the clicking and recorded none of it, so walking
+        // the keys answers with nothing and the zip below threw every entry
+        // away. `--trace` printed `none` for every Relax replay there is.
+        let presses = judge.clicks();
         let radius_px = self.timeline.difficulty.circle_radius();
 
         judge
             .trace()
             .iter()
-            .zip(&presses)
+            .zip(presses)
             .map(|(entry, press)| {
                 let object = entry
                     .verdict

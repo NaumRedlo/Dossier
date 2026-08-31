@@ -289,6 +289,14 @@ pub struct Judge {
     shakes: Vec<(usize, f64)>,
     /// What became of every press, in order.
     trace: Vec<PressTrace>,
+    /// …and the presses themselves, which under Relax are not the replay's.
+    ///
+    /// Kept rather than recomputed. The obvious way to line a verdict up with
+    /// the click that earned it is to walk the replay's keys again — and that
+    /// answers with nothing at all for a Relax play, where the game did the
+    /// clicking and recorded none of it. Every `--trace` of a Relax replay
+    /// printed `none`, in the one place a Relax replay most needs reading.
+    clicks: Vec<Press>,
     /// `states[i]` is the score after `events[i]`, so a lookup is a binary
     /// search rather than a replay of everything before it.
     states: Vec<ScoreState>,
@@ -300,6 +308,7 @@ impl Judge {
             heads,
             shakes,
             trace,
+            clicks,
         } = judge_heads(timeline, cursor, ruleset);
         let mut events = Vec::new();
         for (index, object) in timeline.objects.iter().enumerate() {
@@ -329,6 +338,7 @@ impl Judge {
             events,
             shakes,
             trace,
+            clicks,
             states,
         }
     }
@@ -344,6 +354,12 @@ impl Judge {
     /// and it is the only account of *why* a play scored what it did. Twice now
     /// the same numbers have been obtained by instrumenting this file by hand
     /// and then deleting the instrumentation.
+    /// The presses the walk was actually given — the replay's, or the ones
+    /// made for it under Relax. One entry per `trace` entry, in the same order.
+    pub(crate) fn clicks(&self) -> &[Press] {
+        &self.clicks
+    }
+
     pub fn trace(&self) -> &[PressTrace] {
         &self.trace
     }
@@ -471,6 +487,7 @@ enum Head {
     },
 }
 
+#[derive(Debug, Clone, Copy)]
 pub(crate) struct Press {
     pub time_ms: f64,
     pub pos: Point,
@@ -667,7 +684,7 @@ fn judge_heads(timeline: &Timeline, cursor: &CursorTrack, ruleset: Ruleset) -> H
         )
     });
     let clicks = made.unwrap_or_else(|| presses(cursor.frames()));
-    for press in clicks {
+    for press in &clicks {
         // Anything the game had already swept up by the moment it last looked
         // is judged — a miss — and stops blocking. Not "anything whose window
         // has shut": see [`past_it`], where the difference is two milliseconds
@@ -922,6 +939,7 @@ fn judge_heads(timeline: &Timeline, cursor: &CursorTrack, ruleset: Ruleset) -> H
         heads,
         shakes,
         trace,
+        clicks,
     }
 }
 
@@ -930,6 +948,7 @@ struct Heads {
     heads: Vec<Head>,
     shakes: Vec<(usize, f64)>,
     trace: Vec<PressTrace>,
+    clicks: Vec<Press>,
 }
 
 /// Whether an object's window had already shut *by the time the game last

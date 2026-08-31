@@ -148,7 +148,7 @@ dependencies = [
 
 [[package]]
 name = "dossier-assay"
-version = "0.1.0"
+version = "0.11.0"
 dependencies = [
  "dossier-beatmap",
  "dossier-replay",
@@ -158,18 +158,18 @@ dependencies = [
 
 [[package]]
 name = "dossier-audio"
-version = "0.1.0"
+version = "0.11.0"
 
 [[package]]
 name = "dossier-beatmap"
-version = "0.1.0"
+version = "0.11.0"
 dependencies = [
  "thiserror",
 ]
 
 [[package]]
 name = "dossier-cli"
-version = "0.1.0"
+version = "0.11.0"
 dependencies = [
  "dossier-assay",
  "dossier-audio",
@@ -185,7 +185,7 @@ dependencies = [
 
 [[package]]
 name = "dossier-exhibit"
-version = "0.1.0"
+version = "0.11.0"
 dependencies = [
  "dossier-beatmap",
  "dossier-replay",
@@ -194,7 +194,7 @@ dependencies = [
 
 [[package]]
 name = "dossier-render"
-version = "0.1.0"
+version = "0.11.0"
 dependencies = [
  "dossier-beatmap",
  "dossier-replay",
@@ -206,7 +206,7 @@ dependencies = [
 
 [[package]]
 name = "dossier-replay"
-version = "0.1.0"
+version = "0.11.0"
 dependencies = [
  "lzma-rs",
  "thiserror",
@@ -214,7 +214,7 @@ dependencies = [
 
 [[package]]
 name = "dossier-sim"
-version = "0.1.0"
+version = "0.11.0"
 dependencies = [
  "dossier-beatmap",
  "dossier-replay",

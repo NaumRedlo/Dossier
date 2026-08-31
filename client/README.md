@@ -36,7 +36,7 @@ See the repository README for the whole of it.
 ## Installing it as a library
 
 ```
-pip install "dossier @ git+https://github.com/NaumRedlo/Dossier@v0.1.0#subdirectory=client"
+pip install "dossier @ git+https://github.com/NaumRedlo/Dossier@v0.11.0#subdirectory=client"
 ```
 
 The engine is a separate thing — a compiled binary this package looks for and

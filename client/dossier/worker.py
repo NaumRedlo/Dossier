@@ -40,7 +40,6 @@ import os
 import platform
 import re
 import shutil
-import ssl
 import sys
 import zipfile
 import tempfile
@@ -52,6 +51,10 @@ import aiohttp
 from dossier import build as engine_build
 from dossier import machine
 from dossier import maps, runner, skins
+# At module level and not inside a function: `Server.__aenter__` needs it,
+# and that is the first thing a worker does. `update` imports nothing from
+# here, so there is no cycle to dodge.
+from dossier import update
 from dossier.log import get_logger
 
 logger = get_logger("worker")
@@ -1123,7 +1126,7 @@ async def _offer_the_right_build(release: str) -> bool:
 
     **Somebody is here.** Ask, fetch, hand over.
     """
-    from dossier import console, update
+    from dossier import console
 
     if not release:
         return False  # a bot too old to say; nothing to offer

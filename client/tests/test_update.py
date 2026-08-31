@@ -297,3 +297,46 @@ def test_a_machine_without_certifi_is_left_exactly_as_it_was(monkeypatch):
 
     monkeypatch.setattr(builtins, "__import__", no_certifi)
     assert update.trusted() is None
+
+
+async def test_opening_a_session_to_the_bot_actually_works():
+    """The first thing a worker does, and for one release it raised
+    `NameError`.
+
+    `trusted` moved into `update` and `worker` went on calling it — with
+    `update` imported inside one function, some hundreds of lines below the two
+    places that now needed it. Every test passed: they replace `Server`
+    wholesale, so `__aenter__` had not been run in this suite once. The linter
+    caught it, which is luck rather than a net.
+
+    So the net: open one, for real, and close it.
+    """
+    from dossier import worker
+
+    async with worker.Server("https://example.invalid", "token", "w") as server:
+        assert server.session is not None
+
+
+async def test_the_session_is_given_the_certificates_too():
+    """The same authorities the download gets — this is the connection the
+    worker holds open all day."""
+    import ssl
+
+    from dossier import worker
+
+    seen = {}
+    real = worker.aiohttp.TCPConnector
+
+    def connector(*args, **kwargs):
+        seen["ssl"] = kwargs.get("ssl")
+        return real(*args, **kwargs)
+
+    worker.aiohttp.TCPConnector = connector
+    try:
+        async with worker.Server("https://example.invalid", "token", "w"):
+            pass
+    finally:
+        worker.aiohttp.TCPConnector = real
+    assert isinstance(seen["ssl"], ssl.SSLContext) or seen["ssl"] is None
+    if seen["ssl"] is not None:
+        assert seen["ssl"].get_ca_certs()

@@ -152,6 +152,8 @@ pub struct Timeline {
     /// Difficulty after mods, which is what preempt and hit windows come from.
     pub difficulty: Difficulty,
     pub mods: Mods,
+    /// What the player changed about the mods, when the replay said.
+    pub tuning: Tuning,
     /// Pauses the map declares, as (start, end) in milliseconds. Carried
     /// through because what follows a break arrives with no warning from the
     /// rhythm, and the game puts arrows up to supply one.
@@ -170,7 +172,17 @@ impl Timeline {
     /// geometry — and letting those drift apart is how a judge ends up testing
     /// hits against un-mirrored positions.
     pub fn build(beatmap: &Beatmap, mods: Mods) -> Self {
-        let difficulty = apply_mods(beatmap.difficulty, mods);
+        Self::tuned(beatmap, mods, Tuning::default())
+    }
+
+    /// The same, with the settings the player put on those mods.
+    ///
+    /// Separate from `build` rather than folded into it because the two have
+    /// different callers: previewing a map under mods nobody has played it
+    /// with has no replay to read settings from, and reaching for a replay's
+    /// there would be answering a question that was not asked.
+    pub fn tuned(beatmap: &Beatmap, mods: Mods, tuning: Tuning) -> Self {
+        let difficulty = tuning.stats(apply_mods(beatmap.difficulty, mods));
         let mirror = mods.contains(bits::HARD_ROCK);
         let mut objects: Vec<TimedObject> = beatmap
             .objects
@@ -192,6 +204,7 @@ impl Timeline {
             objects,
             difficulty,
             mods,
+            tuning,
             breaks: beatmap.breaks.clone(),
             timing: beatmap.timing.clone(),
         }
@@ -222,6 +235,91 @@ impl Timeline {
 
 /// HardRock and Easy rewrite the difficulty; they're mutually exclusive, and
 /// osu! rejects a replay carrying both.
+/// What a player changed about the mods themselves.
+///
+/// stable's mods have no settings: DoubleTime is one and a half times, and
+/// HardRock is HardRock. lazer's do — Difficulty Adjust plays a map at stats
+/// it was never written with, and the rate mods take any rate the player
+/// dials in. Both are in the replay and both were being read and then thrown
+/// away.
+///
+/// It shows in different places. The rate is not part of judging at all,
+/// because a replay's frames and its objects are both in map time and stay in
+/// step whatever the clock does — it is the render that suffers, drawing at a
+/// speed the play was not at and stretching the music to match. Difficulty
+/// Adjust is the opposite: it decides the hit windows, so getting it wrong is
+/// wrong counts.
+///
+/// Measured on `nazeetskyyy`'s replay of `down [noob...]`, played at OD 11 on
+/// a map written at OD 8: the great window is 14ms rather than 32, and judging
+/// it with the map's own turned 77 hundreds into threes.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct Tuning {
+    /// The rate the player dialled in, when they moved one off its default.
+    pub rate: Option<f64>,
+    pub circle_size: Option<f64>,
+    pub approach_rate: Option<f64>,
+    pub overall_difficulty: Option<f64>,
+    pub drain_rate: Option<f64>,
+}
+
+impl Tuning {
+    /// Read out of a replay's lazer mods. Empty for a stable replay, which has
+    /// nowhere to state any of this.
+    #[must_use]
+    pub fn of_replay(replay: &dossier_replay::Replay) -> Self {
+        let mods = replay.lazer_mods();
+        let stat = |acronym: &str, name: &str| -> Option<f64> {
+            mods.iter()
+                .find(|m| m.acronym == acronym)
+                .and_then(|m| match m.settings.get(name) {
+                    // `number` answers with the default for an absent key,
+                    // which is the wrong shape here: "the player left it
+                    // alone" has to stay distinguishable from "the player set
+                    // it to what it already was".
+                    Some(dossier_replay::Setting::Number(n)) => Some(*n),
+                    _ => None,
+                })
+        };
+        Self {
+            rate: ["DT", "NC", "HT", "DC"]
+                .iter()
+                .find_map(|m| stat(m, "speed_change")),
+            circle_size: stat("DA", "circle_size"),
+            approach_rate: stat("DA", "approach_rate"),
+            overall_difficulty: stat("DA", "overall_difficulty"),
+            drain_rate: stat("DA", "drain_rate"),
+        }
+    }
+
+    /// Whether there is anything here to apply.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        *self == Self::default()
+    }
+
+    /// The stats a map is played at, which are the map's own except where the
+    /// player replaced them.
+    ///
+    /// Replaced, not scaled, and applied after HardRock and Easy: Difficulty
+    /// Adjust states a number outright. Values above ten are kept — that is
+    /// what `extended_limits` is for, the window formula extrapolates past ten
+    /// the way lazer's does, and clamping here would quietly judge an OD 11
+    /// play at OD 10.
+    #[must_use]
+    pub fn stats(&self, difficulty: Difficulty) -> Difficulty {
+        Difficulty {
+            hp_drain: self.drain_rate.unwrap_or(difficulty.hp_drain),
+            circle_size: self.circle_size.unwrap_or(difficulty.circle_size),
+            overall_difficulty: self
+                .overall_difficulty
+                .unwrap_or(difficulty.overall_difficulty),
+            approach_rate: self.approach_rate.unwrap_or(difficulty.approach_rate),
+            ..difficulty
+        }
+    }
+}
+
 fn apply_mods(difficulty: Difficulty, mods: Mods) -> Difficulty {
     if mods.contains(bits::HARD_ROCK) {
         difficulty.hard_rock()

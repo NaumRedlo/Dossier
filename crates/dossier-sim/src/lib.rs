@@ -49,4 +49,4 @@ pub use state::{
     ActiveObject, ComboChain, GameState, MissContext, NearMiss, PlayEnd, PressDetail, PressSummary,
     Snapshot, Suspect, Verification,
 };
-pub use timeline::{TimedKind, TimedObject, Timeline};
+pub use timeline::{TimedKind, TimedObject, Timeline, Tuning};

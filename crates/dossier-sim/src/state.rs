@@ -289,13 +289,23 @@ const LEAD_IN_MS: f64 = 800.0;
 impl GameState {
     /// Build from a parsed map and replay, applying the replay's own mods.
     pub fn new(beatmap: &Beatmap, replay: &Replay) -> Self {
-        Self::with_mods(beatmap, replay, replay.mods)
+        Self::tuned(
+            beatmap,
+            replay,
+            replay.mods,
+            crate::Tuning::of_replay(replay),
+        )
     }
 
     /// Same, but with the mods stated explicitly — useful for previewing a map
     /// under mods nobody has played it with.
     pub fn with_mods(beatmap: &Beatmap, replay: &Replay, mods: Mods) -> Self {
-        let timeline = Timeline::build(beatmap, mods);
+        Self::tuned(beatmap, replay, mods, crate::Tuning::default())
+    }
+
+    /// The same again, with what the player changed about those mods.
+    pub fn tuned(beatmap: &Beatmap, replay: &Replay, mods: Mods, tuning: crate::Tuning) -> Self {
+        let timeline = Timeline::tuned(beatmap, mods, tuning);
         let cursor = CursorTrack::new(replay.frames.clone());
         // Which client wrote this replay decides which rules judge it — the
         // header carries the version, and the two rulesets genuinely differ.
@@ -598,7 +608,13 @@ impl GameState {
     /// DoubleTime doesn't move the notes, it plays the same map faster — so
     /// this is for the encoder's clock, not for object lookups.
     pub fn playback_rate(&self) -> f64 {
-        self.timeline.mods.speed_multiplier()
+        // The rate the player dialled in, when they moved it: lazer lets DT
+        // be anything, and drawing a 1.15 replay at 1.5 plays it half again
+        // too fast with the music stretched to match.
+        self.timeline
+            .tuning
+            .rate
+            .unwrap_or_else(|| self.timeline.mods.speed_multiplier())
     }
 
     /// Everything on screen at `time_ms`, in map time.

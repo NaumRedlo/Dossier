@@ -497,9 +497,27 @@ pub(crate) struct Press {
 /// Newly-pressed buttons, in order.
 ///
 /// Only the rising edge counts: holding a button through several frames is one
-/// click. Two buttons going down on the same frame is also one click — osu!
-/// sets M1 alongside K1 for a keyboard press, and counting both would double
-/// every hit.
+/// click. But there are *two* buttons, not one, and a frame can raise both.
+///
+/// The game does not look at the four bits a replay records. It folds them into
+/// a left and a right, and osu! sets the mouse bit alongside the key bit for a
+/// keyboard press, so each side is one button however it was struck:
+///
+/// ```go
+/// controller.cursors[i].LeftButton = frame.KeyPressed.LeftClick
+/// controller.cursors[i].RightButton = frame.KeyPressed.RightClick
+/// ```
+///
+/// Then each side rises on its own — `leftCond`, `rightCond` — and a circle
+/// consumes exactly one of them, `if player.leftCondE { ... } else if
+/// player.rightCondE { ... }`, leaving the other live for the object behind it.
+/// So a player who strikes both keys on one frame hits two notes with it.
+///
+/// Folding the frame into a single click instead loses one press on every such
+/// frame, and everything after it is judged by the click that belonged to the
+/// note before — a stream that reads a whole run late. On the corpus that is
+/// four replays and twelve counts, one of them a run of five notes in
+/// `syna_psis` where every verdict was one press behind the truth.
 /// The presses osu! makes for a player under Relax.
 ///
 /// A Relax replay records the cursor and nothing else: the game does the
@@ -647,10 +665,14 @@ fn relax_presses(
 
 pub(crate) fn presses(frames: &[ReplayFrame]) -> Vec<Press> {
     let mut out = Vec::new();
+    let left = |k: u8| k & (Keys::M1 | Keys::K1) != 0;
+    let right = |k: u8| k & (Keys::M2 | Keys::K2) != 0;
     let mut previous = 0u8;
     for frame in frames {
         let held = frame.keys.0 & CLICK_KEYS;
-        if held & !previous != 0 {
+        let rising =
+            u8::from(left(held) && !left(previous)) + u8::from(right(held) && !right(previous));
+        for _ in 0..rising {
             out.push(Press {
                 time_ms: frame.time_ms as f64,
                 pos: Point {

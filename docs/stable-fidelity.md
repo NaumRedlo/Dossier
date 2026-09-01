@@ -4411,3 +4411,82 @@ a percent, which is one slider piece moving in ScoreV2 without moving a verdict.
 
 The seventy-two millisecond slider now reads Ok, which is what danser and the
 replay both say.
+
+## Two buttons, not one
+
+Counting the disagreements against danser object by object, and setting the
+sliders aside, the circles fell into a shape that was not about windows at all.
+Whole runs were judged by the wrong click. In `syna_psis`, five notes in a row:
+
+```
+#51  start 12485  us Ok    danser Great   its frame 12485   our press 12510
+#53  start 12585  us Ok    danser Great   its frame 12592   our press 12622
+#54  start 12635  us Meh   danser Great   its frame 12622   our press 12699
+#55  start 12685  us Ok    danser Great   its frame 12699   our press 12724
+#56  start 12734  us Meh   danser Great   its frame 12724   our press 12817
+```
+
+Read the two columns together and the answer is written out: our press for one
+note is danser's frame for the *next*. The whole stream is shifted by one, and
+every verdict after the shift is decided by a click that belonged to the note
+before. Elsewhere the shift runs the other way, and where danser writes a Miss
+at the end of a window — `Δ +110ms`, `Δ +166ms`, the tell that it found no click
+at all — we had one to give it.
+
+A shift of exactly one is a press appearing on one side and not the other. Ours
+came from this, which had been in the file since the beginning and reads like a
+statement of fact:
+
+> Two buttons going down on the same frame is also one click — osu! sets M1
+> alongside K1 for a keyboard press, and counting both would double every hit.
+
+Half of that is true. The game does fold the mouse bit and the key bit together
+— but into *two* buttons, one per side, not into one click:
+
+```go
+controller.cursors[i].LeftButton = frame.KeyPressed.LeftClick
+controller.cursors[i].RightButton = frame.KeyPressed.RightClick
+```
+
+Each side then rises on its own, and a circle consumes exactly one of them:
+
+```go
+if player.leftCondE {
+    player.leftCondE = false
+} else if player.rightCondE {
+    player.rightCondE = false
+}
+```
+
+The other stays live for the object behind it. A player who strikes both keys on
+one frame — which on a dense stream is not rare, it is the technique — hits two
+notes with that frame. We were giving them one.
+
+Four replays improve, none get worse, and the corpus goes 266 → 254 with two
+more exact, 98 of 176. `syna_psis` drops from six to two, which is the run
+above.
+
+### What was ruled out on the way
+
+Reading danser's stable path line by line closed four other candidates, and each
+is worth recording so it is not opened again:
+
+- **The circle's window arithmetic.** `int64(delta) < Hit300` truncates and
+  compares strictly; ours compares a float strictly. On integer frame times the
+  two agree everywhere, and ours already carries the snippet in a comment.
+- **An early click leaving the note alive.** `GetResultForDelta` never returns
+  `Ignore` — beyond the fifty window it returns `Miss`, and the circle is
+  consumed. Ours does the same. Built the other way and measured: 254 → 300.
+- **`writes_off_stranded_notes`.** danser has no such rule, but neither do we on
+  stable — it is `!legacy_note_lock`, so the two cannot be in conflict there.
+- **The slider's tail.** `points[last].time = max(start + dur/2, end - 36)` is
+  our `tail_check_ms` to the character, comment included.
+
+And the slider pieces, once more and for the last time. The single case that
+started this — `week1-4f44b203ccc1237d` #181, one tail at 41027 against a slider
+ending at 41063 — is decided by danser on frame 41039, twelve milliseconds after
+we ask, by which time the cursor has left the ball. Sampling the pieces on
+frames fixes that one and costs the corpus far more, whether it is applied to
+everything (274 → 344) or to stable alone (266 → 1890). Our finer step is
+measurably closer to the truth than stable's own, which is strange and is now
+measured three times. The twenty slider disagreements that remain are not this.

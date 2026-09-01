@@ -4490,3 +4490,30 @@ frames fixes that one and costs the corpus far more, whether it is applied to
 everything (274 → 344) or to stable alone (266 → 1890). Our finer step is
 measurably closer to the truth than stable's own, which is strange and is now
 measured three times. The twenty slider disagreements that remain are not this.
+
+### The twenty sliders are not a timing question
+
+With the circles down to sixteen, the sliders are thirty-six of the fifty-two
+that remain, and twenty of those are one shape: we say Great, danser says Ok.
+Counting the pieces on both sides settles what it is not. The piece *counts*
+agree everywhere — thirteen cases checked, every one of them the same number of
+pieces on both sides, with danser dropping exactly one and us dropping none.
+Almost all are single-piece sliders, so the piece in question is the tail.
+
+Evaluating the tail on the first frame at or after it — the narrow version of
+the frame idea, applied to the one piece that showed the symptom — was built and
+found to leave the case that motivated it unchanged. `week1-4f44b203ccc1237d`
+#181 has its tail at 41027 and the next frame at 41039; on that very frame we
+still find the cursor on the ball, and danser does not. Since our interpolated
+sample *is* the frame's own position at a frame instant, the two engines are
+looking at the same cursor and the same ball at the same moment and disagreeing.
+That leaves the ball's position, or a slide broken and re-latched later than
+ours — `state.slideStart` moving past the point's time is a drop that needs no
+false `allowable` at all — and rules out timing altogether.
+
+Recorded also because the experiment that showed this was itself invalid the
+first three times it was run, and identically so: reaching for "the next frame"
+past a slider that is followed by a break pushes the evaluation seconds into the
+future, where every tail is lost. Three patches, three different clamps, the
+same 1848 to the digit. When a measurement does not move with the thing being
+measured, it is measuring something else.

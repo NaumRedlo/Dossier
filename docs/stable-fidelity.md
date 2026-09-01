@@ -75,6 +75,84 @@ What is left, in the order the evidence supports it:
 4. **The lock on the 37% replay** — right, or accidentally right; the replay
    that could tell the two apart is not in the corpus and never has been.
 
+## danser, measured at last — 2026-09-01
+
+danser is the reference this engine was written against and had never been run
+on the corpus, only quoted. It has now been. `tools/danser-judge` drives its
+ruleset the way its own replay controller does; the run was on a Linux CI
+runner, with a hidden GLFW window under `xvfb` so that danser's skin loading
+works rather than being stubbed — **`app/rulesets/osu` is untouched**, which is
+the whole point of doing it that way.
+
+On the 165 replays without Relax:
+
+| | exact of 165 | count error |
+|---|---|---|
+| this engine | 99 | **298** |
+| danser | **116** | 1545 |
+
+Two different shapes. danser is exactly right more often; this engine is far
+closer when it is wrong. And the totals are not symmetric evidence: the harness
+under-drives danser on some replays — it skips the frame preprocessing danser's
+own controller does, and it does not drive the Relax controller at all, which is
+why the eleven worst are eight Relax replays and three where danser sees no
+presses for long stretches. **Every one of those gaps can only make danser look
+worse than it is.** So 116 is a floor for danser and 1545 a ceiling, while this
+engine's own numbers are exact.
+
+Which makes one half of the split trustworthy and the other not:
+
+| | |
+|---|---|
+| both exact | 73 |
+| **danser exact, we are not** | **43** |
+| we are exact, danser is not | 26 |
+| neither | 23 |
+
+The 43 are the result. A harness gap cannot invent an exact match, so on 43
+replays a reference implementation agrees with the client where this engine does
+not — **184 of the 298 that are left**. The 26 in the other direction are not
+evidence of anything until the harness drives danser properly.
+
+### This retires "the remaining error is the rounding floor"
+
+That claim was argued from a bound: 47 of 48 disagreeing replays disagreed by no
+more than the number of hits sitting within 2ms of a window edge, and the
+direction split 27 against 22. The bound still holds and is still the right way
+to read a total — but it was never a proof that no other cause was needed, and
+it was being read as one. danser gets 43 of those replays exactly right.
+Whatever is left is reachable.
+
+**Nightcord is at the top of the list.** The replay this document has carried a
+fixture section about since August — twenty of count error, the worst non-Relax
+residual, the one where turning the lock off gets closer on totals and wrong on
+combo — danser judges exactly. The two places left for it, the finder's
+`clickable` filter and the geometry, were both closed by measurement the same
+day. The answer is in danser's source, on a replay that can be run against it,
+and both are now in hand.
+
+The fixtures, worst first:
+
+```
+  Uika_Misumi_25_ji,_Nightcord_de_x_Kagamine_Len_Bug_Extra_2026_07.osr
+  creker_Camellia_feat_Kagekiha_Gakusei_Lowermost_revolt_Jeremiad.osr
+  ItarinKamiSama_Phoneboy_Nevermind_feat_Justin_Magnaye_Nightcore.osr
+  week1-8bdc10f4400708a9.osr
+  syna_psis_Various_Artists_Arphimigon_Collection_Three_Dash_Hopes.osr
+  sw1t_Imperial_Circus_Dead_Decadence_Yomi_yori_Kikoyu,_Koukoku_no.osr
+  week1-dfc4bab46a68909a.osr
+  week1-9f2cd1a4410cac89.osr
+  pahanishe_Mental_Cruelty_Symphony_of_a_Dying_Star_Sh4rglory's_Extra.osr
+  Saki_chan_Imperial_Circus_Dead_Decadence_Uta_Redemption_2026_07.osr
+  week1-4f44b203ccc1237d.osr
+  syna_psis_MiddleIsland_Delrio_From_the_River_2026_08_16_Osu.osr
+  … and 31 more; the full list is a diff of the two judgings.
+```
+
+The bench repository this ran in is private and disposable: the replays carry
+osu! usernames and were given for finding judging errors, not for keeping copies
+of.
+
 ## Settled, and we match
 
 | Rule | Stable | Here |

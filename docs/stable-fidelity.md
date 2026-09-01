@@ -4727,3 +4727,53 @@ stable does not do it.
 So it stays as it is, and this is now a place where the reimplementation is
 known to be wrong rather than merely different. The generosity in those three
 replays is real and still unexplained, but it is not here.
+
+### Eleven objects that are known wrong, and one click that decides them
+
+danser judges `ItarinKamiSama` exactly — nought on all four counters — and
+disagrees with us on eleven objects. Those eleven are therefore not a difference
+of opinion but a list of our mistakes, and the arithmetic says so without having
+to trust either engine:
+
+```
+adopting all eleven:  300 -1, 100 -1, 50 -4, miss +6
+our error against the replay:  300 +1, 100 +1, 50 +4, miss -6
+```
+
+Exactly cancelling. Five of the eleven are one cascade, and the cascade has one
+first link — the click at 108421:
+
+```
+108421  we give it to #397 as a fifty     stable gives it to nothing
+108582  we give it to #398                stable: #397 is still unjudged and blocks; eaten
+108691  we give it to #399                stable: #398 blocks; eaten
+108783  we give it to #400                stable: #399 takes it — a three hundred
+108834  we give it to #401                stable: #400 takes it — a three hundred
+                                          stable: #401 gets nothing — a miss
+```
+
+Every verdict after the first is decided by which note ate the click before it.
+Refuse the first and all five fall into place.
+
+danser's reason for refusing it is `CanBeHitStable` asking `!g.IsHit()` of the
+slider #396, which does not become hit when its head is struck but when the
+whole slider is closed — on the first frame at or after its end, which here is
+108424, three milliseconds after the click. Implementing that costs the corpus
+an order of magnitude, in three progressively narrower forms:
+
+| | exact | error |
+|---|---|---|
+| as it is | **106 / 176** | **224** |
+| a struck slider blocks until it closes | 105 / 176 | 2102 |
+| ...only between its end and its closing frame | 104 / 176 | 2140 |
+| ...and only the scan start moved, no blocking | 106 / 176 | 224 |
+
+The last row isolates it: the damage is entirely in the blocking, not in how far
+back the search reaches. And the reason is plain once measured — the closing
+frame is up to sixteen milliseconds after the end, and a click on the next note
+inside sixteen milliseconds of a slider ending is not an edge case on a dense
+map, it is most of them.
+
+So stable refuses that click for some other reason, and the eleven stay open —
+but they are now a *named* list with a proven answer, which is a better thing to
+be stuck on than a number.

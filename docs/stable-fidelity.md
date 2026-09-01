@@ -4303,3 +4303,55 @@ thinking about.
 
 The corpus is unchanged by it: 134 rows, none worse. This is *when* a verdict is
 shown, not what it is.
+
+## Closed: the parts are not sampled on frames
+
+With danser measured, the shape of what is left could finally be counted rather
+than guessed at. Fourteen replays where danser is exact and we are not, compared
+object by object, give sixty-four disagreements — and thirty-eight of them are
+sliders, with one bucket twice the size of any other:
+
+```
+  23 × slider Great→Ok      8 × slider Ok→Great     5 × slider Ok→Miss
+   5 × circle Meh→Great     4 × circle Ok→Great     3 × circle Great→Ok
+```
+
+We say Great where danser says Ok: we are crediting a slider piece that danser
+drops. Its per-part output shows one plainly, on a seventy-two millisecond
+slider whose head arrived twenty-eight milliseconds late:
+
+```
+20709  SliderStart   the head landed
+20718  SliderMiss    the piece danser drops and we keep
+20753  Hit100
+```
+
+The obvious reading is timing. danser retires a piece on the first replay frame
+at or after it — up to sixteen milliseconds later, with the ball further along —
+and takes at most one piece per frame, since `processTicksStable` retires a
+single point per call. We retire every due piece at its own instant, against an
+interpolated cursor. Both halves of that difference were built and measured, the
+second on top of the first:
+
+| | exact | error |
+|---|---|---|
+| ours, per millisecond | **96 / 176** | **274** |
+| pieces retired on frames | 92 / 176 | 344 |
+| …and one piece per frame | 92 / 176 | 344 |
+
+Both are decisively worse, and identically so — the one-per-frame cap almost
+never binds, because ticks are spaced further apart than frames are. Sampling
+the pieces on frames costs seventy across the corpus to buy back a handful of
+short sliders.
+
+So this is not a timing difference to be copied over. Whatever danser is doing
+on that seventy-two millisecond slider, it is not simply *later*; the piece it
+drops is dropped for a reason that survives being looked at on the right frame.
+The twenty-three remain open, and the next attempt should start from what makes
+`allowable` false there, not from when it is asked.
+
+This is the sixth inference to be measured and reverted since the corpus grew
+teeth. Each cost one build and one run, which is the point of having them: the
+rule that a rule read out of the reference beats one reasoned about now has a
+sixth piece of evidence, and this document exists so the seventh is not this
+same one again.

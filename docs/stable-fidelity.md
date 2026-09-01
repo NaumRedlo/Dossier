@@ -4680,3 +4680,50 @@ twenty-six and gives back the eight.
 So the four stay, and the note that matters is where to look next. Not at
 danser — it has been asked and has answered. `osu!.exe` decides this, and it is
 the only thing that can say which of the two behaviours is stable's own.
+
+## A slider that has been struck is done, as far as the lock is concerned
+
+The three worst replays all lean the same way — we are more generous than the
+replay is, giving three hundreds where it gives hundreds and fifties where it
+gives misses. Following one of them object by object, the generosity is not in
+the windows. It is a click we accept that stable throws away.
+
+`ItarinKamiSama` #396 is a slider ending around 108420; #397 is a circle at
+108492. There is a click at 108421, thirteen pixels inside #397, and we give it
+to #397 as a fifty. danser gives it to nothing:
+
+```
+OBJ 396 108424 65552   the slider is closed on frame 108424, an Ok
+OBJ 397 108582 262144  PositionalMiss — a click, but outside the circle
+OBJ 397 108602 4       Miss, at the expiry of the window
+```
+
+Its reason is `CanBeHitStable`, which asks `!g.IsHit(player)` of every object in
+`processed`, and a slider's `IsHit` does not become true when its head is
+struck — it becomes true when the whole slider is finalised, which happens on
+the first frame at or after its end. At 108421 slider #396 is therefore still
+"not hit", `108420 + 3 < 108492` holds, and the click is refused as a shake and
+swallowed by the circle it was inside.
+
+Ours does not, because a slider whose head we landed is marked judged, and a
+judged object is not asked about. That was implemented three ways to find out
+which detail was missing — the slider staying alive to its end, then to the
+frame that closes it, then the blocker scan starting from the first *live*
+object instead of the first unjudged one. The first two changed nothing, the
+third fired:
+
+| | exact | error |
+|---|---|---|
+| a struck slider is done | **106 / 176** | **224** |
+| a struck slider blocks until it closes | 105 / 176 | 2102 |
+| danser, measured | 122 / 176 | 2003 |
+
+The third row is the point. Adopting the rule does not move us toward the
+replays; it moves us onto danser's own profile — a few more exact matches bought
+with an order of magnitude more error everywhere else. That profile is what a
+travelling slider refusing every click behind it looks like, and 176 replays say
+stable does not do it.
+
+So it stays as it is, and this is now a place where the reimplementation is
+known to be wrong rather than merely different. The generosity in those three
+replays is real and still unexplained, but it is not here.

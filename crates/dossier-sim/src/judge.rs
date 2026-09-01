@@ -75,7 +75,7 @@ use std::f64::consts::{PI, TAU};
 use dossier_beatmap::Point;
 use dossier_replay::{HitCounts, Keys, ReplayFrame};
 
-use crate::cursor::CursorTrack;
+use crate::cursor::{CursorTrack, Side};
 use crate::ruleset::Ruleset;
 use crate::timeline::{TimedKind, TimedObject, Timeline};
 
@@ -1502,6 +1502,7 @@ fn track_slider(
     let follow = radius * FOLLOW_CIRCLE_SCALE;
 
     let mut sliding = false;
+    let mut down_button = Side::NONE;
     let mut slide_start = f64::INFINITY;
     let mut judged = 0usize;
     let mut out = Vec::with_capacity(parts.len());
@@ -1561,6 +1562,58 @@ fn track_slider(
         // judged the ball has already travelled, and requiring the cursor to
         // be back on top of it drops a slider the player is plainly holding.
         let head_landing = head_hit_ms.is_some_and(|at| now >= at) && !sliding;
+        // Whether the button being held is one this slider may be tracked
+        // with. Not the same question as whether anything is down.
+        //
+        // ```go
+        // mouseDownAcceptableSwap := player.gameDownState &&
+        //     !(player.lastButton == (Left|Right) && player.lastButton2 == player.mouseDownButton)
+        //
+        // if player.gameDownState {
+        //     if state.downButton == Buttons(0) || (player.mouseDownButton != (Left|Right) && mouseDownAcceptableSwap) {
+        //         state.downButton = ...
+        //         mouseDownAcceptable = true
+        //     } else if (player.mouseDownButton & state.downButton) > 0 {
+        //         mouseDownAcceptable = true
+        //     }
+        // } else {
+        //     state.downButton = Buttons(0)
+        // }
+        // mouseDownAcceptable = mouseDownAcceptable || mouseDownAcceptableSwap || Relax
+        // ```
+        //
+        // The slider remembers which side started it, and a player who was
+        // holding both and lets one go does not simply carry on with the other:
+        // when the release matches the swap pattern the game stops counting the
+        // hold, and the slide breaks with the finger still down. On
+        // `week1-4f44b203ccc1237d` that is one tail — both keys held, the right
+        // released twenty-nine milliseconds from the end, the cursor sixteen
+        // pixels from the ball, and stable drops the piece anyway.
+        let acceptable = match cursor.buttons_at(now) {
+            Some(buttons) => {
+                let swap = buttons.down.any()
+                    && !(buttons.last == Side::BOTH && buttons.last2 == buttons.down);
+                let mut ok = false;
+                if buttons.down.any() {
+                    if down_button == Side::NONE || (buttons.down != Side::BOTH && swap) {
+                        down_button = if buttons.left_edge {
+                            Side::LEFT
+                        } else if buttons.right_edge {
+                            Side::RIGHT
+                        } else {
+                            buttons.down
+                        };
+                        ok = true;
+                    } else if buttons.down.overlaps(down_button) {
+                        ok = true;
+                    }
+                } else {
+                    down_button = Side::NONE;
+                }
+                ok || swap || relax
+            }
+            None => relax,
+        };
         let allowable = match (object.ball_at(now), cursor.sample(now)) {
             (Some(ball), Some(sample)) => {
                 let needed = if sliding || head_landing {
@@ -1568,7 +1621,7 @@ fn track_slider(
                 } else {
                     radius
                 };
-                button_down(sample.keys, relax) && sample.pos.distance_to(ball) <= needed
+                acceptable && sample.pos.distance_to(ball) <= needed
             }
             _ => false,
         };

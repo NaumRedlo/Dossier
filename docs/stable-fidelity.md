@@ -4517,3 +4517,71 @@ past a slider that is followed by a break pushes the evaluation seconds into the
 future, where every tail is lost. Three patches, three different clamps, the
 same 1848 to the digit. When a measurement does not move with the thing being
 measured, it is measuring something else.
+
+## The button that is down but is not the one
+
+The twenty sliders where we said Great and danser said Ok would not yield to
+reasoning, so danser was made to say what it knows. `sliderstate` is unexported
+— when the slide latched, what `slideStart` holds, whether `allowable` was true
+on a given frame — and none of it is reachable from outside the package. The
+bench repository now patches two prints into the ruleset behind an environment
+variable and runs it in CI; a run that does not set the variable judges exactly
+as before.
+
+For `week1-4f44b203ccc1237d` #181, the slider that started all of this:
+
+```
+SLIDE 181 frame 41022  d=34.1  button true   sliding true  from 40822
+SLIDE 181 frame 41022  d=29.4  button false  sliding true  from 40822
+SLIDE 181 frame 41039  d=16.6  button false  sliding false from 40822
+PART  181 piece 41027 frame 41039 slideStart 40822 allowable false -> false
+```
+
+`slideStart` is 40822 — ours exactly. The geometry is ours exactly: sixteen
+pixels from the ball, well inside a follow circle of ninety. What differs is the
+button, and the replay says a button *is* held: the bits on frame 41039 are 5,
+which is M1 with K1.
+
+The rule is not "is anything down". A slider remembers which side started it:
+
+```go
+mouseDownAcceptableSwap := player.gameDownState &&
+    !(player.lastButton == (Left|Right) && player.lastButton2 == player.mouseDownButton)
+
+if player.gameDownState {
+    if state.downButton == Buttons(0) || (player.mouseDownButton != (Left|Right) && mouseDownAcceptableSwap) {
+        state.downButton = ...
+        mouseDownAcceptable = true
+    } else if (player.mouseDownButton & state.downButton) > 0 {
+        mouseDownAcceptable = true
+    }
+} else {
+    state.downButton = Buttons(0)
+}
+mouseDownAcceptable = mouseDownAcceptable || mouseDownAcceptableSwap || Relax
+```
+
+On frame 41022 the player was holding both keys and let the right one go. That
+makes `lastButton` both and `lastButton2` the side that remains, the swap test
+reads `!(true && true)`, and the hold stops counting — the slide breaks with the
+finger still down and twenty-nine milliseconds of slider left. Our engine asked
+`keys.is_pressed()` and said yes.
+
+The two sides are the mouse bit of each, which osu! sets for a keyboard press
+too. Measured across the corpus: not one frame in 176 replays carries a key bit
+without its mouse bit, so `M1` and `M1|K1` are the same rule on anything
+recorded. The wider one is implemented, because every replay written by hand in
+these tests sets the key bit alone and the narrow reading would judge those as
+though nothing were held.
+
+| | exact | error |
+|---|---|---|
+| before | 98 / 176 | 254 |
+| the swap rule | **101 / 176** | 256 |
+
+Three replays become exactly right and two get worse — `Uika` on `RTCMON`
+twice, whose combo goes from two short of the header's to three. That is not a
+reason to leave the rule out: it is read from the reference and confirmed
+against the reference running, and exactness is the stricter measure of the two.
+It is a reason to look at those two next. The manifest has been rewritten and
+carries the regression rather than hiding it.

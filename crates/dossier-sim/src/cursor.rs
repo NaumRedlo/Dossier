@@ -30,7 +30,48 @@ pub struct Cursor {
 #[derive(Debug)]
 pub struct CursorTrack {
     frames: Vec<ReplayFrame>,
+    buttons: Vec<Buttons>,
     hint: std::sync::atomic::AtomicUsize,
+}
+
+/// What the game knows about the two buttons on one frame.
+///
+/// osu! does not look at the four bits a replay records. It folds them into a
+/// left and a right — the mouse bit of each side, which the game sets for a
+/// keyboard press too — and remembers the two changes before this one, because
+/// its rule for whether a held button may keep tracking a slider is written in
+/// terms of them. See `judge::track_slider`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Buttons {
+    /// Which sides are down now.
+    pub down: Side,
+    /// Which were down before the change before this one, and the one before
+    /// that: `lastButton` and `lastButton2`.
+    pub last: Side,
+    pub last2: Side,
+    /// Whether each side went down on this very frame.
+    pub left_edge: bool,
+    pub right_edge: bool,
+}
+
+/// A pair of buttons as a set, the way danser spells it: `Left`, `Right`, both
+/// or neither.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Side(pub u8);
+
+impl Side {
+    pub const NONE: Self = Self(0);
+    pub const LEFT: Self = Self(1);
+    pub const RIGHT: Self = Self(2);
+    pub const BOTH: Self = Self(3);
+
+    pub fn overlaps(self, other: Self) -> bool {
+        self.0 & other.0 != 0
+    }
+
+    pub fn any(self) -> bool {
+        self.0 != 0
+    }
 }
 
 impl Clone for CursorTrack {
@@ -44,10 +85,64 @@ impl Clone for CursorTrack {
 
 impl CursorTrack {
     pub fn new(frames: Vec<ReplayFrame>) -> Self {
+        let buttons = Self::button_states(&frames);
         Self {
             frames,
+            buttons,
             hint: std::sync::atomic::AtomicUsize::new(0),
         }
+    }
+
+    /// The button state at each frame, carried forward the way the game carries
+    /// it: `lastButton` and `lastButton2` only move when the buttons change.
+    ///
+    /// ```go
+    /// if player.buttons.Left != player.cursor.LeftButton || player.buttons.Right != player.cursor.RightButton {
+    ///     player.gameDownState = player.cursor.LeftButton || player.cursor.RightButton
+    ///     player.lastButton2 = player.lastButton
+    ///     player.lastButton = player.mouseDownButton
+    ///     player.mouseDownButton = ...
+    /// }
+    /// ```
+    fn button_states(frames: &[ReplayFrame]) -> Vec<Buttons> {
+        let mut out = Vec::with_capacity(frames.len());
+        let mut state = Buttons::default();
+        let mut previous = Side::NONE;
+        for frame in frames {
+            // danser reads the mouse bit of each side and nothing else —
+            // `LeftButton = frame.KeyPressed.LeftClick` — because osu! sets it
+            // for a keyboard press too. Measured across the corpus: not one
+            // frame in 176 replays carries a key bit without its mouse bit, so
+            // on a recorded replay the two spellings are the same rule. The
+            // wider one is taken because a replay written by hand — every
+            // fixture in these tests — sets the key bit alone, and the narrow
+            // reading would judge it as though nothing were held at all.
+            let mut now = Side::NONE;
+            if frame.keys.0 & (Keys::M1 | Keys::K1) != 0 {
+                now.0 |= Side::LEFT.0;
+            }
+            if frame.keys.0 & (Keys::M2 | Keys::K2) != 0 {
+                now.0 |= Side::RIGHT.0;
+            }
+            state.left_edge = now.overlaps(Side::LEFT) && !previous.overlaps(Side::LEFT);
+            state.right_edge = now.overlaps(Side::RIGHT) && !previous.overlaps(Side::RIGHT);
+            if now != previous {
+                state.last2 = state.last;
+                state.last = state.down;
+                state.down = now;
+            }
+            out.push(state);
+            previous = now;
+        }
+        out
+    }
+
+    /// The buttons as they stood on the last frame at or before `time_ms`.
+    pub fn buttons_at(&self, time_ms: f64) -> Option<Buttons> {
+        if self.frames.is_empty() {
+            return None;
+        }
+        Some(self.buttons[self.index_at(time_ms)])
     }
 
     pub fn is_empty(&self) -> bool {

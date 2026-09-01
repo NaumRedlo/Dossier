@@ -4355,3 +4355,59 @@ teeth. Each cost one build and one run, which is the point of having them: the
 rule that a rule read out of the reference beats one reasoned about now has a
 sixth piece of evidence, and this document exists so the seventh is not this
 same one again.
+
+## A slide begins on a frame
+
+The section above closed the wrong door and said so: sampling the *pieces* on
+frames is decisively worse, so whatever danser does on that seventy-two
+millisecond slider is not simply later. The instruction was to go look at what
+makes `allowable` false there. It is not `allowable`.
+
+Reading `UpdateFor` line by line, the button test collapses to what we already
+do — `mouseDownAcceptable || mouseDownAcceptableSwap || Relax`, and the swap is
+true whenever anything is held. The radius is the same, expanded only while
+sliding; stable has no handover from a landed head, and neither do we. `math87`
+turns out not to be fixed point at all but x87 emulation — compute in double,
+round once to float — which is worth an ulp and not twenty-three sliders.
+
+What differs is one line, and it is not a test but an assignment:
+
+```go
+if allowable && !state.sliding {
+    state.sliding = true
+    state.slideStart = time
+}
+```
+
+`time` is the frame's time, because `UpdateFor` is called once per frame and
+never between. So `slideStart` is always a frame instant. Ours was whatever
+millisecond the cursor happened to arrive on, which is up to a frame earlier —
+and since a piece counts only when `slideStart <= point.time`, an earlier
+`slideStart` hands back pieces that were already gone by the time the game
+would have looked. On a short slider taken late it decides the whole verdict:
+the head lands twenty-eight milliseconds down, the ball is past, and the piece
+nine milliseconds later is caught by us and dropped by stable.
+
+Three shapes were built and measured before the right one:
+
+| | exact | error |
+|---|---|---|
+| held cursor, every millisecond | 74 / 176 | 432 |
+| frames only, held cursor | 40 / 176 | 1872 |
+| slide *starts* on a frame, breaks at the finer step | **96 / 176** | **266** |
+| ...and breaks on a frame too | 96 / 176 | 274 |
+
+The first two are the halves taken apart, and they are worse than either the
+whole or neither — a frozen cursor judged continuously breaks slides stable
+never breaks, and frames alone leave more pieces than there are frames to
+retire them. The last line is the honest cost of over-applying the find: quantise
+the *break* as well and the eight gained come straight back. Only the start is
+a frame.
+
+Two replays improve, none get worse, and the corpus goes 274 → 266. One of the
+two is Power Stance, which had been paying for the slider-retirement rule since
+it landed; it drops from ten to eight. A single score drifts four hundredths of
+a percent, which is one slider piece moving in ScoreV2 without moving a verdict.
+
+The seventy-two millisecond slider now reads Ok, which is what danser and the
+replay both say.

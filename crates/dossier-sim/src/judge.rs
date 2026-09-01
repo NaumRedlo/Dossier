@@ -69,6 +69,7 @@
 //! and the game judged against an audio clock that does not. That is a property
 //! of the file format, not a rule waiting to be found.
 
+use std::collections::HashSet;
 use std::f64::consts::{PI, TAU};
 
 use dossier_beatmap::Point;
@@ -1483,6 +1484,11 @@ fn track_slider(
     let mut judged = 0usize;
     let mut out = Vec::with_capacity(parts.len());
 
+    // The instants the game could have noticed the player was tracking. It
+    // polls once per replay frame and nowhere else, so a slide can only be
+    // declared to have begun on one of them — see below.
+    let frames: HashSet<i64> = cursor.frames().iter().map(|f| f.time_ms).collect();
+
     // The tail's grace, under lazer only. Everything else is decided at one
     // instant; the tail is decided over a window, and lands if the player was
     // tracking at any point in it.
@@ -1544,7 +1550,30 @@ fn track_slider(
             }
             _ => false,
         };
-        if allowable && !sliding {
+        // A slide begins on a frame, and only on one. `UpdateFor` is called
+        // once per replay frame, and the moment it first finds the cursor on
+        // the ball it writes that frame's own time down:
+        //
+        // ```go
+        // if allowable && !state.sliding {
+        //     state.sliding = true
+        //     state.slideStart = time
+        // }
+        // ```
+        //
+        // Because a piece only counts when `state.slideStart <= point.time`,
+        // where the slide started decides which pieces are still catchable —
+        // and a slide started between two frames is one the game never had.
+        // Rounding it down to the instant the player *arrived* hands back
+        // pieces that were already gone by the time anything looked, which is
+        // most visible on a short slider taken late: the head lands, the ball
+        // is already past, and a piece a few milliseconds later is either lost
+        // or not depending on this alone.
+        //
+        // Breaking the slide is left where it was, at the finer step: that is
+        // measured, and quantising it too costs as much as this gains.
+        let on_a_frame = now.fract() == 0.0 && frames.contains(&(now as i64));
+        if allowable && !sliding && on_a_frame {
             sliding = true;
             slide_start = now;
         }

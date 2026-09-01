@@ -553,6 +553,13 @@ fn relax_presses(
     // first frame whose circle happens to contain the cursor, which on a fast
     // map is well before the note is due. So one press, aimed.
     let mut at = 0usize;
+    // Until when the note in front of this one is still holding the lock.
+    //
+    // Only a note that was *not* taken holds it: one that was is judged by the
+    // press that took it and stops being the earliest thing on the field. So
+    // this is set from the aim below — a press that could not land is a note
+    // that stays live until its own window shuts.
+    let mut lock_until = f64::NEG_INFINITY;
     for object in objects {
         if object.is_spinner() {
             continue;
@@ -563,7 +570,12 @@ fn relax_presses(
         // against 508. The lead is a flat basin anyway, 0ms and 12ms differing
         // by eight units in eighteen thousand, so it is not what the remaining
         // error is about.
-        let want = object.start_ms - RELAX_LEAD_MS;
+        // Not before the note in front has been settled. The game presses on
+        // every frame and always has another to spend once the lock lets go;
+        // one press has to be spent at a moment the lock will accept it, or it
+        // is spent on nothing — and on a stream the whole run behind it goes
+        // with it, refused one after another.
+        let want = (object.start_ms - RELAX_LEAD_MS).max(lock_until);
         // Objects are in time order, so this only walks forward.
         while at + 1 < frames.len() && f64::from(frames[at].time_ms as i32) < want {
             at += 1;
@@ -592,6 +604,13 @@ fn relax_presses(
             when += 1;
         }
         let landed = when < frames.len() && f64::from(frames[when].time_ms as i32) <= deadline;
+        lock_until = if landed || lazer {
+            f64::NEG_INFINITY
+        } else {
+            // The first instant `past_it` is true of it: it wants
+            // `time - 1 > start + window`, and frames are whole milliseconds.
+            deadline + 2.0
+        };
         let frame = &frames[if landed { when } else { at }];
         let now = f64::from(frame.time_ms as i32);
         if now < want {

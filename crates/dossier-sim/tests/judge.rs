@@ -2093,3 +2093,53 @@ fn a_spinner_cannot_be_what_blocks_a_note_under_lazer() {
         judge.trace()
     );
 }
+
+#[test]
+fn a_missed_note_does_not_take_the_stream_behind_it_under_relax() {
+    // The cascade, and half of what the corpus disagreed about.
+    //
+    // The game presses on every frame under Relax and always has another to
+    // spend; this engine aims one press per note. When the note in front was
+    // out of reach the aimed press was refused by the note lock — the earlier
+    // note is unjudged and stands in the way — and there was no second press
+    // to take the note once the lock let go. On `goprob`'s all-american bitch
+    // that was ten refusals in a row from one unreachable circle, and 34
+    // misses the game did not give.
+    //
+    // So the aim waits for the lock. The moment it lets go is not the end of
+    // the earlier note's window: `past_it` wants `time - 1 > start + window`,
+    // for the update the click did not wait for and the game's own strict
+    // comparison. Aiming at the window's end instead of two milliseconds past
+    // it measured 512 against 510 — no better than leaving it alone — and
+    // aiming past it measured 278.
+    let map = beatmap(
+        "
+[Difficulty]
+CircleSize:5
+ApproachRate:9
+OverallDifficulty:5
+
+[TimingPoints]
+0,500,4,2,0,60,1,0
+
+[HitObjects]
+20,20,1000,1,0
+256,192,1120,1,0
+256,192,1240,1,0
+",
+    );
+    // Never near the first circle, and parked on the two behind it. The first
+    // is a miss in any client; the question is what becomes of the other two.
+    let frames: Vec<ReplayFrame> = (0..40)
+        .map(|i| frame(900 + i * 20, 256.0, 192.0, 0))
+        .collect();
+
+    let mut relaxed = replay_with(frames, dossier_replay::bits::RELAX);
+    relaxed.game_version = 20_260_412;
+    let counts = judged(&map, &relaxed);
+    assert_eq!(
+        counts.count_miss, 1,
+        "the unreachable circle took the two behind it: {counts:?}"
+    );
+    assert_eq!(counts.count_300, 2, "{counts:?}");
+}

@@ -1200,7 +1200,32 @@ fn build_slider_events(
             Head::Missed { .. } => Judgement::Miss,
         };
         if ruleset.slider_verdict_also_needs_its_pieces() {
-            score_v2_slider(slider_judgement(parts_hit, parts_total), from_head)
+            // The head is one of the pieces, not a veto over them.
+            //
+            // ```go
+            // if state.startResult != Miss { state.scored++ }
+            // rate := float64(state.scored) / float64(len(state.points)+1)
+            // ```
+            //
+            // danser counts the head in both halves of the fraction, so losing
+            // it costs a slider exactly one part. This engine left it out of
+            // the count and then let a missed head decide the whole verdict, so
+            // a slider whose body was tracked end to end came back a miss.
+            //
+            // Found object by object on Nightcord, where danser reproduces the
+            // header exactly and this engine differed on eleven objects of 759:
+            // six were sliders reported as `head lost`, and four of the
+            // remaining five were the circles behind another one, refused by a
+            // lock that was right to refuse them. Reading the head as a veto
+            // put Nightcord 20 out; reading it as a part puts it 12 out, and
+            // the corpus 322 to 314 with nothing worse.
+            let took_head = matches!(head, Head::Hit { .. });
+            let pieces = slider_judgement(parts_hit + u32::from(took_head), parts_total + 1);
+            if took_head {
+                score_v2_slider(pieces, from_head)
+            } else {
+                pieces
+            }
         } else {
             from_head
         }
@@ -1257,9 +1282,14 @@ fn build_slider_events(
 /// So the departure is one condition: a missed head takes the slider with it.
 /// The likeliest reading is that danser's `result` is already a miss in that
 /// case and the branch is unreachable rather than wrong — our pieces' verdict
-/// is assembled differently and reaches it. Either way the rule below is what
-/// the replays say, and the quote above is what the source says; where those
-/// two disagree this file follows the replays and says so.
+/// is assembled differently and reaches it.
+///
+/// **That reading was right, and it is fixed above rather than here.** The
+/// pieces' verdict now counts the head as one of them, the way danser does, so
+/// a missed head costs a slider one part instead of all of it and this function
+/// sees what danser's sees. Found by judging Nightcord object by object against
+/// danser, which reproduces that replay's header exactly: of eleven objects
+/// this engine got wrong, six were sliders it had written off for a lost head.
 fn score_v2_slider(from_pieces: Judgement, from_head: Judgement) -> Judgement {
     use Judgement::{Great, Meh, Miss, Ok};
     let at_least_ok = |j: Judgement| matches!(j, Great | Ok);

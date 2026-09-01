@@ -10,7 +10,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"runtime/debug"
+	"path/filepath"
 
+	"github.com/go-gl/gl/v3.3-core/gl"
+	"github.com/go-gl/glfw/v3.3/glfw"
 	"github.com/wieku/danser-go/app/beatmap"
 	"github.com/wieku/danser-go/framework/assets"
 	"github.com/wieku/danser-go/framework/env"
@@ -18,6 +22,7 @@ import (
 	"github.com/wieku/danser-go/app/beatmap/difficulty"
 	"github.com/wieku/danser-go/app/graphics"
 	"github.com/wieku/danser-go/app/rulesets/osu"
+	"github.com/wieku/danser-go/app/settings"
 	"github.com/wieku/danser-go/framework/math/vector"
 	"github.com/wieku/rplpa"
 )
@@ -25,6 +30,7 @@ import (
 type out struct {
 	Replay string `json:"replay"`
 	Err    string `json:"error,omitempty"`
+	Stack  string `json:"stack,omitempty"`
 	C300   uint   `json:"c300"`
 	C100   uint   `json:"c100"`
 	C50    uint   `json:"c50"`
@@ -38,12 +44,39 @@ func main() {
 
 func run() {
 	env.Init("danser")
+
+	// danser's hit objects load skin textures and a font in `SetDifficulty`,
+	// before a single note is judged, and the texture atlas wants a live GL
+	// context. Rather than stub any of that — which would mean measuring a
+	// modified danser — the harness opens a hidden one-pixel window and lets
+	// danser be itself. Under `xvfb-run` on a headless runner this is Mesa's
+	// software renderer, which is slow and entirely sufficient for a context
+	// nothing ever draws into.
+	if err := glfw.Init(); err != nil {
+		panic(err)
+	}
+	glfw.WindowHint(glfw.Visible, glfw.False)
+	glfw.WindowHint(glfw.ContextVersionMajor, 3)
+	glfw.WindowHint(glfw.ContextVersionMinor, 3)
+	glfw.WindowHint(glfw.OpenGLProfile, glfw.OpenGLCoreProfile)
+	win, err := glfw.CreateWindow(1, 1, "judge", nil, nil)
+	if err != nil {
+		panic(err)
+	}
+	win.MakeContextCurrent()
+	if err := gl.Init(); err != nil {
+		panic(err)
+	}
+
 	assets.Init(true)
 	osuPath, osrPath := os.Args[1], os.Args[2]
 	res := out{Replay: osrPath}
 	defer func() {
 		if r := recover(); r != nil {
+			// The stack, not just the message: "nil pointer dereference" on all
+			// 176 says nothing about which of danser's fields was not set up.
 			res.Err = fmt.Sprint(r)
+			res.Stack = string(debug.Stack())
 		}
 		b, _ := json.Marshal(res)
 		fmt.Println(string(b))
@@ -60,6 +93,13 @@ func run() {
 		return
 	}
 
+	// `ParseBeatMapFile` takes the path apart against danser's own songs
+	// directory and `ParseBeatMap` puts it back together the same way, so a map
+	// outside that directory is simply not found — every one of 176 came back
+	// "beatmap did not parse" for this and nothing else. The value is cached on
+	// first read, so it has to be set before anything asks.
+	settings.General.OsuSongsDir = filepath.Dir(osuPath)
+
 	f, err := os.Open(osuPath)
 	if err != nil {
 		res.Err = err.Error()
@@ -72,8 +112,8 @@ func run() {
 		return
 	}
 	beatmap.ParseTimingPointsAndPauses(bMap)
-	beatmap.ParseObjects(bMap, true, false)
-	// bMap.Reset() loads skin textures through the objects; judging needs none.
+	beatmap.ParseObjects(bMap, false, false)
+	bMap.Reset()
 
 	diff := bMap.Diff.Clone()
 	if replay.ScoreInfo != nil && len(replay.ScoreInfo.Mods) > 0 {
@@ -86,7 +126,11 @@ func run() {
 		diff.SetMods(difficulty.Modifier(replay.Mods))
 	}
 
-	// NewCursor loads a texture and wants a GL context; judging needs none of it.
+	// `NewCursor` builds a framebuffer for drawing the cursor trail, and that
+	// is the one thing the software renderer cannot give — it reports a maximum
+	// texture size of zero and `initCursor` dereferences the result. The ruleset
+	// reads a cursor's position, its keys and its frame times and nothing else,
+	// so the zero value is the whole of what judging needs.
 	cursor := &graphics.Cursor{}
 	cursor.IsPlayer = true
 	cursor.IsAutoplay = false
@@ -103,7 +147,13 @@ func run() {
 		t += float64(frame.Time)
 		now := int64(t)
 
-		cursor.SetPos(vector.NewVec2d(frame.MouseX, frame.MouseY).Copy32())
+		// `SetPos` ends by telling the cursor's renderer where to draw, and there
+		// is no renderer here. With display inversion and edge bouncing off — both
+		// default — everything it does before that is these two assignments, and
+		// they are the two fields the ruleset reads.
+		pos := vector.NewVec2d(frame.MouseX, frame.MouseY).Copy32()
+		cursor.RawPosition = pos
+		cursor.Position = pos
 		cursor.LastFrameTime = cursor.CurrentFrameTime
 		cursor.CurrentFrameTime = now
 		cursor.IsReplayFrame = true

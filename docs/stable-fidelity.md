@@ -114,6 +114,54 @@ replays a reference implementation agrees with the client where this engine does
 not — **184 of the 298 that are left**. The 26 in the other direction are not
 evidence of anything until the harness drives danser properly.
 
+### Nightcord, object by object — it was never the lock
+
+The harness was finished — danser's own frame preprocessing, its Relax input
+processor, and a listener on every judgement — and turned on the fixture. The
+preprocessing alone was worth a great deal: danser's total count error over the
+corpus went from 23,845 to **2,003**, and its exact matches from 116 to 122
+against this engine's 104. Every one of those twenty-two thousand was the
+harness, not danser.
+
+On Nightcord, danser reproduces the header **object for object**: 563 / 125 /
+20 / 51 over 759, the same four numbers the client wrote. So there is a correct
+answer for this replay and it can be read one object at a time.
+
+This engine differs on **eleven objects of 759**:
+
+```
+    #259  56511  slider   Miss → Meh
+    #368  77801  slider   Miss → Ok
+    #405  84414  slider   Miss → Ok
+    #410  85221  circle   Miss → Ok
+    #411  85301  circle   Miss → Ok
+    #412  85382  circle   Miss → Ok
+    #413  85463  circle   Miss → Ok
+    #414  85543  slider   Miss → Ok
+    #687 142318  slider   Miss → Meh
+    #706 145543  slider   Miss → Meh
+    #713 147318  slider   Ok   → Great
+```
+
+Seven are sliders, and **six of those seven are the ones this engine reports as
+`head lost`** — a slider whose head was not taken and which is then scored as a
+total miss, where danser gives it the partial credit its body earned. The
+remaining four are circles #410 to #413, the run that sits directly behind
+slider #409 — another `head lost` — and that this document has been reading as
+a note-lock cascade since August.
+
+**So the lock was never the cause.** It has been read out of the client,
+measured at 57 replays against 2, defended against four relaxations and a
+threshold family, and it was right every time. What sits underneath it is a
+slider whose head this engine loses and danser does not, and the cascade behind
+it is the lock doing exactly what it should to a note that should not have been
+unjudged.
+
+That is one cause for ten of the eleven, on the fixture, with a reference
+implementation that gets it right and whose source is open. The question is now
+whether the head is lost when it should not be, or whether losing it should not
+cost the whole slider — and both are answerable against `app/rulesets/osu`.
+
 ### This retires "the remaining error is the rounding floor"
 
 That claim was argued from a bound: 47 of 48 disagreeing replays disagreed by no

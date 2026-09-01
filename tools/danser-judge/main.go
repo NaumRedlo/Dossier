@@ -21,6 +21,7 @@ import (
 	"github.com/wieku/danser-go/framework/goroutines"
 	"github.com/wieku/danser-go/app/beatmap/difficulty"
 	"github.com/wieku/danser-go/app/graphics"
+	"github.com/wieku/danser-go/app/dance/input"
 	"github.com/wieku/danser-go/app/rulesets/osu"
 	"github.com/wieku/danser-go/app/settings"
 	"github.com/wieku/danser-go/framework/math/vector"
@@ -137,10 +138,40 @@ func run() {
 
 	ruleset := osu.NewOsuRuleset(bMap, []*graphics.Cursor{cursor}, []*difficulty.Difficulty{diff})
 
+	// Under Relax the game does the clicking and writes none of it down, so
+	// danser makes the presses itself. Reading the keys out of the file instead
+	// hands the ruleset a replay that never pressed anything — eight of the
+	// eleven worst results in the first run were this and nothing else.
+	isRelax := diff.CheckModActive(difficulty.Relax)
+	var relax *input.RelaxInputProcessor
+	if isRelax {
+		relax = input.NewRelaxInputProcessor(ruleset, cursor)
+	}
+
+	// Every judgement as it is made, for reading one replay object by object
+	// rather than comparing four totals.
+	if len(os.Args) > 3 && os.Args[3] == "--objects" {
+		ruleset.SetListener(func(_ *graphics.Cursor, r osu.JudgementResult, _ osu.Score) {
+			fmt.Printf("OBJ %d %d %v\n", r.Number, r.Time, r.HitResult)
+		})
+	}
+
 	// danser's own loop, minus the drawing: frame times are deltas, and each
 	// frame offers the click first and sweeps afterwards — the order is
 	// load-bearing and is why it is copied rather than simplified.
+	// danser's own preprocessing, out of `loadFrames`. Skipping it was worth
+	// hundreds of phantom misses on some replays: the seed frame is a marker
+	// rather than a moment, and a leading zero delta doubles the first frame.
 	frames := replay.ReplayData
+	for i, fr := range frames {
+		if fr.Time == -12345 {
+			frames = append(frames[:i], frames[i+1:]...)
+			break
+		}
+	}
+	if len(frames) > 0 && frames[0].Time == 0 {
+		frames = frames[1:]
+	}
 	newHandling := replay.OsuVersion >= 20190506
 	var t float64
 	for i, frame := range frames {
@@ -158,12 +189,16 @@ func run() {
 		cursor.CurrentFrameTime = now
 		cursor.IsReplayFrame = true
 
-		cursor.LeftKey = frame.KeyPressed.LeftClick && frame.KeyPressed.Key1
-		cursor.RightKey = frame.KeyPressed.RightClick && frame.KeyPressed.Key2
-		cursor.LeftMouse = frame.KeyPressed.LeftClick && !frame.KeyPressed.Key1
-		cursor.RightMouse = frame.KeyPressed.RightClick && !frame.KeyPressed.Key2
-		cursor.LeftButton = frame.KeyPressed.LeftClick
-		cursor.RightButton = frame.KeyPressed.RightClick
+		if isRelax {
+			relax.Update(float64(now))
+		} else {
+			cursor.LeftKey = frame.KeyPressed.LeftClick && frame.KeyPressed.Key1
+			cursor.RightKey = frame.KeyPressed.RightClick && frame.KeyPressed.Key2
+			cursor.LeftMouse = frame.KeyPressed.LeftClick && !frame.KeyPressed.Key1
+			cursor.RightMouse = frame.KeyPressed.RightClick && !frame.KeyPressed.Key2
+			cursor.LeftButton = frame.KeyPressed.LeftClick
+			cursor.RightButton = frame.KeyPressed.RightClick
+		}
 
 		ruleset.UpdateClickFor(cursor, now)
 		ruleset.UpdateNormalFor(cursor, now, false)

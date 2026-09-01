@@ -4821,3 +4821,34 @@ Nine replays improve by forty, none get worse, and all three of the worst move:
 `Chroma` 14 → 4, `Grievous Lady` 18 → 14, `ItarinKamiSama` 12 → 8. The
 generosity those three shared — fifties where the replay had misses — was this:
 clicks stable throws away and we were handing to the next note along.
+
+### A circle's block ends at its window, not on the frame that writes the miss
+
+The same shape appears one object later in `ItarinKamiSama` and does not have
+the same answer. #499 is a circle at 132659 whose fifty window runs out at
+132767; the frame that writes its miss is 132769, and there is a click on that
+very frame. danser offers the click to #499 first — outside its radius, so a
+`PositionalMiss` that consumes nothing — then to #500, where `#499` is *still
+unjudged* because `UpdateClickFor` runs before `UpdatePostFor` on that frame,
+and the note lock shakes it away:
+
+```
+OBJ 499 132769 262144   the click, outside #499
+OBJ 499 132769 4        and the miss, written after it
+OBJ 500 132896 262144   the click of 132769 never reached #500 at all
+```
+
+We retire #499 a millisecond after its window, at 132768, so by 132769 it is
+judged and #500 takes the click. Extending it the way the slider was extended —
+alive until the frame that closes it — fixes this replay and costs nine others:
+
+| | exact | error |
+|---|---|---|
+| a circle's block ends at its window | **107 / 176** | **184** |
+| ...and lasts to the frame that writes the miss | 97 / 176 | 266 |
+
+Nine replays worse by fifty against one better by two. So the two are not the
+same rule wearing different clothes. A slider blocks for as long as it is
+*travelling* — a duration the map itself declares, the same on any machine. A
+circle's block ends with its window, in milliseconds, and the frame that happens
+to carry the miss does not extend it.

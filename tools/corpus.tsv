@@ -7,48 +7,50 @@
 #
 # ── what this file is, and what it is not ────────────────────────────────
 #
-# A change detector, not a claim that any of it is right. Sixty of the rows
-# below record a disagreement with the client that played the replay, and
+# A change detector, not a claim that any of it is right. Seventy-two of the
+# rows below record a disagreement with the client that played the replay, and
 # writing them down is how a change to any of them gets noticed — including a
 # change for the better. A row of zeros is agreement; a row with numbers in it
 # is a number the engine is expected to be wrong by *today*.
 #
+# 176 replays, 97 exact, total count error 322.
+#
+# Thirty-one of them arrived on 2026-09-01: a week of plays from the people
+# who use the bot, kept with their consent for exactly this — finding where the
+# engine judges wrongly. They are named by the hash of their own bytes and
+# carry no identity beyond what an `.osr` header already holds. On their own
+# they measure 21 exact of 33 with a total error of 44 and a worst score error
+# of 1.77%, which is the first check of this engine against material nothing
+# about it was tuned on.
+#
+# The corpus and the replays in it live outside the repository. They are not
+# ours to redistribute.
+#
 # Rewritten on 2026-09-01, because it had stopped working: the corpus was lost
 # and restored once and the restored replays hash differently, so of 134 rows
-# 33 still matched a replay on disk, 101 named replays that were gone, and 112
-# replays were watched by nothing. A manifest covering a quarter of the corpus
-# is not a net.
-#
-# Where it stands: 78 exact of 145, total count error 278. The two largest
-# causes were found the same day — 762 to 510 when lazer replays stopped being
-# judged at the map's stats rather than the ones they were played at, and 510
-# to 278 when a missed note stopped taking the Relax stream behind it with it.
-# The largest that remain:
-#
-#   count  combo   score%  replay
-#      20      0    -2.09  Uika_Misumi … Bug
-#      18      0    +1.51  avesemki … Grievous Lady
-#      16      0    +0.17  creker … Lowermost revolt
-#      14      0    -1.44  Saki_chan … Bluenation
-#      12     +1    +2.26  ItarinKamiSama … Nevermind
-#
-# No single cause is left in it: sixty replays sharing 278, the largest of them
-# twenty. What remains looks like the hit-window edges `docs/roadmap.md`
-# describes rather than a rule that is wrong.
+# 33 still matched a replay on disk and 112 replays were watched by nothing.
+# The same day, two causes came out of it — 762 to 510 when lazer replays
+# stopped being judged at the map's stats rather than the ones they were played
+# at, and 510 to 278 when a missed note stopped taking the Relax stream behind
+# it.
 #
 # replay_md5	beatmap_md5	beatmap_id	error	combo	score	name
 00b7bbb58283c083dd99439ced70776c	930b6fcc81c41a1c69d9abce11153b9c	-	6	0	0.14	_legusshhka_Demetori_Seijouki_no_Pierrot_The_MadPiero_Laughs_Apollo.osr
 00f9c2cf73e368aac41aa4d57479f6ef	17a16673f36248a5de124ce87e5c3a79	5589236	0	0	0.00	solo-replay-osu_5589236_7175031052.osr
+0112041836987021685a72f875a309cc	1539021f8567e814c78adf2fe3f466ff	4558862	0	0	-0.09	week1-1926bd51fab922aa.osr
 012973e0c98e9e0bc409eaba831117b9	58130de8c3184231b55ba56db320de9d	1188840	2	1	0.41	_Paradise_Nhato_Beyond_The_Seven_Expert_2026_08_13_Osu.osr
 040b22520046fb5dd6d2c27b04fe7422	81fe901c67c0dc3e9d2ed4f4172b1159	1247757	0	0	0.36	Saki_chan_ClariS_CLICK_Soleily_Remix_Sped_Up_Ver_Painketsu's_Chitoge.osr
-045e1309d39573b78008fa8dfdb077c6	f73287d4a8d868c2996823b1f7ed71b8	-	4	30	15.62	Saki_chan_Getty_vs_DJ_DiA_Grayed_Out_Antifront_Achromatic_2026_07.osr
+045e1309d39573b78008fa8dfdb077c6	f73287d4a8d868c2996823b1f7ed71b8	1477241	4	30	15.62	Saki_chan_Getty_vs_DJ_DiA_Grayed_Out_Antifront_Achromatic_2026_07.osr
 06e369924da11c087c18bb1e5a2657ea	ac762c9ed94674b0ea6cfe5e18ea0224	5500905	0	0	0.00	solo-replay-osu_5500905_7248916183.osr
+0ad97037cb4f9ec3d00ea7e2e920e38d	5ca706f2cf6de5e948215a9f04bdb133	2275674	0	0	0.06	week1-9e1e0d9792643f9d.osr
+0c77e9401ff8cadb3b4dcbd9d10d28f0	60ebef1462defca2679357be7c8a3fde	5272557	0	0	-0.05	week1-2e80bc89014b452c.osr
 0cc614b4aab0bbb1389665b88cf0778b	0a6312ca3b69d8781e0cbc20546c71d5	5423181	0	0	0.00	solo-replay-osu_5423181_6975522665.osr
 0d26af1ea0bbe5f24d04435c7a84f8d8	811df8ae15d68cbb1fabe19e03c5cba8	3764362	0	0	0.00	solo-replay-osu_3764362_1794511294.osr
 0e454d19eb1b03fd21de212067b31d51	fa5acf6debd3e963140f01837e8e6496	657917	0	0	-0.01	solo-replay-osu_657917_1668696525.osr
 0f9e2a62ea0d3712cf6d7be443d9914c	ae9b1951421a2e2ce37ffdfab437242f	-	2	-1	-0.42	Saki_chan_Shibayan_feat_yana_Fall_in_the_Dark_Collab_Sounanoka_2026.osr
 12d8bcbc51b861312f57317918bb6806	8d898c480eb69acfb4d3297f66437c6d	2012485	4	0	0.27	Saki_chan_DragonForce_Galactic_Astro_Domination_Remixed_Ghouru's.osr
 14fbe44191220098ea176071b97acc3e	566768e331774e084279800aff2cb178	1517653	0	0	-0.09	solo-replay-osu_1517653_5799403355.osr
+17c8f1b0be90f641ba6d97718cb6143c	e2486652c1654f2a8e1c311db97cb241	2769848	8	0	-1.77	week1-8bdc10f4400708a9.osr
 1b64eb257cfe8ee922e6830175596870	13629e72a8066352450e5521dc6b4d15	1141084	0	0	0.00	solo-replay-osu_1141084_484165710.osr
 1dd7ae76bbd7a3ab18e1b3736eda9adf	b7e7cb749bb6eb5b9f9e7380670f6d0b	1475722	0	0	0.02	_GN_3_playing_DJ_TOTTO_Crystalia_Hysteria_Meal's_Ultra_2026_08_11.osr
 1f6641b4e706fd9bb97b79caebb7c68d	b6226cd97bc8126af0e1df8d005c3989	5497460	0	0	-0.35	solo-replay-osu_5497460_7031298113.osr
@@ -58,19 +60,27 @@
 2789f3619e44c8046965cab33db42d9b	a374d05a35b09c4822c201b08cdb2da4	1636881	6	-1	1.04	Saki_chan_Chroma_sink_to_the_deep_sea_world_HP0_2026_07_29_Osu.osr
 2ab9c223c088cea285c7a7504b16e811	3764f5b2f1d2281d9d02d799a73cc0f2	3586535	0	1	0.10	Uika_Misumi_Poppin'Party_KIZUNA_MUSIC_A_SONG_OF_ETERNITY_2026_07.osr
 2ac82bd04f58c99514f4045cede843e9	d3bdd9141771987e4399f336d85371c3	5145068	2	1	0.26	pahanishe - Levaslater - NNRT [Extra] (2026-08-14) Osu.osr
+2ca992a501440fd8eef56a2ceeb30061	c5807a8581df4cb6fedcf98f572a629c	-	0	0	-0.02	week1-d48a69bc7da6619b.osr
 2f1337347df516126a085b14ab85e45c	39cf53f20add6d36d77cfea77c11d956	4129148	2	1	0.11	solo-replay-osu_4129148_7172838248.osr
 2ff82d9566383f3c8532dcab2187a10f	17a16673f36248a5de124ce87e5c3a79	-	0	0	-	Sakiko Togawa - yax03 - down [noob...] (2026-08-10) Osu.osr
 32707508a43636757703a58bf04ec372	119a015a4edcf7c7c2b127752ac2ed96	5759021	0	0	0.00	solo-replay-osu_5759021_7125954734.osr
 34573fc21c1424cb2f1b8c4f3309f3c4	b7c2f7a4d600dabebf9ec9a67a429dfb	131354	0	0	-0.02	solo-replay-osu_131354_4731551271.osr
+34b3815b5ae704ac84ef1d26474a9fd1	4ee1551f4f55f068591b61a15d578326	4906159	0	0	0.01	week1-95e65e32f03954ef.osr
 34bad10d4a1d8f4f3475c9718d11a4c7	c76073259d945973969eedd05fe2df61	3381137	0	0	-0.00	solo-replay-osu_3381137_3936238959.osr
-362c5bada27559bc34981d1bb38fced0	875590cda27f25cb4fa2b29cfe0b0714	-	2	0	0.08	Torche5_hololive_English_Mind_Craft_Start_from_Here!_2026_08_12.osr
+362c5bada27559bc34981d1bb38fced0	875590cda27f25cb4fa2b29cfe0b0714	5364895	2	0	0.08	Torche5_hololive_English_Mind_Craft_Start_from_Here!_2026_08_12.osr
+37230fcdbf0714994e14ca23edbfe592	e33a146f481a0bd21042e4c6222933fa	5701052	0	0	0.01	week1-cef481defbc7f1dc.osr
 37649cf51063d449ae6dd0cd76506b25	1ed02e7b93bf65bbfe6dada9f52c5d7b	5508364	0	0	0.00	solo-replay-osu_5508364_7137048961.osr
+376a6dbe426e0b4c10a597a20a6fc63b	afc5f8380292f400d1b7b614c668da10	-	0	0	-0.23	week1-094ae80b871ad825.osr
+3c6b6e6779e3084c91d8ef33e8662c58	30b8af8303da25aad3e9016bd28fc2f6	5205868	0	0	-0.08	week1-802a41c6966ddfec.osr
 3ea548b5b7874c2a7c167f8771b381ed	b388ee66d0e59e432b4cd7a34792a6d4	-	2	-1	-	Sakiko_Togawa_Kardashev_Cellar_of_Ghosts_shoyeu's_Faint_Whisper.osr
 40cb01b3d29e05c4ce4c366249cc0291	5170d338af2e5c6a44d38dd4ca5df5e4	2335845	0	0	-0.05	Guest_playing_ATL_Magic_people_Ksardas_Hard_2026_08_08_18_47.osr
+41e9160d4e4055fceca6afdd1b31d8a1	d08cb5409060e1c5c029500597d02ab1	-	2	1	0.19	week1-21ba6b7af55a46e0.osr
+4209d033284e9c808b5af75f57a97911	9300fe84561e057fc63c7bc566dcb109	-	4	0	0.09	week1-f5bbaebe8f725af9.osr
 4311860a9270e363f055c9257f8ff5bf	ba0f226fae54c652fb70e5aa3a78280f	2039119	2	0	-	replay-62367.osr
 438d066998025841b6498669488f90a9	2ebe8f2669b306497e46a459720e37a6	2519913	0	0	-0.00	solo-replay-osu_2519913_6595086686.osr
+450ae559534d8af694bbe63021bc0f83	cc2f9e2bd7c8804d41dd8670749afcfd	-	0	0	-0.10	week1-1fadec92f9db0dda.osr
 45341a440f072b1dc6cbdd66f0027da5	09411a6ae1526eb9ba63d133a75d1cb3	1218337	0	0	-0.01	solo-replay-osu_1218337_1728653196.osr
-46d91c02f3508d4063d8dcdfbc7a868a	6fb4035a83fb4d60addff2b2488ecffb	-	0	0	0.49	Guest_playing_IOSYS_Usatei_2011_Saten_Usamimi_2026_08_09_19_17.osr
+46d91c02f3508d4063d8dcdfbc7a868a	6fb4035a83fb4d60addff2b2488ecffb	143033	0	0	0.49	Guest_playing_IOSYS_Usatei_2011_Saten_Usamimi_2026_08_09_19_17.osr
 48ea4ed297dc622f97f22e774fdb0429	d033995409aee07c5991761b3c6bbea9	4916498	0	0	0.00	syna_psis_Ian_LeFeuvre_Johnny_Test_Theme_TV_Size_FukA's_Genius_Sisters.osr
 4a4b07f0e35f58f46a19347722c870d9	6e7f6f08671ad9a9d2fa079665d8d443	-	0	0	0.00	solo-replay-osu_558314_5421375403.osr
 4a521f68c7d4fd944e0ab683fa30245c	046395c519c0c484b1fdb8085c7215cb	5426129	2	1	0.06	solo-replay-osu_5426129_6992292694.osr
@@ -84,18 +94,21 @@
 51f65e0d909680bf06bca6d647886b9b	e6ea8caafc89de5d1f4c76d268d79371	2639521	0	0	0.00	_legusshhka_HyuN_feat_LyuU_Cross_Over_Ultra_2026_08_03_Osu.osr
 535f32ee8bb0ede19016461e32bc0f56	99c794406047929051f65454f8cb260a	-	0	0	0.00	ItarinKamiSama_playing_Maidcore_Songs_Compilation_Apre_Chaotic_2026.osr
 54499895a5300cfcb735da7e36537c11	c715862bd5208d427d44cc8d270de057	2049115	0	0	-	replay-62160.osr
+54d268535c65a6d3ae15182bbfa9b26d	cea1c00b7e27902cf54844c80eaf52b4	-	2	0	-0.11	week1-2cd607689546a3b1.osr
 54dc2bef5343985b2087947ea99eba53	e4b8cdc0d3385219c995ff548fa6970c	1451703	4	0	-1.07	unxora_That_Poppy_Altar_I'm_Poppy_2026_08_09_Osu_1.osr
 57242ea66f2bc8b09df793aa7909ed69	06c7b19eaed1d0561419647390d6f201	927754	0	0	-0.05	Uika_Misumi_Aimiya_Zero_ERROR_Drowning_2026_07_31_Osu.osr
 57f5f56b2ccb1648b1bd9ffc3307e473	42ae041678e9146daebabf479de77c87	-	0	0	0.03	Saki_chan_Rengoku_Teien_Suikyou_HEAVEN!_BMD's_EXTRA!_2026_07_24.osr
-5826192bba6c8813a267eae01aafffc5	7e8a93abfa2227ac5abf5f741f8c0a5b	-	2	0	0.04	syna_psis_EDOGA_SULLIVAN_WONDERFUL_WONDER_TV_Size_&_Sped_Up_Ver.osr
+5826192bba6c8813a267eae01aafffc5	7e8a93abfa2227ac5abf5f741f8c0a5b	5571525	2	0	0.04	syna_psis_EDOGA_SULLIVAN_WONDERFUL_WONDER_TV_Size_&_Sped_Up_Ver.osr
 5ab7dafd1f8d5f2577f0f9d2e053324d	d25f58d66481926889f77c474d880168	1850200	2	0	-0.02	MrCrek_KASAI_HARCORES_Trinity_Homerun_ICEKALT'S_EXTRA_2026_05_10.osr
 5d8827f94ff89c09d5a2f859952ce86f	e6feaf580f260215af8c4812b1cec637	4736984	0	0	0.00	solo-replay-osu_4736984_3438528358.osr
-5d98300d0ae3477aa46037a7c6c22e21	fb05dcb59a5a02f3da1fb41d1f95fc35	-	0	0	0.11	syna_psis_1_Kla$_&_Czar_Tvoyu_mat'_urmom_2026_08_16_Osu_1.osr
+5d98300d0ae3477aa46037a7c6c22e21	fb05dcb59a5a02f3da1fb41d1f95fc35	3774858	0	0	0.11	syna_psis_1_Kla$_&_Czar_Tvoyu_mat'_urmom_2026_08_16_Osu_1.osr
 5dd56fa697c94a26b27b02b8ea8478b3	cda70d29e2e37fddc978fa4c97b64231	1541243	4	-2	-0.33	Uika_Misumi_K_A_Z_M_A_S_A_RTCMON_girls'_last_tour_2026_08_02_Osu.osr
 5ed0a2c436e55725fb55b64c0fe09962	715167ad979eb1b0ff7192eb632c70db	2173631	0	0	0.01	Uika_Misumi_Roselia_Fatima_PaRaDogi's_Insane_2026_07_27_Osu.osr
+60b8cdd773a3bf278887b63e2d660563	4aa3d6798603d17855ddeab99b89b27d	2923009	0	0	0.00	week1-deaf8843649b275d.osr
 67a63f72ad49cb4b7f11558b6d98a4a5	b9268f07afd0a634df9b586349abd982	5370968	2	0	-0.05	pahanishe_Sayuri_Heikousen_Meg's_Taboo_2026_08_11_Osu.osr
-6b17e0b7e8072708681c36975675aad4	77bd98a9afe5e7506bada58a2e60cdc6	-	18	0	1.51	avesemki_Team_Grimoire_vs_Laur_Grievous_Lady_nothing_is_but_what.osr
+6b17e0b7e8072708681c36975675aad4	77bd98a9afe5e7506bada58a2e60cdc6	4833488	18	0	1.51	avesemki_Team_Grimoire_vs_Laur_Grievous_Lady_nothing_is_but_what.osr
 6e2ba950b2f58d62d021e941e7e0b459	f40c5b36ce361b8f5c786f07012e3747	5463296	0	0	0.00	solo-replay-osu_5463296_7171796606.osr
+6ea596b610c2f21501ecb361e3bdd606	4afc943f746e82424df81dd398aac2c3	5412809	0	0	0.23	week1-1357f20b66ac0233.osr
 73a9c6dcf08745cf45ec232eb7c0ec56	c8fa53b0ee0b90dc8ac0892aba4e0093	1027692	2	0	0.37	Deeo_XD_Susumu_Hirasawa_SWITCHED_ON_LOTUS_Lotus_2026_08_03_Osu.osr
 73f5f5b5b26fb6b496f36c95357862a8	c3a64f1bace663ddd57026ade460446d	1954900	6	0	-0.08	Saki_chan_goreshit_benzo_with_me_eternal_forever_2026_07_25_Osu.osr
 758280049ceb6b65c1c2038d536724e1	38b070302a726cab5e82544d67f13371	5643513	0	0	0.02	pahanishe_Artemas_i_like_the_way_you_kiss_me_DETHVEDA_Frenchcore.osr
@@ -106,13 +119,17 @@
 7c1439342925b1c0852a59677c066c11	96f2d87bff71a99ad86fe39d32d0c7a5	-	0	0	0.21	Torche5 - Nervy - Nervy [zxc] (2026-08-15) Osu.osr
 7d152484aa0b578222c44af0bb668e6c	42ae041678e9146daebabf479de77c87	3667132	0	0	0.19	Saki_chan_Rengoku_Teien_Suikyou_HEAVEN!_BMD's_EXTRA!_2026_07_29.osr
 7e55375633812364f335ccb4ad51f7a8	3fa762dd22557e87a515e202d9aea36c	4944678	0	0	0.00	solo-replay-osu_4944678_5939316537.osr
+820ee6e60f9e82524a55ef6d60b27938	830b32aeda67a80fe123957fcaf2753f	791274	2	0	0.04	week1-087f30eda9663160.osr
 852ff7f77051481b638f1a6ed5c170e8	68d44532dff3f69dfa16b6287cae0386	4816189	4	0	0.32	pahanishe_KANKAN_x_Hiiragi_Kirai_All_Fool_xAsuna's_good_bye_2026.osr
-88d4423a42449ff978d30152acb09600	fcd3a00213b04aa162d209572bc77163	-	0	0	0.00	Torche5_Nanahira_Chikatto_Chika_Chika_PikA's_Extra_2026_08_14_Osu.osr
+88d4423a42449ff978d30152acb09600	fcd3a00213b04aa162d209572bc77163	4884623	0	0	0.00	Torche5_Nanahira_Chikatto_Chika_Chika_PikA's_Extra_2026_08_14_Osu.osr
+8c14197fb1976918bdd02b349ea2d2ea	482078635e303c5806fb678f066cb070	2800663	0	0	0.06	week1-f8ee0b7ece5a2292.osr
+8c5c7080f15222d296e35ce698a635ce	4ee1551f4f55f068591b61a15d578326	4906159	2	0	0.31	week1-13b5fd8aea64964a.osr
 902c8be607eeb0a3c85fa3bf51f7885b	e7b45901a1f5985478467854a7bc5da3	3119507	0	0	-0.42	Saki_chan_IOSYS_Scarlet_Keisatsu_no_Ghetto_Patrol_24_ji_ON_THE_FLOOR.osr
-907787e5fb1d35976d54a046962630a6	e82935102561a79f289b6d6e9111b782	-	0	0	0.01	pahanishe_Pythia_Heartless_Cut_Ver_Maaadbot's_Extreme_2026_08_14.osr
+907787e5fb1d35976d54a046962630a6	e82935102561a79f289b6d6e9111b782	5675454	0	0	0.01	pahanishe_Pythia_Heartless_Cut_Ver_Maaadbot's_Extreme_2026_08_14.osr
 93d2920de96b078c47124f6107abb890	91b6330ef8d7d56682fb07820551fc9e	-	8	0	2.63	syna_psis_Various_Artists_Arphimigon_Collection_Three_Dash_Hopes.osr
 93f6e554ec61578c0101840a880ca982	d0b5da6f757e9f1a39fbac25b6f5c102	-	12	1	-	✓_jaaypeg_yaseta_Bluenation_Sped_Up_Ver_Collab_Late_2018_2026_04.osr
-949d70515a393a16ecee216ffdcd0034	79ecbfca5721eca7c38b3618e00c90c4	-	0	0	0.00	Uika_Misumi_GALNERYUS_RAISE_MY_SWORD_Feruver's_Expert_2026_07_30.osr
+949d70515a393a16ecee216ffdcd0034	79ecbfca5721eca7c38b3618e00c90c4	1964152	0	0	0.00	Uika_Misumi_GALNERYUS_RAISE_MY_SWORD_Feruver's_Expert_2026_07_30.osr
+94c044cfba04a473b22b849fd7cab6c9	736939a792cedb34c93160f2865c577e	4393660	2	1	0.09	week1-9fb16bb7706cbd7c.osr
 95b61b4a37ae119568ba74ab8f9f89f4	68d44532dff3f69dfa16b6287cae0386	4816189	4	0	0.14	pahanishe_KANKAN_x_Hiiragi_Kirai_All_Fool_xAsuna's_good_bye_2026 (1).osr
 96428535bf7bc23a4a4b6504fc35bfa9	032a54a38c017880d05b1b8cc2c8010e	3017375	0	0	0.05	_legusshhka_Foreground_Eclipse_You_Can't_Explain_Anything_Without.osr
 9bd2a45dd49fea04c90f9785d25f6246	b0992f0e63a25fb778b1b767b2e0961d	2419749	0	0	-0.47	Saki_chan_DragonForce_My_Heart_Will_Go_On_SinHay's_Extra_2026_07.osr
@@ -126,7 +143,7 @@ a9087e7c713408801baf95d418e75f11	a9ef60a255d6d8973a432612777c587c	5676228	0	0	0.
 a95800c5f645ba1ad5636d0f0a107ac6	084e64cf2bef07eae1054e92b6b77947	2014388	0	-1	0.16	Guest_playing_THE_ORAL_CIGARETTES_Kyouran_Hey_Kids!!_Sotarks_apples.osr
 a978314d4583e93a4cdb42622cda4df5	c3766ac1f9b2fc7414c938511623049c	1046019	0	0	0.10	Uika_Misumi_namirin_Daidai_Genome_speed_up_Ketsu_2026_07_26_Osu.osr
 aa1decb431dc73322f6731e15d31be2e	49523f9949dfb6e9e08913748434ff5c	5127729	0	0	0.00	solo-replay-osu_5127729_6821126222.osr
-aaefc9a9227a9cde0a008c0f8afcdd1d	6e7456e1b1dffd5bb73458972f043fdf	-	6	-20	-5.71	Deeo_XD_15_Voices_Non_breath_oblige_silverboxer's_soft_rain_2026.osr
+aaefc9a9227a9cde0a008c0f8afcdd1d	6e7456e1b1dffd5bb73458972f043fdf	3929365	6	-20	-5.71	Deeo_XD_15_Voices_Non_breath_oblige_silverboxer's_soft_rain_2026.osr
 ab7bad72662d3718add743be5bc61d46	a80831417311c35c6a975ee7f153dbd9	-	0	0	0.09	Saki_chan_IOSYS_Scarlet_Keisatsu_no_Ghetto_Patrol_24_ji_MATTAY'S.osr
 af0ec058a879e047d04e895287481b8a	caf1a643af22fa77702ece992c7856c1	5282312	0	0	0.00	solo-replay-osu_5282312_7213356902.osr
 b052ba24dc4dcbd2b5772dc89883c482	3915045a4f8b535b1e28f74361986925	5472430	0	1	0.16	_legusshhka_Harusaruhi_Ibasho_Extreme_2026_07_30_Osu.osr
@@ -137,48 +154,60 @@ b4043b04ce997e475727c4c2119189ae	6e7f6f08671ad9a9d2fa079665d8d443	558314	4	0	-0.
 b6bf6e352aa435e8cfa85a96e56b2eb3	9a899f8e5352a414f0011cc1c352aa8c	-	0	-1	0.07	_Luffy_Ado_RuLe_gazimal's_ExTrA_2026_07_24_Osu.osr
 b6f0e97d894d08ba3c84a928301483c0	5b73773f55e18a9756dd3261938aa454	4916484	12	1	2.26	ItarinKamiSama_Phoneboy_Nevermind_feat_Justin_Magnaye_Nightcore.osr
 b7511af0eda83b9f5574ecea7defefe1	40d69825f59439c10dba4b5bbb35e1da	4939636	0	0	0.00	syna_psis_Various_Artists_DT_Jump_Pack_kippy's_you_cut_ver_2026.osr
-b780ce1da4e1a9774743f595e7bc5d87	875590cda27f25cb4fa2b29cfe0b0714	-	2	0	0.21	Torche5_hololive_English_Mind_Craft_Start_from_Here!_2026_08_12 (1).osr
+b780ce1da4e1a9774743f595e7bc5d87	875590cda27f25cb4fa2b29cfe0b0714	5364895	2	0	0.21	Torche5_hololive_English_Mind_Craft_Start_from_Here!_2026_08_12 (1).osr
 b7a5aca223b2baa1cdad1290ff5badd1	13629e72a8066352450e5521dc6b4d15	1141084	2	1	0.58	Guest_playing_The_Koxx_A_FOOL_MOON_NIGHT_Astar_Naos_Eclipse_2026.osr
 b99b27d820247bb8dbd2fef1ca23b24c	cd1a32b6f68755b179a82e8311a5c5c1	3970329	0	0	-0.01	solo-replay-osu_3970329_5800234696.osr
 bacd6a5a0ed465874cb4e7278780c5f2	4634b15aa00dc6b6692e22ec0b2f7eeb	4375662	4	-1	-0.30	solo-replay-osu_4375662_7215839999.osr
 bade44da78fb5c8702642885891ca8c9	6344ecdc02542805cefecf33dc8ddde3	3515039	8	273	55.44	avesemki_Holo_Bass_Power_Stance_MAXIMUM_LIMIT_OVERDRIVE_FINAL_BOSS.osr
-bdb980f3056fd5afa2a9c5b2d19c5688	879ac1873658214ddbd3c1b0c9533d1e	-	20	0	-2.09	Uika_Misumi_25_ji,_Nightcord_de_x_Kagamine_Len_Bug_Extra_2026_07.osr
-bdde14caf629e2261a72235e43e640ea	6975aec2a818e3b916a9c2bfbbb493d4	-	0	0	0.00	pahanishe_Project_Grimoire_Excalibur_Revived_resolution_LEGENDARY.osr
+bdb980f3056fd5afa2a9c5b2d19c5688	879ac1873658214ddbd3c1b0c9533d1e	4673961	20	0	-2.09	Uika_Misumi_25_ji,_Nightcord_de_x_Kagamine_Len_Bug_Extra_2026_07.osr
+bdde14caf629e2261a72235e43e640ea	6975aec2a818e3b916a9c2bfbbb493d4	1557181	0	0	0.00	pahanishe_Project_Grimoire_Excalibur_Revived_resolution_LEGENDARY.osr
 bff4d536a0faeeda9ed25ca020f0ca9d	ac04c81359d92b54ec4caf45420901c0	5481700	0	0	-0.00	solo-replay-osu_5481700_7171759577.osr
 c08e05e2f585ee97a5e344f27b395d84	e679938dd5fcdcd3bc2115ac66e241cd	680920	2	-182	-7.00	Guest_playing_xi_Blue_Zenith_Asphyxia_Hard_2026_08_07_22_31.osr
 c27868d557c3858f5c4f6e779b5b682b	b30a633ea7be226865885249c83450d2	5545851	0	0	0.00	solo-replay-osu_5545851_7126370397.osr
 c3456d6a02ab895f732c18d67cc859dd	1cc405ebbf41fb8e244f15622f326314	5525529	0	0	0.00	solo-replay-osu_5525529_7130226232.osr
 c452b053f698efc4999a949d21db9480	198d04372e6c6ae81d4af676fe276eea	5332735	0	0	-1.58	goprob_Olivia_Rodrigo_all_american_bitch_daph_and_nekszy's_cocacola.osr
 c46ecac85ead0163ad11ee6031f7b287	09411a6ae1526eb9ba63d133a75d1cb3	1218337	8	1	-0.65	sw1t_Imperial_Circus_Dead_Decadence_Yomi_yori_Kikoyu,_Koukoku_no.osr
+c47ebd48c5bfcec1ba33fbf14b278706	591604dd24bf4074a593981a6a5a2c47	4450922	2	-3	-0.75	week1-ecf2b6a29d6b4ef1.osr
 c486bd2ff2a6a15215099f3ffc2054f7	17802b610996286ad57f529d0c516720	2433968	2	0	0.03	_Luffy_shigetora_makeinu_ni_anko_ru_irahen_Fuck_it_recently_fucking.osr
 c4a9b4cabc53172cf33eb20f23653e54	d3e1b4ed8e7eb8ed5dbe65659f8ca47e	2615748	0	0	0.01	pahanishe - Tatsh - Xevel [Extreme] (2026-08-19) Osu.osr
 c8f267c36abc0dd536c3b1ffbe2d2aa2	8df507c9c600c00ec42a1352bb57dcc2	-	0	0	-0.01	konina_enjoyer_Fed_Stomp_to_my_pigs_Breakdance_2026_08_16_Osu_1.osr
 c98ed299878e691772de5cee8e058589	f964ad1c1a1ebc4952643d175e3aed76	5727651	0	0	0.00	solo-replay-osu_5727651_7275254096.osr
 cac2a252002a314b0d8a71bdc08d5372	987b8ae321bafb91453b9d0215a77607	-	0	0	-0.02	_legusshhka_Himeringo_Ringo_Uri_no_Utakata_Shoujo_Happy_Cursed_2026.osr
 cac2ec4049d36d9f00d56d13bad87a60	cab56f712ece66b9277c9eccc148da59	3933231	2	0	0.04	_legusshhka_Akatsuki_Records_Adieu,_to_this_Lively_Graveyard_HEEYYY!!!.osr
+cbc2d85f02ed3a06b08f33207afe9397	348bcaf8a31a6ddd71a63e800df7621a	5547437	0	0	-0.03	week1-fdfb93f06d5d5def.osr
 cda584cd2588704860e84971db09e918	5ba3a1f872163c74460b0f110c0718fb	3262862	8	0	-0.10	pahanishe_DJ_Sharpnel_Gate_Openerz_SRPC_0200_2026_08_14_Osu.osr
+cde961e780b7313e787db6bac58171da	c8e25fdb42e0e02fb4c73470844ffb94	-	0	0	-0.02	week1-a836ddc63f8bd582.osr
 cfc2b7db999f7bacb89fd54cc1a77843	aa14201ce5ff2e4da23ff998b7a45fa7	4499311	0	0	0.59	entxrth3vxid_Leah_Kate_Alive_and_Unwell_Sped_Up_Ver_No_magic_pill.osr
 d0a098d978c2b54a58ebe0cc07756a64	375eb0aa827e86abe7cb0a6ee1d66983	2142037	0	0	-0.57	Saki_chan_ShinRa_Bansho_Marisa_wa_Taihen_na_Mono_o_Nusunde_Ikimashita.osr
-d19f805eb59a7512ce1e179e507c39cd	823bd66fa9faa2072143b96637cf1460	-	0	0	0.04	-legusshhka- - Rita - dorchadas [x] (2026-08-13) Osu.osr
+d19f805eb59a7512ce1e179e507c39cd	823bd66fa9faa2072143b96637cf1460	3418189	0	0	0.04	-legusshhka- - Rita - dorchadas [x] (2026-08-13) Osu.osr
 d1ccf0fbd02ef2d941b7a5d213c61faa	b74999010237fb86c7737129faacdfd3	-	2	0	-0.01	syna-psis - itaojirou - Tze-Chiang [Sakura] (2026-08-16) Osu.osr
 d313cce837ebc005ada46f2c282229f9	aa409ca0e77ec96b65018a92a58fa5d8	-	8	0	0.19	Saki_chan_HISATOMI_lullaby_feat_KIRA_uet_Remix_daydream_2026_07.osr
-d3c4cca53140eda7ba531aa8fec9e546	6f52e579afc6271fa9901443dcac97a6	-	2	0	0.06	_Luffy_MIOYAMAZAKI_Byoushin_Zenkai_Girl_Collab_Expert_2026_05_22.osr
-d714837bedfbaf03892c487ebe656795	f106dbbe26cd7ca7a2ef16e9b43e30d6	-	2	0	-0.07	pahanishe_Yamajet_feat_haruamanya_Sweets_Holic_Cut_Ver_Lemaire's.osr
+d3c4cca53140eda7ba531aa8fec9e546	6f52e579afc6271fa9901443dcac97a6	3263248	2	0	0.06	_Luffy_MIOYAMAZAKI_Byoushin_Zenkai_Girl_Collab_Expert_2026_05_22.osr
+d714837bedfbaf03892c487ebe656795	f106dbbe26cd7ca7a2ef16e9b43e30d6	5027876	2	0	-0.07	pahanishe_Yamajet_feat_haruamanya_Sweets_Holic_Cut_Ver_Lemaire's.osr
 d8d6c01d7997d071242474eadb7a8da9	a4e80fca466660c00bc7f83cb5aa9f05	-	0	0	-2.36	goprob_Linkin_Park_Guilty_All_The_Same_feat_Rakim_Full_Of_Regret.osr
 db3752d283e8334c1e037af4bac150c1	020416993732f57a5d5082b05df198cc	4376804	0	0	-0.00	solo-replay-osu_4376804_2280581188.osr
 db3f4ff9c03f9c02b707df7bb021fb0d	38df55fbbeeb0f45bf51b95646138ac4	5112851	0	0	-0.01	pahanishe_egaSyeliR_egging_funfair_8_bit_Adventure_2026_08_19_Osu.osr
 df4dc5682a6dd84d9c0fde35722ec252	9b6e66c891ddc58175edb865f5ef7106	4894158	0	0	-0.00	solo-replay-osu_4894158_6291657615.osr
+dfd2ad0586ce544d98c538d7bc7ec5d1	737e9671a6bb21d22ff4705af9a6e8c9	2978156	0	0	0.00	week1-caf6b7cf50ca2270.osr
 e2058f9b05da50e6fada8984b775c1df	8e46754d586331765f3e0b7735449835	-	0	1	0.51	_GN_3_playing_HARU_NEMURI_Trust_Nothing_but_Love_Ryuusei_Aika_Log.osr
-e352b6cf8e8f3ae80700a8042b727797	f65840c5e6c855fadcb4302963d8e1db	-	2	2	0.85	Deeo_XD - Chocofan - LUCKY CAT [_] (2026-08-03) Osu.osr
+e352b6cf8e8f3ae80700a8042b727797	f65840c5e6c855fadcb4302963d8e1db	4633546	2	2	0.85	Deeo_XD - Chocofan - LUCKY CAT [_] (2026-08-03) Osu.osr
+e6f1903baf80ecd61e807729a60a5e3b	8bb660c154776c54551337055f9e90ba	-	4	0	-0.18	week1-0e2a923f5b0b1a0c.osr
 e9fb1db91a48216d28f7328f2c866b27	0262b1be124b27ae9dfaaf329b9a1334	5152688	0	0	0.00	solo-replay-osu_5152688_6397811260.osr
 ea29dddfcc4fd98023fea9efc83ad301	17a16673f36248a5de124ce87e5c3a79	-	0	0	-	replay-59835.osr
+eae64571067a4be08d4bf71084fcc695	102dde1dcce849c287b4c18692d54a6c	1351114	4	0	0.00	week1-4f44b203ccc1237d.osr
 eb78b497e0946d103bc60d0dc22e5915	d0b5da6f757e9f1a39fbac25b6f5c102	1879082	14	0	-1.44	Saki_chan_yaseta_Bluenation_Sped_Up_Ver_Collab_Late_2018_2026_07.osr
 eb93662521f8206f88bb8fc688f3b81d	d00f7d08d6029a357d6d6eac13eea5c1	5371917	0	0	0.00	solo-replay-osu_5371917_6248368191.osr
-eba48361181e606b5fa53fa528f9bb16	f9b7098d08ec10ee21583616423e3a5d	-	0	0	-0.07	Saki_chan_IOSYS_Cirno_no_Perfect_Sansuu_Kyoushitsu_N_a_s_y_a's_Extra.osr
+eba48361181e606b5fa53fa528f9bb16	f9b7098d08ec10ee21583616423e3a5d	854824	0	0	-0.07	Saki_chan_IOSYS_Cirno_no_Perfect_Sansuu_Kyoushitsu_N_a_s_y_a's_Extra.osr
+ecee6b0a596c8824e2ea97ed3bb56d0d	e981c8bf3b81e07adf327371f044b78c	4504508	0	0	0.00	week1-8cdb36926e469b6c.osr
+ee9726ab4b55f723d963e0ac331a22b0	7bef4350a93b3e92e8af41e71398fae4	5519385	6	2	0.25	week1-9f2cd1a4410cac89.osr
+ef87a4c54b313aec9c7ff5bae1a2585d	da8aae79c8f3306b5d65ec951874a7fb	129891	0	0	-0.00	week1-66a589df91307de6.osr
 f5aad745894ef6104240464c6ecdddbd	c8e25fdb42e0e02fb4c73470844ffb94	5440552	2	1	-4.78	Sakiko_Togawa_Imperial_Circus_Dead_Decadence_Yuuaku_no_Inori_Anima.osr
 f5ebbf938255301c026ade09ddd5e26b	5b73773f55e18a9756dd3261938aa454	4916484	0	0	0.00	solo-replay-osu_4916484_4813326817.osr
+f6c3f91c440eff6d90fdd8cd4595cc1e	6d25d9db360e5669b41440d8ab4455a3	1554235	0	0	-0.12	week1-952d709cfdc39c0f.osr
 f6f6d6ec9ee1852fadee36f871b1740e	5eb588f30c00c2566e2f6341828edfc6	1580333	0	1	1.01	wickedslayer_playing_toby_fox_Spider_Dance_Fatfan_Kolek_Hard_2026.osr
+f73ea64fcce74813647358777b6bda39	f25364267066fbe73f85e141c3d4e713	1228616	6	9	1.31	week1-dfc4bab46a68909a.osr
 fb734cb0ade68f80bebfa79c046b473b	2d273db09b6b67a4c022714d64685f14	1082260	2	0	8.05	_legusshhka_Imperial_Circus_Dead_Decadence_Chinurareta_Shuren_ni.osr
+fc4ab79a89d370d47c9e289b05385567	92437112319516d39b458898ae95a840	-	0	0	-0.14	week1-5900de03b6ef5c4a.osr
 fc85876c71b1a5030197f6961a470709	6157f02d6d5702ba3e2899269a133195	1636104	2	1	0.08	_legusshhka_Suzuyu_Euphorium_The_Dream_Of_White_Star_2026_08_02.osr
 fe25f9f0ddc28ca1842259cfba128787	f2d8dad6838b7428365fad8135ddc2b2	3873445	0	0	0.00	solo-replay-osu_3873445_1680629239.osr
 fe60718475671d7091b88242da866234	39237a099c88929981a186971fa0120f	4501762	0	1	0.00	Uika_Misumi_playing_Down_Halfslashed_Down_Extra_2026_08_10_00_31.osr

@@ -165,6 +165,31 @@ every ten seconds, off when the skin says `CursorRotate: 0` — and asked for as
 something a person can turn off for themselves rather than only the skin.
 Wanted 2026-08-28.
 
+**Measuring against danser: deferred, and the reason is the cost.** danser is
+the reference this engine was written against and has never been run on the
+corpus — only quoted. The harness for it exists and compiles: `tools/danser-judge`
+drives danser's own ruleset the way its replay controller does. It does not run
+on macOS, because the hit objects load skin textures and a font in
+`SetDifficulty` before anything is judged and the atlas wants a GL context.
+
+Three routes were priced on 2026-09-01 and all were declined for now:
+
+- **patch the two resource loaders and run natively** — the smallest change, and
+  the rules stay untouched, but the attempt hit four blockers in a row and each
+  one was only visible after the previous was cleared. A long tail.
+- **a Linux VM locally** — danser unmodified, data stays put, over a gigabyte
+  of machinery for one number.
+- **a Linux CI runner** — free and quick, and it would send other people's
+  replays to a third party. They were given for finding judging errors here.
+
+What is taken instead costs nothing and is better evidence. **A lazer replay
+carries a count for every judgement type**, where a stable `.osr` carries four
+totals; that is the finer instrument, and the corpus's fourteen lazer replays
+all sit at a count error of 2 or less. More of them is a question of asking,
+and thirty-one replays a week already arrive on their own. The shapes worth
+asking for are the ones the residual lives on: streams with a miss in the
+middle, and dense patterns at high OD.
+
 **Exhibit's remaining list.** Slow motion at the first mistake is built — the
 picture, the hit sounds, the music and the camera all follow one schedule, and a
 reel finds the moment itself — but it is **switched off for reels** as of the

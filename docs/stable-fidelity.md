@@ -4585,3 +4585,52 @@ reason to leave the rule out: it is read from the reference and confirmed
 against the reference running, and exactness is the stricter measure of the two.
 It is a reason to look at those two next. The manifest has been rewritten and
 carries the regression rather than hiding it.
+
+### The side is chosen by the head, not by the slide
+
+The swap rule cost two replays when it landed, and both were the same map:
+`RTCMON`, four sliders, one shape. The engine read the side off the slider's own
+first frame — both keys down, the left one only just — took the left, and when
+the left was released the hold stopped counting for a slider the player was
+still holding with the right.
+
+danser gives all four a Great. Asked to say why, it named the value directly:
+
+```
+SLIDE 640 frame 110819 ... | down 3 last 2 last2 0 downButton 2 leftCond true rightCond false swap true
+```
+
+`leftCond` is true and `downButton` is nevertheless `Right`. Nothing in the
+tracking block can produce that — it would have written `Left` — because the
+tracking block is not where it was written. `UpdateClickFor` runs before
+`UpdateFor` on the same frame, and the *head* writes it:
+
+```go
+if player.leftCond {
+    state.downButton = Left
+} else if player.rightCond {
+    state.downButton = Right
+} else {
+    state.downButton = player.mouseDownButton
+}
+```
+
+The player struck the right key at 110806, thirteen milliseconds ahead of the
+slider and well inside the head's window. That click settled which side owns the
+slider before the slide existed. Everything after follows: `Right & Right` is
+never zero, the swap test never gets to matter, and the slide survives the left
+key being let go.
+
+So the side is a property of the head, and only a slider whose head was never
+struck learns it from the slide.
+
+| | exact | error |
+|---|---|---|
+| before the swap rule | 98 / 176 | 254 |
+| the swap rule alone | 101 / 176 | 256 |
+| the head choosing the side | **106 / 176** | **224** |
+
+Eight replays improve by twenty-six between the first row and the last, four get
+worse by eight. Both `RTCMON` replays are back to what they were, no longer
+paying for a rule that was right about the mechanism and wrong about where the
+mechanism starts.

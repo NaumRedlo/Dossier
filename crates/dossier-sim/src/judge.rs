@@ -1171,7 +1171,7 @@ fn build_slider_events(
     // head sits at the ball's own starting position, so the question does not
     // arise there.
     let head_time_for_tracking = match head {
-        Head::Hit { time_ms, .. } if ruleset.slider_is_scored_by_its_head() => Some(time_ms),
+        Head::Hit { time_ms, .. } => Some(time_ms),
         _ => None,
     };
 
@@ -1503,6 +1503,8 @@ fn track_slider(
 
     let mut sliding = false;
     let mut down_button = Side::NONE;
+    let mut head_seeded = false;
+    let head_press_ms = head_hit_ms;
     let mut slide_start = f64::INFINITY;
     let mut judged = 0usize;
     let mut out = Vec::with_capacity(parts.len());
@@ -1561,7 +1563,38 @@ fn track_slider(
         // It matters on a short slider hit late: by the time the click is
         // judged the ball has already travelled, and requiring the cursor to
         // be back on top of it drops a slider the player is plainly holding.
-        let head_landing = head_hit_ms.is_some_and(|at| now >= at) && !sliding;
+        let head_landing = tail_window && head_hit_ms.is_some_and(|at| now >= at) && !sliding;
+
+        // Which side the slider is tracked by is decided when its head is
+        // struck, not when the slide starts — `UpdateClickFor` runs before
+        // `UpdateFor` on the same frame, and the head writes it down:
+        //
+        // ```go
+        // if player.leftCond { state.downButton = Left }
+        // else if player.rightCond { state.downButton = Right }
+        // else { state.downButton = player.mouseDownButton }
+        // ```
+        //
+        // A head taken early settles the question before the slider has begun.
+        // On `RTCMON` the player strikes the right key thirteen milliseconds
+        // ahead of the slider, then adds the left; reading the side off the
+        // slider's own first frame gives the left, and when the left is
+        // released the hold stops counting for a slider that was never being
+        // held by it.
+        if let Some(at) = head_press_ms {
+            if !head_seeded && now >= at {
+                head_seeded = true;
+                if let Some(b) = cursor.buttons_at(at) {
+                    down_button = if b.left_edge {
+                        Side::LEFT
+                    } else if b.right_edge {
+                        Side::RIGHT
+                    } else {
+                        b.down
+                    };
+                }
+            }
+        }
         // Whether the button being held is one this slider may be tracked
         // with. Not the same question as whether anything is down.
         //

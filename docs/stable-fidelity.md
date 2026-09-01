@@ -35,6 +35,46 @@ used here, and they are independent of each other:
 Where the two agree, the answer is as settled as it can be without the source.
 Every row below was read out of one or both rather than reasoned about.
 
+## Where it stands — 2026-09-01
+
+Every measurement below is dated by the corpus it was taken on, and they are
+left as they were: a figure that was right in August is evidence, and rewriting
+it would destroy the record. This is the reading today.
+
+```
+dossier corpus --songs ~/.osu/Songs --expect tools/corpus.tsv <corpus>/*.osr
+97 exact of 176 (14 lazer), total count error 322, 4 skipped
+score compared on 170, worst 55.44%, within 0.5% on 141
+```
+
+The corpus grew by 31 that day — a week of plays from the people who use the
+bot, kept with their consent. On their own they measure 21 exact of 33, total
+error 44, worst score error **1.77%**: the first check of this engine against
+material nothing about it was tuned on.
+
+Two causes came out the same day, and both were one bug rather than a class:
+
+- **lazer replays were judged at the map's stats, not the ones they were played
+  at.** Difficulty Adjust and the rate mods' own rate were parsed and dropped.
+  762 to 510.
+- **a missed note took the whole Relax stream behind it.** The aim now waits for
+  the lock to let go. 510 to 278.
+
+And two questions closed rather than answered, both of them the last candidates
+this document had been carrying: the finder's `clickable` filter, and the
+geometry. Neither is where the remaining error is.
+
+What is left, in the order the evidence supports it:
+
+1. **The window-boundary floor.** 47 of 48 disagreeing replays disagree by no
+   more than the number of hits sitting within 2ms of an edge, and the direction
+   splits 27 against 22. That is rounding, and the replay does not carry the
+   digit that would settle it.
+2. **Nightcord's ten hits**, with no candidate behind them now.
+3. **Kona-Chan's 0.26px**, seven hypotheses measured and none of them it.
+4. **The lock on the 37% replay** — right, or accidentally right; the replay
+   that could tell the two apart is not in the corpus and never has been.
+
 ## Settled, and we match
 
 | Rule | Stable | Here |
@@ -207,12 +247,20 @@ exactly would mean the model had been fitted to the answer rather than found.
 
 ### What is left in it
 
-The worst remaining is a HDDT lazer play where the combo agrees exactly at 639
+~~The worst remaining is a HDDT lazer play where the combo agrees exactly at 639
 and the misses nearly do, but this engine gives **too many** 300s: 1,671 against
-1,594, with 41 hundreds against 104. Hitting more precisely than the player did
-is a different fault from any above, and the rate is the obvious suspect —
-twelve milliseconds of lead is twelve of map time here and eight of the
-player's.
+1,594, with 41 hundreds against 104.~~ **Closed 2026-09-01, and the rate was
+not it.** The play carries Difficulty Adjust at OD 11 on a map written at OD 8,
+which this engine read out of the replay and then dropped: the great window is
+14ms rather than 32, and judging with the map's own turned 77 hundreds into
+threes. It is exact now. See `Tuning` in `timeline.rs`.
+
+What is left in Relax is instead the cascade, and it has its own answer: the
+game presses every frame and always has another to spend, while one aimed press
+refused by the lock left the note untaken. The aim waits for the lock now —
+`past_it` wants `time - 1 > start + window`, so the wait is two milliseconds
+past the blocker's window and not one. Aiming at the window's end measured 512
+against 510, no better than nothing; aiming past it measured 278.
 
 
 ## Known differences
@@ -774,6 +822,54 @@ Reproducing it:
 ```bash
 dossier debug --songs ~/.osu/Songs --from 0 --to 200000 "Uika_Misumi_25_ji,_Nightcord_de_x_Kagamine_Len_Bug_Extra_2026_07.osr"
 ```
+
+### Closed: the geometry is not it either — 2026-09-01
+
+The second of the two places the section above left for Nightcord's ten missing
+hits. If the radius or the cursor were a little off, a press near the rim would
+land on a different note than stable's did, and the lock would then be asked
+about the wrong one.
+
+Two measurements, and both say no.
+
+**The presses that found nothing have no pile at the edge.** Every such press in
+the corpus, with the distance to the nearest object in time as a fraction of the
+radius — 971 of them within 200ms of a note:
+
+| out of the radius | presses | per 0.01 of radius |
+|---|---|---|
+| 1.00–1.05 | 121 | 24.2 |
+| 1.05–1.10 | 111 | 22.2 |
+| 1.10–1.25 | 226 | 15.1 |
+| 1.25–1.50 | 176 | 7.0 |
+| 1.50–2.00 | 124 | 2.5 |
+| beyond 2.00 | 196 | — |
+
+Monotone from the rim outwards. A radius that was systematically small would put
+an excess in the first row against that trend; there is none, and the shape is
+the one aim scatter makes on its own.
+
+**And scaling the radius is a knife edge at the source's own value.** The whole
+corpus, at seven multipliers on `circle_radius`:
+
+| multiplier | exact of 176 | count error |
+|---|---|---|
+| 0.990 | 52 | 1240 |
+| 0.995 | 74 | 768 |
+| 0.998 | 88 | 390 |
+| **1.000** | **97** | **322** |
+| 1.005 | 80 | 454 |
+| 1.010 | 71 | 592 |
+| 1.020 | 57 | 924 |
+
+Worse in both directions and sharply — 322 to 390 for two parts in a thousand.
+That is the shape a correct constant makes, and it is the opposite of the follow
+circle's, which had a plateau two per cent wide and had to trade replays against
+each other. The radius, allowance and all, is right.
+
+Taken with the `clickable` filter above, **both** of the two places are now
+closed. Nightcord's ten hits are in neither the target nor the geometry, and
+what is left to name them has no candidate behind it.
 
 ### Rejected: the release is not a threshold on the blocker
 

@@ -4634,3 +4634,49 @@ Eight replays improve by twenty-six between the first row and the last, four get
 worse by eight. Both `RTCMON` replays are back to what they were, no longer
 paying for a rule that was right about the mechanism and wrong about where the
 mechanism starts.
+
+### Where danser itself parts company with stable
+
+Four replays are still worse than they were before the swap rule, and three of
+them are one slider each, all the same shape — the mirror of the one the head
+rule fixed. On `week1-ecf2b6a29d6b4ef1` #188:
+
+```
+23941  keys 5   the left is held
+23952  keys 15  the right goes down — the head lands, and the slider's side is Right
+24169  keys 5   the right is released, the left is still held
+       last = both, last2 = left, down = left  →  the swap test suppresses
+       left & right = 0  →  the slide breaks
+```
+
+On `RTCMON` the side was Right and the *left* was let go, so the hold survived.
+Here the side was Right and the right itself was let go. Both are releases; only
+which finger lifted differs.
+
+danser was asked, and it drops the same piece for the same reason:
+
+```
+PART 188 slider 23965 piece 24200 frame 24207 slideStart 23965 allowable false -> false
+```
+
+Its own object list confirms it: #188 is not among this replay's disagreements
+with us. So on this slider we now agree with danser, and both of us disagree
+with the replay, which scored it a Great. This is not a gap in the
+implementation — it is danser parting company with stable.
+
+Two reformulations were built and measured, both aimed at the release:
+
+| | exact | error |
+|---|---|---|
+| danser's rule, as written | **106 / 176** | **224** |
+| `lastButton` moves only on a press | 98 / 176 | 254 |
+| the side follows the button left holding | 98 / 176 | 254 |
+
+Both land exactly on the numbers from before the rule existed, to the digit,
+because the whole of the rule's value is in these breaks: soften the branch that
+bites and nothing bites. There is no cheap reformulation that keeps the
+twenty-six and gives back the eight.
+
+So the four stay, and the note that matters is where to look next. Not at
+danser — it has been asked and has answered. `osu!.exe` decides this, and it is
+the only thing that can say which of the two behaviours is stable's own.

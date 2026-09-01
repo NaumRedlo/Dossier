@@ -162,6 +162,43 @@ implementation that gets it right and whose source is open. The question is now
 whether the head is lost when it should not be, or whether losing it should not
 cost the whole slider — and both are answerable against `app/rulesets/osu`.
 
+### A slider blocks until its slide ends, not until its head's window shuts
+
+The rest of Nightcord, and the same day. `#405` is refused a press that was
+42ms early and **8.6 pixels inside it**, because `#404` — a slider that started
+161ms before and had long since finished — was still counted as unjudged. Two
+milliseconds later it would have been written off. Everything behind it is the
+run of refusals this document has been reading as a cascade.
+
+`past_it` was retiring a slider at `start + window50`, the head's window. danser
+retires it when the slide ends:
+
+```go
+for _, g := range set.processed {
+    if !g.IsHit(player) {                    // Slider.IsHit is state.isHit,
+        ...                                  // set when the slide ends
+```
+
+Wrong in both directions, which is why no amount of loosening or tightening the
+lock ever found it: a slider shorter than the head's window kept blocking after
+it had finished, and one longer than it stopped blocking while it was still
+being played.
+
+| | corpus | Nightcord |
+|---|---|---|
+| head's window (as it was) | 310 | 20 |
+| the slide's end | **274** | **2** |
+
+Eleven replays improve by 58, six get worse by 18, and two of those six lose an
+exact match. That trade is taken rather than avoided, and the reason is the one
+this document has used throughout: **a rule read out of a reference beats a
+number tuned to a corpus**. The six that got worse are now the interesting ones
+— they were right for a compensating reason, and the compensation is still
+somewhere in here.
+
+Nightcord is two counts from exact: one 300 that should be a 100. The fixture
+that carried this document since August is spent.
+
 ### This retires "the remaining error is the rounding floor"
 
 That claim was argued from a bound: 47 of 48 disagreeing replays disagreed by no

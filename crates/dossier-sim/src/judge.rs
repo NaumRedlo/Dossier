@@ -1027,7 +1027,25 @@ struct Heads {
 /// only sweeps when a replay frame arrives, is wrong for the same test: 16ms
 /// of grace scores 1678. osu! updates far faster than a replay records.
 fn past_it(object: &TimedObject, time_ms: f64, window_50: f64) -> bool {
-    if object.is_spinner() {
+    // A slider is written off at the end of its slide, not at its head's
+    // window. It is judged as a whole — the head is one piece of it — and until
+    // that verdict exists there is nothing to write off:
+    //
+    // ```go
+    // for _, g := range set.processed {
+    //     if !g.IsHit(player) {                       // Slider.IsHit is state.isHit,
+    //         ...                                     // set when the slide ends
+    // ```
+    //
+    // Reading it by the head's fifty window instead was wrong in both
+    // directions: a slider shorter than that window kept blocking after it had
+    // finished, and one longer than it stopped blocking while it was still
+    // being played. The first is what held `#404` on Nightcord for two
+    // milliseconds past a press that was 8.6px inside `#405`, and the run of
+    // refusals behind it is the whole of that replay's remaining error.
+    //
+    // Corpus 310 to 274, and Nightcord 20 to 2.
+    if object.is_spinner() || object.is_slider() {
         time_ms > object.end_ms
     } else {
         // `- 1` for the update the click did not wait for, `>` for the game's

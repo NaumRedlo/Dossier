@@ -33,62 +33,51 @@ osu! can wear. Judgement is where the news is, and it is below.
 
 ## Where judgement actually stands
 
-The corpus is back, and larger than it was. 149 replays on disk against a
-manifest of 134 — but they are not the same 134: only 33 of the manifest's rows
-are present, and 112 of the replays are ones it never listed. Whatever was lost
-was replaced by more than was lost.
-
-Measured 2026-08-27, against build `21380ed`:
+Measured 2026-09-01, against build `5f7599a`:
 
 ```
-dossier corpus --songs ~/.osu/Songs <corpus>/*.osr
+dossier corpus --songs ~/.osu/Songs --expect tools/corpus.tsv <corpus>/*.osr
 
-73 exact of 145 (14 lazer), total count error 762, 4 skipped
+78 exact of 145 (14 lazer), total count error 278, 4 skipped
 score compared on 139, worst 55.44%, within 0.5% on 113
 ```
 
-Four are skipped for want of the map. Nothing regressed against the 33 rows the
-old manifest still covers — `0 worse` — so the engine did not get worse while
-the instrument was away. It is simply being asked a much harder question now.
+Four are skipped for want of the map: two beatmaps out of 136 are gone from
+ppy and from every mirror, which is not a thing this end can fix.
 
-**The old claim was true of thirteen replays.** "Every replay in the corpus is
-either exact or has a named reason, and the remainder lives on the hit-window
-boundaries" was measured over a tenth of the corpus, and it does not survive the
-other nine tenths: half of the replays are exact, and the remainder is not all
-boundary noise. That sentence is gone from this document rather than softened.
-It is the exact kind of statement an instrument exists to stop anybody making.
+It was 762 that morning. Two causes account for the difference and both were
+one bug rather than a class of them.
 
-### The nine that are structural
+**lazer replays were judged at the map's stats and not the ones they were
+played at.** Difficulty Adjust and the rate mods' own rate are settings stable
+has no equivalent for, and they were parsed and dropped. Three replays are
+played at OD 11 on maps written at 8 and below; on `down [noob...]` the great
+window is 14ms rather than 32, and judging with the map's own turned 77
+hundreds into threes with the combo correct to the object. 762 to 510, and two
+of the three are now exact.
 
-Most of the misses are small — 113 of 139 scores are within half a percent, and
-those are the boundary cases the old claim described. Nine are not, and a
-divergence this size is a rule that is wrong rather than a rounding that is
-close:
+**A missed note took the whole Relax stream behind it.** The game presses on
+every frame under Relax; this engine aims one press per note, and when the note
+in front was out of reach that press was refused by the note lock and there was
+no second one to spend when the lock let go. Ten refusals in a row from one
+unreachable circle. 510 to 278.
 
-| combo | score | count error | client | replay |
-|---:|---:|---:|---|---|
-| +273 | +55.44% | 8 | stable | `avesemki … Power Stance [MAXIMUM LIMIT]` |
-| −182 | −7.00% | 2 | lazer | `Guest … xi - Blue Zenith [Asphyxia's Hard]` |
-| +30 | +15.62% | 4 | stable | `Saki_chan … Grayed Out [Antifront]` |
-| −24 | ±0 | 42 | stable | `Sakiko_Togawa … Cellar of Ghosts [shoye…]` |
-| −20 | −5.71% | 6 | stable | `Deeo_XD … Non-breath oblige [silverboxer…]` |
-| +1 | −5.42% | 52 | stable | `Sakiko_Togawa … Yomi yori … [Y…]` |
-| −1 | −19.89% | 2 | stable | `Uika_Misumi … Tsukiyo ni [Dai Sa…]` |
-| ±0 | −7.79% | 76 | stable | `goprob … all-american bitch [daph…]` |
-| ±0 | +8.05% | 2 | stable | `_legusshhka … Chi… [Imperial Circus]` |
+Neither was found by reading. The instrument was: `--trace` showed every press
+with what it was tested against — and printed `none` for every Relax replay
+there is, because it walked the replay's recorded keys and a Relax replay has
+none. Fixing that showed the cascade whole, on one screen, in the first look.
 
-Two shapes, and they want different work. A combo hundreds out with a small
-count error means the *break* is in the wrong place, not the hits — one object
-judged differently early, and every combo after it is wrong. A count error of
-76 with the combo exact means the opposite: many objects graded one step off,
-and the chain never broke. The first is one bug per replay and findable with
-`--trace`; the second is a rule.
+### What is left
 
-**Lazer is 14 of the exact 73 and 11 of the misses.** The engine judges by
-stable's rules, and `stable-fidelity.md` documents where the two rulesets
-genuinely differ. Whether lazer replays belong in the corpus at all is a
-question to settle before spending a day on `Blue Zenith` — a −182 combo on a
-lazer replay may be the engine being right about a game it is not imitating.
+Sixty replays sharing 278, the largest of them twenty, and no single cause among
+them. That is the shape the old claim described and could not support at the
+time: what remains looks like hit-window edges rather than a rule that is wrong.
+Worth re-measuring the *shape* of it — how much sits within two milliseconds of
+a boundary — before spending a day on any one replay.
+
+Whether lazer replays belong in the corpus at all is settled by the above and
+needs no decision: they were disagreeing because the engine was reading them
+wrongly, not because it judges a game it does not imitate.
 
 ### Keeping it
 

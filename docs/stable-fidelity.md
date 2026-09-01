@@ -598,6 +598,31 @@ a circle the two coincide. The window was already modelled.
 That leaves the first possibility alone, and the corpus insists on it — see
 *Settled: the lock earns its place* below.
 
+### The finder's `clickable` filter — narrowed, 2026-09-01
+
+The condition the section above left unread. The field is a public `bool`
+initialised to `true`, read in exactly two places and cleared in exactly two,
+and neither of the two is ordinary osu!standard play:
+
+- **taiko's finisher.** The method that clears it grades against two windows
+  rather than three, tests a `Finish` hit type, and gives the second half of a
+  big note thirty milliseconds to arrive. It is the taiko object, not the
+  standard one.
+- **a per-object selection loop**, where the clear sits in the `else` of a
+  branch that otherwise builds a time range for the object, and is followed
+  immediately by a call that also sets the object's drawing tag. That is the
+  greying the earlier reading guessed at, seen from the other side.
+
+So in a standard play the flag is `true` for every object and the filter
+`!checkVisible || obj.clickable` is always satisfied. It cannot be the refusal
+this engine is missing, and the first of the two possibilities above is now the
+only one standing without a candidate behind it.
+
+Found by re-deriving the whole of `CheckHittable` from the client a second
+time, without reading this document first. Everything else that came back was
+already written here, to the line. The reading cost a session and produced one
+paragraph; the document existed to stop exactly that.
+
 ### Closed: the spinner does take the press
 
 This engine used to exclude spinners from candidacy outright, where stable does

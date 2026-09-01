@@ -756,21 +756,28 @@ fn judge_heads(timeline: &Timeline, cursor: &CursorTrack, ruleset: Ruleset) -> H
             continue;
         }
 
-        // The object the click landed on. Two passes, and the order matters.
+        // The object the click landed on: the earliest unjudged note that has
+        // spawned and has the cursor inside it. In order, not by distance.
         //
-        // First, among the notes that would actually *take* this click — under
-        // the cursor and inside their own fifty window — the nearest one. On a
-        // dense stream the circles overlap almost entirely, and a player who
-        // is a little late has already moved the cursor onto the next note by
-        // the time they press: the click is inside both circles, 34px into the
-        // one behind and 19px into the one ahead, and osu! gives it to the one
-        // ahead. Taking the earlier one instead strands a note nobody will
-        // ever click again, and the lock then refuses everything that follows.
+        // Ranking by distance instead is the obvious idea and it is wrong twice
+        // over, both measured on the corpus:
         //
-        // The window is what keeps this honest. Ranking every spawned note by
-        // distance hands the click to whatever happens to be nearest, which on
-        // a fast map is a note half a second away — 439ms, in the case that
-        // first showed this up. A note only competes for a click it could be
+        // | | exact | error |
+        // |---|---|---|
+        // | the earliest under the cursor | **106 / 176** | **224** |
+        // | the nearest under the cursor | 5 / 176 | 42154 |
+        // | the nearest, and only within the fifty window | 18 / 176 | 35550 |
+        //
+        // The first fails because on a fast map the nearest spawned note is one
+        // half a second away. Adding the window to keep that honest fails worse:
+        // a click outside the fifty window but inside the hittable range still
+        // *takes* the note it lands on, as a miss, and a note that cannot
+        // compete for such a click is left for the next one instead — which
+        // strands it, and the lock then refuses everything behind it.
+        //
+        // Under Relax the game clicks on every frame, so a note whose window has
+        // not opened would be judged early and missed hundreds of times over.
+        // There, and only there, a note competes only for a click it could be
         // judged by.
         let candidates = || {
             objects
@@ -782,12 +789,7 @@ fn judge_heads(timeline: &Timeline, cursor: &CursorTrack, ruleset: Ruleset) -> H
                     !judged[*index]
                         && !object.is_spinner()
                         && press.pos.distance_to(object.pos) <= radius
-                        // Under Relax the game clicks on every frame, so a note
-                        // whose window has not opened yet would be judged early
-                        // and missed hundreds of times over. It only competes
-                        // for a click it could be judged by.
-                        && (!ruleset.relax
-                            || (press.time_ms - object.start_ms).abs() <= window)
+                        && (!ruleset.relax || (press.time_ms - object.start_ms).abs() <= window)
                 })
         };
         let target = candidates().next().map(|(index, _)| index);

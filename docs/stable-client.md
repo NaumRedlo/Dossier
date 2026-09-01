@@ -521,3 +521,32 @@ What the client answers is the other half: what stable *has*, at what size,
 under what name, and which decisions it lets a skin make. That is the half
 where a reimplementation can be checked against the thing itself rather than
 against another reimplementation.
+
+## The slider's tracking rule is not reachable this way
+
+`stable-fidelity.md` needed one thing from the client: whether stable stops
+tracking a slider when the player releases the button the slider was started
+with while still holding the other. danser says it does; three replays in the
+corpus say it does not. Both routes into `osu!.exe` were tried and neither
+reaches it.
+
+**By name.** Of thirty thousand metadata names, eight and a half thousand
+survive, but the survivors are localisation keys, enum members and framework
+types. `Slider` matches twenty-five names and every one of them is an editor
+menu item or an AI-mod warning string. `Mouse`, `Button`, `Key` and `Follow` are
+the same. Nothing in the gameplay path kept its name.
+
+**By constant.** The tracking test has no literal to find it by — it compares a
+distance against a radius and asks whether a button is down. The nearest handle
+is the follow circle's `2.4`, which appears in five methods; the two plausible
+ones turn out to be a hit-circle explosion animation (scale two to two point
+four over four hundred milliseconds — the four hundred is a duration, not the
+hittable range) and a piece of window layout in `Vector2`s. The rule itself
+holds no number that is not also a coordinate somewhere.
+
+This is what the opening of this document warned about, now specific: **static
+decompilation of the rules is not a short road**, and for slider tracking there
+is no marker to walk toward. Reaching it would mean reading `#=z...` calling
+`#=z...` outward from an entry point until the shape of a frame update appears —
+a different kind of exercise from anything here, and one that wants a debugger
+attached to a running client rather than a metadata reader.

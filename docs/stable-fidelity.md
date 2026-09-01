@@ -4777,3 +4777,47 @@ map, it is most of them.
 So stable refuses that click for some other reason, and the eleven stay open —
 but they are now a *named* list with a proven answer, which is a better thing to
 be stuck on than a number.
+
+### It was the lock after all, and the slider was still travelling
+
+The click at 108421 could not have gone anywhere else. Slider #396 is
+`281,230,108215,2,0,L|289:286,3,41.86` — a straight line from (281,230) to
+(289,286), three slides. The click sits near (380,315): ninety-five pixels from
+the tail, a hundred and thirty from the head. Nothing was under it but #397.
+
+So the refusal is temporal, and the only temporal refusal is the lock. Reading
+it from ppy rather than from danser settles what "unjudged" means:
+
+```csharp
+foreach (DrawableHitObject testObject in aliveObjects)
+{
+    if (testObject.AllJudged) continue;
+    if (testObject == hitObject) break;
+    if (testObject.HitObject.GetEndTime() + 3 < hitObject.HitObject.StartTime)
+        return ClickAction.Shake;
+}
+```
+
+`AllJudged` — every piece, and a slider's last piece is its tail. A slider whose
+head has been struck is not done; it goes on blocking the note behind it for as
+long as it travels. Three slides put #396's end at about 108428, so the click at
+108421 arrives while it is *still going*, and stable shakes it away. That is the
+note lock as a player meets it: you cannot start the next note before the slider
+you are on has run out.
+
+Two things had to be right at once, which is why three earlier attempts read as
+failures. The blocker search began at the first *unjudged* object, so a struck
+slider was never even asked — that is why the first two attempts changed nothing
+at all. And the bound is the slider's own end: stretching it to the frame that
+closes the slider, which is what danser does, costs an order of magnitude.
+
+| | exact | error |
+|---|---|---|
+| before | 106 / 176 | 224 |
+| a travelling slider blocks | **107 / 176** | **184** |
+| ...to its closing frame instead | 104 / 176 | 2140 |
+
+Nine replays improve by forty, none get worse, and all three of the worst move:
+`Chroma` 14 → 4, `Grievous Lady` 18 → 14, `ItarinKamiSama` 12 → 8. The
+generosity those three shared — fifties where the replay had misses — was this:
+clicks stable throws away and we were handing to the next note along.

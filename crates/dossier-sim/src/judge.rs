@@ -881,7 +881,11 @@ fn judge_heads(timeline: &Timeline, cursor: &CursorTrack, ruleset: Ruleset) -> H
             objects
                 .iter()
                 .enumerate()
-                .skip(first)
+                // From the first object still *alive*, not the first
+                // unjudged one: a slider whose head has been struck is judged
+                // here and still on the playfield, and skipping it would never
+                // ask it whether it blocks.
+                .skip(first.min(first_live))
                 // stable stops at the target itself — `testObject == hitObject`
                 // — while lazer stops at its *time*, so a note starting in the
                 // same millisecond is behind it for one client and not for the
@@ -909,7 +913,32 @@ fn judge_heads(timeline: &Timeline, cursor: &CursorTrack, ruleset: Ruleset) -> H
         } else {
             // stable: the first unjudged one that qualifies, however far back.
             behind().find(|(index, object)| {
-                !judged[*index]
+                // A slider is not done when its head is struck. `LegacyHitPolicy`
+                // skips an object only when *every* piece of it is judged, and a
+                // slider's last piece is its tail:
+                //
+                // ```csharp
+                // foreach (DrawableHitObject testObject in aliveObjects)
+                // {
+                //     if (testObject.AllJudged) continue;
+                //     if (testObject == hitObject) break;
+                //     if (testObject.HitObject.GetEndTime() + 3 < hitObject.HitObject.StartTime)
+                //         return ClickAction.Shake;
+                // }
+                // ```
+                //
+                // So a slider still travelling blocks the note after it, and the
+                // click that would have taken that note is shaken away instead —
+                // which is the note lock as a player meets it, unable to start
+                // the next note before the slider they are on has run out.
+                //
+                // The bound is the slider's own end and not a millisecond past
+                // it. Stretching it to the frame that closes the slider — which
+                // is what danser does, and up to sixteen milliseconds later —
+                // takes the corpus from 224 to 2102: a click on the next note
+                // within a frame of a slider ending is not an edge case on a
+                // dense map, it is most of them.
+                (!judged[*index] || (object.is_slider() && press.time_ms <= object.end_ms))
                     && ruleset.blocks(
                         object.end_ms,
                         object.start_ms,

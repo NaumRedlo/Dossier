@@ -4852,3 +4852,33 @@ same rule wearing different clothes. A slider blocks for as long as it is
 *travelling* — a duration the map itself declares, the same on any machine. A
 circle's block ends with its window, in milliseconds, and the frame that happens
 to carry the miss does not extend it.
+
+### The three sliders left are the piece instant, measured a fourth time
+
+What remains of `ItarinKamiSama` is three sliders, and danser's own piece list
+says they are all one thing. Each has a tail it drops and we keep, or the other
+way about:
+
+```
+#55   head 17945,  tail missed on frame 18042    → 1 of 2 → Ok      (we say Great)
+#379  head 104933, two missed, one taken         → 2 of 4 → Ok      (we say Meh)
+#470  head 126607, tail missed on frame 126721   → 3 of 4 → Ok      (we say Great)
+```
+
+For #55 the tail sits at `end - 36` = 18036 and danser asks about it on the next
+recorded frame, 18042. Six milliseconds, and the cursor has moved. That is the
+difference in all three, and it points both ways — which is why the corpus-wide
+bucket is symmetric, thirteen sliders each direction.
+
+This is the fourth time the obvious fix has been measured, and the first time on
+an engine that has moved this far, which was the reason to try again:
+
+| | exact | error |
+|---|---|---|
+| the piece at its own instant | **107 / 176** | **184** |
+| every piece on the next frame | 42 / 176 | 1948 |
+| only the tail on the next frame | 42 / 176 | 1914 |
+
+Not close, and no narrower form of it helps. Our finer step is not an
+approximation of stable's frame — it beats it by an order of magnitude on real
+replays, and the three sliders it costs here are the price.

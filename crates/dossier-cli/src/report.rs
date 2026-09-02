@@ -730,25 +730,7 @@ fn counts_json(counts: HitCounts) -> String {
     )
 }
 
-/// Minimal JSON string escaping — enough for filenames, titles and player
-/// names, which is all this program emits.
-pub fn quote(text: &str) -> String {
-    let mut out = String::with_capacity(text.len() + 2);
-    out.push('"');
-    for c in text.chars() {
-        match c {
-            '"' => out.push_str("\\\""),
-            '\\' => out.push_str("\\\\"),
-            '\n' => out.push_str("\\n"),
-            '\r' => out.push_str("\\r"),
-            '\t' => out.push_str("\\t"),
-            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
-            c => out.push(c),
-        }
-    }
-    out.push('"');
-    out
-}
+pub use dossier_produce::json::quote;
 
 pub fn error_json(replay_path: &str, message: &str) -> String {
     format!(

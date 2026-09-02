@@ -8,15 +8,15 @@
 
 mod assay;
 mod debug;
-mod events;
 mod exhibit;
-mod hitsounds;
-mod locate;
 mod manifest;
-mod reel;
 mod report;
 mod skinfile;
-mod video;
+
+// The pipeline itself lives in `dossier-produce` — see that crate's own note.
+// Named here rather than reached through their full paths so that the several
+// thousand lines below did not have to change when they moved.
+use dossier_produce::{events, hitsounds, locate, reel, video};
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};

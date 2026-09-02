@@ -16,6 +16,7 @@ dossier-sim = { path = "../dossier-sim" }
 dossier-render = { path = "../dossier-render" }
 dossier-exhibit = { path = "../dossier-exhibit" }
 dossier-audio = { path = "../dossier-audio" }
+dossier-produce = { path = "../dossier-produce" }
 md-5 = "0.10"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 tiny-skia = "0.11"

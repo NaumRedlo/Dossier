@@ -20,7 +20,7 @@
 use std::io::Write;
 use std::path::Path;
 
-use crate::report::quote;
+use crate::json::quote;
 
 /// Whether this run is being watched by a program, and the one place that
 /// decides what such a watcher is told.

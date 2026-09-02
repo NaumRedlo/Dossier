@@ -8,6 +8,7 @@ members = [
     "crates/dossier-render",
     "crates/dossier-exhibit",
     "crates/dossier-audio",
+    "crates/dossier-produce",
     "crates/dossier-cli",
 ]
 

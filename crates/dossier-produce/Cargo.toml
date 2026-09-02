@@ -1,0 +1,23 @@
+# Everything needed to turn a judged replay into a file.
+#
+# It was inside the `dossier` binary, where nothing else could reach it: a
+# binary crate cannot be imported. That was fine while the only thing that
+# rendered was the command line, and stopped being fine when the render client
+# became an application that should link the engine in rather than shell out to
+# a copy of it and then ask whether the two agree about their own version.
+[package]
+name = "dossier-produce"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+dossier-beatmap = { path = "../dossier-beatmap" }
+dossier-replay = { path = "../dossier-replay" }
+dossier-sim = { path = "../dossier-sim" }
+dossier-render = { path = "../dossier-render" }
+dossier-audio = { path = "../dossier-audio" }
+dossier-exhibit = { path = "../dossier-exhibit" }
+md-5 = "0.10"
+tiny-skia = "0.11"
+zip = { version = "2", default-features = false, features = ["deflate"] }

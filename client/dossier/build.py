@@ -121,15 +121,15 @@ def agree(ours: Optional[str], theirs: Optional[str]) -> tuple[bool, str]:
     """
     mine, yours = build_of(ours), build_of(theirs)
     if mine == UNKNOWN or yours == UNKNOWN:
-        return True, "one of the two builds cannot say what it is"
+        return True, "одна из двух сборок не может назвать себя"
 
     if mine == yours:
         if mine.endswith("+"):
             # Two edited trees are the cannot-tell case, same as two
             # `unknown`s: neither can say what it is, and this module has
             # already decided that ignorance is not a refusal.
-            return True, f"both are {mine}, built from an edited tree"
-        return True, f"both are {mine}"
+            return True, f"обе — {mine}, собраны из правленого дерева"
+        return True, f"обе — {mine}"
 
     if mine.rstrip("+") == yours.rstrip("+"):
         # The same source on both sides, and one binary was built from a tree
@@ -141,16 +141,16 @@ def agree(ours: Optional[str], theirs: Optional[str]) -> tuple[bool, str]:
         # left to find. Rebuilding is the step that always applies; stashing is
         # only sometimes needed, and telling somebody to look for changes that
         # are not there is how an evening goes.
-        edited = "this worker" if yours.endswith("+") else "the bot"
+        edited = "воркер" if yours.endswith("+") else "бот"
         return False, (
-            f"both are on {mine.rstrip('+')}, but {edited} built its binary "
-            f"from an edited tree — rebuild it there, having first committed "
-            f"or stashed anything still uncommitted under dossier/crates"
+            f"обе на {mine.rstrip('+')}, но {edited} собрал свой двоичник "
+            f"из правленого дерева — пересоберите там, прежде закоммитив "
+            f"или отложив всё несохранённое в dossier/crates"
         )
 
     return False, (
-        f"the bot renders with {mine} and this worker with {yours} — "
-        f"`git pull`, then `cargo build --release`, on whichever is behind"
+        f"бот рисует сборкой {mine}, а воркер — {yours}: `git pull`, затем "
+        f"`cargo build --release` на той стороне, что отстала"
     )
 
 

@@ -490,7 +490,7 @@ def test_a_machine_can_be_paused_from_a_text_editor(tmp_path):
     options = _options(tmp_path)
 
     written.write_text("RENDER_PAUSE=1\n")
-    assert worker.asked_for(str(written), options).closed(13) == "paused by its owner"
+    assert worker.asked_for(str(written), options).closed(13) == "приостановлено владельцем"
 
     # Un-paused, without anything being restarted.
     written.write_text("RENDER_PAUSE=0\n")
@@ -562,7 +562,7 @@ def test_a_paused_worker_still_says_hello(monkeypatch):
         asyncio.run(worker._watch(options, "token"))
 
     assert heard and heard[0].take is False
-    assert heard[0].reason == "paused by its owner", (
+    assert heard[0].reason == "приостановлено владельцем", (
         "the farm view needs the reason, not just the refusal"
     )
 
@@ -709,8 +709,8 @@ def test_the_check_says_which_keys_the_file_gave_it():
 
     worker = _worker_module()
     source = inspect.getsource(worker.check)
-    assert "in that file" in source
-    assert "not there: " in source
+    assert "в этом файле" in source
+    assert "не хватает: " in source
 
 
 async def test_the_check_finds_a_token_that_lives_only_in_the_file(tmp_path, capsys):
@@ -737,10 +737,10 @@ async def test_the_check_finds_a_token_that_lives_only_in_the_file(tmp_path, cap
     await worker.check(options)
     said = capsys.readouterr().out
 
-    assert "token: missing" not in said, said
+    assert "токен: нет" not in said, said
     # The line names the token by its fingerprint now rather than saying
     # "set" — what matters here is that it was found at all.
-    assert "[+] token: " in said and "chars," in said, said
+    assert "[+] токен: " in said and "знак" in said, said
 
 
 def test_a_path_is_shown_with_this_systems_own_separators(monkeypatch):
@@ -768,13 +768,13 @@ def test_a_stray_newline_or_quote_shows_up_in_the_length():
     the ride, and a length one longer than expected says so at a glance."""
     worker = _worker_module()
     plain = worker.fingerprint("abc")
-    assert plain.startswith("3 chars")
-    assert worker.fingerprint("abc\n").startswith("4 chars")
-    assert worker.fingerprint('"abc"').startswith("5 chars")
+    assert plain.startswith("3 знака")
+    assert worker.fingerprint("abc\n").startswith("4 знака")
+    assert worker.fingerprint('"abc"').startswith("5 знаков")
 
 
 def test_nothing_is_fingerprinted_as_nothing():
-    assert _worker_module().fingerprint("") == "nothing"
+    assert _worker_module().fingerprint("") == "нет"
 
 
 def test_the_refusal_carries_the_fingerprint_to_compare():
@@ -783,7 +783,7 @@ def test_the_refusal_carries_the_fingerprint_to_compare():
     worker = _worker_module()
     source = inspect.getsource(worker._ask_the_bot)
     assert "fingerprint(token)" in source
-    assert "logs at startup" in source
+    assert "печатает при запуске" in source
 
 
 async def test_the_check_says_when_the_environment_is_beating_the_file(
@@ -811,7 +811,7 @@ async def test_the_check_says_when_the_environment_is_beating_the_file(
     finally:
         os.environ.pop("RENDER_WORKER_TOKEN", None)
 
-    assert "from the environment, not from the file" in said, said
+    assert "из окружения, а не из файла" in said, said
     assert worker.fingerprint("the-one-in-the-file") in said, "and what the file holds"
     assert "the-one-in-the-file" not in said, "but never the token itself"
 

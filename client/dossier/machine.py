@@ -152,9 +152,9 @@ def decide(*, on_battery: bool, percent: int, power_mode: int,
     how hard to work, because a refusal makes the rest moot.
     """
     if power_mode == LOW_POWER:
-        return Capacity(False, "the machine is in low power mode", code="low-power")
+        return Capacity(False, "машина в режиме энергосбережения", code="low-power")
     if on_battery and percent < BATTERY_FLOOR:
-        return Capacity(False, f"on battery at {percent}%", code="battery",
+        return Capacity(False, f"от батареи, {percent}%", code="battery",
                         detail=str(percent))
 
     busy = idle_seconds < IDLE_SECONDS
@@ -164,19 +164,19 @@ def decide(*, on_battery: bool, percent: int, power_mode: int,
         # bag, not for charge — the table in this module's docstring says the
         # charge goes either way.
         threads, encoder = max(1, cores // 2), max(1, cores // 4)
-        reason = f"on battery at {percent}%"
+        reason = f"от батареи, {percent}%"
     elif busy:
         # Four threads costs 2.1x the time and leaves eight cores to whoever is
         # using them, which is the trade the whole policy exists to make.
         threads, encoder = 4, 2
-        reason = "somebody is at the keyboard"
+        reason = "кто-то за клавиатурой"
     else:
         # Drawing on the performance cores, encoding on what is left. Not
         # `cores - 1` for drawing: the encoder needs its own, and two pools
         # sized as though each had the machine to itself is how both end up
         # waiting on the same cores.
         threads, encoder = max(1, cores * 2 // 3), max(1, cores // 3)
-        reason = "the machine is idle"
+        reason = "машина свободна"
 
     if hot:
         # A tier down rather than a refusal: the job is already worth doing,
@@ -184,7 +184,7 @@ def decide(*, on_battery: bool, percent: int, power_mode: int,
         # after every branch, including the one where somebody is present —
         # a hot machine under someone's hands is the worst of both.
         threads, encoder = max(1, threads // 2), max(1, encoder // 2)
-        reason += ", and it is hot"
+        reason += ", и она горячая"
     return Capacity(True, reason, threads, encoder, polite=busy)
 
 
@@ -314,10 +314,10 @@ class Limits:
         owner" and "on battery at 9%" call for different reactions.
         """
         if self.paused:
-            return "paused by its owner"
+            return "приостановлено владельцем"
         if self.hours is not None and not within(self.hours, hour):
             start, end = self.hours
-            return f"outside its hours ({start:02d}:00–{end:02d}:00)"
+            return f"вне рабочих часов ({start:02d}:00–{end:02d}:00)"
         return None
 
     def code(self, hour: int) -> str:
@@ -439,7 +439,7 @@ def _capped(got: Capacity, ceiling: int) -> Capacity:
         return got
     return Capacity(
         got.take,
-        f"{got.reason}, capped at {ceiling}",
+        f"{got.reason}, потолок {ceiling}",
         min(got.threads, ceiling),
         min(got.encoder_threads, ceiling),
         polite=got.polite,

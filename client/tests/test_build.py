@@ -45,7 +45,7 @@ class TestReadingTheStamp:
         # Same reasoning as two `unknown`s below: neither can say what it is,
         # so this is ignorance rather than disagreement.
         allowed, why = engine_build.agree("d 0.1.0 (15abdf1+)", "d 0.1.0 (15abdf1+)")
-        assert allowed and "edited tree" in why
+        assert allowed and "правленого дерева" in why
 
     @pytest.mark.parametrize("line", [None, "", "dossier 0.1.0", "dossier ("])
     def test_anything_unreadable_is_unknown_rather_than_a_guess(self, line):
@@ -122,16 +122,16 @@ class TestDeciding:
         # uncommitted changes, so the operator pulled and rebuilt in a loop.
         allowed, why = engine_build.agree("d 0.1.0 (023f7e7)", "d 0.1.0 (023f7e7+)")
         assert not allowed
-        assert "023f7e7" in why and "this worker" in why
+        assert "023f7e7" in why and "воркер" in why
         assert "git pull" not in why
         # Rebuilding comes first because the mark outlives the edits: the stamp
         # is fixed when the binary is linked, so a tree tidied up but not built
         # again still says `+` with nothing left to stash.
-        assert why.index("rebuild") < why.index("stash")
+        assert why.index("пересоберите") < why.index("отложив")
 
     def test_it_says_which_side_has_the_edits(self):
         _, why = engine_build.agree("d 0.1.0 (023f7e7+)", "d 0.1.0 (023f7e7)")
-        assert "the bot" in why and "this worker" not in why
+        assert "бот" in why and "воркер" not in why
 
     def test_two_different_builds_are_told_to_pull(self):
         allowed, why = engine_build.agree("d 0.1.0 (abc1234)", "d 0.1.0 (def5678)")
@@ -140,6 +140,6 @@ class TestDeciding:
 
     def test_a_build_that_cannot_say_what_it_is_is_let_through(self):
         allowed, why = engine_build.agree(None, "d 0.1.0 (abc1234)")
-        assert allowed and "cannot say" in why
+        assert allowed and "не может назвать себя" in why
         allowed, _ = engine_build.agree("d 0.1.0 (abc1234)", None)
         assert allowed

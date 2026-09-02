@@ -101,7 +101,7 @@ def test_a_full_battery_is_no_help_if_the_operator_asked_for_low_power():
 def test_a_refusal_says_why():
     """It travels back to the bot and ends up in a log somebody reads at the
     point they are wondering why nothing rendered."""
-    assert "low power" in take(power_mode=1).reason
+    assert "энергосбережения" in take(power_mode=1).reason
     assert "14%" in take(on_battery=True, percent=14).reason
 
 
@@ -140,7 +140,7 @@ def test_heat_drops_a_tier_rather_than_refusing():
     cool, hot = take(), take(hot=True)
     assert hot.take
     assert hot.threads < cool.threads and hot.encoder_threads < cool.encoder_threads
-    assert "hot" in hot.reason
+    assert "горячая" in hot.reason
 
 
 def test_heat_counts_even_with_somebody_at_the_keyboard():
@@ -271,7 +271,7 @@ def test_a_desktop_can_say_somebody_is_using_it(monkeypatch):
     alone = machine.capacity(12)
     shared = machine.capacity(12, polite=True)
     assert alone.threads > shared.threads
-    assert shared.reason == "somebody is at the keyboard"
+    assert shared.reason == "кто-то за клавиатурой"
     assert shared.polite, "the engine is told to keep out of the way as well"
 
 
@@ -283,7 +283,7 @@ def test_a_ceiling_is_a_ceiling(monkeypatch):
 
     got = machine.capacity(32, ceiling=3)
     assert got.threads == 3 and got.encoder_threads <= 3
-    assert "capped at 3" in got.reason
+    assert "потолок 3" in got.reason
 
 
 def test_a_ceiling_never_turns_a_refusal_into_a_job(monkeypatch):
@@ -334,7 +334,7 @@ def test_paused_beats_the_hours():
     """Both refuse, but the reason ends up in the farm view, and "paused by its
     owner" and "outside its hours" want different reactions from a reader."""
     limits = machine.Limits(hours=(0, 9), paused=True)
-    assert limits.closed(3) == "paused by its owner"
+    assert limits.closed(3) == "приостановлено владельцем"
 
 
 def test_no_limits_means_no_reason_to_refuse():

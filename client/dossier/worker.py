@@ -51,6 +51,8 @@ import aiohttp
 from dossier import build as engine_build
 from dossier import machine
 from dossier import maps, runner, skins
+# Russian's three-way plural, written out once in `runner` — see `_plural`.
+from dossier.runner import _plural
 # At module level and not inside a function: `Server.__aenter__` needs it,
 # and that is the first thing a worker does. `update` imports nothing from
 # here, so there is no cycle to dodge.
@@ -600,11 +602,11 @@ def fingerprint(secret: str) -> str:
     a newline that came along for the ride.
     """
     if not secret:
-        return "nothing"
+        return "нет"
     import hashlib
 
     short = hashlib.sha256(secret.encode()).hexdigest()[:8]
-    return f"{len(secret)} chars, {short}"
+    return f"{len(secret)} {_plural(len(secret), 'знак', 'знака', 'знаков')}, {short}"
 
 
 def where(path: str) -> str:
@@ -763,9 +765,9 @@ async def check(options) -> int:
 
     # `None` rather than `False`: everything in it can be given another way,
     # so a worker without one is not a worker with a problem.
-    checks = [Check("config", True if found else None,
-                    found or f"none at {where(options.config)} — "
-                             f"the settings can live there instead of in the shell")]
+    checks = [Check("настройки", True if found else None,
+                    found or f"нет в {where(options.config)} — "
+                             f"их можно держать там, а не в переменных оболочки")]
     if found:
         # The keys, never the values. A file that has three of the four is the
         # commonest way to arrive here, and "token: missing" beside a config
@@ -775,9 +777,9 @@ async def check(options) -> int:
         wanted = ("RENDER_SERVER", "RENDER_WORKER_TOKEN")
         missing = [key for key in wanted if not in_file.get(key)]
         checks.append(Check(
-            "in that file", not missing,
-            ", ".join(key for key in wanted if in_file.get(key)) or "nothing readable",
-            "not there: " + ", ".join(missing) if missing else "",
+            "в этом файле", not missing,
+            ", ".join(key for key in wanted if in_file.get(key)) or "ничего читаемого",
+            "не хватает: " + ", ".join(missing) if missing else "",
         ))
 
     # Where the token came from, when the two disagree. The environment beats
@@ -790,31 +792,31 @@ async def check(options) -> int:
     from_file = in_file.get("RENDER_WORKER_TOKEN", "")
     if from_file and token and token != from_file:
         checks.append(Check(
-            "token", False,
-            f"{fingerprint(token)} — from the environment, not from the file",
-            f"the file holds {fingerprint(from_file)}, and a variable of the "
-            f"same name is beating it. On Windows: close the terminal and open "
-            f"it again, and if it comes back, `setx RENDER_WORKER_TOKEN \"\"`. "
-            f"Elsewhere: `unset RENDER_WORKER_TOKEN`.",
+            "токен", False,
+            f"{fingerprint(token)} — из окружения, а не из файла",
+            f"в файле лежит {fingerprint(from_file)}, но переменная с тем же "
+            f"именем его перебивает. В Windows: закройте терминал и откройте "
+            f"заново, а если вернётся — `setx RENDER_WORKER_TOKEN \"\"`. "
+            f"В остальных: `unset RENDER_WORKER_TOKEN`.",
         ))
     else:
-        checks.append(Check("token", bool(token),
-                            fingerprint(token) if token else "missing",
-                            "RENDER_WORKER_TOKEN, the same one the bot has"))
+        checks.append(Check("токен", bool(token),
+                            fingerprint(token) if token else "нет",
+                            "RENDER_WORKER_TOKEN, тот же самый, что у бота"))
 
     built = runner.is_available()
-    checks.append(Check("engine", built,
-                        runner.binary_path() if built else f"not at {runner.binary_path()}",
+    checks.append(Check("движок", built,
+                        runner.binary_path() if built else f"нет по пути {runner.binary_path()}",
                         "cargo build --release"))
     engine = await engine_build.local(refresh=True) if built else None
-    checks.append(Check("build", engine is not None,
-                        engine or "the engine would not say",
-                        "rebuild it — an engine too old to answer --version is "
-                        "too old to be trusted with a render"))
+    checks.append(Check("сборка", engine is not None,
+                        engine or "движок не назвал себя",
+                        "пересоберите — движок, который не отвечает на --version, "
+                        "слишком стар, чтобы доверять ему рендер"))
 
     checks.append(Check("ffmpeg", shutil.which("ffmpeg") is not None,
-                        shutil.which("ffmpeg") or "not on PATH",
-                        "needed to convert a skin's samples and to mux audio"))
+                        shutil.which("ffmpeg") or "нет в PATH",
+                        "нужен, чтобы перегнать звуки скина и склеить дорожку"))
 
     # Worth a row of its own because its absence is silent. Without a font the
     # engine draws the play and leaves out the score, the accuracy and the
@@ -822,16 +824,15 @@ async def check(options) -> int:
     # would think to report as a setup problem.
     from dossier.settings import DOSSIER_FONT
 
-    checks.append(Check("font", bool(DOSSIER_FONT) and os.path.isfile(DOSSIER_FONT),
-                        where(DOSSIER_FONT) if DOSSIER_FONT else "not found",
-                        "renders come out with no score, no accuracy and no "
-                        "combo without it — it ships beside the engine, so this "
-                        "usually means a file was moved out of the folder it "
-                        "came in"))
+    checks.append(Check("шрифт", bool(DOSSIER_FONT) and os.path.isfile(DOSSIER_FONT),
+                        where(DOSSIER_FONT) if DOSSIER_FONT else "не найден",
+                        "без него ролики выходят без счёта, точности и комбо — "
+                        "он лежит рядом с движком, так что обычно это значит, "
+                        "что файл унесли из папки, в которой он приехал"))
 
     songs = where(maps.songs_dir())
-    checks.append(Check("map store", os.path.isdir(songs) or _can_make(songs), songs,
-                        "the worker downloads maps here and could not create it"))
+    checks.append(Check("склад карт", os.path.isdir(songs) or _can_make(songs), songs,
+                        "воркер качает карты сюда и не смог создать эту папку"))
 
     limits = asked_for(options.config, options)
     shut = limits.closed(datetime.now().hour)
@@ -839,13 +840,19 @@ async def check(options) -> int:
         os.cpu_count() or 4, polite=limits.polite, ceiling=limits.threads
     )
     checks.append(Check(
-        "this machine", capacity.take or None,
-        f"{capacity.reason}" + (f", {capacity.threads} threads" if capacity.take else ""),
+        "эта машина", capacity.take or None,
+        f"{capacity.reason}"
+        + (
+            f", {capacity.threads} "
+            + _plural(capacity.threads, "поток", "потока", "потоков")
+            if capacity.take
+            else ""
+        ),
         ""))
 
     checks.extend(await _ask_the_bot(options, token, engine))
 
-    print(f"dossier render worker — {options.name}")
+    print(f"воркер рендера dossier — {options.name}")
     for line in checks:
         print(line)
     stopped = [c for c in checks if c.ok is False]
@@ -857,14 +864,15 @@ async def check(options) -> int:
         # its own is exactly what they would read.
         if unsure:
             count = len(unsure)
-            print(f"\nready, but {count} thing{'' if count == 1 else 's'} "
-                  f"above worth reading first")
+            print(f"\nготово, но {count} "
+                  f"{_plural(count, 'пункт', 'пункта', 'пунктов')} выше "
+                  f"стоит прочитать сначала")
         else:
-            print("\nready — run it without --check")
+            print("\nготово — запускайте без --check")
         return 0
     count = len(stopped)
-    print(f"\n{count} thing{'' if count == 1 else 's'} to fix "
-          f"before this worker can render")
+    print(f"\n{count} {_plural(count, 'пункт', 'пункта', 'пунктов')} "
+          f"надо поправить, прежде чем воркер сможет рисовать")
     return 1
 
 
@@ -878,10 +886,10 @@ async def _ask_the_bot(options, token: str, engine: str | None) -> list:
     """The two answers only the bot can give: is this token good, and do the
     builds match. Both are cheap and neither takes a job."""
     if not options.server:
-        return [Check("the bot", False, "no server given",
-                      "--server, or RENDER_SERVER in the config")]
+        return [Check("бот", False, "адрес не задан",
+                      "--server или RENDER_SERVER в настройках")]
     if not token:
-        return [Check("the bot", None, "not asked — there is no token to ask with")]
+        return [Check("бот", None, "не спрашивали — нечем, токена нет")]
 
     base = options.server.rstrip("/")
     try:
@@ -895,26 +903,28 @@ async def _ask_the_bot(options, token: str, engine: str | None) -> list:
             ) as reply:
                 if reply.status == 401:
                     return [Check(
-                        "the bot", False,
-                        f"the token was rejected — this one is {fingerprint(token)}",
-                        "compare that against what the bot logs at startup: same "
-                        "fingerprint means the token is not the problem, and a "
-                        "different one means somebody has the wrong string. A "
-                        "length one longer than expected is a quote or a newline "
-                        "that came along with it.",
+                        "бот", False,
+                        f"токен отвергнут — этот {fingerprint(token)}",
+                        "сравните с тем, что бот печатает при запуске: тот же "
+                        "отпечаток значит, что дело не в токене, а другой — что "
+                        "у кого-то из двоих не та строка. Длина на единицу "
+                        "больше ожидаемой — это кавычка или перевод строки, "
+                        "приехавшие вместе с ним.",
                     )]
                 if reply.status == 404:
-                    return [Check("the bot", False, "reached, but it has no "
-                                  "/render/hello", "the bot is older than this "
-                                  "worker — update it")]
+                    return [Check("бот", False, "отвечает, но у него нет "
+                                  "/render/hello", "бот старше этого воркера — "
+                                  "обновите его")]
                 reply.raise_for_status()
                 said = await reply.json()
     except (aiohttp.ClientError, asyncio.TimeoutError) as exc:
-        return [Check("the bot", False, f"could not reach {base}: {exc}",
-                      "check the address, and that the bot is running")]
+        return [Check("бот", False, f"не достучались до {base}: {exc}",
+                      "проверьте адрес и что бот вообще запущен")]
 
-    checks = [Check("the bot", True,
-                    f"{base}, {said.get('waiting', 0)} job(s) waiting")]
+    waiting = said.get("waiting", 0)
+    checks = [Check("бот", True,
+                    f"{base}, {waiting} "
+                    f"{_plural(waiting, 'задача', 'задачи', 'задач')} в очереди")]
 
     # A build that cannot say what it is passes the comparison, on purpose:
     # neither side can tell, and a farm that stops because somebody built from
@@ -928,19 +938,19 @@ async def _ask_the_bot(options, token: str, engine: str | None) -> list:
     mine = engine_build.build_of(engine)
     theirs = said.get("build") or engine_build.UNKNOWN
     if engine_build.UNKNOWN in (mine, theirs):
-        which = "this worker's" if mine == engine_build.UNKNOWN else "the bot's"
+        which = "этого воркера" if mine == engine_build.UNKNOWN else "бота"
         checks.append(Check(
-            "builds", None,
-            f"{which} engine cannot say what it was built from, so nothing is "
-            f"comparing them",
-            "almost always a source tree with no git in it — a downloaded zip "
-            "rather than a `git clone`. Clone the repository and build again, "
-            "or this worker will render with whatever code it happens to have.",
+            "сборки", None,
+            f"движок {which} не говорит, из чего собран, так что сравнивать "
+            f"нечего",
+            "почти всегда это дерево исходников без git — скачанный zip вместо "
+            "`git clone`. Клонируйте репозиторий и соберите заново, иначе "
+            "воркер будет рисовать тем кодом, какой окажется под рукой.",
         ))
     else:
-        checks.append(Check("builds", bool(said.get("agree")),
+        checks.append(Check("сборки", bool(said.get("agree")),
                             said.get("reason") or "?",
-                            "the reason says which side to rebuild"))
+                            "причина говорит, какую сторону пересобрать"))
     return checks
 
 

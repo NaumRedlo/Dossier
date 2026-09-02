@@ -4926,3 +4926,44 @@ identical to the digit, because in 176 replays nobody lets go in the middle of a
 spinner. It stays out because `spinners_do_not_need_a_button_held` asserts the
 current behaviour deliberately, and five more tests spin without touching a
 button; rewriting six tests to buy a measured nothing is the wrong trade.
+
+### The two circles are the write-off boundary, and it is still where it was
+
+`avesemki` #1390 and #1391 are misses here and hundreds in danser, and the
+reason is one note earlier. #1389 is a circle at 320032 that nobody hit. Its
+fifty window closes at 320132; there is a click on frame 320133, six pixels
+inside #1390.
+
+```
+ours    320133  refused by the lock — #1389, due 320032ms and still unjudged
+danser  OBJ 1389 320133 4    the miss
+        OBJ 1390 320133 16   and the hundred, on the same frame
+```
+
+danser has written #1389 off by then and we have not, so our lock refuses the
+click, and the refusal cascades through #1391 and #1392 as well. Its boundary is
+`time > start + Hit50` with stable's fifty window of 99.5 at OD10, evaluated
+every millisecond by the harness's own loop; ours is `time - 1 > start + 100`,
+which lands a millisecond and a half later.
+
+The obvious move is to slide our boundary onto danser's. It was measured across
+the whole range, on today's corpus:
+
+| grace | exact | error |
+|---|---|---|
+| 0.0ms | 105 / 176 | 244 |
+| 0.5ms | 105 / 176 | 244 |
+| **1.0ms** | **107 / 176** | **184** |
+| 1.5ms | 107 / 176 | 184 |
+| 2.0ms | 103 / 176 | 532 |
+
+A knife edge, not a basin — 244 on one side and 532 on the other. danser's own
+boundary, at 99.5 plus nothing, sits in the bad half. This constant was first
+fixed when the corpus was 145 replays and the error was 70; it has since doubled
+in size and been through a dozen rules, and it has not moved. That is worth more
+than the three objects it costs on this replay.
+
+So the two circles stay wrong, and knowingly. What would settle it is not a
+different constant but the thing the constant stands in for: stable sweeps its
+unjudged objects on its own clock, not on the replay's, and one millisecond is
+the best single number for a clock we cannot see.

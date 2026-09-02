@@ -17,5 +17,6 @@ pub mod json;
 pub mod locate;
 pub mod notes;
 pub mod reel;
+pub mod render;
 pub mod scenery;
 pub mod video;

@@ -16,7 +16,7 @@ mod skinfile;
 // The pipeline itself lives in `dossier-produce` — see that crate's own note.
 // Named here rather than reached through their full paths so that the several
 // thousand lines below did not have to change when they moved.
-use dossier_produce::{events, hitsounds, locate, reel, scenery, video};
+use dossier_produce::{self as produce, events, hitsounds, locate, reel, scenery, video};
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -3291,22 +3291,21 @@ fn load_font(explicit: Option<&Path>) -> Result<Option<dossier_render::Font>, St
 /// Render a play to video.
 fn video_command(options: Options) -> ExitCode {
     let Some(replay_path) = options.replays.first() else {
-        eprintln!("dossier: video needs a replay");
+        eprintln!("dossier: no replay given");
         return ExitCode::FAILURE;
     };
-    // The default output name is for `frame`; video wants a container.
     let out = if options.out == Path::new("frame.png") {
-        PathBuf::from("replay.mp4")
+        PathBuf::from("render.mp4")
     } else {
         options.out.clone()
     };
-    if let Err(message) = video::check_output(&out) {
+    if let Err(message) = produce::render::check_output(&out) {
         eprintln!("dossier: {message}");
         return ExitCode::FAILURE;
     }
 
     let (beatmap, replay, origin, map_text) = match load_with_origin(replay_path, &options) {
-        Ok(triple) => triple,
+        Ok(loaded) => loaded,
         Err(message) => {
             eprintln!("dossier: {message}");
             return ExitCode::FAILURE;
@@ -3315,9 +3314,8 @@ fn video_command(options: Options) -> ExitCode {
 
     let state = GameState::new(&beatmap, &replay);
     let mut skin = options.look(&beatmap);
-    // Whether the plain hit still sounds under a whistle is the skin's
-    // answer, and a skin that has said nothing means yes — see
-    // `Ini::layered_hit_sounds`.
+    // Whether the plain hit still sounds under a whistle is the skin's answer,
+    // and a skin that has said nothing means yes — see `Ini::layered_hit_sounds`.
     let layering = skin
         .sprites
         .as_ref()
@@ -3331,8 +3329,6 @@ fn video_command(options: Options) -> ExitCode {
         }
     }
 
-    // The unpacked track lives only as long as the render. Holding the guard
-    // in scope is what keeps it on disk while ffmpeg reads it.
     let scratch = Scratch::new();
     let audio = if options.mute {
         None
@@ -3346,88 +3342,17 @@ fn video_command(options: Options) -> ExitCode {
         found
     };
 
-    // Hit sounds are built on the video's own timebase, so they need the same
-    // span the encoder will use — worked out before anything is drawn.
-    let probe = video::Settings {
-        out: out.clone(),
-        fps: options.fps,
-        size: options.size,
-        from_ms: options.from_ms,
-        to_ms: options.to_ms,
-        ffmpeg: options.ffmpeg.clone(),
-        crf: options.crf,
-        preset: options.preset.clone(),
-        music_level: options.levels().0,
-        hitsound_level: options.levels().1,
-        threads: options.threads,
-        encoder_threads: options.encoder_threads,
-        audio: audio.clone(),
-        video: None,
-        hitsounds: None,
-        // This one only works out a span; nothing is drawn from it, so there
-        // is nothing for it to report.
-        events: events::Events::wanted(false),
-        // The same dip as the render, so the hit-sound plan lays its strikes on
-        // the same clock — a hit inside the dip lands where the picture shows it.
-        slow_at_ms: options.slow_at_ms,
-        // The probe draws nothing, so it has no camera to place.
-        slow_focus: None,
-    };
-    let hitsounds = match video::Plan::new(
-        state.span_ms(),
-        state.playback_rate(),
-        &probe,
-        state.ending().map(|end| end.time_ms),
-    ) {
-        Ok(plan) if !options.mute => write_hitsounds(
-            &state,
-            &beatmap,
-            &plan,
-            options.kit(),
-            options.samples_with_map(&origin, scratch.as_ref()),
-            scratch.as_ref(),
-            options.trace_hitsounds,
-            layering,
-        ),
-        _ => None,
-    };
+    eprintln!(
+        "{} — {} [{}], {} · {}",
+        replay.player,
+        beatmap.metadata.title,
+        beatmap.metadata.version,
+        replay.mods,
+        out.display()
+    );
 
-    let scene = Scene::new(&state, skin)
-        .signed_by(&replay)
-        .with_leaderboard(
-            load_leaderboard(options.leaderboard.as_deref(), &replay.player)
-                .with_own_pictures(options.my_avatar.clone(), options.my_cover.clone()),
-        );
-    let scene = if options.bare { scene.bare() } else { scene };
-    // What the play sounded, for the storyboard's triggers to answer to.
-    let fired = hitsounds::sounded(&state, &beatmap, layering);
-    let scene = scenery::dress(
-        scene,
-        &options.behind(None, scratch.as_ref()),
-        &beatmap,
-        (&map_text, &origin),
-        &fired,
-    );
-    // Settled before the scene is finished with, because it decides what the
-    // scene stands on: over a video the play is drawn on nothing.
-    let film = scenery::film(
-        &options.behind(None, scratch.as_ref()),
-        &map_text,
-        &origin,
-        scene.skin(),
-    );
-    let scene = if film.is_some() {
-        scene.over_video()
-    } else {
-        scene
-    };
-    // Where the camera draws in to: where the cursor is at the moment being
-    // slowed into — the place on the field the play is at, which is where the
-    // eye already is. Only when there is a moment to slow into at all.
-    let slow_focus = options
-        .slow_at_ms
-        .and_then(|at| state.cursor_track().sample(at))
-        .map(|cursor| cursor.pos);
+    // The pipeline fills in the music, the film, the hit-sound track and the
+    // camera; everything else here is what was asked for.
     let settings = video::Settings {
         out,
         fps: options.fps,
@@ -3442,36 +3367,49 @@ fn video_command(options: Options) -> ExitCode {
         threads: options.threads,
         encoder_threads: options.encoder_threads,
         audio,
-        video: film,
-        hitsounds,
+        video: None,
+        hitsounds: None,
         events: events::Events::wanted(options.events),
         slow_at_ms: options.slow_at_ms,
-        slow_focus,
+        slow_focus: None,
+    };
+    let job = produce::render::Job {
+        state: &state,
+        beatmap: &beatmap,
+        replay: &replay,
+        map_text: &map_text,
+        origin: &origin,
+        skin,
+        leaderboard: load_leaderboard(options.leaderboard.as_deref(), &replay.player)
+            .with_own_pictures(options.my_avatar.clone(), options.my_cover.clone()),
+        bare: options.bare,
+        layering,
+        behind: options.behind(None, scratch.as_ref()),
+        settings,
+    };
+    // Built here rather than in the pipeline because building it is where the
+    // command line says what a skin resolved to and what it left silent —
+    // tables that belong to a terminal.
+    let kit = options.kit();
+    let pack = options.samples_with_map(&origin, scratch.as_ref());
+    let track = |plan: &video::Plan| {
+        if options.mute {
+            return None;
+        }
+        write_hitsounds(
+            &state,
+            &beatmap,
+            plan,
+            kit,
+            pack.clone(),
+            scratch.as_ref(),
+            options.trace_hitsounds,
+            layering,
+        )
     };
 
-    eprintln!(
-        "{} — {} [{}], {} · {}",
-        replay.player,
-        beatmap.metadata.title,
-        beatmap.metadata.version,
-        replay.mods,
-        settings.out.display()
-    );
-
-    match video::encode(
-        &scene,
-        state.span_ms(),
-        state.playback_rate(),
-        &settings,
-        state.ending().map(|end| end.time_ms),
-    ) {
-        Ok(()) => {
-            let size = std::fs::metadata(&settings.out)
-                .map(|m| m.len())
-                .unwrap_or(0);
-            settings.events.wrote(&settings.out, size);
-            ExitCode::SUCCESS
-        }
+    match produce::render::render(job, &track) {
+        Ok(_) => ExitCode::SUCCESS,
         Err(message) => {
             eprintln!("dossier: {message}");
             ExitCode::FAILURE

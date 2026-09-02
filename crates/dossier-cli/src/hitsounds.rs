@@ -1292,3 +1292,64 @@ mod held {
         assert_eq!(loudness(&track, 1.2, 1.4), 0);
     }
 }
+
+/// Every sound the play made, in map time, for a storyboard's triggers.
+///
+/// The same walk `build` makes, and deliberately the same one: a trigger fires
+/// on a sound that was *played*, so anything that decides whether a sound
+/// happens — a missed note, a slider nobody held, the layering setting — has to
+/// decide it here too. Reading the map's notes instead would fire triggers
+/// through a section the player never touched.
+///
+/// One entry per voice rather than per note. A note carrying a clap makes two
+/// sounds and `HitSoundClap` waits for the second of them.
+pub fn sounded(
+    state: &GameState,
+    beatmap: &Beatmap,
+    layering: bool,
+) -> Vec<dossier_beatmap::storyboard::Sounded> {
+    use dossier_beatmap::storyboard::{Addition, Sounded};
+
+    let mut out = Vec::new();
+    let Some(judge) = state.judge() else {
+        return out;
+    };
+    for event in judge.events() {
+        let Some(object) = beatmap.objects.get(event.object_index) else {
+            continue;
+        };
+        if event.result.is_miss() {
+            continue;
+        }
+        let edge = slider_edge(state, event.object_index, event.part, event.time_ms);
+        let voices = voices_for(event.part, object, edge, layering);
+        let normal = bank_for(beatmap, object, Voice::Normal, edge);
+        for voice in voices {
+            let addition = match voice {
+                Voice::Whistle => Some(Addition::Whistle),
+                Voice::Finish => Some(Addition::Finish),
+                Voice::Clap => Some(Addition::Clap),
+                _ => None,
+            };
+            let (set, index, _) = bank_for(beatmap, object, voice, edge);
+            out.push(Sounded {
+                time_ms: event.time_ms,
+                set: unconvert(normal.0),
+                addition_set: unconvert(set),
+                addition,
+                custom: index,
+            });
+        }
+    }
+    out
+}
+
+/// The other way round from [`convert`]. Three names, and both crates have
+/// them; only the direction differs.
+fn unconvert(set: SampleSet) -> MapSet {
+    match set {
+        SampleSet::Normal => MapSet::Normal,
+        SampleSet::Soft => MapSet::Soft,
+        SampleSet::Drum => MapSet::Drum,
+    }
+}

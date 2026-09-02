@@ -252,9 +252,10 @@ fn a_loop_is_laid_out_a_turn_at_a_time() {
 }
 
 #[test]
-fn a_trigger_is_skipped_with_its_whole_body() {
-    // It fires on something the storyboard cannot know by itself. Skipping it
-    // loses an effect; expanding it on a guess invents one.
+fn a_triggers_body_is_held_apart_from_the_sprites_own_commands() {
+    // It fires on something the storyboard cannot know by itself, so it waits
+    // here until somebody says what happened — see `Storyboard::fired`. Until
+    // then the sprite behaves as though the trigger were not there.
     let sb = read(&events(
         "Sprite,Background,TopLeft,\"a.png\",0,0\n_F,0,0,100,0,1\n_T,HitSoundClap,0,10000\n__F,0,0,200,1,0\n__S,0,0,200,1,2",
     ));
@@ -263,6 +264,7 @@ fn a_trigger_is_skipped_with_its_whole_body() {
         1,
         "the trigger's body was let through"
     );
+    assert_eq!(sb.sprites[0].triggers[0].body.len(), 2, "its body was lost");
 }
 
 #[test]
@@ -486,4 +488,117 @@ fn a_difficultys_own_events_are_drawn_over_the_sets() {
     set.absorb(own);
     let names: Vec<&str> = set.at(0.5).iter().map(|d| d.path).collect();
     assert_eq!(names, vec!["set.png", "own.png"]);
+}
+
+// ── triggers ─────────────────────────────────────────────────────────────
+
+use dossier_beatmap::storyboard::{Addition, Fires, HitSoundMatch, Sounded};
+use dossier_beatmap::SampleSet;
+
+fn clap(at: f64) -> Sounded {
+    Sounded {
+        time_ms: at,
+        set: SampleSet::Normal,
+        addition_set: SampleSet::Normal,
+        addition: Some(Addition::Clap),
+        custom: 0,
+    }
+}
+
+/// The name is a run of optional parts and each one written narrows the match.
+#[test]
+fn a_trigger_reads_every_part_of_its_name() {
+    let sb = read(&events(
+        "Sprite,Foreground,Centre,\"a.png\",320,240\n_T,HitSoundSoftDrumClap2,0,10000\n__F,0,0,200,0,1",
+    ));
+    let trigger = &sb.sprites[0].triggers[0];
+    assert_eq!(
+        trigger.fires,
+        Fires::HitSound(HitSoundMatch {
+            set: Some(SampleSet::Soft),
+            addition_set: Some(SampleSet::Drum),
+            addition: Some(Addition::Clap),
+            custom: Some(2),
+        })
+    );
+    assert_eq!((trigger.start_ms, trigger.end_ms), (0.0, 10000.0));
+}
+
+/// A body laid down once per sound, from the moment it sounded.
+#[test]
+fn a_trigger_lays_its_body_down_where_the_sound_was() {
+    let sb = read(&events(
+        "Sprite,Foreground,Centre,\"a.png\",320,240\n_T,HitSoundClap,0,10000\n__F,0,0,100,0,1",
+    ));
+    assert!(
+        sb.sprites[0].commands.is_empty(),
+        "it fired before it was told what happened"
+    );
+
+    let fired = sb.fired(&[clap(1000.0), clap(5000.0)]);
+    assert!(
+        fired.sprites[0].triggers.is_empty(),
+        "a fired trigger was kept"
+    );
+    let times: Vec<(f64, f64)> = fired.sprites[0]
+        .commands
+        .iter()
+        .map(|c| (c.start_ms, c.end_ms))
+        .collect();
+    assert_eq!(times, vec![(1000.0, 1100.0), (5000.0, 5100.0)]);
+}
+
+/// Outside the window, and the wrong sound inside it, both fire nothing.
+#[test]
+fn a_trigger_is_deaf_outside_its_window_and_to_the_wrong_sound() {
+    let sb = read(&events(
+        "Sprite,Foreground,Centre,\"a.png\",320,240\n_T,HitSoundFinish,2000,3000\n__F,0,0,100,0,1",
+    ));
+    let mut whistle = clap(2500.0);
+    whistle.addition = Some(Addition::Whistle);
+    let fired = sb.fired(&[clap(1000.0), clap(9000.0), whistle]);
+    assert!(
+        fired.sprites[0].commands.is_empty(),
+        "it fired on a sound outside its window or of the wrong kind"
+    );
+}
+
+/// A name this parser cannot read fires on nothing rather than on everything.
+#[test]
+fn an_unreadable_trigger_stays_silent() {
+    let sb = read(&events(
+        "Sprite,Foreground,Centre,\"a.png\",320,240\n_T,HitObjectHit,0,10000\n__F,0,0,100,0,1",
+    ));
+    assert_eq!(sb.sprites[0].triggers[0].fires, Fires::Unreadable);
+    assert!(sb.fired(&[clap(500.0)]).sprites[0].commands.is_empty());
+}
+
+/// The whole way through: a sprite nobody can see until a clap lands, and then
+/// only for as long as the trigger's body says.
+#[test]
+fn a_fired_trigger_puts_a_sprite_on_the_screen() {
+    let sb = read(&events(
+        "Sprite,Foreground,Centre,\"flash.png\",320,240\n_T,HitSoundClap,0,10000\n__F,0,0,200,1,0",
+    ));
+    assert!(
+        sb.at(1050.0).is_empty(),
+        "it was on screen before anything had happened"
+    );
+
+    let fired = sb.fired(&[clap(1000.0)]);
+    assert!(
+        fired.at(900.0).is_empty(),
+        "it was on screen before the clap"
+    );
+    let drawn = fired.at(1050.0);
+    assert_eq!(drawn.len(), 1, "the clap did not bring it out");
+    assert!(
+        (drawn[0].alpha - 0.75).abs() < 0.01,
+        "a quarter of the way through a fade from one to nought: {}",
+        drawn[0].alpha
+    );
+    assert!(
+        fired.at(1300.0).is_empty(),
+        "it stayed after its body had run out"
+    );
 }

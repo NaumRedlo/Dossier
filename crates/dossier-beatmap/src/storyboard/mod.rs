@@ -16,6 +16,8 @@
 mod easing;
 mod parse;
 
+use crate::timing::SampleSet;
+
 pub use easing::ease;
 pub use parse::{parse, parse_reporting, ParseError};
 
@@ -103,6 +105,84 @@ pub struct Command {
     pub change: Change,
 }
 
+/// One of the three sounds a note can carry besides its own.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Addition {
+    Whistle,
+    Finish,
+    Clap,
+}
+
+/// What makes a trigger fire.
+///
+/// `HitSound` is written as a run of optional parts —
+/// `HitSound[SampleSet][AdditionsSampleSet][Addition][CustomSampleSet]` — and
+/// every part that *is* written has to match. `HitSoundClap` fires on any clap;
+/// `HitSoundSoftClap` only on a clap whose additions are soft.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct HitSoundMatch {
+    pub set: Option<SampleSet>,
+    pub addition_set: Option<SampleSet>,
+    pub addition: Option<Addition>,
+    pub custom: Option<u32>,
+}
+
+/// A sound the play actually made, for a trigger to match against.
+///
+/// Supplied by whoever knows — the thing that decided which samples to play,
+/// which is the judgement and not the storyboard. A trigger fired on a guess is
+/// a sprite that appears when nothing happened.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Sounded {
+    pub time_ms: f64,
+    pub set: SampleSet,
+    pub addition_set: SampleSet,
+    pub addition: Option<Addition>,
+    pub custom: u32,
+}
+
+/// What a trigger listens for.
+///
+/// `Passing` and `Failing` follow the health bar, which this engine does not
+/// model — it decides when a player dies, not what they hit. A replay that was
+/// submitted was passing at the end, and passing is the state a storyboard
+/// author writes for, so `Passing` fires and `Failing` never does. Stated here
+/// rather than guessed at in three places.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Fires {
+    HitSound(HitSoundMatch),
+    Passing,
+    Failing,
+    /// A name this parser could not read. It fires on nothing — a trigger
+    /// nobody can understand should stay silent rather than go off on every
+    /// note, which is the failure that would be noticed last.
+    Unreadable,
+}
+
+impl HitSoundMatch {
+    /// Whether this sound is one this trigger was waiting for.
+    pub fn matches(self, hit: &Sounded) -> bool {
+        self.set.is_none_or(|set| set == hit.set)
+            && self.addition_set.is_none_or(|set| set == hit.addition_set)
+            && self.addition == hit.addition.filter(|_| self.addition.is_some())
+            && self.custom.is_none_or(|n| n == hit.custom)
+    }
+}
+
+/// A body of commands waiting for something to happen.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Trigger {
+    pub fires: Fires,
+    /// The window it listens in. A sound outside it fires nothing.
+    pub start_ms: f64,
+    pub end_ms: f64,
+    /// Triggers sharing a group take each other over rather than stacking.
+    /// Kept as written; see [`Storyboard::fired`] for what is done with it.
+    pub group: i32,
+    /// Times inside are stated from the moment it fires, like a loop's.
+    pub body: Vec<Command>,
+}
+
 /// A picture, and everything that happens to it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Sprite {
@@ -115,6 +195,8 @@ pub struct Sprite {
     /// Present when the line was an `Animation` rather than a `Sprite`.
     pub animation: Option<Animation>,
     pub commands: Vec<Command>,
+    /// Bodies that have not happened yet — see [`Storyboard::fired`].
+    pub triggers: Vec<Trigger>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -131,6 +213,55 @@ pub struct Video {
     pub path: String,
     pub start_ms: f64,
     pub offset: (f32, f32),
+}
+
+impl Storyboard {
+    /// The same storyboard with every trigger turned into ordinary commands.
+    ///
+    /// A trigger is a body waiting for something the storyboard cannot see. The
+    /// sounds a play actually made are handed in here, from the side that
+    /// decided to make them, and each one inside a trigger's window lays that
+    /// trigger's body down from the moment it sounded — the same unrolling a
+    /// loop gets, at times nobody could know in advance.
+    ///
+    /// Firing again while a body is still running lays down a second copy on
+    /// top of the first. osu! restarts the body instead, and a group number
+    /// says which triggers take each other over; both come out the same wherever
+    /// the later copy sets the same properties as the earlier, which is the
+    /// ordinary case, and this engine reads the last command that applies.
+    /// Groups are kept in the model and not yet acted on.
+    #[must_use]
+    pub fn fired(&self, sounds: &[Sounded]) -> Self {
+        let mut out = self.clone();
+        for sprite in &mut out.sprites {
+            for trigger in std::mem::take(&mut sprite.triggers) {
+                let at: Vec<f64> = match trigger.fires {
+                    Fires::HitSound(what) => sounds
+                        .iter()
+                        .filter(|hit| {
+                            hit.time_ms >= trigger.start_ms
+                                && hit.time_ms < trigger.end_ms
+                                && what.matches(hit)
+                        })
+                        .map(|hit| hit.time_ms)
+                        .collect(),
+                    // Not a sound but a state, and the state is "passing" from
+                    // the first moment the trigger is listening.
+                    Fires::Passing => vec![trigger.start_ms],
+                    Fires::Failing | Fires::Unreadable => Vec::new(),
+                };
+                for when in at {
+                    sprite.commands.extend(trigger.body.iter().map(|c| Command {
+                        easing: c.easing,
+                        start_ms: c.start_ms + when,
+                        end_ms: c.end_ms + when,
+                        change: c.change.clone(),
+                    }));
+                }
+            }
+        }
+        out
+    }
 }
 
 /// Everything read out of `[Events]` and the `.osb`.

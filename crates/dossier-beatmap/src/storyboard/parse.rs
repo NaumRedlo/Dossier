@@ -32,7 +32,10 @@
 
 use std::collections::HashMap;
 
-use super::{Animation, Change, Command, Layer, Origin, Sprite, Storyboard, Switch, Video};
+use super::{
+    Addition, Animation, Change, Command, Fires, HitSoundMatch, Layer, Origin, SampleSet, Sprite,
+    Storyboard, Switch, Trigger, Video,
+};
 
 /// Nothing here refuses a file — a storyboard is decoration, and a map whose
 /// decoration has one bad line should still be rendered. The error type exists
@@ -117,7 +120,7 @@ pub fn parse_reporting(text: &str) -> (Storyboard, Vec<ParseError>) {
                 "L" => open = Some(OpenLoop::begin(&fields)),
                 // A trigger and everything indented under it. `skipping` eats
                 // the body without a sprite ever hearing about it.
-                "T" => open = Some(OpenLoop::skipping()),
+                "T" => open = Some(OpenLoop::trigger(&fields)),
                 _ => match command(&fields) {
                     Ok(cmd) => push(&mut out, cmd),
                     Err(()) => errors.push(ParseError {
@@ -149,12 +152,13 @@ fn push(out: &mut Storyboard, command: Command) {
     }
 }
 
-/// A loop being collected, or a trigger being thrown away.
+/// A loop being collected, or a trigger being collected.
 struct OpenLoop {
     start_ms: f64,
     count: u32,
     body: Vec<Command>,
-    skip: bool,
+    /// Set when the header was a `T` rather than an `L`.
+    trigger: Option<(Fires, f64, f64, i32)>,
 }
 
 impl OpenLoop {
@@ -165,18 +169,76 @@ impl OpenLoop {
             // something, and dropping it loses more than repeating it wrongly.
             count: number(fields.get(2)).unwrap_or(1.0).max(1.0) as u32,
             body: Vec::new(),
-            skip: false,
+            trigger: None,
         }
     }
 
-    fn skipping() -> Self {
+    /// `T,<what fires it>,<start>,<end>[,<group>]`.
+    fn trigger(fields: &[&str]) -> Self {
         Self {
             start_ms: 0.0,
             count: 0,
             body: Vec::new(),
-            skip: true,
+            trigger: Some((
+                fires(fields.get(1).copied().unwrap_or("")),
+                number(fields.get(2)).unwrap_or(0.0),
+                number(fields.get(3)).unwrap_or(f64::INFINITY),
+                number(fields.get(4)).unwrap_or(0.0) as i32,
+            )),
         }
     }
+}
+
+/// Read what a trigger listens for.
+///
+/// The hit-sound form is a run of optional parts stuck together —
+/// `HitSound[SampleSet][AdditionsSampleSet][Addition][CustomSampleSet]` — and
+/// each one that is written narrows the match. `HitSoundClap` is any clap;
+/// `HitSoundDrumClap` a clap over drum additions; `HitSoundSoftDrumClap2` a
+/// clap whose own set is soft, whose additions are drum, on custom bank two.
+///
+/// Anything unrecognised listens for nothing rather than for everything: a
+/// trigger nobody can read should stay silent, not fire on every note.
+fn fires(name: &str) -> Fires {
+    match name {
+        "Passing" => return Fires::Passing,
+        "Failing" => return Fires::Failing,
+        _ => {}
+    }
+    let Some(mut rest) = name.strip_prefix("HitSound") else {
+        return Fires::Unreadable;
+    };
+    let mut out = HitSoundMatch::default();
+    let set = |rest: &mut &str| -> Option<SampleSet> {
+        for (word, which) in [
+            ("Normal", SampleSet::Normal),
+            ("Soft", SampleSet::Soft),
+            ("Drum", SampleSet::Drum),
+        ] {
+            if let Some(after) = rest.strip_prefix(word) {
+                *rest = after;
+                return Some(which);
+            }
+        }
+        None
+    };
+    out.set = set(&mut rest);
+    out.addition_set = set(&mut rest);
+    for (word, which) in [
+        ("Whistle", Addition::Whistle),
+        ("Finish", Addition::Finish),
+        ("Clap", Addition::Clap),
+    ] {
+        if let Some(after) = rest.strip_prefix(word) {
+            rest = after;
+            out.addition = Some(which);
+            break;
+        }
+    }
+    if !rest.is_empty() {
+        out.custom = rest.parse().ok();
+    }
+    Fires::HitSound(out)
 }
 
 /// Unroll a loop onto the sprite it belongs to.
@@ -186,7 +248,19 @@ impl OpenLoop {
 /// `count` times, each shifted by a turn.
 fn close_loop(open: &mut Option<OpenLoop>, out: &mut Storyboard) {
     let Some(loop_) = open.take() else { return };
-    if loop_.skip || loop_.body.is_empty() {
+    if loop_.body.is_empty() {
+        return;
+    }
+    if let Some((fires, start_ms, end_ms, group)) = loop_.trigger {
+        if let Some(sprite) = out.sprites.last_mut() {
+            sprite.triggers.push(Trigger {
+                fires,
+                start_ms,
+                end_ms,
+                group,
+                body: loop_.body,
+            });
+        }
         return;
     }
     let turn = loop_
@@ -244,6 +318,7 @@ fn sprite(fields: &[&str], animated: bool) -> Result<Sprite, ()> {
         return Err(());
     }
     Ok(Sprite {
+        triggers: Vec::new(),
         layer: layer(fields.get(1).copied().unwrap_or("")),
         origin: origin(fields.get(2).copied().unwrap_or("")),
         path,

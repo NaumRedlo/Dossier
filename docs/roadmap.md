@@ -148,11 +148,17 @@ frame shows exactly what a video will look like.
 not.** Both are behind flags — `--storyboard` and `--video` — and off by
 default, like the artwork.
 
-- *Triggers* (`T,HitSoundClap,…`) are parsed far enough to be skipped whole.
-  They fire on things the storyboard cannot know by itself, and a trigger
-  expanded on a guess is a sprite that appears when nothing happened. Doing
-  them properly means handing the storyboard the hit sounds as they are
-  played, which is a thing the renderer does not have and the audio side does.
+- ~~*Triggers*~~ **done 2026-09-02.** They are read, kept on the sprite, and
+  fired by `Storyboard::fired` against the sounds the play actually made —
+  `hitsounds::sounded` walks the judged events the same way the audio does, so
+  a note nobody hit fires nothing. `Passing` fires once at the start of its
+  window and `Failing` never, because the health bar is not modelled and a
+  submitted replay was passing; a name this parser cannot read fires on nothing
+  rather than on everything. Group numbers are kept and not yet acted on: a
+  second firing lays a second copy down where osu! restarts the body, which
+  comes out the same wherever the later copy sets the same properties. Nothing
+  in the local library has a trigger in it, so this has unit tests and no
+  smoke test against a real file.
 - *`--video` is `video` only.* `frame` would need a seek per picture and
   `exhibit` a seek per clip; neither is hard and neither is written.
 - *A tinted sprite allocates.* tiny-skia carries an opacity through a blit but
@@ -160,10 +166,10 @@ default, like the artwork.
   copy first. White sprites — nearly all of them — cost nothing. A storyboard
   that tints hundreds at once would want a cache keyed by picture and colour.
 
-**Cursor rotation should be a setting.** It follows the game now — a full turn
-every ten seconds, off when the skin says `CursorRotate: 0` — and asked for as
-something a person can turn off for themselves rather than only the skin.
-Wanted 2026-08-28.
+~~**Cursor rotation should be a setting.**~~ **done 2026-09-02** —
+`--cursor-rotate on|off` overrules the skin's `CursorRotate` on `video`, `frame`
+and `exhibit`, and leaving it out leaves the decision with the skin, which is
+what osu! does.
 
 **Measuring against danser: deferred, and the reason is the cost.** danser is
 the reference this engine was written against and has never been run on the

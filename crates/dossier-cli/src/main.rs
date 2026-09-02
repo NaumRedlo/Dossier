@@ -3027,7 +3027,9 @@ fn exhibit_command(options: Options) -> ExitCode {
         Some(art) => scene.with_backdrop(art),
         None => scene,
     };
-    let scene = match scenery(&options, &map_text, &origin) {
+    // What the play sounded, for the storyboard's triggers to answer to.
+    let fired = hitsounds::sounded(&state, &beatmap, layering);
+    let scene = match scenery(&options, &map_text, &origin, &fired) {
         Some(show) => scene.with_storyboard(show),
         None => scene,
     };
@@ -3139,6 +3141,13 @@ fn frame(options: Options) -> ExitCode {
 
     let state = GameState::new(&beatmap, &replay);
     let mut skin = options.look(&beatmap);
+    // Before the skin is handed to the scene: the same question
+    // `write_hitsounds` asks, and its answer decides whether a plain hit
+    // sounds under a whistle — which a trigger can be listening for.
+    let layering = skin
+        .sprites
+        .as_ref()
+        .is_none_or(|s| s.ini().layered_hit_sounds);
     match load_font(options.font.as_deref()) {
         Ok(Some(font)) => skin = skin.with_font(font),
         Ok(None) => eprintln!("dossier: no font found — drawing without numbers"),
@@ -3158,7 +3167,9 @@ fn frame(options: Options) -> ExitCode {
         Some(art) => scene.with_backdrop(art),
         None => scene,
     };
-    let scene = match scenery(&options, &map_text, &origin) {
+    // What the play sounded, for the storyboard's triggers to answer to.
+    let fired = hitsounds::sounded(&state, &beatmap, layering);
+    let scene = match scenery(&options, &map_text, &origin, &fired) {
         Some(show) => scene.with_storyboard(show),
         None => scene,
     };
@@ -3281,6 +3292,7 @@ fn scenery(
     options: &Options,
     map_text: &str,
     origin: &locate::Origin,
+    sounds: &[dossier_beatmap::storyboard::Sounded],
 ) -> Option<dossier_render::storyboard::Show> {
     use dossier_beatmap::storyboard;
 
@@ -3299,6 +3311,10 @@ fn scenery(
     if board.sprites.is_empty() {
         return None;
     }
+    // Triggers wait in the parsed board for somebody to say what happened. This
+    // is that: the sounds the play actually made, laid down as ordinary
+    // commands from the moment each one sounded.
+    let board = board.fired(sounds);
     let sprites = board.sprites.len();
     let show = dossier_render::storyboard::Show::load(board, |path| assets.read(path));
     if show.is_empty() {
@@ -3472,7 +3488,9 @@ fn video_command(options: Options) -> ExitCode {
         Some(art) => scene.with_backdrop(art),
         None => scene,
     };
-    let scene = match scenery(&options, &map_text, &origin) {
+    // What the play sounded, for the storyboard's triggers to answer to.
+    let fired = hitsounds::sounded(&state, &beatmap, layering);
+    let scene = match scenery(&options, &map_text, &origin, &fired) {
         Some(show) => scene.with_storyboard(show),
         None => scene,
     };

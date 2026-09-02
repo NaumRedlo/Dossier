@@ -165,10 +165,19 @@ default, like the artwork.
   `exhibit` needed nothing but the flag: `encode` already works its seek out
   from the span it is given, and `reel` gives it one span per clip, so the same
   backdrop serves them all.
-- *A tinted sprite allocates.* tiny-skia carries an opacity through a blit but
-  not a colour, so a sprite under a `C` command is multiplied into a scratch
-  copy first. White sprites — nearly all of them — cost nothing. A storyboard
-  that tints hundreds at once would want a cache keyed by picture and colour.
+- *A tinted sprite allocates,* and there is nothing to measure it on. tiny-skia
+  carries an opacity through a blit but not a colour, so a sprite under a `C`
+  command is multiplied into a scratch copy first. Counted 2026-09-02 across
+  every storyboard in the local library — sixteen of them, one carrying 6201
+  sprites — and **not one `C` command among them**. That storyboard costs 5.8ms
+  of the 81.7ms a frame takes to draw, all of it untinted.
+
+  The cache is also less obvious than it looks. A `C` command *interpolates*, so
+  a cache keyed by picture and colour misses on nearly every frame of a sprite
+  that is actively changing colour; it pays where a tint is set and then held,
+  or where many sprites share one tint at one moment. Worth writing when a
+  storyboard that does either turns up, and not before — an optimisation nobody
+  can measure is a guess with a benchmark-shaped hole where its evidence goes.
 
 ~~**Cursor rotation should be a setting.**~~ **done 2026-09-02** —
 `--cursor-rotate on|off` overrules the skin's `CursorRotate` on `video`, `frame`

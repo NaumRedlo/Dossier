@@ -159,8 +159,12 @@ default, like the artwork.
   comes out the same wherever the later copy sets the same properties. Nothing
   in the local library has a trigger in it, so this has unit tests and no
   smoke test against a real file.
-- *`--video` is `video` only.* `frame` would need a seek per picture and
-  `exhibit` a seek per clip; neither is hard and neither is written.
+- ~~*`--video` is `video` only.*~~ **done 2026-09-02.** `frame` fetches the one
+  frame it needs with a seek and a decode and hands it to the same backdrop the
+  artwork uses, taking the artwork's place rather than sitting under it.
+  `exhibit` needed nothing but the flag: `encode` already works its seek out
+  from the span it is given, and `reel` gives it one span per clip, so the same
+  backdrop serves them all.
 - *A tinted sprite allocates.* tiny-skia carries an opacity through a blit but
   not a colour, so a sprite under a `C` command is multiplied into a scratch
   copy first. White sprites — nearly all of them — cost nothing. A storyboard

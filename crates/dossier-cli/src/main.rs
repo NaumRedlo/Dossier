@@ -493,7 +493,7 @@ impl Command {
             Self::Exhibit => &[
                 MAP,
                 LOOK,
-                &["--background", "--storyboard"],
+                &["--background", "--storyboard", "--video"],
                 // `exhibit` encodes like `video` but chooses its own spans, so
                 // it takes the encode options save the two that name a span.
                 &[
@@ -3053,10 +3053,11 @@ fn exhibit_command(options: Options) -> ExitCode {
         threads: options.threads,
         encoder_threads: options.encoder_threads,
         audio,
-        // exhibit does not take --video: a reel is cuts out of the middle of a
-        // map, and each one would need its own seek into the film. The flag is
-        // not offered for it, so this is never anything else.
-        video: None,
+        // Each clip is cut out of the middle of a map and needs its own seek
+        // into the film — which `encode` already works out, from the span it is
+        // given, and `reel` gives it one span per clip. So the same backdrop
+        // serves them all.
+        video: film(&options, &map_text, &origin, scene.skin(), scratch.as_ref()),
         hitsounds: None,
         events: events::Events::wanted(options.events),
         // exhibit chooses its own moments to slow into; the per-clip render is

@@ -5147,6 +5147,11 @@ fn write_half_cursor(dir: &std::path::Path) {
 
 /// How much ink sits a little to the left of where the cursor is.
 fn ink_left_of_the_cursor(dir: &std::path::Path, at_ms: f64) -> u32 {
+    ink_left_of_the_cursor_with(dir, at_ms, None)
+}
+
+/// The same, with the render's own answer to whether the cursor turns.
+fn ink_left_of_the_cursor_with(dir: &std::path::Path, at_ms: f64, rotate: Option<bool>) -> u32 {
     use dossier_render::elements::Element;
     use dossier_render::imported::Sprites;
 
@@ -5172,6 +5177,7 @@ fn ink_left_of_the_cursor(dir: &std::path::Path, at_ms: f64) -> u32 {
     let layout = Layout::new(640, 480);
 
     let mut skin = Skin::with_combo_colours(map.combo_colours());
+    skin.cursor_rotate = rotate;
     // `tint_for` as well as `read`: the coloured copy is what the renderer
     // asks for, and a skin read without it hands back nothing at all.
     let sprites = Sprites::read(dir, &[Element::Cursor]).tint_for(&skin.combo_colours);
@@ -5232,6 +5238,39 @@ fn a_skin_that_says_not_to_turn_the_cursor_is_obeyed() {
         at_rest, later,
         "it turned a cursor that asked to stay still"
     );
+}
+
+/// The skin decides, until the render is asked to decide instead. A viewer
+/// watching someone else's replay did not choose the skin it is drawn in, and a
+/// shaped cursor spinning through a whole video is worth a switch.
+#[test]
+fn the_render_can_turn_a_cursor_the_skin_holds_still() {
+    let dir = skin_folder("cursor-forced-on");
+    write_half_cursor(&dir);
+    std::fs::write(dir.join("skin.ini"), "[General]\nCursorRotate: 0\n").expect("written");
+
+    let at_rest = ink_left_of_the_cursor_with(&dir, 10_000.0, Some(true));
+    let half_a_turn = ink_left_of_the_cursor_with(&dir, 15_000.0, Some(true));
+
+    assert!(at_rest > 0, "the cursor was not drawn at all");
+    assert!(
+        half_a_turn * 4 < at_rest,
+        "the override did not turn a cursor the skin holds still: {at_rest} against {half_a_turn}"
+    );
+}
+
+/// And the other way: a skin that says nothing gets stable's default, which is
+/// on, and the render can still hold it still.
+#[test]
+fn the_render_can_hold_still_a_cursor_the_skin_turns() {
+    let dir = skin_folder("cursor-forced-off");
+    write_half_cursor(&dir);
+
+    let at_rest = ink_left_of_the_cursor_with(&dir, 10_000.0, Some(false));
+    let later = ink_left_of_the_cursor_with(&dir, 15_000.0, Some(false));
+
+    assert!(at_rest > 0, "the cursor was not drawn at all");
+    assert_eq!(at_rest, later, "the override did not hold the cursor still");
 }
 
 /// A `spinner-rpm` plate of the size the default skin ships, in a colour

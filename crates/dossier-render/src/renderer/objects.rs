@@ -2132,11 +2132,13 @@ impl Scene<'_> {
     /// stable's default, which is on. A round cursor hides this; a shaped one
     /// does not, and the cursor is on screen for every frame of the video.
     fn cursor_turn(&self, time_ms: f64) -> f32 {
-        let allowed = self
-            .skin
-            .sprites
-            .as_ref()
-            .is_none_or(|sprites| sprites.ini().cursor_rotate);
+        // The skin decides, unless the render was told otherwise.
+        let allowed = self.skin.cursor_rotate.unwrap_or_else(|| {
+            self.skin
+                .sprites
+                .as_ref()
+                .is_none_or(|sprites| sprites.ini().cursor_rotate)
+        });
         if !allowed {
             return 0.0;
         }

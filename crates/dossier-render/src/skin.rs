@@ -160,6 +160,14 @@ pub struct Skin {
     /// Whether to date an imported skin the way osu! does, rather than drawing
     /// it by the newest rules — see [`effective_version`](crate::imported::effective_version).
     pub skin_version_as_written: bool,
+    /// Whether the cursor turns, overruling the skin's own `CursorRotate`.
+    ///
+    /// `None` leaves the decision where it belongs — with the skin, which is
+    /// what osu! does. The override exists because the skin is not always the
+    /// viewer's: a replay rendered for someone else is drawn with whatever skin
+    /// the render was asked for, and a turning cursor over a still one is the
+    /// difference between reading a shaped cursor and watching it spin.
+    pub cursor_rotate: Option<bool>,
     /// Whether the slider ball wears the combo's colour, overruling the skin —
     /// see [`Effects`].
     pub slider_ball_tint: bool,
@@ -239,6 +247,7 @@ impl Default for Skin {
             cursor_scale: 1.0,
             meter_scale: 1.0,
             skin_version_as_written: false,
+            cursor_rotate: None,
             slider_ball_tint: false,
             show_300: true,
         }

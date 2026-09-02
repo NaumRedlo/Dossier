@@ -402,6 +402,7 @@ impl Command {
             "--blur",
             "--meter-scale",
             "--cursor-scale",
+            "--cursor-rotate",
             "--skin-as-written",
             "--trace-hitsounds",
             "--effects",
@@ -678,6 +679,11 @@ const OPTIONS_TABLE: &[(&str, &str, &str)] = &[
         "how big the cursor and its trail are drawn",
     ),
     (
+        "--cursor-rotate",
+        "<on|off>",
+        "turn the cursor, or hold it still, whatever the skin says",
+    ),
+    (
         "--skin-as-written",
         "",
         "date a skin the way osu! does, rocking arrows and all",
@@ -865,6 +871,7 @@ struct Options {
     /// osu! calls this `Cursor size`, and like it this is the viewer's rather
     /// than the play's.
     cursor_scale: Option<f32>,
+    cursor_rotate: Option<bool>,
     /// How hard the map's artwork is blurred, 0 to 100, where 100 is what a
     /// render has always done. osu! blurs its background too and lets a player
     /// turn it off; somebody rendering to show a map's art wants the same.
@@ -1004,6 +1011,7 @@ impl Options {
         if let Some(at) = self.cursor_scale {
             skin.cursor_scale = at;
         }
+        skin.cursor_rotate = self.cursor_rotate;
         skin.skin_version_as_written = self.skin_as_written;
         skin
     }
@@ -1304,6 +1312,7 @@ impl Options {
             dim: None,
             meter_scale: None,
             cursor_scale: None,
+            cursor_rotate: None,
             blur: None,
             skin_as_written: false,
             trace_hitsounds: false,
@@ -1420,6 +1429,17 @@ impl Options {
                         return Err(format!("--dim is a percentage — {level} is past 100"));
                     }
                     options.dim = Some(level);
+                }
+                "--cursor-rotate" => {
+                    let word = rest.next();
+                    options.cursor_rotate = Some(match word.as_deref().map(|s| s.trim()) {
+                        Some("on" | "1" | "yes") => true,
+                        Some("off" | "0" | "no") => false,
+                        Some(other) => {
+                            return Err(format!("--cursor-rotate is on or off — not {other}"));
+                        }
+                        None => return Err("--cursor-rotate needs on or off".into()),
+                    });
                 }
                 "--cursor-scale" => {
                     let at: f32 = rest

@@ -2625,27 +2625,19 @@ fn load_found(replay_path: &Path, options: &Options) -> Result<(Beatmap, Replay,
     Ok((beatmap, replay, found.source))
 }
 
+/// The map a replay was played on, and the replay, loaded together.
+///
+/// A thin wrapper over [`locate::load`]: the command line has two ways of
+/// naming a map and this turns them into the one the pipeline takes.
 fn load_with_origin(
     replay_path: &Path,
     options: &Options,
 ) -> Result<(Beatmap, Replay, locate::Origin, String), String> {
-    let bytes = std::fs::read(replay_path).map_err(|e| format!("{e}"))?;
-    let replay = Replay::parse(&bytes).map_err(|e| format!("{e}"))?;
-    let found = match &options.map {
-        Some(path) => locate::load_map(path, &replay.beatmap_hash)?,
-        None => {
-            let songs = options
-                .songs
-                .as_ref()
-                .ok_or("no --map and no --songs to search")?;
-            locate::search_dir(songs, &replay.beatmap_hash)?
-                .ok_or_else(|| format!("map {} not found", replay.beatmap_hash))?
-        }
-    };
-    let beatmap = Beatmap::parse(&found.text).map_err(|e| format!("{e}"))?;
-    // The text as well as the map: a storyboard lives in `[Events]`, which
-    // `Beatmap` reads for the background and the breaks and then forgets.
-    Ok((beatmap, replay, found.origin, found.text))
+    locate::load(
+        replay_path,
+        options.map.as_deref(),
+        options.songs.as_deref(),
+    )
 }
 
 /// Which client wrote a replay, for the report headers.

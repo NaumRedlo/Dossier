@@ -4,6 +4,8 @@
 //! be found by hashing candidates until one matches. `.osz` archives are opened
 //! and searched too, since that's how maps arrive from the website.
 
+use dossier_beatmap::Beatmap;
+use dossier_replay::Replay;
 use std::fs;
 use std::io::{Cursor, Read};
 use std::path::{Path, PathBuf};
@@ -513,4 +515,31 @@ fn walk(
             );
         }
     }
+}
+
+/// The map a replay was played on, and the replay itself.
+///
+/// Either the map is named outright or a folder of them is searched by the
+/// hash the replay carries. The map's *text* comes back as well as the parsed
+/// map: a storyboard lives in `[Events]`, which `Beatmap` reads for the
+/// background and the breaks and then forgets.
+pub fn load(
+    replay_path: &Path,
+    map: Option<&Path>,
+    songs: Option<&Path>,
+) -> Result<(Beatmap, Replay, Origin, String), String> {
+    let bytes = std::fs::read(replay_path).map_err(|e| format!("{e}"))?;
+    let replay = Replay::parse(&bytes).map_err(|e| format!("{e}"))?;
+    let found = match map {
+        Some(path) => load_map(path, &replay.beatmap_hash)?,
+        None => {
+            let songs = songs.ok_or("no map given and nowhere to search for one")?;
+            search_dir(songs, &replay.beatmap_hash)?
+                .ok_or_else(|| format!("map {} not found", replay.beatmap_hash))?
+        }
+    };
+    let beatmap = Beatmap::parse(&found.text).map_err(|e| format!("{e}"))?;
+    // The text as well as the map: a storyboard lives in `[Events]`, which
+    // `Beatmap` reads for the background and the breaks and then forgets.
+    Ok((beatmap, replay, found.origin, found.text))
 }

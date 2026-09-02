@@ -1,4 +1,7 @@
+# Every build directory, not only the workspace's own: the application in
+# `app/` opens a workspace of its own and its `target` is a gigabyte.
 /target
+target/
 
 # Python
 __pycache__/
@@ -8,3 +11,6 @@ __pycache__/
 /client/dist/
 .venv/
 venv/
+
+# macOS leaves one of these in every folder it has ever displayed.
+.DS_Store

@@ -1,0 +1,23 @@
+# Its own workspace, on purpose.
+#
+# Tauri brings several hundred crates with it. Inside the engine's workspace
+# every `cargo test` would have to look at all of them, and the engine's tests
+# are run dozens of times a day — see `docs/roadmap.md`. A path dependency
+# reaches the engine from here without the traffic going the other way.
+[workspace]
+
+[package]
+name = "dossier-app"
+version = "0.11.0"
+edition = "2021"
+license = "AGPL-3.0-only"
+description = "The Dossier render client, with a face"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"

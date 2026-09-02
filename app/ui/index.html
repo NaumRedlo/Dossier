@@ -3,150 +3,36 @@
 <head>
 <meta charset="utf-8">
 <title>Dossier</title>
-<style>
-  /* The mini-app's shape — grouped cards of rows — with a native palette in
-     place of Telegram's theme variables. Light and dark both, from the system,
-     because a window is looked at for an evening and a browser tab is not. */
-  :root {
-    color-scheme: light dark;
-    --bg: #efeff4;
-    --card: #ffffff;
-    --ink: #12131a;
-    --hint: #7d8090;
-    --line: #dcdde4;
-    --good: #2f9e44;
-    --bad: #d1453b;
-    --wait: #b08800;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --bg: #16171c;
-      --card: #1f2129;
-      --ink: #eceef4;
-      --hint: #8b8fa3;
-      --line: #2d3039;
-      --good: #51cf66;
-      --bad: #ff6b6b;
-      --wait: #ffd43b;
-    }
-  }
-  * { box-sizing: border-box; }
-  body {
-    margin: 0;
-    padding: 1.5rem 1.25rem 3rem;
-    background: var(--bg);
-    color: var(--ink);
-    font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
-  }
-  h1 { margin: 0 0 0.25rem; font-size: 1.4rem; }
-  .sub { margin: 0 0 1.5rem; color: var(--hint); }
-  .card {
-    background: var(--card);
-    border: 1px solid var(--line);
-    border-radius: 12px;
-    overflow: hidden;
-  }
-  .row {
-    display: grid;
-    grid-template-columns: 1.6rem 9rem 1fr;
-    gap: 0.75rem;
-    align-items: baseline;
-    padding: 0.7rem 1rem;
-    border-top: 1px solid var(--line);
-  }
-  .row:first-child { border-top: 0; }
-  .mark { font-weight: 700; text-align: center; }
-  .ok   { color: var(--good); }
-  .no   { color: var(--bad); }
-  .huh  { color: var(--wait); }
-  .name { color: var(--hint); }
-  .said { word-break: break-word; }
-  .fix {
-    grid-column: 3;
-    margin-top: 0.3rem;
-    color: var(--hint);
-    font-size: 0.9em;
-  }
-  .verdict { margin: 1.25rem 0 0; font-weight: 600; }
-  button {
-    margin-top: 1.25rem;
-    padding: 0.5rem 1rem;
-    border: 1px solid var(--line);
-    border-radius: 8px;
-    background: var(--card);
-    color: var(--ink);
-    font: inherit;
-    cursor: pointer;
-  }
-</style>
+<link rel="stylesheet" href="app.css">
 </head>
 <body>
-  <h1>Готовность</h1>
-  <p class="sub">Что эта машина может делать прямо сейчас и что ей мешает.</p>
-  <div class="card" id="rows"></div>
-  <p class="verdict" id="verdict"></p>
-  <button id="again">Спросить заново</button>
+  <header>
+    <div class="mark">D</div>
+    <div>
+      <h1>Dossier</h1>
+      <p>Рисует чужие реплеи, пока эта машина свободна.</p>
+    </div>
+  </header>
 
-<script>
-  // Looked up when it is used, not when the file is parsed. A top-level
-  // `const` off `window.__TAURI__` throws before anything else is defined if
-  // the bridge is not there, and a window that shows nothing and says nothing
-  // is the worst way to fail.
-  function invoke(name, args) {
-    const bridge = window.__TAURI__;
-    if (!bridge) {
-      return Promise.reject(new Error('нет моста к приложению'));
-    }
-    return bridge.core.invoke(name, args);
-  }
+  <nav>
+    <button id="tab-ready" role="tab" aria-selected="true">Готовность</button>
+    <button id="tab-machine" role="tab" aria-selected="false">Машина</button>
+  </nav>
 
-  function mark(ok) {
-    if (ok === null || ok === undefined) return ['huh', '?'];
-    return ok ? ['ok', '+'] : ['no', '!'];
-  }
+  <main>
+    <section id="view-ready">
+      <div class="card" id="ready-rows"></div>
+      <p class="verdict" id="ready-verdict"></p>
+      <button class="act" id="again">Спросить заново</button>
+    </section>
 
-  function line(row) {
-    const [cls, sign] = mark(row.ok);
-    const el = document.createElement('div');
-    el.className = 'row';
-    el.innerHTML =
-      `<span class="mark ${cls}">${sign}</span>` +
-      `<span class="name"></span><span class="said"></span>`;
-    el.children[1].textContent = row.name;
-    el.children[2].textContent = row.said;
-    if (row.fix && row.ok === false) {
-      const fix = document.createElement('span');
-      fix.className = 'fix';
-      fix.textContent = row.fix;
-      el.append(fix);
-    }
-    return el;
-  }
+    <section id="view-machine" hidden>
+      <div class="headline" id="machine-headline"></div>
+      <div class="card" id="machine-rows"></div>
+      <button class="act" id="measure">Измерить заново</button>
+    </section>
+  </main>
 
-  async function ask() {
-    let rows;
-    try {
-      rows = await invoke('ready');
-    } catch (why) {
-      document.getElementById('verdict').textContent = `не удалось спросить: ${why.message}`;
-      return;
-    }
-    const box = document.getElementById('rows');
-    box.replaceChildren(...rows.map(line));
-    const stopped = rows.filter(r => r.ok === false).length;
-    document.getElementById('verdict').textContent = stopped
-      ? `${stopped} ${plural(stopped, 'пункт', 'пункта', 'пунктов')} надо поправить`
-      : 'готово';
-  }
-
-  function plural(n, one, few, many) {
-    if (n % 10 === 1 && n % 100 !== 11) return one;
-    if (n % 10 >= 2 && n % 10 <= 4 && !(n % 100 >= 12 && n % 100 <= 14)) return few;
-    return many;
-  }
-
-  document.getElementById('again').addEventListener('click', ask);
-  ask();
-</script>
+  <script src="app.js"></script>
 </body>
 </html>

@@ -1,0 +1,168 @@
+/* The bot's own palette, taken from `services/image/colors.py` in the 1984
+   repository and its guide's light-theme companion. The same red twice: the
+   application and the cards it renders should look like one thing. */
+:root {
+  color-scheme: light dark;
+  --ground: #f7f4f5;
+  --surface: #ffffff;
+  --sunk: #f0ecee;
+  --ink: #171315;
+  --muted: #6e6266;
+  --accent: #c9342f;
+  --accent-soft: #fbeeec;
+  --line: #e6dfe1;
+  --good: #2f7d43;
+  --warn: #9a6a00;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ground: #0e0c10;
+    --surface: #171318;
+    --sunk: #1e181e;
+    --ink: #eceaee;
+    --muted: #9c9096;
+    --accent: #e24848;
+    --accent-soft: #1f1214;
+    --line: #443236;
+    --good: #7ade8e;
+    --warn: #f0c060;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--ground);
+  color: var(--ink);
+  font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── the head ─────────────────────────────────────────────────────────── */
+
+header {
+  display: flex;
+  gap: 0.85rem;
+  align-items: center;
+  padding: 1.5rem 1.5rem 1rem;
+}
+
+.mark {
+  display: grid;
+  place-items: center;
+  width: 2.4rem;
+  height: 2.4rem;
+  border-radius: 0.62rem;
+  background: linear-gradient(180deg, #e24848, #c9342f);
+  color: var(--ground);
+  font-size: 1.5rem;
+  font-weight: 800;
+  line-height: 1;
+  /* The letter sits high in its own box; nudge it back to the middle. */
+  padding-bottom: 0.1rem;
+}
+
+h1 { margin: 0; font-size: 1.05rem; font-weight: 650; letter-spacing: 0.01em; }
+header p { margin: 0.1rem 0 0; color: var(--muted); font-size: 0.85rem; }
+
+/* ── the tabs ─────────────────────────────────────────────────────────── */
+
+nav {
+  display: flex;
+  gap: 1.25rem;
+  padding: 0 1.5rem;
+  border-bottom: 1px solid var(--line);
+}
+
+nav button {
+  position: relative;
+  padding: 0.55rem 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-weight: 550;
+  cursor: pointer;
+}
+nav button[aria-selected="true"] { color: var(--ink); }
+nav button[aria-selected="true"]::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 -1px;
+  height: 2px;
+  border-radius: 2px 2px 0 0;
+  background: var(--accent);
+}
+
+main { padding: 1.25rem 1.5rem 2.5rem; }
+section[hidden] { display: none; }
+
+/* ── cards of rows ────────────────────────────────────────────────────── */
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 0.75rem;
+  overflow: hidden;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 1.2rem 8.5rem 1fr;
+  gap: 0.85rem;
+  align-items: baseline;
+  padding: 0.6rem 0.95rem;
+  border-top: 1px solid var(--line);
+}
+.row:first-child { border-top: 0; }
+.row .mark-sign { font-weight: 700; text-align: center; line-height: 1.4; }
+.ok { color: var(--good); }
+.no { color: var(--accent); }
+.huh { color: var(--warn); }
+.name { color: var(--muted); }
+.said { word-break: break-word; }
+.fix {
+  grid-column: 3;
+  margin-top: 0.25rem;
+  color: var(--muted);
+  font-size: 0.86em;
+}
+
+/* ── the headline number ──────────────────────────────────────────────── */
+
+.headline {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  margin: 0 0 1rem;
+  padding: 1rem 1.1rem;
+  background: var(--accent-soft);
+  border: 1px solid var(--line);
+  border-radius: 0.75rem;
+}
+.headline b {
+  color: var(--accent);
+  font-size: 1.9rem;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.headline span { color: var(--muted); }
+
+.verdict { margin: 1rem 0 0; font-weight: 600; }
+.verdict.bad { color: var(--accent); }
+
+button.act {
+  margin-top: 1rem;
+  padding: 0.45rem 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+}
+button.act:hover { background: var(--sunk); }
+button.act:disabled { color: var(--muted); cursor: default; }

@@ -49,19 +49,13 @@ header {
   padding: 1.5rem 1.5rem 1rem;
 }
 
+/* The application's own icon, not a letter set in a box: `app/icons/make.py`
+   draws both from one description, so the corner of the window and the dock
+   cannot drift apart. */
 .mark {
-  display: grid;
-  place-items: center;
-  width: 2.4rem;
-  height: 2.4rem;
-  border-radius: 0.62rem;
-  background: linear-gradient(180deg, #e24848, #c9342f);
-  color: var(--ground);
-  font-size: 1.5rem;
-  font-weight: 800;
-  line-height: 1;
-  /* The letter sits high in its own box; nudge it back to the middle. */
-  padding-bottom: 0.1rem;
+  width: 2.375rem;
+  height: 2.375rem;
+  border-radius: 0.53rem;
 }
 
 h1 { margin: 0; font-size: 1.05rem; font-weight: 650; letter-spacing: 0.01em; }

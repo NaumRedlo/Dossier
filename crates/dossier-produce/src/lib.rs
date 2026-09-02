@@ -15,6 +15,7 @@ pub mod events;
 pub mod hitsounds;
 pub mod json;
 pub mod locate;
+pub mod notes;
 pub mod reel;
 pub mod scenery;
 pub mod video;

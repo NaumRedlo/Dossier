@@ -69,7 +69,7 @@ pub fn backdrop(
         skin.background,
     );
     if prepared.is_none() {
-        eprintln!("dossier: could not read the background `{filename}` — rendering without it");
+        crate::note!("could not read the background `{filename}` — rendering without it");
     }
     prepared
 }
@@ -95,8 +95,8 @@ pub fn still(
     }
     let named = dossier_beatmap::storyboard::parse(map_text).video?;
     let Some(path) = scratch.and_then(|dir| locate::extract_video(origin, &named.path, dir)) else {
-        eprintln!(
-            "dossier: the map names a video `{}` that did not come with it — drawing without it",
+        crate::note!(
+            "the map names a video `{}` that did not come with it — drawing without it",
             named.path
         );
         return None;
@@ -114,8 +114,8 @@ pub fn still(
     let bytes = match shot {
         Ok(done) if done.status.success() && !done.stdout.is_empty() => done.stdout,
         Ok(done) => {
-            eprintln!(
-                "dossier: could not take a frame of `{}` at {seconds:.3}s — drawing without it{}",
+            crate::note!(
+                "could not take a frame of `{}` at {seconds:.3}s — drawing without it{}",
                 named.path,
                 match String::from_utf8_lossy(&done.stderr).trim() {
                     "" => String::new(),
@@ -125,7 +125,7 @@ pub fn still(
             return None;
         }
         Err(error) => {
-            eprintln!("dossier: could not run `{}`: {error}", behind.ffmpeg);
+            crate::note!("could not run `{}`: {error}", behind.ffmpeg);
             return None;
         }
     };
@@ -160,8 +160,8 @@ pub fn film(
     }
     let named = dossier_beatmap::storyboard::parse(map_text).video?;
     let Some(path) = scratch.and_then(|dir| locate::extract_video(origin, &named.path, dir)) else {
-        eprintln!(
-            "dossier: the map names a video `{}` that did not come with it — rendering without it",
+        crate::note!(
+            "the map names a video `{}` that did not come with it — rendering without it",
             named.path
         );
         return None;
@@ -213,8 +213,8 @@ pub fn show(
     let sprites = board.sprites.len();
     let show = dossier_render::storyboard::Show::load(board, |path| assets.read(path));
     if show.is_empty() {
-        eprintln!(
-            "dossier: the storyboard names {sprites} sprite(s) and none of their \
+        crate::note!(
+            "the storyboard names {sprites} sprite(s) and none of their \
              pictures came with the map — rendering without it"
         );
         return None;

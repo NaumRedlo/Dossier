@@ -733,7 +733,7 @@ pub fn encode(
     }
     if !said.is_empty() {
         close_progress();
-        eprintln!("dossier: ffmpeg warned: {said}");
+        crate::note!("ffmpeg warned: {said}");
     }
 
     let elapsed = started.elapsed().as_secs_f64();
@@ -748,7 +748,7 @@ pub fn encode(
     // the stream, so a video sent without them comes out square on a phone and
     // only corrects itself once playback starts. This is the process that made
     // the file and knows exactly what is in it.
-    eprintln!("dossier: video {width}x{height} {:.3}s", plan.video_seconds);
+    crate::note!("video {width}x{height} {:.3}s", plan.video_seconds);
     settings.events.video(width, height, plan.video_seconds);
     let drawing_ms = drawing.load(std::sync::atomic::Ordering::Relaxed) as f64 / 1000.0;
     eprintln!(

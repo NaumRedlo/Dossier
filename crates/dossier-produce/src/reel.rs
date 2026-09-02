@@ -197,7 +197,7 @@ fn stitch(parts: &[Part], settings: &video::Settings) -> Result<(), String> {
         // engine's report would otherwise find five clips each announcing six
         // seconds, and send a thirty-second video labelled as six.
         let (width, height) = settings.size;
-        eprintln!("dossier: video {width}x{height} {total:.3}s");
+        crate::note!("video {width}x{height} {total:.3}s");
         settings.events.video(width, height, total);
         return Ok(());
     }

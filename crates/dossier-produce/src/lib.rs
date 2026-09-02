@@ -20,4 +20,5 @@ pub mod notes;
 pub mod reel;
 pub mod render;
 pub mod scenery;
+pub mod skin;
 pub mod video;

@@ -22,6 +22,16 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
 
+# Blocking, because a Tauri command already runs off the main thread and a
+# render is the one thing this does — there is nothing else for that thread to
+# be doing meanwhile, and an async runtime to express that would be machinery
+# for its own sake.
+#
+# `rustls` rather than the system's TLS: it is the difference between an
+# installer that works and one that wants OpenSSL present, which on Windows it
+# is not and on Linux is whichever version the distribution felt like.
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls", "stream"] }
+
 # The engine, as a library. This is the whole reason the client was rewritten:
 # the terminal one shells out to a copy of `dossier` and then has to ask
 # whether the two agree about their own version.

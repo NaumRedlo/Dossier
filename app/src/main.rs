@@ -10,6 +10,7 @@
 //! the thing it exists to get away from.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod bot;
 mod check;
 mod draw;
 

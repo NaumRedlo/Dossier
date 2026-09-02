@@ -39,8 +39,17 @@ impl Events {
     /// One object, one line, flushed. A watcher reads these while the render
     /// is still running, so a line held in a buffer is a line that arrives too
     /// late to be worth anything.
+    ///
+    /// Unless somebody is [`listen`]ing, in which case it goes to them and
+    /// nothing is written: an application watching its own render is not going
+    /// to read its own stdout, and the bot wants these while the frames are
+    /// still being drawn.
     fn say(self, line: &str) {
         if !self.0 {
+            return;
+        }
+        if let Some(to) = sink().lock().expect("the event sink was poisoned").as_ref() {
+            to(line);
             return;
         }
         let mut out = std::io::stdout().lock();
@@ -109,5 +118,49 @@ mod tests {
         let line = format!("{{\"reason\":{}}}", quote(reason));
         assert_eq!(line, r#"{"reason":"a \"1425x\" run\nbreaks"}"#);
         assert_eq!(line.lines().count(), 1);
+    }
+}
+
+type Sink = Box<dyn Fn(&str) + Send + Sync>;
+
+fn sink() -> &'static std::sync::Mutex<Option<Sink>> {
+    static SINK: std::sync::OnceLock<std::sync::Mutex<Option<Sink>>> = std::sync::OnceLock::new();
+    SINK.get_or_init(|| std::sync::Mutex::new(None))
+}
+
+/// Read the render's events in this process instead of off a pipe.
+///
+/// The bot's worker used to run the engine as a program and parse its stdout.
+/// An application that *is* the engine has no pipe to read, and the same lines
+/// are what it wants to put in front of somebody: how far along, how fast, how
+/// long is left.
+pub fn listen(to: impl Fn(&str) + Send + Sync + 'static) {
+    *sink().lock().expect("the event sink was poisoned") = Some(Box::new(to));
+}
+
+/// Stop listening; events go back to stdout.
+pub fn unlisten() {
+    *sink().lock().expect("the event sink was poisoned") = None;
+}
+
+#[cfg(test)]
+mod listening {
+    use std::sync::{Arc, Mutex};
+
+    /// The line a watcher would have read off the pipe, delivered instead.
+    #[test]
+    fn a_listener_hears_the_render_happening() {
+        let heard = Arc::new(Mutex::new(Vec::new()));
+        let mine = Arc::clone(&heard);
+        super::listen(move |line| mine.lock().expect("heard").push(line.to_owned()));
+        super::Events::wanted(true).progress(12, 48, 300.0, 0.12);
+        // Off, and it says nothing to anybody — the same silence as before.
+        super::Events::wanted(false).progress(1, 2, 1.0, 1.0);
+        super::unlisten();
+        let said = heard.lock().expect("heard").clone();
+        assert_eq!(said.len(), 1, "{said:?}");
+        assert!(said[0].contains("\"event\":\"progress\""), "{}", said[0]);
+        assert!(said[0].contains("\"frames\":12"), "{}", said[0]);
+        assert!(said[0].contains("\"of\":48"), "{}", said[0]);
     }
 }

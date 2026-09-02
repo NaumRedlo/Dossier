@@ -2,7 +2,8 @@
 //!
 //! [`locate`] finds the map and the pictures and sounds that came with it,
 //! [`hitsounds`] builds the track the play makes, [`video`] drives the encoder
-//! and pumps frames at it, [`reel`] cuts several spans together, and [`events`]
+//! and pumps frames at it, [`reel`] cuts several spans together,
+//! [`scenery`] puts the map's own artwork, storyboard and video behind the play,, and [`events`]
 //! says what is happening in a form a program can read.
 //!
 //! All five lived in the `dossier` binary until 2026-09-02, which meant nothing
@@ -15,4 +16,5 @@ pub mod hitsounds;
 pub mod json;
 pub mod locate;
 pub mod reel;
+pub mod scenery;
 pub mod video;

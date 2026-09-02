@@ -16,7 +16,7 @@ mod skinfile;
 // The pipeline itself lives in `dossier-produce` — see that crate's own note.
 // Named here rather than reached through their full paths so that the several
 // thousand lines below did not have to change when they moved.
-use dossier_produce::{events, hitsounds, locate, reel, video};
+use dossier_produce::{events, hitsounds, locate, reel, scenery, video};
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -1020,6 +1020,22 @@ impl Options {
         skin.cursor_rotate = self.cursor_rotate;
         skin.skin_version_as_written = self.skin_as_written;
         skin
+    }
+
+    /// What to put behind the play, in the shape the pipeline asks for.
+    ///
+    /// One place, for the same reason [`look`](Self::look) is one place: three
+    /// commands draw a frame and they must not be able to disagree about which
+    /// flags the scenery listens to.
+    fn behind(&self) -> scenery::Behind<'_> {
+        scenery::Behind {
+            background: self.background,
+            storyboard: self.storyboard,
+            video: self.video,
+            dim: self.dim,
+            blur: self.blur,
+            ffmpeg: &self.ffmpeg,
+        }
     }
 
     /// The hit-sound kit: the skin's, with any explicit knobs applied on top.
@@ -3029,13 +3045,13 @@ fn exhibit_command(options: Options) -> ExitCode {
                 .with_own_pictures(options.my_avatar.clone(), options.my_cover.clone()),
         );
     let scene = if options.bare { scene.bare() } else { scene };
-    let scene = match backdrop(&options, &beatmap, &origin, scene.skin(), options.size) {
+    let scene = match scenery::backdrop(&options.behind(), &beatmap, &origin, scene.skin(), options.size) {
         Some(art) => scene.with_backdrop(art),
         None => scene,
     };
     // What the play sounded, for the storyboard's triggers to answer to.
     let fired = hitsounds::sounded(&state, &beatmap, layering);
-    let scene = match scenery(&options, &map_text, &origin, &fired) {
+    let scene = match scenery::show(&options.behind(), &map_text, &origin, &fired) {
         Some(show) => scene.with_storyboard(show),
         None => scene,
     };
@@ -3057,7 +3073,7 @@ fn exhibit_command(options: Options) -> ExitCode {
         // into the film — which `encode` already works out, from the span it is
         // given, and `reel` gives it one span per clip. So the same backdrop
         // serves them all.
-        video: film(&options, &map_text, &origin, scene.skin(), scratch.as_ref()),
+        video: scenery::film(&options.behind(), &map_text, &origin, scene.skin(), scratch.as_ref()),
         hitsounds: None,
         events: events::Events::wanted(options.events),
         // exhibit chooses its own moments to slow into; the per-clip render is
@@ -3173,8 +3189,8 @@ fn frame(options: Options) -> ExitCode {
     // A video frame stands in for the artwork when both are asked for: see
     // `still`.
     let scratch = Scratch::new();
-    let behind = still(
-        &options,
+    let behind = scenery::still(
+        &options.behind(),
         &map_text,
         &origin,
         scene.skin(),
@@ -3182,14 +3198,14 @@ fn frame(options: Options) -> ExitCode {
         at_ms,
         scratch.as_ref(),
     )
-    .or_else(|| backdrop(&options, &beatmap, &origin, scene.skin(), options.size));
+    .or_else(|| scenery::backdrop(&options.behind(), &beatmap, &origin, scene.skin(), options.size));
     let scene = match behind {
         Some(art) => scene.with_backdrop(art),
         None => scene,
     };
     // What the play sounded, for the storyboard's triggers to answer to.
     let fired = hitsounds::sounded(&state, &beatmap, layering);
-    let scene = match scenery(&options, &map_text, &origin, &fired) {
+    let scene = match scenery::show(&options.behind(), &map_text, &origin, &fired) {
         Some(show) => scene.with_storyboard(show),
         None => scene,
     };
@@ -3223,201 +3239,16 @@ fn frame(options: Options) -> ExitCode {
     }
 }
 
+
+
+
+
 /// Read the rivals to stand the play against, if any were named.
 ///
 /// A missing or unreadable file is not an error. The scoreboard decorates a
 /// render; refusing to draw four minutes of video because a list of names could
 /// not be opened would be the wrong trade, and its absence from the frame says
 /// so plainly enough.
-/// The map's artwork, prepared for a frame of this size — or nothing, when it
-/// was not asked for, the map names none, or the file will not decode.
-///
-/// Never a hard failure: a background is the one part of a render the play does
-/// not depend on, and a map whose artwork is a format we cannot read is still a
-/// map worth watching.
-fn backdrop(
-    options: &Options,
-    beatmap: &Beatmap,
-    origin: &locate::Origin,
-    skin: &Skin,
-    size: (u32, u32),
-) -> Option<dossier_render::Pixmap> {
-    if !options.background {
-        return None;
-    }
-    let filename = beatmap.background.as_deref()?;
-    let bytes = locate::read_background(origin, filename)?;
-    let prepared = dossier_render::background::prepare(
-        &bytes,
-        size.0,
-        size.1,
-        options
-            .dim
-            .map_or(skin.background_dim, |at| at as f32 / 100.0),
-        // A share of what the skin blurs by, so zero is a sharp picture and a
-        // hundred is what a render has always looked like — rather than a
-        // figure in frame-heights that means nothing to anybody setting it.
-        options.blur.map_or(skin.background_blur, |at| {
-            skin.background_blur * at as f32 / 100.0
-        }),
-        skin.background,
-    );
-    if prepared.is_none() {
-        eprintln!("dossier: could not read the background `{filename}` — rendering without it");
-    }
-    prepared
-}
-
-/// One frame of the map's video, as a backdrop.
-///
-/// `video` hands the file to ffmpeg and lets it composite underneath; a single
-/// picture has no pipeline to hand it to, so the frame is fetched instead —
-/// one seek, one decode, and then it is a background like any other.
-///
-/// It takes the place of the artwork rather than sitting over it: a video is
-/// what the map wanted behind the play at that moment, and drawing the still
-/// picture on top of it would hide the thing that was asked for.
-fn still(
-    options: &Options,
-    map_text: &str,
-    origin: &locate::Origin,
-    skin: &Skin,
-    size: (u32, u32),
-    at_ms: f64,
-    scratch: Option<&Path>,
-) -> Option<dossier_render::Pixmap> {
-    if !options.video {
-        return None;
-    }
-    let named = dossier_beatmap::storyboard::parse(map_text).video?;
-    let Some(path) = scratch.and_then(|dir| locate::extract_video(origin, &named.path, dir)) else {
-        eprintln!(
-            "dossier: the map names a video `{}` that did not come with it — drawing without it",
-            named.path
-        );
-        return None;
-    };
-    // Seek in the video's own time: a map states when the video starts, and it
-    // is routinely negative.
-    let seconds = ((at_ms - named.start_ms) / 1000.0).max(0.0);
-    let shot = std::process::Command::new(&options.ffmpeg)
-        .args(["-nostdin", "-loglevel", "error", "-ss"])
-        .arg(format!("{seconds:.3}"))
-        .arg("-i")
-        .arg(&path)
-        .args(["-frames:v", "1", "-f", "image2pipe", "-vcodec", "png", "-"])
-        .output();
-    let bytes = match shot {
-        Ok(done) if done.status.success() && !done.stdout.is_empty() => done.stdout,
-        Ok(done) => {
-            eprintln!(
-                "dossier: could not take a frame of `{}` at {seconds:.3}s — drawing without it{}",
-                named.path,
-                match String::from_utf8_lossy(&done.stderr).trim() {
-                    "" => String::new(),
-                    said => format!(": {said}"),
-                }
-            );
-            return None;
-        }
-        Err(error) => {
-            eprintln!("dossier: could not run `{}`: {error}", options.ffmpeg);
-            return None;
-        }
-    };
-    // The dim the video gets under `video`, and no blur: ffmpeg does not blur
-    // it there either, so the two commands light the same frame the same way.
-    dossier_render::background::prepare(
-        &bytes,
-        size.0,
-        size.1,
-        options
-            .dim
-            .map_or(skin.background_dim, |at| at as f32 / 100.0),
-        0.0,
-        skin.background,
-    )
-}
-
-/// The map's background video, put where ffmpeg can open it.
-///
-/// The dim is the artwork's, so a render with `--video` and one with
-/// `--background` are lit the same — turning one on should not change how
-/// bright the play looks.
-fn film(
-    options: &Options,
-    map_text: &str,
-    origin: &locate::Origin,
-    skin: &Skin,
-    scratch: Option<&Path>,
-) -> Option<video::Backdrop> {
-    if !options.video {
-        return None;
-    }
-    let named = dossier_beatmap::storyboard::parse(map_text).video?;
-    let Some(path) = scratch.and_then(|dir| locate::extract_video(origin, &named.path, dir)) else {
-        eprintln!(
-            "dossier: the map names a video `{}` that did not come with it — rendering without it",
-            named.path
-        );
-        return None;
-    };
-    Some(video::Backdrop {
-        path,
-        start_ms: named.start_ms,
-        dim: options
-            .dim
-            .map_or(skin.background_dim, |at| at as f32 / 100.0),
-    })
-}
-
-/// The map's own storyboard, with every picture it names.
-///
-/// Never a hard failure, for the same reason as the artwork: a storyboard is
-/// the one part of a render the play does not depend on.
-///
-/// Both files are read. A `.osb` belongs to the whole set and is read first; a
-/// difficulty's own `[Events]` is added over it, which is the order the game
-/// draws them in.
-fn scenery(
-    options: &Options,
-    map_text: &str,
-    origin: &locate::Origin,
-    sounds: &[dossier_beatmap::storyboard::Sounded],
-) -> Option<dossier_render::storyboard::Show> {
-    use dossier_beatmap::storyboard;
-
-    if !options.storyboard {
-        return None;
-    }
-    let mut assets = locate::Assets::open(origin);
-    let mut board = assets
-        .osb()
-        .and_then(|name| assets.read(&name))
-        // Lossily: a stray byte in a comment somewhere should not cost the
-        // whole storyboard, and every line this cares about is ASCII.
-        .map(|bytes| storyboard::parse(&String::from_utf8_lossy(&bytes)))
-        .unwrap_or_default();
-    board.absorb(storyboard::parse(map_text));
-    if board.sprites.is_empty() {
-        return None;
-    }
-    // Triggers wait in the parsed board for somebody to say what happened. This
-    // is that: the sounds the play actually made, laid down as ordinary
-    // commands from the moment each one sounded.
-    let board = board.fired(sounds);
-    let sprites = board.sprites.len();
-    let show = dossier_render::storyboard::Show::load(board, |path| assets.read(path));
-    if show.is_empty() {
-        eprintln!(
-            "dossier: the storyboard names {sprites} sprite(s) and none of their \
-             pictures came with the map — rendering without it"
-        );
-        return None;
-    }
-    Some(show)
-}
-
 fn load_leaderboard(path: Option<&Path>, player: &str) -> dossier_render::Leaderboard {
     let Some(path) = path else {
         return dossier_render::Leaderboard::default();
@@ -3575,19 +3406,19 @@ fn video_command(options: Options) -> ExitCode {
                 .with_own_pictures(options.my_avatar.clone(), options.my_cover.clone()),
         );
     let scene = if options.bare { scene.bare() } else { scene };
-    let scene = match backdrop(&options, &beatmap, &origin, scene.skin(), options.size) {
+    let scene = match scenery::backdrop(&options.behind(), &beatmap, &origin, scene.skin(), options.size) {
         Some(art) => scene.with_backdrop(art),
         None => scene,
     };
     // What the play sounded, for the storyboard's triggers to answer to.
     let fired = hitsounds::sounded(&state, &beatmap, layering);
-    let scene = match scenery(&options, &map_text, &origin, &fired) {
+    let scene = match scenery::show(&options.behind(), &map_text, &origin, &fired) {
         Some(show) => scene.with_storyboard(show),
         None => scene,
     };
     // Settled before the scene is finished with, because it decides what the
     // scene stands on: over a video the play is drawn on nothing.
-    let film = film(&options, &map_text, &origin, scene.skin(), scratch.as_ref());
+    let film = scenery::film(&options.behind(), &map_text, &origin, scene.skin(), scratch.as_ref());
     let scene = if film.is_some() {
         scene.over_video()
     } else {

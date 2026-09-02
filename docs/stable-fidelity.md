@@ -4967,3 +4967,37 @@ So the two circles stay wrong, and knowingly. What would settle it is not a
 different constant but the thing the constant stands in for: stable sweeps its
 unjudged objects on its own clock, not on the replay's, and one millisecond is
 the best single number for a clock we cannot see.
+
+### Four tails, four pixels
+
+The four sliders `avesemki` disagrees on are the same object four times over.
+Each has exactly one piece, its tail, and danser drops all four:
+
+```
+OBJ 892 227082 64    the head
+OBJ 892 227152 2     the tail, missed on frame 227152
+OBJ 892 227174 16    one of two pieces → Ok
+```
+
+Traced on our side, #892's tail falls at 227138.7 — `end - 36` — and at that
+instant the cursor is 83.7 pixels from the ball against a follow circle of 87.6.
+Inside by four pixels. Three milliseconds later it is outside and the slide
+breaks; the next recorded frame, where danser asks, is at 227152, by which time
+the cursor is fifty pixels gone.
+
+Frames here are seventeen milliseconds apart and the player is mid-flick. Our
+straight line between two recorded positions keeps the cursor near the ball
+longer than it can have been. That is the whole of the disagreement, and it is
+the sampling question again, now measured four ways:
+
+| | exact | error |
+|---|---|---|
+| the piece at its own instant | **107 / 176** | **184** |
+| every piece on the next frame | 42 / 176 | 1948 |
+| only the tail on the next frame | 42 / 176 | 1914 |
+| the held cursor instead of an interpolated one | 74 / 176 | 432 |
+
+Moving the tail from `end - 36` to something later would fix these four by
+splitting the difference with the average gap to a frame. That is a fitted
+constant wearing a rule's clothes, and the corpus is exactly the instrument that
+would fail to catch it. It stays where danser and lazer both write it.

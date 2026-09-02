@@ -4882,3 +4882,47 @@ an engine that has moved this far, which was the reason to try again:
 Not close, and no narrower form of it helps. Our finer step is not an
 approximation of stable's frame — it beats it by an order of magnitude on real
 replays, and the three sliders it costs here are the price.
+
+## The spinner is scored in whole turns, and ours is not the same quantity
+
+`avesemki` on `Grievous Lady` has thirteen objects that differ from danser, and
+two of them are spinners where we give a three hundred and it gives a hundred.
+That is the most self-contained thing left in the corpus, so it went first.
+
+stable does not score a spinner as a fraction of anything:
+
+```go
+if state.scoringRotationCount >= spinner.getRequirementGreat(player) { hit = Hit300 }
+else if state.scoringRotationCount >= spinner.getRequirementOk(player) { hit = Hit100 }
+else if state.scoringRotationCount >= spinner.getRequirementMeh(player) { hit = Hit50 }
+// great = requirement + 1, ok = requirement - 1, meh = requirement / 4
+```
+
+Whole turns against three integer thresholds. A three hundred wants one turn
+*more* than the object asks for; a fifty is given for a quarter of it. Ours has
+been lazer's rule for both clients — a ratio at 100%, 90% and 75%.
+
+Implemented as written it is worse, not better:
+
+| | exact | error |
+|---|---|---|
+| the ratio, as we had it | **107 / 176** | **184** |
+| stable's whole-turn thresholds | 105 / 176 | 192 |
+| ...and rotations counted only while held | 105 / 176 | 188 |
+| only counted while held | 107 / 176 | 184 |
+
+And the two spinners that started this did not move at all. So the thresholds
+are not the whole story: `scoringRotationCount` is not the number our sweep
+produces. danser accumulates it from an angular *velocity* corrected for frame
+variance and adds `|rotationAddition| / π` per frame — half turns, against a
+requirement in whole ones — where we integrate the geometry of the recorded
+positions directly. Matching the thresholds needs matching the quantity first,
+and that is a piece of work with four counts of upside.
+
+The button gate is worth recording separately. stable pays for nothing spun with
+the hands off — `if !gameDownState && !Relax { angleDiff = 0 }` — and we do not
+model that. The corpus cannot tell: with the gate in place the numbers are
+identical to the digit, because in 176 replays nobody lets go in the middle of a
+spinner. It stays out because `spinners_do_not_need_a_button_held` asserts the
+current behaviour deliberately, and five more tests spin without touching a
+button; rewriting six tests to buy a measured nothing is the wrong trade.

@@ -31,6 +31,22 @@ No Node and no `tauri` CLI: the interface is static files under `ui/`, and
 is only wanted for building installers, which is a later problem than making the
 thing work.
 
+## What is not ported yet, and why it matters
+
+**The machine's own policy.** `client/dossier/machine.py` is five hundred lines
+that decide whether this computer should be rendering at all: the battery, the
+thermal pressure, whether somebody is at the keyboard, the hours its owner
+allowed. Every one of them is there because a laptop that renders flat out on
+battery while its owner is typing is a bad guest. Until it is ported,
+`work::provisional_capacity` says what it knows and nothing it does not — and
+**the loop must not be offered as a button somebody can leave running.**
+`work_once` does one job and stops, which is as far as that should go.
+
+**Fetching a map nobody has.** The bot sends what it found when it drew the
+card, and the terminal client downloads the beatmap when the machine does not
+have it. Here a job whose map is not in the songs folder is handed straight
+back, which is honest and not yet useful.
+
 ## Where it is
 
 The readiness screen, which is `--check` with the two dead questions removed.

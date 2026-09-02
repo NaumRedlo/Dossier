@@ -45,6 +45,14 @@ pub struct Asked<'a> {
     pub to_ms: Option<f64>,
     pub background: bool,
     pub storyboard: bool,
+    /// Draw the play and nothing that talks about it.
+    pub bare: bool,
+    pub mute: bool,
+    /// A skin folder, when one came with the job.
+    pub skin: Option<PathBuf>,
+    /// Say what is happening in a form a program can read — see
+    /// [`dossier_produce::events`].
+    pub events: bool,
 }
 
 /// Draw it, and say what happened on the way.
@@ -54,6 +62,9 @@ pub fn draw(asked: &Asked<'_>, told: &Told) -> Result<PathBuf, String> {
     let state = GameState::new(&beatmap, &replay);
 
     let mut skin = Skin::with_combo_colours(beatmap.combo_colours());
+    if let Some(folder) = &asked.skin {
+        skin = dossier_produce::skin::from_folder(skin, folder, None);
+    }
     match dossier_produce::font::find(None)? {
         Some(font) => skin = skin.with_font(font),
         None => dossier_produce::note!("no font found — drawing without numbers"),
@@ -79,10 +90,14 @@ pub fn draw(asked: &Asked<'_>, told: &Told) -> Result<PathBuf, String> {
         hitsound_level: 1.0,
         threads: None,
         encoder_threads: None,
-        audio: locate::extract_audio(&origin, &beatmap.audio_filename, &scratch),
+        audio: if asked.mute {
+            None
+        } else {
+            locate::extract_audio(&origin, &beatmap.audio_filename, &scratch)
+        },
         video: None,
         hitsounds: None,
-        events: dossier_produce::events::Events::wanted(false),
+        events: dossier_produce::events::Events::wanted(asked.events),
         slow_at_ms: None,
         slow_focus: None,
     };
@@ -94,7 +109,7 @@ pub fn draw(asked: &Asked<'_>, told: &Told) -> Result<PathBuf, String> {
         origin: &origin,
         skin,
         leaderboard: dossier_render::Leaderboard::default(),
-        bare: false,
+        bare: asked.bare,
         layering,
         behind: scenery::Behind {
             background: asked.background,
@@ -152,6 +167,10 @@ mod tests {
             // not whether it can draw a whole play.
             from_ms: Some(30_000.0),
             to_ms: Some(33_000.0),
+            bare: false,
+            mute: true,
+            skin: None,
+            events: false,
             background: false,
             storyboard: false,
         };

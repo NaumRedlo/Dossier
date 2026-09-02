@@ -13,6 +13,7 @@
 mod bot;
 mod check;
 mod draw;
+mod work;
 
 /// Draw a replay. Blocking on purpose — Tauri runs a command off the main
 /// thread, and a render is the one thing this application exists to do, so
@@ -31,6 +32,10 @@ fn draw(replay: String, songs: String, out: String) -> Result<Drawn, String> {
         to_ms: None,
         background: true,
         storyboard: true,
+        bare: false,
+        mute: false,
+        skin: None,
+        events: false,
     };
     draw::draw(&asked, &told).map(|path| Drawn {
         path: path.display().to_string(),
@@ -45,6 +50,29 @@ struct Drawn {
     said: Vec<String>,
 }
 
+/// One turn of the worker's loop: ask for a job, and do it if there is one.
+///
+/// One turn rather than a loop, so that the window decides when to ask again —
+/// and so that nothing runs on somebody's machine that they did not press.
+#[tauri::command]
+fn work_once(server: String, token: String, name: String, songs: String) -> Result<String, String> {
+    let bot = bot::Bot::new(&server, &token, &name).map_err(|e| e.to_string())?;
+    let along = std::sync::Arc::new(std::sync::Mutex::new(work::Along::default()));
+    let engine = format!("dossier {}", env!("CARGO_PKG_VERSION"));
+    match work::once(
+        &bot,
+        &engine,
+        &work::provisional_capacity(),
+        std::path::Path::new(&songs),
+        &along,
+    ) {
+        Ok(work::Did::Nothing) => Ok("нечего делать".to_owned()),
+        Ok(work::Did::Delivered { title }) => Ok(format!("готово: {title}")),
+        Ok(work::Did::GaveBack { why }) => Ok(format!("вернул задачу: {why}")),
+        Err(refused) => Err(refused.to_string()),
+    }
+}
+
 /// The readiness list, for the screen that replaces `--check`.
 #[tauri::command]
 fn ready() -> Vec<check::Row> {
@@ -53,7 +81,7 @@ fn ready() -> Vec<check::Row> {
 
 fn main() {
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![ready, draw])
+        .invoke_handler(tauri::generate_handler![ready, draw, work_once])
         .run(tauri::generate_context!())
         .expect("the window could not be opened");
 }

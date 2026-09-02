@@ -88,7 +88,17 @@
   <button id="again">Спросить заново</button>
 
 <script>
-  const invoke = window.__TAURI__.core.invoke;
+  // Looked up when it is used, not when the file is parsed. A top-level
+  // `const` off `window.__TAURI__` throws before anything else is defined if
+  // the bridge is not there, and a window that shows nothing and says nothing
+  // is the worst way to fail.
+  function invoke(name, args) {
+    const bridge = window.__TAURI__;
+    if (!bridge) {
+      return Promise.reject(new Error('нет моста к приложению'));
+    }
+    return bridge.core.invoke(name, args);
+  }
 
   function mark(ok) {
     if (ok === null || ok === undefined) return ['huh', '?'];
@@ -114,7 +124,13 @@
   }
 
   async function ask() {
-    const rows = await invoke('ready');
+    let rows;
+    try {
+      rows = await invoke('ready');
+    } catch (why) {
+      document.getElementById('verdict').textContent = `не удалось спросить: ${why.message}`;
+      return;
+    }
     const box = document.getElementById('rows');
     box.replaceChildren(...rows.map(line));
     const stopped = rows.filter(r => r.ok === false).length;

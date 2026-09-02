@@ -8,7 +8,7 @@
 use std::path::Path;
 
 use dossier_beatmap::Beatmap;
-use dossier_render::Skin;
+use dossier_render::{Scene, Skin};
 
 use crate::{locate, video};
 
@@ -25,6 +25,14 @@ pub struct Behind<'a> {
     pub blur: Option<u32>,
     /// The encoder to run, for the one frame a still needs out of a video.
     pub ffmpeg: &'a str,
+    /// The frame being drawn, which the artwork is prepared for.
+    pub size: (u32, u32),
+    /// For a still: the moment its video frame is taken from. `None` for a
+    /// render, which hands the whole film to the encoder instead and lets it
+    /// composite in order — see [`film`].
+    pub at_ms: Option<f64>,
+    /// Somewhere to unpack a video to, when there is one.
+    pub scratch: Option<&'a Path>,
 }
 
 /// The map's artwork, prepared for a frame of this size — or nothing, when it
@@ -38,8 +46,8 @@ pub fn backdrop(
     beatmap: &Beatmap,
     origin: &locate::Origin,
     skin: &Skin,
-    size: (u32, u32),
 ) -> Option<dossier_render::Pixmap> {
+    let size = behind.size;
     if !behind.background {
         return None;
     }
@@ -80,10 +88,8 @@ pub fn still(
     map_text: &str,
     origin: &locate::Origin,
     skin: &Skin,
-    size: (u32, u32),
-    at_ms: f64,
-    scratch: Option<&Path>,
 ) -> Option<dossier_render::Pixmap> {
+    let (size, at_ms, scratch) = (behind.size, behind.at_ms?, behind.scratch);
     if !behind.video {
         return None;
     }
@@ -147,8 +153,8 @@ pub fn film(
     map_text: &str,
     origin: &locate::Origin,
     skin: &Skin,
-    scratch: Option<&Path>,
 ) -> Option<video::Backdrop> {
+    let scratch = behind.scratch;
     if !behind.video {
         return None;
     }
@@ -214,4 +220,35 @@ pub fn show(
         return None;
     }
     Some(show)
+}
+
+/// Put behind the play everything the map asked for.
+///
+/// Three commands drew a frame and each did this itself, in the same order,
+/// with the same two `match`es — and the fourth caller now is not a command at
+/// all but an application. Somewhere for the four of them to agree.
+///
+/// The order is the order the game draws in: the artwork behind, the storyboard
+/// over it, the play on top. A still takes one frame of the map's video in
+/// place of its artwork when it was asked for both; a render hands the whole
+/// film to the encoder instead — see [`film`] — because that is the one part of
+/// this that reads frames in order.
+pub fn dress<'a>(
+    scene: Scene<'a>,
+    behind: &Behind<'_>,
+    beatmap: &Beatmap,
+    map: (&str, &locate::Origin),
+    sounded: &[dossier_beatmap::storyboard::Sounded],
+) -> Scene<'a> {
+    let (map_text, origin) = map;
+    let art = still(behind, map_text, origin, scene.skin())
+        .or_else(|| backdrop(behind, beatmap, origin, scene.skin()));
+    let scene = match art {
+        Some(art) => scene.with_backdrop(art),
+        None => scene,
+    };
+    match show(behind, map_text, origin, sounded) {
+        Some(show) => scene.with_storyboard(show),
+        None => scene,
+    }
 }

@@ -481,7 +481,13 @@ impl Command {
                 LOOK,
                 // `--ffmpeg` because a video frame is fetched with it — see
                 // `still`. Nothing else in `frame` runs an encoder.
-                &["--at", "--background", "--storyboard", "--video", "--ffmpeg"],
+                &[
+                    "--at",
+                    "--background",
+                    "--storyboard",
+                    "--video",
+                    "--ffmpeg",
+                ],
             ],
             Self::Video => &[
                 MAP,
@@ -1027,7 +1033,7 @@ impl Options {
     /// One place, for the same reason [`look`](Self::look) is one place: three
     /// commands draw a frame and they must not be able to disagree about which
     /// flags the scenery listens to.
-    fn behind(&self) -> scenery::Behind<'_> {
+    fn behind<'a>(&'a self, at_ms: Option<f64>, scratch: Option<&'a Path>) -> scenery::Behind<'a> {
         scenery::Behind {
             background: self.background,
             storyboard: self.storyboard,
@@ -1035,6 +1041,9 @@ impl Options {
             dim: self.dim,
             blur: self.blur,
             ffmpeg: &self.ffmpeg,
+            size: self.size,
+            at_ms,
+            scratch,
         }
     }
 
@@ -3045,16 +3054,15 @@ fn exhibit_command(options: Options) -> ExitCode {
                 .with_own_pictures(options.my_avatar.clone(), options.my_cover.clone()),
         );
     let scene = if options.bare { scene.bare() } else { scene };
-    let scene = match scenery::backdrop(&options.behind(), &beatmap, &origin, scene.skin(), options.size) {
-        Some(art) => scene.with_backdrop(art),
-        None => scene,
-    };
     // What the play sounded, for the storyboard's triggers to answer to.
     let fired = hitsounds::sounded(&state, &beatmap, layering);
-    let scene = match scenery::show(&options.behind(), &map_text, &origin, &fired) {
-        Some(show) => scene.with_storyboard(show),
-        None => scene,
-    };
+    let scene = scenery::dress(
+        scene,
+        &options.behind(None, scratch.as_ref()),
+        &beatmap,
+        (&map_text, &origin),
+        &fired,
+    );
     let settings = video::Settings {
         out,
         fps: options.fps,
@@ -3073,7 +3081,12 @@ fn exhibit_command(options: Options) -> ExitCode {
         // into the film — which `encode` already works out, from the span it is
         // given, and `reel` gives it one span per clip. So the same backdrop
         // serves them all.
-        video: scenery::film(&options.behind(), &map_text, &origin, scene.skin(), scratch.as_ref()),
+        video: scenery::film(
+            &options.behind(None, scratch.as_ref()),
+            &map_text,
+            &origin,
+            scene.skin(),
+        ),
         hitsounds: None,
         events: events::Events::wanted(options.events),
         // exhibit chooses its own moments to slow into; the per-clip render is
@@ -3189,26 +3202,10 @@ fn frame(options: Options) -> ExitCode {
     // A video frame stands in for the artwork when both are asked for: see
     // `still`.
     let scratch = Scratch::new();
-    let behind = scenery::still(
-        &options.behind(),
-        &map_text,
-        &origin,
-        scene.skin(),
-        options.size,
-        at_ms,
-        scratch.as_ref(),
-    )
-    .or_else(|| scenery::backdrop(&options.behind(), &beatmap, &origin, scene.skin(), options.size));
-    let scene = match behind {
-        Some(art) => scene.with_backdrop(art),
-        None => scene,
-    };
+    let dressed = options.behind(Some(at_ms), scratch.as_ref());
     // What the play sounded, for the storyboard's triggers to answer to.
     let fired = hitsounds::sounded(&state, &beatmap, layering);
-    let scene = match scenery::show(&options.behind(), &map_text, &origin, &fired) {
-        Some(show) => scene.with_storyboard(show),
-        None => scene,
-    };
+    let scene = scenery::dress(scene, &dressed, &beatmap, (&map_text, &origin), &fired);
     let layout = Layout::new(options.size.0, options.size.1);
     let pixmap = scene.frame(at_ms, &layout);
 
@@ -3238,10 +3235,6 @@ fn frame(options: Options) -> ExitCode {
         }
     }
 }
-
-
-
-
 
 /// Read the rivals to stand the play against, if any were named.
 ///
@@ -3406,19 +3399,23 @@ fn video_command(options: Options) -> ExitCode {
                 .with_own_pictures(options.my_avatar.clone(), options.my_cover.clone()),
         );
     let scene = if options.bare { scene.bare() } else { scene };
-    let scene = match scenery::backdrop(&options.behind(), &beatmap, &origin, scene.skin(), options.size) {
-        Some(art) => scene.with_backdrop(art),
-        None => scene,
-    };
     // What the play sounded, for the storyboard's triggers to answer to.
     let fired = hitsounds::sounded(&state, &beatmap, layering);
-    let scene = match scenery::show(&options.behind(), &map_text, &origin, &fired) {
-        Some(show) => scene.with_storyboard(show),
-        None => scene,
-    };
+    let scene = scenery::dress(
+        scene,
+        &options.behind(None, scratch.as_ref()),
+        &beatmap,
+        (&map_text, &origin),
+        &fired,
+    );
     // Settled before the scene is finished with, because it decides what the
     // scene stands on: over a video the play is drawn on nothing.
-    let film = scenery::film(&options.behind(), &map_text, &origin, scene.skin(), scratch.as_ref());
+    let film = scenery::film(
+        &options.behind(None, scratch.as_ref()),
+        &map_text,
+        &origin,
+        scene.skin(),
+    );
     let scene = if film.is_some() {
         scene.over_video()
     } else {

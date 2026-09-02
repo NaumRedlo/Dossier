@@ -10,9 +10,11 @@
 //! the thing it exists to get away from.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod bench;
 mod bot;
 mod check;
 mod draw;
+mod machine;
 mod work;
 
 /// Draw a replay. Blocking on purpose — Tauri runs a command off the main
@@ -62,7 +64,7 @@ fn work_once(server: String, token: String, name: String, songs: String) -> Resu
     match work::once(
         &bot,
         &engine,
-        &work::provisional_capacity(),
+        &machine::capacity(),
         std::path::Path::new(&songs),
         &along,
     ) {
@@ -73,6 +75,12 @@ fn work_once(server: String, token: String, name: String, songs: String) -> Resu
     }
 }
 
+/// What this machine is, what it will give, and how fast it draws.
+#[tauri::command]
+fn profile() -> machine::Profile {
+    machine::profile()
+}
+
 /// The readiness list, for the screen that replaces `--check`.
 #[tauri::command]
 fn ready() -> Vec<check::Row> {
@@ -81,7 +89,7 @@ fn ready() -> Vec<check::Row> {
 
 fn main() {
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![ready, draw, work_once])
+        .invoke_handler(tauri::generate_handler![ready, draw, work_once, profile])
         .run(tauri::generate_context!())
         .expect("the window could not be opened");
 }

@@ -213,29 +213,6 @@ fn do_job(
     Ok(job.title.clone())
 }
 
-/// What this machine will give, for now.
-///
-/// **Not the real answer.** The terminal client works it out from the battery,
-/// whether somebody is at the keyboard, how hot the machine is and what hours
-/// its owner allowed — five hundred lines of `client/dossier/machine.py`, and
-/// every one of them is there because a laptop that renders flat out on battery
-/// while its owner is typing is a bad guest. Until that is ported this says
-/// what it knows and nothing it does not, and the loop should not be offered as
-/// a button somebody can leave running.
-pub fn provisional_capacity() -> Capacity {
-    let threads = std::thread::available_parallelism()
-        .map(|n| n.get() as u32)
-        .unwrap_or(4);
-    Capacity {
-        take: true,
-        reason: "готова".to_owned(),
-        code: "idle".to_owned(),
-        detail: Some("политика машины ещё не перенесена".to_owned()),
-        threads,
-        polite: false,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

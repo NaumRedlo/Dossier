@@ -177,6 +177,25 @@ pub fn ready() -> Vec<Row> {
         "приложение качает карты сюда и не смогло создать эту папку",
     ));
 
+    // The policy, asked of this machine — see `machine::decide`, which is the
+    // same one the terminal client applies.
+    let can = crate::machine::capacity();
+    rows.push(Row::new(
+        "эта машина",
+        Some(can.take),
+        if can.take {
+            format!(
+                "{}, {} {}",
+                can.reason,
+                can.threads,
+                plural(can.threads as usize, "поток", "потока", "потоков")
+            )
+        } else {
+            can.reason.clone()
+        },
+        "работа не берётся, пока это так",
+    ));
+
     rows.push(Row::new("бот", None, "ещё не спрашивали", ""));
     rows
 }

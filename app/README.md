@@ -33,19 +33,31 @@ thing work.
 
 ## What is not ported yet, and why it matters
 
-**The machine's own policy.** `client/dossier/machine.py` is five hundred lines
-that decide whether this computer should be rendering at all: the battery, the
-thermal pressure, whether somebody is at the keyboard, the hours its owner
-allowed. Every one of them is there because a laptop that renders flat out on
-battery while its owner is typing is a bad guest. Until it is ported,
-`work::provisional_capacity` says what it knows and nothing it does not — and
-**the loop must not be offered as a button somebody can leave running.**
-`work_once` does one job and stops, which is as far as that should go.
+**The hours its owner allowed** — `RENDER_HOURS`, `RENDER_PAUSE` — are not read
+yet. The rest of the policy is: `machine.rs` decides whether this computer
+should be rendering at all and how hard, from the battery, the thermal
+pressure and whether somebody is at the keyboard, with the same thresholds the
+terminal client measured. Idle time is read on macOS only; elsewhere an unknown
+means somebody is here, which costs speed rather than somebody's machine.
 
 **Fetching a map nobody has.** The bot sends what it found when it drew the
 card, and the terminal client downloads the beatmap when the machine does not
 have it. Here a job whose map is not in the songs folder is handed straight
 back, which is honest and not yet useful.
+
+## What it can say about the machine
+
+`machine::profile()` answers three questions at once: what this computer is
+(processor, cores, memory, which hardware encoders `ffmpeg` admits to), what the
+policy will currently allow, and — the one that matters — **how fast it actually
+draws**. That last is measured, not assembled from a specification sheet: a
+small map built in memory, a made-up replay, a few dozen frames and a clock.
+Two machines running it are drawing the same picture, so the numbers can be
+compared. On the machine this was written on: an M4 Pro, twelve cores, on
+battery at 71% and therefore six threads, 663 frames a second on one of them.
+
+A farm should sort by that. The other two say what a machine *is*; only the
+measurement says what it will do.
 
 ## Where it is
 

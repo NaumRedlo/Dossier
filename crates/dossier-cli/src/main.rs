@@ -476,7 +476,13 @@ impl Command {
             Self::Debug => &[MAP, &["--from", "--to"]],
             Self::Sliders | Self::Errors | Self::Score => &[MAP],
             Self::Health => &[MAP, &["--trace"]],
-            Self::Frame => &[MAP, LOOK, &["--at", "--background", "--storyboard"]],
+            Self::Frame => &[
+                MAP,
+                LOOK,
+                // `--ffmpeg` because a video frame is fetched with it — see
+                // `still`. Nothing else in `frame` runs an encoder.
+                &["--at", "--background", "--storyboard", "--video", "--ffmpeg"],
+            ],
             Self::Video => &[
                 MAP,
                 LOOK,
@@ -3163,7 +3169,20 @@ fn frame(options: Options) -> ExitCode {
                 .with_own_pictures(options.my_avatar.clone(), options.my_cover.clone()),
         );
     let scene = if options.bare { scene.bare() } else { scene };
-    let scene = match backdrop(&options, &beatmap, &origin, scene.skin(), options.size) {
+    // A video frame stands in for the artwork when both are asked for: see
+    // `still`.
+    let scratch = Scratch::new();
+    let behind = still(
+        &options,
+        &map_text,
+        &origin,
+        scene.skin(),
+        options.size,
+        at_ms,
+        scratch.as_ref(),
+    )
+    .or_else(|| backdrop(&options, &beatmap, &origin, scene.skin(), options.size));
+    let scene = match behind {
         Some(art) => scene.with_backdrop(art),
         None => scene,
     };
@@ -3246,6 +3265,77 @@ fn backdrop(
         eprintln!("dossier: could not read the background `{filename}` — rendering without it");
     }
     prepared
+}
+
+/// One frame of the map's video, as a backdrop.
+///
+/// `video` hands the file to ffmpeg and lets it composite underneath; a single
+/// picture has no pipeline to hand it to, so the frame is fetched instead —
+/// one seek, one decode, and then it is a background like any other.
+///
+/// It takes the place of the artwork rather than sitting over it: a video is
+/// what the map wanted behind the play at that moment, and drawing the still
+/// picture on top of it would hide the thing that was asked for.
+fn still(
+    options: &Options,
+    map_text: &str,
+    origin: &locate::Origin,
+    skin: &Skin,
+    size: (u32, u32),
+    at_ms: f64,
+    scratch: Option<&Path>,
+) -> Option<dossier_render::Pixmap> {
+    if !options.video {
+        return None;
+    }
+    let named = dossier_beatmap::storyboard::parse(map_text).video?;
+    let Some(path) = scratch.and_then(|dir| locate::extract_video(origin, &named.path, dir)) else {
+        eprintln!(
+            "dossier: the map names a video `{}` that did not come with it — drawing without it",
+            named.path
+        );
+        return None;
+    };
+    // Seek in the video's own time: a map states when the video starts, and it
+    // is routinely negative.
+    let seconds = ((at_ms - named.start_ms) / 1000.0).max(0.0);
+    let shot = std::process::Command::new(&options.ffmpeg)
+        .args(["-nostdin", "-loglevel", "error", "-ss"])
+        .arg(format!("{seconds:.3}"))
+        .arg("-i")
+        .arg(&path)
+        .args(["-frames:v", "1", "-f", "image2pipe", "-vcodec", "png", "-"])
+        .output();
+    let bytes = match shot {
+        Ok(done) if done.status.success() && !done.stdout.is_empty() => done.stdout,
+        Ok(done) => {
+            eprintln!(
+                "dossier: could not take a frame of `{}` at {seconds:.3}s — drawing without it{}",
+                named.path,
+                match String::from_utf8_lossy(&done.stderr).trim() {
+                    "" => String::new(),
+                    said => format!(": {said}"),
+                }
+            );
+            return None;
+        }
+        Err(error) => {
+            eprintln!("dossier: could not run `{}`: {error}", options.ffmpeg);
+            return None;
+        }
+    };
+    // The dim the video gets under `video`, and no blur: ffmpeg does not blur
+    // it there either, so the two commands light the same frame the same way.
+    dossier_render::background::prepare(
+        &bytes,
+        size.0,
+        size.1,
+        options
+            .dim
+            .map_or(skin.background_dim, |at| at as f32 / 100.0),
+        0.0,
+        skin.background,
+    )
 }
 
 /// The map's background video, put where ffmpeg can open it.

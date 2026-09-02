@@ -12,6 +12,7 @@
 //! cannot be linked into anything.
 
 pub mod events;
+pub mod font;
 pub mod hitsounds;
 pub mod json;
 pub mod locate;

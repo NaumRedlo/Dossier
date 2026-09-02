@@ -3257,27 +3257,7 @@ fn load_leaderboard(path: Option<&Path>, player: &str) -> dossier_render::Leader
 /// isn't there either, say so and carry on: a frame with no numbers is still
 /// worth looking at, and stopping over a font would be a poor trade.
 fn load_font(explicit: Option<&Path>) -> Result<Option<dossier_render::Font>, String> {
-    const FALLBACKS: [&str; 3] = [
-        "assets/fonts/TorusNotched-Bold.ttf",
-        "../assets/fonts/TorusNotched-Bold.ttf",
-        "../../assets/fonts/TorusNotched-Bold.ttf",
-    ];
-
-    if let Some(path) = explicit {
-        let bytes = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
-        return dossier_render::Font::from_bytes(&bytes)
-            .map(Some)
-            .map_err(|e| format!("{}: {e}", path.display()));
-    }
-
-    for candidate in FALLBACKS {
-        if let Ok(bytes) = std::fs::read(candidate) {
-            if let Ok(font) = dossier_render::Font::from_bytes(&bytes) {
-                return Ok(Some(font));
-            }
-        }
-    }
-    Ok(None)
+    produce::font::find(explicit)
 }
 
 /// Render a play to video.

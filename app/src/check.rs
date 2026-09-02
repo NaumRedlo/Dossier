@@ -46,7 +46,11 @@ pub fn fingerprint(secret: &str) -> String {
     }
     use sha2::{Digest, Sha256};
     let short = hex(&Sha256::digest(secret.as_bytes())[..4]);
-    format!("{} {}, {short}", secret.chars().count(), plural(secret.chars().count(), "знак", "знака", "знаков"))
+    format!(
+        "{} {}, {short}",
+        secret.chars().count(),
+        plural(secret.chars().count(), "знак", "знака", "знаков")
+    )
 }
 
 fn hex(bytes: &[u8]) -> String {
@@ -126,12 +130,10 @@ pub fn ready() -> Vec<Row> {
     ));
 
     let value = |key: &str| {
-        std::env::var(key).ok().filter(|v| !v.is_empty()).or_else(|| {
-            pairs
-                .iter()
-                .find(|(k, _)| k == key)
-                .map(|(_, v)| v.clone())
-        })
+        std::env::var(key)
+            .ok()
+            .filter(|v| !v.is_empty())
+            .or_else(|| pairs.iter().find(|(k, _)| k == key).map(|(_, v)| v.clone()))
     };
 
     let token = value("RENDER_WORKER_TOKEN").unwrap_or_default();
@@ -165,10 +167,8 @@ pub fn ready() -> Vec<Row> {
         "нужен, чтобы перегнать звуки скина и склеить дорожку",
     ));
 
-    let songs = value("DOSSIER_SONGS_DIR").map_or_else(
-        || home().join(".osu").join("Songs"),
-        PathBuf::from,
-    );
+    let songs =
+        value("DOSSIER_SONGS_DIR").map_or_else(|| home().join(".osu").join("Songs"), PathBuf::from);
     let usable = songs.is_dir() || std::fs::create_dir_all(&songs).is_ok();
     rows.push(Row::new(
         "склад карт",
@@ -177,12 +177,7 @@ pub fn ready() -> Vec<Row> {
         "приложение качает карты сюда и не смогло создать эту папку",
     ));
 
-    rows.push(Row::new(
-        "бот",
-        None,
-        "ещё не спрашивали",
-        "",
-    ));
+    rows.push(Row::new("бот", None, "ещё не спрашивали", ""));
     rows
 }
 

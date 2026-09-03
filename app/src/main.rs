@@ -15,6 +15,7 @@ mod bot;
 mod check;
 mod draw;
 mod library;
+mod link;
 mod machine;
 mod settings;
 mod work;
@@ -158,6 +159,37 @@ fn ready() -> Vec<check::Row> {
     check::ready()
 }
 
+/// Hand a link to the system: the repository, a mail draft, a new issue.
+///
+/// Nothing is ever sent from here. The most this does is open somebody's mail
+/// client with the letter already written — whether it goes is their key.
+#[tauri::command]
+fn open_link(url: String) -> Result<(), String> {
+    link::open(&url)
+}
+
+/// The three lines worth putting at the bottom of a bug report, so that nobody
+/// has to be asked for them. What this is, and what it is running on — no
+/// paths, no token, no name.
+#[tauri::command]
+fn about() -> About {
+    let hardware = machine::Hardware::read();
+    About {
+        version: env!("CARGO_PKG_VERSION").to_owned(),
+        os: hardware.os,
+        cpu: hardware.cpu,
+        cores: hardware.cores,
+    }
+}
+
+#[derive(serde::Serialize)]
+struct About {
+    version: String,
+    os: String,
+    cpu: String,
+    cores: u32,
+}
+
 fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
@@ -171,7 +203,9 @@ fn main() {
             shelves,
             my_replays,
             skins,
-            farm
+            farm,
+            open_link,
+            about
         ])
         .run(tauri::generate_context!())
         .expect("the window could not be opened");

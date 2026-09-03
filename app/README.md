@@ -75,8 +75,8 @@ this computer is, and how fast it measurably draws. **Рендер** — this pe
 own replays, newest first, each saying whether its map is here; picking one
 draws it with a progress bar fed by the engine's own events. **Ферма** — who
 else is out there. **Настройки** — the server, the token, the name this worker
-goes by, and the three folders, with what was found in each of them counted
-rather than assumed.
+goes by, the three folders with what was found in each counted rather than
+assumed, and the two things about the window itself.
 
 The wizard opens only when the server or the token is missing: those are the two
 nobody can guess, and asking about anything else is how a setup screen becomes
@@ -85,9 +85,65 @@ terminal client uses — carefully, keeping every line it does not understand,
 because that file may hold somebody's `RENDER_HOURS` and a settings screen that
 drops it is the worst kind of helpful.
 
+## How it looks, and why
+
+Dark, and only dark. The mark was drawn for a dark tile, and a panel that floats
+over the content has to sit on something deep or it reads as a rectangle
+somebody forgot to fill. The accent is the bot's own red from
+`services/image/colors.py`, so the application and the cards it renders look
+like one thing.
+
+**The panel floats and grows.** It is a pill over the content rather than a bar
+above it, and it can live along the top or down the left — `Настройки → Окно`,
+remembered by the window in `localStorage` rather than sent to the bot, which
+has no opinion about where somebody keeps their tabs. Under the cursor it
+behaves like the dock in macOS: the nearest icon grows most, its neighbours
+less, and the tabs move apart by exactly as much as the icons grew. The maths is
+in `magnify()` — a Gaussian by distance, then a running sum of the new widths —
+and it is done in points rather than in percentages, or the long word
+«Готовность» would shove its neighbours twice as far as the short «Ферма».
+
+**One lozenge, not five lights.** The white pill behind the open tab is a single
+element that moves; the movement *is* the transition. It reads its place from
+where the tab lies plus how far it was pushed, never from the tab's drawn
+position — a tab in mid-transition would leave the lozenge a step behind, and
+standing still next to it is worse than not having it.
+
+**The icons move only when there is a reason to look at them.** Each tab's icon
+animates when that tab is open or under the cursor, and not otherwise: five
+things moving at once is a screensaver, not an application. The check draws
+itself, the chip's core beats, the film's rails run, the farm's lights blink in
+turn, the sliders slide.
+
+Somebody who does not want any of it says so in `Настройки → Окно`, and
+`prefers-reduced-motion` is honoured without being asked.
+
+## The two corners
+
+**The beetle, top right.** Hovering it opens a box for what went wrong, and
+three routes out: by mail, as a GitHub issue, or into Telegram. Nothing is ever
+sent from here — the mail client or the page opens with the letter already
+written, and whether it goes is somebody's own key. What rides along is the
+version, the system and the processor; no paths, no token, no name. The Telegram
+route puts the text in the clipboard first, because a personal chat cannot be
+opened with a message already in it.
+
+The addresses live in one place, `CONTACT` at the top of `ui/app.js`. A route
+whose contact is empty does not appear, which is why there is no Telegram button
+until somebody writes the handle in.
+
+**The repository, bottom right.** A GitHub mark that says its name when you go
+near it. Both corners open links through `link.rs`, which hands the URL to
+`open`, `xdg-open` or `cmd /C start` after checking the scheme — `https`, `http`
+and `mailto`, and nothing else. Not `tauri-plugin-opener`: that is another
+dependency and another permission file for a call each system spells in one
+line, and the scheme list is a line worth drawing before the day something
+builds a link out of what a server said.
+
 ## Where it is
 
-The readiness screen, which is `--check` with the two dead questions removed.
-Everything else — claiming work, rendering, settings, the skin catalogue — is
-still in `../client`, and moves here one piece at a time. Until it does, the
-Python worker is the one that renders.
+Readiness, the machine, settings and the wizard, drawing a replay of one's own,
+and the farm as the bot reports it. What is still in `../client` is the loop
+that keeps claiming work unattended: `work_once` here does one turn, on purpose,
+so that nothing runs on somebody's machine that they did not press. Until that
+loop moves, the Python worker is the one that renders for the bot.

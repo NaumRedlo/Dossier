@@ -88,6 +88,18 @@
 
   <!-- Правый верх: кто мы в сети, и жук. -->
   <div class="corner top">
+    <!-- Тот же процесс, что идёт в самой вкладке, свёрнутый сюда: появляется,
+         только когда рендер или монтаж идёт, а вкладка, где он начался, не
+         открыта. -->
+    <div class="minijob" id="job-mini" hidden>
+      <div class="row">
+        <b id="job-label"></b>
+        <span class="pct"><span id="job-percent">0</span>%</span>
+      </div>
+      <div class="bar"><div id="job-bar"></div></div>
+      <p class="note" id="job-note"></p>
+    </div>
+
     <!-- Появляется, только когда обновление есть: постоянная кнопка «проверить»
          превращается в мебель, а эта — новость. -->
     <div class="hoverbox" id="upbox" hidden>
@@ -348,6 +360,52 @@
             <label class="pick tiny"><select id="s-hits">
               <option value="0">без хитсаундов</option><option value="0.5">хитсаунды 50%</option>
               <option value="0.8">хитсаунды 80%</option><option value="1" selected>хитсаунды 100%</option>
+            </select></label>
+          </div>
+        </div>
+        <div class="pref">
+          <div>
+            <b>Откуда хитсаунды</b>
+            <p>Игра спрашивает две стопки и по-разному: карту — с её номером набора, скин — просто по имени. Чего нет ни там, ни там, синтезируется.</p>
+          </div>
+          <span class="ticks">
+            <label class="tick"><input type="checkbox" id="s-mapsounds" checked>карты</label>
+            <label class="tick"><input type="checkbox" id="s-skinsounds" checked>скина</label>
+          </span>
+        </div>
+        <div class="pref">
+          <div>
+            <b>Чем синтезировать</b>
+            <p>Голос, которым звучит то, чего не нашлось ни у карты, ни у скина.</p>
+          </div>
+          <label class="pick tiny"><select id="s-kit">
+            <option value="click" selected>щелчок</option>
+            <option value="soft">мягкий</option>
+            <option value="drum">барабан</option>
+            <option value="glass">стекло</option>
+            <option value="wood">дерево</option>
+          </select></label>
+        </div>
+        <div class="pref">
+          <div>
+            <b>Как его настроить</b>
+            <p>Высота, длительность и громкость синтеза — множители к тому, что у голоса своё.</p>
+          </div>
+          <div class="pair">
+            <label class="pick tiny"><select id="s-pitch">
+              <option value="0.7">ниже</option><option value="0.85">чуть ниже</option>
+              <option value="1" selected>как есть</option>
+              <option value="1.2">чуть выше</option><option value="1.5">выше</option>
+            </select></label>
+            <label class="pick tiny"><select id="s-decay">
+              <option value="0.6">короче</option><option value="0.8">чуть короче</option>
+              <option value="1" selected>как есть</option>
+              <option value="1.3">чуть длиннее</option><option value="1.7">длиннее</option>
+            </select></label>
+            <label class="pick tiny"><select id="s-kitlevel">
+              <option value="0.6">тише</option><option value="0.8">чуть тише</option>
+              <option value="1" selected>как есть</option>
+              <option value="1.3">громче</option>
             </select></label>
           </div>
         </div>

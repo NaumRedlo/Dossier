@@ -85,6 +85,20 @@ pub struct Fine {
     pub bare: bool,
     /// Whether the cursor turns as it moves. `None` leaves the skin's answer.
     pub cursor_rotate: Option<bool>,
+    /// The map's own hit sounds — the folder beside the `.osu`, where a custom
+    /// sample index means something. Most of what a hitsounded map sounds like.
+    pub map_hitsounds: bool,
+    /// The skin's, asked only by plain name. A skin without a given sound
+    /// leaves it to the map, and both missing leaves it to synthesis.
+    pub skin_hitsounds: bool,
+    /// What synthesis sounds like when neither of the two covers a voice:
+    /// `click`, `soft`, `drum`, `glass` or `wood`.
+    pub kit: String,
+    /// And how that synthesis is tuned — every frequency, every decay and the
+    /// level, each as a multiplier on the pack's own.
+    pub pitch: f32,
+    pub decay: f32,
+    pub kit_level: f32,
 }
 
 impl Default for Fine {
@@ -101,6 +115,12 @@ impl Default for Fine {
             video: false,
             bare: false,
             cursor_rotate: None,
+            map_hitsounds: true,
+            skin_hitsounds: true,
+            kit: "click".to_owned(),
+            pitch: 1.0,
+            decay: 1.0,
+            kit_level: 1.0,
         }
     }
 }
@@ -184,17 +204,30 @@ pub fn draw(asked: &Asked<'_>, told: &Told) -> Result<PathBuf, String> {
     // Two places are asked, because osu! asks two and does not treat them
     // alike: the map's own folder first, where a custom sample index means
     // something, and the skin only ever by plain name.
-    let kit = dossier_audio::Kit::plain();
+    let kit = {
+        let mut kit =
+            dossier_audio::Kit::by_name(&asked.fine.kit).unwrap_or_else(dossier_audio::Kit::plain);
+        kit.pitch *= asked.fine.pitch;
+        kit.decay *= asked.fine.decay;
+        kit.level *= asked.fine.kit_level;
+        kit
+    };
     let samples = {
+        // Две стопки, и их можно брать по отдельности: скин отвечает на простое
+        // имя, карта — на своё с номером набора, и звучат они по-разному. Кто
+        // хочет слышать карту такой, какой её задумали, глушит скин; кому
+        // важнее свой набор — наоборот.
         let mut pack = match &asked.skin {
-            Some(folder) => dossier_audio::SamplePack::load(folder),
-            None => dossier_audio::SamplePack::load(Path::new("")),
+            Some(folder) if asked.fine.skin_hitsounds => dossier_audio::SamplePack::load(folder),
+            _ => dossier_audio::SamplePack::load(Path::new("")),
         };
-        let from_map = scratch.join("map-samples");
-        if std::fs::create_dir_all(&from_map).is_ok()
-            && locate::extract_samples(&origin, &from_map, "ffmpeg") > 0
-        {
-            pack = pack.with_beatmap(&from_map);
+        if asked.fine.map_hitsounds {
+            let from_map = scratch.join("map-samples");
+            if std::fs::create_dir_all(&from_map).is_ok()
+                && locate::extract_samples(&origin, &from_map, "ffmpeg") > 0
+            {
+                pack = pack.with_beatmap(&from_map);
+            }
         }
         pack
     };

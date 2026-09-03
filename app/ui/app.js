@@ -70,9 +70,34 @@ function dressSelect(select) {
   const button = el("button", "picked");
   const label = el("span", "who");
   button.append(label, el("span", "chev", "⌄"));
+  box.append(button);
+
+  // Список — в `<body>`, не в `.picker`: карточка вокруг него обрезает своё
+  // содержимое ради скруглённых углов, и список, оставленный внутри неё,
+  // обрезался бы точно так же. Здесь он сам решает, где встать, от
+  // положения кнопки на экране, а не от того, что вокруг него лежит.
   const list = el("div", "options");
   list.hidden = true;
-  box.append(button, list);
+  document.body.append(list);
+
+  function place() {
+    const rect = button.getBoundingClientRect();
+    const below = window.innerHeight - rect.bottom - 16;
+    const above = rect.top - 16;
+    const flip = below < 120 && above > below;
+    list.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - rect.width - 8))}px`;
+    list.style.width = `${rect.width}px`;
+    list.classList.toggle("above", flip);
+    if (flip) {
+      list.style.top = "";
+      list.style.bottom = `${window.innerHeight - rect.top + 6}px`;
+      list.style.maxHeight = `${Math.min(240, above)}px`;
+    } else {
+      list.style.bottom = "";
+      list.style.top = `${rect.bottom + 6}px`;
+      list.style.maxHeight = `${Math.min(240, Math.max(120, below))}px`;
+    }
+  }
 
   const close = () => {
     list.hidden = true;
@@ -100,15 +125,26 @@ function dressSelect(select) {
     event.preventDefault();
     const opening = list.hidden;
     for (const other of document.querySelectorAll(".options")) other.hidden = true;
+    if (opening) place();
     list.hidden = !opening;
     button.setAttribute("aria-expanded", String(opening));
   });
   document.addEventListener("pointerdown", (event) => {
-    if (!box.contains(event.target)) close();
+    if (!box.contains(event.target) && !list.contains(event.target)) close();
   });
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") close();
   });
+  window.addEventListener("resize", () => {
+    if (!list.hidden) place();
+  });
+  window.addEventListener(
+    "scroll",
+    () => {
+      if (!list.hidden) place();
+    },
+    true,
+  );
   select.repaint();
 }
 
@@ -395,8 +431,10 @@ const AFTER_HIT_MS = 620;
 /// только вместо круга наша марка. Звук ровно в момент схождения: это и есть
 /// осу, и другого способа сказать это одним кадром нет.
 ///
-/// Эта сцена не прерывается. Она идёт полторы секунды при запуске, и оборвать
-/// её движением мыши значит показать половину.
+/// Заперта на всё время, что экран чёрный, — включая ожидание, — и на всё
+/// время самой сцены. Раньше движение мыши во время загрузки гасило чёрный
+/// экран за секунду до того, как на нём вообще было что показывать; теперь
+/// от запуска до последнего кадра кольца это одна запертая полоса.
 let locked = false;
 
 /// Холст под размер окна. Меряется каждый кадр: заставка открывается раньше,
@@ -415,6 +453,20 @@ function sizeSplash(c) {
   return { w, h };
 }
 
+/// Закрыть окно чёрным и не открывать его никому, включая курсор. Вызывается
+/// первым делом при запуске, до единого `await`, — а сама анимация просится
+/// только позже, когда всё, что могло украсть у нее кадр, уже позади.
+function showBlackCover() {
+  locked = true;
+  asleep = true;
+  byId("splash-say").textContent = "";
+  splash.classList.remove("going");
+  splash.hidden = false;
+  // Чёрное — значит чёрное: холст держит последний нарисованный кадр, и без
+  // этого экран ожидания оказался бы обрывком прошлой сцены.
+  sizeSplash(splashView.getContext("2d"));
+}
+
 function playOpening() {
   const c = splashView.getContext("2d");
   const started = performance.now();
@@ -427,7 +479,6 @@ function playOpening() {
     const mid = [w / 2, h / 2 - 10];
     const size = Math.min(w, h) * 0.16;
     const settling = Math.min(1, t / APPROACH_MS);
-    const eased = 1 - (1 - settling) * (1 - settling);
 
     // Круг, к которому кольцо и сходится. Он стоит на месте — по нему видно,
     // куда именно всё придёт, и без него сужение не о чем.
@@ -448,11 +499,14 @@ function playOpening() {
     }
 
     if (!struck) {
+      // Равномерно, а не с торможением: игра сводит кольцо линейно, и по нему
+      // считают, когда нажимать. Кольцо, которое замедляется на подлёте,
+      // читается как анимация, а не как нота, к которой надо успеть.
       c.globalAlpha = Math.min(1, t / 300) * 0.9;
       c.strokeStyle = "#e24848";
       c.lineWidth = 2.5;
       c.beginPath();
-      c.arc(mid[0], mid[1], size * (1 + 2.2 * (1 - eased)), 0, Math.PI * 2);
+      c.arc(mid[0], mid[1], size * (1 + 2.4 * (1 - settling)), 0, Math.PI * 2);
       c.stroke();
     } else {
       const since = (t - APPROACH_MS) / 420;
@@ -463,6 +517,21 @@ function playOpening() {
         c.beginPath();
         c.arc(mid[0], mid[1], size * (1 + since * 0.9), 0, Math.PI * 2);
         c.stroke();
+      }
+      // И свет от удара — то, чем игра отмечает попадание: аддитивное пятно
+      // цвета ноты, которое расходится и гаснет. Из всей осу это самый
+      // узнаваемый кадр.
+      const lit = (t - APPROACH_MS) / 520;
+      if (lit < 1) {
+        c.save();
+        c.globalCompositeOperation = "lighter";
+        c.globalAlpha = (1 - lit) * 0.55;
+        const glow = c.createRadialGradient(mid[0], mid[1], 0, mid[0], mid[1], size * (1.3 + lit * 1.8));
+        glow.addColorStop(0, "rgba(226, 72, 72, 0.85)");
+        glow.addColorStop(1, "rgba(226, 72, 72, 0)");
+        c.fillStyle = glow;
+        c.fillRect(0, 0, w, h);
+        c.restore();
       }
     }
     c.globalAlpha = 1;
@@ -492,120 +561,232 @@ function playOpening() {
 const IDLE_APPROACH_MS = 780;
 const IDLE_GAP_MS = 620;
 
-function makeNote(after, index) {
+/// Цвета нот, пока скин не подгрузился или не назвал своих. Те же четыре, что
+/// служат синтетическими тестовыми картами в остальном приложении.
+const IDLE_PALETTE = ["#e24848", "#66ccff", "#88d64c", "#f0c060"];
+
+/// Одна нота на поле 512 на 384 — те же размеры, что у игры.
+function makeNote(x, y, at, number, colour) {
   const roll = Math.random();
+  const worth = roll < 0.12 ? 0 : roll < 0.26 ? 100 : 300;
+  const put = [Math.min(462, Math.max(50, x)), Math.min(339, Math.max(45, y))];
   return {
-    // Поле — те же 512 на 384, что у игры, только тут оно ни к чему не
-    // привязано: это не карта, а движение.
-    x: 60 + Math.random() * 392,
-    y: 50 + Math.random() * 284,
-    at: after + IDLE_GAP_MS + Math.random() * 420,
-    number: (index % 8) + 1,
-    // Один из семи промах, один из шести — сотка. Остальное чисто.
-    worth: roll < 0.14 ? 0 : roll < 0.3 ? 100 : 300,
+    x: put[0],
+    y: put[1],
+    // Куда курсор пришёл на самом деле — иначе при промахе, чем при попадании.
+    // Считается один раз, здесь же: следующий отрезок пути начнётся ровно там,
+    // где кончился этот, а не там, где нота стоит «по правде». Иначе на каждом
+    // промахе курсор дёргало бы.
+    landX: worth === 0 ? put[0] + 70 : put[0],
+    landY: worth === 0 ? put[1] + 34 : put[1],
+    at,
+    number,
+    colour,
+    worth,
   };
+}
+
+/// Ноты не сыплются по полю наугад. В карте они складываются в фигуры — поток,
+/// прыжок, разворот, — и случайные точки читаются как рябь, а не как чья-то
+/// игра. Каждый вызов даёт одну такую фигуру целиком, с её собственным цветом
+/// комбо и нумерацией с единицы, ровно как считает их сама игра.
+function makePattern(after, colour) {
+  const kind = Math.random();
+  const notes = [];
+  let when = after + IDLE_GAP_MS + Math.random() * 240;
+
+  if (kind < 0.4) {
+    // Поток: ноты одна за другой по дуге, вплотную.
+    const count = 5 + Math.floor(Math.random() * 3);
+    const gap = 155 + Math.random() * 55;
+    const from = [110 + Math.random() * 292, 100 + Math.random() * 184];
+    const turn = Math.random() * Math.PI * 2;
+    const bend = (Math.random() - 0.5) * 0.55;
+    for (let i = 0; i < count; i += 1) {
+      const angle = turn + bend * i;
+      notes.push(makeNote(from[0] + Math.cos(angle) * 52 * i, from[1] + Math.sin(angle) * 52 * i, when, i + 1, colour));
+      when += gap;
+    }
+  } else if (kind < 0.72) {
+    // Прыжок: далеко и редко — курсору есть куда лететь, и видно, как он летит.
+    const count = 3 + Math.floor(Math.random() * 2);
+    let at = [140 + Math.random() * 232, 100 + Math.random() * 184];
+    for (let i = 0; i < count; i += 1) {
+      notes.push(makeNote(at[0], at[1], when, i + 1, colour));
+      when += 385 + Math.random() * 95;
+      const away = Math.random() * Math.PI * 2;
+      at = [at[0] + Math.cos(away) * 205, at[1] + Math.sin(away) * 145];
+    }
+  } else {
+    // Разворот: туда и обратно между двумя местами.
+    const count = 4 + Math.floor(Math.random() * 3);
+    const here = [90 + Math.random() * 130, 80 + Math.random() * 200];
+    const there = [300 + Math.random() * 130, 80 + Math.random() * 200];
+    for (let i = 0; i < count; i += 1) {
+      const spot = i % 2 ? there : here;
+      notes.push(
+        makeNote(spot[0] + (Math.random() - 0.5) * 44, spot[1] + (Math.random() - 0.5) * 44, when, i + 1, colour),
+      );
+      when += 255 + Math.random() * 70;
+    }
+  }
+  return notes;
+}
+
+/// Одна нота — картинками скина, если они уже загрузились, иначе тем же
+/// каркасом, что рисует «Судейство» без скина.
+function drawIdleNote(c, note, px, py, r, colour, alpha, ringLeft) {
+  c.globalAlpha = alpha;
+  const side = r * 2;
+  if (pics && pics.circle) {
+    c.drawImage(tinted(pics.circle.image, colour), px(note.x) - r, py(note.y) - r, side, side);
+    if (pics.overlay) {
+      c.drawImage(pics.overlay.image, px(note.x) - r, py(note.y) - r, side, side);
+    }
+    const digit = pics.digits.length === 10 ? pics.digits[note.number % 10] : null;
+    if (digit) {
+      const high = r * 0.85;
+      const wide = (digit.image.width / digit.image.height) * high;
+      c.drawImage(digit.image, px(note.x) - wide / 2, py(note.y) - high / 2, wide, high);
+    }
+    if (ringLeft > 0 && pics.approach) {
+      const ring = r * (1 + 2.2 * ringLeft) * 2;
+      c.drawImage(tinted(pics.approach.image, colour), px(note.x) - ring / 2, py(note.y) - ring / 2, ring, ring);
+    }
+  } else {
+    // Плотнее, чем в «Судействе»: там сквозь ноту смотрят на поле, здесь на
+    // неё просто смотрят.
+    c.strokeStyle = colour;
+    c.lineWidth = Math.max(1.5, r * 0.12);
+    c.globalAlpha = alpha * 0.22;
+    c.fillStyle = colour;
+    c.beginPath();
+    c.arc(px(note.x), py(note.y), r, 0, Math.PI * 2);
+    c.fill();
+    c.globalAlpha = alpha;
+    c.stroke();
+    c.fillStyle = "rgba(255,255,255,0.92)";
+    c.font = `600 ${r * 0.85}px ui-monospace, Menlo, monospace`;
+    c.textAlign = "center";
+    c.textBaseline = "middle";
+    c.fillText(String(note.number), px(note.x), py(note.y));
+    if (ringLeft > 0) {
+      c.strokeStyle = colour;
+      c.beginPath();
+      c.arc(px(note.x), py(note.y), r * (1 + 2.2 * ringLeft), 0, Math.PI * 2);
+      c.stroke();
+    }
+  }
+  c.globalAlpha = 1;
 }
 
 function playIdle() {
   const c = splashView.getContext("2d");
   const started = performance.now();
-  let notes = [makeNote(400, 0), makeNote(1000, 1)];
-  let made = 2;
-  let combo = 0;
+  // Первая — не нота, а место, откуда курсор выходит: у самого первого отрезка
+  // должно быть настоящее начало с настоящим временем, иначе он считается от
+  // «сейчас минус сколько-то» и ведёт себя тем страннее, чем дольше смотрят.
+  let notes = [{ x: 256, y: 192, landX: 256, landY: 192, at: 0, number: 0, colour: 0, worth: 300, resting: true }];
+  let colour = 0;
   let said = 0;
   let saidAt = started;
 
   const frame = (now) => {
     const { w, h } = sizeSplash(c);
     const t = now - started;
-    const scale = Math.min(w / 512, h / 384) * 0.52;
+    // Почти во весь экран — так же, как игра занимает поле, а не квадрат
+    // посередине с полями со всех сторон.
+    const scale = Math.min(w / 512, h / 384) * 0.88;
     const ox = (w - 512 * scale) / 2;
-    const oy = (h - 384 * scale) / 2 - 20;
+    const oy = (h - 384 * scale) / 2 - Math.min(w, h) * 0.02;
     const px = (x) => ox + x * scale;
     const py = (y) => oy + y * scale;
     const r = 42 * scale;
+    const colourAt = (index) =>
+      pics && pics.colours && pics.colours.length
+        ? pics.colours[index % pics.colours.length]
+        : IDLE_PALETTE[index % IDLE_PALETTE.length];
 
-    // Пять нот на ленте: три впереди, чтобы кольца успевали появиться, и
-    // хвост, который ещё гаснет. Условие — про длину, а не про счётчик:
-    // счётчик растёт вместе с ней, и такой цикл не кончается.
-    while (notes.length < 5) {
-      notes.push(makeNote(notes[notes.length - 1].at, made));
-      made += 1;
+    // Фигурами вперёд, по одной за раз: пока на ленте меньше шести нот, к ней
+    // добавляется целый узор со своим цветом. Условие — про длину, а не про
+    // счётчик: счётчик растёт вместе с ней, и такой цикл не кончается.
+    while (notes.length < 6) {
+      colour += 1;
+      notes.push(...makePattern(notes[notes.length - 1].at, colour));
     }
     notes = notes.filter((note) => t < note.at + 900);
-    if (!notes.length) notes.push(makeNote(t, made));
+    if (!notes.length) notes.push(...makePattern(t, colour));
 
-    // Где курсор: между прошлой нотой и следующей, с оттяжкой на подлёте.
-    const next = notes.find((note) => note.at > t) || notes[notes.length - 1];
-    const index = notes.indexOf(next);
-    const prev = index > 0 ? notes[index - 1] : { x: 256, y: 192, at: t - 800, worth: 300 };
-    const along = Math.min(1, Math.max(0, (t - prev.at) / Math.max(1, next.at - prev.at)));
-    const eased = along < 0.5 ? 2 * along * along : 1 - (1 - along) ** 2 / 2;
-    // Промах — это курсор, который не доехал: он идёт мимо, и по ноте видно
-    // почему её не засчитали.
-    const aimX = next.worth === 0 ? next.x + 90 : next.x;
-    const aimY = next.worth === 0 ? next.y + 40 : next.y;
-    const cursor = [prev.x + (aimX - prev.x) * eased, prev.y + (aimY - prev.y) * eased];
+    // Где курсор: между прошлой нотой и следующей, с разгоном и торможением, по
+    // точкам приземления — не по центрам нот, чтобы промах не телепортировал.
+    // Вторая половина кривой именно `1 - 2(1-a)²`, а не `1 - (1-a)²/2`: с
+    // делением половины не сходятся на середине, кривая прыгает с 0.5 на 0.875,
+    // и курсор ровно посреди каждого перелёта проскакивает треть пути одним
+    // кадром. Это и был тот рывок.
+    const where = (moment) => {
+      const next = notes.find((note) => note.at > moment) || notes[notes.length - 1];
+      const index = notes.indexOf(next);
+      const prev = index > 0 ? notes[index - 1] : next;
+      const span = Math.max(1, next.at - prev.at);
+      const along = Math.min(1, Math.max(0, (moment - prev.at) / span));
+      const eased = along < 0.5 ? 2 * along * along : 1 - 2 * (1 - along) ** 2;
+      return [prev.landX + (next.landX - prev.landX) * eased, prev.landY + (next.landY - prev.landY) * eased];
+    };
+    const cursor = where(t);
 
     for (const note of [...notes].reverse()) {
+      if (note.resting) continue;
       const since = t - note.at;
       const appears = note.at - IDLE_APPROACH_MS;
       if (t < appears) continue;
       const alpha = since < 0 ? Math.min(1, (t - appears) / 300) : Math.max(0, 1 - since / 320);
       if (alpha <= 0) continue;
-      c.globalAlpha = alpha;
-      c.strokeStyle = "rgba(226,72,72,0.9)";
-      c.lineWidth = Math.max(1.5, r * 0.1);
-      c.fillStyle = "rgba(255,255,255,0.05)";
-      c.beginPath();
-      c.arc(px(note.x), py(note.y), r, 0, Math.PI * 2);
-      c.fill();
-      c.stroke();
-      c.fillStyle = "rgba(255,255,255,0.75)";
-      c.font = `600 ${r * 0.85}px ui-monospace, Menlo, monospace`;
-      c.textAlign = "center";
-      c.textBaseline = "middle";
-      c.fillText(String(note.number), px(note.x), py(note.y));
+      const ringLeft = since < 0 ? -since / IDLE_APPROACH_MS : 0;
+      drawIdleNote(c, note, px, py, r, colourAt(note.colour), alpha, ringLeft);
 
-      if (since < 0) {
-        const left = -since / IDLE_APPROACH_MS;
-        c.strokeStyle = "rgba(226,72,72,0.65)";
-        c.beginPath();
-        c.arc(px(note.x), py(note.y), r * (1 + 2.2 * left), 0, Math.PI * 2);
-        c.stroke();
-      } else {
-        // Что из неё вышло — над самой нотой, полсекунды. Счёт ведётся по
-        // отметке на самой ноте, а не по окну времени: окно шириной в
-        // несколько кадров засчиталось бы столько же раз.
-        if (!note.counted) {
-          note.counted = true;
-          combo = note.worth ? combo + 1 : 0;
-        }
+      if (since >= 0) {
+        // Что из неё вышло — над самой нотой, полсекунды.
         c.globalAlpha = alpha;
         c.fillStyle = WORTH[note.worth] || WORTH[0];
         c.font = `700 ${r * 0.8}px ui-monospace, Menlo, monospace`;
+        c.textAlign = "center";
+        c.textBaseline = "middle";
         c.fillText(SAID[note.worth] || "×", px(note.x), py(note.y) - since * 0.03 - r * 0.1);
+        c.globalAlpha = 1;
       }
     }
-    c.globalAlpha = 1;
 
-    c.fillStyle = "rgba(255,255,255,0.85)";
-    c.beginPath();
-    c.arc(px(cursor[0]), py(cursor[1]), 5, 0, Math.PI * 2);
-    c.fill();
-    c.strokeStyle = "rgba(255,255,255,0.35)";
+    // След: треть секунды пути позади курсора. Реплей и есть путь курсора —
+    // без него на экране просто точка, которая оказывается то тут, то там.
+    c.strokeStyle = "rgba(255,255,255,0.2)";
     c.lineWidth = 1.5;
+    c.lineJoin = "round";
     c.beginPath();
-    c.arc(px(cursor[0]), py(cursor[1]), 11, 0, Math.PI * 2);
+    for (let back = 14; back >= 0; back -= 1) {
+      const was = where(t - back * 22);
+      if (back === 14) c.moveTo(px(was[0]), py(was[1]));
+      else c.lineTo(px(was[0]), py(was[1]));
+    }
     c.stroke();
 
-    c.fillStyle = "rgba(255,255,255,0.28)";
-    c.font = `600 ${Math.max(14, r * 0.6)}px ui-monospace, Menlo, monospace`;
-    c.textAlign = "left";
-    c.fillText(`${combo}x`, ox, oy - 14);
+    if (pics && pics.cursor) {
+      const side = Math.min(w, h) * 0.05;
+      c.drawImage(pics.cursor.image, px(cursor[0]) - side / 2, py(cursor[1]) - side / 2, side, side);
+    } else {
+      c.fillStyle = "rgba(255,255,255,0.85)";
+      c.beginPath();
+      c.arc(px(cursor[0]), py(cursor[1]), 5, 0, Math.PI * 2);
+      c.fill();
+      c.strokeStyle = "rgba(255,255,255,0.35)";
+      c.lineWidth = 1.5;
+      c.beginPath();
+      c.arc(px(cursor[0]), py(cursor[1]), 11, 0, Math.PI * 2);
+      c.stroke();
+    }
 
-    // Строки движка сменяют друг друга сами — их читают, а не показывают.
-    if (now - saidAt > 6500) {
+    // Строки движка сменяют друг друга сами, не спеша — их читают, а не
+    // показывают.
+    if (now - saidAt > 9000) {
       saidAt = now;
       said = (said + 1) % SAYINGS.length;
       const line = byId("splash-say");
@@ -613,7 +794,7 @@ function playIdle() {
       setTimeout(() => {
         line.textContent = SAYINGS[said];
         line.style.opacity = "";
-      }, 500);
+      }, 700);
     }
 
     scene_run = requestAnimationFrame(frame);
@@ -621,10 +802,10 @@ function playIdle() {
   scene_run = requestAnimationFrame(frame);
 }
 
-/// `kind` — «open» при запуске и «idle» после молчания. Две разные сцены: одна
-/// говорит, что это за приложение, вторая занимает глаз, пока к окну не
-/// вернулись.
-function showSplash(kind) {
+/// После молчания — не то же самое, что при запуске: та сцена говорит, что
+/// это за приложение, эта занимает глаз минутами, пока к окну не вернулись.
+/// Сцена запуска идёт через [`showBlackCover`] и [`playOpening`] отдельно.
+function showSplash() {
   if (asleep) return;
   asleep = true;
   byId("splash-say").textContent = SAYINGS[Math.floor(Math.random() * SAYINGS.length)];
@@ -632,8 +813,8 @@ function showSplash(kind) {
   splash.hidden = false;
   void splash.offsetWidth;
   splash.classList.remove("going");
-  if (kind === "open") playOpening();
-  else playIdle();
+  loadPics().catch(() => {});
+  playIdle();
 }
 
 function hideSplash() {
@@ -652,7 +833,7 @@ function armIdle() {
   if (now - lastStir < 5000) return;
   lastStir = now;
   clearTimeout(idleTimer);
-  if (remembered("splash", "both") === "both") idleTimer = setTimeout(() => showSplash("idle"), idleMs());
+  if (remembered("splash", "both") === "both") idleTimer = setTimeout(showSplash, idleMs());
 }
 
 function stirred() {
@@ -1277,6 +1458,58 @@ let drawing = false;
 /// знать, кто её сейчас ждёт.
 let watching = { bar: "r-bar", said: "r-said", share: "r-share" };
 
+// ── рендер и монтаж, свёрнутые в угол ────────────────────────────────────
+
+/// Что сейчас идёт, если идёт. `home` — вкладка, на которой у процесса есть
+/// своя полная панель; в углу он появляется, только когда открыта другая.
+let job = null;
+/// Плашка гаснет — не переключать её видимость, пока это не кончится, иначе
+/// переход на другую вкладку посреди затухания обрывает его рывком.
+let jobFading = false;
+
+const jobMini = byId("job-mini");
+
+function startJob(home, label) {
+  job = { home, label };
+  jobFading = false;
+  jobMini.classList.remove("leaving");
+  byId("job-label").textContent = label;
+  paintJob(0, "");
+  syncJobMini();
+}
+
+function paintJob(percent, note) {
+  byId("job-percent").textContent = round(percent);
+  byId("job-bar").style.width = `${Math.min(100, Math.max(0, percent))}%`;
+  byId("job-note").textContent = note;
+}
+
+/// Показать или спрятать по тому, где сейчас открыто. На своей вкладке процесс
+/// и так виден целиком — плашка в углу там только повторяла бы то же самое.
+function syncJobMini() {
+  if (jobFading) return;
+  jobMini.hidden = !(job && open_tab !== job.home);
+}
+
+/// Быстро, но плавно: полоса на миг доходит до конца, а сама плашка гаснет, а
+/// не пропадает разом — и переключение вкладки посреди этого её не обрывает.
+/// Если она и не показывалась — работа шла на своей же вкладке всё время — ей
+/// нечего гасить, и она просто остаётся спрятанной.
+function endJob(ok) {
+  if (!job) return;
+  paintJob(100, ok ? "готово" : "не вышло");
+  const wasShown = !jobMini.hidden;
+  job = null;
+  if (!wasShown) return;
+  jobFading = true;
+  jobMini.classList.add("leaving");
+  setTimeout(() => {
+    jobMini.hidden = true;
+    jobMini.classList.remove("leaving");
+    jobFading = false;
+  }, 280);
+}
+
 /// Чем рисовать. Всё это — настройка, а не решение, принимаемое заново перед
 /// каждым рендером: лишние шесть полей над списком реплеев стояли там ради
 /// одного случая из двадцати.
@@ -1302,6 +1535,12 @@ function options() {
       video: remembered("video", "0") === "1",
       bare: remembered("bare", "0") === "1",
       cursor_rotate: remembered("rotate", "0") === "1" ? true : null,
+      map_hitsounds: remembered("mapsounds", "1") === "1",
+      skin_hitsounds: remembered("skinsounds", "1") === "1",
+      kit: remembered("kit", "click"),
+      pitch: Number(remembered("pitch", "1")),
+      decay: Number(remembered("decay", "1")),
+      kit_level: Number(remembered("kitlevel", "1")),
     },
   };
 }
@@ -1340,6 +1579,12 @@ const RENDER_FIELDS = [
   ["s-bare", "bare", "0"],
   ["s-threads", "threads", "0"],
   ["s-enc", "enc", "0"],
+  ["s-mapsounds", "mapsounds", "1"],
+  ["s-skinsounds", "skinsounds", "1"],
+  ["s-kit", "kit", "click"],
+  ["s-pitch", "pitch", "1"],
+  ["s-decay", "decay", "1"],
+  ["s-kitlevel", "kitlevel", "1"],
 ];
 
 function loadRenderSettings() {
@@ -1469,6 +1714,7 @@ function fillPlays({ shelves, skins, plays, rows }) {
     drawing = true;
     for (const other of list.querySelectorAll("button")) other.disabled = true;
     watching = { bar: "r-bar", said: "r-said", share: "r-share" };
+    startJob("render", `Рендер · ${play.player}`);
     const done_note = byId("r-done");
     done_note.className = "verdict";
     done_note.textContent = "";
@@ -1482,9 +1728,11 @@ function fillPlays({ shelves, skins, plays, rows }) {
       const done = await invoke("draw", { replay: play.path, out, ...options() });
       done_note.textContent = `готово — ${done.path}`;
       for (const note of done.said) done_note.textContent += `\n${note}`;
+      endJob(true);
     } catch (why) {
       done_note.className = "verdict bad";
       done_note.textContent = `не вышло: ${why}`;
+      endJob(false);
     } finally {
       drawing = false;
       for (const other of list.querySelectorAll("button")) other.disabled = false;
@@ -1503,11 +1751,14 @@ if (window.__TAURI__ && window.__TAURI__.event) {
     const share = Math.min(100, (payload.frames / payload.of) * 100);
     byId(watching.bar).style.width = `${share}%`;
     if (watching.share) byId(watching.share).textContent = round(share);
-    byId(watching.said).textContent =
-      `кадр ${round(payload.frames)} из ${round(payload.of)} · ${round(payload.per_second)} в секунду · осталось ${round(payload.left_seconds)} с`;
+    const note = `кадр ${round(payload.frames)} из ${round(payload.of)} · ${round(payload.per_second)} в секунду · осталось ${round(payload.left_seconds)} с`;
+    byId(watching.said).textContent = note;
+    if (job) paintJob(share, note);
   });
   window.__TAURI__.event.listen("reeling", ({ payload }) => {
-    byId("rp-built").textContent = `кусок ${payload.clip} из ${payload.of}…`;
+    const note = `кусок ${payload.clip} из ${payload.of}…`;
+    byId("rp-built").textContent = note;
+    if (job) paintJob((payload.clip / payload.of) * 100, note);
   });
 }
 
@@ -2393,6 +2644,7 @@ byId("rp-build").addEventListener("click", async () => {
   }
   drawing = true;
   watching = { bar: "rp-bar", said: "rp-built", share: null };
+  startJob("replay", "Монтаж");
   said.className = "verdict";
   said.textContent = "собираю…";
   byId("rp-progress").hidden = false;
@@ -2411,9 +2663,11 @@ byId("rp-build").addEventListener("click", async () => {
       mute: settings.mute,
     });
     said.textContent = `готово — ${done.path}`;
+    endJob(true);
   } catch (why) {
     said.className = "verdict bad";
     said.textContent = `не вышло: ${why}`;
+    endJob(false);
   } finally {
     drawing = false;
     byId("rp-progress").hidden = true;
@@ -2441,6 +2695,7 @@ function show(which) {
   // раздражает ровно настолько, насколько это дёшево не делать.
   if (which === open_tab) return;
   open_tab = which;
+  syncJobMini();
   for (const name of Object.keys(views)) {
     byId(`tab-${name}`).setAttribute("aria-selected", String(name === which));
     byId(`view-${name}`).hidden = name !== which;
@@ -2492,8 +2747,13 @@ byId("w-save").addEventListener("click", async () => {
   skinned = remembered("skinned", "0") === "1";
   idleAfter(remembered("idle", "5"), false);
   reportWhen(remembered("report", "ask"), false);
-  if (remembered("splash", "both") !== "never") showSplash("open");
-  armIdle();
+
+  // Экран чёрный с первого кадра — до того, как что-либо успело измерить себя
+  // или разложиться. Сцена запускается только когда всё это уже случилось:
+  // раньше она стартовала тут же и её первые секунды съедала как раз та
+  // работа, которую окно ещё не закончило делать.
+  const opening = remembered("splash", "both") !== "never";
+  if (opening) showBlackCover();
   requestAnimationFrame(() => dock.classList.remove("landing"));
 
   let first = false;
@@ -2508,7 +2768,17 @@ byId("w-save").addEventListener("click", async () => {
       const box = byId(`w-${field}`);
       if (box) box.value = known[field] || "";
     }
+    // Мастеру нужно внимание сразу, а не через полторы секунды кольца —
+    // первый запуск и так самый долгий разговор, который у человека будет с
+    // этим окном.
+    if (opening) {
+      locked = false;
+      asleep = false;
+      splash.classList.remove("going");
+      splash.hidden = true;
+    }
     byId("wizard").hidden = false;
+    armIdle();
     return;
   }
   show("render");
@@ -2517,9 +2787,17 @@ byId("w-save").addEventListener("click", async () => {
   // разъезжается на первом же движении курсора.
   dressAll();
   measure();
-  if (document.fonts && document.fonts.ready) document.fonts.ready.then(measure);
+  if (document.fonts && document.fonts.ready) await document.fonts.ready;
+  loadPics().catch(() => {});
 
-  // Не в первую секунду: спрашивать у origin, пока ещё висит обложка, значит
+  // Ещё два кадра тишины: браузеру нужно успеть отрисовать всё, что только
+  // что легло на макет, прежде чем часы сцены начнут отсчёт — иначе первые
+  // её кадры съедает та же раскладка.
+  await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  if (opening) playOpening();
+  armIdle();
+
+  // Не в первую секунду: спрашивать у origin, пока ещё идёт заставка, значит
   // тратить её на ожидание сети.
   setTimeout(() => lookForUpdate(false), 3500);
 })();

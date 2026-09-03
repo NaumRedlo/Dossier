@@ -33,6 +33,10 @@
 body {
   margin: 0;
   min-height: 100vh;
+  /* Собственный контекст: верхний отступ `main` иначе схлопывается наружу
+     через `body` и добавляет свои 4.6rem к высоте документа — страница
+     прокручивалась ровно на них, ничего при этом не показывая. */
+  display: flow-root;
   background: radial-gradient(115% 95% at 50% -18%, #3a1015 0%, #26090f 30%, #17070b 55%, #0d0508 78%, #070304 100%) fixed;
   color: var(--ink);
   font: 14px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
@@ -223,7 +227,7 @@ body.dock-left .item { width: 100%; }
 .ic-machine .core,
 .ic-machine .pins,
 .ic-render .play,
-.ic-render .rails,
+.ic-render .perf,
 .ic-farm .led,
 .ic-farm .wire,
 .ic-settings .knob,
@@ -242,9 +246,12 @@ body.dock-left .item { width: 100%; }
 .item:hover .ic-machine .pins, .item[aria-selected="true"] .ic-machine .pins { opacity: 1; }
 
 .ic-render .play { fill: currentColor; transform-origin: 12px 12px; }
-.ic-render .rails { opacity: 0.5; }
-.item:hover .ic-render .play, .item[aria-selected="true"] .ic-render .play { transform: translateX(1.2px) scale(1.12); }
-.item:hover .ic-render .rails, .item[aria-selected="true"] .ic-render .rails { opacity: 1; }
+.ic-render .perf rect { fill: currentColor; stroke: none; opacity: 0.55; }
+/* Плёнка продвигается ровно на одну перфорацию — один кадр, а не бегущая
+   лента: лента крутилась бы и тогда, когда ничего не рисуется. */
+.ic-render .perf { transform: translateY(0); }
+.item:hover .ic-render .perf, .item[aria-selected="true"] .ic-render .perf { transform: translateY(-4.2px); opacity: 1; }
+.item:hover .ic-render .play, .item[aria-selected="true"] .ic-render .play { transform: scale(1.12); }
 
 .ic-farm .led { fill: currentColor; stroke: none; opacity: 0.32; }
 .item:hover .ic-farm .led-a, .item[aria-selected="true"] .ic-farm .led-a { opacity: 1; }
@@ -1114,6 +1121,20 @@ body.dock-left main { margin: 4.6rem auto 0; padding-top: 1.5rem; }
 /* Списку реплеев есть куда расти: над ним больше нет шести полей. */
 .list { max-height: 34rem; }
 
+/* Прокручивается список, а не страница. Вкладка занимает ровно то, что видно,
+   и всё, кроме списка, стоит на месте: шаги, строка со счётом и панель
+   процесса должны быть на виду и во время долгой прокрутки реплеев. */
+#view-render {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 10.4rem);
+}
+#view-render .list {
+  flex: 1;
+  min-height: 8rem;
+  max-height: none;
+}
+
 /* Экран выбора режима стоит там же, где начинается содержимое, а не под
    самой панелью. */
 .choose { padding-top: 3rem; }
@@ -1162,3 +1183,32 @@ body.dock-left main { margin: 4.6rem auto 0; padding-top: 1.5rem; }
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* ── иконки выбора: судейство и монтаж ────────────────────────────────── */
+
+/* Здесь их всего две и на них смотрят в упор, пока выбирают, — так что они
+   живут постоянно, а не только под курсором. Каждая показывает своё дело:
+   к ноте сходится кольцо, плёнку режут по кадру. */
+.ic-judge .ring { transform-origin: 12px 12px; }
+.ic-judge .ring { animation: judging 2.4s cubic-bezier(0.2, 0.6, 0.35, 1) infinite; }
+@keyframes judging {
+  0% { transform: scale(2.1); opacity: 0; }
+  18% { opacity: 0.85; }
+  72% { transform: scale(1); opacity: 0.85; }
+  86%, 100% { transform: scale(1); opacity: 0; }
+}
+.mode:hover .ic-judge .ring { animation-duration: 1.5s; }
+
+.ic-cut .blade { transform-origin: 12px 12px; }
+.ic-cut .blade.a { animation: trim-left 3.2s ease-in-out infinite; }
+.ic-cut .blade.b { animation: trim-right 3.2s ease-in-out infinite; }
+@keyframes trim-left {
+  0%, 100% { transform: translateX(0); }
+  45% { transform: translateX(2.4px); }
+}
+@keyframes trim-right {
+  0%, 100% { transform: translateX(0); }
+  45% { transform: translateX(-2.4px); }
+}
+.ic-cut .rails { transition: opacity 0.3s var(--ease); }
+.mode:hover .ic-cut .rails { opacity: 1; }

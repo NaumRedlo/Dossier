@@ -311,13 +311,16 @@ fn update_run(app: tauri::AppHandle) -> Result<(), String> {
 /// that it need not, and even then this is the only thing that leaves — the
 /// version, the system and the log.
 #[tauri::command]
-fn send_report(log: String) -> Result<String, String> {
+fn send_report(log: String, kind: Option<String>) -> Result<String, String> {
     let said = settings::Settings::load();
     if said.server.is_empty() {
         return Err("адрес бота не задан — отправлять некуда".to_owned());
     }
     let hardware = machine::Hardware::read();
     let what = serde_json::json!({
+        // `build` — сборка обновления не прошла, `bug` — жалоба из окна. Одна
+        // дорога, два повода, и получателю надо знать, какой из них.
+        "kind": kind.unwrap_or_else(|| "build".to_owned()),
         "version": env!("CARGO_PKG_VERSION"),
         "os": hardware.os,
         "cpu": hardware.cpu,

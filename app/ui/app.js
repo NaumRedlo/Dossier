@@ -423,14 +423,20 @@ markImage.src = "letter.png";
 const hitSound = new Audio("hit.wav");
 hitSound.preload = "auto";
 
-/// Сколько кольцо сходится и сколько сцена стоит после удара.
-const APPROACH_MS = 1150;
+/// Вступление: кадр за кадром.
+///
+/// Чёрный экран. Сверху вниз идёт полоса света и открывает букву — не целиком,
+/// а по мере того, как доходит: ровно так рендерер и собирает картинку, строка
+/// за строкой. Когда полоса доходит до низа, буква собрана — и к ней сходится
+/// кольцо, а это уже осу. Удар, звук, свет, и сцена уходит.
+///
+/// Три вещи, которые надо сказать о приложении, сказаны одной сценой и ни одна
+/// не подписана словами.
+const SWEEP_MS = 900;
+const RING_FROM_MS = 620;
+const STRIKE_MS = 1700;
 const AFTER_HIT_MS = 620;
 
-/// Кольцо подходит к букве и попадает по ней — та же нота, что рисует движок,
-/// только вместо круга наша марка. Звук ровно в момент схождения: это и есть
-/// осу, и другого способа сказать это одним кадром нет.
-///
 /// Заперта на всё время, что экран чёрный, — включая ожидание, — и на всё
 /// время самой сцены. Раньше движение мыши во время загрузки гасило чёрный
 /// экран за секунду до того, как на нём вообще было что показывать; теперь
@@ -455,7 +461,7 @@ function sizeSplash(c) {
 
 /// Закрыть окно чёрным и не открывать его никому, включая курсор. Вызывается
 /// первым делом при запуске, до единого `await`, — а сама анимация просится
-/// только позже, когда всё, что могло украсть у нее кадр, уже позади.
+/// только позже, когда всё, что могло украсть у неё кадр, уже позади.
 function showBlackCover() {
   locked = true;
   asleep = true;
@@ -467,6 +473,14 @@ function showBlackCover() {
   sizeSplash(splashView.getContext("2d"));
 }
 
+/// Буква, какой она встанет в кадре: середина, сторона и рамка, в которой её
+/// открывает полоса.
+function letterBox(w, h) {
+  const size = Math.min(w, h) * 0.17;
+  const side = size * (markIsLetter ? 2.6 : 1.5);
+  return { mid: [w / 2, h / 2 - 8], size, side, top: h / 2 - 8 - side / 2 };
+}
+
 function playOpening() {
   const c = splashView.getContext("2d");
   const started = performance.now();
@@ -476,74 +490,85 @@ function playOpening() {
   const frame = (now) => {
     const { w, h } = sizeSplash(c);
     const t = now - started;
-    const mid = [w / 2, h / 2 - 10];
-    const size = Math.min(w, h) * 0.16;
-    const settling = Math.min(1, t / APPROACH_MS);
+    const { mid, size, side, top } = letterBox(w, h);
 
-    // Круг, к которому кольцо и сходится. Он стоит на месте — по нему видно,
-    // куда именно всё придёт, и без него сужение не о чем.
-    c.globalAlpha = Math.min(1, t / 420) * 0.5;
-    c.strokeStyle = "#e24848";
-    c.lineWidth = 2;
-    c.beginPath();
-    c.arc(mid[0], mid[1], size, 0, Math.PI * 2);
-    c.stroke();
-
-    c.globalAlpha = Math.min(1, t / 420);
-    const swell = struck ? 1 + 0.07 * Math.max(0, 1 - (t - APPROACH_MS) / 260) : 1;
-    if (markImage.complete && markImage.naturalWidth) {
-      // Буква занимает около трети своего холста, плитка — весь: чтобы обе
-      // вставали в кольцо одного размера, множитель у них разный.
-      const side = size * (markIsLetter ? 2.6 : 1.5) * swell;
-      c.drawImage(markImage, mid[0] - side / 2, mid[1] - side / 2, side, side);
+    // Полоса света идёт вниз и открывает букву ровно настолько, насколько
+    // прошла. Это и есть весь фокус: картинка появляется не целиком, а так,
+    // как её собирают.
+    const swept = Math.min(1, t / SWEEP_MS);
+    if (markImage.complete && markImage.naturalWidth && swept > 0) {
+      c.save();
+      c.beginPath();
+      c.rect(mid[0] - side / 2, top, side, side * swept);
+      c.clip();
+      const swell = struck ? 1 + 0.06 * Math.max(0, 1 - (t - STRIKE_MS) / 260) : 1;
+      const grown = side * swell;
+      c.drawImage(markImage, mid[0] - grown / 2, mid[1] - grown / 2, grown, grown);
+      c.restore();
     }
 
-    if (!struck) {
-      // Равномерно, а не с торможением: игра сводит кольцо линейно, и по нему
-      // считают, когда нажимать. Кольцо, которое замедляется на подлёте,
-      // читается как анимация, а не как нота, к которой надо успеть.
-      c.globalAlpha = Math.min(1, t / 300) * 0.9;
+    // Сам луч — тонкая черта с ореолом, пока идёт.
+    if (swept < 1) {
+      const edge = top + side * swept;
+      const glow = c.createLinearGradient(0, edge - size * 0.5, 0, edge + size * 0.12);
+      glow.addColorStop(0, "rgba(226, 72, 72, 0)");
+      glow.addColorStop(1, "rgba(226, 72, 72, 0.28)");
+      c.fillStyle = glow;
+      c.fillRect(mid[0] - side, edge - size * 0.5, side * 2, size * 0.62);
+      c.strokeStyle = "rgba(255, 226, 226, 0.85)";
+      c.lineWidth = 1;
+      c.beginPath();
+      c.moveTo(mid[0] - side * 0.72, edge);
+      c.lineTo(mid[0] + side * 0.72, edge);
+      c.stroke();
+    }
+
+    // Кольцо выходит, когда буква уже читается, и сходится равномерно — так
+    // его сводит игра, и по нему считают, когда нажимать.
+    if (!struck && t > RING_FROM_MS) {
+      const closing = Math.min(1, (t - RING_FROM_MS) / (STRIKE_MS - RING_FROM_MS));
+      c.globalAlpha = Math.min(1, (t - RING_FROM_MS) / 220) * 0.9;
       c.strokeStyle = "#e24848";
       c.lineWidth = 2.5;
       c.beginPath();
-      c.arc(mid[0], mid[1], size * (1 + 2.4 * (1 - settling)), 0, Math.PI * 2);
+      c.arc(mid[0], mid[1], size * (1 + 2.6 * (1 - closing)), 0, Math.PI * 2);
       c.stroke();
-    } else {
-      const since = (t - APPROACH_MS) / 420;
-      if (since < 1) {
-        c.globalAlpha = (1 - since) * 0.7;
-        c.strokeStyle = "#fff";
-        c.lineWidth = 2;
-        c.beginPath();
-        c.arc(mid[0], mid[1], size * (1 + since * 0.9), 0, Math.PI * 2);
-        c.stroke();
-      }
-      // И свет от удара — то, чем игра отмечает попадание: аддитивное пятно
-      // цвета ноты, которое расходится и гаснет. Из всей осу это самый
-      // узнаваемый кадр.
-      const lit = (t - APPROACH_MS) / 520;
+      c.globalAlpha = 1;
+    }
+
+    if (struck) {
+      // Свет от удара — то, чем игра отмечает попадание: аддитивное пятно
+      // цвета ноты, которое расходится и гаснет.
+      const lit = (t - STRIKE_MS) / 560;
       if (lit < 1) {
         c.save();
         c.globalCompositeOperation = "lighter";
-        c.globalAlpha = (1 - lit) * 0.55;
-        const glow = c.createRadialGradient(mid[0], mid[1], 0, mid[0], mid[1], size * (1.3 + lit * 1.8));
-        glow.addColorStop(0, "rgba(226, 72, 72, 0.85)");
-        glow.addColorStop(1, "rgba(226, 72, 72, 0)");
-        c.fillStyle = glow;
+        c.globalAlpha = (1 - lit) * 0.6;
+        const bloom = c.createRadialGradient(mid[0], mid[1], 0, mid[0], mid[1], size * (1.2 + lit * 2));
+        bloom.addColorStop(0, "rgba(226, 72, 72, 0.9)");
+        bloom.addColorStop(1, "rgba(226, 72, 72, 0)");
+        c.fillStyle = bloom;
         c.fillRect(0, 0, w, h);
         c.restore();
+
+        c.globalAlpha = (1 - lit) * 0.7;
+        c.strokeStyle = "#fff";
+        c.lineWidth = 2;
+        c.beginPath();
+        c.arc(mid[0], mid[1], size * (1 + lit * 1.1), 0, Math.PI * 2);
+        c.stroke();
+        c.globalAlpha = 1;
       }
     }
-    c.globalAlpha = 1;
 
-    if (!struck && t >= APPROACH_MS) {
+    if (!struck && t >= STRIKE_MS) {
       struck = true;
       hitSound.currentTime = 0;
       // Окно может не дать звуку идти без нажатия — тогда сцена просто тихая,
       // и это не повод её ронять.
       hitSound.play().catch(() => {});
     }
-    if (t > APPROACH_MS + AFTER_HIT_MS) {
+    if (t > STRIKE_MS + AFTER_HIT_MS) {
       locked = false;
       hideSplash();
       return;
@@ -553,235 +578,90 @@ function playOpening() {
   scene_run = requestAnimationFrame(frame);
 }
 
-// ── заставка в простое: игра, которая играет сама ──────────────────────
+// ── заставка в простое: чужая игра, а не выдумка ───────────────────────
 
-/// Ноты появляются, курсор идёт к ним и нажимает. Иногда мимо — потому что
-/// сцена, где всё всегда попадает, перестаёт быть интересной на второй ноте, а
-/// смотрят на неё минутами.
-const IDLE_APPROACH_MS = 780;
-const IDLE_GAP_MS = 620;
+/// Что сейчас крутится, и что есть на полке. Заставка не сочиняет ноты — она
+/// берёт реплей, у которого карта нашлась по хэшу, и проигрывает его тем же
+/// кодом, каким «Судейство» показывает открытый: тот же разбор, тот же скин,
+/// та же геометрия. Только числа над нотами не рисуются — здесь на игру
+/// смотрят, а не считают по ней.
+let idlePlay = null;
+let idleShelf = null;
+let idleAsking = false;
 
-/// Цвета нот, пока скин не подгрузился или не назвал своих. Те же четыре, что
-/// служат синтетическими тестовыми картами в остальном приложении.
-const IDLE_PALETTE = ["#e24848", "#66ccff", "#88d64c", "#f0c060"];
-
-/// Одна нота на поле 512 на 384 — те же размеры, что у игры.
-function makeNote(x, y, at, number, colour) {
-  const roll = Math.random();
-  const worth = roll < 0.12 ? 0 : roll < 0.26 ? 100 : 300;
-  const put = [Math.min(462, Math.max(50, x)), Math.min(339, Math.max(45, y))];
-  return {
-    x: put[0],
-    y: put[1],
-    // Куда курсор пришёл на самом деле — иначе при промахе, чем при попадании.
-    // Считается один раз, здесь же: следующий отрезок пути начнётся ровно там,
-    // где кончился этот, а не там, где нота стоит «по правде». Иначе на каждом
-    // промахе курсор дёргало бы.
-    landX: worth === 0 ? put[0] + 70 : put[0],
-    landY: worth === 0 ? put[1] + 34 : put[1],
-    at,
-    number,
-    colour,
-    worth,
-  };
+async function nextIdlePlay() {
+  if (idleAsking) return;
+  idleAsking = true;
+  try {
+    if (!idleShelf) {
+      const plays = await invoke("my_replays", { most: 60 });
+      idleShelf = plays.filter((play) => play.have_map);
+    }
+    if (idleShelf.length) {
+      const pick = idleShelf[Math.floor(Math.random() * idleShelf.length)];
+      const opened = await invoke("judged", { replay: pick.path });
+      idlePlay = { scene: opened, judged: opened.summary, head: opened.from_ms };
+    }
+  } catch {
+    // Нет моста, нет папки, нет карт — заставка покажет букву, и это честно.
+    idleShelf = idleShelf || [];
+  } finally {
+    idleAsking = false;
+  }
 }
 
-/// Ноты не сыплются по полю наугад. В карте они складываются в фигуры — поток,
-/// прыжок, разворот, — и случайные точки читаются как рябь, а не как чья-то
-/// игра. Каждый вызов даёт одну такую фигуру целиком, с её собственным цветом
-/// комбо и нумерацией с единицы, ровно как считает их сама игра.
-function makePattern(after, colour) {
-  const kind = Math.random();
-  const notes = [];
-  let when = after + IDLE_GAP_MS + Math.random() * 240;
-
-  if (kind < 0.4) {
-    // Поток: ноты одна за другой по дуге, вплотную.
-    const count = 5 + Math.floor(Math.random() * 3);
-    const gap = 155 + Math.random() * 55;
-    const from = [110 + Math.random() * 292, 100 + Math.random() * 184];
-    const turn = Math.random() * Math.PI * 2;
-    const bend = (Math.random() - 0.5) * 0.55;
-    for (let i = 0; i < count; i += 1) {
-      const angle = turn + bend * i;
-      notes.push(makeNote(from[0] + Math.cos(angle) * 52 * i, from[1] + Math.sin(angle) * 52 * i, when, i + 1, colour));
-      when += gap;
-    }
-  } else if (kind < 0.72) {
-    // Прыжок: далеко и редко — курсору есть куда лететь, и видно, как он летит.
-    const count = 3 + Math.floor(Math.random() * 2);
-    let at = [140 + Math.random() * 232, 100 + Math.random() * 184];
-    for (let i = 0; i < count; i += 1) {
-      notes.push(makeNote(at[0], at[1], when, i + 1, colour));
-      when += 385 + Math.random() * 95;
-      const away = Math.random() * Math.PI * 2;
-      at = [at[0] + Math.cos(away) * 205, at[1] + Math.sin(away) * 145];
-    }
-  } else {
-    // Разворот: туда и обратно между двумя местами.
-    const count = 4 + Math.floor(Math.random() * 3);
-    const here = [90 + Math.random() * 130, 80 + Math.random() * 200];
-    const there = [300 + Math.random() * 130, 80 + Math.random() * 200];
-    for (let i = 0; i < count; i += 1) {
-      const spot = i % 2 ? there : here;
-      notes.push(
-        makeNote(spot[0] + (Math.random() - 0.5) * 44, spot[1] + (Math.random() - 0.5) * 44, when, i + 1, colour),
-      );
-      when += 255 + Math.random() * 70;
-    }
-  }
-  return notes;
-}
-
-/// Одна нота — картинками скина, если они уже загрузились, иначе тем же
-/// каркасом, что рисует «Судейство» без скина.
-function drawIdleNote(c, note, px, py, r, colour, alpha, ringLeft) {
-  c.globalAlpha = alpha;
-  const side = r * 2;
-  if (pics && pics.circle) {
-    c.drawImage(tinted(pics.circle.image, colour), px(note.x) - r, py(note.y) - r, side, side);
-    if (pics.overlay) {
-      c.drawImage(pics.overlay.image, px(note.x) - r, py(note.y) - r, side, side);
-    }
-    const digit = pics.digits.length === 10 ? pics.digits[note.number % 10] : null;
-    if (digit) {
-      const high = r * 0.85;
-      const wide = (digit.image.width / digit.image.height) * high;
-      c.drawImage(digit.image, px(note.x) - wide / 2, py(note.y) - high / 2, wide, high);
-    }
-    if (ringLeft > 0 && pics.approach) {
-      const ring = r * (1 + 2.2 * ringLeft) * 2;
-      c.drawImage(tinted(pics.approach.image, colour), px(note.x) - ring / 2, py(note.y) - ring / 2, ring, ring);
-    }
-  } else {
-    // Плотнее, чем в «Судействе»: там сквозь ноту смотрят на поле, здесь на
-    // неё просто смотрят.
-    c.strokeStyle = colour;
-    c.lineWidth = Math.max(1.5, r * 0.12);
-    c.globalAlpha = alpha * 0.22;
-    c.fillStyle = colour;
-    c.beginPath();
-    c.arc(px(note.x), py(note.y), r, 0, Math.PI * 2);
-    c.fill();
-    c.globalAlpha = alpha;
-    c.stroke();
-    c.fillStyle = "rgba(255,255,255,0.92)";
-    c.font = `600 ${r * 0.85}px ui-monospace, Menlo, monospace`;
-    c.textAlign = "center";
-    c.textBaseline = "middle";
-    c.fillText(String(note.number), px(note.x), py(note.y));
-    if (ringLeft > 0) {
-      c.strokeStyle = colour;
-      c.beginPath();
-      c.arc(px(note.x), py(note.y), r * (1 + 2.2 * ringLeft), 0, Math.PI * 2);
-      c.stroke();
-    }
-  }
+/// Пока реплей читается — и если читать нечего — буква посреди чёрного. Пустой
+/// экран сказал бы, что приложение сломалось.
+function drawResting(c, w, h) {
+  if (!markImage.complete || !markImage.naturalWidth) return;
+  const { mid, size, side } = letterBox(w, h);
+  c.globalAlpha = 0.5;
+  c.drawImage(markImage, mid[0] - side / 2, mid[1] - side / 2, side, side);
+  c.globalAlpha = 0.18;
+  c.strokeStyle = "#e24848";
+  c.lineWidth = 2;
+  c.beginPath();
+  c.arc(mid[0], mid[1], size * 1.35, 0, Math.PI * 2);
+  c.stroke();
   c.globalAlpha = 1;
 }
 
 function playIdle() {
   const c = splashView.getContext("2d");
-  const started = performance.now();
-  // Первая — не нота, а место, откуда курсор выходит: у самого первого отрезка
-  // должно быть настоящее начало с настоящим временем, иначе он считается от
-  // «сейчас минус сколько-то» и ведёт себя тем страннее, чем дольше смотрят.
-  let notes = [{ x: 256, y: 192, landX: 256, landY: 192, at: 0, number: 0, colour: 0, worth: 300, resting: true }];
-  let colour = 0;
+  let was = performance.now();
   let said = 0;
-  let saidAt = started;
+  let saidAt = was;
+  nextIdlePlay();
 
   const frame = (now) => {
     const { w, h } = sizeSplash(c);
-    const t = now - started;
-    // Почти во весь экран — так же, как игра занимает поле, а не квадрат
-    // посередине с полями со всех сторон.
-    const scale = Math.min(w / 512, h / 384) * 0.88;
-    const ox = (w - 512 * scale) / 2;
-    const oy = (h - 384 * scale) / 2 - Math.min(w, h) * 0.02;
-    const px = (x) => ox + x * scale;
-    const py = (y) => oy + y * scale;
-    const r = 42 * scale;
-    const colourAt = (index) =>
-      pics && pics.colours && pics.colours.length
-        ? pics.colours[index % pics.colours.length]
-        : IDLE_PALETTE[index % IDLE_PALETTE.length];
+    const step = Math.min(64, now - was);
+    was = now;
 
-    // Фигурами вперёд, по одной за раз: пока на ленте меньше шести нот, к ней
-    // добавляется целый узор со своим цветом. Условие — про длину, а не про
-    // счётчик: счётчик растёт вместе с ней, и такой цикл не кончается.
-    while (notes.length < 6) {
-      colour += 1;
-      notes.push(...makePattern(notes[notes.length - 1].at, colour));
-    }
-    notes = notes.filter((note) => t < note.at + 900);
-    if (!notes.length) notes.push(...makePattern(t, colour));
-
-    // Где курсор: между прошлой нотой и следующей, с разгоном и торможением, по
-    // точкам приземления — не по центрам нот, чтобы промах не телепортировал.
-    // Вторая половина кривой именно `1 - 2(1-a)²`, а не `1 - (1-a)²/2`: с
-    // делением половины не сходятся на середине, кривая прыгает с 0.5 на 0.875,
-    // и курсор ровно посреди каждого перелёта проскакивает треть пути одним
-    // кадром. Это и был тот рывок.
-    const where = (moment) => {
-      const next = notes.find((note) => note.at > moment) || notes[notes.length - 1];
-      const index = notes.indexOf(next);
-      const prev = index > 0 ? notes[index - 1] : next;
-      const span = Math.max(1, next.at - prev.at);
-      const along = Math.min(1, Math.max(0, (moment - prev.at) / span));
-      const eased = along < 0.5 ? 2 * along * along : 1 - 2 * (1 - along) ** 2;
-      return [prev.landX + (next.landX - prev.landX) * eased, prev.landY + (next.landY - prev.landY) * eased];
-    };
-    const cursor = where(t);
-
-    for (const note of [...notes].reverse()) {
-      if (note.resting) continue;
-      const since = t - note.at;
-      const appears = note.at - IDLE_APPROACH_MS;
-      if (t < appears) continue;
-      const alpha = since < 0 ? Math.min(1, (t - appears) / 300) : Math.max(0, 1 - since / 320);
-      if (alpha <= 0) continue;
-      const ringLeft = since < 0 ? -since / IDLE_APPROACH_MS : 0;
-      drawIdleNote(c, note, px, py, r, colourAt(note.colour), alpha, ringLeft);
-
-      if (since >= 0) {
-        // Что из неё вышло — над самой нотой, полсекунды.
-        c.globalAlpha = alpha;
-        c.fillStyle = WORTH[note.worth] || WORTH[0];
-        c.font = `700 ${r * 0.8}px ui-monospace, Menlo, monospace`;
-        c.textAlign = "center";
-        c.textBaseline = "middle";
-        c.fillText(SAID[note.worth] || "×", px(note.x), py(note.y) - since * 0.03 - r * 0.1);
-        c.globalAlpha = 1;
+    if (idlePlay) {
+      idlePlay.head += step;
+      if (idlePlay.head >= idlePlay.scene.to_ms) {
+        // Доиграл — следующий. Другой реплей, а не тот же по кругу.
+        idlePlay = null;
+        nextIdlePlay();
+        drawResting(c, w, h);
+      } else {
+        drawPlay(
+          c,
+          {
+            scene: idlePlay.scene,
+            judged: idlePlay.judged,
+            head: idlePlay.head,
+            skinned: true,
+            popups: false,
+            frame: false,
+          },
+          w,
+          h,
+        );
       }
-    }
-
-    // След: треть секунды пути позади курсора. Реплей и есть путь курсора —
-    // без него на экране просто точка, которая оказывается то тут, то там.
-    c.strokeStyle = "rgba(255,255,255,0.2)";
-    c.lineWidth = 1.5;
-    c.lineJoin = "round";
-    c.beginPath();
-    for (let back = 14; back >= 0; back -= 1) {
-      const was = where(t - back * 22);
-      if (back === 14) c.moveTo(px(was[0]), py(was[1]));
-      else c.lineTo(px(was[0]), py(was[1]));
-    }
-    c.stroke();
-
-    if (pics && pics.cursor) {
-      const side = Math.min(w, h) * 0.05;
-      c.drawImage(pics.cursor.image, px(cursor[0]) - side / 2, py(cursor[1]) - side / 2, side, side);
     } else {
-      c.fillStyle = "rgba(255,255,255,0.85)";
-      c.beginPath();
-      c.arc(px(cursor[0]), py(cursor[1]), 5, 0, Math.PI * 2);
-      c.fill();
-      c.strokeStyle = "rgba(255,255,255,0.35)";
-      c.lineWidth = 1.5;
-      c.beginPath();
-      c.arc(px(cursor[0]), py(cursor[1]), 11, 0, Math.PI * 2);
-      c.stroke();
+      drawResting(c, w, h);
     }
 
     // Строки движка сменяют друг друга сами, не спеша — их читают, а не
@@ -822,6 +702,9 @@ function hideSplash() {
   asleep = false;
   if (scene_run) cancelAnimationFrame(scene_run);
   scene_run = null;
+  // Разбор игры — это мегабайты одного только курсора, и держать их, пока
+  // окном пользуются, незачем.
+  idlePlay = null;
   splash.classList.add("going");
   setTimeout(() => {
     if (!asleep) splash.hidden = true;
@@ -923,9 +806,9 @@ const ROUTES = [
       const whole = said + (await tail());
       try {
         await navigator.clipboard.writeText(whole);
-        note("текст в буфере — вставьте в чат");
+        note("Текст будет в буфере");
       } catch {
-        note("чат открыт, текст придётся перенести руками");
+        note("Чат открыт, но текст придётся перенести руками");
       }
       return `https://t.me/${CONTACT.telegram}`;
     },
@@ -943,7 +826,7 @@ for (const route of ROUTES.filter((route) => route.ready())) {
   button.addEventListener("click", async () => {
     const said = byId("bug-text").value.trim();
     if (!said) {
-      note("напишите хоть пару слов — без них починить нечего", true);
+      note("Напишите хоть пару слов.", true);
       byId("bug-text").focus();
       return;
     }
@@ -951,7 +834,7 @@ for (const route of ROUTES.filter((route) => route.ready())) {
     try {
       await invoke("open_link", { url: await route.link(said) });
     } catch (why) {
-      note(`не открылось: ${why}`, true);
+      note(`Не открылось: ${why}`, true);
     } finally {
       button.disabled = false;
     }
@@ -995,7 +878,7 @@ async function lookForUpdate(loud = false) {
   byId("up-version").textContent =
     said.how === "none"
       ? `${said.version} · ${said.said}`
-      : `${said.version} · отстаёт на ${said.behind} ${plural(said.behind, "коммит", "коммита", "коммитов")}`;
+      : `${said.version} · Отстаёт на ${said.behind} ${plural(said.behind, "коммит", "коммита", "коммитов")}`;
 
   const there = said.how === "git" || said.how === "dirty";
   upbox.hidden = !there;
@@ -1016,7 +899,7 @@ function openUpdate(yes) {
 
 byId("up").addEventListener("click", () => openUpdate(uppane.hidden));
 byId("up-check").addEventListener("click", () => {
-  byId("up-version").textContent = "спрашиваю…";
+  byId("up-version").textContent = "Спрашиваю…";
   lookForUpdate(false);
 });
 document.addEventListener("pointerdown", (event) => {
@@ -1051,13 +934,13 @@ byId("up-go").addEventListener("click", async () => {
   upLog.hidden = false;
   upLog.textContent = "";
   byId("up-after").hidden = true;
-  note.textContent = "обновляю…";
+  note.textContent = "Обновляю…";
   try {
     await invoke("update_run");
-    note.textContent = "готово — перезапустите приложение";
+    note.textContent = "Готово — перезапустите приложение";
     byId("up-head").textContent = "Собрано";
   } catch (why) {
-    note.textContent = `не собралось: ${why}`;
+    note.textContent = `Не собралось: ${why}`;
     offerReport();
   } finally {
     go.disabled = false;
@@ -1070,12 +953,12 @@ async function offerReport() {
   const after = byId("up-after");
   const how = remembered("report", "ask");
   if (how === "never") {
-    after.replaceChildren(el("span", "muted", "журнал никуда не отправлен — так настроено"));
+    after.replaceChildren(el("span", "muted", "Журнал никуда не отправлен по политике приложения."));
     after.hidden = false;
     return;
   }
   if (how === "auto") {
-    after.replaceChildren(el("span", "muted", "отправляю разработчику…"));
+    after.replaceChildren(el("span", "muted", "Отправляю разработчику…"));
     after.hidden = false;
     sendReport(after);
     return;
@@ -1095,10 +978,10 @@ async function offerReport() {
 
 async function sendReport(after) {
   try {
-    const said = await invoke("send_report", { log: logged });
+    const said = await invoke("send_report", { log: logged, kind: "build" });
     after.replaceChildren(el("span", "muted", `${said} — вместе с версией, системой и журналом`));
   } catch (why) {
-    after.replaceChildren(el("span", "muted", `отправить не вышло: ${why}`));
+    after.replaceChildren(el("span", "muted", `Отправить не вышло: ${why}`));
   }
 }
 
@@ -1111,7 +994,7 @@ async function showReady() {
   try {
     rows = await invoke("ready");
   } catch (why) {
-    verdict.textContent = `не удалось спросить: ${why.message}`;
+    verdict.textContent = `Не удалось спросить: ${why.message}`;
     verdict.className = "verdict bad";
     return [];
   }
@@ -1121,13 +1004,13 @@ async function showReady() {
   const stopped = rows.filter((row) => row.ok === false).length;
   verdict.textContent = stopped
     ? `${stopped} ${plural(stopped, "пункт", "пункта", "пунктов")} надо поправить`
-    : "готово — можно брать работу";
+    : "Готово — можно брать работу";
   verdict.className = stopped ? "verdict bad" : "verdict";
 
   // И отдельной строкой то, что с диска не узнать: согласен ли бот работать с
   // такой сборкой. Дописывается, когда ответит, — остальной список мгновенный
   // и ждать сети не должен.
-  const asking = line({ mark: ["huh", "?"], name: "сборка", said: "спрашиваю у бота…" });
+  const asking = line({ mark: ["huh", "?"], name: "Сборка", said: "Спрашиваю у бота…" });
   box.append(asking);
   invoke("handshake")
     .then((row) =>
@@ -1135,7 +1018,7 @@ async function showReady() {
         line({ mark: sign(row.ok), name: row.name, said: row.said, fix: row.ok === false ? row.fix : "" }),
       ),
     )
-    .catch((why) => asking.replaceWith(line({ mark: ["no", "!"], name: "сборка", said: `${why}` })));
+    .catch((why) => asking.replaceWith(line({ mark: ["no", "!"], name: "Сборка", said: `${why}` })));
   return rows;
 }
 
@@ -1150,7 +1033,7 @@ async function showMachine() {
   try {
     told = await invoke("profile");
   } catch (why) {
-    head.replaceChildren(el("span", null, `не удалось измерить: ${why.message}`));
+    head.replaceChildren(el("span", null, `Не удалось измерить: ${why.message}`));
     return;
   }
 
@@ -1167,23 +1050,23 @@ async function showMachine() {
 
   const hardware = told.hardware;
   const rows = [
-    { mark: ["ok", "·"], name: "процессор", said: hardware.cpu },
-    { mark: ["ok", "·"], name: "ядер", said: String(hardware.cores) },
-    { mark: ["ok", "·"], name: "память", said: hardware.memory_gb ? `${round(hardware.memory_gb, 1)} ГБ` : "неизвестно" },
-    { mark: ["ok", "·"], name: "система", said: hardware.os },
+    { mark: ["ok", "·"], name: "Процессор", said: hardware.cpu },
+    { mark: ["ok", "·"], name: "Ядер", said: String(hardware.cores) },
+    { mark: ["ok", "·"], name: "ОЗУ", said: hardware.memory_gb ? `${round(hardware.memory_gb, 1)} ГБ` : "неизвестно" },
+    { mark: ["ok", "·"], name: "Система", said: hardware.os },
     {
       mark: hardware.encoders.length ? ["ok", "+"] : ["huh", "?"],
-      name: "кодировщики",
+      name: "Кодировщики",
       said: hardware.encoders.length ? hardware.encoders.join(", ") : "только программный",
     },
     {
       mark: sign(told.capacity.take),
-      name: "политика",
+      name: "Доступность",
       said: told.capacity.reason,
     },
   ];
   if (told.speed) {
-    rows.push({ mark: ["ok", "·"], name: "на поток", said: `${round(told.speed.per_thread)} кадров/с` });
+    rows.push({ mark: ["ok", "·"], name: "На поток", said: `${round(told.speed.per_thread)} кадров/с` });
   }
   box.replaceChildren(...rows.map(line));
 }
@@ -1201,7 +1084,7 @@ async function showFarm() {
   } catch (why) {
     box.replaceChildren();
     said.className = "verdict bad";
-    said.textContent = `ферму не видно: ${why}`;
+    said.textContent = `Ферму не видно: ${why}`;
     return;
   }
   byId("f-waiting").textContent = farm.waiting
@@ -1270,7 +1153,7 @@ async function saveSettings(prefix, saidId) {
   } catch (why) {
     if (note) {
       note.className = "verdict bad";
-      note.textContent = `не сохранилось: ${why}`;
+      note.textContent = `Не сохранилось: ${why}`;
     }
     return false;
   }
@@ -1291,7 +1174,7 @@ async function installSkin(path) {
     fillSkins(byId("s-skin"), await invoke("skins").catch(() => []), name);
     await saveSettings("s", "s-said");
     note.className = "verdict";
-    note.textContent = `скин «${name}» поставлен и выбран по умолчанию`;
+    note.textContent = `Скин «${name}» поставлен и выбран по умолчанию`;
     showSettings();
     return true;
   } catch (why) {
@@ -1324,9 +1207,9 @@ function fillSkins(picker, skins, chosenName) {
 }
 
 const PROMPTS = {
-  songs: "Папка с картами — обычно osu!/Songs",
-  skins: "Папка со скинами — обычно osu!/Skins",
-  replays: "Папка с реплеями — обычно osu!/Replays",
+  songs: "Папка с картами (обычно osu!/Songs)",
+  skins: "Папка со скинами (обычно osu!/Skins)",
+  replays: "Папка с реплеями (обычно osu!/Replays)",
 };
 
 /// Выбрать папку системным окном и тут же записать. Путь, который выбрали, а
@@ -1401,9 +1284,9 @@ async function showLibrary() {
     return;
   }
   const groups = [
-    ["Досьер", (mod) => mod.state === "builtin"],
-    ["Нужно снаружи", (mod) => mod.state !== "builtin" && mod.state !== "planned"],
-    ["В планах", (mod) => mod.state === "planned"],
+    ["Ядро Dosser", (mod) => mod.state === "builtin"],
+    ["Сторонние зависимости", (mod) => mod.state !== "builtin" && mod.state !== "planned"],
+    ["В разработке", (mod) => mod.state === "planned"],
   ];
   const rows = [];
   for (const [name, belongs] of groups) {
@@ -1497,7 +1380,7 @@ function syncJobMini() {
 /// нечего гасить, и она просто остаётся спрятанной.
 function endJob(ok) {
   if (!job) return;
-  paintJob(100, ok ? "готово" : "не вышло");
+  paintJob(100, ok ? "Готово" : "Не вышло");
   const wasShown = !jobMini.hidden;
   job = null;
   if (!wasShown) return;
@@ -1550,9 +1433,9 @@ function options() {
 function howItDraws() {
   const said = options();
   const off = [
-    said.background ? "" : "без фона",
-    said.storyboard ? "" : "без сториборда",
-    said.mute ? "без звука" : "",
+    said.background ? "" : "Без фона",
+    said.storyboard ? "" : "Без сториборда",
+    said.mute ? "Без звука" : "",
   ].filter(Boolean);
   return [
     `${said.width}×${said.height}`,
@@ -1632,7 +1515,7 @@ async function showRender(again = false) {
   }
   // Сначала показать, что читаем, и только потом читать: вкладка, которая
   // молчит и не отвечает, выглядит как повисшая, а не как занятая.
-  byId("r-count").textContent = "читаю папку реплеев…";
+  byId("r-count").textContent = "Читаю папку реплеев…";
   list.replaceChildren(line({ mark: ["huh", "·"], name: "минуту", said: "разбираю реплеи и ищу их карты" }));
 
   const [settings, shelves, skins, plays, rows] = await Promise.all([
@@ -1654,7 +1537,7 @@ function fillPlays({ shelves, skins, plays, rows }) {
     {
       n: 1,
       name: "Папка реплеев",
-      note: shelves && shelves.replays.exists ? shelves.replays.note : "откуда брать, что рисовать",
+      note: shelves && shelves.replays.exists ? shelves.replays.note : "Откуда брать, что рендерить",
       done: Boolean(shelves && shelves.replays.exists),
       act: "Обзор…",
       go: async () => (await pickFolder("replays")) && showRender(true),
@@ -1662,7 +1545,7 @@ function fillPlays({ shelves, skins, plays, rows }) {
     {
       n: 2,
       name: "Папка карт",
-      note: shelves && shelves.songs.exists ? shelves.songs.note : "по ней ищется карта, на которой играли",
+      note: shelves && shelves.songs.exists ? shelves.songs.note : "По ней ищется карта, на которой играли",
       done: Boolean(shelves && shelves.songs.exists),
       act: "Обзор…",
       go: async () => (await pickFolder("songs")) && showRender(true),
@@ -1670,7 +1553,7 @@ function fillPlays({ shelves, skins, plays, rows }) {
     {
       n: 3,
       name: "ffmpeg",
-      note: ffmpeg && ffmpeg.ok ? "нашёлся" : "склеивает кадры в видео — без него рисовать некуда",
+      note: ffmpeg && ffmpeg.ok ? "нашёлся" : "Склеивает кадры в видео.",
       done: Boolean(ffmpeg && ffmpeg.ok),
       act: "Где взять",
       go: () => invoke("open_link", { url: "https://ffmpeg.org/download.html" }).catch(() => {}),
@@ -1680,7 +1563,7 @@ function fillPlays({ shelves, skins, plays, rows }) {
       name: "Скин",
       note: skins.length
         ? `${skins.length} ${plural(skins.length, "скин", "скина", "скинов")} на выбор`
-        : `необязательно: без своего рисуется «${DEFAULT_SKIN}»`,
+        : `Необязательно: без своего рисуется «${DEFAULT_SKIN}»`,
       done: true,
     },
   ];
@@ -1688,10 +1571,10 @@ function fillPlays({ shelves, skins, plays, rows }) {
   byId("r-steps").replaceChildren(...(left.length ? steps.map(stepCard) : []));
 
   byId("r-count").textContent = plays.length
-    ? `${plays.length} ${plural(plays.length, "реплей", "реплея", "реплеев")}, новые сверху`
+    ? `${plays.length} ${plural(plays.length, "реплей", "реплея", "реплеев")}, новейшие находятся наверху`
     : "";
   if (!plays.length) {
-    list.replaceChildren(line({ mark: ["huh", "?"], name: "пусто", said: "укажите папку реплеев — шаг первый" }));
+    list.replaceChildren(line({ mark: ["huh", "?"], name: "пусто", said: "Укажите папку реплеев." }));
     return;
   }
   list.replaceChildren(...plays.map((play) => playRow(play)));
@@ -1726,12 +1609,12 @@ function fillPlays({ shelves, skins, plays, rows }) {
     const out = play.path.replace(/\.osr$/i, "") + ".mp4";
     try {
       const done = await invoke("draw", { replay: play.path, out, ...options() });
-      done_note.textContent = `готово — ${done.path}`;
+      done_note.textContent = `Готово — ${done.path}`;
       for (const note of done.said) done_note.textContent += `\n${note}`;
       endJob(true);
     } catch (why) {
       done_note.className = "verdict bad";
-      done_note.textContent = `не вышло: ${why}`;
+      done_note.textContent = `Не вышло: ${why}`;
       endJob(false);
     } finally {
       drawing = false;
@@ -1854,12 +1737,12 @@ async function needs(which) {
   const ffmpeg = rows.find((row) => row.name === "ffmpeg");
   return ffmpeg && ffmpeg.ok
     ? ""
-    : "для монтажа нужен ffmpeg — «Библиотека» скажет, где его взять";
+    : "Для монтажа нужен ffmpeg. «Библиотека» скажет, где его взять";
 }
 
 async function enter(which) {
   const gate = byId("rp-gate");
-  gate.textContent = "проверяю, что для этого нужно…";
+  gate.textContent = "Проверяю, что для этого нужно…";
   const missing = await needs(which);
   if (missing) {
     gate.textContent = missing;
@@ -1871,7 +1754,7 @@ async function enter(which) {
   byId("rp-stage").hidden = false;
   byId("rp-mode").textContent = which === "judge" ? "Судейство" : "Монтаж";
   byId("rp-what").textContent =
-    which === "judge" ? "что засчитано, что нет и на сколько" : "куски игры и сборка из них";
+    which === "judge" ? "Что засчитано, что нет и на сколько" : "Куски игры и сборка из них";
   byId("rp-judge").hidden = which !== "judge";
   byId("rp-cut").hidden = which !== "cut";
   if (scene) showLive();
@@ -1908,7 +1791,7 @@ byId("rp-back").addEventListener("click", () => {
 async function openReplay(path) {
   const said = byId("rp-said");
   byId("rp-drop").hidden = false;
-  said.textContent = "читаю и сужу…";
+  said.textContent = "Читаю и сужу…";
   let opened;
   try {
     opened = await invoke("judged", { replay: path });
@@ -1935,10 +1818,10 @@ function showLive() {
   saySkinned();
   byId("rp-rows").replaceChildren(
     ...[
-      { mark: ["ok", "·"], name: "точность", said: `${round(judged.accuracy_percent, 2)}%` },
+      { mark: ["ok", "·"], name: "Точность", said: `${round(judged.accuracy_percent, 2)}%` },
       {
         mark: judged.combo === judged.combo_recorded ? ["ok", "·"] : ["huh", "?"],
-        name: "комбо",
+        name: "Комбо",
         said:
           judged.combo === judged.combo_recorded
             ? String(judged.combo)
@@ -1947,11 +1830,11 @@ function showLive() {
       { mark: ["ok", "·"], name: "300", said: String(judged.counts.great) },
       { mark: ["ok", "·"], name: "100", said: String(judged.counts.ok) },
       { mark: ["huh", "·"], name: "50", said: String(judged.counts.meh) },
-      { mark: judged.counts.miss ? ["no", "!"] : ["ok", "·"], name: "промахи", said: String(judged.counts.miss) },
+      { mark: judged.counts.miss ? ["no", "!"] : ["ok", "·"], name: "Промахи", said: String(judged.counts.miss) },
       {
         mark: ["ok", "·"],
-        name: "разброс",
-        said: judged.unstable_rate === null ? "не считается" : `${round(judged.unstable_rate, 1)} UR`,
+        name: "Разброс",
+        said: judged.unstable_rate === null ? "без данных" : `${round(judged.unstable_rate, 1)} UR`,
       },
     ].map(line),
   );
@@ -1993,74 +1876,73 @@ if (window.__TAURI__ && window.__TAURI__.event) {
 
 /// Поле osu! — 512 на 384 единицы. Всё, что ниже, считает в них и переводит в
 /// точки холста одним и тем же множителем, чтобы круг остался кругом.
-function fit(w, h) {
+/// Всё, что нужно, чтобы нарисовать один миг игры: разбор, судейство, время и
+/// то, рисовать ли скином. Просмотрщик передаёт своё, заставка — своё, а
+/// рисуют они одним и тем же кодом, потому что рисуют одно и то же.
+///
+/// `popups` — числа над отыгранными нотами: в «Судействе» они и есть смысл, на
+/// заставке это разметка поверх картинки.
+function fit(w, h, radius) {
   const scale = Math.min(w / 512, h / 384) * 0.9;
   return {
     scale,
     ox: (w - 512 * scale) / 2,
     oy: (h - 384 * scale) / 2,
-    r: scene.radius * scale,
+    r: radius * scale,
   };
 }
 
 /// Первый объект, который ещё может быть виден. Двоичным поиском, а не с
 /// начала: на карте их бывает несколько тысяч, а кадров в секунду шестьдесят.
-function firstVisible(ms) {
+function firstVisible(objects, ms) {
   let low = 0;
-  let high = scene.objects.length;
+  let high = objects.length;
   while (low < high) {
     const mid = (low + high) >> 1;
-    if (scene.objects[mid].end_ms + AFTER_MS < ms) low = mid + 1;
+    if (objects[mid].end_ms + AFTER_MS < ms) low = mid + 1;
     else high = mid;
   }
   return low;
 }
 
-function cursorAt(ms) {
-  const step = Math.round((ms - scene.from_ms) / scene.step_ms);
-  const at = Math.min(Math.max(0, step), scene.keys.length - 1);
-  return { x: scene.cursor[at * 2], y: scene.cursor[at * 2 + 1], keys: scene.keys[at], at };
+function cursorAt(play, ms) {
+  const step = Math.round((ms - play.from_ms) / play.step_ms);
+  const at = Math.min(Math.max(0, step), play.keys.length - 1);
+  return { x: play.cursor[at * 2], y: play.cursor[at * 2 + 1], keys: play.keys[at], at };
 }
 
-function drawView() {
-  if (!scene || view.clientWidth === 0) return;
-  const dpr = window.devicePixelRatio || 1;
-  const w = view.clientWidth;
-  const h = view.clientHeight;
-  view.width = Math.round(w * dpr);
-  view.height = Math.round(h * dpr);
-  const c = view.getContext("2d");
-  c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  c.clearRect(0, 0, w, h);
-
-  const box = fit(w, h);
+function drawPlay(c, show, w, h) {
+  const box = fit(w, h, show.scene.radius);
   const px = (x) => box.ox + x * box.scale;
   const py = (y) => box.oy + y * box.scale;
 
-  c.strokeStyle = "rgba(255,255,255,0.05)";
-  c.strokeRect(box.ox, box.oy, 512 * box.scale, 384 * box.scale);
+  if (show.frame) {
+    c.strokeStyle = "rgba(255,255,255,0.05)";
+    c.strokeRect(box.ox, box.oy, 512 * box.scale, 384 * box.scale);
+  }
 
   // Собираем видимое, потом рисуем задом наперёд: ближайший по времени объект
   // должен лежать поверх тех, что придут после него, — так рисует и игра.
   const showing = [];
-  for (let i = firstVisible(head); i < scene.objects.length; i += 1) {
-    const piece = scene.objects[i];
-    if (piece.start_ms - scene.preempt_ms > head) break;
+  for (let i = firstVisible(show.scene.objects, show.head); i < show.scene.objects.length; i += 1) {
+    const piece = show.scene.objects[i];
+    if (piece.start_ms - show.scene.preempt_ms > show.head) break;
     showing.push(piece);
   }
   for (let i = showing.length - 1; i >= 0; i -= 1) {
-    drawPiece(c, showing[i], box, px, py);
+    drawPiece(c, showing[i], box, px, py, show);
   }
 
-  drawPopups(c, box, px, py);
-  drawCursor(c, box, px, py);
+  if (show.popups) drawPopups(c, box, px, py, show);
+  drawCursor(c, box, px, py, show);
 }
 
-function drawPiece(c, piece, box, px, py) {
-  const appears = piece.start_ms - scene.preempt_ms;
-  const colour = skinned ? scene.colours[piece.colour] || "#e24848" : PLAIN;
-  const fading = head > piece.end_ms ? 1 - (head - piece.end_ms) / AFTER_MS : 1;
-  const alpha = Math.min(1, (head - appears) / Math.max(1, scene.fade_in_ms)) * Math.max(0, fading);
+function drawPiece(c, piece, box, px, py, show) {
+  const { scene: play, head: now, skinned: dressed } = show;
+  const appears = piece.start_ms - play.preempt_ms;
+  const colour = dressed ? play.colours[piece.colour] || "#e24848" : PLAIN;
+  const fading = now > piece.end_ms ? 1 - (now - piece.end_ms) / AFTER_MS : 1;
+  const alpha = Math.min(1, (now - appears) / Math.max(1, play.fade_in_ms)) * Math.max(0, fading);
   if (alpha <= 0) return;
   c.globalAlpha = alpha;
 
@@ -2081,7 +1963,7 @@ function drawPiece(c, piece, box, px, py) {
   if (piece.kind === "spinner") {
     c.strokeStyle = colour;
     c.lineWidth = 2;
-    const turning = Math.max(0, Math.min(1, (head - piece.start_ms) / Math.max(1, piece.end_ms - piece.start_ms)));
+    const turning = Math.max(0, Math.min(1, (now - piece.start_ms) / Math.max(1, piece.end_ms - piece.start_ms)));
     c.beginPath();
     c.arc(px(256), py(192), 130 * box.scale * (1 - turning * 0.75), 0, Math.PI * 2);
     c.stroke();
@@ -2089,10 +1971,10 @@ function drawPiece(c, piece, box, px, py) {
     return;
   }
 
-  const left = head < piece.start_ms ? (piece.start_ms - head) / Math.max(1, scene.preempt_ms) : 0;
+  const left = now < piece.start_ms ? (piece.start_ms - now) / Math.max(1, play.preempt_ms) : 0;
   const side = box.r * 2;
 
-  if (skinned && pics && pics.circle) {
+  if (dressed && pics && pics.circle) {
     // Скин рисует себя сам: нота, её накладка, номер и кольцо — теми же
     // файлами, которыми это рисует движок.
     c.drawImage(tinted(pics.circle.image, colour), px(piece.x) - box.r, py(piece.y) - box.r, side, side);
@@ -2146,13 +2028,13 @@ function drawPiece(c, piece, box, px, py) {
   }
 
   // Шар слайдера — из тех же точек, что считал движок.
-  if (piece.kind === "slider" && head >= piece.start_ms && head <= piece.end_ms && piece.ball.length) {
+  if (piece.kind === "slider" && now >= piece.start_ms && now <= piece.end_ms && piece.ball.length) {
     // Шар — кружком в обоих режимах: у скина он анимированный, а анимацию
     // здесь пока никто не проигрывает, и подсунуть один её кадр было бы
     // хуже, чем не подсовывать ничего.
     const at = Math.min(
       piece.ball.length / 2 - 1,
-      Math.max(0, Math.round((head - piece.start_ms) / scene.step_ms)),
+      Math.max(0, Math.round((now - piece.start_ms) / play.step_ms)),
     );
     c.fillStyle = colour;
     c.beginPath();
@@ -2167,11 +2049,11 @@ function drawPiece(c, piece, box, px, py) {
 
 /// Числа, которые выскакивают на месте объекта. Полсекунды и вверх — ровно
 /// столько, чтобы успеть заметить промах, и не столько, чтобы он мешал.
-function drawPopups(c, box, px, py) {
+function drawPopups(c, box, px, py, show) {
   c.textAlign = "center";
   c.textBaseline = "middle";
-  for (const mark of judged.marks) {
-    const since = head - mark.ms;
+  for (const mark of show.judged.marks) {
+    const since = show.head - mark.ms;
     if (since < 0 || since > 600) continue;
     c.globalAlpha = 1 - since / 600;
     c.fillStyle = WORTH[mark.worth] || WORTH[0];
@@ -2181,20 +2063,28 @@ function drawPopups(c, box, px, py) {
   c.globalAlpha = 1;
 }
 
-function drawCursor(c, box, px, py) {
-  const now = cursorAt(head);
+function drawCursor(c, box, px, py, show) {
+  const play = show.scene;
+  const now = cursorAt(play, show.head);
   c.strokeStyle = "rgba(255,255,255,0.35)";
   c.lineWidth = 1.5;
   c.beginPath();
   for (let back = 12; back >= 0; back -= 1) {
     const at = Math.max(0, now.at - back);
-    const point = [px(scene.cursor[at * 2]), py(scene.cursor[at * 2 + 1])];
+    const point = [px(play.cursor[at * 2]), py(play.cursor[at * 2 + 1])];
     if (back === 12) c.moveTo(point[0], point[1]);
     else c.lineTo(point[0], point[1]);
   }
   c.stroke();
 
   const held = (now.keys & 15) !== 0;
+  // Курсор скина, когда он есть: на заставке это единственное, что отделяет
+  // «наш показ игры» от «игры».
+  if (show.skinned && pics && pics.cursor) {
+    const side = box.r * (held ? 1.5 : 1.35);
+    c.drawImage(pics.cursor.image, px(now.x) - side / 2, py(now.y) - side / 2, side, side);
+    return;
+  }
   c.fillStyle = held ? "#fff" : "rgba(255,255,255,0.75)";
   c.beginPath();
   c.arc(px(now.x), py(now.y), held ? 6 : 4.5, 0, Math.PI * 2);
@@ -2206,6 +2096,20 @@ function drawCursor(c, box, px, py) {
     c.arc(px(now.x), py(now.y), 12, 0, Math.PI * 2);
     c.stroke();
   }
+}
+
+/// Просмотрщик: то же самое, но про то, что открыто сейчас.
+function drawView() {
+  if (!scene || view.clientWidth === 0) return;
+  const dpr = window.devicePixelRatio || 1;
+  const w = view.clientWidth;
+  const h = view.clientHeight;
+  view.width = Math.round(w * dpr);
+  view.height = Math.round(h * dpr);
+  const c = view.getContext("2d");
+  c.setTransform(dpr, 0, 0, dpr, 0, 0);
+  c.clearRect(0, 0, w, h);
+  drawPlay(c, { scene, judged, head, skinned, popups: true, frame: true }, w, h);
 }
 
 /// Что было к этому моменту: считается по тем же меткам, что нарисованы, —
@@ -2639,14 +2543,14 @@ byId("rp-build").addEventListener("click", async () => {
   const said = byId("rp-built");
   if (!clips.length) {
     said.className = "verdict bad";
-    said.textContent = "на ленте нет ни одного куска — нажмите «+ Кусок отсюда»";
+    said.textContent = "На ленте нет ни одного куска. Нажмите «Выделить кусок отсюда»";
     return;
   }
   drawing = true;
   watching = { bar: "rp-bar", said: "rp-built", share: null };
   startJob("replay", "Монтаж");
   said.className = "verdict";
-  said.textContent = "собираю…";
+  said.textContent = "Собираю…";
   byId("rp-progress").hidden = false;
   byId("rp-bar").style.width = "0%";
   const out = chosen.replace(/\.osr$/i, "") + "-монтаж.mp4";
@@ -2662,11 +2566,11 @@ byId("rp-build").addEventListener("click", async () => {
       fps: settings.fps,
       mute: settings.mute,
     });
-    said.textContent = `готово — ${done.path}`;
+    said.textContent = `Готово — ${done.path}`;
     endJob(true);
   } catch (why) {
     said.className = "verdict bad";
-    said.textContent = `не вышло: ${why}`;
+    said.textContent = `Не вышло: ${why}`;
     endJob(false);
   } finally {
     drawing = false;
@@ -2730,7 +2634,7 @@ byId("w-save").addEventListener("click", async () => {
   if (!byId("w-server").value.trim() || !byId("w-token").value.trim()) {
     const said = byId("w-said");
     said.className = "verdict bad";
-    said.textContent = "адрес и токен — те два, без которых ничего не поедет";
+    said.textContent = "Необходим адрес и токен. Без них ничего не поедет";
     return;
   }
   if (await saveSettings("w", "w-said")) {

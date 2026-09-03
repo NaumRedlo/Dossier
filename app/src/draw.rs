@@ -124,8 +124,62 @@ pub fn draw(asked: &Asked<'_>, told: &Told) -> Result<PathBuf, String> {
         },
         settings,
     };
-    let nothing = |_: &video::Plan| None;
-    let done = render::render(job, &nothing);
+    // The hit sounds. Without these the video is silent exactly where the play
+    // was loud — the click of every note — which is most of what a hitsounded
+    // map sounds like. The terminal client built this track and the window did
+    // not, and a render that came out of the two was not the same render.
+    //
+    // Two places are asked, because osu! asks two and does not treat them
+    // alike: the map's own folder first, where a custom sample index means
+    // something, and the skin only ever by plain name.
+    let kit = dossier_audio::Kit::plain();
+    let samples = {
+        let mut pack = match &asked.skin {
+            Some(folder) => dossier_audio::SamplePack::load(folder),
+            None => dossier_audio::SamplePack::load(Path::new("")),
+        };
+        let from_map = scratch.join("map-samples");
+        if std::fs::create_dir_all(&from_map).is_ok()
+            && locate::extract_samples(&origin, &from_map, "ffmpeg") > 0
+        {
+            pack = pack.with_beatmap(&from_map);
+        }
+        pack
+    };
+    // `len` is the skin's alone and `from_beatmap` the map's — two counts and
+    // not a total, which is why they are said apart.
+    if samples.is_empty() {
+        dossier_produce::note!("no hit-sound samples — the notes will be synthesised");
+    } else {
+        dossier_produce::note!(
+            "hit sounds: {} from the skin, {} from the map",
+            samples.len(),
+            samples.from_beatmap()
+        );
+    }
+
+    let muted = asked.mute;
+    let sounds = |plan: &video::Plan| -> Option<PathBuf> {
+        if muted {
+            return None;
+        }
+        let track = dossier_produce::hitsounds::build(
+            &state,
+            &beatmap,
+            |map_ms| plan.video_time_of(map_ms),
+            plan.video_seconds,
+            kit,
+            samples.clone(),
+            layering,
+        );
+        if track.is_empty() {
+            return None;
+        }
+        let path = scratch.join("hitsounds.pcm");
+        std::fs::write(&path, track.to_pcm()).ok()?;
+        Some(path)
+    };
+    let done = render::render(job, &sounds);
     dossier_produce::notes::unlisten();
     done
 }
@@ -168,7 +222,10 @@ mod tests {
             from_ms: Some(30_000.0),
             to_ms: Some(33_000.0),
             bare: false,
-            mute: true,
+            // Unmuted on purpose: a test that mutes the render never asks
+            // whether the hit sounds were built, which is how the window
+            // shipped without them.
+            mute: false,
             skin: None,
             events: false,
             background: false,
@@ -180,6 +237,24 @@ mod tests {
             size > 10_000,
             "a file too small to be a video: {size} bytes"
         );
+
+        // And it has sound. The window wrote silent videos for a while — the
+        // hit-sound track was never built — and nothing here noticed, because
+        // the only test of the pipeline muted the render it was checking.
+        let streams = std::process::Command::new("ffprobe")
+            .args([
+                "-v",
+                "error",
+                "-show_entries",
+                "stream=codec_type",
+                "-of",
+                "csv=p=0",
+            ])
+            .arg(&written)
+            .output()
+            .expect("ffprobe, which a render needs anyway");
+        let said = String::from_utf8_lossy(&streams.stdout);
+        assert!(said.contains("audio"), "the render came out silent: {said}");
         for line in told.said() {
             println!("said: {line}");
         }

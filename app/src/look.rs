@@ -41,9 +41,15 @@ pub struct Judged {
     pub mods: String,
     pub from_ms: f64,
     pub to_ms: f64,
+    /// The longest combo we judged.
     pub combo: u32,
-    pub max_combo: u32,
-    pub accuracy: f64,
+    /// And the one osu! wrote in the replay's header. They differ when our
+    /// judging and the game's differ, which is worth seeing rather than
+    /// dividing one by the other.
+    pub combo_recorded: u32,
+    /// Per cent, because that is what the engine's `accuracy()` returns —
+    /// named so nobody multiplies it by a hundred a second time.
+    pub accuracy_percent: f64,
     pub counts: Counts,
     pub unstable_rate: Option<f64>,
     pub marks: Vec<Mark>,
@@ -100,8 +106,8 @@ pub fn summarise(beatmap: &Beatmap, replay: &Replay, state: &GameState) -> Resul
         from_ms: marks.first().map_or(0.0, |mark| mark.ms),
         to_ms: ends,
         combo: last.max_combo,
-        max_combo: u32::from(replay.max_combo),
-        accuracy: last.accuracy(),
+        combo_recorded: u32::from(replay.max_combo),
+        accuracy_percent: last.accuracy(),
         counts: Counts {
             great: u32::from(last.counts.count_300),
             ok: u32::from(last.counts.count_100),

@@ -19,6 +19,7 @@ mod link;
 mod look;
 mod machine;
 mod pick;
+mod pics;
 mod play;
 mod reel;
 mod settings;
@@ -46,6 +47,7 @@ fn draw(
     mute: Option<bool>,
     from_ms: Option<f64>,
     to_ms: Option<f64>,
+    fine: Option<draw::Fine>,
 ) -> Result<Drawn, String> {
     use tauri::Emitter;
 
@@ -78,6 +80,7 @@ fn draw(
         mute: mute.unwrap_or(false),
         skin,
         events: true,
+        fine: fine.unwrap_or_default(),
     };
     let done = draw::draw(&asked, &told);
     dossier_produce::events::unlisten();
@@ -198,6 +201,25 @@ fn install_skin(path: String) -> Result<String, String> {
     library::install_skin(&settings::Settings::load(), std::path::Path::new(&path))
 }
 
+/// The pictures the viewer draws a play with, out of a named skin.
+///
+/// Empty name means the one settings call the default, which is the answer to
+/// "покажи со скином" — the skin this application is set to.
+#[tauri::command]
+fn skin_pictures(name: Option<String>) -> pics::Pictures {
+    let said = settings::Settings::load();
+    let name = name.filter(|n| !n.is_empty()).unwrap_or(said.skin.clone());
+    if name.is_empty() || said.skins.is_empty() {
+        return pics::Pictures::default();
+    }
+    let folder = std::path::Path::new(&said.skins).join(name);
+    if folder.is_dir() {
+        pics::of(&folder)
+    } else {
+        pics::Pictures::default()
+    }
+}
+
 /// Ask the system for one skin archive.
 #[tauri::command]
 fn pick_skin(prompt: String) -> Result<Option<String>, String> {
@@ -253,6 +275,7 @@ fn build_reel(
         mute: mute.unwrap_or(false),
         skin,
         events: true,
+        fine: draw::Fine::default(),
     };
     let counting = app.clone();
     let step = move |done: usize, of: usize| {
@@ -372,6 +395,7 @@ fn main() {
             pick_replay,
             pick_skin,
             install_skin,
+            skin_pictures,
             build_reel,
             modules,
             update_look,

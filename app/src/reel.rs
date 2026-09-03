@@ -106,6 +106,7 @@ fn clone_asked<'a>(asked: &Asked<'a>) -> Asked<'a> {
         mute: asked.mute,
         skin: asked.skin.clone(),
         events: asked.events,
+        fine: asked.fine.clone(),
     }
 }
 
@@ -137,6 +138,7 @@ mod tests {
             mute: true,
             skin: None,
             events: false,
+            fine: crate::draw::Fine::default(),
         };
         assert!(build(&asked, &[], &told, &|_, _| {}).is_err());
     }

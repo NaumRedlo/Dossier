@@ -53,6 +53,56 @@ pub struct Asked<'a> {
     /// Say what is happening in a form a program can read — see
     /// [`dossier_produce::events`].
     pub events: bool,
+    /// The knobs the engine has always had and the window never offered.
+    pub fine: Fine,
+}
+
+/// What a render can be told beyond "draw this replay".
+///
+/// Every one of these was already a flag on the command line; none of them was
+/// reachable from the window, which meant the application could draw exactly
+/// one way and the terminal could draw twelve. Defaults are the engine's own,
+/// so leaving the whole thing alone changes nothing.
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(default)]
+pub struct Fine {
+    /// 0–51, lower is better and bigger. 20 is the engine's own.
+    pub crf: u32,
+    /// x264's speed/размер trade: `ultrafast` … `veryslow`.
+    pub preset: String,
+    /// How loud the song and the hit sounds are against each other.
+    pub music_level: f32,
+    pub hitsound_level: f32,
+    /// Drawing threads, and the encoder's. `0` means "as many as sensible".
+    pub threads: u32,
+    pub encoder_threads: u32,
+    /// How far the background is darkened and blurred, in per cent.
+    pub dim: u32,
+    pub blur: u32,
+    /// Play the map's own video behind, when it has one.
+    pub video: bool,
+    /// Draw the play and nothing that talks about it — no HUD at all.
+    pub bare: bool,
+    /// Whether the cursor turns as it moves. `None` leaves the skin's answer.
+    pub cursor_rotate: Option<bool>,
+}
+
+impl Default for Fine {
+    fn default() -> Self {
+        Self {
+            crf: 20,
+            preset: "medium".to_owned(),
+            music_level: 1.0,
+            hitsound_level: 1.0,
+            threads: 0,
+            encoder_threads: 0,
+            dim: 0,
+            blur: 0,
+            video: false,
+            bare: false,
+            cursor_rotate: None,
+        }
+    }
 }
 
 /// Draw it, and say what happened on the way.
@@ -65,6 +115,7 @@ pub fn draw(asked: &Asked<'_>, told: &Told) -> Result<PathBuf, String> {
     if let Some(folder) = &asked.skin {
         skin = dossier_produce::skin::from_folder(skin, folder, None);
     }
+    skin.cursor_rotate = asked.fine.cursor_rotate;
     match dossier_produce::font::find(None)? {
         Some(font) => skin = skin.with_font(font),
         None => dossier_produce::note!("no font found — drawing without numbers"),
@@ -84,12 +135,13 @@ pub fn draw(asked: &Asked<'_>, told: &Told) -> Result<PathBuf, String> {
         from_ms: asked.from_ms,
         to_ms: asked.to_ms,
         ffmpeg: "ffmpeg".to_owned(),
-        crf: 20,
-        preset: "medium".to_owned(),
-        music_level: 1.0,
-        hitsound_level: 1.0,
-        threads: None,
-        encoder_threads: None,
+        crf: asked.fine.crf,
+        preset: asked.fine.preset.clone(),
+        music_level: asked.fine.music_level,
+        hitsound_level: asked.fine.hitsound_level,
+        threads: (asked.fine.threads > 0).then_some(asked.fine.threads as usize),
+        encoder_threads: (asked.fine.encoder_threads > 0)
+            .then_some(asked.fine.encoder_threads as usize),
         audio: if asked.mute {
             None
         } else {
@@ -109,14 +161,14 @@ pub fn draw(asked: &Asked<'_>, told: &Told) -> Result<PathBuf, String> {
         origin: &origin,
         skin,
         leaderboard: dossier_render::Leaderboard::default(),
-        bare: asked.bare,
+        bare: asked.bare || asked.fine.bare,
         layering,
         behind: scenery::Behind {
             background: asked.background,
             storyboard: asked.storyboard,
-            video: false,
-            dim: None,
-            blur: None,
+            video: asked.fine.video,
+            dim: (asked.fine.dim > 0).then_some(asked.fine.dim),
+            blur: (asked.fine.blur > 0).then_some(asked.fine.blur),
             ffmpeg: "ffmpeg",
             size: asked.size,
             at_ms: None,
@@ -230,6 +282,7 @@ mod tests {
             events: false,
             background: false,
             storyboard: false,
+            fine: Fine::default(),
         };
         let written = draw(&asked, &told).expect("it drew");
         let size = std::fs::metadata(&written).expect("a file").len();

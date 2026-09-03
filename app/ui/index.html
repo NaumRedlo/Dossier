@@ -15,8 +15,7 @@
   <!-- Заставка: при запуске и после долгого молчания. Уходит от любого
        движения — это картинка, а не диалог. -->
   <div class="splash" id="splash" hidden>
-    <img class="mark" src="mark.png" alt="" width="84" height="84">
-    <h1>Dossier</h1>
+    <canvas id="splash-view"></canvas>
     <p class="say" id="splash-say"></p>
   </div>
   <!-- Опрашивается один раз при открытии: пока сервер и токен не названы,
@@ -58,9 +57,9 @@
 
       <button class="item" id="tab-replay" role="tab" aria-selected="false">
         <span class="glyph"><svg class="ic ic-replay" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-          <circle class="hit" cx="12" cy="12" r="4.4"/>
-          <circle class="approach" cx="12" cy="12" r="8.6"/>
-          <circle class="dot" cx="12" cy="12" r="1.5"/>
+          <circle class="hit" cx="12" cy="12" r="4"/>
+          <circle class="approach" cx="12" cy="12" r="7.4"/>
+          <circle class="dot" cx="12" cy="12" r="1.4"/>
         </svg></span>
         <span class="label">Реплей</span>
       </button>
@@ -135,7 +134,6 @@
       <div class="bar">
         <span class="muted" id="r-count">читаю папку реплеев…</span>
         <span class="grow"></span>
-        <span class="muted" id="r-how"></span>
         <button class="act small" id="r-refresh">Обновить</button>
       </div>
 
@@ -302,12 +300,78 @@
           </div>
         </div>
         <div class="pref">
-          <div><b>Что рисовать</b><p>Фон карты, её сториборд и звук. Без них рисуется быстрее.</p></div>
+          <div><b>Что рисовать</b><p>Фон карты, её сториборд, её видео и звук. Без них рисуется быстрее.</p></div>
           <span class="ticks">
             <label class="tick"><input type="checkbox" id="s-bg" checked>фон</label>
             <label class="tick"><input type="checkbox" id="s-sb" checked>сториборд</label>
+            <label class="tick"><input type="checkbox" id="s-video">видео</label>
             <label class="tick"><input type="checkbox" id="s-sound" checked>звук</label>
           </span>
+        </div>
+        <div class="pref">
+          <div><b>Фон приглушить</b><p>Затемнение и размытие того, что позади игры, в процентах. Так же, как это делает сама игра.</p></div>
+          <div class="pair">
+            <label class="pick tiny"><select id="s-dim">
+              <option value="0" selected>без затемнения</option>
+              <option value="20">20%</option><option value="40">40%</option>
+              <option value="60">60%</option><option value="80">80%</option>
+            </select></label>
+            <label class="pick tiny"><select id="s-blur">
+              <option value="0" selected>без размытия</option>
+              <option value="20">20%</option><option value="40">40%</option>
+              <option value="60">60%</option>
+            </select></label>
+          </div>
+        </div>
+        <div class="pref">
+          <div><b>Качество кодирования</b><p>CRF: меньше — лучше и тяжелее. Пресет — во что обойдётся время кодировщика.</p></div>
+          <div class="pair">
+            <label class="pick tiny"><select id="s-crf">
+              <option value="16">CRF 16</option><option value="18">CRF 18</option>
+              <option value="20" selected>CRF 20</option><option value="23">CRF 23</option>
+              <option value="26">CRF 26</option>
+            </select></label>
+            <label class="pick tiny"><select id="s-preset">
+              <option value="ultrafast">ultrafast</option><option value="veryfast">veryfast</option>
+              <option value="fast">fast</option><option value="medium" selected>medium</option>
+              <option value="slow">slow</option><option value="veryslow">veryslow</option>
+            </select></label>
+          </div>
+        </div>
+        <div class="pref">
+          <div><b>Громкость</b><p>Песня и хитсаунды друг против друга.</p></div>
+          <div class="pair">
+            <label class="pick tiny"><select id="s-music">
+              <option value="0">без песни</option><option value="0.5">песня 50%</option>
+              <option value="0.8">песня 80%</option><option value="1" selected>песня 100%</option>
+            </select></label>
+            <label class="pick tiny"><select id="s-hits">
+              <option value="0">без хитсаундов</option><option value="0.5">хитсаунды 50%</option>
+              <option value="0.8">хитсаунды 80%</option><option value="1" selected>хитсаунды 100%</option>
+            </select></label>
+          </div>
+        </div>
+        <div class="pref">
+          <div><b>Курсор и интерфейс</b><p>Поворачивать курсор по движению, как это делает игра, и рисовать ли счёт с комбо поверх игры.</p></div>
+          <span class="ticks">
+            <label class="tick"><input type="checkbox" id="s-rotate">поворот курсора</label>
+            <label class="tick"><input type="checkbox" id="s-bare">без интерфейса</label>
+          </span>
+        </div>
+        <div class="pref">
+          <div><b>Потоки</b><p>Сколько ядер отдать рисованию и кодированию. «Сколько нужно» — решает движок.</p></div>
+          <div class="pair">
+            <label class="pick tiny"><select id="s-threads">
+              <option value="0" selected>сколько нужно</option>
+              <option value="2">2</option><option value="4">4</option>
+              <option value="6">6</option><option value="8">8</option><option value="12">12</option>
+            </select></label>
+            <label class="pick tiny"><select id="s-enc">
+              <option value="0" selected>кодировщику сколько нужно</option>
+              <option value="2">кодировщику 2</option><option value="4">кодировщику 4</option>
+              <option value="8">кодировщику 8</option>
+            </select></label>
+          </div>
         </div>
       </div>
 

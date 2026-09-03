@@ -210,6 +210,7 @@ fn do_job(
                 mute: asked.mute,
                 skin: skin.clone(),
                 events: true,
+                fine: crate::draw::Fine::default(),
             },
             &crate::draw::Told::default(),
         );

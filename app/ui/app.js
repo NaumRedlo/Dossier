@@ -48,6 +48,74 @@ function line({ mark, name, said, fix }) {
 
 const sign = (ok) => (ok === null || ok === undefined ? ["huh", "?"] : ok ? ["ok", "+"] : ["no", "!"]);
 
+// ── свои выпадающие списки ─────────────────────────────────────────────
+
+/// Системный `<select>` — единственная деталь окна, которую рисует не оно.
+/// На macOS он приносит свою рамку, свою стрелку и свой шрифт, и посреди
+/// тёмной панели читается как чужая кнопка.
+///
+/// Настоящий `<select>` остаётся в разметке и остаётся источником правды: он
+/// хранит значение и рассылает `change`, поэтому всё, что было написано вокруг
+/// него, продолжает работать, ничего не зная об этой обёртке.
+function dressSelect(select) {
+  if (select.dataset.dressed) {
+    select.repaint();
+    return;
+  }
+  select.dataset.dressed = "1";
+
+  const box = el("div", "picker");
+  select.parentNode.insertBefore(box, select);
+  box.append(select);
+  const button = el("button", "picked");
+  const label = el("span", "who");
+  button.append(label, el("span", "chev", "⌄"));
+  const list = el("div", "options");
+  list.hidden = true;
+  box.append(button, list);
+
+  const close = () => {
+    list.hidden = true;
+    button.setAttribute("aria-expanded", "false");
+  };
+
+  select.repaint = () => {
+    const chosen = select.options[select.selectedIndex];
+    label.textContent = chosen ? chosen.textContent : "";
+    list.replaceChildren(
+      ...[...select.options].map((option, index) => {
+        const row = el("button", `option${index === select.selectedIndex ? " on" : ""}`, option.textContent);
+        row.addEventListener("click", () => {
+          select.value = option.value;
+          select.dispatchEvent(new Event("change", { bubbles: true }));
+          select.repaint();
+          close();
+        });
+        return row;
+      }),
+    );
+  };
+
+  button.addEventListener("click", (event) => {
+    event.preventDefault();
+    const opening = list.hidden;
+    for (const other of document.querySelectorAll(".options")) other.hidden = true;
+    list.hidden = !opening;
+    button.setAttribute("aria-expanded", String(opening));
+  });
+  document.addEventListener("pointerdown", (event) => {
+    if (!box.contains(event.target)) close();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") close();
+  });
+  select.repaint();
+}
+
+function dressAll() {
+  for (const select of document.querySelectorAll("select")) dressSelect(select);
+}
+
 // ── что помнит само окно ───────────────────────────────────────────────
 
 // Сторона панели и живость — это про это окно, а не про воркера: боту всё
@@ -287,16 +355,110 @@ const SAYINGS = [
   "Ничего из игры: свой разбор карты, свой судья, свой рисунок.",
 ];
 
-const splash = byId("splash");
-let asleep = false;
-let idleTimer = null;
-let lastStir = 0;
-
 /// Сколько молчать до обложки. Пять минут по умолчанию — достаточно долго,
 /// чтобы не мешать тому, кто читает список реплеев, и достаточно коротко, чтобы
 /// окно не стояло сутками с открытой вкладкой настроек. Меняется в настройках,
 /// потому что «долго» у каждого своё.
 const idleMs = () => Number(remembered("idle", "5")) * 60 * 1000;
+
+const splash = byId("splash");
+const splashView = byId("splash-view");
+let asleep = false;
+let idleTimer = null;
+let lastStir = 0;
+let scene_run = null;
+
+/// Марка и звук. Оба лежат рядом с окном, оба грузятся один раз: заставка
+/// открывается на первой секунде запуска, и подгружать в этот момент нечего.
+/// Буква без плитки, если она нарисована, и плитка, если нет.
+///
+/// `icons/make.py` рисует обе из одного описания, но шрифт, которым набрана
+/// буква, — покупной и живёт в репозитории бота: класть его сюда нельзя, а
+/// значит `ui/letter.png` собирается там, где он есть. Пока его нет, заставка
+/// показывает плитку и работает.
+const markImage = new Image();
+markImage.onerror = () => {
+  markImage.onerror = null;
+  markImage.src = "mark.png";
+};
+markImage.src = "letter.png";
+const hitSound = new Audio("hit.wav");
+hitSound.preload = "auto";
+
+/// Сколько кольцо сходится и сколько сцена стоит после удара.
+const APPROACH_MS = 1150;
+const AFTER_HIT_MS = 620;
+
+/// Кольцо подходит к букве и попадает по ней — та же нота, что рисует движок,
+/// только вместо круга наша марка. Звук ровно в момент схождения: это и есть
+/// осу, и другого способа сказать это одним кадром нет.
+function playSplash() {
+  const c = splashView.getContext("2d");
+  const started = performance.now();
+  let struck = false;
+
+  const frame = (now) => {
+    const dpr = window.devicePixelRatio || 1;
+    const w = splash.clientWidth;
+    const h = splash.clientHeight;
+    if (splashView.width !== Math.round(w * dpr)) {
+      splashView.width = Math.round(w * dpr);
+      splashView.height = Math.round(h * dpr);
+    }
+    c.setTransform(dpr, 0, 0, dpr, 0, 0);
+    c.clearRect(0, 0, w, h);
+
+    const t = now - started;
+    const mid = [w / 2, h / 2 - 10];
+    const size = Math.min(w, h) * 0.16;
+    const settling = Math.min(1, t / APPROACH_MS);
+    const eased = 1 - (1 - settling) * (1 - settling);
+
+    // Буква: появляется первой и ждёт свою ноту.
+    c.globalAlpha = Math.min(1, t / 420);
+    const swell = struck ? 1 + 0.07 * Math.max(0, 1 - (t - APPROACH_MS) / 260) : 1;
+    if (markImage.complete && markImage.naturalWidth) {
+      const side = size * 2 * swell;
+      c.drawImage(markImage, mid[0] - side / 2, mid[1] - side / 2, side, side);
+    }
+
+    // Кольцо подхода.
+    if (!struck) {
+      c.globalAlpha = Math.min(1, t / 300) * 0.9;
+      c.strokeStyle = "#e24848";
+      c.lineWidth = 2.5;
+      c.beginPath();
+      c.arc(mid[0], mid[1], size * (1 + 2.2 * (1 - eased)), 0, Math.PI * 2);
+      c.stroke();
+    } else {
+      // И вспышка после удара — кольцо, ушедшее наружу.
+      const since = (t - APPROACH_MS) / 420;
+      if (since < 1) {
+        c.globalAlpha = (1 - since) * 0.7;
+        c.strokeStyle = "#fff";
+        c.lineWidth = 2;
+        c.beginPath();
+        c.arc(mid[0], mid[1], size * (1 + since * 0.9), 0, Math.PI * 2);
+        c.stroke();
+      }
+    }
+    c.globalAlpha = 1;
+
+    if (!struck && t >= APPROACH_MS) {
+      struck = true;
+      hitSound.currentTime = 0;
+      // Окно может не дать звуку идти без нажатия — тогда сцена просто тихая,
+      // и это не повод её ронять.
+      hitSound.play().catch(() => {});
+    }
+    if (t > APPROACH_MS + AFTER_HIT_MS) {
+      hideSplash();
+      return;
+    }
+    scene_run = requestAnimationFrame(frame);
+  };
+  scene_run = requestAnimationFrame(frame);
+}
 
 function showSplash() {
   if (asleep) return;
@@ -306,19 +468,20 @@ function showSplash() {
   splash.hidden = false;
   void splash.offsetWidth;
   splash.classList.remove("going");
+  playSplash();
 }
 
 function hideSplash() {
   if (!asleep) return;
   asleep = false;
+  if (scene_run) cancelAnimationFrame(scene_run);
+  scene_run = null;
   splash.classList.add("going");
   setTimeout(() => {
     if (!asleep) splash.hidden = true;
   }, 600);
 }
 
-/// Завести отсчёт молчания заново. Отдельно от пробуждения: при запуске обложка
-/// висит свои две секунды, и отсчёт ей не мешает.
 function armIdle() {
   const now = Date.now();
   if (now - lastStir < 5000) return;
@@ -753,10 +916,10 @@ async function saveSettings(prefix, saidId) {
     await invoke("settings_write", { said });
     known = said;
     nameChip(said);
-    if (note) {
-      note.className = "verdict";
-      note.textContent = "сохранено";
-    }
+    // Молча. Форма пишется при каждом изменении, и «сохранено» рядом с кнопкой
+    // повторяло очевидное на каждое нажатие клавиши. Слышно только когда не
+    // вышло — вот это новость.
+    if (note) note.textContent = "";
     return true;
   } catch (why) {
     if (note) {
@@ -811,6 +974,7 @@ function fillSkins(picker, skins, chosenName) {
     picker.append(option);
   }
   picker.value = skins.includes(chosenName) ? chosenName : "";
+  dressSelect(picker);
 }
 
 const PROMPTS = {
@@ -961,6 +1125,19 @@ function options() {
     background: remembered("bg", "1") === "1",
     storyboard: remembered("sb", "1") === "1",
     mute: remembered("sound", "1") !== "1",
+    fine: {
+      crf: Number(remembered("crf", "20")),
+      preset: remembered("preset", "medium"),
+      music_level: Number(remembered("music", "1")),
+      hitsound_level: Number(remembered("hits", "1")),
+      threads: Number(remembered("threads", "0")),
+      encoder_threads: Number(remembered("enc", "0")),
+      dim: Number(remembered("dim", "0")),
+      blur: Number(remembered("blur", "0")),
+      video: remembered("video", "0") === "1",
+      bare: remembered("bare", "0") === "1",
+      cursor_rotate: remembered("rotate", "0") === "1" ? true : null,
+    },
   };
 }
 
@@ -986,7 +1163,18 @@ const RENDER_FIELDS = [
   ["s-fps", "fps", "60"],
   ["s-bg", "bg", "1"],
   ["s-sb", "sb", "1"],
+  ["s-video", "video", "0"],
   ["s-sound", "sound", "1"],
+  ["s-dim", "dim", "0"],
+  ["s-blur", "blur", "0"],
+  ["s-crf", "crf", "20"],
+  ["s-preset", "preset", "medium"],
+  ["s-music", "music", "1"],
+  ["s-hits", "hits", "1"],
+  ["s-rotate", "rotate", "0"],
+  ["s-bare", "bare", "0"],
+  ["s-threads", "threads", "0"],
+  ["s-enc", "enc", "0"],
 ];
 
 function loadRenderSettings() {
@@ -995,6 +1183,7 @@ function loadRenderSettings() {
     const value = remembered(key, fallback);
     if (box.type === "checkbox") box.checked = value === "1";
     else box.value = value;
+    if (box.tagName === "SELECT") dressSelect(box);
   }
 }
 
@@ -1026,7 +1215,6 @@ let shelfCache = null;
 async function showRender(again = false) {
   const list = byId("r-list");
   const said = byId("r-done");
-  byId("r-how").textContent = howItDraws();
 
   if (shelfCache && !again) {
     fillPlays(shelfCache);
@@ -1167,6 +1355,59 @@ const WORTH = { 300: "#66ccff", 100: "#88d64c", 50: "#f0c060", 0: "#e24848" };
 /// Каким рисуются ноты, пока не попросили скин. Это просмотр судейства, а не
 /// показ карты: комбо-цвета здесь только отвлекают от того, что засчитано.
 const PLAIN = "#c9cede";
+
+/// Картинки скина, которым включается «Показывать со скином»: те же файлы,
+/// которыми рисует движок, взятые из скина по умолчанию.
+let pics = null;
+const tints = new WeakMap();
+
+async function loadPics() {
+  if (pics) return pics;
+  const said = await invoke("skin_pictures", {}).catch(() => null);
+  if (!said) return null;
+  const wait = (one) =>
+    new Promise((ready) => {
+      if (!one) return ready(null);
+      const image = new Image();
+      image.onload = () => ready({ image, scale: one.scale });
+      image.onerror = () => ready(null);
+      image.src = one.src;
+    });
+  pics = {
+    circle: await wait(said.circle),
+    overlay: await wait(said.overlay),
+    approach: await wait(said.approach),
+    cursor: await wait(said.cursor),
+    digits: await Promise.all((said.digits || []).map(wait)),
+  };
+  return pics;
+}
+
+/// Белая картинка, покрашенная цветом комбо. Кэшируется на пару «картинка +
+/// цвет»: перекрашивать её каждый кадр — это перерисовывать весь скин
+/// шестьдесят раз в секунду.
+function tinted(image, colour) {
+  let per = tints.get(image);
+  if (!per) {
+    per = new Map();
+    tints.set(image, per);
+  }
+  let made = per.get(colour);
+  if (made) return made;
+  made = document.createElement("canvas");
+  made.width = image.width;
+  made.height = image.height;
+  const c = made.getContext("2d");
+  c.drawImage(image, 0, 0);
+  c.globalCompositeOperation = "multiply";
+  c.fillStyle = colour;
+  c.fillRect(0, 0, made.width, made.height);
+  // Умножение красит и прозрачные места — возвращаем исходную маску.
+  c.globalCompositeOperation = "destination-in";
+  c.drawImage(image, 0, 0);
+  per.set(colour, made);
+  return made;
+}
 const SAID = { 300: "300", 100: "100", 50: "50", 0: "×" };
 
 /// Сколько кадр живёт после того, как объект отыгран.
@@ -1228,12 +1469,14 @@ function saySkinned() {
   const button = byId("rp-skinned");
   button.hidden = !scene;
   button.textContent = skinned ? "Не показывать со скином" : "Показывать со скином";
+  if (skinned) loadPics().then(() => scene && drawView());
 }
 
-byId("rp-skinned").addEventListener("click", () => {
+byId("rp-skinned").addEventListener("click", async () => {
   skinned = !skinned;
   remember("skinned", skinned ? "1" : "0");
   saySkinned();
+  if (skinned) await loadPics();
   drawView();
 });
 
@@ -1276,8 +1519,15 @@ function showLive() {
   saySkinned();
   byId("rp-rows").replaceChildren(
     ...[
-      { mark: ["ok", "·"], name: "точность", said: `${round(judged.accuracy * 100, 2)}%` },
-      { mark: ["ok", "·"], name: "комбо", said: `${judged.combo} из ${judged.max_combo || "?"}` },
+      { mark: ["ok", "·"], name: "точность", said: `${round(judged.accuracy_percent, 2)}%` },
+      {
+        mark: judged.combo === judged.combo_recorded ? ["ok", "·"] : ["huh", "?"],
+        name: "комбо",
+        said:
+          judged.combo === judged.combo_recorded
+            ? String(judged.combo)
+            : `${judged.combo} · в реплее записано ${judged.combo_recorded}`,
+      },
       { mark: ["ok", "·"], name: "300", said: String(judged.counts.great) },
       { mark: ["ok", "·"], name: "100", said: String(judged.counts.ok) },
       { mark: ["huh", "·"], name: "50", said: String(judged.counts.meh) },
@@ -1423,34 +1673,67 @@ function drawPiece(c, piece, box, px, py) {
     return;
   }
 
-  // Головка: заливка цветом комбо, обод и номер внутри.
-  c.fillStyle = colour;
-  c.beginPath();
-  c.arc(px(piece.x), py(piece.y), box.r, 0, Math.PI * 2);
-  c.fill();
-  c.strokeStyle = "rgba(255,255,255,0.85)";
-  c.lineWidth = Math.max(1.5, box.r * 0.12);
-  c.stroke();
-  if (box.r > 9) {
-    c.fillStyle = "#fff";
-    c.font = `600 ${box.r * 0.95}px ui-monospace, Menlo, monospace`;
-    c.textAlign = "center";
-    c.textBaseline = "middle";
-    c.fillText(String(piece.combo), px(piece.x), py(piece.y));
-  }
+  const left = head < piece.start_ms ? (piece.start_ms - head) / Math.max(1, scene.preempt_ms) : 0;
+  const side = box.r * 2;
 
-  // Кольцо подхода — единственное, что говорит, когда нажимать.
-  if (head < piece.start_ms) {
-    const left = (piece.start_ms - head) / Math.max(1, scene.preempt_ms);
+  if (skinned && pics && pics.circle) {
+    // Скин рисует себя сам: нота, её накладка, номер и кольцо — теми же
+    // файлами, которыми это рисует движок.
+    c.drawImage(tinted(pics.circle.image, colour), px(piece.x) - box.r, py(piece.y) - box.r, side, side);
+    if (pics.overlay) {
+      c.drawImage(pics.overlay.image, px(piece.x) - box.r, py(piece.y) - box.r, side, side);
+    }
+    if (pics.digits.length === 10) {
+      const figures = String(piece.combo).split("");
+      const high = box.r * 0.9;
+      const wide = figures.map((d) => {
+        const one = pics.digits[Number(d)];
+        return one ? (one.image.width / one.image.height) * high : 0;
+      });
+      let at = px(piece.x) - wide.reduce((a, b) => a + b, 0) / 2;
+      figures.forEach((d, i) => {
+        const one = pics.digits[Number(d)];
+        if (one) c.drawImage(one.image, at, py(piece.y) - high / 2, wide[i], high);
+        at += wide[i];
+      });
+    }
+    if (left > 0 && pics.approach) {
+      const ring = box.r * (1 + 2.4 * left) * 2;
+      c.drawImage(tinted(pics.approach.image, colour), px(piece.x) - ring / 2, py(piece.y) - ring / 2, ring, ring);
+    }
+  } else {
+    // Без скина — каркас: сквозь ноту видно поле, и глаз занят тем, что
+    // засчитано, а не тем, какого она цвета.
+    c.fillStyle = "rgba(255,255,255,0.05)";
+    c.beginPath();
+    c.arc(px(piece.x), py(piece.y), box.r, 0, Math.PI * 2);
+    c.fill();
     c.strokeStyle = colour;
     c.lineWidth = Math.max(1.5, box.r * 0.1);
-    c.beginPath();
-    c.arc(px(piece.x), py(piece.y), box.r * (1 + 2.4 * left), 0, Math.PI * 2);
     c.stroke();
+    if (box.r > 9) {
+      c.fillStyle = colour;
+      c.font = `600 ${box.r * 0.9}px ui-monospace, Menlo, monospace`;
+      c.textAlign = "center";
+      c.textBaseline = "middle";
+      c.fillText(String(piece.combo), px(piece.x), py(piece.y));
+    }
+    if (left > 0) {
+      c.strokeStyle = colour;
+      c.lineWidth = Math.max(1.2, box.r * 0.08);
+      c.globalAlpha = alpha * 0.7;
+      c.beginPath();
+      c.arc(px(piece.x), py(piece.y), box.r * (1 + 2.4 * left), 0, Math.PI * 2);
+      c.stroke();
+      c.globalAlpha = alpha;
+    }
   }
 
   // Шар слайдера — из тех же точек, что считал движок.
   if (piece.kind === "slider" && head >= piece.start_ms && head <= piece.end_ms && piece.ball.length) {
+    // Шар — кружком в обоих режимах: у скина он анимированный, а анимацию
+    // здесь пока никто не проигрывает, и подсунуть один её кадр было бы
+    // хуже, чем не подсовывать ничего.
     const at = Math.min(
       piece.ball.length / 2 - 1,
       Math.max(0, Math.round((head - piece.start_ms) / scene.step_ms)),
@@ -1521,7 +1804,9 @@ function readAt(ms) {
     weight += mark.worth;
     objects += 1;
   }
-  return { combo, accuracy: objects ? weight / (objects * 300) : 1, objects };
+  // В процентах, как и всё остальное про точность в этом окне: две единицы
+  // измерения под одним словом — это ошибка, которая ждёт своего часа.
+  return { combo, percent: objects ? (weight / (objects * 300)) * 100 : 100, objects };
 }
 
 function stamp(seconds) {
@@ -1534,7 +1819,7 @@ function sayAt() {
   const said = readAt(head);
   byId("rp-hud").replaceChildren(
     el("span", null, `${said.combo}x`),
-    el("span", null, `${round(said.accuracy * 100, 2)}%`),
+    el("span", null, `${round(said.percent, 2)}%`),
   );
   byId("rp-at").textContent = `${stamp((head - scene.from_ms) / 1000)} / ${stamp((scene.to_ms - scene.from_ms) / 1000)}`;
 }
@@ -1609,9 +1894,16 @@ function measureDensity() {
   if (most > 0) for (let i = 0; i < buckets; i += 1) density[i] /= most;
 }
 
+/// Какой кусок записи показывает полоса. Как и у графика попаданий: на длинной
+/// карте секунда — это два пикселя, и подводить головку к нужному месту мышью
+/// становится гаданием.
+let strip = null;
+
 function drawSeek() {
   if (!scene || seek.clientWidth === 0) return;
   if (!density) measureDensity();
+  const from = strip ? strip.from : scene.from_ms;
+  const to = strip ? strip.to : scene.to_ms;
   const dpr = window.devicePixelRatio || 1;
   const w = seek.clientWidth;
   const h = seek.clientHeight;
@@ -1620,21 +1912,22 @@ function drawSeek() {
   const c = seek.getContext("2d");
   c.setTransform(dpr, 0, 0, dpr, 0, 0);
   c.clearRect(0, 0, w, h);
-  const span = Math.max(1, scene.to_ms - scene.from_ms);
+  const span = Math.max(1, to - from);
+  const whole = Math.max(1, scene.to_ms - scene.from_ms);
+  const atX = (ms) => ((ms - from) / span) * w;
 
-  // Куски монтажа — под всем остальным, чтобы читались как отрезки ленты.
   if (mode === "cut") {
     c.fillStyle = "rgba(226,72,72,0.28)";
     for (const clip of clips) {
-      const from = ((clip.from - scene.from_ms) / span) * w;
-      c.fillRect(from, 0, Math.max(2, ((clip.to - clip.from) / span) * w), h);
+      c.fillRect(atX(clip.from), 0, Math.max(2, ((clip.to - clip.from) / span) * w, 2), h);
     }
   }
 
   c.beginPath();
   c.moveTo(0, h);
   for (let i = 0; i < density.length; i += 1) {
-    c.lineTo((i / (density.length - 1)) * w, h - density[i] * (h - 6));
+    const at = scene.from_ms + (i / (density.length - 1)) * whole;
+    c.lineTo(atX(at), h - density[i] * (h - 6));
   }
   c.lineTo(w, h);
   c.closePath();
@@ -1647,11 +1940,11 @@ function drawSeek() {
   // Промахи: там, где сложное место оказалось не только плотным.
   c.fillStyle = WORTH[0];
   for (const mark of judged.marks) {
-    if (mark.worth !== 0) continue;
-    c.fillRect(((mark.ms - scene.from_ms) / span) * w - 0.75, h - 7, 1.5, 7);
+    if (mark.worth !== 0 || mark.ms < from || mark.ms > to) continue;
+    c.fillRect(atX(mark.ms) - 0.75, h - 7, 1.5, 7);
   }
 
-  const at = ((head - scene.from_ms) / span) * w;
+  const at = atX(head);
   c.strokeStyle = "#fff";
   c.lineWidth = 2;
   c.beginPath();
@@ -1673,8 +1966,33 @@ function seekTo(ms) {
 function seekFromPointer(event) {
   const box = seek.getBoundingClientRect();
   const share = Math.min(1, Math.max(0, (event.clientX - box.left) / box.width));
-  seekTo(scene.from_ms + share * (scene.to_ms - scene.from_ms));
+  const from = strip ? strip.from : scene.from_ms;
+  const to = strip ? strip.to : scene.to_ms;
+  seekTo(from + share * (to - from));
 }
+
+/// Колесо приближает вокруг того места, куда смотрят. Двойной щелчок
+/// возвращает всю запись.
+seek.addEventListener("wheel", (event) => {
+  if (!scene) return;
+  event.preventDefault();
+  const box = seek.getBoundingClientRect();
+  const share = Math.min(1, Math.max(0, (event.clientX - box.left) / box.width));
+  const from = strip ? strip.from : scene.from_ms;
+  const to = strip ? strip.to : scene.to_ms;
+  const span = to - from;
+  const at = from + share * span;
+  const whole = scene.to_ms - scene.from_ms;
+  const next = Math.min(whole, Math.max(3000, span * (event.deltaY > 0 ? 1.3 : 0.77)));
+  let start = Math.min(Math.max(scene.from_ms, at - share * next), scene.to_ms - next);
+  strip = next >= whole ? null : { from: start, to: start + next };
+  drawSeek();
+}, { passive: false });
+
+seek.addEventListener("dblclick", () => {
+  strip = null;
+  drawSeek();
+});
 
 seek.addEventListener("pointerdown", (event) => {
   if (!scene) return;
@@ -2009,10 +2327,7 @@ byId("w-save").addEventListener("click", async () => {
   skinned = remembered("skinned", "0") === "1";
   idleAfter(remembered("idle", "5"), false);
   reportWhen(remembered("report", "ask"), false);
-  if (remembered("splash", "both") !== "never") {
-    showSplash();
-    setTimeout(hideSplash, 1900);
-  }
+  if (remembered("splash", "both") !== "never") showSplash();
   armIdle();
   requestAnimationFrame(() => dock.classList.remove("landing"));
 
@@ -2035,6 +2350,7 @@ byId("w-save").addEventListener("click", async () => {
 
   // Мерить надо по готовым шрифтам: до них подписи другой ширины, и панель
   // разъезжается на первом же движении курсора.
+  dressAll();
   measure();
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(measure);
 

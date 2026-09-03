@@ -70,6 +70,31 @@ def _letter(size: int) -> tuple[Image.Image, tuple[float, float, float, float]]:
     return mask, (x + box[0], y + box[1], x + box[2], y + box[3])
 
 
+def glyph(size: int) -> Image.Image:
+    """Одна буква, без плитки под ней — для заставки на чёрном.
+
+    Плитка нужна там, где значок стоит среди чужих значков и должен занимать
+    свой квадрат. На заставке квадрат не нужен: там появляется буква, и вокруг
+    неё сходится круг."""
+    art = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    mask, (x0, y0, x1, y1) = _letter(size)
+    art.paste(_ramp(size), (0, 0), mask)
+
+    height = size * 0.028
+    step = height * 2
+    margin = (x1 - x0) * 0.05
+    top = (y0 + y1) / 2 - (SLOTS * step - height) / 2
+    slots = Image.new("L", (size, size), 0)
+    cut = ImageDraw.Draw(slots)
+    for slot in range(SLOTS):
+        y = top + slot * step
+        cut.rectangle([x0 - margin, y, x1 + margin, y + height], fill=255)
+    alpha = art.getchannel("A")
+    alpha.paste(0, (0, 0), slots)
+    art.putalpha(alpha)
+    return art
+
+
 def tile(size: int) -> Image.Image:
     art = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     art.paste(_ramp(size), (0, 0), _rounded(size))
@@ -120,7 +145,12 @@ def main() -> None:
     tile(256).save(HERE / "icon.ico")
     # And the same drawing for the window's own corner, so the two cannot drift.
     tile(128).save(UI / "mark.png")
-    print("нарисовано:", ", ".join(sorted(p.name for p in HERE.glob("*.png"))), "+ ui/mark.png")
+    glyph(512).save(UI / "letter.png")
+    print(
+        "нарисовано:",
+        ", ".join(sorted(p.name for p in HERE.glob("*.png"))),
+        "+ ui/mark.png, ui/letter.png",
+    )
 
 
 if __name__ == "__main__":

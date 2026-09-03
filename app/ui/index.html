@@ -6,17 +6,41 @@
 <link rel="stylesheet" href="app.css">
 </head>
 <body>
+  <!-- Опрашивается один раз при открытии: пока сервер и токен не названы,
+       всё остальное показывать нечего. -->
+  <div id="wizard" class="wizard" hidden>
+    <div class="pane">
+      <img class="mark" src="mark.png" alt="" width="46" height="46">
+      <h2>Настроим один раз</h2>
+      <p class="sub">Два ответа, которые машина угадать не может. Остальное можно оставить как есть.</p>
+      <label>Адрес бота<input id="w-server" type="text" placeholder="https://…" autocomplete="off"></label>
+      <label>Токен воркера<input id="w-token" type="password" placeholder="тот же, что у бота" autocomplete="off"></label>
+      <label>Имя в сети<input id="w-name" type="text" autocomplete="off"></label>
+      <details>
+        <summary>Папки</summary>
+        <label>Карты<input id="w-songs" type="text" autocomplete="off"></label>
+        <label>Скины<input id="w-skins" type="text" placeholder="необязательно" autocomplete="off"></label>
+        <label>Реплеи<input id="w-replays" type="text" placeholder="необязательно" autocomplete="off"></label>
+      </details>
+      <p class="verdict" id="w-said"></p>
+      <button class="act primary" id="w-save">Сохранить и начать</button>
+    </div>
+  </div>
+
   <header>
     <img class="mark" src="mark.png" alt="" width="38" height="38">
     <div>
       <h1>Dossier</h1>
-      <p>Рисует чужие реплеи, пока эта машина свободна.</p>
+      <p id="who">Рисует чужие реплеи, пока эта машина свободна.</p>
     </div>
   </header>
 
   <nav>
     <button id="tab-ready" role="tab" aria-selected="true">Готовность</button>
     <button id="tab-machine" role="tab" aria-selected="false">Машина</button>
+    <button id="tab-render" role="tab" aria-selected="false">Рендер</button>
+    <button id="tab-farm" role="tab" aria-selected="false">Ферма</button>
+    <button id="tab-settings" role="tab" aria-selected="false">Настройки</button>
   </nav>
 
   <main>
@@ -30,6 +54,44 @@
       <div class="headline" id="machine-headline"></div>
       <div class="card" id="machine-rows"></div>
       <button class="act" id="measure">Измерить заново</button>
+    </section>
+
+    <section id="view-render" hidden>
+      <div class="strip">
+        <label class="pick">Скин
+          <select id="r-skin"></select>
+        </label>
+        <span class="grow"></span>
+        <span class="muted" id="r-count"></span>
+      </div>
+      <div class="card list" id="r-list"></div>
+      <div class="progress" id="r-progress" hidden><div id="r-bar"></div></div>
+      <p class="verdict" id="r-said"></p>
+    </section>
+
+    <section id="view-farm" hidden>
+      <div class="strip">
+        <span class="muted" id="f-waiting"></span>
+        <span class="grow"></span>
+        <button class="act small" id="f-again">Обновить</button>
+      </div>
+      <div class="card" id="f-rows"></div>
+      <p class="verdict" id="f-said"></p>
+    </section>
+
+    <section id="view-settings" hidden>
+      <div class="card form">
+        <label>Адрес бота<input id="s-server" type="text" autocomplete="off"></label>
+        <label>Токен воркера<input id="s-token" type="password" autocomplete="off"></label>
+        <label>Имя в сети<input id="s-name" type="text" autocomplete="off"></label>
+        <label>Папка карт<input id="s-songs" type="text" autocomplete="off"></label>
+        <label>Папка скинов<input id="s-skins" type="text" autocomplete="off"></label>
+        <label>Папка реплеев<input id="s-replays" type="text" autocomplete="off"></label>
+      </div>
+      <button class="act primary" id="s-save">Сохранить</button>
+      <p class="verdict" id="s-said"></p>
+      <h3>Что на полках</h3>
+      <div class="card" id="s-shelves"></div>
     </section>
   </main>
 

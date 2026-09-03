@@ -52,6 +52,40 @@ pub struct Hello {
     pub release: String,
 }
 
+/// Who else is out there.
+///
+/// The bot knows what a worker *told* it — its name, what it is doing, which
+/// build it runs, how many threads it offered. It does not know what the
+/// machine is made of, because nothing has ever sent that; see the note in
+/// `app/README.md` about what showing hardware here would take.
+#[derive(Debug, Deserialize, Serialize)]
+pub struct Farm {
+    #[serde(default)]
+    pub waiting: u32,
+    #[serde(default)]
+    pub workers: Vec<Worker>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct Worker {
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub state: String,
+    #[serde(default)]
+    pub build: String,
+    #[serde(default)]
+    pub reason: String,
+    #[serde(default)]
+    pub threads: u32,
+    #[serde(default)]
+    pub polite: bool,
+    #[serde(default)]
+    pub delivered: u32,
+    #[serde(default)]
+    pub handed_back: u32,
+}
+
 /// A job, as the bot hands it over.
 #[derive(Debug, Deserialize)]
 pub struct Job {
@@ -129,6 +163,23 @@ impl Bot {
             .http
             .get(format!("{}/render/hello", self.base))
             .query(&[("engine", engine)])
+            .send()
+            .map_err(|e| Refused::Network(e.to_string()))?;
+        if reply.status() == reqwest::StatusCode::UNAUTHORIZED {
+            return Err(Refused::Token);
+        }
+        reply
+            .error_for_status()
+            .map_err(|e| Refused::Network(e.to_string()))?
+            .json()
+            .map_err(|e| Refused::Network(e.to_string()))
+    }
+
+    /// Everybody the bot has heard from lately.
+    pub fn farm(&self) -> Result<Farm, Refused> {
+        let reply = self
+            .http
+            .get(format!("{}/render/farm", self.base))
             .send()
             .map_err(|e| Refused::Network(e.to_string()))?;
         if reply.status() == reqwest::StatusCode::UNAUTHORIZED {

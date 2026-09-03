@@ -14,18 +14,43 @@ mod bench;
 mod bot;
 mod check;
 mod draw;
+mod library;
 mod machine;
+mod settings;
 mod work;
 
-/// Draw a replay. Blocking on purpose — Tauri runs a command off the main
-/// thread, and a render is the one thing this application exists to do, so
-/// there is nothing else for that thread to be doing meanwhile.
+/// Draw a replay of this person's own, and say how it is going while it does.
+///
+/// Blocking on purpose — Tauri runs a command off the main thread, so the
+/// window stays alive — but a render is minutes, and a window that says nothing
+/// for minutes is one somebody force-quits. The engine's own events are
+/// forwarded as they arrive; see `dossier_produce::events`.
 #[tauri::command]
-fn draw(replay: String, songs: String, out: String) -> Result<Drawn, String> {
+fn draw(
+    app: tauri::AppHandle,
+    replay: String,
+    out: String,
+    skin: Option<String>,
+) -> Result<Drawn, String> {
+    use tauri::Emitter;
+
+    let said = settings::Settings::load();
     let told = draw::Told::default();
+    let sending = app.clone();
+    dossier_produce::events::listen(move |line| {
+        if let Ok(event) = serde_json::from_str::<serde_json::Value>(line) {
+            let _ = sending.emit("drawing", event);
+        }
+    });
+    // A name from the shelf, not the shelf itself: `from_folder` reads one
+    // skin, and handing it a folder of them reads whatever is nearest.
+    let skin = skin
+        .filter(|name| !name.is_empty())
+        .map(|name| std::path::Path::new(&said.skins).join(name))
+        .filter(|path| path.is_dir());
     let asked = draw::Asked {
         replay: std::path::Path::new(&replay),
-        songs: Some(std::path::Path::new(&songs)),
+        songs: Some(std::path::Path::new(&said.songs)),
         map: None,
         out: std::path::PathBuf::from(out),
         size: (1920, 1080),
@@ -36,10 +61,12 @@ fn draw(replay: String, songs: String, out: String) -> Result<Drawn, String> {
         storyboard: true,
         bare: false,
         mute: false,
-        skin: None,
-        events: false,
+        skin,
+        events: true,
     };
-    draw::draw(&asked, &told).map(|path| Drawn {
+    let done = draw::draw(&asked, &told);
+    dossier_produce::events::unlisten();
+    done.map(|path| Drawn {
         path: path.display().to_string(),
         said: told.said(),
     })
@@ -81,6 +108,50 @@ fn profile() -> machine::Profile {
     machine::profile()
 }
 
+/// What this machine has been told, and whether it has been told anything.
+#[tauri::command]
+fn settings_read() -> settings::Settings {
+    settings::Settings::load()
+}
+
+/// Whether the setup wizard should open instead of the ordinary window.
+#[tauri::command]
+fn first_run() -> bool {
+    settings::Settings::load().first_run()
+}
+
+#[tauri::command]
+fn settings_write(said: settings::Settings) -> Result<(), String> {
+    said.save()
+}
+
+/// The skins on the shelf, by name, for a picker.
+#[tauri::command]
+fn skins() -> Vec<String> {
+    library::skins(&settings::Settings::load())
+}
+
+/// What is on this machine's shelves.
+#[tauri::command]
+fn shelves() -> library::Library {
+    library::look(&settings::Settings::load())
+}
+
+/// The replays this person could ask to have drawn, newest first.
+#[tauri::command]
+fn my_replays(most: Option<usize>) -> Vec<library::Played> {
+    library::played(&settings::Settings::load(), most.unwrap_or(60))
+}
+
+/// Everybody else on the farm.
+#[tauri::command]
+fn farm() -> Result<bot::Farm, String> {
+    let said = settings::Settings::load();
+    bot::Bot::new(&said.server, &said.token, &said.name)
+        .and_then(|bot| bot.farm())
+        .map_err(|refused| refused.to_string())
+}
+
 /// The readiness list, for the screen that replaces `--check`.
 #[tauri::command]
 fn ready() -> Vec<check::Row> {
@@ -89,7 +160,19 @@ fn ready() -> Vec<check::Row> {
 
 fn main() {
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![ready, draw, work_once, profile])
+        .invoke_handler(tauri::generate_handler![
+            ready,
+            draw,
+            work_once,
+            profile,
+            settings_read,
+            settings_write,
+            first_run,
+            shelves,
+            my_replays,
+            skins,
+            farm
+        ])
         .run(tauri::generate_context!())
         .expect("the window could not be opened");
 }

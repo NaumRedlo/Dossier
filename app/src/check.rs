@@ -113,6 +113,54 @@ pub(crate) fn on_path(name: &str) -> Option<PathBuf> {
 }
 
 /// Every question, asked.
+/// Whether the bot would let this machine work, asked without claiming
+/// anything.
+///
+/// The one question the rest of the list cannot answer from disk. Our engine
+/// and the bot's have to be the same or this machine would draw the wrong
+/// thing, and finding that out by claiming a job means finding it out with
+/// somebody's job in hand. `/render/hello` exists to be asked first.
+///
+/// Its own call rather than a row in [`ready`]: that list is read off the disk
+/// and is instant, and one network round trip would make all of it wait.
+pub fn handshake(said: &crate::settings::Settings) -> Row {
+    let engine = format!("dossier {}", env!("CARGO_PKG_VERSION"));
+    let asked = crate::bot::Bot::new(&said.server, &said.token, &said.name)
+        .and_then(|bot| bot.hello(&engine));
+    match asked {
+        Ok(hello) if hello.agree => Row::new(
+            "бот",
+            Some(true),
+            if hello.waiting > 0 {
+                format!("сборки сходятся · в очереди {}", hello.waiting)
+            } else {
+                "сборки сходятся · очередь пуста".to_owned()
+            },
+            "",
+        ),
+        Ok(hello) => Row::new(
+            "бот",
+            Some(false),
+            if hello.reason.is_empty() {
+                format!("бот рисует сборкой {}, а здесь {engine}", hello.build)
+            } else {
+                hello.reason
+            },
+            &if hello.release.is_empty() {
+                "работа не берётся, пока сборки разные".to_owned()
+            } else {
+                format!("всем нужен релиз {}", hello.release)
+            },
+        ),
+        Err(refused) => Row::new(
+            "бот",
+            Some(false),
+            refused.to_string(),
+            "адрес и токен — двумя строками выше",
+        ),
+    }
+}
+
 pub fn ready() -> Vec<Row> {
     let mut rows = Vec::new();
 

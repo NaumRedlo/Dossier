@@ -29,8 +29,12 @@ pub struct Settings {
     pub replays: String,
 }
 
+/// Reading one setting out of the six. A named type rather than the signature
+/// spelled inline: the table below reads as a table that way.
+type Reads = fn(&Settings) -> &String;
+
 /// The keys this writes. Anything else in the file is left exactly as it was.
-const KEYS: [(&str, fn(&Settings) -> &String); 6] = [
+const KEYS: [(&str, Reads); 6] = [
     ("RENDER_SERVER", |s| &s.server),
     ("RENDER_WORKER_TOKEN", |s| &s.token),
     ("RENDER_WORKER_NAME", |s| &s.name),

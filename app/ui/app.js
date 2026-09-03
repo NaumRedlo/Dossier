@@ -598,6 +598,19 @@ async function showReady() {
     ? `${stopped} ${plural(stopped, "пункт", "пункта", "пунктов")} надо поправить`
     : "готово — можно брать работу";
   verdict.className = stopped ? "verdict bad" : "verdict";
+
+  // И отдельной строкой то, что с диска не узнать: согласен ли бот работать с
+  // такой сборкой. Дописывается, когда ответит, — остальной список мгновенный
+  // и ждать сети не должен.
+  const asking = line({ mark: ["huh", "?"], name: "бот", said: "спрашиваю…" });
+  box.append(asking);
+  invoke("handshake")
+    .then((row) =>
+      asking.replaceWith(
+        line({ mark: sign(row.ok), name: row.name, said: row.said, fix: row.ok === false ? row.fix : "" }),
+      ),
+    )
+    .catch((why) => asking.replaceWith(line({ mark: ["no", "!"], name: "бот", said: `${why}` })));
   return rows;
 }
 

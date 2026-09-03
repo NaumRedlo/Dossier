@@ -30,7 +30,10 @@ impl std::fmt::Display for Refused {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Token => write!(f, "сервер отверг токен"),
-            Self::Build { reason, .. } => write!(f, "{reason}"),
+            Self::Build { reason, release } if release.is_empty() => write!(f, "{reason}"),
+            // Ради этого поле и несётся: «сборки разные» без «какая нужна» —
+            // это половина сообщения, и вторую половину потом спрашивают.
+            Self::Build { reason, release } => write!(f, "{reason} · нужен релиз {release}"),
             Self::Network(said) => write!(f, "{said}"),
         }
     }
@@ -330,6 +333,39 @@ mod tests {
     use std::io::{Read, Write};
     use std::net::TcpListener;
     use std::sync::mpsc;
+
+    #[test]
+    fn a_refusal_over_the_build_names_the_release_everybody_needs() {
+        let said = Refused::Build {
+            reason: "сборки разные".to_owned(),
+            release: "v0.12.0".to_owned(),
+        };
+        assert_eq!(said.to_string(), "сборки разные · нужен релиз v0.12.0");
+        let plain = Refused::Build {
+            reason: "сборки разные".to_owned(),
+            release: String::new(),
+        };
+        assert_eq!(plain.to_string(), "сборки разные");
+    }
+
+    #[test]
+    fn a_hello_says_whether_this_machine_could_work_without_claiming_anything() {
+        let (base, heard) = one_request(concat!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 89\r\n\r\n",
+            r#"{"build":"dossier 0.12.0","agree":false,"reason":"stale","waiting":3,"release":"v0.12.0"}"#
+        ));
+        let bot = Bot::new(&base, "token", "machine").expect("a bot");
+        let said = bot.hello("dossier 0.11.0").expect("an answer");
+        let asked = heard.recv().expect("a request");
+        assert!(
+            asked.contains("GET /render/hello?engine=dossier"),
+            "{asked}"
+        );
+        assert!(!said.agree);
+        assert_eq!(said.release, "v0.12.0");
+        assert_eq!(said.reason, "stale");
+        assert_eq!(said.waiting, 3);
+    }
 
     /// A server that answers one request and hands back what it was asked.
     ///

@@ -217,7 +217,7 @@ pub fn played(said: &Settings, most: usize) -> Vec<Played> {
             Some((when, p))
         })
         .collect();
-    files.sort_by(|a, b| b.0.cmp(&a.0));
+    files.sort_by_key(|(when, _)| std::cmp::Reverse(*when));
     files.truncate(most);
 
     let songs = Path::new(&said.songs);

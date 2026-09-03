@@ -300,6 +300,13 @@ fn modules() -> Vec<library::Module> {
     library::modules(&settings::Settings::load())
 }
 
+/// Whether the bot agrees this machine could work. One network call, asked
+/// only when somebody is looking at the readiness list.
+#[tauri::command]
+fn handshake() -> check::Row {
+    check::handshake(&settings::Settings::load())
+}
+
 /// Hand a link to the system: the repository, a mail draft, a new issue.
 ///
 /// Nothing is ever sent from here. The most this does is open somebody's mail
@@ -354,7 +361,8 @@ fn main() {
             modules,
             update_look,
             update_run,
-            send_report
+            send_report,
+            handshake
         ])
         .run(tauri::generate_context!())
         .expect("the window could not be opened");

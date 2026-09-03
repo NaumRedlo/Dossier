@@ -24,10 +24,13 @@
 //! - **Names are matched without case.** Skins are made on Windows, where
 //!   `HitCircle.png` and `hitcircle.png` are the same file. On this side they
 //!   are not, and a skin that renders for its author would half-load for us.
-//! - **Only the top of the folder is read.** osu! never looks in subfolders,
-//!   and skins carry them: the one this was written against has a `cursors/`
-//!   directory holding a *different* cursor from the one in use. Walking the
-//!   tree would draw something its author never sees.
+//! - **A subfolder is reachable only by name.** osu! never *searches* them, and
+//!   skins carry them: the one this was written against has a `cursors/`
+//!   directory holding a *different* cursor from the one in use, and finding
+//!   that would draw something its author never sees. So nested files are
+//!   indexed under their path and never under a bare name — which leaves the
+//!   one way osu! does reach into a folder open, a prefix that names it:
+//!   `ScorePrefix: num\\berlin` means `num/berlin-0.png` and nothing else does.
 //! - **A blank file is not a missing file.** A fully transparent PNG is how a
 //!   skin turns an element off; the same element absent means "use the default".
 //!   They look identical and mean opposite things, so they are kept apart.
@@ -270,21 +273,14 @@ impl Ini {
                         out.combo_overlap = n;
                     }
                 }
-                // A skin naming its digit sets, kept without whatever folder it
-                // named them in.
+                // A skin naming its digit sets, folder and all.
                 //
-                // Prefixes may carry a path — `HitCirclePrefix: numbers/hit` is
-                // a real thing — and this engine cannot follow one, because a
-                // skin arrives here already flattened: the importer keeps every
-                // file by its bare name, since most archives wrap themselves in
-                // a folder and would otherwise unpack into one the engine finds
-                // empty. So both ends agree to ignore folders, and the skin's
-                // digits are found under the name the file actually has.
-                //
-                // The price is a skin that ships two different `hit-0.png` in
-                // two folders, where one overwrites the other on the way in.
-                // Nothing in the store does; a skin that did would lose the
-                // same file to the importer with or without this.
+                // Prefixes carry a path — `ScorePrefix: num\\berlin` is what the
+                // skin this was found on writes — and the folder is now indexed
+                // under it, so the name is kept whole. The leaf is still tried
+                // if nothing is there: a skin that arrived flattened, every file
+                // by its bare name, is the other half of the same world, and
+                // both spellings have to find their digits.
                 ("general", "version") => {
                     out.version = if value.eq_ignore_ascii_case("latest") {
                         LATEST_SKIN_VERSION
@@ -292,9 +288,9 @@ impl Ini {
                         value.parse().unwrap_or(LATEST_SKIN_VERSION)
                     };
                 }
-                ("fonts", "hitcircleprefix") => out.hit_circle_prefix = leaf_of(value),
-                ("fonts", "scoreprefix") => out.score_prefix = leaf_of(value),
-                ("fonts", "comboprefix") => out.combo_prefix = leaf_of(value),
+                ("fonts", "hitcircleprefix") => out.hit_circle_prefix = named(value),
+                ("fonts", "scoreprefix") => out.score_prefix = named(value),
+                ("fonts", "comboprefix") => out.combo_prefix = named(value),
                 // Only osu!standard's own combo colours. `[Mania]` has a
                 // `Colour1..N` of its own meaning something else entirely, and
                 // reading those as combo colours would repaint every note on a
@@ -539,7 +535,16 @@ impl Sprites {
         let mut off = HashSet::new();
 
         for &element in wanted {
-            let stem = element.stem_with(&ini).to_ascii_lowercase();
+            // A prefix may name a folder, and may name one this skin does not
+            // have — it arrived flattened, or the author moved the files and
+            // not the line. Whichever spelling the folder actually holds is the
+            // one everything below is looked up under.
+            let named = element.stem_with(&ini).to_ascii_lowercase();
+            let stem = if named.contains('/') && !holds(&index, &named) {
+                leaf_of(&named)
+            } else {
+                named
+            };
             // Animation first, then the static name, and `@2x` ahead of the
             // plain file within each — the order osu! resolves them in. Only
             // frame zero is read: nothing here animates yet, and a skin's
@@ -768,6 +773,15 @@ pub fn effective_version(stated: f32, as_written: bool) -> f32 {
 /// Written with forward slashes whatever the machine, since a skin.ini is a
 /// Windows file read everywhere; backslashes are taken too, because skins in
 /// the wild carry both.
+/// A name out of `skin.ini`, with the separator this machine uses.
+///
+/// A `skin.ini` is a Windows file wherever it is read, so `num\\berlin` and
+/// `num/berlin` are the same name and only one of them can be looked up.
+fn named(value: &str) -> String {
+    value.trim().replace('\\', "/")
+}
+
+/// The name without whatever folder it was in.
 fn leaf_of(value: &str) -> String {
     value
         .rsplit(['/', '\\'])
@@ -777,31 +791,90 @@ fn leaf_of(value: &str) -> String {
         .to_owned()
 }
 
-/// Every file at the top of `root`, keyed by its lowercased name.
+/// Whether the folder holds anything under this stem, by any of the spellings
+/// a sprite can be named with.
+fn holds(index: &HashMap<String, PathBuf>, stem: &str) -> bool {
+    ["-0@2x", "-0", "0@2x", "0", "@2x", ""]
+        .iter()
+        .any(|tail| index.contains_key(&format!("{stem}{tail}.png")))
+}
+
+/// Every file a skin folder can be asked for, keyed the way `skin.ini` names
+/// them: lower case, and with the separator osu! writes.
 ///
-/// Built once rather than probing for each name in turn: a skin holds a couple
-/// of hundred files and the renderer asks about a dozen elements, so one listing
-/// beats two dozen case-insensitive searches. Subdirectories are skipped — see
-/// this module's note about `cursors/`.
+/// Subfolders are indexed under their path and *only* under it. A skin may put
+/// its numbers in one and say so — `ScorePrefix: num\\berlin` means
+/// `num/berlin-0.png` — and without this the prefix resolves to nothing and the
+/// game's own digits get drawn over somebody else's skin. Nested files are not
+/// also indexed by bare name, because osu! does not look in subfolders for
+/// anything it was not told to.
 fn index_of(root: &Path) -> HashMap<String, PathBuf> {
     let mut index = HashMap::new();
-    let Ok(entries) = fs::read_dir(root) else {
-        return index;
+    walk(root, "", &mut index);
+    index
+}
+
+fn walk(dir: &Path, under: &str, index: &mut HashMap<String, PathBuf>) {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
     };
     for entry in entries.flatten() {
-        if !entry.file_type().is_ok_and(|t| t.is_file()) {
+        let name = entry.file_name().to_string_lossy().to_ascii_lowercase();
+        let Ok(kind) = entry.file_type() else {
+            continue;
+        };
+        if kind.is_dir() {
+            // One level of nesting is what skins use, and stopping there keeps
+            // a folder somebody dropped a whole other skin into from costing a
+            // walk of all of it.
+            if under.is_empty() {
+                walk(&entry.path(), &format!("{name}/"), index);
+            }
             continue;
         }
-        let name = entry.file_name().to_string_lossy().to_ascii_lowercase();
-        index.insert(name, entry.path());
+        if !kind.is_file() {
+            continue;
+        }
+        index.insert(format!("{under}{name}"), entry.path());
     }
-    index
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::elements::Verdict;
+
+    /// A skin that keeps its numbers in a folder and says so.
+    ///
+    /// `ScorePrefix: num\\berlin` is an ordinary thing for a skin to write —
+    /// osu! is a Windows game and that is a path. Reading only the top level of
+    /// the folder meant the prefix resolved to nothing, and the engine drew its
+    /// own digits over somebody else's skin without saying a word about it.
+    #[test]
+    fn a_prefix_that_names_a_subfolder_is_found() {
+        let dir = std::env::temp_dir().join(format!("dossier-skin-nested-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(dir.join("num")).expect("a skin folder");
+        fs::write(dir.join("skin.ini"), "[Fonts]\nScorePrefix: num\\berlin\n").expect("an ini");
+        write(&dir.join("num"), "berlin-0.png", 32, 255);
+
+        let index = index_of(&dir);
+        assert!(
+            index.contains_key("num/berlin-0.png"),
+            "a nested file was not indexed: {:?}",
+            index.keys().collect::<Vec<_>>()
+        );
+        // And not under its bare name: osu! does not look in subfolders for
+        // anything it was not pointed at.
+        assert!(!index.contains_key("berlin-0.png"));
+
+        let sprites = Sprites::read(&dir, &[Element::Score('0')]);
+        assert!(
+            sprites.get(Element::Score('0')).is_some(),
+            "the skin's own digit was not picked up"
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
 
     /// The one rule here that reads backwards, and the reason it is tested at
     /// all: writing a `skin.ini` is what *dates* a skin. A folder with no file
@@ -1226,11 +1299,11 @@ mod tests {
         // The combo counter's fallback is the *score* font rather than one of
         // its own, which is osu!'s rule and looks like a typo until you check.
         let ini = Ini::parse("[Fonts]\nHitCirclePrefix: numbers/hit\nScorePrefix: ui\\score\n");
-        // Without the folder, because the importer flattens a skin on the way
-        // in and this engine's index is flat to match. Both slashes are taken:
-        // a skin.ini is a Windows file that gets read everywhere.
-        assert_eq!(Element::Digit(4).stem_with(&ini), "hit-4");
-        assert_eq!(Element::Score('x').stem_with(&ini), "score-x");
+        // Folder and all, with the separator this machine uses — a skin.ini is
+        // a Windows file that gets read everywhere. A folder that turns out not
+        // to be there falls back to the bare name; see `Sprites::read`.
+        assert_eq!(Element::Digit(4).stem_with(&ini), "numbers/hit-4");
+        assert_eq!(Element::Score('x').stem_with(&ini), "ui/score-x");
 
         // And a skin that says nothing keeps the names the game gives.
         let plain = Ini::default();

@@ -430,12 +430,10 @@ hitSound.preload = "auto";
 /// каких их рисует `icons/make.py`. Потом к ней ровно сходится кольцо подхода,
 /// и это уже осу: удар, звук, свет.
 ///
-/// Пропорции колец взяты из плитки: внутреннее — радиус 0.335 стороны при
-/// толщине 0.046, внешнее — 0.425 при 0.020. Здесь то же самое, только считано
-/// от буквы, а не от квадрата, которого тут нет.
+/// Толщина кольца взята из плитки: там оно радиусом 0.335 стороны при толщине
+/// 0.046, здесь та же доля, только считана от буквы, а не от квадрата,
+/// которого тут нет.
 const RING_IN = 0.046 / 0.335;
-const RING_OUT_AT = 0.425 / 0.335;
-const RING_OUT = 0.02 / 0.335;
 
 const RISE_MS = 620;
 const RING_FROM_MS = 520;
@@ -451,8 +449,14 @@ let locked = false;
 /// Холст под размер окна. Меряется каждый кадр: заставка открывается раньше,
 /// чем окно успевает разложиться, и первый замер бывает не тем — а буфер,
 /// выставленный один раз, потом растягивает круг в овал.
+/// Заставка занимает весь экран, и на retina это четыре миллиона точек в
+/// кадре — по ним канва чистится и по ним же складывается. Полтора пикселя на
+/// точку хватает мягким формам с запасом и стоит вдвое дешевле двух: именно
+/// здесь и терялась плавность.
+const SPLASH_DPR = 1.5;
+
 function sizeSplash(c) {
-  const dpr = window.devicePixelRatio || 1;
+  const dpr = Math.min(window.devicePixelRatio || 1, SPLASH_DPR);
   const w = splash.clientWidth;
   const h = splash.clientHeight;
   if (splashView.width !== Math.round(w * dpr) || splashView.height !== Math.round(h * dpr)) {
@@ -488,19 +492,13 @@ function letterBox(w, h) {
   return { mid: [w / 2, h / 2 - 8], size, side };
 }
 
-/// Два кольца иконки вокруг буквы.
+/// Кольцо иконки вокруг буквы — то самое, толстое.
 function drawRings(c, mid, size, alpha) {
   c.globalAlpha = alpha * 0.85;
   c.strokeStyle = "#e24848";
   c.lineWidth = size * RING_IN;
   c.beginPath();
   c.arc(mid[0], mid[1], size, 0, Math.PI * 2);
-  c.stroke();
-
-  c.globalAlpha = alpha * 0.35;
-  c.lineWidth = Math.max(1, size * RING_OUT);
-  c.beginPath();
-  c.arc(mid[0], mid[1], size * RING_OUT_AT, 0, Math.PI * 2);
   c.stroke();
   c.globalAlpha = 1;
 }
@@ -686,7 +684,6 @@ function playIdle() {
             // судейство над ними и его же счётчики.
             popups: true,
             frame: false,
-            hud: true,
           },
           w,
           h,
@@ -834,18 +831,17 @@ const ROUTES = [
   {
     key: "telegram",
     label: "В Telegram",
-    ready: () => CONTACT.telegram,
-    // В личный чат текст подставить нельзя — кладём его в буфер и открываем
-    // чат, чтобы оставалось только вставить.
-    async link(said) {
-      const whole = said + (await tail());
-      try {
-        await navigator.clipboard.writeText(whole);
-        note("Текст будет в буфере");
-      } catch {
-        note("Чат открыт, но текст придётся перенести руками");
-      }
-      return `https://t.me/${CONTACT.telegram}`;
+    ready: () => true,
+    // Не `t.me`: ссылка всего лишь открыла бы чат, и текст пришлось бы
+    // вставлять туда руками. Отчёт уходит тому же боту, которому эта машина
+    // рисует, — а бот и есть тот Telegram, в который его несут. Это и есть
+    // самый прямой путь.
+    //
+    // Единственная дорога здесь, которая отправляет сама: поэтому она говорит,
+    // что отправила, а не молча открывает окно.
+    sends: true,
+    async send(said) {
+      return invoke("send_report", { log: said + (await tail()), kind: "bug" });
     },
   },
 ];
@@ -867,9 +863,15 @@ for (const route of ROUTES.filter((route) => route.ready())) {
     }
     button.disabled = true;
     try {
-      await invoke("open_link", { url: await route.link(said) });
+      if (route.sends) {
+        note("Отправляю…");
+        note(await route.send(said));
+        byId("bug-text").value = "";
+      } else {
+        await invoke("open_link", { url: await route.link(said) });
+      }
     } catch (why) {
-      note(`Не открылось: ${why}`, true);
+      note(`${route.sends ? "Не отправилось" : "Не открылось"}: ${why}`, true);
     } finally {
       button.disabled = false;
     }
@@ -1970,7 +1972,6 @@ function drawPlay(c, show, w, h) {
 
   if (show.popups) drawPopups(c, box, px, py, show);
   drawCursor(c, box, px, py, show);
-  if (show.hud) drawHud(c, box, show, w, h);
 }
 
 function drawPiece(c, piece, box, px, py, show) {
@@ -2108,21 +2109,6 @@ function drawPopups(c, box, px, py, show) {
   c.globalAlpha = 1;
 }
 
-/// Счётчики, как их ставит движок: точность сверху справа, комбо снизу слева.
-/// Считаются по тем же меткам, что нарисованы, — второго источника правды тут
-/// нет.
-function drawHud(c, box, show, w, h) {
-  const said = readMarks(show.judged.marks, show.head);
-  c.textBaseline = "alphabetic";
-  c.fillStyle = "rgba(255,255,255,0.9)";
-  c.font = `600 ${Math.max(15, box.r * 0.75)}px ui-monospace, Menlo, monospace`;
-  c.textAlign = "right";
-  c.fillText(`${round(said.percent, 2)}%`, w - Math.max(16, box.ox + 8), Math.max(28, box.oy + 24));
-  c.textAlign = "left";
-  c.font = `600 ${Math.max(18, box.r * 0.95)}px ui-monospace, Menlo, monospace`;
-  c.fillText(`${said.combo}x`, Math.max(16, box.ox + 8), h - Math.max(20, box.oy + 12));
-}
-
 function drawCursor(c, box, px, py, show) {
   const play = show.scene;
   const now = cursorAt(play, show.head);
@@ -2169,7 +2155,7 @@ function drawView() {
   const c = view.getContext("2d");
   c.setTransform(dpr, 0, 0, dpr, 0, 0);
   c.clearRect(0, 0, w, h);
-  drawPlay(c, { scene, judged, head, skinned, popups: true, frame: true, hud: false }, w, h);
+  drawPlay(c, { scene, judged, head, skinned, popups: true, frame: true }, w, h);
 }
 
 /// Что было к этому моменту: считается по тем же меткам, что нарисованы, —

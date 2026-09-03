@@ -253,7 +253,14 @@ body.dock-left .item { width: 100%; }
    лента: лента крутилась бы и тогда, когда ничего не рисуется. Обрезка по
    кадру не даёт крайним дыркам выехать за рамку. */
 .ic-render .perf { transform: translateY(0); }
-.item:hover .ic-render .perf, .item[aria-selected="true"] .ic-render .perf { transform: translateY(4.2px); }
+.item:hover .ic-render .perf { transform: translateY(4.2px); }
+/* У открытой вкладки лента идёт: шаг ровно в одну перфорацию, поэтому конец
+   петли совпадает с началом и шва не видно. */
+.item[aria-selected="true"] .ic-render .perf { animation: film 1.9s linear infinite; }
+@keyframes film {
+  from { transform: translateY(0); }
+  to { transform: translateY(4.2px); }
+}
 .item:hover .ic-render .play, .item[aria-selected="true"] .ic-render .play { transform: scale(1.12); }
 
 .ic-farm .led { fill: currentColor; stroke: none; opacity: 0.32; }
@@ -1202,18 +1209,25 @@ body.dock-left main { margin: 4.6rem auto 0; padding-top: 1.5rem; }
 }
 .mode:hover .ic-judge .ring { animation-duration: 1.5s; }
 
-/* Левый край стоит, правый ходит, и кусок между ними тянется вместе с ним —
-   одна и та же кривая на обоих, иначе они разъедутся. Это подрезка: у куска
-   двигают конец, а не сжимают его с двух сторон. */
-.ic-cut .piece { transform-origin: 9.2px 12px; animation: trim-piece 3.4s ease-in-out infinite; }
-.ic-cut .blade.b { animation: trim-edge 3.4s ease-in-out infinite; }
-@keyframes trim-piece {
-  0%, 100% { transform: scaleX(1); }
-  50% { transform: scaleX(0.58); }
+/* Головка идёт по дорожке слева направо и начинает заново, а у правого куска
+   подрезается конец. Обе вещи — ровно то, что делают на этой вкладке. */
+/* Заливку им задаёт атрибут, а общее правило `.ic.big rect` ставит `fill:
+   none` — стиль сильнее атрибута. И вес нужен не меньше: у `.ic.big rect` два
+   класса и элемент, так что элемент здесь тоже назван. */
+.ic-cut rect.clip { fill: var(--accent); stroke: none; opacity: 0.45; }
+.ic-judge circle.pip { fill: var(--accent); stroke: none; }
+
+.ic-cut .head { animation: playhead 4.2s linear infinite; }
+@keyframes playhead {
+  0% { transform: translateX(0); opacity: 0; }
+  8% { opacity: 0.9; }
+  88% { opacity: 0.9; }
+  100% { transform: translateX(12.6px); opacity: 0; }
 }
-@keyframes trim-edge {
-  0%, 100% { transform: translateX(0); }
-  50% { transform: translateX(-2.35px); }
+.ic-cut .clip.b { transform-origin: 12.2px 12px; animation: trim 4.2s ease-in-out infinite; }
+@keyframes trim {
+  0%, 100% { transform: scaleX(1); }
+  46% { transform: scaleX(0.62); }
 }
 .ic-cut .rails { transition: opacity 0.3s var(--ease); }
 .mode:hover .ic-cut .rails { opacity: 1; }

@@ -377,8 +377,10 @@ let scene_run = null;
 /// значит `ui/letter.png` собирается там, где он есть. Пока его нет, заставка
 /// показывает плитку и работает.
 const markImage = new Image();
+let markIsLetter = true;
 markImage.onerror = () => {
   markImage.onerror = null;
+  markIsLetter = false;
   markImage.src = "mark.png";
 };
 markImage.src = "letter.png";
@@ -418,7 +420,9 @@ function playSplash() {
     c.globalAlpha = Math.min(1, t / 420);
     const swell = struck ? 1 + 0.07 * Math.max(0, 1 - (t - APPROACH_MS) / 260) : 1;
     if (markImage.complete && markImage.naturalWidth) {
-      const side = size * 2 * swell;
+      // Буква занимает около трети своего холста, плитка — весь: чтобы обе
+      // вставали в кольцо одного размера, множитель у них разный.
+      const side = size * (markIsLetter ? 3.4 : 2) * swell;
       c.drawImage(markImage, mid[0] - side / 2, mid[1] - side / 2, side, side);
     }
 

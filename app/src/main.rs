@@ -16,7 +16,10 @@ mod check;
 mod draw;
 mod library;
 mod link;
+mod look;
 mod machine;
+mod pick;
+mod reel;
 mod settings;
 mod work;
 
@@ -27,11 +30,20 @@ mod work;
 /// for minutes is one somebody force-quits. The engine's own events are
 /// forwarded as they arrive; see `dossier_produce::events`.
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 fn draw(
     app: tauri::AppHandle,
     replay: String,
     out: String,
     skin: Option<String>,
+    width: Option<u32>,
+    height: Option<u32>,
+    fps: Option<f64>,
+    background: Option<bool>,
+    storyboard: Option<bool>,
+    mute: Option<bool>,
+    from_ms: Option<f64>,
+    to_ms: Option<f64>,
 ) -> Result<Drawn, String> {
     use tauri::Emitter;
 
@@ -54,14 +66,14 @@ fn draw(
         songs: Some(std::path::Path::new(&said.songs)),
         map: None,
         out: std::path::PathBuf::from(out),
-        size: (1920, 1080),
-        fps: 60.0,
-        from_ms: None,
-        to_ms: None,
-        background: true,
-        storyboard: true,
+        size: (width.unwrap_or(1920), height.unwrap_or(1080)),
+        fps: fps.unwrap_or(60.0),
+        from_ms,
+        to_ms,
+        background: background.unwrap_or(true),
+        storyboard: storyboard.unwrap_or(true),
         bare: false,
-        mute: false,
+        mute: mute.unwrap_or(false),
         skin,
         events: true,
     };
@@ -159,6 +171,94 @@ fn ready() -> Vec<check::Row> {
     check::ready()
 }
 
+/// Judge a replay and hand back what became of every object.
+///
+/// No frames, no ffmpeg, no waiting: the engine already knows what each click
+/// was worth, and a play can be looked at in the time it takes to read the
+/// file. This is what the viewer draws its strip from.
+#[tauri::command]
+fn judged(replay: String) -> Result<look::Judged, String> {
+    let said = settings::Settings::load();
+    let songs = std::path::PathBuf::from(&said.songs);
+    let songs = songs.is_dir().then_some(songs.as_path());
+    look::look(std::path::Path::new(&replay), songs)
+}
+
+/// Ask the system for a folder. `None` means the dialog was closed.
+#[tauri::command]
+fn pick_folder(prompt: String) -> Result<Option<String>, String> {
+    pick::folder(&prompt)
+}
+
+/// Ask the system for one replay file.
+#[tauri::command]
+fn pick_replay(prompt: String) -> Result<Option<String>, String> {
+    pick::file(&prompt, "osr")
+}
+
+/// Draw the spans somebody cut on the timeline, and join them into one file.
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+fn build_reel(
+    app: tauri::AppHandle,
+    replay: String,
+    out: String,
+    spans: Vec<reel::Span>,
+    skin: Option<String>,
+    width: Option<u32>,
+    height: Option<u32>,
+    fps: Option<f64>,
+    mute: Option<bool>,
+) -> Result<Drawn, String> {
+    use tauri::Emitter;
+
+    let said = settings::Settings::load();
+    let told = draw::Told::default();
+    let sending = app.clone();
+    dossier_produce::events::listen(move |line| {
+        if let Ok(event) = serde_json::from_str::<serde_json::Value>(line) {
+            let _ = sending.emit("drawing", event);
+        }
+    });
+    let skin = skin
+        .filter(|name| !name.is_empty())
+        .map(|name| std::path::Path::new(&said.skins).join(name))
+        .filter(|path| path.is_dir());
+    let asked = draw::Asked {
+        replay: std::path::Path::new(&replay),
+        songs: Some(std::path::Path::new(&said.songs)),
+        map: None,
+        out: std::path::PathBuf::from(out),
+        size: (width.unwrap_or(1920), height.unwrap_or(1080)),
+        fps: fps.unwrap_or(60.0),
+        from_ms: None,
+        to_ms: None,
+        background: true,
+        storyboard: true,
+        bare: false,
+        mute: mute.unwrap_or(false),
+        skin,
+        events: true,
+    };
+    let counting = app.clone();
+    let step = move |done: usize, of: usize| {
+        let _ = counting.emit("reeling", serde_json::json!({ "clip": done + 1, "of": of }));
+    };
+    let done = reel::build(&asked, &spans, &told, &step);
+    dossier_produce::events::unlisten();
+    done.map(|path| Drawn {
+        path: path.display().to_string(),
+        said: told.said(),
+    })
+}
+
+/// What this application is made of, what it needs from outside, and what is
+/// only planned.
+#[tauri::command]
+fn modules() -> Vec<library::Module> {
+    library::modules(&settings::Settings::load())
+}
+
 /// Hand a link to the system: the repository, a mail draft, a new issue.
 ///
 /// Nothing is ever sent from here. The most this does is open somebody's mail
@@ -205,7 +305,12 @@ fn main() {
             skins,
             farm,
             open_link,
-            about
+            about,
+            judged,
+            pick_folder,
+            pick_replay,
+            build_reel,
+            modules
         ])
         .run(tauri::generate_context!())
         .expect("the window could not be opened");

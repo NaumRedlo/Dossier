@@ -98,7 +98,7 @@ pub fn read_pairs(path: &Path) -> Vec<(String, String)> {
 }
 
 /// The first of these on `PATH`, if any.
-fn on_path(name: &str) -> Option<PathBuf> {
+pub(crate) fn on_path(name: &str) -> Option<PathBuf> {
     let sep = if cfg!(windows) { ';' } else { ':' };
     let names: Vec<String> = if cfg!(windows) {
         vec![format!("{name}.exe"), name.to_owned()]

@@ -334,3 +334,129 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 }
+
+/// One piece of what the application is made of, or needs.
+///
+/// The tab that shows these is not a status page: it is the shelf. What is
+/// built in cannot be removed, what is outside can be missing and says how to
+/// stop being missing, and what is planned says so rather than pretending.
+#[derive(Debug, Clone, Serialize)]
+pub struct Module {
+    pub name: String,
+    pub what: String,
+    /// `builtin`, `found`, `missing`, `planned`.
+    pub state: &'static str,
+    pub said: String,
+    pub fix: String,
+    /// A folder this module lives in, when picking one is the way to fix it.
+    pub picks: Option<&'static str>,
+}
+
+const ENGINE: [(&str, &str); 6] = [
+    (
+        "dossier-replay",
+        "разбор .osr: путь курсора и что было нажато",
+    ),
+    (
+        "dossier-beatmap",
+        "разбор .osu и .osz: объекты, тайминг, кривые слайдеров",
+    ),
+    (
+        "dossier-sim",
+        "реплей против карты: что на самом деле произошло",
+    ),
+    (
+        "dossier-render",
+        "кадры: скины, курсор, слайдеры, судейство, интерфейс",
+    ),
+    ("dossier-audio", "хитсаунды, песня и смесь из них"),
+    ("dossier-produce", "сцена, кодирование, поиск карт и скинов"),
+];
+
+/// What is on the shelf, and what is missing from it.
+pub fn modules(said: &Settings) -> Vec<Module> {
+    let version = env!("CARGO_PKG_VERSION");
+    let mut out: Vec<Module> = ENGINE
+        .iter()
+        .map(|(name, what)| Module {
+            name: (*name).to_owned(),
+            what: (*what).to_owned(),
+            state: "builtin",
+            said: format!("встроен · {version}"),
+            fix: String::new(),
+            picks: None,
+        })
+        .collect();
+
+    let ffmpeg = crate::check::on_path("ffmpeg");
+    out.push(Module {
+        name: "ffmpeg".to_owned(),
+        what: "склеивает кадры в видео и достаёт звук из карт".to_owned(),
+        state: if ffmpeg.is_some() { "found" } else { "missing" },
+        said: ffmpeg.map_or_else(
+            || "не найден в PATH".to_owned(),
+            |path| path.display().to_string(),
+        ),
+        fix: "brew install ffmpeg · apt install ffmpeg · ffmpeg.org/download".to_owned(),
+        picks: None,
+    });
+
+    let font = dossier_produce::font::find(None).ok().flatten();
+    out.push(Module {
+        name: "шрифт".to_owned(),
+        what: "цифры и подписи на кадре".to_owned(),
+        state: if font.is_some() { "found" } else { "missing" },
+        said: if font.is_some() {
+            "найден".to_owned()
+        } else {
+            "не найден — рисуется без цифр".to_owned()
+        },
+        fix: "положите .ttf рядом с приложением или назовите его в DOSSIER_FONT".to_owned(),
+        picks: None,
+    });
+
+    let shelves = look(said);
+    for (name, what, shelf, picks) in [
+        (
+            "карты",
+            "папка Songs — по ней ищется карта реплея",
+            &shelves.songs,
+            "songs",
+        ),
+        (
+            "скины",
+            "чем рисовать, кроме встроенного",
+            &shelves.skins,
+            "skins",
+        ),
+        (
+            "реплеи",
+            "что предлагать к отрисовке",
+            &shelves.replays,
+            "replays",
+        ),
+    ] {
+        out.push(Module {
+            name: name.to_owned(),
+            what: what.to_owned(),
+            state: if shelf.exists { "found" } else { "missing" },
+            said: if shelf.exists {
+                format!("{} · {}", shelf.note, shelf.path)
+            } else {
+                shelf.note.clone()
+            },
+            fix: "укажите папку — «Обзор» рядом с полем".to_owned(),
+            picks: Some(picks),
+        });
+    }
+
+    out.push(Module {
+        name: "плагины".to_owned(),
+        what: "чужие модули: свои судьи, свои сцены, свои выходные форматы".to_owned(),
+        state: "planned",
+        said: "заложено, но ещё не грузится".to_owned(),
+        fix: "форма модуля здесь и есть подготовка к этому".to_owned(),
+        picks: None,
+    });
+    out
+}

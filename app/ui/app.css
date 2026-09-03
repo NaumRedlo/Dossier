@@ -8,20 +8,21 @@
    one thing. */
 :root {
   color-scheme: dark;
-  --ink: #eef1f8;
-  --muted: #98a1ba;
-  --faint: #6d7590;
+  --ink: #f4eeef;
+  --muted: #bca6a9;
+  --faint: #8b7477;
   --accent: #e24848;
   --accent-soft: rgba(226, 72, 72, 0.14);
   --good: #5fd694;
   --warn: #f0c060;
-  --glass: rgba(255, 255, 255, 0.048);
+  --glass: rgba(255, 255, 255, 0.045);
   --glass-high: rgba(255, 255, 255, 0.075);
   --line: rgba(255, 255, 255, 0.085);
   --line-high: rgba(255, 255, 255, 0.16);
   --pill: #ffffff;
-  --pill-ink: #14182a;
-  --sunk: rgba(0, 0, 0, 0.24);
+  --pill-ink: #1c1013;
+  --sunk: rgba(0, 0, 0, 0.26);
+  --panel: rgba(38, 16, 20, 0.66);
   --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
   --ease: cubic-bezier(0.22, 0.9, 0.28, 1);
 }
@@ -32,12 +33,77 @@
 body {
   margin: 0;
   min-height: 100vh;
-  background:
-    radial-gradient(115% 95% at 50% -18%, #26407f 0%, #1a2757 26%, #111a3d 48%, #0a0e20 72%, #05060d 100%)
-    fixed;
+  background: radial-gradient(115% 95% at 50% -18%, #3a1015 0%, #26090f 30%, #17070b 55%, #0d0508 78%, #070304 100%) fixed;
   color: var(--ink);
   font: 14px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
+}
+
+/* ── the sky ──────────────────────────────────────────────────────────── */
+
+/* Three patches of the accent, very slowly going their own ways. No blur
+   filter and no canvas: a radial gradient is already soft at the edges, and
+   this has to be affordable on a machine whose whole job is to be rendering
+   something else. */
+.sky {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  pointer-events: none;
+}
+.blob {
+  position: absolute;
+  width: 46rem;
+  height: 46rem;
+  border-radius: 50%;
+  opacity: 0.5;
+}
+.b1 { top: -18rem; left: -10rem; background: radial-gradient(circle, rgba(226, 72, 72, 0.34), transparent 68%); animation: drift-a 46s ease-in-out infinite alternate; }
+.b2 { top: -8rem; right: -16rem; background: radial-gradient(circle, rgba(240, 138, 93, 0.2), transparent 66%); animation: drift-b 61s ease-in-out infinite alternate; }
+.b3 { bottom: -26rem; left: 22%; background: radial-gradient(circle, rgba(150, 40, 70, 0.26), transparent 70%); animation: drift-c 73s ease-in-out infinite alternate; }
+@keyframes drift-a { to { transform: translate3d(9rem, 5rem, 0) scale(1.12); } }
+@keyframes drift-b { to { transform: translate3d(-7rem, 8rem, 0) scale(0.92); } }
+@keyframes drift-c { to { transform: translate3d(6rem, -6rem, 0) scale(1.08); } }
+
+/* Остановленный фон и окно, на которое никто не смотрит, стоят одинаково. */
+body.sky-still .blob, body.away .blob { animation-play-state: paused; }
+
+/* ── the splash ───────────────────────────────────────────────────────── */
+
+.splash {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 0.2rem;
+  background: rgba(11, 4, 6, 0.72);
+  -webkit-backdrop-filter: blur(26px) saturate(1.2);
+  backdrop-filter: blur(26px) saturate(1.2);
+  transition: opacity 0.55s var(--ease);
+}
+.splash.going { opacity: 0; pointer-events: none; }
+.splash .mark {
+  width: 5.25rem;
+  height: 5.25rem;
+  border-radius: 1.4rem;
+  box-shadow: 0 1.6rem 3.2rem rgba(0, 0, 0, 0.55);
+  animation: rise 0.7s var(--ease) both;
+}
+.splash h1 {
+  margin: 1.15rem 0 0;
+  font: 600 1.5rem/1 var(--mono);
+  letter-spacing: 0.14em;
+  animation: rise 0.7s var(--ease) 0.08s both;
+}
+.splash .say {
+  margin: 0.55rem 0 0;
+  max-width: 26rem;
+  color: var(--muted);
+  text-align: center;
+  animation: rise 0.7s var(--ease) 0.16s both;
 }
 
 /* ── the dock ─────────────────────────────────────────────────────────── */
@@ -53,32 +119,33 @@ body {
   padding: 0.4rem;
   border: 1px solid var(--line);
   border-radius: 1.65rem;
-  background: rgba(14, 20, 44, 0.62);
+  background: var(--panel);
   box-shadow: 0 1.2rem 2.4rem rgba(0, 0, 0, 0.38), inset 0 1px 0 rgba(255, 255, 255, 0.06);
   -webkit-backdrop-filter: blur(22px) saturate(1.4);
   backdrop-filter: blur(22px) saturate(1.4);
-  animation: land 0.5s var(--ease) both;
-}
-body.dock-top .dock { top: 0.9rem; left: 50%; transform: translateX(-50%); }
-body.dock-left .dock { left: 0.9rem; top: 50%; transform: translateY(-50%); flex-direction: column; }
-
-@keyframes land {
-  from { opacity: 0; transform: translateX(-50%) translateY(-0.9rem); }
-}
-body.dock-left .dock { animation-name: land-side; }
-@keyframes land-side {
-  from { opacity: 0; transform: translateY(-50%) translateX(-0.9rem); }
+  transition: transform 0.5s var(--ease), opacity 0.45s var(--ease);
 }
 
+/* The offset the panel is *currently* carrying, which is how it slides from one
+   edge to the other: the side change measures where it was, puts that
+   difference in here, and lets the transition take it back to nothing. A
+   keyframed arrival would have owned `transform` and blocked exactly that. */
+body.dock-top .dock { top: 0.9rem; left: 50%; transform: translate(calc(-50% + var(--sx, 0px)), var(--sy, 0px)); }
+body.dock-left .dock { left: 0.9rem; top: 50%; transform: translate(var(--sx, 0px), calc(-50% + var(--sy, 0px))); flex-direction: column; }
+.dock.jumping { transition: none; }
+.dock.landing { opacity: 0; }
+
+/* One piece, not a button beside a strip: the mark is inside the panel and a
+   hairline is all that separates it from the tabs. */
 .brand {
   display: grid;
   place-items: center;
-  width: 2.35rem;
-  height: 2.35rem;
-  border-radius: 1.2rem;
-  background: var(--glass-high);
+  padding: 0 0.6rem 0 0.45rem;
+  align-self: stretch;
 }
-.brand .mark { width: 1.6rem; height: 1.6rem; border-radius: 0.42rem; }
+body.dock-top .brand { border-right: 1px solid var(--line); margin-right: 0.2rem; }
+body.dock-left .brand { border-bottom: 1px solid var(--line); margin: 0 0.2rem 0.25rem; padding: 0.3rem 0 0.55rem; }
+.brand .mark { width: 1.55rem; height: 1.55rem; border-radius: 0.4rem; }
 
 .items { position: relative; display: flex; gap: 0.15rem; }
 body.dock-left .items { flex-direction: column; }
@@ -116,10 +183,14 @@ body.dock-left .items { flex-direction: column; }
   letter-spacing: 0.015em;
   white-space: nowrap;
   cursor: pointer;
-  transform: translate(var(--tx, 0px), var(--ty, 0px));
-  transition: color 0.22s var(--ease), transform 0.14s linear;
+  transform: translate3d(var(--tx, 0px), var(--ty, 0px), 0);
+  transition: color 0.22s var(--ease);
   will-change: transform;
 }
+/* Пока курсор идёт по панели, вкладки следуют за ним без перехода: переход,
+   который каждый кадр начинается заново, и есть та самая рябь. Он включается
+   только на въезд и на возврат в покой. */
+.items.easing .item, .items.easing .glyph { transition: color 0.22s var(--ease), transform 0.22s var(--ease); }
 body.dock-left .item { width: 100%; }
 .item:hover { color: var(--ink); }
 .item[aria-selected="true"] { color: var(--pill-ink); }
@@ -129,9 +200,9 @@ body.dock-left .item { width: 100%; }
   place-items: center;
   width: 1.35rem;
   height: 1.35rem;
-  transform: scale(var(--s, 1)) translate(var(--lx, 0px), var(--ly, 0px));
+  transform: translate3d(var(--lx, 0px), var(--ly, 0px), 0) scale(var(--s, 1));
   transform-origin: center;
-  transition: transform 0.14s linear;
+  will-change: transform;
 }
 .ic { width: 1.35rem; height: 1.35rem; display: block; }
 .ic [stroke], .ic path, .ic rect, .ic circle {
@@ -139,7 +210,6 @@ body.dock-left .item { width: 100%; }
   stroke-width: 1.55;
   stroke-linecap: round;
   stroke-linejoin: round;
-  vector-effect: non-scaling-stroke;
 }
 .item[aria-selected="true"] .ic { color: var(--accent); }
 
@@ -200,6 +270,24 @@ body.dock-left .item { width: 100%; }
   50% { transform: translateX(5px); }
 }
 
+.ic-replay .dot { fill: currentColor; stroke: none; }
+.ic-replay .approach { opacity: 0.6; transform-origin: 12px 12px; }
+.item:hover .ic-replay .approach, .item[aria-selected="true"] .ic-replay .approach {
+  animation: closing 1.7s ease-in infinite;
+}
+@keyframes closing {
+  0% { transform: scale(1.55); opacity: 0; }
+  25% { opacity: 0.75; }
+  85%, 100% { transform: scale(1); opacity: 0; }
+}
+
+.ic-library .cell { opacity: 0.5; }
+.item:hover .ic-library .c1, .item[aria-selected="true"] .ic-library .c1 { animation: lit 2.2s ease-in-out infinite; }
+.item:hover .ic-library .c2, .item[aria-selected="true"] .ic-library .c2 { animation: lit 2.2s ease-in-out 0.28s infinite; }
+.item:hover .ic-library .c4, .item[aria-selected="true"] .ic-library .c4 { animation: lit 2.2s ease-in-out 0.56s infinite; }
+.item:hover .ic-library .c3, .item[aria-selected="true"] .ic-library .c3 { animation: lit 2.2s ease-in-out 0.84s infinite; }
+@keyframes lit { 0%, 70%, 100% { opacity: 0.45; } 22% { opacity: 1; } }
+
 /* ── the corners ──────────────────────────────────────────────────────── */
 
 .corner {
@@ -211,24 +299,21 @@ body.dock-left .item { width: 100%; }
 }
 .corner.top { top: 1.3rem; right: 1.3rem; }
 
-.chip {
-  max-width: 9.5rem;
-  padding: 0.4rem 0.8rem;
+/* Имя этой машины — внизу слева, тише всего остального: его читают раз в
+   жизни, когда сверяют, кто на ферме. Адреса бота здесь нет вовсе. */
+.me {
+  position: fixed;
+  left: 1.4rem;
+  bottom: 1.35rem;
+  z-index: 7;
+  max-width: 16rem;
   overflow: hidden;
-  border: 1px solid var(--line);
-  border-radius: 1rem;
-  background: rgba(14, 20, 44, 0.6);
-  -webkit-backdrop-filter: blur(18px);
-  backdrop-filter: blur(18px);
-  color: var(--muted);
-  font: 0.76rem/1.3 var(--mono);
+  color: var(--faint);
+  font: 0.74rem/1 var(--mono);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-
-@media (max-width: 900px) {
-  body.dock-top .chip { display: none; }
-}
+body.dock-left .me { left: 11.9rem; }
 
 .hoverbox { position: relative; }
 
@@ -240,7 +325,7 @@ body.dock-left .item { width: 100%; }
   padding: 0;
   border: 1px solid var(--line);
   border-radius: 1.05rem;
-  background: rgba(14, 20, 44, 0.6);
+  background: var(--panel);
   -webkit-backdrop-filter: blur(18px);
   backdrop-filter: blur(18px);
   color: var(--muted);
@@ -271,7 +356,7 @@ body.dock-left .item { width: 100%; }
   padding: 1rem;
   border: 1px solid var(--line-high);
   border-radius: 1rem;
-  background: rgba(17, 23, 46, 0.92);
+  background: rgba(33, 14, 18, 0.94);
   box-shadow: 0 1.4rem 3rem rgba(0, 0, 0, 0.5);
   -webkit-backdrop-filter: blur(24px);
   backdrop-filter: blur(24px);
@@ -391,6 +476,7 @@ main > section > *:nth-child(n + 5) { animation-delay: 0.2s; }
 
 button.act {
   margin-top: 1rem;
+  white-space: nowrap;
   padding: 0.5rem 1rem;
   border: 1px solid var(--line);
   border-radius: 0.75rem;
@@ -416,14 +502,14 @@ button.act.small { margin: 0; padding: 0.35rem 0.7rem; font-size: 0.84rem; }
   display: grid;
   place-items: center;
   padding: 2rem;
-  background: radial-gradient(110% 80% at 50% -5%, #26407f 0%, #131c42 45%, #06070d 100%);
+  background: radial-gradient(110% 80% at 50% -5%, #3a1015 0%, #1b080c 45%, #070304 100%);
 }
 .pane {
   width: min(30rem, 100%);
   padding: 1.85rem;
   border: 1px solid var(--line-high);
   border-radius: 1.3rem;
-  background: rgba(17, 23, 46, 0.85);
+  background: rgba(33, 14, 18, 0.9);
   box-shadow: 0 2rem 4rem rgba(0, 0, 0, 0.5);
   animation: rise 0.45s var(--ease) both;
 }
@@ -436,11 +522,13 @@ button.act.small { margin: 0; padding: 0.35rem 0.7rem; font-size: 0.84rem; }
 /* ── forms ────────────────────────────────────────────────────────────── */
 
 label { display: block; margin: 0 0 0.8rem; color: var(--muted); font-size: 0.82rem; }
-label input, label select, .popover textarea {
+/* Только у полей ввода: галочка, у которой отняли внешний вид, — это пустой
+   квадрат, который ничего не показывает. */
+label input[type="text"], label input[type="password"], label select, .popover textarea {
   -webkit-appearance: none;
   appearance: none;
 }
-label input, label select {
+label input[type="text"], label input[type="password"], label select {
   display: block;
   width: 100%;
   margin-top: 0.3rem;
@@ -453,8 +541,8 @@ label input, label select {
   transition: border-color 0.2s var(--ease), background 0.2s var(--ease);
 }
 label select { background-image: none; }
-label input:hover, label select:hover { border-color: var(--line-high); }
-label input:focus, label select:focus {
+label input[type="text"]:hover, label input[type="password"]:hover, label select:hover { border-color: var(--line-high); }
+label input[type="text"]:focus, label input[type="password"]:focus, label select:focus {
   outline: none;
   border-color: var(--accent);
   background: rgba(0, 0, 0, 0.34);
@@ -552,3 +640,193 @@ body.still *, body.still *::before, body.still *::after {
   animation: none !important;
   transition-duration: 0.01ms !important;
 }
+
+/* ── шаги, полосы, плитки ─────────────────────────────────────────────── */
+
+/* Первые шаги стоят над списком реплеев, пока хоть один не сделан, и исчезают
+   целиком, когда сделаны все: подсказка, которая не уходит, перестаёт быть
+   подсказкой и становится мебелью. */
+.steps {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  gap: 0.6rem;
+  margin: 0 0 1.1rem;
+  padding: 0;
+  list-style: none;
+}
+.step {
+  display: grid;
+  grid-template-columns: 1.5rem 1fr;
+  gap: 0.55rem 0.6rem;
+  align-items: center;
+  padding: 0.7rem 0.85rem;
+  border: 1px solid var(--line);
+  border-radius: 0.9rem;
+  background: var(--glass);
+}
+.step.done { border-color: rgba(95, 214, 148, 0.28); }
+.step .no {
+  display: grid;
+  place-items: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 0.75rem;
+  background: var(--sunk);
+  color: var(--muted);
+  font: 600 0.78rem/1 var(--mono);
+}
+.step.done .no { background: rgba(95, 214, 148, 0.16); color: var(--good); }
+.step b { font-weight: 600; }
+.step p { grid-column: 2; margin: 0; color: var(--faint); font-size: 0.78rem; }
+.step .act { grid-column: 2; margin: 0.15rem 0 0; justify-self: start; }
+
+.bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 0.7rem;
+  margin: 0.85rem 0;
+}
+.bar .grow { flex: 1; }
+.bar .verdict { margin: 0; font-weight: 500; }
+.pick.short { min-width: 8rem; }
+.ticks { display: flex; gap: 0.75rem; align-items: center; padding-bottom: 0.35rem; }
+.tick {
+  display: flex;
+  align-items: center;
+  gap: 0.32rem;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+.tick input { accent-color: var(--accent); margin: 0; }
+
+/* ── настройки поплотнее ──────────────────────────────────────────────── */
+
+.card.pad { padding: 1rem 1.05rem 0.35rem; }
+.card.tight .row { padding: 0.45rem 0.85rem; grid-template-columns: 1rem 6.5rem 1fr; gap: 0.6rem; font-size: 0.88rem; }
+
+.grid2 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  gap: 0 1rem;
+  align-items: end;
+}
+.endcap { display: flex; align-items: center; gap: 0.8rem; margin-bottom: 0.8rem; }
+.endcap .act { margin: 0; }
+.endcap .verdict { margin: 0; font-size: 0.82rem; font-weight: 500; }
+
+/* Путь — одна строка: название, поле, кнопка. Поле в три строки высотой ради
+   одного пути было тем самым пустым местом. */
+.pathrow {
+  display: grid;
+  grid-template-columns: 5rem 1fr auto;
+  gap: 0.7rem;
+  align-items: center;
+  padding: 0.5rem 0.85rem;
+  border-top: 1px solid var(--line);
+}
+.pathrow:first-child { border-top: 0; }
+.pathname { color: var(--muted); font: 0.8rem/1 var(--mono); }
+.pathrow input { width: 100%; margin: 0; padding: 0.38rem 0.55rem; border: 1px solid var(--line); border-radius: 0.5rem; background: var(--sunk); color: var(--ink); font: 0.82rem/1.4 var(--mono); }
+.pathrow input:focus { outline: none; border-color: var(--accent); }
+
+.two { display: grid; grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr)); gap: 0 1.4rem; }
+.headline.small { padding: 0.75rem 0.95rem; margin-bottom: 0.6rem; }
+.headline.small b { font-size: 1.4rem; }
+.headline.small span { font-size: 0.82rem; }
+
+/* ── реплей: две половины ─────────────────────────────────────────────── */
+
+.split { display: grid; grid-template-columns: repeat(auto-fit, minmax(23rem, 1fr)); gap: 1.4rem; }
+.half { min-width: 0; }
+.halfhead { display: flex; align-items: baseline; gap: 0.6rem; margin-bottom: 0.7rem; }
+.halfhead b { font-size: 0.95rem; }
+.halfhead .muted { font-size: 0.78rem; }
+
+.drop {
+  display: grid;
+  place-items: center;
+  gap: 0.6rem;
+  padding: 2.4rem 1rem;
+  border: 1px dashed var(--line-high);
+  border-radius: 1.05rem;
+  background: var(--glass);
+  text-align: center;
+  transition: border-color 0.2s var(--ease), background 0.2s var(--ease);
+}
+.drop.over { border-color: var(--accent); background: var(--accent-soft); }
+.drop p { margin: 0; color: var(--muted); }
+.drop .act { margin: 0; }
+
+.tapebox { margin: 0.9rem 0; }
+#rp-tape { display: block; width: 100%; height: 10rem; border: 1px solid var(--line); border-radius: 0.9rem; background: var(--sunk); cursor: crosshair; }
+.tapefoot { display: flex; align-items: center; gap: 0.7rem; margin-top: 0.55rem; }
+.tapefoot .grow { flex: 1; }
+
+/* ── монтажная лента ──────────────────────────────────────────────────── */
+
+.reelbox {
+  border: 1px solid var(--line);
+  border-radius: 0.9rem;
+  background: var(--sunk);
+  overflow: hidden;
+}
+.ruler {
+  position: relative;
+  height: 1.35rem;
+  border-bottom: 1px solid var(--line);
+  color: var(--faint);
+  font: 0.66rem/1.35rem var(--mono);
+}
+.ruler span { position: absolute; top: 0; padding-left: 0.25rem; border-left: 1px solid var(--line); }
+.track { position: relative; height: 4.6rem; }
+.clip {
+  position: absolute;
+  top: 0.5rem;
+  bottom: 0.5rem;
+  border-radius: 0.5rem;
+  background: linear-gradient(180deg, rgba(226, 72, 72, 0.55), rgba(226, 72, 72, 0.3));
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  color: #fff;
+  font: 0.68rem/1 var(--mono);
+  cursor: grab;
+  overflow: hidden;
+}
+.clip:active { cursor: grabbing; }
+.clip.picked { outline: 2px solid var(--pill); outline-offset: 1px; }
+.clip b { position: absolute; left: 0.4rem; top: 0.4rem; font-weight: 600; }
+.clip .edge { position: absolute; top: 0; bottom: 0; width: 0.5rem; cursor: ew-resize; }
+.clip .edge.a { left: 0; }
+.clip .edge.b { right: 0; }
+.head { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--pill); pointer-events: none; }
+
+/* ── библиотека ───────────────────────────────────────────────────────── */
+
+.mod {
+  display: grid;
+  grid-template-columns: 5.5rem 1fr auto;
+  gap: 0.5rem 0.9rem;
+  align-items: center;
+  padding: 0.65rem 1rem;
+  border-top: 1px solid var(--line);
+}
+.mod:first-child { border-top: 0; }
+.mod .tag {
+  justify-self: start;
+  padding: 0.16rem 0.5rem;
+  border-radius: 0.5rem;
+  font: 0.68rem/1.5 var(--mono);
+  white-space: nowrap;
+}
+.tag.builtin { background: rgba(255, 255, 255, 0.08); color: var(--muted); }
+.tag.found { background: rgba(95, 214, 148, 0.15); color: var(--good); }
+.tag.missing { background: var(--accent-soft); color: var(--accent); }
+.tag.planned { background: rgba(240, 192, 96, 0.13); color: var(--warn); }
+.mod b { font-weight: 600; }
+.mod .what { color: var(--muted); font-size: 0.84rem; }
+.mod .said { grid-column: 2; color: var(--faint); font-size: 0.78rem; font-family: var(--mono); word-break: break-all; }
+.mod .act { margin: 0; }
+
+.empty { margin: 0; display: grid; place-items: center; height: 100%; color: var(--faint); font-size: 0.82rem; }

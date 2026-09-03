@@ -68,15 +68,34 @@ measurement says what it will do.
 
 ## The window
 
-Five tabs and a setup wizard.
+Four tabs and a setup wizard.
 
-**Готовность** — `--check`, with the two dead questions gone. **Машина** — what
-this computer is, and how fast it measurably draws. **Рендер** — this person's
-own replays, newest first, each saying whether its map is here; picking one
-draws it with a progress bar fed by the engine's own events. **Ферма** — who
-else is out there. **Настройки** — the server, the token, the name this worker
-goes by, the three folders with what was found in each counted rather than
-assumed, and the two things about the window itself.
+**Рендер** — the first steps and then the work. Four cards say what is still
+missing (a replays folder, a songs folder, ffmpeg, a skin) and each carries the
+button that fixes it; when none is missing they are not there at all, because a
+hint that never leaves stops being a hint and becomes furniture. Under them:
+size, frame rate, what to draw behind, and this person's own replays, newest
+first, each saying whether its map is here.
+
+**Реплей** — the play, in two halves. On the left it is judged and drawn as a
+timing graph: every object as a dot, high for late and low for early, coloured
+by what it was worth, misses as ticks along the bottom. It takes no frames and
+no ffmpeg — the engine already knows what each click was worth, so a play can be
+looked at in the time it takes to read the file. The head scrubs, and the
+readout says what the combo and the accuracy *were* at that instant. On the
+right, the montage: spans cut by hand on a timeline, dragged and stretched, and
+then rendered and put end to end into one file.
+
+**Библиотека** — what the application is made of and what it needs. Six engine
+crates built in, ffmpeg and a font from outside, three shelves of files, and
+what is only planned saying so. Anything missing carries the way to stop being
+missing.
+
+**Настройки** — the server, the token and the name in three columns rather than
+three paragraphs; the three folders as one line each with a chooser, because
+typing a path is the thing people get wrong first; four things about the window
+itself; and, folded in beside each other, the readiness list and what this
+machine is. The farm is at the bottom and asks the bot only when asked.
 
 The wizard opens only when the server or the token is missing: those are the two
 nobody can guess, and asking about anything else is how a setup screen becomes
@@ -87,11 +106,15 @@ drops it is the worst kind of helpful.
 
 ## How it looks, and why
 
-Dark, and only dark. The mark was drawn for a dark tile, and a panel that floats
-over the content has to sit on something deep or it reads as a rectangle
-somebody forgot to fill. The accent is the bot's own red from
-`services/image/colors.py`, so the application and the cards it renders look
-like one thing.
+Dark, and only dark, in the bot's own red from `services/image/colors.py` —
+three patches of it drifting very slowly behind everything, or standing still if
+somebody says so in `Настройки → Окно`. No blur filter and no canvas: a radial
+gradient is already soft at the edges, and this has to be affordable on a
+machine whose whole job is to be rendering something else. It stops on its own
+while the window is not being looked at.
+
+There is a cover, too — the mark, the name and one line — at startup and again
+after five minutes of silence. Any movement takes it away.
 
 **The panel floats and grows.** It is a pill over the content rather than a bar
 above it, and it can live along the top or down the left — `Настройки → Окно`,

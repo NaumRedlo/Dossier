@@ -830,3 +830,60 @@ body.still *, body.still *::before, body.still *::after {
 .mod .act { margin: 0; }
 
 .empty { margin: 0; display: grid; place-items: center; height: 100%; color: var(--faint); font-size: 0.82rem; }
+
+/* ── обновление ───────────────────────────────────────────────────────── */
+
+.chip.up {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.4rem 0.8rem;
+  border: 1px solid var(--line);
+  border-radius: 1rem;
+  background: var(--panel);
+  -webkit-backdrop-filter: blur(18px);
+  backdrop-filter: blur(18px);
+  color: var(--ink);
+  font: 0.76rem/1.3 var(--mono);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: border-color 0.2s var(--ease), background 0.2s var(--ease);
+}
+.chip.up:hover { border-color: var(--line-high); background: var(--glass-high); }
+.pip {
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 50%;
+  background: var(--good);
+  animation: pulse 2.4s ease-in-out infinite;
+}
+@keyframes pulse { 0%, 100% { opacity: 0.45; } 50% { opacity: 1; } }
+
+.popover.wide { width: 27rem; }
+.parts { margin: 0 0 0.75rem; padding: 0; list-style: none; }
+.parts li {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 0.28rem 0;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font: 0.78rem/1.4 var(--mono);
+}
+.parts li:first-child { border-top: 0; }
+.parts li.built { color: var(--good); }
+.parts li::before { content: "·"; color: var(--faint); }
+.parts li.built::before { content: "✓"; }
+
+.log {
+  max-height: 12rem;
+  margin: 0.75rem 0 0;
+  padding: 0.6rem 0.7rem;
+  overflow: auto;
+  border-radius: 0.6rem;
+  background: rgba(0, 0, 0, 0.4);
+  color: var(--muted);
+  font: 0.7rem/1.5 var(--mono);
+  white-space: pre-wrap;
+  word-break: break-word;
+}

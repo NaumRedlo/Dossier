@@ -90,6 +90,24 @@
 
   <!-- Правый верх: кто мы в сети, и жук. -->
   <div class="corner top">
+    <!-- Появляется, только когда обновление есть: постоянная кнопка «проверить»
+         превращается в мебель, а эта — новость. -->
+    <div class="hoverbox" id="upbox" hidden>
+      <button class="chip up" id="up" aria-expanded="false" aria-controls="uppane">
+        <span class="pip"></span><span id="up-say">Обновление</span>
+      </button>
+      <div class="popover wide" id="uppane" hidden>
+        <h4 id="up-head">Что обновится</h4>
+        <ul class="parts" id="up-parts"></ul>
+        <div class="routes">
+          <button class="act small primary" id="up-go">Обновить</button>
+          <span class="muted" id="up-note"></span>
+        </div>
+        <pre class="log" id="up-log" hidden></pre>
+        <div class="routes" id="up-after" hidden></div>
+      </div>
+    </div>
+
     <div class="hoverbox" id="bugbox">
       <button class="iconbtn" id="bug" aria-expanded="false" aria-controls="bugpane" title="Сообщить о баге">
         <svg class="ic ic-bug" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -290,6 +308,28 @@
           <div class="bar">
             <span class="grow"></span>
             <button class="act small" id="measure">Измерить заново</button>
+          </div>
+        </div>
+      </div>
+
+      <h3>Обновления</h3>
+      <div class="card">
+        <div class="pref">
+          <div>
+            <b>Эта сборка</b>
+            <p id="up-version">—</p>
+          </div>
+          <button class="act small" id="up-check">Проверить</button>
+        </div>
+        <div class="pref">
+          <div>
+            <b>Если обновление не собралось</b>
+            <p>Что делать с журналом сборки. Уходят версия, система, процессор и сам журнал; домашняя папка из путей вырезается. Больше ничего.</p>
+          </div>
+          <div class="seg" id="seg-report" role="group" aria-label="Отчёт об ошибке">
+            <button data-report="ask" aria-pressed="true">Спрашивать</button>
+            <button data-report="auto" aria-pressed="false">Отправлять</button>
+            <button data-report="never" aria-pressed="false">Не отправлять</button>
           </div>
         </div>
       </div>

@@ -441,6 +441,142 @@ byId("repo").addEventListener("click", (event) => {
   invoke("open_link", { url: CONTACT.repo }).catch(() => {});
 });
 
+// ── обновление ─────────────────────────────────────────────────────────
+
+const upbox = byId("upbox");
+const uppane = byId("uppane");
+let waitingUpdate = null;
+
+function reportWhen(how, save = true) {
+  pressed(byId("seg-report"), byId("seg-report").querySelector(`[data-report="${how}"]`));
+  if (save) remember("report", how);
+}
+
+for (const button of byId("seg-report").querySelectorAll("button")) {
+  button.addEventListener("click", () => reportWhen(button.dataset.report));
+}
+
+/// Спросить, есть ли новее. Тихо при запуске — новость показывает сама плашка,
+/// а всплывающее окно при открытии приложения никто не просил.
+async function lookForUpdate(loud = false) {
+  let said;
+  try {
+    said = await invoke("update_look");
+  } catch (why) {
+    if (loud) byId("up-version").textContent = `${why}`;
+    return;
+  }
+  waitingUpdate = said;
+  byId("up-version").textContent =
+    said.how === "none"
+      ? `${said.version} · ${said.said}`
+      : `${said.version} · отстаёт на ${said.behind} ${plural(said.behind, "коммит", "коммита", "коммитов")}`;
+
+  const there = said.how === "git" || said.how === "dirty";
+  upbox.hidden = !there;
+  if (!there) return;
+
+  byId("up-say").textContent = `Обновление · ${said.behind}`;
+  byId("up-parts").replaceChildren(
+    ...(said.parts.length ? said.parts : ["приложение"]).map((part) => el("li", null, part)),
+  );
+  byId("up-note").textContent = said.said;
+  if (loud) openUpdate(true);
+}
+
+function openUpdate(yes) {
+  uppane.hidden = !yes;
+  byId("up").setAttribute("aria-expanded", String(yes));
+}
+
+byId("up").addEventListener("click", () => openUpdate(uppane.hidden));
+byId("up-check").addEventListener("click", () => {
+  byId("up-version").textContent = "спрашиваю…";
+  lookForUpdate(false);
+});
+document.addEventListener("pointerdown", (event) => {
+  if (!uppane.hidden && !upbox.contains(event.target)) openUpdate(false);
+});
+
+const upLog = byId("up-log");
+let logged = "";
+
+function logLine(text) {
+  logged += `${text}\n`;
+  upLog.textContent = logged;
+  upLog.scrollTop = upLog.scrollHeight;
+  // «Compiling dossier-sim v0.11.0» — та самая строка, ради которой журнал и
+  // показывается: по ней видно, что именно сейчас собирается.
+  const building = /^\s*Compiling\s+(\S+)/.exec(text);
+  if (!building) return;
+  for (const item of byId("up-parts").children) {
+    if (item.textContent === building[1]) item.classList.add("built");
+  }
+}
+
+if (window.__TAURI__ && window.__TAURI__.event) {
+  window.__TAURI__.event.listen("updating", ({ payload }) => logLine(String(payload)));
+}
+
+byId("up-go").addEventListener("click", async () => {
+  const go = byId("up-go");
+  const note = byId("up-note");
+  go.disabled = true;
+  logged = "";
+  upLog.hidden = false;
+  upLog.textContent = "";
+  byId("up-after").hidden = true;
+  note.textContent = "обновляю…";
+  try {
+    await invoke("update_run");
+    note.textContent = "готово — перезапустите приложение";
+    byId("up-head").textContent = "Собрано";
+  } catch (why) {
+    note.textContent = `не собралось: ${why}`;
+    offerReport();
+  } finally {
+    go.disabled = false;
+  }
+});
+
+/// Что делать с журналом упавшей сборки. Ничего не уходит само, пока об этом
+/// не попросили в настройках, и даже тогда об отправке говорится вслух.
+async function offerReport() {
+  const after = byId("up-after");
+  const how = remembered("report", "ask");
+  if (how === "never") {
+    after.replaceChildren(el("span", "muted", "журнал никуда не отправлен — так настроено"));
+    after.hidden = false;
+    return;
+  }
+  if (how === "auto") {
+    after.replaceChildren(el("span", "muted", "отправляю разработчику…"));
+    after.hidden = false;
+    sendReport(after);
+    return;
+  }
+  const send = el("button", "act small", "Отправить разработчику");
+  send.addEventListener("click", () => sendReport(after));
+  const issue = el("button", "act small", "На GitHub");
+  issue.addEventListener("click", async () => {
+    const body = encodeURIComponent(`Сборка обновления не прошла.\n\n\`\`\`\n${logged.slice(-3000)}\n\`\`\``);
+    await invoke("open_link", {
+      url: `${CONTACT.repo}/issues/new?title=${encodeURIComponent("Обновление не собралось")}&body=${body}`,
+    }).catch(() => {});
+  });
+  after.replaceChildren(send, issue);
+  after.hidden = false;
+}
+
+async function sendReport(after) {
+  try {
+    const said = await invoke("send_report", { log: logged });
+    after.replaceChildren(el("span", "muted", `${said} — вместе с версией, системой и журналом`));
+  } catch (why) {
+    after.replaceChildren(el("span", "muted", `отправить не вышло: ${why}`));
+  }
+}
+
 // ── готовность и машина, теперь внутри настроек ────────────────────────
 
 async function showReady() {
@@ -1267,6 +1403,7 @@ byId("w-save").addEventListener("click", async () => {
   motion(remembered("motion", "on"), false);
   sky(remembered("sky", "live"), false);
   splashWhen(remembered("splash", "both"), false);
+  reportWhen(remembered("report", "ask"), false);
   if (remembered("splash", "both") !== "never") {
     showSplash();
     setTimeout(hideSplash, 1900);
@@ -1295,4 +1432,8 @@ byId("w-save").addEventListener("click", async () => {
   // разъезжается на первом же движении курсора.
   measure();
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(measure);
+
+  // Не в первую секунду: спрашивать у origin, пока ещё висит обложка, значит
+  // тратить её на ожидание сети.
+  setTimeout(() => lookForUpdate(false), 3500);
 })();

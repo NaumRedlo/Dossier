@@ -21,6 +21,7 @@ mod machine;
 mod pick;
 mod reel;
 mod settings;
+mod update;
 mod work;
 
 /// Draw a replay of this person's own, and say how it is going while it does.
@@ -252,6 +253,46 @@ fn build_reel(
     })
 }
 
+/// Is there a newer Dossier, and what would updating mean on this machine.
+#[tauri::command]
+fn update_look() -> update::Update {
+    update::look()
+}
+
+/// Pull and build, putting every line of both on the screen as it happens.
+#[tauri::command]
+fn update_run(app: tauri::AppHandle) -> Result<(), String> {
+    use tauri::Emitter;
+    let say = |line: &str| {
+        let _ = app.emit("updating", line);
+    };
+    update::run(&say)
+}
+
+/// Send a failed build to the bot, with the home directory taken out of it.
+///
+/// Never on its own: the window asks first unless somebody has said in settings
+/// that it need not, and even then this is the only thing that leaves — the
+/// version, the system and the log.
+#[tauri::command]
+fn send_report(log: String) -> Result<String, String> {
+    let said = settings::Settings::load();
+    if said.server.is_empty() {
+        return Err("адрес бота не задан — отправлять некуда".to_owned());
+    }
+    let hardware = machine::Hardware::read();
+    let what = serde_json::json!({
+        "version": env!("CARGO_PKG_VERSION"),
+        "os": hardware.os,
+        "cpu": hardware.cpu,
+        "log": update::tidy(&log),
+    });
+    bot::Bot::new(&said.server, &said.token, &said.name)
+        .and_then(|bot| bot.report(&what))
+        .map(|()| "отправлено разработчику".to_owned())
+        .map_err(|refused| refused.to_string())
+}
+
 /// What this application is made of, what it needs from outside, and what is
 /// only planned.
 #[tauri::command]
@@ -310,7 +351,10 @@ fn main() {
             pick_folder,
             pick_replay,
             build_reel,
-            modules
+            modules,
+            update_look,
+            update_run,
+            send_report
         ])
         .run(tauri::generate_context!())
         .expect("the window could not be opened");

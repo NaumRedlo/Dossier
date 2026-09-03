@@ -141,6 +141,29 @@ turn, the sliders slide.
 Somebody who does not want any of it says so in `Настройки → Окно`, and
 `prefers-reduced-motion` is honoured without being asked.
 
+## Updates
+
+Two kinds of machine run this, and an update means a different thing on each.
+One has the repository — the application was built from it and `cargo` is right
+there. The other has only the application. Which one this is gets decided by
+whether the source it was compiled from is still on the disk:
+`CARGO_MANIFEST_DIR` is a compile-time path, so in a bundle it names a directory
+on somebody else's machine and simply is not there.
+
+Where the source is, a chip appears in the corner saying how far behind this
+copy has fallen — and pressing it lists **which parts** change, by crate, from
+the diff against `origin`. Then `git pull` and `cargo build --release` run with
+every line of both put on the screen as it arrives, and each crate in the list
+turns green as its own `Compiling` line goes past. It is the one moment where
+watching a build is the point rather than a distraction.
+
+A build that fails offers its log, and nothing leaves the machine until somebody
+says so. `Настройки → Обновления` holds the three answers — ask, send, never —
+and **ask** is the one it starts on. What travels is the version, the system,
+the processor and the log with the home directory cut out of every path in it;
+`update::tidy` does that and has a test that says so. A working copy with
+changes of its own is told about and left alone.
+
 ## The two corners
 
 **The beetle, top right.** Hovering it opens a box for what went wrong, and

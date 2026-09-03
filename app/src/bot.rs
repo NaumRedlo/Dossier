@@ -262,6 +262,28 @@ impl Bot {
     /// A failed request is not a lost job: the lease outlives several of these,
     /// and abandoning a half-finished render over one bad moment would throw
     /// away minutes of work.
+    /// Send a report of a build that went wrong.
+    ///
+    /// The bot has no such endpoint yet, and this says so rather than
+    /// pretending: a 404 comes back as a refusal the window can show, and the
+    /// person is offered the same three ways out the beetle offers.
+    pub fn report(&self, what: &serde_json::Value) -> Result<(), Refused> {
+        let sent = self
+            .http
+            .post(format!("{}/render/report", self.base))
+            .json(what)
+            .send()
+            .map_err(|why| Refused::Network(why.to_string()))?;
+        if sent.status().is_success() {
+            Ok(())
+        } else {
+            Err(Refused::Build {
+                reason: format!("сервер ответил {}", sent.status().as_u16()),
+                release: String::new(),
+            })
+        }
+    }
+
     pub fn heartbeat(&self, job: &str, progress: Option<serde_json::Value>) -> bool {
         let sent = self
             .http

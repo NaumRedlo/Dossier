@@ -845,6 +845,7 @@ async function showSettings() {
   await loadSettings();
   const skins = await invoke("skins").catch(() => []);
   fillSkins(byId("s-skin"), skins, known.skin);
+  loadRenderSettings();
   const shelves = await invoke("shelves").catch(() => null);
   byId("s-shelves").hidden = !shelves;
   if (shelves) {
@@ -889,8 +890,20 @@ async function showLibrary() {
     box.replaceChildren(line({ mark: ["no", "!"], name: "библиотека", said: `${why}` }));
     return;
   }
-  box.replaceChildren(
-    ...mods.map((mod) => {
+  const groups = [
+    ["Досьер", (mod) => mod.state === "builtin"],
+    ["Нужно снаружи", (mod) => mod.state !== "builtin" && mod.state !== "planned"],
+    ["В планах", (mod) => mod.state === "planned"],
+  ];
+  const rows = [];
+  for (const [name, belongs] of groups) {
+    const mine = mods.filter(belongs);
+    if (!mine.length) continue;
+    rows.push(el("div", "group", name), ...mine.map(modRow));
+  }
+  box.replaceChildren(...rows);
+
+  function modRow(mod) {
       const row = el("div", "mod");
       row.append(el("span", `tag ${mod.state}`, TAGS[mod.state] || mod.state));
       const middle = el("div");
@@ -924,8 +937,7 @@ async function showLibrary() {
       }
       row.append(el("div", "said", mod.state === "missing" ? `${mod.said} · ${mod.fix}` : mod.said));
       return row;
-    }),
-  );
+  }
 }
 
 // ── рендер ─────────────────────────────────────────────────────────────
@@ -934,19 +946,63 @@ let drawing = false;
 
 /// Куда идут отчёты движка. Одна и та же полоса кормит две вкладки, и ей надо
 /// знать, кто её сейчас ждёт.
-let watching = { bar: "r-bar", said: "r-said", box: "r-progress" };
+let watching = { bar: "r-bar", said: "r-said", share: "r-share" };
 
+/// Чем рисовать. Всё это — настройка, а не решение, принимаемое заново перед
+/// каждым рендером: лишние шесть полей над списком реплеев стояли там ради
+/// одного случая из двадцати.
 function options() {
-  const [width, height] = byId("r-size").value.split("x").map(Number);
+  const [width, height] = remembered("size", "1920x1080").split("x").map(Number);
   return {
-    skin: byId("r-skin").value || null,
+    skin: known.skin || null,
     width,
     height,
-    fps: Number(byId("r-fps").value),
-    background: byId("r-bg").checked,
-    storyboard: byId("r-sb").checked,
-    mute: !byId("r-sound").checked,
+    fps: Number(remembered("fps", "60")),
+    background: remembered("bg", "1") === "1",
+    storyboard: remembered("sb", "1") === "1",
+    mute: remembered("sound", "1") !== "1",
   };
+}
+
+/// Те же настройки, но словами — над списком, чтобы было видно, чем сейчас
+/// нарисуется, не уходя за ними.
+function howItDraws() {
+  const said = options();
+  const off = [
+    said.background ? "" : "без фона",
+    said.storyboard ? "" : "без сториборда",
+    said.mute ? "без звука" : "",
+  ].filter(Boolean);
+  return [
+    `${said.width}×${said.height}`,
+    `${said.fps} кадров`,
+    said.skin || DEFAULT_SKIN,
+    ...off,
+  ].join(" · ");
+}
+
+const RENDER_FIELDS = [
+  ["s-size", "size", "1920x1080"],
+  ["s-fps", "fps", "60"],
+  ["s-bg", "bg", "1"],
+  ["s-sb", "sb", "1"],
+  ["s-sound", "sound", "1"],
+];
+
+function loadRenderSettings() {
+  for (const [id, key, fallback] of RENDER_FIELDS) {
+    const box = byId(id);
+    const value = remembered(key, fallback);
+    if (box.type === "checkbox") box.checked = value === "1";
+    else box.value = value;
+  }
+}
+
+for (const [id, key] of RENDER_FIELDS) {
+  byId(id).addEventListener("change", (event) => {
+    const box = event.target;
+    remember(key, box.type === "checkbox" ? (box.checked ? "1" : "0") : box.value);
+  });
 }
 
 function stepCard(step) {
@@ -962,9 +1018,25 @@ function stepCard(step) {
   return card;
 }
 
-async function showRender() {
+/// Список реплеев, пока папка не изменилась. Разбор шестидесяти `.osr` и поиск
+/// их карт — это секунды, и платить их каждый раз, когда сюда заглянули,
+/// незачем.
+let shelfCache = null;
+
+async function showRender(again = false) {
   const list = byId("r-list");
-  const said = byId("r-said");
+  const said = byId("r-done");
+  byId("r-how").textContent = howItDraws();
+
+  if (shelfCache && !again) {
+    fillPlays(shelfCache);
+    return;
+  }
+  // Сначала показать, что читаем, и только потом читать: вкладка, которая
+  // молчит и не отвечает, выглядит как повисшая, а не как занятая.
+  byId("r-count").textContent = "читаю папку реплеев…";
+  list.replaceChildren(line({ mark: ["huh", "·"], name: "минуту", said: "разбираю реплеи и ищу их карты" }));
+
   const [settings, shelves, skins, plays, rows] = await Promise.all([
     invoke("settings_read").catch(() => ({})),
     invoke("shelves").catch(() => null),
@@ -973,7 +1045,12 @@ async function showRender() {
     invoke("ready").catch(() => []),
   ]);
   known = { ...known, ...settings };
+  shelfCache = { shelves, skins, plays, rows };
+  fillPlays(shelfCache);
+}
 
+function fillPlays({ shelves, skins, plays, rows }) {
+  const list = byId("r-list");
   const ffmpeg = rows.find((row) => row.name === "ffmpeg");
   const steps = [
     {
@@ -982,7 +1059,7 @@ async function showRender() {
       note: shelves && shelves.replays.exists ? shelves.replays.note : "откуда брать, что рисовать",
       done: Boolean(shelves && shelves.replays.exists),
       act: "Обзор…",
-      go: async () => (await pickFolder("replays")) && showRender(),
+      go: async () => (await pickFolder("replays")) && showRender(true),
     },
     {
       n: 2,
@@ -990,7 +1067,7 @@ async function showRender() {
       note: shelves && shelves.songs.exists ? shelves.songs.note : "по ней ищется карта, на которой играли",
       done: Boolean(shelves && shelves.songs.exists),
       act: "Обзор…",
-      go: async () => (await pickFolder("songs")) && showRender(),
+      go: async () => (await pickFolder("songs")) && showRender(true),
     },
     {
       n: 3,
@@ -1011,11 +1088,6 @@ async function showRender() {
   ];
   const left = steps.filter((step) => !step.done);
   byId("r-steps").replaceChildren(...(left.length ? steps.map(stepCard) : []));
-
-  // Выбранное в этом окне держится, пока окно открыто; иначе — то, что названо
-  // в настройках скином по умолчанию.
-  const picker = byId("r-skin");
-  fillSkins(picker, skins, picker.value || known.skin || "");
 
   byId("r-count").textContent = plays.length
     ? `${plays.length} ${plural(plays.length, "реплей", "реплея", "реплеев")}, новые сверху`
@@ -1042,27 +1114,34 @@ async function showRender() {
   async function draw(play, button) {
     if (drawing) return;
     drawing = true;
-    button.disabled = true;
-    watching = { bar: "r-bar", said: "r-said", box: "r-progress" };
-    said.className = "verdict";
-    said.textContent = "рисую…";
-    byId("r-progress").hidden = false;
+    for (const other of list.querySelectorAll("button")) other.disabled = true;
+    watching = { bar: "r-bar", said: "r-said", share: "r-share" };
+    const done_note = byId("r-done");
+    done_note.className = "verdict";
+    done_note.textContent = "";
+    byId("r-busy").hidden = false;
     byId("r-bar").style.width = "0%";
+    byId("r-share").textContent = "0";
+    byId("r-said").textContent = `${play.player} · ${howItDraws()}`;
+    list.classList.add("dimmed");
     const out = play.path.replace(/\.osr$/i, "") + ".mp4";
     try {
       const done = await invoke("draw", { replay: play.path, out, ...options() });
-      said.textContent = `готово — ${done.path}`;
-      for (const note of done.said) said.textContent += `\n${note}`;
+      done_note.textContent = `готово — ${done.path}`;
+      for (const note of done.said) done_note.textContent += `\n${note}`;
     } catch (why) {
-      said.className = "verdict bad";
-      said.textContent = `не вышло: ${why}`;
+      done_note.className = "verdict bad";
+      done_note.textContent = `не вышло: ${why}`;
     } finally {
       drawing = false;
-      button.disabled = false;
-      byId("r-progress").hidden = true;
+      for (const other of list.querySelectorAll("button")) other.disabled = false;
+      byId("r-busy").hidden = true;
+      list.classList.remove("dimmed");
     }
   }
 }
+
+byId("r-refresh").addEventListener("click", () => showRender(true));
 
 // The engine's own events, forwarded from the render — see the `draw` command.
 if (window.__TAURI__ && window.__TAURI__.event) {
@@ -1070,8 +1149,9 @@ if (window.__TAURI__ && window.__TAURI__.event) {
     if (payload.event !== "progress" || !payload.of) return;
     const share = Math.min(100, (payload.frames / payload.of) * 100);
     byId(watching.bar).style.width = `${share}%`;
+    if (watching.share) byId(watching.share).textContent = round(share);
     byId(watching.said).textContent =
-      `${round(share, 1)}% · ${round(payload.per_second)} кадров в секунду · осталось ${round(payload.left_seconds)} с`;
+      `кадр ${round(payload.frames)} из ${round(payload.of)} · ${round(payload.per_second)} в секунду · осталось ${round(payload.left_seconds)} с`;
   });
   window.__TAURI__.event.listen("reeling", ({ payload }) => {
     byId("rp-built").textContent = `кусок ${payload.clip} из ${payload.of}…`;
@@ -1083,6 +1163,10 @@ if (window.__TAURI__ && window.__TAURI__.event) {
 /// Цвета вердиктов. Те же, что рисует движок: окно и кадр не должны расходиться
 /// в том, какого цвета сотка.
 const WORTH = { 300: "#66ccff", 100: "#88d64c", 50: "#f0c060", 0: "#e24848" };
+
+/// Каким рисуются ноты, пока не попросили скин. Это просмотр судейства, а не
+/// показ карты: комбо-цвета здесь только отвлекают от того, что засчитано.
+const PLAIN = "#c9cede";
 const SAID = { 300: "300", 100: "100", 50: "50", 0: "×" };
 
 /// Сколько кадр живёт после того, как объект отыгран.
@@ -1096,6 +1180,7 @@ let head = 0;
 let playing = null;
 let clips = [];
 let picked = -1;
+let skinned = false;
 
 const view = byId("rp-view");
 const tape = byId("rp-tape");
@@ -1139,6 +1224,19 @@ for (const button of document.querySelectorAll(".mode")) {
   button.addEventListener("click", () => enter(button.dataset.mode));
 }
 
+function saySkinned() {
+  const button = byId("rp-skinned");
+  button.hidden = !scene;
+  button.textContent = skinned ? "Не показывать со скином" : "Показывать со скином";
+}
+
+byId("rp-skinned").addEventListener("click", () => {
+  skinned = !skinned;
+  remember("skinned", skinned ? "1" : "0");
+  saySkinned();
+  drawView();
+});
+
 byId("rp-back").addEventListener("click", () => {
   stop();
   mode = null;
@@ -1161,6 +1259,8 @@ async function openReplay(path) {
   }
   scene = opened;
   judged = opened.summary;
+  density = null;
+  lens = null;
   chosen = path;
   head = scene.from_ms;
   clips = [];
@@ -1173,6 +1273,7 @@ function showLive() {
   byId("rp-drop").hidden = true;
   byId("rp-live").hidden = false;
   byId("rp-what").textContent = `${judged.title} · ${judged.player} · ${judged.mods || "NM"}`;
+  saySkinned();
   byId("rp-rows").replaceChildren(
     ...[
       { mark: ["ok", "·"], name: "точность", said: `${round(judged.accuracy * 100, 2)}%` },
@@ -1291,7 +1392,7 @@ function drawView() {
 
 function drawPiece(c, piece, box, px, py) {
   const appears = piece.start_ms - scene.preempt_ms;
-  const colour = scene.colours[piece.colour] || "#e24848";
+  const colour = skinned ? scene.colours[piece.colour] || "#e24848" : PLAIN;
   const fading = head > piece.end_ms ? 1 - (head - piece.end_ms) / AFTER_MS : 1;
   const alpha = Math.min(1, (head - appears) / Math.max(1, scene.fade_in_ms)) * Math.max(0, fading);
   if (alpha <= 0) return;
@@ -1436,12 +1537,11 @@ function sayAt() {
     el("span", null, `${round(said.accuracy * 100, 2)}%`),
   );
   byId("rp-at").textContent = `${stamp((head - scene.from_ms) / 1000)} / ${stamp((scene.to_ms - scene.from_ms) / 1000)}`;
-  const share = (head - scene.from_ms) / Math.max(1, scene.to_ms - scene.from_ms);
-  byId("rp-seek").value = String(Math.round(share * 10000));
 }
 
 function drawAll() {
   drawView();
+  drawSeek();
   sayAt();
   if (mode === "judge") drawTape();
   if (mode === "cut") drawReel();
@@ -1479,18 +1579,140 @@ byId("rp-play").addEventListener("click", () => {
   playing = requestAnimationFrame(walk);
 });
 
-byId("rp-seek").addEventListener("input", (event) => {
+// ── полоса записи ──────────────────────────────────────────────────────
+
+const seek = byId("rp-seek");
+
+/// Насколько густо идут ноты. Грубая мера сложности и единственная, которую
+/// можно взять из самой карты: чем больше объектов в окне, тем выше столбик.
+/// Не претендует на звёзды — она отвечает на «где тут плотно», а не «насколько
+/// это трудно».
+let density = null;
+
+function measureDensity() {
+  const span = Math.max(1, scene.to_ms - scene.from_ms);
+  const buckets = 320;
+  const raw = new Float32Array(buckets);
+  for (const piece of scene.objects) {
+    const at = Math.floor(((piece.start_ms - scene.from_ms) / span) * buckets);
+    if (at >= 0 && at < buckets) raw[at] += 1;
+  }
+  // Сглаживание по трём соседям: иначе полоса — частокол из единиц, по
+  // которому ничего не видно.
+  density = new Float32Array(buckets);
+  let most = 0;
+  for (let i = 0; i < buckets; i += 1) {
+    const around = (raw[i - 1] || 0) + raw[i] + (raw[i + 1] || 0);
+    density[i] = around / 3;
+    most = Math.max(most, density[i]);
+  }
+  if (most > 0) for (let i = 0; i < buckets; i += 1) density[i] /= most;
+}
+
+function drawSeek() {
+  if (!scene || seek.clientWidth === 0) return;
+  if (!density) measureDensity();
+  const dpr = window.devicePixelRatio || 1;
+  const w = seek.clientWidth;
+  const h = seek.clientHeight;
+  seek.width = Math.round(w * dpr);
+  seek.height = Math.round(h * dpr);
+  const c = seek.getContext("2d");
+  c.setTransform(dpr, 0, 0, dpr, 0, 0);
+  c.clearRect(0, 0, w, h);
+  const span = Math.max(1, scene.to_ms - scene.from_ms);
+
+  // Куски монтажа — под всем остальным, чтобы читались как отрезки ленты.
+  if (mode === "cut") {
+    c.fillStyle = "rgba(226,72,72,0.28)";
+    for (const clip of clips) {
+      const from = ((clip.from - scene.from_ms) / span) * w;
+      c.fillRect(from, 0, Math.max(2, ((clip.to - clip.from) / span) * w), h);
+    }
+  }
+
+  c.beginPath();
+  c.moveTo(0, h);
+  for (let i = 0; i < density.length; i += 1) {
+    c.lineTo((i / (density.length - 1)) * w, h - density[i] * (h - 6));
+  }
+  c.lineTo(w, h);
+  c.closePath();
+  const paint = c.createLinearGradient(0, 0, 0, h);
+  paint.addColorStop(0, "rgba(226,72,72,0.55)");
+  paint.addColorStop(1, "rgba(226,72,72,0.08)");
+  c.fillStyle = paint;
+  c.fill();
+
+  // Промахи: там, где сложное место оказалось не только плотным.
+  c.fillStyle = WORTH[0];
+  for (const mark of judged.marks) {
+    if (mark.worth !== 0) continue;
+    c.fillRect(((mark.ms - scene.from_ms) / span) * w - 0.75, h - 7, 1.5, 7);
+  }
+
+  const at = ((head - scene.from_ms) / span) * w;
+  c.strokeStyle = "#fff";
+  c.lineWidth = 2;
+  c.beginPath();
+  c.moveTo(at, 0);
+  c.lineTo(at, h);
+  c.stroke();
+  c.fillStyle = "#fff";
+  c.beginPath();
+  c.arc(at, h - 2, 3.5, 0, Math.PI * 2);
+  c.fill();
+}
+
+function seekTo(ms) {
   if (!scene) return;
-  head = scene.from_ms + (Number(event.target.value) / 10000) * (scene.to_ms - scene.from_ms);
+  head = Math.min(scene.to_ms, Math.max(scene.from_ms, ms));
   drawAll();
+}
+
+function seekFromPointer(event) {
+  const box = seek.getBoundingClientRect();
+  const share = Math.min(1, Math.max(0, (event.clientX - box.left) / box.width));
+  seekTo(scene.from_ms + share * (scene.to_ms - scene.from_ms));
+}
+
+seek.addEventListener("pointerdown", (event) => {
+  if (!scene) return;
+  seek.setPointerCapture(event.pointerId);
+  seekFromPointer(event);
+});
+seek.addEventListener("pointermove", (event) => {
+  if (scene && event.buttons) seekFromPointer(event);
+});
+
+/// Клавиатура — и в судействе, и в монтаже. Мышью ставят головку примерно,
+/// клавишами — точно, а между «примерно» и «точно» здесь весь смысл.
+document.addEventListener("keydown", (event) => {
+  if (!scene || byId("view-replay").hidden || byId("rp-stage").hidden) return;
+  const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);
+  if (typing) return;
+  const step = event.shiftKey ? 10000 : 2000;
+  if (event.key === "ArrowRight") seekTo(head + step);
+  else if (event.key === "ArrowLeft") seekTo(head - step);
+  else if (event.key === "Home") seekTo(scene.from_ms);
+  else if (event.key === "End") seekTo(scene.to_ms);
+  else if (event.key === " ") byId("rp-play").click();
+  else return;
+  event.preventDefault();
 });
 
 // ── судейство: график ошибок ───────────────────────────────────────────
 
 /// Ошибка каждого клика во времени: по горизонтали — карта, по вертикали —
 /// насколько раньше или позже.
+/// Какой кусок реплея показан на графике. Всё целиком по умолчанию: на карте
+/// в три минуты одна нота — это полпикселя, и приблизить её надо уметь.
+let lens = null;
+
 function drawTape() {
   if (!scene || tape.clientWidth === 0) return;
+  const from = lens ? lens.from : scene.from_ms;
+  const to = lens ? lens.to : scene.to_ms;
   const dpr = window.devicePixelRatio || 1;
   const w = tape.clientWidth;
   const h = tape.clientHeight;
@@ -1500,7 +1722,7 @@ function drawTape() {
   c.setTransform(dpr, 0, 0, dpr, 0, 0);
   c.clearRect(0, 0, w, h);
 
-  const span = Math.max(1, scene.to_ms - scene.from_ms);
+  const span = Math.max(1, to - from);
   const middle = h / 2;
   const worst = Math.max(40, ...judged.marks.map((mark) => Math.abs(mark.error_ms || 0)));
   const scale = (middle - 14) / worst;
@@ -1512,7 +1734,8 @@ function drawTape() {
   c.stroke();
 
   for (const mark of judged.marks) {
-    const x = ((mark.ms - scene.from_ms) / span) * w;
+    if (mark.ms < from || mark.ms > to) continue;
+    const x = ((mark.ms - from) / span) * w;
     c.fillStyle = WORTH[mark.worth] || WORTH[0];
     if (mark.error_ms === null || mark.worth === 0) {
       c.fillRect(x - 0.75, h - 11, 1.5, 9);
@@ -1525,21 +1748,52 @@ function drawTape() {
     c.globalAlpha = 1;
   }
 
-  const at = ((head - scene.from_ms) / span) * w;
+  const at = ((head - from) / span) * w;
   c.strokeStyle = "#fff";
   c.beginPath();
   c.moveTo(at, 0);
   c.lineTo(at, h);
   c.stroke();
+
+  if (lens) {
+    c.fillStyle = "rgba(255,255,255,0.45)";
+    c.font = "10px ui-monospace, Menlo, monospace";
+    c.fillText(`${stamp((from - scene.from_ms) / 1000)} — ${stamp((to - scene.from_ms) / 1000)}`, 6, 12);
+  }
 }
 
 function scrub(event) {
   if (!scene) return;
   const box = tape.getBoundingClientRect();
   const share = Math.min(1, Math.max(0, (event.clientX - box.left) / box.width));
-  head = scene.from_ms + share * (scene.to_ms - scene.from_ms);
+  const from = lens ? lens.from : scene.from_ms;
+  const to = lens ? lens.to : scene.to_ms;
+  head = from + share * (to - from);
   drawAll();
 }
+
+/// Колесо приближает вокруг того места, куда смотрят, — а не вокруг середины,
+/// потому что смотрят обычно не в середину.
+tape.addEventListener("wheel", (event) => {
+  if (!scene) return;
+  event.preventDefault();
+  const box = tape.getBoundingClientRect();
+  const share = Math.min(1, Math.max(0, (event.clientX - box.left) / box.width));
+  const from = lens ? lens.from : scene.from_ms;
+  const to = lens ? lens.to : scene.to_ms;
+  const span = to - from;
+  const at = from + share * span;
+  const next = Math.min(scene.to_ms - scene.from_ms, Math.max(2000, span * (event.deltaY > 0 ? 1.25 : 0.8)));
+  let start = at - share * next;
+  start = Math.min(Math.max(scene.from_ms, start), scene.to_ms - next);
+  lens = next >= scene.to_ms - scene.from_ms ? null : { from: start, to: start + next };
+  drawTape();
+}, { passive: false });
+
+tape.addEventListener("dblclick", () => {
+  lens = null;
+  drawTape();
+});
 
 tape.addEventListener("pointerdown", (event) => {
   tape.setPointerCapture(event.pointerId);
@@ -1655,7 +1909,7 @@ byId("rp-build").addEventListener("click", async () => {
     return;
   }
   drawing = true;
-  watching = { bar: "rp-bar", said: "rp-built", box: "rp-progress" };
+  watching = { bar: "rp-bar", said: "rp-built", share: null };
   said.className = "verdict";
   said.textContent = "собираю…";
   byId("rp-progress").hidden = false;
@@ -1752,6 +2006,7 @@ byId("w-save").addEventListener("click", async () => {
   motion(remembered("motion", "on"), false);
   sky(remembered("sky", "live"), false);
   splashWhen(remembered("splash", "both"), false);
+  skinned = remembered("skinned", "0") === "1";
   idleAfter(remembered("idle", "5"), false);
   reportWhen(remembered("report", "ask"), false);
   if (remembered("splash", "both") !== "never") {

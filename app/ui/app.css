@@ -958,7 +958,8 @@ body.still *, body.still *::before, body.still *::after {
 }
 
 .playbar { display: flex; align-items: center; gap: 0.75rem; margin: 0.7rem 0 1rem; }
-.playbar .act { margin: 0; min-width: 2.4rem; }
+.playbar .act { margin: 0; min-width: 2.6rem; }
+.playbar .muted { white-space: nowrap; font-variant-numeric: tabular-nums; }
 .playbar input[type="range"] {
   flex: 1;
   height: 0.3rem;
@@ -991,3 +992,49 @@ body.still *, body.still *::before, body.still *::after {
 }
 
 .pair { display: flex; gap: 0.4rem; }
+
+/* ── рендер идёт, и это видно ─────────────────────────────────────────── */
+
+.working {
+  display: flex;
+  align-items: center;
+  gap: 1.1rem;
+  margin: 0 0 1rem;
+  padding: 1rem 1.2rem;
+  border: 1px solid var(--line);
+  border-radius: 1.05rem;
+  background: linear-gradient(120deg, var(--accent-soft), rgba(255, 255, 255, 0.03));
+}
+.working .grow { flex: 1; }
+.working .progress { margin: 0 0 0.5rem; }
+.working p { margin: 0; font-family: var(--mono); font-size: 0.78rem; }
+.bigno { display: flex; align-items: baseline; gap: 0.15rem; color: var(--accent); }
+.bigno b { font-size: 2.3rem; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
+.bigno span { font-size: 0.9rem; }
+
+.list.dimmed { opacity: 0.45; }
+
+/* ── полоса записи ────────────────────────────────────────────────────── */
+
+#rp-seek {
+  flex: 1;
+  display: block;
+  height: 2.6rem;
+  border: 1px solid var(--line);
+  border-radius: 0.55rem;
+  background: var(--sunk);
+  cursor: pointer;
+}
+#rp-tape { display: block; width: 100%; height: 10rem; border: 1px solid var(--line); border-radius: 0.9rem; background: var(--sunk); cursor: crosshair; }
+
+/* ── библиотека по разделам ───────────────────────────────────────────── */
+
+.group {
+  padding: 0.75rem 1rem 0.35rem;
+  border-top: 1px solid var(--line);
+  color: var(--faint);
+  font: 600 0.72rem/1.4 var(--mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.group:first-child { border-top: 0; }

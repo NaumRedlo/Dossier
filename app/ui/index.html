@@ -133,28 +133,22 @@
       <ol class="steps" id="r-steps"></ol>
 
       <div class="bar">
-        <label class="pick">Скин<select id="r-skin"></select></label>
-        <label class="pick short">Размер<select id="r-size">
-          <option value="1280x720">1280 × 720</option>
-          <option value="1920x1080" selected>1920 × 1080</option>
-          <option value="2560x1440">2560 × 1440</option>
-        </select></label>
-        <label class="pick short">Кадры<select id="r-fps">
-          <option value="30">30</option>
-          <option value="60" selected>60</option>
-        </select></label>
-        <span class="ticks">
-          <label class="tick"><input type="checkbox" id="r-bg" checked>фон</label>
-          <label class="tick"><input type="checkbox" id="r-sb" checked>сториборд</label>
-          <label class="tick"><input type="checkbox" id="r-sound" checked>звук</label>
-        </span>
+        <span class="muted" id="r-count">читаю папку реплеев…</span>
         <span class="grow"></span>
-        <span class="muted" id="r-count"></span>
+        <span class="muted" id="r-how"></span>
+        <button class="act small" id="r-refresh">Обновить</button>
+      </div>
+
+      <div class="working" id="r-busy" hidden>
+        <div class="bigno"><b id="r-share">0</b><span>%</span></div>
+        <div class="grow">
+          <div class="progress"><div id="r-bar"></div></div>
+          <p class="muted" id="r-said"></p>
+        </div>
       </div>
 
       <div class="card list" id="r-list"></div>
-      <div class="progress" id="r-progress" hidden><div id="r-bar"></div></div>
-      <p class="verdict" id="r-said"></p>
+      <p class="verdict" id="r-done"></p>
     </section>
 
     <section id="view-replay" hidden>
@@ -189,6 +183,7 @@
           <b id="rp-mode"></b>
           <span class="muted" id="rp-what"></span>
           <span class="grow"></span>
+          <button class="act small" id="rp-skinned" hidden>Показывать со скином</button>
           <button class="act small" id="rp-open">Открыть реплей…</button>
           <button class="act small" id="rp-back">Сменить режим</button>
         </div>
@@ -205,7 +200,7 @@
           </div>
           <div class="playbar">
             <button class="act small" id="rp-play">▸</button>
-            <input type="range" id="rp-seek" min="0" max="10000" value="0" step="1">
+            <canvas id="rp-seek" height="72"></canvas>
             <span class="muted" id="rp-at"></span>
             <label class="pick tiny">Скорость
               <select id="rp-speed">
@@ -222,7 +217,7 @@
               <div class="card tight" id="rp-rows"></div>
               <div>
                 <canvas id="rp-tape" height="200"></canvas>
-                <p class="fine">Каждый объект точкой: выше — позже, ниже — раньше, промахи засечками внизу. Щёлкните, чтобы перемотать.</p>
+                <p class="fine">Каждый объект точкой: выше — позже, ниже — раньше, промахи засечками внизу. Щелчок перематывает, колесо приближает, двойной щелчок возвращает весь реплей.</p>
               </div>
             </div>
           </div>
@@ -289,6 +284,32 @@
         </div>
       </div>
       <div class="card" id="s-shelves"></div>
+
+      <h3>Рендер</h3>
+      <div class="card">
+        <div class="pref">
+          <div><b>Кадр</b><p>Во что рисуется видео. Больше и чаще — дольше.</p></div>
+          <div class="pair">
+            <label class="pick tiny"><select id="s-size">
+              <option value="1280x720">1280 × 720</option>
+              <option value="1920x1080" selected>1920 × 1080</option>
+              <option value="2560x1440">2560 × 1440</option>
+            </select></label>
+            <label class="pick tiny"><select id="s-fps">
+              <option value="30">30 кадров</option>
+              <option value="60" selected>60 кадров</option>
+            </select></label>
+          </div>
+        </div>
+        <div class="pref">
+          <div><b>Что рисовать</b><p>Фон карты, её сториборд и звук. Без них рисуется быстрее.</p></div>
+          <span class="ticks">
+            <label class="tick"><input type="checkbox" id="s-bg" checked>фон</label>
+            <label class="tick"><input type="checkbox" id="s-sb" checked>сториборд</label>
+            <label class="tick"><input type="checkbox" id="s-sound" checked>звук</label>
+          </span>
+        </div>
+      </div>
 
       <h3>Окно</h3>
       <div class="card">

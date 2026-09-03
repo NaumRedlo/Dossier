@@ -134,6 +134,63 @@ pub fn search_dir(root: &Path, want_hash: &str) -> Result<Option<FoundMap>, Stri
     Ok(None)
 }
 
+/// Every beatmap hash under `root`, in one walk.
+///
+/// [`search_dir`] answers one question by reading every file, which is right
+/// for one question and ruinous for sixty: a folder of two hundred archives
+/// gets inflated once per replay somebody wants to look at. This reads the same
+/// files once and hands back everything they hold, so the sixty questions cost
+/// one walk between them.
+pub fn hashes(root: &Path) -> std::collections::HashSet<String> {
+    let mut found = std::collections::HashSet::new();
+    let mut stack = vec![root.to_path_buf()];
+    let mut archives: Vec<PathBuf> = Vec::new();
+
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+                continue;
+            }
+            match path.extension().and_then(|e| e.to_str()) {
+                Some(ext) if ext.eq_ignore_ascii_case("osu") => {
+                    if let Ok(bytes) = fs::read(&path) {
+                        found.insert(md5_hex(&bytes));
+                    }
+                }
+                Some(ext) if ext.eq_ignore_ascii_case("osz") => archives.push(path),
+                _ => {}
+            }
+        }
+    }
+
+    for archive in archives {
+        let Ok(bytes) = fs::read(&archive) else {
+            continue;
+        };
+        let Ok(mut zip) = zip::ZipArchive::new(Cursor::new(bytes)) else {
+            continue;
+        };
+        for index in 0..zip.len() {
+            let Ok(mut file) = zip.by_index(index) else {
+                continue;
+            };
+            if !file.name().to_ascii_lowercase().ends_with(".osu") {
+                continue;
+            }
+            let mut inside = Vec::new();
+            if file.read_to_end(&mut inside).is_ok() {
+                found.insert(md5_hex(&inside));
+            }
+        }
+    }
+    found
+}
+
 fn search_osz(bytes: &[u8], want_hash: &str) -> Result<Option<(String, String)>, String> {
     let mut archive = zip::ZipArchive::new(Cursor::new(bytes))
         .map_err(|e| format!("not a readable .osz: {e}"))?;

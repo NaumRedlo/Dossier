@@ -204,6 +204,57 @@ pub fn skins(said: &Settings) -> Vec<String> {
 /// Capped: a folder somebody has been playing out of for a year holds thousands,
 /// and a list nobody can scroll is not a list. The cap is stated rather than
 /// silent — see the caller.
+/// The hashes of every map on the shelf, remembered between calls.
+///
+/// Rebuilt when the folder changes — how many files it holds and when the
+/// newest of them was written, which is enough to notice a download and cheap
+/// enough to ask on every visit to the tab.
+fn maps(songs: &Path) -> std::collections::HashSet<String> {
+    static SEEN: std::sync::Mutex<Option<(String, u64, std::collections::HashSet<String>)>> =
+        std::sync::Mutex::new(None);
+
+    let mark = stamp(songs);
+    let mut held = SEEN.lock().expect("the map index");
+    if let Some((was, when, found)) = held.as_ref() {
+        if was == &songs.display().to_string() && *when == mark {
+            return found.clone();
+        }
+    }
+    let found = dossier_produce::locate::hashes(songs);
+    *held = Some((songs.display().to_string(), mark, found.clone()));
+    found
+}
+
+/// A cheap mark of what a folder holds: how many entries, and the newest write
+/// among them. Not a guarantee — two changes inside one second on the same
+/// count would read alike — and it does not need to be: the worst it costs is
+/// one stale answer about whether a map is here, which the render itself then
+/// finds out properly.
+fn stamp(folder: &Path) -> u64 {
+    let mut count = 0u64;
+    let mut newest = 0u64;
+    let mut stack = vec![folder.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+                continue;
+            }
+            count += 1;
+            if let Ok(when) = entry.metadata().and_then(|m| m.modified()) {
+                if let Ok(since) = when.duration_since(std::time::UNIX_EPOCH) {
+                    newest = newest.max(since.as_secs());
+                }
+            }
+        }
+    }
+    count.wrapping_mul(1_000_000_007).wrapping_add(newest)
+}
+
 pub fn played(said: &Settings, most: usize) -> Vec<Played> {
     let at = Path::new(&said.replays);
     if said.replays.is_empty() || !at.is_dir() {
@@ -220,18 +271,16 @@ pub fn played(said: &Settings, most: usize) -> Vec<Played> {
     files.sort_by_key(|(when, _)| std::cmp::Reverse(*when));
     files.truncate(most);
 
-    let songs = Path::new(&said.songs);
+    // One walk of the songs folder for all of them. Asking per replay meant
+    // inflating every archive on the shelf once per replay, which on a folder
+    // of a couple of hundred is the window standing still for half a minute.
+    let known = maps(Path::new(&said.songs));
     files
         .into_iter()
         .filter_map(|(_, path)| {
             let bytes = std::fs::read(&path).ok()?;
             let replay = dossier_replay::Replay::parse(&bytes).ok()?;
-            // Whether the map is here decides whether this can be drawn at all,
-            // and finding out now costs one search rather than one failed render.
-            let have_map = dossier_produce::locate::search_dir(songs, &replay.beatmap_hash)
-                .ok()
-                .flatten()
-                .is_some();
+            let have_map = known.contains(&replay.beatmap_hash);
             Some(Played {
                 file: path
                     .file_name()

@@ -88,6 +88,7 @@ body.sky-still .blob, body.away .blob { animation-play-state: paused; }
    это правильно — объяснять её должно одно предложение, а не заголовок. */
 .splash .say {
   position: absolute;
+  transition: opacity 0.5s var(--ease);
   left: 0;
   right: 0;
   bottom: 12%;

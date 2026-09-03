@@ -394,39 +394,59 @@ const AFTER_HIT_MS = 620;
 /// Кольцо подходит к букве и попадает по ней — та же нота, что рисует движок,
 /// только вместо круга наша марка. Звук ровно в момент схождения: это и есть
 /// осу, и другого способа сказать это одним кадром нет.
-function playSplash() {
+///
+/// Эта сцена не прерывается. Она идёт полторы секунды при запуске, и оборвать
+/// её движением мыши значит показать половину.
+let locked = false;
+
+/// Холст под размер окна. Меряется каждый кадр: заставка открывается раньше,
+/// чем окно успевает разложиться, и первый замер бывает не тем — а буфер,
+/// выставленный один раз, потом растягивает круг в овал.
+function sizeSplash(c) {
+  const dpr = window.devicePixelRatio || 1;
+  const w = splash.clientWidth;
+  const h = splash.clientHeight;
+  if (splashView.width !== Math.round(w * dpr) || splashView.height !== Math.round(h * dpr)) {
+    splashView.width = Math.round(w * dpr);
+    splashView.height = Math.round(h * dpr);
+  }
+  c.setTransform(dpr, 0, 0, dpr, 0, 0);
+  c.clearRect(0, 0, w, h);
+  return { w, h };
+}
+
+function playOpening() {
   const c = splashView.getContext("2d");
   const started = performance.now();
   let struck = false;
+  locked = true;
 
   const frame = (now) => {
-    const dpr = window.devicePixelRatio || 1;
-    const w = splash.clientWidth;
-    const h = splash.clientHeight;
-    if (splashView.width !== Math.round(w * dpr)) {
-      splashView.width = Math.round(w * dpr);
-      splashView.height = Math.round(h * dpr);
-    }
-    c.setTransform(dpr, 0, 0, dpr, 0, 0);
-    c.clearRect(0, 0, w, h);
-
+    const { w, h } = sizeSplash(c);
     const t = now - started;
     const mid = [w / 2, h / 2 - 10];
     const size = Math.min(w, h) * 0.16;
     const settling = Math.min(1, t / APPROACH_MS);
     const eased = 1 - (1 - settling) * (1 - settling);
 
-    // Буква: появляется первой и ждёт свою ноту.
+    // Круг, к которому кольцо и сходится. Он стоит на месте — по нему видно,
+    // куда именно всё придёт, и без него сужение не о чем.
+    c.globalAlpha = Math.min(1, t / 420) * 0.5;
+    c.strokeStyle = "#e24848";
+    c.lineWidth = 2;
+    c.beginPath();
+    c.arc(mid[0], mid[1], size, 0, Math.PI * 2);
+    c.stroke();
+
     c.globalAlpha = Math.min(1, t / 420);
     const swell = struck ? 1 + 0.07 * Math.max(0, 1 - (t - APPROACH_MS) / 260) : 1;
     if (markImage.complete && markImage.naturalWidth) {
       // Буква занимает около трети своего холста, плитка — весь: чтобы обе
       // вставали в кольцо одного размера, множитель у них разный.
-      const side = size * (markIsLetter ? 3.4 : 2) * swell;
+      const side = size * (markIsLetter ? 2.6 : 1.5) * swell;
       c.drawImage(markImage, mid[0] - side / 2, mid[1] - side / 2, side, side);
     }
 
-    // Кольцо подхода.
     if (!struck) {
       c.globalAlpha = Math.min(1, t / 300) * 0.9;
       c.strokeStyle = "#e24848";
@@ -435,7 +455,6 @@ function playSplash() {
       c.arc(mid[0], mid[1], size * (1 + 2.2 * (1 - eased)), 0, Math.PI * 2);
       c.stroke();
     } else {
-      // И вспышка после удара — кольцо, ушедшее наружу.
       const since = (t - APPROACH_MS) / 420;
       if (since < 1) {
         c.globalAlpha = (1 - since) * 0.7;
@@ -456,6 +475,7 @@ function playSplash() {
       hitSound.play().catch(() => {});
     }
     if (t > APPROACH_MS + AFTER_HIT_MS) {
+      locked = false;
       hideSplash();
       return;
     }
@@ -464,7 +484,147 @@ function playSplash() {
   scene_run = requestAnimationFrame(frame);
 }
 
-function showSplash() {
+// ── заставка в простое: игра, которая играет сама ──────────────────────
+
+/// Ноты появляются, курсор идёт к ним и нажимает. Иногда мимо — потому что
+/// сцена, где всё всегда попадает, перестаёт быть интересной на второй ноте, а
+/// смотрят на неё минутами.
+const IDLE_APPROACH_MS = 780;
+const IDLE_GAP_MS = 620;
+
+function makeNote(after, index) {
+  const roll = Math.random();
+  return {
+    // Поле — те же 512 на 384, что у игры, только тут оно ни к чему не
+    // привязано: это не карта, а движение.
+    x: 60 + Math.random() * 392,
+    y: 50 + Math.random() * 284,
+    at: after + IDLE_GAP_MS + Math.random() * 420,
+    number: (index % 8) + 1,
+    // Один из семи промах, один из шести — сотка. Остальное чисто.
+    worth: roll < 0.14 ? 0 : roll < 0.3 ? 100 : 300,
+  };
+}
+
+function playIdle() {
+  const c = splashView.getContext("2d");
+  const started = performance.now();
+  let notes = [makeNote(400, 0), makeNote(1000, 1)];
+  let made = 2;
+  let combo = 0;
+  let said = 0;
+  let saidAt = started;
+
+  const frame = (now) => {
+    const { w, h } = sizeSplash(c);
+    const t = now - started;
+    const scale = Math.min(w / 512, h / 384) * 0.52;
+    const ox = (w - 512 * scale) / 2;
+    const oy = (h - 384 * scale) / 2 - 20;
+    const px = (x) => ox + x * scale;
+    const py = (y) => oy + y * scale;
+    const r = 42 * scale;
+
+    // Пять нот на ленте: три впереди, чтобы кольца успевали появиться, и
+    // хвост, который ещё гаснет. Условие — про длину, а не про счётчик:
+    // счётчик растёт вместе с ней, и такой цикл не кончается.
+    while (notes.length < 5) {
+      notes.push(makeNote(notes[notes.length - 1].at, made));
+      made += 1;
+    }
+    notes = notes.filter((note) => t < note.at + 900);
+    if (!notes.length) notes.push(makeNote(t, made));
+
+    // Где курсор: между прошлой нотой и следующей, с оттяжкой на подлёте.
+    const next = notes.find((note) => note.at > t) || notes[notes.length - 1];
+    const index = notes.indexOf(next);
+    const prev = index > 0 ? notes[index - 1] : { x: 256, y: 192, at: t - 800, worth: 300 };
+    const along = Math.min(1, Math.max(0, (t - prev.at) / Math.max(1, next.at - prev.at)));
+    const eased = along < 0.5 ? 2 * along * along : 1 - (1 - along) ** 2 / 2;
+    // Промах — это курсор, который не доехал: он идёт мимо, и по ноте видно
+    // почему её не засчитали.
+    const aimX = next.worth === 0 ? next.x + 90 : next.x;
+    const aimY = next.worth === 0 ? next.y + 40 : next.y;
+    const cursor = [prev.x + (aimX - prev.x) * eased, prev.y + (aimY - prev.y) * eased];
+
+    for (const note of [...notes].reverse()) {
+      const since = t - note.at;
+      const appears = note.at - IDLE_APPROACH_MS;
+      if (t < appears) continue;
+      const alpha = since < 0 ? Math.min(1, (t - appears) / 300) : Math.max(0, 1 - since / 320);
+      if (alpha <= 0) continue;
+      c.globalAlpha = alpha;
+      c.strokeStyle = "rgba(226,72,72,0.9)";
+      c.lineWidth = Math.max(1.5, r * 0.1);
+      c.fillStyle = "rgba(255,255,255,0.05)";
+      c.beginPath();
+      c.arc(px(note.x), py(note.y), r, 0, Math.PI * 2);
+      c.fill();
+      c.stroke();
+      c.fillStyle = "rgba(255,255,255,0.75)";
+      c.font = `600 ${r * 0.85}px ui-monospace, Menlo, monospace`;
+      c.textAlign = "center";
+      c.textBaseline = "middle";
+      c.fillText(String(note.number), px(note.x), py(note.y));
+
+      if (since < 0) {
+        const left = -since / IDLE_APPROACH_MS;
+        c.strokeStyle = "rgba(226,72,72,0.65)";
+        c.beginPath();
+        c.arc(px(note.x), py(note.y), r * (1 + 2.2 * left), 0, Math.PI * 2);
+        c.stroke();
+      } else {
+        // Что из неё вышло — над самой нотой, полсекунды. Счёт ведётся по
+        // отметке на самой ноте, а не по окну времени: окно шириной в
+        // несколько кадров засчиталось бы столько же раз.
+        if (!note.counted) {
+          note.counted = true;
+          combo = note.worth ? combo + 1 : 0;
+        }
+        c.globalAlpha = alpha;
+        c.fillStyle = WORTH[note.worth] || WORTH[0];
+        c.font = `700 ${r * 0.8}px ui-monospace, Menlo, monospace`;
+        c.fillText(SAID[note.worth] || "×", px(note.x), py(note.y) - since * 0.03 - r * 0.1);
+      }
+    }
+    c.globalAlpha = 1;
+
+    c.fillStyle = "rgba(255,255,255,0.85)";
+    c.beginPath();
+    c.arc(px(cursor[0]), py(cursor[1]), 5, 0, Math.PI * 2);
+    c.fill();
+    c.strokeStyle = "rgba(255,255,255,0.35)";
+    c.lineWidth = 1.5;
+    c.beginPath();
+    c.arc(px(cursor[0]), py(cursor[1]), 11, 0, Math.PI * 2);
+    c.stroke();
+
+    c.fillStyle = "rgba(255,255,255,0.28)";
+    c.font = `600 ${Math.max(14, r * 0.6)}px ui-monospace, Menlo, monospace`;
+    c.textAlign = "left";
+    c.fillText(`${combo}x`, ox, oy - 14);
+
+    // Строки движка сменяют друг друга сами — их читают, а не показывают.
+    if (now - saidAt > 6500) {
+      saidAt = now;
+      said = (said + 1) % SAYINGS.length;
+      const line = byId("splash-say");
+      line.style.opacity = "0";
+      setTimeout(() => {
+        line.textContent = SAYINGS[said];
+        line.style.opacity = "";
+      }, 500);
+    }
+
+    scene_run = requestAnimationFrame(frame);
+  };
+  scene_run = requestAnimationFrame(frame);
+}
+
+/// `kind` — «open» при запуске и «idle» после молчания. Две разные сцены: одна
+/// говорит, что это за приложение, вторая занимает глаз, пока к окну не
+/// вернулись.
+function showSplash(kind) {
   if (asleep) return;
   asleep = true;
   byId("splash-say").textContent = SAYINGS[Math.floor(Math.random() * SAYINGS.length)];
@@ -472,11 +632,12 @@ function showSplash() {
   splash.hidden = false;
   void splash.offsetWidth;
   splash.classList.remove("going");
-  playSplash();
+  if (kind === "open") playOpening();
+  else playIdle();
 }
 
 function hideSplash() {
-  if (!asleep) return;
+  if (!asleep || locked) return;
   asleep = false;
   if (scene_run) cancelAnimationFrame(scene_run);
   scene_run = null;
@@ -491,7 +652,7 @@ function armIdle() {
   if (now - lastStir < 5000) return;
   lastStir = now;
   clearTimeout(idleTimer);
-  if (remembered("splash", "both") === "both") idleTimer = setTimeout(showSplash, idleMs());
+  if (remembered("splash", "both") === "both") idleTimer = setTimeout(() => showSplash("idle"), idleMs());
 }
 
 function stirred() {
@@ -2331,7 +2492,7 @@ byId("w-save").addEventListener("click", async () => {
   skinned = remembered("skinned", "0") === "1";
   idleAfter(remembered("idle", "5"), false);
   reportWhen(remembered("report", "ask"), false);
-  if (remembered("splash", "both") !== "never") showSplash();
+  if (remembered("splash", "both") !== "never") showSplash("open");
   armIdle();
   requestAnimationFrame(() => dock.classList.remove("landing"));
 

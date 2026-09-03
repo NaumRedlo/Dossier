@@ -117,14 +117,29 @@ body.sky-still .blob, body.away .blob { animation-play-state: paused; }
   align-items: center;
   gap: 0.35rem;
   padding: 0.4rem;
-  border: 1px solid var(--line);
   border-radius: 1.65rem;
+  transition: transform 0.5s var(--ease), opacity 0.45s var(--ease);
+}
+
+/* Сама «таблетка» рисуется отдельным слоем под содержимым, и это единственный
+   способ дать ей расти под курсором: вкладки разъезжаются ровно на столько, на
+   сколько вырос значок, и подложка расходится на ту же величину — а раскладка
+   при этом не шевелится, потому что растёт не она. */
+.dock::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border: 1px solid var(--line);
+  border-radius: inherit;
   background: var(--panel);
   box-shadow: 0 1.2rem 2.4rem rgba(0, 0, 0, 0.38), inset 0 1px 0 rgba(255, 255, 255, 0.06);
   -webkit-backdrop-filter: blur(22px) saturate(1.4);
   backdrop-filter: blur(22px) saturate(1.4);
-  transition: transform 0.5s var(--ease), opacity 0.45s var(--ease);
+  transition: inset 0.14s linear;
 }
+body.dock-top .dock::before { inset: 0 calc(var(--grow, 0px) / -2); }
+body.dock-left .dock::before { inset: calc(var(--grow, 0px) / -2) 0; }
 
 /* The offset the panel is *currently* carrying, which is how it slides from one
    edge to the other: the side change measures where it was, puts that
@@ -135,17 +150,8 @@ body.dock-left .dock { left: 0.9rem; top: 50%; transform: translate(var(--sx, 0p
 .dock.jumping { transition: none; }
 .dock.landing { opacity: 0; }
 
-/* One piece, not a button beside a strip: the mark is inside the panel and a
-   hairline is all that separates it from the tabs. */
-.brand {
-  display: grid;
-  place-items: center;
-  padding: 0 0.6rem 0 0.45rem;
-  align-self: stretch;
-}
-body.dock-top .brand { border-right: 1px solid var(--line); margin-right: 0.2rem; }
-body.dock-left .brand { border-bottom: 1px solid var(--line); margin: 0 0.2rem 0.25rem; padding: 0.3rem 0 0.55rem; }
-.brand .mark { width: 1.55rem; height: 1.55rem; border-radius: 0.4rem; }
+/* Значка в панели нет: приложение и так знает, как называется, а место в
+   строке разделов дороже герба. */
 
 .items { position: relative; display: flex; gap: 0.15rem; }
 body.dock-left .items { flex-direction: column; }
@@ -213,80 +219,64 @@ body.dock-left .item { width: 100%; }
 }
 .item[aria-selected="true"] .ic { color: var(--accent); }
 
-/* ── the icons, which move only when there is a reason to look at them ──── */
+/* ── the icons ────────────────────────────────────────────────────────── */
 
-/* Every one of these runs on hover and on the tab that is open, and on nothing
-   else: five things moving at once is a screensaver, not an application. */
-.ic .tick { stroke-dasharray: 12; stroke-dashoffset: 0; }
-.item:hover .ic-ready .tick, .item[aria-selected="true"] .ic-ready .tick {
-  animation: draw 0.5s var(--ease) both;
+/* Наведение — переходами, а не кадровой петлёй: анимация, прерванная на середине,
+   схлопывается в исходное состояние рывком, а переход просто идёт обратно с
+   того места, где его застали. Кадровая петля остаётся только у открытой
+   вкладки, где движение непрерывно и обрывать его нечему. */
+.ic .tick,
+.ic-machine .core,
+.ic-machine .pins,
+.ic-render .play,
+.ic-render .rails,
+.ic-farm .led,
+.ic-farm .wire,
+.ic-settings .knob,
+.ic-replay .approach,
+.ic-library .cell {
+  transition: transform 0.34s var(--ease), opacity 0.34s var(--ease), fill 0.34s var(--ease),
+    stroke-dashoffset 0.42s var(--ease);
 }
-@keyframes draw { from { stroke-dashoffset: 12; } to { stroke-dashoffset: 0; } }
 
-.ic-machine .core { fill: none; }
-.item:hover .ic-machine .core, .item[aria-selected="true"] .ic-machine .core {
-  animation: beat 1.8s ease-in-out infinite;
-}
-@keyframes beat {
-  0%, 100% { fill: transparent; }
-  45% { fill: currentColor; }
-}
-.item:hover .ic-machine .pins, .item[aria-selected="true"] .ic-machine .pins {
-  animation: flicker 1.8s ease-in-out infinite;
-}
-@keyframes flicker { 0%, 100% { opacity: 0.55; } 45% { opacity: 1; } }
+.ic .tick { stroke-dasharray: 12; stroke-dashoffset: 12; }
+.item:hover .ic-ready .tick, .item[aria-selected="true"] .ic-ready .tick { stroke-dashoffset: 0; }
+
+.ic-machine .core { fill: transparent; }
+.ic-machine .pins { opacity: 0.55; }
+.item:hover .ic-machine .core, .item[aria-selected="true"] .ic-machine .core { fill: currentColor; }
+.item:hover .ic-machine .pins, .item[aria-selected="true"] .ic-machine .pins { opacity: 1; }
 
 .ic-render .play { fill: currentColor; transform-origin: 12px 12px; }
-.item:hover .ic-render .play, .item[aria-selected="true"] .ic-render .play {
-  animation: nudge 1.6s var(--ease) infinite;
-}
-@keyframes nudge {
-  0%, 62%, 100% { transform: translateX(0); }
-  30% { transform: translateX(1.1px) scale(1.08); }
-}
 .ic-render .rails { opacity: 0.5; }
-.item:hover .ic-render .rails, .item[aria-selected="true"] .ic-render .rails {
-  stroke-dasharray: 2.4 2.4;
-  animation: run 1.1s linear infinite;
-}
-@keyframes run { to { stroke-dashoffset: -4.8; } }
+.item:hover .ic-render .play, .item[aria-selected="true"] .ic-render .play { transform: translateX(1.2px) scale(1.12); }
+.item:hover .ic-render .rails, .item[aria-selected="true"] .ic-render .rails { opacity: 1; }
 
-.ic-farm .led { fill: currentColor; stroke: none; }
-.item:hover .ic-farm .led-a, .item[aria-selected="true"] .ic-farm .led-a { animation: wink 1.5s ease-in-out infinite; }
-.item:hover .ic-farm .led-b, .item[aria-selected="true"] .ic-farm .led-b { animation: wink 1.5s ease-in-out 0.75s infinite; }
-@keyframes wink { 0%, 100% { opacity: 0.3; } 40% { opacity: 1; } }
-.item:hover .ic-farm .wire, .item[aria-selected="true"] .ic-farm .wire {
-  stroke-dasharray: 1.6 2.2;
-  animation: run 0.9s linear infinite;
-}
+.ic-farm .led { fill: currentColor; stroke: none; opacity: 0.32; }
+.item:hover .ic-farm .led-a, .item[aria-selected="true"] .ic-farm .led-a { opacity: 1; }
+.item:hover .ic-farm .led-b, .item[aria-selected="true"] .ic-farm .led-b { opacity: 1; transition-delay: 0.12s; }
+.item:hover .ic-farm .wire, .item[aria-selected="true"] .ic-farm .wire { opacity: 1; }
 
 .ic-settings .knob { fill: currentColor; stroke: none; }
 .ic-settings .rail { opacity: 0.55; }
-.item:hover .ic-settings .knob-a, .item[aria-selected="true"] .ic-settings .knob-a { animation: slide 2.4s ease-in-out infinite; }
-.item:hover .ic-settings .knob-b, .item[aria-selected="true"] .ic-settings .knob-b { animation: slide 2.4s ease-in-out 0.3s infinite reverse; }
-.item:hover .ic-settings .knob-c, .item[aria-selected="true"] .ic-settings .knob-c { animation: slide 2.4s ease-in-out 0.6s infinite; }
-@keyframes slide {
-  0%, 100% { transform: translateX(0); }
-  50% { transform: translateX(5px); }
-}
+.item:hover .ic-settings .knob-a, .item[aria-selected="true"] .ic-settings .knob-a { transform: translateX(4.5px); }
+.item:hover .ic-settings .knob-b, .item[aria-selected="true"] .ic-settings .knob-b { transform: translateX(-4.5px); transition-delay: 0.06s; }
+.item:hover .ic-settings .knob-c, .item[aria-selected="true"] .ic-settings .knob-c { transform: translateX(5px); transition-delay: 0.12s; }
 
+/* Кольцо подхода: сходится к ноте и там остаётся. Раньше оно раз за разом
+   схлопывалось рывком — то самое некрасивое сужение. */
 .ic-replay .dot { fill: currentColor; stroke: none; }
-.ic-replay .approach { opacity: 0.6; transform-origin: 12px 12px; }
+.ic-replay .approach { opacity: 0.45; transform-origin: 12px 12px; transform: scale(1.35); }
 .item:hover .ic-replay .approach, .item[aria-selected="true"] .ic-replay .approach {
-  animation: closing 1.7s ease-in infinite;
-}
-@keyframes closing {
-  0% { transform: scale(1.55); opacity: 0; }
-  25% { opacity: 0.75; }
-  85%, 100% { transform: scale(1); opacity: 0; }
+  transform: scale(1);
+  opacity: 0.9;
 }
 
-.ic-library .cell { opacity: 0.5; }
-.item:hover .ic-library .c1, .item[aria-selected="true"] .ic-library .c1 { animation: lit 2.2s ease-in-out infinite; }
-.item:hover .ic-library .c2, .item[aria-selected="true"] .ic-library .c2 { animation: lit 2.2s ease-in-out 0.28s infinite; }
-.item:hover .ic-library .c4, .item[aria-selected="true"] .ic-library .c4 { animation: lit 2.2s ease-in-out 0.56s infinite; }
-.item:hover .ic-library .c3, .item[aria-selected="true"] .ic-library .c3 { animation: lit 2.2s ease-in-out 0.84s infinite; }
-@keyframes lit { 0%, 70%, 100% { opacity: 0.45; } 22% { opacity: 1; } }
+.ic-library .cell { opacity: 0.45; }
+.item:hover .ic-library .cell, .item[aria-selected="true"] .ic-library .cell { opacity: 1; }
+.item:hover .ic-library .c2, .item[aria-selected="true"] .ic-library .c2 { transition-delay: 0.06s; }
+.item:hover .ic-library .c4, .item[aria-selected="true"] .ic-library .c4 { transition-delay: 0.12s; }
+.item:hover .ic-library .c3, .item[aria-selected="true"] .ic-library .c3 { transition-delay: 0.18s; }
 
 /* ── the corners ──────────────────────────────────────────────────────── */
 
@@ -313,7 +303,8 @@ body.dock-left .item { width: 100%; }
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-body.dock-left .me { left: 11.9rem; }
+/* Ниже панели, а не под ней: слева она занимает середину высоты. */
+body.dock-left .me { left: 1.4rem; bottom: 1rem; max-width: 9.5rem; }
 
 .hoverbox { position: relative; }
 
@@ -341,12 +332,12 @@ body.dock-left .me { left: 11.9rem; }
 /* A beetle that only twitches when somebody is about to complain to it. */
 .ic-bug { width: 1.2rem; height: 1.2rem; }
 .ic-bug .legs, .ic-bug .feelers { transform-origin: 12px 12px; }
+/* Шевелится на месте: жук, который ещё и подпрыгивает, уводит взгляд с угла,
+   где ему положено сидеть тихо. */
 .iconbtn:hover .ic-bug .legs { animation: scuttle 0.5s ease-in-out infinite alternate; }
 .iconbtn:hover .ic-bug .feelers { animation: twitch 0.9s ease-in-out infinite; }
-.iconbtn:hover .ic-bug { animation: crawl 0.9s ease-in-out infinite; }
 @keyframes scuttle { from { transform: rotate(-3.5deg); } to { transform: rotate(3.5deg); } }
 @keyframes twitch { 0%, 100% { transform: rotate(0); } 30% { transform: rotate(6deg); } 60% { transform: rotate(-4deg); } }
-@keyframes crawl { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-1.2px); } }
 
 .popover {
   position: absolute;
@@ -413,7 +404,7 @@ body.dock-left .me { left: 11.9rem; }
 
 main { padding: 1.5rem 1.75rem 4rem; max-width: 58rem; }
 body.dock-top main { margin: 4.6rem auto 0; }
-body.dock-left main { margin-left: 11.5rem; padding-top: 3.9rem; }
+body.dock-left main { margin-left: 11.5rem; margin-right: auto; padding-top: 3.9rem; }
 section[hidden] { display: none; }
 
 /* Everything on a page arrives in order rather than at once. It is the same
@@ -424,6 +415,8 @@ main > section > *:nth-child(3) { animation-delay: 0.1s; }
 main > section > *:nth-child(4) { animation-delay: 0.15s; }
 main > section > *:nth-child(n + 5) { animation-delay: 0.2s; }
 @keyframes rise { from { opacity: 0; transform: translateY(0.7rem); } }
+
+.card + .card { margin-top: 0.6rem; }
 
 .card {
   border: 1px solid var(--line);
@@ -624,9 +617,15 @@ label input[type="text"]:focus, label input[type="password"]:focus, label select
 
 h3 { margin: 2rem 0 0.7rem; font-size: 0.82rem; font-weight: 600; font-family: var(--mono); color: var(--faint); text-transform: uppercase; letter-spacing: 0.08em; }
 
-::-webkit-scrollbar { width: 0.55rem; height: 0.55rem; }
-::-webkit-scrollbar-thumb { border-radius: 0.3rem; background: rgba(255, 255, 255, 0.13); }
-::-webkit-scrollbar-track { background: none; }
+/* Полосы прокрутки не видно, пока она не нужна: окно приложения — не страница,
+   и вертикальная планка вдоль всего правого края читается как чужая деталь. */
+::-webkit-scrollbar { width: 0; height: 0; }
+.list::-webkit-scrollbar, .log::-webkit-scrollbar { width: 0.4rem; height: 0.4rem; }
+.list::-webkit-scrollbar-thumb, .log::-webkit-scrollbar-thumb {
+  border-radius: 0.2rem;
+  background: rgba(255, 255, 255, 0.14);
+}
+html { scrollbar-width: none; }
 
 /* ── stillness ────────────────────────────────────────────────────────── */
 
@@ -903,12 +902,11 @@ body.still *, body.still *::before, body.still *::after {
   padding: 2rem;
   -webkit-backdrop-filter: blur(18px) saturate(1.1);
   backdrop-filter: blur(18px) saturate(1.1);
-  background: rgba(11, 4, 6, 0.5);
   animation: rise 0.4s var(--ease) both;
 }
 /* Экран выбора накрывает всю рабочую область, а не свой кусок: «замылено»
    значит замылено всё, кроме панели, по которой можно уйти. */
-#view-replay { position: relative; min-height: calc(100vh - 10rem); }
+#view-replay { position: relative; min-height: 24rem; }
 .choose h2 { margin: 0; font-size: 1.15rem; font-weight: 600; text-align: center; }
 .modes { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: 1rem; width: min(44rem, 100%); }
 .mode {
@@ -923,9 +921,16 @@ body.still *, body.still *::before, body.still *::after {
   color: var(--ink);
   font: inherit;
   cursor: pointer;
-  transition: border-color 0.24s var(--ease), background 0.24s var(--ease), transform 0.18s var(--ease);
+  transition: border-color 0.3s var(--ease), background 0.3s var(--ease), box-shadow 0.3s var(--ease);
 }
-.mode:hover { border-color: var(--accent); background: var(--accent-soft); transform: translateY(-2px); }
+/* Не сдвиг, а свет: карточка остаётся ровно там, куда человек целился. */
+.mode:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  box-shadow: 0 0 0 1px var(--accent), 0 1rem 2.2rem rgba(226, 72, 72, 0.16);
+}
+.mode .ic.big { transition: transform 0.4s var(--ease), color 0.3s var(--ease); }
+.mode:hover .ic.big { transform: scale(1.12); }
 .mode b { font-size: 1rem; }
 .mode p { margin: 0; max-width: 17rem; color: var(--muted); font-size: 0.82rem; text-align: center; }
 .ic.big { width: 2.1rem; height: 2.1rem; color: var(--accent); }

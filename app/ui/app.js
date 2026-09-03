@@ -89,6 +89,7 @@ const REACH = 78;
 let base = null;
 
 function relax() {
+  dock.style.setProperty("--grow", "0px");
   for (const item of items) {
     item.style.setProperty("--tx", "0px");
     item.style.setProperty("--ty", "0px");
@@ -128,6 +129,7 @@ function magnify(pos) {
 
   // Группа остаётся на месте серединой: панель не ползёт вбок от того, что на
   // неё смотрят.
+  dock.style.setProperty("--grow", `${grew.toFixed(1)}px`);
   let run = base[0].start - grew / 2;
   let under = 0;
   base.forEach((box, i) => {
@@ -244,6 +246,15 @@ function splashWhen(how, save = true) {
   if (save) remember("splash", how);
 }
 
+function idleAfter(minutes, save = true) {
+  byId("s-idle").value = String(minutes);
+  if (save) remember("idle", String(minutes));
+  lastStir = 0;
+  armIdle();
+}
+
+byId("s-idle").addEventListener("change", (event) => idleAfter(event.target.value));
+
 function motion(how, save = true) {
   document.body.classList.toggle("still", how === "off");
   pressed(byId("seg-motion"), byId("seg-motion").querySelector(`[data-motion="${how}"]`));
@@ -281,10 +292,11 @@ let asleep = false;
 let idleTimer = null;
 let lastStir = 0;
 
-/// Пять минут молчания. Достаточно долго, чтобы не мешать тому, кто читает
-/// список реплеев, и достаточно коротко, чтобы окно не стояло сутками с
-/// открытой вкладкой настроек.
-const IDLE_MS = 5 * 60 * 1000;
+/// Сколько молчать до обложки. Пять минут по умолчанию — достаточно долго,
+/// чтобы не мешать тому, кто читает список реплеев, и достаточно коротко, чтобы
+/// окно не стояло сутками с открытой вкладкой настроек. Меняется в настройках,
+/// потому что «долго» у каждого своё.
+const idleMs = () => Number(remembered("idle", "5")) * 60 * 1000;
 
 function showSplash() {
   if (asleep) return;
@@ -312,7 +324,7 @@ function armIdle() {
   if (now - lastStir < 5000) return;
   lastStir = now;
   clearTimeout(idleTimer);
-  if (remembered("splash", "both") === "both") idleTimer = setTimeout(showSplash, IDLE_MS);
+  if (remembered("splash", "both") === "both") idleTimer = setTimeout(showSplash, idleMs());
 }
 
 function stirred() {
@@ -1020,7 +1032,7 @@ async function showRender() {
     left.append(el("b", null, play.player), el("div", "about", `${play.mods || "NM"} · ${round(play.score)} очков · комбо ${play.combo}`));
     row.append(left);
     row.append(play.have_map ? el("span", "about", "") : el("span", "nomap", "карты нет"));
-    const go = el("button", "act small", "Нарисовать");
+    const go = el("button", "act small", "Отрендерить");
     go.disabled = !play.have_map;
     go.addEventListener("click", () => draw(play, go));
     row.append(go);
@@ -1684,7 +1696,14 @@ const views = {
   settings: showSettings,
 };
 
+let open_tab = null;
+
 function show(which) {
+  // Нажатие по разделу, который и так открыт, — это не запрос перерисовать
+  // его: список, который моргает от каждого промаха мимо соседней вкладки,
+  // раздражает ровно настолько, насколько это дёшево не делать.
+  if (which === open_tab) return;
+  open_tab = which;
   for (const name of Object.keys(views)) {
     byId(`tab-${name}`).setAttribute("aria-selected", String(name === which));
     byId(`view-${name}`).hidden = name !== which;
@@ -1733,6 +1752,7 @@ byId("w-save").addEventListener("click", async () => {
   motion(remembered("motion", "on"), false);
   sky(remembered("sky", "live"), false);
   splashWhen(remembered("splash", "both"), false);
+  idleAfter(remembered("idle", "5"), false);
   reportWhen(remembered("report", "ask"), false);
   if (remembered("splash", "both") !== "never") {
     showSplash();

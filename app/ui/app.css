@@ -71,7 +71,9 @@ body {
 @keyframes drift-c { to { transform: translate3d(6rem, -6rem, 0) scale(1.08); } }
 
 /* Остановленный фон и окно, на которое никто не смотрит, стоят одинаково. */
-body.sky-still .blob, body.away .blob { animation-play-state: paused; }
+/* Остановленный фон, окно, на которое не смотрят, и окно под заставкой — все
+   трое стоят одинаково: сцене нужны кадры, а пятен за ней всё равно не видно. */
+body.sky-still .blob, body.away .blob, body.covered .blob { animation-play-state: paused; }
 
 /* ── the splash ───────────────────────────────────────────────────────── */
 
@@ -248,9 +250,10 @@ body.dock-left .item { width: 100%; }
 .ic-render .play { fill: currentColor; transform-origin: 12px 12px; }
 .ic-render .perf rect { fill: currentColor; stroke: none; opacity: 0.55; }
 /* Плёнка продвигается ровно на одну перфорацию — один кадр, а не бегущая
-   лента: лента крутилась бы и тогда, когда ничего не рисуется. */
+   лента: лента крутилась бы и тогда, когда ничего не рисуется. Обрезка по
+   кадру не даёт крайним дыркам выехать за рамку. */
 .ic-render .perf { transform: translateY(0); }
-.item:hover .ic-render .perf, .item[aria-selected="true"] .ic-render .perf { transform: translateY(-4.2px); opacity: 1; }
+.item:hover .ic-render .perf, .item[aria-selected="true"] .ic-render .perf { transform: translateY(4.2px); }
 .item:hover .ic-render .play, .item[aria-selected="true"] .ic-render .play { transform: scale(1.12); }
 
 .ic-farm .led { fill: currentColor; stroke: none; opacity: 0.32; }
@@ -1199,16 +1202,18 @@ body.dock-left main { margin: 4.6rem auto 0; padding-top: 1.5rem; }
 }
 .mode:hover .ic-judge .ring { animation-duration: 1.5s; }
 
-.ic-cut .blade { transform-origin: 12px 12px; }
-.ic-cut .blade.a { animation: trim-left 3.2s ease-in-out infinite; }
-.ic-cut .blade.b { animation: trim-right 3.2s ease-in-out infinite; }
-@keyframes trim-left {
-  0%, 100% { transform: translateX(0); }
-  45% { transform: translateX(2.4px); }
+/* Левый край стоит, правый ходит, и кусок между ними тянется вместе с ним —
+   одна и та же кривая на обоих, иначе они разъедутся. Это подрезка: у куска
+   двигают конец, а не сжимают его с двух сторон. */
+.ic-cut .piece { transform-origin: 9.2px 12px; animation: trim-piece 3.4s ease-in-out infinite; }
+.ic-cut .blade.b { animation: trim-edge 3.4s ease-in-out infinite; }
+@keyframes trim-piece {
+  0%, 100% { transform: scaleX(1); }
+  50% { transform: scaleX(0.58); }
 }
-@keyframes trim-right {
+@keyframes trim-edge {
   0%, 100% { transform: translateX(0); }
-  45% { transform: translateX(-2.4px); }
+  50% { transform: translateX(-2.35px); }
 }
 .ic-cut .rails { transition: opacity 0.3s var(--ease); }
 .mode:hover .ic-cut .rails { opacity: 1; }

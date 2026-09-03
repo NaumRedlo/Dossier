@@ -12,7 +12,7 @@
 
 use std::path::Path;
 
-use dossier_render::elements::Element;
+use dossier_render::elements::{Element, Verdict};
 use dossier_render::imported::Sprites;
 
 #[derive(Default, serde::Serialize)]
@@ -25,8 +25,20 @@ pub struct Pictures {
     /// a number drawn half from the skin and half from the engine is worse than
     /// one drawn wholly from either.
     pub digits: Vec<Picture>,
+    /// What the skin pops over a note that has been played: the miss, the
+    /// fifty, the hundred and the three. Named the way the window asks for
+    /// them — by what the hit was worth.
+    pub verdicts: Verdicts,
     /// The skin's own combo colours, when it states any.
     pub colours: Vec<String>,
+}
+
+#[derive(Default, serde::Serialize)]
+pub struct Verdicts {
+    pub miss: Option<Picture>,
+    pub fifty: Option<Picture>,
+    pub hundred: Option<Picture>,
+    pub three: Option<Picture>,
 }
 
 #[derive(serde::Serialize)]
@@ -80,6 +92,16 @@ pub fn of(folder: &Path) -> Pictures {
     ]
     .into_iter()
     .chain((0..10).map(Element::Digit))
+    .chain(
+        [
+            Verdict::Miss,
+            Verdict::Fifty,
+            Verdict::Hundred,
+            Verdict::Three,
+        ]
+        .into_iter()
+        .map(Element::Verdict),
+    )
     .collect();
     let sprites = Sprites::read(folder, &wanted);
 
@@ -95,6 +117,12 @@ pub fn of(folder: &Path) -> Pictures {
             digits
         } else {
             Vec::new()
+        },
+        verdicts: Verdicts {
+            miss: picture(&sprites, Element::Verdict(Verdict::Miss)),
+            fifty: picture(&sprites, Element::Verdict(Verdict::Fifty)),
+            hundred: picture(&sprites, Element::Verdict(Verdict::Hundred)),
+            three: picture(&sprites, Element::Verdict(Verdict::Three)),
         },
         colours: sprites
             .ini()

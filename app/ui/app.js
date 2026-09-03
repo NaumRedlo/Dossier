@@ -423,19 +423,24 @@ markImage.src = "letter.png";
 const hitSound = new Audio("hit.wav");
 hitSound.preload = "auto";
 
-/// Вступление: кадр за кадром.
+/// Вступление.
 ///
-/// Чёрный экран. Сверху вниз идёт полоса света и открывает букву — не целиком,
-/// а по мере того, как доходит: ровно так рендерер и собирает картинку, строка
-/// за строкой. Когда полоса доходит до низа, буква собрана — и к ней сходится
-/// кольцо, а это уже осу. Удар, звук, свет, и сцена уходит.
+/// Чёрный экран, буква проявляется, вокруг неё — те же два кольца, что на
+/// иконке приложения: тонкое снаружи, толстое внутри, в тех же пропорциях, в
+/// каких их рисует `icons/make.py`. Потом к ней ровно сходится кольцо подхода,
+/// и это уже осу: удар, звук, свет.
 ///
-/// Три вещи, которые надо сказать о приложении, сказаны одной сценой и ни одна
-/// не подписана словами.
-const SWEEP_MS = 900;
-const RING_FROM_MS = 620;
-const STRIKE_MS = 1700;
-const AFTER_HIT_MS = 620;
+/// Пропорции колец взяты из плитки: внутреннее — радиус 0.335 стороны при
+/// толщине 0.046, внешнее — 0.425 при 0.020. Здесь то же самое, только считано
+/// от буквы, а не от квадрата, которого тут нет.
+const RING_IN = 0.046 / 0.335;
+const RING_OUT_AT = 0.425 / 0.335;
+const RING_OUT = 0.02 / 0.335;
+
+const RISE_MS = 620;
+const RING_FROM_MS = 520;
+const STRIKE_MS = 1680;
+const AFTER_HIT_MS = 640;
 
 /// Заперта на всё время, что экран чёрный, — включая ожидание, — и на всё
 /// время самой сцены. Раньше движение мыши во время загрузки гасило чёрный
@@ -468,17 +473,51 @@ function showBlackCover() {
   byId("splash-say").textContent = "";
   splash.classList.remove("going");
   splash.hidden = false;
+  // Пятна на фоне под заставкой не видно, а кадры они забирают — и забирают их
+  // ровно тогда, когда сцене каждый кадр дорог.
+  document.body.classList.add("covered");
   // Чёрное — значит чёрное: холст держит последний нарисованный кадр, и без
   // этого экран ожидания оказался бы обрывком прошлой сцены.
   sizeSplash(splashView.getContext("2d"));
 }
 
-/// Буква, какой она встанет в кадре: середина, сторона и рамка, в которой её
-/// открывает полоса.
+/// Буква, какой она встанет в кадре.
 function letterBox(w, h) {
   const size = Math.min(w, h) * 0.17;
   const side = size * (markIsLetter ? 2.6 : 1.5);
-  return { mid: [w / 2, h / 2 - 8], size, side, top: h / 2 - 8 - side / 2 };
+  return { mid: [w / 2, h / 2 - 8], size, side };
+}
+
+/// Два кольца иконки вокруг буквы.
+function drawRings(c, mid, size, alpha) {
+  c.globalAlpha = alpha * 0.85;
+  c.strokeStyle = "#e24848";
+  c.lineWidth = size * RING_IN;
+  c.beginPath();
+  c.arc(mid[0], mid[1], size, 0, Math.PI * 2);
+  c.stroke();
+
+  c.globalAlpha = alpha * 0.35;
+  c.lineWidth = Math.max(1, size * RING_OUT);
+  c.beginPath();
+  c.arc(mid[0], mid[1], size * RING_OUT_AT, 0, Math.PI * 2);
+  c.stroke();
+  c.globalAlpha = 1;
+}
+
+/// Пятно от удара. Градиент строится один раз на размер, а не каждый кадр:
+/// на слабой машине именно эти вызовы и съедали частоту.
+let bloomFor = null;
+
+function bloom(c, mid, size, reach) {
+  const key = `${mid[0]}:${mid[1]}:${Math.round(size)}:${Math.round(reach)}`;
+  if (!bloomFor || bloomFor.key !== key) {
+    const paint = c.createRadialGradient(mid[0], mid[1], 0, mid[0], mid[1], reach);
+    paint.addColorStop(0, "rgba(226, 72, 72, 0.9)");
+    paint.addColorStop(1, "rgba(226, 72, 72, 0)");
+    bloomFor = { key, paint };
+  }
+  return bloomFor.paint;
 }
 
 function playOpening() {
@@ -490,41 +529,22 @@ function playOpening() {
   const frame = (now) => {
     const { w, h } = sizeSplash(c);
     const t = now - started;
-    const { mid, size, side, top } = letterBox(w, h);
+    const { mid, size, side } = letterBox(w, h);
 
-    // Полоса света идёт вниз и открывает букву ровно настолько, насколько
-    // прошла. Это и есть весь фокус: картинка появляется не целиком, а так,
-    // как её собирают.
-    const swept = Math.min(1, t / SWEEP_MS);
-    if (markImage.complete && markImage.naturalWidth && swept > 0) {
-      c.save();
-      c.beginPath();
-      c.rect(mid[0] - side / 2, top, side, side * swept);
-      c.clip();
+    const shown = Math.min(1, t / RISE_MS);
+    const eased = 1 - (1 - shown) ** 3;
+    drawRings(c, mid, size, eased);
+
+    if (markImage.complete && markImage.naturalWidth) {
       const swell = struck ? 1 + 0.06 * Math.max(0, 1 - (t - STRIKE_MS) / 260) : 1;
       const grown = side * swell;
+      c.globalAlpha = eased;
       c.drawImage(markImage, mid[0] - grown / 2, mid[1] - grown / 2, grown, grown);
-      c.restore();
+      c.globalAlpha = 1;
     }
 
-    // Сам луч — тонкая черта с ореолом, пока идёт.
-    if (swept < 1) {
-      const edge = top + side * swept;
-      const glow = c.createLinearGradient(0, edge - size * 0.5, 0, edge + size * 0.12);
-      glow.addColorStop(0, "rgba(226, 72, 72, 0)");
-      glow.addColorStop(1, "rgba(226, 72, 72, 0.28)");
-      c.fillStyle = glow;
-      c.fillRect(mid[0] - side, edge - size * 0.5, side * 2, size * 0.62);
-      c.strokeStyle = "rgba(255, 226, 226, 0.85)";
-      c.lineWidth = 1;
-      c.beginPath();
-      c.moveTo(mid[0] - side * 0.72, edge);
-      c.lineTo(mid[0] + side * 0.72, edge);
-      c.stroke();
-    }
-
-    // Кольцо выходит, когда буква уже читается, и сходится равномерно — так
-    // его сводит игра, и по нему считают, когда нажимать.
+    // Кольцо подхода сходится равномерно — так его сводит игра, и по нему
+    // считают, когда нажимать.
     if (!struck && t > RING_FROM_MS) {
       const closing = Math.min(1, (t - RING_FROM_MS) / (STRIKE_MS - RING_FROM_MS));
       c.globalAlpha = Math.min(1, (t - RING_FROM_MS) / 220) * 0.9;
@@ -541,14 +561,12 @@ function playOpening() {
       // цвета ноты, которое расходится и гаснет.
       const lit = (t - STRIKE_MS) / 560;
       if (lit < 1) {
+        const reach = size * 3.2;
         c.save();
         c.globalCompositeOperation = "lighter";
-        c.globalAlpha = (1 - lit) * 0.6;
-        const bloom = c.createRadialGradient(mid[0], mid[1], 0, mid[0], mid[1], size * (1.2 + lit * 2));
-        bloom.addColorStop(0, "rgba(226, 72, 72, 0.9)");
-        bloom.addColorStop(1, "rgba(226, 72, 72, 0)");
-        c.fillStyle = bloom;
-        c.fillRect(0, 0, w, h);
+        c.globalAlpha = (1 - lit) * 0.55 * Math.min(1, lit * 6);
+        c.fillStyle = bloom(c, mid, size, reach);
+        c.fillRect(mid[0] - reach, mid[1] - reach, reach * 2, reach * 2);
         c.restore();
 
         c.globalAlpha = (1 - lit) * 0.7;
@@ -588,6 +606,10 @@ function playOpening() {
 let idlePlay = null;
 let idleShelf = null;
 let idleAsking = false;
+/// Между двумя реплеями сцена уходит в чёрное и выходит обратно: резкая смена
+/// карты посреди экрана читается как сбой, а не как следующий номер.
+const FADE_MS = 900;
+let idleFade = 0;
 
 async function nextIdlePlay() {
   if (idleAsking) return;
@@ -601,6 +623,7 @@ async function nextIdlePlay() {
       const pick = idleShelf[Math.floor(Math.random() * idleShelf.length)];
       const opened = await invoke("judged", { replay: pick.path });
       idlePlay = { scene: opened, judged: opened.summary, head: opened.from_ms };
+      idleFade = 0;
     }
   } catch {
     // Нет моста, нет папки, нет карт — заставка покажет букву, и это честно.
@@ -640,12 +663,18 @@ function playIdle() {
 
     if (idlePlay) {
       idlePlay.head += step;
-      if (idlePlay.head >= idlePlay.scene.to_ms) {
+      const left = idlePlay.scene.to_ms - idlePlay.head;
+      if (left <= 0) {
         // Доиграл — следующий. Другой реплей, а не тот же по кругу.
         idlePlay = null;
+        idleFade = 0;
         nextIdlePlay();
         drawResting(c, w, h);
       } else {
+        // Появляется и уходит одинаково: полсекунды с краю игры на въезд, и
+        // столько же на выезд, считая от её конца.
+        idleFade = Math.min(1, idleFade + step / FADE_MS);
+        c.globalAlpha = Math.min(idleFade, Math.max(0, left / FADE_MS));
         drawPlay(
           c,
           {
@@ -653,12 +682,16 @@ function playIdle() {
             judged: idlePlay.judged,
             head: idlePlay.head,
             skinned: true,
-            popups: false,
+            // Всё, что рисует движок, кроме звука: ноты скином, его же
+            // судейство над ними и его же счётчики.
+            popups: true,
             frame: false,
+            hud: true,
           },
           w,
           h,
         );
+        c.globalAlpha = 1;
       }
     } else {
       drawResting(c, w, h);
@@ -688,6 +721,7 @@ function playIdle() {
 function showSplash() {
   if (asleep) return;
   asleep = true;
+  document.body.classList.add("covered");
   byId("splash-say").textContent = SAYINGS[Math.floor(Math.random() * SAYINGS.length)];
   splash.classList.add("going");
   splash.hidden = false;
@@ -702,6 +736,7 @@ function hideSplash() {
   asleep = false;
   if (scene_run) cancelAnimationFrame(scene_run);
   scene_run = null;
+  document.body.classList.remove("covered");
   // Разбор игры — это мегабайты одного только курсора, и держать их, пока
   // окном пользуются, незачем.
   idlePlay = null;
@@ -1935,6 +1970,7 @@ function drawPlay(c, show, w, h) {
 
   if (show.popups) drawPopups(c, box, px, py, show);
   drawCursor(c, box, px, py, show);
+  if (show.hud) drawHud(c, box, show, w, h);
 }
 
 function drawPiece(c, piece, box, px, py, show) {
@@ -2047,8 +2083,10 @@ function drawPiece(c, piece, box, px, py, show) {
   c.globalAlpha = 1;
 }
 
-/// Числа, которые выскакивают на месте объекта. Полсекунды и вверх — ровно
-/// столько, чтобы успеть заметить промах, и не столько, чтобы он мешал.
+/// Что выскакивает на месте отыгранной ноты. Картинкой скина, если она есть, —
+/// движок рисует именно её, — и числом, если нет.
+const VERDICT_OF = { 300: "three", 100: "hundred", 50: "fifty", 0: "miss" };
+
 function drawPopups(c, box, px, py, show) {
   c.textAlign = "center";
   c.textBaseline = "middle";
@@ -2056,11 +2094,33 @@ function drawPopups(c, box, px, py, show) {
     const since = show.head - mark.ms;
     if (since < 0 || since > 600) continue;
     c.globalAlpha = 1 - since / 600;
-    c.fillStyle = WORTH[mark.worth] || WORTH[0];
-    c.font = `700 ${Math.max(11, box.r * 0.8)}px ui-monospace, Menlo, monospace`;
-    c.fillText(SAID[mark.worth] || "×", px(mark.x), py(mark.y) - since * 0.02);
+    const shot = show.skinned && pics && pics.verdicts ? pics.verdicts[VERDICT_OF[mark.worth]] : null;
+    if (shot) {
+      const high = box.r * 1.5;
+      const wide = (shot.image.width / shot.image.height) * high;
+      c.drawImage(shot.image, px(mark.x) - wide / 2, py(mark.y) - high / 2 - since * 0.02, wide, high);
+    } else {
+      c.fillStyle = WORTH[mark.worth] || WORTH[0];
+      c.font = `700 ${Math.max(11, box.r * 0.8)}px ui-monospace, Menlo, monospace`;
+      c.fillText(SAID[mark.worth] || "×", px(mark.x), py(mark.y) - since * 0.02);
+    }
   }
   c.globalAlpha = 1;
+}
+
+/// Счётчики, как их ставит движок: точность сверху справа, комбо снизу слева.
+/// Считаются по тем же меткам, что нарисованы, — второго источника правды тут
+/// нет.
+function drawHud(c, box, show, w, h) {
+  const said = readMarks(show.judged.marks, show.head);
+  c.textBaseline = "alphabetic";
+  c.fillStyle = "rgba(255,255,255,0.9)";
+  c.font = `600 ${Math.max(15, box.r * 0.75)}px ui-monospace, Menlo, monospace`;
+  c.textAlign = "right";
+  c.fillText(`${round(said.percent, 2)}%`, w - Math.max(16, box.ox + 8), Math.max(28, box.oy + 24));
+  c.textAlign = "left";
+  c.font = `600 ${Math.max(18, box.r * 0.95)}px ui-monospace, Menlo, monospace`;
+  c.fillText(`${said.combo}x`, Math.max(16, box.ox + 8), h - Math.max(20, box.oy + 12));
 }
 
 function drawCursor(c, box, px, py, show) {
@@ -2109,16 +2169,20 @@ function drawView() {
   const c = view.getContext("2d");
   c.setTransform(dpr, 0, 0, dpr, 0, 0);
   c.clearRect(0, 0, w, h);
-  drawPlay(c, { scene, judged, head, skinned, popups: true, frame: true }, w, h);
+  drawPlay(c, { scene, judged, head, skinned, popups: true, frame: true, hud: false }, w, h);
 }
 
 /// Что было к этому моменту: считается по тем же меткам, что нарисованы, —
 /// второго источника правды здесь нет.
 function readAt(ms) {
+  return readMarks(judged.marks, ms);
+}
+
+function readMarks(marks, ms) {
   let combo = 0;
   let weight = 0;
   let objects = 0;
-  for (const mark of judged.marks) {
+  for (const mark of marks) {
     if (mark.ms > ms) break;
     combo = mark.combo;
     weight += mark.worth;

@@ -887,3 +887,102 @@ body.still *, body.still *::before, body.still *::after {
   white-space: pre-wrap;
   word-break: break-word;
 }
+
+/* ── выбор режима ─────────────────────────────────────────────────────── */
+
+/* Замыливает всё, что за ним: пока не сказано, чем вы заняты, остальное — фон,
+   а не выбор. */
+.choose {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 1.4rem;
+  padding: 2rem;
+  -webkit-backdrop-filter: blur(18px) saturate(1.1);
+  backdrop-filter: blur(18px) saturate(1.1);
+  background: rgba(11, 4, 6, 0.5);
+  animation: rise 0.4s var(--ease) both;
+}
+/* Экран выбора накрывает всю рабочую область, а не свой кусок: «замылено»
+   значит замылено всё, кроме панели, по которой можно уйти. */
+#view-replay { position: relative; min-height: calc(100vh - 10rem); }
+.choose h2 { margin: 0; font-size: 1.15rem; font-weight: 600; text-align: center; }
+.modes { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: 1rem; width: min(44rem, 100%); }
+.mode {
+  display: grid;
+  justify-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 1.6rem 1.3rem;
+  border: 1px solid var(--line);
+  border-radius: 1.2rem;
+  background: var(--panel);
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+  transition: border-color 0.24s var(--ease), background 0.24s var(--ease), transform 0.18s var(--ease);
+}
+.mode:hover { border-color: var(--accent); background: var(--accent-soft); transform: translateY(-2px); }
+.mode b { font-size: 1rem; }
+.mode p { margin: 0; max-width: 17rem; color: var(--muted); font-size: 0.82rem; text-align: center; }
+.ic.big { width: 2.1rem; height: 2.1rem; color: var(--accent); }
+.ic.big circle, .ic.big rect, .ic.big path { stroke: currentColor; stroke-width: 1.5; fill: none; }
+
+/* ── экран воспроизведения ────────────────────────────────────────────── */
+
+.screen {
+  position: relative;
+  border: 1px solid var(--line);
+  border-radius: 1.05rem;
+  background: #0a0508;
+  overflow: hidden;
+}
+#rp-view { display: block; width: 100%; height: 26rem; }
+.hud {
+  position: absolute;
+  inset: 0.7rem 0.9rem auto;
+  display: flex;
+  justify-content: space-between;
+  color: var(--ink);
+  font: 0.82rem/1 var(--mono);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+  pointer-events: none;
+}
+
+.playbar { display: flex; align-items: center; gap: 0.75rem; margin: 0.7rem 0 1rem; }
+.playbar .act { margin: 0; min-width: 2.4rem; }
+.playbar input[type="range"] {
+  flex: 1;
+  height: 0.3rem;
+  -webkit-appearance: none;
+  appearance: none;
+  border-radius: 0.15rem;
+  background: var(--sunk);
+  accent-color: var(--accent);
+}
+.playbar input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 0.85rem;
+  height: 0.85rem;
+  border-radius: 50%;
+  background: var(--accent);
+  cursor: pointer;
+}
+.pick.tiny { min-width: 6.5rem; margin: 0; }
+.pick.tiny select { padding: 0.28rem 0.4rem; font-size: 0.8rem; }
+
+.pathrow select {
+  width: 100%;
+  margin: 0;
+  padding: 0.38rem 0.55rem;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  background: var(--sunk);
+  color: var(--ink);
+  font: 0.82rem/1.4 var(--mono);
+}
+
+.pair { display: flex; gap: 0.4rem; }

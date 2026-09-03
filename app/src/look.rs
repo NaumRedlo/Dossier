@@ -5,9 +5,8 @@
 //! combo became. This puts that in front of somebody without rendering a single
 //! frame: a play can be looked at in the time it takes to read the file.
 
-use std::path::Path;
-
-use dossier_produce::locate;
+use dossier_beatmap::Beatmap;
+use dossier_replay::Replay;
 use dossier_sim::{GameState, Part};
 
 /// One judgement, small on purpose: a map has a couple of thousand of these and
@@ -22,6 +21,9 @@ pub struct Mark {
     pub combo: u32,
     /// `circle`, `slider` or `spinner`.
     pub kind: &'static str,
+    /// Where on the field it happened, for the number that pops up there.
+    pub x: f64,
+    pub y: f64,
 }
 
 #[derive(serde::Serialize)]
@@ -47,10 +49,12 @@ pub struct Judged {
     pub marks: Vec<Mark>,
 }
 
-/// Read the replay, find its map, judge it.
-pub fn look(replay: &Path, songs: Option<&Path>) -> Result<Judged, String> {
-    let (beatmap, replay, _origin, _text) = locate::load(replay, None, songs)?;
-    let state = GameState::new(&beatmap, &replay);
+/// The same summary from a play that has already been set up.
+///
+/// Split out so that the viewer, which needs the whole scene anyway, does not
+/// parse the map and judge the replay a second time to put six numbers under
+/// the picture.
+pub fn summarise(beatmap: &Beatmap, replay: &Replay, state: &GameState) -> Result<Judged, String> {
     let judge = state
         .judge()
         .ok_or_else(|| "судить нечего: в реплее нет ни одного нажатия".to_owned())?;
@@ -71,6 +75,16 @@ pub fn look(replay: &Path, songs: Option<&Path>) -> Result<Judged, String> {
                 Part::Slider => "slider",
                 _ => "spinner",
             },
+            x: state
+                .timeline()
+                .objects
+                .get(event.object_index)
+                .map_or(0.0, |object| object.pos.x),
+            y: state
+                .timeline()
+                .objects
+                .get(event.object_index)
+                .map_or(0.0, |object| object.pos.y),
         })
         .collect();
 

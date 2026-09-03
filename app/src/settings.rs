@@ -27,6 +27,11 @@ pub struct Settings {
     pub skins: String,
     /// Where this person's own replays live, for rendering one by hand.
     pub replays: String,
+    /// Which skin to draw with unless somebody says otherwise, by folder name.
+    ///
+    /// Empty means the engine's own — `Dossier Default`, which is not a folder
+    /// anywhere and is why this is a name and not a path.
+    pub skin: String,
 }
 
 /// Reading one setting out of the six. A named type rather than the signature
@@ -34,13 +39,14 @@ pub struct Settings {
 type Reads = fn(&Settings) -> &String;
 
 /// The keys this writes. Anything else in the file is left exactly as it was.
-const KEYS: [(&str, Reads); 6] = [
+const KEYS: [(&str, Reads); 7] = [
     ("RENDER_SERVER", |s| &s.server),
     ("RENDER_WORKER_TOKEN", |s| &s.token),
     ("RENDER_WORKER_NAME", |s| &s.name),
     ("DOSSIER_SONGS_DIR", |s| &s.songs),
     ("DOSSIER_SKINS_DIR", |s| &s.skins),
     ("DOSSIER_REPLAYS_DIR", |s| &s.replays),
+    ("DOSSIER_SKIN", |s| &s.skin),
 ];
 
 pub fn path() -> PathBuf {
@@ -97,6 +103,7 @@ impl Settings {
             songs: value("DOSSIER_SONGS_DIR"),
             skins: value("DOSSIER_SKINS_DIR"),
             replays: value("DOSSIER_REPLAYS_DIR"),
+            skin: value("DOSSIER_SKIN"),
         };
         if said.name.is_empty() {
             said.name = host_name();

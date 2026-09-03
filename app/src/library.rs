@@ -460,3 +460,147 @@ pub fn modules(said: &Settings) -> Vec<Module> {
     });
     out
 }
+
+/// Install an `.osk` — an osu! skin archive, which is a zip under another name.
+///
+/// Under the archive's own name, because that is the name somebody will look
+/// for afterwards. A folder already called that is left exactly as it is and
+/// said so: overwriting a skin because a download happened to share its name is
+/// not a thing to do quietly.
+pub fn install_skin(said: &Settings, archive: &Path) -> Result<String, String> {
+    if said.skins.is_empty() {
+        return Err("папка скинов не указана — назовите её в настройках".to_owned());
+    }
+    let shelf = Path::new(&said.skins);
+    std::fs::create_dir_all(shelf).map_err(|why| format!("папка скинов не создалась: {why}"))?;
+
+    let name = archive
+        .file_stem()
+        .map(|stem| stem.to_string_lossy().into_owned())
+        .filter(|stem| !stem.is_empty())
+        .ok_or("у файла нет имени")?;
+    let into = shelf.join(&name);
+    if into.exists() {
+        return Err(format!("скин «{name}» уже стоит — сначала уберите старый"));
+    }
+
+    let bytes = std::fs::read(archive).map_err(|why| format!("файл не читается: {why}"))?;
+    if let Err(why) = dossier_produce::skin::unpack(&bytes, &into) {
+        let _ = std::fs::remove_dir_all(&into);
+        return Err(format!("архив не распаковался: {why}"));
+    }
+    flatten(&into);
+    Ok(name)
+}
+
+/// Some archives are packed as one folder with everything inside it. osu!
+/// treats the archive itself as the skin, so a lone directory is lifted out —
+/// otherwise the skin is one level deeper than anything looks.
+fn flatten(into: &Path) {
+    if into.join("skin.ini").exists() {
+        return;
+    }
+    let mut inside = entries(into);
+    if inside.len() != 1 || !inside[0].is_dir() {
+        return;
+    }
+    let only = inside.pop().expect("the one directory");
+    for item in entries(&only) {
+        let Some(name) = item.file_name() else {
+            continue;
+        };
+        let _ = std::fs::rename(&item, into.join(name));
+    }
+    let _ = std::fs::remove_dir(&only);
+}
+
+#[cfg(test)]
+mod skin_tests {
+    use super::*;
+
+    fn a_zip(entries: &[(&str, &[u8])]) -> Vec<u8> {
+        let mut out = Vec::new();
+        {
+            let mut zip = zip::ZipWriter::new(std::io::Cursor::new(&mut out));
+            for (name, body) in entries {
+                zip.start_file(*name, zip::write::SimpleFileOptions::default())
+                    .expect("an entry");
+                std::io::Write::write_all(&mut zip, body).expect("bytes");
+            }
+            zip.finish().expect("a zip");
+        }
+        out
+    }
+
+    fn a_shelf(name: &str) -> (tempish::Dir, Settings) {
+        let dir = tempish::Dir::new(name);
+        let said = Settings {
+            skins: dir.path().join("Skins").display().to_string(),
+            ..Settings::default()
+        };
+        (dir, said)
+    }
+
+    #[test]
+    fn an_osk_becomes_a_folder_named_after_it() {
+        let (dir, said) = a_shelf("osk-plain");
+        let file = dir.path().join("Nice Skin.osk");
+        std::fs::write(&file, a_zip(&[("skin.ini", b"[General]")])).expect("an archive");
+        let name = install_skin(&said, &file).expect("it installed");
+        assert_eq!(name, "Nice Skin");
+        assert!(Path::new(&said.skins).join("Nice Skin/skin.ini").is_file());
+    }
+
+    #[test]
+    fn an_archive_packed_as_one_folder_is_lifted_out_of_it() {
+        let (dir, said) = a_shelf("osk-nested");
+        let file = dir.path().join("Deep.osk");
+        std::fs::write(
+            &file,
+            a_zip(&[("Deep/skin.ini", b"[General]"), ("Deep/cursor.png", b"x")]),
+        )
+        .expect("an archive");
+        install_skin(&said, &file).expect("it installed");
+        let shelf = Path::new(&said.skins).join("Deep");
+        assert!(shelf.join("skin.ini").is_file(), "skin.ini did not come up");
+        assert!(shelf.join("cursor.png").is_file());
+    }
+
+    #[test]
+    fn a_name_already_on_the_shelf_is_left_alone() {
+        let (dir, said) = a_shelf("osk-twice");
+        let file = dir.path().join("Same.osk");
+        std::fs::write(&file, a_zip(&[("skin.ini", b"[General]")])).expect("an archive");
+        install_skin(&said, &file).expect("the first one");
+        let again = install_skin(&said, &file);
+        assert!(again.is_err(), "it overwrote a skin somebody had");
+    }
+}
+
+/// A directory that removes itself. `tempfile` for one purpose in one test
+/// module is a dependency for a `Drop`.
+#[cfg(test)]
+mod tempish {
+    use std::path::{Path, PathBuf};
+
+    pub struct Dir(PathBuf);
+
+    impl Dir {
+        pub fn new(name: &str) -> Self {
+            let path = std::env::temp_dir().join(format!("dossier-{name}-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&path);
+            std::fs::create_dir_all(&path).expect("a scratch directory");
+            Self(path)
+        }
+
+        pub fn path(&self) -> &Path {
+            &self.0
+        }
+    }
+
+    impl Drop for Dir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+}

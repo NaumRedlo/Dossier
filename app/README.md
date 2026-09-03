@@ -77,23 +77,42 @@ hint that never leaves stops being a hint and becomes furniture. Under them:
 size, frame rate, what to draw behind, and this person's own replays, newest
 first, each saying whether its map is here.
 
-**Реплей** — the play, in two halves. On the left it is judged and drawn as a
-timing graph: every object as a dot, high for late and low for early, coloured
-by what it was worth, misses as ticks along the bottom. It takes no frames and
-no ffmpeg — the engine already knows what each click was worth, so a play can be
-looked at in the time it takes to read the file. The head scrubs, and the
-readout says what the combo and the accuracy *were* at that instant. On the
-right, the montage: spans cut by hand on a timeline, dragged and stretched, and
-then rendered and put end to end into one file.
+**Реплей** asks first what you are here to do. The tab opens blurred behind two
+cards — **Судейство** and **Монтаж** — and choosing one checks what that
+particular job needs before letting anyone through: judging needs only the
+engine, which is built in, and the montage needs ffmpeg, which may not be there.
+Finding that out after somebody has cut a timeline is finding it out too late.
+
+Both then get the same thing at the top: **the play, running.** Circles arrive
+with their approach rings and their combo numbers in the map's own colours,
+sliders draw their path and their ball, the cursor leaves a short trail and
+swells when a key is down, and the judgement pops up where it happened. It is a
+canvas in the window rather than a video: the whole play is handed over once —
+objects, the cursor sampled at sixty a second, the ball positions the engine
+itself computed — and the window animates what it holds. Scrubbing is therefore
+instant, and nothing stutters because a render thread was busy.
+
+Under it, what each job needs. **Судейство**: the counts, the combo, the
+unstable rate, and the timing graph — every object as a dot, high for late and
+low for early, coloured by what it was worth, misses as ticks along the bottom,
+click anywhere to jump there. **Монтаж**: the timeline — spans cut by hand,
+dragged and stretched, then rendered and put end to end into one file.
 
 **Библиотека** — what the application is made of and what it needs. Six engine
 crates built in, ffmpeg and a font from outside, three shelves of files, and
 what is only planned saying so. Anything missing carries the way to stop being
-missing.
+missing — and the skins shelf carries **Поставить .osk…**, which unpacks an
+osu! skin archive onto it under the archive's own name. A folder already called
+that is left exactly as it is: overwriting somebody's skin because a download
+shared its name is not a thing to do quietly. Archives packed as one folder with
+everything inside get lifted out of it, because osu! treats the archive itself
+as the skin.
 
 **Настройки** — the server, the token and the name in three columns rather than
 three paragraphs; the three folders as one line each with a chooser, because
-typing a path is the thing people get wrong first; four things about the window
+typing a path is the thing people get wrong first, and the skin to draw with
+unless somebody says otherwise — `Dossier Default` being the engine's own, which
+is a name rather than a path because it is not a folder anywhere; four things about the window
 itself; and, folded in beside each other, the readiness list and what this
 machine is. The farm is at the bottom and asks the bot only when asked.
 

@@ -41,3 +41,8 @@ dossier-replay = { path = "../crates/dossier-replay" }
 dossier-render = { path = "../crates/dossier-render" }
 dossier-sim = { path = "../crates/dossier-sim" }
 dossier-audio = { path = "../crates/dossier-audio" }
+
+# Only the tests need it, and only to write an `.osk` to install: the crate is
+# already in the tree under `dossier-produce`, which is what unpacks them.
+[dev-dependencies]
+zip = { version = "2", default-features = false, features = ["deflate"] }

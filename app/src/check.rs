@@ -122,14 +122,17 @@ pub(crate) fn on_path(name: &str) -> Option<PathBuf> {
 /// somebody's job in hand. `/render/hello` exists to be asked first.
 ///
 /// Its own call rather than a row in [`ready`]: that list is read off the disk
-/// and is instant, and one network round trip would make all of it wait.
+/// and is instant, and one network round trip would make all of it wait. It
+/// replaces the placeholder that used to sit at the end of that list saying
+/// nobody had asked — which was true, and is the sort of true that should be
+/// fixed rather than printed.
 pub fn handshake(said: &crate::settings::Settings) -> Row {
     let engine = format!("dossier {}", env!("CARGO_PKG_VERSION"));
     let asked = crate::bot::Bot::new(&said.server, &said.token, &said.name)
         .and_then(|bot| bot.hello(&engine));
     match asked {
         Ok(hello) if hello.agree => Row::new(
-            "бот",
+            "сборка",
             Some(true),
             if hello.waiting > 0 {
                 format!("сборки сходятся · в очереди {}", hello.waiting)
@@ -139,7 +142,7 @@ pub fn handshake(said: &crate::settings::Settings) -> Row {
             "",
         ),
         Ok(hello) => Row::new(
-            "бот",
+            "сборка",
             Some(false),
             if hello.reason.is_empty() {
                 format!("бот рисует сборкой {}, а здесь {engine}", hello.build)
@@ -153,7 +156,7 @@ pub fn handshake(said: &crate::settings::Settings) -> Row {
             },
         ),
         Err(refused) => Row::new(
-            "бот",
+            "сборка",
             Some(false),
             refused.to_string(),
             "адрес и токен — двумя строками выше",
@@ -244,7 +247,6 @@ pub fn ready() -> Vec<Row> {
         "работа не берётся, пока это так",
     ));
 
-    rows.push(Row::new("бот", None, "ещё не спрашивали", ""));
     rows
 }
 

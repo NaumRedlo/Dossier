@@ -19,6 +19,7 @@ mod link;
 mod look;
 mod machine;
 mod pick;
+mod play;
 mod reel;
 mod settings;
 mod update;
@@ -178,17 +179,29 @@ fn ready() -> Vec<check::Row> {
 /// was worth, and a play can be looked at in the time it takes to read the
 /// file. This is what the viewer draws its strip from.
 #[tauri::command]
-fn judged(replay: String) -> Result<look::Judged, String> {
+fn judged(replay: String) -> Result<play::Scene, String> {
     let said = settings::Settings::load();
     let songs = std::path::PathBuf::from(&said.songs);
     let songs = songs.is_dir().then_some(songs.as_path());
-    look::look(std::path::Path::new(&replay), songs)
+    play::open(std::path::Path::new(&replay), songs)
 }
 
 /// Ask the system for a folder. `None` means the dialog was closed.
 #[tauri::command]
 fn pick_folder(prompt: String) -> Result<Option<String>, String> {
     pick::folder(&prompt)
+}
+
+/// Put an `.osk` on the shelf. Returns the name it went under.
+#[tauri::command]
+fn install_skin(path: String) -> Result<String, String> {
+    library::install_skin(&settings::Settings::load(), std::path::Path::new(&path))
+}
+
+/// Ask the system for one skin archive.
+#[tauri::command]
+fn pick_skin(prompt: String) -> Result<Option<String>, String> {
+    pick::file(&prompt, "osk")
 }
 
 /// Ask the system for one replay file.
@@ -357,6 +370,8 @@ fn main() {
             judged,
             pick_folder,
             pick_replay,
+            pick_skin,
+            install_skin,
             build_reel,
             modules,
             update_look,

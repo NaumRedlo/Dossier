@@ -765,6 +765,7 @@ dependencies = [
  "sha2",
  "tauri",
  "tauri-build",
+ "zip",
 ]
 
 [[package]]

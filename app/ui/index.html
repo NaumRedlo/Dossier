@@ -370,6 +370,14 @@
           <button class="act small" id="s-osk">Поставить .osk…</button>
         </div>
       </div>
+      <!-- Приложение читает папки на открытии окна; файлы появляются после.
+           Эта кнопка — единственный способ сказать «посмотри ещё раз», не
+           перезапуская всё. -->
+      <div class="bar">
+        <span class="muted" id="s-found">Что лежит в папках сейчас.</span>
+        <span class="grow"></span>
+        <button class="act small" id="s-rescan">Обновить</button>
+      </div>
       <div class="card" id="s-shelves"></div>
       </div>
       <div class="page" data-page="video" hidden>

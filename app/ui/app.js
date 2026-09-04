@@ -1268,24 +1268,51 @@ for (const button of document.querySelectorAll("[data-pick]")) {
   });
 }
 
+/// Сколько лежало на полках, когда их читали в прошлый раз. Нужно ровно для
+/// одного: сказать не «готово», а что именно нашлось нового.
+let shelfCounts = null;
+
+/// Перечитать папки и показать, что в них сейчас.
+///
+/// Возвращает, что изменилось с прошлого чтения, — по числу вещей на каждой
+/// полке. Прежние числа берутся отсюда же, так что сравнение всегда с тем, что
+/// человеку показывали, а не с тем, что было при запуске.
+async function readShelves() {
+  const shelves = await invoke("shelves").catch(() => null);
+  byId("s-shelves").hidden = !shelves;
+  if (!shelves) return "не удалось прочитать папки";
+
+  byId("s-shelves").replaceChildren(
+    ...[["карты", shelves.songs], ["скины", shelves.skins], ["реплеи", shelves.replays]].map(([name, shelf]) =>
+      line({
+        mark: shelf.exists ? ["ok", "+"] : ["huh", "?"],
+        name,
+        said: shelf.exists ? shelf.note : `${shelf.note} — ${shelf.path}`,
+      }),
+    ),
+  );
+
+  const now = { songs: shelves.songs.items, skins: shelves.skins.items, replays: shelves.replays.items };
+  const was = shelfCounts;
+  shelfCounts = now;
+  if (!was) return "Что лежит в папках сейчас.";
+
+  const grew = [
+    ["карта", "карты", "карт", now.songs - was.songs],
+    ["скин", "скина", "скинов", now.skins - was.skins],
+    ["реплей", "реплея", "реплеев", now.replays - was.replays],
+  ]
+    .filter(([, , , by]) => by > 0)
+    .map(([one, few, many, by]) => `${by} ${plural(by, one, few, many)}`);
+  return grew.length ? `Нашлось: ${grew.join(", ")}.` : "Ничего нового не появилось.";
+}
+
 async function showSettings() {
   await loadSettings();
   const skins = await invoke("skins").catch(() => []);
   fillSkins(byId("s-skin"), skins, known.skin);
   loadRenderSettings();
-  const shelves = await invoke("shelves").catch(() => null);
-  byId("s-shelves").hidden = !shelves;
-  if (shelves) {
-    byId("s-shelves").replaceChildren(
-      ...[["карты", shelves.songs], ["скины", shelves.skins], ["реплеи", shelves.replays]].map(([name, shelf]) =>
-        line({
-          mark: shelf.exists ? ["ok", "+"] : ["huh", "?"],
-          name,
-          said: shelf.exists ? shelf.note : `${shelf.note} — ${shelf.path}`,
-        }),
-      ),
-    );
-  }
+  byId("s-found").textContent = await readShelves();
   showReady();
   // Мерить скорость — это маленький рендер. Один раз на открытие окна, дальше
   // по кнопке: настройки открывают чаще, чем железо меняется.
@@ -1294,6 +1321,25 @@ async function showSettings() {
     showMachine();
   }
 }
+
+byId("s-rescan").addEventListener("click", async () => {
+  const button = byId("s-rescan");
+  const said = byId("s-found");
+  button.disabled = true;
+  said.textContent = "Смотрю…";
+  // Список скинов и разбор папки реплеев читаются в других местах и живут до
+  // перезапуска. Новый файл не виден ни там, ни там, пока их не уронишь: без
+  // этого кнопка обновляла бы три строчки со счётом и оставляла вкладку
+  // «Рендер» со вчерашним списком.
+  shelfCache = null;
+  try {
+    const skins = await invoke("skins").catch(() => []);
+    fillSkins(byId("s-skin"), skins, known.skin);
+    said.textContent = await readShelves();
+  } finally {
+    button.disabled = false;
+  }
+});
 
 byId("s-save").addEventListener("click", () => saveSettings("s", "s-said"));
 byId("s-skin").addEventListener("change", () => saveSettings("s", "s-said"));

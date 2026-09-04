@@ -197,6 +197,21 @@ fn ready() -> Vec<check::Row> {
 /// No frames, no ffmpeg, no waiting: the engine already knows what each click
 /// was worth, and a play can be looked at in the time it takes to read the
 /// file. This is what the viewer draws its strip from.
+/// A few seconds of a play, for a card that shows what a replay looks like.
+///
+/// The same shape `judged` returns, so the window draws it with the same code —
+/// only shorter. Six seconds is about a phrase of a map: long enough to read a
+/// pattern, short enough that twenty of them are not a game each.
+#[tauri::command(async)]
+fn preview(replay: String) -> Result<play::Scene, String> {
+    let said = settings::Settings::load();
+    play::preview(
+        std::path::Path::new(&replay),
+        Some(std::path::Path::new(&said.songs)),
+        6.0,
+    )
+}
+
 #[tauri::command(async)]
 fn judged(replay: String) -> Result<play::Scene, String> {
     let said = settings::Settings::load();
@@ -299,7 +314,7 @@ fn build_reel(
     };
     let done = reel::build(&asked, &spans, &told, &step);
     dossier_produce::events::unlisten();
-    done.map(|path| finished("монтаж", &path, &told))
+    done.map(|path| finished("студия", &path, &told))
 }
 
 /// Is there a newer Dossier, and what would updating mean on this machine.
@@ -449,6 +464,7 @@ fn main() {
             open_link,
             about,
             judged,
+            preview,
             pick_folder,
             pick_replay,
             pick_skin,

@@ -74,6 +74,72 @@ pub struct Scene {
     pub summary: crate::look::Judged,
 }
 
+/// The same play, cut down to the stretch worth looking at.
+///
+/// A card in a grid needs to show what a replay *looks* like, and a whole game
+/// crossing the bridge for each of twenty cards is megabytes of cursor nobody
+/// will watch. So the scene is built whole — that part is cheap and happens on
+/// a pool thread — and then trimmed to a few seconds before it is handed over.
+///
+/// The summary rides along untouched apart from its marks: the card wants the
+/// accuracy and the counts as much as it wants the picture, and asking twice
+/// would mean parsing the map and judging the replay twice.
+pub fn preview(replay: &Path, songs: Option<&Path>, seconds: f64) -> Result<Scene, String> {
+    let mut scene = open(replay, songs)?;
+    trim(&mut scene, seconds);
+    Ok(scene)
+}
+
+/// Where the map is busiest, which is where it is worth looking.
+///
+/// The opening of a map is almost always its quietest part, so a preview cut
+/// from the front shows two notes and a lot of empty field. The densest window
+/// shows what playing it is actually like.
+fn busiest(objects: &[Piece], window: f64) -> f64 {
+    let Some(first) = objects.first() else {
+        return 0.0;
+    };
+    let mut best = (first.start_ms, 0usize);
+    let mut low = 0;
+    for high in 0..objects.len() {
+        while objects[high].start_ms - objects[low].start_ms > window {
+            low += 1;
+        }
+        if high - low + 1 > best.1 {
+            best = (objects[low].start_ms, high - low + 1);
+        }
+    }
+    best.0
+}
+
+fn trim(scene: &mut Scene, seconds: f64) {
+    let window = seconds.max(1.0) * 1000.0;
+    let busy = busiest(&scene.objects, window);
+    // One approach earlier, so the first notes of the loop fade in the way they
+    // would in play rather than appearing already whole.
+    let from = (busy - scene.preempt_ms).max(scene.from_ms);
+    let to = busy + window;
+
+    scene
+        .objects
+        .retain(|piece| piece.end_ms >= from && piece.start_ms <= to);
+    scene
+        .summary
+        .marks
+        .retain(|mark| mark.ms >= from && mark.ms <= to);
+
+    let step = scene.step_ms.max(0.001);
+    let held = scene.keys.len();
+    let first = (((from - scene.from_ms) / step).floor().max(0.0) as usize).min(held);
+    let last = ((((to - scene.from_ms) / step).ceil().max(0.0) as usize) + 1).min(held);
+    if first < last {
+        scene.cursor = scene.cursor[first * 2..last * 2].to_vec();
+        scene.keys = scene.keys[first..last].to_vec();
+        scene.from_ms += first as f64 * step;
+    }
+    scene.to_ms = to;
+}
+
 /// Read the replay, find its map, and hand over everything at once.
 pub fn open(replay: &Path, songs: Option<&Path>) -> Result<Scene, String> {
     let (beatmap, replay, _origin, _text) = locate::load(replay, None, songs)?;
@@ -189,4 +255,43 @@ pub fn open(replay: &Path, songs: Option<&Path>) -> Result<Scene, String> {
         keys,
         summary,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn at(times: &[f64]) -> Vec<Piece> {
+        times
+            .iter()
+            .map(|&start_ms| Piece {
+                kind: "circle",
+                x: 0.0,
+                y: 0.0,
+                start_ms,
+                end_ms: start_ms,
+                combo: 1,
+                run: 0,
+                slides: 1,
+                path: Vec::new(),
+                ball: Vec::new(),
+            })
+            .collect()
+    }
+
+    /// The front of a map is its quietest part almost by construction, so a
+    /// preview cut from the front is two notes in an empty field.
+    #[test]
+    fn the_busiest_window_is_found_rather_than_the_first_one() {
+        // Four spread out, then five packed together at twenty seconds.
+        let objects = at(&[
+            0.0, 2000.0, 4000.0, 6000.0, 20_000.0, 20_200.0, 20_400.0, 20_600.0, 20_800.0,
+        ]);
+        assert_eq!(busiest(&objects, 3000.0), 20_000.0);
+    }
+
+    #[test]
+    fn a_map_with_nothing_in_it_still_answers() {
+        assert_eq!(busiest(&[], 3000.0), 0.0);
+    }
 }

@@ -364,6 +364,9 @@ function motion(how, save = true) {
   pressed(byId("seg-motion"), byId("seg-motion").querySelector(`[data-motion="${how}"]`));
   if (save) remember("motion", how);
   if (how === "off") relax();
+  // Спокойное окно — это и спокойные карточки: одна их отрисовка вместо
+  // тридцати в секунду. Настройка одна, и распространяться она должна на всё.
+  runPreviews();
 }
 
 for (const button of byId("seg-dock").querySelectorAll("button")) {
@@ -698,6 +701,7 @@ function showSplash() {
   if (asleep) return;
   asleep = true;
   document.body.classList.add("covered");
+  runPreviews();
   splash.classList.add("going");
   splash.hidden = false;
   void splash.offsetWidth;
@@ -712,6 +716,7 @@ function hideSplash() {
   if (scene_run) cancelAnimationFrame(scene_run);
   scene_run = null;
   document.body.classList.remove("covered");
+  requestAnimationFrame(runPreviews);
   // Разбор игры — это мегабайты одного только курсора, и держать их, пока
   // окном пользуются, незачем.
   idlePlay = null;
@@ -740,6 +745,7 @@ for (const kind of ["pointerdown", "pointermove", "keydown", "wheel"]) {
 }
 document.addEventListener("visibilitychange", () => {
   document.body.classList.toggle("away", document.hidden);
+  runPreviews();
   if (!document.hidden) stirred();
 });
 
@@ -1312,17 +1318,29 @@ async function showLibrary() {
     return;
   }
   const groups = [
-    ["Ядро Dosser", (mod) => mod.state === "builtin"],
-    ["Сторонние зависимости", (mod) => mod.state !== "builtin" && mod.state !== "planned"],
-    ["В разработке", (mod) => mod.state === "planned"],
+    ["Ядро Dossier", "Наши собственные части. Живут внутри приложения и обновляются вместе с ним.", (mod) => mod.state === "builtin"],
+    ["Сторонние зависимости", "Чужое, без чего не обойтись. Ставится отдельно, и приложение только говорит, где взять.", (mod) => mod.state !== "builtin" && mod.state !== "planned"],
+    ["В разработке", "Задумано и ещё не сделано. Стоит здесь, чтобы не выглядеть пропажей.", (mod) => mod.state === "planned"],
   ];
-  const rows = [];
-  for (const [name, belongs] of groups) {
+  // Каждая часть своей карточкой и со своей задержкой: они про разное, и
+  // приезжать одной стопкой им незачем.
+  const parts = [];
+  let at = 0;
+  for (const [name, about, belongs] of groups) {
     const mine = mods.filter(belongs);
     if (!mine.length) continue;
-    rows.push(el("div", "group", name), ...mine.map(modRow));
+    const part = el("section", "part");
+    part.style.animationDelay = `${at * 0.07}s`;
+    at += 1;
+    const head = el("header");
+    head.append(el("h3", null, name), el("p", null, about));
+    part.append(head);
+    const card = el("div", "card");
+    card.append(...mine.map(modRow));
+    part.append(card);
+    parts.push(part);
   }
-  box.replaceChildren(...rows);
+  box.replaceChildren(...parts);
 
   function modRow(mod) {
       const row = el("div", "mod");
@@ -1369,7 +1387,7 @@ let drawing = false;
 /// знать, кто её сейчас ждёт.
 let watching = { bar: "r-bar", said: "r-said", share: "r-share" };
 
-// ── рендер и монтаж, свёрнутые в угол ────────────────────────────────────
+// ── рендер и сборка, свёрнутые в угол ────────────────────────────────────
 
 /// Что сейчас идёт, если идёт. `home` — вкладка, на которой у процесса есть
 /// своя полная панель; в углу он появляется, только когда открыта другая.
@@ -1716,22 +1734,57 @@ function fillPlays({ shelves, skins, plays, rows }) {
     return;
   }
   list.classList.remove("waiting");
-  list.replaceChildren(...plays.map((play) => playRow(play)));
+  forgetCards();
+  list.replaceChildren(...plays.map((play) => playCard(play)));
 
-  function playRow(play) {
-    const row = el("div", "play");
-    const left = el("div");
-    left.append(el("b", null, play.player), el("div", "about", `${play.mods || "NM"} · ${round(play.score)} очков · комбо ${play.combo}`));
-    row.append(left);
-    row.append(play.have_map ? el("span", "about", "") : el("span", "nomap", "карты нет"));
-    const go = el("button", "act small", "Отрендерить");
+  /// Одна запись — карточка: как эта игра выглядела, чьё это и что с ней можно
+  /// сделать. Строка в списке говорила только третье, и то одним глаголом.
+  function playCard(play) {
+    const card = el("article", "rep");
+    if (!play.have_map) card.classList.add("nomap");
+
+    const stage = el("div", "stage");
+    const canvas = document.createElement("canvas");
+    stage.append(canvas);
+    stage.append(el("div", "hush", play.have_map ? "" : "карты нет"));
+    const acc = el("span", "acc");
+    acc.hidden = true;
+    stage.append(acc);
+    const scrim = el("div", "scrim");
+    const go = el("button", "act small primary", "Отрендерить");
     go.disabled = !play.have_map;
-    go.addEventListener("click", () => draw(play, go));
-    row.append(go);
-    return row;
+    go.addEventListener("click", (event) => {
+      event.stopPropagation();
+      draw(play);
+    });
+    scrim.append(go);
+    stage.append(scrim);
+    card.append(stage);
+
+    const said = el("div", "who");
+    said.append(el("b", null, play.player));
+    said.append(el("p", "map", "…"));
+    said.append(el("p", "about", `${play.mods || "NM"} · ${round(play.score)} · комбо ${play.combo}`));
+    card.append(said);
+
+    card.addEventListener("contextmenu", (event) => {
+      event.preventDefault();
+      openMenu(event.clientX, event.clientY, menuFor(play, card));
+    });
+    // Левая кнопка — разворот: это то, за чем на карточку смотрят чаще всего,
+    // и держать его только за правой значило бы прятать.
+    card.addEventListener("click", () => openSheet(play, card));
+
+    card.previewOf = play;
+    card.previewOn = canvas;
+    // Без карты судить нечего и показывать нечего — карточка живёт именем и
+    // меню, и наблюдателю за ней следить не за чем.
+    if (play.have_map) watchCard(card);
+    else card.classList.add("plain");
+    return card;
   }
 
-  async function draw(play, button) {
+  async function draw(play) {
     if (drawing) return;
     drawing = true;
     for (const other of list.querySelectorAll("button")) other.disabled = true;
@@ -1761,12 +1814,402 @@ function fillPlays({ shelves, skins, plays, rows }) {
       endJob(false);
     } finally {
       drawing = false;
-      for (const other of list.querySelectorAll("button")) other.disabled = false;
+      for (const other of list.querySelectorAll("button")) other.disabled = !other.closest(".rep.nomap");
       byId("r-busy").hidden = true;
       list.classList.remove("dimmed");
     }
   }
+
+  function menuFor(play, card) {
+    return [
+      { name: "Отрендерить", off: !play.have_map || drawing, go: () => draw(play) },
+      { name: "Посмотреть в судействе", off: !play.have_map, go: () => takeTo("judge", play.path) },
+      { name: "Добавить в Студию", off: !play.have_map, go: () => takeTo("cut", play.path) },
+      { name: "Подробнее…", off: !play.have_map, go: () => openSheet(play, card) },
+      { line: true },
+      { name: "Показать в папке", go: () => invoke("reveal_file", { path: play.path }).catch(() => {}) },
+    ];
+  }
 }
+
+// ── предпросмотр в карточке ────────────────────────────────────────────
+
+/// Сколько разобранных игр держать. Каждая — несколько секунд, но полка бывает
+/// на две тысячи записей, и без потолка окно съело бы всё, что прокрутилось
+/// мимо.
+const PREVIEWS_KEPT = 60;
+/// Сколько читать одновременно. Чтение — это разбор карты и пересуд реплея;
+/// двадцать сразу отняли бы у окна ровно те ядра, которыми оно рисует.
+const PREVIEWS_AT_ONCE = 2;
+/// Тридцать кадров в секунду. Идёт всегда одна карточка, но это ноготь, и
+/// шестидесяти он не стоит.
+const PREVIEW_STEP_MS = 1000 / 30;
+
+const previews = new Map();
+const showing = new Set();
+const asking = new Set();
+const waitingFor = [];
+/// Та единственная, что сейчас под курсором. Полка, где двигаются все разом,
+/// — это не полка, а рябь: смотреть в ней не на что, потому что смотреть надо
+/// всюду. Двигается одна, остальные стоят кадром.
+let hovered = null;
+let previewRun = null;
+let previewSeen = null;
+
+/// Полку перестроили — прежние карточки больше не на виду и не в очереди.
+/// Разобранные игры остаются: та же запись, скорее всего, вернётся на своё
+/// место, и читать её заново было бы за то же самое второй раз.
+function forgetCards() {
+  if (previewSeen) previewSeen.disconnect();
+  showing.clear();
+  waitingFor.length = 0;
+  hovered = null;
+  if (previewRun) cancelAnimationFrame(previewRun);
+  previewRun = null;
+}
+
+/// Следить, когда карточка окажется на виду, и только тогда за неё платить.
+function watchCard(card) {
+  if (!previewSeen) {
+    previewSeen = new IntersectionObserver(
+      (rows) => {
+        for (const row of rows) {
+          const one = row.target;
+          if (row.isIntersecting) {
+            showing.add(one);
+            askPreview(one);
+            stillCard(one);
+          } else {
+            showing.delete(one);
+          }
+        }
+      },
+      { rootMargin: "160px" },
+    );
+  }
+  card.addEventListener("pointerenter", () => {
+    hovered = card;
+    runPreviews();
+  });
+  card.addEventListener("pointerleave", () => {
+    if (hovered !== card) return;
+    hovered = null;
+    if (previewRun) cancelAnimationFrame(previewRun);
+    previewRun = null;
+    // Вернуть на тот же кадр, с которого начинали: карточка, застывшая там,
+    // где её бросили, — это не «стоп», а «оборвалось».
+    const made = previews.get(card.previewOf.path);
+    if (made) made.head = made.scene.from_ms;
+    stillCard(card);
+  });
+
+  previewSeen.observe(card);
+}
+
+function askPreview(card) {
+  const path = card.previewOf.path;
+  if (previews.has(path) || asking.has(path)) return;
+  if (!waitingFor.includes(card)) waitingFor.push(card);
+  pumpPreviews();
+}
+
+function pumpPreviews() {
+  while (asking.size < PREVIEWS_AT_ONCE && waitingFor.length) {
+    const card = waitingFor.shift();
+    // Уехала с экрана, пока стояла в очереди, — платить за неё уже незачем.
+    if (!showing.has(card)) continue;
+    const path = card.previewOf.path;
+    if (previews.has(path)) continue;
+    asking.add(path);
+    invoke("preview", { replay: path })
+      .then((scene) => {
+        keepPreview(path, { scene, judged: scene.summary, head: scene.from_ms });
+        dressCard(card, scene.summary);
+        stillCard(card);
+      })
+      .catch(() => {
+        // Карта не нашлась, реплей не разобрался — карточка остаётся с одним
+        // именем, и это честнее пустого прямоугольника с крестом.
+        keepPreview(path, null);
+        card.classList.add("plain");
+      })
+      .finally(() => {
+        asking.delete(path);
+        pumpPreviews();
+      });
+  }
+}
+
+/// Что стало известно о заходе, когда его разобрали: карта и точность. Пока
+/// это не пришло, карточка говорит то, что знает из имени файла.
+function dressCard(card, said) {
+  const where = card.querySelector(".map");
+  if (where) where.textContent = said.title;
+  const mark = card.querySelector(".acc");
+  if (mark) {
+    mark.textContent = `${round(said.accuracy_percent, 2)}%`;
+    mark.hidden = false;
+    if (said.counts.miss) mark.classList.add("dropped");
+  }
+  card.classList.add("read");
+}
+
+function keepPreview(path, made) {
+  previews.set(path, made);
+  while (previews.size > PREVIEWS_KEPT) {
+    const oldest = previews.keys().next().value;
+    if (oldest === path) break;
+    previews.delete(oldest);
+  }
+}
+
+/// Один кадр и след курсора поверх него.
+///
+/// Кадр берётся из середины куска, где нот больше всего, а не с его начала:
+/// начало любого отрывка — это пустое поле и одна нота. След добавляет то,
+/// чего один кадр сказать не может, — куда ходила рука.
+function stillCard(card) {
+  const made = previews.get(card.previewOf.path);
+  if (!made) return;
+  const c = readyCanvas(card);
+  if (!c) return;
+  const { ctx, wide, high } = c;
+  const play = made.scene;
+  const middle = (play.from_ms + play.to_ms) / 2;
+  trace(ctx, play, wide, high);
+  drawPlay(ctx, { scene: play, judged: made.judged, head: middle, skinned: true, popups: false, frame: false }, wide, high);
+}
+
+/// Куда ходил курсор за весь отрывок, одной тихой линией.
+function trace(c, play, w, h) {
+  if (play.cursor.length < 4) return;
+  const box = fit(w, h, play.radius);
+  c.save();
+  c.strokeStyle = "rgba(255,255,255,0.14)";
+  c.lineWidth = 1;
+  c.lineJoin = "round";
+  c.beginPath();
+  c.moveTo(box.ox + play.cursor[0] * box.scale, box.oy + play.cursor[1] * box.scale);
+  for (let i = 2; i < play.cursor.length; i += 2) {
+    c.lineTo(box.ox + play.cursor[i] * box.scale, box.oy + play.cursor[i + 1] * box.scale);
+  }
+  c.stroke();
+  c.restore();
+}
+
+function readyCanvas(card) {
+  const canvas = card.previewOn;
+  const wide = canvas.clientWidth;
+  const high = canvas.clientHeight;
+  if (!wide || !high) return null;
+  // Полтора пикселя на точку: это ноготь, а не кадр видео.
+  const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+  if (canvas.width !== Math.round(wide * dpr)) {
+    canvas.width = Math.round(wide * dpr);
+    canvas.height = Math.round(high * dpr);
+  }
+  const ctx = canvas.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, wide, high);
+  return { ctx, wide, high };
+}
+
+/// Идёт та, что под курсором, и только пока она под ним.
+function runPreviews() {
+  const one = hovered;
+  const wanted = one && motionOn() && !document.hidden && !asleep && previews.get(one.previewOf.path);
+  if (!wanted) {
+    if (previewRun) cancelAnimationFrame(previewRun);
+    previewRun = null;
+    return;
+  }
+  if (previewRun) return;
+  let was = performance.now();
+  const frame = (now) => {
+    if (hovered !== one) {
+      previewRun = null;
+      return;
+    }
+    if (now - was < PREVIEW_STEP_MS) {
+      previewRun = requestAnimationFrame(frame);
+      return;
+    }
+    const step = Math.min(120, now - was);
+    was = now;
+    paintCard(one, step);
+    previewRun = requestAnimationFrame(frame);
+  };
+  previewRun = requestAnimationFrame(frame);
+}
+
+function paintCard(card, step) {
+  const made = previews.get(card.previewOf.path);
+  if (!made) return;
+  const c = readyCanvas(card);
+  if (!c) return;
+  made.head += step;
+  if (made.head > made.scene.to_ms) made.head = made.scene.from_ms;
+  drawPlay(
+    c.ctx,
+    { scene: made.scene, judged: made.judged, head: made.head, skinned: true, popups: true, frame: false },
+    c.wide,
+    c.high,
+  );
+}
+
+const motionOn = () => remembered("motion", "on") === "on";
+
+/// Открыть этот реплей в той половине вкладки «Реплей», которую попросили.
+async function takeTo(which, path) {
+  show("replay");
+  if (await enter(which)) await openReplay(path);
+}
+
+// ── меню правой кнопки ─────────────────────────────────────────────────
+
+/// Своё, а не системное: системное меню webview'а — это «Обновить страницу» и
+/// «Проверить элемент», то есть ровно те два пункта, которых человеку здесь
+/// быть не должно.
+const menuBox = byId("r-menu");
+
+function openMenu(x, y, items) {
+  menuBox.replaceChildren(
+    ...items.map((item) => {
+      if (item.line) return el("div", "sep");
+      const button = el("button", null, item.name);
+      button.disabled = Boolean(item.off);
+      button.addEventListener("click", () => {
+        shutMenu();
+        item.go();
+      });
+      return button;
+    }),
+  );
+  menuBox.hidden = false;
+  // Померить, потом поставить: у края экрана меню разворачивается в другую
+  // сторону, а не уезжает за него.
+  const box = menuBox.getBoundingClientRect();
+  const left = x + box.width > window.innerWidth - 8 ? x - box.width : x;
+  const top = y + box.height > window.innerHeight - 8 ? y - box.height : y;
+  menuBox.style.left = `${Math.max(8, left)}px`;
+  menuBox.style.top = `${Math.max(8, top)}px`;
+}
+
+function shutMenu() {
+  menuBox.hidden = true;
+}
+
+for (const kind of ["pointerdown", "wheel", "blur"]) {
+  window.addEventListener(kind, shutMenu, { passive: true, capture: true });
+}
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") shutMenu();
+});
+
+// ── разворот записи ────────────────────────────────────────────────────
+
+const sheet = byId("r-sheet");
+
+/// Всё, что мы уже посчитали об этом заходе, в одном месте. Ничего нового не
+/// читается: разбор ради предпросмотра уже дал и точность, и счёт судейства —
+/// «Подробнее» показывает то, что и так лежит.
+function openSheet(play, card) {
+  const made = previews.get(play.path);
+  const body = byId("r-sheet-body");
+  const said = made && made.judged;
+
+  const head = el("div", "sheethead");
+  head.append(el("h3", null, said ? said.title : play.file));
+  head.append(el("p", "about", `${play.player} · ${play.mods || "NM"} · ${round(play.score)} очков`));
+  body.replaceChildren(head);
+
+  if (!said) {
+    body.append(el("p", "fine", play.have_map ? "Ещё читаю этот реплей." : "Карты этого реплея нет на этой машине — судить не по чему."));
+  } else {
+    const grid = el("div", "figures");
+    for (const [name, value, tone] of [
+      ["Точность", `${round(said.accuracy_percent, 2)}%`, ""],
+      ["Комбо", said.combo === said.combo_recorded ? String(said.combo) : `${said.combo} / записано ${said.combo_recorded}`, said.combo === said.combo_recorded ? "" : "huh"],
+      ["300", String(said.counts.great), ""],
+      ["100", String(said.counts.ok), ""],
+      ["50", String(said.counts.meh), said.counts.meh ? "huh" : ""],
+      ["Промахи", String(said.counts.miss), said.counts.miss ? "no" : ""],
+      ["Разброс", said.unstable_rate === null ? "—" : `${round(said.unstable_rate, 1)} UR`, ""],
+    ]) {
+      const one = el("div", `figure ${tone}`);
+      one.append(el("b", null, value), el("span", null, name));
+      grid.append(one);
+    }
+    body.append(grid);
+    body.append(errorBars(said));
+  }
+
+  const where = el("p", "where", play.path);
+  body.append(where);
+
+  const routes = el("div", "routes");
+  const judge = el("button", "act small primary", "Посмотреть в судействе");
+  judge.disabled = !play.have_map;
+  judge.addEventListener("click", () => {
+    shutSheet();
+    takeTo("judge", play.path);
+  });
+  const studio = el("button", "act small", "Добавить в Студию");
+  studio.disabled = !play.have_map;
+  studio.addEventListener("click", () => {
+    shutSheet();
+    takeTo("cut", play.path);
+  });
+  const folder = el("button", "act small", "Показать в папке");
+  folder.addEventListener("click", () => invoke("reveal_file", { path: play.path }).catch(() => {}));
+  routes.append(judge, studio, folder);
+  body.append(routes);
+
+  sheet.hidden = false;
+  byId("r-sheet-shut").focus();
+  void card;
+}
+
+/// Куда ложились нажатия: столбики по окнам ошибки, рано слева, поздно справа.
+/// Это тот же разброс, что в строке UR, только видно, он в одну сторону или в
+/// обе — а по одному числу это не отличить.
+function errorBars(said) {
+  const errors = said.marks.map((mark) => mark.error_ms).filter((one) => one !== null && one !== undefined);
+  const box = el("div", "spread");
+  if (errors.length < 4) return box;
+  const reach = Math.max(20, ...errors.map(Math.abs));
+  const bins = 25;
+  const counts = new Array(bins).fill(0);
+  for (const one of errors) {
+    const at = Math.min(bins - 1, Math.floor(((one + reach) / (reach * 2)) * bins));
+    counts[at] += 1;
+  }
+  const tallest = Math.max(...counts);
+  const bars = el("div", "bars");
+  counts.forEach((n, i) => {
+    const bar = el("div", "bar");
+    bar.style.height = `${(n / tallest) * 100}%`;
+    if (i === Math.floor(bins / 2)) bar.classList.add("mid");
+    bars.append(bar);
+  });
+  box.append(bars);
+  const scale = el("div", "scale");
+  scale.append(el("span", null, `−${round(reach)} мс`), el("span", null, "вовремя"), el("span", null, `+${round(reach)} мс`));
+  box.append(scale);
+  return box;
+}
+
+function shutSheet() {
+  sheet.hidden = true;
+}
+
+byId("r-sheet-shut").addEventListener("click", shutSheet);
+sheet.addEventListener("pointerdown", (event) => {
+  if (event.target === sheet) shutSheet();
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !sheet.hidden) shutSheet();
+});
 
 byId("r-refresh").addEventListener("click", () => showRender(true));
 
@@ -1886,7 +2329,7 @@ const track = byId("rp-track");
 
 // ── выбор режима ───────────────────────────────────────────────────────
 
-/// Что нужно каждому режиму. Судейству — только движок, а он встроен; монтажу —
+/// Что нужно каждому режиму. Судейству — только движок, а он встроен; Студии —
 /// ffmpeg, без которого собирать нечем. Проверяется до того, как пустить, а не
 /// после того, как человек нарезал ленту.
 async function needs(which) {
@@ -1895,27 +2338,30 @@ async function needs(which) {
   const ffmpeg = rows.find((row) => row.name === "ffmpeg");
   return ffmpeg && ffmpeg.ok
     ? ""
-    : "Для монтажа нужен ffmpeg. «Библиотека» скажет, где его взять";
+    : "Для Студии нужен ffmpeg. «Библиотека» скажет, где его взять";
 }
 
+/// Пускает или не пускает, и говорит об этом — по этому ответу решает тот, кто
+/// пришёл сюда из карточки на полке: открывать реплей или не трогать.
 async function enter(which) {
   const gate = byId("rp-gate");
   gate.textContent = "Проверяю, что для этого нужно…";
   const missing = await needs(which);
   if (missing) {
     gate.textContent = missing;
-    return;
+    return false;
   }
   gate.textContent = "";
   mode = which;
   byId("rp-choose").hidden = true;
   byId("rp-stage").hidden = false;
-  byId("rp-mode").textContent = which === "judge" ? "Судейство" : "Монтаж";
+  byId("rp-mode").textContent = which === "judge" ? "Судейство" : "Студия";
   byId("rp-what").textContent =
     which === "judge" ? "Что засчитано, что нет и на сколько" : "Куски игры и сборка из них";
   byId("rp-judge").hidden = which !== "judge";
   byId("rp-cut").hidden = which !== "cut";
   if (scene) showLive();
+  return true;
 }
 
 for (const button of document.querySelectorAll(".mode")) {
@@ -1967,6 +2413,32 @@ async function openReplay(path) {
   picked = -1;
   said.textContent = "";
   showLive();
+}
+
+// ── настройки: разделы ─────────────────────────────────────────────────
+
+/// Какой раздел открыт. Запоминается: человек, который зашёл поправить громкость
+/// и вернулся через минуту, возвращается туда, где был, а не в начало стены.
+function openSettings(which, save = true) {
+  const rail = byId("s-rail");
+  for (const button of rail.querySelectorAll("button")) {
+    const mine = button.dataset.page === which;
+    if (mine) button.setAttribute("aria-current", "page");
+    else button.removeAttribute("aria-current");
+  }
+  let found = false;
+  for (const page of document.querySelectorAll("#view-settings .page")) {
+    const mine = page.dataset.page === which;
+    page.hidden = !mine;
+    found = found || mine;
+  }
+  if (!found) return openSettings("link", save);
+  if (save) remember("spage", which);
+  return which;
+}
+
+for (const button of byId("s-rail").querySelectorAll("button")) {
+  button.addEventListener("click", () => openSettings(button.dataset.page));
 }
 
 function showLive() {
@@ -2907,7 +3379,7 @@ seek.addEventListener("pointermove", (event) => {
   if (scene && event.buttons) seekFromPointer(event);
 });
 
-/// Клавиатура — и в судействе, и в монтаже. Мышью ставят головку примерно,
+/// Клавиатура — и в судействе, и в Студии. Мышью ставят головку примерно,
 /// клавишами — точно, а между «примерно» и «точно» здесь весь смысл.
 document.addEventListener("keydown", (event) => {
   if (!scene || byId("view-replay").hidden || byId("rp-stage").hidden) return;
@@ -3025,7 +3497,7 @@ tape.addEventListener("pointermove", (event) => {
   if (event.buttons) scrub(event);
 });
 
-// ── монтаж: лента ──────────────────────────────────────────────────────
+// ── Студия: лента ──────────────────────────────────────────────────────
 
 const asShare = (ms) => (ms - scene.from_ms) / Math.max(1, scene.to_ms - scene.from_ms);
 
@@ -3132,13 +3604,13 @@ byId("rp-build").addEventListener("click", async () => {
   }
   drawing = true;
   watching = { bar: "rp-bar", said: "rp-built", share: null };
-  startJob("replay", "Монтаж");
+  startJob("replay", "Студия");
   said.className = "verdict";
   said.textContent = "Собираю…";
   byId("rp-progress").hidden = false;
   byId("rp-doneslot").replaceChildren();
   byId("rp-bar").style.width = "0%";
-  const out = chosen.replace(/\.osr$/i, "") + "-монтаж.mp4";
+  const out = chosen.replace(/\.osr$/i, "") + "-студия.mp4";
   const settings = options();
   try {
     const done = await invoke("build_reel", {
@@ -3153,14 +3625,14 @@ byId("rp-build").addEventListener("click", async () => {
     });
     said.textContent = "";
     showFinished(byId("rp-doneslot"), {
-      head: `Монтаж собран — ${clips.length} ${plural(clips.length, "кусок", "куска", "кусков")}`,
+      head: `Собрано из ${clips.length} ${plural(clips.length, "куска", "кусков", "кусков")}`,
       path: done.path,
       notes: done.said,
     });
     endJob(true);
   } catch (why) {
     said.textContent = "";
-    showFinished(byId("rp-doneslot"), { head: "Монтаж не собрался", notes: [String(why)], bad: true });
+    showFinished(byId("rp-doneslot"), { head: "Не собралось", notes: [String(why)], bad: true });
     endJob(false);
   } finally {
     drawing = false;
@@ -3190,6 +3662,9 @@ function show(which) {
   if (which === open_tab) return;
   open_tab = which;
   syncJobMini();
+  // Наблюдатель узнает о спрятанной вкладке не сразу, а платить за кадры,
+  // которых не видно, не за что и один кадр.
+  requestAnimationFrame(runPreviews);
   for (const name of Object.keys(views)) {
     byId(`tab-${name}`).setAttribute("aria-selected", String(name === which));
     byId(`view-${name}`).hidden = name !== which;
@@ -3241,6 +3716,7 @@ byId("w-save").addEventListener("click", async () => {
   skinned = remembered("skinned", "0") === "1";
   idleAfter(remembered("idle", "5"), false);
   reportWhen(remembered("report", "ask"), false);
+  openSettings(remembered("spage", "link"), false);
 
   // Экран чёрный с первого кадра — до того, как что-либо успело измерить себя
   // или разложиться. Сцена запускается только когда всё это уже случилось:

@@ -45,10 +45,12 @@ body {
 
 /* ── the sky ──────────────────────────────────────────────────────────── */
 
-/* Three patches of the accent, very slowly going their own ways. No blur
-   filter and no canvas: a radial gradient is already soft at the edges, and
-   this has to be affordable on a machine whose whole job is to be rendering
-   something else. */
+/* Пятна акцента, очень медленно расходящиеся своими дорогами, и над ними —
+   один широкий разворот света, который поворачивается за минуты. Ни фильтров,
+   ни канвы: радиальный градиент уже мягок по краю, а всё движение здесь — это
+   `transform` и `opacity`, то есть работа наборщика слоёв, а не перерисовка.
+   Это должно быть по карману машине, у которой вся работа — рисовать что-то
+   другое. */
 .sky {
   position: fixed;
   inset: 0;
@@ -56,24 +58,109 @@ body {
   overflow: hidden;
   pointer-events: none;
 }
+
+/* Свет из-за края. Оборот за четыре минуты — на глаз это не вращение, а то,
+   что в комнате чуть меняется освещение. */
+.aurora {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 150vmax;
+  height: 150vmax;
+  margin: -75vmax 0 0 -75vmax;
+  background: conic-gradient(
+    from 0deg,
+    rgba(226, 72, 72, 0.13),
+    rgba(240, 138, 93, 0.06) 22%,
+    transparent 42%,
+    rgba(150, 40, 70, 0.11) 62%,
+    transparent 82%,
+    rgba(226, 72, 72, 0.13)
+  );
+  opacity: 0.75;
+  animation: turn 240s linear infinite;
+}
+@keyframes turn { to { transform: rotate(360deg); } }
+
 .blob {
   position: absolute;
-  width: 46rem;
-  height: 46rem;
   border-radius: 50%;
   opacity: 0.5;
 }
-.b1 { top: -18rem; left: -10rem; background: radial-gradient(circle, rgba(226, 72, 72, 0.34), transparent 68%); animation: drift-a 46s ease-in-out infinite alternate; }
-.b2 { top: -8rem; right: -16rem; background: radial-gradient(circle, rgba(240, 138, 93, 0.2), transparent 66%); animation: drift-b 61s ease-in-out infinite alternate; }
-.b3 { bottom: -26rem; left: 22%; background: radial-gradient(circle, rgba(150, 40, 70, 0.26), transparent 70%); animation: drift-c 73s ease-in-out infinite alternate; }
+.b1 {
+  top: -18rem;
+  left: -10rem;
+  width: 46rem;
+  height: 46rem;
+  background: radial-gradient(circle, rgba(226, 72, 72, 0.34), transparent 68%);
+  animation: drift-a 46s ease-in-out infinite alternate, breathe 31s ease-in-out infinite alternate;
+}
+.b2 {
+  top: -8rem;
+  right: -16rem;
+  width: 44rem;
+  height: 44rem;
+  background: radial-gradient(circle, rgba(240, 138, 93, 0.2), transparent 66%);
+  animation: drift-b 61s ease-in-out infinite alternate, breathe 43s ease-in-out infinite alternate reverse;
+}
+.b3 {
+  bottom: -26rem;
+  left: 22%;
+  width: 50rem;
+  height: 50rem;
+  background: radial-gradient(circle, rgba(150, 40, 70, 0.26), transparent 70%);
+  animation: drift-c 73s ease-in-out infinite alternate, breathe 37s ease-in-out infinite alternate;
+}
+/* Два поменьше и побыстрее — они и делают фон живым: три больших пятна на
+   таких сроках движутся медленнее, чем человек замечает. */
+.b4 {
+  top: 34%;
+  left: -8rem;
+  width: 24rem;
+  height: 24rem;
+  background: radial-gradient(circle, rgba(255, 170, 120, 0.16), transparent 64%);
+  animation: drift-d 34s ease-in-out infinite alternate, breathe 19s ease-in-out infinite alternate;
+}
+.b5 {
+  right: 6%;
+  bottom: -12rem;
+  width: 28rem;
+  height: 28rem;
+  background: radial-gradient(circle, rgba(200, 60, 90, 0.18), transparent 66%);
+  animation: drift-e 41s ease-in-out infinite alternate, breathe 23s ease-in-out infinite alternate reverse;
+}
 @keyframes drift-a { to { transform: translate3d(9rem, 5rem, 0) scale(1.12); } }
 @keyframes drift-b { to { transform: translate3d(-7rem, 8rem, 0) scale(0.92); } }
 @keyframes drift-c { to { transform: translate3d(6rem, -6rem, 0) scale(1.08); } }
+@keyframes drift-d { to { transform: translate3d(14rem, -9rem, 0) scale(1.25); } }
+@keyframes drift-e { to { transform: translate3d(-11rem, -7rem, 0) scale(0.85); } }
+@keyframes breathe { from { opacity: 0.34; } to { opacity: 0.62; } }
 
-/* Остановленный фон и окно, на которое никто не смотрит, стоят одинаково. */
+/* Зерно: очень слабая крупа поверх всего. Большие мягкие градиенты на тёмном
+   фоне полосят — восемь бит на канал просто не хватает, чтобы описать такой
+   пологий переход, — и крупа эти ступени разбивает. Одна маленькая картинка,
+   повторённая, а не шум, который кто-то считает. */
+.grain {
+  position: absolute;
+  inset: -50%;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)' opacity='0.5'/%3E%3C/svg%3E");
+  opacity: 0.035;
+  animation: shift 8s steps(4) infinite;
+}
+@keyframes shift {
+  0% { transform: translate(0, 0); }
+  25% { transform: translate(-2%, 1%); }
+  50% { transform: translate(1%, -2%); }
+  75% { transform: translate(2%, 2%); }
+  100% { transform: translate(0, 0); }
+}
+
 /* Остановленный фон, окно, на которое не смотрят, и окно под заставкой — все
    трое стоят одинаково: сцене нужны кадры, а пятен за ней всё равно не видно. */
-body.sky-still .blob, body.away .blob, body.covered .blob { animation-play-state: paused; }
+body.sky-still .sky *, body.away .sky *, body.covered .sky * { animation-play-state: paused; }
+/* Спокойное окно — совсем без зерна и разворота: они дешёвые, но это движение,
+   а спокойное значит стоящее. */
+body.still .aurora, body.still .grain { animation: none; }
 
 /* ── the splash ───────────────────────────────────────────────────────── */
 
@@ -612,6 +699,66 @@ label input[type="text"]:focus, label input[type="password"]:focus, label select
   transition: width 0.2s linear;
 }
 
+/* ── настройки: рельс и страницы ──────────────────────────────────────── */
+
+.settings {
+  display: grid;
+  grid-template-columns: 13.5rem 1fr;
+  gap: 1.6rem;
+  align-items: start;
+}
+.rail {
+  position: sticky;
+  top: 5.4rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+body.dock-left .rail { top: 1.6rem; }
+.rail button {
+  display: block;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid transparent;
+  border-radius: 0.75rem;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.18s var(--ease), color 0.18s var(--ease), border-color 0.18s var(--ease);
+}
+.rail button b { display: block; font-size: 0.88rem; font-weight: 600; }
+.rail button span {
+  display: block;
+  margin-top: 0.1rem;
+  overflow: hidden;
+  color: var(--faint);
+  font-size: 0.72rem;
+  line-height: 1.35;
+}
+.rail button:hover { background: var(--glass); color: var(--ink); }
+.rail button[aria-current] {
+  border-color: var(--line);
+  background: var(--glass);
+  color: var(--ink);
+}
+.rail button[aria-current] b { color: var(--accent); }
+
+.page { animation: rise 0.3s var(--ease) both; }
+.page[hidden] { display: none; }
+/* Первый заголовок в разделе не отступает сверху: над ним ничего нет, кроме
+   самого раздела. */
+.page > h3:first-child { margin-top: 0; }
+
+/* Узкое окно: рельс ложится строкой над содержимым, а подписи убираются —
+   в строку помещаются только имена. */
+@media (max-width: 54rem) {
+  .settings { grid-template-columns: 1fr; gap: 0.9rem; }
+  .rail { position: static; flex-direction: row; overflow-x: auto; gap: 0.3rem; }
+  .rail button { flex: none; padding: 0.4rem 0.7rem; }
+  .rail button span { display: none; }
+}
+
 h3 { margin: 2rem 0 0.7rem; font-size: 0.82rem; font-weight: 600; font-family: var(--mono); color: var(--faint); text-transform: uppercase; letter-spacing: 0.08em; }
 
 /* Полосы прокрутки не видно, пока она не нужна: окно приложения — не страница,
@@ -822,6 +969,15 @@ body.still *, body.still *::before, body.still *::after {
 .tag.planned { background: rgba(240, 192, 96, 0.13); color: var(--warn); }
 .mod b { font-weight: 600; }
 .mod .what { color: var(--muted); font-size: 0.84rem; }
+/* Части приезжают сами, каждая со своей задержкой, — значит контейнеру
+   приезжать не надо, иначе одно движение играется поверх другого. */
+#lib-rows { animation: none; }
+.part { display: block; animation: rise 0.4s var(--ease) both; }
+.part + .part { margin-top: 1.6rem; }
+.part header { margin: 0 0 0.7rem; }
+.part header h3 { margin: 0; }
+.part header p { margin: 0.25rem 0 0; color: var(--faint); font-size: 0.78rem; max-width: 34rem; }
+
 .mod .said { grid-column: 2; color: var(--faint); font-size: 0.78rem; font-family: var(--mono); word-break: break-all; }
 .mod .act { margin: 0; }
 
@@ -1124,16 +1280,28 @@ body.dock-left main { margin: 4.6rem auto 0; padding-top: 1.5rem; }
   flex-direction: column;
   max-height: calc(100vh - 10.4rem);
 }
-#view-render .list {
+#view-render .list, #view-render .shelf {
   flex: 1;
   min-height: 8rem;
   max-height: none;
 }
 /* Кроме случая, когда в нём одна строка: тянуть нечего, и растянутая на
    четверть экрана карточка с полутора словами читается как поломка. */
-#view-render .list.waiting {
+#view-render .list.waiting, #view-render .shelf.waiting {
   flex: 0 0 auto;
   min-height: 0;
+}
+/* Пока показывать нечего, полка — это одна строка, и выглядеть она должна
+   карточкой, а не голым текстом посреди фона. */
+.shelf.waiting {
+  display: block;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 1.05rem;
+  background: var(--glass);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+  overflow: hidden;
 }
 
 /* Экран выбора режима стоит там же, где начинается содержимое, а не под
@@ -1219,6 +1387,240 @@ body.dock-left main { margin: 4.6rem auto 0; padding-top: 1.5rem; }
 .minijob.failed .dial .cross { stroke-dashoffset: 0; transition: stroke-dashoffset 0.3s var(--ease) 0.1s; }
 .minijob.done .pct, .minijob.failed .pct { display: none; }
 .minijob.done { border-color: var(--good); }
+
+/* ── полка реплеев ────────────────────────────────────────────────────── */
+
+/* Строка списка умела сказать только «отрендерить». Карточка говорит, как эта
+   игра выглядела, — а выглядит она по-разному, и это единственное, по чему
+   свой заход узнают среди двух тысяч чужих. */
+.shelf {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+  /* Ряды по своему росту, а не по остатку высоты: полка — элемент колонки с
+     потолком, и без этого сетка растягивает три ряда на весь экран, приплюснув
+     каждую карточку до полоски. */
+  align-content: start;
+  /* И каждый ряд ровно по содержимому. Одного `align-content` мало: ряды
+     остаются `auto`, а `auto` в контейнере с заданной высотой делит её между
+     собой — три карточки по трети экрана вместо трёх по своему росту. */
+  grid-auto-rows: max-content;
+  gap: 0.75rem;
+  overflow-y: auto;
+  padding: 0.15rem;
+}
+.shelf.dimmed { opacity: 0.45; }
+
+.rep {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--line);
+  border-radius: 0.95rem;
+  background: var(--glass);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+  overflow: hidden;
+  cursor: pointer;
+  transition: border-color 0.2s var(--ease), transform 0.2s var(--ease), box-shadow 0.2s var(--ease);
+}
+.rep:hover {
+  border-color: var(--line-high);
+  transform: translateY(-2px);
+  box-shadow: 0 0.8rem 1.8rem rgba(0, 0, 0, 0.35);
+}
+body.still .rep:hover { transform: none; }
+
+/* Ростом, а не долей. `aspect-ratio` здесь давал карточку в 124 пикселя при
+   содержимом в 294: при подсчёте собственной высоты сетки ширина ещё не
+   известна, и коробка, выводящая высоту из ширины, не вносит в этот подсчёт
+   ничего. Поле всё равно ложится целиком — `fit` вписывает 4:3 в любую
+   коробку и центрует. */
+.rep .stage {
+  position: relative;
+  flex: none;
+  height: 9.5rem;
+  background: rgba(0, 0, 0, 0.32);
+}
+.rep .stage canvas { display: block; width: 100%; height: 100%; }
+.rep .hush {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  color: var(--faint);
+  font: 0.76rem var(--mono);
+}
+/* Точность в углу кадра: её ищут первой, и ради неё не должно приходиться
+   разворачивать запись. Появляется вместе с разбором — до него её нет. */
+.rep .acc {
+  position: absolute;
+  top: 0.4rem;
+  right: 0.45rem;
+  padding: 0.12rem 0.4rem;
+  border-radius: 0.5rem;
+  background: rgba(0, 0, 0, 0.5);
+  color: var(--good);
+  font: 600 0.72rem var(--mono);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+}
+.rep .acc.dropped { color: #f0c060; }
+
+/* Пока запись не разобрана, кадр пуст — и это надо показать спокойно, а не
+   пустым прямоугольником: медленный отблеск говорит «читаю», не занимая
+   ни строки. */
+.rep:not(.read):not(.plain) .stage::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(100deg, transparent 30%, rgba(255, 255, 255, 0.05) 50%, transparent 70%);
+  background-size: 250% 100%;
+  animation: sweep 2.4s linear infinite;
+}
+@keyframes sweep { to { background-position: -150% 0; } }
+body.still .rep .stage::after, body.away .rep .stage::after { animation: none; }
+
+.rep .scrim {
+  position: absolute;
+  inset: auto 0 0;
+  display: flex;
+  justify-content: flex-end;
+  padding: 0.55rem;
+  opacity: 0;
+  background: linear-gradient(transparent, rgba(0, 0, 0, 0.6));
+  transition: opacity 0.2s var(--ease);
+}
+.rep:hover .scrim, .rep:focus-within .scrim { opacity: 1; }
+
+.rep .who { padding: 0.6rem 0.75rem 0.7rem; }
+.rep .who b { display: block; font-size: 0.92rem; }
+.rep .who .map, .rep .who .about {
+  margin: 0.15rem 0 0;
+  overflow: hidden;
+  color: var(--faint);
+  font-size: 0.74rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rep .who .about { font-family: var(--mono); }
+.rep.nomap .stage { background: rgba(0, 0, 0, 0.2); }
+.rep.nomap .who b { color: var(--muted); }
+
+/* ── меню правой кнопки ───────────────────────────────────────────────── */
+
+.menu {
+  position: fixed;
+  z-index: 40;
+  min-width: 13rem;
+  padding: 0.3rem;
+  border: 1px solid var(--line-high);
+  border-radius: 0.8rem;
+  background: rgba(33, 14, 18, 0.96);
+  box-shadow: 0 1.2rem 2.6rem rgba(0, 0, 0, 0.55);
+  -webkit-backdrop-filter: blur(24px);
+  backdrop-filter: blur(24px);
+  animation: drop 0.14s var(--ease) both;
+}
+.menu button {
+  display: block;
+  width: 100%;
+  padding: 0.42rem 0.6rem;
+  border: 0;
+  border-radius: 0.55rem;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.84rem;
+  text-align: left;
+  cursor: pointer;
+}
+.menu button:hover:not(:disabled) { background: var(--accent-soft); }
+.menu button:disabled { color: var(--faint); cursor: default; }
+.menu .sep { height: 1px; margin: 0.3rem 0.4rem; background: var(--line); }
+
+/* ── разворот записи ──────────────────────────────────────────────────── */
+
+.sheet {
+  position: fixed;
+  inset: 0;
+  z-index: 45;
+  display: grid;
+  place-items: center;
+  padding: 2rem;
+  background: rgba(0, 0, 0, 0.55);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  animation: drop 0.2s var(--ease) both;
+}
+.sheetbox {
+  position: relative;
+  width: min(34rem, 100%);
+  max-height: 100%;
+  overflow-y: auto;
+  padding: 1.4rem 1.4rem 1.2rem;
+  border: 1px solid var(--line-high);
+  border-radius: 1.2rem;
+  background: rgba(33, 14, 18, 0.97);
+  box-shadow: 0 2rem 4rem rgba(0, 0, 0, 0.6);
+}
+.shut {
+  position: absolute;
+  top: 0.9rem;
+  right: 0.9rem;
+  display: grid;
+  place-items: center;
+  width: 1.9rem;
+  height: 1.9rem;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 0.95rem;
+  background: none;
+  cursor: pointer;
+}
+.shut svg { width: 1rem; height: 1rem; stroke: var(--muted); stroke-width: 1.8; stroke-linecap: round; }
+.shut:hover { border-color: var(--accent); }
+.shut:hover svg { stroke: var(--accent); }
+
+.sheethead h3 { margin: 0 2rem 0 0; font-size: 1rem; font-weight: 600; font-family: inherit; line-height: 1.35; color: var(--ink); text-transform: none; letter-spacing: 0; }
+.sheethead .about { margin: 0.25rem 0 0; color: var(--faint); font: 0.78rem var(--mono); }
+
+.figures {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(5rem, 1fr));
+  gap: 0.4rem;
+  margin: 1rem 0 0;
+}
+.figure {
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: 0.7rem;
+  background: var(--sunk);
+}
+.figure b { display: block; font: 600 0.95rem var(--mono); }
+.figure span { color: var(--faint); font-size: 0.7rem; }
+.figure.huh b { color: #f0c060; }
+.figure.no b { color: var(--accent); }
+
+/* Разброс нажатий. Одно число говорит, насколько широко, и молчит о том, в
+   какую сторону; столбики отвечают на второй вопрос. */
+.spread { margin: 1rem 0 0; }
+.spread .bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 4rem;
+  padding: 0 0.1rem;
+  border-bottom: 1px solid var(--line);
+}
+.spread .bar { flex: 1; min-height: 1px; border-radius: 1px 1px 0 0; background: var(--accent); opacity: 0.75; }
+.spread .bar.mid { background: var(--good); opacity: 1; }
+.spread .scale { display: flex; justify-content: space-between; margin-top: 0.3rem; color: var(--faint); font: 0.68rem var(--mono); }
+
+#r-sheet-body .where {
+  margin: 1rem 0 0;
+  overflow-wrap: anywhere;
+  color: var(--faint);
+  font: 0.7rem/1.5 var(--mono);
+}
 
 /* ── что вышло ────────────────────────────────────────────────────────── */
 

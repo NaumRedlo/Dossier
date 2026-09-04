@@ -9,7 +9,10 @@
   <!-- Фон. Три пятна акцентного цвета, которые очень медленно расходятся;
        «Настройки → Окно» останавливает их, не убирая. -->
   <div class="sky" aria-hidden="true">
+    <span class="aurora"></span>
     <span class="blob b1"></span><span class="blob b2"></span><span class="blob b3"></span>
+    <span class="blob b4"></span><span class="blob b5"></span>
+    <span class="grain"></span>
   </div>
 
   <!-- Заставка: при запуске и после долгого молчания. Уходит от любого
@@ -103,7 +106,7 @@
   <!-- Правый верх: кто мы в сети, и жук. -->
   <div class="corner top">
     <!-- Тот же процесс, что идёт в самой вкладке, свёрнутый сюда: появляется,
-         только когда рендер или монтаж идёт, а вкладка, где он начался, не
+         только когда рендер или сборка идёт, а вкладка, где он начался, не
          открыта. -->
     <div class="hoverbox" id="jobbox" hidden>
       <button class="minijob" id="job-mini">
@@ -184,7 +187,9 @@
 
       <div id="r-doneslot"></div>
 
-      <div class="card list" id="r-list"></div>
+      <!-- Полка вместо списка: у каждой записи своя карточка, в ней видно, как
+           эта игра выглядела, и правой кнопкой — что с ней можно сделать. -->
+      <div class="shelf" id="r-list"></div>
       <p class="verdict" id="r-done"></p>
     </section>
 
@@ -213,8 +218,8 @@
               <rect class="clip b" x="12.2" y="9.3" width="6.9" height="5.4" rx="1.1" fill="currentColor" stroke="none" opacity="0.4"/>
               <path class="head" d="M6.4 5.4v13.2"/>
             </svg>
-            <b>Монтаж</b>
-            <p>Опробуй себя в роли монтажёра для своих самых чудесных кадров.</p>
+            <b>Студия</b>
+            <p>Соберите из своих заходов то, что стоит показать: куски, порядок, один файл.</p>
           </button>
         </div>
         <p class="fine" id="rp-gate"></p>
@@ -285,12 +290,29 @@
     </section>
 
     <section id="view-library" hidden>
-      <div class="card" id="lib-rows"></div>
+      <!-- Каждая часть своей карточкой: одна общая панель складывала ядро,
+           чужие зависимости и то, чего ещё нет, в один столбец, где границы
+           между ними были тоньше, чем разница. -->
+      <div id="lib-rows"></div>
       <p class="fine">Встроенное живёт внутри приложения и обновляется вместе с ним. Внешнее можно поставить с указанием, где взять.</p>
     </section>
 
     <section id="view-settings" hidden>
-      <h3>Подключение</h3>
+      <!-- Одной колонкой это была стена в тридцать строк, где «Потоки»
+           стояли между хитсаундами и заставкой. Слева — о чём вообще
+           речь, справа — только то, о чём речь сейчас. -->
+      <div class="settings">
+      <nav class="rail" id="s-rail" aria-label="Разделы настроек">
+        <button data-page="link" aria-current="page"><b>Подключение</b><span>Кому эта машина отвечает и как её зовут</span></button>
+        <button data-page="paths"><b>Папки</b><span>Где лежат карты, скины и реплеи</span></button>
+        <button data-page="video"><b>Видео</b><span>Во что рисуется файл и чего это стоит</span></button>
+        <button data-page="audio"><b>Звук</b><span>Песня, хитсаунды и то, чем звучит недостающее</span></button>
+        <button data-page="field"><b>Игра</b><span>Что происходит на поле, пока идёт заход</span></button>
+        <button data-page="window"><b>Окно</b><span>Как ведёт себя само приложение</span></button>
+        <button data-page="build"><b>Сборка</b><span>Версия, готовность машины и кто ещё в сети</span></button>
+      </nav>
+      <div class="pages">
+      <div class="page" data-page="link">
       <div class="card pad">
         <div class="grid2">
           <label>Адрес бота<input id="s-server" type="text" autocomplete="off"></label>
@@ -303,7 +325,29 @@
         </div>
       </div>
 
-      <h3>Папки</h3>
+      <div class="two">
+        <div>
+          <h3>Готовность</h3>
+          <div class="card tight" id="ready-rows"></div>
+          <div class="bar">
+            <span class="verdict" id="ready-verdict"></span>
+            <span class="grow"></span>
+            <button class="act small" id="again">Заново</button>
+          </div>
+        </div>
+        <div>
+          <h3>Текущее устройство</h3>
+          <div class="headline small" id="machine-headline"></div>
+          <div class="card tight" id="machine-rows"></div>
+          <div class="bar">
+            <span class="grow"></span>
+            <button class="act small" id="measure">Измерить заново</button>
+          </div>
+        </div>
+      </div>
+
+      </div>
+      <div class="page" data-page="paths" hidden>
       <div class="card">
         <div class="pathrow">
           <span class="pathname">Карты</span>
@@ -327,8 +371,8 @@
         </div>
       </div>
       <div class="card" id="s-shelves"></div>
-
-      <h3>Рендер</h3>
+      </div>
+      <div class="page" data-page="video" hidden>
       <div class="card">
         <div class="pref">
           <div><b>Качество видео</b><p>Во что рисуется видео. Больше разрешение и выше частота кадров — дольше.</p></div>
@@ -383,6 +427,28 @@
             </select></label>
           </div>
         </div>
+      </div>
+      <h3>Потоки</h3>
+      <div class="card">
+        <div class="pref">
+          <div><b>Потоки</b><p>Сколько ядер отдавать рисованию и кодированию. «Сколько нужно» — решает движок.</p></div>
+          <div class="pair">
+            <label class="pick tiny"><select id="s-threads">
+              <option value="0" selected>сколько нужно</option>
+              <option value="2">2</option><option value="4">4</option>
+              <option value="6">6</option><option value="8">8</option><option value="12">12</option>
+            </select></label>
+            <label class="pick tiny"><select id="s-enc">
+              <option value="0" selected>кодировщику сколько нужно</option>
+              <option value="2">кодировщику 2</option><option value="4">кодировщику 4</option>
+              <option value="8">кодировщику 8</option>
+            </select></label>
+          </div>
+        </div>
+      </div>
+      </div>
+      <div class="page" data-page="audio" hidden>
+      <div class="card">
         <div class="pref">
           <div><b>Громкость</b><p>Песня и хитсаунды друг против друга.</p></div>
           <div class="pair">
@@ -442,6 +508,10 @@
             </select></label>
           </div>
         </div>
+      </div>
+      </div>
+      <div class="page" data-page="field" hidden>
+      <div class="card">
         <div class="pref">
           <div><b>Курсор и интерфейс</b><p>Настройка определённых элементов во время игрового процесса.</p></div>
           <span class="ticks">
@@ -457,24 +527,9 @@
             <label class="tick"><input type="checkbox" id="s-snake">Выползание слайдеров</label>
           </span>
         </div>
-        <div class="pref">
-          <div><b>Потоки</b><p>Сколько ядер отдавать рисованию и кодированию. «Сколько нужно» — решает движок.</p></div>
-          <div class="pair">
-            <label class="pick tiny"><select id="s-threads">
-              <option value="0" selected>сколько нужно</option>
-              <option value="2">2</option><option value="4">4</option>
-              <option value="6">6</option><option value="8">8</option><option value="12">12</option>
-            </select></label>
-            <label class="pick tiny"><select id="s-enc">
-              <option value="0" selected>кодировщику сколько нужно</option>
-              <option value="2">кодировщику 2</option><option value="4">кодировщику 4</option>
-              <option value="8">кодировщику 8</option>
-            </select></label>
-          </div>
-        </div>
       </div>
-
-      <h3>Окно</h3>
+      </div>
+      <div class="page" data-page="window" hidden>
       <div class="card">
         <div class="pref">
           <div>
@@ -535,28 +590,8 @@
         </div>
       </div>
 
-      <div class="two">
-        <div>
-          <h3>Готовность</h3>
-          <div class="card tight" id="ready-rows"></div>
-          <div class="bar">
-            <span class="verdict" id="ready-verdict"></span>
-            <span class="grow"></span>
-            <button class="act small" id="again">Заново</button>
-          </div>
-        </div>
-        <div>
-          <h3>Текущее устройство</h3>
-          <div class="headline small" id="machine-headline"></div>
-          <div class="card tight" id="machine-rows"></div>
-          <div class="bar">
-            <span class="grow"></span>
-            <button class="act small" id="measure">Измерить заново</button>
-          </div>
-        </div>
       </div>
-
-      <h3>Обновления</h3>
+      <div class="page" data-page="build" hidden>
       <div class="card">
         <div class="pref">
           <div>
@@ -590,8 +625,26 @@
         <div id="f-rows"></div>
       </div>
       <p class="verdict" id="f-said"></p>
+      </div>
+      </div>
+      </div>
     </section>
+
   </main>
+
+  <!-- Меню правой кнопки и разворот записи живут прямо в теле: карточка лежит
+       в полке с обрезкой, и всё, что должно выходить за её край, обязано быть
+       снаружи — та же причина, по которой снаружи живут выпадающие списки. -->
+  <div class="menu" id="r-menu" hidden></div>
+
+  <div class="sheet" id="r-sheet" hidden>
+    <div class="sheetbox" role="dialog" aria-modal="true" aria-labelledby="r-sheet-head">
+      <button class="shut" id="r-sheet-shut" aria-label="Закрыть">
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M7 7 17 17M17 7 7 17"/></svg>
+      </button>
+      <div id="r-sheet-body"></div>
+    </div>
+  </div>
 
   <!-- Правый низ: откуда всё это взялось. -->
   <span class="me" id="who"></span>

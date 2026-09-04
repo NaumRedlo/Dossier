@@ -49,6 +49,12 @@ pub struct Piece {
     /// Where the ball was, sampled from `start_ms` every `step_ms`.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub ball: Vec<f32>,
+    /// When each tick of this slider is due, and where it sits — `ms, x, y`
+    /// repeating. The window cannot work these out: the offsets live inside the
+    /// slider's own timing, and a second implementation of that rule would be
+    /// a second answer to it.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub ticks: Vec<f32>,
 }
 
 #[allow(clippy::trivially_copy_pass_by_ref)]
@@ -178,9 +184,9 @@ pub fn open(replay: &Path, songs: Option<&Path>) -> Result<Scene, String> {
                 number = 0;
             }
             number += 1;
-            let (kind, slides, path, ball) = match &object.kind {
-                TimedKind::Circle => ("circle", 1, Vec::new(), Vec::new()),
-                TimedKind::Spinner => ("spinner", 1, Vec::new(), Vec::new()),
+            let (kind, slides, path, ball, ticks) = match &object.kind {
+                TimedKind::Circle => ("circle", 1, Vec::new(), Vec::new(), Vec::new()),
+                TimedKind::Spinner => ("spinner", 1, Vec::new(), Vec::new(), Vec::new()),
                 TimedKind::Slider { path, slides, .. } => {
                     let line = path
                         .points()
@@ -201,7 +207,17 @@ pub fn open(replay: &Path, songs: Option<&Path>) -> Result<Scene, String> {
                         }
                         at += STEP_MS;
                     }
-                    ("slider", *slides, line, balls)
+                    // Where the ball is at each tick, asked of the path the
+                    // same way the ball itself is.
+                    let mut ticks = Vec::new();
+                    for at in object.tick_times() {
+                        if let Some(point) = object.ball_at(at) {
+                            ticks.push(at as f32);
+                            ticks.push(point.x as f32);
+                            ticks.push(point.y as f32);
+                        }
+                    }
+                    ("slider", *slides, line, balls, ticks)
                 }
             };
             Piece {
@@ -215,6 +231,7 @@ pub fn open(replay: &Path, songs: Option<&Path>) -> Result<Scene, String> {
                 slides,
                 path,
                 ball,
+                ticks,
             }
         })
         .collect();
@@ -275,6 +292,7 @@ mod tests {
                 slides: 1,
                 path: Vec::new(),
                 ball: Vec::new(),
+                ticks: Vec::new(),
             })
             .collect()
     }

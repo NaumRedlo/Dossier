@@ -1514,6 +1514,12 @@ function showFinished(slot, { path, notes, bad, head }) {
   }
   card.append(said);
 
+  const shut = el("button", "shut small", "");
+  shut.setAttribute("aria-label", "Скрыть");
+  shut.innerHTML = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M7 7 17 17M17 7 7 17"/></svg>';
+  shut.addEventListener("click", () => slot.replaceChildren());
+  card.append(shut);
+
   if (path && !bad) {
     const routes = el("div", "routes");
     const open = el("button", "act small primary", "Открыть");
@@ -1775,6 +1781,7 @@ function fillPlays({ shelves, skins, plays, rows }) {
     // и держать его только за правой значило бы прятать.
     card.addEventListener("click", () => openSheet(play, card));
 
+    card.dataset.path = play.path;
     card.previewOf = play;
     card.previewOn = canvas;
     // Без карты судить нечего и показывать нечего — карточка живёт именем и
@@ -1882,7 +1889,6 @@ function watchCard(card) {
           if (row.isIntersecting) {
             showing.add(one);
             askPreview(one);
-            stillCard(one);
           } else {
             showing.delete(one);
           }
@@ -1910,11 +1916,32 @@ function watchCard(card) {
   previewSeen.observe(card);
 }
 
+/// Попросить разбор — или, если он уже есть, немедленно им воспользоваться.
+///
+/// Второе здесь и было пропущено. Полку перестраивают — по «Обновить», по
+/// возврату на вкладку — и карточки приходят новыми узлами, а разборы лежат в
+/// памяти с прошлого раза. Старый код видел, что разбор есть, и молча выходил:
+/// картинка рисовалась, а карта так и оставалась «…», и отблеск «читаю» шёл
+/// вечно, потому что классы `read`/`plain` ставились только на пути ответа.
 function askPreview(card) {
   const path = card.previewOf.path;
-  if (previews.has(path) || asking.has(path)) return;
+  if (previews.has(path)) {
+    applyPreview(card, previews.get(path));
+    return;
+  }
+  if (asking.has(path)) return;
   if (!waitingFor.includes(card)) waitingFor.push(card);
   pumpPreviews();
+}
+
+/// Одно место, где разбор ложится на карточку, откуда бы он ни пришёл.
+function applyPreview(card, made) {
+  if (!made) {
+    card.classList.add("plain");
+    return;
+  }
+  dressCard(card, made.judged);
+  stillCard(card);
 }
 
 function pumpPreviews() {
@@ -1927,15 +1954,15 @@ function pumpPreviews() {
     asking.add(path);
     invoke("preview", { replay: path })
       .then((scene) => {
-        keepPreview(path, { scene, judged: scene.summary, head: scene.from_ms });
-        dressCard(card, scene.summary);
-        stillCard(card);
+        const made = { scene, judged: scene.summary, head: scene.from_ms };
+        keepPreview(path, made);
+        applyPreview(card, made);
       })
       .catch(() => {
         // Карта не нашлась, реплей не разобрался — карточка остаётся с одним
         // именем, и это честнее пустого прямоугольника с крестом.
         keepPreview(path, null);
-        card.classList.add("plain");
+        applyPreview(card, null);
       })
       .finally(() => {
         asking.delete(path);
@@ -1964,6 +1991,10 @@ function keepPreview(path, made) {
     const oldest = previews.keys().next().value;
     if (oldest === path) break;
     previews.delete(oldest);
+    // Карточка, у которой разбор забрали, снова ничего не знает — иначе она
+    // осталась бы «прочитанной» с пустым кадром.
+    const card = byId("r-list").querySelector(`.rep[data-path="${CSS.escape(oldest)}"]`);
+    if (card) card.classList.remove("read");
   }
 }
 
@@ -2104,6 +2135,23 @@ function shutMenu() {
 for (const kind of ["pointerdown", "wheel", "blur"]) {
   window.addEventListener(kind, shutMenu, { passive: true, capture: true });
 }
+
+/// Правая кнопка нигде больше не открывает меню webview'а.
+///
+/// «Назад», «Обновить страницу», «Проверить элемент» — это меню документа, а
+/// перед человеком не документ, а окно приложения. Своё меню там, где ему есть
+/// что предложить, останавливает это событие раньше; здесь остаётся всё
+/// остальное — кроме полей ввода, где системное меню — это «вырезать,
+/// копировать, вставить», и отнимать его значит ломать ввод текста.
+document.addEventListener("contextmenu", (event) => {
+  const where = event.target;
+  if (where && where.closest && where.closest("input, textarea, [contenteditable]")) return;
+  event.preventDefault();
+});
+
+/// И перетаскивание картинок и ссылок мышью: это тоже поведение страницы, а не
+/// окна — иконка, уезжающая за курсором, выглядит поломкой.
+document.addEventListener("dragstart", (event) => event.preventDefault());
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape") shutMenu();
 });
@@ -2132,6 +2180,17 @@ function openSheet(play, card) {
   chips.append(el("span", "chip", `${round(play.score)} очков`));
   head.append(chips);
   body.replaceChildren(head);
+
+  // Тот же кусок игры, что на карточке, только крупнее и идёт сам: развёрнутая
+  // запись — это то место, где на неё смотрят, а не проходят мимо.
+  if (made) {
+    const stage = el("div", "sheetstage");
+    sheetView = document.createElement("canvas");
+    stage.append(sheetView);
+    body.append(stage);
+    sheetPlay = { scene: made.scene, judged: made.judged, head: made.scene.from_ms };
+    runSheetPreview();
+  }
 
   if (!said) {
     body.append(
@@ -2245,11 +2304,17 @@ function errorBars(said) {
   const errors = said.marks.map((mark) => mark.error_ms).filter((one) => one !== null && one !== undefined);
   if (errors.length < 4) return null;
   const box = el("div", "spread");
-  const reach = Math.max(20, ...errors.map(Math.abs));
-  const bins = 41;
+  // Округляем размах до целых десятков — «±47 мс» это точность, которой у
+  // этого числа нет, а ось, прыгающая от захода к заходу, не даёт сравнивать
+  // два графика глазом.
+  const widest = Math.max(...errors.map(Math.abs));
+  const reach = Math.max(20, Math.ceil(widest / 10) * 10);
+  // Нечётное число корзин, чтобы «вовремя» попадало в середину одной, а не на
+  // границу двух.
+  const bins = 33;
   const counts = new Array(bins).fill(0);
   for (const one of errors) {
-    const at = Math.min(bins - 1, Math.floor(((one + reach) / (reach * 2)) * bins));
+    const at = Math.min(bins - 1, Math.max(0, Math.floor(((one + reach) / (reach * 2)) * bins)));
     counts[at] += 1;
   }
   const tallest = Math.max(...counts);
@@ -2257,10 +2322,12 @@ function errorBars(said) {
   const middle = Math.floor(bins / 2);
   counts.forEach((n, i) => {
     const bar = el("div", "bar");
-    bar.style.height = `${(n / tallest) * 100}%`;
-    // Ранние слева, поздние справа, и середина своим цветом: без неё столбики
-    // симметричны на вид даже когда смещены.
+    // Пустая корзина рисуется пустой. Раньше у неё была минимальная высота, и
+    // ряд пунктирных чёрточек по низу читался как данные, которых нет.
+    if (n) bar.style.height = `${Math.max(3, (n / tallest) * 100)}%`;
     if (i === middle) bar.classList.add("mid");
+    else if (i < middle) bar.classList.add("early");
+    else bar.classList.add("late");
     bars.append(bar);
   });
   box.append(bars);
@@ -2277,8 +2344,72 @@ function errorBars(said) {
   return box;
 }
 
+/// Предпросмотр в развороте. Своя голова, а не та, что у карточки: они идут
+/// врозь, и общая означала бы, что развёрнутая запись перематывает ту, что
+/// осталась под курсором.
+let sheetPlay = null;
+let sheetView = null;
+let sheetRun = null;
+
+function runSheetPreview() {
+  if (sheetRun) cancelAnimationFrame(sheetRun);
+  if (!sheetPlay || !sheetView) return;
+  if (!motionOn()) {
+    paintSheet(0);
+    return;
+  }
+  let was = performance.now();
+  const frame = (now) => {
+    if (!sheetPlay || sheet.hidden) {
+      sheetRun = null;
+      return;
+    }
+    const step = Math.min(120, now - was);
+    was = now;
+    paintSheet(step);
+    sheetRun = requestAnimationFrame(frame);
+  };
+  sheetRun = requestAnimationFrame(frame);
+}
+
+function paintSheet(step) {
+  const wide = sheetView.clientWidth;
+  const high = sheetView.clientHeight;
+  if (!wide || !high) return;
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  if (sheetView.width !== Math.round(wide * dpr)) {
+    sheetView.width = Math.round(wide * dpr);
+    sheetView.height = Math.round(high * dpr);
+  }
+  const c = sheetView.getContext("2d");
+  c.setTransform(dpr, 0, 0, dpr, 0, 0);
+  c.clearRect(0, 0, wide, high);
+  const play = sheetPlay.scene;
+  sheetPlay.head += step;
+  if (sheetPlay.head > play.to_ms) sheetPlay.head = play.from_ms;
+  drawPlay(
+    c,
+    { scene: play, judged: sheetPlay.judged, head: sheetPlay.head, skinned: true, popups: true, frame: false },
+    wide,
+    high,
+  );
+  const into = clamp01((sheetPlay.head - play.from_ms) / PREVIEW_EDGE_MS);
+  const away = clamp01((play.to_ms - sheetPlay.head) / PREVIEW_EDGE_MS);
+  const shown = Math.min(into, away);
+  if (shown >= 1) return;
+  c.save();
+  c.globalCompositeOperation = "destination-out";
+  c.globalAlpha = 1 - shown;
+  c.fillRect(0, 0, wide, high);
+  c.restore();
+}
+
 function shutSheet() {
   sheet.hidden = true;
+  if (sheetRun) cancelAnimationFrame(sheetRun);
+  sheetRun = null;
+  sheetPlay = null;
+  sheetView = null;
 }
 
 byId("r-sheet-shut").addEventListener("click", shutSheet);
@@ -2635,6 +2766,16 @@ const BALL_CORE = 0.34;
 const ARROW_SCALE = 0.52;
 const ARROW_LOOP_MS = 300;
 const ARROW_LOOP_FROM = 1.3;
+/// Как приходит точка тика: пятьдесят миллисекунд на проявление и вчетверо
+/// дольше на то, чтобы сжаться до своего размера. Игра здесь пружинит; у точки
+/// в шесть пикселей пружина — это дрожь, а не жест, поэтому движение то же, но
+/// без отскока.
+const TICK_FADE_MS = 150;
+/// Насколько раньше тика он загорается: две трети подхода на первом проходе и
+/// ровные двести миллисекунд на возвратных — на возврате игрок уже видел, где
+/// точки, и предупреждать его столько же незачем.
+const TICK_FIRST_LEAD = 0.66;
+const TICK_REPEAT_LEAD_MS = 200;
 const LIGHT_IN_MS = 200;
 const LIGHT_HOLD_MS = 400;
 const LIGHT_OUT_MS = 1000;
@@ -3030,6 +3171,35 @@ function drawSlide(c, entry, box, px, py, show, colour, alpha) {
   const slides = piece.slides || 1;
   const span = Math.max(1, piece.end_ms - piece.start_ms);
   const slide = span / slides;
+
+  // Точки на теле — те, что ещё не пройдены. Каждая загорается по своему
+  // расписанию, а не весь ряд разом, поэтому они зажигаются перед шаром по
+  // мере его движения.
+  const ticks = piece.ticks || [];
+  for (let i = 0; i + 2 < ticks.length; i += 3) {
+    const at = ticks[i];
+    if (at <= now) continue;
+    const step = slide > 0 ? Math.floor((at - piece.start_ms) / slide) : 0;
+    const lead = step > 0 ? TICK_REPEAT_LEAD_MS : play.preempt_ms * TICK_FIRST_LEAD;
+    const live = at - ((at - (piece.start_ms + step * slide)) / 2 + lead);
+    const arriving = clamp01((now - live) / TICK_FADE_MS);
+    if (arriving <= 0) continue;
+    const grown = 0.5 + 0.5 * easeOut(clamp01((now - live) / (TICK_FADE_MS * 4)));
+    const x = px(ticks[i + 1]);
+    const y = py(ticks[i + 2]);
+    c.globalAlpha = alpha * arriving;
+    const dot = show.skinned && pics ? pics.score_point : null;
+    if (dot) {
+      const side = box.r * 2 * grown * 0.4;
+      c.drawImage(dot.image, x - side / 2, y - side / 2, side, side);
+    } else {
+      c.fillStyle = "rgba(255,255,255,0.85)";
+      c.beginPath();
+      c.arc(x, y, Math.max(1.5, box.r * 0.13 * grown), 0, Math.PI * 2);
+      c.fill();
+    }
+  }
+  c.globalAlpha = alpha;
 
   if (slides > 1 && now < piece.end_ms) {
     const at = Math.floor(Math.max(0, now - piece.start_ms) / slide);

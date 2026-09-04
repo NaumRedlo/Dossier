@@ -1601,6 +1601,18 @@ body.still .rep .stage::after, body.away .rep .stage::after { animation: none; }
 }
 .chip.who { border-color: var(--accent-soft); color: var(--ink); font-weight: 600; }
 
+/* Кусок игры в развороте: тот же, что на карточке, крупнее и идущий сам. */
+.sheetstage {
+  position: relative;
+  height: 11rem;
+  margin-top: 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: 0.9rem;
+  background: rgba(0, 0, 0, 0.34);
+  overflow: hidden;
+}
+.sheetstage canvas { display: block; width: 100%; height: 100%; }
+
 h4.sheeth {
   margin: 1.35rem 0 0.55rem;
   color: var(--faint);
@@ -1677,15 +1689,34 @@ h4.sheeth {
   background: var(--sunk);
 }
 .spread .bars {
+  position: relative;
   display: flex;
   align-items: flex-end;
-  gap: 1px;
-  height: 4.2rem;
+  gap: 2px;
+  height: 4.6rem;
   padding: 0 0.1rem;
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--line-high);
 }
-.spread .bar { flex: 1; min-height: 1px; border-radius: 1px 1px 0 0; background: var(--accent); opacity: 0.7; }
-.spread .bar.mid { background: var(--good); opacity: 1; }
+/* Отвес по середине, за столбиками: он отвечает на вопрос «в какую сторону»
+   даже там, где корзина посередине пуста. */
+.spread .bars::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  background: var(--line-high);
+}
+.spread .bar {
+  flex: 1;
+  border-radius: 2px 2px 0 0;
+  background: var(--accent);
+  opacity: 0.55;
+}
+.spread .bar.early { background: #7aa7d8; }
+.spread .bar.late { background: #d8887a; }
+.spread .bar.mid { background: var(--good); opacity: 0.95; }
 .spread .scale { display: flex; justify-content: space-between; margin-top: 0.35rem; color: var(--faint); font-size: 0.7rem; }
 .spread .scale .mono { font-family: var(--mono); }
 
@@ -1767,6 +1798,25 @@ h4.sheeth {
 #jobbox #jobpane { display: none; }
 #jobbox:hover #jobpane, #jobbox:focus-within #jobpane { display: block; }
 .finished .routes { flex: none; display: flex; gap: 0.4rem; }
+/* Панель сделала своё дело и может уйти по нажатию: она стоит над списком, и
+   через два рендера подряд её незачем читать третий раз. */
+.finished .shut {
+  position: static;
+  flex: none;
+  width: 1.6rem;
+  height: 1.6rem;
+  border-radius: 0.8rem;
+}
+.finished .shut svg { width: 0.85rem; height: 0.85rem; }
+
+/* Окно, а не страница: выделение мышью здесь ничего не значит и только
+   оставляет синие пятна на подписях. Тексту, который переносят наружу — путям,
+   журналу, полям ввода, — оно возвращается поимённо. */
+body { -webkit-user-select: none; user-select: none; }
+input, textarea, .log, .where, .path, .mod .said, pre, code {
+  -webkit-user-select: text;
+  user-select: text;
+}
 
 /* Отступы держит место, а не карточка: `#r-doneslot` — элемент флекс-колонки,
    и собственные поля карточки внутри него схлопывались до половины. Пока слот

@@ -1129,6 +1129,12 @@ body.dock-left main { margin: 4.6rem auto 0; padding-top: 1.5rem; }
   min-height: 8rem;
   max-height: none;
 }
+/* Кроме случая, когда в нём одна строка: тянуть нечего, и растянутая на
+   четверть экрана карточка с полутора словами читается как поломка. */
+#view-render .list.waiting {
+  flex: 0 0 auto;
+  min-height: 0;
+}
 
 /* Экран выбора режима стоит там же, где начинается содержимое, а не под
    самой панелью. */
@@ -1223,7 +1229,7 @@ body.dock-left main { margin: 4.6rem auto 0; padding-top: 1.5rem; }
   display: flex;
   align-items: center;
   gap: 0.75rem;
-  margin: 0.7rem 0 0;
+  margin: 0;
   padding: 0.7rem 0.85rem;
   border: 1px solid var(--good);
   border-radius: 0.9rem;
@@ -1263,7 +1269,33 @@ body.dock-left main { margin: 4.6rem auto 0; padding-top: 1.5rem; }
   white-space: nowrap;
 }
 .finished .said .facts { margin: 0.2rem 0 0; color: var(--faint); font-size: 0.72rem; }
+
+/* Слово в предложении, которое можно нажать. Не кнопка рядом с текстом: место
+   в строке и есть то, что объясняет, куда оно ведёт. */
+.asknote {
+  padding: 0;
+  border: 0;
+  border-bottom: 1px dashed currentColor;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+}
+.asknote:hover { color: var(--ink); }
+
+/* Подробности процесса — под курсором. Узкая, потому что здесь одна строка о
+   кадрах, а не разговор. */
+.jobpane { width: 17rem; }
+.jobpane h4 { margin: 0 0 0.35rem; }
+.jobpane .jobline { margin: 0; color: var(--muted); font: 0.74rem/1.45 var(--mono); }
+#jobbox #jobpane { display: none; }
+#jobbox:hover #jobpane, #jobbox:focus-within #jobpane { display: block; }
 .finished .routes { flex: none; display: flex; gap: 0.4rem; }
+
+/* Отступы держит место, а не карточка: `#r-doneslot` — элемент флекс-колонки,
+   и собственные поля карточки внутри него схлопывались до половины. Пока слот
+   пуст, он не занимает ничего. */
+#r-doneslot:not(:empty), #rp-doneslot:not(:empty) { margin: 0.75rem 0 1.15rem; }
 
 /* ── иконки выбора: судейство и монтаж ────────────────────────────────── */
 

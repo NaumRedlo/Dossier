@@ -16,6 +16,7 @@ mod check;
 mod draw;
 mod library;
 mod link;
+mod logbook;
 mod look;
 mod machine;
 mod pick;
@@ -88,10 +89,21 @@ fn draw(
     };
     let done = draw::draw(&asked, &told);
     dossier_produce::events::unlisten();
-    done.map(|path| Drawn {
+    done.map(|path| finished("рендер", &path, &told))
+}
+
+/// What the window is handed back, and what the log keeps.
+///
+/// The counts, the frame size and the length go to the file: they are read
+/// once ever, when something looks wrong, and until then they sit between
+/// somebody and the next thing they came to do. The window says where.
+fn finished(what: &str, path: &std::path::Path, told: &draw::Told) -> Drawn {
+    let said = told.said();
+    logbook::note(&format!("{what}: {}", path.display()), &said);
+    Drawn {
         path: path.display().to_string(),
-        said: told.said(),
-    })
+        said,
+    }
 }
 
 /// Where the file went, and everything the pipeline said on the way.
@@ -287,10 +299,7 @@ fn build_reel(
     };
     let done = reel::build(&asked, &spans, &told, &step);
     dossier_produce::events::unlisten();
-    done.map(|path| Drawn {
-        path: path.display().to_string(),
-        said: told.said(),
-    })
+    done.map(|path| finished("монтаж", &path, &told))
 }
 
 /// Is there a newer Dossier, and what would updating mean on this machine.
@@ -383,6 +392,21 @@ fn play_file(path: String) -> Result<(), String> {
     link::play(std::path::Path::new(&path))
 }
 
+/// Open this session's log in whatever shows text on this machine.
+///
+/// Takes no path: the file is ours and built here, which is the only reason it
+/// may be opened at all.
+#[tauri::command(async)]
+fn log_open() -> Result<(), String> {
+    logbook::open()
+}
+
+/// Where that file is, for the window to say so without opening it.
+#[tauri::command(async)]
+fn log_where() -> String {
+    logbook::path().display().to_string()
+}
+
 /// The three lines worth putting at the bottom of a bug report, so that nobody
 /// has to be asked for them. What this is, and what it is running on — no
 /// paths, no token, no name.
@@ -437,6 +461,8 @@ fn main() {
             send_report,
             reveal_file,
             play_file,
+            log_open,
+            log_where,
             handshake
         ])
         .run(tauri::generate_context!())

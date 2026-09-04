@@ -1378,6 +1378,7 @@ let job = null;
 /// переход на другую вкладку посреди затухания обрывает его рывком.
 let jobFading = false;
 
+const jobBox = byId("jobbox");
 const jobMini = byId("job-mini");
 /// Длина окружности кольца в плашке: r = 9 в её системе координат. Считана
 /// здесь, а не подобрана в стилях, чтобы радиус и штрих не разъезжались.
@@ -1392,8 +1393,12 @@ function startJob(home, label) {
   jobFading = false;
   clearTimeout(jobHold);
   jobMini.classList.remove("leaving", "done", "failed");
-  byId("job-label").textContent = label;
-  paintJob(0, "");
+  // Короткое имя на плашке, полное — под курсором: в угол помещается «Рендер»,
+  // а чей это реплей, спрашивают отдельным движением.
+  byId("job-label").textContent = label.split(" · ")[0];
+  byId("job-full").textContent = label;
+  byId("job-hint").textContent = "Нажмите, чтобы вернуться к этой работе.";
+  paintJob(0, "Начинаю…");
   syncJobMini();
 }
 
@@ -1401,6 +1406,7 @@ function paintJob(percent, note) {
   const share = Math.min(100, Math.max(0, percent));
   byId("job-percent").textContent = round(share);
   byId("job-dial").style.strokeDashoffset = String(DIAL_ROUND * (1 - share / 100));
+  if (note) byId("job-note").textContent = note;
 }
 
 /// Показать или спрятать по тому, где сейчас открыто. На своей вкладке процесс
@@ -1409,7 +1415,7 @@ function paintJob(percent, note) {
 /// рендер кончился, нужна ровно тому, кто в этот момент смотрит не туда.
 function syncJobMini() {
   if (jobFading) return;
-  jobMini.hidden = !(job && (job.done || open_tab !== job.home));
+  jobBox.hidden = !(job && (job.done || open_tab !== job.home));
 }
 
 /// Нажатие — туда, где эта работа живёт. Плашка сообщает, что что-то идёт;
@@ -1423,11 +1429,11 @@ jobMini.addEventListener("click", () => {
 function dismissJob() {
   clearTimeout(jobHold);
   job = null;
-  if (jobMini.hidden) return;
+  if (jobBox.hidden) return;
   jobFading = true;
   jobMini.classList.add("leaving");
   setTimeout(() => {
-    jobMini.hidden = true;
+    jobBox.hidden = true;
     jobMini.classList.remove("leaving", "done", "failed");
     jobFading = false;
   }, 280);
@@ -1445,7 +1451,10 @@ function endJob(ok) {
   jobMini.classList.remove("leaving");
   jobMini.classList.add(ok ? "done" : "failed");
   byId("job-label").textContent = ok ? "Готово" : "Не вышло";
-  jobMini.hidden = false;
+  byId("job-hint").textContent = ok
+    ? "Нажмите, чтобы открыть вкладку с готовым файлом."
+    : "Нажмите, чтобы посмотреть, на чём оно встало.";
+  jobBox.hidden = false;
   jobHold = setTimeout(dismissJob, DONE_HOLD_MS);
 }
 
@@ -1466,7 +1475,25 @@ function showFinished(slot, { path, notes, bad, head }) {
   const said = el("div", "said");
   said.append(el("b", null, head));
   if (path) said.append(el("p", "where", path));
-  if (notes && notes.length) said.append(el("p", "facts", notes.join(" · ")));
+  if (bad) {
+    // Причина — не техническая мелочь: это единственное, ради чего сюда
+    // смотрят, и в файл её убирать нельзя.
+    if (notes && notes.length) said.append(el("p", "facts", notes.join(" · ")));
+  } else {
+    // Счётчики хитсаундов, размер кадра и длина файла читаются один раз в
+    // жизни, когда что-то выглядит не так. До тех пор они стоят между
+    // человеком и следующей кнопкой — поэтому они в файле, а окно говорит где.
+    const facts = el("p", "facts");
+    facts.append("Техническая информация — ");
+    const where = el("button", "asknote", "в логах");
+    where.addEventListener("click", () => {
+      invoke("log_open").catch((why) => {
+        facts.replaceChildren(`Лог не открылся: ${why}`);
+      });
+    });
+    facts.append(where);
+    said.append(facts);
+  }
   card.append(said);
 
   if (path && !bad) {
@@ -1621,6 +1648,10 @@ async function showRender(again = false) {
   // Сначала показать, что читаем, и только потом читать: вкладка, которая
   // молчит и не отвечает, выглядит как повисшая, а не как занятая.
   byId("r-count").textContent = "Читаю папку реплеев…";
+  // Пока в списке одна строка, он и занимает одну строку: `flex: 1` растягивает
+  // карточку на всю вкладку, и ожидание выглядело панелью в четверть экрана,
+  // в которой написано полтора слова.
+  list.classList.add("waiting");
   list.replaceChildren(line({ mark: ["huh", "·"], name: "минуту", said: "разбираю реплеи и ищу их карты" }));
 
   const [settings, shelves, skins, plays, rows] = await Promise.all([
@@ -1680,9 +1711,11 @@ function fillPlays({ shelves, skins, plays, rows }) {
     ? `${plays.length} ${plural(plays.length, "реплей", "реплея", "реплеев")}, новейшие находятся наверху`
     : "";
   if (!plays.length) {
+    list.classList.add("waiting");
     list.replaceChildren(line({ mark: ["huh", "?"], name: "пусто", said: "Укажите папку реплеев." }));
     return;
   }
+  list.classList.remove("waiting");
   list.replaceChildren(...plays.map((play) => playRow(play)));
 
   function playRow(play) {

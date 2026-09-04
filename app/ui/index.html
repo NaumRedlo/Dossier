@@ -105,16 +105,25 @@
     <!-- Тот же процесс, что идёт в самой вкладке, свёрнутый сюда: появляется,
          только когда рендер или монтаж идёт, а вкладка, где он начался, не
          открыта. -->
-    <button class="minijob" id="job-mini" hidden>
-      <svg class="dial" viewBox="0 0 24 24" aria-hidden="true">
-        <circle class="track" cx="12" cy="12" r="9"/>
-        <circle class="fill" id="job-dial" cx="12" cy="12" r="9"/>
-        <path class="tick" d="M7.4 12.4 10.5 15.4 16.6 9.1"/>
-        <path class="cross" d="M8.4 8.4 15.6 15.6M15.6 8.4 8.4 15.6"/>
-      </svg>
-      <span class="what" id="job-label"></span>
-      <span class="pct"><span id="job-percent">0</span>%</span>
-    </button>
+    <div class="hoverbox" id="jobbox" hidden>
+      <button class="minijob" id="job-mini">
+        <svg class="dial" viewBox="0 0 24 24" aria-hidden="true">
+          <circle class="track" cx="12" cy="12" r="9"/>
+          <circle class="fill" id="job-dial" cx="12" cy="12" r="9"/>
+          <path class="tick" d="M7.4 12.4 10.5 15.4 16.6 9.1"/>
+          <path class="cross" d="M8.4 8.4 15.6 15.6M15.6 8.4 8.4 15.6"/>
+        </svg>
+        <span class="what" id="job-label"></span>
+        <span class="pct"><span id="job-percent">0</span>%</span>
+      </button>
+      <!-- Плашка говорит, что работа идёт; подробности — под курсором, а не в
+           строке, которой пришлось бы стать шире всего угла. -->
+      <div class="popover jobpane" id="jobpane">
+        <h4 id="job-full"></h4>
+        <p class="jobline" id="job-note"></p>
+        <p class="fine" id="job-hint">Нажмите, чтобы вернуться к этой работе.</p>
+      </div>
+    </div>
 
     <!-- Появляется, только когда обновление есть: постоянная кнопка «проверить»
          превращается в мебель, а эта — новость. -->

@@ -90,21 +90,6 @@ body.sky-still .blob, body.away .blob, body.covered .blob { animation-play-state
 }
 #splash-view { position: absolute; inset: 0; width: 100%; height: 100%; }
 .splash.going { opacity: 0; pointer-events: none; }
-/* Одна строка внизу, под сценой: сцена сама по себе ничего не объясняет, и
-   это правильно — объяснять её должно одно предложение, а не заголовок. */
-.splash .say {
-  position: absolute;
-  transition: opacity 0.5s var(--ease);
-  left: 0;
-  right: 0;
-  bottom: 12%;
-  margin: 0;
-  padding: 0 2rem;
-  color: rgba(255, 255, 255, 0.34);
-  font-size: 0.82rem;
-  text-align: center;
-  animation: rise 1.2s var(--ease) 0.6s both;
-}
 
 /* ── the dock ─────────────────────────────────────────────────────────── */
 
@@ -1154,45 +1139,131 @@ body.dock-left main { margin: 4.6rem auto 0; padding-top: 1.5rem; }
 
 /* Тот же процесс, что идёт полной панелью во вкладке, только маленький: чтобы
    не терять его из виду, уходя с «Рендера» или «Реплея» посреди работы. */
+/* Одна строка ростом с кнопку рядом, а не колонка. Раньше это была карточка
+   в три этажа: она задирала весь правый угол по высоте — `.corner` тянется по
+   самому высокому — и съедала одиннадцать рем ширины у жука и обновления.
+   Проценты читают взглядом, а не изучают; кольцо и число говорят всё. */
 .minijob {
   display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
-  width: 11rem;
-  padding: 0.5rem 0.75rem;
+  align-items: center;
+  gap: 0.45rem;
+  height: 2.1rem;
+  max-width: 11rem;
+  padding: 0 0.7rem 0 0.45rem;
   border: 1px solid var(--line);
-  border-radius: 0.9rem;
+  border-radius: 1.05rem;
   background: var(--panel);
   -webkit-backdrop-filter: blur(18px);
   backdrop-filter: blur(18px);
-  font: 0.76rem/1.3 var(--mono);
   color: var(--ink);
-  transition: opacity 0.28s var(--ease), transform 0.28s var(--ease);
+  font: 0.76rem/1 var(--mono);
+  cursor: pointer;
+  transition: opacity 0.28s var(--ease), transform 0.28s var(--ease), border-color 0.2s var(--ease);
 }
+.minijob:hover { border-color: var(--accent); }
 .minijob.leaving { opacity: 0; transform: translateY(-0.3rem) scale(0.97); }
-.minijob .row { display: flex; align-items: baseline; justify-content: space-between; gap: 0.5rem; }
-.minijob b { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.minijob .pct { flex: none; color: var(--accent); font-weight: 700; }
-.minijob .bar {
-  height: 0.2rem;
-  border-radius: 0.1rem;
-  background: var(--sunk);
+.minijob .what {
+  min-width: 0;
   overflow: hidden;
-}
-.minijob .bar > div {
-  height: 100%;
-  width: 0;
-  background: linear-gradient(90deg, var(--accent), #f08a5d);
-  transition: width 0.2s linear;
-}
-.minijob .note {
-  margin: 0;
-  overflow: hidden;
-  color: var(--faint);
-  font-size: 0.7rem;
+  font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.minijob .pct { flex: none; color: var(--accent); font-weight: 700; }
+
+/* Кольцо вместо полосы: круг занимает высоту строки и ничего не добавляет к
+   ней, а полоса требовала бы собственного этажа. */
+.minijob .dial {
+  flex: none;
+  width: 1.35rem;
+  height: 1.35rem;
+  transform: rotate(-90deg);
+  overflow: visible;
+}
+.minijob .dial circle {
+  fill: none;
+  stroke-width: 3;
+  stroke-linecap: round;
+}
+.minijob .dial .track { stroke: var(--sunk); }
+.minijob .dial .fill {
+  stroke: var(--accent);
+  stroke-dasharray: 56.55;
+  stroke-dashoffset: 56.55;
+  transition: stroke-dashoffset 0.25s linear;
+}
+.minijob .dial .tick, .minijob .dial .cross {
+  fill: none;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 24;
+  stroke-dashoffset: 24;
+  transform: rotate(90deg);
+  transform-origin: 12px 12px;
+}
+.minijob .dial .tick { stroke: var(--good); }
+.minijob .dial .cross { stroke: var(--accent); }
+
+/* Кончилось — кольцо уходит, а на его месте прочерчивается галочка. Это и есть
+   тот признак завершения, которого не было: угол сам меняет вид, не дожидаясь,
+   пока кто-то откроет вкладку и прочитает строчку. */
+.minijob.done .dial .fill, .minijob.failed .dial .fill { opacity: 0; }
+.minijob.done .dial .tick { stroke-dashoffset: 0; transition: stroke-dashoffset 0.4s var(--ease) 0.1s; }
+.minijob.failed .dial .cross { stroke-dashoffset: 0; transition: stroke-dashoffset 0.3s var(--ease) 0.1s; }
+.minijob.done .pct, .minijob.failed .pct { display: none; }
+.minijob.done { border-color: var(--good); }
+
+/* ── что вышло ────────────────────────────────────────────────────────── */
+
+/* Строчка под списком — это не «готово», это сноска. Рендер идёт минутами, и
+   его конец должен быть виден так же, как виден его ход: своей карточкой, с
+   тем, что можно нажать. */
+.finished {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 0.7rem 0 0;
+  padding: 0.7rem 0.85rem;
+  border: 1px solid var(--good);
+  border-radius: 0.9rem;
+  background: color-mix(in srgb, var(--good) 8%, var(--panel));
+  animation: landed 0.42s var(--ease) both;
+}
+@keyframes landed {
+  from { opacity: 0; transform: translateY(0.5rem); }
+  to { opacity: 1; transform: none; }
+}
+.finished.bad {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, var(--panel));
+}
+.finished .seal { flex: none; width: 1.8rem; height: 1.8rem; }
+.finished .seal circle { fill: none; stroke: var(--good); stroke-width: 1.6; opacity: 0.5; }
+.finished .seal path {
+  fill: none;
+  stroke: var(--good);
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 24;
+  stroke-dashoffset: 24;
+  animation: sealed 0.5s var(--ease) 0.15s forwards;
+}
+.finished.bad .seal circle, .finished.bad .seal path { stroke: var(--accent); }
+@keyframes sealed { to { stroke-dashoffset: 0; } }
+.finished .said { min-width: 0; flex: 1; }
+.finished .said b { display: block; font-size: 0.9rem; }
+.finished .said .where {
+  margin: 0.15rem 0 0;
+  overflow: hidden;
+  color: var(--faint);
+  font: 0.72rem/1.35 var(--mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.finished .said .facts { margin: 0.2rem 0 0; color: var(--faint); font-size: 0.72rem; }
+.finished .routes { flex: none; display: flex; gap: 0.4rem; }
 
 /* ── иконки выбора: судейство и монтаж ────────────────────────────────── */
 

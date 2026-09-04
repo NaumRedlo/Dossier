@@ -30,14 +30,30 @@ pub struct Piece {
     pub end_ms: f64,
     /// Which number goes inside it, counting from one at every new combo.
     pub combo: u32,
-    /// Index into `colours`.
-    pub colour: usize,
+    /// Which combo run this object belongs to, counting from zero.
+    ///
+    /// Not an index into `colours`: the list it indexes depends on who has
+    /// colours to give. osu! uses the map's, and falls back to the skin's when
+    /// the map names none — and a skin's list is a different length, so the
+    /// choice cannot be made here. The run is the fact; the wrapping belongs
+    /// wherever the list is known.
+    pub run: usize,
+    /// How many times the ball crosses the body. One for a plain slider; every
+    /// count above that is a turn, and a turn is drawn — an arrow on the end it
+    /// is about to come back from.
+    #[serde(skip_serializing_if = "is_one")]
+    pub slides: u32,
     /// The slider's flattened path, `x, y, x, y…`, empty for anything else.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub path: Vec<f32>,
     /// Where the ball was, sampled from `start_ms` every `step_ms`.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub ball: Vec<f32>,
+}
+
+#[allow(clippy::trivially_copy_pass_by_ref)]
+fn is_one(slides: &u32) -> bool {
+    *slides == 1
 }
 
 #[derive(serde::Serialize)]
@@ -81,24 +97,24 @@ pub fn open(replay: &Path, songs: Option<&Path>) -> Result<Scene, String> {
         .last()
         .map_or(from_ms, |o| o.end_ms + 1200.0);
 
-    // The colour turns over at every new combo, so it starts one before the
-    // first: the map's opening combo gets colour zero, which is what osu! shows.
+    // The first combo is run zero, which takes the first colour — what osu!
+    // shows. Every `new_combo` after it turns the run over.
     let mut number = 0;
-    let mut colour = colours.len().saturating_sub(1);
+    let mut run = 0;
     let objects = timeline
         .objects
         .iter()
         .map(|object| {
             if object.new_combo || number == 0 {
-                number = 0;
-                if !colours.is_empty() {
-                    colour = (colour + 1) % colours.len();
+                if number > 0 {
+                    run += 1;
                 }
+                number = 0;
             }
             number += 1;
-            let (kind, path, ball) = match &object.kind {
-                TimedKind::Circle => ("circle", Vec::new(), Vec::new()),
-                TimedKind::Spinner => ("spinner", Vec::new(), Vec::new()),
+            let (kind, slides, path, ball) = match &object.kind {
+                TimedKind::Circle => ("circle", 1, Vec::new(), Vec::new()),
+                TimedKind::Spinner => ("spinner", 1, Vec::new(), Vec::new()),
                 TimedKind::Slider { path, slides, .. } => {
                     let line = path
                         .points()
@@ -119,7 +135,7 @@ pub fn open(replay: &Path, songs: Option<&Path>) -> Result<Scene, String> {
                         }
                         at += STEP_MS;
                     }
-                    ("slider", line, balls)
+                    ("slider", *slides, line, balls)
                 }
             };
             Piece {
@@ -129,7 +145,8 @@ pub fn open(replay: &Path, songs: Option<&Path>) -> Result<Scene, String> {
                 start_ms: object.start_ms,
                 end_ms: object.end_ms,
                 combo: number,
-                colour,
+                run,
+                slides,
                 path,
                 ball,
             }

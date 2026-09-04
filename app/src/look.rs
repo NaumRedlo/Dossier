@@ -14,6 +14,10 @@ use dossier_sim::{GameState, Part};
 #[derive(serde::Serialize)]
 pub struct Mark {
     pub ms: f64,
+    /// Which object this was the judgement of. The viewer needs it to tie a
+    /// note to what happened to it: whether it swells as it leaves or only
+    /// fades, and whether it lights the field.
+    pub object_index: usize,
     /// `300`, `100`, `50` or `0`.
     pub worth: u32,
     /// How early or late the click was, where that means anything.
@@ -55,6 +59,17 @@ pub struct Judged {
     pub marks: Vec<Mark>,
 }
 
+/// Where a judgement is shown: the note itself, or the far end of a slider.
+fn place(state: &GameState, index: usize) -> (f64, f64) {
+    let Some(object) = state.timeline().objects.get(index) else {
+        return (0.0, 0.0);
+    };
+    match object.ball_at(object.end_ms) {
+        Some(end) => (end.x, end.y),
+        None => (object.pos.x, object.pos.y),
+    }
+}
+
 /// The same summary from a play that has already been set up.
 ///
 /// Split out so that the viewer, which needs the whole scene anyway, does not
@@ -73,6 +88,7 @@ pub fn summarise(beatmap: &Beatmap, replay: &Replay, state: &GameState) -> Resul
         .filter(|event| event.part.counts_for_accuracy())
         .map(|event| Mark {
             ms: event.time_ms,
+            object_index: event.object_index,
             worth: event.result.value(),
             error_ms: event.error_ms,
             combo: event.combo_after,
@@ -81,16 +97,12 @@ pub fn summarise(beatmap: &Beatmap, replay: &Replay, state: &GameState) -> Resul
                 Part::Slider => "slider",
                 _ => "spinner",
             },
-            x: state
-                .timeline()
-                .objects
-                .get(event.object_index)
-                .map_or(0.0, |object| object.pos.x),
-            y: state
-                .timeline()
-                .objects
-                .get(event.object_index)
-                .map_or(0.0, |object| object.pos.y),
+            // Where the play actually ended, which for a slider is its tail
+            // and not its head. The renderer puts the mark and the flash there
+            // for the same reason: flashing a 100 at the start of a body the
+            // ball left seconds ago is one judgement in two places.
+            x: place(state, event.object_index).0,
+            y: place(state, event.object_index).1,
         })
         .collect();
 

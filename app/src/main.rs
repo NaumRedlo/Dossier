@@ -333,7 +333,18 @@ fn send_report(log: String, kind: Option<String>) -> Result<String, String> {
     bot::Bot::new(&said.server, &said.token, &said.name)
         .and_then(|bot| bot.report(&what))
         .map(|()| "отправлено разработчику".to_owned())
-        .map_err(|refused| refused.to_string())
+        .map_err(|refused| {
+            let said = refused.to_string();
+            // A 404 here is not a broken report — it is a bot that has not
+            // grown the ear yet. Saying which is the difference between "try
+            // again" and "there is nothing to try".
+            if said.contains("404") {
+                "у бота ещё нет приёмника отчётов (POST /render/report) —                  отправлять некуда, пока он не появится"
+                    .to_owned()
+            } else {
+                said
+            }
+        })
 }
 
 /// What this application is made of, what it needs from outside, and what is
@@ -357,6 +368,19 @@ fn handshake() -> check::Row {
 #[tauri::command(async)]
 fn open_link(url: String) -> Result<(), String> {
     link::open(&url)
+}
+
+/// Show a finished render where it lives, selected in the system's file
+/// manager. The first question about a render that has just finished.
+#[tauri::command(async)]
+fn reveal_file(path: String) -> Result<(), String> {
+    link::reveal(std::path::Path::new(&path))
+}
+
+/// Play a finished render in whatever this system plays videos with.
+#[tauri::command(async)]
+fn play_file(path: String) -> Result<(), String> {
+    link::play(std::path::Path::new(&path))
 }
 
 /// The three lines worth putting at the bottom of a bug report, so that nobody
@@ -411,6 +435,8 @@ fn main() {
             update_look,
             update_run,
             send_report,
+            reveal_file,
+            play_file,
             handshake
         ])
         .run(tauri::generate_context!())

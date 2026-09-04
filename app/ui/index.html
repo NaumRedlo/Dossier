@@ -16,7 +16,6 @@
        движения — это картинка, а не диалог. -->
   <div class="splash" id="splash" hidden>
     <canvas id="splash-view"></canvas>
-    <p class="say" id="splash-say"></p>
   </div>
   <!-- Опрашивается один раз при открытии: пока сервер и токен не названы,
        всё остальное показывать нечего. -->
@@ -106,14 +105,16 @@
     <!-- Тот же процесс, что идёт в самой вкладке, свёрнутый сюда: появляется,
          только когда рендер или монтаж идёт, а вкладка, где он начался, не
          открыта. -->
-    <div class="minijob" id="job-mini" hidden>
-      <div class="row">
-        <b id="job-label"></b>
-        <span class="pct"><span id="job-percent">0</span>%</span>
-      </div>
-      <div class="bar"><div id="job-bar"></div></div>
-      <p class="note" id="job-note"></p>
-    </div>
+    <button class="minijob" id="job-mini" hidden>
+      <svg class="dial" viewBox="0 0 24 24" aria-hidden="true">
+        <circle class="track" cx="12" cy="12" r="9"/>
+        <circle class="fill" id="job-dial" cx="12" cy="12" r="9"/>
+        <path class="tick" d="M7.4 12.4 10.5 15.4 16.6 9.1"/>
+        <path class="cross" d="M8.4 8.4 15.6 15.6M15.6 8.4 8.4 15.6"/>
+      </svg>
+      <span class="what" id="job-label"></span>
+      <span class="pct"><span id="job-percent">0</span>%</span>
+    </button>
 
     <!-- Появляется, только когда обновление есть: постоянная кнопка «проверить»
          превращается в мебель, а эта — новость. -->
@@ -171,6 +172,8 @@
           <p class="muted" id="r-said"></p>
         </div>
       </div>
+
+      <div id="r-doneslot"></div>
 
       <div class="card list" id="r-list"></div>
       <p class="verdict" id="r-done"></p>
@@ -265,6 +268,7 @@
               <button class="act small primary" id="rp-build">Собрать</button>
             </div>
             <div class="progress" id="rp-progress" hidden><div id="rp-bar"></div></div>
+            <div id="rp-doneslot"></div>
             <p class="verdict" id="rp-built"></p>
           </div>
         </div>
@@ -433,7 +437,15 @@
           <div><b>Курсор и интерфейс</b><p>Настройка определённых элементов во время игрового процесса.</p></div>
           <span class="ticks">
             <label class="tick"><input type="checkbox" id="s-rotate">Поворот курсора</label>
+            <label class="tick"><input type="checkbox" id="s-expand">Курсор растёт под нажатием</label>
             <label class="tick"><input type="checkbox" id="s-bare">Без интерфейса</label>
+          </span>
+        </div>
+        <div class="pref">
+          <div><b>Эффекты поля</b><p>Вспышка от удара берётся из <code>lighting.png</code> скина и складывается со сценой, как в игре. Выползание — это когда тело слайдера растёт вперёд и убирается за шаром; смотрящему оно ничего не говорит, играющему говорит.</p></div>
+          <span class="ticks">
+            <label class="tick"><input type="checkbox" id="s-lighting">Вспышка от удара</label>
+            <label class="tick"><input type="checkbox" id="s-snake">Выползание слайдеров</label>
           </span>
         </div>
         <div class="pref">

@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Слушать события окна. Без этого файла в Tauri 2 список разрешений пуст, и `event.listen` из окна отклоняется молча — команды приложения работают, а живой счётчик рендера не приходит никогда. Именно так панель рендера и молчала.",
+  "windows": ["main"],
+  "permissions": ["core:event:default"]
+}

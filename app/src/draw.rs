@@ -85,6 +85,18 @@ pub struct Fine {
     pub bare: bool,
     /// Whether the cursor turns as it moves. `None` leaves the skin's answer.
     pub cursor_rotate: Option<bool>,
+    /// The flash a struck note leaves on the field, from the skin's own
+    /// `lighting.png`. osu! calls this Hit Lighting and ships it off; a render
+    /// is watched rather than played, and what a player would call clutter is
+    /// most of what a viewer came to see — so this one is on here.
+    pub hit_lighting: bool,
+    /// Whether a slider body grows into the field and retracts behind the ball.
+    /// Off by default for the same reason it is on in the game and off here:
+    /// snaking tells a *player* where the ball has yet to go, and a viewer can
+    /// already see the whole shape.
+    pub snake: bool,
+    /// Whether the cursor swells under a click. The skin may still refuse.
+    pub cursor_expand: bool,
     /// The map's own hit sounds — the folder beside the `.osu`, where a custom
     /// sample index means something. Most of what a hitsounded map sounds like.
     pub map_hitsounds: bool,
@@ -115,6 +127,9 @@ impl Default for Fine {
             video: false,
             bare: false,
             cursor_rotate: None,
+            hit_lighting: true,
+            snake: false,
+            cursor_expand: true,
             map_hitsounds: true,
             skin_hitsounds: true,
             kit: "click".to_owned(),
@@ -136,6 +151,10 @@ pub fn draw(asked: &Asked<'_>, told: &Told) -> Result<PathBuf, String> {
         skin = dossier_produce::skin::from_folder(skin, folder, None);
     }
     skin.cursor_rotate = asked.fine.cursor_rotate;
+    skin.hit_lighting = asked.fine.hit_lighting;
+    skin.snake_in = asked.fine.snake;
+    skin.snake_out = asked.fine.snake;
+    skin.cursor_expand = asked.fine.cursor_expand;
     match dossier_produce::font::find(None)? {
         Some(font) => skin = skin.with_font(font),
         None => dossier_produce::note!("no font found — drawing without numbers"),

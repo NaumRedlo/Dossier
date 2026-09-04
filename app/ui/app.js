@@ -381,16 +381,6 @@ for (const button of byId("seg-motion").querySelectorAll("button")) {
 
 // ── заставка ───────────────────────────────────────────────────────────
 
-/// Что написано на обложке. Ни одной строки про то, как всё замечательно: это
-/// перерыв, а не реклама.
-const SAYINGS = [
-  "Стабильность и правильная работа — превыше всего.",
-  "Реплей помнит, где был курсор и что было нажато. Остальное приходится восстанавливать.",
-  "Судейство считается, а не угадывается.",
-  "Кадр за кадром, ровно так, как это было.",
-  "Ничего из игры: свой разбор карты, свой судья, свой рисунок.",
-];
-
 /// Сколько молчать до обложки. Пять минут по умолчанию — достаточно долго,
 /// чтобы не мешать тому, кто читает список реплеев, и достаточно коротко, чтобы
 /// окно не стояло сутками с открытой вкладкой настроек. Меняется в настройках,
@@ -486,7 +476,6 @@ function showBlackCover() {
   uncovered = new Promise((resolve) => {
     uncover = resolve;
   });
-  byId("splash-say").textContent = "";
   splash.classList.remove("going");
   splash.hidden = false;
   // Пятна на фоне под заставкой не видно, а кадры они забирают — и забирают их
@@ -608,6 +597,9 @@ let idleAsking = false;
 const FADE_MS = 900;
 let idleFade = 0;
 
+/// Который по счёту реплей показывать следующим.
+let idleAt = 0;
+
 async function nextIdlePlay() {
   if (idleAsking) return;
   idleAsking = true;
@@ -617,7 +609,10 @@ async function nextIdlePlay() {
       idleShelf = plays.filter((play) => play.have_map);
     }
     if (idleShelf.length) {
-      const pick = idleShelf[Math.floor(Math.random() * idleShelf.length)];
+      // По очереди, а не наугад: случайный выбор повторяет один и тот же реплей
+      // чаще, чем показывает следующий, и «проиграть другие» он не делает.
+      const pick = idleShelf[idleAt % idleShelf.length];
+      idleAt += 1;
       const opened = await invoke("judged", { replay: pick.path });
       idlePlay = { scene: opened, judged: opened.summary, head: opened.from_ms };
       idleFade = 0;
@@ -649,8 +644,6 @@ function drawResting(c, w, h) {
 function playIdle() {
   const c = splashView.getContext("2d");
   let was = performance.now();
-  let said = 0;
-  let saidAt = was;
   nextIdlePlay();
 
   const frame = (now) => {
@@ -693,19 +686,6 @@ function playIdle() {
       drawResting(c, w, h);
     }
 
-    // Строки движка сменяют друг друга сами, не спеша — их читают, а не
-    // показывают.
-    if (now - saidAt > 9000) {
-      saidAt = now;
-      said = (said + 1) % SAYINGS.length;
-      const line = byId("splash-say");
-      line.style.opacity = "0";
-      setTimeout(() => {
-        line.textContent = SAYINGS[said];
-        line.style.opacity = "";
-      }, 700);
-    }
-
     scene_run = requestAnimationFrame(frame);
   };
   scene_run = requestAnimationFrame(frame);
@@ -718,7 +698,6 @@ function showSplash() {
   if (asleep) return;
   asleep = true;
   document.body.classList.add("covered");
-  byId("splash-say").textContent = SAYINGS[Math.floor(Math.random() * SAYINGS.length)];
   splash.classList.add("going");
   splash.hidden = false;
   void splash.offsetWidth;
@@ -865,8 +844,20 @@ for (const route of ROUTES.filter((route) => route.ready())) {
     try {
       if (route.sends) {
         note("Отправляю…");
-        note(await route.send(said));
-        byId("bug-text").value = "";
+        try {
+          note(await route.send(said));
+          byId("bug-text").value = "";
+        } catch (why) {
+          // Текст остаётся в поле — его писали, и терять его из-за того, что
+          // у бота нет уха, нельзя, — и заодно уходит в буфер обмена, чтобы
+          // отнести его руками было одно движение.
+          const kept = said + (await tail());
+          const copied = await navigator.clipboard
+            .writeText(kept)
+            .then(() => true)
+            .catch(() => false);
+          note(`${why}${copied ? ". Отчёт скопирован в буфер обмена" : ""}`, true);
+        }
       } else {
         await invoke("open_link", { url: await route.link(said) });
       }
@@ -1388,46 +1379,116 @@ let job = null;
 let jobFading = false;
 
 const jobMini = byId("job-mini");
+/// Длина окружности кольца в плашке: r = 9 в её системе координат. Считана
+/// здесь, а не подобрана в стилях, чтобы радиус и штрих не разъезжались.
+const DIAL_ROUND = 2 * Math.PI * 9;
+/// Сколько «Готово» держится в углу, прежде чем уйти само. Достаточно, чтобы
+/// поймать взглядом; мало, чтобы не стать мебелью.
+const DONE_HOLD_MS = 12000;
+let jobHold = null;
 
 function startJob(home, label) {
-  job = { home, label };
+  job = { home, label, done: false };
   jobFading = false;
-  jobMini.classList.remove("leaving");
+  clearTimeout(jobHold);
+  jobMini.classList.remove("leaving", "done", "failed");
   byId("job-label").textContent = label;
   paintJob(0, "");
   syncJobMini();
 }
 
 function paintJob(percent, note) {
-  byId("job-percent").textContent = round(percent);
-  byId("job-bar").style.width = `${Math.min(100, Math.max(0, percent))}%`;
-  byId("job-note").textContent = note;
+  const share = Math.min(100, Math.max(0, percent));
+  byId("job-percent").textContent = round(share);
+  byId("job-dial").style.strokeDashoffset = String(DIAL_ROUND * (1 - share / 100));
 }
 
 /// Показать или спрятать по тому, где сейчас открыто. На своей вкладке процесс
 /// и так виден целиком — плашка в углу там только повторяла бы то же самое.
+/// Кроме конца: «готово» показывается везде, потому что новость о том, что
+/// рендер кончился, нужна ровно тому, кто в этот момент смотрит не туда.
 function syncJobMini() {
   if (jobFading) return;
-  jobMini.hidden = !(job && open_tab !== job.home);
+  jobMini.hidden = !(job && (job.done || open_tab !== job.home));
 }
 
-/// Быстро, но плавно: полоса на миг доходит до конца, а сама плашка гаснет, а
-/// не пропадает разом — и переключение вкладки посреди этого её не обрывает.
-/// Если она и не показывалась — работа шла на своей же вкладке всё время — ей
-/// нечего гасить, и она просто остаётся спрятанной.
-function endJob(ok) {
-  if (!job) return;
-  paintJob(100, ok ? "Готово" : "Не вышло");
-  const wasShown = !jobMini.hidden;
+/// Нажатие — туда, где эта работа живёт. Плашка сообщает, что что-то идёт;
+/// естественное следующее движение — посмотреть, и оно должно работать.
+jobMini.addEventListener("click", () => {
+  const home = job && job.home;
+  if (job && job.done) dismissJob();
+  if (home) show(home);
+});
+
+function dismissJob() {
+  clearTimeout(jobHold);
   job = null;
-  if (!wasShown) return;
+  if (jobMini.hidden) return;
   jobFading = true;
   jobMini.classList.add("leaving");
   setTimeout(() => {
     jobMini.hidden = true;
-    jobMini.classList.remove("leaving");
+    jobMini.classList.remove("leaving", "done", "failed");
     jobFading = false;
   }, 280);
+}
+
+/// Кончилось — и это видно, а не написано. Кольцо дочерчивается до конца,
+/// потом на его месте проступает галочка (или крест), и плашка остаётся стоять
+/// с этим видом: рендер идёт минутами, и его конец застаёт человека где угодно,
+/// в том числе не в этой вкладке.
+function endJob(ok) {
+  if (!job) return;
+  paintJob(100, ok ? "Готово" : "Не вышло");
+  job.done = true;
+  jobFading = false;
+  jobMini.classList.remove("leaving");
+  jobMini.classList.add(ok ? "done" : "failed");
+  byId("job-label").textContent = ok ? "Готово" : "Не вышло";
+  jobMini.hidden = false;
+  jobHold = setTimeout(dismissJob, DONE_HOLD_MS);
+}
+
+/// Что вышло, карточкой: имя файла, что о нём сказал движок, и две кнопки —
+/// открыть и показать в папке. Раньше об окончании говорила одна строка под
+/// списком, и это был весь признак того, что двухминутная работа кончилась.
+function showFinished(slot, { path, notes, bad, head }) {
+  const card = el("div", bad ? "finished bad" : "finished");
+
+  const seal = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  seal.setAttribute("class", "seal");
+  seal.setAttribute("viewBox", "0 0 24 24");
+  seal.innerHTML = bad
+    ? '<circle cx="12" cy="12" r="10"/><path d="M8.4 8.4 15.6 15.6M15.6 8.4 8.4 15.6"/>'
+    : '<circle cx="12" cy="12" r="10"/><path d="M7.4 12.4 10.5 15.4 16.6 9.1"/>';
+  card.append(seal);
+
+  const said = el("div", "said");
+  said.append(el("b", null, head));
+  if (path) said.append(el("p", "where", path));
+  if (notes && notes.length) said.append(el("p", "facts", notes.join(" · ")));
+  card.append(said);
+
+  if (path && !bad) {
+    const routes = el("div", "routes");
+    const open = el("button", "act small primary", "Открыть");
+    const where = el("button", "act small", "В папке");
+    open.addEventListener("click", () => {
+      invoke("play_file", { path }).catch((why) => {
+        said.querySelector(".facts")?.remove();
+        said.append(el("p", "facts", String(why)));
+      });
+    });
+    where.addEventListener("click", () => {
+      invoke("reveal_file", { path }).catch((why) => {
+        said.querySelector(".facts")?.remove();
+        said.append(el("p", "facts", String(why)));
+      });
+    });
+    routes.append(open, where);
+    card.append(routes);
+  }
+  slot.replaceChildren(card);
 }
 
 /// Чем рисовать. Всё это — настройка, а не решение, принимаемое заново перед
@@ -1455,6 +1516,9 @@ function options() {
       video: remembered("video", "0") === "1",
       bare: remembered("bare", "0") === "1",
       cursor_rotate: remembered("rotate", "0") === "1" ? true : null,
+      hit_lighting: remembered("lighting", "1") === "1",
+      snake: remembered("snake", "0") === "1",
+      cursor_expand: remembered("expand", "1") === "1",
       map_hitsounds: remembered("mapsounds", "1") === "1",
       skin_hitsounds: remembered("skinsounds", "1") === "1",
       kit: remembered("kit", "click"),
@@ -1496,6 +1560,9 @@ const RENDER_FIELDS = [
   ["s-music", "music", "1"],
   ["s-hits", "hits", "1"],
   ["s-rotate", "rotate", "0"],
+  ["s-expand", "expand", "1"],
+  ["s-lighting", "lighting", "1"],
+  ["s-snake", "snake", "0"],
   ["s-bare", "bare", "0"],
   ["s-threads", "threads", "0"],
   ["s-enc", "enc", "0"],
@@ -1521,6 +1588,7 @@ for (const [id, key] of RENDER_FIELDS) {
   byId(id).addEventListener("change", (event) => {
     const box = event.target;
     remember(key, box.type === "checkbox" ? (box.checked ? "1" : "0") : box.value);
+    readEffects();
   });
 }
 
@@ -1636,23 +1704,27 @@ function fillPlays({ shelves, skins, plays, rows }) {
     for (const other of list.querySelectorAll("button")) other.disabled = true;
     watching = { bar: "r-bar", said: "r-said", share: "r-share" };
     startJob("render", `Рендер · ${play.player}`);
-    const done_note = byId("r-done");
-    done_note.className = "verdict";
-    done_note.textContent = "";
+    byId("r-done").textContent = "";
     byId("r-busy").hidden = false;
     byId("r-bar").style.width = "0%";
     byId("r-share").textContent = "0";
-    byId("r-said").textContent = `${play.player} · ${howItDraws()}`;
+    byId("r-said").textContent = watchFailed
+      ? `идёт, но без счётчика: окно не подписалось на события (${watchFailed})`
+      : `${play.player} · ${howItDraws()}`;
     list.classList.add("dimmed");
     const out = play.path.replace(/\.osr$/i, "") + ".mp4";
+    const slot = byId("r-doneslot");
+    slot.replaceChildren();
     try {
       const done = await invoke("draw", { replay: play.path, out, ...options() });
-      done_note.textContent = `Готово — ${done.path}`;
-      for (const note of done.said) done_note.textContent += `\n${note}`;
+      showFinished(slot, {
+        head: `Реплей ${play.player} отрисован`,
+        path: done.path,
+        notes: done.said,
+      });
       endJob(true);
     } catch (why) {
-      done_note.className = "verdict bad";
-      done_note.textContent = `Не вышло: ${why}`;
+      showFinished(slot, { head: "Рендер не вышел", notes: [String(why)], bad: true });
       endJob(false);
     } finally {
       drawing = false;
@@ -1666,8 +1738,21 @@ function fillPlays({ shelves, skins, plays, rows }) {
 byId("r-refresh").addEventListener("click", () => showRender(true));
 
 // The engine's own events, forwarded from the render — see the `draw` command.
+//
+// `listen` возвращает обещание, и отказ по нему — не мелочь: в Tauri 2 это
+// разрешение, и без `capabilities/default.json` окно отклоняется молча. Ровно
+// так панель рендера и молчала целый релиз: команды шли, кадры считались,
+// события не доходили, и ни одной строки об этом нигде. Теперь отказ виден.
+function subscribe(name, take) {
+  window.__TAURI__.event.listen(name, take).catch((why) => {
+    console.error(`не подписаться на «${name}»:`, why);
+    watchFailed = String(why);
+  });
+}
+let watchFailed = null;
+
 if (window.__TAURI__ && window.__TAURI__.event) {
-  window.__TAURI__.event.listen("drawing", ({ payload }) => {
+  subscribe("drawing", ({ payload }) => {
     if (payload.event !== "progress" || !payload.of) return;
     const share = Math.min(100, (payload.frames / payload.of) * 100);
     byId(watching.bar).style.width = `${share}%`;
@@ -1676,7 +1761,7 @@ if (window.__TAURI__ && window.__TAURI__.event) {
     byId(watching.said).textContent = note;
     if (job) paintJob(share, note);
   });
-  window.__TAURI__.event.listen("reeling", ({ payload }) => {
+  subscribe("reeling", ({ payload }) => {
     const note = `кусок ${payload.clip} из ${payload.of}…`;
     byId("rp-built").textContent = note;
     if (job) paintJob((payload.clip / payload.of) * 100, note);
@@ -1747,8 +1832,10 @@ function tinted(image, colour) {
 }
 const SAID = { 300: "300", 100: "100", 50: "50", 0: "×" };
 
-/// Сколько кадр живёт после того, как объект отыгран.
-const AFTER_MS = 240;
+/// Сколько объект ещё нужен после того, как отыгран, — по самому долгому, что
+/// от него остаётся. Круг уходит за 240 мс, а вспышка под ним живёт полторы
+/// секунды: обрезать по круг значит гасить свет на середине.
+const AFTER_MS = 1400;
 
 let scene = null;
 let judged = null;
@@ -1949,59 +2036,281 @@ function cursorAt(play, ms) {
   return { x: play.cursor[at * 2], y: play.cursor[at * 2 + 1], keys: play.keys[at], at };
 }
 
+// ── как это рисует движок ──────────────────────────────────────────────
+
+/// Ни одно число ниже не подобрано на глаз: это те же константы, что в
+/// `crates/dossier-render/src/renderer.rs`, где у каждой выписан кусок osu!,
+/// из которого она взята. Заставка показывает игру ровно так, как её
+/// показывает рендер, и расходиться этим двум местам нельзя — иначе окно
+/// обещает одно, а файл приносит другое.
+const HIT_FADE_MS = 240; // legacy_fade_duration
+const MISS_FADE_MS = 100; // ArmedState.Miss: this.FadeOut(100)
+const NUMBER_FADE_MS = HIT_FADE_MS / 4;
+const HIT_SWELL = 0.4; // ScaleTo(1.4f)
+const APPROACH_REACH = 3.0; // 1 + 3(1 − progress)
+const BALL_CORE = 0.34;
+const ARROW_SCALE = 0.52;
+const ARROW_LOOP_MS = 300;
+const ARROW_LOOP_FROM = 1.3;
+const LIGHT_IN_MS = 200;
+const LIGHT_HOLD_MS = 400;
+const LIGHT_OUT_MS = 1000;
+const LIGHT_MS = LIGHT_HOLD_MS + LIGHT_OUT_MS;
+const LIGHT_GROW_MS = 600;
+const LIGHT_FROM = 0.8;
+const LIGHT_TO = 1.2;
+const FOLLOW_SPACING = 32;
+const FOLLOW_PREEMPT_MS = 800;
+const FOLLOW_ENTRY_SCALE = 1.5;
+const FOLLOW_APPROACH = 0.1;
+const TRAIL_LENGTH = 12;
+/// Какую долю радиуса занимает ободок ноты, когда её рисует не скин, а движок:
+/// `Skin::border_ratio`, и число то же.
+const NOTE_BORDER = 0.11;
+/// Полный оборот курсора за десять секунд, когда скин просит его вращать.
+const CURSOR_TURN_MS = 10000;
+
+const easeOut = (t) => 1 - (1 - t) * (1 - t);
+const clamp01 = (t) => (t < 0 ? 0 : t > 1 ? 1 : t);
+
+/// Те же переключатели, что уходят в рендер, — читаются раз при перемене, а не
+/// шестьдесят раз в секунду из хранилища. Заставка показывает игру теми же
+/// правилами, по которым её нарисует файл: иначе окно обещает одно, а видео
+/// приносит другое.
+const effects = { lighting: true, expand: true };
+
+function readEffects() {
+  effects.lighting = remembered("lighting", "1") === "1";
+  effects.expand = remembered("expand", "1") === "1";
+}
+readEffects();
+
+/// Цвет ноты. Список берётся у карты, а если она своих не назвала — у скина:
+/// так решает и осу!, и это единственная причина, по которой ноте передаётся
+/// номер её комбо, а не готовый индекс.
+function colourOf(piece, show) {
+  if (!show.skinned) return PLAIN;
+  const own = pics && pics.colours && pics.colours.length ? pics.colours : null;
+  const list = show.scene.colours && show.scene.colours.length ? show.scene.colours : own;
+  if (!list || !list.length) return "#e24848";
+  return list[piece.run % list.length];
+}
+
+/// Тот же цвет темнее — для дорожки слайдера, когда скин своей не назвал.
+function shade(colour, part) {
+  const hex = colour.replace("#", "");
+  const n = parseInt(hex.length === 3 ? hex.replace(/./g, (d) => d + d) : hex, 16);
+  const at = (shift) => Math.round(((n >> shift) & 255) * part);
+  return `rgb(${at(16)}, ${at(8)}, ${at(0)})`;
+}
+
+/// Что случилось с каждым объектом, по его номеру. Считается один раз на сцену
+/// и остаётся на ней: без этого нота не знает, ударили её или промазали, а от
+/// этого зависит и как она уходит, и светит ли она полем.
+function verdictsOf(show) {
+  if (show.scene.by_object) return show.scene.by_object;
+  const by = new Map();
+  for (const mark of show.judged.marks) by.set(mark.object_index, mark);
+  show.scene.by_object = by;
+  return by;
+}
+
+/// Когда объект уходит и как быстро.
+///
+/// Слайдер держится целым до собственного конца, даже если голову засудили
+/// давно, — `alpha_at` в движке делает ровно это. Удар раздувает ноту, промах
+/// нет: это единственная разница, которую видно на одном кадре.
+function endingOf(entry) {
+  const { piece, mark } = entry;
+  const missed = mark ? mark.worth === 0 : false;
+  const resolved = mark ? mark.ms : piece.end_ms;
+  return {
+    missed,
+    resolved,
+    fade: missed ? MISS_FADE_MS : HIT_FADE_MS,
+    leaves: Math.max(resolved, piece.end_ms),
+  };
+}
+
+function alphaOf(entry, show) {
+  const play = show.scene;
+  const spawn = entry.piece.start_ms - play.preempt_ms;
+  const ends = endingOf(entry);
+  const now = show.head;
+  if (now < spawn || now > ends.leaves + ends.fade) return 0;
+  const appearing = clamp01((now - spawn) / Math.max(1, play.fade_in_ms));
+  // Прямая, не сглаженная: `FadeOut(240)` без easing — это ровный спуск.
+  return appearing * (1 - clamp01((now - ends.leaves) / ends.fade));
+}
+
 function drawPlay(c, show, w, h) {
   const box = fit(w, h, show.scene.radius);
   const px = (x) => box.ox + x * box.scale;
   const py = (y) => box.oy + y * box.scale;
+  const marks = verdictsOf(show);
 
   if (show.frame) {
     c.strokeStyle = "rgba(255,255,255,0.05)";
     c.strokeRect(box.ox, box.oy, 512 * box.scale, 384 * box.scale);
   }
 
-  // Собираем видимое, потом рисуем задом наперёд: ближайший по времени объект
-  // должен лежать поверх тех, что придут после него, — так рисует и игра.
   const showing = [];
   for (let i = firstVisible(show.scene.objects, show.head); i < show.scene.objects.length; i += 1) {
     const piece = show.scene.objects[i];
     if (piece.start_ms - show.scene.preempt_ms > show.head) break;
-    showing.push(piece);
+    showing.push({ piece, index: i, mark: marks.get(i) || null });
   }
-  for (let i = showing.length - 1; i >= 0; i -= 1) {
-    drawPiece(c, showing[i], box, px, py, show);
-  }
+
+  // Те же слои и в том же порядке, что в `draw_field`: дорожка между нотами,
+  // вспышки под ними, потом все тела слайдеров разом — своим слоем, иначе тело
+  // позднего слайдера накрывает ноту, которую как раз собираются бить, — потом
+  // сами ноты, ранняя поверх поздней, и кольца подхода над всем.
+  drawFollowPoints(c, box, px, py, show);
+  drawLighting(c, box, px, py, show, showing);
+  for (let i = showing.length - 1; i >= 0; i -= 1) drawBody(c, showing[i], box, px, py, show);
+  for (let i = showing.length - 1; i >= 0; i -= 1) drawNote(c, showing[i], box, px, py, show);
+  for (let i = showing.length - 1; i >= 0; i -= 1) drawApproach(c, showing[i], box, px, py, show);
 
   if (show.popups) drawPopups(c, box, px, py, show);
   drawCursor(c, box, px, py, show);
 }
 
-function drawPiece(c, piece, box, px, py, show) {
-  const { scene: play, head: now, skinned: dressed } = show;
-  const appears = piece.start_ms - play.preempt_ms;
-  const colour = dressed ? play.colours[piece.colour] || "#e24848" : PLAIN;
-  const fading = now > piece.end_ms ? 1 - (now - piece.end_ms) / AFTER_MS : 1;
-  const alpha = Math.min(1, (now - appears) / Math.max(1, play.fade_in_ms)) * Math.max(0, fading);
-  if (alpha <= 0) return;
-  c.globalAlpha = alpha;
+/// Дорожка точек от одной ноты к следующей. Новое комбо её рвёт, спиннер её не
+/// имеет, и слишком близкие ноты обходятся без неё.
+function drawFollowPoints(c, box, px, py, show) {
+  const shot = show.skinned && pics ? pics.follow_point : null;
+  if (!shot) return;
+  const play = show.scene;
+  const now = show.head;
+  const fade = Math.max(1, play.fade_in_ms);
+  const objects = play.objects;
 
-  if (piece.kind === "slider" && piece.path.length >= 4) {
-    c.strokeStyle = "rgba(255,255,255,0.22)";
-    c.lineWidth = box.r * 2;
-    c.lineJoin = "round";
-    c.lineCap = "round";
-    c.beginPath();
-    c.moveTo(px(piece.path[0]), py(piece.path[1]));
-    for (let i = 2; i < piece.path.length; i += 2) c.lineTo(px(piece.path[i]), py(piece.path[i + 1]));
-    c.stroke();
-    c.strokeStyle = "rgba(10,5,8,0.85)";
-    c.lineWidth = Math.max(1, box.r * 2 - 5);
-    c.stroke();
+  for (let i = Math.max(1, firstVisible(objects, now)); i < objects.length; i += 1) {
+    const to = objects[i];
+    if (to.start_ms - play.preempt_ms - FOLLOW_PREEMPT_MS > now) break;
+    const from = objects[i - 1];
+    if (to.combo === 1 || from.kind === "spinner" || to.kind === "spinner") continue;
+    const leaves = endPointOf(from);
+    const span = to.start_ms - from.end_ms;
+    if (span <= 0) continue;
+    const dx = to.x - leaves[0];
+    const dy = to.y - leaves[1];
+    const distance = Math.hypot(dx, dy);
+    if (distance <= FOLLOW_SPACING * 2.5) continue;
+    const turn = Math.atan2(dy, dx);
+
+    for (let walked = FOLLOW_SPACING * 1.5; walked < distance - FOLLOW_SPACING; walked += FOLLOW_SPACING) {
+      const fraction = walked / distance;
+      const leaves_at = from.end_ms + fraction * span;
+      const arrives_at = leaves_at - FOLLOW_PREEMPT_MS;
+      if (now < arrives_at) continue;
+      const arriving = clamp01((now - arrives_at) / fade);
+      const leaving = now > leaves_at ? clamp01((now - leaves_at) / fade) : 0;
+      const alpha = arriving * (1 - leaving);
+      if (alpha <= 0) continue;
+      // Приходит на десятую позади своего места и подъезжает к нему, ужимаясь
+      // до размера по дороге.
+      const along = fraction - FOLLOW_APPROACH * (1 - easeOut(arriving));
+      const scale = FOLLOW_ENTRY_SCALE + (1 - FOLLOW_ENTRY_SCALE) * easeOut(arriving);
+      const side = box.r * scale;
+      c.save();
+      c.globalAlpha = alpha;
+      c.translate(px(leaves[0] + dx * along), py(leaves[1] + dy * along));
+      c.rotate(turn);
+      c.drawImage(shot.image, -side / 2, -side / 2, side, side);
+      c.restore();
+    }
   }
+  c.globalAlpha = 1;
+}
+
+/// Вспышка, которую оставляет отыгранная нота. Складывается со сценой, а не
+/// ложится поверх: положенная поверх, она была бы серым кругом на игре.
+function drawLighting(c, box, px, py, show, showing) {
+  const shot = effects.lighting && show.skinned && pics ? pics.lighting : null;
+  if (!shot) return;
+  c.save();
+  c.globalCompositeOperation = "lighter";
+  for (const entry of showing) {
+    const mark = entry.mark;
+    if (!mark || mark.worth === 0) continue;
+    const age = show.head - mark.ms;
+    if (age < 0 || age >= LIGHT_MS) continue;
+    const alpha =
+      age < LIGHT_IN_MS
+        ? age / LIGHT_IN_MS
+        : age < LIGHT_HOLD_MS
+          ? 1
+          : clamp01(1 - (age - LIGHT_HOLD_MS) / LIGHT_OUT_MS);
+    if (alpha <= 0) continue;
+    const scale = LIGHT_FROM + (LIGHT_TO - LIGHT_FROM) * easeOut(clamp01(age / LIGHT_GROW_MS));
+    const side = box.r * 2 * scale;
+    c.globalAlpha = alpha;
+    // На том же месте, что и вердикт: у слайдера это хвост, а не голова.
+    c.drawImage(tinted(shot.image, colourOf(entry.piece, show)), px(mark.x) - side / 2, py(mark.y) - side / 2, side, side);
+  }
+  c.restore();
+  c.globalAlpha = 1;
+}
+
+/// Дорожка слайдера — своим слоем, под всеми нотами.
+function drawBody(c, entry, box, px, py, show) {
+  const piece = entry.piece;
+  if (piece.kind !== "slider" || piece.path.length < 4) return;
+  const alpha = alphaOf(entry, show);
+  if (alpha <= 0) return;
+  const rules = show.skinned && pics ? pics.rules : null;
+  const colour = colourOf(piece, show);
+  const track = (rules && rules.slider_track) || shade(colour, 0.36);
+  const border = (rules && rules.slider_border) || "#ffffff";
+
+  c.save();
+  // Семь десятых, как в движке: тело должно затемнять то, что пересекает, а не
+  // закрывать. Непрозрачное тело — это накрытая нота, а не проходящая мимо.
+  c.globalAlpha = alpha * 0.7;
+  c.lineJoin = "round";
+  c.lineCap = "round";
+  c.beginPath();
+  c.moveTo(px(piece.path[0]), py(piece.path[1]));
+  for (let i = 2; i < piece.path.length; i += 2) c.lineTo(px(piece.path[i]), py(piece.path[i + 1]));
+  c.strokeStyle = border;
+  c.lineWidth = box.r * 2;
+  c.stroke();
+  c.strokeStyle = track;
+  c.lineWidth = Math.max(1, box.r * 2 - Math.max(2, box.r * 0.22));
+  c.stroke();
+  c.restore();
+  c.globalAlpha = 1;
+}
+
+/// Где объект оставляет игрока: конец слайдера или сама нота.
+function endPointOf(piece) {
+  if (piece.kind === "slider" && piece.ball.length >= 2) {
+    const last = piece.ball.length;
+    return [piece.ball[last - 2], piece.ball[last - 1]];
+  }
+  return [piece.x, piece.y];
+}
+
+/// Дальний конец пути — там, где осу! всё время держит кружок хвоста.
+function farEndOf(piece) {
+  const last = piece.path.length;
+  return last >= 2 ? [piece.path[last - 2], piece.path[last - 1]] : [piece.x, piece.y];
+}
+
+function drawNote(c, entry, box, px, py, show) {
+  const { piece } = entry;
+  const play = show.scene;
+  const now = show.head;
+  const alpha = alphaOf(entry, show);
+  if (alpha <= 0) return;
+  const colour = colourOf(piece, show);
 
   if (piece.kind === "spinner") {
+    c.globalAlpha = alpha;
     c.strokeStyle = colour;
     c.lineWidth = 2;
-    const turning = Math.max(0, Math.min(1, (now - piece.start_ms) / Math.max(1, piece.end_ms - piece.start_ms)));
+    const turning = clamp01((now - piece.start_ms) / Math.max(1, piece.end_ms - piece.start_ms));
     c.beginPath();
     c.arc(px(256), py(192), 130 * box.scale * (1 - turning * 0.75), 0, Math.PI * 2);
     c.stroke();
@@ -2009,77 +2318,231 @@ function drawPiece(c, piece, box, px, py, show) {
     return;
   }
 
-  const left = now < piece.start_ms ? (piece.start_ms - now) / Math.max(1, play.preempt_ms) : 0;
-  const side = box.r * 2;
+  const ends = endingOf(entry);
+  const exit = clamp01((now - ends.leaves) / ends.fade);
+  // Удар раздувает ноту, промах — нет. Сглажено к концу, поэтому почти весь
+  // рост приходится на первую треть: удар это не равномерное надувание.
+  const grown = box.r * (ends.missed ? 1 : 1 + HIT_SWELL * easeOut(exit));
 
-  if (dressed && pics && pics.circle) {
-    // Скин рисует себя сам: нота, её накладка, номер и кольцо — теми же
-    // файлами, которыми это рисует движок.
-    c.drawImage(tinted(pics.circle.image, colour), px(piece.x) - box.r, py(piece.y) - box.r, side, side);
-    if (pics.overlay) {
-      c.drawImage(pics.overlay.image, px(piece.x) - box.r, py(piece.y) - box.r, side, side);
-    }
-    if (pics.digits.length === 10) {
-      const figures = String(piece.combo).split("");
-      const high = box.r * 0.9;
-      const wide = figures.map((d) => {
-        const one = pics.digits[Number(d)];
-        return one ? (one.image.width / one.image.height) * high : 0;
-      });
-      let at = px(piece.x) - wide.reduce((a, b) => a + b, 0) / 2;
-      figures.forEach((d, i) => {
-        const one = pics.digits[Number(d)];
-        if (one) c.drawImage(one.image, at, py(piece.y) - high / 2, wide[i], high);
-        at += wide[i];
-      });
-    }
-    if (left > 0 && pics.approach) {
-      const ring = box.r * (1 + 2.4 * left) * 2;
-      c.drawImage(tinted(pics.approach.image, colour), px(piece.x) - ring / 2, py(piece.y) - ring / 2, ring, ring);
-    }
-  } else {
-    // Без скина — каркас: сквозь ноту видно поле, и глаз занят тем, что
-    // засчитано, а не тем, какого она цвета.
-    c.fillStyle = "rgba(255,255,255,0.05)";
+  c.globalAlpha = alpha;
+  if (piece.kind === "slider") {
+    const tail = farEndOf(piece);
+    drawFace(c, px(tail[0]), py(tail[1]), grown, colour, show, "tail");
+  }
+  drawFace(c, px(piece.x), py(piece.y), grown, colour, show, piece.kind === "slider" ? "head" : "note");
+
+  // Номер идёт вчетверо быстрее круга под ним и не растёт вместе с ним —
+  // цифра, растянутая до 1.4 на просвет, это смаз. Скин первой версии его
+  // просит и получает.
+  const swells = !!(show.skinned && pics && pics.rules && pics.rules.number_swells);
+  const numberShare = ends.missed || now < ends.resolved ? 1 : clamp01(1 - (now - ends.resolved) / NUMBER_FADE_MS);
+  if (numberShare > 0) {
+    c.globalAlpha = alpha * (swells ? 1 : numberShare);
+    drawNumber(c, px(piece.x), py(piece.y), swells ? grown : box.r, piece.combo, colour, show);
+    c.globalAlpha = alpha;
+  }
+  drawRim(c, px(piece.x), py(piece.y), grown, show, piece.kind === "slider" ? "head" : "note");
+
+  if (piece.kind === "slider") drawSlide(c, entry, box, px, py, show, colour, alpha);
+  c.globalAlpha = 1;
+}
+
+/// Какими картинками скин рисует эту грань: своими для конца слайдера, если он
+/// их привёз, и нотными иначе. Пара связана — накладка без своей основы не
+/// работает, так говорит и вики, и движок.
+function faceOf(which) {
+  if (!pics) return null;
+  if (which === "head" && pics.slider_head) return [pics.slider_head, pics.slider_head_overlay];
+  if (which === "tail" && pics.slider_tail) return [pics.slider_tail, pics.slider_tail_overlay];
+  if (which === "tail") return null;
+  return pics.circle ? [pics.circle, pics.overlay] : null;
+}
+
+function drawFace(c, x, y, radius, colour, show, which) {
+  const pair = show.skinned ? faceOf(which) : null;
+  if (pair) {
+    const side = radius * 2;
+    c.drawImage(tinted(pair[0].image, colour), x - radius, y - radius, side, side);
+    // Ободок ложится сейчас только если номер должен лежать на нём. Иначе он
+    // ждёт `drawRim`, после цифры.
+    const above = pics.rules && pics.rules.overlay_above_number;
+    if (!above && pair[1]) c.drawImage(pair[1].image, x - radius, y - radius, side, side);
+    return;
+  }
+  if (which === "tail") return;
+  if (show.skinned) {
+    // Скина нет — значит рисуем то, что в этом случае рисует движок: диск
+    // потемнее, диск цвета ноты внутри него и белый ободок между ними. Те же
+    // три круга и та же доля `border_ratio`, что в `draw_circle`; каркас ниже
+    // — это показ судейства, а не показ игры.
+    const border = radius * NOTE_BORDER;
+    c.fillStyle = shade(colour, 0.75);
     c.beginPath();
-    c.arc(px(piece.x), py(piece.y), box.r, 0, Math.PI * 2);
+    c.arc(x, y, radius, 0, Math.PI * 2);
     c.fill();
-    c.strokeStyle = colour;
-    c.lineWidth = Math.max(1.5, box.r * 0.1);
+    c.fillStyle = colour;
+    c.beginPath();
+    c.arc(x, y, radius - border, 0, Math.PI * 2);
+    c.fill();
+    c.strokeStyle = "#fff";
+    c.lineWidth = border;
+    c.beginPath();
+    c.arc(x, y, radius - border / 2, 0, Math.PI * 2);
     c.stroke();
-    if (box.r > 9) {
-      c.fillStyle = colour;
-      c.font = `600 ${box.r * 0.9}px ui-monospace, Menlo, monospace`;
-      c.textAlign = "center";
-      c.textBaseline = "middle";
-      c.fillText(String(piece.combo), px(piece.x), py(piece.y));
-    }
-    if (left > 0) {
-      c.strokeStyle = colour;
-      c.lineWidth = Math.max(1.2, box.r * 0.08);
-      c.globalAlpha = alpha * 0.7;
-      c.beginPath();
-      c.arc(px(piece.x), py(piece.y), box.r * (1 + 2.4 * left), 0, Math.PI * 2);
-      c.stroke();
+    return;
+  }
+  // Без скина в судействе — каркас: сквозь ноту видно поле, и глаз занят тем,
+  // что засчитано, а не тем, какого она цвета.
+  c.fillStyle = "rgba(255,255,255,0.05)";
+  c.beginPath();
+  c.arc(x, y, radius, 0, Math.PI * 2);
+  c.fill();
+  c.strokeStyle = colour;
+  c.lineWidth = Math.max(1.5, radius * 0.1);
+  c.stroke();
+}
+
+function drawRim(c, x, y, radius, show, which) {
+  if (!show.skinned || !pics || !pics.rules || !pics.rules.overlay_above_number) return;
+  const pair = faceOf(which);
+  if (!pair || !pair[1]) return;
+  c.drawImage(pair[1].image, x - radius, y - radius, radius * 2, radius * 2);
+}
+
+function drawNumber(c, x, y, radius, combo, colour, show) {
+  const figures = String(combo).split("");
+  if (show.skinned && pics && pics.digits.length === 10) {
+    const high = radius * 0.9;
+    const overlap = pics.rules ? pics.rules.hit_circle_overlap : 0;
+    const wide = figures.map((d) => {
+      const one = pics.digits[Number(d)];
+      return one ? (one.image.width / one.image.height) * high : 0;
+    });
+    // Скин говорит, насколько цифры наезжают друг на друга, — в его пикселях,
+    // приведённых к тому же росту, что и сами цифры.
+    const pull = pics.digits[0] ? (overlap / pics.digits[0].image.height) * high : 0;
+    const total = wide.reduce((a, b) => a + b, 0) - pull * (figures.length - 1);
+    let at = x - total / 2;
+    figures.forEach((d, i) => {
+      const one = pics.digits[Number(d)];
+      if (one) c.drawImage(one.image, at, y - high / 2, wide[i], high);
+      at += wide[i] - pull;
+    });
+    return;
+  }
+  if (radius <= 9) return;
+  c.fillStyle = show.skinned ? "#fff" : colour;
+  c.font = `600 ${radius * 0.9}px ui-monospace, Menlo, monospace`;
+  c.textAlign = "center";
+  c.textBaseline = "middle";
+  c.fillText(String(combo), x, y);
+}
+
+/// Всё, что происходит на слайдере, пока по нему едут: шар, кольцо слежения и
+/// стрелка на том конце, с которого он сейчас повернёт назад.
+function drawSlide(c, entry, box, px, py, show, colour, alpha) {
+  const { piece } = entry;
+  const play = show.scene;
+  const now = show.head;
+  const slides = piece.slides || 1;
+  const span = Math.max(1, piece.end_ms - piece.start_ms);
+  const slide = span / slides;
+
+  if (slides > 1 && now < piece.end_ms) {
+    const at = Math.floor(Math.max(0, now - piece.start_ms) / slide);
+    if (at < slides - 1) {
+      // Поворот случится в конце этого прохода: на дальнем конце, если проход
+      // чётный, и на ближнем, если нечётный.
+      const near = at % 2 === 1;
+      const spot = near ? [piece.x, piece.y] : farEndOf(piece);
+      const other = near ? farEndOf(piece) : [piece.x, piece.y];
+      const turn = Math.atan2(other[1] - spot[1], other[0] - spot[0]);
+      // Дышит на своих трёхстах миллисекундах — не на темпе карты.
+      const breath = ARROW_LOOP_FROM + (1 - ARROW_LOOP_FROM) * easeOut(((now % ARROW_LOOP_MS) / ARROW_LOOP_MS));
+      // Против радиуса ноты, как всякая картинка на поле: `ARROW_SCALE` —
+      // доля радиуса, а сторона вдвое больше него.
+      const side = box.r * 2 * ARROW_SCALE * breath;
+      const shot = show.skinned && pics ? pics.reverse_arrow : null;
+      c.save();
       c.globalAlpha = alpha;
+      c.translate(px(spot[0]), py(spot[1]));
+      c.rotate(turn);
+      if (shot) {
+        c.drawImage(shot.image, -side / 2, -side / 2, side, side);
+      } else {
+        c.strokeStyle = "#fff";
+        c.lineWidth = Math.max(1.5, box.r * 0.14);
+        c.lineCap = "round";
+        c.lineJoin = "round";
+        const reach = box.r * 0.5 * breath;
+        c.beginPath();
+        c.moveTo(-reach, -reach);
+        c.lineTo(reach * 0.6, 0);
+        c.lineTo(-reach, reach);
+        c.stroke();
+      }
+      c.restore();
     }
   }
 
-  // Шар слайдера — из тех же точек, что считал движок.
-  if (piece.kind === "slider" && now >= piece.start_ms && now <= piece.end_ms && piece.ball.length) {
-    // Шар — кружком в обоих режимах: у скина он анимированный, а анимацию
-    // здесь пока никто не проигрывает, и подсунуть один её кадр было бы
-    // хуже, чем не подсовывать ничего.
-    const at = Math.min(
-      piece.ball.length / 2 - 1,
-      Math.max(0, Math.round((now - piece.start_ms) / play.step_ms)),
-    );
-    c.fillStyle = colour;
+  if (now < piece.start_ms || now > piece.end_ms || !piece.ball.length) return;
+  const at = Math.min(piece.ball.length / 2 - 1, Math.max(0, Math.round((now - piece.start_ms) / play.step_ms)));
+  const bx = px(piece.ball[at * 2]);
+  const by = py(piece.ball[at * 2 + 1]);
+
+  c.globalAlpha = 1;
+  const ring = show.skinned && pics ? pics.follow_circle : null;
+  if (ring) {
+    const side = box.r * 2 * 2;
+    c.drawImage(ring.image, bx - side / 2, by - side / 2, side, side);
+  } else {
+    c.strokeStyle = "rgba(255,255,255,0.5)";
+    c.lineWidth = Math.max(1.5, box.r * 0.1);
     c.beginPath();
-    c.arc(px(piece.ball[at * 2]), py(piece.ball[at * 2 + 1]), box.r * 0.9, 0, Math.PI * 2);
-    c.fill();
-    c.strokeStyle = "rgba(255,255,255,0.9)";
-    c.lineWidth = 2;
+    c.arc(bx, by, box.r * 1.9, 0, Math.PI * 2);
+    c.stroke();
+  }
+
+  const ball = show.skinned && pics ? pics.slider_ball : null;
+  if (ball) {
+    const side = box.r * 2;
+    // Скин вправе запретить красить шар — тогда он идёт как нарисован.
+    const tint = pics.rules && pics.rules.slider_ball_tint ? tinted(ball.image, colour) : ball.image;
+    c.drawImage(tint, bx - side / 2, by - side / 2, side, side);
+    return;
+  }
+  // Ядро растёт от трети шара до целого за проход — так его ведёт движок.
+  const grown = BALL_CORE + (1 - BALL_CORE) * clamp01((now - piece.start_ms) / span);
+  c.fillStyle = colour;
+  c.beginPath();
+  c.arc(bx, by, box.r * 0.9 * grown, 0, Math.PI * 2);
+  c.fill();
+  c.strokeStyle = "rgba(255,255,255,0.9)";
+  c.lineWidth = 2;
+  c.stroke();
+}
+
+/// Кольцо подхода. Сходится равномерно и рисуется над всеми нотами разом — так
+/// его кладёт `OsuPlayfield`, последним слоем.
+function drawApproach(c, entry, box, px, py, show) {
+  const { piece } = entry;
+  if (piece.kind === "spinner" || show.head >= piece.start_ms) return;
+  const alpha = alphaOf(entry, show);
+  if (alpha <= 0) return;
+  const play = show.scene;
+  const progress = clamp01(1 - (piece.start_ms - show.head) / Math.max(1, play.preempt_ms));
+  const scale = 1 + APPROACH_REACH * (1 - progress);
+  const colour = colourOf(piece, show);
+  c.globalAlpha = alpha;
+  const shot = show.skinned && pics ? pics.approach : null;
+  if (shot) {
+    const side = box.r * scale * 2;
+    c.drawImage(tinted(shot.image, colour), px(piece.x) - side / 2, py(piece.y) - side / 2, side, side);
+  } else {
+    c.strokeStyle = colour;
+    c.lineWidth = Math.max(1, box.r * 0.09);
+    c.beginPath();
+    c.arc(px(piece.x), py(piece.y), box.r * scale, 0, Math.PI * 2);
     c.stroke();
   }
   c.globalAlpha = 1;
@@ -2110,26 +2573,63 @@ function drawPopups(c, box, px, py, show) {
   c.globalAlpha = 1;
 }
 
+/// Курсор и то, что он оставляет за собой.
+///
+/// След — не линия: осу! кладёт копии картинки, каждая тусклее предыдущей, и
+/// ломаная вместо них была нашей собственной выдумкой. Скин, который привёз
+/// `cursortrail`, теперь виден и в следе тоже.
 function drawCursor(c, box, px, py, show) {
   const play = show.scene;
   const now = cursorAt(play, show.head);
-  c.strokeStyle = "rgba(255,255,255,0.35)";
-  c.lineWidth = 1.5;
-  c.beginPath();
-  for (let back = 12; back >= 0; back -= 1) {
-    const at = Math.max(0, now.at - back);
-    const point = [px(play.cursor[at * 2]), py(play.cursor[at * 2 + 1])];
-    if (back === 12) c.moveTo(point[0], point[1]);
-    else c.lineTo(point[0], point[1]);
-  }
-  c.stroke();
+  const rules = show.skinned && pics ? pics.rules : null;
+  const trail = show.skinned && pics ? pics.cursor_trail : null;
 
-  const held = (now.keys & 15) !== 0;
-  // Курсор скина, когда он есть: на заставке это единственное, что отделяет
-  // «наш показ игры» от «игры».
+  if (trail) {
+    const side = box.r * 1.1;
+    for (let back = TRAIL_LENGTH; back >= 1; back -= 1) {
+      const at = Math.max(0, now.at - back);
+      c.globalAlpha = (1 - back / (TRAIL_LENGTH + 1)) * 0.7;
+      c.drawImage(trail.image, px(play.cursor[at * 2]) - side / 2, py(play.cursor[at * 2 + 1]) - side / 2, side, side);
+    }
+    c.globalAlpha = 1;
+  } else {
+    c.strokeStyle = "rgba(255,255,255,0.35)";
+    c.lineWidth = 1.5;
+    c.beginPath();
+    for (let back = TRAIL_LENGTH; back >= 0; back -= 1) {
+      const at = Math.max(0, now.at - back);
+      const point = [px(play.cursor[at * 2]), py(play.cursor[at * 2 + 1])];
+      if (back === TRAIL_LENGTH) c.moveTo(point[0], point[1]);
+      else c.lineTo(point[0], point[1]);
+    }
+    c.stroke();
+  }
+
+  // Раздувается под нажатием, если скин это разрешает: `CursorExpand: 0` —
+  // его право, и раньше оно просто не читалось.
+  // Оба должны разрешить: настройка — смотрящего, `CursorExpand: 0` — скина,
+  // и скин, который отказал, отказывает и при включённой настройке.
+  const expands = effects.expand && (!rules || rules.cursor_expand);
+  const held = expands && (now.keys & 15) !== 0;
   if (show.skinned && pics && pics.cursor) {
     const side = box.r * (held ? 1.5 : 1.35);
-    c.drawImage(pics.cursor.image, px(now.x) - side / 2, py(now.y) - side / 2, side, side);
+    // И поворачивается, если скин просит. Оборот за десять секунд — тот же
+    // счёт, что у движка.
+    if (rules && rules.cursor_rotate) {
+      c.save();
+      c.translate(px(now.x), py(now.y));
+      c.rotate(((show.head % CURSOR_TURN_MS) / CURSOR_TURN_MS) * Math.PI * 2);
+      c.drawImage(pics.cursor.image, -side / 2, -side / 2, side, side);
+      c.restore();
+    } else {
+      c.drawImage(pics.cursor.image, px(now.x) - side / 2, py(now.y) - side / 2, side, side);
+    }
+    // Середина идёт поверх и никогда не раздувается — это уже поведение игры,
+    // а не выбор скина.
+    if (pics.cursor_middle) {
+      const middle = box.r * 1.35;
+      c.drawImage(pics.cursor_middle.image, px(now.x) - middle / 2, py(now.y) - middle / 2, middle, middle);
+    }
     return;
   }
   c.fillStyle = held ? "#fff" : "rgba(255,255,255,0.75)";
@@ -2603,6 +3103,7 @@ byId("rp-build").addEventListener("click", async () => {
   said.className = "verdict";
   said.textContent = "Собираю…";
   byId("rp-progress").hidden = false;
+  byId("rp-doneslot").replaceChildren();
   byId("rp-bar").style.width = "0%";
   const out = chosen.replace(/\.osr$/i, "") + "-монтаж.mp4";
   const settings = options();
@@ -2617,11 +3118,16 @@ byId("rp-build").addEventListener("click", async () => {
       fps: settings.fps,
       mute: settings.mute,
     });
-    said.textContent = `Готово — ${done.path}`;
+    said.textContent = "";
+    showFinished(byId("rp-doneslot"), {
+      head: `Монтаж собран — ${clips.length} ${plural(clips.length, "кусок", "куска", "кусков")}`,
+      path: done.path,
+      notes: done.said,
+    });
     endJob(true);
   } catch (why) {
-    said.className = "verdict bad";
-    said.textContent = `Не вышло: ${why}`;
+    said.textContent = "";
+    showFinished(byId("rp-doneslot"), { head: "Монтаж не собрался", notes: [String(why)], bad: true });
     endJob(false);
   } finally {
     drawing = false;

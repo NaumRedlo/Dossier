@@ -1814,7 +1814,10 @@ function fillPlays({ shelves, skins, plays, rows }) {
       endJob(false);
     } finally {
       drawing = false;
-      for (const other of list.querySelectorAll("button")) other.disabled = !other.closest(".rep.nomap");
+      // Обратно включить всё, кроме тех, у кого и так нечего рисовать. Здесь
+      // стояло отрицание не с той стороны, и после первого же рендера полка
+      // оставалась с мёртвыми кнопками до перезапуска окна.
+      for (const other of list.querySelectorAll("button")) other.disabled = Boolean(other.closest(".rep.nomap"));
       byId("r-busy").hidden = true;
       list.classList.remove("dimmed");
     }
@@ -1841,9 +1844,10 @@ const PREVIEWS_KEPT = 60;
 /// Сколько читать одновременно. Чтение — это разбор карты и пересуд реплея;
 /// двадцать сразу отняли бы у окна ровно те ядра, которыми оно рисует.
 const PREVIEWS_AT_ONCE = 2;
-/// Тридцать кадров в секунду. Идёт всегда одна карточка, но это ноготь, и
-/// шестидесяти он не стоит.
-const PREVIEW_STEP_MS = 1000 / 30;
+/// Сколько кадр держится на краю отрывка. Голова возвращается в начало рывком
+/// — шесть секунд не бесшовны, — и рывок в петле виден. Затемнение по обоим
+/// краям делает из него смену плана.
+const PREVIEW_EDGE_MS = 420;
 
 const previews = new Map();
 const showing = new Set();
@@ -1963,11 +1967,13 @@ function keepPreview(path, made) {
   }
 }
 
-/// Один кадр и след курсора поверх него.
+/// Один кадр из середины куска, где нот больше всего, а не с его начала:
+/// начало любого отрывка — это пустое поле и одна нота.
 ///
-/// Кадр берётся из середины куска, где нот больше всего, а не с его начала:
-/// начало любого отрывка — это пустое поле и одна нота. След добавляет то,
-/// чего один кадр сказать не может, — куда ходила рука.
+/// След курсора за весь отрывок здесь рисовался и убран: движок его не рисует,
+/// а поверх шести секунд чужой игры он ложился клубком, из которого не читалось
+/// ни движение, ни ноты под ним. Карточка показывает игру, а не наш рассказ
+/// о ней.
 function stillCard(card) {
   const made = previews.get(card.previewOf.path);
   if (!made) return;
@@ -1976,25 +1982,7 @@ function stillCard(card) {
   const { ctx, wide, high } = c;
   const play = made.scene;
   const middle = (play.from_ms + play.to_ms) / 2;
-  trace(ctx, play, wide, high);
-  drawPlay(ctx, { scene: play, judged: made.judged, head: middle, skinned: true, popups: false, frame: false }, wide, high);
-}
-
-/// Куда ходил курсор за весь отрывок, одной тихой линией.
-function trace(c, play, w, h) {
-  if (play.cursor.length < 4) return;
-  const box = fit(w, h, play.radius);
-  c.save();
-  c.strokeStyle = "rgba(255,255,255,0.14)";
-  c.lineWidth = 1;
-  c.lineJoin = "round";
-  c.beginPath();
-  c.moveTo(box.ox + play.cursor[0] * box.scale, box.oy + play.cursor[1] * box.scale);
-  for (let i = 2; i < play.cursor.length; i += 2) {
-    c.lineTo(box.ox + play.cursor[i] * box.scale, box.oy + play.cursor[i + 1] * box.scale);
-  }
-  c.stroke();
-  c.restore();
+  drawPlay(ctx, { scene: play, judged: made.judged, head: middle, skinned: true, popups: true, frame: false }, wide, high);
 }
 
 function readyCanvas(card) {
@@ -2030,10 +2018,8 @@ function runPreviews() {
       previewRun = null;
       return;
     }
-    if (now - was < PREVIEW_STEP_MS) {
-      previewRun = requestAnimationFrame(frame);
-      return;
-    }
+    // Каждый кадр, а не через один: идёт всегда ровно одна карточка, и
+    // тридцать кадров на ней были экономией там, где экономить не на чем.
     const step = Math.min(120, now - was);
     was = now;
     paintCard(one, step);
@@ -2047,14 +2033,30 @@ function paintCard(card, step) {
   if (!made) return;
   const c = readyCanvas(card);
   if (!c) return;
+  const play = made.scene;
   made.head += step;
-  if (made.head > made.scene.to_ms) made.head = made.scene.from_ms;
+  if (made.head > play.to_ms) made.head = play.from_ms;
+  // Гаснет к концу отрывка и проявляется в начале, так что петля читается как
+  // склейка, а не как обрыв.
   drawPlay(
     c.ctx,
-    { scene: made.scene, judged: made.judged, head: made.head, skinned: true, popups: true, frame: false },
+    { scene: play, judged: made.judged, head: made.head, skinned: true, popups: true, frame: false },
     c.wide,
     c.high,
   );
+  const into = clamp01((made.head - play.from_ms) / PREVIEW_EDGE_MS);
+  const away = clamp01((play.to_ms - made.head) / PREVIEW_EDGE_MS);
+  const shown = Math.min(into, away);
+  if (shown >= 1) return;
+  // Стирать, а не закрашивать: `globalAlpha`, выставленная до `drawPlay`, ею
+  // же и переписывается — сцена выставляет свою на каждой ноте. А `destination-out`
+  // снимает долю уже нарисованного, и из-под неё выходит фон коробки, а не
+  // чёрный прямоугольник поверх карточки.
+  c.ctx.save();
+  c.ctx.globalCompositeOperation = "destination-out";
+  c.ctx.globalAlpha = 1 - shown;
+  c.ctx.fillRect(0, 0, c.wide, c.high);
+  c.ctx.restore();
 }
 
 const motionOn = () => remembered("motion", "on") === "on";
@@ -2113,6 +2115,10 @@ const sheet = byId("r-sheet");
 /// Всё, что мы уже посчитали об этом заходе, в одном месте. Ничего нового не
 /// читается: разбор ради предпросмотра уже дал и точность, и счёт судейства —
 /// «Подробнее» показывает то, что и так лежит.
+///
+/// Порядок здесь — это порядок, в котором на заход смотрят. Сначала одно
+/// число, ради которого его открыли, потом из чего оно сложилось, потом где
+/// лежали нажатия, и только в конце — где лежит файл.
 function openSheet(play, card) {
   const made = previews.get(play.path);
   const body = byId("r-sheet-body");
@@ -2120,32 +2126,29 @@ function openSheet(play, card) {
 
   const head = el("div", "sheethead");
   head.append(el("h3", null, said ? said.title : play.file));
-  head.append(el("p", "about", `${play.player} · ${play.mods || "NM"} · ${round(play.score)} очков`));
+  const chips = el("div", "chips");
+  chips.append(el("span", "chip who", play.player));
+  chips.append(el("span", "chip", play.mods || "NM"));
+  chips.append(el("span", "chip", `${round(play.score)} очков`));
+  head.append(chips);
   body.replaceChildren(head);
 
   if (!said) {
-    body.append(el("p", "fine", play.have_map ? "Ещё читаю этот реплей." : "Карты этого реплея нет на этой машине — судить не по чему."));
+    body.append(
+      el("p", "fine", play.have_map ? "Ещё читаю этот реплей." : "Карты этого реплея нет на этой машине — судить не по чему."),
+    );
   } else {
-    const grid = el("div", "figures");
-    for (const [name, value, tone] of [
-      ["Точность", `${round(said.accuracy_percent, 2)}%`, ""],
-      ["Комбо", said.combo === said.combo_recorded ? String(said.combo) : `${said.combo} / записано ${said.combo_recorded}`, said.combo === said.combo_recorded ? "" : "huh"],
-      ["300", String(said.counts.great), ""],
-      ["100", String(said.counts.ok), ""],
-      ["50", String(said.counts.meh), said.counts.meh ? "huh" : ""],
-      ["Промахи", String(said.counts.miss), said.counts.miss ? "no" : ""],
-      ["Разброс", said.unstable_rate === null ? "—" : `${round(said.unstable_rate, 1)} UR`, ""],
-    ]) {
-      const one = el("div", `figure ${tone}`);
-      one.append(el("b", null, value), el("span", null, name));
-      grid.append(one);
+    body.append(mainFigure(said));
+    body.append(tally(said));
+    const spread = errorBars(said);
+    if (spread) {
+      body.append(el("h4", "sheeth", "Куда ложились нажатия"));
+      body.append(spread);
     }
-    body.append(grid);
-    body.append(errorBars(said));
   }
 
-  const where = el("p", "where", play.path);
-  body.append(where);
+  body.append(el("h4", "sheeth", "Файл"));
+  body.append(el("p", "where", play.path));
 
   const routes = el("div", "routes");
   const judge = el("button", "act small primary", "Посмотреть в судействе");
@@ -2170,15 +2173,80 @@ function openSheet(play, card) {
   void card;
 }
 
+/// Точность крупно, и рядом — комбо. Это те два числа, ради которых заход
+/// открывают; остальные семь объясняют их, а не соперничают с ними.
+function mainFigure(said) {
+  const box = el("div", "crown");
+
+  const big = el("div", "big");
+  const whole = Math.floor(said.accuracy_percent);
+  const part = Math.round((said.accuracy_percent - whole) * 100);
+  const number = el("div", "n");
+  number.append(el("span", "w", String(whole)), el("span", "p", `,${String(part).padStart(2, "0")}%`));
+  big.append(number, el("span", "cap", "точность"));
+  box.append(big);
+
+  const side = el("div", "aside");
+  const combo = el("div", "one");
+  combo.append(el("b", null, `${round(said.combo)}×`), el("span", null, "наше комбо"));
+  side.append(combo);
+  if (said.combo !== said.combo_recorded) {
+    // Не делим одно на другое: это два утверждения об одном заходе, и если они
+    // расходятся, интересно именно расхождение, а не его доля.
+    const recorded = el("div", "one huh");
+    recorded.append(el("b", null, `${round(said.combo_recorded)}×`), el("span", null, "записано в реплее"));
+    side.append(recorded);
+  }
+  const ur = el("div", "one");
+  ur.append(
+    el("b", null, said.unstable_rate === null ? "—" : round(said.unstable_rate, 1)),
+    el("span", null, "разброс, UR"),
+  );
+  side.append(ur);
+  box.append(side);
+  return box;
+}
+
+/// Из чего сложилась точность: четыре счёта полосой, и ширина каждого — его
+/// доля. Одни цифры не показывают, что промахов два против четырёхсот восьмидесяти
+/// трёхсоток; полоса показывает.
+function tally(said) {
+  const rows = [
+    ["300", said.counts.great, "great"],
+    ["100", said.counts.ok, "ok"],
+    ["50", said.counts.meh, "meh"],
+    ["×", said.counts.miss, "miss"],
+  ];
+  const total = rows.reduce((sum, [, n]) => sum + n, 0) || 1;
+  const box = el("div", "tally");
+  const bar = el("div", "band");
+  for (const [, n, kind] of rows) {
+    if (!n) continue;
+    const part = el("span", kind);
+    part.style.flexGrow = String(n);
+    bar.append(part);
+  }
+  box.append(bar);
+  const keys = el("div", "keys");
+  for (const [name, n, kind] of rows) {
+    const one = el("div", `key ${kind}${n ? "" : " none"}`);
+    one.append(el("i", null, ""), el("b", null, round(n)), el("span", null, name));
+    keys.append(one);
+  }
+  box.append(keys);
+  void total;
+  return box;
+}
+
 /// Куда ложились нажатия: столбики по окнам ошибки, рано слева, поздно справа.
-/// Это тот же разброс, что в строке UR, только видно, он в одну сторону или в
+/// Это тот же разброс, что в числе UR, только видно, он в одну сторону или в
 /// обе — а по одному числу это не отличить.
 function errorBars(said) {
   const errors = said.marks.map((mark) => mark.error_ms).filter((one) => one !== null && one !== undefined);
+  if (errors.length < 4) return null;
   const box = el("div", "spread");
-  if (errors.length < 4) return box;
   const reach = Math.max(20, ...errors.map(Math.abs));
-  const bins = 25;
+  const bins = 41;
   const counts = new Array(bins).fill(0);
   for (const one of errors) {
     const at = Math.min(bins - 1, Math.floor(((one + reach) / (reach * 2)) * bins));
@@ -2186,15 +2254,25 @@ function errorBars(said) {
   }
   const tallest = Math.max(...counts);
   const bars = el("div", "bars");
+  const middle = Math.floor(bins / 2);
   counts.forEach((n, i) => {
     const bar = el("div", "bar");
     bar.style.height = `${(n / tallest) * 100}%`;
-    if (i === Math.floor(bins / 2)) bar.classList.add("mid");
+    // Ранние слева, поздние справа, и середина своим цветом: без неё столбики
+    // симметричны на вид даже когда смещены.
+    if (i === middle) bar.classList.add("mid");
     bars.append(bar);
   });
   box.append(bars);
+
+  const early = errors.filter((one) => one < 0).length;
+  const late = errors.length - early;
   const scale = el("div", "scale");
-  scale.append(el("span", null, `−${round(reach)} мс`), el("span", null, "вовремя"), el("span", null, `+${round(reach)} мс`));
+  scale.append(
+    el("span", null, `рано · ${round((early / errors.length) * 100)}%`),
+    el("span", "mono", `±${round(reach)} мс`),
+    el("span", null, `${round((late / errors.length) * 100)}% · поздно`),
+  );
   box.append(scale);
   return box;
 }
@@ -3069,11 +3147,16 @@ function drawPopups(c, box, px, py, show) {
       const high = box.r * 1.5;
       const wide = (shot.image.width / shot.image.height) * high;
       c.drawImage(shot.image, px(mark.x) - wide / 2, py(mark.y) - high / 2 - since * 0.02, wide, high);
-    } else {
-      c.fillStyle = WORTH[mark.worth] || WORTH[0];
-      c.font = `700 ${Math.max(11, box.r * 0.8)}px ui-monospace, Menlo, monospace`;
-      c.fillText(SAID[mark.worth] || "×", px(mark.x), py(mark.y) - since * 0.02);
+      continue;
     }
+    // Со скином — только скином. Наши цифры под чужими нотами читались как
+    // разметка поверх игры, а не как игра: там, где скин своей картинки не
+    // привёз, лучше не показывать ничего. Свои они в судействе, где это и есть
+    // предмет разговора, а не оформление.
+    if (show.skinned) continue;
+    c.fillStyle = WORTH[mark.worth] || WORTH[0];
+    c.font = `700 ${Math.max(11, box.r * 0.8)}px ui-monospace, Menlo, monospace`;
+    c.fillText(SAID[mark.worth] || "×", px(mark.x), py(mark.y) - since * 0.02);
   }
   c.globalAlpha = 1;
 }

@@ -1448,6 +1448,7 @@ body.still .rep:hover { transform: none; }
   place-content: center;
   color: var(--faint);
   font: 0.76rem var(--mono);
+  pointer-events: none;
 }
 /* Точность в углу кадра: её ищут первой, и ради неё не должно приходиться
    разворачивать запись. Появляется вместе с разбором — до него её нет. */
@@ -1472,6 +1473,11 @@ body.still .rep:hover { transform: none; }
   content: "";
   position: absolute;
   inset: 0;
+  /* Насквозь. Псевдоэлемент — последний ребёнок коробки, то есть лежит поверх
+     всего в ней, включая кнопку: пока запись читалась, «Отрендерить» была под
+     этим отблеском и не нажималась. Всё, что здесь только показывает, обязано
+     не ловить нажатия. */
+  pointer-events: none;
   background: linear-gradient(100deg, transparent 30%, rgba(255, 255, 255, 0.05) 50%, transparent 70%);
   background-size: 250% 100%;
   animation: sweep 2.4s linear infinite;
@@ -1488,8 +1494,11 @@ body.still .rep .stage::after, body.away .rep .stage::after { animation: none; }
   opacity: 0;
   background: linear-gradient(transparent, rgba(0, 0, 0, 0.6));
   transition: opacity 0.2s var(--ease);
+  pointer-events: none;
 }
-.rep:hover .scrim, .rep:focus-within .scrim { opacity: 1; }
+/* Ловит нажатия только когда её видно: невидимая полоса поперёк низа кадра
+   — это кнопка, которой нет, стоящая там, где её ищут. */
+.rep:hover .scrim, .rep:focus-within .scrim { opacity: 1; pointer-events: auto; }
 
 .rep .who { padding: 0.6rem 0.75rem 0.7rem; }
 .rep .who b { display: block; font-size: 0.92rem; }
@@ -1581,39 +1590,104 @@ body.still .rep .stage::after, body.away .rep .stage::after { animation: none; }
 .shut:hover svg { stroke: var(--accent); }
 
 .sheethead h3 { margin: 0 2rem 0 0; font-size: 1rem; font-weight: 600; font-family: inherit; line-height: 1.35; color: var(--ink); text-transform: none; letter-spacing: 0; }
-.sheethead .about { margin: 0.25rem 0 0; color: var(--faint); font: 0.78rem var(--mono); }
-
-.figures {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(5rem, 1fr));
-  gap: 0.4rem;
-  margin: 1rem 0 0;
-}
-.figure {
-  padding: 0.5rem 0.6rem;
+.sheethead .chips { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.5rem; }
+.chip {
+  padding: 0.16rem 0.5rem;
   border: 1px solid var(--line);
-  border-radius: 0.7rem;
+  border-radius: 0.5rem;
+  background: var(--sunk);
+  color: var(--muted);
+  font: 0.72rem var(--mono);
+}
+.chip.who { border-color: var(--accent-soft); color: var(--ink); font-weight: 600; }
+
+h4.sheeth {
+  margin: 1.35rem 0 0.55rem;
+  color: var(--faint);
+  font: 600 0.72rem var(--mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* Одно число крупно и три поменьше рядом: точность — это то, ради чего заход
+   открывают, и она не должна стоять в ряду одинаковых плиток наравне с
+   количеством полтинников. */
+.crown {
+  display: flex;
+  align-items: stretch;
+  gap: 1rem;
+  margin-top: 1.1rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: 0.9rem;
+  background: linear-gradient(140deg, var(--accent-soft), transparent 62%), var(--sunk);
+}
+.crown .big { display: flex; flex-direction: column; justify-content: center; }
+.crown .n { display: flex; align-items: baseline; font-family: var(--mono); line-height: 1; }
+.crown .n .w { font-size: 2.5rem; font-weight: 600; letter-spacing: -0.02em; }
+.crown .n .p { font-size: 1.1rem; color: var(--muted); }
+.crown .cap { margin-top: 0.3rem; color: var(--faint); font-size: 0.72rem; }
+.crown .aside {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.35rem;
+  padding-left: 1rem;
+  border-left: 1px solid var(--line);
+}
+.crown .one { display: flex; align-items: baseline; gap: 0.45rem; }
+.crown .one b { min-width: 4.2rem; font: 600 0.92rem var(--mono); }
+.crown .one span { color: var(--faint); font-size: 0.72rem; }
+.crown .one.huh b { color: #f0c060; }
+
+/* Из чего сложилась точность. Полоса сначала — она говорит про доли, а цифры
+   под ней про количества, и в таком порядке их и читают. */
+.tally { margin-top: 0.7rem; }
+.tally .band {
+  display: flex;
+  gap: 2px;
+  height: 0.42rem;
+  overflow: hidden;
+  border-radius: 0.21rem;
   background: var(--sunk);
 }
-.figure b { display: block; font: 600 0.95rem var(--mono); }
-.figure span { color: var(--faint); font-size: 0.7rem; }
-.figure.huh b { color: #f0c060; }
-.figure.no b { color: var(--accent); }
+.tally .band span { display: block; min-width: 2px; }
+.tally .band .great { background: #66ccff; }
+.tally .band .ok { background: #88d64c; }
+.tally .band .meh { background: #f0c060; }
+.tally .band .miss { background: var(--accent); }
+.tally .keys { display: flex; flex-wrap: wrap; gap: 0.9rem; margin-top: 0.55rem; }
+.tally .key { display: flex; align-items: baseline; gap: 0.35rem; }
+.tally .key i { width: 0.5rem; height: 0.5rem; border-radius: 50%; }
+.tally .key.great i { background: #66ccff; }
+.tally .key.ok i { background: #88d64c; }
+.tally .key.meh i { background: #f0c060; }
+.tally .key.miss i { background: var(--accent); }
+.tally .key b { font: 600 0.88rem var(--mono); }
+.tally .key span { color: var(--faint); font-size: 0.72rem; }
+.tally .key.none { opacity: 0.4; }
 
 /* Разброс нажатий. Одно число говорит, насколько широко, и молчит о том, в
    какую сторону; столбики отвечают на второй вопрос. */
-.spread { margin: 1rem 0 0; }
+.spread {
+  padding: 0.7rem 0.8rem 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: 0.8rem;
+  background: var(--sunk);
+}
 .spread .bars {
   display: flex;
   align-items: flex-end;
-  gap: 2px;
-  height: 4rem;
+  gap: 1px;
+  height: 4.2rem;
   padding: 0 0.1rem;
   border-bottom: 1px solid var(--line);
 }
-.spread .bar { flex: 1; min-height: 1px; border-radius: 1px 1px 0 0; background: var(--accent); opacity: 0.75; }
+.spread .bar { flex: 1; min-height: 1px; border-radius: 1px 1px 0 0; background: var(--accent); opacity: 0.7; }
 .spread .bar.mid { background: var(--good); opacity: 1; }
-.spread .scale { display: flex; justify-content: space-between; margin-top: 0.3rem; color: var(--faint); font: 0.68rem var(--mono); }
+.spread .scale { display: flex; justify-content: space-between; margin-top: 0.35rem; color: var(--faint); font-size: 0.7rem; }
+.spread .scale .mono { font-family: var(--mono); }
 
 #r-sheet-body .where {
   margin: 1rem 0 0;

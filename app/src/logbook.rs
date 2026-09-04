@@ -38,11 +38,15 @@ fn seconds_now() -> u64 {
 
 /// `2026-09-04 18:22:07` from a count of seconds.
 ///
+/// The application's one date formatter — the replay list borrows it for the
+/// moment a play was recorded. Two of these would be two answers about when
+/// something happened.
+///
 /// The civil-from-days arithmetic is Howard Hinnant's, which is the standard
 /// answer to this and shorter than the dependency that would otherwise arrive
 /// to do it. UTC: a log is read beside other logs and beside the bot's, and a
 /// local time makes two machines disagree about the order of events.
-fn stamp(seconds: u64) -> String {
+pub fn stamp(seconds: u64) -> String {
     let days = (seconds / 86_400) as i64;
     let rest = seconds % 86_400;
     let z = days + 719_468;

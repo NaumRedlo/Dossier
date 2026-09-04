@@ -56,7 +56,84 @@ pub struct Judged {
     pub accuracy_percent: f64,
     pub counts: Counts,
     pub unstable_rate: Option<f64>,
+    /// The most combo this map can give — head, tail, every tick and every
+    /// turn of every slider. Without it "did they keep it" cannot be answered:
+    /// a number on its own is a number.
+    pub combo_possible: u32,
+    /// How the play ended, in the words the game uses for it.
+    pub outcome: Outcome,
+    /// Which client recorded this, and when.
+    pub client: Client,
     pub marks: Vec<Mark>,
+}
+
+/// How a play ended.
+///
+/// `fail` — the bar emptied and the play stopped there, and `share` says how
+/// far into the map that was. `fc` — it went the distance and kept every link
+/// of the combo. `break` — nothing was missed but the combo still broke, which
+/// is a dropped slider end and has its own name at the table. `miss` — the
+/// ordinary case, with a count.
+#[derive(serde::Serialize)]
+pub struct Outcome {
+    pub kind: &'static str,
+    /// Per cent of the map's objects reached. Only meaningful for a fail.
+    pub share: f64,
+    pub misses: u32,
+}
+
+/// The client a replay came out of.
+///
+/// `version` is the integer in the header. Stable writes a date there —
+/// `20210520` is the twentieth of May — and lazer writes thirty million and
+/// up, which is how the two are told apart. A number that is neither is
+/// reported as it stands rather than guessed at.
+#[derive(serde::Serialize)]
+pub struct Client {
+    pub name: &'static str,
+    pub version: i32,
+    /// `2021-05-20`, from the version, where the version is a date.
+    pub build: String,
+    /// When the play was recorded, `YYYY-MM-DD HH:MM:SS` in UTC.
+    pub played_at: String,
+}
+
+/// Windows ticks — hundred-nanosecond intervals since the first of January in
+/// the year one — are what a replay stores. This is the gap to the Unix epoch.
+const TICKS_TO_UNIX: i64 = 62_135_596_800;
+
+fn client_of(replay: &Replay) -> Client {
+    let version = replay.game_version;
+    let name = if version >= 30_000_000 {
+        "osu!lazer"
+    } else if version >= 20_070_000 {
+        "osu!stable"
+    } else {
+        "неизвестен"
+    };
+    // A stable version is a date and reads as one; lazer's is a build number
+    // and does not.
+    let build = if name == "osu!stable" {
+        format!(
+            "{:04}-{:02}-{:02}",
+            version / 10_000,
+            version / 100 % 100,
+            version % 100
+        )
+    } else {
+        String::new()
+    };
+    let seconds = replay.timestamp_ticks / 10_000_000 - TICKS_TO_UNIX;
+    Client {
+        name,
+        version,
+        build,
+        played_at: if seconds > 0 {
+            crate::logbook::stamp(seconds as u64)
+        } else {
+            String::new()
+        },
+    }
 }
 
 /// Where a judgement is shown: the note itself, or the far end of a slider.
@@ -108,6 +185,40 @@ pub fn summarise(beatmap: &Beatmap, replay: &Replay, state: &GameState) -> Resul
 
     let last = judge.final_state();
     let ends = marks.last().map_or(0.0, |mark| mark.ms);
+
+    let objects = state.timeline().objects.len().max(1);
+    let possible = state.max_possible_combo();
+    let misses = u32::from(last.counts.count_miss);
+    // `ending` is `Some` only when the play stopped before the map did, and
+    // the only thing that stops it is the bar emptying. So this is the fail,
+    // and it is the sim's own answer rather than a guess from the counts.
+    let outcome = if state.ending().is_some() {
+        Outcome {
+            kind: "fail",
+            share: state.objects_played() as f64 / objects as f64 * 100.0,
+            misses,
+        }
+    } else if misses == 0 && last.max_combo >= possible {
+        Outcome {
+            kind: "fc",
+            share: 100.0,
+            misses: 0,
+        }
+    } else if misses == 0 {
+        // Nothing missed and the combo still broke: a slider end let go. The
+        // game's own word for it is a slider break.
+        Outcome {
+            kind: "break",
+            share: 100.0,
+            misses: 0,
+        }
+    } else {
+        Outcome {
+            kind: "miss",
+            share: 100.0,
+            misses,
+        }
+    };
     Ok(Judged {
         title: format!(
             "{} — {} [{}]",
@@ -127,6 +238,9 @@ pub fn summarise(beatmap: &Beatmap, replay: &Replay, state: &GameState) -> Resul
             miss: u32::from(last.counts.count_miss),
         },
         unstable_rate: judge.unstable_rate(ends + 1.0),
+        combo_possible: possible,
+        outcome,
+        client: client_of(replay),
         marks,
     })
 }

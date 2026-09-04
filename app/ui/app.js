@@ -1799,9 +1799,13 @@ function fillPlays({ shelves, skins, plays, rows }) {
     const canvas = document.createElement("canvas");
     stage.append(canvas);
     stage.append(el("div", "hush", play.have_map ? "" : "карты нет"));
+    // Слева — чем это записано, справа — чем кончилось. Оба угла молчат, пока
+    // запись не разобрана: пустое место честнее выдуманного.
+    const from = el("span", "from");
+    from.hidden = true;
     const acc = el("span", "acc");
     acc.hidden = true;
-    stage.append(acc);
+    stage.append(from, acc);
     const scrim = el("div", "scrim");
     const go = el("button", "act small primary", "Отрендерить");
     go.disabled = !play.have_map;
@@ -2019,14 +2023,36 @@ function pumpPreviews() {
 
 /// Что стало известно о заходе, когда его разобрали: карта и точность. Пока
 /// это не пришло, карточка говорит то, что знает из имени файла.
+/// Чем кончился заход, в двух знаках.
+///
+/// `FC` — дошёл и не выронил ни звена. `Fail 63,4%` — умер, и это доля карты,
+/// до которой добрался. `SB` — не промазал ни разу, а комбо всё-таки порвал:
+/// отпущенный хвост слайдера, и у него своё имя за столом. `×3` — обычный
+/// случай со счётом.
+function outcomeOf(said) {
+  const out = said.outcome || { kind: "miss", misses: said.counts.miss, share: 100 };
+  if (out.kind === "fail") return { text: `Fail ${round(out.share, 1)}%`, tone: "bad" };
+  if (out.kind === "fc") return { text: "FC", tone: "good" };
+  if (out.kind === "break") return { text: "SB", tone: "meh" };
+  return { text: `×${round(out.misses)}`, tone: "bad" };
+}
+
 function dressCard(card, said) {
   const where = card.querySelector(".map");
   if (where) where.textContent = said.title;
+
   const mark = card.querySelector(".acc");
   if (mark) {
-    mark.textContent = `${round(said.accuracy_percent, 2)}%`;
+    const out = outcomeOf(said);
+    mark.textContent = out.text;
+    mark.className = `acc ${out.tone}`;
     mark.hidden = false;
-    if (said.counts.miss) mark.classList.add("dropped");
+  }
+
+  const from = card.querySelector(".from");
+  if (from && said.client) {
+    from.textContent = said.client.name;
+    from.hidden = false;
   }
   card.classList.add("read");
 }
@@ -2224,6 +2250,10 @@ function openSheet(play, card) {
   chips.append(el("span", "chip who", play.player));
   chips.append(el("span", "chip", play.mods || "NM"));
   chips.append(el("span", "chip", `${round(play.score)} очков`));
+  if (said) {
+    const out = outcomeOf(said);
+    chips.append(el("span", `chip ${out.tone}`, out.text));
+  }
   head.append(chips);
   body.replaceChildren(head);
 
@@ -2250,6 +2280,23 @@ function openSheet(play, card) {
       body.append(el("h4", "sheeth", "Куда ложились нажатия"));
       body.append(spread);
     }
+  }
+
+  if (said && said.client) {
+    body.append(el("h4", "sheeth", "Чем записано"));
+    const from = el("div", "written");
+    const client = el("div", "one");
+    client.append(
+      el("b", null, said.client.name),
+      el("span", null, said.client.build ? `сборка ${said.client.build} · ${said.client.version}` : `версия ${said.client.version}`),
+    );
+    from.append(client);
+    if (said.client.played_at) {
+      const when = el("div", "one");
+      when.append(el("b", null, said.client.played_at.split(" ")[0]), el("span", null, `${said.client.played_at.split(" ")[1]} UTC`));
+      from.append(when);
+    }
+    body.append(from);
   }
 
   body.append(el("h4", "sheeth", "Файл"));
@@ -2297,7 +2344,10 @@ function mainFigure(said) {
 
   const side = el("div", "aside");
   const combo = el("div", "one");
-  combo.append(el("b", null, `${round(said.combo)}×`), el("span", null, "наше комбо"));
+  combo.append(
+    el("b", null, `${round(said.combo)}×`),
+    el("span", null, said.combo_possible ? `из ${round(said.combo_possible)} возможных` : "наше комбо"),
+  );
   side.append(combo);
   if (said.combo !== said.combo_recorded) {
     // Не делим одно на другое: это два утверждения об одном заходе, и если они
@@ -2884,7 +2934,12 @@ const FOLLOW_SPACING = 32;
 const FOLLOW_PREEMPT_MS = 800;
 const FOLLOW_ENTRY_SCALE = 1.5;
 const FOLLOW_APPROACH = 0.1;
-const TRAIL_LENGTH = 12;
+/// Числа ленты — движка: шаг выборки, длина редкой ленты и длина сплошной, и
+/// доля ширины картинки, через которую кладётся следующая метка.
+const TRAIL_STEP_MS = 1000 / 60;
+const TRAIL_DISJOINT_MS = 150;
+const TRAIL_CONTINUOUS_MS = 500;
+const TRAIL_INTERVAL_SHARE = 1 / 2.5;
 /// Какую долю радиуса занимает ободок ноты, когда её рисует не скин, а движок:
 /// `Skin::border_ratio`, и число то же.
 const NOTE_BORDER = 0.11;
@@ -2906,13 +2961,17 @@ function readEffects() {
 }
 readEffects();
 
-/// Цвет ноты. Список берётся у карты, а если она своих не назвала — у скина:
-/// так решает и осу!, и это единственная причина, по которой ноте передаётся
-/// номер её комбо, а не готовый индекс.
+/// Цвет ноты — скина, пока у скина он есть.
+///
+/// Осу! решает наоборот: карта, назвавшая свои цвета, перебивает скин, и
+/// движок делает так же. Здесь попрошено строго от скина, и это стоит знать:
+/// на карте со своей палитрой предпросмотр покажет не те цвета, что придут в
+/// файле. Номер комбо передаётся ноте именно поэтому — списки разной длины, и
+/// готовый индекс годился бы только для одного из них.
 function colourOf(piece, show) {
   if (!show.skinned) return PLAIN;
   const own = pics && pics.colours && pics.colours.length ? pics.colours : null;
-  const list = show.scene.colours && show.scene.colours.length ? show.scene.colours : own;
+  const list = own || (show.scene.colours && show.scene.colours.length ? show.scene.colours : null);
   if (!list || !list.length) return "#e24848";
   return list[piece.run % list.length];
 }
@@ -3074,34 +3133,122 @@ function drawLighting(c, box, px, py, show, showing) {
   c.globalAlpha = 1;
 }
 
+/// Где у трубы что: до восьми сотых от края — тень, до 0.1875 — сплошной
+/// ободок, дальше дорожка от внешнего цвета к внутреннему. Те же три числа,
+/// что в `tube_shade`, и они не подобраны — это danser'овские доли, по которым
+/// осу! строит тело.
+const TUBE_SHADOW = 1 - 59 / 64;
+const TUBE_BORDER = 0.1875;
+const TUBE_SHADOW_ALPHA = 0.25;
+const TUBE_ALPHA = 0.7;
+
+/// Холст под одно тело. Полосы кладутся друг в друга с заменой, а не поверх —
+/// поверх они складывали бы прозрачности, и труба выходила бы непрозрачной, то
+/// есть закрывала бы то, что пересекает, вместо того чтобы затемнять. Замена
+/// возможна только в своём слое, и слой этот один на всё окно.
+let tubeCanvas = null;
+
 /// Дорожка слайдера — своим слоем, под всеми нотами.
+///
+/// Не две обводки, а лесенка полос от широкой к узкой, как в
+/// `draw_slider_body`: два штриха давали картон — плоскую ленту с каймой, — а
+/// у трубы есть тень по краю, жёсткая граница ободка и подъём к светлой
+/// середине. Это и есть вся разница между «нарисовано» и «то же самое».
 function drawBody(c, entry, box, px, py, show) {
   const piece = entry.piece;
   if (piece.kind !== "slider" || piece.path.length < 4) return;
   const alpha = alphaOf(entry, show);
-  if (alpha <= 0) return;
+  if (alpha <= 0 || box.r < 0.5) return;
   const rules = show.skinned && pics ? pics.rules : null;
   const colour = colourOf(piece, show);
-  const track = (rules && rules.slider_track) || shade(colour, 0.36);
+  const track = (rules && rules.slider_track) || colour;
   const border = (rules && rules.slider_border) || "#ffffff";
+  const outer = scaled(track, 1 / 1.1);
+  const inner = lifted(track, 1.125, 0.25);
+
+  if (!tubeCanvas) tubeCanvas = document.createElement("canvas");
+  const wide = c.canvas.width;
+  const high = c.canvas.height;
+  if (tubeCanvas.width !== wide || tubeCanvas.height !== high) {
+    tubeCanvas.width = wide;
+    tubeCanvas.height = high;
+  }
+  const t = tubeCanvas.getContext("2d");
+  t.setTransform(c.getTransform());
+  t.clearRect(0, 0, wide, high);
+  t.lineCap = "round";
+  t.lineJoin = "round";
+
+  const line = () => {
+    t.beginPath();
+    t.moveTo(px(piece.path[0]), py(piece.path[1]));
+    for (let i = 2; i < piece.path.length; i += 2) t.lineTo(px(piece.path[i]), py(piece.path[i + 1]));
+  };
+
+  // По полосе на два экранных пикселя половины ширины — тот же шаг, что и в
+  // движке: на пиксель гладче не становится, а штрихов вдвое больше.
+  const steps = Math.min(48, Math.max(8, Math.ceil(box.r / 2)));
+  for (let step = steps; step >= 0; step -= 1) {
+    const towards = 1 - step / steps;
+    const width = Math.max(0.01, box.r * 2 * (1 - towards));
+    let paint;
+    if (towards <= TUBE_SHADOW) {
+      paint = `rgba(0,0,0,${(TUBE_SHADOW_ALPHA * towards) / TUBE_SHADOW})`;
+    } else if (towards <= TUBE_BORDER) {
+      paint = border;
+    } else {
+      const along = (towards - TUBE_BORDER) / (1 - TUBE_BORDER);
+      paint = mixed(outer, inner, along, TUBE_ALPHA);
+    }
+    // Сначала вырезать, потом положить: так полоса заменяет то, что накрыла,
+    // а не прибавляется к нему.
+    t.globalCompositeOperation = "destination-out";
+    t.lineWidth = width;
+    line();
+    t.stroke();
+    t.globalCompositeOperation = "source-over";
+    t.strokeStyle = paint;
+    line();
+    t.stroke();
+  }
 
   c.save();
-  // Семь десятых, как в движке: тело должно затемнять то, что пересекает, а не
-  // закрывать. Непрозрачное тело — это накрытая нота, а не проходящая мимо.
-  c.globalAlpha = alpha * 0.7;
-  c.lineJoin = "round";
-  c.lineCap = "round";
-  c.beginPath();
-  c.moveTo(px(piece.path[0]), py(piece.path[1]));
-  for (let i = 2; i < piece.path.length; i += 2) c.lineTo(px(piece.path[i]), py(piece.path[i + 1]));
-  c.strokeStyle = border;
-  c.lineWidth = box.r * 2;
-  c.stroke();
-  c.strokeStyle = track;
-  c.lineWidth = Math.max(1, box.r * 2 - Math.max(2, box.r * 0.22));
-  c.stroke();
+  c.setTransform(1, 0, 0, 1, 0, 0);
+  c.globalAlpha = alpha;
+  c.drawImage(tubeCanvas, 0, 0);
   c.restore();
-  c.globalAlpha = 1;
+}
+
+/// Разобрать `#rrggbb` или `rgb(...)` на три составляющие.
+function parts(colour) {
+  if (colour.startsWith("#")) {
+    const hex = colour.slice(1);
+    const n = parseInt(hex.length === 3 ? hex.replace(/./g, (d) => d + d) : hex, 16);
+    return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  }
+  const found = colour.match(/\d+(\.\d+)?/g) || [0, 0, 0];
+  return [Number(found[0]), Number(found[1]), Number(found[2])];
+}
+
+/// `body_outer`: тот же цвет, поделённый на 1.1.
+function scaled(colour, by) {
+  const [r, g, b] = parts(colour);
+  return `rgb(${Math.round(r * by)}, ${Math.round(g * by)}, ${Math.round(b * by)})`;
+}
+
+/// `body_inner`: `Lighten2(0.5)` — множитель и добавка, и добавка здесь ради
+/// чёрной дорожки, которой иначе неоткуда оторваться от чёрного.
+function lifted(colour, by, add) {
+  const [r, g, b] = parts(colour);
+  const up = (one) => Math.round(Math.min(255, one * by + add * 255));
+  return `rgb(${up(r)}, ${up(g)}, ${up(b)})`;
+}
+
+function mixed(from, to, along, alpha) {
+  const a = parts(from);
+  const b = parts(to);
+  const at = (i) => Math.round(a[i] + (b[i] - a[i]) * along);
+  return `rgba(${at(0)}, ${at(1)}, ${at(2)}, ${alpha})`;
 }
 
 /// Где объект оставляет игрока: конец слайдера или сама нота.
@@ -3428,6 +3575,67 @@ function drawPopups(c, box, px, py, show) {
   c.globalAlpha = 1;
 }
 
+/// Лента за курсором.
+///
+/// Метки кладутся не через столько-то миллисекунд, а через столько-то
+/// пройденного пути: быстрый мах оставляет сплошную линию, а стоящий курсор не
+/// кладёт ничего нового. Первый промежуток пропускается — так лента выходит
+/// из-под курсора, а не сквозь него. Это `draw_trail` движка, и числа его же.
+///
+/// Скин без `cursormiddle` получает не ленту, а редкие метки за последние сто
+/// пятьдесят миллисекунд: так делает игра, и так же выглядит наша ломаная,
+/// когда скина нет вовсе.
+function drawTrail(c, box, px, py, show, shot) {
+  const play = show.scene;
+  const now = cursorAt(play, show.head);
+  // Картинка ленты — против ноты, как всё на поле; своя метка движка — восемь
+  // десятых радиуса.
+  const side = shot ? box.r * 2 : box.r * 0.8 * 2;
+  const mark = (at, alpha) => {
+    if (alpha <= 0) return;
+    c.globalAlpha = alpha;
+    if (shot) {
+      c.drawImage(shot.image, px(at[0]) - side / 2, py(at[1]) - side / 2, side, side);
+    } else {
+      c.fillStyle = "rgba(255,255,255,0.75)";
+      c.beginPath();
+      c.arc(px(at[0]), py(at[1]), box.r * 0.32, 0, Math.PI * 2);
+      c.fill();
+    }
+  };
+  const sampleAt = (ms) => {
+    const step = Math.round((ms - play.from_ms) / play.step_ms);
+    if (step < 0 || step >= play.keys.length) return null;
+    return [play.cursor[step * 2], play.cursor[step * 2 + 1]];
+  };
+
+  const ribbon = show.skinned && pics && pics.cursor_middle;
+  if (!ribbon) {
+    for (let age = TRAIL_STEP_MS; age <= TRAIL_DISJOINT_MS; age += TRAIL_STEP_MS) {
+      const at = sampleAt(show.head - age);
+      if (at) mark(at, 1 - age / TRAIL_DISJOINT_MS);
+    }
+    c.globalAlpha = 1;
+    return;
+  }
+
+  const interval = (side * TRAIL_INTERVAL_SHARE) / Math.max(0.001, box.scale);
+  const head = sampleAt(show.head) || [now.x, now.y];
+  let last = head;
+  let walked = 0;
+  for (let age = 0; age < TRAIL_CONTINUOUS_MS; ) {
+    age += TRAIL_STEP_MS / 4;
+    const at = sampleAt(show.head - age);
+    if (!at) break;
+    walked += Math.hypot(at[0] - last[0], at[1] - last[1]);
+    last = at;
+    if (walked < interval) continue;
+    walked = 0;
+    mark(at, 1 - age / TRAIL_CONTINUOUS_MS);
+  }
+  c.globalAlpha = 1;
+}
+
 /// Курсор и то, что он оставляет за собой.
 ///
 /// След — не линия: осу! кладёт копии картинки, каждая тусклее предыдущей, и
@@ -3439,26 +3647,7 @@ function drawCursor(c, box, px, py, show) {
   const rules = show.skinned && pics ? pics.rules : null;
   const trail = show.skinned && pics ? pics.cursor_trail : null;
 
-  if (trail) {
-    const side = box.r * 1.1;
-    for (let back = TRAIL_LENGTH; back >= 1; back -= 1) {
-      const at = Math.max(0, now.at - back);
-      c.globalAlpha = (1 - back / (TRAIL_LENGTH + 1)) * 0.7;
-      c.drawImage(trail.image, px(play.cursor[at * 2]) - side / 2, py(play.cursor[at * 2 + 1]) - side / 2, side, side);
-    }
-    c.globalAlpha = 1;
-  } else {
-    c.strokeStyle = "rgba(255,255,255,0.35)";
-    c.lineWidth = 1.5;
-    c.beginPath();
-    for (let back = TRAIL_LENGTH; back >= 0; back -= 1) {
-      const at = Math.max(0, now.at - back);
-      const point = [px(play.cursor[at * 2]), py(play.cursor[at * 2 + 1])];
-      if (back === TRAIL_LENGTH) c.moveTo(point[0], point[1]);
-      else c.lineTo(point[0], point[1]);
-    }
-    c.stroke();
-  }
+  drawTrail(c, box, px, py, show, trail);
 
   // Раздувается под нажатием, если скин это разрешает: `CursorExpand: 0` —
   // его право, и раньше оно просто не читалось.

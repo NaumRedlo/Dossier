@@ -28,11 +28,15 @@ mod work;
 
 /// Draw a replay of this person's own, and say how it is going while it does.
 ///
-/// Blocking on purpose — Tauri runs a command off the main thread, so the
-/// window stays alive — but a render is minutes, and a window that says nothing
-/// for minutes is one somebody force-quits. The engine's own events are
-/// forwarded as they arrive; see `dossier_produce::events`.
-#[tauri::command]
+/// `(async)` is the whole difference between a window and a frozen picture of
+/// one. Tauri runs a plain `#[tauri::command]` on the main thread, and on macOS
+/// the main thread is also what puts the window on the screen — so a render
+/// held it for its entire length: no progress panel, no forwarded events, no
+/// repaint at all until the file was written. On a sync function the attribute
+/// hands the call to a blocking pool instead, which is where minutes of work
+/// belong. The engine's own events are forwarded as they arrive; see
+/// `dossier_produce::events`.
+#[tauri::command(async)]
 #[allow(clippy::too_many_arguments)]
 fn draw(
     app: tauri::AppHandle,
@@ -101,7 +105,7 @@ struct Drawn {
 ///
 /// One turn rather than a loop, so that the window decides when to ask again —
 /// and so that nothing runs on somebody's machine that they did not press.
-#[tauri::command]
+#[tauri::command(async)]
 fn work_once(server: String, token: String, name: String, songs: String) -> Result<String, String> {
     let bot = bot::Bot::new(&server, &token, &name).map_err(|e| e.to_string())?;
     let along = std::sync::Arc::new(std::sync::Mutex::new(work::Along::default()));
@@ -121,48 +125,48 @@ fn work_once(server: String, token: String, name: String, songs: String) -> Resu
 }
 
 /// What this machine is, what it will give, and how fast it draws.
-#[tauri::command]
+#[tauri::command(async)]
 fn profile() -> machine::Profile {
     machine::profile()
 }
 
 /// What this machine has been told, and whether it has been told anything.
-#[tauri::command]
+#[tauri::command(async)]
 fn settings_read() -> settings::Settings {
     settings::Settings::load()
 }
 
 /// Whether the setup wizard should open instead of the ordinary window.
-#[tauri::command]
+#[tauri::command(async)]
 fn first_run() -> bool {
     settings::Settings::load().first_run()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn settings_write(said: settings::Settings) -> Result<(), String> {
     said.save()
 }
 
 /// The skins on the shelf, by name, for a picker.
-#[tauri::command]
+#[tauri::command(async)]
 fn skins() -> Vec<String> {
     library::skins(&settings::Settings::load())
 }
 
 /// What is on this machine's shelves.
-#[tauri::command]
+#[tauri::command(async)]
 fn shelves() -> library::Library {
     library::look(&settings::Settings::load())
 }
 
 /// The replays this person could ask to have drawn, newest first.
-#[tauri::command]
+#[tauri::command(async)]
 fn my_replays(most: Option<usize>) -> Vec<library::Played> {
     library::played(&settings::Settings::load(), most.unwrap_or(60))
 }
 
 /// Everybody else on the farm.
-#[tauri::command]
+#[tauri::command(async)]
 fn farm() -> Result<bot::Farm, String> {
     let said = settings::Settings::load();
     bot::Bot::new(&said.server, &said.token, &said.name)
@@ -171,7 +175,7 @@ fn farm() -> Result<bot::Farm, String> {
 }
 
 /// The readiness list, for the screen that replaces `--check`.
-#[tauri::command]
+#[tauri::command(async)]
 fn ready() -> Vec<check::Row> {
     check::ready()
 }
@@ -181,7 +185,7 @@ fn ready() -> Vec<check::Row> {
 /// No frames, no ffmpeg, no waiting: the engine already knows what each click
 /// was worth, and a play can be looked at in the time it takes to read the
 /// file. This is what the viewer draws its strip from.
-#[tauri::command]
+#[tauri::command(async)]
 fn judged(replay: String) -> Result<play::Scene, String> {
     let said = settings::Settings::load();
     let songs = std::path::PathBuf::from(&said.songs);
@@ -190,13 +194,13 @@ fn judged(replay: String) -> Result<play::Scene, String> {
 }
 
 /// Ask the system for a folder. `None` means the dialog was closed.
-#[tauri::command]
+#[tauri::command(async)]
 fn pick_folder(prompt: String) -> Result<Option<String>, String> {
     pick::folder(&prompt)
 }
 
 /// Put an `.osk` on the shelf. Returns the name it went under.
-#[tauri::command]
+#[tauri::command(async)]
 fn install_skin(path: String) -> Result<String, String> {
     library::install_skin(&settings::Settings::load(), std::path::Path::new(&path))
 }
@@ -205,7 +209,7 @@ fn install_skin(path: String) -> Result<String, String> {
 ///
 /// Empty name means the one settings call the default, which is the answer to
 /// "покажи со скином" — the skin this application is set to.
-#[tauri::command]
+#[tauri::command(async)]
 fn skin_pictures(name: Option<String>) -> pics::Pictures {
     let said = settings::Settings::load();
     let name = name.filter(|n| !n.is_empty()).unwrap_or(said.skin.clone());
@@ -221,19 +225,19 @@ fn skin_pictures(name: Option<String>) -> pics::Pictures {
 }
 
 /// Ask the system for one skin archive.
-#[tauri::command]
+#[tauri::command(async)]
 fn pick_skin(prompt: String) -> Result<Option<String>, String> {
     pick::file(&prompt, "osk")
 }
 
 /// Ask the system for one replay file.
-#[tauri::command]
+#[tauri::command(async)]
 fn pick_replay(prompt: String) -> Result<Option<String>, String> {
     pick::file(&prompt, "osr")
 }
 
 /// Draw the spans somebody cut on the timeline, and join them into one file.
-#[tauri::command]
+#[tauri::command(async)]
 #[allow(clippy::too_many_arguments)]
 fn build_reel(
     app: tauri::AppHandle,
@@ -290,13 +294,13 @@ fn build_reel(
 }
 
 /// Is there a newer Dossier, and what would updating mean on this machine.
-#[tauri::command]
+#[tauri::command(async)]
 fn update_look() -> update::Update {
     update::look()
 }
 
 /// Pull and build, putting every line of both on the screen as it happens.
-#[tauri::command]
+#[tauri::command(async)]
 fn update_run(app: tauri::AppHandle) -> Result<(), String> {
     use tauri::Emitter;
     let say = |line: &str| {
@@ -310,7 +314,7 @@ fn update_run(app: tauri::AppHandle) -> Result<(), String> {
 /// Never on its own: the window asks first unless somebody has said in settings
 /// that it need not, and even then this is the only thing that leaves — the
 /// version, the system and the log.
-#[tauri::command]
+#[tauri::command(async)]
 fn send_report(log: String, kind: Option<String>) -> Result<String, String> {
     let said = settings::Settings::load();
     if said.server.is_empty() {
@@ -334,14 +338,14 @@ fn send_report(log: String, kind: Option<String>) -> Result<String, String> {
 
 /// What this application is made of, what it needs from outside, and what is
 /// only planned.
-#[tauri::command]
+#[tauri::command(async)]
 fn modules() -> Vec<library::Module> {
     library::modules(&settings::Settings::load())
 }
 
 /// Whether the bot agrees this machine could work. One network call, asked
 /// only when somebody is looking at the readiness list.
-#[tauri::command]
+#[tauri::command(async)]
 fn handshake() -> check::Row {
     check::handshake(&settings::Settings::load())
 }
@@ -350,7 +354,7 @@ fn handshake() -> check::Row {
 ///
 /// Nothing is ever sent from here. The most this does is open somebody's mail
 /// client with the letter already written — whether it goes is their key.
-#[tauri::command]
+#[tauri::command(async)]
 fn open_link(url: String) -> Result<(), String> {
     link::open(&url)
 }
@@ -358,7 +362,7 @@ fn open_link(url: String) -> Result<(), String> {
 /// The three lines worth putting at the bottom of a bug report, so that nobody
 /// has to be asked for them. What this is, and what it is running on — no
 /// paths, no token, no name.
-#[tauri::command]
+#[tauri::command(async)]
 fn about() -> About {
     let hardware = machine::Hardware::read();
     About {
@@ -379,6 +383,9 @@ struct About {
 
 fn main() {
     tauri::Builder::default()
+        // Every one of these is `#[tauri::command(async)]`, and a new one
+        // should be too: without it Tauri runs the call on the main thread,
+        // which is the thread that draws the window. See `draw`.
         .invoke_handler(tauri::generate_handler![
             ready,
             draw,

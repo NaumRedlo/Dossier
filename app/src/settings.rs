@@ -59,6 +59,25 @@ pub fn home() -> PathBuf {
         .map_or_else(|| PathBuf::from("."), PathBuf::from)
 }
 
+/// Put this text where that file is, in one step as far as a reader is
+/// concerned.
+///
+/// Beside it, then renamed over it. Every window command runs off the main
+/// thread now, so a read can land in the middle of a write — and `fs::write`
+/// truncates before it fills, which would hand that reader an empty file and
+/// lose somebody's paths to the defaults. `rename` within a directory is
+/// atomic on every system this runs on.
+fn replace(file: &Path, text: &str) -> Result<(), String> {
+    let mut near = file.as_os_str().to_owned();
+    near.push(".swap");
+    let near = PathBuf::from(near);
+    std::fs::write(&near, text).map_err(|e| e.to_string())?;
+    std::fs::rename(&near, file).map_err(|e| {
+        let _ = std::fs::remove_file(&near);
+        e.to_string()
+    })
+}
+
 /// `KEY=value` lines, comments and blanks skipped.
 pub fn read_pairs(file: &Path) -> Vec<(String, String)> {
     let Ok(text) = std::fs::read_to_string(file) else {
@@ -148,7 +167,7 @@ impl Settings {
         }
         let mut text = written.join("\n");
         text.push('\n');
-        std::fs::write(&file, text).map_err(|e| e.to_string())
+        replace(&file, &text)
     }
 
     /// Whether this looks like the first time somebody has opened it.
@@ -189,6 +208,27 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("a place to write");
         dir
+    }
+
+    /// A settings file is never half-written: the reader either sees all of
+    /// the old one or all of the new one, and nothing is left lying beside it.
+    #[test]
+    fn a_settings_file_is_replaced_whole_and_leaves_nothing_behind() {
+        let dir = scratch("replace");
+        let file = dir.join("worker.env");
+        std::fs::write(&file, "RENDER_SERVER=old\n").expect("written");
+
+        replace(&file, "RENDER_SERVER=new\n").expect("replaced");
+
+        assert_eq!(
+            std::fs::read_to_string(&file).expect("read"),
+            "RENDER_SERVER=new\n"
+        );
+        let left: Vec<_> = std::fs::read_dir(&dir)
+            .expect("listed")
+            .filter_map(|found| found.ok().map(|found| found.file_name()))
+            .collect();
+        assert_eq!(left, vec![std::ffi::OsString::from("worker.env")]);
     }
 
     /// The whole reason `save` is not three lines: this file is shared with the

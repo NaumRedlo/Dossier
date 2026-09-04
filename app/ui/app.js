@@ -425,10 +425,11 @@ hitSound.preload = "auto";
 
 /// Вступление.
 ///
-/// Чёрный экран, буква проявляется, вокруг неё — те же два кольца, что на
-/// иконке приложения: тонкое снаружи, толстое внутри, в тех же пропорциях, в
-/// каких их рисует `icons/make.py`. Потом к ней ровно сходится кольцо подхода,
-/// и это уже осу: удар, звук, свет.
+/// Чёрный экран, буква проявляется, вокруг неё встаёт кольцо иконки — и по
+/// нему приходит удар: звук, свет, отдача. Кольца подхода здесь больше нет:
+/// оно занимало секунду с лишним, всё это время ничего не происходило, кроме
+/// его схождения, и держало сцену ровно настолько дольше, насколько её было
+/// скучно смотреть.
 ///
 /// Толщина кольца взята из плитки: там оно радиусом 0.335 стороны при толщине
 /// 0.046, здесь та же доля, только считана от буквы, а не от квадрата,
@@ -436,8 +437,9 @@ hitSound.preload = "auto";
 const RING_IN = 0.046 / 0.335;
 
 const RISE_MS = 620;
-const RING_FROM_MS = 520;
-const STRIKE_MS = 1680;
+/// Удар — сразу как буква встала, плюс короткий вдох. Раньше он ждал схождения
+/// кольца на 1680 мс; без кольца ждать нечего.
+const STRIKE_MS = 900;
 const AFTER_HIT_MS = 640;
 
 /// Заперта на всё время, что экран чёрный, — включая ожидание, — и на всё
@@ -445,6 +447,13 @@ const AFTER_HIT_MS = 640;
 /// экран за секунду до того, как на нём вообще было что показывать; теперь
 /// от запуска до последнего кадра кольца это одна запертая полоса.
 let locked = false;
+
+/// Пока окно закрыто чёрным и пока сцена не догорела, всё, что рисует в это
+/// окно, ждёт вот этого. Список реплеев — это тысячи узлов, собираемых одним
+/// куском; собранный посреди заставки, он забирает у неё ровно те кадры, за
+/// которые её и ругают. Под чёрным его всё равно никто не видит.
+let uncovered = Promise.resolve();
+let uncover = () => {};
 
 /// Холст под размер окна. Меряется каждый кадр: заставка открывается раньше,
 /// чем окно успевает разложиться, и первый замер бывает не тем — а буфер,
@@ -474,6 +483,9 @@ function sizeSplash(c) {
 function showBlackCover() {
   locked = true;
   asleep = true;
+  uncovered = new Promise((resolve) => {
+    uncover = resolve;
+  });
   byId("splash-say").textContent = "";
   splash.classList.remove("going");
   splash.hidden = false;
@@ -492,8 +504,8 @@ function letterBox(w, h) {
   return { mid: [w / 2, h / 2 - 8], size, side };
 }
 
-/// Кольцо иконки вокруг буквы — то самое, толстое.
-function drawRings(c, mid, size, alpha) {
+/// Кольцо иконки вокруг буквы — то самое, толстое, и теперь единственное.
+function drawRing(c, mid, size, alpha) {
   c.globalAlpha = alpha * 0.85;
   c.strokeStyle = "#e24848";
   c.lineWidth = size * RING_IN;
@@ -531,26 +543,13 @@ function playOpening() {
 
     const shown = Math.min(1, t / RISE_MS);
     const eased = 1 - (1 - shown) ** 3;
-    drawRings(c, mid, size, eased);
+    drawRing(c, mid, size, eased);
 
     if (markImage.complete && markImage.naturalWidth) {
       const swell = struck ? 1 + 0.06 * Math.max(0, 1 - (t - STRIKE_MS) / 260) : 1;
       const grown = side * swell;
       c.globalAlpha = eased;
       c.drawImage(markImage, mid[0] - grown / 2, mid[1] - grown / 2, grown, grown);
-      c.globalAlpha = 1;
-    }
-
-    // Кольцо подхода сходится равномерно — так его сводит игра, и по нему
-    // считают, когда нажимать.
-    if (!struck && t > RING_FROM_MS) {
-      const closing = Math.min(1, (t - RING_FROM_MS) / (STRIKE_MS - RING_FROM_MS));
-      c.globalAlpha = Math.min(1, (t - RING_FROM_MS) / 220) * 0.9;
-      c.strokeStyle = "#e24848";
-      c.lineWidth = 2.5;
-      c.beginPath();
-      c.arc(mid[0], mid[1], size * (1 + 2.6 * (1 - closing)), 0, Math.PI * 2);
-      c.stroke();
       c.globalAlpha = 1;
     }
 
@@ -740,6 +739,7 @@ function hideSplash() {
   splash.classList.add("going");
   setTimeout(() => {
     if (!asleep) splash.hidden = true;
+    uncover();
   }, 600);
 }
 
@@ -1564,6 +1564,7 @@ async function showRender(again = false) {
   ]);
   known = { ...known, ...settings };
   shelfCache = { shelves, skins, plays, rows };
+  await uncovered;
   fillPlays(shelfCache);
 }
 
@@ -2706,30 +2707,44 @@ byId("w-save").addEventListener("click", async () => {
   // или разложиться. Сцена запускается только когда всё это уже случилось:
   // раньше она стартовала тут же и её первые секунды съедала как раз та
   // работа, которую окно ещё не закончило делать.
-  const opening = remembered("splash", "both") !== "never";
+  let opening = remembered("splash", "both") !== "never";
   if (opening) showBlackCover();
   requestAnimationFrame(() => dock.classList.remove("landing"));
 
+  /// Снять чёрное, не проигрывая сцену. Дальше по этому пути её показывать
+  /// нечему или некогда — но окно, оставшееся чёрным навсегда, хуже любого
+  /// пропущенного вступления.
+  const giveUpOnScene = () => {
+    if (!opening) return;
+    opening = false;
+    locked = false;
+    asleep = false;
+    splash.classList.remove("going");
+    splash.hidden = true;
+    uncover();
+  };
+
   let first = false;
+  let broken = false;
   try {
     first = await invoke("first_run");
   } catch {
     // Нет моста — покажем обычное окно, оно скажет об этом само.
   }
-  await loadSettings();
+  try {
+    await loadSettings();
+  } catch {
+    // Настройки не прочитались — это разговор для окна, а не повод держать
+    // человека перед чёрным экраном.
+    broken = true;
+  }
+  // Мастеру нужно внимание сразу, а не через полторы секунды кольца — первый
+  // запуск и так самый долгий разговор, который у человека будет с этим окном.
+  if (first || broken) giveUpOnScene();
   if (first) {
     for (const field of FIELDS) {
       const box = byId(`w-${field}`);
       if (box) box.value = known[field] || "";
-    }
-    // Мастеру нужно внимание сразу, а не через полторы секунды кольца —
-    // первый запуск и так самый долгий разговор, который у человека будет с
-    // этим окном.
-    if (opening) {
-      locked = false;
-      asleep = false;
-      splash.classList.remove("going");
-      splash.hidden = true;
     }
     byId("wizard").hidden = false;
     armIdle();
@@ -2737,12 +2752,16 @@ byId("w-save").addEventListener("click", async () => {
   }
   show("render");
 
-  // Мерить надо по готовым шрифтам: до них подписи другой ширины, и панель
-  // разъезжается на первом же движении курсора.
-  dressAll();
-  measure();
-  if (document.fonts && document.fonts.ready) await document.fonts.ready;
-  loadPics().catch(() => {});
+  try {
+    // Мерить надо по готовым шрифтам: до них подписи другой ширины, и панель
+    // разъезжается на первом же движении курсора.
+    dressAll();
+    measure();
+    if (document.fonts && document.fonts.ready) await document.fonts.ready;
+    loadPics().catch(() => {});
+  } catch (why) {
+    console.error(why);
+  }
 
   // Ещё два кадра тишины: браузеру нужно успеть отрисовать всё, что только
   // что легло на макет, прежде чем часы сцены начнут отсчёт — иначе первые

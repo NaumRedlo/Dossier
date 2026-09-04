@@ -1688,35 +1688,15 @@ h4.sheeth {
   border-radius: 0.8rem;
   background: var(--sunk);
 }
+/* Холст. Столбики из коробок вставали выше черты — содержащий блок выходил
+   45 px там, где коробка 73, и это не зависело ни от флекса, ни от
+   абсолютного позиционирования. График здесь проще нарисовать, чем выяснять,
+   чей это блок. */
 .spread .bars {
-  position: relative;
-  display: flex;
-  align-items: flex-end;
-  gap: 2px;
+  display: block;
+  width: 100%;
   height: 4.6rem;
-  padding: 0 0.1rem;
-  border-bottom: 1px solid var(--line-high);
 }
-/* Отвес по середине, за столбиками: он отвечает на вопрос «в какую сторону»
-   даже там, где корзина посередине пуста. */
-.spread .bars::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 50%;
-  width: 1px;
-  background: var(--line-high);
-}
-.spread .bar {
-  flex: 1;
-  border-radius: 2px 2px 0 0;
-  background: var(--accent);
-  opacity: 0.55;
-}
-.spread .bar.early { background: #7aa7d8; }
-.spread .bar.late { background: #d8887a; }
-.spread .bar.mid { background: var(--good); opacity: 0.95; }
 .spread .scale { display: flex; justify-content: space-between; margin-top: 0.35rem; color: var(--faint); font-size: 0.7rem; }
 .spread .scale .mono { font-family: var(--mono); }
 

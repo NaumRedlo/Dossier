@@ -2229,6 +2229,10 @@ function openSheet(play, card) {
 
   sheet.hidden = false;
   byId("r-sheet-shut").focus();
+  // Разворот показали — теперь у холста есть ширина, и график можно нарисовать
+  // по-настоящему.
+  const spread = body.querySelector(".spread .bars");
+  if (spread && spread.repaint) requestAnimationFrame(spread.repaint);
   void card;
 }
 
@@ -2300,10 +2304,21 @@ function tally(said) {
 /// Куда ложились нажатия: столбики по окнам ошибки, рано слева, поздно справа.
 /// Это тот же разброс, что в числе UR, только видно, он в одну сторону или в
 /// обе — а по одному числу это не отличить.
+///
+/// Холстом, а не коробками. Столбики из `div`-ов вставали на четырнадцать
+/// пикселей выше черты: содержащий блок оказывался 45 px в коробке 73, и это
+/// не зависело ни от флекса, ни от `position: absolute` — измерено на обоих.
+/// График проще нарисовать, чем выяснять, чей это блок: приложение и так
+/// рисует игру на холсте шесть раз на экране.
 function errorBars(said) {
   const errors = said.marks.map((mark) => mark.error_ms).filter((one) => one !== null && one !== undefined);
   if (errors.length < 4) return null;
+
   const box = el("div", "spread");
+  const canvas = document.createElement("canvas");
+  canvas.className = "bars";
+  box.append(canvas);
+
   // Округляем размах до целых десятков — «±47 мс» это точность, которой у
   // этого числа нет, а ось, прыгающая от захода к заходу, не даёт сравнивать
   // два графика глазом.
@@ -2317,20 +2332,12 @@ function errorBars(said) {
     const at = Math.min(bins - 1, Math.max(0, Math.floor(((one + reach) / (reach * 2)) * bins)));
     counts[at] += 1;
   }
-  const tallest = Math.max(...counts);
-  const bars = el("div", "bars");
-  const middle = Math.floor(bins / 2);
-  counts.forEach((n, i) => {
-    const bar = el("div", "bar");
-    // Пустая корзина рисуется пустой. Раньше у неё была минимальная высота, и
-    // ряд пунктирных чёрточек по низу читался как данные, которых нет.
-    if (n) bar.style.height = `${Math.max(3, (n / tallest) * 100)}%`;
-    if (i === middle) bar.classList.add("mid");
-    else if (i < middle) bar.classList.add("early");
-    else bar.classList.add("late");
-    bars.append(bar);
-  });
-  box.append(bars);
+
+  // Ширины ещё нет — коробка только что создана и в макет не попала. Рисуем
+  // кадром позже, когда она есть.
+  const paint = () => paintSpread(canvas, counts);
+  requestAnimationFrame(paint);
+  canvas.repaint = paint;
 
   const early = errors.filter((one) => one < 0).length;
   const late = errors.length - early;
@@ -2342,6 +2349,50 @@ function errorBars(said) {
   );
   box.append(scale);
   return box;
+}
+
+function paintSpread(canvas, counts) {
+  const wide = canvas.clientWidth;
+  const high = canvas.clientHeight;
+  if (!wide || !high) return;
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  canvas.width = Math.round(wide * dpr);
+  canvas.height = Math.round(high * dpr);
+  const c = canvas.getContext("2d");
+  c.setTransform(dpr, 0, 0, dpr, 0, 0);
+  c.clearRect(0, 0, wide, high);
+
+  const floor = high - 1;
+  const middle = Math.floor(counts.length / 2);
+  const step = wide / counts.length;
+  const gap = Math.min(2, step * 0.2);
+  const tallest = Math.max(...counts) || 1;
+
+  // Отвес по середине — он отвечает на «в какую сторону» даже там, где средняя
+  // корзина пуста.
+  c.fillStyle = "rgba(255,255,255,0.14)";
+  c.fillRect(Math.round(wide / 2), 0, 1, floor);
+  c.fillRect(0, floor, wide, 1);
+
+  counts.forEach((n, i) => {
+    if (!n) return;
+    const tall = Math.max(2, (n / tallest) * (floor - 2));
+    c.fillStyle = i === middle ? "#5fd694" : i < middle ? "rgba(122,167,216,0.75)" : "rgba(216,136,122,0.75)";
+    const x = i * step;
+    const w = Math.max(1, step - gap);
+    // Скруглённая макушка: два пикселя, но именно они отличают график от
+    // частокола.
+    const r = Math.min(2, w / 2, tall / 2);
+    c.beginPath();
+    c.moveTo(x, floor);
+    c.lineTo(x, floor - tall + r);
+    c.quadraticCurveTo(x, floor - tall, x + r, floor - tall);
+    c.lineTo(x + w - r, floor - tall);
+    c.quadraticCurveTo(x + w, floor - tall, x + w, floor - tall + r);
+    c.lineTo(x + w, floor);
+    c.closePath();
+    c.fill();
+  });
 }
 
 /// Предпросмотр в развороте. Своя голова, а не та, что у карточки: они идут

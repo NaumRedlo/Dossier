@@ -514,7 +514,10 @@ main > section > *:nth-child(n + 5) { animation-delay: 0.2s; }
 
 .row {
   display: grid;
-  grid-template-columns: 1.2rem 8.5rem 1fr;
+  /* Последняя колонка вправе быть уже своего содержимого: здесь лежат пути,
+     а путь — это одно длинное слово, и `1fr` растянул бы под него всю
+     карточку. Та же ошибка, что была в «Папках». */
+  grid-template-columns: 1.2rem 8.5rem minmax(0, 1fr);
   gap: 0.85rem;
   align-items: baseline;
   padding: 0.7rem 1.05rem;
@@ -671,7 +674,7 @@ label input[type="text"]:focus, label input[type="password"]:focus, label select
 
 .play {
   display: grid;
-  grid-template-columns: 1fr auto auto;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   gap: 0.8rem;
   align-items: center;
   padding: 0.65rem 1.05rem;
@@ -703,10 +706,16 @@ label input[type="text"]:focus, label input[type="password"]:focus, label select
 
 .settings {
   display: grid;
-  grid-template-columns: 13.5rem 1fr;
+  /* `minmax(0, 1fr)`, а не `1fr`: у `1fr` нижняя граница — это содержимое
+     колонки, и одного скина с именем в семьдесят знаков хватало, чтобы колонка
+     раздулась под него и вытолкала всю страницу за край окна. Ноль снизу
+     говорит, что колонка вправе быть уже своего содержимого, — а укорачивать
+     строку внутри уже умеет сама кнопка выбора. */
+  grid-template-columns: 13.5rem minmax(0, 1fr);
   gap: 1.6rem;
   align-items: start;
 }
+.pages { min-width: 0; }
 .rail {
   position: sticky;
   top: 5.4rem;
@@ -753,7 +762,7 @@ body.dock-left .rail { top: 1.6rem; }
 /* Узкое окно: рельс ложится строкой над содержимым, а подписи убираются —
    в строку помещаются только имена. */
 @media (max-width: 54rem) {
-  .settings { grid-template-columns: 1fr; gap: 0.9rem; }
+  .settings { grid-template-columns: minmax(0, 1fr); gap: 0.9rem; }
   .rail { position: static; flex-direction: row; overflow-x: auto; gap: 0.3rem; }
   .rail button { flex: none; padding: 0.4rem 0.7rem; }
   .rail button span { display: none; }
@@ -864,7 +873,9 @@ body.still *, body.still *::before, body.still *::after {
    одного пути было тем самым пустым местом. */
 .pathrow {
   display: grid;
-  grid-template-columns: 5rem 1fr auto;
+  /* То же самое и здесь, по той же причине: путь и имя скина бывают длиннее
+     строки, и колонка обязана иметь право быть короче их. */
+  grid-template-columns: 5rem minmax(0, 1fr) auto;
   gap: 0.7rem;
   align-items: center;
   padding: 0.5rem 0.85rem;
@@ -949,7 +960,7 @@ body.still *, body.still *::before, body.still *::after {
 
 .mod {
   display: grid;
-  grid-template-columns: 5.5rem 1fr auto;
+  grid-template-columns: 5.5rem minmax(0, 1fr) auto;
   gap: 0.5rem 0.9rem;
   align-items: center;
   padding: 0.65rem 1rem;
@@ -1194,7 +1205,7 @@ body.still *, body.still *::before, body.still *::after {
 
 /* ── выпадающие списки ────────────────────────────────────────────────── */
 
-.picker { position: relative; }
+.picker { position: relative; min-width: 0; }
 .picker select {
   position: absolute;
   width: 1px;

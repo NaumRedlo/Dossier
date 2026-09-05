@@ -12,13 +12,9 @@ const HEARTBEAT: Duration = Duration::from_secs(10);
 #[derive(Debug)]
 pub enum Did {
     Nothing,
-    Delivered {
-        title: String,
-    },
+    Delivered { title: String },
 
-    GaveBack {
-        why: String,
-    },
+    GaveBack { why: String },
 }
 
 #[derive(Debug, Clone, Copy, Default)]

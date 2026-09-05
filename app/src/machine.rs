@@ -313,7 +313,7 @@ mod tests {
         });
         assert!(hot.take);
         assert_eq!(hot.threads, 4, "half of eight");
-        assert!(hot.reason.contains("горячая"), "{}", hot.reason);
+        assert!(hot.reason.contains("перегрев"), "{}", hot.reason);
 
         let both = decide(Reading {
             hot: true,

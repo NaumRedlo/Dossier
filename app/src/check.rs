@@ -195,7 +195,7 @@ pub fn ready() -> Vec<Row> {
 
     let can = crate::machine::capacity();
     rows.push(Row::new(
-        "Текущее устройство",
+        "Доступность",
         Some(can.take),
         if can.take {
             format!(

@@ -111,7 +111,6 @@ impl Bot {
         );
         let http = reqwest::blocking::Client::builder()
             .default_headers(headers)
-
             .timeout(Duration::from_secs(30))
             .build()
             .map_err(|e| Refused::Network(e.to_string()))?;
@@ -378,7 +377,7 @@ mod tests {
         let bot = Bot::new(&base, "sekrit", "drejk").expect("a line");
         match bot.claim("engine", &capacity()) {
             Err(Refused::Build { reason, release }) => {
-                assert!(reason.contains("Воркер"), "{reason}");
+                assert!(reason.contains("воркер"), "{reason}");
                 assert_eq!(release, "0.11.0");
             }
             other => panic!("expected a build mismatch, got {other:?}"),

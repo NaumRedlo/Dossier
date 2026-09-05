@@ -1,16 +1,5 @@
-//! Choosing a folder with the system's own dialog.
-//!
-//! Typing a path is the thing people get wrong first: a stray space, the wrong
-//! slash, a folder they meant but did not name. Every system already has a
-//! chooser; this asks for it in the one line each of them spells it in, rather
-//! than pulling in a plugin and its permission file for a single call.
-
 use std::process::Command;
 
-/// AppleScript has no escape for a quote inside a string except a backslash,
-/// and a backslash of its own has to be doubled. The prompt is ours, but a
-/// prompt is exactly the sort of thing somebody later builds out of a folder
-/// name.
 fn quoted(text: &str) -> String {
     let inner: String = text
         .chars()
@@ -24,8 +13,6 @@ fn quoted(text: &str) -> String {
     format!("\"{inner}\"")
 }
 
-/// Ask for a folder. `Ok(None)` means the dialog was closed without one, which
-/// is an answer and not a failure.
 pub fn folder(prompt: &str) -> Result<Option<String>, String> {
     let said = if cfg!(target_os = "macos") {
         Command::new("osascript")
@@ -49,8 +36,6 @@ pub fn folder(prompt: &str) -> Result<Option<String>, String> {
             ])
             .output()
     } else {
-        // Whichever of the two desktops is installed. Neither is guaranteed,
-        // which is why the field beside the button still takes a typed path.
         let zenity = Command::new("zenity")
             .args(["--file-selection", "--directory", "--title", prompt])
             .output();
@@ -65,14 +50,11 @@ pub fn folder(prompt: &str) -> Result<Option<String>, String> {
     let done = said.map_err(|why| format!("окно выбора папки не открылось: {why}"))?;
     let path = String::from_utf8_lossy(&done.stdout).trim().to_owned();
     if path.is_empty() {
-        // Cancelled, or no chooser on this machine. Both end the same way for
-        // the person at the keyboard: the field is left as it was.
         return Ok(None);
     }
     Ok(Some(path.trim_end_matches('/').to_owned()))
 }
 
-/// Ask for one file. The filter is a bare extension, without a dot.
 pub fn file(prompt: &str, extension: &str) -> Result<Option<String>, String> {
     let said = if cfg!(target_os = "macos") {
         Command::new("osascript")

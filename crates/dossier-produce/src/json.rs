@@ -1,13 +1,3 @@
-//! Just enough JSON to say what happened.
-//!
-//! Both the machine-readable render events and the command line's own
-//! reports write objects by hand rather than through a serialiser: the shapes
-//! are fixed, small, and read more clearly written out than assembled. What
-//! they share is the escaping, which is here so that the two cannot disagree
-//! about it.
-
-/// Minimal JSON string escaping — enough for filenames, titles and player
-/// names, which is all this program emits.
 pub fn quote(text: &str) -> String {
     let mut out = String::with_capacity(text.len() + 2);
     out.push('"');

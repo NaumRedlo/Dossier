@@ -1,9 +1,3 @@
-//! Finding the `.osu` a replay was played on.
-//!
-//! A replay names its map only by MD5 — no id, no filename. So the map has to
-//! be found by hashing candidates until one matches. `.osz` archives are opened
-//! and searched too, since that's how maps arrive from the website.
-
 use dossier_beatmap::Beatmap;
 use dossier_replay::Replay;
 use std::fs;
@@ -13,11 +7,6 @@ use std::process::Command;
 
 use md5::{Digest, Md5};
 
-/// A `.osu` and where it came from.
-///
-/// The origin isn't only for reporting: the audio track sits beside the map,
-/// inside the same archive or the same folder, and there is no other way to
-/// find it — a `.osu` names its audio by filename alone.
 #[derive(Debug, Clone)]
 pub struct FoundMap {
     pub text: String,
@@ -27,9 +16,8 @@ pub struct FoundMap {
 
 #[derive(Debug, Clone)]
 pub enum Origin {
-    /// Inside an `.osz`, which is how maps arrive from the website.
     Archive(PathBuf),
-    /// A loose `.osu`; siblings live in the same folder.
+
     Folder(PathBuf),
 }
 
@@ -48,12 +36,6 @@ pub fn md5_hex(bytes: &[u8]) -> String {
     out
 }
 
-/// Read a `.osu` regardless of how it's stored.
-///
-/// A bare `.osu` is taken at its word — if the caller pointed at a file, they
-/// meant it, and refusing a hash mismatch would block the common case of a map
-/// edited since the replay was set. An `.osz` has to be searched, so there the
-/// hash is the only way in.
 pub fn load_map(path: &Path, want_hash: &str) -> Result<FoundMap, String> {
     let bytes = fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
     let name = path.display().to_string();
@@ -82,17 +64,14 @@ pub fn load_map(path: &Path, want_hash: &str) -> Result<FoundMap, String> {
     })
 }
 
-/// Walk a songs directory looking for the map with this hash.
 pub fn search_dir(root: &Path, want_hash: &str) -> Result<Option<FoundMap>, String> {
     let mut stack = vec![root.to_path_buf()];
     let mut archives: Vec<PathBuf> = Vec::new();
 
-    // Loose .osu files first: hashing one is a read, while an .osz means
-    // inflating every difficulty inside it.
     while let Some(dir) = stack.pop() {
         let entries = match fs::read_dir(&dir) {
             Ok(entries) => entries,
-            // An unreadable subdirectory shouldn't abort the whole search.
+
             Err(_) => continue,
         };
         for entry in entries.flatten() {
@@ -134,13 +113,6 @@ pub fn search_dir(root: &Path, want_hash: &str) -> Result<Option<FoundMap>, Stri
     Ok(None)
 }
 
-/// Every beatmap hash under `root`, in one walk.
-///
-/// [`search_dir`] answers one question by reading every file, which is right
-/// for one question and ruinous for sixty: a folder of two hundred archives
-/// gets inflated once per replay somebody wants to look at. This reads the same
-/// files once and hands back everything they hold, so the sixty questions cost
-/// one walk between them.
 pub fn hashes(root: &Path) -> std::collections::HashSet<String> {
     let mut found = std::collections::HashSet::new();
     let mut stack = vec![root.to_path_buf()];
@@ -210,22 +182,11 @@ fn search_osz(bytes: &[u8], want_hash: &str) -> Result<Option<(String, String)>,
     Ok(None)
 }
 
-/// `.osu` files are UTF-8 in practice, sometimes with a BOM. Anything that
-/// isn't valid UTF-8 is salvaged rather than rejected — a stray byte in a
-/// metadata field shouldn't cost us the whole map.
 fn decode(bytes: &[u8]) -> String {
     let body = bytes.strip_prefix(&[0xEF, 0xBB, 0xBF]).unwrap_or(bytes);
     String::from_utf8_lossy(body).into_owned()
 }
 
-/// Pull the audio track out to somewhere ffmpeg can read it.
-///
-/// A file already on disk is used where it lies. One inside an `.osz` has to be
-/// unpacked first — ffmpeg can't read into a zip, and teaching it to would mean
-/// streaming the track ourselves for no gain.
-///
-/// Returns `None` when the map names no audio or the track isn't there, which
-/// is a reason to render silently rather than to stop.
 pub fn extract_audio(origin: &Origin, filename: &str, into: &Path) -> Option<PathBuf> {
     if filename.trim().is_empty() {
         return None;
@@ -238,8 +199,7 @@ pub fn extract_audio(origin: &Origin, filename: &str, into: &Path) -> Option<Pat
         Origin::Archive(archive) => {
             let bytes = fs::read(archive).ok()?;
             let mut zip = zip::ZipArchive::new(Cursor::new(bytes)).ok()?;
-            // Archives are inconsistent about case and about `/` vs `\`, and a
-            // map that names `audio.mp3` may well hold `Audio.MP3`.
+
             let wanted = normalise(filename);
             let index = (0..zip.len()).find(|&i| {
                 zip.by_index(i)
@@ -259,10 +219,6 @@ pub fn extract_audio(origin: &Origin, filename: &str, into: &Path) -> Option<Pat
     }
 }
 
-/// The map's background video, put somewhere ffmpeg can open by name.
-///
-/// The same shape as the audio and for the same reason: ffmpeg takes a path,
-/// and a file inside an `.osz` is not one.
 pub fn extract_video(origin: &Origin, filename: &str, into: &Path) -> Option<PathBuf> {
     if filename.trim().is_empty() {
         return None;
@@ -283,17 +239,6 @@ pub fn extract_video(origin: &Origin, filename: &str, into: &Path) -> Option<Pat
     }
 }
 
-/// The map's own hit sounds, written into `into` as `.wav` the engine can read.
-///
-/// A hitsounded map ships its samples beside the `.osu`, and they are the only
-/// place a custom sample index resolves — see [`dossier_audio::SamplePack`].
-/// They arrive as `.ogg` more often than not, and the engine decodes WAV and
-/// nothing else, so ffmpeg is asked to convert them on the way out. It is
-/// already here to mux the render; this costs one invocation per sample, once,
-/// against a render that takes minutes.
-///
-/// Returns how many were written. Zero is ordinary — most maps hitsound
-/// nothing and lean on the skin entirely.
 pub fn extract_samples(origin: &Origin, into: &Path, ffmpeg: &str) -> usize {
     let named: Vec<(String, Vec<u8>)> = match origin {
         Origin::Folder(folder) => fs::read_dir(folder)
@@ -318,8 +263,7 @@ pub fn extract_samples(origin: &Origin, into: &Path, ffmpeg: &str) -> usize {
                 let Ok(mut file) = zip.by_index(index) else {
                     continue;
                 };
-                // Flattened, and only the leaf: an archive may wrap its files
-                // in a folder, and the engine reads one folder deep.
+
                 let leaf = Path::new(file.name())
                     .file_name()
                     .map(|n| n.to_string_lossy().into_owned())
@@ -340,9 +284,7 @@ pub fn extract_samples(origin: &Origin, into: &Path, ffmpeg: &str) -> usize {
     for (name, bytes) in named {
         let stem = Path::new(&name).file_stem().unwrap_or_default();
         let target = into.join(stem).with_extension("wav");
-        // A blank is a map silencing a sound the same way a skin does, and
-        // ffmpeg has nothing to convert. Written straight through so the
-        // silence survives instead of turning back into synthesis.
+
         if bytes.is_empty() {
             if fs::write(&target, []).is_ok() {
                 written += 1;
@@ -354,8 +296,6 @@ pub fn extract_samples(origin: &Origin, into: &Path, ffmpeg: &str) -> usize {
             continue;
         }
         if source == target {
-            // Already a `.wav`, and the engine will find out for itself
-            // whether it can read it.
             written += 1;
             continue;
         }
@@ -373,10 +313,6 @@ pub fn extract_samples(origin: &Origin, into: &Path, ffmpeg: &str) -> usize {
     written
 }
 
-/// Whether a file in a map's folder is one of its hit sounds.
-///
-/// By extension and by name: the folder also holds the song, which is an
-/// `.mp3` or an `.ogg` too and is several megabytes of it.
 fn is_sample(leaf: &str) -> bool {
     let lower = leaf.to_ascii_lowercase();
     let Some(stem) = lower
@@ -408,10 +344,6 @@ fn is_sample(leaf: &str) -> bool {
     })
 }
 
-/// The map's background picture, as bytes.
-///
-/// Read rather than extracted to a file: unlike the audio, which ffmpeg has to
-/// open by name, this is decoded in-process and never needs to exist on disk.
 pub fn read_background(origin: &Origin, filename: &str) -> Option<Vec<u8>> {
     if filename.trim().is_empty() {
         return None;
@@ -443,22 +375,9 @@ fn normalise(name: &str) -> String {
         .to_ascii_lowercase()
 }
 
-/// Every file that came with the map, findable by the name a storyboard writes.
-///
-/// `read_background` above opens the archive, finds one file and closes it,
-/// which is right for the one picture it is asked for. A storyboard names
-/// hundreds, and doing that hundreds of times would read a thirty-megabyte
-/// archive off disk hundreds of times.
-///
-/// So the names are indexed once. Two things about the index are not
-/// tidiness: it is keyed by the *whole* relative path rather than by the file
-/// name, because `sb/1.png` and `sb/parts/1.png` are different pictures and
-/// most storyboards have both; and it is keyed in lower case with the
-/// separators evened out, because maps are authored on Windows and shipped to
-/// machines that care about neither.
 pub struct Assets {
     inside: Option<zip::ZipArchive<Cursor<Vec<u8>>>>,
-    /// Normalised name to where it is: an index into the archive, or a path.
+
     index: std::collections::HashMap<String, Entry>,
 }
 
@@ -468,8 +387,6 @@ enum Entry {
 }
 
 impl Assets {
-    /// Index what came with the map. An unreadable archive is an empty index
-    /// rather than a failure — the map still renders, without its scenery.
     #[must_use]
     pub fn open(origin: &Origin) -> Self {
         let mut index = std::collections::HashMap::new();
@@ -507,7 +424,6 @@ impl Assets {
         }
     }
 
-    /// The bytes of one file, by whatever name the storyboard called it.
     pub fn read(&mut self, name: &str) -> Option<Vec<u8>> {
         let mut out = Vec::new();
         match self.index.get(&flatten(name))? {
@@ -520,10 +436,6 @@ impl Assets {
         }
     }
 
-    /// The set's own storyboard, which is a `.osb` beside the `.osu`.
-    ///
-    /// There is at most one that matters and its name is the set's, which
-    /// nothing here knows — so it is found by its extension.
     #[must_use]
     pub fn osb(&self) -> Option<String> {
         let mut found: Vec<&String> = self
@@ -531,24 +443,18 @@ impl Assets {
             .keys()
             .filter(|name| name.ends_with(".osb"))
             .collect();
-        // Sorted, so a folder holding two of them picks the same one twice
-        // rather than whichever the hash map felt like.
+
         found.sort();
         found.first().map(|name| (*name).clone())
     }
 }
 
-/// One spelling for a name: forward slashes, lower case, no leading `./`.
 fn flatten(name: &str) -> String {
     name.replace('\\', "/")
         .trim_start_matches("./")
         .to_ascii_lowercase()
 }
 
-/// Index a folder and its children.
-///
-/// Depth-limited because a storyboard reaches one folder down and a map folder
-/// somebody has pointed at their whole drive should not be walked to the end.
 fn walk(
     root: &Path,
     at: &Path,
@@ -574,12 +480,6 @@ fn walk(
     }
 }
 
-/// The map a replay was played on, and the replay itself.
-///
-/// Either the map is named outright or a folder of them is searched by the
-/// hash the replay carries. The map's *text* comes back as well as the parsed
-/// map: a storyboard lives in `[Events]`, which `Beatmap` reads for the
-/// background and the breaks and then forgets.
 pub fn load(
     replay_path: &Path,
     map: Option<&Path>,
@@ -596,7 +496,6 @@ pub fn load(
         }
     };
     let beatmap = Beatmap::parse(&found.text).map_err(|e| format!("{e}"))?;
-    // The text as well as the map: a storyboard lives in `[Events]`, which
-    // `Beatmap` reads for the background and the breaks and then forgets.
+
     Ok((beatmap, replay, found.origin, found.text))
 }

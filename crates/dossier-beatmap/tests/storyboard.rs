@@ -1,35 +1,18 @@
-//! The storyboard: its curves, its reading, and what a sprite is at a moment.
-//!
-//! Three things are being checked here and they fail in different ways. A
-//! curve that is subtly wrong makes every storyboard slightly off and nothing
-//! obviously broken; a reading that is wrong loses a sprite outright; and the
-//! arithmetic that turns a list of commands into a picture is where the rules
-//! nobody writes down live — what a sprite looks like before its first fade,
-//! how long a flip lasts, when a loop's second turn starts.
-
 use dossier_beatmap::storyboard::{self, Change, Layer, Origin, Switch};
 
-// ── the curves ───────────────────────────────────────────────────────────
-
-/// `b` to `b + c` over `d`, sampled at `at`.
 fn at(kind: u8, at: f64) -> f64 {
     storyboard::ease(kind, at, 0.0, 1.0, 1.0)
 }
 
 #[test]
 fn every_curve_starts_and_ends_where_it_was_told_to() {
-    // Whatever happens in between, a command that says "nought to one over
-    // this long" has to be at one when the time is up — otherwise a sprite
-    // faded in by an elastic curve settles at the wrong opacity and stays
-    // there for the rest of the map.
     for kind in 0..=34u8 {
         assert!(
             (at(kind, 1.0) - 1.0).abs() < 1e-9,
             "curve {kind} ends at {}",
             at(kind, 1.0)
         );
-        // Stable's own early-out: a time of nought is the starting value
-        // for every curve, before any of them is consulted.
+
         assert!(
             (at(kind, 0.0) - 0.0).abs() < 1e-9,
             "curve {kind} starts wrong"
@@ -39,9 +22,6 @@ fn every_curve_starts_and_ends_where_it_was_told_to() {
 
 #[test]
 fn nothing_is_asked_of_a_curve_with_nowhere_to_go() {
-    // All three early-outs, which are stable's and not tidiness: a command
-    // with no change, no elapsed time or no duration answers with its
-    // beginning rather than dividing by zero.
     assert!((storyboard::ease(24, 5.0, 7.0, 0.0, 10.0) - 7.0).abs() < 1e-12);
     assert!((storyboard::ease(24, 0.0, 7.0, 3.0, 10.0) - 7.0).abs() < 1e-12);
     assert!((storyboard::ease(24, 5.0, 7.0, 3.0, 0.0) - 7.0).abs() < 1e-12);
@@ -49,10 +29,6 @@ fn nothing_is_asked_of_a_curve_with_nowhere_to_go() {
 
 #[test]
 fn one_and_two_are_the_old_pair_and_are_the_wrong_way_round() {
-    // The two osu! had before the rest existed. `1` is quadratic *out* and
-    // `2` is quadratic *in*, which reads backwards and is what storyboards
-    // are written against — half a second in, an "out" curve is already
-    // three quarters of the way there.
     assert!(
         (at(1, 0.5) - 0.75).abs() < 1e-12,
         "1 should be quadratic out"
@@ -74,16 +50,12 @@ fn one_and_two_are_the_old_pair_and_are_the_wrong_way_round() {
 #[test]
 fn linear_is_linear_and_so_is_a_number_from_the_future() {
     assert!((at(0, 0.25) - 0.25).abs() < 1e-12);
-    // A storyboard naming a curve this table has never heard of is drawn
-    // rather than dropped.
+
     assert!((at(200, 0.25) - 0.25).abs() < 1e-12);
 }
 
 #[test]
 fn the_ones_that_overshoot_actually_overshoot() {
-    // Back and elastic leave the range they were given and come back, and
-    // a table that quietly clamped them would look like a table that
-    // worked. Bounce stays inside it.
     assert!(
         (0..=100).any(|i| at(30, f64::from(i) / 100.0) > 1.0),
         "back does not overshoot"
@@ -100,9 +72,6 @@ fn the_ones_that_overshoot_actually_overshoot() {
 
 #[test]
 fn bounce_in_is_bounce_out_run_backwards() {
-    // Which is how stable writes it — case 32 calls case 33 with the time
-    // reversed — and the reason to check it is that the recursion is easy
-    // to get subtly wrong.
     for i in 0..=20 {
         let t = f64::from(i) / 20.0;
         assert!(
@@ -112,13 +81,10 @@ fn bounce_in_is_bounce_out_run_backwards() {
     }
 }
 
-// ── the reading ──────────────────────────────────────────────────────────
-
 fn read(text: &str) -> storyboard::Storyboard {
     storyboard::parse(text)
 }
 
-/// `[Events]` with the lines given, indented the way a real file indents them.
 fn events(lines: &str) -> String {
     format!("[Events]\n{lines}\n")
 }
@@ -132,16 +98,13 @@ fn a_sprite_is_read_with_its_layer_its_origin_and_where_it_sits() {
     let sprite = &sb.sprites[0];
     assert_eq!(sprite.layer, Layer::Foreground);
     assert_eq!(sprite.origin, Origin::Centre);
-    // The separators are left as written: what opens the file has to cope with
-    // both anyway, and rewriting the path here would hide which it was.
+
     assert_eq!(sprite.path, r"sb\flash.png");
     assert_eq!((sprite.x, sprite.y), (320.0, 240.0));
 }
 
 #[test]
 fn the_numbers_mean_the_same_as_the_names() {
-    // Old storyboards write the layer and the origin as numbers, and plenty of
-    // new ones do too because the editor emits them.
     let named = read(&events(r#"Sprite,Overlay,BottomRight,"a.png",1,2"#));
     let numbered = read(&events(r#"4,4,8,"a.png",1,2"#));
     assert_eq!(named.sprites[0].layer, numbered.sprites[0].layer);
@@ -158,8 +121,7 @@ fn an_animation_carries_its_frames_and_how_long_each_is_up() {
     assert_eq!(animation.frames, 12);
     assert!((animation.frame_ms - 33.33).abs() < 1e-9);
     assert!(animation.once);
-    // And a plain sprite is not one, which is what stops it being asked for a
-    // file name with a number in it.
+
     assert!(
         read(&events(r#"Sprite,Background,TopLeft,"f.png",0,0"#)).sprites[0]
             .animation
@@ -174,9 +136,9 @@ fn the_video_line_is_picked_out_of_the_same_section() {
     ));
     let video = sb.video.expect("a video");
     assert_eq!(video.path, "clip.mp4");
-    // Videos routinely start before the song does.
+
     assert!((video.start_ms - -1200.0).abs() < 1e-9);
-    // The background and the break on either side are not sprites.
+
     assert!(sb.sprites.is_empty());
 }
 
@@ -196,7 +158,6 @@ fn commands_land_on_the_sprite_above_them() {
 
 #[test]
 fn an_underscore_indents_exactly_as_far_as_a_space() {
-    // Files use one or the other and some use both in the same storyboard.
     let spaces = read(&events(
         "Sprite,Background,TopLeft,\"a.png\",0,0\n L,0,2\n  F,0,0,100,0,1",
     ));
@@ -217,8 +178,7 @@ fn an_empty_end_time_is_an_instant_and_a_missing_end_value_repeats_the_start() {
     assert!(
         matches!(fade.change, Change::Fade(a, b) if (a - 0.5).abs() < 1e-6 && (b - 0.5).abs() < 1e-6)
     );
-    // The same rule on a move, where it is how a sprite is parked somewhere
-    // for a stretch rather than dragged.
+
     assert!(matches!(
         sb.sprites[0].commands[1].change,
         Change::Move(10.0, 20.0, 10.0, 20.0)
@@ -227,9 +187,6 @@ fn an_empty_end_time_is_an_instant_and_a_missing_end_value_repeats_the_start() {
 
 #[test]
 fn a_loop_is_laid_out_a_turn_at_a_time() {
-    // Its body is written from the loop's own start, and one turn lasts as
-    // long as its longest command — so the second turn begins where the first
-    // one ended and not at some fixed guess.
     let sb = read(&events(
         "Sprite,Background,TopLeft,\"a.png\",0,0\n_L,1000,3\n__F,0,0,200,0,1\n__F,0,200,400,1,0",
     ));
@@ -253,9 +210,6 @@ fn a_loop_is_laid_out_a_turn_at_a_time() {
 
 #[test]
 fn a_triggers_body_is_held_apart_from_the_sprites_own_commands() {
-    // It fires on something the storyboard cannot know by itself, so it waits
-    // here until somebody says what happened — see `Storyboard::fired`. Until
-    // then the sprite behaves as though the trigger were not there.
     let sb = read(&events(
         "Sprite,Background,TopLeft,\"a.png\",0,0\n_F,0,0,100,0,1\n_T,HitSoundClap,0,10000\n__F,0,0,200,1,0\n__S,0,0,200,1,2",
     ));
@@ -278,7 +232,6 @@ fn a_variable_is_spent_before_the_line_is_read() {
 
 #[test]
 fn the_longest_variable_name_is_spent_first() {
-    // `$a` inside `$ab` would otherwise eat its front and leave a `b`.
     let text = "[Variables]\n$a=1\n$ab=2\n\n[Events]\nSprite,Background,TopLeft,\"x.png\",$ab,$a\n";
     let sb = read(text);
     assert_eq!((sb.sprites[0].x, sb.sprites[0].y), (2.0, 1.0));
@@ -295,7 +248,6 @@ fn a_comment_goes_and_a_path_with_two_slashes_stays() {
 
 #[test]
 fn a_line_nobody_can_read_is_reported_and_the_rest_is_kept() {
-    // A storyboard is decoration. One bad line should cost that line.
     let (sb, errors) = storyboard::parse_reporting(&events(
         "Sprite,Background,TopLeft,\"a.png\",0,0\n_F,0,nonsense,500,0,1\n_S,0,0,500,1,2",
     ));
@@ -314,12 +266,8 @@ fn only_the_events_section_is_read() {
     assert_eq!(read(text).sprites.len(), 1);
 }
 
-// ── what a sprite is at a moment ─────────────────────────────────────────
-
 #[test]
 fn a_sprite_is_out_for_as_long_as_something_is_happening_to_it() {
-    // Not for the length of the song. A storyboard with four thousand sprites
-    // has perhaps thirty out at once, and this is the whole reason.
     let sb = read(&events(
         "Sprite,Background,TopLeft,\"a.png\",0,0\n_F,0,1000,2000,0,1",
     ));
@@ -332,10 +280,6 @@ fn a_sprite_is_out_for_as_long_as_something_is_happening_to_it() {
 
 #[test]
 fn before_its_first_fade_a_sprite_is_already_at_that_fades_start() {
-    // The rule nobody writes down. A sprite kept alive by a long move, with a
-    // fade that starts later, is *invisible* until the fade begins — not fully
-    // lit and then suddenly dark. Held at the default instead, every such
-    // sprite flashes on at its own start time.
     let sb = read(&events(
         "Sprite,Background,TopLeft,\"a.png\",0,0\n_M,0,0,3000,0,0,100,0\n_F,0,1000,2000,0,1",
     ));
@@ -345,7 +289,7 @@ fn before_its_first_fade_a_sprite_is_already_at_that_fades_start() {
         "lit too early"
     );
     assert!((sprite.at(1500.0).unwrap().alpha - 0.5).abs() < 1e-6);
-    // And after the last one, it stays where it was left.
+
     assert!((sprite.at(2900.0).unwrap().alpha - 1.0).abs() < 1e-6);
 }
 
@@ -356,15 +300,12 @@ fn a_sprite_nobody_faded_is_simply_visible() {
     ));
     let drawn = sb.sprites[0].at(500.0).expect("out");
     assert!((drawn.alpha - 1.0).abs() < 1e-6);
-    // And halfway through the move, halfway along it.
+
     assert!((drawn.x - 50.0).abs() < 1e-4 && (drawn.y - 25.0).abs() < 1e-4);
 }
 
 #[test]
 fn an_instant_switch_holds_and_one_with_a_length_lets_go() {
-    // `P,0,t,,H` is how a storyboard mirrors a sprite for good. Ending it the
-    // moment it began — which is what its two equal times say literally —
-    // would be a picture that never turns over at all.
     let held = read(&events(
         "Sprite,Background,TopLeft,\"a.png\",0,0\n_F,0,0,5000,1,1\n_P,0,1000,,H",
     ));
@@ -407,7 +348,7 @@ fn an_animation_wraps_unless_it_was_told_to_stop() {
     let once = read(&events(
         "Animation,Background,TopLeft,\"f.png\",0,0,4,100,LoopOnce\n_F,0,1000,3000,1,1",
     ));
-    // Counted from the sprite's own start, not from zero.
+
     assert_eq!(looping.sprites[0].at(1000.0).unwrap().frame, 0);
     assert_eq!(looping.sprites[0].at(1250.0).unwrap().frame, 2);
     assert_eq!(
@@ -451,9 +392,6 @@ fn the_two_kinds_of_scale_both_land() {
 
 #[test]
 fn the_drawing_order_is_by_layer_and_then_by_the_file() {
-    // Overlay goes over the play; the rest go under it. Inside a layer the
-    // file's own order decides, so a sort that is not stable would shuffle a
-    // mapper's stacking every frame.
     let sb = read(&events(
         "Sprite,Overlay,TopLeft,\"over.png\",0,0\n_F,0,0,1000,1,1\n\
          Sprite,Background,TopLeft,\"first.png\",0,0\n_F,0,0,1000,1,1\n\
@@ -477,8 +415,6 @@ fn nothing_invisible_is_handed_out_to_be_drawn() {
 
 #[test]
 fn a_difficultys_own_events_are_drawn_over_the_sets() {
-    // The `.osb` is read first and `[Events]` second, which is the order the
-    // game draws them in.
     let mut set = read(&events(
         "Sprite,Background,TopLeft,\"set.png\",0,0\n_F,0,0,1,1,1",
     ));
@@ -489,8 +425,6 @@ fn a_difficultys_own_events_are_drawn_over_the_sets() {
     let names: Vec<&str> = set.at(0.5).iter().map(|d| d.path).collect();
     assert_eq!(names, vec!["set.png", "own.png"]);
 }
-
-// ── triggers ─────────────────────────────────────────────────────────────
 
 use dossier_beatmap::storyboard::{Addition, Fires, HitSoundMatch, Sounded};
 use dossier_beatmap::SampleSet;
@@ -505,7 +439,6 @@ fn clap(at: f64) -> Sounded {
     }
 }
 
-/// The name is a run of optional parts and each one written narrows the match.
 #[test]
 fn a_trigger_reads_every_part_of_its_name() {
     let sb = read(&events(
@@ -524,7 +457,6 @@ fn a_trigger_reads_every_part_of_its_name() {
     assert_eq!((trigger.start_ms, trigger.end_ms), (0.0, 10000.0));
 }
 
-/// A body laid down once per sound, from the moment it sounded.
 #[test]
 fn a_trigger_lays_its_body_down_where_the_sound_was() {
     let sb = read(&events(
@@ -548,7 +480,6 @@ fn a_trigger_lays_its_body_down_where_the_sound_was() {
     assert_eq!(times, vec![(1000.0, 1100.0), (5000.0, 5100.0)]);
 }
 
-/// Outside the window, and the wrong sound inside it, both fire nothing.
 #[test]
 fn a_trigger_is_deaf_outside_its_window_and_to_the_wrong_sound() {
     let sb = read(&events(
@@ -563,7 +494,6 @@ fn a_trigger_is_deaf_outside_its_window_and_to_the_wrong_sound() {
     );
 }
 
-/// A name this parser cannot read fires on nothing rather than on everything.
 #[test]
 fn an_unreadable_trigger_stays_silent() {
     let sb = read(&events(
@@ -573,8 +503,6 @@ fn an_unreadable_trigger_stays_silent() {
     assert!(sb.fired(&[clap(500.0)]).sprites[0].commands.is_empty());
 }
 
-/// The whole way through: a sprite nobody can see until a clap lands, and then
-/// only for as long as the trigger's body says.
 #[test]
 fn a_fired_trigger_puts_a_sprite_on_the_screen() {
     let sb = read(&events(

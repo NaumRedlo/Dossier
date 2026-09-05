@@ -1,10 +1,3 @@
-//! The three readings of aim, checked the ways they can be before the skill
-//! that consumes them exists.
-//!
-//! `aim_difficulty` is in the corpus and will grade all of this the moment the
-//! summation is written. Until then these hold the evaluators to what must be
-//! true of them whatever the arithmetic.
-
 use dossier_assay::aim::{
     agility_difficulty_of, angle_acuteness, flow_difficulty_of, snap_difficulty_of,
 };
@@ -36,10 +29,6 @@ fn corpus() -> Vec<(String, Beatmap)> {
 
 #[test]
 fn every_reading_of_aim_is_a_number_on_every_map() {
-    // These three run over every object of every map under mods that move the
-    // geometry and the clock. A negative difficulty or a NaN would travel into
-    // the summation and come out as a star rating with no way back to the
-    // object that caused it.
     for (title, map) in corpus() {
         for mods in [
             Mods::new(0),
@@ -68,9 +57,6 @@ fn every_reading_of_aim_is_a_number_on_every_map() {
 
 #[test]
 fn the_first_two_objects_have_no_aim_to_speak_of() {
-    // Snap and flow both need two objects of history to have an angle at all,
-    // and ppy guard on `Index <= 1` rather than on the angle being present.
-    // Agility does not — it only needs the jump — and that difference is real.
     let (_, map) = corpus().into_iter().next().expect("a map");
     let objects = difficulty_objects(&map, Mods::new(0));
     for at in 0..2 {
@@ -81,8 +67,6 @@ fn the_first_two_objects_have_no_aim_to_speak_of() {
 
 #[test]
 fn a_hairpin_is_acute_and_a_straight_line_is_not() {
-    // The two readings of a corner are each other backwards, and everything in
-    // snap leans on which is which. Swapping them would still produce numbers.
     assert!(
         angle_acuteness(0.0) > 0.99,
         "a fold back on itself is as acute as it gets"
@@ -97,9 +81,6 @@ fn a_hairpin_is_acute_and_a_straight_line_is_not() {
 
 #[test]
 fn sliders_are_only_counted_when_they_are_asked_for() {
-    // The skill is built twice, with sliders and without, and the ratio of the
-    // two is what `slider_factor` reports. If the flag changed nothing the
-    // ratio would be one on every map.
     let (title, map) = corpus().into_iter().next().expect("a map");
     let objects = difficulty_objects(&map, Mods::new(0));
     let with: f64 = (0..objects.len())

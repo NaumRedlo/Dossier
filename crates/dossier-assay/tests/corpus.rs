@@ -1,14 +1,3 @@
-//! Ours against ppy's, on the corpus in `corpus/`.
-//!
-//! Every figure this crate produces is checked here rather than against a
-//! number somebody wrote down once. `corpus/expected.json` is ppy's own answer
-//! from the attributes endpoint — ten maps, fifteen mod sets each — and
-//! `corpus/maps/` holds the maps those answers describe.
-//!
-//! Rebuild it with `python scripts/pp_corpus.py`. A diff on the corpus after a
-//! rebuild is ppy having changed their arithmetic, which is the other half of
-//! why it lives in the repository.
-
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
@@ -19,11 +8,6 @@ fn corpus_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("corpus")
 }
 
-/// The mods a corpus key names, as the engine's bitmask.
-///
-/// The keys are what the endpoint was asked for — `NM`, `HD`, `HDHR` — so this
-/// is the same two-letter reading the rest of the project does, and `NC` brings
-/// DoubleTime with it the way the game's own bitmask does.
 fn mods_of(key: &str) -> Option<Mods> {
     let mut raw = 0u32;
     if key == "NM" {
@@ -49,7 +33,7 @@ fn mods_of(key: &str) -> Option<Mods> {
 struct Case {
     map: Beatmap,
     title: String,
-    /// Mod key to the attributes ppy gave for it.
+
     expected: BTreeMap<String, serde_json::Value>,
 }
 
@@ -89,7 +73,6 @@ fn cases() -> Vec<Case> {
 
 #[test]
 fn the_corpus_is_there_and_is_worth_checking_against() {
-    // A corpus that quietly emptied would turn every test below into a pass.
     let cases = cases();
     assert!(cases.len() >= 5, "only {} maps in the corpus", cases.len());
     let pairs: usize = cases.iter().map(|c| c.expected.len()).sum();
@@ -101,11 +84,6 @@ fn the_corpus_is_there_and_is_worth_checking_against() {
 
 #[test]
 fn the_greatest_combo_a_map_allows_is_the_one_ppy_reports() {
-    // Everything that can be hit, counted once: a circle, a slider's head, its
-    // ticks, its repeats, its tail, a spinner. Agreeing with ppy on this means
-    // the slider tick spacing and repeat handling underneath are right, which
-    // is what the difficulty calculation walks over — so it is the first thing
-    // worth being sure of.
     let mut checked = 0;
     let mut wrong = Vec::new();
     for case in cases() {
@@ -136,10 +114,6 @@ fn the_greatest_combo_a_map_allows_is_the_one_ppy_reports() {
 
 #[test]
 fn the_pressing_difficulty_is_the_one_ppy_reports() {
-    // The first figure here that ppy grades outright, and so the first check on
-    // everything under it: rhythm reads the gaps between objects, double-tapping
-    // reads the normalised jump distances, and a mistake in either surfaces here
-    // as a number that is simply not theirs.
     let mut checked = 0;
     let mut worst: Option<(String, f64, f64)> = None;
     for case in cases() {
@@ -166,12 +140,7 @@ fn the_pressing_difficulty_is_the_one_ppy_reports() {
     }
     assert!(checked > 0, "nothing was checked");
     let (what, _, off) = worst.expect("something to report");
-    // Exact, and it took two corrections to the same number to get there. The
-    // window is the *full* one, both sides of the note, which took this from
-    // nine per cent to a third of one; and it is floored with a half taken off,
-    // which took the last third away. The second was found on the performance
-    // side, where a map at overall difficulty 9.2 made a five per cent
-    // difference impossible to miss.
+
     assert!(
         off < 0.001,
         "худшее расхождение {:.2}% на {checked} парах — {what}",
@@ -179,8 +148,6 @@ fn the_pressing_difficulty_is_the_one_ppy_reports() {
     );
 }
 
-/// The same walk for any attribute the corpus carries, reported as the worst
-/// relative disagreement.
 fn worst_against_ppy(field: &str, ours: impl Fn(&Beatmap, Mods) -> f64) -> (usize, f64, String) {
     let mut checked = 0;
     let mut worst = (0.0, String::from("nothing"));
@@ -207,11 +174,6 @@ fn worst_against_ppy(field: &str, ours: impl Fn(&Beatmap, Mods) -> f64) -> (usiz
 
 #[test]
 fn the_aiming_difficulty_is_the_one_ppy_reports() {
-    // The figure the three evaluators and the section summation exist to
-    // produce. It came out three times too large and the cause was one sign:
-    // ppy have two logistic overloads and the single-argument one takes its
-    // exponent already formed, so feeding it to the four-argument form inverts
-    // the probability of snapping against flowing.
     let (checked, off, what) = worst_against_ppy("aim_difficulty", |map, mods| {
         dossier_assay::aim_difficulty(map, mods).0
     });
@@ -225,10 +187,6 @@ fn the_aiming_difficulty_is_the_one_ppy_reports() {
 
 #[test]
 fn the_slider_factor_is_the_one_ppy_reports() {
-    // Aim built twice, once counting slider travel and once not, and this is
-    // the ratio. It grades the two runs against each other rather than either
-    // alone, so it catches the flag being ignored — which would put it at one
-    // on every map.
     let (checked, off, what) = worst_against_ppy("slider_factor", |map, mods| {
         dossier_assay::aim_difficulty(map, mods).1
     });
@@ -242,18 +200,6 @@ fn the_slider_factor_is_the_one_ppy_reports() {
 
 #[test]
 fn the_counts_of_difficult_things_are_the_ones_ppy_reports() {
-    // Three figures that are lengths rather than difficulties: how much of the
-    // map is demanding, not how demanding it is. A map of one hard spike and a
-    // map of a thousand moderate ones can share a star rating and will never
-    // share these, which is exactly why the performance side needs them — the
-    // miss penalty leans on them to know how much of the play was at risk.
-    //
-    // They came out right on the first run, which is not luck: each is a
-    // logistic over strains that had already been graded against ppy, so the
-    // only new thing being tested is the denominator each is weighed against.
-    // Aim divides its difficulty by what one section would be worth; speed
-    // divides by the sum of the weights its strains were actually summed with,
-    // which is why it can only be asked after the summation has run.
     for (field, get) in [
         (
             "aim_difficult_slider_count",
@@ -280,27 +226,6 @@ fn the_counts_of_difficult_things_are_the_ones_ppy_reports() {
 
 #[test]
 fn the_reading_difficulty_is_close_to_the_one_ppy_reports() {
-    // The newest skill and the reason Hidden moves a star rating: what the eye
-    // has to take in before the hand can start. Its figure is one of the four
-    // the public endpoint does not return — a strange gap, since the endpoint
-    // serves ratings computed *with* this skill — so what it is graded against
-    // came from ppy's own osu-tools.
-    //
-    // Not exact: a fifth of a per cent typically and three at worst, and the
-    // three is far less than it sounds.
-    //
-    // Run down as far as a minimal reproduction. Only three maps of ten
-    // disagree, all of them the AR 9.3 ones, and cutting the worst down to 244
-    // objects leaves a single object carrying the whole figure. On it, our
-    // `past + future` differs from ppy's by 0.295 per cent and the reading
-    // difficulty differs by 21 — because `density_difficulty` subtracts a base
-    // of 2.5, so a map sitting just above that base has its answer amplified
-    // seventy-one times.
-    //
-    // What is left to find is therefore a third of a per cent somewhere in the
-    // density inputs, not three per cent in the arithmetic. Everything else
-    // that stands on the same preprocessing — aim, speed, both of their strain
-    // counts — is exact, and so is the opacity these inputs read.
     let (checked, off, what) = worst_against_ppy("reading_difficulty", |map, mods| {
         dossier_assay::attributes(map, mods).reading_difficulty
     });
@@ -314,10 +239,6 @@ fn the_reading_difficulty_is_close_to_the_one_ppy_reports() {
 
 #[test]
 fn the_count_of_hard_to_read_notes_is_close_too() {
-    // Reading overrides the shared counter with its own constants — a midpoint
-    // of 1.15 against 0.88, a growth of 5 against 10 — so a map has to be
-    // consistently hard to read before many of its notes count. It inherits
-    // whatever the difficulty above is out by, on the same map and mod set.
     let (checked, off, what) = worst_against_ppy("reading_difficult_note_count", |map, mods| {
         dossier_assay::attributes(map, mods).reading_difficult_note_count
     });
@@ -331,12 +252,6 @@ fn the_count_of_hard_to_read_notes_is_close_too() {
 
 #[test]
 fn the_flashlight_difficulty_is_close_to_the_one_ppy_reports() {
-    // Zero without the mod, so this grades two of the fifteen mod sets. It is
-    // exact on one of them and one and a half per cent low on the other, which
-    // is the whole of what is left unexplained here: Flashlight alone agrees,
-    // Flashlight with Hidden does not, so something in how Hidden is read still
-    // differs. It leans on `opacity_at` harder than any other skill, which is
-    // why grading it is what found the two Hidden mistakes already fixed.
     let (checked, off, what) = worst_against_ppy("flashlight_difficulty", |map, mods| {
         dossier_assay::attributes(map, mods).flashlight_difficulty
     });
@@ -353,14 +268,6 @@ fn the_flashlight_difficulty_is_close_to_the_one_ppy_reports() {
 
 #[test]
 fn the_star_rating_is_close_to_the_one_ppy_reports() {
-    // Everything above, added up: each skill's rating becomes what it would be
-    // worth as performance, reading and flashlight are summed as one demand on
-    // the eye, and the three are combined as a p-norm before being put back on
-    // a human scale.
-    //
-    // Within a fifth of a per cent everywhere except Flashlight with Hidden,
-    // which inherits the gap named above and is the only reason this threshold
-    // is not tighter.
     let (checked, off, what) = worst_against_ppy("star_rating", |map, mods| {
         dossier_assay::attributes(map, mods).star_rating
     });

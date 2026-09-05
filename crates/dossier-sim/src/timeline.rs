@@ -1,29 +1,15 @@
-//! Objects resolved onto a timeline.
-//!
-//! The file says *where* a slider goes but not *how long* it takes — that needs
-//! the tempo in force, the slider-velocity multiplier at that instant, and the
-//! map's global multiplier, all at once. Resolving it once up front keeps the
-//! per-frame path free of lookups.
-
 use dossier_beatmap::{Beatmap, Difficulty, HitObject, ObjectKind, Point, SliderPath};
 use dossier_replay::{bits, Mods};
 
-/// A hit object with its span on the timeline worked out, plus the flattened
-/// path for sliders.
 #[derive(Debug, Clone)]
 pub struct TimedObject {
-    /// Index into the beatmap's object list, so callers can get back to it.
     pub index: usize,
     pub pos: Point,
     pub start_ms: f64,
-    /// When the object stops being interactive. For a circle this equals
-    /// `start_ms`; for a slider it's the end of the last slide.
+
     pub end_ms: f64,
     pub new_combo: bool,
-    /// How high this object sits in a stack of overlapping ones; zero when it
-    /// is not stacked. Kept rather than discarded after the shift is applied,
-    /// because stable's note lock consults it: a click whose predecessor is an
-    /// unjudged stacked object passes through untouched.
+
     pub stack_height: i32,
     pub kind: TimedKind,
 }
@@ -34,10 +20,9 @@ pub enum TimedKind {
     Slider {
         path: SliderPath,
         slides: u32,
-        /// Duration of a single traversal, in milliseconds.
+
         slide_duration_ms: f64,
-        /// Tick times measured from the start of one traversal, ascending. The
-        /// same offsets serve every slide — see [`TimedObject::tick_times`].
+
         tick_offsets_ms: Vec<f64>,
     },
     Spinner,
@@ -56,7 +41,6 @@ impl TimedObject {
         matches!(self.kind, TimedKind::Spinner)
     }
 
-    /// How long one traversal of this slider takes, or `None` for other kinds.
     pub fn slide_duration_ms(&self) -> Option<f64> {
         match &self.kind {
             TimedKind::Slider {
@@ -66,8 +50,6 @@ impl TimedObject {
         }
     }
 
-    /// Where the slider ball is at `time_ms`, or `None` for other object kinds
-    /// and for times outside the slider's span.
     pub fn ball_at(&self, time_ms: f64) -> Option<Point> {
         let TimedKind::Slider {
             path,
@@ -85,11 +67,6 @@ impl TimedObject {
         path.position_at_slide(progress, *slides)
     }
 
-    /// Absolute times of every slider tick, ascending, across all slides.
-    ///
-    /// A reversed slide walks the path backwards, so the ball meets the same
-    /// ticks in the opposite order — their offsets are mirrored within the
-    /// slide, and the absolute times still come out ascending.
     pub fn tick_times(&self) -> Vec<f64> {
         let TimedKind::Slider {
             slides,
@@ -118,8 +95,6 @@ impl TimedObject {
         times
     }
 
-    /// Move the object and, for a slider, its whole path. Used by stacking,
-    /// which decides how far to nudge things only after every path is built.
     pub(crate) fn translate(&mut self, dx: f64, dy: f64) {
         self.pos.x += dx;
         self.pos.y += dy;
@@ -128,8 +103,6 @@ impl TimedObject {
         }
     }
 
-    /// Absolute times at which the ball turns around: one per repeat, so a
-    /// slider with `slides == 1` has none.
     pub fn repeat_times(&self) -> Vec<f64> {
         let TimedKind::Slider {
             slides,
@@ -145,42 +118,25 @@ impl TimedObject {
     }
 }
 
-/// A beatmap with every object placed on the timeline.
 #[derive(Debug, Clone)]
 pub struct Timeline {
     pub objects: Vec<TimedObject>,
-    /// Difficulty after mods, which is what preempt and hit windows come from.
+
     pub difficulty: Difficulty,
     pub mods: Mods,
-    /// What the player changed about the mods, when the replay said.
+
     pub tuning: Tuning,
-    /// Pauses the map declares, as (start, end) in milliseconds. Carried
-    /// through because what follows a break arrives with no warning from the
-    /// rhythm, and the game puts arrows up to supply one.
+
     pub breaks: Vec<(f64, f64)>,
-    /// The map's timing, kept so anything downstream can find the beat. Slider
-    /// durations are resolved here and need it no further, but a renderer does:
-    /// a cue that pulses with the music has to know where the music's pulse is.
+
     pub timing: dossier_beatmap::Timing,
 }
 
 impl Timeline {
-    /// Resolve `beatmap` as played under `mods`.
-    ///
-    /// Mods are applied here rather than by the caller because they change two
-    /// unrelated things at once — the difficulty numbers and, for HardRock, the
-    /// geometry — and letting those drift apart is how a judge ends up testing
-    /// hits against un-mirrored positions.
     pub fn build(beatmap: &Beatmap, mods: Mods) -> Self {
         Self::tuned(beatmap, mods, Tuning::default())
     }
 
-    /// The same, with the settings the player put on those mods.
-    ///
-    /// Separate from `build` rather than folded into it because the two have
-    /// different callers: previewing a map under mods nobody has played it
-    /// with has no replay to read settings from, and reaching for a replay's
-    /// there would be answering a question that was not asked.
     pub fn tuned(beatmap: &Beatmap, mods: Mods, tuning: Tuning) -> Self {
         let difficulty = tuning.stats(apply_mods(beatmap.difficulty, mods));
         let mirror = mods.contains(bits::HARD_ROCK);
@@ -191,8 +147,6 @@ impl Timeline {
             .map(|(index, obj)| resolve(beatmap, &difficulty, index, obj, mirror))
             .collect();
 
-        // After mirroring, because HardRock moves the objects and stacks are
-        // decided by where objects actually end up.
         crate::stacking::apply(
             &mut objects,
             &difficulty,
@@ -210,10 +164,6 @@ impl Timeline {
         }
     }
 
-    /// Objects on screen at `time_ms`: already spawned, not yet finished.
-    ///
-    /// Linear over the object list. Fine at this stage — the caller that needs
-    /// it per video frame will keep a cursor into the list instead.
     pub fn visible_at(&self, time_ms: f64) -> impl Iterator<Item = &TimedObject> {
         let preempt = self.difficulty.preempt_ms();
         self.objects
@@ -221,9 +171,6 @@ impl Timeline {
             .filter(move |o| time_ms >= o.start_ms - preempt && time_ms <= o.end_ms)
     }
 
-    /// How far into its approach an object is at `time_ms`: 0 when it spawns,
-    /// 1 when it must be hit. Values outside `[0, 1]` mean it isn't approaching
-    /// (not spawned yet, or already due).
     pub fn approach_progress(&self, object: &TimedObject, time_ms: f64) -> f64 {
         let preempt = self.difficulty.preempt_ms();
         if preempt <= 0.0 {
@@ -233,29 +180,8 @@ impl Timeline {
     }
 }
 
-/// HardRock and Easy rewrite the difficulty; they're mutually exclusive, and
-/// osu! rejects a replay carrying both.
-/// What a player changed about the mods themselves.
-///
-/// stable's mods have no settings: DoubleTime is one and a half times, and
-/// HardRock is HardRock. lazer's do — Difficulty Adjust plays a map at stats
-/// it was never written with, and the rate mods take any rate the player
-/// dials in. Both are in the replay and both were being read and then thrown
-/// away.
-///
-/// It shows in different places. The rate is not part of judging at all,
-/// because a replay's frames and its objects are both in map time and stay in
-/// step whatever the clock does — it is the render that suffers, drawing at a
-/// speed the play was not at and stretching the music to match. Difficulty
-/// Adjust is the opposite: it decides the hit windows, so getting it wrong is
-/// wrong counts.
-///
-/// Measured on `nazeetskyyy`'s replay of `down [noob...]`, played at OD 11 on
-/// a map written at OD 8: the great window is 14ms rather than 32, and judging
-/// it with the map's own turned 77 hundreds into threes.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct Tuning {
-    /// The rate the player dialled in, when they moved one off its default.
     pub rate: Option<f64>,
     pub circle_size: Option<f64>,
     pub approach_rate: Option<f64>,
@@ -264,8 +190,6 @@ pub struct Tuning {
 }
 
 impl Tuning {
-    /// Read out of a replay's lazer mods. Empty for a stable replay, which has
-    /// nowhere to state any of this.
     #[must_use]
     pub fn of_replay(replay: &dossier_replay::Replay) -> Self {
         let mods = replay.lazer_mods();
@@ -273,10 +197,6 @@ impl Tuning {
             mods.iter()
                 .find(|m| m.acronym == acronym)
                 .and_then(|m| match m.settings.get(name) {
-                    // `number` answers with the default for an absent key,
-                    // which is the wrong shape here: "the player left it
-                    // alone" has to stay distinguishable from "the player set
-                    // it to what it already was".
                     Some(dossier_replay::Setting::Number(n)) => Some(*n),
                     _ => None,
                 })
@@ -292,20 +212,11 @@ impl Tuning {
         }
     }
 
-    /// Whether there is anything here to apply.
     #[must_use]
     pub fn is_empty(&self) -> bool {
         *self == Self::default()
     }
 
-    /// The stats a map is played at, which are the map's own except where the
-    /// player replaced them.
-    ///
-    /// Replaced, not scaled, and applied after HardRock and Easy: Difficulty
-    /// Adjust states a number outright. Values above ten are kept — that is
-    /// what `extended_limits` is for, the window formula extrapolates past ten
-    /// the way lazer's does, and clamping here would quietly judge an OD 11
-    /// play at OD 10.
     #[must_use]
     pub fn stats(&self, difficulty: Difficulty) -> Difficulty {
         Difficulty {
@@ -366,18 +277,12 @@ fn resolve(
         start_ms: obj.time_ms,
         end_ms,
         new_combo: obj.new_combo,
-        // Filled in by stacking, which is the only thing that knows.
+
         stack_height: 0,
         kind,
     }
 }
 
-/// Milliseconds for one traversal of a slider.
-///
-/// osu! measures slider speed in "how many osu!pixels fit in a beat":
-/// `SliderMultiplier * 100`, scaled by whatever green line is in force. Divide
-/// the path length by that to get beats, multiply by the beat length to get
-/// time.
 fn slide_duration(beatmap: &Beatmap, difficulty: &Difficulty, time_ms: f64, length: f64) -> f64 {
     let beat_length = beatmap
         .timing
@@ -387,20 +292,11 @@ fn slide_duration(beatmap: &Beatmap, difficulty: &Difficulty, time_ms: f64, leng
         difficulty.slider_multiplier * 100.0 * beatmap.timing.velocity_at(time_ms);
 
     if beat_length <= 0.0 || pixels_per_beat <= 0.0 || !length.is_finite() {
-        // A map with no timing point can't place the slider in time; treat it
-        // as instantaneous rather than producing an infinity.
         return 0.0;
     }
     length / pixels_per_beat * beat_length
 }
 
-/// Tick times within one traversal.
-///
-/// Ticks are spaced by distance — one every `scoring_distance / tick_rate`
-/// osu!pixels — but the ball moves at a constant speed along a slide, so that
-/// works out to a constant `beat_length / tick_rate` in time, free of the
-/// slider velocity. The final tick is dropped when it would land on top of the
-/// slider's end; osu! uses an eighth of a tick as the threshold.
 fn tick_offsets(
     beatmap: &Beatmap,
     difficulty: &Difficulty,
@@ -423,7 +319,7 @@ fn tick_offsets(
     while t < limit {
         offsets.push(t);
         t += spacing;
-        // A pathological map could otherwise spin here for a very long time.
+
         if offsets.len() >= 10_000 {
             break;
         }

@@ -1,9 +1,3 @@
-//! The performance side, against ppy's own `simulate`.
-//!
-//! `corpus/scores.json` holds 240 plays over four of the corpus's maps, each
-//! with the breakdown that command prints. Every piece is graded on its own, so
-//! a wrong figure names itself instead of merely making the total wrong.
-
 use dossier_assay::performance::Score;
 use dossier_beatmap::Beatmap;
 use dossier_replay::{bits, Mods};
@@ -23,8 +17,6 @@ fn mods_of(key: &str) -> Option<Mods> {
     let mut raw = 0u32;
     for pair in key.as_bytes().chunks(2) {
         raw |= match std::str::from_utf8(pair).ok()? {
-            // Classic is not a bit the old bitmask ever had — it is lazer's
-            // name for the old rules — so it is carried on the score instead.
             "CL" => 0,
             "EZ" => bits::EASY,
             "HD" => bits::HIDDEN,
@@ -75,8 +67,7 @@ fn plays() -> Vec<Play> {
                     legacy_total_score: entry["legacy_total_score"]
                         .as_u64()
                         .filter(|total| *total > 0),
-                    // As the game computed it, which is not what the four
-                    // judgements say under lazer's rules.
+
                     accuracy: entry["accuracy"].as_f64().map(|percent| percent / 100.0),
                 },
                 expected: entry["performance"].clone(),
@@ -89,8 +80,7 @@ fn plays() -> Vec<Play> {
 fn the_score_corpus_is_there_and_covers_the_awkward_plays() {
     let plays = plays();
     assert!(plays.len() >= 200, "only {} plays", plays.len());
-    // The parts of the formula that only wake on a broken play are the reason
-    // this corpus is made up rather than collected.
+
     assert!(
         plays.iter().any(|p| p.score.miss > 10),
         "no ruinous play to test the clamps"
@@ -105,10 +95,6 @@ fn the_score_corpus_is_there_and_covers_the_awkward_plays() {
 
 #[test]
 fn the_effective_miss_count_is_the_one_ppy_reports() {
-    // How many times combo really broke, which every penalty below leans on. A
-    // miss is not the only way — dropping a slider does it too — so this is
-    // inferred from how far short of the map's maximum the combo fell, and then
-    // held down by what the judgements make possible.
     let mut worst = (0.0f64, String::from("nothing"));
     let mut checked = 0;
     for play in plays() {
@@ -138,8 +124,6 @@ fn the_effective_miss_count_is_the_one_ppy_reports() {
 
 #[test]
 fn a_lazer_score_has_no_slider_breaks_to_estimate() {
-    // Nothing to guess at: a lazer score records the ends it dropped and the
-    // ticks it missed, so the estimate is for classic scores alone.
     for play in plays().into_iter().filter(|play| !play.score.classic) {
         let attributes = dossier_assay::attributes(&play.map, play.mods);
         let effective = dossier_assay::performance::effective(&play.score, &attributes, play.mods);
@@ -152,7 +136,6 @@ fn a_lazer_score_has_no_slider_breaks_to_estimate() {
     }
 }
 
-/// Grade one component of the breakdown across every play.
 fn worst_component(
     field: &str,
     ours: impl Fn(&Play, &dossier_assay::Attributes) -> f64,
@@ -177,14 +160,10 @@ fn worst_component(
     (checked, worst.0, worst.1)
 }
 
-/// The Great window a play was judged at, doubled and rate-adjusted the way the
-/// difficulty objects carry it.
 fn great_window(play: &Play) -> f64 {
     2.0 * windows(play).0
 }
 
-/// All three windows, in the play's own time — one-sided, as the performance
-/// calculator wants them.
 fn windows(play: &Play) -> (f64, f64, f64) {
     let difficulty = dossier_sim::Timeline::build(&play.map, play.mods).difficulty;
     let rate = play.mods.speed_multiplier();
@@ -202,9 +181,6 @@ fn windows(play: &Play) -> (f64, f64, f64) {
 
 #[test]
 fn the_aim_component_is_the_one_ppy_reports() {
-    // The map's aim difficulty, held back for sliders left unfollowed, scaled by
-    // length, penalised for breaks against how much of the map was difficult,
-    // and finally multiplied by accuracy.
     let (checked, off, what) = worst_component("aim", |play, attributes| {
         let effective = dossier_assay::performance::effective(&play.score, attributes, play.mods);
         dossier_assay::performance::aim_value(&play.score, attributes, &effective)
@@ -219,9 +195,6 @@ fn the_aim_component_is_the_one_ppy_reports() {
 
 #[test]
 fn the_accuracy_component_is_the_one_ppy_reports() {
-    // Raised to the twenty-fourth power, which is why a point of accuracy is
-    // most of this component — and why miscounting the objects that *have*
-    // accuracy would be unmissable rather than subtle.
     let (checked, off, what) = worst_component("accuracy", |play, attributes| {
         dossier_assay::performance::accuracy_value(
             &play.score,
@@ -239,12 +212,6 @@ fn the_accuracy_component_is_the_one_ppy_reports() {
 
 #[test]
 fn the_speed_deviation_is_the_one_ppy_reports() {
-    // How far a play's presses scattered, in milliseconds, read out of nothing
-    // but its counts of Greats, Oks and Mehs. Press errors are taken to be
-    // normally distributed, so the share that landed inside the Great window
-    // says where that window sits on the distribution — and the share is taken
-    // at the low end of a Wilson interval, so a handful of notes cannot look
-    // like superhuman precision.
     let (checked, off, what) = worst_component("speed_deviation", |play, attributes| {
         dossier_assay::performance::speed_deviation(&play.score, attributes, windows(play))
             .unwrap_or(0.0)
@@ -259,9 +226,6 @@ fn the_speed_deviation_is_the_one_ppy_reports() {
 
 #[test]
 fn the_speed_component_is_the_one_ppy_reports() {
-    // The map's speed difficulty, penalised for breaks, held back where a high
-    // value was earned with imprecise pressing, and finally scaled by how well
-    // the play's precision met what the map asked of it.
     let (checked, off, what) = worst_component("speed", |play, attributes| {
         let effective = dossier_assay::performance::effective(&play.score, attributes, play.mods);
         let deviation =
@@ -284,8 +248,6 @@ fn the_speed_component_is_the_one_ppy_reports() {
 
 #[test]
 fn the_whole_thing_is_the_pp_ppy_reports() {
-    // Every component, added as a p-norm and put on the scale players see. This
-    // is the number the bot will actually show, and the one all of it was for.
     let (checked, off, what) = worst_component("pp", |play, attributes| {
         dossier_assay::performance::performance(&play.score, attributes, play.mods).pp
     });
@@ -299,10 +261,6 @@ fn the_whole_thing_is_the_pp_ppy_reports() {
 
 #[test]
 fn the_reading_component_is_the_one_ppy_reports() {
-    // Penalised against the count of hard-to-read notes rather than of
-    // difficult strains, and multiplied by the *cube* of accuracy — the
-    // harshest accuracy term of the four. It inherits reading's own three per
-    // cent, which is why this threshold is not a tenth like its neighbours.
     let (checked, off, what) = worst_component("reading", |play, attributes| {
         let effective = dossier_assay::performance::effective(&play.score, attributes, play.mods);
         dossier_assay::performance::reading_value(&play.score, attributes, &effective)
@@ -317,15 +275,6 @@ fn the_reading_component_is_the_one_ppy_reports() {
 
 #[test]
 fn a_classic_score_is_read_out_of_its_total() {
-    // The other half of the calculator, and the one that only exists because
-    // stable recorded so little. A classic score says what it scored and not
-    // where it broke — but the combo portion of a ScoreV1 total grows with the
-    // square of combo, so a total short of what the combo implies is a total
-    // that was interrupted, and by how much says how often.
-    //
-    // The totals in the corpus are made up. That is not a weakness here: what
-    // is being tested is that two calculators handed the same total read the
-    // same number of breaks out of it.
     let classic: Vec<_> = plays()
         .into_iter()
         .filter(|play| play.score.classic)

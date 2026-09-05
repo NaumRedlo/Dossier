@@ -1,44 +1,24 @@
-//! What this machine has been told, and where it is kept.
-//!
-//! The same file the terminal client reads — `~/.dossier/worker.env` — because
-//! the two are the same worker wearing different faces, and somebody who set
-//! one up should not have to do it twice. Which means writing it back has to
-//! be careful: the file may hold keys this does not know about, and comments
-//! somebody put there on purpose.
-
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-/// Everything the application asks for, and nothing it can work out.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Settings {
     pub server: String,
     pub token: String,
-    /// What this machine calls itself on the farm.
-    ///
-    /// Its host name to begin with, because that is what a worker was always
-    /// called — but a name is for the person reading the farm, and "MacBook
-    /// Air (2)" tells them nothing. Kept apart from the host name so that
-    /// renaming here does not rename the computer.
+
     pub name: String,
     pub songs: String,
-    /// Where skins are kept, when they are kept anywhere.
+
     pub skins: String,
-    /// Where this person's own replays live, for rendering one by hand.
+
     pub replays: String,
-    /// Which skin to draw with unless somebody says otherwise, by folder name.
-    ///
-    /// Empty means the engine's own — `Dossier Default`, which is not a folder
-    /// anywhere and is why this is a name and not a path.
+
     pub skin: String,
 }
 
-/// Reading one setting out of the six. A named type rather than the signature
-/// spelled inline: the table below reads as a table that way.
 type Reads = fn(&Settings) -> &String;
 
-/// The keys this writes. Anything else in the file is left exactly as it was.
 const KEYS: [(&str, Reads); 7] = [
     ("RENDER_SERVER", |s| &s.server),
     ("RENDER_WORKER_TOKEN", |s| &s.token),
@@ -59,14 +39,6 @@ pub fn home() -> PathBuf {
         .map_or_else(|| PathBuf::from("."), PathBuf::from)
 }
 
-/// Put this text where that file is, in one step as far as a reader is
-/// concerned.
-///
-/// Beside it, then renamed over it. Every window command runs off the main
-/// thread now, so a read can land in the middle of a write — and `fs::write`
-/// truncates before it fills, which would hand that reader an empty file and
-/// lose somebody's paths to the defaults. `rename` within a directory is
-/// atomic on every system this runs on.
 fn replace(file: &Path, text: &str) -> Result<(), String> {
     let mut near = file.as_os_str().to_owned();
     near.push(".swap");
@@ -78,7 +50,6 @@ fn replace(file: &Path, text: &str) -> Result<(), String> {
     })
 }
 
-/// `KEY=value` lines, comments and blanks skipped.
 pub fn read_pairs(file: &Path) -> Vec<(String, String)> {
     let Ok(text) = std::fs::read_to_string(file) else {
         return Vec::new();
@@ -97,10 +68,6 @@ pub fn read_pairs(file: &Path) -> Vec<(String, String)> {
 }
 
 impl Settings {
-    /// The file, with the environment on top of it.
-    ///
-    /// That way round deliberately, and the same way round the terminal client
-    /// reads them: a variable exported for one run beats what is written down.
     pub fn load() -> Self {
         let pairs = read_pairs(&path());
         let value = |key: &str| {
@@ -133,12 +100,6 @@ impl Settings {
         said
     }
 
-    /// Write it back, keeping everything this does not understand.
-    ///
-    /// A line this knows is replaced where it stands; one it has never seen is
-    /// left alone; a key that was missing is appended. The file belongs to the
-    /// terminal client as much as to this, and a settings screen that quietly
-    /// drops somebody's `RENDER_HOURS` would be the worst kind of helpful.
     pub fn save(&self) -> Result<(), String> {
         let file = path();
         if let Some(parent) = file.parent() {
@@ -170,17 +131,11 @@ impl Settings {
         replace(&file, &text)
     }
 
-    /// Whether this looks like the first time somebody has opened it.
-    ///
-    /// The two the machine cannot guess. Everything else has a sensible answer
-    /// without being asked, and asking anyway is how a setup screen becomes
-    /// eleven questions nobody reads.
     pub fn first_run(&self) -> bool {
         self.server.is_empty() || self.token.is_empty()
     }
 }
 
-/// What the computer calls itself, for a worker that has not been named.
 pub fn host_name() -> String {
     for key in ["HOSTNAME", "COMPUTERNAME", "NAME"] {
         if let Ok(found) = std::env::var(key) {
@@ -210,8 +165,6 @@ mod tests {
         dir
     }
 
-    /// A settings file is never half-written: the reader either sees all of
-    /// the old one or all of the new one, and nothing is left lying beside it.
     #[test]
     fn a_settings_file_is_replaced_whole_and_leaves_nothing_behind() {
         let dir = scratch("replace");
@@ -231,9 +184,6 @@ mod tests {
         assert_eq!(left, vec![std::ffi::OsString::from("worker.env")]);
     }
 
-    /// The whole reason `save` is not three lines: this file is shared with the
-    /// terminal client, and a settings screen that drops somebody's own keys is
-    /// the worst kind of helpful.
     #[test]
     fn writing_settings_keeps_the_lines_it_does_not_understand() {
         let dir = scratch("keeps");
@@ -244,7 +194,6 @@ mod tests {
         )
         .expect("written");
 
-        // The same walk `save` does, against a file this test owns.
         let said = Settings {
             server: "new".to_owned(),
             token: "abc".to_owned(),
@@ -317,7 +266,6 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
-    /// Only the two nobody can guess.
     #[test]
     fn a_first_run_is_a_missing_server_or_a_missing_token() {
         let full = Settings {

@@ -1,12 +1,5 @@
-//! The osu! mod bitfield.
-//!
-//! Kept as a thin wrapper over the raw `u32` rather than an enum set: the field
-//! carries bits we don't model yet (per-key mania mods, ScoreV2), and throwing
-//! them away on parse would make a re-serialised replay differ from the input.
-
 use std::fmt;
 
-/// Mod bits, in the order osu! assigns them.
 pub mod bits {
     pub const NO_FAIL: u32 = 1 << 0;
     pub const EASY: u32 = 1 << 1;
@@ -53,12 +46,6 @@ impl Mods {
         self.0
     }
 
-    /// The same mods as lazer would name them, with no settings.
-    ///
-    /// For a replay that predates the block lazer appends — or one from
-    /// stable, read under lazer's rules — the bitmask is all there is. Every
-    /// mod comes out as left-as-default, because the bitmask cannot say
-    /// otherwise.
     pub fn as_lazer_mods(self) -> Vec<crate::LazerMod> {
         [
             (bits::NO_FAIL, "NF"),
@@ -79,8 +66,6 @@ impl Mods {
             (bits::MIRROR, "MR"),
         ]
         .into_iter()
-        // Nightcore and Perfect set their weaker partner's bit as well, and
-        // naming both would multiply the same thing twice.
         .filter(|&(bit, _)| match bit {
             bits::DOUBLE_TIME => !self.contains(bits::NIGHTCORE),
             bits::SUDDEN_DEATH => !self.contains(bits::PERFECT),
@@ -99,8 +84,6 @@ impl Mods {
         self.0 == 0
     }
 
-    /// Playback rate the mods impose. Nightcore sets DoubleTime's bit too, so
-    /// checking DT alone covers both; the two never apply together.
     pub fn speed_multiplier(self) -> f64 {
         if self.contains(bits::DOUBLE_TIME) {
             1.5
@@ -111,10 +94,6 @@ impl Mods {
         }
     }
 
-    /// Acronyms in the order osu! displays them, e.g. `HDDT`.
-    ///
-    /// Nightcore and Perfect are rendered as themselves even though they carry
-    /// DoubleTime/SuddenDeath alongside — showing "DTNC" would be wrong.
     pub fn acronyms(self) -> Vec<&'static str> {
         use bits as b;
         let mut out = Vec::new();

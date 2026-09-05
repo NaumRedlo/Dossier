@@ -5,18 +5,15 @@ import pytest
 from dossier import maps as maps_module
 from dossier.osu import beatmap_osu
 
-
 class _Client:
     async def lookup_beatmap_by_checksum(self, _checksum):
         return {"id": 1, "beatmapset_id": 2}
-
 
 def _store(monkeypatch, tmp_path, checksum):
     monkeypatch.setattr(beatmap_osu, "BEATMAP_STORE_DIR", str(tmp_path))
     bare = tmp_path / f"{checksum}.osu"
     bare.write_text("osu file format v14\n")
     return bare
-
 
 @pytest.mark.asyncio
 async def test_the_archive_supersedes_a_bare_osu_left_from_a_bad_day(monkeypatch, tmp_path):
@@ -29,7 +26,6 @@ async def test_the_archive_supersedes_a_bare_osu_left_from_a_bad_day(monkeypatch
     monkeypatch.setattr(maps_module, "download_beatmap", archive_arrives)
     await maps_module.ensure_map(_Client(), checksum)
     assert not os.path.exists(bare), "the silent copy would have kept winning"
-
 
 @pytest.mark.asyncio
 async def test_a_map_only_osu_could_serve_keeps_its_bare_file(monkeypatch, tmp_path):

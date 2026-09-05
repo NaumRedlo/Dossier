@@ -1,26 +1,13 @@
-//! Sample packs, and the knobs that shift them.
-//!
-//! Two different things live here and it's worth keeping them apart. A
-//! [`Timbre`] is a *choice* — which recipe the synthesiser follows, and what
-//! the pack fundamentally sounds like. The three numbers alongside it are
-//! *tuning* — how high, how long, how loud that recipe is played.
-//!
-//! An earlier version had no timbres and five tuning knobs, which meant every
-//! pack was the same sound wearing a different hat. Character comes from the
-//! recipe; the knobs only move it.
-
-/// What a pack is made of.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Timbre {
-    /// Noise through a tight band-pass: the ordinary bright skin click.
     Click,
-    /// The same, rounded — lower, slower to start, no edge on it.
+
     Soft,
-    /// Percussion: a pitched body that drops as it decays, noise on the front.
+
     Drum,
-    /// Struck glass. Tuned partials, no noise, a long ring.
+
     Glass,
-    /// A woodblock knock: very short, very tight, a hint of pitch.
+
     Wood,
 }
 
@@ -37,10 +24,8 @@ impl Timbre {
         }
     }
 
-    /// The numbers the synthesiser actually reads.
     pub(crate) fn recipe(self) -> Recipe {
         match self {
-            // Bright, dry, and out of the way — what most skins use.
             Self::Click => Recipe {
                 centre: 1_100.0,
                 resonance: 2.6,
@@ -50,9 +35,7 @@ impl Timbre {
                 attack_ms: 0.5,
                 partials: 1,
             },
-            // Lower and slower to start. The soft attack is what takes the
-            // click off it: the ear reads a fast rise as a snap regardless of
-            // frequency.
+
             Self::Soft => Recipe {
                 centre: 620.0,
                 resonance: 1.5,
@@ -62,9 +45,7 @@ impl Timbre {
                 attack_ms: 4.0,
                 partials: 1,
             },
-            // A pitched body sliding downward is the whole of drum synthesis,
-            // and the reason this pack sounds like an instrument rather than a
-            // marker.
+
             Self::Drum => Recipe {
                 centre: 900.0,
                 resonance: 1.8,
@@ -74,8 +55,7 @@ impl Timbre {
                 attack_ms: 0.4,
                 partials: 1,
             },
-            // No noise at all. Stacked partials ringing on is what makes glass
-            // read as struck rather than hit.
+
             Self::Glass => Recipe {
                 centre: 1_800.0,
                 resonance: 4.0,
@@ -85,8 +65,7 @@ impl Timbre {
                 attack_ms: 1.0,
                 partials: 3,
             },
-            // Shorter than everything else on purpose: a knock is defined by
-            // how fast it stops.
+
             Self::Wood => Recipe {
                 centre: 2_300.0,
                 resonance: 6.0,
@@ -100,39 +79,35 @@ impl Timbre {
     }
 }
 
-/// The synthesiser's settings for one pack.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Recipe {
-    /// Where the band-pass sits for noisy voices, in Hz.
     pub centre: f32,
-    /// How tight that band is. High is pitched, low is a hiss.
+
     pub resonance: f32,
-    /// How much pitched body sits under the noise, 0 to 1.
+
     pub body: f32,
-    /// How far the body's pitch falls over its decay, 0 to 1.
+
     pub droop: f32,
-    /// Multiplies every voice's length.
+
     pub length: f32,
-    /// How long the rise takes. Anything under a millisecond reads as a snap.
+
     pub attack_ms: f32,
-    /// Partials on the tonal voices. One is a sine; more is a bell.
+
     pub partials: usize,
 }
 
-/// A pack: a recipe, and how it's played.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Kit {
     pub timbre: Timbre,
-    /// Multiplies every frequency, so the whole pack moves together.
+
     pub pitch: f32,
-    /// Multiplies every decay. Under one is tighter.
+
     pub decay: f32,
-    /// Overall level, on top of each voice's own balance.
+
     pub level: f32,
 }
 
 impl Kit {
-    /// A pack at its intended tuning.
     pub fn of(timbre: Timbre) -> Self {
         Self {
             timbre,
@@ -142,12 +117,10 @@ impl Kit {
         }
     }
 
-    /// The ordinary bright click, and the default.
     pub fn plain() -> Self {
         Self::of(Timbre::Click)
     }
 
-    /// Look a pack up by name, for the command line.
     pub fn by_name(name: &str) -> Option<Self> {
         let lower = name.to_ascii_lowercase();
         Timbre::ALL
@@ -174,17 +147,13 @@ mod tests {
             let found = Kit::by_name(timbre.name()).expect("named packs resolve");
             assert_eq!(found.timbre, timbre);
         }
-        // `1984` used to resolve here, to the house skin's tuning of the wood
-        // knock. That pack is gone, and the name resolves to nothing rather
-        // than quietly to something else.
+
         assert!(Kit::by_name("1984").is_none());
         assert!(Kit::by_name("nonsense").is_none());
     }
 
     #[test]
     fn the_packs_actually_sound_different_from_each_other() {
-        // The point of five packs is five sounds. Two that measure the same
-        // are one pack with two names.
         let fingerprints: Vec<_> = Timbre::ALL
             .into_iter()
             .map(|t| {
@@ -208,8 +177,6 @@ mod tests {
 
     #[test]
     fn glass_is_the_one_without_noise_in_it() {
-        // A tuned voice crosses zero at a steady rate; noise does not. This is
-        // the difference between the packs that ring and the packs that tick.
         let glass = Voice::Normal.render(&Kit::of(Timbre::Glass));
         let click = Voice::Normal.render(&Kit::of(Timbre::Click));
         assert!(
@@ -237,8 +204,6 @@ mod tests {
 
     #[test]
     fn pitch_moves_the_whole_pack_together() {
-        // Shifting one voice and not the others is how a pack stops sounding
-        // like one pack.
         for timbre in Timbre::ALL {
             let low = Kit {
                 pitch: 0.5,
@@ -263,8 +228,6 @@ mod tests {
             .count()
     }
 
-    /// Spread of the gaps between zero crossings: low for a tone, high for
-    /// noise.
     fn regularity(samples: &[f32]) -> f64 {
         let mut gaps = Vec::new();
         let mut last = 0usize;

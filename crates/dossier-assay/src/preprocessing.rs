@@ -1,184 +1,83 @@
-//! Each object as the difficulty calculation sees it: how far the cursor had to
-//! come, how sharply it had to turn, and how long it had to do it in.
-//!
-//! Ported from `OsuDifficultyHitObject`. Every skill reads these and nothing
-//! else, so the whole of the difficulty side rests on this file being right.
-//!
-//! # The two ideas in it
-//!
-//! **Distances are normalised.** A map with small circles asks for more precise
-//! movement than one with large circles over the same pixels, so every distance
-//! is scaled by `50 / radius` — fifty being a made-up radius that makes the
-//! diameter a hundred and the mental arithmetic easy. After that a "one
-//! diameter" jump means the same thing on every map.
-//!
-//! **A slider is followed lazily.** A player does not trace a slider; they hold
-//! the cursor where the follow circle still catches the ball and move only when
-//! it would otherwise slip out. So the cursor's path through a slider is walked
-//! piece by piece, moving only when the next piece is further away than the
-//! follow circle's reach, and where it ends up is where the next jump starts
-//! from. That end is the "lazy end position", and it is why the pieces of a
-//! slider had to be built first.
-
 use dossier_beatmap::{Beatmap, Point};
 use dossier_replay::Mods;
 use dossier_sim::{TimedKind, TimedObject, Timeline};
 
 use crate::slider::{Nested, NestedObject};
 
-/// The radius every distance is scaled to, so circle size stops mattering.
-///
-/// ```csharp
-/// public const int NORMALISED_RADIUS = 50; // Change radius to 50 to make 100 the diameter.
-/// ```
 pub const NORMALISED_RADIUS: f64 = 50.0;
 
 pub const NORMALISED_DIAMETER: f64 = NORMALISED_RADIUS * 2.0;
 
-/// No two objects are ever treated as closer together in time than this.
-///
-/// ```csharp
-/// // Capped to 25ms to prevent difficulty calculation breaking from simultaneous objects.
-/// public const int MIN_DELTA_TIME = 25;
-/// ```
 pub const MIN_DELTA_TIME: f64 = 25.0;
 
-/// How far the follow circle is assumed to reach, and how far it can be pushed.
-///
-/// The first is what the cursor is allowed to sit away from the ball before it
-/// has to move; the second is used when deciding whether a player cut a slider
-/// short or followed it through.
 const ASSUMED_SLIDER_RADIUS: f64 = NORMALISED_RADIUS * 1.8;
 const MAXIMUM_SLIDER_RADIUS: f64 = NORMALISED_RADIUS * 2.4;
 
-/// One object, with everything the skills ask of it.
-///
-/// Times are already divided by the clock rate — a skill never sees map time —
-/// and distances are already normalised.
 #[derive(Debug, Clone)]
 pub struct DiffObject {
-    /// Where it sits in the map's own object list.
     pub index: usize,
     pub start_time: f64,
     pub end_time: f64,
-    /// Since the previous object started.
+
     pub delta_time: f64,
-    /// The same, never less than [`MIN_DELTA_TIME`].
+
     pub adjusted_delta_time: f64,
-    /// Since the previous object *ended*, never less than [`MIN_DELTA_TIME`].
+
     pub last_object_end_delta_time: f64,
-    /// Start of the previous object to start of this one.
+
     pub jump_distance: f64,
-    /// Where the cursor was left by the previous object, to the start of this
-    /// one. The same as `jump_distance` unless the previous was a slider.
+
     pub lazy_jump_distance: f64,
-    /// The shorter of two readings of that jump — see [`Self::lazy_jump_distance`]
-    /// and the note in `set_distances`.
+
     pub minimum_jump_distance: f64,
     pub minimum_jump_time: f64,
-    /// How far the cursor travelled *within* this object.
+
     pub travel_distance: f64,
     pub travel_time: f64,
-    /// The turn the player makes at this object, in radians, if there is
-    /// enough history to say.
+
     pub angle: Option<f64>,
-    /// The same vector's angle folded into one quadrant, so a jump and its
-    /// mirror image read alike.
+
     pub normalised_vector_angle: Option<f64>,
-    /// Where the cursor ends up if this slider is followed as lazily as the
-    /// game allows.
+
     pub lazy_end_position: Option<Point>,
     pub lazy_travel_distance: f64,
     pub lazy_travel_time: f64,
-    /// The window a Great is given, after the clock rate.
+
     pub hit_window_great: f64,
     pub is_slider: bool,
     pub is_spinner: bool,
-    /// Where the object itself is, stacked.
+
     pub pos: Point,
     pub radius: f64,
-    /// How long the object is on screen before it must be hit, after the clock
-    /// rate — ppy's `Preempt`.
+
     pub preempt: f64,
-    /// The same two in the map's own time, which is what opacity is measured
-    /// in: `OpacityAt` is handed another object's raw start time.
+
     pub raw_start_time: f64,
     pub raw_preempt: f64,
-    /// Where the object *ends* — the slider's tail, or the object itself.
-    /// How long the object takes to fade in, in map time.
-    ///
-    /// Its own field because Hidden rewrites it on the beatmap — `ApplyToBeatmap`
-    /// sets it to `preempt * 0.4` for everything that is not a slider, and
-    /// sliders keep the default "to match Stable". The difficulty calculation
-    /// sees that rewrite, since mods are applied before its objects are built.
+
     pub raw_time_fade_in: f64,
-    /// Where the object *ends* — the slider's tail, or the object itself.
+
     pub end_pos: Point,
-    /// How many times a slider turns back. Zero for everything else.
+
     pub repeat_count: u32,
 }
 
-/// The window a Great is given, in map time.
-///
-/// ```csharp
-/// great = Math.Floor(IBeatmapDifficultyInfo.DifficultyRange(difficulty, GREAT_WINDOW_RANGE)) - 0.5;
-/// ```
-///
-/// Floored, and then a half taken off. That is neither decoration nor stable
-/// nostalgia — it is what lazer's `OsuHitWindows` does — and it is a large
-/// adjustment: at overall difficulty 9.2 the interpolated range is 24.8 and the
-/// window is 23.5, five per cent away.
-///
-/// It was got wrong twice in opposite directions before it was got right. First
-/// as `hit_window_300`, which truncates to a whole millisecond and is *stable's*
-/// judging behaviour — right for the renderer, wrong here. Then the truncation
-/// was removed on the grounds that lazer interpolates plainly, and since every
-/// map in the difficulty corpus has an integer overall difficulty that changed
-/// not one figure and looked confirmed. It took a play on a map at 9.2 to show
-/// that lazer does round, just not the way stable does.
 pub fn great_hit_window(overall_difficulty: f64) -> f64 {
     dossier_beatmap::difficulty_range(overall_difficulty, 80.0, 50.0, 20.0).floor() - 0.5
 }
 
-/// The shortest preempt the game will draw, and the point its fade-in stops
-/// getting shorter with it.
 const PREEMPT_MIN: f64 = 450.0;
 
-/// How much of the preempt Hidden spends fading an object out, and how much it
-/// spends fading it in.
-///
-/// ```csharp
-/// public const double FADE_IN_DURATION_MULTIPLIER = 0.4;
-/// public const double FADE_OUT_DURATION_MULTIPLIER = 0.3;
-/// ```
 const HIDDEN_FADE_OUT_DURATION_MULTIPLIER: f64 = 0.3;
 const HIDDEN_FADE_IN_DURATION_MULTIPLIER: f64 = 0.4;
 
 impl DiffObject {
-    /// How visible this object is at `time`, from nothing to one, in map time.
-    ///
-    /// Ported from `OsuDifficultyHitObject.OpacityAt`. Zero once the object is
-    /// due — ppy's own note calls that an approximation, since an object stays
-    /// on screen through its hit window, and says it does not matter where this
-    /// is used.
-    ///
-    /// The fade-in is **lazer's**, `400 * min(1, preempt / 450)`, which is a
-    /// flat 400ms for every approach rate up to 10. It is not the fade-in this
-    /// engine draws with: `dossier_beatmap::Difficulty::fade_in_ms` is stable's
-    /// two thirds of preempt, and the two disagree at every AR. The renderer is
-    /// right to draw stable's and this is right to read lazer's, because this
-    /// is porting lazer's difficulty calculation.
     pub fn opacity_at(&self, time: f64, hidden: bool) -> f64 {
         if time > self.raw_start_time {
             return 0.0;
         }
         let fade_in_start = self.raw_start_time - self.raw_preempt;
-        // Not `raw_time_fade_in`, deliberately. ppy compute this one from the
-        // preempt every time and say why in a comment: it is "equal to
-        // `OsuHitObject.TimeFadeIn` minus any adjustments from the HD mod". The
-        // fade-*out* below then uses the adjusted figure, and that asymmetry is
-        // the whole of it — reading them as the same number puts flashlight
-        // seven per cent low under Hidden and nothing at all without it.
+
         let fade_in_duration = 400.0 * (self.raw_preempt / PREEMPT_MIN).min(1.0);
         let faded_in = ((time - fade_in_start) / fade_in_duration).clamp(0.0, 1.0);
         if !hidden {
@@ -189,26 +88,14 @@ impl DiffObject {
         faded_in.min(1.0 - ((time - fade_out_start) / fade_out_duration).clamp(0.0, 1.0))
     }
 
-    /// A nudge for maps whose circles are smaller than usual.
-    ///
-    /// ```csharp
-    /// public double SmallCircleBonus => Math.Max(1.0, 1.0 + (30 - BaseObject.Radius) / 70);
-    /// ```
     pub fn small_circle_bonus(&self) -> f64 {
         (1.0 + (30.0 - self.radius) / 70.0).max(1.0)
     }
 
-    /// The overall difficulty this object's own hit window implies.
     pub fn overall_difficulty(&self) -> f64 {
         (79.5 - self.hit_window_great / 2.0) / 6.0
     }
 
-    /// How possible it is, from nothing to one, to hit this object and the next
-    /// with a single roll of two fingers and still be judged perfectly.
-    ///
-    /// Ported from `CalculateDoubleTapFeasibility`. Three things make it
-    /// possible: the two gaps being alike, the gap being short against the hit
-    /// window, and the two circles overlapping enough that one aim serves both.
     pub fn double_tap_feasibility(&self, next: Option<&DiffObject>) -> f64 {
         let Some(next) = next else { return 0.0 };
 
@@ -218,7 +105,7 @@ impl DiffObject {
 
         let speed_ratio = here / here.max(difference);
         let window_ratio = (here / self.hit_window_great).min(1.0).powi(5);
-        // No double-tapping two circles that do not touch.
+
         let distance_factor = crate::utils::reverse_lerp(
             self.lazy_jump_distance,
             NORMALISED_DIAMETER,
@@ -230,50 +117,16 @@ impl DiffObject {
     }
 }
 
-/// Everything after the first object, which has nothing to be measured against.
-///
-/// The list is built in order because each entry leans on the two before it:
-/// the cursor's position at the end of the previous object decides where this
-/// one's jump began, and the one before that decides the angle.
 pub fn difficulty_objects(beatmap: &Beatmap, mods: Mods) -> Vec<DiffObject> {
     let timeline = Timeline::build(beatmap, mods);
     let clock_rate = mods.speed_multiplier();
     let radius = timeline.difficulty.circle_radius();
-    // Deliberately not `hit_window_300`, which truncates to a whole
-    // millisecond. That truncation is stable's, and the judge is right to want
-    // it: the game casts the window to an integer before comparing anything
-    // against it, so a fractional OD really does hand out a 100 where the
-    // fraction would have given a 300.
-    //
-    // The difficulty calculation does no such thing — `OsuHitWindows.WindowFor`
-    // hands back the interpolated value — and the difference is not academic.
-    // It showed up as HardRock agreeing with ppy exactly while everything else
-    // was a fraction of a per cent out and Easy was four per cent out: HardRock
-    // caps overall difficulty at ten, where the window is a whole number and
-    // there is nothing to truncate, and Easy halves it into a fraction almost
-    // every time.
-    //
-    // And doubled, because ppy's is the *full* window — both sides of the note:
-    //
-    // ```csharp
-    // protected double HitWindow(HitResult hitResult) => 2 * getRawHitWindow(hitResult) / ClockRate;
-    // ```
-    //
-    // `OverallDifficulty => (79.5 - HitWindowGreat / 2) / 6` is the same fact
-    // stated twice: the halving there only recovers an overall difficulty
-    // because what it halves is the doubled window.
-    //
-    // Missing it left the pressing figure a fraction of a per cent out almost
-    // everywhere and four per cent out under Easy — the cap it feeds saturates
-    // when the window is small, so HardRock could not feel the mistake and
-    // Easy, with the widest window of any mod, felt it most.
+
     let preempt = timeline.difficulty.preempt_ms();
     let hidden = mods.contains(dossier_replay::bits::HIDDEN);
     let hit_window_great =
         2.0 * great_hit_window(timeline.difficulty.overall_difficulty) / clock_rate;
 
-    // Walked once up front: the lazy path through a slider depends only on the
-    // slider, so it is worked out before anything asks where a jump started.
     let parts: Vec<Vec<NestedObject>> = timeline
         .objects
         .iter()
@@ -296,7 +149,7 @@ pub fn difficulty_objects(beatmap: &Beatmap, mods: Mods) -> Vec<DiffObject> {
                 Some(previous) => {
                     (object.start_ms / clock_rate - previous.end_time).max(MIN_DELTA_TIME)
                 }
-                // Nothing before it to have ended, so the plain gap stands.
+
                 None => adjusted_delta_time,
             },
             jump_distance: 0.0,
@@ -337,14 +190,6 @@ pub fn difficulty_objects(beatmap: &Beatmap, mods: Mods) -> Vec<DiffObject> {
     out
 }
 
-/// Where the cursor ends up, and how far it travelled, if this slider is
-/// followed as lazily as the game allows.
-///
-/// Ported from `computeSliderCursorPosition`, including the part ppy's own
-/// comment calls not correct: when the last real tick falls after the point the
-/// player may let go, that tick is moved to the end of the list. It produces an
-/// ordering nobody would describe a slider with, and it is what the official
-/// numbers are computed from, so it is what happens here.
 fn compute_slider_cursor_position(
     current: &mut DiffObject,
     object: &TimedObject,
@@ -364,8 +209,7 @@ fn compute_slider_cursor_position(
     }
 
     let duration = object.end_ms - object.start_ms;
-    // The player must hold until a hair before the end, or halfway, whichever
-    // is later — a slider under 72ms gets less leniency than the flat 36.
+
     let mut tracking_end = (object.start_ms + duration + crate::slider::TAIL_LENIENCY)
         .max(object.start_ms + duration / 2.0);
 
@@ -374,10 +218,7 @@ fn compute_slider_cursor_position(
     if let Some(at) = last_tick {
         if ordered[at].time_ms > tracking_end {
             tracking_end = ordered[at].time_ms;
-            // Not a sensible order for a slider and it is the order the
-            // official figures come from. ppy's note: "this is definitely not
-            // correct from a difficulty calculation perspective ... but allows
-            // a zero-diff with known diffcalc output".
+
             let moved = ordered.remove(at);
             ordered.push(moved);
         }
@@ -385,8 +226,6 @@ fn compute_slider_cursor_position(
 
     current.lazy_travel_time = tracking_end - object.start_ms;
 
-    // How far along one traversal that leaves the ball, bouncing back and forth
-    // for a slider with repeats.
     let mut progress = if *slide_duration_ms > 0.0 {
         current.lazy_travel_time / slide_duration_ms
     } else {
@@ -410,15 +249,9 @@ fn compute_slider_cursor_position(
         };
         let mut length = scaling * hypot(movement);
 
-        // How far the ball may drift before the cursor has to follow.
         let mut required = ASSUMED_SLIDER_RADIUS;
 
         if last {
-            // The end of a slider is judged loosely enough that the player may
-            // take whichever of the two paths is shorter — to where the ball
-            // actually stops, or to the lazy end. On a circular slider the
-            // lazy end can be the further of the two, and this keeps that from
-            // being rewarded.
             let lazy_movement = Point {
                 x: lazy_end.x - cursor.x,
                 y: lazy_end.y - cursor.y,
@@ -428,8 +261,6 @@ fn compute_slider_cursor_position(
             }
             length = scaling * hypot(movement);
         } else if part.kind == Nested::Repeat {
-            // A repeat is turned on the spot, so the cursor is expected to be
-            // closer to it than to a tick.
             required = NORMALISED_RADIUS;
         }
 
@@ -450,9 +281,6 @@ fn compute_slider_cursor_position(
     current.lazy_end_position = Some(lazy_end);
 }
 
-/// How far the cursor came to this object, and how sharply it turned.
-///
-/// Ported from `setDistances`.
 #[allow(clippy::too_many_arguments)]
 fn set_distances(
     current: &mut DiffObject,
@@ -464,8 +292,6 @@ fn set_distances(
     radius: f64,
 ) {
     if let TimedKind::Slider { slides, .. } = &object.kind {
-        // A slider with repeats asks for more than one without, and this stands
-        // in for judging each piece on its own.
         let repeats = f64::from(slides.saturating_sub(1));
         current.travel_distance = current.lazy_travel_distance * repeats.powf(0.3).max(1.0);
         current.travel_time = (current.lazy_travel_time / clock_rate).max(MIN_DELTA_TIME);
@@ -473,8 +299,6 @@ fn set_distances(
 
     current.minimum_jump_time = current.adjusted_delta_time;
 
-    // A spinner is not aimed at, so neither the distance to it nor the angle
-    // through it means anything.
     if current.is_spinner || last.is_spinner() {
         return;
     }
@@ -500,15 +324,6 @@ fn set_distances(
             current.minimum_jump_time =
                 (current.adjusted_delta_time - last_travel).max(MIN_DELTA_TIME);
 
-            // Two ways to leave a slider, and the player is assumed to take
-            // whichever is shorter.
-            //
-            // Cutting it short — moving off before the ball is done — is what
-            // the lazy jump distance describes. Following it through to the
-            // visible end and jumping from there is described by the distance
-            // from the slider's tail. A pattern where the next circle is
-            // stacked inside the slider is the first; a pattern where it
-            // continues past the tail is the second.
             let tail = parts[last_diff.index]
                 .last()
                 .map_or(last.pos, |part| part.pos);
@@ -528,8 +343,6 @@ fn set_distances(
     }
     let Some(last_diff) = last_diff else { return };
 
-    // A slider the cursor genuinely travelled through is turned *from its
-    // head*, not from where the ball was let go.
     if last_diff.is_slider && last_diff.travel_distance > 0.0 {
         last_cursor = parts[last_diff.index]
             .first()
@@ -551,8 +364,6 @@ fn set_distances(
     current.angle = Some(angle.min(slider_angle));
 }
 
-/// The same corner, measured as though the previous slider were left at its
-/// second-to-last piece rather than wherever the cursor drifted to.
 fn slider_angle(
     pos: Point,
     last_diff: &DiffObject,
@@ -571,7 +382,6 @@ fn slider_angle(
     corner(pos, last_cursor, last_last)
 }
 
-/// The turn at `middle`, in radians, always positive.
 fn corner(current: Point, middle: Point, before: Point) -> f64 {
     let v1 = Point {
         x: before.x - middle.x,

@@ -1,18 +1,3 @@
-//! The preprocessing layer, checked the only ways it can be before a skill
-//! stands on it.
-//!
-//! `OsuDifficultyHitObject` has no figure of its own in ppy's attributes reply,
-//! so there is nothing here to compare against the way `max_combo` is compared.
-//! What can be done is to run it over every map and mod set in the corpus and
-//! insist on the things that must hold whatever the arithmetic — no infinities,
-//! no negative distances, angles that are angles — and to pin the handful of
-//! definitions that a careless edit would quietly invert.
-//!
-//! That is worth more than it sounds. Every one of these caught nothing on the
-//! day it was written, and each of them is a way the port could have been
-//! wrong without any test failing until a star rating came out odd three files
-//! later.
-
 use dossier_assay::preprocessing::{
     difficulty_objects, MIN_DELTA_TIME, NORMALISED_DIAMETER, NORMALISED_RADIUS,
 };
@@ -41,8 +26,6 @@ fn corpus() -> Vec<(String, Beatmap)> {
         .collect()
 }
 
-/// The mod sets worth walking every map under: nothing, the two that move the
-/// geometry, and the two that move the clock.
 fn interesting() -> Vec<(&'static str, Mods)> {
     vec![
         ("NM", Mods::new(0)),
@@ -55,9 +38,6 @@ fn interesting() -> Vec<(&'static str, Mods)> {
 
 #[test]
 fn nothing_in_the_corpus_produces_a_figure_that_is_not_a_number() {
-    // A NaN here does not fail; it spreads. It would travel through every skill
-    // and come out as a star rating of NaN several files away from the slider
-    // that made it, which is a bad afternoon.
     for (title, map) in corpus() {
         for (name, mods) in interesting() {
             for object in difficulty_objects(&map, mods) {
@@ -88,8 +68,6 @@ fn nothing_in_the_corpus_produces_a_figure_that_is_not_a_number() {
 
 #[test]
 fn no_two_objects_are_ever_closer_together_than_the_floor() {
-    // Maps do stack objects on the same millisecond, and a delta of zero
-    // divides into everything downstream.
     for (title, map) in corpus() {
         for object in difficulty_objects(&map, Mods::new(0)) {
             assert!(
@@ -106,10 +84,6 @@ fn no_two_objects_are_ever_closer_together_than_the_floor() {
 
 #[test]
 fn a_slider_starts_where_the_slider_is() {
-    // The path's own points are absolute — the stack shift is already in them —
-    // so a head is the slider's position and nothing is added to it. Getting
-    // this backwards would offset every slider in the map by its own
-    // coordinates, which is the kind of wrong that still produces numbers.
     for (_, map) in corpus() {
         let timeline = Timeline::build(&map, Mods::new(0));
         for object in &timeline.objects {
@@ -128,16 +102,6 @@ fn a_slider_starts_where_the_slider_is() {
 
 #[test]
 fn distances_are_measured_against_a_circle_of_one_size_on_every_map() {
-    // The point of normalising: a jump of one diameter has to mean one
-    // diameter's worth of difficulty whether the map is CS3 or CS6. So the
-    // figure is the plain distance scaled by `50 / radius`, and that is checked
-    // against the plain distance rather than by proxy.
-    //
-    // Written first as "the same jumps are longer under HardRock, which has
-    // smaller circles". They are, mostly — 1624 of 1696 — and the seventy-two
-    // that are not were the test being wrong: HardRock also mirrors the
-    // playfield, so it does not hold the geometry still while changing the
-    // circle size, and nothing does.
     for (title, map) in corpus() {
         let timeline = Timeline::build(&map, Mods::new(0));
         let radius = timeline.difficulty.circle_radius();
@@ -166,9 +130,6 @@ fn distances_are_measured_against_a_circle_of_one_size_on_every_map() {
 
 #[test]
 fn the_shortest_reading_of_a_jump_off_a_slider_is_the_one_taken() {
-    // Two ways to leave a slider — cut it short, or follow it through and jump
-    // from the tail — and the player is assumed to take whichever is shorter.
-    // So the minimum can never exceed the lazy reading it is chosen against.
     for (title, map) in corpus() {
         for object in difficulty_objects(&map, Mods::new(0)) {
             assert!(
@@ -184,10 +145,6 @@ fn the_shortest_reading_of_a_jump_off_a_slider_is_the_one_taken() {
 
 #[test]
 fn a_slider_followed_lazily_never_travels_further_than_its_path() {
-    // The whole idea of the lazy path is that it is *less* movement than
-    // tracing the slider: the cursor sits still while the follow circle keeps
-    // up and moves only when it would slip. A lazy distance longer than the
-    // path itself would mean the opposite had been implemented.
     for (title, map) in corpus() {
         let timeline = Timeline::build(&map, Mods::new(0));
         let radius = timeline.difficulty.circle_radius();
@@ -202,8 +159,7 @@ fn a_slider_followed_lazily_never_travels_further_than_its_path() {
                 }
                 _ => continue,
             };
-            // Both in normalised units, and with room for the fact that the
-            // lazy walk is a straight line between pieces where the path curves.
+
             let normalised_path = path * NORMALISED_DIAMETER / (radius * 2.0);
             assert!(
                 object.lazy_travel_distance <= normalised_path + 1.0,

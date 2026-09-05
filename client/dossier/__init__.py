@@ -1,16 +1,3 @@
-"""Dossier: the replay engine, and the Python that runs it.
-
-The engine itself is Rust and lives beside this package as a compiled binary;
-everything here is the bridge to it — find it, ask it what it is, hand it a
-replay, read what it says back, and keep the maps and skins it reads from on
-disk. Two things use the bridge: the bot that takes render requests, and the
-render client that answers them on somebody else's machine.
-
-Names are fetched the first time they are asked for rather than at import.
-`runner` brings the whole render pipeline and `skins` brings zip handling, and
-a caller that only wanted `is_available` should not pay for either.
-"""
-
 from importlib import import_module
 from typing import TYPE_CHECKING
 
@@ -45,7 +32,6 @@ if TYPE_CHECKING:
         video,
     )
 
-
 def __getattr__(name: str):
     found = _EXPORTS.get(name)
     if found is None:
@@ -55,9 +41,7 @@ def __getattr__(name: str):
     globals()[name] = value
     return value
 
-
 def __dir__():
     return sorted(set(globals()) | set(_EXPORTS))
-
 
 __all__ = list(_EXPORTS)

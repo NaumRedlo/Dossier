@@ -1,16 +1,3 @@
-"""The build stamp: reading it, what it covers, and what it decides.
-
-Two machines running the engine have to be running the *same* engine, because
-a render is a comparison — the same replay, judged the same way — and two
-builds that differ have no business splitting the work between them. The stamp
-is how each says which one it is, and `build.agree` is what refuses.
-
-It is folded from the crates and the lock file and nothing else, and that is a
-thing this test walks real history to check: the farm once stopped for an hour
-because the stamp was the repository's commit, and a worker was refused over a
-markdown file.
-"""
-
 import re
 import subprocess
 from pathlib import Path
@@ -19,18 +6,14 @@ import pytest
 
 from dossier import build as engine_build
 
-# `client/tests` up two: the checkout, which is what gets stamped.
 REPO = Path(__file__).resolve().parents[2]
 
-
 def _saying(version):
-    """A stand-in for the local engine that answers one fixed line."""
 
     async def local(*_args, **_kwargs):
         return version
 
     return local
-
 
 class TestReadingTheStamp:
     def test_the_id_is_taken_out_of_the_line_the_engine_prints(self):
@@ -42,8 +25,7 @@ class TestReadingTheStamp:
         assert not allowed
 
     def test_two_edited_trees_are_cannot_tell_rather_than_a_refusal(self):
-        # Same reasoning as two `unknown`s below: neither can say what it is,
-        # so this is ignorance rather than disagreement.
+
         allowed, why = engine_build.agree("d 0.1.0 (15abdf1+)", "d 0.1.0 (15abdf1+)")
         assert allowed and "правленого дерева" in why
 
@@ -51,14 +33,6 @@ class TestReadingTheStamp:
     def test_anything_unreadable_is_unknown_rather_than_a_guess(self, line):
         assert engine_build.build_of(line) == engine_build.UNKNOWN
 class TestWhatTheStampCovers:
-    """The farm once stopped because the stamp was the repository's commit.
-
-    `drejk-starsij.local` was refused with "the bot renders with 8aae009 and
-    this worker with 6054b39", and the whole difference between those two
-    commits was one markdown file — two identical programs, and the work went
-    back to the bot. The inputs are read out of `build.rs` rather than repeated
-    here, so this test cannot drift from what actually gets stamped.
-    """
 
     @staticmethod
     def _inputs():
@@ -79,12 +53,6 @@ class TestWhatTheStampCovers:
         assert "crates" in self._inputs()
 
     def test_a_commit_that_only_touched_documents_does_not_move_the_stamp(self):
-        """Walked over real history, because that is where the bug came from.
-
-        A synthetic pair of commits would only prove the rule this test already
-        knows. The repository's own documentation commits are the thing that
-        stopped the farm, so they are what gets checked.
-        """
         history = self._git("log", "--format=%H", "-40")
         if not history:
             pytest.skip("no git history to read")
@@ -117,16 +85,12 @@ class TestDeciding:
         assert "abc1234" in why and "def5678" in why
 
     def test_an_edited_tree_is_told_to_commit_rather_than_to_pull(self):
-        # The refusal that started this: same source on both sides, the worker
-        # with edits on top. It was told `git pull`, which does nothing about
-        # uncommitted changes, so the operator pulled and rebuilt in a loop.
+
         allowed, why = engine_build.agree("d 0.1.0 (023f7e7)", "d 0.1.0 (023f7e7+)")
         assert not allowed
         assert "023f7e7" in why and "воркер" in why
         assert "git pull" not in why
-        # Rebuilding comes first because the mark outlives the edits: the stamp
-        # is fixed when the binary is linked, so a tree tidied up but not built
-        # again still says `+` with nothing left to stash.
+
         assert why.index("пересоберите") < why.index("отложив")
 
     def test_it_says_which_side_has_the_edits(self):

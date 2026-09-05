@@ -1,9 +1,3 @@
-# Its own workspace, on purpose.
-#
-# Tauri brings several hundred crates with it. Inside the engine's workspace
-# every `cargo test` would have to look at all of them, and the engine's tests
-# are run dozens of times a day — see `docs/roadmap.md`. A path dependency
-# reaches the engine from here without the traffic going the other way.
 [workspace]
 
 [package]
@@ -22,19 +16,8 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
 
-# Blocking, because a Tauri command already runs off the main thread and a
-# render is the one thing this does — there is nothing else for that thread to
-# be doing meanwhile, and an async runtime to express that would be machinery
-# for its own sake.
-#
-# `rustls` rather than the system's TLS: it is the difference between an
-# installer that works and one that wants OpenSSL present, which on Windows it
-# is not and on Linux is whichever version the distribution felt like.
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls", "stream"] }
 
-# The engine, as a library. This is the whole reason the client was rewritten:
-# the terminal one shells out to a copy of `dossier` and then has to ask
-# whether the two agree about their own version.
 dossier-produce = { path = "../crates/dossier-produce" }
 dossier-beatmap = { path = "../crates/dossier-beatmap" }
 dossier-replay = { path = "../crates/dossier-replay" }
@@ -42,7 +25,5 @@ dossier-render = { path = "../crates/dossier-render" }
 dossier-sim = { path = "../crates/dossier-sim" }
 dossier-audio = { path = "../crates/dossier-audio" }
 
-# Only the tests need it, and only to write an `.osk` to install: the crate is
-# already in the tree under `dossier-produce`, which is what unpacks them.
 [dev-dependencies]
 zip = { version = "2", default-features = false, features = ["deflate"] }

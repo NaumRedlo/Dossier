@@ -25,12 +25,10 @@ _DOWNLOAD_UA = (
     "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
 )
 
-
 def _beatmap_already_present(beatmapset_id: int) -> bool:
     songs_dir = os.path.expanduser(BEATMAP_STORE_DIR)
     os.makedirs(songs_dir, exist_ok=True)
     return any(e.startswith(str(beatmapset_id)) for e in os.listdir(songs_dir))
-
 
 async def fetch_beatmap_osz(beatmapset_id: int):
     headers = {"User-Agent": _DOWNLOAD_UA}
@@ -70,7 +68,6 @@ async def fetch_beatmap_osz(beatmapset_id: int):
     logger.warning(f"Failed to download beatmap {beatmapset_id} from all mirrors after {_DOWNLOAD_RETRIES} attempts")
     return None
 
-
 async def download_beatmap(beatmapset_id: int) -> bool:
     if _beatmap_already_present(beatmapset_id):
         return True
@@ -82,7 +79,6 @@ async def download_beatmap(beatmapset_id: int) -> bool:
     with open(osz_path, "wb") as f:
         f.write(data)
     return True
-
 
 def save_beatmap_osz(beatmapset_id: int, osz_bytes: bytes) -> bool:
     if _beatmap_already_present(beatmapset_id):

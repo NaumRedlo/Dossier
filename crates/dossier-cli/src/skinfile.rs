@@ -1,38 +1,13 @@
-//! Writing our look out as a skin osu! can actually wear.
-//!
-//! A skin is a folder: a `skin.ini` and, optionally, the images and sounds that
-//! replace the game's own. Anything left out falls back to the default skin, so
-//! a partial skin is a legal skin — which is what makes this worth doing in
-//! steps rather than all at once.
-//!
-//! This writes the part we already have exactly: the palette, and the hit
-//! sounds, which have been named `{set}-hit{sound}.wav` from the day they were
-//! recorded because that is what the engine reads them by. The graphics come
-//! later; until then the game draws its own over our colours.
-
 use std::path::{Path, PathBuf};
 
 use dossier_render::Skin;
 use tiny_skia::Color;
 
-/// The skin format version written into every file we produce.
-///
-/// Pinned deliberately, and the reason is a trap rather than a preference: a
-/// `skin.ini` that exists *without* a `Version` is read as `1.0` — the 2007
-/// format, which has no `@2x` high-resolution support at all. `latest` is worse
-/// for anything distributed, since a future release can change what the skin
-/// means. 2.7 is the newest documented version; everything past 2.0 shares the
-/// HD support and the modern spinner, and the versions between only move
-/// things in modes we do not draw.
 const SKIN_VERSION: &str = "2.7";
 
-/// The hit-sound files a skin carries, in osu!'s own naming.
 const SAMPLE_SETS: [&str; 3] = ["normal", "soft", "drum"];
 const SAMPLE_SOUNDS: [&str; 4] = ["normal", "whistle", "finish", "clap"];
 
-/// The elements we draw. Everything else falls back to the game's own skin,
-/// which is a legal and deliberate state rather than a gap: a number font and a
-/// spinner are their own pieces of work, and a skin is playable without them.
 fn elements() -> Vec<dossier_render::elements::Element> {
     use dossier_render::elements::Element;
     let mut all = vec![
@@ -57,8 +32,6 @@ pub struct Written {
     pub images: usize,
 }
 
-/// Write `skin` into `folder` as an osu! skin, with `samples` copied in if a
-/// folder of them was found.
 pub fn write(
     skin: &Skin,
     name: &str,
@@ -79,7 +52,7 @@ pub fn write(
                     sounds += 1;
                 }
             }
-            // The slider tick, which the engine reads by the same rule.
+
             let tick = format!("{set}-slidertick.wav");
             let source = from.join(&tick);
             if source.is_file() && std::fs::copy(&source, folder.join(&tick)).is_ok() {
@@ -88,10 +61,6 @@ pub fn write(
         }
     }
 
-    // Both resolutions of every element. The `@2x` file is exactly twice the
-    // side, which is the whole of the rule — and it is the one the game
-    // prefers, so a skin that shipped only the small ones would look soft on
-    // every modern screen.
     let mut images = 0;
     for element in elements() {
         for (suffix, size) in [("", element.size()), ("@2x", element.size() * 2)] {
@@ -116,7 +85,6 @@ pub fn write(
     })
 }
 
-/// The `skin.ini`, as text.
 fn ini_text(skin: &Skin, name: &str) -> String {
     let mut out = String::new();
     out.push_str("// Written by `dossier skin`. The colours are the engine's own,\n");
@@ -129,15 +97,10 @@ fn ini_text(skin: &Skin, name: &str) -> String {
     out.push('\n');
 
     out.push_str("[Colours]\n");
-    // The one thing about this file that reads backwards: `Combo2` is the
-    // colour shown *first* and `Combo1` the one shown *last*, so a two-colour
-    // cycle is written bottom-up. Getting it the obvious way round swaps every
-    // combo in the game against every combo in our renders.
+
     out.push_str("// Combo2 is shown first and Combo1 last — osu!'s own ordering.\n");
     let colours = &skin.combo_colours;
     for (index, colour) in colours.iter().enumerate() {
-        // The first colour of ours is the game's Combo2, the second Combo3, and
-        // the last of ours wraps around to Combo1.
         let slot = if index + 1 == colours.len() {
             1
         } else {
@@ -148,10 +111,6 @@ fn ini_text(skin: &Skin, name: &str) -> String {
     out.push_str(&format!("SliderBorder: {}\n", rgb(skin.slider_border)));
     out.push('\n');
 
-    // Each digit is cut to its own glyph with a small margin, and the game
-    // spaces multi-digit numbers by the sprites' widths — so without this the
-    // margins add up and a three-figure combo reads visibly wide. Positive is
-    // an overlap, which is exactly the margin handed back.
     out.push_str("[Fonts]\n");
     out.push_str(&format!(
         "HitCircleOverlap: {}\n",
@@ -162,7 +121,6 @@ fn ini_text(skin: &Skin, name: &str) -> String {
     out
 }
 
-/// A colour as osu! writes one: `r,g,b`, each 0–255.
 fn rgb(colour: Color) -> String {
     let channel = |v: f32| (v * 255.0).round().clamp(0.0, 255.0) as u8;
     format!(
@@ -179,13 +137,6 @@ mod tests {
 
     #[test]
     fn the_combo_cycle_is_written_in_osus_backwards_order() {
-        // osu! shows Combo2 first and Combo1 last, so the cycle is written
-        // bottom-up: our first colour lands in Combo2 and our last wraps round
-        // to Combo1. The obvious mapping would swap every combo colour in the
-        // game against every combo colour in our own renders.
-        //
-        // Checked against osu!'s own default cycle — orange, green, blue, red —
-        // which is what the skin falls back to with no map to ask.
         let text = ini_text(&Skin::default(), "dossier");
         let at = |slot: &str| {
             text.lines()
@@ -208,9 +159,6 @@ mod tests {
 
     #[test]
     fn the_version_is_pinned_rather_than_left_to_the_game() {
-        // A `skin.ini` with no Version at all is read as 1.0 — the format from
-        // before high-resolution elements existed — and `latest` lets a future
-        // release change what this skin means. Neither is a thing to ship.
         let text = ini_text(&Skin::default(), "dossier");
         assert!(text.contains("Version: 2.7"), "{text}");
         assert!(!text.contains("latest"));

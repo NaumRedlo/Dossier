@@ -1,14 +1,3 @@
-//! How fast this machine draws, measured rather than guessed.
-//!
-//! A rating assembled out of a specification sheet — so many cores, so many
-//! gigabytes — is a number nobody checked, and the thing the farm actually
-//! wants to know is how many frames a machine will hand back per second. So it
-//! is drawn: a small scene, a fixed number of frames, a clock.
-//!
-//! Nothing here touches the disk or the network. The map is three lines of
-//! text and the replay is made up, which is what makes the number comparable
-//! between machines — two computers running this are drawing the same picture.
-
 use std::time::Instant;
 
 use dossier_beatmap::Beatmap;
@@ -16,10 +5,6 @@ use dossier_render::{Layout, Scene, Skin};
 use dossier_replay::{GameMode, HitCounts, Mods, Replay, ReplayFrame};
 use dossier_sim::GameState;
 
-/// A map small enough to build in memory and busy enough to draw.
-///
-/// Four circles and a slider inside one second: enough that a frame has objects
-/// on it, few enough that the measurement is of drawing rather than of parsing.
 const MAP: &str = "osu file format v14
 
 [General]
@@ -45,23 +30,16 @@ SliderTickRate:1
 256,192,1600,2,0,L|400:300,1,140,0|0,0:0|0:0,0:0:0:0:
 ";
 
-/// What the measurement found.
 #[derive(Debug, Clone, Copy, serde::Serialize)]
 pub struct Speed {
-    /// Frames a single thread drew per second.
     pub per_thread: f64,
-    /// And what the machine would give across the threads the policy allows.
+
     pub estimated: f64,
     pub frames: u32,
     pub width: u32,
     pub height: u32,
 }
 
-/// A replay that never happened, holding the cursor on the notes.
-///
-/// Made up rather than loaded: a real one carries somebody's name, and a
-/// benchmark that depends on a file is one that measures a different thing on
-/// every machine.
 fn pretend() -> Replay {
     let frames = (0..200)
         .map(|step| ReplayFrame {
@@ -92,11 +70,6 @@ fn pretend() -> Replay {
     }
 }
 
-/// Draw `frames` pictures and say how quickly they came.
-///
-/// One thread, deliberately: what varies between machines is how fast a core
-/// draws, and how many of them there are is already known. Multiplying the two
-/// is an estimate and is labelled as one.
 pub fn draw_speed(size: (u32, u32), frames: u32, threads: u32) -> Result<Speed, String> {
     let beatmap = Beatmap::parse(MAP).map_err(|e| e.to_string())?;
     let replay = pretend();
@@ -105,9 +78,6 @@ pub fn draw_speed(size: (u32, u32), frames: u32, threads: u32) -> Result<Speed, 
     let scene = Scene::new(&state, skin);
     let layout = Layout::new(size.0, size.1);
 
-    // One frame before the clock starts: the first one pays for whatever is
-    // allocated once, and counting it would make a short run look slower than a
-    // long one on the same machine.
     let _ = scene.frame(1000.0, &layout);
 
     let began = Instant::now();
@@ -130,7 +100,6 @@ pub fn draw_speed(size: (u32, u32), frames: u32, threads: u32) -> Result<Speed, 
 mod tests {
     use super::*;
 
-    /// The measurement runs, and says something a farm could compare.
     #[test]
     fn a_machine_can_say_how_fast_it_draws() {
         let got = draw_speed((640, 360), 12, 4).expect("it drew");
@@ -142,8 +111,6 @@ mod tests {
         assert_eq!(got.frames, 12);
     }
 
-    /// Bigger frames take longer. Not a tautology: it is the check that the
-    /// size is actually reaching the drawing rather than being carried around.
     #[test]
     fn a_larger_frame_costs_more_than_a_smaller_one() {
         let small = draw_speed((320, 180), 8, 1).expect("drew");

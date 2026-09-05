@@ -1,11 +1,3 @@
-//! Where a storyboard sprite lands, and which side of the notes it goes.
-//!
-//! The arithmetic that turns commands into a sprite is tested in the beatmap
-//! crate, where it lives. What is checked here is the other half: that one
-//! storyboard unit is one osu!pixel, that the middle of the storyboard is the
-//! middle of the frame, and that the layers end up on the right side of the
-//! play.
-
 use dossier_beatmap::{storyboard, Beatmap};
 use dossier_render::storyboard::Show;
 use dossier_render::{Layout, Scene, Skin};
@@ -15,9 +7,6 @@ fn beatmap(body: &str) -> Beatmap {
     Beatmap::parse(&format!("osu file format v14\n\n{body}")).expect("a map")
 }
 
-/// A map with one note, in a corner and out of the way: the storyboard is
-/// checked in the middle of the frame, and a hit circle sitting there would be
-/// counted along with it.
 const ONE_NOTE: &str = "
 [Difficulty]
 CircleSize:4
@@ -27,9 +16,6 @@ ApproachRate:5
 20,20,60000,1,0
 ";
 
-/// A moment inside the play. Before it the render is still coming up out of
-/// black — which took three failing tests to notice, and is right: a frame
-/// nobody has faded in yet has nothing on it, storyboard included.
 const WHEN: f64 = 59_000.0;
 
 fn replay() -> dossier_replay::Replay {
@@ -59,7 +45,6 @@ fn replay() -> dossier_replay::Replay {
     }
 }
 
-/// A solid square of one colour, as a PNG.
 fn square(side: u32, colour: (u8, u8, u8)) -> Vec<u8> {
     let mut pixmap = tiny_skia::Pixmap::new(side, side).expect("a canvas");
     for pixel in pixmap.pixels_mut() {
@@ -93,15 +78,12 @@ fn is_red(frame: &tiny_skia::Pixmap, x: u32, y: u32) -> bool {
 
 #[test]
 fn the_middle_of_the_storyboard_is_the_middle_of_the_frame() {
-    // 320,240 is the centre of the 640×480 a storyboard is authored on, and a
-    // centred sprite put there covers the middle of the picture whatever the
-    // frame's own size is.
     let frame = frame_with(
         "Sprite,Background,Centre,\"a.png\",320,240\n_F,0,0,120000,1,1",
         WHEN,
     );
     assert!(is_red(&frame, 320, 240), "nothing in the middle");
-    // A hundred wide at this size, so its edges are fifty out and not more.
+
     assert!(is_red(&frame, 320 + 45, 240 + 45));
     assert!(
         !is_red(&frame, 320 + 60, 240),
@@ -111,15 +93,11 @@ fn the_middle_of_the_storyboard_is_the_middle_of_the_frame() {
 
 #[test]
 fn one_storyboard_unit_is_one_osu_pixel() {
-    // Which is the whole conversion: the playfield is the 512×384 in the
-    // middle of the same 640×480. At this frame size the scale is exactly one,
-    // so a hundred-wide picture is a hundred pixels and any other rule for the
-    // storyboard's space would show up here immediately.
     let frame = frame_with(
         "Sprite,Background,TopLeft,\"a.png\",320,240\n_F,0,0,120000,1,1",
         WHEN,
     );
-    // Drawn from its top-left corner: 320,240 to 420,340.
+
     assert!(is_red(&frame, 322, 242) && is_red(&frame, 418, 338));
     assert!(
         !is_red(&frame, 318, 238),
@@ -142,8 +120,6 @@ fn a_sprite_at_the_corner_of_the_space_is_at_the_corner_of_the_frame() {
 
 #[test]
 fn scale_and_the_origin_work_together() {
-    // Doubled about its middle, so it reaches a hundred either way rather than
-    // two hundred one way.
     let frame = frame_with(
         "Sprite,Background,Centre,\"a.png\",320,240\n_F,0,0,120000,1,1\n_S,0,0,120000,2,2",
         WHEN,
@@ -154,13 +130,12 @@ fn scale_and_the_origin_work_together() {
 
 #[test]
 fn a_sprite_nobody_shipped_costs_that_sprite_and_no_more() {
-    // Storyboards routinely name files that never made it into the archive.
     let board = storyboard::parse(
         "[Events]\nSprite,Background,Centre,\"missing.png\",320,240\n_F,0,0,120000,1,1\n",
     );
     let show = Show::load(board, |_| None);
     assert!(show.is_empty());
-    // And drawing it is a frame, not a panic.
+
     let map = beatmap(ONE_NOTE);
     let replay = replay();
     let state = GameState::new(&map, &replay);
@@ -173,14 +148,12 @@ fn a_sprite_nobody_shipped_costs_that_sprite_and_no_more() {
 
 #[test]
 fn the_fail_layer_is_never_drawn() {
-    // A replay is a play that happened, and this is the branch where it did
-    // not. Drawing it would put a mapper's failure scenery over every render.
     let frame = frame_with(
         "Sprite,Fail,Centre,\"a.png\",320,240\n_F,0,0,120000,1,1",
         WHEN,
     );
     assert!(!is_red(&frame, 320, 240), "the fail layer was drawn");
-    // While `Pass` — the branch a replay always takes — is.
+
     let passing = frame_with(
         "Sprite,Pass,Centre,\"a.png\",320,240\n_F,0,0,120000,1,1",
         WHEN,

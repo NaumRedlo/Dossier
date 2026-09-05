@@ -1,17 +1,3 @@
-//! Rendering a play to a video file.
-//!
-//! Frames go to ffmpeg down a pipe as raw RGBA, never touching the disk. The
-//! alternative — writing a few thousand PNGs and pointing an encoder at the
-//! folder — costs a compress and a decompress per frame plus gigabytes of
-//! temporary files, to move bytes between two processes that are already
-//! connected.
-//!
-//! ffmpeg is invoked rather than linked. It is the one program on every machine
-//! that already knows every container and codec anyone will ask for, and
-//! swapping it for something else later changes this file and nothing else.
-//! The cost is a dependency the host has to have, which is why its absence is
-//! reported as plainly as possible.
-
 use std::io::Write;
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
@@ -19,24 +5,12 @@ use std::process::{Child, Command, Stdio};
 use dossier_render::{Layout, Scene};
 use tiny_skia::Pixmap;
 
-/// A video to lay the render over.
-///
-/// The compositing is ffmpeg's rather than ours, and the reason is upstream of
-/// taste: frames are drawn by several threads that take whichever number is
-/// next, so no thread knows which frame comes after the one it is holding. A
-/// video decoder is sequential by nature, and the only ways to serve it out of
-/// order are to keep the decoded frames — ninety gigabytes for three minutes at
-/// 1080p — or to seek per frame, which is slower than drawing.
-///
-/// So the play is drawn on nothing, goes down the pipe with its alpha, and
-/// ffmpeg puts the video underneath. It decodes in order because it is the one
-/// part of this that reads frames in order.
 #[derive(Debug, Clone)]
 pub struct Backdrop {
     pub path: std::path::PathBuf,
-    /// When the video starts, in map time. Routinely negative.
+
     pub start_ms: f64,
-    /// How far towards black, nought to one — the same dim the artwork gets.
+
     pub dim: f32,
 }
 
@@ -44,103 +18,52 @@ pub struct Settings {
     pub out: std::path::PathBuf,
     pub fps: f64,
     pub size: (u32, u32),
-    /// Span to render, in map time. `None` means the whole play.
+
     pub from_ms: Option<f64>,
     pub to_ms: Option<f64>,
     pub ffmpeg: String,
     pub crf: u32,
-    /// x264 preset. Once the encoder is the wall — which it becomes as soon as
-    /// drawing is parallel — this is the largest lever left, and it belongs to
-    /// whoever is waiting for the render rather than to this file.
+
     pub preset: String,
-    /// Threads that draw frames. `None` leaves one core for the encoder.
+
     pub threads: Option<usize>,
-    /// Threads the encoder may use. `None` leaves ffmpeg to decide, which on a
-    /// small machine means it takes more than there are cores.
+
     pub encoder_threads: Option<usize>,
-    /// The map's audio track. Absent means a silent render.
+
     pub audio: Option<std::path::PathBuf>,
-    /// The map's background video, when it has one and it was asked for.
-    ///
-    /// Present changes how a frame is carried: with a video the render is laid
-    /// *over* it, so the frames go down the pipe with alpha and ffmpeg does the
-    /// compositing. See [`Backdrop`].
+
     pub video: Option<Backdrop>,
-    /// Raw stereo PCM of the hit sounds, already on the video's timebase.
+
     pub hitsounds: Option<std::path::PathBuf>,
-    /// How loud each half of the mix is, as a share of its natural level.
-    ///
-    /// Both default to 1, which is what every render made before these existed
-    /// sounded like — the music still ducks under the hits by [`MUSIC_DUCK`],
-    /// and these scale what comes out of that rather than replacing it. Zero
-    /// silences one half without silencing the other, which is the thing
-    /// `--mute` cannot do.
+
     pub music_level: f32,
     pub hitsound_level: f32,
-    /// Whether a program is watching this render, and wants to be told what it
-    /// is doing in something other than prose.
+
     pub events: crate::events::Events,
-    /// A map instant to slow into and back out of, if any — the mistake worth
-    /// dwelling on. `None` is an even run at the mod rate throughout.
+
     pub slow_at_ms: Option<f64>,
-    /// Where on the field to draw the camera in towards while it slows, if the
-    /// render is slowing into a moment at all. In osu!pixels.
+
     pub slow_focus: Option<dossier_beatmap::Point>,
 }
 
-/// How long a failed play goes on after the bar empties.
-///
-/// The movement and then the empty frame that follows it, both taken from the
-/// renderer rather than restated here — two constants that have to agree are
-/// one constant with a hazard attached.
-///
-/// Map time stops when the bar empties, so all of this is real time: the wind
-/// -down runs over the movement and the last second is silence over nothing.
 fn fail_tail_ms() -> f64 {
-    // Two terms, not three. The frame used to darken in a window of its own
-    // after the movement; it darkens *during* the release now, so there is no
-    // separate stretch of time to make room for.
     dossier_render::FAIL_ANIMATION_MS + dossier_render::FAIL_EMPTY_MS
 }
 
-/// Steps the wind-down is cut into.
-///
-/// `asetrate` reinterprets a stream at a fixed rate; it cannot ramp. So the
-/// tail is chopped and each piece is slowed a little more than the last, which
-/// is a staircase where lazer has a curve — at ten steps over two and a half
-/// seconds the ear hears a slide, and the alternative is a filter graph that
-/// does not exist.
 const FAIL_STEPS: usize = 10;
 
-/// The slowest step. Frequency reaching a true zero is a stream of infinite
-/// length; the fade takes it the rest of the way.
 const FAIL_FLOOR: f64 = 0.08;
 
-/// How many constant-rate steps each side of a slow-motion dip is cut into.
-///
-/// The same staircase-for-a-curve the fail wind-down uses, for the same reason:
-/// a segment runs at one rate, and a ramp is a rate that keeps changing. Eight
-/// a side reads as a slide rather than as gears.
 const SLOW_STEPS: usize = 8;
 
-/// The slowest the play runs at the bottom of a dip, as a fraction of the mod
-/// rate. A quarter reads as slow motion without holding so long the reel drags.
 const SLOW_FLOOR: f64 = 0.25;
 
-/// How much map time, each side of the moment, a dip spreads over. The video
-/// spends far longer than this on it — that is the point — but in map time this
-/// is the run-up watched slowing down and the aftermath watched speeding up.
 const SLOW_SPAN_MS: f64 = 700.0;
 
-/// How the audio is lined up with the video.
-///
-/// osu! states object times in audio time, so the two clocks already agree: the
-/// track only has to be seeked to where the render starts. Under a rate mod it
-/// also has to be stretched, or the map plays fast against music that doesn't.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct AudioSync {
     pub seek_seconds: f64,
-    /// How long the video runs before the music is due to start.
+
     pub delay_seconds: f64,
     pub tempo: f64,
 }
@@ -149,43 +72,12 @@ impl AudioSync {
     pub fn new(from_ms: f64, rate: f64) -> Self {
         Self {
             seek_seconds: (from_ms / 1000.0).max(0.0),
-            // A render that begins before the song does — the lead-in, where
-            // the replay is already recording cursor movement — has to hold the
-            // music back. Clamping the seek to zero was not enough on its own:
-            // it starts the song at the first frame instead of at the right
-            // one, which plays the whole map early by the length of the lead-in.
-            //
-            // The delay is in video time, so a rate mod compresses it along
-            // with everything else.
+
             delay_seconds: (-from_ms / 1000.0 / rate).max(0.0),
             tempo: rate,
         }
     }
 
-    /// The chain that lines the music up: shift, then stretch.
-    ///
-    /// That order is not a preference, it is a workaround with arithmetic
-    /// attached. `atempo` followed by `adelay` makes ffmpeg hand the muxer a
-    /// packet stamped `AV_NOPTS_VALUE` once the result is mixed with anything:
-    ///
-    /// ```text
-    /// non monotonically increasing dts to muxer in stream 1:
-    /// 9223372036854775807 >= 1046528
-    /// ```
-    ///
-    /// Either filter alone is fine, and so is the mix; only that pair breaks,
-    /// and only under a rate mod on a render that starts before the song does.
-    /// Reversing them avoids the pairing altogether.
-    ///
-    /// The delay then has to be stated in the music's *own* time, because
-    /// `atempo` is about to divide it: `delay_seconds` is video time, so it is
-    /// multiplied by the tempo first. That product is exactly `-from_ms`, which
-    /// is where it came from — the round trip is a formality, and writing it out
-    /// keeps the two halves from drifting if either changes.
-    ///
-    /// `atempo` handles 0.5–2.0 in one pass, which covers every rate osu! has.
-    /// A rate outside that would need the filter chained, and quietly emitting
-    /// one that ffmpeg rejects would fail the render at the last moment.
     pub fn filter(&self) -> Option<String> {
         let mut chain = Vec::new();
         let tempo = ((self.tempo - 1.0).abs() > 1e-9 && (0.5..=2.0).contains(&self.tempo))
@@ -204,15 +96,6 @@ impl AudioSync {
     }
 }
 
-/// One stretch of the finished video, and the map time it shows.
-///
-/// Video time inside a segment runs forward at a constant rate; map time runs
-/// from `map_from_ms` to `map_to_ms`. Today there is always exactly one, and it
-/// runs forward — which is the linear clock this render has always had, only
-/// written as a segment rather than as a formula. The point of the shape is
-/// what it can hold that a formula cannot: a slow-motion pass adds segments
-/// that cover less map time in more video, and every reader of the clock walks
-/// the same schedule rather than learning a new formula each time one is added.
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct Segment {
     video_seconds: f64,
@@ -220,31 +103,21 @@ struct Segment {
     map_to_ms: f64,
 }
 
-/// What a render is going to be, worked out before anything is drawn.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Plan {
-    /// Span in map time. The whole play the render covers, before any segment
-    /// carves it up — what the audio is still seeked and stretched against.
     pub from_ms: f64,
     pub to_ms: f64,
     pub frames: u64,
     pub video_seconds: f64,
-    /// When a failed play stops, if it did. The render slows into it.
+
     pub fail_at_ms: Option<f64>,
-    /// The map instant a slow-motion dip is centred on, if any. Kept so the
-    /// camera's closeness can be read smoothly from how near a frame is to it,
-    /// rather than in steps from which staircase segment the frame fell in.
+
     slow_at_ms: Option<f64>,
-    /// The video, stretch by stretch. Their `video_seconds` sum to
-    /// `video_seconds`, and [`Plan::map_time_of`] walks them to turn a frame
-    /// index into a map instant.
+
     schedule: Vec<Segment>,
 }
 
 impl Plan {
-    /// `rate` is the mod speed multiplier: under DoubleTime a second of video
-    /// has to cover a second and a half of map time, or the video plays the map
-    /// at the wrong speed while claiming to be a recording of it.
     pub fn new(
         span: (f64, f64),
         rate: f64,
@@ -253,7 +126,6 @@ impl Plan {
     ) -> Result<Self, String> {
         let (width, height) = settings.size;
         if width % 2 != 0 || height % 2 != 0 {
-            // yuv420p halves both dimensions; an odd one has no valid encoding.
             return Err(format!("{width}x{height}: both sides have to be even"));
         }
         if settings.fps <= 0.0 {
@@ -271,31 +143,17 @@ impl Plan {
             ));
         }
 
-        // A failed play needs room for its slow-down: the same map time takes
-        // longer to watch.
         let fail_at_ms = fail_at_ms.filter(|at| *at > from_ms && *at <= to_ms + 1.0);
-        // The animation is real time over a frozen field, so it does not scale
-        // with the mod rate the way map time does. A play that ran to the end
-        // gets a shorter tail of its own: the closing fade has to happen after
-        // the last note rather than over it.
-        // …and only when the render actually reaches the play's own end. Asked
-        // for a slice of the middle, a caller wants that slice and not a fade
-        // out of a play that has not finished.
+
         let reaches_the_end = to_ms >= span.1 - 1.0;
         let extra_seconds = match fail_at_ms {
             Some(_) => fail_tail_ms() / 1000.0,
             None if reaches_the_end => dossier_render::OUTRO_FADE_MS / 1000.0,
             None => 0.0,
         };
-        // The map instant the last frame reads: `to_ms` plus the tail's worth
-        // of overshoot, at the mod rate. Past the play the field is frozen and
-        // the overshoot is only the clock ticking, but it has to keep ticking
-        // for the closing animation to have time to run.
+
         let map_end = to_ms + extra_seconds * 1000.0 * rate;
 
-        // Whether a slow-motion pass applies, and where. Not over a failed play
-        // for now — the fail already has its own slow-down, and dwelling on a
-        // mistake earlier in a run that ends by dying is a second feature.
         let slow_at = settings
             .slow_at_ms
             .filter(|_| fail_at_ms.is_none())
@@ -322,15 +180,6 @@ impl Plan {
         })
     }
 
-    /// Map time of the `index`-th frame.
-    ///
-    /// Walks the schedule, spending the frame's video time segment by segment,
-    /// and reads the map instant off the one it lands in. The last segment is
-    /// allowed to run past its own end — frame counts are rounded up, so the
-    /// final frame's video time can sit a hair beyond the video — and it
-    /// extrapolates rather than clamping, which is what the closing animation
-    /// depends on: past the play there is no note left, and the renderer reads
-    /// the overshoot as time into the fade or the fail.
     pub fn map_time_of(&self, index: u64, fps: f64) -> f64 {
         let mut video_ms = (index as f64 / fps) * 1000.0;
         let last = self.schedule.len().saturating_sub(1);
@@ -349,13 +198,6 @@ impl Plan {
         self.from_ms
     }
 
-    /// Video time of a map instant — the inverse of [`Plan::map_time_of`].
-    ///
-    /// Where in the finished video the note at map time `map_ms` is seen, which
-    /// is where a hit sound for it has to land. Well defined because map time
-    /// only ever moves forward: no instant is shown twice, so it has one answer.
-    /// (A rewind would break that, which is one reason this feature is the ramp
-    /// and not the rewind.)
     pub fn video_time_of(&self, map_ms: f64) -> f64 {
         let mut video_offset = 0.0;
         let last = self.schedule.len().saturating_sub(1);
@@ -374,15 +216,6 @@ impl Plan {
         video_offset
     }
 
-    /// How deep in a slow-motion dip the `index`-th frame is, from 0 to 1.
-    ///
-    /// Zero away from any dip — all of an even render, and outside the run-up
-    /// and aftermath of one — and one at the moment itself. Read from how near
-    /// the frame's map instant is to the moment, not from which staircase
-    /// segment it landed in: the segments hold one rate each and would step the
-    /// camera between them, which is exactly the jerk this avoids. A smoothstep
-    /// rounds the ends and the turn, so the camera eases in, holds, and eases
-    /// back out with no corner anywhere.
     pub fn closeness_at(&self, index: u64, fps: f64) -> f64 {
         let Some(at) = self.slow_at_ms else {
             return 0.0;
@@ -392,19 +225,6 @@ impl Plan {
         nearness * nearness * (3.0 - 2.0 * nearness)
     }
 
-    /// The music, sliced to follow the schedule — or `None` when it does not
-    /// need slicing.
-    ///
-    /// Each slice is a stretch of the seeked track, in the music's own seconds,
-    /// and the tempo to play it at so it lasts exactly its segment's video. A
-    /// slowed segment gets a tempo below one, which spreads that slice of the
-    /// song over more video without moving its pitch — the same thing the hit
-    /// sounds do, so the two stay together.
-    ///
-    /// `None` when there is nothing to slice: a single even segment (the whole
-    /// map plays at one tempo, which the plain path already does), or a render
-    /// that starts before the song, where the music's zero and the map's zero
-    /// no longer line up and the slicing arithmetic below would be wrong.
     fn music_warp(&self) -> Option<Vec<MusicSlice>> {
         if self.schedule.len() < 2 || self.from_ms < 0.0 {
             return None;
@@ -425,8 +245,6 @@ impl Plan {
     }
 }
 
-/// A stretch of the seeked music, in the music's own seconds, and the tempo it
-/// is played at to fill its segment's share of the video.
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct MusicSlice {
     start_s: f64,
@@ -434,12 +252,6 @@ struct MusicSlice {
     tempo: f64,
 }
 
-/// `atempo` as a chain, since one pass only covers 0.5–2.0.
-///
-/// The slow-motion floor is a quarter of the mod rate — below `atempo`'s single
-/// -pass floor of a half — so the factor is split into halves until each piece
-/// is in range, the way the filter documentation says to. Their product is the
-/// tempo asked for, and each preserves pitch, so the chain does too.
 fn atempo_chain(mut tempo: f64) -> String {
     let mut factors = Vec::new();
     while tempo < 0.5 - 1e-9 {
@@ -458,14 +270,6 @@ fn atempo_chain(mut tempo: f64) -> String {
         .join(",")
 }
 
-/// The schedule for a render that slows into `at` and back out.
-///
-/// A valley in playback rate: the mod rate up to the run-up, falling step by
-/// step to the floor at the moment, rising back to normal after it, then the
-/// mod rate again to the end. Map time never stops or reverses — this is the
-/// ramp without the rewind — so the picture only ever dwells on the moment,
-/// never repeats it. `map_end` carries the tail's overshoot the way the plain
-/// single segment did, folded into the last stretch.
 fn ramp_schedule(from_ms: f64, to_ms: f64, map_end: f64, rate: f64, at: f64) -> Vec<Segment> {
     let lo = (at - SLOW_SPAN_MS).max(from_ms);
     let hi = (at + SLOW_SPAN_MS).min(to_ms);
@@ -479,9 +283,7 @@ fn ramp_schedule(from_ms: f64, to_ms: f64, map_end: f64, rate: f64, at: f64) -> 
             });
         }
     };
-    // The valley's rate at a map instant: the mod rate at the edges, the floor
-    // at the moment, linear between — read at each step's middle so a step runs
-    // at its own average rather than its leading edge.
+
     let rate_at = |m: f64| {
         let side = ((m - at).abs() / SLOW_SPAN_MS).clamp(0.0, 1.0);
         rate * (SLOW_FLOOR + (1.0 - SLOW_FLOOR) * side)
@@ -499,7 +301,6 @@ fn ramp_schedule(from_ms: f64, to_ms: f64, map_end: f64, rate: f64, at: f64) -> 
     segments
 }
 
-/// Render `scene` over `span` and encode it.
 pub fn encode(
     scene: &Scene<'_>,
     span: (f64, f64),
@@ -512,9 +313,7 @@ pub fn encode(
     let total = plan.frames;
 
     let sync = AudioSync::new(plan.from_ms, rate);
-    // Where the picture gives out, in video seconds. The audio has to drop at
-    // the same instant and by the same amount, or the two come apart at
-    // exactly the moment a viewer is paying most attention.
+
     let stall_at_seconds = plan
         .fail_at_ms
         .map(|at| (at - plan.from_ms) / 1000.0 / rate);
@@ -537,17 +336,6 @@ pub fn encode(
     let workers = settings.threads.unwrap_or_else(default_workers).max(1);
     let started = std::time::Instant::now();
 
-    // Frames are independent and the scene is read-only, so they can be drawn
-    // in any order — but they have to reach the encoder in the right one. Each
-    // worker owns a couple of buffers; the writer sends each one back to its
-    // owner once the frame has gone out.
-    //
-    // Buffers are owned rather than pooled for a reason. A shared pool needs a
-    // lock, and a worker waiting for a buffer holds that lock while it waits —
-    // so the moment the encoder falls behind and the pool empties, every worker
-    // queues up behind one of them and the whole thing runs single-file. That
-    // is invisible while there is slack and total while there isn't, which is
-    // the worst way for a bug to behave.
     const OWNED: usize = 2;
     let mut returns = Vec::with_capacity(workers);
     let mut inboxes = Vec::with_capacity(workers);
@@ -566,10 +354,6 @@ pub fn encode(
     let next = std::sync::atomic::AtomicU64::new(0);
     let drawing = std::sync::atomic::AtomicU64::new(0);
 
-    // The span is worth saying out loud. A play whose replay starts recording
-    // during the lead-in begins before the song does, and every audio
-    // complaint traces back to that number — printing it turns "the music is
-    // early" into an arithmetic question instead of a hunt.
     eprintln!(
         "   {:.2}s…{:.2}s of map time{}",
         plan.from_ms / 1000.0,
@@ -587,10 +371,6 @@ pub fn encode(
             let (done_tx, next, drawing) = (done_tx.clone(), &next, &drawing);
             let (scene, layout, plan, settings) = (scene, &layout, &plan, settings);
             scope.spawn(move || {
-                // The buffer comes first, and the frame number second. A
-                // worker that held a number while waiting for a buffer could be
-                // holding the very frame the writer is waiting to write — and
-                // then nobody moves.
                 while let Ok(mut buffer) = rx.recv() {
                     let index = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                     if index >= total {
@@ -598,9 +378,7 @@ pub fn encode(
                     }
 
                     let mark = std::time::Instant::now();
-                    // The camera draws the field in towards the mistake by the
-                    // amount the clock has slowed; the renderer keeps it off the
-                    // verdicts and the HUD. No focus means no move at all.
+
                     let camera = settings.slow_focus.map(|focus| dossier_render::Camera {
                         focus,
                         closeness: plan.closeness_at(index, settings.fps),
@@ -613,13 +391,6 @@ pub fn encode(
                     );
                     let Frame { pixmap, yuv } = &mut buffer;
                     if settings.video.is_some() {
-                        // Left premultiplied, and ffmpeg is told so. Undoing it
-                        // here was tried and was the wrong shape of fix: a
-                        // pixmap cannot hold an unpremultiplied colour — its
-                        // channels may not exceed its alpha — so the alpha had
-                        // to be raised to match, which turned every faint
-                        // overlay into an opaque one and the whole frame into a
-                        // flat fill over the video.
                         let plane = (pixmap.width() * pixmap.height()) as usize;
                         let split = yuv.len() - plane;
                         let (colour, alpha) = yuv.split_at_mut(split);
@@ -641,18 +412,8 @@ pub fn encode(
         }
         drop(done_tx);
 
-        // Moved in, not borrowed, and this is load-bearing. A worker with no
-        // buffer waits in `rx.recv()`, which only wakes when its sender is
-        // dropped. Leaving these outside the scope kept the senders alive past
-        // an early return, so every idle worker waited forever and the scope
-        // waited on them — an ffmpeg that died mid-render hung this program
-        // instead of reporting why, which is the worst possible way to fail on
-        // a machine nobody is watching. Owning them here means both exits drop
-        // them and every worker is released.
         let returns = returns;
 
-        // Frames arrive in whatever order they finished; the writer holds the
-        // early ones back until their turn comes.
         let mut pending: std::collections::HashMap<u64, (usize, Frame)> =
             std::collections::HashMap::new();
         let mut wanted = 0u64;
@@ -667,8 +428,7 @@ pub fn encode(
                 let mark = std::time::Instant::now();
                 let written = stdin.write_all(&frame.yuv);
                 piping += mark.elapsed();
-                // Home before anything else, so a waiting worker is released
-                // even on the failure path.
+
                 let _ = returns[worker].send(frame);
                 if let Err(error) = written {
                     return Err(format!("ffmpeg stopped after {wanted} frames: {error}"));
@@ -682,17 +442,11 @@ pub fn encode(
         Ok(())
     });
 
-    // The progress line is written with a carriage return and no newline, so
-    // anything printed after it lands on top of it. Every exit from here on
-    // starts on a line of its own.
     let close_progress = || eprintln!();
 
     if let Err(message) = outcome {
         drop(stdin);
-        // A broken pipe says the encoder is gone; only its exit status says
-        // why it went. Reading one without the other leaves "Broken pipe (os
-        // error 32)" as the whole account of a render that was killed — which
-        // is a symptom reported as a cause.
+
         let status = child.wait().ok();
         close_progress();
         let said = ffmpeg_said(drained);
@@ -719,9 +473,7 @@ pub fn encode(
     let said = ffmpeg_said(drained);
     if !status.success() {
         close_progress();
-        // The status alone is not a reason. A killed encoder reports a signal
-        // and nothing else, and on a small machine that signal is usually the
-        // out-of-memory killer rather than anything this program did.
+
         return Err(if said.is_empty() {
             format!(
                 "ffmpeg exited with {status} and said nothing. If that is a signal, \
@@ -743,11 +495,7 @@ pub fn encode(
         plan.video_seconds / elapsed,
         ""
     );
-    // Machine-readable, for whoever has to describe the file afterwards.
-    // Telegram draws its placeholder from the dimensions it is told, not from
-    // the stream, so a video sent without them comes out square on a phone and
-    // only corrects itself once playback starts. This is the process that made
-    // the file and knows exactly what is in it.
+
     crate::note!("video {width}x{height} {:.3}s", plan.video_seconds);
     settings.events.video(width, height, plan.video_seconds);
     let drawing_ms = drawing.load(std::sync::atomic::Ordering::Relaxed) as f64 / 1000.0;
@@ -771,7 +519,7 @@ fn spawn(
 ) -> Result<Child, String> {
     let (width, height) = settings.size;
     let mut command = Command::new(&settings.ffmpeg);
-    // Input 0 is the video on stdin; the audio inputs are counted after it.
+
     let mut inputs = 0usize;
     command.args([
         "-y",
@@ -780,8 +528,6 @@ fn spawn(
         "-f",
         "rawvideo",
         "-pixel_format",
-        // With a video underneath, the frames go out with their alpha and
-        // ffmpeg does the compositing — see `Backdrop`.
         if settings.video.is_some() {
             "yuva420p"
         } else {
@@ -795,8 +541,6 @@ fn spawn(
         "-",
     ]);
 
-    // `-ss` binds to the input that follows it, so the seek has to be stated
-    // between the two inputs rather than up front.
     let mut music = None;
     if let Some(audio) = &settings.audio {
         command
@@ -809,8 +553,6 @@ fn spawn(
 
     let mut hits = None;
     if let Some(pcm) = &settings.hitsounds {
-        // Already generated at the video's own timebase, so it needs no seek
-        // and no stretching — the rate was applied when it was built.
         command
             .args([
                 "-f",
@@ -825,15 +567,8 @@ fn spawn(
         hits = Some(command_input_index(&mut inputs));
     }
 
-    // The video input, and the chain that puts the render on top of it.
-    //
-    // Last of the inputs so that the ones counted above keep their numbers, and
-    // `-ss` immediately before its own `-i` because a seek binds to the input
-    // that follows it.
     let mut over_video = None;
     if let Some(film) = &settings.video {
-        // Where the render starts, in the video's own seconds. A video that
-        // starts before the map does — which is most of them — is seeked into.
         let seek = (from_ms - film.start_ms) / 1000.0;
         if seek > 0.0 {
             command.arg("-ss").arg(format!("{seek:.3}"));
@@ -841,11 +576,6 @@ fn spawn(
         command.arg("-i").arg(&film.path);
         let at = command_input_index(&mut inputs);
 
-        // A rate mod compresses the video with everything else, so it is walked
-        // through at the same tempo the music is stretched by.
-        //
-        // Cover, not fit, exactly like the artwork: a video with bars down its
-        // sides reads as a mistake.
         let keep = 1.0 - film.dim.clamp(0.0, 1.0);
         let mut chain = format!(
             "[{at}:v]setpts=(PTS-STARTPTS)/{tempo},\
@@ -854,17 +584,13 @@ fn spawn(
              colorchannelmixer=rr={keep}:gg={keep}:bb={keep}",
             tempo = sync.tempo,
         );
-        // Black in front of a video that starts after the render does, and
-        // black behind one that runs out first — which is what the game shows
-        // on either side of it.
+
         let late = (-seek).max(0.0) / sync.tempo;
         if late > 0.000_5 {
             chain.push_str(&format!(",tpad=start_duration={late:.3}"));
         }
         chain.push_str(&format!(",tpad=stop_duration={video_seconds:.3}[bg];"));
-        // `endall`: the render is the secondary input, and when it runs out
-        // there is nothing further to make. Without it a padded background
-        // holds the last drawn frame for as long as the padding lasts.
+
         chain.push_str("[bg][0:v]overlay=eof_action=endall:format=auto:alpha=premultiplied[v]");
         over_video = Some(chain);
     }
@@ -894,26 +620,10 @@ fn spawn(
     }
     if audio.is_some() {
         command.args(["-c:a", "aac", "-b:a", "192k"]);
-        // `-shortest` ends the output with whichever input runs out first, and
-        // the chain above ends in `apad`, which makes the audio endless. The
-        // pair means the video always decides.
-        //
-        // Both halves are needed and each covers the other's case. Without
-        // `-shortest` the music outlasts the clip whenever only part of a map
-        // is rendered. Without `apad` the reverse happens on a play that fails
-        // near the end of the song: the fail tail runs three and a half seconds
-        // past the last judgement — the last of them silent by design — the
-        // music runs out under it, and ffmpeg closes the pipe with the render
-        // still feeding it. That arrived as `Broken pipe (os error 32)` at
-        // frame 6780 of 6849 and looked like a dying encoder on a small server.
-        // It was neither dying nor small: it had simply been told to stop.
+
         command.arg("-shortest");
     }
 
-    // x264 sizes its own thread pool at about 1.5 per core and knows nothing
-    // about the drawing threads it is sharing the machine with. On a small box
-    // that means both sides oversubscribe it and each one slows the other down.
-    // Capping the encoder is the only way to divide the cores deliberately.
     if let Some(threads) = settings.encoder_threads {
         command.args(["-threads", &threads.to_string()]);
     }
@@ -928,8 +638,6 @@ fn spawn(
             &settings.crf.to_string(),
             "-pix_fmt",
             "yuv420p",
-            // The frames arrive already converted, so the stream has to say
-            // which convention they were converted under.
             "-colorspace",
             "bt709",
             "-color_primaries",
@@ -941,12 +649,6 @@ fn spawn(
         ])
         .arg(&settings.out)
         .stdin(Stdio::piped())
-        // Ours to keep, not the terminal's. Inherited, ffmpeg's diagnostics
-        // land in the middle of the progress line — which is written with a
-        // carriage return and no newline — and are overwritten by the next
-        // tick before anyone can read them. A render that failed for a stated
-        // reason then looks like a render that failed for no reason, which is
-        // exactly how one came back from a server with nothing to go on.
         .stderr(Stdio::piped());
     if std::env::var("DOSSIER_FFMPEG_ARGS").is_ok() {
         eprintln!("ffmpeg {:?}", command.get_args().collect::<Vec<_>>());
@@ -964,18 +666,8 @@ fn spawn(
     })
 }
 
-/// How much of ffmpeg's complaint is kept.
-///
-/// It runs at `-loglevel error`, so what comes back is short and every line of
-/// it matters. The cap is only there so a stuck encoder repeating itself for an
-/// hour cannot fill memory.
 const FFMPEG_STDERR_KEPT: usize = 8 * 1024;
 
-/// Drain ffmpeg's stderr on a thread of its own.
-///
-/// It has to be read continuously rather than after the fact: a pipe nobody is
-/// emptying fills, and an ffmpeg blocked on writing its own error message is an
-/// ffmpeg that never exits, which turns a clear failure into a hang.
 fn drain_stderr(child: &mut Child) -> Option<std::thread::JoinHandle<String>> {
     let mut stderr = child.stderr.take()?;
     Some(std::thread::spawn(move || {
@@ -988,8 +680,6 @@ fn drain_stderr(child: &mut Child) -> Option<std::thread::JoinHandle<String>> {
             }
             kept.push_str(&String::from_utf8_lossy(&chunk[..read]));
             if kept.len() > FFMPEG_STDERR_KEPT {
-                // Keep the end: the last thing it said before giving up is the
-                // reason, and the first is usually a warning it survived.
                 let from = kept.len() - FFMPEG_STDERR_KEPT;
                 kept = kept[from..].to_owned();
             }
@@ -998,7 +688,6 @@ fn drain_stderr(child: &mut Child) -> Option<std::thread::JoinHandle<String>> {
     }))
 }
 
-/// What ffmpeg said, folded into one line and trimmed of blanks.
 fn ffmpeg_said(drained: Option<std::thread::JoinHandle<String>>) -> String {
     let Some(handle) = drained else {
         return String::new();
@@ -1021,12 +710,10 @@ fn report(index: u64, total: u64, started: std::time::Instant, events: crate::ev
     events.progress(done, total, rate, left);
 }
 
-/// Does this path look like something we can write?
 pub fn check_output(path: &Path) -> Result<(), String> {
     match path.extension().and_then(|e| e.to_str()) {
         Some(_) => Ok(()),
-        // ffmpeg picks its container from the extension, and its own error for
-        // a missing one is far less clear than saying so here.
+
         None => Err(format!(
             "{}: give the output a file extension so ffmpeg knows the container",
             path.display()
@@ -1064,7 +751,7 @@ mod tests {
     #[test]
     fn a_plain_play_renders_one_frame_per_tick_of_the_clock() {
         let plan = Plan::new((0.0, 10_000.0), 1.0, &settings(), None).unwrap();
-        // Ten seconds of map, plus the tail the closing fade lives in.
+
         let tail = dossier_render::OUTRO_FADE_MS / 1000.0;
         assert_eq!(plan.frames, ((10.0 + tail) * settings().fps).ceil() as u64);
         assert!((plan.video_seconds - (10.0 + tail)).abs() < 1e-9);
@@ -1072,13 +759,10 @@ mod tests {
 
     #[test]
     fn atempo_below_a_half_is_reached_by_chaining() {
-        // One pass covers 0.5–2.0; a quarter needs two, and their product is
-        // the tempo asked for.
         assert_eq!(atempo_chain(1.0), "atempo=1.000000");
         assert_eq!(atempo_chain(1.5), "atempo=1.500000");
         assert_eq!(atempo_chain(0.25), "atempo=0.500000,atempo=0.500000");
-        // The slow floor under DoubleTime: 1.5 × 0.25 = 0.375, still under a
-        // half, so it chains, and the factors multiply back to it.
+
         let product: f64 = atempo_chain(0.375)
             .split(',')
             .map(|f| f.trim_start_matches("atempo=").parse::<f64>().unwrap())
@@ -1093,9 +777,6 @@ mod tests {
         let plan = Plan::new((0.0, 10_000.0), 1.0, &slowed, None).unwrap();
         let slices = plan.music_warp().expect("a dip slices the music");
 
-        // The slices are the seeked track cut end to end, from its start with no
-        // gap and no overlap — a gap or overlap would shift the song against the
-        // picture.
         assert!((slices[0].start_s - 0.0).abs() < 1e-9);
         for pair in slices.windows(2) {
             assert!(
@@ -1104,9 +785,6 @@ mod tests {
             );
         }
 
-        // Each slice lasts its map span divided by its tempo — its segment's
-        // video — and the slices together fill the whole video, so the music
-        // ends exactly with the picture.
         let played: f64 = slices.iter().map(|s| (s.end_s - s.start_s) / s.tempo).sum();
         assert!(
             (played - plan.video_seconds).abs() < 1e-6,
@@ -1114,11 +792,9 @@ mod tests {
             plan.video_seconds
         );
 
-        // The dip is really there: some slice plays well under the mod rate.
         let slowest = slices.iter().map(|s| s.tempo).fold(f64::INFINITY, f64::min);
         assert!(slowest < 0.5, "slowest tempo {slowest}");
 
-        // …and an even render has nothing to slice.
         assert!(Plan::new((0.0, 10_000.0), 1.0, &settings(), None)
             .unwrap()
             .music_warp()
@@ -1127,20 +803,14 @@ mod tests {
 
     #[test]
     fn doubletime_packs_more_map_into_the_same_second_of_video() {
-        // The map is played faster, so ten seconds of it is under seven
-        // seconds to watch. Ignoring the rate here would render the whole map
-        // in slow motion.
         let tail = dossier_render::OUTRO_FADE_MS / 1000.0;
         let plan = Plan::new((0.0, 10_000.0), 1.5, &settings(), None).unwrap();
-        // Ten seconds of map at one and a half is under seven to watch — and the
-        // tail is real time, so it is not compressed with them.
+
         assert_eq!(
             plan.frames,
             ((10.0 / 1.5 + tail) * settings().fps).ceil() as u64
         );
 
-        // …and the clock still advances at the map's pace, not the viewer's:
-        // one second of video (60 frames at 60fps) is 1.5s of map under DT.
         assert!((plan.map_time_of(60, 60.0) - 1500.0).abs() < 1e-9);
     }
 
@@ -1154,9 +824,6 @@ mod tests {
         );
     }
 
-    /// The map-time and video-time clocks are inverses of each other, through a
-    /// dip and without one alike — which is what lets a hit sound be placed by
-    /// the map instant it belongs to and land where the picture shows it.
     #[test]
     fn the_two_clocks_invert_each_other() {
         let mut slowed = settings();
@@ -1165,9 +832,6 @@ mod tests {
         for (rate, settings) in [(1.0, settings()), (1.5, settings()), (1.0, slowed)] {
             let plan = Plan::new((0.0, 10_000.0), rate, &settings, None).unwrap();
             for map_ms in [100.0, 2_000.0, 4_800.0, 5_000.0, 5_200.0, 9_000.0] {
-                // Video time of the instant, read back as the frame nearest it:
-                // the map instant returns, off by no more than the map a frame
-                // spans — a couple of frames' slack for the rounding.
                 let video = plan.video_time_of(map_ms);
                 let frame = (video * fps).round() as u64;
                 let back = plan.map_time_of(frame, fps);
@@ -1180,9 +844,6 @@ mod tests {
         }
     }
 
-    /// A plan asked to slow into a moment covers the same map in more video,
-    /// and the extra all lands around the moment: the run-up and the aftermath
-    /// dwell, the rest keeps its pace.
     #[test]
     fn a_slow_moment_dwells_without_ever_running_backwards() {
         let mut slowed = settings();
@@ -1190,15 +851,12 @@ mod tests {
         let plain = Plan::new((0.0, 10_000.0), 1.0, &settings(), None).unwrap();
         let slow = Plan::new((0.0, 10_000.0), 1.0, &slowed, None).unwrap();
 
-        // The dip buys time — the same ten seconds of map take longer to watch.
         assert!(
             slow.video_seconds > plain.video_seconds + 0.5,
             "{}",
             slow.video_seconds
         );
 
-        // The clock never stops or reverses: map time only ever moves forward,
-        // which is what makes this the ramp and not the rewind.
         let fps = settings().fps;
         let mut previous = f64::NEG_INFINITY;
         for frame in 0..slow.frames {
@@ -1207,11 +865,6 @@ mod tests {
             previous = now;
         }
 
-        // Somewhere in the video a second covers far less map than a second at
-        // the start does — the dwell. The deepest point sits at the moment,
-        // whose video time the stretched run-up has pushed off the halfway
-        // mark, so the whole reel is scanned for the slowest second rather than
-        // a spot being guessed at.
         let map_per_video = |from_frame: u64| {
             slow.map_time_of(from_frame + fps as u64, fps) - slow.map_time_of(from_frame, fps)
         };
@@ -1237,8 +890,6 @@ mod tests {
 
     #[test]
     fn odd_dimensions_are_refused_before_a_single_frame_is_drawn() {
-        // yuv420p can't encode them, and finding out after rendering for a
-        // minute is a poor way to learn it.
         let mut settings = settings();
         settings.size = (1281, 720);
         assert!(Plan::new((0.0, 1000.0), 1.0, &settings, None).is_err());
@@ -1265,7 +916,6 @@ mod audio_tests {
 
     #[test]
     fn the_track_is_seeked_to_where_the_render_starts() {
-        // Object times are audio times, so this is the whole of the alignment.
         let sync = AudioSync::new(46_000.0, 1.0);
         assert!((sync.seek_seconds - 46.0).abs() < 1e-9);
         assert_eq!(sync.filter(), None, "no stretching at normal speed");
@@ -1273,8 +923,6 @@ mod audio_tests {
 
     #[test]
     fn a_lead_in_before_the_song_seeks_to_zero() {
-        // The render span starts one preempt before the first note, which on a
-        // map that opens early is a negative time. There is no audio there.
         let sync = AudioSync::new(-800.0, 1.0);
         assert_eq!(sync.seek_seconds, 0.0);
     }
@@ -1293,26 +941,15 @@ mod audio_tests {
 
     #[test]
     fn a_rate_atempo_cannot_do_in_one_pass_is_refused_rather_than_emitted() {
-        // ffmpeg would reject it after the render had already run.
         assert_eq!(AudioSync::new(0.0, 3.0).filter(), None);
     }
 }
 
-/// Inputs are numbered in the order they're given to ffmpeg, and the filter
-/// graph refers to them by that number. Counting them as they're added keeps
-/// the two from drifting apart.
 fn command_input_index(count: &mut usize) -> usize {
     *count += 1;
     *count
 }
 
-/// One worker's pair of buffers: what it draws into, and what it sends.
-///
-/// The conversion to YUV happens here rather than inside ffmpeg for two
-/// reasons, and both attack the same bottleneck. It cuts the bytes crossing the
-/// pipe by nearly two thirds, and it takes the colour conversion off ffmpeg's
-/// hands — where it runs on one thread, competing with the encoder for the very
-/// cores the encoder is short of.
 struct Frame {
     pixmap: Pixmap,
     yuv: Vec<u8>,
@@ -1328,39 +965,17 @@ impl Frame {
     }
 }
 
-/// The alpha plane that turns `yuv420p` into `yuva420p`: one byte a pixel,
-/// full resolution, after the chroma.
-///
-/// The colours beside it stay premultiplied, which is what a pixmap holds and
-/// what `overlay=alpha=premultiplied` reads.
 fn write_alpha(pixmap: &Pixmap, out: &mut [u8]) {
     for (pixel, slot) in pixmap.pixels().iter().zip(out.iter_mut()) {
         *slot = pixel.alpha();
     }
 }
 
-/// Planar 4:2:0 is one byte of luma per pixel and one of each chroma per 2×2.
 fn yuv_len(width: usize, height: usize) -> usize {
     width * height + 2 * (width / 2) * (height / 2)
 }
 
-/// Convert a drawn frame to BT.709 limited-range planar 4:2:0.
-///
-/// BT.709 because that is what a player assumes for anything HD, and limited
-/// range because that is what `-color_range tv` on the encoder declares. The
-/// two have to agree with the tags on the output stream or every colour comes
-/// out shifted — quietly, and only for the viewer.
-///
-/// Chroma is averaged over each 2×2 block rather than point-sampled: taking one
-/// pixel of four throws away three quarters of the colour and shows it on the
-/// hard edges hit circles are made of.
-///
-/// The half added to each offset rounds rather than truncates. Truncation
-/// costs half a unit on every channel of every pixel, for nothing.
 fn to_yuv420(pixmap: &Pixmap, out: &mut [u8]) {
-    // BT.709 limited range in 16-bit fixed point. Integers rather than floats
-    // because this runs on every pixel of every frame, and the rounding is
-    // exact enough that the difference against the float form is under a unit.
     const YR: i32 = 11_966;
     const YG: i32 = 40_254;
     const YB: i32 = 4_064;
@@ -1377,8 +992,6 @@ fn to_yuv420(pixmap: &Pixmap, out: &mut [u8]) {
     let (luma, chroma) = out.split_at_mut(width * height);
     let (blues, reds) = chroma.split_at_mut((width / 2) * (height / 2));
 
-    // Iterating in whole rows lets the bounds checks fall away and the loop
-    // vectorise; indexing pixel by pixel does neither.
     for (row, line) in luma.chunks_exact_mut(width).enumerate() {
         let pixels = &src[row * width * 4..(row + 1) * width * 4];
         for (out, rgba) in line.iter_mut().zip(pixels.chunks_exact(4)) {
@@ -1395,9 +1008,6 @@ fn to_yuv420(pixmap: &Pixmap, out: &mut [u8]) {
         let v_row = &mut reds[pair * half_width..(pair + 1) * half_width];
 
         for (x, (u, v)) in u_row.iter_mut().zip(v_row.iter_mut()).enumerate() {
-            // Averaged over the 2×2 block. Point-sampling one pixel of four
-            // throws away three quarters of the colour, and it shows on the
-            // hard edges hit circles are made of.
             let mut sums = [0i32; 3];
             for row in [top, bottom] {
                 for dx in 0..2 {
@@ -1414,63 +1024,10 @@ fn to_yuv420(pixmap: &Pixmap, out: &mut [u8]) {
     }
 }
 
-/// How far the music is turned down under the hit sounds.
-///
-/// Not a taste setting, and not a guess either: measured. danser puts the hit
-/// sounds well forward of the music — far further than seemed plausible — and
-/// an o!rdr render of the replay this was settled on carries them at 1.52 times
-/// the music by RMS against this engine's 0.51. Same map, same replay, same
-/// skin, both digital and measured against one fixed music reference, so the
-/// two numbers are comparable and the gap was a factor of three.
-///
-/// The correction goes on the music rather than the hit sounds because the hit
-/// track is peak-limited before it is mixed: lifting it there would be taken
-/// straight back out again by the limiter.
-///
-/// The reason it has to be ducked at all is unchanged. A hit is a transient of
-/// a few tens of milliseconds; a modern master is continuous and pushed to the
-/// ceiling. At equal levels the music wins every time and the sounds that tell
-/// you what the player did go unheard.
 const MUSIC_DUCK: f32 = 0.18;
 
-/// The filter graph joining music and hit sounds into one stream.
-///
-/// Returns `None` when there is no audio at all, in which case no audio
-/// options are emitted and the result is a silent video rather than an ffmpeg
-/// complaint about an empty graph.
-/// Where a failed play's audio stalls, in video seconds, and how far its rate
-/// drops by the end.
-///
-/// The picture slowing without the sound is uncanny — the ear notices the
-/// mismatch before the eye notices the stall. Dropping the sample rate takes
-/// the pitch down with the tempo, which is a tape running out of power rather
-/// than a slow-motion effect, and is what a machine giving out sounds like.
-/// The rate the wind-down is computed at. Any rate would do so long as the
-/// stream is actually at it, which is the whole point of naming it once:
-/// `asetrate` reinterprets whatever it is handed, so a number that is a guess
-/// about the source rather than a fact about the stream slows the music by the
-/// wrong amount. osu! ships 48kHz audio, and this used to say 44100 over it.
 const STALL_RATE: u32 = 44_100;
 
-/// Silence on the end of the audio, enough to reach the video's last frame.
-///
-/// Bounded, and that is the whole point. A bare `apad` is an endless stream, and
-/// an endless stream handed to the mp4 muxer eventually arrives as a packet with
-/// no timestamp at all:
-///
-/// ```text
-/// non monotonically increasing dts to muxer in stream 1:
-/// 9223372036854775807 >= 1046528
-/// ```
-///
-/// That number is `i64::MAX` — ffmpeg's `AV_NOPTS_VALUE`, the "no timestamp"
-/// sentinel — and the muxer refuses it, which killed a render 1439 frames in.
-/// `whole_dur` says how long the result should be instead of asking for for
-/// ever, and the length is known exactly: it is the video's.
-///
-/// `apad` only ever lengthens. Music that already outlasts the video is left
-/// alone and `-shortest` does the cutting, so the two together cover both
-/// directions.
 fn pad_to(video_seconds: f64) -> String {
     format!("apad=whole_dur={video_seconds:.3}")
 }
@@ -1485,10 +1042,7 @@ fn audio_filter(
     levels: (f32, f32),
 ) -> Option<String> {
     let (music_level, hitsound_level) = (levels.0.max(0.0), levels.1.max(0.0));
-    // Silence is `music_level: 0`, and it has to reach ffmpeg as a level rather
-    // than as a missing input: the music is what the render is *timed* against
-    // — the seek, the tempo, the padding to the picture's length — and dropping
-    // the stream would take the timing with it.
+
     let stretched = |index: usize, duck: bool| {
         let level = if duck {
             MUSIC_DUCK * music_level
@@ -1500,13 +1054,7 @@ fn audio_filter(
         } else {
             String::new()
         };
-        // A slow-motion render slices the music by the schedule instead of
-        // stretching it at one tempo: each slice of the song is trimmed out and
-        // played at its segment's tempo, and the pieces are butted together, so
-        // the music dwells exactly where the picture does. The whole track is
-        // padded to the schedule's map length *before* the split, so a short
-        // "Cut Ver." leaves the tail slices as silence to butt on rather than as
-        // nothing, which would slide everything after the gap earlier.
+
         if let Some(slices) = music_warp {
             let reach = slices.last().map_or(0.0, |s| s.end_s);
             let mut graph = format!(
@@ -1540,22 +1088,11 @@ fn audio_filter(
         if (level - 1.0).abs() > f32::EPSILON {
             chain.push(format!("volume={level}"));
         }
-        // Padded here, before it meets anything else, and this is the load
-        // -bearing bit. A map can have an audio file shorter than its own
-        // gameplay — a "Cut Ver." is exactly that — and under a rate mod it is
-        // shorter still. Bringing the music up to the video's length first
-        // means everything downstream is handed a stream that lasts as long as
-        // the picture, which is what both the mix and the muxer assume.
+
         chain.push(pad_to(video_seconds));
         format!("[{index}:a]{}[m]", chain.join(","))
     };
 
-    // The hit sounds get their own level the same way, and on their own input
-    // so that turning the music down does not turn them down with it.
-    //
-    // A stage rather than a filter: at the natural level the input is handed
-    // straight to the mix, so a render made without either flag produces the
-    // command it always produced instead of one with an `anull` in it.
     let (hit_stage, hit_label) = match hits {
         Some(h) if (hitsound_level - 1.0).abs() > f32::EPSILON => (
             Some(format!("[{h}:a]volume={hitsound_level}[h]")),
@@ -1573,19 +1110,10 @@ fn audio_filter(
                 graph.push_str(stage);
             }
             Some(format!(
-                // `normalize=0` matters: amix otherwise divides every input by
-                // the number of them, so adding hit sounds would halve the
-                // music.
-                //
-                // `duration=longest`, not `first`. The music is the first
-                // input, so `first` ended the mix when the music did — and on a
-                // map whose audio is shorter than its gameplay that silently
-                // threw away every hit sound after the cut. Thirty-six seconds
-                // of them, on the replay that found this.
                 "{graph};[m]{hit_label}amix=inputs=2:duration=longest:normalize=0[mix]"
             ))
         }
-        // Nothing to compete with, so the music keeps its own level.
+
         (Some(m), None) => Some(format!("{};[m]anull[mix]", stretched(m, false))),
         (None, Some(_)) => Some(match &hit_stage {
             Some(stage) => format!("{stage};[h]anull[mix]"),
@@ -1597,20 +1125,7 @@ fn audio_filter(
     let Some(stall) = stall_at_seconds.filter(|s| *s > 0.05) else {
         return Some(format!("{mixed};[mix]{}[a]", pad_to(video_seconds)));
     };
-    // Everything after the stall is the fail wind-down: lazer takes the
-    // track's frequency to zero over the same two and a half seconds the
-    // animation runs for.
-    //
-    // ```csharp
-    // this.TransformBindableTo(trackFreq, 0, duration);
-    // ```
-    //
-    // `asetrate` moves pitch and tempo together, which is the sound wanted — a
-    // tape losing power rather than slow motion — but it takes one fixed rate
-    // and cannot ramp. So the tail is cut into steps, each slower than the
-    // last, and concatenated. Each step consumes only as much source as it
-    // plays, which is why the offsets accumulate rather than being spaced
-    // evenly.
+
     let seconds = dossier_render::FAIL_ANIMATION_MS / 1000.0;
     let step_out = seconds / FAIL_STEPS as f64;
     let mut chunks = String::new();
@@ -1653,8 +1168,7 @@ mod filter_tests {
     #[test]
     fn music_alone_is_stretched_and_passed_through() {
         let filter = audio_filter(Some(1), None, &sync(1.5), None, None, 10.0, (1.0, 1.0)).unwrap();
-        // Stretched, then brought up to the video's length. The pad comes after
-        // the stretch because stretching afterwards would scale the silence too.
+
         assert!(
             filter.contains("[1:a]atempo=1.500000,apad=whole_dur=10.000[m]"),
             "{filter}"
@@ -1664,12 +1178,9 @@ mod filter_tests {
 
     #[test]
     fn the_two_halves_of_the_mix_are_turned_down_apart_from_each_other() {
-        // The whole point of two numbers rather than one. Somebody who wants to
-        // hear the play over the song turns the music down, and the hit sounds
-        // must not follow it.
         let filter =
             audio_filter(Some(1), Some(2), &sync(1.0), None, None, 10.0, (0.3, 1.0)).unwrap();
-        // The music carries the duck as well as the choice, on one filter.
+
         assert!(
             filter.contains(&format!("volume={}", MUSIC_DUCK * 0.3)),
             "{filter}"
@@ -1687,9 +1198,6 @@ mod filter_tests {
 
     #[test]
     fn a_silenced_half_is_a_level_rather_than_a_missing_input() {
-        // The music is what the render is timed against — the seek, the tempo,
-        // the pad to the picture's length. Dropping the stream to silence it
-        // would take that with it, so it stays in the graph at zero.
         let filter =
             audio_filter(Some(1), Some(2), &sync(1.5), None, None, 10.0, (0.0, 1.0)).unwrap();
         assert!(filter.contains("[1:a]atempo=1.500000,volume=0"), "{filter}");
@@ -1702,9 +1210,6 @@ mod filter_tests {
 
     #[test]
     fn the_natural_levels_leave_the_graph_as_it_was() {
-        // A render made without either flag has to produce the same command as
-        // one made before they existed: an untouched setting should not be a
-        // change to the mix, however small.
         let filter =
             audio_filter(Some(1), Some(2), &sync(1.0), None, None, 10.0, (1.0, 1.0)).unwrap();
         assert!(filter.contains(&format!("volume={MUSIC_DUCK}")), "{filter}");
@@ -1713,23 +1218,16 @@ mod filter_tests {
 
     #[test]
     fn a_short_audio_file_does_not_cut_the_hit_sounds_off_with_it() {
-        // The music is the mix's first input, so `duration=first` ended the mix
-        // when the music ended. A map whose audio file is shorter than its own
-        // gameplay — a cut version, and shorter still under a rate mod — then
-        // lost every hit sound after the cut, silently, with a perfectly valid
-        // file to show for it.
         let filter =
             audio_filter(Some(1), Some(2), &sync(1.5), None, None, 60.0, (1.0, 1.0)).unwrap();
         assert!(filter.contains("duration=longest"), "{filter}");
         assert!(!filter.contains("duration=first"), "{filter}");
-        // And the music itself reaches the end of the picture.
+
         assert!(filter.contains("apad=whole_dur=60.000[m]"), "{filter}");
     }
 
     #[test]
     fn the_two_streams_are_mixed_without_being_quietened() {
-        // amix divides by the input count unless told not to, which would drop
-        // the music by half the moment hit sounds were switched on.
         let filter =
             audio_filter(Some(1), Some(2), &sync(1.0), None, None, 10.0, (1.0, 1.0)).unwrap();
         assert!(filter.contains("normalize=0"), "{filter}");
@@ -1738,8 +1236,6 @@ mod filter_tests {
 
     #[test]
     fn hit_sounds_are_never_stretched() {
-        // They're built on the video's timebase, so the rate is already in
-        // them; applying atempo again would double the correction.
         let filter =
             audio_filter(Some(1), Some(2), &sync(1.5), None, None, 10.0, (1.0, 1.0)).unwrap();
         assert!(filter.contains("[1:a]atempo"), "{filter}");
@@ -1748,7 +1244,6 @@ mod filter_tests {
 
     #[test]
     fn a_map_with_no_audio_at_all_emits_no_graph() {
-        // An empty filter graph is an ffmpeg error, not a silent video.
         assert!(audio_filter(None, None, &sync(1.0), None, None, 10.0, (1.0, 1.0)).is_none());
     }
 
@@ -1760,14 +1255,6 @@ mod filter_tests {
 
     #[test]
     fn every_graph_ends_in_silence_measured_to_the_videos_length() {
-        // Two failures, one line. `-shortest` ends the file with whichever
-        // input runs out first, so an audio chain that can run out is a chain
-        // that can cut the video short: a play failing near the end of its song
-        // outlived the music and ffmpeg closed the pipe with 69 frames still to
-        // write. Padding fixes that — and padding *without a length* replaces
-        // it with a packet carrying `AV_NOPTS_VALUE`, which the mp4 muxer
-        // refuses outright. So the pad has to be there, on every path, and it
-        // has to say how long.
         for stall in [None, Some(30.0)] {
             let filter =
                 audio_filter(Some(1), Some(2), &sync(1.0), stall, None, 10.0, (1.0, 1.0)).unwrap();
@@ -1781,10 +1268,6 @@ mod filter_tests {
 
     #[test]
     fn a_failed_play_drags_its_audio_down_at_the_stall() {
-        // The picture slowing without the sound is uncanny — the ear catches
-        // the mismatch before the eye catches the stall. `asetrate` takes
-        // pitch down with tempo, which is a tape losing power rather than a
-        // slow-motion effect.
         let filter = audio_filter(
             Some(1),
             None,
@@ -1796,11 +1279,9 @@ mod filter_tests {
         )
         .unwrap();
         assert!(filter.contains("atrim=0:12.500"), "{filter}");
-        // The same fraction the picture drops to, so the two give out
-        // together rather than as two separate failures.
+
         assert!(filter.contains("asetrate=44100*0.4"), "{filter}");
-        // Resampled to that rate first, or the number is a guess about the
-        // source rather than a fact about the stream.
+
         assert!(
             filter.find("aresample=44100").unwrap() < filter.find("asetrate").unwrap(),
             "{filter}"
@@ -1817,10 +1298,6 @@ mod filter_tests {
 
     #[test]
     fn a_render_that_starts_before_the_song_holds_the_music_back() {
-        // The replay records the lead-in, so the render begins before audio
-        // zero. Seeking can't express that — a seek of −1.5s clamps to 0 and
-        // starts the song on the first frame, playing the whole map a second
-        // and a half early. Only a delay puts it where it belongs.
         let sync = AudioSync::new(-1500.0, 1.0);
         assert_eq!(sync.seek_seconds, 0.0);
         assert!((sync.delay_seconds - 1.5).abs() < 1e-9);
@@ -1837,49 +1314,26 @@ mod filter_tests {
 
     #[test]
     fn the_lead_in_is_measured_in_video_time() {
-        // Under DoubleTime the video covers map time faster, so the same
-        // lead-in occupies proportionally less of it. Delaying by the map-time
-        // figure would leave the music a third of a second late.
         let sync = AudioSync::new(-1500.0, 1.5);
         assert!((sync.delay_seconds - 1.0).abs() < 1e-9);
     }
 
     #[test]
     fn the_music_is_shifted_before_it_is_stretched() {
-        // This order is a workaround, not a preference: `atempo` followed by
-        // `adelay` makes ffmpeg stamp a packet `AV_NOPTS_VALUE` as soon as the
-        // result is mixed with anything, and the mp4 muxer refuses it. Either
-        // filter alone is fine and so is the mix — only the pair breaks.
-        //
-        // So the delay goes first, stated in the music's own time, because
-        // `atempo` is about to divide it. A 1500ms lead-in under DoubleTime is
-        // 1000ms of video, and 1000 × 1.5 is 1500 again — the product is the
-        // lead-in it started as, which is the neatest possible check that the
-        // round trip is exact.
         let filter = AudioSync::new(-1500.0, 1.5).filter().unwrap();
         assert_eq!(filter, "adelay=1500:all=1,atempo=1.500000");
     }
 
     #[test]
     fn the_delay_is_not_scaled_when_there_is_no_stretch_to_divide_it() {
-        // At rate 1.0 no `atempo` is emitted, so multiplying the delay by the
-        // tempo would push the music a beat late with nothing to bring it back.
         let filter = AudioSync::new(-1500.0, 1.0).filter().unwrap();
         assert_eq!(filter, "adelay=1500:all=1");
 
-        // Same when the rate is one `atempo` refuses to do in a single pass:
-        // the filter is dropped, so the delay must not be scaled for it either.
         let refused = AudioSync::new(-1500.0, 3.0);
         assert!(refused.filter().unwrap().starts_with("adelay=500:all=1"));
     }
 }
 
-/// How many threads to draw with when nobody said.
-///
-/// One fewer than the machine has, because ffmpeg is about to want a core and
-/// starving the encoder just moves the queue rather than shortening it. On a
-/// single-core box this still returns one, and the pipeline degenerates to
-/// what it replaced.
 fn default_workers() -> usize {
     std::thread::available_parallelism()
         .map(|n| n.get().saturating_sub(1).max(1))
@@ -1915,13 +1369,8 @@ mod fail_timing {
 
     #[test]
     fn the_animation_is_real_time_over_a_frozen_field() {
-        // The clock runs straight through. Past the fail there is no play left
-        // for it to advance — the renderer freezes the field there and reads
-        // anything beyond as time into the animation — so the only thing the
-        // plan has to get right is that it keeps going, and for long enough.
         let plan = Plan::new((0.0, 2000.0), 1.0, &settings(), Some(1000.0)).expect("a plan");
 
-        // A hundred frames a second, so frame n is n×10ms of video.
         let at = |frame: u64| plan.map_time_of(frame, 100.0);
         assert!((at(50) - 500.0).abs() < 1e-9);
         assert!((at(150) - 1500.0).abs() < 1e-9, "straight through the fail");
@@ -1929,16 +1378,11 @@ mod fail_timing {
 
     #[test]
     fn the_animation_is_room_the_plan_makes_for_itself() {
-        // The video is longer than the span it covers, by the animation's own
-        // length — and by that length exactly, whatever the mod rate, because
-        // two and a half seconds of falling playfield are two and a half
-        // seconds however fast the map was going.
         let plain = Plan::new((0.0, 2000.0), 1.0, &settings(), None).expect("a plan");
         for rate in [1.0, 1.5] {
             let failed = Plan::new((0.0, 2000.0), rate, &settings(), Some(1000.0)).expect("a plan");
             let base = Plan::new((0.0, 2000.0), rate, &settings(), None).expect("a plan");
-            // Against the tail a *successful* play already carries for its own
-            // closing fade, not against nothing.
+
             let extra = failed.video_seconds - base.video_seconds;
             let wanted = (fail_tail_ms() - dossier_render::OUTRO_FADE_MS) / 1000.0;
             assert!((extra - wanted).abs() < 1e-9, "at rate {rate}: {extra}");
@@ -1948,9 +1392,6 @@ mod fail_timing {
 
     #[test]
     fn a_finished_play_carries_a_tail_for_its_closing_fade() {
-        // The fade has to happen *after* the last note. Without a tail it would
-        // dim the closing seven hundred milliseconds of the map instead — the
-        // part of a play people most want to see.
         let settings = settings();
         let plan = Plan::new((0.0, 2000.0), 1.0, &settings, None).expect("a plan");
         let played = (2000.0 - 0.0) / 1000.0;
@@ -1963,11 +1404,6 @@ mod fail_timing {
 
     #[test]
     fn the_tail_covers_every_phase_of_the_ending() {
-        // Three phases run after the last judgement: the frame closes and
-        // springs back, then it clears, then the empty screen is held. A tail
-        // short of their sum cuts the file mid-movement, which is the hard
-        // ending all of this was written to replace — and it would go unseen,
-        // because a truncated video is still a valid video.
         assert!(
             (fail_tail_ms() - (dossier_render::FAIL_ANIMATION_MS + dossier_render::FAIL_EMPTY_MS))
                 .abs()
@@ -1986,19 +1422,12 @@ mod video_tests {
 
     #[test]
     fn a_frame_over_a_video_carries_an_alpha_plane_and_one_without_does_not() {
-        // yuva420p is yuv420p with a full-resolution alpha plane after it, and
-        // ffmpeg reads a fixed number of bytes per frame — a buffer of the
-        // wrong length does not fail, it shears the picture.
         assert_eq!(a_frame(false).yuv.len(), yuv_len(4, 2));
         assert_eq!(a_frame(true).yuv.len(), yuv_len(4, 2) + 4 * 2);
     }
 
     #[test]
     fn the_alpha_plane_is_what_was_drawn_and_not_what_was_left_behind() {
-        // The plane is written from the pixmap rather than assumed, and this is
-        // the half that has to be right for a video to show through at all: an
-        // empty frame is transparent everywhere, and the play is what puts
-        // anything else in it.
         let mut frame = a_frame(true);
         frame.pixmap.fill(tiny_skia::Color::TRANSPARENT);
         let mut plane = vec![9u8; 8];
@@ -2020,11 +1449,6 @@ mod video_tests {
 
     #[test]
     fn the_colours_stay_premultiplied() {
-        // Which is what `overlay=alpha=premultiplied` is told. Undoing it here
-        // was tried first and could not work: a pixmap's channels may not
-        // exceed its alpha, so straightening one means raising its alpha, and
-        // every faint overlay in the frame became an opaque one. It rendered as
-        // a flat fill over the video.
         let mut frame = a_frame(true);
         frame
             .pixmap

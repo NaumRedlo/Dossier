@@ -1,23 +1,16 @@
-//! What is on this machine's shelves: maps, skins, replays.
-//!
-//! Counted rather than trusted. A folder somebody typed into a settings screen
-//! is a guess until something has looked inside it, and "no maps here" said
-//! before a render is worth more than a job handed back after one.
-
 use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 
 use crate::settings::Settings;
 
-/// One folder, and what was found in it.
 #[derive(Debug, Clone, Serialize)]
 pub struct Shelf {
     pub path: String,
     pub exists: bool,
     pub items: usize,
     pub bytes: u64,
-    /// What it holds, in the words somebody would use.
+
     pub note: String,
 }
 
@@ -33,7 +26,6 @@ impl Shelf {
     }
 }
 
-/// Every shelf at once.
 #[derive(Debug, Clone, Serialize)]
 pub struct Library {
     pub songs: Shelf,
@@ -41,11 +33,6 @@ pub struct Library {
     pub replays: Shelf,
 }
 
-/// A replay this person could ask to have drawn.
-///
-/// Read from the file's own header rather than from its name: a name is
-/// whatever the client wrote, and two of them collide the moment somebody
-/// plays the same map twice.
 #[derive(Debug, Clone, Serialize)]
 pub struct Played {
     pub path: String,
@@ -55,7 +42,7 @@ pub struct Played {
     pub score: i32,
     pub combo: u16,
     pub bytes: u64,
-    /// Whether the map it was played on is on this machine.
+
     pub have_map: bool,
 }
 
@@ -73,11 +60,10 @@ fn plural(n: usize, one: &str, few: &str, many: &str) -> String {
     format!("{n} {word}")
 }
 
-/// Maps: archives as they are downloaded, and folders as osu! unpacks them.
 fn shelve_songs(path: &str) -> Shelf {
     let at = Path::new(path);
     if path.is_empty() || !at.is_dir() {
-        return Shelf::missing(path, "папки нет — карты качать будет некуда");
+        return Shelf::missing(path, "Папки нет: некуда сохранять карты");
     }
     let found = entries(at);
     let archives = found
@@ -107,14 +93,10 @@ fn shelve_songs(path: &str) -> Shelf {
     }
 }
 
-/// Skins: a folder is one when it has a `skin.ini` or any picture in it.
-///
-/// Both, because a skin with no `skin.ini` is perfectly ordinary — the file is
-/// optional and osu! falls back to its defaults for every key.
 fn shelve_skins(path: &str) -> Shelf {
     let at = Path::new(path);
     if path.is_empty() || !at.is_dir() {
-        return Shelf::missing(path, "не указана — рисуем своим скином");
+        return Shelf::missing(path, "Не указана: рисуем своим скином");
     }
     let mut skins = 0;
     let mut bytes = 0;
@@ -146,7 +128,7 @@ fn shelve_skins(path: &str) -> Shelf {
 fn shelve_replays(path: &str) -> Shelf {
     let at = Path::new(path);
     if path.is_empty() || !at.is_dir() {
-        return Shelf::missing(path, "не указана — рисовать своё будет нечего");
+        return Shelf::missing(path, "Не указана: негде брать реплеи");
     }
     let found: Vec<_> = entries(at)
         .into_iter()
@@ -174,7 +156,6 @@ pub fn look(said: &Settings) -> Library {
     }
 }
 
-/// The skins on the shelf, by folder name, in the order a list should show them.
 pub fn skins(said: &Settings) -> Vec<String> {
     let at = Path::new(&said.skins);
     if said.skins.is_empty() || !at.is_dir() {
@@ -199,16 +180,6 @@ pub fn skins(said: &Settings) -> Vec<String> {
     names
 }
 
-/// The replays on the shelf, newest first, with the map's presence checked.
-///
-/// Capped: a folder somebody has been playing out of for a year holds thousands,
-/// and a list nobody can scroll is not a list. The cap is stated rather than
-/// silent — see the caller.
-/// The hashes of every map on the shelf, remembered between calls.
-///
-/// Rebuilt when the folder changes — how many files it holds and when the
-/// newest of them was written, which is enough to notice a download and cheap
-/// enough to ask on every visit to the tab.
 fn maps(songs: &Path) -> std::collections::HashSet<String> {
     static SEEN: std::sync::Mutex<Option<(String, u64, std::collections::HashSet<String>)>> =
         std::sync::Mutex::new(None);
@@ -225,11 +196,6 @@ fn maps(songs: &Path) -> std::collections::HashSet<String> {
     found
 }
 
-/// A cheap mark of what a folder holds: how many entries, and the newest write
-/// among them. Not a guarantee — two changes inside one second on the same
-/// count would read alike — and it does not need to be: the worst it costs is
-/// one stale answer about whether a map is here, which the render itself then
-/// finds out properly.
 fn stamp(folder: &Path) -> u64 {
     let mut count = 0u64;
     let mut newest = 0u64;
@@ -271,9 +237,6 @@ pub fn played(said: &Settings, most: usize) -> Vec<Played> {
     files.sort_by_key(|(when, _)| std::cmp::Reverse(*when));
     files.truncate(most);
 
-    // One walk of the songs folder for all of them. Asking per replay meant
-    // inflating every archive on the shelf once per replay, which on a folder
-    // of a couple of hundred is the window standing still for half a minute.
     let known = maps(Path::new(&said.songs));
     files
         .into_iter()
@@ -327,7 +290,7 @@ mod tests {
         std::fs::write(dir.join("two.OSZ"), b"zip").expect("written");
         std::fs::create_dir(dir.join("unpacked")).expect("a folder");
         std::fs::write(dir.join("unpacked/a.osu"), b"map").expect("written");
-        // An empty folder is not a map, whatever it is called.
+
         std::fs::create_dir(dir.join("empty")).expect("a folder");
 
         let shelf = shelve_songs(&dir.display().to_string());
@@ -337,7 +300,6 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
-    /// A skin with no `skin.ini` is perfectly ordinary — the file is optional.
     #[test]
     fn a_skin_is_a_folder_with_pictures_or_an_ini_in_it() {
         let dir = scratch("skins");
@@ -366,7 +328,6 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
-    /// A file that is not a replay is skipped rather than breaking the list.
     #[test]
     fn rubbish_in_the_replay_folder_is_stepped_over() {
         let dir = scratch("bad-replays");
@@ -384,45 +345,42 @@ mod tests {
     }
 }
 
-/// One piece of what the application is made of, or needs.
-///
-/// The tab that shows these is not a status page: it is the shelf. What is
-/// built in cannot be removed, what is outside can be missing and says how to
-/// stop being missing, and what is planned says so rather than pretending.
 #[derive(Debug, Clone, Serialize)]
 pub struct Module {
     pub name: String,
     pub what: String,
-    /// `builtin`, `found`, `missing`, `planned`.
+
     pub state: &'static str,
     pub said: String,
     pub fix: String,
-    /// A folder this module lives in, when picking one is the way to fix it.
+
     pub picks: Option<&'static str>,
 }
 
 const ENGINE: [(&str, &str); 6] = [
     (
         "dossier-replay",
-        "разбор .osr: путь курсора и что было нажато",
+        "Разбор .osr: вся доступная информация из архива",
     ),
     (
         "dossier-beatmap",
-        "разбор .osu и .osz: объекты, тайминг, кривые слайдеров",
+        "Разбор .osu и .osz: объекты, тайминг, расположение объектов",
     ),
     (
         "dossier-sim",
-        "реплей против карты: что на самом деле произошло",
+        "Симуляция игрового процесса: попытка визуализировать геймплей",
     ),
     (
         "dossier-render",
-        "кадры: скины, курсор, слайдеры, судейство, интерфейс",
+        "Игровые элементы: скины, курсор, слайдеры, судейство, интерфейс",
     ),
-    ("dossier-audio", "хитсаунды, песня и смесь из них"),
-    ("dossier-produce", "сцена, кодирование, поиск карт и скинов"),
+    (
+        "dossier-audio",
+        "Хитсаунды, песня и выстраивание композиции",
+    ),
+    ("dossier-produce", "Сцена, кодирование, поиск карт и скинов"),
 ];
 
-/// What is on the shelf, and what is missing from it.
 pub fn modules(said: &Settings) -> Vec<Module> {
     let version = env!("CARGO_PKG_VERSION");
     let mut out: Vec<Module> = ENGINE
@@ -440,10 +398,10 @@ pub fn modules(said: &Settings) -> Vec<Module> {
     let ffmpeg = crate::check::on_path("ffmpeg");
     out.push(Module {
         name: "ffmpeg".to_owned(),
-        what: "склеивает кадры в видео и достаёт звук из карт".to_owned(),
+        what: "Склеивает кадры в видео и достаёт звук из карт".to_owned(),
         state: if ffmpeg.is_some() { "found" } else { "missing" },
         said: ffmpeg.map_or_else(
-            || "не найден в PATH".to_owned(),
+            || "Не найден в PATH".to_owned(),
             |path| path.display().to_string(),
         ),
         fix: "brew install ffmpeg · apt install ffmpeg · ffmpeg.org/download".to_owned(),
@@ -452,8 +410,8 @@ pub fn modules(said: &Settings) -> Vec<Module> {
 
     let font = dossier_produce::font::find(None).ok().flatten();
     out.push(Module {
-        name: "шрифт".to_owned(),
-        what: "цифры и подписи на кадре".to_owned(),
+        name: "Шрифт".to_owned(),
+        what: "Цифры и подписи на кадре".to_owned(),
         state: if font.is_some() { "found" } else { "missing" },
         said: if font.is_some() {
             "найден".to_owned()
@@ -467,20 +425,20 @@ pub fn modules(said: &Settings) -> Vec<Module> {
     let shelves = look(said);
     for (name, what, shelf, picks) in [
         (
-            "карты",
-            "папка Songs — по ней ищется карта реплея",
+            "Карты",
+            "Папка Songs — по ней ищется карта реплея",
             &shelves.songs,
             "songs",
         ),
         (
-            "скины",
-            "чем рисовать, кроме встроенного",
+            "Скины",
+            "Чем рисовать, кроме встроенного",
             &shelves.skins,
             "skins",
         ),
         (
-            "реплеи",
-            "что предлагать к отрисовке",
+            "Реплеи",
+            "Что предлагать к рендеру",
             &shelves.replays,
             "replays",
         ),
@@ -494,14 +452,14 @@ pub fn modules(said: &Settings) -> Vec<Module> {
             } else {
                 shelf.note.clone()
             },
-            fix: "укажите папку — «Обзор» рядом с полем".to_owned(),
+            fix: "Укажите папку — «Обзор» рядом с полем".to_owned(),
             picks: Some(picks),
         });
     }
 
     out.push(Module {
-        name: "плагины".to_owned(),
-        what: "чужие модули: свои судьи, свои сцены, свои выходные форматы".to_owned(),
+        name: "Плагины".to_owned(),
+        what: "Чужие модули: свои движки, свои сцены, свои выходные форматы".to_owned(),
         state: "planned",
         said: "заложено, но ещё не грузится".to_owned(),
         fix: "форма модуля здесь и есть подготовка к этому".to_owned(),
@@ -510,41 +468,34 @@ pub fn modules(said: &Settings) -> Vec<Module> {
     out
 }
 
-/// Install an `.osk` — an osu! skin archive, which is a zip under another name.
-///
-/// Under the archive's own name, because that is the name somebody will look
-/// for afterwards. A folder already called that is left exactly as it is and
-/// said so: overwriting a skin because a download happened to share its name is
-/// not a thing to do quietly.
 pub fn install_skin(said: &Settings, archive: &Path) -> Result<String, String> {
     if said.skins.is_empty() {
-        return Err("папка скинов не указана — назовите её в настройках".to_owned());
+        return Err("Папка скинов не указана: укажите её в настройках".to_owned());
     }
     let shelf = Path::new(&said.skins);
-    std::fs::create_dir_all(shelf).map_err(|why| format!("папка скинов не создалась: {why}"))?;
+    std::fs::create_dir_all(shelf).map_err(|why| format!("Папка скинов не создалась: {why}"))?;
 
     let name = archive
         .file_stem()
         .map(|stem| stem.to_string_lossy().into_owned())
         .filter(|stem| !stem.is_empty())
-        .ok_or("у файла нет имени")?;
+        .ok_or("У файла нет имени")?;
     let into = shelf.join(&name);
     if into.exists() {
-        return Err(format!("скин «{name}» уже стоит — сначала уберите старый"));
+        return Err(format!(
+            "Скин «{name}» уже стоит. Для начала уберите старый"
+        ));
     }
 
-    let bytes = std::fs::read(archive).map_err(|why| format!("файл не читается: {why}"))?;
+    let bytes = std::fs::read(archive).map_err(|why| format!("Файл не читается: {why}"))?;
     if let Err(why) = dossier_produce::skin::unpack(&bytes, &into) {
         let _ = std::fs::remove_dir_all(&into);
-        return Err(format!("архив не распаковался: {why}"));
+        return Err(format!("Архив не распаковался: {why}"));
     }
     flatten(&into);
     Ok(name)
 }
 
-/// Some archives are packed as one folder with everything inside it. osu!
-/// treats the archive itself as the skin, so a lone directory is lifted out —
-/// otherwise the skin is one level deeper than anything looks.
 fn flatten(into: &Path) {
     if into.join("skin.ini").exists() {
         return;
@@ -626,8 +577,6 @@ mod skin_tests {
     }
 }
 
-/// A directory that removes itself. `tempfile` for one purpose in one test
-/// module is a dependency for a `Drop`.
 #[cfg(test)]
 mod tempish {
     use std::path::{Path, PathBuf};

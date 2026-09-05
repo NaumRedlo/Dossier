@@ -1,22 +1,3 @@
-"""What the render client is allowed to need.
-
-A worker runs on somebody else's laptop, and what it imports is what they have
-to install. Every package named here is a step in an instruction somebody has
-to follow on a machine you cannot see, and the two that are named are already
-two more than nothing.
-
-This used to be a test about not importing the bot — the client lived inside
-the bot's repository, and `services/__init__.py` re-exporting the card renderer
-meant that importing *anything* under `services` built Pillow, fontTools,
-SQLAlchemy and the pp calculator, for a program whose whole job is to run a
-native binary and hand back an `.mp4`. The bot is a repository away now, so the
-question has changed: not "does it drag the bot in" but "does it need anything
-it has not declared".
-
-Which is the better question, because it has an answer that can be checked
-against a file rather than against a list somebody maintains.
-"""
-
 import ast
 import os
 import re
@@ -26,26 +7,16 @@ import sys
 CLIENT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PACKAGE = os.path.join(CLIENT, "dossier")
 
-# Anything a render has no business needing. Every one of these was genuinely
-# being loaded by the worker at some point, none of them on purpose.
 FORBIDDEN = ("aiogram", "sqlalchemy", "aiosqlite", "PIL", "fontTools",
              "rosu_pp_py", "cryptography", "numpy", "db")
 
-
 def _declared() -> set[str]:
-    """The dependencies `pyproject.toml` names, as import names."""
     body = open(os.path.join(CLIENT, "pyproject.toml"), encoding="utf-8").read()
     block = body.partition("dependencies = [")[2].partition("]")[0]
     return {re.split(r"[<>=!\[ ]", line.strip().strip('",'))[0].lower()
             for line in block.splitlines() if line.strip().startswith('"')}
 
-
 def _third_party_imports() -> dict[str, str]:
-    """Every non-stdlib package the source imports, and where it does it.
-
-    Read off the syntax tree rather than by importing anything, so a module
-    that is only reached on Windows is checked on a Mac like any other.
-    """
     found = {}
     for here, _, files in os.walk(PACKAGE):
         for name in files:
@@ -57,7 +28,7 @@ def _third_party_imports() -> dict[str, str]:
                 if isinstance(node, ast.Import):
                     roots = [alias.name.split(".")[0] for alias in node.names]
                 elif isinstance(node, ast.ImportFrom):
-                    # `from . import x` has no module to speak of.
+
                     roots = [node.module.split(".")[0]] if node.module and not node.level else []
                 else:
                     continue
@@ -67,10 +38,7 @@ def _third_party_imports() -> dict[str, str]:
                     found.setdefault(root, os.path.relpath(path, CLIENT))
     return found
 
-
 def test_nothing_is_imported_that_is_not_declared():
-    """A package added to the source and not to `pyproject.toml` is a worker
-    that installs cleanly and then dies on the first render."""
     undeclared = {name: where for name, where in _third_party_imports().items()
                   if name.lower() not in _declared()}
     assert not undeclared, (
@@ -78,34 +46,15 @@ def test_nothing_is_imported_that_is_not_declared():
         + ", ".join(f"{name} ({where})" for name, where in sorted(undeclared.items()))
     )
 
-
 def test_nothing_is_declared_that_is_not_imported():
-    """The other direction, which is how a dependency list grows things nobody
-    needs — each one an install somebody waits for."""
     imported = {name.lower() for name in _third_party_imports()}
     idle = _declared() - imported
     assert not idle, f"declared and never imported: {', '.join(sorted(idle))}"
 
-
 def test_the_client_is_three_dependencies_and_they_are_named():
-    """The list itself, because it is the thing that makes this installable on
-    a machine you are not standing in front of. Every addition is an install
-    somebody waits for and a thing that can fail there.
-
-    `certifi` came third and was already present as `requests`' own
-    dependency. It is named because this imports it directly: Python does not
-    read the system certificate store on macOS, and `aiohttp` was refusing a
-    server every browser trusts.
-    """
     assert _declared() == {"aiohttp", "requests", "certifi"}, _declared()
 
-
 def _loaded_by_the_client() -> set[str]:
-    """What a fresh interpreter loads to run the client.
-
-    Run out of process on purpose: asking `sys.modules` from inside pytest
-    answers about pytest, which has already imported half the tree.
-    """
     probe = (
         "import sys, importlib.util\n"
         "before = set(sys.modules)\n"
@@ -122,7 +71,6 @@ def _loaded_by_the_client() -> set[str]:
     assert done.returncode == 0, f"the client would not import:\n{done.stderr}"
     return set(done.stdout.split())
 
-
 def test_a_run_loads_none_of_the_heavy_things():
     loaded = _loaded_by_the_client()
     unwanted = sorted(loaded & set(FORBIDDEN))
@@ -132,34 +80,16 @@ def test_a_run_loads_none_of_the_heavy_things():
         f"imports"
     )
 
-
 def test_the_probe_is_actually_looking_at_something():
-    """The guard above passes trivially if the client stopped importing at all
-    — a broken probe reports an empty set and calls it clean."""
     loaded = _loaded_by_the_client()
     assert {"aiohttp", "dossier"} <= loaded, loaded
 
-
 def test_nothing_is_deferred_past_the_probe():
-    """An import inside a function is one this probe never reaches, and that
-    is not a hypothetical: the client used to build the osu! API client inside
-    `main`, so a guard that only loaded the module passed while a real run died
-    on `No module named 'sqlalchemy'`.
-
-    There are no deferred third-party imports left. This says so, rather than
-    trusting that nobody adds one.
-    """
     source = open(os.path.join(PACKAGE, "worker.py"), encoding="utf-8").read()
-    # `[ \t]` and not `\s`: `\s` matches a newline, so `^\s+from` happily spans
-    # a blank line and reports a top-level import as an indented one.
+
     deferred = set(re.findall(r"^[ \t]+(?:from|import) ([\w.]+)", source, re.M))
     outside = {name.split(".")[0] for name in deferred} - sys.stdlib_module_names
 
-    # `certifi` is deferred on purpose, and the purpose is the opposite of what
-    # this guards against. It sits inside a `try` in `trusted()` so that a
-    # machine without it falls back to OpenSSL's own store rather than failing
-    # to start — an import whose absence is *handled* is not one that can
-    # surprise a worker mid-render.
     allowed = {"dossier", "certifi"}
     assert not outside - allowed, (
         f"the client defers {', '.join(sorted(outside - allowed))}, which this "
@@ -167,28 +97,21 @@ def test_nothing_is_deferred_past_the_probe():
         f"would"
     )
 
-
 def test_the_client_has_its_own_settings():
-    """Ten values, read from the environment, declared here rather than
-    borrowed. This is the seam that let the bridge leave the bot at all, and a
-    test rather than a note because it would close again quietly."""
     from dossier import settings
 
-    # Named rather than counted. A number tells whoever broke this that
-    # something moved; a list tells them what, and reads as documentation the
-    # rest of the time.
     assert set(settings.__all__) == {
-        "DOSSIER_BIN",              # the compiled engine
-        "DOSSIER_FONT",             # the face the HUD is set in
-        "DOSSIER_FFMPEG",           # the encoder the engine shells out to
-        "DOSSIER_CRF",              # how hard it is compressed
-        "DOSSIER_PRESET",           # how long it spends compressing
-        "DOSSIER_ENCODER_THREADS",  # empty leaves it to ffmpeg
-        "DOSSIER_SKIN",             # the look when nobody chose one
-        "DOSSIER_GAME_SOUNDS",      # osu!'s own kit, for what a skin leaves out
-        "BEATMAP_STORE_DIR",        # where maps are kept
-        "SKIN_STORE_DIR",           # where skins are unpacked
-        "MAX_SKIN_MB",              # the largest `.osk` this will take
+        "DOSSIER_BIN",
+        "DOSSIER_FONT",
+        "DOSSIER_FFMPEG",
+        "DOSSIER_CRF",
+        "DOSSIER_PRESET",
+        "DOSSIER_ENCODER_THREADS",
+        "DOSSIER_SKIN",
+        "DOSSIER_GAME_SOUNDS",
+        "BEATMAP_STORE_DIR",
+        "SKIN_STORE_DIR",
+        "MAX_SKIN_MB",
     }, settings.__all__
 
     body = open(os.path.join(PACKAGE, "settings.py"), encoding="utf-8").read()
@@ -197,15 +120,7 @@ def test_the_client_has_its_own_settings():
             f"{name} is exported without being read from the environment"
         )
 
-
 def test_an_installed_package_does_not_look_for_the_engine_inside_a_venv():
-    """`pip install dossier` puts this in site-packages, where "three
-    directories up" is the virtual environment rather than a checkout — and
-    `venv/target/release/dossier` is a path that has never existed anywhere.
-
-    So an installed copy asks `PATH` instead, and the bot, which keeps its
-    engine in a checkout of its own, says `DOSSIER_BIN` outright.
-    """
     from dossier import settings
 
     beside = os.path.join(os.path.dirname(CLIENT), "target", "release")
@@ -213,6 +128,5 @@ def test_an_installed_package_does_not_look_for_the_engine_inside_a_venv():
     if os.path.isdir(beside):
         assert found.startswith(beside), found
     else:
-        # Nothing built here: it may name PATH's copy or the unbuilt path, and
-        # either way it must name something a person can act on.
+
         assert found.endswith("dossier") or found.endswith("dossier.exe"), found

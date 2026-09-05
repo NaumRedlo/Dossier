@@ -1,23 +1,3 @@
-"""The worker's side of the bargain: call the engine right, survive, and let go.
-
-Three groups, each from something that actually happened on the laptop this is
-written for.
-
-A reel went out to it and the worker died on `exhibit() got an unexpected
-keyword argument 'threads'` — one engine command had grown the resource controls
-and the other had not, and the worker calls the two identically.
-
-That mistake was small and the damage was not: the exception was not one of the
-ones `_render` catches, so it escaped to `main`, killed the process, and left the
-job leased to a machine that no longer existed. A worker has to hand back what it
-cannot do and keep answering.
-
-And a replay sent from out of the house was rendered at home into nothing: the
-Mac slept partway through, the lease ran out, and the laptop woke to finish a
-render nobody would collect. Two answers — hold the machine awake for exactly as
-long as the engine runs, and stop rendering the moment the job stops being ours.
-"""
-
 import ast
 import asyncio
 import inspect
@@ -27,24 +7,16 @@ import types
 
 import pytest
 
-# The package sits one directory up, beside these tests.
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from dossier import maps, runner  # noqa: E402
+from dossier import maps, runner
 
 WORKER = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
     "dossier", "worker.py",
 )
 
-
 def _engine_call_keywords() -> set[str]:
-    """Every keyword the worker hands the engine, read off the call itself.
-
-    Taken from the source rather than written down here, so that a keyword
-    added at the call site is checked against both commands without anyone
-    remembering to update this file — which is exactly what did not happen.
-    """
     tree = ast.parse(open(WORKER).read())
     for node in ast.walk(tree):
         if (
@@ -55,30 +27,18 @@ def _engine_call_keywords() -> set[str]:
             return {kw.arg for kw in node.keywords if kw.arg}
     raise AssertionError("the worker no longer calls the engine as `engine(...)`")
 
-
 @pytest.mark.parametrize("command", ["video", "exhibit"])
 def test_both_engine_commands_accept_the_call_the_worker_makes(command):
-    """The worker picks between `video` and `exhibit` by one word in the job and
-    calls whichever it got the same way. So they do not merely resemble each
-    other — the call has to fit both, or half the renders crash."""
     signature = inspect.signature(getattr(runner, command))
     missing = _engine_call_keywords() - set(signature.parameters)
     assert not missing, f"runner.{command} does not take {sorted(missing)}"
 
-
 def test_the_resource_controls_reached_the_reel_too():
-    """Named on their own because they are the ones that were missing, and
-    because a reel that ignores them is a laptop rendering at full tilt on
-    battery — the thing the whole policy exists to prevent."""
     for command in ("video", "exhibit"):
         takes = set(inspect.signature(getattr(runner, command)).parameters)
         assert {"threads", "encoder_threads", "polite"} <= takes, command
 
-
-# ── surviving a bug ───────────────────────────────────────────────────────
-
 class FakeServer:
-    """Just the calls `_render` makes of it."""
 
     def __init__(self) -> None:
         self.handed_back: list[tuple[str, str]] = []
@@ -92,10 +52,8 @@ class FakeServer:
     async def give_back(self, job_id, reason):
         self.handed_back.append((job_id, reason))
 
-
 class Capacity:
     take, reason, threads, encoder_threads, polite = True, "idle", 4, 2, False
-
 
 def _run_one_job(monkeypatch, failure: BaseException):
     import importlib.util
@@ -120,49 +78,27 @@ def _run_one_job(monkeypatch, failure: BaseException):
     monkeypatch.setattr(worker, "POLL_SECONDS", 0)
 
     server = FakeServer()
-    # A job carries the map's numbers now, the way the bot sends them.
+
     job = {"id": "j1", "title": "x", "assets": [],
            "settings": {"kind": "video", "beatmap": {"id": 7, "beatmapset_id": 42}}}
     asyncio.run(worker._render(server, job, Capacity()))
     return server
 
-
 def test_a_bug_in_the_worker_hands_the_job_back_rather_than_killing_it(monkeypatch):
-    """A `TypeError` is not a render failing, it is this code being wrong — and
-    the worker used to let it out. Held to the same ending as every other
-    failure, because the bot's fallback only works on a job it gets back."""
     server = _run_one_job(monkeypatch, TypeError("unexpected keyword argument"))
     assert [job for job, _ in server.handed_back] == ["j1"]
     assert "unexpected keyword" in server.handed_back[0][1]
 
-
 def test_a_render_that_fails_the_expected_way_still_says_only_what_went_wrong(monkeypatch):
-    """The ordinary path is unchanged: the engine's own message goes back as it
-    stands, with nothing about the worker wrapped around it."""
     server = _run_one_job(monkeypatch, runner.DossierError("карта не открывается"))
     assert server.handed_back == [("j1", "карта не открывается")]
 
-
 def test_the_worker_is_still_standing_afterwards(monkeypatch):
-    """Two jobs in a row, the first of them a crash. The point is not that the
-    second succeeds — it is that there is a second at all."""
     server = _run_one_job(monkeypatch, TypeError("boom"))
     again = _run_one_job(monkeypatch, maps.MapUnavailable("нет карты"))
     assert len(server.handed_back) == 1 and len(again.handed_back) == 1
 
-
-# ── a laptop that falls asleep ────────────────────────────────────────────
-#
-# Reported from a real evening: a replay sent from out of the house, rendered at
-# home, and the file never arrived. A sleeping process is frozen rather than
-# killed, so the heartbeats stop, the bot's lease runs out and it renders the
-# job itself — and the laptop wakes minutes later, finishes a render nobody is
-# waiting for, and posts it into a job that is no longer its own.
-
 def test_the_machine_is_held_awake_for_exactly_the_render(monkeypatch):
-    """`caffeinate` wraps the engine rather than being switched on and off
-    around it, so the assertion cannot outlive the render — a worker must not be
-    able to leave a machine unable to sleep."""
     from dossier import machine
 
     monkeypatch.setattr(machine.sys, "platform", "darwin")
@@ -171,41 +107,28 @@ def test_the_machine_is_held_awake_for_exactly_the_render(monkeypatch):
     assert "-i" in machine.wakeful(), "idle sleep"
     assert "-s" in machine.wakeful(), "and system sleep, which is the reported case"
 
-
 def test_a_linux_without_systemd_is_not_a_machine_that_cannot_render(monkeypatch):
-    """It is wrapped on Linux too now — `systemd-inhibit`, the same shape and
-    the same scoping. A box without it renders anyway rather than refusing."""
     from dossier import machine
 
     monkeypatch.setattr(machine.sys, "platform", "linux")
     monkeypatch.setattr(machine.shutil, "which", lambda _: None)
     assert machine.wakeful() == ()
 
-
 def test_a_missing_caffeinate_is_not_an_error(monkeypatch):
-    """A macOS without it is not a machine that cannot render."""
     from dossier import machine
 
     monkeypatch.setattr(machine.sys, "platform", "darwin")
     monkeypatch.setattr(machine.os, "access", lambda *_: False)
     assert machine.wakeful() == ()
 
-
 def test_both_engine_commands_take_the_wrapper():
-    """Same lesson as the thread counts: the worker calls one or the other by a
-    word in the job, so an argument that reaches only `video` breaks every
-    reel."""
     import inspect
 
     for command in ("video", "exhibit"):
         takes = set(inspect.signature(getattr(runner, command)).parameters)
         assert "prefix" in takes, command
 
-
 def test_losing_the_job_mid_render_stops_the_render(monkeypatch):
-    """It used to change nothing: a flag was set and the engine drew on for
-    minutes, on battery, for a file the bot would refuse. The render is
-    cancelled now, which the engine already answers by killing the process."""
     import importlib.util
 
     spec = importlib.util.spec_from_file_location("render_worker", WORKER)
@@ -226,7 +149,6 @@ def test_losing_the_job_mid_render_stops_the_render(monkeypatch):
         return {"beatmap_hash": "abc"}
 
     class Sleeper(FakeServer):
-        """A bot that has already given the job to somebody else."""
 
         async def heartbeat(self, job_id, progress=None):
             return False
@@ -239,7 +161,7 @@ def test_losing_the_job_mid_render_stops_the_render(monkeypatch):
     monkeypatch.setattr(worker, "HEARTBEAT_SECONDS", 0.01)
 
     server = Sleeper()
-    # A job carries the map's numbers now, the way the bot sends them.
+
     job = {"id": "j1", "title": "x", "assets": [],
            "settings": {"kind": "video", "beatmap": {"id": 7, "beatmapset_id": 42}}}
     asyncio.run(worker._render(server, job, Capacity()))
@@ -247,32 +169,19 @@ def test_losing_the_job_mid_render_stops_the_render(monkeypatch):
     assert cancelled.is_set(), "the engine was left running"
     assert server.handed_back == [], "there is nothing to hand back — it is gone"
 
-
-# ── a worker on somebody else's machine ───────────────────────────────────
-#
-# The policy is one decision — `machine.decide` — taking plain numbers. What
-# differs per platform is only how those numbers are obtained, so these test the
-# reading and not the deciding.
-
 def test_a_linux_battery_is_read_from_its_two_files():
     from dossier import machine
 
     assert machine.parse_linux_battery("42", "Discharging") == (True, 42)
-    # `Full`, `Charging` and `Idle` all mean the wall is helping. Only
-    # `Discharging` does not.
+
     assert machine.parse_linux_battery("100", "Full") == (False, 100)
     assert machine.parse_linux_battery("87", "Charging") == (False, 87)
 
-
 def test_a_machine_that_will_not_say_is_treated_as_plugged_in():
-    """Refusing to render on a host that reports nothing is worse than
-    rendering on a laptop that happens to be on mains — a desktop and a server
-    both have no battery at all."""
     from dossier import machine
 
     assert machine.parse_linux_battery("", "") == (False, 100)
     assert machine.parse_linux_battery("nonsense", "Unknown") == (False, 100)
-
 
 def test_a_percent_outside_the_range_is_brought_back_into_it():
     from dossier import machine
@@ -280,11 +189,7 @@ def test_a_percent_outside_the_range_is_brought_back_into_it():
     assert machine.parse_linux_battery("140", "Discharging")[1] == 100
     assert machine.parse_linux_battery("-5", "Discharging")[1] == 0
 
-
 def test_the_policy_is_the_same_decision_on_every_platform(monkeypatch):
-    """Three platforms, one `decide`. A second copy of the thresholds would be
-    one copy and a future disagreement about when a laptop is too low to
-    render."""
     from dossier import machine
 
     for platform_name in ("darwin", "win32", "linux"):
@@ -294,25 +199,17 @@ def test_the_policy_is_the_same_decision_on_every_platform(monkeypatch):
         monkeypatch.setattr(machine, "_windows_idle_seconds", lambda: 900.0)
         monkeypatch.setattr(machine, "_linux_battery", lambda: (True, 5))
         monkeypatch.setattr(machine, "parse_battery", lambda _: (True, 5))
-        # Five per cent on battery is below the floor on any of them.
+
         assert not machine.capacity(8).take, platform_name
 
-
 def test_asking_for_less_of_the_machine_does_not_assume_a_path():
-    """`nice` is POSIX and is not on Windows, and its path is not the same on
-    every Linux. A worker that cannot find it competes on equal terms, which is
-    what every worker did before there was a policy."""
     from dossier import runner
 
     prefix = runner._polite_prefix()
     assert prefix == () or (prefix[0].endswith("nice") and prefix[1:] == ("-n", "10"))
 
-
 def test_the_worker_names_itself_without_os_uname():
-    """`os.uname` does not exist on Windows, and the worker is meant to run on
-    whatever machine somebody has spare."""
-    # Read as code rather than as text: the comment above the line explains why
-    # `os.uname` is not used, and a search for the word finds the explanation.
+
     called = {
         f"{node.func.value.id}.{node.func.attr}"
         for node in ast.walk(ast.parse(open(WORKER).read()))
@@ -323,15 +220,6 @@ def test_the_worker_names_itself_without_os_uname():
     assert "os.uname" not in called
     assert "platform.node" in called
 
-
-# ── the setup, which is the part somebody else has to get through ────────────
-#
-# The farm is about to be several machines that are not mine, and everything
-# below is a thing that cost an evening on one of them: a secret retyped into a
-# shell, a refusal that named one problem at a time, and a build mismatch that
-# killed the worker outright.
-
-
 def _worker_module():
     import importlib.util
 
@@ -339,7 +227,6 @@ def _worker_module():
     worker = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(worker)
     return worker
-
 
 def test_the_settings_can_live_in_a_file_instead_of_a_shell(tmp_path, monkeypatch):
     worker = _worker_module()
@@ -359,10 +246,7 @@ def test_the_settings_can_live_in_a_file_instead_of_a_shell(tmp_path, monkeypatc
     assert os.environ["RENDER_WORKER_TOKEN"] == "quoted-because-it-was-pasted"
     assert os.environ["DOSSIER_CRF"] == "12345", "spaces round the = are not the value"
 
-
 def test_a_variable_set_for_one_run_beats_the_file(tmp_path, monkeypatch):
-    """Somebody exporting a different server is being deliberate. A config that
-    overrode that would be a config with no way round it."""
     worker = _worker_module()
     written = tmp_path / "worker.env"
     written.write_text("RENDER_SERVER=https://the-file.example\n")
@@ -371,20 +255,10 @@ def test_a_variable_set_for_one_run_beats_the_file(tmp_path, monkeypatch):
     worker.load_config(str(written))
     assert os.environ["RENDER_SERVER"] == "https://the-shell.example"
 
-
 def test_no_config_file_is_not_a_failure(tmp_path):
-    """A worker on a server has its variables from systemd and never wants one."""
     assert _worker_module().load_config(str(tmp_path / "nothing-here")) is None
 
-
 def test_a_build_mismatch_stands_by_rather_than_killing_the_worker(monkeypatch):
-    """It used to be fatal, and being fatal meant every change to the engine
-    killed every worker on the farm at once — quietly, on machines nobody was
-    watching, while the bot went on rendering everything itself.
-
-    So: stand by, ask the binary again, and come back when it agrees. The
-    rebuild is the fix and a worker that resumes by itself afterwards is the
-    difference between a farm and a chore."""
     worker = _worker_module()
     asked = []
 
@@ -401,7 +275,6 @@ def test_a_build_mismatch_stands_by_rather_than_killing_the_worker(monkeypatch):
                 raise worker.BuildMismatch("the bot renders with aaa and this worker bbb")
             raise SystemExit("agreed, and that is all this test needed")
 
-    # First answer stale, then — as though somebody rebuilt — the right one.
     answers = iter(["stale", "stale", "fresh"])
     monkeypatch.setattr(worker, "Server", lambda *_a, **_k: Server())
     monkeypatch.setattr(worker.engine_build, "local",
@@ -420,10 +293,7 @@ def test_a_build_mismatch_stands_by_rather_than_killing_the_worker(monkeypatch):
         "the worker either died on the mismatch or never asked its binary again"
     )
 
-
 def test_one_shot_still_gives_up_on_a_mismatch(monkeypatch):
-    """Nobody is watching a `--once` run to see it recover, and a script that
-    hangs for ever instead of failing is worse than one that fails."""
     worker = _worker_module()
 
     class Server:
@@ -447,18 +317,13 @@ def test_one_shot_still_gives_up_on_a_mismatch(monkeypatch):
     with pytest.raises(SystemExit, match="cannot take work"):
         asyncio.run(worker._watch(options, "token"))
 
-
 def _resolved(value):
     async def answer():
         return value
 
     return answer()
 
-
 def test_a_failure_that_keeps_happening_is_named(monkeypatch, caplog):
-    """A machine handing back every job is usually missing a program, not
-    failing at rendering — and the exception says so only to somebody who
-    already knew."""
     worker = _worker_module()
     server = _run_one_job(monkeypatch, runner.DossierError("ffmpeg: not found"))
     assert server.handed_back, "the job still goes back"
@@ -469,20 +334,10 @@ def test_a_failure_that_keeps_happening_is_named(monkeypatch, caplog):
         worker.hint(runner.DossierError("ffmpeg: not found"))
     assert "PATH" in caplog.text
 
-
-# ── limits that change while the worker runs ─────────────────────────────────
-#
-# The point of these is that a machine can be handed back to its owner without
-# stopping anything. They are deliberately not read through the environment:
-# once a value is in `os.environ` a second read cannot change it, which is the
-# exact opposite of what these four are for.
-
-
 def _options(tmp_path, **over):
     base = dict(polite=False, threads=0, config=str(tmp_path / "worker.env"))
     base.update(over)
     return types.SimpleNamespace(**base)
-
 
 def test_a_machine_can_be_paused_from_a_text_editor(tmp_path):
     worker = _worker_module()
@@ -492,14 +347,10 @@ def test_a_machine_can_be_paused_from_a_text_editor(tmp_path):
     written.write_text("RENDER_PAUSE=1\n")
     assert worker.asked_for(str(written), options).closed(13) == "приостановлено владельцем"
 
-    # Un-paused, without anything being restarted.
     written.write_text("RENDER_PAUSE=0\n")
     assert worker.asked_for(str(written), options).closed(13) is None
 
-
 def test_the_file_can_take_back_what_the_command_line_said(tmp_path):
-    """`--polite` at launch still means what it says, and can be undone without
-    a restart. The command line is the starting position, not the last word."""
     worker = _worker_module()
     written = tmp_path / "worker.env"
     options = _options(tmp_path, polite=True, threads=4)
@@ -511,11 +362,7 @@ def test_the_file_can_take_back_what_the_command_line_said(tmp_path):
     later = worker.asked_for(str(written), options)
     assert later.polite is False and later.threads == 16
 
-
 def test_the_limits_are_not_read_through_the_environment(tmp_path, monkeypatch):
-    """The bug this shape exists to avoid: `load_config` refuses to overwrite
-    an existing variable, so a second read through it can never change
-    anything — and these are the four that have to."""
     worker = _worker_module()
     written = tmp_path / "worker.env"
     monkeypatch.setenv("RENDER_PAUSE", "1")
@@ -525,17 +372,13 @@ def test_the_limits_are_not_read_through_the_environment(tmp_path, monkeypatch):
         "a stale environment variable outranked the file"
     )
 
-
 def test_no_file_leaves_the_command_line_standing(tmp_path):
     worker = _worker_module()
     options = _options(tmp_path, polite=True, threads=6)
     got = worker.asked_for(str(tmp_path / "nothing-here"), options)
     assert got.polite is True and got.threads == 6 and got.closed(13) is None
 
-
 def test_a_paused_worker_still_says_hello(monkeypatch):
-    """It has to. Declining by going quiet is what made a laptop on battery
-    look exactly like a laptop that was shut — see the farm roster."""
     worker = _worker_module()
     heard = []
 
@@ -566,15 +409,7 @@ def test_a_paused_worker_still_says_hello(monkeypatch):
         "the farm view needs the reason, not just the refusal"
     )
 
-
 def test_the_loop_re_reads_the_limits_rather_than_remembering_them(tmp_path):
-    """The feature itself, and the one thing the tests above cannot see: they
-    call `asked_for` directly, so a loop that read it once at startup would
-    pass every one of them and still be useless.
-
-    Here the file changes between two polls, the way it does when somebody
-    edits it, and the worker has to notice without being restarted.
-    """
     import importlib.util
     import pytest as _pytest
 
@@ -596,7 +431,7 @@ def test_the_loop_re_reads_the_limits_rather_than_remembering_them(tmp_path):
         async def claim(self, _engine, capacity=None):
             said.append(capacity.take)
             if len(said) == 1:
-                # Somebody un-pauses it between one poll and the next.
+
                 written.write_text("RENDER_PAUSE=0\n")
                 return None
             raise SystemExit("two polls is the whole of the test")
@@ -618,15 +453,6 @@ def test_the_loop_re_reads_the_limits_rather_than_remembering_them(tmp_path):
         f"the worker read its limits once and kept them: {said}"
     )
 
-
-# ── a failure somebody else has to read ──────────────────────────────────────
-#
-# From the first report by somebody running a worker of their own: the job came
-# back with a wall of `--kit`, `--pitch`, `--decay`, `--level`, `-h` and nothing
-# else. That is the tail of the engine's own help, and the line saying what was
-# actually wrong had been cut off the top of it.
-
-
 def test_an_engine_that_refuses_to_start_reports_why_and_not_its_usage():
     from dossier.runner import _why_it_failed
 
@@ -643,19 +469,14 @@ def test_an_engine_that_refuses_to_start_reports_why_and_not_its_usage():
     ]
     said = _why_it_failed(report)
     assert "has no option `--meter`" in said
-    # Not "no `--help` anywhere": the complaint itself ends with "see `dossier
-    # video --help`", which is the engine pointing at where to look and is the
-    # most useful half of the line.
+
     for listed in ("--kit", "--pitch", "--decay", "--level", "--game-sounds"):
         assert listed not in said, (
             f"the usage is an appendix, never a reason:\n{said}"
         )
     assert said.count("\n") == 0, f"one line was enough:\n{said}"
 
-
 def test_an_engine_that_dies_mid_render_still_reports_its_last_words():
-    """The other end, and the one the old code was written for. Both have to
-    keep working — the reason lives at whichever end the engine stopped at."""
     from dossier.runner import _why_it_failed
 
     report = [
@@ -666,7 +487,6 @@ def test_an_engine_that_dies_mid_render_still_reports_its_last_words():
     ]
     assert "unsupported codec" in _why_it_failed(report)
 
-
 def test_an_engine_that_says_nothing_useful_still_says_something():
     from dossier.runner import _why_it_failed
 
@@ -674,14 +494,7 @@ def test_an_engine_that_says_nothing_useful_still_says_something():
         "dropping every line left nothing at all to report"
     )
 
-
 def test_a_file_saved_by_notepad_is_read_whole(tmp_path):
-    """Notepad writes a byte-order mark and nothing on Windows mentions it.
-
-    With plain utf-8 that mark lands on the front of the first key, so
-    `RENDER_SERVER` arrives as `﻿RENDER_SERVER` and is silently not the
-    key anybody meant — while the file looks perfect in the editor.
-    """
     worker = _worker_module()
     written = tmp_path / "worker.env"
     written.write_bytes(
@@ -691,20 +504,13 @@ def test_a_file_saved_by_notepad_is_read_whole(tmp_path):
     assert pairs.get("RENDER_SERVER") == "https://example.org"
     assert pairs.get("RENDER_WORKER_TOKEN") == "abc"
 
-
 def test_a_line_copied_out_of_a_browser_is_read(tmp_path):
-    """A no-break space is what a web page leaves behind, and it is not what
-    `strip()` removes."""
     worker = _worker_module()
     written = tmp_path / "worker.env"
     written.write_text(" RENDER_WORKER_TOKEN = abc\n")
     assert worker.read_pairs(str(written)).get("RENDER_WORKER_TOKEN") == "abc"
 
-
 def test_the_check_says_which_keys_the_file_gave_it():
-    """"token: missing" beside a config marked `[+]` reads as the file having
-    been ignored, and sends somebody to check the file they just wrote instead
-    of the line they left out of it."""
     import inspect
 
     worker = _worker_module()
@@ -712,16 +518,7 @@ def test_the_check_says_which_keys_the_file_gave_it():
     assert "в этом файле" in source
     assert "не хватает: " in source
 
-
 async def test_the_check_finds_a_token_that_lives_only_in_the_file(tmp_path, capsys):
-    """The whole point of the file, and it was reported missing to everybody
-    who used it.
-
-    The token was sampled in `main` and handed to `check` — *before* `check`
-    loaded the config — so it could only ever be found in the real
-    environment. The file was even listed as containing it two lines above the
-    complaint.
-    """
     worker = _worker_module()
     written = tmp_path / "worker.env"
     written.write_text(
@@ -738,23 +535,15 @@ async def test_the_check_finds_a_token_that_lives_only_in_the_file(tmp_path, cap
     said = capsys.readouterr().out
 
     assert "токен: нет" not in said, said
-    # The line names the token by its fingerprint now rather than saying
-    # "set" — what matters here is that it was found at all.
+
     assert "[+] токен: " in said and "знак" in said, said
 
-
 def test_a_path_is_shown_with_this_systems_own_separators(monkeypatch):
-    """`C:\\Users\\name/.dossier/worker.env` works and reads as broken — the
-    forward slashes are ours, from the constant, and the backslashes are
-    Windows'. Asked about within a minute of the first person seeing it."""
     worker = _worker_module()
     shown = worker.where("~/.dossier/worker.env")
     assert "/" not in shown or "\\" not in shown, f"mixed separators: {shown}"
 
-
 def test_a_token_can_be_compared_without_being_shown():
-    """"The token was rejected" says nothing about *which* of the two sides is
-    wrong, and the two cannot compare a secret by pasting it into a chat."""
     worker = _worker_module()
 
     same = worker.fingerprint("a-shared-secret")
@@ -762,20 +551,15 @@ def test_a_token_can_be_compared_without_being_shown():
     assert same != worker.fingerprint("a-different-secret")
     assert "a-shared-secret" not in same, "the fingerprint is not the secret"
 
-
 def test_a_stray_newline_or_quote_shows_up_in_the_length():
-    """The commonest way two tokens differ is a character that came along for
-    the ride, and a length one longer than expected says so at a glance."""
     worker = _worker_module()
     plain = worker.fingerprint("abc")
     assert plain.startswith("3 знака")
     assert worker.fingerprint("abc\n").startswith("4 знака")
     assert worker.fingerprint('"abc"').startswith("5 знаков")
 
-
 def test_nothing_is_fingerprinted_as_nothing():
     assert _worker_module().fingerprint("") == "нет"
-
 
 def test_the_refusal_carries_the_fingerprint_to_compare():
     import inspect
@@ -785,18 +569,9 @@ def test_the_refusal_carries_the_fingerprint_to_compare():
     assert "fingerprint(token)" in source
     assert "печатает при запуске" in source
 
-
 async def test_the_check_says_when_the_environment_is_beating_the_file(
     tmp_path, capsys
 ):
-    """Found the hard way: two fingerprints, both sixty-four characters, and
-    both sides certain they had the same string.
-
-    The environment beats the file on purpose — a variable exported for one run
-    is somebody being deliberate — but that is invisible from the outside. The
-    file holds the right token, the check reports the wrong one, and everybody
-    goes on re-checking the file.
-    """
     worker = _worker_module()
     written = tmp_path / "worker.env"
     written.write_text("RENDER_WORKER_TOKEN=the-one-in-the-file\n")
@@ -815,10 +590,7 @@ async def test_the_check_says_when_the_environment_is_beating_the_file(
     assert worker.fingerprint("the-one-in-the-file") in said, "and what the file holds"
     assert "the-one-in-the-file" not in said, "but never the token itself"
 
-
 async def test_no_complaint_when_the_two_agree(tmp_path, capsys):
-    """A file and a variable saying the same thing is not a problem, and
-    saying so would be noise on every properly set up machine."""
     worker = _worker_module()
     written = tmp_path / "worker.env"
     written.write_text("RENDER_WORKER_TOKEN=agreed\n")
@@ -835,12 +607,7 @@ async def test_no_complaint_when_the_two_agree(tmp_path, capsys):
 
     assert "from the environment" not in said
 
-
-
-
 async def test_a_job_that_names_its_map_needs_no_osu_account(monkeypatch, tmp_path):
-    """The change that removes the step. The bot looked the map up to draw the
-    card; the job carries what it found, and the worker fetches by number."""
     worker = _worker_module()
     asked = {"known": None, "looked_up": False}
 
@@ -869,23 +636,15 @@ async def test_a_job_that_names_its_map_needs_no_osu_account(monkeypatch, tmp_pa
         "id": "j1", "title": "x", "assets": [],
         "settings": {"kind": "video", "beatmap": {"id": 7, "beatmapset_id": 42}},
     }
-    # There is nothing to look a map up *with* any more — that is the point.
+
     await worker._render(FakeServer(), job, Capacity())
 
     assert asked["known"] == {"id": 7, "beatmapset_id": 42}
     assert not asked["looked_up"], "it asked osu! anyway"
 
-
 async def test_a_job_it_cannot_do_is_handed_back_before_anything_is_fetched(
     monkeypatch, tmp_path
 ):
-    """Seen in a live log: the worker took the job, downloaded the replay,
-    unpacked a five-megabyte skin, and only then found the job named no map —
-    then did the same again for every retry.
-
-    The one thing it needs to know is in the job description, so it can be
-    known before a byte moves.
-    """
     worker = _worker_module()
     fetched = []
 
@@ -900,9 +659,7 @@ async def test_a_job_it_cannot_do_is_handed_back_before_anything_is_fetched(
     server = Watching()
     job = {
         "id": "j1", "title": "x", "assets": ["a0"],
-        # No `beatmap`: what a bot older than this worker sends, and the only
-        # thing this client cannot work around — there is no osu! account here
-        # to look the map up with.
+
         "settings": {"kind": "video", "skin": "{{a0}}"},
     }
     await worker._render(server, job, Capacity())
@@ -914,21 +671,12 @@ async def test_a_job_it_cannot_do_is_handed_back_before_anything_is_fetched(
         "which is not the thing anybody needs to fix"
     )
 
-
-# ── the disk a worker is borrowing ───────────────────────────────────────────
-#
-# Measured on a machine that had been rendering for a fortnight: 919 MB of
-# skins across 24 folders, and nothing in the project ever removed any of it. A
-# worker runs on a laptop somebody else owns.
-
-
 def _a_cached_skin(root, name: str, megabytes: int, used_at: float):
     folder = root / name
     folder.mkdir(parents=True)
     (folder / "hitcircle.png").write_bytes(b"\0" * (megabytes * 1024 * 1024))
     os.utime(folder, (used_at, used_at))
     return folder
-
 
 def test_the_skin_cache_is_kept_under_its_cap(tmp_path, monkeypatch):
     worker = _worker_module()
@@ -947,7 +695,6 @@ def test_the_skin_cache_is_kept_under_its_cap(tmp_path, monkeypatch):
     assert dropped == 1
     assert left == ["newer", "newest"], f"the wrong one went: {left}"
 
-
 def test_nothing_is_dropped_while_there_is_room(tmp_path, monkeypatch):
     worker = _worker_module()
     monkeypatch.setattr(worker, "_skin_cache", lambda: str(tmp_path))
@@ -958,29 +705,22 @@ def test_nothing_is_dropped_while_there_is_room(tmp_path, monkeypatch):
     assert worker.prune_skins(cap=100 * 1024 * 1024) == 0
     assert [p.name for p in tmp_path.iterdir()] == ["one"]
 
-
 def test_a_skin_in_daily_use_outlives_an_older_arrival(tmp_path, monkeypatch):
-    """Least recently *used*, not oldest: the folder is touched when a render
-    takes it, so a skin somebody renders in every day survives however long ago
-    it arrived."""
     worker = _worker_module()
     monkeypatch.setattr(worker, "_skin_cache", lambda: str(tmp_path))
 
     import time
 
     now = time.time()
-    # Arrived first, still in use.
+
     kept = _a_cached_skin(tmp_path, "favourite", 3, now)
-    # Arrived later, never touched since.
+
     _a_cached_skin(tmp_path, "tried-once", 3, now - 50_000)
 
     worker.prune_skins(cap=4 * 1024 * 1024)
     assert kept.exists() and not (tmp_path / "tried-once").exists()
 
-
 def test_a_half_unpacked_skin_is_not_counted_as_one(tmp_path, monkeypatch):
-    """`.incoming` is a skin being written. Removing it mid-unpack would take
-    a render down with it."""
     worker = _worker_module()
     monkeypatch.setattr(worker, "_skin_cache", lambda: str(tmp_path))
 
@@ -989,16 +729,6 @@ def test_a_half_unpacked_skin_is_not_counted_as_one(tmp_path, monkeypatch):
     _a_cached_skin(tmp_path, "abc.incoming", 5, time.time() - 90_000)
     worker.prune_skins(cap=1)
     assert (tmp_path / "abc.incoming").exists()
-
-
-# ── `--service`, printed rather than installed ───────────────────────────────
-#
-# It writes into the part of somebody's machine that decides what runs at boot,
-# so the worker prints the unit and the two commands to install it rather than
-# doing it itself. Which means the thing worth testing is that what it prints
-# names paths that exist — a unit naming a path that does not is a worker that
-# silently never starts, found weeks later.
-
 
 def _printed_service(monkeypatch, capsys, **options):
     worker = _worker_module()
@@ -1011,11 +741,7 @@ def _printed_service(monkeypatch, capsys, **options):
     worker.service(settings)
     return worker, capsys.readouterr().out
 
-
 def test_a_unit_from_a_checkout_names_the_launcher(monkeypatch, capsys):
-    """`client/worker.py` rather than `dossier/worker.py`: a unit that names a
-    module inside a package has to be told where the package is, and the
-    launcher works that out for itself."""
     worker, said = _printed_service(monkeypatch, capsys)
 
     assert sys.executable in said, "it has to name the interpreter it ran under"
@@ -1026,13 +752,9 @@ def test_a_unit_from_a_checkout_names_the_launcher(monkeypatch, capsys):
     assert launcher in said
     assert os.path.isfile(launcher), "the unit names a file that is not there"
 
-
 def test_a_unit_from_a_release_names_the_executable_and_not_a_temporary_file(
     monkeypatch, capsys
 ):
-    """Frozen, `__file__` points inside a directory PyInstaller unpacks and then
-    deletes. A unit built from it would name a path that stops existing the
-    moment the process ends — installed happily, and never starting again."""
     worker = _worker_module()
     monkeypatch.setattr(worker.sys, "frozen", True, raising=False)
     monkeypatch.setattr(worker.sys, "executable", "/opt/dossier/dossier-worker")
@@ -1046,25 +768,15 @@ def test_a_unit_from_a_release_names_the_executable_and_not_a_temporary_file(
 
     assert "/opt/dossier/dossier-worker" in said
     assert "worker.py" not in said, "a release has no script to run"
-    # The working directory is the folder it was unpacked into, since that is
-    # where `assets/` sits and the engine looks for the font relative to it.
+
     assert "/opt/dossier" in said
 
-
 def test_the_unit_carries_no_token(monkeypatch, capsys):
-    """It is printed so it can be pasted into a chat. The token lives in the
-    config file and the worker reads it for itself at startup."""
     monkeypatch.setenv("RENDER_WORKER_TOKEN", "a-secret-nobody-should-see")
     _worker, said = _printed_service(monkeypatch, capsys)
     assert "a-secret-nobody-should-see" not in said
 
-
 def test_the_output_is_made_readable_before_anything_is_printed(monkeypatch):
-    """Half of what a worker prints is Russian and the rest has dashes in it. A
-    Windows console starts on a legacy code page, and `--check` came back from
-    the runner reading `dossier render worker ? runnervm6iq3x` — which somebody
-    meeting the program for the first time cannot tell from a broken install.
-    """
     worker = _worker_module()
     asked = []
 
@@ -1078,11 +790,7 @@ def test_the_output_is_made_readable_before_anything_is_printed(monkeypatch):
 
     assert asked == [{"encoding": "utf-8", "errors": "replace"}] * 2
 
-
 def test_a_stream_that_cannot_be_reconfigured_is_not_a_crash(monkeypatch):
-    """Redirected to a file or a pipe, a stream may not offer it at all — and a
-    program that will not start because it could not improve its own output is
-    worse than a dash somebody has to squint at."""
     worker = _worker_module()
 
     class Awkward:
@@ -1091,4 +799,4 @@ def test_a_stream_that_cannot_be_reconfigured_is_not_a_crash(monkeypatch):
 
     monkeypatch.setattr(worker.sys, "stdout", Awkward())
     monkeypatch.setattr(worker.sys, "stderr", Awkward())
-    worker._readable_output()  # the assertion is that this returns
+    worker._readable_output()

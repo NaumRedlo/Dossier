@@ -1,26 +1,3 @@
-//! `.osr` parsing.
-//!
-//! Layout (all little-endian), per the osu! file-format documentation:
-//!
-//! ```text
-//! byte    game mode
-//! int     game version
-//! string  beatmap MD5
-//! string  player name
-//! string  replay MD5
-//! short   300s / 100s / 50s / gekis / katus / misses   (six shorts)
-//! int     total score
-//! short   max combo
-//! byte    perfect combo flag
-//! int     mods
-//! string  life bar graph
-//! long    timestamp (Windows ticks)
-//! int     length of the compressed frame block
-//! bytes   LZMA-compressed frames
-//! long    online score id          (absent in very old replays)
-//! double  target-practice accuracy (only when the Target mod is set)
-//! ```
-
 use std::collections::BTreeMap;
 use std::io::{BufReader, Cursor};
 
@@ -28,11 +5,9 @@ use crate::error::{ReplayError, Result};
 use crate::mods::{bits, GameMode, Mods};
 use crate::reader::Reader;
 
-/// Windows tick epoch (0001-01-01) to Unix epoch, in seconds.
 const TICKS_EPOCH_OFFSET_SECS: i64 = 62_135_596_800;
 const TICKS_PER_SEC: i64 = 10_000_000;
 
-/// Sentinel in place of a frame time, marking the trailing RNG-seed record.
 const SEED_FRAME_TIME: i64 = -12345;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -54,8 +29,6 @@ impl Keys {
     }
 }
 
-/// One cursor sample. `time_ms` is absolute (milliseconds from the audio's
-/// zero), already accumulated from the per-frame deltas stored in the file.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ReplayFrame {
     pub time_ms: i64,
@@ -75,7 +48,6 @@ pub struct HitCounts {
 }
 
 impl HitCounts {
-    /// Judged objects — the denominator for osu!std accuracy.
     pub fn total_hits(self) -> u32 {
         u32::from(self.count_300)
             + u32::from(self.count_100)
@@ -83,8 +55,6 @@ impl HitCounts {
             + u32::from(self.count_miss)
     }
 
-    /// osu!std accuracy in percent. Returns 100.0 for an empty replay, matching
-    /// how the client displays a score with nothing judged yet.
     pub fn accuracy_std(self) -> f64 {
         let total = self.total_hits();
         if total == 0 {
@@ -109,34 +79,24 @@ pub struct Replay {
     pub max_combo: u16,
     pub perfect_combo: bool,
     pub mods: Mods,
-    /// Raw life-bar string (`ms|life` pairs); parsed on demand, not here.
+
     pub life_bar: String,
-    /// Timestamp in Windows ticks, exactly as stored.
+
     pub timestamp_ticks: i64,
     pub online_score_id: i64,
-    /// Only present when the Target mod is set.
+
     pub target_practice_accuracy: Option<f64>,
     pub frames: Vec<ReplayFrame>,
-    /// Seed from the trailing `-12345` record, when the replay carries one.
+
     pub rng_seed: Option<i64>,
-    /// What lazer appends after everything stable knows about. Absent on every
-    /// stable replay, and on lazer replays older than the version that
-    /// introduced it.
+
     pub score_info: Option<ScoreInfo>,
 }
 
-/// One mod as lazer records it.
-///
-/// The legacy mod field in the header is a bitmask stable's mods fit into, and
-/// lazer has mods that do not — Classic above all, which changes how sliders
-/// are scored and which note lock is in force. Without this block a Classic
-/// score is indistinguishable from an ordinary one.
 #[derive(Debug, Clone, PartialEq)]
 pub struct LazerMod {
     pub acronym: String,
-    /// Settings the player changed from their defaults. Absent keys mean the
-    /// default, which is *not* the same as false — Classic's switches are all
-    /// on unless someone turned one off.
+
     pub settings: BTreeMap<String, Setting>,
 }
 
@@ -148,7 +108,6 @@ pub enum Setting {
 }
 
 impl LazerMod {
-    /// A mod with nothing but its acronym: the player left every setting alone.
     pub fn plain(acronym: &str) -> Self {
         Self {
             acronym: acronym.to_owned(),
@@ -156,7 +115,6 @@ impl LazerMod {
         }
     }
 
-    /// A boolean setting, or `default` when the player left it alone.
     pub fn switch(&self, name: &str, default: bool) -> bool {
         match self.settings.get(name) {
             Some(Setting::Bool(b)) => *b,
@@ -164,7 +122,6 @@ impl LazerMod {
         }
     }
 
-    /// A numeric setting, or `default` when the player left it alone.
     pub fn number(&self, name: &str, default: f64) -> f64 {
         match self.settings.get(name) {
             Some(Setting::Number(n)) => *n,
@@ -172,36 +129,19 @@ impl LazerMod {
         }
     }
 
-    /// Whether the player changed anything about this mod.
-    ///
-    /// lazer only writes the settings that differ from the defaults, so an
-    /// empty map is a mod left as it comes — which several multipliers ask
-    /// about directly.
     pub fn uses_default_configuration(&self) -> bool {
         self.settings.is_empty()
     }
 }
 
-/// lazer's own account of the play, from the block it appends to the replay.
-///
-/// Worth far more than the mods it was opened for. `statistics` is a count per
-/// judgement *type* — how many slider tails were caught, how many large ticks,
-/// how many were ignored — where the legacy header has only four numbers with
-/// sliders folded into them. It is the closest thing to a per-object answer any
-/// replay carries.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ScoreInfo {
-    /// The build that recorded it, like `2026.417.0-lazer`.
     pub client_version: Option<String>,
     pub rank: Option<String>,
     pub mods: Vec<LazerMod>,
     pub statistics: BTreeMap<String, i64>,
     pub maximum_statistics: BTreeMap<String, i64>,
-    /// The total before the mods multiplied it.
-    ///
-    /// Which makes the mod multiplier a division rather than a lookup — and
-    /// the lookup is the part that has been rebalanced under us. Absent on
-    /// replays older than the field.
+
     pub total_score_without_mods: Option<i64>,
 }
 
@@ -212,12 +152,10 @@ impl ScoreInfo {
 }
 
 impl Replay {
-    /// Unix timestamp (seconds) of when the replay was played.
     pub fn played_at_unix(&self) -> i64 {
         self.timestamp_ticks / TICKS_PER_SEC - TICKS_EPOCH_OFFSET_SECS
     }
 
-    /// Length of the recorded input, in milliseconds.
     pub fn duration_ms(&self) -> i64 {
         match (self.frames.first(), self.frames.last()) {
             (Some(first), Some(last)) => last.time_ms - first.time_ms,
@@ -258,10 +196,6 @@ impl Replay {
             &[][..]
         };
 
-        // Both of these are optional tails: replays from before online ids
-        // existed simply end after the frame block, and the target-practice
-        // double is only written when that mod is on. Read defensively rather
-        // than failing a valid old replay.
         let online_score_id = if r.remaining() >= 8 { r.i64()? } else { 0 };
         let target_practice_accuracy = if mods.contains(bits::TARGET) && r.remaining() >= 8 {
             Some(r.f64()?)
@@ -269,8 +203,6 @@ impl Replay {
             None
         };
 
-        // Everything above is stable's format. What follows is lazer's, and
-        // only lazer's — a stable replay simply ends here.
         let score_info = read_score_info(&mut r);
 
         let (frames, rng_seed) = if compressed.is_empty() {
@@ -300,15 +232,10 @@ impl Replay {
         })
     }
 
-    /// The mods lazer recorded, which is not the same list as [`Replay::mods`].
     pub fn lazer_mods(&self) -> &[LazerMod] {
         self.score_info.as_ref().map_or(&[], |info| &info.mods)
     }
 
-    /// The build that recorded this, as a human would name it.
-    ///
-    /// lazer knows its own version and says so; stable's header carries a date
-    /// stamp instead, which is rendered here the way the game writes it.
     pub fn client_version(&self) -> String {
         match self
             .score_info
@@ -329,13 +256,6 @@ impl Replay {
     }
 }
 
-/// Read lazer's trailing score-info block, if there is one.
-///
-/// `LegacyScoreEncoder` writes it as a length-prefixed byte array holding the
-/// same LZMA-alone stream the frames use, of an ASCII JSON document. Anything
-/// unexpected means "no block": a replay is an untrusted file, and a reader
-/// that fails loudly on a format it has not met yet is a reader that refuses
-/// perfectly good replays.
 fn read_score_info(r: &mut Reader) -> Option<ScoreInfo> {
     let length = r.i32().ok()?;
     if length <= 0 {
@@ -411,27 +331,8 @@ fn setting(value: &crate::json::Value) -> Option<Setting> {
     }
 }
 
-/// The most a replay's frame block may decompress to.
-///
-/// LZMA expands, and there is nothing in a `.osr` that bounds by how much: the
-/// eight compressed megabytes the bot accepts can unpack to gigabytes of
-/// repeated bytes, and `lzma_decompress` writes them all before anyone downstream
-/// gets a say. On the small host this runs on that is the machine's memory, i.e.
-/// the bot falling over on a file a stranger sent it.
-///
-/// So decompression is capped instead of trusted. The ceiling is far above any
-/// real replay — the frame text of a ten-minute marathon at a high poll rate is
-/// a few megabytes, and 64 leaves an order of magnitude of room — so nothing
-/// legitimate is refused, while a decompression bomb stops at 64 MB rather than
-/// at the machine's limit.
 const MAX_DECOMPRESSED_BYTES: usize = 64 * 1024 * 1024;
 
-/// A sink that refuses to grow past a ceiling.
-///
-/// `lzma_decompress` wants somewhere to write, and giving it a bare `Vec` is
-/// giving it the whole machine. This is a `Vec` that returns a write error the
-/// moment it would cross the cap, which turns "allocate until the OOM killer
-/// notices" into an ordinary parse failure.
 struct Capped {
     buffer: Vec<u8>,
     limit: usize,
@@ -461,10 +362,6 @@ fn decompress(compressed: &[u8]) -> Result<String> {
     };
     lzma_rs::lzma_decompress(&mut BufReader::new(Cursor::new(compressed)), &mut out).map_err(
         |e| {
-            // The cap trips through the writer, so its signal comes back as an
-            // io error the decompressor was passing along — tell the two apart
-            // by whether the buffer actually reached the ceiling, rather than by
-            // matching on a message.
             if out.buffer.len() >= out.limit {
                 ReplayError::DecompressionTooLarge {
                     limit_mb: MAX_DECOMPRESSED_BYTES / (1024 * 1024),
@@ -477,14 +374,6 @@ fn decompress(compressed: &[u8]) -> Result<String> {
     String::from_utf8(out.buffer).map_err(|_| ReplayError::Lzma("frame data is not UTF-8".into()))
 }
 
-/// Frames arrive as `w|x|y|z` records separated by commas, where `w` is the
-/// delta since the previous record. Two details a naive split gets wrong:
-///
-/// * the last record is usually `-12345|0|0|<seed>` — an RNG seed, not a frame.
-///   Left in place it becomes a sample at time −12345 that wrecks any timeline;
-/// * deltas have to be accumulated, since everything downstream wants absolute
-///   times. Early frames may still land before zero, which is legitimate: the
-///   client records cursor movement during the lead-in.
 fn parse_frames(text: &str) -> Result<(Vec<ReplayFrame>, Option<i64>)> {
     let mut frames = Vec::new();
     let mut seed = None;
@@ -529,16 +418,6 @@ fn parse_frames(text: &str) -> Result<(Vec<ReplayFrame>, Option<i64>)> {
     Ok((frames, seed))
 }
 
-/// The health graph osu! writes into the header, parsed.
-///
-/// A comma-separated list of `time|value`, where value runs 0 to 1. Sampled
-/// every couple of seconds and at every moment the bar moves sharply, which is
-/// enough to draw it and far cheaper than modelling HP drain — this is the
-/// game's own answer rather than a reconstruction of it.
-///
-/// Not every replay carries one: it is empty on a good half of the corpus, and
-/// a renderer has to cope with having no health to show rather than inventing
-/// some.
 pub fn life_points(life_bar: &str) -> Vec<(f64, f32)> {
     let mut out: Vec<(f64, f32)> = life_bar
         .split(',')
@@ -567,22 +446,15 @@ mod decompress_tests {
 
     #[test]
     fn ordinary_frame_text_round_trips() {
-        // The shape a real frame block has, and well under the ceiling.
         let frames = "0|256|192|0,16|257|193|1,32|258|194|0,-12345|0|0|4242";
         assert_eq!(decompress(&compress(frames.as_bytes())).unwrap(), frames);
     }
 
     #[test]
     fn a_bomb_is_refused_rather_than_unpacked() {
-        // A megabyte of one byte compresses to almost nothing and expands past
-        // the ceiling — a stranger's 8 MB `.osr` can do this to gigabytes. The
-        // point of the test is that it stops, not that it stops here exactly.
         let payload = vec![b'A'; MAX_DECOMPRESSED_BYTES + 1];
         let bomb = compress(&payload);
-        // It compresses far smaller than it unpacks — that gap is the attack,
-        // and a better encoder than this test's widens it by orders of
-        // magnitude. What matters is only that the small thing does not become
-        // the large thing in memory.
+
         assert!(
             bomb.len() * 10 < payload.len(),
             "the bomb should expand, {} compressed vs {} unpacked",
@@ -598,8 +470,6 @@ mod decompress_tests {
 
     #[test]
     fn genuine_garbage_is_still_an_lzma_error_not_a_ceiling_one() {
-        // A cap that reported everything as "too large" would hide real
-        // corruption. Bytes that are not LZMA at all must come back as LZMA.
         let error = decompress(b"this is not lzma").expect_err("not valid lzma");
         assert!(
             matches!(error, super::ReplayError::Lzma(_)),
@@ -622,8 +492,6 @@ mod life_tests {
 
     #[test]
     fn a_replay_without_a_graph_gives_nothing() {
-        // Half the corpus is like this, and a renderer must not fill the gap
-        // with a health bar it made up.
         assert!(life_points("").is_empty());
         assert!(life_points("   ").is_empty());
     }

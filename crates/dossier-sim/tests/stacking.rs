@@ -1,18 +1,7 @@
-//! Stacking tests.
-//!
-//! Default CS 5 → radius 32, so one step of a stack is 3.2 osu!px up and left.
-//! AR 5 → preempt 1200ms, and with the default leniency 0.7 the window in which
-//! two objects count as stacked is 840ms.
-
 use dossier_beatmap::Beatmap;
 use dossier_replay::{Keys, Mods, Replay, ReplayFrame};
 use dossier_sim::GameState;
 
-/// A tenth of the circle's radius, which at CS 5 is 3.2 osu!pixels — plus
-/// osu!'s rounding allowance, because the stack offset is derived from the
-/// same scale the radius is:
-///
-///
 const STEP: f64 = 3.2 * 1.00041;
 const EPS: f64 = 1e-9;
 
@@ -20,13 +9,10 @@ fn beatmap(body: &str) -> Beatmap {
     Beatmap::parse(&format!("osu file format v14\n\n{body}")).expect("test map should parse")
 }
 
-/// The same, at a stated file format version — which decides which stacking
-/// algorithm the game runs.
 fn beatmap_versioned(version: u32, body: &str) -> Beatmap {
     Beatmap::parse(&format!("osu file format v{version}\n\n{body}")).expect("test map should parse")
 }
 
-/// Stack heights as the timeline works them out.
 fn heights(map: &Beatmap) -> Vec<i32> {
     GameState::from_beatmap(map, Mods::default())
         .timeline()
@@ -58,8 +44,6 @@ SliderMultiplier:1.4
 
 #[test]
 fn the_earlier_note_of_a_pair_is_the_one_that_moves() {
-    // osu! stacks upwards from the last object, so the note played last sits
-    // where it was authored and the ones before it climb away from it.
     let map = beatmap(&format!(
         "{HEADER}
 [HitObjects]
@@ -91,7 +75,6 @@ fn a_longer_stack_climbs_one_step_at_a_time() {
 
 #[test]
 fn notes_too_far_apart_in_time_do_not_stack() {
-    // 900ms apart, and the window is 840ms.
     let map = beatmap(&format!(
         "{HEADER}
 [HitObjects]
@@ -104,7 +87,6 @@ fn notes_too_far_apart_in_time_do_not_stack() {
 
 #[test]
 fn notes_too_far_apart_in_space_do_not_stack() {
-    // 4px apart; the threshold is 3.
     let map = beatmap(&format!(
         "{HEADER}
 [HitObjects]
@@ -136,8 +118,6 @@ ApproachRate:5
 
 #[test]
 fn spinners_neither_stack_nor_break_a_stack() {
-    // The spinner sits between two stacked circles: it must be stepped over,
-    // not treated as an object at (256,192) that ends the run.
     let map = beatmap(&format!(
         "{HEADER}
 [HitObjects]
@@ -176,8 +156,6 @@ fn a_slider_carries_its_path_when_it_moves() {
 
 #[test]
 fn a_circle_on_a_sliders_tail_pulls_the_run_down_instead_of_up() {
-    // The circle lands where the slider ends. osu! keeps the slider put and
-    // drops what stacked onto it, rather than lifting the slider away.
     let map = beatmap(&format!(
         "{HEADER}
 [HitObjects]
@@ -202,8 +180,6 @@ fn a_circle_on_a_sliders_tail_pulls_the_run_down_instead_of_up() {
 
 #[test]
 fn hard_rock_stacks_the_mirrored_positions() {
-    // Mirroring happens first, so the stack is built where the notes actually
-    // are — and the step still goes up-and-left in screen terms.
     let map = beatmap(&format!(
         "{HEADER}
 [HitObjects]
@@ -212,20 +188,14 @@ fn hard_rock_stacks_the_mirrored_positions() {
 "
     ));
     let pos = positions(&map, dossier_replay::bits::HARD_ROCK);
-    // HR shrinks CS to 6.5, so the radius is 25.28 — plus the allowance — and
-    // a step is a tenth of it.
+
     let step = (54.4 - 4.48 * 6.5) * 1.00041 * 0.1;
     assert!((pos[0].1 - (284.0 - step)).abs() < 1e-6, "{pos:?}");
     assert_eq!(pos[1], (100.0, 284.0));
 }
 
-// ── why this matters for judgement ───────────────────────────────────────
-
 #[test]
 fn a_click_on_the_stacked_position_counts() {
-    // The player sees and clicks the shifted note. Judging against the
-    // authored coordinates would call this a miss on a perfectly good hit —
-    // which is the entire reason stacking lives in the simulator.
     let map = beatmap(&format!(
         "{HEADER}
 [HitObjects]
@@ -291,16 +261,8 @@ fn a_click_on_the_stacked_position_counts() {
     assert_eq!(score.counts.count_miss, 0);
 }
 
-// ── maps before format version 6 ─────────────────────────────────────────
-
 #[test]
 fn an_old_map_stacks_by_the_old_algorithm() {
-    // Before format 6 the game runs `applyStackingOld`, which is inside out
-    // from the modern sweep: it walks forwards, and each object raises itself
-    // by counting the later objects that land on it.
-    //
-    // Two circles on one point: the *first* goes up, where the modern sweep
-    // would have lifted it by reaching back from the second.
     let map = beatmap_versioned(
         4,
         "
@@ -326,15 +288,6 @@ CircleSize:5
 
 #[test]
 fn an_old_map_pushes_a_note_on_a_sliders_end_down_and_right() {
-    // The other branch: an object landing on a slider's *end* is pushed the
-    // other way by a running count, which is where old maps' negative heights
-    // come from.
-    //
-    // The comparison point is `Path.PositionAt(1)` — the end of the drawn
-    // curve — and not where the ball stops. This slider has **two** slides, so
-    // the ball comes home to (100,100) while the curve still ends at
-    // (240,100): the note below stacks onto the curve's end and would not
-    // stack onto the ball's. Getting that wrong cost two rewrites.
     let map = beatmap_versioned(
         4,
         "
@@ -368,9 +321,6 @@ SliderMultiplier:1.4
 
 #[test]
 fn a_modern_map_is_untouched_by_the_old_algorithm() {
-    // Same two circles at format 14: the modern sweep lifts the *earlier* one
-    // too, but by reaching back — and the point here is that the version
-    // switch exists and picks a side.
     let map = beatmap_versioned(
         14,
         "

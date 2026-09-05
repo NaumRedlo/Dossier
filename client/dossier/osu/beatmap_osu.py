@@ -14,15 +14,12 @@ _OFFICIAL = "https://osu.ppy.sh/osu/{beatmap_id}"
 _MAX_BYTES = 50 * 1024 * 1024
 _TIMEOUT_SECONDS = 20
 
-
 def path_for(checksum: str) -> str:
     songs = os.path.expanduser(BEATMAP_STORE_DIR)
     return os.path.join(songs, f"{checksum}.osu")
 
-
 def already_present(checksum: str) -> bool:
     return os.path.isfile(path_for(checksum))
-
 
 def _fetch(beatmap_id: int) -> bytes | None:
     try:
@@ -38,7 +35,6 @@ def _fetch(beatmap_id: int) -> bytes | None:
         logger.warning("osu! answered %s for beatmap %s", response.status_code, beatmap_id)
         return None
     return response.content
-
 
 def _keep(content: bytes, checksum: str, beatmap_id: int) -> bool:
     if not content:
@@ -69,7 +65,6 @@ def _keep(content: bytes, checksum: str, beatmap_id: int) -> bool:
         logger.warning("could not store beatmap %s: %s", beatmap_id, exc)
         return False
     return True
-
 
 async def download_osu(beatmap_id: int, checksum: str) -> bool:
     if not beatmap_id or not checksum:

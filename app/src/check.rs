@@ -1,23 +1,11 @@
-//! Whether this machine could take work, and what is stopping it.
-//!
-//! The terminal client answers this with `--check` and a list of lines. The
-//! same questions, in a window — and two of them have gone, which is the point
-//! of the rewrite rather than a detail of it. "Is the engine there" and "do the
-//! builds agree" were the two commonest ways a first evening was spent, and
-//! they cannot be asked of an application that *is* the engine.
-
 use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 
-/// One row: what was asked, how it went, and what to do about it.
-///
-/// A remedy rather than a failure. Everything this catches is somebody's setup
-/// and every one of them has a fix that fits on a line.
 #[derive(Debug, Clone, Serialize)]
 pub struct Row {
     pub name: String,
-    /// `None` is neither pass nor fail: nobody has asked yet, or nobody can.
+
     pub ok: Option<bool>,
     pub said: String,
     #[serde(skip_serializing_if = "String::is_empty")]
@@ -35,11 +23,6 @@ impl Row {
     }
 }
 
-/// A short, shareable name for a secret, which is never the secret.
-///
-/// Eight hex characters of a hash and the length. Two sides that disagree about
-/// a token cannot compare it by pasting it into a chat, and a length one longer
-/// than expected is a quote or a newline that came along for the ride.
 pub fn fingerprint(secret: &str) -> String {
     if secret.is_empty() {
         return "нет".to_owned();
@@ -57,7 +40,6 @@ fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
-/// Russian's three-way plural — «1 знак», «2 знака», «5 знаков».
 pub fn plural<'a>(n: usize, one: &'a str, few: &'a str, many: &'a str) -> &'a str {
     if n % 10 == 1 && n % 100 != 11 {
         one
@@ -68,7 +50,6 @@ pub fn plural<'a>(n: usize, one: &'a str, few: &'a str, many: &'a str) -> &'a st
     }
 }
 
-/// Where the settings live when nobody has said otherwise.
 pub fn config_path() -> PathBuf {
     home().join(".dossier").join("worker.env")
 }
@@ -79,7 +60,6 @@ fn home() -> PathBuf {
         .map_or_else(|| PathBuf::from("."), PathBuf::from)
 }
 
-/// `KEY=value` lines, comments and blanks skipped.
 pub fn read_pairs(path: &Path) -> Vec<(String, String)> {
     let Ok(text) = std::fs::read_to_string(path) else {
         return Vec::new();
@@ -97,7 +77,6 @@ pub fn read_pairs(path: &Path) -> Vec<(String, String)> {
         .collect()
 }
 
-/// The first of these on `PATH`, if any.
 pub(crate) fn on_path(name: &str) -> Option<PathBuf> {
     let sep = if cfg!(windows) { ';' } else { ':' };
     let names: Vec<String> = if cfg!(windows) {
@@ -112,54 +91,40 @@ pub(crate) fn on_path(name: &str) -> Option<PathBuf> {
     })
 }
 
-/// Every question, asked.
-/// Whether the bot would let this machine work, asked without claiming
-/// anything.
-///
-/// The one question the rest of the list cannot answer from disk. Our engine
-/// and the bot's have to be the same or this machine would draw the wrong
-/// thing, and finding that out by claiming a job means finding it out with
-/// somebody's job in hand. `/render/hello` exists to be asked first.
-///
-/// Its own call rather than a row in [`ready`]: that list is read off the disk
-/// and is instant, and one network round trip would make all of it wait. It
-/// replaces the placeholder that used to sit at the end of that list saying
-/// nobody had asked — which was true, and is the sort of true that should be
-/// fixed rather than printed.
 pub fn handshake(said: &crate::settings::Settings) -> Row {
     let engine = format!("dossier {}", env!("CARGO_PKG_VERSION"));
     let asked = crate::bot::Bot::new(&said.server, &said.token, &said.name)
         .and_then(|bot| bot.hello(&engine));
     match asked {
         Ok(hello) if hello.agree => Row::new(
-            "сборка",
+            "Сборка",
             Some(true),
             if hello.waiting > 0 {
-                format!("сборки сходятся · в очереди {}", hello.waiting)
+                format!("Сборки сходятся · в очереди {}", hello.waiting)
             } else {
-                "сборки сходятся · очередь пуста".to_owned()
+                "Сборки сходятся · очередь пуста".to_owned()
             },
             "",
         ),
         Ok(hello) => Row::new(
-            "сборка",
+            "Сборка",
             Some(false),
             if hello.reason.is_empty() {
-                format!("бот рисует сборкой {}, а здесь {engine}", hello.build)
+                format!("Бот рисует сборкой {}, а здесь {engine}", hello.build)
             } else {
                 hello.reason
             },
             &if hello.release.is_empty() {
-                "работа не берётся, пока сборки разные".to_owned()
+                "Работа не берётся, пока сборки разные".to_owned()
             } else {
-                format!("всем нужен релиз {}", hello.release)
+                format!("Всем нужен релиз {}", hello.release)
             },
         ),
         Err(refused) => Row::new(
-            "сборка",
+            "Сборка",
             Some(false),
             refused.to_string(),
-            "адрес и токен — двумя строками выше",
+            "Адрес и токен двумя строками выше",
         ),
     }
 }
@@ -170,14 +135,14 @@ pub fn ready() -> Vec<Row> {
     let config = config_path();
     let pairs = read_pairs(&config);
     rows.push(Row::new(
-        "настройки",
+        "Настройки",
         if pairs.is_empty() { None } else { Some(true) },
         if pairs.is_empty() {
-            format!("нет в {}", config.display())
+            format!("Нет в {}", config.display())
         } else {
             config.display().to_string()
         },
-        "их можно держать там, а не в переменных оболочки",
+        "Их можно держать там, а не в переменных оболочки",
     ));
 
     let value = |key: &str| {
@@ -189,7 +154,7 @@ pub fn ready() -> Vec<Row> {
 
     let token = value("RENDER_WORKER_TOKEN").unwrap_or_default();
     rows.push(Row::new(
-        "токен",
+        "Токен",
         Some(!token.is_empty()),
         fingerprint(&token),
         "RENDER_WORKER_TOKEN, тот же самый, что у бота",
@@ -197,10 +162,10 @@ pub fn ready() -> Vec<Row> {
 
     let server = value("RENDER_SERVER").unwrap_or_default();
     rows.push(Row::new(
-        "адрес бота",
+        "Адрес бота",
         Some(!server.is_empty()),
         if server.is_empty() {
-            "не задан".to_owned()
+            "Не задан".to_owned()
         } else {
             server.clone()
         },
@@ -212,27 +177,25 @@ pub fn ready() -> Vec<Row> {
         "ffmpeg",
         Some(ffmpeg.is_some()),
         ffmpeg.map_or_else(
-            || "нет в PATH".to_owned(),
+            || "Нет в PATH".to_owned(),
             |path| path.display().to_string(),
         ),
-        "нужен, чтобы перегнать звуки скина и склеить дорожку",
+        "Нужен, чтобы перегнать звуки скина и склеить дорожку",
     ));
 
     let songs =
         value("DOSSIER_SONGS_DIR").map_or_else(|| home().join(".osu").join("Songs"), PathBuf::from);
     let usable = songs.is_dir() || std::fs::create_dir_all(&songs).is_ok();
     rows.push(Row::new(
-        "склад карт",
+        "Склад карт",
         Some(usable),
         songs.display().to_string(),
-        "приложение качает карты сюда и не смогло создать эту папку",
+        "Приложение качает карты сюда и не смогло создать эту папку",
     ));
 
-    // The policy, asked of this machine — see `machine::decide`, which is the
-    // same one the terminal client applies.
     let can = crate::machine::capacity();
     rows.push(Row::new(
-        "эта машина",
+        "Текущее устройство",
         Some(can.take),
         if can.take {
             format!(
@@ -244,7 +207,7 @@ pub fn ready() -> Vec<Row> {
         } else {
             can.reason.clone()
         },
-        "работа не берётся, пока это так",
+        "Работа не берётся, пока это так",
     ));
 
     rows
@@ -258,8 +221,7 @@ mod tests {
     fn a_secret_is_named_by_its_length_and_a_hash_of_it() {
         let one = fingerprint("abc");
         assert!(one.starts_with("3 знака"), "{one}");
-        // A quote or a newline that came along for the ride shows up here and
-        // nowhere else — which is the whole reason the length is in it.
+
         assert!(fingerprint("abc\n").starts_with("4 знака"));
         assert!(fingerprint("\"abc\"").starts_with("5 знаков"));
         assert_ne!(one, fingerprint("abd"), "two secrets shared a name");
@@ -307,7 +269,6 @@ mod tests {
         assert!(read_pairs(std::path::Path::new("/nowhere/at/all.env")).is_empty());
     }
 
-    /// Every row says something, and the ones that can fail carry a remedy.
     #[test]
     fn every_row_can_be_read_by_somebody_who_is_stuck() {
         for row in ready() {

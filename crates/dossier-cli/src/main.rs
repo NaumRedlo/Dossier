@@ -1,11 +1,3 @@
-//! `dossier` — the command-line front end.
-//!
-//! Right now it does one thing: judge replays and hold the result up against
-//! the totals osu! itself wrote into the `.osr` header. That header is the only
-//! ground truth available, so it's the only honest way to tell whether the
-//! simulation is right — and it's what has to be right before a single frame of
-//! video is worth drawing.
-
 mod assay;
 mod debug;
 mod exhibit;
@@ -13,9 +5,6 @@ mod manifest;
 mod report;
 mod skinfile;
 
-// The pipeline itself lives in `dossier-produce` — see that crate's own note.
-// Named here rather than reached through their full paths so that the several
-// thousand lines below did not have to change when they moved.
 use dossier_produce::{self as produce, events, hitsounds, locate, reel, scenery, video};
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -205,15 +194,6 @@ OPTIONS (judge):
     -V, --version        What this binary is, and which commit built it.
 ";
 
-/// The twelve subcommands, each of which reads its own slice of the shared
-/// options.
-///
-/// The parser used to take every option for every command — `dossier judge
-/// --crf 18` was accepted and the crf silently ignored, and `dossier judge
-/// --help` was rejected as an unknown option, because the one flat match knew
-/// nothing about which command it was serving. Naming the command lets the
-/// parser refuse an option a command has no use for, and lets `--help` answer
-/// for one command instead of printing the manual for all twelve.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Command {
     Assay,
@@ -272,7 +252,6 @@ impl Command {
         }
     }
 
-    /// The one-line shape of the command, as the manual lists it.
     fn synopsis(self) -> &'static str {
         match self {
             Self::Assay => "dossier assay --map <map.osu> [--mods HDDT] [PLAY]",
@@ -292,13 +271,9 @@ impl Command {
         }
     }
 
-    /// Does this command have any use for `flag`, given by its canonical long
-    /// name? The one place that knows, so the parser and the per-command help
-    /// agree by construction.
     fn accepts(self, flag: &str) -> bool {
-        // The map a replay is judged against — every command that loads one.
         const MAP: &[&str] = &["--map", "--songs"];
-        // How a frame looks, shared by `frame`, `video` and `exhibit`.
+
         const LOOK: &[&str] = &[
             "--out",
             "--size",
@@ -320,7 +295,7 @@ impl Command {
             "--leaderboard",
             "--my-pictures",
         ];
-        // How a video is encoded, shared by `video` and `exhibit`.
+
         const ENCODE: &[&str] = &[
             "--fps",
             "--crf",
@@ -333,7 +308,7 @@ impl Command {
             "--from",
             "--to",
         ];
-        // The hit-sound kit, shared by `sounds`, `video` and `exhibit`.
+
         const HITSOUND: &[&str] = &[
             "--samples",
             "--game-sounds",
@@ -390,8 +365,6 @@ impl Command {
             Self::Frame => &[
                 MAP,
                 LOOK,
-                // `--ffmpeg` because a video frame is fetched with it — see
-                // `still`. Nothing else in `frame` runs an encoder.
                 &[
                     "--at",
                     "--background",
@@ -411,8 +384,6 @@ impl Command {
                 MAP,
                 LOOK,
                 &["--background", "--storyboard", "--video"],
-                // `exhibit` encodes like `video` but chooses its own spans, so
-                // it takes the encode options save the two that name a span.
                 &[
                     "--fps",
                     "--crf",
@@ -433,16 +404,12 @@ impl Command {
                 &["--json", "--for", "--worth", "--clip", "--survey"],
             ],
             Self::Sounds => &[HITSOUND, &["--out"]],
-            // The palette comes from `--skin`, the sounds from `--samples`, and
-            // the folder to write from `-o`. Nothing else applies: this draws
-            // no frame and judges no replay.
+
             Self::Skin => &[&["--out", "--skin", "--samples", "--font"]],
         };
         groups.iter().any(|group| group.contains(&flag))
     }
 
-    /// The command's own help: what it looks like, and the options it has —
-    /// drawn from the one table so it never drifts from what `accepts` allows.
     fn help(self) -> String {
         let mut out = format!("{}\n\nOptions:\n", self.synopsis());
         for (flag, value, summary) in OPTIONS_TABLE {
@@ -460,8 +427,6 @@ impl Command {
     }
 }
 
-/// The long name a flag is known by, so `-m` and `--map` are one thing to the
-/// gate and the help.
 fn canonical(flag: &str) -> &str {
     match flag {
         "-m" => "--map",
@@ -475,9 +440,6 @@ fn canonical(flag: &str) -> &str {
     }
 }
 
-/// Every option, in the order help lists them: the canonical flag, its value
-/// placeholder, and a one-line summary. The single source a per-command help is
-/// built from — [`Command::accepts`] picks which rows each command shows.
 const OPTIONS_TABLE: &[(&str, &str, &str)] = &[
     (
         "--map",
@@ -651,21 +613,6 @@ const OPTIONS_TABLE: &[(&str, &str, &str)] = &[
     ("--level", "<x>", "multiply hit-sound loudness"),
 ];
 
-/// What this binary is, in one line a machine can compare.
-///
-/// ```text
-/// dossier 0.1.0 (15abdf1)
-/// ```
-///
-/// The id is stamped in at build time — see `build.rs` — because the manifest
-/// version has never moved and says nothing about which build is running. It
-/// names the *source the binary was compiled from*, not the commit: a commit
-/// also moves when a document does, and the farm once stopped for exactly
-/// that. `unknown` when it was built without git to ask, and `+` after the id
-/// when the sources it came from had edits in them.
-///
-/// A render farm worker runs its own checkout, so this is how the bot can ask
-/// what it is about to get before it gets it.
 fn version() -> String {
     format!(
         "dossier {} ({})",
@@ -689,7 +636,7 @@ fn main() -> ExitCode {
         return ExitCode::FAILURE;
     };
     let rest = &args[1..];
-    // A command's own `--help` answers for that command, not for all twelve.
+
     if rest.iter().any(|a| a == "-h" || a == "--help") {
         print!("{}", command.help());
         return ExitCode::SUCCESS;
@@ -697,8 +644,6 @@ fn main() -> ExitCode {
     match Options::parse(command, rest) {
         Ok(options) => dispatch(command, options),
         Err(message) => {
-            // The command's own help, not the manual: the mistake was in one
-            // command's options, and that is the list worth showing.
             eprintln!("dossier: {message}\n\n{}", command.help());
             ExitCode::FAILURE
         }
@@ -739,104 +684,61 @@ struct Options {
     trace: bool,
     marginal: Option<usize>,
     strict: bool,
-    /// corpus: the total count error this run is held to.
+
     corpus_ceiling: Option<u32>,
-    /// corpus: the file naming which replays the corpus is and what each does.
+
     expect: Option<PathBuf>,
-    /// corpus: write what this run measured into that file instead of checking
-    /// against it. Rows for replays this run did not see are left as they are.
+
     update_expect: bool,
-    /// corpus: and drop those rows instead of leaving them — for when a replay
-    /// has left the corpus rather than merely left this machine.
+
     prune: bool,
-    /// video/exhibit: report what the render is doing on stdout, one JSON
-    /// object per line, for a caller that is not a person reading stderr.
+
     events: bool,
-    /// video/frame: rivals to stand the play against, down the left of the
-    /// frame. One line each, tab-separated.
+
     leaderboard: Option<PathBuf>,
-    /// video/frame: the player's own pictures, which no rival line can carry.
+
     my_avatar: Option<PathBuf>,
     my_cover: Option<PathBuf>,
     at_ms: Option<f64>,
-    /// video: a map instant to slow into and back out of.
+
     slow_at_ms: Option<f64>,
-    /// video/frame: draw the map's own artwork behind the play.
+
     background: bool,
-    /// video/frame: draw the map's own storyboard.
+
     storyboard: bool,
-    /// video: lay the render over the map's own background video.
+
     video: bool,
-    /// exhibit: the most video it may come to, in seconds. A ceiling, not a
-    /// target — how long a reel should be is a property of the play.
+
     exhibit_budget_s: Option<f64>,
-    /// exhibit: the score under which a moment is not worth its seconds.
+
     exhibit_worth: Option<f64>,
-    /// exhibit: aggregate over many replays instead of answering about one.
+
     survey: bool,
-    /// Draw the play and nothing that talks about it.
+
     bare: bool,
-    /// How far the map's own artwork is darkened behind the play, 0–100.
-    ///
-    /// `None` leaves the skin's own figure alone, which is what a render made
-    /// before this existed looked like. osu! calls this `Background dim` and
-    /// ships it at 70; ours sits higher because a render is watched rather than
-    /// played and a bright picture behind a dark skin costs more here.
+
     dim: Option<u32>,
-    /// How big to draw the hit-error meter, as a multiple of its own size.
-    ///
-    /// osu! calls this `Score meter size` and it is the viewer's preference,
-    /// not the play's: a replay records what the player hit, never how large
-    /// they liked their meter. So there is no faithful value to default to,
-    /// and 1.0 is simply what this engine has always drawn.
+
     meter_scale: Option<f32>,
-    /// How big to draw the cursor, as a multiple of the size the skin drew it.
-    /// osu! calls this `Cursor size`, and like it this is the viewer's rather
-    /// than the play's.
+
     cursor_scale: Option<f32>,
     cursor_rotate: Option<bool>,
-    /// How hard the map's artwork is blurred, 0 to 100, where 100 is what a
-    /// render has always done. osu! blurs its background too and lets a player
-    /// turn it off; somebody rendering to show a map's art wants the same.
+
     blur: Option<u32>,
-    /// Date an imported skin the way osu! does instead of drawing it by the
-    /// newest rules. Off by default — see `imported::effective_version`.
+
     skin_as_written: bool,
-    /// Whether to print, per sound, what the play asked for and what answered.
+
     trace_hitsounds: bool,
-    /// Whether the map's own hit sounds are played over the skin's.
-    ///
-    /// osu!'s `Ignore beatmap hitsounds`, the other way up, and on.
-    ///
-    /// The order a sound is looked for is the map's folder, then the skin, then
-    /// the game's own defaults, and it is the same order in stable, in lazer
-    /// and in danser. Turning the first step off is a *setting*, off by default
-    /// everywhere, and danser ships `IgnoreBeatmapSamples: false` — so an o!rdr
-    /// render, which is danser with its defaults, has the map's samples in it.
-    ///
-    /// It was briefly off here, on the strength of a timbre measurement taken
-    /// against a music-subtracted residual. That measurement was not good
-    /// enough to overrule the chain, and the chain is what `--trace-hitsounds`
-    /// now prints: with this off, the map this was chased through loses a
-    /// hundred and twelve whistles to a blank in the skin, and finds every one
-    /// of them in the map with it on.
+
     map_hitsounds: bool,
-    /// How loud each half of the mix is, 0–100, the way the game states a
-    /// volume. Kept as the percentage the caller gave rather than a share:
-    /// what is printed back and what is checked against a range should be the
-    /// number somebody typed.
+
     music_level: u32,
     hitsound_level: u32,
-    /// Everything at once, over the two above. `amix` sums its inputs rather
-    /// than averaging them, so scaling both by the same figure is exactly a
-    /// master fader and needs no stage of its own in the graph.
+
     volume: u32,
-    /// Which of the optional movements are on, as the comma-separated list
-    /// `Effects` understands. `None` leaves the skin's own defaults alone,
-    /// which is not the same as an empty list — an empty list is somebody
-    /// having switched every one of them off.
+
     effects: Option<String>,
-    /// exhibit: how long one clip is, in seconds.
+
     exhibit_clip_s: Option<f64>,
     out: PathBuf,
     size: (u32, u32),
@@ -851,67 +753,38 @@ struct Options {
     skin: SkinChoice,
     kit: Option<dossier_audio::Kit>,
     samples: Option<PathBuf>,
-    /// osu!'s own sounds, for the step the game takes and this engine could
-    /// not: a skin that leaves a sound out gets *these*, not silence and not
-    /// another bank's. See `dossier_audio::SamplePack::with_game_sounds`.
+
     game_sounds: Option<PathBuf>,
     threads: Option<usize>,
     encoder_threads: Option<usize>,
     pitch: Option<f32>,
     decay: Option<f32>,
     level: Option<f32>,
-    /// assay: which mods the play used, as acronyms — `HDDT`.
+
     mods: Option<String>,
-    /// assay: what the play did. Accuracy is a percentage and stands in for the
-    /// judgement counts when they are not given, which is what a caller asking
-    /// "what would this map be worth at 98%" has.
+
     accuracy: Option<f64>,
     combo: Option<u32>,
     misses: Option<u32>,
     n300: Option<u32>,
     n100: Option<u32>,
     n50: Option<u32>,
-    /// assay: slider ends caught and ticks missed, which only a lazer score
-    /// knows about itself.
+
     slider_ends: Option<u32>,
     large_tick_misses: Option<u32>,
-    /// assay: whether the play was scored the old way, and what it scored.
+
     classic: bool,
     legacy_total: Option<u64>,
 }
 
-/// Which look to draw and sound in.
-///
-/// One entry, for now. It was two: the engine carried a house style of its own,
-/// on the bot's palette. That was a look designed for a bot's cards rather than
-/// for a game, and next to a real osu! skin it read as a different program —
-/// so it is gone, and what replaces it is the ability to load the skins players
-/// actually use. This enum stays because that is where they will arrive.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum SkinChoice {
-    /// A folder of the player's own skin files.
-    ///
-    /// What the engine cannot find there it still draws itself, element by
-    /// element, so a folder with two pictures in it is as valid as a complete
-    /// skin. The colours and the hit sounds come from it too, when it has them.
     Folder(PathBuf),
-    /// The map's own combo colours and a neutral hit kit.
-    ///
-    /// Named "classic" because that is what it is *for*, and it is not there
-    /// yet: a real recreation of osu!'s own look is its own piece of work. What
-    /// this is today is the engine's neutral fallback, which is honest as a
-    /// fallback and would be a poor way to introduce the engine to anybody.
+
     Classic,
 }
 
 impl Options {
-    /// How loud each half of the mix ends up, master included.
-    ///
-    /// One place rather than three, and multiplied rather than staged: the mix
-    /// is a sum with `normalize=0`, so scaling both halves by the same figure
-    /// is the same sound as a fader on the output and one filter fewer. Above
-    /// 1.0 nothing limits it — the same as today, where two halves at their
-    /// natural level already sum past one.
     fn levels(&self) -> (f32, f32) {
         let master = self.volume as f32 / 100.0;
         (
@@ -920,12 +793,6 @@ impl Options {
         )
     }
 
-    /// The look this run asks for: the skin's, with the flags that overrule it
-    /// applied on top.
-    ///
-    /// One place rather than three, because the three commands that draw a
-    /// frame must not be able to disagree about which flags a skin listens to
-    /// — the last one to grow a knob is the one that would be forgotten.
     fn look(&self, beatmap: &Beatmap) -> Skin {
         let mut skin = self.skin.visual(beatmap, self.effects.as_deref());
         if let Some(at) = self.meter_scale {
@@ -939,11 +806,6 @@ impl Options {
         skin
     }
 
-    /// What to put behind the play, in the shape the pipeline asks for.
-    ///
-    /// One place, for the same reason [`look`](Self::look) is one place: three
-    /// commands draw a frame and they must not be able to disagree about which
-    /// flags the scenery listens to.
     fn behind<'a>(&'a self, at_ms: Option<f64>, scratch: Option<&'a Path>) -> scenery::Behind<'a> {
         scenery::Behind {
             background: self.background,
@@ -958,10 +820,6 @@ impl Options {
         }
     }
 
-    /// The hit-sound kit: the skin's, with any explicit knobs applied on top.
-    ///
-    /// Overrides multiply rather than replace, so `--pitch 1.1` means "a tenth
-    /// higher than this skin" regardless of which skin it is.
     fn kit(&self) -> dossier_audio::Kit {
         let mut kit = self.kit.unwrap_or_else(|| self.skin.kit());
         if let Some(pitch) = self.pitch {
@@ -978,23 +836,12 @@ impl Options {
 }
 
 impl Options {
-    /// A skin's sounds, if one was pointed at.
-    ///
-    /// An empty result is reported rather than passed on silently: a wrong
-    /// path and a skin with no files look identical from here, and finding out
-    /// through a video that sounds unchanged is a poor way to learn it.
-    /// Where this run's hit-sound `.wav`s are, if they are anywhere.
-    ///
-    /// The folder rather than the loaded pack: writing a skin copies the files
-    /// themselves, and it has to look in the same places a render does or the
-    /// skin would ship different sounds from the videos.
     fn samples_folder(&self) -> Option<PathBuf> {
         if let Some(folder) = &self.samples {
             return folder.is_dir().then(|| folder.clone());
         }
         let named = self.skin.samples_dir()?;
         if named.is_dir() {
-            // A skin folder the caller pointed at, which needs no searching.
             return Some(named.to_path_buf());
         }
         ["", "../", "../../"]
@@ -1003,17 +850,6 @@ impl Options {
             .find(|folder| folder.is_dir())
     }
 
-    /// The skin's sounds, with the map's own laid over the top.
-    ///
-    /// Two places, because osu! uses two and does not treat them alike: the
-    /// beatmap's folder is asked first and is the only one where a custom
-    /// sample index means anything, while a skin is only ever asked for the
-    /// plain name. A hitsounded map is most of what a hitsounded map sounds
-    /// like, and leaving it out left renders quietly missing whole voices.
-    ///
-    /// The map's samples are unpacked into the scratch directory and converted
-    /// there. Without one — nowhere to put them — the skin stands alone, which
-    /// is what this did before.
     fn samples_with_map(
         &self,
         origin: &locate::Origin,
@@ -1041,11 +877,6 @@ impl Options {
         pack
     }
 
-    /// osu!'s own sounds laid under whatever the skin turns out to hold.
-    ///
-    /// The environment as well as the flag, because this is a property of the
-    /// machine rather than of the render: one folder extracted once serves
-    /// every replay that host will ever draw.
     fn under(&self, pack: dossier_audio::SamplePack) -> dossier_audio::SamplePack {
         let Some(folder) = &self.game_sounds else {
             return pack;
@@ -1065,8 +896,6 @@ impl Options {
     }
 
     fn skin_samples(&self) -> dossier_audio::SamplePack {
-        // An explicit path is an instruction: if it holds nothing, say so
-        // rather than quietly substituting something else.
         if let Some(folder) = &self.samples {
             let pack = dossier_audio::SamplePack::load(folder);
             if pack.is_empty() {
@@ -1085,8 +914,6 @@ impl Options {
             return pack;
         }
 
-        // Otherwise the skin's own folder, looked for from wherever the binary
-        // happens to have been run — the same walk the font does.
         let Some(relative) = self.skin.samples_dir() else {
             return dossier_audio::SamplePack::default();
         };
@@ -1103,8 +930,7 @@ impl Options {
                 return pack;
             }
         }
-        // Nothing there is not a problem: the synthesised kit is the fallback,
-        // and saying so on every render would be noise.
+
         dossier_audio::SamplePack::default()
     }
 }
@@ -1118,19 +944,13 @@ fn parse_number(value: Option<&String>, flag: &str) -> Result<f32, String> {
 
 impl SkinChoice {
     fn parse(name: &str) -> Result<Self, String> {
-        // A path wins over a name, and is recognised by being a folder that
-        // exists. Nothing else could be: the named skins have no separators in
-        // them, and a folder called `classic` next to the binary would be a
-        // stranger coincidence than it is worth guarding against.
         let path = Path::new(name);
         if path.is_dir() {
             return Ok(Self::Folder(path.to_path_buf()));
         }
         match name.to_ascii_lowercase().as_str() {
             "classic" | "map" => Ok(Self::Classic),
-            // Named plainly rather than dismissed: a deployment that still
-            // asks for the house skin should be told it is gone, not told its
-            // spelling is wrong.
+
             "1984" | "dossier" => {
                 Err("the `1984` skin was removed — use `classic`, or import a skin".to_owned())
             }
@@ -1149,20 +969,13 @@ impl SkinChoice {
                 effects.map(|list| Effects::asked_for(list, "slider-ball-tint")),
             );
         }
-        // After the folder, not before: an imported skin may say `CursorExpand:
-        // 0` and that is the skin's own refusal, which the flag below turns on
-        // or off *permission* for rather than overruling.
+
         if let Some(list) = effects {
             Effects::apply(&mut skin, list);
         }
         skin
     }
 
-    /// The same look, with no map to take combo colours from.
-    ///
-    /// A skin written to disk is not about to be played on any one beatmap, so
-    /// `classic` falls back to osu!'s own default cycle — which is exactly what
-    /// that skin means when the map has nothing to say.
     fn visual_default(&self) -> Skin {
         let mut skin = Skin::default();
         if let Self::Folder(path) = self {
@@ -1171,17 +984,8 @@ impl SkinChoice {
         skin
     }
 
-    /// Where this skin keeps its samples, relative to the repository.
-    ///
-    /// Nowhere, now that the one skin that had its own is gone. Kept as the
-    /// seam an imported skin will answer through: a real skin carries its own
-    /// `.wav`s, and this is where the renderer will ask for them.
     fn samples_dir(&self) -> Option<&Path> {
         match self {
-            // A real skin keeps its `.wav`s beside its pictures, so pointing
-            // the sample reader at the same folder is the whole of importing
-            // its sounds — that half of a skin already worked before any of
-            // this was written.
             Self::Folder(path) => Some(path),
             Self::Classic => None,
         }
@@ -1189,20 +993,11 @@ impl SkinChoice {
 
     fn kit(&self) -> dossier_audio::Kit {
         match self {
-            // Whatever the folder does not cover falls back to synthesis, so a
-            // skin missing a `drum-hitclap.wav` still sounds like something.
             Self::Folder(_) | Self::Classic => dossier_audio::Kit::plain(),
         }
     }
 }
 
-/// Put a folder's skin on: pictures and settings both.
-///
-/// Order matters once, and it is easy to get wrong. A skin's `skin.ini` may
-/// state combo colours of its own — the one this was written against paints
-/// every combo white — and the tinted copies have to be made from *those*
-/// rather than from the map's. So the palette is settled before anything is
-/// coloured.
 fn dress(skin: Skin, path: &Path, tint_ball: Option<bool>) -> Skin {
     produce::skin::from_folder(skin, path, tint_ball)
 }
@@ -1282,10 +1077,6 @@ impl Options {
 
         let mut rest = args.iter();
         while let Some(arg) = rest.next() {
-            // Refuse an option this command has no use for before parsing it,
-            // so `dossier judge --crf 18` says so rather than silently dropping
-            // the crf. A positional (a replay path) is not an option and falls
-            // straight through to the catch-all below.
             if arg.starts_with('-') && arg.as_str() != "-" && !command.accepts(canonical(arg)) {
                 return Err(format!(
                     "`{}` has no option `{arg}` — see `dossier {} --help`",
@@ -1449,9 +1240,7 @@ impl Options {
                         .ok_or_else(|| format!("{flag} needs a number from 0 to 100"))?
                         .parse()
                         .map_err(|_| format!("{flag} wants a number from 0 to 100"))?;
-                    // Refused rather than clamped: a percentage past 100 is
-                    // somebody who thinks this is a gain, and quietly giving
-                    // them 100 would leave them believing it.
+
                     if level > 100 {
                         return Err(format!("{flag} is a percentage — {level} is past 100"));
                     }
@@ -1593,9 +1382,7 @@ impl Options {
                             .map_err(|_| "--marginal needs a number")?,
                     );
                 }
-                // `--strict` alone is judge's; `--strict <n>` is corpus's
-                // ceiling. One flag because they mean the same thing: fail
-                // when this got worse.
+
                 "--strict" => match rest.clone().next().and_then(|n| n.parse::<u32>().ok()) {
                     Some(ceiling) => {
                         options.corpus_ceiling = Some(ceiling);
@@ -1630,13 +1417,10 @@ impl Options {
             }
         }
 
-        // Whether a replay is needed depends on the command — `sounds` wants
-        // only a kit — so each one checks for itself.
         if options.map.is_some() && options.replays.len() > 1 {
             return Err("--map judges one replay; drop it and use --songs for a batch".to_owned());
         }
-        // On its own it would silently do nothing, and the thing it does is
-        // delete rows — a flag like that should not be quietly ignored.
+
         if options.prune && !options.update_expect {
             return Err("--prune only means something with --update-expect".to_owned());
         }
@@ -1644,24 +1428,10 @@ impl Options {
     }
 }
 
-/// How many threads to measure the corpus with when nobody said.
-///
-/// Every core the machine has, unlike `video`, which leaves one for the
-/// encoder: there is nothing on the other end of this one to leave a core for.
 fn default_measurers() -> usize {
     std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get)
 }
 
-/// The whole corpus in one line, and a non-zero exit when it gets worse.
-///
-/// The measurement that every change in this engine is judged by. It existed
-/// for months as a shell script assembled from `judge`, `grep` and an awk
-/// one-liner, which meant every measurement depended on whether it was
-/// reassembled the same way — and a number that cannot be reproduced exactly
-/// is not a measurement, it is an impression.
-///
-/// `--strict <n>` fails when the total count error is worse than `n`, which is
-/// what makes it usable as a check rather than a report.
 fn corpus(options: Options) -> ExitCode {
     if options.replays.is_empty() {
         eprintln!("dossier: no replay given");
@@ -1672,11 +1442,10 @@ fn corpus(options: Options) -> ExitCode {
         name: String,
         error: u32,
         combo: i64,
-        /// How far the score is out, as a percentage, where it can be
-        /// compared at all.
+
         score: Option<f64>,
         client: &'static str,
-        /// The file's own hash — the corpus manifest's key.
+
         md5: String,
         beatmap_md5: String,
     }
@@ -1694,13 +1463,6 @@ fn corpus(options: Options) -> ExitCode {
         None => None,
     };
 
-    // The same replay in two directories is one replay. Before the set was
-    // written down this went unnoticed, and a duplicate quietly counted twice
-    // towards every total.
-    // Hashing runs in order, and on its own, so that two runs over the same
-    // set agree about which copy of a duplicate is the one that gets measured.
-    // It is a file read beside a whole simulation, so it costs nothing to keep
-    // it out of the parallel part.
     let mut seen: BTreeSet<String> = BTreeSet::new();
     let mut duplicates = 0usize;
     let mut queue: Vec<(String, &PathBuf)> = Vec::new();
@@ -1720,18 +1482,6 @@ fn corpus(options: Options) -> ExitCode {
         queue.push((md5, replay_path));
     }
 
-    // Judging one replay shares nothing with judging the next — a map is
-    // parsed, a play is simulated, a row comes out — and this is the
-    // measurement every change to the engine is judged by, so of all the loops
-    // here it is the one worth spending the machine on.
-    //
-    // Work is handed out by an atomic index rather than sliced up in advance,
-    // because replays differ by an order of magnitude in length: a fixed slice
-    // leaves most of the threads finished and waiting on whichever one drew
-    // the marathon.
-    //
-    // None of this changes the answer. Rows carry the place they came from and
-    // are put back in it, and every total below is a sum.
     let workers = options
         .threads
         .unwrap_or_else(default_measurers)
@@ -1755,19 +1505,12 @@ fn corpus(options: Options) -> ExitCode {
                         };
                         let check = &report.check;
                         let (ours, theirs) = (check.ours, check.theirs);
-                        // Every count that disagrees, added up. Combo is kept
-                        // apart: it is one number against one number, where the
-                        // four counts trade against each other and a slider read
-                        // the wrong way moves two of them at once.
+
                         let error = u32::from(ours.count_300).abs_diff(u32::from(theirs.count_300))
                             + u32::from(ours.count_100).abs_diff(u32::from(theirs.count_100))
                             + u32::from(ours.count_50).abs_diff(u32::from(theirs.count_50))
                             + u32::from(ours.count_miss).abs_diff(u32::from(theirs.count_miss));
-                        // The score is a separate reading from the counts and
-                        // moves on its own: a replay whose four counts are exact
-                        // can still be scored a hundred per cent wrong, which is
-                        // how a failed play scoring to the end of the map went
-                        // unseen for as long as it did.
+
                         let score = report.score_error;
                         mine.push((
                             at,
@@ -1862,11 +1605,6 @@ fn corpus(options: Options) -> ExitCode {
     let mut absent = 0usize;
     if let (Some(expected), Some(path)) = (&expected, &options.expect) {
         if options.update_expect {
-            // This used to rebuild the file from the run alone, which was
-            // right while the whole corpus was always on the disk and wrong
-            // the moment it was not: a run over the replays that happen to be
-            // here took the rest of the list with it, and that list is the
-            // only record of what to go and find. `after_run` states the rule.
             let measured = rows
                 .iter()
                 .map(|row| manifest::Expectation {
@@ -1900,9 +1638,6 @@ fn corpus(options: Options) -> ExitCode {
                 }
             }
         } else {
-            // Replays the file names that this machine does not have. Silence
-            // here is what let twelve of them go missing for months: a corpus
-            // that shrinks reports a smaller total and looks like progress.
             for row in expected.values() {
                 if !seen.contains(&row.replay_md5) {
                     absent += 1;
@@ -1941,8 +1676,7 @@ fn corpus(options: Options) -> ExitCode {
         eprintln!("dossier: {regressed} replay(s) got worse than the corpus says they are");
         return ExitCode::FAILURE;
     }
-    // An absent replay is only a failure when the run claimed to be a check.
-    // Measuring a handful of replays by hand is a normal thing to do.
+
     if absent > 0 && options.strict {
         eprintln!("dossier: {absent} replay(s) of the corpus are not on this machine");
         return ExitCode::FAILURE;
@@ -2018,8 +1752,6 @@ fn judge(options: Options) -> ExitCode {
     }
 }
 
-/// Read headers only. Cheap, needs no beatmap, and tells a caller which map to
-/// go and fetch before asking for a verdict.
 fn inspect(options: Options) -> ExitCode {
     if options.replays.is_empty() {
         eprintln!("dossier: no replay given");
@@ -2053,12 +1785,6 @@ fn inspect(options: Options) -> ExitCode {
     }
 }
 
-/// Where our slider verdicts come from, in aggregate.
-///
-/// When the totals disagree only on the 300/100 split, the question is which
-/// piece of a slider we're reading differently — and a histogram of dropped
-/// parts answers that faster than staring at 1500 sliders one at a time.
-/// Narrate a window of the judgement.
 fn debug_command(options: Options) -> ExitCode {
     let Some(replay_path) = options.replays.first() else {
         eprintln!("dossier: debug needs a replay");
@@ -2110,10 +1836,9 @@ fn sliders(options: Options) -> ExitCode {
         };
 
         let mut verdicts = [0usize; 4];
-        let mut dropped = [0usize; 4]; // head, tick, repeat, tail
+        let mut dropped = [0usize; 4];
         let mut imperfect_without_a_dropped_tail = 0usize;
-        // A play that ended early never reached the rest of the map, and
-        // listing those sliders as dropped would bury the ones it did play.
+
         let played = state.objects_played();
 
         for (index, object) in state.timeline().objects.iter().take(played).enumerate() {
@@ -2140,10 +1865,6 @@ fn sliders(options: Options) -> ExitCode {
                 Judgement::Miss => 3,
             }] += 1;
 
-            // Any slider that lost a piece, not only the ones whose verdict
-            // fell. Under lazer the verdict is the head's, so a dropped tail
-            // no longer shows up in it at all — selecting on the verdict hid
-            // every one of them.
             if verdict != Judgement::Great || lost.iter().any(|l| *l) {
                 for (slot, was_lost) in lost.iter().enumerate() {
                     if *was_lost {
@@ -2173,8 +1894,6 @@ fn sliders(options: Options) -> ExitCode {
             state.tails_near_the_rim()
         );
 
-        // The downgraded ones, in full. When the disagreement is down to a
-        // handful of sliders, this is the list to read.
         for (index, object) in state.timeline().objects.iter().take(played).enumerate() {
             if !object.is_slider() {
                 continue;
@@ -2219,9 +1938,7 @@ fn sliders(options: Options) -> ExitCode {
                 dropped.join(", ")
             );
             println!("      follow circle {follow:.0}px;{trail}");
-            // Where the cursor actually was when each dropped part was tested.
-            // The trail above only ever shows the run-in to the tail, which
-            // says nothing about a tick lost in the middle of a long slide.
+
             for event in judge.events_for(index).filter(|e| e.result.is_miss()) {
                 let name = match event.part {
                     Part::SliderHead => "head",
@@ -2257,16 +1974,6 @@ fn sliders(options: Options) -> ExitCode {
     ExitCode::SUCCESS
 }
 
-/// How circle hits pile up around the edges of the judgement windows.
-///
-/// A window is a threshold, and thresholds are where off-by-one lives. If the
-/// disagreement with the replay equals the number of hits sitting exactly on a
-/// boundary, the rule is inclusive on one side and shouldn't be.
-/// Our health model against osu!'s own life-bar graph.
-///
-/// About half the replays carry one. Those are the test — the model exists
-/// precisely so the other half can have a bar too, and a model checked only
-/// against itself would be no better than a guess drawn smoothly.
 fn health_command(options: Options) -> ExitCode {
     if options.replays.is_empty() {
         eprintln!("dossier: no replay given");
@@ -2302,8 +2009,6 @@ fn health_command(options: Options) -> ExitCode {
             ruleset,
         );
 
-        // Compare where osu! actually sampled, so nothing is invented between
-        // its points.
         let mut sum = 0f64;
         let mut signed = 0f64;
         let mut peak = 0f64;
@@ -2333,11 +2038,6 @@ fn health_command(options: Options) -> ExitCode {
             track.drain_rate(),
         );
         if options.trace {
-            // The whole series. A verdict we credit and osu! did not shows up
-            // as a *step* in the gap rather than a level, so the column that
-            // matters is the last one: the graph is only sampled every couple
-            // of seconds, but a single wrong call on a low-HP map moves the
-            // bar several times further than the model's own noise.
             let mut last = 0f64;
             for &(time, theirs) in &graph {
                 let ours = track.at(time);
@@ -2363,12 +2063,6 @@ fn health_command(options: Options) -> ExitCode {
     ExitCode::SUCCESS
 }
 
-/// Our score against the one the client wrote into the header.
-///
-/// The header is ground truth and the score is a pure function of the
-/// judgement, so a replay whose totals match exactly and whose score does not
-/// is telling us something specific about the arithmetic rather than about the
-/// simulation.
 fn score_command(options: Options) -> ExitCode {
     if options.replays.is_empty() {
         eprintln!("dossier: no replay given");
@@ -2389,9 +2083,7 @@ fn score_command(options: Options) -> ExitCode {
             continue;
         };
         let ruleset = Ruleset::of_replay(&replay);
-        // Through the state rather than built here, so the command measures
-        // the same thing the renderer draws — including the multiplier read
-        // off the replay rather than looked up.
+
         let Some(track) = state.score_track() else {
             continue;
         };
@@ -2501,7 +2193,6 @@ fn load(replay_path: &Path, options: &Options) -> Result<(Beatmap, Replay), Stri
     load_with_origin(replay_path, options).map(|(b, r, _, _)| (b, r))
 }
 
-/// Same, but keeping the human-readable note of where the map came from.
 fn load_found(replay_path: &Path, options: &Options) -> Result<(Beatmap, Replay, String), String> {
     let bytes = std::fs::read(replay_path).map_err(|e| format!("{e}"))?;
     let replay = Replay::parse(&bytes).map_err(|e| format!("{e}"))?;
@@ -2520,10 +2211,6 @@ fn load_found(replay_path: &Path, options: &Options) -> Result<(Beatmap, Replay,
     Ok((beatmap, replay, found.source))
 }
 
-/// The map a replay was played on, and the replay, loaded together.
-///
-/// A thin wrapper over [`locate::load`]: the command line has two ways of
-/// naming a map and this turns them into the one the pipeline takes.
 fn load_with_origin(
     replay_path: &Path,
     options: &Options,
@@ -2535,10 +2222,6 @@ fn load_with_origin(
     )
 }
 
-/// Which client wrote a replay, for the report headers.
-///
-/// It is not a cosmetic label: stable and lazer judge differently, so this is
-/// the line that says which ruleset the numbers underneath were read with.
 fn client_name(replay: &Replay) -> String {
     let ruleset = dossier_sim::Ruleset::of_replay(replay);
     format!("{} {}", ruleset.name(), replay.game_version)
@@ -2565,8 +2248,6 @@ fn read_header(replay_path: &Path) -> Result<Header, String> {
                 if m.settings.is_empty() {
                     m.acronym.clone()
                 } else {
-                    // A mod whose switches were changed is not the same mod,
-                    // and Classic's switches decide two rules apiece.
                     let settings: Vec<String> = m
                         .settings
                         .iter()
@@ -2597,7 +2278,6 @@ fn run_one(replay_path: &Path, options: &Options) -> Result<Report, String> {
         return Err(format!("{:?} replays aren't simulated yet", replay.mode));
     }
     if replay.frames.is_empty() {
-        // Online-fetched replays sometimes carry only a header.
         return Err("replay has no frames".to_owned());
     }
 
@@ -2653,18 +2333,6 @@ fn run_one(replay_path: &Path, options: &Options) -> Result<Report, String> {
             .score_track()
             .filter(|track| track.comparable())
             .filter(|_| replay.score > 0)
-            // A header that cannot be a total for the play it describes is not
-            // a disagreement, it is a broken field. Three Relax replays in the
-            // corpus record 366, 432 and 696 against plays of 99% accuracy on
-            // two-and-a-half thousand objects — impossible under any scoring,
-            // since ScoreV1's flat half alone runs to hundreds of thousands
-            // before any multiplier touches it. Compared anyway they read as
-            // being off by a hundred thousand per cent, and one of them was
-            // the corpus's reported "worst" for weeks, hiding whatever the real
-            // worst was.
-            //
-            // The flat half is the floor: no mod scales it, so a total below a
-            // fraction of it is not this play's total.
             .filter(|_| {
                 let (flat, _) = dossier_sim::score::stable_halves(state.judge().unwrap());
                 flat <= 0.0 || f64::from(replay.score) >= flat * MIN_CREDIBLE_SHARE
@@ -2675,20 +2343,8 @@ fn run_one(replay_path: &Path, options: &Options) -> Result<Report, String> {
     })
 }
 
-/// How small a recorded score may be against the flat half of ScoreV1 before
-/// it is read as a broken header rather than as a disagreement.
-///
-/// A twentieth. The three that prompted it sit at four ten-thousandths and the
-/// ordinary ones at eight tenths, so there is nothing near the line to argue
-/// about — and being generous costs nothing, since a header that is merely
-/// wrong by a factor of two is still worth comparing.
 const MIN_CREDIBLE_SHARE: f64 = 0.05;
 
-/// Our count of each of lazer's judgement types, against lazer's own.
-///
-/// Only lazer replays carry the block, and only recent ones. The mapping is
-/// where the thinking is: lazer's names are for its own object model, and ours
-/// have to be folded into them rather than the other way round.
 fn part_checks(state: &GameState, replay: &Replay) -> Vec<PartCheck> {
     let Some(theirs) = replay.score_info.as_ref().map(|info| &info.statistics) else {
         return Vec::new();
@@ -2710,16 +2366,6 @@ fn part_checks(state: &GameState, replay: &Replay) -> Vec<PartCheck> {
     let mut ignore_hit = 0i64;
     let mut ignore_miss = 0i64;
 
-    // A slider resolves to IgnoreHit when *anything* on it was caught, and to
-    // IgnoreMiss when nothing was:
-    //
-    // ```csharp
-    // r.Type = slider.NestedHitObjects.Any(o => o.Result.IsHit)
-    //     ? r.Judgement.MaxResult : r.Judgement.MinResult;
-    // ```
-    //
-    // and a dropped tail is IgnoreMiss in its own right, so the two land in
-    // the same bucket and have to be counted together.
     let mut slider_alive = false;
     let mut in_slider = false;
 
@@ -2746,10 +2392,7 @@ fn part_checks(state: &GameState, replay: &Replay) -> Vec<PartCheck> {
                 in_slider = true;
                 slider_alive = !event.result.is_miss();
             }
-            // lazer counts these as `SmallBonus` and `LargeBonus`, which the
-            // legacy header has no column for. Nothing to check them against,
-            // so they are left out of the comparison rather than folded into a
-            // column they are not part of.
+
             Part::SpinnerSpin | Part::SpinnerPoints | Part::SpinnerBonus => {}
             Part::SliderTick | Part::SliderRepeat => {
                 if event.result.is_miss() {
@@ -2794,27 +2437,6 @@ fn part_checks(state: &GameState, replay: &Replay) -> Vec<PartCheck> {
     .collect()
 }
 
-/// Draw one instant to a PNG.
-///
-/// A single frame is the smallest thing that can be looked at and judged by
-/// eye, which makes it the right first output: video is this repeated, and
-/// nothing about the repetition will fix a frame that is wrong.
-/// `dossier exhibit` — choose the telling moments, and say why.
-///
-/// Judging the replay is the whole cost here and it is seconds, not minutes:
-/// every signal the scorers read is something the engine already computed to
-/// answer a different question. That is why this feature was worth building
-/// now rather than after more of the engine exists.
-/// `dossier exhibit --survey` — what a hundred replays come to.
-///
-/// The instrument this feature was missing. Judgement is held to the corpus and
-/// a change either improves the count error or does not; selection can be held
-/// to nothing of the kind, so what stands in for it is knowing what a change
-/// did across every replay to hand rather than across the two somebody watched.
-///
-/// A replay that cannot be judged is counted and skipped rather than fatal: a
-/// survey of a folder is a survey of whatever maps are in it, and stopping at
-/// the first missing one turns a measurement into a scavenger hunt.
 fn survey(options: &Options) -> ExitCode {
     let settings = exhibit::settings(
         options.exhibit_budget_s,
@@ -2846,9 +2468,6 @@ fn exhibit_command(options: Options) -> ExitCode {
         return survey(&options);
     }
 
-    // `load_with_origin` rather than `load`: the origin is where the audio
-    // track is unpacked from, and by the time a reel is wanted the archive has
-    // long since gone out of scope.
     let (beatmap, replay, origin, map_text) = match load_with_origin(replay_path, &options) {
         Ok(triple) => triple,
         Err(message) => {
@@ -2871,30 +2490,16 @@ fn exhibit_command(options: Options) -> ExitCode {
             exhibit::as_json(&replay_path.display().to_string(), &replay, &state, &clips)
         );
     } else if options.events {
-        // stdout belongs to the watcher now, and this table is prose: mixed
-        // into the event stream it is not a table and not a stream either.
-        // The same clips arrive as `clip` events, one before each is drawn.
         eprint!("{}", exhibit::as_text(&clips, state.playback_rate()));
     } else {
         print!("{}", exhibit::as_text(&clips, state.playback_rate()));
     }
 
-    // Nothing chosen is a real answer — a replay of somebody quitting twelve
-    // seconds in has no moments — but it is also the shape a wrong `--clip`
-    // takes, so it is worth saying out loud rather than printing an empty list
-    // and exiting zero.
     if clips.is_empty() {
         eprintln!("dossier: no clip fits — the play is shorter than one clip");
         return ExitCode::SUCCESS;
     }
 
-    // Without `-o` the answer *is* the list. Rendering is opt-in rather than
-    // the default because it costs minutes and the selection it is made of can
-    // be read in full above.
-    // `-o` is shared with `frame`, whose default it still carries. Left at
-    // that default it means the caller did not ask for a reel — which is the
-    // right default here: the selection above is the feature and an encode is
-    // minutes.
     if options.out == Path::new("frame.png") {
         return ExitCode::SUCCESS;
     }
@@ -2905,9 +2510,7 @@ fn exhibit_command(options: Options) -> ExitCode {
     }
 
     let mut skin = options.look(&beatmap);
-    // Whether the plain hit still sounds under a whistle is the skin's
-    // answer, and a skin that has said nothing means yes — see
-    // `Ini::layered_hit_sounds`.
+
     let layering = skin
         .sprites
         .as_ref()
@@ -2941,7 +2544,7 @@ fn exhibit_command(options: Options) -> ExitCode {
                 .with_own_pictures(options.my_avatar.clone(), options.my_cover.clone()),
         );
     let scene = if options.bare { scene.bare() } else { scene };
-    // What the play sounded, for the storyboard's triggers to answer to.
+
     let fired = hitsounds::sounded(&state, &beatmap, layering);
     let scene = scenery::dress(
         scene,
@@ -2964,10 +2567,7 @@ fn exhibit_command(options: Options) -> ExitCode {
         threads: options.threads,
         encoder_threads: options.encoder_threads,
         audio,
-        // Each clip is cut out of the middle of a map and needs its own seek
-        // into the film — which `encode` already works out, from the span it is
-        // given, and `reel` gives it one span per clip. So the same backdrop
-        // serves them all.
+
         video: scenery::film(
             &options.behind(None, scratch.as_ref()),
             &map_text,
@@ -2976,15 +2576,11 @@ fn exhibit_command(options: Options) -> ExitCode {
         ),
         hitsounds: None,
         events: events::Events::wanted(options.events),
-        // exhibit chooses its own moments to slow into; the per-clip render is
-        // not driven by a single `--slow` instant. Wired in a later step.
+
         slow_at_ms: None,
         slow_focus: None,
     };
 
-    // Built once and shared by every clip: loading a skin's samples is a
-    // directory walk and a decode per file, and doing it five times over would
-    // be five times the wait for the same bytes.
     let (kit, pack) = (
         options.kit(),
         options.samples_with_map(&origin, scratch.as_ref()),
@@ -3021,9 +2617,7 @@ fn exhibit_command(options: Options) -> ExitCode {
             let size = std::fs::metadata(&settings.out)
                 .map(|m| m.len())
                 .unwrap_or(0);
-            // With `--events` stdout is the watcher's channel and this line
-            // would be a stray object in the middle of it. The same fact goes
-            // out as an event instead, and the person keeps their sentence.
+
             if options.events {
                 settings.events.wrote(&settings.out, size);
             } else {
@@ -3052,8 +2646,6 @@ fn frame(options: Options) -> ExitCode {
         return ExitCode::FAILURE;
     };
 
-    // With the origin, because a background lives beside the map — in the same
-    // folder, or inside the same `.osz`.
     let (beatmap, replay, origin, map_text) = match load_with_origin(replay_path, &options) {
         Ok(triple) => triple,
         Err(message) => {
@@ -3064,9 +2656,7 @@ fn frame(options: Options) -> ExitCode {
 
     let state = GameState::new(&beatmap, &replay);
     let mut skin = options.look(&beatmap);
-    // Before the skin is handed to the scene: the same question
-    // `write_hitsounds` asks, and its answer decides whether a plain hit
-    // sounds under a whistle — which a trigger can be listening for.
+
     let layering = skin
         .sprites
         .as_ref()
@@ -3086,11 +2676,10 @@ fn frame(options: Options) -> ExitCode {
                 .with_own_pictures(options.my_avatar.clone(), options.my_cover.clone()),
         );
     let scene = if options.bare { scene.bare() } else { scene };
-    // A video frame stands in for the artwork when both are asked for: see
-    // `still`.
+
     let scratch = Scratch::new();
     let dressed = options.behind(Some(at_ms), scratch.as_ref());
-    // What the play sounded, for the storyboard's triggers to answer to.
+
     let fired = hitsounds::sounded(&state, &beatmap, layering);
     let scene = scenery::dress(scene, &dressed, &beatmap, (&map_text, &origin), &fired);
     let layout = Layout::new(options.size.0, options.size.1);
@@ -3123,12 +2712,6 @@ fn frame(options: Options) -> ExitCode {
     }
 }
 
-/// Read the rivals to stand the play against, if any were named.
-///
-/// A missing or unreadable file is not an error. The scoreboard decorates a
-/// render; refusing to draw four minutes of video because a list of names could
-/// not be opened would be the wrong trade, and its absence from the frame says
-/// so plainly enough.
 fn load_leaderboard(path: Option<&Path>, player: &str) -> dossier_render::Leaderboard {
     let Some(path) = path else {
         return dossier_render::Leaderboard::default();
@@ -3145,17 +2728,10 @@ fn load_leaderboard(path: Option<&Path>, player: &str) -> dossier_render::Leader
     }
 }
 
-/// Find a typeface to draw numbers with.
-///
-/// An explicit path is an instruction and its failure is fatal. Without one we
-/// look for the Torus face the project already ships — osu!'s own — and if that
-/// isn't there either, say so and carry on: a frame with no numbers is still
-/// worth looking at, and stopping over a font would be a poor trade.
 fn load_font(explicit: Option<&Path>) -> Result<Option<dossier_render::Font>, String> {
     produce::font::find(explicit)
 }
 
-/// Render a play to video.
 fn video_command(options: Options) -> ExitCode {
     let Some(replay_path) = options.replays.first() else {
         eprintln!("dossier: no replay given");
@@ -3181,8 +2757,7 @@ fn video_command(options: Options) -> ExitCode {
 
     let state = GameState::new(&beatmap, &replay);
     let mut skin = options.look(&beatmap);
-    // Whether the plain hit still sounds under a whistle is the skin's answer,
-    // and a skin that has said nothing means yes — see `Ini::layered_hit_sounds`.
+
     let layering = skin
         .sprites
         .as_ref()
@@ -3218,8 +2793,6 @@ fn video_command(options: Options) -> ExitCode {
         out.display()
     );
 
-    // The pipeline fills in the music, the film, the hit-sound track and the
-    // camera; everything else here is what was asked for.
     let settings = video::Settings {
         out,
         fps: options.fps,
@@ -3254,9 +2827,7 @@ fn video_command(options: Options) -> ExitCode {
         behind: options.behind(None, scratch.as_ref()),
         settings,
     };
-    // Built here rather than in the pipeline because building it is where the
-    // command line says what a skin resolved to and what it left silent —
-    // tables that belong to a terminal.
+
     let kit = options.kit();
     let pack = options.samples_with_map(&origin, scratch.as_ref());
     let track = |plan: &video::Plan| {
@@ -3284,42 +2855,13 @@ fn video_command(options: Options) -> ExitCode {
     }
 }
 
-/// Whether a temp directory is one of ours to remove.
-///
-/// `dossier-` and then a pid, and the pid has to be there: the empty suffix
-/// passes an "all digits" test, because every one of no digits is a digit, and
-/// a bare `dossier-` belonging to somebody else would have been swept for it.
-///
-/// Anything else in the temp directory is somebody's and none of our business,
-/// which is worth being exact about — this function's whole job is deciding
-/// what to delete.
 fn scratch_of_ours(name: &str) -> bool {
     name.strip_prefix("dossier-")
         .is_some_and(|pid| !pid.is_empty() && pid.bytes().all(|b| b.is_ascii_digit()))
 }
 
-/// How long an abandoned scratch directory is left alone before it is swept.
-///
-/// Comfortably past any render. The bot gives one half an hour before it gives
-/// up, so anything untouched for six is not a render in progress — it is one
-/// that was killed.
 const SCRATCH_STALE_HOURS: u64 = 6;
 
-/// A temporary directory that clears itself up.
-///
-/// The audio has to exist as a file for the length of the render and not one
-/// moment longer. Tying that to a value's lifetime means an early return or a
-/// failed encode can't leave a hundred megabytes of someone's music behind.
-///
-/// `Drop` is not enough on its own, which took a cancelled render to notice.
-/// The bot's cancel button kills the engine outright — that is the whole point
-/// of it, since an abandoned render keeps a core busy for minutes while the bot
-/// pretends it stopped — and nothing in this process runs after a kill. Two
-/// orphans totalling sixteen megabytes were sitting in the temp directory when
-/// this was looked for, one of them a whole extracted song.
-///
-/// So every run sweeps the ones left by runs before it. Cleaning up on the way
-/// *in* is the only kind that survives being killed on the way out.
 struct Scratch(Option<PathBuf>);
 
 impl Scratch {
@@ -3330,17 +2872,6 @@ impl Scratch {
         Self(std::fs::create_dir_all(&path).ok().map(|()| path))
     }
 
-    /// Remove scratch directories nobody came back for.
-    ///
-    /// By age rather than by asking whether the process still exists: there is
-    /// no portable way to ask, and a pid is reused soon enough that the answer
-    /// would sometimes be a confident yes about a different program. Age needs
-    /// nothing from the operating system and cannot mistake one process for
-    /// another — it only has to be longer than a render, and it is by an order.
-    ///
-    /// Best-effort throughout. A temp directory somebody else owns, or one
-    /// being written by a concurrent render, is a reason to move on rather than
-    /// to refuse to render.
     fn sweep(temp: &Path) {
         let Ok(entries) = std::fs::read_dir(temp) else {
             return;
@@ -3375,11 +2906,6 @@ impl Drop for Scratch {
     }
 }
 
-/// Synthesise the hit sounds and leave them where ffmpeg can read them.
-///
-/// A failure here loses the hit sounds, not the render: the music and the video
-/// are worth having on their own, and a missing scratch directory is not a
-/// reason to refuse the whole job.
 fn write_hitsounds(
     state: &GameState,
     beatmap: &Beatmap,
@@ -3411,14 +2937,6 @@ fn write_hitsounds(
     Some(path)
 }
 
-/// Every sound the play asked for, what answered, and how often.
-///
-/// The one question worth asking of a render that sounds wrong is "which file
-/// did you play for this note, and why that one". Three rounds of this were
-/// spent guessing at it from spectra of a screen recording; the answer was
-/// always sitting in the lookup, unwritten.
-///
-/// Sorted by how often each was asked for, so the line that matters is first.
 fn report_resolution(track: &dossier_audio::Track) {
     let mut rows: Vec<_> = track.resolved().collect();
     if rows.is_empty() {
@@ -3448,23 +2966,12 @@ fn report_resolution(track: &dossier_audio::Track) {
     }
 }
 
-/// Say which of a skin's sounds no voice was filed under.
-///
-/// Most of a skin's audio is its menu — `menuhit`, `key-press-1`, `applause` —
-/// which never sounds during a play, and counting it is enough. What is worth
-/// naming is a file that *looks* like a hit sound and is not one: a skin whose
-/// `normal-hitwistle.wav` is a typo has a sound its author expected to hear and
-/// nobody ever will, in this engine or in the game, and the only honest answer
-/// to "where did my hit sound go" is to point at it.
 fn report_unused(pack: &dossier_audio::SamplePack) {
     let unused = pack.unused();
     if unused.is_empty() {
         return;
     }
-    // A name is "meant to be a hit sound" if it opens with a bank. That catches
-    // `normal-hitwistle` and `softl-hitfinish` — both slips of the finger —
-    // without catching `menuhit` or `sliderbar`, which merely contain the
-    // words and are menu sounds.
+
     let suspect: Vec<&String> = unused
         .iter()
         .filter(|name| {
@@ -3491,16 +2998,6 @@ fn report_unused(pack: &dossier_audio::SamplePack) {
     }
 }
 
-/// Say which sounds the skin removed, and how many notes went quiet for it.
-///
-/// A blank file is a skin silencing an element and the engine obeys it — osu!
-/// does too, taking the first result that is not null, and `byte[0]` is not
-/// null. But obeying it in silence is how a render arrives with a fifth of its
-/// notes making no sound and nothing anywhere saying why, which is a thing that
-/// happened: a skin that blanks `soft-hitwhistle` on a map that whistles eighty
-/// times, and three rounds of looking for a bug that was not there.
-///
-/// Once per render, on stderr, beside everything else it reports.
 fn report_silences(track: &dossier_audio::Track) {
     let mut said: Vec<String> = track
         .silenced()
@@ -3516,21 +3013,13 @@ fn report_silences(track: &dossier_audio::Track) {
         return;
     }
     said.sort();
-    // Strikes, not notes. Since the plain hit is layered under every
-    // decoration, a blanked whistle no longer silences its note — the hit
-    // underneath still sounds — so this counts sounds the skin removed rather
-    // than notes it took away.
+
     eprintln!(
         "dossier: the skin blanks {} — removed on purpose, so they are not heard",
         said.join(", ")
     );
 }
 
-/// The same, under a name the caller chooses.
-///
-/// A reel builds one track per clip and they are all alive at once — ffmpeg
-/// reads them in the second pass, long after the clip that made them was
-/// encoded — so they cannot share a filename the way a single render's can.
 fn write_hitsounds_as(
     state: &GameState,
     beatmap: &Beatmap,
@@ -3558,43 +3047,21 @@ fn write_hitsounds_as(
     Some(path)
 }
 
-/// Write a short WAV of the hit sounds alone.
-///
-/// Tuning a kit by rendering a video is a minute per idea, most of it spent on
-/// pixels that aren't in question. This is under a second, and the sounds are
-/// heard without music over them — which is how you tell what a sound *is*,
-/// as opposed to whether it survives the mix.
-/// Write our look out as a folder osu! can wear.
-///
-/// A skin nobody has to be told how to install: the palette in a `skin.ini` and
-/// the hit sounds beside it, which were already named the way the game reads
-/// them. Whatever is not written falls back to the game's own skin, so this is
-/// a real skin from the first file rather than only once every element exists.
 fn skin_command(options: Options) -> ExitCode {
     let folder = if options.out == Path::new("frame.png") {
-        // `-o` is shared with `frame`, whose default this still carries. Left at
-        // it, the caller did not name a folder — and writing a skin into
-        // `frame.png` would be a surprise.
         eprintln!("dossier: skin needs somewhere to write — pass -o <folder>");
         return ExitCode::FAILURE;
     } else {
         options.out.clone()
     };
 
-    // What the skin calls itself once it is installed in the game. Not "1984"
-    // any more: that was the house style's name, and the house style is gone.
     let name = match &options.skin {
-        // Writing out a skin that was itself read from a folder: it keeps its
-        // own name, since what comes out is that skin plus whatever the engine
-        // filled in for it.
         SkinChoice::Folder(path) => path
             .file_name()
             .map_or("dossier", |n| n.to_str().unwrap_or("dossier")),
         SkinChoice::Classic => "dossier",
     };
-    // The digits are drawn from the same face the renders set their combo
-    // numbers in. Without it they simply are not written — the rest of the skin
-    // is still worth having, and the game falls back to its own figures.
+
     let mut skin = options.skin.visual_default();
     match load_font(options.font.as_deref()) {
         Ok(Some(font)) => skin = skin.with_font(font),
@@ -3604,8 +3071,7 @@ fn skin_command(options: Options) -> ExitCode {
             return ExitCode::FAILURE;
         }
     }
-    // The same folder the renderer reads its samples from, so the skin ships
-    // the sounds a render is made with rather than a second set like them.
+
     let samples = options.samples_folder();
     match skinfile::write(&skin, name, &folder, samples.as_deref()) {
         Ok(written) => {
@@ -3659,9 +3125,6 @@ fn sounds(options: Options) -> ExitCode {
 mod scratch_names {
     use super::scratch_of_ours;
 
-    /// The whole of what the sweep is allowed to touch. It deletes directories,
-    /// so the predicate saying which ones is worth pinning exactly rather than
-    /// approximately.
     #[test]
     fn only_our_own_scratch_directories_are_ours() {
         assert!(scratch_of_ours("dossier-1"));
@@ -3675,9 +3138,6 @@ mod scratch_names {
         assert!(!scratch_of_ours("com.apple.launchd.abc"));
     }
 
-    /// The one that got away: every one of no digits is a digit, so a bare
-    /// `dossier-` passed an all-digits test and would have been swept for
-    /// somebody else.
     #[test]
     fn a_prefix_with_no_pid_is_not_ours() {
         assert!(!scratch_of_ours("dossier-"));
@@ -3692,8 +3152,6 @@ mod options_per_command {
         items.iter().map(|i| (*i).to_owned()).collect()
     }
 
-    /// The bug that prompted this: an option a command has no use for was taken
-    /// and ignored. Now it is refused, and the message names the command.
     #[test]
     fn a_command_refuses_an_option_that_is_not_its_own() {
         match Options::parse(Command::Judge, &s(&["--crf", "18", "r.osr"])) {
@@ -3705,8 +3163,6 @@ mod options_per_command {
         assert!(Options::parse(Command::Sounds, &s(&["--map", "m.osu"])).is_err());
     }
 
-    /// And still takes the ones that are. `video` encodes, so `--crf` is its
-    /// business; a short flag is the same option as its long name.
     #[test]
     fn a_command_takes_its_own_options() {
         assert!(Options::parse(Command::Video, &s(&["--crf", "18", "r.osr"])).is_ok());
@@ -3715,15 +3171,11 @@ mod options_per_command {
         assert!(Options::parse(Command::Inspect, &s(&["--json", "r.osr"])).is_ok());
     }
 
-    /// A positional path is not an option, whatever it looks like — but a lone
-    /// `-` is left to fall through as one too, the way it always did.
     #[test]
     fn a_replay_path_is_not_mistaken_for_an_option() {
         assert!(Options::parse(Command::Judge, &s(&["a.osr", "b.osr"])).is_ok());
     }
 
-    /// The exact set of flags the bot sends each command, so a change to the
-    /// gate that would strand a render shows up here rather than in a chat.
     #[test]
     fn the_bot_s_invocations_all_pass_the_gate() {
         assert!(Command::Inspect.accepts("--json"));
@@ -3765,9 +3217,6 @@ mod options_per_command {
         }
     }
 
-    /// The help and the gate are drawn from the same table, so neither can grow
-    /// a row the other has never heard of: every option some command accepts is
-    /// described, and every described option is accepted somewhere.
     #[test]
     fn the_table_and_the_gate_agree() {
         const ALL: &[Command] = &[
@@ -3792,8 +3241,6 @@ mod options_per_command {
         }
     }
 
-    /// `canonical` folds a short flag onto its long name, which is what lets the
-    /// gate judge `-s` and `--songs` as one option.
     #[test]
     fn short_flags_fold_onto_their_long_names() {
         assert_eq!(canonical("-s"), "--songs");
@@ -3808,9 +3255,6 @@ mod skin_choice_tests {
 
     #[test]
     fn a_folder_that_exists_is_a_skin() {
-        // How a player's own skin gets in: `--skin ~/skins/whatever`. Told
-        // apart from a named skin by being a folder, which the named ones
-        // never are.
         let dir = std::env::temp_dir().join(format!("dossier-choice-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("a folder");
@@ -3823,8 +3267,6 @@ mod skin_choice_tests {
 
     #[test]
     fn a_path_that_is_not_there_is_not_silently_a_skin() {
-        // A typo in a path must not come back as an empty skin that renders
-        // everything with the engine's own drawing and says nothing about it.
         let miss = SkinChoice::parse("/no/such/folder");
         assert!(miss.is_err(), "{miss:?}");
     }
@@ -3839,8 +3281,6 @@ mod skin_choice_tests {
 
     #[test]
     fn a_skin_folder_is_where_its_sounds_come_from_too() {
-        // A real skin keeps its `.wav`s beside its pictures, so importing the
-        // sounds is pointing the sample reader at the same place.
         let dir = std::env::temp_dir().join(format!("dossier-sounds-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("a folder");
@@ -3850,7 +3290,6 @@ mod skin_choice_tests {
     }
 }
 
-/// `dossier assay` — the map's difficulty, and a play's worth if one was given.
 fn assay_command(options: Options) -> Result<(), String> {
     let map = options
         .map
@@ -3861,8 +3300,6 @@ fn assay_command(options: Options) -> Result<(), String> {
         None => dossier_replay::Mods::new(0),
     };
 
-    // A play is described by *any* of these; a caller asking only about the map
-    // gives none of them and gets the difficulty half alone.
     let asked_about_a_play = options.accuracy.is_some()
         || options.combo.is_some()
         || options.misses.is_some()

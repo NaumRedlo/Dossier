@@ -1,31 +1,20 @@
-//! What a replay was worth, in the shape a timeline can draw.
-//!
-//! The engine already answers this — [`dossier_sim::Judge`] holds every
-//! judgement with its time, its verdict, how far off the click was and what the
-//! combo became. This puts that in front of somebody without rendering a single
-//! frame: a play can be looked at in the time it takes to read the file.
-
 use dossier_beatmap::Beatmap;
 use dossier_replay::Replay;
 use dossier_sim::{GameState, Part};
 
-/// One judgement, small on purpose: a map has a couple of thousand of these and
-/// they all go through the bridge at once.
 #[derive(serde::Serialize)]
 pub struct Mark {
     pub ms: f64,
-    /// Which object this was the judgement of. The viewer needs it to tie a
-    /// note to what happened to it: whether it swells as it leaves or only
-    /// fades, and whether it lights the field.
+
     pub object_index: usize,
-    /// `300`, `100`, `50` or `0`.
+
     pub worth: u32,
-    /// How early or late the click was, where that means anything.
+
     pub error_ms: Option<f64>,
     pub combo: u32,
-    /// `circle`, `slider` or `spinner`.
+
     pub kind: &'static str,
-    /// Where on the field it happened, for the number that pops up there.
+
     pub x: f64,
     pub y: f64,
 }
@@ -45,74 +34,53 @@ pub struct Judged {
     pub mods: String,
     pub from_ms: f64,
     pub to_ms: f64,
-    /// The longest combo we judged.
+
     pub combo: u32,
-    /// And the one osu! wrote in the replay's header. They differ when our
-    /// judging and the game's differ, which is worth seeing rather than
-    /// dividing one by the other.
+
     pub combo_recorded: u32,
-    /// Per cent, because that is what the engine's `accuracy()` returns —
-    /// named so nobody multiplies it by a hundred a second time.
+
     pub accuracy_percent: f64,
     pub counts: Counts,
     pub unstable_rate: Option<f64>,
-    /// The most combo this map can give — head, tail, every tick and every
-    /// turn of every slider. Without it "did they keep it" cannot be answered:
-    /// a number on its own is a number.
+
     pub combo_possible: u32,
-    /// How the play ended, in the words the game uses for it.
+
     pub outcome: Outcome,
-    /// Which client recorded this, and when.
+
     pub client: Client,
     pub marks: Vec<Mark>,
 }
 
-/// How a play ended.
-///
-/// `fail` — the bar emptied and the play stopped there, and `share` says how
-/// far into the map that was. `fc` — it went the distance and kept every link
-/// of the combo. `break` — nothing was missed but the combo still broke, which
-/// is a dropped slider end and has its own name at the table. `miss` — the
-/// ordinary case, with a count.
 #[derive(serde::Serialize)]
 pub struct Outcome {
     pub kind: &'static str,
-    /// Per cent of the map's objects reached. Only meaningful for a fail.
+
     pub share: f64,
     pub misses: u32,
 }
 
-/// The client a replay came out of.
-///
-/// `version` is the integer in the header. Stable writes a date there —
-/// `20210520` is the twentieth of May — and lazer writes thirty million and
-/// up, which is how the two are told apart. A number that is neither is
-/// reported as it stands rather than guessed at.
 #[derive(serde::Serialize)]
 pub struct Client {
     pub name: &'static str,
     pub version: i32,
-    /// `2021-05-20`, from the version, where the version is a date.
+
     pub build: String,
-    /// When the play was recorded, `YYYY-MM-DD HH:MM:SS` in UTC.
+
     pub played_at: String,
 }
 
-/// Windows ticks — hundred-nanosecond intervals since the first of January in
-/// the year one — are what a replay stores. This is the gap to the Unix epoch.
 const TICKS_TO_UNIX: i64 = 62_135_596_800;
 
 fn client_of(replay: &Replay) -> Client {
     let version = replay.game_version;
     let name = if version >= 30_000_000 {
-        "osu!lazer"
+        "lazer"
     } else if version >= 20_070_000 {
-        "osu!stable"
+        "stable"
     } else {
-        "неизвестен"
+        "неизвестно"
     };
-    // A stable version is a date and reads as one; lazer's is a build number
-    // and does not.
+
     let build = if name == "osu!stable" {
         format!(
             "{:04}-{:02}-{:02}",
@@ -136,7 +104,6 @@ fn client_of(replay: &Replay) -> Client {
     }
 }
 
-/// Where a judgement is shown: the note itself, or the far end of a slider.
 fn place(state: &GameState, index: usize) -> (f64, f64) {
     let Some(object) = state.timeline().objects.get(index) else {
         return (0.0, 0.0);
@@ -147,18 +114,11 @@ fn place(state: &GameState, index: usize) -> (f64, f64) {
     }
 }
 
-/// The same summary from a play that has already been set up.
-///
-/// Split out so that the viewer, which needs the whole scene anyway, does not
-/// parse the map and judge the replay a second time to put six numbers under
-/// the picture.
 pub fn summarise(beatmap: &Beatmap, replay: &Replay, state: &GameState) -> Result<Judged, String> {
     let judge = state
         .judge()
-        .ok_or_else(|| "судить нечего: в реплее нет ни одного нажатия".to_owned())?;
+        .ok_or_else(|| "Судить нечего: в реплее нет ни одного нажатия".to_owned())?;
 
-    // Only whole objects. A slider's ticks are judgements too, and putting them
-    // on the same strip would bury the circles under them.
     let marks: Vec<Mark> = judge
         .events()
         .iter()
@@ -174,10 +134,7 @@ pub fn summarise(beatmap: &Beatmap, replay: &Replay, state: &GameState) -> Resul
                 Part::Slider => "slider",
                 _ => "spinner",
             },
-            // Where the play actually ended, which for a slider is its tail
-            // and not its head. The renderer puts the mark and the flash there
-            // for the same reason: flashing a 100 at the start of a body the
-            // ball left seconds ago is one judgement in two places.
+
             x: place(state, event.object_index).0,
             y: place(state, event.object_index).1,
         })
@@ -189,9 +146,7 @@ pub fn summarise(beatmap: &Beatmap, replay: &Replay, state: &GameState) -> Resul
     let objects = state.timeline().objects.len().max(1);
     let possible = state.max_possible_combo();
     let misses = u32::from(last.counts.count_miss);
-    // `ending` is `Some` only when the play stopped before the map did, and
-    // the only thing that stops it is the bar emptying. So this is the fail,
-    // and it is the sim's own answer rather than a guess from the counts.
+
     let outcome = if state.ending().is_some() {
         Outcome {
             kind: "fail",
@@ -205,8 +160,6 @@ pub fn summarise(beatmap: &Beatmap, replay: &Replay, state: &GameState) -> Resul
             misses: 0,
         }
     } else if misses == 0 {
-        // Nothing missed and the combo still broke: a slider end let go. The
-        // game's own word for it is a slider break.
         Outcome {
             kind: "break",
             share: 100.0,

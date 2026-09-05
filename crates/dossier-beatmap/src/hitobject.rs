@@ -1,16 +1,3 @@
-//! Hit objects.
-//!
-//! One line encodes all three kinds, distinguished by bits in the `type` field:
-//! `x,y,time,type,hitSound,params...`. Circles carry nothing extra, spinners
-//! carry an end time, sliders carry a curve.
-//!
-//! This module records what the file says. Turning control points into a
-//! walkable path is [`crate::SliderPath`] — still beatmap geometry, since it
-//! depends only on the control points and the authored length, not on time or
-//! on the player.
-
-/// The playfield every `.osu` file is authored against, in osu!pixels. Screen
-/// resolution never enters the file — it's applied when drawing.
 pub const PLAYFIELD_WIDTH: f64 = 512.0;
 pub const PLAYFIELD_HEIGHT: f64 = 384.0;
 
@@ -21,7 +8,6 @@ pub struct Point {
 }
 
 impl Point {
-    /// Middle of the playfield — where every spinner is centred.
     pub const CENTRE: Self = Self {
         x: PLAYFIELD_WIDTH / 2.0,
         y: PLAYFIELD_HEIGHT / 2.0,
@@ -31,8 +17,6 @@ impl Point {
         (self.x - other.x).hypot(self.y - other.y)
     }
 
-    /// Reflected across the horizontal midline, which is what HardRock does to
-    /// the whole map.
     pub fn mirrored(self) -> Self {
         Self {
             x: self.x,
@@ -41,17 +25,14 @@ impl Point {
     }
 }
 
-/// How the control points are joined.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CurveType {
-    /// `B` — the common case; a chain of beziers split at repeated points.
     Bezier,
-    /// `C` — centripetal Catmull-Rom. Legacy, still present in old maps.
+
     Catmull,
-    /// `L` — straight segments.
+
     Linear,
-    /// `P` — a circular arc through three points. Falls back to Bezier when the
-    /// points are collinear (the game does the same rather than erroring).
+
     PerfectCircle,
 }
 
@@ -70,21 +51,15 @@ impl CurveType {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Slider {
     pub curve_type: CurveType,
-    /// Control points, starting with the object's own position.
+
     pub points: Vec<Point>,
-    /// How many times the ball traverses the path: 1 = there and done,
-    /// 2 = one repeat, and so on.
+
     pub slides: u32,
-    /// Path length in osu!pixels, as authored. May be absent in old maps.
+
     pub length: f64,
-    /// A sound bitmask per *edge* — the head, each repeat, and the tail, in
-    /// that order, so there are `slides + 1` of them when the map bothers.
-    ///
-    /// This is how a mapper puts a finish on the end of a slider and nothing
-    /// on its head. Empty when the map says nothing, in which case every edge
-    /// falls back to the object's own `hit_sound`.
+
     pub edge_sounds: Vec<u8>,
-    /// …and the banks for those edges, `normalSet:additionSet` apiece.
+
     pub edge_sets: Vec<(u8, u8)>,
 }
 
@@ -100,50 +75,24 @@ pub struct HitObject {
     pub pos: Point,
     pub time_ms: f64,
     pub new_combo: bool,
-    /// Which sounds the note makes when struck — a bitmask, see [`sound_bits`].
+
     pub hit_sound: u8,
-    /// Per-note overrides of the bank and volume the timing point would give.
+
     pub hit_sample: HitSample,
     pub kind: ObjectKind,
 }
 
-/// A note's `normalSet:additionSet:index:volume:filename` field.
-///
-/// Zero means "inherit" throughout, which is why these are raw codes rather
-/// than a resolved [`SampleSet`]: the resolution needs the timing point too,
-/// and doing it here would throw away the information that nothing was said.
-///
-/// The `filename` is dropped on purpose, and it is the only field here that
-/// is. It names a `.wav` in the beatmap's folder by filename rather than by
-/// bank, and this engine plays none: what it takes from a map is the *banked*
-/// samples a custom index selects, which is the mechanism maps actually
-/// hitsound with.
-///
-/// The four fields that remain are what chooses between them — which bank,
-/// which index, how loud. The index is the load-bearing one: osu! turns it
-/// into a filename suffix from two upwards,
-///
-/// ```csharp
-/// suffix: customSampleBank >= 2 ? customSampleBank.ToString() : null,
-/// ```
-///
-/// and only the beatmap may use that suffix. See
-/// [`dossier_audio::SamplePack`], where the two places a sound can come from
-/// are kept apart.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct HitSample {
-    /// Bank for the plain hit.
     pub normal_set: u8,
-    /// Bank for the whistle, finish and clap. Falls back to `normal_set`.
+
     pub addition_set: u8,
     pub index: u32,
-    /// 0–100, or zero to take the timing point's.
+
     pub volume: u8,
 }
 
 impl HitSample {
-    /// Parse the colon-separated field. Missing or malformed means "inherit
-    /// everything", which is also what most notes actually say.
     pub(crate) fn parse(field: Option<&&str>) -> Self {
         let Some(text) = field else {
             return Self::default();
@@ -177,9 +126,6 @@ impl HitObject {
         matches!(self.kind, ObjectKind::Spinner { .. })
     }
 
-    /// When the object stops being interactive. Circles are instantaneous;
-    /// spinners state their end; sliders need tempo and velocity to work it
-    /// out, so they report their start until the simulator resolves the path.
     pub fn end_time_ms(&self) -> f64 {
         match &self.kind {
             ObjectKind::Spinner { end_time_ms } => *end_time_ms,
@@ -188,7 +134,6 @@ impl HitObject {
     }
 }
 
-/// What a note sounds like. Absent bits mean the plain hit.
 pub mod sound_bits {
     pub const NORMAL: u8 = 1 << 0;
     pub const WHISTLE: u8 = 1 << 1;

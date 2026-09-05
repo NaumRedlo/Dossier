@@ -1,47 +1,13 @@
-//! lazer's mod score multiplier, in both of its generations.
-//!
-//! This used to be one number per mod, hanging off the mod itself. It is not
-//! any more:
-//!
-//! ```csharp
-//! [Obsolete("This property is no longer used to calculate the score multiplier.
-//!            Use `Ruleset.CreateScoreMultiplierCalculator()` instead.")]
-//! public virtual double ScoreMultiplier => 1;
-//! ```
-//!
-//! It moved to a calculator belonging to the ruleset, and that calculator is
-//! itself versioned — `OsuScoreMultiplierCalculatorV1` and `…V2`, with the
-//! change landing at replay version 30000017, "Mod score multiplier rebalance".
-//!
-//! Which matters because a replay carries the score the client computed *at the
-//! time*. Reading a 2025 replay with 2026's table is not a rounding error: an
-//! Easy play in the corpus came out forty-two per cent under before this
-//! existed, because Easy went from a flat half to a curve starting at 0.8.
-//!
-//! lazer recalculates every stored score when it upgrades, which is why it can
-//! keep one table. Nothing recalculates a replay file, so this keeps both.
-
 use dossier_beatmap::Difficulty;
 use dossier_replay::LazerMod;
 
-/// Which generation of the table a score was computed with.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Generation {
-    /// Before the rebalance: flat numbers, and a rate curve shared by the
-    /// speed mods in both directions.
     V1,
-    /// After it. Harder mods pay more, several combinations are priced
-    /// together rather than multiplied, and half the values now depend on the
-    /// mod's own settings.
+
     V2,
 }
 
-/// Replays at or after this version were scored with the second table.
-///
-/// ```text
-/// 30000017: Mod score multiplier rebalance. Recalculates the TotalScore of
-///           all scores with TotalScoreWithoutMods present.
-/// ```
 pub const FIRST_V2_VERSION: i32 = 30_000_017;
 
 impl Generation {
@@ -54,21 +20,6 @@ impl Generation {
     }
 }
 
-/// What the mods multiply a lazer score by.
-///
-/// ```csharp
-/// double result = 1;
-/// if (allModsByType.Count > 1)
-///     foreach (var (combination, multiplier) in combinationMultipliers)
-///         if (remainingModTypes.IsSupersetOf(combination)) { … remainingModTypes.ExceptWith(combination); }
-/// foreach (var modType in remainingModTypes)
-///     if (singleMultipliers.TryGetValue(modType, out var multiplier)) result *= …;
-/// ```
-///
-/// Two things in that are easy to miss and both change the answer. Combinations
-/// are consulted in the order they were registered and each one *consumes* its
-/// mods, so Hidden with Blinds is priced once at 1.24 rather than twice; and a
-/// mod with no entry contributes nothing at all rather than being an error.
 pub fn lazer_multiplier(generation: Generation, mods: &[LazerMod], difficulty: &Difficulty) -> f64 {
     if mods.is_empty() {
         return 1.0;
@@ -97,10 +48,8 @@ pub fn lazer_multiplier(generation: Generation, mods: &[LazerMod], difficulty: &
 
 type Price = fn(&[&LazerMod], &Difficulty) -> f64;
 
-/// Combinations priced as a unit, in registration order.
 fn combinations(generation: Generation) -> Vec<(&'static [&'static str], Price)> {
     match generation {
-        // V1 registers none at all.
         Generation::V1 => Vec::new(),
         Generation::V2 => vec![
             (&["HD", "BL"], (|_, _| BLINDS_V2) as Price),
@@ -178,9 +127,7 @@ fn single(generation: Generation, m: &LazerMod, difficulty: &Difficulty) -> f64 
             "BL" => BLINDS_V2,
             "TP" => 0.01,
             "DA" => difficulty_adjust_v2(m, difficulty),
-            // Classic's own note-lock switch is priced, which is the only
-            // place a mod's setting changes a multiplier by more than a
-            // rounding: keeping stable's lock is worth more than not.
+
             "CL" => {
                 if m.switch("classic_note_lock", true) {
                     0.985
@@ -204,7 +151,6 @@ fn single(generation: Generation, m: &LazerMod, difficulty: &Difficulty) -> f64 
 
 const BLINDS_V2: f64 = 1.24;
 
-/// V1 priced every rate change on one curve, in both directions.
 fn rate_adjust_v1(speed: f64) -> f64 {
     let value = (speed * 10.0) as i64 as f64 / 10.0 - 1.0;
     if speed >= 1.0 {
@@ -214,20 +160,16 @@ fn rate_adjust_v1(speed: f64) -> f64 {
     }
 }
 
-/// `0.8x base, reduced by 0.1x per extra life, floored at 0.4`.
 fn easy_v2(m: &LazerMod) -> f64 {
     const DEFAULT_RETRIES: f64 = 2.0;
     let retries = m.number("retries", DEFAULT_RETRIES);
     (0.8 - (0.1 * (retries - DEFAULT_RETRIES)).max(0.0)).max(0.4)
 }
 
-/// `0.2x at half speed, +0.07x per 0.05x` — default HalfTime is 0.55.
 fn half_time_v2(speed: f64) -> f64 {
     (speed * 20.0) as i64 as f64 / 20.0 * 1.4 - 0.5
 }
 
-/// Linear from 1.0 to 1.46, less a penny for an unusual rate. Default
-/// DoubleTime is 1.23.
 fn double_time_v2(speed: f64) -> f64 {
     let value = (speed * 10.0) as i64 as f64 / 10.0;
     let penalty = if value != 1.5 && value != 1.0 {
@@ -238,8 +180,6 @@ fn double_time_v2(speed: f64) -> f64 {
     (value - 1.0) * 0.46 + 1.0 - penalty
 }
 
-/// Hidden is worth less when something else is already telling the player
-/// where the beat is.
 fn hidden_v2(m: &LazerMod, other_mods_provide_timing_info: bool) -> f64 {
     let mut value = 1.04;
     if m.switch("only_fade_approach_circles", false) {
@@ -260,8 +200,6 @@ fn flashlight_v2(m: &LazerMod) -> f64 {
     value
 }
 
-/// Every difficulty setting moved away from the map's own costs five per cent
-/// per tenth, and the four are multiplied together.
 fn difficulty_adjust_v2(m: &LazerMod, map: &Difficulty) -> f64 {
     let term = |name: &str, authored: f64| {
         let chosen = m.number(name, authored);
@@ -279,7 +217,6 @@ fn deflate_v2(m: &LazerMod) -> f64 {
     1.0 - (0.02 * (m.number("start_scale", DEFAULT_START_SCALE) - DEFAULT_START_SCALE)).max(0.0)
 }
 
-/// A ramp is priced mostly by its slower end — four fifths of it.
 fn time_ramp_v2(m: &LazerMod) -> f64 {
     let (initial_default, final_default) = if m.acronym == "WU" {
         (1.0, 1.5)
@@ -313,9 +250,6 @@ mod tests {
 
     #[test]
     fn the_two_generations_price_the_same_mods_differently() {
-        // The rebalance is not a tweak. Easy went from a flat half to a curve
-        // starting at four fifths, which on the corpus's one Easy replay was
-        // forty-two per cent of the score.
         let ez = plain(&["EZ"]);
         assert_eq!(lazer_multiplier(Generation::V1, &ez, &difficulty()), 0.5);
         assert_eq!(lazer_multiplier(Generation::V2, &ez, &difficulty()), 0.8);
@@ -334,27 +268,21 @@ mod tests {
 
     #[test]
     fn the_speed_mods_follow_their_own_curves() {
-        // V1 shared one curve between both directions; V2 gave each its own.
         let dt = plain(&["DT"]);
         let ht = plain(&["HT"]);
         assert!((lazer_multiplier(Generation::V1, &dt, &difficulty()) - 1.1).abs() < 1e-9);
         assert!((lazer_multiplier(Generation::V2, &dt, &difficulty()) - 1.23).abs() < 1e-9);
-        // Default HalfTime is 0.55 under V2, against 0.3 under V1 — nearly
-        // twice as harsh, which is the single largest move in the rebalance.
+
         assert!((lazer_multiplier(Generation::V1, &ht, &difficulty()) - 0.3).abs() < 1e-9);
         assert!((lazer_multiplier(Generation::V2, &ht, &difficulty()) - 0.55).abs() < 1e-9);
     }
 
     #[test]
     fn a_combination_is_priced_once_and_not_twice() {
-        // Hidden with Blinds is 1.24 flat, not 1.04 × 1.24. The combination
-        // consumes both mods, and getting that wrong is a fifth of the score
-        // on every play that uses them.
         let together = plain(&["HD", "BL"]);
         let priced = lazer_multiplier(Generation::V2, &together, &difficulty());
         assert!((priced - BLINDS_V2).abs() < 1e-9, "{priced}");
 
-        // Apart, they are their own numbers and do multiply.
         let hd = lazer_multiplier(Generation::V2, &plain(&["HD"]), &difficulty());
         let bl = lazer_multiplier(Generation::V2, &plain(&["BL"]), &difficulty());
         assert!((hd - 1.04).abs() < 1e-9);
@@ -364,16 +292,12 @@ mod tests {
             "the combination should be the cheaper one"
         );
 
-        // V1 knows no combinations at all, so there it *is* the product.
         let v1 = lazer_multiplier(Generation::V1, &together, &difficulty());
         assert!((v1 - 1.06 * 1.12).abs() < 1e-9, "{v1}");
     }
 
     #[test]
     fn a_mod_with_no_price_is_free_rather_than_fatal() {
-        // Mirror, Alternate, Single Tap and the rest are registered nowhere.
-        // A table that treated an unknown acronym as an error would refuse to
-        // score half the replays anyone actually plays.
         let odd = plain(&["MR", "AL", "SG", "TD"]);
         for generation in [Generation::V1, Generation::V2] {
             assert_eq!(lazer_multiplier(generation, &odd, &difficulty()), 1.0);
@@ -382,21 +306,16 @@ mod tests {
 
     #[test]
     fn settings_the_player_changed_are_priced() {
-        // lazer only records settings that differ from their defaults, so an
-        // empty map means "as it comes" — and several multipliers ask about
-        // exactly that.
         let mut fiddled = LazerMod::plain("HR");
         fiddled
             .settings
             .insert("some_setting".into(), dossier_replay::Setting::Bool(true));
-        // V1 asks only whether anything was touched at all.
+
         assert_eq!(
             lazer_multiplier(Generation::V1, &[fiddled], &difficulty()),
             1.0
         );
 
-        // Classic is the one whose switch is priced outright: keeping stable's
-        // note lock is worth more than dropping it.
         let mut loose = LazerMod::plain("CL");
         loose.settings.insert(
             "classic_note_lock".into(),

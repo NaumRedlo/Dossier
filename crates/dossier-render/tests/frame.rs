@@ -1,10 +1,3 @@
-//! Frame tests.
-//!
-//! A renderer can't be checked by comparing pixels to a reference without
-//! pinning every colour choice for ever, so these ask the questions that stay
-//! true whatever the look: is anything drawn, is it drawn *when* it should be,
-//! and does it land where the playfield says.
-
 use dossier_beatmap::Beatmap;
 use dossier_render::{Effects, Layout, Scene, Skin};
 use dossier_replay::{bits, Mods};
@@ -23,11 +16,6 @@ ApproachRate:5
 256,192,5000,1,0
 ";
 
-/// Pixels that aren't the background — i.e. how much was actually drawn.
-///
-/// On the map's own colours, which is also the skin without a playfield outline.
-/// The 1984 skin draws one on every frame, which would make "nothing is drawn
-/// yet" fail on a constant and put a symmetric rectangle into every centroid.
 fn drawn(map: &Beatmap, time_ms: f64) -> usize {
     drawn_with(map, time_ms, Mods::default())
 }
@@ -52,7 +40,6 @@ fn drawn_with(map: &Beatmap, time_ms: f64, mods: Mods) -> usize {
 
 #[test]
 fn nothing_is_drawn_before_a_note_spawns() {
-    // AR5 is a 1200ms preempt, so at 3700 the note has yet to appear.
     let map = beatmap(ONE_CIRCLE);
     assert_eq!(drawn(&map, 3700.0), 0);
 }
@@ -62,16 +49,12 @@ fn a_note_is_on_screen_once_it_spawns_and_gone_after_it_resolves() {
     let map = beatmap(ONE_CIRCLE);
     assert!(drawn(&map, 4500.0) > 0, "mid-approach");
     assert!(drawn(&map, 5000.0) > 0, "due");
-    // With no replay the note runs to the end of its window and fades; well
-    // past that the screen is clear again.
+
     assert_eq!(drawn(&map, 7000.0), 0, "long gone");
 }
 
 #[test]
 fn a_note_grows_more_solid_as_it_approaches() {
-    // The approach circle shrinks toward the note, so the ink it covers falls
-    // while the note itself fades in. What must hold is that the note is
-    // fainter early than late.
     let map = beatmap(ONE_CIRCLE);
     let state = GameState::from_beatmap(&map, Mods::default());
     let scene = Scene::new(&state, Skin::with_combo_colours(map.combo_colours()));
@@ -100,8 +83,6 @@ fn the_frame_matches_the_size_it_was_asked_for() {
 
 #[test]
 fn a_note_is_drawn_where_the_playfield_puts_it() {
-    // Two maps differing only in where the note sits: the ink has to move with
-    // it, or the transform is decorative rather than real.
     let left = beatmap("[Difficulty]\nApproachRate:5\n\n[HitObjects]\n60,192,5000,1,0\n");
     let right = beatmap("[Difficulty]\nApproachRate:5\n\n[HitObjects]\n450,192,5000,1,0\n");
 
@@ -127,8 +108,6 @@ fn a_note_is_drawn_where_the_playfield_puts_it() {
 
 #[test]
 fn the_palette_advances_on_every_new_combo() {
-    // Type bit 4 marks a new combo. Two notes in different combos must not come
-    // out the same colour, or long maps turn into one flat wash.
     let map = beatmap(
         "
 [Difficulty]
@@ -161,10 +140,6 @@ Combo2 : 0,0,255
     assert!(second_blue > second_red, "second combo is the blue one");
 }
 
-// ── text ─────────────────────────────────────────────────────────────────
-
-/// The Torus face the project ships — osu!'s own, so the HUD looks like the
-/// game rather than like a debug overlay.
 fn font() -> dossier_render::Font {
     let path = concat!(
         env!("CARGO_MANIFEST_DIR"),
@@ -196,7 +171,6 @@ fn replay_over(frames: Vec<dossier_replay::ReplayFrame>) -> dossier_replay::Repl
     }
 }
 
-/// Ink in a corner of the frame — where the HUD lives.
 fn corner_ink(frame: &tiny_skia::Pixmap, right: bool, bottom: bool) -> usize {
     let (w, h) = (frame.width(), frame.height());
     let xs = if right { w * 2 / 3..w } else { 0..w / 3 };
@@ -215,8 +189,6 @@ fn corner_ink(frame: &tiny_skia::Pixmap, right: bool, bottom: bool) -> usize {
 
 #[test]
 fn a_map_with_no_replay_shows_no_score() {
-    // There is nothing to report, and `0x 100.00%` would be a claim rather
-    // than a blank.
     let map = beatmap(ONE_CIRCLE);
     let state = GameState::from_beatmap(&map, Mods::default());
     let scene = Scene::new(&state, Skin::default().with_font(font()));
@@ -259,7 +231,6 @@ fn a_replay_puts_accuracy_and_combo_in_the_corners() {
 
 #[test]
 fn without_a_font_the_play_is_still_drawn() {
-    // A missing typeface costs the numbers, not the frame.
     let map = beatmap(ONE_CIRCLE);
     assert!(drawn(&map, 5000.0) > 0);
 }
@@ -274,8 +245,6 @@ fn numbers_measure_wider_the_more_digits_they_have() {
 
 #[test]
 fn the_combo_number_restarts_at_one_in_a_new_combo() {
-    // Type bit 4 opens a combo. The number is the only thing telling a player
-    // which of two overlapping notes to hit first, so it has to be right.
     let map = beatmap(
         "
 [Difficulty]
@@ -293,8 +262,6 @@ ApproachRate:5
     let layout = Layout::new(640, 480);
     let frame = scene.frame(4900.0, &layout);
 
-    // The first and third notes both open a combo, so both are numbered 1 and
-    // must carry the same amount of ink; the middle one is a 2 and differs.
     let ink_on = |x: f64| {
         let (cx, cy) = layout.map(dossier_beatmap::Point { x, y: 192.0 });
         let mut count = 0;
@@ -314,14 +281,6 @@ ApproachRate:5
     assert_ne!(ink_on(150.0), ink_on(250.0), "the middle one is a 2");
 }
 
-// ── reverse arrows ───────────────────────────────────────────────────────
-
-/// A slider from (100,192) to (240,192) at 1000ms, one beat (500ms) per
-/// traversal, repeated as many times as the caller asks.
-///
-/// The control point and the authored length agree deliberately: a path is
-/// trimmed to the length the file states, so a slider drawn to x=300 but
-/// declared 140 long actually ends at x=240.
 fn repeating_slider(slides: u32) -> Beatmap {
     beatmap(&format!(
         "
@@ -340,8 +299,6 @@ SliderTickRate:1
     ))
 }
 
-/// White ink within a small box around a playfield point — the arrow is white
-/// and nothing else white sits at a slider's bare end.
 fn white_ink_at(map: &Beatmap, time_ms: f64, x: f64, y: f64) -> usize {
     let state = GameState::from_beatmap(map, Mods::default());
     let scene = Scene::new(&state, Skin::default());
@@ -363,22 +320,13 @@ fn white_ink_at(map: &Beatmap, time_ms: f64, x: f64, y: f64) -> usize {
     count
 }
 
-/// Any ink at all in a small box around a playfield point.
-///
-/// The white probe above cannot see a slider's body: the body is the combo
-/// colour with a border that is nowhere near white, which is why a plain
-/// slider's tail reads as zero white ink for its whole life. Measuring where
-/// the body has grown to needs a probe that counts anything that is not the
-/// background.
 fn ink_at(map: &Beatmap, time_ms: f64, x: f64, y: f64) -> usize {
     let state = GameState::from_beatmap(map, Mods::default());
     let scene = Scene::new(&state, Skin::default());
     let layout = Layout::new(640, 480);
     let frame = scene.frame(time_ms, &layout);
     let (cx, cy) = layout.map(dossier_beatmap::Point { x, y });
-    // The frame's own pixels are 8-bit; the skin's colour is not. Comparing
-    // them means bringing the background down to the frame's units rather than
-    // the other way round, which is what the white probe above does too.
+
     let background = Skin::default().background;
     let level = |c: f32| (c * 255.0).round() as i32;
     let (br, bg, bb) = (
@@ -396,7 +344,7 @@ fn ink_at(map: &Beatmap, time_ms: f64, x: f64, y: f64) -> usize {
             let off = (i32::from(p.red()) - br).abs()
                 + (i32::from(p.green()) - bg).abs()
                 + (i32::from(p.blue()) - bb).abs();
-            // A few levels of anti-aliasing noise is not a slider.
+
             if off > 12 {
                 count += 1;
             }
@@ -407,8 +355,6 @@ fn ink_at(map: &Beatmap, time_ms: f64, x: f64, y: f64) -> usize {
 
 #[test]
 fn a_slider_that_never_turns_gets_no_arrow() {
-    // Drawing one would tell the player to come back over something that ends
-    // where it stops.
     let map = repeating_slider(1);
     assert_eq!(white_ink_at(&map, 1200.0, 240.0, 192.0), 0);
 }
@@ -416,7 +362,7 @@ fn a_slider_that_never_turns_gets_no_arrow() {
 #[test]
 fn a_repeating_slider_marks_the_end_it_is_heading_for() {
     let map = repeating_slider(2);
-    // Mid-way through the first traversal, the turn ahead is at the far end.
+
     assert!(
         white_ink_at(&map, 1200.0, 240.0, 192.0) > 0,
         "arrow at the tail"
@@ -430,15 +376,6 @@ fn a_repeating_slider_marks_the_end_it_is_heading_for() {
 
 #[test]
 fn the_arrow_is_up_before_the_slider_even_starts() {
-    // The player needs to know it repeats while it is still approaching, not
-    // once they are already on it. The arrow sits at the turn and the turn is
-    // the tail, so this only holds while the body reaches the tail early —
-    // which it does, over the first third of the approach.
-    //
-    // Against a slider that does *not* repeat, rather than against zero. The
-    // tail carries the body's own white border cap, so "some near-white ink is
-    // there" was true with no arrow at all — this test passed through a
-    // regression that left the arrow dark for the whole approach.
     let turning = white_ink_at(&repeating_slider(2), 700.0, 240.0, 192.0);
     let plain = white_ink_at(&repeating_slider(1), 700.0, 240.0, 192.0);
     assert!(
@@ -449,15 +386,6 @@ fn the_arrow_is_up_before_the_slider_even_starts() {
 
 #[test]
 fn a_slider_is_whole_from_the_moment_it_appears() {
-    // osu! grows a body out of its head as it approaches and retracts it behind
-    // the ball as it is played, and both are on by default there. Off here,
-    // asked for: growth is a cue about *where a slider goes*, aimed at somebody
-    // who has to read it in the half second before they hit it, and retraction
-    // says how much is left. A viewer has neither job, and both movements read
-    // as the shape changing under them.
-    //
-    // Measured at the tail, a quarter of the way into an approach that used to
-    // leave it empty.
     let map = repeating_slider(1);
     assert!(
         ink_at(&map, -100.0, 240.0, 192.0) > 0,
@@ -468,8 +396,7 @@ fn a_slider_is_whole_from_the_moment_it_appears() {
 #[test]
 fn the_arrow_moves_to_the_other_end_after_a_turn() {
     let map = repeating_slider(3);
-    // Second traversal (1500–2000ms) runs tail to head, so the next turn is
-    // at the head.
+
     assert!(
         white_ink_at(&map, 1700.0, 100.0, 192.0) > 0,
         "arrow at the head"
@@ -484,18 +411,13 @@ fn the_arrow_moves_to_the_other_end_after_a_turn() {
 #[test]
 fn the_last_traversal_has_nothing_left_to_point_at() {
     let map = repeating_slider(2);
-    // 1500–2000ms is the final run back to the head; the ball stops there.
+
     assert_eq!(white_ink_at(&map, 1700.0, 100.0, 192.0), 0);
     assert_eq!(white_ink_at(&map, 1700.0, 240.0, 192.0), 0);
 }
 
-// ── colours ──────────────────────────────────────────────────────────────
-
 #[test]
 fn the_maps_own_combo_colour_is_what_gets_drawn() {
-    // A mapper chose these. This used to be half of a test that also checked
-    // the house skin overriding them on purpose; the house skin is gone, and
-    // what it was contrasted against is the part worth keeping.
     let map = beatmap(
         "
 [Difficulty]
@@ -521,18 +443,6 @@ Combo1 : 0,255,0
     assert!(green > 200, "the map asked for green");
 }
 
-// ── where the time in a frame goes ───────────────────────────────────────
-//
-// These measure rather than assert, so they're `#[ignore]`d — a test that can
-// only pass is noise in a suite. Run them on demand:
-//
-//     cargo test --release -p dossier-render profile -- --ignored --nocapture
-//
-// They exist because three plausible optimisations were tried against them and
-// all three lost. Keeping the measurements keeps the next person from paying
-// for the same three ideas.
-
-/// Not an assertion about speed — a breakdown of one frame.
 #[test]
 #[ignore = "a measurement, not a check"]
 fn profile_the_phases_of_a_frame() {
@@ -576,7 +486,6 @@ SliderMultiplier:1.8
     }
     let whole = mark.elapsed().as_secs_f64() / f64::from(rounds) * 1000.0;
 
-    // A scene with no font draws everything but the HUD and the numbers.
     let bare = Scene::new(&state, Skin::default());
     let mark = Instant::now();
     for i in 0..rounds {
@@ -591,18 +500,12 @@ SliderMultiplier:1.8
     );
 }
 
-/// Stroking a path and filling one are different amounts of work, and the
-/// renderer pays the first every frame for geometry that never changes.
-///
-/// Result: 1% apart. The stroker is not the cost; the covered area is.
 #[test]
 #[ignore = "a measurement, not a check"]
 fn profile_stroking_against_filling() {
     use std::time::Instant;
     use tiny_skia::{FillRule, LineCap, LineJoin, Paint, PathBuilder, Stroke, Transform};
 
-    // A long curved slider at 1080p scale: a few hundred segments under a
-    // stroke two circle-radii wide, which is the shape that dominates a frame.
     let mut builder = PathBuilder::new();
     builder.move_to(200.0, 500.0);
     for i in 1..400 {
@@ -652,12 +555,6 @@ fn profile_stroking_against_filling() {
     );
 }
 
-/// Filling a shape versus copying an already-filled one — the ceiling on what
-/// caching a slider's pixels could buy.
-///
-/// Result: blitting is 1.7× *slower*. A slider's bounding box is mostly empty,
-/// and a blit pays for every pixel in the box while an anti-aliased fill pays
-/// only for the ones it covers.
 #[test]
 #[ignore = "a measurement, not a check"]
 fn profile_filling_against_blitting() {
@@ -687,8 +584,6 @@ fn profile_filling_against_blitting() {
     let mut frame = tiny_skia::Pixmap::new(1920, 1080).unwrap();
     let rounds = 100;
 
-    // What the renderer does now: two wide fills, one for the border and one
-    // for the body inside it.
     let inner = Stroke {
         width: 90.0,
         line_cap: LineCap::Round,
@@ -702,7 +597,6 @@ fn profile_filling_against_blitting() {
     }
     let both_fills = mark.elapsed().as_secs_f64() / f64::from(rounds) * 1000.0;
 
-    // The same body drawn once into its own bounding box, then copied.
     let bounds = path.bounds();
     let (w, h) = (
         (bounds.width() + 120.0) as u32,
@@ -739,12 +633,6 @@ fn profile_filling_against_blitting() {
     let _ = FillRule::Winding;
 }
 
-/// The border is drawn as a second full-width fill under the body, of which
-/// only the rim is ever visible. Stroking the body's outline would touch the
-/// rim alone.
-///
-/// Result: 2.2× slower. Outlining turns a few hundred segments into a polygon
-/// with many more, and stroking that costs more than the fill it replaced.
 #[test]
 #[ignore = "a measurement, not a check"]
 fn profile_the_border_as_a_rim_instead_of_a_fill() {
@@ -778,7 +666,6 @@ fn profile_the_border_as_a_rim_instead_of_a_fill() {
     }
     let two_fills = mark.elapsed().as_secs_f64() / f64::from(rounds) * 1000.0;
 
-    // The body's own outline, stroked thinly, is the rim and nothing else.
     let body = tiny_skia::PathStroker::new()
         .stroke(&path, &round(100.0), 1.0)
         .expect("outline");
@@ -802,8 +689,6 @@ fn profile_the_border_as_a_rim_instead_of_a_fill() {
     );
 }
 
-/// Circles and slider bodies are different shapes with different costs, and a
-/// specialised rasteriser could only ever help one of them. This says which.
 #[test]
 #[ignore = "a measurement, not a check"]
 fn profile_circles_against_slider_bodies() {
@@ -817,8 +702,6 @@ fn profile_circles_against_slider_bodies() {
     };
     let rounds = 200;
 
-    // A busy 1080p frame: four notes on screen, each drawn as three discs and
-    // a ring, plus a cursor and its trail. Roughly forty circles.
     let circles: Vec<_> = (0..40)
         .map(|i| {
             let angle = f32::from(i as u16) * 0.9;
@@ -839,7 +722,6 @@ fn profile_circles_against_slider_bodies() {
     }
     let discs = mark.elapsed().as_secs_f64() / f64::from(rounds) * 1000.0;
 
-    // Two slider bodies, drawn the way the renderer draws them.
     let mut bodies = Vec::new();
     for k in 0..2 {
         let mut builder = PathBuilder::new();
@@ -875,19 +757,12 @@ fn profile_circles_against_slider_bodies() {
     );
 }
 
-/// A general path rasteriser builds edge lists and walks scanlines. A circle
-/// needs none of that: the coverage of a pixel is a function of its distance
-/// from the centre, and the interior needs no function at all.
-///
-/// This is the one place the measurements say a hand-written rasteriser could
-/// beat the library, so it's measured before it's believed.
 #[test]
 #[ignore = "a measurement, not a check"]
 fn profile_a_hand_written_circle_against_the_library() {
     use std::time::Instant;
     use tiny_skia::{Color, FillRule, Paint, PathBuilder, PremultipliedColorU8, Transform};
 
-    /// Fill an anti-aliased circle directly into the buffer.
     fn disc(pixmap: &mut tiny_skia::Pixmap, cx: f32, cy: f32, r: f32, colour: Color) {
         let (w, h) = (pixmap.width() as i32, pixmap.height() as i32);
         let (sr, sg, sb, sa) = (colour.red(), colour.green(), colour.blue(), colour.alpha());
@@ -904,8 +779,7 @@ fn profile_a_hand_written_circle_against_the_library() {
             let half = inside.sqrt();
             let left = ((cx - half - 1.0).floor() as i32).max(0);
             let right = ((cx + half + 1.0).ceil() as i32).min(w - 1);
-            // Everything more than a pixel inside the edge is fully covered,
-            // and needs no distance and no square root.
+
             let solid = (half - 1.5).max(0.0);
             let row = (y * w) as usize;
 
@@ -983,11 +857,6 @@ fn profile_a_hand_written_circle_against_the_library() {
     );
 }
 
-/// ffmpeg is handed RGBA and converts it to YUV before encoding — single
-/// threaded, on the same cores the renderer wants. Doing it ourselves moves
-/// that work into the render threads and cuts the pipe by 62%.
-///
-/// Worth it only if our conversion is cheaper than what it saves.
 #[test]
 #[ignore = "a measurement, not a check"]
 fn profile_converting_to_yuv_ourselves() {
@@ -1001,8 +870,7 @@ fn profile_converting_to_yuv_ourselves() {
     let mark = Instant::now();
     for _ in 0..rounds {
         let src = frame.data();
-        // Luma at full resolution, chroma at half in both directions — the
-        // planar layout every encoder wants.
+
         let (luma, chroma) = yuv.split_at_mut(w * h);
         let (u_plane, v_plane) = chroma.split_at_mut(w * h / 4);
 
@@ -1032,9 +900,6 @@ fn profile_converting_to_yuv_ourselves() {
     );
 }
 
-// ── animation ────────────────────────────────────────────────────────────
-
-/// One long slider, alone, so nothing else can account for a changed pixel.
 const LONE_SLIDER: &str = "
 [Difficulty]
 CircleSize:4
@@ -1051,8 +916,6 @@ SliderMultiplier:1.4
 
 #[test]
 fn a_slider_does_not_change_shape_while_it_is_watched() {
-    // Neither end moves: what is drawn while the body is still fading in
-    // reaches as far as what is drawn at the moment it is due.
     let map = beatmap(LONE_SLIDER);
     let state = GameState::from_beatmap(&map, Mods::default());
     let skin = Skin::default();
@@ -1060,9 +923,6 @@ fn a_slider_does_not_change_shape_while_it_is_watched() {
     let scene = Scene::new(&state, skin);
     let layout = Layout::new(640, 480);
 
-    // Compared by *reach* rather than by ink, and at two moments when the body
-    // is at full strength: while it is still fading in its dim edge falls below
-    // any threshold, and that is the fade rather than the length.
     let reach = |t: f64| {
         let frame = scene.frame(t, &layout);
         let bg = background.to_color_u8();
@@ -1076,9 +936,7 @@ fn a_slider_does_not_change_shape_while_it_is_watched() {
             })
             .count() as i64
     };
-    // Two moments inside the slide, both long past the head's own fade — its
-    // glow reaches further than the body does and would be measured as length.
-    // Between them the body used to retract behind the ball.
+
     let object = &state.timeline().objects[0];
     let span = object.end_ms - object.start_ms;
     let early = reach(object.start_ms + span * 0.4);
@@ -1089,10 +947,6 @@ fn a_slider_does_not_change_shape_while_it_is_watched() {
     );
 }
 
-/// How far across the frame anything is drawn, as a count of columns with ink.
-///
-/// A length rather than an area: a body that has retracted is *shorter*, and
-/// ink alone would also count the head's fade and the ball's own glow.
 fn reach(frame: &tiny_skia::Pixmap, background: tiny_skia::Color) -> i64 {
     let bg = background.to_color_u8();
     (0..frame.width())
@@ -1116,8 +970,6 @@ fn a_slider_retracts_behind_the_ball_when_asked() {
     let scene = Scene::new(&state, skin);
     let layout = Layout::new(640, 480);
 
-    // Both moments are inside the slide and long past the head's own fade, so
-    // what differs between them is the body and not the note that started it.
     let object = &state.timeline().objects[0];
     let span = object.end_ms - object.start_ms;
     let early = reach(
@@ -1145,8 +997,6 @@ fn a_slider_grows_out_of_its_head_when_asked() {
     let scene = Scene::new(&state, skin);
     let layout = Layout::new(640, 480);
 
-    // Just after it appears against just before it is due: the growth window is
-    // the first third of the approach, so the second moment is a full body.
     let object = &state.timeline().objects[0];
     let approach = state.timeline().objects[0].start_ms - 1200.0;
     let young = reach(&scene.frame(approach.max(0.0) + 60.0, &layout), background);
@@ -1162,8 +1012,6 @@ fn neither_end_of_a_slider_moves_unless_it_is_asked_for() {
     assert!(!skin.snake_out, "and so is retraction");
 }
 
-/// Four slides, so the body never retracts while the first pass runs — any
-/// change at the head's own position is the head itself, not the snake.
 const REPEATING_SLIDER: &str = "
 [Difficulty]
 CircleSize:4
@@ -1180,13 +1028,8 @@ SliderMultiplier:1.4
 
 #[test]
 fn a_slider_head_leaves_on_its_own_click_not_at_the_end_of_the_slider() {
-    // A slider is judged as a whole when it ends, and reusing that time left
-    // the head circle sitting on the playfield for the entire slide — over the
-    // top of its own reverse arrow — when the player had clicked it on the
-    // first frame. The head has its own time and has to be drawn by it.
     let map = beatmap(REPEATING_SLIDER);
-    // The press lands on the head's own time, so what the head does afterwards
-    // is measured from the click and not from some earlier frame.
+
     let frames: Vec<_> = (0..90)
         .map(|i| {
             let time_ms = 1800 + i * 20;
@@ -1211,14 +1054,6 @@ fn a_slider_head_leaves_on_its_own_click_not_at_the_end_of_the_slider() {
         object.end_ms
     );
 
-    // Sampled on a ring inside the head's fill rather than at its centre: the
-    // reverse arrow sits exactly on the centre and is the same white whether
-    // the head is there or not, which hid the difference entirely.
-    // Sampled at the head's rim rather than inside it. The body runs through
-    // the head at the same width, so a probe *within* the circle now reads the
-    // body's own lit centre — which is brighter than the head sitting on it,
-    // and is meant to be. The rim is where the two differ: a head draws its
-    // border there, and a body draws its darkest shade.
     let radius = state.difficulty().circle_radius() * 0.98;
     let brightness = |t: f64| {
         let frame = scene.frame(t, &layout);
@@ -1246,11 +1081,6 @@ fn a_slider_head_leaves_on_its_own_click_not_at_the_end_of_the_slider() {
 
 #[test]
 fn the_balls_core_grows_to_fill_it_as_the_slider_runs_out() {
-    // How far through a slider you are should be readable from the ball
-    // itself, not only from where it sits on the body. The core starts at a
-    // third of the ball and grows to meet it, so a point two thirds out is
-    // outside the core early and inside it late — and the core is the paler
-    // colour, so that point gets brighter.
     let map = beatmap(LONE_SLIDER);
     let state = GameState::from_beatmap(&map, Mods::default());
     let scene = Scene::new(&state, Skin::default());
@@ -1283,15 +1113,8 @@ fn the_balls_core_grows_to_fill_it_as_the_slider_runs_out() {
     );
 }
 
-/// Length 300 at SliderMultiplier 1.4 puts ticks every 140 osu!px — two of
-/// them, at roughly 0.47 and 0.93 along the path.
 #[test]
 fn a_tick_still_waits_for_its_own_moment() {
-    // Ticks used to be drawn as soon as the note appeared, which put dots in
-    // empty space in front of a slider that had not grown that far. The body no
-    // longer grows, so that emptiness is gone — but a tick still has a moment
-    // of its own to arrive at, and arriving early would make a slider look like
-    // it were already being played.
     let map = beatmap(LONE_SLIDER);
     let state = GameState::from_beatmap(&map, Mods::default());
     let skin = Skin::default();
@@ -1319,8 +1142,6 @@ fn a_tick_still_waits_for_its_own_moment() {
     );
 }
 
-/// Three slides: the ball turns at the tail, then at the head. Both ends have
-/// a turn coming while the first slide is still running.
 const THRICE_SLIDER: &str = "
 [Difficulty]
 CircleSize:4
@@ -1335,7 +1156,6 @@ SliderMultiplier:1.4
 100,192,2000,2,0,L|400:192,3,300
 ";
 
-/// Two slides: one turn, at the tail. The head never gets an arrow.
 const TWICE_SLIDER: &str = "
 [Difficulty]
 CircleSize:4
@@ -1352,28 +1172,17 @@ SliderMultiplier:1.4
 
 #[test]
 fn both_ends_keep_an_arrow_while_both_still_have_a_turn_coming() {
-    // Only ever drawing the nearest turn made the far end's arrow vanish the
-    // moment the near one appeared, which reads as the slider changing its
-    // mind about where it goes.
     let ink_at_head = |source: &str| {
         let map = beatmap(source);
         let state = GameState::from_beatmap(&map, Mods::default());
         let scene = Scene::new(&state, Skin::default());
         let layout = Layout::new(640, 480);
         let object = &state.timeline().objects[0];
-        // Just after the first turn, plus the arrival fade: that is when the
-        // head end's arrow is due — one traversal before its own turn — and it
-        // now eases in rather than snapping on, so it needs its fade to have
-        // run before there is full-brightness ink to count. Earlier than the
-        // turn it must NOT be up at all: the head circle sits at that exact
-        // spot, and an arrow standing there from the start appears underneath
-        // the note.
+
         let t = object.start_ms + (object.end_ms - object.start_ms) / 3.0 + 180.0;
         let frame = scene.frame(t, &layout);
         let (x, y) = layout.map(object.pos);
-        // The arrow is drawn in the border colour — near-white — while the
-        // body is a darkened combo colour. Counting anything brighter than the
-        // background caught the body too and saturated at every pixel.
+
         let mut count = 0;
         for dy in -20i32..=20 {
             for dx in -20i32..=20 {
@@ -1397,17 +1206,12 @@ fn both_ends_keep_an_arrow_while_both_still_have_a_turn_coming() {
 
 #[test]
 fn the_combo_number_goes_the_instant_the_note_is_judged() {
-    // Instafade: the number is a label on a target, and once the target has
-    // been taken it answers a question nobody is asking. Stretched and faded
-    // out along with the circle it just smears. The circle still swells.
     let map = beatmap(ONE_CIRCLE);
     let state = GameState::from_beatmap(&map, Mods::default());
     let scene = Scene::new(&state, Skin::default().with_font(font()));
     let layout = Layout::new(640, 480);
     let object = &state.timeline().objects[0];
 
-    // The number sits at the centre in the border colour — near-white against
-    // the combo colour of the circle around it.
     let (x, y) = layout.map(object.pos);
     let pale_at = |t: f64| {
         let frame = scene.frame(t, &layout);
@@ -1439,10 +1243,6 @@ fn the_combo_number_goes_the_instant_the_note_is_judged() {
 
 #[test]
 fn the_arrow_takes_the_skins_colour_not_the_one_it_was_drawn_in() {
-    // The shape came from a black icon; only the silhouette was taken, so the
-    // arrow is filled with the skin's border colour. Nothing in the renderer
-    // ever sees that black, and a skin can change the arrow's colour without
-    // anyone re-exporting anything.
     let map = beatmap(THRICE_SLIDER);
     let state = GameState::from_beatmap(&map, Mods::default());
     let skin = Skin::default();
@@ -1475,7 +1275,6 @@ fn the_arrow_takes_the_skins_colour_not_the_one_it_was_drawn_in() {
     );
 }
 
-/// The same, with a tempo: 500ms to the beat, so beats land on 8500 and 9000.
 const BREAK_MAP_TIMED: &str = "
 [Difficulty]
 CircleSize:5
@@ -1494,9 +1293,6 @@ ApproachRate:5
 
 #[test]
 fn the_break_arrows_pulse_on_the_map_s_own_beat() {
-    // The music does not stop during a break, so the beat is the one clock the
-    // player is still reading. A cue riding it says something they can already
-    // feel; a blink of its own competes with the music instead.
     let map = beatmap(BREAK_MAP_TIMED);
     let state = GameState::from_beatmap(&map, Mods::default());
     let scene = Scene::new(&state, Skin::default());
@@ -1519,9 +1315,6 @@ fn the_break_arrows_pulse_on_the_map_s_own_beat() {
     );
 }
 
-/// Two notes with a declared break between them. The second sits far enough
-/// past the break that it has not spawned when the break ends — otherwise
-/// "the arrows are gone" and "the note is here" cannot be told apart.
 const BREAK_MAP: &str = "
 [Difficulty]
 CircleSize:5
@@ -1537,10 +1330,6 @@ ApproachRate:5
 
 #[test]
 fn a_break_puts_arrows_up_before_the_map_resumes() {
-    // A break is the one stretch where the rhythm stops saying when the next
-    // note is coming, so the game has to say it instead. The arrows blink to
-    // catch an eye that has stopped watching, and the blinking strengthens as
-    // the break runs out.
     let map = beatmap(BREAK_MAP);
     assert_eq!(map.breaks, vec![(3000.0, 9000.0)], "the break parsed");
 
@@ -1562,8 +1351,7 @@ fn a_break_puts_arrows_up_before_the_map_resumes() {
             })
             .count()
     };
-    // Summed rather than counted, because the ramp is a change of brightness
-    // and an anti-aliased edge covers the same pixels whatever its alpha.
+
     let glow = |t: f64| {
         scene
             .frame(t, &layout)
@@ -1575,8 +1363,7 @@ fn a_break_puts_arrows_up_before_the_map_resumes() {
 
     assert_eq!(ink(4000.0), 0, "nothing yet — the break has just begun");
     assert!(ink(8800.0) > 0, "arrows before the map resumes");
-    // This map states no timing at all, so there is no beat to pulse on and
-    // the arrows hold still rather than inventing a tempo.
+
     let steady: Vec<u32> = (0..12)
         .map(|i| glow(8300.0 + f64::from(i) * 25.0))
         .collect();
@@ -1585,17 +1372,12 @@ fn a_break_puts_arrows_up_before_the_map_resumes() {
         "no timing, no pulse: {steady:?}"
     );
 
-    // Play resumes: they go quickly, but they go rather than blink out.
     assert!(ink(9050.0) > 0, "still on their way out just after");
     assert_eq!(ink(9300.0), 0, "and gone once the exit has run");
 }
 
 #[test]
 fn the_break_arrows_sit_outside_the_field_and_inside_the_frame() {
-    // Their tips touch the field's edge and their bodies are wholly outside
-    // it, so nothing about the map is ever behind them. And they must survive
-    // the frame: placed from the arrow's own size, which follows the circle
-    // radius, they move with it rather than being fixed where one map put them.
     let map = beatmap(BREAK_MAP_TIMED);
     let state = GameState::from_beatmap(&map, Mods::default());
     let skin = Skin::default();
@@ -1604,16 +1386,13 @@ fn the_break_arrows_sit_outside_the_field_and_inside_the_frame() {
 
     for (w, h) in [(640u32, 480u32), (1280, 720), (1920, 1080)] {
         let layout = Layout::new(w, h);
-        let frame = scene.frame(8500.0, &layout); // on the beat, brightest
+        let frame = scene.frame(8500.0, &layout);
         let (x0, y0) = layout.map(dossier_beatmap::Point { x: 0.0, y: 0.0 });
         let (x1, y1) = layout.map(dossier_beatmap::Point {
             x: dossier_beatmap::PLAYFIELD_WIDTH,
             y: dossier_beatmap::PLAYFIELD_HEIGHT,
         });
 
-        // Tolerance in osu!pixels rather than screen ones, so it means the
-        // same thing at every size: the tips are placed to touch the edge, and
-        // a touch drawn with a rounded stroke lands a hair over it.
         let slack = layout.length(5.0);
         let (mut inside, mut outside, mut on_the_border) = (0, 0, 0);
         for y in 0..h {
@@ -1643,7 +1422,6 @@ fn the_break_arrows_sit_outside_the_field_and_inside_the_frame() {
     }
 }
 
-/// One spinner, alone, so nothing else can account for a changed pixel.
 const LONE_SPINNER: &str = "
 [Difficulty]
 CircleSize:5
@@ -1656,9 +1434,6 @@ OverallDifficulty:5
 
 #[test]
 fn the_spinner_ring_closes_onto_its_centre_mark() {
-    // A ring shrinking towards nothing says only that it is shrinking; one
-    // arriving at a mark says how far it still has to go. So the mark has to
-    // be there from the start, and the ring has to reach it.
     let map = beatmap(LONE_SPINNER);
     let state = GameState::from_beatmap(&map, Mods::default());
     let skin = Skin::default();
@@ -1667,7 +1442,6 @@ fn the_spinner_ring_closes_onto_its_centre_mark() {
     let layout = Layout::new(640, 480);
     let object = &state.timeline().objects[0];
 
-    // How far the drawn ink reaches from the centre of the field.
     let reach = |t: f64| {
         let frame = scene.frame(t, &layout);
         let (cx, cy) = layout.map(dossier_beatmap::Point::CENTRE);
@@ -1695,23 +1469,18 @@ fn the_spinner_ring_closes_onto_its_centre_mark() {
         "the ring closes: {opening} then {closing}"
     );
 
-    // …and it closes onto the mark rather than past it or short of it. The
-    // mark's own outer edge is what is left at the end.
     let mark = layout.length(20.0);
     assert!(
         (closing - mark).abs() < layout.length(6.0),
         "it lands on the mark: {closing} against a mark of {mark}"
     );
 
-    // And the mark is up from the start, not conjured at the end: a target
-    // that appears once you have arrived at it was never a target.
     assert!(
         ink_near_centre(&scene, &layout, object.start_ms + 50.0) > 0,
         "the centre mark is there while the ring is still wide"
     );
 }
 
-/// Non-background pixels within the centre mark's own radius.
 fn ink_near_centre(scene: &Scene<'_>, layout: &Layout, t: f64) -> usize {
     let background = Skin::default().background.to_color_u8();
     let frame = scene.frame(t, layout);
@@ -1735,10 +1504,6 @@ fn ink_near_centre(scene: &Scene<'_>, layout: &Layout, t: f64) -> usize {
 
 #[test]
 fn no_arrow_stands_under_the_head_while_the_first_slide_runs() {
-    // The head end of a slider is exactly where its head circle sits. An arrow
-    // that goes up as soon as the slider appears therefore sits underneath the
-    // note for the whole first slide — which is what it looked like on a
-    // three-slide slider: a second arrow appearing under the note.
     let map = beatmap(THRICE_SLIDER);
     let state = GameState::from_beatmap(&map, Mods::default());
     let scene = Scene::new(&state, Skin::default());
@@ -1746,7 +1511,6 @@ fn no_arrow_stands_under_the_head_while_the_first_slide_runs() {
     let object = &state.timeline().objects[0];
     let span = (object.end_ms - object.start_ms) / 3.0;
 
-    // Near-white is the arrow's colour; the head circle and body are not.
     let white_at_head = |t: f64| {
         let frame = scene.frame(t, &layout);
         let (x, y) = layout.map(object.pos);
@@ -1769,34 +1533,21 @@ fn no_arrow_stands_under_the_head_while_the_first_slide_runs() {
         0,
         "the head's turn is two traversals away — nothing belongs there yet"
     );
-    // Its fade has to have run: an arrow that becomes due mid-slide now eases
-    // in rather than snapping on, so at +60ms it is present but still dim.
+
     assert!(
         white_at_head(object.start_ms + span + 180.0) > 0,
         "and it arrives once the ball sets off towards it"
     );
 }
 
-// ── Hidden ───────────────────────────────────────────────────────────────
-
 #[test]
 fn hidden_takes_the_note_away_before_it_is_due() {
-    // The mod is a rendering mod and nothing else — it changes what the player
-    // could see and not one thing about how the play is judged — so this is
-    // the only place it can be tested, and the only place it can be wrong.
-    //
-    // AR 5, so preempt is 1200ms and the note spawns at 800. Under Hidden it
-    // finishes arriving at 800 + 480 and is gone by 800 + 840, which is three
-    // tenths of preempt before it is due. Without the mod it is at full
-    // opacity there, with an approach circle around it.
     let map =
         beatmap("[Difficulty]\nApproachRate:5\nCircleSize:4\n\n[HitObjects]\n256,192,2000,1,0\n");
 
-    // Just after the fade-in has finished: both are showing something.
     assert!(drawn_with(&map, 1300.0, Mods::default()) > 0);
     assert!(drawn_with(&map, 1300.0, Mods::new(bits::HIDDEN)) > 0);
 
-    // And once Hidden's fade-out has run its course, one of them is empty.
     assert_eq!(
         drawn_with(&map, 1700.0, Mods::new(bits::HIDDEN)),
         0,
@@ -1810,14 +1561,6 @@ fn hidden_takes_the_note_away_before_it_is_due() {
 
 #[test]
 fn hidden_draws_no_approach_circle() {
-    // The half of the mod a player actually feels: `OsuModHidden` implements
-    // `IHidesApproachCircles`.
-    //
-    // Measured at 1280ms, chosen so the comparison cannot be explained by the
-    // note: that is exactly where Hidden's fade-in ends, so its note is at
-    // full opacity while the plain one is still only three fifths of the way
-    // in. The plain frame nonetheless covers more of the screen, and the only
-    // thing it has that the other does not is the ring.
     let map =
         beatmap("[Difficulty]\nApproachRate:5\nCircleSize:4\n\n[HitObjects]\n256,192,2000,1,0\n");
     let plain = drawn_with(&map, 1280.0, Mods::default());
@@ -1828,15 +1571,6 @@ fn hidden_draws_no_approach_circle() {
     );
 }
 
-/// Pixels bright enough to be something the game drew at full strength, rather
-/// than the ghost of something fading.
-/// The pixel at the slider ball, under whichever mods.
-///
-/// A count of bright pixels across the frame used to do this, and cannot any
-/// more: a slider body now carries a bright border of its own, so "bright"
-/// no longer separates the parts Hidden fades from the parts it leaves. The
-/// ball is drawn opaque over the body, so its own pixel answers the question
-/// the test actually asks.
 fn ball_pixel(map: &Beatmap, time_ms: f64, mods: Mods) -> (u8, u8, u8) {
     let state = GameState::from_beatmap(map, mods);
     let object = &state.timeline().objects[0];
@@ -1853,15 +1587,6 @@ fn ball_pixel(map: &Beatmap, time_ms: f64, mods: Mods) -> (u8, u8, u8) {
 
 #[test]
 fn hidden_leaves_the_ball_and_the_arrow_alone() {
-    // The mod fades the body, the ticks and the head. Its own source says so
-    // of the arrows outright — "reverse arrow is not affected by hidden" — and
-    // the ball and its follow circle are not in the switch at all. It has to
-    // be that way round to be playable: the body is what the mod takes away,
-    // and the ball is what is left to follow once it has gone.
-    //
-    // A slider with a repeat, read near its end, where its body has all but
-    // dissolved. The ball is drawn over that body at full opacity, so it must
-    // look the same with the mod as without.
     let map = beatmap(
         "[Difficulty]\nApproachRate:5\nCircleSize:4\nSliderMultiplier:1.0\nSliderTickRate:1\n\n         [TimingPoints]\n0,500,4,2,0,100,1,0\n\n         [HitObjects]\n100,192,2000,2,0,L|300:192,2,100\n",
     );
@@ -1895,8 +1620,6 @@ fn brightness(frame: &tiny_skia::Pixmap) -> f64 {
     sum as f64 / frame.pixels().len() as f64
 }
 
-/// A scene whose play stops after one note of three, which is what gives it
-/// an ending for the fail animation to run from.
 fn failed_scene(map: &Beatmap) -> (GameState, Skin) {
     let mut replay = replay_over(vec![
         dossier_replay::ReplayFrame {
@@ -1912,8 +1635,7 @@ fn failed_scene(map: &Beatmap) -> (GameState, Skin) {
             keys: dossier_replay::Keys(0),
         },
     ]);
-    // The header says one object was judged where the map has three. That
-    // difference is the whole definition of a play that ended early.
+
     replay.hits.count_300 = 1;
     let state = GameState::new(map, &replay);
     let skin = Skin::with_combo_colours(map.combo_colours()).with_font(font());
@@ -1922,9 +1644,6 @@ fn failed_scene(map: &Beatmap) -> (GameState, Skin) {
 
 #[test]
 fn the_play_comes_up_from_black_rather_than_cutting_in() {
-    // A replay, because the HUD is what is on screen from the first frame —
-    // the notes are still a preempt away either way, so they cannot show that
-    // the opening fades.
     let map = beatmap(THREE_CIRCLES);
     let (state, skin) = failed_scene(&map);
     let scene = Scene::new(&state, skin);
@@ -1943,13 +1662,6 @@ fn the_play_comes_up_from_black_rather_than_cutting_in() {
 
 #[test]
 fn the_failed_frame_goes_black_the_instant_it_springs_back() {
-    // The frame does not fade during the movement — it springs back to size
-    // with everything still on it — and the instant it lands, the frame is
-    // black. One beat: the arrival and the cut are the same moment.
-    //
-    // It used to clear over a fifth of a second, on the reasoning that a hard
-    // cut there would read as a dropped frame. Watched, it did not: a fade
-    // after an arrival is a second, smaller ending trailing the first.
     let map = beatmap(THREE_CIRCLES);
     let (state, skin) = failed_scene(&map);
     let end = state
@@ -1961,9 +1673,8 @@ fn the_failed_frame_goes_black_the_instant_it_springs_back() {
 
     let animation = dossier_render::FAIL_ANIMATION_MS;
 
-    // The last frame of the movement still holds the play…
     let released = brightness(&scene.frame(end + animation - 1.0, &layout));
-    // …and the first one after it holds nothing.
+
     let gone = brightness(&scene.frame(end + animation + 1.0, &layout));
 
     assert!(
@@ -1971,8 +1682,6 @@ fn the_failed_frame_goes_black_the_instant_it_springs_back() {
         "the frame should still hold the play when it lets go"
     );
 
-    // "Nothing left" is the background, which is not black — an empty frame is
-    // what the renderer fills before it draws anything at all.
     let empty = {
         let mut blank = tiny_skia::Pixmap::new(320, 240).expect("a frame");
         blank.fill(Skin::default().background);
@@ -1986,10 +1695,6 @@ fn the_failed_frame_goes_black_the_instant_it_springs_back() {
 
 #[test]
 fn nofail_takes_the_health_bar_and_the_warning_off() {
-    // The warning is the clear case: red from the edges means *this is about to
-    // end*, and under NoFail it never was. A warning that cannot come true is
-    // worse than none, because a viewer who learns to discount it discounts the
-    // real one too.
     let map = beatmap(THREE_CIRCLES);
     let (state, skin) = failed_scene(&map);
     let plain = brightness(&Scene::new(&state, skin.clone()).frame(5200.0, &Layout::new(320, 240)));
@@ -2021,18 +1726,11 @@ fn nofail_takes_the_health_bar_and_the_warning_off() {
 
 #[test]
 fn the_field_is_offset_in_osu_pixels_rather_than_in_frame_pixels() {
-    // danser's `SetOsuViewport` shifts the playfield down by eight *osu!pixels*,
-    // scaled with everything else. Written as a fraction of the frame height it
-    // agrees only at 16:9 and diverges everywhere else — 80% too low on a tall
-    // frame, nearly triple on a portrait one — which turns the layout from a
-    // property of the game into a property of the window.
     let map = beatmap(ONE_CIRCLE);
     let state = GameState::from_beatmap(&map, Mods::default());
     let skin = Skin::with_combo_colours(map.combo_colours());
     let scene = Scene::new(&state, skin);
 
-    // The same field at three shapes. In each, the offset below centre has to be
-    // eight osu!pixels — which is `layout.length(8.0)`.
     for (w, h) in [(1920u32, 1080u32), (960, 1080), (1080, 1920)] {
         let layout = Layout::new(w, h);
         let (_, centre_y) = layout.map(dossier_beatmap::Point { x: 256.0, y: 192.0 });
@@ -2046,7 +1744,6 @@ fn the_field_is_offset_in_osu_pixels_rather_than_in_frame_pixels() {
     }
 }
 
-/// A map that is one long spinner.
 const ONE_SPINNER: &str = "
 [Difficulty]
 CircleSize:4
@@ -2059,10 +1756,6 @@ OverallDifficulty:6
 
 #[test]
 fn hidden_does_not_take_the_spinner_away() {
-    // Hidden removes what you would otherwise read ahead. A spinner has nothing
-    // to read ahead — it is a thing you are already doing — and osu!'s own mod
-    // does not touch it. Fading it like a note left the whole spinner section as
-    // a black screen with a cursor circling in it.
     let map = beatmap(ONE_SPINNER);
     let skin = Skin::with_combo_colours(map.combo_colours());
 
@@ -2070,7 +1763,6 @@ fn hidden_does_not_take_the_spinner_away() {
     let hidden = GameState::from_beatmap(&map, Mods::new(dossier_replay::bits::HIDDEN));
     let layout = Layout::new(320, 240);
 
-    // Well into the spinner, where Hidden's fade would long since have finished.
     let without = brightness(&Scene::new(&plain, skin.clone()).frame(5000.0, &layout));
     let with = brightness(&Scene::new(&hidden, skin).frame(5000.0, &layout));
 
@@ -2083,11 +1775,6 @@ fn hidden_does_not_take_the_spinner_away() {
 
 #[test]
 fn the_play_goes_out_the_way_it_came_in() {
-    // A render that ends on a hard cut reads as a file that was trimmed rather
-    // than as a run that finished — the mirror of why it fades in.
-    // A replay that saw the map out, so the HUD is still up after the last note
-    // and there is something left for the fade to take. Without one the frame is
-    // already empty by then and the fade has nothing to do.
     let map = beatmap(THREE_CIRCLES);
     let mut replay = replay_over(vec![
         dossier_replay::ReplayFrame {
@@ -2110,8 +1797,6 @@ fn the_play_goes_out_the_way_it_came_in() {
     let layout = Layout::new(320, 240);
     let (_, to) = state.span_ms();
 
-    // After the last note, never over it — the render carries a tail for this,
-    // so the fade lives past the end of the play rather than across its finish.
     let settled = brightness(&scene.frame(to - 50.0, &layout));
     let going = brightness(&scene.frame(to + dossier_render::OUTRO_FADE_MS * 0.5, &layout));
     let last = brightness(&scene.frame(to + dossier_render::OUTRO_FADE_MS * 0.95, &layout));
@@ -2124,8 +1809,6 @@ fn the_play_goes_out_the_way_it_came_in() {
 
 #[test]
 fn a_failed_play_is_not_faded_out_as_well() {
-    // It has its own ending — the frame closes in, springs back and clears — and
-    // fading that too would be two endings on top of each other.
     let map = beatmap(THREE_CIRCLES);
     let (state, skin) = failed_scene(&map);
     let scene = Scene::new(&state, skin);
@@ -2142,17 +1825,11 @@ fn a_failed_play_is_not_faded_out_as_well() {
 
 #[test]
 fn hidden_fades_a_slider_body_slowly_and_its_head_like_a_note() {
-    // Two cases in the mod, two schedules here. Sharing one opacity dimmed the
-    // head on the body's timetable, so on a long slider the note about to be
-    // clicked was already half gone.
     let map = repeating_slider(1);
     let hidden = GameState::from_beatmap(&map, Mods::new(dossier_replay::bits::HIDDEN));
     let skin = Skin::with_combo_colours(map.combo_colours());
     let scene = Scene::new(&hidden, skin);
 
-    // The head is a note: under Hidden it is gone before it is due, which is the
-    // whole of the mod. The body is still dissolving at that moment, because it
-    // has the length of the slider to do it in.
     let object = &hidden.timeline().objects[0];
     let at = object.start_ms - 30.0;
     let head = scene.head_alpha_for_test(0, at);
@@ -2163,20 +1840,11 @@ fn hidden_fades_a_slider_body_slowly_and_its_head_like_a_note() {
         "while the body is still on its way out: {body:.3}"
     );
 
-    // And they are the same until the fade-out begins — the difference is when
-    // each one leaves, not how either arrives.
     let arriving = object.start_ms - hidden.difficulty().preempt_ms() + 1.0;
     assert!(
         (scene.head_alpha_for_test(0, arriving) - scene.alpha_for_test(0, arriving)).abs() < 0.01
     );
 }
-
-// ── a skin the player brought ────────────────────────────────────────────
-//
-// The engine draws every element itself and always could. These are about the
-// other way in: the files a player already has, drawn in place of our shapes.
-// What is checked is not that a picture appears somewhere — it is that the
-// skin's own decisions survive, including the decision to show nothing.
 
 fn skin_folder(name: &str) -> std::path::PathBuf {
     let dir = std::env::temp_dir().join(format!("dossier-frame-{name}-{}", std::process::id()));
@@ -2185,8 +1853,6 @@ fn skin_folder(name: &str) -> std::path::PathBuf {
     dir
 }
 
-/// A flat square at `alpha`, white — which is how a skin ships an element the
-/// game is going to tint.
 fn write_element(dir: &std::path::Path, name: &str, size: u32, alpha: u8) {
     let mut pixmap = tiny_skia::Pixmap::new(size, size).expect("a canvas");
     for pixel in pixmap.pixels_mut() {
@@ -2221,12 +1887,6 @@ Combo1 : 0,255,0
     )
 }
 
-/// The bare field, which every frame is filled with before anything is drawn.
-///
-/// "Nothing was drawn here" has to be measured against this and not against the
-/// alpha channel: a frame is opaque everywhere, so an alpha of 255 says only
-/// that a frame exists. Two tests below were written that way first and passed
-/// without testing anything.
 const FIELD: (u8, u8, u8) = (12, 12, 16);
 
 fn note_pixel(skin: Skin) -> (u8, u8, u8) {
@@ -2251,8 +1911,6 @@ fn with_sprites(dir: &std::path::Path, map: &Beatmap) -> Skin {
 
 #[test]
 fn a_skins_own_hit_circle_is_drawn_in_place_of_ours() {
-    // White art, a green combo: the note has to come out green. Left untinted
-    // it would be white on every combo of every map.
     let dir = skin_folder("drawn");
     write_element(&dir, "hitcircle.png", 128, 255);
     let (r, g, b) = note_pixel(with_sprites(&dir, &one_note()));
@@ -2269,10 +1927,6 @@ fn a_skins_own_hit_circle_is_drawn_in_place_of_ours() {
 
 #[test]
 fn a_skin_that_turned_the_note_off_gets_an_empty_field() {
-    // The whole reason blank and absent are kept apart. This is not a corner
-    // case: the skin this was written against ships a fully transparent
-    // `hitcircle`, reads its notes off the combo numbers, and drawing our own
-    // circle there would put back the thing its author deleted.
     let dir = skin_folder("silenced");
     write_element(&dir, "hitcircle.png", 128, 0);
     assert_eq!(
@@ -2284,8 +1938,6 @@ fn a_skin_that_turned_the_note_off_gets_an_empty_field() {
 
 #[test]
 fn a_skin_that_says_nothing_leaves_the_note_to_us() {
-    // An empty folder is not a skin that hides everything — it is a skin with
-    // nothing to say, and every element stays ours to draw.
     let dir = skin_folder("empty");
     assert_ne!(
         note_pixel(with_sprites(&dir, &one_note())),
@@ -2294,7 +1946,6 @@ fn a_skin_that_says_nothing_leaves_the_note_to_us() {
     );
 }
 
-/// How far the ink reaches to the right of the note's centre, in pixels.
 fn ink_reach(dir: &std::path::Path) -> usize {
     let map = one_note();
     let state = GameState::from_beatmap(&map, Mods::default());
@@ -2312,14 +1963,6 @@ fn ink_reach(dir: &std::path::Path) -> usize {
 
 #[test]
 fn a_bigger_file_is_a_bigger_element_because_that_is_what_it_means() {
-    // Everything in a skin is proportioned against a 128-pixel hit circle, so
-    // the file's own size is not incidental — it is the size. This is why the
-    // skin this was written against has a 320px `hitcircleoverlay` over a 128px
-    // circle and comes out with a rim wider than the note.
-    //
-    // Written the other way round first, asserting that file size does not
-    // matter, which contradicted the rule the renderer documents. The test was
-    // wrong, not the renderer.
     let small = skin_folder("small");
     write_element(&small, "hitcircle.png", 128, 255);
     let big = skin_folder("big");
@@ -2335,9 +1978,6 @@ fn a_bigger_file_is_a_bigger_element_because_that_is_what_it_means() {
 
 #[test]
 fn the_high_resolution_suffix_is_what_normalises_a_size() {
-    // `@2x` is the one thing that says "this file holds two pixels per skin
-    // pixel". A 256px `@2x` and a 128px plain file are the same element at the
-    // same size, and only the suffix distinguishes that from the case above.
     let plain = skin_folder("plain-size");
     write_element(&plain, "hitcircle.png", 128, 255);
     let double = skin_folder("double-size");
@@ -2352,16 +1992,12 @@ fn the_high_resolution_suffix_is_what_normalises_a_size() {
 
 #[test]
 fn a_skins_digits_are_drawn_where_it_asked_for_them() {
-    // For an instafade skin the combo number *is* the note: the hit circle is
-    // blank and each digit carries a whole ring, which vanishes on the click
-    // because a number is taken away the instant a note is judged.
     let dir = skin_folder("digits");
     for digit in 0..10 {
         write_element(&dir, &format!("default-{digit}.png"), 64, 255);
     }
     std::fs::write(dir.join("skin.ini"), "[Fonts]\nHitCircleOverlap: 0\n").expect("written");
 
-    // Nothing but digits in the folder, so anything drawn at the note is one.
     let map = one_note();
     let state = GameState::from_beatmap(&map, Mods::default());
     let layout = Layout::new(640, 480);
@@ -2377,13 +2013,6 @@ fn a_skins_digits_are_drawn_where_it_asked_for_them() {
 
 #[test]
 fn an_overlap_as_wide_as_the_digit_stacks_the_figures() {
-    // The skin this was written against sets 160 against 160-pixel digits.
-    // Read literally that is no advance at all, and a two-figure combo comes
-    // out as one ring rather than two side by side — which is the point, since
-    // each digit carries a ring. A "sensible" clamp would draw two.
-    // Deliberately wider than a note: the folder holds no `hitcircle`, so the
-    // engine still draws its own circle underneath, and figures smaller than
-    // that circle would be measuring the circle rather than the layout.
     let stacked = skin_folder("stacked");
     let spread = skin_folder("spread");
     for dir in [&stacked, &spread] {
@@ -2394,8 +2023,6 @@ fn an_overlap_as_wide_as_the_digit_stacks_the_figures() {
     std::fs::write(stacked.join("skin.ini"), "[Fonts]\nHitCircleOverlap: 256\n").expect("written");
     std::fs::write(spread.join("skin.ini"), "[Fonts]\nHitCircleOverlap: 0\n").expect("written");
 
-    // Twelve notes in one combo, drawn at the twelfth: two figures, which is
-    // the only place an overlap can show at all.
     let map = beatmap(
         "
 [Difficulty]
@@ -2449,20 +2076,6 @@ fn with_digits(dir: &std::path::Path, map: &Beatmap) -> Skin {
     skin
 }
 
-// ── a slider's own two ends ──────────────────────────────────────────────
-//
-// osu! lets a skin draw the start and the end of a slider differently from a
-// note, and the wiki binds each overlay to its own base: `sliderstartcircle`
-// "overrides `hitcircle.png` for the start of the slider, if skinned", and
-// `sliderstartcircleoverlay` "requires `sliderstartcircle.png` to function".
-//
-// Reported against a real skin, which ships a start circle with a distinctly
-// thinner rim and blanks its end circle outright. Both decisions were being
-// ignored: every slider end wore the note's picture, so a skin that had gone
-// to the trouble came out half-applied — the notes were its own and the
-// sliders were not.
-
-/// A slider from (100,192) to (240,192), so the two ends can be sampled apart.
 fn plain_slider() -> Beatmap {
     beatmap(
         "
@@ -2484,8 +2097,6 @@ Combo1 : 0,255,0
     )
 }
 
-/// Everything a slider's ends can be drawn from, so a fixture decides what is
-/// present by which files it writes rather than by what the reader asks for.
 fn slider_wanted() -> Vec<dossier_render::elements::Element> {
     use dossier_render::elements::Element;
     vec![
@@ -2506,8 +2117,6 @@ fn dressed(dir: &std::path::Path, map: &Beatmap) -> Skin {
     skin
 }
 
-/// The frame at the moment the slider starts, when the body has finished
-/// growing and both ends are up.
 fn slider_frame(dir: &std::path::Path) -> tiny_skia::Pixmap {
     let map = plain_slider();
     let state = GameState::from_beatmap(&map, Mods::default());
@@ -2515,13 +2124,6 @@ fn slider_frame(dir: &std::path::Path) -> tiny_skia::Pixmap {
     Scene::new(&state, dressed(dir, &map)).frame(1000.0, &layout)
 }
 
-/// The colour of one point on the slider's centreline.
-///
-/// A count of "is anything here" cannot answer this: the body covers both ends
-/// and every probe comes back full. What separates a circle from bare body is
-/// the colour at the point, and the body's own shade depends only on distance
-/// from the centreline — so a point halfway along is what an end looks like
-/// with nothing drawn on it.
 fn line_pixel(frame: &tiny_skia::Pixmap, x: f64) -> (u8, u8, u8) {
     let layout = Layout::new(640, 480);
     let (cx, cy) = layout.map(dossier_beatmap::Point { x, y: 192.0 });
@@ -2533,14 +2135,11 @@ fn line_pixel(frame: &tiny_skia::Pixmap, x: f64) -> (u8, u8, u8) {
 
 const HEAD_X: f64 = 100.0;
 const TAIL_X: f64 = 240.0;
-/// Halfway along, where only the body can be.
+
 const BODY_X: f64 = 170.0;
 
 #[test]
 fn a_skins_own_start_circle_is_drawn_in_place_of_the_note() {
-    // Same map, same moment, two skins differing only in whether the start
-    // circle exists. The note's picture is solid and the start circle is
-    // faint, so a head drawn from the wrong file is not a near miss.
     let note_only = skin_folder("slider-note-only");
     write_element(&note_only, "hitcircle.png", 128, 255);
 
@@ -2555,10 +2154,6 @@ fn a_skins_own_start_circle_is_drawn_in_place_of_the_note() {
 
 #[test]
 fn an_overlay_without_its_own_base_falls_back_to_the_notes_pair() {
-    // "Requires `sliderstartcircle.png` to function". So a skin shipping the
-    // overlay alone gets the note's pair for both halves — not the note's disc
-    // with somebody else's rim over it, which is the shape this would take if
-    // the two were resolved one at a time.
     let note_only = skin_folder("slider-pair-base");
     write_element(&note_only, "hitcircle.png", 128, 255);
     write_element(&note_only, "hitcircleoverlay.png", 128, 90);
@@ -2577,8 +2172,6 @@ fn an_overlay_without_its_own_base_falls_back_to_the_notes_pair() {
 
 #[test]
 fn the_end_of_a_slider_wears_the_note_when_the_skin_says_nothing() {
-    // The end circle is a thing osu! draws and we did not. A skin shipping no
-    // `sliderendcircle` still has one — the note's.
     let dir = skin_folder("slider-end-default");
     write_element(&dir, "hitcircle.png", 128, 255);
     let frame = slider_frame(&dir);
@@ -2591,16 +2184,11 @@ fn the_end_of_a_slider_wears_the_note_when_the_skin_says_nothing() {
 
 #[test]
 fn an_end_circle_blanked_on_purpose_stays_blank() {
-    // The decision this was reported for. A one-pixel transparent
-    // `sliderendcircle` is a skin saying "no circle there", and it has to
-    // outrank the fallback — otherwise the answer to blanking a file is the
-    // note's picture, which is louder than what was blanked.
     let dir = skin_folder("slider-end-hidden");
     write_element(&dir, "hitcircle.png", 128, 255);
     write_element(&dir, "sliderendcircle.png", 1, 0);
     let frame = slider_frame(&dir);
-    // Within a hair rather than exactly: the body's round cap and its straight
-    // middle round differently by a level or so, and a level is not a circle.
+
     assert!(
         apart(line_pixel(&frame, TAIL_X), line_pixel(&frame, BODY_X)) <= 6,
         "something was drawn where the skin asked for nothing: {:?} against {:?}",
@@ -2611,10 +2199,6 @@ fn an_end_circle_blanked_on_purpose_stays_blank() {
 
 #[test]
 fn our_own_look_still_ends_a_slider_on_its_body() {
-    // The engine's own drawing is not a skin and never had an end circle; the
-    // body's cap is the end, and that was tuned against danser. Adding the
-    // element must not quietly put a note there on every render made without
-    // a skin at all.
     let map = plain_slider();
     let state = GameState::from_beatmap(&map, Mods::default());
     let layout = Layout::new(640, 480);
@@ -2627,13 +2211,6 @@ fn our_own_look_still_ends_a_slider_on_its_body() {
     );
 }
 
-// ── the trail between notes, and the flash under one ─────────────────────
-//
-// Two elements osu! has always drawn and this engine never did, added
-// together because they are the same shape of thing: a skin's picture placed
-// off a rule the game states, and nothing at all when the skin brought none.
-
-/// Two notes in one combo, far enough apart for a trail to fit between them.
 fn spaced_pair(new_combo: bool) -> Beatmap {
     beatmap(&format!(
         "
@@ -2666,7 +2243,6 @@ fn trail_ink(dir: Option<&std::path::Path>, map: &Beatmap, time_ms: f64) -> usiz
     let layout = Layout::new(640, 480);
     let frame = Scene::new(&state, skin).frame(time_ms, &layout);
 
-    // The middle of the gap, well clear of either note.
     let (cx, cy) = layout.map(dossier_beatmap::Point { x: 250.0, y: 192.0 });
     let mut count = 0;
     for dy in -30i32..30 {
@@ -2687,8 +2263,7 @@ fn a_trail_runs_between_two_notes_of_one_combo() {
     let dir = skin_folder("trail");
     write_element(&dir, "followpoint.png", 32, 255);
     let map = spaced_pair(false);
-    // Eight tenths of a second before the second note: inside the eight
-    // hundred milliseconds of warning osu! gives each mark.
+
     assert!(
         trail_ink(Some(&dir), &map, 4600.0) > 0,
         "nothing was drawn between the two notes"
@@ -2697,8 +2272,6 @@ fn a_trail_runs_between_two_notes_of_one_combo() {
 
 #[test]
 fn no_trail_crosses_a_new_combo() {
-    // A trail says "this one, then this one" about notes that belong together.
-    // A new combo is the map saying they do not.
     let dir = skin_folder("trail-combo");
     write_element(&dir, "followpoint.png", 32, 255);
     assert_eq!(
@@ -2710,8 +2283,6 @@ fn no_trail_crosses_a_new_combo() {
 
 #[test]
 fn a_skin_without_the_picture_gets_no_trail() {
-    // Our own look has never had them, and giving it a set now would
-    // redecorate every render made without a skin.
     let dir = skin_folder("trail-none");
     write_element(&dir, "hitcircle.png", 128, 255);
     assert_eq!(trail_ink(Some(&dir), &spaced_pair(false), 4600.0), 0);
@@ -2720,8 +2291,6 @@ fn a_skin_without_the_picture_gets_no_trail() {
 
 #[test]
 fn the_trail_is_gone_once_the_note_it_led_to_is_due() {
-    // Each mark leaves on its own moment, so by the time the player is at the
-    // second note the road there has been taken up behind them.
     let dir = skin_folder("trail-gone");
     write_element(&dir, "followpoint.png", 32, 255);
     let map = spaced_pair(false);
@@ -2732,14 +2301,6 @@ fn the_trail_is_gone_once_the_note_it_led_to_is_due() {
 
 #[test]
 fn the_hit_flash_is_off_unless_it_is_asked_for() {
-    // osu! makes this a setting rather than a fact about a skin —
-    // `config.Get<bool>(OsuSetting.HitLighting)` — and so does this. It was
-    // switched on when it was written and turned straight back off: on a dense
-    // map each flash lasts a second and a half, so a dozen are up at once and
-    // the play is behind them.
-    //
-    // The skin's picture is read either way. What is checked here is that
-    // reading it is not the same as drawing it.
     let dir = skin_folder("flash");
     write_element(&dir, "hitcircle.png", 128, 255);
     write_element(&dir, "lighting.png", 100, 255);
@@ -2754,10 +2315,6 @@ fn the_hit_flash_is_off_unless_it_is_asked_for() {
     assert!(!Skin::default().hit_lighting, "and not drawn");
 }
 
-// ── the key overlay, when the skin brought one ───────────────────────────
-
-/// A map with two notes and a replay that taps both, so the counters have
-/// something to count.
 fn tapped() -> (Beatmap, dossier_replay::Replay) {
     let map = beatmap(
         "
@@ -2790,7 +2347,6 @@ CircleSize:4
     (map, replay)
 }
 
-/// Ink in the strip down the right edge, where the counters live.
 fn key_column(dir: Option<&std::path::Path>, time_ms: f64) -> usize {
     use dossier_render::elements::Element;
     use dossier_render::imported::Sprites;
@@ -2826,9 +2382,6 @@ fn key_column(dir: Option<&std::path::Path>, time_ms: f64) -> usize {
 
 #[test]
 fn a_skins_own_key_overlay_replaces_ours() {
-    // Ours is a column of rounded cards with a tap trail behind them, which is
-    // a good readout and not this one. osu! draws the overlay from two files,
-    // and a skin that ships them has said what it wants it to look like.
     let dir = skin_folder("keys");
     write_element(&dir, "inputoverlay-key.png", 46, 255);
     write_element(&dir, "inputoverlay-background.png", 64, 160);
@@ -2841,8 +2394,6 @@ fn a_skins_own_key_overlay_replaces_ours() {
 
 #[test]
 fn a_skin_with_no_overlay_keeps_our_counters() {
-    // The rule everywhere else in here: a skin decides what it ships pictures
-    // for and nothing more.
     let dir = skin_folder("keys-none");
     write_element(&dir, "hitcircle.png", 128, 255);
     assert_eq!(key_column(Some(&dir), 4200.0), key_column(None, 4200.0));
@@ -2850,12 +2401,9 @@ fn a_skin_with_no_overlay_keeps_our_counters() {
 
 #[test]
 fn a_held_key_is_lit_and_a_loose_one_is_not() {
-    // `keySprite.Colour = ActiveColour` on the way down and white on the way
-    // up, so the two states are told apart by more than a shrinking box.
     let dir = skin_folder("keys-lit");
     write_element(&dir, "inputoverlay-key.png", 46, 255);
 
-    // 3000ms is the first tap; 3600ms is well clear of both.
     assert_ne!(
         key_column(Some(&dir), 3000.0),
         key_column(Some(&dir), 3600.0),
@@ -2865,10 +2413,6 @@ fn a_held_key_is_lit_and_a_loose_one_is_not() {
 
 #[test]
 fn the_skins_overlay_hangs_off_the_edge_of_the_frame() {
-    // `Anchor = Anchor.TopRight` with nothing subtracted. Ours is inset
-    // because it is a floating column of cards and a card wants air around it;
-    // this is a panel, and a panel held off the edge reads as having come
-    // loose. Checked in the last column of pixels, which nothing else reaches.
     use dossier_render::elements::Element;
     use dossier_render::imported::Sprites;
 
@@ -2896,11 +2440,6 @@ fn the_skins_overlay_hangs_off_the_edge_of_the_frame() {
     assert!(lit > 0, "the panel does not reach the edge of the frame");
 }
 
-/// The topmost row the skin's own key reaches.
-///
-/// Told from the panel behind it by brightness, and from the score and the dial
-/// above it by starting below them and by asking for a solid run of bright
-/// columns — a key is a filled block and a figure is not.
 fn first_key_row(dir: &std::path::Path) -> u32 {
     use dossier_render::elements::Element;
     use dossier_render::imported::Sprites;
@@ -2919,13 +2458,6 @@ fn first_key_row(dir: &std::path::Path) -> u32 {
 
 #[test]
 fn the_keys_sit_where_they_sit_whatever_the_panel_measures() {
-    // The whole of osu!'s rule is what it leaves *out*: the plate's size is in
-    // none of the arithmetic. The plate and the row of keys hang off one number
-    // — `height / 2 - 40`, stated in the 640×480 space — so a skin shipping a
-    // longer panel moves the panel and leaves the keys exactly where they were.
-    //
-    // Centring the plate instead, which is what this did, dragged the keys with
-    // it: these two panels came out 80px apart in a 480-tall frame.
     let short = skin_folder("keys-panel-short");
     write_element(&short, "inputoverlay-key.png", 46, 255);
     write_panel(&short, "inputoverlay-background.png", 55, 55, 90);
@@ -2937,18 +2469,12 @@ fn the_keys_sit_where_they_sit_whatever_the_panel_measures() {
     let (a, b) = (first_key_row(&short), first_key_row(&long));
     assert_eq!(a, b, "the panel's length moved the keys: {a} against {b}");
 
-    // And at the place osu! puts it rather than merely the same place twice:
-    // 64 units above the middle for the plate's top and seven more for the key,
-    // which in a 480-tall frame is 240 - 40 + 4.4.
     assert!(
         (202..=207).contains(&a),
         "the keys start at {a}, not the 204 osu! starts them at"
     );
 }
 
-// ── how big a judgement is ───────────────────────────────────────────────
-
-/// A missed note on a map of the given circle size, and the skin's mark for it.
 fn miss_mark_width(circle_size: &str, dir: &std::path::Path) -> usize {
     use dossier_render::elements::Element;
     use dossier_render::elements::Verdict;
@@ -2969,9 +2495,7 @@ CircleSize:{circle_size}
 256,192,9000,5,0
 "
     ));
-    // Frames, no presses: the first note is missed and the skin's `hit0` is
-    // what marks it. The cursor is parked in a corner so it cannot be measured
-    // along with the mark.
+
     let replay = replay_over(
         (0..40)
             .map(|i| dossier_replay::ReplayFrame {
@@ -2990,8 +2514,7 @@ CircleSize:{circle_size}
 
     let state = GameState::new(&map, &replay);
     let layout = Layout::new(640, 480);
-    // Well inside the half-second the mark is held at full size, and clear of
-    // the hundred milliseconds it takes to snap down from 1.6.
+
     let frame = Scene::new(&state, skin).frame(3400.0, &layout);
 
     let (cx, cy) = layout.map(dossier_beatmap::Point::CENTRE);
@@ -3009,15 +2532,8 @@ CircleSize:{circle_size}
 
 #[test]
 fn a_judgement_below_the_ceiling_keeps_the_size_the_skin_drew() {
-    // osu! hangs a judgement in the playfield beside the objects rather than on
-    // one, so a mark drawn thirty pixels wide is thirty playfield pixels wide
-    // on every map. Ours took the note as its ruler, like everything else a
-    // skin brings — right for a piece of a hit object, wrong for this.
-    //
-    // A ceiling sits over that, and this test stays below it: the skin's own
-    // size is what comes out, whatever the circles are doing.
     let dir = skin_folder("verdict-ruler");
-    // A CS6 note allows 25 and this is 12, so the ceiling never comes into it.
+
     write_padded(&dir, "hit0.png", 200, 12);
 
     let roomy = miss_mark_width("2", &dir);
@@ -3028,8 +2544,6 @@ fn a_judgement_below_the_ceiling_keeps_the_size_the_skin_drew() {
         "the circle size changed the mark: {roomy} against {tight}"
     );
 
-    // And a bigger picture is a bigger mark: below the ceiling the skin is the
-    // only ruler.
     let wider = skin_folder("verdict-ruler-wide");
     write_padded(&wider, "hit0.png", 200, 16);
     assert!(
@@ -3038,14 +2552,6 @@ fn a_judgement_below_the_ceiling_keeps_the_size_the_skin_drew() {
     );
 }
 
-/// Three samples off one frame: each note at its own centre, and the point
-/// where the two overlap.
-///
-/// Self-calibrating on purpose. Written first by assuming which combo colour
-/// each note would get, it passed in both drawing orders and tested nothing —
-/// the palette rotates, and the assumption was simply wrong. Asking the frame
-/// what each note looks like and then asking who owns the overlap cannot be
-/// wrong about that.
 fn overlap_samples(time_ms: f64, played: bool) -> [(u8, u8, u8); 3] {
     let map = beatmap(
         "
@@ -3067,8 +2573,7 @@ Combo2 : 0,0,255
 ",
     );
     let layout = Layout::new(640, 480);
-    // With a replay the first note is struck on time and is history by 3100;
-    // without one nothing is judged and both notes are still in play.
+
     let state = if played {
         GameState::new(
             &map,
@@ -3102,11 +2607,10 @@ Combo2 : 0,0,255
         let p = frame.pixel(cx as u32, cy as u32).expect("inside the frame");
         (p.red(), p.green(), p.blue())
     };
-    // The far side of each note, clear of the other, and the seam between them.
+
     [at(215.0), at(295.0), at(255.0)]
 }
 
-/// How far apart two colours are, as the sum of their channels' differences.
 fn apart(a: (u8, u8, u8), b: (u8, u8, u8)) -> i32 {
     (i32::from(a.0) - i32::from(b.0)).abs()
         + (i32::from(a.1) - i32::from(b.1)).abs()
@@ -3115,16 +2619,6 @@ fn apart(a: (u8, u8, u8), b: (u8, u8, u8)) -> i32 {
 
 #[test]
 fn among_notes_still_in_play_the_soonest_is_on_top() {
-    // The game's own order, and the source says what it is for:
-    //
-    // ```csharp
-    // // Put earlier hitobjects towards the end of the list, so they handle input first
-    // ```
-    //
-    // A render takes no input, so that requirement buys nothing here — but the
-    // reading it produces is still the right one among notes still to be hit:
-    // a viewer's eye is on what happens next, and the soonest note on top is
-    // what that looks like.
     let [first, second, seam] = overlap_samples(3100.0, false);
     assert!(
         apart(first, second) > 60,
@@ -3136,9 +2630,6 @@ fn among_notes_still_in_play_the_soonest_is_on_top() {
     );
 }
 
-/// A note at 2000 struck on time, and a slider from 2200 whose body runs over
-/// where it was — so at 2100 the note is a tenth of a second into its exit and
-/// the slider is being played.
 fn exit_over_a_later_body(slider: bool) -> (u8, u8, u8) {
     let mut objects = String::from("256,192,2000,5,0\n");
     if slider {
@@ -3195,20 +2686,9 @@ SliderTickRate:1
 
 #[test]
 fn a_notes_exit_animation_is_not_dimmed_by_a_later_sliders_body() {
-    // Reported once the dimming worked: the swelling, fading circle a struck
-    // note leaves behind was being darkened through the body and cut by its
-    // border.
-    //
-    // The game's one rule answers it. A note already struck is almost always
-    // *earlier* than the slider being played now, so it is on top — while an
-    // approach circle belongs to a note still coming, which is later, so that
-    // one passes under the body and is dimmed. Both from the same comparison,
-    // where a second rule about "judged" objects broke one to get the other.
     let with_slider = exit_over_a_later_body(true);
     let alone = exit_over_a_later_body(false);
-    // Not "unchanged" — "not darker". The circle is part-way through fading, so
-    // a body under it shows through and reads *brighter*, which is what
-    // compositing in that order looks like. Dimmed would be the other way.
+
     let sum = |c: (u8, u8, u8)| u32::from(c.0) + u32::from(c.1) + u32::from(c.2);
     assert!(
         sum(with_slider) >= sum(alone),
@@ -3219,8 +2699,6 @@ fn a_notes_exit_animation_is_not_dimmed_by_a_later_sliders_body() {
 
 #[test]
 fn the_one_underneath_is_still_drawn() {
-    // Order, not omission: the note that lost the overlap is whole everywhere
-    // the other one is not.
     for played in [false, true] {
         let [first, _, _] = overlap_samples(3100.0, played);
         assert!(
@@ -3230,13 +2708,6 @@ fn the_one_underneath_is_still_drawn() {
     }
 }
 
-/// One pixel where a slider's body and a note sit on the same spot, sampled
-/// from three renders: both objects, the note alone, and the body alone.
-///
-/// Three because the body is not opaque — whichever is underneath tints
-/// whatever is over it, so "is the pixel the body's colour" has no yes or no.
-/// What can be answered is which of the two it is *nearer*, and that needs both
-/// of them measured rather than assumed.
 fn stacked(time_ms: f64, note: bool, slider: bool) -> (u8, u8, u8) {
     let mut objects = String::new();
     if slider {
@@ -3261,8 +2732,6 @@ SliderTickRate:1
 {objects}"
     ));
     let replay = replay_over(vec![
-        // Parked out of the way before the click as well as after it: the
-        // cursor sits at the replay's first position until the replay starts.
         dossier_replay::ReplayFrame {
             time_ms: 1000,
             x: 60.0,
@@ -3281,9 +2750,6 @@ SliderTickRate:1
             y: 192.0,
             keys: dossier_replay::Keys(dossier_replay::Keys::K1),
         },
-        // …and away. The cursor is drawn wherever the replay last left it, on
-        // top of everything — parked on the note it becomes the thing being
-        // measured, which is a trap this file has fallen into twice.
         dossier_replay::ReplayFrame {
             time_ms: 2520,
             x: 60.0,
@@ -3293,16 +2759,9 @@ SliderTickRate:1
     ]);
     let state = GameState::new(&map, &replay);
     let layout = Layout::new(640, 480);
-    // With every judgement blanked. They are drawn over the objects they belong
-    // to — the slider's head leaves one at this very point — and they are large
-    // enough to be what this probe measures instead of the note. The question
-    // here is whether a body dims what it passes over, and a mark sitting on
-    // top of both answers a different one.
+
     let quiet = skin_folder("dim-probe");
     for name in ["hit300", "hit100", "hit50", "hit0"] {
-        // Transparent rather than empty: a zero-byte file reads as "no such
-        // element", which falls back to our own lettering — the very thing
-        // being kept out of the frame.
         write_element(&quiet, &format!("{name}.png"), 8, 0);
     }
     let mut skin = Skin::default().with_font(font());
@@ -3319,11 +2778,7 @@ SliderTickRate:1
         dossier_render::imported::Sprites::read(&quiet, &wanted),
     ));
     let frame = Scene::new(&state, skin).frame(time_ms, &layout);
-    // On the note's own rim rather than at its centre. The centre is the
-    // brightest part of the body's track and the note's fill is faint against
-    // it — measured there, "is the note still visible" has no signal at all,
-    // which is how this test came to pass on a judgement mark drawn over the
-    // same point. The rim is the note's brightest part and the body's darkest.
+
     let (cx, cy) = layout.map(dossier_beatmap::Point {
         x: 256.0 + 28.0,
         y: 192.0,
@@ -3334,22 +2789,6 @@ SliderTickRate:1
 
 #[test]
 fn a_note_the_body_passes_over_is_dimmed_rather_than_hidden() {
-    // The report, twice, against a screenshot of the client: things under the
-    // current body are darkened there and painted out here.
-    //
-    // The cause was a layer of our own invention — every body beneath every
-    // note — which meant a body could never be over anything and so could never
-    // dim it. The game keeps a slider's body inside the slider and lets the
-    // ordering decide, and a track is drawn at seven tenths opacity, so what it
-    // passes over shows through.
-    //
-    // Here the slider starts at 2000 and the note at 2500, so the slider is the
-    // earlier object and its body is above. The note must still be *there*.
-    // Twenty milliseconds after the click, not a hundred: the note fades over
-    // 240 and swells as it goes, so by 2600 its centre is faint enough that
-    // what it leaves under the body is a handful of levels. This test used to
-    // read at 2600 and pass on the strength of the *miss mark* drawn over the
-    // same point — blank the judgements, as the probe now does, and it fails.
     let both = stacked(2520.0, true, true);
     let body_alone = stacked(2520.0, false, true);
     let note_alone = stacked(2520.0, true, false);
@@ -3358,7 +2797,7 @@ fn a_note_the_body_passes_over_is_dimmed_rather_than_hidden() {
         apart(both, body_alone) > 20,
         "the note under the body left no trace at all: {both:?} against {body_alone:?}"
     );
-    // …and dimmed rather than whole: nearer the body than the bare note.
+
     assert!(
         apart(both, body_alone) < apart(both, note_alone),
         "the note under the body was not dimmed by it: {both:?}, \
@@ -3366,8 +2805,6 @@ fn a_note_the_body_passes_over_is_dimmed_rather_than_hidden() {
     );
 }
 
-/// The same two objects the other way round in time: a note at 2000 and a
-/// slider starting at 2200 whose body runs over it.
 fn note_before_slider(time_ms: f64, slider: bool) -> (u8, u8, u8) {
     let mut objects = String::from("256,192,2000,5,0\n");
     if slider {
@@ -3398,9 +2835,6 @@ SliderTickRate:1
 
 #[test]
 fn a_note_still_to_be_hit_is_above_the_body_of_a_later_slider() {
-    // What the invented layer was for, and what the game gets from ordering
-    // alone: the earliest object is on top, so a slider beginning a moment
-    // after a note cannot cover the thing about to be hit.
     let with_body = note_before_slider(1990.0, true);
     let alone = note_before_slider(1990.0, false);
     assert!(
@@ -3411,19 +2845,6 @@ fn a_note_still_to_be_hit_is_above_the_body_of_a_later_slider() {
 
 #[test]
 fn each_mark_plays_the_animation_from_its_own_beginning() {
-    // `GetAnimation("followpoint", true, false)` — the `false` is
-    // `startAtCurrentTime`, so a mark's strip runs from when *it* appeared.
-    //
-    // Off map time instead, every mark on screen shows the same frame, so a
-    // strip whose frames fade in and out blinks the whole trail together — and
-    // on a frame the skin drew empty the trail disappears outright. Measured on
-    // a real 61-frame skin: every follow point missing at three moments out of
-    // three, which is what "the follow points do not work" turned out to be.
-    //
-    // Ten frames, the first of them blank. All frames play in a second by
-    // default, so on map time frame zero comes round on every whole second —
-    // and 4000ms is one. A mark alive then is part-way through its own strip
-    // and has to be drawn.
     let dir = skin_folder("trail-frames");
     write_element(&dir, "followpoint-0.png", 32, 0);
     for frame in 1..10 {
@@ -3444,11 +2865,7 @@ ApproachRate:5
 400,192,5000,1,0
 ",
     );
-    // Measured against the same skin with the strip blanked, so what is counted
-    // is the trail and nothing else. Written first as a plain ink count, it
-    // passed on either clock: the probe was seeing the second note's approach
-    // circle, which at that moment is three and a half times its own size and
-    // reaches right across the gap.
+
     let silent = skin_folder("trail-frames-off");
     for frame in 0..10 {
         write_element(&silent, &format!("followpoint-{frame}.png"), 32, 0);
@@ -3459,9 +2876,6 @@ ApproachRate:5
     );
 }
 
-// ── the slider body's own shading ────────────────────────────────────────
-
-/// The colour across a slider body, from its outer edge to its centreline.
 fn across_body(at: f32) -> (u8, u8, u8) {
     let map = beatmap(
         "
@@ -3485,7 +2899,7 @@ Combo1 : 0,120,255
     let layout = Layout::new(1280, 720);
     let frame =
         Scene::new(&state, Skin::with_combo_colours(map.combo_colours())).frame(2000.0, &layout);
-    // Straight down through the middle of the body, well clear of either end.
+
     let radius = state.difficulty().circle_radius();
     let (cx, cy) = layout.map(dossier_beatmap::Point { x: 280.0, y: 120.0 });
     let half = layout.length(radius);
@@ -3498,15 +2912,6 @@ Combo1 : 0,120,255
 
 #[test]
 fn the_border_is_a_band_of_one_colour_rather_than_a_fade() {
-    // ```csharp
-    // if (position <= border_portion)
-    //     return BorderColour;
-    // ```
-    //
-    // Solid, with no crossfade at either edge — the hard boundary is the point
-    // of it. Ours faded into its neighbours over a hundredth of the radius,
-    // which is exactly the crisp line a side-by-side against the client showed
-    // missing.
     let inner = across_body(0.10);
     let outer = across_body(0.17);
     assert!(
@@ -3515,12 +2920,6 @@ fn the_border_is_a_band_of_one_colour_rather_than_a_fade() {
     );
 }
 
-/// What a slider body actually composites at, solved rather than eyeballed.
-///
-/// The same body drawn on black and on white: `result = a·C + (1 - a)·bg`, so
-/// the difference between the two is `(1 - a)` times the difference between the
-/// backgrounds, and the alpha falls straight out. Nothing else in the frame can
-/// confuse it — no glow, no combo colour, no skin.
 fn body_alpha_across() -> [f32; 3] {
     let map = beatmap(
         "
@@ -3547,7 +2946,7 @@ Combo1 : 255,0,0
         skin.background = tiny_skia::Color::from_rgba8(bg, bg, bg, 255);
         let frame = Scene::new(&state, skin).frame(2300.0, &layout);
         let (cx, cy) = layout.map(dossier_beatmap::Point { x: 300.0, y: 192.0 });
-        // Across the body: in the shadow, in the border, and at the centreline.
+
         [0.05f32, 0.12, 0.9].map(|at| {
             let half = layout.length(state.difficulty().circle_radius());
             let y = cy - half * (1.0 - at);
@@ -3562,19 +2961,6 @@ Combo1 : 255,0,0
 
 #[test]
 fn a_slider_body_dims_what_it_passes_over_rather_than_covering_it() {
-    // Reported three times, and right all three: the body covered notes, slider
-    // heads and other sliders instead of darkening them.
-    //
-    // The cause was the blend, not the colours. The tube is built from nested
-    // bands, drawn narrowest first with `DestinationOver` — "paint behind what
-    // is there" — which is `dst + src·(1 - dst.a)` and not "only where nothing
-    // is". Every wider band still added three tenths of itself on top, so three
-    // or four bands deep the tube reached full opacity. Measured: the track
-    // composited at 1.00 where the game puts it at 0.70.
-    //
-    // Widest band first now, each one replacing what it covers, so every pixel
-    // keeps the alpha of the narrowest band over it — which is what the shading
-    // function already said it should be.
     let [shadow, border, track] = body_alpha_across();
     assert!(
         (track - 0.70).abs() < 0.03,
@@ -3589,25 +2975,6 @@ fn a_slider_body_dims_what_it_passes_over_rather_than_covering_it() {
 
 #[test]
 fn the_ring_closing_in_is_never_dimmed_by_a_track() {
-    // The game's own top layer, filled by proxy and clear of the whole field:
-    //
-    // ```csharp
-    // borderContainer, Smoke, spinnerProxies, FollowPoints, judgementLayer,
-    // HitObjectContainer, judgementAboveHitObjectLayer, approachCircles
-    // ...
-    // approachCircles.Add(hitCircle.ProxiedLayer.CreateProxy());
-    // ```
-    //
-    // Drawn in its object's own place instead, a ring belonging to a note later
-    // than the slider being played passes under that slider's track and is
-    // darkened by it.
-    //
-    // The note here is at 2600 and the slider runs from 2000, so at 2300 the
-    // ring is closing in over a body already on the field.
-    //
-    // One combo colour, pinned: the first go compared two renders that differed
-    // by adding the slider, and adding an object shifts the palette — it was
-    // measuring a green ring against a yellow one and failing for that.
     let sample = |slider: bool| {
         let mut objects = String::from("256,192,2600,5,0\n");
         if slider {
@@ -3634,15 +3001,13 @@ Combo1 : 255,255,255
         let layout = Layout::new(640, 480);
         let skin = Skin::with_combo_colours(map.combo_colours()).with_font(font());
         let frame = Scene::new(&state, skin).frame(2300.0, &layout);
-        // Where the ring is at 2300: the note's own row, out along the radius.
+
         let radius = state.difficulty().circle_radius();
         let progress = 1.0 - (2600.0 - 2300.0) / state.difficulty().preempt_ms();
         let scale = 1.0 + 3.0 * (1.0 - progress.clamp(0.0, 1.0));
         let (cx, cy) = layout.map(dossier_beatmap::Point { x: 256.0, y: 192.0 });
         let out = layout.length(radius * scale);
-        // The ring is a thin stroke, so walk a few pixels either side of where
-        // it should be and take the brightest — its own colour, whatever the
-        // rounding.
+
         let mut best = (0u8, 0u8, 0u8);
         for step in -4i32..=4 {
             let y = cy - out + step as f32;
@@ -3668,13 +3033,8 @@ Combo1 : 255,255,255
     );
 }
 
-// ── the pieces of a slider a skin also draws ─────────────────────────────
-
 #[test]
 fn a_skins_own_slider_tick_is_drawn_in_place_of_ours() {
-    // `sliderscorepoint` is osu!'s name for the dot a slider passes over, and a
-    // skin that redrew every other part of a slider and had this one borrowed
-    // back from us looked like two sliders laid over each other.
     use dossier_render::elements::Element;
     use dossier_render::imported::Sprites;
 
@@ -3690,9 +3050,7 @@ fn a_skins_own_slider_tick_is_drawn_in_place_of_ours() {
         let scene = Scene::new(&state, skin);
         let (x, y) = layout.map(at);
         let bg = background.to_color_u8();
-        // Well outside the body, which is bright enough at the tick's own
-        // position to swallow anything drawn on it. The skin's art below is
-        // four times the note across, so it reaches here and nothing else does.
+
         let frame = scene.frame(far_tick - 20.0, &layout);
         let p = frame
             .pixel(x as u32 + 52, y as u32)
@@ -3718,11 +3076,6 @@ fn a_skins_own_slider_tick_is_drawn_in_place_of_ours() {
     );
 }
 
-/// The mark's width for a note that was *hit*, so the 300 is what is measured.
-///
-/// The same shape as `miss_mark_width` and deliberately beside it: the two
-/// differ only in whether the replay presses, which is the whole of what
-/// separates a 300 from a miss.
 fn scored_mark_width(circle_size: &str, dir: &std::path::Path) -> usize {
     use dossier_render::elements::Element;
     use dossier_render::elements::Verdict;
@@ -3743,9 +3096,7 @@ CircleSize:{circle_size}
 256,192,9000,5,0
 "
     ));
-    // On the note and pressing at its moment, so it is judged a 300 — and away
-    // again directly after, because the probe below runs through the centre and
-    // a cursor parked there would be measured along with the mark.
+
     let mut frames = Vec::new();
     for i in 0..40 {
         let at = 2000 + i64::from(i) * 100;
@@ -3785,15 +3136,10 @@ CircleSize:{circle_size}
         .count()
 }
 
-/// A square of ink centred in a larger transparent canvas, which is how skins
-/// actually ship a judgement.
 fn write_padded(dir: &std::path::Path, name: &str, canvas: u32, ink: u32) {
     write_ink(dir, name, canvas, ink, ink);
 }
 
-/// The same, with the two sides given apart — a real judgement is a line of
-/// lettering and so wider than it is tall, and how much wider is exactly what
-/// the width ceiling is about.
 fn write_ink(dir: &std::path::Path, name: &str, canvas: u32, wide: u32, tall: u32) {
     let mut art = tiny_skia::Pixmap::new(canvas, canvas).expect("a canvas");
     let (from_x, from_y) = ((canvas - wide) / 2, (canvas - tall) / 2);
@@ -3808,15 +3154,6 @@ fn write_ink(dir: &std::path::Path, name: &str, canvas: u32, wide: u32, tall: u3
 
 #[test]
 fn squat_lettering_is_held_by_its_width_too() {
-    // The height ceiling is not a bound on how big a mark looks, because it
-    // only bites on skins that draw tall lettering. Two skins measured side by
-    // side both ship a `hit100` sixty-two pixels of ink wide; one draws it
-    // fifty-one tall and is taken down to a half of the note, the other draws
-    // it twenty-nine — already inside the ceiling — and is drawn untouched at
-    // four fifths of a note. Same picture width, same rule, 1.7× apart.
-    //
-    // So the width is held as well, and the two skins land together. Here the
-    // same 120 pixels of ink is drawn once short and once tall.
     let squat = skin_folder("verdict-squat");
     write_ink(&squat, "hit300.png", 200, 120, 28);
 
@@ -3834,20 +3171,10 @@ fn squat_lettering_is_held_by_its_width_too() {
 
 #[test]
 fn the_widest_mark_brings_its_siblings_down_with_it() {
-    // The width is held over the skin's whole set by one factor, and not mark
-    // by mark, which was the obvious thing and is the bug the height ceiling
-    // exists to prevent: all four are lettering at one cap height, so squeezing
-    // each to a common width would make the number with the most characters the
-    // shortest and a 50 would come out taller than a 100 again.
-    //
-    // One factor over the set cannot reorder it. What it does instead is this:
-    // a compact mark shrinks because a wide sibling had to, and keeps its place
-    // behind it.
     let together = skin_folder("verdict-set");
     write_ink(&together, "hit300.png", 200, 120, 28);
     write_ink(&together, "hit0.png", 200, 40, 28);
 
-    // The same compact mark with no wide sibling to be held by.
     let alone = skin_folder("verdict-set-alone");
     write_ink(&alone, "hit0.png", 200, 40, 28);
 
@@ -3866,20 +3193,6 @@ fn the_widest_mark_brings_its_siblings_down_with_it() {
 
 #[test]
 fn a_mark_past_the_ceiling_is_brought_down_to_it() {
-    // A deliberate departure, asked for. At the size the game draws them a 300
-    // on the skin this was settled on is two thirds of a note, and a screen of
-    // them over a play reads as clutter — the game has a player watching the
-    // notes, a render has somebody watching the play.
-    //
-    // Measured on the ink's *height*, which is what the two attempts before
-    // this got wrong: the first capped the canvas, and a judgement is a small
-    // figure in a large transparent square; the second capped the width, and
-    // all four are lettering drawn to one cap height, so holding the width made
-    // the mark with the most characters the smallest.
-    //
-    // Downwards only. Bringing a small mark up to the height was tried and is
-    // worse than the problem it solves: there is nothing to enlarge a skin's
-    // picture with, and one drawn fifteen pixels tall becomes a smear at thirty.
     let dir = skin_folder("verdict-share");
     write_padded(&dir, "hit300.png", 200, 40);
     write_padded(&dir, "hit0.png", 200, 40);
@@ -3901,7 +3214,6 @@ fn a_mark_past_the_ceiling_is_brought_down_to_it() {
         );
     }
 
-    // And one already inside the ceiling is left alone, at its own size.
     let small = skin_folder("verdict-share-modest");
     write_padded(&small, "hit300.png", 200, 8);
     write_padded(&small, "hit0.png", 200, 8);
@@ -3913,11 +3225,6 @@ fn a_mark_past_the_ceiling_is_brought_down_to_it() {
 
 #[test]
 fn a_disjoint_trail_reaches_back_the_time_the_game_gives_it() {
-    // A skin with a cursor and no `cursormiddle` gets osu!'s dotted trail: one
-    // mark every sixtieth of a second wherever the cursor is, each gone in
-    // 150ms. What this used to draw reached 110ms back, shrank each mark as it
-    // aged and held none above a third opacity — a smear where the game draws a
-    // trail.
     let map = beatmap(
         "
 [Difficulty]
@@ -3929,16 +3236,13 @@ ApproachRate:5
 256,192,3000,1,0
 ",
     );
-    // Straight across the field at a steady speed, so distance back along the
-    // row *is* time back. Two notes, and the frame is read between them, so the
-    // play is under way and the cursor is on screen.
-    let speed = 0.6_f32; // osu!px per millisecond
+
+    let speed = 0.6_f32;
     let frames: Vec<_> = (0..200)
         .map(|i| dossier_replay::ReplayFrame {
             time_ms: 1000 + i64::from(i) * 5,
             x: 20.0 + speed * (i as f32) * 5.0,
-            // Clear of the notes' own row, or the scan below would find a
-            // hit circle and call it trail.
+
             y: 60.0,
             keys: dossier_replay::Keys(0),
         })
@@ -3959,7 +3263,7 @@ ApproachRate:5
         .pos;
     let (cx, cy) = layout.map(here);
     let bg = background.to_color_u8();
-    // The furthest lit pixel behind the cursor along its own row.
+
     let reach = (0..cx as u32)
         .filter(|&x| {
             frame.pixel(x, cy as u32).is_some_and(|p| {
@@ -3973,9 +3277,6 @@ ApproachRate:5
         .map(|x| cx - x as f32);
     let reach = reach.expect("the trail is drawn at all");
 
-    // 150ms at this speed is 90 osu!px behind, and the cursor itself is nine
-    // across — so the trail has to reach most of the way there and not stop at
-    // the 110ms the old one did.
     let back = |ms: f64| layout.length(f64::from(speed) * ms) as f64;
     assert!(
         reach as f64 > back(120.0),
@@ -3991,10 +3292,6 @@ ApproachRate:5
 
 #[test]
 fn a_long_break_ends_on_the_skins_own_section_banner() {
-    // danser's schedule, which is stable's: nothing on a break under 2880ms,
-    // and on a longer one a banner at `min(end - 2880, end - length/2)` that
-    // blinks twice and holds for a second. Which of the two appears is decided
-    // on health alone, at half.
     use dossier_render::elements::Element;
     use dossier_render::imported::Sprites;
 
@@ -4026,19 +3323,16 @@ fn a_long_break_ends_on_the_skins_own_section_banner() {
             })
     };
 
-    // Before its moment there is nothing; on the hold there is.
     assert!(lit(at - 200.0) < 20, "the banner was up before its moment");
     assert!(lit(at + 400.0) > 60, "the banner never appeared");
-    // The gap between the first two blinks is dark.
+
     assert!(lit(at + 130.0) < 20, "the blink does not blink");
-    // And it is gone once the fade has run.
+
     assert!(lit(at + 1600.0) < 20, "the banner outstayed its fade");
 }
 
 #[test]
 fn a_short_break_gets_no_banner_at_all() {
-    // `if overlay.currentBreak.Length() < 2880 { return }` — there is no room
-    // to say it and be read.
     use dossier_render::elements::Element;
     use dossier_render::imported::Sprites;
 
@@ -4087,16 +3381,6 @@ ApproachRate:5
 
 #[test]
 fn a_trail_mark_is_the_size_the_skin_drew_it() {
-    // `STABLE_MAGIC_SCALE_FACTOR` was chased through here three times — as a
-    // multiplier, then as a divisor on the trail alone, then as a divisor on
-    // the trail and the cursor together. Three readings, three reports: a lamp,
-    // a trail too thin beside its cursor, and a cursor visibly smaller than the
-    // game draws it.
-    //
-    // What all three agree on is that the pair must share a ruler, so they
-    // share the plainest one — the size the skin's own file states, read in the
-    // 768-tall space the interface is stated in, the same ruler the score
-    // digits use. The factor is not applied at all.
     use dossier_render::elements::Element;
     use dossier_render::imported::Sprites;
 
@@ -4111,8 +3395,7 @@ ApproachRate:5
 256,192,4000,1,0
 ",
     );
-    // Straight and fast, along a row well clear of the notes, so the oldest
-    // mark stands alone and can be measured.
+
     let frames: Vec<_> = (0..200)
         .map(|i| dossier_replay::ReplayFrame {
             time_ms: 1000 + i64::from(i) * 5,
@@ -4134,15 +3417,12 @@ ApproachRate:5
 
     let at = 1800.0;
     let track = state.cursor_track();
-    // The oldest mark still alive: 150ms back, and far enough from the cursor
-    // at this speed that nothing else reaches it.
+
     let oldest = track.sample(at - 140.0).expect("on the field").pos;
     let (ox, oy) = layout.map(oldest);
     let bg = background.to_color_u8();
     let frame = scene.frame(at, &layout);
-    // Measured up the column rather than along the row: the marks are strung
-    // out along the row and overlap each other there, so a horizontal run is
-    // several of them. Vertically only the one centred here is present.
+
     let lit = (0..480u32)
         .filter(|&y| {
             y.abs_diff(oy as u32) < 60
@@ -4155,7 +3435,6 @@ ApproachRate:5
         })
         .count();
 
-    // 64 of the skin's pixels in a 768-tall interface shown 480 tall: 40.
     let expected = 64.0 * 480.0 / 768.0;
     assert!(
         (lit as f32 - expected).abs() < expected * 0.35,
@@ -4163,21 +3442,6 @@ ApproachRate:5
     );
 }
 
-// ── the two faces of the interface, and the corner they meet in ──────────
-//
-// osu! skins the score and the combo counter apart: `ScorePrefix`/`ScoreOverlap`
-// against `ComboPrefix`/`ComboOverlap`. Both default to `score`, so on most
-// skins the two are the same pictures under two names and the split shows
-// nothing — and on a skin that names them apart it is the difference between
-// the counter its author drew and a different one of theirs.
-//
-// Reported on two skins at once. `azerino` ships `score-*` and `combo-*` and
-// names both, and its counter was coming out in the score face. `vv_idke_trail`
-// names `num\berlin` for both — and that face has no `x`, which took the whole
-// line back into our own typeface beside a score in the skin's.
-
-/// One glyph in a colour of its own, so a line can be told apart from another
-/// line by what it is drawn in.
 fn write_glyph(dir: &std::path::Path, name: &str, size: u32, colour: (u8, u8, u8)) {
     let mut pixmap = tiny_skia::Pixmap::new(size, size).expect("a canvas");
     for pixel in pixmap.pixels_mut() {
@@ -4187,8 +3451,6 @@ fn write_glyph(dir: &std::path::Path, name: &str, size: u32, colour: (u8, u8, u8
     std::fs::write(dir.join(name), pixmap.encode_png().expect("png")).expect("written");
 }
 
-/// How many pixels of the bottom-left corner — where the combo counter sits —
-/// are within `slack` of `colour`.
 fn combo_corner(dir: &std::path::Path, colour: (u8, u8, u8), slack: i32) -> usize {
     use dossier_render::elements::Element;
     use dossier_render::imported::Sprites;
@@ -4248,15 +3510,6 @@ fn the_counter_is_drawn_in_the_face_the_skin_named_for_it() {
 
 #[test]
 fn a_glyph_the_face_has_not_got_does_not_take_the_line_with_it() {
-    // ```csharp
-    // var texture = skin.GetTexture($"{fontName}-{lookup}");
-    // TexturedCharacterGlyph? glyph = null;
-    // if (texture != null) { ... }
-    // ```
-    //
-    // Every glyph is looked up on its own and the ones that are not there are
-    // simply not drawn. A face with figures and no `x` draws `146`, not `146x`
-    // in somebody else's lettering.
     let dir = skin_folder("no-x");
     for digit in 0..10 {
         write_glyph(&dir, &format!("score-{digit}.png"), 24, COMBO_FACE);
@@ -4271,9 +3524,6 @@ fn a_glyph_the_face_has_not_got_does_not_take_the_line_with_it() {
 
 #[test]
 fn a_face_the_skin_has_none_of_is_still_ours_to_draw() {
-    // The other end of the same rule: skipping what is missing must not end in
-    // skipping everything. A skin with no HUD lettering at all still needs its
-    // numbers, and they are ours.
     let dir = skin_folder("no-face");
     write_element(&dir, "hitcircle.png", 128, 255);
     assert_eq!(
@@ -4281,7 +3531,7 @@ fn a_face_the_skin_has_none_of_is_still_ours_to_draw() {
         0,
         "this skin has no red in it at all"
     );
-    // …but something is in that corner.
+
     let (map, replay) = tapped();
     let mut skin = Skin::with_combo_colours(map.combo_colours()).with_font(font());
     skin.sprites = Some(std::sync::Arc::new(
@@ -4303,19 +3553,6 @@ fn a_face_the_skin_has_none_of_is_still_ours_to_draw() {
         .count();
     assert!(lit > 50, "nothing was drawn in the combo's corner at all");
 }
-
-// ── the health bar, at the size and in the place it was drawn ────────────
-//
-// ```csharp
-// AutoSizeAxes = Axes.Both;
-// AddInternal(new Sprite { Texture = getTexture(skin, "bg") });
-// ```
-//
-// Every piece is exactly as big as its picture and the whole display hangs in
-// the corner of the screen. This used to derive one length from whichever piece
-// the skin had, cut it by a third and stretch both pieces into it — which is
-// near enough on a 695×44 scorebar and nowhere near on `vv_idke_trail`, whose
-// `scorebar-bg` is a 1366×786 outline drawn round the whole screen.
 
 #[test]
 fn a_skins_scorebar_keeps_its_own_size_and_corner() {
@@ -4342,8 +3579,6 @@ fn a_skins_scorebar_keeps_its_own_size_and_corner() {
     let state = GameState::new(&map, &replay);
     let frame = Scene::new(&state, skin).frame(4200.0, &Layout::new(640, 480));
 
-    // A 480-tall frame reads a skin in a 768-tall space, so 400×200 of picture
-    // is 250×125 of frame — and it starts in the very corner.
     let green = |x: u32, y: u32| {
         frame
             .pixel(x, y)
@@ -4355,20 +3590,6 @@ fn a_skins_scorebar_keeps_its_own_size_and_corner() {
     assert!(!green(240, 132), "it runs past its own height");
 }
 
-// ── the rim, and which side of the number it falls on ────────────────────
-//
-// ```text
-// ldc.i4.1
-// stfld  OverlayAboveNumber
-// ```
-//
-// osu!stable's own `SkinOsu` constructor, read out of the client — see
-// `docs/stable-client.md`. Over, then, and this drew it under: the figure went
-// down last and the rim ended up behind it. On a skin whose overlay is more
-// than a thin rim that is the whole face of the note in the wrong order.
-
-/// A note whose rim is opaque and covers the whole square, so "over or under"
-/// is a question a single pixel can answer.
 fn covered_note(above: Option<bool>) -> Skin {
     use dossier_render::elements::Element;
     use dossier_render::imported::Sprites;
@@ -4403,7 +3624,6 @@ fn covered_note(above: Option<bool>) -> Skin {
     skin
 }
 
-/// Whether the figure is visible at the centre of the note.
 fn number_shows(skin: Skin) -> bool {
     let map = one_note();
     let state = GameState::from_beatmap(&map, Mods::default());
@@ -4437,8 +3657,6 @@ fn a_skin_can_put_its_rim_under_the_number_instead() {
     );
 }
 
-/// How many pixels of the top-right corner — where the score sits — are within
-/// `slack` of `colour`, at the given frame size.
 fn score_corner(dir: &std::path::Path, colour: (u8, u8, u8), slack: i32) -> usize {
     use dossier_render::elements::Element;
     use dossier_render::imported::Sprites;
@@ -4471,14 +3689,6 @@ fn score_corner(dir: &std::path::Path, colour: (u8, u8, u8), slack: i32) -> usiz
 
 #[test]
 fn a_skin_that_drew_its_numbers_bigger_gets_bigger_numbers() {
-    // The size of a HUD face is the skin's, not the renderer's. danser states
-    // it plainly — `scoreSize := overlay.scoreFont.GetSize() * scoreScale *
-    // 0.96` — and the thing being scaled is the font's own size.
-    //
-    // This engine used to normalise every skin's digits to one height, which
-    // happened to be right for osu!'s own 40-pixel face and for nothing else.
-    // The skins in the bot's store run from 40 to 60, so the tallest of them
-    // was drawn a full half smaller than the game draws it.
     fn face(name: &str, size: u32) -> std::path::PathBuf {
         let dir = skin_folder(name);
         for digit in 0..10 {
@@ -4495,8 +3705,7 @@ fn a_skin_that_drew_its_numbers_bigger_gets_bigger_numbers() {
         small > 0 && large > 0,
         "both skins drew something: {small}, {large}"
     );
-    // Twice the face is four times the ink. Two and a half is slack enough for
-    // the overlap and the frame's edge without letting "the same size" pass.
+
     assert!(
         large as f32 > small as f32 * 2.5,
         "the larger face should cover far more: {small} against {large}"
@@ -4505,14 +3714,6 @@ fn a_skin_that_drew_its_numbers_bigger_gets_bigger_numbers() {
 
 #[test]
 fn the_cursor_and_its_trail_are_read_by_the_same_ruler() {
-    // Both go through `NonPlayfieldSprite` in lazer, and it adjusts whatever it
-    // is handed: `value.ScaleAdjust *= LegacySkin.STABLE_MAGIC_SCALE_FACTOR`.
-    // Applied to the trail alone, the cursor came out a full 1.6 times too big
-    // — 55 pixels at 720p where the game draws 35 — and the trail beside it
-    // read as too thin. It was the wrong half of the pair that looked wrong.
-    //
-    // Measured rather than asserted about constants: the cursor covers ink, and
-    // ink is what somebody looking at the render sees.
     let dir = skin_folder("one-ruler");
     write_glyph(&dir, "cursor.png", 64, SCORE_FACE);
     let ink = |scale: f32| -> usize {
@@ -4541,9 +3742,7 @@ fn the_cursor_and_its_trail_are_read_by_the_same_ruler() {
 
     let (small, plain, large) = (ink(0.5), ink(1.0), ink(2.0));
     assert!(plain > 0, "the cursor was not drawn at all");
-    // Area goes as the square of the scale, so halving covers about a quarter
-    // and doubling about four times. Generous bounds: the point is that the
-    // setting reaches the cursor, not that anti-aliasing is exact.
+
     assert!(
         small * 2 < plain,
         "0.5 should be far smaller: {small} against {plain}"
@@ -4556,31 +3755,21 @@ fn the_cursor_and_its_trail_are_read_by_the_same_ruler() {
 
 #[test]
 fn a_judgement_a_skin_animated_moves() {
-    // osu! draws a judgement as an animation whenever the skin drew one —
-    // WhiteCat ships twenty-six frames of each — and this drew the still every
-    // time, so a mark that moves in the game sat there.
     use dossier_render::elements::{Element, Verdict};
     use dossier_render::imported::Sprites;
 
     let dir = skin_folder("moving-300");
-    // Three frames, three colours, so which one is up can be read off the
-    // picture rather than inferred.
-    // Frame zero is the bare name and the rest are numbered from one, which is
-    // how osu! reads a strip and how `Sprites` reads it back.
+
     write_glyph(&dir, "hit300.png", 48, (255, 0, 0));
     write_glyph(&dir, "hit300-1.png", 48, (0, 255, 0));
     write_glyph(&dir, "hit300-2.png", 48, (0, 0, 255));
-    // Ten frames a second, so three frames take 300ms: the strip both runs and
-    // finishes while the mark is still on screen, and each of the three can be
-    // caught.
+
     std::fs::write(dir.join("skin.ini"), "[General]\nAnimationFramerate: 10\n").expect("written");
 
     let ink = |at: f64, colour: (u8, u8, u8)| -> usize {
         let (map, replay) = tapped();
         let mut skin = Skin::with_combo_colours(map.combo_colours()).with_font(font());
-        // Our own look does not flash a 300 — on a clean play nearly every note
-        // is one, and marking each buries the two that were not. This test is
-        // about the strip, so it asks for them.
+
         skin.show_300 = true;
         skin.sprites = Some(std::sync::Arc::new(
             Sprites::read(&dir, &[Element::Verdict(Verdict::Three)]).tint_for(&skin.combo_colours),
@@ -4591,10 +3780,6 @@ fn a_judgement_a_skin_animated_moves() {
         for y in 0..480u32 {
             for x in 0..640u32 {
                 if let Some(p) = frame.pixel(x, y) {
-                    // Which channel leads, not which colour it is. The mark
-                    // fades as it settles, so a pure red square arrives on
-                    // screen as a dark red one and an exact match finds
-                    // nothing.
                     let (r, g, b) = (
                         i32::from(p.red()),
                         i32::from(p.green()),
@@ -4614,15 +3799,6 @@ fn a_judgement_a_skin_animated_moves() {
         count
     };
 
-    // `tapped()` plays a note at 3000ms and the mark takes a moment to settle,
-    // so both readings are taken well after it. Thirty frames a second over
-    // three frames: 400ms in is frame zero and 435ms in is frame one.
-    // The same colour at two moments, rather than two colours at one. A frame
-    // carries a combo colour, a cursor and a HUD, and asking "is there red on
-    // screen" answers about those as loudly as about the mark; asking whether
-    // the *green* frame has arrived answers only about the strip.
-    //
-    // `tapped()` plays a note at 3000ms and the mark takes a moment to settle.
     let green_at_first = ink(3050.0, (0, 255, 0));
     let green_later = ink(3150.0, (0, 255, 0));
     assert!(
@@ -4631,11 +3807,6 @@ fn a_judgement_a_skin_animated_moves() {
          {green_at_first} green on frame zero against {green_later} on frame one"
     );
 
-    // And it stops. Past the end of three frames a looping strip is back on
-    // frame zero — the red one — and that is the mark playing a second time for
-    // one hit. Asked of the last frame's colour rather than the first's: a
-    // rendered frame carries a combo colour and a cursor that answer to red on
-    // their own, and blue is on screen only while the strip's end is.
     let blue_at_first = ink(3050.0, (0, 0, 255));
     let blue_past_the_end = ink(3600.0, (0, 0, 255));
     assert!(
@@ -4647,16 +3818,11 @@ fn a_judgement_a_skin_animated_moves() {
 
 #[test]
 fn a_bar_file_with_something_else_in_it_draws_only_the_bar() {
-    // WhiteCat puts the song-progress dial's own surround into `scorebar-bg`,
-    // an island eight hundred pixels past the end of the bar. Drawn whole it
-    // lands on the score and reads as a black donut stuck to it; the dial this
-    // engine draws is elsewhere, so the surround frames nothing.
     use dossier_render::elements::Element;
     use dossier_render::imported::Sprites;
 
     let dir = skin_folder("bar-with-an-island");
-    // A bar 200 wide at the left, a gap, then a mark at the far right — the
-    // shape of the real file, in miniature.
+
     let mut art = tiny_skia::Pixmap::new(400, 20).expect("a canvas");
     for (x, y) in (0..400u32).flat_map(|x| (0..20u32).map(move |y| (x, y))) {
         let inside = x < 200 || x >= 380;
@@ -4683,9 +3849,7 @@ fn a_bar_file_with_something_else_in_it_draws_only_the_bar() {
                 .is_some_and(|p| p.red() > 200 && p.green() > 200)
         })
     };
-    // The file is drawn at its own size in the 768-tall space, so 400 of its
-    // pixels come to 250 on a 480-tall frame: the bar ends near 125 and the
-    // island would sit between 237 and 250.
+
     assert!(lit(20), "the bar itself was not drawn");
     assert!(
         !(235..252).any(lit),
@@ -4695,10 +3859,6 @@ fn a_bar_file_with_something_else_in_it_draws_only_the_bar() {
 
 #[test]
 fn the_follow_circle_beats_on_a_tick_and_leaves_at_the_end() {
-    // Two things the ring is supposed to do and one map that shows both: it is
-    // knocked outward every tick the player catches, which is what makes a
-    // slider's rhythm visible while it is held, and it shrinks away after the
-    // ball arrives rather than vanishing mid-frame.
     let map = beatmap(
         "
 [Difficulty]
@@ -4714,7 +3874,7 @@ SliderTickRate:1
 100,192,2000,2,0,L|400:192,1,300
 ",
     );
-    // Held on the ball the whole way, so every tick is caught.
+
     let frames: Vec<_> = (0..80)
         .map(|i| dossier_replay::ReplayFrame {
             time_ms: 1900 + i64::from(i) * 25,
@@ -4737,16 +3897,14 @@ SliderTickRate:1
 
     let skin = Skin::with_combo_colours(map.combo_colours()).with_font(font());
     let layout = Layout::new(640, 480);
-    // How far the ring reaches from the ball, measured along the row it sits on.
+
     let reach = |at: f64| -> u32 {
         let frame = Scene::new(&state, skin.clone()).frame(at, &layout);
         let ball = state.timeline().objects[0]
             .ball_at(at.min(ends))
             .expect("a ball");
         let (bx, by) = layout.map(ball);
-        // Straight up from the ball. The body runs along the row and would
-        // answer at every distance; across it the only thing past the note's
-        // own edge is the ring.
+
         (0..200u32)
             .rev()
             .find(|&d| {
@@ -4768,10 +3926,6 @@ SliderTickRate:1
         "the ring did not move on a tick: {before} then {on}"
     );
 
-    // And it is still there after the ball has arrived, on its way out, and
-    // gone a fifth of a second later. Measured against the note's own radius
-    // rather than against nothing: the end circle and its mark are still on
-    // that column after the ring has left.
     let note = layout.length(state.difficulty().circle_radius());
     let (leaving, left) = (reach(ends + 100.0), reach(ends + 400.0));
     println!("КОЛЬЦО НА ВЫХОДЕ: {leaving} потом {left}, нота {note:.0}");
@@ -4785,15 +3939,6 @@ SliderTickRate:1
     );
 }
 
-// ── the progress dial, beside a number whose width is somebody else's ────────
-//
-// Reported as the timer "unnaturally running into the accuracy". It was: the
-// dial's place was a fixed fraction of the frame, under a comment claiming it
-// had been measured off the text. It had been — off a monospaced "99.99%" in
-// our own typeface, once. A skin whose `score-percent` figures are wider than
-// that pushed the accuracy left, out under the dial, and the two overlapped.
-
-/// A glyph of a chosen shape, so a face can be made deliberately wide.
 fn write_glyph_sized(
     dir: &std::path::Path,
     name: &str,
@@ -4809,11 +3954,6 @@ fn write_glyph_sized(
     std::fs::write(dir.join(name), pixmap.encode_png().expect("png")).expect("written");
 }
 
-/// `(rightmost dial column, leftmost accuracy column)` across the accuracy row.
-///
-/// The accuracy is the skin's figures and is pure blue; the dial is drawn in
-/// the HUD colour over a dark field, so it comes out grey. Two different
-/// things to look for in one band, which is what lets them be compared.
 fn dial_and_accuracy(dir: &std::path::Path) -> (Option<u32>, Option<u32>) {
     use dossier_render::elements::Element;
     use dossier_render::imported::Sprites;
@@ -4830,7 +3970,7 @@ fn dial_and_accuracy(dir: &std::path::Path) -> (Option<u32>, Option<u32>) {
     let frame = Scene::new(&state, skin).frame(4200.0, &Layout::new(640, 480));
 
     let (mut dial_right, mut accuracy_left) = (None, None);
-    // The top band, right half: score above, accuracy under it, dial beside.
+
     for y in 0..120u32 {
         for x in 320..640u32 {
             let Some(p) = frame.pixel(x, y) else { continue };
@@ -4854,9 +3994,7 @@ fn dial_and_accuracy(dir: &std::path::Path) -> (Option<u32>, Option<u32>) {
 #[test]
 fn the_dial_stays_clear_of_a_skins_own_accuracy_however_wide_it_is() {
     let dir = skin_folder("wide-percent");
-    // Four times as wide as it is tall. Exaggerated on purpose: a face only a
-    // little wider than ours would pass on a fixed offset by luck, and luck is
-    // what this is meant to stop depending on.
+
     for digit in 0..10 {
         write_glyph_sized(&dir, &format!("score-{digit}.png"), 96, 24, (0, 0, 255));
     }
@@ -4879,16 +4017,6 @@ fn the_dial_stays_clear_of_a_skins_own_accuracy_however_wide_it_is() {
     );
 }
 
-// ── frames that are not 16:9 ────────────────────────────────────────────────
-//
-// The bot lets somebody type any even size from 256 to 3840, and "should we
-// support that at all" is a fair question to ask of a feature nobody tested at
-// the edges. This is the answer in the form that settles it: the field is
-// fitted by height and clamped by width, so every one of these holds by
-// construction — and if that ever stops being true, this says so rather than
-// somebody's vertical render arriving with the field off the side.
-
-/// Every corner of the playfield, in frame pixels.
 fn field_corners(width: u32, height: u32) -> (f32, f32, f32, f32) {
     use dossier_beatmap::{Point, PLAYFIELD_HEIGHT, PLAYFIELD_WIDTH};
     let layout = Layout::new(width, height);
@@ -4934,8 +4062,7 @@ fn the_field_stays_on_screen_at_any_shape_of_frame() {
             x1 - x0,
             y1 - y0
         );
-        // Centred horizontally. The vertical is deliberately not centred —
-        // osu! shifts the field down by eight of its own pixels.
+
         let (left, right) = (x0, width as f32 - x1);
         assert!(
             (left - right).abs() < 1.0,
@@ -4947,9 +4074,6 @@ fn the_field_stays_on_screen_at_any_shape_of_frame() {
 
 #[test]
 fn a_vertical_frame_actually_renders() {
-    // The shape somebody wants for a phone. Not just the arithmetic — a whole
-    // frame, because "the layout is fine" and "the render is fine" are not the
-    // same claim.
     let (map, replay) = tapped();
     let state = GameState::new(&map, &replay);
     let skin = Skin::with_combo_colours(map.combo_colours()).with_font(font());
@@ -4965,18 +4089,6 @@ fn a_vertical_frame_actually_renders() {
     );
 }
 
-// ── where a slider's verdict lands ──────────────────────────────────────────
-//
-// Reported on a 100 and it was never only the 100: the mark used to be drawn
-// at `object.pos`, which is the *head* of a slider. A slider resolved at its
-// tail flashed its judgement back at the start of a body the ball had already
-// left.
-//
-// Checked on a rendered frame rather than on the helper that picks the point.
-// The helper returning the tail says nothing about whether the drawing uses
-// it, and that is the half that was in doubt.
-
-/// A slider held from end to end, and the replay that holds it.
 fn held_slider() -> (Beatmap, dossier_replay::Replay) {
     let map = beatmap(
         "
@@ -5000,7 +4112,7 @@ SliderTickRate:1
         keys: dossier_replay::Keys(if down { dossier_replay::Keys::K1 } else { 0 }),
     };
     let mut frames = vec![held(990, 100.0, false)];
-    // Down on the head, then across the body at the ball's own pace.
+
     for step in 0..=60 {
         let along = 100.0 + 140.0 * (step as f32 / 60.0);
         frames.push(held(1000 + step as i64 * 10, along, true));
@@ -5009,12 +4121,6 @@ SliderTickRate:1
     (map, replay_over(frames))
 }
 
-/// Ink in a box around a playfield point, in the colour a 300 is lettered in.
-///
-/// A box rather than a centroid over the whole frame. The centroid version
-/// passed with the mark at the head *and* at the tail, because a tolerance
-/// wide enough to catch antialiased lettering also catches the slider's own
-/// border — so it was measuring the body and reporting on the mark.
 fn verdict_ink_at(time_ms: f64, x: f64, y: f64) -> usize {
     let (map, replay) = held_slider();
     let state = GameState::new(&map, &replay);
@@ -5028,10 +4134,7 @@ fn verdict_ink_at(time_ms: f64, x: f64, y: f64) -> usize {
             let Some(p) = frame.pixel((cx as i32 + dx) as u32, (cy as i32 + dy) as u32) else {
                 continue;
             };
-            // The 300's own blue — (102, 204, 255) — by the *ratio* of its
-            // channels rather than their values. The mark is drawn at 0.70
-            // presence over a dark field, so its blue arrives around 178 and
-            // an absolute threshold set from the palette misses it entirely.
+
             let (r, g, b) = (
                 i32::from(p.red()),
                 i32::from(p.green()),
@@ -5047,8 +4150,6 @@ fn verdict_ink_at(time_ms: f64, x: f64, y: f64) -> usize {
 
 #[test]
 fn a_sliders_verdict_is_drawn_at_the_end_of_its_body() {
-    // 1500 is where the slider resolves; a little after it the mark is at full
-    // strength and the body has faded.
     let at_head = verdict_ink_at(1700.0, 100.0, 192.0);
     let at_tail = verdict_ink_at(1700.0, 240.0, 192.0);
 
@@ -5062,7 +4163,6 @@ fn a_sliders_verdict_is_drawn_at_the_end_of_its_body() {
     );
 }
 
-/// Ink of a chosen colour in a box around a playfield point.
 fn skinned_ink_at(dir: &std::path::Path, time_ms: f64, x: f64, y: f64) -> usize {
     use dossier_render::elements::Element;
     use dossier_render::imported::Sprites;
@@ -5086,7 +4186,7 @@ fn skinned_ink_at(dir: &std::path::Path, time_ms: f64, x: f64, y: f64) -> usize 
             let Some(p) = frame.pixel((cx as i32 + dx) as u32, (cy as i32 + dy) as u32) else {
                 continue;
             };
-            // The fixture's own magenta, which nothing else on the field wears.
+
             if p.red() > 90 && p.blue() > 90 && p.green() < 60 {
                 count += 1;
             }
@@ -5095,13 +4195,6 @@ fn skinned_ink_at(dir: &std::path::Path, time_ms: f64, x: f64, y: f64) -> usize 
     count
 }
 
-/// The half the first fix missed.
-///
-/// A skin that ships pictures of its judgements — which is most skins — takes
-/// a different branch, and that branch was still handing the drawing
-/// `object.pos`. So the fallback lettering moved to the tail and every real
-/// skin went on flashing at the head, which is what was reported the second
-/// time.
 #[test]
 fn a_skins_own_verdict_is_drawn_at_the_end_of_a_slider_too() {
     let dir = skin_folder("verdict-at-the-end");
@@ -5124,13 +4217,6 @@ fn a_skins_own_verdict_is_drawn_at_the_end_of_a_slider_too() {
     );
 }
 
-/// A cursor that is not a circle, so that turning it shows.
-///
-/// Half opaque and half empty, split down the middle. At rest the ink is on
-/// the left; half a turn later it is on the right, and that is the whole
-/// difference this test is looking for. A round cursor — which is what most
-/// skins ship and what our own is — hides the behaviour completely, which is
-/// why it went unnoticed until stable itself was read.
 fn write_half_cursor(dir: &std::path::Path) {
     let mut pixmap = tiny_skia::Pixmap::new(64, 64).expect("a canvas");
     let width = pixmap.width();
@@ -5145,18 +4231,14 @@ fn write_half_cursor(dir: &std::path::Path) {
     std::fs::write(dir.join("cursor.png"), pixmap.encode_png().expect("png")).expect("written");
 }
 
-/// How much ink sits a little to the left of where the cursor is.
 fn ink_left_of_the_cursor(dir: &std::path::Path, at_ms: f64) -> u32 {
     ink_left_of_the_cursor_with(dir, at_ms, None)
 }
 
-/// The same, with the render's own answer to whether the cursor turns.
 fn ink_left_of_the_cursor_with(dir: &std::path::Path, at_ms: f64, rotate: Option<bool>) -> u32 {
     use dossier_render::elements::Element;
     use dossier_render::imported::Sprites;
 
-    // Held well away from the note, and read long after it: the circle at
-    // 5000 is bigger than the cursor and would be counted as ink.
     let held = dossier_beatmap::Point { x: 100.0, y: 100.0 };
     let map = beatmap(ONE_CIRCLE);
     let replay = replay_over(vec![
@@ -5178,17 +4260,13 @@ fn ink_left_of_the_cursor_with(dir: &std::path::Path, at_ms: f64, rotate: Option
 
     let mut skin = Skin::with_combo_colours(map.combo_colours());
     skin.cursor_rotate = rotate;
-    // `tint_for` as well as `read`: the coloured copy is what the renderer
-    // asks for, and a skin read without it hands back nothing at all.
+
     let sprites = Sprites::read(dir, &[Element::Cursor]).tint_for(&skin.combo_colours);
     skin.sprites = Some(std::sync::Arc::new(sprites));
     let frame = Scene::new(&state, skin).frame(at_ms, &layout);
 
     let (x, y) = layout.map(held);
-    // Well inside the half that is opaque at rest, and clear of the seam:
-    // measured off the frame, the disc spans about sixteen pixels either side
-    // of where the cursor is, so a window that straddles the middle counts the
-    // same ink whichever way round it has turned.
+
     let mut ink = 0;
     for dx in -18..-10_i32 {
         for dy in -6..6_i32 {
@@ -5203,9 +4281,6 @@ fn ink_left_of_the_cursor_with(dir: &std::path::Path, at_ms: f64, rotate: Option
     ink
 }
 
-/// Read out of stable: the cursor carries one looping rotation, nought to
-/// `6.28319` over `10000` milliseconds, linear. So half a turn is five seconds
-/// and the half that was on the left is then on the right.
 #[test]
 fn the_cursor_turns_the_way_the_game_turns_it() {
     let dir = skin_folder("cursor-turns");
@@ -5221,9 +4296,6 @@ fn the_cursor_turns_the_way_the_game_turns_it() {
     );
 }
 
-/// Nineteen of the twenty-six skins on the machine this was written on say
-/// `CursorRotate: 0`, and stable answers that by setting the rotation back to
-/// nothing rather than by slowing it.
 #[test]
 fn a_skin_that_says_not_to_turn_the_cursor_is_obeyed() {
     let dir = skin_folder("cursor-still");
@@ -5240,9 +4312,6 @@ fn a_skin_that_says_not_to_turn_the_cursor_is_obeyed() {
     );
 }
 
-/// The skin decides, until the render is asked to decide instead. A viewer
-/// watching someone else's replay did not choose the skin it is drawn in, and a
-/// shaped cursor spinning through a whole video is worth a switch.
 #[test]
 fn the_render_can_turn_a_cursor_the_skin_holds_still() {
     let dir = skin_folder("cursor-forced-on");
@@ -5259,8 +4328,6 @@ fn the_render_can_turn_a_cursor_the_skin_holds_still() {
     );
 }
 
-/// And the other way: a skin that says nothing gets stable's default, which is
-/// on, and the render can still hold it still.
 #[test]
 fn the_render_can_hold_still_a_cursor_the_skin_turns() {
     let dir = skin_folder("cursor-forced-off");
@@ -5273,20 +4340,9 @@ fn the_render_can_hold_still_a_cursor_the_skin_turns() {
     assert_eq!(at_rest, later, "the override did not hold the cursor still");
 }
 
-/// A `spinner-rpm` plate of the size the default skin ships, in a colour
-/// nothing else in a frame has.
-///
-/// The figure goes on top of it in the spinner's own pale colour, so the two
-/// are told apart by hue rather than by brightness. Drawn dark grey first,
-/// which the spinner's own body also is — the plate then measured as the whole
-/// frame and the test passed against every size it was shown.
 fn write_rpm_plate(dir: &std::path::Path) {
     let mut pixmap = tiny_skia::Pixmap::new(280, 56).expect("a canvas");
     for pixel in pixmap.pixels_mut() {
-        // Magenta, which nothing else in a frame is. Dark grey was tried and
-        // the spinner's own body is dark grey too, so the "plate" measured as
-        // the whole frame and the test agreed with itself whatever it was
-        // shown.
         *pixel = tiny_skia::PremultipliedColorU8::from_rgba(200, 0, 200, 255).expect("a colour");
     }
     std::fs::write(
@@ -5295,8 +4351,6 @@ fn write_rpm_plate(dir: &std::path::Path) {
     )
     .expect("written");
 
-    // And a digit of the size the default skin's is, filled solid so that what
-    // is measured is the height it was drawn at rather than the shape of a nought.
     let mut digit = tiny_skia::Pixmap::new(33, 46).expect("a canvas");
     for pixel in digit.pixels_mut() {
         *pixel = tiny_skia::PremultipliedColorU8::from_rgba(255, 255, 255, 255).expect("white");
@@ -5304,11 +4358,6 @@ fn write_rpm_plate(dir: &std::path::Path) {
     std::fs::write(dir.join("score-0.png"), digit.encode_png().expect("png")).expect("written");
 }
 
-/// The plate's drawn height, and the figure's, in pixels of the frame.
-///
-/// Both measured down the column the figure sits in — a little right of
-/// centre, where `SPIN_READOUT_OFFSET` puts it — by brightness: the plate is
-/// dark and the number is not.
 fn plate_and_figure(dir: &std::path::Path) -> (u32, u32) {
     use dossier_render::elements::Element;
     use dossier_render::imported::Sprites;
@@ -5331,18 +4380,12 @@ fn plate_and_figure(dir: &std::path::Path) -> (u32, u32) {
     let state = GameState::new(&map, &replay);
     let layout = Layout::new(640, 480);
 
-    // With a font: the readout returns without drawing anything at all when
-    // there is none, which is what made the first version of this test pass
-    // against a frame that had no plate in it.
     let mut skin = Skin::with_combo_colours(map.combo_colours()).with_font(font());
-    // The skin's own `score-0` as well as the plate, so the figure goes
-    // through the path a real skin takes: there the requested height *is* the
-    // glyph's height, where our vector font leaves room above and below for
-    // letters this string does not contain.
+
     let wanted = [Element::SpinnerRpm, Element::Score('0')];
     let sprites = Sprites::read(dir, &wanted).tint_for(&skin.combo_colours);
     skin.sprites = Some(std::sync::Arc::new(sprites));
-    // Mid-spinner: the one in `ONE_SPINNER` runs from two seconds to six.
+
     let frame = Scene::new(&state, skin).frame(4_000.0, &layout);
 
     if std::env::var("DOSSIER_PROBE").is_ok() {
@@ -5360,11 +4403,7 @@ fn plate_and_figure(dir: &std::path::Path) -> (u32, u32) {
             eprintln!("{y:>4} {row}");
         }
     }
-    // The plate first, by its own colour and nothing else. Its band is then
-    // the only place the figure can be, which keeps the spinner's own bright
-    // body — which fills most of the frame — out of the count entirely. The
-    // first version of this test scanned whole columns and measured that body
-    // twice, and so passed against the size it was meant to catch.
+
     let is_plate =
         |p: tiny_skia::PremultipliedColorU8| p.red() > 150 && p.blue() > 150 && p.green() < 90;
     let (mut top, mut bottom) = (u32::MAX, 0);
@@ -5384,20 +4423,11 @@ fn plate_and_figure(dir: &std::path::Path) -> (u32, u32) {
     }
     let plate = bottom - top + 1;
 
-    // And the figure, as the rows it reaches rather than the tallest column
-    // through it. A `0` is a ring: no column crosses it from top to bottom, so
-    // counting down columns measures the thickness of a stroke and calls that
-    // the height of the number.
-    // Inside the plate's own edges, or the spinner's body — which is bright
-    // and reaches most of the frame — is counted as the number. That is what
-    // the second version of this test did, and it agreed with itself whatever
-    // size the figure was drawn at.
     let figure = (top..=bottom)
         .filter(|&y| {
             (left..=right).any(|x| {
                 let p = frame.pixel(x, y).expect("inside the frame");
-                // The figure is drawn in the spinner's colour, which is pale —
-                // and pale is exactly what the plate under it is not.
+
                 p.green() > 120 && p.red() > 120 && p.blue() > 120
             })
         })
@@ -5405,13 +4435,6 @@ fn plate_and_figure(dir: &std::path::Path) -> (u32, u32) {
     (plate, figure)
 }
 
-/// The default skin ships both halves of this pairing and so states the
-/// answer: `spinner-rpm` is 56 units tall and `score-0` is 46, a figure four
-/// fifths the height of the plate it sits in.
-///
-/// It was a fixed share of the frame's height before, which came out at a
-/// third — and the plate read as oversized when it was the number that was
-/// small.
 #[test]
 fn the_speed_figure_fills_its_plate_the_way_the_game_fills_it() {
     let dir = skin_folder("rpm-plate");
@@ -5422,11 +4445,7 @@ fn the_speed_figure_fills_its_plate_the_way_the_game_fills_it() {
     assert!(figure > 0, "the figure was not drawn");
 
     let share = figure as f32 / plate as f32;
-    // The game's own pairing is 46 in 56, which is 82%. This measures 83: the
-    // digit is drawn at the height asked for and the plate at its own, and the
-    // one pixel is the rounding of both onto a 480-tall frame.
-    //
-    // Before this was sized against the plate it came out at 37%.
+
     assert!(
         (0.75..=0.92).contains(&share),
         "the figure is {figure}px in a {plate}px plate — {:.0}%; the game's own \
@@ -5435,10 +4454,6 @@ fn the_speed_figure_fills_its_plate_the_way_the_game_fills_it() {
     );
 }
 
-// ── the slider ball, turned over on the way back ─────────────────────────
-
-/// Half a picture: transparent on the left, red on the right. Which way round
-/// it is drawn is then a question anybody can answer by looking.
 fn write_lopsided_ball(dir: &std::path::Path, name: &str, size: u32) {
     let mut pixmap = tiny_skia::Pixmap::new(size, size).expect("a canvas");
     let width = pixmap.width();
@@ -5453,13 +4468,6 @@ fn write_lopsided_ball(dir: &std::path::Path, name: &str, size: u32) {
     std::fs::write(dir.join(name), pixmap.encode_png().expect("png")).expect("written");
 }
 
-/// How much of the ball's red half falls either side of where the ball is,
-/// counted in a box around it and nowhere else.
-///
-/// Counting red across the whole frame was tried first and measured the slider
-/// body along with it — 3,400 pixels spread over x 239..631 for a ball 60
-/// across. The ball's own place is known exactly, so the question is asked
-/// there.
 fn red_sides(frame: &tiny_skia::Pixmap, centre: (f32, f32)) -> (usize, usize) {
     let (cx, cy) = centre;
     let (mut left, mut right) = (0usize, 0usize);
@@ -5478,10 +4486,6 @@ fn red_sides(frame: &tiny_skia::Pixmap, centre: (f32, f32)) -> (usize, usize) {
     (left, right)
 }
 
-/// The ball a quarter along the way out, and three quarters along the way back
-/// — which `position_at_slide` puts at the same point on the path, reached
-/// from the two directions. Anything differing between the two frames is the
-/// ball turning over and nothing else.
 fn ball_at_two_legs(flip: bool) -> ((usize, usize), (usize, usize)) {
     use dossier_render::elements::Element;
     use dossier_render::imported::Sprites;
@@ -5499,8 +4503,7 @@ fn ball_at_two_legs(flip: bool) -> ((usize, usize), (usize, usize)) {
     .expect("written");
 
     let map = beatmap(REPEATING_SLIDER);
-    // Held down and on the path, so the ball is being followed rather than
-    // dropped.
+
     let frames: Vec<_> = (0..260)
         .map(|i| dossier_replay::ReplayFrame {
             time_ms: 1900 + i * 20,
@@ -5519,8 +4522,6 @@ fn ball_at_two_legs(flip: bool) -> ((usize, usize), (usize, usize)) {
         object.start_ms + slide * 1.75,
     );
 
-    // The skin keeps its own colours on the ball: `AllowSliderBallTint`
-    // defaults to off, which is what leaves the red there to be counted.
     let mut skin = Skin::with_combo_colours(map.combo_colours()).with_font(font());
     skin.sprites = Some(std::sync::Arc::new(
         Sprites::read(&dir, &[Element::SliderBall]).tint_for(&skin.combo_colours),
@@ -5536,9 +4537,6 @@ fn ball_at_two_legs(flip: bool) -> ((usize, usize), (usize, usize)) {
 
 #[test]
 fn the_slider_ball_turns_over_on_the_way_back_when_the_skin_asks() {
-    // Three skins here ship a ball drawn to be mirrored and were getting it
-    // the same way round both ways. stable numbers the legs from one and turns
-    // the even ones over; see `Ini::slider_ball_flip`.
     let ((out_left, out_right), (back_left, back_right)) = ball_at_two_legs(true);
     assert!(
         out_right > 200 && out_left * 4 < out_right,
@@ -5552,10 +4550,6 @@ fn the_slider_ball_turns_over_on_the_way_back_when_the_skin_asks() {
 
 #[test]
 fn a_skin_that_did_not_ask_gets_the_ball_the_same_way_round_both_ways() {
-    // The half that makes the other test mean anything: both frames are the
-    // same point on the path reached from opposite directions, so with nothing
-    // asking for a flip they have to agree. Without this, that test would pass
-    // just as well on a ball that turned over for some other reason.
     let ((out_left, out_right), (back_left, back_right)) = ball_at_two_legs(false);
     assert!(
         out_right > 200 && back_right > 200,

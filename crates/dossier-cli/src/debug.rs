@@ -1,20 +1,7 @@
-//! `debug` — the judgement read back as a narrative.
-//!
-//! Every other output here is a summary: totals, counts, a histogram. Those say
-//! *that* a play was judged wrongly. This says what the engine was looking at,
-//! object by object and click by click, over a window small enough to read.
-//!
-//! It exists because the remaining error is a note lock cascade, and a cascade
-//! cannot be read from totals. Twenty-seven refusals in a row are twenty-seven
-//! symptoms of one unjudged note, and the only question worth asking is which
-//! note and why nobody took it. So a refusal names its blocker, and the blocker
-//! gets a section of its own listing every click that came near it.
-
 use dossier_beatmap::Beatmap;
 use dossier_replay::Replay;
 use dossier_sim::{GameState, Judgement, Part, PressDetail, TimedObject, Verdict};
 
-/// Clicks this far either side of an object are about that object.
 const NEARBY_MS: f64 = 400.0;
 
 pub fn narrate(
@@ -38,8 +25,6 @@ pub fn narrate(
         replay.player, replay.mods
     ));
 
-    // The four numbers, as the engine has them after mods — stated rather than
-    // assumed, because a wrong one here looks exactly like a wrong lock.
     out.push_str(&format!(
         "\n   OD {:.2} → windows {:.0} / {:.0} / {:.0}      CS {:.2} → radius {:.2}, follow {:.2}\n",
         difficulty.overall_difficulty,
@@ -65,7 +50,6 @@ pub fn narrate(
     out
 }
 
-/// Objects and presses interleaved, in the order the engine met them.
 fn timeline_lines(state: &GameState, (from, to): (f64, f64)) -> String {
     let objects = &state.timeline().objects;
     let mut lines: Vec<(f64, u8, String)> = Vec::new();
@@ -74,8 +58,7 @@ fn timeline_lines(state: &GameState, (from, to): (f64, f64)) -> String {
         if object.start_ms < from || object.start_ms > to {
             continue;
         }
-        // 0 sorts objects before presses at the same instant: the note is
-        // there to be clicked before the click happens.
+
         lines.push((object.start_ms, 0, object_line(state, index, object)));
     }
     for press in state
@@ -159,11 +142,6 @@ fn press_line(state: &GameState, press: &PressDetail) -> String {
     )
 }
 
-/// The notes the lock is stuck on, and every click that came near them.
-///
-/// A run of refusals all name the same object; the question is never what the
-/// refusals did, it is why that one note was never judged. So it gets the
-/// clicks that were within reach of it, with what each was doing instead.
 fn stuck_notes(state: &GameState, (from, to): (f64, f64)) -> String {
     let detail = state.press_detail();
     let mut blockers: Vec<usize> = detail
@@ -221,9 +199,6 @@ fn stuck_notes(state: &GameState, (from, to): (f64, f64)) -> String {
     out
 }
 
-/// How far a press was from *this* object, rather than from the one it was
-/// tested against — which is the number that says whether it could have taken
-/// the blocker instead.
 fn press_distance(state: &GameState, press: &PressDetail, object_index: usize) -> f64 {
     let cursor = state.cursor_track().sample(press.time_ms);
     let object = &state.timeline().objects[object_index];

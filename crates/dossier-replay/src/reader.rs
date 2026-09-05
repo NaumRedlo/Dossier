@@ -1,9 +1,3 @@
-//! Little-endian primitive reads over a `.osr` byte buffer.
-//!
-//! The only unusual type is osu!'s string: a marker byte (`0x00` for "absent",
-//! `0x0b` for "present"), then a ULEB128 length, then UTF-8. Every string in the
-//! format uses it, so it gets its own reader rather than being open-coded.
-
 use crate::error::{ReplayError, Result};
 
 pub(crate) struct Reader<'a> {
@@ -70,7 +64,6 @@ impl<'a> Reader<'a> {
         self.take(n)
     }
 
-    /// ULEB128 — the length prefix inside osu!'s string encoding.
     fn uleb128(&mut self) -> Result<usize> {
         let start = self.pos;
         let mut value: u64 = 0;
@@ -89,10 +82,6 @@ impl<'a> Reader<'a> {
         usize::try_from(value).map_err(|_| ReplayError::UlebOverflow { offset: start })
     }
 
-    /// osu! string: `0x00` = absent, `0x0b` = ULEB128 length then UTF-8 bytes.
-    ///
-    /// An absent string and an empty one are different on the wire but mean the
-    /// same thing to every caller here, so both come back as `String::new()`.
     pub(crate) fn string(&mut self) -> Result<String> {
         let start = self.pos;
         match self.u8()? {

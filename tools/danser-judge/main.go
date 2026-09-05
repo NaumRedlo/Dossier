@@ -1,9 +1,3 @@
-// A judging harness over danser's own ruleset.
-//
-// danser is a renderer, and its CLI wants a window; the rules are a library and
-// do not. This drives that library the way `rcontroller.go` drives it — click,
-// normal, post, per replay frame — and prints the counts, so danser's judgement
-// of a corpus can be put beside another engine's on the same yardstick.
 package main
 
 import (
@@ -46,13 +40,6 @@ func main() {
 func run() {
 	env.Init("danser")
 
-	// danser's hit objects load skin textures and a font in `SetDifficulty`,
-	// before a single note is judged, and the texture atlas wants a live GL
-	// context. Rather than stub any of that — which would mean measuring a
-	// modified danser — the harness opens a hidden one-pixel window and lets
-	// danser be itself. Under `xvfb-run` on a headless runner this is Mesa's
-	// software renderer, which is slow and entirely sufficient for a context
-	// nothing ever draws into.
 	if err := glfw.Init(); err != nil {
 		panic(err)
 	}
@@ -74,8 +61,6 @@ func run() {
 	res := out{Replay: osrPath}
 	defer func() {
 		if r := recover(); r != nil {
-			// The stack, not just the message: "nil pointer dereference" on all
-			// 176 says nothing about which of danser's fields was not set up.
 			res.Err = fmt.Sprint(r)
 			res.Stack = string(debug.Stack())
 		}
@@ -94,11 +79,6 @@ func run() {
 		return
 	}
 
-	// `ParseBeatMapFile` takes the path apart against danser's own songs
-	// directory and `ParseBeatMap` puts it back together the same way, so a map
-	// outside that directory is simply not found — every one of 176 came back
-	// "beatmap did not parse" for this and nothing else. The value is cached on
-	// first read, so it has to be set before anything asks.
 	settings.General.OsuSongsDir = filepath.Dir(osuPath)
 
 	f, err := os.Open(osuPath)
@@ -127,41 +107,24 @@ func run() {
 		diff.SetMods(difficulty.Modifier(replay.Mods))
 	}
 
-	// `NewCursor` builds a framebuffer for drawing the cursor trail, and that
-	// is the one thing the software renderer cannot give — it reports a maximum
-	// texture size of zero and `initCursor` dereferences the result. The ruleset
-	// reads a cursor's position, its keys and its frame times and nothing else,
-	// so the zero value is the whole of what judging needs.
 	cursor := &graphics.Cursor{}
 	cursor.IsPlayer = true
 	cursor.IsAutoplay = false
 
 	ruleset := osu.NewOsuRuleset(bMap, []*graphics.Cursor{cursor}, []*difficulty.Difficulty{diff})
 
-	// Under Relax the game does the clicking and writes none of it down, so
-	// danser makes the presses itself. Reading the keys out of the file instead
-	// hands the ruleset a replay that never pressed anything — eight of the
-	// eleven worst results in the first run were this and nothing else.
 	isRelax := diff.CheckModActive(difficulty.Relax)
 	var relax *input.RelaxInputProcessor
 	if isRelax {
 		relax = input.NewRelaxInputProcessor(ruleset, cursor)
 	}
 
-	// Every judgement as it is made, for reading one replay object by object
-	// rather than comparing four totals.
 	if len(os.Args) > 3 && os.Args[3] == "--objects" {
 		ruleset.SetListener(func(_ *graphics.Cursor, r osu.JudgementResult, _ osu.Score) {
 			fmt.Printf("OBJ %d %d %v\n", r.Number, r.Time, r.HitResult)
 		})
 	}
 
-	// danser's own loop, minus the drawing: frame times are deltas, and each
-	// frame offers the click first and sweeps afterwards — the order is
-	// load-bearing and is why it is copied rather than simplified.
-	// danser's own preprocessing, out of `loadFrames`. Skipping it was worth
-	// hundreds of phantom misses on some replays: the seed frame is a marker
-	// rather than a moment, and a leading zero delta doubles the first frame.
 	frames := replay.ReplayData
 	for i, fr := range frames {
 		if fr.Time == -12345 {
@@ -178,10 +141,6 @@ func run() {
 		t += float64(frame.Time)
 		now := int64(t)
 
-		// `SetPos` ends by telling the cursor's renderer where to draw, and there
-		// is no renderer here. With display inversion and edge bouncing off — both
-		// default — everything it does before that is these two assignments, and
-		// they are the two fields the ruleset reads.
 		pos := vector.NewVec2d(frame.MouseX, frame.MouseY).Copy32()
 		cursor.RawPosition = pos
 		cursor.Position = pos

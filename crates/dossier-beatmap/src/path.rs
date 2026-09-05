@@ -1,33 +1,9 @@
-//! Slider paths: control points in, a walkable polyline out.
-//!
-//! Every curve type is flattened to a polyline with cumulative distances, and
-//! everything downstream asks the same question — "where is the ball at
-//! progress *t*" — regardless of how the curve was authored.
-//!
-//! Two behaviours here are the game's, not geometry's, and are easy to get
-//! wrong:
-//!
-//! * **The authored length wins.** A slider states its pixel length, and it is
-//!   routinely shorter than the curve actually drawn by the control points.
-//!   osu! walks the path only that far, so the tail of the geometry is unused.
-//! * **A perfect-circle slider with collinear points is not an error.** The
-//!   game silently treats it as a bezier, because an arc through three points
-//!   on a line has no finite centre.
-
 use crate::hitobject::{CurveType, Point};
 
-/// How far a flattened segment may stray from the true curve, in osu!pixels.
-/// Well under a rendered pixel at any sane resolution, and it bounds the work:
-/// subdivision stops as soon as the chord is this close.
 const FLATNESS_TOLERANCE: f64 = 0.25;
 
-/// Ceiling on de Casteljau recursion. Degenerate control polygons (all points
-/// identical, NaN coordinates from a corrupt file) would otherwise never look
-/// flat and would recurse until the stack gave out.
 const MAX_SUBDIVISION_DEPTH: u32 = 16;
 
-/// Arc and Catmull spans are sampled at a fixed rate rather than adaptively —
-/// their curvature is bounded, so a per-span count keyed to length is enough.
 const SAMPLES_PER_100PX: f64 = 25.0;
 const MIN_SPAN_SAMPLES: usize = 4;
 
@@ -70,18 +46,15 @@ impl Point {
     }
 }
 
-/// A flattened slider path with cumulative distances along it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SliderPath {
     points: Vec<Point>,
-    /// `cumulative[i]` is the distance from the start to `points[i]`.
+
     cumulative: Vec<f64>,
     length: f64,
 }
 
 impl SliderPath {
-    /// Flatten `control_points` and trim to `expected_length` (the value the
-    /// map authored). Pass `None` to keep the geometry's own length.
     pub fn new(
         curve_type: CurveType,
         control_points: &[Point],
@@ -120,24 +93,6 @@ impl SliderPath {
         path
     }
 
-    /// Walk exactly `target` pixels of the geometry, as the game does.
-    ///
-    /// The authored length is the length, in both directions. Shorter than the
-    /// curve and the tail of the geometry goes unused; *longer* and the last
-    /// segment is stretched to make up the difference:
-    ///
-    /// ```csharp
-    /// Vector2 dir = (calculatedPath[pathEndIndex] - calculatedPath[pathEndIndex - 1]).Normalized();
-    /// calculatedPath[pathEndIndex] = calculatedPath[pathEndIndex - 1] + dir * (float)(expectedDistance - cumulativeLength[^1]);
-    /// ```
-    ///
-    /// This is not a corner case in old maps. `Kona-Chan: Farucon Pan!`, file
-    /// format v4, has sliders whose control points draw 32 osu!pixels against
-    /// an authored 65 — and the object that follows sits exactly where the
-    /// stretched path ends, not where the drawn one does. Stopping the ball
-    /// short leaves it up to 33px from where the player is tracking, which on a
-    /// CS 10 map is three follow circles away: a full-combo play read as
-    /// 71 combo against 220.
     fn trim_to(&mut self, target: f64) {
         if !target.is_finite() || target <= 0.0 {
             self.points.truncate(1);
@@ -170,12 +125,6 @@ impl SliderPath {
         self.length = target;
     }
 
-    /// Push the last point out along its own direction until the path is
-    /// `target` long.
-    ///
-    /// A path with one point, or one whose final segment has no direction to
-    /// speak of, has nothing to stretch along — it stays as it is rather than
-    /// inventing a heading.
     fn stretch_to(&mut self, target: f64) {
         let last = self.points.len() - 1;
         if last == 0 {
@@ -193,10 +142,6 @@ impl SliderPath {
         self.length = target;
     }
 
-    /// Path length in osu!pixels, after trimming.
-    /// Shift the whole path. Distances along it are unchanged, so the cached
-    /// cumulative lengths stay valid — which is why stacking can move a slider
-    /// after the fact instead of re-flattening it.
     pub fn translate(&mut self, dx: f64, dy: f64) {
         for point in &mut self.points {
             point.x += dx;
@@ -212,12 +157,10 @@ impl SliderPath {
         self.points.is_empty()
     }
 
-    /// The flattened polyline, for drawing the slider body.
     pub fn points(&self) -> &[Point] {
         &self.points
     }
 
-    /// Position at `progress` along a single traversal, clamped to `[0, 1]`.
     pub fn position_at(&self, progress: f64) -> Option<Point> {
         let first = *self.points.first()?;
         if self.length <= 0.0 {
@@ -236,16 +179,6 @@ impl SliderPath {
         Some(self.points[before].lerp(self.points[after], t))
     }
 
-    /// The stretch of the polyline between two progress fractions: the two
-    /// interpolated ends, and the whole points that lie between them.
-    ///
-    /// This is what lets a slider be drawn while it is still extending or
-    /// already retracting — it is the same curve, cut short at one end or both.
-    /// The interior comes back as a borrowed slice rather than a new vector
-    /// because this runs once per visible slider per frame.
-    ///
-    /// `None` when the requested stretch has no length at all, which is a
-    /// slider that has not started growing yet and has nothing to draw.
     pub fn segment(&self, from: f64, to: f64) -> Option<(Point, &[Point], Point)> {
         let from = from.clamp(0.0, 1.0);
         let to = to.clamp(from, 1.0);
@@ -255,8 +188,6 @@ impl SliderPath {
         let (start, end) = (self.position_at(from)?, self.position_at(to)?);
         let (from_at, to_at) = (from * self.length, to * self.length);
 
-        // Whole points strictly inside the stretch. The ends are interpolated,
-        // so a point sitting exactly on one would be drawn twice.
         let first = self.cumulative.partition_point(|&d| d <= from_at);
         let last = self.cumulative.partition_point(|&d| d < to_at);
         let interior = if first < last {
@@ -267,10 +198,6 @@ impl SliderPath {
         Some((start, interior, end))
     }
 
-    /// Position across a repeating slider, where `progress` runs `0..slides`.
-    ///
-    /// Odd slides run backwards — that's what a repeat *is* — so the local
-    /// progress is mirrored on them.
     pub fn position_at_slide(&self, progress: f64, slides: u32) -> Option<Point> {
         let slides = slides.max(1) as f64;
         let p = progress.clamp(0.0, slides);
@@ -282,8 +209,6 @@ impl SliderPath {
         self.position_at(local)
     }
 }
-
-// ── flattening ───────────────────────────────────────────────────────────
 
 fn flatten(curve_type: CurveType, control: &[Point]) -> Vec<Point> {
     let control: Vec<Point> = control.iter().copied().filter(|p| p.is_finite()).collect();
@@ -301,9 +226,6 @@ fn flatten(curve_type: CurveType, control: &[Point]) -> Vec<Point> {
     }
 }
 
-/// A bezier "curve" is really a chain of them: a control point repeated back to
-/// back marks the end of one segment and the start of the next, which is how
-/// maps encode a sharp corner (red anchors in the editor).
 fn bezier_chain(control: &[Point]) -> Vec<Point> {
     let mut out = vec![control[0]];
     let mut start = 0;
@@ -324,8 +246,6 @@ fn bezier_chain(control: &[Point]) -> Vec<Point> {
     out
 }
 
-/// Recursive de Casteljau: split until the control polygon is within tolerance
-/// of its chord, then emit the endpoint.
 fn approximate_bezier(control: &[Point], out: &mut Vec<Point>, depth: u32) {
     if depth >= MAX_SUBDIVISION_DEPTH || is_flat(control) {
         out.push(*control.last().expect("segment is non-empty"));
@@ -337,8 +257,6 @@ fn approximate_bezier(control: &[Point], out: &mut Vec<Point>, depth: u32) {
     approximate_bezier(&right, out, depth + 1);
 }
 
-/// Flat when every interior control point sits within tolerance of the chord
-/// between the first and last.
 fn is_flat(control: &[Point]) -> bool {
     let (first, last) = (control[0], control[control.len() - 1]);
     let chord = last.sub(first);
@@ -347,10 +265,8 @@ fn is_flat(control: &[Point]) -> bool {
     control[1..control.len().saturating_sub(1)].iter().all(|p| {
         let offset = p.sub(first);
         let distance = if chord_len > f64::EPSILON {
-            // |cross| / |chord| — perpendicular distance to the chord line.
             (chord.x * offset.y - chord.y * offset.x).abs() / chord_len
         } else {
-            // Degenerate chord: fall back to plain distance from the endpoint.
             offset.length()
         };
         distance <= FLATNESS_TOLERANCE
@@ -376,15 +292,10 @@ fn split_bezier(control: &[Point]) -> (Vec<Point>, Vec<Point>) {
     (left, right)
 }
 
-/// Circular arc through exactly three points.
-///
-/// Returns `None` when there are not three points or they're collinear — the
-/// caller then treats the slider as a bezier, matching the game.
 fn circular_arc(control: &[Point]) -> Option<Vec<Point>> {
     let [a, b, c] = control else { return None };
     let (a, b, c) = (*a, *b, *c);
 
-    // Twice the signed area of the triangle; zero means no circumcircle.
     let d = 2.0 * (a.x * (b.y - c.y) + b.x * (c.y - a.y) + c.x * (a.y - b.y));
     if d.abs() < 1e-6 {
         return None;
@@ -407,8 +318,6 @@ fn circular_arc(control: &[Point]) -> Option<Vec<Point>> {
     let angle_of = |p: Point| (p.y - centre.y).atan2(p.x - centre.x);
     let (start, end) = (angle_of(a), angle_of(c));
 
-    // Sweep from start to end the way that passes through the middle point;
-    // the cross product tells us which way that is.
     let cross = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
     let mut sweep = end - start;
     if cross < 0.0 {
@@ -435,8 +344,6 @@ fn circular_arc(control: &[Point]) -> Option<Vec<Point>> {
     Some(out)
 }
 
-/// Legacy centripetal-style Catmull-Rom, sampled span by span. Endpoints are
-/// duplicated so the first and last spans have neighbours to work with.
 fn catmull_chain(control: &[Point]) -> Vec<Point> {
     let mut out = vec![control[0]];
 

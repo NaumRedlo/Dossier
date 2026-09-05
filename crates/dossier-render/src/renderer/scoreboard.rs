@@ -1,16 +1,3 @@
-//! The standings down the left of the frame, climbing to the map's best score.
-//!
-//! Read upwards: the worst kept score at the top, the leader at the bottom. A
-//! board with the leader on top is a table; one that climbs to them is a story,
-//! and the player's row rising through it is the only thing on screen that
-//! changes place. Every position is worked out from the score curve the engine
-//! already computes, so a frame stands alone and the whole reel can be drawn in
-//! parallel.
-//!
-//! `draw_leaderboard` is `pub(super)` for the overlay pass to call; everything
-//! else — the row, and the `ScoreCurve` that feeds the engine's track to the
-//! board — is private to it.
-
 use super::format::{compact, name_size};
 use super::paint::rounded_rect;
 use super::*;
@@ -22,17 +9,6 @@ use crate::skin::{darken, lighten, with_alpha};
 use crate::text::{Align, Label};
 
 impl Scene<'_> {
-    /// The standings, down the left, climbing to the best score on the map.
-    ///
-    /// Read upwards: the worst kept score at the top, the leader at the bottom.
-    /// A board with the leader on top is a table; one that climbs to them is a
-    /// story, and the player's row rising through it is the only thing on screen
-    /// that changes place.
-    ///
-    /// Drawn from the score the engine is already computing, so the row moves at
-    /// the moment it actually passes somebody — and the move is worked out from
-    /// the score curve rather than from the frame before, because a frame here
-    /// has to stand alone or they cannot be drawn in parallel.
     pub(super) fn draw_leaderboard(&self, pixmap: &mut Pixmap, time_ms: f64, layout: &Layout) {
         let (Some(font), false) = (&self.skin.font, self.leaderboard.is_empty()) else {
             return;
@@ -50,42 +26,21 @@ impl Scene<'_> {
         let left = (height * BOARD_LEFT) as f32;
         let width = (height * BOARD_WIDTH) as f32;
         let card_height = step * BOARD_CARD_FILL;
-        // Anchored across the middle of the left edge, which is where the
-        // playfield is emptiest whatever the aspect ratio. The block is as tall
-        // as the window is long, whatever places happen to be in it — sizing it
-        // from the places themselves put the leader three thousand pixels below
-        // the frame on a map forty people had played.
+
         let drawn = BOARD_ROWS as f32;
         let top = pixmap.height() as f32 / 2.0 + (drawn / 2.0 - 1.0) * step;
 
         for row in &rows {
             let eased = {
-                // Ease out, so it leaves briskly and settles rather than
-                // arriving at speed.
                 let t = row.moving.clamp(0.0, 1.0);
                 1.0 - (1.0 - t) * (1.0 - t) * (1.0 - t)
             };
-            // Slot zero is the worst score kept and it is drawn at the *bottom*,
-            // so the block reads best-first downwards and the player climbs it
-            // from below. Drawn the other way round — worst at the top,
-            // descending to the leader — was tried and looked wrong: the eye
-            // starts at the top of a list, and starting it on the row that
-            // matters least buries the one that matters most.
+
             let slot = row.from_slot + (row.slot - row.from_slot) * eased;
             let y = top - slot * step + size * 1.15;
-            // Three states, three shapes. A row on its way out shrinks and fades
-            // as it travels into the row that overtook it; one arriving at the
-            // top grows into place from nothing; one merely changing slot stays
-            // whole and slides. Sliding all three would make the board look like
-            // a list being sorted, which is what it is and not what it is *for*.
+
             let t = row.moving.clamp(0.0, 1.0);
-            // A leaver has to still be *there* while it travels, or it is not
-            // flying into anything — it is a row dissolving where it stood. So it
-            // holds its size and its colour for most of the trip and gives them
-            // up at the end, on top of the row that took its place. Fading with
-            // the same ease-out that carries it made it invisible before it
-            // arrived, which is why the first attempt looked like no change at
-            // all: the movement was right and nobody could see it.
+
             let late = 1.0 - t * t * t;
             let settling = if row.leaving {
                 late
@@ -107,9 +62,6 @@ impl Scene<'_> {
                 0.94 + 0.06 * settling
             };
 
-            // The card shrinks with the text. Scaling only the letters is what
-            // made a collapsing row read as a fading one — the panel stayed its
-            // full size underneath and nothing appeared to shrink at all.
             let card_w = width * shrink;
             let card_h = card_height * shrink;
             self.draw_board_row(
@@ -126,7 +78,6 @@ impl Scene<'_> {
         }
     }
 
-    /// One card: the cover behind it, the avatar, the place, and the numbers.
     #[allow(clippy::too_many_arguments)]
     fn draw_board_row(
         &self,
@@ -146,11 +97,6 @@ impl Scene<'_> {
             return;
         };
 
-        // The cover first, clipped to the card, then two washes over it: heavy on
-        // the left where the avatar and the name sit, lighter on the right. One
-        // flat dim would either drown the picture or lose the text; the point of
-        // a cover is to be seen behind the half of the row that has fewer words
-        // in it.
         let mut paint = Paint {
             anti_alias: true,
             ..Default::default()
@@ -190,15 +136,7 @@ impl Scene<'_> {
         } else {
             self.skin.background
         };
-        // A gradient across the card rather than two flat bands.
-        //
-        // Bands were tried and are wrong twice over. They leave a seam where
-        // they meet — one card reads as two — and the heavy one has to be heavy
-        // enough for text over the *worst* cover, which on the left of the card
-        // meant ninety per cent of near-black: the cover simply was not there,
-        // and half of every row was a black rectangle. A ramp puts the weight
-        // where the words are and lets go of it where they stop, so the picture
-        // survives the half of the row that has fewer of them.
+
         let (heavy, light) = if has_cover {
             (BOARD_DARK_LEFT_COVER, BOARD_DARK_RIGHT_COVER)
         } else {
@@ -232,9 +170,6 @@ impl Scene<'_> {
             darken(self.skin.hud, BOARD_RIVAL_DIM)
         };
 
-        // The avatar, square and inside a ring that glows a little. Red because
-        // it is the house colour and because on a board of grey rows one warm
-        // edge is enough to find your own line without reading it.
         let face = card_height * BOARD_FACE;
         let face_x = left + card_height * 0.16;
         let face_y = top + (card_height - face) / 2.0;
@@ -260,10 +195,7 @@ impl Scene<'_> {
                 pixmap.fill_path(&clip, &art, FillRule::Winding, Transform::identity(), None);
             }
         }
-        // The ring is drawn whether or not there is a face behind it: an empty
-        // frame still says which row is which, where a missing one would leave
-        // the layout jumping between players who have an avatar and players who
-        // do not.
+
         for (grow, alpha) in [(BOARD_GLOW, 0.22), (0.0, 0.95)] {
             let Some(ring) = rounded_rect(
                 face_x - face * grow,
@@ -291,19 +223,6 @@ impl Scene<'_> {
             );
         }
 
-        // The place, large and lit, in a column of its own at the right edge with
-        // the text stopping short of it.
-        //
-        // It was a dim watermark, on the reasoning that the order already says
-        // the place so the number is optional. That reasoning holds for a
-        // scoreboard you are reading and not for one you are watching: a row goes
-        // past in a second and a half and the number is the only part of it that
-        // says *where in the field* this is happening. Lit, it is the first thing
-        // the eye finds on the card; dim, it was the last.
-        //
-        // The first three carry the bot's own gold, silver and bronze, so a
-        // podium here and a podium on a leaderboard card are the same three
-        // colours rather than two people's separate idea of gold.
         let rank_column = card_height * BOARD_RANK_COLUMN;
         let rank_colour = match row.place {
             0..=2 => self.skin.podium[row.place],
@@ -341,9 +260,7 @@ impl Scene<'_> {
         if !row.entry.mods.is_empty() {
             under.push_str(&format!("  {}", row.entry.mods));
         }
-        // Shrunk to fit rather than allowed past the card. A ScoreV1 total with
-        // an accuracy and mods after it is the widest line the board ever draws,
-        // and sizing for the average left it hanging into the playfield.
+
         let mut under_size = size * 0.78;
         let measured = font.width(&under, under_size);
         if measured > text_room && measured > 0.0 {
@@ -363,16 +280,6 @@ impl Scene<'_> {
     }
 }
 
-/// A rectangle with its corners taken off.
-///
-/// tiny-skia has no rounded rectangle, and a scoreboard of square cards over a
-/// round playfield looks like a debug overlay — which is what this renderer spent
-/// its first month looking like.
-/// The engine's score track, as the scoreboard's `ScoreAt`.
-///
-/// A newtype rather than an `impl` on `ScoreTrack` itself, so the trait stays a
-/// statement about what a scoreboard needs rather than a method the simulator has
-/// to carry for the renderer's benefit.
 struct ScoreCurve<'a>(&'a dossier_sim::ScoreTrack);
 
 impl crate::leaderboard::ScoreAt for ScoreCurve<'_> {

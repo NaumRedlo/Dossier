@@ -1,12 +1,3 @@
-//! `dossier exhibit` — which moments of a play are worth watching.
-//!
-//! The choosing lives in [`dossier_exhibit`]; this is the part that reads a
-//! replay off disk and writes the answer out. Two surfaces, and the order they
-//! are listed in the usage text is deliberate: `--json` first because the
-//! selection is the feature, `-o` second because the video is a consequence of
-//! it. Everything that can go wrong with a reel can be seen without waiting for
-//! an encode, and an encode of a minute of gameplay is minutes of waiting.
-
 use std::collections::BTreeMap;
 
 use dossier_exhibit::{Clip, Facet, Reason, Settings};
@@ -15,11 +6,6 @@ use dossier_sim::GameState;
 
 use crate::report::quote;
 
-/// Turn the command-line seconds into the crate's milliseconds.
-///
-/// The two lengths are video time — what somebody watching would count — and
-/// the crate converts to map time on its own, using the replay's rate. Doing it
-/// here instead would put the DoubleTime arithmetic in two places.
 pub fn settings(budget_s: Option<f64>, clip_s: Option<f64>, worth: Option<f64>) -> Settings {
     let defaults = Settings::default();
     Settings {
@@ -30,11 +16,6 @@ pub fn settings(budget_s: Option<f64>, clip_s: Option<f64>, worth: Option<f64>) 
     }
 }
 
-/// The chosen clips as one JSON object, on one line.
-///
-/// One line so a run over many replays is a stream somebody can pipe. The
-/// spans are in **map** milliseconds — the same clock `--from` and `--to` take,
-/// so a clip can be fed straight back to `dossier video` to look at on its own.
 pub fn as_json(replay_path: &str, replay: &Replay, state: &GameState, clips: &[Clip]) -> String {
     let (from, to) = state.span_ms();
     let clips: Vec<String> = clips
@@ -50,8 +31,6 @@ pub fn as_json(replay_path: &str, replay: &Replay, state: &GameState, clips: &[C
                 quote(&clip.reason.describe()),
                 detail(&clip.reason),
                 match &clip.with {
-                    // A second moment the same seconds hold, in the same shape
-                    // as the first so a reader needs no second vocabulary.
                     Some(with) => format!(
                         ",\"with\":{{\"scorer\":{},\"reason\":{},\"detail\":{}}}",
                         quote(with.scorer().name()),
@@ -72,13 +51,6 @@ pub fn as_json(replay_path: &str, replay: &Replay, state: &GameState, clips: &[C
     )
 }
 
-/// The numbers behind a reason, as JSON.
-///
-/// The prose in `reason` is the engine speaking English, which is right for a
-/// terminal and wrong for anything that has to show a moment to somebody in
-/// another language. A caller with the numbers can phrase them itself; a caller
-/// given only the sentence can either print English or translate prose, and the
-/// second is worse than the first.
 fn detail(reason: &Reason) -> String {
     match *reason {
         Reason::Kiai { bpm, length_ms } => {
@@ -127,12 +99,6 @@ fn detail(reason: &Reason) -> String {
     }
 }
 
-/// The same thing for a human, one clip a line.
-///
-/// The reason is the widest column on purpose. A list of timestamps is a thing
-/// to trust or not trust with nothing in between; a list of timestamps that
-/// each say what they are is a thing to disagree with, and disagreement is the
-/// only feedback this feature can get.
 pub fn as_text(clips: &[Clip], rate: f64) -> String {
     if clips.is_empty() {
         return "nothing to show — the play is shorter than one clip\n".to_owned();
@@ -150,8 +116,6 @@ pub fn as_text(clips: &[Clip], rate: f64) -> String {
             clip.reason.describe(),
         ));
         if let Some(with) = &clip.with {
-            // Indented under the clip it shares, because it is not another
-            // clip — it is the same seconds saying one more thing.
             out.push_str(&format!(
                 "{:>9} {:>9}  {:<10} {}\n",
                 "",
@@ -168,7 +132,6 @@ pub fn as_text(clips: &[Clip], rate: f64) -> String {
     out
 }
 
-/// `1:23.4` — map time, which is where the map's own editor would put you.
 fn stamp(ms: f64) -> String {
     let total = (ms / 1000.0).max(0.0);
     let minutes = (total / 60.0).floor();
@@ -186,49 +149,30 @@ mod tests {
         assert_eq!(stamp(600_000.0), "10:00.0");
     }
 
-    /// A clip that ran off the front of the play must not print a negative
-    /// timestamp — the span is real, the clock starts at zero.
     #[test]
     fn a_clip_before_zero_stamps_at_zero() {
         assert_eq!(stamp(-500.0), "0:00.0");
     }
 }
 
-// ── the survey ───────────────────────────────────────────────────────────
-
-/// What a run of Exhibit over many replays came to.
-///
-/// Exhibit has no ground truth and never will, so the substitute is
-/// **stability**: a change cannot be shown to be right, but it can be shown
-/// what it did to a hundred replays. Without this, tuning a scorer is two
-/// people watching two reels and disagreeing, and the numbers that would settle
-/// it are computed and thrown away.
 #[derive(Default)]
 pub struct Survey {
-    /// Replays that produced a reel.
     pub reels: usize,
-    /// Replays with nothing worth showing — a real answer, not a failure.
+
     pub empty: usize,
-    /// Replays that could not be judged at all.
+
     pub skipped: usize,
-    /// Seconds of video per reel, for the spread.
+
     lengths: Vec<f64>,
-    /// Clips per scorer, by name.
+
     by_scorer: BTreeMap<&'static str, usize>,
-    /// Clips by what kind of thing they are about.
+
     by_facet: BTreeMap<&'static str, usize>,
-    /// Reels holding nothing about what became of the run.
-    ///
-    /// The headline number. A reel with no combo lost, no combo held and no
-    /// cluster of misses is a reel that watched a play and did not notice
-    /// anything happen to it — sometimes right, on a clean run of a quiet map,
-    /// and the share is the figure worth watching across a change.
+
     pub no_run: usize,
-    /// Clips holding two moments rather than one.
+
     pub merged: usize,
-    /// Reels holding nothing but map-side moments — the same reel for everybody
-    /// who ever played it. Should be near zero and is worth proving rather than
-    /// assuming.
+
     pub map_only: usize,
 }
 
@@ -302,8 +246,6 @@ impl Survey {
             "scorer", "clips", "per reel", "share"
         ));
 
-        // Busiest first: the question this table answers is what a reel is
-        // *made of*, and alphabetical order buries it.
         let mut rows: Vec<(&str, usize)> = self.by_scorer.iter().map(|(k, v)| (*k, *v)).collect();
         rows.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(b.0)));
         for (name, count) in rows {
@@ -361,8 +303,7 @@ mod survey_tests {
     #[test]
     fn a_reel_with_nothing_about_the_run_is_counted() {
         let mut survey = Survey::default();
-        // Map and hand only: the reel watched a play and noticed nothing
-        // happen to it.
+
         survey.add(
             &[
                 clip(
@@ -384,7 +325,7 @@ mod survey_tests {
             ],
             1.0,
         );
-        // …and one that did notice.
+
         survey.add(
             &[
                 clip(
@@ -415,8 +356,6 @@ mod survey_tests {
         );
     }
 
-    /// A replay with nothing to show is a real answer — twelve seconds of
-    /// somebody quitting — and must not be counted as a reel it failed at.
     #[test]
     fn an_empty_selection_is_not_a_reel() {
         let mut survey = Survey::default();
@@ -429,9 +368,6 @@ mod survey_tests {
         );
     }
 
-    /// The spans are map time; a rate mod compresses them into fewer seconds of
-    /// watching, and a survey that ignored it would report DoubleTime reels as
-    /// half again as long as anyone saw them.
     #[test]
     fn lengths_are_seconds_of_watching() {
         let mut survey = Survey::default();
@@ -445,9 +381,6 @@ mod merged_survey_tests {
     use super::*;
     use dossier_exhibit::Span;
 
-    /// A clip holding two moments contributes both to the tally. Counting only
-    /// the first would say a reel is made of fewer things than it shows, which
-    /// is the one number the survey exists to get right.
     #[test]
     fn both_moments_of_a_merged_clip_are_counted() {
         let mut survey = Survey::default();
@@ -472,8 +405,7 @@ mod merged_survey_tests {
         assert!(report.contains("scramble"), "{report}");
         assert!(report.contains("travel"), "{report}");
         assert!(report.contains("hold two moments"), "{report}");
-        // Both facets, so a merged clip cannot make a reel look map-heavy or
-        // run-heavy by hiding half of itself.
+
         assert!(report.contains("run"), "{report}");
         assert!(report.contains("hand"), "{report}");
     }

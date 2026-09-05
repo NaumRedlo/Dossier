@@ -1,35 +1,3 @@
-//! Reading `[Events]` and `.osb` into sprites and commands.
-//!
-//! ## Two files, one storyboard
-//!
-//! `[Events]` in the `.osu` belongs to the one difficulty; a sibling `.osb`
-//! belongs to the whole set. Both are read and the difficulty's own is added
-//! last, which is the order the game draws them in.
-//!
-//! ## Indentation is syntax
-//!
-//! A command line is indented, and how deep says what it belongs to: one level
-//! is a command on the sprite above, two levels is a command inside the loop
-//! above. The indent character is a space or an underscore and the two are
-//! interchangeable, which is why the ordinary line trim the rest of this crate
-//! uses cannot be borrowed here — it would flatten a loop's body into the
-//! sprite and run every command once, at the wrong time.
-//!
-//! ## What is not read
-//!
-//! **Triggers** (`T,HitSoundClap,…`) are parsed far enough to be skipped
-//! whole, body and all. They fire on things the storyboard cannot know by
-//! itself — a hit sound, passing, failing — and a trigger expanded on a guess
-//! is a sprite that appears when nothing happened. Skipping one loses an
-//! effect; guessing invents one.
-//!
-//! **Sample lines** (`5,…`) name a sound rather than a picture, and belong
-//! with the audio rather than here.
-//!
-//! **Chained parameters.** A command carries one starting group and at most
-//! one ending group. Sequences of three or more groups on one line are not a
-//! thing the legacy decoder reads either.
-
 use std::collections::HashMap;
 
 use super::{
@@ -37,34 +5,24 @@ use super::{
     Storyboard, Switch, Trigger, Video,
 };
 
-/// Nothing here refuses a file — a storyboard is decoration, and a map whose
-/// decoration has one bad line should still be rendered. The error type exists
-/// so the reason can be told to somebody who asks.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParseError {
     pub line: usize,
     pub text: String,
 }
 
-/// Read a storyboard out of `.osb` text, or out of a whole `.osu`.
-///
-/// Either way only `[Events]` and `[Variables]` are looked at, so the same
-/// function reads both and a caller does not have to cut the section out
-/// first.
 #[must_use]
 pub fn parse(text: &str) -> Storyboard {
     parse_reporting(text).0
 }
 
-/// The same, and the lines that could not be read.
 #[must_use]
 pub fn parse_reporting(text: &str) -> (Storyboard, Vec<ParseError>) {
     let variables = variables(text);
     let mut out = Storyboard::default();
     let mut errors = Vec::new();
     let mut section = String::new();
-    // Where the commands being read now are going, and — while a loop is open
-    // — what has been collected for it.
+
     let mut open: Option<OpenLoop> = None;
 
     for (index, raw) in text.lines().enumerate() {
@@ -89,8 +47,6 @@ pub fn parse_reporting(text: &str) -> (Storyboard, Vec<ParseError>) {
             match object(&fields) {
                 Ok(Some(Read::Sprite(sprite))) => out.sprites.push(sprite),
                 Ok(Some(Read::Video(video))) => {
-                    // The first one wins, the way the background does: a map
-                    // with two video lines is showing the first.
                     if out.video.is_none() {
                         out.video = Some(video);
                     }
@@ -104,8 +60,6 @@ pub fn parse_reporting(text: &str) -> (Storyboard, Vec<ParseError>) {
             continue;
         }
 
-        // A command, on the sprite above. Without one there is nothing for it
-        // to happen to.
         if out.sprites.is_empty() {
             errors.push(ParseError {
                 line: index + 1,
@@ -118,8 +72,7 @@ pub fn parse_reporting(text: &str) -> (Storyboard, Vec<ParseError>) {
             close_loop(&mut open, &mut out);
             match fields.first().copied().unwrap_or("") {
                 "L" => open = Some(OpenLoop::begin(&fields)),
-                // A trigger and everything indented under it. `skipping` eats
-                // the body without a sprite ever hearing about it.
+
                 "T" => open = Some(OpenLoop::trigger(&fields)),
                 _ => match command(&fields) {
                     Ok(cmd) => push(&mut out, cmd),
@@ -132,7 +85,6 @@ pub fn parse_reporting(text: &str) -> (Storyboard, Vec<ParseError>) {
             continue;
         }
 
-        // Deeper: the body of whatever is open.
         match (&mut open, command(&fields)) {
             (Some(loop_), Ok(cmd)) => loop_.body.push(cmd),
             (None, Ok(cmd)) => push(&mut out, cmd),
@@ -152,12 +104,11 @@ fn push(out: &mut Storyboard, command: Command) {
     }
 }
 
-/// A loop being collected, or a trigger being collected.
 struct OpenLoop {
     start_ms: f64,
     count: u32,
     body: Vec<Command>,
-    /// Set when the header was a `T` rather than an `L`.
+
     trigger: Option<(Fires, f64, f64, i32)>,
 }
 
@@ -165,15 +116,13 @@ impl OpenLoop {
     fn begin(fields: &[&str]) -> Self {
         Self {
             start_ms: number(fields.get(1)).unwrap_or(0.0),
-            // A loop with no count runs once: it is still a sprite doing
-            // something, and dropping it loses more than repeating it wrongly.
+
             count: number(fields.get(2)).unwrap_or(1.0).max(1.0) as u32,
             body: Vec::new(),
             trigger: None,
         }
     }
 
-    /// `T,<what fires it>,<start>,<end>[,<group>]`.
     fn trigger(fields: &[&str]) -> Self {
         Self {
             start_ms: 0.0,
@@ -189,16 +138,6 @@ impl OpenLoop {
     }
 }
 
-/// Read what a trigger listens for.
-///
-/// The hit-sound form is a run of optional parts stuck together —
-/// `HitSound[SampleSet][AdditionsSampleSet][Addition][CustomSampleSet]` — and
-/// each one that is written narrows the match. `HitSoundClap` is any clap;
-/// `HitSoundDrumClap` a clap over drum additions; `HitSoundSoftDrumClap2` a
-/// clap whose own set is soft, whose additions are drum, on custom bank two.
-///
-/// Anything unrecognised listens for nothing rather than for everything: a
-/// trigger nobody can read should stay silent, not fire on every note.
 fn fires(name: &str) -> Fires {
     match name {
         "Passing" => return Fires::Passing,
@@ -241,11 +180,6 @@ fn fires(name: &str) -> Fires {
     Fires::HitSound(out)
 }
 
-/// Unroll a loop onto the sprite it belongs to.
-///
-/// The body's times are stated from the loop's own start, and one turn of it
-/// lasts as long as its longest command — so the whole thing is laid out
-/// `count` times, each shifted by a turn.
 fn close_loop(open: &mut Option<OpenLoop>, out: &mut Storyboard) {
     let Some(loop_) = open.take() else { return };
     if loop_.body.is_empty() {
@@ -307,7 +241,7 @@ fn object(fields: &[&str]) -> Result<Option<Read>, ()> {
                 ),
             })))
         }
-        // Backgrounds, breaks, samples and anything else in the section.
+
         _ => Ok(None),
     }
 }
@@ -322,8 +256,7 @@ fn sprite(fields: &[&str], animated: bool) -> Result<Sprite, ()> {
         layer: layer(fields.get(1).copied().unwrap_or("")),
         origin: origin(fields.get(2).copied().unwrap_or("")),
         path,
-        // Missing coordinates are the middle of the screen, which is where a
-        // sprite with none lands in the game.
+
         x: number(fields.get(4)).unwrap_or(320.0) as f32,
         y: number(fields.get(5)).unwrap_or(240.0) as f32,
         animation: animated.then(|| Animation {
@@ -342,16 +275,14 @@ fn command(fields: &[&str]) -> Result<Command, ()> {
     let kind = fields.first().copied().ok_or(())?;
     let easing = number(fields.get(1)).unwrap_or(0.0) as u8;
     let start_ms = number(fields.get(2)).ok_or(())?;
-    // An empty end time is an instant command, which is how a sprite is put
-    // somewhere once rather than moved.
+
     let end_ms = match fields.get(3).copied().unwrap_or("") {
         "" => start_ms,
         text => text.parse().map_err(|_| ())?,
     };
     let p = &fields[4.min(fields.len())..];
     let at = |i: usize| number(p.get(i));
-    // The second group repeats the first when it was left out, which is how a
-    // sprite is held at a value for a stretch.
+
     let pair = |i: usize, j: usize| -> Result<(f32, f32), ()> {
         let first = at(i).ok_or(())? as f32;
         Ok((first, at(j).map_or(first, |v| v as f32)))
@@ -418,16 +349,12 @@ fn command(fields: &[&str]) -> Result<Command, ()> {
     })
 }
 
-// ── the small readings ───────────────────────────────────────────────────
-
 fn section_header(line: &str) -> Option<String> {
     line.strip_prefix('[')
         .and_then(|s| s.strip_suffix(']'))
         .map(|name| name.to_ascii_lowercase())
 }
 
-/// `$name=value` lines from `[Variables]`, which `.osb` files use to write a
-/// path or a colour once and spend it a thousand times.
 fn variables(text: &str) -> HashMap<String, String> {
     let mut out = HashMap::new();
     let mut inside = false;
@@ -447,10 +374,6 @@ fn variables(text: &str) -> HashMap<String, String> {
     out
 }
 
-/// Spend the variables in a line.
-///
-/// Longest name first, so `$a` cannot eat the front of `$ab` — and a borrowed
-/// line when there is nothing to spend, which is every line of most files.
 fn expand<'a>(line: &'a str, variables: &HashMap<String, String>) -> std::borrow::Cow<'a, str> {
     if variables.is_empty() || !line.contains('$') {
         return std::borrow::Cow::Borrowed(line);
@@ -468,9 +391,6 @@ fn expand<'a>(line: &'a str, variables: &HashMap<String, String>) -> std::borrow
 
 fn without_comment(raw: &str) -> &str {
     match raw.trim_start().find("//") {
-        // Only a line that *begins* with `//` is a comment. A path can hold
-        // two slashes, and cutting at the first pair anywhere would take the
-        // file name off `"sb//flash.png"`.
         Some(0) => "",
         _ => raw,
     }

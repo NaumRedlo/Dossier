@@ -1,11 +1,3 @@
-//! Just enough JSON to read the block lazer leaves at the end of a replay.
-//!
-//! Hand-written rather than pulled in, because this crate is a file-format
-//! reader with two dependencies and the block it has to read is one object,
-//! machine-generated, of strings, numbers and flat settings. What it must be is
-//! total: a replay is an untrusted file, and a parser that panics on a truncated
-//! one is a parser that crashes the bot.
-
 use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -62,21 +54,15 @@ impl Value {
     }
 }
 
-/// Parse one JSON document. `None` when it is not JSON, which for our purposes
-/// means the same as absent — a replay from a client we do not know is not an
-/// error, it just has nothing to say.
 pub fn parse(text: &str) -> Option<Value> {
     let bytes = text.as_bytes();
     let mut at = 0usize;
     let value = value(bytes, &mut at, 0)?;
     skip_space(bytes, &mut at);
-    // Trailing rubbish means we misread something; better to report nothing
-    // than to report half of it.
+
     (at == bytes.len()).then_some(value)
 }
 
-/// Nesting past this is not a document we wrote and not one we will read. A
-/// bound rather than recursion until the stack runs out.
 const MAX_DEPTH: usize = 32;
 
 fn value(b: &[u8], at: &mut usize, depth: usize) -> Option<Value> {
@@ -96,7 +82,7 @@ fn value(b: &[u8], at: &mut usize, depth: usize) -> Option<Value> {
 }
 
 fn object(b: &[u8], at: &mut usize, depth: usize) -> Option<Value> {
-    *at += 1; // '{'
+    *at += 1;
     let mut map = BTreeMap::new();
     skip_space(b, at);
     if *b.get(*at)? == b'}' {
@@ -125,7 +111,7 @@ fn object(b: &[u8], at: &mut usize, depth: usize) -> Option<Value> {
 }
 
 fn array(b: &[u8], at: &mut usize, depth: usize) -> Option<Value> {
-    *at += 1; // '['
+    *at += 1;
     let mut items = Vec::new();
     skip_space(b, at);
     if *b.get(*at)? == b']' {
@@ -171,18 +157,14 @@ fn string(b: &[u8], at: &mut usize) -> Option<String> {
                     b't' => out.push('\t'),
                     b'u' => {
                         let code = hex4(b, at)?;
-                        // Surrogate pairs: the high half is meaningless alone,
-                        // and the block is ASCII in practice, so anything in
-                        // that range is replaced rather than guessed at.
+
                         out.push(char::from_u32(u32::from(code)).unwrap_or('\u{fffd}'));
                     }
                     _ => return None,
                 }
             }
-            // A raw control character is malformed, but rejecting the whole
-            // document over one would lose the mods for nothing.
+
             _ => {
-                // Rebuild the UTF-8 sequence this byte starts, if any.
                 let start = *at - 1;
                 let len = utf8_len(c)?;
                 let end = start + len;
@@ -279,8 +261,7 @@ mod tests {
                 .and_then(Value::as_bool),
             Some(false)
         );
-        // A mod with no settings at all is the common case and must not look
-        // like a mod with settings turned off.
+
         assert!(mods[1].get("settings").is_none());
 
         assert_eq!(
@@ -293,8 +274,6 @@ mod tests {
 
     #[test]
     fn rubbish_is_rejected_rather_than_half_read() {
-        // Every one of these is a way a truncated or corrupt block could look,
-        // and none of them may panic or return a partial answer.
         for text in [
             "",
             "{",
@@ -314,7 +293,6 @@ mod tests {
 
     #[test]
     fn nesting_is_bounded() {
-        // A file can ask for a million levels; the stack cannot give them.
         let deep = "[".repeat(10_000) + &"]".repeat(10_000);
         assert_eq!(parse(&deep), None);
     }

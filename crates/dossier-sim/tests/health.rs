@@ -1,12 +1,3 @@
-//! Health tests.
-//!
-//! The contract the whole calibration exists to keep is one sentence: a perfect
-//! play does not die, on any map, at any HP. stable does not compute the drain
-//! from a formula — it solves for the largest drain under which that sentence
-//! stays true, which is why "drain = HP times something" is wrong for every map
-//! ever made, and why the tests here are about the property rather than about
-//! the number.
-
 use dossier_beatmap::Beatmap;
 use dossier_replay::{bits, HitCounts, Keys, Mods, Replay, ReplayFrame};
 use dossier_sim::{GameState, HealthTrack, Ruleset};
@@ -60,14 +51,6 @@ fn click(time_ms: i64, x: f32, y: f32) -> Vec<ReplayFrame> {
     ]
 }
 
-/// Where the nth note of the test map sits.
-///
-/// Spread across the playfield on purpose. Stacking them all on one spot — the
-/// obvious way to write this fixture — silently turns the map into a sixty-high
-/// stack, and stable shifts each object three pixels off the last, so the
-/// sixtieth sits nearly two hundred pixels from where the cursor is waiting.
-/// The first draft did exactly that and judged 52 of 60 notes missed while
-/// claiming to be a perfect play.
 fn note_at(n: i64) -> (f32, f32) {
     (
         60.0 + (n % 7) as f32 * 55.0,
@@ -79,15 +62,11 @@ fn note_time(n: i64) -> i64 {
     1000 + n * 333
 }
 
-/// A map of `count` circles a third of a second apart, at the given HP.
 fn stream(hp: f64, count: i64) -> String {
     let mut body = format!(
         "[Difficulty]\nHPDrainRate:{hp}\nCircleSize:5\nOverallDifficulty:5\n\n[HitObjects]\n"
     );
     for n in 0..count {
-        // A new combo every eighth note, so the combo-end bonus is in play —
-        // without it the calibration is being tested with half its levers
-        // disconnected.
         let flags = if n % 8 == 0 { 5 } else { 1 };
         let (x, y) = note_at(n);
         body.push_str(&format!("{x},{y},{},{flags},0\n", note_time(n)));
@@ -104,7 +83,6 @@ fn played_perfectly(count: i64) -> Vec<ReplayFrame> {
         .collect()
 }
 
-/// The same play with every `skip`-th note dropped.
 fn played_dropping(count: i64, skip: i64) -> Vec<ReplayFrame> {
     (0..count)
         .filter(|n| n % skip != 0)
@@ -115,14 +93,8 @@ fn played_dropping(count: i64, skip: i64) -> Vec<ReplayFrame> {
         .collect()
 }
 
-// ── the contract ─────────────────────────────────────────────────────────
-
 #[test]
 fn a_perfect_play_survives_at_every_hp() {
-    // The one thing the calibration is for. It solves for the harshest drain
-    // this stays true under, so if the loop is wrong in either direction it
-    // shows here: too harsh and a flawless play dies, too gentle and the map
-    // is not the difficulty it says it is.
     for hp in [0.0, 2.0, 5.0, 7.0, 9.0, 10.0] {
         let map = beatmap(&stream(hp, 60));
         let replay = replay_with(played_perfectly(60), 0);
@@ -139,10 +111,6 @@ fn a_perfect_play_survives_at_every_hp() {
 
         assert_eq!(track.failed_at(), None, "a perfect play died at HP {hp}");
 
-        // Not merely alive — above the floor the difficulty sets, which is
-        // what the loop actually solves for. "Still above zero" is far too
-        // weak a reading: an uncalibrated drain leaves the bar hovering a
-        // hair over nothing for the whole map and passes it.
         let floor = dossier_beatmap::difficulty_range(hp, 195.0, 160.0, 60.0) / 200.0;
         let lowest = (0..21_000)
             .step_by(50)
@@ -157,8 +125,6 @@ fn a_perfect_play_survives_at_every_hp() {
 
 #[test]
 fn a_play_that_hits_nothing_dies() {
-    // The other half of the contract, and the reason the first test is not
-    // satisfied by a drain of zero.
     let map = beatmap(&stream(5.0, 60));
     let replay = replay_with(Vec::new(), 0);
     let state = GameState::new(&map, &replay);
@@ -178,9 +144,6 @@ fn a_play_that_hits_nothing_dies() {
 
 #[test]
 fn the_calibration_settles_on_a_real_drain_rate() {
-    // A drain of zero would pass "a perfect play survives" trivially. It must
-    // be positive, and it must grow with HP — that is the difficulty setting
-    // doing what it says.
     let mut last = 0.0;
     for hp in [0.0, 3.0, 5.0, 8.0, 10.0] {
         let map = beatmap(&stream(hp, 60));
@@ -196,8 +159,7 @@ fn the_calibration_settles_on_a_real_drain_rate() {
         );
         let rate = track.drain_rate();
         assert!(rate > 0.0, "HP {hp} drains at nothing");
-        // Strictly faster, not merely no slower — a constant would satisfy the
-        // weaker form and a constant is exactly the thing being ruled out.
+
         assert!(
             rate > last,
             "HP {hp} drains at {rate}, no faster than {last}"
@@ -206,14 +168,8 @@ fn the_calibration_settles_on_a_real_drain_rate() {
     }
 }
 
-// ── what the difficulty setting actually changes ─────────────────────────
-
 #[test]
 fn a_high_hp_map_punishes_the_same_misses_harder() {
-    // Same play, same notes dropped. What changes is what it costs — the low
-    // HP map should still be alive when the high one is not, and it is the
-    // gains as much as the drain that does it: a 50 is worth eight times as
-    // much at HP 0 as at HP 5.
     let dropped = played_dropping(60, 3);
 
     let mut lowest = Vec::new();
@@ -243,13 +199,8 @@ fn a_high_hp_map_punishes_the_same_misses_harder() {
     );
 }
 
-// ── breaks ───────────────────────────────────────────────────────────────
-
 #[test]
 fn nothing_drains_during_a_break() {
-    // A break is time the player is not being asked for anything, so the bar
-    // holds. Draining through it would make a map with a long rest harder than
-    // the same map without one, which is backwards.
     let mut body = String::from(
         "[Difficulty]\nHPDrainRate:8\nCircleSize:5\nOverallDifficulty:5\n\n\
          [Events]\n2,4000,14000\n\n[HitObjects]\n",
@@ -284,14 +235,8 @@ fn nothing_drains_during_a_break() {
     );
 }
 
-// ── the two clients ──────────────────────────────────────────────────────
-
 #[test]
 fn the_two_clients_do_not_share_a_model() {
-    // Not a variant of one another. lazer's gains are a flat table out of one,
-    // stable's are interpolated out of two hundred and multiplied by whatever
-    // its calibration settled on. A play built under the wrong one is not
-    // slightly wrong.
     let map = beatmap(&stream(6.0, 60));
     let dropped = played_dropping(60, 4);
     let replay = replay_with(dropped, 0);
@@ -347,13 +292,8 @@ fn the_bar_stays_inside_its_own_range() {
     }
 }
 
-// ── the fallback ─────────────────────────────────────────────────────────
-
 #[test]
 fn a_replay_without_a_graph_still_gets_a_bar() {
-    // The whole reason the model exists. Roughly half the corpus arrives with
-    // an empty life-bar field, and a HUD whose bar appears and disappears
-    // depending on where the replay came from is worse than one that computes.
     let map = beatmap(&stream(5.0, 60));
     let replay = replay_with(played_perfectly(60), 0);
     assert!(replay.life_bar.is_empty(), "the premise of this test");
@@ -365,14 +305,6 @@ fn a_replay_without_a_graph_still_gets_a_bar() {
 
 #[test]
 fn the_model_draws_even_when_the_replay_brought_a_graph() {
-    // The graph is a record of the curve, not the curve: a hundred-odd samples
-    // across a whole map, saying nothing between any two of them. Read
-    // straight it draws a bar sliding down a ruled line through the moment a
-    // player fell apart — which is not what was on their screen either, since
-    // the game keeps health continuously and compresses it afterwards.
-    //
-    // The graph below claims a tenth of a bar halfway through a play that is
-    // in fact flawless. The model knows better, and the model is what draws.
     let map = beatmap(&stream(5.0, 60));
     let mut replay = replay_with(played_perfectly(60), 0);
     replay.life_bar = "0|1,10000|0.1,20000|1".into();
@@ -384,8 +316,6 @@ fn the_model_draws_even_when_the_replay_brought_a_graph() {
         "the model should not believe the graph here: {bar}"
     );
 
-    // …and the graph is still kept, because it is what the model is measured
-    // against. Losing it would make the model unfalsifiable.
     assert!(
         state
             .recorded_health()
@@ -396,14 +326,8 @@ fn the_model_draws_even_when_the_replay_brought_a_graph() {
     );
 }
 
-// ── mods ─────────────────────────────────────────────────────────────────
-
 #[test]
 fn halftime_drains_more_gently_per_millisecond() {
-    // HalfTime stretches the clock but not the drain, so the game scales the
-    // drain back to three quarters. Without that a slowed map would be harder
-    // to survive than the same map at speed, which is the opposite of what the
-    // mod is for.
     let map = beatmap(&stream(7.0, 60));
     let dropped = played_dropping(60, 3);
 

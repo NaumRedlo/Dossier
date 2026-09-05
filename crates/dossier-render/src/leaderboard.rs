@@ -1,72 +1,30 @@
-//! Who else has played this map, down the left of the frame.
-//!
-//! osu! puts its scoreboard there and so does this, for the same reason: the
-//! left third of a playfield is the emptiest part of it, and a list that has to
-//! be readable for four minutes cannot sit where the notes are.
-//!
-//! The point of drawing it here rather than pasting an image over the video is
-//! that it **moves**. The player's own row carries the score the engine is
-//! computing frame by frame, the list is sorted at every frame, and a row that
-//! passes another passes it on screen. A static scoreboard is a caption; this is
-//! part of the play.
-//!
-//! What it is *not* is a source of truth about anybody. The rival rows are handed
-//! in from outside — the bot knows which chat members are registered and what
-//! they scored — and this file neither fetches nor validates them. It draws what
-//! it is given, and the only row it has an opinion about is the player's own.
-
-/// How long a row takes to slide from its old place to its new one.
 pub const MOVE_MS: f64 = 420.0;
 
-/// One rival's standing on this map.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Entry {
     pub name: String,
     pub score: u64,
-    /// Percent, as a player reads it. `None` when whoever supplied the row did
-    /// not know — a rank without an accuracy is still worth showing.
+
     pub accuracy: Option<f64>,
-    /// What they played it with.
-    ///
-    /// Carried because these rows are each player's *best* score on the map,
-    /// whatever they used to set it. A twelve-million NM run beside a HardRock
-    /// DoubleTime play is a fair comparison of scores and a misleading
-    /// comparison of plays, and the mods are what tell the two apart. Empty for
-    /// no mods, or when the supplier did not say.
+
     pub mods: String,
-    /// A PNG of this player's avatar, if one was supplied.
-    ///
-    /// A path rather than the bytes, and PNG rather than whatever osu! serves,
-    /// because the engine has one image decoder and no network. Converting is
-    /// the caller's job — the bot already has an imaging library and already
-    /// caches every avatar it has seen.
+
     pub avatar: Option<std::path::PathBuf>,
-    /// A PNG of their profile cover, to sit behind the row.
+
     pub cover: Option<std::path::PathBuf>,
 }
 
-/// The rivals, and where the player sits among them.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Leaderboard {
-    /// Everyone but the player being rendered.
     pub rivals: Vec<Entry>,
-    /// What to call the player's own row.
+
     pub player: String,
-    /// Their avatar and cover, supplied the same way as a rival's.
+
     pub avatar: Option<std::path::PathBuf>,
     pub cover: Option<std::path::PathBuf>,
 }
 
 impl Leaderboard {
-    /// Parse `name<TAB>score[<TAB>accuracy]` a line at a time.
-    ///
-    /// Tab-separated because a player name can contain almost anything else —
-    /// spaces certainly, commas often — and a format that can be broken by a
-    /// legal username is a format that will be.
-    ///
-    /// A malformed line is skipped rather than fatal. This decorates a render;
-    /// refusing to draw four minutes of video over one bad row would be the
-    /// wrong trade, and the row's absence is visible in the list itself.
     pub fn parse(text: &str, player: &str) -> Self {
         let mut rivals = Vec::new();
         for line in text.lines() {
@@ -81,8 +39,7 @@ impl Leaderboard {
             let Ok(score) = score.trim().parse::<u64>() else {
                 continue;
             };
-            // The player's own row is never taken from the file: it is computed.
-            // A stale copy of it would sit beside the live one and disagree.
+
             if name.eq_ignore_ascii_case(player) {
                 continue;
             }
@@ -111,7 +68,6 @@ impl Leaderboard {
         }
     }
 
-    /// The pictures for the player's own row, which no rival line can carry.
     #[must_use]
     pub fn with_own_pictures(
         mut self,
@@ -127,49 +83,19 @@ impl Leaderboard {
         self.rivals.is_empty()
     }
 
-    /// The stretch of the standings the play is currently in, worst first.
-    ///
-    /// **A window around the player, not the top of the map.** On a map forty
-    /// people have played, a board that always shows the best four says nothing
-    /// about a play sitting thirty-ninth — it is a page from a different story.
-    /// The window is the player's own place and the few places immediately above
-    /// it, so it starts at the bottom of the field and climbs with them; when
-    /// they reach the top the window is the top, and the last row is the leader.
-    ///
-    /// Returned worst first, so the list is read upwards.
-    ///
-    /// Ties go to the rival. Two scores level is a moment the player is *about*
-    /// to pass somebody, and showing them already ahead reads as a place they
-    /// have not earned yet.
     pub fn standings(&self, player_score: u64, limit: usize) -> Vec<Row> {
         let ordered = self.ordered(player_score);
         let mine = ordered
             .iter()
             .position(|(_, is_player)| *is_player)
             .unwrap_or(0);
-        // A page of the standings, not a window hung off the player.
-        //
-        // Anchoring it to the player keeps them at the same slot for ever: the
-        // window moves with them, so the field slides past and the row that is
-        // actually climbing never appears to. Anchoring it to the *table*
-        // instead — a fixed page of `limit` places — lets the player rise
-        // through it, swap with each rival they pass, and reach the top; only
-        // then does the page turn.
-        //
-        // The page is a function of the player's place and nothing else, so a
-        // frame still works it out alone.
+
         let span = limit.max(1).min(ordered.len());
-        // Counted from the *bottom* of the table, so the last page is exactly
-        // the last `span` places. Counted from the top instead, the clamp at the
-        // end of the field pulls the final page back by however much it
-        // overhangs — and a page that shifts by one as the player climbs through
-        // it is not a page at all, it is the window this replaced.
+
         let from_bottom = (ordered.len() - 1) - mine;
         let mut worst = (ordered.len() - 1) - (from_bottom / span) * span;
         let best = worst.saturating_sub(span - 1);
-        // The topmost page can land on place zero with nothing above it to fill
-        // out. Extended downward rather than shown short: the moment somebody
-        // reaches first is the moment the board most needs the places they beat.
+
         worst = worst.max((best + span - 1).min(ordered.len() - 1));
         ordered[best..=worst]
             .iter()
@@ -178,8 +104,7 @@ impl Leaderboard {
                 entry: entry.clone(),
                 is_player: *is_player,
                 place: best + offset,
-                // Slots count up from the bottom of the window, so the worst of
-                // it sits at zero and is drawn first.
+
                 slot: (worst - (best + offset)) as f32,
                 from_slot: (worst - (best + offset)) as f32,
                 moving: 1.0,
@@ -190,18 +115,10 @@ impl Leaderboard {
             .collect()
     }
 
-    /// The same, with each row told where it is coming from.
-    ///
-    /// Computed from the score curve rather than remembered between frames — the
-    /// player's score at any instant is known in advance, so the instant they
-    /// passed each rival is too, and a frame can work out its own animation
-    /// without having seen the one before it. That constraint is what lets
-    /// frames be drawn in parallel, and it is not negotiable.
     pub fn standings_at(&self, track: &dyn ScoreAt, time_ms: f64, limit: usize) -> Vec<Row> {
         let now = track.at(time_ms);
         let mut rows = self.standings(now, limit);
-        // When the player last changed place: the most recent rival score they
-        // crossed. The curve only rises, so each rival is passed at most once.
+
         let last_pass = self
             .rivals
             .iter()
@@ -224,11 +141,8 @@ impl Leaderboard {
         };
         for row in &mut rows {
             match was(row) {
-                // Already on the board: it slides from where it was.
                 Some(slot) => row.from_slot = slot,
-                // New to it, and new at the *top* — the window's best row is the
-                // one that changes when the player climbs. There is nothing above
-                // the board to slide in from, so it grows into place instead.
+
                 None => {
                     row.from_slot = row.slot;
                     row.entering = true;
@@ -236,16 +150,7 @@ impl Leaderboard {
             }
             row.moving = progress;
         }
-        // Whoever the player displaced is still on their way out, and is drawn
-        // going: the place they left has to read as vacated rather than as a row
-        // that was never there.
-        //
-        // They do not travel at all: they shrink away where they stood, and the
-        // row that took the place slides into the gap. Two other shapes were
-        // tried — dropping out of the bottom, and flying into the row that
-        // overtook them — and both move the eye away from the thing that
-        // happened. A row collapsing in place and another arriving into the hole
-        // it left is the same event told in the order it occurred.
+
         for old in &before {
             if rows
                 .iter()
@@ -265,7 +170,6 @@ impl Leaderboard {
         rows
     }
 
-    /// Everybody, best first, with the player slotted in.
     fn ordered(&self, player_score: u64) -> Vec<(Entry, bool)> {
         let mut rows: Vec<(Entry, bool)> = self
             .rivals
@@ -278,54 +182,40 @@ impl Leaderboard {
                 name: self.player.clone(),
                 score: player_score,
                 accuracy: None,
-                // The play being watched. Its mods are already on screen in the
-                // corner, and repeating them in its own row would be the one
-                // piece of information nobody watching needs.
+
                 mods: String::new(),
                 avatar: self.avatar.clone(),
                 cover: self.cover.clone(),
             },
             true,
         ));
-        // Stable, so rivals level with each other keep the order they arrived
-        // in — whatever supplied them had a reason for it, and reshuffling
-        // equal rows every frame would make the list twitch.
+
         rows.sort_by_key(|row| std::cmp::Reverse(row.0.score));
         rows
     }
 }
 
-/// One line of the scoreboard, and its movement.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Row {
     pub entry: Entry,
     pub is_player: bool,
-    /// Zero-based place among *everybody*, counting from the best score. What
-    /// the row prints — a play sitting thirty-ninth says "39", not "5".
+
     pub place: usize,
-    /// Where the row sits in the drawn window, counting up from the bottom.
+
     pub slot: f32,
-    /// The slot it is arriving from. Equal to `slot` when it is not moving, and
-    /// −1 for a row rising into the window from below it.
+
     pub from_slot: f32,
-    /// How far through the move, 0 to 1.
+
     pub moving: f32,
-    /// On its way off the board rather than onto it: it drops out of the bottom
-    /// and shrinks as it goes.
+
     pub leaving: bool,
-    /// Newly on the board, at the top. It does not slide in from anywhere —
-    /// there is nowhere above the board to slide from — so it grows into place.
+
     pub entering: bool,
 }
 
-/// The score curve, as much of it as a scoreboard needs.
-///
-/// A trait rather than the concrete track so this file stays testable without a
-/// judged play, and so the renderer can hand in whatever it has.
 pub trait ScoreAt {
-    /// The score at this instant.
     fn at(&self, time_ms: f64) -> u64;
-    /// When the score first reached this value.
+
     fn reached(&self, score: u64) -> f64;
 }
 
@@ -337,7 +227,6 @@ mod tests {
         Leaderboard::parse(text, "me")
     }
 
-    /// Names in the order they are drawn: worst kept score first, leader last.
     fn drawn(board: &Leaderboard, score: u64, limit: usize) -> Vec<String> {
         board
             .standings(score, limit)
@@ -368,15 +257,13 @@ mod tests {
             b.rivals[0].cover.as_deref(),
             Some(std::path::Path::new("/tmp/c.png"))
         );
-        // And an empty field is absent rather than a path to nowhere.
+
         let bare = board("sw1t\t900\t99.00\tHD\t\t\n");
         assert!(bare.rivals[0].avatar.is_none());
     }
 
     #[test]
     fn a_name_with_spaces_survives() {
-        // Which is why the format is tabs. Splitting on whitespace would turn
-        // one player into two columns.
         assert_eq!(board("Uika Misumi\t500\n").rivals[0].name, "Uika Misumi");
     }
 
@@ -388,8 +275,6 @@ mod tests {
 
     #[test]
     fn the_players_own_row_is_never_taken_from_the_file() {
-        // It is computed live. A copy from the file would sit beside it and
-        // disagree with it, which is worse than not having it.
         let b = board("Me\t999999\nsomebody\t10\n");
         assert_eq!(b.rivals.len(), 1);
         assert_eq!(b.rivals[0].name, "somebody");
@@ -397,25 +282,18 @@ mod tests {
 
     #[test]
     fn the_board_is_read_upwards() {
-        // A board with the leader on top is a table; one that climbs is a story,
-        // and the player's row rising through it is the only thing on screen
-        // that changes place.
         let b = board("a\t300\nb\t200\nc\t100\n");
-        // Bottom of the field: the player is drawn first, the best last.
+
         assert_eq!(drawn(&b, 0, 5), ["me", "c", "b", "a"]);
-        // Top of it: the player is drawn last, because they are now the best.
+
         assert_eq!(drawn(&b, 1000, 5), ["c", "b", "a", "me"]);
     }
 
     #[test]
     fn the_board_is_a_page_of_the_table_not_a_window_hung_off_the_player() {
-        // Hung off the player, the window moves with them: the field slides past
-        // and the one row that is actually climbing never appears to. A fixed
-        // page lets them rise through it.
         let field: String = (1..=40).map(|i| format!("p{i}\t{}\n", i * 1000)).collect();
         let b = board(&field);
 
-        // Dead last of forty-one: the bottom page, and the player at its foot.
         let bottom = b.standings(1, 5);
         assert_eq!(
             bottom.iter().map(|row| row.place).collect::<Vec<_>>(),
@@ -424,7 +302,6 @@ mod tests {
         assert!(bottom[0].is_player);
         assert_eq!(bottom[0].slot, 0.0, "at the foot of the page");
 
-        // Three places better and the page has not moved — the player has.
         let climbed = b.standings(3_500, 5);
         assert_eq!(
             climbed.iter().map(|row| row.place).collect::<Vec<_>>(),
@@ -435,7 +312,6 @@ mod tests {
         assert_eq!(mine.place, 37);
         assert_eq!(mine.slot, 3.0, "risen three slots up it");
 
-        // At the very top the page is the top of the table.
         let top = b.standings(99_999, 5);
         assert_eq!(
             top.iter().map(|row| row.place).collect::<Vec<_>>(),
@@ -446,8 +322,6 @@ mod tests {
 
     #[test]
     fn passing_somebody_swaps_the_two_rows() {
-        // The whole point of the page: the player rises into the slot of the row
-        // they passed, and that row takes theirs.
         let b = board("a\t9000\nb\t8000\nc\t100\n");
         let before = b.standings_at(&Ramp, 50.0, 5);
         let after = b.standings_at(&Ramp, 100.0 + MOVE_MS * 2.0, 5);
@@ -478,8 +352,6 @@ mod tests {
 
     #[test]
     fn the_player_is_always_on_the_board() {
-        // A scoreboard that can hide the play it belongs to is worse than a
-        // shorter one.
         let field: String = (1..=40).map(|i| format!("p{i}\t{}\n", i * 1000)).collect();
         let b = board(&field);
         for score in [0, 5_000, 20_000, 39_500, 99_999] {
@@ -492,8 +364,6 @@ mod tests {
 
     #[test]
     fn slots_are_positions_in_the_window_not_places_in_the_field() {
-        // They were places once. On a map forty people had played that put the
-        // leader three thousand pixels below the frame.
         let field: String = (1..=40).map(|i| format!("p{i}\t{}\n", i * 1000)).collect();
         let rows = board(&field).standings(1, 5);
         let slots: Vec<f32> = rows.iter().map(|row| row.slot).collect();
@@ -502,7 +372,6 @@ mod tests {
 
     #[test]
     fn a_tie_leaves_the_player_behind() {
-        // Level is the moment before passing, not the moment after.
         let b = board("a\t200\n");
         let rows = b.standings(200, 5);
         assert!(
@@ -518,7 +387,6 @@ mod tests {
         assert_eq!(board(&field).standings(1, 5).len(), 5);
     }
 
-    /// A score curve that rises one point per millisecond.
     struct Ramp;
 
     impl ScoreAt for Ramp {
@@ -533,8 +401,6 @@ mod tests {
 
     #[test]
     fn a_row_that_just_changed_place_is_still_arriving() {
-        // The move is worked out from the score curve, not from the frame
-        // before — which is what lets frames be drawn in parallel.
         let b = board("a\t300\nb\t200\nc\t100\n");
         let moving = b.standings_at(&Ramp, 100.0 + MOVE_MS / 2.0, 5);
         assert!(
@@ -548,15 +414,10 @@ mod tests {
         assert!(settled.iter().all(|row| row.from_slot == row.slot));
     }
 
-    /// A field whose scores are far enough apart that the pass being animated at
-    /// a given moment is unambiguous, and spaced to turn a page of two.
     const PAGED: &str = "a\t9000\nb\t8000\nc\t5000\nd\t1000\ne\t25\n";
 
     #[test]
     fn the_row_that_arrives_grows_rather_than_slides() {
-        // Rows only arrive when the page turns — a pass inside one is a swap.
-        // The new row comes in at the top, because the page above is the one that
-        // has changed, and there is nothing above the board to slide in from.
         let b = board(PAGED);
         let rows = b.standings_at(&Ramp, 1000.0 + MOVE_MS / 2.0, 2);
         let arriving: Vec<&Row> = rows.iter().filter(|row| row.entering).collect();
@@ -577,22 +438,11 @@ mod tests {
         assert!(rows.iter().all(|row| !row.leaving));
     }
 
-    /// The page turns when the player reaches the top of it, and not before.
-    ///
-    /// This is what makes the board a scoreboard rather than a window hung off
-    /// the player. Anchored to them, the field slides past and the row actually
-    /// climbing never appears to; anchored to the table, they rise through a
-    /// fixed page, swap with each rival they pass, reach the top — and only then
-    /// does the page turn and hand them the bottom of the next one.
     #[test]
     fn the_page_turns_only_once_the_player_reaches_its_top() {
-        // Forty rivals at a thousand points a place, and a five-row board.
         let field: String = (1..=40).map(|i| format!("p{i}\t{}\n", i * 1000)).collect();
         let b = board(&field);
 
-        // Climbing one place at a time, the player's slot rises 0,1,2,3,4 and
-        // then drops back to 0 as the page turns. Anything else — a slot that
-        // never moves, or a page that turns early — is the bug this replaced.
         let mut seen = Vec::new();
         for place in 0..12 {
             let score = 500 + place * 1000;
@@ -610,8 +460,6 @@ mod tests {
         );
     }
 
-    /// …and the page it turns to is a *different* five places, not the same
-    /// five shifted by one.
     #[test]
     fn turning_the_page_shows_five_new_places() {
         let field: String = (1..=40).map(|i| format!("p{i}\t{}\n", i * 1000)).collect();
@@ -622,7 +470,7 @@ mod tests {
                 .map(|row| row.place)
                 .collect::<Vec<_>>()
         };
-        // At the top of a page, and one place higher.
+
         let top = places(4_500);
         let over = places(5_500);
         assert!(

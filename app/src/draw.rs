@@ -1,10 +1,3 @@
-//! Drawing a replay, with the engine linked in.
-//!
-//! The terminal client runs `dossier` as a program and reads its stderr. This
-//! calls it. Everything the pipeline has to say arrives through
-//! [`dossier_produce::notes`] instead of a stream nobody in a window is
-//! watching — see [`Told`].
-
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
@@ -12,10 +5,6 @@ use dossier_produce::{locate, render, scenery, video};
 use dossier_render::Skin;
 use dossier_sim::GameState;
 
-/// What was said while a render happened.
-///
-/// Collected rather than printed. A window shows these; a terminal would have
-/// let them scroll past.
 #[derive(Default)]
 pub struct Told(Arc<Mutex<Vec<String>>>);
 
@@ -32,7 +21,6 @@ impl Told {
     }
 }
 
-/// What a render was asked for, in the shape a window can fill in.
 pub struct Asked<'a> {
     pub replay: &'a Path,
     pub songs: Option<&'a Path>,
@@ -40,74 +28,56 @@ pub struct Asked<'a> {
     pub out: PathBuf,
     pub size: (u32, u32),
     pub fps: f64,
-    /// The span to draw, in map time. `None` either side means the whole play.
+
     pub from_ms: Option<f64>,
     pub to_ms: Option<f64>,
     pub background: bool,
     pub storyboard: bool,
-    /// Draw the play and nothing that talks about it.
+
     pub bare: bool,
     pub mute: bool,
-    /// A skin folder, when one came with the job.
+
     pub skin: Option<PathBuf>,
-    /// Say what is happening in a form a program can read — see
-    /// [`dossier_produce::events`].
+
     pub events: bool,
-    /// The knobs the engine has always had and the window never offered.
+
     pub fine: Fine,
 }
 
-/// What a render can be told beyond "draw this replay".
-///
-/// Every one of these was already a flag on the command line; none of them was
-/// reachable from the window, which meant the application could draw exactly
-/// one way and the terminal could draw twelve. Defaults are the engine's own,
-/// so leaving the whole thing alone changes nothing.
 #[derive(Debug, Clone, serde::Deserialize)]
 #[serde(default)]
 pub struct Fine {
-    /// 0–51, lower is better and bigger. 20 is the engine's own.
     pub crf: u32,
-    /// x264's speed/размер trade: `ultrafast` … `veryslow`.
+
     pub preset: String,
-    /// How loud the song and the hit sounds are against each other.
+
     pub music_level: f32,
     pub hitsound_level: f32,
-    /// Drawing threads, and the encoder's. `0` means "as many as sensible".
+
     pub threads: u32,
     pub encoder_threads: u32,
-    /// How far the background is darkened and blurred, in per cent.
+
     pub dim: u32,
     pub blur: u32,
-    /// Play the map's own video behind, when it has one.
+
     pub video: bool,
-    /// Draw the play and nothing that talks about it — no HUD at all.
+
     pub bare: bool,
-    /// Whether the cursor turns as it moves. `None` leaves the skin's answer.
+
     pub cursor_rotate: Option<bool>,
-    /// The flash a struck note leaves on the field, from the skin's own
-    /// `lighting.png`. osu! calls this Hit Lighting and ships it off; a render
-    /// is watched rather than played, and what a player would call clutter is
-    /// most of what a viewer came to see — so this one is on here.
+
     pub hit_lighting: bool,
-    /// Whether a slider body grows into the field and retracts behind the ball.
-    /// Off by default for the same reason it is on in the game and off here:
-    /// snaking tells a *player* where the ball has yet to go, and a viewer can
-    /// already see the whole shape.
+
     pub snake: bool,
-    /// Whether the cursor swells under a click. The skin may still refuse.
+
     pub cursor_expand: bool,
-    /// The map's own hit sounds — the folder beside the `.osu`, where a custom
-    /// sample index means something. Most of what a hitsounded map sounds like.
+
     pub map_hitsounds: bool,
-    /// The skin's, asked only by plain name. A skin without a given sound
-    /// leaves it to the map, and both missing leaves it to synthesis.
+
     pub skin_hitsounds: bool,
-    /// What synthesis sounds like when neither of the two covers a voice:
-    /// `click`, `soft`, `drum`, `glass` or `wood`.
+
     pub kit: String,
-    /// And how that synthesis is tuned — every frequency, every decay and the
-    /// level, each as a multiplier on the pack's own.
+
     pub pitch: f32,
     pub decay: f32,
     pub kit_level: f32,
@@ -140,7 +110,6 @@ impl Default for Fine {
     }
 }
 
-/// Draw it, and say what happened on the way.
 pub fn draw(asked: &Asked<'_>, told: &Told) -> Result<PathBuf, String> {
     told.listen();
     let (beatmap, replay, origin, map_text) = locate::load(asked.replay, asked.map, asked.songs)?;
@@ -215,14 +184,7 @@ pub fn draw(asked: &Asked<'_>, told: &Told) -> Result<PathBuf, String> {
         },
         settings,
     };
-    // The hit sounds. Without these the video is silent exactly where the play
-    // was loud — the click of every note — which is most of what a hitsounded
-    // map sounds like. The terminal client built this track and the window did
-    // not, and a render that came out of the two was not the same render.
-    //
-    // Two places are asked, because osu! asks two and does not treat them
-    // alike: the map's own folder first, where a custom sample index means
-    // something, and the skin only ever by plain name.
+
     let kit = {
         let mut kit =
             dossier_audio::Kit::by_name(&asked.fine.kit).unwrap_or_else(dossier_audio::Kit::plain);
@@ -232,10 +194,6 @@ pub fn draw(asked: &Asked<'_>, told: &Told) -> Result<PathBuf, String> {
         kit
     };
     let samples = {
-        // Две стопки, и их можно брать по отдельности: скин отвечает на простое
-        // имя, карта — на своё с номером набора, и звучат они по-разному. Кто
-        // хочет слышать карту такой, какой её задумали, глушит скин; кому
-        // важнее свой набор — наоборот.
         let mut pack = match &asked.skin {
             Some(folder) if asked.fine.skin_hitsounds => dossier_audio::SamplePack::load(folder),
             _ => dossier_audio::SamplePack::load(Path::new("")),
@@ -250,8 +208,7 @@ pub fn draw(asked: &Asked<'_>, told: &Told) -> Result<PathBuf, String> {
         }
         pack
     };
-    // `len` is the skin's alone and `from_beatmap` the map's — two counts and
-    // not a total, which is why they are said apart.
+
     if samples.is_empty() {
         dossier_produce::note!("no hit-sound samples — the notes will be synthesised");
     } else {
@@ -292,16 +249,6 @@ pub fn draw(asked: &Asked<'_>, told: &Told) -> Result<PathBuf, String> {
 mod tests {
     use super::*;
 
-    /// Draw something, with the engine linked in rather than run.
-    ///
-    /// Ignored by default and driven by the environment: it wants a real replay
-    /// and the map it was played on, and neither belongs in this repository —
-    /// a replay carries somebody's name and the maps are not ours. Run it by
-    /// hand when the pipeline has been moved about:
-    ///
-    /// ```text
-    /// DOSSIER_TEST_REPLAY=… DOSSIER_TEST_SONGS=… cargo test -- --ignored
-    /// ```
     #[test]
     #[ignore = "wants a replay and a map that this repository does not carry"]
     fn a_replay_becomes_a_file() {
@@ -321,14 +268,11 @@ mod tests {
             out: out.clone(),
             size: (640, 360),
             fps: 24.0,
-            // Three seconds: this is asking whether the pipeline is wired up,
-            // not whether it can draw a whole play.
+
             from_ms: Some(30_000.0),
             to_ms: Some(33_000.0),
             bare: false,
-            // Unmuted on purpose: a test that mutes the render never asks
-            // whether the hit sounds were built, which is how the window
-            // shipped without them.
+
             mute: false,
             skin: None,
             events: false,
@@ -343,9 +287,6 @@ mod tests {
             "a file too small to be a video: {size} bytes"
         );
 
-        // And it has sound. The window wrote silent videos for a while — the
-        // hit-sound track was never built — and nothing here noticed, because
-        // the only test of the pipeline muted the render it was checking.
         let streams = std::process::Command::new("ffprobe")
             .args([
                 "-v",

@@ -1,33 +1,3 @@
-//! Several spans of one play, rendered and cut together.
-//!
-//! The clips come from [`dossier_exhibit`]; this file only knows how to turn a
-//! list of spans into one file. Each clip is rendered by the same [`video`]
-//! path a whole replay goes through — there is no second renderer here and
-//! there must not be, or a reel and a full render could disagree about what the
-//! play looked like.
-//!
-//! # Why a second pass over the encoded clips
-//!
-//! Frames could be drawn straight into one long stream and the cuts made in the
-//! drawing, which would encode once instead of twice. The audio is what stops
-//! it: each clip needs its own slice of the song, seeked, rate-adjusted and
-//! faded into the next, and that is a filter graph over N inputs — while the
-//! existing audio path is built around one span and is the part of this program
-//! that has been wrong the most times. Rendering each clip the way a clip is
-//! already rendered, and then cutting, keeps every one of those fixes.
-//!
-//! The second encode costs a re-compress of the finished reel — thirty seconds
-//! of video, against the minutes spent drawing it. It is not where the time
-//! goes.
-//!
-//! # Why the video crossfades too
-//!
-//! What makes a hard cut unpleasant is the audio: six songs spliced end to end
-//! click at every join. So the audio must crossfade — and once it does, the
-//! video has to overlap by the same amount or the two drift apart by one fade
-//! per cut, which by the fifth clip is seconds of the wrong sound over the
-//! right picture.
-
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
@@ -38,36 +8,12 @@ use dossier_sim::GameState;
 
 use crate::video;
 
-/// How long one clip dissolves into the next, in seconds.
-///
-/// Short. A reel is made of six-second clips and a long dissolve spends the
-/// clip on the dissolve — but the join has to be audible as a join rather than
-/// as a glitch, and under about a third of a second it stops reading as one.
 const CROSSFADE_S: f64 = 0.4;
 
-/// The fade from black at the start and back to it at the end.
-///
-/// Longer than the crossfade on purpose: this one is the reel starting and
-/// ending, and it is the only moment the viewer is told the thing has a shape.
 const EDGE_FADE_S: f64 = 0.6;
 
-/// What the caller has to supply per clip that this file cannot work out.
-///
-/// Only the hit sounds, and they need a callback rather than a path because
-/// they are synthesised *for* a span: the track is built on the video's own
-/// timebase, so every clip needs its own and the plan that says how long it is
-/// only exists once the clip is being set up.
 pub type Hitsounds<'a> = dyn Fn(&video::Plan, usize) -> Option<PathBuf> + 'a;
 
-/// Render every clip and cut them into one file.
-///
-/// `settings.out` is the reel; `settings.from_ms` and `to_ms` are ignored,
-/// since the clips say what to render.
-///
-/// The play is taken whole rather than as the three numbers this needs from it.
-/// Those three — the span, the rate and where the play ended — always come from
-/// the same state, and passed separately they are three chances to hand a reel
-/// one replay's span with another's rate.
 pub fn render(
     scene: &Scene<'_>,
     state: &GameState,
@@ -96,9 +42,7 @@ pub fn render(
             hitsounds: None,
             ..clone_settings(settings)
         };
-        // A clip that is here *because* of a mistake slows into it and draws
-        // the camera in on it. Set before the plan is built, so the dip is in
-        // the schedule the frames, the hit sounds and the music all read from.
+
         if slows_into_a_mistake(clip) {
             if let Some((at, focus)) = first_mistake(state, clip.span.from_ms, clip.span.to_ms) {
                 one.slow_at_ms = Some(at);
@@ -129,18 +73,13 @@ pub fn render(
     stitch(&parts, settings)
 }
 
-/// One rendered clip, waiting to be cut in.
 struct Part {
     path: PathBuf,
     seconds: f64,
     sound: bool,
 }
 
-/// Cut the rendered clips together in one ffmpeg pass.
 fn stitch(parts: &[Part], settings: &video::Settings) -> Result<(), String> {
-    // A clip with no audio has no audio *stream*, and asking a filter for one
-    // is an error rather than silence. Either every clip has sound or the reel
-    // has none — which is what happens: the setting is per render, not per clip.
     let sound = parts.iter().all(|part| part.sound);
     let total =
         parts.iter().map(|part| part.seconds).sum::<f64>() - CROSSFADE_S * (parts.len() - 1) as f64;
@@ -192,18 +131,12 @@ fn stitch(parts: &[Part], settings: &video::Settings) -> Result<(), String> {
         .output()
         .map_err(|error| format!("could not start {}: {error}", settings.ffmpeg))?;
     if output.status.success() {
-        // The same line a single render ends on, and it has to be the *reel's*
-        // numbers: a caller reading the shape of the finished file out of the
-        // engine's report would otherwise find five clips each announcing six
-        // seconds, and send a thirty-second video labelled as six.
         let (width, height) = settings.size;
         crate::note!("video {width}x{height} {total:.3}s");
         settings.events.video(width, height, total);
         return Ok(());
     }
-    // The same discipline as the render: ffmpeg's own words, not our guess at
-    // them. A filter graph is long enough that a typo in it is unrecognisable
-    // from anything but the complaint it produces.
+
     let said = String::from_utf8_lossy(&output.stderr);
     let lines: Vec<&str> = said
         .lines()
@@ -219,18 +152,9 @@ fn stitch(parts: &[Part], settings: &video::Settings) -> Result<(), String> {
     ))
 }
 
-/// The filter graph, built as text because that is the only way ffmpeg takes one.
-///
-/// Split out from [`stitch`] so it can be read as a whole and tested without an
-/// encoder: the offsets are the part that is easy to get subtly wrong, and a
-/// graph that is off by one fade produces a reel that plays and is wrong.
 fn graph(parts: &[Part], total: f64, sound: bool) -> String {
     let mut chain = Vec::new();
 
-    // `xfade` states *when* the dissolve starts, measured in the stream built
-    // so far — and that stream is shorter than the clips it holds by one fade
-    // per join already made. Getting this wrong does not fail; it produces a
-    // reel that plays with the cuts in the wrong places.
     let mut label = "0:v".to_owned();
     let mut so_far = parts[0].seconds;
     for (index, part) in parts.iter().enumerate().skip(1) {
@@ -248,9 +172,6 @@ fn graph(parts: &[Part], total: f64, sound: bool) -> String {
     ));
 
     if sound {
-        // `acrossfade` needs no offset: it always joins the end of the first
-        // stream to the start of the second, which is the same instant `xfade`
-        // was told about the long way round.
         let mut label = "0:a".to_owned();
         for index in 1..parts.len() {
             let next = format!("ax{index}");
@@ -268,9 +189,6 @@ fn graph(parts: &[Part], total: f64, sound: bool) -> String {
     chain.join(";")
 }
 
-/// `video::Settings` holds paths and strings and so cannot be `Copy`; this is
-/// the one place a copy is wanted, and spelling it out beats deriving `Clone`
-/// on a type whose whole purpose is to be built once and read.
 fn clone_settings(settings: &video::Settings) -> video::Settings {
     video::Settings {
         out: settings.out.clone(),
@@ -288,36 +206,15 @@ fn clone_settings(settings: &video::Settings) -> video::Settings {
         audio: settings.audio.clone(),
         video: settings.video.clone(),
         hitsounds: settings.hitsounds.clone(),
-        // Each clip reports its own frames, which is the only way a watcher
-        // can show movement during the twenty seconds one of them takes.
+
         events: settings.events,
         slow_at_ms: settings.slow_at_ms,
         slow_focus: settings.slow_focus,
     }
 }
 
-/// Is this clip here because something went wrong — a choke or a scramble?
-///
-/// Only those slow into their mistake. A miss can land in a clip chosen for the
-/// music or the movement, and dwelling on it there would be dwelling on
-/// something the clip is not about; the reel would slow for reasons the viewer
-/// cannot see. The clips selected *for* a mistake are the ones where slowing
-/// into it says what the clip already says.
-/// Whether a clip about a mistake slows into it.
-///
-/// **Off.** The dip does not yet look like a deliberate effect, and the alpha
-/// is not the place to find that out — a reel is what somebody shows other
-/// people, so an effect that reads as a bug is worse there than anywhere else
-/// in the renderer.
-///
-/// Nothing is removed. Every part of it is still built and still tested:
-/// `--slow-at` drives the same schedule by hand, which is how the shape of the
-/// dip will be worked out, and [`crate::video::Plan`]'s own tests still cover
-/// the staircase, the audio slicing and the camera. This is the one line that
-/// gives it back to reels.
 const SLOW_INTO_A_MISTAKE: bool = false;
 
-/// Whether this clip gets the dip. One place, so the switch has one reader.
 fn slows_into_a_mistake(clip: &Clip) -> bool {
     SLOW_INTO_A_MISTAKE && about_a_mistake(clip)
 }
@@ -328,12 +225,6 @@ fn about_a_mistake(clip: &Clip) -> bool {
     mistake(&clip.reason) || clip.with.as_ref().is_some_and(mistake)
 }
 
-/// The first combo-breaking miss in a span, and where on the field it was.
-///
-/// A missed circle or a dropped slider — the errors a run notices — and not a
-/// stray slider tick, which breaks nothing and is not what a viewer means by a
-/// mistake. The place is the object's own position, which is where the eye goes
-/// and what "the place of the error" means; the camera draws in on it.
 fn first_mistake(state: &GameState, from_ms: f64, to_ms: f64) -> Option<(f64, Point)> {
     let judge = state.judge()?;
     let objects = &state.timeline().objects;
@@ -372,24 +263,20 @@ mod tests {
         parts.iter().map(|p| p.seconds).sum::<f64>() - CROSSFADE_S * (parts.len() - 1) as f64
     }
 
-    /// The offsets are cumulative *after* the fades already taken out, not
-    /// cumulative over the clips. The difference is one fade per join, and it
-    /// grows: by the fifth clip a graph that ignores it is 1.6s out.
     #[test]
     fn each_dissolve_starts_where_the_stream_so_far_ends() {
         let parts = parts(&[6.0, 6.0, 6.0], true);
         let graph = graph(&parts, total(&parts), true);
 
-        // First join: six seconds in, less the fade.
         assert!(graph.contains("offset=5.600"), "{graph}");
-        // Second: the stream so far is 6 + 6 - 0.4 = 11.6, less the fade.
+
         assert!(graph.contains("offset=11.200"), "{graph}");
     }
 
     #[test]
     fn the_reel_fades_out_a_fade_before_it_ends() {
         let parts = parts(&[6.0, 6.0], true);
-        // 6 + 6 - 0.4 = 11.6 long, so the closing fade starts at 11.0.
+
         let graph = graph(&parts, total(&parts), true);
         assert!(graph.contains("fade=t=out:st=11.000"), "{graph}");
         assert!(graph.contains("afade=t=out:st=11.000"), "{graph}");
@@ -411,12 +298,6 @@ mod tests {
         }
     }
 
-    /// Off for the alpha: the dip does not yet read as a deliberate effect, and
-    /// a reel is what somebody shows other people.
-    ///
-    /// **When the switch goes back on, this test inverts** — it is the one that
-    /// says whether reels slow, and it should keep saying so either way rather
-    /// than being deleted.
     #[test]
     fn a_reel_does_not_slow_into_a_mistake_for_now() {
         assert!(
@@ -429,8 +310,6 @@ mod tests {
         }))));
     }
 
-    /// A muted render has no audio stream to ask for, and asking anyway is an
-    /// error rather than silence.
     #[test]
     fn a_silent_reel_builds_no_audio_chain() {
         let parts = parts(&[6.0, 6.0], false);
@@ -440,8 +319,6 @@ mod tests {
         assert!(graph.ends_with("[v]"), "{graph}");
     }
 
-    /// One clip is a reel of one: nothing to dissolve, but it still opens and
-    /// closes like a reel.
     #[test]
     fn a_single_clip_still_gets_its_edges() {
         let parts = parts(&[6.0], true);
@@ -451,15 +328,12 @@ mod tests {
         assert!(graph.contains("[0:a]afade=t=in:st=0"), "{graph}");
     }
 
-    /// Clips are not all the same length — the last one of a play that ends
-    /// carries the closing fade with it — so the offsets have to come from the
-    /// lengths rather than from the count.
     #[test]
     fn uneven_clips_still_line_up() {
         let parts = parts(&[6.0, 6.7, 6.0], true);
         let graph = graph(&parts, total(&parts), true);
         assert!(graph.contains("offset=5.600"), "{graph}");
-        // 6 + 6.7 - 0.4 = 12.3, less the fade.
+
         assert!(graph.contains("offset=11.900"), "{graph}");
     }
 }

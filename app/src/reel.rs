@@ -1,30 +1,13 @@
-//! Several chosen spans of one play, rendered and put end to end.
-//!
-//! Not [`dossier_produce::reel`], which is the bot's reel: that one takes the
-//! clips [`dossier_exhibit`] *chose* and dissolves them into each other. These
-//! spans were chosen by a person on a timeline, no scorer picked them, and
-//! `Clip` is the wrong shape to claim otherwise.
-//!
-//! So the pieces are drawn by the same render path a whole replay goes through
-//! and then concatenated without re-encoding — every part comes out of one
-//! encoder with one set of settings, which is exactly the case `-c copy` is
-//! for. Hard cuts, then. The dissolve is the produce crate's, and reaching it
-//! from here means teaching it to take spans rather than chooser's clips.
-
 use std::path::{Path, PathBuf};
 
 use crate::draw::{self, Asked, Told};
 
-/// A span of the play, in map milliseconds.
 #[derive(Debug, Clone, Copy, serde::Deserialize)]
 pub struct Span {
     pub from_ms: f64,
     pub to_ms: f64,
 }
 
-/// `file 'name'` — the concat demuxer's own quoting: a single quote inside is
-/// closed, escaped and reopened. The names here are ours, but a scratch
-/// directory sits under a path somebody else named.
 fn listed(path: &Path) -> String {
     format!(
         "file '{}'\n",
@@ -32,7 +15,6 @@ fn listed(path: &Path) -> String {
     )
 }
 
-/// Draw every span and join them into one file. Returns where it went.
 pub fn build(
     asked: &Asked<'_>,
     spans: &[Span],
@@ -59,7 +41,6 @@ pub fn build(
         parts.push(out);
     }
 
-    // Один кусок — это и есть готовый файл, склеивать нечего.
     if parts.len() == 1 {
         std::fs::rename(&parts[0], &asked.out)
             .or_else(|_| std::fs::copy(&parts[0], &asked.out).map(|_| ()))
@@ -88,8 +69,6 @@ pub fn build(
     Ok(asked.out.clone())
 }
 
-/// `Asked` holds borrows and cannot derive `Clone`; this is the two fields a
-/// part overrides and everything else as it was.
 fn clone_asked<'a>(asked: &Asked<'a>) -> Asked<'a> {
     Asked {
         replay: asked.replay,

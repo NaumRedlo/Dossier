@@ -1,14 +1,5 @@
 #!/bin/bash
-# Are the files our rules were read from still what we read?
-#
-# Every quoted block in this engine is a promise about somebody else's source,
-# and lazer ships weekly. This refetches each file named in upstream.tsv and
-# reports which have moved since the hash was taken.
-#
-#   tools/check-upstream.sh          check, and exit non-zero if anything moved
-#   tools/check-upstream.sh --update rewrite the hashes to what is upstream now
-#
-# A changed file is not a changed rule. It is a prompt to read the diff.
+
 set -u
 here="$(cd "$(dirname "$0")" && pwd)"
 manifest="$here/upstream.tsv"

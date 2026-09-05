@@ -1,10 +1,3 @@
-//! One job, start to finish.
-//!
-//! Ask for work; if there is any, fetch what it needs, draw it, hand the file
-//! over. If anything goes wrong, give the job back saying why — a job nobody
-//! hands back sits until its lease runs out, and whoever asked for it waits
-//! that long for nothing.
-
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -14,24 +7,20 @@ use serde::Deserialize;
 
 use crate::bot::{Bot, Capacity, Job, Refused};
 
-/// How often to say we are still here while the engine has nothing to report.
 const HEARTBEAT: Duration = Duration::from_secs(10);
 
-/// What became of one turn of the loop.
 #[derive(Debug)]
 pub enum Did {
-    /// Nobody had anything. Not a failure.
     Nothing,
     Delivered {
         title: String,
     },
-    /// Handed back, with what to tell whoever asked.
+
     GaveBack {
         why: String,
     },
 }
 
-/// How far along a render is, for a window to show and a heartbeat to carry.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Along {
     pub frames: u64,
@@ -40,11 +29,6 @@ pub struct Along {
     pub left_seconds: f64,
 }
 
-/// The settings a job carries, as far as this understands them.
-///
-/// Absent means a bot that has never been asked about it, and the engine's own
-/// default is the right answer to that — so every field is optional and nothing
-/// is coerced.
 #[derive(Debug, Default, Deserialize)]
 struct Asked {
     size: Option<String>,
@@ -57,11 +41,10 @@ struct Asked {
     storyboard: bool,
     #[serde(default)]
     bare: bool,
-    /// Either a name the engine knows or `{{a0}}`, which is an archive to fetch.
+
     skin: Option<String>,
 }
 
-/// Ask for a job and do it.
 pub fn once(
     bot: &Bot,
     engine: &str,
@@ -74,8 +57,7 @@ pub fn once(
     };
     let workdir = std::env::temp_dir().join(format!("dossier-job-{}", job.id));
     let done = do_job(bot, &job, songs, &workdir, along);
-    // Whatever happened: the replay, the skin and the video are megabytes and
-    // this machine belongs to somebody else.
+
     let _ = std::fs::remove_dir_all(&workdir);
     match done {
         Ok(title) => Ok(Did::Delivered { title }),
@@ -98,9 +80,6 @@ fn do_job(
     std::fs::write(&replay, bot.replay(&job.id).map_err(|e| e.to_string())?)
         .map_err(|e| e.to_string())?;
 
-    // The settings name their files as `{{a0}}`; each is fetched by that name
-    // and the name is swapped for where it landed. Names are the server's own
-    // and checked all the same, since they end up in a filename.
     let mut here = Vec::new();
     for name in &job.assets {
         if !name.chars().all(|c| c.is_ascii_alphanumeric()) {
@@ -112,7 +91,6 @@ fn do_job(
 
     let asked: Asked = serde_json::from_value(job.settings.clone()).unwrap_or_default();
     let skin = match asked.skin.as_deref() {
-        // A skin arrives as one archive rather than as its files.
         Some(named) if named.starts_with("{{") => {
             let name = named.trim_matches(['{', '}']);
             let archive = here
@@ -125,7 +103,7 @@ fn do_job(
             dossier_produce::skin::unpack(archive, &into)?;
             Some(into)
         }
-        // A name the engine knows, or nothing.
+
         _ => None,
     };
 
@@ -137,9 +115,6 @@ fn do_job(
         .and_then(|(w, h)| Some((w.parse().ok()?, h.parse().ok()?)))
         .unwrap_or((1280, 720));
 
-    // Two threads say we are here: the render's own events, which arrive when
-    // frames do, and a slow tick for the stretches when they do not — muxing,
-    // or a map being fetched.
     let ours = Arc::new(AtomicBool::new(true));
     let seen = Arc::clone(along);
     dossier_produce::events::listen(move |line| {
@@ -155,14 +130,6 @@ fn do_job(
         }
     });
 
-    // Всё принесено, но ни одного кадра ещё не нарисовано — последняя точка,
-    // где отказаться дёшево. Взять работу на пятнадцати процентах и отдать её
-    // на десяти не противоречие: пока качались реплей и скин, машина села.
-    //
-    // Позже этой точки отказаться уже нельзя: движок связан с приложением, а
-    // не запущен рядом, и остановить его на середине нечем — терминальный
-    // клиент просто убивал процесс. Чтобы вернуть это, `video::encode` должен
-    // уметь смотреть на флаг между кадрами.
     let now = crate::machine::read();
     if crate::machine::should_abort(now.percent, now.on_battery) {
         return Err(format!(
@@ -187,8 +154,6 @@ fn do_job(
                         "fps": now.per_second, "seconds_left": now.left_seconds,
                     });
                     if !bot.heartbeat(&job.id, Some(told)) {
-                        // It stopped being ours. Anything still drawing for it
-                        // is work nobody will collect.
                         ours.store(false, Ordering::Relaxed);
                     }
                 }
@@ -256,8 +221,6 @@ mod tests {
         }
     }
 
-    /// Everything is optional: a job from a bot that has never been asked about
-    /// a setting should get the engine's own answer, not a zero.
     #[test]
     fn a_job_that_says_almost_nothing_still_parses() {
         let asked: Asked = serde_json::from_value(serde_json::json!({"fps": 30})).expect("read");

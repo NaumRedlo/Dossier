@@ -1,22 +1,7 @@
-//! Noticing that there is a newer Dossier, and becoming it.
-//!
-//! Two kinds of machine run this. One has the repository — the application was
-//! built from it and `cargo` is right there — and for that machine an update is
-//! `git pull` and a build, with every line of both put on the screen as it
-//! happens. The other has only the application, and for it an update is a file
-//! to download; all this can honestly do there is say that one exists and open
-//! the page.
-//!
-//! Which of the two is decided by whether the source this was compiled from is
-//! still on the disk, and that is the honest test: `CARGO_MANIFEST_DIR` is a
-//! compile-time path, so in a bundle it names a directory on somebody else's
-//! machine and simply is not there.
-
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-/// Where the source is, if it is here at all.
 pub fn checkout() -> Option<PathBuf> {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent()?;
     root.join(".git").is_dir().then(|| root.to_path_buf())
@@ -25,13 +10,12 @@ pub fn checkout() -> Option<PathBuf> {
 #[derive(serde::Serialize)]
 pub struct Update {
     pub version: String,
-    /// `git` — buildable here; `release` — there is a newer one to download;
-    /// `none` — nothing to do; `unknown` — could not find out.
+
     pub how: &'static str,
-    /// How many commits behind, when that is knowable.
+
     pub behind: u32,
     pub newest: String,
-    /// Which parts of the engine the update touches, by crate.
+
     pub parts: Vec<String>,
     pub said: String,
 }
@@ -61,10 +45,6 @@ fn git(at: &Path, args: &[&str]) -> Result<String, String> {
     Ok(String::from_utf8_lossy(&done.stdout).trim().to_owned())
 }
 
-/// Which crates a set of changed paths belongs to.
-///
-/// `crates/dossier-sim/src/judge.rs` is the engine's judging changing, and that
-/// is worth saying; `crates/dossier-sim/src/lib.rs` is the same news twice.
 fn parts_of(paths: &str) -> Vec<String> {
     let mut seen: Vec<String> = Vec::new();
     for path in paths.lines() {
@@ -81,7 +61,6 @@ fn parts_of(paths: &str) -> Vec<String> {
     seen
 }
 
-/// Is there a newer one, and what would updating mean here.
 pub fn look() -> Update {
     let Some(root) = checkout() else {
         return Update::nothing("обновление здесь не собирается — эта сборка пришла файлом");
@@ -89,8 +68,7 @@ pub fn look() -> Update {
     if let Err(why) = git(&root, &["fetch", "--quiet", "origin"]) {
         return Update::nothing(&format!("не удалось спросить у origin: {why}"));
     }
-    // `origin/HEAD` есть не в каждом клоне — его ставит только `git clone`, и
-    // копия, сделанная иначе, о нём не знает. Тогда спрашиваем ветку по имени.
+
     let Some(ahead) = ["origin/HEAD", "origin/main"]
         .iter()
         .find(|name| git(&root, &["rev-parse", "--verify", "--quiet", name]).is_ok())
@@ -120,11 +98,6 @@ pub fn look() -> Update {
     }
 }
 
-/// Run one command and hand every line it says to `say`, as it says it.
-///
-/// stderr merged into stdout on purpose: `cargo` says everything worth showing
-/// there — every `Compiling` line — and two streams read separately arrive in
-/// the wrong order.
 fn stream(
     at: &Path,
     program: &str,
@@ -166,7 +139,6 @@ fn stream(
     }
 }
 
-/// Pull and build, saying everything as it happens.
 pub fn run(say: &(dyn Fn(&str) + Sync)) -> Result<(), String> {
     let root = checkout().ok_or("исходников нет — обновлять нечего")?;
     say("git pull --ff-only");
@@ -176,10 +148,6 @@ pub fn run(say: &(dyn Fn(&str) + Sync)) -> Result<(), String> {
     Ok(())
 }
 
-/// A build log with somebody's home directory taken out of it.
-///
-/// Every path in a `cargo` error starts with it, and a report is about the
-/// build and not about whose machine it happened on.
 pub fn tidy(log: &str) -> String {
     let home = std::env::var("HOME")
         .or_else(|_| std::env::var("USERPROFILE"))

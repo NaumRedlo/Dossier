@@ -6,8 +6,7 @@
 <link rel="stylesheet" href="app.css">
 </head>
 <body class="dock-top">
-  <!-- Фон. Три пятна акцентного цвета, которые очень медленно расходятся;
-       «Настройки → Окно» останавливает их, не убирая. -->
+
   <div class="sky" aria-hidden="true">
     <span class="aurora"></span>
     <span class="blob b1"></span><span class="blob b2"></span><span class="blob b3"></span>
@@ -15,13 +14,10 @@
     <span class="grain"></span>
   </div>
 
-  <!-- Заставка: при запуске и после долгого молчания. Уходит от любого
-       движения — это картинка, а не диалог. -->
   <div class="splash" id="splash" hidden>
     <canvas id="splash-view"></canvas>
   </div>
-  <!-- Опрашивается один раз при открытии: пока сервер и токен не названы,
-       всё остальное показывать нечего. -->
+
   <div id="wizard" class="wizard" hidden>
     <div class="pane">
       <img class="mark" src="mark.png" alt="" width="46" height="46">
@@ -41,8 +37,6 @@
     </div>
   </div>
 
-  <!-- Панель. Плавает над содержимым, живёт сверху или слева, и растёт под
-       курсором — размеры считает `app.js`, здесь только то, что растёт. -->
   <nav id="dock" class="dock landing" aria-label="Разделы">
 
     <div class="items" id="items">
@@ -52,9 +46,7 @@
         <span class="glyph"><svg class="ic ic-render" viewBox="0 0 24 24" fill="none" aria-hidden="true">
           <defs><clipPath id="render-frame"><rect x="3.9" y="5.9" width="16.2" height="12.2" rx="2"/></clipPath></defs>
           <rect class="frame" x="3" y="5" width="18" height="14" rx="2.6"/>
-          <!-- Обрезка на внешней группе, а сдвиг на внутренней: `clip-path` и
-               `transform` на одном элементе едут вместе, и обрезка тогда не
-               обрезает ничего — перфорация вылезала за рамку ножками вниз. -->
+
           <g clip-path="url(#render-frame)">
             <g class="perf">
               <rect x="5.1" y="2.7" width="2.1" height="1.7" rx="0.5"/>
@@ -103,11 +95,8 @@
     </div>
   </nav>
 
-  <!-- Правый верх: кто мы в сети, и жук. -->
   <div class="corner top">
-    <!-- Тот же процесс, что идёт в самой вкладке, свёрнутый сюда: появляется,
-         только когда рендер или сборка идёт, а вкладка, где он начался, не
-         открыта. -->
+
     <div class="hoverbox" id="jobbox" hidden>
       <button class="minijob" id="job-mini">
         <svg class="dial" viewBox="0 0 24 24" aria-hidden="true">
@@ -119,8 +108,7 @@
         <span class="what" id="job-label"></span>
         <span class="pct"><span id="job-percent">0</span>%</span>
       </button>
-      <!-- Плашка говорит, что работа идёт; подробности — под курсором, а не в
-           строке, которой пришлось бы стать шире всего угла. -->
+
       <div class="popover jobpane" id="jobpane">
         <h4 id="job-full"></h4>
         <p class="jobline" id="job-note"></p>
@@ -128,8 +116,6 @@
       </div>
     </div>
 
-    <!-- Появляется, только когда обновление есть: постоянная кнопка «проверить»
-         превращается в мебель, а эта — новость. -->
     <div class="hoverbox" id="upbox" hidden>
       <button class="chip up" id="up" aria-expanded="false" aria-controls="uppane">
         <span class="pip"></span><span id="up-say">Обновление</span>
@@ -187,17 +173,14 @@
 
       <div id="r-doneslot"></div>
 
-      <!-- Полка вместо списка: у каждой записи своя карточка, в ней видно, как
-           эта игра выглядела, и правой кнопкой — что с ней можно сделать. -->
       <div class="shelf" id="r-list"></div>
       <p class="verdict" id="r-done"></p>
     </section>
 
     <section id="view-replay" hidden>
-      <!-- Пока режим не выбран, за этим экраном всё замылено: работа с реплеем
-           начинается с ответа на вопрос, чем именно вы сейчас заняты. -->
+
       <div class="choose" id="rp-choose">
-        <h2>Выбери нужный пункт для работы с реплеем</h2>
+        <h2>Выбери нужный пункт для работы с реплеями</h2>
         <div class="modes">
           <button class="mode" data-mode="judge">
             <svg viewBox="0 0 24 24" fill="none" class="ic big ic-judge" aria-hidden="true">
@@ -210,16 +193,14 @@
           </button>
           <button class="mode" data-mode="cut">
             <svg viewBox="0 0 24 24" fill="none" class="ic big ic-cut" aria-hidden="true">
-              <!-- Наша собственная монтажная лента: дорожка, два куска на ней и
-                   головка, которая по ним идёт. У правого куска подрезается
-                   конец — то самое, что делают на этой вкладке. -->
+
               <rect x="2.6" y="7" width="18.8" height="10" rx="2.2"/>
               <rect class="clip a" x="4.7" y="9.3" width="5.4" height="5.4" rx="1.1" fill="currentColor" stroke="none" opacity="0.4"/>
               <rect class="clip b" x="12.2" y="9.3" width="6.9" height="5.4" rx="1.1" fill="currentColor" stroke="none" opacity="0.4"/>
               <path class="head" d="M6.4 5.4v13.2"/>
             </svg>
             <b>Студия</b>
-            <p>Соберите из своих заходов то, что стоит показать: куски, порядок, один файл.</p>
+            <p>Собери из своих реплеев то, что хочешь показать.</p>
           </button>
         </div>
         <p class="fine" id="rp-gate"></p>
@@ -251,10 +232,10 @@
             <span class="muted" id="rp-at"></span>
             <label class="pick tiny">Скорость
               <select id="rp-speed">
-                <option value="0.25">0,25×</option>
-                <option value="0.5">0,5×</option>
-                <option value="1" selected>1×</option>
-                <option value="2">2×</option>
+                <option value="0.25">0,25</option>
+                <option value="0.5">0,5</option>
+                <option value="1" selected>1</option>
+                <option value="2">2</option>
               </select>
             </label>
           </div>
@@ -264,7 +245,7 @@
               <div class="card tight" id="rp-rows"></div>
               <div>
                 <canvas id="rp-tape" height="200"></canvas>
-                <p class="fine">Каждый объект выделен точкой. Выше — позже, ниже — раньше, промахи в виде засечек внизу. Щелчок перематывает, колесо приближает, двойной щелчок возвращает весь реплей в начало.</p>
+                <p class="fine">Каждый объект выделен точкой. Чем выше, тем позднее - чем ниже, тем раньше. Промахи в виде засечек внизу. Зажатие перематывает, колесо приближает/отдаляет, двойной щелчок возвращает в начало.</p>
               </div>
             </div>
           </div>
@@ -290,26 +271,22 @@
     </section>
 
     <section id="view-library" hidden>
-      <!-- Каждая часть своей карточкой: одна общая панель складывала ядро,
-           чужие зависимости и то, чего ещё нет, в один столбец, где границы
-           между ними были тоньше, чем разница. -->
+
       <div id="lib-rows"></div>
       <p class="fine">Встроенное живёт внутри приложения и обновляется вместе с ним. Внешнее можно поставить с указанием, где взять.</p>
     </section>
 
     <section id="view-settings" hidden>
-      <!-- Одной колонкой это была стена в тридцать строк, где «Потоки»
-           стояли между хитсаундами и заставкой. Слева — о чём вообще
-           речь, справа — только то, о чём речь сейчас. -->
+
       <div class="settings">
       <nav class="rail" id="s-rail" aria-label="Разделы настроек">
-        <button data-page="link" aria-current="page"><b>Подключение</b><span>Кому эта машина отвечает и как её зовут</span></button>
+        <button data-page="link" aria-current="page"><b>Подключение</b><span>Кому это устройство отвечает и как её зовут</span></button>
         <button data-page="paths"><b>Папки</b><span>Где лежат карты, скины и реплеи</span></button>
         <button data-page="video"><b>Видео</b><span>Во что рисуется файл и чего это стоит</span></button>
         <button data-page="audio"><b>Звук</b><span>Песня, хитсаунды и то, чем звучит недостающее</span></button>
-        <button data-page="field"><b>Игра</b><span>Что происходит на поле, пока идёт заход</span></button>
+        <button data-page="field"><b>Игра</b><span>Что происходит в игровом процессе, пока идёт игра</span></button>
         <button data-page="window"><b>Окно</b><span>Как ведёт себя само приложение</span></button>
-        <button data-page="build"><b>Сборка</b><span>Версия, готовность машины и кто ещё в сети</span></button>
+        <button data-page="build"><b>Сборка</b><span>Версия, готовность устройства и кто ещё в сети</span></button>
       </nav>
       <div class="pages">
       <div class="page" data-page="link">
@@ -370,9 +347,7 @@
           <button class="act small" id="s-osk">Поставить .osk…</button>
         </div>
       </div>
-      <!-- Приложение читает папки на открытии окна; файлы появляются после.
-           Эта кнопка — единственный способ сказать «посмотри ещё раз», не
-           перезапуская всё. -->
+
       <div class="bar">
         <span class="muted" id="s-found">Что лежит в папках сейчас.</span>
         <span class="grow"></span>
@@ -383,7 +358,7 @@
       <div class="page" data-page="video" hidden>
       <div class="card">
         <div class="pref">
-          <div><b>Качество видео</b><p>Во что рисуется видео. Больше разрешение и выше частота кадров — дольше.</p></div>
+          <div><b>Качество видео</b><p>Во что рисуется видео.</p></div>
           <div class="pair">
             <label class="pick tiny"><select id="s-size">
               <option value="1280x720">1280 × 720</option>
@@ -409,19 +384,19 @@
           <div><b>Настройка фона</b><p>Затемнение и размытие. Так же, как это делает сама игра.</p></div>
           <div class="pair">
             <label class="pick tiny"><select id="s-dim">
-              <option value="0" selected>Без затемнения</option>
+              <option value="0" selected>без затемнения</option>
               <option value="20">20%</option><option value="40">40%</option>
               <option value="60">60%</option><option value="80">80%</option>
             </select></label>
             <label class="pick tiny"><select id="s-blur">
-              <option value="0" selected>Без размытия</option>
+              <option value="0" selected>без размытия</option>
               <option value="20">20%</option><option value="40">40%</option>
               <option value="60">60%</option>
             </select></label>
           </div>
         </div>
         <div class="pref">
-          <div><b>Качество кодирования</b><p>CRF: меньше — лучше и тяжелее. Пресет — во что обойдётся время кодировщика.</p></div>
+          <div><b>Качество кодирования</b><p>CRF: чем меньше, тем лучше и тяжелее. Качество пресета обусловливает время кодировщика.</p></div>
           <div class="pair">
             <label class="pick tiny"><select id="s-crf">
               <option value="16">CRF 16</option><option value="18">CRF 18</option>
@@ -439,17 +414,17 @@
       <h3>Потоки</h3>
       <div class="card">
         <div class="pref">
-          <div><b>Потоки</b><p>Сколько ядер отдавать рисованию и кодированию. «Сколько нужно» — решает движок.</p></div>
+          <div><b>Потоки</b><p>Сколько ядер отдавать рендеру и кодированию.</p></div>
           <div class="pair">
             <label class="pick tiny"><select id="s-threads">
-              <option value="0" selected>сколько нужно</option>
+              <option value="0" selected>по требованию рендера</option>
               <option value="2">2</option><option value="4">4</option>
               <option value="6">6</option><option value="8">8</option><option value="12">12</option>
             </select></label>
             <label class="pick tiny"><select id="s-enc">
-              <option value="0" selected>кодировщику сколько нужно</option>
-              <option value="2">кодировщику 2</option><option value="4">кодировщику 4</option>
-              <option value="8">кодировщику 8</option>
+              <option value="0" selected>по требованию кодировщика</option>
+              <option value="2">2</option><option value="4">4</option>
+              <option value="8">8</option>
             </select></label>
           </div>
         </div>
@@ -458,14 +433,14 @@
       <div class="page" data-page="audio" hidden>
       <div class="card">
         <div class="pref">
-          <div><b>Громкость</b><p>Песня и хитсаунды друг против друга.</p></div>
+          <div><b>Громкость</b><p>Песня и хитсаунды в работе.</p></div>
           <div class="pair">
             <label class="pick tiny"><select id="s-music">
-              <option value="0">Без песни</option><option value="0.5">песня 50%</option>
+              <option value="0">без песни</option><option value="0.5">песня 50%</option>
               <option value="0.8">песня 80%</option><option value="1" selected>песня 100%</option>
             </select></label>
             <label class="pick tiny"><select id="s-hits">
-              <option value="0">Без хитсаундов</option><option value="0.5">хитсаунды 50%</option>
+              <option value="0">без хитсаундов</option><option value="0.5">хитсаунды 50%</option>
               <option value="0.8">хитсаунды 80%</option><option value="1" selected>хитсаунды 100%</option>
             </select></label>
           </div>
@@ -473,11 +448,11 @@
         <div class="pref">
           <div>
             <b>Хитсаунды</b>
-            <p>Игра спрашивает две стопки и по-разному: карту — с её номером набора, скин — просто по имени. Чего нет ни там, ни там, синтезируется.</p>
+            <p>Игра спрашивает два значения по приоритету. Чего нет ни там, ни там, синтезируется.</p>
           </div>
           <span class="ticks">
-            <label class="tick"><input type="checkbox" id="s-mapsounds" checked>Карты</label>
-            <label class="tick"><input type="checkbox" id="s-skinsounds" checked>Скина</label>
+            <label class="tick"><input type="checkbox" id="s-mapsounds" checked>От карты</label>
+            <label class="tick"><input type="checkbox" id="s-skinsounds" checked>От скина</label>
           </span>
         </div>
         <div class="pref">
@@ -486,17 +461,17 @@
             <p>Звук, которым звучит то, чего не нашлось ни у карты, ни у скина.</p>
           </div>
           <label class="pick tiny"><select id="s-kit">
-            <option value="click" selected>Щелчок</option>
-            <option value="soft">Мягкий</option>
-            <option value="drum">Барабан</option>
-            <option value="glass">Стекло</option>
-            <option value="wood">Дерево</option>
+            <option value="click" selected>щелчок</option>
+            <option value="soft">мягкий</option>
+            <option value="drum">барабан</option>
+            <option value="glass">стекло</option>
+            <option value="wood">дерево</option>
           </select></label>
         </div>
         <div class="pref">
           <div>
             <b>Настройка синтезации</b>
-            <p>Высота, длительность и громкость синтеза — множители к тому, что у звука своё.</p>
+            <p>Высота, длительность и громкость синтеза.</p>
           </div>
           <div class="pair">
             <label class="pick tiny"><select id="s-pitch">
@@ -529,7 +504,7 @@
           </span>
         </div>
         <div class="pref">
-          <div><b>Эффекты поля</b><p>Вспышка от удара берётся из <code>lighting.png</code> скина и складывается со сценой, как в игре. Выползание — это когда тело слайдера растёт вперёд и убирается за шаром; смотрящему оно ничего не говорит, играющему говорит.</p></div>
+          <div><b>Эффекты поля</b><p>Вспышка от удара берётся из скина и складывается со сценой. Выползание — это вырастание тела слайдера за шаром.</p></div>
           <span class="ticks">
             <label class="tick"><input type="checkbox" id="s-lighting">Вспышка от удара</label>
             <label class="tick"><input type="checkbox" id="s-snake">Выползание слайдеров</label>
@@ -565,7 +540,7 @@
             <p>Обложка при запуске и после того, как окном перестали пользоваться.</p>
           </div>
           <div class="seg" id="seg-splash" role="group" aria-label="Заставка">
-            <button data-splash="both" aria-pressed="true">В простое + при запуске</button>
+            <button data-splash="both" aria-pressed="true">В простое и при запуске</button>
             <button data-splash="open" aria-pressed="false">При запуске</button>
             <button data-splash="never" aria-pressed="false">Никогда</button>
           </div>
@@ -603,7 +578,7 @@
       <div class="card">
         <div class="pref">
           <div>
-            <b>Эта сборка</b>
+            <b>Текущая сборка</b>
             <p id="up-version">—</p>
           </div>
           <button class="act small" id="up-check">Проверить</button>
@@ -640,9 +615,6 @@
 
   </main>
 
-  <!-- Меню правой кнопки и разворот записи живут прямо в теле: карточка лежит
-       в полке с обрезкой, и всё, что должно выходить за её край, обязано быть
-       снаружи — та же причина, по которой снаружи живут выпадающие списки. -->
   <div class="menu" id="r-menu" hidden></div>
 
   <div class="sheet" id="r-sheet" hidden>
@@ -654,7 +626,6 @@
     </div>
   </div>
 
-  <!-- Правый низ: откуда всё это взялось. -->
   <span class="me" id="who"></span>
 
   <a class="repo" id="repo" href="#">

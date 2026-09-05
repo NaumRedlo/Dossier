@@ -1,40 +1,3 @@
-//! A skin as the game's own files, read off a folder.
-//!
-//! The engine draws everything itself. This is the other way in: the files a
-//! player already has, so a render can look like the game they actually play
-//! rather than like a program with opinions.
-//!
-//! Nothing here draws. It answers one question — *does this skin have its own
-//! picture for this element, and at what scale* — and the renderer decides what
-//! to do with the answer. That split is deliberate: every real skin omits
-//! things, and a loader that could not say "no" would force a caller to guess
-//! whether an empty canvas was a design choice or a missing file.
-//!
-//! Four rules, each of them learned from a real skin rather than from the wiki:
-//!
-//! - **`@2x` wins.** A skin may ship high-resolution art for some elements and
-//!   not others, so the choice is per element, not per skin.
-//! - **An animation's first frame counts as the element.** osu! reads
-//!   `hit300-0.png`, `hit300-1.png` and so on as an animation and prefers it to
-//!   the static `hit300.png`. Skins use the numbered form for things that never
-//!   move — the one this was written against turns its 300s off by shipping a
-//!   blank `hit300-0.png` and no `hit300.png` at all, so looking only for the
-//!   static name found nothing, called it missing, and drew our own 300 over
-//!   somebody else's skin.
-//! - **Names are matched without case.** Skins are made on Windows, where
-//!   `HitCircle.png` and `hitcircle.png` are the same file. On this side they
-//!   are not, and a skin that renders for its author would half-load for us.
-//! - **A subfolder is reachable only by name.** osu! never *searches* them, and
-//!   skins carry them: the one this was written against has a `cursors/`
-//!   directory holding a *different* cursor from the one in use, and finding
-//!   that would draw something its author never sees. So nested files are
-//!   indexed under their path and never under a bare name — which leaves the
-//!   one way osu! does reach into a folder open, a prefix that names it:
-//!   `ScorePrefix: num\\berlin` means `num/berlin-0.png` and nothing else does.
-//! - **A blank file is not a missing file.** A fully transparent PNG is how a
-//!   skin turns an element off; the same element absent means "use the default".
-//!   They look identical and mean opposite things, so they are kept apart.
-
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -43,164 +6,48 @@ use tiny_skia::{Color, Pixmap, PremultipliedColorU8};
 
 use crate::elements::Element;
 
-/// The handful of `skin.ini` settings the renderer can act on.
-///
-/// A skin's ini has a hundred keys and most of them are about menus, song
-/// select and the other rulesets. These are the ones that change what a play
-/// looks like, and each is here because a real skin uses it.
 #[derive(Debug, Clone)]
 pub struct Ini {
-    /// How far consecutive combo digits are pulled together, in skin pixels.
-    ///
-    /// Read literally, including the values that look absurd. The skin this
-    /// was written against sets 160 against 160-pixel digits, which leaves no
-    /// advance at all and stacks them exactly — and that is the point: each of
-    /// its digits carries a whole note ring, so a two-figure combo has to come
-    /// out as one ring rather than two side by side. Clamping this to
-    /// something "sensible" would break the skin it was measured from.
     pub hit_circle_overlap: f32,
-    /// Whether the cursor turns as it goes. Stable's own default is on, from
-    /// `SkinOsu`'s constructor: `stfld CursorRotate` after `ldc.i4.1`.
+
     pub cursor_rotate: bool,
-    /// The same, for the smaller lettering in the corners. A separate key
-    /// because osu! skins the two sets separately and they are rarely drawn to
-    /// the same metrics.
+
     pub score_overlap: f32,
-    /// The same again, for the combo counter, which osu! skins apart from both.
+
     pub combo_overlap: f32,
-    /// What a skin calls the three sets of digits it ships.
-    ///
-    /// A skin is free to keep them under any name — `HitCirclePrefix:
-    /// numbers/hit` is a real thing — and a skin that does was, until this was
-    /// read, a skin whose combo numbers we simply could not find. We looked for
-    /// `default-0.png`, found nothing, and drew our own lettering instead.
-    ///
-    /// The defaults are osu!'s, and the third one is not a slip: the combo
-    /// counter falls back to the *score* font, not to a font of its own. lazer
-    /// and danser agree on all three.
-    ///
-    /// ```csharp
-    /// case LegacyFont.HitCircle: return ...HitCirclePrefix)?.Value ?? "default";
-    /// case LegacyFont.Score:     return ...ScorePrefix)?.Value ?? "score";
-    /// case LegacyFont.Combo:     return ...ComboPrefix)?.Value ?? "score";
-    /// ```
+
     pub hit_circle_prefix: String,
     pub score_prefix: String,
     pub combo_prefix: String,
-    /// Which generation of skinning rules this folder was written to.
-    ///
-    /// ```csharp
-    /// public const decimal LATEST_VERSION = 2.7m;
-    /// config.LegacyVersion = 1.0m;               // the template, when an ini exists
-    /// Configuration.LegacyVersion ?? LATEST_VERSION   // when it does not
-    /// ```
-    ///
-    /// The asymmetry there is the whole of it and it is easy to get backwards: a
-    /// skin with **no** `skin.ini` is read by the newest rules, while a skin that
-    /// ships one and says nothing about its version is read as **1.0**. Writing
-    /// the file is what dates it.
-    ///
-    /// Three things change for osu!standard, all of them small and all of them
-    /// visible: a version 1 skin's reverse arrows rock as they breathe, a
-    /// version 2 skin's combo number fades quickly when the note is struck, and
-    /// a version 2 skin's miss mark drifts downward as it goes.
+
     pub version: f32,
-    /// Whether the plain hit still sounds under a whistle, a clap or a finish.
-    ///
-    /// ```csharp
-    /// if (legacy.IsLayered && GetConfig<LegacySetting, bool>(
-    ///         LegacySetting.LayeredHitSounds)?.Value == false)
-    ///     return new SampleVirtual();
-    /// ```
-    ///
-    /// A note's hit sound is *layered* when the note asked for a decoration and
-    /// did not also ask for the plain hit — `type != None && !type.HasFlag(
-    /// Normal)`. Those are the ones this switch silences, so a skin that turns
-    /// it off gets a bare whistle where a skin that leaves it alone gets a hit
-    /// with a whistle over it. Defaults to on, and stable keeps it on
-    /// `SkinOsu` beside the rest of the vocabulary — see
-    /// `docs/stable-client.md`.
+
     pub layered_hit_sounds: bool,
-    /// Whether `hitcircleoverlay` is drawn over the combo number or under it.
-    ///
-    /// stable's own default, read out of `SkinOsu`'s constructor:
-    ///
-    /// ```text
-    /// ldc.i4.1
-    /// stfld  OverlayAboveNumber
-    /// ```
-    ///
-    /// Over, then — which is the opposite of what this drew. It matters on any
-    /// skin whose overlay is more than a rim: `vv_idke_trail` ends its note in
-    /// a bright ring that the game lays across the figure, and drawing the
-    /// figure last put the ring behind it.
+
     pub overlay_above_number: bool,
-    /// Combo colours the skin states for itself, which override the map's.
-    ///
-    /// osu! numbers these from 1 and shows `Combo2` first; they are stored
-    /// here in the order they are shown, so the renderer can use them exactly
-    /// as it uses a map's own.
+
     pub combo_colours: Vec<Color>,
-    /// The rim a skin draws round its slider bodies.
-    /// Frames per second for every animation in the skin.
-    ///
-    /// > A positive integer or `-1` to make osu! play all frames of the
-    /// > animation in one second.
-    ///
-    /// Default `-1`, which is why it is held as the sentinel rather than
-    /// resolved here: what "all frames in one second" comes to depends on how
-    /// many frames the element has, which this does not know.
+
     pub animation_framerate: f32,
-    /// > Should the cursor expand when clicked?
-    ///
-    /// Default `1`. Both skins to hand turn it off, which is a thing a skin is
-    /// entitled to say and which this used to ignore.
+
     pub cursor_expand: bool,
-    /// > Should the slider combo colour tint the slider ball?
-    ///
-    /// Default **`0`** — the ball keeps its own colours unless a skin asks
-    /// otherwise. Ours tinted it always, which is the one element where the
-    /// game's default is "leave it alone" and we had it the other way round.
+
     pub slider_ball_tint: bool,
-    /// > Should the slider ball be mirrored on the way back?
-    ///
-    /// Default **`0`**. Read out of stable, which hangs it off the number of
-    /// the leg the ball is travelling — the outward legs plain, the return
-    /// legs mirrored:
-    ///
-    /// ```csharp
-    /// int perLeg = points.Count / repeats;               // ticks, plus each leg's end
-    /// ball.reverse(((last + perLeg + 1) / perLeg & 1) == 0);
-    /// ball.flip   ((last + perLeg + 1) / perLeg % 2 == 0 && skin.SliderBallFlip);
-    /// ```
-    ///
-    /// `(last + 1) / perLeg` is how many legs are behind the ball — the same
-    /// expression decides, two lines further down, whether a passed point was
-    /// a tick or the end of a leg. Adding `perLeg` to the numerator adds one
-    /// to the quotient, so what both flags read is the number of the leg being
-    /// travelled, counting from one.
+
     pub slider_ball_flip: bool,
     pub slider_border: Option<Color>,
-    /// A flat colour for the body itself, in place of the combo colour.
-    ///
-    /// The skin this was written against asks for black, which is not a shade
-    /// of any combo colour and cannot be reached by darkening one — so this has
-    /// to replace the derivation rather than adjust it.
+
     pub slider_track: Option<Color>,
 }
 
 impl Default for Ini {
     fn default() -> Self {
         Self {
-            // Minus two, which is osu!'s own default and not zero — digits
-            // are drawn to overlap slightly by default, and a skin that says
-            // nothing expects that. Both lazer and danser ship -2.
             hit_circle_overlap: -2.0,
             cursor_rotate: true,
             score_overlap: 0.0,
             combo_overlap: 0.0,
-            // The newest rules, which is what a folder with no `skin.ini` gets.
-            // `Ini::read` writes 1.0 over this when it finds a file.
+
             version: LATEST_SKIN_VERSION,
             layered_hit_sounds: true,
             overlay_above_number: true,
@@ -219,8 +66,6 @@ impl Default for Ini {
 }
 
 impl Ini {
-    /// Read `skin.ini` out of a skin folder. A skin without one is not an
-    /// error — the defaults are what the game would have used anyway.
     pub fn read(root: &Path) -> Self {
         let index = index_of(root);
         let Some(path) = index.get("skin.ini") else {
@@ -233,9 +78,6 @@ impl Ini {
     }
 
     pub fn parse(text: &str) -> Self {
-        // A file that exists dates the skin to 1.0 unless it says otherwise —
-        // only the absence of a file means "newest", which is what the
-        // `Default` this starts from stands for.
         let mut out = Self {
             version: 1.0,
             ..Self::default()
@@ -273,14 +115,7 @@ impl Ini {
                         out.combo_overlap = n;
                     }
                 }
-                // A skin naming its digit sets, folder and all.
-                //
-                // Prefixes carry a path — `ScorePrefix: num\\berlin` is what the
-                // skin this was found on writes — and the folder is now indexed
-                // under it, so the name is kept whole. The leaf is still tried
-                // if nothing is there: a skin that arrived flattened, every file
-                // by its bare name, is the other half of the same world, and
-                // both spellings have to find their digits.
+
                 ("general", "version") => {
                     out.version = if value.eq_ignore_ascii_case("latest") {
                         LATEST_SKIN_VERSION
@@ -291,21 +126,7 @@ impl Ini {
                 ("fonts", "hitcircleprefix") => out.hit_circle_prefix = named(value),
                 ("fonts", "scoreprefix") => out.score_prefix = named(value),
                 ("fonts", "comboprefix") => out.combo_prefix = named(value),
-                // Only osu!standard's own combo colours. `[Mania]` has a
-                // `Colour1..N` of its own meaning something else entirely, and
-                // reading those as combo colours would repaint every note on a
-                // map from a section about a ruleset we do not draw.
-                // Two spellings, because stable reads two. Its skin.ini
-                // reader calls the same setter twice with two different key
-                // names, and the second is the missing `b` — a typo old enough
-                // that the game had to keep honouring it.
-                //
-                // Not a curiosity: of the twenty-six skins in the store here,
-                // one uses the correct spelling and *five* use the typo. Every
-                // one of those five happens to say `1`, which is the default,
-                // so nothing looks different today — and a skin that says `0`
-                // would have had its overlay drawn on the wrong side of the
-                // number with nothing to show why.
+
                 ("general", "hitcircleoverlayabovenumber")
                 | ("general", "hitcircleoverlayabovenumer") => {
                     out.overlay_above_number = value != "0";
@@ -336,9 +157,6 @@ impl Ini {
             }
         }
 
-        // `Combo2` is shown first and `Combo1` last — osu!'s own ordering, the
-        // same inversion the skin exporter writes. Sorted by number and then
-        // rotated, so the first colour here is the first one seen in play.
         numbered.sort_by_key(|(n, _)| *n);
         if numbered.len() > 1 {
             numbered.rotate_left(1);
@@ -348,7 +166,6 @@ impl Ini {
     }
 }
 
-/// `r,g,b` as osu! writes a colour, with an optional alpha nobody uses.
 fn rgb_of(value: &str) -> Option<Color> {
     let mut parts = value.split(',').map(|p| p.trim().parse::<u8>());
     let (r, g, b) = (
@@ -359,17 +176,6 @@ fn rgb_of(value: &str) -> Option<Color> {
     Some(Color::from_rgba8(r, g, b, 255))
 }
 
-/// The same picture with a colour multiplied through it.
-///
-/// Multiplied straight through the *premultiplied* channels, which is exactly
-/// right and looks wrong at first glance: a premultiplied channel already holds
-/// `colour x alpha`, so scaling it by the tint gives `(colour x tint) x alpha`
-/// — the premultiplied form of the tinted pixel. Unpremultiplying to tint and
-/// premultiplying back would be the same arithmetic with two roundings added.
-///
-/// Free rather than a method because three callers want it and only one of them
-/// has a `Sprite`: the combo tint made up front, a HUD figure put through a
-/// verdict colour, and a held key put through the colour osu! lights it in.
 pub fn tinted(pixmap: &Pixmap, tint: Color) -> Pixmap {
     let mut out = pixmap.clone();
     let (r, g, b) = (tint.red(), tint.green(), tint.blue());
@@ -381,35 +187,17 @@ pub fn tinted(pixmap: &Pixmap, tint: Color) -> Pixmap {
             (f32::from(pb) * b) as u8,
             pa,
         )
-        // Scaling each channel by a factor in 0..=1 cannot lift it above the
-        // alpha it started under, so the result is still a valid premultiplied
-        // pixel. The fallback keeps the original rather than a hole, which is
-        // the harmless half of an impossible case.
         .unwrap_or(*pixel);
     }
     out
 }
 
-/// One picture out of a skin folder.
-///
-/// `Clone` because an animated element is held twice: once as the whole strip
-/// and once as the frame drawn when nothing is moving. That is one spare
-/// pixmap per animation, paid at load, against threading a frame index through
-/// every call site that only ever wants the still one.
 #[derive(Clone)]
 pub struct Sprite {
     pub pixmap: Pixmap,
-    /// How many file pixels the skin drew per osu! pixel: 2 for an `@2x` file,
-    /// 1 otherwise. The drawing code divides by this rather than reading the
-    /// pixmap's size, because a skin is free to ship art at whatever size it
-    /// likes and only the `@2x` suffix says what that size *means*.
+
     pub scale: f32,
-    /// The size of the drawn part, ignoring transparent padding, in osu!
-    /// pixels.
-    ///
-    /// Walked once, here, rather than at every frame that wants it: a judgement
-    /// is a small figure in a large empty square — up to 256 pixels of square —
-    /// and that is not a scan to repeat sixty times a second.
+
     pub ink_width: f32,
     pub ink_height: f32,
 }
@@ -443,7 +231,6 @@ impl Sprite {
         }
     }
 
-    /// The element's width in osu! pixels, whatever the file's own size is.
     pub fn width(&self) -> f32 {
         self.pixmap.width() as f32 / self.scale
     }
@@ -452,55 +239,26 @@ impl Sprite {
         self.pixmap.height() as f32 / self.scale
     }
 
-    /// Whether every pixel is fully transparent — the way a skin says "do not
-    /// draw this at all".
     fn is_blank(&self) -> bool {
         self.pixmap.pixels().iter().all(|p| p.alpha() == 0)
     }
 
-    /// The same picture with the combo colour multiplied through it.
-    ///
-    /// The game tints some elements and not others — `hitcircle` and
-    /// `approachcircle` take the combo colour, `hitcircleoverlay` and
-    /// `reversearrow` keep their own — so which of these gets called is not a
-    /// choice this function makes. See `Element::is_tinted`.
-    ///
-    /// Multiplied straight through the *premultiplied* channels, which is
-    /// exactly right and looks wrong at first glance: a premultiplied channel
-    /// already holds `colour x alpha`, so scaling it by the tint gives
-    /// `(colour x tint) x alpha` — the premultiplied form of the tinted pixel.
-    /// Unpremultiplying to tint and premultiplying back would be the same
-    /// arithmetic with two roundings added.
     fn tinted(&self, tint: Color) -> Pixmap {
         tinted(&self.pixmap, tint)
     }
 }
 
-/// What a skin folder had to say about the elements the renderer draws.
-///
-/// `Debug` is written out rather than derived: a derived one would print a
-/// couple of hundred thousand pixels, which is not a thing anybody wants in a
-/// panic message.
 pub struct Sprites {
     have: HashMap<Element, Sprite>,
-    /// Every frame, for the elements that ship more than one.
+
     frames: HashMap<Element, Vec<Sprite>>,
-    /// Elements the skin ships as an empty picture. Held apart from the ones it
-    /// does not ship at all, because only one of the two means "draw nothing".
+
     off: HashSet<Element>,
-    /// What the folder's `skin.ini` asked for.
+
     ini: Ini,
-    /// How many combo colours were tinted for, so an index can be wrapped the
-    /// same way the palette wraps.
+
     palette: usize,
-    /// One coloured copy per combo colour, for the elements the game tints.
-    ///
-    /// Made once, up front, because a `Scene` is built on one thread and drawn
-    /// on several: anything worked out lazily while drawing would need a lock
-    /// around it, and a lock on the hot path of every note is a worse price
-    /// than a few hundred kilobytes held for the length of a render. A map has
-    /// a handful of combo colours, so this is bounded by the map rather than by
-    /// the play.
+
     tinted: HashMap<(Element, usize), Pixmap>,
 }
 
@@ -516,15 +274,9 @@ impl std::fmt::Debug for Sprites {
 }
 
 impl Sprites {
-    /// Read every element the renderer knows about, out of `root`.
-    ///
-    /// Missing files are not errors and neither is an unreadable one: a skin is
-    /// somebody else's folder, and the engine's own drawing is a complete
-    /// answer for anything it cannot use. What comes back is what was found.
     pub fn read(root: &Path, wanted: &[Element]) -> Self {
         let index = index_of(root);
-        // Read here rather than by the caller: the folder walk is already done,
-        // and a skin's pictures and its settings are two halves of one answer.
+
         let ini = index
             .get("skin.ini")
             .and_then(|p| fs::read(p).ok())
@@ -535,29 +287,17 @@ impl Sprites {
         let mut off = HashSet::new();
 
         for &element in wanted {
-            // A prefix may name a folder, and may name one this skin does not
-            // have — it arrived flattened, or the author moved the files and
-            // not the line. Whichever spelling the folder actually holds is the
-            // one everything below is looked up under.
             let named = element.stem_with(&ini).to_ascii_lowercase();
             let stem = if named.contains('/') && !holds(&index, &named) {
                 leaf_of(&named)
             } else {
                 named
             };
-            // Animation first, then the static name, and `@2x` ahead of the
-            // plain file within each — the order osu! resolves them in. Only
-            // frame zero is read: nothing here animates yet, and a skin's
-            // first frame is what it looks like at rest.
+
             let found = index
                 .get(&format!("{stem}-0@2x.png"))
                 .map(|p| (p, 2.0))
                 .or_else(|| index.get(&format!("{stem}-0.png")).map(|p| (p, 1.0)))
-                // And without the dash. osu! is not consistent about this and
-                // the slider ball is the one that matters: its frames are
-                // `sliderb0.png`, `sliderb1.png`, with no separator at all, so
-                // a skin exported from lazer ships `sliderb0@2x.png` and the
-                // dashed search above finds nothing.
                 .or_else(|| index.get(&format!("{stem}0@2x.png")).map(|p| (p, 2.0)))
                 .or_else(|| index.get(&format!("{stem}0.png")).map(|p| (p, 1.0)))
                 .or_else(|| index.get(&format!("{stem}@2x.png")).map(|p| (p, 2.0)))
@@ -571,16 +311,6 @@ impl Sprites {
             };
             let first = Sprite::new(pixmap, scale);
 
-            // Every frame after the first, while they keep coming. An element
-            // named `x-0.png` is frame zero of an animation, and osu! plays the
-            // lot; reading only the first was fine while nothing here moved.
-            //
-            // It stopped being fine the moment it decided anything. A skin
-            // whose follow points animate from nothing ships a *blank* frame
-            // zero — 61 frames, the first of them empty — and reading that one
-            // file alone said "this skin turned follow points off", which is
-            // the opposite of what shipping 61 frames means. So the question
-            // "did the skin blank this" is asked of the strip, not of a frame.
             let mut strip = vec![first];
             for n in 1.. {
                 let next = index
@@ -603,10 +333,7 @@ impl Sprites {
                 off.insert(element);
                 continue;
             }
-            // The still picture is the first frame with anything in it. For
-            // everything that does not animate that is frame zero, unchanged;
-            // for an animation it is what the element looks like rather than
-            // what it starts from.
+
             let resting = strip.iter().position(|s| !s.is_blank()).unwrap_or(0);
             if strip.len() > 1 {
                 frames.insert(element, strip.clone());
@@ -623,52 +350,31 @@ impl Sprites {
         }
     }
 
-    /// How many frames this element animates over. One for a still picture.
     pub fn frame_count(&self, element: Element) -> usize {
         self.frames.get(&element).map_or(1, Vec::len)
     }
 
-    /// One frame of an animation, by index, wrapping round the strip.
-    ///
-    /// Untinted only, which is every animated element the renderer draws so
-    /// far. A tinted animation would want a coloured copy per frame per combo
-    /// colour, and nothing has asked for one.
     pub fn frame(&self, element: Element, frame: usize) -> Option<(&Pixmap, f32)> {
         let strip = self.frames.get(&element)?;
         let sprite = strip.get(frame % strip.len())?;
         Some((&sprite.pixmap, sprite.scale))
     }
 
-    /// What the folder's `skin.ini` asked for.
     pub fn ini(&self) -> &Ini {
         &self.ini
     }
 
-    /// Colour the tinted elements for each of the map's combo colours.
-    ///
-    /// Answer `AllowSliderBallTint` for the skin, before it is coloured.
-    ///
-    /// The skin's own answer is the default and is usually "no" — most say
-    /// nothing, and nothing means no. That is right for the game, where a
-    /// skin's ball art is the skin's business; it is a preference for a render,
-    /// where somebody watching may simply want to see which combo they are in.
-    /// Set before [`tint_for`](Self::tint_for), because the tinted pictures are
-    /// made there and not made at all when the answer is no.
     pub fn allow_slider_ball_tint(&mut self, yes: bool) {
         self.ini.slider_ball_tint = yes;
     }
 
-    /// Separate from reading because the two know different things: the folder
-    /// knows what pictures exist, the beatmap knows what colours they are worn
-    /// in. Called once, when the skin is assembled against a map.
     pub fn tint_for(mut self, colours: &[Color]) -> Self {
         self.palette = colours.len();
         for (&element, sprite) in &self.have {
             if !element.is_tinted() {
                 continue;
             }
-            // `AllowSliderBallTint` defaults to off: the ball keeps whatever
-            // colours the skin drew unless the skin asks for the combo colour.
+
             if element == Element::SliderBall && !self.ini.slider_ball_tint {
                 continue;
             }
@@ -679,51 +385,27 @@ impl Sprites {
         self
     }
 
-    /// The element as it should be drawn for this combo, colour and all.
-    ///
-    /// An untinted element ignores the index and hands back its own picture,
-    /// so the caller does not have to know which is which.
-    /// Returns the picture and how many file pixels it holds per osu! pixel,
-    /// because the caller needs both to put it on the field at the right size.
     pub fn coloured(&self, element: Element, combo: usize) -> Option<(&Pixmap, f32)> {
         let scale = self.have.get(&element)?.scale;
         if element.is_tinted() {
-            // Wrapped, because a combo number counts up across the whole map
-            // and a palette has a handful of colours: the fifth combo on a
-            // four-colour map is the first colour again. Looking this up
-            // unwrapped returned nothing past the end of the palette, and
-            // nothing is what got drawn — approach circles present for the
-            // first few combos of a map and gone for the rest of it.
-
             if self.palette == 0 {
-                // Never coloured at all: a `Sprites` no map has dressed
-                // yet. Drawing the white art it was authored in would be worse
-                // than drawing nothing.
                 return None;
             }
             if let Some(painted) = self.tinted.get(&(element, combo % self.palette)) {
                 return Some((painted, scale));
             }
-            // No coloured copy: an element the game tints in general but this
-            // skin asked to be left alone. Its own picture, unpainted.
         }
         self.have.get(&element).map(|s| (&s.pixmap, scale))
     }
 
-    /// This skin's picture for the element, if it has a usable one.
     pub fn get(&self, element: Element) -> Option<&Sprite> {
         self.have.get(&element)
     }
 
-    /// Whether the skin deliberately turned this element off.
     pub fn silenced(&self, element: Element) -> bool {
         self.off.contains(&element)
     }
 
-    /// Whether the renderer should draw this element itself.
-    ///
-    /// The whole point of keeping blank and absent apart: absent falls back to
-    /// our own drawing, blank does not fall back to anything.
     pub fn draw_ourselves(&self, element: Element) -> bool {
         !self.have.contains_key(&element) && !self.off.contains(&element)
     }
@@ -737,29 +419,8 @@ impl Sprites {
     }
 }
 
-/// The newest generation of skinning rules — `SkinConfiguration.LATEST_VERSION`.
 pub const LATEST_SKIN_VERSION: f32 = 2.7;
 
-/// Which generation of rules a skin is actually *drawn* by, which is not always
-/// the one it claims.
-///
-/// This is the one place this engine knowingly overrules the client, so it is
-/// worth saying why rather than leaving it to be discovered.
-///
-/// osu! dates a skin with a `skin.ini` that does not mention `Version` to 1.0,
-/// and 1.0 carries three behaviours from 2007: the number on a note swells as
-/// the note leaves, a reverse arrow rocks back and forth, and a missed
-/// judgement does not fall away. That rule exists so that skins actually
-/// written in 2007 still look like themselves.
-///
-/// Almost no skin in circulation is v1 *on purpose*. It is v1 by inheritance —
-/// somebody copied a `skin.ini` that never had the line, and osu!'s
-/// compatibility rule catches them along with the genuine antiques. A skin made
-/// this decade is not asking for rocking arrows; it simply never said anything.
-///
-/// So a render draws every skin by the newest rules by default. `as_written`
-/// puts the client's own answer back, which is what keeps those three
-/// behaviours reachable and testable rather than dead code that reads as live.
 pub fn effective_version(stated: f32, as_written: bool) -> f32 {
     if as_written {
         stated
@@ -768,20 +429,10 @@ pub fn effective_version(stated: f32, as_written: bool) -> f32 {
     }
 }
 
-/// A skin's own name for something, with any folder in front of it dropped.
-///
-/// Written with forward slashes whatever the machine, since a skin.ini is a
-/// Windows file read everywhere; backslashes are taken too, because skins in
-/// the wild carry both.
-/// A name out of `skin.ini`, with the separator this machine uses.
-///
-/// A `skin.ini` is a Windows file wherever it is read, so `num\\berlin` and
-/// `num/berlin` are the same name and only one of them can be looked up.
 fn named(value: &str) -> String {
     value.trim().replace('\\', "/")
 }
 
-/// The name without whatever folder it was in.
 fn leaf_of(value: &str) -> String {
     value
         .rsplit(['/', '\\'])
@@ -791,23 +442,12 @@ fn leaf_of(value: &str) -> String {
         .to_owned()
 }
 
-/// Whether the folder holds anything under this stem, by any of the spellings
-/// a sprite can be named with.
 fn holds(index: &HashMap<String, PathBuf>, stem: &str) -> bool {
     ["-0@2x", "-0", "0@2x", "0", "@2x", ""]
         .iter()
         .any(|tail| index.contains_key(&format!("{stem}{tail}.png")))
 }
 
-/// Every file a skin folder can be asked for, keyed the way `skin.ini` names
-/// them: lower case, and with the separator osu! writes.
-///
-/// Subfolders are indexed under their path and *only* under it. A skin may put
-/// its numbers in one and say so — `ScorePrefix: num\\berlin` means
-/// `num/berlin-0.png` — and without this the prefix resolves to nothing and the
-/// game's own digits get drawn over somebody else's skin. Nested files are not
-/// also indexed by bare name, because osu! does not look in subfolders for
-/// anything it was not told to.
 fn index_of(root: &Path) -> HashMap<String, PathBuf> {
     let mut index = HashMap::new();
     walk(root, "", &mut index);
@@ -824,9 +464,6 @@ fn walk(dir: &Path, under: &str, index: &mut HashMap<String, PathBuf>) {
             continue;
         };
         if kind.is_dir() {
-            // One level of nesting is what skins use, and stopping there keeps
-            // a folder somebody dropped a whole other skin into from costing a
-            // walk of all of it.
             if under.is_empty() {
                 walk(&entry.path(), &format!("{name}/"), index);
             }
@@ -844,12 +481,6 @@ mod tests {
     use super::*;
     use crate::elements::Verdict;
 
-    /// A skin that keeps its numbers in a folder and says so.
-    ///
-    /// `ScorePrefix: num\\berlin` is an ordinary thing for a skin to write —
-    /// osu! is a Windows game and that is a path. Reading only the top level of
-    /// the folder meant the prefix resolved to nothing, and the engine drew its
-    /// own digits over somebody else's skin without saying a word about it.
     #[test]
     fn a_prefix_that_names_a_subfolder_is_found() {
         let dir = std::env::temp_dir().join(format!("dossier-skin-nested-{}", std::process::id()));
@@ -864,8 +495,7 @@ mod tests {
             "a nested file was not indexed: {:?}",
             index.keys().collect::<Vec<_>>()
         );
-        // And not under its bare name: osu! does not look in subfolders for
-        // anything it was not pointed at.
+
         assert!(!index.contains_key("berlin-0.png"));
 
         let sprites = Sprites::read(&dir, &[Element::Score('0')]);
@@ -876,33 +506,13 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
-    /// The one rule here that reads backwards, and the reason it is tested at
-    /// all: writing a `skin.ini` is what *dates* a skin. A folder with no file
-    /// is read by the newest rules; a folder that ships one and says nothing
-    /// about its version is read as the oldest.
-    ///
-    /// ```csharp
-    /// config.LegacyVersion = 1.0m;                     // when a file is parsed
-    /// Configuration.LegacyVersion ?? LATEST_VERSION    // when none was found
-    /// ```
-    /// `LayeredHitSounds: 0` is a skin asking for a bare whistle where the
-    /// default is a hit with a whistle over it. Default-on, and off only when
-    /// the file says `0` — every other value, including nonsense, leaves the
-    /// game's own behaviour alone.
-    /// Read out of stable itself: its `skin.ini` reader calls the same setter
-    /// twice, under two key names, and the second is the missing `b` — a typo
-    /// old enough that the game had to keep honouring it.
-    ///
-    /// Measured against the twenty-six skins in the store here: one writes the
-    /// key correctly and five write the typo. Reading only the correct
-    /// spelling meant those five were silently given the default.
     #[test]
     fn the_overlay_key_is_honoured_under_the_spelling_skins_actually_use() {
         assert!(!Ini::parse("[General]\nHitCircleOverlayAboveNumer: 0\n").overlay_above_number);
         assert!(Ini::parse("[General]\nHitCircleOverlayAboveNumer: 1\n").overlay_above_number);
-        // And the correct one still works.
+
         assert!(!Ini::parse("[General]\nHitCircleOverlayAboveNumber: 0\n").overlay_above_number);
-        // Unset is stable's own default, taken from its constructor.
+
         assert!(Ini::parse("[General]\n").overlay_above_number);
     }
 
@@ -927,26 +537,18 @@ mod tests {
             "a file that says nothing about its version is a version 1 skin"
         );
         assert_eq!(Ini::parse("[General]\nVersion: 2.5").version, 2.5);
-        // The parse stays truthful whatever a render does with it: the raising
-        // below is a decision about drawing, and a reader asking what the file
-        // said must still get what the file said.
-        // osu! takes the word as well as the number.
+
         assert_eq!(
             Ini::parse("[General]\nVersion: latest").version,
             LATEST_SKIN_VERSION
         );
-        // And something unreadable is not a reason to treat a modern skin as
-        // ancient — the newest rules are the safer wrong answer.
+
         assert_eq!(
             Ini::parse("[General]\nVersion: ?").version,
             LATEST_SKIN_VERSION
         );
     }
 
-    /// A square of flat white at `alpha` — which is what a skin ships for the
-    /// elements the game tints, and the only source colour that can show a tint
-    /// going wrong. A red fixture would come back black under a blue tint and
-    /// look like a broken tint rather than a badly chosen test.
     fn write(dir: &Path, name: &str, size: u32, alpha: u8) {
         let mut pixmap = Pixmap::new(size, size).expect("a canvas");
         for pixel in pixmap.pixels_mut() {
@@ -984,9 +586,6 @@ mod tests {
 
     #[test]
     fn the_high_resolution_file_wins_and_says_what_its_size_means() {
-        // A 256px `@2x` file and a 128px plain one are the same element at the
-        // same size; only the suffix says so. Reading the pixmap's own width
-        // would draw this one twice as large as the skin intended.
         let dir = folder("at2x");
         write(&dir, "hitcircle.png", 128, 255);
         write(&dir, "hitcircle@2x.png", 256, 255);
@@ -1000,9 +599,6 @@ mod tests {
 
     #[test]
     fn an_animations_first_frame_is_the_element() {
-        // osu! prefers `hit300-0.png` to `hit300.png`, and skins use the
-        // numbered form for things that never move. Reading only the static
-        // name called the element missing.
         let dir = folder("anim");
         write(&dir, "hitcircle-0.png", 128, 255);
         let sprites = Sprites::read(&dir, WANTED);
@@ -1011,10 +607,6 @@ mod tests {
 
     #[test]
     fn the_slider_balls_frames_carry_no_dash() {
-        // osu! is not consistent about animation names, and this is the one
-        // that matters: `sliderb0.png`, not `sliderb-0.png`. A skin exported
-        // from lazer ships `sliderb0@2x.png`, and searching only the dashed
-        // form found nothing — the ball came out ours on somebody else's skin.
         let dir = folder("sliderb");
         write(&dir, "sliderb0@2x.png", 256, 255);
         let sprites = Sprites::read(&dir, &[Element::SliderBall]);
@@ -1024,9 +616,6 @@ mod tests {
 
     #[test]
     fn a_blank_first_frame_turns_the_element_off_like_any_other_blank() {
-        // The bug this was found by. The skin read against here ships a blank
-        // `hit300-0.png` and no `hit300.png`, which is how it hides its 300s —
-        // and being unable to see it, we drew our own over the top.
         let dir = folder("anim-blank");
         write(&dir, "hitcircle-0.png", 1, 0);
         let sprites = Sprites::read(&dir, WANTED);
@@ -1048,8 +637,6 @@ mod tests {
 
     #[test]
     fn a_skin_made_on_windows_still_loads() {
-        // `HitCircle.png` and `hitcircle.png` are one file there and two here.
-        // A skin that renders for its author must not half-load for us.
         let dir = folder("case");
         write(&dir, "HitCircle.png", 128, 255);
         write(&dir, "ApproachCircle@2X.png", 252, 255);
@@ -1062,10 +649,6 @@ mod tests {
 
     #[test]
     fn a_blank_picture_means_off_and_a_missing_one_means_default() {
-        // The distinction the whole loader exists for. The skin this was
-        // written against ships `cursortrail.png` as one transparent pixel,
-        // which is how a skin turns the trail off — while saying nothing at all
-        // about `hit300` is how it leaves that to the game.
         let dir = folder("blank");
         write(&dir, "cursortrail.png", 1, 0);
         let sprites = Sprites::read(&dir, WANTED);
@@ -1087,12 +670,6 @@ mod tests {
 
     #[test]
     fn a_picture_with_colour_under_a_zero_alpha_is_still_off() {
-        // Not a hypothetical. The skin this was written against ships a
-        // `hitcircle.png` whose colour channels run 119..255 and whose alpha is
-        // zero throughout — an ordinary circle that was erased by its alpha
-        // rather than by deleting the pixels. It draws nothing, and a check for
-        // "every channel is zero" would have called it a picture and drawn an
-        // invisible note over the top of the skin's real one.
         let dir = folder("ghost");
         let mut pixmap = Pixmap::new(128, 128).expect("a canvas");
         for pixel in pixmap.pixels_mut() {
@@ -1107,10 +684,6 @@ mod tests {
 
     #[test]
     fn nothing_below_the_top_of_the_folder_is_read() {
-        // Real skins carry spare copies in subdirectories — the one this was
-        // written against has a `cursors/` holding a different cursor. osu!
-        // never looks there, so neither may we, or the render shows a picture
-        // its author has never seen.
         let dir = folder("nested");
         let nested = dir.join("cursors");
         fs::create_dir_all(&nested).expect("a folder");
@@ -1123,8 +696,6 @@ mod tests {
 
     #[test]
     fn a_tinted_element_comes_back_wearing_the_combo_colour() {
-        // The skin ships `hitcircle` white so the game can colour it. Handing
-        // it over untouched would leave every combo the same white.
         let dir = folder("tint");
         write(&dir, "hitcircle.png", 8, 255);
         let sprites = Sprites::read(&dir, WANTED).tint_for(&[
@@ -1146,11 +717,6 @@ mod tests {
 
     #[test]
     fn a_combo_past_the_end_of_the_palette_wraps_round_it() {
-        // A combo number counts up across the whole map; a palette has a
-        // handful of colours. The fifth combo on a four-colour map is the first
-        // colour again — and an unwrapped lookup returned nothing, which drew
-        // nothing: approach circles for the first few combos of a map and none
-        // for the rest of it. Reported from a real render.
         let dir = folder("wrap");
         write(&dir, "hitcircle.png", 8, 255);
         let sprites = Sprites::read(&dir, WANTED).tint_for(&[
@@ -1173,13 +739,6 @@ mod tests {
 
     #[test]
     fn a_blanked_hud_glyph_reads_as_off_rather_than_as_missing() {
-        // The corner lettering is drawn all-or-nothing: one glyph the skin has
-        // no file for and the whole line goes back to our typeface, because
-        // half a number is worse than a different face. A glyph the skin ships
-        // *empty* has to answer differently — the skin this was written against
-        // blanks `score-x` to hide the sign after the combo, and reading that
-        // as "cannot draw" put the combo in our face beside a score in the
-        // skin's. Two faces in one corner.
         let dir = folder("hud-blank");
         write(&dir, "score-4.png", 8, 255);
         write(&dir, "score-x.png", 8, 0);
@@ -1203,8 +762,6 @@ mod tests {
 
     #[test]
     fn a_skin_that_was_never_tinted_draws_nothing_tinted() {
-        // Rather than handing back the white picture the skin ships for the
-        // game to colour, which would put an uncoloured note on the field.
         let dir = folder("untinted-skin");
         write(&dir, "hitcircle.png", 8, 255);
         let sprites = Sprites::read(&dir, WANTED);
@@ -1213,8 +770,6 @@ mod tests {
 
     #[test]
     fn an_untinted_element_is_handed_over_as_the_skin_drew_it() {
-        // Running the palette through an element the game leaves alone applies
-        // the colour twice and comes out muddy.
         let dir = folder("untinted");
         write(&dir, "reversearrow.png", 8, 255);
         let sprites = Sprites::read(&dir, &[Element::ReverseArrow])
@@ -1227,8 +782,6 @@ mod tests {
 
     #[test]
     fn tinting_keeps_the_shape_the_skin_drew() {
-        // Only the colour may change. An edge softened by its alpha has to stay
-        // exactly as soft, or every element grows a hard rim.
         let dir = folder("alpha");
         let mut pixmap = Pixmap::new(2, 1).expect("a canvas");
         pixmap.pixels_mut()[0] =
@@ -1249,7 +802,7 @@ mod tests {
             "[General]\nName: doki dt mix v3\n\n[Colours]\nCombo1: 255,255,255\n             Combo2: 10,20,30\n\n[Fonts]\nHitCirclePrefix: default\nHitCircleOverlap: 160\n",
         );
         assert_eq!(ini.hit_circle_overlap, 160.0);
-        // Shown-first order: `Combo2` leads and `Combo1` comes last.
+
         assert_eq!(ini.combo_colours.len(), 2);
         assert_eq!(ini.combo_colours[0], Color::from_rgba8(10, 20, 30, 255));
         assert_eq!(ini.combo_colours[1], Color::from_rgba8(255, 255, 255, 255));
@@ -1257,10 +810,6 @@ mod tests {
 
     #[test]
     fn an_absurd_overlap_is_taken_at_its_word() {
-        // 160 against 160-pixel digits leaves no advance at all. That is not a
-        // mistake in the skin — its digits each carry a whole note ring, and
-        // stacking them is how a two-figure combo stays one ring. Clamping this
-        // would break the skin it was measured from.
         assert_eq!(
             Ini::parse("[Fonts]\nHitCircleOverlap: 160\n").hit_circle_overlap,
             160.0
@@ -1269,9 +818,6 @@ mod tests {
 
     #[test]
     fn the_mania_section_does_not_repaint_the_notes() {
-        // `[Mania]` has colour keys of its own meaning something else. Reading
-        // them as combo colours would repaint a map from a ruleset we do not
-        // draw.
         let ini = Ini::parse("[Mania]\nColour1: 255,0,0\nCombo1: 0,255,0\n");
         assert!(ini.combo_colours.is_empty(), "{:?}", ini.combo_colours);
     }
@@ -1280,10 +826,7 @@ mod tests {
     fn comments_and_a_missing_ini_are_both_ordinary() {
         let ini = Ini::parse("// a note to nobody\n[Fonts]\nHitCircleOverlap: 7 // why not\n");
         assert_eq!(ini.hit_circle_overlap, 7.0);
-        // Minus two rather than nothing, which is osu!'s own default and what
-        // both lazer and danser ship. A skin that says nothing about its digit
-        // spacing means them to overlap slightly, and reading that as zero drew
-        // every combo number two pixels wider than the skin intended.
+
         assert_eq!(
             Ini::read(Path::new("/no/such/skin")).hit_circle_overlap,
             -2.0
@@ -1292,20 +835,11 @@ mod tests {
 
     #[test]
     fn a_skin_that_renames_its_digits_is_still_found() {
-        // `[Fonts] HitCirclePrefix` is a real thing skins use, and a skin that
-        // uses it had no combo numbers at all here: we looked for
-        // `default-0.png`, found nothing, and drew our own lettering instead.
-        //
-        // The combo counter's fallback is the *score* font rather than one of
-        // its own, which is osu!'s rule and looks like a typo until you check.
         let ini = Ini::parse("[Fonts]\nHitCirclePrefix: numbers/hit\nScorePrefix: ui\\score\n");
-        // Folder and all, with the separator this machine uses — a skin.ini is
-        // a Windows file that gets read everywhere. A folder that turns out not
-        // to be there falls back to the bare name; see `Sprites::read`.
+
         assert_eq!(Element::Digit(4).stem_with(&ini), "numbers/hit-4");
         assert_eq!(Element::Score('x').stem_with(&ini), "ui/score-x");
 
-        // And a skin that says nothing keeps the names the game gives.
         let plain = Ini::default();
         assert_eq!(Element::Digit(4).stem_with(&plain), "default-4");
         assert_eq!(Element::Score(',').stem_with(&plain), "score-comma");
@@ -1314,8 +848,6 @@ mod tests {
 
     #[test]
     fn a_folder_that_is_not_there_is_not_a_failure() {
-        // A skin is somebody else's folder and may be gone, unreadable or
-        // empty. Every one of those has the same answer: draw it ourselves.
         let sprites = Sprites::read(Path::new("/no/such/skin"), WANTED);
         assert!(sprites.is_empty());
         assert!(WANTED.iter().all(|&e| sprites.draw_ourselves(e)));
@@ -1331,12 +863,6 @@ mod tests {
 
     #[test]
     fn a_blank_first_frame_is_not_a_skin_turning_the_element_off() {
-        // The one that got away. A skin whose follow points animate up from
-        // nothing ships a *blank* frame zero — sixty-one frames, the first of
-        // them empty — and reading that one file alone said "this skin turned
-        // follow points off", which is the opposite of what shipping sixty-one
-        // frames means. Whether a skin blanked something is a question about
-        // the strip.
         let dir = folder("animated");
         write(&dir, "followpoint-0.png", 32, 0);
         write(&dir, "followpoint-1.png", 32, 200);
@@ -1358,9 +884,6 @@ mod tests {
 
     #[test]
     fn a_strip_of_nothing_but_blanks_is_still_a_skin_saying_no() {
-        // The other half. Blanking every frame is how a skin turns off an
-        // element it does not want, and the count of files does not change
-        // that.
         let dir = folder("animated-off");
         write(&dir, "followpoint-0.png", 32, 0);
         write(&dir, "followpoint-1.png", 32, 0);
@@ -1390,8 +913,6 @@ mod tests {
 
     #[test]
     fn the_rate_a_strip_plays_at_defaults_to_the_whole_thing_in_a_second() {
-        // > A positive integer or `-1` to make osu! play all frames of the
-        // > animation in one second.
         assert_eq!(Ini::default().animation_framerate, -1.0);
         assert_eq!(
             Ini::parse("[General]\nAnimationFramerate: 24\n").animation_framerate,
@@ -1401,10 +922,6 @@ mod tests {
 
     #[test]
     fn a_skin_may_ask_for_its_cursor_not_to_swell() {
-        // > Should the cursor expand when clicked?  Default `1`.
-        //
-        // Both skins this was written against say no, and it used to be
-        // ignored with a comment saying so.
         assert!(
             Ini::default().cursor_expand,
             "on unless a skin says otherwise"
@@ -1415,10 +932,6 @@ mod tests {
 
     #[test]
     fn the_slider_ball_keeps_its_own_colours_unless_asked() {
-        // > Should the slider combo colour tint the slider ball?  Default `0`.
-        //
-        // The one element whose default is "leave it alone", and the one this
-        // had the wrong way round: it was tinted always.
         assert!(
             !Ini::default().slider_ball_tint,
             "off unless a skin says otherwise"
@@ -1438,9 +951,6 @@ mod tests {
 
     #[test]
     fn a_ball_left_alone_is_still_drawn() {
-        // Skipping the coloured copies must not skip the element: the lookup
-        // falls back to the picture the skin drew, which is the whole point of
-        // leaving it alone.
         let dir = folder("ball");
         write(&dir, "sliderb0.png", 128, 255);
         let sprites = Sprites::read(&dir, &[Element::SliderBall])
@@ -1471,9 +981,6 @@ mod drawn_by {
 
     #[test]
     fn a_skin_that_never_mentioned_a_version_is_drawn_by_the_newest_rules() {
-        // osu! dates it to 1.0 so that skins written in 2007 still look like
-        // themselves. Almost nothing in circulation is v1 on purpose, so a
-        // render draws it by the rules it was almost certainly made under.
         let stated = Ini::parse("[General]\nName: something").version;
         assert_eq!(stated, 1.0, "the file still says what it says");
         assert_eq!(effective_version(stated, false), LATEST_SKIN_VERSION);
@@ -1490,10 +997,6 @@ mod drawn_by {
 
     #[test]
     fn the_clients_own_answer_is_one_flag_away() {
-        // Without this the three behaviours keyed on version — the swelling
-        // number, the rocking arrow, the miss that does not fall — become
-        // unreachable, which is worse than wrong: it is code that reads as
-        // live and is never run.
         assert_eq!(effective_version(1.0, true), 1.0);
     }
 }

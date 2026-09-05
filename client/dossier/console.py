@@ -1,89 +1,29 @@
-"""The client as something to use, rather than something to configure.
-
-Setting a worker up meant creating a file in Notepad, in a folder that does not
-exist yet, with a name beginning with a dot, and pasting a sixty-character
-secret into it without picking up a quote or a trailing space. Every one of
-those is a place to get it wrong quietly, and people did: two friends once ran
-for days against a token that differed from the server's, and the only symptom
-was work that never arrived.
-
-So the program asks. It writes the same `worker.env` it always read — nothing
-here is a new format, and a file edited by hand goes on working exactly as
-before — but nobody has to know that.
-
-The text here is Russian because the people running a worker are. The comments
-are English like the rest of the repository.
-
-Nothing in this module is reached unless the program is attached to a terminal
-and was started with no instructions: a service, a pipe and `--once` all go
-straight to work as they always did.
-"""
-
 import os
 import shutil
 import sys
 
-# Pre-filled, because it is the same for everybody who will ever run this and
-# typing it is one more thing to get wrong. Overridden by whatever is already
-# in the config.
 DEFAULT_SERVER = "https://onenineeightfour.ignorelist.com"
 
-# What the machine's owner controls. Everything about how a render *looks* is
-# decided by whoever asked for it, in the bot — this side owns how much of this
-# computer the work may have, and nothing else.
 LIMITS = ("RENDER_POLITE", "RENDER_THREADS", "RENDER_PAUSE", "RENDER_HOURS")
 
-
 def interactive() -> bool:
-    """Whether there is a person here to answer.
-
-    Both ways: a program whose output is being captured should not draw a menu,
-    and one whose input is a pipe cannot read an answer and would spin on
-    end-of-file for ever.
-    """
     try:
         return sys.stdin.isatty() and sys.stdout.isatty()
-    except (AttributeError, ValueError):  # a closed or replaced stream
+    except (AttributeError, ValueError):
         return False
 
-
 def own_console() -> bool:
-    """Whether this window belongs to this program and closes with it.
-
-    Double-clicked from Explorer, Windows makes a console for the process and
-    destroys it the moment the process ends — so a refusal, a traceback or a
-    goodbye is gone before anybody can read it. The window flashes and nothing
-    has happened, which is the single most confusing way for a program to fail
-    on that system.
-
-    Started from a terminal the console was there first and stays, and holding
-    it would just be a keypress in the way.
-
-    `GetConsoleProcessList` answers it: one process attached is ours alone, two
-    or more means a shell is in here with us. Nothing on the other systems
-    behaves this way, so nothing else asks.
-    """
     if sys.platform != "win32":
         return False
     try:
         import ctypes
 
-        # Two slots is enough to tell "one" from "more than one", which is the
-        # whole question. The call returns how many there actually are.
         attached = (ctypes.c_uint * 2)()
         return ctypes.windll.kernel32.GetConsoleProcessList(attached, 2) == 1
-    except Exception:  # noqa: BLE001 — not worth failing to start over
+    except Exception:
         return False
 
-
 def hold_the_window() -> None:
-    """Keep a window that would otherwise vanish with whatever it last said.
-
-    `interactive()` as well as `own_console()`, which is belt and braces: a
-    double-clicked program has a terminal on both ends, and requiring it means
-    no arrangement of pipes can ever leave this waiting for a keypress that
-    will not come. A build that hangs is worse than a message that scrolled.
-    """
     if not own_console() or not interactive():
         return
     try:
@@ -91,38 +31,15 @@ def hold_the_window() -> None:
     except (EOFError, KeyboardInterrupt):
         pass
 
-
 def wanted(options, given: list[str]) -> bool:
-    """Whether to offer the menu at all.
-
-    Any instruction on the command line is somebody who knows what they want,
-    and the menu would be in the way. `--polite` and `--threads` are not
-    instructions in that sense: they say how to work, not whether to start.
-    """
     if not interactive():
         return False
     if options.check or options.service or options.once:
         return False
-    # `--server` names a bot, which is the one thing the setup screen is for.
+
     return not any(argument.startswith("--server") for argument in given)
 
-
 class Line:
-    """One line that rewrites itself, for something that is happening now.
-
-    A worker whose bot has gone away used to say so once a second, for as long
-    as it took to come back — twenty identical lines to scroll past afterwards,
-    and the last one no more informative than the first. What somebody wants
-    there is one line that is *still true*, and the way to know it is alive is
-    that it moves.
-
-    Written to stderr, where the logs go: `stdout` is the menu, and a program
-    whose output is being kept should get the menu without a carriage return
-    dragged through it.
-
-    Nothing at all when there is no terminal. A service writing `\r` into a
-    journal produces a line nobody can read and a file nobody can grep.
-    """
 
     def __init__(self, stream=None) -> None:
         self._to = stream if stream is not None else sys.stderr
@@ -138,15 +55,13 @@ class Line:
     def say(self, text: str) -> None:
         if not self._live():
             return
-        # Padded to whatever the last line was, so a shorter message does not
-        # leave the tail of a longer one behind it.
+
         self._to.write("\r" + text + " " * max(0, self._width - len(text)))
         self._to.flush()
         self._width = len(text)
         self._showing = True
 
     def clear(self) -> None:
-        """Take the line away, leaving the screen as it was."""
         if not self._showing or not self._live():
             self._showing = False
             return
@@ -159,51 +74,25 @@ class Line:
     def showing(self) -> bool:
         return self._showing
 
-
-# ── drawing ─────────────────────────────────────────────────────────────────
-#
-# No curses and no third-party anything: this has to work inside a frozen
-# executable on a Windows console, and every dependency added here is one more
-# thing that can fail on a machine nobody can reach.
-
-
 def _width() -> int:
     return max(48, min(78, shutil.get_terminal_size((80, 24)).columns))
 
-
 def _clear() -> None:
-    """Start the screen again.
-
-    Two ways, because neither works everywhere. On Windows `cls` is the one
-    thing every console understands, since ANSI needs virtual-terminal
-    processing turned on and a frozen program started from Explorer does not
-    get it. Everywhere else the escape is better than shelling out to `clear`:
-    no process, and no `TERM environment variable not set` printed across the
-    top of the first screen somebody ever sees.
-    """
     try:
         if sys.platform == "win32":
-            os.system("cls")  # noqa: S605,S607
+            os.system("cls")
         else:
-            # Cursor home, then erase from there down.
-            print("\033[H\033[J", end="")
-    except Exception:  # noqa: BLE001 — a screen that scrolled still reads
-        print("\n" * 3)
 
+            print("\033[H\033[J", end="")
+    except Exception:
+        print("\n" * 3)
 
 def _title(text: str) -> None:
     print()
     print(f"  {text}")
     print("  " + "─" * (_width() - 4))
 
-
 def _ask(prompt: str, default: str = "") -> str:
-    """One line of input, with Enter meaning the default.
-
-    `EOFError` is Ctrl-D and `KeyboardInterrupt` is Ctrl-C, and both mean the
-    same thing here — somebody wants out of this question. Neither should end
-    with a traceback across a screen that was drawn to be calm.
-    """
     shown = f" [{default}]" if default else ""
     try:
         said = input(f"  {prompt}{shown}: ").strip()
@@ -212,29 +101,13 @@ def _ask(prompt: str, default: str = "") -> str:
         return default
     return said or default
 
-
 def _pause() -> None:
     try:
         input("\n  — Enter, чтобы вернуться —")
     except (EOFError, KeyboardInterrupt):
         print()
 
-
-# ── the file ────────────────────────────────────────────────────────────────
-
-
 def write_pairs(path: str, pairs: dict[str, str]) -> str:
-    """Save the settings, keeping anything this program does not know about.
-
-    Rewritten rather than patched, because a file this program wrote is a file
-    it can read back exactly — and the alternative, editing lines in place,
-    goes wrong the first time somebody's editor leaves a stray blank line or a
-    duplicate key.
-
-    Whatever keys are not ours are carried through untouched. Somebody may have
-    put `DOSSIER_FFMPEG` in here, and losing it because a menu did not know the
-    name would be the menu doing harm.
-    """
     from dossier.worker import where
 
     full = where(path)
@@ -256,8 +129,7 @@ def write_pairs(path: str, pairs: dict[str, str]) -> str:
     lines += ["", "# Сколько отдавать этой машины."]
     for key in LIMITS:
         value = pairs.get(key, "")
-        # An empty limit is no limit, and a line saying so is clearer than the
-        # absence of a line — somebody reading the file can see the knob exists.
+
         lines.append(f"{key}={value}" if value else f"# {key}=")
     if rest:
         lines += ["", "# Остальное."]
@@ -267,34 +139,18 @@ def write_pairs(path: str, pairs: dict[str, str]) -> str:
     with open(full, "w", encoding="utf-8") as handle:
         handle.write("\n".join(lines))
 
-    # The token is in here. Nothing else on the machine needs to read it, and
-    # a home directory is not always the only account on a computer.
     try:
         os.chmod(full, 0o600)
-    except OSError:  # Windows, and it does not mean the same thing there
+    except OSError:
         pass
     return full
 
-
-# ── screens ─────────────────────────────────────────────────────────────────
-
-
-# A token is sixty-four hex characters; a code is eight. Nothing in between is
-# either, so the two never have to be told apart by asking somebody which they
-# have — which is a question that means nothing to the person being asked.
 CODE_AT_MOST = 16
-
 
 def looks_like_a_code(said: str) -> bool:
     return 0 < len("".join(said.split())) <= CODE_AT_MOST
 
-
 async def redeem(server: str, code: str, name: str) -> tuple[str, str]:
-    """Swap a code for this machine's own token. Returns `(token, why not)`.
-
-    The one request this program makes without a token, because it is where a
-    token comes from.
-    """
     import aiohttp
 
     from dossier.update import trusted
@@ -317,38 +173,27 @@ async def redeem(server: str, code: str, name: str) -> tuple[str, str]:
                     return "", ("этот бот ещё не умеет коды — попроси токен "
                                 "по-старому")
                 return "", f"бот ответил {reply.status}"
-    except Exception as exc:  # noqa: BLE001 — every network failure reads the same
+    except Exception as exc:
         return "", f"не удалось связаться с ботом: {exc}"
-
 
 def _machine_name() -> str:
     import platform
 
     return platform.node() or "worker"
 
-
 async def _try_the_bot(server: str, token: str, name: str) -> tuple[bool, str]:
-    """Ask the bot whether it knows this token, before anything is saved.
-
-    The whole reason this screen exists. A token typed correctly and a token
-    typed *nearly* correctly look identical in a text editor, and the second
-    one used to be discovered days later by somebody wondering why their
-    machine never got any work.
-    """
     import types
 
     from dossier import worker
 
     engine = await worker.engine_build.local(refresh=True)
-    # Everything `_ask_the_bot` reads, and a test holds this to that — a
-    # namespace missing one attribute fails as "could not ask the bot", which
-    # reads as the bot being unreachable rather than as this line being wrong.
+
     settings = types.SimpleNamespace(
         server=server, name=name, config="/nonexistent",
     )
     try:
         checks = await worker._ask_the_bot(settings, token, engine)
-    except Exception as exc:  # noqa: BLE001 — any failure here is "could not ask"
+    except Exception as exc:
         return False, f"не удалось спросить бота: {exc}"
 
     for check in checks:
@@ -357,9 +202,7 @@ async def _try_the_bot(server: str, token: str, name: str) -> tuple[bool, str]:
     said = "; ".join(check.said for check in checks if check.ok)
     return True, said or "бот ответил"
 
-
 async def connection(path: str, pairs: dict[str, str], name: str = "worker") -> dict[str, str]:
-    """Which bot, and the secret that proves this worker may work for it."""
     from dossier.worker import fingerprint
 
     _title("Подключение")
@@ -370,10 +213,7 @@ async def connection(path: str, pairs: dict[str, str], name: str = "worker") -> 
     server = _ask("Адрес бота", pairs.get("RENDER_SERVER") or DEFAULT_SERVER)
     was = pairs.get("RENDER_WORKER_TOKEN", "")
     if was and looks_like_a_code(was):
-        # A code sitting where a key belongs: an older version of this program
-        # had no idea what a code was and wrote it down as though it were one.
-        # Saying so is better than showing a fingerprint of something that was
-        # never going to work.
+
         print(f"\n  Записано «{was}» — это код, а не ключ.")
         print("  Enter — обменяю его на ключ прямо сейчас.")
     elif was:
@@ -387,7 +227,7 @@ async def connection(path: str, pairs: dict[str, str], name: str = "worker") -> 
         return pairs
 
     if said == was and not looks_like_a_code(said):
-        # Enter on an existing key: nothing to redeem, only to re-check.
+
         token = was
     elif looks_like_a_code(said):
         print("\n  Меняю код на ключ…")
@@ -398,20 +238,14 @@ async def connection(path: str, pairs: dict[str, str], name: str = "worker") -> 
             return pairs
         print("  ✓ готово — ключ выдан этой машине и записан")
     else:
-        # A sixty-four character string is somebody who was given a token the
-        # old way, before codes existed. Still accepted; nothing about this
-        # should make an existing worker re-enrol.
+
         token = said
 
     print("\n  Спрашиваю бота…")
     good, said = await _try_the_bot(server, token, name)
     print(f"  {'✓' if good else '✗'} {said}")
     if not good:
-        # The bot names the fingerprint when it is the token it disliked, so
-        # repeating it here would be the same eight characters twice on one
-        # screen. When the refusal was about something else — unreachable,
-        # a build mismatch — the fingerprint is still the thing somebody needs
-        # in order to compare theirs with the one that was handed out.
+
         mark = fingerprint(token)
         if mark not in said:
             print(f"\n  Записанный токен: {mark}")
@@ -425,14 +259,7 @@ async def connection(path: str, pairs: dict[str, str], name: str = "worker") -> 
     _pause()
     return pairs
 
-
 def limits(path: str, pairs: dict[str, str]) -> dict[str, str]:
-    """How much of this computer the farm may have.
-
-    These four and no more. Everything about how a video *looks* — its size,
-    its frame rate, its skin — belongs to whoever asked for the render, and a
-    screen here offering to change any of it would be a screen that lies.
-    """
     pairs = dict(pairs)
     while True:
         polite = pairs.get("RENDER_POLITE", "").lower() in ("1", "true", "yes", "on")
@@ -469,17 +296,7 @@ def limits(path: str, pairs: dict[str, str]) -> dict[str, str]:
         write_pairs(path, pairs)
     return pairs
 
-
 def journal(lines: int = 40) -> None:
-    """The last of the log, and where the whole of it is.
-
-    Shown rather than only pointed at, because the answer to "что случилось"
-    is usually in the last few lines and opening a file in a folder beginning
-    with a dot is a thing people ask how to do.
-
-    The path is printed underneath all the same: what gets sent to somebody who
-    can help is the file, not a screenshot of a screen.
-    """
     from dossier import log
 
     _title("Журнал")
@@ -499,9 +316,7 @@ def journal(lines: int = 40) -> None:
         print("\n  Открыть папку с ним:  explorer %USERPROFILE%\\.dossier")
     _pause()
 
-
 async def _standing(pairs: dict[str, str]) -> list[str]:
-    """The four lines at the top of the menu: who, where, what, and how much."""
     from dossier import machine, runner
     from dossier.worker import fingerprint
 
@@ -521,21 +336,12 @@ async def _standing(pairs: dict[str, str]) -> list[str]:
     lines.append(f"  машина:  {capacity.reason}, {capacity.threads} потоков")
     return lines
 
-
 async def run(options) -> str:
-    """The menu. Returns what to do next: `work` or `quit`.
-
-    A loop rather than a wizard: somebody comes back to this to pause their
-    machine for an evening, not only once to set it up.
-    """
     from dossier.worker import read_pairs
 
     path = options.config
     pairs = read_pairs(path)
 
-    # Nothing saved and nobody to ask means a first run. Straight to the one
-    # question that has to be answered, rather than to a menu of things that
-    # cannot work yet.
     if not pairs.get("RENDER_WORKER_TOKEN"):
         _clear()
         _title("Dossier — рендер-воркер")
@@ -562,14 +368,7 @@ async def run(options) -> str:
                 print("\n  Сначала токен — пункт 4.")
                 _pause()
                 continue
-            # `main` reads these two from the environment, and `load_config`
-            # deliberately will not overwrite a value already there — the real
-            # environment beats the file, so that exporting one for a single
-            # run means something. But "проверить" a moment ago called
-            # `load_config` itself, so the *old* token may be sitting in
-            # `os.environ` right now, and the one just typed would be ignored.
-            #
-            # A setting the program itself changed is changed.
+
             for key in ("RENDER_SERVER", "RENDER_WORKER_TOKEN"):
                 if pairs.get(key):
                     os.environ[key] = pairs[key]

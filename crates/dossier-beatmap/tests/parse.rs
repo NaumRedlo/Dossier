@@ -1,16 +1,8 @@
-//! Parser tests over `.osu` text written inline.
-//!
-//! The format is human-readable, so fixtures live in the tests as literals: a
-//! failure shows the exact line that caused it, and the cases double as notes
-//! on the format's quirks.
-
 use dossier_beatmap::{Beatmap, BeatmapError, CurveType, ObjectKind};
 
 fn map(body: &str) -> String {
     format!("osu file format v14\n\n{body}")
 }
-
-// ── header and sections ──────────────────────────────────────────────────
 
 #[test]
 fn reads_metadata_and_difficulty() {
@@ -73,12 +65,8 @@ fn crlf_line_endings_parse() {
     assert_eq!(Beatmap::parse(text).unwrap().metadata.title, "Song");
 }
 
-// ── difficulty-derived values ────────────────────────────────────────────
-
 #[test]
 fn missing_approach_rate_falls_back_to_overall_difficulty() {
-    // AR only exists from format v8; before that the game reuses OD, and a
-    // parser that defaults AR to 5 silently renders those maps wrong.
     let text = "osu file format v7\n\n[Difficulty]\nOverallDifficulty:8\n";
     let m = Beatmap::parse(text).unwrap();
     assert_eq!(m.difficulty.approach_rate, 8.0);
@@ -95,12 +83,11 @@ fn derives_preempt_and_hit_windows() {
     let text = map("[Difficulty]\nApproachRate:5\nOverallDifficulty:5\nCircleSize:5\n");
     let d = Beatmap::parse(&text).unwrap().difficulty;
 
-    assert_eq!(d.preempt_ms(), 1200.0); // AR5 is the pivot
+    assert_eq!(d.preempt_ms(), 1200.0);
     assert_eq!(d.hit_window_300(), 50.0);
     assert_eq!(d.hit_window_100(), 100.0);
     assert_eq!(d.hit_window_50(), 150.0);
-    // 32 osu!pixels at CS 5, plus osu!'s own rounding allowance — see
-    // the radius test in difficulty.rs for where that comes from.
+
     assert!((d.circle_radius() - 32.0 * 1.00041).abs() < 1e-9);
 
     let hard = map("[Difficulty]\nApproachRate:10\nOverallDifficulty:10\n");
@@ -116,10 +103,6 @@ fn derives_preempt_and_hit_windows() {
 
 #[test]
 fn hit_windows_are_whole_milliseconds() {
-    // Stable casts the window to an integer before comparing anything against
-    // it, so a fractional OD loses the fraction rather than rounding. OD 9.2
-    // interpolates to 24.8: keep it and every hit 24 ms out becomes a 300 where
-    // the game gives a 100. Preempt is not truncated — only the windows are.
     let text = map("[Difficulty]\nApproachRate:9\nOverallDifficulty:9.2\n");
     let d = Beatmap::parse(&text).unwrap().difficulty;
 
@@ -132,12 +115,8 @@ fn hit_windows_are_whole_milliseconds() {
     assert_eq!(d.hit_window_50(), 108.0);
 }
 
-// ── timing ───────────────────────────────────────────────────────────────
-
 #[test]
 fn splits_red_and_green_timing_lines() {
-    // One line type, two meanings: positive beat length sets tempo, negative
-    // scales slider velocity as -100/SV.
     let text = map("
 [TimingPoints]
 0,500,4,2,0,60,1,0
@@ -148,25 +127,14 @@ fn splits_red_and_green_timing_lines() {
 
     assert_eq!(t.uninherited.len(), 1);
     assert_eq!(t.inherited.len(), 2);
-    assert_eq!(t.uninherited[0].bpm(), 120.0); // 500ms/beat
-    assert_eq!(t.inherited[0].velocity, 2.0); // -50  -> 2x
-    assert_eq!(t.inherited[1].velocity, 0.5); // -200 -> 0.5x
+    assert_eq!(t.uninherited[0].bpm(), 120.0);
+    assert_eq!(t.inherited[0].velocity, 2.0);
+    assert_eq!(t.inherited[1].velocity, 0.5);
     assert!(t.inherited[1].kiai);
 }
 
 #[test]
 fn a_green_line_asking_for_more_than_the_game_allows_gets_what_it_allows() {
-    // `DifficultyControlPoint.SliderVelocityBindable` is a
-    // `BindableDouble(1) { MinValue = 0.1, MaxValue = 10 }`, so the game simply
-    // will not go outside that however the line is written.
-    //
-    // Maps do write outside it. A `-10000` — meaning 0.01 — sits in the middle
-    // of a ranked map in the corpus, and taking it at its word made the slider
-    // it governs ten times too slow and so ten times too long: thirty seconds
-    // where the game plays three. That is a wrong duration to draw, a wrong end
-    // to hold the player to, and eighty-one slider ticks that do not exist —
-    // which is how it was found, as the only map of ten whose greatest combo
-    // disagreed with ppy.
     let text = map("
 [TimingPoints]
 0,500,4,2,0,60,1,0
@@ -196,18 +164,13 @@ fn timing_lookups_take_the_latest_point_at_or_before_a_time() {
 
     assert_eq!(t.bpm_at(0.0), 120.0);
     assert_eq!(t.bpm_at(9_999.0), 120.0);
-    assert_eq!(t.bpm_at(10_000.0), 240.0); // boundary belongs to the new point
-    assert_eq!(t.velocity_at(4_999.0), 1.0); // no green line yet
+    assert_eq!(t.bpm_at(10_000.0), 240.0);
+    assert_eq!(t.velocity_at(4_999.0), 1.0);
     assert_eq!(t.velocity_at(5_000.0), 2.0);
 }
 
 #[test]
 fn a_red_line_resets_the_slider_velocity() {
-    // The trap in keeping the two kinds in separate lists: the newest green
-    // line at or before the time is the obvious answer and the wrong one,
-    // because the split threw away the ordering between reds and greens. Here
-    // the 0.6x holds for one second and the red line ends it — a slider after
-    // that red would otherwise come out 1.67 times too long.
     let text = map("
 [TimingPoints]
 0,500,4,2,0,60,1,0
@@ -223,9 +186,6 @@ fn a_red_line_resets_the_slider_velocity() {
 
 #[test]
 fn a_green_line_on_the_same_beat_as_a_red_one_still_applies() {
-    // Maps write the red first and the green second when both sit on the same
-    // beat, and the game applies them in that order. Letting the red win the
-    // tie would silently ignore the green line the mapper put there.
     let text = map("
 [TimingPoints]
 0,500,4,2,0,60,1,0
@@ -253,8 +213,6 @@ fn objects_and_timing_points_are_sorted_even_if_the_file_is_not() {
     assert_eq!(m.objects[0].time_ms, 1000.0);
 }
 
-// ── hit objects ──────────────────────────────────────────────────────────
-
 #[test]
 fn parses_the_three_object_kinds() {
     let text = map("
@@ -274,7 +232,7 @@ fn parses_the_three_object_kinds() {
         panic!("expected a slider");
     };
     assert_eq!(slider.curve_type, CurveType::Bezier);
-    // The object's own position is the first control point.
+
     assert_eq!(slider.points.len(), 3);
     assert_eq!(slider.points[0].x, 100.0);
     assert_eq!(slider.points[2].y, 100.0);
@@ -283,7 +241,7 @@ fn parses_the_three_object_kinds() {
 
     assert!(objects[2].is_spinner());
     assert_eq!(objects[2].end_time_ms(), 5000.0);
-    assert!(objects[2].new_combo); // type 12 = spinner | new combo
+    assert!(objects[2].new_combo);
 }
 
 #[test]
@@ -324,7 +282,7 @@ fn new_combo_flag_is_read_off_the_type_field() {
 ");
     let objects = Beatmap::parse(&text).unwrap().objects;
     assert!(!objects[0].new_combo);
-    assert!(objects[1].new_combo); // 5 = circle | new combo
+    assert!(objects[1].new_combo);
 }
 
 #[test]
@@ -336,8 +294,6 @@ fn drain_time_spans_first_object_to_last_end() {
 ");
     assert_eq!(Beatmap::parse(&text).unwrap().drain_time_ms(), 4000.0);
 }
-
-// ── events ───────────────────────────────────────────────────────────────
 
 #[test]
 fn picks_up_the_background_but_not_a_video() {
@@ -360,8 +316,6 @@ fn a_map_without_events_has_no_background() {
         None
     );
 }
-
-// ── failure modes ────────────────────────────────────────────────────────
 
 #[test]
 fn malformed_records_name_their_line() {
@@ -389,9 +343,6 @@ fn an_empty_map_parses_to_empty_rather_than_failing() {
 
 #[test]
 fn breaks_are_read_from_the_events_section() {
-    // A break is the map saying the player may stop. What follows one arrives
-    // with no warning from the rhythm, so the pause has to be known before
-    // anything can be drawn about it.
     let text = map("
 [Events]
 0,0,\"bg.jpg\",0,0
@@ -412,10 +363,6 @@ fn a_break_that_ends_before_it_starts_is_not_a_break() {
 
 #[test]
 fn kiai_spans_read_both_kinds_of_timing_point() {
-    // Red on at 10s, green *off* at 20s. Splitting the file's one line type
-    // into tempo and velocity threw away the ordering between them, so a green
-    // line ending a kiai is invisible to anything reading only the red list —
-    // and every kiai in the map would then run to the end of the song.
     let text = map("
 [TimingPoints]
 0,500,4,2,0,60,1,0
@@ -428,8 +375,6 @@ fn kiai_spans_read_both_kinds_of_timing_point() {
 
 #[test]
 fn a_kiai_the_map_never_ends_runs_to_infinity() {
-    // The map does not say when it stops, so the parser does not invent a time
-    // for it — the caller clamps it to whatever span it is asking about.
     let text = map("[TimingPoints]\n0,500,4,2,0,60,1,0\n8000,-100,4,2,0,60,0,1\n");
     let spans = Beatmap::parse(&text).unwrap().timing.kiai_spans();
     assert_eq!(spans.len(), 1);

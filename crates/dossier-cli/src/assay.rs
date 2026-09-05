@@ -1,37 +1,9 @@
-//! `dossier assay` — what a map demands and what a play on it was worth.
-//!
-//! The engine's other half, for a caller that wants numbers rather than a
-//! video. It answers in JSON because the only caller is the bot.
-//!
-//! Two questions in one command, because they share nearly all their work: the
-//! map's difficulty is most of the cost, and a play's worth is arithmetic on
-//! top of it. Ask about a map alone and the score half is left out; hand it a
-//! play and both come back.
-//!
-//! ```text
-//! dossier assay --map <path> --mods HDDT
-//! dossier assay --map <path> --mods HD --accuracy 98.6 --combo 1420 --misses 1
-//! ```
-//!
-//! # What it replaces
-//!
-//! The bot has been asking ppy for star ratings one map at a time and a
-//! third-party port for everything ppy has no endpoint for. This answers both
-//! without the network, and the hypotheticals — what a play would have been
-//! worth without the misses, or played perfectly — stop being estimates
-//! anchored to an official figure and become the figure.
-
 use std::path::Path;
 
 use dossier_assay::performance::Score;
 use dossier_beatmap::Beatmap;
 use dossier_replay::{bits, Mods};
 
-/// Read acronyms — `HDDT`, `hd dt`, `HD,DT` — into the engine's bitmask.
-///
-/// Classic is not among them: the old bitmask never had a bit for it, because
-/// it is lazer's name for the rules that bitmask assumed. It arrives as
-/// `--classic` instead.
 pub fn parse_mods(text: &str) -> Result<Mods, String> {
     let cleaned: String = text
         .chars()
@@ -56,22 +28,14 @@ pub fn parse_mods(text: &str) -> Result<Mods, String> {
             "SO" => bits::SPUN_OUT,
             "AP" => bits::AUTOPILOT,
             "PF" => bits::PERFECT | bits::SUDDEN_DEATH,
-            // The rest of what a real replay can be wearing. None of them moves
-            // a star rating, and refusing them made this refuse the very
-            // replays it is meant to grade — a `NFHDV2` play is an ordinary
-            // thing to send a bot, and it was answered with "no such mod: V2".
-            //
-            // Held in the mask rather than dropped where the mask has a bit for
-            // them, because a caller reading the answer back should find what
-            // it passed in.
+
             "V2" => bits::SCORE_V2,
             "AT" => bits::AUTOPLAY,
             "CN" => bits::CINEMA,
             "RD" => bits::RANDOM,
             "TP" => bits::TARGET,
             "MR" => bits::MIRROR,
-            // Not a mod the bitmask can hold, and not an error either — a
-            // caller listing what a lazer score wore will include it.
+
             "CL" | "" => 0,
             other => return Err(format!("no such mod: {other}")),
         };
@@ -79,14 +43,6 @@ pub fn parse_mods(text: &str) -> Result<Mods, String> {
     Ok(Mods::new(raw))
 }
 
-/// A play built from whatever the caller could say about it.
-///
-/// The judgement counts are what the calculator wants and an accuracy is what a
-/// caller often has, so an accuracy alone is turned into counts: the misses are
-/// taken as given, and the rest of the map is split between Greats and Hundreds
-/// to land on the accuracy asked for. That is the same thing `osu-tools
-/// simulate` does when handed `--accuracy`, and it is why a "what would 98% be
-/// worth" question has an answer at all.
 #[allow(clippy::too_many_arguments)]
 pub fn score_from(
     attributes: &dossier_assay::Attributes,
@@ -104,13 +60,12 @@ pub fn score_from(
     let objects = attributes.hit_circle_count + attributes.slider_count + attributes.spinner_count;
 
     let (great, ok, meh) = match (n300, n100, n50) {
-        // Counts given: they are the truth and the accuracy is derived.
         (Some(great), Some(ok), Some(meh)) => (great, ok, meh),
         _ => {
             let target = accuracy.unwrap_or(100.0) / 100.0;
             let judged = objects.saturating_sub(misses);
             let meh = n50.unwrap_or(0);
-            // Solve the accuracy formula for how many Hundreds it takes.
+
             let want = target * 300.0 * f64::from(objects);
             let have = 50.0 * f64::from(meh);
             let hundreds = ((300.0 * f64::from(judged.saturating_sub(meh)) + have - want) / 200.0)
@@ -127,22 +82,14 @@ pub fn score_from(
         ok,
         meh,
         miss: misses,
-        // Every end caught unless told otherwise, which is what a play with no
-        // dropped ends looks like and what a caller who cannot say means.
+
         slider_tail_hit: slider_ends.unwrap_or(attributes.slider_count),
         large_tick_miss: large_tick_misses,
         classic,
         legacy_total_score: legacy_total,
         accuracy: None,
     };
-    // The caller's accuracy is believed when there is one, and only worked out
-    // from the counts when there is not.
-    //
-    // Believed because under lazer's rules it is not derivable from the four
-    // judgements — slider tails and large ticks count towards it — so a figure
-    // computed here would be the *old* accuracy wearing the new name. Every
-    // score the bot has comes with the game's own, which is the right one; and
-    // a caller asking "what would 98% be worth" means 98%.
+
     score.accuracy = match accuracy {
         Some(percent) => Some((percent / 100.0).clamp(0.0, 1.0)),
         None => Some(score.accuracy()),
@@ -150,7 +97,6 @@ pub fn score_from(
     score
 }
 
-/// The whole answer for one map, and one play if there is one.
 pub fn run(map_path: &Path, mods: Mods, play: Option<Score>) -> Result<String, String> {
     let text = std::fs::read_to_string(map_path)
         .map_err(|error| format!("could not read {}: {error}", map_path.display()))?;
@@ -195,9 +141,7 @@ pub fn run(map_path: &Path, mods: Mods, play: Option<Score>) -> Result<String, S
 
     if let Some(play) = play {
         let performance = dossier_assay::performance::performance(&play, &attributes, mods);
-        // What the same play would have been worth unbroken, and played
-        // perfectly — the two figures the bot shows beside the real one, and
-        // the reason this crate exists rather than a lookup.
+
         let objects =
             attributes.hit_circle_count + attributes.slider_count + attributes.spinner_count;
         let mut unbroken = play.clone();
@@ -206,10 +150,7 @@ pub fn run(map_path: &Path, mods: Mods, play: Option<Score>) -> Result<String, S
         unbroken.max_combo = attributes.max_combo;
         unbroken.large_tick_miss = 0;
         unbroken.slider_tail_hit = attributes.slider_count;
-        // Worked out under the rules the play was scored by, not the old ones.
-        // An unbroken run catches every tail and every tick, and both count
-        // towards accuracy — reading it off the four judgements alone put this
-        // figure 0.8% low against a bot running ppy's own calculator.
+
         unbroken.accuracy =
             Some(unbroken.lazer_accuracy(attributes.slider_count, attributes.large_tick_count));
         let if_unbroken = dossier_assay::performance::performance(&unbroken, &attributes, mods);
@@ -226,7 +167,7 @@ pub fn run(map_path: &Path, mods: Mods, play: Option<Score>) -> Result<String, S
             legacy_total_score: None,
             accuracy: Some(1.0),
         };
-        // A perfect play is one by any arithmetic, so no adjustment is needed.
+
         let if_perfect = dossier_assay::performance::performance(&perfect, &attributes, mods);
 
         out.push_str(",\n");
@@ -257,8 +198,6 @@ mod tests {
 
     #[test]
     fn mods_are_read_however_they_are_written() {
-        // The bot has them three ways depending on where they came from: joined
-        // by the API, comma-joined by a row, bare from a card.
         for text in ["HDDT", "hddt", "HD,DT", "hd dt"] {
             let mods = parse_mods(text).expect(text);
             assert!(
@@ -270,9 +209,6 @@ mod tests {
 
     #[test]
     fn classic_is_accepted_and_carries_no_bit() {
-        // It is lazer's name for the rules the old bitmask assumed, so there is
-        // no bit for it — but a caller listing a lazer score's mods will send
-        // it, and refusing would fail the commonest case there is.
         let mods = parse_mods("HDCL").expect("HDCL");
         assert!(mods.contains(bits::HIDDEN));
         assert_eq!(parse_mods("CL").expect("CL").raw(), 0);
@@ -295,8 +231,6 @@ mod tests {
 
     #[test]
     fn an_accuracy_alone_is_turned_into_the_judgements_that_produce_it() {
-        // What a caller asking "what would 98% be worth" has, and what the
-        // calculator needs instead.
         let score = score_from(
             &attributes(),
             Some(98.0),
@@ -312,7 +246,7 @@ mod tests {
         );
         let objects = 904;
         assert_eq!(score.great + score.ok + score.meh + score.miss, objects);
-        // Solved rather than guessed: the counts really do give the accuracy.
+
         let from_counts = (300.0 * f64::from(score.great) + 100.0 * f64::from(score.ok))
             / (300.0 * f64::from(objects));
         assert!((from_counts - 0.98).abs() < 0.001, "{from_counts}");
@@ -320,10 +254,6 @@ mod tests {
 
     #[test]
     fn the_accuracy_a_caller_gives_is_the_one_used() {
-        // Under lazer's rules accuracy is not derivable from the four
-        // judgements — slider tails and large ticks count towards it — so a
-        // figure worked out here would be the old accuracy wearing the new
-        // name. The game's own is what every score the bot has carries.
         let score = score_from(
             &attributes(),
             Some(99.5),
@@ -343,8 +273,6 @@ mod tests {
 
     #[test]
     fn a_play_that_said_nothing_about_slider_ends_is_assumed_to_have_caught_them() {
-        // Which is what a play with none dropped looks like, and the only
-        // honest reading of a caller that cannot say.
         let score = score_from(
             &attributes(),
             Some(97.0),

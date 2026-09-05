@@ -1,17 +1,3 @@
-//! The four difficulty numbers, pinned against osu!'s own tables.
-//!
-//! CS, AR, OD and HP are the whole of what a map tells the game about how hard
-//! it is, and every one of them feeds judgement: OD sets the windows, CS sets
-//! the circle and with it the follow circle and the stack offset, AR sets
-//! preempt and with it the stacking threshold. A quiet error in any of them
-//! looks exactly like a bug in the note lock — the totals go wrong and nothing
-//! says why — so they are pinned here rather than trusted.
-//!
-//! The reference values are the interpolation osu! documents: `min` at 0, `mid`
-//! at 5, `max` at 10, the two halves scaled separately. Where a value below is
-//! not a round number it was worked out by hand from that rule and checked
-//! against a real map in the corpus.
-
 use dossier_beatmap::Beatmap;
 
 fn difficulty(body: &str) -> dossier_beatmap::Difficulty {
@@ -20,11 +6,8 @@ fn difficulty(body: &str) -> dossier_beatmap::Difficulty {
         .difficulty
 }
 
-// ── AR: how long an object is on screen ──────────────────────────────────
-
 #[test]
 fn approach_rate_sets_preempt_by_the_documented_table() {
-    // 1200 + 120 * (5 - AR) below 5; 1200 - 150 * (AR - 5) above it.
     for (ar, preempt) in [
         (0.0, 1800.0),
         (2.0, 1560.0),
@@ -45,20 +28,12 @@ fn approach_rate_sets_preempt_by_the_documented_table() {
 
 #[test]
 fn an_approach_rate_past_ten_keeps_going() {
-    // Mods cap AR at 10, but a map may author more, and osu! extrapolates
-    // rather than clamping. Clamping here would make such a map read easier
-    // than it plays.
     let d = difficulty("ApproachRate:11");
     assert!((d.preempt_ms() - 300.0).abs() < 1e-9, "{}", d.preempt_ms());
 }
 
 #[test]
 fn the_fade_in_is_two_thirds_of_preempt() {
-    // osu!'s table: 1200ms of fade at AR0, 800 at AR5, 300 at AR10 — against
-    // preempts of 1800, 1200 and 450. Every one of those is exactly two
-    // thirds. lazer instead uses `400 * min(1, preempt / 450)`, a flat 400ms
-    // for every AR up to 10, which is one of the places it is simply not
-    // stable and the Classic mod does not restore it.
     for (ar, fade) in [(0.0, 1200.0), (5.0, 800.0), (10.0, 300.0)] {
         let d = difficulty(&format!("ApproachRate:{ar}"));
         assert!(
@@ -69,12 +44,8 @@ fn the_fade_in_is_two_thirds_of_preempt() {
     }
 }
 
-// ── OD: the judgement windows ────────────────────────────────────────────
-
 #[test]
 fn overall_difficulty_sets_the_windows_by_the_documented_table() {
-    // 80 - 6·OD, 140 - 8·OD, 200 - 10·OD, each truncated to a whole
-    // millisecond. Every value here appears on a map in the corpus.
     for (od, windows) in [
         (0.0, (80.0, 140.0, 200.0)),
         (3.5, (59.0, 112.0, 165.0)),
@@ -96,35 +67,13 @@ fn overall_difficulty_sets_the_windows_by_the_documented_table() {
 
 #[test]
 fn od_nine_point_three_gives_a_hundred_and_seven() {
-    // Singled out because it is the one value in the corpus where the
-    // arithmetic's precision decides the answer. Read the OD as a 32-bit
-    // float first — as lazer does, its difficulty fields being floats — and
-    // the fifty window computes to 106.99999809, which floors to 106.
-    //
-    // A failed replay settles it. Its 258th object is a circle at 78276ms
-    // that nobody hit, so osu! judged it a miss when the window shut, and the
-    // player's health hit zero at that judgement: the last sample in the
-    // replay's own life-bar graph is `78383|0`. 78383 - 78276 = 107.
     let d = difficulty("OverallDifficulty:9.3");
     assert_eq!(d.hit_window_50(), 107.0);
     assert_eq!(78276.0 + d.hit_window_50(), 78383.0);
 }
 
-// ── CS: the circle, and everything measured off it ───────────────────────
-
 #[test]
 fn circle_size_sets_the_radius() {
-    // `64 * (1 - 0.7·(CS-5)/5) / 2`, which is `54.4 - 4.48·CS` — the form both
-    // danser and lazer use — and then a fortieth of a per cent more.
-    //
-    // That last part is osu!'s, not ours:
-    //
-    // ```csharp
-    // // Builds of osu! up to 2013-05-04 had the gamefield being rounded down…
-    // // It works out to under 1 game pixel and is generally not meaningful to
-    // // gameplay, but is to replay playback accuracy.
-    // const float broken_gamefield_rounding_allowance = 1.00041f;
-    // ```
     for (cs, plain) in [
         (0.0, 54.4),
         (2.0, 45.44),
@@ -145,10 +94,6 @@ fn circle_size_sets_the_radius() {
 
 #[test]
 fn the_rounding_allowance_is_under_a_pixel_and_never_zero() {
-    // The whole of it is a hundredth of a pixel at a small circle and a
-    // fortieth at a large one — nothing anybody feels, and enough to decide
-    // whether a click landed. One replay in the corpus lost seventy-five combo
-    // to a click a hundredth of a pixel outside a circle.
     for cs in [0.0, 4.0, 5.0, 10.0] {
         let d = difficulty(&format!("CircleSize:{cs}"));
         let plain = 54.4 - 4.48 * cs;
@@ -158,12 +103,8 @@ fn the_rounding_allowance_is_under_a_pixel_and_never_zero() {
     }
 }
 
-// ── mods ─────────────────────────────────────────────────────────────────
-
 #[test]
 fn hard_rock_scales_every_stat_and_caps_at_ten() {
-    // 1.4 for everything except CS, which takes 1.3. That is the game's rule
-    // and not a rounding artefact — both references state it outright.
     let d =
         difficulty("HPDrainRate:5\nCircleSize:4\nOverallDifficulty:6\nApproachRate:7").hard_rock();
     assert_eq!(d.hp_drain, 7.0);
@@ -199,9 +140,6 @@ fn easy_halves_every_stat() {
 
 #[test]
 fn neither_mod_touches_the_slider_settings() {
-    // Speed mods change the clock, not the map, and this engine works in map
-    // time throughout — so a slider's length in beats is the same under every
-    // mod, and only the encoder's playback rate moves.
     let d = difficulty("SliderMultiplier:1.8\nSliderTickRate:2");
     for scaled in [d.hard_rock(), d.easy()] {
         assert_eq!(scaled.slider_multiplier, 1.8);

@@ -1,38 +1,16 @@
-//! How hard the map is to *press* — the first skill, and the first thing here
-//! that ppy will grade.
-//!
-//! `speed_difficulty` comes back from the attributes endpoint for every map and
-//! mod set in the corpus, so unlike the preprocessing underneath it this can be
-//! marked right or wrong outright. It is also what marks the preprocessing:
-//! rhythm reads the gaps, double-tapping reads the jump distances, and a
-//! mistake in either shows up here as a number that is simply not ppy's.
-//!
-//! Three pieces, in the order they feed each other:
-//!
-//! 1. [`speed_difficulty_of`] — how hard one press is, from the gap before it.
-//! 2. [`rhythm_multiplier_of`] — how much harder that press is for coming in an
-//!    awkward rhythm, judged against the five seconds of play behind it.
-//! 3. [`Speed`] — the two combined into a strain that decays between objects,
-//!    and the strains summed with the hardest counting most.
-
 use crate::preprocessing::{DiffObject, MIN_DELTA_TIME};
 use crate::utils::{
     bpm_to_milliseconds, logistic, milliseconds_to_bpm, reverse_lerp, smoothstep_bell_curve,
 };
 
-/// How fast a map has to be before speed alone starts earning a bonus.
 const MIN_SPEED_BONUS_BPM: f64 = 200.0;
 
-/// The strain left after a second of nothing.
 const STRAIN_DECAY_BASE: f64 = 0.3;
 
 fn strain_decay(ms: f64) -> f64 {
     STRAIN_DECAY_BASE.powf(ms / 1000.0)
 }
 
-/// How hard this object is to press, before rhythm.
-///
-/// Ported from `SpeedEvaluator.EvaluateDifficultyOf`.
 pub fn speed_difficulty_of(objects: &[DiffObject], at: usize) -> f64 {
     let current = &objects[at];
     if current.is_spinner {
@@ -44,12 +22,6 @@ pub fn speed_difficulty_of(objects: &[DiffObject], at: usize) -> f64 {
     let mut strain_time = current.adjusted_delta_time;
     let feasibility = 1.0 - current.double_tap_feasibility(objects.get(at + 1));
 
-    // A gap shorter than the window a Great is given cannot really be pressed
-    // more precisely, so it stops counting as faster.
-    //
-    // ppy's note on the two constants: "0.93 is derived from making sure 260bpm
-    // OD8 streams aren't nerfed harshly, whilst 0.92 limits the effect of the
-    // cap."
     strain_time /= ((strain_time / current.hit_window_great) / 0.93).clamp(0.92, 1.0);
 
     let mut speed_bonus = 0.0;
@@ -60,24 +32,17 @@ pub fn speed_difficulty_of(objects: &[DiffObject], at: usize) -> f64 {
     }
 
     let mut difficulty = (1.0 + speed_bonus) * 1000.0 / strain_time;
-    // Undoes the strain decay for very fast objects, so a stream is not held
-    // back by the decay that is about to be applied to it.
+
     difficulty *= 1.0 / (1.0 - strain_decay(current.adjusted_delta_time));
     difficulty * feasibility
 }
 
-/// A run of objects sharing one gap — a stream, a triple, a single note.
-///
-/// Rhythm is judged by how these fall against each other rather than by the
-/// gaps alone: two triples in a row are less interesting than a triple after a
-/// double, however fast either is.
 #[derive(Debug, Clone, Copy)]
 struct Island {
     delta: i64,
     count: i64,
     occurrences: i64,
-    /// Whether a delta has been put in yet. ppy uses `int.MaxValue` as the
-    /// stand-in; a flag says the same thing without the sentinel arithmetic.
+
     empty: bool,
 }
 
@@ -108,10 +73,6 @@ impl Island {
         self.count += 1;
     }
 
-    /// Same gap, and an odd run against an odd one or an even against an even.
-    ///
-    /// Two runs of the same parity are tapped with the same hand alternation,
-    /// which is what makes the second of them easier than it looks.
     fn is_similar_polarity(&self, other: &Island, epsilon: f64) -> bool {
         if self.count <= 1 || other.count <= 1 {
             return false;
@@ -124,22 +85,12 @@ impl Island {
     }
 }
 
-/// How much of a bonus a change of gap deserves.
-///
-/// Gaps that are neat multiples of each other — a hundred into two hundred —
-/// get almost nothing, because halving or doubling a rhythm is the easiest
-/// change there is. The bell peaks where the ratio sits furthest from whole.
 fn effective_difficulty(ratio: f64) -> f64 {
     const RHYTHM_RATIO_DIFFICULTY_MULTIPLIER: f64 = 26.0;
     let fraction = ratio - ratio.trunc();
     1.0 + RHYTHM_RATIO_DIFFICULTY_MULTIPLIER * smoothstep_bell_curve(fraction).min(0.5)
 }
 
-/// How much harder this object is to press for the rhythm it arrives in.
-///
-/// Ported from `RhythmEvaluator.EvaluateDifficultyOf`. Walks up to five seconds
-/// or thirty-two objects backwards, whichever runs out first, weighing each
-/// change of gap and fading the older ones out.
 pub fn rhythm_multiplier_of(objects: &[DiffObject], at: usize) -> f64 {
     let current = &objects[at];
     if current.is_spinner {
@@ -149,7 +100,7 @@ pub fn rhythm_multiplier_of(objects: &[DiffObject], at: usize) -> f64 {
     const HISTORY_TIME_MAX: f64 = 5_000.0;
     const HISTORY_OBJECTS_MAX: usize = 32;
     const RHYTHM_OVERALL_MULTIPLIER: f64 = 0.95;
-    // Small enough that a gap is genuinely zero rather than merely tiny.
+
     const DELTA_MIN_VALUE: f64 = 1e-7;
 
     let mut complexity_sum = 0.0;
@@ -159,13 +110,9 @@ pub fn rhythm_multiplier_of(objects: &[DiffObject], at: usize) -> f64 {
     let mut previous_island = Island::unset();
     let mut islands: Vec<Island> = Vec::new();
 
-    // The difficulty this island opened with, kept so a tightening rhythm can
-    // be rewarded against where it started.
     let mut start_difficulty = 0.0;
     let mut first_delta_switch = false;
 
-    // `current.index` counts the object's place in the map; the difficulty list
-    // starts one later, so its own position is what bounds the history.
     let historical_note_count = at.min(HISTORY_OBJECTS_MAX);
 
     let previous =
@@ -184,7 +131,6 @@ pub fn rhythm_multiplier_of(objects: &[DiffObject], at: usize) -> f64 {
     };
     let mut prev_prev_obj = previous(rhythm_start + 1);
 
-    // From the furthest object back towards this one.
     for i in (1..=rhythm_start).rev() {
         let Some(curr_obj) = previous(i - 1) else {
             continue;
@@ -193,8 +139,6 @@ pub fn rhythm_multiplier_of(objects: &[DiffObject], at: usize) -> f64 {
             continue;
         }
 
-        // Nothing counts fully forever: whichever runs out first, time or
-        // object count, fades this change away.
         let time_decay =
             (HISTORY_TIME_MAX - (current.start_time - curr_obj.start_time)) / HISTORY_TIME_MAX;
         let note_decay = (historical_note_count - i) as f64 / historical_note_count as f64;
@@ -209,16 +153,12 @@ pub fn rhythm_multiplier_of(objects: &[DiffObject], at: usize) -> f64 {
         }
 
         let ratio = prev_delta.max(curr_delta) / prev_delta.min(curr_delta);
-        // A change too large to feel as a change of rhythm rather than as a
-        // stop and a fresh start.
+
         let difference_multiplier = (2.0 - ratio / 8.0).clamp(0.0, 1.0);
         let window_penalty = ((delta_difference - epsilon) / epsilon).clamp(0.0, 1.0);
 
         let mut difficulty = effective_difficulty(ratio) * window_penalty * difference_multiplier;
 
-        // Coming off a slider is easier than coming off a circle: the finger is
-        // already up, so a slider-circle-circle reads as a plain triple rather
-        // than as a single into a double.
         if prev_obj.is_slider {
             let lazy_end_delta = curr_obj.minimum_jump_time;
             let lazy_ratio = lazy_end_delta.max(curr_delta) / lazy_end_delta.min(curr_delta);
@@ -230,29 +170,25 @@ pub fn rhythm_multiplier_of(objects: &[DiffObject], at: usize) -> f64 {
         }
 
         if delta_difference < epsilon {
-            // The same gap again: the run goes on.
             island.add_delta(curr_delta as i64);
         }
 
         if first_delta_switch {
             if delta_difference > epsilon {
-                // Into a slider, where the accuracy window is generous.
                 if curr_obj.is_slider {
                     difficulty *= 0.5;
                 }
                 if island.is_similar_polarity(&previous_island, epsilon) {
                     difficulty *= 0.5;
                 }
-                // A rhythm that has been tightening for two changes running is
-                // not surprising by the second one.
+
                 if prev_prev_obj.map_or(false, |obj| {
                     obj.delta_time.max(DELTA_MIN_VALUE) > prev_delta + epsilon
                 }) && prev_delta > curr_delta + epsilon
                 {
                     difficulty *= 0.125;
                 }
-                // Triplet into triplet. ppy's own note: kept for balance
-                // despite the ratio calculation it leans on being flawed.
+
                 if previous_island.count == island.count {
                     difficulty *= 0.5;
                 }
@@ -263,8 +199,6 @@ pub fn rhythm_multiplier_of(objects: &[DiffObject], at: usize) -> f64 {
                 let mut found = false;
                 for existing in islands.iter_mut() {
                     if existing.almost_equals(&island, epsilon) {
-                        // Only a run that follows its own twin counts as a
-                        // repeat; the same shape twice across the map does not.
                         if previous_island.almost_equals(&island, epsilon) {
                             existing.occurrences += 1;
                         }
@@ -284,13 +218,11 @@ pub fn rhythm_multiplier_of(objects: &[DiffObject], at: usize) -> f64 {
                 if island.count > 1 {
                     complexity_sum += (difficulty * start_difficulty).sqrt() * historical_decay;
                 } else {
-                    // One note on its own is worth a flat amount however it sits.
                     complexity_sum += 0.7 * historical_decay;
                 }
 
                 start_difficulty = difficulty;
 
-                // Slowing down ends the run; speeding up keeps it going.
                 if prev_delta + epsilon < curr_delta {
                     first_delta_switch = false;
                 }
@@ -299,7 +231,6 @@ pub fn rhythm_multiplier_of(objects: &[DiffObject], at: usize) -> f64 {
                 island = Island::new(curr_delta as i64);
             }
         } else if prev_delta > curr_delta + epsilon {
-            // Speeding up: start counting a run.
             first_delta_switch = true;
             if curr_obj.is_slider {
                 difficulty *= 0.6;
@@ -315,32 +246,23 @@ pub fn rhythm_multiplier_of(objects: &[DiffObject], at: usize) -> f64 {
         prev_obj = curr_obj;
     }
 
-    // A long run at the end matters less than the changes that led into it.
     complexity_sum *= reverse_lerp(island.count as f64, 22.0, 3.0);
 
     (4.0 + complexity_sum * RHYTHM_OVERALL_MULTIPLIER).sqrt() / 2.0
 }
 
-/// The whole map's pressing difficulty, and what it is made of.
 pub struct Speed {
-    /// One strain per object, in order.
     pub strains: Vec<f64>,
-    /// The strains that belong to sliders, kept apart for the performance side.
+
     pub slider_strains: Vec<f64>,
-    /// The sum of the weights the strains were summed with.
+
     pub weight_sum: f64,
 }
 
-/// How much the hardest objects count for against the rest.
 const HARMONIC_SCALE: f64 = 20.0;
 const DECAY_EXPONENT: f64 = 0.9;
 
 impl Speed {
-    /// Walk the map, leaving a strain at each object.
-    ///
-    /// Ported from `Speed.ObjectDifficultyOf`. The strain carries over from one
-    /// object to the next, decayed by the gap between them, so a stream builds
-    /// and a pause lets go.
     pub fn of(objects: &[DiffObject], relax: bool) -> Self {
         const SKILL_MULTIPLIER: f64 = 1.16;
 
@@ -350,7 +272,6 @@ impl Speed {
 
         for at in 0..objects.len() {
             if relax {
-                // Relax presses nothing, so there is no speed to speak of.
                 strains.push(0.0);
                 continue;
             }
@@ -372,15 +293,6 @@ impl Speed {
         }
     }
 
-    /// The strains summed with the hardest counting most.
-    ///
-    /// Ported from `HarmonicSkill.DifficultyValue`. Sorted hardest first, each
-    /// given a weight that falls away as it goes down the list, so a map with
-    /// one very hard section and a map with many moderate ones do not come out
-    /// alike.
-    ///
-    /// Objects worth nothing are dropped rather than sorted, which ppy do for
-    /// speed: a map can have thousands of them and they change no answer.
     pub fn difficulty_value(&mut self) -> f64 {
         let (value, weight_sum) = harmonic_sum(&self.strains, HARMONIC_SCALE, DECAY_EXPONENT);
         self.weight_sum = weight_sum;
@@ -388,15 +300,6 @@ impl Speed {
     }
 }
 
-/// The harmonic sum itself, and the weights it used.
-///
-/// Ported from `HarmonicSkill.DifficultyValue`. Shared because reading sums the
-/// same way at different weights: it leaves `harmonic_scale` at one where speed
-/// raises it to twenty, which is what makes speed lean so much harder on a
-/// map's few hardest presses.
-///
-/// Values of nothing are dropped rather than sorted — ppy note this is to avoid
-/// the worst case of the sort on maps that have thousands of them.
 pub fn harmonic_sum(values: &[f64], harmonic_scale: f64, decay_exponent: f64) -> (f64, f64) {
     if values.is_empty() {
         return (0.0, 0.0);
@@ -416,15 +319,6 @@ pub fn harmonic_sum(values: &[f64], harmonic_scale: f64, decay_exponent: f64) ->
 }
 
 impl Speed {
-    /// How many of the map's notes speed genuinely rests on.
-    ///
-    /// Ported from `Speed.RelevantObjectCount`. This is `speed_note_count` in
-    /// the attributes, and the denominator the deviation model reads a play's
-    /// precision against — a map whose speed lives in one burst is judged on
-    /// that burst rather than on its whole length.
-    ///
-    /// Measured against the map's own hardest press rather than against an
-    /// absolute, so it asks "how much of this map is fast *for this map*".
     pub fn note_count(&self) -> f64 {
         let hardest = self.strains.iter().copied().fold(0.0f64, f64::max);
         if self.strains.is_empty() || hardest == 0.0 {
@@ -436,7 +330,6 @@ impl Speed {
             .sum()
     }
 
-    /// The same for speed, against its own weight sum.
     pub fn count_top_weighted_sliders(&self, difficulty_value: f64) -> f64 {
         if self.slider_strains.is_empty() || self.weight_sum == 0.0 {
             return 0.0;
@@ -451,13 +344,6 @@ impl Speed {
             .sum()
     }
 
-    /// How many objects carry a strain worth calling difficult.
-    ///
-    /// Ported from `HarmonicSkill.CountTopWeightedObjectDifficulties`. The same
-    /// idea as aim's, measured against a different denominator: aim divides the
-    /// difficulty by what one section would be worth, and this divides by the
-    /// sum of the weights the strains were actually summed with — so it must be
-    /// called after [`Self::difficulty_value`], which is what fills that sum.
     pub fn top_weighted_strains(&self, difficulty_value: f64) -> f64 {
         if self.strains.is_empty() || self.weight_sum == 0.0 {
             return 0.0;
@@ -473,22 +359,10 @@ impl Speed {
     }
 }
 
-/// The figure the attributes endpoint calls `speed_difficulty`.
-///
-/// ```csharp
-/// private double calculateDifficultyRating(double difficultyValue) => Math.Sqrt(difficultyValue) * 0.0675;
-/// ```
 pub fn difficulty_rating(difficulty_value: f64) -> f64 {
     difficulty_value.sqrt() * 0.0675
 }
 
-/// What a harmonically-summed rating is worth as performance.
-///
-/// ```csharp
-/// public static double DifficultyToPerformance(double difficulty) => 4.0 * DiffUtils.Pow(difficulty, 3);
-/// ```
-///
-/// Shared with reading, which sums the same way.
 pub fn harmonic_to_performance(difficulty: f64) -> f64 {
     4.0 * difficulty.powi(3)
 }

@@ -1,14 +1,6 @@
-//! Parser tests against replays built byte-by-byte from the format spec.
-//!
-//! No `.osr` fixture is checked in: constructing the bytes here means a failure
-//! points at one field rather than "something in this opaque blob changed", and
-//! the builder doubles as executable documentation of the layout.
-
 use std::io::Cursor;
 
 use dossier_replay::{bits, GameMode, Keys, Replay, ReplayError};
-
-// ── building a replay ────────────────────────────────────────────────────
 
 #[derive(Default)]
 struct Builder {
@@ -40,7 +32,7 @@ impl Builder {
         self.buf.extend_from_slice(&v.to_bits().to_le_bytes());
         self
     }
-    /// osu! string: 0x0b, ULEB128 length, UTF-8.
+
     fn string(&mut self, s: &str) -> &mut Self {
         if s.is_empty() {
             return self.u8(0x00);
@@ -81,7 +73,7 @@ struct Spec<'a> {
     frames: &'a str,
     with_online_id: bool,
     target_accuracy: Option<f64>,
-    /// The JSON block lazer appends after everything stable understands.
+
     score_info: Option<&'a str>,
 }
 
@@ -107,18 +99,18 @@ fn build(spec: Spec<'_>) -> Vec<u8> {
         .string("d41d8cd98f00b204e9800998ecf8427e")
         .string(spec.player)
         .string("0123456789abcdef0123456789abcdef")
-        .u16(400) // 300s
-        .u16(20) // 100s
-        .u16(3) // 50s
-        .u16(90) // gekis
-        .u16(12) // katus
-        .u16(2) // misses
+        .u16(400)
+        .u16(20)
+        .u16(3)
+        .u16(90)
+        .u16(12)
+        .u16(2)
         .i32(12_345_678)
-        .u16(613) // max combo
-        .u8(0) // not a perfect combo
+        .u16(613)
+        .u8(0)
         .u32(spec.mods)
         .string("0|1,1000|0.8")
-        .i64(638_000_000_000_000_000); // Windows ticks
+        .i64(638_000_000_000_000_000);
 
     let compressed = if spec.frames.is_empty() {
         Vec::new()
@@ -140,7 +132,6 @@ fn build(spec: Spec<'_>) -> Vec<u8> {
     b.buf
 }
 
-/// What lazer actually writes, trimmed to the fields that are read.
 const LAZER_BLOCK: &str = r#"{
   "client_version": "2026.417.0-lazer",
   "rank": "S",
@@ -149,8 +140,6 @@ const LAZER_BLOCK: &str = r#"{
   "statistics": { "great": 1003, "miss": 2, "slider_tail_hit": 261 },
   "maximum_statistics": { "great": 1029, "slider_tail_hit": 261 }
 }"#;
-
-// ── header ───────────────────────────────────────────────────────────────
 
 #[test]
 fn reads_the_header_fields() {
@@ -169,15 +158,13 @@ fn reads_the_header_fields() {
 
 #[test]
 fn handles_non_ascii_player_names() {
-    // The length prefix counts BYTES, not characters — a name that disagrees
-    // with that assumption would desync every field after it.
     let bytes = build(Spec {
         player: "Сновидец",
         ..Spec::default()
     });
     let replay = Replay::parse(&bytes).unwrap();
     assert_eq!(replay.player, "Сновидец");
-    assert_eq!(replay.score, 12_345_678); // the fields after it still line up
+    assert_eq!(replay.score, 12_345_678);
 }
 
 #[test]
@@ -187,7 +174,7 @@ fn computes_hit_counts_and_accuracy() {
     assert_eq!(replay.hits.count_300, 400);
     assert_eq!(replay.hits.count_miss, 2);
     assert_eq!(replay.hits.total_hits(), 425);
-    // (300*400 + 100*20 + 50*3) / (300*425)
+
     assert!((replay.hits.accuracy_std() - 95.80).abs() < 0.01);
 }
 
@@ -218,8 +205,6 @@ fn empty_replay_reports_full_accuracy_rather_than_dividing_by_zero() {
     assert_eq!(replay.hits.accuracy_std(), 100.0);
 }
 
-// ── mods ─────────────────────────────────────────────────────────────────
-
 #[test]
 fn decodes_mods() {
     let bytes = build(Spec {
@@ -236,14 +221,13 @@ fn decodes_mods() {
 
 #[test]
 fn nightcore_displays_as_itself_not_as_doubletime() {
-    // osu! sets DT's bit alongside NC, so a naive decode prints "DTNC".
     let bytes = build(Spec {
         mods: bits::DOUBLE_TIME | bits::NIGHTCORE,
         ..Spec::default()
     });
     let replay = Replay::parse(&bytes).unwrap();
     assert_eq!(replay.mods.to_string(), "NC");
-    assert_eq!(replay.mods.speed_multiplier(), 1.5); // still time-scaled
+    assert_eq!(replay.mods.speed_multiplier(), 1.5);
 }
 
 #[test]
@@ -263,11 +247,8 @@ fn no_mods_reads_as_nomod() {
     assert_eq!(replay.mods.speed_multiplier(), 1.0);
 }
 
-// ── frames ───────────────────────────────────────────────────────────────
-
 #[test]
 fn frame_times_are_accumulated_into_absolute_values() {
-    // Stored deltas 10, 5, 20 -> absolute 10, 15, 35.
     let bytes = build(Spec {
         frames: "10|256|192|0,5|260|190|5,20|300|150|15,",
         ..Spec::default()
@@ -283,8 +264,6 @@ fn frame_times_are_accumulated_into_absolute_values() {
 
 #[test]
 fn the_seed_record_is_not_treated_as_a_frame() {
-    // Left in place, `-12345` becomes a sample far in the past and drags the
-    // whole timeline with it.
     let bytes = build(Spec {
         frames: "10|256|192|0,20|260|190|0,-12345|0|0|987654321,",
         ..Spec::default()
@@ -298,8 +277,6 @@ fn the_seed_record_is_not_treated_as_a_frame() {
 
 #[test]
 fn lead_in_frames_before_zero_are_kept() {
-    // The client records cursor movement during the lead-in; those negative
-    // times are real data, not corruption.
     let bytes = build(Spec {
         frames: "-1500|100|100|0,500|120|110|0,",
         ..Spec::default()
@@ -318,11 +295,11 @@ fn decodes_key_state() {
     let frames = Replay::parse(&bytes).unwrap().frames;
 
     assert!(!frames[0].keys.is_pressed());
-    // K1 sets M1 alongside it, which is how the client records a click.
+
     assert!(frames[1].keys.contains(Keys::K1) && frames[1].keys.contains(Keys::M1));
     assert!(frames[1].keys.is_pressed());
     assert!(frames[2].keys.contains(Keys::K2) && frames[2].keys.contains(Keys::M2));
-    // Smoke on its own is not a hit.
+
     assert!(frames[3].keys.contains(Keys::SMOKE));
     assert!(!frames[3].keys.is_pressed());
 }
@@ -334,8 +311,6 @@ fn a_replay_with_no_frame_block_parses() {
     assert_eq!(replay.rng_seed, None);
     assert_eq!(replay.duration_ms(), 0);
 }
-
-// ── optional tails ───────────────────────────────────────────────────────
 
 #[test]
 fn old_replays_without_an_online_id_still_parse() {
@@ -370,12 +345,10 @@ fn target_practice_accuracy_is_read_only_when_that_mod_is_set() {
 #[test]
 fn timestamp_converts_from_windows_ticks() {
     let replay = Replay::parse(&build(Spec::default())).unwrap();
-    // 638e15 ticks ≈ 2022-09-24; assert the epoch shift landed in this century.
+
     let unix = replay.played_at_unix();
     assert!(unix > 1_600_000_000 && unix < 2_000_000_000, "got {unix}");
 }
-
-// ── failure modes ────────────────────────────────────────────────────────
 
 #[test]
 fn truncated_input_is_an_error_not_a_panic() {
@@ -404,7 +377,7 @@ fn unknown_game_mode_is_rejected() {
 #[test]
 fn a_bad_string_marker_is_reported_with_its_offset() {
     let mut bytes = build(Spec::default());
-    bytes[5] = 0x42; // marker byte of the beatmap hash
+    bytes[5] = 0x42;
     assert!(matches!(
         Replay::parse(&bytes),
         Err(ReplayError::BadStringMarker {
@@ -426,14 +399,8 @@ fn malformed_frames_are_reported() {
     ));
 }
 
-// ── the block only lazer writes ──────────────────────────────────────────
-
 #[test]
 fn a_lazer_replay_carries_mods_the_header_cannot_express() {
-    // Classic has no legacy bit, so the header's mod field says NM however it
-    // was played. Without this block a Classic score — which scores its
-    // sliders stable's way and uses stable's note lock — is indistinguishable
-    // from an ordinary one.
     let replay = Replay::parse(&build(Spec {
         version: 30_000_016,
         score_info: Some(LAZER_BLOCK),
@@ -449,17 +416,13 @@ fn a_lazer_replay_carries_mods_the_header_cannot_express() {
     assert_eq!(acronyms, ["CL", "HD"]);
 
     let classic = replay.score_info.as_ref().unwrap().mod_named("CL").unwrap();
-    // A switch the player turned off, and one they left alone. Absent is the
-    // default, which for every Classic switch is *on* — reading a missing key
-    // as false would quietly undo half the mod.
+
     assert!(!classic.switch("no_slider_head_accuracy", true));
     assert!(classic.switch("classic_note_lock", true));
 }
 
 #[test]
 fn lazers_own_judgement_counts_come_through() {
-    // Worth more than the mods it was opened for: a count per judgement type,
-    // where the legacy header has four numbers with sliders folded into them.
     let replay = Replay::parse(&build(Spec {
         version: 30_000_016,
         score_info: Some(LAZER_BLOCK),
@@ -475,19 +438,15 @@ fn lazers_own_judgement_counts_come_through() {
 
 #[test]
 fn a_stable_replay_has_no_block_and_says_so_quietly() {
-    // Every stable replay ends where the block would start. That is not an
-    // error and must not be read as one.
     let replay = Replay::parse(&build(Spec::default())).unwrap();
     assert!(replay.score_info.is_none());
     assert!(replay.lazer_mods().is_empty());
-    // And it still knows what wrote it, from the date stamp in the header.
+
     assert_eq!(replay.client_version(), "2026.1.1");
 }
 
 #[test]
 fn a_corrupt_block_is_ignored_rather_than_fatal() {
-    // A replay is an untrusted file. A trailing block that is truncated, not
-    // JSON, or not even LZMA must cost the mods and nothing else.
     for spec in [
         Spec {
             version: 30_000_016,
@@ -504,7 +463,6 @@ fn a_corrupt_block_is_ignored_rather_than_fatal() {
         assert!(replay.score_info.is_none());
     }
 
-    // Raw rubbish where the compressed block should be.
     let mut bytes = build(Spec {
         version: 30_000_016,
         ..Spec::default()

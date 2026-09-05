@@ -1,9 +1,3 @@
-//! Slider path tests.
-//!
-//! Cases are built from shapes whose answer is known analytically — a straight
-//! line, a semicircle, a symmetric quadratic — so an assertion failure means
-//! the maths is wrong rather than "the curve moved a bit".
-
 use dossier_beatmap::{CurveType, Point, SliderPath};
 
 const EPS: f64 = 1e-6;
@@ -35,8 +29,6 @@ impl Close for f64 {
         (self - other).abs() <= tol
     }
 }
-
-// ── linear ───────────────────────────────────────────────────────────────
 
 #[test]
 fn a_straight_slider_has_the_length_of_its_line() {
@@ -77,15 +69,12 @@ fn a_multi_segment_line_measures_the_whole_chain() {
         None,
     );
     assert_close(path.length(), 200.0, EPS, "two 100px legs");
-    // Halfway is the corner.
+
     assert_point_close(path.position_at(0.5).unwrap(), p(100.0, 0.0), EPS, "corner");
 }
 
-// ── the authored length wins ─────────────────────────────────────────────
-
 #[test]
 fn the_path_is_trimmed_to_the_length_the_map_authored() {
-    // Geometry says 200px; the map says 120. osu! walks only 120.
     let path = SliderPath::new(
         CurveType::Linear,
         &[p(0.0, 0.0), p(200.0, 0.0)],
@@ -108,10 +97,6 @@ fn the_path_is_trimmed_to_the_length_the_map_authored() {
 
 #[test]
 fn a_length_beyond_the_geometry_is_extrapolated_not_clamped() {
-    // This test asserted the opposite, and was wrong. osu! stretches the last
-    // segment to meet the authored length; it does not stop the ball at the
-    // end of the drawn curve. Clamping cost a full-combo play 86 combo on an
-    // old map whose sliders draw half the length they declare.
     let path = SliderPath::new(
         CurveType::Linear,
         &[p(0.0, 0.0), p(100.0, 0.0)],
@@ -137,17 +122,13 @@ fn a_zero_length_slider_collapses_to_its_start() {
     assert_point_close(path.position_at(0.7).unwrap(), p(10.0, 10.0), EPS, "start");
 }
 
-// ── bezier ───────────────────────────────────────────────────────────────
-
 #[test]
 fn a_quadratic_bezier_passes_through_its_analytic_midpoint() {
-    // For control points A, B, C the curve at t=0.5 is (A + 2B + C) / 4.
     let (a, b, c) = (p(0.0, 0.0), p(100.0, 100.0), p(200.0, 0.0));
     let path = SliderPath::new(CurveType::Bezier, &[a, b, c], None);
 
     let want = p((a.x + 2.0 * b.x + c.x) / 4.0, (a.y + 2.0 * b.y + c.y) / 4.0);
-    // The path is arc-length parameterised, and this curve is symmetric, so
-    // half the distance is also the t=0.5 point.
+
     assert_point_close(path.position_at(0.5).unwrap(), want, 0.5, "bezier midpoint");
     assert_point_close(path.position_at(0.0).unwrap(), a, EPS, "start");
     assert_point_close(path.position_at(1.0).unwrap(), c, EPS, "end");
@@ -160,18 +141,16 @@ fn a_bezier_bulges_away_from_its_chord() {
         &[p(0.0, 0.0), p(100.0, 100.0), p(200.0, 0.0)],
         None,
     );
-    // The curve rises off the y=0 chord but never reaches the control point.
+
     let mid = path.position_at(0.5).unwrap();
     assert!(mid.y > 10.0 && mid.y < 100.0, "midpoint y = {}", mid.y);
-    // And it is longer than the chord, shorter than the control polygon.
+
     let polygon = 2.0 * (100.0f64.hypot(100.0));
     assert!(path.length() > 200.0 && path.length() < polygon);
 }
 
 #[test]
 fn a_repeated_control_point_starts_a_new_bezier_segment() {
-    // Maps encode a sharp corner by duplicating a point (a red anchor). The
-    // corner must stay sharp rather than being smoothed across.
     let corner = p(100.0, 0.0);
     let path = SliderPath::new(
         CurveType::Bezier,
@@ -182,11 +161,8 @@ fn a_repeated_control_point_starts_a_new_bezier_segment() {
     assert_point_close(path.position_at(0.5).unwrap(), corner, 0.5, "the corner");
 }
 
-// ── perfect circle ───────────────────────────────────────────────────────
-
 #[test]
 fn a_semicircle_has_the_arc_length_of_a_semicircle() {
-    // Through (0,0), (50,50), (100,0): a half turn of radius 50.
     let path = SliderPath::new(
         CurveType::PerfectCircle,
         &[p(0.0, 0.0), p(50.0, 50.0), p(100.0, 0.0)],
@@ -215,8 +191,6 @@ fn the_arc_bends_the_way_the_middle_point_says() {
 
 #[test]
 fn collinear_perfect_circle_points_fall_back_to_a_bezier() {
-    // Three points on a line have no circumcircle. The game doesn't reject the
-    // slider — it draws it as a bezier — so neither do we.
     let path = SliderPath::new(
         CurveType::PerfectCircle,
         &[p(0.0, 0.0), p(50.0, 0.0), p(100.0, 0.0)],
@@ -243,8 +217,6 @@ fn a_perfect_curve_with_more_than_three_points_falls_back_too() {
     assert!(path.length() > 0.0);
 }
 
-// ── catmull ──────────────────────────────────────────────────────────────
-
 #[test]
 fn a_catmull_path_runs_through_its_control_points() {
     let path = SliderPath::new(
@@ -257,13 +229,10 @@ fn a_catmull_path_runs_through_its_control_points() {
     assert!(path.length() > 100.0, "curved, so longer than the chord");
 }
 
-// ── repeats ──────────────────────────────────────────────────────────────
-
 #[test]
 fn repeat_sliders_bounce_back_along_the_path() {
     let path = SliderPath::new(CurveType::Linear, &[p(0.0, 0.0), p(100.0, 0.0)], None);
 
-    // Slide 0 runs forward, slide 1 runs back, slide 2 forward again.
     assert_point_close(
         path.position_at_slide(0.5, 3).unwrap(),
         p(50.0, 0.0),
@@ -311,7 +280,7 @@ fn a_single_slide_never_reverses() {
         EPS,
         "end",
     );
-    // Past the end it stays put rather than bouncing.
+
     assert_point_close(
         path.position_at_slide(5.0, 1).unwrap(),
         p(100.0, 0.0),
@@ -319,8 +288,6 @@ fn a_single_slide_never_reverses() {
         "clamped",
     );
 }
-
-// ── degenerate input ─────────────────────────────────────────────────────
 
 #[test]
 fn a_single_control_point_yields_a_point_path() {
@@ -344,8 +311,6 @@ fn no_control_points_yields_an_empty_path() {
 
 #[test]
 fn identical_control_points_terminate_instead_of_recursing_forever() {
-    // A degenerate polygon never looks "flat enough" by curvature alone; the
-    // depth guard is what stops subdivision from blowing the stack.
     let path = SliderPath::new(
         CurveType::Bezier,
         &[p(10.0, 10.0), p(10.0, 10.0), p(10.0, 10.0)],
@@ -364,8 +329,6 @@ fn non_finite_coordinates_are_dropped_rather_than_poisoning_the_path() {
     assert_close(path.length(), 100.0, EPS, "the NaN point is skipped");
 }
 
-// ── segments, for drawing a slider that is still growing ─────────────────
-
 #[test]
 fn a_segment_of_the_whole_path_keeps_every_point() {
     let path = SliderPath::new(
@@ -376,7 +339,7 @@ fn a_segment_of_the_whole_path_keeps_every_point() {
     let (start, interior, end) = path.segment(0.0, 1.0).expect("the whole path is a segment");
     assert_eq!(start, p(0.0, 0.0));
     assert_eq!(end, p(100.0, 100.0));
-    // The ends are interpolated, so the points sitting on them are not repeated.
+
     assert!(!interior.contains(&start), "the start would be drawn twice");
     assert!(!interior.contains(&end), "and so would the end");
 }
@@ -395,7 +358,6 @@ fn a_half_segment_ends_halfway_along() {
 
 #[test]
 fn a_segment_can_start_partway_in() {
-    // What a retracting slider asks for: the body behind the ball is gone.
     let path = SliderPath::new(
         CurveType::Linear,
         &[p(0.0, 0.0), p(100.0, 0.0)],
@@ -408,8 +370,6 @@ fn a_segment_can_start_partway_in() {
 
 #[test]
 fn an_empty_segment_is_nothing_to_draw() {
-    // A slider that has not begun growing has no body, and asking for a
-    // zero-length stretch should say so rather than hand back a dot.
     let path = SliderPath::new(
         CurveType::Linear,
         &[p(0.0, 0.0), p(100.0, 0.0)],
@@ -422,21 +382,8 @@ fn an_empty_segment_is_nothing_to_draw() {
     );
 }
 
-// ── the authored length wins in both directions ──────────────────────────
-
 #[test]
 fn a_path_shorter_than_its_authored_length_is_stretched_to_it() {
-    // osu! stretches the final segment rather than letting the ball stop
-    // early:
-    //
-    // ```csharp
-    // Vector2 dir = (calculatedPath[pathEndIndex] - calculatedPath[pathEndIndex - 1]).Normalized();
-    // calculatedPath[pathEndIndex] = calculatedPath[pathEndIndex - 1] + dir * (float)(expectedDistance - cumulativeLength[^1]);
-    // ```
-    //
-    // Old maps do this constantly. `Kona-Chan: Farucon Pan!`, file format v4,
-    // has sliders drawing 32 osu!pixels against an authored 65 — and the next
-    // object sits where the stretched path ends, not where the drawn one does.
     let path = SliderPath::new(CurveType::Linear, &[p(0.0, 0.0), p(0.0, -32.0)], Some(65.0));
 
     assert!((path.length() - 65.0).abs() < 1e-9, "{}", path.length());
@@ -459,8 +406,6 @@ fn a_path_longer_than_its_authored_length_is_still_cut_to_it() {
 
 #[test]
 fn a_single_point_has_no_direction_to_stretch_along() {
-    // Nothing to extrapolate from, so it stays put rather than inventing a
-    // heading and flinging the ball off the playfield.
     let path = SliderPath::new(CurveType::Linear, &[p(10.0, 10.0)], Some(65.0));
     assert_eq!(path.length(), 0.0);
 }

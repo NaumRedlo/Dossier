@@ -1,16 +1,3 @@
-//! The four key counters and their tap trail, down the right of the frame.
-//!
-//! K1, K2, M1 and M2, as osu! shows them — and which device a press belongs to
-//! is not a bit you can read on its own, because the game sets the mouse bit
-//! whenever a key is down. The count and the depth of a box are read from a table built
-//! at the start — `KeyTrack` — so a frame answers "how many presses by now" with
-//! a binary search rather than a walk, and answers it from the instant alone,
-//! which is what lets every frame be drawn in parallel.
-//!
-//! `KeyTrack` and its `build` are `pub(super)`: the `Scene` holds one as a field
-//! and builds it once when the scene is made. `draw_keys` is `pub(super)` for the
-//! overlay pass; `draw_key_trail` is its own.
-
 use super::*;
 
 use tiny_skia::{Pixmap, Transform};
@@ -20,72 +7,19 @@ use crate::layout::Layout;
 use crate::skin::{blend, with_alpha};
 use crate::text::{Align, Label};
 
-/// Cubic ease-out: fast away from zero, settling toward one.
-///
-/// The shape a key has. A press is an impact and its motion belongs at the
-/// start; linear motion on something this small reads as a slide.
 fn ease_out(x: f32) -> f32 {
     let x = x.clamp(0.0, 1.0);
     1.0 - (1.0 - x).powi(3)
 }
 
-/// The four buttons the overlay draws a counter for, in osu!'s own order.
-///
-/// This showed two for a while, folding a mouse press into the keyboard box
-/// beside it: two of the four are almost always zero — measured on a real
-/// replay, 719, 695, 41, 0 — and two empty boxes every frame looked like two
-/// boxes of nothing.
-///
-/// What settled it was a skin. Its `inputoverlay-background` turns out to be
-/// four drawn cells, two pale ones for the keyboard and two dark ones for the
-/// mouse, and every skin's is: the panel is a picture of four buttons. Showing
-/// two of them meant either squeezing a four-cell panel to hold two, which put
-/// the buttons off its edge, or leaving half of somebody's artwork empty. A
-/// zero in a box that exists is a smaller lie than either.
-///
-/// Which device a press belongs to is not a bit you can read on its own — see
-/// [`dossier_sim::CursorTrack::holds_each`].
 const KEY_NAMES: [&str; 4] = ["K1", "K2", "M1", "M2"];
 
-/// When each button was held, and for how long.
-///
-/// A table built once rather than a walk per frame. A frame has to answer *how
-/// many times has this been pressed by now*, which is a walk over thirty
-/// thousand input samples asked of every one of a hundred thousand frames — and
-/// the answer never changes, so it is a binary search over a table built at the
-/// start.
-///
-/// That is not only about speed. Every frame must be drawable without its
-/// predecessors or they cannot be drawn in parallel, and a counter that
-/// incremented as the render walked forwards would be exactly the kind of state
-/// that rules out.
-///
-/// The reading of the key bitmask — which is where the subtlety is — belongs to
-/// [`dossier_sim::CursorTrack::holds_each`], because Exhibit reads the same
-/// presses to find where the tapping is hardest and two copies of that rule
-/// would be one copy and a future bug.
 #[derive(Debug, Default)]
 pub(super) struct KeyTrack {
-    /// `(pressed_at, released_at)` per button, in time order.
     holds: [Vec<(f64, f64)>; 4],
 }
 
 impl KeyTrack {
-    /// How far down this button is at `time_ms`, from 0 to 1.
-    ///
-    /// Not the bare "is it held": a box that switched between two states on one
-    /// frame flickered through a stream, because a tap is shorter than the gap
-    /// between two frames at 60fps and half of them landed between samples.
-    /// Eased, the same taps read as taps.
-    ///
-    /// Worked out from the press table alone, so it is still a function of the
-    /// instant and nothing before it — an animation that accumulated frame by
-    /// frame is exactly the state that would stop frames being drawn in
-    /// parallel.
-    ///
-    /// A press shorter than the fall never reaches the bottom, and the release
-    /// then starts from wherever it got to. Without that a fast stream would
-    /// pump the box to full depth on every tap, which is louder than the tap.
     fn pressed(&self, key: usize, time_ms: f64, rate: f64) -> f32 {
         let (down_ms, up_ms) = (KEYS_PRESS_DOWN_MS * rate, KEYS_PRESS_UP_MS * rate);
         let holds = &self.holds[key];
@@ -95,7 +29,6 @@ impl KeyTrack {
         };
         let fell = |elapsed: f64, over: f64| ((elapsed / over.max(1e-6)).clamp(0.0, 1.0)) as f32;
         if time_ms < up {
-            // Going down: quick, and easing out so it settles rather than stops.
             return ease_out(fell(time_ms - down, down_ms));
         }
         let reached = ease_out(fell(up - down, down_ms));
@@ -108,80 +41,33 @@ impl KeyTrack {
         }
     }
 
-    /// How many times this button had gone down by `time_ms`.
     fn count(&self, key: usize, time_ms: f64) -> usize {
         self.holds[key].partition_point(|(from, _)| *from <= time_ms)
     }
 }
 
-/// How far in from the right edge the key column sits, as a share of the width.
 const KEYS_INSET: f64 = 0.018;
-/// One button's box, as a share of the frame height.
+
 const KEYS_BOX: f64 = 0.052;
-/// How much wider than tall a box is.
-///
-/// A tap counter reaches four figures on a marathon and the box has to hold
-/// them without the type shrinking away — square, "1234" filled the plate edge
-/// to edge and read as a smear at a glance.
+
 const KEYS_WIDTH: f32 = 1.35;
-/// Gap between boxes, as a share of one box.
+
 const KEYS_GAP: f32 = 0.18;
-/// How long a stretch of tapping the trail shows, in milliseconds of watching.
-///
-/// A second and a bit. Two seconds held more of the play and moved at a crawl:
-/// the marks barely travelled between frames, which reads as a static pattern
-/// rather than as tapping happening. Shorter is faster over the same reach, and
-/// faster is what makes the trail look like an instrument.
-///
-/// The floor on it is legibility at speed: a 200 BPM stream is about thirteen
-/// presses a second, so this window holds seventeen of them, which is a pattern
-/// the eye can still resolve.
+
 const KEYS_TRAIL_MS: f64 = 1_300.0;
 
-/// How far the trail reaches left of the boxes, as a share of the frame width.
 const KEYS_TRAIL_REACH: f64 = 0.135;
 
-/// The shortest a mark may be drawn, as a share of the trail's reach.
-///
-/// A tap is twenty-odd milliseconds, which over any window worth showing is a
-/// hairline — literally one pixel at 1280 wide. Drawn at its true length the
-/// trail was a row of scratches; given a floor, each press is a block with a
-/// shape, and the shape is the whole point. The length still grows with a long
-/// hold, so a dragged slider is visibly one bar and not a tap.
 const KEYS_MARK_MIN: f32 = 0.03;
 
-/// How tall a mark is against its box.
 const KEYS_MARK_HEIGHT: f32 = 0.6;
 
-/// How far a box shrinks while its button is down.
-///
-/// Small. The counter jumping is what says a press happened; this is what says
-/// it is still happening, and a box that visibly leapt about would pull the eye
-/// off the play every time somebody tapped.
 const KEYS_PRESS_SHRINK: f32 = 0.14;
 
-/// How long a box takes to go down, and to come back up, in milliseconds of
-/// watching.
-///
-/// Down fast and up slower. A press that eased in would read as late — the
-/// sound and the note have already happened — while a release that snapped back
-/// made a stream look like a strobe. Coming up over twice the time turns the
-/// same taps into something the eye can follow.
 const KEYS_PRESS_DOWN_MS: f64 = 45.0;
 const KEYS_PRESS_UP_MS: f64 = 110.0;
 
 impl Scene<'_> {
-    /// The stretch of tapping behind each counter, running off to the left.
-    ///
-    /// The counter says how much; this says *how*. A stream alternates in even
-    /// pairs, a doubletap comes in twos with a gap, a dragged slider is one long
-    /// block, and somebody struggling taps unevenly — none of which a number
-    /// climbing by one can show, and all of which are the whole reason to watch
-    /// somebody else's replay.
-    ///
-    /// Time runs right to left, newest against the box, so the marks flow away
-    /// the way the play has just gone. Older ones fade out rather than stopping
-    /// at a hard edge, which would read as a wall the taps are hitting.
     fn draw_key_trail(
         &self,
         pixmap: &mut Pixmap,
@@ -194,9 +80,7 @@ impl Scene<'_> {
         let (right, top, height) = place;
         let reach = (f64::from(layout.width) * KEYS_TRAIL_REACH) as f32;
         let rate = self.state.playback_rate().max(0.001);
-        // The window is map time, so under a rate mod it covers more of the map
-        // — which is right: two seconds of *watching* is what the eye is given,
-        // whatever the map is doing underneath.
+
         let window = KEYS_TRAIL_MS * rate;
         let from = time_ms - window;
 
@@ -214,16 +98,12 @@ impl Scene<'_> {
                 continue;
             }
             let (left, width) = (x_of(a), (x_of(b) - x_of(a)).max(1.0));
-            // A tap is an instant and would be a hairline; given a floor it
-            // reads as a block. The floor is a share of the reach rather than a
-            // number of milliseconds because what is at stake is whether it can
-            // be seen, and that is a question about pixels.
+
             let width = width.max(reach * KEYS_MARK_MIN);
             let Some(mark) = rounded_rect(left, bar_top, width, bar, bar * 0.35) else {
                 continue;
             };
-            // Fading with age, so the trail thins into the frame instead of
-            // ending at a line.
+
             let age = ((time_ms - b) / window).clamp(0.0, 1.0) as f32;
             let mut paint = Paint {
                 anti_alias: true,
@@ -243,16 +123,6 @@ impl Scene<'_> {
         }
     }
 
-    /// The button counters down the right edge.
-    ///
-    /// osu!'s key overlay, which is the one part of its HUD that says something
-    /// about the *player* rather than about the play: how they are holding the
-    /// map — alternating, single-tapping, dragging with the mouse — is legible
-    /// here and nowhere else on the screen.
-    ///
-    /// The right edge because that is where osu! puts it and because it is the
-    /// only free side: the scoreboard has the left, and the score and accuracy
-    /// have the top.
     pub(super) fn draw_keys(
         &self,
         pixmap: &mut Pixmap,
@@ -275,15 +145,11 @@ impl Scene<'_> {
         let box_wide = box_side * KEYS_WIDTH;
         let step = box_side * (1.0 + KEYS_GAP);
         let right = (width * (1.0 - KEYS_INSET)) as f32;
-        // Centred on the frame, so the column is a fixed landmark rather than
-        // something that moves with whatever is above or below it.
+
         let top = (height as f32 - (step * 4.0 - box_side * KEYS_GAP)) / 2.0;
 
         let rate = self.state.playback_rate().max(0.001);
         for (index, name) in KEY_NAMES.iter().enumerate() {
-            // How far down, not whether down: every part of the box follows the
-            // same number, so the shrink, the fill and the border move together
-            // instead of one snapping while the others slide.
             let down = self.keys.pressed(index, time_ms, rate);
             if self.skin.key_bars {
                 self.draw_key_trail(pixmap, index, time_ms, layout, presence, {
@@ -305,12 +171,7 @@ impl Scene<'_> {
                 anti_alias: true,
                 ..Default::default()
             };
-            // Held, the box fills with the same red the engine uses for
-            // everything that is happening *now*; loose, it is a dark plate
-            // that keeps the column readable over a bright background.
-            // The plate crossfades to the engine's red rather than switching to
-            // it, which is what makes a fast stream read as a pulse instead of
-            // a strobe.
+
             let body = with_alpha(
                 blend(self.skin.background, self.skin.verdict_miss, down),
                 (0.55 + 0.30 * down) * presence,
@@ -335,8 +196,6 @@ impl Scene<'_> {
                 None,
             );
 
-            // The name above the count and much smaller: which button this is
-            // never changes, and the number does.
             font.draw(
                 pixmap,
                 Label {
@@ -348,9 +207,7 @@ impl Scene<'_> {
                     align: Align::Centre,
                 },
             );
-            // The count in the skin's own figures when it has them. The label
-            // above it stays ours: `K1` is lettering, and a skin's HUD set is
-            // digits and four signs — there is no `K` in it to borrow.
+
             let count = count.to_string();
             if !self.draw_hud_text(
                 pixmap,
@@ -395,9 +252,6 @@ mod keys {
         KeyTrack::build(&dossier_sim::CursorTrack::new(frames), false)
     }
 
-    /// The detail the whole element turns on. osu! sets the mouse bit as well
-    /// when a keyboard button goes down, so K1 arrives as `M1 | K1` — and the
-    /// two bits read together are one press, not two.
     #[test]
     fn a_keyboard_press_is_one_press_and_not_two() {
         let track = track(&[
@@ -412,8 +266,6 @@ mod keys {
         assert_eq!(track.count(0, 100.0), 3);
     }
 
-    /// …and a press made with the mouse alone lands in the *mouse's* button,
-    /// which is the whole point of showing four.
     #[test]
     fn a_mouse_press_lands_in_the_mouse_button() {
         let track = track(&[(0, 0), (10, Keys::M1), (20, 0), (30, Keys::M2), (40, 0)]);
@@ -423,9 +275,6 @@ mod keys {
         assert_eq!(track.count(3, 100.0), 1, "M2");
     }
 
-    /// And a keyboard press does *not* also land in the mouse's button, which is
-    /// the trap: osu! sets the mouse bit whenever a key is down, so reading `M1`
-    /// straight off the bitmask counts every keyboard press a second time.
     #[test]
     fn a_keyboard_press_is_not_counted_as_a_mouse_press_as_well() {
         let track = track(&[
@@ -445,9 +294,6 @@ mod keys {
         assert_eq!(track.count(3, 100.0), 0, "M2");
     }
 
-    /// The counter is what it was at that instant, not what it ends at — a
-    /// frame has to be drawable without the frames before it, which is what
-    /// lets them be drawn in parallel.
     #[test]
     fn a_count_is_as_of_the_instant_asked_for() {
         let track = track(&[(0, 0), (100, Keys::K1), (150, 0), (200, Keys::K1), (250, 0)]);
@@ -456,10 +302,6 @@ mod keys {
         assert_eq!(track.count(0, 220.0), 2);
     }
 
-    /// The box follows a number between nought and one, not a switch. A tap is
-    /// shorter than the gap between two frames at 60fps, so half of them land
-    /// between samples — switched, a stream flickers; eased, the same taps read
-    /// as taps.
     #[test]
     fn a_press_goes_down_over_time_rather_than_at_once() {
         let track = track(&[(0, 0), (100, Keys::K1), (400, 0)]);
@@ -472,8 +314,6 @@ mod keys {
         assert!(at(390.0) > 0.99, "and staying there");
     }
 
-    /// Coming back up takes longer than going down, and long enough after a
-    /// release the box is at rest.
     #[test]
     fn a_release_comes_back_slower_than_the_press_went_down() {
         let track = track(&[(0, 0), (100, Keys::K1), (400, 0)]);
@@ -481,9 +321,6 @@ mod keys {
         assert!(at(430.0) > 0.2, "still visibly down a frame or two after");
         assert!(at(520.0) < 0.01, "and at rest well after");
 
-        // The claim stated properly: thirty milliseconds after each edge, the
-        // press has travelled further down than the release has travelled back
-        // up. Down in 45ms and up in 110ms is what makes that true.
         let gone_down = at(130.0);
         let come_up = 1.0 - at(430.0);
         assert!(
@@ -492,9 +329,6 @@ mod keys {
         );
     }
 
-    /// A tap shorter than the fall never reaches the bottom, and the release
-    /// starts from wherever it got to. Without that a fast stream pumps the box
-    /// to full depth on every tap, which is louder than the tap.
     #[test]
     fn a_tap_too_short_to_land_starts_back_from_where_it_reached() {
         let track = track(&[(0, 0), (100, Keys::K1), (110, 0)]);
@@ -504,132 +338,42 @@ mod keys {
         assert!(at(140.0) < peak, "and comes back from there");
     }
 
-    /// The animation is in seconds of watching, so a rate mod does not make it
-    /// twice as quick: a press should feel the same whatever the map is doing.
     #[test]
     fn the_animation_keeps_its_pace_under_a_rate_mod() {
         let track = track(&[(0, 0), (100, Keys::K1), (900, 0)]);
         let plain = track.pressed(0, 130.0, 1.0);
-        // Under DoubleTime the same instant of watching is half again as much
-        // map time, so the same point in the animation is further along it.
+
         let fast = track.pressed(0, 100.0 + 30.0 * 1.5, 1.5);
         assert!((plain - fast).abs() < 1e-6, "{plain} against {fast}");
     }
 
-    /// A button still down when the recording stops was still pressed, and a
-    /// finish is exactly where somebody would be looking at the counter.
     #[test]
     fn a_button_still_down_at_the_end_still_counts() {
         let track = track(&[(0, 0), (100, Keys::K2)]);
         assert_eq!(track.count(1, 200.0), 1);
-        // …and the box is down at that last instant rather than at rest,
-        // which is what the one-millisecond close is for.
+
         assert!(track.pressed(1, 100.5, 1.0) > 0.0);
     }
 }
 
-/// The overlay's own measurements, in the 768-unit space stable states its
-/// interface in.
-///
-/// ```csharp
-/// // LegacyKeyCounterDisplay
-/// Scale = new Vector2(1.05f, 1);   Rotation = 90;     // the plate
-/// X = -1.5f, Y = 7;  Spacing = new Vector2(1.8f);     // the row of keys
-/// static readonly Colour4 active_colour_top    = Colour4.FromHex(@"#ffde00");
-/// static readonly Colour4 active_colour_bottom = Colour4.FromHex(@"#f8009e");
-///
-/// // LegacyKeyCounter
-/// private const float transition_duration = 160;
-/// Height = Width = 46;
-/// keyContainer.ScaleTo(0.75f, transition_duration, Easing.Out);
-/// keySprite.Colour = ActiveColour;
-/// ```
 const OVERLAY_KEY: f32 = 46.0;
 const OVERLAY_SPACING: f32 = 1.8;
 const OVERLAY_PRESSED: f32 = 0.75;
-/// How far in from the right edge the buttons sit, and how far down the plate.
-///
-/// Not the middle of the plate, which is where they were put first and where
-/// they looked wrong: the plate's artwork is not symmetric — this one bulges on
-/// its left — so the geometric centre reads as left of centre. osu! does not
-/// centre them either. It hangs the row off the right edge and drops it seven
-/// units, which is the same answer arrived at honestly.
+
 const OVERLAY_KEY_INSET: f32 = 1.5;
 const OVERLAY_KEY_DROP: f32 = 7.0;
-/// How far above the middle of the frame the plate's *top* edge hangs.
-///
-/// ```csharp
-/// // the plate, and then every key, off one number
-/// y = height / 2 + (teams ? 40 : -40);
-/// plate  = new pSprite(…, new Vector2(width,      y));       // TopRight
-/// key[i] = new pSprite(…, new Vector2(width - 15, y + 19 + 29.5f * i));
-/// ```
-///
-/// Stated in the 640×480 space, so ×1.6 into the 768 one this engine uses:
-/// 64 above the middle, keys 30.4 below that and 47.2 apart, 24 in from the
-/// right edge. Two of those check the reading: a 46-unit key centred 30.4
-/// down starts 7.4 below the plate's top, and centred 24 in from the right
-/// stops 1 short of the edge — which are the seven and the one-and-a-half
-/// above, arrived at from the other side.
-///
-/// The point of it is what is *missing*: the plate's size is in none of it.
-/// osu! hangs the row off a fixed point and draws the panel behind it, so a
-/// skin shipping a taller or longer panel moves the panel and not the keys.
-/// Centring the plate instead — which is what this did — moved the keys with
-/// it, by 37 units on osu!'s own panel and 94 on the longest of the skins
-/// here.
+
 const OVERLAY_PLATE_RISE: f32 = 64.0;
-/// How much wider than tall the game draws the plate before standing it up.
-///
-/// ```csharp
-/// Scale = new Vector2(1.05f, 1);   Rotation = 90;
-/// ```
-///
-/// The plate is drawn at the length the skin gave it, times this. It used to be
-/// squeezed to fit the two keys we show instead of the four osu! shows, on the
-/// reasoning that a panel trailing off into empty artwork looks like a bug —
-/// and squeezing it broke something quieter: stable's seven-unit drop from the
-/// plate's top is a *constant*, so on a plate shortened by half it ate almost
-/// all the slack and left the keys hanging off the top edge. Reported as
-/// exactly that. A panel at its own size with room to spare below is the
-/// honest shape of showing two of four.
+
 const OVERLAY_STRETCH: f32 = 1.05;
 
 impl Scene<'_> {
-    /// The key overlay as the skin draws it: a plate stood on its end, a button
-    /// per key, and the count on the button.
-    ///
-    /// Ours is a column of rounded cards with a trail behind each — a good
-    /// readout and not this one. When a skin brings the two files osu! draws
-    /// this from, they win, the same way they do everywhere else.
     fn draw_skin_keys(&self, pixmap: &mut Pixmap, time_ms: f64, layout: &Layout, presence: f32) {
-        // At the size the skin drew it, not at ours.
-        //
-        // `OVERLAY_KEY` is osu!'s own figure and is only right for a file
-        // cropped the way osu!'s own is. WhiteCat's key is 130×100 with the
-        // button itself sitting in one corner and the rest transparent
-        // padding; squeezed into 46 units the button came out ten pixels wide,
-        // hanging off the right edge, and read as a clipped sprite.
-        //
-        // Every other HUD element already takes the skin's own size as its
-        // ruler — the score digits, the cursor, the scorebar. This is the same
-        // rule, and it is the only one that can be right for a file whose
-        // padding we cannot know.
         let (key, key_tall) = self.key_size(layout);
         let gap = self.skin_pixels(layout, OVERLAY_SPACING);
-        // Flush with the edge of the frame. Ours is inset because it is a
-        // floating column of cards and a card wants air around it; this is a
-        // panel, and osu! hangs it off the edge — `Anchor = Anchor.TopRight`
-        // with nothing subtracted. Inset, it reads as having come loose.
+
         let right = layout.width as f32;
 
-        // The plate first, standing on its end: its own file is drawn lying
-        // down and the game turns it a quarter turn, so the strip's width is
-        // the *height* the skin drew and its length is the width.
-        //
-        // Where it hangs is fixed, and deliberately not derived from the plate:
-        // osu! puts the plate's top 64 units above the middle whatever the plate
-        // measures, and the keys seven below that. See `OVERLAY_PLATE_RISE`.
         let (plate, length) = self.plate_size(layout);
         let plate_top = layout.height as f32 / 2.0 - self.skin_pixels(layout, OVERLAY_PLATE_RISE);
         if length > 0.0 {
@@ -645,21 +389,12 @@ impl Scene<'_> {
         let rate = self.state.playback_rate().max(0.001);
         for index in 0..KEY_NAMES.len() {
             let down = self.keys.pressed(index, time_ms, rate);
-            // Held, the button shrinks and lights. Both follow the one number,
-            // so a fast stream reads as a pulse rather than a strobe.
-            //
-            // It shrinks *into the wall*: the edge against the frame stays put
-            // and the button pulls away from the count beside it. Shrinking
-            // about its own centre, which is what this did, drew the button
-            // toward the number and away from the edge — a key pressing
-            // sideways into the middle of the screen.
+
             let side = key * (1.0 + (OVERLAY_PRESSED - 1.0) * down);
             let wall = right - self.skin_pixels(layout, OVERLAY_KEY_INSET);
             let centre_x = wall - key / 2.0;
             let pressed_centre_x = wall - side / 2.0;
-            // Stacked by how tall the key is, not how wide. A file wider than
-            // it is high — which a padded one usually is — spread the column
-            // over the whole side of the frame when the step was its width.
+
             let centre_y = top + (key_tall + gap) * index as f32 + key_tall / 2.0;
 
             let lit = blend(tiny_skia::Color::WHITE, active_colour(index), down);
@@ -671,20 +406,8 @@ impl Scene<'_> {
                 presence,
             );
 
-            // The count sits on the button in the skin's own HUD figures —
-            // `LegacySpriteText(LegacyFont.ScoreEntry)`, which is the `score-`
-            // set. Sized off the button rather than the frame so it stays on
-            // it whatever the skin drew.
             let count = self.keys.count(index, time_ms).to_string();
-            // Sized off the button's *resting* size, and placed off it too, so
-            // the count holds still while the button moves. The two are
-            // separate things: one is a readout and the other is a key, and a
-            // number that shrank and slid every time somebody tapped was the
-            // hardest thing on the screen to read.
-            // A third of the button, not two fifths. osu!'s own counter is a
-            // small figure on a key rather than a number the key is wrapped
-            // around, and at 0.42 a three-digit count filled the button edge to
-            // edge.
+
             let text = key * 0.32;
             let count_x = centre_x + self.key_count_offset(side);
             if !self.draw_hud_text(
@@ -713,28 +436,7 @@ impl Scene<'_> {
         }
     }
 
-    /// How wide and how tall the plate stands, in screen pixels.
-    ///
-    /// `(0, 0)` when the skin brought none — a skin may ship the buttons and
-    /// leave the panel out, or blank it, and both mean the same thing here.
-    /// How wide and how tall the skin drew one key, in screen pixels.
-    ///
-    /// `OVERLAY_KEY` when it drew none, which is the size osu! uses for its
-    /// own — right for that file and for any other cropped like it, and wrong
-    /// for one that carries padding.
     fn key_size(&self, layout: &Layout) -> (f32, f32) {
-        // The whole file, at the size the skin drew it — padding included.
-        //
-        // The padding is not waste. WhiteCat draws its button in one corner of
-        // a canvas four times its size, and that is how the button ends up to
-        // the right of the count in the game: osu! centres the *file* on the
-        // key's place and the count with it, so where the author put the button
-        // inside it is where the button appears.
-        //
-        // Fitting the file into osu!'s own 46 units instead squeezed a
-        // 130-pixel canvas into 46, which left the button a ten-pixel sliver;
-        // fitting the *button* into 46 threw the author's offset away and put
-        // it back under the number. Both were tried and both were reported.
         match self.key_art() {
             Some((art, _, _, _, _)) => (
                 self.skin_pixels(layout, art.width() as f32 / self.key_per()),
@@ -747,7 +449,6 @@ impl Scene<'_> {
         }
     }
 
-    /// The `@2x` factor on the key's file, or one.
     fn key_per(&self) -> f32 {
         self.skin
             .sprites
@@ -756,12 +457,6 @@ impl Scene<'_> {
             .map_or(1.0, |(_, per)| per)
     }
 
-    /// Where the count goes: the middle of whatever the file leaves empty to
-    /// the left of its button, or the middle of the file when it leaves none.
-    ///
-    /// On a padded skin this is what keeps the figure off the button beside it.
-    /// On osu!'s own file, whose canvas and button are the same rectangle, it
-    /// is the middle of the button, which is where the game puts it.
     fn key_count_offset(&self, wide: f32) -> f32 {
         match self.key_art() {
             Some((art, _, _, left, _)) if left > 1.0 => {
@@ -772,19 +467,6 @@ impl Scene<'_> {
         }
     }
 
-    /// The key's picture, the size of the *button* in it, and where that button
-    /// sits inside the file.
-    ///
-    /// A skin may draw its button in a corner of a much larger transparent
-    /// canvas — WhiteCat's is 130×100 with the button in a 32×36 patch at the
-    /// bottom right — and the padding is not something a renderer can read an
-    /// intention out of. Placed by the canvas, that button lands 24 units right
-    /// of where a key goes, which on a column already flush with the frame's
-    /// edge puts it off it.
-    ///
-    /// So the button is what gets measured and what gets centred, and a file
-    /// cropped the way osu!'s own is behaves exactly as it did — its canvas and
-    /// its button are the same rectangle.
     fn key_art(&self) -> Option<(&tiny_skia::Pixmap, f32, f32, f32, f32)> {
         let (art, per) = self
             .skin
@@ -805,8 +487,7 @@ impl Scene<'_> {
         if x1 <= x0 || y1 <= y0 {
             return None;
         }
-        // In the file's own pixels, because that is what `draw_pixmap` scales.
-        // The `@2x` factor cancels out of every ratio taken from these.
+
         let _ = per;
         Some((
             art,
@@ -824,15 +505,13 @@ impl Scene<'_> {
         let Some((art, per)) = sprites.coloured(Element::InputOverlayBackground, 0) else {
             return (0.0, 0.0);
         };
-        // Turned a quarter: the file's height becomes the strip's width and its
-        // width becomes the length, which is the axis the game stretches.
+
         (
             self.skin_pixels(layout, art.height() as f32 / per),
             self.skin_pixels(layout, art.width() as f32 / per) * OVERLAY_STRETCH,
         )
     }
 
-    /// A sprite turned a quarter turn and stretched into a box.
     fn draw_upright(
         &self,
         pixmap: &mut Pixmap,
@@ -849,8 +528,7 @@ impl Scene<'_> {
         if alpha <= 0.0 || wide <= 0.0 || tall <= 0.0 {
             return;
         }
-        // Turned about the top-left corner and then walked back into place,
-        // which is what `Origin = TopLeft, Rotation = 90` comes to.
+
         let transform = Transform::from_translate(x + wide, y)
             .pre_rotate(90.0)
             .pre_scale(tall / art.width() as f32, wide / art.height() as f32);
@@ -868,7 +546,6 @@ impl Scene<'_> {
         );
     }
 
-    /// One button, in the colour it is lit.
     fn draw_key_sprite(
         &self,
         pixmap: &mut Pixmap,
@@ -887,7 +564,7 @@ impl Scene<'_> {
             return;
         }
         let painted = crate::imported::tinted(art, colour);
-        // The whole file into the slot, padding and all — see `key_size`.
+
         let scale = side / art.width() as f32;
         pixmap.draw_pixmap(
             0,
@@ -904,8 +581,6 @@ impl Scene<'_> {
     }
 }
 
-/// The two colours osu! lights a held key in — the game's own, nothing to do
-/// with the map's palette. The first two keys take the top one.
 fn active_colour(key: usize) -> tiny_skia::Color {
     if key < 2 {
         tiny_skia::Color::from_rgba8(0xff, 0xde, 0x00, 0xff)

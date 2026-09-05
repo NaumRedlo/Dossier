@@ -1,10 +1,7 @@
-//! Turning one judged replay into output — for a person or for a program.
-
 use dossier_sim::{MissContext, Verification};
 
 use dossier_replay::HitCounts;
 
-/// What the `.osr` header says, before any map is involved.
 pub struct Header {
     pub replay_path: String,
     pub client: String,
@@ -16,9 +13,7 @@ pub struct Header {
     pub max_combo: u32,
     pub frames: usize,
     pub duration_ms: i64,
-    /// What lazer appends after the part stable understands: the build that
-    /// recorded the play, the mods it has no legacy bit for, and a count per
-    /// judgement type. Empty for a stable replay, which carries none of it.
+
     pub lazer_mods: Vec<String>,
     pub statistics: Vec<(String, i64)>,
 }
@@ -44,16 +39,12 @@ impl Header {
         ) + &self.lazer_lines()
     }
 
-    /// The block only lazer writes, printed only when it is there.
     fn lazer_lines(&self) -> String {
         let mut out = String::new();
         if !self.lazer_mods.is_empty() {
             out.push_str(&format!("   mods*   {}\n", self.lazer_mods.join(" ")));
         }
         if !self.statistics.is_empty() {
-            // Its own judgement types, not the four the header folds them
-            // into: this is the closest thing to a per-object answer a replay
-            // carries, and the only ground truth there is for slider tails.
             let shown: Vec<String> = self
                 .statistics
                 .iter()
@@ -86,12 +77,10 @@ impl Header {
 
 pub struct Report {
     pub replay_path: String,
-    /// Which client judged this play, and at what version — the two rulesets
-    /// genuinely differ, so every number below is read under one or the other.
+
     pub client: String,
     pub map_source: String,
-    /// The map the replay names, by hash — what the corpus manifest pins and
-    /// what `tools/fetch-maps.py` goes and fetches.
+
     pub beatmap_md5: String,
     pub title: String,
     pub player: String,
@@ -101,54 +90,45 @@ pub struct Report {
     pub our_accuracy: f64,
     pub their_accuracy: f64,
     pub misses: Vec<MissContext>,
-    /// Sliders whose tail survived only on the lenience window.
+
     pub lenient_tails: usize,
-    /// …and those credited out at the rim of the follow circle.
+
     pub tails_near_the_rim: usize,
-    /// Combo a flawless play would reach, by our count of the parts.
+
     pub max_possible_combo: u32,
-    /// Our combo runs, longest first — only interesting when the combo
-    /// disagrees, and then it is the fastest way to the object responsible.
+
     pub combo_chains: Vec<dossier_sim::ComboChain>,
-    /// The two objects the game's extra break can have fallen on.
+
     pub combo_suspects: Vec<dossier_sim::Suspect>,
-    /// What became of every press in the replay.
+
     pub presses: dossier_sim::PressSummary,
-    /// …and the same presses one by one, for reading a window of the play.
+
     pub press_detail: Vec<dossier_sim::PressDetail>,
-    /// The fifty window in force, for measuring how close a hit came to not
-    /// being one.
+
     pub window_50: f64,
-    /// Our count of each of lazer's judgement types against lazer's own, for
-    /// the replays that carry them. Empty otherwise.
+
     pub parts: Vec<PartCheck>,
-    /// How far our score is from the header's, as a percentage. `None` where
-    /// the two cannot honestly be compared — see `ScoreTrack::comparable`.
+
     pub score_error: Option<f64>,
 }
 
-/// One of lazer's judgement types, ours against theirs.
 pub struct PartCheck {
     pub name: String,
     pub ours: i64,
     pub theirs: i64,
 }
 
-/// What our misses have in common — the difference between "the simulator put
-/// the note in the wrong place" and "the player missed".
 pub struct MissSummary {
     pub circles: usize,
     pub sliders: usize,
     pub spinners: usize,
-    /// Misses with a click close by in time.
+
     pub with_nearby_click: usize,
-    /// …of those, the ones that landed just outside the circle.
+
     pub geometry_suspects: usize,
-    /// Median overshoot of those, in osu!pixels past the edge.
+
     pub median_overshoot_px: Option<f64>,
-    /// Across failed spinners: turns swept against turns demanded. The ratio
-    /// says which side is wrong — a consistent fraction points at the
-    /// requirement, a near-zero one points at the counting.
+
     pub spin_rotations: Option<f64>,
     pub spin_required: Option<f64>,
 }
@@ -213,12 +193,6 @@ impl Report {
         self.check.is_exact()
     }
 
-    /// Per judgement type, where the replay carries lazer's own counts.
-    ///
-    /// The legacy header has four numbers with every slider folded into them,
-    /// so a slider tail we drop and a tick we invent cancel out and neither is
-    /// visible. This does not fold: it is the nearest thing to a per-object
-    /// answer a replay carries.
     fn parts_block(&self) -> String {
         if self.parts.is_empty() {
             return String::new();
@@ -296,16 +270,6 @@ impl Report {
         out
     }
 
-    /// Our longest combo runs, and — when we hold a longer one than the replay
-    /// does — the part that sits where the game must have broken.
-    ///
-    /// A combo that reads too high means the game broke somewhere we did not.
-    /// The break has to fall inside our longest run, and it has to leave the
-    /// game with its own maximum, which pins roughly where to look instead of
-    /// leaving the whole map to search.
-    /// Our combo runs, longest first — printed whenever the combo disagrees,
-    /// in either direction, because the run that disagrees is the thing to go
-    /// and look at and this is the only place its shape is visible.
     fn combo_runs(&self) -> String {
         let (ours, theirs) = (self.check.our_max_combo, self.check.their_max_combo);
         if ours == theirs || self.combo_chains.is_empty() {
@@ -340,10 +304,7 @@ impl Report {
             return String::new();
         }
         let mut out = String::new();
-        // The two-candidate arithmetic only holds if the game broke exactly
-        // once more than we did. Every object we scored above the game is a
-        // break it may have taken and we did not, so more than one of those
-        // and the split could be anywhere.
+
         let generous =
             u32::from(self.check.ours.count_300).saturating_sub(self.check.theirs.count_300.into());
         if !self.combo_suspects.is_empty() {
@@ -371,15 +332,6 @@ impl Report {
         out
     }
 
-    /// The mirror case: our combo reads too *low*, so we broke a run the game
-    /// held together.
-    ///
-    /// There is no two-candidate arithmetic to run in this direction — the
-    /// game's run is the longer one, so it contains ours — but that is exactly
-    /// what pins the answer when the gap is a single part: our run sits inside
-    /// theirs, so our extra break is at one of its two ends. Either the part
-    /// that ended our run, or the one that ended the run before it and should
-    /// not have.
     fn early_break(&self) -> String {
         let (ours, theirs) = (self.check.our_max_combo, self.check.their_max_combo);
         let Some(longest) = self.combo_chains.first() else {
@@ -396,8 +348,7 @@ impl Report {
             ),
             None => "the end of the play — nothing broke it".to_owned(),
         };
-        // The run that ended last before ours began: the break we took there is
-        // what kept our run from starting a part earlier.
+
         let before = self
             .combo_chains
             .iter()
@@ -420,8 +371,6 @@ impl Report {
                     ));
                 }
                 None => {
-                    // Nothing ended before it, so the run starts where the play
-                    // does and only one end is in question.
                     out.push_str(&format!(
                         "   Ours runs from the first object, so the break is where it ended:\n      {}\n",
                         describe(longest)
@@ -432,16 +381,6 @@ impl Report {
         out
     }
 
-    /// Says so when the play ended before the map did, and over how much of it
-    /// the numbers below were taken.
-    ///
-    /// A player whose health runs out stops being judged where they died, so
-    /// the header accounts for fewer objects than the map has. Scored to the
-    /// end regardless, such a play reads as hundreds of misses nobody made —
-    /// a failed run of a 1127-object map came out 869 misses adrift. Both
-    /// sides are therefore counted over the objects the play reached, which
-    /// leaves a real comparison: the same objects, and the question of whether
-    /// we judged them the way osu! did.
     fn incomplete_play(&self) -> String {
         if self.check.finished() {
             return String::new();
@@ -453,14 +392,6 @@ impl Report {
         )
     }
 
-    /// Where every click in the replay went.
-    ///
-    /// The counts add up to the number of presses, which is the point: a play
-    /// that scores badly can be asked *which* of the ways it went wrong rather
-    /// than only how much. Runs of refusals matter more than the total — a
-    /// scattered few are a player clicking early here and there, while a run is
-    /// the note lock having lost the thread, and the timestamp says where to
-    /// look.
     pub fn trace(&self, window: Option<(f64, f64)>) -> String {
         let p = &self.presses;
         if p.total() == 0 {
@@ -501,13 +432,6 @@ impl Report {
         out
     }
 
-    /// Every click inside a window, one line each.
-    ///
-    /// The totals say a play went wrong; a run of them says roughly where. This
-    /// is the last step of that descent — the clicks themselves, with what each
-    /// was tested against — and it is where every judgement question so far has
-    /// actually been settled. Only inside a window, because a whole replay is
-    /// thousands of lines and nobody reads those.
     fn presses_between(&self, window: Option<(f64, f64)>) -> String {
         let Some((from, to)) = window else {
             return String::new();
@@ -527,9 +451,7 @@ impl Report {
                 ),
                 _ => "nothing".to_owned(),
             };
-            // How far back the blocker sits is the shape of a cascade: one
-            // note behind is a player trailing their own stream, twenty is a
-            // player mashing at a note they abandoned long ago.
+
             let blocker = match (press.blocked_by, press.object_index) {
                 (Some(blocked_by), Some(index)) => {
                     format!(" ← blocked by #{blocked_by}, {} back", index - blocked_by)
@@ -549,17 +471,6 @@ impl Report {
         out
     }
 
-    /// The hits that came closest to not being hits.
-    ///
-    /// When the totals say we credited objects the game did not, and every
-    /// structural explanation has been ruled out, what is left is to ask which
-    /// of our hits are least sure of themselves. A press is scored by the room
-    /// it had — the fraction of the radius it stayed inside, and the fraction
-    /// of the fifty window — and the thinnest margins come first.
-    ///
-    /// This ranks; it does not decide. A thin margin is not evidence of a
-    /// wrong verdict, only the place to look when something must be wrong and
-    /// nothing else tells one hit from another.
     pub fn marginal(&self, count: usize) -> String {
         let mut rows: Vec<(f64, f64, f64, &dossier_sim::PressDetail)> = self
             .press_detail
@@ -593,7 +504,6 @@ impl Report {
         out
     }
 
-    /// Per-miss detail, for when the totals disagree and the question is why.
     pub fn explain(&self) -> String {
         if self.misses.is_empty() {
             return "   no misses to explain\n".to_owned();
@@ -671,10 +581,6 @@ impl Report {
                 "\"our_max_combo\":{},\"their_max_combo\":{},",
                 "\"our_accuracy\":{:.4},\"their_accuracy\":{:.4},\"misses\":{},",
                 "\"lenient_tails\":{},\"tails_near_the_rim\":{},",
-                // The human report says a play ended early and the JSON did
-                // not, so anything reading the JSON showed a table of 802
-                // judgements under a heading of 1894 objects and left the
-                // reader to conclude the engine had lost a thousand of them.
                 "\"judged\":{},\"finished\":{},",
                 "\"score_error\":{},",
                 "\"max_possible_combo\":{}}}"
@@ -788,10 +694,6 @@ mod tests {
 
     #[test]
     fn a_play_that_ended_early_says_how_far_it_got() {
-        // A player whose health runs out stops being judged where they died,
-        // and the numbers are then taken over the part that happened. Reading
-        // the table without knowing that would mean reading 40 objects as if
-        // they were the whole map.
         let mut report = sample();
         report.objects = 100;
         report.check.objects = 100;
@@ -839,7 +741,7 @@ mod tests {
         assert_eq!(summary.spinners, 2);
         assert_eq!(summary.spin_rotations, Some(12.0));
         assert_eq!(summary.spin_required, Some(20.0));
-        // A spinner has no click to blame, so it must never be counted as one.
+
         assert_eq!(summary.with_nearby_click, 0);
         assert_eq!(summary.geometry_suspects, 0);
     }
@@ -847,11 +749,11 @@ mod tests {
     #[test]
     fn a_click_just_outside_the_circle_is_flagged_as_our_problem() {
         assert!(miss(35.0, Some(4.0)).looks_like_a_geometry_error());
-        // Far away in space: the player was somewhere else entirely.
+
         assert!(!miss(200.0, Some(4.0)).looks_like_a_geometry_error());
-        // Far away in time: a click meant for a different object.
+
         assert!(!miss(35.0, Some(250.0)).looks_like_a_geometry_error());
-        // No click at all: the player's miss, not ours.
+
         assert!(!miss(35.0, None).looks_like_a_geometry_error());
     }
 
@@ -865,13 +767,10 @@ mod tests {
         assert_eq!(summary.circles, 3);
         assert_eq!(summary.with_nearby_click, 2);
         assert_eq!(summary.geometry_suspects, 2);
-        // Overshoots are 2.0 and 4.0; the median of an even count takes the
-        // upper of the two, which is fine for a diagnostic.
+
         assert_eq!(summary.median_overshoot_px, Some(4.0));
     }
 
-    /// The bot parses this JSON by key. Renaming one here without renaming it
-    /// there breaks a feature that no Rust test would otherwise notice.
     #[test]
     fn the_json_carries_every_key_the_bot_reads() {
         let json = sample().json();
@@ -908,8 +807,6 @@ mod tests {
 
     #[test]
     fn quoting_escapes_what_would_break_the_line() {
-        // Filenames really do contain quotes and backslashes, and one bad line
-        // would take the whole read-out down with it.
         assert_eq!(quote(r#"a "b" \c"#), r#""a \"b\" \\c""#);
         assert_eq!(quote("line\nbreak"), r#""line\nbreak""#);
     }

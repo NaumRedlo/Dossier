@@ -1,4 +1,3 @@
-//! Where the speed figure disagrees with ppy, grouped by mods.
 use dossier_beatmap::Beatmap;
 use dossier_replay::{bits, Mods};
 use std::collections::BTreeMap;

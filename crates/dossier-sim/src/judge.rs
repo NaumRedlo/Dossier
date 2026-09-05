@@ -1,74 +1,3 @@
-//! Judgement — deciding what the player actually hit.
-//!
-//! The replay stores where the cursor was and which buttons were down; it does
-//! *not* store which object each click landed on. That has to be re-derived,
-//! and getting it right is what separates a replay renderer from an animation.
-//!
-//! ## The rules being modelled
-//!
-//! * **Notelock.** Only the earliest un-judged object can be clicked. A click
-//!   while an earlier object is still live does nothing — it doesn't leak
-//!   through to the object behind.
-//! * **Circles** are judged by timing error against the 300/100/50 windows, and
-//!   only when the cursor is inside the circle at the moment of the press.
-//! * **Slider heads** are pass/fail: inside the 50 window and on the circle
-//!   counts, and the exact error doesn't change the verdict. The error is
-//!   recorded anyway, because it's worth showing.
-//! * **Slider bodies** are judged by tracking — a button held with the cursor
-//!   inside the follow circle — sampled at each tick, each repeat, and at the
-//!   tail. The slider's verdict is the fraction of its parts that landed:
-//!   all → 300, half → 100, at least one → 50, none → miss.
-//! * **Spinners** accumulate swept angle around the playfield centre and are
-//!   judged against the rotations the difficulty demands. No button needed —
-//!   osu!standard spinners are spun, not clicked.
-//! * **Combo** advances on every *part*: the head, each tick, each repeat, the
-//!   tail. Dropping one tick of a long slider costs the combo but still leaves
-//!   a 300. The tail is the exception — it *adds* combo when it lands and
-//!   doesn't take it away when it doesn't, which is why a map can end with a
-//!   pile of 100s and an intact combo.
-//!
-//! ## What is deliberately not modelled
-//!
-//! HP drain and failing, and osu!'s score number — score needs combo scaling,
-//! spinner bonus and per-mod multipliers, none of which a renderer needs to
-//! draw a frame. Geki and katu counts are left at zero: they're
-//! per-combo-section awards, not judgements.
-//!
-//! Not modelling the drain does not mean ignoring a play that ended on it. The
-//! replay header says how many objects were judged, and
-//! [`Judge::state_up_to_object`] scores exactly that many — see
-//! [`crate::GameState::verify`]. What is missing is the ability to work out
-//! *where* a player died without being told.
-//!
-//! The early-click "shake" used to be on this list and no longer is: a click
-//! that lands on a note it cannot hit is recorded, and the renderer nudges the
-//! note. What such a click *does* to that note is modelled too — inside 400ms
-//! and outside the 50 window it takes the note with it.
-//!
-//! ## The weak spot that was, and what is left
-//!
-//! Notelock is modelled as osu! documents it — only the frontmost object can be
-//! clicked. That used to break down badly on a *desynced stream*: once a few
-//! notes in a row went unhit the pointer trailed the player by one note, every
-//! following click was tested against the wrong object, and the run never
-//! recovered. One replay in the corpus turned 9 real misses into 232.
-//!
-//! Four looser rules were measured against the whole corpus and every one of
-//! them fixed that replay and cost more elsewhere — worst of all on a mashed
-//! 37%-accuracy run where a loose reach invented 550 hits. None of them was the
-//! answer, because none of them was the rule.
-//!
-//! The rule was `LegacyHitPolicy`'s strict comparison, with clicks processed
-//! before the miss sweep — the two-millisecond difference recorded in
-//! `dossier/docs/stable-fidelity.md`. Those replays are now exact, and the worst
-//! row in the corpus is eighteen counts on a map of nine hundred objects.
-//!
-//! What remains is not this. Every disagreement left in the corpus is bounded by
-//! the population of hits sitting within two milliseconds of a window boundary,
-//! and splits evenly either side of it: the replay records whole milliseconds
-//! and the game judged against an audio clock that does not. That is a property
-//! of the file format, not a rule waiting to be found.
-
 use std::collections::HashSet;
 use std::f64::consts::{PI, TAU};
 
@@ -79,29 +8,23 @@ use crate::cursor::{CursorTrack, Side};
 use crate::ruleset::Ruleset;
 use crate::timeline::{TimedKind, TimedObject, Timeline};
 
-/// The follow circle is this much wider than the hit circle.
 pub const FOLLOW_CIRCLE_SCALE: f64 = 2.4;
 
-/// osu! stops requiring tracking slightly before a slider's true end, which is
-/// why letting go a hair early doesn't drop the tail.
 pub const TAIL_LENIENCE_MS: f64 = 36.0;
 
-/// Buttons that count as a click. Smoke doesn't.
 const CLICK_KEYS: u8 = Keys::M1 | Keys::M2 | Keys::K1 | Keys::K2;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Judgement {
-    /// 300.
     Great,
-    /// 100.
+
     Ok,
-    /// 50.
+
     Meh,
     Miss,
 }
 
 impl Judgement {
-    /// Accuracy weight: 300, 100, 50 or 0.
     pub fn value(self) -> u32 {
         match self {
             Self::Great => 300,
@@ -124,10 +47,6 @@ impl Judgement {
     }
 }
 
-/// Which piece of an object an event belongs to.
-///
-/// A slider produces several: its head, its ticks and repeats, its tail, and
-/// then one [`Part::Slider`] carrying the verdict for the whole thing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Part {
     Circle,
@@ -135,32 +54,22 @@ pub enum Part {
     SliderTick,
     SliderRepeat,
     SliderTail,
-    /// The slider's overall verdict, assembled from its parts.
+
     Slider,
     Spinner,
-    /// A full turn of a spinner that pays nothing. osu! scores every *second*
-    /// turn and this is the other one — it still moves the health bar and the
-    /// counter on screen, which is why it is an event at all.
+
     SpinnerSpin,
-    /// A turn that pays its hundred: every second one, from the second turn on.
+
     SpinnerPoints,
-    /// A turn past `requirement + 3`, and again only every second one. Worth
-    /// eleven hundred under ScoreV1 and five hundred under ScoreV2 — the only
-    /// place the two tables differ.
+
     SpinnerBonus,
 }
 
 impl Part {
-    /// Only whole objects count toward accuracy — otherwise a slider with ten
-    /// ticks would weigh ten times a circle.
     pub fn counts_for_accuracy(self) -> bool {
         matches!(self, Self::Circle | Self::Slider | Self::Spinner)
     }
 
-    /// Every part advances the combo counter when it lands — which is why a
-    /// slider is worth more combo than a circle. The exceptions are the
-    /// slider's own summary, whose pieces already moved the counter as they
-    /// happened, and a spinner's turns, which are worth points and never combo.
     pub fn adds_combo(self) -> bool {
         !matches!(
             self,
@@ -168,10 +77,6 @@ impl Part {
         )
     }
 
-    /// Whether this is bonus rather than part of the scored play.
-    ///
-    /// `IsBonus()` — a spinner's turns, and nothing else. Under ScoreV2 they
-    /// are added on top of the million rather than counted inside it.
     pub fn is_bonus(self) -> bool {
         matches!(
             self,
@@ -179,45 +84,27 @@ impl Part {
         )
     }
 
-    /// ...but the tail doesn't take the combo away when it's dropped.
-    ///
-    /// This asymmetry is real osu!, not an oversight: letting go a moment early
-    /// costs the 300 and nothing else. It's why players finish maps with a
-    /// handful of 100s and the combo still intact, and modelling the tail like
-    /// a tick turns every such map into a shredded combo.
     pub fn breaks_combo(self) -> bool {
         !matches!(self, Self::Slider | Self::SliderTail)
     }
 }
 
-/// What became of one press.
-///
-/// Every press ends in exactly one of these, which is what makes the trace
-/// worth keeping: the six counts add up to the number of clicks in the replay,
-/// so a play that scores badly can be asked *which* of the ways it went wrong.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Verdict {
-    /// Hit the object it landed on.
     Landed { object: usize },
-    /// On the object and close enough to be an attempt, but outside the 50
-    /// window — so the note went with it and a second click cannot save it.
+
     TookItEarly { object: usize },
-    /// The note lock refused it: an earlier object is still unjudged, and
-    /// `blocked_by` is which one. That name is the whole of a cascade — each
-    /// refusal points at the note behind it, and following the chain back
-    /// reaches the one verdict that started it.
+
     Refused { object: usize, blocked_by: usize },
-    /// Further than the hittable range from the object under the cursor.
+
     OutOfRange { object: usize },
-    /// The object before this one is an unjudged stacked object, so the click
-    /// passes through untouched.
+
     Ignored { object: usize },
-    /// The cursor was on nothing that could be hit.
+
     FoundNothing,
 }
 
 impl Verdict {
-    /// The object it concerned, when it concerned one.
     pub fn object(self) -> Option<usize> {
         match self {
             Self::Landed { object }
@@ -229,7 +116,6 @@ impl Verdict {
         }
     }
 
-    /// A short name, for tables.
     pub fn name(self) -> &'static str {
         match self {
             Self::Landed { .. } => "landed",
@@ -242,28 +128,24 @@ impl Verdict {
     }
 }
 
-/// One press and what became of it.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PressTrace {
     pub time_ms: f64,
     pub verdict: Verdict,
 }
 
-/// One judged thing, at the moment it was judged.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Event {
     pub time_ms: f64,
-    /// Index into [`Timeline::objects`].
+
     pub object_index: usize,
     pub part: Part,
     pub result: Judgement,
-    /// Signed timing error in milliseconds — negative is early. Present only
-    /// for clicked parts; tracking and spinners have no single instant.
+
     pub error_ms: Option<f64>,
     pub combo_after: u32,
 }
 
-/// The counters as of some instant.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct ScoreState {
     pub combo: u32,
@@ -272,34 +154,21 @@ pub struct ScoreState {
 }
 
 impl ScoreState {
-    /// osu!standard accuracy in percent; 100 before anything is judged.
     pub fn accuracy(&self) -> f64 {
         self.counts.accuracy_std()
     }
 }
 
-/// A replay judged against a map.
 #[derive(Debug, Clone)]
 pub struct Judge {
     events: Vec<Event>,
-    /// Clicks the game refused, as (object, when). A press that arrives before
-    /// a note's window has opened hits nothing, and stable answers it by
-    /// shaking the note rather than by ignoring it — which is the only thing
-    /// that tells the player they were early rather than that the game missed
-    /// their input.
+
     shakes: Vec<(usize, f64)>,
-    /// What became of every press, in order.
+
     trace: Vec<PressTrace>,
-    /// …and the presses themselves, which under Relax are not the replay's.
-    ///
-    /// Kept rather than recomputed. The obvious way to line a verdict up with
-    /// the click that earned it is to walk the replay's keys again — and that
-    /// answers with nothing at all for a Relax play, where the game did the
-    /// clicking and recorded none of it. Every `--trace` of a Relax replay
-    /// printed `none`, in the one place a Relax replay most needs reading.
+
     clicks: Vec<Press>,
-    /// `states[i]` is the score after `events[i]`, so a lookup is a binary
-    /// search rather than a replay of everything before it.
+
     states: Vec<ScoreState>,
 }
 
@@ -324,7 +193,6 @@ impl Judge {
             );
         }
 
-        // Ties keep object order, which a stable sort preserves.
         events.sort_by(|a, b| a.time_ms.total_cmp(&b.time_ms));
 
         let mut state = ScoreState::default();
@@ -344,19 +212,10 @@ impl Judge {
         }
     }
 
-    /// Clicks the game refused, as (object, when).
     pub fn shakes(&self) -> &[(usize, f64)] {
         &self.shakes
     }
 
-    /// What became of every press, in order.
-    ///
-    /// Kept always rather than behind a flag: it is a few dozen bytes per click
-    /// and it is the only account of *why* a play scored what it did. Twice now
-    /// the same numbers have been obtained by instrumenting this file by hand
-    /// and then deleting the instrumentation.
-    /// The presses the walk was actually given — the replay's, or the ones
-    /// made for it under Relax. One entry per `trace` entry, in the same order.
     pub(crate) fn clicks(&self) -> &[Press] {
         &self.clicks
     }
@@ -369,7 +228,6 @@ impl Judge {
         &self.events
     }
 
-    /// Score as of `time_ms`, counting everything judged at or before it.
     pub fn state_at(&self, time_ms: f64) -> ScoreState {
         let i = self.events.partition_point(|e| e.time_ms <= time_ms);
         if i == 0 {
@@ -379,23 +237,10 @@ impl Judge {
         }
     }
 
-    /// Score at the end of the map.
     pub fn final_state(&self) -> ScoreState {
         self.states.last().copied().unwrap_or_default()
     }
 
-    /// Score counting only the map's first `objects` objects.
-    ///
-    /// A play can end before the map does: the player's health runs out and
-    /// osu! stops judging where they died. Everything after that was never
-    /// presented to them, and counting it invents misses by the hundred — a
-    /// failed run at 77 seconds of a three-minute map came out 869 misses
-    /// worse than its own header until this existed.
-    ///
-    /// The cut is by object rather than by time because that is what the
-    /// header can be asked about: it says how many objects were judged, not
-    /// when the play stopped. Events are filtered rather than truncated,
-    /// since a slider's tail can be judged after a later circle's head.
     pub fn state_up_to_object(&self, objects: usize) -> ScoreState {
         let mut state = ScoreState::default();
         for event in self.events.iter().filter(|e| e.object_index < objects) {
@@ -404,32 +249,18 @@ impl Judge {
         state
     }
 
-    /// Every event belonging to one object, in time order.
     pub fn events_for(&self, object_index: usize) -> impl Iterator<Item = &Event> {
         self.events
             .iter()
             .filter(move |e| e.object_index == object_index)
     }
 
-    /// Unstable timing errors of the clicked parts, for a hit-error graph.
     pub fn errors_ms(&self) -> impl Iterator<Item = (f64, f64)> + '_ {
         self.events
             .iter()
             .filter_map(|e| e.error_ms.map(|err| (e.time_ms, err)))
     }
 
-    /// Unstable rate as of `time_ms`: ten times the standard deviation of the
-    /// timing errors so far.
-    ///
-    /// Ten times because the figure is quoted in tenths of a millisecond, which
-    /// is the convention everywhere it appears and not a scaling anybody chose
-    /// for its own sake.
-    ///
-    /// The *population* deviation, dividing by n rather than n-1: the errors
-    /// are the whole play rather than a sample of a larger one, and every
-    /// client that shows this figure does the same. `None` until there are two
-    /// of them — a single hit has no spread, and quoting zero would read as a
-    /// perfect play rather than as an unanswered question.
     pub fn unstable_rate(&self, time_ms: f64) -> Option<f64> {
         let errors: Vec<f64> = self
             .errors_ms()
@@ -449,10 +280,6 @@ impl Judge {
     }
 }
 
-/// Fold one event into a running score.
-///
-/// The only place these rules live, so that a score over part of a play and a
-/// score over all of it cannot disagree about what a dropped tail costs.
 fn accrue(state: &mut ScoreState, event: &Event) {
     if event.result.is_miss() {
         if event.part.breaks_combo() {
@@ -472,20 +299,11 @@ fn accrue(state: &mut ScoreState, event: &Event) {
     }
 }
 
-/// Whether and when an object's head was clicked.
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Head {
-    Hit {
-        time_ms: f64,
-        error_ms: f64,
-    },
-    /// `at_ms` is set when the note was killed early — a click landed on a
-    /// later note while this one was still unjudged, and osu! writes the miss
-    /// off there and then rather than waiting for the window to shut. `None`
-    /// is the ordinary case: nobody came, and the window ran out.
-    Missed {
-        at_ms: Option<f64>,
-    },
+    Hit { time_ms: f64, error_ms: f64 },
+
+    Missed { at_ms: Option<f64> },
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -494,61 +312,6 @@ pub(crate) struct Press {
     pub pos: Point,
 }
 
-/// Newly-pressed buttons, in order.
-///
-/// Only the rising edge counts: holding a button through several frames is one
-/// click. But there are *two* buttons, not one, and a frame can raise both.
-///
-/// The game does not look at the four bits a replay records. It folds them into
-/// a left and a right, and osu! sets the mouse bit alongside the key bit for a
-/// keyboard press, so each side is one button however it was struck:
-///
-/// ```go
-/// controller.cursors[i].LeftButton = frame.KeyPressed.LeftClick
-/// controller.cursors[i].RightButton = frame.KeyPressed.RightClick
-/// ```
-///
-/// Then each side rises on its own — `leftCond`, `rightCond` — and a circle
-/// consumes exactly one of them, `if player.leftCondE { ... } else if
-/// player.rightCondE { ... }`, leaving the other live for the object behind it.
-/// So a player who strikes both keys on one frame hits two notes with it.
-///
-/// Folding the frame into a single click instead loses one press on every such
-/// frame, and everything after it is judged by the click that belonged to the
-/// note before — a stream that reads a whole run late. On the corpus that is
-/// four replays and twelve counts, one of them a run of five notes in
-/// `syna_psis` where every verdict was one press behind the truth.
-/// The presses osu! makes for a player under Relax.
-///
-/// A Relax replay records the cursor and nothing else: the game does the
-/// clicking, and it does not write those clicks into the file. On the replay
-/// that showed this up — 2861 objects — there is exactly **one** press in the
-/// whole recording, against 550 in an ordinary replay of similar length. Judged
-/// as written, every note on the map misses.
-///
-/// So they have to be made here, and danser's stable path says how:
-///
-/// ```go
-/// const leniency = 12
-/// for _, o := range processed {
-///     if spinner || alreadyHit { continue }
-///     if time > obj.GetStartTime()-leniency { click = true }
-/// }
-/// cursor.LeftButton  = click && !wasLeft
-/// cursor.RightButton = click &&  wasLeft
-/// if click { wasLeft = !wasLeft }
-/// ```
-///
-/// Two things in that are easy to get wrong. There is **no geometry**: the
-/// cursor's position is not consulted at all, because whether the click lands
-/// is the judging path's question and not this one's. And the alternation is
-/// not decoration — a held button raises one edge, so swapping hands every
-/// frame is what makes *every* frame a fresh press for as long as something is
-/// due. Both are reproduced here by emitting one press per frame that
-/// qualifies.
-///
-/// Twelve milliseconds of lead, and it is danser's number rather than one this
-/// engine measured.
 const RELAX_LEAD_MS: f64 = 12.0;
 
 fn relax_presses(
@@ -562,50 +325,21 @@ fn relax_presses(
     if frames.is_empty() {
         return out;
     }
-    // One press per note, at the first frame from its own moment onwards.
-    //
-    // danser presses on every frame while anything is due, which is what the
-    // game does live. Measured here that is worse the more often it fires:
-    // interpolating the cursor path to press every 8ms costs 900 units against
-    // the frame rate and every 1ms costs 1600. Pressing *more* making it worse
-    // says the presses land early rather than late — the note is taken by the
-    // first frame whose circle happens to contain the cursor, which on a fast
-    // map is well before the note is due. So one press, aimed.
+
     let mut at = 0usize;
-    // Until when the note in front of this one is still holding the lock.
-    //
-    // Only a note that was *not* taken holds it: one that was is judged by the
-    // press that took it and stops being the earliest thing on the field. So
-    // this is set from the aim below — a press that could not land is a note
-    // that stays live until its own window shuts.
+
     let mut lock_until = f64::NEG_INFINITY;
     for object in objects {
         if object.is_spinner() {
             continue;
         }
-        // Map time, not real. Scaling the twelve by the playback rate — on the
-        // grounds that danser's constant is real milliseconds and DoubleTime
-        // gets eight of the map's for it — was measured and is worse: 596
-        // against 508. The lead is a flat basin anyway, 0ms and 12ms differing
-        // by eight units in eighteen thousand, so it is not what the remaining
-        // error is about.
-        // Not before the note in front has been settled. The game presses on
-        // every frame and always has another to spend once the lock lets go;
-        // one press has to be spent at a moment the lock will accept it, or it
-        // is spent on nothing — and on a stream the whole run behind it goes
-        // with it, refused one after another.
+
         let want = (object.start_ms - RELAX_LEAD_MS).max(lock_until);
-        // Objects are in time order, so this only walks forward.
+
         while at + 1 < frames.len() && f64::from(frames[at].time_ms as i32) < want {
             at += 1;
         }
-        // …and from there, the first frame whose cursor is actually on the
-        // note. Taking the first frame outright wastes the press when the hand
-        // has not arrived yet: on one corpus map that is 84 slider heads lost
-        // with the cursor 15 to 30 pixels from a ball inside a 35-pixel circle
-        // — near enough to hit, at a moment nobody was pressing. The game does
-        // not have that problem because it presses every frame; one press has
-        // to be aimed instead.
+
         let mut when = at;
         let deadline = object.start_ms + window_50;
         while when < frames.len() {
@@ -626,8 +360,6 @@ fn relax_presses(
         lock_until = if landed || lazer {
             f64::NEG_INFINITY
         } else {
-            // The first instant `past_it` is true of it: it wants
-            // `time - 1 > start + window`, and frames are whole milliseconds.
             deadline + 2.0
         };
         let frame = &frames[if landed { when } else { at }];
@@ -639,22 +371,7 @@ fn relax_presses(
             x: f64::from(frame.x),
             y: f64::from(frame.y),
         };
-        // The two clients ask different questions, and danser writes both out:
-        //
-        // ```go
-        // if isLazer {
-        //     if (!c2 || time <= obj.GetEndTime()) &&
-        //         time >= obj.GetStartTime()-leniency &&
-        //         pos.Dst(cursor.RawPosition) <= CircleRadiusL &&
-        //         time-obj.GetStartTime() <= Hit50U { click = true }
-        // } else if time > obj.GetStartTime()-leniency { click = true }
-        // ```
-        //
-        // stable clicks on time alone and lets the judging decide whether it
-        // landed. lazer will not click unless the cursor is already on the note
-        // and the note is inside its own fifty window, so a lazer Relax play
-        // clicks less and clicks later — and reading one by stable's rule hands
-        // it presses the game never made.
+
         if lazer && !landed {
             continue;
         }
@@ -686,16 +403,6 @@ pub(crate) fn presses(frames: &[ReplayFrame]) -> Vec<Press> {
     out
 }
 
-/// Walk the clicks against the object list, honouring notelock.
-///
-/// Modelled on stable's own rule, as `LegacyHitPolicy.CheckHittable` restores
-/// it in lazer and as danser's `CanBeHitStable` implements it. The shape that
-/// matters: a press is offered to **the object under the cursor**, and the lock
-/// is then consulted about that object. Offering it to the earliest unjudged
-/// one instead — which is what this did — cannot express the lock's own
-/// exceptions, because the objects they talk about are judged by construction.
-///
-/// See `dossier/docs/stable-fidelity.md` for the rule-by-rule comparison.
 fn judge_heads(timeline: &Timeline, cursor: &CursorTrack, ruleset: Ruleset) -> Heads {
     let objects = &timeline.objects;
     let mut heads = vec![Head::Missed { at_ms: None }; objects.len()];
@@ -706,16 +413,11 @@ fn judge_heads(timeline: &Timeline, cursor: &CursorTrack, ruleset: Ruleset) -> H
     let window = timeline.difficulty.hit_window_50();
     let radius = timeline.difficulty.circle_radius();
     let preempt = timeline.difficulty.preempt_ms();
-    // Everything before this has been judged, so the searches below start here
-    // rather than at the beginning of the map.
+
     let mut first = 0usize;
-    // …and everything before *this* has finished playing. A slider goes on
-    // swallowing clicks after its head is judged, so `first` steps over it
-    // while it is still on the playfield and a second cursor is needed.
+
     let mut first_live = 0usize;
 
-    // Under Relax the game does the clicking and does not record it, so the
-    // presses are made here instead — see `relax_presses`.
     let made = ruleset.relax.then(|| {
         relax_presses(
             cursor.frames(),
@@ -727,10 +429,6 @@ fn judge_heads(timeline: &Timeline, cursor: &CursorTrack, ruleset: Ruleset) -> H
     });
     let clicks = made.unwrap_or_else(|| presses(cursor.frames()));
     for press in &clicks {
-        // Anything the game had already swept up by the moment it last looked
-        // is judged — a miss — and stops blocking. Not "anything whose window
-        // has shut": see [`past_it`], where the difference is two milliseconds
-        // and most of what this engine used to get wrong about mashed streams.
         for (index, object) in objects.iter().enumerate().skip(first) {
             if object.start_ms - preempt > press.time_ms {
                 break;
@@ -746,9 +444,6 @@ fn judge_heads(timeline: &Timeline, cursor: &CursorTrack, ruleset: Ruleset) -> H
             first_live += 1;
         }
         if first >= objects.len() {
-            // Everything is judged, so this click reached nothing — but it is
-            // still a click, and the trace has to account for it or the counts
-            // stop adding up to the number the player made.
             trace.push(PressTrace {
                 time_ms: press.time_ms,
                 verdict: Verdict::FoundNothing,
@@ -756,29 +451,6 @@ fn judge_heads(timeline: &Timeline, cursor: &CursorTrack, ruleset: Ruleset) -> H
             continue;
         }
 
-        // The object the click landed on: the earliest unjudged note that has
-        // spawned and has the cursor inside it. In order, not by distance.
-        //
-        // Ranking by distance instead is the obvious idea and it is wrong twice
-        // over, both measured on the corpus:
-        //
-        // | | exact | error |
-        // |---|---|---|
-        // | the earliest under the cursor | **106 / 176** | **224** |
-        // | the nearest under the cursor | 5 / 176 | 42154 |
-        // | the nearest, and only within the fifty window | 18 / 176 | 35550 |
-        //
-        // The first fails because on a fast map the nearest spawned note is one
-        // half a second away. Adding the window to keep that honest fails worse:
-        // a click outside the fifty window but inside the hittable range still
-        // *takes* the note it lands on, as a miss, and a note that cannot
-        // compete for such a click is left for the next one instead — which
-        // strands it, and the lock then refuses everything behind it.
-        //
-        // Under Relax the game clicks on every frame, so a note whose window has
-        // not opened would be judged early and missed hundreds of times over.
-        // There, and only there, a note competes only for a click it could be
-        // judged by.
         let candidates = || {
             objects
                 .iter()
@@ -801,10 +473,6 @@ fn judge_heads(timeline: &Timeline, cursor: &CursorTrack, ruleset: Ruleset) -> H
             continue;
         };
 
-        // Stacks are exempt from the lock. A click whose predecessor is an
-        // unjudged stacked object passes through untouched — neither hitting
-        // nor shaking — which is stable's way of not rattling a whole pile
-        // when the player is early on one of them.
         if target > 0 && objects[target - 1].stack_height > 0 && !judged[target - 1] {
             trace.push(PressTrace {
                 time_ms: press.time_ms,
@@ -813,23 +481,6 @@ fn judge_heads(timeline: &Timeline, cursor: &CursorTrack, ruleset: Ruleset) -> H
             continue;
         }
 
-        // A slider keeps its head's hit area alive until the whole slider is
-        // judged, which is at its end:
-        //
-        // ```csharp
-        // slider.HitArea.CanBeHit = () => !slider.DrawableSlider.AllJudged;
-        // ```
-        //
-        // The area is live for as long as the object is — from the moment it
-        // spawns, not from the moment it is due. That distinction is the whole
-        // rule: a slider whose head has been clicked early counts as judged to
-        // the note lock, yet it sits on the playfield with a live hit area
-        // swallowing whatever lands on it.
-        //
-        // On `yax03 - down` that is one click 362ms ahead of the next note. We
-        // handed it to that note, which took it as an early miss and cost a
-        // 2687-link run 352 of its links. The click never reached that note:
-        // it went into the slider the player had just started.
         let swallowed = ruleset.slider_swallows_notes_beneath()
             && objects
                 .iter()
@@ -841,11 +492,7 @@ fn judge_heads(timeline: &Timeline, cursor: &CursorTrack, ruleset: Ruleset) -> H
                         && object.end_ms > press.time_ms
                         && press.pos.distance_to(object.pos) <= radius
                 });
-        // And a spinner swallows one wherever the cursor is. Its hittability
-        // test in the client is the base's time gates with the geometry taken
-        // out — it uses neither the position nor the radius — so a live spinner
-        // earlier in the list answers yes to any press and takes it before
-        // anything behind it can. See `docs/stable-client.md`.
+
         let spun = ruleset.spinner_swallows_presses()
             && objects
                 .iter()
@@ -865,39 +512,15 @@ fn judge_heads(timeline: &Timeline, cursor: &CursorTrack, ruleset: Ruleset) -> H
             continue;
         }
 
-        // The lock proper: an earlier unjudged object blocks only if it *ended*
-        // before this one started. Objects that overlap in time do not block
-        // each other, which is the part a "frontmost object only" rule cannot
-        // say. Three milliseconds of slack for objects that are a hair unsnapped.
-        // Which object it is, not merely that there is one: a refusal names
-        // its blocker, because a cascade is read backwards from the click that
-        // was refused to the note that was never judged.
-        // Which earlier note, if any, stands in the way. The two clients
-        // answer this very differently — see `ruleset.rs`.
-        //
-        // Which one is asked, and how many, is itself a difference between the
-        // clients — see [`Ruleset::blocker_is_the_last_one`].
         let behind = || {
             objects
                 .iter()
                 .enumerate()
-                // From the first object still *alive*, not the first
-                // unjudged one: a slider whose head has been struck is judged
-                // here and still on the playfield, and skipping it would never
-                // ask it whether it blocks.
                 .skip(first.min(first_live))
-                // stable stops at the target itself — `testObject == hitObject`
-                // — while lazer stops at its *time*, so a note starting in the
-                // same millisecond is behind it for one client and not for the
-                // other. No map in the corpus has such a pair, but the two
-                // rules are not the same rule and are not written as one.
                 .take_while(|(index, _)| *index < target)
                 .filter(|(_, object)| ruleset.can_block(object.is_spinner()))
         };
         let locked = if ruleset.blocker_is_the_last_one() {
-            // lazer: one candidate, the last, and it is consulted whether or
-            // not it was judged — a judged one answers "no block" and the
-            // enquiry stops there rather than reaching further back.
             behind()
                 .filter(|(_, object)| object.start_ms < objects[target].start_ms)
                 .last()
@@ -911,33 +534,7 @@ fn judge_heads(timeline: &Timeline, cursor: &CursorTrack, ruleset: Ruleset) -> H
                         )
                 })
         } else {
-            // stable: the first unjudged one that qualifies, however far back.
             behind().find(|(index, object)| {
-                // A slider is not done when its head is struck. `LegacyHitPolicy`
-                // skips an object only when *every* piece of it is judged, and a
-                // slider's last piece is its tail:
-                //
-                // ```csharp
-                // foreach (DrawableHitObject testObject in aliveObjects)
-                // {
-                //     if (testObject.AllJudged) continue;
-                //     if (testObject == hitObject) break;
-                //     if (testObject.HitObject.GetEndTime() + 3 < hitObject.HitObject.StartTime)
-                //         return ClickAction.Shake;
-                // }
-                // ```
-                //
-                // So a slider still travelling blocks the note after it, and the
-                // click that would have taken that note is shaken away instead —
-                // which is the note lock as a player meets it, unable to start
-                // the next note before the slider they are on has run out.
-                //
-                // The bound is the slider's own end and not a millisecond past
-                // it. Stretching it to the frame that closes the slider — which
-                // is what danser does, and up to sixteen milliseconds later —
-                // takes the corpus from 224 to 2102: a click on the next note
-                // within a frame of a slider ending is not an edge case on a
-                // dense map, it is most of them.
                 (!judged[*index] || (object.is_slider() && press.time_ms <= object.end_ms))
                     && ruleset.blocks(
                         object.end_ms,
@@ -952,8 +549,6 @@ fn judge_heads(timeline: &Timeline, cursor: &CursorTrack, ruleset: Ruleset) -> H
         let object = &objects[target];
         let error_ms = press.time_ms - object.start_ms;
         if locked.is_some() || error_ms.abs() >= ruleset.hittable_range_ms() {
-            // Refused: the note shakes and nothing is consumed. Only once it is
-            // on screen, since the game can only shake what it is drawing.
             if press.time_ms >= object.start_ms - preempt {
                 shakes.push((target, press.time_ms));
             }
@@ -970,14 +565,6 @@ fn judge_heads(timeline: &Timeline, cursor: &CursorTrack, ruleset: Ruleset) -> H
             continue;
         }
 
-        // Landing on a note writes off everything still unjudged behind it.
-        //
-        // osu! does not wait for those windows to shut: the combo breaks the
-        // instant the player moves past a note they never hit. The difference
-        // is only ever in *when*, never in what — but when is what a combo is
-        // made of. On the stream trainer two notes clicked after the abandoned
-        // one and before its window ran out counted into the run first, and
-        // the maximum came out 66 against the header's 64.
         if ruleset.writes_off_stranded_notes() {
             for index in first..target {
                 if !judged[index] && !objects[index].is_spinner() {
@@ -1003,9 +590,6 @@ fn judge_heads(timeline: &Timeline, cursor: &CursorTrack, ruleset: Ruleset) -> H
                 error_ms,
             };
         }
-        // …and when it is not, the note is taken anyway: within the hittable
-        // range but outside the 50 window is a miss, and a second click cannot
-        // save it.
     }
 
     Heads {
@@ -1016,7 +600,6 @@ fn judge_heads(timeline: &Timeline, cursor: &CursorTrack, ruleset: Ruleset) -> H
     }
 }
 
-/// Everything the click walk produced.
 struct Heads {
     heads: Vec<Head>,
     shakes: Vec<(usize, f64)>,
@@ -1024,86 +607,10 @@ struct Heads {
     clicks: Vec<Press>,
 }
 
-/// Whether an object's window had already shut *by the time the game last
-/// looked* — which is the frame before the click, not the click itself.
-///
-/// The distinction is the whole of the cascade. osu! runs a frame at a time,
-/// and within a frame it offers the click to the objects first and only then
-/// sweeps up whatever has run out of window:
-///
-/// ```go
-/// g.UpdateClickFor(player, time)   // ← the click, against the old state
-/// ...
-/// g.UpdatePostFor(player, time, _) // ← and only now the misses
-/// ```
-///
-/// So a note whose window shuts at 71057ms is still blocking a click on the
-/// frame at 71060: the game has not yet been round to write it off. Testing
-/// against the click's own instant frees the note early, and every press in a
-/// cascade that stable refuses becomes one this engine credits.
-///
-/// The comparison is strict for the same reason it is in the game
-/// (`time > GetEndTime() + Hit50`): a frame landing exactly on the boundary
-/// has not passed it.
-/// Whether the game had already written this object off **by the time it last
-/// looked**, which is not the same instant as the click.
-///
-/// Two millisecond-sized facts, each with its own reason, and together they
-/// were the whole of the Chambarising disagreement — 23 circles credited that
-/// osu! called misses, and the same error on four more replays of that map.
-///
-/// The first is that the game's own comparison is strict:
-///
-/// ```go
-/// if time > int64(circle.hitCircle.GetEndTime())+player.diff.Hit50 && !state.isHit {
-/// ```
-///
-/// so the earliest millisecond at which a note can be written off is
-/// `start + window50 + 1`, not `start + window50`.
-///
-/// The second is the order of business inside one update. Clicks are offered
-/// to the objects first, and only afterwards is anything swept up:
-///
-/// ```go
-/// controller.ruleset.UpdateClickFor(controller.cursors[i], replayTime)
-/// controller.ruleset.UpdateNormalFor(controller.cursors[i], replayTime, processAhead)
-/// controller.ruleset.UpdatePostFor(controller.cursors[i], replayTime, processAhead)
-/// ```
-///
-/// — in that order at every call site. So a click is tested against the world
-/// as the previous update left it, one millisecond earlier, and a note whose
-/// window shut a moment ago is still standing in the way.
-///
-/// Neither of these is a tunable. The corpus says so plainly: at one
-/// millisecond of grace the error is 114, at two it is 70, and at three it is
-/// 246 — a knife edge rather than a basin, which is what a real rule looks
-/// like and a fitted constant does not. The whole-frame reading, that the game
-/// only sweeps when a replay frame arrives, is wrong for the same test: 16ms
-/// of grace scores 1678. osu! updates far faster than a replay records.
 fn past_it(object: &TimedObject, time_ms: f64, window_50: f64) -> bool {
-    // A slider is written off at the end of its slide, not at its head's
-    // window. It is judged as a whole — the head is one piece of it — and until
-    // that verdict exists there is nothing to write off:
-    //
-    // ```go
-    // for _, g := range set.processed {
-    //     if !g.IsHit(player) {                       // Slider.IsHit is state.isHit,
-    //         ...                                     // set when the slide ends
-    // ```
-    //
-    // Reading it by the head's fifty window instead was wrong in both
-    // directions: a slider shorter than that window kept blocking after it had
-    // finished, and one longer than it stopped blocking while it was still
-    // being played. The first is what held `#404` on Nightcord for two
-    // milliseconds past a press that was 8.6px inside `#405`, and the run of
-    // refusals behind it is the whole of that replay's remaining error.
-    //
-    // Corpus 310 to 274, and Nightcord 20 to 2.
     if object.is_spinner() || object.is_slider() {
         time_ms > object.end_ms
     } else {
-        // `- 1` for the update the click did not wait for, `>` for the game's
-        // own strict comparison.
         time_ms - 1.0 > object.start_ms + window_50
     }
 }
@@ -1151,10 +658,7 @@ fn build_events(
             let turns = spinner_spin_times(cursor, object.start_ms, object.end_ms);
             let rotations = spinner_rotations(cursor, object.start_ms, object.end_ms);
             let required = required_spins(difficulty, object.duration_ms());
-            // Each turn as it lands, and the ones past the requirement as
-            // bonus. osu! pays for these separately from the spinner's own
-            // verdict, and pays for them *while the spinner runs* — which is
-            // what lets a spinner pull a dying play back from nothing.
+
             for (turn, at) in turns.iter().enumerate() {
                 out.push(Event {
                     time_ms: *at,
@@ -1190,17 +694,14 @@ fn build_slider_events(
 
     let (head_time, head_error) = match head {
         Head::Hit { time_ms, error_ms } => (time_ms, Some(error_ms)),
-        // A miss is only certain once the window shuts, which on a slider
-        // shorter than the window is past the slider's own end.
+
         Head::Missed { at_ms } => (
             at_ms.unwrap_or(object.start_ms + difficulty.hit_window_50()),
             None,
         ),
     };
     let head_hit = matches!(head, Head::Hit { .. });
-    // Only lazer hands the slide over from a landed head this way; stable's
-    // head sits at the ball's own starting position, so the question does not
-    // arise there.
+
     let head_time_for_tracking = match head {
         Head::Hit { time_ms, .. } => Some(time_ms),
         _ => None,
@@ -1218,8 +719,6 @@ fn build_slider_events(
     let mut parts_total = 1u32;
     let mut parts_hit = u32::from(head_hit);
 
-    // The parts in the order the game meets them: ticks and reverses
-    // interleaved by time, then the tail at its own leniency point.
     let mut parts: Vec<(f64, Part)> = object
         .tick_times()
         .into_iter()
@@ -1246,8 +745,6 @@ fn build_slider_events(
         parts_total += 1;
         parts_hit += u32::from(hit);
         out.push(Event {
-            // The tail is reported at the slider's real end, not at the
-            // leniency point it was tested on: that is where it happens.
             time_ms: if part == Part::SliderTail {
                 object.end_ms
             } else {
@@ -1261,36 +758,12 @@ fn build_slider_events(
         });
     }
 
-    // What the slider is *worth*, and the two clients do not agree on the
-    // question. stable assembles it from the pieces: everything tracked is a
-    // 300, half is a 100. lazer has no such judgement at all — its slider is
-    // scored piece by piece, and the 300/100/50 that lands in the score is the
-    // head's, judged on the ordinary windows like any circle.
     let result = if ruleset.slider_verdict_from_head() {
         let from_head = match head {
             Head::Hit { error_ms, .. } => window_judgement(error_ms, difficulty),
             Head::Missed { .. } => Judgement::Miss,
         };
         if ruleset.slider_verdict_also_needs_its_pieces() {
-            // The head is one of the pieces, not a veto over them.
-            //
-            // ```go
-            // if state.startResult != Miss { state.scored++ }
-            // rate := float64(state.scored) / float64(len(state.points)+1)
-            // ```
-            //
-            // danser counts the head in both halves of the fraction, so losing
-            // it costs a slider exactly one part. This engine left it out of
-            // the count and then let a missed head decide the whole verdict, so
-            // a slider whose body was tracked end to end came back a miss.
-            //
-            // Found object by object on Nightcord, where danser reproduces the
-            // header exactly and this engine differed on eleven objects of 759:
-            // six were sliders reported as `head lost`, and four of the
-            // remaining five were the circles behind another one, refused by a
-            // lock that was right to refuse them. Reading the head as a veto
-            // put Nightcord 20 out; reading it as a part puts it 12 out, and
-            // the corpus 322 to 314 with nothing worse.
             let took_head = matches!(head, Head::Hit { .. });
             let pieces = slider_judgement(parts_hit + u32::from(took_head), parts_total + 1);
             if took_head {
@@ -1305,15 +778,6 @@ fn build_slider_events(
         slider_judgement(parts_hit, parts_total)
     };
 
-    // *When* the verdict happens, which is not always the slider's end.
-    //
-    // Where the verdict is the head's — lazer, and stable under ScoreV2 — it is
-    // decided the instant the head is struck, and lazer shows it there. Holding
-    // it to the slider's end made a hundred appear seconds after the click that
-    // earned it, on a slider the player had already stopped thinking about.
-    //
-    // Where it is assembled from the pieces, the end is right: it cannot be
-    // known before the last piece has been tracked.
     let verdict_at = match head {
         Head::Hit { time_ms, .. } if ruleset.slider_verdict_from_head() => time_ms,
         _ => object.end_ms,
@@ -1328,40 +792,6 @@ fn build_slider_events(
     });
 }
 
-/// stable's ScoreV2 slider verdict, from the pieces and the head together.
-///
-/// `scoreV2Processor.ModifyResult`, which danser implements as osu!'s:
-///
-/// ```go
-/// if result&Hit300 > 0 && startResult&Hit300 > 0 {
-///     return Hit300
-/// } else if result&(Hit300|Hit100) > 0 && startResult&(Hit300|Hit100) > 0 {
-///     return Hit100
-/// } else if result != Miss {
-///     return Hit50
-/// }
-/// ```
-///
-/// The first two branches are taken as written. The third is not, and the
-/// corpus is why.
-///
-/// Read literally, `result != Miss` gives a **50** to a slider whose head was
-/// missed and whose body was then tracked to the end: `result` is the pieces'
-/// verdict, which is high, and only `startResult` is the miss. Implemented that
-/// way this replay went from eight counts out to sixteen, turning five of the
-/// game's misses into fifties.
-///
-/// So the departure is one condition: a missed head takes the slider with it.
-/// The likeliest reading is that danser's `result` is already a miss in that
-/// case and the branch is unreachable rather than wrong — our pieces' verdict
-/// is assembled differently and reaches it.
-///
-/// **That reading was right, and it is fixed above rather than here.** The
-/// pieces' verdict now counts the head as one of them, the way danser does, so
-/// a missed head costs a slider one part instead of all of it and this function
-/// sees what danser's sees. Found by judging Nightcord object by object against
-/// danser, which reproduces that replay's header exactly: of eleven objects
-/// this engine got wrong, six were sliders it had written off for a lost head.
 fn score_v2_slider(from_pieces: Judgement, from_head: Judgement) -> Judgement {
     use Judgement::{Great, Meh, Miss, Ok};
     let at_least_ok = |j: Judgement| matches!(j, Great | Ok);
@@ -1376,14 +806,6 @@ fn score_v2_slider(from_pieces: Judgement, from_head: Judgement) -> Judgement {
     }
 }
 
-/// Windows are exclusive: an error of exactly 20ms on a 20ms window is a 100,
-/// not a 300.
-///
-/// osu! compares whole milliseconds with a strict `<`, and both frame times and
-/// object times are integers, so the boundary is a real, populated value rather
-/// than a measure-zero edge case. On a dense map dozens of hits land exactly on
-/// it — enough to move the accuracy in the second decimal place, and invisible
-/// to any test that doesn't probe the boundary itself.
 pub(crate) fn window_judgement(
     error_ms: f64,
     difficulty: &dossier_beatmap::Difficulty,
@@ -1396,24 +818,10 @@ pub(crate) fn window_judgement(
     } else if error < difficulty.hit_window_50() {
         Judgement::Meh
     } else {
-        // A click can land on a note whose window has already shut, because the
-        // game has not yet been round to write the note off — see [`past_it`].
-        // When it does, the note is spent there and then:
-        //
-        // ```go
-        // } else if int64(delta) < player.diff.Hit50 {
-        //     return Hit50
-        // }
-        // return Miss
-        // ```
-        //
-        // and the miss is dated to the click rather than to the end of the
-        // window, which is where the player will see it.
         Judgement::Miss
     }
 }
 
-/// All parts → 300, half → 100, one → 50, none → miss.
 fn slider_judgement(hit: u32, total: u32) -> Judgement {
     if total == 0 || hit == total {
         Judgement::Great
@@ -1426,12 +834,6 @@ fn slider_judgement(hit: u32, total: u32) -> Judgement {
     }
 }
 
-/// When a slider's tail is decided.
-///
-/// Nominally 36ms before the end — but never earlier than halfway through the
-/// final slide. That second clause is not a detail: on a fast map a slide can
-/// be 50ms long, and a flat 36ms grace would hand the player two thirds of it
-/// for free. Sliders that short are exactly where a tail is won or lost.
 pub fn tail_check_ms(object: &TimedObject) -> f64 {
     let half_slide = object
         .slide_duration_ms()
@@ -1441,39 +843,10 @@ pub fn tail_check_ms(object: &TimedObject) -> f64 {
         .max(object.start_ms)
 }
 
-/// Whole turns a spinner asks for. osu! truncates, so a spinner that works out
-/// to 4.9 turns is cleared by four.
 pub fn required_spins(difficulty: &dossier_beatmap::Difficulty, duration_ms: f64) -> f64 {
     (difficulty.spins_per_second() * duration_ms / 1000.0).floor()
 }
 
-/// What the nth turn of a spinner is worth.
-///
-/// ```go
-/// if state.scoringRotationCount > state.requirement+3 &&
-///    (state.scoringRotationCount-(state.requirement+3))%2 == 0 {
-///     SpinnerBonus
-/// } else if state.scoringRotationCount > 1 && state.scoringRotationCount%2 == 0 {
-///     SpinnerPoints
-/// } else if state.scoringRotationCount > 1 {
-///     SpinnerSpin
-/// }
-/// ```
-///
-/// Far stingier than it looks from the game. Only every *second* turn pays its
-/// hundred, the first pays nothing at all, and the bonus does not begin the
-/// moment the requirement is met — it waits three turns more and then also
-/// comes every second turn. Paying every turn instead put a whole corpus of
-/// scores a fraction of a per cent over, which on a map with one spinner is
-/// entirely that spinner.
-///
-/// The transcription is deliberate rather than derived, because danser's own
-/// counter is ambiguous about its unit: `rotationCountF` accumulates
-/// `|addition| / π`, which is half-turns, while `requirement` is stated in
-/// whole spins. Reading it as half-turns — a hundred points on every full turn
-/// — was measured against the corpus and is worse: eight replays over their
-/// pinned score instead of six. So the rule is taken at face value in turns,
-/// which is both what it reads like and what the replays agree with.
 fn spinner_turn(turn: i64, required: i64) -> Part {
     let bonus_from = required + 3;
     if turn > bonus_from && (turn - bonus_from) % 2 == 0 {
@@ -1501,25 +874,6 @@ fn spinner_judgement(rotations: f64, required: f64) -> Judgement {
     }
 }
 
-/// Walk a slider's parts the way the game does, and say which were collected.
-///
-/// The rule that matters, and the one a per-part check gets wrong: **the follow
-/// circle only exists while a slide is already running**. To start one the
-/// cursor has to come within the plain circle radius; only then does the
-/// tolerance open out to 2.4 radii, and it snaps shut again the instant the
-/// cursor leaves. Checking each part independently at 2.4 radii credits parts
-/// the game never gives — a cursor that drifts past a slider without ever
-/// touching it collects the lot.
-///
-/// The second rule: a part is only collected if the *current* slide began at or
-/// before it. Re-entering the follow circle after a break does not retroactively
-/// pick up the parts missed while outside.
-///
-/// Evaluation walks the slider a millisecond at a time rather than only at the
-/// part times, because the game polls far faster than the parts arrive and a
-/// slide can start and end between two of them. Stepping on the replay's own
-/// frames instead was measured and is very slightly worse — it cost one replay
-/// two verdicts and gained nothing — so the finer step stays.
 fn track_slider(
     cursor: &CursorTrack,
     object: &TimedObject,
@@ -1540,34 +894,11 @@ fn track_slider(
     let mut judged = 0usize;
     let mut out = Vec::with_capacity(parts.len());
 
-    // The instants the game could have noticed the player was tracking. It
-    // polls once per replay frame and nowhere else, so a slide can only be
-    // declared to have begun on one of them — see below.
     let frames: HashSet<i64> = cursor.frames().iter().map(|f| f.time_ms).collect();
 
-    // The tail's grace, under lazer only. Everything else is decided at one
-    // instant; the tail is decided over a window, and lands if the player was
-    // tracking at any point in it.
-    //
-    // ```csharp
-    // case DrawableSliderTail:
-    //     if (timeOffset < SliderEventGenerator.TAIL_LENIENCY) return;
-    // ...
-    // if (Tracking) nestedObject.HitForcefully();
-    // else if (timeOffset >= 0) nestedObject.MissForcefully();
-    // ```
-    //
-    // The miss is only written at `timeOffset >= 0`, so every frame from
-    // thirty-six milliseconds early to the slider's own end is another chance.
-    // Checking the first of them and no others drops a tail whose player let
-    // go a moment before the end, which they are entitled to do.
     let mut tail_pending: Option<f64> = None;
     let mut tail_hit = false;
 
-    // Every millisecond inside the slider, plus the part times themselves so a
-    // part that falls after the last frame still gets an answer. Finer than
-    // the game's own frames on purpose — sampling on frames instead was tried,
-    // and the corpus cannot tell the two apart.
     let mut instants: Vec<f64> = {
         let mut v = Vec::new();
         let mut t = object.start_ms.ceil();
@@ -1581,37 +912,8 @@ fn track_slider(
     instants.sort_by(f64::total_cmp);
 
     for now in instants {
-        // Landing the head starts the slide from the *expanded* area, not from
-        // the ball itself. `SliderInputManager.PostProcessHeadJudgement`:
-        //
-        // ```csharp
-        // if (!head.Judged || !head.Result.IsHit) return;
-        // if (!IsMouseInFollowArea(true)) return;
-        // ...
-        // updateTracking(allTicksInRange || IsMouseInFollowArea(false));
-        // ```
-        //
-        // It matters on a short slider hit late: by the time the click is
-        // judged the ball has already travelled, and requiring the cursor to
-        // be back on top of it drops a slider the player is plainly holding.
         let head_landing = tail_window && head_hit_ms.is_some_and(|at| now >= at) && !sliding;
 
-        // Which side the slider is tracked by is decided when its head is
-        // struck, not when the slide starts — `UpdateClickFor` runs before
-        // `UpdateFor` on the same frame, and the head writes it down:
-        //
-        // ```go
-        // if player.leftCond { state.downButton = Left }
-        // else if player.rightCond { state.downButton = Right }
-        // else { state.downButton = player.mouseDownButton }
-        // ```
-        //
-        // A head taken early settles the question before the slider has begun.
-        // On `RTCMON` the player strikes the right key thirteen milliseconds
-        // ahead of the slider, then adds the left; reading the side off the
-        // slider's own first frame gives the left, and when the left is
-        // released the hold stops counting for a slider that was never being
-        // held by it.
         if let Some(at) = head_press_ms {
             if !head_seeded && now >= at {
                 head_seeded = true;
@@ -1626,33 +928,7 @@ fn track_slider(
                 }
             }
         }
-        // Whether the button being held is one this slider may be tracked
-        // with. Not the same question as whether anything is down.
-        //
-        // ```go
-        // mouseDownAcceptableSwap := player.gameDownState &&
-        //     !(player.lastButton == (Left|Right) && player.lastButton2 == player.mouseDownButton)
-        //
-        // if player.gameDownState {
-        //     if state.downButton == Buttons(0) || (player.mouseDownButton != (Left|Right) && mouseDownAcceptableSwap) {
-        //         state.downButton = ...
-        //         mouseDownAcceptable = true
-        //     } else if (player.mouseDownButton & state.downButton) > 0 {
-        //         mouseDownAcceptable = true
-        //     }
-        // } else {
-        //     state.downButton = Buttons(0)
-        // }
-        // mouseDownAcceptable = mouseDownAcceptable || mouseDownAcceptableSwap || Relax
-        // ```
-        //
-        // The slider remembers which side started it, and a player who was
-        // holding both and lets one go does not simply carry on with the other:
-        // when the release matches the swap pattern the game stops counting the
-        // hold, and the slide breaks with the finger still down. On
-        // `week1-4f44b203ccc1237d` that is one tail — both keys held, the right
-        // released twenty-nine milliseconds from the end, the cursor sixteen
-        // pixels from the ball, and stable drops the piece anyway.
+
         let acceptable = match cursor.buttons_at(now) {
             Some(buttons) => {
                 let swap = buttons.down.any()
@@ -1689,36 +965,13 @@ fn track_slider(
             }
             _ => false,
         };
-        // A slide begins on a frame, and only on one. `UpdateFor` is called
-        // once per replay frame, and the moment it first finds the cursor on
-        // the ball it writes that frame's own time down:
-        //
-        // ```go
-        // if allowable && !state.sliding {
-        //     state.sliding = true
-        //     state.slideStart = time
-        // }
-        // ```
-        //
-        // Because a piece only counts when `state.slideStart <= point.time`,
-        // where the slide started decides which pieces are still catchable —
-        // and a slide started between two frames is one the game never had.
-        // Rounding it down to the instant the player *arrived* hands back
-        // pieces that were already gone by the time anything looked, which is
-        // most visible on a short slider taken late: the head lands, the ball
-        // is already past, and a piece a few milliseconds later is either lost
-        // or not depending on this alone.
-        //
-        // Breaking the slide is left where it was, at the finer step: that is
-        // measured, and quantising it too costs as much as this gains.
+
         let on_a_frame = now.fract() == 0.0 && frames.contains(&(now as i64));
         if allowable && !sliding && on_a_frame {
             sliding = true;
             slide_start = now;
         }
 
-        // One part per instant, exactly as the game retires them — except a
-        // lazer tail, which is held open until the slider's own end.
         if let Some(&(time_ms, part)) = parts.get(judged) {
             if time_ms <= now {
                 let landed = allowable && slide_start <= time_ms;
@@ -1746,28 +999,16 @@ fn track_slider(
         out.push((at, Part::SliderTail, tail_hit));
     }
 
-    // Anything left never came up: the replay stopped before the slider did.
     for &(time_ms, part) in &parts[judged.min(parts.len())..] {
         out.push((time_ms, part, false));
     }
     out
 }
 
-/// Whether the button is down at this sample.
-///
-/// Under Relax it always is. The game does the holding and does not record it,
-/// exactly as it does not record the clicking — so a slider read from the file
-/// is never held, drops every tick and tail it has, and breaks combo on each.
-/// On the corpus's worst Relax replay that is a maximum combo of 34 against a
-/// header of 2767, on a play the game scored at 99%.
-///
-/// The cursor still decides: this only supplies the button, and the caller
-/// still has to be inside the ball to be tracking it.
 fn button_down(keys: dossier_replay::Keys, relax: bool) -> bool {
     relax || keys.is_pressed()
 }
 
-/// A button held with the cursor inside the follow circle.
 pub(crate) fn is_tracking(
     cursor: &CursorTrack,
     object: &TimedObject,
@@ -1784,31 +1025,10 @@ pub(crate) fn is_tracking(
     button_down(sample.keys, relax) && sample.pos.distance_to(ball) <= radius
 }
 
-/// Total turns swept around the playfield centre between two instants.
-///
-/// Angles are summed per recorded frame rather than at a fixed rate: the frames
-/// *are* the resolution of the input, and each step is folded into `[-π, π]` so
-/// a sample that skips more than half a turn is read the short way round rather
-/// than as a huge jump.
 pub fn spinner_rotations(cursor: &CursorTrack, start_ms: f64, end_ms: f64) -> f64 {
     spinner_sweep(cursor, start_ms, end_ms).0
 }
 
-/// How fast a spinner is being turned, in revolutions per minute.
-///
-/// Measured over a window ending at `time_ms` rather than smoothed frame by
-/// frame. danser carries a decaying average:
-///
-/// ```go
-/// decay1 := math.Pow(0.9, timeDiff/FrameTime)
-/// state.rpm = state.rpm*decay1 + (1.0-decay1)*(math.Abs(state.currentVelocity)*1000)/(math.Pi*2)*60
-/// ```
-///
-/// That needs the per-frame state a live game has and a renderer does not: any
-/// frame here can be drawn without the ones before it, which is what lets them
-/// be drawn in parallel. A trailing window is the same quantity — turns over
-/// time — read from the replay instead of accumulated, and at a fifth of a
-/// second it settles about as fast as the decay does.
 pub fn spinner_rpm(cursor: &CursorTrack, start_ms: f64, time_ms: f64) -> f64 {
     const WINDOW_MS: f64 = 200.0;
     let from = (time_ms - WINDOW_MS).max(start_ms);
@@ -1819,34 +1039,15 @@ pub fn spinner_rpm(cursor: &CursorTrack, start_ms: f64, time_ms: f64) -> f64 {
     spinner_rotations(cursor, from, time_ms) / span * 60_000.0
 }
 
-/// When each full turn of a spinner was completed.
-///
-/// The same sweep, kept in time rather than summed away. A turn is worth a
-/// hundred points and a little health at the moment it lands, and "at the
-/// moment" is the whole difficulty: a spinner that carries a play back from the
-/// edge does so over its four seconds, not at its end. Summing first and
-/// awarding at the end would put the health where the graph is not.
 pub(crate) fn spinner_spin_times(cursor: &CursorTrack, start_ms: f64, end_ms: f64) -> Vec<f64> {
     spinner_sweep(cursor, start_ms, end_ms).1
 }
 
-/// Total turns, and the instant each of them completed.
 fn spinner_sweep(cursor: &CursorTrack, start_ms: f64, end_ms: f64) -> (f64, Vec<f64>) {
     let (turns, _, crossings) = spinner_sweep_signed(cursor, start_ms, end_ms);
     (turns, crossings)
 }
 
-/// How far a spinner was turned, *and which way*.
-///
-/// Two different questions share one walk. How much was spun is a distance and
-/// has no direction — osu! pays for a turn either way, so the count adds the
-/// size of each step. Which way it is *facing* is a position and has nothing
-/// but direction, so the angle adds the steps as they came.
-///
-/// They were one number for a while, the unsigned one, and the drawing used it.
-/// So a skin's needle turned the same way whatever the player did, and on a
-/// spinner played anticlockwise it turned against them — reported as "the
-/// spinner went left while I was spinning right".
 fn spinner_sweep_signed(cursor: &CursorTrack, start_ms: f64, end_ms: f64) -> (f64, f64, Vec<f64>) {
     if end_ms <= start_ms || cursor.is_empty() {
         return (0.0, 0.0, Vec::new());
@@ -1879,7 +1080,6 @@ fn spinner_sweep_signed(cursor: &CursorTrack, start_ms: f64, end_ms: f64) -> (f6
     for (time_ms, pos) in samples {
         let (dx, dy) = (pos.x - centre.x, pos.y - centre.y);
         if dx.hypot(dy) < 1e-9 {
-            // Dead on the centre there is no angle to speak of.
             continue;
         }
         let angle = dy.atan2(dx);
@@ -1893,8 +1093,7 @@ fn spinner_sweep_signed(cursor: &CursorTrack, start_ms: f64, end_ms: f64) -> (f6
             }
             facing += step;
             let after = swept + step.abs();
-            // Every whole turn crossed inside this step, placed where it
-            // actually fell rather than at the sample that noticed it.
+
             let mut crossed = (swept / TAU).floor() + 1.0;
             while crossed * TAU <= after {
                 let share = if after > swept {
@@ -1913,10 +1112,6 @@ fn spinner_sweep_signed(cursor: &CursorTrack, start_ms: f64, end_ms: f64) -> (f6
     (swept / TAU, facing / TAU, turns)
 }
 
-/// Which way a spinner is facing, in turns, signed — clockwise positive.
-///
-/// For drawing a skin's needle and nothing else. Every count of how *much* was
-/// spun goes through [`spinner_rotations`], which is the unsigned one.
 pub fn spinner_facing(cursor: &CursorTrack, start_ms: f64, end_ms: f64) -> f64 {
     spinner_sweep_signed(cursor, start_ms, end_ms).1
 }

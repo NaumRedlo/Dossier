@@ -1,24 +1,14 @@
-// In its own file, not in a `<script>` tag: the window's content policy is
-// `default-src 'self'`, which blocks an inline script — a page that worked
-// perfectly in a browser and showed nothing at all in the application.
-
-/// Куда идёт жалоба на баг. Почта и репозиторий известны; ник в Telegram знаете
-/// только вы — впишите его сюда без «собаки», и кнопка появится сама.
-/// Как зовётся то, чем движок рисует, когда своего скина не назвали. Это не
-/// папка нигде на диске, поэтому имя, а не путь.
 const DEFAULT_SKIN = "Dossier Default";
 
 const CONTACT = {
-  mail: "naumredlo@zohomail.com",
-  telegram: "",
+  mail: "naumredlo@icloud.com",
+  telegram: "@NaumRedlo",
   repo: "https://github.com/NaumRedlo/Dossier",
 };
 
-/// The bridge, looked up when it is used rather than when this is parsed. A
-/// window that shows nothing and says nothing is the worst way to fail.
 function invoke(name, args) {
   const bridge = window.__TAURI__;
-  if (!bridge) return Promise.reject(new Error("нет моста к приложению"));
+  if (!bridge) return Promise.reject(new Error("Нет моста к приложению"));
   return bridge.core.invoke(name, args);
 }
 
@@ -37,8 +27,6 @@ function el(tag, className, text) {
 
 const byId = (id) => document.getElementById(id);
 
-/// One line of a card: a sign, a name, what was said, and a remedy when it is
-/// the sort of thing somebody can do something about.
 function line({ mark, name, said, fix }) {
   const row = el("div", "row");
   row.append(el("span", `mark-sign ${mark[0]}`, mark[1]), el("span", "name", name), el("span", "said", said));
@@ -48,15 +36,6 @@ function line({ mark, name, said, fix }) {
 
 const sign = (ok) => (ok === null || ok === undefined ? ["huh", "?"] : ok ? ["ok", "+"] : ["no", "!"]);
 
-// ── свои выпадающие списки ─────────────────────────────────────────────
-
-/// Системный `<select>` — единственная деталь окна, которую рисует не оно.
-/// На macOS он приносит свою рамку, свою стрелку и свой шрифт, и посреди
-/// тёмной панели читается как чужая кнопка.
-///
-/// Настоящий `<select>` остаётся в разметке и остаётся источником правды: он
-/// хранит значение и рассылает `change`, поэтому всё, что было написано вокруг
-/// него, продолжает работать, ничего не зная об этой обёртке.
 function dressSelect(select) {
   if (select.dataset.dressed) {
     select.repaint();
@@ -72,10 +51,6 @@ function dressSelect(select) {
   button.append(label, el("span", "chev", "⌄"));
   box.append(button);
 
-  // Список — в `<body>`, не в `.picker`: карточка вокруг него обрезает своё
-  // содержимое ради скруглённых углов, и список, оставленный внутри неё,
-  // обрезался бы точно так же. Здесь он сам решает, где встать, от
-  // положения кнопки на экране, а не от того, что вокруг него лежит.
   const list = el("div", "options");
   list.hidden = true;
   document.body.append(list);
@@ -152,10 +127,6 @@ function dressAll() {
   for (const select of document.querySelectorAll("select")) dressSelect(select);
 }
 
-// ── что помнит само окно ───────────────────────────────────────────────
-
-// Сторона панели и живость — это про это окно, а не про воркера: боту всё
-// равно, где у вас вкладки. Поэтому здесь, а не в `worker.env`.
 function remembered(key, fallback) {
   try {
     return localStorage.getItem(`dossier.${key}`) || fallback;
@@ -168,28 +139,19 @@ function remember(key, value) {
   try {
     localStorage.setItem(`dossier.${key}`, value);
   } catch {
-    // Приватное окно, запрещённое хранилище — не повод ломать вкладку.
   }
 }
 
 const still = () => document.body.classList.contains("still");
 const vertical = () => document.body.classList.contains("dock-left");
 
-// ── панель, которая растёт под курсором ────────────────────────────────
-
 const dock = byId("dock");
 const items = [...document.querySelectorAll(".item")];
 const glider = byId("glider");
 
-/// Насколько крупнее значок прямо под курсором, и как далеко это чувствуется.
-/// Те же две величины, что у дока в macOS, и подобраны так же — на глаз, пока
-/// не перестало казаться, что панель дышит.
 const GROW = 0.42;
 const REACH = 78;
 
-/// Каждая вкладка в покое: где начинается, какой длины, где середина и какого
-/// размера значок. Меряется без сдвигов и без увеличения — иначе меряли бы
-/// собственный предыдущий ответ.
 let base = null;
 
 function relax() {
@@ -221,18 +183,12 @@ function measure() {
   placeGlider();
 }
 
-/// Курсор в точке `pos` вдоль панели: растёт значок, а вкладки расступаются
-/// ровно настолько, насколько он вырос. Считаем в точках, а не в процентах, —
-/// иначе на длинной подписи «Готовность» соседи разъезжаются вдвое сильнее,
-/// чем на короткой «Ферма».
 function magnify(pos) {
   if (!base || still()) return;
   const scale = base.map((box) => 1 + GROW * Math.exp(-(((pos - box.centre) / REACH) ** 2)));
   const span = base.map((box, i) => box.size + box.glyph * (scale[i] - 1));
   const grew = span.reduce((a, b) => a + b, 0) - base.reduce((a, box) => a + box.size, 0);
 
-  // Группа остаётся на месте серединой: панель не ползёт вбок от того, что на
-  // неё смотрят.
   dock.style.setProperty("--grow", `${grew.toFixed(1)}px`);
   let run = base[0].start - grew / 2;
   let under = 0;
@@ -252,18 +208,12 @@ function place(item, shift, scale) {
   item.style.setProperty(down ? "--tx" : "--ty", "0px");
   const glyph = item.querySelector(".glyph");
   glyph.style.setProperty("--s", scale.toFixed(3));
-  // И чуть в сторону от края, как значок в доке подаётся от кромки экрана.
+
   const lean = (((scale - 1) / GROW) * 1.6).toFixed(2);
   glyph.style.setProperty(down ? "--lx" : "--ly", `${lean}px`);
   glyph.style.setProperty(down ? "--ly" : "--lx", "0px");
 }
 
-/// Белая лепёшка под открытой вкладкой: где вкладка лежит плюс насколько её
-/// подвинули.
-///
-/// Именно так, а не по её нарисованным координатам: вкладка едет с переходом,
-/// и лепёшка, снятая с неё в тот же миг, отстаёт на шаг — а когда курсор
-/// останавливается, так и остаётся стоять рядом.
 function placeGlider(shift = 0) {
   const open = items.find((item) => item.getAttribute("aria-selected") === "true");
   if (!open) return;
@@ -275,9 +225,6 @@ function placeGlider(shift = 0) {
   glider.style.height = `${open.offsetHeight}px`;
 }
 
-/// Указатель шлёт события чаще, чем экран рисует кадры, и считать на каждое —
-/// это считать втрое и показывать одно. Копим последнюю точку, отвечаем раз в
-/// кадр.
 let waiting = null;
 dock.addEventListener("pointermove", (event) => {
   const pos = vertical() ? event.clientY : event.clientX;
@@ -293,8 +240,6 @@ dock.addEventListener("pointermove", (event) => {
   });
 });
 
-// Въезд и возврат — с переходом, чтобы не дёргало от покоя к полному росту.
-// Всё, что между ними, идёт за курсором напрямую.
 const items_box = byId("items");
 dock.addEventListener("pointerenter", () => {
   items_box.classList.add("easing");
@@ -306,8 +251,6 @@ dock.addEventListener("pointerleave", () => {
   setTimeout(() => items_box.classList.remove("easing"), 260);
 });
 window.addEventListener("resize", measure);
-
-// ── переключатели вида ─────────────────────────────────────────────────
 
 function pressed(group, chosen) {
   for (const button of group.querySelectorAll("button")) {
@@ -322,8 +265,6 @@ function dockSide(side, save = true, slide = true) {
   pressed(byId("seg-dock"), byId("seg-dock").querySelector(`[data-side="${side}"]`));
   if (save) remember("dock", side);
 
-  // Переезд, а не телепорт: где панель была минус где она теперь — это и есть
-  // сдвиг, с которого ей ехать обратно к нулю.
   if (slide && !still()) {
     const now = dock.getBoundingClientRect();
     dock.classList.add("jumping");
@@ -334,7 +275,7 @@ function dockSide(side, save = true, slide = true) {
     dock.style.setProperty("--sx", "0px");
     dock.style.setProperty("--sy", "0px");
   }
-  // Мерить есть смысл там, где панель встанет, а не там, где она сейчас едет.
+
   relax();
   setTimeout(measure, slide ? 540 : 0);
 }
@@ -364,8 +305,7 @@ function motion(how, save = true) {
   pressed(byId("seg-motion"), byId("seg-motion").querySelector(`[data-motion="${how}"]`));
   if (save) remember("motion", how);
   if (how === "off") relax();
-  // Спокойное окно — это и спокойные карточки: одна их отрисовка вместо
-  // тридцати в секунду. Настройка одна, и распространяться она должна на всё.
+
   runPreviews();
 }
 
@@ -382,12 +322,6 @@ for (const button of byId("seg-motion").querySelectorAll("button")) {
   button.addEventListener("click", () => motion(button.dataset.motion));
 }
 
-// ── заставка ───────────────────────────────────────────────────────────
-
-/// Сколько молчать до обложки. Пять минут по умолчанию — достаточно долго,
-/// чтобы не мешать тому, кто читает список реплеев, и достаточно коротко, чтобы
-/// окно не стояло сутками с открытой вкладкой настроек. Меняется в настройках,
-/// потому что «долго» у каждого своё.
 const idleMs = () => Number(remembered("idle", "5")) * 60 * 1000;
 
 const splash = byId("splash");
@@ -397,14 +331,6 @@ let idleTimer = null;
 let lastStir = 0;
 let scene_run = null;
 
-/// Марка и звук. Оба лежат рядом с окном, оба грузятся один раз: заставка
-/// открывается на первой секунде запуска, и подгружать в этот момент нечего.
-/// Буква без плитки, если она нарисована, и плитка, если нет.
-///
-/// `icons/make.py` рисует обе из одного описания, но шрифт, которым набрана
-/// буква, — покупной и живёт в репозитории бота: класть его сюда нельзя, а
-/// значит `ui/letter.png` собирается там, где он есть. Пока его нет, заставка
-/// показывает плитку и работает.
 const markImage = new Image();
 let markIsLetter = true;
 markImage.onerror = () => {
@@ -416,45 +342,18 @@ markImage.src = "letter.png";
 const hitSound = new Audio("hit.wav");
 hitSound.preload = "auto";
 
-/// Вступление.
-///
-/// Чёрный экран, буква проявляется, вокруг неё встаёт кольцо иконки — и по
-/// нему приходит удар: звук, свет, отдача. Кольца подхода здесь больше нет:
-/// оно занимало секунду с лишним, всё это время ничего не происходило, кроме
-/// его схождения, и держало сцену ровно настолько дольше, насколько её было
-/// скучно смотреть.
-///
-/// Толщина кольца взята из плитки: там оно радиусом 0.335 стороны при толщине
-/// 0.046, здесь та же доля, только считана от буквы, а не от квадрата,
-/// которого тут нет.
 const RING_IN = 0.046 / 0.335;
 
 const RISE_MS = 620;
-/// Удар — сразу как буква встала, плюс короткий вдох. Раньше он ждал схождения
-/// кольца на 1680 мс; без кольца ждать нечего.
+
 const STRIKE_MS = 900;
 const AFTER_HIT_MS = 640;
 
-/// Заперта на всё время, что экран чёрный, — включая ожидание, — и на всё
-/// время самой сцены. Раньше движение мыши во время загрузки гасило чёрный
-/// экран за секунду до того, как на нём вообще было что показывать; теперь
-/// от запуска до последнего кадра кольца это одна запертая полоса.
 let locked = false;
 
-/// Пока окно закрыто чёрным и пока сцена не догорела, всё, что рисует в это
-/// окно, ждёт вот этого. Список реплеев — это тысячи узлов, собираемых одним
-/// куском; собранный посреди заставки, он забирает у неё ровно те кадры, за
-/// которые её и ругают. Под чёрным его всё равно никто не видит.
 let uncovered = Promise.resolve();
 let uncover = () => {};
 
-/// Холст под размер окна. Меряется каждый кадр: заставка открывается раньше,
-/// чем окно успевает разложиться, и первый замер бывает не тем — а буфер,
-/// выставленный один раз, потом растягивает круг в овал.
-/// Заставка занимает весь экран, и на retina это четыре миллиона точек в
-/// кадре — по ним канва чистится и по ним же складывается. Полтора пикселя на
-/// точку хватает мягким формам с запасом и стоит вдвое дешевле двух: именно
-/// здесь и терялась плавность.
 const SPLASH_DPR = 1.5;
 
 function sizeSplash(c) {
@@ -470,9 +369,6 @@ function sizeSplash(c) {
   return { w, h };
 }
 
-/// Закрыть окно чёрным и не открывать его никому, включая курсор. Вызывается
-/// первым делом при запуске, до единого `await`, — а сама анимация просится
-/// только позже, когда всё, что могло украсть у неё кадр, уже позади.
 function showBlackCover() {
   locked = true;
   asleep = true;
@@ -481,22 +377,18 @@ function showBlackCover() {
   });
   splash.classList.remove("going");
   splash.hidden = false;
-  // Пятна на фоне под заставкой не видно, а кадры они забирают — и забирают их
-  // ровно тогда, когда сцене каждый кадр дорог.
+
   document.body.classList.add("covered");
-  // Чёрное — значит чёрное: холст держит последний нарисованный кадр, и без
-  // этого экран ожидания оказался бы обрывком прошлой сцены.
+
   sizeSplash(splashView.getContext("2d"));
 }
 
-/// Буква, какой она встанет в кадре.
 function letterBox(w, h) {
   const size = Math.min(w, h) * 0.17;
   const side = size * (markIsLetter ? 2.6 : 1.5);
   return { mid: [w / 2, h / 2 - 8], size, side };
 }
 
-/// Кольцо иконки вокруг буквы — то самое, толстое, и теперь единственное.
 function drawRing(c, mid, size, alpha) {
   c.globalAlpha = alpha * 0.85;
   c.strokeStyle = "#e24848";
@@ -507,8 +399,6 @@ function drawRing(c, mid, size, alpha) {
   c.globalAlpha = 1;
 }
 
-/// Пятно от удара. Градиент строится один раз на размер, а не каждый кадр:
-/// на слабой машине именно эти вызовы и съедали частоту.
 let bloomFor = null;
 
 function bloom(c, mid, size, reach) {
@@ -546,8 +436,6 @@ function playOpening() {
     }
 
     if (struck) {
-      // Свет от удара — то, чем игра отмечает попадание: аддитивное пятно
-      // цвета ноты, которое расходится и гаснет.
       const lit = (t - STRIKE_MS) / 560;
       if (lit < 1) {
         const reach = size * 3.2;
@@ -571,8 +459,7 @@ function playOpening() {
     if (!struck && t >= STRIKE_MS) {
       struck = true;
       hitSound.currentTime = 0;
-      // Окно может не дать звуку идти без нажатия — тогда сцена просто тихая,
-      // и это не повод её ронять.
+
       hitSound.play().catch(() => {});
     }
     if (t > STRIKE_MS + AFTER_HIT_MS) {
@@ -585,22 +472,13 @@ function playOpening() {
   scene_run = requestAnimationFrame(frame);
 }
 
-// ── заставка в простое: чужая игра, а не выдумка ───────────────────────
-
-/// Что сейчас крутится, и что есть на полке. Заставка не сочиняет ноты — она
-/// берёт реплей, у которого карта нашлась по хэшу, и проигрывает его тем же
-/// кодом, каким «Судейство» показывает открытый: тот же разбор, тот же скин,
-/// та же геометрия. Только числа над нотами не рисуются — здесь на игру
-/// смотрят, а не считают по ней.
 let idlePlay = null;
 let idleShelf = null;
 let idleAsking = false;
-/// Между двумя реплеями сцена уходит в чёрное и выходит обратно: резкая смена
-/// карты посреди экрана читается как сбой, а не как следующий номер.
+
 const FADE_MS = 900;
 let idleFade = 0;
 
-/// Который по счёту реплей показывать следующим.
 let idleAt = 0;
 
 async function nextIdlePlay() {
@@ -612,8 +490,6 @@ async function nextIdlePlay() {
       idleShelf = plays.filter((play) => play.have_map);
     }
     if (idleShelf.length) {
-      // По очереди, а не наугад: случайный выбор повторяет один и тот же реплей
-      // чаще, чем показывает следующий, и «проиграть другие» он не делает.
       const pick = idleShelf[idleAt % idleShelf.length];
       idleAt += 1;
       const opened = await invoke("judged", { replay: pick.path });
@@ -621,15 +497,12 @@ async function nextIdlePlay() {
       idleFade = 0;
     }
   } catch {
-    // Нет моста, нет папки, нет карт — заставка покажет букву, и это честно.
     idleShelf = idleShelf || [];
   } finally {
     idleAsking = false;
   }
 }
 
-/// Пока реплей читается — и если читать нечего — буква посреди чёрного. Пустой
-/// экран сказал бы, что приложение сломалось.
 function drawResting(c, w, h) {
   if (!markImage.complete || !markImage.naturalWidth) return;
   const { mid, size, side } = letterBox(w, h);
@@ -658,14 +531,11 @@ function playIdle() {
       idlePlay.head += step;
       const left = idlePlay.scene.to_ms - idlePlay.head;
       if (left <= 0) {
-        // Доиграл — следующий. Другой реплей, а не тот же по кругу.
         idlePlay = null;
         idleFade = 0;
         nextIdlePlay();
         drawResting(c, w, h);
       } else {
-        // Появляется и уходит одинаково: полсекунды с краю игры на въезд, и
-        // столько же на выезд, считая от её конца.
         idleFade = Math.min(1, idleFade + step / FADE_MS);
         c.globalAlpha = Math.min(idleFade, Math.max(0, left / FADE_MS));
         drawPlay(
@@ -675,8 +545,7 @@ function playIdle() {
             judged: idlePlay.judged,
             head: idlePlay.head,
             skinned: true,
-            // Всё, что рисует движок, кроме звука: ноты скином, его же
-            // судейство над ними и его же счётчики.
+
             popups: true,
             frame: false,
           },
@@ -694,9 +563,6 @@ function playIdle() {
   scene_run = requestAnimationFrame(frame);
 }
 
-/// После молчания — не то же самое, что при запуске: та сцена говорит, что
-/// это за приложение, эта занимает глаз минутами, пока к окну не вернулись.
-/// Сцена запуска идёт через [`showBlackCover`] и [`playOpening`] отдельно.
 function showSplash() {
   if (asleep) return;
   asleep = true;
@@ -717,8 +583,7 @@ function hideSplash() {
   scene_run = null;
   document.body.classList.remove("covered");
   requestAnimationFrame(runPreviews);
-  // Разбор игры — это мегабайты одного только курсора, и держать их, пока
-  // окном пользуются, незачем.
+
   idlePlay = null;
   splash.classList.add("going");
   setTimeout(() => {
@@ -749,8 +614,6 @@ document.addEventListener("visibilitychange", () => {
   if (!document.hidden) stirred();
 });
 
-// ── жук ────────────────────────────────────────────────────────────────
-
 const bugbox = byId("bugbox");
 const bug = byId("bug");
 const bugpane = byId("bugpane");
@@ -762,9 +625,6 @@ function openBug(yes, byHand = false) {
   if (yes && byHand) byId("bug-text").focus({ preventScroll: true });
 }
 
-// Открывается нажатием и только им. Раскрывать окно жалобы от того, что мимо
-// угла провели мышью, — навязчивость: жук шевелится на наведение, и этого
-// довольно, чтобы понять, что он нажимается.
 bug.addEventListener("click", () => {
   pinned = bugpane.hidden;
   openBug(pinned, true);
@@ -782,9 +642,6 @@ document.addEventListener("pointerdown", (event) => {
   }
 });
 
-/// Что уходит вместе с жалобой, кроме самой жалобы: версия и что за машина.
-/// Ни путей, ни токена, ни имени в сети — на баг этого хватает, а остальное
-/// не наше дело.
 async function tail() {
   try {
     const about = await invoke("about");
@@ -817,13 +674,7 @@ const ROUTES = [
     key: "telegram",
     label: "В Telegram",
     ready: () => true,
-    // Не `t.me`: ссылка всего лишь открыла бы чат, и текст пришлось бы
-    // вставлять туда руками. Отчёт уходит тому же боту, которому эта машина
-    // рисует, — а бот и есть тот Telegram, в который его несут. Это и есть
-    // самый прямой путь.
-    //
-    // Единственная дорога здесь, которая отправляет сама: поэтому она говорит,
-    // что отправила, а не молча открывает окно.
+
     sends: true,
     async send(said) {
       return invoke("send_report", { log: said + (await tail()), kind: "bug" });
@@ -842,7 +693,7 @@ for (const route of ROUTES.filter((route) => route.ready())) {
   button.addEventListener("click", async () => {
     const said = byId("bug-text").value.trim();
     if (!said) {
-      note("Напишите хоть пару слов.", true);
+      note("Напишите хотя бы пару слов...", true);
       byId("bug-text").focus();
       return;
     }
@@ -854,9 +705,6 @@ for (const route of ROUTES.filter((route) => route.ready())) {
           note(await route.send(said));
           byId("bug-text").value = "";
         } catch (why) {
-          // Текст остаётся в поле — его писали, и терять его из-за того, что
-          // у бота нет уха, нельзя, — и заодно уходит в буфер обмена, чтобы
-          // отнести его руками было одно движение.
           const kept = said + (await tail());
           const copied = await navigator.clipboard
             .writeText(kept)
@@ -876,14 +724,10 @@ for (const route of ROUTES.filter((route) => route.ready())) {
   byId("bug-routes").append(button);
 }
 
-// ── ссылка на репозиторий ──────────────────────────────────────────────
-
 byId("repo").addEventListener("click", (event) => {
   event.preventDefault();
   invoke("open_link", { url: CONTACT.repo }).catch(() => {});
 });
-
-// ── обновление ─────────────────────────────────────────────────────────
 
 const upbox = byId("upbox");
 const uppane = byId("uppane");
@@ -898,8 +742,6 @@ for (const button of byId("seg-report").querySelectorAll("button")) {
   button.addEventListener("click", () => reportWhen(button.dataset.report));
 }
 
-/// Спросить, есть ли новее. Тихо при запуске — новость показывает сама плашка,
-/// а всплывающее окно при открытии приложения никто не просил.
 async function lookForUpdate(loud = false) {
   let said;
   try {
@@ -947,8 +789,7 @@ function logLine(text) {
   logged += `${text}\n`;
   upLog.textContent = logged;
   upLog.scrollTop = upLog.scrollHeight;
-  // «Compiling dossier-sim v0.11.0» — та самая строка, ради которой журнал и
-  // показывается: по ней видно, что именно сейчас собирается.
+
   const building = /^\s*Compiling\s+(\S+)/.exec(text);
   if (!building) return;
   for (const item of byId("up-parts").children) {
@@ -981,8 +822,6 @@ byId("up-go").addEventListener("click", async () => {
   }
 });
 
-/// Что делать с журналом упавшей сборки. Ничего не уходит само, пока об этом
-/// не попросили в настройках, и даже тогда об отправке говорится вслух.
 async function offerReport() {
   const after = byId("up-after");
   const how = remembered("report", "ask");
@@ -1019,8 +858,6 @@ async function sendReport(after) {
   }
 }
 
-// ── готовность и машина, теперь внутри настроек ────────────────────────
-
 async function showReady() {
   const box = byId("ready-rows");
   const verdict = byId("ready-verdict");
@@ -1041,9 +878,6 @@ async function showReady() {
     : "Готово — можно брать работу";
   verdict.className = stopped ? "verdict bad" : "verdict";
 
-  // И отдельной строкой то, что с диска не узнать: согласен ли бот работать с
-  // такой сборкой. Дописывается, когда ответит, — остальной список мгновенный
-  // и ждать сети не должен.
   const asking = line({ mark: ["huh", "?"], name: "Сборка", said: "Спрашиваю у бота…" });
   box.append(asking);
   invoke("handshake")
@@ -1071,15 +905,13 @@ async function showMachine() {
     return;
   }
 
-  // The measurement first and largest: it is the only number here that says
-  // what this machine will *do* rather than what it is.
   if (told.speed) {
     head.replaceChildren(
       el("b", null, round(told.speed.estimated)),
       el("span", null, `кадров в секунду · ${told.speed.width}×${told.speed.height} · ${told.capacity.threads} ${plural(told.capacity.threads, "поток", "потока", "потоков")}`),
     );
   } else {
-    head.replaceChildren(el("span", null, told.could_not_measure || "измерить не удалось"));
+    head.replaceChildren(el("span", null, told.could_not_measure || "Измерить не удалось"));
   }
 
   const hardware = told.hardware;
@@ -1105,8 +937,6 @@ async function showMachine() {
   box.replaceChildren(...rows.map(line));
 }
 
-// ── ферма ──────────────────────────────────────────────────────────────
-
 async function showFarm() {
   const box = byId("f-rows");
   const said = byId("f-said");
@@ -1118,14 +948,14 @@ async function showFarm() {
   } catch (why) {
     box.replaceChildren();
     said.className = "verdict bad";
-    said.textContent = `Ферму не видно: ${why}`;
+    said.textContent = `Сеть не видно: ${why}`;
     return;
   }
   byId("f-waiting").textContent = farm.waiting
     ? `${farm.waiting} ${plural(farm.waiting, "задача", "задачи", "задач")} в очереди`
-    : "очередь пуста";
+    : "Очередь пуста";
   if (!farm.workers.length) {
-    box.replaceChildren(line({ mark: ["huh", "?"], name: "никого", said: "ни одна машина не отзывалась" }));
+    box.replaceChildren(line({ mark: ["huh", "?"], name: "Никого", said: "Ни одна машина не находится в сети" }));
     return;
   }
   box.replaceChildren(
@@ -1144,12 +974,8 @@ async function showFarm() {
   );
 }
 
-// ── настройки: одно место, откуда всё читается и куда всё пишется ──────
-
 const FIELDS = ["server", "token", "name", "songs", "skins", "replays", "skin"];
 
-/// Что сейчас записано в `worker.env`. Держим при себе, чтобы кнопка «Обзор»,
-/// которая знает одно поле, не записала пустыми остальные пять.
 let known = {};
 
 async function loadSettings() {
@@ -1163,8 +989,6 @@ async function loadSettings() {
 }
 
 function nameChip(said) {
-  // Только имя этой машины. Адрес бота отсюда убран совсем: он ничего не
-  // говорит тому, кто смотрит на своё окно, а место занимает.
   byId("who").textContent = said.name || "";
 }
 
@@ -1179,9 +1003,7 @@ async function saveSettings(prefix, saidId) {
     await invoke("settings_write", { said });
     known = said;
     nameChip(said);
-    // Молча. Форма пишется при каждом изменении, и «сохранено» рядом с кнопкой
-    // повторяло очевидное на каждое нажатие клавиши. Слышно только когда не
-    // вышло — вот это новость.
+
     if (note) note.textContent = "";
     return true;
   } catch (why) {
@@ -1193,18 +1015,13 @@ async function saveSettings(prefix, saidId) {
   }
 }
 
-/// Скорость мерится один раз на открытие окна: это маленький рендер, а
-/// настройки открывают чаще, чем меняют железо.
 let measured = false;
 
-/// Поставить скин из архива. `.osk` — это zip под другим именем, и распаковать
-/// его на полку значит просто получить скин, который видно во всех списках.
 async function installSkin(path) {
   const note = byId("s-said");
   try {
     const name = await invoke("install_skin", { path });
-    // Сначала в список, потом сохранять: запись читает поля формы, и скин,
-    // которого в списке ещё нет, записался бы прежним значением.
+
     fillSkins(byId("s-skin"), await invoke("skins").catch(() => []), name);
     await saveSettings("s", "s-said");
     note.className = "verdict";
@@ -1227,7 +1044,6 @@ byId("s-osk").addEventListener("click", async () => {
   }
 });
 
-/// Список скинов в любом выпадающем поле: встроенный первым, всегда.
 function fillSkins(picker, skins, chosenName) {
   picker.replaceChildren(el("option", null, DEFAULT_SKIN));
   picker.firstChild.value = "";
@@ -1246,8 +1062,6 @@ const PROMPTS = {
   replays: "Папка с реплеями (обычно osu!/Replays)",
 };
 
-/// Выбрать папку системным окном и тут же записать. Путь, который выбрали, а
-/// потом забыли нажать «Сохранить», — это путь, который не выбрали.
 async function pickFolder(which) {
   try {
     const path = await invoke("pick_folder", { prompt: PROMPTS[which] });
@@ -1268,22 +1082,15 @@ for (const button of document.querySelectorAll("[data-pick]")) {
   });
 }
 
-/// Сколько лежало на полках, когда их читали в прошлый раз. Нужно ровно для
-/// одного: сказать не «готово», а что именно нашлось нового.
 let shelfCounts = null;
 
-/// Перечитать папки и показать, что в них сейчас.
-///
-/// Возвращает, что изменилось с прошлого чтения, — по числу вещей на каждой
-/// полке. Прежние числа берутся отсюда же, так что сравнение всегда с тем, что
-/// человеку показывали, а не с тем, что было при запуске.
 async function readShelves() {
   const shelves = await invoke("shelves").catch(() => null);
   byId("s-shelves").hidden = !shelves;
-  if (!shelves) return "не удалось прочитать папки";
+  if (!shelves) return "Не удалось прочитать папки";
 
   byId("s-shelves").replaceChildren(
-    ...[["карты", shelves.songs], ["скины", shelves.skins], ["реплеи", shelves.replays]].map(([name, shelf]) =>
+    ...[["Карты", shelves.songs], ["Скины", shelves.skins], ["Реплеи", shelves.replays]].map(([name, shelf]) =>
       line({
         mark: shelf.exists ? ["ok", "+"] : ["huh", "?"],
         name,
@@ -1314,8 +1121,7 @@ async function showSettings() {
   loadRenderSettings();
   byId("s-found").textContent = await readShelves();
   showReady();
-  // Мерить скорость — это маленький рендер. Один раз на открытие окна, дальше
-  // по кнопке: настройки открывают чаще, чем железо меняется.
+
   if (!measured) {
     measured = true;
     showMachine();
@@ -1327,10 +1133,7 @@ byId("s-rescan").addEventListener("click", async () => {
   const said = byId("s-found");
   button.disabled = true;
   said.textContent = "Смотрю…";
-  // Список скинов и разбор папки реплеев читаются в других местах и живут до
-  // перезапуска. Новый файл не виден ни там, ни там, пока их не уронишь: без
-  // этого кнопка обновляла бы три строчки со счётом и оставляла вкладку
-  // «Рендер» со вчерашним списком.
+
   shelfCache = null;
   try {
     const skins = await invoke("skins").catch(() => []);
@@ -1350,9 +1153,7 @@ byId("measure").addEventListener("click", () => {
 });
 byId("f-again").addEventListener("click", showFarm);
 
-// ── библиотека ─────────────────────────────────────────────────────────
-
-const TAGS = { builtin: "встроен", found: "на месте", missing: "нет", planned: "в планах" };
+const TAGS = { builtin: "встроен", found: "на месте", missing: "отсутствует", planned: "в планах" };
 
 async function showLibrary() {
   const box = byId("lib-rows");
@@ -1360,16 +1161,15 @@ async function showLibrary() {
   try {
     mods = await invoke("modules");
   } catch (why) {
-    box.replaceChildren(line({ mark: ["no", "!"], name: "библиотека", said: `${why}` }));
+    box.replaceChildren(line({ mark: ["no", "!"], name: "Библиотека", said: `${why}` }));
     return;
   }
   const groups = [
     ["Ядро Dossier", "Наши собственные части. Живут внутри приложения и обновляются вместе с ним.", (mod) => mod.state === "builtin"],
-    ["Сторонние зависимости", "Чужое, без чего не обойтись. Ставится отдельно, и приложение только говорит, где взять.", (mod) => mod.state !== "builtin" && mod.state !== "planned"],
-    ["В разработке", "Задумано и ещё не сделано. Стоит здесь, чтобы не выглядеть пропажей.", (mod) => mod.state === "planned"],
+    ["Сторонние зависимости", "Чужое, без чего не обойтись. Ставится отдельно с указанием источников для установки.", (mod) => mod.state !== "builtin" && mod.state !== "planned"],
+    ["В разработке", "Задумано, но ещё не сделано. Стоит здесь, чтобы не выглядеть пропажей.", (mod) => mod.state === "planned"],
   ];
-  // Каждая часть своей карточкой и со своей задержкой: они про разное, и
-  // приезжать одной стопкой им незачем.
+
   const parts = [];
   let at = 0;
   for (const [name, about, belongs] of groups) {
@@ -1425,30 +1225,19 @@ async function showLibrary() {
   }
 }
 
-// ── рендер ─────────────────────────────────────────────────────────────
-
 let drawing = false;
 
-/// Куда идут отчёты движка. Одна и та же полоса кормит две вкладки, и ей надо
-/// знать, кто её сейчас ждёт.
 let watching = { bar: "r-bar", said: "r-said", share: "r-share" };
 
-// ── рендер и сборка, свёрнутые в угол ────────────────────────────────────
-
-/// Что сейчас идёт, если идёт. `home` — вкладка, на которой у процесса есть
-/// своя полная панель; в углу он появляется, только когда открыта другая.
 let job = null;
-/// Плашка гаснет — не переключать её видимость, пока это не кончится, иначе
-/// переход на другую вкладку посреди затухания обрывает его рывком.
+
 let jobFading = false;
 
 const jobBox = byId("jobbox");
 const jobMini = byId("job-mini");
-/// Длина окружности кольца в плашке: r = 9 в её системе координат. Считана
-/// здесь, а не подобрана в стилях, чтобы радиус и штрих не разъезжались.
+
 const DIAL_ROUND = 2 * Math.PI * 9;
-/// Сколько «Готово» держится в углу, прежде чем уйти само. Достаточно, чтобы
-/// поймать взглядом; мало, чтобы не стать мебелью.
+
 const DONE_HOLD_MS = 12000;
 let jobHold = null;
 
@@ -1457,8 +1246,7 @@ function startJob(home, label) {
   jobFading = false;
   clearTimeout(jobHold);
   jobMini.classList.remove("leaving", "done", "failed");
-  // Короткое имя на плашке, полное — под курсором: в угол помещается «Рендер»,
-  // а чей это реплей, спрашивают отдельным движением.
+
   byId("job-label").textContent = label.split(" · ")[0];
   byId("job-full").textContent = label;
   byId("job-hint").textContent = "Нажмите, чтобы вернуться к этой работе.";
@@ -1473,17 +1261,11 @@ function paintJob(percent, note) {
   if (note) byId("job-note").textContent = note;
 }
 
-/// Показать или спрятать по тому, где сейчас открыто. На своей вкладке процесс
-/// и так виден целиком — плашка в углу там только повторяла бы то же самое.
-/// Кроме конца: «готово» показывается везде, потому что новость о том, что
-/// рендер кончился, нужна ровно тому, кто в этот момент смотрит не туда.
 function syncJobMini() {
   if (jobFading) return;
   jobBox.hidden = !(job && (job.done || open_tab !== job.home));
 }
 
-/// Нажатие — туда, где эта работа живёт. Плашка сообщает, что что-то идёт;
-/// естественное следующее движение — посмотреть, и оно должно работать.
 jobMini.addEventListener("click", () => {
   const home = job && job.home;
   if (job && job.done) dismissJob();
@@ -1503,10 +1285,6 @@ function dismissJob() {
   }, 280);
 }
 
-/// Кончилось — и это видно, а не написано. Кольцо дочерчивается до конца,
-/// потом на его месте проступает галочка (или крест), и плашка остаётся стоять
-/// с этим видом: рендер идёт минутами, и его конец застаёт человека где угодно,
-/// в том числе не в этой вкладке.
 function endJob(ok) {
   if (!job) return;
   paintJob(100, ok ? "Готово" : "Не вышло");
@@ -1522,9 +1300,6 @@ function endJob(ok) {
   jobHold = setTimeout(dismissJob, DONE_HOLD_MS);
 }
 
-/// Что вышло, карточкой: имя файла, что о нём сказал движок, и две кнопки —
-/// открыть и показать в папке. Раньше об окончании говорила одна строка под
-/// списком, и это был весь признак того, что двухминутная работа кончилась.
 function showFinished(slot, { path, notes, bad, head }) {
   const card = el("div", bad ? "finished bad" : "finished");
 
@@ -1540,15 +1315,10 @@ function showFinished(slot, { path, notes, bad, head }) {
   said.append(el("b", null, head));
   if (path) said.append(el("p", "where", path));
   if (bad) {
-    // Причина — не техническая мелочь: это единственное, ради чего сюда
-    // смотрят, и в файл её убирать нельзя.
     if (notes && notes.length) said.append(el("p", "facts", notes.join(" · ")));
   } else {
-    // Счётчики хитсаундов, размер кадра и длина файла читаются один раз в
-    // жизни, когда что-то выглядит не так. До тех пор они стоят между
-    // человеком и следующей кнопкой — поэтому они в файле, а окно говорит где.
     const facts = el("p", "facts");
-    facts.append("Техническая информация — ");
+    facts.append("Техническая информация ");
     const where = el("button", "asknote", "в логах");
     where.addEventListener("click", () => {
       invoke("log_open").catch((why) => {
@@ -1588,9 +1358,6 @@ function showFinished(slot, { path, notes, bad, head }) {
   slot.replaceChildren(card);
 }
 
-/// Чем рисовать. Всё это — настройка, а не решение, принимаемое заново перед
-/// каждым рендером: лишние шесть полей над списком реплеев стояли там ради
-/// одного случая из двадцати.
 function options() {
   const [width, height] = remembered("size", "1920x1080").split("x").map(Number);
   return {
@@ -1626,14 +1393,12 @@ function options() {
   };
 }
 
-/// Те же настройки, но словами — над списком, чтобы было видно, чем сейчас
-/// нарисуется, не уходя за ними.
 function howItDraws() {
   const said = options();
   const off = [
-    said.background ? "" : "Без фона",
-    said.storyboard ? "" : "Без сториборда",
-    said.mute ? "Без звука" : "",
+    said.background ? "" : "без фона",
+    said.storyboard ? "" : "без сториборда",
+    said.mute ? "без звука" : "",
   ].filter(Boolean);
   return [
     `${said.width}×${said.height}`,
@@ -1702,9 +1467,6 @@ function stepCard(step) {
   return card;
 }
 
-/// Список реплеев, пока папка не изменилась. Разбор шестидесяти `.osr` и поиск
-/// их карт — это секунды, и платить их каждый раз, когда сюда заглянули,
-/// незачем.
 let shelfCache = null;
 
 async function showRender(again = false) {
@@ -1715,12 +1477,9 @@ async function showRender(again = false) {
     fillPlays(shelfCache);
     return;
   }
-  // Сначала показать, что читаем, и только потом читать: вкладка, которая
-  // молчит и не отвечает, выглядит как повисшая, а не как занятая.
+
   byId("r-count").textContent = "Читаю папку реплеев…";
-  // Пока в списке одна строка, он и занимает одну строку: `flex: 1` растягивает
-  // карточку на всю вкладку, и ожидание выглядело панелью в четверть экрана,
-  // в которой написано полтора слова.
+
   list.classList.add("waiting");
   list.replaceChildren(line({ mark: ["huh", "·"], name: "минуту", said: "разбираю реплеи и ищу их карты" }));
 
@@ -1789,8 +1548,6 @@ function fillPlays({ shelves, skins, plays, rows }) {
   forgetCards();
   list.replaceChildren(...plays.map((play) => playCard(play)));
 
-  /// Одна запись — карточка: как эта игра выглядела, чьё это и что с ней можно
-  /// сделать. Строка в списке говорила только третье, и то одним глаголом.
   function playCard(play) {
     const card = el("article", "rep");
     if (!play.have_map) card.classList.add("nomap");
@@ -1798,9 +1555,8 @@ function fillPlays({ shelves, skins, plays, rows }) {
     const stage = el("div", "stage");
     const canvas = document.createElement("canvas");
     stage.append(canvas);
-    stage.append(el("div", "hush", play.have_map ? "" : "карты нет"));
-    // Слева — чем это записано, справа — чем кончилось. Оба угла молчат, пока
-    // запись не разобрана: пустое место честнее выдуманного.
+    stage.append(el("div", "hush", play.have_map ? "" : "Карты нет"));
+
     const from = el("span", "from");
     from.hidden = true;
     const acc = el("span", "acc");
@@ -1827,15 +1583,13 @@ function fillPlays({ shelves, skins, plays, rows }) {
       event.preventDefault();
       openMenu(event.clientX, event.clientY, menuFor(play, card));
     });
-    // Левая кнопка — разворот: это то, за чем на карточку смотрят чаще всего,
-    // и держать его только за правой значило бы прятать.
+
     card.addEventListener("click", () => openSheet(play, card));
 
     card.dataset.path = play.path;
     card.previewOf = play;
     card.previewOn = canvas;
-    // Без карты судить нечего и показывать нечего — карточка живёт именем и
-    // меню, и наблюдателю за ней следить не за чем.
+
     if (play.have_map) watchCard(card);
     else card.classList.add("plain");
     return card;
@@ -1871,9 +1625,7 @@ function fillPlays({ shelves, skins, plays, rows }) {
       endJob(false);
     } finally {
       drawing = false;
-      // Обратно включить всё, кроме тех, у кого и так нечего рисовать. Здесь
-      // стояло отрицание не с той стороны, и после первого же рендера полка
-      // оставалась с мёртвыми кнопками до перезапуска окна.
+
       for (const other of list.querySelectorAll("button")) other.disabled = Boolean(other.closest(".rep.nomap"));
       byId("r-busy").hidden = true;
       list.classList.remove("dimmed");
@@ -1883,7 +1635,7 @@ function fillPlays({ shelves, skins, plays, rows }) {
   function menuFor(play, card) {
     return [
       { name: "Отрендерить", off: !play.have_map || drawing, go: () => draw(play) },
-      { name: "Посмотреть в судействе", off: !play.have_map, go: () => takeTo("judge", play.path) },
+      { name: "Посмотреть в Судействе", off: !play.have_map, go: () => takeTo("judge", play.path) },
       { name: "Добавить в Студию", off: !play.have_map, go: () => takeTo("cut", play.path) },
       { name: "Подробнее…", off: !play.have_map, go: () => openSheet(play, card) },
       { line: true },
@@ -1892,34 +1644,21 @@ function fillPlays({ shelves, skins, plays, rows }) {
   }
 }
 
-// ── предпросмотр в карточке ────────────────────────────────────────────
-
-/// Сколько разобранных игр держать. Каждая — несколько секунд, но полка бывает
-/// на две тысячи записей, и без потолка окно съело бы всё, что прокрутилось
-/// мимо.
 const PREVIEWS_KEPT = 60;
-/// Сколько читать одновременно. Чтение — это разбор карты и пересуд реплея;
-/// двадцать сразу отняли бы у окна ровно те ядра, которыми оно рисует.
+
 const PREVIEWS_AT_ONCE = 2;
-/// Сколько кадр держится на краю отрывка. Голова возвращается в начало рывком
-/// — шесть секунд не бесшовны, — и рывок в петле виден. Затемнение по обоим
-/// краям делает из него смену плана.
+
 const PREVIEW_EDGE_MS = 420;
 
 const previews = new Map();
 const showing = new Set();
 const asking = new Set();
 const waitingFor = [];
-/// Та единственная, что сейчас под курсором. Полка, где двигаются все разом,
-/// — это не полка, а рябь: смотреть в ней не на что, потому что смотреть надо
-/// всюду. Двигается одна, остальные стоят кадром.
+
 let hovered = null;
 let previewRun = null;
 let previewSeen = null;
 
-/// Полку перестроили — прежние карточки больше не на виду и не в очереди.
-/// Разобранные игры остаются: та же запись, скорее всего, вернётся на своё
-/// место, и читать её заново было бы за то же самое второй раз.
 function forgetCards() {
   if (previewSeen) previewSeen.disconnect();
   showing.clear();
@@ -1929,7 +1668,6 @@ function forgetCards() {
   previewRun = null;
 }
 
-/// Следить, когда карточка окажется на виду, и только тогда за неё платить.
 function watchCard(card) {
   if (!previewSeen) {
     previewSeen = new IntersectionObserver(
@@ -1956,8 +1694,7 @@ function watchCard(card) {
     hovered = null;
     if (previewRun) cancelAnimationFrame(previewRun);
     previewRun = null;
-    // Вернуть на тот же кадр, с которого начинали: карточка, застывшая там,
-    // где её бросили, — это не «стоп», а «оборвалось».
+
     const made = previews.get(card.previewOf.path);
     if (made) made.head = made.scene.from_ms;
     stillCard(card);
@@ -1966,13 +1703,6 @@ function watchCard(card) {
   previewSeen.observe(card);
 }
 
-/// Попросить разбор — или, если он уже есть, немедленно им воспользоваться.
-///
-/// Второе здесь и было пропущено. Полку перестраивают — по «Обновить», по
-/// возврату на вкладку — и карточки приходят новыми узлами, а разборы лежат в
-/// памяти с прошлого раза. Старый код видел, что разбор есть, и молча выходил:
-/// картинка рисовалась, а карта так и оставалась «…», и отблеск «читаю» шёл
-/// вечно, потому что классы `read`/`plain` ставились только на пути ответа.
 function askPreview(card) {
   const path = card.previewOf.path;
   if (previews.has(path)) {
@@ -1984,7 +1714,6 @@ function askPreview(card) {
   pumpPreviews();
 }
 
-/// Одно место, где разбор ложится на карточку, откуда бы он ни пришёл.
 function applyPreview(card, made) {
   if (!made) {
     card.classList.add("plain");
@@ -1997,7 +1726,7 @@ function applyPreview(card, made) {
 function pumpPreviews() {
   while (asking.size < PREVIEWS_AT_ONCE && waitingFor.length) {
     const card = waitingFor.shift();
-    // Уехала с экрана, пока стояла в очереди, — платить за неё уже незачем.
+
     if (!showing.has(card)) continue;
     const path = card.previewOf.path;
     if (previews.has(path)) continue;
@@ -2009,8 +1738,6 @@ function pumpPreviews() {
         applyPreview(card, made);
       })
       .catch(() => {
-        // Карта не нашлась, реплей не разобрался — карточка остаётся с одним
-        // именем, и это честнее пустого прямоугольника с крестом.
         keepPreview(path, null);
         applyPreview(card, null);
       })
@@ -2021,17 +1748,9 @@ function pumpPreviews() {
   }
 }
 
-/// Что стало известно о заходе, когда его разобрали: карта и точность. Пока
-/// это не пришло, карточка говорит то, что знает из имени файла.
-/// Чем кончился заход, в двух знаках.
-///
-/// `FC` — дошёл и не выронил ни звена. `Fail 63,4%` — умер, и это доля карты,
-/// до которой добрался. `SB` — не промазал ни разу, а комбо всё-таки порвал:
-/// отпущенный хвост слайдера, и у него своё имя за столом. `×3` — обычный
-/// случай со счётом.
 function outcomeOf(said) {
   const out = said.outcome || { kind: "miss", misses: said.counts.miss, share: 100 };
-  if (out.kind === "fail") return { text: `Fail ${round(out.share, 1)}%`, tone: "bad" };
+  if (out.kind === "fail") return { text: `${round(out.share, 1)}%`, tone: "bad" };
   if (out.kind === "fc") return { text: "FC", tone: "good" };
   if (out.kind === "break") return { text: "SB", tone: "meh" };
   return { text: `×${round(out.misses)}`, tone: "bad" };
@@ -2063,20 +1782,12 @@ function keepPreview(path, made) {
     const oldest = previews.keys().next().value;
     if (oldest === path) break;
     previews.delete(oldest);
-    // Карточка, у которой разбор забрали, снова ничего не знает — иначе она
-    // осталась бы «прочитанной» с пустым кадром.
+
     const card = byId("r-list").querySelector(`.rep[data-path="${CSS.escape(oldest)}"]`);
     if (card) card.classList.remove("read");
   }
 }
 
-/// Один кадр из середины куска, где нот больше всего, а не с его начала:
-/// начало любого отрывка — это пустое поле и одна нота.
-///
-/// След курсора за весь отрывок здесь рисовался и убран: движок его не рисует,
-/// а поверх шести секунд чужой игры он ложился клубком, из которого не читалось
-/// ни движение, ни ноты под ним. Карточка показывает игру, а не наш рассказ
-/// о ней.
 function stillCard(card) {
   const made = previews.get(card.previewOf.path);
   if (!made) return;
@@ -2093,7 +1804,7 @@ function readyCanvas(card) {
   const wide = canvas.clientWidth;
   const high = canvas.clientHeight;
   if (!wide || !high) return null;
-  // Полтора пикселя на точку: это ноготь, а не кадр видео.
+
   const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
   if (canvas.width !== Math.round(wide * dpr)) {
     canvas.width = Math.round(wide * dpr);
@@ -2105,7 +1816,6 @@ function readyCanvas(card) {
   return { ctx, wide, high };
 }
 
-/// Идёт та, что под курсором, и только пока она под ним.
 function runPreviews() {
   const one = hovered;
   const wanted = one && motionOn() && !document.hidden && !asleep && previews.get(one.previewOf.path);
@@ -2121,8 +1831,7 @@ function runPreviews() {
       previewRun = null;
       return;
     }
-    // Каждый кадр, а не через один: идёт всегда ровно одна карточка, и
-    // тридцать кадров на ней были экономией там, где экономить не на чем.
+
     const step = Math.min(120, now - was);
     was = now;
     paintCard(one, step);
@@ -2139,8 +1848,7 @@ function paintCard(card, step) {
   const play = made.scene;
   made.head += step;
   if (made.head > play.to_ms) made.head = play.from_ms;
-  // Гаснет к концу отрывка и проявляется в начале, так что петля читается как
-  // склейка, а не как обрыв.
+
   drawPlay(
     c.ctx,
     { scene: play, judged: made.judged, head: made.head, skinned: true, popups: true, frame: false },
@@ -2151,10 +1859,7 @@ function paintCard(card, step) {
   const away = clamp01((play.to_ms - made.head) / PREVIEW_EDGE_MS);
   const shown = Math.min(into, away);
   if (shown >= 1) return;
-  // Стирать, а не закрашивать: `globalAlpha`, выставленная до `drawPlay`, ею
-  // же и переписывается — сцена выставляет свою на каждой ноте. А `destination-out`
-  // снимает долю уже нарисованного, и из-под неё выходит фон коробки, а не
-  // чёрный прямоугольник поверх карточки.
+
   c.ctx.save();
   c.ctx.globalCompositeOperation = "destination-out";
   c.ctx.globalAlpha = 1 - shown;
@@ -2164,17 +1869,11 @@ function paintCard(card, step) {
 
 const motionOn = () => remembered("motion", "on") === "on";
 
-/// Открыть этот реплей в той половине вкладки «Реплей», которую попросили.
 async function takeTo(which, path) {
   show("replay");
   if (await enter(which)) await openReplay(path);
 }
 
-// ── меню правой кнопки ─────────────────────────────────────────────────
-
-/// Своё, а не системное: системное меню webview'а — это «Обновить страницу» и
-/// «Проверить элемент», то есть ровно те два пункта, которых человеку здесь
-/// быть не должно.
 const menuBox = byId("r-menu");
 
 function openMenu(x, y, items) {
@@ -2191,8 +1890,7 @@ function openMenu(x, y, items) {
     }),
   );
   menuBox.hidden = false;
-  // Померить, потом поставить: у края экрана меню разворачивается в другую
-  // сторону, а не уезжает за него.
+
   const box = menuBox.getBoundingClientRect();
   const left = x + box.width > window.innerWidth - 8 ? x - box.width : x;
   const top = y + box.height > window.innerHeight - 8 ? y - box.height : y;
@@ -2208,37 +1906,19 @@ for (const kind of ["pointerdown", "wheel", "blur"]) {
   window.addEventListener(kind, shutMenu, { passive: true, capture: true });
 }
 
-/// Правая кнопка нигде больше не открывает меню webview'а.
-///
-/// «Назад», «Обновить страницу», «Проверить элемент» — это меню документа, а
-/// перед человеком не документ, а окно приложения. Своё меню там, где ему есть
-/// что предложить, останавливает это событие раньше; здесь остаётся всё
-/// остальное — кроме полей ввода, где системное меню — это «вырезать,
-/// копировать, вставить», и отнимать его значит ломать ввод текста.
 document.addEventListener("contextmenu", (event) => {
   const where = event.target;
   if (where && where.closest && where.closest("input, textarea, [contenteditable]")) return;
   event.preventDefault();
 });
 
-/// И перетаскивание картинок и ссылок мышью: это тоже поведение страницы, а не
-/// окна — иконка, уезжающая за курсором, выглядит поломкой.
 document.addEventListener("dragstart", (event) => event.preventDefault());
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape") shutMenu();
 });
 
-// ── разворот записи ────────────────────────────────────────────────────
-
 const sheet = byId("r-sheet");
 
-/// Всё, что мы уже посчитали об этом заходе, в одном месте. Ничего нового не
-/// читается: разбор ради предпросмотра уже дал и точность, и счёт судейства —
-/// «Подробнее» показывает то, что и так лежит.
-///
-/// Порядок здесь — это порядок, в котором на заход смотрят. Сначала одно
-/// число, ради которого его открыли, потом из чего оно сложилось, потом где
-/// лежали нажатия, и только в конце — где лежит файл.
 function openSheet(play, card) {
   const made = previews.get(play.path);
   const body = byId("r-sheet-body");
@@ -2249,7 +1929,7 @@ function openSheet(play, card) {
   const chips = el("div", "chips");
   chips.append(el("span", "chip who", play.player));
   chips.append(el("span", "chip", play.mods || "NM"));
-  chips.append(el("span", "chip", `${round(play.score)} очков`));
+  chips.append(el("span", "chip", `${round(play.score)} очк.`));
   if (said) {
     const out = outcomeOf(said);
     chips.append(el("span", `chip ${out.tone}`, out.text));
@@ -2257,8 +1937,6 @@ function openSheet(play, card) {
   head.append(chips);
   body.replaceChildren(head);
 
-  // Тот же кусок игры, что на карточке, только крупнее и идёт сам: развёрнутая
-  // запись — это то место, где на неё смотрят, а не проходят мимо.
   if (made) {
     const stage = el("div", "sheetstage");
     sheetView = document.createElement("canvas");
@@ -2270,7 +1948,7 @@ function openSheet(play, card) {
 
   if (!said) {
     body.append(
-      el("p", "fine", play.have_map ? "Ещё читаю этот реплей." : "Карты этого реплея нет на этой машине — судить не по чему."),
+      el("p", "fine", play.have_map ? "Ещё читаю этот реплей." : "Карты этого реплея нет на этом устройстве."),
     );
   } else {
     body.append(mainFigure(said));
@@ -2283,12 +1961,12 @@ function openSheet(play, card) {
   }
 
   if (said && said.client) {
-    body.append(el("h4", "sheeth", "Чем записано"));
+    body.append(el("h4", "sheeth", "Где записано"));
     const from = el("div", "written");
     const client = el("div", "one");
     client.append(
       el("b", null, said.client.name),
-      el("span", null, said.client.build ? `сборка ${said.client.build} · ${said.client.version}` : `версия ${said.client.version}`),
+      el("span", null, said.client.build ? `Сборка ${said.client.build} · ${said.client.version}` : `Версия ${said.client.version}`),
     );
     from.append(client);
     if (said.client.played_at) {
@@ -2303,7 +1981,7 @@ function openSheet(play, card) {
   body.append(el("p", "where", play.path));
 
   const routes = el("div", "routes");
-  const judge = el("button", "act small primary", "Посмотреть в судействе");
+  const judge = el("button", "act small primary", "Посмотреть в Судействе");
   judge.disabled = !play.have_map;
   judge.addEventListener("click", () => {
     shutSheet();
@@ -2322,15 +2000,12 @@ function openSheet(play, card) {
 
   sheet.hidden = false;
   byId("r-sheet-shut").focus();
-  // Разворот показали — теперь у холста есть ширина, и график можно нарисовать
-  // по-настоящему.
+
   const spread = body.querySelector(".spread .bars");
   if (spread && spread.repaint) requestAnimationFrame(spread.repaint);
   void card;
 }
 
-/// Точность крупно, и рядом — комбо. Это те два числа, ради которых заход
-/// открывают; остальные семь объясняют их, а не соперничают с ними.
 function mainFigure(said) {
   const box = el("div", "crown");
 
@@ -2339,19 +2014,17 @@ function mainFigure(said) {
   const part = Math.round((said.accuracy_percent - whole) * 100);
   const number = el("div", "n");
   number.append(el("span", "w", String(whole)), el("span", "p", `,${String(part).padStart(2, "0")}%`));
-  big.append(number, el("span", "cap", "точность"));
+  big.append(number, el("span", "cap", "Точность"));
   box.append(big);
 
   const side = el("div", "aside");
   const combo = el("div", "one");
   combo.append(
     el("b", null, `${round(said.combo)}×`),
-    el("span", null, said.combo_possible ? `из ${round(said.combo_possible)} возможных` : "наше комбо"),
+    el("span", null, said.combo_possible ? `из ${round(said.combo_possible)} возможных` : "Наше комбо"),
   );
   side.append(combo);
   if (said.combo !== said.combo_recorded) {
-    // Не делим одно на другое: это два утверждения об одном заходе, и если они
-    // расходятся, интересно именно расхождение, а не его доля.
     const recorded = el("div", "one huh");
     recorded.append(el("b", null, `${round(said.combo_recorded)}×`), el("span", null, "записано в реплее"));
     side.append(recorded);
@@ -2359,16 +2032,13 @@ function mainFigure(said) {
   const ur = el("div", "one");
   ur.append(
     el("b", null, said.unstable_rate === null ? "—" : round(said.unstable_rate, 1)),
-    el("span", null, "разброс, UR"),
+    el("span", null, "Unstable Rate"),
   );
   side.append(ur);
   box.append(side);
   return box;
 }
 
-/// Из чего сложилась точность: четыре счёта полосой, и ширина каждого — его
-/// доля. Одни цифры не показывают, что промахов два против четырёхсот восьмидесяти
-/// трёхсоток; полоса показывает.
 function tally(said) {
   const rows = [
     ["300", said.counts.great, "great"],
@@ -2397,15 +2067,6 @@ function tally(said) {
   return box;
 }
 
-/// Куда ложились нажатия: столбики по окнам ошибки, рано слева, поздно справа.
-/// Это тот же разброс, что в числе UR, только видно, он в одну сторону или в
-/// обе — а по одному числу это не отличить.
-///
-/// Холстом, а не коробками. Столбики из `div`-ов вставали на четырнадцать
-/// пикселей выше черты: содержащий блок оказывался 45 px в коробке 73, и это
-/// не зависело ни от флекса, ни от `position: absolute` — измерено на обоих.
-/// График проще нарисовать, чем выяснять, чей это блок: приложение и так
-/// рисует игру на холсте шесть раз на экране.
 function errorBars(said) {
   const errors = said.marks.map((mark) => mark.error_ms).filter((one) => one !== null && one !== undefined);
   if (errors.length < 4) return null;
@@ -2415,13 +2076,9 @@ function errorBars(said) {
   canvas.className = "bars";
   box.append(canvas);
 
-  // Округляем размах до целых десятков — «±47 мс» это точность, которой у
-  // этого числа нет, а ось, прыгающая от захода к заходу, не даёт сравнивать
-  // два графика глазом.
   const widest = Math.max(...errors.map(Math.abs));
   const reach = Math.max(20, Math.ceil(widest / 10) * 10);
-  // Нечётное число корзин, чтобы «вовремя» попадало в середину одной, а не на
-  // границу двух.
+
   const bins = 33;
   const counts = new Array(bins).fill(0);
   for (const one of errors) {
@@ -2429,8 +2086,6 @@ function errorBars(said) {
     counts[at] += 1;
   }
 
-  // Ширины ещё нет — коробка только что создана и в макет не попала. Рисуем
-  // кадром позже, когда она есть.
   const paint = () => paintSpread(canvas, counts);
   requestAnimationFrame(paint);
   canvas.repaint = paint;
@@ -2464,8 +2119,6 @@ function paintSpread(canvas, counts) {
   const gap = Math.min(2, step * 0.2);
   const tallest = Math.max(...counts) || 1;
 
-  // Отвес по середине — он отвечает на «в какую сторону» даже там, где средняя
-  // корзина пуста.
   c.fillStyle = "rgba(255,255,255,0.14)";
   c.fillRect(Math.round(wide / 2), 0, 1, floor);
   c.fillRect(0, floor, wide, 1);
@@ -2476,8 +2129,7 @@ function paintSpread(canvas, counts) {
     c.fillStyle = i === middle ? "#5fd694" : i < middle ? "rgba(122,167,216,0.75)" : "rgba(216,136,122,0.75)";
     const x = i * step;
     const w = Math.max(1, step - gap);
-    // Скруглённая макушка: два пикселя, но именно они отличают график от
-    // частокола.
+
     const r = Math.min(2, w / 2, tall / 2);
     c.beginPath();
     c.moveTo(x, floor);
@@ -2491,9 +2143,6 @@ function paintSpread(canvas, counts) {
   });
 }
 
-/// Предпросмотр в развороте. Своя голова, а не та, что у карточки: они идут
-/// врозь, и общая означала бы, что развёрнутая запись перематывает ту, что
-/// осталась под курсором.
 let sheetPlay = null;
 let sheetView = null;
 let sheetRun = null;
@@ -2569,15 +2218,9 @@ document.addEventListener("keydown", (event) => {
 
 byId("r-refresh").addEventListener("click", () => showRender(true));
 
-// The engine's own events, forwarded from the render — see the `draw` command.
-//
-// `listen` возвращает обещание, и отказ по нему — не мелочь: в Tauri 2 это
-// разрешение, и без `capabilities/default.json` окно отклоняется молча. Ровно
-// так панель рендера и молчала целый релиз: команды шли, кадры считались,
-// события не доходили, и ни одной строки об этом нигде. Теперь отказ виден.
 function subscribe(name, take) {
   window.__TAURI__.event.listen(name, take).catch((why) => {
-    console.error(`не подписаться на «${name}»:`, why);
+    console.error(`Не подписаться на «${name}»:`, why);
     watchFailed = String(why);
   });
 }
@@ -2589,7 +2232,7 @@ if (window.__TAURI__ && window.__TAURI__.event) {
     const share = Math.min(100, (payload.frames / payload.of) * 100);
     byId(watching.bar).style.width = `${share}%`;
     if (watching.share) byId(watching.share).textContent = round(share);
-    const note = `кадр ${round(payload.frames)} из ${round(payload.of)} · ${round(payload.per_second)} в секунду · осталось ${round(payload.left_seconds)} с`;
+    const note = `Отрендерено ${round(payload.frames)} кадров из ${round(payload.of)} · ${round(payload.per_second)} в секунду · осталось ${round(payload.left_seconds)} с`;
     byId(watching.said).textContent = note;
     if (job) paintJob(share, note);
   });
@@ -2600,18 +2243,10 @@ if (window.__TAURI__ && window.__TAURI__.event) {
   });
 }
 
-// ── реплей ─────────────────────────────────────────────────────────────
-
-/// Цвета вердиктов. Те же, что рисует движок: окно и кадр не должны расходиться
-/// в том, какого цвета сотка.
 const WORTH = { 300: "#66ccff", 100: "#88d64c", 50: "#f0c060", 0: "#e24848" };
 
-/// Каким рисуются ноты, пока не попросили скин. Это просмотр судейства, а не
-/// показ карты: комбо-цвета здесь только отвлекают от того, что засчитано.
 const PLAIN = "#c9cede";
 
-/// Картинки скина, которым включается «Показывать со скином»: те же файлы,
-/// которыми рисует движок, взятые из скина по умолчанию.
 let pics = null;
 const tints = new WeakMap();
 
@@ -2637,9 +2272,6 @@ async function loadPics() {
   return pics;
 }
 
-/// Белая картинка, покрашенная цветом комбо. Кэшируется на пару «картинка +
-/// цвет»: перекрашивать её каждый кадр — это перерисовывать весь скин
-/// шестьдесят раз в секунду.
 function tinted(image, colour) {
   let per = tints.get(image);
   if (!per) {
@@ -2656,7 +2288,7 @@ function tinted(image, colour) {
   c.globalCompositeOperation = "multiply";
   c.fillStyle = colour;
   c.fillRect(0, 0, made.width, made.height);
-  // Умножение красит и прозрачные места — возвращаем исходную маску.
+
   c.globalCompositeOperation = "destination-in";
   c.drawImage(image, 0, 0);
   per.set(colour, made);
@@ -2664,9 +2296,6 @@ function tinted(image, colour) {
 }
 const SAID = { 300: "300", 100: "100", 50: "50", 0: "×" };
 
-/// Сколько объект ещё нужен после того, как отыгран, — по самому долгому, что
-/// от него остаётся. Круг уходит за 240 мс, а вспышка под ним живёт полторы
-/// секунды: обрезать по круг значит гасить свет на середине.
 const AFTER_MS = 1400;
 
 let scene = null;
@@ -2683,11 +2312,6 @@ const view = byId("rp-view");
 const tape = byId("rp-tape");
 const track = byId("rp-track");
 
-// ── выбор режима ───────────────────────────────────────────────────────
-
-/// Что нужно каждому режиму. Судейству — только движок, а он встроен; Студии —
-/// ffmpeg, без которого собирать нечем. Проверяется до того, как пустить, а не
-/// после того, как человек нарезал ленту.
 async function needs(which) {
   if (which !== "cut") return "";
   const rows = await invoke("ready").catch(() => []);
@@ -2697,8 +2321,6 @@ async function needs(which) {
     : "Для Студии нужен ffmpeg. «Библиотека» скажет, где его взять";
 }
 
-/// Пускает или не пускает, и говорит об этом — по этому ответу решает тот, кто
-/// пришёл сюда из карточки на полке: открывать реплей или не трогать.
 async function enter(which) {
   const gate = byId("rp-gate");
   gate.textContent = "Проверяю, что для этого нужно…";
@@ -2746,8 +2368,6 @@ byId("rp-back").addEventListener("click", () => {
   byId("rp-choose").hidden = false;
 });
 
-// ── открыть реплей ─────────────────────────────────────────────────────
-
 async function openReplay(path) {
   const said = byId("rp-said");
   byId("rp-drop").hidden = false;
@@ -2771,10 +2391,6 @@ async function openReplay(path) {
   showLive();
 }
 
-// ── настройки: разделы ─────────────────────────────────────────────────
-
-/// Какой раздел открыт. Запоминается: человек, который зашёл поправить громкость
-/// и вернулся через минуту, возвращается туда, где был, а не в начало стены.
 function openSettings(which, save = true) {
   const rail = byId("s-rail");
   for (const button of rail.querySelectorAll("button")) {
@@ -2820,7 +2436,7 @@ function showLive() {
       {
         mark: ["ok", "·"],
         name: "Разброс",
-        said: judged.unstable_rate === null ? "без данных" : `${round(judged.unstable_rate, 1)} UR`,
+        said: judged.unstable_rate === null ? "Без данных" : `${round(judged.unstable_rate, 1)} UR`,
       },
     ].map(line),
   );
@@ -2836,8 +2452,6 @@ byId("rp-open").addEventListener("click", async () => {
   }
 });
 
-// Перетаскивание — событие окна, а не страницы: у файла в webview нет пути, и
-// знает его только сама Tauri. Заодно ловим и скины.
 if (window.__TAURI__ && window.__TAURI__.event) {
   const zone = byId("rp-drop");
   window.__TAURI__.event.listen("tauri://drag-enter", () => zone.classList.add("over"));
@@ -2858,16 +2472,6 @@ if (window.__TAURI__ && window.__TAURI__.event) {
   });
 }
 
-// ── как это рисуется ───────────────────────────────────────────────────
-
-/// Поле osu! — 512 на 384 единицы. Всё, что ниже, считает в них и переводит в
-/// точки холста одним и тем же множителем, чтобы круг остался кругом.
-/// Всё, что нужно, чтобы нарисовать один миг игры: разбор, судейство, время и
-/// то, рисовать ли скином. Просмотрщик передаёт своё, заставка — своё, а
-/// рисуют они одним и тем же кодом, потому что рисуют одно и то же.
-///
-/// `popups` — числа над отыгранными нотами: в «Судействе» они и есть смысл, на
-/// заставке это разметка поверх картинки.
 function fit(w, h, radius) {
   const scale = Math.min(w / 512, h / 384) * 0.9;
   return {
@@ -2878,8 +2482,6 @@ function fit(w, h, radius) {
   };
 }
 
-/// Первый объект, который ещё может быть виден. Двоичным поиском, а не с
-/// начала: на карте их бывает несколько тысяч, а кадров в секунду шестьдесят.
 function firstVisible(objects, ms) {
   let low = 0;
   let high = objects.length;
@@ -2897,30 +2499,18 @@ function cursorAt(play, ms) {
   return { x: play.cursor[at * 2], y: play.cursor[at * 2 + 1], keys: play.keys[at], at };
 }
 
-// ── как это рисует движок ──────────────────────────────────────────────
-
-/// Ни одно число ниже не подобрано на глаз: это те же константы, что в
-/// `crates/dossier-render/src/renderer.rs`, где у каждой выписан кусок osu!,
-/// из которого она взята. Заставка показывает игру ровно так, как её
-/// показывает рендер, и расходиться этим двум местам нельзя — иначе окно
-/// обещает одно, а файл приносит другое.
-const HIT_FADE_MS = 240; // legacy_fade_duration
-const MISS_FADE_MS = 100; // ArmedState.Miss: this.FadeOut(100)
+const HIT_FADE_MS = 240;
+const MISS_FADE_MS = 100;
 const NUMBER_FADE_MS = HIT_FADE_MS / 4;
-const HIT_SWELL = 0.4; // ScaleTo(1.4f)
-const APPROACH_REACH = 3.0; // 1 + 3(1 − progress)
+const HIT_SWELL = 0.4;
+const APPROACH_REACH = 3.0;
 const BALL_CORE = 0.34;
 const ARROW_SCALE = 0.52;
 const ARROW_LOOP_MS = 300;
 const ARROW_LOOP_FROM = 1.3;
-/// Как приходит точка тика: пятьдесят миллисекунд на проявление и вчетверо
-/// дольше на то, чтобы сжаться до своего размера. Игра здесь пружинит; у точки
-/// в шесть пикселей пружина — это дрожь, а не жест, поэтому движение то же, но
-/// без отскока.
+
 const TICK_FADE_MS = 150;
-/// Насколько раньше тика он загорается: две трети подхода на первом проходе и
-/// ровные двести миллисекунд на возвратных — на возврате игрок уже видел, где
-/// точки, и предупреждать его столько же незачем.
+
 const TICK_FIRST_LEAD = 0.66;
 const TICK_REPEAT_LEAD_MS = 200;
 const LIGHT_IN_MS = 200;
@@ -2934,25 +2524,19 @@ const FOLLOW_SPACING = 32;
 const FOLLOW_PREEMPT_MS = 800;
 const FOLLOW_ENTRY_SCALE = 1.5;
 const FOLLOW_APPROACH = 0.1;
-/// Числа ленты — движка: шаг выборки, длина редкой ленты и длина сплошной, и
-/// доля ширины картинки, через которую кладётся следующая метка.
+
 const TRAIL_STEP_MS = 1000 / 60;
 const TRAIL_DISJOINT_MS = 150;
 const TRAIL_CONTINUOUS_MS = 500;
 const TRAIL_INTERVAL_SHARE = 1 / 2.5;
-/// Какую долю радиуса занимает ободок ноты, когда её рисует не скин, а движок:
-/// `Skin::border_ratio`, и число то же.
+
 const NOTE_BORDER = 0.11;
-/// Полный оборот курсора за десять секунд, когда скин просит его вращать.
+
 const CURSOR_TURN_MS = 10000;
 
 const easeOut = (t) => 1 - (1 - t) * (1 - t);
 const clamp01 = (t) => (t < 0 ? 0 : t > 1 ? 1 : t);
 
-/// Те же переключатели, что уходят в рендер, — читаются раз при перемене, а не
-/// шестьдесят раз в секунду из хранилища. Заставка показывает игру теми же
-/// правилами, по которым её нарисует файл: иначе окно обещает одно, а видео
-/// приносит другое.
 const effects = { lighting: true, expand: true };
 
 function readEffects() {
@@ -2961,13 +2545,6 @@ function readEffects() {
 }
 readEffects();
 
-/// Цвет ноты — скина, пока у скина он есть.
-///
-/// Осу! решает наоборот: карта, назвавшая свои цвета, перебивает скин, и
-/// движок делает так же. Здесь попрошено строго от скина, и это стоит знать:
-/// на карте со своей палитрой предпросмотр покажет не те цвета, что придут в
-/// файле. Номер комбо передаётся ноте именно поэтому — списки разной длины, и
-/// готовый индекс годился бы только для одного из них.
 function colourOf(piece, show) {
   if (!show.skinned) return PLAIN;
   const own = pics && pics.colours && pics.colours.length ? pics.colours : null;
@@ -2976,7 +2553,6 @@ function colourOf(piece, show) {
   return list[piece.run % list.length];
 }
 
-/// Тот же цвет темнее — для дорожки слайдера, когда скин своей не назвал.
 function shade(colour, part) {
   const hex = colour.replace("#", "");
   const n = parseInt(hex.length === 3 ? hex.replace(/./g, (d) => d + d) : hex, 16);
@@ -2984,9 +2560,6 @@ function shade(colour, part) {
   return `rgb(${at(16)}, ${at(8)}, ${at(0)})`;
 }
 
-/// Что случилось с каждым объектом, по его номеру. Считается один раз на сцену
-/// и остаётся на ней: без этого нота не знает, ударили её или промазали, а от
-/// этого зависит и как она уходит, и светит ли она полем.
 function verdictsOf(show) {
   if (show.scene.by_object) return show.scene.by_object;
   const by = new Map();
@@ -2995,11 +2568,6 @@ function verdictsOf(show) {
   return by;
 }
 
-/// Когда объект уходит и как быстро.
-///
-/// Слайдер держится целым до собственного конца, даже если голову засудили
-/// давно, — `alpha_at` в движке делает ровно это. Удар раздувает ноту, промах
-/// нет: это единственная разница, которую видно на одном кадре.
 function endingOf(entry) {
   const { piece, mark } = entry;
   const missed = mark ? mark.worth === 0 : false;
@@ -3019,7 +2587,7 @@ function alphaOf(entry, show) {
   const now = show.head;
   if (now < spawn || now > ends.leaves + ends.fade) return 0;
   const appearing = clamp01((now - spawn) / Math.max(1, play.fade_in_ms));
-  // Прямая, не сглаженная: `FadeOut(240)` без easing — это ровный спуск.
+
   return appearing * (1 - clamp01((now - ends.leaves) / ends.fade));
 }
 
@@ -3041,10 +2609,6 @@ function drawPlay(c, show, w, h) {
     showing.push({ piece, index: i, mark: marks.get(i) || null });
   }
 
-  // Те же слои и в том же порядке, что в `draw_field`: дорожка между нотами,
-  // вспышки под ними, потом все тела слайдеров разом — своим слоем, иначе тело
-  // позднего слайдера накрывает ноту, которую как раз собираются бить, — потом
-  // сами ноты, ранняя поверх поздней, и кольца подхода над всем.
   drawFollowPoints(c, box, px, py, show);
   drawLighting(c, box, px, py, show, showing);
   for (let i = showing.length - 1; i >= 0; i -= 1) drawBody(c, showing[i], box, px, py, show);
@@ -3055,8 +2619,6 @@ function drawPlay(c, show, w, h) {
   drawCursor(c, box, px, py, show);
 }
 
-/// Дорожка точек от одной ноты к следующей. Новое комбо её рвёт, спиннер её не
-/// имеет, и слишком близкие ноты обходятся без неё.
 function drawFollowPoints(c, box, px, py, show) {
   const shot = show.skinned && pics ? pics.follow_point : null;
   if (!shot) return;
@@ -3088,8 +2650,7 @@ function drawFollowPoints(c, box, px, py, show) {
       const leaving = now > leaves_at ? clamp01((now - leaves_at) / fade) : 0;
       const alpha = arriving * (1 - leaving);
       if (alpha <= 0) continue;
-      // Приходит на десятую позади своего места и подъезжает к нему, ужимаясь
-      // до размера по дороге.
+
       const along = fraction - FOLLOW_APPROACH * (1 - easeOut(arriving));
       const scale = FOLLOW_ENTRY_SCALE + (1 - FOLLOW_ENTRY_SCALE) * easeOut(arriving);
       const side = box.r * scale;
@@ -3104,8 +2665,6 @@ function drawFollowPoints(c, box, px, py, show) {
   c.globalAlpha = 1;
 }
 
-/// Вспышка, которую оставляет отыгранная нота. Складывается со сценой, а не
-/// ложится поверх: положенная поверх, она была бы серым кругом на игре.
 function drawLighting(c, box, px, py, show, showing) {
   const shot = effects.lighting && show.skinned && pics ? pics.lighting : null;
   if (!shot) return;
@@ -3126,34 +2685,20 @@ function drawLighting(c, box, px, py, show, showing) {
     const scale = LIGHT_FROM + (LIGHT_TO - LIGHT_FROM) * easeOut(clamp01(age / LIGHT_GROW_MS));
     const side = box.r * 2 * scale;
     c.globalAlpha = alpha;
-    // На том же месте, что и вердикт: у слайдера это хвост, а не голова.
+
     c.drawImage(tinted(shot.image, colourOf(entry.piece, show)), px(mark.x) - side / 2, py(mark.y) - side / 2, side, side);
   }
   c.restore();
   c.globalAlpha = 1;
 }
 
-/// Где у трубы что: до восьми сотых от края — тень, до 0.1875 — сплошной
-/// ободок, дальше дорожка от внешнего цвета к внутреннему. Те же три числа,
-/// что в `tube_shade`, и они не подобраны — это danser'овские доли, по которым
-/// осу! строит тело.
 const TUBE_SHADOW = 1 - 59 / 64;
 const TUBE_BORDER = 0.1875;
 const TUBE_SHADOW_ALPHA = 0.25;
 const TUBE_ALPHA = 0.7;
 
-/// Холст под одно тело. Полосы кладутся друг в друга с заменой, а не поверх —
-/// поверх они складывали бы прозрачности, и труба выходила бы непрозрачной, то
-/// есть закрывала бы то, что пересекает, вместо того чтобы затемнять. Замена
-/// возможна только в своём слое, и слой этот один на всё окно.
 let tubeCanvas = null;
 
-/// Дорожка слайдера — своим слоем, под всеми нотами.
-///
-/// Не две обводки, а лесенка полос от широкой к узкой, как в
-/// `draw_slider_body`: два штриха давали картон — плоскую ленту с каймой, — а
-/// у трубы есть тень по краю, жёсткая граница ободка и подъём к светлой
-/// середине. Это и есть вся разница между «нарисовано» и «то же самое».
 function drawBody(c, entry, box, px, py, show) {
   const piece = entry.piece;
   if (piece.kind !== "slider" || piece.path.length < 4) return;
@@ -3185,8 +2730,6 @@ function drawBody(c, entry, box, px, py, show) {
     for (let i = 2; i < piece.path.length; i += 2) t.lineTo(px(piece.path[i]), py(piece.path[i + 1]));
   };
 
-  // По полосе на два экранных пикселя половины ширины — тот же шаг, что и в
-  // движке: на пиксель гладче не становится, а штрихов вдвое больше.
   const steps = Math.min(48, Math.max(8, Math.ceil(box.r / 2)));
   for (let step = steps; step >= 0; step -= 1) {
     const towards = 1 - step / steps;
@@ -3200,8 +2743,7 @@ function drawBody(c, entry, box, px, py, show) {
       const along = (towards - TUBE_BORDER) / (1 - TUBE_BORDER);
       paint = mixed(outer, inner, along, TUBE_ALPHA);
     }
-    // Сначала вырезать, потом положить: так полоса заменяет то, что накрыла,
-    // а не прибавляется к нему.
+
     t.globalCompositeOperation = "destination-out";
     t.lineWidth = width;
     line();
@@ -3219,7 +2761,6 @@ function drawBody(c, entry, box, px, py, show) {
   c.restore();
 }
 
-/// Разобрать `#rrggbb` или `rgb(...)` на три составляющие.
 function parts(colour) {
   if (colour.startsWith("#")) {
     const hex = colour.slice(1);
@@ -3230,14 +2771,11 @@ function parts(colour) {
   return [Number(found[0]), Number(found[1]), Number(found[2])];
 }
 
-/// `body_outer`: тот же цвет, поделённый на 1.1.
 function scaled(colour, by) {
   const [r, g, b] = parts(colour);
   return `rgb(${Math.round(r * by)}, ${Math.round(g * by)}, ${Math.round(b * by)})`;
 }
 
-/// `body_inner`: `Lighten2(0.5)` — множитель и добавка, и добавка здесь ради
-/// чёрной дорожки, которой иначе неоткуда оторваться от чёрного.
 function lifted(colour, by, add) {
   const [r, g, b] = parts(colour);
   const up = (one) => Math.round(Math.min(255, one * by + add * 255));
@@ -3251,7 +2789,6 @@ function mixed(from, to, along, alpha) {
   return `rgba(${at(0)}, ${at(1)}, ${at(2)}, ${alpha})`;
 }
 
-/// Где объект оставляет игрока: конец слайдера или сама нота.
 function endPointOf(piece) {
   if (piece.kind === "slider" && piece.ball.length >= 2) {
     const last = piece.ball.length;
@@ -3260,7 +2797,6 @@ function endPointOf(piece) {
   return [piece.x, piece.y];
 }
 
-/// Дальний конец пути — там, где осу! всё время держит кружок хвоста.
 function farEndOf(piece) {
   const last = piece.path.length;
   return last >= 2 ? [piece.path[last - 2], piece.path[last - 1]] : [piece.x, piece.y];
@@ -3288,8 +2824,7 @@ function drawNote(c, entry, box, px, py, show) {
 
   const ends = endingOf(entry);
   const exit = clamp01((now - ends.leaves) / ends.fade);
-  // Удар раздувает ноту, промах — нет. Сглажено к концу, поэтому почти весь
-  // рост приходится на первую треть: удар это не равномерное надувание.
+
   const grown = box.r * (ends.missed ? 1 : 1 + HIT_SWELL * easeOut(exit));
 
   c.globalAlpha = alpha;
@@ -3299,9 +2834,6 @@ function drawNote(c, entry, box, px, py, show) {
   }
   drawFace(c, px(piece.x), py(piece.y), grown, colour, show, piece.kind === "slider" ? "head" : "note");
 
-  // Номер идёт вчетверо быстрее круга под ним и не растёт вместе с ним —
-  // цифра, растянутая до 1.4 на просвет, это смаз. Скин первой версии его
-  // просит и получает.
   const swells = !!(show.skinned && pics && pics.rules && pics.rules.number_swells);
   const numberShare = ends.missed || now < ends.resolved ? 1 : clamp01(1 - (now - ends.resolved) / NUMBER_FADE_MS);
   if (numberShare > 0) {
@@ -3315,9 +2847,6 @@ function drawNote(c, entry, box, px, py, show) {
   c.globalAlpha = 1;
 }
 
-/// Какими картинками скин рисует эту грань: своими для конца слайдера, если он
-/// их привёз, и нотными иначе. Пара связана — накладка без своей основы не
-/// работает, так говорит и вики, и движок.
 function faceOf(which) {
   if (!pics) return null;
   if (which === "head" && pics.slider_head) return [pics.slider_head, pics.slider_head_overlay];
@@ -3331,18 +2860,13 @@ function drawFace(c, x, y, radius, colour, show, which) {
   if (pair) {
     const side = radius * 2;
     c.drawImage(tinted(pair[0].image, colour), x - radius, y - radius, side, side);
-    // Ободок ложится сейчас только если номер должен лежать на нём. Иначе он
-    // ждёт `drawRim`, после цифры.
+
     const above = pics.rules && pics.rules.overlay_above_number;
     if (!above && pair[1]) c.drawImage(pair[1].image, x - radius, y - radius, side, side);
     return;
   }
   if (which === "tail") return;
   if (show.skinned) {
-    // Скина нет — значит рисуем то, что в этом случае рисует движок: диск
-    // потемнее, диск цвета ноты внутри него и белый ободок между ними. Те же
-    // три круга и та же доля `border_ratio`, что в `draw_circle`; каркас ниже
-    // — это показ судейства, а не показ игры.
     const border = radius * NOTE_BORDER;
     c.fillStyle = shade(colour, 0.75);
     c.beginPath();
@@ -3359,8 +2883,7 @@ function drawFace(c, x, y, radius, colour, show, which) {
     c.stroke();
     return;
   }
-  // Без скина в судействе — каркас: сквозь ноту видно поле, и глаз занят тем,
-  // что засчитано, а не тем, какого она цвета.
+
   c.fillStyle = "rgba(255,255,255,0.05)";
   c.beginPath();
   c.arc(x, y, radius, 0, Math.PI * 2);
@@ -3386,8 +2909,7 @@ function drawNumber(c, x, y, radius, combo, colour, show) {
       const one = pics.digits[Number(d)];
       return one ? (one.image.width / one.image.height) * high : 0;
     });
-    // Скин говорит, насколько цифры наезжают друг на друга, — в его пикселях,
-    // приведённых к тому же росту, что и сами цифры.
+
     const pull = pics.digits[0] ? (overlap / pics.digits[0].image.height) * high : 0;
     const total = wide.reduce((a, b) => a + b, 0) - pull * (figures.length - 1);
     let at = x - total / 2;
@@ -3406,8 +2928,6 @@ function drawNumber(c, x, y, radius, combo, colour, show) {
   c.fillText(String(combo), x, y);
 }
 
-/// Всё, что происходит на слайдере, пока по нему едут: шар, кольцо слежения и
-/// стрелка на том конце, с которого он сейчас повернёт назад.
 function drawSlide(c, entry, box, px, py, show, colour, alpha) {
   const { piece } = entry;
   const play = show.scene;
@@ -3416,9 +2936,6 @@ function drawSlide(c, entry, box, px, py, show, colour, alpha) {
   const span = Math.max(1, piece.end_ms - piece.start_ms);
   const slide = span / slides;
 
-  // Точки на теле — те, что ещё не пройдены. Каждая загорается по своему
-  // расписанию, а не весь ряд разом, поэтому они зажигаются перед шаром по
-  // мере его движения.
   const ticks = piece.ticks || [];
   for (let i = 0; i + 2 < ticks.length; i += 3) {
     const at = ticks[i];
@@ -3448,16 +2965,13 @@ function drawSlide(c, entry, box, px, py, show, colour, alpha) {
   if (slides > 1 && now < piece.end_ms) {
     const at = Math.floor(Math.max(0, now - piece.start_ms) / slide);
     if (at < slides - 1) {
-      // Поворот случится в конце этого прохода: на дальнем конце, если проход
-      // чётный, и на ближнем, если нечётный.
       const near = at % 2 === 1;
       const spot = near ? [piece.x, piece.y] : farEndOf(piece);
       const other = near ? farEndOf(piece) : [piece.x, piece.y];
       const turn = Math.atan2(other[1] - spot[1], other[0] - spot[0]);
-      // Дышит на своих трёхстах миллисекундах — не на темпе карты.
+
       const breath = ARROW_LOOP_FROM + (1 - ARROW_LOOP_FROM) * easeOut(((now % ARROW_LOOP_MS) / ARROW_LOOP_MS));
-      // Против радиуса ноты, как всякая картинка на поле: `ARROW_SCALE` —
-      // доля радиуса, а сторона вдвое больше него.
+
       const side = box.r * 2 * ARROW_SCALE * breath;
       const shot = show.skinned && pics ? pics.reverse_arrow : null;
       c.save();
@@ -3503,12 +3017,12 @@ function drawSlide(c, entry, box, px, py, show, colour, alpha) {
   const ball = show.skinned && pics ? pics.slider_ball : null;
   if (ball) {
     const side = box.r * 2;
-    // Скин вправе запретить красить шар — тогда он идёт как нарисован.
+
     const tint = pics.rules && pics.rules.slider_ball_tint ? tinted(ball.image, colour) : ball.image;
     c.drawImage(tint, bx - side / 2, by - side / 2, side, side);
     return;
   }
-  // Ядро растёт от трети шара до целого за проход — так его ведёт движок.
+
   const grown = BALL_CORE + (1 - BALL_CORE) * clamp01((now - piece.start_ms) / span);
   c.fillStyle = colour;
   c.beginPath();
@@ -3519,8 +3033,6 @@ function drawSlide(c, entry, box, px, py, show, colour, alpha) {
   c.stroke();
 }
 
-/// Кольцо подхода. Сходится равномерно и рисуется над всеми нотами разом — так
-/// его кладёт `OsuPlayfield`, последним слоем.
 function drawApproach(c, entry, box, px, py, show) {
   const { piece } = entry;
   if (piece.kind === "spinner" || show.head >= piece.start_ms) return;
@@ -3545,8 +3057,6 @@ function drawApproach(c, entry, box, px, py, show) {
   c.globalAlpha = 1;
 }
 
-/// Что выскакивает на месте отыгранной ноты. Картинкой скина, если она есть, —
-/// движок рисует именно её, — и числом, если нет.
 const VERDICT_OF = { 300: "three", 100: "hundred", 50: "fifty", 0: "miss" };
 
 function drawPopups(c, box, px, py, show) {
@@ -3563,10 +3073,7 @@ function drawPopups(c, box, px, py, show) {
       c.drawImage(shot.image, px(mark.x) - wide / 2, py(mark.y) - high / 2 - since * 0.02, wide, high);
       continue;
     }
-    // Со скином — только скином. Наши цифры под чужими нотами читались как
-    // разметка поверх игры, а не как игра: там, где скин своей картинки не
-    // привёз, лучше не показывать ничего. Свои они в судействе, где это и есть
-    // предмет разговора, а не оформление.
+
     if (show.skinned) continue;
     c.fillStyle = WORTH[mark.worth] || WORTH[0];
     c.font = `700 ${Math.max(11, box.r * 0.8)}px ui-monospace, Menlo, monospace`;
@@ -3575,21 +3082,10 @@ function drawPopups(c, box, px, py, show) {
   c.globalAlpha = 1;
 }
 
-/// Лента за курсором.
-///
-/// Метки кладутся не через столько-то миллисекунд, а через столько-то
-/// пройденного пути: быстрый мах оставляет сплошную линию, а стоящий курсор не
-/// кладёт ничего нового. Первый промежуток пропускается — так лента выходит
-/// из-под курсора, а не сквозь него. Это `draw_trail` движка, и числа его же.
-///
-/// Скин без `cursormiddle` получает не ленту, а редкие метки за последние сто
-/// пятьдесят миллисекунд: так делает игра, и так же выглядит наша ломаная,
-/// когда скина нет вовсе.
 function drawTrail(c, box, px, py, show, shot) {
   const play = show.scene;
   const now = cursorAt(play, show.head);
-  // Картинка ленты — против ноты, как всё на поле; своя метка движка — восемь
-  // десятых радиуса.
+
   const side = shot ? box.r * 2 : box.r * 0.8 * 2;
   const mark = (at, alpha) => {
     if (alpha <= 0) return;
@@ -3636,11 +3132,6 @@ function drawTrail(c, box, px, py, show, shot) {
   c.globalAlpha = 1;
 }
 
-/// Курсор и то, что он оставляет за собой.
-///
-/// След — не линия: осу! кладёт копии картинки, каждая тусклее предыдущей, и
-/// ломаная вместо них была нашей собственной выдумкой. Скин, который привёз
-/// `cursortrail`, теперь виден и в следе тоже.
 function drawCursor(c, box, px, py, show) {
   const play = show.scene;
   const now = cursorAt(play, show.head);
@@ -3649,16 +3140,11 @@ function drawCursor(c, box, px, py, show) {
 
   drawTrail(c, box, px, py, show, trail);
 
-  // Раздувается под нажатием, если скин это разрешает: `CursorExpand: 0` —
-  // его право, и раньше оно просто не читалось.
-  // Оба должны разрешить: настройка — смотрящего, `CursorExpand: 0` — скина,
-  // и скин, который отказал, отказывает и при включённой настройке.
   const expands = effects.expand && (!rules || rules.cursor_expand);
   const held = expands && (now.keys & 15) !== 0;
   if (show.skinned && pics && pics.cursor) {
     const side = box.r * (held ? 1.5 : 1.35);
-    // И поворачивается, если скин просит. Оборот за десять секунд — тот же
-    // счёт, что у движка.
+
     if (rules && rules.cursor_rotate) {
       c.save();
       c.translate(px(now.x), py(now.y));
@@ -3668,8 +3154,7 @@ function drawCursor(c, box, px, py, show) {
     } else {
       c.drawImage(pics.cursor.image, px(now.x) - side / 2, py(now.y) - side / 2, side, side);
     }
-    // Середина идёт поверх и никогда не раздувается — это уже поведение игры,
-    // а не выбор скина.
+
     if (pics.cursor_middle) {
       const middle = box.r * 1.35;
       c.drawImage(pics.cursor_middle.image, px(now.x) - middle / 2, py(now.y) - middle / 2, middle, middle);
@@ -3689,7 +3174,6 @@ function drawCursor(c, box, px, py, show) {
   }
 }
 
-/// Просмотрщик: то же самое, но про то, что открыто сейчас.
 function drawView() {
   if (!scene || view.clientWidth === 0) return;
   const dpr = window.devicePixelRatio || 1;
@@ -3703,8 +3187,6 @@ function drawView() {
   drawPlay(c, { scene, judged, head, skinned, popups: true, frame: true }, w, h);
 }
 
-/// Что было к этому моменту: считается по тем же меткам, что нарисованы, —
-/// второго источника правды здесь нет.
 function readAt(ms) {
   return readMarks(judged.marks, ms);
 }
@@ -3719,8 +3201,7 @@ function readMarks(marks, ms) {
     weight += mark.worth;
     objects += 1;
   }
-  // В процентах, как и всё остальное про точность в этом окне: две единицы
-  // измерения под одним словом — это ошибка, которая ждёт своего часа.
+
   return { combo, percent: objects ? (weight / (objects * 300)) * 100 : 100, objects };
 }
 
@@ -3746,8 +3227,6 @@ function drawAll() {
   if (mode === "judge") drawTape();
   if (mode === "cut") drawReel();
 }
-
-// ── ход времени ────────────────────────────────────────────────────────
 
 function stop() {
   if (!playing) return;
@@ -3779,14 +3258,8 @@ byId("rp-play").addEventListener("click", () => {
   playing = requestAnimationFrame(walk);
 });
 
-// ── полоса записи ──────────────────────────────────────────────────────
-
 const seek = byId("rp-seek");
 
-/// Насколько густо идут ноты. Грубая мера сложности и единственная, которую
-/// можно взять из самой карты: чем больше объектов в окне, тем выше столбик.
-/// Не претендует на звёзды — она отвечает на «где тут плотно», а не «насколько
-/// это трудно».
 let density = null;
 
 function measureDensity() {
@@ -3797,8 +3270,7 @@ function measureDensity() {
     const at = Math.floor(((piece.start_ms - scene.from_ms) / span) * buckets);
     if (at >= 0 && at < buckets) raw[at] += 1;
   }
-  // Сглаживание по трём соседям: иначе полоса — частокол из единиц, по
-  // которому ничего не видно.
+
   density = new Float32Array(buckets);
   let most = 0;
   for (let i = 0; i < buckets; i += 1) {
@@ -3809,9 +3281,6 @@ function measureDensity() {
   if (most > 0) for (let i = 0; i < buckets; i += 1) density[i] /= most;
 }
 
-/// Какой кусок записи показывает полоса. Как и у графика попаданий: на длинной
-/// карте секунда — это два пикселя, и подводить головку к нужному месту мышью
-/// становится гаданием.
 let strip = null;
 
 function drawSeek() {
@@ -3852,7 +3321,6 @@ function drawSeek() {
   c.fillStyle = paint;
   c.fill();
 
-  // Промахи: там, где сложное место оказалось не только плотным.
   c.fillStyle = WORTH[0];
   for (const mark of judged.marks) {
     if (mark.worth !== 0 || mark.ms < from || mark.ms > to) continue;
@@ -3886,8 +3354,6 @@ function seekFromPointer(event) {
   seekTo(from + share * (to - from));
 }
 
-/// Колесо приближает вокруг того места, куда смотрят. Двойной щелчок
-/// возвращает всю запись.
 seek.addEventListener("wheel", (event) => {
   if (!scene) return;
   event.preventDefault();
@@ -3918,8 +3384,6 @@ seek.addEventListener("pointermove", (event) => {
   if (scene && event.buttons) seekFromPointer(event);
 });
 
-/// Клавиатура — и в судействе, и в Студии. Мышью ставят головку примерно,
-/// клавишами — точно, а между «примерно» и «точно» здесь весь смысл.
 document.addEventListener("keydown", (event) => {
   if (!scene || byId("view-replay").hidden || byId("rp-stage").hidden) return;
   const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);
@@ -3934,12 +3398,6 @@ document.addEventListener("keydown", (event) => {
   event.preventDefault();
 });
 
-// ── судейство: график ошибок ───────────────────────────────────────────
-
-/// Ошибка каждого клика во времени: по горизонтали — карта, по вертикали —
-/// насколько раньше или позже.
-/// Какой кусок реплея показан на графике. Всё целиком по умолчанию: на карте
-/// в три минуты одна нота — это полпикселя, и приблизить её надо уметь.
 let lens = null;
 
 function drawTape() {
@@ -4005,8 +3463,6 @@ function scrub(event) {
   drawAll();
 }
 
-/// Колесо приближает вокруг того места, куда смотрят, — а не вокруг середины,
-/// потому что смотрят обычно не в середину.
 tape.addEventListener("wheel", (event) => {
   if (!scene) return;
   event.preventDefault();
@@ -4035,8 +3491,6 @@ tape.addEventListener("pointerdown", (event) => {
 tape.addEventListener("pointermove", (event) => {
   if (event.buttons) scrub(event);
 });
-
-// ── Студия: лента ──────────────────────────────────────────────────────
 
 const asShare = (ms) => (ms - scene.from_ms) / Math.max(1, scene.to_ms - scene.from_ms);
 
@@ -4069,12 +3523,9 @@ function drawReel() {
   const total = clips.reduce((sum, clip) => sum + (clip.to - clip.from), 0);
   byId("rp-total").textContent = clips.length
     ? `${clips.length} ${plural(clips.length, "кусок", "куска", "кусков")} · ${round(total / 1000, 1)} с`
-    : "лента пуста";
+    : "Лента пуста";
 }
 
-/// Тащить целиком за середину, за края — растягивать. Границы куска не
-/// пускаются за края реплея и не схлопываются в точку: лента, которая может
-/// собраться в невозможный набор, соберётся в него в первый же день.
 function grab(event, index) {
   event.preventDefault();
   picked = index;
@@ -4183,8 +3634,6 @@ function showReplay() {
   if (scene && mode) drawAll();
 }
 
-// ── переключение вкладок ───────────────────────────────────────────────
-
 const views = {
   render: showRender,
   replay: showReplay,
@@ -4195,21 +3644,16 @@ const views = {
 let open_tab = null;
 
 function show(which) {
-  // Нажатие по разделу, который и так открыт, — это не запрос перерисовать
-  // его: список, который моргает от каждого промаха мимо соседней вкладки,
-  // раздражает ровно настолько, насколько это дёшево не делать.
   if (which === open_tab) return;
   open_tab = which;
   syncJobMini();
-  // Наблюдатель узнает о спрятанной вкладке не сразу, а платить за кадры,
-  // которых не видно, не за что и один кадр.
+
   requestAnimationFrame(runPreviews);
   for (const name of Object.keys(views)) {
     byId(`tab-${name}`).setAttribute("aria-selected", String(name === which));
     byId(`view-${name}`).hidden = name !== which;
   }
-  // Лепёшка едет медленно и с оттяжкой, а под курсором ходит мгновенно —
-  // это одно и то же движение с двумя разными характерами.
+
   glider.classList.add("moving");
   setTimeout(() => glider.classList.remove("moving"), 470);
   placeGlider();
@@ -4226,19 +3670,15 @@ for (const name of Object.keys(views)) {
   byId(`tab-${name}`).addEventListener("click", () => show(name));
 }
 
-// Холст знает свою ширину только когда его видно, а лента считает проценты от
-// живой ширины дорожки.
 window.addEventListener("resize", () => {
   if (!byId("view-replay").hidden) drawAll();
 });
-
-// ── первый запуск ──────────────────────────────────────────────────────
 
 byId("w-save").addEventListener("click", async () => {
   if (!byId("w-server").value.trim() || !byId("w-token").value.trim()) {
     const said = byId("w-said");
     said.className = "verdict bad";
-    said.textContent = "Необходим адрес и токен. Без них ничего не поедет";
+    said.textContent = "Необходим адрес и токен. Без них нельзя стать воркером.";
     return;
   }
   if (await saveSettings("w", "w-said")) {
@@ -4257,17 +3697,10 @@ byId("w-save").addEventListener("click", async () => {
   reportWhen(remembered("report", "ask"), false);
   openSettings(remembered("spage", "link"), false);
 
-  // Экран чёрный с первого кадра — до того, как что-либо успело измерить себя
-  // или разложиться. Сцена запускается только когда всё это уже случилось:
-  // раньше она стартовала тут же и её первые секунды съедала как раз та
-  // работа, которую окно ещё не закончило делать.
   let opening = remembered("splash", "both") !== "never";
   if (opening) showBlackCover();
   requestAnimationFrame(() => dock.classList.remove("landing"));
 
-  /// Снять чёрное, не проигрывая сцену. Дальше по этому пути её показывать
-  /// нечему или некогда — но окно, оставшееся чёрным навсегда, хуже любого
-  /// пропущенного вступления.
   const giveUpOnScene = () => {
     if (!opening) return;
     opening = false;
@@ -4283,17 +3716,13 @@ byId("w-save").addEventListener("click", async () => {
   try {
     first = await invoke("first_run");
   } catch {
-    // Нет моста — покажем обычное окно, оно скажет об этом само.
   }
   try {
     await loadSettings();
   } catch {
-    // Настройки не прочитались — это разговор для окна, а не повод держать
-    // человека перед чёрным экраном.
     broken = true;
   }
-  // Мастеру нужно внимание сразу, а не через полторы секунды кольца — первый
-  // запуск и так самый долгий разговор, который у человека будет с этим окном.
+
   if (first || broken) giveUpOnScene();
   if (first) {
     for (const field of FIELDS) {
@@ -4307,8 +3736,6 @@ byId("w-save").addEventListener("click", async () => {
   show("render");
 
   try {
-    // Мерить надо по готовым шрифтам: до них подписи другой ширины, и панель
-    // разъезжается на первом же движении курсора.
     dressAll();
     measure();
     if (document.fonts && document.fonts.ready) await document.fonts.ready;
@@ -4317,14 +3744,9 @@ byId("w-save").addEventListener("click", async () => {
     console.error(why);
   }
 
-  // Ещё два кадра тишины: браузеру нужно успеть отрисовать всё, что только
-  // что легло на макет, прежде чем часы сцены начнут отсчёт — иначе первые
-  // её кадры съедает та же раскладка.
   await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
   if (opening) playOpening();
   armIdle();
 
-  // Не в первую секунду: спрашивать у origin, пока ещё идёт заставка, значит
-  // тратить её на ожидание сети.
   setTimeout(() => lookForUpdate(false), 3500);
 })();

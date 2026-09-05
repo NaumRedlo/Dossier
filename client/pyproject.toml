@@ -10,48 +10,32 @@ readme = "README.md"
 license = { text = "AGPL-3.0-only" }
 requires-python = ">=3.10"
 dependencies = [
-    # The render client's HTTP: claiming jobs, heartbeats, uploading the video.
+
     "aiohttp>=3.9",
-    # Fetching maps — a mirror for the archive, osu! itself for the `.osu`.
+
     "requests>=2.31",
-    # The certificate authorities. Already here as `requests`' own dependency,
-    # named outright because this imports it: Python does not read the system
-    # store on macOS, and `aiohttp` was refusing a server every browser trusts.
+
     "certifi",
 ]
 
-# Installed, the client is a command. `python -m dossier.worker` works too, and
-# `python client/worker.py` works from a checkout with nothing installed at all
-# — three ways in, because the people running this did not all arrive the same
-# way.
 [project.scripts]
 dossier-worker = "dossier.worker:run"
 
 [project.urls]
 Homepage = "https://github.com/NaumRedlo/Dossier"
 
-# Two packages and no more — the tests are not shipped, and `client/worker.py`
-# is a launcher for people running from a checkout rather than something to
-# install.
 [tool.setuptools]
 packages = ["dossier", "dossier.osu"]
 
-# The tests, for anyone changing this and for the workflow that builds a
-# release — nothing ships to somebody's laptop that these did not pass.
 [project.optional-dependencies]
 dev = [
     "pytest>=8",
     "pytest-asyncio>=0.23",
-    # Pinned to a minor. An unpinned linter means CI can start failing on a
-    # morning when nobody changed a line — which it did: a newer ruff arrived
-    # with a wider default rule set and reported sixty-nine things about code
-    # that had not moved. The rules themselves live in `ruff.toml` at the root,
-    # so `client/` and `tools/` are held to one policy.
+
     "ruff~=0.15.0",
 ]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-# Every test here that touches the engine is async, and marking each one is a
-# line of ceremony per test that says nothing.
+
 asyncio_mode = "auto"

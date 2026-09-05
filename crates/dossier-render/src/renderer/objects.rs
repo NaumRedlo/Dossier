@@ -1,18 +1,3 @@
-//! Everything on the playfield: the notes, sliders, spinners and cursor, and
-//! the fade maths that decides how visible each is at a given instant.
-//!
-//! This is the largest of the renderer's parts and the most self-contained. It
-//! reads the play — where an object is, when it was hit, whether Hidden was on
-//! — and turns one object into pixels. It borrows the frame's shared vocabulary
-//! (`fade`, `unit`, the `Turn` and `Annotation` types, every timing constant)
-//! from the parent module rather than restating it, which is what `use
-//! super::*` is for.
-//!
-//! Four methods are `pub(super)` because the frame's orchestration calls them:
-//! `draw_object` and `draw_cursor` from the play pass, `alpha_of` to decide
-//! whether an object is worth drawing at all, and `draw_chevron` from the break
-//! warning, which draws the same arrow a reverse does.
-
 use super::*;
 
 use dossier_beatmap::Point;
@@ -25,81 +10,16 @@ use crate::elements::Element;
 use crate::layout::Layout;
 use crate::skin::{darken, with_alpha, ArrowShape};
 
-/// The hit circle every skin is drawn against, in the format's own pixels.
-/// Not a number this renderer chose — it is the size osu! itself works to, and
-/// every other element in a skin is proportioned by it.
 const SKIN_CIRCLE_PIXELS: f32 = 128.0;
 
-/// What the game multiplies a hit circle's own lettering by, and the largest
-/// glyph it will draw. From `ppy/osu`,
-/// `osu.Game.Rulesets.Osu/Skinning/Legacy/OsuLegacySkinTransformer.cs`:
-///
-/// ```csharp
-/// const float hitcircle_text_scale = 0.8f;
-/// // stable applies a blanket 0.8x scale to hitcircle fonts
-/// Scale = new Vector2(hitcircle_text_scale),
-/// MaxSizePerGlyph = OsuHitObject.OBJECT_DIMENSIONS * 2 / hitcircle_text_scale,
-/// ```
-///
-/// Missing it made every skinned note a quarter larger than the slider bodies
-/// beside it — visible on the skin this was read against, whose digits are
-/// 160px and are drawn to be exactly a note once this factor is applied.
 const DIGIT_SCALE: f32 = 0.8;
 const DIGIT_MAX_PIXELS: f32 = 64.0 * 2.0 / DIGIT_SCALE;
 
-/// The cross-section of a slider body, in fractions of its half-width, as
-/// danser's own fragment shader states them — `assets/shaders/slidercolor.fsh`:
-///
-/// ```glsl
-/// #define borderStart 0.06640625f      // 34/512
-/// #define baseBorderWidth 0.126953125f // 65/512
-/// #define blend 0.01f
-/// ```
-///
-/// Measured from the outer edge inwards: a soft shadow, then the border, then
-/// the body all the way to the centreline, with a hair of crossfade at each
-/// join so no boundary reads as a line.
 const SHADOW_PORTION: f32 = 1.0 - 59.0 / 64.0;
 const BORDER_PORTION: f32 = 0.1875;
-/// How dark the shadow gets at its inner end.
+
 const SHADOW_ALPHA: f32 = 0.25;
 
-/// The colour of a slider body at `towards`, where 0 is its outer edge and 1
-/// its centreline.
-///
-/// stable's own, by way of lazer's legacy body, which cites the stable source
-/// it was copied from:
-///
-/// ```csharp
-/// Color4 shadow = new Color4(0, 0, 0, 0.25f);
-/// Color4 outerColour = AccentColour.Darken(0.1f);
-/// Color4 innerColour = lighten(AccentColour, 0.5f);
-///
-/// // https://github.com/peppy/osu-stable-reference/…/MmSliderRendererGL.cs#L59-L70
-/// const float shadow_portion = 1 - (OsuLegacySkinTransformer.LEGACY_CIRCLE_RADIUS
-///                                   / OsuHitObject.OBJECT_RADIUS);
-/// const float border_portion = 0.1875f;
-///
-/// if (position <= shadow_portion)
-///     return InterpolateNonLinear(position, Black.Opacity(0f), shadow, 0, shadow_portion);
-/// if (position <= border_portion)
-///     return BorderColour;
-/// return InterpolateNonLinear(position, outerColour, innerColour, border_portion, 1);
-/// ```
-///
-/// `LEGACY_CIRCLE_RADIUS` is `OBJECT_RADIUS - 5` and `OBJECT_RADIUS` is 64, so
-/// the shadow is the outermost five sixty-fourths. `InterpolateNonLinear` with
-/// no easing is a plain mix; what is non-linear about it is that it happens in
-/// sRGB rather than in linear light, which is what mixing two `Color`s here
-/// does too.
-///
-/// This followed danser's shader before — its zones are close (0.066 and 0.193
-/// against 0.078 and 0.1875) but three other things were not. The shadow went
-/// twice as dark. The ramp from the border to the centreline was squared rather
-/// than straight, on the reasoning that a linear one "reads as a wide pale
-/// core" — a preference, and one a side-by-side against the client overrules.
-/// And the border was crossfaded into its neighbours over a hundredth of the
-/// radius, which is exactly the crisp line that comparison showed missing.
 fn tube_shade(
     towards: f32,
     border: Color,
@@ -108,28 +28,18 @@ fn tube_shade(
     body_alpha: f32,
 ) -> Color {
     if towards <= SHADOW_PORTION {
-        // Black coming up from nothing at the very edge. It is what seats a
-        // slider on the field instead of pasting it on.
         return with_alpha(
             Color::from_rgba8(0, 0, 0, 255),
             SHADOW_ALPHA * towards / SHADOW_PORTION,
         );
     }
     if towards <= BORDER_PORTION {
-        // Solid, with no crossfade at either edge. The hard boundary is the
-        // point of it.
         return border;
     }
     let along = ((towards - BORDER_PORTION) / (1.0 - BORDER_PORTION)).clamp(0.0, 1.0);
     with_alpha(blend(body_outer, body_inner, along), body_alpha)
 }
 
-/// Which of a map's three circles is being drawn.
-///
-/// osu! lets a skin draw a slider's two ends differently from a note, so the
-/// three are not interchangeable even though they are the same shape. Named
-/// rather than passed as a pair of flags: the call sites read as what they
-/// are, and there is no fourth case to invent.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Face {
     Note,
@@ -138,7 +48,6 @@ pub(super) enum Face {
 }
 
 impl Scene<'_> {
-    /// The two opacities, for tests that need to compare them.
     #[doc(hidden)]
     pub fn alpha_for_test(&self, index: usize, time_ms: f64) -> f32 {
         self.alpha_of(index, time_ms)
@@ -149,7 +58,6 @@ impl Scene<'_> {
         self.head_alpha(index, time_ms)
     }
 
-    /// Opacity of an object: zero before it spawns and after it has faded.
     pub(super) fn alpha_of(&self, index: usize, time_ms: f64) -> f32 {
         self.alpha_at(index, time_ms, HiddenFade::Own)
     }
@@ -159,8 +67,7 @@ impl Scene<'_> {
         if time_ms < annotation.spawn_ms || time_ms > annotation.gone_ms {
             return 0.0;
         }
-        // A slider stays whole until its own end even if the head was judged
-        // long before; only then does the fade start.
+
         let leaves = annotation.gone_ms - HIT_FADE_MS;
         let fade_in = if self.hidden {
             self.state.difficulty().preempt_ms() * HIDDEN_FADE_IN
@@ -169,30 +76,9 @@ impl Scene<'_> {
         }
         .max(1.0);
         let appearing = ((time_ms - annotation.spawn_ms) / fade_in).clamp(0.0, 1.0) as f32;
-        // Straight, not eased. `this.FadeOut(240)` with no easing is a linear
-        // ramp; ours squared it, so a note was at a quarter of its strength by
-        // the time it was half way through swelling and all but invisible while
-        // the animation still had a third to run. Reported as notes going
-        // before their animation does.
+
         let leaving = 1.0 - (((time_ms - leaves) / HIT_FADE_MS).clamp(0.0, 1.0)) as f32;
 
-        // Hidden takes the note away again the moment it has finished
-        // arriving. The fade starts where the fade-in ended and runs for three
-        // tenths of preempt, so the note is gone three tenths of preempt
-        // before it is due — and a slider instead dissolves gradually across
-        // its whole length.
-        //
-        // ```csharp
-        // double fadeOutStartTime = hitObject.StartTime - hitObject.TimePreempt + hitObject.TimeFadeIn;
-        // double fadeOutDuration = hitObject.TimePreempt * FADE_OUT_DURATION_MULTIPLIER;
-        // double longFadeDuration = hitObject.GetEndTime() - fadeOutStartTime;
-        // ```
-        // A spinner is not in that switch either, and it must not be: Hidden
-        // takes away what you would otherwise read ahead, and a spinner has
-        // nothing to read ahead — it is a thing you are already doing. Fading it
-        // like a note left the whole spinner section as a black screen with a
-        // cursor circling in it, which is what a bug looks like rather than what
-        // a mod looks like.
         let object = &self.state.timeline().objects[index];
         if self.hidden && hidden != HiddenFade::Untouched && !object.is_spinner() {
             let starts = annotation.spawn_ms + fade_in;
@@ -207,79 +93,19 @@ impl Scene<'_> {
         appearing * leaving
     }
 
-    /// The opacity of the parts of a slider Hidden does not touch.
-    ///
-    /// The mod fades the body, the ticks and the head, and nothing else. Its
-    /// own source says so of the arrows outright:
-    ///
-    /// ```csharp
-    /// case DrawableSliderRepeat sliderRepeat:
-    ///     // only apply to circle piece – reverse arrow is not affected by hidden.
-    ///     sliderRepeat.CirclePiece.FadeOut(fadeDuration);
-    /// ```
-    ///
-    /// and the ball and its follow circle appear in the switch not at all. It
-    /// has to be that way round to be playable: the body is what the mod takes
-    /// away, and the ball is what is left to follow once it has gone.
     fn alpha_through_hidden(&self, index: usize, time_ms: f64) -> f32 {
         self.alpha_at(index, time_ms, HiddenFade::Untouched)
     }
 
-    /// The opacity of a slider's *head*, which Hidden treats as a circle.
-    ///
-    /// A slider's body dissolves across its whole length; its head goes on the
-    /// ordinary short fade, like any note. lazer says so by handling the two in
-    /// separate cases:
-    ///
-    /// ```csharp
-    /// case DrawableSlider slider:
-    ///     slider.Body.FadeOut(longFadeDuration, Easing.Out);
-    /// ```
-    ///
-    /// Sharing one opacity between them dimmed the head on the body's schedule,
-    /// so on a long slider the note you are about to click was already half
-    /// gone — which is the wrong half of the object to take away, and reads as
-    /// the head fading strangely rather than as the body dissolving.
     fn head_alpha(&self, index: usize, time_ms: f64) -> f32 {
         self.alpha_at(index, time_ms, HiddenFade::AsANote)
     }
 
-    /// How far through leaving the screen a resolved note is: 0 while it is
-    /// still a target, 1 once it has finished going.
-    ///
-    /// Separate from the alpha because the two are not the same curve on a
-    /// slider — the body holds full opacity until the slider ends, while its
-    /// head left the moment it was clicked.
     fn exit_progress(&self, from_ms: f64, time_ms: f64, missed: bool) -> f32 {
         let over = if missed { MISS_FADE_MS } else { HIT_FADE_MS };
         (((time_ms - from_ms) / over).clamp(0.0, 1.0)) as f32
     }
 
-    /// How solid the number on a note still is, as it goes.
-    ///
-    /// Its own clock, four times the circle's: the circle has a quarter of a
-    /// second to swell and fade and the digit has sixty milliseconds to be
-    /// gone. It used to vanish on the frame the note was judged, which is the
-    /// half of "notes leave too fast" that is about the number.
-    ///
-    /// ```csharp
-    /// if (legacyVersion > 1.0m)
-    /// {
-    ///     // legacy skins of version 2.0 and newer only apply very short fade
-    ///     // out to the number piece.
-    ///     hitCircleText.FadeOut(legacy_fade_duration / 4);
-    ///     hitCircleText.ScaleTo(1f);
-    /// }
-    /// else
-    /// {
-    ///     hitCircleText.FadeOut(legacy_fade_duration);
-    ///     hitCircleText.ScaleTo(1.4f, legacy_fade_duration, Easing.Out);
-    /// }
-    /// ```
-    ///
-    /// An old skin's digit goes with the circle instead, at the circle's pace
-    /// and swelling with it — see [`Scene::number_swells`], which is the other
-    /// half of the same branch.
     fn number_alpha(&self, from_ms: f64, time_ms: f64) -> f32 {
         let over = if self.number_swells() {
             HIT_FADE_MS
@@ -289,62 +115,11 @@ impl Scene<'_> {
         (1.0 - ((time_ms - from_ms) / over).clamp(0.0, 1.0)) as f32
     }
 
-    /// Whether the number grows with the circle it sits on as the note leaves.
-    ///
-    /// Only on a version 1 skin. Everything newer holds the digit at the size
-    /// it always was: it is a label on a target, and once the target has been
-    /// taken it is answering a question nobody is asking any more — stretched
-    /// to 1.4 while fading it would just smear.
     fn number_swells(&self) -> bool {
         self.skin_version() <= 1.0
     }
 
-    /// The stretch of a slider's path that is drawn right now, as fractions.
-    ///
-    /// Two things move. Coming in, the body grows from the head — a slider that
-    /// appears whole tells the player nothing about which way it goes, and the
-    /// growth is the cue. Going out, the body retracts behind the ball, so the
-    /// part already played stops competing for attention with the part still to
-    /// play.
-    ///
-    /// A slider with repeats only retracts on its final pass: while there is
-    /// still a turn ahead, the whole body is the target.
-    ///
-    /// # How fast it grows
-    ///
-    /// A third of the approach, finishing two thirds of it before the note is
-    /// due. Taken from danser — `app/beatmap/objects/slider.go`, `initSnake`:
-    ///
-    /// ```text
-    /// slSnInS := slider.StartTime - slider.diff.Preempt
-    /// slSnInE := slider.StartTime - slider.diff.Preempt*2/3
-    /// ```
-    ///
-    /// with its shipped defaults, `Snaking{DurationMultiplier: 0,
-    /// FadeMultiplier: 0}`. Its two knobs are what the ends of that range mean:
-    /// `FadeMultiplier` is documented as "how close to slider's start time
-    /// snake in should end", and at 100% the snake finishes exactly at the
-    /// start time.
-    ///
-    /// This number went through both wrong answers before the reference was
-    /// read. It grew over the *fade-in* first, which is two thirds of the
-    /// approach — half danser's speed, finishing a third of the way early. Then
-    /// it grew over the whole approach, which is the far end of danser's own
-    /// range and slower still.
-    ///
-    /// The lesson is the one this engine is otherwise built on and this corner
-    /// of it had skipped: the number comes from an implementation, not from an
-    /// argument about what a cue is for. Two versions of that argument were
-    /// written down convincingly and both were wrong.
-    ///
-    /// The object unfurls quickly on arrival and is then a stable target for
-    /// the rest of its approach, which is also what it looks like.
     fn snake(&self, object: &TimedObject, index: usize, time_ms: f64) -> (f64, f64) {
-        // Both halves are settings — see `Effects` — and both are off unless
-        // asked for. Each is a cue aimed at somebody who has to *play* the
-        // slider: growth says where it goes, in the half second before it must
-        // be hit, and retraction says how much is left. A viewer has neither
-        // job. Somebody may want one and not the other, so they are two.
         let TimedKind::Slider { slides, .. } = &object.kind else {
             return (0.0, 1.0);
         };
@@ -354,9 +129,7 @@ impl Scene<'_> {
             if !self.skin.snake_in {
                 return (0.0, 1.0);
             }
-            // danser's window — `initSnake`, `StartTime - Preempt` to
-            // `StartTime - Preempt*2/3` — so the object unfurls quickly on
-            // arrival and is a stable target for the rest of its approach.
+
             let approach = (object.start_ms - annotation.spawn_ms).max(1.0);
             let window = approach * SNAKE_SHARE_OF_APPROACH;
             return (
@@ -368,9 +141,6 @@ impl Scene<'_> {
             return (0.0, 1.0);
         }
 
-        // Clamped to the last slide so that once the slider is over the body
-        // holds its retracted shape through the fade, instead of springing back
-        // to full length for the final few frames.
         let slides = (*slides).max(1);
         let span = (object.end_ms - object.start_ms).max(1.0);
         let travelled =
@@ -382,19 +152,12 @@ impl Scene<'_> {
 
         let local = (travelled - last).clamp(0.0, 1.0);
         if slides % 2 == 1 {
-            (local, 1.0) // the final pass runs forwards, so the start retreats
+            (local, 1.0)
         } else {
-            (0.0, 1.0 - local) // …and backwards, so the far end does
+            (0.0, 1.0 - local)
         }
     }
 
-    /// Just the tube of a slider, for the pass that goes under everything.
-    ///
-    /// Slider bodies are a layer of their own, beneath every hit object on the
-    /// field — that is how stable renders them, into a buffer of their own, and
-    /// how danser does it after. Drawn in time order with the rest, a slider
-    /// starting a moment earlier covers the note you are about to hit, which
-    /// is the one thing on screen that must never be covered.
     pub(super) fn draw_object_body(
         &self,
         pixmap: &mut Pixmap,
@@ -419,24 +182,6 @@ impl Scene<'_> {
         );
     }
 
-    /// The ring closing in on a note, drawn in a pass of its own above
-    /// everything else on the field.
-    ///
-    /// Its own pass because that is where the game keeps it. `OsuPlayfield`
-    /// builds its layers in order and this one is last, filled by proxy:
-    ///
-    /// ```csharp
-    /// borderContainer, Smoke, spinnerProxies, FollowPoints, judgementLayer,
-    /// HitObjectContainer, judgementAboveHitObjectLayer, approachCircles
-    /// ...
-    /// approachCircles.Add(hitCircle.ProxiedLayer.CreateProxy());  // ProxiedLayer => ApproachCircle
-    /// ```
-    ///
-    /// Drawn in its object's own place instead, a ring belonging to a note
-    /// later than the slider being played passes under that slider's track and
-    /// is darkened by it. It is the one thing on the field whose whole job is
-    /// to be read at a glance while everything else is happening, which is
-    /// presumably why the game lifts it clear.
     pub(super) fn draw_approach(
         &self,
         pixmap: &mut Pixmap,
@@ -445,10 +190,7 @@ impl Scene<'_> {
         layout: &Layout,
     ) {
         let object = &self.state.timeline().objects[index];
-        // Only while the note is still coming — and not at all under Hidden,
-        // which is the half of the mod a player actually feels.
-        // `OsuModHidden` implements `IHidesApproachCircles` and hides them
-        // outright.
+
         if object.is_spinner() || time_ms >= object.start_ms || self.hidden {
             return;
         }
@@ -460,9 +202,7 @@ impl Scene<'_> {
         let radius = layout.length(self.state.difficulty().circle_radius());
         let progress = self.state.timeline().approach_progress(object, time_ms);
         let scale = 1.0 + 3.0 * (1.0 - progress.clamp(0.0, 1.0)) as f32;
-        // The ring closes in by growing the size it is drawn at, so the skin's
-        // picture takes the same treatment as our own circle: one radius,
-        // already scaled.
+
         if self.skin_speaks_for(Element::ApproachCircle) {
             self.draw_sprite(
                 pixmap,
@@ -502,18 +242,10 @@ impl Scene<'_> {
         match &object.kind {
             TimedKind::Spinner => self.draw_spinner(pixmap, object, time_ms, alpha, layout),
             TimedKind::Slider { .. } => {
-                // The body first, under the rest of its own slider and under
-                // everything drawn after it.
                 self.draw_object_body(pixmap, index, time_ms, layout);
                 let (from, to) = self.snake(object, index, time_ms);
                 let slide = object.slide_duration_ms().unwrap_or(0.0);
-                // The far end of the path, which osu! draws a circle on for as
-                // long as the slider is up. Under everything else here: the
-                // ball passes over it, and on a repeating slider the arrow
-                // sits on it. Only once the body has actually reached it —
-                // a circle at the end of a tube that has not grown that far
-                // is a note floating in space, the same mistake the ticks and
-                // the arrows each had to be taught not to make.
+
                 if to >= 1.0 {
                     if let Some(end) = object.ball_at(object.start_ms + slide) {
                         let at = shaken(end, annotation, time_ms, self.state);
@@ -530,11 +262,6 @@ impl Scene<'_> {
                     }
                 }
                 for &tick in &annotation.ticks_ms {
-                    // A tick belongs to the body, so it cannot precede it. It
-                    // used to be drawn as soon as the note appeared, which put
-                    // dots in empty space ahead of a slider that had not grown
-                    // that far — and a dot with no line under it does not read
-                    // as sitting on the line.
                     let on_body =
                         path_fraction(object, tick).is_some_and(|frac| frac >= from && frac <= to);
                     if tick <= time_ms || !on_body {
@@ -543,23 +270,7 @@ impl Scene<'_> {
                     let Some(at) = object.ball_at(tick) else {
                         continue;
                     };
-                    // Each tick arrives on its own schedule rather than the
-                    // whole row appearing at once, so they light up in front
-                    // of the ball as it travels.
-                    //
-                    // ```csharp
-                    // if (SpanIndex > 0)
-                    //     offset = 200;              // repeats
-                    // else
-                    //     offset = TimePreempt * 0.66f;
-                    // TimePreempt = (StartTime - SpanStartTime) / 2 + offset;
-                    // ```
-                    //
-                    // Half the distance it sits into its own slide, plus two
-                    // thirds of the object's preempt on the way out and a flat
-                    // two hundred milliseconds on every slide back — the game
-                    // gives less warning on a repeat because the player has
-                    // already seen where the ticks are.
+
                     let span = if slide > 0.0 {
                         ((tick - object.start_ms) / slide).floor()
                     } else {
@@ -575,28 +286,19 @@ impl Scene<'_> {
                     if arriving <= 0.0 {
                         continue;
                     }
-                    // …and grows into place as it arrives. The game uses an
-                    // elastic overshoot over four times the fade; this is the
-                    // same movement without the bounce, which at a dot of six
-                    // pixels would be a flicker rather than a flourish.
+
                     let grown = 0.5
                         + 0.5
                             * fade(
                                 (((time_ms - live) / (TICK_FADE_MS * 4.0)).clamp(0.0, 1.0)) as f32,
                             );
-                    // The skin's own dot, where it has one. `sliderscorepoint`
-                    // is what osu! draws here, and a skin that redrew every
-                    // other part of a slider and had this borrowed back from us
-                    // looked like two sliders overlaid.
+
                     if self.skin_speaks_for(Element::SliderScorePoint) {
                         self.draw_sprite(
                             pixmap,
                             Element::SliderScorePoint,
                             annotation.colour,
                             at,
-                            // Against the note, like every other playfield
-                            // sprite: a skin draws this to its own scale and
-                            // `draw_sprite` reads that from the picture.
                             radius,
                             alpha * arriving * grown,
                             layout,
@@ -612,20 +314,14 @@ impl Scene<'_> {
                         );
                     }
                 }
-                // Hidden fades the body out from under the ball; the ball and
-                // its follow circle stay, and so do the arrows.
+
                 let carried = self.alpha_through_hidden(index, time_ms);
-                // The ball's own moment, or the last of it — the follow circle
-                // outlives the ball by a fifth of a second, shrinking back
-                // through it as it fades. Both clients end one that way, and cut
-                // off at the instant instead the ring vanished mid-frame and the
-                // slider finished with a flinch.
+
                 let leaving = ((time_ms - object.end_ms) / FOLLOW_LEAVE_MS).clamp(0.0, 1.0);
                 let held = object.ball_at(time_ms.min(object.end_ms));
                 if let Some(ball) = held.filter(|_| time_ms >= object.start_ms && leaving < 1.0) {
                     let going = 1.0 - leaving as f32;
-                    // Back through the ball rather than out past it: a ring that
-                    // grew on the way out would read as one more tick.
+
                     let beat = self.follow_pulse(index, time_ms.min(object.end_ms))
                         * (FOLLOW_LEAVE_TO + (1.0 - FOLLOW_LEAVE_TO) * going);
                     let carried = carried * going;
@@ -650,30 +346,14 @@ impl Scene<'_> {
                             layout,
                         );
                     }
-                    // The ring alone once the ball has arrived: it has stopped
-                    // being a thing to follow, and only its ring is still
-                    // leaving.
+
                     if leaving == 0.0 {
-                        // Two balls, one inside the other. The outer one is the
-                        // full-size ball the game draws; the inner one grows to
-                        // meet it as the slider runs out, so how far through you
-                        // are is readable from the ball itself instead of only
-                        // from where it sits on the body.
-                        //
-                        // The inner one is lifted toward white rather than made
-                        // translucent: a paler combo colour still says which combo
-                        // this is, where a see-through one would just take on the
-                        // body underneath it.
                         let done = ((time_ms - object.start_ms)
                             / (object.end_ms - object.start_ms).max(1.0))
                         .clamp(0.0, 1.0) as f32;
                         if self.skin_speaks_for(Element::SliderBall) {
-                            // One picture, and no inner disc: the second ball is
-                            // ours for reading progress off, and painting it over
-                            // somebody's artwork would be drawing on their skin.
                             let _ = done;
-                            // `SliderBallFlip`: plain on the way out, turned
-                            // over on the way back.
+
                             if self.ball_is_mirrored(object, time_ms) {
                                 self.draw_sprite_mirrored(
                                     pixmap,
@@ -718,9 +398,7 @@ impl Scene<'_> {
                     (from, to),
                     layout,
                 );
-                // The head leaves on its own click rather than with the rest of
-                // the slider — but it leaves, it does not vanish. Popping out of
-                // existence mid-slide was the most artificial thing on screen.
+
                 let exit = self.exit_progress(annotation.head_ms, time_ms, annotation.head_missed);
                 if exit < 1.0 {
                     let leaving = self.head_alpha(index, time_ms) * (1.0 - exit);
@@ -736,9 +414,7 @@ impl Scene<'_> {
                         annotation.colour,
                         Face::Head,
                     );
-                    // Four times faster than the circle and at the size it
-                    // always was, unless the skin is old enough to want it
-                    // going with the circle — see `number_alpha`.
+
                     let showing = leaving * self.number_alpha(annotation.head_ms, time_ms);
                     if showing > 0.0 {
                         let worn = if self.number_swells() { grown } else { radius };
@@ -756,9 +432,6 @@ impl Scene<'_> {
                 }
             }
             TimedKind::Circle => {
-                // A hit circle swells as it goes; a missed one only fades. The
-                // difference is the whole point — it says which happened without
-                // waiting for the combo counter to drop.
                 let exit = self.exit_progress(annotation.resolved_ms, time_ms, annotation.missed);
                 let grown = radius * hit_expansion(exit, annotation.missed);
                 let at = shaken(object.pos, annotation, time_ms, self.state);
@@ -790,8 +463,6 @@ impl Scene<'_> {
         }
 
         if annotation.missed && time_ms > annotation.resolved_ms {
-            // A miss is worth seeing: the note stops being a target and turns
-            // into a mark of what went wrong.
             self.ring(
                 pixmap,
                 object.pos,
@@ -804,12 +475,6 @@ impl Scene<'_> {
         }
     }
 
-    /// Which pair of pictures a skin draws this circle from, if any.
-    ///
-    /// The pairing is the rule rather than a convenience: osu!'s wiki says an
-    /// overlay requires its own base to function, so a skin shipping
-    /// `sliderstartcircleoverlay` and no `sliderstartcircle` gets the note's
-    /// pair for both halves rather than one of each.
     fn face_of(&self, face: Face) -> Option<(Element, Element)> {
         let own = match face {
             Face::Note => None,
@@ -821,17 +486,11 @@ impl Scene<'_> {
                 return Some(pair);
             }
         }
-        // "Overrides `hitcircle.png` … if skinned" — so an end the skin says
-        // nothing about is the note, which is also what a skin with no slider
-        // ends at all gets from the game.
+
         self.skin_speaks_for(Element::HitCircle)
             .then_some((Element::HitCircle, Element::HitCircleOverlay))
     }
 
-    /// Whether this skin lays its rim across the combo number.
-    ///
-    /// A skin that has said nothing means yes: stable's `SkinOsu` sets
-    /// `OverlayAboveNumber` to 1 in its own constructor.
     fn overlay_above_number(&self) -> bool {
         self.skin
             .sprites
@@ -839,10 +498,6 @@ impl Scene<'_> {
             .is_none_or(|s| s.ini().overlay_above_number)
     }
 
-    /// The note's rim, once the figure under it has been drawn.
-    ///
-    /// Nothing at all when the skin puts its rim *under* the number, since
-    /// `draw_circle` has already laid it down in that case.
     fn draw_rim(
         &self,
         pixmap: &mut Pixmap,
@@ -876,31 +531,20 @@ impl Scene<'_> {
         combo: usize,
         face: Face,
     ) {
-        // A skin the player brought has the last word on what a note looks
-        // like, including the word "nothing": the disc and its rim are two
-        // separate elements, and a skin is free to ship one, both or neither.
-        // Whatever it does not speak for falls back to the drawing below.
         if let Some((disc, overlay)) = self.face_of(face) {
             self.draw_sprite(pixmap, disc, combo, centre, radius, alpha, layout);
-            // The rim goes down now only if the number is to sit on top of it.
-            // Otherwise it waits for `draw_overlay`, after the figure — see
-            // [`Ini::overlay_above_number`], whose default is *over*.
+
             if !self.overlay_above_number() && self.skin_speaks_for(overlay) {
                 self.draw_sprite(pixmap, overlay, combo, centre, radius, alpha, layout);
             }
             return;
         }
         if face == Face::Tail {
-            // Our own look ends a slider on the body's own cap and has been
-            // tuned that way. A tail circle is something a skin brings.
             return;
         }
 
         let border = radius * self.skin.border_ratio;
-        // A halo of the note's own colour, thrown onto the field before the
-        // note is drawn over it — and it has to *fall off*, or it is not a glow
-        // but a second, muddier ring drawn round every note. So it is one disc
-        // filled with a gradient that fades to fully transparent by its rim.
+
         self.glow(pixmap, centre, radius, colour, alpha, layout);
         self.dot(pixmap, centre, radius, darken(colour, 0.25), alpha, layout);
         self.lit_dot(pixmap, centre, radius - border, colour, alpha, layout);
@@ -915,16 +559,6 @@ impl Scene<'_> {
         );
     }
 
-    /// Which generation of skinning rules to read this skin by.
-    ///
-    /// ```csharp
-    /// skin.GetConfig<SkinConfiguration.LegacySetting, decimal>(...Version)?.Value
-    /// ```
-    ///
-    /// Ours is a skin nobody imported, so it is read by the newest rules — the
-    /// same answer osu! gives a folder that ships no `skin.ini` at all. See
-    /// [`Ini::version`](crate::imported::Ini::version) for why the two cases
-    /// that look alike are not.
     pub(super) fn skin_version(&self) -> f32 {
         let stated = self
             .skin
@@ -934,12 +568,6 @@ impl Scene<'_> {
         crate::imported::effective_version(stated, self.skin.skin_version_as_written)
     }
 
-    /// Whether the player's skin has an opinion about this element — either a
-    /// picture of its own or a deliberate blank.
-    ///
-    /// The two are one question here on purpose: both mean "not ours to draw",
-    /// and `draw_sprite` already draws nothing for the blank case. Splitting
-    /// them at every call site would put the same two-line dance in six places.
     pub(super) fn skin_speaks_for(&self, element: Element) -> bool {
         self.skin
             .sprites
@@ -947,31 +575,6 @@ impl Scene<'_> {
             .is_some_and(|s| !s.draw_ourselves(element))
     }
 
-    /// One of the skin's own pictures, centred on a playfield point.
-    ///
-    /// Sized against the note rather than against the frame. Skins are drawn to
-    /// a 128-pixel hit circle whatever else they contain, so that is the ruler:
-    /// an element twice that wide in its own file is drawn twice as wide as the
-    /// note. It is why the skin this was written against works at all — its
-    /// `hitcircleoverlay` is 320 against a 128 circle, and reading either file's
-    /// size as "the size of a note" would put one of them badly wrong.
-    /// Whether the ball is on a return leg and the skin asked for it to be
-    /// turned over when it is.
-    ///
-    /// stable numbers the legs from one and mirrors the even ones, which is
-    /// the same parity as this timeline's slide index counting from zero:
-    /// slide zero is the way out. See `Ini::slider_ball_flip` for where that
-    /// is read from.
-    ///
-    /// One thing stable does here that this does not. It takes the leg from
-    /// the last scoring point the ball passed, and that counter starts at zero
-    /// rather than before the first point — so on a slider whose legs carry no
-    /// ticks, where a leg is a single point and that point is its end, the
-    /// count is a whole leg out and the *first* leg comes up mirrored. It
-    /// falls out of the counter's initial value rather than out of anything
-    /// the game means, it shows on no other element, and reproducing it would
-    /// turn the ball the wrong way round on exactly the sliders where having
-    /// it wrong is easiest to see.
     fn ball_is_mirrored(&self, object: &TimedObject, time_ms: f64) -> bool {
         if !self
             .skin
@@ -984,8 +587,7 @@ impl Scene<'_> {
         let Some(slide) = object.slide_duration_ms().filter(|ms| *ms > 0.0) else {
             return false;
         };
-        // Held off the very last instant, where the floor would otherwise
-        // count a leg that never starts.
+
         let last = (object.end_ms - object.start_ms - 1e-6).max(0.0);
         let along = (time_ms - object.start_ms).clamp(0.0, last);
         (along / slide).floor() as i64 % 2 == 1
@@ -1004,25 +606,10 @@ impl Scene<'_> {
         self.draw_sprite_turned(pixmap, element, combo, centre, radius, alpha, layout, 0.0);
     }
 
-    /// A sprite at the size the skin drew it, in the space stable states its
-    /// interface in.
-    ///
-    /// osu! lays the interface out in a frame 768 units tall and scales that to
-    /// the screen, so a 55-pixel cursor is 55 of those units — about 51 screen
-    /// pixels at 720p. Elements that are not part of the playfield are sized
-    /// this way and not against a note: a cursor does not shrink when the
-    /// circles do, and a health bar is as long as its picture.
     pub(super) fn skin_pixels(&self, layout: &Layout, own: f32) -> f32 {
         own * layout.height as f32 / 768.0
     }
 
-    /// A sprite drawn to a width in screen pixels, rather than to a note.
-    ///
-    /// For everything on the playfield the note is the ruler, because that is
-    /// what osu! proportions a skin against. The cursor is the exception and
-    /// has to be: it is not part of the playfield and does not grow when the
-    /// circles shrink. Sized by the note's ruler it came out a four-pixel dot
-    /// on a small-circle map — drawn, and invisible.
     pub(super) fn draw_sprite_wide(
         &self,
         pixmap: &mut Pixmap,
@@ -1035,7 +622,6 @@ impl Scene<'_> {
         self.draw_wide(pixmap, element, centre, width, alpha, layout, 0.0, 0);
     }
 
-    /// The same, turned about its own centre.
     pub(super) fn draw_sprite_wide_turned(
         &self,
         pixmap: &mut Pixmap,
@@ -1049,12 +635,6 @@ impl Scene<'_> {
         self.draw_wide(pixmap, element, centre, width, alpha, layout, degrees, 0);
     }
 
-    /// The same, on the frame this element is showing `elapsed_ms` after it
-    /// appeared.
-    ///
-    /// A still picture for a skin that drew one, and the strip for a skin that
-    /// drew a strip — `hit0-0` through `hit0-25` and the rest, which is how a
-    /// judgement moves in the game and did not here.
     #[allow(clippy::too_many_arguments)]
     pub(super) fn draw_sprite_wide_at(
         &self,
@@ -1066,13 +646,10 @@ impl Scene<'_> {
         layout: &Layout,
         elapsed_ms: f64,
     ) {
-        // Once through and hold. Everything that reaches this is a burst — a
-        // judgement — and a burst that loops is the same mark twice.
         let frame = self.animation_frame_once(element, elapsed_ms);
         self.draw_wide(pixmap, element, centre, width, alpha, layout, 0.0, frame);
     }
 
-    /// The same, turned by `degrees` about its own centre.
     #[allow(clippy::too_many_arguments)]
     fn draw_wide(
         &self,
@@ -1088,9 +665,7 @@ impl Scene<'_> {
         let Some(sprites) = &self.skin.sprites else {
             return;
         };
-        // The strip when there is one and the frame is not the first, the
-        // coloured still otherwise — a judgement is untinted, so the two agree
-        // on frame zero.
+
         let picture = (frame > 0)
             .then(|| sprites.frame(element, frame))
             .flatten()
@@ -1122,11 +697,6 @@ impl Scene<'_> {
         );
     }
 
-    /// The same, turned by `degrees` about its own centre.
-    ///
-    /// Only the reverse arrow needs this: it is the one element in a skin that
-    /// is drawn pointing somewhere rather than simply placed. A skin draws it
-    /// pointing right, and the slider says where right is.
     #[allow(clippy::too_many_arguments)]
     pub(super) fn draw_sprite_turned(
         &self,
@@ -1153,12 +723,6 @@ impl Scene<'_> {
         );
     }
 
-    /// The same, mirrored left-to-right about its own centre.
-    ///
-    /// `SliderBallFlip`, and nothing else asks for it. A negative scale on one
-    /// axis is the whole of it: the step back by half the picture that follows
-    /// puts the middle on the point either way round, so the sprite turns over
-    /// where it stands.
     #[allow(clippy::too_many_arguments)]
     pub(super) fn draw_sprite_mirrored(
         &self,
@@ -1184,11 +748,6 @@ impl Scene<'_> {
         );
     }
 
-    /// The same, laid down some other way than over what is there.
-    ///
-    /// Only the hit flash wants this — the wiki gives `lighting.png` a blend
-    /// mode of "Additive", which is the whole character of it: light thrown
-    /// back off the field, not a sticker placed on it.
     #[allow(clippy::too_many_arguments)]
     pub(super) fn draw_sprite_blended(
         &self,
@@ -1212,14 +771,10 @@ impl Scene<'_> {
         if alpha <= 0.0 {
             return;
         }
-        // How many screen pixels one of the skin's own pixels covers: the note
-        // is `2 * radius` across and stands for 128 of the skin's, and an `@2x`
-        // file holds two file pixels per skin pixel.
+
         let scale = (radius * 2.0) / (SKIN_CIRCLE_PIXELS * per_osu_pixel);
         let (x, y) = layout.map(centre);
-        // Built outwards from where it lands: move to the point, turn about
-        // it, scale, then step back by half the picture so the middle of the
-        // sprite is what sits on the point.
+
         let across = if mirror { -scale } else { scale };
         let transform = Transform::from_translate(x, y)
             .pre_rotate(degrees)
@@ -1240,21 +795,6 @@ impl Scene<'_> {
         );
     }
 
-    /// The combo number out of the skin's own `default-N` pictures.
-    ///
-    /// False when the skin cannot supply it, and the lettering takes over.
-    ///
-    /// Worth more care than a decoration deserves, because for some skins this
-    /// *is* the note. A skin can blank its hit circle and draw the whole object
-    /// inside the digits, and the reason that works is timing: the number is
-    /// taken away the instant a note is judged while the circle goes on
-    /// swelling, so a note drawn as a number vanishes on the click. That is
-    /// what "instafade" skins are, and the one this was written against is one
-    /// — its `hitcircle` and `hitcircleoverlay` are both blank and each of its
-    /// ten digits carries a complete ring.
-    ///
-    /// All ten or none. A skin missing `default-7` would otherwise draw every
-    /// combo but the sevens, which reads as the renderer dropping notes.
     fn draw_number_from_skin(
         &self,
         pixmap: &mut Pixmap,
@@ -1269,8 +809,6 @@ impl Scene<'_> {
         };
         let digits: Vec<u8> = number.to_string().bytes().map(|byte| byte - b'0').collect();
         if digits.iter().any(|&d| sprites.silenced(Element::Digit(d))) {
-            // Blanked on purpose: the skin wants no number, and drawing our own
-            // lettering instead would put back what it deleted.
             return true;
         }
         let mut art = Vec::with_capacity(digits.len());
@@ -1281,11 +819,8 @@ impl Scene<'_> {
             art.push(found);
         }
 
-        // Laid out in the skin's own pixels and scaled once at the end, which
-        // is the only way the overlap means what the skin says it means.
         let overlap = sprites.ini().hit_circle_overlap;
-        // Capped, as the game caps it: a skin shipping figures larger than this
-        // is drawing them at this size anyway.
+
         let widths: Vec<f32> = art
             .iter()
             .map(|(pixmap, per)| (pixmap.width() as f32 / per).min(DIGIT_MAX_PIXELS))
@@ -1316,11 +851,6 @@ impl Scene<'_> {
         true
     }
 
-    /// The combo number, centred on a note.
-    ///
-    /// Centred on the *ink*, not on the baseline: digits sit above the baseline
-    /// by their own height, and hanging them off it would leave every number
-    /// riding high in its circle.
     fn draw_number(
         &self,
         pixmap: &mut Pixmap,
@@ -1351,17 +881,6 @@ impl Scene<'_> {
         );
     }
 
-    /// The slider track: a wide white stroke with a darker one inside it.
-    ///
-    /// The outline is in playfield coordinates and the transform does the
-    /// scaling, so the stroke width is stated in osu!pixels and comes out right
-    /// at any output size.
-    /// The arrow telling the player they'll be coming back.
-    ///
-    /// Only one shows at a time, at the end the ball is heading for, and only
-    /// while a turn is still to come. Without it a repeating slider is drawn
-    /// exactly like one that ends where it stops — the map is being
-    /// misrepresented, not merely under-decorated.
     #[allow(clippy::too_many_arguments)]
     fn draw_reverse_arrow(
         &self,
@@ -1390,14 +909,7 @@ impl Scene<'_> {
             return;
         }
 
-        // Turns happen at the slide boundaries: the first is at the tail, the
-        // next at the head, alternating. Both ends carry an arrow while both
-        // still have a turn coming — showing only the nearest one made the
-        // far end's arrow vanish the moment the near one appeared, which reads
-        // as the slider changing its mind about where it goes.
         for (at_tail, turn) in [(true, tail), (false, head)] {
-            // Each turn with the moment it becomes the next one at this end:
-            // the start of the slide that ends on it.
             let turns = (1..*slides)
                 .filter(|k| k.is_multiple_of(2) != at_tail)
                 .map(|k| {
@@ -1408,9 +920,7 @@ impl Scene<'_> {
                 });
 
             let turns: Vec<(f64, f64)> = turns.collect();
-            // Read from when the ball sets off, not from now, so the first
-            // turn's arrow is up while the slider is still approaching: a
-            // player has to know a slider comes back before they start it.
+
             let (leaving, pulse) = arrow_life(
                 &turns,
                 time_ms,
@@ -1418,9 +928,7 @@ impl Scene<'_> {
                 object.start_ms,
                 *slide_duration_ms,
             );
-            // An arrow cannot sit on a part of the body that has not grown
-            // yet, for the same reason a tick cannot — and it arrives with the
-            // body rather than appearing whole on top of it.
+
             let arriving = if at_tail {
                 ((to - (1.0 - ARROW_REACH)) / ARROW_REACH).clamp(0.0, 1.0) as f32
             } else {
@@ -1431,19 +939,10 @@ impl Scene<'_> {
             if showing <= 0.0 {
                 continue;
             }
-            // Two movements on one mark, and they do different jobs: `pulse` is
-            // the kick when the ball actually strikes this turn, and the beat is
-            // the arrow breathing on the map's clock while it waits to be
-            // struck. Added rather than blended — the kick should still read as
-            // a kick when it lands on a beat.
+
             if self.skin_speaks_for(Element::ReverseArrow) {
-                // The skin draws it pointing right; the turn says which way
-                // right is on this slider.
                 let mut degrees = turn.dir.1.atan2(turn.dir.0).to_degrees() as f32;
-                // An old skin's arrows rock while they wait — see `arrow_rock`.
-                // Added to the direction rather than replacing it: the rock is
-                // about the arrow's own centre and the direction is where the
-                // slider goes next.
+
                 if self.skin_version() <= 1.0 {
                     degrees += arrow_rock(time_ms, object.start_ms);
                 }
@@ -1470,7 +969,6 @@ impl Scene<'_> {
         }
     }
 
-    /// A filled triangle pointing along `turn.dir`.
     #[allow(clippy::too_many_arguments)]
     pub(super) fn draw_chevron(
         &self,
@@ -1507,20 +1005,13 @@ impl Scene<'_> {
         let Some(path) = body_path(object, snake) else {
             return;
         };
-        // Two widths, and they are not interchangeable. The stroke is applied
-        // through the layout's transform, so its width must be stated in
-        // playfield units — given screen pixels it comes out scaled twice, and
-        // the body was drawn as many times too wide as the field is stretched.
+
         let radius = self.state.difficulty().circle_radius() as f32;
         let half = layout.length(self.state.difficulty().circle_radius());
         if half < 0.5 || alpha <= 0.0 {
             return;
         }
 
-        // Where the tube lands on screen, with room for its own width and a
-        // pixel of anti-aliasing. Drawn into a buffer this size rather than a
-        // frame-sized one: a slider covers a fraction of the frame and this
-        // runs once per slider per frame.
         let bounds = path.bounds();
         let (x0, y0) = layout.map(Point {
             x: f64::from(bounds.left()),
@@ -1539,38 +1030,12 @@ impl Scene<'_> {
         };
         let into_tube = Transform::from_translate(-left, -top).pre_concat(layout.transform());
 
-        // One band per screen pixel of half-width, drawn from the centreline
-        // outwards. `DestinationOver` puts each behind what is already there,
-        // so a band paints only the ring the narrower ones left uncovered —
-        // which is what makes this a gradient rather than a stack. Overlapping
-        // strokes drawn the usual way accumulate opacity, and that is what the
-        // rings in the old version were.
-        // One band per two screen pixels of half-width. At one per pixel the
-        // gradient is no smoother to look at — it is shallow, and neighbouring
-        // bands differ by a fraction of a level — but it costs twice the
-        // strokes, and strokes are what a render spends its time on: measured
-        // at 18.9ms of drawing per frame against 10.4 at this rate.
         let steps = ((half / 2.0).ceil() as usize).clamp(8, 48);
         let body = self.skin.slider_body.unwrap_or(colour);
         let (body_outer, body_inner) =
             (crate::skin::body_outer(body), crate::skin::body_inner(body));
-        // Widest band first, narrowest last, each one *replacing* what it
-        // covers. Drawn the other way round with `DestinationOver` — "paint
-        // behind what is already there" — the colours came out right and the
-        // opacity did not: that blend is `dst + src·(1 - dst.a)`, not "only
-        // where nothing is", so every one of the wider bands still added three
-        // tenths of itself on top. Nested three or four deep the tube reached
-        // full opacity, and a body at full opacity cannot dim what it passes
-        // over — it covers it, which is exactly what was reported three times.
-        //
-        // `Source` keeps each pixel at the alpha of the narrowest band over it,
-        // which is what the shading function says it should be: a quarter for
-        // the shadow, opaque for the border, seven tenths for the track. Its
-        // anti-aliased edges still mix with the band beneath, so nesting them
-        // stays smooth.
+
         for step in (0..=steps).rev() {
-            // 1 at the centreline, 0 at the outer edge — danser's own
-            // `distance_inv`, which every threshold below is stated in.
             let towards = 1.0 - step as f32 / steps as f32;
             let shade = tube_shade(
                 towards,
@@ -1616,19 +1081,10 @@ impl Scene<'_> {
         alpha: f32,
         layout: &Layout,
     ) {
-        // The ring closes in as the spinner runs, which is how the player sees
-        // time left rather than progress made. It closes onto the centre dot
-        // rather than onto empty space: a ring shrinking towards nothing says
-        // only that it is shrinking, while one arriving at a mark says how far
-        // it still has to go.
         let progress =
             ((time_ms - object.start_ms) / object.duration_ms().max(1.0)).clamp(0.0, 1.0);
         let closing = SPINNER_RADIUS + (SPINNER_DOT - SPINNER_RADIUS) * progress;
-        // The skin's own ring where it has one — and *nothing* where it has
-        // deliberately blanked it, which is what the skin read against here
-        // does to all but one of its spinner's parts. Ours was drawn over the
-        // top of that regardless, which is the same mistake the verdicts had:
-        // an element the skin turned off is not an element it left to us.
+
         if self.skin_speaks_for(Element::SpinnerApproachCircle) {
             self.draw_sprite_wide(
                 pixmap,
@@ -1650,14 +1106,6 @@ impl Scene<'_> {
             );
         }
 
-        // The mark at the middle, from the skin when it has one. Which file
-        // that is depends on the style the skin is drawn in — see
-        // `spinner_middle` — and a skin that ships neither leaves it to the
-        // rings below.
-        // The skin's own layers, each answering for itself. They used to hang
-        // together behind "does it have a middle", which meant a skin with a
-        // backdrop and a gauge and no `spinner-circle` — an ordinary shape for
-        // one to be — drew none of the three.
         let old_style = self.spinner_is_old_style();
         if old_style {
             self.draw_spinner_layer(pixmap, Element::SpinnerBackground, alpha, layout);
@@ -1673,10 +1121,6 @@ impl Scene<'_> {
             self.draw_spinner_layer(pixmap, middle, alpha, layout);
         }
         if !old_style {
-            // `spinner-middle2` is the half of the middle that *turns*. A skin
-            // drawing a needle or a mark puts it here, and placed without its
-            // rotation it says the opposite of what it is for — a spinner that
-            // reports nothing while being spun.
             self.draw_spinner_layer_turned(
                 pixmap,
                 Element::SpinnerMiddle2,
@@ -1691,8 +1135,6 @@ impl Scene<'_> {
             return;
         }
 
-        // The mark at the middle: a ring with a lit core inside it, drawn after
-        // the closing ring so nothing crosses it at the end.
         let band = SPINNER_DOT - SPINNER_CORE;
         self.ring(
             pixmap,
@@ -1715,7 +1157,6 @@ impl Scene<'_> {
         self.draw_spin_bonus(pixmap, object, time_ms, alpha, layout);
     }
 
-    /// How wide a skin drew this element, on screen.
     fn own_width(&self, layout: &Layout, element: Element) -> f32 {
         self.skin
             .sprites
@@ -1724,13 +1165,6 @@ impl Scene<'_> {
             .map_or(0.0, |sprite| self.skin_pixels(layout, sprite.width()))
     }
 
-    /// The old style's gauge, revealed from the bottom as the spinner fills.
-    ///
-    /// Cut rather than scaled, the same way a health bar is: squashing it would
-    /// turn a gauge into a picture that changes shape, and what it is meant to
-    /// say is *how far up it has got*. Its reading is rotations against the
-    /// rotations the difficulty asks for — the same figure the judge scores it
-    /// by, rather than time elapsed, which would fill even while nobody spun.
     fn draw_spinner_metre(
         &self,
         pixmap: &mut Pixmap,
@@ -1765,8 +1199,7 @@ impl Scene<'_> {
         let Some(mut strip) = Pixmap::new(w.ceil().max(1.0) as u32, shown) else {
             return;
         };
-        // Drawn shifted up by the part that is still hidden, so what lands in
-        // the strip is the bottom of the picture — a gauge fills upwards.
+
         strip.draw_pixmap(
             0,
             0,
@@ -1792,12 +1225,6 @@ impl Scene<'_> {
         );
     }
 
-    /// Whether a skin is drawn in osu!'s old spinner style.
-    ///
-    /// The two are not mixable, and a skin exported from lazer carries both
-    /// sets of files — so asking which exist answers the wrong question. What
-    /// decides it is `spinner-background`: a skin that mentions it at all, even
-    /// to blank it, is the old kind.
     fn spinner_is_old_style(&self) -> bool {
         self.skin
             .sprites
@@ -1805,7 +1232,6 @@ impl Scene<'_> {
             .is_some_and(|s| !s.draw_ourselves(Element::SpinnerBackground))
     }
 
-    /// Which of a skin's two spinner middles is its own, if either.
     fn spinner_middle(&self) -> Option<Element> {
         let sprites = self.skin.sprites.as_ref()?;
         let wanted = if self.spinner_is_old_style() {
@@ -1816,8 +1242,6 @@ impl Scene<'_> {
         (!sprites.draw_ourselves(wanted)).then_some(wanted)
     }
 
-    /// One spinner layer at the size its picture was drawn, or nothing when the
-    /// skin has no such file — or blanked the one it had.
     fn draw_spinner_layer(
         &self,
         pixmap: &mut Pixmap,
@@ -1828,7 +1252,6 @@ impl Scene<'_> {
         self.draw_spinner_layer_turned(pixmap, element, alpha, layout, 0.0);
     }
 
-    /// The same, turned about the middle of the field.
     fn draw_spinner_layer_turned(
         &self,
         pixmap: &mut Pixmap,
@@ -1852,29 +1275,6 @@ impl Scene<'_> {
         }
     }
 
-    /// How far this spinner has been turned by now, in degrees.
-    ///
-    /// Rotations rather than time, which is the same figure the gauge fills by
-    /// and the same one the judge scores a spinner on: a middle that turned on
-    /// the clock would keep spinning while the cursor sat still.
-    /// Which way the skin's needle points, in degrees.
-    ///
-    /// The *signed* sweep. How much was spun has no direction — osu! pays for a
-    /// turn either way — but which way a needle is facing has nothing else, and
-    /// the two were one number here. So the needle turned the same way whatever
-    /// the player did, and on a spinner played anticlockwise it turned against
-    /// them.
-    /// How much the follow circle is swollen right now, as a multiplier.
-    ///
-    /// It beats on the ticks. osu!'s follow circle is not a fixed ring around
-    /// the ball: every tick the player catches gives it a knock, which is what
-    /// makes a slider's rhythm visible while it is being held — and without it
-    /// the ring sat the same size from the head to the tail and the ticks it
-    /// was passing meant nothing to look at.
-    ///
-    /// A tick that was *missed* gives no knock. The beat is the sound of
-    /// catching them, and a ring that pulsed either way would be saying
-    /// something it does not know.
     fn follow_pulse(&self, index: usize, time_ms: f64) -> f32 {
         let Some(judge) = self.state.judge() else {
             return 1.0;
@@ -1899,8 +1299,7 @@ impl Scene<'_> {
         if !(0.0..1.0).contains(&age) {
             return 1.0;
         }
-        // Out quickly and back slowly, so the knock reads as a knock rather
-        // than as the ring breathing.
+
         let fade = 1.0 - age;
         1.0 + FOLLOW_BEAT * (fade * fade) as f32
     }
@@ -1914,18 +1313,6 @@ impl Scene<'_> {
         (facing * 360.0) as f32
     }
 
-    /// The bonus so far, below the centre, and what it does when it grows.
-    ///
-    /// Each award arrives lit and oversized, then settles: it shrinks inward to
-    /// its resting size and fades to grey, and stays there holding the running
-    /// total until the next one lands and lights it again. So the number itself
-    /// is the history — a spinner that keeps paying keeps flashing white, one
-    /// that has stopped sits grey at whatever it reached.
-    ///
-    /// The step is a thousand, not the eleven hundred the score gets. osu!
-    /// displays and pays different numbers here — `hitSpinner.Bonus(1000)`
-    /// beside a `SpinnerBonus` worth 1100 — and copying the score's figure onto
-    /// the screen would be a plausible, wrong number.
     fn draw_spin_bonus(
         &self,
         pixmap: &mut Pixmap,
@@ -1940,7 +1327,7 @@ impl Scene<'_> {
         let Some(judge) = self.state.judge() else {
             return;
         };
-        // Every bonus this spinner has paid by now, and when the last one came.
+
         let mut awarded = 0u32;
         let mut latest = f64::NEG_INFINITY;
         for event in judge.events() {
@@ -1958,22 +1345,17 @@ impl Scene<'_> {
         }
 
         let age = time_ms - latest;
-        // One pulse per award: lit and large at the moment it lands, settling to
-        // grey and smaller over a fifth of a second. Cubed on the way out so
-        // the flash is a flash rather than a slow dim.
+
         let flash = (1.0 - (age / SPINNER_BONUS_PULSE_MS).clamp(0.0, 1.0)) as f32;
         let eased = flash * flash * flash;
         let size = layout.length(SPINNER_BONUS_SIZE) * (1.0 + SPINNER_BONUS_SWELL * eased);
-        // Lifted toward white rather than swapped for it, so the resting state
-        // is the spinner's own colour dimmed rather than a second palette.
+
         let colour = lighten(darken(self.skin.spinner, SPINNER_BONUS_REST), eased);
         let at = layout.map(Point {
             x: Point::CENTRE.x,
             y: Point::CENTRE.y + SPINNER_BONUS_BELOW,
         });
-        // In the skin's own score digits when it has them. osu! draws this with
-        // the score font, and ours beside a skin's everywhere else on the
-        // screen is the same mismatch the combo counter had.
+
         let text = format!("{}", awarded * SPINNER_BONUS_STEP);
         if self.draw_hud_text(
             pixmap,
@@ -1999,40 +1381,11 @@ impl Scene<'_> {
         );
     }
 
-    /// The marks the cursor leaves behind it.
-    ///
-    /// osu! has two trails and picks between them on a file the skin does *not*
-    /// have:
-    ///
-    /// ```csharp
-    /// DisjointTrail = cursorProvider?.GetTexture("cursormiddle") == null;
-    /// …
-    /// protected override double FadeDuration => DisjointTrail ? 150 : 500;
-    /// protected override bool InterpolateMovements => !DisjointTrail;
-    /// protected override bool AvoidDrawingNearCursor => !DisjointTrail;
-    /// ```
-    ///
-    /// Without a middle it is a row of separate dots, one dropped every
-    /// sixtieth of a second wherever the cursor is, each gone in 150ms. With
-    /// one it is a ribbon: marks laid along the path by *distance* rather than
-    /// by time, added together rather than drawn over one another, lasting half
-    /// a second and leaving a gap by the cursor so the ribbon appears to come
-    /// out from under it.
-    ///
-    /// What this used to do was neither. Fourteen marks over 110ms, each shrunk
-    /// as it aged and none above a third opacity, which is a smear where the
-    /// game draws a trail.
     fn draw_trail(&self, pixmap: &mut Pixmap, time_ms: f64, radius: f32, layout: &Layout) {
         let track = self.state.cursor_track();
-        // A skin with a `cursormiddle` gets the ribbon. Blank counts as having
-        // one, the way it does everywhere: the game asks whether the texture is
-        // there, and a blank file is a texture.
+
         let disjoint = !self.skin_speaks_for(Element::CursorMiddle);
 
-        // Blanking `cursortrail` is how a skin turns the trail off, and several
-        // do — a trail is the first thing a player removes to see the field.
-        // `draw_sprite_wide` draws nothing for a blank, so the same branch
-        // covers both having a picture and having deleted one.
         let skinned = self.skin_speaks_for(Element::CursorTrail);
         let own = self
             .skin
@@ -2065,7 +1418,6 @@ impl Scene<'_> {
             let mut age = TRAIL_STEP_MS;
             while age <= TRAIL_DISJOINT_MS {
                 if let Some(sample) = track.sample(time_ms - age) {
-                    // `FadeExponent = 1`: straight down, not eased.
                     mark(sample.pos, 1.0 - (age / TRAIL_DISJOINT_MS) as f32);
                 }
                 age += TRAIL_STEP_MS;
@@ -2073,12 +1425,6 @@ impl Scene<'_> {
             return;
         }
 
-        // The ribbon. Walked backwards along the path, dropping a mark every
-        // `interval` of travel rather than every so many milliseconds, so a
-        // fast sweep is a continuous line and a still cursor lays down nothing
-        // new. The first interval is skipped — that is `AvoidDrawingNearCursor`
-        // — which is what makes the ribbon appear from under the cursor rather
-        // than through it.
         let interval = (own * TRAIL_INTERVAL_SHARE / layout.length(1.0).max(0.001)) as f64;
         if interval <= 0.0 {
             return;
@@ -2104,35 +1450,7 @@ impl Scene<'_> {
         }
     }
 
-    /// How far round the cursor has turned by now, in degrees.
-    ///
-    /// Stable adds one looping transformation to the cursor when the skin
-    /// allows it, and the numbers are its own rather than ours — from the
-    /// method that builds the cursor:
-    ///
-    /// ```text
-    ///     ldfld  CursorRotate
-    ///     brtrue.s L0165
-    ///     ...Clear();  rotation = 0        // the skin said no
-    ///   L0165:
-    ///     ldc.i4.8                         // a rotation
-    ///     ldc.r4 0        ldc.r4 6.28319   // nought to two pi
-    ///     ldc.i4.0        ldc.i4 10000     // linear, ten seconds
-    ///     ...  stfld Loop = 1
-    /// ```
-    ///
-    /// So: one turn every ten seconds, evenly, for ever. Off, it is not slowed
-    /// or stopped where it stands — it is set back to nothing.
-    ///
-    /// Only the outer disc turns. `cursormiddle` is a separate sprite and
-    /// stays where it is, which is the whole reason a skin ships one.
-    ///
-    /// Worth having at all because nineteen of the twenty-six skins on this
-    /// machine set `CursorRotate: 0` — and the seven that say nothing get
-    /// stable's default, which is on. A round cursor hides this; a shaped one
-    /// does not, and the cursor is on screen for every frame of the video.
     fn cursor_turn(&self, time_ms: f64) -> f32 {
-        // The skin decides, unless the render was told otherwise.
         let allowed = self.skin.cursor_rotate.unwrap_or_else(|| {
             self.skin
                 .sprites
@@ -2142,9 +1460,7 @@ impl Scene<'_> {
         if !allowed {
             return 0.0;
         }
-        // `rem_euclid` rather than `%`: a replay's clock starts before its
-        // first note, and a negative remainder would turn the cursor backwards
-        // for the lead-in and then jump.
+
         (time_ms.rem_euclid(CURSOR_TURN_MS) / CURSOR_TURN_MS * 360.0) as f32
     }
 
@@ -2152,21 +1468,11 @@ impl Scene<'_> {
         let track = self.state.cursor_track();
         let radius = layout.length(9.0);
 
-        // The trail is a setting of its own — somebody may want the cursor and
-        // not the smear behind it.
         if self.skin.cursor_trail {
             self.draw_trail(pixmap, time_ms, radius, layout);
         }
 
         if let Some(sample) = track.sample(time_ms) {
-            // > Should the cursor expand when clicked?  Default `1`.
-            //
-            // A skin is entitled to say no, and both of the ones this was
-            // written against do. It used to be ignored with a comment saying
-            // so; it is read now.
-            // Both have to allow it: the setting is the viewer's and
-            // `CursorExpand: 0` is the skin's, and a skin that refuses still
-            // refuses when the setting is on.
             let expands = self.skin.cursor_expand
                 && self
                     .skin
@@ -2175,15 +1481,6 @@ impl Scene<'_> {
                     .is_none_or(|sprites| sprites.ini().cursor_expand);
             let held = expands && sample.keys.is_pressed();
             if self.skin_speaks_for(Element::Cursor) {
-                // The skin's cursor swells under a click the way ours does.
-                // osu! has a `CursorExpand` flag for exactly this and defaults
-                // it on; the skin read here turns it off, which is a setting
-                // this renderer does not carry yet — noted rather than guessed
-                // at, because inventing the answer would be worse than being
-                // consistent with our own cursor.
-                // At the size the skin drew it, not at ours. Sized against the
-                // note it came out a third too small — a 55-pixel cursor is 55
-                // units of a 768-tall interface, whatever the circles are doing.
                 let own = self
                     .skin
                     .sprites
@@ -2203,8 +1500,6 @@ impl Scene<'_> {
                     self.cursor_turn(time_ms),
                 );
                 if self.skin_speaks_for(Element::CursorMiddle) {
-                    // Drawn over the top and never expanded — that part is the
-                    // game's own behaviour rather than a choice.
                     let middle = self
                         .skin
                         .sprites
@@ -2224,9 +1519,7 @@ impl Scene<'_> {
                 }
                 return;
             }
-            // Our own cursor, for a render with no skin to ask. It follows the
-            // setting too: somebody who wants a smaller cursor wants a smaller
-            // one whichever skin is on.
+
             let scale = self.skin.cursor_scale;
             self.dot(
                 pixmap,
@@ -2260,12 +1553,6 @@ impl Scene<'_> {
         crate::elements::dot(pixmap, x, y, radius, colour, alpha);
     }
 
-    /// The soft halo a note sits in, falling off to nothing past its rim.
-    ///
-    /// One disc reaching `note_glow` past the note, filled with a gradient that
-    /// holds a low opacity out to the note's own edge and then fades to fully
-    /// transparent. The falloff is the whole point: a halo of flat colour is
-    /// just a wider, muddier note, which is what the first attempt drew.
     fn glow(
         &self,
         pixmap: &mut Pixmap,
@@ -2279,16 +1566,6 @@ impl Scene<'_> {
         crate::elements::glow(pixmap, x, y, radius, colour, alpha, self.skin.note_glow);
     }
 
-    /// A disc with the light coming from a little above its centre.
-    ///
-    /// The same circle `dot` draws, filled with a radial gradient instead of a
-    /// flat colour: lifted towards white at the centre, the plain colour by the
-    /// rim. It is what turns a sticker into an object, and it is the whole of
-    /// the skin's "depth" — no blur, no second pass, one shader on a fill that
-    /// was happening anyway.
-    ///
-    /// With `note_relief` at zero this is `dot`, so the flat skins pay nothing
-    /// and draw exactly what they drew before.
     fn lit_dot(
         &self,
         pixmap: &mut Pixmap,
@@ -2318,8 +1595,6 @@ impl Scene<'_> {
     }
 }
 
-/// A slider's centre line as a path in playfield coordinates.
-/// The note's drawn position, shaken if it has just refused a click.
 fn shaken(pos: Point, annotation: &Annotation, time_ms: f64, state: &GameState) -> Point {
     let radius = state.difficulty().circle_radius();
     let dx = shake_offset(&annotation.shakes_ms, time_ms, radius);
@@ -2329,11 +1604,6 @@ fn shaken(pos: Point, annotation: &Annotation, time_ms: f64, state: &GameState) 
     }
 }
 
-/// Sideways offset of a note that has just refused a click, in osu!pixels.
-///
-/// A decaying sine: it starts at full swing on the frame the click landed and
-/// settles inside a tenth of a second, so a note being clicked at repeatedly
-/// shakes on each one rather than blurring into a single long wobble.
 fn shake_offset(shakes: &[f64], time_ms: f64, radius: f64) -> f64 {
     let Some(last) = shakes
         .iter()
@@ -2350,39 +1620,10 @@ fn shake_offset(shakes: &[f64], time_ms: f64, radius: f64) -> f64 {
     swing * (1.0 - progress) * radius * SHAKE_WIDTH
 }
 
-/// How an arrow at one end of a slider presents itself: how bright, and how
-/// much bigger than its resting size.
-///
-/// `turns` is every moment the ball turns around at *that* end, and `span_ms`
-/// is how long one traversal takes. The arrow is full while a turn is coming
-/// within one traversal — arriving as the ball sets off towards it, the way
-/// lazer brings a repeat in — then goes out over its own window rather than
-/// blinking off on the frame the ball touches it. Landing gives it a kick,
-/// which is the cue that the direction just changed; it decays quadratically so
-/// the kick is over well before the fade is.
-///
-/// Both ends can therefore be lit at once, which is the point: at a turn the
-/// arrow just struck is still fading while the far end's is already up.
-///
-/// Split out from the drawing because it cannot be measured through pixels:
-/// the ball and the ticks pass through the same few square pixels at exactly
-/// the moment in question, and there is no telling their brightness from the
-/// arrow's.
-/// How far a waiting arrow has rocked, in degrees, on a skin old enough to.
-///
-/// ```csharp
-/// const float rotation = 5.625f;
-/// arrow.Rotation = ValueAt(loopCurrentTime, rotation, -rotation, 0, duration);
-/// ```
-///
-/// Only for `Version <= 1`. Newer skins hold theirs still and ease the scale
-/// instead, which is the same loop wearing different clothes — and both are
-/// what osu! does, so which one a skin gets is decided by a line in its own
-/// `skin.ini` rather than by us.
 fn arrow_rock(time_ms: f64, started_ms: f64) -> f32 {
     const ROTATION: f32 = 5.625;
     let phase = ((time_ms - started_ms).rem_euclid(ARROW_LOOP_MS) / ARROW_LOOP_MS) as f32;
-    // Linear across the loop, from one side to the other.
+
     ROTATION - 2.0 * ROTATION * phase
 }
 
@@ -2393,12 +1634,6 @@ fn arrow_life(
     started_ms: f64,
     span_ms: f64,
 ) -> (f32, f32) {
-    // A turn is due once the ball is on the slide that ends at it — `due` is
-    // when that slide begins. Stated as a moment rather than as "within one
-    // traversal", because the two are the same in arithmetic and not in
-    // floating point: `start + span - start` comes out an ulp above `span`, so
-    // the comparison failed at exactly the boundary and the first turn's arrow
-    // stayed dark for the whole approach.
     let ahead = turns
         .iter()
         .any(|&(at, due)| at > time_ms && reading_ms >= due);
@@ -2410,14 +1645,6 @@ fn arrow_life(
             Some(best.map_or(at, |b: f64| b.max(at)))
         });
 
-    // How far into its arrival the next turn's arrow is.
-    //
-    // Only for an arrow that becomes due *during* the slide. The first one is
-    // due before the slider has even started and arrives with the body as it
-    // snakes out, which is its animation; giving it a second one would fade it
-    // in over a slider that is already there. A later arrow had none at all
-    // and snapped on at full brightness, which reads as a second slider
-    // materialising out of nothing.
     let arriving = turns
         .iter()
         .filter(|&&(at, due)| at > time_ms && reading_ms >= due)
@@ -2435,17 +1662,14 @@ fn arrow_life(
         (false, Some(last)) => 1.0 - ((time_ms - last) / ARROW_FADE_MS).clamp(0.0, 1.0) as f32,
         (false, None) => 0.0,
     };
-    // `Easing.Out` — the quadratic, quick away and slow to arrive.
+
     let ease = |t: f32| 1.0 - (1.0 - t.clamp(0.0, 1.0)) * (1.0 - t.clamp(0.0, 1.0));
     let scale = match behind {
-        // Struck: it grows into the turn it just marked, over its own slide or
-        // three tenths of a second, whichever is shorter.
         Some(last) => {
             let over = span_ms.min(ARROW_LOOP_MS).max(1.0);
             1.0 + (ARROW_STRUCK_TO - 1.0) * ease(((time_ms - last) / over) as f32)
         }
-        // Waiting: a three-hundred-millisecond loop, large to small, from the
-        // slider's own beginning so every arrow on one slider breathes together.
+
         None => {
             let phase = ((time_ms - started_ms).rem_euclid(ARROW_LOOP_MS) / ARROW_LOOP_MS) as f32;
             ARROW_LOOP_FROM + (1.0 - ARROW_LOOP_FROM) * ease(phase)
@@ -2454,11 +1678,6 @@ fn arrow_life(
     (leaving, scale)
 }
 
-/// Where along the path a moment of a slider falls, as a fraction.
-///
-/// Reversed slides walk the path backwards, so their local progress is
-/// mirrored — which is what makes this the right thing to compare against the
-/// grown stretch of the body rather than raw elapsed time.
 fn path_fraction(object: &TimedObject, time_ms: f64) -> Option<f64> {
     let TimedKind::Slider {
         slides,
@@ -2482,53 +1701,29 @@ fn path_fraction(object: &TimedObject, time_ms: f64) -> Option<f64> {
     })
 }
 
-/// How much a note swells as it leaves, as a multiple of its radius.
-///
-/// A hit expands while it fades — the note is being taken away, and the growth
-/// reads as the taking. A miss does not: it stays the size it was and simply
-/// stops being there, which is what missing looks like. Making both expand
-/// would throw away the only difference between them a still frame can show.
 fn hit_expansion(exit: f32, missed: bool) -> f32 {
     if missed {
         1.0
     } else {
-        // Eased out, so nearly all the growth is over in the first third. The
-        // note has to read as struck, and a strike is not a linear ramp — a
-        // linear one looks like the note is being inflated.
         1.0 + 0.4 * (1.0 - (1.0 - exit) * (1.0 - exit))
     }
 }
 
-/// Which of Hidden's two fades an object's part takes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum HiddenFade {
-    /// The object's own: a long dissolve for a slider body, the short one for
-    /// anything else.
     Own,
-    /// The short one whatever the object is — a slider's head is a note.
+
     AsANote,
-    /// None at all: the ball, the follow circle and the reverse arrows are not
-    /// in the mod's switch.
+
     Untouched,
 }
 
-/// The slider body between two progress fractions, ready to stroke.
-///
-/// Built per frame rather than once, because the stretch it covers changes
-/// every frame while the slider is growing or retracting. The prebuilt path it
-/// replaces was described in this file as the renderer's largest cost, which
-/// turned out to be wrong: building a 240-point body measures at 0.0022ms
-/// against 1.2441ms to stroke it once, and it is stroked twice. Under a fifth
-/// of a percent. See the `path_building_against_stroking` benchmark below —
-/// comparing two binaries end to end could not tell, the machine noise being
-/// larger than the effect in both directions on successive runs.
 fn body_path(object: &TimedObject, (from, to): (f64, f64)) -> Option<tiny_skia::Path> {
     let TimedKind::Slider { path, .. } = &object.kind else {
         return None;
     };
     let (start, interior, end) = path.segment(from, to)?;
-    // Sized up front: the builder otherwise regrows both of its buffers a dozen
-    // times over a path of a few hundred points, once per slider per frame.
+
     let mut builder = PathBuilder::with_capacity(interior.len() + 2, interior.len() + 2);
     builder.move_to(start.x as f32, start.y as f32);
     for point in interior {
@@ -2542,32 +1737,21 @@ fn body_path(object: &TimedObject, (from, to): (f64, f64)) -> Option<tiny_skia::
 mod exits {
     use super::*;
 
-    /// One traversal, for the tests that care how far ahead a turn is.
     const SPAN: f64 = 2000.0;
 
-    /// A turn at `at`, due from one traversal before it.
     fn turn(at: f64) -> (f64, f64) {
         (at, at - SPAN)
     }
 
     #[test]
     fn an_arrow_waits_until_the_ball_sets_off_towards_it() {
-        // The end of a slider is where its head circle sits, so an arrow that
-        // stands from the start sits underneath the note for the whole first
-        // slide. It is due when the slide that ends on it begins.
         let turns = [turn(5000.0)];
         assert_eq!(
             arrow_life(&turns, 2000.0, 2000.0, 0.0, 500.0).0,
             0.0,
             "two traversals out, nothing there yet"
         );
-        // Exactly on the boundary — which is the case that broke. Written as
-        // `at - now <= span` this failed, because `start + span - start` comes
-        // out an ulp above `span` and the arrow stayed dark all approach.
-        //
-        // The arrow now *starts* arriving here rather than snapping on: a
-        // later turn becomes due mid-slide, and appearing at full brightness
-        // reads as a second slider materialising out of nothing.
+
         assert_eq!(
             arrow_life(&turns, 3000.0, 3000.0, 2500.0, 500.0).0,
             0.0,
@@ -2613,7 +1797,6 @@ mod exits {
             "another is still coming, and has finished arriving"
         );
 
-        // After the last one it decays rather than blinking off.
         let half = arrow_life(
             &turns,
             3000.0 + ARROW_FADE_MS / 2.0,
@@ -2639,15 +1822,6 @@ mod exits {
 
     #[test]
     fn an_arrow_waiting_breathes_on_a_fixed_loop() {
-        // ```csharp
-        // const double duration = 300;
-        // double loopCurrentTime = (Time.Current - AnimationStartTime) % duration;
-        // arrow.Scale = ValueAt(loopCurrentTime, 1.3f, 1, 0, duration, Easing.Out);
-        // ```
-        //
-        // Three tenths of a second, large to small, and *not* the map's tempo —
-        // breathing on the beat is the obvious guess and this carried a
-        // coefficient for it, set to zero, so the arrow did not breathe at all.
         let turns = [turn(4000.0)];
         let at = |t: f64| arrow_life(&turns, t, t, 0.0, 500.0).1;
         assert!(
@@ -2655,17 +1829,13 @@ mod exits {
             "largest at the start"
         );
         assert!(at(ARROW_LOOP_MS - 1.0) < 1.02, "and smallest at the end");
-        // And it comes round again.
+
         assert!((at(ARROW_LOOP_MS) - ARROW_LOOP_FROM).abs() < 1e-6);
         assert!((at(ARROW_LOOP_MS * 3.0) - ARROW_LOOP_FROM).abs() < 1e-6);
     }
 
     #[test]
     fn a_struck_arrow_grows_into_the_turn_it_marked() {
-        // ```csharp
-        // double animDuration = Math.Min(300, SpanDuration);
-        // arrow.Scale = ValueAt(now, 1, 1.4f, hitTime, hitTime + animDuration, Easing.Out);
-        // ```
         let turns = [turn(1000.0)];
         let at = |t: f64, span: f64| arrow_life(&turns, t, t, 0.0, span).1;
         assert!(
@@ -2676,7 +1846,7 @@ mod exits {
             (at(1300.0, 500.0) - ARROW_STRUCK_TO).abs() < 1e-6,
             "and reaches 1.4"
         );
-        // A slide shorter than three tenths of a second finishes sooner.
+
         assert!((at(1120.0, 120.0) - ARROW_STRUCK_TO).abs() < 1e-6);
         assert!(
             at(1060.0, 120.0) < ARROW_STRUCK_TO,
@@ -2684,18 +1854,6 @@ mod exits {
         );
     }
 
-    /// A version 1 skin's reverse arrow rocks as it breathes.
-    ///
-    /// ```csharp
-    /// bool shouldRotate = skin.GetConfig<SkinConfiguration.LegacySetting, decimal>(
-    ///     SkinConfiguration.LegacySetting.Version)?.Value <= 1;
-    /// ...
-    /// arrow.Rotation = ValueAt(loopCurrentTime, -5.625f, 5.625f, 0, duration);
-    /// ```
-    ///
-    /// Read the other way round from ppy's `ValueAt`, which counts a rotation
-    /// *down* from `+5.625`: the sign is the whole of the effect, so it is
-    /// worth being explicit that the arrow leans right first.
     #[test]
     fn an_old_skins_arrow_leans_one_way_and_then_the_other() {
         assert!(
@@ -2704,8 +1862,7 @@ mod exits {
         );
         assert!(arrow_rock(1150.0, 1000.0).abs() < 1e-4, "level, halfway");
         assert!(arrow_rock(1290.0, 1000.0) < -5.0, "and left by the end");
-        // It loops on its own three hundred milliseconds rather than the map's
-        // tempo, so the next pass starts exactly where the first one did.
+
         assert!(
             (arrow_rock(1300.0, 1000.0) - arrow_rock(1000.0, 1000.0)).abs() < 1e-4,
             "the loop does not drift"
@@ -2714,15 +1871,11 @@ mod exits {
 
     #[test]
     fn an_end_that_never_turns_shows_nothing() {
-        // Only the first half is a claim: with nothing to show, the scale it
-        // would have been shown at is not a fact about anything.
         assert_eq!(arrow_life(&[], 1234.0, 1234.0, 0.0, 500.0).0, 0.0);
     }
 
     #[test]
     fn a_hit_swells_as_it_goes_and_a_miss_does_not() {
-        // The two exits have to look different, or a still frame cannot say
-        // which happened without waiting for the combo counter to drop.
         assert_eq!(hit_expansion(0.0, false), 1.0, "nothing has happened yet");
         assert!(hit_expansion(1.0, false) > hit_expansion(0.5, false));
         assert_eq!(hit_expansion(1.0, true), 1.0, "a miss keeps its size");
@@ -2734,16 +1887,11 @@ mod exits {
 mod cost {
     use super::*;
 
-    /// What building a slider body actually costs, against what stroking one
-    /// costs. Run on demand:
-    ///
-    ///     cargo test --release -p dossier-render path_building -- --ignored --nocapture
     #[test]
     #[ignore = "a measurement, not an assertion"]
     fn path_building_against_stroking() {
         use std::time::Instant;
 
-        // A slider body flattens to a few hundred points at a quarter-pixel.
         let points: Vec<(f32, f32)> = (0..240)
             .map(|i| (i as f32 * 1.7, (i as f32 * 0.11).sin() * 40.0 + 200.0))
             .collect();
@@ -2791,73 +1939,26 @@ mod cost {
     }
 }
 
-/// How far apart osu! sets the marks between two notes, in playfield units,
-/// and how long before its moment each one appears.
-///
-/// ```csharp
-/// public const int SPACING = 32;
-/// public const double PREEMPT = 800;
-///
-/// for (int d = (int)(SPACING * 1.5); d < distance - SPACING; d += SPACING)
-/// {
-///     float fraction = (float)d / distance;
-///     Vector2 pointStartPosition = startPosition + (fraction - 0.1f) * distanceVector;
-///     Vector2 pointEndPosition = startPosition + fraction * distanceVector;
-///     ...
-///     fp.FadeIn(end.TimeFadeIn);
-///     fp.ScaleTo(end.Scale, end.TimeFadeIn, Easing.Out);
-///     fp.MoveTo(pointEndPosition, end.TimeFadeIn, Easing.Out);
-///     fp.Delay(fadeOutTime - fadeInTime).FadeOut(end.TimeFadeIn);
-/// }
-/// ```
-///
-/// The first mark sits a step and a half out and the last stops a step short,
-/// so a trail never touches either note. Each slides the last tenth of the way
-/// into its place as it appears, which is what makes the row read as running
-/// towards the next note rather than as a row of dots switching on.
-/// How far the follow circle swells when a tick lands, and for how long.
-///
-/// osu! knocks it outward on every tick the player catches, which is what makes
-/// a slider's rhythm visible while it is being held. A tenth of a second and a
-/// tenth again of its size: enough to read at a glance on a fast slider, not
-/// enough to look like the ring is breathing.
 const FOLLOW_BEAT: f32 = 0.10;
 const FOLLOW_BEAT_MS: f64 = 110.0;
 
-/// How long the follow circle takes to go once the ball has finished.
-///
-/// It shrinks back through the ball and fades as it goes, the way both clients
-/// end one. Cut off at the instant instead, the ring vanished mid-frame and the
-/// slider ended with a flinch.
 const FOLLOW_LEAVE_MS: f64 = 200.0;
 
-/// How small it has shrunk by the time it is gone.
 const FOLLOW_LEAVE_TO: f32 = 0.8;
 
 const FOLLOW_SPACING: f64 = 32.0;
 const FOLLOW_PREEMPT_MS: f64 = 800.0;
-/// What each mark starts at before it settles to its size, from `ScaleTo`.
+
 const FOLLOW_ENTRY_SCALE: f32 = 1.5;
-/// How much of the gap a mark travels as it arrives, from `pointStartPosition`.
+
 const FOLLOW_APPROACH: f64 = 0.1;
 
-/// `Easing.Out` — the quadratic, quick to leave and slow to arrive.
 fn ease_out(t: f32) -> f32 {
     let t = t.clamp(0.0, 1.0);
     1.0 - (1.0 - t) * (1.0 - t)
 }
 
 impl Scene<'_> {
-    /// The marks osu! lays between one note and the next.
-    ///
-    /// Drawn only from a skin's own picture. Our look has never had them and
-    /// giving it a set now would redecorate every render made without a skin,
-    /// which is a change nobody asked for — where a skin that ships sixty
-    /// frames of `followpoint` plainly did ask.
-    ///
-    /// Within a combo only, and never touching a spinner: a trail says "this
-    /// one, then this one" about notes that belong together, and a new combo
-    /// is the map saying they do not.
     pub(super) fn draw_follow_points(&self, pixmap: &mut Pixmap, time_ms: f64, layout: &Layout) {
         if !self.skin_speaks_for(Element::FollowPoint) {
             return;
@@ -2871,8 +1972,7 @@ impl Scene<'_> {
                 continue;
             }
             let (from, to) = (&objects[index - 1], &objects[index]);
-            // A new combo breaks the thread, and a spinner has no place on the
-            // field to run to or from.
+
             if self.annotations[index].number == 1 || from.is_spinner() || to.is_spinner() {
                 continue;
             }
@@ -2881,8 +1981,7 @@ impl Scene<'_> {
             if span <= 0.0 {
                 continue;
             }
-            // Where the previous object leaves the player: the end of a slider,
-            // or the note itself.
+
             let leaves = from.ball_at(from.end_ms).unwrap_or(from.pos);
             let (dx, dy) = (to.pos.x - leaves.x, to.pos.y - leaves.y);
             let distance = dx.hypot(dy);
@@ -2912,8 +2011,7 @@ impl Scene<'_> {
                 if alpha <= 0.0 {
                     continue;
                 }
-                // It comes in a tenth of the way behind its place and slides
-                // up to it, growing down to size as it goes.
+
                 let along = fraction - FOLLOW_APPROACH * f64::from(1.0 - ease_out(arriving));
                 let at = dossier_beatmap::Point {
                     x: leaves.x + dx * along,
@@ -2936,33 +2034,10 @@ impl Scene<'_> {
 }
 
 impl Scene<'_> {
-    /// Which frame of an element's strip is showing, `elapsed_ms` after the
-    /// thing wearing it appeared.
-    ///
-    /// > A positive integer or `-1` to make osu! play all frames of the
-    /// > animation in one second.
-    ///
-    /// So the default is not a frame rate at all but a *duration*: however
-    /// many frames the skin drew, they take a second between them. A rate
-    /// stated in the ini is used as it stands.
-    ///
-    /// Counted from the element's own beginning rather than from map time,
-    /// which is what `GetAnimation("followpoint", true, false)` asks for — the
-    /// `false` is `startAtCurrentTime`. Off map time every mark on screen shows
-    /// the *same* frame, so a strip whose frames fade in and out blinks the
-    /// whole trail on and off together, and on a frame the skin drew empty the
-    /// trail disappears outright. Measured on a 61-frame skin: every follow
-    /// point missing at three moments out of three.
     fn animation_frame(&self, element: Element, elapsed_ms: f64) -> usize {
         self.frame_of(element, elapsed_ms, true)
     }
 
-    /// The same, for a strip that plays once and stops on its last frame.
-    ///
-    /// A judgement is not a loop. It bursts and settles, and running the strip
-    /// round again showed the whole thing a second time — reported as the mark
-    /// playing twice for one hit. A follow point is the other kind and keeps
-    /// its wrap: it is a trail that lives as long as the gap it fills.
     fn animation_frame_once(&self, element: Element, elapsed_ms: f64) -> usize {
         self.frame_of(element, elapsed_ms, false)
     }
@@ -2989,8 +2064,6 @@ impl Scene<'_> {
         }
     }
 
-    /// One frame of an animated element, turned. Falls back to the still
-    /// picture for anything that does not animate.
     #[allow(clippy::too_many_arguments)]
     fn draw_frame_turned(
         &self,
@@ -3054,16 +2127,8 @@ mod shading {
         )
     }
 
-    /// The formula itself, away from the rasteriser. What changed here is which
-    /// colour belongs at which distance from the edge; whether a band of bands
-    /// reproduces it faithfully is a separate question with its own answers.
     #[test]
     fn the_outermost_sliver_is_a_shadow_coming_up_from_nothing() {
-        // ```csharp
-        // Color4 shadow = new Color4(0, 0, 0, 0.25f);
-        // if (position <= shadow_portion)
-        //     return InterpolateNonLinear(position, Black.Opacity(0f), shadow, 0, shadow_portion);
-        // ```
         assert!(shade(0.0).alpha() < 0.001, "nothing at the very edge");
         let inner = shade(SHADOW_PORTION);
         assert!(
@@ -3075,16 +2140,12 @@ mod shading {
             inner.red() + inner.green() + inner.blue() < 0.01,
             "and it is black"
         );
-        // Half way along it is half as dark.
+
         assert!((shade(SHADOW_PORTION / 2.0).alpha() - SHADOW_ALPHA / 2.0).abs() < 0.01);
     }
 
     #[test]
     fn the_border_is_one_colour_across_its_whole_width() {
-        // `if (position <= border_portion) return BorderColour;` — solid, with
-        // no crossfade at either edge. Ours faded into its neighbours over a
-        // hundredth of the radius, and that softness is what a side-by-side
-        // against the client showed missing.
         let white = Color::from_rgba8(255, 255, 255, 255);
         for at in [SHADOW_PORTION + 0.001, 0.12, BORDER_PORTION] {
             let there = shade(at);
@@ -3098,10 +2159,6 @@ mod shading {
 
     #[test]
     fn the_body_mixes_straight_from_the_border_to_the_centreline() {
-        // `InterpolateNonLinear(position, outerColour, innerColour, border_portion, 1)`
-        // with no easing is a plain mix. Ours squared it, on the reasoning that
-        // a linear ramp "reads as a wide pale core" — a preference, and one the
-        // comparison overruled.
         let outer = crate::skin::body_outer(track());
         let inner = crate::skin::body_inner(track());
         let at_start = shade(BORDER_PORTION + 0.0001);
@@ -3115,8 +2172,6 @@ mod shading {
             "ends at the inner one"
         );
 
-        // Half way along the ramp is half way between the two, which is the
-        // whole difference from a squared one.
         let half = shade(BORDER_PORTION + (1.0 - BORDER_PORTION) / 2.0);
         let expect = (outer.green() + inner.green()) / 2.0;
         assert!(
@@ -3128,8 +2183,6 @@ mod shading {
 
     #[test]
     fn the_track_carries_the_alpha_the_game_gives_it() {
-        // "legacy skins use a constant value for slider track alpha, regardless
-        // of the source colour" — `.Opacity(0.7f)`.
         assert!((shade(0.5).alpha() - 0.7).abs() < 0.001);
         assert!((shade(1.0).alpha() - 0.7).abs() < 0.001);
     }

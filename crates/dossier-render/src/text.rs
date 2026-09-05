@@ -1,22 +1,5 @@
-//! Text, drawn glyph by glyph.
-//!
-//! [`tiny_skia`] rasterises paths and nothing else, so glyphs come from
-//! [`fontdue`] as coverage bitmaps and are blended in by hand. That's the whole
-//! of it: no shaping, no bidi, no fallback chain. A HUD is digits, a percent
-//! sign and the occasional Latin word, and every one of those is one codepoint
-//! to one glyph.
-//!
-//! Glyphs are rasterised on every draw rather than cached, which looks like an
-//! obvious waste and measures as nothing. A cache keyed by character and size
-//! was built and timed end-to-end on a dense 1080p render: 56.2ms of drawing
-//! per frame without it against 56.4ms with, over three alternating runs. Text
-//! is about a millisecond of an eighteen-millisecond frame, so there was never
-//! more than a twentieth to win, and fontdue is fast enough that none of it
-//! showed up. The `RwLock` and the map are not worth carrying for that.
-
 use tiny_skia::{Color, Pixmap, PremultipliedColorU8};
 
-/// A loaded typeface.
 #[derive(Clone)]
 pub struct Font {
     inner: std::sync::Arc<fontdue::Font>,
@@ -24,8 +7,6 @@ pub struct Font {
 
 impl std::fmt::Debug for Font {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // The glyph tables are megabytes of no interest to anyone reading a
-        // debug dump of a skin.
         f.write_str("Font(..)")
     }
 }
@@ -37,12 +18,11 @@ pub enum Align {
     Right,
 }
 
-/// One run of text and everything about how to place it.
 #[derive(Debug, Clone, Copy)]
 pub struct Label<'a> {
     pub text: &'a str,
     pub x: f32,
-    /// The baseline, not the top.
+
     pub y: f32,
     pub size: f32,
     pub colour: Color,
@@ -50,7 +30,6 @@ pub struct Label<'a> {
 }
 
 impl Font {
-    /// Load from the bytes of a `.ttf` or `.otf`.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, String> {
         let inner = fontdue::Font::from_bytes(bytes, fontdue::FontSettings::default())?;
         Ok(Self {
@@ -58,14 +37,12 @@ impl Font {
         })
     }
 
-    /// Width of `text` at `size`, in pixels.
     pub fn width(&self, text: &str, size: f32) -> f32 {
         text.chars()
             .map(|c| self.inner.metrics(c, size).advance_width)
             .sum()
     }
 
-    /// Draw a label with its baseline at `label.y`.
     pub fn draw(&self, pixmap: &mut Pixmap, label: Label<'_>) {
         let Label {
             text,
@@ -84,8 +61,7 @@ impl Font {
 
         for ch in text.chars() {
             let (metrics, coverage) = self.inner.rasterize(ch, size);
-            // `ymin` is the distance from the baseline to the *bottom* of the
-            // bitmap, so the top edge is that far above it plus the height.
+
             let left = (pen + metrics.xmin as f32).round() as i32;
             let top = (y - (metrics.height as i32 + metrics.ymin) as f32).round() as i32;
             blit(pixmap, &coverage, metrics.width, left, top, colour);
@@ -93,14 +69,11 @@ impl Font {
         }
     }
 
-    /// Distance from the baseline to the top of a digit, at `size`. Used to
-    /// centre numbers on things rather than hanging them off a baseline.
     pub fn digit_height(&self, size: f32) -> f32 {
         self.inner.metrics('0', size).height as f32
     }
 }
 
-/// Blend an 8-bit coverage bitmap into the pixmap, source-over.
 fn blit(pixmap: &mut Pixmap, coverage: &[u8], width: usize, left: i32, top: i32, colour: Color) {
     if width == 0 || coverage.is_empty() {
         return;
@@ -126,8 +99,7 @@ fn blit(pixmap: &mut Pixmap, coverage: &[u8], width: usize, left: i32, top: i32,
             }
             let index = (y * frame_w + x) as usize;
             let dst = pixels[index];
-            // The pixmap is premultiplied, so the source has to be too before
-            // the two are mixed.
+
             let keep = 1.0 - alpha;
             let mix = |src: f32, dst: u8| {
                 ((src * alpha + f32::from(dst) / 255.0 * keep) * 255.0)
@@ -142,8 +114,7 @@ fn blit(pixmap: &mut Pixmap, coverage: &[u8], width: usize, left: i32, top: i32,
             let a = ((alpha + f32::from(dst.alpha()) / 255.0 * keep) * 255.0)
                 .round()
                 .clamp(0.0, 255.0) as u8;
-            // Rounding can leave a channel a hair above the alpha, which the
-            // premultiplied invariant forbids.
+
             pixels[index] =
                 PremultipliedColorU8::from_rgba(r.min(a), g.min(a), b.min(a), a).unwrap_or(dst);
         }

@@ -1,21 +1,5 @@
-//! The map's own artwork, behind the play.
-//!
-//! A background is the one part of a render that comes from outside the game's
-//! geometry, and the only thing it must not do is compete with the notes. So it
-//! is never drawn as it arrives: it is scaled to cover the frame, blurred until
-//! it carries no detail worth reading, and dimmed towards the skin's own
-//! background until the field is the brightest thing on screen again.
-//!
-//! All of that happens once, before the first frame — the result is a pixmap
-//! the size of the output, and drawing it is a copy.
-
 use tiny_skia::{Color, Pixmap, PixmapPaint, Transform};
 
-/// Decode `bytes` as PNG or JPEG.
-///
-/// Both, because a beatmap's background is nearly always a `.jpg` while every
-/// picture the bot hands us is a `.png`, and the file's own name is not to be
-/// trusted about which it is — maps ship `bg.jpg` files that are PNGs.
 pub(crate) fn decode(bytes: &[u8]) -> Option<Pixmap> {
     if let Ok(pixmap) = Pixmap::decode_png(bytes) {
         return Some(pixmap);
@@ -38,18 +22,12 @@ pub(crate) fn decode(bytes: &[u8]) -> Option<Pixmap> {
                 out[i] = tiny_skia::PremultipliedColorU8::from_rgba(*grey, *grey, *grey, 255)?;
             }
         }
-        // L16 and CMYK exist and are vanishingly rare on a beatmap background.
-        // Refusing is right: a wrong guess at the channel order would paint the
-        // frame in false colours, which is worse than no background at all.
+
         _ => return None,
     }
     Some(pixmap)
 }
 
-/// Prepare a background for a `width`×`height` frame.
-///
-/// `dim` is how far the picture is taken towards `towards` — the skin's own
-/// background — and `blur` is the radius as a share of the frame's height.
 pub fn prepare(
     bytes: &[u8],
     width: u32,
@@ -61,8 +39,6 @@ pub fn prepare(
     let source = decode(bytes)?;
     let mut canvas = Pixmap::new(width, height)?;
 
-    // Cover, not fit: a background with bars down its sides reads as a mistake,
-    // and the parts that fall off the edge are the parts nobody was looking at.
     let scale = (width as f32 / source.width() as f32).max(height as f32 / source.height() as f32);
     let transform = Transform::from_translate(
         (width as f32 - source.width() as f32 * scale) / 2.0,
@@ -91,10 +67,6 @@ pub fn prepare(
     Some(canvas)
 }
 
-/// Two box passes, which is enough to lose the detail without pretending to be
-/// a gaussian. Separable, so the cost is linear in the radius rather than
-/// square — a background is only prepared once, but a 1080p frame is two
-/// million pixels and a naive kernel is felt even once.
 fn blur_box(pixmap: &mut Pixmap, radius: u32) {
     for _ in 0..2 {
         blur_pass(pixmap, radius, true);
@@ -126,8 +98,6 @@ fn blur_pass(pixmap: &mut Pixmap, radius: u32, horizontal: bool) {
 
     let out = pixmap.pixels_mut();
     for across in 0..minor {
-        // A running sum over the window, so each pixel costs an add and a
-        // subtract rather than a walk over the whole kernel.
         let mut sums = [0u32; 4];
         let mut count = 0u32;
         for along in 0..(radius + 1).min(major) {
@@ -147,8 +117,7 @@ fn blur_pass(pixmap: &mut Pixmap, radius: u32, horizontal: bool) {
             {
                 out[at(along, across)] = colour;
             }
-            // Slide the window: drop the pixel leaving it, take the one
-            // arriving.
+
             let leaving = along - radius;
             if leaving >= 0 {
                 let p = source[at(leaving, across)];
@@ -169,7 +138,6 @@ fn blur_pass(pixmap: &mut Pixmap, radius: u32, horizontal: bool) {
     }
 }
 
-/// Take every pixel `amount` of the way towards `towards`.
 fn wash(pixmap: &mut Pixmap, towards: Color, amount: f32) {
     let keep = 1.0 - amount;
     let (r, g, b) = (

@@ -590,6 +590,8 @@ label input[type="text"]:focus, label input[type="password"]:focus, label select
   padding: 0.85rem 1.05rem;
   border-top: 1px solid var(--line);
 }
+.pref > :first-child { flex: 1 1 11rem; min-width: 0; }
+.pref > .pick, .pref > .pair, .pref > .seg, .pref > .ticks, .pref > button { flex: 0 0 auto; }
 .pref:first-child { border-top: 0; }
 .pref b { font-weight: 600; }
 .pref p { margin: 0.15rem 0 0; color: var(--faint); font-size: 0.8rem; max-width: 26rem; }
@@ -1062,7 +1064,7 @@ body.still *, body.still *::before, body.still *::after {
   font: 0.82rem/1.4 var(--mono);
 }
 
-.pair { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.pair { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: flex-end; gap: 0.4rem; }
 
 .pick .cap {
   display: block;
@@ -1295,24 +1297,38 @@ body.still *, body.still *::before, body.still *::after {
 .scanning h2 { margin: 1.6rem 0 0; font-size: 1.5rem; font-weight: 600; letter-spacing: -0.01em; }
 .scanning p { margin: 0.45rem 0 0; color: var(--muted); font-size: 0.95rem; }
 .ic-scan { width: 7.5rem; height: 7.5rem; }
-.ic-scan .heart { fill: var(--accent); stroke: none; animation: beat 2s ease-in-out infinite; }
-.ic-scan .ring {
+.ic-scan .track {
   fill: none;
   stroke: var(--accent);
-  stroke-width: 3.5;
+  stroke-width: 2;
+  opacity: 0.16;
+}
+.ic-scan .arc {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 4;
   stroke-linecap: round;
   transform-origin: 60px 60px;
-  opacity: 0.55;
 }
-.ic-scan .r1 { stroke-dasharray: 60 229; animation: turn 4.6s linear infinite; }
-.ic-scan .r2 { stroke-dasharray: 44 170; animation: turn 3.2s linear infinite reverse; }
-.ic-scan .r3 { stroke-dasharray: 28 110; animation: turn 2.2s linear infinite; }
-.ic-scan .beads { fill: var(--accent); stroke: none; transform-origin: 60px 60px; animation: turn 3.6s linear infinite; }
+.ic-scan .outer {
+  stroke-dasharray: 72 217;
+  animation: turn 2.4s cubic-bezier(0.5, 0, 0.5, 1) infinite;
+}
+.ic-scan .inner {
+  stroke-dasharray: 49 146;
+  opacity: 0.6;
+  animation: turn 1.7s cubic-bezier(0.5, 0, 0.5, 1) infinite reverse;
+}
+.ic-scan .heart {
+  fill: var(--accent);
+  stroke: none;
+  transform-origin: 60px 60px;
+  animation: beat 1.7s ease-in-out infinite;
+}
 @keyframes beat {
-  0%, 100% { transform: scale(1); opacity: 0.9; }
-  50% { transform: scale(1.22); opacity: 1; }
+  0%, 100% { transform: scale(0.85); opacity: 0.75; }
+  50% { transform: scale(1.15); opacity: 1; }
 }
-.ic-scan .heart { transform-origin: 60px 60px; }
 body.still .ic-scan * { animation: none; }
 
 .shelf {

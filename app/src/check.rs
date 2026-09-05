@@ -187,7 +187,7 @@ pub fn ready() -> Vec<Row> {
         value("DOSSIER_SONGS_DIR").map_or_else(|| home().join(".osu").join("Songs"), PathBuf::from);
     let usable = songs.is_dir() || std::fs::create_dir_all(&songs).is_ok();
     rows.push(Row::new(
-        "Склад карт",
+        "Хранилище",
         Some(usable),
         songs.display().to_string(),
         "Приложение качает карты сюда и не смогло создать эту папку",

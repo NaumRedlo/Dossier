@@ -1317,27 +1317,9 @@ body.still *, body.still *::before, body.still *::after {
   transform-box: fill-box;
   transform-origin: center;
 }
-.ic-scan .outer {
-  stroke-dasharray: 72 217;
-  animation: turn 2.4s cubic-bezier(0.5, 0, 0.5, 1) infinite;
-}
-.ic-scan .inner {
-  stroke-dasharray: 49 146;
-  opacity: 0.6;
-  animation: turn 1.7s cubic-bezier(0.5, 0, 0.5, 1) infinite reverse;
-}
-.ic-scan .heart {
-  fill: var(--accent);
-  stroke: none;
-  transform-box: fill-box;
-  transform-origin: center;
-  animation: beat 1.7s ease-in-out infinite;
-}
-@keyframes beat {
-  0%, 100% { transform: scale(0.85); opacity: 0.75; }
-  50% { transform: scale(1.15); opacity: 1; }
-}
-body.still .ic-scan * { animation: none; }
+.ic-scan .outer { stroke-dasharray: 72 217; }
+.ic-scan .inner { stroke-dasharray: 49 146; opacity: 0.6; }
+.ic-scan .heart { fill: var(--accent); stroke: none; }
 
 .shelf {
   flex: 1;
@@ -1828,32 +1810,9 @@ input, textarea, .log, .where, .path, .mod .said, pre, code {
 
 #r-doneslot:not(:empty), #rp-doneslot:not(:empty) { margin: 0.75rem 0 1.15rem; }
 
-.ic-judge .ring { transform-box: view-box;
-  transform-origin: 12px 12px; }
-.ic-judge .ring { animation: judging 2.4s cubic-bezier(0.2, 0.6, 0.35, 1) infinite; }
-@keyframes judging {
-  0% { transform: scale(2.1); opacity: 0; }
-  18% { opacity: 0.85; }
-  72% { transform: scale(1); opacity: 0.85; }
-  86%, 100% { transform: scale(1); opacity: 0; }
-}
-.mode:hover .ic-judge .ring { animation-duration: 1.5s; }
 
 .ic-cut rect.clip { fill: var(--accent); stroke: none; opacity: 0.45; }
 .ic-judge circle.pip { fill: var(--accent); stroke: none; }
 
-.ic-cut .head { animation: playhead 4.2s linear infinite; }
-@keyframes playhead {
-  0% { transform: translateX(0); opacity: 0; }
-  8% { opacity: 0.9; }
-  88% { opacity: 0.9; }
-  100% { transform: translateX(12.6px); opacity: 0; }
-}
-.ic-cut .clip.b { transform-box: view-box;
-  transform-origin: 12.2px 12px; animation: trim 4.2s ease-in-out infinite; }
-@keyframes trim {
-  0%, 100% { transform: scaleX(1); }
-  46% { transform: scaleX(0.62); }
-}
 .ic-cut .rails { transition: opacity 0.3s var(--ease); }
 .mode:hover .ic-cut .rails { opacity: 1; }

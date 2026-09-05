@@ -286,16 +286,92 @@ function motion(how, save = true) {
   pressed(byId("seg-motion"), byId("seg-motion").querySelector(`[data-motion="${how}"]`));
   if (save) remember("motion", how);
   if (how === "off") relax();
-  if (moving) restartLoops();
+  restartLoops();
   runPreviews();
 }
 
+const looping = new WeakMap();
+
+function loopIcon(one, frames, ms, easing, origin) {
+  if (!one) return;
+  const had = looping.get(one);
+  if (had) had.cancel();
+  looping.delete(one);
+  if (still()) return;
+  one.style.transformBox = "fill-box";
+  one.style.transformOrigin = origin || "center";
+  looping.set(one, one.animate(frames, { duration: ms, iterations: Infinity, easing }));
+}
+
 function restartLoops() {
-  for (const one of document.querySelectorAll(".ic-judge *, .ic-cut *, .ic-scan *")) {
-    one.style.animation = "none";
-    one.getBoundingClientRect();
-    one.style.animation = "";
-  }
+  const at = (what) => document.querySelector(what);
+  loopIcon(
+    at(".ic-scan .outer"),
+    [{ transform: "rotate(0deg)" }, { transform: "rotate(360deg)" }],
+    2400,
+    "cubic-bezier(0.5, 0, 0.5, 1)",
+  );
+  loopIcon(
+    at(".ic-scan .inner"),
+    [{ transform: "rotate(0deg)" }, { transform: "rotate(-360deg)" }],
+    1700,
+    "cubic-bezier(0.5, 0, 0.5, 1)",
+  );
+  loopIcon(
+    at(".ic-scan .heart"),
+    [
+      { transform: "scale(0.85)", opacity: 0.75 },
+      { transform: "scale(1.15)", opacity: 1, offset: 0.5 },
+      { transform: "scale(0.85)", opacity: 0.75 },
+    ],
+    1700,
+    "ease-in-out",
+  );
+  loopIcon(
+    at(".ic-judge .ring"),
+    [
+      { transform: "scale(2.1)", opacity: 0 },
+      { opacity: 0.85, offset: 0.18 },
+      { transform: "scale(1)", opacity: 0.85, offset: 0.72 },
+      { transform: "scale(1)", opacity: 0, offset: 0.86 },
+      { transform: "scale(1)", opacity: 0 },
+    ],
+    2400,
+    "cubic-bezier(0.2, 0.6, 0.35, 1)",
+  );
+  loopIcon(
+    at(".ic-cut .head"),
+    [
+      { transform: "translateX(0)", opacity: 0 },
+      { opacity: 0.9, offset: 0.08 },
+      { opacity: 0.9, offset: 0.88 },
+      { transform: "translateX(12.6px)", opacity: 0 },
+    ],
+    4200,
+    "linear",
+  );
+  loopIcon(
+    at(".ic-cut .clip.b"),
+    [{ transform: "scaleX(1)" }, { transform: "scaleX(0.62)", offset: 0.46 }, { transform: "scaleX(1)" }],
+    4200,
+    "ease-in-out",
+    "left center",
+  );
+}
+
+for (const mode of document.querySelectorAll(".mode")) {
+  mode.addEventListener("pointerenter", () => {
+    for (const one of mode.querySelectorAll("*")) {
+      const had = looping.get(one);
+      if (had) had.updatePlaybackRate(1.6);
+    }
+  });
+  mode.addEventListener("pointerleave", () => {
+    for (const one of mode.querySelectorAll("*")) {
+      const had = looping.get(one);
+      if (had) had.updatePlaybackRate(1);
+    }
+  });
 }
 
 for (const button of byId("seg-sky").querySelectorAll("button")) {
@@ -1518,6 +1594,7 @@ function scanning(on) {
     byId("r-doneslot").replaceChildren();
   }
   document.body.classList.toggle("scanning-now", on);
+  restartLoops();
 }
 
 async function showRender(again = false) {
@@ -3724,6 +3801,7 @@ function show(which) {
   if (which === open_tab) return;
   open_tab = which;
   syncJobMini();
+  restartLoops();
 
   requestAnimationFrame(runPreviews);
   for (const name of Object.keys(views)) {
@@ -3774,6 +3852,7 @@ byId("w-save").addEventListener("click", async () => {
   openSettings(remembered("spage", "link"), false);
   byId("s-loud").value = remembered("loud", "0.35");
   loudness();
+  restartLoops();
 
   let opening = remembered("splash", "both") !== "never";
   if (opening) showBlackCover();

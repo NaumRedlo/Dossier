@@ -1750,7 +1750,7 @@ function pumpPreviews() {
 
 function outcomeOf(said) {
   const out = said.outcome || { kind: "miss", misses: said.counts.miss, share: 100 };
-  if (out.kind === "fail") return { text: `${round(out.share, 1)}%`, tone: "bad" };
+  if (out.kind === "fail") return { text: `Fail · ${round(out.share, 1)}%`, tone: "bad" };
   if (out.kind === "fc") return { text: "FC", tone: "good" };
   if (out.kind === "break") return { text: "SB", tone: "meh" };
   return { text: `×${round(out.misses)}`, tone: "bad" };

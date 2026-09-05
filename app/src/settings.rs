@@ -15,11 +15,31 @@ pub struct Settings {
     pub replays: String,
 
     pub skin: String,
+
+    pub window: String,
+
+    pub on_close: String,
+}
+
+pub const WINDOW_DEFAULT: &str = "980x720";
+
+impl Settings {
+    pub fn window_wanted(&self) -> &str {
+        if self.window.is_empty() {
+            WINDOW_DEFAULT
+        } else {
+            &self.window
+        }
+    }
+
+    pub fn hides_on_close(&self) -> bool {
+        self.on_close == "tray"
+    }
 }
 
 type Reads = fn(&Settings) -> &String;
 
-const KEYS: [(&str, Reads); 7] = [
+const KEYS: [(&str, Reads); 9] = [
     ("RENDER_SERVER", |s| &s.server),
     ("RENDER_WORKER_TOKEN", |s| &s.token),
     ("RENDER_WORKER_NAME", |s| &s.name),
@@ -27,6 +47,8 @@ const KEYS: [(&str, Reads); 7] = [
     ("DOSSIER_SKINS_DIR", |s| &s.skins),
     ("DOSSIER_REPLAYS_DIR", |s| &s.replays),
     ("DOSSIER_SKIN", |s| &s.skin),
+    ("DOSSIER_WINDOW", |s| &s.window),
+    ("DOSSIER_ON_CLOSE", |s| &s.on_close),
 ];
 
 pub fn path() -> PathBuf {
@@ -90,6 +112,8 @@ impl Settings {
             skins: value("DOSSIER_SKINS_DIR"),
             replays: value("DOSSIER_REPLAYS_DIR"),
             skin: value("DOSSIER_SKIN"),
+            window: value("DOSSIER_WINDOW"),
+            on_close: value("DOSSIER_ON_CLOSE"),
         };
         if said.name.is_empty() {
             said.name = host_name();

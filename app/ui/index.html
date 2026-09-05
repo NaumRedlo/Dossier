@@ -516,6 +516,42 @@
       <div class="card">
         <div class="pref">
           <div>
+            <b>Как открывать</b>
+            <p>Во весь экран или окном заданного размера. Применяется при следующем запуске.</p>
+          </div>
+          <label class="pick tiny"><select id="s-window">
+            <option value="980x720" selected>980 × 720</option>
+            <option value="1280x800">1280 × 800</option>
+            <option value="1600x900">1600 × 900</option>
+            <option value="1920x1080">1920 × 1080</option>
+            <option value="full">Во весь экран</option>
+          </select></label>
+        </div>
+        <div class="pref">
+          <div>
+            <b>Крестик</b>
+            <p>Закрыть приложение совсем или спрятать его в трей — оттуда оно открывается по значку.</p>
+          </div>
+          <div class="seg" id="seg-close" role="group" aria-label="Что делает крестик">
+            <button data-close="quit" aria-pressed="true">Закрывать</button>
+            <button data-close="tray" aria-pressed="false">В трей</button>
+          </div>
+        </div>
+        <div class="pref">
+          <div>
+            <b>Громкость</b>
+            <p>Звук заставки и всего, что приложение подаёт голосом.</p>
+          </div>
+          <label class="pick tiny"><select id="s-loud">
+            <option value="0">Без звука</option>
+            <option value="0.15">Тихо</option>
+            <option value="0.35" selected>Вполголоса</option>
+            <option value="0.7">Громко</option>
+            <option value="1">Во весь голос</option>
+          </select></label>
+        </div>
+        <div class="pref">
+          <div>
             <b>Панель</b>
             <p>Сверху над содержимым или колонкой слева.</p>
           </div>

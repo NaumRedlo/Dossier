@@ -356,8 +356,71 @@ struct About {
     cores: u32,
 }
 
+fn open_window(app: &tauri::AppHandle) {
+    use tauri::Manager;
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+    }
+}
+
+fn build_tray(app: &tauri::App) -> tauri::Result<()> {
+    use tauri::menu::{Menu, MenuItem};
+    use tauri::tray::TrayIconBuilder;
+
+    let open = MenuItem::with_id(app, "open", "Открыть Dossier", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", "Выйти", true, None::<&str>)?;
+    let menu = Menu::with_items(app, &[&open, &quit])?;
+    let mut tray = TrayIconBuilder::new()
+        .menu(&menu)
+        .show_menu_on_left_click(true)
+        .on_menu_event(|app, event| match event.id().as_ref() {
+            "open" => open_window(app),
+            "quit" => app.exit(0),
+            _ => {}
+        });
+    if let Some(icon) = app.default_window_icon() {
+        tray = tray.icon(icon.clone());
+    }
+    tray.build(app)?;
+    Ok(())
+}
+
+fn shape_window(app: &tauri::App) {
+    use tauri::Manager;
+    let said = settings::Settings::load();
+    let Some(window) = app.get_webview_window("main") else {
+        return;
+    };
+    let wanted = said.window_wanted();
+    if wanted == "full" {
+        let _ = window.set_fullscreen(true);
+        return;
+    }
+    if let Some((wide, high)) = wanted.split_once('x') {
+        if let (Ok(wide), Ok(high)) = (wide.trim().parse::<f64>(), high.trim().parse::<f64>()) {
+            let _ = window.set_size(tauri::LogicalSize::new(wide, high));
+            let _ = window.center();
+        }
+    }
+}
+
 fn main() {
     tauri::Builder::default()
+        .setup(|app| {
+            shape_window(app);
+            build_tray(app)?;
+            Ok(())
+        })
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                if settings::Settings::load().hides_on_close() {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             ready,
             draw,

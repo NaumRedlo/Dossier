@@ -36,6 +36,8 @@ function line({ mark, name, said, fix }) {
 
 const sign = (ok) => (ok === null || ok === undefined ? ["huh", "?"] : ok ? ["ok", "+"] : ["no", "!"]);
 
+const OPTIONS_WIDEST = 560;
+
 function dressSelect(select) {
   if (select.dataset.dressed) {
     select.repaint();
@@ -62,7 +64,7 @@ function dressSelect(select) {
     const flip = below < 120 && above > below;
     list.style.width = "auto";
     list.style.minWidth = `${rect.width}px`;
-    list.style.maxWidth = `${window.innerWidth - 16}px`;
+    list.style.maxWidth = `${Math.min(window.innerWidth - 16, OPTIONS_WIDEST)}px`;
     list.style.left = "0px";
     const wide = list.getBoundingClientRect().width;
     list.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - wide - 8))}px`;
@@ -978,7 +980,7 @@ async function showFarm() {
   );
 }
 
-const FIELDS = ["server", "token", "name", "songs", "skins", "replays", "skin"];
+const FIELDS = ["server", "token", "name", "songs", "skins", "replays", "skin", "window", "on_close"];
 
 let known = {};
 
@@ -1122,6 +1124,10 @@ async function showSettings() {
   await loadSettings();
   const skins = await invoke("skins").catch(() => []);
   fillSkins(byId("s-skin"), skins, known.skin);
+  const shape = byId("s-window");
+  shape.value = known.window || "980x720";
+  dressSelect(shape);
+  closesInto(known.on_close || "quit", false);
   loadRenderSettings();
   byId("s-found").textContent = await readShelves();
   showReady();
@@ -1147,6 +1153,33 @@ byId("s-rescan").addEventListener("click", async () => {
     button.disabled = false;
   }
 });
+
+function closesInto(how, save = true) {
+  const box = byId("seg-close");
+  pressed(box, box.querySelector(`[data-close="${how}"]`));
+  known.on_close = how;
+  if (save) saveSettings("s", "s-said");
+}
+
+for (const button of byId("seg-close").querySelectorAll("button")) {
+  button.addEventListener("click", () => closesInto(button.dataset.close));
+}
+
+byId("s-window").addEventListener("change", () => {
+  known.window = byId("s-window").value;
+  saveSettings("s", "s-said");
+});
+
+byId("s-loud").addEventListener("change", () => {
+  remember("loud", byId("s-loud").value);
+  loudness();
+});
+
+function loudness() {
+  const level = Number(remembered("loud", "0.35"));
+  hitSound.volume = Math.min(1, Math.max(0, level));
+  return hitSound.volume;
+}
 
 byId("s-save").addEventListener("click", () => saveSettings("s", "s-said"));
 byId("s-skin").addEventListener("change", () => saveSettings("s", "s-said"));
@@ -1550,6 +1583,7 @@ function fillPlays({ shelves, skins, plays, rows }) {
   }
   list.classList.remove("waiting");
   forgetCards();
+  requestAnimationFrame(shelfEdges);
   list.replaceChildren(...plays.map((play) => playCard(play)));
 
   function playCard(play) {
@@ -2221,6 +2255,29 @@ document.addEventListener("keydown", (event) => {
 });
 
 byId("r-refresh").addEventListener("click", () => showRender(true));
+
+function shelfEdges() {
+  const list = byId("r-list");
+  const top = list.scrollTop > 4;
+  const bottom = list.scrollTop + list.clientHeight < list.scrollHeight - 4;
+  list.classList.toggle("over-top", top);
+  list.classList.toggle("over-bottom", bottom);
+}
+
+byId("r-list").addEventListener("scroll", shelfEdges, { passive: true });
+window.addEventListener("resize", shelfEdges);
+
+byId("view-render").addEventListener(
+  "wheel",
+  (event) => {
+    const list = byId("r-list");
+    if (list.hidden || list.scrollHeight <= list.clientHeight) return;
+    if (event.target.closest && event.target.closest("#r-list, .options, .sheetbox")) return;
+    list.scrollTop += event.deltaY;
+    event.preventDefault();
+  },
+  { passive: false },
+);
 
 function subscribe(name, take) {
   window.__TAURI__.event.listen(name, take).catch((why) => {
@@ -3700,6 +3757,8 @@ byId("w-save").addEventListener("click", async () => {
   idleAfter(remembered("idle", "5"), false);
   reportWhen(remembered("report", "ask"), false);
   openSettings(remembered("spage", "link"), false);
+  byId("s-loud").value = remembered("loud", "0.35");
+  loudness();
 
   let opening = remembered("splash", "both") !== "never";
   if (opening) showBlackCover();

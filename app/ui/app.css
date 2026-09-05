@@ -1252,6 +1252,18 @@ body.dock-left main { margin: 4.6rem auto 0; padding-top: 1.5rem; }
   padding: 0.15rem;
 }
 .shelf.dimmed { opacity: 0.45; }
+.shelf.over-top {
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 2rem);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 2rem);
+}
+.shelf.over-bottom {
+  -webkit-mask-image: linear-gradient(to top, transparent 0, #000 2rem);
+  mask-image: linear-gradient(to top, transparent 0, #000 2rem);
+}
+.shelf.over-top.over-bottom {
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 2rem, #000 calc(100% - 2rem), transparent 100%);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 2rem, #000 calc(100% - 2rem), transparent 100%);
+}
 
 .rep {
   display: flex;

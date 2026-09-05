@@ -5,12 +5,13 @@
 <title>Dossier</title>
 <link rel="stylesheet" href="app.css">
 </head>
-<body class="dock-top">
+<body>
 
   <div class="sky" aria-hidden="true">
     <span class="aurora"></span>
+    <span class="veil"></span>
     <span class="blob b1"></span><span class="blob b2"></span><span class="blob b3"></span>
-    <span class="blob b4"></span><span class="blob b5"></span>
+    <span class="blob b4"></span><span class="blob b5"></span><span class="blob b6"></span>
     <span class="grain"></span>
   </div>
 
@@ -158,14 +159,20 @@
       <ol class="steps" id="r-steps"></ol>
 
       <div class="scanning" id="r-scan">
-        <svg class="ic-scan" viewBox="0 0 64 64" fill="none" aria-hidden="true">
-          <circle class="pulse p1" cx="32" cy="32" r="22"/>
-          <circle class="pulse p2" cx="32" cy="32" r="22"/>
-          <circle class="pulse p3" cx="32" cy="32" r="22"/>
-          <circle class="core" cx="32" cy="32" r="7"/>
-        </svg>
-        <h2>Сканирую каталог реплеев…</h2>
-        <p>Это займёт какое-то время</p>
+        <div class="middle">
+          <svg class="ic-scan" viewBox="0 0 120 120" fill="none" aria-hidden="true">
+            <circle class="ring r1" cx="60" cy="60" r="46"/>
+            <circle class="ring r2" cx="60" cy="60" r="34"/>
+            <circle class="ring r3" cx="60" cy="60" r="22"/>
+            <circle class="heart" cx="60" cy="60" r="9"/>
+            <g class="beads">
+              <circle cx="60" cy="14" r="4"/>
+              <circle cx="60" cy="26" r="3"/>
+            </g>
+          </svg>
+          <h2>Сканирую каталог реплеев…</h2>
+          <p>Это займёт какое-то время</p>
+        </div>
       </div>
 
       <div class="bar" id="r-bar-line">
@@ -371,12 +378,12 @@
         <div class="pref">
           <div><b>Качество видео</b><p>Во что рисуется видео.</p></div>
           <div class="pair">
-            <label class="pick tiny"><select id="s-size">
+            <label class="pick tiny"><span class="cap">Разрешение</span><select id="s-size">
               <option value="1280x720">1280 × 720</option>
               <option value="1920x1080" selected>1920 × 1080</option>
               <option value="2560x1440">2560 × 1440</option>
             </select></label>
-            <label class="pick tiny"><select id="s-fps">
+            <label class="pick tiny"><span class="cap">Частота кадров</span><select id="s-fps">
               <option value="30">30 кадров</option>
               <option value="60" selected>60 кадров</option>
             </select></label>
@@ -394,27 +401,27 @@
         <div class="pref">
           <div><b>Настройка фона</b><p>Затемнение и размытие. Так же, как это делает сама игра.</p></div>
           <div class="pair">
-            <label class="pick tiny"><select id="s-dim">
-              <option value="0" selected>Без затемнения</option>
-              <option value="20">Затемнение 20%</option><option value="40">Затемнение 40%</option>
-              <option value="60">Затемнение 60%</option><option value="80">Затемнение 80%</option>
+            <label class="pick tiny"><span class="cap">Затемнение</span><select id="s-dim">
+              <option value="0" selected>Нет</option>
+              <option value="20">20%</option><option value="40">40%</option>
+              <option value="60">60%</option><option value="80">80%</option>
             </select></label>
-            <label class="pick tiny"><select id="s-blur">
-              <option value="0" selected>Без размытия</option>
-              <option value="20">Размытие 20%</option><option value="40">Размытие 40%</option>
-              <option value="60">Размытие 60%</option>
+            <label class="pick tiny"><span class="cap">Размытие</span><select id="s-blur">
+              <option value="0" selected>Нет</option>
+              <option value="20">20%</option><option value="40">40%</option>
+              <option value="60">60%</option>
             </select></label>
           </div>
         </div>
         <div class="pref">
           <div><b>Качество кодирования</b><p>CRF: чем меньше, тем лучше и тяжелее. Качество пресета обусловливает время кодировщика.</p></div>
           <div class="pair">
-            <label class="pick tiny"><select id="s-crf">
+            <label class="pick tiny"><span class="cap">Качество</span><select id="s-crf">
               <option value="16">CRF 16</option><option value="18">CRF 18</option>
               <option value="20" selected>CRF 20</option><option value="23">CRF 23</option>
               <option value="26">CRF 26</option>
             </select></label>
-            <label class="pick tiny"><select id="s-preset">
+            <label class="pick tiny"><span class="cap">Пресет</span><select id="s-preset">
               <option value="ultrafast">ultrafast</option><option value="veryfast">veryfast</option>
               <option value="fast">fast</option><option value="medium" selected>medium</option>
               <option value="slow">slow</option><option value="veryslow">veryslow</option>
@@ -427,13 +434,13 @@
         <div class="pref">
           <div><b>Потоки</b><p>Сколько ядер отдавать рендеру и кодированию.</p></div>
           <div class="pair">
-            <label class="pick tiny"><select id="s-threads">
-              <option value="0" selected>по требованию рендера</option>
+            <label class="pick tiny"><span class="cap">Рисование</span><select id="s-threads">
+              <option value="0" selected>сколько нужно</option>
               <option value="2">2</option><option value="4">4</option>
               <option value="6">6</option><option value="8">8</option><option value="12">12</option>
             </select></label>
-            <label class="pick tiny"><select id="s-enc">
-              <option value="0" selected>по требованию кодировщика</option>
+            <label class="pick tiny"><span class="cap">Кодирование</span><select id="s-enc">
+              <option value="0" selected>сколько нужно</option>
               <option value="2">2</option><option value="4">4</option>
               <option value="8">8</option>
             </select></label>
@@ -446,13 +453,13 @@
         <div class="pref">
           <div><b>Громкость</b><p>Песня и хитсаунды в работе.</p></div>
           <div class="pair">
-            <label class="pick tiny"><select id="s-music">
-              <option value="0">Без песни</option><option value="0.5">Песня 50%</option>
-              <option value="0.8">Песня 80%</option><option value="1" selected>Песня 100%</option>
+            <label class="pick tiny"><span class="cap">Песня</span><select id="s-music">
+              <option value="0">Нет</option><option value="0.5">50%</option>
+              <option value="0.8">80%</option><option value="1" selected>100%</option>
             </select></label>
-            <label class="pick tiny"><select id="s-hits">
-              <option value="0">Без хитсаундов</option><option value="0.5">Хитсаунды 50%</option>
-              <option value="0.8">Хитсаунды 80%</option><option value="1" selected>Хитсаунды 100%</option>
+            <label class="pick tiny"><span class="cap">Хитсаунды</span><select id="s-hits">
+              <option value="0">Нет</option><option value="0.5">50%</option>
+              <option value="0.8">80%</option><option value="1" selected>100%</option>
             </select></label>
           </div>
         </div>
@@ -471,7 +478,7 @@
             <b>Синтезация</b>
             <p>Звук, которым звучит то, чего не нашлось ни у карты, ни у скина.</p>
           </div>
-          <label class="pick tiny"><select id="s-kit">
+          <label class="pick tiny"><span class="cap">Набор</span><select id="s-kit">
             <option value="click" selected>щелчок</option>
             <option value="soft">мягкий</option>
             <option value="drum">барабан</option>
@@ -485,20 +492,20 @@
             <p>Высота, длительность и громкость синтеза.</p>
           </div>
           <div class="pair">
-            <label class="pick tiny"><select id="s-pitch">
-              <option value="0.7">Высота: ниже</option><option value="0.85">Высота: чуть ниже</option>
-              <option value="1" selected>Высота: как есть</option>
-              <option value="1.2">Высота: чуть выше</option><option value="1.5">Высота: выше</option>
+            <label class="pick tiny"><span class="cap">Высота</span><select id="s-pitch">
+              <option value="0.7">ниже</option><option value="0.85">чуть ниже</option>
+              <option value="1" selected>как есть</option>
+              <option value="1.2">чуть выше</option><option value="1.5">выше</option>
             </select></label>
-            <label class="pick tiny"><select id="s-decay">
-              <option value="0.6">Длительность: короче</option><option value="0.8">Длительность: чуть короче</option>
-              <option value="1" selected>Длительность: как есть</option>
-              <option value="1.3">Длительность: чуть длиннее</option><option value="1.7">Длительность: длиннее</option>
+            <label class="pick tiny"><span class="cap">Длительность</span><select id="s-decay">
+              <option value="0.6">короче</option><option value="0.8">чуть короче</option>
+              <option value="1" selected>как есть</option>
+              <option value="1.3">чуть длиннее</option><option value="1.7">длиннее</option>
             </select></label>
-            <label class="pick tiny"><select id="s-kitlevel">
-              <option value="0.6">Громкость: тише</option><option value="0.8">Громкость: чуть тише</option>
-              <option value="1" selected>Громкость: как есть</option>
-              <option value="1.3">Громкость: громче</option>
+            <label class="pick tiny"><span class="cap">Громкость</span><select id="s-kitlevel">
+              <option value="0.6">тише</option><option value="0.8">чуть тише</option>
+              <option value="1" selected>как есть</option>
+              <option value="1.3">громче</option>
             </select></label>
           </div>
         </div>
@@ -515,9 +522,10 @@
           </span>
         </div>
         <div class="pref">
-          <div><b>Эффекты поля</b><p>Вспышка от удара берётся из скина и складывается со сценой. Выползание — это вырастание тела слайдера за шаром.</p></div>
+          <div><b>Эффекты поля</b><p>Вспышка от удара берётся из скина и складывается со сценой. Заползание — тело слайдера вырастает в поле перед нотой, выползание — убирается за шаром.</p></div>
           <span class="ticks">
             <label class="tick"><input type="checkbox" id="s-lighting">Вспышка от удара</label>
+            <label class="tick"><input type="checkbox" id="s-snakein">Заползание слайдеров</label>
             <label class="tick"><input type="checkbox" id="s-snake">Выползание слайдеров</label>
           </span>
         </div>
@@ -530,7 +538,7 @@
             <b>Как открывать</b>
             <p>Во весь экран или окном заданного размера. Применяется при следующем запуске.</p>
           </div>
-          <label class="pick tiny"><select id="s-window">
+          <label class="pick tiny"><span class="cap">Размер окна</span><select id="s-window">
             <option value="980x720" selected>980 × 720</option>
             <option value="1280x800">1280 × 800</option>
             <option value="1600x900">1600 × 900</option>
@@ -540,7 +548,7 @@
         </div>
         <div class="pref">
           <div>
-            <b>Крестик</b>
+            <b>Закрытие приложения</b>
             <p>Закрыть приложение совсем или спрятать его в трей — оттуда оно открывается по значку.</p>
           </div>
           <div class="seg" id="seg-close" role="group" aria-label="Что делает крестик">
@@ -553,31 +561,24 @@
             <b>Громкость</b>
             <p>Звук заставки и всего, что приложение подаёт голосом.</p>
           </div>
-          <label class="pick tiny"><select id="s-loud">
-            <option value="0">Без звука</option>
-            <option value="0.15">Тихо</option>
-            <option value="0.35" selected>Вполголоса</option>
-            <option value="0.7">Громко</option>
-            <option value="1">Во весь голос</option>
+          <label class="pick tiny"><span class="cap">Громкость</span><select id="s-loud">
+            <option value="0">0%</option>
+            <option value="0.15">15%</option>
+            <option value="0.35" selected>35%</option>
+            <option value="0.6">60%</option>
+            <option value="0.8">80%</option>
+            <option value="1">100%</option>
           </select></label>
         </div>
         <div class="pref">
           <div>
-            <b>Панель</b>
-            <p>Сверху над содержимым или колонкой слева.</p>
-          </div>
-          <div class="seg" id="seg-dock" role="group" aria-label="Где панель">
-            <button data-side="top" aria-pressed="true">Сверху</button>
-            <button data-side="left" aria-pressed="false">Слева</button>
-          </div>
-        </div>
-        <div class="pref">
-          <div>
             <b>Фон приложения</b>
-            <p>Пятна акцентного цвета медленно расходятся. Остановленный ничего не считает.</p>
+            <p>Насколько живо дышит подсветка за содержимым. Статичный не считает ничего.</p>
           </div>
           <div class="seg" id="seg-sky" role="group" aria-label="Фон">
+            <button data-sky="rich" aria-pressed="false">Насыщенный</button>
             <button data-sky="live" aria-pressed="true">Живой</button>
+            <button data-sky="calm" aria-pressed="false">Тихий</button>
             <button data-sky="still" aria-pressed="false">Статичный</button>
           </div>
         </div>
@@ -597,7 +598,7 @@
             <b>Таймер заставки</b>
             <p>Сколько молчания считать простоем. Любое движение будит.</p>
           </div>
-          <label class="pick tiny">
+          <label class="pick tiny"><span class="cap">Простой</span>
             <select id="s-idle">
               <option value="1">1 минута</option>
               <option value="3">3 минуты</option>
@@ -615,7 +616,7 @@
           </div>
           <div class="seg" id="seg-motion" role="group" aria-label="Движение">
             <button data-motion="on" aria-pressed="true">Живое</button>
-            <button data-motion="off" aria-pressed="false">Спокойное</button>
+            <button data-motion="off" aria-pressed="false">Статичное</button>
           </div>
         </div>
       </div>

@@ -69,6 +69,7 @@ pub struct Fine {
     pub hit_lighting: bool,
 
     pub snake: bool,
+    pub snake_in: bool,
 
     pub cursor_expand: bool,
 
@@ -99,6 +100,7 @@ impl Default for Fine {
             cursor_rotate: None,
             hit_lighting: true,
             snake: false,
+            snake_in: false,
             cursor_expand: true,
             map_hitsounds: true,
             skin_hitsounds: true,
@@ -121,7 +123,7 @@ pub fn draw(asked: &Asked<'_>, told: &Told) -> Result<PathBuf, String> {
     }
     skin.cursor_rotate = asked.fine.cursor_rotate;
     skin.hit_lighting = asked.fine.hit_lighting;
-    skin.snake_in = asked.fine.snake;
+    skin.snake_in = asked.fine.snake_in;
     skin.snake_out = asked.fine.snake;
     skin.cursor_expand = asked.fine.cursor_expand;
     match dossier_produce::font::find(None)? {

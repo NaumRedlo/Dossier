@@ -149,7 +149,6 @@ function remember(key, value) {
 }
 
 const still = () => document.body.classList.contains("still");
-const vertical = () => document.body.classList.contains("dock-left");
 
 const dock = byId("dock");
 const items = [...document.querySelectorAll(".item")];
@@ -175,15 +174,14 @@ function relax() {
 
 function measure() {
   relax();
-  const down = vertical();
   base = items.map((item) => {
     const box = item.getBoundingClientRect();
     const glyph = item.querySelector(".glyph").getBoundingClientRect();
     return {
-      start: down ? box.top : box.left,
-      size: down ? box.height : box.width,
-      centre: down ? box.top + box.height / 2 : box.left + box.width / 2,
-      glyph: down ? glyph.height : glyph.width,
+      start: box.left,
+      size: box.width,
+      centre: box.left + box.width / 2,
+      glyph: glyph.width,
     };
   });
   placeGlider();
@@ -209,31 +207,26 @@ function magnify(pos) {
 }
 
 function place(item, shift, scale) {
-  const down = vertical();
-  item.style.setProperty(down ? "--ty" : "--tx", `${shift.toFixed(2)}px`);
-  item.style.setProperty(down ? "--tx" : "--ty", "0px");
+  item.style.setProperty("--tx", `${shift.toFixed(2)}px`);
+  item.style.setProperty("--ty", "0px");
   const glyph = item.querySelector(".glyph");
   glyph.style.setProperty("--s", scale.toFixed(3));
-
-  const lean = (((scale - 1) / GROW) * 1.6).toFixed(2);
-  glyph.style.setProperty(down ? "--lx" : "--ly", `${lean}px`);
-  glyph.style.setProperty(down ? "--ly" : "--lx", "0px");
+  glyph.style.setProperty("--ly", `${(((scale - 1) / GROW) * 1.6).toFixed(2)}px`);
+  glyph.style.setProperty("--lx", "0px");
 }
 
 function placeGlider(shift = 0) {
   const open = items.find((item) => item.getAttribute("aria-selected") === "true");
   if (!open) return;
-  const down = vertical();
-  const x = open.offsetLeft + (down ? 0 : shift);
-  const y = open.offsetTop + (down ? shift : 0);
-  glider.style.transform = `translate(${x.toFixed(2)}px, ${y.toFixed(2)}px)`;
+  const x = open.offsetLeft + shift;
+  glider.style.transform = `translate(${x.toFixed(2)}px, ${open.offsetTop.toFixed(2)}px)`;
   glider.style.width = `${open.offsetWidth}px`;
   glider.style.height = `${open.offsetHeight}px`;
 }
 
 let waiting = null;
 dock.addEventListener("pointermove", (event) => {
-  const pos = vertical() ? event.clientY : event.clientX;
+  const pos = event.clientX;
   if (waiting !== null) {
     waiting = pos;
     return;
@@ -264,32 +257,13 @@ function pressed(group, chosen) {
   }
 }
 
-function dockSide(side, save = true, slide = true) {
-  const was = dock.getBoundingClientRect();
-  document.body.classList.toggle("dock-left", side === "left");
-  document.body.classList.toggle("dock-top", side !== "left");
-  pressed(byId("seg-dock"), byId("seg-dock").querySelector(`[data-side="${side}"]`));
-  if (save) remember("dock", side);
-
-  if (slide && !still()) {
-    const now = dock.getBoundingClientRect();
-    dock.classList.add("jumping");
-    dock.style.setProperty("--sx", `${(was.left - now.left).toFixed(1)}px`);
-    dock.style.setProperty("--sy", `${(was.top - now.top).toFixed(1)}px`);
-    void dock.offsetWidth;
-    dock.classList.remove("jumping");
-    dock.style.setProperty("--sx", "0px");
-    dock.style.setProperty("--sy", "0px");
-  }
-
-  relax();
-  setTimeout(measure, slide ? 540 : 0);
-}
+const SKIES = ["rich", "live", "calm", "still"];
 
 function sky(how, save = true) {
-  document.body.classList.toggle("sky-still", how === "still");
-  pressed(byId("seg-sky"), byId("seg-sky").querySelector(`[data-sky="${how}"]`));
-  if (save) remember("sky", how);
+  const wanted = SKIES.includes(how) ? how : "live";
+  for (const one of SKIES) document.body.classList.toggle(`sky-${one}`, one === wanted);
+  pressed(byId("seg-sky"), byId("seg-sky").querySelector(`[data-sky="${wanted}"]`));
+  if (save) remember("sky", wanted);
 }
 
 function splashWhen(how, save = true) {
@@ -315,9 +289,6 @@ function motion(how, save = true) {
   runPreviews();
 }
 
-for (const button of byId("seg-dock").querySelectorAll("button")) {
-  button.addEventListener("click", () => dockSide(button.dataset.side));
-}
 for (const button of byId("seg-sky").querySelectorAll("button")) {
   button.addEventListener("click", () => sky(button.dataset.sky));
 }
@@ -1182,7 +1153,23 @@ function loudness() {
 }
 
 byId("s-save").addEventListener("click", () => saveSettings("s", "s-said"));
-byId("s-skin").addEventListener("change", () => saveSettings("s", "s-said"));
+byId("s-skin").addEventListener("change", async () => {
+  await saveSettings("s", "s-said");
+  await freshSkin();
+});
+
+async function freshSkin() {
+  pics = null;
+  await loadPics();
+  previews.clear();
+  for (const card of document.querySelectorAll("#r-list .rep")) {
+    card.classList.remove("read", "plain");
+    const where = card.querySelector(".map");
+    if (where) where.textContent = "…";
+    askPreview(card);
+  }
+  if (scene) drawView();
+}
 byId("again").addEventListener("click", showReady);
 byId("measure").addEventListener("click", () => {
   measured = true;
@@ -1421,6 +1408,7 @@ function options() {
       bare: remembered("bare", "0") === "1",
       cursor_rotate: remembered("rotate", "0") === "1" ? true : null,
       hit_lighting: remembered("lighting", "1") === "1",
+      snake_in: remembered("snakein", "0") === "1",
       snake: remembered("snake", "0") === "1",
       cursor_expand: remembered("expand", "1") === "1",
       map_hitsounds: remembered("mapsounds", "1") === "1",
@@ -1464,6 +1452,7 @@ const RENDER_FIELDS = [
   ["s-rotate", "rotate", "0"],
   ["s-expand", "expand", "1"],
   ["s-lighting", "lighting", "1"],
+  ["s-snakein", "snakein", "0"],
   ["s-snake", "snake", "0"],
   ["s-bare", "bare", "0"],
   ["s-threads", "threads", "0"],
@@ -1514,6 +1503,7 @@ function scanning(on) {
   byId("r-bar-line").hidden = on;
   byId("r-steps").hidden = on;
   byId("r-list").hidden = on;
+  document.body.classList.toggle("scanning-now", on);
 }
 
 async function showRender(again = false) {
@@ -2277,12 +2267,14 @@ function shelfEdges() {
 byId("r-list").addEventListener("scroll", shelfEdges, { passive: true });
 window.addEventListener("resize", shelfEdges);
 
-byId("view-render").addEventListener(
+window.addEventListener(
   "wheel",
   (event) => {
+    if (open_tab !== "render" || asleep) return;
     const list = byId("r-list");
     if (list.hidden || list.scrollHeight <= list.clientHeight) return;
-    if (event.target.closest && event.target.closest("#r-list, .options, .sheetbox")) return;
+    const over = event.target.closest && event.target.closest("#r-list, .options, .sheetbox, .menu, .popover");
+    if (over) return;
     list.scrollTop += event.deltaY;
     event.preventDefault();
   },
@@ -3759,7 +3751,6 @@ byId("w-save").addEventListener("click", async () => {
 });
 
 (async function open() {
-  dockSide(remembered("dock", "top"), false, false);
   motion(remembered("motion", "on"), false);
   sky(remembered("sky", "live"), false);
   splashWhen(remembered("splash", "both"), false);

@@ -263,6 +263,7 @@ body.still .aurora, body.still .veil, body.still .grain { animation: none; }
   width: 1.35rem;
   height: 1.35rem;
   transform: translate3d(var(--lx, 0px), var(--ly, 0px), 0) scale(var(--s, 1));
+  transform-box: view-box;
   transform-origin: center;
   will-change: transform;
 }
@@ -297,7 +298,8 @@ body.still .aurora, body.still .veil, body.still .grain { animation: none; }
 .item:hover .ic-machine .core, .item[aria-selected="true"] .ic-machine .core { fill: currentColor; }
 .item:hover .ic-machine .pins, .item[aria-selected="true"] .ic-machine .pins { opacity: 1; }
 
-.ic-render .play { fill: currentColor; transform-origin: 12px 12px; }
+.ic-render .play { fill: currentColor; transform-box: view-box;
+  transform-origin: 12px 12px; }
 .ic-render .perf rect { fill: currentColor; stroke: none; opacity: 0.55; }
 
 .ic-render .perf { transform: translateY(0); }
@@ -323,7 +325,8 @@ body.still .aurora, body.still .veil, body.still .grain { animation: none; }
 
 .ic-replay .dot { fill: currentColor; stroke: none; }
 
-.ic-replay .approach { opacity: 0.45; transform-origin: 12px 12px; transform: scale(1.5); }
+.ic-replay .approach { opacity: 0.45; transform-box: view-box;
+  transform-origin: 12px 12px; transform: scale(1.5); }
 .item:hover .ic-replay .approach, .item[aria-selected="true"] .ic-replay .approach {
   transform: scale(1.02);
   opacity: 0.9;
@@ -382,7 +385,8 @@ body.still .aurora, body.still .veil, body.still .grain { animation: none; }
 }
 
 .ic-bug { width: 1.2rem; height: 1.2rem; }
-.ic-bug .legs, .ic-bug .feelers { transform-origin: 12px 12px; }
+.ic-bug .legs, .ic-bug .feelers { transform-box: view-box;
+  transform-origin: 12px 12px; }
 
 .iconbtn:hover .ic-bug .legs { animation: scuttle 0.5s ease-in-out infinite alternate; }
 .iconbtn:hover .ic-bug .feelers { animation: twitch 0.9s ease-in-out infinite; }
@@ -590,8 +594,9 @@ label input[type="text"]:focus, label input[type="password"]:focus, label select
   padding: 0.85rem 1.05rem;
   border-top: 1px solid var(--line);
 }
-.pref > :first-child { flex: 1 1 11rem; min-width: 0; }
-.pref > .pick, .pref > .pair, .pref > .seg, .pref > .ticks, .pref > button { flex: 0 0 auto; }
+.pref > :first-child { flex: 1 0 14rem; min-width: 0; }
+.pref > .pick, .pref > button, .pref > .seg { flex: 0 0 auto; }
+.pref > .pair, .pref > .ticks { flex: 0 1 auto; min-width: 0; }
 .pref:first-child { border-top: 0; }
 .pref b { font-weight: 600; }
 .pref p { margin: 0.15rem 0 0; color: var(--faint); font-size: 0.8rem; max-width: 26rem; }
@@ -772,7 +777,7 @@ body.still *, body.still *::before, body.still *::after {
 .bar .grow { flex: 1; }
 .bar .verdict { margin: 0; font-weight: 500; }
 .pick.short { min-width: 8rem; }
-.ticks { display: flex; gap: 0.75rem; align-items: center; padding-bottom: 0.35rem; }
+.ticks { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0.4rem 0.75rem; align-items: center; padding-bottom: 0.35rem; }
 .tick {
   display: flex;
   align-items: center;
@@ -1271,6 +1276,7 @@ body.still *, body.still *::before, body.still *::after {
   stroke-dasharray: 24;
   stroke-dashoffset: 24;
   transform: rotate(90deg);
+  transform-box: view-box;
   transform-origin: 12px 12px;
 }
 .minijob .dial .tick { stroke: var(--good); }
@@ -1308,7 +1314,8 @@ body.still *, body.still *::before, body.still *::after {
   stroke: var(--accent);
   stroke-width: 4;
   stroke-linecap: round;
-  transform-origin: 60px 60px;
+  transform-box: fill-box;
+  transform-origin: center;
 }
 .ic-scan .outer {
   stroke-dasharray: 72 217;
@@ -1322,7 +1329,8 @@ body.still *, body.still *::before, body.still *::after {
 .ic-scan .heart {
   fill: var(--accent);
   stroke: none;
-  transform-origin: 60px 60px;
+  transform-box: fill-box;
+  transform-origin: center;
   animation: beat 1.7s ease-in-out infinite;
 }
 @keyframes beat {
@@ -1411,6 +1419,7 @@ body.still .ic-scan * { animation: none; }
   stroke-dasharray: 24;
   stroke-dashoffset: 24;
   transform: rotate(90deg);
+  transform-box: view-box;
   transform-origin: 12px 12px;
 }
 .minijob .dial .tick { stroke: var(--good); }
@@ -1421,33 +1430,6 @@ body.still .ic-scan * { animation: none; }
 .minijob.failed .dial .cross { stroke-dashoffset: 0; transition: stroke-dashoffset 0.3s var(--ease) 0.1s; }
 .minijob.done .pct, .minijob.failed .pct { display: none; }
 .minijob.done { border-color: var(--good); }
-
-.scanning {
-  display: grid;
-  place-items: center;
-  gap: 0.15rem;
-  padding: 5rem 1rem;
-  text-align: center;
-}
-.scanning h2 { margin: 1.2rem 0 0; font-size: 1.15rem; font-weight: 600; }
-.scanning p { margin: 0.3rem 0 0; color: var(--faint); font-size: 0.85rem; }
-.ic-scan { width: 4rem; height: 4rem; }
-.ic-scan .core { fill: var(--accent); stroke: none; }
-.ic-scan .pulse {
-  fill: none;
-  stroke: var(--accent);
-  stroke-width: 2.5;
-  transform-origin: 32px 32px;
-  animation: sweep-in 2.4s cubic-bezier(0.2, 0.6, 0.35, 1) infinite;
-}
-.ic-scan .p2 { animation-delay: 0.8s; }
-.ic-scan .p3 { animation-delay: 1.6s; }
-@keyframes sweep-in {
-  0% { transform: scale(1.6); opacity: 0; }
-  22% { opacity: 0.85; }
-  100% { transform: scale(0.32); opacity: 0; }
-}
-body.still .ic-scan .pulse, body.away .ic-scan .pulse { animation: none; opacity: 0.4; }
 
 .shelf {
   display: grid;
@@ -1846,7 +1828,8 @@ input, textarea, .log, .where, .path, .mod .said, pre, code {
 
 #r-doneslot:not(:empty), #rp-doneslot:not(:empty) { margin: 0.75rem 0 1.15rem; }
 
-.ic-judge .ring { transform-origin: 12px 12px; }
+.ic-judge .ring { transform-box: view-box;
+  transform-origin: 12px 12px; }
 .ic-judge .ring { animation: judging 2.4s cubic-bezier(0.2, 0.6, 0.35, 1) infinite; }
 @keyframes judging {
   0% { transform: scale(2.1); opacity: 0; }
@@ -1866,7 +1849,8 @@ input, textarea, .log, .where, .path, .mod .said, pre, code {
   88% { opacity: 0.9; }
   100% { transform: translateX(12.6px); opacity: 0; }
 }
-.ic-cut .clip.b { transform-origin: 12.2px 12px; animation: trim 4.2s ease-in-out infinite; }
+.ic-cut .clip.b { transform-box: view-box;
+  transform-origin: 12.2px 12px; animation: trim 4.2s ease-in-out infinite; }
 @keyframes trim {
   0%, 100% { transform: scaleX(1); }
   46% { transform: scaleX(0.62); }

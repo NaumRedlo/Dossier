@@ -281,12 +281,21 @@ function idleAfter(minutes, save = true) {
 byId("s-idle").addEventListener("change", (event) => idleAfter(event.target.value));
 
 function motion(how, save = true) {
+  const moving = still() && how !== "off";
   document.body.classList.toggle("still", how === "off");
   pressed(byId("seg-motion"), byId("seg-motion").querySelector(`[data-motion="${how}"]`));
   if (save) remember("motion", how);
   if (how === "off") relax();
-
+  if (moving) restartLoops();
   runPreviews();
+}
+
+function restartLoops() {
+  for (const one of document.querySelectorAll(".ic-judge *, .ic-cut *, .ic-scan *")) {
+    one.style.animation = "none";
+    one.getBoundingClientRect();
+    one.style.animation = "";
+  }
 }
 
 for (const button of byId("seg-sky").querySelectorAll("button")) {
@@ -1503,6 +1512,11 @@ function scanning(on) {
   byId("r-bar-line").hidden = on;
   byId("r-steps").hidden = on;
   byId("r-list").hidden = on;
+  if (on) {
+    byId("r-busy").hidden = true;
+    byId("r-done").textContent = "";
+    byId("r-doneslot").replaceChildren();
+  }
   document.body.classList.toggle("scanning-now", on);
 }
 

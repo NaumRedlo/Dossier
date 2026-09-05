@@ -1370,11 +1370,13 @@ function showFinished(slot, { path, notes, bad, head }) {
   const shut = el("button", "shut small", "");
   shut.setAttribute("aria-label", "Скрыть");
   shut.innerHTML = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M7 7 17 17M17 7 7 17"/></svg>';
-  shut.addEventListener("click", () => slot.replaceChildren());
-  card.append(shut);
+  shut.addEventListener("click", () => {
+    card.classList.add("leaving");
+    setTimeout(() => slot.replaceChildren(), 300);
+  });
 
+  const routes = el("div", "routes");
   if (path && !bad) {
-    const routes = el("div", "routes");
     const open = el("button", "act small primary", "Открыть");
     const where = el("button", "act small", "В папке");
     open.addEventListener("click", () => {
@@ -1390,8 +1392,9 @@ function showFinished(slot, { path, notes, bad, head }) {
       });
     });
     routes.append(open, where);
-    card.append(routes);
   }
+  routes.append(shut);
+  card.append(routes);
   slot.replaceChildren(card);
 }
 
@@ -1506,19 +1509,25 @@ function stepCard(step) {
 
 let shelfCache = null;
 
+function scanning(on) {
+  byId("r-scan").hidden = !on;
+  byId("r-bar-line").hidden = on;
+  byId("r-steps").hidden = on;
+  byId("r-list").hidden = on;
+}
+
 async function showRender(again = false) {
   const list = byId("r-list");
   const said = byId("r-done");
 
   if (shelfCache && !again) {
+    scanning(false);
     fillPlays(shelfCache);
     return;
   }
 
-  byId("r-count").textContent = "Читаю папку реплеев…";
-
-  list.classList.add("waiting");
-  list.replaceChildren(line({ mark: ["huh", "·"], name: "минуту", said: "разбираю реплеи и ищу их карты" }));
+  scanning(true);
+  list.replaceChildren();
 
   const [settings, shelves, skins, plays, rows] = await Promise.all([
     invoke("settings_read").catch(() => ({})),
@@ -1530,6 +1539,7 @@ async function showRender(again = false) {
   known = { ...known, ...settings };
   shelfCache = { shelves, skins, plays, rows };
   await uncovered;
+  scanning(false);
   fillPlays(shelfCache);
 }
 

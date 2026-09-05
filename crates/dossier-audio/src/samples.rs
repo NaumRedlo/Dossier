@@ -78,13 +78,44 @@ const BANKLESS: [(Voice, &str); 3] = [
     (Voice::Miss, "combobreak"),
 ];
 
+const SOUND_ENDINGS: [&str; 3] = ["wav", "ogg", "mp3"];
+
+fn decode_through_ffmpeg(path: &Path) -> Option<Vec<f32>> {
+    let done = std::process::Command::new("ffmpeg")
+        .args(["-v", "error", "-i"])
+        .arg(path)
+        .args([
+            "-f",
+            "f32le",
+            "-ac",
+            "1",
+            "-ar",
+            &SAMPLE_RATE.to_string(),
+            "-",
+        ])
+        .output()
+        .ok()?;
+    if !done.status.success() {
+        return None;
+    }
+    Some(
+        done.stdout
+            .chunks_exact(4)
+            .map(|four| f32::from_le_bytes([four[0], four[1], four[2], four[3]]))
+            .collect(),
+    )
+}
+
 impl SamplePack {
     fn read(path: &Path) -> Option<Vec<f32>> {
         let bytes = std::fs::read(path).ok()?;
         if bytes.is_empty() {
             return Some(Vec::new());
         }
-        decode_wav(&bytes)
+        if let Some(samples) = decode_wav(&bytes) {
+            return Some(samples);
+        }
+        decode_through_ffmpeg(path)
     }
 
     pub fn load(folder: &Path) -> Self {
@@ -99,9 +130,7 @@ impl SamplePack {
             }
         }
         for (voice, name) in BANKLESS {
-            let found = files
-                .get(&format!("{name}.wav"))
-                .and_then(|path| Self::read(path));
+            let found = files.get(name).and_then(|path| Self::read(path));
             if let Some(samples) = found {
                 skin.insert((SampleSet::Normal, voice), samples);
             }
@@ -118,10 +147,7 @@ impl SamplePack {
                 guessed.push(name);
                 continue;
             }
-            match files
-                .get(&format!("{name}.wav"))
-                .and_then(|path| Self::read(path))
-            {
+            match files.get(&name).and_then(|path| Self::read(path)) {
                 Some(samples) if !samples.is_empty() => {
                     skin.insert(key, samples);
                 }
@@ -210,31 +236,40 @@ impl SamplePack {
     }
 }
 
-fn index_of(folder: &Path) -> std::collections::HashMap<String, std::path::PathBuf> {
-    let mut index = std::collections::HashMap::new();
+fn index_of(folder: &Path) -> HashMap<String, std::path::PathBuf> {
+    let mut best: HashMap<String, (usize, std::path::PathBuf)> = HashMap::new();
     let Ok(entries) = std::fs::read_dir(folder) else {
-        return index;
+        return HashMap::new();
     };
     for entry in entries.flatten() {
-        if entry.file_type().is_ok_and(|kind| kind.is_file()) {
-            let name = entry.file_name().to_string_lossy().to_ascii_lowercase();
-            index.insert(name, entry.path());
+        if !entry.file_type().is_ok_and(|kind| kind.is_file()) {
+            continue;
+        }
+        let leaf = entry.file_name().to_string_lossy().to_ascii_lowercase();
+        let Some((stem, ending)) = leaf.rsplit_once('.') else {
+            continue;
+        };
+        let Some(rank) = SOUND_ENDINGS.iter().position(|one| *one == ending) else {
+            continue;
+        };
+        match best.get(stem) {
+            Some((had, _)) if *had <= rank => {}
+            _ => {
+                best.insert(stem.to_owned(), (rank, entry.path()));
+            }
         }
     }
-    index
+    best.into_iter()
+        .map(|(stem, (_, path))| (stem, path))
+        .collect()
 }
 
 fn unfiled_in(folder: &Path) -> Vec<String> {
-    let Ok(entries) = std::fs::read_dir(folder) else {
-        return Vec::new();
-    };
-    let mut out: Vec<String> = entries
-        .flatten()
-        .filter_map(|entry| {
-            let leaf = entry.file_name().to_string_lossy().to_ascii_lowercase();
-            let stem = leaf.strip_suffix(".wav")?.to_owned();
-            let bankless = BANKLESS.iter().any(|(_, name)| *name == stem);
-            (parse_sample_name(&stem).is_none() && !bankless).then_some(stem)
+    let mut out: Vec<String> = index_of(folder)
+        .into_keys()
+        .filter(|stem| {
+            let bankless = BANKLESS.iter().any(|(_, name)| name == stem);
+            parse_sample_name(stem).is_none() && !bankless
         })
         .collect();
     out.sort();
@@ -242,16 +277,11 @@ fn unfiled_in(folder: &Path) -> Vec<String> {
 }
 
 fn banked_in(folder: &Path) -> Vec<((SampleSet, Voice, u32), Vec<f32>)> {
-    let Ok(entries) = std::fs::read_dir(folder) else {
-        return Vec::new();
-    };
-    entries
-        .flatten()
-        .filter_map(|entry| {
-            let leaf = entry.file_name().to_string_lossy().to_ascii_lowercase();
-            let stem = leaf.strip_suffix(".wav")?;
-            let key = parse_sample_name(stem)?;
-            Some((key, SamplePack::read(&entry.path())?))
+    index_of(folder)
+        .into_iter()
+        .filter_map(|(stem, path)| {
+            let key = parse_sample_name(&stem)?;
+            Some((key, SamplePack::read(&path)?))
         })
         .collect()
 }
@@ -415,6 +445,49 @@ fn resample(samples: Vec<f32>, from_rate: u32) -> Vec<f32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_skin_that_ships_ogg_is_read_the_same_as_one_that_ships_wav() {
+        let dir = std::env::temp_dir().join(format!("dossier-sounds-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("a place to write");
+        for leaf in [
+            "normal-hitnormal.ogg",
+            "soft-hitwhistle.mp3",
+            "drum-hitclap.wav",
+            "readme.txt",
+        ] {
+            std::fs::write(dir.join(leaf), b"").expect("written");
+        }
+
+        let found = index_of(&dir);
+        let mut stems: Vec<&String> = found.keys().collect();
+        stems.sort();
+        assert_eq!(
+            stems,
+            ["drum-hitclap", "normal-hitnormal", "soft-hitwhistle"]
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_wav_wins_over_the_same_sound_in_another_container() {
+        let dir = std::env::temp_dir().join(format!("dossier-pick-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("a place to write");
+        for leaf in ["normal-hitnormal.ogg", "normal-hitnormal.wav"] {
+            std::fs::write(dir.join(leaf), b"").expect("written");
+        }
+
+        let found = index_of(&dir);
+        assert_eq!(found.len(), 1);
+        assert!(found["normal-hitnormal"]
+            .to_string_lossy()
+            .ends_with(".wav"));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     fn wav(channels: u16, bits: u16, rate: u32, frames: &[i16]) -> Vec<u8> {
         let mut data = Vec::new();

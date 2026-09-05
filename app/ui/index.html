@@ -157,7 +157,18 @@
     <section id="view-render">
       <ol class="steps" id="r-steps"></ol>
 
-      <div class="bar">
+      <div class="scanning" id="r-scan">
+        <svg class="ic-scan" viewBox="0 0 64 64" fill="none" aria-hidden="true">
+          <circle class="pulse p1" cx="32" cy="32" r="22"/>
+          <circle class="pulse p2" cx="32" cy="32" r="22"/>
+          <circle class="pulse p3" cx="32" cy="32" r="22"/>
+          <circle class="core" cx="32" cy="32" r="7"/>
+        </svg>
+        <h2>Сканирую каталог реплеев…</h2>
+        <p>Это займёт какое-то время</p>
+      </div>
+
+      <div class="bar" id="r-bar-line">
         <span class="muted" id="r-count">Читаю папку реплеев…</span>
         <span class="grow"></span>
         <button class="act small" id="r-refresh">Обновить</button>
@@ -285,7 +296,7 @@
         <button data-page="video"><b>Видео</b><span>Во что рисуется файл и чего это стоит</span></button>
         <button data-page="audio"><b>Звук</b><span>Песня, хитсаунды и то, чем звучит недостающее</span></button>
         <button data-page="field"><b>Игра</b><span>Что происходит в игровом процессе, пока идёт игра</span></button>
-        <button data-page="window"><b>Окно</b><span>Как ведёт себя само приложение</span></button>
+        <button data-page="window"><b>Клиент</b><span>Как ведёт себя само приложение</span></button>
         <button data-page="build"><b>Сборка</b><span>Версия, готовность устройства и кто ещё в сети</span></button>
       </nav>
       <div class="pages">
@@ -384,14 +395,14 @@
           <div><b>Настройка фона</b><p>Затемнение и размытие. Так же, как это делает сама игра.</p></div>
           <div class="pair">
             <label class="pick tiny"><select id="s-dim">
-              <option value="0" selected>без затемнения</option>
-              <option value="20">20%</option><option value="40">40%</option>
-              <option value="60">60%</option><option value="80">80%</option>
+              <option value="0" selected>Без затемнения</option>
+              <option value="20">Затемнение 20%</option><option value="40">Затемнение 40%</option>
+              <option value="60">Затемнение 60%</option><option value="80">Затемнение 80%</option>
             </select></label>
             <label class="pick tiny"><select id="s-blur">
-              <option value="0" selected>без размытия</option>
-              <option value="20">20%</option><option value="40">40%</option>
-              <option value="60">60%</option>
+              <option value="0" selected>Без размытия</option>
+              <option value="20">Размытие 20%</option><option value="40">Размытие 40%</option>
+              <option value="60">Размытие 60%</option>
             </select></label>
           </div>
         </div>
@@ -436,12 +447,12 @@
           <div><b>Громкость</b><p>Песня и хитсаунды в работе.</p></div>
           <div class="pair">
             <label class="pick tiny"><select id="s-music">
-              <option value="0">без песни</option><option value="0.5">песня 50%</option>
-              <option value="0.8">песня 80%</option><option value="1" selected>песня 100%</option>
+              <option value="0">Без песни</option><option value="0.5">Песня 50%</option>
+              <option value="0.8">Песня 80%</option><option value="1" selected>Песня 100%</option>
             </select></label>
             <label class="pick tiny"><select id="s-hits">
-              <option value="0">без хитсаундов</option><option value="0.5">хитсаунды 50%</option>
-              <option value="0.8">хитсаунды 80%</option><option value="1" selected>хитсаунды 100%</option>
+              <option value="0">Без хитсаундов</option><option value="0.5">Хитсаунды 50%</option>
+              <option value="0.8">Хитсаунды 80%</option><option value="1" selected>Хитсаунды 100%</option>
             </select></label>
           </div>
         </div>
@@ -475,19 +486,19 @@
           </div>
           <div class="pair">
             <label class="pick tiny"><select id="s-pitch">
-              <option value="0.7">ниже</option><option value="0.85">чуть ниже</option>
-              <option value="1" selected>как есть</option>
-              <option value="1.2">чуть выше</option><option value="1.5">выше</option>
+              <option value="0.7">Высота: ниже</option><option value="0.85">Высота: чуть ниже</option>
+              <option value="1" selected>Высота: как есть</option>
+              <option value="1.2">Высота: чуть выше</option><option value="1.5">Высота: выше</option>
             </select></label>
             <label class="pick tiny"><select id="s-decay">
-              <option value="0.6">короче</option><option value="0.8">чуть короче</option>
-              <option value="1" selected>как есть</option>
-              <option value="1.3">чуть длиннее</option><option value="1.7">длиннее</option>
+              <option value="0.6">Длительность: короче</option><option value="0.8">Длительность: чуть короче</option>
+              <option value="1" selected>Длительность: как есть</option>
+              <option value="1.3">Длительность: чуть длиннее</option><option value="1.7">Длительность: длиннее</option>
             </select></label>
             <label class="pick tiny"><select id="s-kitlevel">
-              <option value="0.6">тише</option><option value="0.8">чуть тише</option>
-              <option value="1" selected>как есть</option>
-              <option value="1.3">громче</option>
+              <option value="0.6">Громкость: тише</option><option value="0.8">Громкость: чуть тише</option>
+              <option value="1" selected>Громкость: как есть</option>
+              <option value="1.3">Громкость: громче</option>
             </select></label>
           </div>
         </div>

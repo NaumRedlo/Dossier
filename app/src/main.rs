@@ -375,13 +375,19 @@ fn build_tray(app: &tauri::App) -> tauri::Result<()> {
     let mut tray = TrayIconBuilder::new()
         .menu(&menu)
         .show_menu_on_left_click(true)
+        .icon_as_template(true)
         .on_menu_event(|app, event| match event.id().as_ref() {
             "open" => open_window(app),
             "quit" => app.exit(0),
             _ => {}
         });
-    if let Some(icon) = app.default_window_icon() {
-        tray = tray.icon(icon.clone());
+    match tauri::image::Image::from_bytes(include_bytes!("../icons/tray.png")) {
+        Ok(icon) => tray = tray.icon(icon),
+        Err(_) => {
+            if let Some(icon) = app.default_window_icon() {
+                tray = tray.icon(icon.clone());
+            }
+        }
     }
     tray.build(app)?;
     Ok(())

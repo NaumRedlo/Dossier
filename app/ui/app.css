@@ -1240,6 +1240,33 @@ body.dock-left main { margin: 4.6rem auto 0; padding-top: 1.5rem; }
 .minijob.done .pct, .minijob.failed .pct { display: none; }
 .minijob.done { border-color: var(--good); }
 
+.scanning {
+  display: grid;
+  place-items: center;
+  gap: 0.15rem;
+  padding: 5rem 1rem;
+  text-align: center;
+}
+.scanning h2 { margin: 1.2rem 0 0; font-size: 1.15rem; font-weight: 600; }
+.scanning p { margin: 0.3rem 0 0; color: var(--faint); font-size: 0.85rem; }
+.ic-scan { width: 4rem; height: 4rem; }
+.ic-scan .core { fill: var(--accent); stroke: none; }
+.ic-scan .pulse {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2.5;
+  transform-origin: 32px 32px;
+  animation: sweep-in 2.4s cubic-bezier(0.2, 0.6, 0.35, 1) infinite;
+}
+.ic-scan .p2 { animation-delay: 0.8s; }
+.ic-scan .p3 { animation-delay: 1.6s; }
+@keyframes sweep-in {
+  0% { transform: scale(1.6); opacity: 0; }
+  22% { opacity: 0.85; }
+  100% { transform: scale(0.32); opacity: 0; }
+}
+body.still .ic-scan .pulse, body.away .ic-scan .pulse { animation: none; opacity: 0.4; }
+
 .shelf {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
@@ -1613,14 +1640,21 @@ h4.sheeth {
 #jobbox:hover #jobpane, #jobbox:focus-within #jobpane { display: block; }
 .finished .routes { flex: none; display: flex; gap: 0.4rem; }
 
+.finished .routes { align-items: stretch; }
 .finished .shut {
   position: static;
   flex: none;
-  width: 1.6rem;
-  height: 1.6rem;
-  border-radius: 0.8rem;
+  width: 2rem;
+  height: auto;
+  border-radius: 0.65rem;
+  order: 1;
 }
-.finished .shut svg { width: 0.85rem; height: 0.85rem; }
+.finished .shut svg { width: 0.95rem; height: 0.95rem; }
+.finished.leaving {
+  opacity: 0;
+  transform: translateY(-0.4rem);
+  transition: opacity 0.28s var(--ease), transform 0.28s var(--ease);
+}
 
 body { -webkit-user-select: none; user-select: none; }
 input, textarea, .log, .where, .path, .mod .said, pre, code {

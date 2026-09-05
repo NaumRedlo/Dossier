@@ -93,6 +93,21 @@ def tile(size: int) -> Image.Image:
     art.paste(_ramp(size), (0, 0), mask)
     return art
 
+def bar(size: int) -> Image.Image:
+    art = glyph(512)
+    black = Image.new("RGBA", art.size, (0, 0, 0, 255))
+    black.putalpha(art.getchannel("A"))
+    box = black.getbbox()
+    if box:
+        black = black.crop(box)
+    side = max(black.size)
+    square = Image.new("RGBA", (side, side), (0, 0, 0, 0))
+    square.paste(black, ((side - black.width) // 2, (side - black.height) // 2))
+    pad = round(side * 0.14)
+    padded = Image.new("RGBA", (side + pad * 2, side + pad * 2), (0, 0, 0, 0))
+    padded.paste(square, (pad, pad))
+    return padded.resize((size, size), Image.LANCZOS)
+
 def main() -> None:
     if not FONT.is_file():
         raise SystemExit(f"no font at {FONT}")
@@ -101,6 +116,8 @@ def main() -> None:
 
         tile(size).save(HERE / f"{size}x{size}.png")
     tile(256).save(HERE / "icon.ico")
+
+    bar(44).save(HERE / "tray.png")
 
     tile(128).save(UI / "mark.png")
     glyph(512).save(UI / "letter.png")

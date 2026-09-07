@@ -392,6 +392,7 @@ let asleep = false;
 let idleTimer = null;
 let lastStir = 0;
 let scene_run = null;
+let idleRun = 0;
 
 const markImage = new Image();
 let markIsLetter = true;
@@ -554,8 +555,8 @@ async function nextIdlePlay() {
     if (idleShelf.length) {
       const pick = idleShelf[idleAt % idleShelf.length];
       idleAt += 1;
-      const opened = await invoke("judged", { replay: pick.path });
-      idlePlay = { scene: opened, judged: opened.summary, head: opened.from_ms };
+      const opened = await invoke("judged", { replay: pick.path, fine: options().fine });
+      idlePlay = { scene: opened, judged: opened.summary, head: opened.from_ms, show: opened.show, path: pick.path };
       idleFade = 0;
     }
   } catch {
@@ -581,48 +582,48 @@ function drawResting(c, w, h) {
 
 function playIdle() {
   const c = splashView.getContext("2d");
+  idleRun += 1;
+  const mine = idleRun;
   let was = performance.now();
   nextIdlePlay();
 
-  const frame = (now) => {
-    const { w, h } = sizeSplash(c);
-    const step = Math.min(64, now - was);
-    was = now;
-
-    if (idlePlay) {
-      idlePlay.head += step;
-      const left = idlePlay.scene.to_ms - idlePlay.head;
+  (async () => {
+    while (mine === idleRun) {
+      await new Promise((again) => requestAnimationFrame(again));
+      if (mine !== idleRun) return;
+      const { w, h } = sizeSplash(c);
+      const now = performance.now();
+      const step = Math.min(64, now - was);
+      was = now;
+      const one = idlePlay;
+      if (!one) {
+        drawResting(c, w, h);
+        continue;
+      }
+      one.head += step;
+      const left = one.scene.to_ms - one.head;
       if (left <= 0) {
         idlePlay = null;
         idleFade = 0;
         nextIdlePlay();
         drawResting(c, w, h);
-      } else {
-        idleFade = Math.min(1, idleFade + step / FADE_MS);
-        c.globalAlpha = Math.min(idleFade, Math.max(0, left / FADE_MS));
-        drawPlay(
-          c,
-          {
-            scene: idlePlay.scene,
-            judged: idlePlay.judged,
-            head: idlePlay.head,
-            skinned: true,
-
-            popups: true,
-            frame: false,
-          },
-          w,
-          h,
-        );
-        c.globalAlpha = 1;
+        continue;
       }
-    } else {
-      drawResting(c, w, h);
+      const image = await frameOf(one, one.head, splashView.width, splashView.height);
+      if (mine !== idleRun) return;
+      if (!image) {
+        idlePlay = null;
+        nextIdlePlay();
+        continue;
+      }
+      idleFade = Math.min(1, idleFade + step / FADE_MS);
+      c.setTransform(1, 0, 0, 1, 0, 0);
+      c.clearRect(0, 0, splashView.width, splashView.height);
+      c.globalAlpha = Math.min(idleFade, Math.max(0, left / FADE_MS));
+      c.drawImage(image, 0, 0, splashView.width, splashView.height);
+      c.globalAlpha = 1;
     }
-
-    scene_run = requestAnimationFrame(frame);
-  };
-  scene_run = requestAnimationFrame(frame);
+  })();
 }
 
 function showSplash() {
@@ -634,13 +635,13 @@ function showSplash() {
   splash.hidden = false;
   void splash.offsetWidth;
   splash.classList.remove("going");
-  loadPics().catch(() => {});
   playIdle();
 }
 
 function hideSplash() {
   if (!asleep || locked) return;
   asleep = false;
+  idleRun += 1;
   if (scene_run) cancelAnimationFrame(scene_run);
   scene_run = null;
   document.body.classList.remove("covered");
@@ -1244,8 +1245,10 @@ byId("s-skin").addEventListener("change", async () => {
 });
 
 async function freshSkin() {
-  pics = null;
-  await loadPics();
+  cardTicket += 1;
+  for (const made of previews.values()) {
+    if (made && made.show) invoke("show_shut", { show: made.show }).catch(() => {});
+  }
   previews.clear();
   for (const card of document.querySelectorAll("#r-list .rep")) {
     card.classList.remove("read", "plain");
@@ -1564,7 +1567,7 @@ for (const [id, key] of RENDER_FIELDS) {
   byId(id).addEventListener("change", (event) => {
     const box = event.target;
     remember(key, box.type === "checkbox" ? (box.checked ? "1" : "0") : box.value);
-    readEffects();
+    refreshShows();
   });
 }
 
@@ -1773,6 +1776,74 @@ function fillPlays({ shelves, skins, plays, rows }) {
   }
 }
 
+const clamp01 = (t) => (t < 0 ? 0 : t > 1 ? 1 : t);
+
+function refreshShows() {
+  for (const made of previews.values()) if (made) made.show = 0;
+  if (live) live.show = 0;
+  if (sheetPlay) sheetPlay.show = 0;
+  if (idlePlay) idlePlay.show = 0;
+  if (hovered) runPreviews();
+  if (scene) drawView();
+}
+
+const FRAMES = navigator.userAgent.includes("Windows") ? "http://frame.localhost/" : "frame://localhost/";
+
+function askFrame(show, ms, wide, high) {
+  return new Promise((ready) => {
+    if (!show || !wide || !high) return ready(null);
+    const image = new Image();
+    image.onload = () => ready(image);
+    image.onerror = () => ready(null);
+    image.src = `${FRAMES}?show=${show}&ms=${ms.toFixed(2)}&w=${Math.round(wide)}&h=${Math.round(high)}`;
+  });
+}
+
+async function frameOf(made, ms, wide, high) {
+  const first = await askFrame(made.show, ms, wide, high);
+  if (first) return first;
+  if (!made.path) return null;
+  try {
+    made.show = await invoke("show_open", { replay: made.path, skin: made.skin, fine: options().fine });
+  } catch {
+    made.show = 0;
+    return null;
+  }
+  return askFrame(made.show, ms, wide, high);
+}
+
+function canvasPixels(canvas, cap) {
+  const wide = canvas.clientWidth;
+  const high = canvas.clientHeight;
+  if (!wide || !high) return null;
+  const dpr = Math.min(window.devicePixelRatio || 1, cap);
+  const w = Math.round(wide * dpr);
+  const h = Math.round(high * dpr);
+  if (canvas.width !== w || canvas.height !== h) {
+    canvas.width = w;
+    canvas.height = h;
+  }
+  return { ctx: canvas.getContext("2d"), w, h };
+}
+
+function paintFrame(c, image) {
+  c.ctx.setTransform(1, 0, 0, 1, 0, 0);
+  c.ctx.clearRect(0, 0, c.w, c.h);
+  c.ctx.drawImage(image, 0, 0, c.w, c.h);
+}
+
+function fadeEdges(c, head, play) {
+  const into = clamp01((head - play.from_ms) / PREVIEW_EDGE_MS);
+  const away = clamp01((play.to_ms - head) / PREVIEW_EDGE_MS);
+  const shown = Math.min(into, away);
+  if (shown >= 1) return;
+  c.ctx.save();
+  c.ctx.globalCompositeOperation = "destination-out";
+  c.ctx.globalAlpha = 1 - shown;
+  c.ctx.fillRect(0, 0, c.w, c.h);
+  c.ctx.restore();
+}
+
 const PREVIEWS_KEPT = 60;
 
 const PREVIEWS_AT_ONCE = 2;
@@ -1785,7 +1856,7 @@ const asking = new Set();
 const waitingFor = [];
 
 let hovered = null;
-let previewRun = null;
+let cardTicket = 0;
 let previewSeen = null;
 
 function forgetCards() {
@@ -1793,8 +1864,7 @@ function forgetCards() {
   showing.clear();
   waitingFor.length = 0;
   hovered = null;
-  if (previewRun) cancelAnimationFrame(previewRun);
-  previewRun = null;
+  cardTicket += 1;
 }
 
 function watchCard(card) {
@@ -1821,8 +1891,7 @@ function watchCard(card) {
   card.addEventListener("pointerleave", () => {
     if (hovered !== card) return;
     hovered = null;
-    if (previewRun) cancelAnimationFrame(previewRun);
-    previewRun = null;
+    cardTicket += 1;
 
     const made = previews.get(card.previewOf.path);
     if (made) made.head = made.scene.from_ms;
@@ -1860,9 +1929,9 @@ function pumpPreviews() {
     const path = card.previewOf.path;
     if (previews.has(path)) continue;
     asking.add(path);
-    invoke("preview", { replay: path })
+    invoke("preview", { replay: path, fine: options().fine })
       .then((scene) => {
-        const made = { scene, judged: scene.summary, head: scene.from_ms };
+        const made = { scene, judged: scene.summary, head: scene.from_ms, show: scene.show, path };
         keepPreview(path, made);
         applyPreview(card, made);
       })
@@ -1917,83 +1986,45 @@ function keepPreview(path, made) {
   }
 }
 
-function stillCard(card) {
+async function stillCard(card) {
   const made = previews.get(card.previewOf.path);
   if (!made) return;
-  const c = readyCanvas(card);
+  const c = canvasPixels(card.previewOn, 1.5);
   if (!c) return;
-  const { ctx, wide, high } = c;
   const play = made.scene;
-  const middle = (play.from_ms + play.to_ms) / 2;
-  drawPlay(ctx, { scene: play, judged: made.judged, head: middle, skinned: true, popups: true, frame: false }, wide, high);
-}
-
-function readyCanvas(card) {
-  const canvas = card.previewOn;
-  const wide = canvas.clientWidth;
-  const high = canvas.clientHeight;
-  if (!wide || !high) return null;
-
-  const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
-  if (canvas.width !== Math.round(wide * dpr)) {
-    canvas.width = Math.round(wide * dpr);
-    canvas.height = Math.round(high * dpr);
+  const image = await frameOf(made, (play.from_ms + play.to_ms) / 2, c.w, c.h);
+  if (!image) {
+    card.classList.add("plain");
+    return;
   }
-  const ctx = canvas.getContext("2d");
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.clearRect(0, 0, wide, high);
-  return { ctx, wide, high };
+  card.classList.remove("plain");
+  if (hovered === card) return;
+  paintFrame(c, image);
 }
 
 function runPreviews() {
+  cardTicket += 1;
   const one = hovered;
-  const wanted = one && motionOn() && !document.hidden && !asleep && previews.get(one.previewOf.path);
-  if (!wanted) {
-    if (previewRun) cancelAnimationFrame(previewRun);
-    previewRun = null;
-    return;
-  }
-  if (previewRun) return;
+  const made = one && previews.get(one.previewOf.path);
+  if (!made || !motionOn() || document.hidden || asleep) return;
+  const mine = cardTicket;
   let was = performance.now();
-  const frame = (now) => {
-    if (hovered !== one) {
-      previewRun = null;
-      return;
+  (async () => {
+    while (mine === cardTicket && hovered === one) {
+      await new Promise((again) => requestAnimationFrame(again));
+      if (mine !== cardTicket || hovered !== one) return;
+      const c = canvasPixels(one.previewOn, 1.5);
+      if (!c) return;
+      const now = performance.now();
+      made.head += Math.min(120, now - was);
+      was = now;
+      if (made.head > made.scene.to_ms) made.head = made.scene.from_ms;
+      const image = await frameOf(made, made.head, c.w, c.h);
+      if (mine !== cardTicket || hovered !== one || !image) return;
+      paintFrame(c, image);
+      fadeEdges(c, made.head, made.scene);
     }
-
-    const step = Math.min(120, now - was);
-    was = now;
-    paintCard(one, step);
-    previewRun = requestAnimationFrame(frame);
-  };
-  previewRun = requestAnimationFrame(frame);
-}
-
-function paintCard(card, step) {
-  const made = previews.get(card.previewOf.path);
-  if (!made) return;
-  const c = readyCanvas(card);
-  if (!c) return;
-  const play = made.scene;
-  made.head += step;
-  if (made.head > play.to_ms) made.head = play.from_ms;
-
-  drawPlay(
-    c.ctx,
-    { scene: play, judged: made.judged, head: made.head, skinned: true, popups: true, frame: false },
-    c.wide,
-    c.high,
-  );
-  const into = clamp01((made.head - play.from_ms) / PREVIEW_EDGE_MS);
-  const away = clamp01((play.to_ms - made.head) / PREVIEW_EDGE_MS);
-  const shown = Math.min(into, away);
-  if (shown >= 1) return;
-
-  c.ctx.save();
-  c.ctx.globalCompositeOperation = "destination-out";
-  c.ctx.globalAlpha = 1 - shown;
-  c.ctx.fillRect(0, 0, c.wide, c.high);
-  c.ctx.restore();
+  })();
 }
 
 const motionOn = () => remembered("motion", "on") === "on";
@@ -2071,7 +2102,7 @@ function openSheet(play, card) {
     sheetView = document.createElement("canvas");
     stage.append(sheetView);
     body.append(stage);
-    sheetPlay = { scene: made.scene, judged: made.judged, head: made.scene.from_ms };
+    sheetPlay = { scene: made.scene, judged: made.judged, head: made.scene.from_ms, show: made.show, path: made.path };
     runSheetPreview();
   }
 
@@ -2274,65 +2305,39 @@ function paintSpread(canvas, counts) {
 
 let sheetPlay = null;
 let sheetView = null;
-let sheetRun = null;
+let sheetRun = 0;
 
 function runSheetPreview() {
-  if (sheetRun) cancelAnimationFrame(sheetRun);
+  sheetRun += 1;
   if (!sheetPlay || !sheetView) return;
-  if (!motionOn()) {
-    paintSheet(0);
-    return;
-  }
+  const mine = sheetRun;
+  const one = sheetPlay;
+  const still = !motionOn();
   let was = performance.now();
-  const frame = (now) => {
-    if (!sheetPlay || sheet.hidden) {
-      sheetRun = null;
-      return;
+  (async () => {
+    while (mine === sheetRun && sheetPlay === one && !sheet.hidden) {
+      await new Promise((again) => requestAnimationFrame(again));
+      if (mine !== sheetRun || sheetPlay !== one || sheet.hidden) return;
+      const c = canvasPixels(sheetView, 2);
+      if (!c) return;
+      const now = performance.now();
+      if (!still) {
+        one.head += Math.min(120, now - was);
+        if (one.head > one.scene.to_ms) one.head = one.scene.from_ms;
+      }
+      was = now;
+      const image = await frameOf(one, one.head, c.w, c.h);
+      if (mine !== sheetRun || sheetPlay !== one || !image) return;
+      paintFrame(c, image);
+      fadeEdges(c, one.head, one.scene);
+      if (still) return;
     }
-    const step = Math.min(120, now - was);
-    was = now;
-    paintSheet(step);
-    sheetRun = requestAnimationFrame(frame);
-  };
-  sheetRun = requestAnimationFrame(frame);
-}
-
-function paintSheet(step) {
-  const wide = sheetView.clientWidth;
-  const high = sheetView.clientHeight;
-  if (!wide || !high) return;
-  const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  if (sheetView.width !== Math.round(wide * dpr)) {
-    sheetView.width = Math.round(wide * dpr);
-    sheetView.height = Math.round(high * dpr);
-  }
-  const c = sheetView.getContext("2d");
-  c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  c.clearRect(0, 0, wide, high);
-  const play = sheetPlay.scene;
-  sheetPlay.head += step;
-  if (sheetPlay.head > play.to_ms) sheetPlay.head = play.from_ms;
-  drawPlay(
-    c,
-    { scene: play, judged: sheetPlay.judged, head: sheetPlay.head, skinned: true, popups: true, frame: false },
-    wide,
-    high,
-  );
-  const into = clamp01((sheetPlay.head - play.from_ms) / PREVIEW_EDGE_MS);
-  const away = clamp01((play.to_ms - sheetPlay.head) / PREVIEW_EDGE_MS);
-  const shown = Math.min(into, away);
-  if (shown >= 1) return;
-  c.save();
-  c.globalCompositeOperation = "destination-out";
-  c.globalAlpha = 1 - shown;
-  c.fillRect(0, 0, wide, high);
-  c.restore();
+  })();
 }
 
 function shutSheet() {
   sheet.hidden = true;
-  if (sheetRun) cancelAnimationFrame(sheetRun);
-  sheetRun = null;
+  sheetRun += 1;
   sheetPlay = null;
   sheetView = null;
 }
@@ -2399,60 +2404,9 @@ if (window.__TAURI__ && window.__TAURI__.event) {
 
 const WORTH = { 300: "#66ccff", 100: "#88d64c", 50: "#f0c060", 0: "#e24848" };
 
-const PLAIN = "#c9cede";
-
-let pics = null;
-const tints = new WeakMap();
-
-async function loadPics() {
-  if (pics) return pics;
-  const said = await invoke("skin_pictures", {}).catch(() => null);
-  if (!said) return null;
-  const wait = (one) =>
-    new Promise((ready) => {
-      if (!one) return ready(null);
-      const image = new Image();
-      image.onload = () => ready({ image, scale: one.scale });
-      image.onerror = () => ready(null);
-      image.src = one.src;
-    });
-  pics = {
-    circle: await wait(said.circle),
-    overlay: await wait(said.overlay),
-    approach: await wait(said.approach),
-    cursor: await wait(said.cursor),
-    digits: await Promise.all((said.digits || []).map(wait)),
-  };
-  return pics;
-}
-
-function tinted(image, colour) {
-  let per = tints.get(image);
-  if (!per) {
-    per = new Map();
-    tints.set(image, per);
-  }
-  let made = per.get(colour);
-  if (made) return made;
-  made = document.createElement("canvas");
-  made.width = image.width;
-  made.height = image.height;
-  const c = made.getContext("2d");
-  c.drawImage(image, 0, 0);
-  c.globalCompositeOperation = "multiply";
-  c.fillStyle = colour;
-  c.fillRect(0, 0, made.width, made.height);
-
-  c.globalCompositeOperation = "destination-in";
-  c.drawImage(image, 0, 0);
-  per.set(colour, made);
-  return made;
-}
-const SAID = { 300: "300", 100: "100", 50: "50", 0: "×" };
-
-const AFTER_MS = 1400;
-
 let scene = null;
+let live = null;
+let viewTicket = 0;
 let judged = null;
 let chosen = null;
 let mode = null;
@@ -2504,14 +2458,15 @@ function saySkinned() {
   const button = byId("rp-skinned");
   button.hidden = !scene;
   button.textContent = skinned ? "Не показывать со скином" : "Показывать со скином";
-  if (skinned) loadPics().then(() => scene && drawView());
 }
 
-byId("rp-skinned").addEventListener("click", async () => {
+byId("rp-skinned").addEventListener("click", () => {
   skinned = !skinned;
   remember("skinned", skinned ? "1" : "0");
   saySkinned();
-  if (skinned) await loadPics();
+  if (!live) return;
+  live.skin = skinned ? null : "";
+  live.show = 0;
   drawView();
 });
 
@@ -2528,12 +2483,13 @@ async function openReplay(path) {
   said.textContent = "Читаю и сужу…";
   let opened;
   try {
-    opened = await invoke("judged", { replay: path });
+    opened = await invoke("judged", { replay: path, skin: skinned ? null : "", fine: options().fine });
   } catch (why) {
     said.textContent = `${why}`;
     return;
   }
   scene = opened;
+  live = { show: opened.show, path, skin: skinned ? null : "" };
   judged = opened.summary;
   density = null;
   lens = null;
@@ -2626,719 +2582,20 @@ if (window.__TAURI__ && window.__TAURI__.event) {
   });
 }
 
-function fit(w, h, radius) {
-  const scale = Math.min(w / 512, h / 384) * 0.9;
-  return {
-    scale,
-    ox: (w - 512 * scale) / 2,
-    oy: (h - 384 * scale) / 2,
-    r: radius * scale,
-  };
-}
-
-function firstVisible(objects, ms) {
-  let low = 0;
-  let high = objects.length;
-  while (low < high) {
-    const mid = (low + high) >> 1;
-    if (objects[mid].end_ms + AFTER_MS < ms) low = mid + 1;
-    else high = mid;
-  }
-  return low;
-}
-
-function cursorAt(play, ms) {
-  const step = Math.round((ms - play.from_ms) / play.step_ms);
-  const at = Math.min(Math.max(0, step), play.keys.length - 1);
-  return { x: play.cursor[at * 2], y: play.cursor[at * 2 + 1], keys: play.keys[at], at };
-}
-
-const HIT_FADE_MS = 240;
-const MISS_FADE_MS = 100;
-const NUMBER_FADE_MS = HIT_FADE_MS / 4;
-const HIT_SWELL = 0.4;
-const APPROACH_REACH = 3.0;
-const BALL_CORE = 0.34;
-const ARROW_SCALE = 0.52;
-const ARROW_LOOP_MS = 300;
-const ARROW_LOOP_FROM = 1.3;
-
-const TICK_FADE_MS = 150;
-
-const TICK_FIRST_LEAD = 0.66;
-const TICK_REPEAT_LEAD_MS = 200;
-const LIGHT_IN_MS = 200;
-const LIGHT_HOLD_MS = 400;
-const LIGHT_OUT_MS = 1000;
-const LIGHT_MS = LIGHT_HOLD_MS + LIGHT_OUT_MS;
-const LIGHT_GROW_MS = 600;
-const LIGHT_FROM = 0.8;
-const LIGHT_TO = 1.2;
-const FOLLOW_SPACING = 32;
-const FOLLOW_PREEMPT_MS = 800;
-const FOLLOW_ENTRY_SCALE = 1.5;
-const FOLLOW_APPROACH = 0.1;
-
-const TRAIL_STEP_MS = 1000 / 60;
-const TRAIL_DISJOINT_MS = 150;
-const TRAIL_CONTINUOUS_MS = 500;
-const TRAIL_INTERVAL_SHARE = 1 / 2.5;
-
-const NOTE_BORDER = 0.11;
-
-const CURSOR_TURN_MS = 10000;
-
-const easeOut = (t) => 1 - (1 - t) * (1 - t);
-const clamp01 = (t) => (t < 0 ? 0 : t > 1 ? 1 : t);
-
-const effects = { lighting: true, expand: true };
-
-function readEffects() {
-  effects.lighting = remembered("lighting", "1") === "1";
-  effects.expand = remembered("expand", "1") === "1";
-}
-readEffects();
-
-function colourOf(piece, show) {
-  if (!show.skinned) return PLAIN;
-  const own = pics && pics.colours && pics.colours.length ? pics.colours : null;
-  const list = own || (show.scene.colours && show.scene.colours.length ? show.scene.colours : null);
-  if (!list || !list.length) return "#e24848";
-  return list[piece.run % list.length];
-}
-
-function shade(colour, part) {
-  const hex = colour.replace("#", "");
-  const n = parseInt(hex.length === 3 ? hex.replace(/./g, (d) => d + d) : hex, 16);
-  const at = (shift) => Math.round(((n >> shift) & 255) * part);
-  return `rgb(${at(16)}, ${at(8)}, ${at(0)})`;
-}
-
-function verdictsOf(show) {
-  if (show.scene.by_object) return show.scene.by_object;
-  const by = new Map();
-  for (const mark of show.judged.marks) by.set(mark.object_index, mark);
-  show.scene.by_object = by;
-  return by;
-}
-
-function endingOf(entry) {
-  const { piece, mark } = entry;
-  const missed = mark ? mark.worth === 0 : false;
-  const resolved = mark ? mark.ms : piece.end_ms;
-  return {
-    missed,
-    resolved,
-    fade: missed ? MISS_FADE_MS : HIT_FADE_MS,
-    leaves: Math.max(resolved, piece.end_ms),
-  };
-}
-
-function alphaOf(entry, show) {
-  const play = show.scene;
-  const spawn = entry.piece.start_ms - play.preempt_ms;
-  const ends = endingOf(entry);
-  const now = show.head;
-  if (now < spawn || now > ends.leaves + ends.fade) return 0;
-  const appearing = clamp01((now - spawn) / Math.max(1, play.fade_in_ms));
-
-  return appearing * (1 - clamp01((now - ends.leaves) / ends.fade));
-}
-
-function drawPlay(c, show, w, h) {
-  const box = fit(w, h, show.scene.radius);
-  const px = (x) => box.ox + x * box.scale;
-  const py = (y) => box.oy + y * box.scale;
-  const marks = verdictsOf(show);
-
-  if (show.frame) {
-    c.strokeStyle = "rgba(255,255,255,0.05)";
-    c.strokeRect(box.ox, box.oy, 512 * box.scale, 384 * box.scale);
-  }
-
-  const showing = [];
-  for (let i = firstVisible(show.scene.objects, show.head); i < show.scene.objects.length; i += 1) {
-    const piece = show.scene.objects[i];
-    if (piece.start_ms - show.scene.preempt_ms > show.head) break;
-    showing.push({ piece, index: i, mark: marks.get(i) || null });
-  }
-
-  drawFollowPoints(c, box, px, py, show);
-  drawLighting(c, box, px, py, show, showing);
-  for (let i = showing.length - 1; i >= 0; i -= 1) drawBody(c, showing[i], box, px, py, show);
-  for (let i = showing.length - 1; i >= 0; i -= 1) drawNote(c, showing[i], box, px, py, show);
-  for (let i = showing.length - 1; i >= 0; i -= 1) drawApproach(c, showing[i], box, px, py, show);
-
-  if (show.popups) drawPopups(c, box, px, py, show);
-  drawCursor(c, box, px, py, show);
-}
-
-function drawFollowPoints(c, box, px, py, show) {
-  const shot = show.skinned && pics ? pics.follow_point : null;
-  if (!shot) return;
-  const play = show.scene;
-  const now = show.head;
-  const fade = Math.max(1, play.fade_in_ms);
-  const objects = play.objects;
-
-  for (let i = Math.max(1, firstVisible(objects, now)); i < objects.length; i += 1) {
-    const to = objects[i];
-    if (to.start_ms - play.preempt_ms - FOLLOW_PREEMPT_MS > now) break;
-    const from = objects[i - 1];
-    if (to.combo === 1 || from.kind === "spinner" || to.kind === "spinner") continue;
-    const leaves = endPointOf(from);
-    const span = to.start_ms - from.end_ms;
-    if (span <= 0) continue;
-    const dx = to.x - leaves[0];
-    const dy = to.y - leaves[1];
-    const distance = Math.hypot(dx, dy);
-    if (distance <= FOLLOW_SPACING * 2.5) continue;
-    const turn = Math.atan2(dy, dx);
-
-    for (let walked = FOLLOW_SPACING * 1.5; walked < distance - FOLLOW_SPACING; walked += FOLLOW_SPACING) {
-      const fraction = walked / distance;
-      const leaves_at = from.end_ms + fraction * span;
-      const arrives_at = leaves_at - FOLLOW_PREEMPT_MS;
-      if (now < arrives_at) continue;
-      const arriving = clamp01((now - arrives_at) / fade);
-      const leaving = now > leaves_at ? clamp01((now - leaves_at) / fade) : 0;
-      const alpha = arriving * (1 - leaving);
-      if (alpha <= 0) continue;
-
-      const along = fraction - FOLLOW_APPROACH * (1 - easeOut(arriving));
-      const scale = FOLLOW_ENTRY_SCALE + (1 - FOLLOW_ENTRY_SCALE) * easeOut(arriving);
-      const side = box.r * scale;
-      c.save();
-      c.globalAlpha = alpha;
-      c.translate(px(leaves[0] + dx * along), py(leaves[1] + dy * along));
-      c.rotate(turn);
-      c.drawImage(shot.image, -side / 2, -side / 2, side, side);
-      c.restore();
-    }
-  }
-  c.globalAlpha = 1;
-}
-
-function drawLighting(c, box, px, py, show, showing) {
-  const shot = effects.lighting && show.skinned && pics ? pics.lighting : null;
-  if (!shot) return;
-  c.save();
-  c.globalCompositeOperation = "lighter";
-  for (const entry of showing) {
-    const mark = entry.mark;
-    if (!mark || mark.worth === 0) continue;
-    const age = show.head - mark.ms;
-    if (age < 0 || age >= LIGHT_MS) continue;
-    const alpha =
-      age < LIGHT_IN_MS
-        ? age / LIGHT_IN_MS
-        : age < LIGHT_HOLD_MS
-          ? 1
-          : clamp01(1 - (age - LIGHT_HOLD_MS) / LIGHT_OUT_MS);
-    if (alpha <= 0) continue;
-    const scale = LIGHT_FROM + (LIGHT_TO - LIGHT_FROM) * easeOut(clamp01(age / LIGHT_GROW_MS));
-    const side = box.r * 2 * scale;
-    c.globalAlpha = alpha;
-
-    c.drawImage(tinted(shot.image, colourOf(entry.piece, show)), px(mark.x) - side / 2, py(mark.y) - side / 2, side, side);
-  }
-  c.restore();
-  c.globalAlpha = 1;
-}
-
-const TUBE_SHADOW = 1 - 59 / 64;
-const TUBE_BORDER = 0.1875;
-const TUBE_SHADOW_ALPHA = 0.25;
-const TUBE_ALPHA = 0.7;
-
-let tubeCanvas = null;
-
-function drawBody(c, entry, box, px, py, show) {
-  const piece = entry.piece;
-  if (piece.kind !== "slider" || piece.path.length < 4) return;
-  const alpha = alphaOf(entry, show);
-  if (alpha <= 0 || box.r < 0.5) return;
-  const rules = show.skinned && pics ? pics.rules : null;
-  const colour = colourOf(piece, show);
-  const track = (rules && rules.slider_track) || colour;
-  const border = (rules && rules.slider_border) || "#ffffff";
-  const outer = scaled(track, 1 / 1.1);
-  const inner = lifted(track, 1.125, 0.25);
-
-  if (!tubeCanvas) tubeCanvas = document.createElement("canvas");
-  const wide = c.canvas.width;
-  const high = c.canvas.height;
-  if (tubeCanvas.width !== wide || tubeCanvas.height !== high) {
-    tubeCanvas.width = wide;
-    tubeCanvas.height = high;
-  }
-  const t = tubeCanvas.getContext("2d");
-  t.setTransform(c.getTransform());
-  t.clearRect(0, 0, wide, high);
-  t.lineCap = "round";
-  t.lineJoin = "round";
-
-  const line = () => {
-    t.beginPath();
-    t.moveTo(px(piece.path[0]), py(piece.path[1]));
-    for (let i = 2; i < piece.path.length; i += 2) t.lineTo(px(piece.path[i]), py(piece.path[i + 1]));
-  };
-
-  const steps = Math.min(48, Math.max(8, Math.ceil(box.r / 2)));
-  for (let step = steps; step >= 0; step -= 1) {
-    const towards = 1 - step / steps;
-    const width = Math.max(0.01, box.r * 2 * (1 - towards));
-    let paint;
-    if (towards <= TUBE_SHADOW) {
-      paint = `rgba(0,0,0,${(TUBE_SHADOW_ALPHA * towards) / TUBE_SHADOW})`;
-    } else if (towards <= TUBE_BORDER) {
-      paint = border;
-    } else {
-      const along = (towards - TUBE_BORDER) / (1 - TUBE_BORDER);
-      paint = mixed(outer, inner, along, TUBE_ALPHA);
-    }
-
-    t.globalCompositeOperation = "destination-out";
-    t.lineWidth = width;
-    line();
-    t.stroke();
-    t.globalCompositeOperation = "source-over";
-    t.strokeStyle = paint;
-    line();
-    t.stroke();
-  }
-
-  c.save();
-  c.setTransform(1, 0, 0, 1, 0, 0);
-  c.globalAlpha = alpha;
-  c.drawImage(tubeCanvas, 0, 0);
-  c.restore();
-}
-
-function parts(colour) {
-  if (colour.startsWith("#")) {
-    const hex = colour.slice(1);
-    const n = parseInt(hex.length === 3 ? hex.replace(/./g, (d) => d + d) : hex, 16);
-    return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
-  }
-  const found = colour.match(/\d+(\.\d+)?/g) || [0, 0, 0];
-  return [Number(found[0]), Number(found[1]), Number(found[2])];
-}
-
-function scaled(colour, by) {
-  const [r, g, b] = parts(colour);
-  return `rgb(${Math.round(r * by)}, ${Math.round(g * by)}, ${Math.round(b * by)})`;
-}
-
-function lifted(colour, by, add) {
-  const [r, g, b] = parts(colour);
-  const up = (one) => Math.round(Math.min(255, one * by + add * 255));
-  return `rgb(${up(r)}, ${up(g)}, ${up(b)})`;
-}
-
-function mixed(from, to, along, alpha) {
-  const a = parts(from);
-  const b = parts(to);
-  const at = (i) => Math.round(a[i] + (b[i] - a[i]) * along);
-  return `rgba(${at(0)}, ${at(1)}, ${at(2)}, ${alpha})`;
-}
-
-function endPointOf(piece) {
-  if (piece.kind === "slider" && piece.ball.length >= 2) {
-    const last = piece.ball.length;
-    return [piece.ball[last - 2], piece.ball[last - 1]];
-  }
-  return [piece.x, piece.y];
-}
-
-function farEndOf(piece) {
-  const last = piece.path.length;
-  return last >= 2 ? [piece.path[last - 2], piece.path[last - 1]] : [piece.x, piece.y];
-}
-
-function drawNote(c, entry, box, px, py, show) {
-  const { piece } = entry;
-  const play = show.scene;
-  const now = show.head;
-  const alpha = alphaOf(entry, show);
-  if (alpha <= 0) return;
-  const colour = colourOf(piece, show);
-
-  if (piece.kind === "spinner") {
-    c.globalAlpha = alpha;
-    c.strokeStyle = colour;
-    c.lineWidth = 2;
-    const turning = clamp01((now - piece.start_ms) / Math.max(1, piece.end_ms - piece.start_ms));
-    c.beginPath();
-    c.arc(px(256), py(192), 130 * box.scale * (1 - turning * 0.75), 0, Math.PI * 2);
-    c.stroke();
-    c.globalAlpha = 1;
-    return;
-  }
-
-  const ends = endingOf(entry);
-  const exit = clamp01((now - ends.leaves) / ends.fade);
-
-  const grown = box.r * (ends.missed ? 1 : 1 + HIT_SWELL * easeOut(exit));
-
-  c.globalAlpha = alpha;
-  if (piece.kind === "slider") {
-    const tail = farEndOf(piece);
-    drawFace(c, px(tail[0]), py(tail[1]), grown, colour, show, "tail");
-  }
-  drawFace(c, px(piece.x), py(piece.y), grown, colour, show, piece.kind === "slider" ? "head" : "note");
-
-  const swells = !!(show.skinned && pics && pics.rules && pics.rules.number_swells);
-  const numberShare = ends.missed || now < ends.resolved ? 1 : clamp01(1 - (now - ends.resolved) / NUMBER_FADE_MS);
-  if (numberShare > 0) {
-    c.globalAlpha = alpha * (swells ? 1 : numberShare);
-    drawNumber(c, px(piece.x), py(piece.y), swells ? grown : box.r, piece.combo, colour, show);
-    c.globalAlpha = alpha;
-  }
-  drawRim(c, px(piece.x), py(piece.y), grown, show, piece.kind === "slider" ? "head" : "note");
-
-  if (piece.kind === "slider") drawSlide(c, entry, box, px, py, show, colour, alpha);
-  c.globalAlpha = 1;
-}
-
-function faceOf(which) {
-  if (!pics) return null;
-  if (which === "head" && pics.slider_head) return [pics.slider_head, pics.slider_head_overlay];
-  if (which === "tail" && pics.slider_tail) return [pics.slider_tail, pics.slider_tail_overlay];
-  if (which === "tail") return null;
-  return pics.circle ? [pics.circle, pics.overlay] : null;
-}
-
-function drawFace(c, x, y, radius, colour, show, which) {
-  const pair = show.skinned ? faceOf(which) : null;
-  if (pair) {
-    const side = radius * 2;
-    c.drawImage(tinted(pair[0].image, colour), x - radius, y - radius, side, side);
-
-    const above = pics.rules && pics.rules.overlay_above_number;
-    if (!above && pair[1]) c.drawImage(pair[1].image, x - radius, y - radius, side, side);
-    return;
-  }
-  if (which === "tail") return;
-  if (show.skinned) {
-    const border = radius * NOTE_BORDER;
-    c.fillStyle = shade(colour, 0.75);
-    c.beginPath();
-    c.arc(x, y, radius, 0, Math.PI * 2);
-    c.fill();
-    c.fillStyle = colour;
-    c.beginPath();
-    c.arc(x, y, radius - border, 0, Math.PI * 2);
-    c.fill();
-    c.strokeStyle = "#fff";
-    c.lineWidth = border;
-    c.beginPath();
-    c.arc(x, y, radius - border / 2, 0, Math.PI * 2);
-    c.stroke();
-    return;
-  }
-
-  c.fillStyle = "rgba(255,255,255,0.05)";
-  c.beginPath();
-  c.arc(x, y, radius, 0, Math.PI * 2);
-  c.fill();
-  c.strokeStyle = colour;
-  c.lineWidth = Math.max(1.5, radius * 0.1);
-  c.stroke();
-}
-
-function drawRim(c, x, y, radius, show, which) {
-  if (!show.skinned || !pics || !pics.rules || !pics.rules.overlay_above_number) return;
-  const pair = faceOf(which);
-  if (!pair || !pair[1]) return;
-  c.drawImage(pair[1].image, x - radius, y - radius, radius * 2, radius * 2);
-}
-
-function drawNumber(c, x, y, radius, combo, colour, show) {
-  const figures = String(combo).split("");
-  if (show.skinned && pics && pics.digits.length === 10) {
-    const high = radius * 0.9;
-    const overlap = pics.rules ? pics.rules.hit_circle_overlap : 0;
-    const wide = figures.map((d) => {
-      const one = pics.digits[Number(d)];
-      return one ? (one.image.width / one.image.height) * high : 0;
-    });
-
-    const pull = pics.digits[0] ? (overlap / pics.digits[0].image.height) * high : 0;
-    const total = wide.reduce((a, b) => a + b, 0) - pull * (figures.length - 1);
-    let at = x - total / 2;
-    figures.forEach((d, i) => {
-      const one = pics.digits[Number(d)];
-      if (one) c.drawImage(one.image, at, y - high / 2, wide[i], high);
-      at += wide[i] - pull;
-    });
-    return;
-  }
-  if (radius <= 9) return;
-  c.fillStyle = show.skinned ? "#fff" : colour;
-  c.font = `600 ${radius * 0.9}px ui-monospace, Menlo, monospace`;
-  c.textAlign = "center";
-  c.textBaseline = "middle";
-  c.fillText(String(combo), x, y);
-}
-
-function drawSlide(c, entry, box, px, py, show, colour, alpha) {
-  const { piece } = entry;
-  const play = show.scene;
-  const now = show.head;
-  const slides = piece.slides || 1;
-  const span = Math.max(1, piece.end_ms - piece.start_ms);
-  const slide = span / slides;
-
-  const ticks = piece.ticks || [];
-  for (let i = 0; i + 2 < ticks.length; i += 3) {
-    const at = ticks[i];
-    if (at <= now) continue;
-    const step = slide > 0 ? Math.floor((at - piece.start_ms) / slide) : 0;
-    const lead = step > 0 ? TICK_REPEAT_LEAD_MS : play.preempt_ms * TICK_FIRST_LEAD;
-    const live = at - ((at - (piece.start_ms + step * slide)) / 2 + lead);
-    const arriving = clamp01((now - live) / TICK_FADE_MS);
-    if (arriving <= 0) continue;
-    const grown = 0.5 + 0.5 * easeOut(clamp01((now - live) / (TICK_FADE_MS * 4)));
-    const x = px(ticks[i + 1]);
-    const y = py(ticks[i + 2]);
-    c.globalAlpha = alpha * arriving;
-    const dot = show.skinned && pics ? pics.score_point : null;
-    if (dot) {
-      const side = box.r * 2 * grown * 0.4;
-      c.drawImage(dot.image, x - side / 2, y - side / 2, side, side);
-    } else {
-      c.fillStyle = "rgba(255,255,255,0.85)";
-      c.beginPath();
-      c.arc(x, y, Math.max(1.5, box.r * 0.13 * grown), 0, Math.PI * 2);
-      c.fill();
-    }
-  }
-  c.globalAlpha = alpha;
-
-  if (slides > 1 && now < piece.end_ms) {
-    const at = Math.floor(Math.max(0, now - piece.start_ms) / slide);
-    if (at < slides - 1) {
-      const near = at % 2 === 1;
-      const spot = near ? [piece.x, piece.y] : farEndOf(piece);
-      const other = near ? farEndOf(piece) : [piece.x, piece.y];
-      const turn = Math.atan2(other[1] - spot[1], other[0] - spot[0]);
-
-      const breath = ARROW_LOOP_FROM + (1 - ARROW_LOOP_FROM) * easeOut(((now % ARROW_LOOP_MS) / ARROW_LOOP_MS));
-
-      const side = box.r * 2 * ARROW_SCALE * breath;
-      const shot = show.skinned && pics ? pics.reverse_arrow : null;
-      c.save();
-      c.globalAlpha = alpha;
-      c.translate(px(spot[0]), py(spot[1]));
-      c.rotate(turn);
-      if (shot) {
-        c.drawImage(shot.image, -side / 2, -side / 2, side, side);
-      } else {
-        c.strokeStyle = "#fff";
-        c.lineWidth = Math.max(1.5, box.r * 0.14);
-        c.lineCap = "round";
-        c.lineJoin = "round";
-        const reach = box.r * 0.5 * breath;
-        c.beginPath();
-        c.moveTo(-reach, -reach);
-        c.lineTo(reach * 0.6, 0);
-        c.lineTo(-reach, reach);
-        c.stroke();
-      }
-      c.restore();
-    }
-  }
-
-  if (now < piece.start_ms || now > piece.end_ms || !piece.ball.length) return;
-  const at = Math.min(piece.ball.length / 2 - 1, Math.max(0, Math.round((now - piece.start_ms) / play.step_ms)));
-  const bx = px(piece.ball[at * 2]);
-  const by = py(piece.ball[at * 2 + 1]);
-
-  c.globalAlpha = 1;
-  const ring = show.skinned && pics ? pics.follow_circle : null;
-  if (ring) {
-    const side = box.r * 2 * 2;
-    c.drawImage(ring.image, bx - side / 2, by - side / 2, side, side);
-  } else {
-    c.strokeStyle = "rgba(255,255,255,0.5)";
-    c.lineWidth = Math.max(1.5, box.r * 0.1);
-    c.beginPath();
-    c.arc(bx, by, box.r * 1.9, 0, Math.PI * 2);
-    c.stroke();
-  }
-
-  const ball = show.skinned && pics ? pics.slider_ball : null;
-  if (ball) {
-    const side = box.r * 2;
-
-    const tint = pics.rules && pics.rules.slider_ball_tint ? tinted(ball.image, colour) : ball.image;
-    c.drawImage(tint, bx - side / 2, by - side / 2, side, side);
-    return;
-  }
-
-  const grown = BALL_CORE + (1 - BALL_CORE) * clamp01((now - piece.start_ms) / span);
-  c.fillStyle = colour;
-  c.beginPath();
-  c.arc(bx, by, box.r * 0.9 * grown, 0, Math.PI * 2);
-  c.fill();
-  c.strokeStyle = "rgba(255,255,255,0.9)";
-  c.lineWidth = 2;
-  c.stroke();
-}
-
-function drawApproach(c, entry, box, px, py, show) {
-  const { piece } = entry;
-  if (piece.kind === "spinner" || show.head >= piece.start_ms) return;
-  const alpha = alphaOf(entry, show);
-  if (alpha <= 0) return;
-  const play = show.scene;
-  const progress = clamp01(1 - (piece.start_ms - show.head) / Math.max(1, play.preempt_ms));
-  const scale = 1 + APPROACH_REACH * (1 - progress);
-  const colour = colourOf(piece, show);
-  c.globalAlpha = alpha;
-  const shot = show.skinned && pics ? pics.approach : null;
-  if (shot) {
-    const side = box.r * scale * 2;
-    c.drawImage(tinted(shot.image, colour), px(piece.x) - side / 2, py(piece.y) - side / 2, side, side);
-  } else {
-    c.strokeStyle = colour;
-    c.lineWidth = Math.max(1, box.r * 0.09);
-    c.beginPath();
-    c.arc(px(piece.x), py(piece.y), box.r * scale, 0, Math.PI * 2);
-    c.stroke();
-  }
-  c.globalAlpha = 1;
-}
-
-const VERDICT_OF = { 300: "three", 100: "hundred", 50: "fifty", 0: "miss" };
-
-function drawPopups(c, box, px, py, show) {
-  c.textAlign = "center";
-  c.textBaseline = "middle";
-  for (const mark of show.judged.marks) {
-    const since = show.head - mark.ms;
-    if (since < 0 || since > 600) continue;
-    c.globalAlpha = 1 - since / 600;
-    const shot = show.skinned && pics && pics.verdicts ? pics.verdicts[VERDICT_OF[mark.worth]] : null;
-    if (shot) {
-      const high = box.r * 1.5;
-      const wide = (shot.image.width / shot.image.height) * high;
-      c.drawImage(shot.image, px(mark.x) - wide / 2, py(mark.y) - high / 2 - since * 0.02, wide, high);
-      continue;
-    }
-
-    if (show.skinned) continue;
-    c.fillStyle = WORTH[mark.worth] || WORTH[0];
-    c.font = `700 ${Math.max(11, box.r * 0.8)}px ui-monospace, Menlo, monospace`;
-    c.fillText(SAID[mark.worth] || "×", px(mark.x), py(mark.y) - since * 0.02);
-  }
-  c.globalAlpha = 1;
-}
-
-function drawTrail(c, box, px, py, show, shot) {
-  const play = show.scene;
-  const now = cursorAt(play, show.head);
-
-  const side = shot ? box.r * 2 : box.r * 0.8 * 2;
-  const mark = (at, alpha) => {
-    if (alpha <= 0) return;
-    c.globalAlpha = alpha;
-    if (shot) {
-      c.drawImage(shot.image, px(at[0]) - side / 2, py(at[1]) - side / 2, side, side);
-    } else {
-      c.fillStyle = "rgba(255,255,255,0.75)";
-      c.beginPath();
-      c.arc(px(at[0]), py(at[1]), box.r * 0.32, 0, Math.PI * 2);
-      c.fill();
-    }
-  };
-  const sampleAt = (ms) => {
-    const step = Math.round((ms - play.from_ms) / play.step_ms);
-    if (step < 0 || step >= play.keys.length) return null;
-    return [play.cursor[step * 2], play.cursor[step * 2 + 1]];
-  };
-
-  const ribbon = show.skinned && pics && pics.cursor_middle;
-  if (!ribbon) {
-    for (let age = TRAIL_STEP_MS; age <= TRAIL_DISJOINT_MS; age += TRAIL_STEP_MS) {
-      const at = sampleAt(show.head - age);
-      if (at) mark(at, 1 - age / TRAIL_DISJOINT_MS);
-    }
-    c.globalAlpha = 1;
-    return;
-  }
-
-  const interval = (side * TRAIL_INTERVAL_SHARE) / Math.max(0.001, box.scale);
-  const head = sampleAt(show.head) || [now.x, now.y];
-  let last = head;
-  let walked = 0;
-  for (let age = 0; age < TRAIL_CONTINUOUS_MS; ) {
-    age += TRAIL_STEP_MS / 4;
-    const at = sampleAt(show.head - age);
-    if (!at) break;
-    walked += Math.hypot(at[0] - last[0], at[1] - last[1]);
-    last = at;
-    if (walked < interval) continue;
-    walked = 0;
-    mark(at, 1 - age / TRAIL_CONTINUOUS_MS);
-  }
-  c.globalAlpha = 1;
-}
-
-function drawCursor(c, box, px, py, show) {
-  const play = show.scene;
-  const now = cursorAt(play, show.head);
-  const rules = show.skinned && pics ? pics.rules : null;
-  const trail = show.skinned && pics ? pics.cursor_trail : null;
-
-  drawTrail(c, box, px, py, show, trail);
-
-  const expands = effects.expand && (!rules || rules.cursor_expand);
-  const held = expands && (now.keys & 15) !== 0;
-  if (show.skinned && pics && pics.cursor) {
-    const side = box.r * (held ? 1.5 : 1.35);
-
-    if (rules && rules.cursor_rotate) {
-      c.save();
-      c.translate(px(now.x), py(now.y));
-      c.rotate(((show.head % CURSOR_TURN_MS) / CURSOR_TURN_MS) * Math.PI * 2);
-      c.drawImage(pics.cursor.image, -side / 2, -side / 2, side, side);
-      c.restore();
-    } else {
-      c.drawImage(pics.cursor.image, px(now.x) - side / 2, py(now.y) - side / 2, side, side);
-    }
-
-    if (pics.cursor_middle) {
-      const middle = box.r * 1.35;
-      c.drawImage(pics.cursor_middle.image, px(now.x) - middle / 2, py(now.y) - middle / 2, middle, middle);
-    }
-    return;
-  }
-  c.fillStyle = held ? "#fff" : "rgba(255,255,255,0.75)";
-  c.beginPath();
-  c.arc(px(now.x), py(now.y), held ? 6 : 4.5, 0, Math.PI * 2);
-  c.fill();
-  if (held) {
-    c.strokeStyle = "rgba(255,255,255,0.5)";
-    c.lineWidth = 2;
-    c.beginPath();
-    c.arc(px(now.x), py(now.y), 12, 0, Math.PI * 2);
-    c.stroke();
-  }
-}
-
 function drawView() {
-  if (!scene || view.clientWidth === 0) return;
-  const dpr = window.devicePixelRatio || 1;
-  const w = view.clientWidth;
-  const h = view.clientHeight;
-  view.width = Math.round(w * dpr);
-  view.height = Math.round(h * dpr);
-  const c = view.getContext("2d");
-  c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  c.clearRect(0, 0, w, h);
-  drawPlay(c, { scene, judged, head, skinned, popups: true, frame: true }, w, h);
+  if (!scene || !live) return;
+  const c = canvasPixels(view, 2);
+  if (!c) return;
+  viewTicket += 1;
+  const mine = viewTicket;
+  frameOf(live, head, c.w, c.h).then((image) => {
+    if (mine !== viewTicket) return;
+    if (!image) {
+      byId("rp-said").textContent = "Движок не отдал кадр — посмотрите в логах";
+      return;
+    }
+    paintFrame(c, image);
+  });
 }
 
 function readAt(ms) {
@@ -3420,8 +2677,8 @@ function measureDensity() {
   const span = Math.max(1, scene.to_ms - scene.from_ms);
   const buckets = 320;
   const raw = new Float32Array(buckets);
-  for (const piece of scene.objects) {
-    const at = Math.floor(((piece.start_ms - scene.from_ms) / span) * buckets);
+  for (const start of scene.starts) {
+    const at = Math.floor(((start - scene.from_ms) / span) * buckets);
     if (at >= 0 && at < buckets) raw[at] += 1;
   }
 
@@ -3896,7 +3153,6 @@ byId("w-save").addEventListener("click", async () => {
     dressAll();
     measure();
     if (document.fonts && document.fonts.ready) await document.fonts.ready;
-    loadPics().catch(() => {});
   } catch (why) {
     console.error(why);
   }

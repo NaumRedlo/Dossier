@@ -10,10 +10,10 @@ mod logbook;
 mod look;
 mod machine;
 mod pick;
-mod pics;
 mod play;
 mod reel;
 mod settings;
+mod show;
 mod update;
 mod work;
 
@@ -153,22 +153,71 @@ fn ready() -> Vec<check::Row> {
     check::ready()
 }
 
-#[tauri::command(async)]
-fn preview(replay: String) -> Result<play::Scene, String> {
+#[derive(serde::Serialize)]
+struct Shown {
+    show: u64,
+
+    #[serde(flatten)]
+    scene: play::Scene,
+}
+
+fn wanted(replay: String, skin: Option<String>, fine: Option<draw::Fine>) -> show::Wanted {
     let said = settings::Settings::load();
-    play::preview(
-        std::path::Path::new(&replay),
-        Some(std::path::Path::new(&said.songs)),
-        6.0,
-    )
+    let songs = std::path::PathBuf::from(&said.songs);
+    let folder = skin.filter(|n| !n.is_empty()).unwrap_or(said.skin.clone());
+    let chosen = (!folder.is_empty() && !said.skins.is_empty())
+        .then(|| std::path::Path::new(&said.skins).join(folder))
+        .filter(|path| path.is_dir());
+    show::Wanted {
+        replay: std::path::PathBuf::from(replay),
+        songs: songs.is_dir().then_some(songs),
+        skin: chosen,
+        fine: fine.unwrap_or_default(),
+    }
+}
+
+fn shown(
+    replay: String,
+    skin: Option<String>,
+    fine: Option<draw::Fine>,
+    seconds: Option<f64>,
+) -> Result<Shown, String> {
+    let id = show::open(wanted(replay, skin, fine))?;
+    match show::facts(id, seconds) {
+        Ok(scene) => Ok(Shown { show: id, scene }),
+        Err(why) => {
+            show::shut(id);
+            Err(why)
+        }
+    }
 }
 
 #[tauri::command(async)]
-fn judged(replay: String) -> Result<play::Scene, String> {
-    let said = settings::Settings::load();
-    let songs = std::path::PathBuf::from(&said.songs);
-    let songs = songs.is_dir().then_some(songs.as_path());
-    play::open(std::path::Path::new(&replay), songs)
+fn preview(
+    replay: String,
+    skin: Option<String>,
+    fine: Option<draw::Fine>,
+) -> Result<Shown, String> {
+    shown(replay, skin, fine, Some(6.0))
+}
+
+#[tauri::command(async)]
+fn judged(replay: String, skin: Option<String>, fine: Option<draw::Fine>) -> Result<Shown, String> {
+    shown(replay, skin, fine, None)
+}
+
+#[tauri::command(async)]
+fn show_open(
+    replay: String,
+    skin: Option<String>,
+    fine: Option<draw::Fine>,
+) -> Result<u64, String> {
+    show::open(wanted(replay, skin, fine))
+}
+
+#[tauri::command(async)]
+fn show_shut(show: u64) {
+    show::shut(show);
 }
 
 #[tauri::command(async)]
@@ -179,21 +228,6 @@ fn pick_folder(prompt: String) -> Result<Option<String>, String> {
 #[tauri::command(async)]
 fn install_skin(path: String) -> Result<String, String> {
     library::install_skin(&settings::Settings::load(), std::path::Path::new(&path))
-}
-
-#[tauri::command(async)]
-fn skin_pictures(name: Option<String>) -> pics::Pictures {
-    let said = settings::Settings::load();
-    let name = name.filter(|n| !n.is_empty()).unwrap_or(said.skin.clone());
-    if name.is_empty() || said.skins.is_empty() {
-        return pics::Pictures::default();
-    }
-    let folder = std::path::Path::new(&said.skins).join(name);
-    if folder.is_dir() {
-        pics::of(&folder)
-    } else {
-        pics::Pictures::default()
-    }
 }
 
 #[tauri::command(async)]
@@ -412,8 +446,33 @@ fn shape_window(app: &tauri::App) {
     }
 }
 
+fn serve_frames(request: tauri::http::Request<Vec<u8>>, responder: tauri::UriSchemeResponder) {
+    let uri = request.uri().to_string();
+    std::thread::spawn(move || {
+        let drawn = show::asked_for(&uri).and_then(|(id, ms, w, h)| show::frame(id, ms, w, h));
+        let answer = match drawn {
+            Some(png) => tauri::http::Response::builder()
+                .status(200)
+                .header("Content-Type", "image/png")
+                .header("Access-Control-Allow-Origin", "*")
+                .header("Cache-Control", "no-store")
+                .body(png),
+            None => tauri::http::Response::builder()
+                .status(404)
+                .header("Content-Type", "text/plain")
+                .body(Vec::new()),
+        };
+        if let Ok(answer) = answer {
+            responder.respond(answer);
+        }
+    });
+}
+
 fn main() {
     tauri::Builder::default()
+        .register_asynchronous_uri_scheme_protocol("frame", |_app, request, responder| {
+            serve_frames(request, responder);
+        })
         .setup(|app| {
             shape_window(app);
             build_tray(app)?;
@@ -447,7 +506,8 @@ fn main() {
             pick_replay,
             pick_skin,
             install_skin,
-            skin_pictures,
+            show_open,
+            show_shut,
             build_reel,
             modules,
             update_look,

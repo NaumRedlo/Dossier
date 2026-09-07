@@ -9,6 +9,7 @@ mod link;
 mod logbook;
 mod look;
 mod machine;
+mod mirror;
 mod pick;
 mod play;
 mod reel;
@@ -206,6 +207,59 @@ fn judged(replay: String, skin: Option<String>, fine: Option<draw::Fine>) -> Res
     shown(replay, skin, fine, None)
 }
 
+#[derive(serde::Serialize)]
+struct MapHere {
+    hash: String,
+    here: bool,
+}
+
+#[tauri::command(async)]
+fn map_here(replay: String) -> Result<MapHere, String> {
+    let bytes = std::fs::read(&replay).map_err(|why| format!("реплей не читается: {why}"))?;
+    let played = dossier_replay::Replay::parse(&bytes).map_err(|why| format!("{why}"))?;
+    let said = settings::Settings::load();
+    let songs = std::path::PathBuf::from(&said.songs);
+    let here = songs.is_dir()
+        && dossier_produce::locate::search_dir(&songs, &played.beatmap_hash)
+            .ok()
+            .flatten()
+            .is_some();
+    Ok(MapHere {
+        hash: played.beatmap_hash,
+        here,
+    })
+}
+
+#[tauri::command(async)]
+fn fetch_map(app: tauri::AppHandle, replay: String) -> Result<mirror::Found, String> {
+    use tauri::Emitter;
+
+    let bytes = std::fs::read(&replay).map_err(|why| format!("реплей не читается: {why}"))?;
+    let played = dossier_replay::Replay::parse(&bytes).map_err(|why| format!("{why}"))?;
+    let said = settings::Settings::load();
+
+    let sending = app.clone();
+    let say = move |step: &str, got: u64, of: u64| {
+        let _ = sending.emit(
+            "fetching",
+            serde_json::json!({ "replay": replay, "step": step, "got": got, "of": of }),
+        );
+    };
+    let found = mirror::bring(
+        &played.beatmap_hash,
+        std::path::Path::new(&said.songs),
+        &say,
+    );
+    match &found {
+        Ok(one) => logbook::note(
+            "карта скачана",
+            &[format!("{} — {} [{}]", one.artist, one.title, one.version)],
+        ),
+        Err(why) => logbook::note("карта не скачалась", std::slice::from_ref(why)),
+    }
+    found
+}
+
 #[tauri::command(async)]
 fn show_open(
     replay: String,
@@ -228,6 +282,25 @@ fn pick_folder(prompt: String) -> Result<Option<String>, String> {
 #[tauri::command(async)]
 fn install_skin(path: String) -> Result<String, String> {
     library::install_skin(&settings::Settings::load(), std::path::Path::new(&path))
+}
+
+#[tauri::command(async)]
+fn clone_skin(name: String) -> Result<String, String> {
+    library::clone_skin(&settings::Settings::load(), &name)
+}
+
+#[tauri::command(async)]
+fn export_skin(name: String, into: String) -> Result<String, String> {
+    library::export_skin(
+        &settings::Settings::load(),
+        &name,
+        std::path::Path::new(&into),
+    )
+}
+
+#[tauri::command(async)]
+fn remove_skin(name: String) -> Result<(), String> {
+    library::remove_skin(&settings::Settings::load(), &name)
 }
 
 #[tauri::command(async)]
@@ -506,8 +579,13 @@ fn main() {
             pick_replay,
             pick_skin,
             install_skin,
+            clone_skin,
+            export_skin,
+            remove_skin,
             show_open,
             show_shut,
+            map_here,
+            fetch_map,
             build_reel,
             modules,
             update_look,

@@ -496,6 +496,77 @@ pub fn install_skin(said: &Settings, archive: &Path) -> Result<String, String> {
     Ok(name)
 }
 
+fn free_name(shelf: &Path, wanted: &str) -> String {
+    if !shelf.join(wanted).exists() {
+        return wanted.to_owned();
+    }
+    for n in 2..100 {
+        let tried = format!("{wanted} ({n})");
+        if !shelf.join(&tried).exists() {
+            return tried;
+        }
+    }
+    format!("{wanted} ({})", std::process::id())
+}
+
+fn copy_tree(from: &Path, into: &Path) -> Result<(), String> {
+    std::fs::create_dir_all(into).map_err(|why| format!("{why}"))?;
+    for entry in entries(from) {
+        let Some(name) = entry.file_name() else {
+            continue;
+        };
+        let landing = into.join(name);
+        if entry.is_dir() {
+            copy_tree(&entry, &landing)?;
+        } else {
+            std::fs::copy(&entry, &landing).map_err(|why| format!("{why}"))?;
+        }
+    }
+    Ok(())
+}
+
+fn one_skin(said: &Settings, name: &str) -> Result<PathBuf, String> {
+    if said.skins.is_empty() {
+        return Err("Папка скинов не указана: укажите её в настройках".to_owned());
+    }
+    if name.is_empty() || name.contains('/') || name.contains('\\') || name.contains("..") {
+        return Err("Такого скина нет".to_owned());
+    }
+    let folder = Path::new(&said.skins).join(name);
+    if folder.is_dir() {
+        Ok(folder)
+    } else {
+        Err(format!("Скина «{name}» нет в папке скинов"))
+    }
+}
+
+pub fn clone_skin(said: &Settings, name: &str) -> Result<String, String> {
+    let from = one_skin(said, name)?;
+    let shelf = Path::new(&said.skins);
+    let made = free_name(shelf, &format!("{name} копия"));
+    let into = shelf.join(&made);
+    if let Err(why) = copy_tree(&from, &into) {
+        let _ = std::fs::remove_dir_all(&into);
+        return Err(format!("Скин не скопировался: {why}"));
+    }
+    Ok(made)
+}
+
+pub fn export_skin(said: &Settings, name: &str, into: &Path) -> Result<String, String> {
+    let from = one_skin(said, name)?;
+    if !into.is_dir() {
+        return Err("Некуда класть: такой папки нет".to_owned());
+    }
+    let file = into.join(format!("{name}.osk"));
+    dossier_produce::skin::pack(&from, &file).map_err(|why| format!("Архив не собрался: {why}"))?;
+    Ok(file.display().to_string())
+}
+
+pub fn remove_skin(said: &Settings, name: &str) -> Result<(), String> {
+    let folder = one_skin(said, name)?;
+    std::fs::remove_dir_all(&folder).map_err(|why| format!("Скин не убрался: {why}"))
+}
+
 fn flatten(into: &Path) {
     if into.join("skin.ini").exists() {
         return;

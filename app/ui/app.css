@@ -1321,6 +1321,59 @@ body.still *, body.still *::before, body.still *::after {
 .ic-scan .inner { stroke-dasharray: 49 146; opacity: 0.6; }
 .ic-scan .heart { fill: var(--accent); stroke: none; }
 
+.wall { z-index: 50; }
+.wall .middle { max-width: 30rem; padding: 0 1.5rem; }
+.walldo { display: flex; flex-wrap: wrap; justify-content: center; gap: 0.6rem; margin-top: 1.6rem; }
+.walldo .act { margin: 0; }
+
+.ic-nomap { width: 7.5rem; height: 7.5rem; }
+.ic-nomap .track {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+  opacity: 0.16;
+}
+.ic-nomap .arc {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 4;
+  stroke-linecap: round;
+  stroke-dasharray: 46 243;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.ic-nomap .bar {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 7;
+  stroke-linecap: round;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.fitting {
+  margin: 0.9rem 0;
+  border: 1px solid var(--line);
+  border-radius: 1.05rem;
+  background: var(--sunk);
+  overflow: hidden;
+}
+#s-fitview {
+  display: block;
+  width: 100%;
+  height: 15rem;
+  background: rgba(0, 0, 0, 0.25);
+}
+.fittingfoot {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.55rem 0.85rem;
+  border-top: 1px solid var(--line);
+}
+.fittingfoot .grow { flex: 1; }
+.fittingfoot .act { margin: 0; }
+
 .shelf {
   flex: 1;
   min-height: 8rem;
@@ -1574,7 +1627,7 @@ body.still .rep .stage::after, body.away .rep .stage::after { animation: none; }
 }
 .sheetbox {
   position: relative;
-  width: min(34rem, 100%);
+  width: min(46rem, 100%);
   max-height: 100%;
   overflow-y: auto;
   padding: 1.4rem 1.4rem 1.2rem;
@@ -1630,8 +1683,8 @@ body.still .rep .stage::after, body.away .rep .stage::after { animation: none; }
 
 .sheetstage {
   position: relative;
-  height: 11rem;
-  margin-top: 0.9rem;
+  aspect-ratio: 16 / 9;
+  margin-top: 1rem;
   border: 1px solid var(--line);
   border-radius: 0.9rem;
   background: rgba(0, 0, 0, 0.34);
@@ -1702,6 +1755,7 @@ h4.sheeth {
 .tally .key.none { opacity: 0.4; }
 
 .spread {
+  position: relative;
   padding: 0.7rem 0.8rem 0.6rem;
   border: 1px solid var(--line);
   border-radius: 0.8rem;
@@ -1711,17 +1765,27 @@ h4.sheeth {
 .spread .bars {
   display: block;
   width: 100%;
-  height: 4.6rem;
+  height: 6.2rem;
+  cursor: crosshair;
 }
+.spread .hint {
+  position: absolute;
+  top: 0.35rem;
+  z-index: 2;
+  display: grid;
+  gap: 0.1rem;
+  padding: 0.35rem 0.55rem;
+  border: 1px solid var(--line-high);
+  border-radius: 0.55rem;
+  background: rgba(33, 14, 18, 0.96);
+  box-shadow: 0 0.5rem 1.2rem rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+  white-space: nowrap;
+}
+.spread .hint b { font-size: 0.78rem; font-weight: 600; }
+.spread .hint span { color: var(--faint); font: 0.68rem var(--mono); }
 .spread .scale { display: flex; justify-content: space-between; margin-top: 0.35rem; color: var(--faint); font-size: 0.7rem; }
 .spread .scale .mono { font-family: var(--mono); }
-
-#r-sheet-body .where {
-  margin: 1rem 0 0;
-  overflow-wrap: anywhere;
-  color: var(--faint);
-  font: 0.7rem/1.5 var(--mono);
-}
 
 .finished {
   display: flex;

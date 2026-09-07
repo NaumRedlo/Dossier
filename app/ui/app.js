@@ -328,6 +328,32 @@ function restartLoops() {
     "ease-in-out",
   );
   loopIcon(
+    at(".ic-nomap .arc"),
+    [{ transform: "rotate(0deg)" }, { transform: "rotate(360deg)" }],
+    2600,
+    "cubic-bezier(0.5, 0, 0.5, 1)",
+  );
+  loopIcon(
+    at(".ic-nomap .one"),
+    [
+      { transform: "scale(0.88)", opacity: 0.7 },
+      { transform: "scale(1.06)", opacity: 1, offset: 0.42 },
+      { transform: "scale(0.88)", opacity: 0.7 },
+    ],
+    1800,
+    "ease-in-out",
+  );
+  loopIcon(
+    at(".ic-nomap .two"),
+    [
+      { transform: "scale(1.06)", opacity: 1 },
+      { transform: "scale(0.88)", opacity: 0.7, offset: 0.42 },
+      { transform: "scale(1.06)", opacity: 1 },
+    ],
+    1800,
+    "ease-in-out",
+  );
+  loopIcon(
     at(".ic-judge .ring"),
     [
       { transform: "scale(2.1)", opacity: 0 },
@@ -1244,12 +1270,171 @@ byId("s-skin").addEventListener("change", async () => {
   await freshSkin();
 });
 
+const FIT_PARTS = 3;
+const FIT_PIECE_MS = 2800;
+const FIT_BLEND_MS = 420;
+
+let fitRun = 0;
+let fitParts = null;
+let fitAt = 0;
+let fitLoading = false;
+
+function fitSays(text) {
+  byId("s-fitsaid").textContent = text;
+}
+
+async function loadFitting(again = false) {
+  if (fitLoading) return;
+  if (fitParts && !again) return;
+  fitLoading = true;
+  fitSays("Собираю примерку…");
+  try {
+    const plays = await invoke("my_replays", { most: 40 }).catch(() => []);
+    const withMap = plays.filter((play) => play.have_map);
+    if (!withMap.length) {
+      fitParts = [];
+      fitSays("Примерять не на чем: нет ни одного реплея с картой.");
+      return;
+    }
+    const pool = withMap.slice();
+    const picked = [];
+    while (picked.length < Math.min(FIT_PARTS, pool.length)) {
+      picked.push(pool.splice(Math.floor(Math.random() * pool.length), 1)[0]);
+    }
+    const made = await Promise.all(
+      picked.map((play) =>
+        invoke("preview", { replay: play.path, fine: options().fine })
+          .then((scene) => ({
+            scene,
+            head: scene.from_ms,
+            show: scene.show,
+            path: play.path,
+            who: play.player,
+          }))
+          .catch(() => null),
+      ),
+    );
+    fitParts = made.filter(Boolean);
+    fitAt = 0;
+    if (!fitParts.length) fitSays("Ни один реплей не открылся.");
+  } finally {
+    fitLoading = false;
+  }
+}
+
+function nextFitPiece() {
+  if (!fitParts || !fitParts.length) return;
+  fitAt = (fitAt + 1) % fitParts.length;
+  const one = fitParts[fitAt];
+  one.head = one.scene.from_ms + Math.random() * Math.max(1, one.scene.to_ms - one.scene.from_ms - FIT_PIECE_MS);
+}
+
+function runFitting() {
+  fitRun += 1;
+  const view = byId("s-fitview");
+  const page = document.querySelector('#view-settings .page[data-page="skins"]');
+  if (!view || !page || page.hidden) return;
+  const mine = fitRun;
+  let was = performance.now();
+  let shown = 0;
+  (async () => {
+    while (mine === fitRun) {
+      await new Promise((again) => requestAnimationFrame(again));
+      if (mine !== fitRun || page.hidden) return;
+      const c = canvasPixels(view, 2);
+      if (!c) continue;
+      if (!fitParts) {
+        await loadFitting();
+        continue;
+      }
+      if (!fitParts.length) return;
+
+      const one = fitParts[fitAt];
+      const now = performance.now();
+      const step = Math.min(120, now - was);
+      was = now;
+      if (motionOn()) one.head += step;
+      shown += step;
+      if (shown >= FIT_PIECE_MS || one.head > one.scene.to_ms) {
+        shown = 0;
+        nextFitPiece();
+        continue;
+      }
+      const image = await frameOf(one, one.head, c.w, c.h);
+      if (mine !== fitRun) return;
+      if (!image) {
+        nextFitPiece();
+        continue;
+      }
+      const into = clamp01(shown / FIT_BLEND_MS);
+      const away = clamp01((FIT_PIECE_MS - shown) / FIT_BLEND_MS);
+      c.ctx.setTransform(1, 0, 0, 1, 0, 0);
+      c.ctx.clearRect(0, 0, c.w, c.h);
+      c.ctx.globalAlpha = Math.min(into, away);
+      c.ctx.drawImage(image, 0, 0, c.w, c.h);
+      c.ctx.globalAlpha = 1;
+      fitSays(`${one.who} · кусок ${fitAt + 1} из ${fitParts.length}`);
+    }
+  })();
+}
+
+function stopFitting() {
+  fitRun += 1;
+}
+
+byId("s-fitnext").addEventListener("click", () => {
+  nextFitPiece();
+  runFitting();
+});
+
+byId("s-clone").addEventListener("click", async () => {
+  const name = byId("s-skin").value;
+  const said = byId("s-skinsaid");
+  if (!name) {
+    said.textContent = "«" + DEFAULT_SKIN + "» не лежит в папке — клонировать нечего.";
+    return;
+  }
+  said.textContent = "Копирую…";
+  try {
+    const made = await invoke("clone_skin", { name });
+    const skins = await invoke("skins").catch(() => []);
+    fillSkins(byId("s-skin"), skins, made);
+    known.skin = made;
+    await saveSettings("s", "s-said");
+    await freshSkin();
+    said.textContent = `Скопирован как «${made}».`;
+  } catch (why) {
+    said.textContent = `${why}`;
+  }
+});
+
+byId("s-export").addEventListener("click", async () => {
+  const name = byId("s-skin").value;
+  const said = byId("s-skinsaid");
+  if (!name) {
+    said.textContent = "«" + DEFAULT_SKIN + "» не лежит в папке — выгружать нечего.";
+    return;
+  }
+  try {
+    const into = await invoke("pick_folder", { prompt: "Куда положить .osk" });
+    if (!into) return;
+    said.textContent = "Собираю архив…";
+    const file = await invoke("export_skin", { name, into });
+    said.textContent = `Готово: ${file}`;
+  } catch (why) {
+    said.textContent = `${why}`;
+  }
+});
+
 async function freshSkin() {
   cardTicket += 1;
+  stopFitting();
   for (const made of previews.values()) {
     if (made && made.show) invoke("show_shut", { show: made.show }).catch(() => {});
   }
   previews.clear();
+  fitParts = null;
+  runFitting();
   for (const card of document.querySelectorAll("#r-list .rep")) {
     card.classList.remove("read", "plain");
     const where = card.querySelector(".map");
@@ -1716,7 +1901,10 @@ function fillPlays({ shelves, skins, plays, rows }) {
       openMenu(event.clientX, event.clientY, menuFor(play, card));
     });
 
-    card.addEventListener("click", () => openSheet(play, card));
+    card.addEventListener("click", () => {
+      if (play.have_map) openSheet(play, card);
+      else showWall(play);
+    });
 
     card.dataset.path = play.path;
     card.previewOf = play;
@@ -1765,18 +1953,97 @@ function fillPlays({ shelves, skins, plays, rows }) {
   }
 
   function menuFor(play, card) {
-    return [
+    const rows = [
       { name: "Отрендерить", off: !play.have_map || drawing, go: () => draw(play) },
-      { name: "Посмотреть в Судействе", off: !play.have_map, go: () => takeTo("judge", play.path) },
-      { name: "Добавить в Студию", off: !play.have_map, go: () => takeTo("cut", play.path) },
-      { name: "Подробнее…", off: !play.have_map, go: () => openSheet(play, card) },
-      { line: true },
-      { name: "Показать в папке", go: () => invoke("reveal_file", { path: play.path }).catch(() => {}) },
+      { name: "Посмотреть в Судействе", go: () => takeTo("judge", play.path) },
+      { name: "Добавить в Студию", go: () => takeTo("cut", play.path) },
+      { name: "Подробнее…", go: () => openSheet(play, card) },
     ];
+    if (!play.have_map) rows.push({ line: true }, { name: "Скачать карту", go: () => showWall(play) });
+    rows.push({ line: true }, {
+      name: "Показать в папке",
+      go: () => invoke("reveal_file", { path: play.path }).catch(() => {}),
+    });
+    return rows;
   }
 }
 
 const clamp01 = (t) => (t < 0 ? 0 : t > 1 ? 1 : t);
+
+const wall = byId("nomap");
+const wallGet = byId("nomap-get");
+const wallOk = byId("nomap-ok");
+let wallFor = null;
+let wallGot = false;
+
+const WALL_WHY = "Скачай карту для реплея, чтобы взаимодействовать с реплеем.";
+
+function showWall(play) {
+  wallFor = play;
+  wallGot = false;
+  byId("nomap-head").textContent = "Нет карты для реплея!";
+  byId("nomap-why").textContent = WALL_WHY;
+  wallGet.hidden = false;
+  wallGet.disabled = false;
+  wallGet.textContent = "Скачать карту";
+  wallOk.textContent = "Понял!";
+  wall.hidden = false;
+  restartLoops();
+  wallOk.focus();
+}
+
+async function shutWall() {
+  if (wall.hidden) return;
+  wall.hidden = true;
+  const grabbed = wallGot;
+  const play = wallFor;
+  wallFor = null;
+  wallGot = false;
+  if (!grabbed) return;
+  shelfCache = null;
+  await showRender(true);
+  if (play) takeTo("judge", play.path);
+}
+
+wallOk.addEventListener("click", shutWall);
+wall.addEventListener("pointerdown", (event) => {
+  if (event.target === wall) shutWall();
+});
+
+wallGet.addEventListener("click", async () => {
+  const play = wallFor;
+  if (!play || wallGet.disabled) return;
+  wallGet.disabled = true;
+  byId("nomap-head").textContent = "Ищу карту…";
+  byId("nomap-why").textContent = "Спрашиваю зеркало про эту карту.";
+  try {
+    const found = await invoke("fetch_map", { replay: play.path });
+    wallGot = true;
+    byId("nomap-head").textContent = "Карта на месте!";
+    byId("nomap-why").textContent = `${found.artist} — ${found.title} [${found.version}]`;
+    wallGet.hidden = true;
+    wallOk.textContent = "Открыть реплей";
+    wallOk.focus();
+  } catch (why) {
+    byId("nomap-head").textContent = "Карта не скачалась";
+    byId("nomap-why").textContent = `${why}`;
+    wallGet.disabled = false;
+    wallGet.textContent = "Попробовать снова";
+  }
+});
+
+function saySteps(payload) {
+  if (wall.hidden || !wallFor || payload.replay !== wallFor.path) return;
+  const of = Number(payload.of) || 0;
+  const got = Number(payload.got) || 0;
+  if (!of || !got) {
+    byId("nomap-why").textContent = payload.step;
+    return;
+  }
+  const mb = (n) => (n / (1024 * 1024)).toFixed(1);
+  byId("nomap-head").textContent = "Качаю карту…";
+  byId("nomap-why").textContent = `${mb(got)} из ${mb(of)} МБ · ${Math.round((got / of) * 100)}%`;
+}
 
 function refreshShows() {
   for (const made of previews.values()) if (made) made.show = 0;
@@ -2137,25 +2404,29 @@ function openSheet(play, card) {
     body.append(from);
   }
 
-  body.append(el("h4", "sheeth", "Файл"));
-  body.append(el("p", "where", play.path));
-
   const routes = el("div", "routes");
   const judge = el("button", "act small primary", "Посмотреть в Судействе");
-  judge.disabled = !play.have_map;
   judge.addEventListener("click", () => {
     shutSheet();
     takeTo("judge", play.path);
   });
   const studio = el("button", "act small", "Добавить в Студию");
-  studio.disabled = !play.have_map;
   studio.addEventListener("click", () => {
     shutSheet();
     takeTo("cut", play.path);
   });
+  routes.append(judge, studio);
+  if (!play.have_map) {
+    const grab = el("button", "act small", "Скачать карту");
+    grab.addEventListener("click", () => {
+      shutSheet();
+      showWall(play);
+    });
+    routes.append(grab);
+  }
   const folder = el("button", "act small", "Показать в папке");
   folder.addEventListener("click", () => invoke("reveal_file", { path: play.path }).catch(() => {}));
-  routes.append(judge, studio, folder);
+  routes.append(folder);
   body.append(routes);
 
   sheet.hidden = false;
@@ -2234,7 +2505,9 @@ function errorBars(said) {
   const box = el("div", "spread");
   const canvas = document.createElement("canvas");
   canvas.className = "bars";
-  box.append(canvas);
+  const hint = el("div", "hint");
+  hint.hidden = true;
+  box.append(canvas, hint);
 
   const widest = Math.max(...errors.map(Math.abs));
   const reach = Math.max(20, Math.ceil(widest / 10) * 10);
@@ -2249,6 +2522,34 @@ function errorBars(said) {
   const paint = () => paintSpread(canvas, counts);
   requestAnimationFrame(paint);
   canvas.repaint = paint;
+
+  const step = (reach * 2) / bins;
+  const edge = (i) => -reach + i * step;
+  const ms = (n) => (Math.abs(n) < 0.05 ? "0" : `${n > 0 ? "+" : ""}${round(n, 1)}`);
+
+  canvas.addEventListener("pointermove", (event) => {
+    const box_ = canvas.getBoundingClientRect();
+    const at = Math.floor(((event.clientX - box_.left) / box_.width) * bins);
+    if (at < 0 || at >= bins) {
+      hint.hidden = true;
+      return;
+    }
+    const n = counts[at];
+    const from = edge(at);
+    const to = edge(at + 1);
+    const when = at < Math.floor(bins / 2) ? "рано" : at > Math.floor(bins / 2) ? "поздно" : "в точку";
+    hint.replaceChildren(
+      el("b", null, `${n} ${plural(n, "нажатие", "нажатия", "нажатий")}`),
+      el("span", null, `${ms(from)}…${ms(to)} мс · ${when} · ${round((n / errors.length) * 100, 1)}%`),
+    );
+    hint.hidden = false;
+    const wide = hint.offsetWidth || 150;
+    const x = ((at + 0.5) / bins) * box_.width;
+    hint.style.left = `${Math.min(Math.max(x - wide / 2, 0), box_.width - wide)}px`;
+  });
+  canvas.addEventListener("pointerleave", () => {
+    hint.hidden = true;
+  });
 
   const early = errors.filter((one) => one < 0).length;
   const late = errors.length - early;
@@ -2287,8 +2588,8 @@ function paintSpread(canvas, counts) {
     if (!n) return;
     const tall = Math.max(2, (n / tallest) * (floor - 2));
     c.fillStyle = i === middle ? "#5fd694" : i < middle ? "rgba(122,167,216,0.75)" : "rgba(216,136,122,0.75)";
-    const x = i * step;
     const w = Math.max(1, step - gap);
+    const x = i * step + (step - w) / 2;
 
     const r = Math.min(2, w / 2, tall / 2);
     c.beginPath();
@@ -2347,7 +2648,9 @@ sheet.addEventListener("pointerdown", (event) => {
   if (event.target === sheet) shutSheet();
 });
 document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape" && !sheet.hidden) shutSheet();
+  if (event.key !== "Escape") return;
+  if (!wall.hidden) shutWall();
+  else if (!sheet.hidden) shutSheet();
 });
 
 byId("r-refresh").addEventListener("click", () => showRender(true));
@@ -2395,6 +2698,7 @@ if (window.__TAURI__ && window.__TAURI__.event) {
     byId(watching.said).textContent = note;
     if (job) paintJob(share, note);
   });
+  subscribe("fetching", ({ payload }) => saySteps(payload));
   subscribe("reeling", ({ payload }) => {
     const note = `кусок ${payload.clip} из ${payload.of}…`;
     byId("rp-built").textContent = note;
@@ -2480,6 +2784,13 @@ byId("rp-back").addEventListener("click", () => {
 async function openReplay(path) {
   const said = byId("rp-said");
   byId("rp-drop").hidden = false;
+  said.textContent = "Смотрю, есть ли карта…";
+  const here = await invoke("map_here", { replay: path }).catch(() => null);
+  if (here && !here.here) {
+    said.textContent = "";
+    showWall({ path, have_map: false });
+    return;
+  }
   said.textContent = "Читаю и сужу…";
   let opened;
   try {
@@ -2516,6 +2827,8 @@ function openSettings(which, save = true) {
   }
   if (!found) return openSettings("link", save);
   if (save) remember("spage", which);
+  if (which === "skins") runFitting();
+  else stopFitting();
   return which;
 }
 
@@ -3056,6 +3369,7 @@ let open_tab = null;
 
 function show(which) {
   if (which === open_tab) return;
+  if (open_tab === "settings") stopFitting();
   open_tab = which;
   syncJobMini();
   restartLoops();

@@ -89,6 +89,41 @@ pub fn from_folder(mut skin: Skin, path: &Path, tint_ball: Option<bool>) -> Skin
     skin
 }
 
+pub fn pack(folder: &Path, into: &Path) -> Result<(), String> {
+    let file = std::fs::File::create(into).map_err(|e| e.to_string())?;
+    let mut zip = zip::ZipWriter::new(file);
+    let how = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
+
+    let mut stack = vec![(folder.to_path_buf(), String::new())];
+    while let Some((dir, under)) = stack.pop() {
+        let entries = std::fs::read_dir(&dir).map_err(|e| e.to_string())?;
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let Some(name) = path.file_name().map(|n| n.to_string_lossy().into_owned()) else {
+                continue;
+            };
+            let inside = if under.is_empty() {
+                name
+            } else {
+                format!("{under}/{name}")
+            };
+            if path.is_dir() {
+                stack.push((path, inside));
+                continue;
+            }
+            let bytes = match std::fs::read(&path) {
+                Ok(bytes) => bytes,
+                Err(_) => continue,
+            };
+            zip.start_file(&inside, how).map_err(|e| e.to_string())?;
+            std::io::Write::write_all(&mut zip, &bytes).map_err(|e| e.to_string())?;
+        }
+    }
+    zip.finish().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 pub fn unpack(archive: &[u8], into: &Path) -> Result<(), String> {
     let mut zip = zip::ZipArchive::new(std::io::Cursor::new(archive)).map_err(|e| e.to_string())?;
     for index in 0..zip.len() {

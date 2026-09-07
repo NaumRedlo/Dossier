@@ -299,6 +299,7 @@
         <button data-page="paths"><b>Папки</b><span>Где лежат карты, скины и реплеи</span></button>
         <button data-page="video"><b>Видео</b><span>Во что рисуется файл и чего это стоит</span></button>
         <button data-page="audio"><b>Звук</b><span>Песня, хитсаунды и то, чем звучит недостающее</span></button>
+        <button data-page="skins"><b>Скины</b><span>Чем рисуется игра: примерить, поставить, размножить</span></button>
         <button data-page="field"><b>Игра</b><span>Что происходит в игровом процессе, пока идёт игра</span></button>
         <button data-page="window"><b>Клиент</b><span>Как ведёт себя само приложение</span></button>
         <button data-page="build"><b>Сборка</b><span>Версия, готовность устройства и кто ещё в сети</span></button>
@@ -355,11 +356,6 @@
           <span class="pathname">Реплеи</span>
           <input id="s-replays" type="text" autocomplete="off" spellcheck="false">
           <button class="act small" data-pick="replays">Обзор…</button>
-        </div>
-        <div class="pathrow">
-          <span class="pathname">Скин</span>
-          <select id="s-skin"></select>
-          <button class="act small" id="s-osk">Поставить .osk…</button>
         </div>
       </div>
 
@@ -506,6 +502,31 @@
             </select></label>
           </div>
         </div>
+      </div>
+      </div>
+      <div class="page" data-page="skins" hidden>
+      <div class="card">
+        <div class="pref">
+          <div><b>Чем рисовать</b><p>Скин берётся из папки скинов и применяется ко всему, что рисует приложение.</p></div>
+          <label class="pick"><span class="cap">Скин</span><select id="s-skin"></select></label>
+        </div>
+      </div>
+
+      <div class="fitting" id="s-fitting">
+        <canvas id="s-fitview"></canvas>
+        <div class="fittingfoot">
+          <span class="muted" id="s-fitsaid">Примерка</span>
+          <span class="grow"></span>
+          <button class="act small" id="s-fitnext">Другой кусок</button>
+        </div>
+      </div>
+
+      <div class="bar">
+        <span class="muted" id="s-skinsaid">Что можно сделать со скином.</span>
+        <span class="grow"></span>
+        <button class="act small" id="s-osk">Импортировать .osk…</button>
+        <button class="act small" id="s-clone">Клонировать</button>
+        <button class="act small" id="s-export">Экспортировать…</button>
       </div>
       </div>
       <div class="page" data-page="field" hidden>
@@ -678,6 +699,23 @@
     <span class="repo-name">NaumRedlo/Dossier</span>
     <span class="repo-out" aria-hidden="true">↗</span>
   </a>
+
+  <div class="scanning wall" id="nomap" hidden>
+    <div class="middle">
+      <svg class="ic-nomap" viewBox="0 0 120 120" fill="none" aria-hidden="true">
+        <circle class="track" cx="60" cy="60" r="46"/>
+        <circle class="arc" cx="60" cy="60" r="46"/>
+        <path class="bar one" d="M44 44 L76 76"/>
+        <path class="bar two" d="M76 44 L44 76"/>
+      </svg>
+      <h2 id="nomap-head">Нет карты для реплея!</h2>
+      <p id="nomap-why">Скачай карту для реплея, чтобы взаимодействовать с реплеем.</p>
+      <div class="walldo">
+        <button class="act primary" id="nomap-get">Скачать карту</button>
+        <button class="act" id="nomap-ok">Понял!</button>
+      </div>
+    </div>
+  </div>
 
   <script src="app.js"></script>
 </body>

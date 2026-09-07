@@ -216,7 +216,7 @@ struct MapHere {
 #[tauri::command(async)]
 fn map_here(replay: String) -> Result<MapHere, String> {
     let bytes = std::fs::read(&replay).map_err(|why| format!("реплей не читается: {why}"))?;
-    let played = dossier_replay::Replay::parse(&bytes).map_err(|why| format!("{why}"))?;
+    let played = dossier_replay::Replay::heading(&bytes).map_err(|why| format!("{why}"))?;
     let said = settings::Settings::load();
     let songs = std::path::PathBuf::from(&said.songs);
     let here = songs.is_dir()
@@ -235,7 +235,7 @@ fn fetch_map(app: tauri::AppHandle, replay: String) -> Result<mirror::Found, Str
     use tauri::Emitter;
 
     let bytes = std::fs::read(&replay).map_err(|why| format!("реплей не читается: {why}"))?;
-    let played = dossier_replay::Replay::parse(&bytes).map_err(|why| format!("{why}"))?;
+    let played = dossier_replay::Replay::heading(&bytes).map_err(|why| format!("{why}"))?;
     let said = settings::Settings::load();
 
     let sending = app.clone();

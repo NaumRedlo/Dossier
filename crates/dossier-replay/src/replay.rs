@@ -164,6 +164,14 @@ impl Replay {
     }
 
     pub fn parse(data: &[u8]) -> Result<Self> {
+        Self::read(data, true)
+    }
+
+    pub fn heading(data: &[u8]) -> Result<Self> {
+        Self::read(data, false)
+    }
+
+    fn read(data: &[u8], with_frames: bool) -> Result<Self> {
         let mut r = Reader::new(data);
 
         let mode_byte = r.u8()?;
@@ -205,7 +213,7 @@ impl Replay {
 
         let score_info = read_score_info(&mut r);
 
-        let (frames, rng_seed) = if compressed.is_empty() {
+        let (frames, rng_seed) = if compressed.is_empty() || !with_frames {
             (Vec::new(), None)
         } else {
             parse_frames(&decompress(compressed)?)?

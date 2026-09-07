@@ -44,6 +44,8 @@ pub struct Played {
     pub bytes: u64,
 
     pub have_map: bool,
+
+    pub played_at: i64,
 }
 
 fn entries(path: &Path) -> Vec<PathBuf> {
@@ -226,7 +228,7 @@ pub fn played(said: &Settings, most: usize) -> Vec<Played> {
     if said.replays.is_empty() || !at.is_dir() {
         return Vec::new();
     }
-    let mut files: Vec<_> = entries(at)
+    let files: Vec<_> = entries(at)
         .into_iter()
         .filter(|p| p.extension().is_some_and(|e| e.eq_ignore_ascii_case("osr")))
         .filter_map(|p| {
@@ -234,17 +236,16 @@ pub fn played(said: &Settings, most: usize) -> Vec<Played> {
             Some((when, p))
         })
         .collect();
-    files.sort_by_key(|(when, _)| std::cmp::Reverse(*when));
-    files.truncate(most);
-
     let known = maps(Path::new(&said.songs));
-    files
+    let mut played: Vec<Played> = files
         .into_iter()
-        .filter_map(|(_, path)| {
+        .filter_map(|(when, path)| {
             let bytes = std::fs::read(&path).ok()?;
-            let replay = dossier_replay::Replay::parse(&bytes).ok()?;
+            let replay = dossier_replay::Replay::heading(&bytes).ok()?;
             let have_map = known.contains(&replay.beatmap_hash);
+            let played_at = when_played(&replay).unwrap_or_else(|| file_seconds(when));
             Some(Played {
+                played_at,
                 file: path
                     .file_name()
                     .map(|n| n.to_string_lossy().into_owned())
@@ -258,7 +259,23 @@ pub fn played(said: &Settings, most: usize) -> Vec<Played> {
                 have_map,
             })
         })
-        .collect()
+        .collect();
+    played.sort_by_key(|one| std::cmp::Reverse(one.played_at));
+    played.truncate(most);
+    played
+}
+
+const TICKS_TO_UNIX: i64 = 62_135_596_800;
+
+fn when_played(replay: &dossier_replay::Replay) -> Option<i64> {
+    let seconds = replay.timestamp_ticks / 10_000_000 - TICKS_TO_UNIX;
+    (seconds > 0).then_some(seconds)
+}
+
+fn file_seconds(when: std::time::SystemTime) -> i64 {
+    when.duration_since(std::time::UNIX_EPOCH)
+        .map(|gap| gap.as_secs() as i64)
+        .unwrap_or_default()
 }
 
 #[cfg(test)]

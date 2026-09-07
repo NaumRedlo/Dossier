@@ -472,3 +472,23 @@ fn a_corrupt_block_is_ignored_rather_than_fatal() {
     let replay = Replay::parse(&bytes).expect("the replay still parses");
     assert!(replay.score_info.is_none());
 }
+
+#[test]
+fn a_heading_reads_the_header_and_leaves_the_frames_packed() {
+    let bytes = build(Spec {
+        frames: "10|256|192|0,5|260|190|5,20|300|150|15,",
+        ..Spec::default()
+    });
+    let whole = Replay::parse(&bytes).unwrap();
+    let head = Replay::heading(&bytes).unwrap();
+
+    assert_eq!(head.beatmap_hash, whole.beatmap_hash);
+    assert_eq!(head.player, whole.player);
+    assert_eq!(head.score, whole.score);
+    assert_eq!(head.max_combo, whole.max_combo);
+    assert_eq!(head.timestamp_ticks, whole.timestamp_ticks);
+    assert_eq!(head.mods.to_string(), whole.mods.to_string());
+
+    assert!(!whole.frames.is_empty(), "the whole replay has frames");
+    assert!(head.frames.is_empty(), "a heading carries none");
+}

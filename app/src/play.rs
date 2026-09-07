@@ -6,6 +6,8 @@ pub struct Scene {
     pub to_ms: f64,
 
     pub starts: Vec<f32>,
+
+    pub parts: Vec<[f64; 2]>,
     pub summary: crate::look::Judged,
 }
 
@@ -26,24 +28,31 @@ fn busiest(starts: &[f32], window: f64) -> f64 {
     best.0
 }
 
+const LEAD_MS: f64 = 1200.0;
+
 fn window_of(starts: &[f32], seconds: f64, from_ms: f64) -> (f64, f64) {
     let window = seconds.max(1.0) * 1000.0;
     let busy = busiest(starts, window);
-    ((busy - 1200.0).max(from_ms), busy + window)
+    ((busy - LEAD_MS).max(from_ms), busy + window)
 }
 
-pub fn narrow(scene: &mut Scene, seconds: f64) {
-    let (from, to) = window_of(&scene.starts, seconds, scene.from_ms);
+pub fn pieces(starts: &[f32], seconds: f64, from_ms: f64, most: usize) -> Vec<[f64; 2]> {
+    let mut left: Vec<f32> = starts.to_vec();
+    let mut cut = Vec::new();
+    while cut.len() < most && !left.is_empty() {
+        let (from, to) = window_of(&left, seconds, from_ms);
+        cut.push([from, to]);
+        left.retain(|start| {
+            let at = f64::from(*start);
+            at < from || at > to
+        });
+    }
+    cut.sort_by(|a, b| a[0].total_cmp(&b[0]));
+    cut
+}
 
-    scene
-        .starts
-        .retain(|start| f64::from(*start) >= from && f64::from(*start) <= to);
-    scene
-        .summary
-        .marks
-        .retain(|mark| mark.ms >= from && mark.ms <= to);
-    scene.from_ms = from;
-    scene.to_ms = to;
+pub fn narrow(scene: &mut Scene, seconds: f64, most: usize) {
+    scene.parts = pieces(&scene.starts, seconds, scene.from_ms, most);
 }
 
 pub fn read(
@@ -69,6 +78,7 @@ pub fn read(
             .iter()
             .map(|object| object.start_ms as f32)
             .collect(),
+        parts: Vec::new(),
         summary,
     })
 }
@@ -101,5 +111,34 @@ mod tests {
         let starts = [500.0, 600.0, 700.0];
         let (from, _) = window_of(&starts, 2.0, 400.0);
         assert_eq!(from, 400.0);
+    }
+
+    #[test]
+    fn several_pieces_come_from_different_parts_of_the_map() {
+        let mut starts = Vec::new();
+        for cluster in [10_000.0f32, 60_000.0, 120_000.0] {
+            for step in 0..30 {
+                starts.push(cluster + step as f32 * 60.0);
+            }
+        }
+        let cut = pieces(&starts, 2.0, 0.0, 3);
+        assert_eq!(cut.len(), 3);
+        for pair in cut.windows(2) {
+            assert!(pair[0][1] <= pair[1][0], "pieces overlap: {pair:?}");
+        }
+        assert!(cut[0][0] < 12_000.0 && cut[1][0] > 55_000.0 && cut[2][0] > 115_000.0);
+    }
+
+    #[test]
+    fn a_map_shorter_than_the_asking_gives_what_it_has_and_stops() {
+        let starts = [1000.0f32, 1100.0, 1200.0];
+        let cut = pieces(&starts, 6.0, 0.0, 4);
+        assert_eq!(cut.len(), 1);
+        assert!(cut[0][0] <= 1000.0);
+    }
+
+    #[test]
+    fn a_map_with_no_objects_asks_for_no_pieces() {
+        assert!(pieces(&[], 6.0, 0.0, 3).is_empty());
     }
 }

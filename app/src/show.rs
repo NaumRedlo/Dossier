@@ -30,6 +30,8 @@ enum Ask {
 
 const SHOWS_KEPT: usize = 4;
 
+const PIECES: usize = 3;
+
 type Open = Vec<(u64, Sender<Ask>)>;
 
 static DESKS: OnceLock<Mutex<Open>> = OnceLock::new();
@@ -100,7 +102,7 @@ pub fn open(wanted: Wanted) -> Result<u64, String> {
                     Ask::Facts { seconds, back } => {
                         let mut facts = crate::play::read(&beatmap, &replay, &state);
                         if let (Ok(one), Some(seconds)) = (&mut facts, seconds) {
-                            crate::play::narrow(one, seconds);
+                            crate::play::narrow(one, seconds, PIECES);
                         }
                         let _ = back.send(facts);
                     }

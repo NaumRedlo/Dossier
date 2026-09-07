@@ -12,6 +12,19 @@ function invoke(name, args) {
   return bridge.core.invoke(name, args);
 }
 
+function spell(seconds) {
+  const whole = Math.max(0, Math.round(seconds));
+  if (whole < 60) return `${whole} с`;
+  const minutes = Math.floor(whole / 60);
+  if (minutes < 60) {
+    const left = whole % 60;
+    return left ? `${minutes} м ${left} с` : `${minutes} м`;
+  }
+  const hours = Math.floor(minutes / 60);
+  const left = minutes % 60;
+  return left ? `${hours} ч ${left} м` : `${hours} ч`;
+}
+
 function plural(n, one, few, many) {
   if (n % 10 === 1 && n % 100 !== 11) return one;
   if (n % 10 >= 2 && n % 10 <= 4 && !(n % 100 >= 12 && n % 100 <= 14)) return few;
@@ -64,7 +77,7 @@ function dressSelect(select) {
     const flip = below < 120 && above > below;
     list.style.width = "auto";
     list.style.minWidth = `${rect.width}px`;
-    list.style.maxWidth = `${Math.min(window.innerWidth - 16, OPTIONS_WIDEST)}px`;
+    list.style.maxWidth = `${Math.min(window.innerWidth - 16, OPTIONS_WIDEST, Math.max(rect.width, 280))}px`;
     list.style.left = "0px";
     const wide = list.getBoundingClientRect().width;
     list.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - wide - 8))}px`;
@@ -592,6 +605,13 @@ async function nextIdlePlay() {
   }
 }
 
+function restSplash(c, box) {
+  const dpr = box.w / Math.max(1, splashView.clientWidth);
+  c.setTransform(dpr, 0, 0, dpr, 0, 0);
+  c.clearRect(0, 0, splashView.clientWidth, splashView.clientHeight);
+  drawResting(c, splashView.clientWidth, splashView.clientHeight);
+}
+
 function drawResting(c, w, h) {
   if (!markImage.complete || !markImage.naturalWidth) return;
   const { mid, size, side } = letterBox(w, h);
@@ -613,17 +633,18 @@ function playIdle() {
   let was = performance.now();
   nextIdlePlay();
 
+  let missed = 0;
   (async () => {
     while (mine === idleRun) {
       await new Promise((again) => requestAnimationFrame(again));
       if (mine !== idleRun) return;
-      const { w, h } = sizeSplash(c);
+      const box = canvasPixels(splashView, SPLASH_DPR, 1_200_000);
       const now = performance.now();
       const step = Math.min(64, now - was);
       was = now;
       const one = idlePlay;
-      if (!one) {
-        drawResting(c, w, h);
+      if (!box || !one) {
+        if (box) restSplash(c, box);
         continue;
       }
       one.head += step;
@@ -632,21 +653,26 @@ function playIdle() {
         idlePlay = null;
         idleFade = 0;
         nextIdlePlay();
-        drawResting(c, w, h);
+        restSplash(c, box);
         continue;
       }
-      const image = await frameOf(one, one.head, splashView.width, splashView.height);
+      const image = await frameOf(one, one.head, box.w, box.h);
       if (mine !== idleRun) return;
       if (!image) {
-        idlePlay = null;
-        nextIdlePlay();
+        missed += 1;
+        if (missed > 8) {
+          missed = 0;
+          idlePlay = null;
+          nextIdlePlay();
+        }
         continue;
       }
+      missed = 0;
       idleFade = Math.min(1, idleFade + step / FADE_MS);
       c.setTransform(1, 0, 0, 1, 0, 0);
-      c.clearRect(0, 0, splashView.width, splashView.height);
+      c.clearRect(0, 0, box.w, box.h);
       c.globalAlpha = Math.min(idleFade, Math.max(0, left / FADE_MS));
-      c.drawImage(image, 0, 0, splashView.width, splashView.height);
+      c.drawImage(image, 0, 0, box.w, box.h);
       c.globalAlpha = 1;
     }
   })();
@@ -1213,6 +1239,7 @@ async function showSettings() {
   closesInto(known.on_close || "quit", false);
   loadRenderSettings();
   byId("s-found").textContent = await readShelves();
+  if (!document.querySelector('#view-settings .page[data-page="skins"]').hidden) runFitting();
   showReady();
 
   if (!measured) {
@@ -1279,21 +1306,16 @@ let fitParts = null;
 let fitAt = 0;
 let fitLoading = false;
 
-function fitSays(text) {
-  byId("s-fitsaid").textContent = text;
-}
-
 async function loadFitting(again = false) {
   if (fitLoading) return;
   if (fitParts && !again) return;
   fitLoading = true;
-  fitSays("Собираю примерку…");
   try {
     const plays = await invoke("my_replays", { most: 40 }).catch(() => []);
     const withMap = plays.filter((play) => play.have_map);
     if (!withMap.length) {
       fitParts = [];
-      fitSays("Примерять не на чем: нет ни одного реплея с картой.");
+      byId("s-skinsaid").textContent = "Примерять не на чем: нет ни одного реплея с картой.";
       return;
     }
     const pool = withMap.slice();
@@ -1304,19 +1326,17 @@ async function loadFitting(again = false) {
     const made = await Promise.all(
       picked.map((play) =>
         invoke("preview", { replay: play.path, fine: options().fine })
-          .then((scene) => ({
-            scene,
-            head: scene.from_ms,
-            show: scene.show,
-            path: play.path,
-            who: play.player,
-          }))
+          .then((scene) => {
+            const one = { scene, head: scene.from_ms, at: 0, show: scene.show, path: play.path, who: play.player };
+            rollPart(one, 0);
+            return one;
+          })
           .catch(() => null),
       ),
     );
     fitParts = made.filter(Boolean);
     fitAt = 0;
-    if (!fitParts.length) fitSays("Ни один реплей не открылся.");
+    if (!fitParts.length) byId("s-skinsaid").textContent = "Ни один реплей не открылся.";
   } finally {
     fitLoading = false;
   }
@@ -1326,7 +1346,13 @@ function nextFitPiece() {
   if (!fitParts || !fitParts.length) return;
   fitAt = (fitAt + 1) % fitParts.length;
   const one = fitParts[fitAt];
-  one.head = one.scene.from_ms + Math.random() * Math.max(1, one.scene.to_ms - one.scene.from_ms - FIT_PIECE_MS);
+  const parts = one.scene.parts;
+  if (parts && parts.length) {
+    one.at = Math.floor(Math.random() * parts.length);
+    one.head = parts[one.at][0];
+  } else {
+    one.head = one.scene.from_ms;
+  }
 }
 
 function runFitting() {
@@ -1353,9 +1379,9 @@ function runFitting() {
       const now = performance.now();
       const step = Math.min(120, now - was);
       was = now;
-      if (motionOn()) one.head += step;
+      if (motionOn()) rollPart(one, step);
       shown += step;
-      if (shown >= FIT_PIECE_MS || one.head > one.scene.to_ms) {
+      if (shown >= FIT_PIECE_MS) {
         shown = 0;
         nextFitPiece();
         continue;
@@ -1373,19 +1399,13 @@ function runFitting() {
       c.ctx.globalAlpha = Math.min(into, away);
       c.ctx.drawImage(image, 0, 0, c.w, c.h);
       c.ctx.globalAlpha = 1;
-      fitSays(`${one.who} · кусок ${fitAt + 1} из ${fitParts.length}`);
-    }
+      }
   })();
 }
 
 function stopFitting() {
   fitRun += 1;
 }
-
-byId("s-fitnext").addEventListener("click", () => {
-  nextFitPiece();
-  runFitting();
-});
 
 byId("s-clone").addEventListener("click", async () => {
   const name = byId("s-skin").value;
@@ -1523,6 +1543,7 @@ async function showLibrary() {
 }
 
 let drawing = false;
+let drawFile = null;
 
 let watching = { bar: "r-bar", said: "r-said", share: "r-share" };
 
@@ -1812,6 +1833,36 @@ async function showRender(again = false) {
   fillPlays(shelfCache);
 }
 
+const SORTS = {
+  new: (a, b) => b.played_at - a.played_at,
+  old: (a, b) => a.played_at - b.played_at,
+  score: (a, b) => b.score - a.score,
+  combo: (a, b) => b.combo - a.combo,
+  player: (a, b) => a.player.localeCompare(b.player, "ru"),
+};
+
+const ONLY = {
+  all: () => true,
+  map: (play) => play.have_map,
+  nomap: (play) => !play.have_map,
+};
+
+function chosenPlays(plays) {
+  const how = SORTS[remembered("sort", "new")] || SORTS.new;
+  const which = ONLY[remembered("only", "all")] || ONLY.all;
+  return plays.filter(which).slice().sort(how);
+}
+
+for (const [id, key] of [
+  ["r-sort", "sort"],
+  ["r-only", "only"],
+]) {
+  byId(id).addEventListener("change", () => {
+    remember(key, byId(id).value);
+    if (shelfCache) fillPlays(shelfCache);
+  });
+}
+
 function fillPlays({ shelves, skins, plays, rows }) {
   const list = byId("r-list");
   const ffmpeg = rows.find((row) => row.name === "ffmpeg");
@@ -1852,8 +1903,18 @@ function fillPlays({ shelves, skins, plays, rows }) {
   const left = steps.filter((step) => !step.done);
   byId("r-steps").replaceChildren(...(left.length ? steps.map(stepCard) : []));
 
-  byId("r-count").textContent = plays.length
-    ? `${plays.length} ${plural(plays.length, "реплей", "реплея", "реплеев")}, новейшие находятся наверху`
+  for (const [id, key, fallback] of [
+    ["r-sort", "sort", "new"],
+    ["r-only", "only", "all"],
+  ]) {
+    const box = byId(id);
+    box.value = remembered(key, fallback);
+    dressSelect(box);
+  }
+
+  const showing = chosenPlays(plays);
+  byId("r-count").textContent = showing.length
+    ? `${showing.length} ${plural(showing.length, "реплей", "реплея", "реплеев")}`
     : "";
   if (!plays.length) {
     list.classList.add("waiting");
@@ -1863,7 +1924,12 @@ function fillPlays({ shelves, skins, plays, rows }) {
   list.classList.remove("waiting");
   forgetCards();
   requestAnimationFrame(shelfEdges);
-  list.replaceChildren(...plays.map((play) => playCard(play)));
+  if (!showing.length) {
+    list.replaceChildren(line({ mark: ["huh", "?"], name: "пусто", said: "Под этот отбор ничего не подошло." }));
+  } else {
+    list.replaceChildren(...showing.map((play) => playCard(play)));
+  }
+  offerMissingMaps(plays);
 
   function playCard(play) {
     const card = el("article", "rep");
@@ -1915,6 +1981,8 @@ function fillPlays({ shelves, skins, plays, rows }) {
     return card;
   }
 
+  drawFile = draw;
+
   async function draw(play) {
     if (drawing) return;
     drawing = true;
@@ -1927,7 +1995,7 @@ function fillPlays({ shelves, skins, plays, rows }) {
     byId("r-share").textContent = "0";
     byId("r-said").textContent = watchFailed
       ? `идёт, но без счётчика: окно не подписалось на события (${watchFailed})`
-      : `${play.player} · ${howItDraws()}`;
+      : "Подготовка к рендеру…";
     list.classList.add("dimmed");
     const out = play.path.replace(/\.osr$/i, "") + ".mp4";
     const slot = byId("r-doneslot");
@@ -1975,12 +2043,15 @@ const wallGet = byId("nomap-get");
 const wallOk = byId("nomap-ok");
 let wallFor = null;
 let wallGot = false;
+let wallAsk = null;
 
 const WALL_WHY = "Скачай карту для реплея, чтобы взаимодействовать с реплеем.";
 
 function showWall(play) {
   wallFor = play;
   wallGot = false;
+  wallAsk = null;
+  wallGet.onclick = null;
   byId("nomap-head").textContent = "Нет карты для реплея!";
   byId("nomap-why").textContent = WALL_WHY;
   wallGet.hidden = false;
@@ -1992,27 +2063,66 @@ function showWall(play) {
   wallOk.focus();
 }
 
+function askWall({ head, why, yes, no, doing, nope }) {
+  wallFor = null;
+  wallGot = false;
+  wallBulk = null;
+  wallGet.onclick = null;
+  wallAsk = { yes, no };
+  byId("nomap-head").textContent = head;
+  byId("nomap-why").textContent = why;
+  wallGet.hidden = false;
+  wallGet.disabled = false;
+  wallGet.textContent = doing;
+  wallOk.textContent = nope;
+  wall.hidden = false;
+  restartLoops();
+  wallOk.focus();
+}
+
+function tellWall(head, why) {
+  byId("nomap-head").textContent = head;
+  byId("nomap-why").textContent = why;
+}
+
 async function shutWall() {
   if (wall.hidden) return;
   wall.hidden = true;
   const grabbed = wallGot;
-  const play = wallFor;
+  const asked = wallAsk;
   wallFor = null;
   wallGot = false;
+  wallAsk = null;
+  if (asked) return;
   if (!grabbed) return;
   shelfCache = null;
   await showRender(true);
-  if (play) takeTo("judge", play.path);
 }
 
-wallOk.addEventListener("click", shutWall);
+wallOk.addEventListener("click", () => {
+  if (wallAsk) {
+    const no = wallAsk.no;
+    wallAsk = null;
+    wall.hidden = true;
+    wallFor = null;
+    if (no) no();
+    return;
+  }
+  shutWall();
+});
 wall.addEventListener("pointerdown", (event) => {
   if (event.target === wall) shutWall();
 });
 
 wallGet.addEventListener("click", async () => {
+  if (wallAsk) {
+    const yes = wallAsk.yes;
+    wallAsk = null;
+    if (yes) yes();
+    return;
+  }
   const play = wallFor;
-  if (!play || wallGet.disabled) return;
+  if (!play || wallGet.disabled || wallGet.onclick) return;
   wallGet.disabled = true;
   byId("nomap-head").textContent = "Ищу карту…";
   byId("nomap-why").textContent = "Спрашиваю зеркало про эту карту.";
@@ -2021,8 +2131,15 @@ wallGet.addEventListener("click", async () => {
     wallGot = true;
     byId("nomap-head").textContent = "Карта на месте!";
     byId("nomap-why").textContent = `${found.artist} — ${found.title} [${found.version}]`;
-    wallGet.hidden = true;
-    wallOk.textContent = "Открыть реплей";
+    wallGet.disabled = false;
+    wallGet.textContent = "Открыть подробности";
+    wallGet.onclick = async () => {
+      const path = play.path;
+      await shutWall();
+      const fresh = (shelfCache && shelfCache.plays) || [];
+      const one = fresh.find((row) => row.path === path);
+      if (one) openSheet(one, null);
+    };
     wallOk.focus();
   } catch (why) {
     byId("nomap-head").textContent = "Карта не скачалась";
@@ -2041,8 +2158,54 @@ function saySteps(payload) {
     return;
   }
   const mb = (n) => (n / (1024 * 1024)).toFixed(1);
-  byId("nomap-head").textContent = "Качаю карту…";
+  byId("nomap-head").textContent = wallBulk || "Качаю карту…";
   byId("nomap-why").textContent = `${mb(got)} из ${mb(of)} МБ · ${Math.round((got / of) * 100)}%`;
+}
+
+const MISSING_ENOUGH = 3;
+let askedAboutMaps = false;
+let wallBulk = null;
+
+function offerMissingMaps(plays) {
+  if (askedAboutMaps || !wall.hidden) return;
+  const missing = plays.filter((play) => !play.have_map);
+  if (missing.length < MISSING_ENOUGH) return;
+  askedAboutMaps = true;
+  askWall({
+    head: "Не хотите ли вы скачать все недостающие карты для реплеев?",
+    why: `${missing.length} ${plural(missing.length, "реплей ждёт свою карту", "реплея ждут свои карты", "реплеев ждут свои карты")}.`,
+    doing: "Да",
+    nope: "Нет, спасибо",
+    yes: () => grabAllMaps(missing),
+  });
+}
+
+async function grabAllMaps(missing) {
+  let done = 0;
+  let failed = 0;
+  wallGet.disabled = true;
+  wallGet.textContent = "Качаю…";
+  for (const play of missing) {
+    if (wall.hidden) break;
+    wallFor = play;
+    wallBulk = `Карта ${done + failed + 1} из ${missing.length}`;
+    tellWall(wallBulk, play.file);
+    try {
+      await invoke("fetch_map", { replay: play.path });
+      done += 1;
+    } catch {
+      failed += 1;
+    }
+  }
+  wallBulk = null;
+  wallFor = null;
+  wallGot = done > 0;
+  wallGet.hidden = true;
+  wallOk.textContent = "Понял!";
+  tellWall(
+    done ? "Готово" : "Ничего не скачалось",
+    failed ? `Скачано ${done}, не нашлось ${failed}.` : `Скачано ${done}.`,
+  );
 }
 
 function refreshShows() {
@@ -2079,18 +2242,46 @@ async function frameOf(made, ms, wide, high) {
   return askFrame(made.show, ms, wide, high);
 }
 
-function canvasPixels(canvas, cap) {
+const MOST_PIXELS = 1_600_000;
+
+function canvasPixels(canvas, cap, most = MOST_PIXELS) {
   const wide = canvas.clientWidth;
   const high = canvas.clientHeight;
   if (!wide || !high) return null;
-  const dpr = Math.min(window.devicePixelRatio || 1, cap);
-  const w = Math.round(wide * dpr);
-  const h = Math.round(high * dpr);
+  let dpr = Math.min(window.devicePixelRatio || 1, cap);
+  const room = Math.sqrt(most / (wide * high * dpr * dpr));
+  if (room < 1) dpr *= room;
+  const w = Math.max(1, Math.round(wide * dpr));
+  const h = Math.max(1, Math.round(high * dpr));
   if (canvas.width !== w || canvas.height !== h) {
     canvas.width = w;
     canvas.height = h;
   }
   return { ctx: canvas.getContext("2d"), w, h };
+}
+
+function rollPart(one, step) {
+  const parts = one.scene.parts && one.scene.parts.length ? one.scene.parts : null;
+  if (!parts) {
+    one.head += step;
+    if (one.head > one.scene.to_ms) one.head = one.scene.from_ms;
+    return;
+  }
+  if (one.at === undefined || one.at >= parts.length) {
+    one.at = 0;
+    one.head = parts[0][0];
+  }
+  one.head += step;
+  if (one.head <= parts[one.at][1]) return;
+  one.at = (one.at + 1) % parts.length;
+  one.head = parts[one.at][0];
+}
+
+function partEdges(one) {
+  const parts = one.scene.parts && one.scene.parts.length ? one.scene.parts : null;
+  const from = parts ? parts[one.at || 0][0] : one.scene.from_ms;
+  const to = parts ? parts[one.at || 0][1] : one.scene.to_ms;
+  return { from_ms: from, to_ms: to };
 }
 
 function paintFrame(c, image) {
@@ -2161,7 +2352,10 @@ function watchCard(card) {
     cardTicket += 1;
 
     const made = previews.get(card.previewOf.path);
-    if (made) made.head = made.scene.from_ms;
+    if (made) {
+      made.at = 0;
+      rollPart(made, 0);
+    }
     stillCard(card);
   });
 
@@ -2198,7 +2392,8 @@ function pumpPreviews() {
     asking.add(path);
     invoke("preview", { replay: path, fine: options().fine })
       .then((scene) => {
-        const made = { scene, judged: scene.summary, head: scene.from_ms, show: scene.show, path };
+        const made = { scene, judged: scene.summary, head: scene.from_ms, at: 0, show: scene.show, path };
+        rollPart(made, 0);
         keepPreview(path, made);
         applyPreview(card, made);
       })
@@ -2258,8 +2453,9 @@ async function stillCard(card) {
   if (!made) return;
   const c = canvasPixels(card.previewOn, 1.5);
   if (!c) return;
-  const play = made.scene;
-  const image = await frameOf(made, (play.from_ms + play.to_ms) / 2, c.w, c.h);
+  const parts = made.scene.parts;
+  const first = parts && parts.length ? parts[0] : [made.scene.from_ms, made.scene.to_ms];
+  const image = await frameOf(made, (first[0] + first[1]) / 2, c.w, c.h);
   if (!image) {
     card.classList.add("plain");
     return;
@@ -2283,13 +2479,12 @@ function runPreviews() {
       const c = canvasPixels(one.previewOn, 1.5);
       if (!c) return;
       const now = performance.now();
-      made.head += Math.min(120, now - was);
+      rollPart(made, Math.min(120, now - was));
       was = now;
-      if (made.head > made.scene.to_ms) made.head = made.scene.from_ms;
       const image = await frameOf(made, made.head, c.w, c.h);
       if (mine !== cardTicket || hovered !== one || !image) return;
       paintFrame(c, image);
-      fadeEdges(c, made.head, made.scene);
+      fadeEdges(c, made.head, partEdges(made));
     }
   })();
 }
@@ -2364,22 +2559,26 @@ function openSheet(play, card) {
   head.append(chips);
   body.replaceChildren(head);
 
-  if (made) {
-    const stage = el("div", "sheetstage");
-    sheetView = document.createElement("canvas");
-    stage.append(sheetView);
-    body.append(stage);
-    sheetPlay = { scene: made.scene, judged: made.judged, head: made.scene.from_ms, show: made.show, path: made.path };
-    runSheetPreview();
-  }
-
   if (!said) {
     body.append(
       el("p", "fine", play.have_map ? "Ещё читаю этот реплей." : "Карты этого реплея нет на этом устройстве."),
     );
   } else {
-    body.append(mainFigure(said));
-    body.append(tally(said));
+    const top = el("div", "sheettop");
+    const side = el("div", "sheetside");
+    side.append(mainFigure(said), tally(said));
+    top.append(side);
+    if (made) {
+      const stage = el("div", "sheetstage");
+      sheetView = document.createElement("canvas");
+      stage.append(sheetView);
+      top.append(stage);
+    }
+    body.append(top);
+    if (made) {
+      sheetPlay = { scene: made.scene, judged: made.judged, head: made.scene.from_ms, at: 0, show: made.show, path: made.path };
+      rollPart(sheetPlay, 0);
+    }
     const spread = errorBars(said);
     if (spread) {
       body.append(el("h4", "sheeth", "Куда ложились нажатия"));
@@ -2405,7 +2604,14 @@ function openSheet(play, card) {
   }
 
   const routes = el("div", "routes");
-  const judge = el("button", "act small primary", "Посмотреть в Судействе");
+  const render = el("button", "act small primary", "Отрендерить");
+  render.disabled = !play.have_map || drawing || !drawFile;
+  render.addEventListener("click", () => {
+    shutSheet();
+    if (drawFile) drawFile(play);
+  });
+  routes.append(render);
+  const judge = el("button", "act small", "Посмотреть в Судействе");
   judge.addEventListener("click", () => {
     shutSheet();
     takeTo("judge", play.path);
@@ -2431,6 +2637,7 @@ function openSheet(play, card) {
 
   sheet.hidden = false;
   byId("r-sheet-shut").focus();
+  if (sheetPlay) runSheetPreview();
 
   const spread = body.querySelector(".spread .bars");
   if (spread && spread.repaint) requestAnimationFrame(spread.repaint);
@@ -2622,15 +2829,12 @@ function runSheetPreview() {
       const c = canvasPixels(sheetView, 2);
       if (!c) return;
       const now = performance.now();
-      if (!still) {
-        one.head += Math.min(120, now - was);
-        if (one.head > one.scene.to_ms) one.head = one.scene.from_ms;
-      }
+      if (!still) rollPart(one, Math.min(120, now - was));
       was = now;
       const image = await frameOf(one, one.head, c.w, c.h);
       if (mine !== sheetRun || sheetPlay !== one || !image) return;
       paintFrame(c, image);
-      fadeEdges(c, one.head, one.scene);
+      fadeEdges(c, one.head, partEdges(one));
       if (still) return;
     }
   })();
@@ -2694,7 +2898,7 @@ if (window.__TAURI__ && window.__TAURI__.event) {
     const share = Math.min(100, (payload.frames / payload.of) * 100);
     byId(watching.bar).style.width = `${share}%`;
     if (watching.share) byId(watching.share).textContent = round(share);
-    const note = `Отрендерено ${round(payload.frames)} кадров из ${round(payload.of)} · ${round(payload.per_second)} в секунду · осталось ${round(payload.left_seconds)} с`;
+    const note = `Отрендерено ${round(payload.frames)} кадров из ${round(payload.of)} · ${round(payload.per_second)} в секунду · осталось ${spell(payload.left_seconds)}`;
     byId(watching.said).textContent = note;
     if (job) paintJob(share, note);
   });
@@ -2895,19 +3099,29 @@ if (window.__TAURI__ && window.__TAURI__.event) {
   });
 }
 
+let viewBusy = false;
+let viewAgain = false;
+
 function drawView() {
   if (!scene || !live) return;
-  const c = canvasPixels(view, 2);
+  if (viewBusy) {
+    viewAgain = true;
+    return;
+  }
+  const c = canvasPixels(view, 1.5, 1_200_000);
   if (!c) return;
+  viewBusy = true;
   viewTicket += 1;
   const mine = viewTicket;
   frameOf(live, head, c.w, c.h).then((image) => {
+    viewBusy = false;
     if (mine !== viewTicket) return;
-    if (!image) {
-      byId("rp-said").textContent = "Движок не отдал кадр — посмотрите в логах";
-      return;
+    if (image) paintFrame(c, image);
+    else byId("rp-said").textContent = "Движок не отдал кадр — посмотрите в логах";
+    if (viewAgain) {
+      viewAgain = false;
+      drawView();
     }
-    paintFrame(c, image);
   });
 }
 

@@ -173,8 +173,20 @@
       </div>
 
       <div class="bar" id="r-bar-line">
-        <span class="muted" id="r-count">Читаю папку реплеев…</span>
+        <label class="pick tiny short"><span class="cap">Порядок</span><select id="r-sort">
+          <option value="new" selected>Сначала новые</option>
+          <option value="old">Сначала старые</option>
+          <option value="score">По очкам</option>
+          <option value="combo">По комбо</option>
+          <option value="player">По игроку</option>
+        </select></label>
+        <label class="pick tiny short"><span class="cap">Показывать</span><select id="r-only">
+          <option value="all" selected>Все реплеи</option>
+          <option value="map">Только с картой</option>
+          <option value="nomap">Только без карты</option>
+        </select></label>
         <span class="grow"></span>
+        <span class="muted" id="r-count"></span>
         <button class="act small" id="r-refresh">Обновить</button>
       </div>
 
@@ -514,15 +526,10 @@
 
       <div class="fitting" id="s-fitting">
         <canvas id="s-fitview"></canvas>
-        <div class="fittingfoot">
-          <span class="muted" id="s-fitsaid">Примерка</span>
-          <span class="grow"></span>
-          <button class="act small" id="s-fitnext">Другой кусок</button>
-        </div>
       </div>
 
       <div class="bar">
-        <span class="muted" id="s-skinsaid">Что можно сделать со скином.</span>
+        <span class="muted" id="s-skinsaid"></span>
         <span class="grow"></span>
         <button class="act small" id="s-osk">Импортировать .osk…</button>
         <button class="act small" id="s-clone">Клонировать</button>

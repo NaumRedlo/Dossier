@@ -4,6 +4,8 @@ use dossier_sim::{GameState, Part};
 
 const COMBO_BREAK_THRESHOLD: u32 = 20;
 
+const LENIENCY_MS: f64 = 1.0;
+
 pub fn build(
     state: &GameState,
     beatmap: &Beatmap,
@@ -33,10 +35,11 @@ pub fn build(
             continue;
         };
 
-        let edge = slider_edge(state, event.object_index, event.part, event.time_ms);
+        let asked_at = event.time_ms - event.error_ms.unwrap_or(0.0);
+        let edge = slider_edge(state, event.object_index, event.part, asked_at);
         let balance = balance_of(object.pos.x as f32);
         for voice in voices_for(event.part, object, edge, layering) {
-            let (set, index, volume) = bank_for(beatmap, object, voice, edge, event.time_ms);
+            let (set, index, volume) = bank_for(beatmap, object, voice, edge, asked_at);
             track.strike_panned(
                 voice,
                 at_video(event.time_ms),
@@ -172,7 +175,7 @@ fn bits_for(object: &HitObject, edge: Option<usize>) -> u8 {
 
 fn voices_for(part: Part, object: &HitObject, edge: Option<usize>, layering: bool) -> Vec<Voice> {
     match part {
-        Part::Slider | Part::Spinner => Vec::new(),
+        Part::Slider => Vec::new(),
 
         Part::SpinnerSpin | Part::SpinnerPoints => Vec::new(),
         Part::SpinnerBonus => vec![Voice::Bonus],
@@ -188,7 +191,7 @@ fn bank_for(
     edge: Option<usize>,
     at_ms: f64,
 ) -> (SampleSet, u32, f32) {
-    let point = beatmap.timing.sample_point_at(at_ms);
+    let point = beatmap.timing.sample_point_at(at_ms + LENIENCY_MS);
 
     let inherited = point
         .filter(|p| p.set_given)
@@ -1211,29 +1214,23 @@ fn unconvert(set: SampleSet) -> MapSet {
 mod which_notes_are_quiet {
     use super::*;
 
-    #[test]
-    #[ignore]
-    fn find_the_notes_that_make_no_sound() {
-        let songs = std::path::Path::new("/Users/none/Documents/Dossier Corpus/Beatmap");
-        let replay = std::path::Path::new(
-            "/Users/none/Documents/Dossier Corpus/rektygon playing Silentroom - Nhelv (Fisky) [Frustrated] (2023-11-19_16-41).osr",
-        );
-        if !replay.is_file() {
-            return;
-        }
-        let (map, played, origin, _) = crate::locate::load(replay, None, Some(songs)).unwrap();
+    const CORPUS: &str = "/Users/none/Documents/Dossier Corpus";
+    const SKIN: &str = "/Users/none/Documents/Skins/vv_idke_trail";
+
+    fn silent_notes(replay: &std::path::Path, songs: &std::path::Path) -> Option<(usize, usize)> {
+        let (map, played, origin, _) = crate::locate::load(replay, None, Some(songs)).ok()?;
         let state = GameState::new(&map, &played);
 
-        let scratch = std::env::temp_dir().join("dossier-quiet-notes");
+        let scratch = std::env::temp_dir().join(format!(
+            "dossier-quiet-{}",
+            replay.file_stem()?.to_string_lossy()
+        ));
         let _ = std::fs::remove_dir_all(&scratch);
-        std::fs::create_dir_all(&scratch).unwrap();
+        std::fs::create_dir_all(&scratch).ok()?;
         crate::locate::extract_samples(&origin, &scratch, "ffmpeg");
-        let pack = dossier_audio::SamplePack::load(std::path::Path::new(
-            "/Users/none/Documents/Skins/vv_idke_trail",
-        ))
-        .with_beatmap(&scratch);
+        let pack = dossier_audio::SamplePack::load(std::path::Path::new(SKIN)).with_beatmap(&scratch);
 
-        let last = state.timeline().objects.last().unwrap().end_ms / 1000.0 + 2.0;
+        let last = state.timeline().objects.last()?.end_ms / 1000.0 + 2.0;
         let track = build(
             &state,
             &map,
@@ -1243,40 +1240,188 @@ mod which_notes_are_quiet {
             pack,
             true,
         );
+        let _ = std::fs::remove_dir_all(&scratch);
+
         let pcm = track.to_pcm();
-        let at = |seconds: f64| (seconds * 44100.0) as usize * 2;
-        let peak = |from: usize, to: usize| {
-            pcm.chunks_exact(2)
-                .skip(from)
-                .take(to.saturating_sub(from))
+        let frame = |seconds: f64| (seconds * 44_100.0).max(0.0) as usize * 4;
+        let peak = |from: f64, to: f64| {
+            pcm[frame(from).min(pcm.len())..frame(to).min(pcm.len())]
+                .chunks_exact(2)
                 .map(|b| i16::from_le_bytes([b[0], b[1]]).unsigned_abs())
                 .max()
                 .unwrap_or(0)
         };
 
-        let judge = state.judge().unwrap();
-        let mut quiet = Vec::new();
-        let mut counted = 0;
+        let judge = state.judge()?;
+        let (mut counted, mut silent) = (0, 0);
         for event in judge.events() {
-            if !matches!(event.part, Part::Circle | Part::SliderHead) || event.result.is_miss() {
+            if event.result.is_miss()
+                || !matches!(
+                    event.part,
+                    Part::Circle | Part::SliderHead | Part::SliderRepeat | Part::SliderTail
+                )
+            {
                 continue;
             }
             counted += 1;
-            let from = at(event.time_ms / 1000.0);
-            let loud = peak(from, from + at(0.06));
-            if loud < 300 {
-                let Some(object) = map.objects.get(event.object_index) else {
-                    continue;
-                };
-                let (set, index, volume) =
-                    bank_for(&map, object, Voice::Normal, None, event.time_ms);
-                quiet.push((event.time_ms, set, index, volume, object.hit_sound));
+            let at = event.time_ms / 1000.0;
+            if peak(at, at + 0.05) < 200 {
+                silent += 1;
             }
         }
-        println!("{counted} hits judged, {} of them near silent", quiet.len());
-        for (ms, set, index, volume, bits) in quiet.iter().take(10) {
-            println!("   {ms:.0}ms {set:?} index {index} volume {volume:.3} bits {bits}");
+        Some((counted, silent))
+    }
+
+    #[test]
+    #[ignore]
+    fn find_the_notes_that_make_no_sound() {
+        let corpus = std::path::Path::new(CORPUS);
+        if !corpus.is_dir() {
+            return;
         }
-        let _ = std::fs::remove_dir_all(&scratch);
+        let songs = corpus.join("Beatmap");
+        let mut replays: Vec<_> = std::fs::read_dir(corpus)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|entry| entry.path())
+            .filter(|path| path.extension().is_some_and(|kind| kind == "osr"))
+            .collect();
+        replays.sort();
+
+        let (mut all, mut quiet, mut maps) = (0, 0, 0);
+        for replay in replays {
+            let Some((counted, silent)) = silent_notes(&replay, &songs) else {
+                continue;
+            };
+            if counted == 0 {
+                continue;
+            }
+            maps += 1;
+            all += counted;
+            quiet += silent;
+            if silent > 0 {
+                println!(
+                    "   {silent:5}/{counted:<5} silent — {}",
+                    replay.file_name().unwrap_or_default().to_string_lossy()
+                );
+            }
+        }
+        println!("{maps} replays, {all} notes judged, {quiet} of them silent");
+    }
+}
+
+#[cfg(test)]
+mod moments {
+    use super::*;
+    use dossier_replay::{HitCounts, Keys, Mods, Replay, ReplayFrame};
+
+    fn replay(frames: Vec<ReplayFrame>) -> Replay {
+        Replay {
+            mode: dossier_replay::GameMode::Standard,
+            game_version: 20_260_101,
+            beatmap_hash: String::new(),
+            player: "t".into(),
+            replay_hash: String::new(),
+            hits: HitCounts::default(),
+            score: 0,
+            max_combo: 0,
+            perfect_combo: false,
+            mods: Mods::new(0),
+            life_bar: String::new(),
+            timestamp_ticks: 0,
+            online_score_id: 0,
+            target_practice_accuracy: None,
+            frames,
+            rng_seed: None,
+            score_info: None,
+        }
+    }
+
+    fn loudest(track: &Track) -> i16 {
+        track
+            .to_pcm()
+            .chunks_exact(2)
+            .map(|s| i16::from_le_bytes([s[0], s[1]]).abs())
+            .max()
+            .unwrap_or(0)
+    }
+
+    fn hit_at(map: &Beatmap, press_ms: i64) -> Track {
+        let frames = vec![
+            ReplayFrame {
+                time_ms: press_ms - 40,
+                x: 256.0,
+                y: 192.0,
+                keys: Keys(0),
+            },
+            ReplayFrame {
+                time_ms: press_ms,
+                x: 256.0,
+                y: 192.0,
+                keys: Keys(1),
+            },
+            ReplayFrame {
+                time_ms: press_ms + 40,
+                x: 256.0,
+                y: 192.0,
+                keys: Keys(0),
+            },
+        ];
+        let state = GameState::new(map, &replay(frames));
+        build(
+            &state,
+            map,
+            |map_ms| map_ms / 1000.0,
+            4.0,
+            dossier_audio::Kit::plain(),
+            dossier_audio::SamplePack::default(),
+            true,
+        )
+    }
+
+    fn quietening_map() -> Beatmap {
+        Beatmap::parse(
+            "osu file format v14\n\n[General]\nMode: 0\n\n[Difficulty]\nCircleSize:4\nOverallDifficulty:5\n\n[TimingPoints]\n0,500,4,2,0,100,1,0\n1010,-100,4,2,0,5,0,0\n\n[HitObjects]\n256,192,1000,1,0,0:0:0:0:\n",
+        )
+        .expect("a map")
+    }
+
+    #[test]
+    fn a_late_hit_keeps_the_volume_of_the_note_it_belongs_to() {
+        let map = quietening_map();
+        let on_time = loudest(&hit_at(&map, 1000));
+        let late = loudest(&hit_at(&map, 1030));
+        assert!(on_time > 3_000, "the note should be loud at all: {on_time}");
+        assert!(
+            i32::from(late) * 2 > i32::from(on_time),
+            "a note pressed past a quiet green line went with it: {late} against {on_time}"
+        );
+    }
+
+    #[test]
+    fn a_note_a_hair_before_a_green_line_still_takes_it() {
+        let beatmap = Beatmap::parse(
+            "osu file format v14\n\n[TimingPoints]\n0,500,4,2,0,100,1,0\n1000,-100,4,3,0,100,0,0\n\n[HitObjects]\n256,192,999,1,0,0:0:0:0:\n",
+        )
+        .expect("a map");
+        let object = &beatmap.objects[0];
+        assert_eq!(
+            bank_for(&beatmap, object, Voice::Normal, None, object.time_ms).0,
+            SampleSet::Drum,
+            "osu! allows a millisecond of rounding either way"
+        );
+    }
+
+    #[test]
+    fn a_spinner_sounds_when_it_is_finished() {
+        let beatmap = Beatmap::parse(
+            "osu file format v14\n\n[TimingPoints]\n0,500,4,2,0,100,1,0\n\n[HitObjects]\n256,192,1000,12,0,3000,0:0:0:0:\n",
+        )
+        .expect("a map");
+        assert_eq!(
+            voices_for(Part::Spinner, &beatmap.objects[0], None, true),
+            vec![Voice::Normal]
+        );
     }
 }

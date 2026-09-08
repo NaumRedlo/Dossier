@@ -807,28 +807,38 @@ body.still *, body.still *::before, body.still *::after {
 .bar .grow { flex: 1; }
 .bar .verdict { margin: 0; font-weight: 500; }
 .pick.short { min-width: 8rem; }
-.finder {
+.finder { display: grid; gap: 0.3rem; min-width: 0; flex: 0 1 18rem; margin: 0; }
+.finder .cap {
+  display: block;
+  margin: 0 0 0 0.15rem;
+  color: var(--faint);
+  font: 0.66rem/1 var(--mono);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.finder .field {
   display: flex;
   align-items: center;
   gap: 0.45rem;
   min-width: 0;
-  flex: 0 1 18rem;
   padding: 0.36rem 0.6rem;
   border: 1px solid var(--line);
   border-radius: 0.7rem;
   background: var(--sunk);
 }
-.finder:focus-within { border-color: var(--accent); }
+.finder .field:focus-within { border-color: var(--line-high); background: var(--glass); }
 .finder svg { flex: none; width: 0.9rem; height: 0.9rem; stroke: var(--faint); stroke-width: 2; fill: none; stroke-linecap: round; }
 .finder input {
   width: 100%;
   margin: 0;
   padding: 0;
   border: 0;
+  outline: none;
   background: none;
   color: var(--ink);
   font: 0.8rem/1.4 var(--mono);
 }
+.finder input:focus, .finder input:focus-visible { outline: none; }
 .finder input::placeholder { color: var(--faint); }
 .finder input::-webkit-search-cancel-button { -webkit-appearance: none; }
 .ticks { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0.4rem 0.75rem; align-items: center; padding-bottom: 0.35rem; }
@@ -1329,8 +1339,8 @@ body.still *, body.still *::before, body.still *::after {
 .minijob .pull .tick { stroke: var(--good); }
 .minijob .pull .cross { stroke: var(--accent); }
 
-.minijob.done .pull .stem, .minijob.done .pull .head,
-.minijob.failed .pull .stem, .minijob.failed .pull .head { opacity: 0; }
+.minijob.done .pull .stem, .minijob.done .pull .head, .minijob.done .pull .tray,
+.minijob.failed .pull .stem, .minijob.failed .pull .head, .minijob.failed .pull .tray { opacity: 0; }
 .minijob.done .pull .tick { stroke-dashoffset: 0; transition: stroke-dashoffset 0.4s var(--ease) 0.1s; }
 .minijob.failed .pull .cross { stroke-dashoffset: 0; transition: stroke-dashoffset 0.3s var(--ease) 0.1s; }
 .minijob.done .pct, .minijob.failed .pct { display: none; }
@@ -1981,7 +1991,13 @@ h4.sheeth {
   cursor: pointer;
 }
 .workhead b { flex: 1; min-width: 0; overflow: hidden; font-size: 0.8rem; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
-.workhead .pct { flex: none; color: var(--accent); font: 700 0.74rem var(--mono); }
+.workhead .pct {
+  flex: none;
+  width: 2.6rem;
+  color: var(--accent);
+  font: 700 0.74rem var(--mono);
+  text-align: right;
+}
 .work.done .workhead .pct { color: var(--good); }
 .workbar { height: 0.22rem; border-radius: 0.11rem; background: rgba(255, 255, 255, 0.08); overflow: hidden; }
 .workbar i { display: block; height: 100%; background: var(--accent); transition: width 0.25s var(--ease); }
@@ -2018,7 +2034,8 @@ h4.sheeth {
 }
 .workshut:hover { background: var(--glass-high); color: var(--ink); }
 .workshut svg { width: 0.6rem; height: 0.6rem; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; }
-.work.done .workhead, .work.failed .workhead { padding-right: 1.6rem; }
+.work.done .workhead, .work.failed .workhead { padding-right: 1.75rem; }
+.workshut { top: 0.42rem; }
 #jobbox #jobpane { display: none; }
 #jobbox:hover #jobpane, #jobbox:focus-within #jobpane { display: block; }
 #jobbox:hover::after, #jobbox:focus-within::after {

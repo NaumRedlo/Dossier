@@ -129,12 +129,15 @@ fn tidy(text: &str) -> String {
     }
 }
 
-pub fn look_up(hash: &str) -> Result<Found, String> {
+pub fn look_up_at(hash: &str, only: Option<&str>) -> Result<Found, String> {
     let mut unknown = 0;
     let mut asked = 0;
     let mut last = String::new();
     for mirror in MIRRORS {
-        if resting(mirror.name) {
+        if only.is_some_and(|name| name != mirror.name) {
+            continue;
+        }
+        if only.is_none() && resting(mirror.name) {
             continue;
         }
         asked += 1;
@@ -227,9 +230,11 @@ fn first_of(value: &serde_json::Value, paths: &[&[&str]]) -> String {
     String::new()
 }
 
-fn download(set: u64, first: &str, say: &dyn Fn(u64, u64)) -> Result<Vec<u8>, String> {
+fn download(set: u64, first: &str, only: bool, say: &dyn Fn(u64, u64)) -> Result<Vec<u8>, String> {
     let mut order: Vec<&Mirror> = MIRRORS.iter().filter(|m| m.name == first).collect();
-    order.extend(MIRRORS.iter().filter(|m| m.name != first));
+    if !only {
+        order.extend(MIRRORS.iter().filter(|m| m.name != first));
+    }
     let mut last = "ни одно зеркало не отдало карту".to_owned();
     for mirror in order {
         if mirror.name != first && resting(mirror.name) {
@@ -316,16 +321,21 @@ fn free_folder(songs: &Path, wanted: &str) -> PathBuf {
     songs.join(format!("{wanted} ({})", std::process::id()))
 }
 
-pub fn bring(hash: &str, songs: &Path, say: &dyn Fn(&str, u64, u64)) -> Result<Found, String> {
+pub fn bring(
+    hash: &str,
+    songs: &Path,
+    only: Option<&str>,
+    say: &dyn Fn(&str, u64, u64),
+) -> Result<Found, String> {
     if !songs.is_dir() {
         return Err("папка карт не выбрана в настройках".to_owned());
     }
     say("Ищу карту на зеркале…", 0, 0);
-    let found = look_up(hash)?;
+    let found = look_up_at(hash, only)?;
 
     say("Качаю карту…", 0, 0);
     std::thread::sleep(std::time::Duration::from_millis(BREATH_MS));
-    let bytes = download(found.set, &found.from, &|got, of| {
+    let bytes = download(found.set, &found.from, only.is_some(), &|got, of| {
         say("Качаю карту…", got, of)
     })?;
 
@@ -423,7 +433,8 @@ mod against_the_mirror {
     #[test]
     #[ignore]
     fn a_known_map_is_found_by_its_hash() {
-        let found = look_up("930b6fcc81c41a1c69d9abce11153b9c").expect("the mirror knows it");
+        let found =
+            look_up_at("930b6fcc81c41a1c69d9abce11153b9c", None).expect("the mirror knows it");
         assert_eq!(found.set, 661_333);
         assert!(found.folder.starts_with("661333"));
         println!("{} → {} (с {})", found.set, found.folder, found.from);
@@ -438,7 +449,7 @@ mod against_the_mirror {
 
         let hash = "930b6fcc81c41a1c69d9abce11153b9c";
         let steps = std::sync::Mutex::new(Vec::new());
-        let found = bring(hash, &songs, &|step, got, of| {
+        let found = bring(hash, &songs, None, &|step, got, of| {
             let mut said = steps.lock().unwrap();
             if said.last().map(String::as_str) != Some(step) {
                 said.push(step.to_owned());
@@ -463,7 +474,7 @@ mod against_the_mirror {
     #[test]
     #[ignore]
     fn a_hash_nobody_has_is_refused_plainly() {
-        let why = look_up("00000000000000000000000000000000").unwrap_err();
+        let why = look_up_at("00000000000000000000000000000000", None).unwrap_err();
         assert!(why.contains("не знает"), "{why}");
     }
 }
@@ -483,7 +494,7 @@ mod under_load {
         let mut said = Vec::new();
         for round in 0..6 {
             let hash = hashes[round % hashes.len()];
-            match look_up(hash) {
+            match look_up_at(hash, None) {
                 Ok(found) => {
                     good += 1;
                     println!("{round}: {hash} -> {} from {}", found.set, found.from);

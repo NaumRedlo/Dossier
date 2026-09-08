@@ -1364,6 +1364,7 @@ async function showSettings() {
     ["s-askfrom", "askfrom", "3"],
     ["s-atonce", "atonce", "1"],
     ["s-holdfor", "holdfor", "12"],
+    ["s-mirror", "mirror", ""],
   ]) {
     const box = byId(id);
     box.value = remembered(key, fallback);
@@ -1410,6 +1411,7 @@ for (const [id, key, fallback] of [
   ["s-askfrom", "askfrom", "3"],
   ["s-atonce", "atonce", "1"],
   ["s-holdfor", "holdfor", "12"],
+  ["s-mirror", "mirror", ""],
 ]) {
   byId(id).addEventListener("change", () => remember(key, byId(id).value));
   void fallback;
@@ -1853,7 +1855,10 @@ function paintWorks() {
     ...all.map((one) => {
       const row = el("div", `work${one.done ? (one.ok ? " done" : " failed") : ""}${openWork === one.id ? " open" : ""}`);
       const head = el("button", "workhead");
-      head.append(el("b", null, one.label), el("span", "pct", one.done ? (one.ok ? "готово" : "ошибка") : `${round(one.share)}%`));
+      head.append(
+        el("b", null, one.label),
+        el("span", "pct", one.done && !one.ok ? "сбой" : `${round(one.share)}%`),
+      );
       head.addEventListener("click", () => {
         openWork = openWork === one.id ? null : one.id;
         paintWorks();

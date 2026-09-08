@@ -36,7 +36,7 @@ pub fn build(
         let edge = slider_edge(state, event.object_index, event.part, event.time_ms);
         let balance = balance_of(object.pos.x as f32);
         for voice in voices_for(event.part, object, edge, layering) {
-            let (set, index, volume) = bank_for(beatmap, object, voice, edge);
+            let (set, index, volume) = bank_for(beatmap, object, voice, edge, event.time_ms);
             track.strike_panned(
                 voice,
                 at_video(event.time_ms),
@@ -81,11 +81,13 @@ fn sustained(
 
         match &object.kind {
             dossier_beatmap::ObjectKind::Slider(_) => {
-                let (set, bank, volume) = bank_for(beatmap, object, Voice::Normal, None);
+                let (set, bank, volume) =
+                    bank_for(beatmap, object, Voice::Normal, None, timed.start_ms);
                 let level = voice_level(Voice::Slide);
                 track.sustain(Voice::Slide, span, set, bank, volume * level, |_| 1.0);
                 if object.hit_sound & sound_bits::WHISTLE != 0 {
-                    let (set, bank, volume) = bank_for(beatmap, object, Voice::Whistle, None);
+                    let (set, bank, volume) =
+                        bank_for(beatmap, object, Voice::Whistle, None, timed.start_ms);
                     let level = voice_level(Voice::SlideWhistle);
                     track.sustain(Voice::SlideWhistle, span, set, bank, volume * level, |_| {
                         1.0
@@ -94,7 +96,8 @@ fn sustained(
             }
             dossier_beatmap::ObjectKind::Spinner { .. } => {
                 let needed = dossier_sim::required_spins(state.difficulty(), timed.duration_ms());
-                let (set, bank, volume) = bank_for(beatmap, object, Voice::Normal, None);
+                let (set, bank, volume) =
+                    bank_for(beatmap, object, Voice::Normal, None, timed.start_ms);
                 let held = timed.end_ms - timed.start_ms;
                 track.sustain(Voice::Spin, span, set, bank, volume, |seconds| {
                     if needed <= 0.0 {
@@ -162,8 +165,9 @@ fn bank_for(
     object: &HitObject,
     voice: Voice,
     edge: Option<usize>,
+    at_ms: f64,
 ) -> (SampleSet, u32, f32) {
-    let point = beatmap.timing.sample_point_at(object.time_ms);
+    let point = beatmap.timing.sample_point_at(at_ms);
 
     let inherited = point
         .filter(|p| p.set_given)
@@ -365,7 +369,13 @@ mod banks {
     #[test]
     fn a_note_that_says_nothing_takes_the_timing_points_bank_and_volume() {
         let beatmap = map(SOFT_AT_HALF, "100,100,1000,1,0");
-        let (set, _, volume) = bank_for(&beatmap, &beatmap.objects[0], Voice::Normal, None);
+        let (set, _, volume) = bank_for(
+            &beatmap,
+            &beatmap.objects[0],
+            Voice::Normal,
+            None,
+            beatmap.objects[0].time_ms,
+        );
         assert_eq!(set, SampleSet::Soft);
         assert!((volume - 0.5).abs() < 1e-6);
     }
@@ -373,28 +383,52 @@ mod banks {
     #[test]
     fn a_note_takes_the_timing_points_custom_bank() {
         let beatmap = map("0,500,4,2,3,50,1,0", "100,100,1000,1,0");
-        let (_, index, _) = bank_for(&beatmap, &beatmap.objects[0], Voice::Normal, None);
+        let (_, index, _) = bank_for(
+            &beatmap,
+            &beatmap.objects[0],
+            Voice::Normal,
+            None,
+            beatmap.objects[0].time_ms,
+        );
         assert_eq!(index, 3);
     }
 
     #[test]
     fn a_notes_own_index_overrules_the_timing_points() {
         let beatmap = map("0,500,4,2,3,50,1,0", "100,100,1000,1,0,0:0:5:0:");
-        let (_, index, _) = bank_for(&beatmap, &beatmap.objects[0], Voice::Normal, None);
+        let (_, index, _) = bank_for(
+            &beatmap,
+            &beatmap.objects[0],
+            Voice::Normal,
+            None,
+            beatmap.objects[0].time_ms,
+        );
         assert_eq!(index, 5);
     }
 
     #[test]
     fn saying_nothing_anywhere_means_the_skins_first_bank() {
         let beatmap = map("0,500,4,2,0,50,1,0", "100,100,1000,1,0");
-        let (_, index, _) = bank_for(&beatmap, &beatmap.objects[0], Voice::Normal, None);
+        let (_, index, _) = bank_for(
+            &beatmap,
+            &beatmap.objects[0],
+            Voice::Normal,
+            None,
+            beatmap.objects[0].time_ms,
+        );
         assert_eq!(index, 1);
     }
 
     #[test]
     fn a_notes_own_bank_overrules_the_timing_point() {
         let beatmap = map(SOFT_AT_HALF, "100,100,1000,1,0,3:0:0:0:");
-        let (set, _, _) = bank_for(&beatmap, &beatmap.objects[0], Voice::Normal, None);
+        let (set, _, _) = bank_for(
+            &beatmap,
+            &beatmap.objects[0],
+            Voice::Normal,
+            None,
+            beatmap.objects[0].time_ms,
+        );
         assert_eq!(set, SampleSet::Drum);
     }
 
@@ -403,11 +437,11 @@ mod banks {
         let beatmap = map(DRUM_LOUD, "100,100,1000,1,8,3:2:0:0:");
         let object = &beatmap.objects[0];
         assert_eq!(
-            bank_for(&beatmap, object, Voice::Normal, None).0,
+            bank_for(&beatmap, object, Voice::Normal, None, object.time_ms).0,
             SampleSet::Drum
         );
         assert_eq!(
-            bank_for(&beatmap, object, Voice::Clap, None).0,
+            bank_for(&beatmap, object, Voice::Clap, None, object.time_ms).0,
             SampleSet::Soft
         );
     }
@@ -417,22 +451,60 @@ mod banks {
         let beatmap = map(SOFT_AT_HALF, "100,100,1000,1,8,3:0:0:0:");
         let object = &beatmap.objects[0];
         assert_eq!(
-            bank_for(&beatmap, object, Voice::Clap, None).0,
+            bank_for(&beatmap, object, Voice::Clap, None, object.time_ms).0,
             SampleSet::Drum
+        );
+    }
+
+    #[test]
+    fn a_sound_takes_the_volume_of_its_own_moment_not_the_notes_start() {
+        let beatmap = Beatmap::parse(
+            "osu file format v14\n\n[General]\nMode: 0\n\n[Difficulty]\nSliderMultiplier:1\nSliderTickRate:1\n\n[TimingPoints]\n0,500,4,2,0,100,1,0\n1200,-100,4,2,0,10,0,0\n\n[HitObjects]\n256,192,1000,1,0,0:0:0:0:\n256,192,1400,1,0,0:0:0:0:\n",
+        )
+        .expect("a map");
+        let early = bank_for(
+            &beatmap,
+            &beatmap.objects[0],
+            Voice::Normal,
+            None,
+            beatmap.objects[0].time_ms,
+        );
+        let late = bank_for(&beatmap, &beatmap.objects[0], Voice::Normal, None, 1500.0);
+        assert!(
+            (early.2 - 1.0).abs() < 1e-6,
+            "start was not loud: {}",
+            early.2
+        );
+        assert!(
+            (late.2 - 0.1).abs() < 1e-6,
+            "the later moment stayed loud: {}",
+            late.2
         );
     }
 
     #[test]
     fn a_green_line_at_no_volume_is_silence_not_a_whisper() {
         let beatmap = map("0,500,4,2,0,0,1,0", "100,100,1000,1,0");
-        let (_, _, volume) = bank_for(&beatmap, &beatmap.objects[0], Voice::Normal, None);
+        let (_, _, volume) = bank_for(
+            &beatmap,
+            &beatmap.objects[0],
+            Voice::Normal,
+            None,
+            beatmap.objects[0].time_ms,
+        );
         assert_eq!(volume, 0.0, "a zero-volume timing point still sounded");
     }
 
     #[test]
     fn a_notes_own_volume_overrules_the_timing_points() {
         let beatmap = map(SOFT_AT_HALF, "100,100,1000,1,0,0:0:0:20:");
-        let (_, _, volume) = bank_for(&beatmap, &beatmap.objects[0], Voice::Normal, None);
+        let (_, _, volume) = bank_for(
+            &beatmap,
+            &beatmap.objects[0],
+            Voice::Normal,
+            None,
+            beatmap.objects[0].time_ms,
+        );
         assert!((volume - 0.2).abs() < 1e-6, "got {volume}");
     }
 
@@ -443,11 +515,25 @@ mod banks {
             "100,100,1000,1,0\n200,200,6000,1,0",
         );
         assert_eq!(
-            bank_for(&beatmap, &beatmap.objects[0], Voice::Normal, None).0,
+            bank_for(
+                &beatmap,
+                &beatmap.objects[0],
+                Voice::Normal,
+                None,
+                beatmap.objects[0].time_ms
+            )
+            .0,
             SampleSet::Soft
         );
         assert_eq!(
-            bank_for(&beatmap, &beatmap.objects[1], Voice::Normal, None).0,
+            bank_for(
+                &beatmap,
+                &beatmap.objects[1],
+                Voice::Normal,
+                None,
+                beatmap.objects[1].time_ms
+            )
+            .0,
             SampleSet::Drum,
             "a green line carries sound settings too"
         );
@@ -456,7 +542,13 @@ mod banks {
     #[test]
     fn a_note_with_no_sample_field_at_all_still_resolves() {
         let beatmap = map(DRUM_LOUD, "100,100,1000,1,0");
-        let (set, _, volume) = bank_for(&beatmap, &beatmap.objects[0], Voice::Normal, None);
+        let (set, _, volume) = bank_for(
+            &beatmap,
+            &beatmap.objects[0],
+            Voice::Normal,
+            None,
+            beatmap.objects[0].time_ms,
+        );
         assert_eq!(set, SampleSet::Drum);
         assert!((volume - 1.0).abs() < 1e-6);
     }
@@ -519,12 +611,12 @@ mod edge_tests {
         let map = slider_map("0|4|0", "0:0|1:2|0:0");
         let object = &map.objects[0];
         assert_eq!(
-            bank_for(&map, object, Voice::Finish, Some(1)).0,
+            bank_for(&map, object, Voice::Finish, Some(1), object.time_ms).0,
             SampleSet::Soft,
             "the repeat's addition bank"
         );
         assert_eq!(
-            bank_for(&map, object, Voice::Normal, Some(0)).0,
+            bank_for(&map, object, Voice::Normal, Some(0), object.time_ms).0,
             SampleSet::Normal,
             "the head keeps the timing point's"
         );
@@ -1017,7 +1109,7 @@ pub fn sounded(
         }
         let edge = slider_edge(state, event.object_index, event.part, event.time_ms);
         let voices = voices_for(event.part, object, edge, layering);
-        let normal = bank_for(beatmap, object, Voice::Normal, edge);
+        let normal = bank_for(beatmap, object, Voice::Normal, edge, event.time_ms);
         for voice in voices {
             let addition = match voice {
                 Voice::Whistle => Some(Addition::Whistle),
@@ -1025,7 +1117,7 @@ pub fn sounded(
                 Voice::Clap => Some(Addition::Clap),
                 _ => None,
             };
-            let (set, index, _) = bank_for(beatmap, object, voice, edge);
+            let (set, index, _) = bank_for(beatmap, object, voice, edge, event.time_ms);
             out.push(Sounded {
                 time_ms: event.time_ms,
                 set: unconvert(normal.0),

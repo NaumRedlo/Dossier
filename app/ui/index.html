@@ -186,9 +186,11 @@
           <option value="map">Только с картой</option>
           <option value="nomap">Только без карты</option>
         </select></label>
-        <label class="finder">
-          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.2"/><path d="M15.2 15.2 20 20"/></svg>
-          <input id="r-find" type="search" placeholder="Искать по игроку, карте, файлу" autocomplete="off" spellcheck="false">
+        <label class="finder"><span class="cap">Поиск</span>
+          <span class="field">
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.2"/><path d="M15.2 15.2 20 20"/></svg>
+            <input id="r-find" type="search" placeholder="Игрок, карта, файл" autocomplete="off" spellcheck="false">
+          </span>
         </label>
         <span class="grow"></span>
         <button class="act small" id="r-refresh">Обновить</button>
@@ -558,6 +560,14 @@
             <option value="3" selected>С трёх</option>
             <option value="10">С десяти</option>
             <option value="25">С двадцати пяти</option>
+          </select></label>
+        </div>
+        <div class="pref">
+          <div><b>Каким зеркалом качать</b><p>Откуда брать недостающие карты. «Любое» пробует их по очереди и обходит то, что молчит.</p></div>
+          <label class="pick tiny short"><span class="cap">Зеркало</span><select id="s-mirror">
+            <option value="" selected>Любое</option>
+            <option value="catboy.best">catboy.best</option>
+            <option value="osu.direct">osu.direct</option>
           </select></label>
         </div>
         <div class="pref">

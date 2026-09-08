@@ -286,11 +286,19 @@ fn map_here_now(replay: String) -> Result<MapHere, String> {
 }
 
 #[tauri::command(async)]
-async fn fetch_map(app: tauri::AppHandle, replay: String) -> Result<mirror::Found, String> {
-    off_thread(move || fetch_map_now(&app, replay)).await?
+async fn fetch_map(
+    app: tauri::AppHandle,
+    replay: String,
+    mirror: Option<String>,
+) -> Result<mirror::Found, String> {
+    off_thread(move || fetch_map_now(&app, replay, mirror)).await?
 }
 
-fn fetch_map_now(app: &tauri::AppHandle, replay: String) -> Result<mirror::Found, String> {
+fn fetch_map_now(
+    app: &tauri::AppHandle,
+    replay: String,
+    only: Option<String>,
+) -> Result<mirror::Found, String> {
     use tauri::Emitter;
 
     let bytes = std::fs::read(&replay).map_err(|why| format!("реплей не читается: {why}"))?;
@@ -307,6 +315,7 @@ fn fetch_map_now(app: &tauri::AppHandle, replay: String) -> Result<mirror::Found
     let found = mirror::bring(
         &played.beatmap_hash,
         std::path::Path::new(&said.songs),
+        only.as_deref().filter(|name| !name.is_empty()),
         &say,
     );
     match &found {

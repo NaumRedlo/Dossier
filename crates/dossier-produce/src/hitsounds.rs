@@ -177,7 +177,7 @@ fn voices_for(part: Part, object: &HitObject, edge: Option<usize>, layering: boo
     match part {
         Part::Slider => Vec::new(),
 
-        Part::SpinnerSpin | Part::SpinnerPoints => Vec::new(),
+        Part::SpinnerPoints => Vec::new(),
         Part::SpinnerBonus => vec![Voice::Bonus],
         Part::SliderTick => vec![Voice::Tick],
         _ => layered(bits_for(object, edge), layering),

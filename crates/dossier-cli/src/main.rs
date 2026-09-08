@@ -2391,7 +2391,7 @@ fn part_checks(state: &GameState, replay: &Replay) -> Vec<PartCheck> {
                 slider_alive = !event.result.is_miss();
             }
 
-            Part::SpinnerSpin | Part::SpinnerPoints | Part::SpinnerBonus => {}
+            Part::SpinnerPoints | Part::SpinnerBonus => {}
             Part::SliderTick | Part::SliderRepeat => {
                 if event.result.is_miss() {
                     large_tick_miss += 1;

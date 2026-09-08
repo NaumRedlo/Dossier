@@ -59,7 +59,11 @@ impl Difficulty {
     }
 
     pub fn spins_per_second(&self) -> f64 {
-        (100.0 + 15.0 * self.overall_difficulty) / 60.0
+        difficulty_range(self.overall_difficulty, 90.0, 150.0, 225.0) / 60.0
+    }
+
+    pub fn top_spins_per_second(&self) -> f64 {
+        difficulty_range(self.overall_difficulty, 250.0, 380.0, 430.0) / 60.0
     }
 
     pub fn hard_rock(&self) -> Self {

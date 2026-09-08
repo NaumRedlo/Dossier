@@ -58,8 +58,6 @@ pub enum Part {
     Slider,
     Spinner,
 
-    SpinnerSpin,
-
     SpinnerPoints,
 
     SpinnerBonus,
@@ -73,14 +71,14 @@ impl Part {
     pub fn adds_combo(self) -> bool {
         !matches!(
             self,
-            Self::Slider | Self::SpinnerSpin | Self::SpinnerPoints | Self::SpinnerBonus
+            Self::Slider | Self::SpinnerPoints | Self::SpinnerBonus
         )
     }
 
     pub fn is_bonus(self) -> bool {
         matches!(
             self,
-            Self::SpinnerSpin | Self::SpinnerPoints | Self::SpinnerBonus
+            Self::SpinnerPoints | Self::SpinnerBonus
         )
     }
 
@@ -658,12 +656,17 @@ fn build_events(
             let turns = spinner_spin_times(cursor, object.start_ms, object.end_ms);
             let rotations = spinner_rotations(cursor, object.start_ms, object.end_ms);
             let required = required_spins(difficulty, object.duration_ms());
+            let most = required + BONUS_SPINS_GAP + bonus_spins(difficulty, object.duration_ms());
 
             for (turn, at) in turns.iter().enumerate() {
+                let turn = turn as f64 + 1.0;
+                if turn > most {
+                    break;
+                }
                 out.push(Event {
                     time_ms: *at,
                     object_index: index,
-                    part: spinner_turn(turn as i64 + 1, required as i64),
+                    part: spinner_turn(turn, required),
                     result: Judgement::Great,
                     error_ms: None,
                     combo_after: 0,
@@ -843,18 +846,24 @@ pub fn tail_check_ms(object: &TimedObject) -> f64 {
         .max(object.start_ms)
 }
 
+const BONUS_SPINS_GAP: f64 = 2.0;
+
+const SPIN_ROUNDING: f64 = 0.0001;
+
 pub fn required_spins(difficulty: &dossier_beatmap::Difficulty, duration_ms: f64) -> f64 {
-    (difficulty.spins_per_second() * duration_ms / 1000.0).floor()
+    (difficulty.spins_per_second() * duration_ms / 1000.0 + SPIN_ROUNDING).floor()
 }
 
-fn spinner_turn(turn: i64, required: i64) -> Part {
-    let bonus_from = required + 3;
-    if turn > bonus_from && (turn - bonus_from) % 2 == 0 {
+pub fn bonus_spins(difficulty: &dossier_beatmap::Difficulty, duration_ms: f64) -> f64 {
+    let full = (difficulty.top_spins_per_second() * duration_ms / 1000.0 + SPIN_ROUNDING).floor();
+    (full - required_spins(difficulty, duration_ms) - BONUS_SPINS_GAP).max(0.0)
+}
+
+fn spinner_turn(turn: f64, required: f64) -> Part {
+    if turn > required + BONUS_SPINS_GAP {
         Part::SpinnerBonus
-    } else if turn > 1 && turn % 2 == 0 {
-        Part::SpinnerPoints
     } else {
-        Part::SpinnerSpin
+        Part::SpinnerPoints
     }
 }
 

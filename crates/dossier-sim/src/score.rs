@@ -12,7 +12,6 @@ fn stable_base_value(part: Part, result: Judgement) -> u32 {
     match part {
         Part::SliderTick => 10,
 
-        Part::SpinnerSpin => 0,
         Part::SpinnerPoints => 100,
         Part::SpinnerBonus => 1100,
         Part::SliderRepeat | Part::SliderTail | Part::SliderHead => 30,
@@ -31,7 +30,6 @@ fn v2_value(part: Part, result: Judgement) -> u32 {
     }
     match part {
         Part::SliderTick => 10,
-        Part::SpinnerSpin => 0,
         Part::SpinnerPoints => 100,
 
         Part::SpinnerBonus => 500,
@@ -124,7 +122,7 @@ fn lazer_max_value(part: Part) -> f64 {
         Part::SliderTick | Part::SliderRepeat => 30.0,
         Part::Slider => 0.0,
 
-        Part::SpinnerSpin | Part::SpinnerPoints | Part::SpinnerBonus => 0.0,
+        Part::SpinnerPoints | Part::SpinnerBonus => 0.0,
     }
 }
 
@@ -132,7 +130,7 @@ fn lazer_value(event: &Event, difficulty: &Difficulty) -> f64 {
     match event.part {
         Part::Slider => 0.0,
 
-        Part::SpinnerSpin | Part::SpinnerPoints | Part::SpinnerBonus => 0.0,
+        Part::SpinnerPoints | Part::SpinnerBonus => 0.0,
         Part::SliderHead => match event.error_ms {
             Some(error) => tiered(window_judgement(error, difficulty)),
             None => 0.0,

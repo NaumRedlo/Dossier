@@ -74,7 +74,7 @@ fn stable_gain(part: Part, result: Judgement, hp: f64) -> f64 {
             }
         }
 
-        Part::SpinnerSpin | Part::SpinnerPoints => HP_SPINNER_SPIN,
+        Part::SpinnerPoints => HP_SPINNER_SPIN,
         Part::SpinnerBonus => 0.0,
     }
 }
@@ -249,7 +249,7 @@ fn lazer_gain(part: Part, result: Judgement, hp: f64) -> f64 {
 
         Part::Slider => 0.0,
 
-        Part::SpinnerSpin | Part::SpinnerPoints => 0.0011,
+        Part::SpinnerPoints => 0.0011,
         Part::SpinnerBonus => 0.0022,
         Part::SliderTick => {
             if result.is_miss() {

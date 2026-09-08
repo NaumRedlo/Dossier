@@ -1257,9 +1257,7 @@ impl Scene<'_> {
             .filter(|event| {
                 matches!(
                     event.part,
-                    dossier_sim::Part::SpinnerSpin
-                        | dossier_sim::Part::SpinnerPoints
-                        | dossier_sim::Part::SpinnerBonus
+                    dossier_sim::Part::SpinnerPoints | dossier_sim::Part::SpinnerBonus
                 )
             })
             .map(|event| event.time_ms)

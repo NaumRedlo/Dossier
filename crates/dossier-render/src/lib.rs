@@ -1,9 +1,9 @@
 pub mod background;
 pub mod elements;
 pub mod imported;
-pub mod mods;
 mod layout;
 mod leaderboard;
+pub mod mods;
 mod renderer;
 mod skin;
 pub mod storyboard;

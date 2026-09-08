@@ -24,9 +24,11 @@ fn hex(hash: &str) -> Result<String, String> {
     }
 }
 
-fn http() -> Result<reqwest::blocking::Client, String> {
+fn http(seconds: u64) -> Result<reqwest::blocking::Client, String> {
     reqwest::blocking::Client::builder()
-        .timeout(std::time::Duration::from_secs(180))
+        .timeout(std::time::Duration::from_secs(seconds))
+        .connect_timeout(std::time::Duration::from_secs(20))
+        .pool_max_idle_per_host(0)
         .user_agent("Dossier")
         .build()
         .map_err(|why| format!("не с чем идти в сеть: {why}"))
@@ -62,7 +64,7 @@ fn tidy(text: &str) -> String {
 
 pub fn look_up(hash: &str) -> Result<Found, String> {
     let hash = hex(hash)?;
-    let reply = http()?
+    let reply = http(45)?
         .get(format!("{LOOK_UP}{hash}"))
         .send()
         .map_err(|why| format!("зеркало карт не ответило: {why}"))?;
@@ -99,8 +101,24 @@ pub fn look_up(hash: &str) -> Result<Found, String> {
     })
 }
 
+const TRIES: u32 = 3;
+
 fn download(set: u64, say: &dyn Fn(u64, u64)) -> Result<Vec<u8>, String> {
-    let mut reply = http()?
+    let mut last = String::new();
+    for attempt in 0..TRIES {
+        if attempt > 0 {
+            std::thread::sleep(std::time::Duration::from_millis(700 * u64::from(attempt)));
+        }
+        match once(set, say) {
+            Ok(bytes) => return Ok(bytes),
+            Err(why) => last = why,
+        }
+    }
+    Err(last)
+}
+
+fn once(set: u64, say: &dyn Fn(u64, u64)) -> Result<Vec<u8>, String> {
+    let mut reply = http(900)?
         .get(format!("{DOWNLOAD}{set}"))
         .send()
         .map_err(|why| format!("карта не пошла: {why}"))?;

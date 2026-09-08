@@ -1315,8 +1315,12 @@ body.still *, body.still *::before, body.still *::after {
 .ic-scan .heart { fill: var(--accent); stroke: none; }
 
 .wall { z-index: 50; }
-.wall .middle { max-width: 30rem; padding: 0 1.5rem; }
+.wall .middle { width: min(30rem, 100%); padding: 0 1.5rem; }
+.wall .middle > * { max-width: 100%; min-width: 0; }
+.scanning p, .scanning h2 { overflow-wrap: anywhere; }
 .walldo { display: flex; flex-wrap: wrap; justify-content: center; gap: 0.6rem; margin-top: 1.6rem; }
+.walldo.stacked { flex-direction: column; align-items: center; }
+.walldo.stacked .act.hold { order: -1; }
 .walldo .act { margin: 0; }
 
 .ic-nomap { width: 7.5rem; height: 7.5rem; }
@@ -1877,6 +1881,7 @@ h4.sheeth {
 .jobpane h4 { margin: 0 0 0.5rem; }
 .works { display: grid; gap: 0.5rem; max-height: 19rem; overflow-y: auto; }
 .work {
+  position: relative;
   display: grid;
   gap: 0.32rem;
   padding: 0.5rem 0.6rem;
@@ -1918,8 +1923,34 @@ h4.sheeth {
   overflow-wrap: anywhere;
 }
 .work .act { margin: 0.1rem 0 0; justify-self: start; }
+.workshut {
+  position: absolute;
+  right: 0.3rem;
+  top: 0.3rem;
+  display: grid;
+  place-items: center;
+  width: 1.25rem;
+  height: 1.25rem;
+  padding: 0;
+  border: 0;
+  border-radius: 0.4rem;
+  background: none;
+  color: var(--faint);
+  cursor: pointer;
+}
+.workshut:hover { background: var(--glass-high); color: var(--ink); }
+.workshut svg { width: 0.6rem; height: 0.6rem; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; }
+.work.done .workhead b, .work.failed .workhead b { padding-right: 1.2rem; }
 #jobbox #jobpane { display: none; }
 #jobbox:hover #jobpane, #jobbox:focus-within #jobpane { display: block; }
+#jobbox::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  top: 100%;
+  width: 21rem;
+  height: 0.7rem;
+}
 .finished .routes { flex: none; display: flex; gap: 0.4rem; }
 
 .finished .routes { align-items: stretch; }
@@ -1932,10 +1963,14 @@ h4.sheeth {
   order: 1;
 }
 .finished .shut svg { width: 0.95rem; height: 0.95rem; }
+.finished {
+  transition: opacity 0.34s var(--ease), transform 0.34s var(--ease);
+}
 .finished.leaving {
+  animation: none;
   opacity: 0;
-  transform: translateY(-0.4rem);
-  transition: opacity 0.28s var(--ease), transform 0.28s var(--ease);
+  transform: translateY(-0.5rem) scale(0.985);
+  pointer-events: none;
 }
 
 body { -webkit-user-select: none; user-select: none; }

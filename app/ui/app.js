@@ -1488,6 +1488,7 @@ async function loadFitting(again = false) {
     fitParts = made.filter(Boolean);
     fitAt = 0;
     if (!fitParts.length) byId("s-skinsaid").textContent = "Ни один реплей не открылся.";
+    await Promise.all(fitParts.map((one) => frameOf(one, one.head, 64, 48)));
   } finally {
     fitLoading = false;
   }
@@ -1743,14 +1744,27 @@ function endWork(id, ok, note) {
   const holdFor = Number(remembered("holdfor", "12")) * 1000;
   clearTimeout(jobHold);
   if (holdFor <= 0) return;
-  jobHold = setTimeout(() => {
+  const sweep = () => {
+    if (workHover) {
+      jobHold = setTimeout(sweep, 1200);
+      return;
+    }
     works.delete(id);
     if (openWork === id) openWork = null;
     paintWorks();
-  }, holdFor);
+  };
+  jobHold = setTimeout(sweep, holdFor);
 }
 
 const alive = () => [...works.values()].filter((one) => !one.done);
+
+let workHover = false;
+
+for (const kind of ["pointerenter", "pointerleave"]) {
+  jobBox.addEventListener(kind, () => {
+    workHover = kind === "pointerenter";
+  });
+}
 
 function paintWorks() {
   const all = [...works.values()];
@@ -1787,6 +1801,18 @@ function paintWorks() {
         paintWorks();
       });
       row.append(head);
+      if (one.done) {
+        const drop = el("button", "workshut", "");
+        drop.setAttribute("aria-label", "Убрать");
+        drop.innerHTML = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M7 7 17 17M17 7 7 17"/></svg>';
+        drop.addEventListener("click", (event) => {
+          event.stopPropagation();
+          works.delete(one.id);
+          if (openWork === one.id) openWork = null;
+          paintWorks();
+        });
+        row.append(drop);
+      }
       const bar = el("div", "workbar");
       bar.append(el("i", null, ""));
       bar.firstChild.style.width = `${one.share}%`;
@@ -1799,7 +1825,7 @@ function paintWorks() {
           log.scrollTop = log.scrollHeight;
         });
       }
-      if (one.home) {
+      if (one.home && !one.done) {
         const go = el("button", "act small", "Открыть");
         go.addEventListener("click", () => show(one.home));
         row.append(go);
@@ -1853,7 +1879,6 @@ function showFinished(slot, { path, notes, bad, head }) {
 
   const said = el("div", "said");
   said.append(el("b", null, head));
-  if (path) said.append(el("p", "where", path));
   if (bad) {
     if (notes && notes.length) said.append(el("p", "facts", notes.join(" · ")));
   } else {
@@ -1875,13 +1900,14 @@ function showFinished(slot, { path, notes, bad, head }) {
   shut.innerHTML = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M7 7 17 17M17 7 7 17"/></svg>';
   shut.addEventListener("click", () => {
     card.classList.add("leaving");
-    setTimeout(() => slot.replaceChildren(), 300);
+    card.addEventListener("transitionend", () => slot.replaceChildren(), { once: true });
+    setTimeout(() => slot.replaceChildren(), 700);
   });
 
   const routes = el("div", "routes");
   if (path && !bad) {
     const open = el("button", "act small primary", "Открыть");
-    const where = el("button", "act small", "В папке");
+    const where = el("button", "act small", "Показать в папке");
     open.addEventListener("click", () => {
       invoke("play_file", { path }).catch((why) => {
         said.querySelector(".facts")?.remove();
@@ -2165,11 +2191,11 @@ function fillPlays({ shelves, skins, plays, rows }) {
     acc.hidden = true;
     stage.append(from, acc);
     const scrim = el("div", "scrim");
-    const go = el("button", "act small primary", "Отрендерить");
-    go.disabled = !play.have_map;
+    const go = el("button", "act small primary", play.have_map ? "Отрендерить" : "Скачать карту");
     go.addEventListener("click", (event) => {
       event.stopPropagation();
-      draw(play);
+      if (play.have_map) draw(play);
+      else showWall(play);
     });
     scrim.append(go);
     stage.append(scrim);
@@ -2233,7 +2259,7 @@ function fillPlays({ shelves, skins, plays, rows }) {
     } finally {
       drawing = false;
 
-      for (const other of list.querySelectorAll("button")) other.disabled = Boolean(other.closest(".rep.nomap"));
+      for (const other of list.querySelectorAll("button")) other.disabled = false;
       byId("r-busy").hidden = true;
       list.classList.remove("dimmed");
     }
@@ -2261,9 +2287,9 @@ const clamp01 = (t) => (t < 0 ? 0 : t > 1 ? 1 : t);
 function askToDrop(play) {
   holdWall({
     head: "Удалить реплей?",
-    why: `${play.file} · ${play.player}. Файл уйдёт с диска — вернуть его будет неоткуда.`,
-    doing: "Удерживайте две секунды",
-    nope: "Оставить",
+    why: "Действие необратимо удалит файл с Вашего устройства",
+    doing: "Да, я хочу удалить!",
+    nope: "Нет, я передумал",
     yes: async () => {
       try {
         await invoke("drop_replay", { path: play.path });
@@ -2301,6 +2327,7 @@ function showWall(play) {
   wallGet.disabled = false;
   wallGet.textContent = "Скачать карту";
   wallOk.textContent = "Понял!";
+  document.querySelector(".walldo").classList.remove("stacked");
   wallWorking(false);
   wallFace("ask");
   wall.hidden = false;
@@ -2322,6 +2349,7 @@ function askWall({ head, why, yes, no, doing, nope }) {
   wallGet.disabled = false;
   wallGet.textContent = doing;
   wallOk.textContent = nope;
+  document.querySelector(".walldo").classList.remove("stacked");
   wallWorking(false);
   wallFace("ask");
   wall.hidden = false;
@@ -2348,6 +2376,7 @@ function holdWall({ head, why, doing, nope, yes }) {
   wallOk.textContent = nope;
   byId("nomap-fold").hidden = true;
   wallHold.hidden = false;
+  document.querySelector(".walldo").classList.add("stacked");
   wallHold.querySelector("span").textContent = doing;
   wallHold.querySelector(".fill").style.width = "0%";
   wallFace("drop");
@@ -2800,6 +2829,30 @@ function applyPreview(card, made) {
   stillCard(card);
 }
 
+function fetchPreview(path, wide, high) {
+  if (asking.has(path)) return Promise.resolve(previews.get(path) || null);
+  asking.add(path);
+  return invoke("preview", {
+    replay: path,
+    fine: options().fine,
+    width: Math.max(160, Math.round(wide)) || 480,
+    height: Math.max(120, Math.round(high)) || 360,
+  })
+    .then((scene) => {
+      const made = { scene, judged: scene.summary, head: scene.from_ms, at: 0, show: 0, still: scene.still || null, path };
+      rollPart(made, 0);
+      keepPreview(path, made);
+      return made;
+    })
+    .catch(() => {
+      keepPreview(path, null);
+      return null;
+    })
+    .finally(() => {
+      asking.delete(path);
+    });
+}
+
 function pumpPreviews() {
   while (asking.size < PREVIEWS_AT_ONCE && waitingFor.length) {
     const card = waitingFor.shift();
@@ -2807,28 +2860,10 @@ function pumpPreviews() {
     if (!showing.has(card)) continue;
     const path = card.previewOf.path;
     if (previews.has(path)) continue;
-    asking.add(path);
     const box = card.previewOn.getBoundingClientRect();
-    invoke("preview", {
-      replay: path,
-      fine: options().fine,
-      width: Math.max(160, Math.round(box.width * 1.5)) || 480,
-      height: Math.max(120, Math.round(box.height * 1.5)) || 360,
-    })
-      .then((scene) => {
-        const made = { scene, judged: scene.summary, head: scene.from_ms, at: 0, show: 0, still: scene.still || null, path };
-        rollPart(made, 0);
-        keepPreview(path, made);
-        applyPreview(card, made);
-      })
-      .catch(() => {
-        keepPreview(path, null);
-        applyPreview(card, null);
-      })
-      .finally(() => {
-        asking.delete(path);
-        pumpPreviews();
-      });
+    fetchPreview(path, box.width * 1.5, box.height * 1.5)
+      .then((made) => applyPreview(card, made))
+      .finally(pumpPreviews);
   }
 }
 
@@ -2987,7 +3022,7 @@ function openSheet(play, card) {
   const said = made && made.judged;
 
   const head = el("div", "sheethead");
-  head.append(el("h3", null, said ? said.title : play.file));
+  head.append(el("h3", null, said ? said.title : shortFile(play.file)));
   const chips = el("div", "chips");
   chips.append(el("span", "chip who", play.player));
   chips.append(el("span", "chip", play.mods || "NM"));
@@ -3001,6 +3036,7 @@ function openSheet(play, card) {
 
   if (!said) {
     body.append(play.have_map ? reading() : el("p", "fine", "Карты этого реплея нет на этом устройстве."));
+    if (play.have_map) waitForRead(play, card);
   } else {
     const top = el("div", "sheettop");
     if (made) {
@@ -3089,6 +3125,30 @@ function openSheet(play, card) {
   const spread = body.querySelector(".spread .bars");
   if (spread && spread.repaint) requestAnimationFrame(spread.repaint);
   void card;
+}
+
+let readingFor = 0;
+
+function waitForRead(play, card) {
+  readingFor += 1;
+  const mine = readingFor;
+  const ready = () => {
+    if (mine !== readingFor || sheet.hidden) return;
+    const made = previews.get(play.path);
+    if (!made || !made.judged) return;
+    shutSheet();
+    openSheet(play, card);
+  };
+  if (previews.has(play.path)) {
+    setTimeout(ready, 200);
+    return;
+  }
+  fetchPreview(play.path, 720, 540).then(ready);
+}
+
+function shortFile(name) {
+  const bare = name.replace(/\.osr$/i, "");
+  return bare.length > 46 ? `${bare.slice(0, 44)}…` : bare;
 }
 
 function reading() {

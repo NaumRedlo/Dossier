@@ -28,7 +28,7 @@ enum Ask {
     Shut,
 }
 
-const SHOWS_KEPT: usize = 4;
+const SHOWS_KEPT: usize = 8;
 
 const PIECES: usize = 3;
 

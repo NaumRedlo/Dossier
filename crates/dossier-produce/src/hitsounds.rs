@@ -83,36 +83,57 @@ fn sustained(
             dossier_beatmap::ObjectKind::Slider(_) => {
                 let (set, bank, volume) =
                     bank_for(beatmap, object, Voice::Normal, None, timed.start_ms);
+                let steps = louder_over(beatmap, timed.start_ms, timed.end_ms, at_video, span.0);
                 let level = voice_level(Voice::Slide);
-                track.sustain(Voice::Slide, span, set, bank, volume * level, |_| 1.0);
+                track.sustain_with(
+                    Voice::Slide,
+                    span,
+                    set,
+                    bank,
+                    |held| level_at(&steps, held, volume) * level,
+                    |_| 1.0,
+                );
                 if object.hit_sound & sound_bits::WHISTLE != 0 {
                     let (set, bank, volume) =
                         bank_for(beatmap, object, Voice::Whistle, None, timed.start_ms);
                     let level = voice_level(Voice::SlideWhistle);
-                    track.sustain(Voice::SlideWhistle, span, set, bank, volume * level, |_| {
-                        1.0
-                    });
+                    track.sustain_with(
+                        Voice::SlideWhistle,
+                        span,
+                        set,
+                        bank,
+                        |held| level_at(&steps, held, volume) * level,
+                        |_| 1.0,
+                    );
                 }
             }
             dossier_beatmap::ObjectKind::Spinner { .. } => {
                 let needed = dossier_sim::required_spins(state.difficulty(), timed.duration_ms());
                 let (set, bank, volume) =
                     bank_for(beatmap, object, Voice::Normal, None, timed.start_ms);
+                let steps = louder_over(beatmap, timed.start_ms, timed.end_ms, at_video, span.0);
                 let held = timed.end_ms - timed.start_ms;
-                track.sustain(Voice::Spin, span, set, bank, volume, |seconds| {
-                    if needed <= 0.0 {
-                        return SPIN_BASE_RATE;
-                    }
+                track.sustain_with(
+                    Voice::Spin,
+                    span,
+                    set,
+                    bank,
+                    |at| level_at(&steps, at, volume),
+                    |seconds| {
+                        if needed <= 0.0 {
+                            return SPIN_BASE_RATE;
+                        }
 
-                    let at = timed.start_ms + f64::from(seconds as f32) * 1000.0;
-                    let turned = dossier_sim::spinner_rotations(
-                        state.cursor_track(),
-                        timed.start_ms,
-                        at.min(timed.start_ms + held),
-                    );
-                    let progress = (turned / needed) as f32;
-                    (SPIN_BASE_RATE + progress * SPIN_RATE_RATIO).min(SPIN_MAX_RATE)
-                });
+                        let at = timed.start_ms + f64::from(seconds as f32) * 1000.0;
+                        let turned = dossier_sim::spinner_rotations(
+                            state.cursor_track(),
+                            timed.start_ms,
+                            at.min(timed.start_ms + held),
+                        );
+                        let progress = (turned / needed) as f32;
+                        (SPIN_BASE_RATE + progress * SPIN_RATE_RATIO).min(SPIN_MAX_RATE)
+                    },
+                );
             }
             _ => {}
         }
@@ -234,6 +255,38 @@ fn convert(set: MapSet) -> SampleSet {
         MapSet::Soft => SampleSet::Soft,
         MapSet::Drum => SampleSet::Drum,
     }
+}
+
+fn louder_over(
+    beatmap: &Beatmap,
+    from_ms: f64,
+    to_ms: f64,
+    at_video: &impl Fn(f64) -> f64,
+    began: f64,
+) -> Vec<(f64, f32)> {
+    beatmap
+        .timing
+        .samples
+        .iter()
+        .filter(|point| point.time_ms > from_ms && point.time_ms < to_ms)
+        .map(|point| {
+            (
+                (at_video(point.time_ms) - began).max(0.0),
+                f32::from(point.volume) / 100.0,
+            )
+        })
+        .collect()
+}
+
+fn level_at(steps: &[(f64, f32)], held: f64, first: f32) -> f32 {
+    let mut said = first;
+    for (at, level) in steps {
+        if *at > held {
+            break;
+        }
+        said = *level;
+    }
+    said
 }
 
 fn voice_level(voice: Voice) -> f32 {
@@ -480,6 +533,22 @@ mod banks {
             "the later moment stayed loud: {}",
             late.2
         );
+    }
+
+    #[test]
+    fn a_held_sound_follows_the_green_lines_it_crosses() {
+        let beatmap = Beatmap::parse(
+            "osu file format v14\n\n[General]\nMode: 0\n\n[Difficulty]\nSliderMultiplier:1\nSliderTickRate:1\n\n[TimingPoints]\n0,500,4,2,0,80,1,0\n1500,-100,4,2,0,5,0,0\n2500,-100,4,2,0,60,0,0\n\n[HitObjects]\n256,192,1000,2,0,L|300:192,1,100\n",
+        )
+        .expect("a map");
+        let steps = louder_over(&beatmap, 1000.0, 3000.0, &|ms| ms / 1000.0, 1.0);
+        assert_eq!(steps.len(), 2, "{steps:?}");
+        assert!((steps[0].0 - 0.5).abs() < 1e-9 && (steps[0].1 - 0.05).abs() < 1e-6);
+        assert!((steps[1].0 - 1.5).abs() < 1e-9 && (steps[1].1 - 0.6).abs() < 1e-6);
+
+        assert!((level_at(&steps, 0.0, 0.8) - 0.8).abs() < 1e-6, "start");
+        assert!((level_at(&steps, 0.9, 0.8) - 0.05).abs() < 1e-6, "the hush");
+        assert!((level_at(&steps, 2.0, 0.8) - 0.6).abs() < 1e-6, "back up");
     }
 
     #[test]

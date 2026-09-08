@@ -166,13 +166,27 @@ impl Track {
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments)]
     pub fn sustain(
+        &mut self,
+        voice: Voice,
+        span: (f64, f64),
+        set: SampleSet,
+        index: u32,
+        volume: f32,
+        rate: impl Fn(f64) -> f32,
+    ) {
+        self.sustain_with(voice, span, set, index, |_| volume, rate);
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn sustain_with(
         &mut self,
         voice: Voice,
         (from_seconds, to_seconds): (f64, f64),
         set: SampleSet,
         index: u32,
-        volume: f32,
+        level: impl Fn(f64) -> f32,
         rate: impl Fn(f64) -> f32,
     ) {
         let Some(source) = self.pack.get(set, voice, index) else {
@@ -188,8 +202,6 @@ impl Track {
             return;
         }
 
-        let gain = volume.clamp(0.0, 1.0);
-
         let ramp = (((end - start) / 8).min((0.015 * rate_hz) as usize)).max(1);
         let mut read = 0.0f64;
         for (step, slot) in (start..end).enumerate() {
@@ -203,6 +215,7 @@ impl Track {
             let fraction = (read - read.floor()) as f32;
             let value = source[whole] + (source[next] - source[whole]) * fraction;
 
+            let gain = level(held).clamp(0.0, 1.0);
             self.left[slot] += value * gain * fade;
             self.right[slot] += value * gain * fade;
 

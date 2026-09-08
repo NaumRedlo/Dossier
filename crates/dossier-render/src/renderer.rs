@@ -121,7 +121,7 @@ const SPINNER_BONUS_FROM: f64 = 2.0 * SPIN_SPRITE;
 const SPINNER_BONUS_TO: f64 = 1.28 * SPIN_SPRITE;
 const SPINNER_BONUS_GLYPH: f64 = 46.0;
 
-const SPIN_UNIT: f64 = 0.8;
+const SPIN_BOX: (f64, f64) = (640.0, 480.0);
 
 const SPIN_SPRITE: f64 = 0.625;
 
@@ -141,7 +141,6 @@ const SPIN_SPM_FACE: f64 = 0.9;
 const SPIN_SPM_GLYPH: f64 = 46.0;
 const SPIN_RPM_RISE: f64 = 50.0;
 
-const SPIN_METRE_WIDE: f64 = 640.0;
 const SPIN_BARS: u32 = 10;
 
 const SPIN_SETTLED: f64 = 0.8;
@@ -803,7 +802,7 @@ fn unit(dx: f64, dy: f64) -> (f64, f64) {
 
 fn spin_place(x: f64, y: f64) -> dossier_beatmap::Point {
     dossier_beatmap::Point {
-        x: dossier_beatmap::Point::CENTRE.x + x * SPIN_UNIT,
-        y: (y - SPIN_LIFT) * SPIN_UNIT,
+        x: dossier_beatmap::Point::CENTRE.x + x,
+        y: dossier_beatmap::Point::CENTRE.y - SPIN_BOX.1 / 2.0 - SPIN_LIFT + y,
     }
 }

@@ -4436,7 +4436,7 @@ fn plate_and_figure(dir: &std::path::Path) -> (u32, u32) {
 }
 
 #[test]
-fn the_speed_figure_fills_its_plate_the_way_the_game_fills_it() {
+fn the_speed_figure_is_nine_tenths_of_the_plates_own_scale() {
     let dir = skin_folder("rpm-plate");
     write_rpm_plate(&dir);
 
@@ -4445,12 +4445,14 @@ fn the_speed_figure_fills_its_plate_the_way_the_game_fills_it() {
     assert!(figure > 0, "the figure was not drawn");
 
     let share = figure as f32 / plate as f32;
+    let wanted = 46.0 * 0.9 / 56.0;
 
     assert!(
-        (0.75..=0.92).contains(&share),
-        "the figure is {figure}px in a {plate}px plate — {:.0}%; the game's own \
-         fills four fifths",
-        share * 100.0
+        (share - wanted).abs() < 0.05,
+        "the figure is {figure}px in a {plate}px plate — {:.0}%; osu! draws the plate \
+         at its sprite scale and the figure at nine tenths of it, so {:.0}%",
+        share * 100.0,
+        wanted * 100.0
     );
 }
 
@@ -4596,7 +4598,7 @@ fn the_spinner_disc_is_the_size_osu_draws_it() {
         best = best.max(run);
     }
 
-    let wanted = 200.0 * 0.625 * 0.8 * layout.scale();
+    let wanted = 200.0 * 0.625 * layout.scale();
     assert!(
         (f64::from(best) - wanted).abs() <= 2.0,
         "the disc came out {best} wide, not the {wanted:.0} osu! draws"

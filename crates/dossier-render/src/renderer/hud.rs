@@ -774,7 +774,7 @@ impl Scene<'_> {
                 .and_then(|s| s.coloured(crate::elements::Element::SpinnerRpm, 0));
             if let Some((art, per)) = sprite {
                 let rise = f64::from(1.0 - presence.clamp(0.0, 1.0)) * SPIN_RPM_RISE;
-                let scale = (layout.scale() * SPIN_SPRITE * SPIN_UNIT) as f32 / per;
+                let scale = (layout.scale() * SPIN_SPRITE) as f32 / per;
                 let (left, top) = layout.map(spin_place(SPIN_RPM_X, SPIN_RPM_Y + rise));
 
                 pixmap.draw_pixmap(
@@ -794,7 +794,7 @@ impl Scene<'_> {
                     .hud_face_height(false)
                     .map_or(SPIN_SPM_GLYPH, f64::from);
                 let tall =
-                    (layout.scale() * SPIN_SPRITE * SPIN_SPM_FACE * SPIN_UNIT * glyph) as f32;
+                    (layout.scale() * SPIN_SPRITE * SPIN_SPM_FACE * glyph) as f32;
                 let (right, atop) = layout.map(spin_place(SPIN_SPM_X, SPIN_SPM_Y + rise));
                 if !self.draw_hud_text(
                     pixmap,

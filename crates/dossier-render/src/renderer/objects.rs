@@ -1345,7 +1345,7 @@ impl Scene<'_> {
             return;
         }
 
-        let scale = (layout.scale() * SPIN_SPRITE * SPIN_UNIT) as f32 / per;
+        let scale = (layout.scale() * SPIN_SPRITE) as f32 / per;
         let (w, h) = (art.width() as f32 * scale, art.height() as f32 * scale);
         let share = f64::from(bars) / f64::from(SPIN_BARS);
         let shown = ((h as f64 * share).ceil().max(1.0)) as u32;
@@ -1364,7 +1364,7 @@ impl Scene<'_> {
             Transform::from_translate(0.0, -(h - shown as f32)).pre_scale(scale, scale),
             None,
         );
-        let (left, top) = layout.map(spin_place(-SPIN_METRE_WIDE / 2.0, SPIN_TOP));
+        let (left, top) = layout.map(spin_place(-SPIN_BOX.0 / 2.0, SPIN_TOP));
         pixmap.draw_pixmap(
             left as i32,
             (top + h - shown as f32) as i32,
@@ -1428,7 +1428,7 @@ impl Scene<'_> {
             }
             None => picture,
         };
-        let factor = (layout.scale() * SPIN_SPRITE * SPIN_UNIT * art.scale) as f32 / per;
+        let factor = (layout.scale() * SPIN_SPRITE * art.scale) as f32 / per;
         let (x, y) = layout.map(at);
         let transform = Transform::from_translate(x, y)
             .pre_rotate(art.degrees)
@@ -1537,7 +1537,7 @@ impl Scene<'_> {
             .map_or(SPINNER_BONUS_GLYPH, |(art, per)| {
                 f64::from(art.height()) / f64::from(per)
             });
-        let size = (layout.scale() * SPIN_UNIT * swell * glyph) as f32;
+        let size = (layout.scale() * swell * glyph) as f32;
         let (x, y) = layout.map(spin_place(0.0, SPIN_BONUS_AT));
 
         let text = format!("{}", awarded * SPINNER_BONUS_STEP);

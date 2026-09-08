@@ -468,7 +468,7 @@ impl Scene<'_> {
             .sprites
             .as_ref()
             .and_then(|s| s.ini().input_overlay_text)
-            .unwrap_or(tiny_skia::Color::BLACK)
+            .unwrap_or(self.skin.hud)
     }
 
     #[allow(clippy::too_many_arguments)]

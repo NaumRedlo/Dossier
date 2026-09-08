@@ -1253,42 +1253,31 @@ body.still *, body.still *::before, body.still *::after {
 }
 .minijob .pct { flex: none; color: var(--accent); font-weight: 700; }
 
-.minijob .dial {
+.minijob .beat {
   flex: none;
-  width: 1.35rem;
-  height: 1.35rem;
-  transform: rotate(-90deg);
+  width: 1.2rem;
+  height: 1.2rem;
   overflow: visible;
 }
-.minijob .dial circle {
-  fill: none;
-  stroke-width: 3;
-  stroke-linecap: round;
+.minijob .beat .bar {
+  fill: var(--accent);
+  transform-box: fill-box;
+  transform-origin: center;
 }
-.minijob .dial .track { stroke: var(--sunk); }
-.minijob .dial .fill {
-  stroke: var(--accent);
-  stroke-dasharray: 56.55;
-  stroke-dashoffset: 56.55;
-  transition: stroke-dashoffset 0.25s linear;
-}
-.minijob .dial .tick, .minijob .dial .cross {
+.minijob .beat .tick, .minijob .beat .cross {
   fill: none;
   stroke-width: 2.2;
   stroke-linecap: round;
   stroke-linejoin: round;
   stroke-dasharray: 24;
   stroke-dashoffset: 24;
-  transform: rotate(90deg);
-  transform-box: view-box;
-  transform-origin: 12px 12px;
 }
-.minijob .dial .tick { stroke: var(--good); }
-.minijob .dial .cross { stroke: var(--accent); }
+.minijob .beat .tick { stroke: var(--good); }
+.minijob .beat .cross { stroke: var(--accent); }
 
-.minijob.done .dial .fill, .minijob.failed .dial .fill { opacity: 0; }
-.minijob.done .dial .tick { stroke-dashoffset: 0; transition: stroke-dashoffset 0.4s var(--ease) 0.1s; }
-.minijob.failed .dial .cross { stroke-dashoffset: 0; transition: stroke-dashoffset 0.3s var(--ease) 0.1s; }
+.minijob.done .beat .bar, .minijob.failed .beat .bar { opacity: 0; }
+.minijob.done .beat .tick { stroke-dashoffset: 0; transition: stroke-dashoffset 0.4s var(--ease) 0.1s; }
+.minijob.failed .beat .cross { stroke-dashoffset: 0; transition: stroke-dashoffset 0.3s var(--ease) 0.1s; }
 .minijob.done .pct, .minijob.failed .pct { display: none; }
 .minijob.done { border-color: var(--good); }
 
@@ -1387,7 +1376,7 @@ body.still *, body.still *::before, body.still *::after {
   pointer-events: none;
 }
 .act.hold span { position: relative; }
-.act.hold.holding { transform: scale(0.99); }
+.act.hold.holding { border-color: var(--accent); }
 
 .ic-drop { width: 7.5rem; height: 7.5rem; }
 .ic-drop .track { fill: none; stroke: var(--accent); stroke-width: 2; opacity: 0.16; }
@@ -1412,7 +1401,7 @@ body.still *, body.still *::before, body.still *::after {
 
 .minijob.idle { max-width: 2.6rem; padding: 0 0.45rem; }
 .minijob.idle .what, .minijob.idle .pct { display: none; }
-.minijob.idle .dial .fill { opacity: 0.35; }
+.minijob.idle .beat .bar { fill: var(--faint); }
 .ic-fold { width: 1.05rem; height: 1.05rem; }
 .ic-fold .track { fill: none; stroke: currentColor; stroke-width: 2; opacity: 0.2; }
 .ic-fold .arc {
@@ -1491,72 +1480,6 @@ body.still *, body.still *::before, body.still *::after {
   aspect-ratio: 16 / 9;
   background: rgba(0, 0, 0, 0.25);
 }
-
-.shelf {
-  flex: 1;
-  min-height: 8rem;
-  max-height: none;
-}
-
-#view-render .list.waiting, #view-render .shelf.waiting {
-  flex: 0 0 auto;
-  min-height: 0;
-}
-
-.shelf.waiting {
-  display: block;
-  padding: 0;
-  border: 1px solid var(--line);
-  border-radius: 1.05rem;
-  background: var(--glass);
-  -webkit-backdrop-filter: blur(14px);
-  backdrop-filter: blur(14px);
-  overflow: hidden;
-}
-
-.choose { padding-top: 3rem; }
-#view-replay { min-height: 28rem; }
-
-.minijob .pct { flex: none; color: var(--accent); font-weight: 700; }
-
-.minijob .dial {
-  flex: none;
-  width: 1.35rem;
-  height: 1.35rem;
-  transform: rotate(-90deg);
-  overflow: visible;
-}
-.minijob .dial circle {
-  fill: none;
-  stroke-width: 3;
-  stroke-linecap: round;
-}
-.minijob .dial .track { stroke: var(--sunk); }
-.minijob .dial .fill {
-  stroke: var(--accent);
-  stroke-dasharray: 56.55;
-  stroke-dashoffset: 56.55;
-  transition: stroke-dashoffset 0.25s linear;
-}
-.minijob .dial .tick, .minijob .dial .cross {
-  fill: none;
-  stroke-width: 2.2;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-dasharray: 24;
-  stroke-dashoffset: 24;
-  transform: rotate(90deg);
-  transform-box: view-box;
-  transform-origin: 12px 12px;
-}
-.minijob .dial .tick { stroke: var(--good); }
-.minijob .dial .cross { stroke: var(--accent); }
-
-.minijob.done .dial .fill, .minijob.failed .dial .fill { opacity: 0; }
-.minijob.done .dial .tick { stroke-dashoffset: 0; transition: stroke-dashoffset 0.4s var(--ease) 0.1s; }
-.minijob.failed .dial .cross { stroke-dashoffset: 0; transition: stroke-dashoffset 0.3s var(--ease) 0.1s; }
-.minijob.done .pct, .minijob.failed .pct { display: none; }
-.minijob.done { border-color: var(--good); }
 
 .shelf {
   display: grid;

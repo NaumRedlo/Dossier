@@ -432,6 +432,22 @@ function restartLoops() {
     2200,
     "ease-in-out",
   );
+  for (const [what, ms, low] of [
+    [".beat .one", 900, 0.32],
+    [".beat .two", 700, 0.55],
+    [".beat .three", 1100, 0.24],
+  ]) {
+    loopIcon(
+      at(what),
+      [
+        { transform: `scaleY(${low})` },
+        { transform: "scaleY(1)", offset: 0.5 },
+        { transform: `scaleY(${low})` },
+      ],
+      ms,
+      "ease-in-out",
+    );
+  }
   loopIcon(
     at(".ic-drop .arc"),
     [{ transform: "rotate(0deg)" }, { transform: "rotate(360deg)" }],
@@ -1440,7 +1456,6 @@ let fitRun = 0;
 let fitParts = null;
 let fitAt = 0;
 let fitLoading = false;
-let fitLast = null;
 
 async function loadFitting(again = false) {
   if (fitLoading) return;
@@ -1528,21 +1543,13 @@ function runFitting() {
         nextFitPiece();
         continue;
       }
-      const into = clamp01(shown / FIT_BLEND_MS);
-      c.ctx.setTransform(1, 0, 0, 1, 0, 0);
-      c.ctx.clearRect(0, 0, c.w, c.h);
-      if (into < 1 && fitLast) c.ctx.drawImage(fitLast, 0, 0, c.w, c.h);
-      c.ctx.globalAlpha = fitLast ? into : 1;
-      c.ctx.drawImage(image, 0, 0, c.w, c.h);
-      c.ctx.globalAlpha = 1;
-      fitLast = image;
+      paintFrame(c, image, clamp01(shown / FIT_BLEND_MS));
       }
   })();
 }
 
 function stopFitting() {
   fitRun += 1;
-  fitLast = null;
 }
 
 byId("s-clone").addEventListener("click", async () => {
@@ -1691,8 +1698,6 @@ let job = null;
 const jobBox = byId("jobbox");
 const jobMini = byId("job-mini");
 
-const DIAL_ROUND = 2 * Math.PI * 9;
-
 const DONE_HOLD_MS = 12000;
 let jobHold = null;
 
@@ -1756,7 +1761,6 @@ function paintWorks() {
     jobMini.classList.remove("done", "failed");
     byId("job-label").textContent = "";
     byId("job-percent").textContent = "0";
-    byId("job-dial").style.strokeDashoffset = String(DIAL_ROUND);
     list.replaceChildren(el("p", "fine", "Сейчас ничего не идёт."));
     byId("job-hint").textContent = "Здесь видно всё, что приложение качает и рисует.";
     return;
@@ -1773,7 +1777,6 @@ function paintWorks() {
   jobMini.classList.toggle("failed", !running.length && all.some((one) => !one.ok));
   byId("job-label").textContent = running.length > 1 ? `${running.length} работы` : lead.label;
   byId("job-percent").textContent = round(share);
-  byId("job-dial").style.strokeDashoffset = String(DIAL_ROUND * (1 - share / 100));
   list.replaceChildren(
     ...all.map((one) => {
       const row = el("div", `work${one.done ? (one.ok ? " done" : " failed") : ""}${openWork === one.id ? " open" : ""}`);
@@ -2132,9 +2135,6 @@ function fillPlays({ shelves, skins, plays, rows }) {
   }
 
   const showing = chosenPlays(plays);
-  byId("r-count").textContent = showing.length
-    ? `${showing.length} ${plural(showing.length, "реплей", "реплея", "реплеев")}`
-    : "";
   if (!plays.length) {
     list.classList.add("waiting");
     list.replaceChildren(line({ mark: ["huh", "?"], name: "пусто", said: "Укажите папку реплеев." }));
@@ -2369,6 +2369,13 @@ function stopHold() {
 wallHold.addEventListener("pointerdown", (event) => {
   event.preventDefault();
   if (holdRun) return;
+  if (wallHold.setPointerCapture) {
+    try {
+      wallHold.setPointerCapture(event.pointerId);
+    } catch {
+      void 0;
+    }
+  }
   wallHold.classList.add("holding");
   holdTicket += 1;
   const mine = holdTicket;
@@ -2390,7 +2397,7 @@ wallHold.addEventListener("pointerdown", (event) => {
   holdRun = requestAnimationFrame(step);
 });
 
-for (const kind of ["pointerup", "pointerleave", "pointercancel", "blur"]) {
+for (const kind of ["pointerup", "pointercancel", "lostpointercapture", "blur"]) {
   wallHold.addEventListener(kind, stopHold);
 }
 
@@ -2656,11 +2663,17 @@ function canvasPixels(canvas, cap, most = MOST_PIXELS) {
   if (room < 1) dpr *= room;
   const w = Math.max(1, Math.round(wide * dpr));
   const h = Math.max(1, Math.round(high * dpr));
+  const seat = { ctx: canvas.getContext("2d"), w, h };
   if (canvas.width !== w || canvas.height !== h) {
     canvas.width = w;
     canvas.height = h;
+    const before = lastShown.get(canvas);
+    if (before) {
+      seat.ctx.setTransform(1, 0, 0, 1, 0, 0);
+      seat.ctx.drawImage(before, 0, 0, w, h);
+    }
   }
-  return { ctx: canvas.getContext("2d"), w, h };
+  return seat;
 }
 
 function rollPart(one, step) {
@@ -2687,22 +2700,24 @@ function partEdges(one) {
   return { from_ms: from, to_ms: to };
 }
 
-function paintFrame(c, image) {
+const lastShown = new WeakMap();
+
+function paintFrame(c, image, blend) {
+  const canvas = c.ctx.canvas;
+  const before = lastShown.get(canvas);
+  const share = blend === undefined || !before ? 1 : clamp01(blend);
   c.ctx.setTransform(1, 0, 0, 1, 0, 0);
   c.ctx.clearRect(0, 0, c.w, c.h);
+  if (share < 1) c.ctx.drawImage(before, 0, 0, c.w, c.h);
+  c.ctx.globalAlpha = share;
   c.ctx.drawImage(image, 0, 0, c.w, c.h);
+  c.ctx.globalAlpha = 1;
+  lastShown.set(canvas, image);
 }
 
-function fadeEdges(c, head, play) {
-  const into = clamp01((head - play.from_ms) / PREVIEW_EDGE_MS);
-  const away = clamp01((play.to_ms - head) / PREVIEW_EDGE_MS);
-  const shown = Math.min(into, away);
-  if (shown >= 1) return;
-  c.ctx.save();
-  c.ctx.globalCompositeOperation = "destination-out";
-  c.ctx.globalAlpha = 1 - shown;
-  c.ctx.fillRect(0, 0, c.w, c.h);
-  c.ctx.restore();
+function blendOf(one) {
+  const edges = partEdges(one);
+  return clamp01((one.head - edges.from_ms) / PREVIEW_EDGE_MS);
 }
 
 const PREVIEWS_KEPT = 60;
@@ -2898,9 +2913,9 @@ function runPreviews() {
       rollPart(made, Math.min(120, now - was));
       was = now;
       const image = await frameOf(made, made.head, c.w, c.h, () => mine === cardTicket && hovered === one);
-      if (mine !== cardTicket || hovered !== one || !image) return;
-      paintFrame(c, image);
-      fadeEdges(c, made.head, partEdges(made));
+      if (mine !== cardTicket || hovered !== one) return;
+      if (!image) continue;
+      paintFrame(c, image, blendOf(made));
     }
   })();
 }
@@ -3288,9 +3303,9 @@ function runSheetPreview() {
       if (!still) rollPart(one, Math.min(120, now - was));
       was = now;
       const image = await frameOf(one, one.head, c.w, c.h);
-      if (mine !== sheetRun || sheetPlay !== one || !image) return;
-      paintFrame(c, image);
-      fadeEdges(c, one.head, partEdges(one));
+      if (mine !== sheetRun || sheetPlay !== one) return;
+      if (!image) continue;
+      paintFrame(c, image, blendOf(one));
       if (still) return;
     }
   })();

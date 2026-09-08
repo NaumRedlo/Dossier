@@ -100,9 +100,10 @@
 
     <div class="hoverbox" id="jobbox" hidden>
       <button class="minijob" id="job-mini">
-        <svg class="dial" viewBox="0 0 24 24" aria-hidden="true">
-          <circle class="track" cx="12" cy="12" r="9"/>
-          <circle class="fill" id="job-dial" cx="12" cy="12" r="9"/>
+        <svg class="beat" viewBox="0 0 24 24" aria-hidden="true">
+          <rect class="bar one" x="4.5" y="4" width="3.2" height="16" rx="1.6"/>
+          <rect class="bar two" x="10.4" y="4" width="3.2" height="16" rx="1.6"/>
+          <rect class="bar three" x="16.3" y="4" width="3.2" height="16" rx="1.6"/>
           <path class="tick" d="M7.4 12.4 10.5 15.4 16.6 9.1"/>
           <path class="cross" d="M8.4 8.4 15.6 15.6M15.6 8.4 8.4 15.6"/>
         </svg>
@@ -186,7 +187,6 @@
           <option value="nomap">Только без карты</option>
         </select></label>
         <span class="grow"></span>
-        <span class="muted" id="r-count"></span>
         <button class="act small" id="r-refresh">Обновить</button>
       </div>
 

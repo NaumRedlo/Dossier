@@ -245,7 +245,6 @@ dock.addEventListener("pointermove", (event) => {
     return;
   }
   waiting = pos;
-  items_box.classList.remove("easing");
   requestAnimationFrame(() => {
     const where = waiting;
     waiting = null;
@@ -254,14 +253,18 @@ dock.addEventListener("pointermove", (event) => {
 });
 
 const items_box = byId("items");
-dock.addEventListener("pointerenter", () => {
+let easeOff = null;
+
+function easeFor(ms) {
+  clearTimeout(easeOff);
   items_box.classList.add("easing");
-  setTimeout(() => items_box.classList.remove("easing"), 240);
-});
+  easeOff = setTimeout(() => items_box.classList.remove("easing"), ms);
+}
+
+dock.addEventListener("pointerenter", () => easeFor(200));
 dock.addEventListener("pointerleave", () => {
-  items_box.classList.add("easing");
+  easeFor(260);
   relax();
-  setTimeout(() => items_box.classList.remove("easing"), 260);
 });
 window.addEventListener("resize", measure);
 
@@ -315,6 +318,16 @@ function loopIcon(one, frames, ms, easing, origin) {
   one.style.transformBox = "fill-box";
   one.style.transformOrigin = origin || "center";
   looping.set(one, one.animate(frames, { duration: ms, iterations: Infinity, easing }));
+}
+
+function stopLoop(what) {
+  const one = document.querySelector(what);
+  if (!one) return;
+  const had = looping.get(one);
+  if (had) had.cancel();
+  looping.delete(one);
+  one.style.removeProperty("opacity");
+  one.style.removeProperty("transform");
 }
 
 function restartLoops() {
@@ -1442,7 +1455,7 @@ byId("s-skin").addEventListener("change", async () => {
 });
 
 const FIT_PARTS = 3;
-const FIT_PIECE_MS = 2800;
+const FIT_PIECE_MS = 5200;
 const FIT_BLEND_MS = 900;
 
 let fitRun = 0;
@@ -1534,9 +1547,20 @@ function runFitting() {
       const image = await frameOf(one, one.head, c.w, c.h);
       if (mine !== fitRun) return;
       if (!image) {
+        one.misses = (one.misses || 0) + 1;
+        if (one.misses > 3) {
+          fitParts = fitParts.filter((other) => other !== one);
+          fitAt = 0;
+          if (!fitParts.length) {
+            byId("s-skinsaid").textContent = "Реплеи для примерки не открылись.";
+            return;
+          }
+        }
+        shown = 0;
         nextFitPiece();
         continue;
       }
+      one.misses = 0;
       paintFrame(c, image, clamp01(shown / FIT_BLEND_MS));
       }
   })();
@@ -1766,6 +1790,7 @@ function paintWorks() {
   if (!all.length) {
     jobMini.classList.add("idle");
     jobMini.classList.remove("done", "failed");
+    if (!looping.has(document.querySelector(".pull .stem"))) restartLoops();
     byId("job-label").textContent = "";
     byId("job-percent").textContent = "0";
     list.replaceChildren(el("p", "fine", "Сейчас ничего не идёт."));
@@ -1780,8 +1805,14 @@ function paintWorks() {
     : 100;
   const lead = running[0] || all[all.length - 1];
 
-  jobMini.classList.toggle("done", !running.length && all.every((one) => one.ok));
-  jobMini.classList.toggle("failed", !running.length && all.some((one) => !one.ok));
+  const resting = !running.length;
+  jobMini.classList.toggle("done", resting && all.every((one) => one.ok));
+  jobMini.classList.toggle("failed", resting && all.some((one) => !one.ok));
+  if (resting) {
+    for (const what of [".pull .stem", ".pull .head", ".pull .tray"]) stopLoop(what);
+  } else if (!looping.has(document.querySelector(".pull .stem"))) {
+    restartLoops();
+  }
   byId("job-label").textContent = running.length > 1 ? `${running.length} работы` : lead.label;
   byId("job-percent").textContent = round(share);
   list.replaceChildren(

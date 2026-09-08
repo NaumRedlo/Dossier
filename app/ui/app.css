@@ -2006,7 +2006,7 @@ h4.sheeth {
 }
 .workshut:hover { background: var(--glass-high); color: var(--ink); }
 .workshut svg { width: 0.6rem; height: 0.6rem; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; }
-.work.done .workhead b, .work.failed .workhead b { padding-right: 1.2rem; }
+.work.done .workhead, .work.failed .workhead { padding-right: 1.6rem; }
 #jobbox #jobpane { display: none; }
 #jobbox:hover #jobpane, #jobbox:focus-within #jobpane { display: block; }
 #jobbox:hover::after, #jobbox:focus-within::after {

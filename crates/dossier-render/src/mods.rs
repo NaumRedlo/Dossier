@@ -1,6 +1,9 @@
 use std::sync::OnceLock;
 
-use tiny_skia::{Color, FillRule, Paint, PathBuilder, Pixmap, PixmapPaint, Transform};
+use tiny_skia::{
+    Color, FillRule, LineCap, LineJoin, Paint, Path, PathBuilder, Pixmap, PixmapPaint, Stroke,
+    Transform,
+};
 
 use crate::text::{Align, Font, Label};
 
@@ -11,6 +14,8 @@ pub const RATIO: f32 = 1.62;
 const CORNER: f32 = 0.26;
 
 const LETTER_SHARE: f32 = 0.52;
+
+const MARK_SHARE: f32 = 0.62;
 
 const GAP: f32 = 0.12;
 
@@ -107,6 +112,210 @@ fn plate(into: &mut Pixmap, wide: f32, high: f32, colour: Color) {
     into.fill_path(&path, &paint, FillRule::Winding, Transform::identity(), None);
 }
 
+fn ink() -> Paint<'static> {
+    let mut paint = Paint {
+        anti_alias: true,
+        ..Default::default()
+    };
+    paint.set_color(Color::from_rgba8(255, 255, 255, 255));
+    paint
+}
+
+fn pen(width: f32) -> Stroke {
+    Stroke {
+        width,
+        line_cap: LineCap::Round,
+        line_join: LineJoin::Round,
+        ..Default::default()
+    }
+}
+
+fn chevrons(path: &mut PathBuilder, facing: f32, span: f32) {
+    for step in [-0.42f32, 0.34] {
+        path.move_to(-0.34 * facing + step * span, -0.5);
+        path.line_to(0.3 * facing + step * span, 0.0);
+        path.line_to(-0.34 * facing + step * span, 0.5);
+    }
+}
+
+fn mark_of(acronym: &str) -> Option<(Path, Option<Path>)> {
+    let mut line = PathBuilder::new();
+    let mut solid = PathBuilder::new();
+    match acronym {
+        "EZ" | "NF" => {
+            line.move_to(0.0, 0.52);
+            line.cubic_to(-0.78, -0.06, -0.5, -0.62, 0.0, -0.24);
+            line.cubic_to(0.5, -0.62, 0.78, -0.06, 0.0, 0.52);
+            if acronym == "NF" {
+                line.move_to(-0.62, 0.58);
+                line.line_to(0.62, -0.58);
+            }
+        }
+        "HT" | "DC" => {
+            chevrons(&mut line, -1.0, 0.62);
+            if acronym == "DC" {
+                solid.push_circle(0.0, -0.6, 0.16);
+            }
+        }
+        "DT" | "NC" => {
+            chevrons(&mut line, 1.0, 0.62);
+            if acronym == "NC" {
+                solid.push_circle(0.0, -0.6, 0.16);
+            }
+        }
+        "HD" => {
+            line.move_to(-0.62, 0.0);
+            line.quad_to(0.0, -0.56, 0.62, 0.0);
+            line.quad_to(0.0, 0.56, -0.62, 0.0);
+            solid.push_circle(0.0, 0.0, 0.17);
+        }
+        "HR" => {
+            for step in [0.1f32, -0.34] {
+                line.move_to(-0.46, 0.24 + step);
+                line.line_to(0.0, -0.24 + step);
+                line.line_to(0.46, 0.24 + step);
+            }
+        }
+        "SD" | "PF" => {
+            line.move_to(-0.46, -0.34);
+            line.line_to(0.0, 0.2);
+            line.line_to(0.46, -0.34);
+            line.move_to(-0.46, 0.46);
+            line.line_to(0.46, 0.46);
+            if acronym == "PF" {
+                solid.push_circle(0.0, -0.44, 0.1);
+            }
+        }
+        "FL" => {
+            line.move_to(-0.44, 0.5);
+            line.line_to(-0.14, -0.5);
+            line.line_to(0.14, -0.5);
+            line.line_to(0.44, 0.5);
+            line.close();
+            line.move_to(-0.24, -0.08);
+            line.line_to(0.24, -0.08);
+        }
+        "BL" => {
+            line.move_to(-0.5, -0.52);
+            line.line_to(-0.5, 0.52);
+            line.move_to(0.5, -0.52);
+            line.line_to(0.5, 0.52);
+            line.move_to(-0.16, -0.3);
+            line.line_to(-0.16, 0.3);
+            line.move_to(0.16, -0.3);
+            line.line_to(0.16, 0.3);
+        }
+        "RX" => {
+            line.move_to(-0.4, 0.52);
+            line.line_to(-0.4, -0.1);
+            line.move_to(-0.13, 0.2);
+            line.line_to(-0.13, -0.5);
+            line.move_to(0.13, 0.2);
+            line.line_to(0.13, -0.44);
+            line.move_to(0.4, 0.2);
+            line.line_to(0.4, -0.24);
+            line.move_to(-0.4, 0.3);
+            line.quad_to(0.0, 0.62, 0.4, 0.2);
+        }
+        "AP" => {
+            line.move_to(-0.3, -0.52);
+            line.line_to(0.34, 0.16);
+            line.line_to(0.02, 0.2);
+            line.line_to(0.2, 0.54);
+            line.line_to(-0.02, 0.6);
+            line.line_to(-0.2, 0.26);
+            line.line_to(-0.42, 0.46);
+            line.close();
+        }
+        "TD" => {
+            line.move_to(-0.34, -0.56);
+            line.line_to(0.34, -0.56);
+            line.quad_to(0.44, -0.56, 0.44, -0.46);
+            line.line_to(0.44, 0.46);
+            line.quad_to(0.44, 0.56, 0.34, 0.56);
+            line.line_to(-0.34, 0.56);
+            line.quad_to(-0.44, 0.56, -0.44, 0.46);
+            line.line_to(-0.44, -0.46);
+            line.quad_to(-0.44, -0.56, -0.34, -0.56);
+            line.close();
+            solid.push_circle(0.0, 0.24, 0.12);
+        }
+        "SO" => {
+            line.move_to(0.0, -0.5);
+            line.quad_to(0.5, -0.5, 0.5, 0.0);
+            line.quad_to(0.5, 0.5, 0.0, 0.5);
+            line.quad_to(-0.5, 0.5, -0.5, 0.0);
+            line.quad_to(-0.5, -0.18, -0.24, -0.2);
+            line.quad_to(0.06, -0.2, 0.06, 0.06);
+        }
+        "AT" | "CN" => {
+            if acronym == "CN" {
+                line.move_to(-0.56, -0.44);
+                line.line_to(0.56, -0.44);
+                line.line_to(0.56, 0.44);
+                line.line_to(-0.56, 0.44);
+                line.close();
+                solid.push_circle(-0.34, 0.0, 0.09);
+                solid.push_circle(0.34, 0.0, 0.09);
+            } else {
+                line.move_to(-0.32, -0.5);
+                line.line_to(0.44, 0.0);
+                line.line_to(-0.32, 0.5);
+                line.close();
+            }
+        }
+        "MR" => {
+            line.move_to(0.0, -0.62);
+            line.line_to(0.0, 0.62);
+            line.move_to(-0.2, -0.38);
+            line.line_to(-0.62, 0.0);
+            line.line_to(-0.2, 0.38);
+            line.close();
+            line.move_to(0.2, -0.38);
+            line.line_to(0.62, 0.0);
+            line.line_to(0.2, 0.38);
+            line.close();
+        }
+        "TP" => {
+            line.push_circle(0.0, 0.0, 0.5);
+            line.push_circle(0.0, 0.0, 0.24);
+            solid.push_circle(0.0, 0.0, 0.09);
+        }
+        "RD" => {
+            line.move_to(-0.5, -0.5);
+            line.line_to(0.5, -0.5);
+            line.line_to(0.5, 0.5);
+            line.line_to(-0.5, 0.5);
+            line.close();
+            solid.push_circle(-0.24, -0.24, 0.09);
+            solid.push_circle(0.24, 0.24, 0.09);
+            solid.push_circle(0.0, 0.0, 0.09);
+        }
+        "NM" => {
+            line.push_circle(0.0, 0.0, 0.44);
+            line.move_to(-0.32, 0.32);
+            line.line_to(0.32, -0.32);
+        }
+        _ => return None,
+    }
+    let solid = solid.finish();
+    line.finish().map(|stroked| (stroked, solid))
+}
+
+fn draw_mark(into: &mut Pixmap, acronym: &str, wide: f32, high: f32) -> bool {
+    let Some((line, solid)) = mark_of(acronym) else {
+        return false;
+    };
+    let reach = high * MARK_SHARE;
+    let put = Transform::from_translate(wide / 2.0, high / 2.0).pre_scale(reach, reach);
+    let paint = ink();
+    into.stroke_path(&line, &paint, &pen(high * 0.115 / reach), put, None);
+    if let Some(solid) = solid {
+        into.fill_path(&solid, &paint, FillRule::Winding, put, None);
+    }
+    true
+}
+
 pub fn icon(acronym: &str, high: u32) -> Option<Pixmap> {
     if !known(acronym) {
         return None;
@@ -122,8 +331,12 @@ pub fn icon(acronym: &str, high: u32) -> Option<Pixmap> {
         colour_of(kind_of(acronym)),
     );
 
-    let font = letters()?;
     let name = acronym.to_ascii_uppercase();
+    if draw_mark(&mut out, &name, wide as f32, high as f32) {
+        return Some(out);
+    }
+
+    let font = letters()?;
     let size = high as f32 * LETTER_SHARE;
     font.draw(
         &mut out,

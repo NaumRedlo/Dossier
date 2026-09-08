@@ -77,7 +77,6 @@ pub struct Fine {
 
     pub skin_hitsounds: bool,
 
-    pub skin_sounds_first: bool,
 
     pub kit: String,
 
@@ -106,7 +105,6 @@ impl Default for Fine {
             cursor_expand: true,
             map_hitsounds: true,
             skin_hitsounds: true,
-            skin_sounds_first: false,
             kit: "click".to_owned(),
             pitch: 1.0,
             decay: 1.0,
@@ -211,7 +209,7 @@ pub fn draw(asked: &Asked<'_>, told: &Told) -> Result<PathBuf, String> {
                 pack = pack.with_beatmap(&from_map);
             }
         }
-        pack.wants_skin_first(asked.fine.skin_sounds_first)
+        pack
     };
 
     if samples.is_empty() {

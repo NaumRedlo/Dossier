@@ -12,8 +12,6 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use dossier_beatmap::Beatmap;
-use dossier_render::elements::{Element, Health, Verdict};
-use dossier_render::imported::Sprites;
 use dossier_render::{Effects, Layout, Scene, Skin};
 
 use dossier_replay::{GameMode, Replay};

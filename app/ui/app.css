@@ -1,4 +1,10 @@
 @font-face {
+  font-family: Dots;
+  src: url("fonts/JetBrainsMono-Regular.ttf") format("truetype");
+  unicode-range: U+2026, U+2013, U+2014, U+00B7;
+  font-display: swap;
+}
+@font-face {
   font-family: Huninn;
   src: url("fonts/Huninn-Regular.ttf") format("truetype");
   font-weight: 400 700;
@@ -34,7 +40,7 @@
   --pill-ink: #1c1013;
   --sunk: rgba(0, 0, 0, 0.26);
   --panel: rgba(38, 16, 20, 0.66);
-  --face: Huninn, ui-sans-serif, system-ui, sans-serif;
+  --face: Dots, Huninn, ui-sans-serif, system-ui, sans-serif;
   --mono: "JetBrains Mono", Huninn, ui-monospace, SFMono-Regular, Menlo, monospace;
   --ease: cubic-bezier(0.22, 0.9, 0.28, 1);
 }
@@ -801,6 +807,30 @@ body.still *, body.still *::before, body.still *::after {
 .bar .grow { flex: 1; }
 .bar .verdict { margin: 0; font-weight: 500; }
 .pick.short { min-width: 8rem; }
+.finder {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 0;
+  flex: 0 1 18rem;
+  padding: 0.36rem 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: 0.7rem;
+  background: var(--sunk);
+}
+.finder:focus-within { border-color: var(--accent); }
+.finder svg { flex: none; width: 0.9rem; height: 0.9rem; stroke: var(--faint); stroke-width: 2; fill: none; stroke-linecap: round; }
+.finder input {
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font: 0.8rem/1.4 var(--mono);
+}
+.finder input::placeholder { color: var(--faint); }
+.finder input::-webkit-search-cancel-button { -webkit-appearance: none; }
 .ticks { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0.4rem 0.75rem; align-items: center; padding-bottom: 0.35rem; }
 .tick {
   display: flex;

@@ -1,10 +1,61 @@
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
-const LOOK_UP: &str = "https://catboy.best/api/v2/md5/";
-const DOWNLOAD: &str = "https://catboy.best/d/";
+struct Mirror {
+    name: &'static str,
+    look_up: &'static str,
+    download: &'static str,
+}
+
+const MIRRORS: &[Mirror] = &[
+    Mirror {
+        name: "catboy.best",
+        look_up: "https://catboy.best/api/v2/md5/",
+        download: "https://catboy.best/d/",
+    },
+    Mirror {
+        name: "osu.direct",
+        look_up: "https://osu.direct/api/v2/md5/",
+        download: "https://osu.direct/api/d/",
+    },
+];
 
 const BIGGEST: u64 = 512 * 1024 * 1024;
+
+const TRIES: u32 = 3;
+
+const ASKS: u32 = 2;
+
+const SULK: std::time::Duration = std::time::Duration::from_secs(180);
+
+const STRIKES: u32 = 2;
+
+fn sulking(
+) -> &'static std::sync::Mutex<std::collections::HashMap<&'static str, (u32, std::time::Instant)>> {
+    static HELD: std::sync::OnceLock<
+        std::sync::Mutex<std::collections::HashMap<&'static str, (u32, std::time::Instant)>>,
+    > = std::sync::OnceLock::new();
+    HELD.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
+fn resting(name: &'static str) -> bool {
+    let held = sulking().lock().expect("зеркала");
+    held.get(name)
+        .is_some_and(|(strikes, since)| *strikes >= STRIKES && since.elapsed() < SULK)
+}
+
+fn struck(name: &'static str) {
+    let mut held = sulking().lock().expect("зеркала");
+    let seen = held.entry(name).or_insert((0, std::time::Instant::now()));
+    seen.0 += 1;
+    seen.1 = std::time::Instant::now();
+}
+
+fn answered(name: &'static str) {
+    sulking().lock().expect("зеркала").remove(name);
+}
+
+const BREATH_MS: u64 = 350;
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct Found {
@@ -13,6 +64,8 @@ pub struct Found {
     pub title: String,
     pub version: String,
     pub folder: String,
+
+    pub from: String,
 }
 
 fn hex(hash: &str) -> Result<String, String> {
@@ -24,14 +77,28 @@ fn hex(hash: &str) -> Result<String, String> {
     }
 }
 
-fn http(seconds: u64) -> Result<reqwest::blocking::Client, String> {
-    reqwest::blocking::Client::builder()
-        .timeout(std::time::Duration::from_secs(seconds))
-        .connect_timeout(std::time::Duration::from_secs(20))
-        .pool_max_idle_per_host(0)
-        .user_agent("Dossier")
-        .build()
-        .map_err(|why| format!("не с чем идти в сеть: {why}"))
+fn http(seconds: u64) -> Result<&'static reqwest::blocking::Client, String> {
+    static QUICK: std::sync::OnceLock<Option<reqwest::blocking::Client>> =
+        std::sync::OnceLock::new();
+    static PATIENT: std::sync::OnceLock<Option<reqwest::blocking::Client>> =
+        std::sync::OnceLock::new();
+
+    let made = |seconds: u64| {
+        reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(seconds))
+            .connect_timeout(std::time::Duration::from_secs(20))
+            .pool_idle_timeout(std::time::Duration::from_secs(30))
+            .user_agent("Dossier")
+            .build()
+            .ok()
+    };
+    let held = if seconds > 120 {
+        PATIENT.get_or_init(|| made(900))
+    } else {
+        QUICK.get_or_init(|| made(12))
+    };
+    held.as_ref()
+        .ok_or_else(|| "не с чем идти в сеть".to_owned())
 }
 
 fn said(value: &serde_json::Value, path: &[&str]) -> String {
@@ -63,29 +130,77 @@ fn tidy(text: &str) -> String {
 }
 
 pub fn look_up(hash: &str) -> Result<Found, String> {
+    let mut unknown = 0;
+    let mut asked = 0;
+    let mut last = String::new();
+    for mirror in MIRRORS {
+        if resting(mirror.name) {
+            continue;
+        }
+        asked += 1;
+        for attempt in 0..ASKS {
+            if attempt > 0 {
+                std::thread::sleep(std::time::Duration::from_millis(400 * u64::from(attempt)));
+            }
+            match ask_about(mirror, hash) {
+                Ok(found) => {
+                    answered(mirror.name);
+                    return Ok(found);
+                }
+                Err(why) if why.contains("не знает") => {
+                    answered(mirror.name);
+                    unknown += 1;
+                    last = why;
+                    break;
+                }
+                Err(why) => {
+                    last = why;
+                    if attempt + 1 == ASKS {
+                        struck(mirror.name);
+                    }
+                }
+            }
+        }
+    }
+    if asked == 0 {
+        return Err("все зеркала карт сейчас молчат — попробуйте позже".to_owned());
+    }
+    if unknown == asked {
+        return Err("карту не знает ни одно зеркало — возможно, её сняли с сайта".to_owned());
+    }
+    Err(last)
+}
+
+fn ask_about(mirror: &Mirror, hash: &str) -> Result<Found, String> {
     let hash = hex(hash)?;
     let reply = http(45)?
-        .get(format!("{LOOK_UP}{hash}"))
+        .get(format!("{}{hash}", mirror.look_up))
         .send()
-        .map_err(|why| format!("зеркало карт не ответило: {why}"))?;
+        .map_err(|why| format!("{} не ответило: {why}", mirror.name))?;
 
     if reply.status() == reqwest::StatusCode::NOT_FOUND {
-        return Err("зеркало не знает такой карты — возможно, её сняли с сайта".to_owned());
+        return Err(format!("{} не знает такой карты", mirror.name));
     }
     if !reply.status().is_success() {
-        return Err(format!("зеркало ответило {}", reply.status()));
+        return Err(format!("{} ответило {}", mirror.name, reply.status()));
     }
     let body: serde_json::Value = reply
         .json()
-        .map_err(|why| format!("зеркало ответило непонятным: {why}"))?;
+        .map_err(|why| format!("{} ответило непонятным: {why}", mirror.name))?;
 
     let set = body
         .get("beatmapset_id")
         .and_then(serde_json::Value::as_u64)
         .ok_or_else(|| "в ответе зеркала нет номера набора".to_owned())?;
 
-    let artist = tidy(&said(&body, &["set", "artist"]));
-    let title = tidy(&said(&body, &["set", "title"]));
+    let artist = tidy(&first_of(
+        &body,
+        &[&["set", "artist"], &["beatmapset", "artist"], &["artist"]],
+    ));
+    let title = tidy(&first_of(
+        &body,
+        &[&["set", "title"], &["beatmapset", "title"], &["title"]],
+    ));
     let version = said(&body, &["version"]);
     let folder = if artist.is_empty() && title.is_empty() {
         format!("{set}")
@@ -98,32 +213,56 @@ pub fn look_up(hash: &str) -> Result<Found, String> {
         title,
         version,
         folder,
+        from: mirror.name.to_owned(),
     })
 }
 
-const TRIES: u32 = 3;
-
-fn download(set: u64, say: &dyn Fn(u64, u64)) -> Result<Vec<u8>, String> {
-    let mut last = String::new();
-    for attempt in 0..TRIES {
-        if attempt > 0 {
-            std::thread::sleep(std::time::Duration::from_millis(700 * u64::from(attempt)));
+fn first_of(value: &serde_json::Value, paths: &[&[&str]]) -> String {
+    for path in paths {
+        let found = said(value, path);
+        if !found.is_empty() {
+            return found;
         }
-        match once(set, say) {
-            Ok(bytes) => return Ok(bytes),
-            Err(why) => last = why,
+    }
+    String::new()
+}
+
+fn download(set: u64, first: &str, say: &dyn Fn(u64, u64)) -> Result<Vec<u8>, String> {
+    let mut order: Vec<&Mirror> = MIRRORS.iter().filter(|m| m.name == first).collect();
+    order.extend(MIRRORS.iter().filter(|m| m.name != first));
+    let mut last = "ни одно зеркало не отдало карту".to_owned();
+    for mirror in order {
+        if mirror.name != first && resting(mirror.name) {
+            continue;
+        }
+        for attempt in 0..TRIES {
+            if attempt > 0 {
+                std::thread::sleep(std::time::Duration::from_millis(700 * u64::from(attempt)));
+            }
+            match once(mirror, set, say) {
+                Ok(bytes) => {
+                    answered(mirror.name);
+                    return Ok(bytes);
+                }
+                Err(why) => {
+                    last = why;
+                    if attempt + 1 == TRIES {
+                        struck(mirror.name);
+                    }
+                }
+            }
         }
     }
     Err(last)
 }
 
-fn once(set: u64, say: &dyn Fn(u64, u64)) -> Result<Vec<u8>, String> {
+fn once(mirror: &Mirror, set: u64, say: &dyn Fn(u64, u64)) -> Result<Vec<u8>, String> {
     let mut reply = http(900)?
-        .get(format!("{DOWNLOAD}{set}"))
+        .get(format!("{}{set}", mirror.download))
         .send()
-        .map_err(|why| format!("карта не пошла: {why}"))?;
+        .map_err(|why| format!("{} не отдало карту: {why}", mirror.name))?;
     if !reply.status().is_success() {
-        return Err(format!("зеркало не отдало карту: {}", reply.status()));
+        return Err(format!("{} отказало: {}", mirror.name, reply.status()));
     }
     let of = reply.content_length().unwrap_or(0);
     if of > BIGGEST {
@@ -151,6 +290,18 @@ fn once(set: u64, say: &dyn Fn(u64, u64)) -> Result<Vec<u8>, String> {
     Ok(bytes)
 }
 
+fn field_of(text: &str, key: &str) -> String {
+    for line in text.lines() {
+        let line = line.trim();
+        if let Some(rest) = line.strip_prefix(key) {
+            if let Some(value) = rest.trim_start().strip_prefix(':') {
+                return value.trim().to_owned();
+            }
+        }
+    }
+    String::new()
+}
+
 fn free_folder(songs: &Path, wanted: &str) -> PathBuf {
     let first = songs.join(wanted);
     if !first.exists() {
@@ -173,7 +324,10 @@ pub fn bring(hash: &str, songs: &Path, say: &dyn Fn(&str, u64, u64)) -> Result<F
     let found = look_up(hash)?;
 
     say("Качаю карту…", 0, 0);
-    let bytes = download(found.set, &|got, of| say("Качаю карту…", got, of))?;
+    std::thread::sleep(std::time::Duration::from_millis(BREATH_MS));
+    let bytes = download(found.set, &found.from, &|got, of| {
+        say("Качаю карту…", got, of)
+    })?;
 
     say("Распаковываю…", 0, 0);
     let into = free_folder(songs, &found.folder);
@@ -186,9 +340,25 @@ pub fn bring(hash: &str, songs: &Path, say: &dyn Fn(&str, u64, u64)) -> Result<F
     let landed = dossier_produce::locate::search_dir(&into, &hex(hash)?)
         .ok()
         .flatten();
-    if landed.is_none() {
+    let Some(landed) = landed else {
         let _ = std::fs::remove_dir_all(&into);
         return Err("в наборе не оказалось той сложности, что в реплее".to_owned());
+    };
+
+    let mut found = found;
+    if found.artist.is_empty() || found.title.is_empty() {
+        found.artist = tidy(&field_of(&landed.text, "Artist"));
+        found.title = tidy(&field_of(&landed.text, "Title"));
+        if !found.artist.is_empty() && !found.title.is_empty() {
+            let wanted = format!("{} {} - {}", found.set, found.artist, found.title);
+            let named = free_folder(songs, &wanted);
+            if std::fs::rename(&into, &named).is_ok() {
+                found.folder = named
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or(found.folder);
+            }
+        }
     }
     Ok(found)
 }
@@ -227,6 +397,14 @@ mod tests {
     }
 
     #[test]
+    fn a_field_is_read_off_the_map_and_not_confused_with_its_neighbour() {
+        let text = "[Metadata]\nTitle:Seijouki no Pierrot\nTitleUnicode:x\nArtist:Demetori\n";
+        assert_eq!(field_of(text, "Title"), "Seijouki no Pierrot");
+        assert_eq!(field_of(text, "Artist"), "Demetori");
+        assert_eq!(field_of(text, "Creator"), "");
+    }
+
+    #[test]
     fn a_taken_name_gets_a_number_rather_than_overwriting_what_is_there() {
         let dir = std::env::temp_dir().join(format!("dossier-mirror-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -247,10 +425,8 @@ mod against_the_mirror {
     fn a_known_map_is_found_by_its_hash() {
         let found = look_up("930b6fcc81c41a1c69d9abce11153b9c").expect("the mirror knows it");
         assert_eq!(found.set, 661_333);
-        assert_eq!(found.artist, "Demetori");
-        assert!(found.title.starts_with("Seijouki no Pierrot"));
-        assert!(found.folder.starts_with("661333 Demetori - "));
-        println!("{} → {}", found.set, found.folder);
+        assert!(found.folder.starts_with("661333"));
+        println!("{} → {} (с {})", found.set, found.folder, found.from);
     }
 
     #[test]
@@ -289,5 +465,36 @@ mod against_the_mirror {
     fn a_hash_nobody_has_is_refused_plainly() {
         let why = look_up("00000000000000000000000000000000").unwrap_err();
         assert!(why.contains("не знает"), "{why}");
+    }
+}
+
+#[cfg(test)]
+mod under_load {
+    use super::*;
+
+    #[test]
+    #[ignore]
+    fn a_burst_of_lookups_finds_a_mirror_that_answers() {
+        let hashes = [
+            "930b6fcc81c41a1c69d9abce11153b9c",
+            "bd6aea9634c95136ddfe7c91cf03f32d",
+        ];
+        let mut good = 0;
+        let mut said = Vec::new();
+        for round in 0..6 {
+            let hash = hashes[round % hashes.len()];
+            match look_up(hash) {
+                Ok(found) => {
+                    good += 1;
+                    println!("{round}: {hash} -> {} from {}", found.set, found.from);
+                }
+                Err(why) => {
+                    println!("{round}: {hash} -> {why}");
+                    said.push(why);
+                }
+            }
+        }
+        println!("{good} of 6 answered");
+        assert!(good >= 4, "no mirror answered often enough: {said:?}");
     }
 }

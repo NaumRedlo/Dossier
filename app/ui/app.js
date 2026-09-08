@@ -1516,30 +1516,24 @@ function runFitting() {
   let was = performance.now();
   let shown = 0;
   (async () => {
-    while (mine === fitRun) {
-      await new Promise((again) => requestAnimationFrame(again));
-      if (mine !== fitRun || page.hidden) return;
-      const c = canvasPixels(view, 2);
-      if (!c) continue;
-      if (!fitParts) {
-        await loadFitting();
-        continue;
-      }
-      if (!fitParts.length) return;
+    while (mine === fitRun && !fitParts) {
+      await loadFitting();
+      if (mine !== fitRun) return;
+    }
+    if (!fitParts || !fitParts.length) return;
 
+    let seat = canvasPixels(view, 1.5);
+    if (!seat) return;
+    let ahead = frameOf(fitParts[fitAt], fitParts[fitAt].head, seat.w, seat.h);
+    while (mine === fitRun && !page.hidden) {
+      const image = await ahead;
+      if (mine !== fitRun) return;
+      seat = canvasPixels(view, 1.5) || seat;
       const one = fitParts[fitAt];
       const now = performance.now();
       const step = Math.min(120, now - was);
       was = now;
-      if (motionOn()) rollPart(one, step);
-      shown += step;
-      if (shown >= FIT_PIECE_MS) {
-        shown = 0;
-        nextFitPiece();
-        continue;
-      }
-      const image = await frameOf(one, one.head, c.w, c.h);
-      if (mine !== fitRun) return;
+
       if (!image) {
         one.misses = (one.misses || 0) + 1;
         if (one.misses > 3) {
@@ -1552,11 +1546,24 @@ function runFitting() {
         }
         shown = 0;
         nextFitPiece();
+        ahead = frameOf(fitParts[fitAt], fitParts[fitAt].head, seat.w, seat.h);
         continue;
       }
       one.misses = 0;
-      paintFrame(c, image, clamp01(shown / FIT_BLEND_MS));
+      const soft = clamp01(shown / FIT_BLEND_MS);
+
+      if (motionOn()) rollPart(one, step);
+      shown += step;
+      if (shown >= FIT_PIECE_MS) {
+        shown = 0;
+        nextFitPiece();
       }
+      const next = fitParts[fitAt];
+      ahead = frameOf(next, next.head, seat.w, seat.h);
+      await new Promise((again) => requestAnimationFrame(again));
+      if (mine !== fitRun || page.hidden) return;
+      paintFrame(seat, image, soft);
+    }
   })();
 }
 
@@ -2146,10 +2153,25 @@ const ONLY = {
   nomap: (play) => !play.have_map,
 };
 
+let finding = "";
+
+function matches(play, words) {
+  if (!words.length) return true;
+  const made = previews.get(play.path);
+  const title = made && made.judged ? made.judged.title : "";
+  const hay = `${play.player} ${play.file} ${play.mods || "NM"} ${title}`.toLowerCase();
+  return words.every((word) => hay.includes(word));
+}
+
 function chosenPlays(plays) {
   const how = SORTS[remembered("sort", "new")] || SORTS.new;
   const which = ONLY[remembered("only", "all")] || ONLY.all;
-  return plays.filter(which).slice().sort(how);
+  const words = finding.toLowerCase().split(/\s+/).filter(Boolean);
+  return plays
+    .filter(which)
+    .filter((play) => matches(play, words))
+    .slice()
+    .sort(how);
 }
 
 for (const [id, key] of [
@@ -2161,6 +2183,15 @@ for (const [id, key] of [
     if (shelfCache) fillPlays(shelfCache);
   });
 }
+
+let findSoon = null;
+byId("r-find").addEventListener("input", () => {
+  clearTimeout(findSoon);
+  findSoon = setTimeout(() => {
+    finding = byId("r-find").value.trim();
+    if (shelfCache) fillPlays(shelfCache);
+  }, 160);
+});
 
 function fillPlays({ shelves, skins, plays, rows }) {
   const list = byId("r-list");
@@ -2221,7 +2252,13 @@ function fillPlays({ shelves, skins, plays, rows }) {
   forgetCards();
   requestAnimationFrame(shelfEdges);
   if (!showing.length) {
-    list.replaceChildren(line({ mark: ["huh", "?"], name: "пусто", said: "Под этот отбор ничего не подошло." }));
+    list.replaceChildren(
+      line({
+        mark: ["huh", "?"],
+        name: "пусто",
+        said: finding ? `По «${finding}» ничего не нашлось.` : "Под этот отбор ничего не подошло.",
+      }),
+    );
   } else {
     list.replaceChildren(...showing.map((play) => playCard(play)));
   }
@@ -2610,6 +2647,7 @@ let bulkTotal = 0;
 let lastStep = "";
 
 function saySteps(payload) {
+  if (!mapWork) return;
   const of = Number(payload.of) || 0;
   const got = Number(payload.got) || 0;
   const note = of && got ? `${mb(got)} из ${mb(of)} МБ · ${Math.round((got / of) * 100)}%` : payload.step;
@@ -2623,7 +2661,7 @@ function saySteps(payload) {
       logWork(mapWork, `  ${payload.step}`);
     }
   }
-  if (wall.hidden || !wallFor || payload.replay !== wallFor.path) return;
+  if (wall.hidden || holdDone || !wallFor || payload.replay !== wallFor.path) return;
   byId("nomap-head").textContent = wallBulk || "Качаю карту…";
   byId("nomap-why").textContent = note;
 }
@@ -3028,23 +3066,27 @@ function runPreviews() {
   const made = one && previews.get(one.previewOf.path);
   if (!made || !motionOn() || document.hidden || asleep) return;
   const mine = cardTicket;
+  const alive = () => mine === cardTicket && hovered === one;
   let was = performance.now();
   let woke = 0;
   (async () => {
-    while (mine === cardTicket && hovered === one) {
-      await new Promise((again) => requestAnimationFrame(again));
-      if (mine !== cardTicket || hovered !== one) return;
-      const c = canvasPixels(one.previewOn, 1.5);
-      if (!c) return;
+    let seat = canvasPixels(one.previewOn, 1);
+    if (!seat) return;
+    let ahead = frameOf(made, made.head, seat.w, seat.h, alive);
+    while (alive()) {
+      const image = await ahead;
+      if (!alive()) return;
+      seat = canvasPixels(one.previewOn, 1) || seat;
       const now = performance.now();
       const step = Math.min(120, now - was);
       was = now;
       woke += step;
       rollPart(made, step);
-      const image = await frameOf(made, made.head, c.w, c.h, () => mine === cardTicket && hovered === one);
-      if (mine !== cardTicket || hovered !== one) return;
-      if (!image) continue;
-      paintFrame(c, image, Math.min(blendOf(made), clamp01(woke / WAKE_MS)));
+      const soft = Math.min(blendOf(made), clamp01(woke / WAKE_MS));
+      ahead = frameOf(made, made.head, seat.w, seat.h, alive);
+      await new Promise((again) => requestAnimationFrame(again));
+      if (!alive()) return;
+      if (image) paintFrame(seat, image, soft);
     }
   })();
 }

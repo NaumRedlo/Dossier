@@ -1598,7 +1598,27 @@ body.still .rep .stage::after, body.away .rep .stage::after { animation: none; }
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.rep .who .about { font-family: var(--mono); }
+.rep .who .about { display: flex; align-items: center; gap: 0.3rem; font-family: var(--mono); }
+.rep .who .about > span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+
+.mods { display: inline-flex; align-items: center; vertical-align: middle; flex: none; }
+.modicon {
+  display: block;
+  height: 1.1rem;
+  width: auto;
+  margin-right: -0.34em;
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.35));
+}
+.modicon:last-child { margin-right: 0; }
+.modtext {
+  padding: 0.1rem 0.35rem;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  font: 0.72rem var(--mono);
+}
+.chips .mods { height: 1.5rem; }
+.chips .modicon { height: 1.5rem; }
+#rp-what .modicon { height: 1.15rem; }
 .rep.nomap .stage { background: rgba(0, 0, 0, 0.2); }
 .rep.nomap .who b { color: var(--muted); }
 

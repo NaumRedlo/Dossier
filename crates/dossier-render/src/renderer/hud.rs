@@ -414,7 +414,31 @@ impl Scene<'_> {
                 align: Align::Right,
             },
         );
-        if !signature.mods.is_empty() {
+        let badges: Vec<String> = signature
+            .badges
+            .iter()
+            .filter(|one| crate::mods::known(one))
+            .cloned()
+            .collect();
+        let high = (client_size * 1.55).round().max(8.0) as u32;
+        if let Some(strip) = crate::mods::row(&badges, high) {
+            let top = bottom - version_size * 1.15 - client_size * 1.35 - strip.height() as f32;
+            pixmap.draw_pixmap(
+                0,
+                0,
+                strip.as_ref(),
+                &tiny_skia::PixmapPaint {
+                    opacity: 0.9,
+                    quality: tiny_skia::FilterQuality::Bilinear,
+                    ..Default::default()
+                },
+                Transform::from_translate(
+                    layout.width as f32 - margin - strip.width() as f32,
+                    top.max(0.0),
+                ),
+                None,
+            );
+        } else if !signature.mods.is_empty() {
             font.draw(
                 pixmap,
                 Label {

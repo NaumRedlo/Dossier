@@ -326,6 +326,21 @@ fn drop_replay(path: String) -> Result<(), String> {
 }
 
 #[tauri::command(async)]
+async fn mod_icons(high: Option<u32>) -> Result<Vec<(String, String)>, String> {
+    off_thread(move || {
+        let high = high.unwrap_or(48).clamp(16, 256);
+        dossier_render::mods::every()
+            .into_iter()
+            .filter_map(|name| {
+                let png = dossier_render::mods::icon(name, high)?.encode_png().ok()?;
+                Some((name.to_owned(), show::as_data_url(&png)))
+            })
+            .collect()
+    })
+    .await
+}
+
+#[tauri::command(async)]
 async fn show_open(
     replay: String,
     skin: Option<String>,
@@ -652,6 +667,7 @@ fn main() {
             map_here,
             fetch_map,
             drop_replay,
+            mod_icons,
             build_reel,
             modules,
             update_look,

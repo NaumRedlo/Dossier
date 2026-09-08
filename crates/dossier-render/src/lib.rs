@@ -1,6 +1,7 @@
 pub mod background;
 pub mod elements;
 pub mod imported;
+pub mod mods;
 mod layout;
 mod leaderboard;
 mod renderer;

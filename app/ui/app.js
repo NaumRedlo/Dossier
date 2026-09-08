@@ -2204,7 +2204,9 @@ function fillPlays({ shelves, skins, plays, rows }) {
     const said = el("div", "who");
     said.append(el("b", null, play.player));
     said.append(el("p", "map", "…"));
-    said.append(el("p", "about", `${play.mods || "NM"} · ${round(play.score)} · комбо ${play.combo}`));
+    const about = el("p", "about");
+    about.append(modBadges(play.mods), el("span", null, ` ${round(play.score)} · комбо ${play.combo}`));
+    said.append(about);
     card.append(said);
 
     card.addEventListener("contextmenu", (event) => {
@@ -2283,6 +2285,41 @@ function fillPlays({ shelves, skins, plays, rows }) {
 }
 
 const clamp01 = (t) => (t < 0 ? 0 : t > 1 ? 1 : t);
+
+let modArt = null;
+
+async function loadModArt() {
+  if (modArt) return modArt;
+  const said = await invoke("mod_icons", { high: 48 }).catch(() => null);
+  modArt = new Map(said || []);
+  return modArt;
+}
+
+function modsOf(text) {
+  const clean = String(text || "").trim().toUpperCase();
+  if (!clean || clean === "NM") return ["NM"];
+  const out = [];
+  for (let at = 0; at + 1 < clean.length; at += 2) out.push(clean.slice(at, at + 2));
+  return out.length ? out : ["NM"];
+}
+
+function modBadges(text) {
+  const box = el("span", "mods");
+  for (const name of modsOf(text)) {
+    const art = modArt && modArt.get(name);
+    if (!art) {
+      box.append(el("span", "modtext", name));
+      continue;
+    }
+    const one = document.createElement("img");
+    one.className = "modicon";
+    one.src = art;
+    one.alt = name;
+    one.title = name;
+    box.append(one);
+  }
+  return box;
+}
 
 function askToDrop(play) {
   holdWall({
@@ -3025,7 +3062,7 @@ function openSheet(play, card) {
   head.append(el("h3", null, said ? said.title : shortFile(play.file)));
   const chips = el("div", "chips");
   chips.append(el("span", "chip who", play.player));
-  chips.append(el("span", "chip", play.mods || "NM"));
+  chips.append(modBadges(play.mods));
   chips.append(el("span", "chip", `${round(play.score)} очк.`));
   if (said) {
     const out = outcomeOf(said);
@@ -3574,7 +3611,7 @@ for (const button of byId("s-rail").querySelectorAll("button")) {
 function showLive() {
   byId("rp-drop").hidden = true;
   byId("rp-live").hidden = false;
-  byId("rp-what").textContent = `${judged.title} · ${judged.player} · ${judged.mods || "NM"}`;
+  byId("rp-what").replaceChildren(`${judged.title} · ${judged.player} `, modBadges(judged.mods));
   saySkinned();
   byId("rp-rows").replaceChildren(
     ...[
@@ -4212,6 +4249,7 @@ byId("w-save").addEventListener("click", async () => {
     dressAll();
     measure();
     if (document.fonts && document.fonts.ready) await document.fonts.ready;
+    await loadModArt();
   } catch (why) {
     console.error(why);
   }

@@ -278,6 +278,8 @@ pub struct Camera {
 pub struct Signature {
     pub mods: String,
 
+    pub badges: Vec<String>,
+
     pub client: String,
 
     pub version: String,
@@ -401,8 +403,19 @@ impl<'a> Scene<'a> {
         } else {
             lazer.iter().map(|m| m.acronym.as_str()).collect()
         };
+        let badges: Vec<String> = if lazer.is_empty() {
+            replay
+                .mods
+                .acronyms()
+                .into_iter()
+                .map(str::to_owned)
+                .collect()
+        } else {
+            lazer.iter().map(|m| m.acronym.clone()).collect()
+        };
         self.signature = Some(Signature {
             mods,
+            badges,
             client: dossier_sim::Ruleset::of_replay(replay).name().to_owned(),
             version: replay.client_version(),
         });

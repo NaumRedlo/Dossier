@@ -1206,3 +1206,77 @@ fn unconvert(set: SampleSet) -> MapSet {
         SampleSet::Drum => MapSet::Drum,
     }
 }
+
+#[cfg(test)]
+mod which_notes_are_quiet {
+    use super::*;
+
+    #[test]
+    #[ignore]
+    fn find_the_notes_that_make_no_sound() {
+        let songs = std::path::Path::new("/Users/none/Documents/Dossier Corpus/Beatmap");
+        let replay = std::path::Path::new(
+            "/Users/none/Documents/Dossier Corpus/rektygon playing Silentroom - Nhelv (Fisky) [Frustrated] (2023-11-19_16-41).osr",
+        );
+        if !replay.is_file() {
+            return;
+        }
+        let (map, played, origin, _) = crate::locate::load(replay, None, Some(songs)).unwrap();
+        let state = GameState::new(&map, &played);
+
+        let scratch = std::env::temp_dir().join("dossier-quiet-notes");
+        let _ = std::fs::remove_dir_all(&scratch);
+        std::fs::create_dir_all(&scratch).unwrap();
+        crate::locate::extract_samples(&origin, &scratch, "ffmpeg");
+        let pack = dossier_audio::SamplePack::load(std::path::Path::new(
+            "/Users/none/Documents/Skins/vv_idke_trail",
+        ))
+        .with_beatmap(&scratch);
+
+        let last = state.timeline().objects.last().unwrap().end_ms / 1000.0 + 2.0;
+        let track = build(
+            &state,
+            &map,
+            |ms| ms / 1000.0,
+            last,
+            dossier_audio::Kit::plain(),
+            pack,
+            true,
+        );
+        let pcm = track.to_pcm();
+        let at = |seconds: f64| (seconds * 44100.0) as usize * 2;
+        let peak = |from: usize, to: usize| {
+            pcm.chunks_exact(2)
+                .skip(from)
+                .take(to.saturating_sub(from))
+                .map(|b| i16::from_le_bytes([b[0], b[1]]).unsigned_abs())
+                .max()
+                .unwrap_or(0)
+        };
+
+        let judge = state.judge().unwrap();
+        let mut quiet = Vec::new();
+        let mut counted = 0;
+        for event in judge.events() {
+            if !matches!(event.part, Part::Circle | Part::SliderHead) || event.result.is_miss() {
+                continue;
+            }
+            counted += 1;
+            let from = at(event.time_ms / 1000.0);
+            let loud = peak(from, from + at(0.06));
+            if loud < 300 {
+                let Some(object) = map.objects.get(event.object_index) else {
+                    continue;
+                };
+                let (set, index, volume) =
+                    bank_for(&map, object, Voice::Normal, None, event.time_ms);
+                quiet.push((event.time_ms, set, index, volume, object.hit_sound));
+            }
+        }
+        println!("{counted} hits judged, {} of them near silent", quiet.len());
+        for (ms, set, index, volume, bits) in quiet.iter().take(10) {
+            println!("   {ms:.0}ms {set:?} index {index} volume {volume:.3} bits {bits}");
+        }
+        let _ = std::fs::remove_dir_all(&scratch);
+    }
+}

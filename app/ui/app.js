@@ -2018,6 +2018,7 @@ function options() {
       cursor_expand: remembered("expand", "1") === "1",
       map_hitsounds: remembered("mapsounds", "1") === "1",
       skin_hitsounds: remembered("skinsounds", "1") === "1",
+      skin_sounds_first: remembered("soundfirst", "map") === "skin",
       kit: remembered("kit", "click"),
       pitch: Number(remembered("pitch", "1")),
       decay: Number(remembered("decay", "1")),
@@ -2064,6 +2065,7 @@ const RENDER_FIELDS = [
   ["s-enc", "enc", "0"],
   ["s-mapsounds", "mapsounds", "1"],
   ["s-skinsounds", "skinsounds", "1"],
+  ["s-soundfirst", "soundfirst", "map"],
   ["s-kit", "kit", "click"],
   ["s-pitch", "pitch", "1"],
   ["s-decay", "decay", "1"],
@@ -2613,7 +2615,7 @@ wallGet.addEventListener("click", async () => {
   byId("nomap-head").textContent = "Ищу карту…";
   byId("nomap-why").textContent = "Спрашиваю зеркало про эту карту.";
   try {
-    const found = await invoke("fetch_map", { replay: play.path });
+    const found = await invoke("fetch_map", { replay: play.path, mirror: remembered("mirror", "") || null });
     wallGot = true;
     logWork(mapWork, `  ✓ ${found.artist} — ${found.title} [${found.version}]`);
     endWork(mapWork, true, `${found.artist} — ${found.title}`);
@@ -2733,7 +2735,7 @@ async function grabAllMaps(missing) {
       }
       logWork(mapWork, `${at}. ${play.file}`);
       try {
-        const found = await invoke("fetch_map", { replay: play.path });
+        const found = await invoke("fetch_map", { replay: play.path, mirror: remembered("mirror", "") || null });
         done += 1;
         logWork(mapWork, `  ✓ ${found.artist} — ${found.title} [${found.version}]`);
       } catch (why) {

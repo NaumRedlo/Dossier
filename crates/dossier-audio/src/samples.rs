@@ -25,13 +25,15 @@ impl SampleSet {
 
 #[derive(Debug, Clone, Default)]
 pub struct SamplePack {
-    skin: HashMap<(SampleSet, Voice), Vec<f32>>,
+    skin: HashMap<(SampleSet, Voice, u32), Vec<f32>>,
 
     unused: Vec<String>,
 
     beatmap: HashMap<(SampleSet, Voice, u32), Vec<f32>>,
 
-    game: HashMap<(SampleSet, Voice), Vec<f32>>,
+    game: HashMap<(SampleSet, Voice, u32), Vec<f32>>,
+
+    skin_first: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -121,18 +123,14 @@ impl SamplePack {
     pub fn load(folder: &Path) -> Self {
         let files = index_of(folder);
         let mut skin = HashMap::new();
-        let mut numbered = Vec::new();
-        for ((set, voice, index), samples) in banked_in(folder) {
-            if index == 1 {
-                skin.insert((set, voice), samples);
-            } else {
-                numbered.push(format!("{}-{}{index}", set.name(), voice.file_name()));
-            }
+        let numbered: Vec<String> = Vec::new();
+        for (key, samples) in banked_in(folder) {
+            skin.insert(key, samples);
         }
         for (voice, name) in BANKLESS {
             let found = files.get(name).and_then(|path| Self::read(path));
             if let Some(samples) = found {
-                skin.insert((SampleSet::Normal, voice), samples);
+                skin.insert((SampleSet::Normal, voice, 1), samples);
             }
         }
 
@@ -142,8 +140,8 @@ impl SamplePack {
                 guessed.push(name);
                 continue;
             };
-            let key = (set, voice);
-            if index != 1 || skin.contains_key(&key) {
+            let key = (set, voice, index);
+            if skin.contains_key(&key) {
                 guessed.push(name);
                 continue;
             }
@@ -162,6 +160,7 @@ impl SamplePack {
             skin,
             beatmap: HashMap::new(),
             game: HashMap::new(),
+            skin_first: false,
         }
     }
 
@@ -198,24 +197,41 @@ impl SamplePack {
         self.beatmap.len()
     }
 
+    fn ladder(&self, set: SampleSet, voice: Voice, index: u32) -> Vec<(&HashMap<(SampleSet, Voice, u32), Vec<f32>>, (SampleSet, Voice, u32), Found)> {
+        let map = vec![
+            (&self.beatmap, (set, voice, index), Found::Beatmap(index)),
+            (&self.beatmap, (set, voice, 1), Found::Beatmap(1)),
+        ];
+        let skin = vec![
+            (&self.skin, (set, voice, index), Found::SkinPlain),
+            (&self.skin, (set, voice, 1), Found::SkinPlain),
+        ];
+        let mut out = if self.skin_first {
+            let mut out = skin;
+            out.extend(map);
+            out
+        } else {
+            let mut out = map;
+            out.extend(skin);
+            out
+        };
+        out.push((&self.game, (set, voice, 1), Found::Game));
+        out.push((
+            &self.skin,
+            (SampleSet::Normal, voice, 1),
+            Found::SkinNormalBank,
+        ));
+        out
+    }
+
+    pub fn wants_skin_first(mut self, yes: bool) -> Self {
+        self.skin_first = yes;
+        self
+    }
+
     pub fn trace(&self, set: SampleSet, voice: Voice, index: u32) -> Found {
         let index = index.max(1);
-        if let Some(sound) = self.beatmap.get(&(set, voice, index)) {
-            return if sound.is_empty() {
-                Found::Blank
-            } else {
-                Found::Beatmap(index)
-            };
-        }
-        for (store, at, step) in [
-            (&self.skin, (set, voice), Found::SkinPlain),
-            (&self.game, (set, voice), Found::Game),
-            (
-                &self.skin,
-                (SampleSet::Normal, voice),
-                Found::SkinNormalBank,
-            ),
-        ] {
+        for (store, at, step) in self.ladder(set, voice, index) {
             if let Some(sound) = store.get(&at) {
                 return if sound.is_empty() { Found::Blank } else { step };
             }
@@ -225,14 +241,12 @@ impl SamplePack {
 
     pub fn get(&self, set: SampleSet, voice: Voice, index: u32) -> Option<&[f32]> {
         let index = index.max(1);
-        if let Some(sound) = self.beatmap.get(&(set, voice, index)) {
-            return Some(sound);
+        for (store, at, _) in self.ladder(set, voice, index) {
+            if let Some(sound) = store.get(&at) {
+                return Some(sound.as_slice());
+            }
         }
-        self.skin
-            .get(&(set, voice))
-            .or_else(|| self.game.get(&(set, voice)))
-            .or_else(|| self.skin.get(&(SampleSet::Normal, voice)))
-            .map(Vec::as_slice)
+        None
     }
 }
 
@@ -751,19 +765,40 @@ mod tests {
     }
 
     #[test]
-    fn a_skins_numbered_file_is_never_reached() {
+    fn a_skins_numbered_file_answers_when_the_map_asks_for_that_number() {
         let dir = skin(&[("soft-hitwhistle", None), ("soft-hitwhistle2", Some(LOUD))]);
         let pack = SamplePack::load(&dir);
-        for asked in [1, 2, 4] {
-            let got = pack.get(SampleSet::Soft, Voice::Whistle, asked);
-            assert!(got.is_some(), "silence, not synthesis, at index {asked}");
-            assert!(
-                got.unwrap().is_empty(),
-                "index {asked} reached the skin's numbered file"
-            );
+
+        assert!(
+            !pack
+                .get(SampleSet::Soft, Voice::Whistle, 2)
+                .expect("index two is there")
+                .is_empty(),
+            "the skin's numbered file went unheard"
+        );
+        for asked in [1, 4] {
+            let got = pack
+                .get(SampleSet::Soft, Voice::Whistle, asked)
+                .unwrap_or_else(|| panic!("silence, not synthesis, at index {asked}"));
+            assert!(got.is_empty(), "index {asked} should fall back to the plain file");
         }
 
-        assert_eq!(pack.unused(), ["soft-hitwhistle2"]);
+        assert!(pack.unused().is_empty(), "{:?}", pack.unused());
+    }
+
+    #[test]
+    fn the_skin_can_be_asked_before_the_map() {
+        let map = skin(&[("soft-hitwhistle", Some(&[9_000, 9_000]))]);
+        let dir = skin(&[("soft-hitwhistle", Some(LOUD))]);
+        let pack = SamplePack::load(&dir).with_beatmap(&map);
+
+        let from_map = pack.get(SampleSet::Soft, Voice::Whistle, 1).unwrap().len();
+        let flipped = SamplePack::load(&dir)
+            .with_beatmap(&map)
+            .wants_skin_first(true);
+        let from_skin = flipped.get(SampleSet::Soft, Voice::Whistle, 1).unwrap().len();
+        assert_eq!(from_map, 2, "the map should win by default");
+        assert_eq!(from_skin, LOUD.len(), "the skin should win when asked first");
     }
 
     #[test]

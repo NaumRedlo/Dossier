@@ -1,3 +1,40 @@
+@font-face {
+  font-family: Comfortaa;
+  src: url("fonts/Comfortaa-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: Comfortaa;
+  src: url("fonts/Comfortaa-SemiBold.ttf") format("truetype");
+  font-weight: 600;
+  font-display: swap;
+}
+@font-face {
+  font-family: Comfortaa;
+  src: url("fonts/Comfortaa-Bold.ttf") format("truetype");
+  font-weight: 700;
+  font-display: swap;
+}
+@font-face {
+  font-family: Huninn;
+  src: url("fonts/Huninn-Regular.ttf") format("truetype");
+  font-weight: 400 700;
+  font-display: swap;
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("fonts/JetBrainsMono-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("fonts/JetBrainsMono-Bold.ttf") format("truetype");
+  font-weight: 700;
+  font-display: swap;
+}
+
 :root {
   color-scheme: dark;
   --ink: #f4eeef;
@@ -15,7 +52,8 @@
   --pill-ink: #1c1013;
   --sunk: rgba(0, 0, 0, 0.26);
   --panel: rgba(38, 16, 20, 0.66);
-  --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+  --face: Comfortaa, Huninn, ui-sans-serif, system-ui, sans-serif;
+  --mono: "JetBrains Mono", Huninn, ui-monospace, SFMono-Regular, Menlo, monospace;
   --ease: cubic-bezier(0.22, 0.9, 0.28, 1);
 }
 
@@ -32,7 +70,7 @@ body {
   display: flow-root;
   background: radial-gradient(115% 95% at 50% -18%, #3a1015 0%, #26090f 30%, #17070b 55%, #0d0508 78%, #070304 100%) fixed;
   color: var(--ink);
-  font: 14px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  font: 14px/1.55 var(--face);
   -webkit-font-smoothing: antialiased;
 }
 
@@ -992,7 +1030,8 @@ body.still *, body.still *::before, body.still *::after {
 
 #view-replay { position: relative; min-height: 24rem; }
 .choose h2 { margin: 0; font-size: 1.15rem; font-weight: 600; text-align: center; }
-.modes { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: 1rem; width: min(44rem, 100%); }
+.modes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; width: min(46rem, 100%); }
+@media (max-width: 34rem) { .modes { grid-template-columns: minmax(0, 1fr); } }
 .mode {
   display: grid;
   justify-items: center;
@@ -1222,8 +1261,7 @@ body.still *, body.still *::before, body.still *::after {
   overflow: hidden;
 }
 
-.choose { padding-top: 3rem; }
-#view-replay { min-height: 28rem; }
+#view-replay { min-height: calc(100vh - 11rem); }
 
 .minijob {
   display: flex;
@@ -1253,31 +1291,36 @@ body.still *, body.still *::before, body.still *::after {
 }
 .minijob .pct { flex: none; color: var(--accent); font-weight: 700; }
 
-.minijob .beat {
+.minijob .pull {
   flex: none;
-  width: 1.2rem;
-  height: 1.2rem;
+  width: 1.25rem;
+  height: 1.25rem;
   overflow: visible;
 }
-.minijob .beat .bar {
-  fill: var(--accent);
+.minijob .pull path {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.minijob .pull .tray { stroke: var(--accent); stroke-width: 2; opacity: 0.55; }
+.minijob .pull .stem, .minijob .pull .head {
+  stroke: var(--accent);
+  stroke-width: 2.2;
   transform-box: fill-box;
   transform-origin: center;
 }
-.minijob .beat .tick, .minijob .beat .cross {
-  fill: none;
+.minijob .pull .tick, .minijob .pull .cross {
   stroke-width: 2.2;
-  stroke-linecap: round;
-  stroke-linejoin: round;
   stroke-dasharray: 24;
   stroke-dashoffset: 24;
 }
-.minijob .beat .tick { stroke: var(--good); }
-.minijob .beat .cross { stroke: var(--accent); }
+.minijob .pull .tick { stroke: var(--good); }
+.minijob .pull .cross { stroke: var(--accent); }
 
-.minijob.done .beat .bar, .minijob.failed .beat .bar { opacity: 0; }
-.minijob.done .beat .tick { stroke-dashoffset: 0; transition: stroke-dashoffset 0.4s var(--ease) 0.1s; }
-.minijob.failed .beat .cross { stroke-dashoffset: 0; transition: stroke-dashoffset 0.3s var(--ease) 0.1s; }
+.minijob.done .pull .stem, .minijob.done .pull .head,
+.minijob.failed .pull .stem, .minijob.failed .pull .head { opacity: 0; }
+.minijob.done .pull .tick { stroke-dashoffset: 0; transition: stroke-dashoffset 0.4s var(--ease) 0.1s; }
+.minijob.failed .pull .cross { stroke-dashoffset: 0; transition: stroke-dashoffset 0.3s var(--ease) 0.1s; }
 .minijob.done .pct, .minijob.failed .pct { display: none; }
 .minijob.done { border-color: var(--good); }
 
@@ -1347,7 +1390,9 @@ body.still *, body.still *::before, body.still *::after {
   stroke: var(--good);
   stroke-width: 4;
   stroke-linecap: round;
-  stroke-dasharray: 289;
+  stroke-dasharray: 214 75;
+  transform-box: fill-box;
+  transform-origin: center;
 }
 .ic-part .ring {
   fill: none;
@@ -1405,7 +1450,7 @@ body.still *, body.still *::before, body.still *::after {
 
 .minijob.idle { max-width: 2.6rem; padding: 0 0.45rem; }
 .minijob.idle .what, .minijob.idle .pct { display: none; }
-.minijob.idle .beat .bar { fill: var(--faint); }
+.minijob.idle .pull path { stroke: var(--faint); }
 .ic-fold { width: 1.05rem; height: 1.05rem; }
 .ic-fold .track { fill: none; stroke: currentColor; stroke-width: 2; opacity: 0.2; }
 .ic-fold .arc {
@@ -1930,6 +1975,7 @@ h4.sheeth {
 .workbar i { display: block; height: 100%; background: var(--accent); transition: width 0.25s var(--ease); }
 .work.done .workbar i { background: var(--good); }
 .worknote { margin: 0; overflow: hidden; color: var(--faint); font: 0.7rem/1.4 var(--mono); text-overflow: ellipsis; white-space: nowrap; }
+.work.done .worknote, .work.failed .worknote { padding-right: 1.4rem; }
 .worklog {
   max-height: 9rem;
   margin: 0.15rem 0 0;
@@ -1963,7 +2009,7 @@ h4.sheeth {
 .work.done .workhead b, .work.failed .workhead b { padding-right: 1.2rem; }
 #jobbox #jobpane { display: none; }
 #jobbox:hover #jobpane, #jobbox:focus-within #jobpane { display: block; }
-#jobbox::after {
+#jobbox:hover::after, #jobbox:focus-within::after {
   content: "";
   position: absolute;
   right: 0;

@@ -48,6 +48,8 @@ pub struct Judged {
     pub outcome: Outcome,
 
     pub client: Client,
+
+    pub presses: Vec<f32>,
     pub marks: Vec<Mark>,
 }
 
@@ -118,6 +120,19 @@ pub fn summarise(beatmap: &Beatmap, replay: &Replay, state: &GameState) -> Resul
     let judge = state
         .judge()
         .ok_or_else(|| "Судить нечего: в реплее нет ни одного нажатия".to_owned())?;
+
+    let presses: Vec<f32> = judge
+        .events()
+        .iter()
+        .filter(|event| {
+            matches!(
+                event.part,
+                Part::Circle | Part::SliderHead | Part::SliderTick | Part::SliderRepeat
+            )
+        })
+        .filter_map(|event| event.error_ms)
+        .map(|error| error as f32)
+        .collect();
 
     let marks: Vec<Mark> = judge
         .events()
@@ -194,6 +209,7 @@ pub fn summarise(beatmap: &Beatmap, replay: &Replay, state: &GameState) -> Resul
         combo_possible: possible,
         outcome,
         client: client_of(replay),
+        presses,
         marks,
     })
 }

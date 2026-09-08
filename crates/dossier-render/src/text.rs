@@ -2,7 +2,7 @@ use tiny_skia::{Color, Pixmap, PremultipliedColorU8};
 
 #[derive(Clone)]
 pub struct Font {
-    inner: std::sync::Arc<fontdue::Font>,
+    faces: Vec<std::sync::Arc<fontdue::Font>>,
 }
 
 impl std::fmt::Debug for Font {
@@ -31,15 +31,31 @@ pub struct Label<'a> {
 
 impl Font {
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, String> {
-        let inner = fontdue::Font::from_bytes(bytes, fontdue::FontSettings::default())?;
+        let face = fontdue::Font::from_bytes(bytes, fontdue::FontSettings::default())?;
         Ok(Self {
-            inner: std::sync::Arc::new(inner),
+            faces: vec![std::sync::Arc::new(face)],
         })
+    }
+
+    pub fn behind(mut self, other: &Self) -> Self {
+        self.faces.extend(other.faces.iter().cloned());
+        self
+    }
+
+    pub fn faces(&self) -> usize {
+        self.faces.len()
+    }
+
+    fn face_for(&self, ch: char) -> &fontdue::Font {
+        self.faces
+            .iter()
+            .find(|face| face.lookup_glyph_index(ch) != 0)
+            .unwrap_or(&self.faces[0])
     }
 
     pub fn width(&self, text: &str, size: f32) -> f32 {
         text.chars()
-            .map(|c| self.inner.metrics(c, size).advance_width)
+            .map(|c| self.face_for(c).metrics(c, size).advance_width)
             .sum()
     }
 
@@ -60,7 +76,7 @@ impl Font {
         };
 
         for ch in text.chars() {
-            let (metrics, coverage) = self.inner.rasterize(ch, size);
+            let (metrics, coverage) = self.face_for(ch).rasterize(ch, size);
 
             let left = (pen + metrics.xmin as f32).round() as i32;
             let top = (y - (metrics.height as i32 + metrics.ymin) as f32).round() as i32;
@@ -70,7 +86,7 @@ impl Font {
     }
 
     pub fn digit_height(&self, size: f32) -> f32 {
-        self.inner.metrics('0', size).height as f32
+        self.face_for('0').metrics('0', size).height as f32
     }
 }
 

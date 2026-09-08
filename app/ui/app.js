@@ -245,6 +245,7 @@ dock.addEventListener("pointermove", (event) => {
     return;
   }
   waiting = pos;
+  items_box.classList.remove("easing");
   requestAnimationFrame(() => {
     const where = waiting;
     waiting = null;
@@ -396,25 +397,15 @@ function restartLoops() {
   );
   loopIcon(
     at(".ic-done .ring"),
-    [
-      { strokeDashoffset: "289", opacity: 0.35 },
-      { strokeDashoffset: "0", opacity: 1, offset: 0.55 },
-      { strokeDashoffset: "0", opacity: 1, offset: 0.85 },
-      { strokeDashoffset: "0", opacity: 0.35 },
-    ],
-    2600,
-    "cubic-bezier(0.3, 0.7, 0.2, 1)",
+    [{ transform: "rotate(0deg)" }, { transform: "rotate(360deg)" }],
+    6000,
+    "linear",
   );
   loopIcon(
     at(".ic-done .tick"),
-    [
-      { strokeDashoffset: "72", opacity: 0.4 },
-      { strokeDashoffset: "72", opacity: 0.4, offset: 0.4 },
-      { strokeDashoffset: "0", opacity: 1, offset: 0.72 },
-      { strokeDashoffset: "0", opacity: 1 },
-    ],
-    2600,
-    "cubic-bezier(0.3, 0.7, 0.2, 1)",
+    [{ opacity: 0.7 }, { opacity: 1, offset: 0.5 }, { opacity: 0.7 }],
+    2400,
+    "ease-in-out",
   );
   loopIcon(
     at(".ic-part .ring"),
@@ -432,22 +423,24 @@ function restartLoops() {
     2200,
     "ease-in-out",
   );
-  for (const [what, ms, low] of [
-    [".beat .one", 900, 0.32],
-    [".beat .two", 700, 0.55],
-    [".beat .three", 1100, 0.24],
-  ]) {
+  for (const what of [".pull .stem", ".pull .head"]) {
     loopIcon(
       at(what),
       [
-        { transform: `scaleY(${low})` },
-        { transform: "scaleY(1)", offset: 0.5 },
-        { transform: `scaleY(${low})` },
+        { transform: "translateY(-3px)", opacity: 0.25 },
+        { transform: "translateY(0px)", opacity: 1, offset: 0.42 },
+        { transform: "translateY(3px)", opacity: 0.25 },
       ],
-      ms,
-      "ease-in-out",
+      1400,
+      "cubic-bezier(0.4, 0, 0.4, 1)",
     );
   }
+  loopIcon(
+    at(".pull .tray"),
+    [{ opacity: 0.35 }, { opacity: 0.75, offset: 0.5 }, { opacity: 0.35 }],
+    1400,
+    "ease-in-out",
+  );
   loopIcon(
     at(".ic-drop .arc"),
     [{ transform: "rotate(0deg)" }, { transform: "rotate(360deg)" }],
@@ -1450,7 +1443,7 @@ byId("s-skin").addEventListener("change", async () => {
 
 const FIT_PARTS = 3;
 const FIT_PIECE_MS = 2800;
-const FIT_BLEND_MS = 420;
+const FIT_BLEND_MS = 900;
 
 let fitRun = 0;
 let fitParts = null;
@@ -2205,7 +2198,7 @@ function fillPlays({ shelves, skins, plays, rows }) {
     said.append(el("b", null, play.player));
     said.append(el("p", "map", "…"));
     const about = el("p", "about");
-    about.append(modBadges(play.mods), el("span", null, ` ${round(play.score)} · комбо ${play.combo}`));
+    about.append(modBadges(play.mods));
     said.append(about);
     card.append(said);
 
@@ -2330,7 +2323,8 @@ function askToDrop(play) {
     yes: async () => {
       try {
         await invoke("drop_replay", { path: play.path });
-        tellWall("Реплей удалён", play.file);
+        tellWall("Реплей удалён", "Файла больше нет на этом устройстве.");
+        wallOk.textContent = "Хорошо";
         wallFace("done");
         shelfCache = null;
         showRender(true);
@@ -3063,7 +3057,6 @@ function openSheet(play, card) {
   const chips = el("div", "chips");
   chips.append(el("span", "chip who", play.player));
   chips.append(modBadges(play.mods));
-  chips.append(el("span", "chip", `${round(play.score)} очк.`));
   if (said) {
     const out = outcomeOf(said);
     chips.append(el("span", `chip ${out.tone}`, out.text));
@@ -3083,7 +3076,7 @@ function openSheet(play, card) {
       top.append(stage);
     }
     const side = el("div", "sheetside");
-    side.append(mainFigure(said), tally(said));
+    side.append(mainFigure(said, play), tally(said));
     top.append(side);
     body.append(top);
     if (made) {
@@ -3207,7 +3200,7 @@ function reading() {
   return box;
 }
 
-function mainFigure(said) {
+function mainFigure(said, play) {
   const box = el("div", "crown");
 
   const big = el("div", "big");
@@ -3219,6 +3212,11 @@ function mainFigure(said) {
   box.append(big);
 
   const side = el("div", "aside");
+  if (play && play.score) {
+    const points = el("div", "one");
+    points.append(el("b", null, round(play.score)), el("span", null, "Очки"));
+    side.append(points);
+  }
   const combo = el("div", "one");
   combo.append(
     el("b", null, `${round(said.combo)}×`),
@@ -3269,7 +3267,8 @@ function tally(said) {
 }
 
 function errorBars(said) {
-  const errors = said.marks.map((mark) => mark.error_ms).filter((one) => one !== null && one !== undefined);
+  const every = said.presses && said.presses.length ? said.presses : null;
+  const errors = every || said.marks.map((mark) => mark.error_ms).filter((one) => one !== null && one !== undefined);
   if (errors.length < 4) return null;
 
   const box = el("div", "spread");

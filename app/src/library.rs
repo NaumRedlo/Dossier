@@ -193,7 +193,9 @@ fn maps(songs: &Path) -> std::collections::HashSet<String> {
             return found.clone();
         }
     }
-    let found = dossier_produce::locate::hashes(songs);
+    let index = dossier_produce::locate::index(songs);
+    dossier_produce::locate::remember_all(&index);
+    let found: std::collections::HashSet<String> = index.into_keys().collect();
     *held = Some((songs.display().to_string(), mark, found.clone()));
     found
 }
@@ -280,6 +282,24 @@ fn file_seconds(when: std::time::SystemTime) -> i64 {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn only_an_osr_inside_the_replay_folder_can_be_dropped() {
+        let shelf = scratch("shelf");
+        let outside = scratch("outside");
+        let good = shelf.join("one.osr");
+        std::fs::write(&good, b"x").expect("written");
+        std::fs::write(shelf.join("two.mp4"), b"x").expect("written");
+        std::fs::write(outside.join("three.osr"), b"x").expect("written");
+
+        assert!(droppable(&shelf, &good).is_ok());
+        assert!(droppable(&shelf, &shelf.join("two.mp4")).is_err());
+        assert!(droppable(&shelf, &outside.join("three.osr")).is_err());
+        assert!(droppable(&shelf, &shelf.join("nothing.osr")).is_err());
+
+        std::fs::remove_dir_all(&shelf).ok();
+        std::fs::remove_dir_all(&outside).ok();
+    }
     use super::*;
 
     fn scratch(name: &str) -> PathBuf {
@@ -511,6 +531,25 @@ pub fn install_skin(said: &Settings, archive: &Path) -> Result<String, String> {
     }
     flatten(&into);
     Ok(name)
+}
+
+pub fn droppable(shelf: &Path, file: &Path) -> Result<(), String> {
+    if file
+        .extension()
+        .is_none_or(|e| !e.eq_ignore_ascii_case("osr"))
+    {
+        return Err("Это не файл реплея".to_owned());
+    }
+    let both = shelf.canonicalize().ok().zip(file.canonicalize().ok());
+    match both {
+        Some((shelf, file)) if file.starts_with(&shelf) => Ok(()),
+        _ => Err("Реплей лежит не в папке реплеев — уберите его сами".to_owned()),
+    }
+}
+
+pub fn drop_replay(said: &Settings, file: &Path) -> Result<(), String> {
+    droppable(Path::new(&said.replays), file)?;
+    std::fs::remove_file(file).map_err(|why| format!("Реплей не убрался: {why}"))
 }
 
 fn free_name(shelf: &Path, wanted: &str) -> String {

@@ -1377,6 +1377,42 @@ body.still *, body.still *::before, body.still *::after {
 .ic-part .gap { display: none; }
 
 .act.working { display: inline-flex; align-items: center; gap: 0.45rem; }
+
+.act.hold { position: relative; overflow: hidden; touch-action: none; user-select: none; }
+.act.hold .fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 0;
+  background: rgba(255, 255, 255, 0.28);
+  pointer-events: none;
+}
+.act.hold span { position: relative; }
+.act.hold.holding { transform: scale(0.99); }
+
+.ic-drop { width: 7.5rem; height: 7.5rem; }
+.ic-drop .track { fill: none; stroke: var(--accent); stroke-width: 2; opacity: 0.16; }
+.ic-drop .arc {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 4;
+  stroke-linecap: round;
+  stroke-dasharray: 34 255;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.ic-drop .lid, .ic-drop .can, .ic-drop .rib {
+  fill: none;
+  stroke: var(--accent);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.ic-drop .lid { stroke-width: 5; transform-box: fill-box; transform-origin: center bottom; }
+.ic-drop .can { stroke-width: 5; }
+.ic-drop .rib { stroke-width: 3.5; opacity: 0.55; }
+
+.minijob.idle { max-width: 2.6rem; padding: 0 0.45rem; }
+.minijob.idle .what, .minijob.idle .pct { display: none; }
+.minijob.idle .dial .fill { opacity: 0.35; }
 .ic-fold { width: 1.05rem; height: 1.05rem; }
 .ic-fold .track { fill: none; stroke: currentColor; stroke-width: 2; opacity: 0.2; }
 .ic-fold .arc {

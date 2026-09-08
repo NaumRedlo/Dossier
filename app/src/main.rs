@@ -154,6 +154,16 @@ fn ready() -> Vec<check::Row> {
     check::ready()
 }
 
+async fn off_thread<T, F>(work: F) -> Result<T, String>
+where
+    F: FnOnce() -> T + Send + 'static,
+    T: Send + 'static,
+{
+    tauri::async_runtime::spawn_blocking(work)
+        .await
+        .map_err(|why| format!("работа не довелась: {why}"))
+}
+
 #[derive(serde::Serialize)]
 struct Shown {
     show: u64,
@@ -201,7 +211,17 @@ fn shown(
 }
 
 #[tauri::command(async)]
-fn preview(
+async fn preview(
+    replay: String,
+    skin: Option<String>,
+    fine: Option<draw::Fine>,
+    width: Option<u32>,
+    height: Option<u32>,
+) -> Result<Shown, String> {
+    off_thread(move || preview_now(replay, skin, fine, width, height)).await?
+}
+
+fn preview_now(
     replay: String,
     skin: Option<String>,
     fine: Option<draw::Fine>,
@@ -229,8 +249,12 @@ fn preview(
 }
 
 #[tauri::command(async)]
-fn judged(replay: String, skin: Option<String>, fine: Option<draw::Fine>) -> Result<Shown, String> {
-    shown(replay, skin, fine, None)
+async fn judged(
+    replay: String,
+    skin: Option<String>,
+    fine: Option<draw::Fine>,
+) -> Result<Shown, String> {
+    off_thread(move || shown(replay, skin, fine, None)).await?
 }
 
 #[derive(serde::Serialize)]
@@ -240,7 +264,11 @@ struct MapHere {
 }
 
 #[tauri::command(async)]
-fn map_here(replay: String) -> Result<MapHere, String> {
+async fn map_here(replay: String) -> Result<MapHere, String> {
+    off_thread(move || map_here_now(replay)).await?
+}
+
+fn map_here_now(replay: String) -> Result<MapHere, String> {
     let bytes = std::fs::read(&replay).map_err(|why| format!("реплей не читается: {why}"))?;
     let played = dossier_replay::Replay::heading(&bytes).map_err(|why| format!("{why}"))?;
     let said = settings::Settings::load();
@@ -257,7 +285,11 @@ fn map_here(replay: String) -> Result<MapHere, String> {
 }
 
 #[tauri::command(async)]
-fn fetch_map(app: tauri::AppHandle, replay: String) -> Result<mirror::Found, String> {
+async fn fetch_map(app: tauri::AppHandle, replay: String) -> Result<mirror::Found, String> {
+    off_thread(move || fetch_map_now(&app, replay)).await?
+}
+
+fn fetch_map_now(app: &tauri::AppHandle, replay: String) -> Result<mirror::Found, String> {
     use tauri::Emitter;
 
     let bytes = std::fs::read(&replay).map_err(|why| format!("реплей не читается: {why}"))?;
@@ -287,12 +319,19 @@ fn fetch_map(app: tauri::AppHandle, replay: String) -> Result<mirror::Found, Str
 }
 
 #[tauri::command(async)]
-fn show_open(
+fn drop_replay(path: String) -> Result<(), String> {
+    library::drop_replay(&settings::Settings::load(), std::path::Path::new(&path))?;
+    logbook::note("реплей удалён", std::slice::from_ref(&path));
+    Ok(())
+}
+
+#[tauri::command(async)]
+async fn show_open(
     replay: String,
     skin: Option<String>,
     fine: Option<draw::Fine>,
 ) -> Result<u64, String> {
-    show::open(wanted(replay, skin, fine))
+    off_thread(move || show::open(wanted(replay, skin, fine))).await?
 }
 
 #[tauri::command(async)]
@@ -612,6 +651,7 @@ fn main() {
             show_shut,
             map_here,
             fetch_map,
+            drop_replay,
             build_reel,
             modules,
             update_look,

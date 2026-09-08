@@ -350,9 +350,7 @@ fn parse_hit_object(line: &str, line_no: usize) -> Result<HitObject> {
         ObjectKind::Spinner {
             end_time_ms: parts.get(5).and_then(|s| s.parse().ok()).ok_or_else(bad)?,
         }
-    } else if type_field & type_bits::CIRCLE != 0 {
-        ObjectKind::Circle
-    } else if type_field & type_bits::MANIA_HOLD != 0 {
+    } else if type_field & (type_bits::CIRCLE | type_bits::MANIA_HOLD) != 0 {
         ObjectKind::Circle
     } else {
         return Err(BeatmapError::UnknownObjectType {

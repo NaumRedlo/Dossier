@@ -312,6 +312,7 @@
         <button data-page="video"><b>Видео</b><span>Во что рисуется файл и чего это стоит</span></button>
         <button data-page="audio"><b>Звук</b><span>Песня, хитсаунды и то, чем звучит недостающее</span></button>
         <button data-page="skins"><b>Скины</b><span>Чем рисуется игра: примерить, поставить, размножить</span></button>
+        <button data-page="loads"><b>Загрузки</b><span>Как приложение качает недостающие карты</span></button>
         <button data-page="field"><b>Игра</b><span>Что происходит в игровом процессе, пока идёт игра</span></button>
         <button data-page="window"><b>Клиент</b><span>Как ведёт себя само приложение</span></button>
         <button data-page="build"><b>Сборка</b><span>Версия, готовность устройства и кто ещё в сети</span></button>
@@ -536,6 +537,43 @@
         <button class="act small" id="s-export">Экспортировать…</button>
       </div>
       </div>
+      <div class="page" data-page="loads" hidden>
+      <div class="card">
+        <div class="pref">
+          <div><b>Спрашивать о недостающих картах</b><p>Когда в каталоге набирается достаточно реплеев без карт, приложение предложит скачать их разом.</p></div>
+          <span class="seg" id="seg-ask">
+            <button data-ask="on">Спрашивать</button>
+            <button data-ask="off">Не спрашивать</button>
+          </span>
+        </div>
+        <div class="pref">
+          <div><b>С какого числа спрашивать</b><p>Сколько реплеев должно остаться без карт, чтобы вопрос имел смысл.</p></div>
+          <label class="pick tiny short"><span class="cap">Порог</span><select id="s-askfrom">
+            <option value="1">С одного</option>
+            <option value="3" selected>С трёх</option>
+            <option value="10">С десяти</option>
+            <option value="25">С двадцати пяти</option>
+          </select></label>
+        </div>
+        <div class="pref">
+          <div><b>Сколько качать разом</b><p>Больше одной за раз быстрее, но зеркало может начать отказывать.</p></div>
+          <label class="pick tiny short"><span class="cap">Потоки</span><select id="s-atonce">
+            <option value="1" selected>По одной</option>
+            <option value="2">По две</option>
+            <option value="3">По три</option>
+          </select></label>
+        </div>
+        <div class="pref">
+          <div><b>Держать законченные работы</b><p>Сколько готовая работа остаётся в менеджере, прежде чем уйти.</p></div>
+          <label class="pick tiny short"><span class="cap">Держать</span><select id="s-holdfor">
+            <option value="5">5 секунд</option>
+            <option value="12" selected>12 секунд</option>
+            <option value="60">Минуту</option>
+            <option value="0">Пока не уберу</option>
+          </select></label>
+        </div>
+      </div>
+      </div>
       <div class="page" data-page="field" hidden>
       <div class="card">
         <div class="pref">
@@ -720,6 +758,13 @@
         <circle class="ring" cx="60" cy="60" r="46"/>
         <path class="tick" d="M40 61 L54 75 L81 46"/>
       </svg>
+      <svg class="ic-drop wallface" data-face="drop" viewBox="0 0 120 120" fill="none" aria-hidden="true" hidden>
+        <circle class="track" cx="60" cy="60" r="46"/>
+        <circle class="arc" cx="60" cy="60" r="46"/>
+        <path class="lid" d="M42 40 H78 M53 40 V33 H67 V40"/>
+        <path class="can" d="M46 46 H74 L71 84 H49 Z"/>
+        <path class="rib" d="M55 55 V75 M65 55 V75"/>
+      </svg>
       <svg class="ic-part wallface" data-face="part" viewBox="0 0 120 120" fill="none" aria-hidden="true" hidden>
         <circle class="track" cx="60" cy="60" r="46"/>
         <circle class="ring" cx="60" cy="60" r="46"/>
@@ -731,6 +776,9 @@
       <div class="walldo">
         <button class="act primary" id="nomap-get">Скачать карту</button>
         <button class="act" id="nomap-ok">Понял!</button>
+        <button class="act primary hold" id="nomap-hold" hidden>
+          <i class="fill"></i><span>Удерживайте, чтобы удалить</span>
+        </button>
         <button class="act working" id="nomap-fold" hidden>
           <svg class="ic-fold" viewBox="0 0 24 24" fill="none" aria-hidden="true">
             <circle class="track" cx="12" cy="12" r="8"/>

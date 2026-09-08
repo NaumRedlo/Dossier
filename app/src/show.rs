@@ -347,3 +347,49 @@ mod against_real_files {
         }
     }
 }
+
+#[cfg(test)]
+mod warming {
+    use super::*;
+
+    #[test]
+    #[ignore]
+    fn a_remembered_map_opens_far_faster_than_a_search() {
+        use std::time::Instant;
+        let songs = PathBuf::from("/Users/none/Documents/Dossier Corpus/Beatmap");
+        let replays = PathBuf::from("/Users/none/Documents/Dossier Corpus");
+        if !songs.is_dir() {
+            return;
+        }
+        dossier_produce::locate::forget();
+
+        let mut found = None;
+        for entry in std::fs::read_dir(&replays).unwrap().flatten() {
+            let path = entry.path();
+            if path.extension().is_none_or(|e| e != "osr") {
+                continue;
+            }
+            let started = Instant::now();
+            if dossier_produce::locate::load(&path, None, Some(&songs)).is_ok() {
+                println!("cold: {:?} for {}", started.elapsed(), path.display());
+                found = Some(path);
+                break;
+            }
+        }
+        let path = found.expect("a replay whose map is here");
+
+        let started = Instant::now();
+        dossier_produce::locate::load(&path, None, Some(&songs)).expect("again");
+        let warm = started.elapsed();
+        println!("warm: {warm:?}");
+
+        dossier_produce::locate::forget();
+        let started = Instant::now();
+        let index = dossier_produce::locate::index(&songs);
+        println!("index of {} maps: {:?}", index.len(), started.elapsed());
+        dossier_produce::locate::remember_all(&index);
+        let started = Instant::now();
+        dossier_produce::locate::load(&path, None, Some(&songs)).expect("after the index");
+        println!("after a warm index: {:?}", started.elapsed());
+    }
+}

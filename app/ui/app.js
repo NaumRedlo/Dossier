@@ -433,6 +433,30 @@ function restartLoops() {
     "ease-in-out",
   );
   loopIcon(
+    at(".ic-drop .arc"),
+    [{ transform: "rotate(0deg)" }, { transform: "rotate(360deg)" }],
+    3200,
+    "cubic-bezier(0.5, 0, 0.5, 1)",
+  );
+  loopIcon(
+    at(".ic-drop .lid"),
+    [
+      { transform: "rotate(0deg) translateY(0)" },
+      { transform: "rotate(-14deg) translateY(-3px)", offset: 0.32 },
+      { transform: "rotate(-14deg) translateY(-3px)", offset: 0.6 },
+      { transform: "rotate(0deg) translateY(0)" },
+    ],
+    2400,
+    "ease-in-out",
+    "right bottom",
+  );
+  loopIcon(
+    at(".ic-drop .rib"),
+    [{ opacity: 0.25 }, { opacity: 0.7, offset: 0.5 }, { opacity: 0.25 }],
+    2400,
+    "ease-in-out",
+  );
+  loopIcon(
     at(".ic-fold .arc"),
     [{ transform: "rotate(0deg)" }, { transform: "rotate(360deg)" }],
     1100,
@@ -1319,6 +1343,16 @@ async function showSettings() {
   shape.value = known.window || "980x720";
   dressSelect(shape);
   closesInto(known.on_close || "quit", false);
+  asksMaps(remembered("askmaps", "on"), false);
+  for (const [id, key, fallback] of [
+    ["s-askfrom", "askfrom", "3"],
+    ["s-atonce", "atonce", "1"],
+    ["s-holdfor", "holdfor", "12"],
+  ]) {
+    const box = byId(id);
+    box.value = remembered(key, fallback);
+    dressSelect(box);
+  }
   loadRenderSettings();
   byId("s-found").textContent = await readShelves();
   if (!document.querySelector('#view-settings .page[data-page="skins"]').hidden) runFitting();
@@ -1345,6 +1379,25 @@ byId("s-rescan").addEventListener("click", async () => {
     button.disabled = false;
   }
 });
+
+function asksMaps(how, save = true) {
+  const box = byId("seg-ask");
+  pressed(box, box.querySelector(`[data-ask="${how}"]`));
+  if (save) remember("askmaps", how);
+}
+
+for (const button of byId("seg-ask").querySelectorAll("button")) {
+  button.addEventListener("click", () => asksMaps(button.dataset.ask));
+}
+
+for (const [id, key, fallback] of [
+  ["s-askfrom", "askfrom", "3"],
+  ["s-atonce", "atonce", "1"],
+  ["s-holdfor", "holdfor", "12"],
+]) {
+  byId(id).addEventListener("change", () => remember(key, byId(id).value));
+  void fallback;
+}
 
 function closesInto(how, save = true) {
   const box = byId("seg-close");
@@ -1387,6 +1440,7 @@ let fitRun = 0;
 let fitParts = null;
 let fitAt = 0;
 let fitLoading = false;
+let fitLast = null;
 
 async function loadFitting(again = false) {
   if (fitLoading) return;
@@ -1475,18 +1529,20 @@ function runFitting() {
         continue;
       }
       const into = clamp01(shown / FIT_BLEND_MS);
-      const away = clamp01((FIT_PIECE_MS - shown) / FIT_BLEND_MS);
       c.ctx.setTransform(1, 0, 0, 1, 0, 0);
       c.ctx.clearRect(0, 0, c.w, c.h);
-      c.ctx.globalAlpha = Math.min(into, away);
+      if (into < 1 && fitLast) c.ctx.drawImage(fitLast, 0, 0, c.w, c.h);
+      c.ctx.globalAlpha = fitLast ? into : 1;
       c.ctx.drawImage(image, 0, 0, c.w, c.h);
       c.ctx.globalAlpha = 1;
+      fitLast = image;
       }
   })();
 }
 
 function stopFitting() {
   fitRun += 1;
+  fitLast = null;
 }
 
 byId("s-clone").addEventListener("click", async () => {
@@ -1679,22 +1735,34 @@ function endWork(id, ok, note) {
   one.share = 100;
   if (note) one.note = note;
   paintWorks();
+  const holdFor = Number(remembered("holdfor", "12")) * 1000;
   clearTimeout(jobHold);
+  if (holdFor <= 0) return;
   jobHold = setTimeout(() => {
     works.delete(id);
     if (openWork === id) openWork = null;
     paintWorks();
-  }, DONE_HOLD_MS);
+  }, holdFor);
 }
 
 const alive = () => [...works.values()].filter((one) => !one.done);
 
 function paintWorks() {
   const all = [...works.values()];
+  jobBox.hidden = false;
+  const list = byId("job-works");
   if (!all.length) {
-    jobBox.hidden = true;
+    jobMini.classList.add("idle");
+    jobMini.classList.remove("done", "failed");
+    byId("job-label").textContent = "";
+    byId("job-percent").textContent = "0";
+    byId("job-dial").style.strokeDashoffset = String(DIAL_ROUND);
+    list.replaceChildren(el("p", "fine", "Сейчас ничего не идёт."));
+    byId("job-hint").textContent = "Здесь видно всё, что приложение качает и рисует.";
     return;
   }
+  jobMini.classList.remove("idle");
+  byId("job-hint").textContent = "Нажмите на работу, чтобы открыть её журнал.";
   const running = alive();
   const share = running.length
     ? running.reduce((sum, one) => sum + one.share, 0) / running.length
@@ -1706,9 +1774,6 @@ function paintWorks() {
   byId("job-label").textContent = running.length > 1 ? `${running.length} работы` : lead.label;
   byId("job-percent").textContent = round(share);
   byId("job-dial").style.strokeDashoffset = String(DIAL_ROUND * (1 - share / 100));
-  jobBox.hidden = false;
-
-  const list = byId("job-works");
   list.replaceChildren(
     ...all.map((one) => {
       const row = el("div", `work${one.done ? (one.ok ? " done" : " failed") : ""}${openWork === one.id ? " open" : ""}`);
@@ -2186,11 +2251,33 @@ function fillPlays({ shelves, skins, plays, rows }) {
       name: "Показать в папке",
       go: () => invoke("reveal_file", { path: play.path }).catch(() => {}),
     });
+    rows.push({ name: "Удалить реплей", go: () => askToDrop(play) });
     return rows;
   }
 }
 
 const clamp01 = (t) => (t < 0 ? 0 : t > 1 ? 1 : t);
+
+function askToDrop(play) {
+  holdWall({
+    head: "Удалить реплей?",
+    why: `${play.file} · ${play.player}. Файл уйдёт с диска — вернуть его будет неоткуда.`,
+    doing: "Удерживайте две секунды",
+    nope: "Оставить",
+    yes: async () => {
+      try {
+        await invoke("drop_replay", { path: play.path });
+        tellWall("Реплей удалён", play.file);
+        wallFace("done");
+        shelfCache = null;
+        showRender(true);
+      } catch (why) {
+        tellWall("Реплей не удалился", `${why}`);
+        wallFace("part");
+      }
+    },
+  });
+}
 
 const wall = byId("nomap");
 const wallGet = byId("nomap-get");
@@ -2206,6 +2293,8 @@ function showWall(play) {
   wallGot = false;
   wallAsk = null;
   wallGet.onclick = null;
+  holdDone = null;
+  wallHold.hidden = true;
   byId("nomap-head").textContent = "Нет карты для реплея!";
   byId("nomap-why").textContent = WALL_WHY;
   wallGet.hidden = false;
@@ -2223,6 +2312,8 @@ function askWall({ head, why, yes, no, doing, nope }) {
   wallFor = null;
   wallGot = false;
   wallBulk = null;
+  holdDone = null;
+  wallHold.hidden = true;
   wallGet.onclick = null;
   wallAsk = { yes, no };
   byId("nomap-head").textContent = head;
@@ -2236,6 +2327,71 @@ function askWall({ head, why, yes, no, doing, nope }) {
   wall.hidden = false;
   restartLoops();
   wallOk.focus();
+}
+
+const wallHold = byId("nomap-hold");
+let holdRun = null;
+let holdTicket = 0;
+let holdDone = null;
+
+function holdWall({ head, why, doing, nope, yes }) {
+  wallFor = null;
+  wallGot = false;
+  wallAsk = null;
+  wallBulk = null;
+  wallGet.onclick = null;
+  holdDone = yes;
+  byId("nomap-head").textContent = head;
+  byId("nomap-why").textContent = why;
+  wallGet.hidden = true;
+  wallOk.hidden = false;
+  wallOk.textContent = nope;
+  byId("nomap-fold").hidden = true;
+  wallHold.hidden = false;
+  wallHold.querySelector("span").textContent = doing;
+  wallHold.querySelector(".fill").style.width = "0%";
+  wallFace("drop");
+  wall.hidden = false;
+  restartLoops();
+  wallOk.focus();
+}
+
+const HOLD_MS = 2000;
+
+function stopHold() {
+  holdTicket += 1;
+  if (holdRun) cancelAnimationFrame(holdRun);
+  holdRun = null;
+  wallHold.querySelector(".fill").style.width = "0%";
+  wallHold.classList.remove("holding");
+}
+
+wallHold.addEventListener("pointerdown", (event) => {
+  event.preventDefault();
+  if (holdRun) return;
+  wallHold.classList.add("holding");
+  holdTicket += 1;
+  const mine = holdTicket;
+  const from = performance.now();
+  const step = (now) => {
+    if (mine !== holdTicket) return;
+    const share = clamp01((now - from) / HOLD_MS);
+    wallHold.querySelector(".fill").style.width = `${share * 100}%`;
+    if (share >= 1) {
+      const go = holdDone;
+      stopHold();
+      wallHold.hidden = true;
+      holdDone = null;
+      if (go) go();
+      return;
+    }
+    holdRun = requestAnimationFrame(step);
+  };
+  holdRun = requestAnimationFrame(step);
+});
+
+for (const kind of ["pointerup", "pointerleave", "pointercancel", "blur"]) {
+  wallHold.addEventListener(kind, stopHold);
 }
 
 function tellWall(head, why) {
@@ -2358,6 +2514,7 @@ function wallFace(which) {
 function wallWorking(on) {
   wallGet.hidden = on;
   wallOk.hidden = on;
+  if (on) wallHold.hidden = true;
   byId("nomap-fold").hidden = !on;
   if (on) restartLoops();
 }
@@ -2372,8 +2529,9 @@ let wallBulk = null;
 
 function offerMissingMaps(plays) {
   if (askedAboutMaps || !wall.hidden) return;
+  if (remembered("askmaps", "on") !== "on") return;
   const missing = plays.filter((play) => !play.have_map);
-  if (missing.length < MISSING_ENOUGH) return;
+  if (missing.length < Number(remembered("askfrom", String(MISSING_ENOUGH)))) return;
   askedAboutMaps = true;
   askWall({
     head: "Не хотите ли вы скачать все недостающие карты для реплеев?",
@@ -2393,23 +2551,33 @@ async function grabAllMaps(missing) {
   logWork(mapWork, `Не хватает карт: ${missing.length}`);
   wallWorking(true);
 
-  for (const play of missing) {
-    wallFor = play;
-    wallBulk = `Карта ${done + failed + 1} из ${missing.length}`;
-    lastStep = "";
-    logWork(mapWork, `${done + failed + 1}. ${play.file}`);
-    if (!wall.hidden) tellWall(wallBulk, play.file);
-    try {
-      const found = await invoke("fetch_map", { replay: play.path });
-      done += 1;
-      logWork(mapWork, `  ✓ ${found.artist} — ${found.title} [${found.version}]`);
-    } catch (why) {
-      failed += 1;
-      logWork(mapWork, `  × ${why}`);
+  const atOnce = Math.max(1, Math.min(3, Number(remembered("atonce", "1"))));
+  const queue = missing.slice();
+  const grab = async () => {
+    while (queue.length) {
+      const play = queue.shift();
+      const at = done + failed + 1;
+      if (atOnce === 1) {
+        wallFor = play;
+        wallBulk = `Карта ${at} из ${missing.length}`;
+        lastStep = "";
+        if (!wall.hidden) tellWall(wallBulk, play.file);
+      }
+      logWork(mapWork, `${at}. ${play.file}`);
+      try {
+        const found = await invoke("fetch_map", { replay: play.path });
+        done += 1;
+        logWork(mapWork, `  ✓ ${found.artist} — ${found.title} [${found.version}]`);
+      } catch (why) {
+        failed += 1;
+        logWork(mapWork, `  × ${why}`);
+      }
+      bulkDone += 1;
+      stepWork(mapWork, (bulkDone / bulkTotal) * 100, `Скачано ${done}, не нашлось ${failed}`);
+      if (atOnce > 1 && !wall.hidden) tellWall(`Карта ${bulkDone} из ${missing.length}`, `Скачано ${done}, не нашлось ${failed}`);
     }
-    bulkDone += 1;
-    stepWork(mapWork, (bulkDone / bulkTotal) * 100, `Скачано ${done}, не нашлось ${failed}`);
-  }
+  };
+  await Promise.all(Array.from({ length: Math.min(atOnce, queue.length) }, grab));
 
   logWork(mapWork, failed ? `Готово: ${done} скачано, ${failed} не нашлось.` : `Готово: ${done} скачано.`);
   endWork(mapWork, failed === 0, failed ? `Скачано ${done}, не нашлось ${failed}` : `Скачано ${done}`);
@@ -2463,10 +2631,11 @@ function askFrame(show, ms, wide, high) {
   });
 }
 
-async function frameOf(made, ms, wide, high) {
+async function frameOf(made, ms, wide, high, still) {
   const first = await askFrame(made.show, ms, wide, high);
   if (first) return first;
   if (!made.path) return null;
+  if (still && !still()) return null;
   try {
     made.show = await invoke("show_open", { replay: made.path, skin: made.skin, fine: options().fine });
   } catch {
@@ -2728,7 +2897,7 @@ function runPreviews() {
       const now = performance.now();
       rollPart(made, Math.min(120, now - was));
       was = now;
-      const image = await frameOf(made, made.head, c.w, c.h);
+      const image = await frameOf(made, made.head, c.w, c.h, () => mine === cardTicket && hovered === one);
       if (mine !== cardTicket || hovered !== one || !image) return;
       paintFrame(c, image);
       fadeEdges(c, made.head, partEdges(made));
@@ -2771,7 +2940,16 @@ function shutMenu() {
   menuBox.hidden = true;
 }
 
-for (const kind of ["pointerdown", "wheel", "blur"]) {
+window.addEventListener(
+  "pointerdown",
+  (event) => {
+    const where = event.target;
+    if (where && where.closest && where.closest(".menu")) return;
+    shutMenu();
+  },
+  { passive: true, capture: true },
+);
+for (const kind of ["wheel", "blur"]) {
   window.addEventListener(kind, shutMenu, { passive: true, capture: true });
 }
 

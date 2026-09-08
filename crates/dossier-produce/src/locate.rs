@@ -64,7 +64,50 @@ pub fn load_map(path: &Path, want_hash: &str) -> Result<FoundMap, String> {
     })
 }
 
+type Known = std::collections::HashMap<String, PathBuf>;
+
+static KNOWN: std::sync::OnceLock<std::sync::Mutex<Known>> = std::sync::OnceLock::new();
+
+fn known() -> &'static std::sync::Mutex<Known> {
+    KNOWN.get_or_init(|| std::sync::Mutex::new(Known::new()))
+}
+
+pub fn remember(hash: &str, path: &Path) {
+    if let Ok(mut held) = known().lock() {
+        held.insert(hash.to_ascii_lowercase(), path.to_path_buf());
+    }
+}
+
+pub fn remember_all(index: &Known) {
+    if let Ok(mut held) = known().lock() {
+        for (hash, path) in index {
+            held.insert(hash.to_ascii_lowercase(), path.clone());
+        }
+    }
+}
+
+pub fn forget() {
+    if let Ok(mut held) = known().lock() {
+        held.clear();
+    }
+}
+
+fn recall(want_hash: &str) -> Option<FoundMap> {
+    let path = known().lock().ok()?.get(want_hash)?.clone();
+    let named = path
+        .extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("osz"));
+    if !named && fs::read(&path).ok().map(|b| md5_hex(&b)).as_deref() != Some(want_hash) {
+        return None;
+    }
+    load_map(&path, want_hash).ok()
+}
+
 pub fn search_dir(root: &Path, want_hash: &str) -> Result<Option<FoundMap>, String> {
+    let want_hash = &want_hash.to_ascii_lowercase();
+    if let Some(found) = recall(want_hash) {
+        return Ok(Some(found));
+    }
     let mut stack = vec![root.to_path_buf()];
     let mut archives: Vec<PathBuf> = Vec::new();
 
@@ -83,7 +126,8 @@ pub fn search_dir(root: &Path, want_hash: &str) -> Result<Option<FoundMap>, Stri
             match path.extension().and_then(|e| e.to_str()) {
                 Some(ext) if ext.eq_ignore_ascii_case("osu") => {
                     let Ok(bytes) = fs::read(&path) else { continue };
-                    if md5_hex(&bytes) == want_hash {
+                    if md5_hex(&bytes) == *want_hash {
+                        remember(want_hash, &path);
                         return Ok(Some(FoundMap {
                             text: decode(&bytes),
                             source: path.display().to_string(),
@@ -102,6 +146,7 @@ pub fn search_dir(root: &Path, want_hash: &str) -> Result<Option<FoundMap>, Stri
             continue;
         };
         if let Ok(Some((text, inner))) = search_osz(&bytes, want_hash) {
+            remember(want_hash, &archive);
             return Ok(Some(FoundMap {
                 text,
                 source: format!("{} → {inner}", archive.display()),
@@ -114,7 +159,11 @@ pub fn search_dir(root: &Path, want_hash: &str) -> Result<Option<FoundMap>, Stri
 }
 
 pub fn hashes(root: &Path) -> std::collections::HashSet<String> {
-    let mut found = std::collections::HashSet::new();
+    index(root).into_keys().collect()
+}
+
+pub fn index(root: &Path) -> Known {
+    let mut found = Known::new();
     let mut stack = vec![root.to_path_buf()];
     let mut archives: Vec<PathBuf> = Vec::new();
 
@@ -131,7 +180,7 @@ pub fn hashes(root: &Path) -> std::collections::HashSet<String> {
             match path.extension().and_then(|e| e.to_str()) {
                 Some(ext) if ext.eq_ignore_ascii_case("osu") => {
                     if let Ok(bytes) = fs::read(&path) {
-                        found.insert(md5_hex(&bytes));
+                        found.insert(md5_hex(&bytes), path.clone());
                     }
                 }
                 Some(ext) if ext.eq_ignore_ascii_case("osz") => archives.push(path),
@@ -156,7 +205,7 @@ pub fn hashes(root: &Path) -> std::collections::HashSet<String> {
             }
             let mut inside = Vec::new();
             if file.read_to_end(&mut inside).is_ok() {
-                found.insert(md5_hex(&inside));
+                found.insert(md5_hex(&inside), archive.clone());
             }
         }
     }

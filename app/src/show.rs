@@ -157,6 +157,32 @@ pub fn shut(id: u64) {
     let _ = ask.send(Ask::Shut);
 }
 
+const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+fn base64(bytes: &[u8]) -> String {
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let b = [
+            chunk[0],
+            *chunk.get(1).unwrap_or(&0),
+            *chunk.get(2).unwrap_or(&0),
+        ];
+        let n = (u32::from(b[0]) << 16) | (u32::from(b[1]) << 8) | u32::from(b[2]);
+        for i in 0..4 {
+            if i <= chunk.len() {
+                out.push(ALPHABET[((n >> (18 - i * 6)) & 63) as usize] as char);
+            } else {
+                out.push('=');
+            }
+        }
+    }
+    out
+}
+
+pub fn as_data_url(png: &[u8]) -> String {
+    format!("data:image/png;base64,{}", base64(png))
+}
+
 pub fn asked_for(uri: &str) -> Option<(u64, f64, u32, u32)> {
     let query = uri.split_once('?')?.1;
     let mut id = None;
@@ -193,6 +219,13 @@ mod tests {
         assert!(asked_for("frame://localhost/?show=7&ms=1234.5&w=480").is_none());
         assert!(asked_for("frame://localhost/").is_none());
         assert!(asked_for("frame://localhost/?show=nine&ms=1&w=1&h=1").is_none());
+    }
+
+    #[test]
+    fn a_picture_travels_as_a_data_url() {
+        assert_eq!(base64(b""), "");
+        assert_eq!(base64(b"foobar"), "Zm9vYmFy");
+        assert!(as_data_url(b"foo").starts_with("data:image/png;base64,"));
     }
 
     #[test]

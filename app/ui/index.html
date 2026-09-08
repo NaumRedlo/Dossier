@@ -111,9 +111,9 @@
       </button>
 
       <div class="popover jobpane" id="jobpane">
-        <h4 id="job-full"></h4>
-        <p class="jobline" id="job-note"></p>
-        <p class="fine" id="job-hint">Нажмите, чтобы вернуться к этой работе.</p>
+        <h4>Работы</h4>
+        <div class="works" id="job-works"></div>
+        <p class="fine" id="job-hint">Нажмите на работу, чтобы открыть её журнал.</p>
       </div>
     </div>
 
@@ -709,17 +709,36 @@
 
   <div class="scanning wall" id="nomap" hidden>
     <div class="middle">
-      <svg class="ic-nomap" viewBox="0 0 120 120" fill="none" aria-hidden="true">
+      <svg class="ic-nomap wallface" data-face="ask" viewBox="0 0 120 120" fill="none" aria-hidden="true">
         <circle class="track" cx="60" cy="60" r="46"/>
         <circle class="arc" cx="60" cy="60" r="46"/>
         <path class="bar one" d="M44 44 L76 76"/>
         <path class="bar two" d="M76 44 L44 76"/>
+      </svg>
+      <svg class="ic-done wallface" data-face="done" viewBox="0 0 120 120" fill="none" aria-hidden="true" hidden>
+        <circle class="track" cx="60" cy="60" r="46"/>
+        <circle class="ring" cx="60" cy="60" r="46"/>
+        <path class="tick" d="M40 61 L54 75 L81 46"/>
+      </svg>
+      <svg class="ic-part wallface" data-face="part" viewBox="0 0 120 120" fill="none" aria-hidden="true" hidden>
+        <circle class="track" cx="60" cy="60" r="46"/>
+        <circle class="ring" cx="60" cy="60" r="46"/>
+        <path class="tick" d="M40 61 L54 75 L81 46"/>
+        <path class="gap" d="M60 14 A46 46 0 0 1 60 106"/>
       </svg>
       <h2 id="nomap-head">Нет карты для реплея!</h2>
       <p id="nomap-why">Скачай карту для реплея, чтобы взаимодействовать с реплеем.</p>
       <div class="walldo">
         <button class="act primary" id="nomap-get">Скачать карту</button>
         <button class="act" id="nomap-ok">Понял!</button>
+        <button class="act working" id="nomap-fold" hidden>
+          <svg class="ic-fold" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <circle class="track" cx="12" cy="12" r="8"/>
+            <circle class="arc" cx="12" cy="12" r="8"/>
+            <path class="down" d="M12 8 V15 M8.6 12 L12 15.4 L15.4 12"/>
+          </svg>
+          <span>Свернуть в фон</span>
+        </button>
       </div>
     </div>
   </div>

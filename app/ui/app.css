@@ -19,6 +19,9 @@
   --ease: cubic-bezier(0.22, 0.9, 0.28, 1);
 }
 
+:focus { outline: none; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
 
@@ -1343,11 +1346,98 @@ body.still *, body.still *::before, body.still *::after {
   transform-box: fill-box;
   transform-origin: center;
 }
+.ic-done, .ic-part { width: 7.5rem; height: 7.5rem; }
+.ic-done .track, .ic-part .track { fill: none; stroke: var(--good); stroke-width: 2; opacity: 0.16; }
+.ic-part .track { stroke: var(--muted); }
+.ic-done .ring {
+  fill: none;
+  stroke: var(--good);
+  stroke-width: 4;
+  stroke-linecap: round;
+  stroke-dasharray: 289;
+}
+.ic-part .ring {
+  fill: none;
+  stroke: var(--muted);
+  stroke-width: 4;
+  stroke-linecap: round;
+  stroke-dasharray: 26 263;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.ic-done .tick, .ic-part .tick {
+  fill: none;
+  stroke: var(--good);
+  stroke-width: 7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 72;
+}
+.ic-part .tick { stroke: var(--muted); }
+.ic-part .gap { display: none; }
+
+.act.working { display: inline-flex; align-items: center; gap: 0.45rem; }
+.ic-fold { width: 1.05rem; height: 1.05rem; }
+.ic-fold .track { fill: none; stroke: currentColor; stroke-width: 2; opacity: 0.2; }
+.ic-fold .arc {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-dasharray: 14 36;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.ic-fold .down {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
 .ic-nomap .bar {
   fill: none;
   stroke: var(--accent);
   stroke-width: 7;
   stroke-linecap: round;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.reading {
+  display: grid;
+  justify-items: center;
+  gap: 0.35rem;
+  margin: 1.6rem 0 0.6rem;
+  text-align: center;
+}
+.reading b { font-size: 1.02rem; font-weight: 600; }
+.reading span { color: var(--muted); font-size: 0.85rem; }
+.ic-reading { width: 5.4rem; height: 5.4rem; margin-bottom: 0.5rem; }
+.ic-reading .track { fill: none; stroke: var(--accent); stroke-width: 2; opacity: 0.16; }
+.ic-reading .arc {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 4;
+  stroke-linecap: round;
+  stroke-dasharray: 44 220;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.ic-reading .pen {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 86;
+}
+.ic-reading .spark {
+  fill: var(--accent);
+  stroke: none;
   transform-box: fill-box;
   transform-origin: center;
 }
@@ -1391,32 +1481,6 @@ body.still *, body.still *::before, body.still *::after {
 .choose { padding-top: 3rem; }
 #view-replay { min-height: 28rem; }
 
-.minijob {
-  display: flex;
-  align-items: center;
-  gap: 0.45rem;
-  height: 2.1rem;
-  max-width: 11rem;
-  padding: 0 0.7rem 0 0.45rem;
-  border: 1px solid var(--line);
-  border-radius: 1.05rem;
-  background: var(--panel);
-  -webkit-backdrop-filter: blur(18px);
-  backdrop-filter: blur(18px);
-  color: var(--ink);
-  font: 0.76rem/1 var(--mono);
-  cursor: pointer;
-  transition: opacity 0.28s var(--ease), transform 0.28s var(--ease), border-color 0.2s var(--ease);
-}
-.minijob:hover { border-color: var(--accent); }
-.minijob.leaving { opacity: 0; transform: translateY(-0.3rem) scale(0.97); }
-.minijob .what {
-  min-width: 0;
-  overflow: hidden;
-  font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 .minijob .pct { flex: none; color: var(--accent); font-weight: 700; }
 
 .minijob .dial {
@@ -1676,11 +1740,11 @@ body.still .rep .stage::after, body.away .rep .stage::after { animation: none; }
 .sheettop {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr);
-  gap: 0.8rem;
-  align-items: stretch;
-  margin-top: 1rem;
+  gap: 1.15rem;
+  align-items: start;
+  margin-top: 1.1rem;
 }
-.sheetside { display: grid; align-content: start; gap: 0.7rem; min-width: 0; }
+.sheetside { display: grid; align-content: start; gap: 0.85rem; min-width: 0; }
 .sheetside .crown { margin: 0; }
 .sheetside .tally { margin: 0; }
 
@@ -1850,9 +1914,51 @@ h4.sheeth {
 }
 .asknote:hover { color: var(--ink); }
 
-.jobpane { width: 17rem; }
-.jobpane h4 { margin: 0 0 0.35rem; }
-.jobpane .jobline { margin: 0; color: var(--muted); font: 0.74rem/1.45 var(--mono); }
+.jobpane { width: 21rem; }
+.jobpane h4 { margin: 0 0 0.5rem; }
+.works { display: grid; gap: 0.5rem; max-height: 19rem; overflow-y: auto; }
+.work {
+  display: grid;
+  gap: 0.32rem;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: 0.65rem;
+  background: var(--sunk);
+}
+.work.done { border-color: rgba(95, 214, 148, 0.4); }
+.work.failed { border-color: rgba(226, 72, 72, 0.45); }
+.workhead {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.workhead b { flex: 1; min-width: 0; overflow: hidden; font-size: 0.8rem; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.workhead .pct { flex: none; color: var(--accent); font: 700 0.74rem var(--mono); }
+.work.done .workhead .pct { color: var(--good); }
+.workbar { height: 0.22rem; border-radius: 0.11rem; background: rgba(255, 255, 255, 0.08); overflow: hidden; }
+.workbar i { display: block; height: 100%; background: var(--accent); transition: width 0.25s var(--ease); }
+.work.done .workbar i { background: var(--good); }
+.worknote { margin: 0; overflow: hidden; color: var(--faint); font: 0.7rem/1.4 var(--mono); text-overflow: ellipsis; white-space: nowrap; }
+.worklog {
+  max-height: 9rem;
+  margin: 0.15rem 0 0;
+  overflow-y: auto;
+  padding: 0.45rem 0.55rem;
+  border-radius: 0.5rem;
+  background: rgba(0, 0, 0, 0.32);
+  color: var(--muted);
+  font: 0.68rem/1.5 var(--mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.work .act { margin: 0.1rem 0 0; justify-self: start; }
 #jobbox #jobpane { display: none; }
 #jobbox:hover #jobpane, #jobbox:focus-within #jobpane { display: block; }
 .finished .routes { flex: none; display: flex; gap: 0.4rem; }

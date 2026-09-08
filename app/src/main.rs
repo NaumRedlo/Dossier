@@ -158,6 +158,9 @@ fn ready() -> Vec<check::Row> {
 struct Shown {
     show: u64,
 
+    #[serde(skip_serializing_if = "Option::is_none")]
+    still: Option<String>,
+
     #[serde(flatten)]
     scene: play::Scene,
 }
@@ -185,7 +188,11 @@ fn shown(
 ) -> Result<Shown, String> {
     let id = show::open(wanted(replay, skin, fine))?;
     match show::facts(id, seconds) {
-        Ok(scene) => Ok(Shown { show: id, scene }),
+        Ok(scene) => Ok(Shown {
+            show: id,
+            still: None,
+            scene,
+        }),
         Err(why) => {
             show::shut(id);
             Err(why)
@@ -198,8 +205,27 @@ fn preview(
     replay: String,
     skin: Option<String>,
     fine: Option<draw::Fine>,
+    width: Option<u32>,
+    height: Option<u32>,
 ) -> Result<Shown, String> {
-    shown(replay, skin, fine, Some(6.0))
+    let id = show::open(wanted(replay, skin, fine))?;
+    let facts = show::facts(id, Some(6.0));
+    let still = facts.as_ref().ok().and_then(|scene| {
+        let piece = scene.parts.first()?;
+        let png = show::frame(
+            id,
+            (piece[0] + piece[1]) / 2.0,
+            width.unwrap_or(480).clamp(16, 1920),
+            height.unwrap_or(360).clamp(16, 1080),
+        )?;
+        Some(show::as_data_url(&png))
+    });
+    show::shut(id);
+    facts.map(|scene| Shown {
+        show: 0,
+        still,
+        scene,
+    })
 }
 
 #[tauri::command(async)]

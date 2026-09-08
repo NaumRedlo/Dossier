@@ -367,6 +367,88 @@ function restartLoops() {
     "ease-in-out",
   );
   loopIcon(
+    at(".ic-reading .arc"),
+    [{ transform: "rotate(0deg)" }, { transform: "rotate(360deg)" }],
+    1900,
+    "cubic-bezier(0.5, 0, 0.5, 1)",
+  );
+  loopIcon(
+    at(".ic-reading .pen"),
+    [
+      { strokeDashoffset: "86", opacity: 0.25 },
+      { opacity: 1, offset: 0.18 },
+      { strokeDashoffset: "0", opacity: 1, offset: 0.72 },
+      { strokeDashoffset: "0", opacity: 0.25 },
+    ],
+    2200,
+    "cubic-bezier(0.35, 0.6, 0.3, 1)",
+  );
+  loopIcon(
+    at(".ic-reading .spark"),
+    [
+      { transform: "scale(0.2)", opacity: 0 },
+      { transform: "scale(0.2)", opacity: 0, offset: 0.6 },
+      { transform: "scale(1)", opacity: 0.9, offset: 0.78 },
+      { transform: "scale(1.5)", opacity: 0 },
+    ],
+    2200,
+    "ease-out",
+  );
+  loopIcon(
+    at(".ic-done .ring"),
+    [
+      { strokeDashoffset: "289", opacity: 0.35 },
+      { strokeDashoffset: "0", opacity: 1, offset: 0.55 },
+      { strokeDashoffset: "0", opacity: 1, offset: 0.85 },
+      { strokeDashoffset: "0", opacity: 0.35 },
+    ],
+    2600,
+    "cubic-bezier(0.3, 0.7, 0.2, 1)",
+  );
+  loopIcon(
+    at(".ic-done .tick"),
+    [
+      { strokeDashoffset: "72", opacity: 0.4 },
+      { strokeDashoffset: "72", opacity: 0.4, offset: 0.4 },
+      { strokeDashoffset: "0", opacity: 1, offset: 0.72 },
+      { strokeDashoffset: "0", opacity: 1 },
+    ],
+    2600,
+    "cubic-bezier(0.3, 0.7, 0.2, 1)",
+  );
+  loopIcon(
+    at(".ic-part .ring"),
+    [{ transform: "rotate(0deg)" }, { transform: "rotate(360deg)" }],
+    5200,
+    "linear",
+  );
+  loopIcon(
+    at(".ic-part .tick"),
+    [
+      { opacity: 0.4 },
+      { opacity: 0.85, offset: 0.5 },
+      { opacity: 0.4 },
+    ],
+    2200,
+    "ease-in-out",
+  );
+  loopIcon(
+    at(".ic-fold .arc"),
+    [{ transform: "rotate(0deg)" }, { transform: "rotate(360deg)" }],
+    1100,
+    "linear",
+  );
+  loopIcon(
+    at(".ic-fold .down"),
+    [
+      { transform: "translateY(-2px)", opacity: 0.5 },
+      { transform: "translateY(1px)", opacity: 1, offset: 0.5 },
+      { transform: "translateY(-2px)", opacity: 0.5 },
+    ],
+    1400,
+    "ease-in-out",
+  );
+  loopIcon(
     at(".ic-judge .ring"),
     [
       { transform: "scale(2.1)", opacity: 0 },
@@ -1327,7 +1409,7 @@ async function loadFitting(again = false) {
       picked.map((play) =>
         invoke("preview", { replay: play.path, fine: options().fine })
           .then((scene) => {
-            const one = { scene, head: scene.from_ms, at: 0, show: scene.show, path: play.path, who: play.player };
+            const one = { scene, head: scene.from_ms, at: 0, show: 0, path: play.path, who: play.player };
             rollPart(one, 0);
             return one;
           })
@@ -1549,7 +1631,6 @@ let watching = { bar: "r-bar", said: "r-said", share: "r-share" };
 
 let job = null;
 
-let jobFading = false;
 
 const jobBox = byId("jobbox");
 const jobMini = byId("job-mini");
@@ -1559,63 +1640,136 @@ const DIAL_ROUND = 2 * Math.PI * 9;
 const DONE_HOLD_MS = 12000;
 let jobHold = null;
 
-function startJob(home, label) {
-  job = { home, label, done: false };
-  jobFading = false;
-  clearTimeout(jobHold);
-  jobMini.classList.remove("leaving", "done", "failed");
+const works = new Map();
+let workSeq = 0;
+let openWork = null;
 
-  byId("job-label").textContent = label.split(" · ")[0];
-  byId("job-full").textContent = label;
-  byId("job-hint").textContent = "Нажмите, чтобы вернуться к этой работе.";
-  paintJob(0, "Начинаю…");
-  syncJobMini();
+const LOG_KEPT = 400;
+
+function startWork({ kind, label, home }) {
+  workSeq += 1;
+  const id = `w${workSeq}`;
+  works.set(id, { id, kind, label, home, share: 0, note: "Начинаю…", done: false, ok: true, lines: [] });
+  openWork = id;
+  paintWorks();
+  return id;
+}
+
+function stepWork(id, share, note) {
+  const one = works.get(id);
+  if (!one) return;
+  if (typeof share === "number") one.share = Math.min(100, Math.max(0, share));
+  if (note) one.note = note;
+  paintWorks();
+}
+
+function logWork(id, line) {
+  const one = works.get(id);
+  if (!one) return;
+  one.lines.push(line);
+  if (one.lines.length > LOG_KEPT) one.lines.splice(0, one.lines.length - LOG_KEPT);
+  paintWorks();
+}
+
+function endWork(id, ok, note) {
+  const one = works.get(id);
+  if (!one) return;
+  one.done = true;
+  one.ok = ok;
+  one.share = 100;
+  if (note) one.note = note;
+  paintWorks();
+  clearTimeout(jobHold);
+  jobHold = setTimeout(() => {
+    works.delete(id);
+    if (openWork === id) openWork = null;
+    paintWorks();
+  }, DONE_HOLD_MS);
+}
+
+const alive = () => [...works.values()].filter((one) => !one.done);
+
+function paintWorks() {
+  const all = [...works.values()];
+  if (!all.length) {
+    jobBox.hidden = true;
+    return;
+  }
+  const running = alive();
+  const share = running.length
+    ? running.reduce((sum, one) => sum + one.share, 0) / running.length
+    : 100;
+  const lead = running[0] || all[all.length - 1];
+
+  jobMini.classList.toggle("done", !running.length && all.every((one) => one.ok));
+  jobMini.classList.toggle("failed", !running.length && all.some((one) => !one.ok));
+  byId("job-label").textContent = running.length > 1 ? `${running.length} работы` : lead.label;
+  byId("job-percent").textContent = round(share);
+  byId("job-dial").style.strokeDashoffset = String(DIAL_ROUND * (1 - share / 100));
+  jobBox.hidden = false;
+
+  const list = byId("job-works");
+  list.replaceChildren(
+    ...all.map((one) => {
+      const row = el("div", `work${one.done ? (one.ok ? " done" : " failed") : ""}${openWork === one.id ? " open" : ""}`);
+      const head = el("button", "workhead");
+      head.append(el("b", null, one.label), el("span", "pct", one.done ? (one.ok ? "готово" : "ошибка") : `${round(one.share)}%`));
+      head.addEventListener("click", () => {
+        openWork = openWork === one.id ? null : one.id;
+        paintWorks();
+      });
+      row.append(head);
+      const bar = el("div", "workbar");
+      bar.append(el("i", null, ""));
+      bar.firstChild.style.width = `${one.share}%`;
+      row.append(bar);
+      row.append(el("p", "worknote", one.note));
+      if (openWork === one.id && one.lines.length) {
+        const log = el("pre", "worklog", one.lines.join("\n"));
+        row.append(log);
+        requestAnimationFrame(() => {
+          log.scrollTop = log.scrollHeight;
+        });
+      }
+      if (one.home) {
+        const go = el("button", "act small", "Открыть");
+        go.addEventListener("click", () => show(one.home));
+        row.append(go);
+      }
+      return row;
+    }),
+  );
+}
+
+function startJob(home, label) {
+  job = { home, label, done: false, id: startWork({ kind: "render", label: label.split(" · ")[0], home }) };
+  return job.id;
 }
 
 function paintJob(percent, note) {
-  const share = Math.min(100, Math.max(0, percent));
-  byId("job-percent").textContent = round(share);
-  byId("job-dial").style.strokeDashoffset = String(DIAL_ROUND * (1 - share / 100));
-  if (note) byId("job-note").textContent = note;
+  if (job && job.id) stepWork(job.id, percent, note);
 }
 
 function syncJobMini() {
-  if (jobFading) return;
-  jobBox.hidden = !(job && (job.done || open_tab !== job.home));
+  paintWorks();
 }
 
 jobMini.addEventListener("click", () => {
-  const home = job && job.home;
-  if (job && job.done) dismissJob();
+  const running = alive();
+  const home = (running[0] && running[0].home) || (job && job.home);
   if (home) show(home);
 });
 
 function dismissJob() {
-  clearTimeout(jobHold);
+  if (job && job.id) works.delete(job.id);
   job = null;
-  if (jobBox.hidden) return;
-  jobFading = true;
-  jobMini.classList.add("leaving");
-  setTimeout(() => {
-    jobBox.hidden = true;
-    jobMini.classList.remove("leaving", "done", "failed");
-    jobFading = false;
-  }, 280);
+  paintWorks();
 }
 
 function endJob(ok) {
   if (!job) return;
-  paintJob(100, ok ? "Готово" : "Не вышло");
+  endWork(job.id, ok, ok ? "Готово" : "Не вышло");
   job.done = true;
-  jobFading = false;
-  jobMini.classList.remove("leaving");
-  jobMini.classList.add(ok ? "done" : "failed");
-  byId("job-label").textContent = ok ? "Готово" : "Не вышло";
-  byId("job-hint").textContent = ok
-    ? "Нажмите, чтобы открыть вкладку с готовым файлом."
-    : "Нажмите, чтобы посмотреть, на чём оно встало.";
-  jobBox.hidden = false;
-  jobHold = setTimeout(dismissJob, DONE_HOLD_MS);
 }
 
 function showFinished(slot, { path, notes, bad, head }) {
@@ -2058,6 +2212,8 @@ function showWall(play) {
   wallGet.disabled = false;
   wallGet.textContent = "Скачать карту";
   wallOk.textContent = "Понял!";
+  wallWorking(false);
+  wallFace("ask");
   wall.hidden = false;
   restartLoops();
   wallOk.focus();
@@ -2075,6 +2231,8 @@ function askWall({ head, why, yes, no, doing, nope }) {
   wallGet.disabled = false;
   wallGet.textContent = doing;
   wallOk.textContent = nope;
+  wallWorking(false);
+  wallFace("ask");
   wall.hidden = false;
   restartLoops();
   wallOk.focus();
@@ -2123,12 +2281,22 @@ wallGet.addEventListener("click", async () => {
   }
   const play = wallFor;
   if (!play || wallGet.disabled || wallGet.onclick) return;
-  wallGet.disabled = true;
+  bulkDone = 0;
+  bulkTotal = 1;
+  lastStep = "";
+  mapWork = startWork({ kind: "maps", label: "Карта", home: "render" });
+  logWork(mapWork, play.file);
+  wallWorking(true);
   byId("nomap-head").textContent = "Ищу карту…";
   byId("nomap-why").textContent = "Спрашиваю зеркало про эту карту.";
   try {
     const found = await invoke("fetch_map", { replay: play.path });
     wallGot = true;
+    logWork(mapWork, `  ✓ ${found.artist} — ${found.title} [${found.version}]`);
+    endWork(mapWork, true, `${found.artist} — ${found.title}`);
+    mapWork = null;
+    wallWorking(false);
+    wallFace("done");
     byId("nomap-head").textContent = "Карта на месте!";
     byId("nomap-why").textContent = `${found.artist} — ${found.title} [${found.version}]`;
     wallGet.disabled = false;
@@ -2142,6 +2310,10 @@ wallGet.addEventListener("click", async () => {
     };
     wallOk.focus();
   } catch (why) {
+    logWork(mapWork, `  × ${why}`);
+    endWork(mapWork, false, `${why}`);
+    mapWork = null;
+    wallWorking(false);
     byId("nomap-head").textContent = "Карта не скачалась";
     byId("nomap-why").textContent = `${why}`;
     wallGet.disabled = false;
@@ -2149,18 +2321,50 @@ wallGet.addEventListener("click", async () => {
   }
 });
 
+const mb = (n) => (n / (1024 * 1024)).toFixed(1);
+
+let mapWork = null;
+let bulkDone = 0;
+let bulkTotal = 0;
+let lastStep = "";
+
 function saySteps(payload) {
-  if (wall.hidden || !wallFor || payload.replay !== wallFor.path) return;
   const of = Number(payload.of) || 0;
   const got = Number(payload.got) || 0;
-  if (!of || !got) {
-    byId("nomap-why").textContent = payload.step;
-    return;
+  const note = of && got ? `${mb(got)} из ${mb(of)} МБ · ${Math.round((got / of) * 100)}%` : payload.step;
+
+  if (mapWork) {
+    const part = of ? got / of : 0;
+    const share = bulkTotal ? ((bulkDone + part) / bulkTotal) * 100 : part * 100;
+    stepWork(mapWork, share, note);
+    if (payload.step !== lastStep) {
+      lastStep = payload.step;
+      logWork(mapWork, `  ${payload.step}`);
+    }
   }
-  const mb = (n) => (n / (1024 * 1024)).toFixed(1);
+  if (wall.hidden || !wallFor || payload.replay !== wallFor.path) return;
   byId("nomap-head").textContent = wallBulk || "Качаю карту…";
-  byId("nomap-why").textContent = `${mb(got)} из ${mb(of)} МБ · ${Math.round((got / of) * 100)}%`;
+  byId("nomap-why").textContent = note;
 }
+
+function wallFace(which) {
+  for (const face of document.querySelectorAll(".wallface")) {
+    if (face.dataset.face === which) face.removeAttribute("hidden");
+    else face.setAttribute("hidden", "");
+  }
+  restartLoops();
+}
+
+function wallWorking(on) {
+  wallGet.hidden = on;
+  wallOk.hidden = on;
+  byId("nomap-fold").hidden = !on;
+  if (on) restartLoops();
+}
+
+byId("nomap-fold").addEventListener("click", () => {
+  wall.hidden = true;
+});
 
 const MISSING_ENOUGH = 3;
 let askedAboutMaps = false;
@@ -2183,29 +2387,50 @@ function offerMissingMaps(plays) {
 async function grabAllMaps(missing) {
   let done = 0;
   let failed = 0;
-  wallGet.disabled = true;
-  wallGet.textContent = "Качаю…";
+  bulkDone = 0;
+  bulkTotal = missing.length;
+  mapWork = startWork({ kind: "maps", label: `Карты · ${missing.length}`, home: "render" });
+  logWork(mapWork, `Не хватает карт: ${missing.length}`);
+  wallWorking(true);
+
   for (const play of missing) {
-    if (wall.hidden) break;
     wallFor = play;
     wallBulk = `Карта ${done + failed + 1} из ${missing.length}`;
-    tellWall(wallBulk, play.file);
+    lastStep = "";
+    logWork(mapWork, `${done + failed + 1}. ${play.file}`);
+    if (!wall.hidden) tellWall(wallBulk, play.file);
     try {
-      await invoke("fetch_map", { replay: play.path });
+      const found = await invoke("fetch_map", { replay: play.path });
       done += 1;
-    } catch {
+      logWork(mapWork, `  ✓ ${found.artist} — ${found.title} [${found.version}]`);
+    } catch (why) {
       failed += 1;
+      logWork(mapWork, `  × ${why}`);
     }
+    bulkDone += 1;
+    stepWork(mapWork, (bulkDone / bulkTotal) * 100, `Скачано ${done}, не нашлось ${failed}`);
   }
+
+  logWork(mapWork, failed ? `Готово: ${done} скачано, ${failed} не нашлось.` : `Готово: ${done} скачано.`);
+  endWork(mapWork, failed === 0, failed ? `Скачано ${done}, не нашлось ${failed}` : `Скачано ${done}`);
+  mapWork = null;
+  bulkTotal = 0;
   wallBulk = null;
   wallFor = null;
   wallGot = done > 0;
+  wallWorking(false);
   wallGet.hidden = true;
+  wallOk.hidden = false;
   wallOk.textContent = "Понял!";
+  wallFace(failed ? "part" : "done");
   tellWall(
-    done ? "Готово" : "Ничего не скачалось",
+    done ? (failed ? "Не всё нашлось" : "Все карты на месте!") : "Ничего не скачалось",
     failed ? `Скачано ${done}, не нашлось ${failed}.` : `Скачано ${done}.`,
   );
+  if (wall.hidden && done) {
+    shelfCache = null;
+    showRender(true);
+  }
 }
 
 function refreshShows() {
@@ -2218,6 +2443,15 @@ function refreshShows() {
 }
 
 const FRAMES = navigator.userAgent.includes("Windows") ? "http://frame.localhost/" : "frame://localhost/";
+
+function loadImage(src) {
+  return new Promise((ready) => {
+    const image = new Image();
+    image.onload = () => ready(image);
+    image.onerror = () => ready(null);
+    image.src = src;
+  });
+}
 
 function askFrame(show, ms, wide, high) {
   return new Promise((ready) => {
@@ -2390,9 +2624,15 @@ function pumpPreviews() {
     const path = card.previewOf.path;
     if (previews.has(path)) continue;
     asking.add(path);
-    invoke("preview", { replay: path, fine: options().fine })
+    const box = card.previewOn.getBoundingClientRect();
+    invoke("preview", {
+      replay: path,
+      fine: options().fine,
+      width: Math.max(160, Math.round(box.width * 1.5)) || 480,
+      height: Math.max(120, Math.round(box.height * 1.5)) || 360,
+    })
       .then((scene) => {
-        const made = { scene, judged: scene.summary, head: scene.from_ms, at: 0, show: scene.show, path };
+        const made = { scene, judged: scene.summary, head: scene.from_ms, at: 0, show: 0, still: scene.still || null, path };
         rollPart(made, 0);
         keepPreview(path, made);
         applyPreview(card, made);
@@ -2448,14 +2688,21 @@ function keepPreview(path, made) {
   }
 }
 
+function stillOf(made) {
+  if (made.stillImage) return Promise.resolve(made.stillImage);
+  if (!made.still) return Promise.resolve(null);
+  return loadImage(made.still).then((image) => {
+    made.stillImage = image;
+    return image;
+  });
+}
+
 async function stillCard(card) {
   const made = previews.get(card.previewOf.path);
   if (!made) return;
   const c = canvasPixels(card.previewOn, 1.5);
   if (!c) return;
-  const parts = made.scene.parts;
-  const first = parts && parts.length ? parts[0] : [made.scene.from_ms, made.scene.to_ms];
-  const image = await frameOf(made, (first[0] + first[1]) / 2, c.w, c.h);
+  const image = await stillOf(made);
   if (!image) {
     card.classList.add("plain");
     return;
@@ -2560,23 +2807,30 @@ function openSheet(play, card) {
   body.replaceChildren(head);
 
   if (!said) {
-    body.append(
-      el("p", "fine", play.have_map ? "Ещё читаю этот реплей." : "Карты этого реплея нет на этом устройстве."),
-    );
+    body.append(play.have_map ? reading() : el("p", "fine", "Карты этого реплея нет на этом устройстве."));
   } else {
     const top = el("div", "sheettop");
-    const side = el("div", "sheetside");
-    side.append(mainFigure(said), tally(said));
-    top.append(side);
     if (made) {
       const stage = el("div", "sheetstage");
       sheetView = document.createElement("canvas");
       stage.append(sheetView);
       top.append(stage);
     }
+    const side = el("div", "sheetside");
+    side.append(mainFigure(said), tally(said));
+    top.append(side);
     body.append(top);
     if (made) {
-      sheetPlay = { scene: made.scene, judged: made.judged, head: made.scene.from_ms, at: 0, show: made.show, path: made.path };
+      sheetPlay = {
+        scene: made.scene,
+        judged: made.judged,
+        head: made.scene.from_ms,
+        at: 0,
+        show: made.show,
+        still: made.still,
+        stillImage: made.stillImage,
+        path: made.path,
+      };
       rollPart(sheetPlay, 0);
     }
     const spread = errorBars(said);
@@ -2642,6 +2896,25 @@ function openSheet(play, card) {
   const spread = body.querySelector(".spread .bars");
   if (spread && spread.repaint) requestAnimationFrame(spread.repaint);
   void card;
+}
+
+function reading() {
+  const box = el("div", "reading");
+  const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  icon.setAttribute("viewBox", "0 0 120 120");
+  icon.setAttribute("fill", "none");
+  icon.setAttribute("aria-hidden", "true");
+  icon.setAttribute("class", "ic-reading");
+  icon.innerHTML =
+    '<circle class="track" cx="60" cy="60" r="42"/>' +
+    '<circle class="arc" cx="60" cy="60" r="42"/>' +
+    '<path class="pen" d="M40 74 L54 56 L66 66 L82 44"/>' +
+    '<circle class="spark" cx="82" cy="44" r="6"/>';
+  box.append(icon);
+  box.append(el("b", null, "Реплей в процессе анализа…"));
+  box.append(el("span", null, "В ближайший момент он станет вот-вот доступен"));
+  requestAnimationFrame(restartLoops);
+  return box;
 }
 
 function mainFigure(said) {
@@ -2823,6 +3096,11 @@ function runSheetPreview() {
   const still = !motionOn();
   let was = performance.now();
   (async () => {
+    const first = await stillOf(one);
+    if (mine === sheetRun && sheetPlay === one && first) {
+      const seat = canvasPixels(sheetView, 2);
+      if (seat) paintFrame(seat, first);
+    }
     while (mine === sheetRun && sheetPlay === one && !sheet.hidden) {
       await new Promise((again) => requestAnimationFrame(again));
       if (mine !== sheetRun || sheetPlay !== one || sheet.hidden) return;

@@ -7,11 +7,6 @@ use crate::layout::Layout;
 use crate::skin::{blend, with_alpha};
 use crate::text::{Align, Label};
 
-fn ease_out(x: f32) -> f32 {
-    let x = x.clamp(0.0, 1.0);
-    1.0 - (1.0 - x) * (1.0 - x)
-}
-
 const KEY_NAMES: [&str; 4] = ["K1", "K2", "M1", "M2"];
 
 #[derive(Debug, Default)]
@@ -29,10 +24,10 @@ impl KeyTrack {
         };
         let fell = |elapsed: f64, over: f64| ((elapsed / over.max(1e-6)).clamp(0.0, 1.0)) as f32;
         if time_ms < up {
-            return ease_out(fell(time_ms - down, down_ms));
+            return eased_out(fell(time_ms - down, down_ms));
         }
-        let reached = ease_out(fell(up - down, down_ms));
-        reached * (1.0 - ease_out(fell(time_ms - up, up_ms)))
+        let reached = eased_out(fell(up - down, down_ms));
+        reached * (1.0 - eased_out(fell(time_ms - up, up_ms)))
     }
 
     pub(super) fn build(cursor: &dossier_sim::CursorTrack, lazer: bool) -> Self {
@@ -52,7 +47,7 @@ impl KeyTrack {
         if time_ms < first {
             return 1.0;
         }
-        1.0 - ease_out(((time_ms - first) / (KEYS_SWAP_MS * rate)) as f32)
+        1.0 - eased_out(((time_ms - first) / (KEYS_SWAP_MS * rate)) as f32)
     }
 }
 

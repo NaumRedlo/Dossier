@@ -177,9 +177,26 @@ impl Scene<'_> {
             object,
             (from, to),
             colour,
-            self.alpha_of(index, time_ms),
+            self.body_alpha(index, object, time_ms),
             layout,
         );
+    }
+
+    fn body_alpha(&self, index: usize, object: &TimedObject, time_ms: f64) -> f32 {
+        let alpha = self.alpha_of(index, time_ms);
+        if !self.skin.snake_out || time_ms <= object.end_ms || !self.head_was_hit(index) {
+            return alpha;
+        }
+        let share = ((time_ms - object.end_ms) / BODY_SNAKE_FADE_MS).clamp(0.0, 1.0) as f32;
+        alpha * (1.0 - share)
+    }
+
+    fn head_was_hit(&self, index: usize) -> bool {
+        self.state.judge().is_some_and(|judge| {
+            judge.events_for(index).any(|event| {
+                event.part == dossier_sim::Part::SliderHead && !event.result.is_miss()
+            })
+        })
     }
 
     pub(super) fn draw_approach(
@@ -287,9 +304,9 @@ impl Scene<'_> {
                         continue;
                     }
 
-                    let grown = 0.5
-                        + 0.5
-                            * fade(
+                    let grown = TICK_SCALE_FROM
+                        + (1.0 - TICK_SCALE_FROM)
+                            * out_elastic_half(
                                 (((time_ms - live) / (TICK_FADE_MS * 4.0)).clamp(0.0, 1.0)) as f32,
                             );
 
@@ -299,8 +316,8 @@ impl Scene<'_> {
                             Element::SliderScorePoint,
                             annotation.colour,
                             at,
-                            radius,
-                            alpha * arriving * grown,
+                            radius * grown,
+                            alpha * arriving,
                             layout,
                         );
                     } else {
@@ -317,37 +334,33 @@ impl Scene<'_> {
 
                 let carried = self.alpha_through_hidden(index, time_ms);
 
-                let leaving = ((time_ms - object.end_ms) / FOLLOW_LEAVE_MS).clamp(0.0, 1.0);
                 let held = object.ball_at(time_ms.min(object.end_ms));
-                if let Some(ball) = held.filter(|_| time_ms >= object.start_ms && leaving < 1.0) {
-                    let going = 1.0 - leaving as f32;
-
-                    let beat = self.follow_pulse(index, time_ms.min(object.end_ms))
-                        * (FOLLOW_LEAVE_TO + (1.0 - FOLLOW_LEAVE_TO) * going);
-                    let carried = carried * going;
-                    if self.skin_speaks_for(Element::SliderFollowCircle) {
-                        self.draw_sprite(
-                            pixmap,
-                            Element::SliderFollowCircle,
-                            annotation.colour,
-                            ball,
-                            radius * beat,
-                            carried,
-                            layout,
-                        );
-                    } else {
-                        self.ring(
-                            pixmap,
-                            ball,
-                            radius * 2.4 * beat,
-                            radius * 0.06,
-                            self.skin.circle_border,
-                            carried * 0.5,
-                            layout,
-                        );
+                if let Some(ball) = held.filter(|_| time_ms >= object.start_ms) {
+                    if let Some((swell, lit)) = self.follow_circle(index, object, time_ms) {
+                        if self.skin_speaks_for(Element::SliderFollowCircle) {
+                            self.draw_sprite(
+                                pixmap,
+                                Element::SliderFollowCircle,
+                                annotation.colour,
+                                ball,
+                                radius * swell,
+                                carried * lit,
+                                layout,
+                            );
+                        } else {
+                            self.ring(
+                                pixmap,
+                                ball,
+                                radius * 2.4 * swell,
+                                radius * 0.06,
+                                self.skin.circle_border,
+                                carried * lit * 0.5,
+                                layout,
+                            );
+                        }
                     }
 
-                    if leaving == 0.0 {
+                    if time_ms <= object.end_ms {
                         let done = ((time_ms - object.start_ms)
                             / (object.end_ms - object.start_ms).max(1.0))
                         .clamp(0.0, 1.0) as f32;
@@ -1104,7 +1117,7 @@ impl Scene<'_> {
             );
             self.draw_spinner_metre(pixmap, filled, time_ms, alpha, layout);
         } else if self.skin_speaks_for(Element::SpinnerTop) {
-            let swell = 1.0 - (1.0 - f64::from(filled)).powi(3);
+            let swell = f64::from(eased_out(filled));
             let grown = SPIN_SETTLED + SPIN_GROW * swell;
             let halved = if self.skin_speaks_for(Element::SpinnerMiddle2) {
                 0.5
@@ -1312,7 +1325,7 @@ impl Scene<'_> {
             * ((object.end_ms - time_ms) / SPIN_CLEAR_OUT_MS).clamp(0.0, 1.0) as f32;
         let swell = if since < SPIN_CLEAR_DROP_MS {
             let share = (since / SPIN_CLEAR_DROP_MS) as f32;
-            2.0 + (0.8 - 2.0) * (1.0 - (1.0 - share).powi(3))
+            2.0 + (0.8 - 2.0) * eased_out(share)
         } else {
             let share = ((since - SPIN_CLEAR_DROP_MS) / SPIN_CLEAR_REST_MS).clamp(0.0, 1.0) as f32;
             0.8 + 0.2 * share
@@ -1461,34 +1474,90 @@ impl Scene<'_> {
 
 
 
-    fn follow_pulse(&self, index: usize, time_ms: f64) -> f32 {
-        let Some(judge) = self.state.judge() else {
-            return 1.0;
-        };
-        let mut newest = f64::NEG_INFINITY;
+    fn follow_circle(
+        &self,
+        index: usize,
+        object: &TimedObject,
+        time_ms: f64,
+    ) -> Option<(f32, f32)> {
+        let judge = self.state.judge()?;
+        let (mut pressed, mut ended, mut broke) = (None, None, None);
+        let mut ticked = f64::NEG_INFINITY;
         for event in judge.events_for(index) {
-            if !matches!(
-                event.part,
-                dossier_sim::Part::SliderTick | dossier_sim::Part::SliderRepeat
-            ) {
-                continue;
+            let missed = event.result.is_miss();
+            match event.part {
+                dossier_sim::Part::SliderHead if !missed => {
+                    pressed = pressed.or(Some(event.time_ms));
+                }
+                dossier_sim::Part::SliderTick | dossier_sim::Part::SliderRepeat => {
+                    if missed {
+                        broke = broke.or(Some(event.time_ms));
+                    } else {
+                        pressed = pressed.or(Some(event.time_ms));
+                        if event.time_ms <= time_ms {
+                            ticked = ticked.max(event.time_ms);
+                        }
+                    }
+                }
+                dossier_sim::Part::SliderTail => {
+                    if missed {
+                        broke = broke.or(Some(event.time_ms));
+                    } else {
+                        ended = Some(event.time_ms);
+                    }
+                }
+                _ => {}
             }
-            if event.result == dossier_sim::Judgement::Miss || event.time_ms > time_ms {
-                continue;
-            }
-            newest = newest.max(event.time_ms);
-        }
-        if !newest.is_finite() {
-            return 1.0;
-        }
-        let age = (time_ms - newest) / FOLLOW_BEAT_MS;
-        if !(0.0..1.0).contains(&age) {
-            return 1.0;
         }
 
-        let fade = 1.0 - age;
-        1.0 + FOLLOW_BEAT * (fade * fade) as f32
+        let pressed = pressed?;
+        if time_ms < pressed {
+            return None;
+        }
+
+        if let Some(at) = broke.filter(|at| *at >= pressed && *at <= time_ms) {
+            let share = ((time_ms - at) / FOLLOW_BREAK_MS) as f32;
+            if share >= 1.0 {
+                return None;
+            }
+            return Some((
+                held(FOLLOW_TRACKING + (FOLLOW_BREAK_TO - FOLLOW_TRACKING) * share),
+                1.0 - share,
+            ));
+        }
+
+        if let Some(at) = ended.filter(|at| *at <= time_ms) {
+            let share = ((time_ms - at) / FOLLOW_END_MS) as f32;
+            if share >= 1.0 {
+                return None;
+            }
+            let out = eased_out(share);
+            return Some((
+                held(FOLLOW_TRACKING + (FOLLOW_END_TO - FOLLOW_TRACKING) * out),
+                1.0 - share * share,
+            ));
+        }
+
+        let left = (object.end_ms - pressed).max(0.0);
+        let growing = left.clamp(1.0, FOLLOW_PRESS_MS);
+        let lighting = left.clamp(1.0, FOLLOW_LIT_MS);
+        let share = (((time_ms - pressed) / growing).clamp(0.0, 1.0)) as f32;
+        let out = eased_out(share);
+        let mut scale = FOLLOW_RESTING + (FOLLOW_TRACKING - FOLLOW_RESTING) * out;
+
+        let since = time_ms - ticked;
+        if share >= 1.0 && (0.0..FOLLOW_TICK_MS).contains(&since) {
+            let back = (since / FOLLOW_TICK_MS) as f32;
+            scale = FOLLOW_TICK_TO + (FOLLOW_TRACKING - FOLLOW_TICK_TO) * back;
+        }
+
+        Some((
+            held(scale),
+            (((time_ms - pressed) / lighting).clamp(0.0, 1.0)) as f32,
+        ))
     }
+
+
 
     fn spun_degrees(&self, object: &TimedObject, time_ms: f64) -> f32 {
         let facing = dossier_sim::spinner_facing(
@@ -2118,12 +2187,22 @@ mod cost {
     }
 }
 
-const FOLLOW_BEAT: f32 = 0.10;
-const FOLLOW_BEAT_MS: f64 = 110.0;
+const FOLLOW_RESTING: f32 = 1.0;
+const FOLLOW_TRACKING: f32 = 2.0;
+const FOLLOW_PRESS_MS: f64 = 180.0;
+const FOLLOW_LIT_MS: f64 = 60.0;
+const FOLLOW_TICK_TO: f32 = 2.2;
+const FOLLOW_TICK_MS: f64 = 200.0;
+const FOLLOW_END_TO: f32 = 1.6;
+const FOLLOW_END_MS: f64 = 200.0;
+const FOLLOW_BREAK_TO: f32 = 4.0;
+const FOLLOW_BREAK_MS: f64 = 100.0;
 
-const FOLLOW_LEAVE_MS: f64 = 200.0;
+fn held(scale: f32) -> f32 {
+    scale / FOLLOW_TRACKING
+}
 
-const FOLLOW_LEAVE_TO: f32 = 0.8;
+
 
 const FOLLOW_SPACING: f64 = 32.0;
 const FOLLOW_PREEMPT_MS: f64 = 800.0;

@@ -22,6 +22,8 @@ const SNAKE_SHARE_OF_APPROACH: f64 = 1.0 / 3.0;
 
 const TICK_FADE_MS: f64 = 150.0;
 
+const TICK_SCALE_FROM: f32 = 0.5;
+
 const TICK_FIRST_LEAD: f64 = 0.66;
 
 const TICK_REPEAT_LEAD_MS: f64 = 200.0;
@@ -30,6 +32,8 @@ const HIDDEN_FADE_IN: f64 = 0.4;
 const HIDDEN_FADE_OUT: f64 = 0.3;
 
 const HIT_FADE_MS: f64 = 240.0;
+
+const BODY_SNAKE_FADE_MS: f64 = 40.0;
 const MISS_FADE_MS: f64 = 100.0;
 
 const NUMBER_FADE_MS: f64 = HIT_FADE_MS / 4.0;
@@ -816,10 +820,18 @@ impl<'a> Scene<'a> {
     }
 }
 
-fn fade(exit: f32) -> f32 {
-    let left = 1.0 - exit;
-    left * left
+fn eased_out(share: f32) -> f32 {
+    let left = 1.0 - share.clamp(0.0, 1.0);
+    1.0 - left * left
 }
+
+fn out_elastic_half(share: f32) -> f32 {
+    const SWING: f32 = std::f32::consts::TAU / 0.3;
+    const SHIFT: f32 = 0.3 / 4.0;
+    let share = share.clamp(0.0, 1.0);
+    2.0f32.powf(-10.0 * share) * (share.mul_add(0.5, -SHIFT) * SWING).sin() + 1.0
+}
+
 
 fn turns_of(object: &TimedObject) -> Option<(Turn, Turn)> {
     let TimedKind::Slider { path, slides, .. } = &object.kind else {
@@ -859,5 +871,39 @@ fn spin_place(x: f64, y: f64) -> dossier_beatmap::Point {
     dossier_beatmap::Point {
         x: dossier_beatmap::Point::CENTRE.x + x,
         y: dossier_beatmap::Point::CENTRE.y - SPIN_BOX.1 / 2.0 - SPIN_LIFT + y,
+    }
+}
+
+#[cfg(test)]
+mod easings {
+    use super::{eased_out, out_elastic_half};
+
+    #[test]
+    fn the_quadratic_out_leaves_at_once_and_lands_gently() {
+        assert!((eased_out(0.0) - 0.0).abs() < 1e-6);
+        assert!((eased_out(1.0) - 1.0).abs() < 1e-6);
+        assert!(eased_out(0.5) > 0.7, "it should be past half by half way");
+    }
+
+    #[test]
+    fn the_elastic_half_overshoots_before_it_settles() {
+        assert!(out_elastic_half(0.0).abs() < 1e-3, "it starts at nothing");
+        assert!(
+            (out_elastic_half(1.0) - 1.0).abs() < 0.01,
+            "and finishes at one"
+        );
+
+        let peak = (0..=100)
+            .map(|step| out_elastic_half(step as f32 / 100.0))
+            .fold(0.0f32, f32::max);
+        assert!(peak > 1.05, "an elastic that never overshoots: {peak}");
+    }
+
+    #[test]
+    fn a_tick_only_ever_grows() {
+        let scale = |share: f32| 0.5 + 0.5 * out_elastic_half(share);
+        assert!(scale(0.0) < scale(0.25), "a tick that shrinks as it waits");
+        assert!(scale(0.0) < 0.55, "and it starts at half");
+        assert!((scale(1.0) - 1.0).abs() < 0.01, "arriving at full size");
     }
 }

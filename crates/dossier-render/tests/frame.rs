@@ -2780,7 +2780,7 @@ SliderTickRate:1
     let frame = Scene::new(&state, skin).frame(time_ms, &layout);
 
     let (cx, cy) = layout.map(dossier_beatmap::Point {
-        x: 256.0 + 28.0,
+        x: 256.0 + 16.0,
         y: 192.0,
     });
     let p = frame.pixel(cx as u32, cy as u32).expect("inside the frame");
@@ -4778,4 +4778,95 @@ fn a_skin_that_silences_the_combo_is_not_given_ours() {
     assert_eq!(quiet, 0, "a silenced combo was drawn in our own face");
     let _ = std::fs::remove_dir_all(&hushed);
     let _ = std::fs::remove_dir_all(&bare);
+}
+
+fn dropped_slider_follow(dir: &std::path::Path, time_ms: f64) -> usize {
+    use dossier_render::elements::Element;
+    use dossier_render::imported::Sprites;
+
+    let map = beatmap(
+        "
+[Difficulty]
+CircleSize:4
+ApproachRate:5
+OverallDifficulty:5
+SliderMultiplier:0.4
+SliderTickRate:1
+
+[TimingPoints]
+0,500,4,2,0,60,1,0
+
+[HitObjects]
+120,192,2000,2,0,L|400:192,1,280
+",
+    );
+    let mut frames = vec![dossier_replay::ReplayFrame {
+        time_ms: 1_000,
+        x: 120.0,
+        y: 192.0,
+        keys: dossier_replay::Keys(0),
+    }];
+    for step in 0..=10 {
+        let at = 2_000 + step * 100;
+        frames.push(dossier_replay::ReplayFrame {
+            time_ms: at,
+            x: 120.0 + 0.08 * (at - 2_000) as f32,
+            y: 192.0,
+            keys: dossier_replay::Keys(dossier_replay::Keys::K1),
+        });
+    }
+    frames.push(dossier_replay::ReplayFrame {
+        time_ms: 3_100,
+        x: 60.0,
+        y: 40.0,
+        keys: dossier_replay::Keys(0),
+    });
+    frames.push(dossier_replay::ReplayFrame {
+        time_ms: 6_000,
+        x: 60.0,
+        y: 40.0,
+        keys: dossier_replay::Keys(0),
+    });
+
+    let replay = replay_over(frames);
+    let mut skin = Skin::with_combo_colours(map.combo_colours()).with_font(font());
+    skin.sprites = Some(std::sync::Arc::new(Sprites::read(
+        dir,
+        &[Element::SliderFollowCircle],
+    )));
+    let state = GameState::new(&map, &replay);
+    let layout = Layout::new(640, 480);
+    let frame = Scene::new(&state, skin).frame(time_ms, &layout);
+
+    let mut count = 0;
+    for y in 100..300u32 {
+        for x in 60..580u32 {
+            let Some(p) = frame.pixel(x, y) else { continue };
+            if p.red() > 50 && p.blue() > 50 && u32::from(p.green()) * 2 < u32::from(p.red()) {
+                count += 1;
+            }
+        }
+    }
+    count
+}
+
+#[test]
+fn a_dropped_slider_throws_its_follow_circle_wide() {
+    let dir = skin_folder("follow-break");
+    write_glyph(&dir, "sliderfollowcircle.png", 64, (255, 0, 255));
+
+    let holding = dropped_slider_follow(&dir, 2_900.0);
+    let bursting = (0..40)
+        .map(|step| dropped_slider_follow(&dir, 3_100.0 + f64::from(step) * 10.0))
+        .max()
+        .unwrap_or(0);
+    let gone = dropped_slider_follow(&dir, 3_700.0);
+
+    assert!(holding > 100, "the follow circle was not there at all");
+    assert!(
+        bursting > holding * 3 / 2,
+        "the break barely opened it: {bursting} against {holding}"
+    );
+    assert_eq!(gone, 0, "the burst outlived its hundred milliseconds");
+    let _ = std::fs::remove_dir_all(&dir);
 }

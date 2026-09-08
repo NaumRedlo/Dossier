@@ -1,4 +1,3 @@
-use super::format::grouped;
 use super::paint::{draw_bar, draw_pill, pie};
 use super::*;
 
@@ -292,7 +291,7 @@ impl Scene<'_> {
         };
         let mut top = self.top_band(layout) + font.digit_height(leads) / 2.0 - leads;
         if let Some(value) = self.state.score_at(time_ms) {
-            let text = grouped(value);
+            let text = value.to_string();
             let right = layout.width as f32 - margin;
             if !self.draw_hud_text(
                 pixmap,

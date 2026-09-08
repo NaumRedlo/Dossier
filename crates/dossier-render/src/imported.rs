@@ -38,6 +38,12 @@ pub struct Ini {
     pub slider_border: Option<Color>,
 
     pub slider_track: Option<Color>,
+
+    pub spinner_background: Option<Color>,
+
+    pub input_overlay_text: Option<Color>,
+
+    pub spinner_no_blink: bool,
 }
 
 impl Default for Ini {
@@ -61,6 +67,9 @@ impl Default for Ini {
             slider_ball_flip: false,
             slider_border: None,
             slider_track: None,
+            spinner_background: None,
+            input_overlay_text: None,
+            spinner_no_blink: false,
         }
     }
 }
@@ -144,6 +153,9 @@ impl Ini {
                     }
                 }
                 ("colours", "sliderborder") => out.slider_border = rgb_of(value),
+                ("colours", "spinnerbackground") => out.spinner_background = rgb_of(value),
+                ("colours", "inputoverlaytext") => out.input_overlay_text = rgb_of(value),
+                ("general", "spinnernoblink") => out.spinner_no_blink = value == "1",
                 ("colours", "slidertrackoverride") => out.slider_track = rgb_of(value),
                 ("colours", _) if key.starts_with("combo") => {
                     if let (Ok(n), Some(colour)) = (

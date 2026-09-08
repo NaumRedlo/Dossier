@@ -773,11 +773,9 @@ impl Scene<'_> {
                 .as_ref()
                 .and_then(|s| s.coloured(crate::elements::Element::SpinnerRpm, 0));
             if let Some((art, per)) = sprite {
-                let scale = layout.height as f32 / 768.0 / per;
-                let label_w = art.width() as f32 * scale;
-                let label_h = art.height() as f32 * scale;
-                let centre = layout.width as f32 * 0.5;
-                let left = centre - label_w / 2.0;
+                let rise = f64::from(1.0 - presence.clamp(0.0, 1.0)) * SPIN_RPM_RISE;
+                let scale = (layout.scale() * SPIN_SPRITE * SPIN_UNIT) as f32 / per;
+                let (left, top) = layout.map(spin_place(SPIN_RPM_X, SPIN_RPM_Y + rise));
 
                 pixmap.draw_pixmap(
                     0,
@@ -788,30 +786,34 @@ impl Scene<'_> {
                         quality: tiny_skia::FilterQuality::Bilinear,
                         ..Default::default()
                     },
-                    Transform::from_translate(left, baseline - label_h).pre_scale(scale, scale),
+                    Transform::from_translate(left, top).pre_scale(scale, scale),
                     None,
                 );
-                let at = centre + label_w / 2.0 * SPIN_READOUT_OFFSET;
 
-                let inside = label_h * SPIN_READOUT_IN_PLATE;
+                let glyph = self
+                    .hud_face_height(false)
+                    .map_or(SPIN_SPM_GLYPH, f64::from);
+                let tall =
+                    (layout.scale() * SPIN_SPRITE * SPIN_SPM_FACE * SPIN_UNIT * glyph) as f32;
+                let (right, atop) = layout.map(spin_place(SPIN_SPM_X, SPIN_SPM_Y + rise));
                 if !self.draw_hud_text(
                     pixmap,
                     &figure,
-                    at,
-                    baseline,
-                    inside,
-                    Align::Centre,
+                    right,
+                    atop + tall,
+                    tall,
+                    Align::Right,
                     presence,
                 ) {
                     font.draw(
                         pixmap,
                         Label {
                             text: &figure,
-                            x: at,
-                            y: baseline,
-                            size: inside,
+                            x: right,
+                            y: atop + tall,
+                            size: tall,
                             colour: with_alpha(self.skin.spinner, presence),
-                            align: Align::Centre,
+                            align: Align::Right,
                         },
                     );
                 }

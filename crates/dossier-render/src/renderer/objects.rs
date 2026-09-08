@@ -240,7 +240,7 @@ impl Scene<'_> {
         let radius = layout.length(self.state.difficulty().circle_radius());
 
         match &object.kind {
-            TimedKind::Spinner => self.draw_spinner(pixmap, object, time_ms, alpha, layout),
+            TimedKind::Spinner => self.draw_spinner(pixmap, index, object, time_ms, alpha, layout),
             TimedKind::Slider { .. } => {
                 self.draw_object_body(pixmap, index, time_ms, layout);
                 let (from, to) = self.snake(object, index, time_ms);
@@ -1076,65 +1076,100 @@ impl Scene<'_> {
     fn draw_spinner(
         &self,
         pixmap: &mut Pixmap,
+        index: usize,
         object: &TimedObject,
         time_ms: f64,
         alpha: f32,
         layout: &Layout,
     ) {
-        let progress =
-            ((time_ms - object.start_ms) / object.duration_ms().max(1.0)).clamp(0.0, 1.0);
-        let closing = SPINNER_RADIUS + (SPINNER_DOT - SPINNER_RADIUS) * progress;
-
-        if self.skin_speaks_for(Element::SpinnerApproachCircle) {
-            self.draw_sprite_wide(
-                pixmap,
-                Element::SpinnerApproachCircle,
-                Point::CENTRE,
-                layout.length(closing) * 2.0,
-                alpha,
-                layout,
-            );
-        } else {
-            self.ring(
-                pixmap,
-                Point::CENTRE,
-                layout.length(closing),
-                layout.length(4.0),
-                self.skin.spinner,
-                alpha,
-                layout,
-            );
-        }
-
+        let elapsed = ((time_ms - object.start_ms) / object.duration_ms().max(1.0)).clamp(0.0, 1.0);
+        let filled = self.spun_share(object, time_ms);
+        let turn = self.spun_degrees(object, time_ms);
         let old_style = self.spinner_is_old_style();
-        if old_style {
-            self.draw_spinner_layer(pixmap, Element::SpinnerBackground, alpha, layout);
-            self.draw_spinner_metre(pixmap, object, time_ms, alpha, layout);
-        } else {
-            for layer in [Element::SpinnerBottom, Element::SpinnerGlow] {
-                self.draw_spinner_layer(pixmap, layer, alpha, layout);
-            }
-        }
 
-        let middle = self.spinner_middle();
-        if let Some(middle) = middle {
-            self.draw_spinner_layer(pixmap, middle, alpha, layout);
-        }
-        if !old_style {
-            self.draw_spinner_layer_turned(
+        if old_style {
+            self.draw_spin_art(
+                pixmap,
+                Element::SpinnerBackground,
+                spin_place(0.0, SPIN_MIDDLE),
+                SpinArt::plain(alpha).tinted(self.spinner_backdrop()),
+                layout,
+            );
+            self.draw_spin_art(
+                pixmap,
+                Element::SpinnerCircle,
+                spin_place(0.0, SPIN_MIDDLE),
+                SpinArt::plain(alpha).turned(turn),
+                layout,
+            );
+            self.draw_spinner_metre(pixmap, filled, time_ms, alpha, layout);
+        } else if self.skin_speaks_for(Element::SpinnerTop) {
+            let swell = 1.0 - (1.0 - f64::from(filled)).powi(3);
+            let grown = SPIN_SETTLED + SPIN_GROW * swell;
+            let halved = if self.skin_speaks_for(Element::SpinnerMiddle2) {
+                0.5
+            } else {
+                1.0
+            };
+            let at = spin_place(0.0, SPIN_MIDDLE);
+            let body = SpinArt::plain(alpha).scaled(grown);
+            self.draw_spin_art(
+                pixmap,
+                Element::SpinnerGlow,
+                at,
+                body.tinted(tiny_skia::Color::from_rgba8(
+                    SPIN_GLOW_COLOUR.0,
+                    SPIN_GLOW_COLOUR.1,
+                    SPIN_GLOW_COLOUR.2,
+                    255,
+                ))
+                .faded(filled)
+                .added(),
+                layout,
+            );
+            self.draw_spin_art(
+                pixmap,
+                Element::SpinnerBottom,
+                at,
+                body.turned(turn * halved / 3.0),
+                layout,
+            );
+            self.draw_spin_art(
+                pixmap,
+                Element::SpinnerTop,
+                at,
+                body.turned(turn * halved),
+                layout,
+            );
+            self.draw_spin_art(
                 pixmap,
                 Element::SpinnerMiddle2,
-                alpha,
+                at,
+                body.turned(turn),
                 layout,
-                self.spun_degrees(object, time_ms),
             );
-            self.draw_spinner_layer(pixmap, Element::SpinnerTop, alpha, layout);
-        }
-        if middle.is_some() {
-            self.draw_spin_bonus(pixmap, object, time_ms, alpha, layout);
-            return;
+            self.draw_spin_art(
+                pixmap,
+                Element::SpinnerMiddle,
+                at,
+                body.tinted(blend(
+                    tiny_skia::Color::WHITE,
+                    tiny_skia::Color::from_rgba8(255, 0, 0, 255),
+                    elapsed as f32,
+                )),
+                layout,
+            );
+        } else {
+            self.draw_our_spinner(pixmap, alpha, layout);
         }
 
+        self.draw_spinner_approach(pixmap, elapsed, alpha, layout);
+        self.draw_spin_word(pixmap, index, object, time_ms, alpha, layout);
+        self.draw_spin_clear(pixmap, index, object, time_ms, alpha, layout);
+        self.draw_spin_bonus(pixmap, index, object, time_ms, alpha, layout);
+    }
+
+    fn draw_our_spinner(&self, pixmap: &mut Pixmap, alpha: f32, layout: &Layout) {
         let band = SPINNER_DOT - SPINNER_CORE;
         self.ring(
             pixmap,
@@ -1153,22 +1188,148 @@ impl Scene<'_> {
             alpha,
             layout,
         );
-
-        self.draw_spin_bonus(pixmap, object, time_ms, alpha, layout);
     }
 
-    fn own_width(&self, layout: &Layout, element: Element) -> f32 {
+    fn draw_spinner_approach(&self, pixmap: &mut Pixmap, elapsed: f64, alpha: f32, layout: &Layout) {
+        if self.skin_speaks_for(Element::SpinnerApproachCircle) {
+            let closing = SPIN_APPROACH_WIDE + (SPIN_APPROACH_GONE - SPIN_APPROACH_WIDE) * elapsed;
+            self.draw_spin_art(
+                pixmap,
+                Element::SpinnerApproachCircle,
+                spin_place(0.0, SPIN_MIDDLE),
+                SpinArt::plain(alpha).scaled(closing),
+                layout,
+            );
+            return;
+        }
+        let closing = SPINNER_RADIUS + (SPINNER_DOT - SPINNER_RADIUS) * elapsed;
+        self.ring(
+            pixmap,
+            Point::CENTRE,
+            layout.length(closing),
+            layout.length(4.0),
+            self.skin.spinner,
+            alpha,
+            layout,
+        );
+    }
+
+    fn spinner_backdrop(&self) -> tiny_skia::Color {
         self.skin
             .sprites
             .as_ref()
-            .and_then(|s| s.get(element))
-            .map_or(0.0, |sprite| self.skin_pixels(layout, sprite.width()))
+            .and_then(|s| s.ini().spinner_background)
+            .unwrap_or(tiny_skia::Color::from_rgba8(100, 100, 100, 255))
+    }
+
+    fn spun_share(&self, object: &TimedObject, time_ms: f64) -> f32 {
+        let required = dossier_sim::required_spins(self.state.difficulty(), object.duration_ms());
+        if required <= 0.0 {
+            return 1.0;
+        }
+        let turned = dossier_sim::spinner_rotations(
+            self.state.cursor_track(),
+            object.start_ms,
+            time_ms.min(object.end_ms),
+        );
+        ((turned / required) as f32).clamp(0.0, 1.0)
+    }
+
+    fn spun_turns(&self, index: usize) -> Vec<f64> {
+        let Some(judge) = self.state.judge() else {
+            return Vec::new();
+        };
+        judge
+            .events_for(index)
+            .filter(|event| {
+                matches!(
+                    event.part,
+                    dossier_sim::Part::SpinnerSpin
+                        | dossier_sim::Part::SpinnerPoints
+                        | dossier_sim::Part::SpinnerBonus
+                )
+            })
+            .map(|event| event.time_ms)
+            .collect()
+    }
+
+    fn spun_clear_at(&self, index: usize, object: &TimedObject) -> Option<f64> {
+        let required = dossier_sim::required_spins(self.state.difficulty(), object.duration_ms());
+        if required <= 0.0 {
+            return Some(object.start_ms);
+        }
+        let turns = self.spun_turns(index);
+        turns.get(required as usize - 1).copied()
+    }
+
+    fn draw_spin_word(
+        &self,
+        pixmap: &mut Pixmap,
+        index: usize,
+        object: &TimedObject,
+        time_ms: f64,
+        alpha: f32,
+        layout: &Layout,
+    ) {
+        if !self.skin_speaks_for(Element::SpinnerSpin) {
+            return;
+        }
+        let leaving = SPIN_WORD_OUT_MS.min(object.duration_ms());
+        let mut shown = ((object.end_ms - time_ms) / leaving.max(1.0)).clamp(0.0, 1.0) as f32;
+        if let Some(&first) = self.spun_turns(index).first() {
+            let gone = ((time_ms - first) / SPIN_WORD_HUSH_MS).clamp(0.0, 1.0) as f32;
+            shown = shown.min(1.0 - gone);
+        }
+        self.draw_spin_art(
+            pixmap,
+            Element::SpinnerSpin,
+            spin_place(0.0, SPIN_WORD_AT),
+            SpinArt::plain(alpha).faded(shown),
+            layout,
+        );
+    }
+
+    fn draw_spin_clear(
+        &self,
+        pixmap: &mut Pixmap,
+        index: usize,
+        object: &TimedObject,
+        time_ms: f64,
+        alpha: f32,
+        layout: &Layout,
+    ) {
+        if !self.skin_speaks_for(Element::SpinnerClear) {
+            return;
+        }
+        let Some(cleared) = self.spun_clear_at(index, object) else {
+            return;
+        };
+        if time_ms < cleared {
+            return;
+        }
+        let since = time_ms - cleared;
+        let shown = (since / SPIN_CLEAR_IN_MS).clamp(0.0, 1.0) as f32
+            * ((object.end_ms - time_ms) / SPIN_CLEAR_OUT_MS).clamp(0.0, 1.0) as f32;
+        let swell = if since < SPIN_CLEAR_DROP_MS {
+            let share = (since / SPIN_CLEAR_DROP_MS) as f32;
+            2.0 + (0.8 - 2.0) * (1.0 - (1.0 - share).powi(3))
+        } else {
+            let share = ((since - SPIN_CLEAR_DROP_MS) / SPIN_CLEAR_REST_MS).clamp(0.0, 1.0) as f32;
+            0.8 + 0.2 * share
+        };
+        self.draw_spin_art(
+            pixmap,
+            Element::SpinnerClear,
+            spin_place(0.0, SPIN_CLEAR_AT),
+            SpinArt::plain(alpha).faded(shown).scaled(f64::from(swell)),
+            layout,
+        );
     }
 
     fn draw_spinner_metre(
         &self,
         pixmap: &mut Pixmap,
-        object: &TimedObject,
+        filled: f32,
         time_ms: f64,
         alpha: f32,
         layout: &Layout,
@@ -1179,23 +1340,15 @@ impl Scene<'_> {
         let Some((art, per)) = sprites.coloured(Element::SpinnerMetre, 0) else {
             return;
         };
-        let required = dossier_sim::required_spins(self.state.difficulty(), object.duration_ms());
-        if required <= 0.0 || alpha <= 0.0 {
-            return;
-        }
-        let turned = dossier_sim::spinner_rotations(
-            self.state.cursor_track(),
-            object.start_ms,
-            time_ms.min(object.end_ms),
-        );
-        let filled = ((turned / required) as f32).clamp(0.0, 1.0);
-        if filled <= 0.0 {
+        let bars = self.metre_bars(filled, time_ms);
+        if bars == 0 || alpha <= 0.0 {
             return;
         }
 
-        let scale = layout.height as f32 / 768.0 / per;
+        let scale = (layout.scale() * SPIN_SPRITE * SPIN_UNIT) as f32 / per;
         let (w, h) = (art.width() as f32 * scale, art.height() as f32 * scale);
-        let shown = (h * filled).ceil().max(1.0) as u32;
+        let share = f64::from(bars) / f64::from(SPIN_BARS);
+        let shown = ((h as f64 * share).ceil().max(1.0)) as u32;
         let Some(mut strip) = Pixmap::new(w.ceil().max(1.0) as u32, shown) else {
             return;
         };
@@ -1211,10 +1364,10 @@ impl Scene<'_> {
             Transform::from_translate(0.0, -(h - shown as f32)).pre_scale(scale, scale),
             None,
         );
-        let (cx, cy) = layout.map(Point::CENTRE);
+        let (left, top) = layout.map(spin_place(-SPIN_METRE_WIDE / 2.0, SPIN_TOP));
         pixmap.draw_pixmap(
-            (cx - w / 2.0) as i32,
-            (cy + h / 2.0 - shown as f32) as i32,
+            left as i32,
+            (top + h - shown as f32) as i32,
             strip.as_ref(),
             &PixmapPaint {
                 opacity: alpha.clamp(0.0, 1.0),
@@ -1225,6 +1378,24 @@ impl Scene<'_> {
         );
     }
 
+    fn metre_bars(&self, filled: f32, time_ms: f64) -> u32 {
+        let blinks = self
+            .skin
+            .sprites
+            .as_ref()
+            .is_none_or(|s| !s.ini().spinner_no_blink);
+        let mut percent = filled * 100.0;
+        if blinks {
+            percent = percent.min(99.0);
+        }
+        let whole = percent as u32;
+        let mut bars = whole / 10;
+        if blinks && flicker(time_ms) < (whole % 10) as f32 / 10.0 {
+            bars += 1;
+        }
+        bars
+    }
+
     fn spinner_is_old_style(&self) -> bool {
         self.skin
             .sprites
@@ -1232,48 +1403,63 @@ impl Scene<'_> {
             .is_some_and(|s| !s.draw_ourselves(Element::SpinnerBackground))
     }
 
-    fn spinner_middle(&self) -> Option<Element> {
-        let sprites = self.skin.sprites.as_ref()?;
-        let wanted = if self.spinner_is_old_style() {
-            Element::SpinnerCircle
-        } else {
-            Element::SpinnerMiddle
+    fn draw_spin_art(
+        &self,
+        pixmap: &mut Pixmap,
+        element: Element,
+        at: Point,
+        art: SpinArt,
+        layout: &Layout,
+    ) {
+        let Some(sprites) = &self.skin.sprites else {
+            return;
         };
-        (!sprites.draw_ourselves(wanted)).then_some(wanted)
-    }
-
-    fn draw_spinner_layer(
-        &self,
-        pixmap: &mut Pixmap,
-        element: Element,
-        alpha: f32,
-        layout: &Layout,
-    ) {
-        self.draw_spinner_layer_turned(pixmap, element, alpha, layout, 0.0);
-    }
-
-    fn draw_spinner_layer_turned(
-        &self,
-        pixmap: &mut Pixmap,
-        element: Element,
-        alpha: f32,
-        layout: &Layout,
-        degrees: f32,
-    ) {
-        let own = self.own_width(layout, element);
-        if own > 0.0 {
-            self.draw_wide(
-                pixmap,
-                element,
-                Point::CENTRE,
-                own,
-                alpha,
-                layout,
-                degrees,
-                0,
-            );
+        let Some((picture, per)) = sprites.coloured(element, 0) else {
+            return;
+        };
+        if art.alpha <= 0.0 || art.scale <= 0.0 {
+            return;
         }
+        let painted;
+        let picture = match art.tint {
+            Some(colour) => {
+                painted = crate::imported::tinted(picture, colour);
+                &painted
+            }
+            None => picture,
+        };
+        let factor = (layout.scale() * SPIN_SPRITE * SPIN_UNIT * art.scale) as f32 / per;
+        let (x, y) = layout.map(at);
+        let transform = Transform::from_translate(x, y)
+            .pre_rotate(art.degrees)
+            .pre_scale(factor, factor)
+            .pre_translate(
+                -(picture.width() as f32) / 2.0,
+                -(picture.height() as f32) / 2.0,
+            );
+        pixmap.draw_pixmap(
+            0,
+            0,
+            picture.as_ref(),
+            &PixmapPaint {
+                opacity: art.alpha.clamp(0.0, 1.0),
+                quality: tiny_skia::FilterQuality::Bilinear,
+                blend_mode: if art.additive {
+                    tiny_skia::BlendMode::Plus
+                } else {
+                    tiny_skia::BlendMode::SourceOver
+                },
+            },
+            transform,
+            None,
+        );
     }
+
+
+
+
+
+
 
     fn follow_pulse(&self, index: usize, time_ms: f64) -> f32 {
         let Some(judge) = self.state.judge() else {
@@ -1316,66 +1502,59 @@ impl Scene<'_> {
     fn draw_spin_bonus(
         &self,
         pixmap: &mut Pixmap,
+        index: usize,
         object: &TimedObject,
         time_ms: f64,
         alpha: f32,
         layout: &Layout,
     ) {
+        let required = dossier_sim::required_spins(self.state.difficulty(), object.duration_ms());
+        let turns = self.spun_turns(index);
+        let bonus: Vec<f64> = turns
+            .into_iter()
+            .enumerate()
+            .filter(|(turn, _)| *turn as f64 + 1.0 > required + 3.0)
+            .map(|(_, at)| at)
+            .collect();
+        let Some(latest) = bonus.iter().copied().rfind(|at| *at <= time_ms) else {
+            return;
+        };
+        let awarded = bonus.iter().filter(|at| **at <= time_ms).count() as u32;
+
+        let age = time_ms - latest;
+        let eased = 1.0 - (1.0 - (age / SPINNER_BONUS_MS).clamp(0.0, 1.0)).powi(3);
+        let shown = alpha * (1.0 - eased) as f32;
+        if shown <= 0.0 {
+            return;
+        }
+        let swell = SPINNER_BONUS_FROM + (SPINNER_BONUS_TO - SPINNER_BONUS_FROM) * eased;
+
+        let glyph = self
+            .skin
+            .sprites
+            .as_ref()
+            .and_then(|s| s.coloured(Element::Score('0'), 0))
+            .map_or(SPINNER_BONUS_GLYPH, |(art, per)| {
+                f64::from(art.height()) / f64::from(per)
+            });
+        let size = (layout.scale() * SPIN_UNIT * swell * glyph) as f32;
+        let (x, y) = layout.map(spin_place(0.0, SPIN_BONUS_AT));
+
+        let text = format!("{}", awarded * SPINNER_BONUS_STEP);
+        if self.draw_hud_text(pixmap, &text, x, y + size / 2.0, size, Align::Centre, shown) {
+            return;
+        }
         let Some(font) = self.skin.font.as_ref() else {
             return;
         };
-        let Some(judge) = self.state.judge() else {
-            return;
-        };
-
-        let mut awarded = 0u32;
-        let mut latest = f64::NEG_INFINITY;
-        for event in judge.events() {
-            if event.part != dossier_sim::Part::SpinnerBonus || event.time_ms > time_ms {
-                continue;
-            }
-            if event.time_ms < object.start_ms || event.time_ms > object.end_ms {
-                continue;
-            }
-            awarded += 1;
-            latest = latest.max(event.time_ms);
-        }
-        if awarded == 0 {
-            return;
-        }
-
-        let age = time_ms - latest;
-
-        let flash = (1.0 - (age / SPINNER_BONUS_PULSE_MS).clamp(0.0, 1.0)) as f32;
-        let eased = flash * flash * flash;
-        let size = layout.length(SPINNER_BONUS_SIZE) * (1.0 + SPINNER_BONUS_SWELL * eased);
-
-        let colour = lighten(darken(self.skin.spinner, SPINNER_BONUS_REST), eased);
-        let at = layout.map(Point {
-            x: Point::CENTRE.x,
-            y: Point::CENTRE.y + SPINNER_BONUS_BELOW,
-        });
-
-        let text = format!("{}", awarded * SPINNER_BONUS_STEP);
-        if self.draw_hud_text(
-            pixmap,
-            &text,
-            at.0,
-            at.1 + size / 2.0,
-            size,
-            Align::Centre,
-            alpha,
-        ) {
-            return;
-        }
         font.draw(
             pixmap,
             Label {
                 text: &text,
-                x: at.0,
-                y: at.1 + size * 0.35,
+                x,
+                y: y + size * 0.35,
                 size,
-                colour: with_alpha(colour, alpha),
+                colour: with_alpha(self.skin.spinner, shown),
                 align: Align::Centre,
             },
         );
@@ -2186,4 +2365,66 @@ mod shading {
         assert!((shade(0.5).alpha() - 0.7).abs() < 0.001);
         assert!((shade(1.0).alpha() - 0.7).abs() < 0.001);
     }
+}
+
+#[derive(Clone, Copy)]
+struct SpinArt {
+    scale: f64,
+    degrees: f32,
+    tint: Option<tiny_skia::Color>,
+    alpha: f32,
+    additive: bool,
+}
+
+impl SpinArt {
+    fn plain(alpha: f32) -> Self {
+        Self {
+            scale: 1.0,
+            degrees: 0.0,
+            tint: None,
+            alpha,
+            additive: false,
+        }
+    }
+
+    fn scaled(self, by: f64) -> Self {
+        Self {
+            scale: self.scale * by,
+            ..self
+        }
+    }
+
+    fn turned(self, degrees: f32) -> Self {
+        Self { degrees, ..self }
+    }
+
+    fn tinted(self, colour: tiny_skia::Color) -> Self {
+        Self {
+            tint: Some(colour),
+            ..self
+        }
+    }
+
+    fn faded(self, by: f32) -> Self {
+        Self {
+            alpha: self.alpha * by.clamp(0.0, 1.0),
+            ..self
+        }
+    }
+
+    fn added(self) -> Self {
+        Self {
+            additive: true,
+            ..self
+        }
+    }
+}
+
+fn flicker(time_ms: f64) -> f32 {
+    let seed = (time_ms * 16.0) as i64 as u64;
+    let mixed = seed
+        .wrapping_mul(0x9E37_79B9_7F4A_7C15)
+        .rotate_left(31)
+        .wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    ((mixed >> 40) as f32) / 16_777_216.0
 }

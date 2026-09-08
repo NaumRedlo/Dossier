@@ -205,6 +205,9 @@ pub enum Element {
 
     SpinnerRpm,
 
+    SpinnerSpin,
+    SpinnerClear,
+
     SectionPass,
     SectionFail,
 
@@ -328,6 +331,8 @@ impl Element {
             Self::SpinnerGlow => "spinner-glow".to_owned(),
             Self::SpinnerTop => "spinner-top".to_owned(),
             Self::SpinnerRpm => "spinner-rpm".to_owned(),
+            Self::SpinnerSpin => "spinner-spin".to_owned(),
+            Self::SpinnerClear => "spinner-clear".to_owned(),
             Self::SectionPass => "section-pass".to_owned(),
             Self::SectionFail => "section-fail".to_owned(),
             Self::ScoreBarBackground => "scorebar-bg".to_owned(),
@@ -404,6 +409,7 @@ impl Element {
             Self::SpinnerBottom | Self::SpinnerGlow | Self::SpinnerTop => 666,
             Self::SpinnerMetre => 1024,
             Self::SpinnerRpm => 256,
+            Self::SpinnerSpin | Self::SpinnerClear => 512,
             Self::SectionPass | Self::SectionFail => 800,
             Self::ScoreBarMark(_) => 160,
             Self::Cursor | Self::CursorMiddle => 128,
@@ -522,6 +528,8 @@ pub fn element(skin: &crate::skin::Skin, element: Element, size: u32) -> Option<
         | Element::SpinnerGlow
         | Element::SpinnerTop
         | Element::SpinnerRpm
+        | Element::SpinnerSpin
+        | Element::SpinnerClear
         | Element::SectionPass
         | Element::SectionFail => return None,
         Element::Verdict(_) | Element::Digit(_) => return lettered(skin, element, size),

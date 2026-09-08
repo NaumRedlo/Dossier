@@ -4561,3 +4561,86 @@ fn a_skin_that_did_not_ask_gets_the_ball_the_same_way_round_both_ways() {
          out {out_left}/{out_right}, back {back_left}/{back_right}"
     );
 }
+
+#[test]
+fn the_spinner_disc_is_the_size_osu_draws_it() {
+    use dossier_render::elements::Element;
+    use dossier_render::imported::Sprites;
+
+    let dir = skin_folder("spinner-disc");
+    write_element(&dir, "spinner-background.png", 4, 0);
+    write_element(&dir, "spinner-circle.png", 200, 255);
+
+    let map = beatmap(LONE_SPINNER);
+    let state = GameState::from_beatmap(&map, Mods::default());
+    let mut skin = Skin::with_combo_colours(map.combo_colours()).with_font(font());
+    skin.sprites = Some(std::sync::Arc::new(Sprites::read(
+        &dir,
+        &[Element::SpinnerBackground, Element::SpinnerCircle],
+    )));
+    let background = skin.background.to_color_u8();
+
+    let layout = Layout::new(640, 480);
+    let object = &state.timeline().objects[0];
+    let frame = Scene::new(&state, skin).frame(object.start_ms + 100.0, &layout);
+
+    let (_, cy) = layout.map(dossier_beatmap::Point::CENTRE);
+    let row = cy as u32;
+    let (mut best, mut run) = (0u32, 0u32);
+    for x in 0..frame.width() {
+        let p = frame.pixel(x, row).expect("inside the frame");
+        let plain = p.red() == background.red()
+            && p.green() == background.green()
+            && p.blue() == background.blue();
+        run = if plain { 0 } else { run + 1 };
+        best = best.max(run);
+    }
+
+    let wanted = 200.0 * 0.625 * 0.8 * layout.scale();
+    assert!(
+        (f64::from(best) - wanted).abs() <= 2.0,
+        "the disc came out {best} wide, not the {wanted:.0} osu! draws"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn the_spinner_sits_on_the_middle_of_the_field() {
+    use dossier_render::elements::Element;
+    use dossier_render::imported::Sprites;
+
+    let dir = skin_folder("spinner-middle");
+    write_element(&dir, "spinner-background.png", 4, 0);
+    write_element(&dir, "spinner-circle.png", 120, 255);
+
+    let map = beatmap(LONE_SPINNER);
+    let state = GameState::from_beatmap(&map, Mods::default());
+    let mut skin = Skin::with_combo_colours(map.combo_colours()).with_font(font());
+    skin.sprites = Some(std::sync::Arc::new(Sprites::read(
+        &dir,
+        &[Element::SpinnerBackground, Element::SpinnerCircle],
+    )));
+    let background = skin.background.to_color_u8();
+
+    let layout = Layout::new(640, 480);
+    let object = &state.timeline().objects[0];
+    let frame = Scene::new(&state, skin).frame(object.start_ms + 100.0, &layout);
+
+    let (cx, cy) = layout.map(dossier_beatmap::Point::CENTRE);
+    let opaque = |x: u32, y: u32| {
+        frame.pixel(x, y).is_some_and(|p| {
+            p.red() != background.red()
+                || p.green() != background.green()
+                || p.blue() != background.blue()
+        })
+    };
+    let column: Vec<u32> = (0..frame.height())
+        .filter(|&y| opaque(cx as u32, y) && opaque(cx as u32 + 20, y))
+        .collect();
+    let middle = f64::from(column.first().copied().unwrap_or(0) + column.last().copied().unwrap_or(0)) / 2.0;
+    assert!(
+        (middle - f64::from(cy)).abs() <= 2.0,
+        "the disc's middle sat at {middle}, not the field's {cy}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}

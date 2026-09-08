@@ -9,7 +9,7 @@ use crate::text::{Align, Label};
 
 fn ease_out(x: f32) -> f32 {
     let x = x.clamp(0.0, 1.0);
-    1.0 - (1.0 - x).powi(3)
+    1.0 - (1.0 - x) * (1.0 - x)
 }
 
 const KEY_NAMES: [&str; 4] = ["K1", "K2", "M1", "M2"];
@@ -44,6 +44,16 @@ impl KeyTrack {
     fn count(&self, key: usize, time_ms: f64) -> usize {
         self.holds[key].partition_point(|(from, _)| *from <= time_ms)
     }
+
+    fn named(&self, key: usize, time_ms: f64, rate: f64) -> f32 {
+        let Some(&(first, _)) = self.holds[key].first() else {
+            return 1.0;
+        };
+        if time_ms < first {
+            return 1.0;
+        }
+        1.0 - ease_out(((time_ms - first) / (KEYS_SWAP_MS * rate)) as f32)
+    }
 }
 
 const KEYS_INSET: f64 = 0.018;
@@ -64,8 +74,8 @@ const KEYS_MARK_HEIGHT: f32 = 0.6;
 
 const KEYS_PRESS_SHRINK: f32 = 0.14;
 
-const KEYS_PRESS_DOWN_MS: f64 = 45.0;
-const KEYS_PRESS_UP_MS: f64 = 110.0;
+const KEYS_PRESS_DOWN_MS: f64 = 160.0;
+const KEYS_PRESS_UP_MS: f64 = 160.0;
 
 impl Scene<'_> {
     fn draw_key_trail(
@@ -310,22 +320,22 @@ mod keys {
         assert_eq!(at(99.0), 0.0, "nothing before the press");
         assert!(at(100.0) < 0.05, "the press starts at the top");
         assert!(at(115.0) > at(105.0), "and travels");
-        assert!(at(200.0) > 0.99, "arriving well inside the hold");
+        assert!(at(260.0) > 0.99, "arriving a hundred and sixty later");
         assert!(at(390.0) > 0.99, "and staying there");
     }
 
     #[test]
-    fn a_release_comes_back_slower_than_the_press_went_down() {
+    fn a_release_takes_as_long_as_the_press_did() {
         let track = track(&[(0, 0), (100, Keys::K1), (400, 0)]);
         let at = |t: f64| track.pressed(0, t, 1.0);
         assert!(at(430.0) > 0.2, "still visibly down a frame or two after");
-        assert!(at(520.0) < 0.01, "and at rest well after");
+        assert!(at(561.0) < 0.01, "and at rest a hundred and sixty later");
 
-        let gone_down = at(130.0);
-        let come_up = 1.0 - at(430.0);
+        let gone_down = at(180.0);
+        let come_up = 1.0 - at(480.0);
         assert!(
-            come_up < gone_down,
-            "the release ({come_up:.3}) kept up with the press ({gone_down:.3})"
+            (come_up - gone_down).abs() < 0.01,
+            "the release ({come_up:.3}) went at another pace than the press ({gone_down:.3})"
         );
     }
 
@@ -354,6 +364,20 @@ mod keys {
 
         assert!(track.pressed(1, 100.5, 1.0) > 0.0);
     }
+
+    #[test]
+    fn a_key_wears_its_name_until_it_is_first_pressed() {
+        let track = track(&[(0, 0), (500, Keys::K1), (600, 0)]);
+        assert_eq!(track.named(0, 100.0, 1.0), 1.0, "before any press");
+        assert_eq!(track.named(0, 500.0, 1.0), 1.0, "at the press itself");
+        assert!(track.named(0, 580.0, 1.0) < 1.0, "and gives way");
+        assert_eq!(track.named(0, 700.0, 1.0), 0.0, "to the count");
+        assert_eq!(
+            track.named(1, 10_000.0, 1.0),
+            1.0,
+            "a key never pressed keeps its name"
+        );
+    }
 }
 
 const OVERLAY_KEY: f32 = 46.0;
@@ -363,18 +387,23 @@ const OVERLAY_PRESSED: f32 = 0.75;
 const OVERLAY_KEY_INSET: f32 = 1.5;
 const OVERLAY_KEY_DROP: f32 = 7.0;
 
+const KEYS_SWAP_MS: f64 = 160.0;
+
 const OVERLAY_PLATE_RISE: f32 = 64.0;
 
 const OVERLAY_STRETCH: f32 = 1.05;
+
+const OVERLAY_TEXT: f32 = 0.32;
 
 impl Scene<'_> {
     fn draw_skin_keys(&self, pixmap: &mut Pixmap, time_ms: f64, layout: &Layout, presence: f32) {
         let (key, key_tall) = self.key_size(layout);
         let gap = self.skin_pixels(layout, OVERLAY_SPACING);
-
         let right = layout.width as f32;
+        let ink = self.overlay_ink();
 
         let (plate, length) = self.plate_size(layout);
+        let drop = self.skin_pixels(layout, OVERLAY_KEY_DROP);
         let plate_top = layout.height as f32 / 2.0 - self.skin_pixels(layout, OVERLAY_PLATE_RISE);
         if length > 0.0 {
             self.draw_upright(
@@ -384,56 +413,97 @@ impl Scene<'_> {
                 presence,
             );
         }
-        let top = plate_top + self.skin_pixels(layout, OVERLAY_KEY_DROP);
+        let top = plate_top + drop;
 
         let rate = self.state.playback_rate().max(0.001);
-        for index in 0..KEY_NAMES.len() {
+        for (index, name) in KEY_NAMES.iter().enumerate() {
             let down = self.keys.pressed(index, time_ms, rate);
 
-            let side = key * (1.0 + (OVERLAY_PRESSED - 1.0) * down);
+            let shrink = 1.0 + (OVERLAY_PRESSED - 1.0) * down;
+            let side = key * shrink;
             let wall = right - self.skin_pixels(layout, OVERLAY_KEY_INSET);
             let centre_x = wall - key / 2.0;
-            let pressed_centre_x = wall - side / 2.0;
-
             let centre_y = top + (key_tall + gap) * index as f32 + key_tall / 2.0;
 
             let lit = blend(tiny_skia::Color::WHITE, active_colour(index), down);
             self.draw_key_sprite(
                 pixmap,
-                (pressed_centre_x - side / 2.0, centre_y - side / 2.0),
+                (centre_x - side / 2.0, centre_y - side / 2.0),
                 side,
                 lit,
                 presence,
             );
 
-            let count = self.keys.count(index, time_ms).to_string();
-
-            let text = key * 0.32;
+            let named = self.keys.named(index, time_ms, rate);
+            let text = key * OVERLAY_TEXT * shrink;
             let count_x = centre_x + self.key_count_offset(side);
-            if !self.draw_hud_text(
-                pixmap,
-                &count,
-                count_x,
-                centre_y + text * 0.5,
-                text,
-                Align::Centre,
-                presence,
-            ) {
-                if let Some(font) = &self.skin.font {
-                    font.draw(
-                        pixmap,
-                        Label {
-                            text: &count,
-                            x: count_x,
-                            y: centre_y + text * 0.5,
-                            size: text,
-                            colour: with_alpha(self.skin.hud, presence),
-                            align: Align::Centre,
-                        },
-                    );
-                }
+            if named < 1.0 {
+                let count = self.keys.count(index, time_ms).to_string();
+                self.draw_key_text(
+                    pixmap,
+                    &count,
+                    (count_x, centre_y + text * 0.5),
+                    text,
+                    ink,
+                    presence * (1.0 - named),
+                    true,
+                );
+            }
+            if named > 0.0 {
+                self.draw_key_text(
+                    pixmap,
+                    name,
+                    (centre_x, centre_y + text * 0.5),
+                    text,
+                    ink,
+                    presence * named,
+                    false,
+                );
             }
         }
+    }
+
+    fn overlay_ink(&self) -> tiny_skia::Color {
+        self.skin
+            .sprites
+            .as_ref()
+            .and_then(|s| s.ini().input_overlay_text)
+            .unwrap_or(tiny_skia::Color::BLACK)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn draw_key_text(
+        &self,
+        pixmap: &mut Pixmap,
+        text: &str,
+        (x, baseline): (f32, f32),
+        size: f32,
+        ink: tiny_skia::Color,
+        alpha: f32,
+        glyphs: bool,
+    ) {
+        if alpha <= 0.01 {
+            return;
+        }
+        if glyphs
+            && self.draw_hud_text_in(pixmap, text, x, baseline, size, Align::Centre, alpha, ink)
+        {
+            return;
+        }
+        let Some(font) = &self.skin.font else {
+            return;
+        };
+        font.draw(
+            pixmap,
+            Label {
+                text,
+                x,
+                y: baseline,
+                size,
+                colour: with_alpha(ink, alpha),
+                align: Align::Centre,
+            },
+        );
     }
 
     fn key_size(&self, layout: &Layout) -> (f32, f32) {

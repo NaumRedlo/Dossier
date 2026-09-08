@@ -106,22 +106,60 @@ const BOARD_RIVAL_DIM: f32 = 0.35;
 
 const SPIN_SWAP_MS: f64 = 260.0;
 
-const SPIN_READOUT_OFFSET: f32 = 80.0 / 289.0;
 
 const SPIN_READOUT_SIZE: f64 = 0.026;
 
-const SPIN_READOUT_IN_PLATE: f32 = 46.0 / 56.0;
 
-const SPINNER_BONUS_BELOW: f64 = 52.0;
-const SPINNER_BONUS_SIZE: f64 = 38.0;
 
-const SPINNER_BONUS_SWELL: f32 = 0.45;
 
-const SPINNER_BONUS_PULSE_MS: f64 = 200.0;
 
-const SPINNER_BONUS_REST: f32 = 0.45;
 
 const SPINNER_BONUS_STEP: u32 = 1000;
+
+const SPINNER_BONUS_MS: f64 = 800.0;
+const SPINNER_BONUS_FROM: f64 = 2.0 * SPIN_SPRITE;
+const SPINNER_BONUS_TO: f64 = 1.28 * SPIN_SPRITE;
+const SPINNER_BONUS_GLYPH: f64 = 46.0;
+
+const SPIN_UNIT: f64 = 0.8;
+
+const SPIN_SPRITE: f64 = 0.625;
+
+const SPIN_LIFT: f64 = 8.0;
+
+const SPIN_TOP: f64 = 29.0;
+const SPIN_MIDDLE: f64 = SPIN_TOP + 219.0;
+const SPIN_CLEAR_AT: f64 = SPIN_TOP + 115.0;
+const SPIN_BONUS_AT: f64 = SPIN_TOP + 299.0;
+const SPIN_WORD_AT: f64 = SPIN_TOP + 335.0;
+
+const SPIN_RPM_X: f64 = -87.0;
+const SPIN_RPM_Y: f64 = 445.0;
+const SPIN_SPM_X: f64 = 80.0;
+const SPIN_SPM_Y: f64 = 448.0;
+const SPIN_SPM_FACE: f64 = 0.9;
+const SPIN_SPM_GLYPH: f64 = 46.0;
+const SPIN_RPM_RISE: f64 = 50.0;
+
+const SPIN_METRE_WIDE: f64 = 640.0;
+const SPIN_BARS: u32 = 10;
+
+const SPIN_SETTLED: f64 = 0.8;
+const SPIN_GROW: f64 = 0.2;
+
+const SPIN_APPROACH_WIDE: f64 = 1.86;
+const SPIN_APPROACH_GONE: f64 = 0.1;
+
+const SPIN_GLOW_COLOUR: (u8, u8, u8) = (3, 151, 255);
+
+const SPIN_WORD_OUT_MS: f64 = 400.0;
+const SPIN_WORD_HUSH_MS: f64 = 300.0;
+
+const SPIN_CLEAR_IN_MS: f64 = 400.0;
+const SPIN_CLEAR_OUT_MS: f64 = 50.0;
+const SPIN_CLEAR_DROP_MS: f64 = 240.0;
+const SPIN_CLEAR_REST_MS: f64 = 160.0;
+
 
 const SHAKE_MS: f64 = 120.0;
 
@@ -760,5 +798,12 @@ fn unit(dx: f64, dy: f64) -> (f64, f64) {
         (1.0, 0.0)
     } else {
         (dx / length, dy / length)
+    }
+}
+
+fn spin_place(x: f64, y: f64) -> dossier_beatmap::Point {
+    dossier_beatmap::Point {
+        x: dossier_beatmap::Point::CENTRE.x + x * SPIN_UNIT,
+        y: (y - SPIN_LIFT) * SPIN_UNIT,
     }
 }

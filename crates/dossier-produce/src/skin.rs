@@ -47,6 +47,8 @@ pub const DRAWN_FROM_SKINS: &[Element] = &[
     Element::SpinnerGlow,
     Element::SpinnerTop,
     Element::SpinnerRpm,
+    Element::SpinnerSpin,
+    Element::SpinnerClear,
     Element::SectionPass,
     Element::SectionFail,
 ];

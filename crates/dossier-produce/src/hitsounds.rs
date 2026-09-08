@@ -209,13 +209,11 @@ fn bank_for(
         MapSet::from_code(code)
     };
 
-    const FLOOR: f32 = 0.08;
     let volume = if sample.volume > 0 {
         f32::from(sample.volume)
     } else {
         point.map_or(100.0, |p| f32::from(p.volume))
     } / 100.0;
-    let volume = volume.max(FLOOR);
 
     let index = if sample.index > 0 {
         sample.index
@@ -422,6 +420,13 @@ mod banks {
             bank_for(&beatmap, object, Voice::Clap, None).0,
             SampleSet::Drum
         );
+    }
+
+    #[test]
+    fn a_green_line_at_no_volume_is_silence_not_a_whisper() {
+        let beatmap = map("0,500,4,2,0,0,1,0", "100,100,1000,1,0");
+        let (_, _, volume) = bank_for(&beatmap, &beatmap.objects[0], Voice::Normal, None);
+        assert_eq!(volume, 0.0, "a zero-volume timing point still sounded");
     }
 
     #[test]

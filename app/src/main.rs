@@ -138,7 +138,8 @@ fn shelves() -> library::Library {
 
 #[tauri::command(async)]
 fn my_replays(most: Option<usize>) -> Vec<library::Played> {
-    library::played(&settings::Settings::load(), most.unwrap_or(60))
+    let most = most.filter(|n| *n > 0).unwrap_or(usize::MAX);
+    library::played(&settings::Settings::load(), most)
 }
 
 #[tauri::command(async)]

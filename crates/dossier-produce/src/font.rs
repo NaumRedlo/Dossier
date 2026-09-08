@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use dossier_render::Font;
 
-const FACES: &[&str] = &["Comfortaa-Bold.ttf", "TorusNotched-Bold.ttf"];
+const FACES: &[&str] = &["TorusNotched-Bold.ttf", "JetBrainsMono-Bold.ttf"];
 
 const BEHIND: &[&str] = &["Huninn-Regular.ttf"];
 

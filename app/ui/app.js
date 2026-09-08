@@ -440,20 +440,14 @@ function restartLoops() {
     loopIcon(
       at(what),
       [
-        { transform: "translateY(-3px)", opacity: 0.25 },
-        { transform: "translateY(0px)", opacity: 1, offset: 0.42 },
-        { transform: "translateY(3px)", opacity: 0.25 },
+        { transform: "translateY(0px)", opacity: 0.55 },
+        { transform: "translateY(1.4px)", opacity: 1, offset: 0.5 },
+        { transform: "translateY(0px)", opacity: 0.55 },
       ],
-      1400,
-      "cubic-bezier(0.4, 0, 0.4, 1)",
+      2600,
+      "ease-in-out",
     );
   }
-  loopIcon(
-    at(".pull .tray"),
-    [{ opacity: 0.35 }, { opacity: 0.75, offset: 0.5 }, { opacity: 0.35 }],
-    1400,
-    "ease-in-out",
-  );
   loopIcon(
     at(".ic-drop .arc"),
     [{ transform: "rotate(0deg)" }, { transform: "rotate(360deg)" }],
@@ -1589,6 +1583,39 @@ byId("s-clone").addEventListener("click", async () => {
   } catch (why) {
     said.textContent = `${why}`;
   }
+});
+
+byId("s-drop").addEventListener("click", () => {
+  const name = byId("s-skin").value;
+  const said = byId("s-skinsaid");
+  if (!name) {
+    said.textContent = "«" + DEFAULT_SKIN + "» не лежит в папке — удалять нечего.";
+    return;
+  }
+  holdWall({
+    head: `Удалить скин «${name}»?`,
+    why: "Действие необратимо удалит папку скина с Вашего устройства",
+    doing: "Да, я хочу удалить!",
+    nope: "Нет, я передумал",
+    yes: async () => {
+      try {
+        await invoke("remove_skin", { name });
+        const skins = await invoke("skins").catch(() => []);
+        known.skin = "";
+        fillSkins(byId("s-skin"), skins, "");
+        await saveSettings("s", "s-said");
+        await freshSkin();
+        said.textContent = `Скин «${name}» удалён.`;
+        tellWall("Скин удалён", "Папки больше нет на этом устройстве.");
+        wallOk.textContent = "Хорошо";
+        wallFace("done");
+      } catch (why) {
+        said.textContent = `${why}`;
+        tellWall("Скин не удалился", `${why}`);
+        wallFace("part");
+      }
+    },
+  });
 });
 
 byId("s-export").addEventListener("click", async () => {
@@ -2817,6 +2844,8 @@ const PREVIEWS_AT_ONCE = 2;
 
 const PREVIEW_EDGE_MS = 420;
 
+const WAKE_MS = 520;
+
 const previews = new Map();
 const showing = new Set();
 const asking = new Set();
@@ -3000,6 +3029,7 @@ function runPreviews() {
   if (!made || !motionOn() || document.hidden || asleep) return;
   const mine = cardTicket;
   let was = performance.now();
+  let woke = 0;
   (async () => {
     while (mine === cardTicket && hovered === one) {
       await new Promise((again) => requestAnimationFrame(again));
@@ -3007,12 +3037,14 @@ function runPreviews() {
       const c = canvasPixels(one.previewOn, 1.5);
       if (!c) return;
       const now = performance.now();
-      rollPart(made, Math.min(120, now - was));
+      const step = Math.min(120, now - was);
       was = now;
+      woke += step;
+      rollPart(made, step);
       const image = await frameOf(made, made.head, c.w, c.h, () => mine === cardTicket && hovered === one);
       if (mine !== cardTicket || hovered !== one) return;
       if (!image) continue;
-      paintFrame(c, image, blendOf(made));
+      paintFrame(c, image, Math.min(blendOf(made), clamp01(woke / WAKE_MS)));
     }
   })();
 }

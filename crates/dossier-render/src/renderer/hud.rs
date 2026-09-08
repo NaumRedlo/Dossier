@@ -128,7 +128,7 @@ impl Scene<'_> {
         alpha: f32,
     ) -> bool {
         self.draw_hud_glyphs(
-            pixmap, text, right_x, baseline_y, height, align, alpha, None, false,
+            pixmap, text, right_x, baseline_y, height, align, alpha, None, false, false,
         )
     }
 
@@ -154,6 +154,7 @@ impl Scene<'_> {
             alpha,
             Some(colour),
             false,
+            false,
         )
     }
 
@@ -169,6 +170,7 @@ impl Scene<'_> {
         alpha: f32,
         tint: Option<tiny_skia::Color>,
         combo_face: bool,
+        additive: bool,
     ) -> bool {
         let Some((art, scale, width)) = self.hud_glyphs(text, height, combo_face) else {
             return false;
@@ -206,7 +208,11 @@ impl Scene<'_> {
                 &PixmapPaint {
                     opacity: alpha.clamp(0.0, 1.0),
                     quality: tiny_skia::FilterQuality::Bilinear,
-                    ..Default::default()
+                    blend_mode: if additive {
+                        tiny_skia::BlendMode::Plus
+                    } else {
+                        tiny_skia::BlendMode::SourceOver
+                    },
                 },
                 transform,
                 None,
@@ -214,6 +220,51 @@ impl Scene<'_> {
             pen += (art_pixmap.width() as f32 / per - overlap) * scale;
         }
         true
+    }
+
+    fn draw_combo(
+        &self,
+        pixmap: &mut Pixmap,
+        text: &str,
+        (x, baseline): (f32, f32),
+        size: f32,
+        alpha: f32,
+        additive: bool,
+    ) {
+        if alpha <= 0.01 || size <= 0.0 {
+            return;
+        }
+        if self.draw_hud_glyphs(
+            pixmap,
+            text,
+            x,
+            baseline,
+            size,
+            Align::Left,
+            alpha,
+            None,
+            true,
+            additive,
+        ) {
+            return;
+        }
+        if additive {
+            return;
+        }
+        let Some(font) = &self.skin.font else {
+            return;
+        };
+        font.draw(
+            pixmap,
+            Label {
+                text,
+                x,
+                y: baseline,
+                size,
+                colour: with_alpha(self.skin.hud, alpha),
+                align: Align::Left,
+            },
+        );
     }
 
     pub(super) fn draw_hud(&self, pixmap: &mut Pixmap, time_ms: f64, layout: &Layout) {
@@ -301,38 +352,32 @@ impl Scene<'_> {
             1.0,
         );
 
-        let combo_size = self
+        let combo_face = self
             .hud_face_height(true)
             .map_or(score_size * COMBO_OF_SCORE, |own| {
                 own * COMBO_OF_FACE * to_screen
-            })
-            * self.combo_pulse(time_ms);
-        let combo = format!("{}x", score.combo);
+            });
         let bottom = layout.height as f32 - margin;
+        let (shown, _, _) = self.combo_shown(time_ms);
 
-        if !self.draw_hud_glyphs(
-            pixmap,
-            &combo,
-            margin,
-            bottom,
-            combo_size,
-            Align::Left,
-            1.0,
-            None,
-            true,
-        ) {
-            font.draw(
+        if let Some((popped, swell, ghost)) = self.combo_ghost(time_ms) {
+            self.draw_combo(
                 pixmap,
-                Label {
-                    text: &combo,
-                    x: margin,
-                    y: bottom,
-                    size: combo_size,
-                    colour: self.skin.hud,
-                    align: Align::Left,
-                },
+                &format!("{popped}x"),
+                (margin, bottom),
+                combo_face * swell,
+                ghost,
+                true,
             );
         }
+        self.draw_combo(
+            pixmap,
+            &format!("{shown}x"),
+            (margin, bottom),
+            combo_face * self.combo_pulse(time_ms),
+            1.0,
+            false,
+        );
 
         let tally_size = (height * 0.030) as f32;
         let counts = score.counts;

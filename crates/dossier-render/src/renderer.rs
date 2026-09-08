@@ -199,8 +199,14 @@ const AFTERLIFE_MS: f64 = if VERDICT_MS > LIGHTING_MS {
 
 const BREAK_HUD_FADE_MS: f64 = 400.0;
 
-const COMBO_PULSE_MS: f64 = 110.0;
-const COMBO_PULSE_GAIN: f32 = 0.07;
+const COMBO_POP_MS: f64 = 300.0;
+const COMBO_POP_FROM: f32 = 1.56;
+const COMBO_POP_ALPHA: f32 = 0.6;
+
+const COMBO_CATCH_MS: f64 = 160.0;
+
+const COMBO_SMALL_POP_MS: f64 = 100.0;
+const COMBO_SMALL_POP_GAIN: f32 = 0.1;
 const COMBO_BREAK_PULSE_MS: f64 = 260.0;
 const COMBO_BREAK_PULSE_GAIN: f32 = 0.26;
 
@@ -286,7 +292,7 @@ pub struct Scene<'a> {
 
     longest_life_ms: f64,
 
-    combo_changes: Vec<(f64, bool)>,
+    combo_changes: Vec<(f64, u32)>,
 
     hidden: bool,
 
@@ -406,7 +412,7 @@ impl<'a> Scene<'a> {
             let mut previous = 0u32;
             for event in judge.events() {
                 if event.combo_after != previous {
-                    combo_changes.push((event.time_ms, event.combo_after < previous));
+                    combo_changes.push((event.time_ms, event.combo_after));
                     previous = event.combo_after;
                 }
             }
@@ -523,24 +529,73 @@ impl<'a> Scene<'a> {
         self
     }
 
-    fn combo_pulse(&self, time_ms: f64) -> f32 {
-        let i = self.combo_changes.partition_point(|(at, _)| *at <= time_ms);
-        if i == 0 {
-            return 1.0;
-        }
-        let (at, broke) = self.combo_changes[i - 1];
-        let (span, gain) = if broke {
-            (COMBO_BREAK_PULSE_MS, COMBO_BREAK_PULSE_GAIN)
-        } else {
-            (COMBO_PULSE_MS, COMBO_PULSE_GAIN)
-        };
-        let age = time_ms - at;
-        if age < 0.0 || age >= span {
-            return 1.0;
-        }
+    fn combo_step(&self, time_ms: f64) -> Option<(usize, f64, u32, bool)> {
+        let index = self
+            .combo_changes
+            .partition_point(|(at, _)| *at <= time_ms)
+            .checked_sub(1)?;
+        let (at, to) = self.combo_changes[index];
+        Some((index, at, to, to < self.combo_before(index)))
+    }
 
-        let progress = (age / span) as f32;
-        1.0 + gain * (1.0 - progress).powf(2.2)
+    fn combo_before(&self, index: usize) -> u32 {
+        index
+            .checked_sub(1)
+            .map_or(0, |earlier| self.combo_changes[earlier].1)
+    }
+
+    fn combo_shown(&self, time_ms: f64) -> (u32, f64, bool) {
+        let Some((index, at, to, broke)) = self.combo_step(time_ms) else {
+            return (0, f64::NEG_INFINITY, false);
+        };
+        if broke {
+            return (to, at, true);
+        }
+        if time_ms - at >= COMBO_CATCH_MS {
+            return (to, at + COMBO_CATCH_MS, false);
+        }
+        (self.combo_before(index), at, false)
+    }
+
+    fn combo_ghost(&self, time_ms: f64) -> Option<(u32, f32, f32)> {
+        let (_, at, to, broke) = self.combo_step(time_ms)?;
+        if broke {
+            return None;
+        }
+        let share = ((time_ms - at) / COMBO_POP_MS) as f32;
+        if !(0.0..1.0).contains(&share) {
+            return None;
+        }
+        Some((
+            to,
+            COMBO_POP_FROM + (1.0 - COMBO_POP_FROM) * share,
+            COMBO_POP_ALPHA * (1.0 - share),
+        ))
+    }
+
+    fn combo_pulse(&self, time_ms: f64) -> f32 {
+        let (_, since, broke) = self.combo_shown(time_ms);
+        let age = time_ms - since;
+        if age < 0.0 {
+            return 1.0;
+        }
+        if broke {
+            if age >= COMBO_BREAK_PULSE_MS {
+                return 1.0;
+            }
+            let progress = (age / COMBO_BREAK_PULSE_MS) as f32;
+            return 1.0 + COMBO_BREAK_PULSE_GAIN * (1.0 - progress).powf(2.2);
+        }
+        let half = COMBO_SMALL_POP_MS / 2.0;
+        if age < half {
+            let share = (age / half) as f32;
+            1.0 + COMBO_SMALL_POP_GAIN * share * share
+        } else if age < COMBO_SMALL_POP_MS {
+            let share = ((age - half) / half) as f32;
+            1.0 + COMBO_SMALL_POP_GAIN * (1.0 - share) * (1.0 - share)
+        } else {
+            1.0
+        }
     }
 
     fn candidates(&self, time_ms: f64) -> std::ops::Range<usize> {

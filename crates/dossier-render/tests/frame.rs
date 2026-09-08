@@ -4646,3 +4646,136 @@ fn the_spinner_sits_on_the_middle_of_the_field() {
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+fn combo_frame(dir: &std::path::Path, time_ms: f64) -> tiny_skia::Pixmap {
+    use dossier_render::elements::Element;
+    use dossier_render::imported::Sprites;
+    let (map, replay) = tapped();
+    let mut skin = Skin::with_combo_colours(map.combo_colours()).with_font(font());
+    let wanted: Vec<Element> = ('0'..='9')
+        .chain([',', '.', '%', 'x'])
+        .flat_map(|c| [Element::Score(c), Element::Combo(c)])
+        .collect();
+    skin.sprites = Some(std::sync::Arc::new(
+        Sprites::read(dir, &wanted).tint_for(&skin.combo_colours),
+    ));
+    let state = GameState::new(&map, &replay);
+    Scene::new(&state, skin).frame(time_ms, &Layout::new(640, 480))
+}
+
+fn corner_pixels(frame: &tiny_skia::Pixmap, mut wanted: impl FnMut(u8, u8, u8) -> bool) -> usize {
+    let mut count = 0;
+    for y in 380..480u32 {
+        for x in 0..240u32 {
+            let Some(p) = frame.pixel(x, y) else { continue };
+            if wanted(p.red(), p.green(), p.blue()) {
+                count += 1;
+            }
+        }
+    }
+    count
+}
+
+fn two_faced_combo(name: &str) -> std::path::PathBuf {
+    let dir = skin_folder(name);
+    for digit in 0..10 {
+        write_glyph(&dir, &format!("combo-{digit}.png"), 24, (0, 0, 255));
+    }
+    write_glyph(&dir, "combo-1.png", 24, (255, 0, 0));
+    write_glyph(&dir, "combo-2.png", 24, (0, 255, 0));
+    write_glyph(&dir, "combo-x.png", 24, (0, 0, 255));
+    std::fs::write(dir.join("skin.ini"), "[Fonts]\nComboPrefix: combo\n").expect("written");
+    dir
+}
+
+#[test]
+fn a_climbing_combo_leaves_a_larger_ghost_behind_it() {
+    let dir = two_faced_combo("combo-ghost");
+    let lit = |p: &tiny_skia::Pixmap| corner_pixels(p, |r, g, b| r > 60 || g > 60 || b > 60);
+
+    let popping = lit(&combo_frame(&dir, 4_050.0));
+    let settled = lit(&combo_frame(&dir, 4_500.0));
+
+    assert!(
+        popping > settled * 3 / 2,
+        "the ghost added little: {popping} against {settled}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn the_ghost_is_gone_once_its_three_hundred_are_up() {
+    let dir = two_faced_combo("combo-ghost-end");
+    let highest = |at: f64| {
+        let frame = combo_frame(&dir, at);
+        (380..480u32)
+            .find(|&y| {
+                (0..240u32).any(|x| {
+                    frame
+                        .pixel(x, y)
+                        .is_some_and(|p| p.red() > 60 || p.green() > 60 || p.blue() > 60)
+                })
+            })
+            .unwrap_or(480)
+    };
+
+    let popping = highest(4_050.0);
+    let settled = highest(4_310.0);
+    assert!(
+        popping + 4 < settled,
+        "the ghost reached no higher than the count: {popping} against {settled}"
+    );
+    assert_eq!(
+        settled,
+        highest(4_400.0),
+        "the count kept moving after the ghost had gone"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn the_count_waits_a_hundred_and_sixty_before_it_climbs() {
+    let dir = two_faced_combo("combo-lag");
+    let ones = |at: f64| corner_pixels(&combo_frame(&dir, at), |r, g, b| r > 150 && g < 90 && b < 90);
+
+    assert!(ones(4_100.0) > 20, "the one should still be up at a hundred");
+    assert_eq!(ones(4_500.0), 0, "and gone by the time the two settles");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_skin_that_silences_the_combo_is_not_given_ours() {
+    let hushed = skin_folder("combo-hushed");
+    for digit in 0..10 {
+        write_glyph(&hushed, &format!("combo-{digit}.png"), 1, (0, 0, 0));
+        let blank = tiny_skia::Pixmap::new(1, 1).expect("a canvas");
+        std::fs::write(
+            hushed.join(format!("combo-{digit}.png")),
+            blank.encode_png().expect("png"),
+        )
+        .expect("written");
+    }
+    let blank = tiny_skia::Pixmap::new(1, 1).expect("a canvas");
+    std::fs::write(
+        hushed.join("combo-x.png"),
+        blank.encode_png().expect("png"),
+    )
+    .expect("written");
+    std::fs::write(hushed.join("skin.ini"), "[Fonts]\nComboPrefix: combo\n").expect("written");
+
+    let bare = skin_folder("combo-absent");
+    std::fs::write(bare.join("skin.ini"), "[Fonts]\nComboPrefix: combo\n").expect("written");
+
+    let ink = |p: &tiny_skia::Pixmap| corner_pixels(p, |r, g, b| r > 80 && g > 80 && b > 80);
+
+    let quiet = ink(&combo_frame(&hushed, 4_500.0));
+    let spoken = ink(&combo_frame(&bare, 4_500.0));
+
+    assert!(
+        spoken > 20,
+        "a skin with no combo face should still get one: {spoken}"
+    );
+    assert_eq!(quiet, 0, "a silenced combo was drawn in our own face");
+    let _ = std::fs::remove_dir_all(&hushed);
+    let _ = std::fs::remove_dir_all(&bare);
+}

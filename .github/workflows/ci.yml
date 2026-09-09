@@ -8,7 +8,7 @@ name: ci
 
 on:
   push:
-    branches: [main]
+    branches: [global]
   pull_request:
   workflow_dispatch:
 

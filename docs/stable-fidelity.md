@@ -75,6 +75,65 @@ What is left, in the order the evidence supports it:
 4. **The lock on the 37% replay** — right, or accidentally right; the replay
    that could tell the two apart is not in the corpus and never has been.
 
+## Where it stands — 2026-09-09
+
+Eight days of spinner work later, on a corpus eleven replays larger:
+
+```
+find <corpus> -name "*.osr" -print0 | xargs -0 dossier corpus -s <songs>
+111 exact of 187 (11 lazer), total count error 188, 3 skipped
+score compared on 183, worst 19.89%, within 0.5% on 166
+```
+
+322 to 188, and the worst score error 55.44% to 19.89%. Almost all of it is one
+subject. **The spinner was being counted in whole rotations where `osu!.exe`
+counts half of them**, and the requirement it is measured against is in half
+turns too — so every spinner in the corpus was judged against twice the work it
+should have been. Read out of the binary rather than guessed: `spins += min(1,
+|v·dt|/π)`.
+
+Around it, in the order they were found:
+
+- **The wind-up is the game's, not the cursor's.** Stable does not turn the
+  spinner at the speed the cursor moves; it accelerates towards it, at
+  `8e-5 + max(0, (5000 - duration)/1000/2000)` per millisecond, clamped both
+  ways. A friend's video of the same replay banked 26,000 where this engine
+  banked 62,000; modelling the acceleration closed it.
+- **The frame the acceleration is measured over is a real one.** Under DT the
+  gap between replay frames is not the gap the game sees, and the divisor is
+  `smoothed/rate > 17.333 ? gap/rate : 16.6667`.
+- **A bonus spin pays a thousand.** It was eleven hundred here, which is
+  lazer's figure and not stable's.
+- **Spun Out turns the spinner** and lazer's Mirror reflects across the axis it
+  names — both were parsed and neither was applied.
+- **Easy carries two spare lives**, refilled on the drain.
+- **lazer counts whole turns, not every wobble**: `SpinnerSpinHistory` is
+  `360 × completedSpins + currentSpinMaxRotation`, which is frame-rate
+  independent where a per-frame sum is not.
+- **A late slider head in lazer forgives what it swept past**, and a head past
+  its own fifty window is a miss rather than a free three hundred.
+
+### The one outlier left, and why it is not the multiplier
+
+`Uika_Misumi … Emiru_no_Aishita_Tsukiyo_ni` is −19.89%, and the diagnosis
+points straight at the difficulty multiplier: `fitted ×5.007` against our ×4,
+and a combo curve that matches the header to one hit — 1172 against 1173. Its
+map has HP 5, CS 4.6, OD 8.6 and density at the 16 cap, so
+`(5 + 8.6 + 4.6 + 16) / 38 × 5 = 4.5` **exactly**, and banker's rounding sends
+that to 4 where stable evidently sent it to 5.
+
+The float hypothesis is arithmetically real: stable holds those stats as
+`float`, `f32(34.2) = 34.20000076`, and dividing without rounding back gives
+4.50000010 — over the half, and up to 5.
+
+It was measured and it is wrong. Applying it took the corpus from 166 within
+half a percent to 158, and the worst error from 19.89% to 25.55%. **Nine other
+maps sit exactly on that boundary and stable rounds every one of them down**;
+only this one wants up. Three variants — the sum of all four terms in `f32`,
+the sum of the three stats alone, and plain half-up rounding — all do the same
+damage, so the rule as written is right and this replay differs by something
+else that the fit is mistaking for a multiplier.
+
 ## danser, measured at last — 2026-09-01
 
 danser is the reference this engine was written against and had never been run

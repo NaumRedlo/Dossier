@@ -1,312 +1,265 @@
 # Where the engine goes next
 
-Written 2026-08-11 and rewritten 2026-08-27, from the state the engine is
-actually in rather than from where it was meant to be. Two sibling documents
-already say what was decided and why — [`stable-fidelity.md`](stable-fidelity.md)
+Written 2026-08-11, rewritten 2026-08-27 and again 2026-09-09, from the state
+the engine is actually in rather than from where it was meant to be. Two
+sibling documents say what was decided and why — [`stable-fidelity.md`](stable-fidelity.md)
 for judgement, [`exhibit.md`](exhibit.md) for selection — and this one only says
 what is left.
 
-The August rewrite is not a tidy-up. Two of the three items the old order named
-are done — the engine has a repository, this one — and the third, the corpus,
-turned out to be back. Measuring against it changed what the rest of this
-document had to say, which is the whole argument for having an instrument.
+The September rewrite exists because the shape of the project changed rather
+than because the list got shorter. There is a desktop application now, and it
+is how most people who lend a machine will meet this. That moves the hardest
+remaining problems out of the engine and into how a stranger joins, what they
+are allowed to change, and what they get to see.
 
 ## Where it stands
 
-Eight crates, about 40,000 lines of Rust, 715 tests. The Python that drives it
-is in `client/` — 4,000 lines and 143 tests — and is the same code the bot and a
+Nine crates, about 34,500 lines of Rust in them, 826 tests. The desktop
+application is 5,500 lines more in its own workspace; the Python that drives the
+engine from a terminal is 3,300 in `client/`, and is the same code the bot and a
 render worker both run.
 
 | crate | lines | what it is |
 |---|---:|---|
-| `dossier-replay` | 1,342 | `.osr` parsing |
-| `dossier-beatmap` | 1,609 | `.osu` parsing, slider geometry |
-| `dossier-sim` | 6,060 | judgement, scoring, health — the part with a right answer |
-| `dossier-assay` | 4,024 | what a play was worth, told back in numbers |
-| `dossier-render` | 12,275 | frames, skin, elements |
-| `dossier-exhibit` | 2,002 | which seconds of a play are worth watching |
-| `dossier-audio` | 2,504 | hit sounds |
-| `dossier-cli` | 10,252 | the commands, video, reels, the skin exporter |
+| `dossier-replay` | 1,152 | `.osr` parsing |
+| `dossier-beatmap` | 2,345 | `.osu` parsing, slider geometry, storyboards |
+| `dossier-sim` | 4,680 | judgement, scoring, health — the part with a right answer |
+| `dossier-assay` | 3,082 | what a play was worth, told back in numbers |
+| `dossier-render` | 9,944 | frames, skin, elements, the HUD |
+| `dossier-audio` | 1,987 | hit sounds |
+| `dossier-produce` | 4,543 | the scene: finding the map and skin, drawing, encoding |
+| `dossier-exhibit` | 1,224 | which seconds of a play are worth watching |
+| `dossier-cli` | 5,527 | the commands |
 
-Rendering has a look of its own, a slow-motion pass with a camera, and a skin
-osu! can wear. Judgement is where the news is, and it is below.
-
-## Where judgement actually stands
-
-Measured 2026-09-01, against build `5f7599a`:
+Measured 2026-09-09:
 
 ```
-dossier corpus --songs ~/.osu/Songs --expect tools/corpus.tsv <corpus>/*.osr
-
-78 exact of 145 (14 lazer), total count error 278, 4 skipped
-score compared on 139, worst 55.44%, within 0.5% on 113
+111 exact of 187 (11 lazer), total count error 188, 3 skipped
+score compared on 183, worst 19.89%, within 0.5% on 166
 ```
 
-Four are skipped for want of the map: two beatmaps out of 136 are gone from
-ppy and from every mirror, which is not a thing this end can fix.
+322 to 188 in eight days, almost all of it one subject: the spinner was counted
+in whole rotations where `osu!.exe` counts half of them. The reading is in
+`stable-fidelity.md` under 2026-09-09, along with the one outlier left and the
+tempting explanation for it that measurement rejected nine-to-one.
 
-It was 762 that morning. Two causes account for the difference and both were
-one bug rather than a class of them.
+## The thing to do first, because it is a liability
 
-**lazer replays were judged at the map's stats and not the ones they were
-played at.** Difficulty Adjust and the rate mods' own rate are settings stable
-has no equivalent for, and they were parsed and dropped. Three replays are
-played at OD 11 on maps written at 8 and below; on `down [noob...]` the great
-window is 14ms rather than 32, and judging with the map's own turned 77
-hundreds into threes with the combo correct to the object. 762 to 510, and two
-of the three are now exact.
+**The published release contains a font that is not ours to publish.** Torus
+Notched is © 2018 Paulo Goode, all rights reserved; `release.yml` copied it into
+every zip, and `v0.11.0` is on the releases page carrying it. That is now fixed
+in the tree — Huninn replaces it outright and the workflow ships Huninn and
+JetBrains Mono with their OFL texts — but a fix in the tree does not unpublish a
+zip.
 
-**A missed note took the whole Relax stream behind it.** The game presses on
-every frame under Relax; this engine aims one press per note, and when the note
-in front was out of reach that press was refused by the note lock and there was
-no second one to spend when the lock let go. Ten refusals in a row from one
-unreachable circle. 510 to 278.
+So: **cut a release from the fixed tree, and take the old assets down.** It is
+the same class of problem as the CC BY-NC mod badges that went this morning, and
+it is the only item on this page with a clock on it.
 
-Neither was found by reading. The instrument was: `--trace` showed every press
-with what it was tested against — and printed `none` for every Relax replay
-there is, because it walked the replay's recorded keys and a Relax replay has
-none. Fixing that showed the cascade whole, on one screen, in the first look.
+Worth knowing and deciding separately: the file is out of `HEAD` but still in
+history, and getting it out of history means rewriting it and force-pushing a
+public repository. Not something to do casually, and not something to do without
+saying so first.
 
-### What is left
+## Joining the farm without a token
 
-Sixty replays sharing 278, the largest of them twenty, and no single cause among
-them. That is the shape the old claim described and could not support at the
-time: what remains looks like hit-window edges rather than a rule that is wrong.
-Worth re-measuring the *shape* of it — how much sits within two milliseconds of
-a boundary — before spending a day on any one replay.
+Today a person who wants to lend a machine fills in three fields: the bot's
+address, **a token**, and a name. The token is the whole problem. Somebody has
+to issue it, somebody has to carry it to the machine, and it lands in a
+plaintext file — `~/.dossier/worker.env` — where it gets pasted into chats when
+help is asked for, photographed in screenshots, and committed by accident. It is
+also unrevokable in practice, because nobody knows which machine holds which
+token.
 
-Whether lazer replays belong in the corpus at all is settled by the above and
-needs no decision: they were disagreeing because the engine was reading them
-wrongly, not because it judges a game it does not imitate.
+The fix is not a better token. It is not having one.
 
-### Keeping it
+### The shape
 
-The corpus lives outside this repository, and losing it once already cost
-months of measurement. `tools/fetch-maps.py` fetches the beatmaps a replay
-names, which is what the four skipped ones need; the replays themselves have no
-such tool and are the thing to back up.
+A pairing flow, the same one a television uses to sign into an account, with one
+change that matters (below).
 
-Running `dossier corpus --expect tools/corpus.tsv --update-expect` would record
-what is on disk now as the new baseline. That is worth doing *after* the nine
-above are looked at rather than before: a baseline written today would enshrine
-`+55.44%` as expected, and the point of the file is to notice exactly that.
+1. On first run the application generates a keypair. **The private half never
+   leaves the machine** — OS keychain, not a file: Keychain on macOS,
+   Credential Manager on Windows, the Secret Service on Linux.
+2. It asks the server to pair: the public key, the machine's name, its OS, its
+   cores, its engine build. The server answers with a short code —
+   `K7-QN4M` — good for five minutes, usable once.
+3. The application shows that code, large, with a QR beside it that opens the
+   bot chat with the join command already typed.
+4. The person sends it. The bot answers with a card describing **the machine**:
+   *«Добавить „MacBook Pro Наума“ — macOS на ARM, 10 ядер, сборка 0.11.0?»* and
+   a button.
+5. On yes, the server binds that public key to the account. The application's
+   next poll comes back approved.
+6. From then on the worker **signs** every request with its key rather than
+   presenting a secret. There is nothing to copy, so there is nothing to leak.
 
-## Correctness
+Steps 1 and 6 are what make it safer than what we have rather than merely
+nicer. A bearer token is a secret that must travel; a signature is a
+demonstration that does not.
 
-**The note lock on the 37% replay.** The single open question in
+### The one change that matters
+
+Step 4 must describe the machine, not just ask for a yes.
+
+The known attack on every code-pairing flow is that the attacker starts the
+pairing, gets *their* code to a victim — "hey, can you approve this for me" —
+and the victim's yes attaches the attacker's machine to the victim's account. A
+confirmation that says only «Добавить устройство?» cannot be defended against
+that. One that names a Windows PC with four cores, to somebody who is sitting in
+front of a Mac, is defended by the person reading it.
+
+That is the entire mitigation and it costs a sentence in a message. It is worth
+writing down here because it is the sort of thing that gets dropped as decoration
+when the implementation is running late.
+
+### The rest of what safe has to mean
+
+- **Codes**: six to eight characters from an alphabet with no `0`/`O` or `1`/`I`,
+  single use, five minutes, rate-limited per account and per address.
+- **Scope**: a worker key may claim jobs and upload results for jobs it claimed.
+  It is not an account credential and must not be able to read anybody's
+  replays, or anything at all it did not ask to render.
+- **Revocation**: `/workers` lists devices by name and when each was last seen;
+  one tap removes one, and removal bites immediately because every request is
+  checked rather than trusted once.
+- **Still pull-only.** No inbound port, no reachable address, nothing to
+  portforward. That property is worth more than it looks and none of the above
+  costs it.
+- **Rotation**: the signature is over a nonce and a timestamp, so a captured
+  request is not a reusable one.
+
+### What it costs, and who pays it
+
+Three endpoints and a command on the bot's side, a keychain dependency and a
+screen on this side. **The engine is untouched** — this is entirely application
+and bot, which also means it can be built without waiting on judgement work.
+
+`RENDER_WORKER_TOKEN` stays valid for headless machines: a VPS has no window and
+nobody at the keyboard to press a button. The application simply never writes
+one again, and a machine that already has a token can register a key on its next
+poll and stop using it.
+
+## Plugins, and the line they may not cross
+
+The rule first, because everything else follows from it:
+
+> **A plugin may change what is shown and what is produced. It may never change
+> what is judged.**
+
+The engine's only real claim is that its judgement matches the game's, and
+`stable-fidelity.md` is five thousand lines of measuring exactly that. A plugin
+that can reach into judgement makes every number in that document meaningless.
+Worse, on a render farm it would mean running a stranger's judgement code on a
+volunteer's laptop.
+
+### Three tiers, in the order they should be built
+
+**Tier one — a file, no code.** The HUD's positions and sizes are constants in
+`hud.rs` today: `SCORE_SIZE`, `COMBO_OF_SCORE`, `EDGE_MARGIN`, `PROGRESS_RADIUS`
+and a dozen more. Lift them into a layout a person can write — which readouts
+exist, where each anchors, how large, in what face and colour — and most of what
+anybody actually asks for is answered: a minimal HUD, a stream overlay, a bigger
+combo, the counters somewhere else. No security surface at all, testable like
+anything else, and it turns those constants from magic into documentation.
+
+The same shape fits `exhibit`: its scorers already produce numbers and reasons,
+and the weights want to be a file rather than a rebuild.
+
+**Tier two — WASM, and only if tier one runs out.** If somebody wants to *draw*
+something the layout cannot describe, the plugin gets the frame's facts — time,
+combo, score, cursor, what is on screen — and returns drawing commands.
+`wasmtime` or `extism`: no filesystem, no network, no syscalls, and a fuel limit
+so a bad plugin cannot hang a render instead of finishing it. That is the only
+form in which running a stranger's code on somebody else's machine is
+defensible.
+
+**Never: native plugins.** Rust has no stable ABI, so every toolchain bump would
+break every plugin built against the last one; and a `.dll` passed around a chat
+and loaded by a render worker is malware distribution with extra steps.
+
+### Reproducibility comes first, not after
+
+Two workers with different plugins must not silently return different videos for
+the same job. The build stamp already refuses a worker whose engine does not
+match; plugins need the same answer before they ship, not after somebody
+notices. The likely shape: **a bot render fixes its plugin set in the job**, and
+a worker that cannot satisfy it hands the job back rather than improvising.
+Local renders may do as they please.
+
+## Things worth having that need almost nothing new
+
+Ordered by how little is left to do rather than by how much anybody wants them.
+
+- **A replay card.** One PNG: player, map, mods, accuracy, combo, rank. The mod
+  badges are drawn already, the faces are loaded already, the layout is the only
+  new part. It is the obvious thing for a chat to post beside a video.
+- **The reason burned into a reel.** The JSON has said why each clip was chosen
+  since the beginning; writing it on the frame was deferred until the selection
+  could be trusted. It now can.
+- **Slow motion back on for reels.** `reel::SLOW_INTO_A_MISTAKE` is one line.
+  What it needs is not code but a judgement about whether it reads as an effect
+  or as a bug, and that is ten minutes of watching.
+- **A vertical cut.** The camera already follows the cursor with a closeness
+  parameter. A 9:16 frame that tracks the play is a `Layout`, not a feature, and
+  it is the shape everything is watched in now.
+- **The hit-error graph as a picture.** `dossier errors` computes where hits
+  fall around the windows; drawing it is a chart nobody has to read a table for.
+- **Where the drain would have killed it.** `dossier health` knows; the
+  application's seek bar is right there.
+- **Ready, three, two, one, go.** Skins carry `ready`, `count3`, `count2`,
+  `count1` and `go` as pictures, and the engine reads skin elements fluently
+  now. The progress ring already counts the lead-in down; this is the same
+  moment, said out loud.
+- **Two replays on the same map, side by side.** Named in August, still true,
+  and the scorers are shared.
+- **A skin's own screen** — four full-size frames per skin rather than a
+  thumbnail, which is what somebody choosing between two similar skins is
+  actually comparing. The application has the page pattern for it now.
+- **The six drawings nobody has placed.** `bad`, `meh`, `good`, `thumbsup`,
+  `thumbsdown` and `bell` came in with the mod badges. A bell wants
+  notifications; the faces want to sit beside an accuracy.
+
+## Still open from before, and still true
+
+**The lock on the 37% replay.** The single open question in
 `stable-fidelity.md`: the lock suppresses roughly as many clicks as that player
-genuinely missed, and it is unknown whether it is right or coincidentally
-right. The measurement is stated there — object by object, do the refusals land
-on the notes osu! scored as misses.
-
-Still needs that replay, and it is still missing. It is identifiable by its
-header rather than by its filename: **609/600/177/843 with the combo at 422**,
+genuinely missed, and it is unknown whether it is right or coincidentally right.
+Identifiable by its header rather than its name — **609/600/177/843, combo 422**,
 2229 objects, on `6e7f6f08671ad9a9d2fa079665d8d443`. Nothing in the corpus
-matches; the most missed anywhere in the 149 is 397.
+matches it.
 
-A *different* mashed run on the same map is present —
-`Uika_Misumi … Chambarising`, 440/851/541/397 at 36.51%, combo 161 — and the
-engine judges it to within a count error of 4. That is encouraging and is not
-the measurement: the whole question is whether the refusals land on the notes
-the game scored as misses, and only the replay the document walked object by
-object can answer it against work already done. It is worth trying the
-measurement on this one anyway, because a lock that is coincidentally right on
-one play and coincidentally right on another is a lock that is probably
-right.
+**Hit-window boundaries.** 47 of 48 disagreeing replays disagree by no more than
+the hits sitting within 2ms of an edge, and the direction splits 27 against 22.
+That is rounding, and the replay does not carry the digit that would settle it.
 
-**Hit-window boundaries.** What is left across the whole corpus is hits within
-two milliseconds of a window edge. Not obviously fixable; worth re-measuring
-once the corpus is whole, because the shape of the remainder is the clue to
-whether one rule is off by a rounding or many are off by nothing.
-
-## Features
-
-**A skin's own screen.** *Mostly the bot's work, listed here because the part
-that is hard is this repository's.* The grid shows a thumbnail — a hit circle
-and a cursor, and nothing else, because at that size every extra piece made the
-thumbnails look more alike rather than less. Everything else a person wants to
-know about a skin belongs behind a tap on it:
-
-- who sent it, and when;
-- how much it weighs;
-- its author, when the skin says who — `skin.ini` has `Author`, and most fill
-  it in;
-- four pictures of it with the whole interface, which is where the score face,
-  the judgements, the slider and the spinner get to be seen. Those are the
-  parts a thumbnail cannot carry and the parts somebody choosing between two
-  similar skins is actually comparing.
-
-The first three are already in `client/dossier/skins.py`: `stamp_of` records
-the filename, the count and the owner at import, and the folder's own size is a
-`stat`. The grid and the screen itself belong to the bot's mini app. The
-pictures are the work — and they are the case where rendering real frames
-rather than compositing elements is the right answer, since at full size a
-frame shows exactly what a video will look like.
-
-
-**The storyboard and the video are in, and three things about them are
-not.** Both are behind flags — `--storyboard` and `--video` — and off by
-default, like the artwork.
-
-- ~~*Triggers*~~ **done 2026-09-02.** They are read, kept on the sprite, and
-  fired by `Storyboard::fired` against the sounds the play actually made —
-  `hitsounds::sounded` walks the judged events the same way the audio does, so
-  a note nobody hit fires nothing. `Passing` fires once at the start of its
-  window and `Failing` never, because the health bar is not modelled and a
-  submitted replay was passing; a name this parser cannot read fires on nothing
-  rather than on everything. Group numbers are kept and not yet acted on: a
-  second firing lays a second copy down where osu! restarts the body, which
-  comes out the same wherever the later copy sets the same properties. Nothing
-  in the local library has a trigger in it, so this has unit tests and no
-  smoke test against a real file.
-- ~~*`--video` is `video` only.*~~ **done 2026-09-02.** `frame` fetches the one
-  frame it needs with a seek and a decode and hands it to the same backdrop the
-  artwork uses, taking the artwork's place rather than sitting under it.
-  `exhibit` needed nothing but the flag: `encode` already works its seek out
-  from the span it is given, and `reel` gives it one span per clip, so the same
-  backdrop serves them all.
-- *A tinted sprite allocates,* and there is nothing to measure it on. tiny-skia
-  carries an opacity through a blit but not a colour, so a sprite under a `C`
-  command is multiplied into a scratch copy first. Counted 2026-09-02 across
-  every storyboard in the local library — sixteen of them, one carrying 6201
-  sprites — and **not one `C` command among them**. That storyboard costs 5.8ms
-  of the 81.7ms a frame takes to draw, all of it untinted.
-
-  The cache is also less obvious than it looks. A `C` command *interpolates*, so
-  a cache keyed by picture and colour misses on nearly every frame of a sprite
-  that is actively changing colour; it pays where a tint is set and then held,
-  or where many sprites share one tint at one moment. Worth writing when a
-  storyboard that does either turns up, and not before — an optimisation nobody
-  can measure is a guess with a benchmark-shaped hole where its evidence goes.
-
-~~**Cursor rotation should be a setting.**~~ **done 2026-09-02** —
-`--cursor-rotate on|off` overrules the skin's `CursorRotate` on `video`, `frame`
-and `exhibit`, and leaving it out leaves the decision with the skin, which is
-what osu! does.
-
-**Measuring against danser: deferred, and the reason is the cost.** danser is
-the reference this engine was written against and has never been run on the
-corpus — only quoted. The harness for it exists and compiles: `tools/danser-judge`
-drives danser's own ruleset the way its replay controller does. It does not run
-on macOS, because the hit objects load skin textures and a font in
-`SetDifficulty` before anything is judged and the atlas wants a GL context.
-
-Three routes were priced on 2026-09-01 and all were declined for now:
-
-- **patch the two resource loaders and run natively** — the smallest change, and
-  the rules stay untouched, but the attempt hit four blockers in a row and each
-  one was only visible after the previous was cleared. A long tail.
-- **a Linux VM locally** — danser unmodified, data stays put, over a gigabyte
-  of machinery for one number.
-- **a Linux CI runner** — free and quick, and it would send other people's
-  replays to a third party. They were given for finding judging errors here.
-
-What is taken instead costs nothing and is better evidence. **A lazer replay
-carries a count for every judgement type**, where a stable `.osr` carries four
-totals; that is the finer instrument, and the corpus's fourteen lazer replays
-all sit at a count error of 2 or less. More of them is a question of asking,
-and thirty-one replays a week already arrive on their own. The shapes worth
-asking for are the ones the residual lives on: streams with a miss in the
-middle, and dense patterns at high OD.
-
-**Exhibit's remaining list.** Slow motion at the first mistake is built — the
-picture, the hit sounds, the music and the camera all follow one schedule, and a
-reel finds the moment itself — but it is **switched off for reels** as of the
-alpha. It does not yet read as a deliberate effect, and a reel is the thing
-somebody shows other people, so an effect that looks like a bug is worse there
-than anywhere else in the renderer. `reel::SLOW_INTO_A_MISTAKE` is the one line
-that gives it back; `--slow-at` still drives the same schedule by hand, which is
-how the shape of the dip gets worked out. Two items remain from the original
-list:
-
-- *Text over the clips naming the reason.* The JSON has said why since the
-  beginning; burning it into the frame was deliberately deferred until the
-  selection was trusted. It now is.
-- *Picking between several replays of the same map.* A different feature that
-  happens to share the scorers.
+**Write the baseline, then back the corpus up.**
+`dossier corpus --expect tools/corpus.tsv --update-expect` records what is on
+disk as the new baseline; the replays themselves live outside this repository
+and losing them once already cost months.
 
 **The background is off by default.** `--background` works and costs nothing per
 frame; the bot does not pass it. Turning it on changes how every render looks,
 which is a decision rather than a flag.
 
-**The skin is partial by design.** The scorebar, the spinner's remaining layers
-and the hit-result variants fall back to the game's own. The spinner is the
-honest gap: the wiki gives neither sizes nor stacking order for the new style's
-layers, and a guessed spinner looks worse than the default it replaces.
+**`classic` is not as classic as it claims** — a flat slider body where the game
+draws a gradient. A fidelity gap in the skin that is *about* fidelity.
 
-## Quality
-
-**`classic` is not as classic as it claims.** It advertises itself as imitating
-osu! and draws a flat slider body, where the game draws a gradient from a dark
-rim to a lighter core — the very gradient the `1984` skin now has. A fidelity
-gap in the skin that is *about* fidelity.
-
-**Stringly-typed errors in the CLI.** Twenty `Result<_, String>` in
-`dossier-cli`, while `dossier-replay` and `dossier-beatmap` have had `thiserror`
-types from the start. Hygiene, not a bug.
-
-**Edition 2021 on a 1.97 toolchain.** 2024 is available and costs almost
-nothing. Now that CI builds on three platforms, an edition bump is a change
-that gets checked rather than one taken on trust.
-
-**`--strict` means two things.** Alone it is `judge`'s "fail on any mismatch";
-with a number it is `corpus`'s ceiling. Documented, and still a flag whose
-meaning depends on whether the next argument parses as an integer.
-
-## Shape
-
-**The engine has a repository — this one.** Settled 2026-08-27. It was a Rust
-workspace inside a Python bot's repository, joined at one seam: the bot runs
-`dossier` as a subprocess and reads the event stream. `--events` was built to
-make that seam deliberate, which is what made the move a matter of an afternoon
-rather than of untangling.
-
-The Python that drives the engine came too, as `client/` — the same code the
-bot and a render worker both run — so what the bot depends on is one package
-from one tag rather than a folder it happens to contain. Both halves are tested
-here and CI runs the engine on Linux, Windows and macOS, which is where the
-differences that bite actually live.
-
-**What is not settled is how the two stay in step.** The build stamp already
-refuses a mismatch — a worker on a different build is turned away rather than
-handed a render that would come back different — but refusing is all it does.
-The routine around it is unwritten:
-
-- a worker told "the builds do not agree" is told nothing about what to do,
-  and the answer is `git pull && cargo build --release` in a checkout they may
-  not have;
-- there is no release. Somebody who does not have Rust, Python and git cannot
-  run a worker at all, and installing those three is where most people stopped;
-- moving the tag is a manual edit in two repositories, and nothing checks that
-  the tag the bot pins and the engine the server built are the same thing.
-
-A release — `dossier.exe` and the client as one download, built by CI from a
-tag — answers the second directly and gives the first something to say. That is
-the next piece of work on this side of the project, and the reason `client/` was
-made importable with an entry point rather than left as a script.
+**Stringly-typed errors in the CLI**, and **edition 2021 on a 1.97 toolchain**.
+Hygiene. Now that CI actually runs on pushes again, an edition bump is a change
+that gets checked rather than taken on trust.
 
 ## Order
 
-The old list had three things at the top and two of them are done: the engine
-has a home, and `main` is this repository's only branch. The third — the
-replays — turned out to be back, which is what produced the numbers above.
-
-1. **The nine structural divergences.** They are the corpus telling us
-   something specific, which is the only kind of finding worth acting on
-   immediately. Take the two shapes separately: the combo-hundreds-out ones are
-   one bug each and `--trace` will find them; the high-count-error ones are a
-   rule.
-2. **Decide about lazer.** Eleven of the misses are lazer replays judged by
-   stable's rules. Either they belong in the corpus and the difference is
-   documented per replay, or they do not and the totals stop being muddied by
-   them. Cheap, and it changes what every number above means.
-3. **Tell a mismatched worker where to get the right build.** The release
-   exists; the message that turns a worker away still ends at "git pull". The
-   bot knows its own stamp and the release that carries it, and saying so turns
-   a dead end into a link.
-4. **Write the baseline.** `--update-expect` over what is on disk, once the
-   nine are looked at. Then back the replays up somewhere, because losing them
-   cost months the last time.
-5. Then the open fidelity question, and the two Exhibit features: one is a
-   question about whether the engine is right, and the other two are about what
-   it shows.
+1. **The release.** The zips on the releases page carry a font that is not ours
+   to publish. Everything else on this page can wait a week; this cannot.
+2. **Agree the pairing flow with the bot.** It is a two-repository change and
+   the bot's half is the larger one, so the design wants settling before either
+   side starts. Nothing in the engine blocks it.
+3. **The HUD layout file.** Tier-one plugins, and the piece the other tiers get
+   designed against once it exists.
+4. **The replay card**, because it is nearly free and it is the thing the chat
+   sees most often.
+5. **The baseline, and a copy of the corpus somewhere else.**
+6. Then the open fidelity question, and the exhibit features — one asks whether
+   the engine is right, the others are about what it shows.

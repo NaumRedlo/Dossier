@@ -221,6 +221,51 @@ impl Scene<'_> {
         true
     }
 
+    fn combo_width(&self, text: &str, size: f32) -> f32 {
+        if let Some((_, _, width)) = self.hud_glyphs(text, size, true) {
+            return width;
+        }
+        self.skin
+            .font
+            .as_ref()
+            .map_or(0.0, |font| font.width(text, size))
+    }
+
+    fn draw_combo_number(
+        &self,
+        pixmap: &mut Pixmap,
+        shown: u32,
+        was: u32,
+        turning: f32,
+        (x, baseline): (f32, f32),
+        size: f32,
+    ) {
+        let now = shown.to_string();
+        self.draw_combo(pixmap, &format!("{now}x"), (x, baseline), size, 1.0, false);
+        if turning >= 1.0 || was == shown {
+            return;
+        }
+
+        let before = was.to_string();
+        let same = now
+            .bytes()
+            .zip(before.bytes())
+            .take_while(|(one, other)| one == other)
+            .count();
+        let left = 1.0 - turning;
+        self.draw_combo(
+            pixmap,
+            &before[same..],
+            (
+                x + self.combo_width(&now[..same], size),
+                baseline - size * COMBO_TURN_RISE * eased_out(turning),
+            ),
+            size,
+            COMBO_TURN_TRAIL * left * left,
+            false,
+        );
+    }
+
     fn draw_combo(
         &self,
         pixmap: &mut Pixmap,
@@ -371,17 +416,7 @@ impl Scene<'_> {
             );
         }
         let size = combo_face * self.combo_pulse(time_ms);
-        self.draw_combo(pixmap, &format!("{shown}x"), (margin, bottom), size, 1.0, false);
-        if turning < 1.0 && was != shown {
-            self.draw_combo(
-                pixmap,
-                &format!("{was}x"),
-                (margin, bottom),
-                size,
-                1.0 - turning,
-                false,
-            );
-        }
+        self.draw_combo_number(pixmap, shown, was, turning, (margin, bottom), size);
 
         let tally_size = (height * 0.030) as f32;
         let counts = score.counts;

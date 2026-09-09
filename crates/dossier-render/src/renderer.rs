@@ -210,6 +210,8 @@ const COMBO_POP_ALPHA: f32 = 0.6;
 const COMBO_CATCH_MS: f64 = 160.0;
 
 const COMBO_TURN_MS: f64 = 90.0;
+const COMBO_TURN_RISE: f32 = 0.36;
+const COMBO_TURN_TRAIL: f32 = 0.5;
 
 const COMBO_SMALL_POP_MS: f64 = 100.0;
 const COMBO_SMALL_POP_GAIN: f32 = 0.1;

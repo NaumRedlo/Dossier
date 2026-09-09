@@ -357,3 +357,28 @@ fn halftime_drains_more_gently_per_millisecond() {
         floors[0]
     );
 }
+
+#[test]
+fn easy_carries_two_spare_lives() {
+    let map = beatmap(&stream(5.0, 200));
+    let died = |mods: u32| {
+        let replay = replay_with(Vec::new(), mods);
+        let state = GameState::new(&map, &replay);
+        HealthTrack::build(
+            state.judge().expect("judged"),
+            state.timeline(),
+            &map.breaks,
+            map.format_version,
+            Mods::new(mods),
+            Ruleset::STABLE,
+        )
+        .failed_at()
+    };
+
+    let plain = died(0).expect("hitting nothing should be fatal");
+    let easy = died(dossier_replay::bits::EASY).expect("even three lives run out");
+    assert!(
+        easy > plain,
+        "Easy should carry the player past the first death: {easy} against {plain}"
+    );
+}

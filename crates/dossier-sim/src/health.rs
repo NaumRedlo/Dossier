@@ -1,6 +1,16 @@
 use dossier_beatmap::{difficulty_range, Difficulty};
 
 pub const DANGER_LEVEL: f32 = 0.35;
+
+const EASY_SPARE_LIVES: u32 = 2;
+
+fn spare_lives(mods: Mods) -> u32 {
+    if mods.contains(bits::EASY) {
+        EASY_SPARE_LIVES
+    } else {
+        0
+    }
+}
 use dossier_replay::{bits, Mods};
 
 use crate::judge::{Judge, Judgement, Part};
@@ -363,6 +373,7 @@ impl HealthTrack {
 
         let mut meter = Meter::full();
         let mut samples = vec![(start, 1.0f32)];
+        let mut spare = spare_lives(mods);
         let mut failed_at = None;
         let mut last = start;
         let combo_ends = combo_end_map(judge, timeline);
@@ -388,7 +399,12 @@ impl HealthTrack {
             meter.increase(gain);
 
             if meter.health <= 0.0 && failed_at.is_none() {
-                failed_at = Some(event.time_ms);
+                if spare > 0 {
+                    spare -= 1;
+                    meter = Meter::full();
+                } else {
+                    failed_at = Some(event.time_ms);
+                }
             }
             samples.push((event.time_ms, (meter.health / MAX_HP) as f32));
         }
@@ -428,6 +444,7 @@ impl HealthTrack {
 
         let mut health = 1.0f64;
         let mut samples = vec![(start, 1.0f32)];
+        let mut spare = spare_lives(timeline.mods);
         let mut failed_at = None;
         let mut last = start;
         let mut break_index = 0usize;
@@ -450,7 +467,12 @@ impl HealthTrack {
             health = (health + gain).min(1.0);
 
             if health <= 0.0 && failed_at.is_none() {
-                failed_at = Some(event.time_ms);
+                if spare > 0 {
+                    spare -= 1;
+                    health = 1.0;
+                } else {
+                    failed_at = Some(event.time_ms);
+                }
             }
             samples.push((event.time_ms, health.max(0.0) as f32));
         }

@@ -74,7 +74,7 @@ fn stable_gain(part: Part, result: Judgement, hp: f64) -> f64 {
             }
         }
 
-        Part::SpinnerPoints => HP_SPINNER_SPIN,
+        Part::SpinnerSpin | Part::SpinnerPoints => HP_SPINNER_SPIN,
         Part::SpinnerBonus => 0.0,
     }
 }
@@ -106,8 +106,8 @@ impl ComboEnd {
     }
 }
 
-fn required_spins(difficulty: &Difficulty, duration_ms: f64) -> f64 {
-    (difficulty.spins_per_second() * duration_ms / 1000.0).floor()
+fn required_half_turns(difficulty: &Difficulty, duration_ms: f64) -> f64 {
+    (difficulty.half_spins_per_second() * duration_ms / 1000.0).floor()
 }
 
 pub fn calibrate(
@@ -182,7 +182,7 @@ pub fn calibrate(
                     }
                 }
                 TimedKind::Spinner => {
-                    let spins = required_spins(difficulty, object.duration_ms()) as usize;
+                    let spins = required_half_turns(difficulty, object.duration_ms()) as usize;
                     for _ in 0..spins {
                         meter.increase(rates.normal * HP_SPINNER_SPIN);
                     }
@@ -249,7 +249,7 @@ fn lazer_gain(part: Part, result: Judgement, hp: f64) -> f64 {
 
         Part::Slider => 0.0,
 
-        Part::SpinnerPoints => 0.0011,
+        Part::SpinnerSpin | Part::SpinnerPoints => 0.0011,
         Part::SpinnerBonus => 0.0022,
         Part::SliderTick => {
             if result.is_miss() {

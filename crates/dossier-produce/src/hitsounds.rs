@@ -111,7 +111,7 @@ fn sustained(
                 }
             }
             dossier_beatmap::ObjectKind::Spinner { .. } => {
-                let needed = dossier_sim::required_spins(state.difficulty(), timed.duration_ms());
+                let needed = dossier_sim::required_half_turns(state.difficulty(), timed.duration_ms());
                 let (set, bank, volume) =
                     bank_for(beatmap, object, Voice::Normal, None, timed.start_ms);
                 let steps = louder_over(beatmap, timed.start_ms, timed.end_ms, at_video, span.0);
@@ -128,7 +128,7 @@ fn sustained(
                         }
 
                         let at = timed.start_ms + f64::from(seconds as f32) * 1000.0;
-                        let turned = dossier_sim::spinner_rotations(
+                        let turned = dossier_sim::spinner_half_turns(
                             state.cursor_track(),
                             timed.start_ms,
                             at.min(timed.start_ms + held),
@@ -177,7 +177,7 @@ fn voices_for(part: Part, object: &HitObject, edge: Option<usize>, layering: boo
     match part {
         Part::Slider => Vec::new(),
 
-        Part::SpinnerPoints => Vec::new(),
+        Part::SpinnerSpin | Part::SpinnerPoints => Vec::new(),
         Part::SpinnerBonus => vec![Voice::Bonus],
         Part::SliderTick => vec![Voice::Tick],
         _ => layered(bits_for(object, edge), layering),

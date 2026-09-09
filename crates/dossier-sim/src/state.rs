@@ -491,14 +491,14 @@ impl GameState {
                     press_distance_px: nearest.map(|p| p.pos.distance_to(object.pos)),
                     radius_px: radius,
                     spin_rotations: spinning.then(|| {
-                        crate::judge::spinner_rotations(
+                        crate::judge::spinner_half_turns(
                             &self.cursor,
                             object.start_ms,
                             object.end_ms,
                         )
                     }),
                     spin_required: spinning.then(|| {
-                        crate::judge::required_spins(
+                        crate::judge::required_half_turns(
                             &self.timeline.difficulty,
                             object.duration_ms(),
                         )

@@ -58,11 +58,11 @@ impl Difficulty {
         (54.4 - 4.48 * self.circle_size) * GAMEFIELD_ROUNDING_ALLOWANCE
     }
 
-    pub fn spins_per_second(&self) -> f64 {
-        difficulty_range(self.overall_difficulty, 90.0, 150.0, 225.0) / 60.0
+    pub fn half_spins_per_second(&self) -> f64 {
+        difficulty_range(self.overall_difficulty, 3.0, 5.0, 7.5)
     }
 
-    pub fn top_spins_per_second(&self) -> f64 {
+    pub fn full_score_spins_per_second(&self) -> f64 {
         difficulty_range(self.overall_difficulty, 250.0, 380.0, 430.0) / 60.0
     }
 

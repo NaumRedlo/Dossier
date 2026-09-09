@@ -621,23 +621,57 @@ OverallDifficulty:5
 ";
 
 #[test]
-fn the_requirement_is_revolutions_per_minute_not_per_second() {
+fn the_requirement_is_counted_in_half_turns() {
     let od5 = dossier_beatmap::Difficulty::default();
-    assert!((od5.spins_per_second() - 150.0 / 60.0).abs() < 1e-9);
-    assert!((od5.top_spins_per_second() - 380.0 / 60.0).abs() < 1e-9);
+    assert!((od5.half_spins_per_second() - 5.0).abs() < 1e-9);
+    assert!(
+        (od5.half_spins_per_second() * 60.0 / 2.0 - 150.0).abs() < 1e-9,
+        "a hundred and fifty turns a minute at OD5"
+    );
 
     let od10 = dossier_beatmap::Difficulty {
         overall_difficulty: 10.0,
         ..Default::default()
     };
-    assert!((od10.spins_per_second() - 225.0 / 60.0).abs() < 1e-9);
-    assert!((od10.top_spins_per_second() - 430.0 / 60.0).abs() < 1e-9);
+    assert!((od10.half_spins_per_second() - 7.5).abs() < 1e-9);
+    assert!((od10.half_spins_per_second() * 60.0 / 2.0 - 225.0).abs() < 1e-9);
+}
+
+#[test]
+fn a_spinner_pays_a_hundred_a_turn_and_a_thousand_past_the_clear() {
+    let map = beatmap(LONG_SPINNER);
+    let required = dossier_sim::required_half_turns(&map.difficulty, 4_000.0);
+    assert_eq!(required, 20.0, "OD5 over four seconds asks for twenty halves");
+
+    let parts = |turns: f64| {
+        let state = GameState::new(&map, &replay_with(spin_frames(1000, 5000, turns), 0));
+        let judge = state.judge().unwrap();
+        let counted = |wanted: dossier_sim::Part| {
+            judge.events().iter().filter(|e| e.part == wanted).count()
+        };
+        (
+            counted(dossier_sim::Part::SpinnerPoints),
+            counted(dossier_sim::Part::SpinnerBonus),
+        )
+    };
+
+    assert_eq!(parts(8.0), (7, 0), "eight turns, a hundred on each, no bonus");
+    assert_eq!(
+        parts(11.0),
+        (11, 0),
+        "the clear is at ten turns and the bonus still waits"
+    );
+    assert_eq!(
+        parts(15.0),
+        (15, 3),
+        "the bonus starts once the halves pass the requirement by three"
+    );
 }
 
 #[test]
 fn a_completed_spinner_is_a_three_hundred() {
     let map = beatmap(SPINNER);
-    let counts = judged(&map, &replay_with(spin_frames(1000, 2000, 3.0), 0));
+    let counts = judged(&map, &replay_with(spin_frames(1000, 2000, 4.0), 0));
     assert_eq!(counts.count_300, 1);
 }
 
@@ -652,7 +686,7 @@ fn a_spinner_nobody_span_is_a_miss() {
 fn a_nearly_finished_spinner_scores_partially() {
     let map = beatmap(LONG_SPINNER);
 
-    let counts = judged(&map, &replay_with(spin_frames(1000, 5000, 9.5), 0));
+    let counts = judged(&map, &replay_with(spin_frames(1000, 5000, 10.0), 0));
     assert_eq!(counts.count_100, 1);
 
     let counts = judged(&map, &replay_with(spin_frames(1000, 5000, 8.0), 0));
@@ -1773,56 +1807,4 @@ OverallDifficulty:5
         "the unreachable circle took the two behind it: {counts:?}"
     );
     assert_eq!(counts.count_300, 2, "{counts:?}");
-}
-
-#[test]
-fn every_spin_pays_and_the_bonus_waits_two_past_the_clear() {
-    let map = beatmap(LONG_SPINNER);
-    let difficulty = map.difficulty;
-    let required = dossier_sim::required_spins(&difficulty, 4_000.0);
-    assert_eq!(required, 10.0, "OD5 over four seconds clears at ten spins");
-
-    let parts = |turns: f64| {
-        let state = GameState::new(&map, &replay_with(spin_frames(1000, 5000, turns), 0));
-        let judge = state.judge().unwrap();
-        let counted = |wanted: dossier_sim::Part| {
-            judge.events().iter().filter(|e| e.part == wanted).count()
-        };
-        (
-            counted(dossier_sim::Part::SpinnerPoints),
-            counted(dossier_sim::Part::SpinnerBonus),
-        )
-    };
-
-    assert_eq!(
-        parts(10.0),
-        (10, 0),
-        "below the clear every spin is a plain one"
-    );
-    assert_eq!(
-        parts(15.0),
-        (12, 3),
-        "the plain spins stop two past the clear"
-    );
-    assert_eq!(parts(20.0), (12, 8), "and everything after that is bonus");
-}
-
-#[test]
-fn the_bonus_stops_where_the_game_stops_paying_it() {
-    let map = beatmap(LONG_SPINNER);
-    let difficulty = map.difficulty;
-    let spare = dossier_sim::bonus_spins(&difficulty, 4_000.0);
-    assert_eq!(spare, 13.0, "OD5 over four seconds has thirteen bonus spins");
-
-    let state = GameState::new(&map, &replay_with(spin_frames(1000, 5000, 40.0), 0));
-    let judge = state.judge().unwrap();
-    let bonus = judge
-        .events()
-        .iter()
-        .filter(|e| e.part == dossier_sim::Part::SpinnerBonus)
-        .count();
-    assert_eq!(
-        bonus as f64, spare,
-        "forty spins should still only be paid for thirteen of them"
-    );
 }

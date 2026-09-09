@@ -58,6 +58,8 @@ pub enum Part {
     Slider,
     Spinner,
 
+    SpinnerSpin,
+
     SpinnerPoints,
 
     SpinnerBonus,
@@ -71,14 +73,14 @@ impl Part {
     pub fn adds_combo(self) -> bool {
         !matches!(
             self,
-            Self::Slider | Self::SpinnerPoints | Self::SpinnerBonus
+            Self::Slider | Self::SpinnerSpin | Self::SpinnerPoints | Self::SpinnerBonus
         )
     }
 
     pub fn is_bonus(self) -> bool {
         matches!(
             self,
-            Self::SpinnerPoints | Self::SpinnerBonus
+            Self::SpinnerSpin | Self::SpinnerPoints | Self::SpinnerBonus
         )
     }
 
@@ -654,19 +656,19 @@ fn build_events(
 
         TimedKind::Spinner => {
             let turns = spinner_spin_times(cursor, object.start_ms, object.end_ms);
-            let rotations = spinner_rotations(cursor, object.start_ms, object.end_ms);
-            let required = required_spins(difficulty, object.duration_ms());
-            let most = required + BONUS_SPINS_GAP + bonus_spins(difficulty, object.duration_ms());
+            let rotations = spinner_half_turns(cursor, object.start_ms, object.end_ms);
+            let required = required_half_turns(difficulty, object.duration_ms());
 
+            let spare = spare_spins(difficulty, object.duration_ms()) as i64;
             for (turn, at) in turns.iter().enumerate() {
-                let turn = turn as f64 + 1.0;
-                if turn > most {
-                    break;
-                }
+                let Some(part) = spinner_turn(turn as i64 + 1, required as i64, spare, ruleset)
+                else {
+                    continue;
+                };
                 out.push(Event {
                     time_ms: *at,
                     object_index: index,
-                    part: spinner_turn(turn, required),
+                    part,
                     result: Judgement::Great,
                     error_ms: None,
                     combo_after: 0,
@@ -676,7 +678,7 @@ fn build_events(
                 time_ms: object.end_ms,
                 object_index: index,
                 part: Part::Spinner,
-                result: spinner_judgement(rotations, required),
+                result: spinner_judgement(rotations, required, ruleset),
                 error_ms: None,
                 combo_after: 0,
             });
@@ -846,40 +848,68 @@ pub fn tail_check_ms(object: &TimedObject) -> f64 {
         .max(object.start_ms)
 }
 
-const BONUS_SPINS_GAP: f64 = 2.0;
-
-const SPIN_ROUNDING: f64 = 0.0001;
-
-pub fn required_spins(difficulty: &dossier_beatmap::Difficulty, duration_ms: f64) -> f64 {
-    (difficulty.spins_per_second() * duration_ms / 1000.0 + SPIN_ROUNDING).floor()
+pub fn required_half_turns(difficulty: &dossier_beatmap::Difficulty, duration_ms: f64) -> f64 {
+    (difficulty.half_spins_per_second() * duration_ms / 1000.0).floor()
 }
 
-pub fn bonus_spins(difficulty: &dossier_beatmap::Difficulty, duration_ms: f64) -> f64 {
-    let full = (difficulty.top_spins_per_second() * duration_ms / 1000.0 + SPIN_ROUNDING).floor();
-    (full - required_spins(difficulty, duration_ms) - BONUS_SPINS_GAP).max(0.0)
-}
+const LAZER_BONUS_GAP: i64 = 2;
 
-fn spinner_turn(turn: f64, required: f64) -> Part {
-    if turn > required + BONUS_SPINS_GAP {
-        Part::SpinnerBonus
+fn spinner_turn(turn: i64, required: i64, spare: i64, ruleset: Ruleset) -> Option<Part> {
+    if ruleset.spinner_counts_half_turns() {
+        let bonus_from = required + 3;
+        return Some(if turn > bonus_from && (turn - bonus_from) % 2 == 0 {
+            Part::SpinnerBonus
+        } else if turn > 1 && turn % 2 == 0 {
+            Part::SpinnerPoints
+        } else {
+            Part::SpinnerSpin
+        });
+    }
+    if turn % 2 != 0 {
+        return None;
+    }
+    let spun = turn / 2;
+    let plain_until = required / 2 + LAZER_BONUS_GAP;
+    if spun <= plain_until {
+        Some(Part::SpinnerPoints)
+    } else if spun <= plain_until + spare {
+        Some(Part::SpinnerBonus)
     } else {
-        Part::SpinnerPoints
+        None
     }
 }
 
-fn spinner_judgement(rotations: f64, required: f64) -> Judgement {
+pub fn spare_spins(difficulty: &dossier_beatmap::Difficulty, duration_ms: f64) -> f64 {
+    let full = (difficulty.full_score_spins_per_second() * duration_ms / 1000.0).floor();
+    let required = (required_half_turns(difficulty, duration_ms) / 2.0).floor();
+    (full - required - LAZER_BONUS_GAP as f64).max(0.0)
+}
+
+fn spinner_judgement(half_turns: f64, required: f64, ruleset: Ruleset) -> Judgement {
     if required <= 0.0 {
         return Judgement::Great;
     }
-    let progress = rotations / required;
-    if progress >= 1.0 {
-        Judgement::Great
-    } else if progress > 0.9 {
-        Judgement::Ok
-    } else if progress > 0.75 {
-        Judgement::Meh
-    } else {
+    if !ruleset.spinner_counts_half_turns() {
+        let progress = half_turns / required;
+        return if progress >= 1.0 {
+            Judgement::Great
+        } else if progress > 0.9 {
+            Judgement::Ok
+        } else if progress > 0.75 {
+            Judgement::Meh
+        } else {
+            Judgement::Miss
+        };
+    }
+    let spun = half_turns.floor();
+    if spun < (required / 4.0).floor() {
         Judgement::Miss
+    } else if spun > required {
+        Judgement::Great
+    } else if spun > required - 2.0 {
+        Judgement::Ok
+    } else {
+        Judgement::Meh
     }
 }
 
@@ -1034,7 +1064,7 @@ pub(crate) fn is_tracking(
     button_down(sample.keys, relax) && sample.pos.distance_to(ball) <= radius
 }
 
-pub fn spinner_rotations(cursor: &CursorTrack, start_ms: f64, end_ms: f64) -> f64 {
+pub fn spinner_half_turns(cursor: &CursorTrack, start_ms: f64, end_ms: f64) -> f64 {
     spinner_sweep(cursor, start_ms, end_ms).0
 }
 
@@ -1045,7 +1075,7 @@ pub fn spinner_rpm(cursor: &CursorTrack, start_ms: f64, time_ms: f64) -> f64 {
     if span < 1.0 {
         return 0.0;
     }
-    spinner_rotations(cursor, from, time_ms) / span * 60_000.0
+    spinner_half_turns(cursor, from, time_ms) / 2.0 / span * 60_000.0
 }
 
 pub(crate) fn spinner_spin_times(cursor: &CursorTrack, start_ms: f64, end_ms: f64) -> Vec<f64> {
@@ -1103,10 +1133,10 @@ fn spinner_sweep_signed(cursor: &CursorTrack, start_ms: f64, end_ms: f64) -> (f6
             facing += step;
             let after = swept + step.abs();
 
-            let mut crossed = (swept / TAU).floor() + 1.0;
-            while crossed * TAU <= after {
+            let mut crossed = (swept / PI).floor() + 1.0;
+            while crossed * PI <= after {
                 let share = if after > swept {
-                    (crossed * TAU - swept) / (after - swept)
+                    (crossed * PI - swept) / (after - swept)
                 } else {
                     0.0
                 };
@@ -1118,7 +1148,7 @@ fn spinner_sweep_signed(cursor: &CursorTrack, start_ms: f64, end_ms: f64) -> (f6
         previous = Some((time_ms, angle));
     }
 
-    (swept / TAU, facing / TAU, turns)
+    (swept / PI, facing / TAU, turns)
 }
 
 pub fn spinner_facing(cursor: &CursorTrack, start_ms: f64, end_ms: f64) -> f64 {

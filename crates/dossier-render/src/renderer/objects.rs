@@ -1236,11 +1236,11 @@ impl Scene<'_> {
     }
 
     fn spun_share(&self, object: &TimedObject, time_ms: f64) -> f32 {
-        let required = dossier_sim::required_spins(self.state.difficulty(), object.duration_ms());
+        let required = dossier_sim::required_half_turns(self.state.difficulty(), object.duration_ms());
         if required <= 0.0 {
             return 1.0;
         }
-        let turned = dossier_sim::spinner_rotations(
+        let turned = dossier_sim::spinner_half_turns(
             self.state.cursor_track(),
             object.start_ms,
             time_ms.min(object.end_ms),
@@ -1257,7 +1257,9 @@ impl Scene<'_> {
             .filter(|event| {
                 matches!(
                     event.part,
-                    dossier_sim::Part::SpinnerPoints | dossier_sim::Part::SpinnerBonus
+                    dossier_sim::Part::SpinnerSpin
+                        | dossier_sim::Part::SpinnerPoints
+                        | dossier_sim::Part::SpinnerBonus
                 )
             })
             .map(|event| event.time_ms)
@@ -1265,7 +1267,7 @@ impl Scene<'_> {
     }
 
     fn spun_clear_at(&self, index: usize, object: &TimedObject) -> Option<f64> {
-        let required = dossier_sim::required_spins(self.state.difficulty(), object.duration_ms());
+        let required = dossier_sim::required_half_turns(self.state.difficulty(), object.duration_ms());
         if required <= 0.0 {
             return Some(object.start_ms);
         }
@@ -1575,7 +1577,7 @@ impl Scene<'_> {
         alpha: f32,
         layout: &Layout,
     ) {
-        let required = dossier_sim::required_spins(self.state.difficulty(), object.duration_ms());
+        let required = dossier_sim::required_half_turns(self.state.difficulty(), object.duration_ms());
         let turns = self.spun_turns(index);
         let bonus: Vec<f64> = turns
             .into_iter()

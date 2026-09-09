@@ -101,6 +101,10 @@ impl Ruleset {
         self.client == Client::Stable
     }
 
+    pub fn spinner_counts_half_turns(self) -> bool {
+        self.client == Client::Stable
+    }
+
     pub fn blocks(
         self,
         blocker_end_ms: f64,

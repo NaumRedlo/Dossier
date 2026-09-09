@@ -211,6 +211,8 @@ pub enum Element {
     SectionPass,
     SectionFail,
 
+    WarningArrow,
+
     SpinnerApproachCircle,
 
     ScoreBarBackground,
@@ -333,6 +335,7 @@ impl Element {
             Self::SpinnerRpm => "spinner-rpm".to_owned(),
             Self::SpinnerSpin => "spinner-spin".to_owned(),
             Self::SpinnerClear => "spinner-clear".to_owned(),
+            Self::WarningArrow => "play-warningarrow".to_owned(),
             Self::SectionPass => "section-pass".to_owned(),
             Self::SectionFail => "section-fail".to_owned(),
             Self::ScoreBarBackground => "scorebar-bg".to_owned(),
@@ -411,6 +414,7 @@ impl Element {
             Self::SpinnerRpm => 256,
             Self::SpinnerSpin | Self::SpinnerClear => 512,
             Self::SectionPass | Self::SectionFail => 800,
+            Self::WarningArrow => 128,
             Self::ScoreBarMark(_) => 160,
             Self::Cursor | Self::CursorMiddle => 128,
             Self::CursorTrail => 64,
@@ -531,7 +535,8 @@ pub fn element(skin: &crate::skin::Skin, element: Element, size: u32) -> Option<
         | Element::SpinnerSpin
         | Element::SpinnerClear
         | Element::SectionPass
-        | Element::SectionFail => return None,
+        | Element::SectionFail
+        | Element::WarningArrow => return None,
         Element::Verdict(_) | Element::Digit(_) => return lettered(skin, element, size),
     }
     Some(pixmap)

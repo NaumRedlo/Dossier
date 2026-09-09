@@ -74,10 +74,12 @@ const BANKED: [(Voice, &str); 7] = [
     (Voice::SlideWhistle, "sliderwhistle"),
 ];
 
-const BANKLESS: [(Voice, &str); 3] = [
+const BANKLESS: [(Voice, &str); 5] = [
     (Voice::Bonus, "spinnerbonus"),
     (Voice::Spin, "spinnerspin"),
     (Voice::Miss, "combobreak"),
+    (Voice::SectionPass, "sectionpass"),
+    (Voice::SectionFail, "sectionfail"),
 ];
 
 const SOUND_ENDINGS: [&str; 3] = ["wav", "ogg", "mp3"];

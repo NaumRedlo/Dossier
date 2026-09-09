@@ -51,7 +51,31 @@ pub fn build(
         }
     }
     sustained(state, beatmap, &at_video, &mut track);
+    sections(state, &at_video, &mut track);
     track
+}
+
+const SECTION_LEAST_BREAK_MS: f64 = 2_880.0;
+
+const SECTION_PASS_HEALTH: f32 = 0.5;
+
+fn sections(state: &GameState, at_video: &impl Fn(f64) -> f64, track: &mut Track) {
+    for &(from, to) in &state.timeline().breaks {
+        let length = to - from;
+        if length < SECTION_LEAST_BREAK_MS {
+            continue;
+        }
+        let at = (to - SECTION_LEAST_BREAK_MS).min(to - length / 2.0);
+        let passing = state
+            .health_at(at)
+            .is_none_or(|health| health >= SECTION_PASS_HEALTH);
+        let voice = if passing {
+            Voice::SectionPass
+        } else {
+            Voice::SectionFail
+        };
+        track.strike_if_the_skin_has_it(voice, at_video(at), 1.0);
+    }
 }
 
 fn sustained(

@@ -51,6 +51,7 @@ pub const DRAWN_FROM_SKINS: &[Element] = &[
     Element::SpinnerClear,
     Element::SectionPass,
     Element::SectionFail,
+    Element::WarningArrow,
 ];
 
 fn scorebar_pieces() -> Vec<Element> {

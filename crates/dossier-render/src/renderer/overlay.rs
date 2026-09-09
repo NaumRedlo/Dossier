@@ -321,23 +321,43 @@ impl Scene<'_> {
 
         let reach = arrow * (1.0 + f64::from(ARROW_ROUNDING) / 2.0);
         let size = layout.length(arrow) * scale;
+        let skinned = self.skin_speaks_for(crate::elements::Element::WarningArrow);
         for y in WARNING_ROWS {
             for (x, dir) in [
                 (-reach, (1.0, 0.0)),
                 (dossier_beatmap::PLAYFIELD_WIDTH + reach, (-1.0, 0.0)),
             ] {
+                let at = Point { x, y };
+                if skinned {
+                    self.draw_warning_arrow(pixmap, at, dir.0 < 0.0, size, alpha, layout);
+                    continue;
+                }
                 self.draw_chevron(
                     pixmap,
-                    Turn {
-                        at: Point { x, y },
-                        dir,
-                    },
+                    Turn { at, dir },
                     size,
                     alpha,
                     ArrowShape::Rounded,
                     layout,
                 );
             }
+        }
+    }
+
+    fn draw_warning_arrow(
+        &self,
+        pixmap: &mut Pixmap,
+        at: Point,
+        facing_left: bool,
+        size: f32,
+        alpha: f32,
+        layout: &Layout,
+    ) {
+        let element = crate::elements::Element::WarningArrow;
+        if facing_left {
+            self.draw_sprite_mirrored(pixmap, element, 0, at, size, alpha, layout);
+        } else {
+            self.draw_sprite(pixmap, element, 0, at, size, alpha, layout);
         }
     }
 }

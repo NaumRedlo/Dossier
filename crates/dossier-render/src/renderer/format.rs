@@ -48,7 +48,7 @@ mod names {
     fn font() -> crate::text::Font {
         let path = concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../../assets/fonts/TorusNotched-Bold.ttf"
+            "/../../assets/fonts/Huninn-Regular.ttf"
         );
         let bytes = std::fs::read(path).expect("the repo ships this font");
         crate::text::Font::from_bytes(&bytes).expect("and it parses")

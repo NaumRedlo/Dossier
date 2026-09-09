@@ -79,6 +79,12 @@ impl Track {
         self.strike_indexed(voice, at_seconds, set, 1, volume);
     }
 
+    pub fn strike_if_the_skin_has_it(&mut self, voice: Voice, at_seconds: f64, volume: f32) {
+        if self.pack.get(SampleSet::Normal, voice, 1).is_some() {
+            self.strike_with(voice, at_seconds, SampleSet::Normal, volume);
+        }
+    }
+
     pub fn strike_indexed(
         &mut self,
         voice: Voice,

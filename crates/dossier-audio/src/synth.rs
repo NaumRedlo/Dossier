@@ -20,11 +20,16 @@ pub enum Voice {
     Spin,
 
     Miss,
+
+    SectionPass,
+    SectionFail,
 }
 
 impl Voice {
     pub fn file_name(self) -> &'static str {
         match self {
+            Self::SectionPass => "sectionpass",
+            Self::SectionFail => "sectionfail",
             Self::Normal => "hitnormal",
             Self::Whistle => "hitwhistle",
             Self::Finish => "hitfinish",
@@ -59,6 +64,8 @@ impl Voice {
 
             Self::Slide | Self::SlideWhistle | Self::Spin => Vec::new(),
 
+            Self::SectionPass | Self::SectionFail => Vec::new(),
+
             Self::Bonus => ring(seconds(0.10), hz(2.6), recipe.partials),
 
             Self::Miss => {
@@ -90,6 +97,8 @@ impl Voice {
             Self::Slide => 0.30,
             Self::SlideWhistle => 0.24,
             Self::Spin => 0.34,
+
+            Self::SectionPass | Self::SectionFail => 1.0,
 
             Self::Miss => 0.40,
         };

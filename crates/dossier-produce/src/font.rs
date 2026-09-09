@@ -2,9 +2,9 @@ use std::path::{Path, PathBuf};
 
 use dossier_render::Font;
 
-const FACES: &[&str] = &["TorusNotched-Bold.ttf", "JetBrainsMono-Bold.ttf"];
+const FACES: &[&str] = &["Huninn-Regular.ttf"];
 
-const BEHIND: &[&str] = &["Huninn-Regular.ttf"];
+const BEHIND: &[&str] = &["JetBrainsMono-Bold.ttf"];
 
 fn shelves() -> Vec<PathBuf> {
     let mut out = Vec::new();

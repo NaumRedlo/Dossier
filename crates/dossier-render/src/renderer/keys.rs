@@ -411,7 +411,7 @@ impl Scene<'_> {
         let top = plate_top + drop;
 
         let rate = self.state.playback_rate().max(0.001);
-        for (index, name) in KEY_NAMES.iter().enumerate() {
+        for index in 0..KEY_NAMES.len() {
             let down = self.keys.pressed(index, time_ms, rate);
 
             let shrink = 1.0 + (OVERLAY_PRESSED - 1.0) * down;
@@ -430,29 +430,16 @@ impl Scene<'_> {
             );
 
             let named = self.keys.named(index, time_ms, rate);
-            let text = key * OVERLAY_TEXT * shrink;
-            let count_x = centre_x + self.key_count_offset(side);
             if named < 1.0 {
+                let text = key * OVERLAY_TEXT * shrink;
                 let count = self.keys.count(index, time_ms).to_string();
                 self.draw_key_text(
                     pixmap,
                     &count,
-                    (count_x, centre_y + text * 0.5),
+                    (centre_x + self.key_count_offset(side), centre_y + text * 0.5),
                     text,
                     ink,
                     presence * (1.0 - named),
-                    true,
-                );
-            }
-            if named > 0.0 {
-                self.draw_key_text(
-                    pixmap,
-                    name,
-                    (centre_x, centre_y + text * 0.5),
-                    text,
-                    ink,
-                    presence * named,
-                    false,
                 );
             }
         }
@@ -475,14 +462,11 @@ impl Scene<'_> {
         size: f32,
         ink: tiny_skia::Color,
         alpha: f32,
-        glyphs: bool,
     ) {
         if alpha <= 0.01 {
             return;
         }
-        if glyphs
-            && self.draw_hud_text_in(pixmap, text, x, baseline, size, Align::Centre, alpha, ink)
-        {
+        if self.draw_hud_text_in(pixmap, text, x, baseline, size, Align::Centre, alpha, ink) {
             return;
         }
         let Some(font) = &self.skin.font else {

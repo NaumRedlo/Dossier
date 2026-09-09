@@ -357,7 +357,8 @@ impl Scene<'_> {
                 own * COMBO_OF_FACE * to_screen
             });
         let bottom = layout.height as f32 - margin;
-        let (shown, _, _) = self.combo_shown(time_ms);
+        let (shown, was, since) = self.combo_shown(time_ms);
+        let turning = (((time_ms - since) / COMBO_TURN_MS).clamp(0.0, 1.0)) as f32;
 
         if let Some((popped, swell, ghost)) = self.combo_ghost(time_ms) {
             self.draw_combo(
@@ -369,14 +370,18 @@ impl Scene<'_> {
                 true,
             );
         }
-        self.draw_combo(
-            pixmap,
-            &format!("{shown}x"),
-            (margin, bottom),
-            combo_face * self.combo_pulse(time_ms),
-            1.0,
-            false,
-        );
+        let size = combo_face * self.combo_pulse(time_ms);
+        self.draw_combo(pixmap, &format!("{shown}x"), (margin, bottom), size, 1.0, false);
+        if turning < 1.0 && was != shown {
+            self.draw_combo(
+                pixmap,
+                &format!("{was}x"),
+                (margin, bottom),
+                size,
+                1.0 - turning,
+                false,
+            );
+        }
 
         let tally_size = (height * 0.030) as f32;
         let counts = score.counts;

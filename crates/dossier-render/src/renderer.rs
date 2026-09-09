@@ -209,10 +209,10 @@ const COMBO_POP_ALPHA: f32 = 0.6;
 
 const COMBO_CATCH_MS: f64 = 160.0;
 
+const COMBO_TURN_MS: f64 = 90.0;
+
 const COMBO_SMALL_POP_MS: f64 = 100.0;
 const COMBO_SMALL_POP_GAIN: f32 = 0.1;
-const COMBO_BREAK_PULSE_MS: f64 = 260.0;
-const COMBO_BREAK_PULSE_GAIN: f32 = 0.26;
 
 use dossier_sim::DANGER_LEVEL as DANGER_FROM;
 
@@ -548,17 +548,21 @@ impl<'a> Scene<'a> {
             .map_or(0, |earlier| self.combo_changes[earlier].1)
     }
 
-    fn combo_shown(&self, time_ms: f64) -> (u32, f64, bool) {
+    fn combo_shown(&self, time_ms: f64) -> (u32, u32, f64) {
         let Some((index, at, to, broke)) = self.combo_step(time_ms) else {
-            return (0, f64::NEG_INFINITY, false);
+            return (0, 0, f64::NEG_INFINITY);
         };
         if broke {
-            return (to, at, true);
+            return (to, self.combo_before(index), at);
         }
         if time_ms - at >= COMBO_CATCH_MS {
-            return (to, at + COMBO_CATCH_MS, false);
+            return (to, self.combo_before(index), at + COMBO_CATCH_MS);
         }
-        (self.combo_before(index), at, false)
+        let now = self.combo_before(index);
+        let was = index
+            .checked_sub(1)
+            .map_or(0, |earlier| self.combo_before(earlier));
+        (now, was, at)
     }
 
     fn combo_ghost(&self, time_ms: f64) -> Option<(u32, f32, f32)> {
@@ -578,17 +582,10 @@ impl<'a> Scene<'a> {
     }
 
     fn combo_pulse(&self, time_ms: f64) -> f32 {
-        let (_, since, broke) = self.combo_shown(time_ms);
+        let (_, _, since) = self.combo_shown(time_ms);
         let age = time_ms - since;
         if age < 0.0 {
             return 1.0;
-        }
-        if broke {
-            if age >= COMBO_BREAK_PULSE_MS {
-                return 1.0;
-            }
-            let progress = (age / COMBO_BREAK_PULSE_MS) as f32;
-            return 1.0 + COMBO_BREAK_PULSE_GAIN * (1.0 - progress).powf(2.2);
         }
         let half = COMBO_SMALL_POP_MS / 2.0;
         if age < half {

@@ -655,8 +655,9 @@ fn build_events(
         }
 
         TimedKind::Spinner => {
-            let turns = spinner_spin_times(cursor, object.start_ms, object.end_ms);
-            let rotations = spinner_half_turns(cursor, object.start_ms, object.end_ms);
+            let spun_out = ruleset.spins_by_itself();
+            let turns = spinner_spin_times(cursor, object.start_ms, object.end_ms, spun_out);
+            let rotations = spinner_half_turns(cursor, object.start_ms, object.end_ms, spun_out);
             let required = required_half_turns(difficulty, object.duration_ms());
 
             let spare = spare_spins(difficulty, object.duration_ms()) as i64;
@@ -1064,30 +1065,55 @@ pub(crate) fn is_tracking(
     button_down(sample.keys, relax) && sample.pos.distance_to(ball) <= radius
 }
 
-pub fn spinner_half_turns(cursor: &CursorTrack, start_ms: f64, end_ms: f64) -> f64 {
-    spinner_sweep(cursor, start_ms, end_ms).0
+pub fn spinner_half_turns(cursor: &CursorTrack, start_ms: f64, end_ms: f64, spun_out: bool) -> f64 {
+    spinner_sweep(cursor, start_ms, end_ms, spun_out).0
 }
 
-pub fn spinner_rpm(cursor: &CursorTrack, start_ms: f64, time_ms: f64) -> f64 {
+pub fn spinner_rpm(cursor: &CursorTrack, start_ms: f64, time_ms: f64, spun_out: bool) -> f64 {
     const WINDOW_MS: f64 = 200.0;
     let from = (time_ms - WINDOW_MS).max(start_ms);
     let span = time_ms - from;
     if span < 1.0 {
         return 0.0;
     }
-    spinner_half_turns(cursor, from, time_ms) / 2.0 / span * 60_000.0
+    spinner_half_turns(cursor, from, time_ms, spun_out) / 2.0 / span * 60_000.0
 }
 
-pub(crate) fn spinner_spin_times(cursor: &CursorTrack, start_ms: f64, end_ms: f64) -> Vec<f64> {
-    spinner_sweep(cursor, start_ms, end_ms).1
+pub(crate) fn spinner_spin_times(cursor: &CursorTrack, start_ms: f64, end_ms: f64, spun_out: bool) -> Vec<f64> {
+    spinner_sweep(cursor, start_ms, end_ms, spun_out).1
 }
 
-fn spinner_sweep(cursor: &CursorTrack, start_ms: f64, end_ms: f64) -> (f64, Vec<f64>) {
-    let (turns, _, crossings) = spinner_sweep_signed(cursor, start_ms, end_ms);
+fn spinner_sweep(
+    cursor: &CursorTrack,
+    start_ms: f64,
+    end_ms: f64,
+    spun_out: bool,
+) -> (f64, Vec<f64>) {
+    let (turns, _, crossings) = spinner_sweep_signed(cursor, start_ms, end_ms, spun_out);
     (turns, crossings)
 }
 
-fn spinner_sweep_signed(cursor: &CursorTrack, start_ms: f64, end_ms: f64) -> (f64, f64, Vec<f64>) {
+const SPUN_OUT_RADIANS_PER_MS: f64 = 0.03;
+
+fn spun_out_sweep(start_ms: f64, end_ms: f64) -> (f64, f64, Vec<f64>) {
+    let swept = (end_ms - start_ms).max(0.0) * SPUN_OUT_RADIANS_PER_MS;
+    let halves = swept / PI;
+    let each = PI / SPUN_OUT_RADIANS_PER_MS;
+    let turns = (1..=halves as i64)
+        .map(|crossed| start_ms + crossed as f64 * each)
+        .collect();
+    (halves, swept / TAU, turns)
+}
+
+fn spinner_sweep_signed(
+    cursor: &CursorTrack,
+    start_ms: f64,
+    end_ms: f64,
+    spun_out: bool,
+) -> (f64, f64, Vec<f64>) {
+    if spun_out {
+        return spun_out_sweep(start_ms, end_ms);
+    }
     if end_ms <= start_ms || cursor.is_empty() {
         return (0.0, 0.0, Vec::new());
     }
@@ -1151,6 +1177,6 @@ fn spinner_sweep_signed(cursor: &CursorTrack, start_ms: f64, end_ms: f64) -> (f6
     (swept / PI, facing / TAU, turns)
 }
 
-pub fn spinner_facing(cursor: &CursorTrack, start_ms: f64, end_ms: f64) -> f64 {
-    spinner_sweep_signed(cursor, start_ms, end_ms).1
+pub fn spinner_facing(cursor: &CursorTrack, start_ms: f64, end_ms: f64, spun_out: bool) -> f64 {
+    spinner_sweep_signed(cursor, start_ms, end_ms, spun_out).1
 }

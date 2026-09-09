@@ -13,6 +13,8 @@ pub struct Ruleset {
 
     pub relax: bool,
 
+    spun_out: bool,
+
     whole_sliders: bool,
 
     head_carries_verdict: bool,
@@ -28,6 +30,7 @@ impl Ruleset {
     pub const STABLE: Self = Self {
         client: Client::Stable,
         relax: false,
+        spun_out: false,
         legacy_note_lock: true,
         whole_sliders: true,
         head_carries_verdict: false,
@@ -38,6 +41,7 @@ impl Ruleset {
     pub const LAZER: Self = Self {
         client: Client::Lazer,
         relax: false,
+        spun_out: false,
         legacy_note_lock: false,
         whole_sliders: false,
         head_carries_verdict: true,
@@ -57,6 +61,7 @@ impl Ruleset {
         let mut ruleset = Self::of_replay_version(replay.game_version);
 
         ruleset.relax = replay.mods.contains(dossier_replay::bits::RELAX);
+        ruleset.spun_out = replay.mods.contains(dossier_replay::bits::SPUN_OUT);
 
         if ruleset.client == Client::Stable && replay.mods.contains(dossier_replay::bits::SCORE_V2)
         {
@@ -99,6 +104,10 @@ impl Ruleset {
 
     pub fn spinner_swallows_presses(self) -> bool {
         self.client == Client::Stable
+    }
+
+    pub fn spins_by_itself(self) -> bool {
+        self.spun_out
     }
 
     pub fn spinner_counts_half_turns(self) -> bool {

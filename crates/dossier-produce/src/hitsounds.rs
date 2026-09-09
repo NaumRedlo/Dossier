@@ -132,6 +132,7 @@ fn sustained(
                             state.cursor_track(),
                             timed.start_ms,
                             at.min(timed.start_ms + held),
+                            state.mods().contains(dossier_replay::bits::SPUN_OUT),
                         );
                         let progress = (turned / needed) as f32;
                         (SPIN_BASE_RATE + progress * SPIN_RATE_RATIO).min(SPIN_MAX_RATE)

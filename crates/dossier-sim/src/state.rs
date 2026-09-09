@@ -495,6 +495,7 @@ impl GameState {
                             &self.cursor,
                             object.start_ms,
                             object.end_ms,
+                            self.timeline.mods.contains(dossier_replay::bits::SPUN_OUT),
                         )
                     }),
                     spin_required: spinning.then(|| {

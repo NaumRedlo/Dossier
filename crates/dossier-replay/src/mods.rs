@@ -85,7 +85,7 @@ impl Mods {
     }
 
     pub fn speed_multiplier(self) -> f64 {
-        if self.contains(bits::DOUBLE_TIME) {
+        if self.contains(bits::DOUBLE_TIME) || self.contains(bits::NIGHTCORE) {
             1.5
         } else if self.contains(bits::HALF_TIME) {
             0.75

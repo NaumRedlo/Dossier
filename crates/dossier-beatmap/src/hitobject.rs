@@ -23,6 +23,13 @@ impl Point {
             y: PLAYFIELD_HEIGHT - self.y,
         }
     }
+
+    pub fn flipped(self) -> Self {
+        Self {
+            x: PLAYFIELD_WIDTH - self.x,
+            y: self.y,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

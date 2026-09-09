@@ -804,6 +804,7 @@ impl Scene<'_> {
             self.state.cursor_track(),
             object.start_ms,
             time_ms.clamp(object.start_ms, object.end_ms),
+            self.spins_by_itself(),
         );
         let height = f64::from(layout.height);
         let size = (height * SPIN_READOUT_SIZE) as f32;

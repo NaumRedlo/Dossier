@@ -581,6 +581,12 @@ impl Scene<'_> {
         crate::imported::effective_version(stated, self.skin.skin_version_as_written)
     }
 
+    pub(super) fn spins_by_itself(&self) -> bool {
+        self.state
+            .mods()
+            .contains(dossier_replay::bits::SPUN_OUT)
+    }
+
     pub(super) fn skin_speaks_for(&self, element: Element) -> bool {
         self.skin
             .sprites
@@ -1244,6 +1250,7 @@ impl Scene<'_> {
             self.state.cursor_track(),
             object.start_ms,
             time_ms.min(object.end_ms),
+            self.spins_by_itself(),
         );
         ((turned / required) as f32).clamp(0.0, 1.0)
     }
@@ -1564,6 +1571,7 @@ impl Scene<'_> {
             self.state.cursor_track(),
             object.start_ms,
             time_ms.min(object.end_ms),
+            self.spins_by_itself(),
         );
         (facing * 360.0) as f32
     }

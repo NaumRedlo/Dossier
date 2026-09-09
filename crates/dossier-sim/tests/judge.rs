@@ -1808,3 +1808,63 @@ OverallDifficulty:5
     );
     assert_eq!(counts.count_300, 2, "{counts:?}");
 }
+
+#[test]
+fn spun_out_turns_the_spinner_for_the_player() {
+    let map = beatmap(SPINNER);
+    let still = frames_over(900, 2100, |_| (256.0, 100.0), |_| false);
+
+    assert_eq!(
+        judged(&map, &replay_with(still.clone(), 0)).count_miss,
+        1,
+        "a spinner nobody span is a miss"
+    );
+    assert_eq!(
+        judged(&map, &replay_with(still, dossier_replay::bits::SPUN_OUT))
+            .count_300,
+        1,
+        "with Spun Out the game turns it instead"
+    );
+}
+
+#[test]
+fn spun_out_turns_at_the_rate_the_game_turns_at() {
+    let map = beatmap(LONG_SPINNER);
+    let still = frames_over(900, 5100, |_| (256.0, 100.0), |_| false);
+    let state = GameState::new(
+        &map,
+        &replay_with(still, dossier_replay::bits::SPUN_OUT),
+    );
+    let judge = state.judge().unwrap();
+    let spun = judge
+        .events()
+        .iter()
+        .filter(|e| {
+            matches!(
+                e.part,
+                dossier_sim::Part::SpinnerSpin
+                    | dossier_sim::Part::SpinnerPoints
+                    | dossier_sim::Part::SpinnerBonus
+            )
+        })
+        .count();
+
+    let wanted = (4_000.0 * 0.03 / std::f64::consts::PI) as usize;
+    assert_eq!(spun, wanted, "four seconds at three hundredths of a radian");
+}
+
+#[test]
+fn easy_wins_over_hard_rock_the_way_the_game_settles_it() {
+    let map = beatmap(ONE_CIRCLE);
+    let both = dossier_replay::bits::EASY | dossier_replay::bits::HARD_ROCK;
+    let state = GameState::new(&map, &replay_with(Vec::new(), both));
+    let only_easy = GameState::new(
+        &map,
+        &replay_with(Vec::new(), dossier_replay::bits::EASY),
+    );
+    assert_eq!(
+        state.difficulty().overall_difficulty,
+        only_easy.difficulty().overall_difficulty,
+        "the game strips Hard Rock when Easy is on, not the other way about"
+    );
+}

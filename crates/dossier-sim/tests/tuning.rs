@@ -158,3 +158,19 @@ fn previewing_a_map_under_mods_does_not_borrow_a_replays_settings() {
     let state = GameState::with_mods(&beatmap(OD_EIGHT), &replay, Mods::new(0));
     assert!((state.timeline().difficulty.overall_difficulty - 8.0).abs() < 1e-9);
 }
+
+#[test]
+fn lazers_mirror_reflects_the_axes_it_names() {
+    let mirrored = |reflection: f64| {
+        let replay = replay_with(vec![a_mod(
+            "MR",
+            &[("reflection", Setting::Number(reflection))],
+        )]);
+        let tuning = Tuning::of_replay(&replay);
+        (tuning.reflect.across, tuning.reflect.along)
+    };
+
+    assert_eq!(mirrored(0.0), (false, true), "horizontal flips left to right");
+    assert_eq!(mirrored(1.0), (true, false), "vertical flips top to bottom");
+    assert_eq!(mirrored(2.0), (true, true), "both does both");
+}

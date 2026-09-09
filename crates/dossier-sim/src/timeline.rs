@@ -139,7 +139,10 @@ impl Timeline {
 
     pub fn tuned(beatmap: &Beatmap, mods: Mods, tuning: Tuning) -> Self {
         let difficulty = tuning.stats(apply_mods(beatmap.difficulty, mods));
-        let mirror = mods.contains(bits::HARD_ROCK);
+        let mirror = Reflect {
+            across: mods.contains(bits::HARD_ROCK) || tuning.reflect.across,
+            along: tuning.reflect.along,
+        };
         let mut objects: Vec<TimedObject> = beatmap
             .objects
             .iter()
@@ -180,9 +183,16 @@ impl Timeline {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Reflect {
+    pub across: bool,
+    pub along: bool,
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct Tuning {
     pub rate: Option<f64>,
+    pub reflect: Reflect,
     pub circle_size: Option<f64>,
     pub approach_rate: Option<f64>,
     pub overall_difficulty: Option<f64>,
@@ -201,7 +211,15 @@ impl Tuning {
                     _ => None,
                 })
         };
+        let reflection = mods
+            .iter()
+            .find(|m| m.acronym == "MR")
+            .map(|m| m.number("reflection", 0.0) as i64);
         Self {
+            reflect: Reflect {
+                across: matches!(reflection, Some(1 | 2)),
+                along: matches!(reflection, Some(0 | 2)),
+            },
             rate: ["DT", "NC", "HT", "DC"]
                 .iter()
                 .find_map(|m| stat(m, "speed_change")),
@@ -232,10 +250,10 @@ impl Tuning {
 }
 
 fn apply_mods(difficulty: Difficulty, mods: Mods) -> Difficulty {
-    if mods.contains(bits::HARD_ROCK) {
-        difficulty.hard_rock()
-    } else if mods.contains(bits::EASY) {
+    if mods.contains(bits::EASY) {
         difficulty.easy()
+    } else if mods.contains(bits::HARD_ROCK) {
+        difficulty.hard_rock()
     } else {
         difficulty
     }
@@ -246,9 +264,16 @@ fn resolve(
     difficulty: &Difficulty,
     index: usize,
     obj: &HitObject,
-    mirror: bool,
+    mirror: Reflect,
 ) -> TimedObject {
-    let flip = |p: Point| if mirror { p.mirrored() } else { p };
+    let flip = |p: Point| {
+        let p = if mirror.across { p.mirrored() } else { p };
+        if mirror.along {
+            p.flipped()
+        } else {
+            p
+        }
+    };
 
     let (kind, end_ms) = match &obj.kind {
         ObjectKind::Circle => (TimedKind::Circle, obj.time_ms),

@@ -1228,72 +1228,79 @@ fn spinner_sweep_signed(
     if spin.spun_out && !spin.smoothed {
         return spun_out_sweep(start_ms, end_ms);
     }
-    if spin.smoothed {
-        let facing = raw_facing(cursor, start_ms, end_ms);
-        let (turned, crossings) = smoothed_sweep(cursor, start_ms, end_ms, spin);
-        return (turned, facing, crossings);
-    }
-    if end_ms <= start_ms || cursor.is_empty() {
-        return (0.0, 0.0, Vec::new());
-    }
+    let facing = raw_facing(cursor, start_ms, end_ms);
+    let (turned, crossings) = if spin.smoothed {
+        smoothed_sweep(cursor, start_ms, end_ms, spin)
+    } else {
+        counted_sweep(cursor, start_ms, end_ms, spin)
+    };
+    (turned, facing, crossings)
+}
 
-    let mut samples: Vec<(f64, Point)> = Vec::new();
-    samples.extend(cursor.sample(start_ms).map(|c| (start_ms, c.pos)));
-    samples.extend(
-        cursor
-            .frames()
-            .iter()
-            .filter(|f| (f.time_ms as f64) > start_ms && (f.time_ms as f64) < end_ms)
-            .map(|f| {
-                (
-                    f.time_ms as f64,
-                    Point {
-                        x: f64::from(f.x),
-                        y: f64::from(f.y),
-                    },
-                )
-            }),
-    );
-    samples.extend(cursor.sample(end_ms).map(|c| (end_ms, c.pos)));
-
+fn counted_sweep(cursor: &CursorTrack, start_ms: f64, end_ms: f64, spin: Spin) -> (f64, Vec<f64>) {
     let centre = Point::CENTRE;
-    let mut swept = 0.0;
-    let mut facing = 0.0;
-    let mut previous: Option<(f64, f64)> = None;
-    let mut turns = Vec::new();
-    for (time_ms, pos) in samples {
-        let (dx, dy) = (pos.x - centre.x, pos.y - centre.y);
+    let mut accumulated = 0.0f64;
+    let mut at_last = 0.0f64;
+    let mut widest = 0.0f64;
+    let mut completed = 0.0f64;
+    let mut previous: Option<f64> = None;
+    let mut turned = 0.0f64;
+    let mut crossings = Vec::new();
+    let mut was_at = start_ms;
+
+    for sample in cursor.frames() {
+        let at = sample.time_ms as f64;
+        if at < start_ms || at > end_ms {
+            continue;
+        }
+        let (dx, dy) = (f64::from(sample.x) - centre.x, f64::from(sample.y) - centre.y);
         if dx.hypot(dy) < 1e-9 {
             continue;
         }
         let angle = dy.atan2(dx);
-        if let Some((was_at, before)) = previous {
-            let mut step = angle - before;
-            while step > PI {
-                step -= TAU;
-            }
-            while step < -PI {
-                step += TAU;
-            }
-            facing += step;
-            let after = swept + step.abs();
+        let Some(before) = previous else {
+            previous = Some(angle);
+            was_at = at;
+            continue;
+        };
+        previous = Some(angle);
 
-            let mut crossed = (swept / PI).floor() + 1.0;
-            while crossed * PI <= after {
-                let share = if after > swept {
-                    (crossed * PI - swept) / (after - swept)
-                } else {
-                    0.0
-                };
-                turns.push(was_at + (time_ms - was_at) * share);
-                crossed += 1.0;
-            }
-            swept = after;
+        let mut step = angle - before;
+        while step > PI {
+            step -= TAU;
         }
-        previous = Some((time_ms, angle));
-    }
+        while step < -PI {
+            step += TAU;
+        }
+        if !(spin.relax || sample.keys.is_pressed()) {
+            step = 0.0;
+        }
+        if step != 0.0 {
+            accumulated += step;
+            widest = widest.max((accumulated - at_last).abs());
+            while widest >= TAU {
+                let way = (accumulated - at_last).signum();
+                completed += 1.0;
+                at_last += way * TAU;
+                widest = (accumulated - at_last).abs();
+            }
+        }
 
-    (swept / PI, facing / TAU, turns)
+        let before_turn = turned;
+        turned = (completed * TAU + widest) / PI;
+        let mut crossed = before_turn.floor() + 1.0;
+        while crossed <= turned {
+            let share = if turned > before_turn {
+                (crossed - before_turn) / (turned - before_turn)
+            } else {
+                0.0
+            };
+            crossings.push(was_at + (at - was_at) * share);
+            crossed += 1.0;
+        }
+        was_at = at;
+    }
+    (turned, crossings)
 }
 
 pub fn spinner_facing(cursor: &CursorTrack, start_ms: f64, end_ms: f64, spin: Spin) -> f64 {

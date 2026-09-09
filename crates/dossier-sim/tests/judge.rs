@@ -1979,3 +1979,31 @@ fn the_wind_up_is_measured_against_real_seconds() {
         "but only the wind-up differs, not the turning: {doubled} against {plain}"
     );
 }
+
+#[test]
+fn lazer_will_not_be_cheesed_by_a_wobbling_cursor() {
+    let map = beatmap(LONG_SPINNER);
+    let wobble = (1_000..=5_000)
+        .step_by(17)
+        .map(|t| {
+            let swing = if (t / 34) % 2 == 0 { 2.9 } else { -2.9 };
+            frame(
+                t,
+                (256.0 + 100.0 * f64::cos(swing) as f32),
+                (192.0 + 100.0 * f64::sin(swing) as f32),
+                Keys::K1,
+            )
+        })
+        .collect();
+
+    let mut replay = replay_with(wobble, 0);
+    replay.game_version = 30_000_016;
+    let state = GameState::new(&map, &replay);
+    let counted =
+        dossier_sim::spinner_half_turns(state.cursor_track(), 1_000.0, 5_000.0, state.spin());
+
+    assert!(
+        counted < 2.0,
+        "lazer counts whole turns in one direction, not every wobble: {counted}"
+    );
+}

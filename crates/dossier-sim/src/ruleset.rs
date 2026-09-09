@@ -106,8 +106,12 @@ impl Ruleset {
         self.client == Client::Stable
     }
 
-    pub fn spins_by_itself(self) -> bool {
-        self.spun_out
+    pub fn spin(self) -> crate::judge::Spin {
+        crate::judge::Spin {
+            spun_out: self.spun_out,
+            relax: self.relax,
+            smoothed: self.client == Client::Stable,
+        }
     }
 
     pub fn spinner_counts_half_turns(self) -> bool {

@@ -596,20 +596,22 @@ OverallDifficulty:5
 256,192,1000,12,0,2000
 ";
 
+const SIXTY_A_SECOND_MS: i64 = 17;
+
 fn spin_frames(from: i64, to: i64, turns: f64) -> Vec<ReplayFrame> {
     let span = (to - from) as f64;
-    frames_over(
-        from,
-        to,
-        |t| {
+    (from..=to)
+        .step_by(SIXTY_A_SECOND_MS as usize)
+        .map(|t| {
             let angle = (t - from) as f64 / span * turns * TAU;
-            (
+            frame(
+                t,
                 (256.0 + 100.0 * angle.cos()) as f32,
                 (192.0 + 100.0 * angle.sin()) as f32,
+                Keys::K1,
             )
-        },
-        |_| false,
-    )
+        })
+        .collect()
 }
 
 const LONG_SPINNER: &str = "
@@ -655,7 +657,7 @@ fn a_spinner_pays_a_hundred_a_turn_and_a_thousand_past_the_clear() {
         )
     };
 
-    assert_eq!(parts(8.0), (7, 0), "eight turns, a hundred on each, no bonus");
+    assert_eq!(parts(8.0), (8, 0), "eight turns, a hundred on each, no bonus");
     assert_eq!(
         parts(11.0),
         (11, 0),
@@ -704,11 +706,26 @@ fn an_ordinary_spin_rate_clears_an_ordinary_spinner() {
 }
 
 #[test]
-fn spinners_do_not_need_a_button_held() {
+fn a_spinner_wants_a_button_held_unless_the_player_is_relaxed() {
     let map = beatmap(SPINNER);
-    let frames = spin_frames(1000, 2000, 6.0);
-    assert!(frames.iter().all(|f| !f.keys.is_pressed()));
-    assert_eq!(judged(&map, &replay_with(frames, 0)).count_300, 1);
+    let loose: Vec<ReplayFrame> = spin_frames(1000, 2000, 6.0)
+        .into_iter()
+        .map(|f| ReplayFrame {
+            keys: Keys(0),
+            ..f
+        })
+        .collect();
+
+    assert_eq!(
+        judged(&map, &replay_with(loose.clone(), 0)).count_miss,
+        1,
+        "osu! only turns the spinner while a button is down"
+    );
+    assert_eq!(
+        judged(&map, &replay_with(loose, dossier_replay::bits::RELAX)).count_300,
+        1,
+        "Relax turns it without one"
+    );
 }
 
 #[test]
@@ -1887,5 +1904,55 @@ fn a_bonus_spin_is_worth_the_thousand_the_game_shows() {
         stable_base_value(dossier_sim::Part::SpinnerSpin, dossier_sim::Judgement::Great),
         0,
         "the odd half turn is worth nothing"
+    );
+}
+
+#[test]
+fn a_spinner_winds_up_faster_the_shorter_it_is() {
+    let long = dossier_sim::spin_acceleration(10_000.0);
+    let short = dossier_sim::spin_acceleration(1_000.0);
+    assert!((long - 8e-5).abs() < 1e-12, "past five seconds it is flat");
+    assert!(
+        short > long * 20.0,
+        "a one-second spinner has to get going: {short} against {long}"
+    );
+}
+
+#[test]
+fn the_spinner_will_not_be_turned_faster_than_the_game_allows() {
+    let map = beatmap(LONG_SPINNER);
+    let absurd = spin_frames(1000, 5000, 200.0);
+    let state = GameState::new(&map, &replay_with(absurd, 0));
+    let counted =
+        dossier_sim::spinner_half_turns(state.cursor_track(), 1_000.0, 5_000.0, state.spin());
+
+    let ceiling = 4_000.0 * 0.05 / std::f64::consts::PI;
+    assert!(
+        counted <= ceiling + 0.5,
+        "the game caps at a twentieth of a radian a millisecond: {counted} against {ceiling:.1}"
+    );
+}
+
+#[test]
+fn a_spinner_nobody_holds_turns_nothing() {
+    let map = beatmap(LONG_SPINNER);
+    let loose = frames_over(
+        1_000,
+        5_000,
+        |t| {
+            let angle = (t - 1_000) as f64 / 4_000.0 * 30.0 * std::f64::consts::TAU;
+            (
+                (256.0 + 100.0 * angle.cos()) as f32,
+                (192.0 + 100.0 * angle.sin()) as f32,
+            )
+        },
+        |_| false,
+    );
+    let state = GameState::new(&map, &replay_with(loose, 0));
+    let counted =
+        dossier_sim::spinner_half_turns(state.cursor_track(), 1_000.0, 5_000.0, state.spin());
+    assert!(
+        counted < 1.0,
+        "the game only turns the spinner while a button is down: {counted}"
     );
 }

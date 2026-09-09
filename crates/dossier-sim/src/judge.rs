@@ -655,9 +655,9 @@ fn build_events(
         }
 
         TimedKind::Spinner => {
-            let spun_out = ruleset.spins_by_itself();
-            let turns = spinner_spin_times(cursor, object.start_ms, object.end_ms, spun_out);
-            let rotations = spinner_half_turns(cursor, object.start_ms, object.end_ms, spun_out);
+            let spin = ruleset.spin();
+            let turns = spinner_spin_times(cursor, object.start_ms, object.end_ms, spin);
+            let rotations = spinner_half_turns(cursor, object.start_ms, object.end_ms, spin);
             let required = required_half_turns(difficulty, object.duration_ms());
 
             let spare = spare_spins(difficulty, object.duration_ms()) as i64;
@@ -1065,35 +1065,144 @@ pub(crate) fn is_tracking(
     button_down(sample.keys, relax) && sample.pos.distance_to(ball) <= radius
 }
 
-pub fn spinner_half_turns(cursor: &CursorTrack, start_ms: f64, end_ms: f64, spun_out: bool) -> f64 {
-    spinner_sweep(cursor, start_ms, end_ms, spun_out).0
+pub fn spinner_half_turns(cursor: &CursorTrack, start_ms: f64, end_ms: f64, spin: Spin) -> f64 {
+    spinner_sweep(cursor, start_ms, end_ms, spin).0
 }
 
-pub fn spinner_rpm(cursor: &CursorTrack, start_ms: f64, time_ms: f64, spun_out: bool) -> f64 {
+pub fn spinner_rpm(cursor: &CursorTrack, start_ms: f64, time_ms: f64, spin: Spin) -> f64 {
     const WINDOW_MS: f64 = 200.0;
     let from = (time_ms - WINDOW_MS).max(start_ms);
     let span = time_ms - from;
     if span < 1.0 {
         return 0.0;
     }
-    spinner_half_turns(cursor, from, time_ms, spun_out) / 2.0 / span * 60_000.0
+    spinner_half_turns(cursor, from, time_ms, spin) / 2.0 / span * 60_000.0
 }
 
-pub(crate) fn spinner_spin_times(cursor: &CursorTrack, start_ms: f64, end_ms: f64, spun_out: bool) -> Vec<f64> {
-    spinner_sweep(cursor, start_ms, end_ms, spun_out).1
+pub(crate) fn spinner_spin_times(cursor: &CursorTrack, start_ms: f64, end_ms: f64, spin: Spin) -> Vec<f64> {
+    spinner_sweep(cursor, start_ms, end_ms, spin).1
 }
 
 fn spinner_sweep(
     cursor: &CursorTrack,
     start_ms: f64,
     end_ms: f64,
-    spun_out: bool,
+    spin: Spin,
 ) -> (f64, Vec<f64>) {
-    let (turns, _, crossings) = spinner_sweep_signed(cursor, start_ms, end_ms, spun_out);
+    let (turns, _, crossings) = spinner_sweep_signed(cursor, start_ms, end_ms, spin);
     (turns, crossings)
 }
 
 const SPUN_OUT_RADIANS_PER_MS: f64 = 0.03;
+
+const SPIN_CEILING_RADIANS_PER_MS: f64 = 0.05;
+
+const SPIN_BASE_ACCELERATION: f64 = 8e-5;
+
+const SPIN_SHORT_SPINNER_MS: f64 = 5_000.0;
+
+const SPIN_FRAME_MS: f64 = 50.0 / 3.0;
+
+const SPIN_FRAME_LENIENCE_MS: f64 = 17.333_332_697_550_457;
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Spin {
+    pub spun_out: bool,
+    pub relax: bool,
+    pub smoothed: bool,
+}
+
+pub fn spin_acceleration(duration_ms: f64) -> f64 {
+    SPIN_BASE_ACCELERATION + ((SPIN_SHORT_SPINNER_MS - duration_ms) / 1_000.0 / 2_000.0).max(0.0)
+}
+
+fn smoothed_sweep(cursor: &CursorTrack, start_ms: f64, end_ms: f64, spin: Spin) -> (f64, Vec<f64>) {
+    let acceleration = spin_acceleration(end_ms - start_ms);
+    let centre = Point::CENTRE;
+    let mut turned = 0.0f64;
+    let mut velocity = 0.0f64;
+    let mut smoothed = SPIN_FRAME_MS;
+    let mut idle = 0u32;
+    let mut observed = 0.0f64;
+    let mut previous: Option<(f64, f64)> = None;
+    let mut crossings = Vec::new();
+
+    for sample in cursor.frames() {
+        let at = sample.time_ms as f64;
+        if at < start_ms || at > end_ms {
+            continue;
+        }
+        let (dx, dy) = (f64::from(sample.x) - centre.x, f64::from(sample.y) - centre.y);
+        if dx.hypot(dy) < 1e-9 {
+            continue;
+        }
+        let angle = dy.atan2(dx);
+        let Some((was_at, before)) = previous else {
+            previous = Some((at, angle));
+            continue;
+        };
+        previous = Some((at, angle));
+
+        let gap = (at - was_at).max(0.0);
+        let held = spin.relax || sample.keys.is_pressed();
+        let mut step = angle - before;
+        while step > PI {
+            step -= TAU;
+        }
+        while step < -PI {
+            step += TAU;
+        }
+
+        let decay = 0.999f64.powf(gap);
+        smoothed = decay * smoothed + (1.0 - decay) * gap;
+
+        if step == 0.0 {
+            observed = if idle < 1 { observed / 3.0 } else { 0.0 };
+            idle += 1;
+        } else {
+            idle = 0;
+            if !held {
+                step = 0.0;
+            }
+            observed = if step.abs() < PI {
+                let over = if smoothed > SPIN_FRAME_LENIENCE_MS {
+                    gap
+                } else {
+                    SPIN_FRAME_MS
+                };
+                if over > 0.0 {
+                    step / over
+                } else {
+                    0.0
+                }
+            } else {
+                0.0
+            };
+        }
+
+        if spin.spun_out {
+            velocity = SPUN_OUT_RADIANS_PER_MS;
+        } else {
+            let allowance = acceleration * gap;
+            velocity += (observed - velocity).clamp(-allowance, allowance);
+        }
+        velocity = velocity.clamp(-SPIN_CEILING_RADIANS_PER_MS, SPIN_CEILING_RADIANS_PER_MS);
+
+        let before_turn = turned;
+        turned += (velocity * gap).abs().min(PI) / PI;
+        let mut crossed = before_turn.floor() + 1.0;
+        while crossed <= turned {
+            let share = if turned > before_turn {
+                (crossed - before_turn) / (turned - before_turn)
+            } else {
+                0.0
+            };
+            crossings.push(was_at + (at - was_at) * share);
+            crossed += 1.0;
+        }
+    }
+    (turned, crossings)
+}
 
 fn spun_out_sweep(start_ms: f64, end_ms: f64) -> (f64, f64, Vec<f64>) {
     let swept = (end_ms - start_ms).max(0.0) * SPUN_OUT_RADIANS_PER_MS;
@@ -1109,10 +1218,15 @@ fn spinner_sweep_signed(
     cursor: &CursorTrack,
     start_ms: f64,
     end_ms: f64,
-    spun_out: bool,
+    spin: Spin,
 ) -> (f64, f64, Vec<f64>) {
-    if spun_out {
+    if spin.spun_out && !spin.smoothed {
         return spun_out_sweep(start_ms, end_ms);
+    }
+    if spin.smoothed {
+        let facing = raw_facing(cursor, start_ms, end_ms);
+        let (turned, crossings) = smoothed_sweep(cursor, start_ms, end_ms, spin);
+        return (turned, facing, crossings);
     }
     if end_ms <= start_ms || cursor.is_empty() {
         return (0.0, 0.0, Vec::new());
@@ -1177,6 +1291,35 @@ fn spinner_sweep_signed(
     (swept / PI, facing / TAU, turns)
 }
 
-pub fn spinner_facing(cursor: &CursorTrack, start_ms: f64, end_ms: f64, spun_out: bool) -> f64 {
-    spinner_sweep_signed(cursor, start_ms, end_ms, spun_out).1
+pub fn spinner_facing(cursor: &CursorTrack, start_ms: f64, end_ms: f64, spin: Spin) -> f64 {
+    spinner_sweep_signed(cursor, start_ms, end_ms, spin).1
+}
+
+fn raw_facing(cursor: &CursorTrack, start_ms: f64, end_ms: f64) -> f64 {
+    let centre = Point::CENTRE;
+    let mut facing = 0.0;
+    let mut previous: Option<f64> = None;
+    for sample in cursor.frames() {
+        let at = sample.time_ms as f64;
+        if at < start_ms || at > end_ms {
+            continue;
+        }
+        let (dx, dy) = (f64::from(sample.x) - centre.x, f64::from(sample.y) - centre.y);
+        if dx.hypot(dy) < 1e-9 {
+            continue;
+        }
+        let angle = dy.atan2(dx);
+        if let Some(before) = previous {
+            let mut step = angle - before;
+            while step > PI {
+                step -= TAU;
+            }
+            while step < -PI {
+                step += TAU;
+            }
+            facing += step;
+        }
+        previous = Some(angle);
+    }
+    facing / TAU
 }

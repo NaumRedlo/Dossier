@@ -581,10 +581,8 @@ impl Scene<'_> {
         crate::imported::effective_version(stated, self.skin.skin_version_as_written)
     }
 
-    pub(super) fn spins_by_itself(&self) -> bool {
-        self.state
-            .mods()
-            .contains(dossier_replay::bits::SPUN_OUT)
+    pub(super) fn spins_by_itself(&self) -> dossier_sim::Spin {
+        self.state.spin()
     }
 
     pub(super) fn skin_speaks_for(&self, element: Element) -> bool {

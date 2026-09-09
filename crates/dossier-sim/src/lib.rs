@@ -11,7 +11,7 @@ mod timeline;
 pub use cursor::{Cursor, CursorTrack};
 pub use health::{HealthTrack, DANGER_LEVEL};
 pub use judge::{
-    required_half_turns, spare_spins, spinner_facing, spinner_half_turns, spinner_rpm, tail_check_ms, Event, Judge,
+    required_half_turns, spare_spins, spin_acceleration, spinner_facing, Spin, spinner_half_turns, spinner_rpm, tail_check_ms, Event, Judge,
     Judgement, Part, PressTrace, ScoreState, Verdict,
 };
 pub use multiplier::{lazer_multiplier, Generation};

@@ -435,6 +435,14 @@ impl GameState {
         &self.timeline.difficulty
     }
 
+    pub fn spin(&self) -> crate::judge::Spin {
+        crate::judge::Spin {
+            spun_out: self.timeline.mods.contains(dossier_replay::bits::SPUN_OUT),
+            relax: self.relax,
+            smoothed: !self.lazer,
+        }
+    }
+
     pub fn playback_rate(&self) -> f64 {
         self.timeline
             .tuning
@@ -495,7 +503,7 @@ impl GameState {
                             &self.cursor,
                             object.start_ms,
                             object.end_ms,
-                            self.timeline.mods.contains(dossier_replay::bits::SPUN_OUT),
+                            self.spin(),
                         )
                     }),
                     spin_required: spinning.then(|| {

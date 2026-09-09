@@ -1868,3 +1868,24 @@ fn easy_wins_over_hard_rock_the_way_the_game_settles_it() {
         "the game strips Hard Rock when Easy is on, not the other way about"
     );
 }
+
+#[test]
+fn a_bonus_spin_is_worth_the_thousand_the_game_shows() {
+    use dossier_sim::score::stable_base_value;
+
+    assert_eq!(
+        stable_base_value(dossier_sim::Part::SpinnerBonus, dossier_sim::Judgement::Great),
+        1_000,
+        "osu! writes 1000 times the bonus spin on screen and pays exactly that"
+    );
+    assert_eq!(
+        stable_base_value(dossier_sim::Part::SpinnerPoints, dossier_sim::Judgement::Great),
+        100,
+        "and a hundred for a turn below the threshold"
+    );
+    assert_eq!(
+        stable_base_value(dossier_sim::Part::SpinnerSpin, dossier_sim::Judgement::Great),
+        0,
+        "the odd half turn is worth nothing"
+    );
+}

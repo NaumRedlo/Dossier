@@ -8,13 +8,13 @@ fn takes_combo_multiplier(part: Part) -> bool {
     matches!(part, Part::Circle | Part::Slider | Part::Spinner)
 }
 
-fn stable_base_value(part: Part, result: Judgement) -> u32 {
+pub fn stable_base_value(part: Part, result: Judgement) -> u32 {
     match part {
         Part::SliderTick => 10,
 
         Part::SpinnerSpin => 0,
         Part::SpinnerPoints => 100,
-        Part::SpinnerBonus => 1100,
+        Part::SpinnerBonus => 1000,
         Part::SliderRepeat | Part::SliderTail | Part::SliderHead => 30,
         Part::Circle | Part::Slider | Part::Spinner => match result {
             Judgement::Great => 300,

@@ -440,6 +440,7 @@ impl GameState {
             spun_out: self.timeline.mods.contains(dossier_replay::bits::SPUN_OUT),
             relax: self.relax,
             smoothed: !self.lazer,
+            rate: self.timeline.rate(),
         }
     }
 

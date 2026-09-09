@@ -111,6 +111,7 @@ impl Ruleset {
             spun_out: self.spun_out,
             relax: self.relax,
             smoothed: self.client == Client::Stable,
+            rate: 1.0,
         }
     }
 

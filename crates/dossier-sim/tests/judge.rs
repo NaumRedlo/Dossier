@@ -1956,3 +1956,26 @@ fn a_spinner_nobody_holds_turns_nothing() {
         "the game only turns the spinner while a button is down: {counted}"
     );
 }
+
+#[test]
+fn the_wind_up_is_measured_against_real_seconds() {
+    let map = beatmap(LONG_SPINNER);
+    let spun = spin_frames(1000, 5000, 20.0);
+
+    let turned = |mods: u32| {
+        let state = GameState::new(&map, &replay_with(spun.clone(), mods));
+        dossier_sim::spinner_half_turns(state.cursor_track(), 1_000.0, 5_000.0, state.spin())
+    };
+
+    let plain = turned(0);
+    let doubled = turned(dossier_replay::bits::DOUBLE_TIME);
+    assert!(
+        doubled < plain,
+        "the wind-up is measured against real seconds, so the same map-time frames \
+         accelerate slower on a doubled clock: {doubled} against {plain}"
+    );
+    assert!(
+        doubled > plain * 0.99,
+        "but only the wind-up differs, not the turning: {doubled} against {plain}"
+    );
+}

@@ -655,7 +655,10 @@ fn build_events(
         }
 
         TimedKind::Spinner => {
-            let spin = ruleset.spin();
+            let spin = Spin {
+                rate: timeline.rate(),
+                ..ruleset.spin()
+            };
             let turns = spinner_spin_times(cursor, object.start_ms, object.end_ms, spin);
             let rotations = spinner_half_turns(cursor, object.start_ms, object.end_ms, spin);
             let required = required_half_turns(difficulty, object.duration_ms());
@@ -1110,6 +1113,7 @@ pub struct Spin {
     pub spun_out: bool,
     pub relax: bool,
     pub smoothed: bool,
+    pub rate: f64,
 }
 
 pub fn spin_acceleration(duration_ms: f64) -> f64 {
@@ -1153,6 +1157,7 @@ fn smoothed_sweep(cursor: &CursorTrack, start_ms: f64, end_ms: f64, spin: Spin) 
             step += TAU;
         }
 
+        let rate = if spin.rate > 0.0 { spin.rate } else { 1.0 };
         let decay = 0.999f64.powf(gap);
         smoothed = decay * smoothed + (1.0 - decay) * gap;
 
@@ -1165,8 +1170,8 @@ fn smoothed_sweep(cursor: &CursorTrack, start_ms: f64, end_ms: f64, spin: Spin) 
                 step = 0.0;
             }
             observed = if step.abs() < PI {
-                let over = if smoothed > SPIN_FRAME_LENIENCE_MS {
-                    gap
+                let over = if smoothed / rate > SPIN_FRAME_LENIENCE_MS {
+                    gap / rate
                 } else {
                     SPIN_FRAME_MS
                 };
@@ -1183,7 +1188,7 @@ fn smoothed_sweep(cursor: &CursorTrack, start_ms: f64, end_ms: f64, spin: Spin) 
         if spin.spun_out {
             velocity = SPUN_OUT_RADIANS_PER_MS;
         } else {
-            let allowance = acceleration * gap;
+            let allowance = acceleration * gap / rate;
             velocity += (observed - velocity).clamp(-allowance, allowance);
         }
         velocity = velocity.clamp(-SPIN_CEILING_RADIANS_PER_MS, SPIN_CEILING_RADIANS_PER_MS);

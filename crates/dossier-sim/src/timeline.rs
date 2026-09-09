@@ -137,6 +137,10 @@ impl Timeline {
         Self::tuned(beatmap, mods, Tuning::default())
     }
 
+    pub fn rate(&self) -> f64 {
+        self.tuning.rate.unwrap_or_else(|| self.mods.speed_multiplier())
+    }
+
     pub fn tuned(beatmap: &Beatmap, mods: Mods, tuning: Tuning) -> Self {
         let difficulty = tuning.stats(apply_mods(beatmap.difficulty, mods));
         let mirror = Reflect {

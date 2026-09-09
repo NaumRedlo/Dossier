@@ -4744,6 +4744,74 @@ fn the_count_waits_a_hundred_and_sixty_before_it_climbs() {
 }
 
 #[test]
+fn the_count_does_not_swell_when_it_climbs() {
+    let (map, replay) = tapped();
+    let state = GameState::new(&map, &replay);
+    let highest = |at: f64| {
+        let skin = Skin::with_combo_colours(map.combo_colours()).with_font(font());
+        let frame = Scene::new(&state, skin).frame(at, &Layout::new(640, 480));
+        (380..480u32)
+            .find(|&y| {
+                (0..240u32).any(|x| {
+                    frame
+                        .pixel(x, y)
+                        .is_some_and(|p| p.red() > 80 && p.green() > 80 && p.blue() > 80)
+                })
+            })
+            .unwrap_or(480)
+    };
+
+    let settled = highest(4_500.0);
+    for step in 0..11 {
+        let at = 4_205.0 + f64::from(step) * 25.0;
+        assert_eq!(
+            highest(at),
+            settled,
+            "the count is a different height at {at} than once it has settled"
+        );
+    }
+}
+
+#[test]
+fn the_score_moves_between_two_judgements() {
+    let (map, replay) = tapped();
+    let state = GameState::new(&map, &replay);
+    let steps: Vec<(f64, u64)> = state
+        .score_track()
+        .expect("the play was scored")
+        .steps()
+        .to_vec();
+    let (from, next) = steps
+        .windows(2)
+        .map(|pair| (pair[0].0, pair[1].0))
+        .find(|(from, next)| next - from > 120.0)
+        .expect("two judgements far enough apart to watch the roll");
+
+    let ink = |at: f64| {
+        let skin = Skin::with_combo_colours(map.combo_colours()).with_font(font());
+        let frame = Scene::new(&state, skin).frame(at, &Layout::new(640, 480));
+        let mut lit = Vec::new();
+        for y in 0..90u32 {
+            for x in 380..640u32 {
+                if frame
+                    .pixel(x, y)
+                    .is_some_and(|p| p.red() > 80 && p.green() > 80 && p.blue() > 80)
+                {
+                    lit.push((x, y));
+                }
+            }
+        }
+        lit
+    };
+
+    assert_ne!(
+        ink(from + 5.0),
+        ink(from + 90.0),
+        "the score stood still between {from} and {next}, so it is not rolling"
+    );
+}
+
+#[test]
 fn a_skin_that_silences_the_combo_is_not_given_ours() {
     let hushed = skin_folder("combo-hushed");
     for digit in 0..10 {

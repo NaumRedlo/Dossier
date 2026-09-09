@@ -385,6 +385,10 @@ impl ScoreTrack {
         }
     }
 
+    pub fn steps(&self) -> &[(f64, u64)] {
+        &self.points
+    }
+
     pub fn total(&self) -> u64 {
         self.points.last().map_or(0, |(_, v)| *v)
     }

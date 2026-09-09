@@ -221,51 +221,6 @@ impl Scene<'_> {
         true
     }
 
-    fn combo_width(&self, text: &str, size: f32) -> f32 {
-        if let Some((_, _, width)) = self.hud_glyphs(text, size, true) {
-            return width;
-        }
-        self.skin
-            .font
-            .as_ref()
-            .map_or(0.0, |font| font.width(text, size))
-    }
-
-    fn draw_combo_number(
-        &self,
-        pixmap: &mut Pixmap,
-        shown: u32,
-        was: u32,
-        turning: f32,
-        (x, baseline): (f32, f32),
-        size: f32,
-    ) {
-        let now = shown.to_string();
-        self.draw_combo(pixmap, &format!("{now}x"), (x, baseline), size, 1.0, false);
-        if turning >= 1.0 || was == shown {
-            return;
-        }
-
-        let before = was.to_string();
-        let same = now
-            .bytes()
-            .zip(before.bytes())
-            .take_while(|(one, other)| one == other)
-            .count();
-        let left = 1.0 - turning;
-        self.draw_combo(
-            pixmap,
-            &before[same..],
-            (
-                x + self.combo_width(&now[..same], size),
-                baseline - size * COMBO_TURN_RISE * eased_out(turning),
-            ),
-            size,
-            COMBO_TURN_TRAIL * left * left,
-            false,
-        );
-    }
-
     fn draw_combo(
         &self,
         pixmap: &mut Pixmap,
@@ -311,6 +266,48 @@ impl Scene<'_> {
         );
     }
 
+    #[allow(clippy::too_many_arguments)]
+    fn draw_tally(
+        &self,
+        pixmap: &mut Pixmap,
+        text: &str,
+        right_edge: f32,
+        baseline: f32,
+        size: f32,
+        colour: tiny_skia::Color,
+        alpha: f32,
+    ) {
+        if alpha <= 0.01 || text.is_empty() {
+            return;
+        }
+        if self.draw_hud_text_in(
+            pixmap,
+            text,
+            right_edge,
+            baseline,
+            size,
+            Align::Right,
+            alpha,
+            colour,
+        ) {
+            return;
+        }
+        let Some(font) = &self.skin.font else {
+            return;
+        };
+        font.draw(
+            pixmap,
+            Label {
+                text,
+                x: right_edge,
+                y: baseline,
+                size,
+                colour: with_alpha(colour, alpha),
+                align: Align::Right,
+            },
+        );
+    }
+
     pub(super) fn draw_hud(&self, pixmap: &mut Pixmap, time_ms: f64, layout: &Layout) {
         let (Some(font), Some(judge)) = (&self.skin.font, self.state.judge()) else {
             return;
@@ -329,13 +326,13 @@ impl Scene<'_> {
             });
         let accuracy_size = score_size * ACCURACY_OF_SCORE;
 
-        let leads = if self.state.score_at(time_ms).is_some() {
+        let leads = if self.score_shown(time_ms).is_some() {
             score_size
         } else {
             accuracy_size
         };
         let mut top = self.top_band(layout) + font.digit_height(leads) / 2.0 - leads;
-        if let Some(value) = self.state.score_at(time_ms) {
+        if let Some(value) = self.score_shown(time_ms) {
             let text = value.to_string();
             let right = layout.width as f32 - margin;
             if !self.draw_hud_text(
@@ -361,7 +358,7 @@ impl Scene<'_> {
             }
             top += score_size * 1.15;
         }
-        let accuracy = format!("{:.2}%", score.accuracy());
+        let accuracy = format!("{:.2}%", self.accuracy_shown(time_ms));
         let right = layout.width as f32 - margin;
         if !self.draw_hud_text(
             pixmap,
@@ -402,8 +399,7 @@ impl Scene<'_> {
                 own * COMBO_OF_FACE * to_screen
             });
         let bottom = layout.height as f32 - margin;
-        let (shown, was, since) = self.combo_shown(time_ms);
-        let turning = (((time_ms - since) / COMBO_TURN_MS).clamp(0.0, 1.0)) as f32;
+        let shown = self.combo_shown(time_ms);
 
         if let Some((popped, swell, ghost)) = self.combo_ghost(time_ms) {
             self.draw_combo(
@@ -415,8 +411,14 @@ impl Scene<'_> {
                 true,
             );
         }
-        let size = combo_face * self.combo_pulse(time_ms);
-        self.draw_combo_number(pixmap, shown, was, turning, (margin, bottom), size);
+        self.draw_combo(
+            pixmap,
+            &format!("{shown}x"),
+            (margin, bottom),
+            combo_face,
+            1.0,
+            false,
+        );
 
         let tally_size = (height * 0.030) as f32;
         let counts = score.counts;
@@ -428,28 +430,21 @@ impl Scene<'_> {
         ];
         let mut y = top + accuracy_size + tally_size * 1.6;
         let right_edge = layout.width as f32 - margin;
-        for (value, colour) in tally {
+        for (which, (value, colour)) in tally.into_iter().enumerate() {
             let text = format!("{value}");
-            if !self.draw_hud_text_in(
-                pixmap,
-                &text,
-                right_edge,
-                y,
-                tally_size,
-                Align::Right,
-                presence,
-                colour,
-            ) {
-                font.draw(
+            self.draw_tally(pixmap, &text, right_edge, y, tally_size, colour, presence);
+            if let Some((before, share)) = self.tally_tick(which, time_ms) {
+                let before = format!("{before}");
+                let changed = digits_that_turned(&text, &before);
+                let left = 1.0 - share;
+                self.draw_tally(
                     pixmap,
-                    Label {
-                        text: &text,
-                        x: right_edge,
-                        y,
-                        size: tally_size,
-                        colour: with_alpha(colour, presence),
-                        align: Align::Right,
-                    },
+                    &before[before.len() - changed..],
+                    right_edge,
+                    y - tally_size * TALLY_TICK_RISE * eased_out(share),
+                    tally_size,
+                    colour,
+                    presence * TALLY_TICK_TRAIL * left * left,
                 );
             }
             y += tally_size * 1.25;
@@ -1017,5 +1012,30 @@ impl Scene<'_> {
                 );
             }
         }
+    }
+}
+
+fn digits_that_turned(now: &str, was: &str) -> usize {
+    if now.len() != was.len() {
+        return was.len();
+    }
+    now.bytes()
+        .rev()
+        .zip(was.bytes().rev())
+        .take_while(|(one, other)| one != other)
+        .count()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::digits_that_turned;
+
+    #[test]
+    fn only_the_digits_that_moved_are_left_behind() {
+        assert_eq!(digits_that_turned("429", "428"), 1);
+        assert_eq!(digits_that_turned("260", "259"), 2);
+        assert_eq!(digits_that_turned("200", "199"), 3);
+        assert_eq!(digits_that_turned("10", "9"), 1);
+        assert_eq!(digits_that_turned("7", "7"), 0);
     }
 }

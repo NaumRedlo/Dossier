@@ -209,12 +209,11 @@ const COMBO_POP_ALPHA: f32 = 0.6;
 
 const COMBO_CATCH_MS: f64 = 160.0;
 
-const COMBO_TURN_MS: f64 = 90.0;
-const COMBO_TURN_RISE: f32 = 0.36;
-const COMBO_TURN_TRAIL: f32 = 0.5;
+const SCORE_ROLL_MS: f64 = 62.0;
 
-const COMBO_SMALL_POP_MS: f64 = 100.0;
-const COMBO_SMALL_POP_GAIN: f32 = 0.1;
+const TALLY_TICK_MS: f64 = 110.0;
+const TALLY_TICK_RISE: f32 = 0.5;
+const TALLY_TICK_TRAIL: f32 = 0.55;
 
 use dossier_sim::DANGER_LEVEL as DANGER_FROM;
 
@@ -299,6 +298,12 @@ pub struct Scene<'a> {
     longest_life_ms: f64,
 
     combo_changes: Vec<(f64, u32)>,
+
+    score_roll: Vec<f64>,
+
+    accuracy_roll: Vec<(f64, f64, f64)>,
+
+    tally_changes: [Vec<(f64, u32)>; 4],
 
     hidden: bool,
 
@@ -424,12 +429,58 @@ impl<'a> Scene<'a> {
             }
         }
 
+        let mut score_roll = Vec::new();
+        if let Some(track) = state.score_track() {
+            let steps = track.steps();
+            score_roll.reserve(steps.len());
+            let mut shown = 0.0f64;
+            for (index, (at, _)) in steps.iter().enumerate() {
+                if index > 0 {
+                    let (before, reached) = steps[index - 1];
+                    let reached = reached as f64;
+                    shown = reached - (reached - shown) * (-(at - before) / SCORE_ROLL_MS).exp();
+                }
+                score_roll.push(shown);
+            }
+        }
+
+        let mut accuracy_roll: Vec<(f64, f64, f64)> = Vec::new();
+        let mut tally_changes: [Vec<(f64, u32)>; 4] = Default::default();
+        if let Some(judge) = state.judge() {
+            let mut before = [0u32; 4];
+            let mut shown = 0.0f64;
+            for event in judge.events() {
+                let reached = judge.state_at(event.time_ms);
+                if let Some(&(at, target, was)) = accuracy_roll.last() {
+                    shown = target - (target - was) * (-(event.time_ms - at) / SCORE_ROLL_MS).exp();
+                }
+                accuracy_roll.push((event.time_ms, reached.accuracy(), shown));
+
+                let counts = reached.counts;
+                let now = [
+                    u32::from(counts.count_300),
+                    u32::from(counts.count_100),
+                    u32::from(counts.count_50),
+                    u32::from(counts.count_miss),
+                ];
+                for (index, value) in now.iter().enumerate() {
+                    if *value != before[index] {
+                        tally_changes[index].push((event.time_ms, before[index]));
+                    }
+                }
+                before = now;
+            }
+        }
+
         Self {
             state,
             skin,
             annotations,
             longest_life_ms,
             combo_changes,
+            score_roll,
+            accuracy_roll,
+            tally_changes,
             hidden: state.mods().contains(dossier_replay::bits::HIDDEN),
             signature: None,
             leaderboard: crate::leaderboard::Leaderboard::default(),
@@ -550,21 +601,43 @@ impl<'a> Scene<'a> {
             .map_or(0, |earlier| self.combo_changes[earlier].1)
     }
 
-    fn combo_shown(&self, time_ms: f64) -> (u32, u32, f64) {
-        let Some((index, at, to, broke)) = self.combo_step(time_ms) else {
-            return (0, 0, f64::NEG_INFINITY);
+    fn score_shown(&self, time_ms: f64) -> Option<u64> {
+        let steps = self.state.score_track()?.steps();
+        let index = steps.partition_point(|(at, _)| *at <= time_ms);
+        let Some(index) = index.checked_sub(1) else {
+            return Some(0);
         };
-        if broke {
-            return (to, self.combo_before(index), at);
+        let (at, reached) = steps[index];
+        let reached = reached as f64;
+        let left = (reached - self.score_roll[index]) * (-(time_ms - at) / SCORE_ROLL_MS).exp();
+        Some((reached - left).round().max(0.0) as u64)
+    }
+
+    fn accuracy_shown(&self, time_ms: f64) -> f64 {
+        let index = self.accuracy_roll.partition_point(|(at, _, _)| *at <= time_ms);
+        let Some(index) = index.checked_sub(1) else {
+            return 100.0;
+        };
+        let (at, target, was) = self.accuracy_roll[index];
+        target - (target - was) * (-(time_ms - at) / SCORE_ROLL_MS).exp()
+    }
+
+    fn tally_tick(&self, which: usize, time_ms: f64) -> Option<(u32, f32)> {
+        let changes = &self.tally_changes[which];
+        let index = changes.partition_point(|(at, _)| *at <= time_ms).checked_sub(1)?;
+        let (at, before) = changes[index];
+        let share = ((time_ms - at) / TALLY_TICK_MS) as f32;
+        (share < 1.0).then_some((before, share))
+    }
+
+    fn combo_shown(&self, time_ms: f64) -> u32 {
+        let Some((index, at, to, broke)) = self.combo_step(time_ms) else {
+            return 0;
+        };
+        if broke || time_ms - at >= COMBO_CATCH_MS {
+            return to;
         }
-        if time_ms - at >= COMBO_CATCH_MS {
-            return (to, self.combo_before(index), at + COMBO_CATCH_MS);
-        }
-        let now = self.combo_before(index);
-        let was = index
-            .checked_sub(1)
-            .map_or(0, |earlier| self.combo_before(earlier));
-        (now, was, at)
+        self.combo_before(index)
     }
 
     fn combo_ghost(&self, time_ms: f64) -> Option<(u32, f32, f32)> {
@@ -581,24 +654,6 @@ impl<'a> Scene<'a> {
             COMBO_POP_FROM + (1.0 - COMBO_POP_FROM) * share,
             COMBO_POP_ALPHA * (1.0 - share),
         ))
-    }
-
-    fn combo_pulse(&self, time_ms: f64) -> f32 {
-        let (_, _, since) = self.combo_shown(time_ms);
-        let age = time_ms - since;
-        if age < 0.0 {
-            return 1.0;
-        }
-        let half = COMBO_SMALL_POP_MS / 2.0;
-        if age < half {
-            let share = (age / half) as f32;
-            1.0 + COMBO_SMALL_POP_GAIN * share * share
-        } else if age < COMBO_SMALL_POP_MS {
-            let share = ((age - half) / half) as f32;
-            1.0 + COMBO_SMALL_POP_GAIN * (1.0 - share) * (1.0 - share)
-        } else {
-            1.0
-        }
     }
 
     fn candidates(&self, time_ms: f64) -> std::ops::Range<usize> {

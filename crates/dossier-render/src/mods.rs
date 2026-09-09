@@ -128,11 +128,7 @@ const KNOWN: &[(&str, Kind, Art)] = &[
         Kind::Converted,
         Some(include_bytes!("../../../assets/mods/mod-mirror.png")),
     ),
-    (
-        "V2",
-        Kind::Converted,
-        Some(include_bytes!("../../../assets/mods/mod-score-v2.png")),
-    ),
+    ("V2", Kind::Converted, None),
     (
         "TP",
         Kind::Converted,
@@ -335,10 +331,26 @@ mod tests {
     }
 
     #[test]
-    fn every_mod_has_a_picture_that_decodes() {
+    fn every_mod_but_score_v2_has_a_picture_that_decodes() {
         for name in every() {
+            if name == "V2" {
+                assert!(!glyphs().contains_key(name), "V2 is meant to wear its name");
+                continue;
+            }
             assert!(glyphs().contains_key(name), "{name} has no glyph");
         }
+    }
+
+    #[test]
+    fn a_mod_without_a_picture_wears_its_name_instead() {
+        let made = icon("V2", 100).expect("score v2 draws");
+        assert_eq!((made.width(), made.height()), (162, 100));
+        let white = made
+            .pixels()
+            .iter()
+            .filter(|p| p.red() > 230 && p.green() > 230 && p.blue() > 230)
+            .count();
+        assert!(white > 200, "only {white} pixels of lettering");
     }
 
     #[test]

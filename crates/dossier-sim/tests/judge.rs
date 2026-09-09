@@ -1989,8 +1989,8 @@ fn lazer_will_not_be_cheesed_by_a_wobbling_cursor() {
             let swing = if (t / 34) % 2 == 0 { 2.9 } else { -2.9 };
             frame(
                 t,
-                (256.0 + 100.0 * f64::cos(swing) as f32),
-                (192.0 + 100.0 * f64::sin(swing) as f32),
+                256.0 + 100.0 * f64::cos(swing) as f32,
+                192.0 + 100.0 * f64::sin(swing) as f32,
                 Keys::K1,
             )
         })

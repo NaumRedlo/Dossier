@@ -10,9 +10,15 @@ const HUD_SPACE: f64 = 768.0;
 const ACCURACY_OF_SCORE: f32 = 0.6;
 const COMBO_OF_SCORE: f32 = 1.28 / 0.96;
 
-const PROGRESS_RADIUS: f64 = 16.0 / 768.0;
+const PROGRESS_RADIUS: f64 = 16.5 / 768.0;
 
-const PROGRESS_GAP: f32 = 0.5;
+const PROGRESS_GAP: f64 = 18.0 / 768.0;
+
+const PROGRESS_EDGE: f32 = 2.0 / 16.5;
+const PROGRESS_FILL: f32 = 0.92;
+const PROGRESS_DOT: f32 = 2.0 / 16.5;
+const PROGRESS_INK: f32 = 153.0 / 255.0;
+const PROGRESS_COMING: (u8, u8, u8) = (199, 255, 47);
 const EDGE_MARGIN: f64 = 12.8 / 768.0;
 
 const OUR_BAR_WIDTH: f32 = 0.325;
@@ -387,7 +393,7 @@ impl Scene<'_> {
         self.draw_progress(
             pixmap,
             time_ms,
-            right - widest - accuracy_size * PROGRESS_GAP - radius,
+            right - widest - (height * PROGRESS_GAP) as f32 - radius,
             top + accuracy_size - font.digit_height(accuracy_size) / 2.0,
             radius,
             1.0,
@@ -399,7 +405,7 @@ impl Scene<'_> {
                 own * COMBO_OF_FACE * to_screen
             });
         let bottom = layout.height as f32 - margin;
-        let shown = self.combo_shown(time_ms);
+        let (shown, _) = self.combo_shown(time_ms);
 
         if let Some((popped, swell, ghost)) = self.combo_ghost(time_ms) {
             self.draw_combo(
@@ -415,7 +421,7 @@ impl Scene<'_> {
             pixmap,
             &format!("{shown}x"),
             (margin, bottom),
-            combo_face,
+            combo_face * self.combo_pop(time_ms),
             1.0,
             false,
         );
@@ -562,27 +568,51 @@ impl Scene<'_> {
         presence: f32,
     ) {
         let (from, to) = self.state.span_ms();
-        if to <= from || radius <= 0.5 {
+        if to <= from || radius <= 0.5 || presence <= 0.01 {
             return;
         }
-        let played = (((time_ms - from) / (to - from)).clamp(0.0, 1.0)) as f32;
+        let first = self
+            .state
+            .timeline()
+            .objects
+            .first()
+            .map_or(from, |object| object.start_ms);
 
+        let (share, colour, widdershins) = if time_ms < first {
+            let coming = ((first - time_ms) / (first - from).max(1.0)).clamp(0.0, 1.0) as f32;
+            let (r, g, b) = PROGRESS_COMING;
+            (coming, tiny_skia::Color::from_rgba8(r, g, b, 255), true)
+        } else {
+            let along = ((time_ms - first) / (to - first).max(1.0)).clamp(0.0, 1.0) as f32;
+            (along, self.skin.hud, false)
+        };
+
+        let edge = (radius * PROGRESS_EDGE).max(1.0);
         crate::elements::ring(
             pixmap,
             cx,
             cy,
-            radius,
-            (radius * 0.07).max(1.0),
+            radius - edge / 2.0,
+            edge,
             self.skin.hud,
-            0.22 * presence,
+            presence,
         );
         pie(
             pixmap,
             cx,
             cy,
-            radius * 0.88,
-            played,
-            with_alpha(self.skin.hud, 0.45 * presence),
+            radius * PROGRESS_FILL,
+            share,
+            with_alpha(colour, PROGRESS_INK * presence),
+            widdershins,
+        );
+        crate::elements::dot(
+            pixmap,
+            cx,
+            cy,
+            (radius * PROGRESS_DOT).max(1.0),
+            self.skin.hud,
+            presence,
         );
     }
 

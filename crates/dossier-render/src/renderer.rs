@@ -209,6 +209,9 @@ const COMBO_POP_ALPHA: f32 = 0.6;
 
 const COMBO_CATCH_MS: f64 = 160.0;
 
+const COMBO_SMALL_POP_MS: f64 = 100.0;
+const COMBO_SMALL_POP_GAIN: f32 = 0.1;
+
 const SCORE_ROLL_MS: f64 = 62.0;
 
 const TALLY_TICK_MS: f64 = 110.0;
@@ -630,14 +633,33 @@ impl<'a> Scene<'a> {
         (share < 1.0).then_some((before, share))
     }
 
-    fn combo_shown(&self, time_ms: f64) -> u32 {
+    fn combo_shown(&self, time_ms: f64) -> (u32, f64) {
         let Some((index, at, to, broke)) = self.combo_step(time_ms) else {
-            return 0;
+            return (0, f64::NEG_INFINITY);
         };
-        if broke || time_ms - at >= COMBO_CATCH_MS {
-            return to;
+        if broke {
+            return (to, at);
         }
-        self.combo_before(index)
+        if time_ms - at >= COMBO_CATCH_MS {
+            return (to, at + COMBO_CATCH_MS);
+        }
+        (self.combo_before(index), at)
+    }
+
+    fn combo_pop(&self, time_ms: f64) -> f32 {
+        let (_, since) = self.combo_shown(time_ms);
+        let age = time_ms - since;
+        let half = COMBO_SMALL_POP_MS / 2.0;
+        if !(0.0..COMBO_SMALL_POP_MS).contains(&age) {
+            return 1.0;
+        }
+        if age < half {
+            let share = (age / half) as f32;
+            1.0 + COMBO_SMALL_POP_GAIN * share * share
+        } else {
+            let share = ((age - half) / half) as f32;
+            1.0 + COMBO_SMALL_POP_GAIN * (1.0 - share) * (1.0 - share)
+        }
     }
 
     fn combo_ghost(&self, time_ms: f64) -> Option<(u32, f32, f32)> {

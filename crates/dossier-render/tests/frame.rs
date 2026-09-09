@@ -4744,7 +4744,46 @@ fn the_count_waits_a_hundred_and_sixty_before_it_climbs() {
 }
 
 #[test]
-fn the_count_does_not_swell_when_it_climbs() {
+fn the_progress_ring_counts_down_in_green_before_the_first_note() {
+    let (map, replay) = tapped();
+    let state = GameState::new(&map, &replay);
+    let first = state
+        .timeline()
+        .objects
+        .first()
+        .expect("a map with notes")
+        .start_ms;
+    let greens = |at: f64| {
+        let skin = Skin::with_combo_colours(map.combo_colours()).with_font(font());
+        let frame = Scene::new(&state, skin).frame(at, &Layout::new(640, 480));
+        let mut count = 0;
+        for y in 0..110u32 {
+            for x in 360..640u32 {
+                let Some(pixel) = frame.pixel(x, y) else { continue };
+                let (red, green, blue) = (
+                    u32::from(pixel.red()),
+                    u32::from(pixel.green()),
+                    u32::from(pixel.blue()),
+                );
+                if green > 40 && green > blue + 20 && red < green {
+                    count += 1;
+                }
+            }
+        }
+        count
+    };
+
+    let coming = greens(first - 200.0);
+    assert!(coming > 20, "the ring was not green on the way in: {coming}");
+    assert_eq!(
+        greens(first + 2_000.0),
+        0,
+        "the ring stayed green once the map had started"
+    );
+}
+
+#[test]
+fn the_count_pops_once_as_the_ghost_closes_on_it() {
     let (map, replay) = tapped();
     let state = GameState::new(&map, &replay);
     let highest = |at: f64| {
@@ -4762,14 +4801,19 @@ fn the_count_does_not_swell_when_it_climbs() {
     };
 
     let settled = highest(4_500.0);
-    for step in 0..11 {
-        let at = 4_205.0 + f64::from(step) * 25.0;
-        assert_eq!(
-            highest(at),
-            settled,
-            "the count is a different height at {at} than once it has settled"
-        );
-    }
+    let popped = (0..9)
+        .map(|step| highest(4_170.0 + f64::from(step) * 20.0))
+        .min()
+        .expect("nine samples");
+    assert!(
+        popped < settled,
+        "the count never swelled as it climbed: {popped} against {settled}"
+    );
+    assert_eq!(
+        highest(4_420.0),
+        settled,
+        "the count was still swollen long after it climbed"
+    );
 }
 
 #[test]

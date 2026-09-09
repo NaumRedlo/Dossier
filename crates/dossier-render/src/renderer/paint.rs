@@ -101,7 +101,15 @@ pub(super) fn draw_pill(
     );
 }
 
-pub(super) fn pie(pixmap: &mut Pixmap, cx: f32, cy: f32, radius: f32, share: f32, colour: Color) {
+pub(super) fn pie(
+    pixmap: &mut Pixmap,
+    cx: f32,
+    cy: f32,
+    radius: f32,
+    share: f32,
+    colour: Color,
+    widdershins: bool,
+) {
     let share = share.clamp(0.0, 1.0);
     if share <= 0.0 || radius <= 0.0 || colour.alpha() <= 0.0 {
         return;
@@ -115,7 +123,8 @@ pub(super) fn pie(pixmap: &mut Pixmap, cx: f32, cy: f32, radius: f32, share: f32
         let along = (step as f32 / SEGMENTS as f32).min(share);
 
         let angle = along * std::f32::consts::TAU - std::f32::consts::FRAC_PI_2;
-        path.line_to(cx + radius * angle.cos(), cy + radius * angle.sin());
+        let across = if widdershins { -1.0 } else { 1.0 };
+        path.line_to(cx + across * radius * angle.cos(), cy + radius * angle.sin());
     }
     path.close();
     let Some(path) = path.finish() else {

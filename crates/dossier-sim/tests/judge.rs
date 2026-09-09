@@ -2056,3 +2056,38 @@ fn lazer_forgives_the_parts_a_late_head_swept_past() {
         "stable has no such rule and the repeat is gone"
     );
 }
+
+#[test]
+fn a_slider_head_outside_the_window_is_not_a_head_at_all() {
+    let map = beatmap(SHORT_SLIDER);
+    let laid_out = GameState::from_beatmap(&map, Mods::default());
+    let start = laid_out.timeline().objects[0].start_ms;
+    let window = laid_out.difficulty().hit_window_50();
+
+    let head_of = |late: f64| {
+        let at = (start + late) as i64;
+        let frames = vec![
+            frame(at - 20, 0.0, 0.0, 0),
+            frame(at, 0.0, 0.0, Keys::K1),
+            frame(at + 20, 0.0, 0.0, 0),
+        ];
+        let state = GameState::new(&map, &replay_with(frames, 0));
+        let judge = state.judge().unwrap();
+        judge
+            .events()
+            .iter()
+            .find(|e| e.part == dossier_sim::Part::SliderHead)
+            .map(|e| e.result)
+    };
+
+    assert_eq!(
+        head_of(window - 5.0),
+        Some(dossier_sim::Judgement::Great),
+        "a press inside the window takes the head"
+    );
+    assert_eq!(
+        head_of(window + 30.0),
+        Some(dossier_sim::Judgement::Miss),
+        "a press past it does not, however wide the range that let it through"
+    );
+}

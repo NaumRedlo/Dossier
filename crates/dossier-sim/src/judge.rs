@@ -709,10 +709,13 @@ fn build_slider_events(
             None,
         ),
     };
-    let head_hit = matches!(head, Head::Hit { .. });
+    let head_hit = match head {
+        Head::Hit { error_ms, .. } => error_ms.abs() <= difficulty.hit_window_50(),
+        Head::Missed { .. } => false,
+    };
 
     let head_time_for_tracking = match head {
-        Head::Hit { time_ms, .. } => Some(time_ms),
+        Head::Hit { time_ms, .. } if head_hit => Some(time_ms),
         _ => None,
     };
 

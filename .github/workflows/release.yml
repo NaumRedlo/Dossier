@@ -104,9 +104,12 @@ jobs:
           cp "target/release/${{ matrix.engine }}" "$out/"
           cp "dist/${{ matrix.client }}" "$out/"
           # The engine draws the play and leaves out the score, the accuracy
-          # and the combo without this, and says so only on stderr. It travels
-          # with the binaries for that reason.
-          cp assets/fonts/TorusNotched-Bold.ttf "$out/assets/fonts/"
+          # and the combo without these, and says so only on stderr. They
+          # travel with the binaries for that reason, licences included.
+          cp assets/fonts/Huninn-Regular.ttf "$out/assets/fonts/"
+          cp assets/fonts/JetBrainsMono-Bold.ttf "$out/assets/fonts/"
+          cp assets/fonts/OFL-Huninn.txt "$out/assets/fonts/"
+          cp assets/fonts/OFL-JetBrainsMono.txt "$out/assets/fonts/"
           cp assets/README.md "$out/assets/"
           # ASCII filename on purpose. The text is Russian; the name is not,
           # because PowerShell's Compress-Archive has been inconsistent about

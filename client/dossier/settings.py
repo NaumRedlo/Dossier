@@ -24,7 +24,7 @@ def _find_engine() -> str:
 DOSSIER_BIN = os.getenv("DOSSIER_BIN") or _find_engine()
 
 def _find_font() -> str:
-    here = os.path.join("assets", "fonts", "TorusNotched-Bold.ttf")
+    here = os.path.join("assets", "fonts", "Huninn-Regular.ttf")
     for root in (_next_to_the_program(), _HERE):
         found = os.path.join(root, here)
         if os.path.isfile(found):

@@ -2007,3 +2007,52 @@ fn lazer_will_not_be_cheesed_by_a_wobbling_cursor() {
         "lazer counts whole turns in one direction, not every wobble: {counted}"
     );
 }
+
+const REPEATED_SLIDER: &str = "
+[Difficulty]
+CircleSize:4
+ApproachRate:5
+OverallDifficulty:5
+SliderMultiplier:2
+SliderTickRate:1
+
+[TimingPoints]
+0,500,4,2,0,60,1,0
+
+[HitObjects]
+100,100,1000,2,0,L|120:100,2,20
+";
+
+#[test]
+fn lazer_forgives_the_parts_a_late_head_swept_past() {
+    let map = beatmap(REPEATED_SLIDER);
+
+    let mut frames = Vec::new();
+    for t in (900..=1_300).step_by(10) {
+        let held = (1_080..=1_200).contains(&t);
+        frames.push(frame(t, 110.0, 100.0, if held { Keys::K1 } else { 0 }));
+    }
+
+    let repeats = |version: i32| {
+        let mut replay = replay_with(frames.clone(), 0);
+        replay.game_version = version;
+        let state = GameState::new(&map, &replay);
+        let judge = state.judge().unwrap();
+        judge
+            .events()
+            .iter()
+            .filter(|e| e.part == dossier_sim::Part::SliderRepeat && !e.result.is_miss())
+            .count()
+    };
+
+    assert_eq!(
+        repeats(30_000_016),
+        1,
+        "lazer hits what the late head swept past, so the repeat counts"
+    );
+    assert_eq!(
+        repeats(20_260_101),
+        0,
+        "stable has no such rule and the repeat is gone"
+    );
+}

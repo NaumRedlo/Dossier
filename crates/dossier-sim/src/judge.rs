@@ -748,8 +748,7 @@ fn build_slider_events(
         difficulty,
         &parts,
         head_time_for_tracking,
-        ruleset.slider_is_scored_by_its_head(),
-        ruleset.relax,
+        ruleset,
     ) {
         parts_total += 1;
         parts_hit += u32::from(hit);
@@ -923,9 +922,11 @@ fn track_slider(
     difficulty: &dossier_beatmap::Difficulty,
     parts: &[(f64, Part)],
     head_hit_ms: Option<f64>,
-    tail_window: bool,
-    relax: bool,
+    ruleset: Ruleset,
 ) -> Vec<(f64, Part, bool)> {
+    let tail_window = ruleset.slider_is_scored_by_its_head();
+    let relax = ruleset.relax;
+    let forgiving = ruleset.a_late_head_forgives_what_it_swept_past();
     let radius = difficulty.circle_radius();
     let follow = radius * FOLLOW_CIRCLE_SCALE;
 
@@ -941,6 +942,14 @@ fn track_slider(
 
     let mut tail_pending: Option<f64> = None;
     let mut tail_hit = false;
+
+    let swept_past = forgiving
+        && head_hit_ms.is_some_and(|at| {
+            match (object.ball_at(at), cursor.sample(at)) {
+                (Some(ball), Some(sample)) => sample.pos.distance_to(ball) <= follow,
+                _ => false,
+            }
+        });
 
     let mut instants: Vec<f64> = {
         let mut v = Vec::new();
@@ -1017,7 +1026,9 @@ fn track_slider(
 
         if let Some(&(time_ms, part)) = parts.get(judged) {
             if time_ms <= now {
-                let landed = allowable && slide_start <= time_ms;
+                let forgiven =
+                    swept_past && head_press_ms.is_some_and(|at| time_ms <= at);
+                let landed = forgiven || (allowable && slide_start <= time_ms);
                 if tail_window && part == Part::SliderTail {
                     tail_pending = Some(time_ms);
                     tail_hit = landed;

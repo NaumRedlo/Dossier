@@ -141,6 +141,10 @@ impl Ruleset {
         !self.blocker_is_the_last_one() || !is_spinner
     }
 
+    pub fn a_late_head_forgives_what_it_swept_past(self) -> bool {
+        self.client == Client::Lazer
+    }
+
     pub fn slider_is_scored_by_its_head(self) -> bool {
         !self.whole_sliders
     }

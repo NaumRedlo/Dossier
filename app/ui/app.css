@@ -1538,6 +1538,74 @@ body.still *, body.still *::before, body.still *::after {
   transform-origin: center;
 }
 
+.nought {
+  display: grid;
+  justify-items: center;
+  gap: 0.3rem;
+  padding: 2.5rem 1.5rem 2.9rem;
+  text-align: center;
+}
+.nought b { font-size: 1.02rem; font-weight: 600; overflow-wrap: anywhere; }
+.nought span { max-width: 28rem; color: var(--muted); font-size: 0.85rem; }
+.ic-nought { width: 6rem; height: 6rem; margin-bottom: 0.5rem; }
+.ic-nought .hunt { transform-box: fill-box; transform-origin: center; }
+.ic-nought .track { fill: none; stroke: var(--accent); stroke-width: 3; opacity: 0.16; }
+.ic-nought .arc {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 4;
+  stroke-linecap: round;
+  stroke-dasharray: 40 149;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.ic-nought .stem {
+  stroke: var(--accent);
+  stroke-width: 8;
+  stroke-linecap: round;
+  opacity: 0.45;
+}
+.ic-nought .dash {
+  stroke: var(--muted);
+  stroke-width: 7;
+  stroke-linecap: round;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.credits {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
+  gap: 0.5rem;
+  margin: 0.9rem 0;
+}
+.credit {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  min-width: 0;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 0.8rem;
+  background: var(--sunk);
+}
+.credit img { height: 1.5rem; flex: none; }
+.credit .who { min-width: 0; color: var(--muted); font-size: 0.82rem; overflow-wrap: anywhere; }
+.credit .modtext {
+  flex: none;
+  padding: 0.1rem 0.4rem;
+  border-radius: 0.4rem;
+  background: var(--line);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.madeby { display: flex; align-items: center; gap: 1rem; }
+.madeby > div { min-width: 0; }
+.madeby b { display: block; font-size: 1.02rem; font-weight: 600; }
+.madeby p { margin: 0.25rem 0 0; color: var(--muted); font-size: 0.88rem; }
+.ic-cc { width: 2.9rem; height: 2.9rem; flex: none; fill: var(--accent); opacity: 0.85; }
+
 .fitting {
   margin: 0.9rem 0;
   border: 1px solid var(--line);

@@ -380,6 +380,7 @@ function restartLoops() {
     1800,
     "ease-in-out",
   );
+  noughtLoops();
   loopIcon(
     at(".ic-reading .arc"),
     [{ transform: "rotate(0deg)" }, { transform: "rotate(360deg)" }],
@@ -2257,12 +2258,11 @@ function fillPlays({ shelves, skins, plays, rows }) {
   forgetCards();
   requestAnimationFrame(shelfEdges);
   if (!showing.length) {
+    list.classList.add("waiting");
     list.replaceChildren(
-      line({
-        mark: ["huh", "?"],
-        name: "пусто",
-        said: finding ? `По «${finding}» ничего не нашлось.` : "Под этот отбор ничего не подошло.",
-      }),
+      finding
+        ? nought(`По вашему запросу «${finding}» ничего не нашлось`, "Попробуйте написать другую подсказку для нужного файла")
+        : nought("Под этот отбор ничего не подошло", "Попробуйте показать все реплеи или сменить порядок"),
     );
   } else {
     list.replaceChildren(...showing.map((play) => playCard(play)));
@@ -2377,6 +2377,64 @@ function fillPlays({ shelves, skins, plays, rows }) {
   }
 }
 
+function svgEl(tag, className, attrs) {
+  const made = document.createElementNS("http://www.w3.org/2000/svg", tag);
+  if (className) made.setAttribute("class", className);
+  for (const [name, value] of Object.entries(attrs || {})) made.setAttribute(name, value);
+  return made;
+}
+
+function noughtIcon() {
+  const face = svgEl("svg", "ic-nought", { viewBox: "0 0 120 120", fill: "none", "aria-hidden": "true" });
+  const hunt = svgEl("g", "hunt");
+  hunt.append(
+    svgEl("circle", "track", { cx: "50", cy: "50", r: "30" }),
+    svgEl("circle", "arc", { cx: "50", cy: "50", r: "30" }),
+    svgEl("path", "dash", { d: "M38 50 H62" }),
+    svgEl("path", "stem", { d: "M72 72 L96 96" }),
+  );
+  face.append(hunt);
+  return face;
+}
+
+function noughtLoops(root) {
+  const at = (what) => (root || document).querySelector(what);
+  loopIcon(
+    at(".ic-nought .arc"),
+    [{ transform: "rotate(0deg)" }, { transform: "rotate(360deg)" }],
+    2600,
+    "cubic-bezier(0.5, 0, 0.5, 1)",
+  );
+  loopIcon(
+    at(".ic-nought .hunt"),
+    [
+      { transform: "translateX(-4px) rotate(-5deg)" },
+      { transform: "translateX(4px) rotate(5deg)", offset: 0.5 },
+      { transform: "translateX(-4px) rotate(-5deg)" },
+    ],
+    3400,
+    "ease-in-out",
+  );
+  loopIcon(
+    at(".ic-nought .dash"),
+    [
+      { opacity: 0.15, transform: "scaleX(0.35)" },
+      { opacity: 1, transform: "scaleX(1)", offset: 0.45 },
+      { opacity: 1, transform: "scaleX(1)", offset: 0.8 },
+      { opacity: 0.15, transform: "scaleX(0.35)" },
+    ],
+    3400,
+    "ease-in-out",
+  );
+}
+
+function nought(head, hint) {
+  const box = el("div", "nought");
+  box.append(noughtIcon(), el("b", null, head), el("span", null, hint));
+  requestAnimationFrame(() => noughtLoops(box));
+  return box;
+}
+
 const clamp01 = (t) => (t < 0 ? 0 : t > 1 ? 1 : t);
 
 let modArt = null;
@@ -2412,6 +2470,74 @@ function modBadges(text) {
     box.append(one);
   }
   return box;
+}
+
+const MOD_ARTISTS = [
+  ["NM", "Lucide Contributors"],
+  ["EZ", "SVG Repo"],
+  ["NF", "Fortavesome"],
+  ["HT", "Ruslanovic Adrianov"],
+  ["DC", "Mary Akveo"],
+  ["HD", "Denali Design"],
+  ["HR", "ByteDance"],
+  ["SD", "Frexy"],
+  ["PF", "Artcoholic"],
+  ["DT", "SVG Repo"],
+  ["NC", "Solar Icons"],
+  ["FL", "SVG Repo"],
+  ["BL", "SVG Repo"],
+  ["RX", "CyCraft"],
+  ["AP", "Catalin Fertu"],
+  ["SO", "SVG Repo"],
+  ["AT", "GitLab"],
+  ["CN", "wishforge.games"],
+  ["TD", "Carbon Design"],
+  ["MR", "SVG Repo"],
+  ["TP", "Yandex"],
+  ["RD", "Yoga Wpy"],
+  ["CL", "SVG Repo"],
+  ["DA", "richard9394"],
+  ["V2", "название вместо значка"],
+];
+
+let creditsDrawn = false;
+
+async function fillCredits() {
+  if (creditsDrawn) return;
+  const box = byId("cr-mods");
+  if (!box) return;
+  const art = await loadModArt();
+  creditsDrawn = true;
+  box.replaceChildren(
+    ...MOD_ARTISTS.map(([name, who]) => {
+      const one = el("div", "credit");
+      const badge = art.get(name);
+      if (badge) {
+        const shown = document.createElement("img");
+        shown.src = badge;
+        shown.alt = name;
+        one.append(shown);
+      } else {
+        one.append(el("span", "modtext", name));
+      }
+      one.append(el("span", "who", who));
+      return one;
+    }),
+  );
+}
+
+byId("cr-svgrepo").addEventListener("click", () => {
+  invoke("open_link", { url: "https://www.svgrepo.com" }).catch(() => {});
+});
+
+byId("cr-repo").addEventListener("click", () => {
+  invoke("open_link", { url: CONTACT.repo }).catch(() => {});
+});
+
+for (const button of document.querySelectorAll("#view-settings [data-font]")) {
+  button.addEventListener("click", () => {
+    invoke("open_link", { url: button.dataset.font }).catch(() => {});
+  });
 }
 
 function askToDrop(play) {
@@ -3710,6 +3836,7 @@ function openSettings(which, save = true) {
   if (save) remember("spage", which);
   if (which === "skins") runFitting();
   else stopFitting();
+  if (which === "credits") fillCredits();
   return which;
 }
 

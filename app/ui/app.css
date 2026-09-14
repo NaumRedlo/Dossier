@@ -2344,3 +2344,51 @@ html[data-layout="desk"] .sheettop { grid-template-columns: 1fr; }
 .wz-foot .verdict { margin: 0; }
 .wz-foot .grow { flex: 1; }
 .wz-foot .act.primary { margin: 0; min-height: var(--ctl); padding: 0 1.1rem; }
+
+.rep, .row, .found, .credit, .mode, .part, .pref, .step, .works > *, .kv, .tile, #f-rows > *, #ready-rows > *, #machine-rows > *, #lib-rows > * { animation: rise 0.3s var(--ease) both; }
+.rep:nth-child(2), .row:nth-child(2), .found:nth-child(2), .credit:nth-child(2), .pref:nth-child(2), .step:nth-child(2), #f-rows > :nth-child(2), #ready-rows > :nth-child(2), #machine-rows > :nth-child(2) { animation-delay: 0.035s; }
+.rep:nth-child(3), .row:nth-child(3), .found:nth-child(3), .credit:nth-child(3), .pref:nth-child(3), .step:nth-child(3), #f-rows > :nth-child(3), #ready-rows > :nth-child(3), #machine-rows > :nth-child(3) { animation-delay: 0.07s; }
+.rep:nth-child(4), .row:nth-child(4), .credit:nth-child(4), .pref:nth-child(4), .step:nth-child(4), #f-rows > :nth-child(4), #ready-rows > :nth-child(4), #machine-rows > :nth-child(4) { animation-delay: 0.105s; }
+.rep:nth-child(5), .row:nth-child(5), .credit:nth-child(5), .pref:nth-child(5), #f-rows > :nth-child(5), #ready-rows > :nth-child(5), #machine-rows > :nth-child(5) { animation-delay: 0.14s; }
+.rep:nth-child(6), .row:nth-child(6), .credit:nth-child(6), .pref:nth-child(6), #f-rows > :nth-child(6), #ready-rows > :nth-child(6), #machine-rows > :nth-child(6) { animation-delay: 0.175s; }
+.rep:nth-child(7), .row:nth-child(7), .credit:nth-child(7), .pref:nth-child(7), #ready-rows > :nth-child(7), #machine-rows > :nth-child(7) { animation-delay: 0.21s; }
+.rep:nth-child(8), .row:nth-child(8), .credit:nth-child(8), .pref:nth-child(8), #machine-rows > :nth-child(8) { animation-delay: 0.245s; }
+.rep:nth-child(n + 9), .row:nth-child(n + 9), .credit:nth-child(n + 9), .pref:nth-child(n + 9) { animation-delay: 0.28s; }
+body.still .rep, body.still .row, body.still .found, body.still .credit, body.still .mode, body.still .part, body.still .pref, body.still .step, body.still .kv, body.still .tile, body.still #f-rows > *, body.still #ready-rows > *, body.still #machine-rows > *, body.still #lib-rows > * { animation: none; }
+
+.seg button { font: 500 var(--t-1)/1.3 var(--face); transition: background 0.22s var(--ease), color 0.22s var(--ease), transform 0.12s var(--ease); }
+.seg button:active { transform: scale(0.96); }
+.seg button[aria-pressed="true"] { animation: settle 0.28s var(--ease); }
+@keyframes settle { 0% { transform: scale(0.94); } 60% { transform: scale(1.03); } 100% { transform: scale(1); } }
+.tick { transition: color 0.2s var(--ease); }
+.tick input { transition: transform 0.15s var(--ease); }
+.tick input:active { transform: scale(0.85); }
+.iconbtn:active, .minijob:active, .chip.up:active, .shut:active { transform: scale(0.94); }
+.found:active, .mode:active, .item:active { transform: scale(0.985); }
+.picked:active { transform: scale(0.99); }
+.option { transition: background 0.16s var(--ease), color 0.16s var(--ease); }
+.worker .lamp { transition: background 0.35s var(--ease), box-shadow 0.35s var(--ease); }
+.worker b, .worker span:not(.lamp) { transition: color 0.3s var(--ease); }
+.verdict { animation: fade 0.3s var(--ease) both; }
+.verdict:empty { animation: none; }
+@keyframes fade { from { opacity: 0; } }
+.progress > div { transition: width 0.35s var(--ease); }
+.bigno b { transition: color 0.3s var(--ease); }
+.rep .gauge, .rep .acc { transition: color 0.3s var(--ease); }
+.rep .gauge:not(:empty) { animation: fade 0.35s var(--ease) both; }
+.rep.read .stage canvas { animation: fade 0.45s var(--ease) both; }
+input, textarea { transition: border-color 0.2s var(--ease), background 0.2s var(--ease), box-shadow 0.2s var(--ease); }
+input:focus, textarea:focus { box-shadow: 0 0 0 3px var(--accent-soft); }
+.title .count { animation: fade 0.4s var(--ease) both; }
+.dock.relayout, main.relayout { animation: fade 0.36s var(--ease) both; }
+body.still * { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
+
+::view-transition-old(root), ::view-transition-new(root) { animation-duration: 0.22s; animation-timing-function: var(--ease); }
+::view-transition-old(root) { animation-name: leave; }
+::view-transition-new(root) { animation-name: arrive; }
+@keyframes leave { to { opacity: 0; transform: translateY(-0.35rem); } }
+@keyframes arrive { from { opacity: 0; transform: translateY(0.5rem); } }
+.dock { view-transition-name: dock; }
+.corner.top { view-transition-name: corner; }
+.me { view-transition-name: me; }
+.repo { view-transition-name: repo; }

@@ -554,6 +554,14 @@ function layout(how, save = true) {
   pressed(byId("seg-layout"), byId("seg-layout").querySelector(`[data-layout="${chosen}"]`));
   if (save) remember("layout", chosen);
   relax();
+  if (save && !still()) {
+    for (const part of [dock, document.querySelector("main")]) {
+      part.classList.remove("relayout");
+      void part.offsetWidth;
+      part.classList.add("relayout");
+      setTimeout(() => part.classList.remove("relayout"), 420);
+    }
+  }
   requestAnimationFrame(() => {
     measure();
     if (shelfCache && !byId("view-render").hidden) fillPlays(shelfCache);
@@ -3903,12 +3911,26 @@ function openSettings(which, save = true) {
     else button.removeAttribute("aria-current");
   }
   let found = false;
-  for (const page of document.querySelectorAll("#view-settings .page")) {
-    const mine = page.dataset.page === which;
-    page.hidden = !mine;
-    found = found || mine;
-  }
+  const pages = [...document.querySelectorAll("#view-settings .page")];
+  found = pages.some((page) => page.dataset.page === which);
   if (!found) return openSettings("link", save);
+  const swap = () => {
+    for (const page of pages) {
+      const mine = page.dataset.page === which;
+      if (mine && page.hidden) {
+        page.hidden = false;
+        for (const child of page.children) {
+          child.style.animation = "none";
+          void child.offsetWidth;
+          child.style.animation = "";
+        }
+      } else if (!mine) {
+        page.hidden = true;
+      }
+    }
+  };
+  if (open_tab === "settings") transition(swap);
+  else swap();
   if (save) remember("spage", which);
   if (which === "skins") runFitting();
   else stopFitting();
@@ -4470,6 +4492,21 @@ const views = {
 
 let open_tab = null;
 
+let crossing = null;
+
+function transition(swap) {
+  if (still() || crossing || document.hidden || typeof document.startViewTransition !== "function") {
+    swap();
+    return;
+  }
+  crossing = document.startViewTransition(swap);
+  const done = () => {
+    crossing = null;
+  };
+  crossing.ready.catch(() => {});
+  crossing.finished.then(done, done);
+}
+
 function show(which) {
   if (which === open_tab) return;
   if (open_tab === "settings") stopFitting();
@@ -4478,11 +4515,13 @@ function show(which) {
   restartLoops();
 
   requestAnimationFrame(runPreviews);
-  for (const name of Object.keys(views)) {
-    const tab = byId(`tab-${name}`);
-    if (tab) tab.setAttribute("aria-selected", String(name === which));
-    byId(`view-${name}`).hidden = name !== which;
-  }
+  transition(() => {
+    for (const name of Object.keys(views)) {
+      const tab = byId(`tab-${name}`);
+      if (tab) tab.setAttribute("aria-selected", String(name === which));
+      byId(`view-${name}`).hidden = name !== which;
+    }
+  });
 
   glider.classList.add("moving");
   setTimeout(() => glider.classList.remove("moving"), 470);

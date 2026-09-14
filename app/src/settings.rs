@@ -156,8 +156,12 @@ impl Settings {
     }
 
     pub fn first_run(&self) -> bool {
-        self.server.is_empty() || self.token.is_empty()
+        first_run_at(&path())
     }
+}
+
+fn first_run_at(file: &Path) -> bool {
+    !file.is_file()
 }
 
 pub fn host_name() -> String {
@@ -291,23 +295,14 @@ mod tests {
     }
 
     #[test]
-    fn a_first_run_is_a_missing_server_or_a_missing_token() {
-        let full = Settings {
-            server: "s".to_owned(),
-            token: "t".to_owned(),
-            ..Settings::default()
-        };
-        assert!(!full.first_run());
-        assert!(Settings {
-            token: String::new(),
-            ..full.clone()
-        }
-        .first_run());
-        assert!(Settings {
-            server: String::new(),
-            ..full
-        }
-        .first_run());
+    fn a_first_run_is_a_settings_file_that_does_not_exist_yet() {
+        let dir = scratch("first");
+        let file = dir.join("worker.env");
+        assert!(first_run_at(&file));
+        std::fs::write(&file, "RENDER_WORKER_NAME=me\n").expect("written");
+        assert!(!first_run_at(&file));
+        let unrelated = Settings::default();
+        assert!(unrelated.server.is_empty() && unrelated.token.is_empty());
     }
 
     #[test]

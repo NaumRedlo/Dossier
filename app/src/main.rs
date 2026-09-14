@@ -132,6 +132,11 @@ fn skins() -> Vec<String> {
 }
 
 #[tauri::command(async)]
+fn find_osu() -> Vec<library::Found> {
+    library::find_osu()
+}
+
+#[tauri::command(async)]
 fn shelves() -> library::Library {
     library::look(&settings::Settings::load())
 }
@@ -658,6 +663,7 @@ fn main() {
             settings_write,
             first_run,
             shelves,
+            find_osu,
             my_replays,
             skins,
             farm,

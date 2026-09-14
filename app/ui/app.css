@@ -2315,3 +2315,32 @@ html[data-layout="desk"] .sheettop { grid-template-columns: 1fr; }
 .title .count { color: var(--faint); font-size: var(--t2); font-weight: 500; }
 .title .count:empty { display: none; }
 #view-render .bar { margin-top: 0.9rem; }
+
+.pane.wide { width: min(36rem, 100%); padding: 1.75rem 2rem 1.6rem; }
+.wz-head { display: flex; align-items: flex-start; gap: 0.9rem; }
+.wz-head .mark { margin: 0.1rem 0 0; }
+.wz-head h2 { margin: 0; font-family: var(--face); font-size: var(--t2); }
+.wz-head .sub { margin: 0.15rem 0 0; }
+.wz-steps { display: flex; gap: 0.4rem; margin: 1.3rem 0 1.4rem; padding: 0; list-style: none; }
+.wz-steps li { display: flex; align-items: center; gap: 0.5rem; flex: 1; padding: 0.45rem 0.65rem; border-radius: 0.7rem; border: 1px solid var(--line); color: var(--faint); font-family: var(--face); font-size: var(--t-1); font-weight: 500; transition: color 0.25s var(--ease), border-color 0.25s var(--ease), background 0.25s var(--ease); }
+.wz-steps li i { display: grid; place-items: center; width: 1.35rem; height: 1.35rem; border-radius: 50%; background: var(--line-high); color: var(--ink); font-style: normal; font-size: 0.72rem; font-weight: 700; transition: background 0.25s var(--ease), color 0.25s var(--ease); }
+.wz-steps li.on { color: var(--ink); border-color: transparent; background: var(--accent-soft); }
+.wz-steps li.on i { background: var(--accent); color: #fff; }
+.wz-steps li.done { color: var(--muted); }
+.wz-steps li.done i { background: var(--good); color: #1c1013; }
+.wz { animation: rise 0.32s var(--ease) both; }
+.wz h3 { margin: 0 0 0.3rem; font-family: var(--face); font-size: var(--t2); font-weight: 600; text-transform: none; letter-spacing: 0; color: var(--ink); }
+.wz-why { margin: 0 0 1rem; color: var(--muted); font-family: var(--face); font-size: var(--t0); line-height: 1.5; }
+.wz .bar { margin: 0.7rem 0 0.2rem; }
+.wz details { margin-top: 0.4rem; }
+.wz .nought { padding: 1.4rem 1rem 1.6rem; }
+.wz-found { display: grid; gap: 0.4rem; }
+.found { display: grid; gap: 0.15rem; width: 100%; padding: 0.7rem 0.9rem; border: 1px solid var(--line); border-radius: 0.8rem; background: var(--sunk); color: var(--ink); font: inherit; text-align: left; cursor: pointer; transition: border-color 0.2s var(--ease), background 0.2s var(--ease); }
+.found:hover { border-color: var(--line-high); }
+.found.on { border-color: var(--accent); background: var(--accent-soft); }
+.found b { font-family: var(--mono); font-weight: 500; font-size: var(--t-1); word-break: break-all; }
+.found span { color: var(--muted); font-family: var(--face); font-size: var(--t-1); }
+.wz-foot { display: flex; align-items: center; gap: 0.6rem; margin-top: 1.4rem; }
+.wz-foot .verdict { margin: 0; }
+.wz-foot .grow { flex: 1; }
+.wz-foot .act.primary { margin: 0; min-height: var(--ctl); padding: 0 1.1rem; }

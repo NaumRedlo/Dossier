@@ -20,21 +20,57 @@
   </div>
 
   <div id="wizard" class="wizard" hidden>
-    <div class="pane">
-      <img class="mark" src="mark.png" alt="" width="46" height="46">
-      <h2>Настроим один раз</h2>
-      <p class="sub">Для быстрой настройки следует заполнить следующие строки.</p>
-      <label>Адрес бота<input id="w-server" type="text" placeholder="https://…" autocomplete="off"></label>
-      <label>Токен<input id="w-token" type="password" placeholder="тот же, что у бота" autocomplete="off"></label>
-      <label>Имя в сети<input id="w-name" type="text" autocomplete="off"></label>
-      <details>
-        <summary>Папки</summary>
-        <label>Карты<input id="w-songs" type="text" autocomplete="off"></label>
-        <label>Скины<input id="w-skins" type="text" placeholder="необязательно" autocomplete="off"></label>
-        <label>Реплеи<input id="w-replays" type="text" placeholder="необязательно" autocomplete="off"></label>
-      </details>
-      <p class="verdict" id="w-said"></p>
-      <button class="act primary" id="w-save">Сохранить и начать</button>
+    <div class="pane wide">
+      <div class="wz-head">
+        <img class="mark" src="mark.png" alt="" width="46" height="46">
+        <div>
+          <h2>Досье</h2>
+          <p class="sub">Три шага, и можно рендерить. Всё это потом меняется в настройках.</p>
+        </div>
+      </div>
+      <ol class="wz-steps" id="wz-steps">
+        <li data-step="1" class="on"><i>1</i><span>Папка osu!</span></li>
+        <li data-step="2"><i>2</i><span>Имя машины</span></li>
+        <li data-step="3"><i>3</i><span>Бот</span></li>
+      </ol>
+
+      <section class="wz" data-step="1">
+        <h3>Где лежит osu!</h3>
+        <p class="wz-why">Карты, скины и реплеи берутся из папки игры. Досье поищет её сам.</p>
+        <div id="wz-found" class="wz-found"></div>
+        <div class="bar">
+          <button class="act small" id="wz-browse">Указать папку…</button>
+          <button class="act small" id="wz-refind">Поискать ещё раз</button>
+        </div>
+        <details>
+          <summary>Задать папки по одной</summary>
+          <label>Карты<input id="w-songs" type="text" autocomplete="off"></label>
+          <label>Скины<input id="w-skins" type="text" placeholder="необязательно" autocomplete="off"></label>
+          <label>Реплеи<input id="w-replays" type="text" placeholder="необязательно" autocomplete="off"></label>
+        </details>
+      </section>
+
+      <section class="wz" data-step="2" hidden>
+        <h3>Как называть эту машину</h3>
+        <p class="wz-why">Так её увидят в ферме и в журнале бота. Ник или имя компьютера — что угодно, лишь бы узнавалось.</p>
+        <label>Имя в сети<input id="w-name" type="text" autocomplete="off"></label>
+      </section>
+
+      <section class="wz" data-step="3" hidden>
+        <h3>Подключение к боту</h3>
+        <p class="wz-why">Это нужно, чтобы отдавать машину ферме. Рендерить и судить свои реплеи можно и без бота — тогда этот шаг просто пропускается.</p>
+        <label>Адрес бота<input id="w-server" type="text" placeholder="https://…" autocomplete="off"></label>
+        <label>Токен<input id="w-token" type="password" placeholder="выдаёт бот" autocomplete="off"></label>
+        <p class="fine">Скоро вместо токена будет код из чата — приложение покажет его, а бот подтвердит.</p>
+      </section>
+
+      <div class="wz-foot">
+        <button class="act small" id="wz-back" hidden>Назад</button>
+        <span class="verdict" id="w-said"></span>
+        <span class="grow"></span>
+        <button class="act small" id="wz-skip" hidden>Пока без бота</button>
+        <button class="act primary" id="wz-next">Дальше</button>
+      </div>
     </div>
   </div>
 

@@ -158,6 +158,69 @@ pub fn look(said: &Settings) -> Library {
     }
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct Found {
+    pub root: String,
+    pub songs: String,
+    pub skins: String,
+    pub replays: String,
+    pub maps: usize,
+    pub note: String,
+}
+
+fn likely_roots() -> Vec<std::path::PathBuf> {
+    let home = crate::settings::home();
+    let mut out = vec![
+        home.join("osu!"),
+        home.join("osu"),
+        home.join("Games").join("osu!"),
+        home.join(".osu"),
+        home.join(".local").join("share").join("osu-stable"),
+    ];
+    if let Some(local) = std::env::var_os("LOCALAPPDATA") {
+        out.push(std::path::PathBuf::from(local).join("osu!"));
+    }
+    for wine in [".wine", ".local/share/wineprefixes/osu"] {
+        let users = home.join(wine).join("drive_c").join("users");
+        if let Ok(names) = std::fs::read_dir(&users) {
+            for name in names.flatten() {
+                out.push(name.path().join("AppData").join("Local").join("osu!"));
+            }
+        }
+    }
+    out
+}
+
+pub fn find_osu() -> Vec<Found> {
+    let mut seen = std::collections::HashSet::new();
+    let mut found = Vec::new();
+    for root in likely_roots() {
+        let songs = root.join("Songs");
+        if !songs.is_dir() {
+            continue;
+        }
+        let Ok(canon) = root.canonicalize() else {
+            continue;
+        };
+        if !seen.insert(canon) {
+            continue;
+        }
+        let shelf = shelve_songs(&songs.display().to_string());
+        let skins = root.join("Skins");
+        let replays = root.join("Replays");
+        found.push(Found {
+            root: root.display().to_string(),
+            songs: songs.display().to_string(),
+            skins: if skins.is_dir() { skins.display().to_string() } else { String::new() },
+            replays: if replays.is_dir() { replays.display().to_string() } else { String::new() },
+            maps: shelf.items,
+            note: shelf.note,
+        });
+    }
+    found.sort_by(|a, b| b.maps.cmp(&a.maps));
+    found
+}
+
 pub fn skins(said: &Settings) -> Vec<String> {
     let at = Path::new(&said.skins);
     if said.skins.is_empty() || !at.is_dir() {

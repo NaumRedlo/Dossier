@@ -4505,17 +4505,131 @@ window.addEventListener("resize", () => {
   if (!byId("view-replay").hidden) drawAll();
 });
 
-byId("w-save").addEventListener("click", async () => {
-  if (!byId("w-server").value.trim() || !byId("w-token").value.trim()) {
-    const said = byId("w-said");
-    said.className = "verdict bad";
-    said.textContent = "Необходим адрес и токен. Без них нельзя стать воркером.";
+let wzStep = 1;
+let wzFound = [];
+
+function wzSay(text, bad = false) {
+  const said = byId("w-said");
+  said.className = bad ? "verdict bad" : "verdict";
+  said.textContent = text;
+}
+
+function wzGo(step) {
+  wzStep = Math.max(1, Math.min(3, step));
+  for (const part of document.querySelectorAll("#wizard .wz")) {
+    const mine = Number(part.dataset.step) === wzStep;
+    if (mine && part.hidden) {
+      part.hidden = false;
+      part.style.animation = "none";
+      void part.offsetWidth;
+      part.style.animation = "";
+    } else if (!mine) {
+      part.hidden = true;
+    }
+  }
+  for (const dot of byId("wz-steps").querySelectorAll("li")) {
+    const at = Number(dot.dataset.step);
+    dot.classList.toggle("on", at === wzStep);
+    dot.classList.toggle("done", at < wzStep);
+  }
+  byId("wz-back").hidden = wzStep === 1;
+  byId("wz-skip").hidden = wzStep !== 3;
+  byId("wz-next").textContent = wzStep === 3 ? "Готово" : "Дальше";
+  wzSay("");
+  const focus = { 1: null, 2: "w-name", 3: "w-server" }[wzStep];
+  if (focus) byId(focus).focus();
+}
+
+function wzPick(found, box) {
+  byId("w-songs").value = found.songs;
+  byId("w-skins").value = found.skins;
+  byId("w-replays").value = found.replays;
+  for (const row of box.querySelectorAll(".found")) row.classList.toggle("on", row.dataset.root === found.root);
+}
+
+async function wzFind(again = false) {
+  const box = byId("wz-found");
+  box.replaceChildren(el("p", "fine", again ? "Ищу…" : "Смотрю, где лежит osu!…"));
+  wzFound = await invoke("find_osu").catch(() => []);
+  if (!wzFound.length) {
+    box.replaceChildren(
+      nought("Папка osu! не нашлась сама", "Укажите её кнопкой ниже — ту, внутри которой лежит Songs"),
+    );
     return;
   }
+  box.replaceChildren(
+    ...wzFound.map((found) => {
+      const row = el("button", "found");
+      row.type = "button";
+      row.dataset.root = found.root;
+      row.append(el("b", null, found.root), el("span", null, found.note));
+      row.addEventListener("click", () => wzPick(found, box));
+      return row;
+    }),
+  );
+  wzPick(wzFound[0], box);
+}
+
+byId("wz-refind").addEventListener("click", () => wzFind(true));
+byId("wz-browse").addEventListener("click", async () => {
+  const chosen = await invoke("pick_folder", { prompt: "songs" }).catch(() => null);
+  if (!chosen) return;
+  const root = chosen.replace(/[\\/]Songs[\\/]?$/i, "");
+  const found = { root, songs: chosen, skins: "", replays: "", note: "выбрана вручную" };
+  wzFound = [found, ...wzFound.filter((one) => one.root !== root)];
+  const box = byId("wz-found");
+  box.replaceChildren();
+  for (const one of wzFound) {
+    const row = el("button", "found");
+    row.type = "button";
+    row.dataset.root = one.root;
+    row.append(el("b", null, one.root), el("span", null, one.note));
+    row.addEventListener("click", () => wzPick(one, box));
+    box.append(row);
+  }
+  wzPick(found, box);
+});
+
+byId("wz-back").addEventListener("click", () => wzGo(wzStep - 1));
+
+async function wzFinish() {
   if (await saveSettings("w", "w-said")) {
     byId("wizard").hidden = true;
     show("render");
+    showReady();
   }
+}
+
+byId("wz-skip").addEventListener("click", () => {
+  byId("w-server").value = "";
+  byId("w-token").value = "";
+  wzFinish();
+});
+
+byId("wz-next").addEventListener("click", async () => {
+  if (wzStep === 1) {
+    if (!byId("w-songs").value.trim()) {
+      wzSay("Нужна папка с картами — иначе нечего рисовать.", true);
+      return;
+    }
+    wzGo(2);
+    return;
+  }
+  if (wzStep === 2) {
+    if (!byId("w-name").value.trim()) {
+      wzSay("Как-нибудь да надо назвать.", true);
+      return;
+    }
+    wzGo(3);
+    return;
+  }
+  const server = byId("w-server").value.trim();
+  const token = byId("w-token").value.trim();
+  if ((server && !token) || (!server && token)) {
+    wzSay("Адрес и токен нужны вместе — или ни один, тогда без бота.", true);
+    return;
+  }
+  wzFinish();
 });
 
 (async function open() {
@@ -4564,6 +4678,8 @@ byId("w-save").addEventListener("click", async () => {
       if (box) box.value = known[field] || "";
     }
     byId("wizard").hidden = false;
+    wzGo(1);
+    wzFind();
     armIdle();
     return;
   }

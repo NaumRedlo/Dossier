@@ -569,6 +569,29 @@ function layout(how, save = true) {
 }
 
 const sideways = () => document.documentElement.dataset.layout === "desk";
+const staged = () => document.documentElement.dataset.layout === "stage";
+
+let featured = null;
+
+function featureCard(card) {
+  featured = card;
+  for (const other of byId("r-list").querySelectorAll(".rep.featured")) other.classList.remove("featured");
+  card.classList.add("featured");
+  const play = card.previewOf;
+  const map = card.querySelector(".map");
+  const gauge = card.querySelector(".gauge");
+  const who = byId("r-big-who");
+  who.replaceChildren(
+    el("b", null, play.player),
+    el("span", "map", map ? map.textContent : ""),
+    el("span", "gauge", gauge ? gauge.textContent : ""),
+  );
+  stillCard(card);
+}
+
+function bigSeat() {
+  return staged() ? canvasPixels(byId("r-big"), 1.5) : null;
+}
 
 for (const button of byId("seg-layout").querySelectorAll("button")) {
   button.addEventListener("click", () => layout(button.dataset.layout));
@@ -2335,6 +2358,10 @@ function fillPlays({ shelves, skins, plays, rows }) {
     );
   } else {
     list.replaceChildren(...showing.map((play) => playCard(play)));
+    if (staged()) {
+      const first = list.querySelector(".rep:not(.nomap)") || list.querySelector(".rep");
+      if (first) featureCard(first);
+    }
   }
   offerMissingMaps(plays);
 
@@ -3130,6 +3157,7 @@ function watchCard(card) {
   }
   card.addEventListener("pointerenter", () => {
     hovered = card;
+    if (staged()) featureCard(card);
     runPreviews();
   });
   card.addEventListener("pointerleave", () => {
@@ -3237,6 +3265,7 @@ function dressCard(card, said) {
     from.hidden = false;
   }
   card.classList.add("read");
+  if (featured === card && staged()) featureCard(card);
 }
 
 function keepPreview(path, made) {
@@ -3271,6 +3300,10 @@ async function stillCard(card) {
     return;
   }
   card.classList.remove("plain");
+  if (featured === card && staged() && hovered !== card) {
+    const big = bigSeat();
+    if (big) paintFrame(big, image);
+  }
   if (hovered === card) return;
   paintFrame(c, image);
 }
@@ -3285,13 +3318,13 @@ function runPreviews() {
   let was = performance.now();
   let woke = 0;
   (async () => {
-    let seat = canvasPixels(one.previewOn, 1);
+    let seat = (featured === one && bigSeat()) || canvasPixels(one.previewOn, 1);
     if (!seat) return;
     let ahead = frameOf(made, made.head, seat.w, seat.h, alive);
     while (alive()) {
       const image = await ahead;
       if (!alive()) return;
-      seat = canvasPixels(one.previewOn, 1) || seat;
+      seat = (featured === one && bigSeat()) || canvasPixels(one.previewOn, 1) || seat;
       const now = performance.now();
       const step = Math.min(120, now - was);
       was = now;

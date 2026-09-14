@@ -106,9 +106,13 @@ jobs:
           # The engine draws the play and leaves out the score, the accuracy
           # and the combo without these, and says so only on stderr. They
           # travel with the binaries for that reason, licences included.
-          cp assets/fonts/Huninn-Regular.ttf "$out/assets/fonts/"
+          cp assets/fonts/VarelaRound-Regular.ttf "$out/assets/fonts/"
+          cp assets/fonts/Commissioner-Regular.ttf "$out/assets/fonts/"
+          cp assets/fonts/MPLUSRounded1c-Regular.ttf "$out/assets/fonts/"
           cp assets/fonts/JetBrainsMono-Bold.ttf "$out/assets/fonts/"
-          cp assets/fonts/OFL-Huninn.txt "$out/assets/fonts/"
+          cp assets/fonts/OFL-VarelaRound.txt "$out/assets/fonts/"
+          cp assets/fonts/OFL-Commissioner.txt "$out/assets/fonts/"
+          cp assets/fonts/OFL-MPLUSRounded1c.txt "$out/assets/fonts/"
           cp assets/fonts/OFL-JetBrainsMono.txt "$out/assets/fonts/"
           cp assets/README.md "$out/assets/"
           # ASCII filename on purpose. The text is Russian; the name is not,

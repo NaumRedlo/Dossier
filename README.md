@@ -163,8 +163,9 @@ The code is **AGPL-3.0-only**. See [LICENSE](LICENSE).
 Two sets of files in this repository are somebody else's work and keep their own
 terms:
 
-- **The typefaces.** Huninn (justfont) and JetBrains Mono, both under the SIL
-  Open Font License 1.1, with the licence text beside them in `assets/fonts/`.
+- **The typefaces.** Varela Round, Commissioner, M PLUS Rounded 1c and JetBrains
+  Mono, all under the SIL Open Font License 1.1, each with its licence text
+  beside it in `assets/fonts/`.
 - **The mod badges.** Twenty-four drawings from [SVG Repo](https://www.svgrepo.com).
   [`assets/mods/README.md`](assets/mods/README.md) names the author of every one
   of them, and so does the application, on its authorship page.

@@ -151,8 +151,8 @@ OPTIONS (judge):
                          drier hit kit) or `classic` (the map's own combo
                          colours and a neutral kit).
         --font <path>    frame: typeface for the HUD and combo numbers.
-                         Defaults to $DOSSIER_FONT, then Huninn beside the
-                         program. Without one the play is drawn but no numbers.
+                         Defaults to $DOSSIER_FONT, then Varela Round beside
+                         the program, with Commissioner and M PLUS behind it. Without one the play is drawn but no numbers.
     -t, --trace          judge: account for every click — where each one went,
                          and where the note lock refused several in a row. With
                          --from/--to it also lists the clicks in that window one

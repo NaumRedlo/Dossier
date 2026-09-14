@@ -2,9 +2,12 @@ use std::path::{Path, PathBuf};
 
 use dossier_render::Font;
 
-const FACES: &[&str] = &["Huninn-Regular.ttf"];
-
-const BEHIND: &[&str] = &["JetBrainsMono-Bold.ttf"];
+const CHAIN: &[&[&str]] = &[
+    &["VarelaRound-Regular.ttf"],
+    &["Commissioner-Regular.ttf"],
+    &["MPLUSRounded1c-Regular.ttf"],
+    &["JetBrainsMono-Bold.ttf"],
+];
 
 fn shelves() -> Vec<PathBuf> {
     let mut out = Vec::new();
@@ -36,10 +39,16 @@ fn look_for(names: &[&str]) -> Option<Font> {
 }
 
 fn backed(front: Font) -> Font {
-    match look_for(BEHIND) {
-        Some(behind) => front.behind(&behind),
-        None => front,
-    }
+    CHAIN.iter().skip(1).filter_map(|names| look_for(names)).fold(
+        front,
+        |built, behind| built.behind(&behind),
+    )
+}
+
+fn chained() -> Option<Font> {
+    let mut found = CHAIN.iter().filter_map(|names| look_for(names));
+    let front = found.next()?;
+    Some(found.fold(front, |built, behind| built.behind(&behind)))
 }
 
 pub fn find(explicit: Option<&Path>) -> Result<Option<Font>, String> {
@@ -56,7 +65,7 @@ pub fn find(explicit: Option<&Path>) -> Result<Option<Font>, String> {
             }
         }
     }
-    Ok(look_for(FACES).map(backed))
+    Ok(chained())
 }
 
 #[cfg(test)]
@@ -73,9 +82,26 @@ mod tests {
             "a font with no faces cannot draw anything"
         );
         assert!(font.width("Dossier", 24.0) > 0.0);
-        if look_for(BEHIND).is_some() {
-            assert_eq!(font.faces(), 2, "the fallback did not attach");
+        let on_disk = CHAIN.iter().filter(|names| look_for(names).is_some()).count();
+        assert_eq!(font.faces(), on_disk, "a face on the shelf did not join the chain");
+        if on_disk == CHAIN.len() {
+            assert!(font.width("Съешь", 24.0) > 0.0, "no width for Cyrillic");
             assert!(font.width("結界", 24.0) > 0.0, "no width for a CJK title");
         }
+    }
+
+    #[test]
+    fn each_script_is_drawn_by_the_face_that_carries_it() {
+        let Some(font) = find(None).expect("looking does not fail") else {
+            return;
+        };
+        if font.faces() < 3 {
+            return;
+        }
+        let latin = font.width("a", 24.0);
+        let cyrillic = font.width("а", 24.0);
+        let kana = font.width("あ", 24.0);
+        assert!(latin > 0.0 && cyrillic > 0.0 && kana > 0.0);
+        assert!(kana > latin, "kana should come from the wider CJK face, not be a tofu box");
     }
 }

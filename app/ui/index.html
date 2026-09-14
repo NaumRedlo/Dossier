@@ -24,7 +24,7 @@
       <div class="wz-head">
         <img class="mark" src="mark.png" alt="" width="46" height="46">
         <div>
-          <h2>Досье</h2>
+          <h2>Dossier</h2>
           <p class="sub">Три шага, и можно рендерить. Всё это потом меняется в настройках.</p>
         </div>
       </div>
@@ -36,7 +36,7 @@
 
       <section class="wz" data-step="1">
         <h3>Где лежит osu!</h3>
-        <p class="wz-why">Карты, скины и реплеи берутся из папки игры. Досье поищет её сам.</p>
+        <p class="wz-why">Карты, скины и реплеи берутся из папки игры. Dossier поищет её сам.</p>
         <div id="wz-found" class="wz-found"></div>
         <div class="bar">
           <button class="act small" id="wz-browse">Указать папку…</button>
@@ -76,8 +76,8 @@
 
   <nav id="dock" class="dock landing" aria-label="Разделы">
     <div class="brand" aria-hidden="true">
-      <svg viewBox="0 0 28 28"><rect x="1" y="1" width="26" height="26" rx="8"/><path class="d" d="M9 8h5.5a6 6 0 0 1 0 12H9z"/><path class="lines" d="M9 12h4M9 16h4"/></svg>
-      <span>Досье</span>
+      <svg viewBox="0 0 28 28"><rect x="1" y="1" width="26" height="26" rx="8"/><path class="d" d="M9 7h4.6a7 7 0 0 1 0 14H9zm3.2 3.1v7.8h1.4a3.9 3.9 0 0 0 0-7.8z"/></svg>
+      <span>Dossier</span>
     </div>
 
     <div class="items" id="items">
@@ -244,11 +244,17 @@
       </div>
 
       <div class="working" id="r-busy" hidden>
-        <div class="bigno"><b id="r-share">0</b><span>%</span></div>
+        <div class="ring">
+          <svg viewBox="0 0 48 48" aria-hidden="true"><circle class="track" cx="24" cy="24" r="20"/><circle class="arc" id="r-arc" cx="24" cy="24" r="20"/></svg>
+          <b id="r-share">0</b>
+        </div>
         <div class="grow">
+          <div class="whom"><b id="r-whom">Рендер</b><span id="r-where"></span></div>
           <div class="progress"><div id="r-bar"></div></div>
+          <div class="facts"><span id="r-frames"></span><span id="r-speed"></span><span id="r-left"></span></div>
           <p class="muted" id="r-said"></p>
         </div>
+        <button class="act small" id="r-hide">Свернуть</button>
       </div>
 
       <div id="r-doneslot"></div>

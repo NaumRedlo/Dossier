@@ -94,7 +94,7 @@ function dressSelect(select) {
   }
 
   const close = () => {
-    list.hidden = true;
+    dismiss(list);
     button.setAttribute("aria-expanded", "false");
   };
 
@@ -117,10 +117,15 @@ function dressSelect(select) {
 
   button.addEventListener("click", (event) => {
     event.preventDefault();
-    const opening = list.hidden;
-    for (const other of document.querySelectorAll(".options")) other.hidden = true;
-    if (opening) place();
-    list.hidden = !opening;
+    const opening = leaving(list);
+    for (const other of document.querySelectorAll(".options")) if (other !== list) dismiss(other);
+    if (opening) {
+      place();
+      list.classList.remove("leaving");
+      list.hidden = false;
+    } else {
+      dismiss(list);
+    }
     button.setAttribute("aria-expanded", String(opening));
   });
   document.addEventListener("pointerdown", (event) => {
@@ -437,7 +442,12 @@ function restartLoops() {
     2200,
     "ease-in-out",
   );
+  const pulling = !jobMini.classList.contains("done") && !jobMini.classList.contains("failed") && !jobMini.classList.contains("idle");
   for (const what of [".pull .stem", ".pull .head"]) {
+    if (!pulling) {
+      stopLoop(what);
+      continue;
+    }
     loopIcon(
       at(what),
       [
@@ -938,7 +948,12 @@ const bugpane = byId("bugpane");
 let pinned = false;
 
 function openBug(yes, byHand = false) {
-  bugpane.hidden = !yes;
+  if (yes) {
+    bugpane.classList.remove("leaving");
+    bugpane.hidden = false;
+  } else {
+    dismiss(bugpane);
+  }
   bug.setAttribute("aria-expanded", String(yes));
   if (yes && byHand) byId("bug-text").focus({ preventScroll: true });
 }
@@ -1087,7 +1102,12 @@ async function lookForUpdate(loud = false) {
 }
 
 function openUpdate(yes) {
-  uppane.hidden = !yes;
+  if (yes) {
+    uppane.classList.remove("leaving");
+    uppane.hidden = false;
+  } else {
+    dismiss(uppane);
+  }
   byId("up").setAttribute("aria-expanded", String(yes));
 }
 
@@ -1887,18 +1907,17 @@ function endWork(id, ok, note) {
   if (note) one.note = note;
   paintWorks();
   const holdFor = Number(remembered("holdfor", "12")) * 1000;
-  clearTimeout(jobHold);
   if (holdFor <= 0) return;
   const sweep = () => {
     if (workHover) {
-      jobHold = setTimeout(sweep, 1200);
+      setTimeout(sweep, 1200);
       return;
     }
     works.delete(id);
     if (openWork === id) openWork = null;
     paintWorks();
   };
-  jobHold = setTimeout(sweep, holdFor);
+  setTimeout(sweep, holdFor);
 }
 
 const alive = () => [...works.values()].filter((one) => !one.done);
@@ -2432,6 +2451,11 @@ function fillPlays({ shelves, skins, plays, rows }) {
     byId("r-busy").hidden = false;
     byId("r-bar").style.width = "0%";
     byId("r-share").textContent = "0";
+    byId("r-arc").style.strokeDashoffset = "126";
+    const known = previews.get(play.path);
+    byId("r-whom").textContent = play.player;
+    byId("r-where").textContent = known && known.judged ? known.judged.title : shortFile(play.file);
+    for (const id of ["r-frames", "r-speed", "r-left"]) byId(id).textContent = "";
     byId("r-said").textContent = watchFailed
       ? `идёт, но без счётчика: окно не подписалось на события (${watchFailed})`
       : "Подготовка к рендеру…";
@@ -2799,8 +2823,8 @@ function tellWall(head, why) {
 }
 
 async function shutWall() {
-  if (wall.hidden) return;
-  wall.hidden = true;
+  if (leaving(wall)) return;
+  dismiss(wall);
   const grabbed = wallGot;
   const asked = wallAsk;
   wallFor = null;
@@ -2816,7 +2840,7 @@ wallOk.addEventListener("click", () => {
   if (wallAsk) {
     const no = wallAsk.no;
     wallAsk = null;
-    wall.hidden = true;
+    dismiss(wall);
     wallFor = null;
     if (no) no();
     return;
@@ -2920,7 +2944,7 @@ function wallWorking(on) {
 }
 
 byId("nomap-fold").addEventListener("click", () => {
-  wall.hidden = true;
+  dismiss(wall);
 });
 
 const MISSING_ENOUGH = 3;
@@ -3370,8 +3394,34 @@ function openMenu(x, y, items) {
   menuBox.style.top = `${Math.max(8, top)}px`;
 }
 
+function leaving(node) {
+  return node.hidden || node.classList.contains("leaving");
+}
+
+function dismiss(node, after) {
+  if (leaving(node)) return;
+  if (still()) {
+    node.hidden = true;
+    if (after) after();
+    return;
+  }
+  node.classList.add("leaving");
+  let closed = false;
+  const done = () => {
+    if (closed) return;
+    closed = true;
+    if (node.classList.contains("leaving")) {
+      node.classList.remove("leaving");
+      node.hidden = true;
+    }
+    if (after) after();
+  };
+  node.addEventListener("animationend", done, { once: true });
+  setTimeout(done, 260);
+}
+
 function shutMenu() {
-  menuBox.hidden = true;
+  dismiss(menuBox);
 }
 
 window.addEventListener(
@@ -3477,12 +3527,12 @@ function openSheet(play, card) {
     if (drawFile) drawFile(play);
   });
   routes.append(render);
-  const judge = el("button", "act small", "Посмотреть в Судействе");
+  const judge = el("button", "act small", "Судейство");
   judge.addEventListener("click", () => {
     shutSheet();
     takeTo("judge", play.path);
   });
-  const studio = el("button", "act small", "Добавить в Студию");
+  const studio = el("button", "act small", "В Студию");
   studio.addEventListener("click", () => {
     shutSheet();
     takeTo("cut", play.path);
@@ -3761,10 +3811,10 @@ function runSheetPreview() {
 }
 
 function shutSheet() {
-  sheet.hidden = true;
   sheetRun += 1;
   sheetPlay = null;
   sheetView = null;
+  dismiss(sheet);
 }
 
 byId("r-sheet-shut").addEventListener("click", shutSheet);
@@ -3819,7 +3869,15 @@ if (window.__TAURI__ && window.__TAURI__.event) {
     byId(watching.bar).style.width = `${share}%`;
     if (watching.share) byId(watching.share).textContent = round(share);
     const note = `Отрендерено ${round(payload.frames)} кадров из ${round(payload.of)} · ${round(payload.per_second)} в секунду · осталось ${spell(payload.left_seconds)}`;
-    byId(watching.said).textContent = note;
+    if (watching.share === "r-share") {
+      byId("r-arc").style.strokeDashoffset = String((126 * (1 - share / 100)).toFixed(1));
+      byId("r-frames").textContent = `${round(payload.frames)} из ${round(payload.of)} кадров`;
+      byId("r-speed").textContent = `${round(payload.per_second)} кадров/с`;
+      byId("r-left").textContent = `осталось ${spell(payload.left_seconds)}`;
+      byId("r-said").textContent = "";
+    } else {
+      byId(watching.said).textContent = note;
+    }
     if (job) paintJob(share, note);
   });
   subscribe("fetching", ({ payload }) => saySteps(payload));
@@ -4663,6 +4721,8 @@ byId("wz-browse").addEventListener("click", async () => {
 });
 
 byId("wz-back").addEventListener("click", () => wzGo(wzStep - 1));
+
+byId("r-hide").addEventListener("click", () => dismiss(byId("r-busy")));
 
 async function wzFinish() {
   if (await saveSettings("w", "w-said")) {

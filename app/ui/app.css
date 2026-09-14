@@ -2230,3 +2230,88 @@ input, textarea, .log, .where, .path, .mod .said, pre, code {
 
 .ic-cut .rails { transition: opacity 0.3s var(--ease); }
 .mode:hover .ic-cut .rails { opacity: 1; }
+
+.brand { display: none; align-items: center; gap: 0.6rem; padding: 0.1rem 0.5rem 1.1rem; }
+.brand svg { width: 1.75rem; height: 1.75rem; flex: none; }
+.brand svg rect { fill: var(--accent); }
+.brand svg .d { fill: none; stroke: #fff; stroke-width: 2.6; stroke-linejoin: round; }
+.brand svg .lines { stroke: #fff; stroke-width: 2; stroke-linecap: round; }
+.brand span { font-family: var(--face); font-weight: 700; font-size: 1.1rem; letter-spacing: -0.01em; color: var(--ink); }
+
+.worker { display: none; margin-top: auto; padding: 0.85rem 0.8rem; border-radius: 0.8rem; background: var(--sunk); font-family: var(--face); }
+.worker .lamp { display: inline-block; width: 0.55rem; height: 0.55rem; margin-right: 0.5rem; border-radius: 50%; background: var(--faint); vertical-align: 0.05rem; }
+.worker .lamp.good { background: var(--good); box-shadow: 0 0 0 0.25rem rgba(95, 214, 148, 0.16); }
+.worker .lamp.warn { background: var(--warn); box-shadow: 0 0 0 0.25rem rgba(240, 192, 96, 0.16); }
+.worker .lamp.bad { background: var(--accent); box-shadow: 0 0 0 0.25rem rgba(226, 72, 72, 0.18); }
+.worker b { font-size: var(--t-1); font-weight: 600; }
+.worker span:not(.lamp) { display: block; margin-top: 0.3rem; color: var(--faint); font-size: 0.8rem; line-height: 1.4; }
+.worker span:empty { display: none; }
+
+html[data-layout="desk"] .dock {
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 15rem;
+  box-sizing: border-box;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.3rem;
+  padding: 1.4rem 1rem 1.2rem;
+  border-radius: 0;
+  transform: none;
+}
+html[data-layout="desk"] .dock::before {
+  inset: 0;
+  border: 0;
+  border-right: 1px solid var(--line);
+  border-radius: 0;
+  background: rgba(0, 0, 0, 0.22);
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+html[data-layout="desk"] .brand, html[data-layout="desk"] .worker { display: flex; }
+html[data-layout="desk"] .worker { flex-direction: column; }
+html[data-layout="desk"] .worker b { display: block; }
+html[data-layout="desk"] .items { flex-direction: column; gap: 0.2rem; }
+html[data-layout="desk"] .glider { display: none; }
+html[data-layout="desk"] .item {
+  justify-content: flex-start;
+  gap: 0.65rem;
+  height: 2.5rem;
+  padding: 0 0.75rem;
+  border-radius: 0.7rem;
+  transform: none;
+  transition: color 0.2s var(--ease), background 0.2s var(--ease);
+}
+html[data-layout="desk"] .item:hover { background: var(--glass); }
+html[data-layout="desk"] .item[aria-selected="true"] { background: var(--accent-soft); color: var(--ink); }
+html[data-layout="desk"] .item .glyph { transform: none; }
+html[data-layout="desk"] main { margin: 0 0 0 15rem; max-width: none; padding: 4.4rem 2.5rem 4rem; }
+html[data-layout="desk"] .title { margin-top: -2.8rem; min-height: 2.1rem; }
+html[data-layout="desk"] .me { left: 1.8rem; bottom: 1.1rem; }
+html[data-layout="desk"] .dock { padding-bottom: 3.2rem; }
+html[data-layout="desk"] .corner.top { right: 1.5rem; top: 1.5rem; }
+html[data-layout="desk"] .repo { left: auto; }
+
+.farmtop { margin-top: 0; }
+.farmtop h3 { margin-top: 0.4rem; }
+#view-farm > h3:first-of-type { margin-top: 0.4rem; }
+
+html[data-layout="desk"] .sheet { place-items: stretch end; padding: 0; }
+html[data-layout="desk"] .sheetbox {
+  width: min(36rem, 100%);
+  height: 100%;
+  max-height: none;
+  border-radius: 0;
+  border-width: 0 0 0 1px;
+  box-shadow: -1.5rem 0 4rem rgba(0, 0, 0, 0.55);
+  animation: slide-in 0.28s var(--ease) both;
+}
+@keyframes slide-in { from { transform: translateX(2rem); opacity: 0; } }
+html[data-layout="desk"] .sheettop { grid-template-columns: 1fr; }
+
+.title { display: flex; align-items: baseline; gap: 0.6rem; margin: 0.2rem 0 0; font-family: var(--face); font-weight: 700; font-size: var(--t3); letter-spacing: -0.01em; line-height: 1.2; }
+.title .count { color: var(--faint); font-size: var(--t2); font-weight: 500; }
+.title .count:empty { display: none; }
+#view-render .bar { margin-top: 0.9rem; }

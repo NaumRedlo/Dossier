@@ -201,7 +201,7 @@ function measure() {
 }
 
 function magnify(pos) {
-  if (!base || still()) return;
+  if (!base || still() || sideways()) return;
   const scale = base.map((box) => 1 + GROW * Math.exp(-(((pos - box.centre) / REACH) ** 2)));
   const span = base.map((box, i) => box.size + box.glyph * (scale[i] - 1));
   const grew = span.reduce((a, b) => a + b, 0) - base.reduce((a, box) => a + box.size, 0);
@@ -545,6 +545,55 @@ for (const button of byId("seg-splash").querySelectorAll("button")) {
 for (const button of byId("seg-motion").querySelectorAll("button")) {
   button.addEventListener("click", () => motion(button.dataset.motion));
 }
+
+const LAYOUTS = ["desk", "stage", "table"];
+
+function layout(how, save = true) {
+  const chosen = LAYOUTS.includes(how) ? how : "desk";
+  document.documentElement.dataset.layout = chosen;
+  pressed(byId("seg-layout"), byId("seg-layout").querySelector(`[data-layout="${chosen}"]`));
+  if (save) remember("layout", chosen);
+  relax();
+  requestAnimationFrame(() => {
+    measure();
+    if (shelfCache && !byId("view-render").hidden) fillPlays(shelfCache);
+  });
+}
+
+const sideways = () => document.documentElement.dataset.layout === "desk";
+
+for (const button of byId("seg-layout").querySelectorAll("button")) {
+  button.addEventListener("click", () => layout(button.dataset.layout));
+}
+
+function tellWorker(rows) {
+  const lamp = byId("worker-lamp");
+  const state = byId("worker-state");
+  const note = byId("worker-note");
+  if (!rows || !rows.length) {
+    lamp.className = "lamp";
+    state.textContent = "Готовность не проверена";
+    note.textContent = "";
+    return;
+  }
+  const broken = rows.filter((row) => row.ok === false);
+  const unsure = rows.filter((row) => row.ok === null || row.ok === undefined);
+  if (broken.length) {
+    lamp.className = "lamp bad";
+    state.textContent = "Работу не взять";
+    note.textContent = broken.map((row) => row.name).join(", ");
+  } else if (unsure.length) {
+    lamp.className = "lamp warn";
+    state.textContent = "Почти готово";
+    note.textContent = unsure.map((row) => row.name).join(", ");
+  } else {
+    lamp.className = "lamp good";
+    state.textContent = "Готов брать работу";
+    note.textContent = lastSpeed ? `${round(lastSpeed)} кадров/с` : "";
+  }
+}
+
+let lastSpeed = 0;
 
 const idleMs = () => Number(remembered("idle", "5")) * 60 * 1000;
 
@@ -1115,6 +1164,7 @@ async function showReady() {
     ? `${stopped} ${plural(stopped, "пункт", "пункта", "пунктов")} надо поправить`
     : "Готово — можно брать работу";
   verdict.className = stopped ? "verdict bad" : "verdict";
+  tellWorker(rows);
 
   const asking = line({ mark: ["huh", "?"], name: "Сборка", said: "Спрашиваю у бота…" });
   box.append(asking);
@@ -1144,6 +1194,7 @@ async function showMachine() {
   }
 
   if (told.speed) {
+    lastSpeed = told.speed.estimated;
     head.replaceChildren(
       el("b", null, round(told.speed.estimated)),
       el("span", null, `кадров в секунду · ${told.speed.width}×${told.speed.height} · ${told.capacity.threads} ${plural(told.capacity.threads, "поток", "потока", "потоков")}`),
@@ -1173,6 +1224,15 @@ async function showMachine() {
     rows.push({ mark: ["ok", "·"], name: "На поток", said: `${round(told.speed.per_thread)} кадров/с` });
   }
   box.replaceChildren(...rows.map(line));
+}
+
+async function showFarmView() {
+  showReady();
+  if (!measured) {
+    measured = true;
+    showMachine();
+  }
+  showFarm();
 }
 
 async function showFarm() {
@@ -2249,6 +2309,7 @@ function fillPlays({ shelves, skins, plays, rows }) {
   }
 
   const showing = chosenPlays(plays);
+  byId("r-count").textContent = plays.length ? String(plays.length) : "";
   if (!plays.length) {
     list.classList.add("waiting");
     list.replaceChildren(line({ mark: ["huh", "?"], name: "пусто", said: "Укажите папку реплеев." }));
@@ -3852,6 +3913,7 @@ function openSettings(which, save = true) {
   if (which === "skins") runFitting();
   else stopFitting();
   if (which === "credits") fillCredits();
+  if (which === "build") showLibrary();
   return which;
 }
 
@@ -4402,7 +4464,7 @@ function showReplay() {
 const views = {
   render: showRender,
   replay: showReplay,
-  library: showLibrary,
+  farm: showFarmView,
   settings: showSettings,
 };
 
@@ -4417,7 +4479,8 @@ function show(which) {
 
   requestAnimationFrame(runPreviews);
   for (const name of Object.keys(views)) {
-    byId(`tab-${name}`).setAttribute("aria-selected", String(name === which));
+    const tab = byId(`tab-${name}`);
+    if (tab) tab.setAttribute("aria-selected", String(name === which));
     byId(`view-${name}`).hidden = name !== which;
   }
 
@@ -4434,7 +4497,8 @@ function show(which) {
 }
 
 for (const name of Object.keys(views)) {
-  byId(`tab-${name}`).addEventListener("click", () => show(name));
+  const tab = byId(`tab-${name}`);
+  if (tab) tab.addEventListener("click", () => show(name));
 }
 
 window.addEventListener("resize", () => {
@@ -4462,6 +4526,7 @@ byId("w-save").addEventListener("click", async () => {
   idleAfter(remembered("idle", "5"), false);
   reportWhen(remembered("report", "ask"), false);
   openSettings(remembered("spage", "link"), false);
+  layout(remembered("layout", "desk"), false);
   byId("s-loud").value = remembered("loud", "0.35");
   loudness();
   restartLoops();
@@ -4503,6 +4568,7 @@ byId("w-save").addEventListener("click", async () => {
     return;
   }
   show("render");
+  showReady();
 
   try {
     dressAll();

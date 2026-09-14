@@ -2296,9 +2296,12 @@ function fillPlays({ shelves, skins, plays, rows }) {
 
     const said = el("div", "who");
     said.append(el("b", null, play.player));
-    said.append(el("p", "map", "…"));
+    said.append(el("p", "map", play.have_map ? "…" : play.file.replace(/\.osr$/i, "")));
+    said.append(el("p", "gauge"));
     const about = el("p", "about");
     about.append(modBadges(play.mods));
+    if (play.combo) about.append(el("span", "dot", "·"), el("span", "combo", `${play.combo}x`));
+    if (play.played_at) about.append(el("span", "when", dayOf(play.played_at)));
     said.append(about);
     card.append(said);
 
@@ -2443,6 +2446,7 @@ async function loadModArt() {
   if (modArt) return modArt;
   const said = await invoke("mod_icons", { high: 48 }).catch(() => null);
   modArt = new Map(said || []);
+  for (const box of document.querySelectorAll(".mods[data-mods]")) fillBadges(box, box.dataset.mods);
   return modArt;
 }
 
@@ -2456,6 +2460,13 @@ function modsOf(text) {
 
 function modBadges(text) {
   const box = el("span", "mods");
+  box.dataset.mods = String(text || "");
+  fillBadges(box, text);
+  return box;
+}
+
+function fillBadges(box, text) {
+  box.replaceChildren();
   for (const name of modsOf(text)) {
     const art = modArt && modArt.get(name);
     if (!art) {
@@ -2469,7 +2480,6 @@ function modBadges(text) {
     one.title = name;
     box.append(one);
   }
-  return box;
 }
 
 const MOD_ARTISTS = [
@@ -3138,6 +3148,11 @@ function outcomeOf(said) {
 function dressCard(card, said) {
   const where = card.querySelector(".map");
   if (where) where.textContent = said.title;
+
+  const gauge = card.querySelector(".gauge");
+  if (gauge && Number.isFinite(said.accuracy_percent)) {
+    gauge.textContent = `${round(said.accuracy_percent, 2)}%`;
+  }
 
   const mark = card.querySelector(".acc");
   if (mark) {
@@ -3945,6 +3960,14 @@ function readMarks(marks, ms) {
   }
 
   return { combo, percent: objects ? (weight / (objects * 300)) * 100 : 100, objects };
+}
+
+function dayOf(unixSeconds) {
+  const day = new Date(unixSeconds * 1000);
+  if (Number.isNaN(day.getTime())) return "";
+  const thisYear = day.getFullYear() === new Date().getFullYear();
+  const said = day.toLocaleDateString("ru-RU", thisYear ? { day: "numeric", month: "short" } : { day: "numeric", month: "short", year: "numeric" });
+  return said.replace(/\s*г\.$/, "").replace(/\./g, "");
 }
 
 function stamp(seconds) {

@@ -2502,3 +2502,16 @@ html[data-layout="desk"] .sheettop { margin-top: 1rem; }
 .working .facts span:empty { display: none; }
 .working p:empty { display: none; }
 .working .act.small { flex: none; align-self: center; }
+
+#view-settings .page > .card { border: 0; border-radius: 0; background: none; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; overflow: visible; }
+#view-settings .page > .card.pad { padding: 0.2rem 0 0.4rem; }
+#view-settings .page > .card > .pref { padding: 1.05rem 0.2rem; }
+#view-settings .page > .card > .pref:first-child { padding-top: 0.35rem; }
+#view-settings .page > .card > .pref:last-child { padding-bottom: 0.5rem; }
+#view-settings .pref b { font-family: var(--face); font-size: var(--t1); }
+#view-settings .pref p { margin-top: 0.2rem; color: var(--muted); font-size: var(--t-1); line-height: 1.45; max-width: 30rem; }
+#view-settings .page > h3:first-child { margin-top: 0.4rem; }
+#view-settings .page > h3 { margin: 1.9rem 0 0.4rem; }
+#view-settings .page > .fine, #view-settings .page > .verdict { padding: 0 0.2rem; }
+#view-settings .rail button { transition: background 0.2s var(--ease), color 0.2s var(--ease); }
+#view-settings .rail button[aria-current] { background: var(--accent-soft); border-color: transparent; }

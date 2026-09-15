@@ -227,14 +227,14 @@ pub fn ledger<'a, Message: Clone + 'a>(lines: &[Line], on_link: Option<Message>)
             let mut note = row![text(reason.clone()).font(theme::SANS).size(theme::CAPTION).color(MUTED)].spacing(6);
             if let Some(link) = link {
                 let go = button(text(link.clone()).font(theme::SANS).size(theme::CAPTION).color(ACCENT))
-                    .padding(0)
+                    .padding([6, 0])
                     .style(theme::link);
                 note = note.push(match on_link.clone() {
                     Some(message) => go.on_press(message),
                     None => go,
                 });
             }
-            rows = rows.push(container(note).padding(iced::Padding::ZERO.left(26.0).bottom(6.0)));
+            rows = rows.push(container(note.align_y(iced::Center)).padding(iced::Padding::ZERO.left(26.0)));
         }
     }
     rows.into()
@@ -298,7 +298,7 @@ pub fn quiet<'a, Message: Clone + 'a>(words: String, on: Option<Message>) -> Ele
 
 pub fn link<'a, Message: Clone + 'a>(words: String, on: Message) -> Element<'a, Message> {
     button(text(words).font(theme::SANS).size(theme::CAPTION))
-        .padding(0)
+        .padding([6, 0])
         .style(theme::link)
         .on_press(on)
         .into()

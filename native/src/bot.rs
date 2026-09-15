@@ -41,11 +41,11 @@ pub struct Pairing {
     #[serde(default)]
     pub link: String,
     #[serde(default)]
-    pub seconds: u64,
+    pub expires_in: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
-#[serde(tag = "state", rename_all = "lowercase")]
+#[serde(tag = "status", rename_all = "lowercase")]
 pub enum Paired {
     Waiting,
     Linked {
@@ -53,7 +53,8 @@ pub enum Paired {
         #[serde(default)]
         who: String,
     },
-    Expired,
+    Gone,
+    Throttled,
 }
 
 fn client() -> Result<reqwest::blocking::Client, Refused> {
@@ -124,6 +125,11 @@ pub fn paired(server: &str, code: &str) -> Result<Paired, Refused> {
         .get(format!("{server}/render/pair/{code}"))
         .send()
         .map_err(|e| Refused::Network(e.to_string()))?;
+    match response.status().as_u16() {
+        404 => return Ok(Paired::Gone),
+        429 => return Ok(Paired::Throttled),
+        _ => {}
+    }
     status(response)?
         .json::<Paired>()
         .map_err(|e| Refused::Network(e.to_string()))
@@ -157,10 +163,23 @@ mod tests {
     }
 
     #[test]
-    fn the_pairing_answer_is_read_by_its_state() {
-        let waiting: Paired = serde_json::from_str(r#"{"state":"waiting"}"#).unwrap();
+    fn the_pairing_answer_is_read_the_way_the_bot_writes_it() {
+        let waiting: Paired = serde_json::from_str(r#"{"status": "waiting"}"#).unwrap();
         assert_eq!(waiting, Paired::Waiting);
-        let linked: Paired = serde_json::from_str(r#"{"state":"linked","token":"t","who":"naum"}"#).unwrap();
-        assert_eq!(linked, Paired::Linked { token: "t".into(), who: "naum".into() });
+        let linked: Paired = serde_json::from_str(r#"{"status": "linked", "token": "t"}"#).unwrap();
+        assert_eq!(linked, Paired::Linked { token: "t".into(), who: String::new() });
+        let gone: Paired = serde_json::from_str(r#"{"status": "gone"}"#).unwrap();
+        assert_eq!(gone, Paired::Gone);
+    }
+
+    #[test]
+    fn the_pairing_offer_is_read_the_way_the_bot_writes_it() {
+        let offered: Pairing = serde_json::from_str(
+            r#"{"code": "BH5D-W8PR", "link": "https://t.me/OneNineEightFourGlobalBot?start=pair-BH5DW8PR", "expires_in": 600}"#,
+        )
+        .unwrap();
+        assert_eq!(offered.code, "BH5D-W8PR");
+        assert!(offered.link.ends_with("pair-BH5DW8PR"));
+        assert_eq!(offered.expires_in, 600);
     }
 }

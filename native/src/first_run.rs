@@ -203,9 +203,8 @@ impl FirstRun {
             }
             Message::Browse => Task::perform(
                 async {
-                    rfd::FileDialog::new()
-                        .pick_folder()
-                        .and_then(|path| sources::read(&path))
+                    let picked = rfd::AsyncFileDialog::new().pick_folder().await?;
+                    sources::read(picked.path())
                 },
                 Message::Browsed,
             ),
@@ -229,7 +228,7 @@ impl FirstRun {
             }
             Message::PairAsked(Ok((code, link))) => {
                 let link = if link.is_empty() {
-                    format!("https://t.me/onenineeightfour_bot?start=pair-{}", bot::tidy(&code))
+                    format!("https://t.me/OneNineEightFourGlobalBot?start=pair-{}", bot::tidy(&code))
                 } else {
                     link
                 };
@@ -255,7 +254,7 @@ impl FirstRun {
                 self.pairing = Pairing::Linked { who };
                 Task::none()
             }
-            Message::Polled(Ok(Paired::Expired)) => self.ask_to_pair(),
+            Message::Polled(Ok(Paired::Gone)) | Message::Polled(Err(Refused::NotThere)) => self.ask_to_pair(),
             Message::Polled(_) => Task::none(),
             Message::OpenTelegram => {
                 if let Pairing::Waiting { link, .. } = &self.pairing {
@@ -607,7 +606,7 @@ impl FirstRun {
                 let status = match &self.pairing {
                     Pairing::Linked { who } => row![
                         ui::glyph(Glyph::Tick),
-                        text(if who.is_empty() { w.t("linked-to").replace("@", "") } else { w.who("linked-to", who) })
+                        text(if who.is_empty() { w.t("linked") } else { w.who("linked-to", who) })
                             .font(theme::SANS)
                             .size(theme::BODY)
                             .color(INK)

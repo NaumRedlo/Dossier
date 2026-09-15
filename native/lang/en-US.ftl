@@ -46,6 +46,7 @@ bot-why-only = This device renders for the bot, so it has to be linked.
 code-cap = Code · 10 minutes
 open-telegram = Open Telegram
 waiting-telegram = Waiting for Telegram…
+linked = Linked to the bot
 linked-to = Linked to @{ $who }
 have-code = I have a code from the bot
 enter-code = Code from the bot

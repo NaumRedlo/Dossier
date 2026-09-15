@@ -49,6 +49,7 @@ bot-why-only = Это устройство рендерит для бота, п�
 code-cap = Код · 10 минут
 open-telegram = Открыть Telegram
 waiting-telegram = Жду Telegram…
+linked = Привязано к боту
 linked-to = Привязано к @{ $who }
 have-code = У меня есть код от бота
 enter-code = Код от бота

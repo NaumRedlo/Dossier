@@ -74,9 +74,10 @@ fn status(response: reqwest::blocking::Response) -> Result<reqwest::blocking::Re
     }
 }
 
-pub fn hello(server: &str, token: &str) -> Result<Hello, Refused> {
+pub fn hello(server: &str, token: &str, name: &str) -> Result<Hello, Refused> {
     let mut request = client()?
         .get(format!("{server}/render/hello"))
+        .header("X-Render-Worker", name)
         .query(&[("engine", ENGINE)]);
     if !token.is_empty() {
         request = request.bearer_auth(token);

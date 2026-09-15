@@ -51,28 +51,30 @@ pub fn folder_or_bot_only(sources: &[Source], bot_only: bool) -> Outcome {
     if bot_only {
         let own = crate::settings::Settings::own_storage();
         return match std::fs::create_dir_all(&own) {
-            Ok(()) => Outcome::Passed(own.display().to_string()),
+            Ok(()) => Outcome::Passed(crate::sources::shortened(&own)),
             Err(why) => Outcome::Failed(why.to_string()),
         };
     }
     folder(sources)
 }
 
-pub fn engine(server: &str, token: &str) -> Outcome {
-    match bot::hello(server, token) {
-        Ok(hello) if hello.agree => Outcome::Passed(bot::BUILD.to_owned()),
-        Ok(hello) if hello.build.is_empty() => Outcome::Passed(bot::BUILD.to_owned()),
+pub fn engine(server: &str, token: &str, name: &str) -> Outcome {
+    if token.is_empty() {
+        return Outcome::Passed(bot::BUILD.to_owned());
+    }
+    match bot::hello(server, token, name) {
+        Ok(hello) if hello.agree || hello.build.is_empty() => Outcome::Passed(bot::BUILD.to_owned()),
         Ok(hello) => Outcome::Failed(hello.build),
-        Err(_) => Outcome::Passed(bot::BUILD.to_owned()),
+        Err(why) => Outcome::Failed(why.to_string()),
     }
 }
 
-pub fn bot(server: &str, token: &str) -> Outcome {
+pub fn bot(server: &str, token: &str, name: &str) -> Outcome {
     if token.is_empty() {
         return Outcome::Failed(String::new());
     }
     let started = std::time::Instant::now();
-    match bot::hello(server, token) {
+    match bot::hello(server, token, name) {
         Ok(_) => Outcome::Passed(format!("{} ms", started.elapsed().as_millis())),
         Err(why) => Outcome::Failed(why.to_string()),
     }

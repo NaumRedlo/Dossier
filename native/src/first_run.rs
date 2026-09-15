@@ -134,14 +134,15 @@ impl FirstRun {
         let sources = self.live_sources();
         let server = self.settings.server.clone();
         let token = self.settings.token.clone();
+        let name = self.settings.device.clone();
         let bot_only = self.bot_only;
         Task::perform(async move { checks::folder_or_bot_only(&sources, bot_only) }, |o| Message::Checked(Check::Folder, o))
             .chain(Task::perform(async { checks::ffmpeg() }, |o| Message::Checked(Check::Ffmpeg, o)))
             .chain({
-                let (server, token) = (server.clone(), token.clone());
-                Task::perform(async move { checks::engine(&server, &token) }, |o| Message::Checked(Check::Engine, o))
+                let (server, token, name) = (server.clone(), token.clone(), name.clone());
+                Task::perform(async move { checks::engine(&server, &token, &name) }, |o| Message::Checked(Check::Engine, o))
             })
-            .chain(Task::perform(async move { checks::bot(&server, &token) }, |o| Message::Checked(Check::Bot, o)))
+            .chain(Task::perform(async move { checks::bot(&server, &token, &name) }, |o| Message::Checked(Check::Bot, o)))
     }
 
     fn ask_to_pair(&mut self) -> Task<Message> {

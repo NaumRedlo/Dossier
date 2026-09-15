@@ -32,12 +32,16 @@ pub struct Source {
 
 impl Source {
     pub fn shown(&self) -> String {
-        let home = home();
-        let path = self.root.display().to_string();
-        match home.to_str() {
-            Some(prefix) if path.starts_with(prefix) => format!("~{}", &path[prefix.len()..]),
-            _ => path,
-        }
+        shortened(&self.root)
+    }
+}
+
+pub fn shortened(path: &Path) -> String {
+    let home = home();
+    let shown = path.display().to_string();
+    match home.to_str() {
+        Some(prefix) if shown.starts_with(prefix) => format!("~{}", &shown[prefix.len()..]),
+        _ => shown,
     }
 }
 

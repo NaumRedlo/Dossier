@@ -1,18 +1,19 @@
 import pathlib
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 HERE = pathlib.Path(__file__).resolve().parent
 UI = HERE.parent / "ui"
-FONT = pathlib.Path.home() / "Documents/1984/assets/fonts/ProximaSoft-Bold.ttf"
+FONT = HERE.parent.parent / "assets/fonts/VarelaRound-Regular.ttf"
 
 ACCENT = (226, 72, 72)
 ACCENT_DEEP = (201, 52, 47)
 RIM = (120, 28, 26)
 DARK = (14, 12, 16)
 
-LETTER_SHARE = 0.46
+LETTER_SHARE = 0.54
 SLOTS = 4
+WEIGHT = 0.022
 
 def _rounded(size: int, share: float = 0.225) -> Image.Image:
     mask = Image.new("L", (size, size), 0)
@@ -33,12 +34,13 @@ def _ramp(size: int) -> Image.Image:
 
 def _letter(size: int) -> tuple[Image.Image, tuple[float, float, float, float]]:
     font = ImageFont.truetype(str(FONT), round(size * LETTER_SHARE))
+    bold = max(1, round(size * WEIGHT))
     mask = Image.new("L", (size, size), 0)
     draw = ImageDraw.Draw(mask)
-    box = draw.textbbox((0, 0), "D", font=font)
+    box = draw.textbbox((0, 0), "D", font=font, stroke_width=bold)
     x = (size - (box[2] - box[0])) / 2 - box[0]
     y = (size - (box[3] - box[1])) / 2 - box[1]
-    draw.text((x, y), "D", font=font, fill=255)
+    draw.text((x, y), "D", font=font, fill=255, stroke_width=bold, stroke_fill=255)
     return mask, (x + box[0], y + box[1], x + box[2], y + box[3])
 
 def glyph(size: int) -> Image.Image:
@@ -73,24 +75,10 @@ def tile(size: int) -> Image.Image:
     )
     art.paste(Image.new("RGBA", (size, size), (*RIM, 255)), (0, 0), rim)
 
-    draw = ImageDraw.Draw(art)
-    pad = int(size * 0.075)
-    draw.ellipse([pad, pad, size - pad, size - pad], outline=(*DARK, 70), width=int(size * 0.020))
-    pad = int(size * 0.165)
-    draw.ellipse([pad, pad, size - pad, size - pad], outline=(*DARK, 190), width=int(size * 0.046))
-
-    mask, (x0, y0, x1, y1) = _letter(size)
-    art.paste(Image.new("RGBA", (size, size), (*DARK, 255)), (0, 0), mask)
-
-    height = size * 0.028
-    step = height * 2
-    margin = (x1 - x0) * 0.05
-    top = (y0 + y1) / 2 - (SLOTS * step - height) / 2
-    cut = ImageDraw.Draw(mask := Image.new("L", (size, size), 0))
-    for slot in range(SLOTS):
-        y = top + slot * step
-        cut.rectangle([x0 - margin, y, x1 + margin, y + height], fill=255)
-    art.paste(_ramp(size), (0, 0), mask)
+    mask, _ = _letter(size)
+    shadow = mask.filter(ImageFilter.GaussianBlur(max(1, size * 0.012)))
+    art.paste(Image.new("RGBA", (size, size), (*DARK, 110)), (0, round(size * 0.012)), shadow)
+    art.paste(Image.new("RGBA", (size, size), (255, 255, 255, 255)), (0, 0), mask)
     return art
 
 def bar(size: int) -> Image.Image:

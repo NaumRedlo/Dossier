@@ -11,9 +11,9 @@ ACCENT_DEEP = (201, 52, 47)
 RIM = (120, 28, 26)
 DARK = (14, 12, 16)
 
-LETTER_SHARE = 0.54
+LETTER_SHARE = 0.46
 SLOTS = 4
-WEIGHT = 0.022
+WEIGHT = 0.018
 
 def _rounded(size: int, share: float = 0.225) -> Image.Image:
     mask = Image.new("L", (size, size), 0)
@@ -64,21 +64,12 @@ def glyph(size: int) -> Image.Image:
 
 def tile(size: int) -> Image.Image:
     art = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    art.paste(_ramp(size), (0, 0), _rounded(size))
-
-    rim = Image.new("L", (size, size), 0)
-    ImageDraw.Draw(rim).rounded_rectangle(
-        [0, 0, size - 1, size - 1],
-        radius=round(size * 0.225),
-        outline=255,
-        width=max(1, round(size * 0.014)),
-    )
-    art.paste(Image.new("RGBA", (size, size), (*RIM, 255)), (0, 0), rim)
-
-    mask, _ = _letter(size)
-    shadow = mask.filter(ImageFilter.GaussianBlur(max(1, size * 0.012)))
-    art.paste(Image.new("RGBA", (size, size), (*DARK, 110)), (0, round(size * 0.012)), shadow)
-    art.paste(Image.new("RGBA", (size, size), (255, 255, 255, 255)), (0, 0), mask)
+    draw = ImageDraw.Draw(art)
+    pad = int(size * 0.075)
+    draw.ellipse([pad, pad, size - pad, size - pad], outline=(*ACCENT, 115), width=max(1, int(size * 0.020)))
+    pad = int(size * 0.165)
+    draw.ellipse([pad, pad, size - pad, size - pad], outline=(*ACCENT, 255), width=max(1, int(size * 0.046)))
+    art.alpha_composite(glyph(size))
     return art
 
 def bar(size: int) -> Image.Image:

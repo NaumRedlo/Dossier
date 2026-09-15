@@ -13,6 +13,7 @@ GROUND = (13, 5, 8)
 
 LETTER_SHARE = 0.56
 SLOTS = 4
+SLOT_SHARE = 0.068
 WEIGHT = 0.018
 
 def _rounded(size: int, share: float = 0.225) -> Image.Image:
@@ -48,14 +49,14 @@ def glyph(size: int) -> Image.Image:
     mask, (x0, y0, x1, y1) = _letter(size)
     art.paste(_ramp(size), (0, 0), mask)
 
-    height = size * 0.028
-    step = height * 2
+    tall = y1 - y0
+    height = tall * SLOT_SHARE
+    step = tall / (SLOTS + 1)
     margin = (x1 - x0) * 0.05
-    top = (y0 + y1) / 2 - (SLOTS * step - height) / 2
     slots = Image.new("L", (size, size), 0)
     cut = ImageDraw.Draw(slots)
-    for slot in range(SLOTS):
-        y = top + slot * step
+    for slot in range(1, SLOTS + 1):
+        y = y0 + slot * step - height / 2
         cut.rectangle([x0 - margin, y, x1 + margin, y + height], fill=255)
     alpha = art.getchannel("A")
     alpha.paste(0, (0, 0), slots)

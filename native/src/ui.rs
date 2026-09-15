@@ -65,8 +65,8 @@ pub fn glyph<'a, Message: 'a>(which: Glyph) -> Element<'a, Message> {
 pub struct Mark;
 
 const LETTER_WEIGHT: f32 = 3.6;
-const SLITS: [f32; 3] = [9.4, 14.0, 18.6];
-const SLIT_WEIGHT: f32 = 1.3;
+const SLITS: [f32; 4] = [8.6, 12.2, 15.8, 19.4];
+const SLIT_WEIGHT: f32 = 1.25;
 
 fn letter_path() -> Path {
     Path::new(|b| {

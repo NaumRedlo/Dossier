@@ -174,7 +174,7 @@ The rule from the person this is for: *minimise the information, or it is
 easy to lose the thread and to see the flaws.* Each screen below lists
 everything it shows. Adding a line to a screen means adding it here first.
 
-**The mark** is the letter D with three slits through it, red, on a rounded
+**The mark** is the letter D with four slits through it, evenly spaced, red, on a rounded
 tile that runs from the burgundy at the top of the ground to the black at its
 bottom. No rings, no border; the application icon is the same picture.
 

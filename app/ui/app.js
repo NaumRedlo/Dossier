@@ -643,12 +643,16 @@ function tellWorker(rows) {
   } else {
     lamp.className = "lamp good";
     state.textContent = "Готов брать работу";
-    note.textContent = lastSpeed ? `${round(lastSpeed)} кадров/с` : "";
+    note.textContent = [
+      lastSpeed ? `${round(lastSpeed)} кадров/с` : "",
+      lastWaiting === null ? "" : lastWaiting ? `${lastWaiting} ${plural(lastWaiting, "задание", "задания", "заданий")} в очереди у бота` : "очередь у бота пуста",
+    ].filter(Boolean).join("\n");
   }
 }
 
 let lastSpeed = 0;
 let lastReady = null;
+let lastWaiting = null;
 
 const farmOn = () => remembered("farming", "on") === "on";
 let farmTimer = null;
@@ -666,26 +670,39 @@ function paintFarming(payload) {
   const share = payload.of ? Math.min(100, (payload.frames / payload.of) * 100) : 0;
   byId("farm-progress").hidden = false;
   byId("farm-bar").style.width = `${share}%`;
-  byId("farm-share").textContent = round(share);
-  byId("farm-arc").style.strokeDashoffset = String((126 * (1 - share / 100)).toFixed(1));
-  byId("farm-facts").replaceChildren(
-    el("span", null, `${round(payload.frames)} из ${round(payload.of)} кадров`),
-    el("span", null, `${round(payload.per_second)} кадров/с`),
-    el("span", null, `осталось ${spell(payload.left_seconds)}`),
-  );
+  byId("farm-share").textContent = `${round(share)}%`;
+  byId("farm-left").textContent = payload.left_seconds > 0 ? `осталось ${spell(payload.left_seconds)}` : "";
+  byId("farm-facts").textContent = `${round(payload.frames)} из ${round(payload.of)} кадров · ${round(payload.per_second)} кадров/с`;
   if (farmWork) stepWork(farmWork, share, `${round(share)}% · осталось ${spell(payload.left_seconds)}`);
 }
 
 function farmIdle(text) {
   farming = null;
   byId("farm-progress").hidden = true;
-  byId("farm-facts").replaceChildren();
+  byId("farm-facts").textContent = "";
   byId("farm-share").textContent = "";
-  byId("farm-arc").style.strokeDashoffset = "126";
+  byId("farm-left").textContent = "";
+  byId("farm-giveback").hidden = true;
   byId("farm-now").classList.remove("busy");
+  byId("farm-said").textContent = farmOn()
+    ? "Задание придёт от бота само. Здесь будет видно, что рисуется и сколько осталось."
+    : "Переключатель наверху вернёт эту машину в очередь.";
   sayFarm(text);
   tellWorker(lastReady);
+  if (lastReady) tellStatus(lastReady);
 }
+
+byId("farm-giveback").addEventListener("click", () => {
+  byId("farm-giveback").disabled = true;
+  sayFarm("Останавливаю…", byId("farm-title").textContent);
+  invoke("halt_draw").catch(() => {});
+});
+
+byId("farm-log").addEventListener("click", () => {
+  invoke("log_open").catch((why) => {
+    byId("farm-said").textContent = `Журнал не открылся: ${why}`;
+  });
+});
 
 function farmLater(ms) {
   clearTimeout(farmTimer);
@@ -736,6 +753,7 @@ async function farmTick() {
 
 byId("farm-on").addEventListener("change", () => {
   remember("farming", byId("farm-on").checked ? "on" : "off");
+  if (lastReady) tellStatus(lastReady);
   farmTick();
 });
 
@@ -1299,8 +1317,15 @@ async function sendReport(after) {
   }
 }
 
+function kv(name, said, ok) {
+  const row = el("div", "kv");
+  row.append(el("span", "k", name), el("span", `v ${ok === false ? "bad" : ok ? "good" : ""}`, said));
+  if (ok === false) row.title = "Не так — см. подсказку ниже";
+  return row;
+}
+
 async function showReady() {
-  const box = byId("ready-rows");
+  const box = byId("farm-kvs");
   const verdict = byId("ready-verdict");
   let rows;
   try {
@@ -1310,74 +1335,95 @@ async function showReady() {
     verdict.className = "verdict bad";
     return [];
   }
-  box.replaceChildren(
-    ...rows.map((row) => line({ mark: sign(row.ok), name: row.name, said: row.said, fix: row.ok === false ? row.fix : "" })),
-  );
-  const stopped = rows.filter((row) => row.ok === false).length;
-  verdict.textContent = stopped
-    ? `${stopped} ${plural(stopped, "пункт", "пункта", "пунктов")} надо поправить`
-    : "Готово — можно брать работу";
-  verdict.className = stopped ? "verdict bad" : "verdict";
+  const asking = kv("Сборка", "Спрашиваю у бота…", null);
+  box.replaceChildren(...rows.map((row) => kv(row.name, row.said, row.ok)), asking);
+  const stopped = rows.filter((row) => row.ok === false);
+  verdict.textContent = stopped.length
+    ? stopped.map((row) => row.fix || row.name).join(" · ")
+    : "";
+  verdict.className = stopped.length ? "verdict bad" : "verdict";
   tellWorker(rows);
+  tellStatus(rows);
 
-  const asking = line({ mark: ["huh", "?"], name: "Сборка", said: "Спрашиваю у бота…" });
-  box.append(asking);
   invoke("handshake")
-    .then((row) =>
-      asking.replaceWith(
-        line({ mark: sign(row.ok), name: row.name, said: row.said, fix: row.ok === false ? row.fix : "" }),
-      ),
-    )
-    .catch((why) => asking.replaceWith(line({ mark: ["no", "!"], name: "Сборка", said: `${why}` })));
+    .then((row) => {
+      asking.replaceWith(kv(row.name, row.said, row.ok));
+      if (row.ok === false) {
+        verdict.textContent = [verdict.textContent, row.fix || row.said].filter(Boolean).join(" · ");
+        verdict.className = "verdict bad";
+      }
+      tellStatus([...rows, row]);
+    })
+    .catch((why) => asking.replaceWith(kv("Сборка", `${why}`, false)));
   return rows;
+}
+
+function tellStatus(rows) {
+  const lamp = byId("farm-lamp");
+  const verdict = byId("farm-verdict");
+  if (farming) {
+    lamp.className = "lamp busy";
+    verdict.textContent = "Рендерю для бота";
+    return;
+  }
+  if (!farmOn()) {
+    lamp.className = "lamp";
+    verdict.textContent = "Работу не беру";
+    return;
+  }
+  const broken = rows.filter((row) => row.ok === false);
+  const unsure = rows.filter((row) => row.ok === null || row.ok === undefined);
+  if (broken.length) {
+    lamp.className = "lamp bad";
+    verdict.textContent = `Работу не взять: ${broken.map((row) => row.name.toLowerCase()).join(", ")}`;
+  } else if (unsure.length) {
+    lamp.className = "lamp warn";
+    verdict.textContent = "Почти готово";
+  } else {
+    lamp.className = "lamp good";
+    verdict.textContent = "Готов брать работу";
+  }
 }
 
 function round(n, places = 0) {
   return Number(n).toLocaleString("ru-RU", { maximumFractionDigits: places });
 }
 
+function tile(id, value) {
+  const box = byId(id);
+  if (box.textContent === value) return;
+  box.textContent = value;
+  box.classList.remove("turned");
+  void box.offsetWidth;
+  box.classList.add("turned");
+}
+
 async function showMachine() {
-  const head = byId("machine-headline");
-  const box = byId("machine-rows");
+  const line = byId("farm-machine");
   let told;
   try {
     told = await invoke("profile");
   } catch (why) {
-    head.replaceChildren(el("span", null, `Не удалось измерить: ${why.message}`));
+    line.textContent = `Не удалось измерить: ${why.message}`;
     return;
   }
-
+  const hardware = told.hardware;
+  line.textContent = [
+    known.name,
+    hardware.os,
+    `${hardware.cpu}, ${hardware.cores} ${plural(hardware.cores, "ядро", "ядра", "ядер")}`,
+    hardware.memory_gb ? `${round(hardware.memory_gb, 1)} ГБ` : "",
+    told.capacity.reason.toLowerCase(),
+  ].filter(Boolean).join(" · ");
   if (told.speed) {
     lastSpeed = told.speed.estimated;
-    head.replaceChildren(
-      el("b", null, round(told.speed.estimated)),
-      el("span", null, `кадров в секунду · ${told.speed.width}×${told.speed.height} · ${told.capacity.threads} ${plural(told.capacity.threads, "поток", "потока", "потоков")}`),
-    );
+    tile("farm-fps", round(told.speed.estimated));
+    byId("farm-fps-of").textContent = `кадров/с · ${told.speed.width}×${told.speed.height}, ${told.capacity.threads} ${plural(told.capacity.threads, "поток", "потока", "потоков")}`;
   } else {
-    head.replaceChildren(el("span", null, told.could_not_measure || "Измерить не удалось"));
+    tile("farm-fps", "—");
+    byId("farm-fps-of").textContent = told.could_not_measure || "измерить не удалось";
   }
-
-  const hardware = told.hardware;
-  const rows = [
-    { mark: ["ok", "·"], name: "Процессор", said: hardware.cpu },
-    { mark: ["ok", "·"], name: "Ядер", said: String(hardware.cores) },
-    { mark: ["ok", "·"], name: "ОЗУ", said: hardware.memory_gb ? `${round(hardware.memory_gb, 1)} ГБ` : "неизвестно" },
-    { mark: ["ok", "·"], name: "Система", said: hardware.os },
-    {
-      mark: hardware.encoders.length ? ["ok", "+"] : ["huh", "?"],
-      name: "Кодировщики",
-      said: hardware.encoders.length ? hardware.encoders.join(", ") : "только программный",
-    },
-    {
-      mark: sign(told.capacity.take),
-      name: "Доступность",
-      said: told.capacity.reason,
-    },
-  ];
-  if (told.speed) {
-    rows.push({ mark: ["ok", "·"], name: "На поток", said: `${round(told.speed.per_thread)} кадров/с` });
-  }
-  box.replaceChildren(...rows.map(line));
+  tellWorker(lastReady);
 }
 
 async function showFarmView() {
@@ -1390,9 +1436,39 @@ async function showFarmView() {
   showFarm();
 }
 
+const STATES = {
+  rendering: ["busy", "рендерит"],
+  idle: ["good", "ждёт"],
+  asleep: ["warn", "спит"],
+  offline: ["", "не в сети"],
+};
+
+function machineRow(worker) {
+  const row = el("tr");
+  const mine = worker.name === known.name;
+  const name = el("td", mine ? "me" : "");
+  name.append(worker.name);
+  if (mine) name.append(el("span", "faint", " · это я"));
+  const [tone, word] = STATES[worker.state] || ["", worker.state];
+  const pill = el("span", "pill");
+  pill.append(el("span", `lamp ${tone}`), [word, worker.reason].filter(Boolean).join(" · "));
+  const state = el("td");
+  state.append(pill);
+  row.append(
+    name,
+    state,
+    el("td", "mono", worker.build || "—"),
+    el("td", "num", String(worker.threads)),
+    el("td", "num", String(worker.delivered)),
+    el("td", "num", String(worker.handed_back)),
+  );
+  return row;
+}
+
 async function showFarm() {
   const box = byId("f-rows");
   const said = byId("f-said");
+  const waiting = byId("f-waiting");
   said.textContent = "";
   said.className = "verdict";
   let farm;
@@ -1400,31 +1476,33 @@ async function showFarm() {
     farm = await invoke("farm");
   } catch (why) {
     box.replaceChildren();
+    waiting.textContent = "";
     said.className = "verdict bad";
     said.textContent = `Сеть не видно: ${why}`;
+    tile("farm-given", "—");
+    tile("farm-back", "—");
     return;
   }
-  byId("f-waiting").textContent = farm.waiting
-    ? `${farm.waiting} ${plural(farm.waiting, "задача", "задачи", "задач")} в очереди`
-    : "Очередь пуста";
-  if (!farm.workers.length) {
-    box.replaceChildren(line({ mark: ["huh", "?"], name: "Никого", said: "Ни одна машина не находится в сети" }));
+  const machines = farm.workers.length;
+  lastWaiting = farm.waiting;
+  tellWorker(lastReady);
+  waiting.textContent = [
+    machines ? `${machines} ${plural(machines, "машина", "машины", "машин")}` : "никого",
+    farm.waiting ? `${farm.waiting} ${plural(farm.waiting, "задание ждёт", "задания ждут", "заданий ждут")}` : "очередь пуста",
+  ].join(" · ");
+  const me = farm.workers.find((worker) => worker.name === known.name);
+  tile("farm-given", me ? round(me.delivered) : "—");
+  tile("farm-back", me ? round(me.handed_back) : "—");
+  if (!machines) {
+    box.replaceChildren();
+    said.textContent = "Ни одна машина сейчас не в сети";
     return;
   }
-  box.replaceChildren(
-    ...farm.workers.map((worker) =>
-      line({
-        mark: worker.state === "rendering" ? ["ok", "▸"] : worker.state === "idle" ? ["ok", "·"] : ["huh", "?"],
-        name: worker.name,
-        said: [
-          worker.reason || worker.state,
-          `${worker.threads} ${plural(worker.threads, "поток", "потока", "потоков")}`,
-          worker.build,
-          `сделано ${worker.delivered}, вернул ${worker.handed_back}`,
-        ].filter(Boolean).join(" · "),
-      }),
-    ),
-  );
+  const fresh = farm.workers.map(machineRow);
+  box.replaceChildren(...fresh);
+  fresh.forEach((row, index) => {
+    row.style.setProperty("--i", index);
+  });
 }
 
 const FIELDS = ["server", "token", "name", "songs", "skins", "replays", "skin", "window", "on_close"];
@@ -2394,14 +2472,29 @@ function chosenPlays(plays) {
     .sort(how);
 }
 
-for (const [id, key] of [
-  ["r-sort", "sort"],
-  ["r-only", "only"],
-]) {
-  byId(id).addEventListener("change", () => {
-    remember(key, byId(id).value);
+byId("r-sort").addEventListener("change", () => {
+  remember("sort", byId("r-sort").value);
+  if (shelfCache) fillPlays(shelfCache);
+});
+
+for (const sift of byId("r-sifts").querySelectorAll(".sift")) {
+  sift.addEventListener("click", () => {
+    if (sift.classList.contains("on")) return;
+    remember("only", sift.dataset.only);
     if (shelfCache) fillPlays(shelfCache);
   });
+}
+
+function paintSifts(plays) {
+  const chosen = remembered("only", "all");
+  const counts = { all: plays.length, map: plays.filter(ONLY.map).length, nomap: plays.filter(ONLY.nomap).length };
+  for (const sift of byId("r-sifts").querySelectorAll(".sift")) {
+    const on = sift.dataset.only === chosen;
+    sift.classList.toggle("on", on);
+    sift.setAttribute("aria-selected", String(on));
+    sift.querySelector(".n").textContent = counts[sift.dataset.only] ? String(counts[sift.dataset.only]) : "";
+  }
+  byId("r-sifts").hidden = !plays.length;
 }
 
 let findSoon = null;
@@ -2453,14 +2546,10 @@ function fillPlays({ shelves, skins, plays, rows }) {
   const left = steps.filter((step) => !step.done);
   byId("r-steps").replaceChildren(...(left.length ? steps.map(stepCard) : []));
 
-  for (const [id, key, fallback] of [
-    ["r-sort", "sort", "new"],
-    ["r-only", "only", "all"],
-  ]) {
-    const box = byId(id);
-    box.value = remembered(key, fallback);
-    dressSelect(box);
-  }
+  const sort = byId("r-sort");
+  sort.value = remembered("sort", "new");
+  dressSelect(sort);
+  paintSifts(plays);
 
   const showing = chosenPlays(plays);
   byId("r-count").textContent = plays.length ? String(plays.length) : "";
@@ -2557,6 +2646,7 @@ function fillPlays({ shelves, skins, plays, rows }) {
     startJob("render", `Рендер · ${play.player}`);
     byId("r-done").textContent = "";
     byId("r-busy").hidden = false;
+    byId("r-stop").disabled = false;
     byId("r-bar").style.width = "0%";
     byId("r-share").textContent = "0";
     byId("r-arc").style.strokeDashoffset = "126";
@@ -2580,7 +2670,8 @@ function fillPlays({ shelves, skins, plays, rows }) {
       });
       endJob(true);
     } catch (why) {
-      showFinished(slot, { head: "Рендер не вышел", notes: [String(why)], bad: true });
+      const halted = String(why).startsWith("остановлено");
+      showFinished(slot, { head: halted ? "Рендер остановлен" : "Рендер не вышел", notes: [String(why)], bad: true });
       endJob(false);
     } finally {
       drawing = false;
@@ -3558,73 +3649,164 @@ document.addEventListener("keydown", (event) => {
 
 const sheet = byId("r-sheet");
 
+function shortScore(n) {
+  if (n >= 1_000_000) return `${round(n / 1_000_000, 2)} M`;
+  if (n >= 10_000) return `${round(n / 1000, 1)} K`;
+  return round(n);
+}
+
+function playBar(one) {
+  const bar = el("div", "playbar");
+  const toggle = el("button", "act small primary play");
+  toggle.setAttribute("aria-label", "Пауза");
+  toggle.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path class="go" d="M8 6v12l10-6z"/><path class="wait" d="M8 6h3v12H8zM13 6h3v12h-3z"/></svg>';
+  const track = el("div", "progress");
+  const fill = el("div");
+  track.append(fill);
+  const time = el("span", "mono");
+  bar.append(toggle, track, time);
+  toggle.addEventListener("click", () => {
+    one.paused = !one.paused;
+    bar.classList.toggle("paused", one.paused);
+    toggle.setAttribute("aria-label", one.paused ? "Продолжить" : "Пауза");
+  });
+  track.addEventListener("pointerdown", (event) => {
+    const edges = partEdges(one);
+    const box = track.getBoundingClientRect();
+    const share = Math.min(1, Math.max(0, (event.clientX - box.left) / box.width));
+    one.head = edges.from_ms + (edges.to_ms - edges.from_ms) * share;
+  });
+  bar.tick = () => {
+    const edges = partEdges(one);
+    const span = Math.max(1, edges.to_ms - edges.from_ms);
+    fill.style.width = `${Math.min(100, Math.max(0, ((one.head - edges.from_ms) / span) * 100))}%`;
+    time.textContent = `${stamp((one.head - one.scene.from_ms) / 1000)} / ${stamp((one.scene.to_ms - one.scene.from_ms) / 1000)}`;
+  };
+  bar.tick();
+  return bar;
+}
+
+function verdictNote(said) {
+  const bits = [];
+  if (said.agrees) {
+    bits.push("Судейство совпало с заголовком реплея: все счётчики и комбо сходятся");
+    if (said.score && said.recorded.score > 0) {
+      const off = Math.abs(said.score - said.recorded.score) / said.recorded.score * 100;
+      bits[0] += off < 0.005 ? ", очки — точь-в-точь" : `, очки — в пределах ${round(off, 2)} %`;
+    }
+  } else {
+    const differ = [];
+    if (said.recorded.great !== said.counts.great) differ.push(`300: ${round(said.counts.great)} против ${round(said.recorded.great)}`);
+    if (said.recorded.ok !== said.counts.ok) differ.push(`100: ${round(said.counts.ok)} против ${round(said.recorded.ok)}`);
+    if (said.recorded.meh !== said.counts.meh) differ.push(`50: ${round(said.counts.meh)} против ${round(said.recorded.meh)}`);
+    if (said.recorded.miss !== said.counts.miss) differ.push(`промахи: ${round(said.counts.miss)} против ${round(said.recorded.miss)}`);
+    if (said.recorded.combo !== said.combo) differ.push(`комбо: ${round(said.combo)}× против ${round(said.recorded.combo)}×`);
+    bits.push(`Судейство разошлось с заголовком реплея — ${differ.join(", ")}`);
+  }
+  if (said.first_miss) {
+    bits.push(`Первый промах на ${round((said.first_miss.ms - said.from_ms) / 1000, 1)} с, объект #${said.first_miss.object_index + 1}`);
+  } else if (!said.counts.miss) {
+    bits.push("Без единого промаха");
+  }
+  return `${bits.join(". ")}.`;
+}
+
+function tiles(said, play) {
+  const box = el("div", "tiles three");
+  const acc = el("div", "tile");
+  acc.append(el("b", null, `${round(said.accuracy_percent, 2)}%`), el("span", null, "Точность"));
+  const combo = el("div", "tile");
+  combo.append(
+    el("b", null, `${round(said.combo)}x`),
+    el("span", null, said.combo_possible ? `Комбо из ${round(said.combo_possible)}` : "Комбо"),
+  );
+  const points = el("div", "tile");
+  const score = said.score || (play && play.score) || (said.recorded && said.recorded.score);
+  points.append(el("b", null, score ? shortScore(score) : "—"), el("span", null, score ? `Очки · ${round(score)}` : "Очки"));
+  box.append(acc, combo, points);
+  return box;
+}
+
+function counts(said) {
+  const rows = [
+    ["300", said.counts.great, "great"],
+    ["100", said.counts.ok, "ok"],
+    ["50", said.counts.meh, "meh"],
+    ["Промахи", said.counts.miss, "miss"],
+  ];
+  const box = el("div", "counts");
+  for (const [name, n, kind] of rows) {
+    const one = el("span", `count ${kind}${n ? "" : " none"}`);
+    one.append(el("i"), `${name} `, el("b", null, round(n)));
+    box.append(one);
+  }
+  if (said.unstable_rate !== null && said.unstable_rate !== undefined) {
+    const ur = el("span", "count ur");
+    ur.append("UR ", el("b", null, round(said.unstable_rate, 1)));
+    box.append(ur);
+  }
+  return box;
+}
+
 function openSheet(play, card) {
   const made = previews.get(play.path);
   const body = byId("r-sheet-body");
   const said = made && made.judged;
 
-  const head = el("div", "sheethead");
-  head.append(el("h3", null, said ? said.title : shortFile(play.file)));
-  const chips = el("div", "chips");
-  chips.append(el("span", "chip who", play.player));
-  chips.append(modBadges(play.mods));
+  const tags = el("div", "sheettags");
+  tags.append(el("span", "tag l", said && said.client ? said.client.name : "реплей"));
   if (said) {
     const out = outcomeOf(said);
-    chips.append(el("span", `chip ${out.tone}`, out.text));
+    tags.append(el("span", `tag ${out.tone}`, out.text));
+  } else if (!play.have_map) {
+    tags.append(el("span", "tag faint", "карты нет"));
   }
-  head.append(chips);
-  body.replaceChildren(head);
+  body.replaceChildren(tags);
+
+  let bar = null;
+  if (said && made) {
+    const stage = el("div", "sheetstage");
+    sheetView = document.createElement("canvas");
+    stage.append(sheetView);
+    sheetPlay = {
+      scene: made.scene,
+      judged: made.judged,
+      head: made.scene.from_ms,
+      at: 0,
+      show: made.show,
+      still: made.still,
+      stillImage: made.stillImage,
+      path: made.path,
+      paused: false,
+    };
+    rollPart(sheetPlay, 0);
+    bar = playBar(sheetPlay);
+    stage.append(bar);
+    sheetPlay.bar = bar;
+    body.append(stage);
+  }
+
+  const name = el("div", "sheetname");
+  name.append(el("h3", null, said ? said.title : shortFile(play.file)));
+  const who = el("p", "muted");
+  who.append(el("span", null, play.player));
+  const when = play.played_at ? dayOf(play.played_at) : said && said.client && said.client.played_at ? said.client.played_at.split(" ")[0] : "";
+  if (when) who.append(el("span", "dot", "·"), el("span", null, when));
+  who.append(el("span", "dot", "·"), modBadges(play.mods));
+  name.append(who);
+  body.append(name);
 
   if (!said) {
-    body.append(play.have_map ? reading() : el("p", "fine", "Карты этого реплея нет на этом устройстве."));
+    body.append(play.have_map ? reading() : el("p", "note", "Карты этого реплея нет на этом устройстве, поэтому судить его пока нечем."));
     if (play.have_map) waitForRead(play, card);
   } else {
-    const top = el("div", "sheettop");
-    if (made) {
-      const stage = el("div", "sheetstage");
-      sheetView = document.createElement("canvas");
-      stage.append(sheetView);
-      top.append(stage);
-    }
-    const side = el("div", "sheetside");
-    side.append(mainFigure(said, play), tally(said));
-    top.append(side);
-    body.append(top);
-    if (made) {
-      sheetPlay = {
-        scene: made.scene,
-        judged: made.judged,
-        head: made.scene.from_ms,
-        at: 0,
-        show: made.show,
-        still: made.still,
-        stillImage: made.stillImage,
-        path: made.path,
-      };
-      rollPart(sheetPlay, 0);
-    }
+    body.append(tiles(said, play), counts(said));
+    if (said.recorded) body.append(el("p", `note${said.agrees ? "" : " huh"}`, verdictNote(said)));
     const spread = errorBars(said);
     if (spread) {
       body.append(el("h4", "sheeth", "Куда ложились нажатия"));
       body.append(spread);
     }
-  }
-
-  if (said && said.client) {
-    body.append(el("h4", "sheeth", "Где записано"));
-    const from = el("div", "written");
-    const client = el("div", "one");
-    client.append(
-      el("b", null, said.client.name),
-      el("span", null, said.client.build ? `Сборка ${said.client.build} · ${said.client.version}` : `Версия ${said.client.version}`),
-    );
-    from.append(client);
-    if (said.client.played_at) {
-      const when = el("div", "one");
-      when.append(el("b", null, said.client.played_at.split(" ")[0]), el("span", null, `${said.client.played_at.split(" ")[1]} UTC`));
-      from.append(when);
-    }
-    body.append(from);
   }
 
   const routes = el("div", "routes");
@@ -3635,17 +3817,6 @@ function openSheet(play, card) {
     if (drawFile) drawFile(play);
   });
   routes.append(render);
-  const judge = el("button", "act small", "Судейство");
-  judge.addEventListener("click", () => {
-    shutSheet();
-    takeTo("judge", play.path);
-  });
-  const studio = el("button", "act small", "В Студию");
-  studio.addEventListener("click", () => {
-    shutSheet();
-    takeTo("cut", play.path);
-  });
-  routes.append(judge, studio);
   if (!play.have_map) {
     const grab = el("button", "act small", "Скачать карту");
     grab.addEventListener("click", () => {
@@ -3654,10 +3825,31 @@ function openSheet(play, card) {
     });
     routes.append(grab);
   }
-  const folder = el("button", "act small", "Показать в папке");
-  folder.addEventListener("click", () => invoke("reveal_file", { path: play.path }).catch(() => {}));
-  routes.append(folder);
+  const judge = el("button", "act small", "Судейство");
+  judge.addEventListener("click", () => {
+    shutSheet();
+    takeTo("judge", play.path);
+  });
+  const studio = el("button", "act small", "Ролик");
+  studio.addEventListener("click", () => {
+    shutSheet();
+    takeTo("cut", play.path);
+  });
+  routes.append(judge, studio);
   body.append(routes);
+
+  const links = el("div", "links");
+  const folder = el("button", "link", "Показать в папке");
+  folder.addEventListener("click", () => invoke("reveal_file", { path: play.path }).catch(() => {}));
+  const open = el("button", "link", "Открыть .osr");
+  open.addEventListener("click", () => invoke("play_file", { path: play.path }).catch(() => {}));
+  const drop = el("button", "link danger", "Удалить");
+  drop.addEventListener("click", () => {
+    shutSheet();
+    askToDrop(play);
+  });
+  links.append(folder, open, el("span", "grow"), drop);
+  body.append(links);
 
   sheet.hidden = false;
   byId("r-sheet-shut").focus();
@@ -3708,72 +3900,6 @@ function reading() {
   box.append(el("b", null, "Реплей в процессе анализа…"));
   box.append(el("span", null, "В ближайший момент он станет вот-вот доступен"));
   requestAnimationFrame(restartLoops);
-  return box;
-}
-
-function mainFigure(said, play) {
-  const box = el("div", "crown");
-
-  const big = el("div", "big");
-  const whole = Math.floor(said.accuracy_percent);
-  const part = Math.round((said.accuracy_percent - whole) * 100);
-  const number = el("div", "n");
-  number.append(el("span", "w", String(whole)), el("span", "p", `,${String(part).padStart(2, "0")}%`));
-  big.append(number, el("span", "cap", "Точность"));
-  box.append(big);
-
-  const side = el("div", "aside");
-  if (play && play.score) {
-    const points = el("div", "one");
-    points.append(el("b", null, round(play.score)), el("span", null, "Очки"));
-    side.append(points);
-  }
-  const combo = el("div", "one");
-  combo.append(
-    el("b", null, `${round(said.combo)}×`),
-    el("span", null, said.combo_possible ? `из ${round(said.combo_possible)} возможных` : "Наше комбо"),
-  );
-  side.append(combo);
-  if (said.combo !== said.combo_recorded) {
-    const recorded = el("div", "one huh");
-    recorded.append(el("b", null, `${round(said.combo_recorded)}×`), el("span", null, "записано в реплее"));
-    side.append(recorded);
-  }
-  const ur = el("div", "one");
-  ur.append(
-    el("b", null, said.unstable_rate === null ? "—" : round(said.unstable_rate, 1)),
-    el("span", null, "Unstable Rate"),
-  );
-  side.append(ur);
-  box.append(side);
-  return box;
-}
-
-function tally(said) {
-  const rows = [
-    ["300", said.counts.great, "great"],
-    ["100", said.counts.ok, "ok"],
-    ["50", said.counts.meh, "meh"],
-    ["×", said.counts.miss, "miss"],
-  ];
-  const total = rows.reduce((sum, [, n]) => sum + n, 0) || 1;
-  const box = el("div", "tally");
-  const bar = el("div", "band");
-  for (const [, n, kind] of rows) {
-    if (!n) continue;
-    const part = el("span", kind);
-    part.style.flexGrow = String(n);
-    bar.append(part);
-  }
-  box.append(bar);
-  const keys = el("div", "keys");
-  for (const [name, n, kind] of rows) {
-    const one = el("div", `key ${kind}${n ? "" : " none"}`);
-    one.append(el("i", null, ""), el("b", null, round(n)), el("span", null, name));
-    keys.append(one);
-  }
-  box.append(keys);
-  void total;
   return box;
 }
 
@@ -3907,8 +4033,9 @@ function runSheetPreview() {
       const c = canvasPixels(sheetView, 2);
       if (!c) return;
       const now = performance.now();
-      if (!still) rollPart(one, Math.min(120, now - was));
+      if (!still && !one.paused) rollPart(one, Math.min(120, now - was));
       was = now;
+      if (one.bar) one.bar.tick();
       const image = await frameOf(one, one.head, c.w, c.h);
       if (mine !== sheetRun || sheetPlay !== one) return;
       if (!image) continue;
@@ -3975,9 +4102,13 @@ if (window.__TAURI__ && window.__TAURI__.event) {
     if (payload.event === "claimed") {
       farming = { id: payload.id, title: payload.title };
       byId("farm-now").classList.add("busy");
+      byId("farm-giveback").hidden = false;
+      byId("farm-giveback").disabled = false;
+      byId("farm-said").textContent = "";
       sayFarm("Рендерю для бота", payload.title);
       farmWork = startWork({ kind: "farm", label: `Ферма · ${payload.title || "задание"}`, home: "farm" });
       tellWorker(lastReady);
+      if (lastReady) tellStatus(lastReady);
       return;
     }
     if (payload.event === "progress" && payload.of) paintFarming(payload);
@@ -4842,6 +4973,11 @@ byId("wz-browse").addEventListener("click", async () => {
 byId("wz-back").addEventListener("click", () => wzGo(wzStep - 1));
 
 byId("r-hide").addEventListener("click", () => dismiss(byId("r-busy")));
+byId("r-stop").addEventListener("click", () => {
+  byId("r-stop").disabled = true;
+  byId("r-said").textContent = "Останавливаю…";
+  invoke("halt_draw").catch(() => {});
+});
 
 async function wzFinish() {
   if (await saveSettings("w", "w-said")) {

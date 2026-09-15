@@ -1,5 +1,6 @@
 pub mod events;
 pub mod font;
+pub mod halt;
 pub mod hitsounds;
 pub mod json;
 pub mod locate;

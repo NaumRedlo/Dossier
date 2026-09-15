@@ -2,7 +2,7 @@ use dossier_beatmap::Beatmap;
 use dossier_replay::Replay;
 use dossier_sim::{GameState, Part};
 
-#[derive(serde::Serialize)]
+#[derive(serde::Serialize, Clone)]
 pub struct Mark {
     pub ms: f64,
 
@@ -51,6 +51,31 @@ pub struct Judged {
 
     pub presses: Vec<f32>,
     pub marks: Vec<Mark>,
+
+    pub score: Option<u64>,
+    pub recorded: Recorded,
+    pub agrees: bool,
+    pub first_miss: Option<Mark>,
+}
+
+#[derive(serde::Serialize, Clone, Copy)]
+pub struct Recorded {
+    pub great: u32,
+    pub ok: u32,
+    pub meh: u32,
+    pub miss: u32,
+    pub combo: u32,
+    pub score: i64,
+}
+
+impl Recorded {
+    pub fn agrees_with(&self, counts: &Counts, combo: u32) -> bool {
+        self.great == counts.great
+            && self.ok == counts.ok
+            && self.meh == counts.meh
+            && self.miss == counts.miss
+            && self.combo == combo
+    }
 }
 
 #[derive(serde::Serialize)]
@@ -187,6 +212,20 @@ pub fn summarise(beatmap: &Beatmap, replay: &Replay, state: &GameState) -> Resul
             misses,
         }
     };
+    let counts = Counts {
+        great: u32::from(last.counts.count_300),
+        ok: u32::from(last.counts.count_100),
+        meh: u32::from(last.counts.count_50),
+        miss: u32::from(last.counts.count_miss),
+    };
+    let recorded = Recorded {
+        great: u32::from(replay.hits.count_300),
+        ok: u32::from(replay.hits.count_100),
+        meh: u32::from(replay.hits.count_50),
+        miss: u32::from(replay.hits.count_miss),
+        combo: u32::from(replay.max_combo),
+        score: i64::from(replay.score),
+    };
     Ok(Judged {
         title: format!(
             "{} — {} [{}]",
@@ -199,17 +238,46 @@ pub fn summarise(beatmap: &Beatmap, replay: &Replay, state: &GameState) -> Resul
         combo: last.max_combo,
         combo_recorded: u32::from(replay.max_combo),
         accuracy_percent: last.accuracy(),
-        counts: Counts {
-            great: u32::from(last.counts.count_300),
-            ok: u32::from(last.counts.count_100),
-            meh: u32::from(last.counts.count_50),
-            miss: u32::from(last.counts.count_miss),
-        },
+        agrees: recorded.agrees_with(&counts, last.max_combo),
+        counts,
         unstable_rate: judge.unstable_rate(ends + 1.0),
         combo_possible: possible,
         outcome,
         client: client_of(replay),
+        score: state
+            .score_track()
+            .filter(|track| track.comparable())
+            .map(|track| track.total()),
+        recorded,
+        first_miss: marks.iter().find(|mark| mark.worth == 0).cloned(),
         presses,
         marks,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_header_agrees_only_when_every_count_and_the_combo_do() {
+        let counts = Counts {
+            great: 1184,
+            ok: 77,
+            meh: 15,
+            miss: 27,
+        };
+        let same = Recorded {
+            great: 1184,
+            ok: 77,
+            meh: 15,
+            miss: 27,
+            combo: 1137,
+            score: 0,
+        };
+        assert!(same.agrees_with(&counts, 1137));
+        assert!(!same.agrees_with(&counts, 1136));
+        let off = Recorded { ok: 78, ..same };
+        assert!(!off.agrees_with(&counts, 1137));
+    }
 }

@@ -37,6 +37,7 @@ fn draw(
 ) -> Result<Drawn, String> {
     use tauri::Emitter;
 
+    dossier_produce::halt::clear();
     let said = settings::Settings::load();
     let told = draw::Told::default();
     let sending = app.clone();
@@ -106,6 +107,7 @@ fn work_once(
     use std::sync::{Arc, Mutex};
     use tauri::Emitter;
 
+    dossier_produce::halt::clear();
     let bot = bot::Bot::new(&server, &token, &name).map_err(|e| e.to_string())?;
     let along = Arc::new(Mutex::new(work::Along::default()));
     let engine = format!("dossier {}", env!("CARGO_PKG_VERSION"));
@@ -152,9 +154,21 @@ fn work_once(
     ticking.store(false, Ordering::Relaxed);
     let _ = ticker.join();
     match done {
-        Ok(work::Did::Nothing) => Ok(Farmed { outcome: "nothing", title: String::new(), why: String::new() }),
-        Ok(work::Did::Delivered { title }) => Ok(Farmed { outcome: "delivered", title, why: String::new() }),
-        Ok(work::Did::GaveBack { why }) => Ok(Farmed { outcome: "gave_back", title: String::new(), why }),
+        Ok(work::Did::Nothing) => Ok(Farmed {
+            outcome: "nothing",
+            title: String::new(),
+            why: String::new(),
+        }),
+        Ok(work::Did::Delivered { title }) => Ok(Farmed {
+            outcome: "delivered",
+            title,
+            why: String::new(),
+        }),
+        Ok(work::Did::GaveBack { why }) => Ok(Farmed {
+            outcome: "gave_back",
+            title: String::new(),
+            why,
+        }),
         Err(refused) => Err(refused.to_string()),
     }
 }
@@ -476,6 +490,7 @@ fn build_reel(
 ) -> Result<Drawn, String> {
     use tauri::Emitter;
 
+    dossier_produce::halt::clear();
     let said = settings::Settings::load();
     let told = draw::Told::default();
     let sending = app.clone();
@@ -565,6 +580,11 @@ fn modules() -> Vec<library::Module> {
 #[tauri::command(async)]
 fn handshake() -> check::Row {
     check::handshake(&settings::Settings::load())
+}
+
+#[tauri::command]
+fn halt_draw() {
+    dossier_produce::halt::ask();
 }
 
 #[tauri::command(async)]
@@ -746,7 +766,8 @@ fn main() {
             play_file,
             log_open,
             log_where,
-            handshake
+            handshake,
+            halt_draw
         ])
         .run(tauri::generate_context!())
         .expect("the window could not be opened");

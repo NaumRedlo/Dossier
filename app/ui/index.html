@@ -228,11 +228,6 @@
           <option value="combo">По комбо</option>
           <option value="player">По игроку</option>
         </select></label>
-        <label class="pick tiny short"><span class="cap">Показывать</span><select id="r-only">
-          <option value="all" selected>Все реплеи</option>
-          <option value="map">Только с картой</option>
-          <option value="nomap">Только без карты</option>
-        </select></label>
         <label class="finder"><span class="cap">Поиск</span>
           <span class="field">
             <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.2"/><path d="M15.2 15.2 20 20"/></svg>
@@ -241,6 +236,11 @@
         </label>
         <span class="grow"></span>
         <button class="act small" id="r-refresh">Обновить</button>
+      </div>
+      <div class="sifts" id="r-sifts" role="tablist" aria-label="Какие реплеи показывать">
+        <button class="sift on" data-only="all" role="tab" aria-selected="true">Все <span class="n"></span></button>
+        <button class="sift" data-only="map" role="tab" aria-selected="false">С картой <span class="n"></span></button>
+        <button class="sift" data-only="nomap" role="tab" aria-selected="false">Без карты <span class="n"></span></button>
       </div>
 
       <div class="working" id="r-busy" hidden>
@@ -254,7 +254,10 @@
           <div class="facts"><span id="r-frames"></span><span id="r-speed"></span><span id="r-left"></span></div>
           <p class="muted" id="r-said"></p>
         </div>
-        <button class="act small" id="r-hide">Свернуть</button>
+        <div class="acts">
+          <button class="act small quiet danger" id="r-stop">Остановить</button>
+          <button class="act small" id="r-hide">Свернуть</button>
+        </div>
       </div>
 
       <div id="r-doneslot"></div>
@@ -361,56 +364,58 @@
     </section>
 
     <section id="view-farm" hidden>
-      <div class="nowhead">
-        <h3>Сейчас</h3>
+      <h2 class="title">Ферма</h2>
+      <div class="bar farmhead">
         <label class="tick"><input type="checkbox" id="farm-on" checked>Брать работу у бота</label>
-      </div>
-      <div class="card now" id="farm-now">
-        <div class="ring">
-          <svg viewBox="0 0 48 48" aria-hidden="true"><circle class="track" cx="24" cy="24" r="20"/><circle class="arc" id="farm-arc" cx="24" cy="24" r="20"/></svg>
-          <b id="farm-share"></b>
-        </div>
-        <div class="grow">
-          <div class="whom"><b id="farm-state">Жду задание</b><span id="farm-title"></span></div>
-          <div class="progress" id="farm-progress" hidden><div id="farm-bar"></div></div>
-          <div class="facts" id="farm-facts"></div>
-          <p class="muted" id="farm-said"></p>
-        </div>
+        <span class="grow"></span>
+        <button class="act small" id="f-again">Обновить</button>
       </div>
 
-      <div class="two farmtop">
-        <div>
-          <h3>Эта машина</h3>
-          <div class="headline small" id="machine-headline"></div>
-          <div class="card tight" id="machine-rows"></div>
-          <div class="bar">
-            <span class="grow"></span>
-            <button class="act small" id="measure">Измерить заново</button>
+      <div class="farmtop">
+        <div class="card status" id="farm-status">
+          <div class="state"><span class="lamp" id="farm-lamp"></span><b id="farm-verdict">Готовность не проверена</b></div>
+          <p class="machine" id="farm-machine"></p>
+          <div class="tiles">
+            <div class="tile"><b id="farm-fps">—</b><span id="farm-fps-of">кадров/с</span></div>
+            <div class="tile"><b id="farm-given">—</b><span>отдано за всё время</span></div>
+            <div class="tile"><b id="farm-back">—</b><span>возвращено боту</span></div>
           </div>
-        </div>
-        <div>
-          <h3>Готовность</h3>
-          <div class="card tight" id="ready-rows"></div>
-          <div class="bar">
+          <div class="kvs" id="farm-kvs"></div>
+          <div class="bar tail">
             <span class="verdict" id="ready-verdict"></span>
             <span class="grow"></span>
-            <button class="act small" id="again">Заново</button>
+            <button class="act small" id="measure">Измерить заново</button>
+            <button class="act small" id="again">Проверить</button>
+          </div>
+        </div>
+
+        <div class="card now" id="farm-now">
+          <span class="cap">Сейчас</span>
+          <b class="state" id="farm-state">Жду задание</b>
+          <p class="muted" id="farm-title"></p>
+          <div class="big"><b id="farm-share"></b><span id="farm-left"></span></div>
+          <div class="progress" id="farm-progress" hidden><div id="farm-bar"></div></div>
+          <p class="facts" id="farm-facts"></p>
+          <p class="said" id="farm-said">Задание придёт от бота само. Здесь будет видно, что рисуется и сколько осталось.</p>
+          <span class="grow"></span>
+          <div class="bar tail">
+            <button class="act small" id="farm-log">Журнал</button>
+            <button class="act small quiet danger" id="farm-giveback" hidden>Вернуть работу</button>
           </div>
         </div>
       </div>
 
-      <h3>Кто ещё в сети</h3>
-      <div class="card">
-        <div class="pref">
-          <div>
-            <b>Ферма бота</b>
-            <p id="f-waiting">Спрашивается у бота по требованию.</p>
-          </div>
-          <button class="act small" id="f-again">Показать</button>
-        </div>
-        <div id="f-rows"></div>
+      <div class="farmwho">
+        <h2 class="h2">Кто ещё в сети</h2>
+        <span class="faint" id="f-waiting"></span>
       </div>
-      <p class="verdict" id="f-said"></p>
+      <div class="card ledger">
+        <table class="farm" id="f-table">
+          <thead><tr><th>Машина</th><th>Состояние</th><th>Сборка</th><th class="num">Потоки</th><th class="num">Отдано</th><th class="num">Возвращено</th></tr></thead>
+          <tbody id="f-rows"></tbody>
+        </table>
+        <p class="verdict" id="f-said"></p>
+      </div>
     </section>
 
     <section id="view-settings" hidden>

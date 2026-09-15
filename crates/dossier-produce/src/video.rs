@@ -418,6 +418,9 @@ pub fn encode(
             std::collections::HashMap::new();
         let mut wanted = 0u64;
         while wanted < total {
+            if crate::halt::asked() {
+                return Err(format!("{} на {wanted} из {total}", crate::halt::SAID));
+            }
             let (index, worker, frame) = match done_rx.recv() {
                 Ok(triple) => triple,
                 Err(_) => return Err("a render thread stopped early".to_owned()),
@@ -447,6 +450,11 @@ pub fn encode(
     if let Err(message) = outcome {
         drop(stdin);
 
+        if crate::halt::was_it(&message) {
+            let _ = child.wait();
+            close_progress();
+            return Err(message);
+        }
         let status = child.wait().ok();
         close_progress();
         let said = ffmpeg_said(drained);

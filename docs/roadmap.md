@@ -129,6 +129,32 @@ when the implementation is running late.
 - **Rotation**: the signature is over a nonce and a timestamp, so a captured
   request is not a reusable one.
 
+### How it looks from the application — settled 2026-09-15
+
+The bot already hands out a code (`invites.py`: eight letters from an
+alphabet without `0`/`O`/`1`/`I`, ten minutes, single use) and `/render/join`
+turns it into a worker token. The application's first run turns that around
+so nobody types anything: it asks the bot for a code, shows it with a QR that
+encodes `https://t.me/<bot>?start=pair-<code>` and an *Open Telegram* button
+for the same link, and polls until the bot says the person pressed yes on a
+card that names the machine. Three things on the bot's side: `POST
+/render/pair` (name, OS, cores, build → code), `GET /render/pair/<code>`
+(waiting, or linked with the token), and `/start pair-<code>` showing the
+confirmation card. The bearer token stays the credential for now and moves
+into the OS keychain; the signing key from the steps above is the next move,
+not a precondition. `docs/design.md` has the screen.
+
+The bot's three are done, the same day. `POST /render/pair` takes `name`
+(required — the card has to name something), `os`, `cores` and `build`, and
+answers `{code, link, expires_in}`; `link` is the full `t.me` URL when the bot
+knows its own username, and empty when it does not, so the application should
+be able to build it itself. `GET /render/pair/<code>` answers `{status:
+"waiting"}`, then `{status: "linked", token}` exactly once, then 404 — the
+token is written only at that collection, so a yes nobody collected leaves no
+row behind. Guesses are refused at twenty misses a minute per address, a real
+poll is never counted. The card is refused outside a private chat, because a
+yes button in a group belongs to whoever presses it first.
+
 ### What it costs, and who pays it
 
 Three endpoints and a command on the bot's side, a keychain dependency and a

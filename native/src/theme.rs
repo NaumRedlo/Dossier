@@ -138,6 +138,16 @@ pub fn rule(_: &Theme) -> container::Style {
     }
 }
 
+pub fn rule_high(_: &Theme) -> container::Style {
+    container::Style {
+        text_color: None,
+        background: Some(Background::Color(LINE_HIGH)),
+        border: Border::default(),
+        shadow: Shadow::default(),
+        snap: true,
+    }
+}
+
 pub fn qr_paper(_: &Theme) -> container::Style {
     container::Style {
         text_color: None,

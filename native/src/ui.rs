@@ -215,9 +215,7 @@ pub fn letter_ink() -> &'static image::Handle {
 pub const EMBLEM: f32 = 36.0;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Emblem {
-    pub beat: f32,
-}
+pub struct Emblem;
 
 impl<Message> canvas::Program<Message> for Emblem {
     type State = ();
@@ -225,8 +223,7 @@ impl<Message> canvas::Program<Message> for Emblem {
     fn draw(&self, _: &(), renderer: &Renderer, _: &Theme, bounds: Rectangle, _: mouse::Cursor) -> Vec<Geometry> {
         let mut frame = Frame::new(renderer, bounds.size());
         let side = bounds.width.min(bounds.height);
-        let swell = 1.0 + 0.14 * (1.0 - (2.0 * self.beat.clamp(0.0, 1.0) - 1.0).abs());
-        let drawn = side * 0.86 * swell;
+        let drawn = side * 0.86;
         let corner = Point::new((side - drawn) / 2.0, (side - drawn) / 2.0);
         frame.draw_image(
             Rectangle::new(corner, Size::new(drawn, drawn)),
@@ -336,7 +333,7 @@ impl<Message> canvas::Program<Message> for Qr {
         if heart > 0.0 {
             let centre = Point::new(side / 2.0, side / 2.0);
             frame.fill(&Path::circle(centre, heart / 2.0), Color::WHITE);
-            let drawn = heart * 0.74;
+            let drawn = heart * 0.56;
             frame.draw_image(
                 Rectangle::new(Point::new(centre.x - drawn / 2.0, centre.y - drawn / 2.0), Size::new(drawn, drawn)),
                 canvas::Image::new(letter_ink()).filter_method(image::FilterMethod::Linear),
@@ -350,12 +347,13 @@ pub fn qr<'a, Message: 'a>(code: &Qr) -> Element<'a, Message> {
     Canvas::new(code.clone()).width(QR_SIDE).height(QR_SIDE).into()
 }
 
-pub fn brand<'a, Message: 'a>(beat: f32) -> Element<'a, Message> {
+pub fn brand<'a, Message: 'a>() -> Element<'a, Message> {
     row![
-        Canvas::new(Emblem { beat }).width(EMBLEM).height(EMBLEM),
+        Canvas::new(Emblem).width(EMBLEM).height(EMBLEM),
+        container(Space::new().width(1.0).height(22.0)).style(theme::rule_high),
         text("Dossier").font(theme::SANS_SEMI).size(20.0).color(INK),
     ]
-    .spacing(12)
+    .spacing(14)
     .align_y(iced::Center)
     .into()
 }

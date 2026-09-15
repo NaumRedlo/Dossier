@@ -98,10 +98,7 @@ pub struct FirstRun {
     pub settles: Vec<Animation<bool>>,
     pub breath: Animation<bool>,
     pub came_from: Step,
-    pub beat: Animation<bool>,
 }
-
-pub const BEAT: Duration = Duration::from_millis(420);
 
 fn reveal_from(now: Instant) -> Animation<bool> {
     Animation::new(false).duration(REVEAL).easing(Easing::EaseOutCubic).go(true, now)
@@ -143,7 +140,6 @@ impl FirstRun {
             settles: Vec::new(),
             breath: breathing(Instant::now()),
             came_from: Step::Language,
-            beat: Animation::new(true),
         };
         (made, Task::perform(async { sources::find() }, Message::Looked))
     }
@@ -155,7 +151,6 @@ impl FirstRun {
 
     pub fn moving(&self) -> bool {
         self.reveal.is_animating(self.now)
-            || self.beat.is_animating(self.now)
             || self.settles.iter().any(|s| s.is_animating(self.now))
             || self.waiting_on_something()
     }
@@ -177,9 +172,6 @@ impl FirstRun {
         self.reveal = reveal_from(Instant::now());
     }
 
-    fn pulse(&mut self) {
-        self.beat = Animation::new(false).duration(BEAT).easing(Easing::EaseOut).go(true, Instant::now());
-    }
 
     fn live_sources(&self) -> Vec<Source> {
         self.sources.iter().filter(|s| s.on).cloned().collect()
@@ -311,7 +303,6 @@ impl FirstRun {
                 self.settings.token = token;
                 self.settings.linked_as = who.clone();
                 self.pairing = Pairing::Linked { who };
-                self.pulse();
                 Task::none()
             }
             Message::Polled(Ok(Paired::Gone)) | Message::Polled(Err(Refused::NotThere)) => self.ask_to_pair(),
@@ -325,13 +316,9 @@ impl FirstRun {
             Message::Later => self.start_checks(),
             Message::Checked(which, outcome) => {
                 if let Some(at) = self.checks.iter().position(|(c, _)| *c == which) {
-                    let passed = matches!(outcome, Outcome::Passed(_));
                     self.checks[at].1 = Some(outcome);
                     if let Some(settle) = self.settles.get_mut(at) {
                         settle.go_mut(true, Instant::now());
-                    }
-                    if passed {
-                        self.pulse();
                     }
                 }
                 Task::none()
@@ -393,7 +380,6 @@ impl FirstRun {
             step => (Sign::settled(Glyph::Dot), w.t("setting-up"), w.of(step.number(), STEPS)),
         };
         let k = self.reveal.interpolate(0.0, 1.0, self.now);
-        let beat = self.beat.interpolate(0.0, 1.0, self.now);
         let card = match self.step {
             Step::Checks => ui::fading(k, || ui::rising(k, self.checks_card())),
             _ => ui::card(
@@ -402,7 +388,7 @@ impl FirstRun {
             ),
         };
         let column = column![
-            container(ui::brand(beat)).width(Length::Fill).center_x(Length::Fill),
+            container(ui::brand()).width(Length::Fill).center_x(Length::Fill),
             ui::gap(28.0),
             container(ui::headline(head_sign, head_words, head_count)).width(Length::Fill).center_x(Length::Fill),
             ui::gap(16.0),
@@ -781,7 +767,6 @@ impl FirstRun {
             settles,
             breath: Animation::new(false),
             came_from: step,
-            beat: Animation::new(true),
         }
     }
 }

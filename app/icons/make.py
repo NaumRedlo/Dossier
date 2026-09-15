@@ -4,6 +4,7 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 HERE = pathlib.Path(__file__).resolve().parent
 UI = HERE.parent / "ui"
+NATIVE = HERE.parent.parent / "native" / "assets"
 FONT = HERE.parent.parent / "assets/fonts/VarelaRound-Regular.ttf"
 
 ACCENT = (226, 72, 72)
@@ -98,10 +99,11 @@ def main() -> None:
 
     tile(128).save(UI / "mark.png")
     glyph(512).save(UI / "letter.png")
+    glyph(512).getchannel("A").save(NATIVE / "letter-mask.png")
     print(
         "нарисовано:",
         ", ".join(sorted(p.name for p in HERE.glob("*.png"))),
-        "+ ui/mark.png, ui/letter.png",
+        "+ ui/mark.png, ui/letter.png, native/assets/letter-mask.png",
     )
 
 if __name__ == "__main__":

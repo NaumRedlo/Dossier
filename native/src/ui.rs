@@ -2,7 +2,7 @@ use iced::widget::canvas::{self, Canvas, Frame, Geometry, Path, Stroke};
 use iced::widget::{button, column, container, image, row, text, Space};
 use iced::{mouse, Color, ContentFit, Element, Length, Point, Rectangle, Renderer, Size, Theme};
 
-use crate::theme::{self, ACCENT, FAINT, GROUND, GROUND_TOP, INK, MUTED};
+use crate::theme::{self, ACCENT, FAINT, INK, MUTED};
 
 thread_local! {
     static FADE: std::cell::Cell<f32> = const { std::cell::Cell::new(1.0) };
@@ -132,59 +132,106 @@ pub fn sign<'a, Message: 'a>(which: Sign) -> Element<'a, Message> {
     Canvas::new(which).width(GLYPH).height(GLYPH).into()
 }
 
-pub struct Mark;
+const LETTER_MASK: &[u8] = include_bytes!("../assets/letter-mask.png");
+const ACCENT_DEEP: Color = Color::from_rgb(0.788, 0.204, 0.184);
 
-const LETTER_WEIGHT: f32 = 3.6;
-const SLITS: [f32; 4] = [8.6, 12.2, 15.8, 19.4];
-const SLIT_WEIGHT: f32 = 1.55;
-
-fn letter_path() -> Path {
-    Path::new(|b| {
-        b.move_to(Point::new(8.0, 5.0));
-        b.line_to(Point::new(13.0, 5.0));
-        b.arc_to(Point::new(22.5, 5.0), Point::new(22.5, 14.0), 8.4);
-        b.arc_to(Point::new(22.5, 23.0), Point::new(13.0, 23.0), 8.4);
-        b.line_to(Point::new(8.0, 23.0));
-        b.close();
-    })
+pub struct Letter {
+    pub side: u32,
+    mask: Vec<u8>,
 }
 
-pub fn draw_letter(frame: &mut Frame, colour: Color, slit: canvas::Style) {
-    frame.stroke(&letter_path(), stroke(colour, LETTER_WEIGHT));
-    let slits = Path::new(|b| {
-        for y in SLITS {
-            b.move_to(Point::new(5.0, y));
-            b.line_to(Point::new(25.5, y));
+impl Letter {
+    fn read() -> Letter {
+        let decoder = png::Decoder::new(std::io::Cursor::new(LETTER_MASK));
+        let mut reader = decoder.read_info().expect("the letter mask is a png");
+        let mut raw = vec![0; reader.output_buffer_size()];
+        let info = reader.next_frame(&mut raw).expect("the letter mask decodes");
+        let (w, h) = (info.width as usize, info.height as usize);
+        let channels = raw.len() / (w * h);
+        let value = |x: usize, y: usize| raw[(y * w + x) * channels];
+        let (mut x0, mut y0, mut x1, mut y1) = (w, h, 0, 0);
+        for y in 0..h {
+            for x in 0..w {
+                if value(x, y) > 8 {
+                    x0 = x0.min(x);
+                    y0 = y0.min(y);
+                    x1 = x1.max(x);
+                    y1 = y1.max(y);
+                }
+            }
         }
-    });
-    frame.stroke(
-        &slits,
-        Stroke {
-            style: slit,
-            width: SLIT_WEIGHT,
-            line_cap: canvas::LineCap::Butt,
-            ..Stroke::default()
-        },
-    );
+        let tall = (y1 - y0 + 1).max(x1 - x0 + 1);
+        let side = tall + tall / 8;
+        let left = (x0 + x1 + 1) / 2;
+        let top = (y0 + y1 + 1) / 2;
+        let mut mask = vec![0u8; side * side];
+        for y in 0..side {
+            for x in 0..side {
+                let sx = (left + x) as isize - (side / 2) as isize;
+                let sy = (top + y) as isize - (side / 2) as isize;
+                if sx >= 0 && sy >= 0 && (sx as usize) < w && (sy as usize) < h {
+                    mask[y * side + x] = value(sx as usize, sy as usize);
+                }
+            }
+        }
+        Letter { side: side as u32, mask }
+    }
+
+    pub fn tinted(&self, top: Color, bottom: Color) -> image::Handle {
+        let side = self.side as usize;
+        let mut pixels = Vec::with_capacity(side * side * 4);
+        for y in 0..side {
+            let k = y as f32 / (side - 1).max(1) as f32;
+            let colour = mix(top, bottom, k);
+            for x in 0..side {
+                let a = self.mask[y * side + x];
+                pixels.extend_from_slice(&[
+                    (colour.r * 255.0) as u8,
+                    (colour.g * 255.0) as u8,
+                    (colour.b * 255.0) as u8,
+                    a,
+                ]);
+            }
+        }
+        image::Handle::from_rgba(self.side, self.side, pixels)
+    }
 }
 
-fn ground_gradient(top: Point, bottom: Point) -> canvas::Style {
-    canvas::Style::Gradient(canvas::Gradient::Linear(
-        canvas::gradient::Linear::new(top, bottom)
-            .add_stop(0.0, GROUND_TOP)
-            .add_stop(1.0, GROUND),
-    ))
+pub fn letter() -> &'static Letter {
+    static LETTER: std::sync::OnceLock<Letter> = std::sync::OnceLock::new();
+    LETTER.get_or_init(Letter::read)
 }
 
-impl<Message> canvas::Program<Message> for Mark {
+pub fn letter_red() -> &'static image::Handle {
+    static HANDLE: std::sync::OnceLock<image::Handle> = std::sync::OnceLock::new();
+    HANDLE.get_or_init(|| letter().tinted(ACCENT, ACCENT_DEEP))
+}
+
+pub fn letter_ink() -> &'static image::Handle {
+    static HANDLE: std::sync::OnceLock<image::Handle> = std::sync::OnceLock::new();
+    HANDLE.get_or_init(|| letter().tinted(QR_INK, QR_INK))
+}
+
+pub const EMBLEM: f32 = 36.0;
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Emblem {
+    pub beat: f32,
+}
+
+impl<Message> canvas::Program<Message> for Emblem {
     type State = ();
 
     fn draw(&self, _: &(), renderer: &Renderer, _: &Theme, bounds: Rectangle, _: mouse::Cursor) -> Vec<Geometry> {
         let mut frame = Frame::new(renderer, bounds.size());
-        let tile = Path::rounded_rectangle(Point::ORIGIN, Size::new(28.0, 28.0), 7.0.into());
-        let ramp = ground_gradient(Point::new(14.0, 0.0), Point::new(14.0, 28.0));
-        frame.fill(&tile, canvas::Fill { style: ramp.clone(), ..canvas::Fill::default() });
-        draw_letter(&mut frame, ACCENT, ramp);
+        let side = bounds.width.min(bounds.height);
+        let swell = 1.0 + 0.14 * (1.0 - (2.0 * self.beat.clamp(0.0, 1.0) - 1.0).abs());
+        let drawn = side * 0.86 * swell;
+        let corner = Point::new((side - drawn) / 2.0, (side - drawn) / 2.0);
+        frame.draw_image(
+            Rectangle::new(corner, Size::new(drawn, drawn)),
+            canvas::Image::new(letter_red()).filter_method(image::FilterMethod::Linear),
+        );
         vec![frame.into_geometry()]
     }
 }
@@ -289,12 +336,11 @@ impl<Message> canvas::Program<Message> for Qr {
         if heart > 0.0 {
             let centre = Point::new(side / 2.0, side / 2.0);
             frame.fill(&Path::circle(centre, heart / 2.0), Color::WHITE);
-            let scale = (heart * 0.78) / 28.0;
-            frame.with_save(|frame| {
-                frame.translate(iced::Vector::new(centre.x - 14.0 * scale, centre.y - 14.0 * scale));
-                frame.scale(scale);
-                draw_letter(frame, QR_INK, canvas::Style::Solid(Color::WHITE));
-            });
+            let drawn = heart * 0.74;
+            frame.draw_image(
+                Rectangle::new(Point::new(centre.x - drawn / 2.0, centre.y - drawn / 2.0), Size::new(drawn, drawn)),
+                canvas::Image::new(letter_ink()).filter_method(image::FilterMethod::Linear),
+            );
         }
         vec![frame.into_geometry()]
     }
@@ -304,12 +350,12 @@ pub fn qr<'a, Message: 'a>(code: &Qr) -> Element<'a, Message> {
     Canvas::new(code.clone()).width(QR_SIDE).height(QR_SIDE).into()
 }
 
-pub fn brand<'a, Message: 'a>() -> Element<'a, Message> {
+pub fn brand<'a, Message: 'a>(beat: f32) -> Element<'a, Message> {
     row![
-        Canvas::new(Mark).width(28.0).height(28.0),
-        text("Dossier").font(theme::SANS_SEMI).size(theme::LEAD).color(INK),
+        Canvas::new(Emblem { beat }).width(EMBLEM).height(EMBLEM),
+        text("Dossier").font(theme::SANS_SEMI).size(20.0).color(INK),
     ]
-    .spacing(10)
+    .spacing(12)
     .align_y(iced::Center)
     .into()
 }

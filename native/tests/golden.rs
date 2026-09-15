@@ -44,3 +44,25 @@ fn every_frame_is_the_size_of_its_window_and_stays_clear_of_the_bottom() {
         let _ = std::fs::remove_file(&file);
     }
 }
+
+#[test]
+fn every_state_keeps_its_buttons_on_screen() {
+    use iced_test::Simulator;
+    let labels = ["Continue", "Use this", "Use both", "Browse…", "Open Dossier", "Check again", "Continue anyway", "Продолжить", "Взять эту", "Взять обе", "Обзор…", "Открыть Dossier", "Проверить снова", "Продолжить без него"];
+    let mut lost = Vec::new();
+    for (name, flow, size) in gallery::every_frame() {
+        let backdrop = dossier_native::ui::backdrop_handle();
+        let mut ui = Simulator::with_size(dossier_native::settings(), size, gallery::frame(&flow, &backdrop));
+        let shown = labels.iter().filter_map(|label| ui.find(*label).ok()).collect::<Vec<_>>();
+        if shown.is_empty() {
+            continue;
+        }
+        for target in shown {
+            let bounds = target.bounds();
+            if bounds.width < 1.0 || bounds.height < 1.0 || bounds.y + bounds.height > size.height {
+                lost.push(format!("{name}: {:?}", bounds));
+            }
+        }
+    }
+    assert!(lost.is_empty(), "buttons squeezed to nothing or pushed off the window:\n{}", lost.join("\n"));
+}

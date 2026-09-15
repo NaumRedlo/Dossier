@@ -1,0 +1,93 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Commissioner:wght@400;600&family=JetBrains+Mono:wght@400;700&display=swap">
+  <style>
+    body { margin: 0; background: #070304; color: #ece7e2; font-family: Commissioner, "Helvetica Neue", Arial, sans-serif; font-size: 14px; line-height: 20px; -webkit-font-smoothing: antialiased; }
+    a { color: #e24848; } a:hover { color: #e0bd7a; }
+    .win { position: relative; width: 980px; height: 720px; overflow: hidden; background: radial-gradient(115% 95% at 50% -18%, #3a1015 0%, #26090f 30%, #17070b 55%, #0d0508 78%, #070304 100%); }
+    .col { position: absolute; left: 210px; top: 96px; width: 560px; display: flex; flex-direction: column; align-items: stretch; gap: 0; }
+    .mono { font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; }
+    .brand { display: flex; align-items: center; gap: 10px; }
+    .brand span { font-size: 16px; line-height: 22px; font-weight: 600; letter-spacing: -0.01em; }
+    .head { display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 48px; font-size: 16px; line-height: 22px; font-weight: 600; }
+    .head .n { color: #a9a29b; font-weight: 400; }
+    .card { margin-top: 16px; display: flex; flex-direction: column; border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; background: rgba(255,255,255,0.045); overflow: hidden; }
+    .ledger { display: flex; flex-direction: column; gap: 4px; padding: 20px 24px; }
+    .line { display: flex; align-items: center; gap: 12px; height: 24px; font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: 14px; line-height: 20px; color: #6b655f; }
+    .line.done { color: #a9a29b; }
+    .line.now { color: #ece7e2; font-weight: 700; }
+    .line.bad { color: #e24848; font-weight: 700; }
+    .g { display: flex; align-items: center; justify-content: center; width: 14px; height: 14px; flex: none; }
+    .g span { display: block; }
+    .line .d { color: #6b655f; font-weight: 400; }
+    .line.now .d { color: #a9a29b; }
+    .sub { padding-left: 26px; margin-top: -2px; font-size: 12px; line-height: 16px; color: #a9a29b; }
+    .step { display: flex; flex-direction: column; gap: 16px; padding: 24px; border-top: 1px solid rgba(255,255,255,0.08); }
+    .step h2 { margin: 0; font-size: 16px; line-height: 22px; font-weight: 600; }
+    .step .why { margin: -12px 0 0; color: #a9a29b; }
+    .row { display: flex; align-items: center; gap: 8px; }
+    .btn { display: inline-flex; align-items: center; justify-content: center; height: 32px; padding: 0 12px; border-radius: 8px; border: 1px solid transparent; font-weight: 600; font-size: 14px; white-space: nowrap; box-sizing: border-box; }
+    .btn.primary { background: #e24848; color: #ffffff; }
+    .btn.quiet { color: #a9a29b; }
+    .btn.dim { background: rgba(226,72,72,0.16); color: #6b655f; }
+    .field { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 0; }
+    .field .cap { font-size: 12px; line-height: 16px; color: #a9a29b; }
+    .field .box { display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.08); background: rgba(0,0,0,0.26); box-sizing: border-box; font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: 14px; color: #ece7e2; overflow: hidden; white-space: nowrap; }
+    .box .ph { color: #6b655f; }
+    .box .tag { margin-left: auto; padding: 0 6px; border-radius: 4px; background: rgba(255,255,255,0.06); color: #a9a29b; font-size: 12px; line-height: 18px; font-weight: 700; }
+    .code { font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: 28px; line-height: 32px; font-weight: 700; letter-spacing: 0.12em; }
+    .wait { display: flex; align-items: center; gap: 10px; color: #a9a29b; }
+    .wait.ok { color: #ece7e2; }
+    .links { display: flex; gap: 16px; font-size: 12px; line-height: 16px; }
+    .links a { color: #a9a29b; text-decoration: none; }
+    .src { display: flex; align-items: center; gap: 12px; height: 44px; padding: 0 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.08); background: rgba(0,0,0,0.26); box-sizing: border-box; }
+    .src .path { font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; color: #ece7e2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .src .tag { padding: 0 6px; border-radius: 4px; background: rgba(255,255,255,0.06); color: #a9a29b; font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: 12px; line-height: 18px; font-weight: 700; flex: none; }
+    .src .n { margin-left: auto; color: #a9a29b; font-size: 12px; line-height: 16px; white-space: nowrap; flex: none; }
+    .switch { display: flex; align-items: center; width: 32px; height: 18px; padding: 2px; border-radius: 9px; background: rgba(255,255,255,0.14); box-sizing: border-box; flex: none; }
+    .switch.on { background: #e24848; justify-content: flex-end; }
+    .switch i { display: block; width: 14px; height: 14px; border-radius: 50%; background: #14070a; }
+    .switch:not(.on) i { background: #ece7e2; }
+    .qr { width: 112px; height: 112px; padding: 6px; border-radius: 8px; background: #fff; flex: none; box-sizing: border-box; }
+    .tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+    .tile { padding: 12px 16px; border-radius: 8px; background: rgba(0,0,0,0.26); }
+    .tile b { display: block; font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: 22px; line-height: 28px; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .tile span { display: block; font-size: 12px; line-height: 16px; color: #a9a29b; }
+    .opts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+    .opt { display: flex; align-items: center; justify-content: center; height: 64px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.08); background: rgba(0,0,0,0.26); font-size: 16px; font-weight: 600; }
+    .opt.on { border-color: #e24848; background: rgba(226,72,72,0.16); }
+    .cap { font-size: 12px; line-height: 16px; color: #6b655f; }
+    .grow { flex: 1; }
+  </style>
+</helmet>
+<div class="win">
+  <div class="col">
+    <div class="brand"><svg viewBox="0 0 28 28" width="28" height="28"><circle cx="14" cy="14" r="12.5" fill="none" stroke="#e24848" stroke-opacity="0.45" stroke-width="1.2"></circle><circle cx="14" cy="14" r="9.4" fill="none" stroke="#e24848" stroke-width="1.8"></circle><path d="M11 9.5h2.4a4.5 4.5 0 0 1 0 9H11z" fill="none" stroke="#ece7e2" stroke-width="2" stroke-linejoin="round"></path><path d="M9.6 12.6h4.6M9.6 15.4h4.6" stroke="#0d0508" stroke-width="1.2"></path></svg><span>Dossier</span></div>
+<div class="head"><span class="g"><span style="width: 8px; height: 8px; border-radius: 50%; background: #e24848; box-shadow: 0 0 0 4px rgba(226,72,72,0.16);"></span></span><span>Setting up <span class="n">· 2 of 4</span></span></div>
+  <div class="card">
+    <div class="ledger">
+      <div class="line done"><span class="g"><svg viewBox="0 0 16 16" width="14" height="14"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="#e24848" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path></svg></span><span>Language</span></div>
+      <div class="line now"><span class="g"><span style="width: 8px; height: 8px; border-radius: 50%; background: #e24848; box-shadow: 0 0 0 4px rgba(226,72,72,0.16);"></span></span><span>osu! folder</span></div>
+      <div class="line todo"><span class="g"></span><span>This device</span></div>
+      <div class="line todo"><span class="g"></span><span>The bot</span></div>
+    </div>
+    <div class="step">
+      <h2>osu! folder</h2>
+      <p class="why">Found on this device.</p>
+      <div class="field"><div class="box"><svg viewBox="0 0 16 16" width="14" height="14"><path d="M2 4.5a1.5 1.5 0 0 1 1.5-1.5h2.8l1.5 1.5H12.5A1.5 1.5 0 0 1 14 6v5.5a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 11.5z" fill="none" stroke="#a9a29b" stroke-width="1.3"></path></svg><span>~/.local/share/osu</span><span class="tag">lazer</span></div></div>
+      <div class="tiles"><div class="tile"><b>—</b><span>maps come from the mirrors</span></div><div class="tile"><b>3</b><span>skins, exported</span></div><div class="tile"><b>212</b><span>replays</span></div></div>
+      <div class="row"><span class="btn quiet">Back</span><span class="grow"></span><span class="btn quiet">Add another…</span><span class="btn primary">Use this</span></div>
+    </div>
+  </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

@@ -1,0 +1,27 @@
+[workspace]
+
+[package]
+name = "dossier-native"
+version = "0.12.0"
+edition = "2021"
+license = "AGPL-3.0-only"
+description = "The Dossier desktop application"
+
+[[bin]]
+name = "dossier"
+path = "src/main.rs"
+
+[dependencies]
+iced = { version = "0.14", default-features = false, features = ["wgpu", "tiny-skia", "canvas", "image", "tokio", "advanced"] }
+fluent-bundle = "0.16"
+unic-langid = { version = "0.9", features = ["macros"] }
+sys-locale = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+qrcode = { version = "0.14", default-features = false }
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+rfd = { version = "0.17", default-features = false, features = ["xdg-portal"] }
+open = "5"
+iced_test = "0.14"
+png = "0.17"
+

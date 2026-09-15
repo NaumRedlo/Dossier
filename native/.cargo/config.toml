@@ -1,0 +1,2 @@
+[env]
+ICED_TEST_BACKEND = "tiny-skia"

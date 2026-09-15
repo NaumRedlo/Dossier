@@ -1,0 +1,164 @@
+{
+  "pages": [
+    {
+      "id": "page-en",
+      "name": "First run · EN"
+    },
+    {
+      "id": "page-ru",
+      "name": "First run · RU"
+    }
+  ],
+  "artboards": [
+    {
+      "file": "Language.dc.html",
+      "x": 0,
+      "y": 0,
+      "w": 980,
+      "h": 720,
+      "page": "page-en"
+    },
+    {
+      "file": "Main.dc.html",
+      "x": 1060,
+      "y": 0,
+      "w": 980,
+      "h": 720,
+      "page": "page-en"
+    },
+    {
+      "file": "FolderLazer.dc.html",
+      "x": 2120,
+      "y": 0,
+      "w": 980,
+      "h": 720,
+      "page": "page-en"
+    },
+    {
+      "file": "FolderBoth.dc.html",
+      "x": 3180,
+      "y": 0,
+      "w": 980,
+      "h": 720,
+      "page": "page-en"
+    },
+    {
+      "file": "FolderMissing.dc.html",
+      "x": 4240,
+      "y": 0,
+      "w": 980,
+      "h": 720,
+      "page": "page-en"
+    },
+    {
+      "file": "Device.dc.html",
+      "x": 5300,
+      "y": 0,
+      "w": 980,
+      "h": 720,
+      "page": "page-en"
+    },
+    {
+      "file": "Bot.dc.html",
+      "x": 0,
+      "y": 840,
+      "w": 980,
+      "h": 720,
+      "page": "page-en"
+    },
+    {
+      "file": "BotLinked.dc.html",
+      "x": 1060,
+      "y": 840,
+      "w": 980,
+      "h": 720,
+      "page": "page-en"
+    },
+    {
+      "file": "Checks.dc.html",
+      "x": 2120,
+      "y": 840,
+      "w": 980,
+      "h": 720,
+      "page": "page-en"
+    },
+    {
+      "file": "ChecksFailed.dc.html",
+      "x": 3180,
+      "y": 840,
+      "w": 980,
+      "h": 720,
+      "page": "page-en"
+    },
+    {
+      "file": "Done.dc.html",
+      "x": 4240,
+      "y": 840,
+      "w": 980,
+      "h": 720,
+      "page": "page-en"
+    },
+    {
+      "file": "BotOnly.dc.html",
+      "x": 0,
+      "y": 1680,
+      "w": 980,
+      "h": 720,
+      "page": "page-en"
+    },
+    {
+      "file": "ChecksBotOnly.dc.html",
+      "x": 1060,
+      "y": 1680,
+      "w": 980,
+      "h": 720,
+      "page": "page-en"
+    },
+    {
+      "file": "FolderRu.dc.html",
+      "x": 0,
+      "y": 0,
+      "w": 980,
+      "h": 720,
+      "page": "page-ru"
+    },
+    {
+      "file": "BotRu.dc.html",
+      "x": 1060,
+      "y": 0,
+      "w": 980,
+      "h": 720,
+      "page": "page-ru"
+    },
+    {
+      "file": "ChecksFailedRu.dc.html",
+      "x": 2120,
+      "y": 0,
+      "w": 980,
+      "h": 720,
+      "page": "page-ru"
+    }
+  ],
+  "annotations": [
+    {
+      "id": "bot-only",
+      "x": 0,
+      "y": 1530,
+      "w": 480,
+      "page": "page-en",
+      "text": "Bot-only device (chose “I'll only render for the bot” at the folder step): the steps stay, the ways out go. No “Later — just my own replays”; a missing ffmpeg has no “Continue anyway”."
+    },
+    {
+      "id": "order",
+      "x": 0,
+      "y": -160,
+      "w": 420,
+      "page": "page-en",
+      "text": "Order: Language → osu! folder → This device → The bot → Checks.\nWindow 980×720, column 560. Tokens from docs/design.md.\nThe headline and the card never move between steps; only the card's lower half changes.\nThe folder step reads osu!.<user>.cfg (stable) or storage.ini (lazer) instead of guessing. The bot step needs no address and no token: the QR opens the bot with the code; the QR here is a placeholder.\nSources: stable + lazer are both read by default; a switch leaves one out. The same list is Settings → Folders."
+    }
+  ],
+  "launch": {
+    "view": "canvas",
+    "page": "page-en"
+  }
+}

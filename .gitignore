@@ -14,3 +14,8 @@ venv/
 
 # macOS leaves one of these in every folder it has ever displayed.
 .DS_Store
+
+# The seeded design canvases are two megabytes of editor each; the artboards
+# and the script that makes them are what is kept.
+/docs/mockups/*/*.html
+!/docs/mockups/*/*.dc.html

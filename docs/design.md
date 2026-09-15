@@ -312,6 +312,17 @@ The main screen is designed after this flow is approved, not before.
 **Судейство and Студия** are deferred. They are the engine's own views and
 deserve their own document once the five above are real.
 
+### Two renderers, one look
+
+The window draws with `wgpu`, which blends colours in linear light; the
+software fallback, `tiny-skia`, blends in sRGB. The translucent tokens above
+are written the way a stylesheet would write them — white 4.5 % — and read
+that way on the software renderer; the code carries their linear-light
+equivalents (white 0.77 %, black 48 %, and so on) so the window shows the same
+glass. The approved frames are always taken with the renderer the window
+uses on that machine, and a frame's file name says which; a machine without a
+GPU takes its own set rather than comparing against another renderer's.
+
 ## What is checked by a machine
 
 Every screen above is drawn as a pure function of its state, so every state of

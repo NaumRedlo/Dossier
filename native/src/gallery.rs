@@ -162,10 +162,19 @@ pub fn frame_name(name: &str, lang: Lang, label: &str) -> String {
 }
 
 pub fn written_as(stem: &Path) -> PathBuf {
-    stem.with_file_name(format!(
-        "{}-tiny-skia.png",
-        stem.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default()
-    ))
+    let name = stem.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+    let dir = stem.parent().map(Path::to_path_buf).unwrap_or_default();
+    std::fs::read_dir(&dir)
+        .ok()
+        .and_then(|entries| {
+            entries.flatten().map(|e| e.path()).find(|p| {
+                p.file_name()
+                    .and_then(|n| n.to_str())
+                    .map(|n| n.starts_with(&format!("{name}-")) && n.ends_with(".png"))
+                    .unwrap_or(false)
+            })
+        })
+        .unwrap_or_else(|| dir.join(format!("{name}-unknown.png")))
 }
 
 pub fn every_frame() -> Vec<(String, FirstRun, Size)> {
@@ -189,6 +198,7 @@ pub fn write(dir: &Path) -> Result<usize, String> {
     let mut written = 0;
     for (name, flow, size) in every_frame() {
         let stem = dir.join(&name);
+        let _ = std::fs::remove_file(written_as(&stem));
         let _ = std::fs::remove_file(written_as(&stem));
         let shot = snapshot(&flow, size).map_err(|e| format!("{e:?}"))?;
         shot.matches_image(&stem).map_err(|e| format!("{e:?}"))?;

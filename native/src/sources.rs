@@ -100,9 +100,29 @@ pub fn beatmap_directory(config: &str) -> Option<String> {
     })
 }
 
+fn holds_beatmaps(songs: &Path) -> bool {
+    std::fs::read_dir(songs)
+        .map(|entries| {
+            entries.flatten().take(64).any(|set| {
+                std::fs::read_dir(set.path())
+                    .map(|inner| {
+                        inner.flatten().any(|f| {
+                            f.path()
+                                .extension()
+                                .and_then(|x| x.to_str())
+                                .map(|x| x.eq_ignore_ascii_case("osu"))
+                                .unwrap_or(false)
+                        })
+                    })
+                    .unwrap_or(false)
+            })
+        })
+        .unwrap_or(false)
+}
+
 pub fn stable_at(root: &Path) -> Option<Source> {
-    let is_stable = root.join("osu!.exe").is_file() || (root.join("Songs").is_dir() && stable_config(root).is_some());
-    if !is_stable && !root.join("Songs").is_dir() {
+    let evidence = root.join("osu!.exe").is_file() || stable_config(root).is_some();
+    if !evidence && !holds_beatmaps(&root.join("Songs")) {
         return None;
     }
     let songs = stable_config(root)
@@ -227,7 +247,6 @@ fn stable_roots() -> Vec<PathBuf> {
         home.join("osu!"),
         home.join("osu"),
         home.join("Games").join("osu!"),
-        home.join(".osu"),
         home.join(".local").join("share").join("osu-stable"),
     ];
     for key in ["LOCALAPPDATA", "PROGRAMFILES", "PROGRAMFILES(X86)"] {
@@ -353,6 +372,18 @@ mod tests {
         bad_hash[10] = b'z';
         assert!(!is_osr(&bad_hash));
         assert!(!is_osr(&good[..20]));
+    }
+
+    #[test]
+    fn an_empty_songs_folder_alone_is_not_a_game() {
+        let root = scratch("not-a-game");
+        std::fs::create_dir_all(root.join("Songs")).unwrap();
+        assert!(stable_at(&root).is_none());
+        std::fs::create_dir_all(root.join("Songs").join("1 - a")).unwrap();
+        assert!(stable_at(&root).is_none());
+        std::fs::write(root.join("Songs").join("1 - a").join("a.osu"), b"osu file format v14").unwrap();
+        assert_eq!(stable_at(&root).and_then(|s| s.maps), Some(1));
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]

@@ -33,9 +33,9 @@ fn every_first_run_state_matches_its_approved_frame() {
 fn every_frame_is_the_size_of_its_window_and_stays_clear_of_the_bottom() {
     for (name, flow, size) in gallery::every_frame() {
         let stem = std::env::temp_dir().join(format!("dossier-check-{name}"));
-        let file = gallery::written_as(&stem);
-        let _ = std::fs::remove_file(&file);
+        let _ = std::fs::remove_file(gallery::written_as(&stem));
         gallery::snapshot(&flow, size).expect("a frame").matches_image(&stem).expect("written");
+        let file = gallery::written_as(&stem);
         let (width, height, pixels) = pixels_of(&file);
         assert_eq!((width, height), ((size.width * 2.0) as u32, (size.height * 2.0) as u32), "{name}");
         let tail = &pixels[(height as usize - 8) * width as usize * 4..];

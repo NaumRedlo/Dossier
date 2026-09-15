@@ -65,3 +65,23 @@ jobs:
       # times.
       - if: matrix.python == '3.13'
         run: ruff check .
+
+  native:
+    name: native (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: native
+      # The frames are drawn without a window. A runner with no GPU falls
+      # back to the software renderer and writes its own set of frames rather
+      # than comparing against the ones approved on a machine with one; the
+      # size and edge checks run everywhere.
+      - run: cargo test --release
+        working-directory: native

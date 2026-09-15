@@ -10,13 +10,13 @@ pub const ACCENT: Color = color!(0xe24848);
 pub const ON_ACCENT: Color = color!(0xffffff);
 pub const DANGER: Color = ACCENT;
 
-pub const RAISED: Color = Color::from_rgba(1.0, 1.0, 1.0, 0.045);
-pub const SUNK: Color = Color::from_rgba(0.0, 0.0, 0.0, 0.26);
-pub const LINE: Color = Color::from_rgba(1.0, 1.0, 1.0, 0.08);
-pub const LINE_HIGH: Color = Color::from_rgba(1.0, 1.0, 1.0, 0.16);
-pub const ACCENT_SOFT: Color = Color::from_rgba(0.886, 0.282, 0.282, 0.16);
-pub const TAG: Color = Color::from_rgba(1.0, 1.0, 1.0, 0.06);
-pub const KNOB_OFF: Color = Color::from_rgba(1.0, 1.0, 1.0, 0.14);
+pub const RAISED: Color = Color::from_rgba(1.0, 1.0, 1.0, 0.0077);
+pub const SUNK: Color = Color::from_rgba(0.0, 0.0, 0.0, 0.4844);
+pub const LINE: Color = Color::from_rgba(1.0, 1.0, 1.0, 0.0154);
+pub const LINE_HIGH: Color = Color::from_rgba(1.0, 1.0, 1.0, 0.0392);
+pub const ACCENT_SOFT: Color = Color::from_rgba(0.886, 0.282, 0.282, 0.0392);
+pub const TAG: Color = Color::from_rgba(1.0, 1.0, 1.0, 0.0108);
+pub const KNOB_OFF: Color = Color::from_rgba(1.0, 1.0, 1.0, 0.0324);
 
 pub const CAPTION: f32 = 12.0;
 pub const BODY: f32 = 14.0;

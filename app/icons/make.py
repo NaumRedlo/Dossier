@@ -8,10 +8,10 @@ FONT = HERE.parent.parent / "assets/fonts/VarelaRound-Regular.ttf"
 
 ACCENT = (226, 72, 72)
 ACCENT_DEEP = (201, 52, 47)
-RIM = (120, 28, 26)
-DARK = (14, 12, 16)
+GROUND_TOP = (58, 16, 21)
+GROUND = (13, 5, 8)
 
-LETTER_SHARE = 0.46
+LETTER_SHARE = 0.56
 SLOTS = 4
 WEIGHT = 0.018
 
@@ -22,13 +22,13 @@ def _rounded(size: int, share: float = 0.225) -> Image.Image:
     )
     return mask
 
-def _ramp(size: int) -> Image.Image:
+def _ramp(size: int, top=ACCENT, bottom=ACCENT_DEEP) -> Image.Image:
     column = Image.new("RGB", (1, size))
     for y in range(size):
         share = y / max(1, size - 1)
         column.putpixel(
             (0, y),
-            tuple(round(a + (b - a) * share) for a, b in zip(ACCENT, ACCENT_DEEP)),
+            tuple(round(a + (b - a) * share) for a, b in zip(top, bottom)),
         )
     return column.resize((size, size))
 
@@ -64,13 +64,10 @@ def glyph(size: int) -> Image.Image:
 
 def tile(size: int) -> Image.Image:
     art = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(art)
-    pad = int(size * 0.075)
-    draw.ellipse([pad, pad, size - pad, size - pad], outline=(*ACCENT, 115), width=max(1, int(size * 0.020)))
-    pad = int(size * 0.165)
-    draw.ellipse([pad, pad, size - pad, size - pad], outline=(*ACCENT, 255), width=max(1, int(size * 0.046)))
+    art.paste(_ramp(size, GROUND_TOP, GROUND), (0, 0), _rounded(size))
     art.alpha_composite(glyph(size))
     return art
+
 
 def bar(size: int) -> Image.Image:
     art = glyph(512)

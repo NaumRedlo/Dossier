@@ -174,6 +174,10 @@ The rule from the person this is for: *minimise the information, or it is
 easy to lose the thread and to see the flaws.* Each screen below lists
 everything it shows. Adding a line to a screen means adding it here first.
 
+**The mark** is the letter D with three slits through it, red, on a rounded
+tile that runs from the burgundy at the top of the ground to the black at its
+bottom. No rings, no border; the application icon is the same picture.
+
 **Sidebar.** The mark and the word *Dossier*. Three items: Реплеи, Ферма,
 Настройки. At the bottom, one ledger headline for whatever is running, or the
 device's state in one line — *Готов брать работу*, *Работу не беру*, *Не
@@ -280,13 +284,19 @@ title, at most one line of why, the control, and a row of two buttons —
    the red dot: *Waiting for Telegram…*. The person scans or taps; the bot
    answers with the card from the roadmap — *Add „MacBook Pro" — macOS on
    ARM, 12 cores, build 0.11.0?* — and a button; on yes the application's
-   next poll comes back linked. The line becomes *Linked to @name* with a
-   red tick, and *Continue* lights up. Two quiet links: *I have a code from
-   the bot* (the flow the bot already has: it hands out a code, the person
-   types it here) and *Later — just my own replays*.
+   next poll comes back linked. The line becomes *Linked to the bot* with a
+   red tick, the code and the QR go, and *Continue* lights up. One quiet
+   link, *Later — just my own replays*, and nothing else: there is no field
+   to type a code into. The code on the screen is not for typing — the bot's
+   card repeats it, and the person holds the two against each other before
+   pressing yes.
 
-   On a bot-only device the two quiet links are one: *I have a code from the
-   bot*. Nothing else changes on the card.
+   The QR is drawn, not pasted: round modules, finders rounded only as far
+   as a reader still finds them, the mark in the middle at error-correction
+   level H, and a test that reads the drawn code back into the link.
+
+   On a bot-only device the quiet link is gone too. Nothing else changes on
+   the card.
 
    Linking is also what lets the application show the person their own side
    of the bot — what they have queued, what was rendered for them, what

@@ -51,8 +51,6 @@ open-telegram = Открыть Telegram
 waiting-telegram = Жду Telegram…
 linked = Привязано к боту
 linked-to = Привязано к @{ $who }
-have-code = У меня есть код от бота
-enter-code = Код от бота
 later = Позже — только свои реплеи
 no-pairing-yet = Бот пока не умеет привязывать по коду — попросите код у него.
 

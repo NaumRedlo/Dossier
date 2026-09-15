@@ -2,7 +2,7 @@ use iced::widget::canvas::{self, Canvas, Frame, Geometry, Path, Stroke};
 use iced::widget::{button, column, container, image, row, text, Space};
 use iced::{mouse, Color, ContentFit, Element, Length, Point, Rectangle, Renderer, Size, Theme};
 
-use crate::theme::{self, ACCENT, FAINT, GROUND, INK, MUTED};
+use crate::theme::{self, ACCENT, FAINT, GROUND, GROUND_TOP, INK, MUTED};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Glyph {
@@ -64,35 +64,174 @@ pub fn glyph<'a, Message: 'a>(which: Glyph) -> Element<'a, Message> {
 
 pub struct Mark;
 
+const LETTER_WEIGHT: f32 = 3.6;
+const SLITS: [f32; 3] = [9.4, 14.0, 18.6];
+const SLIT_WEIGHT: f32 = 1.3;
+
+fn letter_path() -> Path {
+    Path::new(|b| {
+        b.move_to(Point::new(8.0, 5.0));
+        b.line_to(Point::new(13.0, 5.0));
+        b.arc_to(Point::new(22.5, 5.0), Point::new(22.5, 14.0), 8.4);
+        b.arc_to(Point::new(22.5, 23.0), Point::new(13.0, 23.0), 8.4);
+        b.line_to(Point::new(8.0, 23.0));
+        b.close();
+    })
+}
+
+pub fn draw_letter(frame: &mut Frame, colour: Color, slit: canvas::Style) {
+    frame.stroke(&letter_path(), stroke(colour, LETTER_WEIGHT));
+    let slits = Path::new(|b| {
+        for y in SLITS {
+            b.move_to(Point::new(5.0, y));
+            b.line_to(Point::new(25.5, y));
+        }
+    });
+    frame.stroke(
+        &slits,
+        Stroke {
+            style: slit,
+            width: SLIT_WEIGHT,
+            line_cap: canvas::LineCap::Butt,
+            ..Stroke::default()
+        },
+    );
+}
+
+fn ground_gradient(top: Point, bottom: Point) -> canvas::Style {
+    canvas::Style::Gradient(canvas::Gradient::Linear(
+        canvas::gradient::Linear::new(top, bottom)
+            .add_stop(0.0, GROUND_TOP)
+            .add_stop(1.0, GROUND),
+    ))
+}
+
 impl<Message> canvas::Program<Message> for Mark {
     type State = ();
 
     fn draw(&self, _: &(), renderer: &Renderer, _: &Theme, bounds: Rectangle, _: mouse::Cursor) -> Vec<Geometry> {
         let mut frame = Frame::new(renderer, bounds.size());
-        let centre = Point::new(14.0, 14.0);
-        frame.stroke(
-            &Path::circle(centre, 12.5),
-            stroke(Color { a: 0.45, ..ACCENT }, 1.2),
-        );
-        frame.stroke(&Path::circle(centre, 9.4), stroke(ACCENT, 1.8));
-        let letter = Path::new(|b| {
-            b.move_to(Point::new(11.0, 9.5));
-            b.line_to(Point::new(13.4, 9.5));
-            b.arc_to(Point::new(19.5, 9.5), Point::new(19.5, 14.0), 4.5);
-            b.arc_to(Point::new(19.5, 18.5), Point::new(13.4, 18.5), 4.5);
-            b.line_to(Point::new(11.0, 18.5));
-            b.close();
-        });
-        frame.stroke(&letter, stroke(INK, 2.0));
-        let slits = Path::new(|b| {
-            b.move_to(Point::new(9.6, 12.6));
-            b.line_to(Point::new(14.2, 12.6));
-            b.move_to(Point::new(9.6, 15.4));
-            b.line_to(Point::new(14.2, 15.4));
-        });
-        frame.stroke(&slits, stroke(GROUND, 1.2));
+        let tile = Path::rounded_rectangle(Point::ORIGIN, Size::new(28.0, 28.0), 7.0.into());
+        let ramp = ground_gradient(Point::new(14.0, 0.0), Point::new(14.0, 28.0));
+        frame.fill(&tile, canvas::Fill { style: ramp.clone(), ..canvas::Fill::default() });
+        draw_letter(&mut frame, ACCENT, ramp);
         vec![frame.into_geometry()]
     }
+}
+
+pub const QR_SIDE: f32 = 156.0;
+const QR_INK: Color = Color::from_rgb(0.078, 0.027, 0.039);
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Qr {
+    cells: Vec<Vec<bool>>,
+    pub heart: f32,
+    pub module_round: f32,
+    pub finder_round: f32,
+    pub quiet: f32,
+}
+
+impl Qr {
+    pub fn new(cells: Vec<Vec<bool>>) -> Qr {
+        Qr {
+            cells,
+            heart: 0.25,
+            module_round: 0.32,
+            finder_round: 0.6,
+            quiet: 4.0,
+        }
+    }
+
+    fn n(&self) -> usize {
+        self.cells.len()
+    }
+
+    fn in_finder(&self, x: usize, y: usize) -> bool {
+        let n = self.n();
+        (x < 7 && y < 7) || (x >= n - 7 && y < 7) || (x < 7 && y >= n - 7)
+    }
+
+    fn heart_cells(&self) -> f32 {
+        if self.heart <= 0.0 {
+            0.0
+        } else {
+            (self.n() as f32 * self.heart).max(7.0)
+        }
+    }
+
+    fn in_heart(&self, x: usize, y: usize) -> bool {
+        let n = self.n() as f32;
+        let hole = self.heart_cells() / 2.0;
+        let (cx, cy) = (n / 2.0, n / 2.0);
+        let (dx, dy) = (x as f32 + 0.5 - cx, y as f32 + 0.5 - cy);
+        dx * dx + dy * dy < hole * hole
+    }
+}
+
+impl<Message> canvas::Program<Message> for Qr {
+    type State = ();
+
+    fn draw(&self, _: &(), renderer: &Renderer, _: &Theme, bounds: Rectangle, _: mouse::Cursor) -> Vec<Geometry> {
+        let mut frame = Frame::new(renderer, bounds.size());
+        let side = bounds.width.min(bounds.height);
+        frame.fill(
+            &Path::rounded_rectangle(Point::ORIGIN, Size::new(side, side), 12.0.into()),
+            Color::WHITE,
+        );
+        let n = self.n();
+        if n == 0 {
+            return vec![frame.into_geometry()];
+        }
+        let cell = side / (n as f32 + self.quiet * 2.0);
+        let pad = cell * self.quiet;
+        let at = |i: usize| pad + i as f32 * cell;
+        for y in 0..n {
+            for x in 0..n {
+                if !self.cells[y][x] || self.in_finder(x, y) || self.in_heart(x, y) {
+                    continue;
+                }
+                frame.fill(
+                    &Path::rounded_rectangle(
+                        Point::new(at(x), at(y)),
+                        Size::new(cell, cell),
+                        (cell * self.module_round).into(),
+                    ),
+                    QR_INK,
+                );
+            }
+        }
+        for (fx, fy) in [(0, 0), (n - 7, 0), (0, n - 7)] {
+            let outer = Rectangle::new(Point::new(at(fx) + cell / 2.0, at(fy) + cell / 2.0), Size::new(cell * 6.0, cell * 6.0));
+            frame.stroke(
+                &Path::rounded_rectangle(outer.position(), outer.size(), (cell * self.finder_round).into()),
+                Stroke {
+                    style: canvas::Style::Solid(QR_INK),
+                    width: cell,
+                    ..Stroke::default()
+                },
+            );
+            frame.fill(
+                &Path::rounded_rectangle(Point::new(at(fx + 2), at(fy + 2)), Size::new(cell * 3.0, cell * 3.0), (cell * self.finder_round * 0.45).into()),
+                QR_INK,
+            );
+        }
+        let heart = self.heart_cells() * cell;
+        if heart > 0.0 {
+            let centre = Point::new(side / 2.0, side / 2.0);
+            frame.fill(&Path::circle(centre, heart / 2.0), Color::WHITE);
+            let scale = (heart * 0.78) / 28.0;
+            frame.with_save(|frame| {
+                frame.translate(iced::Vector::new(centre.x - 14.0 * scale, centre.y - 14.0 * scale));
+                frame.scale(scale);
+                draw_letter(frame, QR_INK, canvas::Style::Solid(Color::WHITE));
+            });
+        }
+        vec![frame.into_geometry()]
+    }
+}
+
+pub fn qr<'a, Message: 'a>(code: &Qr) -> Element<'a, Message> {
+    Canvas::new(code.clone()).width(QR_SIDE).height(QR_SIDE).into()
 }
 
 pub fn brand<'a, Message: 'a>() -> Element<'a, Message> {
@@ -337,20 +476,6 @@ pub fn well<'a, Message: 'a>(inside: Element<'a, Message>) -> Element<'a, Messag
 
 pub fn grow<'a, Message: 'a>() -> Element<'a, Message> {
     Space::new().width(Length::Fill).into()
-}
-
-pub fn qr_pixels(matrix: &[Vec<bool>], scale: u32) -> (u32, u32, Vec<u8>) {
-    let n = matrix.len() as u32;
-    let side = n * scale;
-    let mut out = Vec::with_capacity((side * side * 4) as usize);
-    for y in 0..side {
-        for x in 0..side {
-            let dark = matrix[(y / scale) as usize][(x / scale) as usize];
-            let v = if dark { [0x14, 0x07, 0x0a, 0xff] } else { [0xff, 0xff, 0xff, 0xff] };
-            out.extend_from_slice(&v);
-        }
-    }
-    (side, side, out)
 }
 
 pub fn sized(w: f32, h: f32) -> Size {

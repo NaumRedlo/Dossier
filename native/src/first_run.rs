@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use iced::widget::{button, column, container, image, row, text, text_input, toggler};
+use iced::widget::{button, column, container, row, text, text_input, toggler};
 use iced::{Element, Length, Subscription, Task};
 
 use crate::bot::{self, Paired, Refused};
@@ -8,7 +8,7 @@ use crate::checks::{self, Outcome};
 use crate::lang::{Lang, Words};
 use crate::settings::Settings;
 use crate::sources::{self, Source};
-use crate::theme::{self, ACCENT, INK, MUTED};
+use crate::theme::{self, INK, MUTED};
 use crate::ui::{self, Glyph, Line, Mood};
 
 pub const STEPS: u64 = 4;
@@ -42,7 +42,6 @@ pub enum Pairing {
     Asking,
     Waiting { code: String, link: String },
     Linked { who: String },
-    Manual { code: String, busy: bool, wrong: bool },
     Unavailable,
 }
 
@@ -71,10 +70,6 @@ pub enum Message {
     Poll,
     Polled(Result<Paired, Refused>),
     OpenTelegram,
-    HaveCode,
-    Code(String),
-    Redeem,
-    Redeemed(Result<String, Refused>),
     Later,
     Checked(Check, Outcome),
     CheckAgain,
@@ -91,7 +86,7 @@ pub struct FirstRun {
     pub sources: Vec<Source>,
     pub bot_only: bool,
     pub pairing: Pairing,
-    pub qr: Option<image::Handle>,
+    pub qr: Option<ui::Qr>,
     pub checks: Vec<(Check, Option<Outcome>)>,
 }
 
@@ -260,39 +255,6 @@ impl FirstRun {
             Message::OpenTelegram => {
                 if let Pairing::Waiting { link, .. } = &self.pairing {
                     let _ = open::that_detached(link);
-                }
-                Task::none()
-            }
-            Message::HaveCode => {
-                self.pairing = Pairing::Manual { code: String::new(), busy: false, wrong: false };
-                Task::none()
-            }
-            Message::Code(code) => {
-                if let Pairing::Manual { code: held, wrong, .. } = &mut self.pairing {
-                    *held = code;
-                    *wrong = false;
-                }
-                Task::none()
-            }
-            Message::Redeem => match &mut self.pairing {
-                Pairing::Manual { code, busy, .. } if !*busy && bot::tidy(code).len() >= 6 => {
-                    *busy = true;
-                    let server = self.settings.server.clone();
-                    let code = bot::tidy(code);
-                    let name = self.settings.device.clone();
-                    Task::perform(async move { bot::join(&server, &code, &name) }, Message::Redeemed)
-                }
-                _ => Task::none(),
-            },
-            Message::Redeemed(Ok(token)) => {
-                self.settings.token = token;
-                self.pairing = Pairing::Linked { who: String::new() };
-                Task::none()
-            }
-            Message::Redeemed(Err(_)) => {
-                if let Pairing::Manual { busy, wrong, .. } = &mut self.pairing {
-                    *busy = false;
-                    *wrong = true;
                 }
                 Task::none()
             }
@@ -561,32 +523,6 @@ impl FirstRun {
         let linked = matches!(self.pairing, Pairing::Linked { .. });
         let mut body = column![ui::heading(w.t("step-bot"), why)].spacing(16);
         match &self.pairing {
-            Pairing::Manual { code, busy, wrong } => {
-                let field = text_input("K7QN-M4XZ", code)
-                    .on_input(Message::Code)
-                    .on_submit(Message::Redeem)
-                    .font(theme::MONO)
-                    .size(theme::BODY)
-                    .padding([6, 12])
-                    .style(theme::field);
-                body = body.push(column![ui::cap(w.t("enter-code")), field].spacing(4));
-                if *wrong {
-                    body = body.push(text(w.t("no-answer")).font(theme::SANS).size(theme::CAPTION).color(ACCENT));
-                }
-                let mut links = row![].spacing(16);
-                if !self.bot_only {
-                    links = links.push(ui::link(w.t("later"), Message::Later));
-                }
-                body = body.push(links);
-                body = body.push(
-                    row![
-                        ui::quiet(w.t("back"), Some(Message::Back)),
-                        ui::grow(),
-                        ui::primary(w.t("continue"), (!busy).then_some(Message::Redeem)),
-                    ]
-                    .spacing(8),
-                );
-            }
             _ => {
                 let code = match &self.pairing {
                     Pairing::Waiting { code, .. } => code.clone(),
@@ -624,18 +560,12 @@ impl FirstRun {
                 left = left.push(status.spacing(10).align_y(iced::Center));
                 let mut sides = row![left].spacing(24).align_y(iced::Top);
                 if let (Some(qr), false) = (&self.qr, linked) {
-                    sides = sides.push(
-                        container(image(qr.clone()).width(100.0).height(100.0).filter_method(image::FilterMethod::Nearest))
-                            .padding(6)
-                            .style(theme::qr_paper),
-                    );
+                    sides = sides.push(ui::qr(qr));
                 }
                 body = body.push(sides);
-                let mut links = row![ui::link(w.t("have-code"), Message::HaveCode)].spacing(16);
-                if !self.bot_only {
-                    links = links.push(ui::link(w.t("later"), Message::Later));
+                if !self.bot_only && !linked {
+                    body = body.push(row![ui::link(w.t("later"), Message::Later)]);
                 }
-                body = body.push(links);
                 body = body.push(
                     row![
                         ui::quiet(w.t("back"), Some(Message::Back)),
@@ -722,20 +652,14 @@ impl FirstRun {
     }
 }
 
-pub fn qr_for(link: &str) -> Option<image::Handle> {
-    let code = qrcode::QrCode::new(link.as_bytes()).ok()?;
+pub fn qr_for(link: &str) -> Option<ui::Qr> {
+    let code = qrcode::QrCode::with_error_correction_level(link.as_bytes(), qrcode::EcLevel::H).ok()?;
     let n = code.width();
-    let quiet = 2;
-    let side = n + quiet * 2;
     let colors = code.to_colors();
-    let mut matrix = vec![vec![false; side]; side];
-    for y in 0..n {
-        for x in 0..n {
-            matrix[y + quiet][x + quiet] = colors[y * n + x] == qrcode::Color::Dark;
-        }
-    }
-    let (w, h, pixels) = ui::qr_pixels(&matrix, 4);
-    Some(image::Handle::from_rgba(w, h, pixels))
+    let cells = (0..n)
+        .map(|y| (0..n).map(|x| colors[y * n + x] == qrcode::Color::Dark).collect())
+        .collect();
+    Some(ui::Qr::new(cells))
 }
 
 impl FirstRun {

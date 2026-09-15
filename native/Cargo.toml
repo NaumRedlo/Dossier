@@ -25,3 +25,6 @@ open = "5"
 iced_test = "0.14"
 png = "0.17"
 
+
+[dev-dependencies]
+rqrr = "0.11"

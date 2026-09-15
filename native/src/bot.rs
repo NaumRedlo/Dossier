@@ -8,7 +8,6 @@ const PATIENCE: Duration = Duration::from_secs(8);
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Refused {
     Network(String),
-    NoSuchCode,
     NotThere,
     Said(String),
 }
@@ -17,7 +16,6 @@ impl std::fmt::Display for Refused {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Refused::Network(said) | Refused::Said(said) => write!(f, "{said}"),
-            Refused::NoSuchCode => write!(f, "no such code"),
             Refused::NotThere => write!(f, "not there"),
         }
     }
@@ -68,7 +66,6 @@ fn client() -> Result<reqwest::blocking::Client, Refused> {
 fn status(response: reqwest::blocking::Response) -> Result<reqwest::blocking::Response, Refused> {
     match response.status().as_u16() {
         200..=299 => Ok(response),
-        403 => Err(Refused::NoSuchCode),
         404 => Err(Refused::NotThere),
         code => Err(Refused::Said(format!("{code}"))),
     }
@@ -85,22 +82,6 @@ pub fn hello(server: &str, token: &str, name: &str) -> Result<Hello, Refused> {
     let response = request.send().map_err(|e| Refused::Network(e.to_string()))?;
     status(response)?
         .json::<Hello>()
-        .map_err(|e| Refused::Network(e.to_string()))
-}
-
-pub fn join(server: &str, code: &str, name: &str) -> Result<String, Refused> {
-    #[derive(serde::Deserialize)]
-    struct Issued {
-        token: String,
-    }
-    let response = client()?
-        .post(format!("{server}/render/join"))
-        .json(&serde_json::json!({ "code": code, "name": name }))
-        .send()
-        .map_err(|e| Refused::Network(e.to_string()))?;
-    status(response)?
-        .json::<Issued>()
-        .map(|issued| issued.token)
         .map_err(|e| Refused::Network(e.to_string()))
 }
 

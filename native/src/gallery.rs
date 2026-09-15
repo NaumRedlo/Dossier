@@ -66,7 +66,6 @@ pub fn states(lang: Lang) -> Vec<(String, FirstRun)> {
         ("device", FirstRun::staged(Step::Device, lang, vec![stable()], false, Pairing::Idle, none.clone())),
         ("bot-waiting", FirstRun::staged(Step::Bot, lang, vec![stable()], false, waiting.clone(), none.clone())),
         ("bot-linked", FirstRun::staged(Step::Bot, lang, vec![stable()], false, Pairing::Linked { who: "naumredlo".into() }, none.clone())),
-        ("bot-code", FirstRun::staged(Step::Bot, lang, vec![stable()], false, Pairing::Manual { code: "K7QN-M4".into(), busy: false, wrong: false }, none.clone())),
         ("bot-only", FirstRun::staged(Step::Bot, lang, vec![], true, waiting, none.clone())),
         (
             "checks-running",

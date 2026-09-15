@@ -5,6 +5,7 @@ pub enum Kind {
     Stable,
     Lazer,
     Folder,
+    Own,
 }
 
 impl Kind {
@@ -13,6 +14,7 @@ impl Kind {
             Kind::Stable => "stable",
             Kind::Lazer => "lazer",
             Kind::Folder => "folder",
+            Kind::Own => "dossier",
         }
     }
 }
@@ -237,6 +239,31 @@ pub fn folder_at(root: &Path) -> Option<Source> {
         skins: None,
         replays: Some(root.to_path_buf()),
         root: root.to_path_buf(),
+        on: true,
+    })
+}
+
+pub fn own_root() -> PathBuf {
+    home().join(".dossier")
+}
+
+pub fn own() -> Result<Source, String> {
+    let root = own_root();
+    let songs = root.join("Songs");
+    let skins = root.join("Skins");
+    let replays = root.join("Replays");
+    for dir in [&songs, &skins, &replays] {
+        std::fs::create_dir_all(dir).map_err(|why| format!("{}: {why}", dir.display()))?;
+    }
+    Ok(Source {
+        kind: Kind::Own,
+        maps: Some(count_dirs(&songs)),
+        skin_count: count_dirs(&skins),
+        replay_count: count_files(&replays, "osr"),
+        songs: Some(songs),
+        skins: Some(skins),
+        replays: Some(replays),
+        root,
         on: true,
     })
 }

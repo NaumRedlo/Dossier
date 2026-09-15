@@ -29,8 +29,10 @@ fn the_brand_and_the_headline_sit_on_the_axis_of_the_card() {
         let mut ui = frame_of("folder-stable", lang);
         let word = bounds(&mut ui, "Dossier");
         let head = if lang == Lang::En { bounds(&mut ui, "Setting up") } else { bounds(&mut ui, "Настройка") };
-        let count = if lang == Lang::En { bounds(&mut ui, "· 2 of 4") } else { bounds(&mut ui, "· 2 из 4") };
+        let dot = bounds(&mut ui, "·");
+        let count = if lang == Lang::En { bounds(&mut ui, "2 of 4") } else { bounds(&mut ui, "2 из 4") };
         same(middle(head), middle(count), "headline and its count share a middle");
+        same(dot.x - (head.x + head.width), count.x - (dot.x + dot.width), "the dot stands as far from the words as from the count");
         let axis = 980.0 / 2.0;
         let headline_span = (head.x, count.x + count.width);
         let headline_centre = (headline_span.0 + headline_span.1) / 2.0;

@@ -411,7 +411,8 @@ pub fn headline<'a, Message: 'a>(which: Sign, words: String, count: String) -> E
     row![
         sign(which),
         text(words).font(theme::SANS_SEMI).size(theme::LEAD).color(INK),
-        text(format!("· {count}")).font(theme::SANS).size(theme::LEAD).color(MUTED),
+        text("·").font(theme::SANS).size(theme::LEAD).color(FAINT),
+        text(count).font(theme::SANS).size(theme::LEAD).color(MUTED),
     ]
     .spacing(8)
     .align_y(iced::Center)
@@ -489,9 +490,10 @@ pub fn ledger<'a, Message: Clone + 'a>(lines: &[Line], on_link: Option<Message>)
         } else {
             Sign::growing(which, line.settled)
         };
-        let mut words = row![text(line.name.clone()).font(face).size(theme::BODY).color(colour)].spacing(6);
+        let mut words = row![text(line.name.clone()).font(face).size(theme::BODY).color(colour)].spacing(7);
         if !line.detail.is_empty() {
-            words = words.push(text(format!("· {}", line.detail)).font(theme::MONO).size(theme::BODY).color(detail_colour));
+            words = words.push(text("·").font(theme::MONO).size(theme::BODY).color(faded(FAINT)));
+            words = words.push(text(line.detail.clone()).font(theme::MONO).size(theme::BODY).color(detail_colour));
         }
         rows = rows.push(
             container(row![sign(sign_now), words].spacing(12).align_y(iced::Center)).height(24.0),

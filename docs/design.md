@@ -153,8 +153,11 @@ maps, the first-run checks, an update — anything with steps.
     Delivering                                Отдаю боту
 ```
 
-- The headline is the current step and the count. When there is a fraction
-  worth knowing, it sits on the current line, not in the headline.
+- The headline is the current step and the count, parted by a middle dot
+  that stands as far from the one as from the other; the same dot parts a
+  line's name from its detail.
+- When there is a fraction worth knowing, it sits on the current line, not
+  in the headline.
 - Finished steps are `muted` with a red tick. The current step is `ink` with
   the red dot. Steps to come are `faint` with nothing.
 - At most five lines are visible; older finished lines scroll out of the top
@@ -221,7 +224,9 @@ title, at most one line of why, the control, and a row of two buttons —
 
 1. **Language.** Two options, *English* and *Русский*, the system's one
    preselected. This is the only step that cannot be skipped, and it is first
-   so that every word after it is in the right language.
+   so that every word after it is in the right language. Choosing the other
+   one retypes every word on the screen over 520 ms, left to right, the new
+   letters overwriting the old — the whole interface, not the card alone.
 
 2. **osu! folder.** The application has already looked, and it looks the way
    the game does rather than by guessing folder names:
@@ -248,16 +253,13 @@ title, at most one line of why, the control, and a row of two buttons —
    - Both found: two rows, one per client, each with its path, its counts
      and a switch that is on — *Use both* is the button, and turning one
      switch off is how a person chooses. See *Sources* below for what "both"
-     means. Neither found: *Couldn't find osu! on
-     this device*, a *Browse…* button that accepts either kind of folder,
-     and a quiet *I'll only render for the bot*, which points the map storage
-     at the application's own folder — and turns the bot from optional into
-     required, because a device with no osu! and no bot has nothing to do.
-     The steps that follow do not disappear; the way out of them does: step
-     4 loses *Later — just my own replays*, and in the checks a missing
-     ffmpeg loses *Continue anyway*, since rendering is the only thing this
-     device is for. The ledger says so in the step's own line: *This device
-     renders for the bot, so it has to be linked.*
+     means. Neither found: *Couldn't find osu! on this device*, one line
+     saying the application can keep maps, skins and replays in a folder of
+     its own, a *Browse…* button that accepts either kind of folder, and a
+     quiet *Keep everything in its own folder*, which makes `~/.dossier` a
+     source like any other — with its own Songs, Skins and Replays — and
+     shows it as one, tagged *dossier*. Nothing after that step changes: the
+     bot stays optional, replays dropped into that folder render locally.
 
    Found: the client's name as a tag, the path in a well, and three tiles —
    maps, skins, replays — with *Use this* and a quiet *Add another…*, which
@@ -299,9 +301,6 @@ title, at most one line of why, the control, and a row of two buttons —
    as a reader still finds them, the mark in the middle at error-correction
    level H, and a test that reads the drawn code back into the link.
 
-   On a bot-only device the quiet link is gone too. Nothing else changes on
-   the card.
-
    Linking is also what lets the application show the person their own side
    of the bot — what they have queued, what was rendered for them, what
    their device has done — which is a screen of the main menu and is
@@ -311,9 +310,9 @@ Then the ledger runs on its own — *Checking · 3 of 4*: osu! folder, ffmpeg,
 engine, bot — each line ticking as it passes. Everything passed: one button,
 *Open Dossier*. A line failed: that line turns `danger` with its reason and
 its fix — *ffmpeg is not installed · Where to get it* — and the button becomes
-*Continue anyway*, because a missing ffmpeg stops rendering, not judging.
-On a bot-only device there is no *Continue anyway*: the line stays red with
-*Where to get it*, and the only button is *Check again*.
+*Continue anyway*, because a missing ffmpeg stops rendering, not judging. A
+bot that was skipped with *Later* is not a failure: its line stays quiet,
+*not linked*, and counts as done.
 
 The other way round — osu! found, bot skipped with *Later* — is the ordinary
 case for someone who only wants their own replays drawn. Then the farm is

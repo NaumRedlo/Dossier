@@ -7,6 +7,7 @@ use crate::sources::Source;
 pub enum Outcome {
     Passed(String),
     Failed(String),
+    Skipped(String),
 }
 
 pub fn ffmpeg_on_path() -> Option<PathBuf> {
@@ -47,17 +48,6 @@ pub fn folder(sources: &[Source]) -> Outcome {
     Outcome::Passed(format!("{maps} maps, {replays} replays"))
 }
 
-pub fn folder_or_bot_only(sources: &[Source], bot_only: bool) -> Outcome {
-    if bot_only {
-        let own = crate::settings::Settings::own_storage();
-        return match std::fs::create_dir_all(&own) {
-            Ok(()) => Outcome::Passed(crate::sources::shortened(&own)),
-            Err(why) => Outcome::Failed(why.to_string()),
-        };
-    }
-    folder(sources)
-}
-
 pub fn engine(server: &str, token: &str, name: &str) -> Outcome {
     if token.is_empty() {
         return Outcome::Passed(bot::BUILD.to_owned());
@@ -71,7 +61,7 @@ pub fn engine(server: &str, token: &str, name: &str) -> Outcome {
 
 pub fn bot(server: &str, token: &str, name: &str) -> Outcome {
     if token.is_empty() {
-        return Outcome::Failed(String::new());
+        return Outcome::Skipped(String::new());
     }
     let started = std::time::Instant::now();
     match bot::hello(server, token, name) {

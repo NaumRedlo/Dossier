@@ -67,6 +67,7 @@ impl Lang {
 pub struct Words {
     lang: Lang,
     bundle: FluentBundle<FluentResource>,
+    before: Option<(FluentBundle<FluentResource>, f32)>,
 }
 
 impl Clone for Words {
@@ -75,14 +76,46 @@ impl Clone for Words {
     }
 }
 
+fn bundle_for(lang: Lang) -> FluentBundle<FluentResource> {
+    let resource = FluentResource::try_new(lang.source().to_owned())
+        .unwrap_or_else(|(resource, _)| resource);
+    let mut bundle = FluentBundle::new(vec![lang.id()]);
+    bundle.set_use_isolating(false);
+    let _ = bundle.add_resource(resource);
+    bundle
+}
+
+pub fn typed(from: &str, to: &str, k: f32) -> String {
+    let from: Vec<char> = from.chars().collect();
+    let to: Vec<char> = to.chars().collect();
+    let span = from.len().max(to.len());
+    let at = ((k.clamp(0.0, 1.0) * span as f32).round() as usize).min(span);
+    let mut out: String = to.iter().take(at).collect();
+    out.extend(from.iter().skip(at));
+    out
+}
+
 impl Words {
     pub fn new(lang: Lang) -> Words {
-        let resource = FluentResource::try_new(lang.source().to_owned())
-            .unwrap_or_else(|(resource, _)| resource);
-        let mut bundle = FluentBundle::new(vec![lang.id()]);
-        bundle.set_use_isolating(false);
-        let _ = bundle.add_resource(resource);
-        Words { lang, bundle }
+        Words { lang, bundle: bundle_for(lang), before: None }
+    }
+
+    pub fn retyping_into(self, lang: Lang) -> Words {
+        let before = match self.before {
+            Some((old, _)) if self.lang == lang => old,
+            _ => self.bundle,
+        };
+        Words { lang, bundle: bundle_for(lang), before: Some((before, 0.0)) }
+    }
+
+    pub fn typed_up_to(&mut self, k: f32) {
+        if let Some((_, progress)) = &mut self.before {
+            *progress = k.clamp(0.0, 1.0);
+        }
+    }
+
+    pub fn settle(&mut self) {
+        self.before = None;
     }
 
     pub fn lang(&self) -> Lang {
@@ -117,15 +150,23 @@ impl Words {
     }
 
     fn say(&self, key: &str, args: Option<&FluentArgs>) -> String {
-        let Some(message) = self.bundle.get_message(key) else {
-            return format!("[{key}]");
-        };
-        let Some(pattern) = message.value() else {
-            return format!("[{key}]");
-        };
-        let mut errors = Vec::new();
-        self.bundle.format_pattern(pattern, args, &mut errors).into_owned()
+        let now = said_by(&self.bundle, key, args);
+        match &self.before {
+            Some((old, k)) if *k < 1.0 => typed(&said_by(old, key, args), &now, *k),
+            _ => now,
+        }
     }
+}
+
+fn said_by(bundle: &FluentBundle<FluentResource>, key: &str, args: Option<&FluentArgs>) -> String {
+    let Some(message) = bundle.get_message(key) else {
+        return format!("[{key}]");
+    };
+    let Some(pattern) = message.value() else {
+        return format!("[{key}]");
+    };
+    let mut errors = Vec::new();
+    bundle.format_pattern(pattern, args, &mut errors).into_owned()
 }
 
 #[cfg(test)]
@@ -164,6 +205,22 @@ mod tests {
         let en = Words::new(Lang::En);
         assert_eq!(en.count("maps-label", 1), "1 map");
         assert_eq!(en.count("replays-label", 1342), "1,342 replays");
+    }
+
+    #[test]
+    fn a_change_of_language_types_the_new_words_over_the_old() {
+        assert_eq!(typed("Setting up", "Настройка", 0.0), "Setting up");
+        assert_eq!(typed("Setting up", "Настройка", 1.0), "Настройка");
+        let half = typed("Setting up", "Настройка", 0.5);
+        assert!(half.starts_with("Настр"), "{half}");
+        assert!(half.ends_with("ng up"), "{half}");
+        let mut words = Words::new(Lang::En).retyping_into(Lang::Ru);
+        words.typed_up_to(0.0);
+        assert_eq!(words.t("setting-up"), "Setting up");
+        words.typed_up_to(1.0);
+        assert_eq!(words.t("setting-up"), "Настройка");
+        words.settle();
+        assert_eq!(words.t("continue"), "Продолжить");
     }
 
     #[test]

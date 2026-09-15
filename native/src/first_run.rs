@@ -15,6 +15,7 @@ use crate::ui::{self, Glyph, Line, Mood, Sign};
 pub const STEPS: u64 = 4;
 const POLL: Duration = Duration::from_secs(3);
 pub const REVEAL: Duration = Duration::from_millis(320);
+pub const RETYPE: Duration = Duration::from_millis(520);
 pub const SETTLE: Duration = Duration::from_millis(450);
 pub const BREATH: Duration = Duration::from_millis(1600);
 pub const FFMPEG_HOME: &str = "https://ffmpeg.org/download.html";
@@ -68,7 +69,8 @@ pub enum Message {
     Switch(usize, bool),
     Browse,
     Browsed(Option<Source>),
-    BotOnly,
+    OwnFolder,
+    OwnFolderMade(Result<Source, String>),
     Device(String),
     PairAsked(Result<(String, String), Refused>),
     Poll,
@@ -89,7 +91,6 @@ pub struct FirstRun {
     pub step: Step,
     pub looked: bool,
     pub sources: Vec<Source>,
-    pub bot_only: bool,
     pub pairing: Pairing,
     pub qr: Option<ui::Qr>,
     pub checks: Vec<(Check, Option<Outcome>)>,
@@ -98,6 +99,7 @@ pub struct FirstRun {
     pub settles: Vec<Animation<bool>>,
     pub breath: Animation<bool>,
     pub came_from: Step,
+    pub retype: Animation<bool>,
 }
 
 fn reveal_from(now: Instant) -> Animation<bool> {
@@ -131,7 +133,6 @@ impl FirstRun {
             step: Step::Language,
             looked: false,
             sources: Vec::new(),
-            bot_only: false,
             pairing: Pairing::Idle,
             qr: None,
             checks: Vec::new(),
@@ -140,6 +141,7 @@ impl FirstRun {
             settles: Vec::new(),
             breath: breathing(Instant::now()),
             came_from: Step::Language,
+            retype: settled(),
         };
         (made, Task::perform(async { sources::find() }, Message::Looked))
     }
@@ -151,6 +153,7 @@ impl FirstRun {
 
     pub fn moving(&self) -> bool {
         self.reveal.is_animating(self.now)
+            || self.retype.is_animating(self.now)
             || self.settles.iter().any(|s| s.is_animating(self.now))
             || self.waiting_on_something()
     }
@@ -185,8 +188,7 @@ impl FirstRun {
         let server = self.settings.server.clone();
         let token = self.settings.token.clone();
         let name = self.settings.device.clone();
-        let bot_only = self.bot_only;
-        Task::perform(async move { checks::folder_or_bot_only(&sources, bot_only) }, |o| Message::Checked(Check::Folder, o))
+        Task::perform(async move { checks::folder(&sources) }, |o| Message::Checked(Check::Folder, o))
             .chain(Task::perform(async { checks::ffmpeg() }, |o| Message::Checked(Check::Ffmpeg, o)))
             .chain({
                 let (server, token, name) = (server.clone(), token.clone(), name.clone());
@@ -212,8 +214,12 @@ impl FirstRun {
         let mut done = Done::NotYet;
         let task = match message {
             Message::PickLang(lang) => {
-                self.settings.lang = lang;
-                self.words = Words::new(lang);
+                if lang != self.settings.lang {
+                    self.settings.lang = lang;
+                    let words = std::mem::replace(&mut self.words, Words::new(lang));
+                    self.words = words.retyping_into(lang);
+                    self.retype = Animation::new(false).duration(RETYPE).easing(Easing::Linear).go(true, Instant::now());
+                }
                 Task::none()
             }
             Message::Continue => match self.step {
@@ -264,15 +270,17 @@ impl FirstRun {
                     if !self.sources.iter().any(|s| s.root == source.root) {
                         self.sources.push(source);
                     }
-                    self.bot_only = false;
                 }
                 Task::none()
             }
-            Message::BotOnly => {
-                self.bot_only = true;
-                self.turn_page(Step::Device);
+            Message::OwnFolder => Task::perform(async { sources::own() }, Message::OwnFolderMade),
+            Message::OwnFolderMade(Ok(source)) => {
+                if !self.sources.iter().any(|s| s.root == source.root) {
+                    self.sources.push(source);
+                }
                 Task::none()
             }
+            Message::OwnFolderMade(Err(_)) => Task::none(),
             Message::Device(name) => {
                 self.settings.device = name;
                 Task::none()
@@ -331,12 +339,15 @@ impl FirstRun {
             Message::Finish => {
                 let mut settings = self.settings.clone();
                 settings.sources = self.sources.clone();
-                settings.bot_only = self.bot_only;
                 done = Done::Finished(settings);
                 Task::none()
             }
             Message::Tick(now) => {
                 self.now = now;
+                self.words.typed_up_to(self.retype.interpolate(0.0, 1.0, now));
+                if !self.retype.is_animating(now) {
+                    self.words.settle();
+                }
                 Task::none()
             }
         };
@@ -345,6 +356,10 @@ impl FirstRun {
 
     fn checks_done(&self) -> u64 {
         self.checks.iter().filter(|(_, o)| o.is_some()).count() as u64
+    }
+
+    fn checks_passed(&self) -> u64 {
+        self.checks.iter().filter(|(_, o)| matches!(o, Some(Outcome::Passed(_)))).count() as u64
     }
 
     fn checks_failed(&self) -> Vec<Check> {
@@ -374,7 +389,7 @@ impl FirstRun {
         let breath = self.breath();
         let (head_sign, head_words, head_count) = match self.step {
             Step::Checks if self.all_checked() && self.checks_failed().is_empty() => {
-                (Sign::settled(Glyph::Tick), w.t("everything-works"), w.of(self.checks_done(), CHECKS.len() as u64))
+                (Sign::settled(Glyph::Tick), w.t("everything-works"), w.of(self.checks_passed(), CHECKS.len() as u64))
             }
             Step::Checks => (Sign::breathing(breath), w.t("checking"), w.of(self.checks_done(), CHECKS.len() as u64)),
             step => (Sign::settled(Glyph::Dot), w.t("setting-up"), w.of(step.number(), STEPS)),
@@ -509,7 +524,7 @@ impl FirstRun {
                     row![
                         ui::quiet(w.t("back"), Some(Message::Back)),
                         ui::grow(),
-                        ui::quiet(w.t("bot-only"), Some(Message::BotOnly)),
+                        ui::quiet(w.t("own-folder"), Some(Message::OwnFolder)),
                         ui::primary(w.t("browse"), Some(Message::Browse)),
                     ]
                     .spacing(8),
@@ -517,7 +532,11 @@ impl FirstRun {
             }
             1 => {
                 let source = &self.sources[0];
-                body = body.push(ui::heading(w.t("step-folder"), w.t("folder-found")));
+                let found = match source.kind {
+                    sources::Kind::Own => w.t("folder-own"),
+                    _ => w.t("folder-found"),
+                };
+                body = body.push(ui::heading(w.t("step-folder"), found));
                 body = body.push(ui::well(
                     row![
                         ui::mono(source.shown(), INK),
@@ -600,9 +619,8 @@ impl FirstRun {
 
     fn bot_body(&self) -> Element<'_, Message> {
         let w = &self.words;
-        let why = if self.bot_only { w.t("bot-why-only") } else { w.t("bot-why") };
         let linked = matches!(self.pairing, Pairing::Linked { .. });
-        let mut body = column![ui::heading(w.t("step-bot"), why)].spacing(16);
+        let mut body = column![ui::heading(w.t("step-bot"), w.t("bot-why"))].spacing(16);
         match &self.pairing {
             _ => {
                 let code = match &self.pairing {
@@ -635,7 +653,7 @@ impl FirstRun {
                     sides = sides.push(ui::qr(qr));
                 }
                 body = body.push(sides);
-                if !self.bot_only && !linked {
+                if !linked {
                     body = body.push(row![ui::link(w.t("later"), Message::Later)]);
                 }
                 body = body.push(
@@ -663,7 +681,6 @@ impl FirstRun {
             Some(Outcome::Passed(detail)) => {
                 let detail = match which {
                     Check::Engine => format!("{}, {}", detail, w.t("same-build")),
-                    Check::Folder if self.bot_only => detail.clone(),
                     Check::Folder => {
                         let live = self.live_sources();
                         let maps: u64 = live.iter().filter_map(|s| s.maps).sum();
@@ -679,11 +696,14 @@ impl FirstRun {
                 match which {
                     Check::Ffmpeg => line
                         .detail(w.t("not-installed"))
-                        .note(if self.bot_only { w.t("ffmpeg-why-only") } else { w.t("ffmpeg-why") }, Some(w.t("where-to-get"))),
-                    Check::Bot if detail.is_empty() => line.detail(w.t("not-linked")),
+                        .note(w.t("ffmpeg-why"), Some(w.t("where-to-get"))),
                     _ => line.detail(if detail.is_empty() { w.t("no-answer") } else { detail.clone() }),
                 }
             }
+            Some(Outcome::Skipped(_)) => Line::new(Mood::Todo, name).detail(match which {
+                Check::Bot => w.t("not-linked"),
+                _ => String::new(),
+            }),
             None if reached => Line::new(Mood::Now, name).detail(match which {
                 Check::Engine | Check::Bot => w.t("asking-bot"),
                 _ => String::new(),
@@ -716,11 +736,8 @@ impl FirstRun {
         if !finished {
             return ui::card(ledger, None);
         }
-        let hard = self.bot_only && (failed.contains(&Check::Ffmpeg) || failed.contains(&Check::Bot));
         let buttons = if failed.is_empty() {
             row![ui::grow(), ui::primary(w.t("open-dossier"), Some(Message::Finish))]
-        } else if hard {
-            row![ui::grow(), ui::primary(w.t("check-again"), Some(Message::CheckAgain))]
         } else {
             row![
                 ui::quiet(w.t("check-again"), Some(Message::CheckAgain)),
@@ -743,7 +760,7 @@ pub fn qr_for(link: &str) -> Option<ui::Qr> {
 }
 
 impl FirstRun {
-    pub fn staged(step: Step, lang: Lang, sources: Vec<Source>, bot_only: bool, pairing: Pairing, checks: Vec<(Check, Option<Outcome>)>) -> FirstRun {
+    pub fn staged(step: Step, lang: Lang, sources: Vec<Source>, pairing: Pairing, checks: Vec<(Check, Option<Outcome>)>) -> FirstRun {
         let mut settings = Settings::default();
         settings.lang = lang;
         settings.device = "MacBook Pro".to_owned();
@@ -758,7 +775,6 @@ impl FirstRun {
             step,
             looked: true,
             sources,
-            bot_only,
             pairing,
             qr,
             checks,
@@ -767,6 +783,7 @@ impl FirstRun {
             settles,
             breath: Animation::new(false),
             came_from: step,
+            retype: settled(),
         }
     }
 }

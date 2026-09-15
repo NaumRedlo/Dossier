@@ -24,6 +24,20 @@ fn stable() -> Source {
     }
 }
 
+fn own() -> Source {
+    Source {
+        kind: Kind::Own,
+        root: crate::sources::home().join(".dossier"),
+        songs: None,
+        skins: None,
+        replays: None,
+        maps: Some(0),
+        skin_count: 0,
+        replay_count: 0,
+        on: true,
+    }
+}
+
 fn lazer() -> Source {
     Source {
         kind: Kind::Lazer,
@@ -58,22 +72,21 @@ pub fn states(lang: Lang) -> Vec<(String, FirstRun)> {
     };
     let none: Vec<(Check, Option<Outcome>)> = Vec::new();
     let mut out = vec![
-        ("language", FirstRun::staged(Step::Language, lang, vec![], false, Pairing::Idle, none.clone())),
-        ("folder-stable", FirstRun::staged(Step::Folder, lang, vec![stable()], false, Pairing::Idle, none.clone())),
-        ("folder-lazer", FirstRun::staged(Step::Folder, lang, vec![lazer()], false, Pairing::Idle, none.clone())),
-        ("folder-both", FirstRun::staged(Step::Folder, lang, vec![stable(), lazer()], false, Pairing::Idle, none.clone())),
-        ("folder-missing", FirstRun::staged(Step::Folder, lang, vec![], false, Pairing::Idle, none.clone())),
-        ("device", FirstRun::staged(Step::Device, lang, vec![stable()], false, Pairing::Idle, none.clone())),
-        ("bot-waiting", FirstRun::staged(Step::Bot, lang, vec![stable()], false, waiting.clone(), none.clone())),
-        ("bot-linked", FirstRun::staged(Step::Bot, lang, vec![stable()], false, Pairing::Linked { who: "naumredlo".into() }, none.clone())),
-        ("bot-only", FirstRun::staged(Step::Bot, lang, vec![], true, waiting, none.clone())),
+        ("language", FirstRun::staged(Step::Language, lang, vec![], Pairing::Idle, none.clone())),
+        ("folder-stable", FirstRun::staged(Step::Folder, lang, vec![stable()], Pairing::Idle, none.clone())),
+        ("folder-lazer", FirstRun::staged(Step::Folder, lang, vec![lazer()], Pairing::Idle, none.clone())),
+        ("folder-both", FirstRun::staged(Step::Folder, lang, vec![stable(), lazer()], Pairing::Idle, none.clone())),
+        ("folder-missing", FirstRun::staged(Step::Folder, lang, vec![], Pairing::Idle, none.clone())),
+        ("folder-own", FirstRun::staged(Step::Folder, lang, vec![own()], Pairing::Idle, none.clone())),
+        ("device", FirstRun::staged(Step::Device, lang, vec![stable()], Pairing::Idle, none.clone())),
+        ("bot-waiting", FirstRun::staged(Step::Bot, lang, vec![stable()], waiting.clone(), none.clone())),
+        ("bot-linked", FirstRun::staged(Step::Bot, lang, vec![stable()], Pairing::Linked { who: "naumredlo".into() }, none.clone())),
         (
             "checks-running",
             FirstRun::staged(
                 Step::Checks,
                 lang,
                 vec![stable()],
-                false,
                 Pairing::Idle,
                 checked(&[
                     (Check::Folder, Some(Outcome::Passed("1,342 maps".into()))),
@@ -89,7 +102,6 @@ pub fn states(lang: Lang) -> Vec<(String, FirstRun)> {
                 Step::Checks,
                 lang,
                 vec![stable()],
-                false,
                 Pairing::Idle,
                 checked(&[
                     (Check::Folder, Some(Outcome::Passed("1,342 maps".into()))),
@@ -99,23 +111,22 @@ pub fn states(lang: Lang) -> Vec<(String, FirstRun)> {
                 ]),
             ),
         ),
+        ("done", FirstRun::staged(Step::Checks, lang, vec![stable()], Pairing::Idle, all_passed())),
         (
-            "checks-bot-only-ffmpeg-missing",
+            "checks-bot-skipped",
             FirstRun::staged(
                 Step::Checks,
                 lang,
-                vec![],
-                true,
+                vec![own()],
                 Pairing::Idle,
                 checked(&[
-                    (Check::Folder, Some(Outcome::Passed("~/.dossier/Songs".into()))),
-                    (Check::Ffmpeg, Some(Outcome::Failed(String::new()))),
+                    (Check::Folder, Some(Outcome::Passed(String::new()))),
+                    (Check::Ffmpeg, Some(Outcome::Passed("7.1".into()))),
                     (Check::Engine, Some(Outcome::Passed("0.12.0".into()))),
-                    (Check::Bot, Some(Outcome::Passed("41 ms".into()))),
+                    (Check::Bot, Some(Outcome::Skipped(String::new()))),
                 ]),
             ),
         ),
-        ("done", FirstRun::staged(Step::Checks, lang, vec![stable()], false, Pairing::Idle, all_passed())),
     ];
     debug_assert_eq!(CHECKS.len(), 4);
     out.iter_mut().for_each(|_| {});

@@ -13,7 +13,6 @@ pub struct Settings {
     pub server: String,
     pub token: String,
     pub linked_as: String,
-    pub bot_only: bool,
 }
 
 impl Default for Settings {
@@ -25,7 +24,6 @@ impl Default for Settings {
             server: DEFAULT_SERVER.to_owned(),
             token: String::new(),
             linked_as: String::new(),
-            bot_only: false,
         }
     }
 }
@@ -53,10 +51,6 @@ impl Settings {
         }
         let text = serde_json::to_string_pretty(self).map_err(|e| e.to_string())?;
         std::fs::write(&file, text).map_err(|e| e.to_string())
-    }
-
-    pub fn own_storage() -> PathBuf {
-        crate::sources::home().join(".dossier").join("Songs")
     }
 }
 

@@ -174,9 +174,13 @@ The rule from the person this is for: *minimise the information, or it is
 easy to lose the thread and to see the flaws.* Each screen below lists
 everything it shows. Adding a line to a screen means adding it here first.
 
-**The mark** is the letter D with four slits through it, evenly spaced, red, on a rounded
-tile that runs from the burgundy at the top of the ground to the black at its
-bottom. No rings, no border; the application icon is the same picture.
+**The mark** is the letter D with four slits through it, evenly spaced, red.
+The application icon puts it on a rounded tile that runs from the burgundy at
+the top of the ground to the black at its bottom; inside the window it stands
+bare beside the word, centred above whatever the screen is about, and it is
+the one thing that reacts to the application's own moments — a check passing,
+the bot saying yes — with a beat of 420 ms. No rings, no border, and the very
+same letter, from the same drawing, sits in the heart of the QR.
 
 **Sidebar.** The mark and the word *Dossier*. Three items: Реплеи, Ферма,
 Настройки. At the bottom, one ledger headline for whatever is running, or the

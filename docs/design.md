@@ -225,8 +225,9 @@ title, at most one line of why, the control, and a row of two buttons —
 1. **Language.** Two options, *English* and *Русский*, the system's one
    preselected. This is the only step that cannot be skipped, and it is first
    so that every word after it is in the right language. Choosing the other
-   one retypes every word on the screen over 520 ms, left to right, the new
-   letters overwriting the old — the whole interface, not the card alone.
+   one retypes every word on the screen over 640 ms: the old words are
+   erased from the right first, then the new ones are typed from the left —
+   the whole interface, not the card alone.
 
 2. **osu! folder.** The application has already looked, and it looks the way
    the game does rather than by guessing folder names:

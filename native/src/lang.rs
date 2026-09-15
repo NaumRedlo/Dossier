@@ -85,14 +85,19 @@ fn bundle_for(lang: Lang) -> FluentBundle<FluentResource> {
     bundle
 }
 
+const ERASING: f32 = 0.4;
+
 pub fn typed(from: &str, to: &str, k: f32) -> String {
-    let from: Vec<char> = from.chars().collect();
-    let to: Vec<char> = to.chars().collect();
-    let span = from.len().max(to.len());
-    let at = ((k.clamp(0.0, 1.0) * span as f32).round() as usize).min(span);
-    let mut out: String = to.iter().take(at).collect();
-    out.extend(from.iter().skip(at));
-    out
+    let k = k.clamp(0.0, 1.0);
+    if k < ERASING {
+        let left = 1.0 - k / ERASING;
+        let kept = (from.chars().count() as f32 * left).round() as usize;
+        from.chars().take(kept).collect()
+    } else {
+        let done = (k - ERASING) / (1.0 - ERASING);
+        let shown = (to.chars().count() as f32 * done).round() as usize;
+        to.chars().take(shown).collect()
+    }
 }
 
 impl Words {
@@ -208,12 +213,13 @@ mod tests {
     }
 
     #[test]
-    fn a_change_of_language_types_the_new_words_over_the_old() {
+    fn a_change_of_language_erases_the_old_words_and_types_the_new() {
         assert_eq!(typed("Setting up", "Настройка", 0.0), "Setting up");
         assert_eq!(typed("Setting up", "Настройка", 1.0), "Настройка");
-        let half = typed("Setting up", "Настройка", 0.5);
-        assert!(half.starts_with("Настр"), "{half}");
-        assert!(half.ends_with("ng up"), "{half}");
+        assert_eq!(typed("Setting up", "Настройка", 0.2), "Setti");
+        assert_eq!(typed("Setting up", "Настройка", 0.4), "");
+        assert_eq!(typed("Setting up", "Настройка", 0.7), "Наст");
+        assert_eq!(typed("Setting up", "Настройка", 0.88), "Настрой");
         let mut words = Words::new(Lang::En).retyping_into(Lang::Ru);
         words.typed_up_to(0.0);
         assert_eq!(words.t("setting-up"), "Setting up");

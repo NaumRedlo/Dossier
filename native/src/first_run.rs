@@ -15,7 +15,7 @@ use crate::ui::{self, Glyph, Line, Mood, Sign};
 pub const STEPS: u64 = 4;
 const POLL: Duration = Duration::from_secs(3);
 pub const REVEAL: Duration = Duration::from_millis(320);
-pub const RETYPE: Duration = Duration::from_millis(520);
+pub const RETYPE: Duration = Duration::from_millis(640);
 pub const SETTLE: Duration = Duration::from_millis(450);
 pub const BREATH: Duration = Duration::from_millis(1600);
 pub const FFMPEG_HOME: &str = "https://ffmpeg.org/download.html";

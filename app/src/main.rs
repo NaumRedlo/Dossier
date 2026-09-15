@@ -87,21 +87,74 @@ struct Drawn {
     said: Vec<String>,
 }
 
+#[derive(serde::Serialize)]
+struct Farmed {
+    outcome: &'static str,
+    title: String,
+    why: String,
+}
+
 #[tauri::command(async)]
-fn work_once(server: String, token: String, name: String, songs: String) -> Result<String, String> {
+fn work_once(
+    app: tauri::AppHandle,
+    server: String,
+    token: String,
+    name: String,
+    songs: String,
+) -> Result<Farmed, String> {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{Arc, Mutex};
+    use tauri::Emitter;
+
     let bot = bot::Bot::new(&server, &token, &name).map_err(|e| e.to_string())?;
-    let along = std::sync::Arc::new(std::sync::Mutex::new(work::Along::default()));
+    let along = Arc::new(Mutex::new(work::Along::default()));
     let engine = format!("dossier {}", env!("CARGO_PKG_VERSION"));
-    match work::once(
+    let ticking = Arc::new(AtomicBool::new(true));
+    let ticker = {
+        let ticking = Arc::clone(&ticking);
+        let along = Arc::clone(&along);
+        let sending = app.clone();
+        std::thread::spawn(move || {
+            while ticking.load(Ordering::Relaxed) {
+                std::thread::sleep(std::time::Duration::from_millis(500));
+                let now = *along.lock().expect("how far along");
+                if now.of == 0 {
+                    continue;
+                }
+                let _ = sending.emit(
+                    "farming",
+                    serde_json::json!({
+                        "event": "progress",
+                        "frames": now.frames,
+                        "of": now.of,
+                        "per_second": now.per_second,
+                        "left_seconds": now.left_seconds,
+                    }),
+                );
+            }
+        })
+    };
+    let telling = app.clone();
+    let claimed = move |job: &bot::Job| {
+        let _ = telling.emit(
+            "farming",
+            serde_json::json!({ "event": "claimed", "id": job.id, "title": job.title }),
+        );
+    };
+    let done = work::once(
         &bot,
         &engine,
         &machine::capacity(),
         std::path::Path::new(&songs),
         &along,
-    ) {
-        Ok(work::Did::Nothing) => Ok("нечего делать".to_owned()),
-        Ok(work::Did::Delivered { title }) => Ok(format!("готово: {title}")),
-        Ok(work::Did::GaveBack { why }) => Ok(format!("вернул задачу: {why}")),
+        &claimed,
+    );
+    ticking.store(false, Ordering::Relaxed);
+    let _ = ticker.join();
+    match done {
+        Ok(work::Did::Nothing) => Ok(Farmed { outcome: "nothing", title: String::new(), why: String::new() }),
+        Ok(work::Did::Delivered { title }) => Ok(Farmed { outcome: "delivered", title, why: String::new() }),
+        Ok(work::Did::GaveBack { why }) => Ok(Farmed { outcome: "gave_back", title: String::new(), why }),
         Err(refused) => Err(refused.to_string()),
     }
 }

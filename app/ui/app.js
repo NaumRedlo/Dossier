@@ -617,6 +617,19 @@ function tellWorker(rows) {
     note.textContent = "";
     return;
   }
+  lastReady = rows;
+  if (farming) {
+    lamp.className = "lamp busy";
+    state.textContent = "Рендерю для бота";
+    note.textContent = farming.title || "";
+    return;
+  }
+  if (!farmOn()) {
+    lamp.className = "lamp";
+    state.textContent = "Работу не беру";
+    note.textContent = "";
+    return;
+  }
   const broken = rows.filter((row) => row.ok === false);
   const unsure = rows.filter((row) => row.ok === null || row.ok === undefined);
   if (broken.length) {
@@ -635,6 +648,96 @@ function tellWorker(rows) {
 }
 
 let lastSpeed = 0;
+let lastReady = null;
+
+const farmOn = () => remembered("farming", "on") === "on";
+let farmTimer = null;
+let farmBusy = false;
+let farming = null;
+let farmWork = null;
+
+function sayFarm(state, title = "", bad = false) {
+  byId("farm-state").textContent = state;
+  byId("farm-title").textContent = title;
+  byId("farm-state").classList.toggle("bad", bad);
+}
+
+function paintFarming(payload) {
+  const share = payload.of ? Math.min(100, (payload.frames / payload.of) * 100) : 0;
+  byId("farm-progress").hidden = false;
+  byId("farm-bar").style.width = `${share}%`;
+  byId("farm-share").textContent = round(share);
+  byId("farm-arc").style.strokeDashoffset = String((126 * (1 - share / 100)).toFixed(1));
+  byId("farm-facts").replaceChildren(
+    el("span", null, `${round(payload.frames)} из ${round(payload.of)} кадров`),
+    el("span", null, `${round(payload.per_second)} кадров/с`),
+    el("span", null, `осталось ${spell(payload.left_seconds)}`),
+  );
+  if (farmWork) stepWork(farmWork, share, `${round(share)}% · осталось ${spell(payload.left_seconds)}`);
+}
+
+function farmIdle(text) {
+  farming = null;
+  byId("farm-progress").hidden = true;
+  byId("farm-facts").replaceChildren();
+  byId("farm-share").textContent = "";
+  byId("farm-arc").style.strokeDashoffset = "126";
+  byId("farm-now").classList.remove("busy");
+  sayFarm(text);
+  tellWorker(lastReady);
+}
+
+function farmLater(ms) {
+  clearTimeout(farmTimer);
+  farmTimer = setTimeout(farmTick, ms);
+}
+
+async function farmTick() {
+  clearTimeout(farmTimer);
+  if (!farmOn()) {
+    farmIdle("Работу не беру");
+    return;
+  }
+  if (!known.server || !known.token) {
+    farmIdle("Бот не подключён — задания брать неоткуда");
+    return;
+  }
+  if (drawing || farmBusy) {
+    farmLater(5000);
+    return;
+  }
+  farmBusy = true;
+  sayFarm("Спрашиваю бота…");
+  try {
+    const did = await invoke("work_once", { server: known.server, token: known.token, name: known.name, songs: known.songs });
+    if (did.outcome === "delivered") {
+      if (farmWork) endWork(farmWork, true, "Отдано боту");
+      farmIdle(`Отдал: ${did.title}`);
+      showFarm();
+      farmLater(3000);
+    } else if (did.outcome === "gave_back") {
+      if (farmWork) endWork(farmWork, false, did.why);
+      farmIdle(`Вернул задание: ${did.why}`);
+      farmLater(30000);
+    } else {
+      farmIdle("Заданий нет — спрошу снова через минуту");
+      farmLater(60000);
+    }
+  } catch (why) {
+    if (farmWork) endWork(farmWork, false, String(why));
+    farmIdle(`Бот не отвечает: ${why}`);
+    byId("farm-state").classList.add("bad");
+    farmLater(90000);
+  } finally {
+    farmBusy = false;
+    farmWork = null;
+  }
+}
+
+byId("farm-on").addEventListener("change", () => {
+  remember("farming", byId("farm-on").checked ? "on" : "off");
+  farmTick();
+});
 
 const idleMs = () => Number(remembered("idle", "5")) * 60 * 1000;
 
@@ -1278,6 +1381,7 @@ async function showMachine() {
 }
 
 async function showFarmView() {
+  byId("farm-on").checked = farmOn();
   showReady();
   if (!measured) {
     measured = true;
@@ -2443,6 +2547,10 @@ function fillPlays({ shelves, skins, plays, rows }) {
 
   async function draw(play) {
     if (drawing) return;
+    if (farming) {
+      byId("r-done").textContent = "Машина сейчас рендерит для бота — свой реплей встанет следом.";
+      return;
+    }
     drawing = true;
     for (const other of list.querySelectorAll("button")) other.disabled = true;
     watching = { bar: "r-bar", said: "r-said", share: "r-share" };
@@ -3863,6 +3971,17 @@ function subscribe(name, take) {
 let watchFailed = null;
 
 if (window.__TAURI__ && window.__TAURI__.event) {
+  subscribe("farming", ({ payload }) => {
+    if (payload.event === "claimed") {
+      farming = { id: payload.id, title: payload.title };
+      byId("farm-now").classList.add("busy");
+      sayFarm("Рендерю для бота", payload.title);
+      farmWork = startWork({ kind: "farm", label: `Ферма · ${payload.title || "задание"}`, home: "farm" });
+      tellWorker(lastReady);
+      return;
+    }
+    if (payload.event === "progress" && payload.of) paintFarming(payload);
+  });
   subscribe("drawing", ({ payload }) => {
     if (payload.event !== "progress" || !payload.of) return;
     const share = Math.min(100, (payload.frames / payload.of) * 100);
@@ -4729,6 +4848,7 @@ async function wzFinish() {
     byId("wizard").hidden = true;
     show("render");
     showReady();
+    farmLater(2000);
   }
 }
 
@@ -4817,6 +4937,8 @@ byId("wz-next").addEventListener("click", async () => {
   }
   show("render");
   showReady();
+  byId("farm-on").checked = farmOn();
+  farmLater(4000);
 
   try {
     dressAll();

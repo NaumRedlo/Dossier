@@ -47,10 +47,12 @@ pub fn once(
     capacity: &Capacity,
     songs: &Path,
     along: &Arc<Mutex<Along>>,
+    claimed: &(dyn Fn(&Job) + Sync),
 ) -> Result<Did, Refused> {
     let Some(job) = bot.claim(engine, capacity)? else {
         return Ok(Did::Nothing);
     };
+    claimed(&job);
     let workdir = std::env::temp_dir().join(format!("dossier-job-{}", job.id));
     let done = do_job(bot, &job, songs, &workdir, along);
 

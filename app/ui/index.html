@@ -361,6 +361,23 @@
     </section>
 
     <section id="view-farm" hidden>
+      <div class="nowhead">
+        <h3>Сейчас</h3>
+        <label class="tick"><input type="checkbox" id="farm-on" checked>Брать работу у бота</label>
+      </div>
+      <div class="card now" id="farm-now">
+        <div class="ring">
+          <svg viewBox="0 0 48 48" aria-hidden="true"><circle class="track" cx="24" cy="24" r="20"/><circle class="arc" id="farm-arc" cx="24" cy="24" r="20"/></svg>
+          <b id="farm-share"></b>
+        </div>
+        <div class="grow">
+          <div class="whom"><b id="farm-state">Жду задание</b><span id="farm-title"></span></div>
+          <div class="progress" id="farm-progress" hidden><div id="farm-bar"></div></div>
+          <div class="facts" id="farm-facts"></div>
+          <p class="muted" id="farm-said"></p>
+        </div>
+      </div>
+
       <div class="two farmtop">
         <div>
           <h3>Эта машина</h3>

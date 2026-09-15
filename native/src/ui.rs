@@ -66,7 +66,7 @@ pub struct Mark;
 
 const LETTER_WEIGHT: f32 = 3.6;
 const SLITS: [f32; 4] = [8.6, 12.2, 15.8, 19.4];
-const SLIT_WEIGHT: f32 = 1.25;
+const SLIT_WEIGHT: f32 = 1.55;
 
 fn letter_path() -> Path {
     Path::new(|b| {

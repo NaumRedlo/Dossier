@@ -13,7 +13,7 @@ GROUND = (13, 5, 8)
 
 LETTER_SHARE = 0.56
 SLOTS = 4
-SLOT_SHARE = 0.068
+SLOT_SHARE = 0.085
 WEIGHT = 0.018
 
 def _rounded(size: int, share: float = 0.225) -> Image.Image:

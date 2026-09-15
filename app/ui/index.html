@@ -30,7 +30,7 @@
       </div>
       <ol class="wz-steps" id="wz-steps">
         <li data-step="1" class="on"><i>1</i><span>Папка osu!</span></li>
-        <li data-step="2"><i>2</i><span>Имя машины</span></li>
+        <li data-step="2"><i>2</i><span>Имя устройства</span></li>
         <li data-step="3"><i>3</i><span>Бот</span></li>
       </ol>
 
@@ -51,14 +51,14 @@
       </section>
 
       <section class="wz" data-step="2" hidden>
-        <h3>Как называть эту машину</h3>
+        <h3>Как называть это устройство</h3>
         <p class="wz-why">Так её увидят в ферме и в журнале бота. Ник или имя компьютера — что угодно, лишь бы узнавалось.</p>
         <label>Имя в сети<input id="w-name" type="text" autocomplete="off"></label>
       </section>
 
       <section class="wz" data-step="3" hidden>
         <h3>Подключение к боту</h3>
-        <p class="wz-why">Это нужно, чтобы отдавать машину ферме. Рендерить и судить свои реплеи можно и без бота — тогда этот шаг просто пропускается.</p>
+        <p class="wz-why">Нужно, чтобы отдавать устройство ферме. Свои реплеи рендерятся и без бота — тогда этот шаг пропускается.</p>
         <label>Адрес бота<input id="w-server" type="text" placeholder="https://…" autocomplete="off"></label>
         <label>Токен<input id="w-token" type="password" placeholder="выдаёт бот" autocomplete="off"></label>
         <p class="fine">Скоро вместо токена будет код из чата — приложение покажет его, а бот подтвердит.</p>
@@ -267,7 +267,6 @@
       </div>
 
       <div class="shelf" id="r-list"></div>
-      <p class="verdict" id="r-done"></p>
     </section>
 
     <section id="view-replay" hidden>
@@ -368,7 +367,7 @@
       <div class="bar farmhead">
         <label class="tick"><input type="checkbox" id="farm-on" checked>Брать работу у бота</label>
         <span class="grow"></span>
-        <button class="act small" id="f-again">Обновить</button>
+        <button class="act small" id="f-again">Проверить</button>
       </div>
 
       <div class="farmtop">
@@ -381,12 +380,6 @@
             <div class="tile"><b id="farm-back">—</b><span>возвращено боту</span></div>
           </div>
           <div class="kvs" id="farm-kvs"></div>
-          <div class="bar tail">
-            <span class="verdict" id="ready-verdict"></span>
-            <span class="grow"></span>
-            <button class="act small" id="measure">Измерить заново</button>
-            <button class="act small" id="again">Проверить</button>
-          </div>
         </div>
 
         <div class="card now" id="farm-now">
@@ -395,8 +388,6 @@
           <p class="muted" id="farm-title"></p>
           <div class="big"><b id="farm-share"></b><span id="farm-left"></span></div>
           <div class="progress" id="farm-progress" hidden><div id="farm-bar"></div></div>
-          <p class="facts" id="farm-facts"></p>
-          <p class="said" id="farm-said">Задание придёт от бота само. Здесь будет видно, что рисуется и сколько осталось.</p>
           <span class="grow"></span>
           <div class="bar tail">
             <button class="act small" id="farm-log">Журнал</button>
@@ -411,10 +402,9 @@
       </div>
       <div class="card ledger">
         <table class="farm" id="f-table">
-          <thead><tr><th>Машина</th><th>Состояние</th><th>Сборка</th><th class="num">Потоки</th><th class="num">Отдано</th><th class="num">Возвращено</th></tr></thead>
+          <thead><tr><th>Устройство</th><th>Состояние</th><th class="num">Потоки</th><th class="num">Отдано</th></tr></thead>
           <tbody id="f-rows"></tbody>
         </table>
-        <p class="verdict" id="f-said"></p>
       </div>
     </section>
 
@@ -422,16 +412,14 @@
 
       <div class="settings">
       <nav class="rail" id="s-rail" aria-label="Разделы настроек">
-        <button data-page="link" aria-current="page"><b>Подключение</b><span>Кому это устройство отвечает и как её зовут</span></button>
-        <button data-page="paths"><b>Папки</b><span>Где лежат карты, скины и реплеи</span></button>
-        <button data-page="video"><b>Видео</b><span>Во что рисуется файл и чего это стоит</span></button>
-        <button data-page="audio"><b>Звук</b><span>Песня, хитсаунды и то, чем звучит недостающее</span></button>
-        <button data-page="skins"><b>Скины</b><span>Чем рисуется игра: примерить, поставить, размножить</span></button>
-        <button data-page="loads"><b>Загрузки</b><span>Как приложение качает недостающие карты</span></button>
-        <button data-page="field"><b>Игра</b><span>Что происходит в игровом процессе, пока идёт игра</span></button>
-        <button data-page="window"><b>Клиент</b><span>Как ведёт себя само приложение</span></button>
-        <button data-page="build"><b>Сборка</b><span>Версия, готовность устройства и кто ещё в сети</span></button>
-        <button data-page="credits"><b>Авторство</b><span>Чьими значками и шрифтами нарисовано приложение</span></button>
+        <button data-page="link" aria-current="page"><b>Подключение</b><span>Бот и имя устройства</span></button>
+        <button data-page="paths"><b>Папки</b><span>Карты, скины и реплеи</span></button>
+        <button data-page="video"><b>Видео</b><span>Во что рисуется файл</span></button>
+        <button data-page="audio"><b>Звук</b><span>Песня и хитсаунды</span></button>
+        <button data-page="skins"><b>Скины</b><span>Чем рисуется игра</span></button>
+        <button data-page="field"><b>Игра</b><span>Что происходит на поле</span></button>
+        <button data-page="window"><b>Клиент</b><span>Как ведёт себя приложение</span></button>
+        <button data-page="credits"><b>Авторство</b><span>Чьи значки и шрифты</span></button>
       </nav>
       <div class="pages">
       <div class="page" data-page="link">
@@ -442,7 +430,6 @@
           <label>Имя в сети<input id="s-name" type="text" autocomplete="off"></label>
           <div class="endcap">
             <button class="act primary" id="s-save">Сохранить</button>
-            <span class="verdict" id="s-said"></span>
           </div>
         </div>
       </div>
@@ -469,16 +456,25 @@
       </div>
 
       <div class="bar">
-        <span class="muted" id="s-found">Что лежит в папках сейчас.</span>
+        <span class="muted" id="s-found"></span>
         <span class="grow"></span>
         <button class="act small" id="s-rescan">Обновить</button>
       </div>
       <div class="card" id="s-shelves"></div>
+      <div class="card">
+        <div class="pref">
+          <div><b>Недостающие карты</b><p>Предлагать скачать их разом.</p></div>
+          <span class="seg" id="seg-ask">
+            <button data-ask="on">Спрашивать</button>
+            <button data-ask="off">Не спрашивать</button>
+          </span>
+        </div>
+      </div>
       </div>
       <div class="page" data-page="video" hidden>
       <div class="card">
         <div class="pref">
-          <div><b>Качество видео</b><p>Во что рисуется видео.</p></div>
+          <div><b>Качество</b><p>1080p при 60 кадрах — то, что просит бот.</p></div>
           <div class="pair">
             <label class="pick tiny"><span class="cap">Разрешение</span><select id="s-size">
               <option value="1280x720">1280 × 720</option>
@@ -492,7 +488,7 @@
           </div>
         </div>
         <div class="pref">
-          <div><b>Оформление</b><p>Фон, сториборд, видео и звук.</p></div>
+          <div><b>Что рисуется</b><p>Обложка, сториборд, видео карты и звук.</p></div>
           <span class="ticks">
             <label class="tick"><input type="checkbox" id="s-bg" checked>Фон</label>
             <label class="tick"><input type="checkbox" id="s-sb" checked>Сториборд</label>
@@ -501,7 +497,7 @@
           </span>
         </div>
         <div class="pref">
-          <div><b>Настройка фона</b><p>Затемнение и размытие. Так же, как это делает сама игра.</p></div>
+          <div><b>Фон</b><p>Как в игре.</p></div>
           <div class="pair">
             <label class="pick tiny"><span class="cap">Затемнение</span><select id="s-dim">
               <option value="0" selected>Нет</option>
@@ -516,7 +512,7 @@
           </div>
         </div>
         <div class="pref">
-          <div><b>Качество кодирования</b><p>CRF: чем меньше, тем лучше и тяжелее. Качество пресета обусловливает время кодировщика.</p></div>
+          <div><b>Кодирование</b><p>Меньше CRF — лучше и тяжелее.</p></div>
           <div class="pair">
             <label class="pick tiny"><span class="cap">Качество</span><select id="s-crf">
               <option value="16">CRF 16</option><option value="18">CRF 18</option>
@@ -530,11 +526,8 @@
             </select></label>
           </div>
         </div>
-      </div>
-      <h3>Потоки</h3>
-      <div class="card">
         <div class="pref">
-          <div><b>Потоки</b><p>Сколько ядер отдавать рендеру и кодированию.</p></div>
+          <div><b>Потоки</b><p>«Сколько нужно» — по замеру устройства.</p></div>
           <div class="pair">
             <label class="pick tiny"><span class="cap">Рисование</span><select id="s-threads">
               <option value="0" selected>сколько нужно</option>
@@ -553,7 +546,7 @@
       <div class="page" data-page="audio" hidden>
       <div class="card">
         <div class="pref">
-          <div><b>Громкость</b><p>Песня и хитсаунды в работе.</p></div>
+          <div><b>Громкость</b><p>В готовом файле.</p></div>
           <div class="pair">
             <label class="pick tiny"><span class="cap">Песня</span><select id="s-music">
               <option value="0">Нет</option><option value="0.5">50%</option>
@@ -566,20 +559,14 @@
           </div>
         </div>
         <div class="pref">
-          <div>
-            <b>Хитсаунды</b>
-            <p>Игра спрашивает два значения по приоритету. Чего нет ни там, ни там, синтезируется.</p>
-          </div>
+          <div><b>Хитсаунды</b><p>Чего нет ни там, ни там — синтезируется.</p></div>
           <span class="ticks">
             <label class="tick"><input type="checkbox" id="s-mapsounds" checked>От карты</label>
             <label class="tick"><input type="checkbox" id="s-skinsounds" checked>От скина</label>
           </span>
         </div>
         <div class="pref">
-          <div>
-            <b>Синтезация</b>
-            <p>Звук, которым звучит то, чего не нашлось ни у карты, ни у скина.</p>
-          </div>
+          <div><b>Синтез</b><p>Чем звучит недостающее.</p></div>
           <label class="pick tiny"><span class="cap">Набор</span><select id="s-kit">
             <option value="click" selected>щелчок</option>
             <option value="soft">мягкий</option>
@@ -588,35 +575,12 @@
             <option value="wood">дерево</option>
           </select></label>
         </div>
-        <div class="pref">
-          <div>
-            <b>Настройка синтезации</b>
-            <p>Высота, длительность и громкость синтеза.</p>
-          </div>
-          <div class="pair">
-            <label class="pick tiny"><span class="cap">Высота</span><select id="s-pitch">
-              <option value="0.7">ниже</option><option value="0.85">чуть ниже</option>
-              <option value="1" selected>как есть</option>
-              <option value="1.2">чуть выше</option><option value="1.5">выше</option>
-            </select></label>
-            <label class="pick tiny"><span class="cap">Длительность</span><select id="s-decay">
-              <option value="0.6">короче</option><option value="0.8">чуть короче</option>
-              <option value="1" selected>как есть</option>
-              <option value="1.3">чуть длиннее</option><option value="1.7">длиннее</option>
-            </select></label>
-            <label class="pick tiny"><span class="cap">Громкость</span><select id="s-kitlevel">
-              <option value="0.6">тише</option><option value="0.8">чуть тише</option>
-              <option value="1" selected>как есть</option>
-              <option value="1.3">громче</option>
-            </select></label>
-          </div>
-        </div>
       </div>
       </div>
       <div class="page" data-page="skins" hidden>
       <div class="card">
         <div class="pref">
-          <div><b>Чем рисовать</b><p>Скин берётся из папки скинов и применяется ко всему, что рисует приложение.</p></div>
+          <div><b>Скин</b><p>Из папки скинов, для всего, что рисуется.</p></div>
           <label class="pick"><span class="cap">Скин</span><select id="s-skin"></select></label>
         </div>
       </div>
@@ -634,55 +598,10 @@
         <button class="act small" id="s-drop">Удалить скин</button>
       </div>
       </div>
-      <div class="page" data-page="loads" hidden>
-      <div class="card">
-        <div class="pref">
-          <div><b>Спрашивать о недостающих картах</b><p>Когда в каталоге набирается достаточно реплеев без карт, приложение предложит скачать их разом.</p></div>
-          <span class="seg" id="seg-ask">
-            <button data-ask="on">Спрашивать</button>
-            <button data-ask="off">Не спрашивать</button>
-          </span>
-        </div>
-        <div class="pref">
-          <div><b>С какого числа спрашивать</b><p>Сколько реплеев должно остаться без карт, чтобы вопрос имел смысл.</p></div>
-          <label class="pick tiny short"><span class="cap">Порог</span><select id="s-askfrom">
-            <option value="1">С одного</option>
-            <option value="3" selected>С трёх</option>
-            <option value="10">С десяти</option>
-            <option value="25">С двадцати пяти</option>
-          </select></label>
-        </div>
-        <div class="pref">
-          <div><b>Каким зеркалом качать</b><p>Откуда брать недостающие карты. «Любое» пробует их по очереди и обходит то, что молчит.</p></div>
-          <label class="pick tiny short"><span class="cap">Зеркало</span><select id="s-mirror">
-            <option value="" selected>Любое</option>
-            <option value="catboy.best">catboy.best</option>
-            <option value="osu.direct">osu.direct</option>
-          </select></label>
-        </div>
-        <div class="pref">
-          <div><b>Сколько качать разом</b><p>Больше одной за раз быстрее, но зеркало может начать отказывать.</p></div>
-          <label class="pick tiny short"><span class="cap">Потоки</span><select id="s-atonce">
-            <option value="1" selected>По одной</option>
-            <option value="2">По две</option>
-            <option value="3">По три</option>
-          </select></label>
-        </div>
-        <div class="pref">
-          <div><b>Держать законченные работы</b><p>Сколько готовая работа остаётся в менеджере, прежде чем уйти.</p></div>
-          <label class="pick tiny short"><span class="cap">Держать</span><select id="s-holdfor">
-            <option value="5">5 секунд</option>
-            <option value="12" selected>12 секунд</option>
-            <option value="60">Минуту</option>
-            <option value="0">Пока не уберу</option>
-          </select></label>
-        </div>
-      </div>
-      </div>
       <div class="page" data-page="field" hidden>
       <div class="card">
         <div class="pref">
-          <div><b>Курсор и интерфейс</b><p>Настройка определённых элементов во время игрового процесса.</p></div>
+          <div><b>Курсор и интерфейс</b><p></p></div>
           <span class="ticks">
             <label class="tick"><input type="checkbox" id="s-rotate">Поворот курсора</label>
             <label class="tick"><input type="checkbox" id="s-expand">Курсор растёт под нажатием</label>
@@ -690,7 +609,7 @@
           </span>
         </div>
         <div class="pref">
-          <div><b>Эффекты поля</b><p>Вспышка от удара берётся из скина и складывается со сценой. Заползание — тело слайдера вырастает в поле перед нотой, выползание — убирается за шаром.</p></div>
+          <div><b>Эффекты</b><p>Вспышка из скина; слайдеры вырастают перед нотой и уходят за шаром.</p></div>
           <span class="ticks">
             <label class="tick"><input type="checkbox" id="s-lighting">Вспышка от удара</label>
             <label class="tick"><input type="checkbox" id="s-snakein">Заползание слайдеров</label>
@@ -702,11 +621,16 @@
       <div class="page" data-page="window" hidden>
       <div class="card">
         <div class="pref">
-          <div>
-            <b>Как открывать</b>
-            <p>Во весь экран или окном заданного размера. Применяется при следующем запуске.</p>
+          <div><b>Раскладка</b><p>Стол — панель слева и сетка. Сцена — одно большое превью. Таблица — список.</p></div>
+          <div class="seg" id="seg-layout" role="group" aria-label="Раскладка">
+            <button data-layout="desk" aria-pressed="true">Стол</button>
+            <button data-layout="stage" aria-pressed="false">Сцена</button>
+            <button data-layout="table" aria-pressed="false">Таблица</button>
           </div>
-          <label class="pick tiny"><span class="cap">Размер окна</span><select id="s-window">
+        </div>
+        <div class="pref">
+          <div><b>Окно</b><p>При следующем запуске.</p></div>
+          <label class="pick tiny"><span class="cap">Размер</span><select id="s-window">
             <option value="980x720" selected>980 × 720</option>
             <option value="1280x800">1280 × 800</option>
             <option value="1600x900">1600 × 900</option>
@@ -715,20 +639,14 @@
           </select></label>
         </div>
         <div class="pref">
-          <div>
-            <b>Закрытие приложения</b>
-            <p>Закрыть приложение совсем или спрятать его в трей — оттуда оно открывается по значку.</p>
-          </div>
+          <div><b>Крестик</b><p>Закрыть или спрятать в трей.</p></div>
           <div class="seg" id="seg-close" role="group" aria-label="Что делает крестик">
             <button data-close="quit" aria-pressed="true">Закрывать</button>
             <button data-close="tray" aria-pressed="false">В трей</button>
           </div>
         </div>
         <div class="pref">
-          <div>
-            <b>Громкость</b>
-            <p>Звук заставки и всего, что приложение подаёт голосом.</p>
-          </div>
+          <div><b>Громкость</b><p>Заставка и звуки приложения.</p></div>
           <label class="pick tiny"><span class="cap">Громкость</span><select id="s-loud">
             <option value="0">0%</option>
             <option value="0.15">15%</option>
@@ -739,10 +657,7 @@
           </select></label>
         </div>
         <div class="pref">
-          <div>
-            <b>Фон приложения</b>
-            <p>Насколько живо дышит подсветка за содержимым. Статичный не считает ничего.</p>
-          </div>
+          <div><b>Фон</b><p>Статичный ничего не считает.</p></div>
           <div class="seg" id="seg-sky" role="group" aria-label="Фон">
             <button data-sky="rich" aria-pressed="false">Насыщенный</button>
             <button data-sky="live" aria-pressed="true">Живой</button>
@@ -751,83 +666,38 @@
           </div>
         </div>
         <div class="pref">
-          <div>
-            <b>Заставка</b>
-            <p>Обложка при запуске и после того, как окном перестали пользоваться.</p>
-          </div>
-          <div class="seg" id="seg-splash" role="group" aria-label="Заставка">
-            <button data-splash="both" aria-pressed="true">Всегда</button>
-            <button data-splash="open" aria-pressed="false">При запуске</button>
-            <button data-splash="never" aria-pressed="false">Никогда</button>
-          </div>
-        </div>
-        <div class="pref">
-          <div>
-            <b>Таймер заставки</b>
-            <p>Сколько молчания считать простоем. Любое движение будит.</p>
-          </div>
-          <label class="pick tiny"><span class="cap">Простой</span>
-            <select id="s-idle">
-              <option value="1">1 минута</option>
-              <option value="3">3 минуты</option>
-              <option value="5" selected>5 минут</option>
-              <option value="15">15 минут</option>
-              <option value="30">30 минут</option>
-              <option value="60">час</option>
-            </select>
-          </label>
-        </div>
-        <div class="pref">
-          <div>
-            <b>Раскладка</b>
-            <p>«Стол» — панель слева и сетка. «Сцена» — одно большое превью. «Таблица» — плотный список.</p>
-          </div>
-          <div class="seg" id="seg-layout" role="group" aria-label="Раскладка">
-            <button data-layout="desk" aria-pressed="true">Стол</button>
-            <button data-layout="stage" aria-pressed="false">Сцена</button>
-            <button data-layout="table" aria-pressed="false">Таблица</button>
+          <div><b>Заставка</b><p>При запуске и после простоя.</p></div>
+          <div class="pair">
+            <div class="seg" id="seg-splash" role="group" aria-label="Заставка">
+              <button data-splash="both" aria-pressed="true">Всегда</button>
+              <button data-splash="open" aria-pressed="false">При запуске</button>
+              <button data-splash="never" aria-pressed="false">Никогда</button>
+            </div>
+            <label class="pick tiny"><span class="cap">Простой</span>
+              <select id="s-idle">
+                <option value="1">1 минута</option>
+                <option value="3">3 минуты</option>
+                <option value="5" selected>5 минут</option>
+                <option value="15">15 минут</option>
+                <option value="30">30 минут</option>
+                <option value="60">час</option>
+              </select>
+            </label>
           </div>
         </div>
         <div class="pref">
-          <div>
-            <b>Динамическое реагирование панели</b>
-            <p>Рост под курсором и переходы между вкладками.</p>
-          </div>
+          <div><b>Движение</b><p>Переходы и рост под курсором.</p></div>
           <div class="seg" id="seg-motion" role="group" aria-label="Движение">
             <button data-motion="on" aria-pressed="true">Живое</button>
             <button data-motion="off" aria-pressed="false">Статичное</button>
           </div>
         </div>
-      </div>
-
-      </div>
-      <div class="page" data-page="build" hidden>
-      <div class="card">
         <div class="pref">
-          <div>
-            <b>Текущая сборка</b>
-            <p id="up-version">—</p>
-          </div>
+          <div><b>Версия</b><p id="up-version">—</p></div>
           <button class="act small" id="up-check">Проверить</button>
         </div>
-        <div class="pref">
-          <div>
-            <b>Ошибка сборки обновления</b>
-            <p>Что делать с журналом сборки. Уходят версия, система, процессор и сам журнал; домашняя папка из путей вырезается. Больше ничего.</p>
-          </div>
-          <div class="seg" id="seg-report" role="group" aria-label="Отчёт об ошибке">
-            <button data-report="ask" aria-pressed="true">Спрашивать</button>
-            <button data-report="auto" aria-pressed="false">Отправлять</button>
-            <button data-report="never" aria-pressed="false">Не отправлять</button>
-          </div>
-        </div>
       </div>
-
-      <h3>Из чего собрано</h3>
-      <div id="lib-rows"></div>
-      <p class="fine">Встроенное живёт внутри приложения и обновляется вместе с ним. Внешнее можно поставить с указанием, где взять.</p>
       </div>
-
       <div class="page" data-page="credits" hidden>
       <div class="card pad">
         <div class="madeby">
@@ -905,6 +775,8 @@
   </main>
 
   <div class="menu" id="r-menu" hidden></div>
+
+  <div class="toasts" id="toasts" aria-live="polite"></div>
 
   <div class="sheet" id="r-sheet" hidden>
     <div class="sheetbox" role="dialog" aria-modal="true" aria-labelledby="r-sheet-head">

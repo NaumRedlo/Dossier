@@ -131,7 +131,7 @@ fn do_job(
     let now = crate::machine::read();
     if crate::machine::should_abort(now.percent, now.on_battery) {
         return Err(format!(
-            "аккумулятор {}% — рисовать столько эта машина не дотянет",
+            "аккумулятор {}% — рисовать столько это устройство не дотянет",
             now.percent
         ));
     }

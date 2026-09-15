@@ -672,21 +672,16 @@ function paintFarming(payload) {
   byId("farm-bar").style.width = `${share}%`;
   byId("farm-share").textContent = `${round(share)}%`;
   byId("farm-left").textContent = payload.left_seconds > 0 ? `осталось ${spell(payload.left_seconds)}` : "";
-  byId("farm-facts").textContent = `${round(payload.frames)} из ${round(payload.of)} кадров · ${round(payload.per_second)} кадров/с`;
   if (farmWork) stepWork(farmWork, share, `${round(share)}% · осталось ${spell(payload.left_seconds)}`);
 }
 
 function farmIdle(text) {
   farming = null;
   byId("farm-progress").hidden = true;
-  byId("farm-facts").textContent = "";
   byId("farm-share").textContent = "";
   byId("farm-left").textContent = "";
   byId("farm-giveback").hidden = true;
   byId("farm-now").classList.remove("busy");
-  byId("farm-said").textContent = farmOn()
-    ? "Задание придёт от бота само. Здесь будет видно, что рисуется и сколько осталось."
-    : "Переключатель наверху вернёт эту машину в очередь.";
   sayFarm(text);
   tellWorker(lastReady);
   if (lastReady) tellStatus(lastReady);
@@ -699,9 +694,7 @@ byId("farm-giveback").addEventListener("click", () => {
 });
 
 byId("farm-log").addEventListener("click", () => {
-  invoke("log_open").catch((why) => {
-    byId("farm-said").textContent = `Журнал не открылся: ${why}`;
-  });
+  invoke("log_open").catch((why) => toast(`Журнал не открылся: ${why}`, "bad"));
 });
 
 function farmLater(ms) {
@@ -1187,15 +1180,6 @@ const upbox = byId("upbox");
 const uppane = byId("uppane");
 let waitingUpdate = null;
 
-function reportWhen(how, save = true) {
-  pressed(byId("seg-report"), byId("seg-report").querySelector(`[data-report="${how}"]`));
-  if (save) remember("report", how);
-}
-
-for (const button of byId("seg-report").querySelectorAll("button")) {
-  button.addEventListener("click", () => reportWhen(button.dataset.report));
-}
-
 async function lookForUpdate(loud = false) {
   let said;
   try {
@@ -1317,41 +1301,31 @@ async function sendReport(after) {
   }
 }
 
-function kv(name, said, ok) {
+function kv(name, said, ok, fix) {
   const row = el("div", "kv");
   row.append(el("span", "k", name), el("span", `v ${ok === false ? "bad" : ok ? "good" : ""}`, said));
-  if (ok === false) row.title = "Не так — см. подсказку ниже";
+  if (ok === false && fix) row.append(el("span", "fix", fix));
   return row;
 }
 
 async function showReady() {
   const box = byId("farm-kvs");
-  const verdict = byId("ready-verdict");
   let rows;
   try {
     rows = await invoke("ready");
   } catch (why) {
-    verdict.textContent = `Не удалось спросить: ${why.message}`;
-    verdict.className = "verdict bad";
+    toast(`Готовность не проверилась: ${why.message}`, "bad");
     return [];
   }
   const asking = kv("Сборка", "Спрашиваю у бота…", null);
-  box.replaceChildren(...rows.map((row) => kv(row.name, row.said, row.ok)), asking);
-  const stopped = rows.filter((row) => row.ok === false);
-  verdict.textContent = stopped.length
-    ? stopped.map((row) => row.fix || row.name).join(" · ")
-    : "";
-  verdict.className = stopped.length ? "verdict bad" : "verdict";
+  const shown = rows.filter((row) => row.ok === false || row.name === "ffmpeg");
+  box.replaceChildren(...shown.map((row) => kv(row.name, row.said, row.ok, row.fix)), asking);
   tellWorker(rows);
   tellStatus(rows);
 
   invoke("handshake")
     .then((row) => {
-      asking.replaceWith(kv(row.name, row.said, row.ok));
-      if (row.ok === false) {
-        verdict.textContent = [verdict.textContent, row.fix || row.said].filter(Boolean).join(" · ");
-        verdict.className = "verdict bad";
-      }
+      asking.replaceWith(kv(row.name, row.said, row.ok, row.fix));
       tellStatus([...rows, row]);
     })
     .catch((why) => asking.replaceWith(kv("Сборка", `${why}`, false)));
@@ -1408,17 +1382,11 @@ async function showMachine() {
     return;
   }
   const hardware = told.hardware;
-  line.textContent = [
-    known.name,
-    hardware.os,
-    `${hardware.cpu}, ${hardware.cores} ${plural(hardware.cores, "ядро", "ядра", "ядер")}`,
-    hardware.memory_gb ? `${round(hardware.memory_gb, 1)} ГБ` : "",
-    told.capacity.reason.toLowerCase(),
-  ].filter(Boolean).join(" · ");
+  line.textContent = [hardware.os, hardware.cpu, told.capacity.reason.toLowerCase()].filter(Boolean).join(" · ");
   if (told.speed) {
     lastSpeed = told.speed.estimated;
     tile("farm-fps", round(told.speed.estimated));
-    byId("farm-fps-of").textContent = `кадров/с · ${told.speed.width}×${told.speed.height}, ${told.capacity.threads} ${plural(told.capacity.threads, "поток", "потока", "потоков")}`;
+    byId("farm-fps-of").textContent = `кадров/с · ${told.capacity.threads} ${plural(told.capacity.threads, "поток", "потока", "потоков")}`;
   } else {
     tile("farm-fps", "—");
     byId("farm-fps-of").textContent = told.could_not_measure || "измерить не удалось";
@@ -1454,31 +1422,28 @@ function machineRow(worker) {
   pill.append(el("span", `lamp ${tone}`), [word, worker.reason].filter(Boolean).join(" · "));
   const state = el("td");
   state.append(pill);
-  row.append(
-    name,
-    state,
-    el("td", "mono", worker.build || "—"),
-    el("td", "num", String(worker.threads)),
-    el("td", "num", String(worker.delivered)),
-    el("td", "num", String(worker.handed_back)),
-  );
+  row.append(name, state, el("td", "num", String(worker.threads)), el("td", "num", String(worker.delivered)));
+  return row;
+}
+
+function emptyRow(text) {
+  const row = el("tr", "empty");
+  const cell = el("td", null, text);
+  cell.colSpan = 4;
+  row.append(cell);
   return row;
 }
 
 async function showFarm() {
   const box = byId("f-rows");
-  const said = byId("f-said");
   const waiting = byId("f-waiting");
-  said.textContent = "";
-  said.className = "verdict";
   let farm;
   try {
     farm = await invoke("farm");
   } catch (why) {
-    box.replaceChildren();
+    box.replaceChildren(emptyRow("Бот не ответил"));
     waiting.textContent = "";
-    said.className = "verdict bad";
-    said.textContent = `Сеть не видно: ${why}`;
+    toast(`Сеть не видно: ${why}`, "bad");
     tile("farm-given", "—");
     tile("farm-back", "—");
     return;
@@ -1487,15 +1452,14 @@ async function showFarm() {
   lastWaiting = farm.waiting;
   tellWorker(lastReady);
   waiting.textContent = [
-    machines ? `${machines} ${plural(machines, "машина", "машины", "машин")}` : "никого",
+    machines ? `${machines} ${plural(machines, "устройство", "устройства", "устройств")}` : "никого",
     farm.waiting ? `${farm.waiting} ${plural(farm.waiting, "задание ждёт", "задания ждут", "заданий ждут")}` : "очередь пуста",
   ].join(" · ");
   const me = farm.workers.find((worker) => worker.name === known.name);
   tile("farm-given", me ? round(me.delivered) : "—");
   tile("farm-back", me ? round(me.handed_back) : "—");
   if (!machines) {
-    box.replaceChildren();
-    said.textContent = "Ни одна машина сейчас не в сети";
+    box.replaceChildren(emptyRow("Сейчас никого нет в сети"));
     return;
   }
   const fresh = farm.workers.map(machineRow);
@@ -1523,25 +1487,19 @@ function nameChip(said) {
   byId("who").textContent = said.name || "";
 }
 
-async function saveSettings(prefix, saidId) {
+async function saveSettings(prefix) {
   const said = { ...known };
   for (const field of FIELDS) {
     const box = byId(`${prefix}-${field}`);
     if (box) said[field] = box.value.trim();
   }
-  const note = byId(saidId);
   try {
     await invoke("settings_write", { said });
     known = said;
     nameChip(said);
-
-    if (note) note.textContent = "";
     return true;
   } catch (why) {
-    if (note) {
-      note.className = "verdict bad";
-      note.textContent = `Не сохранилось: ${why}`;
-    }
+    toast(`Не сохранилось: ${why}`, "bad");
     return false;
   }
 }
@@ -1549,19 +1507,16 @@ async function saveSettings(prefix, saidId) {
 let measured = false;
 
 async function installSkin(path) {
-  const note = byId("s-said");
   try {
     const name = await invoke("install_skin", { path });
 
     fillSkins(byId("s-skin"), await invoke("skins").catch(() => []), name);
-    await saveSettings("s", "s-said");
-    note.className = "verdict";
-    note.textContent = `Скин «${name}» поставлен и выбран по умолчанию`;
+    await saveSettings("s");
+    toast(`Скин «${name}» поставлен и выбран`);
     showSettings();
     return true;
   } catch (why) {
-    note.className = "verdict bad";
-    note.textContent = `${why}`;
+    toast(`${why}`, "bad");
     return false;
   }
 }
@@ -1571,7 +1526,7 @@ byId("s-osk").addEventListener("click", async () => {
     const path = await invoke("pick_skin", { prompt: "Скин .osk" });
     if (path) installSkin(path);
   } catch (why) {
-    byId("s-said").textContent = `${why}`;
+    toast(`${why}`, "bad");
   }
 });
 
@@ -1598,11 +1553,9 @@ async function pickFolder(which) {
     const path = await invoke("pick_folder", { prompt: PROMPTS[which] });
     if (!path) return false;
     byId(`s-${which}`).value = path;
-    return await saveSettings("s", "s-said");
+    return await saveSettings("s");
   } catch (why) {
-    const note = byId("s-said");
-    note.className = "verdict bad";
-    note.textContent = `${why}`;
+    toast(`${why}`, "bad");
     return false;
   }
 }
@@ -1654,16 +1607,6 @@ async function showSettings() {
   dressSelect(shape);
   closesInto(known.on_close || "quit", false);
   asksMaps(remembered("askmaps", "on"), false);
-  for (const [id, key, fallback] of [
-    ["s-askfrom", "askfrom", "3"],
-    ["s-atonce", "atonce", "1"],
-    ["s-holdfor", "holdfor", "12"],
-    ["s-mirror", "mirror", ""],
-  ]) {
-    const box = byId(id);
-    box.value = remembered(key, fallback);
-    dressSelect(box);
-  }
   loadRenderSettings();
   byId("s-found").textContent = await readShelves();
   if (!document.querySelector('#view-settings .page[data-page="skins"]').hidden) runFitting();
@@ -1701,21 +1644,11 @@ for (const button of byId("seg-ask").querySelectorAll("button")) {
   button.addEventListener("click", () => asksMaps(button.dataset.ask));
 }
 
-for (const [id, key, fallback] of [
-  ["s-askfrom", "askfrom", "3"],
-  ["s-atonce", "atonce", "1"],
-  ["s-holdfor", "holdfor", "12"],
-  ["s-mirror", "mirror", ""],
-]) {
-  byId(id).addEventListener("change", () => remember(key, byId(id).value));
-  void fallback;
-}
-
 function closesInto(how, save = true) {
   const box = byId("seg-close");
   pressed(box, box.querySelector(`[data-close="${how}"]`));
   known.on_close = how;
-  if (save) saveSettings("s", "s-said");
+  if (save) saveSettings("s");
 }
 
 for (const button of byId("seg-close").querySelectorAll("button")) {
@@ -1724,7 +1657,7 @@ for (const button of byId("seg-close").querySelectorAll("button")) {
 
 byId("s-window").addEventListener("change", () => {
   known.window = byId("s-window").value;
-  saveSettings("s", "s-said");
+  saveSettings("s");
 });
 
 byId("s-loud").addEventListener("change", () => {
@@ -1738,9 +1671,11 @@ function loudness() {
   return hitSound.volume;
 }
 
-byId("s-save").addEventListener("click", () => saveSettings("s", "s-said"));
+byId("s-save").addEventListener("click", async () => {
+  if (await saveSettings("s")) toast("Сохранено");
+});
 byId("s-skin").addEventListener("change", async () => {
-  await saveSettings("s", "s-said");
+  await saveSettings("s");
   await freshSkin();
 });
 
@@ -1880,7 +1815,7 @@ byId("s-clone").addEventListener("click", async () => {
     const skins = await invoke("skins").catch(() => []);
     fillSkins(byId("s-skin"), skins, made);
     known.skin = made;
-    await saveSettings("s", "s-said");
+    await saveSettings("s");
     await freshSkin();
     said.textContent = `Скопирован как «${made}».`;
   } catch (why) {
@@ -1906,7 +1841,7 @@ byId("s-drop").addEventListener("click", () => {
         const skins = await invoke("skins").catch(() => []);
         known.skin = "";
         fillSkins(byId("s-skin"), skins, "");
-        await saveSettings("s", "s-said");
+        await saveSettings("s");
         await freshSkin();
         said.textContent = `Скин «${name}» удалён.`;
         tellWall("Скин удалён", "Папки больше нет на этом устройстве.");
@@ -1956,84 +1891,12 @@ async function freshSkin() {
   }
   if (scene) drawView();
 }
-byId("again").addEventListener("click", showReady);
-byId("measure").addEventListener("click", () => {
+byId("f-again").addEventListener("click", () => {
   measured = true;
+  showReady();
   showMachine();
+  showFarm();
 });
-byId("f-again").addEventListener("click", showFarm);
-
-const TAGS = { builtin: "встроен", found: "на месте", missing: "отсутствует", planned: "в планах" };
-
-async function showLibrary() {
-  const box = byId("lib-rows");
-  let mods;
-  try {
-    mods = await invoke("modules");
-  } catch (why) {
-    box.replaceChildren(line({ mark: ["no", "!"], name: "Библиотека", said: `${why}` }));
-    return;
-  }
-  const groups = [
-    ["Ядро Dossier", "Наши собственные части. Живут внутри приложения и обновляются вместе с ним.", (mod) => mod.state === "builtin"],
-    ["Сторонние зависимости", "Чужое, без чего не обойтись. Ставится отдельно с указанием источников для установки.", (mod) => mod.state !== "builtin" && mod.state !== "planned"],
-    ["В разработке", "Задумано, но ещё не сделано. Стоит здесь, чтобы не выглядеть пропажей.", (mod) => mod.state === "planned"],
-  ];
-
-  const parts = [];
-  let at = 0;
-  for (const [name, about, belongs] of groups) {
-    const mine = mods.filter(belongs);
-    if (!mine.length) continue;
-    const part = el("section", "part");
-    part.style.animationDelay = `${at * 0.07}s`;
-    at += 1;
-    const head = el("header");
-    head.append(el("h3", null, name), el("p", null, about));
-    part.append(head);
-    const card = el("div", "card");
-    card.append(...mine.map(modRow));
-    part.append(card);
-    parts.push(part);
-  }
-  box.replaceChildren(...parts);
-
-  function modRow(mod) {
-      const row = el("div", "mod");
-      row.append(el("span", `tag ${mod.state}`, TAGS[mod.state] || mod.state));
-      const middle = el("div");
-      middle.append(el("b", null, mod.name), el("div", "what", mod.what));
-      row.append(middle);
-      if (mod.picks === "skins") {
-        const box = el("div", "pair");
-        const where = el("button", "act small", "Обзор…");
-        where.addEventListener("click", async () => {
-          if (await pickFolder("skins")) showLibrary();
-        });
-        const put = el("button", "act small", "Поставить .osk…");
-        put.addEventListener("click", async () => {
-          const path = await invoke("pick_skin", { prompt: "Скин .osk" }).catch(() => null);
-          if (path && (await installSkin(path))) showLibrary();
-        });
-        box.append(where, put);
-        row.append(box);
-      } else if (mod.picks) {
-        const go = el("button", "act small", "Обзор…");
-        go.addEventListener("click", async () => {
-          if (await pickFolder(mod.picks)) showLibrary();
-        });
-        row.append(go);
-      } else if (mod.state === "missing" && mod.name === "ffmpeg") {
-        const go = el("button", "act small", "Где взять");
-        go.addEventListener("click", () => invoke("open_link", { url: "https://ffmpeg.org/download.html" }).catch(() => {}));
-        row.append(go);
-      } else {
-        row.append(el("span"));
-      }
-      row.append(el("div", "said", mod.state === "missing" ? `${mod.said} · ${mod.fix}` : mod.said));
-      return row;
-  }
-}
 
 let drawing = false;
 let drawFile = null;
@@ -2101,7 +1964,6 @@ function endWork(id, ok, note) {
   };
   setTimeout(sweep, holdFor);
 }
-
 const alive = () => [...works.values()].filter((one) => !one.done);
 
 let workHover = false;
@@ -2358,9 +2220,6 @@ const RENDER_FIELDS = [
   ["s-mapsounds", "mapsounds", "1"],
   ["s-skinsounds", "skinsounds", "1"],
   ["s-kit", "kit", "click"],
-  ["s-pitch", "pitch", "1"],
-  ["s-decay", "decay", "1"],
-  ["s-kitlevel", "kitlevel", "1"],
 ];
 
 function loadRenderSettings() {
@@ -2403,7 +2262,6 @@ function scanning(on) {
   byId("r-list").hidden = on;
   if (on) {
     byId("r-busy").hidden = true;
-    byId("r-done").textContent = "";
     byId("r-doneslot").replaceChildren();
   }
   document.body.classList.toggle("scanning-now", on);
@@ -2412,7 +2270,6 @@ function scanning(on) {
 
 async function showRender(again = false) {
   const list = byId("r-list");
-  const said = byId("r-done");
 
   if (shelfCache && !again) {
     scanning(false);
@@ -2607,8 +2464,8 @@ function fillPlays({ shelves, skins, plays, rows }) {
     said.append(el("p", "map", play.have_map ? "…" : play.file.replace(/\.osr$/i, "")));
     said.append(el("p", "gauge"));
     const about = el("p", "about");
-    about.append(modBadges(play.mods));
-    if (play.combo) about.append(el("span", "dot", "·"), el("span", "combo", `${play.combo}x`));
+    about.append(modLetters(play.mods));
+    if (play.combo) about.append(el("span", "combo", `${play.combo}x`));
     if (play.played_at) about.append(el("span", "when", dayOf(play.played_at)));
     said.append(about);
     card.append(said);
@@ -2637,14 +2494,13 @@ function fillPlays({ shelves, skins, plays, rows }) {
   async function draw(play) {
     if (drawing) return;
     if (farming) {
-      byId("r-done").textContent = "Машина сейчас рендерит для бота — свой реплей встанет следом.";
+      toast("Устройство сейчас рендерит для бота — свой реплей встанет следом", "warn");
       return;
     }
     drawing = true;
     for (const other of list.querySelectorAll("button")) other.disabled = true;
     watching = { bar: "r-bar", said: "r-said", share: "r-share" };
     startJob("render", `Рендер · ${play.player}`);
-    byId("r-done").textContent = "";
     byId("r-busy").hidden = false;
     byId("r-stop").disabled = false;
     byId("r-bar").style.width = "0%";
@@ -2781,6 +2637,24 @@ function modBadges(text) {
   const box = el("span", "mods");
   box.dataset.mods = String(text || "");
   fillBadges(box, text);
+  return box;
+}
+
+const MOD_KIND = {
+  NM: "o",
+  EZ: "e", NF: "e", HT: "e", DC: "e",
+  HD: "h", HR: "h", SD: "h", PF: "h", DT: "h", NC: "h", FL: "h", BL: "h",
+  RX: "a", AP: "a", SO: "a", AT: "a", CN: "a",
+  TD: "c", MR: "c", V2: "c", TP: "c", RD: "c", CL: "c", DA: "c",
+};
+
+function modLetters(text) {
+  const box = el("span", "letters");
+  for (const name of modsOf(text)) {
+    const one = el("span", `letter ${MOD_KIND[name] || "o"}`, name);
+    one.title = name;
+    box.append(one);
+  }
   return box;
 }
 
@@ -3623,6 +3497,26 @@ function shutMenu() {
   dismiss(menuBox);
 }
 
+const TOAST_MS = 4200;
+
+function toast(text, tone = "", ms = TOAST_MS) {
+  const box = byId("toasts");
+  for (const twin of box.querySelectorAll(".toast")) {
+    if (twin.dataset.text === text && !leaving(twin)) return twin;
+  }
+  const one = el("div", `toast ${tone}`);
+  one.dataset.text = text;
+  one.append(el("span", "lamp"), el("span", "text", text));
+  box.append(one);
+  const go = () => dismiss(one, () => one.remove());
+  const timer = setTimeout(go, tone === "bad" ? ms * 1.6 : ms);
+  one.addEventListener("click", () => {
+    clearTimeout(timer);
+    go();
+  });
+  return one;
+}
+
 window.addEventListener(
   "pointerdown",
   (event) => {
@@ -3687,28 +3581,14 @@ function playBar(one) {
 }
 
 function verdictNote(said) {
-  const bits = [];
-  if (said.agrees) {
-    bits.push("Судейство совпало с заголовком реплея: все счётчики и комбо сходятся");
-    if (said.score && said.recorded.score > 0) {
-      const off = Math.abs(said.score - said.recorded.score) / said.recorded.score * 100;
-      bits[0] += off < 0.005 ? ", очки — точь-в-точь" : `, очки — в пределах ${round(off, 2)} %`;
-    }
-  } else {
-    const differ = [];
-    if (said.recorded.great !== said.counts.great) differ.push(`300: ${round(said.counts.great)} против ${round(said.recorded.great)}`);
-    if (said.recorded.ok !== said.counts.ok) differ.push(`100: ${round(said.counts.ok)} против ${round(said.recorded.ok)}`);
-    if (said.recorded.meh !== said.counts.meh) differ.push(`50: ${round(said.counts.meh)} против ${round(said.recorded.meh)}`);
-    if (said.recorded.miss !== said.counts.miss) differ.push(`промахи: ${round(said.counts.miss)} против ${round(said.recorded.miss)}`);
-    if (said.recorded.combo !== said.combo) differ.push(`комбо: ${round(said.combo)}× против ${round(said.recorded.combo)}×`);
-    bits.push(`Судейство разошлось с заголовком реплея — ${differ.join(", ")}`);
-  }
-  if (said.first_miss) {
-    bits.push(`Первый промах на ${round((said.first_miss.ms - said.from_ms) / 1000, 1)} с, объект #${said.first_miss.object_index + 1}`);
-  } else if (!said.counts.miss) {
-    bits.push("Без единого промаха");
-  }
-  return `${bits.join(". ")}.`;
+  if (said.agrees) return "Сходится с заголовком реплея";
+  const differ = [];
+  if (said.recorded.great !== said.counts.great) differ.push(`300: ${round(said.counts.great)} против ${round(said.recorded.great)}`);
+  if (said.recorded.ok !== said.counts.ok) differ.push(`100: ${round(said.counts.ok)} против ${round(said.recorded.ok)}`);
+  if (said.recorded.meh !== said.counts.meh) differ.push(`50: ${round(said.counts.meh)} против ${round(said.recorded.meh)}`);
+  if (said.recorded.miss !== said.counts.miss) differ.push(`промахи: ${round(said.counts.miss)} против ${round(said.recorded.miss)}`);
+  if (said.recorded.combo !== said.combo) differ.push(`комбо: ${round(said.combo)}x против ${round(said.recorded.combo)}x`);
+  return `Расходится с заголовком реплея — ${differ.join(", ")}`;
 }
 
 function tiles(said, play) {
@@ -3802,11 +3682,6 @@ function openSheet(play, card) {
   } else {
     body.append(tiles(said, play), counts(said));
     if (said.recorded) body.append(el("p", `note${said.agrees ? "" : " huh"}`, verdictNote(said)));
-    const spread = errorBars(said);
-    if (spread) {
-      body.append(el("h4", "sheeth", "Куда ложились нажатия"));
-      body.append(spread);
-    }
   }
 
   const routes = el("div", "routes");
@@ -3854,9 +3729,6 @@ function openSheet(play, card) {
   sheet.hidden = false;
   byId("r-sheet-shut").focus();
   if (sheetPlay) runSheetPreview();
-
-  const spread = body.querySelector(".spread .bars");
-  if (spread && spread.repaint) requestAnimationFrame(spread.repaint);
   void card;
 }
 
@@ -3901,113 +3773,6 @@ function reading() {
   box.append(el("span", null, "В ближайший момент он станет вот-вот доступен"));
   requestAnimationFrame(restartLoops);
   return box;
-}
-
-function errorBars(said) {
-  const every = said.presses && said.presses.length ? said.presses : null;
-  const errors = every || said.marks.map((mark) => mark.error_ms).filter((one) => one !== null && one !== undefined);
-  if (errors.length < 4) return null;
-
-  const box = el("div", "spread");
-  const canvas = document.createElement("canvas");
-  canvas.className = "bars";
-  const hint = el("div", "hint");
-  hint.hidden = true;
-  box.append(canvas, hint);
-
-  const widest = Math.max(...errors.map(Math.abs));
-  const reach = Math.max(20, Math.ceil(widest / 10) * 10);
-
-  const bins = 33;
-  const counts = new Array(bins).fill(0);
-  for (const one of errors) {
-    const at = Math.min(bins - 1, Math.max(0, Math.floor(((one + reach) / (reach * 2)) * bins)));
-    counts[at] += 1;
-  }
-
-  const paint = () => paintSpread(canvas, counts);
-  requestAnimationFrame(paint);
-  canvas.repaint = paint;
-
-  const step = (reach * 2) / bins;
-  const edge = (i) => -reach + i * step;
-  const ms = (n) => (Math.abs(n) < 0.05 ? "0" : `${n > 0 ? "+" : ""}${round(n, 1)}`);
-
-  canvas.addEventListener("pointermove", (event) => {
-    const box_ = canvas.getBoundingClientRect();
-    const at = Math.floor(((event.clientX - box_.left) / box_.width) * bins);
-    if (at < 0 || at >= bins) {
-      hint.hidden = true;
-      return;
-    }
-    const n = counts[at];
-    const from = edge(at);
-    const to = edge(at + 1);
-    const when = at < Math.floor(bins / 2) ? "рано" : at > Math.floor(bins / 2) ? "поздно" : "в точку";
-    hint.replaceChildren(
-      el("b", null, `${n} ${plural(n, "нажатие", "нажатия", "нажатий")}`),
-      el("span", null, `${ms(from)}…${ms(to)} мс · ${when} · ${round((n / errors.length) * 100, 1)}%`),
-    );
-    hint.hidden = false;
-    const wide = hint.offsetWidth || 150;
-    const x = ((at + 0.5) / bins) * box_.width;
-    hint.style.left = `${Math.min(Math.max(x - wide / 2, 0), box_.width - wide)}px`;
-  });
-  canvas.addEventListener("pointerleave", () => {
-    hint.hidden = true;
-  });
-
-  const early = errors.filter((one) => one < 0).length;
-  const late = errors.length - early;
-  const scale = el("div", "scale");
-  scale.append(
-    el("span", null, `рано · ${round((early / errors.length) * 100)}%`),
-    el("span", "mono", `±${round(reach)} мс`),
-    el("span", null, `${round((late / errors.length) * 100)}% · поздно`),
-  );
-  box.append(scale);
-  return box;
-}
-
-function paintSpread(canvas, counts) {
-  const wide = canvas.clientWidth;
-  const high = canvas.clientHeight;
-  if (!wide || !high) return;
-  const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  canvas.width = Math.round(wide * dpr);
-  canvas.height = Math.round(high * dpr);
-  const c = canvas.getContext("2d");
-  c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  c.clearRect(0, 0, wide, high);
-
-  const floor = high - 1;
-  const middle = Math.floor(counts.length / 2);
-  const step = wide / counts.length;
-  const gap = Math.min(2, step * 0.2);
-  const tallest = Math.max(...counts) || 1;
-
-  c.fillStyle = "rgba(255,255,255,0.14)";
-  c.fillRect(Math.round(wide / 2), 0, 1, floor);
-  c.fillRect(0, floor, wide, 1);
-
-  counts.forEach((n, i) => {
-    if (!n) return;
-    const tall = Math.max(2, (n / tallest) * (floor - 2));
-    c.fillStyle = i === middle ? "#5fd694" : i < middle ? "rgba(122,167,216,0.75)" : "rgba(216,136,122,0.75)";
-    const w = Math.max(1, step - gap);
-    const x = i * step + (step - w) / 2;
-
-    const r = Math.min(2, w / 2, tall / 2);
-    c.beginPath();
-    c.moveTo(x, floor);
-    c.lineTo(x, floor - tall + r);
-    c.quadraticCurveTo(x, floor - tall, x + r, floor - tall);
-    c.lineTo(x + w - r, floor - tall);
-    c.quadraticCurveTo(x + w, floor - tall, x + w, floor - tall + r);
-    c.lineTo(x + w, floor);
-    c.closePath();
-    c.fill();
-  });
 }
 
 let sheetPlay = null;
@@ -4104,7 +3869,6 @@ if (window.__TAURI__ && window.__TAURI__.event) {
       byId("farm-now").classList.add("busy");
       byId("farm-giveback").hidden = false;
       byId("farm-giveback").disabled = false;
-      byId("farm-said").textContent = "";
       sayFarm("Рендерю для бота", payload.title);
       farmWork = startWork({ kind: "farm", label: `Ферма · ${payload.title || "задание"}`, home: "farm" });
       tellWorker(lastReady);
@@ -4276,7 +4040,6 @@ function openSettings(which, save = true) {
   if (which === "skins") runFitting();
   else stopFitting();
   if (which === "credits") fillCredits();
-  if (which === "build") showLibrary();
   return which;
 }
 
@@ -4319,7 +4082,7 @@ byId("rp-open").addEventListener("click", async () => {
     const path = await invoke("pick_replay", { prompt: "Реплей .osr" });
     if (path) openReplay(path);
   } catch (why) {
-    byId("rp-said").textContent = `${why}`;
+    toast(`${why}`, "bad");
   }
 });
 
@@ -4361,7 +4124,7 @@ function drawView() {
     viewBusy = false;
     if (mine !== viewTicket) return;
     if (image) paintFrame(c, image);
-    else byId("rp-said").textContent = "Движок не отдал кадр — посмотрите в логах";
+    else toast("Движок не отдал кадр — подробности в журнале", "bad");
     if (viewAgain) {
       viewAgain = false;
       drawView();
@@ -4778,14 +4541,12 @@ byId("rp-build").addEventListener("click", async () => {
   if (!chosen || drawing) return;
   const said = byId("rp-built");
   if (!clips.length) {
-    said.className = "verdict bad";
-    said.textContent = "На ленте нет ни одного куска. Нажмите «Выделить кусок отсюда»";
+    toast("На ленте нет ни одного куска — нажмите «Выделить кусок отсюда»", "warn");
     return;
   }
   drawing = true;
   watching = { bar: "rp-bar", said: "rp-built", share: null };
   startJob("replay", "Студия");
-  said.className = "verdict";
   said.textContent = "Собираю…";
   byId("rp-progress").hidden = false;
   byId("rp-doneslot").replaceChildren();
@@ -4980,7 +4741,7 @@ byId("r-stop").addEventListener("click", () => {
 });
 
 async function wzFinish() {
-  if (await saveSettings("w", "w-said")) {
+  if (await saveSettings("w")) {
     byId("wizard").hidden = true;
     show("render");
     showReady();
@@ -5026,7 +4787,6 @@ byId("wz-next").addEventListener("click", async () => {
   splashWhen(remembered("splash", "both"), false);
   skinned = remembered("skinned", "0") === "1";
   idleAfter(remembered("idle", "5"), false);
-  reportWhen(remembered("report", "ask"), false);
   openSettings(remembered("spage", "link"), false);
   layout(remembered("layout", "desk"), false);
   byId("s-loud").value = remembered("loud", "0.35");

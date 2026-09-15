@@ -4,6 +4,38 @@ use iced::{mouse, Color, ContentFit, Element, Length, Point, Rectangle, Renderer
 
 use crate::theme::{self, ACCENT, FAINT, GROUND, GROUND_TOP, INK, MUTED};
 
+thread_local! {
+    static FADE: std::cell::Cell<f32> = const { std::cell::Cell::new(1.0) };
+}
+
+pub fn fading<T>(k: f32, build: impl FnOnce() -> T) -> T {
+    let before = FADE.with(|f| f.replace(k.clamp(0.0, 1.0)));
+    let made = build();
+    FADE.with(|f| f.set(before));
+    made
+}
+
+pub fn fade() -> f32 {
+    FADE.with(|f| f.get())
+}
+
+pub fn faded(colour: Color) -> Color {
+    Color {
+        a: colour.a * fade(),
+        ..colour
+    }
+}
+
+pub fn mix(from: Color, to: Color, k: f32) -> Color {
+    let k = k.clamp(0.0, 1.0);
+    Color {
+        r: from.r + (to.r - from.r) * k,
+        g: from.g + (to.g - from.g) * k,
+        b: from.b + (to.b - from.b) * k,
+        a: from.a + (to.a - from.a) * k,
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Glyph {
     Dot,
@@ -12,35 +44,69 @@ pub enum Glyph {
     None,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Sign {
+    pub glyph: Glyph,
+    pub grown: f32,
+    pub breath: f32,
+    pub alpha: f32,
+}
+
+impl Sign {
+    pub fn settled(glyph: Glyph) -> Sign {
+        Sign {
+            glyph,
+            grown: 1.0,
+            breath: 0.0,
+            alpha: fade(),
+        }
+    }
+
+    pub fn growing(glyph: Glyph, grown: f32) -> Sign {
+        Sign { grown: grown.clamp(0.0, 1.0), ..Sign::settled(glyph) }
+    }
+
+    pub fn breathing(breath: f32) -> Sign {
+        Sign { breath: breath.clamp(0.0, 1.0), ..Sign::settled(Glyph::Dot) }
+    }
+}
+
 const GLYPH: f32 = 14.0;
 
-impl<Message> canvas::Program<Message> for Glyph {
+impl<Message> canvas::Program<Message> for Sign {
     type State = ();
 
     fn draw(&self, _: &(), renderer: &Renderer, _: &Theme, bounds: Rectangle, _: mouse::Cursor) -> Vec<Geometry> {
         let mut frame = Frame::new(renderer, bounds.size());
         let centre = Point::new(GLYPH / 2.0, GLYPH / 2.0);
-        match self {
+        let ink = Color { a: ACCENT.a * self.alpha, ..ACCENT };
+        let halo = Color { a: theme::ACCENT_SOFT.a * self.alpha * (1.0 + self.breath * 0.6), ..theme::ACCENT_SOFT };
+        match self.glyph {
             Glyph::Dot => {
-                frame.fill(&Path::circle(centre, 8.0), theme::ACCENT_SOFT);
-                frame.fill(&Path::circle(centre, 4.0), ACCENT);
+                frame.fill(&Path::circle(centre, 6.0 + 2.0 * self.grown + 2.5 * self.breath), halo);
+                frame.fill(&Path::circle(centre, 4.0 * self.grown), ink);
             }
             Glyph::Tick => {
+                let reach = self.grown;
                 let path = Path::new(|b| {
                     b.move_to(Point::new(3.0, 7.5));
-                    b.line_to(Point::new(6.0, 10.5));
-                    b.line_to(Point::new(12.0, 3.5));
+                    let first = (reach * 2.0).min(1.0);
+                    b.line_to(Point::new(3.0 + 3.0 * first, 7.5 + 3.0 * first));
+                    if reach > 0.5 {
+                        let second = (reach - 0.5) * 2.0;
+                        b.line_to(Point::new(6.0 + 6.0 * second, 10.5 - 7.0 * second));
+                    }
                 });
-                frame.stroke(&path, stroke(ACCENT, 1.8));
+                frame.stroke(&path, stroke(ink, 1.8));
             }
             Glyph::Cross => {
                 let path = Path::new(|b| {
                     b.move_to(Point::new(3.5, 3.5));
-                    b.line_to(Point::new(10.5, 10.5));
+                    b.line_to(Point::new(3.5 + 7.0 * self.grown, 3.5 + 7.0 * self.grown));
                     b.move_to(Point::new(10.5, 3.5));
-                    b.line_to(Point::new(3.5, 10.5));
+                    b.line_to(Point::new(10.5 - 7.0 * self.grown, 3.5 + 7.0 * self.grown));
                 });
-                frame.stroke(&path, stroke(ACCENT, 1.8));
+                frame.stroke(&path, stroke(ink, 1.8));
             }
             Glyph::None => {}
         }
@@ -59,6 +125,10 @@ fn stroke<'a>(color: Color, width: f32) -> Stroke<'a> {
 }
 
 pub fn glyph<'a, Message: 'a>(which: Glyph) -> Element<'a, Message> {
+    sign(Sign::settled(which))
+}
+
+pub fn sign<'a, Message: 'a>(which: Sign) -> Element<'a, Message> {
     Canvas::new(which).width(GLYPH).height(GLYPH).into()
 }
 
@@ -293,9 +363,9 @@ pub fn backdrop_handle() -> image::Handle {
     image::Handle::from_rgba(BACKDROP.0, BACKDROP.1, backdrop_pixels())
 }
 
-pub fn headline<'a, Message: 'a>(which: Glyph, words: String, count: String) -> Element<'a, Message> {
+pub fn headline<'a, Message: 'a>(which: Sign, words: String, count: String) -> Element<'a, Message> {
     row![
-        glyph(which),
+        sign(which),
         text(words).font(theme::SANS_SEMI).size(theme::LEAD).color(INK),
         text(format!("· {count}")).font(theme::SANS).size(theme::LEAD).color(MUTED),
     ]
@@ -318,6 +388,8 @@ pub struct Line {
     pub name: String,
     pub detail: String,
     pub note: Option<(String, Option<String>)>,
+    pub settled: f32,
+    pub breath: f32,
 }
 
 impl Line {
@@ -327,7 +399,19 @@ impl Line {
             name: name.into(),
             detail: String::new(),
             note: None,
+            settled: 1.0,
+            breath: 0.0,
         }
+    }
+
+    pub fn settling(mut self, settled: f32) -> Line {
+        self.settled = settled.clamp(0.0, 1.0);
+        self
+    }
+
+    pub fn breathing(mut self, breath: f32) -> Line {
+        self.breath = breath.clamp(0.0, 1.0);
+        self
     }
 
     pub fn detail(mut self, detail: impl Into<String>) -> Line {
@@ -344,28 +428,34 @@ impl Line {
 pub fn ledger<'a, Message: Clone + 'a>(lines: &[Line], on_link: Option<Message>) -> Element<'a, Message> {
     let mut rows = column![].spacing(4);
     for line in lines {
-        let (which, colour, face) = match line.mood {
-            Mood::Done => (Glyph::Tick, MUTED, theme::MONO),
-            Mood::Now => (Glyph::Dot, INK, theme::MONO_BOLD),
-            Mood::Todo => (Glyph::None, FAINT, theme::MONO),
-            Mood::Failed => (Glyph::Cross, ACCENT, theme::MONO_BOLD),
+        let (which, colour, face, before) = match line.mood {
+            Mood::Done => (Glyph::Tick, MUTED, theme::MONO, INK),
+            Mood::Now => (Glyph::Dot, INK, theme::MONO_BOLD, FAINT),
+            Mood::Todo => (Glyph::None, FAINT, theme::MONO, FAINT),
+            Mood::Failed => (Glyph::Cross, ACCENT, theme::MONO_BOLD, INK),
         };
-        let detail_colour = match line.mood {
+        let colour = faded(mix(before, colour, line.settled));
+        let detail_colour = faded(match line.mood {
             Mood::Now => MUTED,
             Mood::Failed => ACCENT,
             _ => FAINT,
+        });
+        let sign_now = if line.mood == Mood::Now && line.breath > 0.0 {
+            Sign::breathing(line.breath)
+        } else {
+            Sign::growing(which, line.settled)
         };
         let mut words = row![text(line.name.clone()).font(face).size(theme::BODY).color(colour)].spacing(6);
         if !line.detail.is_empty() {
             words = words.push(text(format!("· {}", line.detail)).font(theme::MONO).size(theme::BODY).color(detail_colour));
         }
         rows = rows.push(
-            container(row![glyph(which), words].spacing(12).align_y(iced::Center)).height(24.0),
+            container(row![sign(sign_now), words].spacing(12).align_y(iced::Center)).height(24.0),
         );
         if let Some((reason, link)) = &line.note {
-            let mut note = row![text(reason.clone()).font(theme::SANS).size(theme::CAPTION).color(MUTED)].spacing(6);
+            let mut note = row![text(reason.clone()).font(theme::SANS).size(theme::CAPTION).color(faded(MUTED))].spacing(6);
             if let Some(link) = link {
-                let go = button(text(link.clone()).font(theme::SANS).size(theme::CAPTION).color(ACCENT))
+                let go = button(text(link.clone()).font(theme::SANS).size(theme::CAPTION).color(faded(ACCENT)))
                     .padding([6, 0])
                     .style(theme::link);
                 note = note.push(match on_link.clone() {
@@ -392,7 +482,7 @@ pub fn card<'a, Message: 'a>(top: Element<'a, Message>, bottom: Option<Element<'
 }
 
 pub fn title<'a, Message: 'a>(words: String) -> Element<'a, Message> {
-    text(words).font(theme::SANS_SEMI).size(theme::LEAD).color(INK).into()
+    text(words).font(theme::SANS_SEMI).size(theme::LEAD).color(faded(INK)).into()
 }
 
 pub fn heading<'a, Message: 'a>(name: String, words: String) -> Element<'a, Message> {
@@ -404,21 +494,52 @@ pub fn gap<'a, Message: 'a>(height: f32) -> Element<'a, Message> {
 }
 
 pub fn why<'a, Message: 'a>(words: String) -> Element<'a, Message> {
-    text(words).font(theme::SANS).size(theme::BODY).color(MUTED).into()
+    text(words).font(theme::SANS).size(theme::BODY).color(faded(MUTED)).into()
 }
 
 pub fn cap<'a, Message: 'a>(words: String) -> Element<'a, Message> {
-    text(words).font(theme::SANS).size(theme::CAPTION).color(MUTED).into()
+    text(words).font(theme::SANS).size(theme::CAPTION).color(faded(MUTED)).into()
 }
 
 pub fn faint<'a, Message: 'a>(words: String) -> Element<'a, Message> {
-    text(words).font(theme::SANS).size(theme::CAPTION).color(FAINT).into()
+    text(words).font(theme::SANS).size(theme::CAPTION).color(faded(FAINT)).into()
+}
+
+pub fn body<'a, Message: 'a>(words: String, colour: Color) -> Element<'a, Message> {
+    text(words).font(theme::SANS).size(theme::BODY).color(faded(colour)).into()
+}
+
+pub fn mono<'a, Message: 'a>(words: String, colour: Color) -> Element<'a, Message> {
+    text(words).font(theme::MONO).size(theme::BODY).color(faded(colour)).into()
+}
+
+fn dimmed(style: impl Fn(&Theme, button::Status) -> button::Style + 'static, k: f32) -> impl Fn(&Theme, button::Status) -> button::Style {
+    move |theme, status| {
+        let mut made = style(theme, status);
+        made.text_color = Color { a: made.text_color.a * k, ..made.text_color };
+        if let Some(iced::Background::Color(colour)) = made.background {
+            made.background = Some(iced::Background::Color(Color { a: colour.a * k, ..colour }));
+        }
+        made.border.color = Color { a: made.border.color.a * k, ..made.border.color };
+        made
+    }
+}
+
+fn dimmed_box(style: impl Fn(&Theme) -> container::Style + 'static, k: f32) -> impl Fn(&Theme) -> container::Style {
+    move |theme| {
+        let mut made = style(theme);
+        if let Some(iced::Background::Color(colour)) = made.background {
+            made.background = Some(iced::Background::Color(Color { a: colour.a * k, ..colour }));
+        }
+        made.border.color = Color { a: made.border.color.a * k, ..made.border.color };
+        made
+    }
 }
 
 pub fn primary<'a, Message: Clone + 'a>(words: String, on: Option<Message>) -> Element<'a, Message> {
     let made = button(container(text(words).font(theme::SANS_SEMI).size(theme::BODY)).center_y(theme::CONTROL_HEIGHT - 2.0))
         .padding([0, 12])
-        .style(theme::primary);
+        .style(dimmed(theme::primary, fade()));
     match on {
         Some(message) => made.on_press(message).into(),
         None => made.into(),
@@ -428,7 +549,7 @@ pub fn primary<'a, Message: Clone + 'a>(words: String, on: Option<Message>) -> E
 pub fn quiet<'a, Message: Clone + 'a>(words: String, on: Option<Message>) -> Element<'a, Message> {
     let made = button(container(text(words).font(theme::SANS_SEMI).size(theme::BODY)).center_y(theme::CONTROL_HEIGHT - 2.0))
         .padding([0, 12])
-        .style(theme::quiet);
+        .style(dimmed(theme::quiet, fade()));
     match on {
         Some(message) => made.on_press(message).into(),
         None => made.into(),
@@ -438,29 +559,29 @@ pub fn quiet<'a, Message: Clone + 'a>(words: String, on: Option<Message>) -> Ele
 pub fn link<'a, Message: Clone + 'a>(words: String, on: Message) -> Element<'a, Message> {
     button(text(words).font(theme::SANS).size(theme::CAPTION))
         .padding([6, 0])
-        .style(theme::link)
+        .style(dimmed(theme::link, fade()))
         .on_press(on)
         .into()
 }
 
 pub fn tag<'a, Message: 'a>(words: String) -> Element<'a, Message> {
-    container(text(words).font(theme::MONO_BOLD).size(theme::CAPTION).color(MUTED))
+    container(text(words).font(theme::MONO_BOLD).size(theme::CAPTION).color(faded(MUTED)))
         .padding([0, 6])
-        .style(theme::tag)
+        .style(dimmed_box(theme::tag, fade()))
         .into()
 }
 
 pub fn tile<'a, Message: 'a>(value: String, label: String) -> Element<'a, Message> {
     container(
         column![
-            text(value).font(theme::MONO_BOLD).size(theme::TITLE).color(INK),
-            text(label).font(theme::SANS).size(theme::CAPTION).color(MUTED),
+            text(value).font(theme::MONO_BOLD).size(theme::TITLE).color(faded(INK)),
+            text(label).font(theme::SANS).size(theme::CAPTION).color(faded(MUTED)),
         ]
         .spacing(2),
     )
     .padding([12, 16])
     .width(Length::Fill)
-    .style(theme::tile)
+    .style(dimmed_box(theme::tile, fade()))
     .into()
 }
 
@@ -470,7 +591,24 @@ pub fn well<'a, Message: 'a>(inside: Element<'a, Message>) -> Element<'a, Messag
         .height(theme::CONTROL_HEIGHT)
         .width(Length::Fill)
         .center_y(theme::CONTROL_HEIGHT)
-        .style(theme::well)
+        .style(dimmed_box(theme::well, fade()))
+        .into()
+}
+
+pub fn well_box<'a, Message: 'a>(inside: Element<'a, Message>, height: f32) -> Element<'a, Message> {
+    container(inside)
+        .padding([0, 12])
+        .height(height)
+        .width(Length::Fill)
+        .center_y(height)
+        .style(dimmed_box(theme::well, fade()))
+        .into()
+}
+
+pub fn rising<'a, Message: 'a>(k: f32, inside: Element<'a, Message>) -> Element<'a, Message> {
+    container(inside)
+        .padding(iced::Padding::ZERO.top((1.0 - k.clamp(0.0, 1.0)) * 10.0))
+        .width(Length::Fill)
         .into()
 }
 

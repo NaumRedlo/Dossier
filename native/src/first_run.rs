@@ -1,7 +1,8 @@
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
+use iced::animation::Easing;
 use iced::widget::{button, column, container, row, text, text_input, toggler};
-use iced::{Element, Length, Subscription, Task};
+use iced::{window, Animation, Element, Length, Subscription, Task};
 
 use crate::bot::{self, Paired, Refused};
 use crate::checks::{self, Outcome};
@@ -9,10 +10,13 @@ use crate::lang::{Lang, Words};
 use crate::settings::Settings;
 use crate::sources::{self, Source};
 use crate::theme::{self, INK, MUTED};
-use crate::ui::{self, Glyph, Line, Mood};
+use crate::ui::{self, Glyph, Line, Mood, Sign};
 
 pub const STEPS: u64 = 4;
 const POLL: Duration = Duration::from_secs(3);
+pub const REVEAL: Duration = Duration::from_millis(320);
+pub const SETTLE: Duration = Duration::from_millis(450);
+pub const BREATH: Duration = Duration::from_millis(1600);
 pub const FFMPEG_HOME: &str = "https://ffmpeg.org/download.html";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -75,6 +79,7 @@ pub enum Message {
     CheckAgain,
     WhereToGet,
     Finish,
+    Tick(Instant),
 }
 
 #[derive(Clone)]
@@ -88,6 +93,28 @@ pub struct FirstRun {
     pub pairing: Pairing,
     pub qr: Option<ui::Qr>,
     pub checks: Vec<(Check, Option<Outcome>)>,
+    pub now: Instant,
+    pub reveal: Animation<bool>,
+    pub settles: Vec<Animation<bool>>,
+    pub breath: Animation<bool>,
+    pub came_from: Step,
+}
+
+fn reveal_from(now: Instant) -> Animation<bool> {
+    Animation::new(false).duration(REVEAL).easing(Easing::EaseOutCubic).go(true, now)
+}
+
+fn settled() -> Animation<bool> {
+    Animation::new(true)
+}
+
+fn breathing(now: Instant) -> Animation<bool> {
+    Animation::new(false)
+        .duration(BREATH)
+        .easing(Easing::EaseInOut)
+        .repeat_forever()
+        .auto_reverse()
+        .go(true, now)
 }
 
 pub enum Done {
@@ -108,15 +135,41 @@ impl FirstRun {
             pairing: Pairing::Idle,
             qr: None,
             checks: Vec::new(),
+            now: Instant::now(),
+            reveal: reveal_from(Instant::now()),
+            settles: Vec::new(),
+            breath: breathing(Instant::now()),
+            came_from: Step::Language,
         };
         (made, Task::perform(async { sources::find() }, Message::Looked))
     }
 
+    fn waiting_on_something(&self) -> bool {
+        matches!(self.pairing, Pairing::Waiting { .. } | Pairing::Asking)
+            || (self.step == Step::Checks && !self.all_checked())
+    }
+
+    pub fn moving(&self) -> bool {
+        self.reveal.is_animating(self.now)
+            || self.settles.iter().any(|s| s.is_animating(self.now))
+            || self.waiting_on_something()
+    }
+
     pub fn subscription(&self) -> Subscription<Message> {
-        match self.pairing {
-            Pairing::Waiting { .. } => iced::time::every(POLL).map(|_| Message::Poll),
-            _ => Subscription::none(),
+        let mut parts = Vec::new();
+        if matches!(self.pairing, Pairing::Waiting { .. }) {
+            parts.push(iced::time::every(POLL).map(|_| Message::Poll));
         }
+        if self.moving() {
+            parts.push(window::frames().map(Message::Tick));
+        }
+        Subscription::batch(parts)
+    }
+
+    fn turn_page(&mut self, step: Step) {
+        self.came_from = self.step;
+        self.step = step;
+        self.reveal = reveal_from(Instant::now());
     }
 
     fn live_sources(&self) -> Vec<Source> {
@@ -124,8 +177,9 @@ impl FirstRun {
     }
 
     fn start_checks(&mut self) -> Task<Message> {
-        self.step = Step::Checks;
+        self.turn_page(Step::Checks);
         self.checks = CHECKS.iter().map(|c| (*c, None)).collect();
+        self.settles = CHECKS.iter().map(|_| Animation::new(false).duration(SETTLE).easing(Easing::EaseOutCubic)).collect();
         let sources = self.live_sources();
         let server = self.settings.server.clone();
         let token = self.settings.token.clone();
@@ -163,27 +217,27 @@ impl FirstRun {
             }
             Message::Continue => match self.step {
                 Step::Language => {
-                    self.step = Step::Folder;
+                    self.turn_page(Step::Folder);
                     Task::none()
                 }
                 Step::Folder => {
-                    self.step = Step::Device;
+                    self.turn_page(Step::Device);
                     Task::none()
                 }
                 Step::Device => {
-                    self.step = Step::Bot;
+                    self.turn_page(Step::Bot);
                     self.ask_to_pair()
                 }
                 Step::Bot => self.start_checks(),
                 Step::Checks => Task::none(),
             },
             Message::Back => {
-                self.step = match self.step {
+                self.turn_page(match self.step {
                     Step::Language | Step::Folder => Step::Language,
                     Step::Device => Step::Folder,
                     Step::Bot => Step::Device,
                     Step::Checks => Step::Bot,
-                };
+                });
                 Task::none()
             }
             Message::Looked(found) => {
@@ -215,7 +269,7 @@ impl FirstRun {
             }
             Message::BotOnly => {
                 self.bot_only = true;
-                self.step = Step::Device;
+                self.turn_page(Step::Device);
                 Task::none()
             }
             Message::Device(name) => {
@@ -260,8 +314,11 @@ impl FirstRun {
             }
             Message::Later => self.start_checks(),
             Message::Checked(which, outcome) => {
-                if let Some(slot) = self.checks.iter_mut().find(|(c, _)| *c == which) {
-                    slot.1 = Some(outcome);
+                if let Some(at) = self.checks.iter().position(|(c, _)| *c == which) {
+                    self.checks[at].1 = Some(outcome);
+                    if let Some(settle) = self.settles.get_mut(at) {
+                        settle.go_mut(true, Instant::now());
+                    }
                 }
                 Task::none()
             }
@@ -275,6 +332,10 @@ impl FirstRun {
                 settings.sources = self.sources.clone();
                 settings.bot_only = self.bot_only;
                 done = Done::Finished(settings);
+                Task::none()
+            }
+            Message::Tick(now) => {
+                self.now = now;
                 Task::none()
             }
         };
@@ -299,23 +360,36 @@ impl FirstRun {
         self.checks_done() == self.checks.len() as u64 && !self.checks.is_empty()
     }
 
+    fn breath(&self) -> f32 {
+        if self.waiting_on_something() {
+            self.breath.interpolate(0.0, 1.0, self.now)
+        } else {
+            0.0
+        }
+    }
+
     pub fn view(&self) -> Element<'_, Message> {
         let w = &self.words;
-        let (head_glyph, head_words, head_count) = match self.step {
+        let breath = self.breath();
+        let (head_sign, head_words, head_count) = match self.step {
             Step::Checks if self.all_checked() && self.checks_failed().is_empty() => {
-                (Glyph::Tick, w.t("everything-works"), w.of(self.checks_done(), CHECKS.len() as u64))
+                (Sign::settled(Glyph::Tick), w.t("everything-works"), w.of(self.checks_done(), CHECKS.len() as u64))
             }
-            Step::Checks => (Glyph::Dot, w.t("checking"), w.of(self.checks_done(), CHECKS.len() as u64)),
-            step => (Glyph::Dot, w.t("setting-up"), w.of(step.number(), STEPS)),
+            Step::Checks => (Sign::breathing(breath), w.t("checking"), w.of(self.checks_done(), CHECKS.len() as u64)),
+            step => (Sign::settled(Glyph::Dot), w.t("setting-up"), w.of(step.number(), STEPS)),
         };
+        let k = self.reveal.interpolate(0.0, 1.0, self.now);
         let card = match self.step {
-            Step::Checks => self.checks_card(),
-            _ => ui::card(ui::ledger(&self.steps_ledger(), None), Some(self.step_body())),
+            Step::Checks => ui::fading(k, || ui::rising(k, self.checks_card())),
+            _ => ui::card(
+                ui::ledger(&self.steps_ledger(), None),
+                Some(ui::fading(k, || ui::rising(k, self.step_body()))),
+            ),
         };
         let column = column![
             ui::brand(),
             ui::gap(48.0),
-            container(ui::headline(head_glyph, head_words, head_count)).width(Length::Fill).center_x(Length::Fill),
+            container(ui::headline(head_sign, head_words, head_count)).width(Length::Fill).center_x(Length::Fill),
             ui::gap(16.0),
             card,
         ]
@@ -337,6 +411,8 @@ impl FirstRun {
             ("step-bot", Step::Bot),
         ];
         let at = self.step.number();
+        let moved = self.came_from.number() != at;
+        let k = self.reveal.interpolate(0.0, 1.0, self.now);
         names
             .iter()
             .map(|(key, step)| {
@@ -348,7 +424,12 @@ impl FirstRun {
                 } else {
                     Mood::Todo
                 };
-                Line::new(mood, w.t(key))
+                let line = Line::new(mood, w.t(key));
+                if moved && (n == at || n == self.came_from.number()) {
+                    line.settling(k)
+                } else {
+                    line
+                }
             })
             .collect()
     }
@@ -369,7 +450,7 @@ impl FirstRun {
         for lang in Lang::ALL {
             let on = lang == w.lang();
             options = options.push(
-                button(container(text(lang.own_name()).font(theme::SANS_SEMI).size(theme::LEAD).color(INK)).center(Length::Fill))
+                button(container(text(lang.own_name()).font(theme::SANS_SEMI).size(theme::LEAD).color(ui::faded(INK))).center(Length::Fill))
                     .width(Length::Fill)
                     .height(64.0)
                     .style(theme::choice(on))
@@ -398,9 +479,9 @@ impl FirstRun {
         container(
             row![
                 ui::tag(source.kind.tag().to_owned()),
-                text(source.shown()).font(theme::MONO).size(theme::BODY).color(INK),
+                ui::mono(source.shown(), INK),
                 ui::grow(),
-                text(counts.join(" · ")).font(theme::SANS).size(theme::CAPTION).color(MUTED),
+                text(counts.join(" · ")).font(theme::SANS).size(theme::CAPTION).color(ui::faded(MUTED)),
                 toggler(source.on).on_toggle(move |on| Message::Switch(index, on)).size(18.0).style(theme::switch),
             ]
             .spacing(12)
@@ -439,7 +520,7 @@ impl FirstRun {
                 body = body.push(ui::heading(w.t("step-folder"), w.t("folder-found")));
                 body = body.push(ui::well(
                     row![
-                        text(source.shown()).font(theme::MONO).size(theme::BODY).color(INK),
+                        ui::mono(source.shown(), INK),
                         ui::grow(),
                         ui::tag(source.kind.tag().to_owned()),
                     ]
@@ -533,7 +614,7 @@ impl FirstRun {
                 if !linked {
                     left = left.push(column![
                         ui::cap(w.t("code-cap")),
-                        text(code).font(theme::MONO_BOLD).size(theme::CODE).color(INK),
+                        text(code).font(theme::MONO_BOLD).size(theme::CODE).color(ui::faded(INK)),
                     ]);
                     left = left.push(row![ui::primary(
                         w.t("open-telegram"),
@@ -543,19 +624,10 @@ impl FirstRun {
                 let status = match &self.pairing {
                     Pairing::Linked { who } => row![
                         ui::glyph(Glyph::Tick),
-                        text(if who.is_empty() { w.t("linked") } else { w.who("linked-to", who) })
-                            .font(theme::SANS)
-                            .size(theme::BODY)
-                            .color(INK)
+                        ui::body(if who.is_empty() { w.t("linked") } else { w.who("linked-to", who) }, INK),
                     ],
-                    Pairing::Unavailable => row![
-                        ui::glyph(Glyph::None),
-                        text(w.t("no-pairing-yet")).font(theme::SANS).size(theme::BODY).color(MUTED)
-                    ],
-                    _ => row![
-                        ui::glyph(Glyph::Dot),
-                        text(w.t("waiting-telegram")).font(theme::SANS).size(theme::BODY).color(MUTED)
-                    ],
+                    Pairing::Unavailable => row![ui::glyph(Glyph::None), ui::body(w.t("no-pairing-yet"), MUTED)],
+                    _ => row![ui::sign(Sign::breathing(self.breath())), ui::body(w.t("waiting-telegram"), MUTED)],
                 };
                 left = left.push(status.spacing(10).align_y(iced::Center));
                 let mut sides = row![left].spacing(24).align_y(iced::Top);
@@ -624,8 +696,16 @@ impl FirstRun {
         let w = &self.words;
         let mut lines = Vec::new();
         let mut reached = true;
-        for (which, outcome) in &self.checks {
-            lines.push(self.check_line(*which, outcome, reached));
+        let breath = self.breath();
+        for (at, (which, outcome)) in self.checks.iter().enumerate() {
+            let settled = self.settles.get(at).map_or(1.0, |s| s.interpolate(0.0, 1.0, self.now));
+            let line = self.check_line(*which, outcome, reached);
+            let line = match outcome {
+                Some(_) => line.settling(settled),
+                None if reached => line.breathing(breath),
+                None => line,
+            };
+            lines.push(line);
             if outcome.is_none() {
                 reached = false;
             }
@@ -671,6 +751,7 @@ impl FirstRun {
             Pairing::Waiting { link, .. } => qr_for(link),
             _ => None,
         };
+        let settles = checks.iter().map(|_| settled()).collect();
         FirstRun {
             words: Words::new(lang),
             settings,
@@ -681,6 +762,11 @@ impl FirstRun {
             pairing,
             qr,
             checks,
+            now: Instant::now(),
+            reveal: settled(),
+            settles,
+            breath: Animation::new(false),
+            came_from: step,
         }
     }
 }

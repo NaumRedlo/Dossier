@@ -74,6 +74,7 @@ pub struct Shown {
     pub date: String,
     pub player: String,
     pub map: String,
+    pub mods: Vec<String>,
     pub meta: String,
     pub accuracy: String,
     pub outcome: String,
@@ -279,6 +280,7 @@ impl Main {
             date: format!("{} · {} · {}", w.day(entry.played_at, self.now_unix), w.clock(entry.played_at), entry.client.tag()),
             player: entry.player.clone(),
             map: entry.map_line().unwrap_or_else(|| w.t("unknown-map")),
+            mods: entry.mods.clone(),
             meta,
             accuracy: w.percent(entry.accuracy),
             outcome: entry.outcome.mark(),
@@ -641,67 +643,50 @@ impl Main {
         let k = self.enter.interpolate(0.0, 1.0, self.now);
         let s = if self.swap_waits { 0.0 } else { self.swap.interpolate(0.0, 1.0, self.now) };
         let loaded = self.library.is_some();
-        let mut layers = stack![];
-        if let Some(entry) = self.chosen_entry() {
-            let alpha = k.min(1.0);
-            let scene: Element<'_, Message> = match (self.scenes.get(&entry.map_hash), entry.map.is_some()) {
-                (Some(handle), _) => image(handle.clone())
-                    .content_fit(ContentFit::Cover)
-                    .width(Length::Fill)
-                    .height(Length::Fill)
-                    .opacity(alpha * s)
-                    .into(),
-                (None, true) => Space::new().width(Length::Fill).height(Length::Fill).into(),
+        let blank = || -> Element<'_, Message> { Space::new().width(Length::Fill).height(Length::Fill).into() };
+        let alpha = k.min(1.0);
+        let full = |handle: &image::Handle, opacity: f32| -> Element<'_, Message> {
+            image(handle.clone())
+                .content_fit(ContentFit::Cover)
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .opacity(opacity)
+                .into()
+        };
+        let entry = self.chosen_entry();
+        let scene_before: Element<'_, Message> = match (&self.scene_before, entry) {
+            (Some(Some(before)), Some(_)) if s < 1.0 => full(before, alpha * (1.0 - s)),
+            _ => blank(),
+        };
+        let scene: Element<'_, Message> = match entry {
+            Some(entry) => match (self.scenes.get(&entry.map_hash), entry.map.is_some()) {
+                (Some(handle), _) => full(handle, alpha * s),
+                (None, true) => blank(),
                 (None, false) => container(ui::hatch()).width(Length::Fill).height(Length::Fill).into(),
-            };
-            if let Some(Some(before)) = &self.scene_before {
-                if s < 1.0 {
-                    layers = layers.push(
-                        image(before.clone())
-                            .content_fit(ContentFit::Cover)
-                            .width(Length::Fill)
-                            .height(Length::Fill)
-                            .opacity(alpha * (1.0 - s)),
-                    );
-                }
-            }
-            layers = layers.push(scene);
-            if let Some(before) = &self.live_before {
-                if s < 1.0 {
-                    layers = layers.push(
-                        image(before.clone())
-                            .content_fit(ContentFit::Cover)
-                            .width(Length::Fill)
-                            .height(Length::Fill)
-                            .opacity(alpha * (1.0 - s)),
-                    );
-                }
-            }
-            if let Some(live) = self.live.as_ref().filter(|l| l.for_path == entry.path) {
-                if let Some(handle) = &live.frame {
+            },
+            None => blank(),
+        };
+        let live_before: Element<'_, Message> = match (&self.live_before, entry) {
+            (Some(before), Some(_)) if s < 1.0 => full(before, alpha * (1.0 - s)),
+            _ => blank(),
+        };
+        let live: Element<'_, Message> = match (entry, &self.live) {
+            (Some(entry), Some(live)) if live.for_path == entry.path => match &live.frame {
+                Some(handle) => {
                     let seen = live.fade.interpolate(0.0, 1.0, self.now);
-                    layers = layers.push(
-                        mouse_area(
-                            image(handle.clone())
-                                .content_fit(ContentFit::Cover)
-                                .width(Length::Fill)
-                                .height(Length::Fill)
-                                .opacity(alpha * seen),
-                        )
-                        .on_press(Message::TogglePlay),
-                    );
+                    mouse_area(full(handle, alpha * seen)).on_press(Message::TogglePlay).into()
                 }
-            }
-        }
-        if loaded {
-            layers = layers.push(ui::fading(k, || self.body(k, s)));
-        }
+                None => blank(),
+            },
+            _ => blank(),
+        };
+        let body: Element<'_, Message> = if loaded { ui::fading(k, || self.body(k, s)) } else { blank() };
         let early = self.arrive.interpolate(0.0, 1.0, self.now);
         let crest = ui::fading(early, ui::brand);
-        layers = layers.push(pin(float(crest).translate(move |_, _| Vector::new(0.0, (1.0 - early) * CREST_RISE))).x(CREST_HOME.0).y(CREST_HOME.1));
-        if self.overlay != Overlay::None {
-            layers = layers.push(self.overlay_view());
-        }
+        let crest: Element<'_, Message> =
+            pin(float(crest).translate(move |_, _| Vector::new(0.0, (1.0 - early) * CREST_RISE))).x(CREST_HOME.0).y(CREST_HOME.1).into();
+        let overlay: Element<'_, Message> = if self.overlay != Overlay::None { self.overlay_view() } else { blank() };
+        let layers = stack![scene_before, scene, live_before, live, body, crest, overlay];
         layers.width(Length::Fill).height(Length::Fill).into()
     }
 
@@ -765,18 +750,20 @@ impl Main {
         let player = retype(&was.player, &now.player);
         let map = retype(&was.map, &now.map);
         let accuracy = retype(&was.accuracy, &now.accuracy);
+        let erasing = crate::lang::ERASING;
+        let (badges, badge_alpha) = if s < erasing {
+            (&was.mods, 1.0 - s / erasing)
+        } else {
+            (&now.mods, ((s - erasing) / (1.0 - erasing)).clamp(0.0, 1.0))
+        };
         let mut meta = row![].spacing(8).align_y(iced::Center);
-        for acronym in &entry.mods {
-            meta = meta.push(mod_badge(acronym));
+        for acronym in badges {
+            meta = meta.push(ui::fading(ui::fade() * badge_alpha, || mod_badge(acronym)));
         }
-        if !entry.mods.is_empty() {
-            meta = meta.push(ui::mono("·".to_owned(), FAINT));
+        if !badges.is_empty() {
+            meta = meta.push(ui::fading(ui::fade() * badge_alpha, || ui::mono("·".to_owned(), FAINT)));
         }
-        meta = meta.push(ui::mono(format!("{}x", entry.combo), MUTED));
-        if let Some(ms) = self.lengths.get(&entry.path) {
-            meta = meta.push(ui::mono("·".to_owned(), FAINT));
-            meta = meta.push(ui::mono(w.length(*ms), MUTED));
-        }
+        meta = meta.push(ui::mono(retype(&was.meta, &now.meta), MUTED));
         let busy = self.rendering.as_ref().is_some_and(|r| !r.is_over());
         let fetching_now = self.fetching.as_ref().is_some_and(|f| !f.is_over());
         let rendering_this = self.rendering.as_ref().filter(|r| r.path == entry.path);
@@ -805,7 +792,7 @@ impl Main {
         let outcome_colour = if entry.outcome.is_bad() { ACCENT } else { MUTED };
         let right = column![
             text(accuracy).font(theme::MONO_BOLD).size(48.0).color(ui::faded(INK)),
-            container(text(now.outcome).font(theme::MONO_BOLD).size(theme::CAPTION).color(ui::faded(outcome_colour)))
+            container(text(retype(&was.outcome, &now.outcome)).font(theme::MONO_BOLD).size(theme::CAPTION).color(ui::faded(outcome_colour)))
                 .width(Length::Fill)
                 .align_x(iced::alignment::Horizontal::Right),
         ]
@@ -1164,9 +1151,11 @@ pub fn mod_colour(acronym: &str) -> Color {
 }
 
 fn mod_badge<'a, Message: 'a>(acronym: &str) -> Element<'a, Message> {
-    container(text(acronym.to_owned()).font(theme::MONO_BOLD).size(10.0))
+    let colour = mod_colour(acronym);
+    let alpha = ui::fade();
+    container(text(acronym.to_owned()).font(theme::MONO_BOLD).size(10.0).color(ui::faded(theme::ON_ACCENT)))
         .padding([1, 6])
-        .style(theme::badge(mod_colour(acronym)))
+        .style(theme::badge(Color { a: colour.a * alpha, ..colour }))
         .into()
 }
 

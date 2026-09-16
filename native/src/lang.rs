@@ -86,7 +86,7 @@ fn bundle_for(lang: Lang) -> FluentBundle<FluentResource> {
     bundle
 }
 
-const ERASING: f32 = 0.4;
+pub const ERASING: f32 = 0.4;
 
 pub fn typed(from: &str, to: &str, k: f32) -> String {
     let k = k.clamp(0.0, 1.0);

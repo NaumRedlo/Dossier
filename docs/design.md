@@ -193,20 +193,101 @@ never a farm; the farm is the bot's word for all of them together.
 
 - *The scene is the window.* The chosen replay fills it, dimmed at the top
   and the bottom; the middle is the engine's own picture with nothing on it.
-- *The viewer is the lower third.* Left: the date and the client in mono, the
-  player large, the map, mods as lettered badges, the combo, the length, one
-  button — *Render*. Right: the accuracy in the largest type on the screen,
-  its outcome under it.
+- *The viewer is the lower third*, anchored to the bottom so that whatever
+  grows in it grows upward. Left: the date and the client in mono, the player
+  large, the map, mods as lettered badges, the combo, the length, one button
+  — *Render*. Right: the accuracy in the largest type on the screen, its
+  outcome under it.
 - *The journal is the strip along the bottom.* Replays only, as small frames
-  grouped by day, newest first, the chosen one outlined; the day labels in
-  the language's own date style — *today · Sep 16*, *сегодня · 16 сен*. It
-  scrolls sideways, the arrows and *1 / 187* sit at the right of the state
-  line.
-- *Thin chrome.* The brand block top-left — the letter at 36 px, a 22 px rule,
-  the word at 20 px, as everywhere in the application — a search field
-  (*player, map, day*), three words top-right: Replays, Worker, Settings. The
-  state line bottom-left is a dot and the word *Worker*: the dot is the state,
-  the word is the way to that screen. Nothing more.
+  grouped by day, newest first, the chosen one outlined. A day is labelled
+  the way its language says it: *today* / *сегодня* as the bare word, then
+  *Aug 14* / *14 авг*, and the year only when it is not this one — *May 10,
+  2025* / *10 мая 2025*. It scrolls sideways; *1 / 187* and the arrows sit
+  small at the bottom right.
+- *Thin chrome.* The crest — the first run's block, unchanged and unmoved:
+  the letter at 36 px, a 22 px rule, the word at 20 px, centred at the top. A
+  search field top-left (*player, map, day*), three words top-right: Replays,
+  Worker, Settings. There is no state line and nothing about the worker on
+  this screen: a worker has its own screen, and an operations centre for
+  downloads and notices comes later.
+
+### What each thing does
+
+Every pointer and key on the main screen, so that nothing is invented at
+the keyboard. Where a choice is still open it is marked *open*.
+
+*The scene.*
+- At rest the engine draws the chosen replay live, muted, at a low rate; on
+  the *still* background setting it holds one frame. *Open:* whether it plays
+  always, only while the window is focused, or for a few seconds after a
+  choice and then holds.
+- Click pauses and resumes it. Double-click hides all chrome — the picture
+  alone — and Esc brings it back.
+- Vertical wheel scrubs the replay's time; horizontal wheel or a two-finger
+  swipe moves to the next or previous replay, the same as ← and →.
+- Drop `.osr` files anywhere on the window: they are copied into the
+  application's own Replays folder, appear under *today* and the first one
+  is chosen.
+
+*The viewer.*
+- The date line: hovering shows the exact time and the file's name;
+  clicking shows the file in its folder.
+- The player's name: clicking filters the journal to that player, and the
+  filter appears in the search field as a word to delete.
+- The map: clicking filters the journal to that map — every play of yours on
+  it, which is the "by map" direction folded into a click. *Open:* whether
+  a second click on the map opens its page on the osu! site.
+- A mod badge: hovering names it in full; clicking filters by that mod.
+- The accuracy: hovering shows the four counts under it with their dots —
+  300 · 100 · 50 · ✕ — and they stay while the pointer is there; clicking
+  pins them. *Open:* whether a click flips the number to the unstable rate
+  instead.
+- The outcome tag: hovering says how many misses and where the first one
+  fell; clicking seeks the scene to that moment.
+- *Render*: the meta line and the button give way to the ledger — Replay
+  read, Map on disk, Judged, Drawing with its fraction and time left,
+  Encoding, Saving — with a quiet *Stop*; the player's name and the map stay,
+  the accuracy stays, the frame in the journal wears a red dot. When it is
+  done the ledger folds into one line, *Rendered · Open · Show in folder*,
+  which stays until the next choice. The scene keeps playing throughout.
+- Right-click anywhere in the viewer or on a frame: *Show in folder*, *Open
+  .osr*, *Delete*.
+- A replay without its map: the scene is the hatched ground, the accuracy is
+  a dash, the button is *Get the map* with one line saying why.
+
+*The journal.*
+- Clicking a frame chooses it: the scene crossfades over 320 ms, the
+  viewer's words retype into the new replay's (the same typewriter as a
+  language change), the outline slides to the frame.
+- Hovering a frame lifts it a little and shows a caption above it — player,
+  map, mods, combo. *Open:* instead of a caption, the viewer could preview
+  the hovered replay and fall back when the pointer leaves.
+- Clicking a day's label scrolls the strip to that day. Home and End go to
+  the newest and the oldest.
+- The rail above the strip is a map of time: its ticks are the days, the
+  bright stretch is what is on screen; dragging it scrolls.
+
+*Search.*
+- Typing filters the strip as you type: frames that do not match dim, days
+  with nothing left fold away, the first match is chosen on Enter, Esc
+  clears. There is no second list of results — the strip is the results.
+- It understands a player, a map, a mod acronym, *fc* and *miss*, and a day
+  in the language's own words — *yesterday*, *august*, *вчера*, *август*.
+
+*The three words.* Replays is this screen. Worker and Settings open over
+the scene, dimmed to a fifth, in the first run's centred column; the crest
+does not move, and Esc or the word *Replays* brings the scene back.
+
+### Entering
+
+- From the first run: on *Open Dossier* the card and the ledger fade out
+  (320 ms) and the crest stays exactly where it is, because it is the same
+  block in both screens. The scene fades up from black behind it (640 ms),
+  the journal rises from below the edge with its frames 30 ms apart (450
+  ms), and the viewer's words type in (520 ms). About 1.2 s, nothing jumps.
+- From a cold start: the window opens black with the crest alone while the
+  library is read — the emblem is the loading screen, no spinner — and then
+  the same choreography. If reading takes long, the crest's dot breathes.
 
 **Реплеи** is the main screen above; there is no separate library. What a
 replay is beyond the viewer — the judgement's counts, whether it agrees with

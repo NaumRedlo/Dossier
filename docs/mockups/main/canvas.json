@@ -2,7 +2,7 @@
   "pages": [
     {
       "id": "page-blend",
-      "name": "Blend · scene + viewer + journal"
+      "name": "Main screen"
     },
     {
       "id": "page-directions",
@@ -151,7 +151,7 @@
       "w": 980,
       "h": 720,
       "page": "page-blend",
-      "title": "Scene · viewer · journal"
+      "title": "At rest"
     },
     {
       "file": "BlendRu.dc.html",
@@ -160,7 +160,52 @@
       "w": 980,
       "h": 720,
       "page": "page-blend",
-      "title": "Сцена · просмотр · журнал"
+      "title": "В покое"
+    },
+    {
+      "file": "BlendHover.dc.html",
+      "x": 0,
+      "y": 880,
+      "w": 980,
+      "h": 720,
+      "page": "page-blend",
+      "title": "Hovering a frame, hovering the accuracy"
+    },
+    {
+      "file": "BlendRendering.dc.html",
+      "x": 1060,
+      "y": 880,
+      "w": 980,
+      "h": 720,
+      "page": "page-blend",
+      "title": "Render pressed"
+    },
+    {
+      "file": "BlendSearch.dc.html",
+      "x": 2120,
+      "y": 880,
+      "w": 980,
+      "h": 720,
+      "page": "page-blend",
+      "title": "Typing in search"
+    },
+    {
+      "file": "BlendNoMap.dc.html",
+      "x": 0,
+      "y": 1760,
+      "w": 980,
+      "h": 720,
+      "page": "page-blend",
+      "title": "A replay without its map"
+    },
+    {
+      "file": "BlendEntrance.dc.html",
+      "x": 1060,
+      "y": 1760,
+      "w": 980,
+      "h": 720,
+      "page": "page-blend",
+      "title": "Entering"
     }
   ],
   "annotations": [
@@ -250,7 +295,7 @@
       "y": -210,
       "w": 560,
       "page": "page-blend",
-      "text": "The scene is the window: the chosen play fills it, dimmed at the top and the bottom. The viewer is the lower third: date and client, the player, the map, mods and combo, one button, the accuracy large with its outcome. The journal is the strip along the bottom: replays only, grouped by day in the language's own date style, newest first, the chosen one outlined. Bottom-left: a dot and the word Worker — the dot is the state, the word is the way there. The brand block is the application's own: 36 px letter, a 22 px rule, the word at 20 px."
+      "text": "The scene is the window; the viewer is the lower third; the journal is the strip along the bottom, replays only, by day — today is the word alone, other days the date in each language's way, the year only when it is not this one. The crest is the first run's block, centred, unmoved. No state line: the worker gets its own screen and, later, an operations centre for downloads and notices. Second row: what pressing and hovering shows."
     }
   ],
   "launch": {

@@ -205,58 +205,59 @@
     .veil2 b { color: #ece7e2; font-weight: 600; }
 
     .scene2 { position: absolute; inset: 0; background: #0a0507 url(frame.jpg) center/cover; }
-    .scene2::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(7,3,4,0.78) 0%, rgba(7,3,4,0.12) 26%, rgba(7,3,4,0.12) 52%, rgba(7,3,4,0.88) 78%, rgba(7,3,4,0.97) 100%); }
-    .id { position: absolute; left: 40px; right: 40px; top: 360px; z-index: 2; display: flex; align-items: flex-end; gap: 24px; }
+    .scene2::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(7,3,4,0.82) 0%, rgba(7,3,4,0.14) 24%, rgba(7,3,4,0.14) 52%, rgba(7,3,4,0.88) 78%, rgba(7,3,4,0.97) 100%); }
+    .crest { position: absolute; left: 0; right: 0; top: 24px; z-index: 3; display: flex; justify-content: center; }
+    .crest .brand { padding: 0; gap: 14px; }
+    .crest .brand img { width: 31px; height: 31px; }
+    .crest .brand i { height: 22px; }
+    .crest .brand b { font-size: 20px; line-height: 26px; }
+    .corner { position: absolute; top: 28px; z-index: 3; }
+    .corner.l { left: 40px; }
+    .corner.r { right: 40px; }
+    .id { position: absolute; left: 40px; right: 40px; bottom: 156px; z-index: 2; display: flex; align-items: flex-end; gap: 24px; }
     .id .date { font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: 12px; color: #a9a29b; letter-spacing: 0.04em; }
     .id h2 { margin: 2px 0 0; font-size: 28px; line-height: 32px; font-weight: 600; letter-spacing: -0.01em; }
     .id .map { margin-top: 2px; color: #ece7e2; font-size: 14px; }
     .id .meta { margin-top: 6px; display: flex; align-items: center; gap: 8px; color: #a9a29b; font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: 12px; }
-    .id .acts { display: flex; gap: 8px; margin-top: 14px; }
+    .id .acts { display: flex; gap: 8px; margin-top: 14px; align-items: center; }
     .id .score { margin-left: auto; text-align: right; }
     .id .score .n { font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: 52px; line-height: 52px; font-weight: 700; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
     .id .score .o { display: inline-flex; align-items: center; gap: 6px; margin-top: 8px; padding: 2px 8px; border-radius: 6px; background: rgba(10,5,7,0.6); font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: 12px; font-weight: 700; color: #ece7e2; }
-    .journal { position: absolute; left: 0; right: 0; bottom: 56px; z-index: 2; padding: 0 40px; }
+    .id .score .counts { display: flex; justify-content: flex-end; gap: 14px; margin-top: 10px; font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: 12px; color: #a9a29b; }
+    .id .score .counts b { color: #ece7e2; font-weight: 700; }
+    .id .score .counts i { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 5px; vertical-align: 1px; }
+    .journal { position: absolute; left: 0; right: 0; bottom: 40px; z-index: 2; padding: 0 40px; }
     .journal .rail { position: relative; height: 1px; background: rgba(255,255,255,0.12); margin: 0 0 10px; }
     .journal .days { display: flex; gap: 22px; align-items: flex-end; overflow: hidden; }
-    .day2 { display: flex; flex-direction: column; gap: 6px; flex: none; }
+    .day2 { display: flex; flex-direction: column; gap: 6px; flex: none; position: relative; }
     .day2 .lbl { font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: 11px; color: #6b655f; letter-spacing: 0.04em; display: flex; align-items: center; gap: 6px; }
-    .day2 .lbl.today { color: #ece7e2; }
+    .day2 .lbl.on { color: #ece7e2; }
     .day2 .lbl i { display: block; width: 5px; height: 5px; border-radius: 50%; background: #6b655f; }
-    .day2 .lbl.today i { background: #e24848; box-shadow: 0 0 0 3px rgba(226,72,72,0.16); }
+    .day2 .lbl.on i { background: #e24848; box-shadow: 0 0 0 3px rgba(226,72,72,0.16); }
     .day2 .set { display: flex; gap: 6px; align-items: flex-end; }
     .fr { width: 88px; height: 50px; border-radius: 6px; background: #0a0507 url(frame.jpg) center/cover; border: 1px solid rgba(255,255,255,0.1); opacity: 0.7; position: relative; }
     .fr.on { opacity: 1; border: 2px solid #e24848; box-shadow: 0 0 0 4px rgba(226,72,72,0.18); width: 96px; height: 54px; }
+    .fr.lift { opacity: 1; transform: translateY(-4px) scale(1.06); border-color: rgba(255,255,255,0.3); }
+    .fr.dim { opacity: 0.22; }
     .fr.none { background: repeating-linear-gradient(-45deg, rgba(255,255,255,0.04) 0 4px, transparent 4px 9px); }
     .fr .a { position: absolute; right: 4px; bottom: 3px; font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: 10px; font-weight: 700; color: #ece7e2; text-shadow: 0 1px 2px rgba(0,0,0,0.6); }
-    .bot { display: flex; align-items: center; gap: 6px; height: 50px; padding: 0 10px; border-radius: 6px; border: 1px dashed rgba(255,255,255,0.14); color: #a9a29b; font-size: 11px; font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; white-space: nowrap; }
-    .bot i { display: block; width: 6px; height: 6px; border-radius: 50%; background: #e24848; }
-    .bar2 { position: absolute; left: 40px; right: 40px; bottom: 20px; z-index: 2; display: flex; align-items: center; gap: 8px; color: #a9a29b; font-size: 13px; }
-    .bar2 .dot { width: 8px; height: 8px; }
-    .bar2 b { color: #ece7e2; font-weight: 600; }
-    .bar2 .r { margin-left: auto; display: flex; gap: 16px; align-items: center; font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: 12px; }
-    .veil3 { position: absolute; left: 0; right: 0; top: 0; z-index: 3; display: flex; align-items: center; gap: 14px; padding: 22px 40px; }
+    .fr .busy { position: absolute; left: 5px; top: 5px; width: 7px; height: 7px; border-radius: 50%; background: #e24848; box-shadow: 0 0 0 3px rgba(226,72,72,0.2); }
+    .tip { position: absolute; left: 96px; bottom: 74px; z-index: 5; padding: 8px 10px; border-radius: 8px; background: rgba(20,7,10,0.96); border: 1px solid rgba(255,255,255,0.12); box-shadow: 0 8px 24px rgba(0,0,0,0.45); white-space: nowrap; font-size: 12px; }
+    .tip b { display: block; font-size: 13px; }
+    .tip span { color: #a9a29b; font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: 11px; }
+    .counter { position: absolute; right: 40px; bottom: 14px; z-index: 2; display: flex; gap: 14px; align-items: center; color: #6b655f; font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: 12px; }
+    .ledg { display: flex; flex-direction: column; gap: 2px; margin-top: 10px; }
+    .ledg .line { height: 22px; font-size: 13px; }
+    .ledg .line .g { width: 12px; height: 12px; }
+    .story { position: absolute; left: 40px; right: 40px; top: 96px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+    .story .shot { border-radius: 10px; overflow: hidden; border: 1px solid rgba(255,255,255,0.1); width: 293px; height: 215px; position: relative; background: #070304; }
+    .story .shot .inner { position: absolute; left: 0; top: 0; width: 980px; height: 720px; transform: scale(0.299); transform-origin: 0 0; }
+    .story .cap2 { margin-top: 10px; font-size: 13px; color: #a9a29b; line-height: 18px; }
+    .story .cap2 b { display: block; color: #ece7e2; font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: 12px; margin-bottom: 2px; }
   </style>
 </helmet>
 <div class="win">
-
-  <div class="scene2"></div>
-  <div class="veil3">
-    <div class="brand" style="padding: 0;"><img src="letter.png"><i></i><b>Dossier</b></div>
-    <div class="field" style="margin-left: 26px; width: 240px; background: rgba(10,5,7,0.55);"><svg viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.2"></circle><path d="M15.2 15.2 20 20"></path></svg><span>Игрок, карта, день</span></div>
-    <div class="words"><b>Реплеи</b><span>Воркер</span><span>Настройки</span></div>
-  </div>
-  <div class="id">
-    <div>
-      <div class="date">Сегодня · 14:02 · lazer</div>
-      <h2>NaumRedlo</h2>
-      <div class="map">Dj Grimoire — Astral Quantization [Nattu VN0TH3R]</div>
-      <div class="meta"><span class="mods"><span class="mod h">HD</span><span class="mod h">DT</span><span class="mod h">HR</span></span><span>604x</span><span>·</span><span>3:51</span></div>
-      <div class="acts"><span class="btn primary">Отрендерить</span></div>
-    </div>
-    <div class="score"><div class="n">98,71%</div><span class="o">FC</span></div>
-  </div>
-  <div class="journal"><div class="rail"></div><div class="days"><div class="day2"><span class="lbl today"><i></i>сегодня · 16 сен</span><span class="set"><span class="fr on"><span class="a">98,71%</span></span></span></div><div class="day2"><span class="lbl"><i></i>14 авг</span><span class="set"><span class="fr"><span class="a">99,65%</span></span><span class="fr"><span class="a">93,03%</span></span></span></div><div class="day2"><span class="lbl"><i></i>3 авг</span><span class="set"><span class="fr none"></span></span></div><div class="day2"><span class="lbl"><i></i>29 июл</span><span class="set"><span class="fr"><span class="a">72,13%</span></span><span class="fr"><span class="a">96,40%</span></span><span class="fr"><span class="a">97,88%</span></span></span></div><div class="day2"><span class="lbl"><i></i>10 мая</span><span class="set"><span class="fr none"></span><span class="fr"><span class="a">88,12%</span></span></span></div></div></div>
-  <div class="bar2"><span class="dot"></span><span>Воркер</span><span class="r"><span>1 / 187</span><span>‹ ›</span></span></div>
+<div class="scene2"></div><div class="crest"><div class="brand"><img src="letter.png"><i></i><b>Dossier</b></div></div><div class="corner l"><div class="field" style="width: 240px; background: rgba(10,5,7,0.55); border-color: rgba(255,255,255,0.08); color: #6b655f;"><svg viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.2"></circle><path d="M15.2 15.2 20 20"></path></svg><span>Игрок, карта, день</span></div></div><div class="corner r"><div class="words"><b>Реплеи</b><span>Воркер</span><span>Настройки</span></div></div><div class="id"><div><div class="date">сегодня · 14:02 · lazer</div><h2>NaumRedlo</h2><div class="map">Dj Grimoire — Astral Quantization [Nattu VN0TH3R]</div><div class="meta"><span class="mods"><span class="mod h">HD</span><span class="mod h">DT</span><span class="mod h">HR</span></span><span>604x</span><span>·</span><span>3:51</span></div><div class="acts"><span class="btn primary">Отрендерить</span></div></div><div class="score"><div class="n">98,71%</div><span class="o">FC</span></div></div><div class="journal"><div class="rail"></div><div class="days"><div class="day2"><span class="lbl on"><i></i>сегодня</span><span class="set"><span class="fr on"><span class="a">98,71%</span></span></span></div><div class="day2"><span class="lbl"><i></i>14 авг</span><span class="set"><span class="fr"><span class="a">99,65%</span></span><span class="fr"><span class="a">93,03%</span></span></span></div><div class="day2"><span class="lbl"><i></i>3 авг</span><span class="set"><span class="fr none"></span></span></div><div class="day2"><span class="lbl"><i></i>29 июл</span><span class="set"><span class="fr"><span class="a">72,13%</span></span><span class="fr"><span class="a">96,40%</span></span><span class="fr"><span class="a">97,88%</span></span></span></div><div class="day2"><span class="lbl"><i></i>10 мая 2025</span><span class="set"><span class="fr none"></span><span class="fr"><span class="a">88,12%</span></span></span></div></div></div><div class="counter"><span>1 / 187</span><span>‹ ›</span></div>
 </div>
 </x-dc>
 </body>

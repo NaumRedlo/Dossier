@@ -25,6 +25,10 @@ open = "5"
 iced_test = "0.14"
 png = "0.17"
 zip = { version = "2", default-features = false, features = ["deflate"] }
+md-5 = "0.10"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
+dossier-replay = { path = "../crates/dossier-replay" }
 
 
 [dev-dependencies]

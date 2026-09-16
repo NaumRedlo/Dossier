@@ -238,3 +238,190 @@ pub fn write(dir: &Path) -> Result<usize, String> {
     let _ = Screen::Main;
     Ok(written)
 }
+
+pub fn main_frame<'a>(main: &'a crate::main_screen::Main, backdrop: &iced::widget::image::Handle) -> Element<'a, Message> {
+    stack![ui::backdrop(backdrop), main.view().map(Message::Main)]
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .into()
+}
+
+pub fn snapshot_main(main: &crate::main_screen::Main, size: Size) -> Result<iced_test::simulator::Snapshot, iced_test::Error> {
+    let backdrop = ui::backdrop_handle();
+    let mut ui = Simulator::with_size(settings_once(), size, main_frame(main, &backdrop));
+    ui.snapshot(&crate::theme::theme())
+}
+
+pub fn shot_folder(root: &Path, lang: Lang, out: &Path) -> Result<(), String> {
+    use crate::main_screen::{decoded, length_of, Main};
+    let source = crate::sources::folder_at(root).ok_or_else(|| format!("no replays in {}", root.display()))?;
+    let mut settings = crate::settings::Settings::default();
+    settings.lang = lang;
+    settings.sources = vec![source.clone()];
+    let library = crate::library::read(&[source]);
+    let mut main = Main::staged(crate::lang::Words::new(lang), settings, library, Some(0));
+    let entries: Vec<_> = main.entries().to_vec();
+    for entry in &entries {
+        if let Some(bg) = entry.map.as_ref().and_then(|m| m.background.as_deref()) {
+            if !main.thumbs.contains_key(&entry.map_hash) {
+                if let Some(handle) = decoded(bg, 176, Some((176, 100))) {
+                    main.thumbs.insert(entry.map_hash.clone(), handle);
+                }
+            }
+        }
+    }
+    if let Some(first) = entries.first() {
+        if let Some(bg) = first.map.as_ref().and_then(|m| m.background.as_deref()) {
+            match decoded(bg, 960, None) {
+                Some(handle) => {
+                    main.scenes.insert(first.map_hash.clone(), handle);
+                }
+                None => eprintln!("could not decode {}", bg.display()),
+            }
+        } else {
+            eprintln!("no background for the first replay");
+        }
+        main.lengths.insert(first.path.clone(), length_of(&first.path));
+    }
+    let shot = snapshot_main(&main, Size::new(980.0, 720.0)).map_err(|e| format!("{e:?}"))?;
+    let stem = out.with_extension("");
+    let _ = std::fs::remove_file(written_as(&stem));
+    shot.matches_image(&stem).map_err(|e| format!("{e:?}"))?;
+    Ok(())
+}
+
+fn mock_map(key: &str, artist: &str, title: &str, version: &str) -> crate::library::Map {
+    let docs = Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("docs").join("mockups").join("main");
+    crate::library::Map {
+        file: docs.join(format!("{key}.osu")),
+        artist: artist.to_owned(),
+        title: title.to_owned(),
+        version: version.to_owned(),
+        background: Some(docs.join(format!("bg-{key}.jpg"))),
+    }
+}
+
+const NOON: i64 = 1_789_560_000;
+const DAY: i64 = 86_400;
+
+fn mock_entry(
+    player: &str,
+    map: Option<crate::library::Map>,
+    named: Option<crate::library::Named>,
+    mods: &[&str],
+    combo: u16,
+    counts: [u16; 4],
+    days_ago: i64,
+    kind: Kind,
+) -> crate::library::Entry {
+    use crate::library::{Grade, Outcome};
+    let hash = map.as_ref().map_or_else(|| format!("none-{player}-{days_ago}"), |m| format!("hash-{}", m.title));
+    let miss = counts[3];
+    let outcome = if miss > 0 { Outcome::Misses(miss) } else if combo % 2 == 0 { Outcome::FullCombo } else { Outcome::SliderBreak };
+    let total = counts.iter().map(|c| *c as f64).sum::<f64>().max(1.0);
+    let accuracy = (300.0 * counts[0] as f64 + 100.0 * counts[1] as f64 + 50.0 * counts[2] as f64) / (300.0 * total) * 100.0;
+    crate::library::Entry {
+        path: PathBuf::from(format!("{player}-{days_ago}.osr")),
+        kind,
+        player: player.to_owned(),
+        map_hash: hash,
+        mods: mods.iter().map(|m| (*m).to_owned()).collect(),
+        combo,
+        counts,
+        accuracy,
+        grade: Grade::of(counts, false),
+        outcome,
+        played_at: NOON - days_ago * DAY - 3600,
+        named,
+        map,
+    }
+}
+
+pub fn mock_library() -> crate::library::Library {
+    let astral = mock_map("astral", "Dj Grimoire", "Astral Quantization", "Nattu VN0TH3R");
+    let zenith = mock_map("zenith", "xi", "Blue Zenith", "FOUR DIMENSIONS");
+    let freedom = mock_map("freedom", "xi", "FREEDOM DiVE", "Extra");
+    let sink = mock_map("sink", "Chroma", "sink to the deep sea world", "Ascension");
+    let nevermind = mock_map("nevermind", "Phoneboy", "Nevermind", "Insane");
+    let galactic = mock_map("galactic", "DragonForce", "Galactic Astro Domination", "Extreme");
+    let lucky = crate::library::named("Deeo_XD - Chocofan - LUCKY CAT [_] (2026-08-03) Osu");
+    let entries = vec![
+        mock_entry("NaumRedlo", Some(astral), None, &["HD", "DT", "HR"], 604, [1184, 77, 15, 0], 0, Kind::Lazer),
+        mock_entry("Guest", Some(zenith.clone()), None, &["EZ"], 401, [1900, 40, 3, 0], 33, Kind::Stable),
+        mock_entry("-legusshhka-", Some(freedom), None, &[], 227, [1700, 140, 20, 27], 33, Kind::Stable),
+        mock_entry("Deeo_XD", None, lucky, &["DT"], 312, [520, 40, 6, 4], 44, Kind::Stable),
+        mock_entry("kazak1865", Some(sink), None, &["HR"], 180, [900, 200, 40, 60], 49, Kind::Stable),
+        mock_entry("kazak1865", Some(nevermind), None, &[], 421, [880, 60, 4, 3], 49, Kind::Stable),
+        mock_entry("kazak1865", Some(galactic), None, &["HD"], 690, [1480, 90, 10, 1], 49, Kind::Stable),
+        mock_entry("Guest", Some(zenith), None, &[], 233, [1600, 250, 30, 9], 494, Kind::Stable),
+    ];
+    crate::library::Library { entries, maps: 6 }
+}
+
+pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
+    use crate::main_screen::{decoded, Main, Overlay};
+    let mut settings = crate::settings::Settings::default();
+    settings.lang = lang;
+    let library = mock_library();
+    let staged = |chosen: Option<usize>| {
+        let mut main = Main::staged(crate::lang::Words::new(lang).in_zone(3 * 3600), settings.clone(), library.clone(), chosen);
+        main.now_unix = NOON;
+        for entry in &library.entries {
+            if let Some(bg) = entry.map.as_ref().and_then(|m| m.background.as_deref()) {
+                if let Some(handle) = decoded(bg, 176, Some((176, 100))) {
+                    main.thumbs.insert(entry.map_hash.clone(), handle);
+                }
+            }
+        }
+        if let Some(entry) = chosen.and_then(|c| library.entries.get(c)) {
+            if let Some(bg) = entry.map.as_ref().and_then(|m| m.background.as_deref()) {
+                if let Some(handle) = decoded(bg, 640, None) {
+                    main.scenes.insert(entry.map_hash.clone(), handle);
+                }
+            }
+            main.lengths.insert(entry.path.clone(), 231_400);
+        }
+        main
+    };
+    let mut search = staged(Some(1));
+    search.search = "zenith".to_owned();
+    let mut worker = staged(Some(0));
+    worker.overlay = Overlay::Worker;
+    let mut empty = Main::staged(crate::lang::Words::new(lang).in_zone(3 * 3600), settings.clone(), crate::library::Library::default(), None);
+    empty.now_unix = NOON;
+    vec![
+        ("main-rest".to_owned(), staged(Some(0))),
+        ("main-search".to_owned(), search),
+        ("main-nomap".to_owned(), staged(Some(3))),
+        ("main-worker".to_owned(), worker),
+        ("main-empty".to_owned(), empty),
+    ]
+}
+
+pub fn every_main_frame() -> Vec<(String, crate::main_screen::Main, Size)> {
+    let mut out = Vec::new();
+    for lang in Lang::ALL {
+        for (name, main) in main_states(lang) {
+            for (label, size) in SIZES {
+                if label != SIZES[0].0 && name != "main-rest" {
+                    continue;
+                }
+                out.push((format!("{name}-{}-{label}", lang.tag()), main.clone(), size));
+            }
+        }
+    }
+    out
+}
+
+pub fn write_main(dir: &Path) -> Result<usize, String> {
+    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    let mut written = 0;
+    for (name, main, size) in every_main_frame() {
+        let stem = dir.join(&name);
+        let _ = std::fs::remove_file(written_as(&stem));
+        let shot = snapshot_main(&main, size).map_err(|e| format!("{e:?}"))?;
+        shot.matches_image(&stem).map_err(|e| format!("{e:?}"))?;
+        written += 1;
+    }
+    Ok(written)
+}

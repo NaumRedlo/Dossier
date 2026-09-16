@@ -685,3 +685,146 @@ pub fn grow<'a, Message: 'a>() -> Element<'a, Message> {
 pub fn sized(w: f32, h: f32) -> Size {
     Size::new(w, h)
 }
+
+pub struct Hatch {
+    pub stroke: f32,
+    pub step: f32,
+}
+
+impl<Message> canvas::Program<Message> for Hatch {
+    type State = ();
+
+    fn draw(&self, _: &(), renderer: &Renderer, _: &Theme, bounds: Rectangle, _: mouse::Cursor) -> Vec<Geometry> {
+        let mut frame = Frame::new(renderer, bounds.size());
+        let reach = bounds.width + bounds.height;
+        let mut x = -bounds.height;
+        while x < reach {
+            let line = Path::line(Point::new(x, bounds.height), Point::new(x + bounds.height, 0.0));
+            frame.stroke(
+                &line,
+                Stroke::default().with_width(self.stroke).with_color(Color::from_rgba(1.0, 1.0, 1.0, 0.03)),
+            );
+            x += self.step;
+        }
+        vec![frame.into_geometry()]
+    }
+}
+
+pub fn hatch<'a, Message: 'a>() -> Element<'a, Message> {
+    Canvas::new(Hatch { stroke: 8.0, step: 18.0 }).width(Length::Fill).height(Length::Fill).into()
+}
+
+pub fn fine_hatch<'a, Message: 'a>() -> Element<'a, Message> {
+    Canvas::new(Hatch { stroke: 1.5, step: 5.0 }).width(Length::Fill).height(Length::Fill).into()
+}
+
+pub fn in_thread<T>(work: impl FnOnce() -> T + Send + 'static) -> iced::Task<T>
+where
+    T: Send + 'static,
+{
+    iced::Task::run(
+        iced::stream::channel(1, async move |out: iced::futures::channel::mpsc::Sender<T>| {
+            std::thread::spawn(move || {
+                let mut out = out;
+                let made = work();
+                let mut made = Some(made);
+                while let Some(item) = made.take() {
+                    match out.try_send(item) {
+                        Ok(()) => {}
+                        Err(e) if e.is_full() => {
+                            made = Some(e.into_inner());
+                            std::thread::sleep(std::time::Duration::from_millis(10));
+                        }
+                        Err(_) => {}
+                    }
+                }
+            });
+        }),
+        |made| made,
+    )
+}
+
+pub fn streamed<T>(work: impl FnOnce(&mut dyn FnMut(T) -> bool) + Send + 'static) -> iced::Task<T>
+where
+    T: Send + 'static,
+{
+    iced::Task::run(
+        iced::stream::channel(32, async move |out: iced::futures::channel::mpsc::Sender<T>| {
+            std::thread::spawn(move || {
+                let mut out = out;
+                let mut push = |item: T| {
+                    let mut item = Some(item);
+                    while let Some(inner) = item.take() {
+                        match out.try_send(inner) {
+                            Ok(()) => return true,
+                            Err(e) if e.is_full() => {
+                                item = Some(e.into_inner());
+                                std::thread::sleep(std::time::Duration::from_millis(5));
+                            }
+                            Err(_) => return false,
+                        }
+                    }
+                    true
+                };
+                work(&mut push);
+            });
+        }),
+        |made| made,
+    )
+}
+
+pub struct Veil {
+    background: iced::Background,
+}
+
+impl Veil {
+    pub fn new(background: impl Into<iced::Background>) -> Veil {
+        Veil { background: background.into() }
+    }
+}
+
+impl<Message> iced::advanced::Widget<Message, Theme, Renderer> for Veil {
+    fn size(&self) -> Size<Length> {
+        Size { width: Length::Fill, height: Length::Fill }
+    }
+
+    fn layout(
+        &mut self,
+        _: &mut iced::advanced::widget::Tree,
+        _: &Renderer,
+        limits: &iced::advanced::layout::Limits,
+    ) -> iced::advanced::layout::Node {
+        iced::advanced::layout::atomic(limits, Length::Fill, Length::Fill)
+    }
+
+    fn draw(
+        &self,
+        _: &iced::advanced::widget::Tree,
+        renderer: &mut Renderer,
+        _: &Theme,
+        _: &iced::advanced::renderer::Style,
+        layout: iced::advanced::Layout<'_>,
+        _: mouse::Cursor,
+        _: &Rectangle,
+    ) {
+        use iced::advanced::Renderer as _;
+        let bounds = layout.bounds();
+        let background = self.background.clone();
+        renderer.with_layer(bounds, |renderer| {
+            renderer.fill_quad(
+                iced::advanced::renderer::Quad { bounds, ..iced::advanced::renderer::Quad::default() },
+                background,
+            );
+        });
+    }
+}
+
+impl<'a, Message: 'a> From<Veil> for Element<'a, Message> {
+    fn from(veil: Veil) -> Element<'a, Message> {
+        Element::new(veil)
+    }
+}
+
+pub fn veil<'a, Message: 'a>(colour: Color) -> Element<'a, Message> {
+    Veil::new(colour).into()
+}

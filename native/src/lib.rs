@@ -4,23 +4,26 @@ pub mod ffmpeg;
 pub mod first_run;
 pub mod gallery;
 pub mod lang;
+pub mod library;
+pub mod main_screen;
 pub mod settings;
 pub mod sources;
 pub mod theme;
 pub mod ui;
 
-use iced::widget::{container, image, stack, text};
+use iced::widget::{image, stack};
 use iced::{Element, Length, Size, Subscription, Task, Theme};
 
 use first_run::FirstRun;
 use lang::Words;
+use main_screen::Main;
 use settings::Settings;
 
 pub const WINDOW: Size = Size::new(980.0, 720.0);
 
 pub enum Screen {
     FirstRun(FirstRun),
-    Main(Words),
+    Main(Main),
 }
 
 pub struct App {
@@ -31,17 +34,60 @@ pub struct App {
 #[derive(Debug, Clone)]
 pub enum Message {
     FirstRun(first_run::Message),
+    Main(main_screen::Message),
+    Snap,
+    Snapped(Option<iced::window::Id>),
+    Shot(iced::window::Screenshot),
 }
+
+pub struct Rehearsal {
+    pub folder: Option<std::path::PathBuf>,
+    pub snap_to: Option<std::path::PathBuf>,
+    pub after: std::time::Duration,
+}
+
+impl Rehearsal {
+    pub fn from_args(args: &[String]) -> Option<Rehearsal> {
+        let at = args.iter().position(|a| a == "--open")?;
+        let folder = args.get(at + 1).map(std::path::PathBuf::from);
+        let snap_to = args.iter().position(|a| a == "--snap").and_then(|i| args.get(i + 1)).map(std::path::PathBuf::from);
+        let after = args
+            .iter()
+            .position(|a| a == "--after")
+            .and_then(|i| args.get(i + 1))
+            .and_then(|s| s.parse::<u64>().ok())
+            .map_or(std::time::Duration::from_millis(2500), std::time::Duration::from_millis);
+        Some(Rehearsal { folder, snap_to, after })
+    }
+}
+
+pub static REHEARSAL: std::sync::OnceLock<Rehearsal> = std::sync::OnceLock::new();
 
 impl App {
     pub fn boot() -> (App, Task<Message>) {
         let backdrop = ui::backdrop_handle();
+        if let Some(rehearsal) = REHEARSAL.get() {
+            let mut said = Settings::load();
+            if let Some(source) = rehearsal.folder.as_deref().and_then(sources::folder_at) {
+                said.sources = vec![source];
+            }
+            let (main, task) = Main::new(Words::new(said.lang), said);
+            let snap = match &rehearsal.snap_to {
+                Some(_) => {
+                    let after = rehearsal.after;
+                    Task::perform(async move { tokio_sleep(after).await }, |_| Message::Snap)
+                }
+                None => Task::none(),
+            };
+            return (App { screen: Screen::Main(main), backdrop }, Task::batch([task.map(Message::Main), snap]));
+        }
         if settings::first_run() {
             let (flow, task) = FirstRun::new();
             (App { screen: Screen::FirstRun(flow), backdrop }, task.map(Message::FirstRun))
         } else {
             let said = Settings::load();
-            (App { screen: Screen::Main(Words::new(said.lang)), backdrop }, Task::none())
+            let (main, task) = Main::new(Words::new(said.lang), said);
+            (App { screen: Screen::Main(main), backdrop }, task.map(Message::Main))
         }
     }
 
@@ -54,10 +100,26 @@ impl App {
                 let (task, done) = flow.update(inner);
                 if let first_run::Done::Finished(said) = done {
                     let _ = said.save();
-                    self.screen = Screen::Main(Words::new(said.lang));
-                    return Task::none();
+                    let (main, task) = Main::new(Words::new(said.lang), said);
+                    self.screen = Screen::Main(main);
+                    return task.map(Message::Main);
                 }
                 task.map(Message::FirstRun)
+            }
+            Message::Main(inner) => {
+                let Screen::Main(main) = &mut self.screen else {
+                    return Task::none();
+                };
+                main.update(inner).map(Message::Main)
+            }
+            Message::Snap => iced::window::oldest().map(Message::Snapped),
+            Message::Snapped(Some(id)) => iced::window::screenshot(id).map(Message::Shot),
+            Message::Snapped(None) => iced::exit(),
+            Message::Shot(shot) => {
+                if let Some(to) = REHEARSAL.get().and_then(|r| r.snap_to.clone()) {
+                    let _ = ::image::save_buffer(&to, &shot.rgba, shot.size.width, shot.size.height, ::image::ColorType::Rgba8);
+                }
+                iced::exit()
             }
         }
     }
@@ -65,9 +127,7 @@ impl App {
     pub fn view(&self) -> Element<'_, Message> {
         let front: Element<'_, Message> = match &self.screen {
             Screen::FirstRun(flow) => flow.view().map(Message::FirstRun),
-            Screen::Main(words) => container(text(words.t("app-name")).font(theme::SANS_SEMI).size(theme::TITLE))
-                .center(Length::Fill)
-                .into(),
+            Screen::Main(main) => main.view().map(Message::Main),
         };
         stack![ui::backdrop(&self.backdrop), front]
             .width(Length::Fill)
@@ -78,7 +138,7 @@ impl App {
     pub fn subscription(&self) -> Subscription<Message> {
         match &self.screen {
             Screen::FirstRun(flow) => flow.subscription().map(Message::FirstRun),
-            Screen::Main(_) => Subscription::none(),
+            Screen::Main(main) => main.subscription().map(Message::Main),
         }
     }
 
@@ -97,3 +157,12 @@ pub fn settings() -> iced::Settings {
     }
 }
 
+
+async fn tokio_sleep(after: std::time::Duration) {
+    let (sender, receiver) = iced::futures::channel::oneshot::channel::<()>();
+    std::thread::spawn(move || {
+        std::thread::sleep(after);
+        let _ = sender.send(());
+    });
+    let _ = receiver.await;
+}

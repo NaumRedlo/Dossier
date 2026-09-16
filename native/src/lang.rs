@@ -68,11 +68,12 @@ pub struct Words {
     lang: Lang,
     bundle: FluentBundle<FluentResource>,
     before: Option<(FluentBundle<FluentResource>, f32)>,
+    zone: Option<chrono::FixedOffset>,
 }
 
 impl Clone for Words {
     fn clone(&self) -> Words {
-        Words::new(self.lang)
+        Words { zone: self.zone, ..Words::new(self.lang) }
     }
 }
 
@@ -102,7 +103,20 @@ pub fn typed(from: &str, to: &str, k: f32) -> String {
 
 impl Words {
     pub fn new(lang: Lang) -> Words {
-        Words { lang, bundle: bundle_for(lang), before: None }
+        Words { lang, bundle: bundle_for(lang), before: None, zone: None }
+    }
+
+    pub fn in_zone(mut self, seconds_east: i32) -> Words {
+        self.zone = chrono::FixedOffset::east_opt(seconds_east);
+        self
+    }
+
+    fn local(&self, unix: i64) -> Option<chrono::DateTime<chrono::FixedOffset>> {
+        use chrono::TimeZone;
+        match self.zone {
+            Some(zone) => zone.timestamp_opt(unix, 0).single(),
+            None => chrono::Local.timestamp_opt(unix, 0).single().map(|t| t.fixed_offset()),
+        }
     }
 
     pub fn retyping_into(self, lang: Lang) -> Words {
@@ -110,7 +124,7 @@ impl Words {
             Some((old, _)) if self.lang == lang => old,
             _ => self.bundle,
         };
-        Words { lang, bundle: bundle_for(lang), before: Some((before, 0.0)) }
+        Words { lang, bundle: bundle_for(lang), before: Some((before, 0.0)), zone: self.zone }
     }
 
     pub fn typed_up_to(&mut self, k: f32) {
@@ -168,6 +182,45 @@ impl Words {
 
     pub fn mb_of(&self, done: u64, total: u64) -> String {
         format!("{} / {} {}", self.mb_number(done), self.mb_number(total), self.t("mb"))
+    }
+
+    pub fn day(&self, unix: i64, now: i64) -> String {
+        use chrono::Datelike;
+        let (Some(when), Some(today)) = (self.local(unix), self.local(now)) else {
+            return String::new();
+        };
+        if when.date_naive() == today.date_naive() {
+            return self.t("today");
+        }
+        let month = self.t(&format!("month-{}", when.month()));
+        let same_year = when.year() == today.year();
+        match (self.lang, same_year) {
+            (Lang::En, true) => format!("{month} {}", when.day()),
+            (Lang::En, false) => format!("{month} {}, {}", when.day(), when.year()),
+            (Lang::Ru, true) => format!("{} {month}", when.day()),
+            (Lang::Ru, false) => format!("{} {month} {}", when.day(), when.year()),
+        }
+    }
+
+    pub fn clock(&self, unix: i64) -> String {
+        use chrono::Timelike;
+        match self.local(unix) {
+            Some(when) => format!("{:02}:{:02}", when.hour(), when.minute()),
+            None => String::new(),
+        }
+    }
+
+    pub fn percent(&self, value: f64) -> String {
+        let text = format!("{value:.2}%");
+        match self.lang {
+            Lang::En => text,
+            Lang::Ru => text.replace('.', ","),
+        }
+    }
+
+    pub fn length(&self, ms: i64) -> String {
+        let seconds = (ms.max(0) / 1000) as u64;
+        format!("{}:{:02}", seconds / 60, seconds % 60)
     }
 
     fn say(&self, key: &str, args: Option<&FluentArgs>) -> String {
@@ -249,6 +302,27 @@ mod tests {
     fn sizes_read_in_megabytes_with_the_language_s_decimal_mark() {
         assert_eq!(Words::new(Lang::En).mb_of(12_950_000, 28_832_991), "12.4 / 27.5 MB");
         assert_eq!(Words::new(Lang::Ru).mb(28_832_991), "27,5 МБ");
+    }
+
+    #[test]
+    fn a_day_is_named_the_way_its_language_says_it() {
+        use chrono::TimeZone;
+        let now = chrono::Local.with_ymd_and_hms(2026, 9, 16, 12, 0, 0).single().unwrap().timestamp();
+        let same_day = chrono::Local.with_ymd_and_hms(2026, 9, 16, 9, 30, 0).single().unwrap().timestamp();
+        let august = chrono::Local.with_ymd_and_hms(2026, 8, 14, 21, 34, 0).single().unwrap().timestamp();
+        let last_year = chrono::Local.with_ymd_and_hms(2025, 5, 10, 8, 0, 0).single().unwrap().timestamp();
+        let en = Words::new(Lang::En);
+        let ru = Words::new(Lang::Ru);
+        assert_eq!(en.day(same_day, now), "today");
+        assert_eq!(ru.day(same_day, now), "сегодня");
+        assert_eq!(en.day(august, now), "Aug 14");
+        assert_eq!(ru.day(august, now), "14 авг");
+        assert_eq!(en.day(last_year, now), "May 10, 2025");
+        assert_eq!(ru.day(last_year, now), "10 мая 2025");
+        assert_eq!(en.clock(august), "21:34");
+        assert_eq!(en.percent(98.7123), "98.71%");
+        assert_eq!(ru.percent(98.7123), "98,71%");
+        assert_eq!(en.length(231_400), "3:51");
     }
 
     #[test]

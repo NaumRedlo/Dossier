@@ -230,12 +230,16 @@ pub fn lazer_at(root: &Path) -> Option<Source> {
 
 pub fn folder_at(root: &Path) -> Option<Source> {
     let replays = count_files(root, "osr");
+    let songs = ["Songs", "Beatmap", "Beatmaps"]
+        .iter()
+        .map(|name| root.join(name))
+        .find(|dir| dir.is_dir());
     (replays > 0).then(|| Source {
         kind: Kind::Folder,
-        maps: None,
+        maps: songs.as_deref().map(count_dirs),
         skin_count: 0,
         replay_count: replays,
-        songs: None,
+        songs,
         skins: None,
         replays: Some(root.to_path_buf()),
         root: root.to_path_buf(),

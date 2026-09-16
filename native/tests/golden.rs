@@ -66,3 +66,16 @@ fn every_state_keeps_its_buttons_on_screen() {
     }
     assert!(lost.is_empty(), "buttons squeezed to nothing or pushed off the window:\n{}", lost.join("\n"));
 }
+
+#[test]
+fn every_main_screen_state_matches_its_approved_frame() {
+    let mut wrong = Vec::new();
+    for (name, main, size) in gallery::every_main_frame() {
+        let shot = gallery::snapshot_main(&main, size).expect("a frame");
+        let stem = golden(&name);
+        if !shot.matches_image(&stem).expect("a comparison") {
+            wrong.push(name);
+        }
+    }
+    assert!(wrong.is_empty(), "main-screen frames that no longer match their approved picture:\n{}", wrong.join("\n"));
+}

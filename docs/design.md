@@ -199,23 +199,23 @@ never a farm; the farm is the bot's word for all of them together.
   length, a dot between each — and one button, *Render*. Right: the accuracy
   in the largest type on the screen, its outcome under it.
 - *The journal is the strip along the bottom.* Replays only, as small frames
-  grouped by day, newest first, the chosen one outlined in red with no glow.
-  A frame is the map's own background — what song select shows, the picture
-  a player already knows the map by — darkened by a fifth, with the grade in
-  its top-right corner as one mono letter on a dark chip, in the grade's own
-  colour — the one place the single hue gives way, because players read the
-  colour before the letter: SS pale gold, S gold, A green, B blue, C purple,
-  D and a fail's F in the accent red. Nothing under the frame. Not the
-  accuracy: every engine frame looks like every
+  grouped by day, newest first, the chosen one outlined in red with no glow
+  and a little larger. A frame is the map's own background — what song
+  select shows, the picture a player already knows the map by — at about
+  half strength until it is hovered or chosen, and nothing on it: no grade,
+  no number (decided 2026-09-16 after seeing it with real maps; the grade
+  lives in the caption, in its own colour — SS pale gold, S gold, A green, B
+  blue, C purple, D and F the accent red — the one place the single hue
+  gives way). Not the accuracy: every engine frame looks like every
   other and 98,71 beside 97,88 tells the eye nothing; the number lives in
   the viewer where it is large, and the rest — full combo, sliderbreak,
-  misses — is the caption on hover. A replay whose map is not on disk keeps
-  the hatched ground; a replay being rendered wears a red dot in the middle
-  of its frame. A day is labelled the way its language says it:
+  misses — is the caption on hover. A replay whose map is not on disk is a
+  frame of fine diagonal hatching; a replay being rendered wears a red dot
+  in the middle of its frame. A day is labelled the way its language says it:
   *today* / *сегодня* as the bare word, then *Aug 14* / *14 авг*, and the
   year only when it is not this one — *May 10, 2025* / *10 мая 2025*. It
-  scrolls sideways; *1 / 187* and the arrows sit small above the rail at the
-  right.
+  scrolls sideways; *1 / 187* sits small and centred under the strip, with
+  no arrows — the keys and the wheel turn the pages.
 - *Thin chrome.* One row at the top: the crest — the first run's block at
   the first run's sizes, the letter at 36 px, a 22 px rule, the word at
   20 px — at the left, the search field (*player, map, day*) beside it, and
@@ -317,7 +317,18 @@ the keyboard. Where a choice is still open it is marked *open*.
 
 *The three words.* Replays is this screen. Worker and Settings open over
 the scene, dimmed to a fifth, in the first run's centred column; the crest
-does not move, and Esc or the word *Replays* brings the scene back.
+does not move, and Esc or the word *Replays* brings the scene back. Until
+they are built, each is one card — its name and *Coming later* / *Будет
+доступно позже* — with *Back to replays*.
+
+*The scene, for now.* Until the engine draws live, the scene is the map's
+own background, blurred and dimmed: near-black at the top and the bottom,
+easing softly toward a centre that is itself held at two-thirds dark, so the
+words always read whatever the art. The dim is baked into the picture when
+it is decoded rather than laid over it, because a gradient quad's alpha does
+not blend reliably in the GPU renderer (a five-stop gradient over the
+picture drew nothing in the window), and a picture is the same in both
+renderers anyway. A replay without its map shows the hatched ground.
 
 ### Entering
 
@@ -469,6 +480,26 @@ The main screen is designed after this flow is approved, not before.
 
 **Судейство and Студия** are deferred. They are the engine's own views and
 deserve their own document once the five above are real.
+
+### What the renderer taught us
+
+Learned building the main screen, kept so nobody rediscovers it:
+
+- Text inside a `pin` that moves every frame is not drawn while it moves;
+  the emblem and the rule were, the word was not. Moving something means a
+  `float` with a translation, which draws through a transformation, and the
+  word stays. The crest glides that way.
+- A quad with a gradient background is not trusted for alpha in the window:
+  two stops blend, five stops over a picture drew nothing. Dims that must be
+  exact are baked into the picture.
+- The test simulator's image atlas does not grow: after a strip of
+  thumbnails, a scene picture wider than about 800 px is silently not drawn
+  in a snapshot, though the window draws it. Frames for the gallery keep the
+  scene at 640 px, and the application itself decodes it at 960 px, blurred,
+  which is all a backdrop needs.
+- Within one layer the renderer draws quads before images; a veil meant to
+  sit over a picture needs a layer of its own (`with_layer`), or, better, no
+  veil.
 
 ### Two renderers, one look
 

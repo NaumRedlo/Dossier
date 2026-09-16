@@ -249,3 +249,109 @@ pub fn switch(_: &Theme, status: toggler::Status) -> toggler::Style {
         padding_ratio: 0.12,
     }
 }
+
+pub const GRADE_SS: Color = color!(0xf7e08a);
+pub const GRADE_S: Color = color!(0xf0c040);
+pub const GRADE_A: Color = color!(0x8cd04a);
+pub const GRADE_B: Color = color!(0x58aefc);
+pub const GRADE_C: Color = color!(0xb06ce8);
+pub const GRADE_D: Color = ACCENT;
+
+pub const MOD_HARD: Color = color!(0xd64e48);
+pub const MOD_EASY: Color = color!(0x7ac65c);
+pub const MOD_AUTO: Color = color!(0x5694d6);
+pub const MOD_OTHER: Color = color!(0x9668ce);
+
+pub const SCRIM: Color = Color::from_rgba(0.027, 0.012, 0.016, 0.72);
+pub const CHIP: Color = Color::from_rgba(0.027, 0.012, 0.016, 0.72);
+
+pub const FRAME_W: f32 = 88.0;
+pub const FRAME_H: f32 = 50.0;
+pub const FRAME_RADIUS: f32 = 6.0;
+
+pub fn scrim(_: &Theme) -> container::Style {
+    container::Style {
+        text_color: None,
+        background: Some(Background::Color(SCRIM)),
+        border: Border::default(),
+        shadow: Shadow::default(),
+        snap: true,
+    }
+}
+
+pub fn chip(_: &Theme) -> container::Style {
+    container::Style {
+        text_color: None,
+        background: Some(Background::Color(CHIP)),
+        border: border(Color::TRANSPARENT, 3.0),
+        shadow: Shadow::default(),
+        snap: true,
+    }
+}
+
+pub fn badge(colour: Color) -> impl Fn(&Theme) -> container::Style {
+    move |_| container::Style {
+        text_color: Some(ON_ACCENT),
+        background: Some(Background::Color(colour)),
+        border: border(Color::TRANSPARENT, 4.0),
+        shadow: Shadow::default(),
+        snap: true,
+    }
+}
+
+pub fn hatched(_: &Theme) -> container::Style {
+    container::Style {
+        text_color: None,
+        background: Some(Background::Color(Color::from_rgba(1.0, 1.0, 1.0, 0.012))),
+        border: border(LINE, FRAME_RADIUS),
+        shadow: Shadow::default(),
+        snap: true,
+    }
+}
+
+pub fn frame(chosen: bool, lit: bool) -> impl Fn(&Theme, button::Status) -> button::Style {
+    move |_, status| {
+        let lit = lit || matches!(status, button::Status::Hovered);
+        let edge = if chosen {
+            Border { color: ACCENT, width: 2.0, radius: FRAME_RADIUS.into() }
+        } else if lit {
+            Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.08), width: 1.0, radius: FRAME_RADIUS.into() }
+        } else {
+            Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.02), width: 1.0, radius: FRAME_RADIUS.into() }
+        };
+        button::Style {
+            background: Some(Background::Color(Color::from_rgb(0.04, 0.02, 0.03))),
+            text_color: INK,
+            border: edge,
+            shadow: Shadow::default(),
+            snap: true,
+        }
+    }
+}
+
+pub fn word(on: bool) -> impl Fn(&Theme, button::Status) -> button::Style {
+    move |_, status| {
+        let text_color = match (on, status) {
+            (true, _) => INK,
+            (false, button::Status::Hovered | button::Status::Pressed) => INK,
+            _ => MUTED,
+        };
+        plain(None, text_color, Color::TRANSPARENT)
+    }
+}
+
+pub fn field_faded(alpha: f32) -> impl Fn(&Theme, text_input::Status) -> text_input::Style {
+    move |theme, status| {
+        let mut style = field(theme, status);
+        let dim = |c: Color| Color { a: c.a * alpha, ..c };
+        style.background = match style.background {
+            Background::Color(c) => Background::Color(dim(c)),
+            other => other,
+        };
+        style.border.color = dim(style.border.color);
+        style.icon = dim(style.icon);
+        style.placeholder = dim(style.placeholder);
+        style.value = dim(style.value);
+        style
+    }
+}

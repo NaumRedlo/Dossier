@@ -62,3 +62,43 @@ fn while_ffmpeg_downloads_there_is_no_second_download_button() {
     assert!(ui.find("Download").is_err());
     assert!(ui.find("Continue anyway").is_ok());
 }
+
+fn main_state(name: &str) -> dossier_native::main_screen::Main {
+    gallery::main_states(Lang::En)
+        .into_iter()
+        .find(|(n, _)| n == name)
+        .map(|(_, m)| m)
+        .expect("a staged main screen")
+}
+
+#[test]
+fn the_three_words_and_the_frames_answer_to_clicks() {
+    use dossier_native::main_screen::{Message as M, Overlay};
+    let staged = main_state("main-rest");
+    let backdrop = dossier_native::ui::backdrop_handle();
+    let mut ui = Simulator::with_size(dossier_native::settings(), iced::Size::new(980.0, 720.0), gallery::main_frame(&staged, &backdrop));
+    let _ = ui.click("Worker").expect("clicked");
+    let messages: Vec<_> = ui.into_messages().collect();
+    assert!(messages.iter().any(|m| matches!(m, dossier_native::Message::Main(M::Show(Overlay::Worker)))), "{messages:?}");
+
+    let mut ui = Simulator::with_size(dossier_native::settings(), iced::Size::new(980.0, 720.0), gallery::main_frame(&staged, &backdrop));
+    ui.point_at(Point::new(40.0 + 88.0 + 6.0 + 44.0 + 22.0 + 8.0, 720.0 - 10.0 - 18.0 - 4.0 - 25.0));
+    let _ = ui.simulate(iced_test::simulator::click());
+    let messages: Vec<_> = ui.into_messages().collect();
+    assert!(
+        messages.iter().any(|m| matches!(m, dossier_native::Message::Main(M::Choose(_)) | dossier_native::Message::Main(M::Hover(_)))),
+        "a click on the strip produced {messages:?}"
+    );
+}
+
+#[test]
+fn the_worker_overlay_says_it_comes_later_and_goes_back() {
+    use dossier_native::main_screen::{Message as M, Overlay};
+    let staged = main_state("main-worker");
+    let backdrop = dossier_native::ui::backdrop_handle();
+    let mut ui = Simulator::with_size(dossier_native::settings(), iced::Size::new(980.0, 720.0), gallery::main_frame(&staged, &backdrop));
+    assert!(ui.find("Coming later").is_ok());
+    let _ = ui.click("Back to replays").expect("clicked");
+    let messages: Vec<_> = ui.into_messages().collect();
+    assert!(messages.iter().any(|m| matches!(m, dossier_native::Message::Main(M::Show(Overlay::None)))), "{messages:?}");
+}

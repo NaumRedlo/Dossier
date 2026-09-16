@@ -6,6 +6,7 @@ pub enum Kind {
     Lazer,
     Folder,
     Own,
+    Found,
 }
 
 impl Kind {
@@ -15,6 +16,7 @@ impl Kind {
             Kind::Lazer => "lazer",
             Kind::Folder => "folder",
             Kind::Own => "dossier",
+            Kind::Found => "found",
         }
     }
 }

@@ -323,7 +323,9 @@ fn mock_entry(
     crate::library::Entry {
         path: PathBuf::from(format!("{player}-{days_ago}.osr")),
         kind,
+        client: if kind == Kind::Lazer { crate::library::Client::Lazer } else { crate::library::Client::Stable },
         player: player.to_owned(),
+        replay_hash: format!("{player}-{days_ago}"),
         map_hash: hash,
         mods: mods.iter().map(|m| (*m).to_owned()).collect(),
         combo,
@@ -415,6 +417,9 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
     });
     let mut empty = Main::staged(crate::lang::Words::new(lang).in_zone(3 * 3600), settings.clone(), crate::library::Library::default(), None);
     empty.now_unix = NOON;
+    let mut looking = Main::staged(crate::lang::Words::new(lang).in_zone(3 * 3600), settings.clone(), crate::library::Library::default(), None);
+    looking.now_unix = NOON;
+    looking.looking = Some(crate::scan::Step::Looking { files: 84_120, found: 37, seconds: 12 });
     vec![
         ("main-rest".to_owned(), staged(Some(0))),
         ("main-nomap".to_owned(), staged(Some(3))),
@@ -423,6 +428,7 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
         ("main-rendered".to_owned(), rendered),
         ("main-fetching".to_owned(), fetching),
         ("main-empty".to_owned(), empty),
+        ("main-looking".to_owned(), looking),
     ]
 }
 

@@ -116,3 +116,12 @@ unpacking-into = Распаковываю в Dossier/Songs
 checking-hash = Сверяю хэш
 not-on-any-mirror = Нет ни на одном зеркале
 try-again = Попробовать снова
+look-on-device = Поискать на этом устройстве
+looking-on-device = Ищу на этом устройстве
+found-on-device = Найдено на этом устройстве
+nothing-on-device = На этом устройстве реплеев нет
+files-label = { $n ->
+    [one] файл
+    [few] файла
+   *[other] файлов
+}

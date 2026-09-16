@@ -113,3 +113,11 @@ unpacking-into = Unpacking into Dossier/Songs
 checking-hash = Checking the hash
 not-on-any-mirror = Not on any mirror
 try-again = Try again
+look-on-device = Look on this device
+looking-on-device = Looking on this device
+found-on-device = Found on this device
+nothing-on-device = No replays on this device
+files-label = { $n ->
+    [one] file
+   *[other] files
+}

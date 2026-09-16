@@ -106,11 +106,28 @@ impl Named {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Client {
+    Stable,
+    Lazer,
+}
+
+impl Client {
+    pub fn tag(self) -> &'static str {
+        match self {
+            Client::Stable => "stable",
+            Client::Lazer => "lazer",
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Entry {
     pub path: PathBuf,
     pub kind: Kind,
+    pub client: Client,
     pub player: String,
+    pub replay_hash: String,
     pub map_hash: String,
     pub mods: Vec<String>,
     pub combo: u16,
@@ -159,13 +176,23 @@ pub struct Library {
 
 pub fn read(sources: &[Source]) -> Library {
     let live: Vec<&Source> = sources.iter().filter(|s| s.on).collect();
-    let songs: Vec<PathBuf> = live.iter().filter_map(|s| s.songs.clone()).collect();
+    let mut songs: Vec<PathBuf> = live.iter().filter_map(|s| s.songs.clone()).collect();
+    if live.iter().any(|s| s.kind == Kind::Found) {
+        for dir in crate::scan::songs_beside(&crate::scan::remembered()) {
+            if !songs.contains(&dir) {
+                songs.push(dir);
+            }
+        }
+    }
     let index = Index::load(&songs);
-    let mut entries = Vec::new();
+    let mut entries: Vec<Entry> = Vec::new();
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
     for source in &live {
         for path in replay_files(source) {
             if let Some(entry) = entry(&path, source.kind, &index) {
-                entries.push(entry);
+                if seen.insert(entry.replay_hash.clone()) {
+                    entries.push(entry);
+                }
             }
         }
     }
@@ -186,6 +213,9 @@ fn replay_files(source: &Source) -> Vec<PathBuf> {
     }
     if source.kind == Kind::Lazer {
         out.extend(store_replays(&source.root.join("files")));
+    }
+    if source.kind == Kind::Found {
+        out.extend(crate::scan::remembered());
     }
     out
 }
@@ -250,7 +280,9 @@ fn entry(path: &Path, kind: Kind, index: &Index) -> Option<Entry> {
     Some(Entry {
         path: path.to_path_buf(),
         kind,
+        client: if replay.score_info.is_some() { Client::Lazer } else { Client::Stable },
         player: replay.player.clone(),
+        replay_hash: if replay.replay_hash.is_empty() { path.display().to_string() } else { replay.replay_hash.clone() },
         map_hash: replay.beatmap_hash.clone(),
         mods,
         combo: replay.max_combo,
@@ -459,7 +491,9 @@ mod tests {
         let entry = Entry {
             path: PathBuf::from("a.osr"),
             kind: Kind::Own,
+            client: Client::Stable,
             player: "Guest".into(),
+            replay_hash: "r".into(),
             map_hash: String::new(),
             mods: vec!["HD".into(), "DT".into()],
             combo: 1,

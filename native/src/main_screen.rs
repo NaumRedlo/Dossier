@@ -13,6 +13,7 @@ use crate::lang::{typed, Words};
 use crate::library::{self, Entry, Grade, Library};
 use crate::maps;
 use crate::render::{self, Step};
+use crate::scan;
 use crate::settings::Settings;
 use crate::sources::Kind;
 use crate::theme::{self, ACCENT, FAINT, INK, MUTED};
@@ -56,6 +57,9 @@ pub enum Message {
     GetMap,
     StopFetch,
     Fetched(maps::Step),
+    Look,
+    StopLook,
+    Looked(scan::Step),
     Dropped(PathBuf),
     Resized(f32),
     Tick(Instant),
@@ -120,6 +124,7 @@ pub struct Main {
     pub overlay: Overlay,
     pub rendering: Option<Rendering>,
     pub fetching: Option<Fetching>,
+    pub looking: Option<scan::Step>,
     pub ffmpeg: Option<PathBuf>,
     pub now: Instant,
     pub started: Instant,
@@ -157,6 +162,7 @@ impl Main {
             overlay: Overlay::None,
             rendering: None,
             fetching: None,
+            looking: None,
             ffmpeg: crate::checks::ffmpeg_on_path(),
             now: Instant::now(),
             started: Instant::now(),
@@ -184,6 +190,7 @@ impl Main {
     pub fn moving(&self) -> bool {
         self.rendering.as_ref().is_some_and(|r| !r.is_over())
             || self.fetching.as_ref().is_some_and(|f| !f.is_over())
+            || matches!(self.looking, Some(scan::Step::Looking { .. }))
             || self.enter.is_animating(self.now)
             || self.arrive.is_animating(self.now)
             || self.swap.is_animating(self.now)
@@ -249,7 +256,7 @@ impl Main {
             parts.join(" · ")
         };
         Shown {
-            date: format!("{} · {} · {}", w.day(entry.played_at, self.now_unix), w.clock(entry.played_at), entry.kind.tag()),
+            date: format!("{} · {} · {}", w.day(entry.played_at, self.now_unix), w.clock(entry.played_at), entry.client.tag()),
             player: entry.player.clone(),
             map: entry.map_line().unwrap_or_else(|| w.t("unknown-map")),
             meta,
@@ -474,6 +481,41 @@ impl Main {
                 fetching.reached.push(step);
                 Task::none()
             }
+            Message::Look => {
+                if matches!(self.looking, Some(scan::Step::Looking { .. })) {
+                    return Task::none();
+                }
+                self.looking = Some(scan::Step::Looking { files: 0, found: 0, seconds: 0 });
+                let known: Vec<PathBuf> = self
+                    .settings
+                    .sources
+                    .iter()
+                    .filter(|s| s.kind != Kind::Found)
+                    .map(|s| s.root.clone())
+                    .collect();
+                scan::run(known).map(Message::Looked)
+            }
+            Message::StopLook => {
+                scan::stop();
+                Task::none()
+            }
+            Message::Looked(step) => {
+                if let scan::Step::Done(paths) = &step {
+                    let _ = scan::remember(paths);
+                    if !paths.is_empty() && !self.settings.sources.iter().any(|s| s.kind == Kind::Found) {
+                        self.settings.sources.push(scan::source(paths));
+                    }
+                    if let Some(found) = self.settings.sources.iter_mut().find(|s| s.kind == Kind::Found) {
+                        found.replay_count = paths.len() as u64;
+                    }
+                    let _ = self.settings.save();
+                    self.looking = Some(step);
+                    let sources = self.settings.sources.clone();
+                    return ui::in_thread(move || library::read(&sources)).map(Message::Loaded);
+                }
+                self.looking = Some(step);
+                Task::none()
+            }
             Message::OpenOut => {
                 if let Some(out) = self.rendering.as_ref().and_then(|r| r.out.clone()) {
                     let _ = open::that_detached(out);
@@ -600,9 +642,14 @@ impl Main {
     fn viewer(&self, s: f32) -> Element<'_, Message> {
         let w = &self.words;
         let Some(entry) = self.chosen_entry() else {
+            let lower: Element<'_, Message> = match &self.looking {
+                Some(step) => self.look_ledger(step),
+                None => container(ui::primary(w.t("look-on-device"), Some(Message::Look))).padding(Padding::ZERO.top(14.0)).into(),
+            };
             let empty = column![
                 text(w.t("no-replays")).font(theme::SANS_SEMI).size(theme::TITLE).color(ui::faded(INK)),
                 ui::cap(w.t("drop-here")),
+                lower,
             ]
             .spacing(6);
             return container(empty).padding(Padding { top: 0.0, right: 40.0, bottom: 34.0, left: 40.0 }).width(Length::Fill).into();
@@ -813,6 +860,29 @@ impl Main {
             ui::quiet(w.t("stop"), Some(Message::StopFetch))
         };
         column![container(ledger).padding(Padding::ZERO.top(8.0)), container(foot).padding(Padding::ZERO.top(6.0))]
+            .into()
+    }
+
+    fn look_ledger(&self, step: &scan::Step) -> Element<'_, Message> {
+        let w = &self.words;
+        let line = match step {
+            scan::Step::Looking { files, found, seconds } => Line::new(Mood::Now, w.t("looking-on-device"))
+                .detail(format!(
+                    "{} · {} · {}",
+                    w.count("files-label", *files),
+                    w.count("replays-label", *found),
+                    w.n("seconds-left", *seconds)
+                ))
+                .breathing(self.breath()),
+            scan::Step::Done(paths) if paths.is_empty() => Line::new(Mood::Failed, w.t("nothing-on-device")),
+            scan::Step::Done(paths) => Line::new(Mood::Done, w.t("found-on-device")).detail(w.count("replays-label", paths.len() as u64)),
+            scan::Step::Stopped => Line::new(Mood::Failed, w.t("looking-on-device")).detail(w.t("stopped")),
+        };
+        let foot: Element<'_, Message> = match step {
+            scan::Step::Looking { .. } => ui::quiet(w.t("stop"), Some(Message::StopLook)),
+            _ => ui::quiet(w.t("try-again"), Some(Message::Look)),
+        };
+        column![container(ui::ledger(&[line], None)).padding(Padding::ZERO.top(8.0)), container(foot).padding(Padding::ZERO.top(6.0))]
             .into()
     }
 

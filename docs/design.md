@@ -332,6 +332,22 @@ the keyboard. Where a choice is still open it is marked *open*.
 - It understands a player, a map, a mod acronym, *fc* and *miss*, and a day
   in the language's own words — *yesterday*, *august*, *вчера*, *август*.
 
+*Nothing yet.* An empty library says *No replays yet · Drop .osr files
+anywhere on this window* and offers one button, *Look on this device*.
+That walks the home folder — Downloads, Desktop and Documents first, then
+the rest — for files that carry a replay's signature, skipping what cannot
+hold one (Library, AppData, Applications, node_modules, targets, media
+folders, anything hidden) and the folders already read as sources, as a
+one-line ledger: *Looking on this device · 84 120 files · 37 replays · 12
+s*, with *Stop*. What it finds is remembered in the application's own
+`found.json` and read as a source of its own, *found*, beside the others;
+maps sitting in a *Songs*, *Beatmap* or *Beatmaps* folder next to a found
+replay are indexed too. Two copies of the same replay are one entry: the
+library keeps one file per replay hash, the first source's. The client in
+the date line — *stable* or *lazer* — is read from the replay itself, not
+from where the file was found. Built 2026-09-16; a rescan from Settings
+comes with Settings.
+
 *The three words.* Replays is this screen. Worker and Settings open over
 the scene, dimmed to a fifth, in the first run's centred column; the crest
 does not move, and Esc or the word *Replays* brings the scene back. Until

@@ -8,6 +8,7 @@ pub mod library;
 pub mod main_screen;
 pub mod maps;
 pub mod render;
+pub mod scan;
 pub mod settings;
 pub mod sources;
 pub mod theme;
@@ -48,6 +49,7 @@ pub struct Rehearsal {
     pub after: std::time::Duration,
     pub render: bool,
     pub get_map: bool,
+    pub look: bool,
 }
 
 impl Rehearsal {
@@ -63,7 +65,8 @@ impl Rehearsal {
             .map_or(std::time::Duration::from_millis(2500), std::time::Duration::from_millis);
         let render = args.iter().any(|a| a == "--render-first");
         let get_map = args.iter().any(|a| a == "--get-map-first");
-        Some(Rehearsal { folder, snap_to, after, render, get_map })
+        let look = args.iter().any(|a| a == "--look-first");
+        Some(Rehearsal { folder, snap_to, after, render, get_map, look })
     }
 }
 
@@ -89,6 +92,8 @@ impl App {
                 Task::perform(async { tokio_sleep(std::time::Duration::from_millis(1500)).await }, |_| Message::Main(main_screen::Message::Render))
             } else if rehearsal.get_map {
                 Task::perform(async { tokio_sleep(std::time::Duration::from_millis(1500)).await }, |_| Message::Main(main_screen::Message::GetMap))
+            } else if rehearsal.look {
+                Task::perform(async { tokio_sleep(std::time::Duration::from_millis(1500)).await }, |_| Message::Main(main_screen::Message::Look))
             } else {
                 Task::none()
             };

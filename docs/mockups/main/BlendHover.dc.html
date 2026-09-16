@@ -212,7 +212,7 @@
     .crest .brand i { height: 22px; }
     .crest .brand b { font-size: 20px; line-height: 26px; }
     .crest .words { margin-left: auto; }
-    .fr .mark { position: absolute; left: 5px; top: 4px; padding: 0 4px; border-radius: 3px; background: rgba(10,5,7,0.7); font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: 9px; line-height: 14px; font-weight: 700; color: #ece7e2; }
+    .fr .mark { position: absolute; left: 5px; top: 4px; min-width: 8px; text-align: center; padding: 0 4px; border-radius: 3px; background: rgba(7,3,4,0.72); font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: 10px; line-height: 15px; font-weight: 700; color: #ece7e2; }
     .fr .mark.bad { color: #e24848; }
     .under { display: block; width: 88px; margin-top: 4px; font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: 10px; line-height: 14px; color: #6b655f; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .under.on { color: #a9a29b; width: 96px; }
@@ -228,10 +228,11 @@
     .var h3 em { font-style: normal; color: #e24848; font-weight: 500; margin-left: 10px; }
     .var .days { display: flex; gap: 22px; align-items: flex-end; }
     .var p { margin: 10px 0 0; color: #a9a29b; font-size: 13px; max-width: 720px; }
-    .tall .win { height: 780px; }
-    .fr.art { opacity: 0.85; }
-    .fr.art.on { opacity: 1; }
-    .id { position: absolute; left: 40px; right: 40px; bottom: 170px; z-index: 2; display: flex; align-items: flex-end; gap: 24px; }
+    .tall .win { height: 1080px; }
+    .fr.art { opacity: 0.8; background-clip: padding-box; border-color: rgba(255,255,255,0.05); box-shadow: inset 0 0 0 1px rgba(0,0,0,0.35); }
+    .fr.art.on { opacity: 1; box-shadow: none; }
+    .fr.art.lift { border-color: rgba(255,255,255,0.18); }
+    .id { position: absolute; left: 40px; right: 40px; bottom: 156px; z-index: 2; display: flex; align-items: flex-end; gap: 24px; }
     .id .date { font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: 12px; color: #a9a29b; letter-spacing: 0.04em; }
     .id h2 { margin: 2px 0 0; font-size: 28px; line-height: 32px; font-weight: 600; letter-spacing: -0.01em; }
     .id .map { margin-top: 2px; color: #ece7e2; font-size: 14px; }
@@ -243,7 +244,7 @@
     .id .score .counts { display: flex; justify-content: flex-end; gap: 14px; margin-top: 10px; font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: 12px; color: #a9a29b; }
     .id .score .counts b { color: #ece7e2; font-weight: 700; }
     .id .score .counts i { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 5px; vertical-align: 1px; }
-    .journal { position: absolute; left: 0; right: 0; bottom: 34px; z-index: 2; padding: 0 40px; }
+    .journal { position: absolute; left: 0; right: 0; bottom: 40px; z-index: 2; padding: 0 40px; }
     .journal .rail { position: relative; height: 1px; background: rgba(255,255,255,0.12); margin: 0 0 10px; }
     .journal .days { display: flex; gap: 22px; align-items: flex-end; overflow: hidden; }
     .day2 { display: flex; flex-direction: column; gap: 6px; flex: none; position: relative; }
@@ -253,16 +254,22 @@
     .day2 .lbl.on i { background: #e24848; box-shadow: 0 0 0 3px rgba(226,72,72,0.16); }
     .day2 .set { display: flex; gap: 6px; align-items: flex-end; }
     .fr { width: 88px; height: 50px; border-radius: 6px; background: #0a0507 url(frame.jpg) center/cover; border: 1px solid rgba(255,255,255,0.1); opacity: 0.7; position: relative; }
-    .fr.on { opacity: 1; border: 2px solid #e24848; box-shadow: 0 0 0 4px rgba(226,72,72,0.18); width: 96px; height: 54px; }
+    .fr.on { opacity: 1; border: 2px solid #e24848; width: 96px; height: 54px; }
     .fr.lift { opacity: 1; transform: translateY(-4px) scale(1.06); border-color: rgba(255,255,255,0.3); }
     .fr.dim { opacity: 0.22; }
     .fr.none { background: repeating-linear-gradient(-45deg, rgba(255,255,255,0.04) 0 4px, transparent 4px 9px); }
     .fr .a { position: absolute; right: 4px; bottom: 3px; font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: 10px; font-weight: 700; color: #ece7e2; text-shadow: 0 1px 2px rgba(0,0,0,0.6); }
-    .fr .busy { position: absolute; left: 5px; top: 5px; width: 7px; height: 7px; border-radius: 50%; background: #e24848; box-shadow: 0 0 0 3px rgba(226,72,72,0.2); }
-    .tip { position: absolute; left: 96px; bottom: 96px; z-index: 5; padding: 8px 10px; border-radius: 8px; background: rgba(20,7,10,0.96); border: 1px solid rgba(255,255,255,0.12); box-shadow: 0 8px 24px rgba(0,0,0,0.45); white-space: nowrap; font-size: 12px; }
-    .tip b { display: block; font-size: 13px; }
-    .tip span { color: #a9a29b; font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: 11px; }
-    .counter { position: absolute; right: 40px; bottom: 142px; z-index: 2; display: flex; gap: 14px; align-items: center; color: #6b655f; font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: 12px; }
+    .fr .busy { position: absolute; left: 50%; top: 50%; width: 8px; height: 8px; margin: -4px 0 0 -4px; border-radius: 50%; background: #e24848; box-shadow: 0 0 0 4px rgba(226,72,72,0.22), 0 0 0 12px rgba(7,3,4,0.45); }
+    .tip { position: absolute; left: 96px; bottom: 104px; z-index: 5; min-width: 250px; padding: 10px 12px 9px; border-radius: 10px; background: rgba(12,5,7,0.96); border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 12px 32px rgba(0,0,0,0.5); white-space: nowrap; font-size: 12px; line-height: 16px; }
+    .tip::after { content: ""; position: absolute; left: 36px; bottom: -6px; width: 10px; height: 10px; background: rgba(12,5,7,0.96); border-right: 1px solid rgba(255,255,255,0.1); border-bottom: 1px solid rgba(255,255,255,0.1); transform: rotate(45deg); }
+    .tip .who { display: flex; align-items: baseline; gap: 18px; }
+    .tip .who b { font-size: 14px; font-weight: 600; }
+    .tip .who i { margin-left: auto; font-style: normal; font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .tip .what { color: #a9a29b; margin-top: 1px; }
+    .tip .how { display: flex; align-items: center; gap: 6px; margin-top: 6px; color: #a9a29b; font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: 11px; }
+    .tip .how .mod { font-size: 9px; line-height: 14px; padding: 0 5px; }
+    .tip .how em { font-style: normal; color: #ece7e2; font-weight: 700; }
+    .counter { position: absolute; right: 40px; bottom: 14px; z-index: 2; display: flex; gap: 14px; align-items: center; color: #6b655f; font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: 12px; }
     .ledg { display: flex; flex-direction: column; gap: 2px; margin-top: 10px; }
     .ledg .line { height: 22px; font-size: 13px; }
     .ledg .line .g { width: 12px; height: 12px; }
@@ -274,7 +281,7 @@
   </style>
 </helmet>
 <div class="win">
-<div class="scene2"></div><div class="crest"><div class="brand"><img src="letter.png"><i></i><b>Dossier</b></div><div class="field" style="width: 260px; background: rgba(10,5,7,0.55); border-color: rgba(255,255,255,0.08); color: #6b655f;"><svg viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.2"></circle><path d="M15.2 15.2 20 20"></path></svg><span>Player, map, day</span></div><div class="words"><b>Replays</b><span>Worker</span><span>Settings</span></div></div><div class="id"><div><div class="date">today · 14:02 · lazer</div><h2>NaumRedlo</h2><div class="map">Dj Grimoire — Astral Quantization [Nattu VN0TH3R]</div><div class="meta"><span class="mods"><span class="mod h">HD</span><span class="mod h">DT</span><span class="mod h">HR</span></span><span>·</span><span>604x</span><span>·</span><span>3:51</span></div><div class="acts"><span class="btn primary">Render</span></div></div><div class="score"><div class="n">98,71%</div><span class="o">FC</span><div class="counts"><span><i style="background:#66ccff"></i>300 <b>1 184</b></span><span><i style="background:#88b300"></i>100 <b>77</b></span><span><i style="background:#f0c060"></i>50 <b>15</b></span><span><i style="background:#e24848"></i>✕ <b>27</b></span></div></div></div><div class="journal"><div class="rail"></div><div class="days"><div class="day2"><span class="lbl on"><i></i>today</span><span class="set"><span class="cell"><span class="fr on art" style="background-image: url(bg-astral.jpg)"><span class="mark">FC</span></span><span class="under on">Astral Quantization</span></span></span></div><div class="day2"><span class="lbl"><i></i>Aug 14</span><span class="set"><span class="cell"><span class="fr lift art" style="background-image: url(bg-zenith.jpg)"><span class="mark">SB</span></span><span class="under">Blue Zenith</span></span><span class="cell"><span class="fr art" style="background-image: url(bg-freedom.jpg)"><span class="mark bad">×27</span></span><span class="under">FREEDOM DiVE</span></span></span></div><div class="day2"><span class="lbl"><i></i>Aug 3</span><span class="set"><span class="cell"><span class="fr none"></span><span class="under">LUCKY CAT</span></span></span></div><div class="day2"><span class="lbl"><i></i>Jul 29</span><span class="set"><span class="cell"><span class="fr art" style="background-image: url(bg-sink.jpg)"><span class="mark bad">F</span></span><span class="under">sink to the deep sea</span></span><span class="cell"><span class="fr art" style="background-image: url(bg-nevermind.jpg)"><span class="mark bad">×3</span></span><span class="under">Nevermind</span></span><span class="cell"><span class="fr art" style="background-image: url(bg-galactic.jpg)"><span class="mark bad">×1</span></span><span class="under">Galactic Astro Dom…</span></span></span></div><div class="day2"><span class="lbl"><i></i>May 10, 2025</span><span class="set"><span class="cell"><span class="fr none"></span><span class="under">LUCKY CAT</span></span><span class="cell"><span class="fr art" style="background-image: url(bg-zenith.jpg)"><span class="mark bad">×9</span></span><span class="under">Blue Zenith</span></span></span></div></div></div><div class="tip" style="left: 160px;"><b>Guest</b><span>xi — Blue Zenith [Asphyxia's Hard] · EZ · 401x</span></div><div class="counter"><span>1 / 187</span><span>‹ ›</span></div>
+<div class="scene2"></div><div class="crest"><div class="brand"><img src="letter.png"><i></i><b>Dossier</b></div><div class="field" style="width: 260px; background: rgba(10,5,7,0.55); border-color: rgba(255,255,255,0.08); color: #6b655f;"><svg viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.2"></circle><path d="M15.2 15.2 20 20"></path></svg><span>Player, map, day</span></div><div class="words"><b>Replays</b><span>Worker</span><span>Settings</span></div></div><div class="id"><div><div class="date">today · 14:02 · lazer</div><h2>NaumRedlo</h2><div class="map">Dj Grimoire — Astral Quantization [Nattu VN0TH3R]</div><div class="meta"><span class="mods"><span class="mod h">HD</span><span class="mod h">DT</span><span class="mod h">HR</span></span><span>·</span><span>604x</span><span>·</span><span>3:51</span></div><div class="acts"><span class="btn primary">Render</span></div></div><div class="score"><div class="n">98,71%</div><span class="o">FC</span><div class="counts"><span><i style="background:#66ccff"></i>300 <b>1 184</b></span><span><i style="background:#88b300"></i>100 <b>77</b></span><span><i style="background:#f0c060"></i>50 <b>15</b></span><span><i style="background:#e24848"></i>✕ <b>27</b></span></div></div></div><div class="journal"><div class="rail"></div><div class="days"><div class="day2"><span class="lbl on"><i></i>today</span><span class="set"><span class="fr on art" style="background-image: linear-gradient(rgba(7,3,4,0.22), rgba(7,3,4,0.22)), url(bg-astral.jpg)"><span class="mark">S</span></span></span></div><div class="day2"><span class="lbl"><i></i>Aug 14</span><span class="set"><span class="fr lift art" style="background-image: linear-gradient(rgba(7,3,4,0.22), rgba(7,3,4,0.22)), url(bg-zenith.jpg)"><span class="mark">S</span></span><span class="fr art" style="background-image: linear-gradient(rgba(7,3,4,0.22), rgba(7,3,4,0.22)), url(bg-freedom.jpg)"><span class="mark">A</span></span></span></div><div class="day2"><span class="lbl"><i></i>Aug 3</span><span class="set"><span class="fr none"></span></span></div><div class="day2"><span class="lbl"><i></i>Jul 29</span><span class="set"><span class="fr art" style="background-image: linear-gradient(rgba(7,3,4,0.22), rgba(7,3,4,0.22)), url(bg-sink.jpg)"><span class="mark bad">F</span></span><span class="fr art" style="background-image: linear-gradient(rgba(7,3,4,0.22), rgba(7,3,4,0.22)), url(bg-nevermind.jpg)"><span class="mark">A</span></span><span class="fr art" style="background-image: linear-gradient(rgba(7,3,4,0.22), rgba(7,3,4,0.22)), url(bg-galactic.jpg)"><span class="mark">A</span></span></span></div><div class="day2"><span class="lbl"><i></i>May 10, 2025</span><span class="set"><span class="fr none"></span><span class="fr art" style="background-image: linear-gradient(rgba(7,3,4,0.22), rgba(7,3,4,0.22)), url(bg-zenith.jpg)"><span class="mark">B</span></span></span></div></div></div><div class="tip" style="left: 160px;"><div class="who"><b>Guest</b><i>99,65%</i></div><div class="what">xi — Blue Zenith [Asphyxia's Hard]</div><div class="how"><span class="mod e">EZ</span><span>·</span><span>401x</span><span>·</span><span>4:07</span><span>·</span><em>SB</em></div></div><div class="counter"><span>1 / 187</span><span>‹ ›</span></div>
 </div>
 </x-dc>
 </body>

@@ -199,14 +199,16 @@ never a farm; the farm is the bot's word for all of them together.
   length, a dot between each — and one button, *Render*. Right: the accuracy
   in the largest type on the screen, its outcome under it.
 - *The journal is the strip along the bottom.* Replays only, as small frames
-  grouped by day, newest first, the chosen one outlined. A frame is the
-  map's own background — what song select shows, the picture a player
-  already knows the map by — with the outcome in its corner (*FC*, *SB*,
-  *×27*, *F*; misses and fails in red) and the map's title under it in small
-  mono, cut to the frame's width. Not the accuracy: every engine frame looks
-  like every other and 98,71 beside 97,88 tells the eye nothing; the number
-  lives in the viewer where it is large. A replay whose map is not on disk
-  keeps the hatched ground. A day is labelled the way its language says it:
+  grouped by day, newest first, the chosen one outlined in red with no glow.
+  A frame is the map's own background — what song select shows, the picture
+  a player already knows the map by — darkened by a fifth, with the grade in
+  its corner as one mono letter (*S*, *A*, *B*; a fail is a red *F*) and
+  nothing under it. Not the accuracy: every engine frame looks like every
+  other and 98,71 beside 97,88 tells the eye nothing; the number lives in
+  the viewer where it is large, and the rest — full combo, sliderbreak,
+  misses — is the caption on hover. A replay whose map is not on disk keeps
+  the hatched ground; a replay being rendered wears a red dot in the middle
+  of its frame. A day is labelled the way its language says it:
   *today* / *сегодня* as the bare word, then *Aug 14* / *14 авг*, and the
   year only when it is not this one — *May 10, 2025* / *10 мая 2025*. It
   scrolls sideways; *1 / 187* and the arrows sit small above the rail at the
@@ -257,19 +259,24 @@ the keyboard. Where a choice is still open it is marked *open*.
   the accuracy stays, the frame in the journal wears a red dot. When it is
   done the ledger folds into one line, *Rendered · Open · Show in folder*,
   which stays until the next choice. The scene keeps playing throughout.
+  The frame's red dot sits in its middle, over the picture, not in the
+  corner where the grade is.
 - Right-click anywhere in the viewer or on a frame opens the menu where the
-  pointer is: *Render* (also Enter), *Judge*, *Show in folder*, *Open .osr*,
-  *Copy path*, and after a rule *Delete* in red (also ⌫; asks once). Esc or
-  a click elsewhere closes it.
+  pointer is: *Render* (also Enter), *Show in folder*, *Open .osr*, *Copy
+  path*, and after a rule *Delete* in red (also ⌫; asks once). Esc or a
+  click elsewhere closes it. Judging is not in the menu yet; it comes back
+  in its own time.
 - A replay without its map: the scene is the hatched ground, the accuracy is
   a dash, the button is *Get the map* with one line saying why.
 
 *The journal.*
 - Hovering a frame lifts it 2 px and brightens it to full over 200 ms, and
-  a caption appears above it — player, map, mods, combo. The pointer leaving
-  drops it back; nothing else on the screen changes. *Open:* instead of a
-  caption, the viewer could preview the hovered replay and fall back when
-  the pointer leaves.
+  a caption appears above it, pointing at it with a small caret: the player
+  in semi-bold with the accuracy in mono at the right, the map under in the
+  muted tone, then one mono line — mod badges · combo · length · outcome
+  (*FC*, *SB*, *×27*). The pointer leaving drops it back; nothing else on
+  the screen changes. *Open:* instead of a caption, the viewer could
+  preview the hovered replay and fall back when the pointer leaves.
 - Clicking a frame chooses it: the outline slides to the frame (200 ms), the
   scene crossfades to the new replay (320 ms), the viewer's words erase from
   the right and type in from the left (450 ms, the same typewriter as a

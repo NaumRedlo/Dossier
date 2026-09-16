@@ -39,7 +39,7 @@ replays-label = { $n ->
    *[other] replays
 }
 
-device-why = This is how the farm will see it.
+device-why = The worker's name, as the bot will show it.
 device-name = Name
 
 bot-why = Scan, or open Telegram here, and press yes.

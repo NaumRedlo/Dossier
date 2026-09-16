@@ -1,0 +1,86 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Commissioner:wght@400;500;600&family=JetBrains+Mono:wght@400;700;800&display=swap">
+  <style>
+    body { margin: 0; background: #070304; color: #ece7e2; font-family: Commissioner, "Helvetica Neue", Arial, sans-serif; font-size: 14px; line-height: 20px; -webkit-font-smoothing: antialiased; }
+    a { color: #e24848; } a:hover { color: #f06060; }
+    .win { position: relative; width: 980px; height: 720px; overflow: hidden; background: radial-gradient(115% 95% at 50% -18%, #3a1015 0%, #26090f 30%, #17070b 55%, #0d0508 78%, #070304 100%); }
+    .mono { font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; }
+    .side { position: absolute; left: 0; top: 0; bottom: 0; width: 220px; box-sizing: border-box; padding: 20px 12px 16px; display: flex; flex-direction: column; gap: 2px; border-right: 1px solid rgba(255,255,255,0.08); background: rgba(0,0,0,0.26); }
+    .brand { display: flex; align-items: center; gap: 14px; padding: 0 8px 18px; }
+    .brand img { width: 31px; height: 31px; display: block; }
+    .brand i { display: block; width: 1px; height: 22px; background: rgba(255,255,255,0.16); }
+    .brand b { font-size: 20px; line-height: 26px; font-weight: 600; letter-spacing: -0.01em; }
+    .nav { display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 10px; border-radius: 8px; color: #a9a29b; font-weight: 500; }
+    .nav.on { background: rgba(226,72,72,0.16); color: #ece7e2; }
+    .nav svg { width: 17px; height: 17px; stroke: currentColor; fill: none; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+    .state { margin-top: auto; padding: 12px 10px; border-radius: 8px; background: rgba(0,0,0,0.26); }
+    .state .l { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 13px; line-height: 18px; }
+    .state .n { margin-top: 3px; padding-left: 16px; color: #a9a29b; font-size: 12px; line-height: 16px; }
+    .dot { display: block; width: 8px; height: 8px; border-radius: 50%; background: #e24848; box-shadow: 0 0 0 4px rgba(226,72,72,0.16); flex: none; }
+    .dot.off { background: #6b655f; box-shadow: none; }
+    .main { position: absolute; left: 220px; top: 0; right: 0; bottom: 0; padding: 28px 40px 0; box-sizing: border-box; overflow: hidden; }
+    .title { display: flex; align-items: baseline; gap: 10px; }
+    .title h1 { margin: 0; font-size: 22px; line-height: 28px; font-weight: 600; letter-spacing: -0.01em; }
+    .title span { color: #a9a29b; font-size: 16px; }
+    .tools { display: flex; align-items: center; gap: 12px; margin-top: 18px; }
+    .field { display: flex; align-items: center; gap: 8px; width: 260px; height: 32px; padding: 0 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.08); background: rgba(0,0,0,0.26); color: #6b655f; box-sizing: border-box; }
+    .field svg { width: 14px; height: 14px; stroke: #a9a29b; fill: none; stroke-width: 2; stroke-linecap: round; }
+    .chips { display: flex; gap: 6px; }
+    .chip { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 11px; border-radius: 14px; border: 1px solid rgba(255,255,255,0.08); color: #a9a29b; font-size: 13px; font-weight: 500; box-sizing: border-box; }
+    .chip.on { background: #ece7e2; border-color: #ece7e2; color: #14070a; font-weight: 600; }
+    .chip .n { font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: 11px; color: #6b655f; }
+    .chip.on .n { color: #6b5c60; }
+    .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-top: 20px; }
+    .card { display: flex; flex-direction: column; border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; background: rgba(255,255,255,0.045); overflow: hidden; }
+    .stage { position: relative; aspect-ratio: 16 / 9; background: #0a0507; }
+    .stage img { display: block; width: 100%; height: 100%; object-fit: cover; }
+    .tag { position: absolute; top: 8px; padding: 2px 7px; border-radius: 6px; background: rgba(10,5,7,0.72); font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: 11px; line-height: 16px; font-weight: 700; }
+    .tag.l { left: 8px; color: #a9a29b; font-weight: 500; }
+    .tag.r { right: 8px; color: #e24848; }
+    .tag.r.good { color: #ece7e2; }
+    .who { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "name acc" "map acc" "meta meta"; column-gap: 10px; padding: 10px 12px 12px; }
+    .who b { grid-area: name; font-size: 14px; line-height: 20px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .who .map { grid-area: map; margin: 0; color: #a9a29b; font-size: 12px; line-height: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .who .acc { grid-area: acc; align-self: start; font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: 16px; line-height: 20px; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .who .meta { grid-area: meta; display: flex; align-items: center; gap: 6px; margin-top: 8px; color: #a9a29b; font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: 11px; line-height: 16px; white-space: nowrap; }
+    .who .meta .when { margin-left: auto; color: #6b655f; }
+    .mods { display: inline-flex; gap: 3px; }
+    .mod { display: inline-flex; align-items: center; justify-content: center; height: 16px; min-width: 26px; padding: 0 4px; border-radius: 4px; color: #fff; font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-weight: 800; font-size: 9px; letter-spacing: 0.02em; }
+    .mod.e { background: #7ac65c; } .mod.h { background: #d64e48; } .mod.a { background: #5694d6; } .mod.c { background: #9668ce; } .mod.o { background: #706064; }
+    .hover { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(10,5,7,0.35); }
+    .btn { display: inline-flex; align-items: center; justify-content: center; height: 32px; padding: 0 12px; border-radius: 8px; font-weight: 600; font-size: 14px; white-space: nowrap; box-sizing: border-box; }
+    .btn.primary { background: #e24848; color: #fff; }
+    .btn.quiet { color: #a9a29b; }
+    .ledger { display: flex; flex-direction: column; gap: 4px; }
+    .line { display: flex; align-items: center; gap: 12px; height: 24px; font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: 14px; color: #6b655f; }
+    .line.done { color: #a9a29b; } .line.cur { color: #ece7e2; font-weight: 700; }
+    .line .g { display: flex; align-items: center; justify-content: center; width: 14px; height: 14px; flex: none; }
+    .line .d { color: #6b655f; font-weight: 400; } .line.cur .d { color: #a9a29b; }
+    .now { display: flex; align-items: flex-start; gap: 20px; margin-top: 20px; padding: 16px 20px; border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; background: rgba(255,255,255,0.045); }
+    .now .head { display: flex; align-items: center; gap: 8px; font-size: 16px; line-height: 22px; font-weight: 600; }
+    .now .head span { color: #a9a29b; font-weight: 400; }
+    .empty { margin-top: 20px; padding: 40px 24px; border: 1px dashed rgba(255,255,255,0.16); border-radius: 12px; text-align: center; }
+    .empty b { display: block; font-size: 16px; line-height: 22px; font-weight: 600; }
+    .empty p { margin: 6px 0 16px; color: #a9a29b; }
+    .cap { font-size: 12px; line-height: 16px; color: #a9a29b; }
+  </style>
+</helmet>
+<div class="win">
+  <div class="side">
+    <div class="brand"><img src="letter.png"><i></i><b>Dossier</b></div>
+<div class="nav on"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="3"></rect><path d="M10 9.5v5l4-2.5z"></path></svg><span>Реплеи</span></div><div class="nav"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="6" rx="2"></rect><rect x="3" y="14" width="18" height="6" rx="2"></rect><circle cx="7" cy="7" r="0.9"></circle><circle cx="7" cy="17" r="0.9"></circle></svg><span>Воркер</span></div><div class="nav"><svg viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"></path><circle cx="15" cy="7" r="2.2"></circle><circle cx="9" cy="17" r="2.2"></circle></svg><span>Настройки</span></div>
+    <div class="state"><div class="l"><span class="dot"></span>Рисую для бота</div><div class="n">4 из 6 · 62%</div></div>
+  </div>
+  <div class="main"><div class="title"><h1>Реплеи</h1><span>187</span></div><div class="tools"><div class="field"><svg viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.2"></circle><path d="M15.2 15.2 20 20"></path></svg><span>Игрок, карта, файл</span></div><div class="chips"><span class="chip on">Все <span class="n">187</span></span><span class="chip">С картой <span class="n">185</span></span><span class="chip">Без карты <span class="n">2</span></span></div></div><div class="now"><div style="flex: 1;"><div class="head">Рисую <span>· 4 из 6</span></div><div class="cap" style="margin-top: 2px;">NaumRedlo · Dj Grimoire — Astral Quantization</div><div class="ledger" style="margin-top: 12px;"><div class="line done"><span class="g"><svg viewBox="0 0 16 16" width="14" height="14"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="#e24848" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path></svg></span><span>Реплей прочитан</span></div><div class="line done"><span class="g"><svg viewBox="0 0 16 16" width="14" height="14"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="#e24848" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path></svg></span><span>Карта на месте</span></div><div class="line done"><span class="g"><svg viewBox="0 0 16 16" width="14" height="14"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="#e24848" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path></svg></span><span>Судейство сошлось</span></div><div class="line cur"><span class="g"><span class="dot"></span></span><span>Рисую <span class="d">· 4 512 из 7 280 · осталось 18 с</span></span></div><div class="line todo"><span class="g"></span><span>Кодирую</span></div><div class="line todo"><span class="g"></span><span>Сохраняю</span></div></div></div><span class="btn quiet" style="margin-top: -4px;">Стоп</span></div><div class="grid"><div class="card"><div class="stage"><img src="frame.jpg"><span class="tag l">lazer</span><span class="tag r good">FC</span></div><div class="who"><b>NaumRedlo</b><p class="map">Dj Grimoire — Astral Quantization [Nattu VN0TH3R]</p><span class="acc">98,71%</span><div class="meta"><span class="mods"><span class="mod h">HD</span><span class="mod h">DT</span><span class="mod h">HR</span></span><span>604x</span><span class="when">14 авг</span></div></div></div><div class="card"><div class="stage"><img src="frame.jpg"><span class="tag l">stable</span><span class="tag r good">SB</span></div><div class="who"><b>Guest</b><p class="map">xi — Blue Zenith [Asphyxia's Hard]</p><span class="acc">99,65%</span><div class="meta"><span class="mods"><span class="mod e">EZ</span></span><span>401x</span><span class="when">7 авг</span></div></div></div><div class="card"><div class="stage"><img src="frame.jpg"><span class="tag l">stable</span><span class="tag r">×27</span></div><div class="who"><b>-legusshhka-</b><p class="map">xi — FREEDOM DiVE [Extra]</p><span class="acc">93,03%</span><div class="meta"><span class="mods"><span class="mod o">NM</span></span><span>1137x</span><span class="when">2 авг</span></div></div></div><div class="card"><div class="stage" style="background: repeating-linear-gradient(-45deg, rgba(255,255,255,0.025) 0 6px, transparent 6px 14px);"><div class="hover" style="background: none; flex-direction: column; gap: 8px;"><span class="cap">Карты нет</span><span class="btn primary" style="height: 28px; font-size: 12px;">Скачать карту</span></div></div><div class="who"><b>Deeo_XD</b><p class="map">Deeo_XD - Chocofan - LUCKY CAT [_]</p><span class="acc">—</span><div class="meta"><span class="mods"><span class="mod h">DT</span></span><span>312x</span><span class="when">3 авг</span></div></div></div><div class="card"><div class="stage"><img src="frame.jpg"><span class="tag l">stable</span><span class="tag r">Fail · 61,2%</span></div><div class="who"><b>Saki_chan</b><p class="map">Chroma — sink to the deep sea world [HP0]</p><span class="acc">72,13%</span><div class="meta"><span class="mods"><span class="mod h">HD</span><span class="mod h">HR</span></span><span>185x</span><span class="when">29 июл</span></div></div></div><div class="card"><div class="stage"><img src="frame.jpg"><span class="tag l">stable</span><span class="tag r">×3</span></div><div class="who"><b>ItarinKamiSama</b><p class="map">Phoneboy — Nevermind (feat. Justin Magnaye)</p><span class="acc">96,40%</span><div class="meta"><span class="mods"><span class="mod h">NC</span></span><span>522x</span><span class="when">26 июл</span></div></div></div></div></div>
+</div>
+</x-dc>
+</body>
+</html>

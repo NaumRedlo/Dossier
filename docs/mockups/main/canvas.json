@@ -1,0 +1,260 @@
+{
+  "pages": [
+    {
+      "id": "page-blend",
+      "name": "Blend · scene + viewer + journal"
+    },
+    {
+      "id": "page-directions",
+      "name": "Directions · pick one"
+    },
+    {
+      "id": "page-en",
+      "name": "Main · EN"
+    },
+    {
+      "id": "page-ru",
+      "name": "Main · RU"
+    }
+  ],
+  "artboards": [
+    {
+      "file": "Main.dc.html",
+      "x": 0,
+      "y": 0,
+      "w": 980,
+      "h": 720,
+      "page": "page-en",
+      "title": "Replays · ready"
+    },
+    {
+      "file": "Rendering.dc.html",
+      "x": 1060,
+      "y": 0,
+      "w": 980,
+      "h": 720,
+      "page": "page-en",
+      "title": "Replays · a render running"
+    },
+    {
+      "file": "Empty.dc.html",
+      "x": 2120,
+      "y": 0,
+      "w": 980,
+      "h": 720,
+      "page": "page-en",
+      "title": "Replays · nothing yet, not linked"
+    },
+    {
+      "file": "MainRu.dc.html",
+      "x": 0,
+      "y": 0,
+      "w": 980,
+      "h": 720,
+      "page": "page-ru",
+      "title": "Реплеи"
+    },
+    {
+      "file": "RenderingRu.dc.html",
+      "x": 1060,
+      "y": 0,
+      "w": 980,
+      "h": 720,
+      "page": "page-ru",
+      "title": "Реплеи · идёт рендер"
+    },
+    {
+      "file": "DirectionA.dc.html",
+      "x": 0,
+      "y": 0,
+      "w": 980,
+      "h": 720,
+      "page": "page-directions",
+      "title": "A · The document"
+    },
+    {
+      "file": "DirectionB.dc.html",
+      "x": 1060,
+      "y": 0,
+      "w": 980,
+      "h": 720,
+      "page": "page-directions",
+      "title": "B · The viewer"
+    },
+    {
+      "file": "DirectionD.dc.html",
+      "x": 2120,
+      "y": 0,
+      "w": 980,
+      "h": 720,
+      "page": "page-directions",
+      "title": "C · The command"
+    },
+    {
+      "file": "DirectionScene.dc.html",
+      "x": 0,
+      "y": 880,
+      "w": 980,
+      "h": 720,
+      "page": "page-directions",
+      "title": "D · The scene"
+    },
+    {
+      "file": "DirectionHalves.dc.html",
+      "x": 1060,
+      "y": 880,
+      "w": 980,
+      "h": 720,
+      "page": "page-directions",
+      "title": "E · Two halves"
+    },
+    {
+      "file": "DirectionTime.dc.html",
+      "x": 2120,
+      "y": 880,
+      "w": 980,
+      "h": 720,
+      "page": "page-directions",
+      "title": "F · The journal"
+    },
+    {
+      "file": "DirectionMaps.dc.html",
+      "x": 0,
+      "y": 1760,
+      "w": 980,
+      "h": 720,
+      "page": "page-directions",
+      "title": "G · By map"
+    },
+    {
+      "file": "DirectionPlayer.dc.html",
+      "x": 1060,
+      "y": 1760,
+      "w": 980,
+      "h": 720,
+      "page": "page-directions",
+      "title": "H · The player"
+    },
+    {
+      "file": "DirectionMosaic.dc.html",
+      "x": 2120,
+      "y": 1760,
+      "w": 980,
+      "h": 720,
+      "page": "page-directions",
+      "title": "I · The mosaic"
+    },
+    {
+      "file": "Blend.dc.html",
+      "x": 0,
+      "y": 0,
+      "w": 980,
+      "h": 720,
+      "page": "page-blend",
+      "title": "Scene · viewer · journal"
+    },
+    {
+      "file": "BlendRu.dc.html",
+      "x": 1060,
+      "y": 0,
+      "w": 980,
+      "h": 720,
+      "page": "page-blend",
+      "title": "Сцена · просмотр · журнал"
+    }
+  ],
+  "annotations": [
+    {
+      "id": "menu",
+      "x": 0,
+      "y": -200,
+      "w": 520,
+      "page": "page-en",
+      "text": "The menu is three items and a state line. Nothing is a top-level item unless a person opens the application for it: Replays, Farm, Settings.\nThe state line at the bottom is the one place that says what the device is doing; when something runs, it becomes the ledger's headline, and the same ledger appears at the top of Replays until the work is done.\nNo sort control: newest first, search, three chips. The title carries the count."
+    },
+    {
+      "id": "dir-a",
+      "x": 0,
+      "y": -190,
+      "w": 460,
+      "page": "page-directions",
+      "text": "A · The document. No sidebar: the first run's column carries on. The emblem, one state line, three words as the menu, and replays as lines in a ledger — a dossier is a file of papers. Calm, typographic, the frames small stamps. Tradeoff: the frames the engine draws are not the hero."
+    },
+    {
+      "id": "dir-b",
+      "x": 1060,
+      "y": -190,
+      "w": 460,
+      "page": "page-directions",
+      "text": "B · The viewer. One replay at a time, its frame large, the rest a filmstrip below; menu is three words in the corner, state in one bar at the bottom. The engine's picture is the hero. Tradeoff: finding one of 187 means scrolling the strip or searching."
+    },
+    {
+      "id": "dir-d",
+      "x": 2120,
+      "y": -190,
+      "w": 460,
+      "page": "page-directions",
+      "text": "C · The command. A single field is the menu and the search: type a player, a map, or farm / settings / render. Results as lines, the state as a ledger card, keys spelled out. Fastest for a keyboard; least discoverable for a newcomer."
+    },
+    {
+      "id": "dir-scene",
+      "x": 0,
+      "y": 730,
+      "w": 460,
+      "page": "page-directions",
+      "text": "D · The scene. The play itself fills the window — the engine draws it live, dimmed — and everything else is a thin overlay: name and map bottom-left, accuracy bottom-right, the strip of dashes is the whole library. Immersive. Tradeoff: continuous drawing; reads best on 'still' as a poster."
+    },
+    {
+      "id": "dir-halves",
+      "x": 1060,
+      "y": 730,
+      "w": 460,
+      "page": "page-directions",
+      "text": "E · Two halves. No menu at all: the window is the two things this application is — your replays on the left, the farm on the right — both visible at once, settings behind one gear. Tradeoff: narrow halves at 980 px; both halves must earn their space every day."
+    },
+    {
+      "id": "dir-time",
+      "x": 2120,
+      "y": 730,
+      "w": 460,
+      "page": "page-directions",
+      "text": "F · The journal. One stream in time: your plays and the device's work for the bot as entries on the same line, newest first — a dossier as a case file. Filters are words at the top. Tradeoff: two kinds of things share a stream; a big library is a long scroll, search matters."
+    },
+    {
+      "id": "dir-maps",
+      "x": 0,
+      "y": 1610,
+      "w": 460,
+      "page": "page-directions",
+      "text": "G · By map. The library is organised by beatmap, not by replay: each map is a banner with everyone's plays on it as pills, the best outlined. A replay is chosen through its map. Tradeoff: one play per map makes the banner heavy; many plays per map make it shine."
+    },
+    {
+      "id": "dir-player",
+      "x": 1060,
+      "y": 1610,
+      "w": 460,
+      "page": "page-directions",
+      "text": "H · The player. A media player everyone already knows: now playing large with transport and a seek bar, the queue on the right, Render and Judge where a like button would be. A bot job appears in the same transport as a recording. Tradeoff: a queue implies order; searching 187 is scrolling a list."
+    },
+    {
+      "id": "dir-mosaic",
+      "x": 2120,
+      "y": 1610,
+      "w": 460,
+      "page": "page-directions",
+      "text": "I · The mosaic. Frames edge to edge with no boxes, no borders, no text blocks — names live on the frames; the menu and the state are veils that fade in at the top and bottom. Visual density without the old card grid. Tradeoff: the eye has no rows to rest on; the frames must be good."
+    },
+    {
+      "id": "blend",
+      "x": 0,
+      "y": -210,
+      "w": 560,
+      "page": "page-blend",
+      "text": "The scene is the window: the chosen play fills it, dimmed at the top and the bottom. The viewer is the lower third: date and client, the player, the map, mods and combo, one button, the accuracy large with its outcome. The journal is the strip along the bottom: replays only, grouped by day in the language's own date style, newest first, the chosen one outlined. Bottom-left: a dot and the word Worker — the dot is the state, the word is the way there. The brand block is the application's own: 36 px letter, a 22 px rule, the word at 20 px."
+    }
+  ],
+  "launch": {
+    "view": "canvas",
+    "page": "page-blend"
+  }
+}

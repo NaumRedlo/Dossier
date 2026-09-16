@@ -139,7 +139,7 @@ bot's are Russian-speaking; neither is an afterthought.
 ## The ledger
 
 The application has one way to show that something is going on, and it is the
-panel from the reference. It is used for a render, a farm job, a download of
+panel from the reference. It is used for a render, a job for the bot, a download of
 maps, the first-run checks, an update — anything with steps.
 
 ```
@@ -185,26 +185,34 @@ the one thing that reacts to the application's own moments — a check passing,
 the bot saying yes — with a beat of 420 ms. No rings, no border, and the very
 same letter, from the same drawing, sits in the heart of the QR.
 
-**Sidebar.** The mark and the word *Dossier*. Three items: Реплеи, Ферма,
-Настройки. At the bottom, one ledger headline for whatever is running, or the
-device's state in one line — *Готов брать работу*, *Работу не беру*, *Не
-готов*. Nothing else.
+**The word.** This device, lent to the bot, is a *worker* — *воркер* — and
+never a farm; the farm is the bot's word for all of them together.
 
-**Реплеи.** Title with the count. A search field and a sort. Three chips: Все,
-С картой, Без карты, each with a count. Cards. That is the screen.
+**The main screen** is the scene, the viewer and the journal in one, chosen
+2026-09-16 over a sidebar with cards and eight other directions:
 
-A card: the frame; the client and the outcome as two small tags on it; the
-player; the map in one line; the accuracy; mods as lettered badges, the combo,
-the date. Hovering shows one button. Nothing else is on a card.
+- *The scene is the window.* The chosen replay fills it, dimmed at the top
+  and the bottom; the middle is the engine's own picture with nothing on it.
+- *The viewer is the lower third.* Left: the date and the client in mono, the
+  player large, the map, mods as lettered badges, the combo, the length, one
+  button — *Render*. Right: the accuracy in the largest type on the screen,
+  its outcome under it.
+- *The journal is the strip along the bottom.* Replays only, as small frames
+  grouped by day, newest first, the chosen one outlined; the day labels in
+  the language's own date style — *today · Sep 16*, *сегодня · 16 сен*. It
+  scrolls sideways, the arrows and *1 / 187* sit at the right of the state
+  line.
+- *Thin chrome.* The brand block top-left — the letter at 36 px, a 22 px rule,
+  the word at 20 px, as everywhere in the application — a search field
+  (*player, map, day*), three words top-right: Replays, Worker, Settings. The
+  state line bottom-left is a dot and the word *Worker*: the dot is the state,
+  the word is the way to that screen. Nothing more.
 
-**The replay.** Opens over the list as a sheet. Two tags. The frame with play,
-a scrub bar and the time. Map, then player · date · mods. Three tiles:
-accuracy, combo of possible, score. The four counts with their dots. One line
-saying whether the judgement agrees with the replay's own header. Three
-buttons: Отрендерить, Судейство, Ролик. Three quiet links: show in folder,
-open, delete.
+**Реплеи** is the main screen above; there is no separate library. What a
+replay is beyond the viewer — the judgement's counts, whether it agrees with
+the header, the score — is designed after this screen is real, not before.
 
-**Ферма.** Title. One switch: take work from the bot. Two cards: the device
+**Воркер.** Title. One switch: take work from the bot. Two cards: the device
 (state line, three tiles: speed, delivered, handed back; then only the checks
 that fail, each with its fix) and the ledger of what is being drawn now. Below,
 who else is online: device, state, threads, delivered.
@@ -280,7 +288,8 @@ title, at most one line of why, the control, and a row of two buttons —
    nothing else on that page.
 
 3. **This device.** One field, prefilled with the machine's name. One line:
-   *This is how the farm will see it.* (*Так это устройство увидят в ферме.*)
+   *The worker's name, as the bot will show it.* (*Имя воркера — так его
+   покажет бот.*)
 
 4. **The bot.** No address and no token: the application knows the bot, and
    the person only has to be recognised. The card shows a code — `K7QN-M4XZ`,
@@ -316,7 +325,7 @@ bot that was skipped with *Later* is not a failure: its line stays quiet,
 *not linked*, and counts as done.
 
 The other way round — osu! found, bot skipped with *Later* — is the ordinary
-case for someone who only wants their own replays drawn. Then the farm is
+case for someone who only wants their own replays drawn. Then the worker is
 not hidden but idle: its screen shows the same code-and-QR card instead of
 the device's status, and the sidebar's bottom line reads *Not linked to the
 bot* rather than a readiness. Nothing about the bot appears anywhere else.

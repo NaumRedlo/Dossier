@@ -338,7 +338,7 @@
       "y": -150,
       "w": 600,
       "page": "page-blend",
-      "text": "Instead of the accuracy: five ways to say which replay a frame is. E is the one — the map's own background with the grade in the corner, nothing under; the caption on hover tells the rest. The accuracy moves to the viewer, where it is large."
+      "text": "Instead of the accuracy: five ways to say which replay a frame is. E is the one — the map's own background with the grade in the top-right corner in the grade's own colour, nothing under; the caption on hover tells the rest. The accuracy moves to the viewer, where it is large."
     },
     {
       "id": "blend-hover",
@@ -363,6 +363,14 @@
       "w": 600,
       "page": "page-blend",
       "text": "Right-click on a frame or anywhere in the viewer: Render (also Enter), Show in folder, Open .osr, Copy path, and after a rule, Delete in red (also ⌫, asks once). Judging comes back later, in its own time. The menu opens where the pointer is and closes on Esc or a click elsewhere."
+    },
+    {
+      "id": "blend-nomap",
+      "x": 1060,
+      "y": 1610,
+      "w": 600,
+      "page": "page-blend",
+      "text": "A replay whose map is not on disk. The scene cannot show the play, so it shows what the replay alone holds: the cursor's path, drawn live on the hatched ground, fading behind the cursor. The header alone gives the player, the mods, the combo, the counts — so the accuracy and the grade are real, and the length is the replay's last frame. The map's name comes from the file's name when it has one. One button: Get the map. Its frame in the journal is hatched with the grade in the corner."
     },
     {
       "id": "blend-rendering",

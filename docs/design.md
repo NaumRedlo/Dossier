@@ -202,8 +202,11 @@ never a farm; the farm is the bot's word for all of them together.
   grouped by day, newest first, the chosen one outlined in red with no glow.
   A frame is the map's own background — what song select shows, the picture
   a player already knows the map by — darkened by a fifth, with the grade in
-  its corner as one mono letter (*S*, *A*, *B*; a fail is a red *F*) and
-  nothing under it. Not the accuracy: every engine frame looks like every
+  its top-right corner as one mono letter on a dark chip, in the grade's own
+  colour — the one place the single hue gives way, because players read the
+  colour before the letter: SS pale gold, S gold, A green, B blue, C purple,
+  D and a fail's F in the accent red. Nothing under the frame. Not the
+  accuracy: every engine frame looks like every
   other and 98,71 beside 97,88 tells the eye nothing; the number lives in
   the viewer where it is large, and the rest — full combo, sliderbreak,
   misses — is the caption on hover. A replay whose map is not on disk keeps
@@ -266,8 +269,15 @@ the keyboard. Where a choice is still open it is marked *open*.
   path*, and after a rule *Delete* in red (also ⌫; asks once). Esc or a
   click elsewhere closes it. Judging is not in the menu yet; it comes back
   in its own time.
-- A replay without its map: the scene is the hatched ground, the accuracy is
-  a dash, the button is *Get the map* with one line saying why.
+- A replay without its map: the scene cannot show the play, so it shows
+  what the replay alone holds — the cursor's path, drawn live over the
+  hatched ground in the accent, fading behind the cursor. The header alone
+  gives the player, the mods, the combo and the counts, so the accuracy and
+  the grade are real, not a dash; the length is the replay's last frame; the
+  map's name is parsed from the file's name when it has one, else *Unknown
+  map*. One button, *Get the map*, and no line beside it — the hatched
+  ground has already said why. Its frame in the journal is hatched with the
+  grade in the corner.
 
 *The journal.*
 - Hovering a frame lifts it 2 px and brightens it to full over 200 ms, and

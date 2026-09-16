@@ -11,10 +11,11 @@ use iced::{window, Animation, Color, ContentFit, Element, Length, Padding, Subsc
 
 use crate::lang::{typed, Words};
 use crate::library::{self, Entry, Grade, Library};
+use crate::render::{self, Step};
 use crate::settings::Settings;
 use crate::sources::Kind;
 use crate::theme::{self, ACCENT, FAINT, INK, MUTED};
-use crate::ui;
+use crate::ui::{self, Line, Mood};
 
 pub const ENTER: Duration = Duration::from_millis(1200);
 pub const ARRIVE: Duration = Duration::from_millis(450);
@@ -46,6 +47,11 @@ pub enum Message {
     Hover(Option<usize>),
     Show(Overlay),
     OpenFolder,
+    Render,
+    StopRender,
+    Rendered(Step),
+    OpenOut,
+    ShowOut,
     Dropped(PathBuf),
     Resized(f32),
     Tick(Instant),
@@ -59,6 +65,23 @@ pub struct Shown {
     pub meta: String,
     pub accuracy: String,
     pub outcome: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct Rendering {
+    pub path: PathBuf,
+    pub reached: Vec<Step>,
+    pub out: Option<PathBuf>,
+}
+
+impl Rendering {
+    pub fn last(&self) -> Option<&Step> {
+        self.reached.last()
+    }
+
+    pub fn is_over(&self) -> bool {
+        self.last().is_some_and(Step::is_last)
+    }
 }
 
 #[derive(Clone)]
@@ -75,7 +98,10 @@ pub struct Main {
     pub scene_before: Option<Option<image::Handle>>,
     pub lengths: HashMap<PathBuf, i64>,
     pub overlay: Overlay,
+    pub rendering: Option<Rendering>,
+    pub ffmpeg: Option<PathBuf>,
     pub now: Instant,
+    pub started: Instant,
     pub now_unix: i64,
     pub enter: Animation<bool>,
     pub arrive: Animation<bool>,
@@ -108,7 +134,10 @@ impl Main {
             scene_before: None,
             lengths: HashMap::new(),
             overlay: Overlay::None,
+            rendering: None,
+            ffmpeg: crate::checks::ffmpeg_on_path(),
             now: Instant::now(),
+            started: Instant::now(),
             now_unix: unix_now(),
             enter: Animation::new(false).duration(ENTER).easing(Easing::EaseOutCubic),
             arrive: Animation::new(false).duration(ARRIVE).easing(Easing::EaseOutCubic).go(true, Instant::now()),
@@ -131,7 +160,8 @@ impl Main {
     }
 
     pub fn moving(&self) -> bool {
-        self.enter.is_animating(self.now)
+        self.rendering.as_ref().is_some_and(|r| !r.is_over())
+            || self.enter.is_animating(self.now)
             || self.arrive.is_animating(self.now)
             || self.swap.is_animating(self.now)
             || self.lift.is_animating(self.now)
@@ -214,6 +244,9 @@ impl Main {
         self.before = before;
         self.scene_before = scene_before;
         self.chosen = Some(at);
+        if self.rendering.as_ref().is_some_and(Rendering::is_over) {
+            self.rendering = None;
+        }
         self.swap = Animation::new(false).duration(SWAP).easing(Easing::EaseOutCubic).go(true, Instant::now());
         self.fetch_for_chosen()
     }
@@ -318,6 +351,52 @@ impl Main {
             Message::OpenFolder => {
                 if let Some(entry) = self.chosen_entry() {
                     let _ = open::that_detached(entry.path.parent().unwrap_or(Path::new(".")));
+                }
+                Task::none()
+            }
+            Message::Render => {
+                if self.rendering.as_ref().is_some_and(|r| !r.is_over()) {
+                    return Task::none();
+                }
+                let (Some(entry), Some(ffmpeg)) = (self.chosen_entry(), self.ffmpeg.clone()) else {
+                    return Task::none();
+                };
+                let Some(map) = &entry.map else {
+                    return Task::none();
+                };
+                let out = render::renders_dir().join(render::file_name(&entry.player, &map.line()));
+                let ask = render::Ask {
+                    replay: entry.path.clone(),
+                    map: map.file.clone(),
+                    map_hash: entry.map_hash.clone(),
+                    ffmpeg,
+                    out,
+                };
+                self.rendering = Some(Rendering { path: entry.path.clone(), reached: Vec::new(), out: None });
+                render::run(ask).map(Message::Rendered)
+            }
+            Message::StopRender => {
+                render::stop();
+                Task::none()
+            }
+            Message::Rendered(step) => {
+                if let Some(rendering) = &mut self.rendering {
+                    if let Step::Saved(path) = &step {
+                        rendering.out = Some(path.clone());
+                    }
+                    rendering.reached.push(step);
+                }
+                Task::none()
+            }
+            Message::OpenOut => {
+                if let Some(out) = self.rendering.as_ref().and_then(|r| r.out.clone()) {
+                    let _ = open::that_detached(out);
+                }
+                Task::none()
+            }
+            Message::ShowOut => {
+                if let Some(out) = self.rendering.as_ref().and_then(|r| r.out.clone()) {
+                    let _ = open::that_detached(out.parent().unwrap_or(Path::new(".")));
                 }
                 Task::none()
             }
@@ -461,17 +540,26 @@ impl Main {
             meta = meta.push(ui::mono("·".to_owned(), FAINT));
             meta = meta.push(ui::mono(w.length(*ms), MUTED));
         }
-        let action = if entry.map.is_some() {
-            ui::primary(w.t("render"), None)
-        } else {
-            ui::primary(w.t("get-the-map"), None)
+        let busy = self.rendering.as_ref().is_some_and(|r| !r.is_over());
+        let rendering_this = self.rendering.as_ref().filter(|r| r.path == entry.path);
+        let lower: Element<'_, Message> = match rendering_this {
+            Some(rendering) => self.render_ledger(rendering),
+            None => {
+                let action = if entry.map.is_some() {
+                    ui::primary(w.t("render"), (self.ffmpeg.is_some() && !busy).then_some(Message::Render))
+                } else {
+                    ui::primary(w.t("get-the-map"), None)
+                };
+                column![container(meta).padding(Padding::ZERO.top(4.0)), container(action).padding(Padding::ZERO.top(14.0))]
+                    .spacing(2)
+                    .into()
+            }
         };
         let left = column![
             text(date).font(theme::MONO).size(theme::CAPTION).color(ui::faded(MUTED)),
             text(player).font(theme::SANS_SEMI).size(30.0).color(ui::faded(INK)),
             text(map).font(theme::SANS).size(theme::BODY).color(ui::faded(MUTED)),
-            container(meta).padding(Padding::ZERO.top(4.0)),
-            container(action).padding(Padding::ZERO.top(14.0)),
+            lower,
         ]
         .spacing(2);
         let outcome_colour = if entry.outcome.is_bad() { ACCENT } else { MUTED };
@@ -487,6 +575,83 @@ impl Main {
             .padding(Padding { top: 0.0, right: 40.0, bottom: 28.0, left: 40.0 })
             .width(Length::Fill)
             .into()
+    }
+
+    fn render_ledger(&self, rendering: &Rendering) -> Element<'_, Message> {
+        let w = &self.words;
+        let reached = |wanted: fn(&Step) -> bool| rendering.reached.iter().any(wanted);
+        let last = rendering.last();
+        if let Some(Step::Saved(_)) = last {
+            let line = row![
+                ui::mono(w.t("rendered"), MUTED),
+                ui::mono("·".to_owned(), FAINT),
+                ui::link(w.t("open"), Message::OpenOut),
+                ui::mono("·".to_owned(), FAINT),
+                ui::link(w.t("show-in-folder"), Message::ShowOut),
+            ]
+            .spacing(8)
+            .align_y(iced::Center);
+            return container(line).padding(Padding::ZERO.top(8.0)).into();
+        }
+        let failed = match last {
+            Some(Step::Failed(why)) => Some(why.clone()),
+            Some(Step::Stopped) => Some(w.t("stopped")),
+            _ => None,
+        };
+        let stages: [(&str, fn(&Step) -> bool); 5] = [
+            ("replay-read", |s| matches!(s, Step::ReplayRead)),
+            ("map-on-disk", |s| matches!(s, Step::MapOnDisk)),
+            ("judged", |s| matches!(s, Step::Judged)),
+            ("drawing", |s| matches!(s, Step::Encoded)),
+            ("saving", |s| matches!(s, Step::Saved(_))),
+        ];
+        let mut lines = Vec::new();
+        let mut current_seen = false;
+        for (key, done) in stages {
+            let is_done = reached(done);
+            let mood = if is_done {
+                Mood::Done
+            } else if !current_seen {
+                current_seen = true;
+                if failed.is_some() { Mood::Failed } else { Mood::Now }
+            } else {
+                Mood::Todo
+            };
+            let mut line = Line::new(mood, w.t(key));
+            if key == "drawing" && mood == Mood::Now {
+                if let Some(Step::Drawing { frames, of, left_seconds }) = rendering.reached.iter().rev().find(|s| matches!(s, Step::Drawing { .. })) {
+                    line = line.detail(format!(
+                        "{} / {} · {}",
+                        w.lang().group(*frames),
+                        w.lang().group(*of),
+                        w.n("seconds-left", left_seconds.round().max(0.0) as u64)
+                    ));
+                }
+            }
+            if mood == Mood::Failed {
+                if let Some(why) = &failed {
+                    line = line.detail(why.chars().take(72).collect::<String>());
+                }
+            }
+            if mood == Mood::Now {
+                line = line.breathing(self.breath());
+            }
+            lines.push(line);
+        }
+        let ledger = ui::ledger(&lines, None);
+        let foot: Element<'_, Message> = if failed.is_some() {
+            ui::quiet(w.t("render"), (self.ffmpeg.is_some()).then_some(Message::Render))
+        } else {
+            ui::quiet(w.t("stop"), Some(Message::StopRender))
+        };
+        column![container(ledger).padding(Padding::ZERO.top(8.0)), container(foot).padding(Padding::ZERO.top(6.0))]
+            .into()
+    }
+
+    fn breath(&self) -> f32 {
+        let period = 1.6;
+        let t = self.now.duration_since(self.started).as_secs_f32();
+        (0.5 - 0.5 * (t / period * std::f32::consts::TAU).cos()).clamp(0.0, 1.0)
     }
 
     fn journal(&self) -> Element<'_, Message> {
@@ -552,6 +717,18 @@ impl Main {
                 .into(),
             (None, true) => Space::new().width(w - inner).height(h - inner).into(),
             (None, false) => container(ui::fine_hatch()).width(w - inner).height(h - inner).into(),
+        };
+        let busy_here = self.rendering.as_ref().is_some_and(|r| r.path == entry.path && !r.is_over());
+        let picture: Element<'_, Message> = if busy_here {
+            let dot = container(Space::new().width(8.0).height(8.0)).style(|_| container::Style {
+                background: Some(iced::Background::Color(ACCENT)),
+                border: iced::Border { radius: 4.0.into(), ..iced::Border::default() },
+                shadow: iced::Shadow { color: Color::from_rgba(0.027, 0.012, 0.016, 0.6), offset: Vector::ZERO, blur_radius: 10.0 },
+                ..container::Style::default()
+            });
+            stack![picture, container(dot).width(Length::Fill).height(Length::Fill).center(Length::Fill)].into()
+        } else {
+            picture
         };
         let edge = if chosen { 2.0 } else { 1.0 };
         let pressed = button(container(picture).width(w - 2.0 * edge).height(h - 2.0 * edge))

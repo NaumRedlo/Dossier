@@ -689,11 +689,36 @@ dependencies = [
 ]
 
 [[package]]
+name = "dossier-audio"
+version = "0.11.0"
+
+[[package]]
+name = "dossier-beatmap"
+version = "0.11.0"
+dependencies = [
+ "thiserror 2.0.20",
+]
+
+[[package]]
+name = "dossier-exhibit"
+version = "0.11.0"
+dependencies = [
+ "dossier-beatmap",
+ "dossier-replay",
+ "dossier-sim",
+]
+
+[[package]]
 name = "dossier-native"
 version = "0.12.0"
 dependencies = [
  "chrono",
+ "dossier-audio",
+ "dossier-beatmap",
+ "dossier-produce",
+ "dossier-render",
  "dossier-replay",
+ "dossier-sim",
  "fluent-bundle",
  "iced",
  "iced_test",
@@ -713,11 +738,46 @@ dependencies = [
 ]
 
 [[package]]
+name = "dossier-produce"
+version = "0.11.0"
+dependencies = [
+ "dossier-audio",
+ "dossier-beatmap",
+ "dossier-exhibit",
+ "dossier-render",
+ "dossier-replay",
+ "dossier-sim",
+ "md-5",
+ "tiny-skia",
+ "zip",
+]
+
+[[package]]
+name = "dossier-render"
+version = "0.11.0"
+dependencies = [
+ "dossier-beatmap",
+ "dossier-replay",
+ "dossier-sim",
+ "fontdue",
+ "jpeg-decoder",
+ "tiny-skia",
+]
+
+[[package]]
 name = "dossier-replay"
 version = "0.11.0"
 dependencies = [
  "lzma-rs",
  "thiserror 2.0.20",
+]
+
+[[package]]
+name = "dossier-sim"
+version = "0.11.0"
+dependencies = [
+ "dossier-beatmap",
+ "dossier-replay",
 ]
 
 [[package]]
@@ -933,6 +993,16 @@ dependencies = [
  "memmap2",
  "slotmap",
  "tinyvec",
+ "ttf-parser",
+]
+
+[[package]]
+name = "fontdue"
+version = "0.9.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7894823fa221401399e2598f8b63f81ac77ff5c63248b7656779bff1632d7d3d"
+dependencies = [
+ "hashbrown 0.15.5",
  "ttf-parser",
 ]
 
@@ -1277,6 +1347,8 @@ version = "0.15.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9229cfe53dfd69f0609a49f65461bd93001ea1ef889cd5529dd176593f5338a1"
 dependencies = [
+ "allocator-api2",
+ "equivalent",
  "foldhash 0.1.5",
 ]
 
@@ -1940,6 +2012,12 @@ dependencies = [
  "getrandom 0.4.3",
  "libc",
 ]
+
+[[package]]
+name = "jpeg-decoder"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "00810f1d8b74be64b13dbf3db89ac67740615d6c891f0e7b6179326533011a07"
 
 [[package]]
 name = "js-sys"
@@ -3920,6 +3998,7 @@ dependencies = [
  "bytemuck",
  "cfg-if",
  "log",
+ "png 0.17.16",
  "tiny-skia-path",
 ]
 

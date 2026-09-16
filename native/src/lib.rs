@@ -6,6 +6,7 @@ pub mod gallery;
 pub mod lang;
 pub mod library;
 pub mod main_screen;
+pub mod render;
 pub mod settings;
 pub mod sources;
 pub mod theme;
@@ -44,6 +45,7 @@ pub struct Rehearsal {
     pub folder: Option<std::path::PathBuf>,
     pub snap_to: Option<std::path::PathBuf>,
     pub after: std::time::Duration,
+    pub render: bool,
 }
 
 impl Rehearsal {
@@ -57,7 +59,8 @@ impl Rehearsal {
             .and_then(|i| args.get(i + 1))
             .and_then(|s| s.parse::<u64>().ok())
             .map_or(std::time::Duration::from_millis(2500), std::time::Duration::from_millis);
-        Some(Rehearsal { folder, snap_to, after })
+        let render = args.iter().any(|a| a == "--render-first");
+        Some(Rehearsal { folder, snap_to, after, render })
     }
 }
 
@@ -79,7 +82,12 @@ impl App {
                 }
                 None => Task::none(),
             };
-            return (App { screen: Screen::Main(main), backdrop }, Task::batch([task.map(Message::Main), snap]));
+            let press = if rehearsal.render {
+                Task::perform(async { tokio_sleep(std::time::Duration::from_millis(1500)).await }, |_| Message::Main(main_screen::Message::Render))
+            } else {
+                Task::none()
+            };
+            return (App { screen: Screen::Main(main), backdrop }, Task::batch([task.map(Message::Main), snap, press]));
         }
         if settings::first_run() {
             let (flow, task) = FirstRun::new();

@@ -385,12 +385,33 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
     };
     let mut worker = staged(Some(0));
     worker.overlay = Overlay::Worker;
+    let mut rendering = staged(Some(0));
+    rendering.ffmpeg = Some(PathBuf::from("ffmpeg"));
+    rendering.rendering = Some(crate::main_screen::Rendering {
+        path: library.entries[0].path.clone(),
+        reached: vec![
+            crate::render::Step::ReplayRead,
+            crate::render::Step::MapOnDisk,
+            crate::render::Step::Judged,
+            crate::render::Step::Drawing { frames: 4512, of: 7280, left_seconds: 18.0 },
+        ],
+        out: None,
+    });
+    let mut rendered = staged(Some(0));
+    rendered.ffmpeg = Some(PathBuf::from("ffmpeg"));
+    rendered.rendering = Some(crate::main_screen::Rendering {
+        path: library.entries[0].path.clone(),
+        reached: vec![crate::render::Step::Encoded, crate::render::Step::Saved(PathBuf::from("out.mp4"))],
+        out: Some(PathBuf::from("out.mp4")),
+    });
     let mut empty = Main::staged(crate::lang::Words::new(lang).in_zone(3 * 3600), settings.clone(), crate::library::Library::default(), None);
     empty.now_unix = NOON;
     vec![
         ("main-rest".to_owned(), staged(Some(0))),
         ("main-nomap".to_owned(), staged(Some(3))),
         ("main-worker".to_owned(), worker),
+        ("main-rendering".to_owned(), rendering),
+        ("main-rendered".to_owned(), rendered),
         ("main-empty".to_owned(), empty),
     ]
 }

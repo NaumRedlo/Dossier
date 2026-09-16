@@ -260,12 +260,19 @@ the keyboard. Where a choice is still open it is marked *open*.
   fell; clicking seeks the scene to that moment.
 - *Render*: the meta line and the button give way to the ledger — Replay
   read, Map on disk, Judged, Drawing with its fraction and time left,
-  Encoding, Saving — with a quiet *Stop*; the player's name and the map stay,
-  the accuracy stays, the frame in the journal wears a red dot. When it is
-  done the ledger folds into one line, *Rendered · Open · Show in folder*,
-  which stays until the next choice. The scene keeps playing throughout.
-  The frame's red dot sits in its middle, over the picture, not in the
-  corner where the grade is.
+  Saving — with a quiet *Stop*; the player's name and the map stay, the
+  accuracy stays, the frame in the journal wears a red dot in its middle.
+  Encoding is not a line of its own: the encoder eats frames as they are
+  drawn, so *Drawing* is both. When it is done the ledger folds into one
+  line, *Rendered · Open · Show in folder*, which stays until the next
+  choice; a stop or a failure leaves the line red with its reason and the
+  button back. The scene keeps playing throughout. Built 2026-09-16: the
+  engine's own pipeline in a thread of its own, its progress events read
+  as they come, `halt` for *Stop*. The picture is 1920×1080 at 60 fps, crf
+  20, preset medium, with the map's background, the map's own hit-sounds
+  over the *click* kit, no storyboard and no video — the defaults until
+  Settings exists — and lands in the application's own `Renders/` as
+  *Player - Artist — Title [Version].mp4*.
 - Right-click anywhere in the viewer or on a frame opens the menu where the
   pointer is: *Render* (also Enter), *Show in folder*, *Open .osr*, *Copy
   path*, and after a rule *Delete* in red (also ⌫; asks once). Esc or a
@@ -549,6 +556,14 @@ answers whether it agrees with this build, and when it does not the worker
 is not given work and the application says a newer build is needed. An
 updater — the application fetching its own next build — belongs to the
 operations centre, later.
+
+**Rehearsing without the game.** `dossier --open <folder>` opens any folder
+of replays in the real window without touching the saved settings, `--snap
+out.png --after ms` takes the window's own picture and leaves,
+`--render-first` presses Render on arrival; `dossier --render <replay>`
+renders one file from the terminal with the steps timed; `--library
+<folder>` prints what the index made of a folder. The corpus is the
+rehearsal stage.
 
 **Maps come from mirrors by hash.** A replay names its map by MD5 alone, and
 ppy has no endpoint from a hash to an id, so a mirror is asked: osu.direct

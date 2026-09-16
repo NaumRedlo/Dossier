@@ -29,6 +29,11 @@ md-5 = "0.10"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
 dossier-replay = { path = "../crates/dossier-replay" }
+dossier-beatmap = { path = "../crates/dossier-beatmap" }
+dossier-sim = { path = "../crates/dossier-sim" }
+dossier-render = { path = "../crates/dossier-render" }
+dossier-audio = { path = "../crates/dossier-audio" }
+dossier-produce = { path = "../crates/dossier-produce" }
 
 
 [dev-dependencies]

@@ -27,6 +27,31 @@ fn main() -> iced::Result {
         }
         return Ok(());
     }
+    if let Some(at) = args.iter().position(|a| a == "--render") {
+        let replay = std::path::PathBuf::from(args.get(at + 1).cloned().unwrap_or_default());
+        let folder = replay.parent().map(std::path::Path::to_path_buf).unwrap_or_default();
+        let Some(source) = dossier_native::sources::folder_at(&folder) else {
+            eprintln!("no replays beside {}", replay.display());
+            std::process::exit(1);
+        };
+        let library = dossier_native::library::read(&[source]);
+        let Some(entry) = library.entries.iter().find(|e| e.path == replay) else {
+            eprintln!("{} is not in the library", replay.display());
+            std::process::exit(1);
+        };
+        let (Some(map), Some(ffmpeg)) = (&entry.map, dossier_native::checks::ffmpeg_on_path()) else {
+            eprintln!("no map on disk or no ffmpeg");
+            std::process::exit(1);
+        };
+        let out = std::env::temp_dir().join(dossier_native::render::file_name(&entry.player, &map.line()));
+        let ask = dossier_native::render::Ask { replay: entry.path.clone(), map: map.file.clone(), map_hash: entry.map_hash.clone(), ffmpeg, out };
+        let started = std::time::Instant::now();
+        dossier_native::render::perform(ask, &mut |step| {
+            println!("{:>7.2?} {step:?}", started.elapsed());
+            true
+        });
+        return Ok(());
+    }
     if let Some(at) = args.iter().position(|a| a == "--library") {
         let root = std::path::PathBuf::from(args.get(at + 1).cloned().unwrap_or_else(|| ".".to_owned()));
         let Some(source) = dossier_native::sources::folder_at(&root) else {

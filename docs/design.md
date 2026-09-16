@@ -316,7 +316,12 @@ the keyboard. Where a choice is still open it is marked *open*.
   scene crossfades to the new replay (320 ms), the viewer's words erase from
   the right and type in from the left (450 ms, the same typewriter as a
   language change), the accuracy included. → and ← do the same for the
-  next and the previous frame.
+  next and the previous frame. Nothing shows through in between: the old
+  picture — the live play's last frame over its background — stays whole
+  until the new background is decoded, and only then does the crossfade
+  begin; the new live play fades in over it when its first frame comes.
+  (A flash of the hatched ground between two replays was the first bug the
+  user saw; it was the hatch standing in for a picture not yet decoded.)
 - Clicking a day's label scrolls the strip to that day. Home and End go to
   the newest and the oldest.
 - The rail above the strip is a map of time: its ticks are the days, the

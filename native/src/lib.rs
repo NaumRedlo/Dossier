@@ -51,6 +51,7 @@ pub struct Rehearsal {
     pub render: bool,
     pub get_map: bool,
     pub look: bool,
+    pub step: bool,
 }
 
 impl Rehearsal {
@@ -67,7 +68,8 @@ impl Rehearsal {
         let render = args.iter().any(|a| a == "--render-first");
         let get_map = args.iter().any(|a| a == "--get-map-first");
         let look = args.iter().any(|a| a == "--look-first");
-        Some(Rehearsal { folder, snap_to, after, render, get_map, look })
+        let step = args.iter().any(|a| a == "--step-first");
+        Some(Rehearsal { folder, snap_to, after, render, get_map, look, step })
     }
 }
 
@@ -95,6 +97,8 @@ impl App {
                 Task::perform(async { tokio_sleep(std::time::Duration::from_millis(1500)).await }, |_| Message::Main(main_screen::Message::GetMap))
             } else if rehearsal.look {
                 Task::perform(async { tokio_sleep(std::time::Duration::from_millis(1500)).await }, |_| Message::Main(main_screen::Message::Look))
+            } else if rehearsal.step {
+                Task::perform(async { tokio_sleep(std::time::Duration::from_millis(2500)).await }, |_| Message::Main(main_screen::Message::Step(1)))
             } else {
                 Task::none()
             };

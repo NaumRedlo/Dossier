@@ -139,6 +139,7 @@ pub struct Main {
     pub fetching: Option<Fetching>,
     pub looking: Option<scan::Step>,
     pub live: Option<Live>,
+    pub live_before: Option<image::Handle>,
     pub ffmpeg: Option<PathBuf>,
     pub now: Instant,
     pub started: Instant,
@@ -146,6 +147,7 @@ pub struct Main {
     pub enter: Animation<bool>,
     pub arrive: Animation<bool>,
     pub swap: Animation<bool>,
+    pub swap_waits: bool,
     pub lift: Animation<bool>,
     pub lifted: Option<usize>,
     pub width: f32,
@@ -178,6 +180,7 @@ impl Main {
             fetching: None,
             looking: None,
             live: None,
+            live_before: None,
             ffmpeg: crate::checks::ffmpeg_on_path(),
             now: Instant::now(),
             started: Instant::now(),
@@ -185,6 +188,7 @@ impl Main {
             enter: Animation::new(false).duration(ENTER).easing(Easing::EaseOutCubic),
             arrive: Animation::new(false).duration(ARRIVE).easing(Easing::EaseOutCubic).go(true, Instant::now()),
             swap: Animation::new(true).duration(SWAP).easing(Easing::EaseOutCubic),
+            swap_waits: false,
             lift: Animation::new(false).duration(LIFT).easing(Easing::EaseOutCubic),
             lifted: None,
             width: crate::WINDOW.width,
@@ -290,19 +294,23 @@ impl Main {
         self.before = before;
         self.scene_before = scene_before;
         self.chosen = Some(at);
+        self.swap_waits = self.chosen_entry().is_some_and(|e| e.map.is_some() && !self.scenes.contains_key(&e.map_hash));
         if self.rendering.as_ref().is_some_and(Rendering::is_over) {
             self.rendering = None;
         }
         if self.fetching.as_ref().is_some_and(Fetching::is_over) {
             self.fetching = None;
         }
-        self.swap = Animation::new(false).duration(SWAP).easing(Easing::EaseOutCubic).go(true, Instant::now());
+        if !self.swap_waits {
+            self.swap = Animation::new(false).duration(SWAP).easing(Easing::EaseOutCubic).go(true, Instant::now());
+        }
         Task::batch([self.fetch_for_chosen(), self.start_live()])
     }
 
     fn start_live(&mut self) -> Task<Message> {
         if let Some(live) = self.live.take() {
             live.control.stop();
+            self.live_before = live.frame;
         }
         let Some(ask) = self.chosen_entry().and_then(|entry| {
             let map = entry.map.as_ref()?;
@@ -379,7 +387,11 @@ impl Main {
                     if self.scenes.len() > 24 {
                         self.scenes.clear();
                     }
-                    self.scenes.insert(hash, handle);
+                    self.scenes.insert(hash.clone(), handle);
+                }
+                if self.swap_waits && self.chosen_entry().is_some_and(|e| e.map_hash == hash) {
+                    self.swap_waits = false;
+                    self.swap = Animation::new(false).duration(SWAP).easing(Easing::EaseOutCubic).go(true, Instant::now());
                 }
                 Task::none()
             }
@@ -627,19 +639,20 @@ impl Main {
 
     pub fn view(&self) -> Element<'_, Message> {
         let k = self.enter.interpolate(0.0, 1.0, self.now);
-        let s = self.swap.interpolate(0.0, 1.0, self.now);
+        let s = if self.swap_waits { 0.0 } else { self.swap.interpolate(0.0, 1.0, self.now) };
         let loaded = self.library.is_some();
         let mut layers = stack![];
         if let Some(entry) = self.chosen_entry() {
             let alpha = k.min(1.0);
-            let scene: Element<'_, Message> = match self.scenes.get(&entry.map_hash) {
-                Some(handle) => image(handle.clone())
+            let scene: Element<'_, Message> = match (self.scenes.get(&entry.map_hash), entry.map.is_some()) {
+                (Some(handle), _) => image(handle.clone())
                     .content_fit(ContentFit::Cover)
                     .width(Length::Fill)
                     .height(Length::Fill)
                     .opacity(alpha * s)
                     .into(),
-                None => container(ui::hatch()).width(Length::Fill).height(Length::Fill).into(),
+                (None, true) => Space::new().width(Length::Fill).height(Length::Fill).into(),
+                (None, false) => container(ui::hatch()).width(Length::Fill).height(Length::Fill).into(),
             };
             if let Some(Some(before)) = &self.scene_before {
                 if s < 1.0 {
@@ -653,6 +666,17 @@ impl Main {
                 }
             }
             layers = layers.push(scene);
+            if let Some(before) = &self.live_before {
+                if s < 1.0 {
+                    layers = layers.push(
+                        image(before.clone())
+                            .content_fit(ContentFit::Cover)
+                            .width(Length::Fill)
+                            .height(Length::Fill)
+                            .opacity(alpha * (1.0 - s)),
+                    );
+                }
+            }
             if let Some(live) = self.live.as_ref().filter(|l| l.for_path == entry.path) {
                 if let Some(handle) = &live.frame {
                     let seen = live.fade.interpolate(0.0, 1.0, self.now);

@@ -156,7 +156,8 @@ impl Scene<'_> {
             };
 
             let object = &self.state.timeline().objects[index];
-            let mut at = layout.map(verdict_place(object));
+            let at_head = annotation.judged_before_the_end(object);
+            let mut at = layout.map(verdict_place(object, at_head));
 
             if verdict == Judgement::Miss && self.skin_version() > 1.0 {
                 at.1 += layout.length(miss_drift(age));
@@ -179,7 +180,7 @@ impl Scene<'_> {
                     self.draw_sprite_wide_at(
                         pixmap,
                         element,
-                        verdict_place(object),
+                        verdict_place(object, at_head),
                         own * settle,
                         alpha * presence,
                         layout,
@@ -393,7 +394,10 @@ fn verdict_held(
     }
 }
 
-fn verdict_place(object: &dossier_sim::TimedObject) -> Point {
+fn verdict_place(object: &dossier_sim::TimedObject, at_head: bool) -> Point {
+    if at_head {
+        return object.pos;
+    }
     object.ball_at(object.end_ms).unwrap_or(object.pos)
 }
 
@@ -471,7 +475,7 @@ impl Scene<'_> {
                 pixmap,
                 crate::elements::Element::Lighting,
                 annotation.colour,
-                verdict_place(object),
+                verdict_place(object, annotation.judged_before_the_end(object)),
                 layout.length(radius) * scale,
                 alpha,
                 layout,
@@ -501,7 +505,7 @@ mod tests {
     fn a_sliders_verdict_is_flashed_where_the_ball_finished() {
         let state = slider(1);
         let object = &state.timeline().objects[0];
-        let at = verdict_place(object);
+        let at = verdict_place(object, false);
 
         assert!(
             (at.x - 240.0).abs() < 1.0,
@@ -519,7 +523,7 @@ mod tests {
         let state = slider(2);
         let object = &state.timeline().objects[0];
         assert!(
-            (verdict_place(object).x - 100.0).abs() < 1.0,
+            (verdict_place(object, false).x - 100.0).abs() < 1.0,
             "two slides end where they started"
         );
     }
@@ -533,8 +537,16 @@ mod tests {
         .expect("a map");
         let state = dossier_sim::GameState::from_beatmap(&map, dossier_replay::Mods::default());
         let object = &state.timeline().objects[0];
-        assert_eq!(verdict_place(object).x, object.pos.x);
-        assert_eq!(verdict_place(object).y, object.pos.y);
+        assert_eq!(verdict_place(object, false).x, object.pos.x);
+        assert_eq!(verdict_place(object, false).y, object.pos.y);
+    }
+
+    #[test]
+    fn a_verdict_given_at_the_head_is_flashed_at_the_head() {
+        let state = slider(1);
+        let object = &state.timeline().objects[0];
+        let at = verdict_place(object, true);
+        assert!((at.x - object.pos.x).abs() < 1.0, "lazer judges the head when it is hit, so the mark sits on it, not at {}", at.x);
     }
 
     #[test]

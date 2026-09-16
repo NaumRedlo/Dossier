@@ -286,6 +286,12 @@ struct Annotation {
     turns: Option<(Turn, Turn)>,
 }
 
+impl Annotation {
+    fn judged_before_the_end(&self, object: &dossier_sim::TimedObject) -> bool {
+        object.is_slider() && self.verdict.is_some() && self.resolved_ms < object.end_ms - 0.5
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 struct Turn {
     at: Point,

@@ -163,6 +163,24 @@
       "title": "В покое"
     },
     {
+      "file": "BlendSearch.dc.html",
+      "x": 2120,
+      "y": 0,
+      "w": 980,
+      "h": 720,
+      "page": "page-blend",
+      "title": "Typing in search"
+    },
+    {
+      "file": "BlendFrames.dc.html",
+      "x": 3180,
+      "y": 0,
+      "w": 980,
+      "h": 780,
+      "page": "page-blend",
+      "title": "What a frame says · pick one"
+    },
+    {
       "file": "BlendHover.dc.html",
       "x": 0,
       "y": 880,
@@ -172,26 +190,35 @@
       "title": "Hovering a frame, hovering the accuracy"
     },
     {
-      "file": "BlendRendering.dc.html",
+      "file": "BlendPick.dc.html",
       "x": 1060,
       "y": 880,
+      "w": 980,
+      "h": 720,
+      "page": "page-blend",
+      "title": "Clicking a frame · 40 % through"
+    },
+    {
+      "file": "BlendMenu.dc.html",
+      "x": 2120,
+      "y": 880,
+      "w": 980,
+      "h": 720,
+      "page": "page-blend",
+      "title": "Right-click on a frame"
+    },
+    {
+      "file": "BlendRendering.dc.html",
+      "x": 0,
+      "y": 1760,
       "w": 980,
       "h": 720,
       "page": "page-blend",
       "title": "Render pressed"
     },
     {
-      "file": "BlendSearch.dc.html",
-      "x": 2120,
-      "y": 880,
-      "w": 980,
-      "h": 720,
-      "page": "page-blend",
-      "title": "Typing in search"
-    },
-    {
       "file": "BlendNoMap.dc.html",
-      "x": 0,
+      "x": 1060,
       "y": 1760,
       "w": 980,
       "h": 720,
@@ -200,7 +227,7 @@
     },
     {
       "file": "BlendEntrance.dc.html",
-      "x": 1060,
+      "x": 2120,
       "y": 1760,
       "w": 980,
       "h": 720,
@@ -292,10 +319,58 @@
     {
       "id": "blend",
       "x": 0,
-      "y": -210,
-      "w": 560,
+      "y": -230,
+      "w": 600,
       "page": "page-blend",
-      "text": "The scene is the window; the viewer is the lower third; the journal is the strip along the bottom, replays only, by day — today is the word alone, other days the date in each language's way, the year only when it is not this one. The crest is the first run's block, centred, unmoved. No state line: the worker gets its own screen and, later, an operations centre for downloads and notices. Second row: what pressing and hovering shows."
+      "text": "The scene is the window; the viewer is the lower third; the journal is the strip along the bottom, replays only, by day — today is the word alone, other days the date in each language's way, the year only when it is not this one. The crest is the first run's block at the first run's sizes, top-left, with the search beside it and the three words at the right. No state line: the worker gets its own screen and, later, an operations centre."
+    },
+    {
+      "id": "blend-search",
+      "x": 2120,
+      "y": -150,
+      "w": 600,
+      "page": "page-blend",
+      "text": "Search filters the strip itself, there is no second list. As you type, frames that do not match dim to a third; a day left with nothing folds away (today, Aug 3 and Jul 29 are gone here); the first match is outlined at once and the viewer already shows it. The field says 2 / 187. Enter keeps the outlined one and leaves the field, ↑↓ or ← → walk the matches, Esc clears and the days unfold."
+    },
+    {
+      "id": "blend-frames",
+      "x": 3180,
+      "y": -150,
+      "w": 600,
+      "page": "page-blend",
+      "text": "Instead of the accuracy: four ways to say which replay a frame is. D is the recommendation — the map's own background, the outcome in the corner, the title under. The accuracy moves to the viewer, where it is large."
+    },
+    {
+      "id": "blend-hover",
+      "x": 0,
+      "y": 732,
+      "w": 600,
+      "page": "page-blend",
+      "text": "Hover: the frame lifts 2 px and brightens to full over 200 ms, and a caption appears above it — player, map, mods, combo. The pointer leaving drops it back. Nothing else on the screen changes."
+    },
+    {
+      "id": "blend-pick",
+      "x": 1060,
+      "y": 732,
+      "w": 600,
+      "page": "page-blend",
+      "text": "Click: the outline slides to the frame (200 ms); the scene crossfades to the new replay (320 ms); the viewer's words erase from the right and type in from the left (450 ms), the accuracy included. Shown at 40 %: the old scene half gone, the words half typed. Enter or → does the same for the next frame."
+    },
+    {
+      "id": "blend-menu",
+      "x": 2120,
+      "y": 732,
+      "w": 600,
+      "page": "page-blend",
+      "text": "Right-click on a frame or anywhere in the viewer: Render (also Enter), Judge, Show in folder, Open .osr, Copy path, and after a rule, Delete in red (also ⌫, asks once). The menu opens where the pointer is and closes on Esc or a click elsewhere."
+    },
+    {
+      "id": "blend-rendering",
+      "x": 0,
+      "y": 1610,
+      "w": 600,
+      "page": "page-blend",
+      "text": "Render: the mods line and the button give way to the ledger; the frame wears a red dot; the scene keeps playing. When done, one line stays: Rendered · Open · Show in folder."
     }
   ],
   "launch": {

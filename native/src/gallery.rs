@@ -383,15 +383,12 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
         }
         main
     };
-    let mut search = staged(Some(1));
-    search.search = "zenith".to_owned();
     let mut worker = staged(Some(0));
     worker.overlay = Overlay::Worker;
     let mut empty = Main::staged(crate::lang::Words::new(lang).in_zone(3 * 3600), settings.clone(), crate::library::Library::default(), None);
     empty.now_unix = NOON;
     vec![
         ("main-rest".to_owned(), staged(Some(0))),
-        ("main-search".to_owned(), search),
         ("main-nomap".to_owned(), staged(Some(3))),
         ("main-worker".to_owned(), worker),
         ("main-empty".to_owned(), empty),

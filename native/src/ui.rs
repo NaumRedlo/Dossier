@@ -215,7 +215,9 @@ pub fn letter_ink() -> &'static image::Handle {
 pub const EMBLEM: f32 = 36.0;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Emblem;
+pub struct Emblem {
+    pub alpha: f32,
+}
 
 impl<Message> canvas::Program<Message> for Emblem {
     type State = ();
@@ -227,7 +229,7 @@ impl<Message> canvas::Program<Message> for Emblem {
         let corner = Point::new((side - drawn) / 2.0, (side - drawn) / 2.0);
         frame.draw_image(
             Rectangle::new(corner, Size::new(drawn, drawn)),
-            canvas::Image::new(letter_red()).filter_method(image::FilterMethod::Linear),
+            canvas::Image::new(letter_red()).filter_method(image::FilterMethod::Linear).opacity(self.alpha),
         );
         vec![frame.into_geometry()]
     }
@@ -348,10 +350,17 @@ pub fn qr<'a, Message: 'a>(code: &Qr) -> Element<'a, Message> {
 }
 
 pub fn brand<'a, Message: 'a>() -> Element<'a, Message> {
+    let alpha = fade();
     row![
-        Canvas::new(Emblem).width(EMBLEM).height(EMBLEM),
-        container(Space::new().width(1.0).height(22.0)).style(theme::rule_high),
-        text("Dossier").font(theme::SANS_SEMI).size(20.0).color(INK),
+        Canvas::new(Emblem { alpha }).width(EMBLEM).height(EMBLEM),
+        container(Space::new().width(1.0).height(22.0)).style(move |theme| {
+            let mut style = theme::rule_high(theme);
+            if let Some(iced::Background::Color(c)) = style.background {
+                style.background = Some(iced::Background::Color(Color { a: c.a * alpha, ..c }));
+            }
+            style
+        }),
+        text("Dossier").font(theme::SANS_SEMI).size(20.0).color(faded(INK)),
     ]
     .spacing(14)
     .align_y(iced::Center)

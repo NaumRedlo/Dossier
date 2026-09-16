@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 
 use iced::animation::Easing;
 use iced::widget::{
-    button, column, container, float, image, mouse_area, pin, row, scrollable, stack, text, text_input,
+    button, column, container, float, image, mouse_area, pin, row, scrollable, stack, text,
     tooltip, Space,
 };
 use iced::{window, Animation, Color, ContentFit, Element, Length, Padding, Subscription, Task, Vector};
@@ -17,11 +17,12 @@ use crate::theme::{self, ACCENT, FAINT, INK, MUTED};
 use crate::ui;
 
 pub const ENTER: Duration = Duration::from_millis(1200);
+pub const ARRIVE: Duration = Duration::from_millis(450);
 pub const SWAP: Duration = Duration::from_millis(450);
 pub const LIFT: Duration = Duration::from_millis(200);
 pub const BRAND_WIDTH: f32 = 144.0;
 const CREST_HOME: (f32, f32) = (40.0, 24.0);
-const CREST_FIRST_RUN_TOP: f32 = 72.0;
+const CREST_RISE: f32 = 8.0;
 const JOURNAL_RISE: f32 = 140.0;
 const THUMB: (u32, u32) = (176, 100);
 const SCENE_WIDTH: u32 = 960;
@@ -41,8 +42,6 @@ pub enum Message {
     Length(PathBuf, i64),
     Choose(usize),
     Step(i32),
-    Search(String),
-    SearchGo,
     Escape,
     Hover(Option<usize>),
     Show(Overlay),
@@ -79,11 +78,11 @@ pub struct Main {
     pub now: Instant,
     pub now_unix: i64,
     pub enter: Animation<bool>,
+    pub arrive: Animation<bool>,
     pub swap: Animation<bool>,
     pub lift: Animation<bool>,
     pub lifted: Option<usize>,
     pub width: f32,
-    search_id: iced::widget::Id,
     strip_id: iced::widget::Id,
 }
 
@@ -112,11 +111,11 @@ impl Main {
             now: Instant::now(),
             now_unix: unix_now(),
             enter: Animation::new(false).duration(ENTER).easing(Easing::EaseOutCubic),
+            arrive: Animation::new(false).duration(ARRIVE).easing(Easing::EaseOutCubic).go(true, Instant::now()),
             swap: Animation::new(true).duration(SWAP).easing(Easing::EaseOutCubic),
             lift: Animation::new(false).duration(LIFT).easing(Easing::EaseOutCubic),
             lifted: None,
             width: crate::WINDOW.width,
-            search_id: iced::widget::Id::unique(),
             strip_id: iced::widget::Id::unique(),
         };
         (made, ui::in_thread(move || library::read(&sources)).map(Message::Loaded))
@@ -127,11 +126,15 @@ impl Main {
         made.library = Some(library);
         made.chosen = chosen;
         made.enter = Animation::new(true);
+        made.arrive = Animation::new(true);
         made
     }
 
     pub fn moving(&self) -> bool {
-        self.enter.is_animating(self.now) || self.swap.is_animating(self.now) || self.lift.is_animating(self.now)
+        self.enter.is_animating(self.now)
+            || self.arrive.is_animating(self.now)
+            || self.swap.is_animating(self.now)
+            || self.lift.is_animating(self.now)
     }
 
     pub fn subscription(&self) -> Subscription<Message> {
@@ -293,24 +296,9 @@ impl Main {
                 };
                 self.choose(visible[at])
             }
-            Message::Search(query) => {
-                self.search = query;
-                let visible = self.visible();
-                match visible.first() {
-                    Some(first) if !self.search.trim().is_empty() && !visible.contains(&self.chosen.unwrap_or(usize::MAX)) => {
-                        self.choose(*first)
-                    }
-                    _ => Task::none(),
-                }
-            }
-            Message::SearchGo => iced::advanced::widget::operate(iced::advanced::widget::operation::focusable::unfocus()),
             Message::Escape => {
-                if self.overlay != Overlay::None {
-                    self.overlay = Overlay::None;
-                    return Task::none();
-                }
-                self.search.clear();
-                iced::advanced::widget::operate(iced::advanced::widget::operation::focusable::unfocus())
+                self.overlay = Overlay::None;
+                Task::none()
             }
             Message::Hover(at) => {
                 self.hover = at;
@@ -397,10 +385,9 @@ impl Main {
         if loaded {
             layers = layers.push(ui::fading(k, || self.body(k, s)));
         }
-        let from_x = (self.width - BRAND_WIDTH) / 2.0;
-        let k = if loaded { k } else { 0.0 };
-        let away = Vector::new((from_x - CREST_HOME.0) * (1.0 - k), (CREST_FIRST_RUN_TOP - CREST_HOME.1) * (1.0 - k));
-        layers = layers.push(pin(float(ui::brand()).translate(move |_, _| away)).x(CREST_HOME.0).y(CREST_HOME.1));
+        let early = self.arrive.interpolate(0.0, 1.0, self.now);
+        let crest = ui::fading(early, ui::brand);
+        layers = layers.push(pin(float(crest).translate(move |_, _| Vector::new(0.0, (1.0 - early) * CREST_RISE))).x(CREST_HOME.0).y(CREST_HOME.1));
         if self.overlay != Overlay::None {
             layers = layers.push(self.overlay_view());
         }
@@ -423,21 +410,6 @@ impl Main {
 
     fn chrome(&self) -> Element<'_, Message> {
         let w = &self.words;
-        let mut search = row![text_input(&w.t("search-hint"), &self.search)
-            .id(self.search_id.clone())
-            .on_input(Message::Search)
-            .on_submit(Message::SearchGo)
-            .padding([0, 12])
-            .size(theme::BODY)
-            .line_height(iced::widget::text::LineHeight::Absolute((theme::CONTROL_HEIGHT - 2.0).into()))
-            .style(theme::field_faded(ui::fade()))
-            .width(260.0)]
-        .spacing(12)
-        .align_y(iced::Center);
-        if !self.search.trim().is_empty() {
-            let shown = self.visible().len();
-            search = search.push(ui::mono(format!("{} / {}", shown, self.entries().len()), MUTED));
-        }
         let word = |key: &str, on: bool, msg: Message| {
             button(text(w.t(key)).font(theme::SANS_SEMI).size(theme::BODY))
                 .padding([6, 0])
@@ -451,7 +423,7 @@ impl Main {
         ]
         .spacing(22);
         container(
-            row![Space::new().width(BRAND_WIDTH + 26.0), search, ui::grow(), words]
+            row![Space::new().width(BRAND_WIDTH), ui::grow(), words]
                 .align_y(iced::Center)
                 .height(theme::CONTROL_HEIGHT + 4.0),
         )

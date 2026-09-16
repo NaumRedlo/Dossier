@@ -218,10 +218,12 @@ never a farm; the farm is the bot's word for all of them together.
   no arrows — the keys and the wheel turn the pages.
 - *Thin chrome.* One row at the top: the crest — the first run's block at
   the first run's sizes, the letter at 36 px, a 22 px rule, the word at
-  20 px — at the left, the search field (*player, map, day*) beside it, and
-  three words at the right: Replays, Worker, Settings. There is no state
-  line and nothing about the worker on this screen: a worker has its own
-  screen, and an operations centre for downloads and notices comes later.
+  20 px — at the left, and three words at the right: Replays, Worker,
+  Settings. No search field (taken out 2026-09-16; the strip and the keys
+  are enough for now, and a search may come back when the library asks for
+  it). There is no state line and nothing about the worker on this screen:
+  a worker has its own screen, and an operations centre for downloads and
+  notices comes later.
 
 ### What each thing does
 
@@ -332,17 +334,18 @@ renderers anyway. A replay without its map shows the hatched ground.
 
 ### Entering
 
-- From the first run: on *Open Dossier* the card and the ledger fade out
-  (320 ms), leaving the crest alone, centred. Then the crest glides to the
-  top-left corner (450 ms) — the one thing that moves — while the scene
-  fades up from black behind it (640 ms), the journal rises from below the
-  edge with its frames 30 ms apart (450 ms), and the viewer's words type in
-  (520 ms). The search field and the three words fade in last, once the
-  crest has arrived beside them. About 1.2 s, nothing jumps.
-- From a cold start: the window opens black with the crest alone, centred,
+- The crest does not travel (the glide from the centre was tried and
+  looked wrong): it fades in where it lives, top-left, rising 8 px as it
+  comes (450 ms), the moment the window opens and before anything else has
+  arrived. Then, once the library is read, the scene fades up from black
+  (640 ms), the journal rises from below the edge (450 ms), the viewer's
+  words type in, and the three words fade in last. About 1.2 s, nothing
+  jumps.
+- From the first run: on *Open Dossier* the card, the ledger and the
+  centred crest fade out together, and the main screen enters as above.
+- From a cold start: the window opens black, the crest fades in top-left
   while the library is read — the emblem is the loading screen, no spinner
-  — and then the same choreography. If reading takes long, the crest's dot
-  breathes.
+  — and the rest follows. If reading takes long, the crest's dot breathes.
 
 **Реплеи** is the main screen above; there is no separate library. What a
 replay is beyond the viewer — the judgement's counts, whether it agrees with
@@ -488,7 +491,7 @@ Learned building the main screen, kept so nobody rediscovers it:
 - Text inside a `pin` that moves every frame is not drawn while it moves;
   the emblem and the rule were, the word was not. Moving something means a
   `float` with a translation, which draws through a transformation, and the
-  word stays. The crest glides that way.
+  word stays. The crest's small rise is done that way.
 - A quad with a gradient background is not trusted for alpha in the window:
   two stops blend, five stops over a picture drew nothing. Dims that must be
   exact are baked into the picture.

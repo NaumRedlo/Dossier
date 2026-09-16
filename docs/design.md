@@ -278,6 +278,14 @@ the keyboard. Where a choice is still open it is marked *open*.
   map*. One button, *Get the map*, and no line beside it — the hatched
   ground has already said why. Its frame in the journal is hatched with the
   grade in the corner.
+- *Get the map* is the render's ledger applied to fetching: *Found on
+  osu.direct · Chocofan — LUCKY CAT · 21,8 MB*, *Downloading · 14,2 / 21,8
+  MB · 6 s*, *Unpacking into Dossier/Songs*, *Checking the hash*, with a
+  quiet *Stop*. The cursor keeps drawing, the frame wears the red dot. When
+  the hash agrees with the replay's, the scene crossfades to the engine's
+  picture (640 ms), the frame takes the map's background, and the button
+  reads *Render*. When no mirror knows the map, one line stays: *Not on any
+  mirror · Try again*.
 
 *The journal.*
 - Hovering a frame lifts it 2 px and brightens it to full over 200 ms, and
@@ -488,3 +496,23 @@ CPU and on `tiny-skia`, because a video for the farm must be identical on
 every machine and a GPU does not promise that. What Tauri used to provide —
 tray, dialogs, links, bundles — comes from `tray-icon`, `rfd`, `open` and
 `cargo-bundle`.
+
+**The engine ships inside the application.** It is the `crates/dossier-*`
+workspace, linked into the one binary the way `app/` linked it; there is
+nothing to download separately, and only `ffmpeg` is looked for outside. An
+engine version is therefore an application version: the bot's `hello`
+answers whether it agrees with this build, and when it does not the worker
+is not given work and the application says a newer build is needed. An
+updater — the application fetching its own next build — belongs to the
+operations centre, later.
+
+**Maps come from mirrors by hash.** A replay names its map by MD5 alone, and
+ppy has no endpoint from a hash to an id, so a mirror is asked: osu.direct
+first, because it also carries graveyard, which is most of what a replay
+from a friend is played on; catboy.best second, when the first says no. The
+`.osz` is downloaded from the mirror that answered, unpacked into the
+application's own Songs folder — never into the game's, and never into
+lazer's store, which is the game's to write — and kept only if the header
+reads `osu file format v`, the size is under 50 MB and the MD5 is the one
+the replay asked for, following osu!'s own `BeatmapStore`. This is what
+`app/src/mirror.rs` and `tools/fetch-maps.py` already do, carried over.

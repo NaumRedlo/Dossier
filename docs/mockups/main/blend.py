@@ -133,7 +133,7 @@ def frames(items, on=-1, lift=-1, dim=(), busy=-1, under=False, style="art"):
 DAYS_EN = [("today", ["98,71%"]), ("Aug 14", ["99,65%", "93,03%"]), ("Aug 3", ["none"]), ("Jul 29", ["72,13%", "96,40%", "97,88%"]), ("May 10, 2025", ["none", "88,12%"])]
 DAYS_RU = [("сегодня", ["98,71%"]), ("14 авг", ["99,65%", "93,03%"]), ("3 авг", ["none"]), ("29 июл", ["72,13%", "96,40%", "97,88%"]), ("10 мая 2025", ["none", "88,12%"])]
 
-def strip(days, on_day=0, lift=None, dim_days=(), busy=False, on_index=0, skip_days=(), dim_cells=None, style="art", under=False):
+def strip(days, on_day=0, lift=None, dim_days=(), busy=False, on_index=0, skip_days=(), dim_cells=None, style="art", under=False, busy_day=0):
     out = ""
     for i, (label, items) in enumerate(days):
         if i in skip_days:
@@ -141,7 +141,7 @@ def strip(days, on_day=0, lift=None, dim_days=(), busy=False, on_index=0, skip_d
         dim = tuple(range(len(items))) if i in dim_days else (dim_cells.get(i, ()) if dim_cells else ())
         l = lift[1] if lift and lift[0] == i else -1
         out += (f'<div class="day2"><span class="lbl{" on" if i == on_day else ""}"><i></i>{label}</span>'
-                f'<span class="set">{frames(items, on=on_index if i == on_day else -1, lift=l, dim=dim, busy=0 if (busy and i == 0) else -1, style=style, under=under)}</span></div>')
+                f'<span class="set">{frames(items, on=on_index if i == on_day else -1, lift=l, dim=dim, busy=0 if (busy and i == busy_day) else -1, style=style, under=under)}</span></div>')
     return out
 
 def chrome(en, search_text=None, focused=False, count=None):
@@ -156,7 +156,7 @@ def chrome(en, search_text=None, focused=False, count=None):
 
 TRAIL = '''<svg class="trail" viewBox="0 0 980 720"><path d="M577,404 L606,397 L629,394 L646,389 L668,381 L688,369 L711,371 L723,357 L743,359 L753,346 L766,335 L770,333 L765,326 L767,329 L763,323 L764,317 L756,311 L742,310 L740,312 L724,313 L714,309" style="stroke-opacity:0.08"/><path d="M714,309 L705,314 L686,314 L677,319 L667,313 L659,313 L642,323 L630,322 L621,326 L624,327 L622,325 L617,330 L615,329 L619,336 L617,332 L616,332 L627,334 L635,324 L636,326 L637,320 L645,311" style="stroke-opacity:0.09"/><path d="M645,311 L649,314 L654,302 L661,302 L659,290 L664,287 L666,278 L655,264 L650,260 L648,241 L628,232 L615,225 L604,212 L579,204 L563,196 L549,188 L520,178 L498,163 L476,164 L450,156 L419,145" style="stroke-opacity:0.11"/><path d="M419,145 L390,142 L365,131 L344,128 L323,124 L299,124 L282,125 L266,132 L259,124 L244,129 L238,129 L238,143 L230,142 L226,142 L231,150 L241,155 L237,171 L251,168 L260,174 L270,192 L284,196" style="stroke-opacity:0.14"/><path d="M284,196 L288,199 L298,211 L313,217 L320,217 L335,231 L343,234 L349,238 L347,239 L351,236 L349,242 L351,249 L358,247 L354,254 L350,247 L335,245 L328,243 L326,250 L321,244 L312,246 L298,242" style="stroke-opacity:0.17"/><path d="M298,242 L302,241 L295,236 L285,237 L285,236 L292,230 L288,235 L296,226 L296,225 L314,234 L317,236 L341,236 L351,237 L367,235 L398,247 L415,255 L437,261 L467,260 L485,268 L511,280 L537,286" style="stroke-opacity:0.21"/><path d="M537,286 L560,301 L587,305 L613,321 L633,331 L654,336 L672,340 L686,352 L694,370 L706,375 L721,385 L721,393 L726,404 L721,409 L721,412 L724,420 L716,428 L713,427 L701,431 L692,435 L682,433" style="stroke-opacity:0.26"/><path d="M682,433 L673,438 L666,436 L661,426 L649,431 L645,418 L632,417 L627,409 L625,409 L633,405 L627,396 L636,382 L643,385 L641,378 L650,365 L665,362 L664,351 L677,343 L682,337 L697,328 L703,328" style="stroke-opacity:0.31"/><path d="M703,328 L703,322 L716,321 L713,323 L724,321 L716,311 L713,316 L710,307 L705,317 L700,309 L679,318 L669,317 L646,311 L634,317 L605,325 L589,326 L559,329 L533,331 L512,326 L488,334 L459,326" style="stroke-opacity:0.37"/><path d="M459,326 L437,327 L408,326 L384,326 L366,326 L353,323 L332,319 L316,313 L302,309 L298,310 L284,303 L288,291 L284,288 L280,284 L281,272 L288,268 L288,257 L299,244 L302,231 L306,218 L314,215" style="stroke-opacity:0.42"/><path d="M314,215 L323,198 L328,197 L344,185 L342,171 L347,165 L348,157 L350,157 L358,145 L347,145 L344,133 L335,130 L333,129 L322,128 L310,124 L301,126 L290,123 L283,128 L276,135 L268,140 L259,148" style="stroke-opacity:0.49"/><path d="M259,148 L247,146 L248,150 L240,162 L230,171 L240,176 L241,185 L239,189 L251,200 L265,207 L275,214 L292,218 L304,216 L323,225 L344,236 L372,238 L397,242 L421,237 L450,248 L472,247 L499,243" style="stroke-opacity:0.55"/><path d="M499,243 L524,245 L540,246 L570,244 L590,252 L606,244 L622,246 L639,243 L649,234 L653,234 L667,233 L669,228 L665,229 L673,233 L671,227 L666,229 L661,225 L661,227 L656,237 L638,234" style="stroke-opacity:0.63"/><circle cx="638" cy="234" r="5"/><circle cx="638" cy="234" r="11" style="fill:none;stroke:#e24848;stroke-opacity:0.5;stroke-width:1.5"/></svg>'''
 
-def viewer(en, hover_acc=False, rendering=False, nomap=False, guest=False):
+def viewer(en, hover_acc=False, rendering=False, nomap=False, guest=False, getting=False):
     date = "today · 14:02 · lazer" if en else "сегодня · 14:02 · lazer"
     render = "Render" if en else "Отрендерить"
     counts = ""
@@ -170,6 +170,14 @@ def viewer(en, hover_acc=False, rendering=False, nomap=False, guest=False):
         ledger = "".join(f'<div class="line {c}">{g}<span>{n}<span class="d">{d}</span></span></div>' for c, g, n, d in steps)
         left = (f'<div class="date">{date}</div><h2>NaumRedlo</h2><div class="map">Dj Grimoire — Astral Quantization [Nattu VN0TH3R]</div>'
                 f'<div class="ledg">{ledger}</div><div class="acts" style="margin-top: 10px;"><span class="btn quiet" style="padding-left: 0;">{"Stop" if en else "Стоп"}</span></div>')
+    elif getting:
+        steps = [("done", TICK, "Found on osu.direct" if en else "Нашлась на osu.direct", " · Chocofan — LUCKY CAT · 21,8 MB" if en else " · Chocofan — LUCKY CAT · 21,8 МБ"),
+                 ("cur", DOT, "Downloading" if en else "Скачиваю", " · 14,2 / 21,8 MB · 6 s" if en else " · 14,2 / 21,8 МБ · 6 с"),
+                 ("todo", NONE, "Unpacking into Dossier/Songs" if en else "Распаковываю в Dossier/Songs", ""),
+                 ("todo", NONE, "Checking the hash" if en else "Сверяю хэш", "")]
+        ledger = "".join(f'<div class="line {c}">{g}<span>{n}<span class="d">{d}</span></span></div>' for c, g, n, d in steps)
+        left = (f'<div class="date">{"Aug 3 · 09:12 · stable" if en else "3 авг · 09:12 · stable"}</div><h2>Deeo_XD</h2><div class="map">Chocofan — LUCKY CAT [_]</div>'
+                f'<div class="ledg">{ledger}</div><div class="acts" style="margin-top: 10px;"><span class="btn quiet" style="padding-left: 0;">{"Stop" if en else "Стоп"}</span></div>')
     elif guest:
         left = (f'<div class="date">{"Aug 14 · 21:34 · stable" if en else "14 авг · 21:34 · stable"}</div><h2>Guest</h2><div class="map">xi — Blue Zenith [Asphyxia\'s Hard]</div>'
                 f'<div class="meta"><span class="mods"><span class="mod e">EZ</span></span><span>·</span><span>401x</span><span>·</span><span>4:07</span></div>'
@@ -182,7 +190,7 @@ def viewer(en, hover_acc=False, rendering=False, nomap=False, guest=False):
         left = (f'<div class="date">{date}</div><h2>NaumRedlo</h2><div class="map">Dj Grimoire — Astral Quantization [Nattu VN0TH3R]</div>'
                 f'<div class="meta"><span class="mods"><span class="mod h">HD</span><span class="mod h">DT</span><span class="mod h">HR</span></span><span>·</span><span>604x</span><span>·</span><span>3:51</span></div>'
                 f'<div class="acts"><span class="btn primary">{render}</span></div>')
-    score = ('<div class="score"><div class="n">91,40%</div><span class="o" style="color:#e24848">×4</span></div>' if nomap
+    score = ('<div class="score"><div class="n">91,40%</div><span class="o" style="color:#e24848">×4</span></div>' if (nomap or getting)
              else f'<div class="score"><div class="n">99,65%</div><span class="o">SB</span></div>' if guest
              else f'<div class="score"><div class="n">98,71%</div><span class="o">FC</span>{counts}</div>')
     return f'<div class="id"><div>{left}</div>{score}</div>'
@@ -218,6 +226,9 @@ def blend(en, variant="rest"):
         body += half + f'<div class="journal"><div class="rail"></div><div class="days">{strip(days, on_day=1, on_index=0)}</div></div>'
     elif variant == "variants":
         return variants(en)
+    elif variant == "getting":
+        body = body.replace('<div class="scene2"></div>', '<div class="scene2" style="background: #0a0507 repeating-linear-gradient(-45deg, rgba(255,255,255,0.025) 0 8px, transparent 8px 18px);"></div>' + TRAIL)
+        body += viewer(en, getting=True) + f'<div class="journal"><div class="rail"></div><div class="days">{strip(days, on_day=2, busy=True, busy_day=2)}</div></div>'
     elif variant == "nomap":
         body = body.replace('<div class="scene2"></div>', '<div class="scene2" style="background: #0a0507 repeating-linear-gradient(-45deg, rgba(255,255,255,0.025) 0 8px, transparent 8px 18px);"></div>' + TRAIL)
         body += viewer(en, nomap=True) + f'<div class="journal"><div class="rail"></div><div class="days">{strip(days, on_day=2)}</div></div>'
@@ -271,7 +282,7 @@ def storyboard(en):
 boards = {
     "Blend": blend(True), "BlendRu": blend(False),
     "BlendHover": blend(True, "hover"), "BlendRendering": blend(True, "rendering"),
-    "BlendSearch": blend(True, "search"), "BlendNoMap": blend(True, "nomap"),
+    "BlendSearch": blend(True, "search"), "BlendNoMap": blend(True, "nomap"), "BlendGetting": blend(True, "getting"),
     "BlendMenu": blend(True, "menu"), "BlendPick": blend(True, "pick"), "BlendFrames": blend(True, "variants"),
     "BlendEntrance": storyboard(True),
 }
@@ -284,7 +295,7 @@ mine = {
     "Blend.dc.html": ("At rest", 0, 0, H), "BlendRu.dc.html": ("В покое", 1, 0, H), "BlendSearch.dc.html": ("Typing in search", 2, 0, H),
     "BlendFrames.dc.html": ("What a frame says · E chosen", 3, 0, 1080),
     "BlendHover.dc.html": ("Hovering a frame, hovering the accuracy", 0, 1, H), "BlendPick.dc.html": ("Clicking a frame · 40 % through", 1, 1, H), "BlendMenu.dc.html": ("Right-click on a frame", 2, 1, H),
-    "BlendRendering.dc.html": ("Render pressed", 0, 2, H), "BlendNoMap.dc.html": ("A replay without its map", 1, 2, H), "BlendEntrance.dc.html": ("Entering", 2, 2, H),
+    "BlendRendering.dc.html": ("Render pressed", 0, 2, H), "BlendNoMap.dc.html": ("A replay without its map", 1, 2, H), "BlendGetting.dc.html": ("Get the map pressed", 2, 2, H), "BlendEntrance.dc.html": ("Entering", 3, 2, H),
 }
 if not any(p["id"] == "page-blend" for p in manifest["pages"]):
     manifest["pages"].insert(0, {"id": "page-blend", "name": "Main screen"})
@@ -300,6 +311,7 @@ notes = {
     "blend-pick": (W + GX, H + 12, "Click: the outline slides to the frame (200 ms); the scene crossfades to the new replay (320 ms); the viewer's words erase from the right and type in from the left (450 ms), the accuracy included. Shown at 40 %: the old scene half gone, the words half typed. Enter or → does the same for the next frame."),
     "blend-menu": (2 * (W + GX), H + 12, "Right-click on a frame or anywhere in the viewer: Render (also Enter), Show in folder, Open .osr, Copy path, and after a rule, Delete in red (also ⌫, asks once). Judging comes back later, in its own time. The menu opens where the pointer is and closes on Esc or a click elsewhere."),
     "blend-nomap": (W + GX, 2 * (H + GY) - 150, "A replay whose map is not on disk. The scene cannot show the play, so it shows what the replay alone holds: the cursor's path, drawn live on the hatched ground, fading behind the cursor. The header alone gives the player, the mods, the combo, the counts — so the accuracy and the grade are real, and the length is the replay's last frame. The map's name comes from the file's name when it has one. One button: Get the map. Its frame in the journal is hatched with the grade in the corner."),
+    "blend-getting": (2 * (W + GX), 2 * (H + GY) - 150, "Get the map: the same ledger as a render. Found on osu.direct — the mirror is asked by the replay's hash, and catboy.best is asked when the first says no — then Downloading with the size and the seconds left, Unpacking into the application's own Songs, Checking the hash against the replay's. The cursor keeps drawing; the frame wears the red dot. When the hash agrees the scene crossfades to the engine's picture, the frame takes the map's background, and the button reads Render. When no mirror knows the map, one line stays: Not on any mirror · Try again."),
     "blend-rendering": (0, 2 * (H + GY) - 150, "Render: the mods line and the button give way to the ledger; the frame wears a red dot in its middle; the scene keeps playing. When done, one line stays: Rendered · Open · Show in folder."),
 }
 manifest["annotations"] = [a for a in manifest["annotations"] if not a["id"].startswith("blend")] + [

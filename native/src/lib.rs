@@ -6,6 +6,7 @@ pub mod gallery;
 pub mod lang;
 pub mod library;
 pub mod main_screen;
+pub mod maps;
 pub mod render;
 pub mod settings;
 pub mod sources;
@@ -46,6 +47,7 @@ pub struct Rehearsal {
     pub snap_to: Option<std::path::PathBuf>,
     pub after: std::time::Duration,
     pub render: bool,
+    pub get_map: bool,
 }
 
 impl Rehearsal {
@@ -60,7 +62,8 @@ impl Rehearsal {
             .and_then(|s| s.parse::<u64>().ok())
             .map_or(std::time::Duration::from_millis(2500), std::time::Duration::from_millis);
         let render = args.iter().any(|a| a == "--render-first");
-        Some(Rehearsal { folder, snap_to, after, render })
+        let get_map = args.iter().any(|a| a == "--get-map-first");
+        Some(Rehearsal { folder, snap_to, after, render, get_map })
     }
 }
 
@@ -84,6 +87,8 @@ impl App {
             };
             let press = if rehearsal.render {
                 Task::perform(async { tokio_sleep(std::time::Duration::from_millis(1500)).await }, |_| Message::Main(main_screen::Message::Render))
+            } else if rehearsal.get_map {
+                Task::perform(async { tokio_sleep(std::time::Duration::from_millis(1500)).await }, |_| Message::Main(main_screen::Message::GetMap))
             } else {
                 Task::none()
             };

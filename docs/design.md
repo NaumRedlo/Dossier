@@ -287,14 +287,22 @@ the keyboard. Where a choice is still open it is marked *open*.
   map*. One button, *Get the map*, and no line beside it — the hatched
   ground has already said why. Its frame in the journal is hatched with the
   grade in the corner.
-- *Get the map* is the render's ledger applied to fetching: *Found on
-  osu.direct · Chocofan — LUCKY CAT · 21,8 MB*, *Downloading · 14,2 / 21,8
-  MB · 6 s*, *Unpacking into Dossier/Songs*, *Checking the hash*, with a
-  quiet *Stop*. The cursor keeps drawing, the frame wears the red dot. When
-  the hash agrees with the replay's, the scene crossfades to the engine's
-  picture (640 ms), the frame takes the map's background, and the button
-  reads *Render*. When no mirror knows the map, one line stays: *Not on any
-  mirror · Try again*.
+- *Get the map* is the render's ledger applied to fetching: *Looking up the
+  map* becomes *Found on osu.direct · #2190769* (a mirror's answer to a hash
+  carries the set's number and little else; the song's name arrives with
+  the files), then *Downloading · 14,2 / 21,8 MB · osu.direct*, *Unpacking
+  into Dossier/Songs*, *Checking the hash*, with a quiet *Stop*. The frame
+  wears the red dot. When the hash agrees with the replay's, the map joins
+  every replay that names it, the scene crossfades from the hatched ground
+  to the map's background, the frame takes it too, and the button reads
+  *Render*. When no mirror knows the map, the line turns red — *Not on any
+  mirror* — with *Try again* under it; so does a stop or a failure with its
+  reason. Built 2026-09-16: osu.direct then catboy.best for the look-up,
+  the answering mirror first for the file, the other as the second try; the
+  set is unpacked into the application's own Songs (or a plain folder's
+  own Songs when that is the source), never into the game's; the folder is
+  named *<set> Artist - Title* when the mirror said so and *<set>* when it
+  did not.
 
 *The journal.*
 - Hovering a frame lifts it 2 px and brightens it to full over 200 ms, and

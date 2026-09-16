@@ -11,6 +11,7 @@ use iced::{window, Animation, Color, ContentFit, Element, Length, Padding, Subsc
 
 use crate::lang::{typed, Words};
 use crate::library::{self, Entry, Grade, Library};
+use crate::maps;
 use crate::render::{self, Step};
 use crate::settings::Settings;
 use crate::sources::Kind;
@@ -52,6 +53,9 @@ pub enum Message {
     Rendered(Step),
     OpenOut,
     ShowOut,
+    GetMap,
+    StopFetch,
+    Fetched(maps::Step),
     Dropped(PathBuf),
     Resized(f32),
     Tick(Instant),
@@ -84,6 +88,22 @@ impl Rendering {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct Fetching {
+    pub hash: String,
+    pub reached: Vec<maps::Step>,
+}
+
+impl Fetching {
+    pub fn last(&self) -> Option<&maps::Step> {
+        self.reached.last()
+    }
+
+    pub fn is_over(&self) -> bool {
+        self.last().is_some_and(maps::Step::is_last)
+    }
+}
+
 #[derive(Clone)]
 pub struct Main {
     pub words: Words,
@@ -99,6 +119,7 @@ pub struct Main {
     pub lengths: HashMap<PathBuf, i64>,
     pub overlay: Overlay,
     pub rendering: Option<Rendering>,
+    pub fetching: Option<Fetching>,
     pub ffmpeg: Option<PathBuf>,
     pub now: Instant,
     pub started: Instant,
@@ -135,6 +156,7 @@ impl Main {
             lengths: HashMap::new(),
             overlay: Overlay::None,
             rendering: None,
+            fetching: None,
             ffmpeg: crate::checks::ffmpeg_on_path(),
             now: Instant::now(),
             started: Instant::now(),
@@ -161,6 +183,7 @@ impl Main {
 
     pub fn moving(&self) -> bool {
         self.rendering.as_ref().is_some_and(|r| !r.is_over())
+            || self.fetching.as_ref().is_some_and(|f| !f.is_over())
             || self.enter.is_animating(self.now)
             || self.arrive.is_animating(self.now)
             || self.swap.is_animating(self.now)
@@ -246,6 +269,9 @@ impl Main {
         self.chosen = Some(at);
         if self.rendering.as_ref().is_some_and(Rendering::is_over) {
             self.rendering = None;
+        }
+        if self.fetching.as_ref().is_some_and(Fetching::is_over) {
+            self.fetching = None;
         }
         self.swap = Animation::new(false).duration(SWAP).easing(Easing::EaseOutCubic).go(true, Instant::now());
         self.fetch_for_chosen()
@@ -386,6 +412,66 @@ impl Main {
                     }
                     rendering.reached.push(step);
                 }
+                Task::none()
+            }
+            Message::GetMap => {
+                if self.fetching.as_ref().is_some_and(|f| !f.is_over()) {
+                    return Task::none();
+                }
+                let Some(entry) = self.chosen_entry() else {
+                    return Task::none();
+                };
+                let hash = entry.map_hash.clone();
+                let live: Vec<&crate::sources::Source> = self.settings.sources.iter().filter(|s| s.on).collect();
+                let songs = live
+                    .iter()
+                    .find(|s| s.kind == Kind::Own)
+                    .or_else(|| live.iter().find(|s| s.kind == Kind::Folder))
+                    .and_then(|s| s.songs.clone())
+                    .unwrap_or_else(|| crate::sources::own_root().join("Songs"));
+                self.fetching = Some(Fetching { hash: hash.clone(), reached: Vec::new() });
+                maps::fetch(hash, songs).map(Message::Fetched)
+            }
+            Message::StopFetch => {
+                maps::stop();
+                Task::none()
+            }
+            Message::Fetched(step) => {
+                let Some(fetching) = &mut self.fetching else {
+                    return Task::none();
+                };
+                let hash = fetching.hash.clone();
+                if let maps::Step::Done(map) = &step {
+                    let map = map.clone();
+                    self.fetching = None;
+                    if let Some(library) = &mut self.library {
+                        for entry in library.entries.iter_mut().filter(|e| e.map_hash == hash) {
+                            entry.map = Some(map.clone());
+                        }
+                        library.maps += 1;
+                    }
+                    if !self.settings.sources.iter().any(|s| s.kind == Kind::Own) {
+                        if let Ok(own) = crate::sources::own() {
+                            self.settings.sources.push(own);
+                            let _ = self.settings.save();
+                        }
+                    }
+                    if self.chosen_entry().is_some_and(|e| e.map_hash == hash) {
+                        self.scene_before = Some(None);
+                        self.swap = Animation::new(false).duration(SWAP).easing(Easing::EaseOutCubic).go(true, Instant::now());
+                    }
+                    let background = map.background.clone();
+                    let for_thumb = background.clone();
+                    let hash_for_thumb = hash.clone();
+                    return Task::batch([
+                        ui::in_thread(move || Message::Scene(hash, background.as_deref().and_then(|p| decoded(p, SCENE_WIDTH, None)))),
+                        ui::in_thread(move || match for_thumb.as_deref().and_then(|p| decoded(p, THUMB.0, Some(THUMB))) {
+                            Some(handle) => Message::Thumb(hash_for_thumb, handle),
+                            None => Message::Hover(None),
+                        }),
+                    ]);
+                }
+                fetching.reached.push(step);
                 Task::none()
             }
             Message::OpenOut => {
@@ -541,14 +627,17 @@ impl Main {
             meta = meta.push(ui::mono(w.length(*ms), MUTED));
         }
         let busy = self.rendering.as_ref().is_some_and(|r| !r.is_over());
+        let fetching_now = self.fetching.as_ref().is_some_and(|f| !f.is_over());
         let rendering_this = self.rendering.as_ref().filter(|r| r.path == entry.path);
-        let lower: Element<'_, Message> = match rendering_this {
-            Some(rendering) => self.render_ledger(rendering),
-            None => {
+        let fetching_this = self.fetching.as_ref().filter(|f| f.hash == entry.map_hash);
+        let lower: Element<'_, Message> = match (rendering_this, fetching_this) {
+            (Some(rendering), _) => self.render_ledger(rendering),
+            (None, Some(fetching)) => self.fetch_ledger(fetching),
+            (None, None) => {
                 let action = if entry.map.is_some() {
                     ui::primary(w.t("render"), (self.ffmpeg.is_some() && !busy).then_some(Message::Render))
                 } else {
-                    ui::primary(w.t("get-the-map"), None)
+                    ui::primary(w.t("get-the-map"), (!fetching_now).then_some(Message::GetMap))
                 };
                 column![container(meta).padding(Padding::ZERO.top(4.0)), container(action).padding(Padding::ZERO.top(14.0))]
                     .spacing(2)
@@ -648,6 +737,85 @@ impl Main {
             .into()
     }
 
+    fn fetch_ledger(&self, fetching: &Fetching) -> Element<'_, Message> {
+        use maps::Step as S;
+        let w = &self.words;
+        let last = fetching.last();
+        let failed = match last {
+            Some(S::Failed(why)) => Some(why.clone()),
+            Some(S::Nowhere) => Some(w.t("not-on-any-mirror")),
+            Some(S::Stopped) => Some(w.t("stopped")),
+            _ => None,
+        };
+        let found = fetching.reached.iter().find_map(|s| match s {
+            S::Found(found) => Some(found.clone()),
+            _ => None,
+        });
+        let downloading = fetching.reached.iter().rev().find_map(|s| match s {
+            S::Downloading { from, done, total } => Some((*from, *done, *total)),
+            _ => None,
+        });
+        let stage = |reached: fn(&S) -> bool| fetching.reached.iter().any(reached);
+        let stages: [(&str, fn(&S) -> bool); 4] = [
+            ("looking-up", |s| matches!(s, S::Found(_))),
+            ("fetch-downloading", |s| matches!(s, S::Unpacking)),
+            ("unpacking-into", |s| matches!(s, S::Checking)),
+            ("checking-hash", |s| matches!(s, S::Done(_))),
+        ];
+        let mut lines = Vec::new();
+        let mut current_seen = false;
+        for (key, done) in stages {
+            let is_done = stage(done);
+            let mood = if is_done {
+                Mood::Done
+            } else if !current_seen {
+                current_seen = true;
+                if failed.is_some() { Mood::Failed } else { Mood::Now }
+            } else {
+                Mood::Todo
+            };
+            let name = match (key, &found) {
+                ("looking-up", Some(found)) => w.who("found-on", found.from),
+                _ => w.t(key),
+            };
+            let mut line = Line::new(mood, name);
+            match key {
+                "looking-up" => {
+                    if let Some(found) = &found {
+                        line = line.detail(found.line());
+                    }
+                }
+                "fetch-downloading" => {
+                    if let Some((from, done, total)) = downloading {
+                        let size = match total {
+                            Some(total) => w.mb_of(done, total),
+                            None => w.mb(done),
+                        };
+                        line = line.detail(format!("{size} · {from}"));
+                    }
+                }
+                _ => {}
+            }
+            if mood == Mood::Failed {
+                if let Some(why) = &failed {
+                    line = line.detail(why.chars().take(72).collect::<String>());
+                }
+            }
+            if mood == Mood::Now {
+                line = line.breathing(self.breath());
+            }
+            lines.push(line);
+        }
+        let ledger = ui::ledger(&lines, None);
+        let foot: Element<'_, Message> = if failed.is_some() {
+            ui::quiet(w.t("try-again"), Some(Message::GetMap))
+        } else {
+            ui::quiet(w.t("stop"), Some(Message::StopFetch))
+        };
+        column![container(ledger).padding(Padding::ZERO.top(8.0)), container(foot).padding(Padding::ZERO.top(6.0))]
+            .into()
+    }
+
     fn breath(&self) -> f32 {
         let period = 1.6;
         let t = self.now.duration_since(self.started).as_secs_f32();
@@ -718,7 +886,8 @@ impl Main {
             (None, true) => Space::new().width(w - inner).height(h - inner).into(),
             (None, false) => container(ui::fine_hatch()).width(w - inner).height(h - inner).into(),
         };
-        let busy_here = self.rendering.as_ref().is_some_and(|r| r.path == entry.path && !r.is_over());
+        let busy_here = self.rendering.as_ref().is_some_and(|r| r.path == entry.path && !r.is_over())
+            || self.fetching.as_ref().is_some_and(|f| f.hash == entry.map_hash && !f.is_over());
         let picture: Element<'_, Message> = if busy_here {
             let dot = container(Space::new().width(8.0).height(8.0)).style(|_| container::Style {
                 background: Some(iced::Background::Color(ACCENT)),

@@ -5,6 +5,7 @@ pub mod first_run;
 pub mod gallery;
 pub mod lang;
 pub mod library;
+pub mod live;
 pub mod main_screen;
 pub mod maps;
 pub mod render;

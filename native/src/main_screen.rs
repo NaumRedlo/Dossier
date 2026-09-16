@@ -11,6 +11,7 @@ use iced::{window, Animation, Color, ContentFit, Element, Length, Padding, Subsc
 
 use crate::lang::{typed, Words};
 use crate::library::{self, Entry, Grade, Library};
+use crate::live;
 use crate::maps;
 use crate::render::{self, Step};
 use crate::scan;
@@ -23,6 +24,7 @@ pub const ENTER: Duration = Duration::from_millis(1200);
 pub const ARRIVE: Duration = Duration::from_millis(450);
 pub const SWAP: Duration = Duration::from_millis(450);
 pub const LIFT: Duration = Duration::from_millis(200);
+pub const LIVE_FADE: Duration = Duration::from_millis(640);
 pub const BRAND_WIDTH: f32 = 144.0;
 const CREST_HOME: (f32, f32) = (40.0, 24.0);
 const CREST_RISE: f32 = 8.0;
@@ -60,6 +62,8 @@ pub enum Message {
     Look,
     StopLook,
     Looked(scan::Step),
+    Live(live::Frame),
+    TogglePlay,
     Dropped(PathBuf),
     Resized(f32),
     Tick(Instant),
@@ -108,6 +112,15 @@ impl Fetching {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct Live {
+    pub control: std::sync::Arc<live::Control>,
+    pub for_path: PathBuf,
+    pub frame: Option<image::Handle>,
+    pub at_ms: f64,
+    pub fade: Animation<bool>,
+}
+
 #[derive(Clone)]
 pub struct Main {
     pub words: Words,
@@ -125,6 +138,7 @@ pub struct Main {
     pub rendering: Option<Rendering>,
     pub fetching: Option<Fetching>,
     pub looking: Option<scan::Step>,
+    pub live: Option<Live>,
     pub ffmpeg: Option<PathBuf>,
     pub now: Instant,
     pub started: Instant,
@@ -163,6 +177,7 @@ impl Main {
             rendering: None,
             fetching: None,
             looking: None,
+            live: None,
             ffmpeg: crate::checks::ffmpeg_on_path(),
             now: Instant::now(),
             started: Instant::now(),
@@ -191,6 +206,7 @@ impl Main {
         self.rendering.as_ref().is_some_and(|r| !r.is_over())
             || self.fetching.as_ref().is_some_and(|f| !f.is_over())
             || matches!(self.looking, Some(scan::Step::Looking { .. }))
+            || self.live.as_ref().is_some_and(|l| l.fade.is_animating(self.now))
             || self.enter.is_animating(self.now)
             || self.arrive.is_animating(self.now)
             || self.swap.is_animating(self.now)
@@ -281,7 +297,28 @@ impl Main {
             self.fetching = None;
         }
         self.swap = Animation::new(false).duration(SWAP).easing(Easing::EaseOutCubic).go(true, Instant::now());
-        self.fetch_for_chosen()
+        Task::batch([self.fetch_for_chosen(), self.start_live()])
+    }
+
+    fn start_live(&mut self) -> Task<Message> {
+        if let Some(live) = self.live.take() {
+            live.control.stop();
+        }
+        let Some(ask) = self.chosen_entry().and_then(|entry| {
+            let map = entry.map.as_ref()?;
+            Some(live::Ask { replay: entry.path.clone(), map: map.file.clone(), map_hash: entry.map_hash.clone() })
+        }) else {
+            return Task::none();
+        };
+        let control = std::sync::Arc::new(live::Control::default());
+        self.live = Some(Live {
+            control: control.clone(),
+            for_path: ask.replay.clone(),
+            frame: None,
+            at_ms: 0.0,
+            fade: Animation::new(false).duration(LIVE_FADE).easing(Easing::EaseOutCubic),
+        });
+        live::play(ask, control).map(Message::Live)
     }
 
     fn fetch_for_chosen(&self) -> Task<Message> {
@@ -331,7 +368,7 @@ impl Main {
                 self.enter = Animation::new(false).duration(ENTER).easing(Easing::EaseOutCubic).go(true, Instant::now());
                 let first = self.visible().first().copied();
                 self.chosen = first;
-                Task::batch([self.fetch_for_chosen(), self.thumbs_task()])
+                Task::batch([self.fetch_for_chosen(), self.thumbs_task(), self.start_live()])
             }
             Message::Thumb(hash, handle) => {
                 self.thumbs.insert(hash, handle);
@@ -463,14 +500,17 @@ impl Main {
                             let _ = self.settings.save();
                         }
                     }
+                    let mut restart = Task::none();
                     if self.chosen_entry().is_some_and(|e| e.map_hash == hash) {
                         self.scene_before = Some(None);
                         self.swap = Animation::new(false).duration(SWAP).easing(Easing::EaseOutCubic).go(true, Instant::now());
+                        restart = self.start_live();
                     }
                     let background = map.background.clone();
                     let for_thumb = background.clone();
                     let hash_for_thumb = hash.clone();
                     return Task::batch([
+                        restart,
                         ui::in_thread(move || Message::Scene(hash, background.as_deref().and_then(|p| decoded(p, SCENE_WIDTH, None)))),
                         ui::in_thread(move || match for_thumb.as_deref().and_then(|p| decoded(p, THUMB.0, Some(THUMB))) {
                             Some(handle) => Message::Thumb(hash_for_thumb, handle),
@@ -514,6 +554,31 @@ impl Main {
                     return ui::in_thread(move || library::read(&sources)).map(Message::Loaded);
                 }
                 self.looking = Some(step);
+                Task::none()
+            }
+            Message::Live(frame) => {
+                let Some(live) = &mut self.live else {
+                    return Task::none();
+                };
+                match frame {
+                    live::Frame::Picture { handle, at_ms, .. } => {
+                        if live.frame.is_none() {
+                            live.fade.go_mut(true, Instant::now());
+                        }
+                        live.frame = Some(handle);
+                        live.at_ms = at_ms;
+                    }
+                    live::Frame::Failed(_) => {
+                        live.control.stop();
+                        self.live = None;
+                    }
+                }
+                Task::none()
+            }
+            Message::TogglePlay => {
+                if let Some(live) = &self.live {
+                    live.control.pause(!live.control.paused());
+                }
                 Task::none()
             }
             Message::OpenOut => {
@@ -588,6 +653,21 @@ impl Main {
                 }
             }
             layers = layers.push(scene);
+            if let Some(live) = self.live.as_ref().filter(|l| l.for_path == entry.path) {
+                if let Some(handle) = &live.frame {
+                    let seen = live.fade.interpolate(0.0, 1.0, self.now);
+                    layers = layers.push(
+                        mouse_area(
+                            image(handle.clone())
+                                .content_fit(ContentFit::Cover)
+                                .width(Length::Fill)
+                                .height(Length::Fill)
+                                .opacity(alpha * seen),
+                        )
+                        .on_press(Message::TogglePlay),
+                    );
+                }
+            }
         }
         if loaded {
             layers = layers.push(ui::fading(k, || self.body(k, s)));

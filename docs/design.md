@@ -354,14 +354,22 @@ does not move, and Esc or the word *Replays* brings the scene back. Until
 they are built, each is one card — its name and *Coming later* / *Будет
 доступно позже* — with *Back to replays*.
 
-*The scene, for now.* Until the engine draws live, the scene is the map's
-own background, blurred and dimmed: near-black at the top and the bottom,
-easing softly toward a centre that is itself held at two-thirds dark, so the
-words always read whatever the art. The dim is baked into the picture when
-it is decoded rather than laid over it, because a gradient quad's alpha does
-not blend reliably in the GPU renderer (a five-stop gradient over the
+*The scene.* The engine draws the chosen replay live, bare — no score, no
+counters, no key overlay, the play alone over the map's background — at
+960×540 and 30 frames a second on one CPU thread (about a seventh of a core
+on an M-series Mac), looping from the lead-in to the end, muted. Each frame
+is dimmed before it is shown: near-black at the top and the bottom, easing
+to a centre held at two-fifths dark, so the words read over any play. A
+click on the scene pauses it, another resumes. Under the live picture, and
+before its first frame arrives, sits the map's background, blurred and
+dimmed harder (two-thirds at the centre); the picture fades in over it in
+640 ms. A choice stops the old play and starts the new one. The dim is baked
+into the picture rather than laid over it, because a gradient quad's alpha
+does not blend reliably in the GPU renderer (a five-stop gradient over the
 picture drew nothing in the window), and a picture is the same in both
-renderers anyway. A replay without its map shows the hatched ground.
+renderers anyway. A replay without its map shows the hatched ground. Built
+2026-09-16; still open: whether the play should rest after a while or when
+the window loses focus, and the wheel as a scrub.
 
 ### Entering
 

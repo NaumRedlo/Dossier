@@ -13,7 +13,7 @@ BLEND = """
     .scene2::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(7,3,4,0.82) 0%, rgba(7,3,4,0.14) 24%, rgba(7,3,4,0.14) 52%, rgba(7,3,4,0.88) 78%, rgba(7,3,4,0.97) 100%); }
     .crest { position: absolute; left: 0; right: 0; top: 24px; z-index: 3; display: flex; justify-content: center; }
     .crest .brand { padding: 0; gap: 14px; }
-    .crest .brand img { width: 31px; height: 31px; }
+    .crest .brand img { width: 36px; height: 36px; padding: 2.5px; box-sizing: border-box; }
     .crest .brand i { height: 22px; }
     .crest .brand b { font-size: 20px; line-height: 26px; }
     .corner { position: absolute; top: 28px; z-index: 3; }

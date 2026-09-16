@@ -10,7 +10,7 @@ STYLE = """
     .mono { font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; }
     .side { position: absolute; left: 0; top: 0; bottom: 0; width: 220px; box-sizing: border-box; padding: 20px 12px 16px; display: flex; flex-direction: column; gap: 2px; border-right: 1px solid rgba(255,255,255,0.08); background: rgba(0,0,0,0.26); }
     .brand { display: flex; align-items: center; gap: 14px; padding: 0 8px 18px; }
-    .brand img { width: 31px; height: 31px; display: block; }
+    .brand img { width: 36px; height: 36px; padding: 2.5px; box-sizing: border-box; display: block; }
     .brand i { display: block; width: 1px; height: 22px; background: rgba(255,255,255,0.16); }
     .brand b { font-size: 20px; line-height: 26px; font-weight: 600; letter-spacing: -0.01em; }
     .nav { display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 10px; border-radius: 8px; color: #a9a29b; font-weight: 500; }

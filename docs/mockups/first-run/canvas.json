@@ -11,166 +11,578 @@
   ],
   "artboards": [
     {
-      "file": "Language.dc.html",
-      "x": 0,
-      "y": 0,
-      "w": 980,
-      "h": 720,
-      "page": "page-en"
-    },
-    {
       "file": "Main.dc.html",
+      "x": 0,
+      "y": 0,
+      "w": 980,
+      "h": 720,
+      "page": "page-en",
+      "title": "1 · Language"
+    },
+    {
+      "file": "folder-stable-en-US.dc.html",
       "x": 1060,
       "y": 0,
       "w": 980,
       "h": 720,
-      "page": "page-en"
+      "page": "page-en",
+      "title": "2 · osu! folder · stable found"
     },
     {
-      "file": "FolderLazer.dc.html",
+      "file": "folder-lazer-en-US.dc.html",
       "x": 2120,
       "y": 0,
       "w": 980,
       "h": 720,
-      "page": "page-en"
+      "page": "page-en",
+      "title": "2 · osu! folder · lazer found"
     },
     {
-      "file": "FolderBoth.dc.html",
+      "file": "folder-both-en-US.dc.html",
       "x": 3180,
       "y": 0,
       "w": 980,
       "h": 720,
-      "page": "page-en"
+      "page": "page-en",
+      "title": "2 · osu! folder · both"
     },
     {
-      "file": "FolderMissing.dc.html",
+      "file": "folder-missing-en-US.dc.html",
       "x": 4240,
       "y": 0,
       "w": 980,
       "h": 720,
-      "page": "page-en"
+      "page": "page-en",
+      "title": "2 · osu! folder · nothing found"
     },
     {
-      "file": "Device.dc.html",
-      "x": 5300,
-      "y": 0,
-      "w": 980,
-      "h": 720,
-      "page": "page-en"
-    },
-    {
-      "file": "Bot.dc.html",
+      "file": "folder-own-en-US.dc.html",
       "x": 0,
-      "y": 840,
+      "y": 920,
       "w": 980,
       "h": 720,
-      "page": "page-en"
+      "page": "page-en",
+      "title": "2 · osu! folder · own folder"
     },
     {
-      "file": "BotLinked.dc.html",
+      "file": "device-en-US.dc.html",
       "x": 1060,
-      "y": 840,
+      "y": 920,
       "w": 980,
       "h": 720,
-      "page": "page-en"
+      "page": "page-en",
+      "title": "3 · This device"
     },
     {
-      "file": "Checks.dc.html",
+      "file": "bot-waiting-en-US.dc.html",
       "x": 2120,
-      "y": 840,
+      "y": 920,
       "w": 980,
       "h": 720,
-      "page": "page-en"
+      "page": "page-en",
+      "title": "4 · The bot · waiting"
     },
     {
-      "file": "ChecksFailed.dc.html",
+      "file": "bot-linked-en-US.dc.html",
       "x": 3180,
-      "y": 840,
+      "y": 920,
       "w": 980,
       "h": 720,
-      "page": "page-en"
+      "page": "page-en",
+      "title": "4 · The bot · linked"
     },
     {
-      "file": "ChecksDownloading.dc.html",
+      "file": "checks-running-en-US.dc.html",
       "x": 4240,
-      "y": 840,
+      "y": 920,
       "w": 980,
       "h": 720,
-      "page": "page-en"
+      "page": "page-en",
+      "title": "5 · Checks · running"
     },
     {
-      "file": "Done.dc.html",
-      "x": 5300,
-      "y": 840,
-      "w": 980,
-      "h": 720,
-      "page": "page-en"
-    },
-    {
-      "file": "BotOnly.dc.html",
+      "file": "checks-ffmpeg-missing-en-US.dc.html",
       "x": 0,
-      "y": 1680,
+      "y": 1840,
       "w": 980,
       "h": 720,
-      "page": "page-en"
+      "page": "page-en",
+      "title": "5 · Checks · ffmpeg missing"
     },
     {
-      "file": "ChecksBotOnly.dc.html",
+      "file": "checks-ffmpeg-downloading-en-US.dc.html",
       "x": 1060,
-      "y": 1680,
+      "y": 1840,
       "w": 980,
       "h": 720,
-      "page": "page-en"
+      "page": "page-en",
+      "title": "5 · Checks · ffmpeg downloading"
     },
     {
-      "file": "FolderRu.dc.html",
+      "file": "checks-bot-skipped-en-US.dc.html",
+      "x": 2120,
+      "y": 1840,
+      "w": 980,
+      "h": 720,
+      "page": "page-en",
+      "title": "5 · Checks · bot skipped"
+    },
+    {
+      "file": "done-en-US.dc.html",
+      "x": 3180,
+      "y": 1840,
+      "w": 980,
+      "h": 720,
+      "page": "page-en",
+      "title": "5 · Everything works"
+    },
+    {
+      "file": "folder-stable-en-US-1280.dc.html",
+      "x": 0,
+      "y": 2760,
+      "w": 1280,
+      "h": 800,
+      "page": "page-en",
+      "title": "1280 wide · folder-stable"
+    },
+    {
+      "file": "bot-waiting-en-US-1280.dc.html",
+      "x": 1360,
+      "y": 2760,
+      "w": 1280,
+      "h": 800,
+      "page": "page-en",
+      "title": "1280 wide · bot-waiting"
+    },
+    {
+      "file": "folder-stable-en-US-1920.dc.html",
+      "x": 0,
+      "y": 3760,
+      "w": 1920,
+      "h": 1080,
+      "page": "page-en",
+      "title": "1920 wide · folder-stable"
+    },
+    {
+      "file": "bot-waiting-en-US-1920.dc.html",
+      "x": 2000,
+      "y": 3760,
+      "w": 1920,
+      "h": 1080,
+      "page": "page-en",
+      "title": "1920 wide · bot-waiting"
+    },
+    {
+      "file": "language-ru-RU.dc.html",
       "x": 0,
       "y": 0,
       "w": 980,
       "h": 720,
-      "page": "page-ru"
+      "page": "page-ru",
+      "title": "1 · Language"
     },
     {
-      "file": "BotRu.dc.html",
+      "file": "folder-stable-ru-RU.dc.html",
       "x": 1060,
       "y": 0,
       "w": 980,
       "h": 720,
-      "page": "page-ru"
+      "page": "page-ru",
+      "title": "2 · osu! folder · stable found"
     },
     {
-      "file": "ChecksFailedRu.dc.html",
+      "file": "folder-lazer-ru-RU.dc.html",
       "x": 2120,
       "y": 0,
       "w": 980,
       "h": 720,
-      "page": "page-ru"
+      "page": "page-ru",
+      "title": "2 · osu! folder · lazer found"
+    },
+    {
+      "file": "folder-both-ru-RU.dc.html",
+      "x": 3180,
+      "y": 0,
+      "w": 980,
+      "h": 720,
+      "page": "page-ru",
+      "title": "2 · osu! folder · both"
+    },
+    {
+      "file": "folder-missing-ru-RU.dc.html",
+      "x": 4240,
+      "y": 0,
+      "w": 980,
+      "h": 720,
+      "page": "page-ru",
+      "title": "2 · osu! folder · nothing found"
+    },
+    {
+      "file": "folder-own-ru-RU.dc.html",
+      "x": 0,
+      "y": 920,
+      "w": 980,
+      "h": 720,
+      "page": "page-ru",
+      "title": "2 · osu! folder · own folder"
+    },
+    {
+      "file": "device-ru-RU.dc.html",
+      "x": 1060,
+      "y": 920,
+      "w": 980,
+      "h": 720,
+      "page": "page-ru",
+      "title": "3 · This device"
+    },
+    {
+      "file": "bot-waiting-ru-RU.dc.html",
+      "x": 2120,
+      "y": 920,
+      "w": 980,
+      "h": 720,
+      "page": "page-ru",
+      "title": "4 · The bot · waiting"
+    },
+    {
+      "file": "bot-linked-ru-RU.dc.html",
+      "x": 3180,
+      "y": 920,
+      "w": 980,
+      "h": 720,
+      "page": "page-ru",
+      "title": "4 · The bot · linked"
+    },
+    {
+      "file": "checks-running-ru-RU.dc.html",
+      "x": 4240,
+      "y": 920,
+      "w": 980,
+      "h": 720,
+      "page": "page-ru",
+      "title": "5 · Checks · running"
+    },
+    {
+      "file": "checks-ffmpeg-missing-ru-RU.dc.html",
+      "x": 0,
+      "y": 1840,
+      "w": 980,
+      "h": 720,
+      "page": "page-ru",
+      "title": "5 · Checks · ffmpeg missing"
+    },
+    {
+      "file": "checks-ffmpeg-downloading-ru-RU.dc.html",
+      "x": 1060,
+      "y": 1840,
+      "w": 980,
+      "h": 720,
+      "page": "page-ru",
+      "title": "5 · Checks · ffmpeg downloading"
+    },
+    {
+      "file": "checks-bot-skipped-ru-RU.dc.html",
+      "x": 2120,
+      "y": 1840,
+      "w": 980,
+      "h": 720,
+      "page": "page-ru",
+      "title": "5 · Checks · bot skipped"
+    },
+    {
+      "file": "done-ru-RU.dc.html",
+      "x": 3180,
+      "y": 1840,
+      "w": 980,
+      "h": 720,
+      "page": "page-ru",
+      "title": "5 · Everything works"
+    },
+    {
+      "file": "folder-stable-ru-RU-1280.dc.html",
+      "x": 0,
+      "y": 2760,
+      "w": 1280,
+      "h": 800,
+      "page": "page-ru",
+      "title": "1280 wide · folder-stable"
+    },
+    {
+      "file": "bot-waiting-ru-RU-1280.dc.html",
+      "x": 1360,
+      "y": 2760,
+      "w": 1280,
+      "h": 800,
+      "page": "page-ru",
+      "title": "1280 wide · bot-waiting"
+    },
+    {
+      "file": "folder-stable-ru-RU-1920.dc.html",
+      "x": 0,
+      "y": 3760,
+      "w": 1920,
+      "h": 1080,
+      "page": "page-ru",
+      "title": "1920 wide · folder-stable"
+    },
+    {
+      "file": "bot-waiting-ru-RU-1920.dc.html",
+      "x": 2000,
+      "y": 3760,
+      "w": 1920,
+      "h": 1080,
+      "page": "page-ru",
+      "title": "1920 wide · bot-waiting"
     }
   ],
   "annotations": [
     {
-      "id": "bot-only",
+      "id": "Main-note",
       "x": 0,
-      "y": 1530,
-      "w": 480,
+      "y": -150,
+      "w": 620,
       "page": "page-en",
-      "text": "Bot-only device (chose “I'll only render for the bot” at the folder step): the steps stay, the ways out go. No “Later — just my own replays”; a missing ffmpeg has no “Continue anyway”, only Download under its line and Check again."
+      "text": "The system's language is preselected; the other one retypes every word on the screen — erased from the right, typed from the left, 640 ms."
     },
     {
-      "id": "ffmpeg",
-      "x": 3180,
-      "y": 1572,
-      "w": 2040,
+      "id": "folder-stable-en-US-note",
+      "x": 1060,
+      "y": -150,
+      "w": 620,
       "page": "page-en",
-      "text": "A missing ffmpeg says only that; where the explanation used to be, under the line, sits the fix — Download. It fetches a static build for this system into the application's own bin/ (martin-riedl.de on macOS and Linux, gyan.dev on Windows) and the line itself is the progress — downloading · 12.4 / 27.5 MB, unpacking — then the check runs again and the line ticks with the version. The card's own row — Check again, Continue anyway — does not change. Only a failed download gets a line under it with the Where to get it link, and the button again."
+      "text": "Found the way the game finds it: osu!.<user>.cfg, then BeatmapDirectory; Songs, Skins and Replays counted separately."
+    },
+    {
+      "id": "folder-lazer-en-US-note",
+      "x": 2120,
+      "y": -150,
+      "w": 620,
+      "page": "page-en",
+      "text": "lazer: storage.ini gives the root, client.realm and the content-addressed files store are read; replays counted from the store."
+    },
+    {
+      "id": "folder-both-en-US-note",
+      "x": 3180,
+      "y": -150,
+      "w": 620,
+      "page": "page-en",
+      "text": "Both clients are read by default and appear as two sources with a switch each; the same list is Settings → Folders later."
+    },
+    {
+      "id": "folder-missing-en-US-note",
+      "x": 4240,
+      "y": -150,
+      "w": 620,
+      "page": "page-en",
+      "text": "Nothing found: Browse for the folder, or keep everything in the application's own folder — ~/.dossier with Songs, Skins, Replays."
+    },
+    {
+      "id": "folder-own-en-US-note",
+      "x": 0,
+      "y": 770,
+      "w": 620,
+      "page": "page-en",
+      "text": "The application's own folder as the only source, tagged dossier. Replays dropped on the window land here."
+    },
+    {
+      "id": "device-en-US-note",
+      "x": 1060,
+      "y": 770,
+      "w": 620,
+      "page": "page-en",
+      "text": "One field, the device's name as the bot will show it. Nothing else is asked about the machine."
+    },
+    {
+      "id": "bot-waiting-en-US-note",
+      "x": 2120,
+      "y": 770,
+      "w": 620,
+      "page": "page-en",
+      "text": "Pairing: the QR opens the bot with the code; Open Telegram does the same on this machine. The code is shown to be recognised in the bot, never typed. The dot breathes while waiting; the application polls every 3 s."
+    },
+    {
+      "id": "bot-linked-en-US-note",
+      "x": 3180,
+      "y": 770,
+      "w": 620,
+      "page": "page-en",
+      "text": "Linked: the tick draws in, the bot's answer names the account. Later skips the step for a device that only watches its own replays."
+    },
+    {
+      "id": "checks-running-en-US-note",
+      "x": 4240,
+      "y": 770,
+      "w": 620,
+      "page": "page-en",
+      "text": "The ledger runs on its own: osu! folder, ffmpeg, engine, bot. The current line's dot breathes; a settled line ticks with its detail."
+    },
+    {
+      "id": "checks-ffmpeg-missing-en-US-note",
+      "x": 0,
+      "y": 1690,
+      "w": 620,
+      "page": "page-en",
+      "text": "A failed line turns red with its reason and nothing under it but the fix: Download, where the explanation used to be. Check again and Continue anyway stay in the card's row."
+    },
+    {
+      "id": "checks-ffmpeg-downloading-en-US-note",
+      "x": 1060,
+      "y": 1690,
+      "w": 620,
+      "page": "page-en",
+      "text": "The line itself is the progress — downloading · 12.4 / 27.5 MB · martin-riedl.de — then unpacking; then the check runs again and the line ticks with the version."
+    },
+    {
+      "id": "checks-bot-skipped-en-US-note",
+      "x": 2120,
+      "y": 1690,
+      "w": 620,
+      "page": "page-en",
+      "text": "A bot skipped with Later is not a failure: its line stays quiet, not linked, and counts as done. The engine is still checked against the bot's build."
+    },
+    {
+      "id": "done-en-US-note",
+      "x": 3180,
+      "y": 1690,
+      "w": 620,
+      "page": "page-en",
+      "text": "Four of four: the headline settles into a tick and one button remains, Open Dossier. From here the crest glides to the corner and the main screen enters."
+    },
+    {
+      "id": "wide-en-US",
+      "x": 0,
+      "y": 2610,
+      "w": 620,
+      "page": "page-en",
+      "text": "The same column at 1280×800 and 1920×1080: it stays 560 px wide and centred; only the ground around it grows."
+    },
+    {
+      "id": "language-ru-RU-note",
+      "x": 0,
+      "y": -150,
+      "w": 620,
+      "page": "page-ru",
+      "text": "The system's language is preselected; the other one retypes every word on the screen — erased from the right, typed from the left, 640 ms."
+    },
+    {
+      "id": "folder-stable-ru-RU-note",
+      "x": 1060,
+      "y": -150,
+      "w": 620,
+      "page": "page-ru",
+      "text": "Found the way the game finds it: osu!.<user>.cfg, then BeatmapDirectory; Songs, Skins and Replays counted separately."
+    },
+    {
+      "id": "folder-lazer-ru-RU-note",
+      "x": 2120,
+      "y": -150,
+      "w": 620,
+      "page": "page-ru",
+      "text": "lazer: storage.ini gives the root, client.realm and the content-addressed files store are read; replays counted from the store."
+    },
+    {
+      "id": "folder-both-ru-RU-note",
+      "x": 3180,
+      "y": -150,
+      "w": 620,
+      "page": "page-ru",
+      "text": "Both clients are read by default and appear as two sources with a switch each; the same list is Settings → Folders later."
+    },
+    {
+      "id": "folder-missing-ru-RU-note",
+      "x": 4240,
+      "y": -150,
+      "w": 620,
+      "page": "page-ru",
+      "text": "Nothing found: Browse for the folder, or keep everything in the application's own folder — ~/.dossier with Songs, Skins, Replays."
+    },
+    {
+      "id": "folder-own-ru-RU-note",
+      "x": 0,
+      "y": 770,
+      "w": 620,
+      "page": "page-ru",
+      "text": "The application's own folder as the only source, tagged dossier. Replays dropped on the window land here."
+    },
+    {
+      "id": "device-ru-RU-note",
+      "x": 1060,
+      "y": 770,
+      "w": 620,
+      "page": "page-ru",
+      "text": "One field, the device's name as the bot will show it. Nothing else is asked about the machine."
+    },
+    {
+      "id": "bot-waiting-ru-RU-note",
+      "x": 2120,
+      "y": 770,
+      "w": 620,
+      "page": "page-ru",
+      "text": "Pairing: the QR opens the bot with the code; Open Telegram does the same on this machine. The code is shown to be recognised in the bot, never typed. The dot breathes while waiting; the application polls every 3 s."
+    },
+    {
+      "id": "bot-linked-ru-RU-note",
+      "x": 3180,
+      "y": 770,
+      "w": 620,
+      "page": "page-ru",
+      "text": "Linked: the tick draws in, the bot's answer names the account. Later skips the step for a device that only watches its own replays."
+    },
+    {
+      "id": "checks-running-ru-RU-note",
+      "x": 4240,
+      "y": 770,
+      "w": 620,
+      "page": "page-ru",
+      "text": "The ledger runs on its own: osu! folder, ffmpeg, engine, bot. The current line's dot breathes; a settled line ticks with its detail."
+    },
+    {
+      "id": "checks-ffmpeg-missing-ru-RU-note",
+      "x": 0,
+      "y": 1690,
+      "w": 620,
+      "page": "page-ru",
+      "text": "A failed line turns red with its reason and nothing under it but the fix: Download, where the explanation used to be. Check again and Continue anyway stay in the card's row."
+    },
+    {
+      "id": "checks-ffmpeg-downloading-ru-RU-note",
+      "x": 1060,
+      "y": 1690,
+      "w": 620,
+      "page": "page-ru",
+      "text": "The line itself is the progress — downloading · 12.4 / 27.5 MB · martin-riedl.de — then unpacking; then the check runs again and the line ticks with the version."
+    },
+    {
+      "id": "checks-bot-skipped-ru-RU-note",
+      "x": 2120,
+      "y": 1690,
+      "w": 620,
+      "page": "page-ru",
+      "text": "A bot skipped with Later is not a failure: its line stays quiet, not linked, and counts as done. The engine is still checked against the bot's build."
+    },
+    {
+      "id": "done-ru-RU-note",
+      "x": 3180,
+      "y": 1690,
+      "w": 620,
+      "page": "page-ru",
+      "text": "Four of four: the headline settles into a tick and one button remains, Open Dossier. From here the crest glides to the corner and the main screen enters."
+    },
+    {
+      "id": "wide-ru-RU",
+      "x": 0,
+      "y": 2610,
+      "w": 620,
+      "page": "page-ru",
+      "text": "The same column at 1280×800 and 1920×1080: it stays 560 px wide and centred; only the ground around it grows."
     },
     {
       "id": "order",
       "x": 0,
-      "y": -160,
-      "w": 420,
+      "y": -420,
+      "w": 760,
       "page": "page-en",
-      "text": "Order: Language → osu! folder → This device → The bot → Checks.\nWindow 980×720, column 560. Tokens from docs/design.md.\nThe headline and the card never move between steps; only the card's lower half changes.\nThe folder step reads osu!.<user>.cfg (stable) or storage.ini (lazer) instead of guessing. The bot step needs no address and no token: the QR opens the bot with the code; the QR here is a placeholder.\nSources: stable + lazer are both read by default; a switch leaves one out. The same list is Settings → Folders."
+      "text": "These are the application's own frames, not drawings: native/tests/golden — the pictures every build is held to by the golden test. Order: Language → osu! folder → This device → The bot → Checks. Window 980×720, column 560, tokens from docs/design.md.\nTo refresh: cargo run --release -- --gallery <dir>, approve into tests/golden, then python make.py here and seed."
     }
   ],
   "launch": {

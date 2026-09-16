@@ -19,3 +19,4 @@ venv/
 # and the script that makes them are what is kept.
 /docs/mockups/*/*.html
 !/docs/mockups/*/*.dc.html
+/docs/mockups/first-run/frames/

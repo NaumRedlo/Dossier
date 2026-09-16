@@ -154,6 +154,22 @@ impl Words {
         format!("{} {}", self.lang.group(n), self.n(key, n))
     }
 
+    fn mb_number(&self, bytes: u64) -> String {
+        let text = format!("{:.1}", bytes as f64 / (1024.0 * 1024.0));
+        match self.lang {
+            Lang::En => text,
+            Lang::Ru => text.replace('.', ","),
+        }
+    }
+
+    pub fn mb(&self, bytes: u64) -> String {
+        format!("{} {}", self.mb_number(bytes), self.t("mb"))
+    }
+
+    pub fn mb_of(&self, done: u64, total: u64) -> String {
+        format!("{} / {} {}", self.mb_number(done), self.mb_number(total), self.t("mb"))
+    }
+
     fn say(&self, key: &str, args: Option<&FluentArgs>) -> String {
         let now = said_by(&self.bundle, key, args);
         match &self.before {
@@ -227,6 +243,12 @@ mod tests {
         assert_eq!(words.t("setting-up"), "Настройка");
         words.settle();
         assert_eq!(words.t("continue"), "Продолжить");
+    }
+
+    #[test]
+    fn sizes_read_in_megabytes_with_the_language_s_decimal_mark() {
+        assert_eq!(Words::new(Lang::En).mb_of(12_950_000, 28_832_991), "12.4 / 27.5 MB");
+        assert_eq!(Words::new(Lang::Ru).mb(28_832_991), "27,5 МБ");
     }
 
     #[test]

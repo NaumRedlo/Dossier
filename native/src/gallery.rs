@@ -5,7 +5,7 @@ use iced::{Element, Length, Size};
 use iced_test::Simulator;
 
 use crate::checks::Outcome;
-use crate::first_run::{Check, FirstRun, Pairing, Step, CHECKS};
+use crate::first_run::{Check, Fetch, FirstRun, Pairing, Step, CHECKS};
 use crate::lang::Lang;
 use crate::sources::{Kind, Source};
 use crate::{ui, Message, Screen, App};
@@ -65,6 +65,10 @@ fn all_passed() -> Vec<(Check, Option<Outcome>)> {
     ])
 }
 
+fn downloading(done: u64, total: u64) -> crate::ffmpeg::Step {
+    crate::ffmpeg::Step::Downloading { from: "martin-riedl.de", done, total: Some(total) }
+}
+
 pub fn states(lang: Lang) -> Vec<(String, FirstRun)> {
     let waiting = Pairing::Waiting {
         code: "K7QN-M4XZ".into(),
@@ -111,6 +115,22 @@ pub fn states(lang: Lang) -> Vec<(String, FirstRun)> {
                 ]),
             ),
         ),
+        ("checks-ffmpeg-downloading", {
+            let mut flow = FirstRun::staged(
+                Step::Checks,
+                lang,
+                vec![stable()],
+                Pairing::Idle,
+                checked(&[
+                    (Check::Folder, Some(Outcome::Passed("1,342 maps".into()))),
+                    (Check::Ffmpeg, Some(Outcome::Failed(String::new()))),
+                    (Check::Engine, Some(Outcome::Passed("0.12.0".into()))),
+                    (Check::Bot, Some(Outcome::Passed("41 ms".into()))),
+                ]),
+            );
+            flow.fetch = Fetch::Going(downloading(12_950_000, 28_832_991));
+            flow
+        }),
         ("done", FirstRun::staged(Step::Checks, lang, vec![stable()], Pairing::Idle, all_passed())),
         (
             "checks-bot-skipped",

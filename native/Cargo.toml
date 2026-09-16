@@ -24,6 +24,7 @@ rfd = { version = "0.17", default-features = false, features = ["xdg-portal"] }
 open = "5"
 iced_test = "0.14"
 png = "0.17"
+zip = { version = "2", default-features = false, features = ["deflate"] }
 
 
 [dev-dependencies]

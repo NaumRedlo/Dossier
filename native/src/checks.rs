@@ -11,6 +11,10 @@ pub enum Outcome {
 }
 
 pub fn ffmpeg_on_path() -> Option<PathBuf> {
+    let own = crate::ffmpeg::own();
+    if own.is_file() {
+        return Some(own);
+    }
     let name = if cfg!(windows) { "ffmpeg.exe" } else { "ffmpeg" };
     std::env::var_os("PATH")
         .map(|paths| {

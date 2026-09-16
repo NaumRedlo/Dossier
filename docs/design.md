@@ -443,11 +443,21 @@ title, at most one line of why, the control, and a row of two buttons —
 
 Then the ledger runs on its own — *Checking · 3 of 4*: osu! folder, ffmpeg,
 engine, bot — each line ticking as it passes. Everything passed: one button,
-*Open Dossier*. A line failed: that line turns `danger` with its reason and
-its fix — *ffmpeg is not installed · Where to get it* — and the button becomes
-*Continue anyway*, because a missing ffmpeg stops rendering, not judging. A
-bot that was skipped with *Later* is not a failure: its line stays quiet,
-*not linked*, and counts as done.
+*Open Dossier*. A line failed: that line turns `danger` with its reason —
+*ffmpeg · not installed* — and nothing is explained under it; where the
+explanation used to be sits the fix, a *Download* button indented under the
+line. It fetches a static build for this system into the application's own
+`bin/` — martin-riedl.de for macOS and Linux (with osxexperts.net and
+evermeet.cx as the second try on a Mac), gyan.dev for Windows — and the line
+itself is the progress: *ffmpeg · downloading · 12.4 / 27.5 MB ·
+martin-riedl.de*, then *unpacking*, then the check runs again and the line
+ticks with the version. The card's own row does not change: *Check again*
+and *Continue anyway*, because a missing ffmpeg stops rendering, not
+judging. Only when no build could be fetched does a line under it say why,
+with *Where to get it* as the link and the button offered again; a system
+nobody builds for gets the link from the start. The application's own
+`bin/ffmpeg` is looked for before the PATH from then on. A bot that was skipped with *Later* is not a failure: its line stays
+quiet, *not linked*, and counts as done.
 
 The other way round — osu! found, bot skipped with *Later* — is the ordinary
 case for someone who only wants their own replays drawn. Then the worker is

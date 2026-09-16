@@ -433,6 +433,7 @@ pub struct Line {
     pub name: String,
     pub detail: String,
     pub note: Option<(String, Option<String>)>,
+    pub action: Option<String>,
     pub settled: f32,
     pub breath: f32,
 }
@@ -444,9 +445,15 @@ impl Line {
             name: name.into(),
             detail: String::new(),
             note: None,
+            action: None,
             settled: 1.0,
             breath: 0.0,
         }
+    }
+
+    pub fn action(mut self, label: impl Into<String>) -> Line {
+        self.action = Some(label.into());
+        self
     }
 
     pub fn settling(mut self, settled: f32) -> Line {
@@ -471,6 +478,14 @@ impl Line {
 }
 
 pub fn ledger<'a, Message: Clone + 'a>(lines: &[Line], on_link: Option<Message>) -> Element<'a, Message> {
+    ledger_with(lines, on_link, None)
+}
+
+pub fn ledger_with<'a, Message: Clone + 'a>(
+    lines: &[Line],
+    on_link: Option<Message>,
+    on_action: Option<Message>,
+) -> Element<'a, Message> {
     let mut rows = column![].spacing(4);
     for line in lines {
         let (which, colour, face, before) = match line.mood {
@@ -510,6 +525,11 @@ pub fn ledger<'a, Message: Clone + 'a>(lines: &[Line], on_link: Option<Message>)
                 });
             }
             rows = rows.push(container(note.align_y(iced::Center)).padding(iced::Padding::ZERO.left(26.0)));
+        }
+        if let Some(label) = &line.action {
+            rows = rows.push(
+                container(row![primary(label.clone(), on_action.clone())]).padding(iced::Padding::ZERO.left(26.0).top(4.0).bottom(4.0)),
+            );
         }
     }
     rows.into()

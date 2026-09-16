@@ -276,7 +276,7 @@ boards["ChecksBotOnly"] = page(
     head(DOT, EN["checking"], f"1 {EN['of']} 3") + "\n" +
     card(ledger([
         line("bad", "ffmpeg", "not installed"),
-        '<div class="sub">This device renders for the bot, and rendering needs it. <a href="#">Where to get it</a></div>',
+        '<div class="sub" style="padding: 4px 0;">' + btn("Download", "primary") + '</div>',
         line("todo", "Engine"),
         line("todo", "Bot"),
     ]), step(buttons(GROW, btn("Check again", "primary"))))
@@ -297,9 +297,19 @@ boards["ChecksFailed"] = page(
     card(ledger([
         line("done", "osu! folder", "1,342 maps"),
         line("bad", "ffmpeg", "not installed"),
-        '<div class="sub">Rendering needs it; judging does not. <a href="#">Where to get it</a></div>',
+        '<div class="sub" style="padding: 4px 0;">' + btn("Download", "primary") + '</div>',
         line("todo", "Engine"),
         line("todo", "Bot"),
+    ]), step(buttons(btn("Check again"), GROW, btn("Continue anyway", "primary"))))
+)
+
+boards["ChecksDownloading"] = page(
+    head(DOT, EN["checking"], f"4 {EN['of']} 4") + "\n" +
+    card(ledger([
+        line("done", "osu! folder", "1,342 maps · 187 replays"),
+        line("now", "ffmpeg", "downloading · 12.4 / 27.5 MB · martin-riedl.de"),
+        line("done", "Engine", "0.12.0, same as the bot's"),
+        line("done", "Bot", "41 ms"),
     ]), step(buttons(btn("Check again"), GROW, btn("Continue anyway", "primary"))))
 )
 
@@ -336,7 +346,7 @@ boards["ChecksFailedRu"] = page(
     card(ledger([
         line("done", "Папка osu!", "1 342 карты"),
         line("bad", "ffmpeg", "не установлен"),
-        '<div class="sub">Нужен для рендера; для судейства — нет. <a href="#">Где взять</a></div>',
+        '<div class="sub" style="padding: 4px 0;">' + btn("Скачать", "primary") + '</div>',
         line("todo", "Движок"),
         line("todo", "Бот"),
     ]), step(buttons(btn("Проверить снова"), GROW, btn("Продолжить без него", "primary"))))
@@ -346,7 +356,7 @@ for name, html in boards.items():
     (HERE / f"{name}.dc.html").write_text(html)
 
 W, H, GX, GY = 980, 720, 80, 120
-en = ["Language", "Main", "FolderLazer", "FolderBoth", "FolderMissing", "Device", "Bot", "BotLinked", "Checks", "ChecksFailed", "Done"]
+en = ["Language", "Main", "FolderLazer", "FolderBoth", "FolderMissing", "Device", "Bot", "BotLinked", "Checks", "ChecksFailed", "ChecksDownloading", "Done"]
 only = ["BotOnly", "ChecksBotOnly"]
 ru = ["FolderRu", "BotRu", "ChecksFailedRu"]
 artboards = []
@@ -361,7 +371,9 @@ canvas = {
     "artboards": artboards,
     "annotations": [
         {"id": "bot-only", "x": 0, "y": 2 * (H + GY) - 150, "w": 480, "page": "page-en",
-         "text": "Bot-only device (chose “I'll only render for the bot” at the folder step): the steps stay, the ways out go. No “Later — just my own replays”; a missing ffmpeg has no “Continue anyway”."},
+         "text": "Bot-only device (chose “I'll only render for the bot” at the folder step): the steps stay, the ways out go. No “Later — just my own replays”; a missing ffmpeg has no “Continue anyway”, only Download under its line and Check again."},
+        {"id": "ffmpeg", "x": 3 * (W + GX), "y": (H + GY) + H + 12, "w": 2 * W + GX, "page": "page-en",
+         "text": "A missing ffmpeg says only that; where the explanation used to be, under the line, sits the fix — Download. It fetches a static build for this system into the application's own bin/ (martin-riedl.de on macOS and Linux, gyan.dev on Windows) and the line itself is the progress — downloading · 12.4 / 27.5 MB, unpacking — then the check runs again and the line ticks with the version. The card's own row — Check again, Continue anyway — does not change. Only a failed download gets a line under it with the Where to get it link, and the button again."},
         {"id": "order", "x": 0, "y": -160, "w": 420, "page": "page-en",
          "text": "Order: Language → osu! folder → This device → The bot → Checks.\nWindow 980×720, column 560. Tokens from docs/design.md.\nThe headline and the card never move between steps; only the card's lower half changes.\nThe folder step reads osu!.<user>.cfg (stable) or storage.ini (lazer) instead of guessing. The bot step needs no address and no token: the QR opens the bot with the code; the QR here is a placeholder.\nSources: stable + lazer are both read by default; a switch leaves one out. The same list is Settings → Folders."},
     ],

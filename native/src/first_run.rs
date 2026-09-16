@@ -6,6 +6,7 @@ use iced::{window, Animation, Element, Length, Subscription, Task};
 
 use crate::bot::{self, Paired, Refused};
 use crate::checks::{self, Outcome};
+use crate::ffmpeg;
 use crate::lang::{Lang, Words};
 use crate::settings::Settings;
 use crate::sources::{self, Source};
@@ -18,7 +19,6 @@ pub const REVEAL: Duration = Duration::from_millis(320);
 pub const RETYPE: Duration = Duration::from_millis(640);
 pub const SETTLE: Duration = Duration::from_millis(450);
 pub const BREATH: Duration = Duration::from_millis(1600);
-pub const FFMPEG_HOME: &str = "https://ffmpeg.org/download.html";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Step {
@@ -80,8 +80,17 @@ pub enum Message {
     Checked(Check, Outcome),
     CheckAgain,
     WhereToGet,
+    Download,
+    Fetched(ffmpeg::Step),
     Finish,
     Tick(Instant),
+}
+
+#[derive(Debug, Clone)]
+pub enum Fetch {
+    Idle,
+    Going(ffmpeg::Step),
+    Failed(String),
 }
 
 #[derive(Clone)]
@@ -100,6 +109,7 @@ pub struct FirstRun {
     pub breath: Animation<bool>,
     pub came_from: Step,
     pub retype: Animation<bool>,
+    pub fetch: Fetch,
 }
 
 fn reveal_from(now: Instant) -> Animation<bool> {
@@ -142,6 +152,7 @@ impl FirstRun {
             breath: breathing(Instant::now()),
             came_from: Step::Language,
             retype: settled(),
+            fetch: Fetch::Idle,
         };
         (made, Task::perform(async { sources::find() }, Message::Looked))
     }
@@ -149,6 +160,15 @@ impl FirstRun {
     fn waiting_on_something(&self) -> bool {
         matches!(self.pairing, Pairing::Waiting { .. } | Pairing::Asking)
             || (self.step == Step::Checks && !self.all_checked())
+            || self.fetching()
+    }
+
+    fn fetching(&self) -> bool {
+        matches!(self.fetch, Fetch::Going(_))
+    }
+
+    fn can_fetch(&self) -> bool {
+        !ffmpeg::builds().is_empty()
     }
 
     pub fn moving(&self) -> bool {
@@ -182,6 +202,7 @@ impl FirstRun {
 
     fn start_checks(&mut self) -> Task<Message> {
         self.turn_page(Step::Checks);
+        self.fetch = Fetch::Idle;
         self.checks = CHECKS.iter().map(|c| (*c, None)).collect();
         self.settles = CHECKS.iter().map(|_| Animation::new(false).duration(SETTLE).easing(Easing::EaseOutCubic)).collect();
         let sources = self.live_sources();
@@ -333,9 +354,37 @@ impl FirstRun {
             }
             Message::CheckAgain => self.start_checks(),
             Message::WhereToGet => {
-                let _ = open::that_detached(FFMPEG_HOME);
+                let _ = open::that_detached(ffmpeg::HOME);
                 Task::none()
             }
+            Message::Download => {
+                if self.fetching() {
+                    return (Task::none(), done);
+                }
+                let from = ffmpeg::builds().first().map_or("", |b| b.from);
+                self.fetch = Fetch::Going(ffmpeg::Step::Downloading { from, done: 0, total: None });
+                Task::run(fetching_ffmpeg(), Message::Fetched)
+            }
+            Message::Fetched(step) => match step {
+                ffmpeg::Step::Done(_) => {
+                    self.fetch = Fetch::Idle;
+                    if let Some(at) = self.checks.iter().position(|(c, _)| *c == Check::Ffmpeg) {
+                        self.checks[at].1 = None;
+                        if let Some(settle) = self.settles.get_mut(at) {
+                            *settle = Animation::new(false).duration(SETTLE).easing(Easing::EaseOutCubic);
+                        }
+                    }
+                    Task::perform(async { checks::ffmpeg() }, |o| Message::Checked(Check::Ffmpeg, o))
+                }
+                ffmpeg::Step::Failed(why) => {
+                    self.fetch = Fetch::Failed(why);
+                    Task::none()
+                }
+                step => {
+                    self.fetch = Fetch::Going(step);
+                    Task::none()
+                }
+            },
             Message::Finish => {
                 let mut settings = self.settings.clone();
                 settings.sources = self.sources.clone();
@@ -692,11 +741,26 @@ impl FirstRun {
                 Line::new(Mood::Done, name).detail(detail)
             }
             Some(Outcome::Failed(detail)) => {
-                let line = Line::new(Mood::Failed, name);
+                let line = Line::new(Mood::Failed, name.clone());
                 match which {
-                    Check::Ffmpeg => line
-                        .detail(w.t("not-installed"))
-                        .note(w.t("ffmpeg-why"), Some(w.t("where-to-get"))),
+                    Check::Ffmpeg => match &self.fetch {
+                        Fetch::Going(ffmpeg::Step::Downloading { from, done, total }) => {
+                            let size = match total {
+                                Some(total) => w.mb_of(*done, *total),
+                                None => w.mb(*done),
+                            };
+                            Line::new(Mood::Now, name).detail(format!("{} · {} · {}", w.t("downloading"), size, from))
+                        }
+                        Fetch::Going(_) => Line::new(Mood::Now, name).detail(w.t("unpacking")),
+                        Fetch::Failed(why) => line
+                            .detail(w.t("could-not-download"))
+                            .note(ffmpeg_why(why), Some(w.t("where-to-get")))
+                            .action(w.t("download")),
+                        Fetch::Idle if self.can_fetch() => line.detail(w.t("not-installed")).action(w.t("download")),
+                        Fetch::Idle => line
+                            .detail(w.t("not-installed"))
+                            .note(w.t("ffmpeg-why"), Some(w.t("where-to-get"))),
+                    },
                     _ => line.detail(if detail.is_empty() { w.t("no-answer") } else { detail.clone() }),
                 }
             }
@@ -721,6 +785,7 @@ impl FirstRun {
             let settled = self.settles.get(at).map_or(1.0, |s| s.interpolate(0.0, 1.0, self.now));
             let line = self.check_line(*which, outcome, reached);
             let line = match outcome {
+                Some(_) if *which == Check::Ffmpeg && self.fetching() => line.breathing(breath),
                 Some(_) => line.settling(settled),
                 None if reached => line.breathing(breath),
                 None => line,
@@ -732,7 +797,7 @@ impl FirstRun {
         }
         let failed = self.checks_failed();
         let finished = self.all_checked();
-        let ledger = ui::ledger(&lines, Some(Message::WhereToGet));
+        let ledger = ui::ledger_with(&lines, Some(Message::WhereToGet), Some(Message::Download));
         if !finished {
             return ui::card(ledger, None);
         }
@@ -747,6 +812,32 @@ impl FirstRun {
         };
         ui::card(ledger, Some(buttons.spacing(8).into()))
     }
+}
+
+fn ffmpeg_why(why: &str) -> String {
+    let mut short: String = why.chars().take(72).collect();
+    if short.len() < why.len() {
+        short.push('…');
+    }
+    short
+}
+
+fn fetching_ffmpeg() -> impl iced::futures::Stream<Item = ffmpeg::Step> {
+    iced::stream::channel(16, async move |out: iced::futures::channel::mpsc::Sender<ffmpeg::Step>| {
+        std::thread::spawn(move || {
+            let mut out = out;
+            ffmpeg::fetch(|step| {
+                let must = matches!(step, ffmpeg::Step::Done(_) | ffmpeg::Step::Failed(_));
+                loop {
+                    match out.try_send(step.clone()) {
+                        Ok(()) => break,
+                        Err(e) if must && e.is_full() => std::thread::sleep(Duration::from_millis(20)),
+                        Err(_) => break,
+                    }
+                }
+            });
+        });
+    })
 }
 
 pub fn qr_for(link: &str) -> Option<ui::Qr> {
@@ -784,6 +875,7 @@ impl FirstRun {
             breath: Animation::new(false),
             came_from: step,
             retype: settled(),
+            fetch: Fetch::Idle,
         }
     }
 }

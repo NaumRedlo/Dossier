@@ -91,8 +91,16 @@
       "page": "page-en"
     },
     {
-      "file": "Done.dc.html",
+      "file": "ChecksDownloading.dc.html",
       "x": 4240,
+      "y": 840,
+      "w": 980,
+      "h": 720,
+      "page": "page-en"
+    },
+    {
+      "file": "Done.dc.html",
+      "x": 5300,
       "y": 840,
       "w": 980,
       "h": 720,
@@ -146,7 +154,15 @@
       "y": 1530,
       "w": 480,
       "page": "page-en",
-      "text": "Bot-only device (chose “I'll only render for the bot” at the folder step): the steps stay, the ways out go. No “Later — just my own replays”; a missing ffmpeg has no “Continue anyway”."
+      "text": "Bot-only device (chose “I'll only render for the bot” at the folder step): the steps stay, the ways out go. No “Later — just my own replays”; a missing ffmpeg has no “Continue anyway”, only Download under its line and Check again."
+    },
+    {
+      "id": "ffmpeg",
+      "x": 3180,
+      "y": 1572,
+      "w": 2040,
+      "page": "page-en",
+      "text": "A missing ffmpeg says only that; where the explanation used to be, under the line, sits the fix — Download. It fetches a static build for this system into the application's own bin/ (martin-riedl.de on macOS and Linux, gyan.dev on Windows) and the line itself is the progress — downloading · 12.4 / 27.5 MB, unpacking — then the check runs again and the line ticks with the version. The card's own row — Check again, Continue anyway — does not change. Only a failed download gets a line under it with the Where to get it link, and the button again."
     },
     {
       "id": "order",

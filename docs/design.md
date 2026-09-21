@@ -386,41 +386,63 @@ comes with Settings.
 
 *The corner, the account, the video store.* The dot, the island and the
 stripe were each drawn and each set aside on 2026-09-21; what stays in the
-top-right corner is a person: until the device is linked, a quiet button
-after the three words — *Войти через Telegram* — and after it, the
-Telegram avatar, 28 px, no name (the name is in the menu). While something
-runs — a render, a map, a send, a worker job — the avatar wears a ring of
-the accent, which goes out by itself. Signing in is a card, not a
-password: a code that lives five minutes and a QR, *Открыть Telegram*
-leads to t.me/‹bot›?start=‹code›, the bot answers *Привязано*, the
-application waits for that answer, and the avatar fades in where the
-button was. The avatar opens the account menu: the name and the handle
-with the day the device was linked, *Сейчас* with progress lines,
-*Недавно* with times (a failure in red with its own *Ещё раз*), one line
-for the worker, a foot saying videos go to this chat and *Выйти*; without
-an account the same menu shows the local doings and, in the foot, the
-sign-in button and why. A timeline form of it (one column of time · mark
-· words) was drawn alongside as the alternative. Errors: E — when the
-application cannot go on, the scene dims and one card, the first run's,
-says what, where and the ways out (chosen 2026-09-21; B stays for Render
-and Get the map, where the button already is the story).
+top-right corner is a person. Until the device is linked, a 28 px circle
+in the grey hatching — the same hatching as a frame without a map: the
+place is there, the person is not. After linking, the Telegram avatar,
+28 px, no name (the name is in the menu); while something runs — a
+render, a map, a send, a worker job — it wears a ring of the accent,
+which goes out by itself (accepted 2026-09-21; a sign-in button in the
+corner was drawn and replaced by the circle). The circle and the avatar
+open the same menu, split into two tabs, *Аккаунт* and *Лента*. Signed
+out, the head says *Вход не выполнен · видео остаются на этом
+компьютере*; the account tab says why to sign in and holds the sign-in
+button, then the device — replays in the journal, videos and their size,
+the build. Signed in, the head is the name, the handle and the day of
+linking; the tab says where videos go, the worker's state, what was sent
+this month, the device, and *Выйти* in the foot. The *Лента* tab is one
+timeline of the day, time · mark · words, running jobs on top with their
+progress lines, a failure in red with its own *Ещё раз*, *Всё прочитано*
+in the foot; it works signed out too, as the device's own story. Signing
+in is a card, not a password: a code that lives five minutes and a QR,
+*Открыть Telegram* leads to t.me/‹bot›?start=‹code›, the bot answers
+*Привязано*, the application waits for that answer, and the avatar fades
+in where the hatching was. Errors: E — when the application cannot go
+on, the scene dims and one card, the first run's, says what, where and
+the ways out (chosen 2026-09-21; B stays for Render and Get the map,
+where the button already is the story).
 Rendered videos live in the application: a fourth word, *Видео*, opens
-a screen that mirrors the main one — the player where the live scene is,
-the video's data and its buttons (*В Telegram · В папке · Удалить*)
-where the viewer is, the resolution and the size at the right, and a
-journal of videos with their lengths on the frames where the journal of
-replays is — so there is nothing new to learn. Space pauses, the arrows
-step five seconds, a double click fills the screen; while it plays, the
-scrubber and the time stay and the rest dims a little. Sending to
-Telegram happens only here, with the same one-word progress button
-(*Отправляю*, the fill following the bytes); done, the button returns and
-a small card bottom-left says where it went and leaves after six seconds.
-Deleting is the screen's one question: to the bin, the replay and the map
-stay. A grid and a list were drawn as other views. Drawn in
+a list — frame, when, who · map, mods, length, size, and a *✓ TG* once it
+went to Telegram — newest on top (chosen 2026-09-21 over a grid and over
+a mirror of the main screen). A click opens the player over almost the
+whole window, 40 px from the edges: the video 16:9, the scrubber and the
+time under it, then the player's name, the map, mods · resolution · size
+and the buttons *В Telegram · В папке · Удалить*; Esc or a click outside
+returns to the list. Space pauses, the arrows step five seconds, a
+double click fills the screen; while it plays, the scrubber and the time
+stay and the rest dims a little. Sending to Telegram happens only here,
+with the same one-word progress button (*Отправляю*, the fill following
+the bytes) and the ring on the avatar; done, the button returns and a
+small card bottom-left says where it went and leaves after six seconds,
+and the list's row gets its *✓ TG*. Deleting is the screen's one
+question: to the bin, the replay and the map stay. Drawn in
 `docs/mockups/main/store.py`; to be built in this order: the store
 (`~/.dossier/Renders` with an index), the video screen (frames decoded by
-ffmpeg into a texture, sound through cpal), the Telegram sign-in, the
-send, the account menu with its notice queue, the ring.
+ffmpeg into a texture, sound through cpal), the circle and the tabbed
+menu with a notice queue, the Telegram sign-in, the send, the ring.
+*What the bubble says.* Asked 2026-09-21: the bubble as built repeats
+the viewer — player, accuracy, map, mods · combo · outcome · grade — and
+so says nothing. Seven variants were drawn (`docs/mockups/main/bubbles.py`,
+each shown in place and at ×2): the judgement counts; the map's facts;
+what has been done with the replay; the same for a replay without its
+map; everything the viewer does not say, in four lines; the same in two
+columns. Proposed: the four-line one — the player with the grade and
+the accuracy as the head, so it is clear whom it is about; 300 · 100 ·
+50 · miss and the combo out of the map's maximum; the map's stars, BPM,
+length and mapper with the client and the time played; a foot of ticks —
+video and its size, Telegram, the map on disk (or a cross and *Скачать*).
+Counts, combo, client and time are in the replay already; BPM, length,
+mapper and the settings are in the .osu; the stars wait for a difficulty
+calculator and the line goes without them until then.
 
 *The three words.* Replays is this screen. Worker and Settings open over
 the scene, dimmed to a fifth, in the first run's centred column; the crest

@@ -69,6 +69,40 @@
     .words .login .tg { width: 14px; height: 14px; border-radius: 50%; background: #e24848; flex: none; }
     .words .ava { width: 28px; height: 28px; border-radius: 50%; background: linear-gradient(135deg, #3a1015, #e24848); flex: none; box-shadow: 0 0 0 2px rgba(255,255,255,0.06); }
     .words .ava.on { box-shadow: 0 0 0 2px rgba(226,72,72,0.5); }
+    .words .ava.none, .menu .head .ava.none { background: repeating-linear-gradient(135deg, rgba(169,162,155,0.55) 0 1.5px, rgba(20,9,12,0.9) 1.5px 5px); box-shadow: 0 0 0 1px rgba(255,255,255,0.1); }
+    .menu .tabs { display: flex; gap: 18px; margin: 14px 0 4px; font-weight: 600; color: #6b655f; font-size: 13px; }
+    .menu .tabs span { padding-bottom: 6px; border-bottom: 2px solid transparent; }
+    .menu .tabs span.on { color: #ece7e2; border-bottom-color: #e24848; }
+    .menu .state { display: flex; align-items: center; gap: 10px; margin-top: 12px; color: #a9a29b; }
+    .menu .kv { display: flex; align-items: center; height: 26px; color: #a9a29b; }
+    .menu .kv .n { margin-left: auto; color: #ece7e2; font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: 11px; }
+    .vlist { position: absolute; left: 40px; right: 40px; top: 92px; }
+    .vlist .r { display: grid; grid-template-columns: 72px 70px 1fr 90px 50px 64px 60px; gap: 14px; align-items: center; height: 52px; border-bottom: 1px solid rgba(255,255,255,0.05); color: #ece7e2; font-size: 13px; }
+    .vlist .r .th { width: 64px; height: 36px; border-radius: 5px; background: #0a0507 center/cover; border: 1px solid rgba(255,255,255,0.1); opacity: 0.8; }
+    .vlist .r.on .th { border-color: #e24848; opacity: 1; }
+    .vlist .r .t { color: #6b655f; font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: 11px; }
+    .vlist .r .m { color: #a9a29b; }
+    .vlist .r .n { color: #6b655f; font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: 11px; text-align: right; }
+    .vlist .r .mods { display: flex; gap: 4px; }
+    .vlist .r .mods i { display: inline-block; padding: 0 4px; border-radius: 3px; background: #e24848; color: #fff; font-style: normal; font-weight: 700; font-size: 9px; line-height: 14px; }
+    .vlist .r .sent { color: #a9a29b; font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: 11px; text-align: right; }
+    .vlist .head { display: grid; grid-template-columns: 72px 70px 1fr 90px 50px 64px 60px; gap: 14px; height: 24px; color: #6b655f; font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; align-items: center; }
+    .vlist .head .n { text-align: right; }
+    .stage { position: absolute; left: 40px; right: 40px; top: 36px; bottom: 36px; border-radius: 12px; background: rgba(12,5,7,0.98); border: 1px solid rgba(255,255,255,0.08); box-shadow: 0 30px 80px rgba(0,0,0,0.6); overflow: hidden; }
+    .stage .vid { position: absolute; left: 0; right: 0; top: 0; height: 548px; background: #070304 url(frame.jpg) center/cover; }
+    .stage .vid.paused::before { content: ""; position: absolute; left: 50%; top: 50%; border-left: 30px solid rgba(236,231,226,0.92); border-top: 18px solid transparent; border-bottom: 18px solid transparent; transform: translate(-40%, -50%); filter: drop-shadow(0 6px 18px rgba(0,0,0,0.6)); }
+    .stage .vid.playing::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(7,3,4,0) 70%, rgba(7,3,4,0.7) 100%); }
+    .stage .tl { position: absolute; left: 24px; right: 24px; top: 522px; display: flex; align-items: center; gap: 12px; }
+    .stage .tl .tr { flex: 1; height: 3px; background: rgba(255,255,255,0.14); position: relative; border-radius: 2px; }
+    .stage .tl .tr i { position: absolute; left: 0; top: 0; bottom: 0; background: #ece7e2; border-radius: 2px; }
+    .stage .tl .tr b { position: absolute; top: -4px; width: 11px; height: 11px; border-radius: 50%; background: #ece7e2; margin-left: -5px; }
+    .stage .tl .tm { color: #ece7e2; font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: 11px; text-shadow: 0 1px 4px rgba(0,0,0,0.8); }
+    .stage .under { position: absolute; left: 24px; right: 24px; top: 570px; display: flex; align-items: center; gap: 12px; white-space: nowrap; }
+    .stage .under .who { font-weight: 700; font-size: 18px; color: #ece7e2; }
+    .stage .under .map { color: #a9a29b; font-size: 13px; flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+    .stage .under .n { color: #6b655f; font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: 11px; }
+    .stage .under .acts { position: static; margin-left: auto; flex: none; }
+    .stage .x { position: absolute; right: 18px; top: 14px; color: rgba(236,231,226,0.7); font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: 12px; text-shadow: 0 1px 4px rgba(0,0,0,0.8); }
     .cover { position: absolute; top: 14px; right: 30px; width: 320px; height: 52px; background: #0d0508; }
     .menu { position: absolute; top: 62px; right: 40px; width: 400px; border-radius: 12px; background: rgba(20,9,12,0.97); border: 1px solid rgba(255,255,255,0.08); box-shadow: 0 24px 60px rgba(0,0,0,0.55); box-sizing: border-box; padding: 16px 18px; font-size: 13px; color: #ece7e2; }
     .menu .head { display: flex; align-items: center; gap: 12px; padding-bottom: 12px; border-bottom: 1px solid rgba(255,255,255,0.06); }
@@ -168,7 +202,7 @@
     .toast .h { display: flex; align-items: center; gap: 8px; font-weight: 600; }
     .toast .h .v { color: #a9a29b; font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-weight: 700; }
     .toast .b { margin-top: 3px; color: #a9a29b; font-size: 12px; line-height: 16px; }
-  </style><div class="cover"></div><div class="top"><div class="words"><b>Реплеи</b><span>Воркер</span><span>Настройки</span><span class="login"><span class="tg"></span>Войти через Telegram</span></div></div><div class="veil"></div>
+  </style><div class="cover"></div><div class="top"><div class="words"><b>Реплеи</b><span>Воркер</span><span>Настройки</span><span class="ava none"></span></div></div><div class="veil"></div>
       <div class="card" style="left:210px; top:200px; width:560px;">
         <div class="ttl">Войти через Telegram</div>
         <div class="cap" style="padding-right:150px;">Откройте бота и нажмите Start — он получит этот код и привяжет устройство. Готовые видео будут уходить в ваш чат.</div>

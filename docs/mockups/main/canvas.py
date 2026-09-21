@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 
+import bubbles
 import built
 import centre
 import errors
@@ -50,27 +51,30 @@ for name, html in strip_boards.items():
 store_boards = store.boards()
 for name, html in store_boards.items():
     (HERE / f"{name}.dc.html").write_text(html)
+for name, html in bubbles.boards().items():
+    (HERE / f"{name}.dc.html").write_text(html)
+for old in ["TopLogin", "VideoMirror", "VideoGrid", "MenuSections", "MenuTimeline", "MenuColumns", "MenuMinimal"]:
+    path = HERE / f"{old}.dc.html"
+    if path.exists():
+        path.unlink()
 
 artboards = [a for a, _ in built_notes]
 annotations = [n for _, n in built_notes if n]
 annotations.append({"id": "built-head", "x": 0, "y": -330, "w": 900, "page": "page-built",
                     "text": "The main screen as built, 2026-09-21 — the application's own frames from native/tests/golden, the pictures every build is held to. Refresh: cargo run --release -- --gallery <dir>, approve into tests/golden, python canvas.py, seed. The live play cannot be staged, so the scene here is its blurred backdrop."})
 
-names = ["TopLogin", "TopAvatar", "TopAvatarLive", "LoginCard", "MenuAccount", "MenuStory", "MenuGuest"]
+names = ["TopGuest", "TopAvatar", "TopAvatarLive", "MenuGuest", "MenuGuestStory", "LoginCard", "MenuAccount", "MenuStory"]
 a, n = lay(names, store.NOTES, "page-account", store.RECOMMENDED, store.TO_BUILD)
 artboards += a
 annotations += n
-menus = ["MenuTimeline", "MenuSections", "MenuColumns", "MenuMinimal"]
-a, n = lay(menus, strip.NOTES, "page-account")
-for board in a:
-    board["y"] += 3 * (H + GY)
-for note in n:
-    note["y"] += 3 * (H + GY)
+
+names = ["VideoList", "VideoOpen", "VideoPlaying", "VideoSending", "VideoSent", "VideoDelete", "VideoEmpty"]
+a, n = lay(names, store.NOTES, "page-video")
 artboards += a
 annotations += n
 
-names = ["VideoMirror", "VideoPlaying", "VideoSending", "VideoSent", "VideoDelete", "VideoGrid", "VideoList", "VideoEmpty"]
-a, n = lay(names, store.NOTES, "page-video")
+names = ["BubbleNow", "BubbleCounts", "BubbleMap", "BubbleDone", "BubbleNone", "BubbleAll", "BubbleTwo"]
+a, n = lay(names, bubbles.NOTES, "page-bubble", bubbles.RECOMMENDED)
 artboards += a
 annotations += n
 
@@ -103,7 +107,8 @@ manifest = {
     "pages": [
         {"id": "page-built", "name": "Main screen · as built"},
         {"id": "page-account", "name": "Справа сверху · вход · меню"},
-        {"id": "page-video", "name": "Видео · хранилище"},
+        {"id": "page-video", "name": "Видео · список · плеер"},
+        {"id": "page-bubble", "name": "Пузырь · что в нём"},
         {"id": "page-errors", "name": "Errors · E chosen"},
         {"id": "page-strip", "name": "Полоса · отложена"},
         {"id": "page-island", "name": "Остров · отложен"},

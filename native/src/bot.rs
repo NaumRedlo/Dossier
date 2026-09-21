@@ -117,6 +117,83 @@ pub fn paired(server: &str, code: &str) -> Result<Paired, Refused> {
         .map_err(|e| Refused::Network(e.to_string()))
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+pub struct Me {
+    pub telegram_id: i64,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub username: String,
+    #[serde(default)]
+    pub avatar: bool,
+}
+
+pub fn me(server: &str, token: &str, name: &str) -> Result<Me, Refused> {
+    let response = client()?
+        .get(format!("{server}/render/me"))
+        .header("X-Render-Worker", name)
+        .bearer_auth(token)
+        .send()
+        .map_err(|e| Refused::Network(e.to_string()))?;
+    status(response)?.json::<Me>().map_err(|e| Refused::Network(e.to_string()))
+}
+
+pub fn avatar(server: &str, token: &str, name: &str) -> Result<Vec<u8>, Refused> {
+    let response = client()?
+        .get(format!("{server}/render/me/avatar"))
+        .header("X-Render-Worker", name)
+        .bearer_auth(token)
+        .send()
+        .map_err(|e| Refused::Network(e.to_string()))?;
+    status(response)?.bytes().map(|b| b.to_vec()).map_err(|e| Refused::Network(e.to_string()))
+}
+
+struct Counted<R> {
+    inner: R,
+    done: u64,
+    tell: Box<dyn FnMut(u64) + Send>,
+}
+
+impl<R: std::io::Read> std::io::Read for Counted<R> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let n = self.inner.read(buf)?;
+        self.done += n as u64;
+        (self.tell)(self.done);
+        Ok(n)
+    }
+}
+
+pub fn send(
+    server: &str,
+    token: &str,
+    name: &str,
+    file: &std::path::Path,
+    meta: &serde_json::Value,
+    tell: impl FnMut(u64) + Send + 'static,
+) -> Result<i64, Refused> {
+    let opened = std::fs::File::open(file).map_err(|e| Refused::Network(e.to_string()))?;
+    let size = opened.metadata().map(|m| m.len()).unwrap_or(0);
+    let body = reqwest::blocking::Body::sized(Counted { inner: opened, done: 0, tell: Box::new(tell) }, size);
+    let response = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(1800))
+        .user_agent(ENGINE)
+        .build()
+        .map_err(|e| Refused::Network(e.to_string()))?
+        .post(format!("{server}/render/send"))
+        .header("X-Render-Worker", name)
+        .header("X-Render-Meta", meta.to_string())
+        .header("Content-Type", "video/mp4")
+        .bearer_auth(token)
+        .body(body)
+        .send()
+        .map_err(|e| Refused::Network(e.to_string()))?;
+    if response.status().as_u16() == 413 {
+        return Err(Refused::Said("too large".to_owned()));
+    }
+    let answer: serde_json::Value = status(response)?.json().map_err(|e| Refused::Network(e.to_string()))?;
+    Ok(answer.get("message_id").and_then(|m| m.as_i64()).unwrap_or(0))
+}
+
 pub fn pretty(code: &str) -> String {
     let clean: String = code.chars().filter(|c| c.is_ascii_alphanumeric()).collect();
     if clean.len() == 8 {

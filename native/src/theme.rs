@@ -401,6 +401,33 @@ pub fn row(chosen: bool) -> impl Fn(&Theme, button::Status) -> button::Style {
     }
 }
 
+pub fn bare(_: &Theme, _: button::Status) -> button::Style {
+    button::Style {
+        background: None,
+        text_color: INK,
+        border: border(Color::TRANSPARENT, 14.0),
+        shadow: Shadow::default(),
+        snap: true,
+    }
+}
+
+pub fn tab(on: bool) -> impl Fn(&Theme, button::Status) -> button::Style {
+    move |_, status| {
+        let colour = match (on, status) {
+            (true, _) => INK,
+            (false, button::Status::Hovered) => MUTED,
+            _ => FAINT,
+        };
+        button::Style {
+            background: None,
+            text_color: colour,
+            border: border(Color::TRANSPARENT, 0.0),
+            shadow: Shadow::default(),
+            snap: true,
+        }
+    }
+}
+
 pub fn stage(_: &Theme) -> container::Style {
     container::Style {
         text_color: None,

@@ -470,8 +470,51 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
         231_000,
         67_000,
     ))));
+    let mut menu_guest = staged(Some(0));
+    menu_guest.menu = Some(crate::main_screen::Tab::Account);
+    let mut menu_feed = staged(Some(0));
+    menu_feed.now_unix = NOON;
+    menu_feed.settings.token = "staged".to_owned();
+    menu_feed.settings.linked_as = "Naum Redlo".to_owned();
+    menu_feed.account = Some(crate::bot::Me { telegram_id: 7, name: "Naum Redlo".into(), username: "naumredlo".into(), avatar: false });
+    menu_feed.menu = Some(crate::main_screen::Tab::Feed);
+    menu_feed.rendering = Some(crate::main_screen::Rendering {
+        path: library.entries[0].path.clone(),
+        reached: vec![crate::render::Step::Judged, crate::render::Step::Drawing { frames: 8_400, of: 13_860, left_seconds: 18.0 }],
+        out: None,
+    });
+    menu_feed.progress_shown = menu_feed.progress_target().unwrap_or(0.0);
+    for (mark, words, detail, link) in [
+        (crate::notices::Mark::Bad, "Рендер не завершился", "NaumRedlo — Daisuke · ffmpeg завершился с кодом 1", crate::notices::Link::RenderAgain(library.entries[1].path.clone())),
+        (crate::notices::Mark::Done, "Карта скачана", "xi — Blue Zenith", crate::notices::Link::None),
+        (crate::notices::Mark::Done, "Ушло в Telegram", "@naumredlo · xi — FREEDOM DiVE [Extra] · 97,7 МБ", crate::notices::Link::None),
+        (crate::notices::Mark::Plain, "Открыто", "сборка 0.12.0", crate::notices::Link::None),
+    ]
+    .into_iter()
+    .rev()
+    {
+        menu_feed.notices.push(mark, words.to_owned(), detail.to_owned(), link);
+    }
+    for (i, notice) in menu_feed.notices.notices.iter_mut().enumerate() {
+        notice.at = NOON - 60 * (i as i64 + 1) * 17;
+    }
+    let mut menu_account = menu_feed.clone();
+    menu_account.menu = Some(crate::main_screen::Tab::Account);
+    menu_account.rendering = None;
+    let mut menu_stats = menu_account.clone();
+    menu_stats.menu = Some(crate::main_screen::Tab::Stats);
+    menu_stats.store.videos = with_videos.store.videos.clone();
+    menu_stats.store.videos[1].sent_at = Some(NOON);
+    let mut signing = staged(Some(0));
+    signing.pairing = crate::main_screen::Pairing::Waiting { code: "K7QN-M4XZ".into(), link: "https://t.me/bot?start=pair-K7QNM4XZ".into() };
+    signing.qr = crate::first_run::qr_for("https://t.me/bot?start=pair-K7QNM4XZ");
     vec![
         ("main-rest".to_owned(), staged(Some(0))),
+        ("main-menu-guest".to_owned(), menu_guest),
+        ("main-menu-account".to_owned(), menu_account),
+        ("main-menu-feed".to_owned(), menu_feed),
+        ("main-menu-stats".to_owned(), menu_stats),
+        ("main-signing".to_owned(), signing),
         ("main-videos".to_owned(), with_videos),
         ("main-player".to_owned(), playing),
         ("main-nomap".to_owned(), staged(Some(3))),

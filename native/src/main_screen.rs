@@ -10,6 +10,7 @@ use iced::{window, Animation, Color, ContentFit, Element, Length, Padding, Point
 
 use crate::lang::{typed, Words};
 use crate::library::{self, Entry, Grade, Library};
+use crate::bot::{self, Paired, Refused};
 use crate::{notices, player, videos};
 use crate::live;
 use crate::maps;
@@ -53,6 +54,23 @@ pub enum Message {
     Key(iced::keyboard::key::Named),
     Adopted(Vec<videos::Video>),
     ToastLink(u64),
+    Circle,
+    MenuTab(Tab),
+    MenuClose,
+    SeenAll,
+    SignIn,
+    PairAsked(Result<(String, String), Refused>),
+    Poll,
+    Polled(Result<Paired, Refused>),
+    OpenTelegram,
+    CopyLink,
+    LaterSignIn,
+    SignOut,
+    Known(Result<bot::Me, Refused>),
+    Avatar(Option<image::Handle>),
+    SendVideo,
+    Sending(u64),
+    Sent(Result<i64, String>),
     ToastHover(u64, bool),
     ToastClose(u64),
     OpenVideo(usize),
@@ -102,6 +120,29 @@ pub struct Shown {
     pub meta: String,
     pub accuracy: String,
     pub outcome: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Tab {
+    Account,
+    Feed,
+    Stats,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Pairing {
+    Idle,
+    Asking,
+    Waiting { code: String, link: String },
+    Unavailable,
+}
+
+#[derive(Debug, Clone)]
+pub struct Sending {
+    pub path: PathBuf,
+    pub done: u64,
+    pub total: u64,
+    pub over: Option<Result<i64, String>>,
 }
 
 #[derive(Debug, Clone)]
@@ -199,6 +240,12 @@ pub struct Main {
     pub asking_delete: bool,
     pub notices: notices::Queue,
     pub toasts: Vec<Toast>,
+    pub account: Option<bot::Me>,
+    pub avatar: Option<image::Handle>,
+    pub menu: Option<Tab>,
+    pub pairing: Pairing,
+    pub qr: Option<ui::Qr>,
+    pub sending: Option<Sending>,
     pub overlay: Overlay,
     pub rendering: Option<Rendering>,
     pub fetching: Option<Fetching>,
@@ -252,6 +299,12 @@ impl Main {
             asking_delete: false,
             notices: notices::Queue::load(),
             toasts: Vec::new(),
+            account: None,
+            avatar: None,
+            menu: None,
+            pairing: Pairing::Idle,
+            qr: None,
+            sending: None,
             overlay: Overlay::None,
             rendering: None,
             fetching: None,
@@ -280,7 +333,27 @@ impl Main {
             (Some(ffmpeg), false) => ui::in_thread(move || Message::Adopted(strays.iter().filter_map(|p| videos::adopt(&ffmpeg, p)).collect())),
             _ => Task::none(),
         };
-        (made, Task::batch([ui::in_thread(move || library::read(&sources)).map(Message::Loaded), adopt]))
+        let who = made.ask_who();
+        (made, Task::batch([ui::in_thread(move || library::read(&sources)).map(Message::Loaded), adopt, who]))
+    }
+
+    fn ask_who(&self) -> Task<Message> {
+        if self.settings.token.is_empty() {
+            return Task::none();
+        }
+        let (server, token, name) = (self.settings.server.clone(), self.settings.token.clone(), self.settings.device.clone());
+        ui::in_thread(move || Message::Known(bot::me(&server, &token, &name)))
+    }
+
+    pub fn signed_in(&self) -> bool {
+        !self.settings.token.is_empty()
+    }
+
+    pub fn busy(&self) -> bool {
+        self.rendering.as_ref().is_some_and(|r| !r.is_over())
+            || self.fetching.as_ref().is_some_and(|f| !f.is_over())
+            || matches!(self.looking, Some(scan::Step::Looking { .. }))
+            || self.sending.as_ref().is_some_and(|s| s.over.is_none())
     }
 
     pub fn staged(words: Words, settings: Settings, library: Library, chosen: Option<usize>) -> Main {
@@ -307,6 +380,7 @@ impl Main {
             || self.lifts.values().any(|l| l.is_animating(self.now))
             || self.player.as_ref().is_some_and(|p| !p.borrow().paused)
             || !self.toasts.is_empty()
+            || self.sending.as_ref().is_some_and(|s| s.over.is_none())
     }
 
     pub fn subscription(&self) -> Subscription<Message> {
@@ -339,6 +413,9 @@ impl Main {
         })];
         if self.moving() {
             parts.push(window::frames().map(Message::Tick));
+        }
+        if matches!(self.pairing, Pairing::Waiting { .. }) {
+            parts.push(iced::time::every(Duration::from_secs(3)).map(|_| Message::Poll));
         }
         Subscription::batch(parts)
     }
@@ -533,12 +610,192 @@ impl Main {
                 }
             }
             Message::Escape => {
-                if self.asking_delete {
+                if matches!(self.pairing, Pairing::Asking | Pairing::Waiting { .. } | Pairing::Unavailable) {
+                    self.pairing = Pairing::Idle;
+                } else if self.menu.is_some() {
+                    self.menu = None;
+                } else if self.asking_delete {
                     self.asking_delete = false;
                 } else if self.player.is_some() {
                     return self.update(Message::ClosePlayer);
                 } else {
                     self.overlay = Overlay::None;
+                }
+                Task::none()
+            }
+            Message::Circle => {
+                self.menu = match self.menu {
+                    Some(_) => None,
+                    None => Some(Tab::Account),
+                };
+                Task::none()
+            }
+            Message::MenuTab(tab) => {
+                self.menu = Some(tab);
+                Task::none()
+            }
+            Message::MenuClose => {
+                self.menu = None;
+                Task::none()
+            }
+            Message::SeenAll => {
+                self.notices.see_all();
+                Task::none()
+            }
+            Message::SignIn => {
+                self.menu = None;
+                if self.signed_in() || matches!(self.pairing, Pairing::Waiting { .. }) {
+                    return Task::none();
+                }
+                self.pairing = Pairing::Asking;
+                let server = self.settings.server.clone();
+                let name = self.settings.device.clone();
+                ui::in_thread(move || Message::PairAsked(bot::pair(&server, &name).map(|p| (p.code, p.link))))
+            }
+            Message::PairAsked(Ok((code, link))) => {
+                let link = if link.is_empty() {
+                    format!("https://t.me/OneNineEightFourGlobalBot?start=pair-{}", bot::tidy(&code))
+                } else {
+                    link
+                };
+                self.qr = crate::first_run::qr_for(&link);
+                self.pairing = Pairing::Waiting { code: bot::pretty(&code), link };
+                Task::none()
+            }
+            Message::PairAsked(Err(_)) => {
+                self.pairing = Pairing::Unavailable;
+                Task::none()
+            }
+            Message::Poll => match &self.pairing {
+                Pairing::Waiting { code, .. } => {
+                    let server = self.settings.server.clone();
+                    let code = bot::tidy(code);
+                    ui::in_thread(move || Message::Polled(bot::paired(&server, &code)))
+                }
+                _ => Task::none(),
+            },
+            Message::Polled(Ok(Paired::Linked { token, who })) => {
+                self.settings.token = token;
+                self.settings.linked_as = who;
+                let _ = self.settings.save();
+                self.pairing = Pairing::Idle;
+                self.ask_who()
+            }
+            Message::Polled(Ok(Paired::Gone)) | Message::Polled(Err(Refused::NotThere)) => {
+                self.pairing = Pairing::Idle;
+                self.update(Message::SignIn)
+            }
+            Message::Polled(_) => Task::none(),
+            Message::OpenTelegram => {
+                if let Pairing::Waiting { link, .. } = &self.pairing {
+                    let _ = open::that_detached(link);
+                }
+                Task::none()
+            }
+            Message::CopyLink => match &self.pairing {
+                Pairing::Waiting { link, .. } => iced::clipboard::write(link.clone()),
+                _ => Task::none(),
+            },
+            Message::LaterSignIn => {
+                self.pairing = Pairing::Idle;
+                Task::none()
+            }
+            Message::SignOut => {
+                self.settings.token.clear();
+                self.settings.linked_as.clear();
+                let _ = self.settings.save();
+                self.account = None;
+                self.avatar = None;
+                self.menu = None;
+                Task::none()
+            }
+            Message::Known(Ok(me)) => {
+                let wants_avatar = me.avatar;
+                self.account = Some(me);
+                if !wants_avatar {
+                    return Task::none();
+                }
+                let (server, token, name) = (self.settings.server.clone(), self.settings.token.clone(), self.settings.device.clone());
+                ui::in_thread(move || {
+                    let bytes = bot::avatar(&server, &token, &name).ok();
+                    Message::Avatar(bytes.and_then(|b| decoded_bytes(&b, AVATAR_SIDE)))
+                })
+            }
+            Message::Known(Err(_)) => Task::none(),
+            Message::Avatar(handle) => {
+                self.avatar = handle;
+                Task::none()
+            }
+            Message::SendVideo => {
+                if !self.signed_in() {
+                    return self.update(Message::SignIn);
+                }
+                if self.sending.as_ref().is_some_and(|s| s.over.is_none()) {
+                    return Task::none();
+                }
+                let Some(video) = self.open_video.and_then(|at| self.store.videos.get(at).cloned()) else {
+                    return Task::none();
+                };
+                self.sending = Some(Sending { path: video.path.clone(), done: 0, total: video.size.max(1), over: None });
+                let (server, token, name) = (self.settings.server.clone(), self.settings.token.clone(), self.settings.device.clone());
+                let meta = serde_json::json!({
+                    "caption": format!("{} — {}", video.player, video.map_line()),
+                    "name": video.path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default(),
+                    "width": video.width,
+                    "height": video.height,
+                    "duration": (video.length_ms / 1000).max(0),
+                });
+                let path = video.path.clone();
+                ui::streamed(move |push| {
+                    let (tx, rx) = std::sync::mpsc::channel::<u64>();
+                    let worker = std::thread::spawn(move || bot::send(&server, &token, &name, &path, &meta, move |done| {
+                        let _ = tx.send(done);
+                    }));
+                    let mut last = Instant::now();
+                    for done in rx {
+                        if last.elapsed() > Duration::from_millis(80) {
+                            last = Instant::now();
+                            if !push(Message::Sending(done)) {
+                                return;
+                            }
+                        }
+                    }
+                    let outcome = match worker.join() {
+                        Ok(Ok(id)) => Ok(id),
+                        Ok(Err(e)) => Err(e.to_string()),
+                        Err(_) => Err("sending stopped".to_owned()),
+                    };
+                    push(Message::Sent(outcome));
+                })
+            }
+            Message::Sending(done) => {
+                if let Some(sending) = &mut self.sending {
+                    sending.done = done;
+                }
+                Task::none()
+            }
+            Message::Sent(outcome) => {
+                let Some(sending) = &mut self.sending else {
+                    return Task::none();
+                };
+                let path = sending.path.clone();
+                sending.over = Some(outcome.clone());
+                let video = self.store.videos.iter().find(|v| v.path == path).cloned();
+                let who = self.account.as_ref().map(|a| format!("@{}", a.username)).filter(|u| u.len() > 1).unwrap_or_else(|| self.settings.linked_as.clone());
+                match (outcome, video) {
+                    (Ok(_), Some(video)) => {
+                        self.store.mark_sent(&path, unix_now());
+                        let detail = format!("{} · {} · {}", who, video.map_line(), self.words.mb(video.size));
+                        self.announce(notices::Mark::Done, self.words.t("sent-notice"), detail, notices::Link::None);
+                    }
+                    (Err(why), video) => {
+                        let detail = match video {
+                            Some(video) => format!("{} · {}", video.map_line(), why),
+                            None => why,
+                        };
+                        self.announce(notices::Mark::Bad, self.words.t("send-failed"), detail, notices::Link::None);
+                    }
+                    _ => {}
                 }
                 Task::none()
             }
@@ -1099,7 +1356,9 @@ impl Main {
         let overlay: Element<'_, Message> = if self.overlay != Overlay::None { self.overlay_view() } else { blank() };
         let bubble = self.bubble_layer();
         let toasts = self.toast_layer();
-        let layers = stack![scene_before, scene, live_before, live, body, bubble, crest, overlay, toasts];
+        let menu = self.menu_layer();
+        let signing = self.sign_in_layer();
+        let layers = stack![scene_before, scene, live_before, live, body, bubble, crest, overlay, menu, signing, toasts];
         layers.width(Length::Fill).height(Length::Fill).into()
     }
 
@@ -1130,8 +1389,10 @@ impl Main {
             word("videos", self.overlay == Overlay::Videos, Message::Show(Overlay::Videos)),
             word("worker", self.overlay == Overlay::Worker, Message::Show(Overlay::Worker)),
             word("settings", self.overlay == Overlay::Settings, Message::Show(Overlay::Settings)),
+            self.circle(CIRCLE_SIDE, true),
         ]
-        .spacing(22);
+        .spacing(22)
+        .align_y(iced::Center);
         container(
             row![Space::new().width(BRAND_WIDTH), ui::grow(), words]
                 .align_y(iced::Center)
@@ -1262,6 +1523,9 @@ impl Main {
     }
 
     pub fn progress_target(&self) -> Option<f32> {
+        if let Some(sending) = self.sending.as_ref().filter(|s| s.over.is_none()) {
+            return Some(0.02 + 0.96 * (sending.done as f32 / sending.total.max(1) as f32).clamp(0.0, 1.0));
+        }
         if let Some(rendering) = self.rendering.as_ref().filter(|r| !r.is_over()) {
             return Some(match rendering.last() {
                 None | Some(Step::ReplayRead) => 0.03,
@@ -1698,8 +1962,13 @@ impl Main {
             ]
             .spacing(1)
         });
+        let sending_this = self.sending.as_ref().filter(|s| s.path == video.path);
+        let telegram: Element<'_, Message> = match sending_this {
+            Some(sending) if sending.over.is_none() => ui::progress(w.t("sending"), self.progress_shown, None),
+            _ => ui::primary(w.t("to-telegram"), Some(Message::SendVideo)),
+        };
         let buttons = ui::fading(ui::fade() * dim, || {
-            row![ui::quiet(w.t("in-folder"), Some(Message::RevealVideo)), ui::quiet(w.t("delete"), Some(Message::AskDelete))]
+            row![telegram, ui::quiet(w.t("in-folder"), Some(Message::RevealVideo)), ui::quiet(w.t("delete"), Some(Message::AskDelete))]
                 .spacing(4)
                 .align_y(iced::Center)
         });
@@ -1750,6 +2019,264 @@ impl Main {
 }
 
 const VIDEO_THUMB: (u32, u32) = (64, 36);
+const CIRCLE_SIDE: f32 = 28.0;
+const AVATAR_SIDE: u32 = 80;
+const MENU_W: f32 = 400.0;
+const MENU_TOP: f32 = 62.0;
+
+impl Main {
+    fn circle(&self, side: f32, pressable: bool) -> Element<'_, Message> {
+        let ring = if pressable && self.busy() { 1.0 } else { 0.0 };
+        let face: Element<'_, Message> = match (&self.avatar, self.signed_in()) {
+            (Some(handle), _) => image(handle.clone()).content_fit(ContentFit::Cover).width(side).height(side).border_radius(side / 2.0).opacity(ui::fade()).into(),
+            (None, true) => {
+                let letter = self
+                    .account
+                    .as_ref()
+                    .map(|a| a.name.clone())
+                    .filter(|n| !n.is_empty())
+                    .unwrap_or_else(|| self.settings.linked_as.clone())
+                    .chars()
+                    .next()
+                    .map(|c| c.to_uppercase().to_string())
+                    .unwrap_or_default();
+                iced::widget::canvas(ui::Disc { letter, hatched: false }).width(side).height(side).into()
+            }
+            (None, false) => iced::widget::canvas(ui::Disc { letter: String::new(), hatched: true }).width(side).height(side).into(),
+        };
+        let layered = stack![face, iced::widget::canvas(ui::Ring { alpha: ring }).width(side).height(side)].width(side).height(side);
+        if pressable {
+            button(layered).padding(0).style(theme::bare).on_press(Message::Circle).into()
+        } else {
+            layered.into()
+        }
+    }
+
+    fn menu_layer(&self) -> Element<'_, Message> {
+        let Some(tab) = self.menu else {
+            return Space::new().width(Length::Fill).height(Length::Fill).into();
+        };
+        let w = &self.words;
+        let name = self.account.as_ref().map(|a| a.name.clone()).filter(|n| !n.is_empty()).unwrap_or_else(|| self.settings.linked_as.clone());
+        let handle = self.account.as_ref().map(|a| a.username.clone()).filter(|u| !u.is_empty()).map(|u| format!("@{u}"));
+        let (title, under) = if self.signed_in() {
+            (if name.is_empty() { w.t("signed-in") } else { name }, handle.unwrap_or_else(|| w.t("linked")))
+        } else {
+            (w.t("not-signed-in"), w.t("stays-here"))
+        };
+        let head = row![
+            self.circle(40.0, false),
+            column![
+                text(title).font(theme::SANS_SEMI).size(15.0).wrapping(text::Wrapping::None).color(ui::faded(INK)),
+                ui::mono_small(under, FAINT),
+            ]
+            .spacing(2),
+        ]
+        .spacing(12)
+        .align_y(iced::Center);
+        let tab_word = |key: &str, this: Tab| {
+            let on = tab == this;
+            let bar = container(Space::new().height(2.0)).width(Length::Fill).style(move |_| container::Style {
+                background: Some(iced::Background::Color(ui::faded(if on { ACCENT } else { Color::TRANSPARENT }))),
+                ..container::Style::default()
+            });
+            button(column![text(w.t(key)).font(theme::SANS_SEMI).size(theme::CAPTION), bar].spacing(5).width(Length::Shrink))
+                .padding(0)
+                .style(theme::tab(on))
+                .on_press(Message::MenuTab(this))
+        };
+        let tabs = row![tab_word("account", Tab::Account), tab_word("feed", Tab::Feed), tab_word("stats", Tab::Stats)].spacing(18);
+        let body = match tab {
+            Tab::Account => self.account_tab(),
+            Tab::Feed => self.feed_tab(),
+            Tab::Stats => self.stats_tab(),
+        };
+        let inside = column![
+            head,
+            container(Space::new().height(1.0)).width(Length::Fill).style(theme::rule),
+            tabs,
+            body,
+        ]
+        .spacing(12)
+        .width(Length::Fill);
+        let card = container(inside).padding([16, 18]).width(MENU_W).style(theme::bubble);
+        let x = (self.width - 40.0 - MENU_W).max(16.0);
+        stack![
+            mouse_area(Space::new().width(Length::Fill).height(Length::Fill)).on_press(Message::MenuClose),
+            pin(card).x(x).y(MENU_TOP),
+        ]
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .into()
+    }
+
+    fn kv(&self, key: String, value: String) -> Element<'_, Message> {
+        row![text(key).font(theme::SANS).size(theme::CAPTION).color(ui::faded(MUTED)), ui::grow(), ui::mono_small(value, INK)]
+            .spacing(12)
+            .align_y(iced::Center)
+            .height(26.0)
+            .into()
+    }
+
+    fn foot<'a>(&'a self, left: Element<'a, Message>, right: Element<'a, Message>) -> Element<'a, Message> {
+        column![
+            container(Space::new().height(1.0)).width(Length::Fill).style(theme::rule),
+            row![left, ui::grow(), right].spacing(12).align_y(iced::Center),
+        ]
+        .spacing(10)
+        .into()
+    }
+
+    fn account_tab(&self) -> Element<'_, Message> {
+        let w = &self.words;
+        if !self.signed_in() {
+            return column![
+                text(w.t("why-sign-in")).font(theme::SANS).size(theme::CAPTION).color(ui::faded(MUTED)),
+                container(ui::primary(w.t("sign-in"), Some(Message::SignIn))).padding(Padding::ZERO.top(4.0)),
+                self.foot(ui::faint(format!("{} {}", w.t("build"), bot::BUILD)), ui::faint(w.t("esc-close"))),
+            ]
+            .spacing(10)
+            .into();
+        }
+        let chat = self.account.as_ref().map(|a| a.username.clone()).filter(|u| !u.is_empty()).map(|u| format!("@{u}")).unwrap_or_else(|| self.settings.linked_as.clone());
+        column![
+            self.kv(w.t("videos-go-to"), chat),
+            self.kv(w.t("worker"), w.t("coming-later")),
+            self.kv(w.t("build"), bot::BUILD.to_owned()),
+            self.foot(ui::faint(w.t("esc-close")), ui::link(w.t("sign-out"), Message::SignOut)),
+        ]
+        .spacing(2)
+        .into()
+    }
+
+    fn feed_tab(&self) -> Element<'_, Message> {
+        let w = &self.words;
+        let mut rows = column![].spacing(0).width(Length::Fill);
+        let job = |words: String, detail: String, fraction: f32| -> Element<'_, Message> {
+            column![
+                row![
+                    ui::mono_small(w.clock(self.now_unix), FAINT),
+                    iced::widget::canvas(ui::Dot).width(8.0).height(8.0),
+                    text(words).font(theme::SANS_SEMI).size(theme::CAPTION).color(ui::faded(INK)),
+                    text(format!("· {detail}")).font(theme::SANS).size(theme::CAPTION).wrapping(text::Wrapping::None).color(ui::faded(FAINT)),
+                ]
+                .spacing(8)
+                .align_y(iced::Center)
+                .height(24.0),
+                iced::widget::canvas(ui::Thread { fraction }).width(Length::Fill).height(2.0),
+            ]
+            .spacing(2)
+            .into()
+        };
+        if let Some(rendering) = self.rendering.as_ref().filter(|r| !r.is_over()) {
+            let who = self.entries().iter().find(|e| e.path == rendering.path).map(|e| e.title().unwrap_or_default()).unwrap_or_default();
+            rows = rows.push(job(w.t("drawing"), who, self.progress_shown));
+        }
+        if let Some(fetching) = self.fetching.as_ref().filter(|f| !f.is_over()) {
+            let title = self.entries().iter().find(|e| e.map_hash == fetching.hash).map(|e| e.title().unwrap_or_default()).unwrap_or_default();
+            rows = rows.push(job(w.t("fetch-downloading"), title, self.progress_shown));
+        }
+        if let Some(sending) = self.sending.as_ref().filter(|s| s.over.is_none()) {
+            let title = self.store.videos.iter().find(|v| v.path == sending.path).map(|v| v.map_line()).unwrap_or_default();
+            rows = rows.push(job(w.t("sending"), title, self.progress_shown));
+        }
+        for notice in self.notices.notices.iter().take(8) {
+            let (glyph, colour) = match notice.mark {
+                notices::Mark::Done => ("✓", MUTED),
+                notices::Mark::Bad => ("✕", ACCENT),
+                notices::Mark::Plain => ("·", FAINT),
+            };
+            let mut line = row![
+                ui::mono_small(w.clock(notice.at), FAINT),
+                text(glyph).font(theme::MONO_BOLD).size(11.0).color(ui::faded(colour)),
+                text(notice.words.clone()).font(theme::SANS).size(theme::CAPTION).wrapping(text::Wrapping::None).color(ui::faded(if notice.mark == notices::Mark::Bad { ACCENT } else { MUTED })),
+            ]
+            .spacing(8)
+            .align_y(iced::Center)
+            .height(24.0);
+            let detail = text(format!("· {}", notice.detail)).font(theme::SANS).size(theme::CAPTION).wrapping(text::Wrapping::None).color(ui::faded(FAINT));
+            line = line.push(container(detail).width(Length::Fill).clip(true));
+            if matches!(notice.link, notices::Link::RenderAgain(_) | notices::Link::OpenVideo(_)) {
+                let words = if matches!(notice.link, notices::Link::OpenVideo(_)) { w.t("open") } else { w.t("once-more") };
+                line = line.push(ui::link(words, Message::ToastLink(notice.id)));
+            }
+            rows = rows.push(line.width(Length::Fill));
+        }
+        if self.notices.notices.is_empty() && !self.busy() {
+            rows = rows.push(container(ui::cap(w.t("nothing-yet"))).height(24.0));
+        }
+        column![rows, self.foot(ui::faint(w.t("esc-close")), ui::link(w.t("all-read"), Message::SeenAll))].spacing(10).into()
+    }
+
+    fn stats_tab(&self) -> Element<'_, Message> {
+        let w = &self.words;
+        let sent = self.store.videos.iter().filter(|v| v.sent_at.is_some()).count();
+        let sent_size: u64 = self.store.videos.iter().filter(|v| v.sent_at.is_some()).map(|v| v.size).sum();
+        let heading = |key: &str| container(ui::mono_small(w.t(key).to_uppercase(), FAINT)).padding(Padding::ZERO.top(6.0));
+        column![
+            heading("as-worker"),
+            self.kv(w.t("jobs-done"), w.t("coming-later")),
+            heading("on-this-device"),
+            self.kv(w.t("replays-in-journal"), self.entries().len().to_string()),
+            self.kv(w.t("rendered-count"), format!("{} · {}", self.store.videos.len(), w.mb(self.store.total_size()))),
+            self.kv(w.t("sent-count"), format!("{} · {}", sent, w.mb(sent_size))),
+            self.foot(ui::faint(w.t("esc-close")), Space::new().into()),
+        ]
+        .spacing(2)
+        .into()
+    }
+
+    fn sign_in_layer(&self) -> Element<'_, Message> {
+        if matches!(self.pairing, Pairing::Idle) {
+            return Space::new().width(Length::Fill).height(Length::Fill).into();
+        }
+        let w = &self.words;
+        let mut left = column![ui::title(w.t("sign-in")), ui::why(w.t("sign-in-how"))].spacing(6).width(Length::Fill);
+        match &self.pairing {
+            Pairing::Waiting { code, .. } => {
+                left = left.push(container(text(code.clone()).font(theme::MONO_BOLD).size(26.0).color(ui::faded(INK))).padding(Padding::ZERO.top(12.0)));
+                left = left.push(ui::cap(w.t("code-lasts")));
+                left = left.push(container(row![iced::widget::canvas(ui::Dot).width(8.0).height(8.0), ui::mono_small(w.t("waiting-confirm"), MUTED)].spacing(8).align_y(iced::Center)).padding(Padding::ZERO.top(10.0)));
+            }
+            Pairing::Unavailable => {
+                left = left.push(container(ui::cap(w.t("no-pairing-yet"))).padding(Padding::ZERO.top(12.0)));
+            }
+            _ => {
+                left = left.push(container(ui::mono_small(w.t("asking-bot"), MUTED)).padding(Padding::ZERO.top(12.0)));
+            }
+        }
+        let mut sides = row![left].spacing(24).align_y(iced::Top);
+        if let (Some(qr), Pairing::Waiting { .. }) = (&self.qr, &self.pairing) {
+            sides = sides.push(ui::qr(qr));
+        }
+        let waiting = matches!(self.pairing, Pairing::Waiting { .. });
+        let bottom = row![
+            ui::primary(w.t("open-telegram"), waiting.then_some(Message::OpenTelegram)),
+            ui::quiet(w.t("copy-link"), waiting.then_some(Message::CopyLink)),
+            ui::grow(),
+            ui::quiet(w.t("later-word"), Some(Message::LaterSignIn)),
+        ]
+        .spacing(4)
+        .align_y(iced::Center);
+        let card = ui::card(sides.into(), Some(bottom.into()));
+        stack![
+            mouse_area(ui::veil(theme::SCRIM)).on_press(Message::LaterSignIn),
+            container(container(card).width(theme::COLUMN).padding(Padding::ZERO.top(180.0)))
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .center_x(Length::Fill),
+        ]
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .into()
+    }
+}
+
+pub fn decoded_bytes(bytes: &[u8], side: u32) -> Option<image::Handle> {
+    let picture = ::image::load_from_memory(bytes).ok()?;
+    let picture = picture.resize_to_fill(side, side, ::image::imageops::FilterType::Lanczos3).to_rgba8();
+    Some(image::Handle::from_rgba(side, side, picture.into_raw()))
+}
 const TOAST_W: f32 = 360.0;
 const TOAST_H: f32 = 58.0;
 const TOAST_TOP: f32 = 66.0;

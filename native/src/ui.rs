@@ -1456,3 +1456,118 @@ impl<Message> canvas::Program<Message> for Seek<'_, Message> {
         }
     }
 }
+
+pub struct Disc {
+    pub letter: String,
+    pub hatched: bool,
+}
+
+impl<Message> canvas::Program<Message> for Disc {
+    type State = ();
+
+    fn draw(&self, _: &(), renderer: &Renderer, _: &Theme, bounds: Rectangle, _: mouse::Cursor) -> Vec<Geometry> {
+        let mut frame = Frame::new(renderer, bounds.size());
+        let side = bounds.width.min(bounds.height);
+        let centre = Point::new(bounds.width / 2.0, bounds.height / 2.0);
+        let disc = Path::circle(centre, side / 2.0);
+        if self.hatched {
+            frame.fill(&disc, faded(Color::from_rgba(0.08, 0.035, 0.047, 0.9)));
+            for step in 0..((side * 3.0 / 5.0) as i32) {
+                let x = -side + step as f32 * 5.0;
+                let a = Point::new(x, side);
+                let b = Point::new(x + side, 0.0);
+                if let Some((p, q)) = clip_to_circle(a, b, centre, side / 2.0 - 1.0) {
+                    frame.stroke(&Path::line(p, q), Stroke::default().with_width(1.5).with_color(faded(Color { a: 0.55, ..MUTED })));
+                }
+            }
+            frame.stroke(&disc, Stroke::default().with_width(1.0).with_color(faded(Color::from_rgba(1.0, 1.0, 1.0, 0.1))));
+        } else {
+            frame.fill(&disc, faded(Color::from_rgb(0.23, 0.063, 0.082)));
+            frame.fill(&Path::circle(Point::new(centre.x + side * 0.12, centre.y + side * 0.12), side * 0.36), faded(Color { a: 0.55, ..ACCENT }));
+            if !self.letter.is_empty() {
+                frame.fill_text(canvas::Text {
+                    content: self.letter.clone(),
+                    position: centre,
+                    color: faded(INK),
+                    size: (side * 0.5).into(),
+                    font: theme::SANS_SEMI,
+                    align_x: iced::alignment::Horizontal::Center.into(),
+                    align_y: iced::alignment::Vertical::Center,
+                    ..canvas::Text::default()
+                });
+            }
+        }
+        vec![frame.into_geometry()]
+    }
+}
+
+fn clip_to_circle(a: Point, b: Point, centre: Point, radius: f32) -> Option<(Point, Point)> {
+    let d = Point::new(b.x - a.x, b.y - a.y);
+    let f = Point::new(a.x - centre.x, a.y - centre.y);
+    let qa = d.x * d.x + d.y * d.y;
+    let qb = 2.0 * (f.x * d.x + f.y * d.y);
+    let qc = f.x * f.x + f.y * f.y - radius * radius;
+    let disc = qb * qb - 4.0 * qa * qc;
+    if disc <= 0.0 || qa == 0.0 {
+        return None;
+    }
+    let root = disc.sqrt();
+    let t0 = ((-qb - root) / (2.0 * qa)).max(0.0);
+    let t1 = ((-qb + root) / (2.0 * qa)).min(1.0);
+    if t1 <= t0 {
+        return None;
+    }
+    Some((Point::new(a.x + d.x * t0, a.y + d.y * t0), Point::new(a.x + d.x * t1, a.y + d.y * t1)))
+}
+
+pub struct Ring {
+    pub alpha: f32,
+}
+
+impl<Message> canvas::Program<Message> for Ring {
+    type State = ();
+
+    fn draw(&self, _: &(), renderer: &Renderer, _: &Theme, bounds: Rectangle, _: mouse::Cursor) -> Vec<Geometry> {
+        let mut frame = Frame::new(renderer, bounds.size());
+        if self.alpha > 0.01 {
+            let side = bounds.width.min(bounds.height);
+            let centre = Point::new(bounds.width / 2.0, bounds.height / 2.0);
+            let ring = Path::circle(centre, side / 2.0 - 1.0);
+            frame.stroke(&ring, Stroke::default().with_width(2.0).with_color(faded(Color { a: 0.55 * self.alpha, ..ACCENT })));
+        }
+        vec![frame.into_geometry()]
+    }
+}
+
+pub struct Dot;
+
+impl<Message> canvas::Program<Message> for Dot {
+    type State = ();
+
+    fn draw(&self, _: &(), renderer: &Renderer, _: &Theme, bounds: Rectangle, _: mouse::Cursor) -> Vec<Geometry> {
+        let mut frame = Frame::new(renderer, bounds.size());
+        let centre = Point::new(bounds.width / 2.0, bounds.height / 2.0);
+        frame.fill(&Path::circle(centre, bounds.width / 2.0 + 3.0), faded(Color { a: 0.16, ..ACCENT }));
+        frame.fill(&Path::circle(centre, bounds.width / 2.0 - 1.0), faded(ACCENT));
+        vec![frame.into_geometry()]
+    }
+}
+
+pub struct Thread {
+    pub fraction: f32,
+}
+
+impl<Message> canvas::Program<Message> for Thread {
+    type State = ();
+
+    fn draw(&self, _: &(), renderer: &Renderer, _: &Theme, bounds: Rectangle, _: mouse::Cursor) -> Vec<Geometry> {
+        let mut frame = Frame::new(renderer, bounds.size());
+        let y = bounds.height / 2.0;
+        frame.stroke(&Path::line(Point::new(0.0, y), Point::new(bounds.width, y)), Stroke::default().with_width(2.0).with_color(faded(Color::from_rgba(1.0, 1.0, 1.0, 0.08))));
+        let x = bounds.width * self.fraction.clamp(0.0, 1.0);
+        if x > 0.5 {
+            frame.stroke(&Path::line(Point::new(0.0, y), Point::new(x, y)), Stroke::default().with_width(2.0).with_color(faded(ACCENT)));
+        }
+        vec![frame.into_geometry()]
+    }
+}

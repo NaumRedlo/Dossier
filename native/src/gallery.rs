@@ -424,7 +424,9 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
     rendered.announce(
         crate::notices::Mark::Done,
         rendered.words.t("rendered-notice"),
-        "NaumRedlo — Dj Grimoire — Astral Quantization [Nattu VN0TH3R] · 3:51 · 84,2 МБ".to_owned(),
+        "NaumRedlo — Dj Grimoire — Astral Quantization [Nattu VN0TH3R]".to_owned(),
+        "3:51 · 84,2 МБ".to_owned(),
+        library.entries[0].map_hash.clone(),
         crate::notices::Link::OpenVideo(PathBuf::from("out.mp4")),
     );
     for toast in &mut rendered.toasts {
@@ -484,16 +486,17 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
         out: None,
     });
     menu_feed.progress_shown = menu_feed.progress_target().unwrap_or(0.0);
-    for (mark, words, detail, link) in [
-        (crate::notices::Mark::Bad, "Рендер не завершился", "NaumRedlo — Daisuke · ffmpeg завершился с кодом 1", crate::notices::Link::RenderAgain(library.entries[1].path.clone())),
-        (crate::notices::Mark::Done, "Карта скачана", "xi — Blue Zenith", crate::notices::Link::None),
-        (crate::notices::Mark::Done, "Ушло в Telegram", "@naumredlo · xi — FREEDOM DiVE [Extra] · 97,7 МБ", crate::notices::Link::None),
-        (crate::notices::Mark::Plain, "Открыто", "сборка 0.12.0", crate::notices::Link::None),
+    for (mark, words, detail, note, at, link) in [
+        (crate::notices::Mark::Bad, "Рендер не завершился", "Guest — xi — Blue Zenith", "ffmpeg завершился с кодом 1", 1, crate::notices::Link::RenderAgain(library.entries[1].path.clone())),
+        (crate::notices::Mark::Done, "Карта скачана", "xi — Blue Zenith", "[FOUR DIMENSIONS]", 1, crate::notices::Link::None),
+        (crate::notices::Mark::Done, "Ушло в Telegram", "-legusshhka- — xi — FREEDOM DiVE [Extra]", "@naumredlo · 97,7 МБ", 2, crate::notices::Link::None),
+        (crate::notices::Mark::Plain, "Открыто", "сборка 0.12.0", "", 0, crate::notices::Link::None),
     ]
     .into_iter()
     .rev()
     {
-        menu_feed.notices.push(mark, words.to_owned(), detail.to_owned(), link);
+        let hash = if note.is_empty() { String::new() } else { library.entries[at].map_hash.clone() };
+        menu_feed.notices.push(mark, words.to_owned(), detail.to_owned(), note.to_owned(), hash, link);
     }
     for (i, notice) in menu_feed.notices.notices.iter_mut().enumerate() {
         notice.at = NOON - 60 * (i as i64 + 1) * 17;

@@ -183,3 +183,4 @@ nothing-yet = Пока ничего
 sending = Отправляю
 sent-notice = Ушло в Telegram
 send-failed = Не отправилось
+telegram-id = Telegram ID

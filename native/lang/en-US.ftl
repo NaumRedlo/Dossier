@@ -179,3 +179,4 @@ nothing-yet = Nothing yet
 sending = Sending
 sent-notice = Sent to Telegram
 send-failed = Could not send
+telegram-id = Telegram ID

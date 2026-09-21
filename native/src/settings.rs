@@ -13,6 +13,8 @@ pub struct Settings {
     pub server: String,
     pub token: String,
     pub linked_as: String,
+    #[serde(default)]
+    pub menu_tab: String,
 }
 
 impl Default for Settings {
@@ -24,6 +26,7 @@ impl Default for Settings {
             server: DEFAULT_SERVER.to_owned(),
             token: String::new(),
             linked_as: String::new(),
+            menu_tab: String::new(),
         }
     }
 }

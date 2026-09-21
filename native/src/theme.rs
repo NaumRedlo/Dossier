@@ -428,6 +428,16 @@ pub fn tab(on: bool) -> impl Fn(&Theme, button::Status) -> button::Style {
     }
 }
 
+pub fn badge_of(colour: Color) -> impl Fn(&Theme) -> container::Style {
+    move |_| container::Style {
+        text_color: None,
+        background: Some(Background::Color(colour)),
+        border: border(Color::from_rgba(0.047, 0.02, 0.027, 1.0), 8.0),
+        shadow: Shadow::default(),
+        snap: true,
+    }
+}
+
 pub fn stage(_: &Theme) -> container::Style {
     container::Style {
         text_color: None,

@@ -22,6 +22,10 @@ pub struct Notice {
     pub mark: Mark,
     pub words: String,
     pub detail: String,
+    #[serde(default)]
+    pub note: String,
+    #[serde(default)]
+    pub map_hash: String,
     pub at: i64,
     pub link: Link,
     pub seen: bool,
@@ -67,10 +71,10 @@ impl Queue {
         }
     }
 
-    pub fn push(&mut self, mark: Mark, words: String, detail: String, link: Link) -> u64 {
+    pub fn push(&mut self, mark: Mark, words: String, detail: String, note: String, map_hash: String, link: Link) -> u64 {
         let id = self.next;
         self.next += 1;
-        self.notices.insert(0, Notice { id, mark, words, detail, at: chrono::Utc::now().timestamp(), link, seen: false });
+        self.notices.insert(0, Notice { id, mark, words, detail, note, map_hash, at: chrono::Utc::now().timestamp(), link, seen: false });
         self.notices.truncate(KEEP);
         self.save();
         id
@@ -102,7 +106,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let mut queue = Queue::at(dir.join("notices.json"));
         for i in 0..(KEEP + 5) {
-            queue.push(Mark::Plain, format!("n{i}"), String::new(), Link::None);
+            queue.push(Mark::Plain, format!("n{i}"), String::new(), String::new(), String::new(), Link::None);
         }
         assert_eq!(queue.notices.len(), KEEP);
         assert_eq!(queue.notices[0].words, format!("n{}", KEEP + 4));

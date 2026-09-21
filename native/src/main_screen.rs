@@ -624,14 +624,32 @@ impl Main {
                 Task::none()
             }
             Message::Circle => {
-                self.menu = match self.menu {
-                    Some(_) => None,
-                    None => Some(Tab::Account),
-                };
-                Task::none()
+                match self.menu {
+                    Some(_) => {
+                        self.menu = None;
+                        Task::none()
+                    }
+                    None => {
+                        let last = match self.settings.menu_tab.as_str() {
+                            "feed" => Tab::Feed,
+                            "stats" => Tab::Stats,
+                            _ => Tab::Account,
+                        };
+                        self.update(Message::MenuTab(last))
+                    }
+                }
             }
             Message::MenuTab(tab) => {
                 self.menu = Some(tab);
+                let name = match tab {
+                    Tab::Account => "account",
+                    Tab::Feed => "feed",
+                    Tab::Stats => "stats",
+                };
+                if self.settings.menu_tab != name {
+                    self.settings.menu_tab = name.to_owned();
+                    let _ = self.settings.save();
+                }
                 if tab == Tab::Feed {
                     self.notices.see_all();
                 }
@@ -793,15 +811,13 @@ impl Main {
                 match (outcome, video) {
                     (Ok(_), Some(video)) => {
                         self.store.mark_sent(&path, unix_now());
-                        let detail = format!("{} · {} · {}", who, video.map_line(), self.words.mb(video.size));
-                        self.announce(notices::Mark::Done, self.words.t("sent-notice"), detail, notices::Link::None);
+                        let detail = format!("{} — {}", video.player, video.map_line());
+                        let note = format!("{} · {}", who, self.words.mb(video.size));
+                        self.announce(notices::Mark::Done, self.words.t("sent-notice"), detail, note, video.map_hash.clone(), notices::Link::None);
                     }
                     (Err(why), video) => {
-                        let detail = match video {
-                            Some(video) => format!("{} · {}", video.map_line(), why),
-                            None => why,
-                        };
-                        self.announce(notices::Mark::Bad, self.words.t("send-failed"), detail, notices::Link::None);
+                        let (detail, hash) = video.map(|v| (format!("{} — {}", v.player, v.map_line()), v.map_hash)).unwrap_or_default();
+                        self.announce(notices::Mark::Bad, self.words.t("send-failed"), detail, why, hash, notices::Link::None);
                     }
                     _ => {}
                 }
@@ -1003,19 +1019,19 @@ impl Main {
                     if let Some(entry) = self.entries().iter().find(|e| e.path == replay).cloned() {
                         let length = self.lengths.get(&replay).copied().unwrap_or_else(|| length_of(&replay));
                         let video = videos::Video::from_render(&entry, out.clone(), length, render::SIZE.0, render::SIZE.1, render::FPS as u32);
-                        let detail = format!("{} — {} · {} · {}", video.player, video.map_line(), self.words.length(video.length_ms), self.words.mb(video.size));
+                        let detail = format!("{} — {}", video.player, video.map_line());
+                        let note = format!("{} · {}", self.words.length(video.length_ms), self.words.mb(video.size));
+                        let hash = video.map_hash.clone();
                         self.store.add(video);
-                        self.announce(notices::Mark::Done, self.words.t("rendered-notice"), detail, notices::Link::OpenVideo(out));
+                        self.announce(notices::Mark::Done, self.words.t("rendered-notice"), detail, note, hash, notices::Link::OpenVideo(out));
                     }
                 }
                 if let Some(Step::Failed(why)) = self.rendering.as_ref().and_then(|r| r.last().cloned()) {
                     if let Some(replay) = self.rendering.as_ref().map(|r| r.path.clone()) {
-                        let who = self.entries().iter().find(|e| e.path == replay).map(|e| format!("{} — {}", e.player, e.song().unwrap_or_default()));
-                        let detail = match who {
-                            Some(who) => format!("{who} · {why}"),
-                            None => why,
-                        };
-                        self.announce(notices::Mark::Bad, self.words.t("render-failed"), detail, notices::Link::RenderAgain(replay));
+                        let entry = self.entries().iter().find(|e| e.path == replay);
+                        let who = entry.map(|e| format!("{} — {}", e.player, e.song().unwrap_or_default())).unwrap_or_default();
+                        let hash = entry.map(|e| e.map_hash.clone()).unwrap_or_default();
+                        self.announce(notices::Mark::Bad, self.words.t("render-failed"), who, why, hash, notices::Link::RenderAgain(replay));
                     }
                 }
                 Task::none()
@@ -1050,7 +1066,7 @@ impl Main {
                 if let maps::Step::Done(map) = &step {
                     let map = map.clone();
                     self.fetching = None;
-                    self.announce(notices::Mark::Done, self.words.t("map-fetched"), format!("{} — {}", map.artist, map.title), notices::Link::None);
+                    self.announce(notices::Mark::Done, self.words.t("map-fetched"), format!("{} — {}", map.artist, map.title), format!("[{}]", map.version), hash.clone(), notices::Link::None);
                     if let Some(library) = &mut self.library {
                         for entry in library.entries.iter_mut().filter(|e| e.map_hash == hash) {
                             entry.map = Some(map.clone());
@@ -1186,10 +1202,19 @@ impl Main {
                 Task::none()
             }
             Message::OpenOut => {
-                if let Some(out) = self.rendering.as_ref().and_then(|r| r.out.clone()) {
-                    let _ = open::that_detached(out);
+                let Some(out) = self.rendering.as_ref().and_then(|r| r.out.clone()) else {
+                    return Task::none();
+                };
+                match self.store.videos.iter().position(|v| v.path == out) {
+                    Some(at) => {
+                        let shown = self.update(Message::Show(Overlay::Videos));
+                        shown.chain(self.update(Message::OpenVideo(at)))
+                    }
+                    None => {
+                        let _ = open::that_detached(out);
+                        Task::none()
+                    }
                 }
-                Task::none()
             }
             Message::ShowOut => {
                 if let Some(out) = self.rendering.as_ref().and_then(|r| r.out.clone()) {
@@ -1289,8 +1314,8 @@ impl Main {
         }
     }
 
-    pub fn announce(&mut self, mark: notices::Mark, words: String, detail: String, link: notices::Link) {
-        let id = self.notices.push(mark, words, detail, link);
+    pub fn announce(&mut self, mark: notices::Mark, words: String, detail: String, note: String, map_hash: String, link: notices::Link) {
+        let id = self.notices.push(mark, words, detail, note, map_hash, link);
         let now = Instant::now();
         while self.toasts.iter().filter(|t| t.shown.value()).count() >= TOASTS_AT_MOST {
             if let Some(oldest) = self.toasts.iter_mut().find(|t| t.shown.value()) {
@@ -1819,7 +1844,7 @@ impl Main {
             for (at, video) in self.store.videos.iter().enumerate() {
                 rows = rows.push(self.video_row(at, video));
             }
-            scrollable(container(rows).padding(Padding { top: 34.0, right: 40.0, bottom: 24.0, left: 40.0 }))
+            scrollable(container(rows).padding(Padding { top: 34.0, right: 28.0, bottom: 24.0, left: 28.0 }))
                 .width(Length::Fill)
                 .height(Length::Fill)
                 .into()
@@ -1845,7 +1870,7 @@ impl Main {
         let right = |key: &str, width: f32| container(ui::mono_small(w.t(key).to_uppercase(), FAINT)).width(width).align_x(iced::alignment::Horizontal::Right);
         container(
             row![
-                Space::new().width(VIDEO_THUMB.0 as f32 + 14.0),
+                Space::new().width(VIDEO_THUMB.0 as f32 + 14.0 + 12.0),
                 cell("when", 70.0),
                 grow("who-and-map"),
                 cell("mods", 90.0),
@@ -1855,6 +1880,7 @@ impl Main {
             .spacing(14)
             .align_y(iced::Center),
         )
+        .padding(Padding::ZERO.right(12.0))
         .height(24.0)
         .into()
     }
@@ -1898,7 +1924,7 @@ impl Main {
         .spacing(14)
         .align_y(iced::Center);
         button(container(line).height(52.0).width(Length::Fill).center_y(52.0))
-            .padding(0)
+            .padding([0, 12])
             .style(theme::row(chosen))
             .on_press(Message::OpenVideo(at))
             .into()
@@ -2073,16 +2099,20 @@ impl Main {
         } else {
             (w.t("not-signed-in"), w.t("stays-here"))
         };
-        let head = row![
+        let mut head = row![
             self.circle(40.0, false),
             column![
                 text(title).font(theme::SANS_SEMI).size(15.0).wrapping(text::Wrapping::None).color(ui::faded(INK)),
                 ui::mono_small(under, FAINT),
             ]
             .spacing(2),
+            ui::grow(),
         ]
         .spacing(12)
         .align_y(iced::Center);
+        if self.signed_in() {
+            head = head.push(ui::link(w.t("sign-out"), Message::SignOut));
+        }
         let tab_word = |key: &str, this: Tab| {
             let on = tab == this;
             let bar = container(Space::new().height(2.0)).width(Length::Fill).style(move |_| container::Style {
@@ -2144,14 +2174,13 @@ impl Main {
             .into();
         }
         let chat = self.chat_name();
-        column![
-            self.kv(w.t("videos-go-to"), chat),
-            self.kv(w.t("worker"), w.t("coming-later")),
-            self.kv(w.t("build"), bot::BUILD.to_owned()),
-            row![ui::grow(), ui::link(w.t("sign-out"), Message::SignOut)].padding(Padding::ZERO.top(4.0)),
-        ]
-        .spacing(2)
-        .into()
+        let mut rows = column![self.kv(w.t("videos-go-to"), chat)].spacing(2);
+        if let Some(me) = &self.account {
+            rows = rows.push(self.kv(w.t("telegram-id"), me.telegram_id.to_string()));
+        }
+        rows = rows.push(self.kv(w.t("worker"), w.t("coming-later")));
+        rows = rows.push(self.kv(w.t("build"), bot::BUILD.to_owned()));
+        rows.into()
     }
 
     fn chat_name(&self) -> String {
@@ -2165,21 +2194,21 @@ impl Main {
 
     fn feed_tab(&self) -> Element<'_, Message> {
         let w = &self.words;
-        let mut rows = column![].spacing(0).width(Length::Fill);
+        let mut rows = column![].spacing(6).width(Length::Fill);
         let job = |words: String, detail: String, fraction: f32| -> Element<'_, Message> {
             column![
                 row![
-                    ui::mono_small(w.clock(self.now_unix), FAINT),
                     iced::widget::canvas(ui::Dot).width(8.0).height(8.0),
                     text(words).font(theme::SANS_SEMI).size(theme::CAPTION).color(ui::faded(INK)),
-                    text(format!("· {detail}")).font(theme::SANS).size(theme::CAPTION).wrapping(text::Wrapping::None).color(ui::faded(FAINT)),
+                    container(text(detail).font(theme::SANS).size(theme::CAPTION).wrapping(text::Wrapping::None).color(ui::faded(MUTED))).width(Length::Fill).clip(true),
                 ]
                 .spacing(8)
                 .align_y(iced::Center)
-                .height(24.0),
+                .height(22.0),
                 iced::widget::canvas(ui::Thread { fraction }).width(Length::Fill).height(2.0),
             ]
-            .spacing(2)
+            .spacing(3)
+            .padding(Padding::ZERO.bottom(4.0))
             .into()
         };
         if let Some(rendering) = self.rendering.as_ref().filter(|r| !r.is_over()) {
@@ -2194,37 +2223,82 @@ impl Main {
             let title = self.store.videos.iter().find(|v| v.path == sending.path).map(|v| v.map_line()).unwrap_or_default();
             rows = rows.push(job(w.t("sending"), title, self.progress_shown));
         }
-        for notice in self.notices.notices.iter().take(8) {
-            let (glyph, colour) = match notice.mark {
-                notices::Mark::Done => ("✓", MUTED),
-                notices::Mark::Bad => ("✕", ACCENT),
-                notices::Mark::Plain => ("·", FAINT),
-            };
-            let mut line = row![
-                ui::mono_small(w.clock(notice.at), FAINT),
-                text(glyph).font(theme::MONO_BOLD).size(11.0).color(ui::faded(colour)),
-                text(notice.words.clone()).font(theme::SANS).size(theme::CAPTION).wrapping(text::Wrapping::None).color(ui::faded(if notice.mark == notices::Mark::Bad { ACCENT } else { MUTED })),
-            ]
-            .spacing(8)
-            .align_y(iced::Center)
-            .height(24.0);
-            let room: usize = if matches!(notice.link, notices::Link::None) { 44 } else { 34 };
-            let detail = text(ui::shortened(format!("· {}", notice.detail), room.saturating_sub(notice.words.chars().count().min(24)).max(8)))
-                .font(theme::SANS)
-                .size(theme::CAPTION)
-                .wrapping(text::Wrapping::None)
-                .color(ui::faded(FAINT));
-            line = line.push(container(detail).width(Length::Fill).clip(true));
-            if matches!(notice.link, notices::Link::RenderAgain(_) | notices::Link::OpenVideo(_)) {
-                let words = if matches!(notice.link, notices::Link::OpenVideo(_)) { w.t("open") } else { w.t("once-more") };
-                line = line.push(ui::link(words, Message::ToastLink(notice.id)));
-            }
-            rows = rows.push(line.width(Length::Fill));
+        for notice in self.notices.notices.iter().take(7) {
+            rows = rows.push(self.notice_row(notice));
         }
         if self.notices.notices.is_empty() && !self.busy() {
             rows = rows.push(container(ui::cap(w.t("nothing-yet"))).height(24.0));
         }
         rows.into()
+    }
+
+    fn notice_row(&self, notice: &notices::Notice) -> Element<'_, Message> {
+        let w = &self.words;
+        let bad = notice.mark == notices::Mark::Bad;
+        let mut first = row![
+            text(notice.words.clone()).font(theme::SANS_SEMI).size(theme::CAPTION).wrapping(text::Wrapping::None).color(ui::faded(if bad { ACCENT } else { INK })),
+            ui::grow(),
+        ]
+        .spacing(8)
+        .align_y(iced::Center);
+        if matches!(notice.link, notices::Link::RenderAgain(_) | notices::Link::OpenVideo(_)) {
+            let words = if matches!(notice.link, notices::Link::OpenVideo(_)) { w.t("open") } else { w.t("once-more") };
+            first = first.push(ui::link(words, Message::ToastLink(notice.id)));
+        }
+        first = first.push(ui::mono_small(w.clock(notice.at), FAINT));
+        let mut second = notice.detail.clone();
+        if !notice.note.is_empty() {
+            if second.is_empty() {
+                second = notice.note.clone();
+            } else {
+                second = format!("{second} · {}", notice.note);
+            }
+        }
+        let below: Element<'_, Message> = if second.is_empty() {
+            Space::new().height(0.0).into()
+        } else {
+            container(text(second).font(theme::SANS).size(theme::CAPTION).wrapping(text::Wrapping::None).color(ui::faded(MUTED)))
+                .width(Length::Fill)
+                .clip(true)
+                .into()
+        };
+        row![
+            self.notice_mark(notice, 36.0),
+            column![first, below].spacing(1).width(Length::Fill),
+        ]
+        .spacing(10)
+        .align_y(iced::Center)
+        .into()
+    }
+
+    fn notice_mark(&self, notice: &notices::Notice, side: f32) -> Element<'_, Message> {
+        let glyph = match notice.mark {
+            notices::Mark::Done => "✓",
+            notices::Mark::Bad => "✕",
+            notices::Mark::Plain => "·",
+        };
+        let picture: Element<'_, Message> = match self.thumbs.get(&notice.map_hash) {
+            Some(handle) if !notice.map_hash.is_empty() => image(handle.clone())
+                .content_fit(ContentFit::Cover)
+                .width(side)
+                .height(side)
+                .border_radius(6.0)
+                .opacity(ui::fade() * 0.9)
+                .into(),
+            _ => container(Space::new().width(side).height(side)).style(theme::chip).into(),
+        };
+        let badge = container(
+            container(text(glyph).font(theme::MONO_BOLD).size(10.0).color(ui::faded(INK)))
+                .width(16.0)
+                .height(16.0)
+                .center(16.0)
+                .style(theme::badge_of(if notice.mark == notices::Mark::Bad { ACCENT } else { theme::GRADE_A })),
+        )
+        .width(side)
+        .height(side)
+        .align_x(iced::alignment::Horizontal::Right)
+        .align_y(iced::alignment::Vertical::Bottom);
+        stack![picture, badge].width(side).height(side).into()
     }
 
     fn stats_tab(&self) -> Element<'_, Message> {
@@ -2295,8 +2369,8 @@ pub fn decoded_bytes(bytes: &[u8], side: u32) -> Option<image::Handle> {
     let picture = picture.resize_to_fill(side, side, ::image::imageops::FilterType::Lanczos3).to_rgba8();
     Some(image::Handle::from_rgba(side, side, picture.into_raw()))
 }
-const TOAST_W: f32 = 360.0;
-const TOAST_H: f32 = 58.0;
+const TOAST_W: f32 = 380.0;
+const TOAST_H: f32 = 74.0;
 const TOAST_TOP: f32 = 66.0;
 const TOAST_RISE: f32 = 8.0;
 pub const TOAST_IN: Duration = Duration::from_millis(240);
@@ -2328,32 +2402,23 @@ impl Main {
 
     fn toast(&self, toast: &Toast, notice: &notices::Notice) -> Element<'_, Message> {
         let w = &self.words;
-        let (glyph, colour) = match notice.mark {
-            notices::Mark::Done => ("✓", MUTED),
-            notices::Mark::Bad => ("✕", ACCENT),
-            notices::Mark::Plain => ("·", FAINT),
-        };
-        let mut head = row![
-            text(glyph).font(theme::MONO_BOLD).size(theme::CAPTION).color(ui::faded(colour)),
-            text(notice.words.clone()).font(theme::SANS_SEMI).size(theme::BODY).wrapping(text::Wrapping::None).color(ui::faded(INK)),
-            ui::grow(),
-        ]
-        .spacing(8)
-        .align_y(iced::Center);
+        let bad = notice.mark == notices::Mark::Bad;
+        let words = row![
+            text(notice.words.clone()).font(theme::SANS_SEMI).size(theme::BODY).wrapping(text::Wrapping::None).color(ui::faded(if bad { ACCENT } else { INK })),
+        ];
+        let detail = text(notice.detail.clone()).font(theme::SANS).size(theme::CAPTION).wrapping(text::Wrapping::None).color(ui::faded(MUTED));
+        let note = text(notice.note.clone()).font(theme::MONO).size(11.0).wrapping(text::Wrapping::None).color(ui::faded(FAINT));
+        let column = column![words, detail, note].spacing(1).width(Length::Fill);
+        let mut line = row![self.notice_mark(notice, 48.0), container(column).width(Length::Fill).clip(true)].spacing(12).align_y(iced::Center);
         let link = match notice.link {
             notices::Link::OpenVideo(_) => Some(w.t("open")),
             notices::Link::RenderAgain(_) => Some(w.t("once-more")),
             notices::Link::None => None,
         };
         if let Some(words) = link {
-            head = head.push(ui::link(words, Message::ToastLink(toast.id)));
+            line = line.push(ui::quiet(words, Some(Message::ToastLink(toast.id))));
         }
-        let inside = column![
-            head,
-            text(ui::shortened(notice.detail.clone(), 56)).font(theme::SANS).size(theme::CAPTION).wrapping(text::Wrapping::None).color(ui::faded(MUTED)),
-        ]
-        .spacing(1);
-        let card = container(inside).padding([10, 14]).width(TOAST_W).height(TOAST_H).style(theme::bubble_faded(ui::fade())).clip(true);
+        let card = container(line).padding([12, 14]).width(TOAST_W).height(TOAST_H).style(theme::bubble_faded(ui::fade())).clip(true);
         mouse_area(card)
             .on_enter(Message::ToastHover(toast.id, true))
             .on_exit(Message::ToastHover(toast.id, false))

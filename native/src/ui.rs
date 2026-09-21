@@ -1002,12 +1002,8 @@ impl<Message> canvas::Program<Message> for Bar {
                 iced::border::Radius { top_left: r, top_right: right, bottom_right: right, bottom_left: r },
             );
             frame.fill(&face, Color { a: 0.16 * self.alpha, ..ACCENT });
-            let inset = 3.0;
-            let end = width.min(bounds.width - inset);
-            if end > inset + 2.0 {
-                let line = Path::rounded_rectangle(Point::new(inset, bounds.height - 4.0), Size::new(end - inset, 2.0), 1.0.into());
-                frame.fill(&line, Color { a: ACCENT.a * self.alpha, ..ACCENT });
-            }
+            let line = bottom_slice(bounds.size(), 1.0, r - 1.0, 2.0, width);
+            frame.fill(&line, Color { a: ACCENT.a * self.alpha, ..ACCENT });
         }
         vec![frame.into_geometry()]
     }
@@ -1348,3 +1344,28 @@ impl<Message> canvas::Program<Message> for Skin {
 }
 
 const CARET_H: f32 = 8.0;
+
+fn bottom_slice(size: Size, edge: f32, radius: f32, thick: f32, until: f32) -> Path {
+    let (w, h) = (size.width, size.height);
+    let (top, bottom) = (h - edge - thick, h - edge);
+    let centre_y = h - edge - radius;
+    let left_at = |y: f32| {
+        let dy = (y - centre_y).max(0.0).min(radius);
+        edge + radius - (radius * radius - dy * dy).max(0.0).sqrt()
+    };
+    let right_at = |y: f32| (w - left_at(y)).min(until);
+    let steps = 6;
+    Path::new(|b| {
+        b.move_to(Point::new(left_at(top), top));
+        b.line_to(Point::new(right_at(top), top));
+        for i in 1..=steps {
+            let y = top + thick * i as f32 / steps as f32;
+            b.line_to(Point::new(right_at(y), y));
+        }
+        for i in (0..steps).rev() {
+            let y = top + thick * i as f32 / steps as f32;
+            b.line_to(Point::new(left_at(y), y));
+        }
+        b.close();
+    })
+}

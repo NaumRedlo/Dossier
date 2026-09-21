@@ -389,3 +389,15 @@ pub fn bubble(_: &Theme) -> container::Style {
         snap: true,
     }
 }
+
+pub fn bubble_faded(alpha: f32) -> impl Fn(&Theme) -> container::Style {
+    move |theme| {
+        let mut style = bubble(theme);
+        if let Some(Background::Color(c)) = style.background {
+            style.background = Some(Background::Color(Color { a: c.a * alpha, ..c }));
+        }
+        style.border.color = Color { a: style.border.color.a * alpha, ..style.border.color };
+        style.shadow.color = Color { a: style.shadow.color.a * alpha, ..style.shadow.color };
+        style
+    }
+}

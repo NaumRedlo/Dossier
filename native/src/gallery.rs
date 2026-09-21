@@ -409,6 +409,9 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
             crate::maps::Step::Downloading { from: "osu.direct", done: 14_890_000, total: Some(22_860_000) },
         ],
     });
+    let mut hovering = staged(Some(0));
+    hovering.hover = Some(1);
+    hovering.lifts.insert(1, iced::Animation::new(true));
     let mut rendered = staged(Some(0));
     rendered.ffmpeg = Some(PathBuf::from("ffmpeg"));
     rendered.rendering = Some(crate::main_screen::Rendering {
@@ -427,6 +430,7 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
         ("main-worker".to_owned(), worker),
         ("main-rendering".to_owned(), rendering),
         ("main-rendered".to_owned(), rendered),
+        ("main-hover".to_owned(), hovering),
         ("main-fetching".to_owned(), {
             fetching.progress_shown = fetching.progress_target().unwrap_or(0.0);
             fetching

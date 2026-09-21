@@ -28,6 +28,8 @@ pub const BRAND_WIDTH: f32 = 144.0;
 const CREST_HOME: (f32, f32) = (40.0, 24.0);
 const CREST_RISE: f32 = 8.0;
 const JOURNAL_RISE: f32 = 140.0;
+const BUBBLE_W: f32 = 260.0;
+const BUBBLE_H: f32 = 70.0;
 const THUMB: (u32, u32) = (176, 100);
 const SCENE_WIDTH: u32 = 960;
 
@@ -67,7 +69,7 @@ pub enum Message {
     ScrubTo(f32),
     Traced(PathBuf, std::sync::Arc<Vec<(f64, f32, f32)>>),
     Dropped(PathBuf),
-    Resized(f32),
+    Resized(f32, f32),
     Tick(Instant),
 }
 
@@ -180,6 +182,7 @@ pub struct Main {
     pub swap_waits: bool,
     pub lifts: HashMap<usize, Animation<bool>>,
     pub width: f32,
+    pub height: f32,
     strip_id: iced::widget::Id,
 }
 
@@ -224,6 +227,7 @@ impl Main {
             swap_waits: false,
             lifts: HashMap::new(),
             width: crate::WINDOW.width,
+            height: crate::WINDOW.height,
             strip_id: iced::widget::Id::unique(),
         };
         (made, ui::in_thread(move || library::read(&sources)).map(Message::Loaded))
@@ -254,8 +258,8 @@ impl Main {
     pub fn subscription(&self) -> Subscription<Message> {
         let mut parts = vec![iced::event::listen_with(|event, status, _| match (event, status) {
             (iced::Event::Window(window::Event::FileDropped(path)), _) => Some(Message::Dropped(path)),
-            (iced::Event::Window(window::Event::Resized(size)), _) => Some(Message::Resized(size.width)),
-            (iced::Event::Window(window::Event::Opened { size, .. }), _) => Some(Message::Resized(size.width)),
+            (iced::Event::Window(window::Event::Resized(size)), _) => Some(Message::Resized(size.width, size.height)),
+            (iced::Event::Window(window::Event::Opened { size, .. }), _) => Some(Message::Resized(size.width, size.height)),
             (iced::Event::Keyboard(iced::keyboard::Event::KeyPressed { key, .. }), iced::event::Status::Ignored) => {
                 use iced::keyboard::key::{Key, Named};
                 match key.as_ref() {
@@ -712,8 +716,9 @@ impl Main {
                 })
                 .map(Message::Loaded)
             }
-            Message::Resized(width) => {
+            Message::Resized(width, height) => {
                 self.width = width;
+                self.height = height;
                 Task::none()
             }
             Message::Tick(now) => {
@@ -786,7 +791,8 @@ impl Main {
         let crest: Element<'_, Message> =
             pin(float(crest).translate(move |_, _| Vector::new(0.0, (1.0 - early) * CREST_RISE))).x(CREST_HOME.0).y(CREST_HOME.1).into();
         let overlay: Element<'_, Message> = if self.overlay != Overlay::None { self.overlay_view() } else { blank() };
-        let layers = stack![scene_before, scene, live_before, live, body, crest, overlay];
+        let bubble = self.bubble_layer();
+        let layers = stack![scene_before, scene, live_before, live, body, bubble, crest, overlay];
         layers.width(Length::Fill).height(Length::Fill).into()
     }
 
@@ -1109,11 +1115,55 @@ impl Main {
             .on_press(Message::Choose(at));
         let sensed = mouse_area(pressed).on_enter(Message::Hover(Some(at))).on_exit(Message::Hover(None));
         let scale = if chosen { 1.0 } else { 1.0 + 0.04 * rise };
-        let lifted = float(sensed).scale(scale).translate(move |_, _| Vector::new(0.0, -2.0 * rise));
-        iced::widget::tooltip(lifted, self.bubble(entry), iced::widget::tooltip::Position::Top).gap(8).padding(0).into()
+        float(sensed).scale(scale).translate(move |_, _| Vector::new(0.0, -2.0 * rise)).into()
+    }
+
+    fn frame_left(&self, wanted: usize) -> Option<f32> {
+        let visible = self.visible();
+        let entries = self.entries();
+        let mut x = 40.0;
+        let mut last_day = String::new();
+        let mut first_in_day = true;
+        for at in &visible {
+            let label = self.words.day(entries[*at].played_at, self.now_unix);
+            if label != last_day {
+                if !last_day.is_empty() {
+                    x += 22.0 - 6.0;
+                }
+                last_day = label;
+                first_in_day = true;
+            }
+            if !first_in_day {
+                x += 6.0;
+            }
+            first_in_day = false;
+            let width = if Some(*at) == self.chosen { theme::FRAME_W + 8.0 } else { theme::FRAME_W };
+            if *at == wanted {
+                return Some(x - self.strip_view.map_or(0.0, |(offset, _, _)| offset));
+            }
+            x += width;
+        }
+        None
+    }
+
+    fn bubble_layer(&self) -> Element<'_, Message> {
+        let Some(at) = self.hover else {
+            return Space::new().width(Length::Fill).height(Length::Fill).into();
+        };
+        let (Some(entry), Some(left)) = (self.entries().get(at), self.frame_left(at)) else {
+            return Space::new().width(Length::Fill).height(Length::Fill).into();
+        };
+        let rise = self.lifts.get(&at).map_or(0.0, |lift| lift.interpolate(0.0, 1.0, self.now));
+        let chosen = self.chosen == Some(at);
+        let (w, h) = if chosen { (theme::FRAME_W + 8.0, theme::FRAME_H + 4.0) } else { (theme::FRAME_W, theme::FRAME_H) };
+        let frame_top = self.height - 10.0 - h - 2.0 * rise;
+        let x = (left + w / 2.0 - BUBBLE_W / 2.0).clamp(16.0, (self.width - BUBBLE_W - 16.0).max(16.0));
+        let y = frame_top - 8.0 - BUBBLE_H + (1.0 - rise) * 6.0;
+        pin(ui::fading(ui::fade() * rise, || self.bubble(entry))).x(x).y(y).into()
     }
 
     fn bubble(&self, entry: &Entry) -> Element<'_, Message> {
+        let alpha = ui::fade();
         let w = &self.words;
         let mut how = row![].spacing(6).align_y(iced::Center);
         for acronym in &entry.mods {
@@ -1124,23 +1174,23 @@ impl Main {
         }
         how = how.push(ui::mono(format!("{}x", entry.combo), MUTED));
         how = how.push(ui::mono("·".to_owned(), FAINT));
-        how = how.push(text(entry.outcome.mark()).font(theme::MONO_BOLD).size(11.0).color(if entry.outcome.is_bad() { ACCENT } else { MUTED }));
+        how = how.push(text(entry.outcome.mark()).font(theme::MONO_BOLD).size(11.0).color(ui::faded(if entry.outcome.is_bad() { ACCENT } else { MUTED })));
         how = how.push(ui::mono("·".to_owned(), FAINT));
-        how = how.push(text(entry.grade.letter()).font(theme::MONO_BOLD).size(11.0).color(grade_colour(entry.grade)));
+        how = how.push(text(entry.grade.letter()).font(theme::MONO_BOLD).size(11.0).color(ui::faded(grade_colour(entry.grade))));
         let inside = column![
             row![
-                text(entry.player.clone()).font(theme::SANS_SEMI).size(theme::BODY).color(INK),
+                text(entry.player.clone()).font(theme::SANS_SEMI).size(theme::BODY).color(ui::faded(INK)),
                 ui::grow(),
-                text(w.percent(entry.accuracy)).font(theme::MONO_BOLD).size(theme::CAPTION).color(INK),
+                text(w.percent(entry.accuracy)).font(theme::MONO_BOLD).size(theme::CAPTION).color(ui::faded(INK)),
             ]
             .spacing(16)
             .align_y(iced::Center),
-            text(entry.title().unwrap_or_else(|| w.t("unknown-map"))).font(theme::SANS).size(theme::CAPTION).color(MUTED),
+            text(entry.title().unwrap_or_else(|| w.t("unknown-map"))).font(theme::SANS).size(theme::CAPTION).color(ui::faded(MUTED)),
             container(how).padding(Padding::ZERO.top(3.0)),
         ]
         .spacing(2)
-        .width(Length::Shrink);
-        container(inside).padding([8, 10]).style(theme::bubble).into()
+        .width(Length::Fill);
+        container(inside).padding([8, 10]).width(BUBBLE_W).style(theme::bubble_faded(alpha)).into()
     }
 
     fn overlay_view(&self) -> Element<'_, Message> {

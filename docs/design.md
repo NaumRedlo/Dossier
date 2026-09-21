@@ -443,10 +443,21 @@ the bytes) and the ring on the avatar; done, the button returns and the
 top-right card says where it went. Deleting is the screen's one
 question: to the bin, the replay and the map stay. With no videos yet,
 one line and a *К реплеям* button under it. Drawn in
-`docs/mockups/main/store.py`; to be built in this order: the store
-(`~/.dossier/Renders` with an index), the video screen (frames decoded by
-ffmpeg into a texture, sound through cpal), the circle and the tabbed
-menu with a notice queue, the Telegram sign-in, the send, the ring.
+`docs/mockups/main/store.py`; built 2026-09-22 as drawn, with these
+particulars: the store is `~/.dossier/Renders/videos.json`, renders
+already in the folder are adopted (name → player, song, version; ffmpeg's
+banner → length, size, rate) and married to their replays by player and
+song; the player decodes through two ffmpeg pipes, raw RGBA frames paced
+by the decoder thread and read on the redraw beat, f32 sound into a cpal
+stream, a seek restarting both; the player's card is sized to its picture
+and centred; notices live in `~/.dossier/notices.json`, a hundred at most;
+the account is the first run's pairing (token and name), the bot answers
+`/render/me` with the name, the handle and whether there is a photo, and
+`/render/me/avatar` with it; sending is `POST /render/send` with the file
+as the body and the caption in a header, the bot handing it to the chat,
+refused past Telegram's size. The account tab shows the worker line as
+*coming later* and the statistics tab the same for the worker's figures:
+the bot has no endpoint for them yet.
 *What the bubble says* is in the journal's section above; the seven
 variants stay drawn for the record.
 

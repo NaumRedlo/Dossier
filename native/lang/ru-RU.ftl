@@ -137,3 +137,4 @@ unpacking-map = Распаковываю
 checking = Сверяю
 once-more = Ещё раз
 not-found = Не нашлась
+of-max = из { $max }

@@ -13,7 +13,9 @@ CSS = """
     .bub .h { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 14px; line-height: 18px; }
     .bub .h .r { margin-left: auto; font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-weight: 700; font-size: 12px; }
     .bub .m { color: #a9a29b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .bub .mono { font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: 11px; color: #a9a29b; white-space: nowrap; display: flex; align-items: center; gap: 6px; margin-top: 3px; }
+    .bub .mono { font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: 11px; color: #a9a29b; white-space: nowrap; display: flex; align-items: center; gap: 6px; margin-top: 3px; overflow: hidden; }
+    .bub .mono > * { flex: none; }
+    .bub .mono .cut { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
     .bub .mono b { color: #ece7e2; font-weight: 700; }
     .bub .mono .k { color: #6b655f; }
     .bub .mono .sep { color: #6b655f; }
@@ -44,10 +46,15 @@ NOW = '''<div class="h">Guest<span class="r">98,50%</span></div>
   <div class="m">Blue Zenith</div>
   <div class="mono"><span class="mod">EZ</span><span class="sep">·</span>401x<span class="sep">·</span><b>SB</b><span class="sep">·</span><b class="S">S</b></div>'''
 
-COUNTS = '''<div class="h">Guest<span class="r S">S</span></div>
+COUNTS = '''<div class="h">Guest<span class="r"><span class="S">S</span> · 98,50%</span></div>
+  <div class="m">xi — Blue Zenith</div>
   <div class="mono"><span class="c300">300</span><b>1204</b><span class="sep">·</span><span class="c100">100</span><b>18</b><span class="sep">·</span><span class="c50">50</span><b>2</b><span class="sep">·</span><span class="cx">✕</span><b>0</b></div>
-  <div class="mono">401x <span class="k">из 1224</span><span class="sep">·</span>слайдер-брейк на 1:32<span class="sep">·</span>98,50 %</div>
-  <div class="mono"><span class="k">14 авг · 18:40 · lazer</span></div>'''
+  <div class="mono">401x <span class="k">из 1224</span><span class="sep">·</span><b>SB</b> <span class="k">на 1:32</span><span class="sep">·</span><span class="k">lazer · 14 авг 18:40</span></div>'''
+
+LONG = '''<div class="h">Deeo_XD<span class="r"><span class="A">A</span> · 94,12%</span></div>
+  <div class="m">t+pazolite with siromaru — Chambarising Stream Practice 160 BPM</div>
+  <div class="mono"><span class="c300">300</span><b>812</b><span class="sep">·</span><span class="c100">100</span><b>61</b><span class="sep">·</span><span class="c50">50</span><b>9</b><span class="sep">·</span><span class="cx">✕</span><b>4</b></div>
+  <div class="mono">233x <span class="k">из 1108</span><span class="sep">·</span><b class="cx">×4</b><span class="sep">·</span><span class="k">stable · 3 авг 22:15</span></div>'''
 
 MAP = '''<div class="h">xi — Blue Zenith<span class="r">★ 7,12</span></div>
   <div class="m">[FOUR DIMENSIONS] · Nattu</div>
@@ -90,6 +97,7 @@ def boards():
     return {
         "BubbleNow": board(rest, NOW, 260),
         "BubbleCounts": board(rest, COUNTS, 300),
+        "BubbleLong": board(rest, LONG, 300),
         "BubbleMap": board(rest, MAP, 300),
         "BubbleDone": board(rest, DONE, 320),
         "BubbleNone": board(rest, DONE_NONE, 280),
@@ -99,7 +107,8 @@ def boards():
 
 NOTES = {
     "BubbleNow": ("Пузырь · как сейчас", "Игрок, точность, карта, моды · комбо · исход · оценка. Всё это уже написано во вьюере, стоит кликнуть — пузырь ничего не добавляет."),
-    "BubbleCounts": ("Пузырь · судейство", "То, чего во вьюере нет: сколько 300 · 100 · 50 · промахов, комбо из максимального, где случился слайдер-брейк, когда и на каком клиенте сыграно. Всё уже лежит в реплее — строится бесплатно."),
+    "BubbleCounts": ("Пузырь · судейство · выбран", "Игрок с оценкой и точностью в шапке, под ним исполнитель — песня, затем 300 · 100 · 50 · промахи, комбо из максимального, исход и где он случился, клиент и время. Всё уже лежит в реплее."),
+    "BubbleLong": ("Пузырь · длинное имя", "Длинная строка режется многоточием внутри пузыря, за край ничего не выходит: ширина 300 px постоянна, каждая строка — одна и обрезана."),
     "BubbleMap": ("Пузырь · карта", "Пузырь про карту, а не про игру: сложность звёздами, маппер, BPM, длина, AR/CS/OD, есть ли карта и фон на диске, сколько нот. BPM, длина, маппер и настройки — из .osu, даром; звёзды нужен счётчик сложности."),
     "BubbleDone": ("Пузырь · что с ним сделано", "Состояние реплея в приложении: отрендерен ли, размер видео, ушло ли в Telegram, есть ли карта, клиент, время, имя файла."),
     "BubbleNone": ("Пузырь · без карты", "Тот же пузырь для реплея без карты: крест, «карты нет» и Скачать прямо отсюда, не рендерилось, клиент и время."),
@@ -107,7 +116,7 @@ NOTES = {
     "BubbleTwo": ("Пузырь · две колонки", "То же в двух колонках: слева судейство столбиком, справа карта и время. Читается как табличка; выше на 20 px, чем BubbleAll."),
 }
 
-RECOMMENDED = "Предложение: BubbleAll — пузырь говорит только то, чего вьюер не говорит: судейство и комбо из максимума, факты карты, и что с реплеем уже сделано. Игрок остаётся шапкой, чтобы было ясно, о ком речь. Звёзды — когда появится счётчик; до него строка карты без них."
+RECOMMENDED = "Принято 2026-09-21: BubbleCounts с исполнителем и песней под именем игрока; строки не выходят за край — обрезаются многоточием. Остальное — для записи. Прежнее предложение: BubbleAll — пузырь говорит только то, чего вьюер не говорит: судейство и комбо из максимума, факты карты, и что с реплеем уже сделано. Игрок остаётся шапкой, чтобы было ясно, о ком речь. Звёзды — когда появится счётчик; до него строка карты без них."
 
 if __name__ == "__main__":
     for name, html in boards().items():

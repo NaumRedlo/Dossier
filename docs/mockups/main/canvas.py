@@ -63,7 +63,7 @@ annotations = [n for _, n in built_notes if n]
 annotations.append({"id": "built-head", "x": 0, "y": -330, "w": 900, "page": "page-built",
                     "text": "The main screen as built, 2026-09-21 — the application's own frames from native/tests/golden, the pictures every build is held to. Refresh: cargo run --release -- --gallery <dir>, approve into tests/golden, python canvas.py, seed. The live play cannot be staged, so the scene here is its blurred backdrop."})
 
-names = ["TopGuest", "TopAvatar", "TopAvatarLive", "MenuGuest", "MenuGuestStory", "LoginCard", "MenuAccount", "MenuStory"]
+names = ["TopGuest", "TopAvatar", "TopAvatarLive", "MenuGuest", "MenuGuestStory", "LoginCard", "MenuAccount", "MenuStory", "MenuStats", "NoticeIn", "NoticeShown", "NoticeOut", "NoticeBad"]
 a, n = lay(names, store.NOTES, "page-account", store.RECOMMENDED, store.TO_BUILD)
 artboards += a
 annotations += n
@@ -73,7 +73,7 @@ a, n = lay(names, store.NOTES, "page-video")
 artboards += a
 annotations += n
 
-names = ["BubbleNow", "BubbleCounts", "BubbleMap", "BubbleDone", "BubbleNone", "BubbleAll", "BubbleTwo"]
+names = ["BubbleCounts", "BubbleLong", "BubbleNow", "BubbleMap", "BubbleDone", "BubbleNone", "BubbleAll", "BubbleTwo"]
 a, n = lay(names, bubbles.NOTES, "page-bubble", bubbles.RECOMMENDED)
 artboards += a
 annotations += n

@@ -149,6 +149,13 @@ impl Entry {
         self.map.as_ref().map(|m| m.title.clone()).or_else(|| self.named.as_ref().map(|n| n.title.clone()))
     }
 
+    pub fn song(&self) -> Option<String> {
+        self.map
+            .as_ref()
+            .map(|m| format!("{} — {}", m.artist, m.title))
+            .or_else(|| self.named.as_ref().map(|n| format!("{} — {}", n.artist, n.title)))
+    }
+
     pub fn matches(&self, query: &str) -> bool {
         let query = query.trim().to_lowercase();
         if query.is_empty() {

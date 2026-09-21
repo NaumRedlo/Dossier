@@ -28,8 +28,8 @@ pub const BRAND_WIDTH: f32 = 144.0;
 const CREST_HOME: (f32, f32) = (40.0, 24.0);
 const CREST_RISE: f32 = 8.0;
 const JOURNAL_RISE: f32 = 140.0;
-const BUBBLE_W: f32 = 260.0;
-const BUBBLE_H: f32 = 70.0;
+const BUBBLE_W: f32 = 300.0;
+const BUBBLE_H: f32 = 88.0;
 const CARET: f32 = 8.0;
 const THUMB: (u32, u32) = (176, 100);
 const SCENE_WIDTH: u32 = 960;
@@ -47,6 +47,7 @@ pub enum Message {
     Thumb(String, image::Handle),
     Scene(String, Option<image::Handle>),
     Length(PathBuf, i64),
+    MaxCombo(PathBuf, Option<u32>),
     Choose(usize),
     Step(i32),
     Escape,
@@ -166,6 +167,7 @@ pub struct Main {
     pub scenes: HashMap<String, image::Handle>,
     pub scene_before: Option<Option<image::Handle>>,
     pub lengths: HashMap<PathBuf, i64>,
+    pub combos: HashMap<PathBuf, Option<u32>>,
     pub overlay: Overlay,
     pub rendering: Option<Rendering>,
     pub fetching: Option<Fetching>,
@@ -212,6 +214,7 @@ impl Main {
             scenes: HashMap::new(),
             scene_before: None,
             lengths: HashMap::new(),
+            combos: HashMap::new(),
             overlay: Overlay::None,
             rendering: None,
             fetching: None,
@@ -450,6 +453,10 @@ impl Main {
                 self.lengths.insert(path, ms);
                 Task::none()
             }
+            Message::MaxCombo(path, combo) => {
+                self.combos.insert(path, combo);
+                Task::none()
+            }
             Message::Choose(at) => self.choose(at),
             Message::Step(by) => {
                 let visible = self.visible();
@@ -480,6 +487,14 @@ impl Main {
                 if at.is_none() {
                     self.hover_bounds = None;
                 }
+                let combo = match at.and_then(|at| self.entries().get(at)) {
+                    Some(entry) if !self.combos.contains_key(&entry.path) => {
+                        let (path, map, hash) = (entry.path.clone(), entry.map.clone(), entry.map_hash.clone());
+                        self.combos.insert(path.clone(), None);
+                        ui::in_thread(move || Message::MaxCombo(path.clone(), max_combo_of(&path, map.as_ref(), &hash)))
+                    }
+                    _ => Task::none(),
+                };
                 let now = Instant::now();
                 for (index, lift) in self.lifts.iter_mut() {
                     if Some(*index) != at {
@@ -493,7 +508,7 @@ impl Main {
                         .go_mut(true, now);
                 }
                 self.lifts.retain(|_, lift| lift.value() || lift.is_animating(now));
-                Task::none()
+                combo
             }
             Message::Show(overlay) => {
                 self.overlay = overlay;
@@ -1154,38 +1169,64 @@ impl Main {
     fn bubble(&self, entry: &Entry, tip: f32) -> Element<'_, Message> {
         let alpha = ui::fade();
         let w = &self.words;
-        let mut how = row![].spacing(6).align_y(iced::Center);
-        for acronym in &entry.mods {
-            how = how.push(mod_badge(acronym));
+        let small = |words: String, colour: Color| text(words).font(theme::MONO).size(11.0).color(ui::faded(colour));
+        let bold = |words: String, colour: Color| text(words).font(theme::MONO_BOLD).size(11.0).color(ui::faded(colour));
+        let dot = || small("·".to_owned(), FAINT);
+        let [c300, c100, c50, miss] = entry.counts;
+        let counts = row![
+            small("300".to_owned(), theme::HIT_300),
+            bold(c300.to_string(), INK),
+            dot(),
+            small("100".to_owned(), theme::HIT_100),
+            bold(c100.to_string(), INK),
+            dot(),
+            small("50".to_owned(), theme::HIT_50),
+            bold(c50.to_string(), INK),
+            dot(),
+            small("✕".to_owned(), ACCENT),
+            bold(miss.to_string(), INK),
+        ]
+        .spacing(5)
+        .align_y(iced::Center);
+        let mut how = row![small(format!("{}x", entry.combo), MUTED)].spacing(5).align_y(iced::Center);
+        if let Some(Some(max)) = self.combos.get(&entry.path) {
+            how = how.push(small(w.of_max(*max), FAINT));
         }
-        if !entry.mods.is_empty() {
-            how = how.push(ui::mono("·".to_owned(), FAINT));
-        }
-        how = how.push(ui::mono(format!("{}x", entry.combo), MUTED));
-        how = how.push(ui::mono("·".to_owned(), FAINT));
-        how = how.push(text(entry.outcome.mark()).font(theme::MONO_BOLD).size(11.0).color(ui::faded(if entry.outcome.is_bad() { ACCENT } else { MUTED })));
         if entry.outcome != library::Outcome::Fail {
-            how = how.push(ui::mono("·".to_owned(), FAINT));
-            how = how.push(text(entry.grade.letter()).font(theme::MONO_BOLD).size(11.0).color(ui::faded(grade_colour(entry.grade))));
+            how = how.push(dot());
+            how = how.push(bold(entry.outcome.mark(), if entry.outcome.is_bad() { ACCENT } else { MUTED }));
         }
-        let inside = column![
+        how = how.push(dot());
+        how = how.push(small(
+            format!("{} · {} {}", entry.client.tag(), w.day(entry.played_at, self.now_unix), w.clock(entry.played_at)),
+            FAINT,
+        ));
+        let head = row![
+            text(ui::shortened(entry.player.clone(), 22)).font(theme::SANS_SEMI).size(theme::BODY).wrapping(text::Wrapping::None).color(ui::faded(INK)),
+            ui::grow(),
             row![
-                text(entry.player.clone()).font(theme::SANS_SEMI).size(theme::BODY).color(ui::faded(INK)),
-                ui::grow(),
+                text(entry.grade.letter()).font(theme::MONO_BOLD).size(theme::CAPTION).color(ui::faded(grade_colour(entry.grade))),
+                text("·").font(theme::MONO).size(theme::CAPTION).color(ui::faded(FAINT)),
                 text(w.percent(entry.accuracy)).font(theme::MONO_BOLD).size(theme::CAPTION).color(ui::faded(INK)),
             ]
-            .spacing(16)
+            .spacing(5)
             .align_y(iced::Center),
-            text(ui::shortened(entry.title().unwrap_or_else(|| w.t("unknown-map")), 38))
+        ]
+        .spacing(12)
+        .align_y(iced::Center);
+        let inside = column![
+            head,
+            text(ui::shortened(entry.song().unwrap_or_else(|| w.t("unknown-map")), 44))
                 .font(theme::SANS)
                 .size(theme::CAPTION)
                 .wrapping(text::Wrapping::None)
                 .color(ui::faded(MUTED)),
-            container(how).padding(Padding::ZERO.top(3.0)),
+            container(counts).padding(Padding::ZERO.top(3.0)),
+            how,
         ]
         .spacing(2)
         .width(Length::Fill);
-        let card = container(inside).padding([8, 10]).width(BUBBLE_W).height(BUBBLE_H);
+        let card = container(inside).padding([8, 10]).width(BUBBLE_W).height(BUBBLE_H).clip(true);
         let skin = iced::widget::canvas(ui::Skin { at: tip, alpha }).width(BUBBLE_W).height(BUBBLE_H + CARET);
         stack![skin, column![card, Space::new().height(CARET)]].width(BUBBLE_W).height(BUBBLE_H + CARET).into()
     }
@@ -1308,4 +1349,13 @@ impl std::fmt::Debug for Main {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Main").field("chosen", &self.chosen).field("search", &self.search).finish()
     }
+}
+
+pub fn max_combo_of(path: &Path, map: Option<&library::Map>, hash: &str) -> Option<u32> {
+    let map = map?;
+    let bytes = std::fs::read(path).ok()?;
+    let replay = dossier_replay::Replay::parse(&bytes).ok()?;
+    let found = dossier_produce::locate::load_map(&map.file, hash).ok()?;
+    let beatmap = dossier_beatmap::Beatmap::parse(&found.text).ok()?;
+    Some(dossier_assay::max_combo(&beatmap, replay.mods))
 }

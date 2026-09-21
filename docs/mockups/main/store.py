@@ -26,7 +26,7 @@ CSS = """
     .menu .kv { display: flex; align-items: center; height: 26px; color: #a9a29b; }
     .menu .kv .n { margin-left: auto; color: #ece7e2; font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: 11px; }
     .vlist { position: absolute; left: 40px; right: 40px; top: 92px; }
-    .vlist .r { display: grid; grid-template-columns: 72px 70px 1fr 90px 50px 64px 60px; gap: 14px; align-items: center; height: 52px; border-bottom: 1px solid rgba(255,255,255,0.05); color: #ece7e2; font-size: 13px; }
+    .vlist .r { display: grid; grid-template-columns: 72px 70px 1fr 90px 50px 64px; gap: 14px; align-items: center; height: 52px; border-bottom: 1px solid rgba(255,255,255,0.05); color: #ece7e2; font-size: 13px; }
     .vlist .r .th { width: 64px; height: 36px; border-radius: 5px; background: #0a0507 center/cover; border: 1px solid rgba(255,255,255,0.1); opacity: 0.8; }
     .vlist .r.on .th { border-color: #e24848; opacity: 1; }
     .vlist .r .t { color: #6b655f; font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: 11px; }
@@ -35,21 +35,24 @@ CSS = """
     .vlist .r .mods { display: flex; gap: 4px; }
     .vlist .r .mods i { display: inline-block; padding: 0 4px; border-radius: 3px; background: #e24848; color: #fff; font-style: normal; font-weight: 700; font-size: 9px; line-height: 14px; }
     .vlist .r .sent { color: #a9a29b; font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: 11px; text-align: right; }
-    .vlist .head { display: grid; grid-template-columns: 72px 70px 1fr 90px 50px 64px 60px; gap: 14px; height: 24px; color: #6b655f; font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; align-items: center; }
+    .vlist .head { display: grid; grid-template-columns: 72px 70px 1fr 90px 50px 64px; gap: 14px; height: 24px; color: #6b655f; font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; align-items: center; }
     .vlist .head .n { text-align: right; }
     .stage { position: absolute; left: 40px; right: 40px; top: 36px; bottom: 36px; border-radius: 12px; background: rgba(12,5,7,0.98); border: 1px solid rgba(255,255,255,0.08); box-shadow: 0 30px 80px rgba(0,0,0,0.6); overflow: hidden; }
-    .stage .vid { position: absolute; left: 0; right: 0; top: 0; height: 548px; background: #070304 url(frame.jpg) center/cover; }
+    .stage .vid { position: absolute; left: 0; right: 0; top: 0; height: 520px; background: #070304 url(frame.jpg) center/cover; }
     .stage .vid.paused::before { content: ""; position: absolute; left: 50%; top: 50%; border-left: 30px solid rgba(236,231,226,0.92); border-top: 18px solid transparent; border-bottom: 18px solid transparent; transform: translate(-40%, -50%); filter: drop-shadow(0 6px 18px rgba(0,0,0,0.6)); }
     .stage .vid.playing::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(7,3,4,0) 70%, rgba(7,3,4,0.7) 100%); }
-    .stage .tl { position: absolute; left: 24px; right: 24px; top: 522px; display: flex; align-items: center; gap: 12px; }
+    .stage .tl { position: absolute; left: 24px; right: 24px; top: 494px; display: flex; align-items: center; gap: 12px; }
     .stage .tl .tr { flex: 1; height: 3px; background: rgba(255,255,255,0.14); position: relative; border-radius: 2px; }
     .stage .tl .tr i { position: absolute; left: 0; top: 0; bottom: 0; background: #ece7e2; border-radius: 2px; }
     .stage .tl .tr b { position: absolute; top: -4px; width: 11px; height: 11px; border-radius: 50%; background: #ece7e2; margin-left: -5px; }
     .stage .tl .tm { color: #ece7e2; font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: 11px; text-shadow: 0 1px 4px rgba(0,0,0,0.8); }
-    .stage .under { position: absolute; left: 24px; right: 24px; top: 570px; display: flex; align-items: center; gap: 12px; white-space: nowrap; }
-    .stage .under .who { font-weight: 700; font-size: 18px; color: #ece7e2; }
-    .stage .under .map { color: #a9a29b; font-size: 13px; flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-    .stage .under .n { color: #6b655f; font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: 11px; }
+    .stage .under { position: absolute; left: 24px; right: 24px; width: auto; top: 536px; height: 88px; display: flex; align-items: center; gap: 16px; white-space: nowrap; }
+    .stage .under .txt { min-width: 0; flex: 1; }
+    .stage .under .who { font-weight: 700; font-size: 20px; line-height: 24px; color: #ece7e2; }
+    .stage .under .map { color: #a9a29b; font-size: 13px; line-height: 18px; margin-top: 1px; overflow: hidden; text-overflow: ellipsis; }
+    .stage .under .n { color: #6b655f; font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: 11px; line-height: 16px; margin-top: 5px; display: flex; gap: 6px; align-items: center; }
+    .stage .under .n .mod { display: inline-block; padding: 0 4px; border-radius: 3px; background: #e24848; color: #fff; font-weight: 700; font-size: 9px; line-height: 14px; }
+    .stage .under .n .sep { color: #3d3632; }
     .stage .under .acts { position: static; margin-left: auto; flex: none; }
     .stage .x { position: absolute; right: 18px; top: 14px; color: rgba(236,231,226,0.7); font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: 12px; text-shadow: 0 1px 4px rgba(0,0,0,0.8); }
     .cover { position: absolute; top: 14px; right: 30px; width: 320px; height: 52px; background: #0d0508; }
@@ -145,7 +148,13 @@ CSS = """
     .empty { position: absolute; left: 40px; top: 300px; right: 40px; text-align: center; color: #a9a29b; }
     .empty .h { font-size: 18px; font-weight: 600; color: #ece7e2; }
     .empty .c { margin-top: 6px; font-size: 13px; }
-    .empty a { color: #e24848; text-decoration: none; font-weight: 600; }
+    .empty .btn { margin-top: 18px; }
+    .notice { position: absolute; top: 66px; right: 40px; width: 360px; padding: 12px 14px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.08); background: rgba(20,9,12,0.96); box-shadow: 0 14px 36px rgba(0,0,0,0.5); box-sizing: border-box; color: #ece7e2; }
+    .notice .h { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+    .notice .h .v { color: #a9a29b; font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-weight: 700; }
+    .notice .h .x { color: #e24848; font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-weight: 700; }
+    .notice .h a { margin-left: auto; color: #e24848; text-decoration: none; font-weight: 600; font-size: 13px; }
+    .notice .b { margin-top: 3px; color: #a9a29b; font-size: 12px; line-height: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .note { position: absolute; left: 40px; font-size: 12px; line-height: 16px; color: #a9a29b; }
     .toast { position: absolute; left: 40px; bottom: 120px; width: 360px; padding: 12px 14px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.08); background: rgba(20,9,12,0.96); box-shadow: 0 14px 36px rgba(0,0,0,0.5); box-sizing: border-box; color: #ece7e2; z-index: 2; }
     .toast .h { display: flex; align-items: center; gap: 8px; font-weight: 600; }
@@ -198,17 +207,17 @@ def mirror(acts, big='<div class="big"><div class="n">1920×1080</div><div class
 def stage(state="paused", acts=None, extra=""):
     acts = acts or '<span class="btn primary">В Telegram</span><span class="btn quiet">В папке</span><span class="btn quiet">Удалить</span>'
     tl = '<div class="tl"><span class="tm">1:07</span><div class="tr"><i style="width:29%;"></i><b style="left:29%;"></b></div><span class="tm">3:51</span></div>'
-    under = f'<div class="under"><span class="who">NaumRedlo</span><span class="map">Dj Grimoire — Astral Quantization [Nattu VN0TH3R]</span><span class="n">HD DT HR · 1920×1080 · 84,2 МБ</span><div class="acts">{acts}</div></div>'
+    under = f'<div class="under"><div class="txt"><div class="who">NaumRedlo</div><div class="map">Dj Grimoire — Astral Quantization [Nattu VN0TH3R]</div><div class="n"><span class="mod">HD</span><span class="mod">DT</span><span class="mod">HR</span><span class="sep">·</span>3:51<span class="sep">·</span>1920×1080<span class="sep">·</span>60 fps<span class="sep">·</span>84,2 МБ<span class="sep">·</span>сегодня 14:12</div></div><div class="acts">{acts}</div></div>'
     return f'<div class="veil"></div><div class="stage"><div class="vid {state}"></div>{tl}{under}<span class="x">Esc</span></div>{extra}'
 
 PEOPLE = [("NaumRedlo", "Dj Grimoire — Astral Quantization [Nattu VN0TH3R]", "HD DT HR", "3:51", "84,2 МБ", "сегодня", "14:12", ""), ("Guest", "xi — Blue Zenith [FOUR DIMENSIONS]", "EZ", "2:14", "51,0 МБ", "14 авг", "18:40", "✓ TG"), ("Lopuhh", "xi — FREEDOM DiVE [FOUR DIMENSIONS]", "", "4:02", "97,7 МБ", "14 авг", "11:02", "✓ TG"), ("Saki-chan", "Camellia — GALACTIC [Extra]", "HR", "1:48", "40,3 МБ", "3 авг", "22:15", ""), ("NaumRedlo", "Chocofan — LUCKY CAT [_]", "DT", "3:20", "72,9 МБ", "29 июл", "09:31", "✓ TG"), ("Deeo_XD", "Nevermind [Insane]", "", "2:57", "60,1 МБ", "29 июл", "09:10", ""), ("Guest", "Sink [Expert]", "HD", "5:11", "118,4 МБ", "29 июл", "08:52", ""), ("NaumRedlo", "Dj Grimoire — Astral Quantization [Nattu VN0TH3R]", "HD", "2:02", "44,0 МБ", "10 июл", "17:44", "✓ TG")]
 
 def video_list(chosen=None):
-    rows = ['<div class="head"><span></span><span>когда</span><span>кто · карта</span><span>моды</span><span class="n">длина</span><span class="n">размер</span><span class="n">telegram</span></div>']
+    rows = ['<div class="head"><span></span><span>когда</span><span>кто · карта</span><span>моды</span><span class="n">длина</span><span class="n">размер</span></div>']
     for i, (p, m, mods, l, s, d, tm, sent) in enumerate(PEOPLE):
         on = " on" if i == chosen else ""
         badges = "".join(f"<i>{x}</i>" for x in mods.split())
-        rows.append(f'<div class="r{on}"><span class="th" style="background-image:url({BG[i % len(BG)]});"></span><span class="t">{d}<br>{tm}</span><span><b>{p}</b> <span class="m">· {m}</span></span><span class="mods">{badges}</span><span class="n">{l}</span><span class="n">{s}</span><span class="sent">{sent}</span></div>')
+        rows.append(f'<div class="r{on}"><span class="th" style="background-image:url({BG[i % len(BG)]});"></span><span class="t">{d}<br>{tm}</span><span><b>{p}</b> <span class="m">· {m}</span></span><span class="mods">{badges}</span><span class="n">{l}</span><span class="n">{s}</span></div>')
     return f'<div class="vlist">{"".join(rows)}</div>'
 
 def boards():
@@ -232,35 +241,28 @@ def boards():
 
     guest = '''
       <div class="head"><span class="ava none"></span><div><div class="nm">Вход не выполнен</div><div class="hd">видео остаются на этом компьютере</div></div></div>
-      <div class="tabs"><span class="on">Аккаунт</span><span>Лента</span></div>
+      <div class="tabs"><span class="on">Аккаунт</span><span>Лента</span><span>Статистика</span></div>
       <div class="state">Привяжите устройство к Telegram — готовые видео будут уходить в ваш чат, а воркер сможет брать работу от вашего имени.</div>
       <div class="btns" style="display:flex; gap:8px; margin-top:14px;"><span class="btn primary">Войти через Telegram</span></div>
-      <h3>Это устройство</h3>
-      <div class="kv"><span>Реплеев в журнале</span><span class="n">187</span></div>
-      <div class="kv"><span>Видео</span><span class="n">8 · 568 МБ</span></div>
-      <div class="kv"><span>Сборка</span><span class="n">0.12.0</span></div>'''
+      <div class="foot"><span>Сборка 0.12.0</span><span class="quit">Esc — закрыть</span></div>'''
     out["MenuGuest"] = over(rest, f'{top(WORDS3, NONE, crest=False)}<div class="menu">{guest}</div>')
 
     account = '''
       <div class="head"><span class="ava"></span><div><div class="nm">Naum Redlo</div><div class="hd">@naumredlo · привязан 12 сен</div></div></div>
-      <div class="tabs"><span class="on">Аккаунт</span><span>Лента</span></div>
+      <div class="tabs"><span class="on">Аккаунт</span><span>Лента</span><span>Статистика</span></div>
       <div class="kv"><span>Видео уходят в чат</span><span class="n">@naumredlo</span></div>
-      <div class="kv"><span>Воркер</span><span class="n">готов · 2 в очереди · 14 сегодня</span></div>
-      <div class="kv"><span>Отправлено за месяц</span><span class="n">23 · 1,9 ГБ</span></div>
-      <h3>Это устройство</h3>
-      <div class="kv"><span>Реплеев в журнале</span><span class="n">187</span></div>
-      <div class="kv"><span>Видео</span><span class="n">8 · 568 МБ</span></div>
+      <div class="kv"><span>Воркер</span><span class="n">готов · берёт работу</span></div>
       <div class="kv"><span>Сборка</span><span class="n">0.12.0 · та же, что у бота</span></div>
       <div class="foot"><span>Esc — закрыть</span><span class="quit">Выйти</span></div>'''
     out["MenuAccount"] = over(rest, f'{top(WORDS3, AVATAR, crest=False)}<div class="menu">{account}</div>')
 
     story = '''
       <div class="head"><span class="ava"></span><div><div class="nm">Naum Redlo</div><div class="hd">@naumredlo · привязан 12 сен</div></div></div>
-      <div class="tabs"><span>Аккаунт</span><span class="on">Лента</span></div>
+      <div class="tabs"><span>Аккаунт</span><span class="on">Лента</span><span>Статистика</span></div>
       <div style="margin-top:8px;">
-      <div class="row"><span class="t">14:03</span><span class="d"></span><b>Рисую</b><span style="color:#6b655f;">· Daisuke · 62 %</span></div>
+      <div class="row"><span class="t">14:03</span><span class="d"></span><b>Рисую</b><span style="color:#6b655f;">· Daisuke</span></div>
       <div class="pb"><i style="width:62%;"></i></div>
-      <div class="row"><span class="t">14:03</span><span class="d"></span><b>Отправляю</b><span style="color:#6b655f;">· Astral Quantization · 37 %</span></div>
+      <div class="row"><span class="t">14:03</span><span class="d"></span><b>Отправляю</b><span style="color:#6b655f;">· Astral Quantization</span></div>
       <div class="pb"><i style="width:37%;"></i></div>
       <div class="row bad"><span class="t">14:02</span><span class="g">✕</span><span>Рендер не завершился</span><span style="color:#6b655f;">· <a href="#">Ещё раз</a></span></div>
       <div class="row done"><span class="t">13:51</span><span class="g">✓</span><span>Карта скачана</span><span style="color:#6b655f;">· Blue Zenith</span></div>
@@ -271,11 +273,26 @@ def boards():
       <div class="foot"><span>Esc — закрыть</span><span class="quit">Всё прочитано</span></div>'''
     out["MenuStory"] = over(rest, f'{top(WORDS3, AVATAR_ON, crest=False)}<div class="menu">{story}</div>')
 
+    stats = '''
+      <div class="head"><span class="ava"></span><div><div class="nm">Naum Redlo</div><div class="hd">@naumredlo · привязан 12 сен</div></div></div>
+      <div class="tabs"><span>Аккаунт</span><span>Лента</span><span class="on">Статистика</span></div>
+      <h3>Как воркер</h3>
+      <div class="kv"><span>Сделано работ</span><span class="n">142 · за месяц 23</span></div>
+      <div class="kv"><span>Отдано</span><span class="n">11,3 ГБ</span></div>
+      <div class="kv"><span>Среднее время работы</span><span class="n">2:40</span></div>
+      <div class="kv"><span>Сегодня</span><span class="n">14 · в очереди 2</span></div>
+      <h3>На этом устройстве</h3>
+      <div class="kv"><span>Реплеев в журнале</span><span class="n">187</span></div>
+      <div class="kv"><span>Отрендерено</span><span class="n">31 · видео 8 · 568 МБ</span></div>
+      <div class="kv"><span>Отправлено в Telegram</span><span class="n">23 · 1,9 ГБ</span></div>
+      <div class="foot"><span>с 12 сен</span><span class="quit">Esc — закрыть</span></div>'''
+    out["MenuStats"] = over(rest, f'{top(WORDS3, AVATAR, crest=False)}<div class="menu">{stats}</div>')
+
     guest_story = '''
       <div class="head"><span class="ava none"></span><div><div class="nm">Вход не выполнен</div><div class="hd">лента этого устройства</div></div></div>
-      <div class="tabs"><span>Аккаунт</span><span class="on">Лента</span></div>
+      <div class="tabs"><span>Аккаунт</span><span class="on">Лента</span><span>Статистика</span></div>
       <div style="margin-top:8px;">
-      <div class="row"><span class="t">14:03</span><span class="d"></span><b>Рисую</b><span style="color:#6b655f;">· Daisuke · 62 %</span></div>
+      <div class="row"><span class="t">14:03</span><span class="d"></span><b>Рисую</b><span style="color:#6b655f;">· Daisuke</span></div>
       <div class="pb"><i style="width:62%;"></i></div>
       <div class="row done"><span class="t">13:51</span><span class="g">✓</span><span>Карта скачана</span><span style="color:#6b655f;">· Blue Zenith</span></div>
       <div class="row done"><span class="t">13:20</span><span class="g">✓</span><span>Отрендерено</span><span style="color:#6b655f;">· LUCKY CAT · 72,9 МБ</span></div>
@@ -284,12 +301,19 @@ def boards():
       <div class="foot"><span>Esc — закрыть</span><span class="quit">Всё прочитано</span></div>'''
     out["MenuGuestStory"] = over(rest, f'{top(WORDS3, NONE, crest=False)}<div class="menu">{guest_story}</div>')
 
-    out["VideoList"] = own(f'{top(WORDS4, AVATAR)}{video_list()}<div class="note" style="top:640px;">клик по строке открывает плеер на весь экран; правая кнопка — В папке · В Telegram · Удалить; ✓ TG — уже отправлено</div>')
+    notice = lambda style, extra="": f'<div class="notice" style="{style}"><div class="h"><span class="v">✓</span>Отрендерено<a href="#">Открыть</a></div><div class="b">NaumRedlo — Astral Quantization · 3:51 · 84,2 МБ</div></div>{extra}'
+    out["NoticeIn"] = over(rest, f'{top(WORDS3, AVATAR_ON, crest=False)}{notice("opacity:0.45; transform:translateY(-8px);")}<div class="note" style="top:150px; left:auto; right:40px; width:360px; text-align:right;">появление: 240 мс, карточка опускается на 8 px и проявляется; кольцо на аватаре гаснет в тот же момент</div>')
+    out["NoticeShown"] = over(rest, f'{top(WORDS3, AVATAR, crest=False)}{notice("")}<div class="note" style="top:150px; left:auto; right:40px; width:360px; text-align:right;">стоит 6 с или пока над ней курсор; Открыть — плеер в Видео; вторая карточка встаёт под первой, не больше трёх</div>')
+    out["NoticeOut"] = over(rest, f'{top(WORDS3, AVATAR, crest=False)}{notice("opacity:0.3; transform:translateY(-10px);")}<div class="note" style="top:150px; left:auto; right:40px; width:360px; text-align:right;">уход: 200 мс вверх и в прозрачность; запись остаётся в Ленте</div>')
+    bad = '<div class="notice"><div class="h"><span class="x">✕</span>Рендер не завершился<a href="#">Ещё раз</a></div><div class="b">NaumRedlo — Daisuke · ffmpeg завершился с кодом 1</div></div>'
+    out["NoticeBad"] = over(rest, f'{top(WORDS3, AVATAR, crest=False)}{bad}<div class="note" style="top:150px; left:auto; right:40px; width:360px; text-align:right;">ошибка не уходит сама — до клика или Esc</div>')
+
+    out["VideoList"] = own(f'{top(WORDS4, AVATAR)}{video_list()}<div class="note" style="top:640px;">клик по строке открывает плеер на весь экран; правая кнопка — В папке · В Telegram · Удалить</div>')
     out["VideoOpen"] = own(f'{top(WORDS4, AVATAR)}{video_list(0)}{stage("paused")}')
     out["VideoPlaying"] = own(f'{top(WORDS4, AVATAR)}{video_list(0)}{stage("playing")}')
     sending = '<span class="btn soft"><i style="width:37%;"></i><u style="width:37%;"></u><span>Отправляю</span></span><span class="btn quiet">В папке</span><span class="btn quiet">Удалить</span>'
     out["VideoSending"] = own(f'{top(WORDS4, AVATAR_ON)}{video_list(0)}{stage("paused", sending)}')
-    toast = '<div class="toast" style="left:64px; bottom:60px; z-index:3;"><div class="h"><span class="v">✓</span>Ушло в Telegram</div><div class="b">@naumredlo · 84,2 МБ · 14:14</div></div>'
+    toast = '<div class="notice" style="z-index:3; top:14px; right:14px;"><div class="h"><span class="v">✓</span>Ушло в Telegram</div><div class="b">@naumredlo · Astral Quantization · 84,2 МБ</div></div>'
     out["VideoSent"] = own(f'{top(WORDS4, AVATAR)}{video_list(0)}{stage("paused", extra=toast)}')
     del_card = '''<div class="veil" style="z-index:3;"></div><div class="card" style="left:290px; top:260px; width:400px; z-index:4;">
         <div class="ttl">Удалить видео?</div>
@@ -297,31 +321,36 @@ def boards():
         <div class="btns"><span style="flex:1;"></span><span class="btn quiet">Оставить</span><span class="btn primary">Удалить</span></div>
       </div>'''
     out["VideoDelete"] = own(f'{top(WORDS4, AVATAR)}{video_list(0)}{stage("paused", extra=del_card)}')
-    out["VideoEmpty"] = own(f'{top(WORDS4, AVATAR)}<div class="empty"><div class="h">Пока ни одного видео</div><div class="c">Отрендерите реплей — оно появится здесь. <a href="#">К реплеям</a></div></div>')
+    out["VideoEmpty"] = own(f'{top(WORDS4, AVATAR)}<div class="empty"><div class="h">Пока ни одного видео</div><div class="c">Отрендерите реплей — оно появится здесь.</div><span class="btn primary">К реплеям</span></div>')
 
     return out
 
 NOTES = {
     "TopGuest": ("Справа · без входа", "Круг в серую штриховку — как кадр без карты: место человека есть, человека нет. Клик открывает то же меню, что и аватар."),
     "TopAvatar": ("Справа · аватар", "После входа круг становится аватаром из Telegram, 28 px, без имени — имя в меню."),
-    "TopAvatarLive": ("Справа · аватар с кольцом", "Кольцо цвета акцента вокруг аватара, пока что-то идёт: рендер, карта, отправка, работа воркера. Одна деталь вместо полосы и точки; гаснет сама."),
-    "LoginCard": ("Вход · карточка", "Из кнопки в меню: карточка с кодом и QR. «Открыть Telegram» ведёт на t.me/бот?start=код; бот отвечает «Привязано», приложение ждёт ответа, аватар проявляется на месте штриховки. Никаких паролей — только код, который живёт пять минут."),
-    "MenuGuest": ("Меню · без входа · Аккаунт", "Шапка говорит «Вход не выполнен», ниже две вкладки: Аккаунт и Лента. На Аккаунте — зачем входить и кнопка входа, под ней это устройство: реплеи, видео, сборка."),
-    "MenuGuestStory": ("Меню · без входа · Лента", "Лента работает и без входа — это дела и события устройства, не аккаунта."),
-    "MenuAccount": ("Меню · Аккаунт", "После входа: имя, @handle, дата привязки; куда уходят видео, воркер, сколько отправлено; это устройство; в подвале Выйти."),
-    "MenuStory": ("Меню · Лента", "Вторая вкладка: одна лента дня — время · знак · слово · деталь, дела сверху с полосами хода, ошибка красным со своим «Ещё раз». В подвале «Всё прочитано»."),
-    "VideoList": ("Видео · список", "Четвёртое слово — Видео. Реестр: кадр, когда, кто · карта, моды, длина, размер, отправлено ли в Telegram. Новое сверху."),
-    "VideoOpen": ("Видео · плеер", "Клик по строке — плеер на почти весь экран: видео 16:9, под ним ползунок и время, ниже имя, карта, моды · разрешение · размер и кнопки В Telegram · В папке · Удалить. Esc или клик мимо — назад к списку."),
+    "TopAvatarLive": ("Справа · аватар с кольцом", "Кольцо цвета акцента вокруг аватара, пока что-то идёт: рендер, карта, отправка, работа воркера. Гаснет сама."),
+    "LoginCard": ("Вход · карточка", "Из кнопки в меню: карточка с кодом и QR. «Открыть Telegram» ведёт на t.me/бот?start=код; бот отвечает «Привязано», приложение ждёт ответа, аватар проявляется на месте штриховки."),
+    "MenuGuest": ("Меню · без входа · Аккаунт", "Шапка «Вход не выполнен», три вкладки: Аккаунт · Лента · Статистика. На Аккаунте — зачем входить и кнопка входа, больше ничего."),
+    "MenuGuestStory": ("Меню · без входа · Лента", "Лента работает и без входа — дела и события устройства."),
+    "MenuAccount": ("Меню · Аккаунт", "Только важные слова: куда уходят видео, воркер, сборка; в подвале Выйти. Цифры уехали в Статистику."),
+    "MenuStory": ("Меню · Лента", "Одна лента дня: время · знак · слово · деталь. У дел — полоса хода вместо процентов, ошибка красным со своим «Ещё раз». В подвале «Всё прочитано»."),
+    "MenuStats": ("Меню · Статистика", "Отдельная вкладка для цифр: как воркер — сделано работ, отдано, среднее время, сегодня; на этом устройстве — реплеи, отрендерено, отправлено."),
+    "NoticeIn": ("Уведомление · появляется", "Готовый рендер — карточка справа сверху, под словами: галочка, «Отрендерено», Открыть, строкой ниже кто — карта · длина · размер. Опускается на 8 px и проявляется за 240 мс."),
+    "NoticeShown": ("Уведомление · стоит", "6 с или пока над ней курсор. Открыть — плеер в Видео. Вторая карточка встаёт под первой, не больше трёх."),
+    "NoticeOut": ("Уведомление · уходит", "200 мс вверх и в прозрачность; запись остаётся в Ленте."),
+    "NoticeBad": ("Уведомление · ошибка", "Та же карточка с крестом и «Ещё раз»; сама не уходит — до клика или Esc."),
+    "VideoList": ("Видео · список", "Четвёртое слово — Видео. Реестр: кадр, когда, кто · карта, моды, длина, размер. Новое сверху; ничего лишнего."),
+    "VideoOpen": ("Видео · плеер", "Клик по строке — плеер почти на весь экран: видео 16:9, ползунок и время, ниже имя крупно, карта, строка мод · длина · разрешение · fps · размер · когда; кнопки справа. Esc или клик мимо — к списку."),
     "VideoPlaying": ("Видео · играет", "Пробел — пауза, стрелки — на 5 с, двойной клик — на весь экран. Пока играет, ползунок и время видны, остальное чуть гаснет."),
     "VideoSending": ("Видео · отправка", "В Telegram — та же кнопка-прогресс, что у рендера: одно слово и заливка на всю ширину, по байтам. Клик — остановить. Аватар получает кольцо."),
-    "VideoSent": ("Видео · отправлено", "Кнопка возвращается к «В Telegram», рядом ничего не остаётся; карточка внизу слева говорит, куда ушло, и уходит сама через 6 с; в списке у строки появляется ✓ TG."),
+    "VideoSent": ("Видео · отправлено", "Кнопка возвращается к «В Telegram», рядом ничего не остаётся; уведомление справа сверху говорит, куда ушло."),
     "VideoDelete": ("Видео · удаление", "Единственный вопрос на этом экране: удалить — в корзину, реплей и карта остаются."),
-    "VideoEmpty": ("Видео · пусто", "Пока ничего не отрендерено: одна строка и ссылка к реплеям."),
+    "VideoEmpty": ("Видео · пусто", "Пока ничего не отрендерено: строка и кнопка «К реплеям» под ней."),
 }
 
-RECOMMENDED = "Принято 2026-09-21: штрихованный круг до входа, аватар с кольцом после; меню из круга с вкладками Аккаунт · Лента, вход — кнопкой в меню; видео — список, клик открывает плеер на почти весь экран, оттуда же отправка в Telegram."
+RECOMMENDED = "Принято 2026-09-21: штрихованный круг до входа, аватар с кольцом после; меню с вкладками Аккаунт · Лента · Статистика, вход — кнопкой в меню; видео — список без лишних колонок, клик открывает плеер почти на весь экран; готовые рендеры — уведомлением справа сверху."
 
-TO_BUILD = "Что строить, по порядку: (1) хранилище видео — ~/.dossier/Renders с индексом videos.json: реплей, карта, размер, длительность, разрешение, время, отправлено ли; (2) экран Видео: список и плеер (кадры через ffmpeg в текстуру, звук через cpal); (3) круг справа и меню с вкладками, очередь уведомлений для ленты (~/.dossier/notices.json); (4) вход через Telegram: код, t.me/бот?start=код, ожидание ответа бота, аватар из getUserProfilePhotos; (5) отправка видео ботом: POST /render/send, прогресс по байтам в кнопке, карточка «Ушло»; (6) кольцо на аватаре, пока что-то идёт."
+TO_BUILD = "Что строить, по порядку: (1) пузырь судейства; (2) хранилище видео — ~/.dossier/Renders с индексом videos.json; (3) экран Видео: список и плеер (кадры через ffmpeg в текстуру, звук через cpal); (4) уведомления справа сверху и очередь для ленты (~/.dossier/notices.json); (5) круг справа и меню с тремя вкладками; (6) вход через Telegram; (7) отправка видео ботом; (8) кольцо на аватаре."
 
 if __name__ == "__main__":
     out = boards()

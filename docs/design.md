@@ -323,11 +323,17 @@ the keyboard. Where a choice is still open it is marked *open*.
 - Hovering a frame lifts it 2 px and brightens it to full over 200 ms —
   each frame with a rise of its own, so moving from one to the next lifts
   the new while the old settles back, both smoothly — and a bubble appears
-  above it: the player with the accuracy at the right, the map's title
-  under in the muted tone on one line (cut with an ellipsis past 38
-  characters), then mods · combo · outcome · grade in small mono, the grade
-  left out when the outcome is a fail so *F* is not said twice; 260 × 70,
-  10 px radius, a hairline border, a soft shadow, and a caret at its foot
+  above it that says what the viewer does not (chosen 2026-09-21 from
+  seven drawn in `docs/mockups/main/bubbles.py`; the first bubble repeated
+  the viewer and so said nothing): the player as the head with the grade
+  in its colour and the accuracy at the right; artist — song under it in
+  the muted tone; then the judgement in small mono, 300 · 100 · 50 · ✕
+  each in its colour with the count in bold; then the combo out of the
+  map's maximum (counted by dossier-assay on first hover, in a thread),
+  the outcome mark (left out on a fail, the grade already says F), the
+  client and the day and time played. Every line is one line, cut with
+  an ellipsis (the player past 22 characters, the song past 44) and the
+  card clips, so nothing runs past the edge; 300 × 88,  10 px radius, a hairline border, a soft shadow, and a caret at its foot
   pointing at the frame's middle, the card sitting above the day labels
   with the caret's tip 14 px over the frame. It grows from the caret's
   tip — scale 0.84 → 1 and a fade, on the frame's own 200 ms rise — rather
@@ -393,17 +399,27 @@ place is there, the person is not. After linking, the Telegram avatar,
 render, a map, a send, a worker job — it wears a ring of the accent,
 which goes out by itself (accepted 2026-09-21; a sign-in button in the
 corner was drawn and replaced by the circle). The circle and the avatar
-open the same menu, split into two tabs, *Аккаунт* and *Лента*. Signed
-out, the head says *Вход не выполнен · видео остаются на этом
-компьютере*; the account tab says why to sign in and holds the sign-in
-button, then the device — replays in the journal, videos and their size,
-the build. Signed in, the head is the name, the handle and the day of
-linking; the tab says where videos go, the worker's state, what was sent
-this month, the device, and *Выйти* in the foot. The *Лента* tab is one
-timeline of the day, time · mark · words, running jobs on top with their
-progress lines, a failure in red with its own *Ещё раз*, *Всё прочитано*
-in the foot; it works signed out too, as the device's own story. Signing
-in is a card, not a password: a code that lives five minutes and a QR,
+open the same menu, split into three tabs, *Аккаунт*, *Лента* and
+*Статистика*. Signed out, the head says *Вход не выполнен · видео
+остаются на этом компьютере* and the account tab says why to sign in
+and holds the sign-in button, nothing more. Signed in, the head is the
+name, the handle and the day of linking; the account tab keeps only the
+important words — where videos go, the worker's state, the build — and
+*Выйти* in the foot. The *Лента* tab is one timeline of the day, time ·
+mark · words, running jobs on top with a progress line under each and
+no percentage (the line is the number), a failure in red with its own
+*Ещё раз*, *Всё прочитано* in the foot; it works signed out too, as the
+device's own story. *Статистика* is where the figures live, so the
+other tabs need not carry them: as a worker — jobs done and this month,
+gigabytes given, the mean job time, today and the queue; on this device
+— replays in the journal, renders and videos with their size, sent to
+Telegram. A finished render announces itself top-right, under the words:
+a card with a tick, *Отрендерено*, *Открыть* at the right and who — map
+· length · size beneath, dropping 8 px and fading in over 240 ms,
+standing six seconds or while hovered, leaving upward in 200 ms; a
+second card stacks under the first, three at most; a failure's card has
+a cross and *Ещё раз* and stays until dealt with; every card also goes
+to the *Лента*. Signing in is a card, not a password: a code that lives five minutes and a QR,
 *Открыть Telegram* leads to t.me/‹bot›?start=‹code›, the bot answers
 *Привязано*, the application waits for that answer, and the avatar fades
 in where the hatching was. Errors: E — when the application cannot go
@@ -411,38 +427,28 @@ on, the scene dims and one card, the first run's, says what, where and
 the ways out (chosen 2026-09-21; B stays for Render and Get the map,
 where the button already is the story).
 Rendered videos live in the application: a fourth word, *Видео*, opens
-a list — frame, when, who · map, mods, length, size, and a *✓ TG* once it
-went to Telegram — newest on top (chosen 2026-09-21 over a grid and over
-a mirror of the main screen). A click opens the player over almost the
-whole window, 40 px from the edges: the video 16:9, the scrubber and the
-time under it, then the player's name, the map, mods · resolution · size
-and the buttons *В Telegram · В папке · Удалить*; Esc or a click outside
+a list — frame, when, who · map, mods, length, size — newest on top
+(chosen 2026-09-21 over a grid and over a mirror of the main screen; a
+Telegram column was drawn and dropped as foreign to the list). A click
+opens the player over almost the whole window, 40 px from the edges: the
+video 16:9, the scrubber and the time under it, then a caption block —
+the player's name large, the map under it, and a small mono line of
+mods · length · resolution · fps · size · when — with the buttons
+*В Telegram · В папке · Удалить* at the right; Esc or a click outside
 returns to the list. Space pauses, the arrows step five seconds, a
 double click fills the screen; while it plays, the scrubber and the time
 stay and the rest dims a little. Sending to Telegram happens only here,
 with the same one-word progress button (*Отправляю*, the fill following
-the bytes) and the ring on the avatar; done, the button returns and a
-small card bottom-left says where it went and leaves after six seconds,
-and the list's row gets its *✓ TG*. Deleting is the screen's one
-question: to the bin, the replay and the map stay. Drawn in
+the bytes) and the ring on the avatar; done, the button returns and the
+top-right card says where it went. Deleting is the screen's one
+question: to the bin, the replay and the map stay. With no videos yet,
+one line and a *К реплеям* button under it. Drawn in
 `docs/mockups/main/store.py`; to be built in this order: the store
 (`~/.dossier/Renders` with an index), the video screen (frames decoded by
 ffmpeg into a texture, sound through cpal), the circle and the tabbed
 menu with a notice queue, the Telegram sign-in, the send, the ring.
-*What the bubble says.* Asked 2026-09-21: the bubble as built repeats
-the viewer — player, accuracy, map, mods · combo · outcome · grade — and
-so says nothing. Seven variants were drawn (`docs/mockups/main/bubbles.py`,
-each shown in place and at ×2): the judgement counts; the map's facts;
-what has been done with the replay; the same for a replay without its
-map; everything the viewer does not say, in four lines; the same in two
-columns. Proposed: the four-line one — the player with the grade and
-the accuracy as the head, so it is clear whom it is about; 300 · 100 ·
-50 · miss and the combo out of the map's maximum; the map's stars, BPM,
-length and mapper with the client and the time played; a foot of ticks —
-video and its size, Telegram, the map on disk (or a cross and *Скачать*).
-Counts, combo, client and time are in the replay already; BPM, length,
-mapper and the settings are in the .osu; the stars wait for a difficulty
-calculator and the line goes without them until then.
+*What the bubble says* is in the journal's section above; the seven
+variants stay drawn for the record.
 
 *The three words.* Replays is this screen. Worker and Settings open over
 the scene, dimmed to a fifth, in the first run's centred column; the crest

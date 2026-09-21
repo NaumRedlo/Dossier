@@ -257,6 +257,9 @@ pub const GRADE_A: Color = color!(0x8cd04a);
 pub const GRADE_B: Color = color!(0x58aefc);
 pub const GRADE_C: Color = color!(0xb06ce8);
 pub const GRADE_D: Color = ACCENT;
+pub const HIT_300: Color = GRADE_B;
+pub const HIT_100: Color = GRADE_A;
+pub const HIT_50: Color = GRADE_S;
 
 pub const MOD_HARD: Color = color!(0xd64e48);
 pub const MOD_EASY: Color = color!(0x7ac65c);

@@ -64,7 +64,9 @@
     .bub .h { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 14px; line-height: 18px; }
     .bub .h .r { margin-left: auto; font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-weight: 700; font-size: 12px; }
     .bub .m { color: #a9a29b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .bub .mono { font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: 11px; color: #a9a29b; white-space: nowrap; display: flex; align-items: center; gap: 6px; margin-top: 3px; }
+    .bub .mono { font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: 11px; color: #a9a29b; white-space: nowrap; display: flex; align-items: center; gap: 6px; margin-top: 3px; overflow: hidden; }
+    .bub .mono > * { flex: none; }
+    .bub .mono .cut { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
     .bub .mono b { color: #ece7e2; font-weight: 700; }
     .bub .mono .k { color: #6b655f; }
     .bub .mono .sep { color: #6b655f; }

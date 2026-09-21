@@ -218,6 +218,12 @@ impl Words {
         }
     }
 
+    pub fn of_max(&self, max: u32) -> String {
+        let mut args = FluentArgs::new();
+        args.set("max", max);
+        self.say("of-max", Some(&args))
+    }
+
     pub fn length(&self, ms: i64) -> String {
         let seconds = (ms.max(0) / 1000) as u64;
         format!("{}:{:02}", seconds / 60, seconds % 60)

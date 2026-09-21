@@ -133,3 +133,4 @@ unpacking-map = Unpacking
 checking = Checking
 once-more = Once more
 not-found = Not found
+of-max = of { $max }

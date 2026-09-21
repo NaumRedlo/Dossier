@@ -7,13 +7,19 @@ use dossier_produce::{locate, scenery};
 use iced::widget::image;
 
 pub const SIZE: (u32, u32) = (960, 540);
-pub const FPS: f64 = 30.0;
+pub const FPS: f64 = 60.0;
+pub const EASE: Duration = Duration::from_millis(700);
 
 #[derive(Debug, Default)]
 pub struct Control {
     stop: AtomicBool,
     paused: AtomicBool,
     seek: Mutex<Option<f64>>,
+}
+
+fn ease(k: f64) -> f64 {
+    let k = k.clamp(0.0, 1.0);
+    k * k * (3.0 - 2.0 * k)
 }
 
 impl Control {
@@ -46,6 +52,7 @@ impl Control {
 #[derive(Debug, Clone)]
 pub enum Frame {
     Picture { handle: image::Handle, at_ms: f64, from_ms: f64, to_ms: f64 },
+    Still(image::Handle),
     Failed(String),
 }
 
@@ -95,51 +102,73 @@ fn run(ask: &Ask, control: &Control, push: &mut dyn FnMut(Frame) -> bool) -> Res
     let (from_ms, to_ms) = state.span_ms();
     let rate = state.playback_rate().max(0.01);
     let step = Duration::from_secs_f64(1.0 / FPS);
-    let mut clock = Instant::now();
-    let mut base_ms = from_ms;
-    let mut shown_ms = f64::NAN;
+    let mut at_ms = from_ms;
+    let mut tick = Instant::now();
+    let mut next = Instant::now();
+    let mut speed = 1.0f64;
+    let mut eased_since: Option<(Instant, f64, bool)> = None;
+    let mut was_paused = false;
+    let mut still_sent = false;
     loop {
         if control.stopped() {
             return Ok(());
         }
         if let Some(delta) = control.take_seek() {
-            let now_ms = base_ms + clock.elapsed().as_secs_f64() * 1000.0 * rate;
-            base_ms = (now_ms + delta).clamp(from_ms, to_ms);
-            clock = Instant::now();
+            at_ms = (at_ms + delta).clamp(from_ms, to_ms);
+            still_sent = false;
         }
         let paused = control.paused();
-        let at_ms = if paused {
-            base_ms
-        } else {
-            base_ms + clock.elapsed().as_secs_f64() * 1000.0 * rate
-        };
-        if paused {
-            base_ms = at_ms;
-            clock = Instant::now();
+        if paused != was_paused {
+            eased_since = Some((Instant::now(), speed, paused));
+            was_paused = paused;
+            still_sent = false;
         }
-        let at_ms = if at_ms > to_ms {
-            base_ms = from_ms;
-            clock = Instant::now();
-            from_ms
-        } else {
-            at_ms
-        };
-        if (at_ms - shown_ms).abs() < 0.5 {
-            std::thread::sleep(step);
+        if let Some((since, from_speed, to_pause)) = eased_since {
+            let k = ease(since.elapsed().as_secs_f64() / EASE.as_secs_f64());
+            let target = if to_pause { 0.0 } else { 1.0 };
+            speed = from_speed + (target - from_speed) * k;
+            if k >= 1.0 {
+                eased_since = None;
+                speed = target;
+            }
+        }
+        let now = Instant::now();
+        at_ms += now.duration_since(tick).as_secs_f64() * 1000.0 * rate * speed;
+        tick = now;
+        if at_ms > to_ms {
+            at_ms = from_ms;
+        }
+        if speed <= 0.0 {
+            if !still_sent {
+                let pixmap = scene.frame(at_ms, &layout);
+                let mut rgba = pixmap.take();
+                dim_rows(&mut rgba, SIZE.0 as usize, SIZE.1 as usize);
+                let mut soft = ::image::RgbaImage::from_raw(SIZE.0, SIZE.1, rgba).map(::image::DynamicImage::ImageRgba8);
+                if let Some(picture) = soft.take() {
+                    let blurred = picture.fast_blur(2.5).to_rgba8();
+                    if !push(Frame::Still(image::Handle::from_rgba(SIZE.0, SIZE.1, blurred.into_raw()))) {
+                        return Ok(());
+                    }
+                }
+                still_sent = true;
+            }
+            std::thread::sleep(Duration::from_millis(40));
+            next = Instant::now();
             continue;
         }
-        let drawn = Instant::now();
         let pixmap = scene.frame(at_ms, &layout);
         let mut rgba = pixmap.take();
         dim_rows(&mut rgba, SIZE.0 as usize, SIZE.1 as usize);
         let handle = image::Handle::from_rgba(SIZE.0, SIZE.1, rgba);
-        shown_ms = at_ms;
         if !push(Frame::Picture { handle, at_ms, from_ms, to_ms }) {
             return Ok(());
         }
-        let spent = drawn.elapsed();
-        if spent < step {
-            std::thread::sleep(step - spent);
+        next += step;
+        let now = Instant::now();
+        if next > now {
+            std::thread::sleep(next - now);
+        } else {
+            next = now;
         }
     }
 }

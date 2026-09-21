@@ -121,3 +121,8 @@ files-label = { $n ->
     [one] file
    *[other] files
 }
+reading-replay = Reading the replay
+judging = Judging
+in-folder = In folder
+did-not-work = Did not work · once more
+not-on-mirrors = Not on the mirrors · once more

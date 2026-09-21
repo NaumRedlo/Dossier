@@ -862,28 +862,32 @@ impl<Message> canvas::Program<Message> for Trail {
         let end = self.points.partition_point(|(t, _, _)| *t <= self.at_ms);
         if end > start + 1 {
             let slice = &self.points[start..end];
-            let pieces = 12usize;
-            let per = (slice.len() / pieces).max(2);
-            let mut at = 0;
-            while at + 1 < slice.len() {
-                let stop = (at + per + 1).min(slice.len());
-                let age = 1.0 - ((slice[stop - 1].0 - from) / self.window_ms) as f32;
-                let alpha = (0.75 * (1.0 - age).powf(1.5)).clamp(0.05, 0.75);
-                let path = Path::new(|b| {
-                    let (_, x, y) = slice[at];
-                    b.move_to(place(x, y));
-                    for (_, x, y) in &slice[at + 1..stop] {
-                        b.line_to(place(*x, *y));
-                    }
-                });
-                frame.stroke(&path, Stroke::default().with_width(2.0).with_color(Color { a: alpha, ..ACCENT }));
-                at = stop - 1;
+            let mut previous = place(slice[0].1, slice[0].2);
+            for (t, x, y) in &slice[1..] {
+                let here = place(*x, *y);
+                let fresh = ((t - from) / self.window_ms).clamp(0.0, 1.0) as f32;
+                let alpha = 0.85 * fresh * fresh;
+                let width = 1.0 + 2.2 * fresh;
+                let segment = Path::line(previous, here);
+                frame.stroke(
+                    &segment,
+                    Stroke::default()
+                        .with_width(width * 3.0)
+                        .with_color(Color { a: alpha * 0.12, ..ACCENT })
+                        .with_line_cap(canvas::LineCap::Round),
+                );
+                frame.stroke(
+                    &segment,
+                    Stroke::default().with_width(width).with_color(Color { a: alpha, ..ACCENT }).with_line_cap(canvas::LineCap::Round),
+                );
+                previous = here;
             }
         }
         if let Some((_, x, y)) = self.points.get(end.saturating_sub(1)).filter(|_| end > 0) {
             let here = place(*x, *y);
-            frame.fill(&Path::circle(here, 5.0), ACCENT);
-            frame.stroke(&Path::circle(here, 11.0), Stroke::default().with_width(1.5).with_color(Color { a: 0.5, ..ACCENT }));
+            frame.fill(&Path::circle(here, 14.0), Color { a: 0.12, ..ACCENT });
+            frame.fill(&Path::circle(here, 4.5), ACCENT);
+            frame.stroke(&Path::circle(here, 10.0), Stroke::default().with_width(1.5).with_color(Color { a: 0.45, ..ACCENT }));
         }
         vec![frame.into_geometry()]
     }
@@ -906,4 +910,109 @@ pub fn hatched_picture(width: u32, height: u32, dim: impl Fn(f32) -> f32) -> ima
         }
     }
     image::Handle::from_rgba(width, height, rgba)
+}
+
+pub struct Scrub<'a, Message> {
+    pub start: f32,
+    pub len: f32,
+    pub on: Box<dyn Fn(f32) -> Message + 'a>,
+}
+
+#[derive(Debug, Default)]
+pub struct ScrubState {
+    grabbed: Option<f32>,
+}
+
+impl<Message> canvas::Program<Message> for Scrub<'_, Message> {
+    type State = ScrubState;
+
+    fn update(
+        &self,
+        state: &mut ScrubState,
+        event: &iced::Event,
+        bounds: Rectangle,
+        cursor: mouse::Cursor,
+    ) -> Option<canvas::Action<Message>> {
+        let fraction_at = |x: f32| ((x - bounds.x) / bounds.width.max(1.0)).clamp(0.0, 1.0);
+        match event {
+            iced::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
+                let at = cursor.position_in(bounds)?;
+                let here = fraction_at(bounds.x + at.x);
+                let grab = if here >= self.start && here <= self.start + self.len { here - self.start } else { self.len / 2.0 };
+                state.grabbed = Some(grab);
+                Some(canvas::Action::publish((self.on)((here - grab).clamp(0.0, 1.0 - self.len))).and_capture())
+            }
+            iced::Event::Mouse(mouse::Event::CursorMoved { position }) => {
+                let grab = state.grabbed?;
+                let here = fraction_at(position.x);
+                Some(canvas::Action::publish((self.on)((here - grab).clamp(0.0, 1.0 - self.len))).and_capture())
+            }
+            iced::Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => {
+                state.grabbed.take()?;
+                Some(canvas::Action::capture())
+            }
+            _ => None,
+        }
+    }
+
+    fn draw(&self, state: &ScrubState, renderer: &Renderer, _: &Theme, bounds: Rectangle, cursor: mouse::Cursor) -> Vec<Geometry> {
+        let mut frame = Frame::new(renderer, bounds.size());
+        let y = bounds.height / 2.0;
+        let lit = state.grabbed.is_some() || cursor.is_over(bounds);
+        let track = Path::line(Point::new(0.0, y), Point::new(bounds.width, y));
+        frame.stroke(&track, Stroke::default().with_width(2.0).with_color(faded(Color::from_rgba(1.0, 1.0, 1.0, 0.06))));
+        if self.len < 1.0 {
+            let x0 = bounds.width * self.start;
+            let x1 = bounds.width * (self.start + self.len);
+            let thumb = Path::line(Point::new(x0, y), Point::new(x1, y));
+            let colour = if lit { MUTED } else { Color { a: 0.55, ..MUTED } };
+            frame.stroke(&thumb, Stroke::default().with_width(2.0).with_color(faded(colour)).with_line_cap(canvas::LineCap::Round));
+        }
+        vec![frame.into_geometry()]
+    }
+
+    fn mouse_interaction(&self, state: &ScrubState, bounds: Rectangle, cursor: mouse::Cursor) -> mouse::Interaction {
+        if state.grabbed.is_some() {
+            mouse::Interaction::Grabbing
+        } else if cursor.is_over(bounds) {
+            mouse::Interaction::Grab
+        } else {
+            mouse::Interaction::default()
+        }
+    }
+}
+
+pub struct Bar {
+    pub fraction: f32,
+    pub alpha: f32,
+}
+
+impl<Message> canvas::Program<Message> for Bar {
+    type State = ();
+
+    fn draw(&self, _: &(), renderer: &Renderer, _: &Theme, bounds: Rectangle, _: mouse::Cursor) -> Vec<Geometry> {
+        let mut frame = Frame::new(renderer, bounds.size());
+        let width = bounds.width * self.fraction.clamp(0.0, 1.0);
+        if width > 0.5 {
+            let path = Path::rounded_rectangle(Point::ORIGIN, Size::new(width, bounds.height), (bounds.height / 2.0).into());
+            frame.fill(&path, Color { a: ACCENT.a * self.alpha, ..ACCENT });
+        }
+        vec![frame.into_geometry()]
+    }
+}
+
+pub fn progress<'a, Message: Clone + 'a>(words: String, fraction: f32, on: Option<Message>) -> Element<'a, Message> {
+    let label = container(text(words).font(theme::SANS_SEMI).size(theme::BODY).color(faded(INK)))
+        .center_y(theme::CONTROL_HEIGHT - 2.0)
+        .padding([0, 12]);
+    let bar = Canvas::new(Bar { fraction, alpha: fade() }).width(Length::Fill).height(2.0);
+    let face = iced::widget::stack![
+        label,
+        container(bar).width(Length::Fill).height(Length::Fill).align_y(iced::alignment::Vertical::Bottom).padding([1, 6]),
+    ];
+    let made = button(face).padding(0).style(dimmed(theme::progressing, fade()));
+    match on {
+        Some(message) => made.on_press(message).into(),
+        None => made.into(),
+    }
 }

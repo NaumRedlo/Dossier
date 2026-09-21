@@ -125,3 +125,8 @@ files-label = { $n ->
     [few] файла
    *[other] файлов
 }
+reading-replay = Читаю реплей
+judging = Сужу
+in-folder = В папке
+did-not-work = Не вышло · ещё раз
+not-on-mirrors = Нет на зеркалах · ещё раз

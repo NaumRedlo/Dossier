@@ -214,8 +214,11 @@ never a farm; the farm is the bot's word for all of them together.
   in the middle of its frame. A day is labelled the way its language says it:
   *today* / *сегодня* as the bare word, then *Aug 14* / *14 авг*, and the
   year only when it is not this one — *May 10, 2025* / *10 мая 2025*. It
-  scrolls sideways; *1 / 187* sits small and centred under the strip, with
-  no arrows — the keys and the wheel turn the pages.
+  scrolls sideways, and the line above it is its scrubber: a two-pixel
+  track with the visible stretch drawn on it in the muted tone, brighter
+  under the pointer, draggable and clickable; *36 / 179* sits at its right
+  end in eleven-pixel mono, faint. Frames are 108×61, the chosen one
+  116×65.
 - *Thin chrome.* One row at the top: the crest — the first run's block at
   the first run's sizes, the letter at 36 px, a 22 px rule, the word at
   20 px — at the left, and three words at the right: Replays, Worker,
@@ -258,15 +261,18 @@ the keyboard. Where a choice is still open it is marked *open*.
   instead.
 - The outcome tag: hovering says how many misses and where the first one
   fell; clicking seeks the scene to that moment.
-- *Render*: the meta line and the button give way to the ledger — Replay
-  read, Map on disk, Judged, Drawing with its fraction and time left,
-  Saving — with a quiet *Stop*; the player's name and the map stay, the
-  accuracy stays, the frame in the journal wears a red dot in its middle.
-  Encoding is not a line of its own: the encoder eats frames as they are
-  drawn, so *Drawing* is both. When it is done the ledger folds into one
-  line, *Rendered · Open · Show in folder*, which stays until the next
-  choice; a stop or a failure leaves the line red with its reason and the
-  button back. The scene keeps playing throughout. Built 2026-09-16: the
+- *Render*: the button itself becomes the progress, the way lazer's
+  download button does (chosen 2026-09-21 over a ledger in the viewer,
+  which took the meta line's place and was too much): its face turns to
+  the soft accent, its words follow the work — *Reading the replay*,
+  *Judging*, *Drawing · 62 %*, *Saving* — and a two-pixel bar along its
+  bottom fills, eased frame by frame so it never jumps. Clicking it stops.
+  The player's name and the map stay, the accuracy stays, the frame in the
+  journal wears a red dot in its middle. Encoding is not a step of its
+  own: the encoder eats frames as they are drawn, so *Drawing* is both.
+  When it is done the button reads *Open*, with *In folder* as a link
+  beside it, until the next choice; a stop or a failure leaves a quiet
+  *Did not work · once more*. The scene keeps playing throughout. Built 2026-09-16: the
   engine's own pipeline in a thread of its own, its progress events read
   as they come, `halt` for *Stop*. The picture is 1920×1080 at 60 fps, crf
   20, preset medium, with the map's background, the map's own hit-sounds
@@ -292,17 +298,16 @@ the keyboard. Where a choice is still open it is marked *open*.
   hatched ground is a picture too, dimmed at the top and the bottom the
   same way as every other scene, so it never looks brighter than its
   neighbours.
-- *Get the map* is the render's ledger applied to fetching: *Looking up the
-  map* becomes *Found on osu.direct · #2190769* (a mirror's answer to a hash
-  carries the set's number and little else; the song's name arrives with
-  the files), then *Downloading · 14,2 / 21,8 MB · osu.direct*, *Unpacking
-  into Dossier/Songs*, *Checking the hash*, with a quiet *Stop*. The frame
-  wears the red dot. When the hash agrees with the replay's, the map joins
+- *Get the map* is the same progress button: *Looking up the map*, *Found
+  on osu.direct* (a mirror's answer to a hash carries the set's number and
+  little else; the song's name arrives with the files), *Downloading · 14,2
+  / 21,8 MB*, *Unpacking into Dossier/Songs*, *Checking the hash*, the bar
+  filling with the bytes; clicking it stops. The frame wears the red dot. When the hash agrees with the replay's, the map joins
   every replay that names it, the scene crossfades from the hatched ground
   to the map's background, the frame takes it too, and the button reads
   *Render*. When no mirror knows the map, the line turns red — *Not on any
-  mirror* — with *Try again* under it; so does a stop or a failure with its
-  reason. Built 2026-09-16: osu.direct then catboy.best for the look-up,
+  mirror* — as a quiet *Not on the mirrors · once more*; so does a stop or
+  a failure. Built 2026-09-16: osu.direct then catboy.best for the look-up,
   the answering mirror first for the file, the other as the second try; the
   set is unpacked into the application's own Songs (or a plain folder's
   own Songs when that is the source), never into the game's; the folder is
@@ -311,9 +316,12 @@ the keyboard. Where a choice is still open it is marked *open*.
 
 *The journal.*
 - Hovering a frame lifts it 2 px and brightens it to full over 200 ms, and
-  a caption appears above it (the caption wraps the lifted frame, not the
-  other way round: a tooltip inside a float lost the strip's scroll and
-  landed far to the left), pointing at it with a small caret: the player
+  the viewer previews it: its words — date, player, map, mods, combo,
+  accuracy, outcome — crossfade in over the chosen replay's in 180 ms, the
+  button excepted, and fade back when the pointer leaves; the scene does
+  not change. This is the *open* choice above, settled 2026-09-21 in favour
+  of the viewer: the caption in a bubble was sloppy and told nothing the
+  viewer does not. What follows describes the caption that was: the player
   in semi-bold with the accuracy in mono at the right, the map under in the
   muted tone, then one mono line — mod badges · combo · length · outcome
   (*FC*, *SB*, *×27*). The pointer leaving drops it back; nothing else on
@@ -368,11 +376,13 @@ they are built, each is one card — its name and *Coming later* / *Будет
 
 *The scene.* The engine draws the chosen replay live, bare — no score, no
 counters, no key overlay, the play alone over the map's background — at
-960×540 and 30 frames a second on one CPU thread (about a seventh of a core
-on an M-series Mac), looping from the lead-in to the end, muted. Each frame
+960×540 and 60 frames a second on one CPU thread, on a fixed cadence so
+frames come evenly, looping from the lead-in to the end, muted. Each frame
 is dimmed before it is shown: near-black at the top and the bottom, easing
 to a centre held at two-fifths dark, so the words read over any play. A
-click on the scene pauses it, another resumes. Under the live picture, and
+click on the scene does not freeze it: the play eases to a stop over 700
+ms, and once still, softens into a light blur; another click eases it back
+up to speed and the blur lifts. Under the live picture, and
 before its first frame arrives, sits the map's background, blurred and
 dimmed harder (two-thirds at the centre); the picture fades in over it in
 640 ms. A choice stops the old play and starts the new one. The dim is baked
@@ -554,6 +564,8 @@ Learned building the main screen, kept so nobody rediscovers it:
 - Within one layer the renderer draws quads before images; a veil meant to
   sit over a picture needs a layer of its own (`with_layer`), or, better, no
   veil.
+- A `FillPortion` row inside a `stack` child drew nothing at all; a
+  two-pixel bar that must be a fraction of its button is a small canvas.
 
 ### Two renderers, one look
 

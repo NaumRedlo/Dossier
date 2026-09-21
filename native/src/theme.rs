@@ -265,8 +265,8 @@ pub const MOD_OTHER: Color = color!(0x9668ce);
 pub const SCRIM: Color = Color::from_rgba(0.027, 0.012, 0.016, 0.72);
 pub const CHIP: Color = Color::from_rgba(0.027, 0.012, 0.016, 0.72);
 
-pub const FRAME_W: f32 = 88.0;
-pub const FRAME_H: f32 = 50.0;
+pub const FRAME_W: f32 = 108.0;
+pub const FRAME_H: f32 = 61.0;
 pub const FRAME_RADIUS: f32 = 6.0;
 
 pub fn scrim(_: &Theme) -> container::Style {
@@ -353,5 +353,29 @@ pub fn field_faded(alpha: f32) -> impl Fn(&Theme, text_input::Status) -> text_in
         style.placeholder = dim(style.placeholder);
         style.value = dim(style.value);
         style
+    }
+}
+
+pub fn progressing(_: &Theme, status: button::Status) -> button::Style {
+    let background = match status {
+        button::Status::Hovered | button::Status::Pressed => Color::from_rgba(0.886, 0.282, 0.282, 0.07),
+        _ => ACCENT_SOFT,
+    };
+    button::Style {
+        background: Some(Background::Color(background)),
+        text_color: INK,
+        border: border(Color::from_rgba(0.886, 0.282, 0.282, 0.18), CONTROL_RADIUS),
+        shadow: Shadow::default(),
+        snap: true,
+    }
+}
+
+pub fn bar(_: &Theme) -> container::Style {
+    container::Style {
+        text_color: None,
+        background: Some(Background::Color(ACCENT)),
+        border: border(Color::TRANSPARENT, 1.0),
+        shadow: Shadow::default(),
+        snap: true,
     }
 }

@@ -399,6 +399,7 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
         ],
         out: None,
     });
+    rendering.progress_shown = rendering.progress_target().unwrap_or(0.0);
     let mut fetching = staged(Some(3));
     fetching.fetching = Some(crate::main_screen::Fetching {
         hash: library.entries[3].map_hash.clone(),
@@ -426,7 +427,10 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
         ("main-worker".to_owned(), worker),
         ("main-rendering".to_owned(), rendering),
         ("main-rendered".to_owned(), rendered),
-        ("main-fetching".to_owned(), fetching),
+        ("main-fetching".to_owned(), {
+            fetching.progress_shown = fetching.progress_target().unwrap_or(0.0);
+            fetching
+        }),
         ("main-empty".to_owned(), empty),
         ("main-looking".to_owned(), looking),
     ]

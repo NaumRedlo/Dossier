@@ -4,8 +4,7 @@ use std::time::{Duration, Instant};
 
 use iced::animation::Easing;
 use iced::widget::{
-    button, column, container, float, image, mouse_area, pin, row, scrollable, stack, text,
-    tooltip, Space,
+    button, column, container, float, image, mouse_area, pin, row, scrollable, stack, text, Space,
 };
 use iced::{window, Animation, Color, ContentFit, Element, Length, Padding, Subscription, Task, Vector};
 
@@ -25,6 +24,7 @@ pub const ARRIVE: Duration = Duration::from_millis(450);
 pub const SWAP: Duration = Duration::from_millis(450);
 pub const LIFT: Duration = Duration::from_millis(200);
 pub const LIVE_FADE: Duration = Duration::from_millis(640);
+pub const PEEK: Duration = Duration::from_millis(180);
 pub const BRAND_WIDTH: f32 = 144.0;
 const CREST_HOME: (f32, f32) = (40.0, 24.0);
 const CREST_RISE: f32 = 8.0;
@@ -64,6 +64,8 @@ pub enum Message {
     Looked(scan::Step),
     Live(live::Frame),
     TogglePlay,
+    Strip(scrollable::Viewport),
+    ScrubTo(f32),
     Traced(PathBuf, std::sync::Arc<Vec<(f64, f32, f32)>>),
     Dropped(PathBuf),
     Resized(f32),
@@ -140,8 +142,10 @@ pub struct Live {
     pub control: std::sync::Arc<live::Control>,
     pub for_path: PathBuf,
     pub frame: Option<image::Handle>,
+    pub still: Option<image::Handle>,
     pub at_ms: f64,
     pub fade: Animation<bool>,
+    pub rest: Animation<bool>,
 }
 
 #[derive(Clone)]
@@ -165,6 +169,10 @@ pub struct Main {
     pub live_before: Option<image::Handle>,
     pub hatch: image::Handle,
     pub trail: Option<Trail>,
+    pub strip_view: Option<(f32, f32, f32)>,
+    pub peek: Animation<bool>,
+    pub peeked: Option<usize>,
+    pub progress_shown: f32,
     pub ffmpeg: Option<PathBuf>,
     pub now: Instant,
     pub started: Instant,
@@ -208,6 +216,10 @@ impl Main {
             live_before: None,
             hatch: ui::hatched_picture(live::SIZE.0, live::SIZE.1, live::dim_at),
             trail: None,
+            strip_view: None,
+            peek: Animation::new(false).duration(PEEK).easing(Easing::EaseOutCubic),
+            peeked: None,
+            progress_shown: 0.0,
             ffmpeg: crate::checks::ffmpeg_on_path(),
             now: Instant::now(),
             started: Instant::now(),
@@ -237,8 +249,10 @@ impl Main {
         self.rendering.as_ref().is_some_and(|r| !r.is_over())
             || self.fetching.as_ref().is_some_and(|f| !f.is_over())
             || matches!(self.looking, Some(scan::Step::Looking { .. }))
-            || self.live.as_ref().is_some_and(|l| l.fade.is_animating(self.now))
+            || self.live.as_ref().is_some_and(|l| l.fade.is_animating(self.now) || l.rest.is_animating(self.now))
             || self.trail.as_ref().is_some_and(|t| t.paused_at.is_none())
+            || self.peek.is_animating(self.now)
+            || self.progress_target().is_some_and(|t| (t - self.progress_shown).abs() > 0.001)
             || self.enter.is_animating(self.now)
             || self.arrive.is_animating(self.now)
             || self.swap.is_animating(self.now)
@@ -323,6 +337,8 @@ impl Main {
         self.before = before;
         self.scene_before = scene_before;
         self.chosen = Some(at);
+        self.peek = Animation::new(false).duration(PEEK).easing(Easing::EaseOutCubic);
+        self.peeked = None;
         self.swap_waits = self.chosen_entry().is_some_and(|e| e.map.is_some() && !self.scenes.contains_key(&e.map_hash));
         if self.rendering.as_ref().is_some_and(Rendering::is_over) {
             self.rendering = None;
@@ -357,8 +373,10 @@ impl Main {
             control: control.clone(),
             for_path: ask.replay.clone(),
             frame: None,
+            still: None,
             at_ms: 0.0,
             fade: Animation::new(false).duration(LIVE_FADE).easing(Easing::EaseOutCubic),
+            rest: Animation::new(false).duration(LIVE_FADE).easing(Easing::EaseOutCubic),
         });
         live::play(ask, control).map(Message::Live)
     }
@@ -455,8 +473,17 @@ impl Main {
                     Some(at) => {
                         self.lifted = Some(at);
                         self.lift.go_mut(true, Instant::now());
+                        if Some(at) != self.chosen {
+                            self.peeked = Some(at);
+                            self.peek.go_mut(true, Instant::now());
+                        } else {
+                            self.peek.go_mut(false, Instant::now());
+                        }
                     }
-                    None => self.lift.go_mut(false, Instant::now()),
+                    None => {
+                        self.lift.go_mut(false, Instant::now());
+                        self.peek.go_mut(false, Instant::now());
+                    }
                 }
                 Task::none()
             }
@@ -613,6 +640,13 @@ impl Main {
                         }
                         live.frame = Some(handle);
                         live.at_ms = at_ms;
+                        if live.rest.value() || live.rest.is_animating(Instant::now()) {
+                            live.rest.go_mut(false, Instant::now());
+                        }
+                    }
+                    live::Frame::Still(handle) => {
+                        live.still = Some(handle);
+                        live.rest.go_mut(true, Instant::now());
                     }
                     live::Frame::Failed(_) => {
                         live.control.stop();
@@ -620,6 +654,21 @@ impl Main {
                     }
                 }
                 Task::none()
+            }
+            Message::Strip(viewport) => {
+                let offset = viewport.absolute_offset().x;
+                self.strip_view = Some((offset, viewport.content_bounds().width, viewport.bounds().width));
+                Task::none()
+            }
+            Message::ScrubTo(fraction) => {
+                let Some((_, content, shown)) = self.strip_view else {
+                    return Task::none();
+                };
+                let x = (fraction * content).clamp(0.0, (content - shown).max(0.0));
+                iced::advanced::widget::operate(iced::advanced::widget::operation::scrollable::scroll_to(
+                    self.strip_id.clone(),
+                    iced::widget::scrollable::AbsoluteOffset { x: Some(x), y: None },
+                ))
             }
             Message::TogglePlay => {
                 if let Some(live) = &self.live {
@@ -684,6 +733,10 @@ impl Main {
             }
             Message::Tick(now) => {
                 self.now = now;
+                match self.progress_target() {
+                    Some(target) => self.progress_shown += (target - self.progress_shown) * 0.12,
+                    None => self.progress_shown = 0.0,
+                }
                 Task::none()
             }
         }
@@ -724,7 +777,13 @@ impl Main {
             (Some(entry), Some(live), _) if live.for_path == entry.path => match &live.frame {
                 Some(handle) => {
                     let seen = live.fade.interpolate(0.0, 1.0, self.now);
-                    mouse_area(full(handle, alpha * seen)).on_press(Message::TogglePlay).into()
+                    let resting = live.rest.interpolate(0.0, 1.0, self.now);
+                    let moving: Element<'_, Message> = full(handle, alpha * seen);
+                    let layered: Element<'_, Message> = match &live.still {
+                        Some(still) if resting > 0.0 => stack![moving, full(still, alpha * seen * resting)].into(),
+                        _ => moving,
+                    };
+                    mouse_area(layered).on_press(Message::TogglePlay).into()
                 }
                 None => blank(),
             },
@@ -802,6 +861,28 @@ impl Main {
         };
         let now = self.shown(entry);
         let was = self.before.clone().unwrap_or_default();
+        let chosen_block = self.block(entry, &was, &now, s, true);
+        let h = self.peek.interpolate(0.0, 1.0, self.now);
+        let peeked = self.peeked.and_then(|at| self.entries().get(at)).filter(|e| e.path != entry.path);
+        let body: Element<'_, Message> = match peeked {
+            Some(other) if h > 0.0 => {
+                let shown = self.shown(other);
+                stack![
+                    ui::fading(ui::fade() * (1.0 - h), || self.block(entry, &was, &now, s, true)),
+                    ui::fading(ui::fade() * h, || self.block(other, &shown, &shown, 1.0, false)),
+                ]
+                .into()
+            }
+            _ => chosen_block,
+        };
+        container(body)
+            .padding(Padding { top: 0.0, right: 40.0, bottom: 28.0, left: 40.0 })
+            .width(Length::Fill)
+            .into()
+    }
+
+    fn block(&self, entry: &Entry, was: &Shown, now: &Shown, s: f32, with_actions: bool) -> Element<'_, Message> {
+        let w = &self.words;
         let retype = |from: &str, to: &str| if s < 1.0 { typed(from, to, s) } else { to.to_owned() };
         let date = retype(&was.date, &now.date);
         let player = retype(&was.player, &now.player);
@@ -821,29 +902,13 @@ impl Main {
             meta = meta.push(ui::fading(ui::fade() * badge_alpha, || ui::mono("·".to_owned(), FAINT)));
         }
         meta = meta.push(ui::mono(retype(&was.meta, &now.meta), MUTED));
-        let busy = self.rendering.as_ref().is_some_and(|r| !r.is_over());
-        let fetching_now = self.fetching.as_ref().is_some_and(|f| !f.is_over());
-        let rendering_this = self.rendering.as_ref().filter(|r| r.path == entry.path);
-        let fetching_this = self.fetching.as_ref().filter(|f| f.hash == entry.map_hash);
-        let lower: Element<'_, Message> = match (rendering_this, fetching_this) {
-            (Some(rendering), _) => self.render_ledger(rendering),
-            (None, Some(fetching)) => self.fetch_ledger(fetching),
-            (None, None) => {
-                let action = if entry.map.is_some() {
-                    ui::primary(w.t("render"), (self.ffmpeg.is_some() && !busy).then_some(Message::Render))
-                } else {
-                    ui::primary(w.t("get-the-map"), (!fetching_now).then_some(Message::GetMap))
-                };
-                column![container(meta).padding(Padding::ZERO.top(4.0)), container(action).padding(Padding::ZERO.top(14.0))]
-                    .spacing(2)
-                    .into()
-            }
-        };
+        let action: Element<'_, Message> = if with_actions { self.action(entry) } else { Space::new().height(theme::CONTROL_HEIGHT).into() };
         let left = column![
             text(date).font(theme::MONO).size(theme::CAPTION).color(ui::faded(MUTED)),
             text(player).font(theme::SANS_SEMI).size(30.0).color(ui::faded(INK)),
             text(map).font(theme::SANS).size(theme::BODY).color(ui::faded(MUTED)),
-            lower,
+            container(meta).padding(Padding::ZERO.top(4.0)),
+            container(action).padding(Padding::ZERO.top(14.0)),
         ]
         .spacing(2);
         let outcome_colour = if entry.outcome.is_bad() { ACCENT } else { MUTED };
@@ -855,160 +920,101 @@ impl Main {
         ]
         .spacing(2)
         .align_x(iced::alignment::Horizontal::Right);
-        container(row![left, ui::grow(), right].align_y(iced::alignment::Vertical::Bottom))
-            .padding(Padding { top: 0.0, right: 40.0, bottom: 28.0, left: 40.0 })
-            .width(Length::Fill)
-            .into()
+        let _ = w;
+        row![left, ui::grow(), right].align_y(iced::alignment::Vertical::Bottom).into()
     }
 
-    fn render_ledger(&self, rendering: &Rendering) -> Element<'_, Message> {
+    fn action(&self, entry: &Entry) -> Element<'_, Message> {
         let w = &self.words;
-        let reached = |wanted: fn(&Step) -> bool| rendering.reached.iter().any(wanted);
-        let last = rendering.last();
-        if let Some(Step::Saved(_)) = last {
-            let line = row![
-                ui::mono(w.t("rendered"), MUTED),
-                ui::mono("·".to_owned(), FAINT),
-                ui::link(w.t("open"), Message::OpenOut),
-                ui::mono("·".to_owned(), FAINT),
-                ui::link(w.t("show-in-folder"), Message::ShowOut),
-            ]
-            .spacing(8)
-            .align_y(iced::Center);
-            return container(line).padding(Padding::ZERO.top(8.0)).into();
+        let busy = self.rendering.as_ref().is_some_and(|r| !r.is_over());
+        let fetching_now = self.fetching.as_ref().is_some_and(|f| !f.is_over());
+        let rendering_this = self.rendering.as_ref().filter(|r| r.path == entry.path);
+        let fetching_this = self.fetching.as_ref().filter(|f| f.hash == entry.map_hash);
+        match (rendering_this, fetching_this) {
+            (Some(rendering), _) => self.render_button(rendering),
+            (None, Some(fetching)) => self.fetch_button(fetching),
+            (None, None) if entry.map.is_some() => ui::primary(w.t("render"), (self.ffmpeg.is_some() && !busy).then_some(Message::Render)),
+            (None, None) => ui::primary(w.t("get-the-map"), (!fetching_now).then_some(Message::GetMap)),
         }
-        let failed = match last {
-            Some(Step::Failed(why)) => Some(why.clone()),
-            Some(Step::Stopped) => Some(w.t("stopped")),
-            _ => None,
-        };
-        let stages: [(&str, fn(&Step) -> bool); 5] = [
-            ("replay-read", |s| matches!(s, Step::ReplayRead)),
-            ("map-on-disk", |s| matches!(s, Step::MapOnDisk)),
-            ("judged", |s| matches!(s, Step::Judged)),
-            ("drawing", |s| matches!(s, Step::Encoded)),
-            ("saving", |s| matches!(s, Step::Saved(_))),
-        ];
-        let mut lines = Vec::new();
-        let mut current_seen = false;
-        for (key, done) in stages {
-            let is_done = reached(done);
-            let mood = if is_done {
-                Mood::Done
-            } else if !current_seen {
-                current_seen = true;
-                if failed.is_some() { Mood::Failed } else { Mood::Now }
-            } else {
-                Mood::Todo
-            };
-            let mut line = Line::new(mood, w.t(key));
-            if key == "drawing" && mood == Mood::Now {
-                if let Some(Step::Drawing { frames, of, left_seconds }) = rendering.reached.iter().rev().find(|s| matches!(s, Step::Drawing { .. })) {
-                    line = line.detail(format!(
-                        "{} / {} · {}",
-                        w.lang().group(*frames),
-                        w.lang().group(*of),
-                        w.n("seconds-left", left_seconds.round().max(0.0) as u64)
-                    ));
-                }
-            }
-            if mood == Mood::Failed {
-                if let Some(why) = &failed {
-                    line = line.detail(why.chars().take(72).collect::<String>());
-                }
-            }
-            if mood == Mood::Now {
-                line = line.breathing(self.breath());
-            }
-            lines.push(line);
-        }
-        let ledger = ui::ledger(&lines, None);
-        let foot: Element<'_, Message> = if failed.is_some() {
-            ui::quiet(w.t("render"), (self.ffmpeg.is_some()).then_some(Message::Render))
-        } else {
-            ui::quiet(w.t("stop"), Some(Message::StopRender))
-        };
-        column![container(ledger).padding(Padding::ZERO.top(8.0)), container(foot).padding(Padding::ZERO.top(6.0))]
-            .into()
     }
 
-    fn fetch_ledger(&self, fetching: &Fetching) -> Element<'_, Message> {
+    fn render_button(&self, rendering: &Rendering) -> Element<'_, Message> {
+        let w = &self.words;
+        match rendering.last() {
+            Some(Step::Saved(_)) => row![
+                ui::primary(w.t("open"), Some(Message::OpenOut)),
+                container(ui::link(w.t("in-folder"), Message::ShowOut)).padding(Padding::ZERO.left(6.0)),
+            ]
+            .align_y(iced::Center)
+            .into(),
+            Some(Step::Failed(_)) | Some(Step::Stopped) => ui::quiet(w.t("did-not-work"), (self.ffmpeg.is_some()).then_some(Message::Render)),
+            step => {
+                let (label, target) = match step {
+                    None | Some(Step::ReplayRead) => (w.t("reading-replay"), 0.03),
+                    Some(Step::MapOnDisk) => (w.t("judging"), 0.06),
+                    Some(Step::Judged) => (w.t("drawing"), 0.08),
+                    Some(Step::Drawing { frames, of, .. }) => {
+                        let part = if *of > 0 { *frames as f32 / *of as f32 } else { 0.0 };
+                        (format!("{} · {:.0} %", w.t("drawing"), part * 100.0), 0.08 + 0.88 * part)
+                    }
+                    Some(Step::Encoded) => (w.t("saving"), 0.98),
+                    _ => (w.t("drawing"), 0.5),
+                };
+                let _ = target;
+                ui::progress(label, self.progress_shown, Some(Message::StopRender))
+            }
+        }
+    }
+
+    fn fetch_button(&self, fetching: &Fetching) -> Element<'_, Message> {
         use maps::Step as S;
         let w = &self.words;
-        let last = fetching.last();
-        let failed = match last {
-            Some(S::Failed(why)) => Some(why.clone()),
-            Some(S::Nowhere) => Some(w.t("not-on-any-mirror")),
-            Some(S::Stopped) => Some(w.t("stopped")),
-            _ => None,
-        };
-        let found = fetching.reached.iter().find_map(|s| match s {
-            S::Found(found) => Some(found.clone()),
-            _ => None,
-        });
-        let downloading = fetching.reached.iter().rev().find_map(|s| match s {
-            S::Downloading { from, done, total } => Some((*from, *done, *total)),
-            _ => None,
-        });
-        let stage = |reached: fn(&S) -> bool| fetching.reached.iter().any(reached);
-        let stages: [(&str, fn(&S) -> bool); 4] = [
-            ("looking-up", |s| matches!(s, S::Found(_))),
-            ("fetch-downloading", |s| matches!(s, S::Unpacking)),
-            ("unpacking-into", |s| matches!(s, S::Checking)),
-            ("checking-hash", |s| matches!(s, S::Done(_))),
-        ];
-        let mut lines = Vec::new();
-        let mut current_seen = false;
-        for (key, done) in stages {
-            let is_done = stage(done);
-            let mood = if is_done {
-                Mood::Done
-            } else if !current_seen {
-                current_seen = true;
-                if failed.is_some() { Mood::Failed } else { Mood::Now }
-            } else {
-                Mood::Todo
-            };
-            let name = match (key, &found) {
-                ("looking-up", Some(found)) => w.who("found-on", found.from),
-                _ => w.t(key),
-            };
-            let mut line = Line::new(mood, name);
-            match key {
-                "looking-up" => {
-                    if let Some(found) = &found {
-                        line = line.detail(found.line());
-                    }
-                }
-                "fetch-downloading" => {
-                    if let Some((from, done, total)) = downloading {
-                        let size = match total {
-                            Some(total) => w.mb_of(done, total),
-                            None => w.mb(done),
-                        };
-                        line = line.detail(format!("{size} · {from}"));
-                    }
-                }
-                _ => {}
+        match fetching.last() {
+            Some(S::Nowhere) => ui::quiet(w.t("not-on-mirrors"), Some(Message::GetMap)),
+            Some(S::Failed(_)) | Some(S::Stopped) => ui::quiet(w.t("did-not-work"), Some(Message::GetMap)),
+            step => {
+                let label = match step {
+                    None | Some(S::Looking) => w.t("looking-up"),
+                    Some(S::Found(found)) => w.who("found-on", found.from),
+                    Some(S::Downloading { done, total, .. }) => match total {
+                        Some(total) => format!("{} · {}", w.t("fetch-downloading"), w.mb_of(*done, *total)),
+                        None => format!("{} · {}", w.t("fetch-downloading"), w.mb(*done)),
+                    },
+                    Some(S::Unpacking) => w.t("unpacking-into"),
+                    Some(S::Checking) => w.t("checking-hash"),
+                    _ => w.t("looking-up"),
+                };
+                ui::progress(label, self.progress_shown, Some(Message::StopFetch))
             }
-            if mood == Mood::Failed {
-                if let Some(why) = &failed {
-                    line = line.detail(why.chars().take(72).collect::<String>());
-                }
-            }
-            if mood == Mood::Now {
-                line = line.breathing(self.breath());
-            }
-            lines.push(line);
         }
-        let ledger = ui::ledger(&lines, None);
-        let foot: Element<'_, Message> = if failed.is_some() {
-            ui::quiet(w.t("try-again"), Some(Message::GetMap))
-        } else {
-            ui::quiet(w.t("stop"), Some(Message::StopFetch))
-        };
-        column![container(ledger).padding(Padding::ZERO.top(8.0)), container(foot).padding(Padding::ZERO.top(6.0))]
-            .into()
+    }
+
+    pub fn progress_target(&self) -> Option<f32> {
+        if let Some(rendering) = self.rendering.as_ref().filter(|r| !r.is_over()) {
+            return Some(match rendering.last() {
+                None | Some(Step::ReplayRead) => 0.03,
+                Some(Step::MapOnDisk) => 0.06,
+                Some(Step::Judged) => 0.08,
+                Some(Step::Drawing { frames, of, .. }) => 0.08 + 0.88 * if *of > 0 { *frames as f32 / *of as f32 } else { 0.0 },
+                Some(Step::Encoded) => 0.98,
+                _ => 1.0,
+            });
+        }
+        if let Some(fetching) = self.fetching.as_ref().filter(|f| !f.is_over()) {
+            use maps::Step as S;
+            return Some(match fetching.last() {
+                None | Some(S::Looking) => 0.04,
+                Some(S::Found(_)) => 0.1,
+                Some(S::Downloading { done, total, .. }) => match total {
+                    Some(total) if *total > 0 => 0.1 + 0.8 * (*done as f32 / *total as f32),
+                    _ => 0.3,
+                },
+                Some(S::Unpacking) => 0.93,
+                Some(S::Checking) => 0.97,
+                _ => 1.0,
+            });
+        }
+        None
     }
 
     fn look_ledger(&self, step: &scan::Step) -> Element<'_, Message> {
@@ -1071,6 +1077,7 @@ impl Main {
         }
         let strip = scrollable(strip)
             .id(self.strip_id.clone())
+            .on_scroll(Message::Strip)
             .direction(scrollable::Direction::Horizontal(
                 scrollable::Scrollbar::new().width(0).scroller_width(0).margin(0),
             ))
@@ -1079,9 +1086,25 @@ impl Main {
             .chosen
             .and_then(|c| visible.iter().position(|v| *v == c))
             .map_or(0, |p| p + 1);
-        let counter = ui::mono(format!("{} / {}", position, visible.len()), FAINT);
-        let rail = container(Space::new().height(1.0)).width(Length::Fill).style(theme::rule_high);
-        container(column![rail, container(strip).padding(Padding::ZERO.top(10.0)), container(counter).width(Length::Fill).center_x(Length::Fill)].spacing(4))
+        let counter = text(format!("{} / {}", position, visible.len()))
+            .font(theme::MONO)
+            .size(11.0)
+            .color(ui::faded(Color { a: 0.7, ..FAINT }));
+        let guessed_content: f32 = days
+            .iter()
+            .map(|(_, list)| list.len() as f32 * (theme::FRAME_W + 6.0) - 6.0 + 8.0)
+            .sum::<f32>()
+            + (days.len().saturating_sub(1)) as f32 * 22.0;
+        let guessed_shown = (self.width - 80.0 - 80.0).max(1.0);
+        let (start, len) = match self.strip_view {
+            Some((offset, content, shown)) if content > 0.0 => (offset / content, (shown / content).min(1.0)),
+            _ => (0.0, (guessed_shown / guessed_content.max(1.0)).min(1.0)),
+        };
+        let scrub = iced::widget::canvas(ui::Scrub { start, len, on: Box::new(Message::ScrubTo) })
+            .width(Length::Fill)
+            .height(14.0);
+        let rail = row![scrub, container(counter).padding(Padding::ZERO.left(14.0))].align_y(iced::Center);
+        container(column![rail, container(strip).padding(Padding::ZERO.top(8.0))].spacing(2))
             .padding(Padding { top: 0.0, right: 40.0, bottom: 10.0, left: 40.0 })
             .width(Length::Fill)
             .into()
@@ -1124,43 +1147,7 @@ impl Main {
             .on_press(Message::Choose(at));
         let sensed = mouse_area(pressed).on_enter(Message::Hover(Some(at))).on_exit(Message::Hover(None));
         let scale = if chosen { 1.0 } else { 1.0 + 0.04 * rise };
-        let lifted = float(sensed).scale(scale).translate(move |_, _| Vector::new(0.0, -2.0 * rise));
-        tooltip(lifted, self.caption(entry), tooltip::Position::Top).gap(10).padding(0).into()
-    }
-
-    fn caption(&self, entry: &Entry) -> Element<'_, Message> {
-        let w = &self.words;
-        let mut how = row![].spacing(6).align_y(iced::Center);
-        for acronym in &entry.mods {
-            how = how.push(mod_badge(acronym));
-        }
-        if !entry.mods.is_empty() {
-            how = how.push(ui::mono("·".to_owned(), FAINT));
-        }
-        how = how.push(ui::mono(format!("{}x", entry.combo), MUTED));
-        how = how.push(ui::mono("·".to_owned(), FAINT));
-        how = how.push(text(entry.outcome.mark()).font(theme::MONO_BOLD).size(11.0).color(ui::faded(if entry.outcome.is_bad() { ACCENT } else { INK })));
-        how = how.push(ui::mono("·".to_owned(), FAINT));
-        how = how.push(text(entry.grade.letter()).font(theme::MONO_BOLD).size(11.0).color(grade_colour(entry.grade)));
-        let inside = column![
-            row![
-                text(entry.player.clone()).font(theme::SANS_SEMI).size(theme::BODY).color(ui::faded(INK)),
-                ui::grow(),
-                text(w.percent(entry.accuracy)).font(theme::MONO_BOLD).size(13.0).color(ui::faded(INK)),
-            ]
-            .spacing(18)
-            .align_y(iced::Center),
-            text(entry.map_line().unwrap_or_else(|| w.t("unknown-map"))).font(theme::SANS).size(theme::CAPTION).color(ui::faded(MUTED)),
-            container(how).padding(Padding::ZERO.top(4.0)),
-        ]
-        .spacing(1)
-        .width(Length::Shrink);
-        container(inside).padding([10, 12]).style(|_| container::Style {
-            background: Some(iced::Background::Color(Color::from_rgba(0.047, 0.02, 0.027, 0.96))),
-            border: iced::Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.1), width: 1.0, radius: 10.0.into() },
-            ..container::Style::default()
-        })
-        .into()
+        float(sensed).scale(scale).translate(move |_, _| Vector::new(0.0, -2.0 * rise)).into()
     }
 
     fn overlay_view(&self) -> Element<'_, Message> {

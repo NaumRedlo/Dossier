@@ -50,6 +50,7 @@ pub enum Message {
     Step(i32),
     Escape,
     Hover(Option<usize>),
+    Over(usize, iced::Rectangle),
     Show(Overlay),
     OpenFolder,
     Render,
@@ -158,6 +159,7 @@ pub struct Main {
     pub before: Option<Shown>,
     pub search: String,
     pub hover: Option<usize>,
+    pub hover_bounds: Option<iced::Rectangle>,
     pub thumbs: HashMap<String, image::Handle>,
     pub scenes: HashMap<String, image::Handle>,
     pub scene_before: Option<Option<image::Handle>>,
@@ -203,6 +205,7 @@ impl Main {
             before: None,
             search: String::new(),
             hover: None,
+            hover_bounds: None,
             thumbs: HashMap::new(),
             scenes: HashMap::new(),
             scene_before: None,
@@ -461,8 +464,15 @@ impl Main {
                 self.overlay = Overlay::None;
                 Task::none()
             }
+            Message::Over(at, bounds) => {
+                self.hover_bounds = Some(bounds);
+                self.update(Message::Hover(Some(at)))
+            }
             Message::Hover(at) => {
                 self.hover = at;
+                if at.is_none() {
+                    self.hover_bounds = None;
+                }
                 let now = Instant::now();
                 for (index, lift) in self.lifts.iter_mut() {
                     if Some(*index) != at {
@@ -1113,51 +1123,21 @@ impl Main {
             .padding(edge)
             .style(theme::frame(chosen, lit))
             .on_press(Message::Choose(at));
-        let sensed = mouse_area(pressed).on_enter(Message::Hover(Some(at))).on_exit(Message::Hover(None));
+        let sensed = ui::sensed(pressed, move |bounds| Message::Over(at, bounds), Message::Hover(None));
         let scale = if chosen { 1.0 } else { 1.0 + 0.04 * rise };
         float(sensed).scale(scale).translate(move |_, _| Vector::new(0.0, -2.0 * rise)).into()
-    }
-
-    fn frame_left(&self, wanted: usize) -> Option<f32> {
-        let visible = self.visible();
-        let entries = self.entries();
-        let mut x = 40.0;
-        let mut last_day = String::new();
-        let mut first_in_day = true;
-        for at in &visible {
-            let label = self.words.day(entries[*at].played_at, self.now_unix);
-            if label != last_day {
-                if !last_day.is_empty() {
-                    x += 22.0 - 6.0;
-                }
-                last_day = label;
-                first_in_day = true;
-            }
-            if !first_in_day {
-                x += 6.0;
-            }
-            first_in_day = false;
-            let width = if Some(*at) == self.chosen { theme::FRAME_W + 8.0 } else { theme::FRAME_W };
-            if *at == wanted {
-                return Some(x - self.strip_view.map_or(0.0, |(offset, _, _)| offset));
-            }
-            x += width;
-        }
-        None
     }
 
     fn bubble_layer(&self) -> Element<'_, Message> {
         let Some(at) = self.hover else {
             return Space::new().width(Length::Fill).height(Length::Fill).into();
         };
-        let (Some(entry), Some(left)) = (self.entries().get(at), self.frame_left(at)) else {
+        let (Some(entry), Some(bounds)) = (self.entries().get(at), self.hover_bounds) else {
             return Space::new().width(Length::Fill).height(Length::Fill).into();
         };
         let rise = self.lifts.get(&at).map_or(0.0, |lift| lift.interpolate(0.0, 1.0, self.now));
-        let chosen = self.chosen == Some(at);
-        let (w, h) = if chosen { (theme::FRAME_W + 8.0, theme::FRAME_H + 4.0) } else { (theme::FRAME_W, theme::FRAME_H) };
-        let frame_top = self.height - 10.0 - h - 2.0 * rise;
-        let x = (left + w / 2.0 - BUBBLE_W / 2.0).clamp(16.0, (self.width - BUBBLE_W - 16.0).max(16.0));
+        let frame_top = bounds.y - 2.0 * rise;
+        let x = (bounds.center_x() - BUBBLE_W / 2.0).clamp(16.0, (self.width - BUBBLE_W - 16.0).max(16.0));
         let y = frame_top - 8.0 - BUBBLE_H + (1.0 - rise) * 6.0;
         pin(ui::fading(ui::fade() * rise, || self.bubble(entry))).x(x).y(y).into()
     }

@@ -52,6 +52,7 @@ pub struct Rehearsal {
     pub get_map: bool,
     pub look: bool,
     pub step: bool,
+    pub hover: Option<usize>,
 }
 
 impl Rehearsal {
@@ -69,7 +70,8 @@ impl Rehearsal {
         let get_map = args.iter().any(|a| a == "--get-map-first");
         let look = args.iter().any(|a| a == "--look-first");
         let step = args.iter().any(|a| a == "--step-first");
-        Some(Rehearsal { folder, snap_to, after, render, get_map, look, step })
+        let hover = args.iter().position(|a| a == "--hover").and_then(|i| args.get(i + 1)).and_then(|s| s.parse().ok());
+        Some(Rehearsal { folder, snap_to, after, render, get_map, look, step, hover })
     }
 }
 
@@ -99,6 +101,8 @@ impl App {
                 Task::perform(async { tokio_sleep(std::time::Duration::from_millis(1500)).await }, |_| Message::Main(main_screen::Message::Look))
             } else if rehearsal.step {
                 Task::perform(async { tokio_sleep(std::time::Duration::from_millis(2500)).await }, |_| Message::Main(main_screen::Message::Step(1)))
+            } else if let Some(at) = rehearsal.hover {
+                Task::perform(async { tokio_sleep(std::time::Duration::from_millis(2500)).await }, move |_| Message::Main(main_screen::Message::Hover(Some(at))))
             } else {
                 Task::none()
             };

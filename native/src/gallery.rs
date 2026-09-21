@@ -411,6 +411,7 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
     });
     let mut hovering = staged(Some(0));
     hovering.hover = Some(1);
+    hovering.hover_bounds = Some(iced::Rectangle::new(iced::Point::new(40.0 + 116.0 + 22.0, 720.0 - 10.0 - 61.0), iced::Size::new(108.0, 61.0)));
     hovering.lifts.insert(1, iced::Animation::new(true));
     let mut rendered = staged(Some(0));
     rendered.ffmpeg = Some(PathBuf::from("ffmpeg"));

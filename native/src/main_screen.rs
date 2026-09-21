@@ -10,6 +10,7 @@ use iced::{window, Animation, Color, ContentFit, Element, Length, Padding, Point
 
 use crate::lang::{typed, Words};
 use crate::library::{self, Entry, Grade, Library};
+use crate::{player, videos};
 use crate::live;
 use crate::maps;
 use crate::render::{self, Step};
@@ -37,6 +38,7 @@ const SCENE_WIDTH: u32 = 960;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Overlay {
     None,
+    Videos,
     Worker,
     Settings,
 }
@@ -48,6 +50,17 @@ pub enum Message {
     Scene(String, Option<image::Handle>),
     Length(PathBuf, i64),
     MaxCombo(PathBuf, Option<u32>),
+    Key(iced::keyboard::key::Named),
+    Adopted(Vec<videos::Video>),
+    OpenVideo(usize),
+    ClosePlayer,
+    PlayerToggle,
+    SeekTo(f32),
+    SeekBy(i64),
+    RevealVideo,
+    AskDelete,
+    KeepVideo,
+    DeleteVideo,
     Choose(usize),
     Step(i32),
     Escape,
@@ -168,6 +181,10 @@ pub struct Main {
     pub scene_before: Option<Option<image::Handle>>,
     pub lengths: HashMap<PathBuf, i64>,
     pub combos: HashMap<PathBuf, Option<u32>>,
+    pub store: videos::Store,
+    pub player: Option<std::rc::Rc<std::cell::RefCell<player::Player>>>,
+    pub open_video: Option<usize>,
+    pub asking_delete: bool,
     pub overlay: Overlay,
     pub rendering: Option<Rendering>,
     pub fetching: Option<Fetching>,
@@ -215,6 +232,10 @@ impl Main {
             scene_before: None,
             lengths: HashMap::new(),
             combos: HashMap::new(),
+            store: videos::Store::load(),
+            player: None,
+            open_video: None,
+            asking_delete: false,
             overlay: Overlay::None,
             rendering: None,
             fetching: None,
@@ -238,13 +259,19 @@ impl Main {
             height: crate::WINDOW.height,
             strip_id: iced::widget::Id::unique(),
         };
-        (made, ui::in_thread(move || library::read(&sources)).map(Message::Loaded))
+        let strays = videos::strays(&made.store.videos);
+        let adopt = match (made.ffmpeg.clone(), strays.is_empty()) {
+            (Some(ffmpeg), false) => ui::in_thread(move || Message::Adopted(strays.iter().filter_map(|p| videos::adopt(&ffmpeg, p)).collect())),
+            _ => Task::none(),
+        };
+        (made, Task::batch([ui::in_thread(move || library::read(&sources)).map(Message::Loaded), adopt]))
     }
 
     pub fn staged(words: Words, settings: Settings, library: Library, chosen: Option<usize>) -> Main {
         let (mut made, _) = Main::new(words, settings);
         made.library = Some(library);
         made.chosen = chosen;
+        made.store = videos::Store::default();
         made.enter = Animation::new(true);
         made.arrive = Animation::new(true);
         made
@@ -261,6 +288,7 @@ impl Main {
             || self.arrive.is_animating(self.now)
             || self.swap.is_animating(self.now)
             || self.lifts.values().any(|l| l.is_animating(self.now))
+            || self.player.as_ref().is_some_and(|p| !p.borrow().paused)
     }
 
     pub fn subscription(&self) -> Subscription<Message> {
@@ -271,8 +299,11 @@ impl Main {
             (iced::Event::Keyboard(iced::keyboard::Event::KeyPressed { key, .. }), iced::event::Status::Ignored) => {
                 use iced::keyboard::key::{Key, Named};
                 match key.as_ref() {
-                    Key::Named(Named::ArrowLeft) | Key::Named(Named::ArrowUp) => Some(Message::Step(-1)),
-                    Key::Named(Named::ArrowRight) | Key::Named(Named::ArrowDown) => Some(Message::Step(1)),
+                    Key::Named(Named::ArrowLeft) => Some(Message::Key(Named::ArrowLeft)),
+                    Key::Named(Named::ArrowUp) => Some(Message::Key(Named::ArrowUp)),
+                    Key::Named(Named::ArrowRight) => Some(Message::Key(Named::ArrowRight)),
+                    Key::Named(Named::ArrowDown) => Some(Message::Key(Named::ArrowDown)),
+                    Key::Named(Named::Space) => Some(Message::Key(Named::Space)),
                     Key::Named(Named::Escape) => Some(Message::Escape),
                     _ => None,
                 }
@@ -427,6 +458,8 @@ impl Main {
             Message::Loaded(library) => {
                 self.library = Some(library);
                 self.now_unix = unix_now();
+                let entries = self.entries().to_vec();
+                self.store.marry(&entries);
                 self.enter = Animation::new(false).duration(ENTER).easing(Easing::EaseOutCubic).go(true, Instant::now());
                 let first = self.visible().first().copied();
                 self.chosen = first;
@@ -469,8 +502,111 @@ impl Main {
                 };
                 self.choose(visible[at])
             }
+            Message::Key(key) => {
+                use iced::keyboard::key::Named;
+                let watching = self.player.is_some();
+                match (key, watching) {
+                    (Named::ArrowLeft, true) => self.update(Message::SeekBy(-5000)),
+                    (Named::ArrowRight, true) => self.update(Message::SeekBy(5000)),
+                    (Named::Space, true) => self.update(Message::PlayerToggle),
+                    (Named::ArrowLeft | Named::ArrowUp, false) => self.update(Message::Step(-1)),
+                    (Named::ArrowRight | Named::ArrowDown, false) => self.update(Message::Step(1)),
+                    _ => Task::none(),
+                }
+            }
             Message::Escape => {
-                self.overlay = Overlay::None;
+                if self.asking_delete {
+                    self.asking_delete = false;
+                } else if self.player.is_some() {
+                    return self.update(Message::ClosePlayer);
+                } else {
+                    self.overlay = Overlay::None;
+                }
+                Task::none()
+            }
+            Message::Adopted(found) => {
+                for video in found {
+                    self.store.add(video);
+                }
+                let entries = self.entries().to_vec();
+                self.store.marry(&entries);
+                Task::none()
+            }
+            Message::OpenVideo(at) => {
+                let Some(video) = self.store.videos.get(at) else {
+                    return Task::none();
+                };
+                let Some(ffmpeg) = &self.ffmpeg else {
+                    return Task::none();
+                };
+                if let Some(old) = self.player.take() {
+                    old.borrow_mut().close();
+                }
+                self.player = Some(std::rc::Rc::new(std::cell::RefCell::new(player::Player::open(ffmpeg, &video.path, video.length_ms, video.fps))));
+                self.open_video = Some(at);
+                self.asking_delete = false;
+                Task::none()
+            }
+            Message::ClosePlayer => {
+                if let Some(player) = self.player.take() {
+                    player.borrow_mut().close();
+                }
+                self.open_video = None;
+                self.asking_delete = false;
+                Task::none()
+            }
+            Message::PlayerToggle => {
+                if let Some(player) = &self.player {
+                    player.borrow_mut().toggle();
+                }
+                Task::none()
+            }
+            Message::SeekTo(fraction) => {
+                if let Some(player) = &self.player {
+                    let mut player = player.borrow_mut();
+                    let to = (fraction as f64 * player.length_ms as f64) as i64;
+                    player.seek(to);
+                }
+                Task::none()
+            }
+            Message::SeekBy(delta) => {
+                if let Some(player) = &self.player {
+                    player.borrow_mut().seek_by(delta);
+                }
+                Task::none()
+            }
+            Message::RevealVideo => {
+                if let Some(video) = self.open_video.and_then(|at| self.store.videos.get(at)) {
+                    let _ = open::that_detached(video.path.parent().unwrap_or(Path::new(".")));
+                }
+                Task::none()
+            }
+            Message::AskDelete => {
+                self.asking_delete = true;
+                if let Some(player) = &self.player {
+                    let mut player = player.borrow_mut();
+                    if !player.paused {
+                        player.toggle();
+                    }
+                }
+                Task::none()
+            }
+            Message::KeepVideo => {
+                self.asking_delete = false;
+                Task::none()
+            }
+            Message::DeleteVideo => {
+                self.asking_delete = false;
+                let Some(video) = self.open_video.and_then(|at| self.store.videos.get(at).cloned()) else {
+                    return Task::none();
+                };
+                if let Some(player) = self.player.take() {
+                    player.borrow_mut().close();
+                }
+                self.open_video = None;
+                if videos::to_bin(&video.path).is_ok() || !video.path.exists() {
+                    self.store.forget(&video.path);
+                }
                 Task::none()
             }
             Message::Over(at, bounds) => {
@@ -512,7 +648,33 @@ impl Main {
             }
             Message::Show(overlay) => {
                 self.overlay = overlay;
-                Task::none()
+                if overlay != Overlay::Videos {
+                    if let Some(player) = self.player.take() {
+                        player.borrow_mut().close();
+                    }
+                    self.open_video = None;
+                    self.asking_delete = false;
+                    return Task::none();
+                }
+                let wanted: Vec<(String, PathBuf)> = self
+                    .store
+                    .videos
+                    .iter()
+                    .filter(|v| !self.thumbs.contains_key(&v.map_hash))
+                    .filter_map(|v| v.background.clone().map(|bg| (v.map_hash.clone(), bg)))
+                    .collect();
+                if wanted.is_empty() {
+                    return Task::none();
+                }
+                ui::streamed(move |push| {
+                    for (hash, path) in wanted {
+                        if let Some(handle) = decoded(&path, THUMB.0, Some(THUMB)) {
+                            if !push(Message::Thumb(hash, handle)) {
+                                return;
+                            }
+                        }
+                    }
+                })
             }
             Message::OpenFolder => {
                 if let Some(entry) = self.chosen_entry() {
@@ -546,11 +708,19 @@ impl Main {
                 Task::none()
             }
             Message::Rendered(step) => {
+                let mut saved = None;
                 if let Some(rendering) = &mut self.rendering {
                     if let Step::Saved(path) = &step {
                         rendering.out = Some(path.clone());
+                        saved = Some((rendering.path.clone(), path.clone()));
                     }
                     rendering.reached.push(step);
+                }
+                if let Some((replay, out)) = saved {
+                    if let Some(entry) = self.entries().iter().find(|e| e.path == replay).cloned() {
+                        let length = self.lengths.get(&replay).copied().unwrap_or_else(|| length_of(&replay));
+                        self.store.add(videos::Video::from_render(&entry, out, length, render::SIZE.0, render::SIZE.1, render::FPS as u32));
+                    }
                 }
                 Task::none()
             }
@@ -757,6 +927,9 @@ impl Main {
                 Task::none()
             }
             Message::Tick(now) => {
+                if let Some(player) = &self.player {
+                    player.borrow_mut().pull();
+                }
                 self.now = now;
                 if let Some(live) = &self.live {
                     if !(live.control.paused() && live.control.settled()) {
@@ -855,6 +1028,7 @@ impl Main {
         };
         let words = row![
             word("replays", self.overlay == Overlay::None, Message::Show(Overlay::None)),
+            word("videos", self.overlay == Overlay::Videos, Message::Show(Overlay::Videos)),
             word("worker", self.overlay == Overlay::Worker, Message::Show(Overlay::Worker)),
             word("settings", self.overlay == Overlay::Settings, Message::Show(Overlay::Settings)),
         ]
@@ -1232,6 +1406,9 @@ impl Main {
     }
 
     fn overlay_view(&self) -> Element<'_, Message> {
+        if self.overlay == Overlay::Videos {
+            return self.videos_view();
+        }
         let w = &self.words;
         let name = match self.overlay {
             Overlay::Worker => w.t("worker"),
@@ -1253,6 +1430,228 @@ impl Main {
         .into()
     }
 }
+
+impl Main {
+    fn videos_view(&self) -> Element<'_, Message> {
+        let w = &self.words;
+        let page: Element<'_, Message> = if self.store.videos.is_empty() {
+            let empty = column![
+                text(w.t("no-videos")).font(theme::SANS_SEMI).size(theme::TITLE).color(ui::faded(INK)),
+                ui::cap(w.t("render-one")),
+                container(ui::primary(w.t("back-to-replays"), Some(Message::Show(Overlay::None)))).padding(Padding::ZERO.top(12.0)),
+            ]
+            .spacing(6)
+            .align_x(iced::Center);
+            container(empty).width(Length::Fill).height(Length::Fill).center(Length::Fill).into()
+        } else {
+            let mut rows = column![self.video_head()].spacing(0).width(Length::Fill);
+            for (at, video) in self.store.videos.iter().enumerate() {
+                rows = rows.push(self.video_row(at, video));
+            }
+            scrollable(container(rows).padding(Padding { top: 8.0, right: 40.0, bottom: 24.0, left: 40.0 }))
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .into()
+        };
+        let sheet = column![self.chrome(), page].width(Length::Fill).height(Length::Fill);
+        let stage: Element<'_, Message> = match (&self.player, self.open_video.and_then(|at| self.store.videos.get(at))) {
+            (Some(player), Some(video)) => self.stage(&player.borrow(), video),
+            _ => Space::new().width(Length::Fill).height(Length::Fill).into(),
+        };
+        let ask: Element<'_, Message> = if self.asking_delete {
+            self.delete_card()
+        } else {
+            Space::new().width(Length::Fill).height(Length::Fill).into()
+        };
+        let crest: Element<'_, Message> = pin(ui::brand()).x(CREST_HOME.0).y(CREST_HOME.1).into();
+        stack![ui::veil(theme::GROUND), sheet, crest, stage, ask].width(Length::Fill).height(Length::Fill).into()
+    }
+
+    fn video_head(&self) -> Element<'_, Message> {
+        let w = &self.words;
+        let cell = |key: &str, width: f32| container(ui::mono_small(w.t(key).to_uppercase(), FAINT)).width(width);
+        let grow = |key: &str| container(ui::mono_small(w.t(key).to_uppercase(), FAINT)).width(Length::Fill);
+        let right = |key: &str, width: f32| container(ui::mono_small(w.t(key).to_uppercase(), FAINT)).width(width).align_x(iced::alignment::Horizontal::Right);
+        container(
+            row![
+                Space::new().width(VIDEO_THUMB.0 as f32 + 14.0),
+                cell("when", 70.0),
+                grow("who-and-map"),
+                cell("mods", 90.0),
+                right("length", 50.0),
+                right("size", 72.0),
+            ]
+            .spacing(14)
+            .align_y(iced::Center),
+        )
+        .height(24.0)
+        .into()
+    }
+
+    fn video_row(&self, at: usize, video: &videos::Video) -> Element<'_, Message> {
+        let w = &self.words;
+        let chosen = self.open_video == Some(at);
+        let picture: Element<'_, Message> = match self.thumbs.get(&video.map_hash) {
+            Some(handle) => image(handle.clone())
+                .content_fit(ContentFit::Cover)
+                .width(VIDEO_THUMB.0 as f32)
+                .height(VIDEO_THUMB.1 as f32)
+                .border_radius(5.0)
+                .opacity(ui::fade() * if chosen { 1.0 } else { 0.8 })
+                .into(),
+            None => container(ui::fine_hatch()).width(VIDEO_THUMB.0 as f32).height(VIDEO_THUMB.1 as f32).into(),
+        };
+        let when = column![
+            ui::mono_small(w.day(video.made_at, self.now_unix), FAINT),
+            ui::mono_small(w.clock(video.made_at), FAINT),
+        ]
+        .spacing(1);
+        let who = row![
+            text(video.player.clone()).font(theme::SANS_SEMI).size(theme::BODY).wrapping(text::Wrapping::None).color(ui::faded(INK)),
+            text(ui::shortened(format!("· {}", video.map_line()), 64)).font(theme::SANS).size(theme::BODY).wrapping(text::Wrapping::None).color(ui::faded(MUTED)),
+        ]
+        .spacing(6)
+        .align_y(iced::Center);
+        let mut mods = row![].spacing(4).align_y(iced::Center);
+        for acronym in &video.mods {
+            mods = mods.push(mod_badge(acronym));
+        }
+        let line = row![
+            container(picture).width(VIDEO_THUMB.0 as f32).height(VIDEO_THUMB.1 as f32),
+            container(when).width(70.0),
+            container(who).width(Length::Fill).clip(true),
+            container(mods).width(90.0),
+            container(ui::mono_small(w.length(video.length_ms), FAINT)).width(50.0).align_x(iced::alignment::Horizontal::Right),
+            container(ui::mono_small(w.mb(video.size), FAINT)).width(72.0).align_x(iced::alignment::Horizontal::Right),
+        ]
+        .spacing(14)
+        .align_y(iced::Center);
+        button(container(line).height(52.0).width(Length::Fill).center_y(52.0))
+            .padding(0)
+            .style(theme::row(chosen))
+            .on_press(Message::OpenVideo(at))
+            .into()
+    }
+
+    fn stage(&self, player: &player::Player, video: &videos::Video) -> Element<'_, Message> {
+        let w = &self.words;
+        let playing = !player.paused;
+        let picture: Element<'_, Message> = match &player.frame {
+            Some(handle) => image(handle.clone())
+                .content_fit(ContentFit::Contain)
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .border_radius(iced::border::Radius { top_left: theme::CARD_RADIUS - 1.0, top_right: theme::CARD_RADIUS - 1.0, bottom_right: 0.0, bottom_left: 0.0 })
+                .into(),
+            None => match self.thumbs.get(&video.map_hash) {
+                Some(handle) => image(handle.clone())
+                    .content_fit(ContentFit::Cover)
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+                    .opacity(0.35_f32)
+                    .border_radius(iced::border::Radius { top_left: theme::CARD_RADIUS - 1.0, top_right: theme::CARD_RADIUS - 1.0, bottom_right: 0.0, bottom_left: 0.0 })
+                    .into(),
+                None => Space::new().width(Length::Fill).height(Length::Fill).into(),
+            },
+        };
+        let mark: Element<'_, Message> = if player.paused {
+            container(iced::widget::canvas(ui::PlayMark).width(44.0).height(44.0)).width(Length::Fill).height(Length::Fill).center(Length::Fill).into()
+        } else {
+            Space::new().width(Length::Fill).height(Length::Fill).into()
+        };
+        let screen = mouse_area(stack![picture, mark].width(Length::Fill).height(Length::Fill)).on_press(Message::PlayerToggle);
+        let seek = iced::widget::canvas(ui::Seek { played: player.fraction(), on: Box::new(Message::SeekTo) }).width(Length::Fill).height(16.0);
+        let timeline = row![
+            ui::mono_small(w.length(player.at_ms()), INK),
+            seek,
+            ui::mono_small(w.length(player.length_ms), INK),
+        ]
+        .spacing(12)
+        .align_y(iced::Center);
+        let dim = if playing { 0.6 } else { 1.0 };
+        let mut facts = row![].spacing(6).align_y(iced::Center);
+        for acronym in &video.mods {
+            facts = facts.push(mod_badge(acronym));
+        }
+        if !video.mods.is_empty() {
+            facts = facts.push(ui::mono_small("·".to_owned(), FAINT));
+        }
+        for (i, part) in [
+            w.length(video.length_ms),
+            format!("{}×{}", video.width, video.height),
+            format!("{} fps", video.fps),
+            w.mb(video.size),
+            format!("{} {}", w.day(video.made_at, self.now_unix), w.clock(video.made_at)),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            if i > 0 {
+                facts = facts.push(ui::mono_small("·".to_owned(), FAINT));
+            }
+            facts = facts.push(ui::mono_small(part, FAINT));
+        }
+        let caption = ui::fading(ui::fade() * dim, || {
+            column![
+                text(video.player.clone()).font(theme::SANS_SEMI).size(20.0).wrapping(text::Wrapping::None).color(ui::faded(INK)),
+                text(video.map_line()).font(theme::SANS).size(theme::CAPTION).wrapping(text::Wrapping::None).color(ui::faded(MUTED)),
+                container(facts).padding(Padding::ZERO.top(4.0)),
+            ]
+            .spacing(1)
+        });
+        let buttons = ui::fading(ui::fade() * dim, || {
+            row![
+                ui::primary(w.t("to-telegram"), None),
+                ui::quiet(w.t("in-folder"), Some(Message::RevealVideo)),
+                ui::quiet(w.t("delete"), Some(Message::AskDelete)),
+            ]
+            .spacing(4)
+            .align_y(iced::Center)
+        });
+        let under = row![container(caption).width(Length::Fill).clip(true), buttons].spacing(16).align_y(iced::Center);
+        let inside = column![
+            container(screen).width(Length::Fill).height(Length::Fill),
+            container(timeline).padding([6, 24]),
+            container(under).padding(Padding { top: 8.0, right: 24.0, bottom: 18.0, left: 24.0 }),
+        ]
+        .width(Length::Fill)
+        .height(Length::Fill);
+        let card = container(inside).width(Length::Fill).height(Length::Fill).style(theme::stage).clip(true);
+        let backdrop = mouse_area(ui::veil(theme::SCRIM)).on_press(Message::ClosePlayer);
+        stack![backdrop, container(card).padding(40).width(Length::Fill).height(Length::Fill)]
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .into()
+    }
+
+    fn delete_card(&self) -> Element<'_, Message> {
+        let w = &self.words;
+        let Some(video) = self.open_video.and_then(|at| self.store.videos.get(at)) else {
+            return Space::new().width(Length::Fill).height(Length::Fill).into();
+        };
+        let top = column![
+            ui::title(w.t("delete-video")),
+            ui::why(format!("{} — {} · {}. {}", video.player, video.map_line(), w.mb(video.size), w.t("to-the-bin"))),
+        ]
+        .spacing(6);
+        let bottom = row![ui::grow(), ui::quiet(w.t("keep"), Some(Message::KeepVideo)), ui::primary(w.t("delete"), Some(Message::DeleteVideo))]
+            .spacing(4)
+            .align_y(iced::Center);
+        let card = ui::card(top.into(), Some(bottom.into()));
+        stack![
+            mouse_area(ui::veil(theme::SCRIM)).on_press(Message::KeepVideo),
+            container(container(card).width(theme::COLUMN).padding(Padding::ZERO.top(220.0)))
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .center_x(Length::Fill),
+        ]
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .into()
+    }
+}
+
+const VIDEO_THUMB: (u32, u32) = (64, 36);
 
 pub fn grade_colour(grade: Grade) -> Color {
     match grade {

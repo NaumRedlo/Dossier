@@ -584,6 +584,10 @@ pub fn body<'a, Message: 'a>(words: String, colour: Color) -> Element<'a, Messag
     text(words).font(theme::SANS).size(theme::BODY).color(faded(colour)).into()
 }
 
+pub fn mono_small<'a, Message: 'a>(words: String, colour: Color) -> Element<'a, Message> {
+    text(words).font(theme::MONO).size(11.0).color(faded(colour)).into()
+}
+
 pub fn mono<'a, Message: 'a>(words: String, colour: Color) -> Element<'a, Message> {
     text(words).font(theme::MONO).size(theme::BODY).color(faded(colour)).into()
 }
@@ -1347,7 +1351,7 @@ const CARET_H: f32 = 8.0;
 
 fn bottom_slice(size: Size, edge: f32, radius: f32, thick: f32, until: f32) -> Path {
     let (w, h) = (size.width, size.height);
-    let (top, bottom) = (h - edge - thick, h - edge);
+    let top = h - edge - thick;
     let centre_y = h - edge - radius;
     let left_at = |y: f32| {
         let dy = (y - centre_y).max(0.0).min(radius);
@@ -1368,4 +1372,87 @@ fn bottom_slice(size: Size, edge: f32, radius: f32, thick: f32, until: f32) -> P
         }
         b.close();
     })
+}
+
+pub struct PlayMark;
+
+impl<Message> canvas::Program<Message> for PlayMark {
+    type State = ();
+
+    fn draw(&self, _: &(), renderer: &Renderer, _: &Theme, bounds: Rectangle, _: mouse::Cursor) -> Vec<Geometry> {
+        let mut frame = Frame::new(renderer, bounds.size());
+        let (w, h) = (bounds.width, bounds.height);
+        let shade = Path::new(|b| {
+            b.move_to(Point::new(w * 0.22, 0.0));
+            b.line_to(Point::new(w * 1.02, h * 0.5));
+            b.line_to(Point::new(w * 0.22, h));
+            b.close();
+        });
+        frame.fill(&shade, faded(Color::from_rgba(0.0, 0.0, 0.0, 0.35)));
+        let mark = Path::new(|b| {
+            b.move_to(Point::new(w * 0.2, 0.0));
+            b.line_to(Point::new(w, h * 0.5));
+            b.line_to(Point::new(w * 0.2, h));
+            b.close();
+        });
+        frame.fill(&mark, faded(Color { a: 0.92, ..INK }));
+        vec![frame.into_geometry()]
+    }
+}
+
+pub struct Seek<'a, Message> {
+    pub played: f32,
+    pub on: Box<dyn Fn(f32) -> Message + 'a>,
+}
+
+#[derive(Debug, Default)]
+pub struct SeekState {
+    grabbed: bool,
+}
+
+impl<Message> canvas::Program<Message> for Seek<'_, Message> {
+    type State = SeekState;
+
+    fn update(&self, state: &mut SeekState, event: &iced::Event, bounds: Rectangle, cursor: mouse::Cursor) -> Option<canvas::Action<Message>> {
+        let fraction_at = |x: f32| ((x - bounds.x) / bounds.width.max(1.0)).clamp(0.0, 1.0);
+        match event {
+            iced::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
+                let at = cursor.position_in(bounds)?;
+                state.grabbed = true;
+                Some(canvas::Action::publish((self.on)(fraction_at(bounds.x + at.x))).and_capture())
+            }
+            iced::Event::Mouse(mouse::Event::CursorMoved { position }) if state.grabbed => {
+                Some(canvas::Action::publish((self.on)(fraction_at(position.x))).and_capture())
+            }
+            iced::Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) if state.grabbed => {
+                state.grabbed = false;
+                Some(canvas::Action::capture())
+            }
+            _ => None,
+        }
+    }
+
+    fn draw(&self, state: &SeekState, renderer: &Renderer, _: &Theme, bounds: Rectangle, cursor: mouse::Cursor) -> Vec<Geometry> {
+        let mut frame = Frame::new(renderer, bounds.size());
+        let y = bounds.height / 2.0;
+        let lit = state.grabbed || cursor.is_over(bounds);
+        let track = Path::line(Point::new(0.0, y), Point::new(bounds.width, y));
+        frame.stroke(&track, Stroke::default().with_width(3.0).with_color(faded(Color::from_rgba(1.0, 1.0, 1.0, 0.14))).with_line_cap(canvas::LineCap::Round));
+        let x = bounds.width * self.played.clamp(0.0, 1.0);
+        if x > 0.5 {
+            let done = Path::line(Point::new(0.0, y), Point::new(x, y));
+            frame.stroke(&done, Stroke::default().with_width(3.0).with_color(faded(INK)).with_line_cap(canvas::LineCap::Round));
+        }
+        let radius = if lit { 6.0 } else { 5.0 };
+        frame.fill(&Path::circle(Point::new(x, y), radius), faded(INK));
+        vec![frame.into_geometry()]
+    }
+
+    fn mouse_interaction(&self, state: &SeekState, bounds: Rectangle, cursor: mouse::Cursor) -> mouse::Interaction {
+        if state.grabbed || cursor.is_over(bounds) {
+            mouse::Interaction::Pointer
+        } else {
+            mouse::Interaction::default()
+        }
+    }
 }

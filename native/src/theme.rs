@@ -384,6 +384,33 @@ pub fn bar(_: &Theme) -> container::Style {
     }
 }
 
+pub fn row(chosen: bool) -> impl Fn(&Theme, button::Status) -> button::Style {
+    move |_, status| {
+        let background = match (chosen, status) {
+            (true, _) => Some(Color::from_rgba(0.886, 0.282, 0.282, 0.08)),
+            (false, button::Status::Hovered) => Some(RAISED),
+            _ => None,
+        };
+        button::Style {
+            background: background.map(Background::Color),
+            text_color: INK,
+            border: border(Color::TRANSPARENT, CONTROL_RADIUS),
+            shadow: Shadow::default(),
+            snap: true,
+        }
+    }
+}
+
+pub fn stage(_: &Theme) -> container::Style {
+    container::Style {
+        text_color: None,
+        background: Some(Background::Color(color!(0x0c0507))),
+        border: border(Color::from_rgba(1.0, 1.0, 1.0, 0.08), CARD_RADIUS),
+        shadow: Shadow { color: Color::from_rgba(0.0, 0.0, 0.0, 0.6), offset: iced::Vector::new(0.0, 30.0), blur_radius: 80.0 },
+        snap: true,
+    }
+}
+
 pub fn bubble(_: &Theme) -> container::Style {
     container::Style {
         text_color: None,

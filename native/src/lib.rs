@@ -8,12 +8,14 @@ pub mod library;
 pub mod live;
 pub mod main_screen;
 pub mod maps;
+pub mod player;
 pub mod render;
 pub mod scan;
 pub mod settings;
 pub mod sources;
 pub mod theme;
 pub mod ui;
+pub mod videos;
 
 use iced::widget::{image, stack};
 use iced::{Element, Length, Size, Subscription, Task, Theme};
@@ -53,6 +55,8 @@ pub struct Rehearsal {
     pub look: bool,
     pub step: bool,
     pub hover: Option<usize>,
+    pub videos: bool,
+    pub play: Option<usize>,
 }
 
 impl Rehearsal {
@@ -71,7 +75,9 @@ impl Rehearsal {
         let look = args.iter().any(|a| a == "--look-first");
         let step = args.iter().any(|a| a == "--step-first");
         let hover = args.iter().position(|a| a == "--hover").and_then(|i| args.get(i + 1)).and_then(|s| s.parse().ok());
-        Some(Rehearsal { folder, snap_to, after, render, get_map, look, step, hover })
+        let videos = args.iter().any(|a| a == "--videos-first");
+        let play = args.iter().position(|a| a == "--play").and_then(|i| args.get(i + 1)).and_then(|s| s.parse().ok());
+        Some(Rehearsal { folder, snap_to, after, render, get_map, look, step, hover, videos, play })
     }
 }
 
@@ -103,6 +109,11 @@ impl App {
                 Task::perform(async { tokio_sleep(std::time::Duration::from_millis(2500)).await }, |_| Message::Main(main_screen::Message::Step(1)))
             } else if let Some(at) = rehearsal.hover {
                 Task::perform(async { tokio_sleep(std::time::Duration::from_millis(2500)).await }, move |_| Message::Main(main_screen::Message::HoverStaged(at)))
+            } else if let Some(at) = rehearsal.play {
+                Task::perform(async { tokio_sleep(std::time::Duration::from_millis(1500)).await }, |_| Message::Main(main_screen::Message::Show(main_screen::Overlay::Videos)))
+                    .chain(Task::perform(async { tokio_sleep(std::time::Duration::from_millis(1200)).await }, move |_| Message::Main(main_screen::Message::OpenVideo(at))))
+            } else if rehearsal.videos {
+                Task::perform(async { tokio_sleep(std::time::Duration::from_millis(1500)).await }, |_| Message::Main(main_screen::Message::Show(main_screen::Overlay::Videos)))
             } else {
                 Task::none()
             };

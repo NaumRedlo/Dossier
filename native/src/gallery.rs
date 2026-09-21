@@ -426,8 +426,45 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
     let mut looking = Main::staged(crate::lang::Words::new(lang).in_zone(3 * 3600), settings.clone(), crate::library::Library::default(), None);
     looking.now_unix = NOON;
     looking.looking = Some(crate::scan::Step::Looking { files: 84_120, found: 37, seconds: 12 });
+    let mut with_videos = staged(Some(0));
+    with_videos.overlay = crate::main_screen::Overlay::Videos;
+    let mock_video = |at: usize, made_at: i64, length_ms: i64, size: u64, mods: &[&str]| {
+        let entry = &library.entries[at];
+        crate::videos::Video {
+            path: std::path::PathBuf::from(format!("/renders/{}.mp4", entry.player)),
+            replay: entry.path.clone(),
+            replay_hash: entry.replay_hash.clone(),
+            map_hash: entry.map_hash.clone(),
+            player: entry.player.clone(),
+            song: entry.song().unwrap_or_default(),
+            version: entry.map.as_ref().map(|m| m.version.clone()).unwrap_or_default(),
+            mods: mods.iter().map(|m| (*m).to_owned()).collect(),
+            length_ms,
+            width: 1920,
+            height: 1080,
+            fps: 60,
+            size,
+            made_at,
+            sent_at: None,
+            background: None,
+        }
+    };
+    with_videos.store.videos = vec![
+        mock_video(0, NOON - 1800, 231_000, 84_200_000, &["HD", "DT", "HR"]),
+        mock_video(1, NOON - 38 * 3600, 134_000, 51_000_000, &["EZ"]),
+        mock_video(2, NOON - 39 * 3600, 242_000, 97_700_000, &[]),
+    ];
+    let mut playing = with_videos.clone();
+    playing.open_video = Some(0);
+    playing.player = Some(std::rc::Rc::new(std::cell::RefCell::new(crate::player::Player::still(
+        std::path::Path::new("/renders/NaumRedlo.mp4"),
+        231_000,
+        67_000,
+    ))));
     vec![
         ("main-rest".to_owned(), staged(Some(0))),
+        ("main-videos".to_owned(), with_videos),
+        ("main-player".to_owned(), playing),
         ("main-nomap".to_owned(), staged(Some(3))),
         ("main-worker".to_owned(), worker),
         ("main-rendering".to_owned(), rendering),

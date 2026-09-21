@@ -5,8 +5,12 @@
       "name": "Main screen · as built"
     },
     {
+      "id": "page-strip",
+      "name": "Полоса · справа · меню"
+    },
+    {
       "id": "page-island",
-      "name": "Остров · состояния"
+      "name": "Остров · отложен"
     },
     {
       "id": "page-errors",
@@ -183,6 +187,141 @@
       "h": 720,
       "page": "page-errors",
       "title": "F · A state, not an error"
+    },
+    {
+      "file": "StripQuiet.dc.html",
+      "x": 0,
+      "y": 0,
+      "w": 980,
+      "h": 720,
+      "page": "page-strip",
+      "title": "Полоса · покой"
+    },
+    {
+      "file": "StripJobs.dc.html",
+      "x": 1060,
+      "y": 0,
+      "w": 980,
+      "h": 720,
+      "page": "page-strip",
+      "title": "Полоса · только дела"
+    },
+    {
+      "file": "StripFull.dc.html",
+      "x": 2120,
+      "y": 0,
+      "w": 980,
+      "h": 720,
+      "page": "page-strip",
+      "title": "Полоса · всё важное"
+    },
+    {
+      "file": "StripWorker.dc.html",
+      "x": 0,
+      "y": 910,
+      "w": 980,
+      "h": 720,
+      "page": "page-strip",
+      "title": "Полоса · воркер рисует"
+    },
+    {
+      "file": "StripDone.dc.html",
+      "x": 1060,
+      "y": 910,
+      "w": 980,
+      "h": 720,
+      "page": "page-strip",
+      "title": "Полоса · готово"
+    },
+    {
+      "file": "StripBad.dc.html",
+      "x": 2120,
+      "y": 910,
+      "w": 980,
+      "h": 720,
+      "page": "page-strip",
+      "title": "Полоса · не вышло"
+    },
+    {
+      "file": "StripOffline.dc.html",
+      "x": 0,
+      "y": 1820,
+      "w": 980,
+      "h": 720,
+      "page": "page-strip",
+      "title": "Полоса · офлайн"
+    },
+    {
+      "file": "RightPlain.dc.html",
+      "x": 1060,
+      "y": 1820,
+      "w": 980,
+      "h": 720,
+      "page": "page-strip",
+      "title": "Справа · как сейчас"
+    },
+    {
+      "file": "RightChip.dc.html",
+      "x": 2120,
+      "y": 1820,
+      "w": 980,
+      "h": 720,
+      "page": "page-strip",
+      "title": "Справа · чип аккаунта"
+    },
+    {
+      "file": "RightAvatar.dc.html",
+      "x": 0,
+      "y": 2730,
+      "w": 980,
+      "h": 720,
+      "page": "page-strip",
+      "title": "Справа · только аватар"
+    },
+    {
+      "file": "RightCount.dc.html",
+      "x": 1060,
+      "y": 2730,
+      "w": 980,
+      "h": 720,
+      "page": "page-strip",
+      "title": "Справа · счётчик у слова"
+    },
+    {
+      "file": "MenuSections.dc.html",
+      "x": 2120,
+      "y": 2730,
+      "w": 980,
+      "h": 720,
+      "page": "page-strip",
+      "title": "Меню · разделы"
+    },
+    {
+      "file": "MenuTimeline.dc.html",
+      "x": 0,
+      "y": 3640,
+      "w": 980,
+      "h": 720,
+      "page": "page-strip",
+      "title": "Меню · лента времени"
+    },
+    {
+      "file": "MenuColumns.dc.html",
+      "x": 1060,
+      "y": 3640,
+      "w": 980,
+      "h": 720,
+      "page": "page-strip",
+      "title": "Меню · две колонки"
+    },
+    {
+      "file": "MenuMinimal.dc.html",
+      "x": 2120,
+      "y": 3640,
+      "w": 980,
+      "h": 720,
+      "page": "page-strip",
+      "title": "Меню · минимум"
     },
     {
       "file": "IslandQuiet.dc.html",
@@ -547,6 +686,142 @@
       "text": "Recommendation: B for Render and Get the map (the button already is the story), A for everything that has a ledger, F for states, E for the fatal few; C and D only once the operations centre exists, and then D feeds C — the centre keeps every notice, a toast shows the fresh one."
     },
     {
+      "id": "StripQuiet-note",
+      "x": 0,
+      "y": -140,
+      "w": 640,
+      "page": "page-strip",
+      "text": "В покое полосы нет: верхняя строка как всегда. Полоса выезжает из-под неё за 320 мс, когда есть что сказать, и уезжает, когда сказать нечего. Никогда не висит пустой."
+    },
+    {
+      "id": "StripJobs-note",
+      "x": 1060,
+      "y": -140,
+      "w": 640,
+      "page": "page-strip",
+      "text": "Каждое дело — сегмент: точка, слово, имя, моно-цифра справа и двухпиксельная линия хода под сегментом (как у кнопок в просмотре). Ничего лишнего."
+    },
+    {
+      "id": "StripFull-note",
+      "x": 2120,
+      "y": -140,
+      "w": 640,
+      "page": "page-strip",
+      "text": "Слева дела, через хайрлайн — последнее уведомление (ошибка — красным, со своим «Ещё раз»), справа воркер: готов / рисует, очередь. Три вещи, которые стоит знать, не открывая ничего."
+    },
+    {
+      "id": "StripWorker-note",
+      "x": 0,
+      "y": 770,
+      "w": 640,
+      "page": "page-strip",
+      "text": "Когда устройство рисует для бота, это дело идёт первым: «Воркер рисует для @friend · 3 из 7», справа — что только что случилось."
+    },
+    {
+      "id": "StripDone-note",
+      "x": 1060,
+      "y": 770,
+      "w": 640,
+      "page": "page-strip",
+      "text": "Дело кончилось: галочка, «Готово · Daisuke», ссылки «Открыть» и «В папке». Держится 8 с или до клика, потом сегмент уходит; если он был последним — уходит полоса."
+    },
+    {
+      "id": "StripBad-note",
+      "x": 2120,
+      "y": 770,
+      "w": 640,
+      "page": "page-strip",
+      "text": "Ошибка занимает сегмент дела: крест, слово, причина в одну строку, «Ещё раз» и «Подробнее». Сама не уходит."
+    },
+    {
+      "id": "StripOffline-note",
+      "x": 0,
+      "y": 1680,
+      "w": 640,
+      "page": "page-strip",
+      "text": "Состояние: точка гаснет, одной строкой что отдыхает и когда попробует снова. Уходит сама, когда бот ответил."
+    },
+    {
+      "id": "RightPlain-note",
+      "x": 1060,
+      "y": 1680,
+      "w": 640,
+      "page": "page-strip",
+      "text": "Три слова и ничего больше. Полоса берёт на себя всё оперативное, Настройки — всё личное. Самый тихий вариант; ему не хватает только «кто я»."
+    },
+    {
+      "id": "RightChip-note",
+      "x": 2120,
+      "y": 1680,
+      "w": 640,
+      "page": "page-strip",
+      "text": "После трёх слов — чип: аватар из Telegram и имя. Клик открывает оперативное меню. Показывает, к кому привязано устройство, не добавляя четвёртого слова."
+    },
+    {
+      "id": "RightAvatar-note",
+      "x": 0,
+      "y": 2590,
+      "w": 640,
+      "page": "page-strip",
+      "text": "Тот же чип без имени: кружок 26 px. Меньше шума, но имя видно только в меню."
+    },
+    {
+      "id": "RightCount-note",
+      "x": 1060,
+      "y": 2590,
+      "w": 640,
+      "page": "page-strip",
+      "text": "Без нового элемента: у слова «Воркер» появляется счётчик очереди или непрочитанного. Дёшево, но перегружает слово-экран смыслом события."
+    },
+    {
+      "id": "MenuSections-note",
+      "x": 2120,
+      "y": 2590,
+      "w": 640,
+      "page": "page-strip",
+      "text": "Карточка из чипа: Сейчас с полосами, Воркер, Уведомления с временем, Telegram, строка сборки. Всё на месте, читается сверху вниз."
+    },
+    {
+      "id": "MenuTimeline-note",
+      "x": 0,
+      "y": 3500,
+      "w": 640,
+      "page": "page-strip",
+      "text": "Одна лента, новое сверху: время, знак, слово, деталь. Дела и уведомления — одна история дня; Telegram — в подвале. Ближе всего к языку реестра."
+    },
+    {
+      "id": "MenuColumns-note",
+      "x": 1060,
+      "y": 3500,
+      "w": 640,
+      "page": "page-strip",
+      "text": "Слева — что идёт и воркер, справа — что случилось. Шире, но всё видно без прокрутки; в подвале «Всё прочитано»."
+    },
+    {
+      "id": "MenuMinimal-note",
+      "x": 2120,
+      "y": 3500,
+      "w": 640,
+      "page": "page-strip",
+      "text": "Только Сейчас и Уведомления. Воркер, Telegram и сборка живут в Настройках — меню про сегодня, не про устройство."
+    },
+    {
+      "id": "page-strip-rec",
+      "x": 0,
+      "y": 4490,
+      "w": 980,
+      "page": "page-strip",
+      "text": "Предложение: полоса «всё важное» (дела · последнее уведомление · воркер), справа — чип аккаунта, меню — лента времени: полоса говорит, что происходит, чип — от чьего имени, лента — что было. Три места, три вопроса, ничего не дублируется."
+    },
+    {
+      "id": "page-strip-extra",
+      "x": 1060,
+      "y": 4490,
+      "w": 980,
+      "page": "page-strip",
+      "text": "What the centre needs built, in order: (1) a notice queue in the application — one struct, kind · words · time · a link — fed by Render, Get the map, the scan and the worker, kept in ~/.dossier/notices.json, at most a hundred; (2) the mark and the panel, with the count of unseen notices; (3) the worker's own events from the bot (a job taken, drawn, delivered) over the existing hello endpoint polled every 30 s, or a long poll when the bot grows one; (4) Telegram: POST /render/send with the file, and the bot's answer as a notice; (5) the build line, from hello, with Download when the bot wants a newer one — the same fetch-and-unpack as ffmpeg's."
+    },
+    {
       "id": "IslandQuiet-note",
       "x": 0,
       "y": -140,
@@ -633,14 +908,6 @@
       "w": 980,
       "page": "page-island",
       "text": "Остров — одно живое место в верхней строке, оно же панель. Заливка таблетки (IslandOne) выразительнее линии, но линия (IslandLine) повторяет кнопки просмотра; предлагаю заливку для острова и линию для кнопок — они читаются на разном масштабе. Точки в углу нет вовсе."
-    },
-    {
-      "id": "page-island-extra",
-      "x": 1060,
-      "y": 3580,
-      "w": 980,
-      "page": "page-island",
-      "text": "What the centre needs built, in order: (1) a notice queue in the application — one struct, kind · words · time · a link — fed by Render, Get the map, the scan and the worker, kept in ~/.dossier/notices.json, at most a hundred; (2) the mark and the panel, with the count of unseen notices; (3) the worker's own events from the bot (a job taken, drawn, delivered) over the existing hello endpoint polled every 30 s, or a long poll when the bot grows one; (4) Telegram: POST /render/send with the file, and the bot's answer as a notice; (5) the build line, from hello, with Download when the bot wants a newer one — the same fetch-and-unpack as ffmpeg's."
     },
     {
       "id": "CentreMark-note",

@@ -5,6 +5,7 @@ import built
 import centre
 import errors
 import island
+import strip
 
 HERE = Path(__file__).parent
 W, H, GX, GY = 980, 720, 80, 190
@@ -42,6 +43,9 @@ for name, html in centre_boards.items():
 island_boards = island.boards()
 for name, html in island_boards.items():
     (HERE / f"{name}.dc.html").write_text(html)
+strip_boards = strip.boards()
+for name, html in strip_boards.items():
+    (HERE / f"{name}.dc.html").write_text(html)
 
 artboards = [a for a, _ in built_notes]
 annotations = [n for _, n in built_notes if n]
@@ -53,8 +57,13 @@ a, n = lay(names, errors.NOTES, "page-errors", errors.RECOMMENDED)
 artboards += a
 annotations += n
 
+names = ["StripQuiet", "StripJobs", "StripFull", "StripWorker", "StripDone", "StripBad", "StripOffline", "RightPlain", "RightChip", "RightAvatar", "RightCount", "MenuSections", "MenuTimeline", "MenuColumns", "MenuMinimal"]
+a, n = lay(names, strip.NOTES, "page-strip", strip.RECOMMENDED, centre.TO_BUILD)
+artboards += a
+annotations += n
+
 names = ["IslandQuiet", "IslandOne", "IslandLine", "IslandTwo", "IslandDone", "IslandBad", "IslandWorker", "IslandOffline", "IslandOpen", "IslandMorph"]
-a, n = lay(names, island.NOTES, "page-island", island.RECOMMENDED, centre.TO_BUILD)
+a, n = lay(names, island.NOTES, "page-island", island.RECOMMENDED)
 artboards += a
 annotations += n
 
@@ -71,7 +80,8 @@ annotations += [b for b in old["annotations"] if b["page"] == "page-directions"]
 manifest = {
     "pages": [
         {"id": "page-built", "name": "Main screen · as built"},
-        {"id": "page-island", "name": "Остров · состояния"},
+        {"id": "page-strip", "name": "Полоса · справа · меню"},
+        {"id": "page-island", "name": "Остров · отложен"},
         {"id": "page-errors", "name": "Errors · variations"},
         {"id": "page-centre", "name": "Operations centre · first variations"},
     ] + keep_pages,

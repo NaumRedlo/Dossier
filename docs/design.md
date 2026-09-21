@@ -369,24 +369,29 @@ the date line — *stable* or *lazer* — is read from the replay itself, not
 from where the file was found. Built 2026-09-16; a rescan from Settings
 comes with Settings.
 
-*The island.* The operations centre is decided 2026-09-21 as one living
-place in the top row, between the crest and the three words, at the words'
-side: a pill — the island — that is nothing (or a 36 px drop with a faint
-dot) while nothing happens, grows into a pill when something starts, and,
-clicked, stretches down and right into the panel at the top-right corner.
-A dot in the corner was drawn and rejected. The pill: a breathing dot, one
-word and the thing's name, a mono figure at the right, and its own state as
-the bar — the pill fills with the soft accent from left to right as the
-work goes (the viewer's buttons keep their two-pixel line; the two read at
-different sizes). Two jobs split the pill with a hairline. Done: the dot
-becomes a tick, *Готово · Открыть*, five seconds, then it shrinks back.
-Failed: the edge turns danger, a cross, *Ещё раз*; it stays until dealt
-with. The worker's own job — *Воркер · для @friend*, the frames' share, the
-queue — and *Офлайн · бот молчит · повтор через 40 с* are the same pill.
-The panel it opens into: the pill's line as the head, then *Сейчас* with
-bars, *Воркер*, *Уведомления* with times, *Telegram* (who is linked, where
-renders go), the build line; Esc or a click outside closes it. Drawn in
-`docs/mockups/main/island.py`; to be built after the notice queue.
+*The stripe, the chip, the menu.* The island was drawn (`docs/mockups/main/
+island.py`) and set aside the same day, 2026-09-21: the strip from the
+first centre round is kept, but it must earn its place — it shows what
+matters, not a mood. The stripe is a 30 px line under the top row, there
+only while there is something to say, made of segments with hairlines
+between: at the left the jobs of this machine (a breathing dot, one word,
+the thing's name, a mono figure, a two-pixel line of progress under the
+segment); then the latest notice (a tick and *Карта скачана · 13:51*, or in
+danger red a cross, *Рендер не завершился* and its own *Ещё раз*, which
+stays until dealt with); at the right the worker (*Воркер · готов · 2 в
+очереди*, or *рисует для @friend · 3 из 7*, or *Офлайн · повтор через 40
+с*). Done: *Готово · Открыть · В папке* for five seconds, then the segment
+goes. Nothing happening, no stripe. The top-right corner answers one
+question only — from whose name — as an account chip beside the three
+words (an avatar dot and the handle; a plain avatar, a count on the word
+*Воркер* and the bare row were drawn and read worse). The chip opens the
+operations menu; of the four menus drawn — sections, a timeline, two
+columns, a minimal list — the timeline is proposed: one column of *time ·
+mark · words*, the live jobs at the top with their figures, then what
+happened, the account line and *Esc — закрыть* at the foot. Three places,
+three questions: the stripe says what is happening, the chip whose, the
+menu what was. Drawn in `docs/mockups/main/strip.py`; awaiting the user's
+pick, then built after the notice queue.
 
 *The three words.* Replays is this screen. Worker and Settings open over
 the scene, dimmed to a fifth, in the first run's centred column; the crest

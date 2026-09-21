@@ -42,7 +42,7 @@ DRAWER = '''
   <div class="drawer">
     <h2>Operations</h2>
     <div class="line now"><span class="g" style="color:#e24848;">●</span><b>Rendering</b><span class="d">· Daisuke · 62 %</span></div>
-    <div class="line now"><span class="g" style="color:#e24848;">●</span><b>Fetching</b><span class="d">· Blue Zenith · 14,2 / 21,8 MB</span></div>
+    <div class="line now"><span class="g" style="color:#e24848;">●</span><b>Fetching</b><span class="d">· Blue Zenith · 65 %</span></div>
     <div class="line done"><span class="g">✓</span><span>Map fetched</span><span class="d">· 13:51</span></div>
     <div class="line bad"><span class="g">✕</span><span>Render did not finish</span><span class="d">· 14:02</span></div>
     <div class="line done"><span class="g">✓</span><span>Rendered for @friend</span><span class="d">· 12:20</span></div>
@@ -58,16 +58,17 @@ def boards():
     out = {}
     out["CentreMark"] = over(rest, '''
   <div class="mark"></div>
-  <div class="note" style="top:96px; text-align:right;">A · a mark beside the words — an 8 px dot, faint when quiet, red when something asks — is the whole centre at rest</div>''')
+  <div class="note" style="top:60px; left:auto; right:40px; width:300px; text-align:right;">the mark: an 8 px dot beside the words — faint when quiet, red when something asks</div>''')
     out["CentrePanel"] = over(rest, '<div class="mark hot"></div>' + PANEL)
     out["CentreDrawer"] = over(rest, '<div class="veil" style="background:rgba(7,3,4,0.35);"></div>' + DRAWER)
     out["CentreStripe"] = over(rest, '''
   <div class="stripe"><b>Rendering</b><span>Daisuke · 62 %</span><b>Fetching</b><span>Blue Zenith · 65 %</span><span style="margin-left:auto;"><b>Worker</b> ready · 2 in the queue</span></div>''')
-    out["CentreTelegram"] = over(rest, '''
-  <div style="position:absolute; left:40px; top:530px; display:flex; align-items:center; gap:6px; background:#0d0508; padding-right:20px;">
+    out["CentreTelegram"] = over(frame("main-rendered-en-US"), '''
+  <div style="position:absolute; left:40px; top:522px; width:400px; height:44px; background:#0d0508;"></div>
+  <div style="position:absolute; left:40px; top:526px; display:flex; align-items:center; gap:6px;">
     <span class="btn primary">Open</span><span class="btn quiet">In folder</span><span class="btn quiet">Send to Telegram</span>
   </div>
-  <div class="toast" style="bottom:150px; left:auto; right:40px;">
+  <div class="toast" style="top:96px; left:auto; right:40px; width:340px;">
     <div class="h"><span class="x" style="color:#a9a29b;">·</span>Sent to @naumredlo</div>
     <div class="b">The bot delivered the video to your chat — 49 MB.</div>
   </div>''')

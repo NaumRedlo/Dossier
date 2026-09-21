@@ -24,7 +24,6 @@ pub const ARRIVE: Duration = Duration::from_millis(450);
 pub const SWAP: Duration = Duration::from_millis(450);
 pub const LIFT: Duration = Duration::from_millis(200);
 pub const LIVE_FADE: Duration = Duration::from_millis(640);
-pub const PEEK: Duration = Duration::from_millis(180);
 pub const BRAND_WIDTH: f32 = 144.0;
 const CREST_HOME: (f32, f32) = (40.0, 24.0);
 const CREST_RISE: f32 = 8.0;
@@ -170,8 +169,6 @@ pub struct Main {
     pub hatch: image::Handle,
     pub trail: Option<Trail>,
     pub strip_view: Option<(f32, f32, f32)>,
-    pub peek: Animation<bool>,
-    pub peeked: Option<usize>,
     pub progress_shown: f32,
     pub ffmpeg: Option<PathBuf>,
     pub now: Instant,
@@ -181,8 +178,7 @@ pub struct Main {
     pub arrive: Animation<bool>,
     pub swap: Animation<bool>,
     pub swap_waits: bool,
-    pub lift: Animation<bool>,
-    pub lifted: Option<usize>,
+    pub lifts: HashMap<usize, Animation<bool>>,
     pub width: f32,
     strip_id: iced::widget::Id,
 }
@@ -217,8 +213,6 @@ impl Main {
             hatch: ui::hatched_picture(live::SIZE.0, live::SIZE.1, live::dim_at),
             trail: None,
             strip_view: None,
-            peek: Animation::new(false).duration(PEEK).easing(Easing::EaseOutCubic),
-            peeked: None,
             progress_shown: 0.0,
             ffmpeg: crate::checks::ffmpeg_on_path(),
             now: Instant::now(),
@@ -228,8 +222,7 @@ impl Main {
             arrive: Animation::new(false).duration(ARRIVE).easing(Easing::EaseOutCubic).go(true, Instant::now()),
             swap: Animation::new(true).duration(SWAP).easing(Easing::EaseOutCubic),
             swap_waits: false,
-            lift: Animation::new(false).duration(LIFT).easing(Easing::EaseOutCubic),
-            lifted: None,
+            lifts: HashMap::new(),
             width: crate::WINDOW.width,
             strip_id: iced::widget::Id::unique(),
         };
@@ -249,14 +242,13 @@ impl Main {
         self.rendering.as_ref().is_some_and(|r| !r.is_over())
             || self.fetching.as_ref().is_some_and(|f| !f.is_over())
             || matches!(self.looking, Some(scan::Step::Looking { .. }))
-            || self.live.as_ref().is_some_and(|l| l.fade.is_animating(self.now) || l.rest.is_animating(self.now))
+            || self.live.as_ref().is_some_and(|l| l.fade.is_animating(self.now) || !(l.control.paused() && l.control.settled()))
             || self.trail.as_ref().is_some_and(|t| t.paused_at.is_none())
-            || self.peek.is_animating(self.now)
             || self.progress_target().is_some_and(|t| (t - self.progress_shown).abs() > 0.001)
             || self.enter.is_animating(self.now)
             || self.arrive.is_animating(self.now)
             || self.swap.is_animating(self.now)
-            || self.lift.is_animating(self.now)
+            || self.lifts.values().any(|l| l.is_animating(self.now))
     }
 
     pub fn subscription(&self) -> Subscription<Message> {
@@ -337,8 +329,6 @@ impl Main {
         self.before = before;
         self.scene_before = scene_before;
         self.chosen = Some(at);
-        self.peek = Animation::new(false).duration(PEEK).easing(Easing::EaseOutCubic);
-        self.peeked = None;
         self.swap_waits = self.chosen_entry().is_some_and(|e| e.map.is_some() && !self.scenes.contains_key(&e.map_hash));
         if self.rendering.as_ref().is_some_and(Rendering::is_over) {
             self.rendering = None;
@@ -469,22 +459,19 @@ impl Main {
             }
             Message::Hover(at) => {
                 self.hover = at;
-                match at {
-                    Some(at) => {
-                        self.lifted = Some(at);
-                        self.lift.go_mut(true, Instant::now());
-                        if Some(at) != self.chosen {
-                            self.peeked = Some(at);
-                            self.peek.go_mut(true, Instant::now());
-                        } else {
-                            self.peek.go_mut(false, Instant::now());
-                        }
-                    }
-                    None => {
-                        self.lift.go_mut(false, Instant::now());
-                        self.peek.go_mut(false, Instant::now());
+                let now = Instant::now();
+                for (index, lift) in self.lifts.iter_mut() {
+                    if Some(*index) != at {
+                        lift.go_mut(false, now);
                     }
                 }
+                if let Some(at) = at {
+                    self.lifts
+                        .entry(at)
+                        .or_insert_with(|| Animation::new(false).duration(LIFT).easing(Easing::EaseOutCubic))
+                        .go_mut(true, now);
+                }
+                self.lifts.retain(|_, lift| lift.value() || lift.is_animating(now));
                 Task::none()
             }
             Message::Show(overlay) => {
@@ -644,10 +631,7 @@ impl Main {
                             live.rest.go_mut(false, Instant::now());
                         }
                     }
-                    live::Frame::Still(handle) => {
-                        live.still = Some(handle);
-                        live.rest.go_mut(true, Instant::now());
-                    }
+                    live::Frame::Still(_) => {}
                     live::Frame::Failed(_) => {
                         live.control.stop();
                         self.live = None;
@@ -661,8 +645,9 @@ impl Main {
                 Task::none()
             }
             Message::ScrubTo(fraction) => {
-                let Some((_, content, shown)) = self.strip_view else {
-                    return Task::none();
+                let (content, shown) = match self.strip_view {
+                    Some((_, content, shown)) => (content, shown),
+                    None => self.guessed_strip(),
                 };
                 let x = (fraction * content).clamp(0.0, (content - shown).max(0.0));
                 iced::advanced::widget::operate(iced::advanced::widget::operation::scrollable::scroll_to(
@@ -733,6 +718,11 @@ impl Main {
             }
             Message::Tick(now) => {
                 self.now = now;
+                if let Some(live) = &self.live {
+                    if !(live.control.paused() && live.control.settled()) {
+                        live.control.request();
+                    }
+                }
                 match self.progress_target() {
                     Some(target) => self.progress_shown += (target - self.progress_shown) * 0.12,
                     None => self.progress_shown = 0.0,
@@ -777,13 +767,7 @@ impl Main {
             (Some(entry), Some(live), _) if live.for_path == entry.path => match &live.frame {
                 Some(handle) => {
                     let seen = live.fade.interpolate(0.0, 1.0, self.now);
-                    let resting = live.rest.interpolate(0.0, 1.0, self.now);
-                    let moving: Element<'_, Message> = full(handle, alpha * seen);
-                    let layered: Element<'_, Message> = match &live.still {
-                        Some(still) if resting > 0.0 => stack![moving, full(still, alpha * seen * resting)].into(),
-                        _ => moving,
-                    };
-                    mouse_area(layered).on_press(Message::TogglePlay).into()
+                    mouse_area(full(handle, alpha * seen)).on_press(Message::TogglePlay).into()
                 }
                 None => blank(),
             },
@@ -861,20 +845,7 @@ impl Main {
         };
         let now = self.shown(entry);
         let was = self.before.clone().unwrap_or_default();
-        let chosen_block = self.block(entry, &was, &now, s, true);
-        let h = self.peek.interpolate(0.0, 1.0, self.now);
-        let peeked = self.peeked.and_then(|at| self.entries().get(at)).filter(|e| e.path != entry.path);
-        let body: Element<'_, Message> = match peeked {
-            Some(other) if h > 0.0 => {
-                let shown = self.shown(other);
-                stack![
-                    ui::fading(ui::fade() * (1.0 - h), || self.block(entry, &was, &now, s, true)),
-                    ui::fading(ui::fade() * h, || self.block(other, &shown, &shown, 1.0, false)),
-                ]
-                .into()
-            }
-            _ => chosen_block,
-        };
+        let body = self.block(entry, &was, &now, s, true);
         container(body)
             .padding(Padding { top: 0.0, right: 40.0, bottom: 28.0, left: 40.0 })
             .width(Length::Fill)
@@ -1038,6 +1009,23 @@ impl Main {
         (0.5 - 0.5 * (t / period * std::f32::consts::TAU).cos()).clamp(0.0, 1.0)
     }
 
+    fn guessed_strip(&self) -> (f32, f32) {
+        let visible = self.visible();
+        let entries = self.entries();
+        let mut days = 0usize;
+        let mut last_day = String::new();
+        for at in &visible {
+            let label = self.words.day(entries[*at].played_at, self.now_unix);
+            if label != last_day {
+                days += 1;
+                last_day = label;
+            }
+        }
+        let content = visible.len() as f32 * (theme::FRAME_W + 6.0) - 6.0 * days as f32 + 8.0 + days.saturating_sub(1) as f32 * 22.0;
+        let shown = (self.width - 80.0 - 80.0).max(1.0);
+        (content.max(1.0), shown)
+    }
+
     fn journal(&self) -> Element<'_, Message> {
         let w = &self.words;
         let visible = self.visible();
@@ -1082,12 +1070,7 @@ impl Main {
             .font(theme::MONO)
             .size(11.0)
             .color(ui::faded(Color { a: 0.7, ..FAINT }));
-        let guessed_content: f32 = days
-            .iter()
-            .map(|(_, list)| list.len() as f32 * (theme::FRAME_W + 6.0) - 6.0 + 8.0)
-            .sum::<f32>()
-            + (days.len().saturating_sub(1)) as f32 * 22.0;
-        let guessed_shown = (self.width - 80.0 - 80.0).max(1.0);
+        let (guessed_content, guessed_shown) = self.guessed_strip();
         let (start, len) = match self.strip_view {
             Some((offset, content, shown)) if content > 0.0 => (offset / content, (shown / content).min(1.0)),
             _ => (0.0, (guessed_shown / guessed_content.max(1.0)).min(1.0)),
@@ -1105,7 +1088,7 @@ impl Main {
     fn frame(&self, at: usize, entry: &Entry) -> Element<'_, Message> {
         let chosen = self.chosen == Some(at);
         let lit = self.hover == Some(at);
-        let rise = if self.lifted == Some(at) { self.lift.interpolate(0.0, 1.0, self.now) } else { 0.0 };
+        let rise = self.lifts.get(&at).map_or(0.0, |lift| lift.interpolate(0.0, 1.0, self.now));
         let (w, h) = if chosen { (theme::FRAME_W + 8.0, theme::FRAME_H + 4.0) } else { (theme::FRAME_W, theme::FRAME_H) };
         let inner = if chosen { 4.0 } else { 2.0 };
         let picture: Element<'_, Message> = match (self.thumbs.get(&entry.map_hash), entry.map.is_some()) {
@@ -1119,19 +1102,6 @@ impl Main {
             (None, true) => Space::new().width(w - inner).height(h - inner).into(),
             (None, false) => container(ui::fine_hatch()).width(w - inner).height(h - inner).into(),
         };
-        let busy_here = self.rendering.as_ref().is_some_and(|r| r.path == entry.path && !r.is_over())
-            || self.fetching.as_ref().is_some_and(|f| f.hash == entry.map_hash && !f.is_over());
-        let picture: Element<'_, Message> = if busy_here {
-            let dot = container(Space::new().width(8.0).height(8.0)).style(|_| container::Style {
-                background: Some(iced::Background::Color(ACCENT)),
-                border: iced::Border { radius: 4.0.into(), ..iced::Border::default() },
-                shadow: iced::Shadow { color: Color::from_rgba(0.027, 0.012, 0.016, 0.6), offset: Vector::ZERO, blur_radius: 10.0 },
-                ..container::Style::default()
-            });
-            stack![picture, container(dot).width(Length::Fill).height(Length::Fill).center(Length::Fill)].into()
-        } else {
-            picture
-        };
         let edge = if chosen { 2.0 } else { 1.0 };
         let pressed = button(container(picture).width(w - 2.0 * edge).height(h - 2.0 * edge))
             .padding(edge)
@@ -1139,7 +1109,38 @@ impl Main {
             .on_press(Message::Choose(at));
         let sensed = mouse_area(pressed).on_enter(Message::Hover(Some(at))).on_exit(Message::Hover(None));
         let scale = if chosen { 1.0 } else { 1.0 + 0.04 * rise };
-        float(sensed).scale(scale).translate(move |_, _| Vector::new(0.0, -2.0 * rise)).into()
+        let lifted = float(sensed).scale(scale).translate(move |_, _| Vector::new(0.0, -2.0 * rise));
+        iced::widget::tooltip(lifted, self.bubble(entry), iced::widget::tooltip::Position::Top).gap(8).padding(0).into()
+    }
+
+    fn bubble(&self, entry: &Entry) -> Element<'_, Message> {
+        let w = &self.words;
+        let mut how = row![].spacing(6).align_y(iced::Center);
+        for acronym in &entry.mods {
+            how = how.push(mod_badge(acronym));
+        }
+        if !entry.mods.is_empty() {
+            how = how.push(ui::mono("·".to_owned(), FAINT));
+        }
+        how = how.push(ui::mono(format!("{}x", entry.combo), MUTED));
+        how = how.push(ui::mono("·".to_owned(), FAINT));
+        how = how.push(text(entry.outcome.mark()).font(theme::MONO_BOLD).size(11.0).color(if entry.outcome.is_bad() { ACCENT } else { MUTED }));
+        how = how.push(ui::mono("·".to_owned(), FAINT));
+        how = how.push(text(entry.grade.letter()).font(theme::MONO_BOLD).size(11.0).color(grade_colour(entry.grade)));
+        let inside = column![
+            row![
+                text(entry.player.clone()).font(theme::SANS_SEMI).size(theme::BODY).color(INK),
+                ui::grow(),
+                text(w.percent(entry.accuracy)).font(theme::MONO_BOLD).size(theme::CAPTION).color(INK),
+            ]
+            .spacing(16)
+            .align_y(iced::Center),
+            text(entry.title().unwrap_or_else(|| w.t("unknown-map"))).font(theme::SANS).size(theme::CAPTION).color(MUTED),
+            container(how).padding(Padding::ZERO.top(3.0)),
+        ]
+        .spacing(2)
+        .width(Length::Shrink);
+        container(inside).padding([8, 10]).style(theme::bubble).into()
     }
 
     fn overlay_view(&self) -> Element<'_, Message> {

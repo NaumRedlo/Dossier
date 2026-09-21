@@ -14,7 +14,10 @@ pub const EASE: Duration = Duration::from_millis(700);
 pub struct Control {
     stop: AtomicBool,
     paused: AtomicBool,
+    settled: AtomicBool,
     seek: Mutex<Option<f64>>,
+    wanted: Mutex<bool>,
+    knock: std::sync::Condvar,
 }
 
 fn ease(k: f64) -> f64 {
@@ -42,6 +45,24 @@ impl Control {
 
     fn stopped(&self) -> bool {
         self.stop.load(Ordering::SeqCst)
+    }
+
+    pub fn settled(&self) -> bool {
+        self.settled.load(Ordering::SeqCst)
+    }
+
+    pub fn request(&self) {
+        *self.wanted.lock().expect("the request") = true;
+        self.knock.notify_one();
+    }
+
+    fn await_request(&self, at_most: Duration) -> bool {
+        let mut wanted = self.wanted.lock().expect("the request");
+        if !*wanted {
+            let (guard, _) = self.knock.wait_timeout(wanted, at_most).expect("the request");
+            wanted = guard;
+        }
+        std::mem::replace(&mut *wanted, false)
     }
 
     fn take_seek(&self) -> Option<f64> {
@@ -104,24 +125,27 @@ fn run(ask: &Ask, control: &Control, push: &mut dyn FnMut(Frame) -> bool) -> Res
     let step = Duration::from_secs_f64(1.0 / FPS);
     let mut at_ms = from_ms;
     let mut tick = Instant::now();
-    let mut next = Instant::now();
     let mut speed = 1.0f64;
     let mut eased_since: Option<(Instant, f64, bool)> = None;
     let mut was_paused = false;
-    let mut still_sent = false;
+    let mut first = true;
     loop {
+        if control.stopped() {
+            return Ok(());
+        }
+        let asked = first || control.await_request(step * 4);
+        first = false;
         if control.stopped() {
             return Ok(());
         }
         if let Some(delta) = control.take_seek() {
             at_ms = (at_ms + delta).clamp(from_ms, to_ms);
-            still_sent = false;
         }
         let paused = control.paused();
         if paused != was_paused {
             eased_since = Some((Instant::now(), speed, paused));
             was_paused = paused;
-            still_sent = false;
+            control.settled.store(false, Ordering::SeqCst);
         }
         if let Some((since, from_speed, to_pause)) = eased_since {
             let k = ease(since.elapsed().as_secs_f64() / EASE.as_secs_f64());
@@ -139,21 +163,10 @@ fn run(ask: &Ask, control: &Control, push: &mut dyn FnMut(Frame) -> bool) -> Res
             at_ms = from_ms;
         }
         if speed <= 0.0 {
-            if !still_sent {
-                let pixmap = scene.frame(at_ms, &layout);
-                let mut rgba = pixmap.take();
-                dim_rows(&mut rgba, SIZE.0 as usize, SIZE.1 as usize);
-                let mut soft = ::image::RgbaImage::from_raw(SIZE.0, SIZE.1, rgba).map(::image::DynamicImage::ImageRgba8);
-                if let Some(picture) = soft.take() {
-                    let blurred = picture.fast_blur(2.5).to_rgba8();
-                    if !push(Frame::Still(image::Handle::from_rgba(SIZE.0, SIZE.1, blurred.into_raw()))) {
-                        return Ok(());
-                    }
-                }
-                still_sent = true;
-            }
-            std::thread::sleep(Duration::from_millis(40));
-            next = Instant::now();
+            control.settled.store(true, Ordering::SeqCst);
+            continue;
+        }
+        if !asked {
             continue;
         }
         let pixmap = scene.frame(at_ms, &layout);
@@ -162,13 +175,6 @@ fn run(ask: &Ask, control: &Control, push: &mut dyn FnMut(Frame) -> bool) -> Res
         let handle = image::Handle::from_rgba(SIZE.0, SIZE.1, rgba);
         if !push(Frame::Picture { handle, at_ms, from_ms, to_ms }) {
             return Ok(());
-        }
-        next += step;
-        let now = Instant::now();
-        if next > now {
-            std::thread::sleep(next - now);
-        } else {
-            next = now;
         }
     }
 }

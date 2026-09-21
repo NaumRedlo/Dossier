@@ -379,3 +379,13 @@ pub fn bar(_: &Theme) -> container::Style {
         snap: true,
     }
 }
+
+pub fn bubble(_: &Theme) -> container::Style {
+    container::Style {
+        text_color: None,
+        background: Some(Background::Color(Color::from_rgba(0.047, 0.02, 0.027, 0.97))),
+        border: border(Color::from_rgba(1.0, 1.0, 1.0, 0.1), 10.0),
+        shadow: Shadow { color: Color::from_rgba(0.0, 0.0, 0.0, 0.45), offset: iced::Vector::new(0.0, 8.0), blur_radius: 24.0 },
+        snap: true,
+    }
+}

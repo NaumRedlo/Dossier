@@ -264,15 +264,16 @@ the keyboard. Where a choice is still open it is marked *open*.
 - *Render*: the button itself becomes the progress, the way lazer's
   download button does (chosen 2026-09-21 over a ledger in the viewer,
   which took the meta line's place and was too much): its face turns to
-  the soft accent, its words follow the work — *Reading the replay*,
-  *Judging*, *Drawing · 62 %*, *Saving* — and a two-pixel bar along its
-  bottom fills, eased frame by frame so it never jumps. Clicking it stops.
+  the soft accent, one word on it follows the work — *Reading*, *Judging*,
+  *Drawing*, *Saving* — and a two-pixel bar along its bottom fills, eased
+  frame by frame so it never jumps; the bar is the number, so there is no
+  number. Clicking it stops.
   The player's name and the map stay, the accuracy stays, the frame in the
   journal wears a red dot in its middle. Encoding is not a step of its
   own: the encoder eats frames as they are drawn, so *Drawing* is both.
   When it is done the button reads *Open*, with *In folder* as a link
   beside it, until the next choice; a stop or a failure leaves a quiet
-  *Did not work · once more*. The scene keeps playing throughout. Built 2026-09-16: the
+  *Once more*. The scene keeps playing throughout. Built 2026-09-16: the
   engine's own pipeline in a thread of its own, its progress events read
   as they come, `halt` for *Stop*. The picture is 1920×1080 at 60 fps, crf
   20, preset medium, with the map's background, the map's own hit-sounds
@@ -298,16 +299,15 @@ the keyboard. Where a choice is still open it is marked *open*.
   hatched ground is a picture too, dimmed at the top and the bottom the
   same way as every other scene, so it never looks brighter than its
   neighbours.
-- *Get the map* is the same progress button: *Looking up the map*, *Found
-  on osu.direct* (a mirror's answer to a hash carries the set's number and
-  little else; the song's name arrives with the files), *Downloading · 14,2
-  / 21,8 MB*, *Unpacking into Dossier/Songs*, *Checking the hash*, the bar
-  filling with the bytes; clicking it stops. The frame wears the red dot. When the hash agrees with the replay's, the map joins
+- *Get the map* is the same progress button, a word at a time: *Looking*,
+  *Found*, *Downloading*, *Unpacking*, *Checking*, the bar filling with the
+  bytes; clicking it stops. (A mirror's answer to a hash carries the set's
+  number and little else; the song's name arrives with the files.) The frame wears the red dot. When the hash agrees with the replay's, the map joins
   every replay that names it, the scene crossfades from the hatched ground
   to the map's background, the frame takes it too, and the button reads
   *Render*. When no mirror knows the map, the line turns red — *Not on any
-  mirror* — as a quiet *Not on the mirrors · once more*; so does a stop or
-  a failure. Built 2026-09-16: osu.direct then catboy.best for the look-up,
+  mirror* — as a quiet *Not found*; a stop or a failure leaves *Once more*.
+  Built 2026-09-16: osu.direct then catboy.best for the look-up,
   the answering mirror first for the file, the other as the second try; the
   set is unpacked into the application's own Songs (or a plain folder's
   own Songs when that is the source), never into the game's; the folder is

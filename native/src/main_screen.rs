@@ -947,20 +947,15 @@ impl Main {
             ]
             .align_y(iced::Center)
             .into(),
-            Some(Step::Failed(_)) | Some(Step::Stopped) => ui::quiet(w.t("did-not-work"), (self.ffmpeg.is_some()).then_some(Message::Render)),
+            Some(Step::Failed(_)) | Some(Step::Stopped) => ui::quiet(w.t("once-more"), (self.ffmpeg.is_some()).then_some(Message::Render)),
             step => {
-                let (label, target) = match step {
-                    None | Some(Step::ReplayRead) => (w.t("reading-replay"), 0.03),
-                    Some(Step::MapOnDisk) => (w.t("judging"), 0.06),
-                    Some(Step::Judged) => (w.t("drawing"), 0.08),
-                    Some(Step::Drawing { frames, of, .. }) => {
-                        let part = if *of > 0 { *frames as f32 / *of as f32 } else { 0.0 };
-                        (format!("{} · {:.0} %", w.t("drawing"), part * 100.0), 0.08 + 0.88 * part)
-                    }
-                    Some(Step::Encoded) => (w.t("saving"), 0.98),
-                    _ => (w.t("drawing"), 0.5),
+                let label = match step {
+                    None | Some(Step::ReplayRead) => w.t("reading"),
+                    Some(Step::MapOnDisk) => w.t("judging"),
+                    Some(Step::Judged) | Some(Step::Drawing { .. }) => w.t("drawing"),
+                    Some(Step::Encoded) => w.t("saving"),
+                    _ => w.t("drawing"),
                 };
-                let _ = target;
                 ui::progress(label, self.progress_shown, Some(Message::StopRender))
             }
         }
@@ -970,19 +965,16 @@ impl Main {
         use maps::Step as S;
         let w = &self.words;
         match fetching.last() {
-            Some(S::Nowhere) => ui::quiet(w.t("not-on-mirrors"), Some(Message::GetMap)),
-            Some(S::Failed(_)) | Some(S::Stopped) => ui::quiet(w.t("did-not-work"), Some(Message::GetMap)),
+            Some(S::Nowhere) => ui::quiet(w.t("not-found"), Some(Message::GetMap)),
+            Some(S::Failed(_)) | Some(S::Stopped) => ui::quiet(w.t("once-more"), Some(Message::GetMap)),
             step => {
                 let label = match step {
-                    None | Some(S::Looking) => w.t("looking-up"),
-                    Some(S::Found(found)) => w.who("found-on", found.from),
-                    Some(S::Downloading { done, total, .. }) => match total {
-                        Some(total) => format!("{} · {}", w.t("fetch-downloading"), w.mb_of(*done, *total)),
-                        None => format!("{} · {}", w.t("fetch-downloading"), w.mb(*done)),
-                    },
-                    Some(S::Unpacking) => w.t("unpacking-into"),
-                    Some(S::Checking) => w.t("checking-hash"),
-                    _ => w.t("looking-up"),
+                    None | Some(S::Looking) => w.t("looking"),
+                    Some(S::Found(_)) => w.t("found"),
+                    Some(S::Downloading { .. }) => w.t("fetch-downloading"),
+                    Some(S::Unpacking) => w.t("unpacking-map"),
+                    Some(S::Checking) => w.t("checking"),
+                    _ => w.t("looking"),
                 };
                 ui::progress(label, self.progress_shown, Some(Message::StopFetch))
             }

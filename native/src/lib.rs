@@ -8,6 +8,7 @@ pub mod library;
 pub mod live;
 pub mod main_screen;
 pub mod maps;
+pub mod notices;
 pub mod player;
 pub mod render;
 pub mod scan;

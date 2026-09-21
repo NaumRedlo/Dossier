@@ -147,3 +147,6 @@ delete = Delete
 delete-video = Delete the video?
 to-the-bin = The file goes to the bin; the replay and the map stay.
 keep = Keep
+rendered-notice = Rendered
+render-failed = The render did not finish
+map-fetched = Map downloaded

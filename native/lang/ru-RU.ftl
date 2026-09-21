@@ -151,3 +151,6 @@ delete = Удалить
 delete-video = Удалить видео?
 to-the-bin = Файл уйдёт в корзину; реплей и карта останутся.
 keep = Оставить
+rendered-notice = Отрендерено
+render-failed = Рендер не завершился
+map-fetched = Карта скачана

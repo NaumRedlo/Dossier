@@ -10,7 +10,7 @@ use iced::{window, Animation, Color, ContentFit, Element, Length, Padding, Point
 
 use crate::lang::{typed, Words};
 use crate::library::{self, Entry, Grade, Library};
-use crate::{player, videos};
+use crate::{notices, player, videos};
 use crate::live;
 use crate::maps;
 use crate::render::{self, Step};
@@ -52,6 +52,9 @@ pub enum Message {
     MaxCombo(PathBuf, Option<u32>),
     Key(iced::keyboard::key::Named),
     Adopted(Vec<videos::Video>),
+    ToastLink(u64),
+    ToastHover(u64, bool),
+    ToastClose(u64),
     OpenVideo(usize),
     ClosePlayer,
     PlayerToggle,
@@ -99,6 +102,15 @@ pub struct Shown {
     pub meta: String,
     pub accuracy: String,
     pub outcome: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct Toast {
+    pub id: u64,
+    pub shown: Animation<bool>,
+    pub born: Instant,
+    pub hovered: bool,
+    pub stays: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -185,6 +197,8 @@ pub struct Main {
     pub player: Option<std::rc::Rc<std::cell::RefCell<player::Player>>>,
     pub open_video: Option<usize>,
     pub asking_delete: bool,
+    pub notices: notices::Queue,
+    pub toasts: Vec<Toast>,
     pub overlay: Overlay,
     pub rendering: Option<Rendering>,
     pub fetching: Option<Fetching>,
@@ -236,6 +250,8 @@ impl Main {
             player: None,
             open_video: None,
             asking_delete: false,
+            notices: notices::Queue::load(),
+            toasts: Vec::new(),
             overlay: Overlay::None,
             rendering: None,
             fetching: None,
@@ -272,6 +288,7 @@ impl Main {
         made.library = Some(library);
         made.chosen = chosen;
         made.store = videos::Store::default();
+        made.notices = notices::Queue::default();
         made.enter = Animation::new(true);
         made.arrive = Animation::new(true);
         made
@@ -289,6 +306,7 @@ impl Main {
             || self.swap.is_animating(self.now)
             || self.lifts.values().any(|l| l.is_animating(self.now))
             || self.player.as_ref().is_some_and(|p| !p.borrow().paused)
+            || !self.toasts.is_empty()
     }
 
     pub fn subscription(&self) -> Subscription<Message> {
@@ -719,7 +737,20 @@ impl Main {
                 if let Some((replay, out)) = saved {
                     if let Some(entry) = self.entries().iter().find(|e| e.path == replay).cloned() {
                         let length = self.lengths.get(&replay).copied().unwrap_or_else(|| length_of(&replay));
-                        self.store.add(videos::Video::from_render(&entry, out, length, render::SIZE.0, render::SIZE.1, render::FPS as u32));
+                        let video = videos::Video::from_render(&entry, out.clone(), length, render::SIZE.0, render::SIZE.1, render::FPS as u32);
+                        let detail = format!("{} — {} · {} · {}", video.player, video.map_line(), self.words.length(video.length_ms), self.words.mb(video.size));
+                        self.store.add(video);
+                        self.announce(notices::Mark::Done, self.words.t("rendered-notice"), detail, notices::Link::OpenVideo(out));
+                    }
+                }
+                if let Some(Step::Failed(why)) = self.rendering.as_ref().and_then(|r| r.last().cloned()) {
+                    if let Some(replay) = self.rendering.as_ref().map(|r| r.path.clone()) {
+                        let who = self.entries().iter().find(|e| e.path == replay).map(|e| format!("{} — {}", e.player, e.song().unwrap_or_default()));
+                        let detail = match who {
+                            Some(who) => format!("{who} · {why}"),
+                            None => why,
+                        };
+                        self.announce(notices::Mark::Bad, self.words.t("render-failed"), detail, notices::Link::RenderAgain(replay));
                     }
                 }
                 Task::none()
@@ -754,6 +785,7 @@ impl Main {
                 if let maps::Step::Done(map) = &step {
                     let map = map.clone();
                     self.fetching = None;
+                    self.announce(notices::Mark::Done, self.words.t("map-fetched"), format!("{} — {}", map.artist, map.title), notices::Link::None);
                     if let Some(library) = &mut self.library {
                         for entry in library.entries.iter_mut().filter(|e| e.map_hash == hash) {
                             entry.map = Some(map.clone());
@@ -940,9 +972,75 @@ impl Main {
                     Some(target) => self.progress_shown += (target - self.progress_shown) * 0.12,
                     None => self.progress_shown = 0.0,
                 }
+                for toast in &mut self.toasts {
+                    if toast.shown.value() && !toast.stays && !toast.hovered && now.duration_since(toast.born) > TOAST_STAY {
+                        toast.shown.go_mut(false, now);
+                    }
+                }
+                self.toasts.retain(|t| t.shown.value() || t.shown.is_animating(now));
                 Task::none()
             }
+            Message::ToastHover(id, over) => {
+                if let Some(toast) = self.toasts.iter_mut().find(|t| t.id == id) {
+                    toast.hovered = over;
+                    if !over {
+                        toast.born = Instant::now();
+                    }
+                }
+                Task::none()
+            }
+            Message::ToastClose(id) => {
+                let now = Instant::now();
+                if let Some(toast) = self.toasts.iter_mut().find(|t| t.id == id) {
+                    toast.shown.go_mut(false, now);
+                }
+                Task::none()
+            }
+            Message::ToastLink(id) => {
+                let link = self.notices.get(id).map(|n| n.link.clone());
+                let _ = self.update(Message::ToastClose(id));
+                match link {
+                    Some(notices::Link::OpenVideo(path)) => {
+                        let at = self.store.videos.iter().position(|v| v.path == path);
+                        let shown = self.update(Message::Show(Overlay::Videos));
+                        match at {
+                            Some(at) => shown.chain(self.update(Message::OpenVideo(at))),
+                            None => shown,
+                        }
+                    }
+                    Some(notices::Link::RenderAgain(replay)) => {
+                        let at = self.entries().iter().position(|e| e.path == replay);
+                        match at {
+                            Some(at) => {
+                                let chosen = self.choose(at);
+                                chosen.chain(self.update(Message::Render))
+                            }
+                            None => Task::none(),
+                        }
+                    }
+                    _ => Task::none(),
+                }
+            }
         }
+    }
+
+    pub fn announce(&mut self, mark: notices::Mark, words: String, detail: String, link: notices::Link) {
+        let id = self.notices.push(mark, words, detail, link);
+        let now = Instant::now();
+        while self.toasts.iter().filter(|t| t.shown.value()).count() >= TOASTS_AT_MOST {
+            if let Some(oldest) = self.toasts.iter_mut().find(|t| t.shown.value()) {
+                oldest.shown.go_mut(false, now);
+            } else {
+                break;
+            }
+        }
+        self.toasts.push(Toast {
+            id,
+            shown: Animation::new(false).duration(TOAST_IN).easing(Easing::EaseOutCubic).go(true, now),
+            born: now,
+            hovered: false,
+            stays: mark == notices::Mark::Bad,
+        });
     }
 
     pub fn view(&self) -> Element<'_, Message> {
@@ -1000,7 +1098,8 @@ impl Main {
             pin(float(crest).translate(move |_, _| Vector::new(0.0, (1.0 - early) * CREST_RISE))).x(CREST_HOME.0).y(CREST_HOME.1).into();
         let overlay: Element<'_, Message> = if self.overlay != Overlay::None { self.overlay_view() } else { blank() };
         let bubble = self.bubble_layer();
-        let layers = stack![scene_before, scene, live_before, live, body, bubble, crest, overlay];
+        let toasts = self.toast_layer();
+        let layers = stack![scene_before, scene, live_before, live, body, bubble, crest, overlay, toasts];
         layers.width(Length::Fill).height(Length::Fill).into()
     }
 
@@ -1651,6 +1750,72 @@ impl Main {
 }
 
 const VIDEO_THUMB: (u32, u32) = (64, 36);
+const TOAST_W: f32 = 360.0;
+const TOAST_H: f32 = 58.0;
+const TOAST_TOP: f32 = 66.0;
+const TOAST_RISE: f32 = 8.0;
+pub const TOAST_IN: Duration = Duration::from_millis(240);
+pub const TOAST_STAY: Duration = Duration::from_secs(6);
+const TOASTS_AT_MOST: usize = 3;
+
+impl Main {
+    fn toast_layer(&self) -> Element<'_, Message> {
+        if self.toasts.is_empty() {
+            return Space::new().width(Length::Fill).height(Length::Fill).into();
+        }
+        let mut layers = stack![].width(Length::Fill).height(Length::Fill);
+        let mut slot = 0.0;
+        for toast in &self.toasts {
+            let Some(notice) = self.notices.get(toast.id) else {
+                continue;
+            };
+            let k = toast.shown.interpolate(0.0, 1.0, self.now);
+            let x = (self.width - 40.0 - TOAST_W).max(16.0);
+            let y = TOAST_TOP + slot - (1.0 - k) * TOAST_RISE;
+            let card = ui::fading(ui::fade() * k, || self.toast(toast, notice));
+            layers = layers.push(pin(card).x(x).y(y));
+            if toast.shown.value() {
+                slot += TOAST_H + 8.0;
+            }
+        }
+        layers.into()
+    }
+
+    fn toast(&self, toast: &Toast, notice: &notices::Notice) -> Element<'_, Message> {
+        let w = &self.words;
+        let (glyph, colour) = match notice.mark {
+            notices::Mark::Done => ("✓", MUTED),
+            notices::Mark::Bad => ("✕", ACCENT),
+            notices::Mark::Plain => ("·", FAINT),
+        };
+        let mut head = row![
+            text(glyph).font(theme::MONO_BOLD).size(theme::CAPTION).color(ui::faded(colour)),
+            text(notice.words.clone()).font(theme::SANS_SEMI).size(theme::BODY).wrapping(text::Wrapping::None).color(ui::faded(INK)),
+            ui::grow(),
+        ]
+        .spacing(8)
+        .align_y(iced::Center);
+        let link = match notice.link {
+            notices::Link::OpenVideo(_) => Some(w.t("open")),
+            notices::Link::RenderAgain(_) => Some(w.t("once-more")),
+            notices::Link::None => None,
+        };
+        if let Some(words) = link {
+            head = head.push(ui::link(words, Message::ToastLink(toast.id)));
+        }
+        let inside = column![
+            head,
+            text(ui::shortened(notice.detail.clone(), 56)).font(theme::SANS).size(theme::CAPTION).wrapping(text::Wrapping::None).color(ui::faded(MUTED)),
+        ]
+        .spacing(1);
+        let card = container(inside).padding([10, 14]).width(TOAST_W).height(TOAST_H).style(theme::bubble_faded(ui::fade())).clip(true);
+        mouse_area(card)
+            .on_enter(Message::ToastHover(toast.id, true))
+            .on_exit(Message::ToastHover(toast.id, false))
+            .on_press(Message::ToastClose(toast.id))
+            .into()
+    }
+}
 const STAGE_GAP: f32 = 40.0;
 const STAGE_UNDER: f32 = 118.0;
 

@@ -421,6 +421,15 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
         reached: vec![crate::render::Step::Encoded, crate::render::Step::Saved(PathBuf::from("out.mp4"))],
         out: Some(PathBuf::from("out.mp4")),
     });
+    rendered.announce(
+        crate::notices::Mark::Done,
+        rendered.words.t("rendered-notice"),
+        "NaumRedlo — Dj Grimoire — Astral Quantization [Nattu VN0TH3R] · 3:51 · 84,2 МБ".to_owned(),
+        crate::notices::Link::OpenVideo(PathBuf::from("out.mp4")),
+    );
+    for toast in &mut rendered.toasts {
+        toast.shown = iced::Animation::new(true);
+    }
     let mut empty = Main::staged(crate::lang::Words::new(lang).in_zone(3 * 3600), settings.clone(), crate::library::Library::default(), None);
     empty.now_unix = NOON;
     let mut looking = Main::staged(crate::lang::Words::new(lang).in_zone(3 * 3600), settings.clone(), crate::library::Library::default(), None);

@@ -57,7 +57,21 @@
   </style>
 </helmet>
 <div class="win" style="width: 980px; height: 720px;">
-<img class="frame" src="main-rest-en-US-980.jpg">
+
+  <img class="frame" src="main-rest-en-US-980.jpg">
+  <div class="veil"></div>
+  <div class="card" style="left:210px; top:180px; width:560px; padding:24px;">
+    <div style="font-size:16px; font-weight:600;">Something went wrong</div>
+    <div class="cap" style="margin-top:6px;">Dossier could not read its own settings — the file is not JSON.</div>
+    <div class="line done" style="margin-top:14px;"><span class="g">·</span><span>~/.dossier/dossier.json</span></div>
+    <div class="line done"><span class="g">·</span><span>expected value at line 1, column 1</span></div>
+    <div style="display:flex; align-items:center; gap:8px; margin-top:18px;">
+      <span class="btn quiet" style="padding-left:0;">Copy the log</span>
+      <span style="flex:1;"></span>
+      <span class="btn quiet">Quit</span>
+      <span class="btn primary">Start over</span>
+    </div>
+  </div>
 </div>
 </x-dc>
 </body>

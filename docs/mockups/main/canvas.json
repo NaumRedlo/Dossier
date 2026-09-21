@@ -1,20 +1,20 @@
 {
   "pages": [
     {
-      "id": "page-blend",
-      "name": "Main screen"
+      "id": "page-built",
+      "name": "Main screen · as built"
+    },
+    {
+      "id": "page-errors",
+      "name": "Errors · variations"
+    },
+    {
+      "id": "page-centre",
+      "name": "Operations centre · variations"
     },
     {
       "id": "page-directions",
       "name": "Directions · pick one"
-    },
-    {
-      "id": "page-en",
-      "name": "Main · EN"
-    },
-    {
-      "id": "page-ru",
-      "name": "Main · RU"
     }
   ],
   "artboards": [
@@ -24,44 +24,206 @@
       "y": 0,
       "w": 980,
       "h": 720,
-      "page": "page-en",
-      "title": "Replays · ready"
+      "page": "page-built",
+      "title": "At rest"
     },
     {
-      "file": "Rendering.dc.html",
+      "file": "Built-main-rest-ru-RU.dc.html",
       "x": 1060,
       "y": 0,
       "w": 980,
       "h": 720,
-      "page": "page-en",
-      "title": "Replays · a render running"
+      "page": "page-built",
+      "title": "В покое"
     },
     {
-      "file": "Empty.dc.html",
+      "file": "Built-main-hover-en-US.dc.html",
       "x": 2120,
       "y": 0,
       "w": 980,
       "h": 720,
-      "page": "page-en",
-      "title": "Replays · nothing yet, not linked"
+      "page": "page-built",
+      "title": "Hovering a frame"
     },
     {
-      "file": "MainRu.dc.html",
+      "file": "Built-main-rendering-en-US.dc.html",
+      "x": 3180,
+      "y": 0,
+      "w": 980,
+      "h": 720,
+      "page": "page-built",
+      "title": "Render pressed"
+    },
+    {
+      "file": "Built-main-rendered-en-US.dc.html",
+      "x": 4240,
+      "y": 0,
+      "w": 980,
+      "h": 720,
+      "page": "page-built",
+      "title": "Rendered"
+    },
+    {
+      "file": "Built-main-fetching-ru-RU.dc.html",
+      "x": 0,
+      "y": 910,
+      "w": 980,
+      "h": 720,
+      "page": "page-built",
+      "title": "Скачать карту"
+    },
+    {
+      "file": "Built-main-nomap-ru-RU.dc.html",
+      "x": 1060,
+      "y": 910,
+      "w": 980,
+      "h": 720,
+      "page": "page-built",
+      "title": "A replay without its map"
+    },
+    {
+      "file": "Built-main-worker-en-US.dc.html",
+      "x": 2120,
+      "y": 910,
+      "w": 980,
+      "h": 720,
+      "page": "page-built",
+      "title": "Worker"
+    },
+    {
+      "file": "Built-main-empty-en-US.dc.html",
+      "x": 3180,
+      "y": 910,
+      "w": 980,
+      "h": 720,
+      "page": "page-built",
+      "title": "Nothing yet"
+    },
+    {
+      "file": "Built-main-looking-ru-RU.dc.html",
+      "x": 4240,
+      "y": 910,
+      "w": 980,
+      "h": 720,
+      "page": "page-built",
+      "title": "Ищу на этом устройстве"
+    },
+    {
+      "file": "Built-main-rest-en-US-1280.dc.html",
+      "x": 0,
+      "y": 1820,
+      "w": 1280,
+      "h": 800,
+      "page": "page-built",
+      "title": "1280 wide"
+    },
+    {
+      "file": "Built-main-rest-en-US-1920.dc.html",
+      "x": 1360,
+      "y": 1820,
+      "w": 1920,
+      "h": 1080,
+      "page": "page-built",
+      "title": "1920 wide"
+    },
+    {
+      "file": "ErrorInline.dc.html",
       "x": 0,
       "y": 0,
       "w": 980,
       "h": 720,
-      "page": "page-ru",
-      "title": "Реплеи"
+      "page": "page-errors",
+      "title": "A · Under the button"
     },
     {
-      "file": "RenderingRu.dc.html",
+      "file": "ErrorButton.dc.html",
       "x": 1060,
       "y": 0,
       "w": 980,
       "h": 720,
-      "page": "page-ru",
-      "title": "Реплеи · идёт рендер"
+      "page": "page-errors",
+      "title": "B · The button itself"
+    },
+    {
+      "file": "ErrorToast.dc.html",
+      "x": 2120,
+      "y": 0,
+      "w": 980,
+      "h": 720,
+      "page": "page-errors",
+      "title": "C · A toast, bottom-left"
+    },
+    {
+      "file": "ErrorCentre.dc.html",
+      "x": 0,
+      "y": 910,
+      "w": 980,
+      "h": 720,
+      "page": "page-errors",
+      "title": "D · Into the centre"
+    },
+    {
+      "file": "ErrorFatal.dc.html",
+      "x": 1060,
+      "y": 910,
+      "w": 980,
+      "h": 720,
+      "page": "page-errors",
+      "title": "E · Cannot go on"
+    },
+    {
+      "file": "ErrorOffline.dc.html",
+      "x": 2120,
+      "y": 910,
+      "w": 980,
+      "h": 720,
+      "page": "page-errors",
+      "title": "F · A state, not an error"
+    },
+    {
+      "file": "CentreMark.dc.html",
+      "x": 0,
+      "y": 0,
+      "w": 980,
+      "h": 720,
+      "page": "page-centre",
+      "title": "A · The mark"
+    },
+    {
+      "file": "CentrePanel.dc.html",
+      "x": 1060,
+      "y": 0,
+      "w": 980,
+      "h": 720,
+      "page": "page-centre",
+      "title": "B · The panel"
+    },
+    {
+      "file": "CentreDrawer.dc.html",
+      "x": 2120,
+      "y": 0,
+      "w": 980,
+      "h": 720,
+      "page": "page-centre",
+      "title": "C · The drawer"
+    },
+    {
+      "file": "CentreStripe.dc.html",
+      "x": 0,
+      "y": 910,
+      "w": 980,
+      "h": 720,
+      "page": "page-centre",
+      "title": "D · The stripe"
+    },
+    {
+      "file": "CentreTelegram.dc.html",
+      "x": 1060,
+      "y": 910,
+      "w": 980,
+      "h": 720,
+      "page": "page-centre",
+      "title": "What Telegram gives"
     },
     {
       "file": "DirectionA.dc.html",
@@ -143,115 +305,208 @@
       "h": 720,
       "page": "page-directions",
       "title": "I · The mosaic"
-    },
-    {
-      "file": "Blend.dc.html",
-      "x": 0,
-      "y": 0,
-      "w": 980,
-      "h": 720,
-      "page": "page-blend",
-      "title": "At rest"
-    },
-    {
-      "file": "BlendRu.dc.html",
-      "x": 1060,
-      "y": 0,
-      "w": 980,
-      "h": 720,
-      "page": "page-blend",
-      "title": "В покое"
-    },
-    {
-      "file": "BlendSearch.dc.html",
-      "x": 2120,
-      "y": 0,
-      "w": 980,
-      "h": 720,
-      "page": "page-blend",
-      "title": "Typing in search"
-    },
-    {
-      "file": "BlendFrames.dc.html",
-      "x": 3180,
-      "y": 0,
-      "w": 980,
-      "h": 1080,
-      "page": "page-blend",
-      "title": "What a frame says · E chosen"
-    },
-    {
-      "file": "BlendHover.dc.html",
-      "x": 0,
-      "y": 880,
-      "w": 980,
-      "h": 720,
-      "page": "page-blend",
-      "title": "Hovering a frame, hovering the accuracy"
-    },
-    {
-      "file": "BlendPick.dc.html",
-      "x": 1060,
-      "y": 880,
-      "w": 980,
-      "h": 720,
-      "page": "page-blend",
-      "title": "Clicking a frame · 40 % through"
-    },
-    {
-      "file": "BlendMenu.dc.html",
-      "x": 2120,
-      "y": 880,
-      "w": 980,
-      "h": 720,
-      "page": "page-blend",
-      "title": "Right-click on a frame"
-    },
-    {
-      "file": "BlendRendering.dc.html",
-      "x": 0,
-      "y": 1760,
-      "w": 980,
-      "h": 720,
-      "page": "page-blend",
-      "title": "Render pressed"
-    },
-    {
-      "file": "BlendNoMap.dc.html",
-      "x": 1060,
-      "y": 1760,
-      "w": 980,
-      "h": 720,
-      "page": "page-blend",
-      "title": "A replay without its map"
-    },
-    {
-      "file": "BlendGetting.dc.html",
-      "x": 2120,
-      "y": 1760,
-      "w": 980,
-      "h": 720,
-      "page": "page-blend",
-      "title": "Get the map pressed"
-    },
-    {
-      "file": "BlendEntrance.dc.html",
-      "x": 3180,
-      "y": 1760,
-      "w": 980,
-      "h": 720,
-      "page": "page-blend",
-      "title": "Entering"
     }
   ],
   "annotations": [
     {
-      "id": "menu",
+      "id": "Main-note",
       "x": 0,
-      "y": -200,
-      "w": 520,
-      "page": "page-en",
-      "text": "The menu is three items and a state line. Nothing is a top-level item unless a person opens the application for it: Replays, Farm, Settings.\nThe state line at the bottom is the one place that says what the device is doing; when something runs, it becomes the ledger's headline, and the same ledger appears at the top of Replays until the work is done.\nNo sort control: newest first, search, three chips. The title carries the count."
+      "y": -140,
+      "w": 640,
+      "page": "page-built",
+      "text": "The engine's play in the scene (here its blurred backdrop, since a live frame cannot be staged), the viewer, the journal with its scrubber and the faint count."
+    },
+    {
+      "id": "Built-main-rest-ru-RU-note",
+      "x": 1060,
+      "y": -140,
+      "w": 640,
+      "page": "page-built",
+      "text": "The same in Russian: dates the language's way, the button's word, the outcome mark."
+    },
+    {
+      "id": "Built-main-hover-en-US-note",
+      "x": 2120,
+      "y": -140,
+      "w": 640,
+      "page": "page-built",
+      "text": "The frame lifts on a rise of its own; the bubble — player, accuracy, map, mods · combo · outcome · grade — sits 8 px above it, placed by the frame's arithmetic."
+    },
+    {
+      "id": "Built-main-rendering-en-US-note",
+      "x": 3180,
+      "y": -140,
+      "w": 640,
+      "page": "page-built",
+      "text": "The button is the progress: one word and a two-pixel bar that eases. Clicking it stops. Nothing on the frame."
+    },
+    {
+      "id": "Built-main-rendered-en-US-note",
+      "x": 4240,
+      "y": -140,
+      "w": 640,
+      "page": "page-built",
+      "text": "Open, and In folder beside it, until the next choice."
+    },
+    {
+      "id": "Built-main-fetching-ru-RU-note",
+      "x": 0,
+      "y": 770,
+      "w": 640,
+      "page": "page-built",
+      "text": "The same button for a map: Ищу · Нашлась · Скачиваю · Распаковываю · Сверяю, the bar filling with the bytes."
+    },
+    {
+      "id": "Built-main-nomap-ru-RU-note",
+      "x": 1060,
+      "y": 770,
+      "w": 640,
+      "page": "page-built",
+      "text": "The hatched ground, dimmed like every picture; live, the cursor's path draws over it. The map's name comes from the file's name."
+    },
+    {
+      "id": "Built-main-worker-en-US-note",
+      "x": 2120,
+      "y": 770,
+      "w": 640,
+      "page": "page-built",
+      "text": "The stub until the worker is built: one card, Coming later, a way back."
+    },
+    {
+      "id": "Built-main-empty-en-US-note",
+      "x": 3180,
+      "y": 770,
+      "w": 640,
+      "page": "page-built",
+      "text": "No replays: drop files, or Look on this device."
+    },
+    {
+      "id": "Built-main-looking-ru-RU-note",
+      "x": 4240,
+      "y": 770,
+      "w": 640,
+      "page": "page-built",
+      "text": "The walk as a one-line ledger, files and replays counted, Stop."
+    },
+    {
+      "id": "built-head",
+      "x": 0,
+      "y": -330,
+      "w": 900,
+      "page": "page-built",
+      "text": "The main screen as built, 2026-09-21 — the application's own frames from native/tests/golden, the pictures every build is held to. Refresh: cargo run --release -- --gallery <dir>, approve into tests/golden, python canvas.py, seed. The live play cannot be staged, so the scene here is its blurred backdrop."
+    },
+    {
+      "id": "ErrorInline-note",
+      "x": 0,
+      "y": -140,
+      "w": 640,
+      "page": "page-errors",
+      "text": "The button says Once more; under it, one ledger line in the danger colour with the reason and a Details link that opens the log. Stays until the next choice. Quiet, in place, no new surface — the ledger's own grammar."
+    },
+    {
+      "id": "ErrorButton-note",
+      "x": 1060,
+      "y": -140,
+      "w": 640,
+      "page": "page-errors",
+      "text": "The progress button turns danger at its edge and keeps its bar where it stopped; the reason sits beside it in a caption. Nothing moves. Best for the two long jobs, Render and Get the map."
+    },
+    {
+      "id": "ErrorToast-note",
+      "x": 2120,
+      "y": -140,
+      "w": 640,
+      "page": "page-errors",
+      "text": "A card slides up from the bottom-left, stays 8 s or until hovered, stacks at most three; a failure keeps its links. Good for things that happen while the person looks elsewhere — a worker job, a map arriving — but a second surface to learn."
+    },
+    {
+      "id": "ErrorCentre-note",
+      "x": 0,
+      "y": 770,
+      "w": 640,
+      "page": "page-errors",
+      "text": "No card at all: the operations centre's mark turns red, the notice waits inside. Calmest; also easiest to miss."
+    },
+    {
+      "id": "ErrorFatal-note",
+      "x": 1060,
+      "y": 770,
+      "w": 640,
+      "page": "page-errors",
+      "text": "When the application itself cannot continue — settings unreadable, no folder writable, a renderer that will not start — the scene dims to a fifth and one card says what, where, and the two ways out. The same card as the first run's, so it is not a new thing."
+    },
+    {
+      "id": "ErrorOffline-note",
+      "x": 2120,
+      "y": 770,
+      "w": 640,
+      "page": "page-errors",
+      "text": "Being offline is not a failure to shout about: a stripe under the top row names what rests and when it tries again, and goes away by itself."
+    },
+    {
+      "id": "page-errors-rec",
+      "x": 0,
+      "y": 1760,
+      "w": 980,
+      "page": "page-errors",
+      "text": "Recommendation: B for Render and Get the map (the button already is the story), A for everything that has a ledger, F for states, E for the fatal few; C and D only once the operations centre exists, and then D feeds C — the centre keeps every notice, a toast shows the fresh one."
+    },
+    {
+      "id": "CentreMark-note",
+      "x": 0,
+      "y": -140,
+      "w": 640,
+      "page": "page-centre",
+      "text": "At rest the centre is one 8 px dot to the right of Settings, faint; it turns red when a notice waits, and breathes while the worker draws. Clicking opens B. Nothing else is added to the chrome — the three words stay three."
+    },
+    {
+      "id": "CentrePanel-note",
+      "x": 1060,
+      "y": -140,
+      "w": 640,
+      "page": "page-centre",
+      "text": "A 380 px card drops from the mark: Now (every job with a bar), Worker (state, queue, today), Notices (the last few, ticks and crosses, times), Telegram (who is linked, where finished renders go), Build. Esc or a click outside closes it."
+    },
+    {
+      "id": "CentreDrawer-note",
+      "x": 2120,
+      "y": -140,
+      "w": 640,
+      "page": "page-centre",
+      "text": "The same content as one ledger, sliding from the right edge over the dimmed scene: jobs first, then what happened, newest first; the person at the bottom. More room, more solemn; a second screen in all but name."
+    },
+    {
+      "id": "CentreStripe-note",
+      "x": 0,
+      "y": 770,
+      "w": 640,
+      "page": "page-centre",
+      "text": "No panel: a single line under the top row while anything is going on, and nothing when nothing is. Cheapest, calmest, but it cannot hold a history."
+    },
+    {
+      "id": "CentreTelegram-note",
+      "x": 1060,
+      "y": 770,
+      "w": 640,
+      "page": "page-centre",
+      "text": "The bot knows the person. After a render, Send to Telegram beside Open hands the file to the bot, which puts it in the chat; the worker's finished jobs can be announced there too; the centre greets by name. All of it is one HTTP call per event on the bot's existing API."
+    },
+    {
+      "id": "page-centre-rec",
+      "x": 0,
+      "y": 1760,
+      "w": 980,
+      "page": "page-centre",
+      "text": "Recommendation: A + B. The mark keeps the chrome as it is; the panel is a card like every other card; the drawer is for later if notices outgrow a card. D can live alongside as the in-progress line for people who never open the panel."
+    },
+    {
+      "id": "page-centre-extra",
+      "x": 1060,
+      "y": 1760,
+      "w": 980,
+      "page": "page-centre",
+      "text": "What the centre needs built, in order: (1) a notice queue in the application — one struct, kind · words · time · a link — fed by Render, Get the map, the scan and the worker, kept in ~/.dossier/notices.json, at most a hundred; (2) the mark and the panel, with the count of unseen notices; (3) the worker's own events from the bot (a job taken, drawn, delivered) over the existing hello endpoint polled every 30 s, or a long poll when the bot grows one; (4) Telegram: POST /render/send with the file, and the bot's answer as a notice; (5) the build line, from hello, with Download when the bot wants a newer one — the same fetch-and-unpack as ffmpeg's."
     },
     {
       "id": "dir-a",
@@ -324,82 +579,10 @@
       "w": 460,
       "page": "page-directions",
       "text": "I · The mosaic. Frames edge to edge with no boxes, no borders, no text blocks — names live on the frames; the menu and the state are veils that fade in at the top and bottom. Visual density without the old card grid. Tradeoff: the eye has no rows to rest on; the frames must be good."
-    },
-    {
-      "id": "blend",
-      "x": 0,
-      "y": -230,
-      "w": 600,
-      "page": "page-blend",
-      "text": "The scene is the window; the viewer is the lower third; the journal is the strip along the bottom, replays only, by day — today is the word alone, other days the date in each language's way, the year only when it is not this one. The crest is the first run's block at the first run's sizes, top-left, with the search beside it and the three words at the right. No state line: the worker gets its own screen and, later, an operations centre."
-    },
-    {
-      "id": "blend-search",
-      "x": 2120,
-      "y": -150,
-      "w": 600,
-      "page": "page-blend",
-      "text": "Search filters the strip itself, there is no second list. As you type, frames that do not match dim to a third; a day left with nothing folds away (today, Aug 3 and Jul 29 are gone here); the first match is outlined at once and the viewer already shows it. The field says 2 / 187. Enter keeps the outlined one and leaves the field, ↑↓ or ← → walk the matches, Esc clears and the days unfold."
-    },
-    {
-      "id": "blend-frames",
-      "x": 3180,
-      "y": -150,
-      "w": 600,
-      "page": "page-blend",
-      "text": "Instead of the accuracy: five ways to say which replay a frame is. E is the one — the map's own background with the grade in the top-right corner in the grade's own colour, nothing under; the caption on hover tells the rest. The accuracy moves to the viewer, where it is large."
-    },
-    {
-      "id": "blend-hover",
-      "x": 0,
-      "y": 732,
-      "w": 600,
-      "page": "page-blend",
-      "text": "Hover: the frame lifts 2 px and brightens to full over 200 ms, and a caption appears above it, pointing at it — the player with the accuracy at the right, the map under, then mods · combo · length · outcome. The pointer leaving drops it back. Nothing else on the screen changes."
-    },
-    {
-      "id": "blend-pick",
-      "x": 1060,
-      "y": 732,
-      "w": 600,
-      "page": "page-blend",
-      "text": "Click: the outline slides to the frame (200 ms); the scene crossfades to the new replay (320 ms); the viewer's words erase from the right and type in from the left (450 ms), the accuracy included. Shown at 40 %: the old scene half gone, the words half typed. Enter or → does the same for the next frame."
-    },
-    {
-      "id": "blend-menu",
-      "x": 2120,
-      "y": 732,
-      "w": 600,
-      "page": "page-blend",
-      "text": "Right-click on a frame or anywhere in the viewer: Render (also Enter), Show in folder, Open .osr, Copy path, and after a rule, Delete in red (also ⌫, asks once). Judging comes back later, in its own time. The menu opens where the pointer is and closes on Esc or a click elsewhere."
-    },
-    {
-      "id": "blend-nomap",
-      "x": 1060,
-      "y": 1610,
-      "w": 600,
-      "page": "page-blend",
-      "text": "A replay whose map is not on disk. The scene cannot show the play, so it shows what the replay alone holds: the cursor's path, drawn live on the hatched ground, fading behind the cursor. The header alone gives the player, the mods, the combo, the counts — so the accuracy and the grade are real, and the length is the replay's last frame. The map's name comes from the file's name when it has one. One button: Get the map. Its frame in the journal is hatched with the grade in the corner."
-    },
-    {
-      "id": "blend-getting",
-      "x": 2120,
-      "y": 1610,
-      "w": 600,
-      "page": "page-blend",
-      "text": "Get the map: the same ledger as a render. Found on osu.direct — the mirror is asked by the replay's hash, and catboy.best is asked when the first says no — then Downloading with the size and the seconds left, Unpacking into the application's own Songs, Checking the hash against the replay's. The cursor keeps drawing; the frame wears the red dot. When the hash agrees the scene crossfades to the engine's picture, the frame takes the map's background, and the button reads Render. When no mirror knows the map, one line stays: Not on any mirror · Try again."
-    },
-    {
-      "id": "blend-rendering",
-      "x": 0,
-      "y": 1610,
-      "w": 600,
-      "page": "page-blend",
-      "text": "Render: the mods line and the button give way to the ledger; the frame wears a red dot in its middle; the scene keeps playing. When done, one line stays: Rendered · Open · Show in folder."
     }
   ],
   "launch": {
     "view": "canvas",
-    "page": "page-blend"
+    "page": "page-built"
   }
 }

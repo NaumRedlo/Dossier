@@ -1,13 +1,13 @@
-<!doctype html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <script src="./support.js"></script>
-</head>
-<body>
-<x-dc>
-<helmet>
-  <style>
+import json
+from pathlib import Path
+
+from PIL import Image
+
+HERE = Path(__file__).parent
+GOLDEN = HERE.parent.parent.parent / "native" / "tests" / "golden"
+FRAMES = HERE / "frames"
+
+CSS = """
     @import url('https://fonts.googleapis.com/css2?family=Commissioner:wght@400;500;600&family=JetBrains+Mono:wght@400;700&display=swap');
     body { margin: 0; background: #070304; color: #ece7e2; font-family: Commissioner, "Helvetica Neue", Arial, sans-serif; font-size: 14px; line-height: 20px; -webkit-font-smoothing: antialiased; }
     .win { position: relative; overflow: hidden; background: #070304; }
@@ -54,11 +54,77 @@
     .stripe b { color: #ece7e2; font-weight: 600; }
     .note { position: absolute; left: 40px; right: 40px; font-size: 12px; line-height: 16px; color: #a9a29b; }
     .kbd { display: inline-block; padding: 0 5px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.14); font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: 11px; color: #a9a29b; }
-  </style>
+"""
+
+def page(w, h, inner):
+    return f'''<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>{CSS}  </style>
 </helmet>
-<div class="win" style="width: 980px; height: 720px;">
-<img class="frame" src="main-rest-en-US-980.jpg">
+<div class="win" style="width: {w}px; height: {h}px;">
+{inner}
 </div>
 </x-dc>
 </body>
 </html>
+'''
+
+def frame(name, size="980", box=(980, 720)):
+    src = GOLDEN / f"{name}-{size}-wgpu.png"
+    out = FRAMES / f"{name}-{size}.jpg"
+    FRAMES.mkdir(exist_ok=True)
+    picture = Image.open(src).convert("RGB")
+    if picture.size != box:
+        picture = picture.resize(box, Image.LANCZOS)
+    picture.save(out, quality=84, optimize=True, progressive=True)
+    return out.name
+
+BUILT = [
+    ("main-rest-en-US", "At rest", "The engine's play in the scene (here its blurred backdrop, since a live frame cannot be staged), the viewer, the journal with its scrubber and the faint count."),
+    ("main-rest-ru-RU", "В покое", "The same in Russian: dates the language's way, the button's word, the outcome mark."),
+    ("main-hover-en-US", "Hovering a frame", "The frame lifts on a rise of its own; the bubble — player, accuracy, map, mods · combo · outcome · grade — sits 8 px above it, placed by the frame's arithmetic."),
+    ("main-rendering-en-US", "Render pressed", "The button is the progress: one word and a two-pixel bar that eases. Clicking it stops. Nothing on the frame."),
+    ("main-rendered-en-US", "Rendered", "Open, and In folder beside it, until the next choice."),
+    ("main-fetching-ru-RU", "Скачать карту", "The same button for a map: Ищу · Нашлась · Скачиваю · Распаковываю · Сверяю, the bar filling with the bytes."),
+    ("main-nomap-ru-RU", "A replay without its map", "The hatched ground, dimmed like every picture; live, the cursor's path draws over it. The map's name comes from the file's name."),
+    ("main-worker-en-US", "Worker", "The stub until the worker is built: one card, Coming later, a way back."),
+    ("main-empty-en-US", "Nothing yet", "No replays: drop files, or Look on this device."),
+    ("main-looking-ru-RU", "Ищу на этом устройстве", "The walk as a one-line ledger, files and replays counted, Stop."),
+]
+
+WIDE = [("main-rest-en-US", "1280", (1280, 800)), ("main-rest-en-US", "1920", (1920, 1080))]
+
+def boards():
+    out = {}
+    notes = []
+    W, H, GX, GY = 980, 720, 80, 190
+    for i, (name, title, note) in enumerate(BUILT):
+        image = frame(name)
+        board = "Main" if name == "main-rest-en-US" else f"Built-{name}"
+        out[board] = page(W, H, f'<img class="frame" src="{image}">')
+        x, y = (i % 5) * (W + GX), (i // 5) * (H + GY)
+        notes.append(({"file": f"{board}.dc.html", "x": x, "y": y, "w": W, "h": H, "page": "page-built", "title": title},
+                      {"id": f"{board}-note", "x": x, "y": y - 140, "w": 640, "page": "page-built", "text": note}))
+    rows = (len(BUILT) + 4) // 5
+    x = 0
+    y = rows * (H + GY)
+    for name, size, box in WIDE:
+        image = frame(name, size, box)
+        board = f"Built-{name}-{size}"
+        out[board] = page(box[0], box[1], f'<img class="frame" src="{image}">')
+        notes.append(({"file": f"{board}.dc.html", "x": x, "y": y, "w": box[0], "h": box[1], "page": "page-built", "title": f"{size} wide"}, None))
+        x += box[0] + GX
+    return out, notes
+
+if __name__ == "__main__":
+    out, notes = boards()
+    for name, html in out.items():
+        (HERE / f"{name}.dc.html").write_text(html)
+    print("wrote", len(out), "as-built boards")

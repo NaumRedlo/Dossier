@@ -20,3 +20,4 @@ venv/
 /docs/mockups/*/*.html
 !/docs/mockups/*/*.dc.html
 /docs/mockups/first-run/frames/
+/docs/mockups/main/frames/

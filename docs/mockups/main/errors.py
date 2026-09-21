@@ -70,6 +70,8 @@ NOTES = {
     "ErrorOffline": ("F · A state, not an error", "Being offline is not a failure to shout about: a stripe under the top row names what rests and when it tries again, and goes away by itself."),
 }
 
+CHOSEN = "Chosen 2026-09-21: E. When something cannot go on, the scene dims and one card says what, where and the ways out — the first run's card, so nothing new to learn. B stays for Render and Get the map (the button already is the story); the rest of the variations are kept here for the record."
+
 RECOMMENDED = "Recommendation: B for Render and Get the map (the button already is the story), A for everything that has a ledger, F for states, E for the fatal few; C and D only once the operations centre exists, and then D feeds C — the centre keeps every notice, a toast shows the fresh one."
 
 if __name__ == "__main__":

@@ -27,5 +27,5 @@ def seed(page: Path, title: str, boards: list[Path], images: list[Path], canvas:
 if __name__ == "__main__":
     title = sys.argv[1]
     boards = sorted(HERE.glob("*.dc.html"))
-    images = [p for p in [HERE / "frame.jpg", HERE / "letter.png"] if p.exists()] + sorted((HERE / "frames").glob("*.jpg"))
+    images = [p for p in [HERE / "frame.jpg", HERE / "letter.png"] if p.exists()] + sorted(HERE.glob("bg-*.jpg")) + sorted((HERE / "frames").glob("*.jpg"))
     seed(HERE / "dossier-main-menu.html", title, boards, images, HERE / "canvas.json")

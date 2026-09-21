@@ -5,16 +5,24 @@
       "name": "Main screen · as built"
     },
     {
+      "id": "page-account",
+      "name": "Справа сверху · вход · меню"
+    },
+    {
+      "id": "page-video",
+      "name": "Видео · хранилище"
+    },
+    {
+      "id": "page-errors",
+      "name": "Errors · E chosen"
+    },
+    {
       "id": "page-strip",
-      "name": "Полоса · справа · меню"
+      "name": "Полоса · отложена"
     },
     {
       "id": "page-island",
       "name": "Остров · отложен"
-    },
-    {
-      "id": "page-errors",
-      "name": "Errors · variations"
     },
     {
       "id": "page-centre",
@@ -133,6 +141,177 @@
       "h": 1080,
       "page": "page-built",
       "title": "1920 wide"
+    },
+    {
+      "file": "TopLogin.dc.html",
+      "x": 0,
+      "y": 0,
+      "w": 980,
+      "h": 720,
+      "page": "page-account",
+      "title": "Справа · кнопка входа"
+    },
+    {
+      "file": "TopAvatar.dc.html",
+      "x": 1060,
+      "y": 0,
+      "w": 980,
+      "h": 720,
+      "page": "page-account",
+      "title": "Справа · аватар"
+    },
+    {
+      "file": "TopAvatarLive.dc.html",
+      "x": 2120,
+      "y": 0,
+      "w": 980,
+      "h": 720,
+      "page": "page-account",
+      "title": "Справа · аватар с кольцом"
+    },
+    {
+      "file": "LoginCard.dc.html",
+      "x": 0,
+      "y": 910,
+      "w": 980,
+      "h": 720,
+      "page": "page-account",
+      "title": "Вход · карточка"
+    },
+    {
+      "file": "MenuAccount.dc.html",
+      "x": 1060,
+      "y": 910,
+      "w": 980,
+      "h": 720,
+      "page": "page-account",
+      "title": "Меню · аккаунт"
+    },
+    {
+      "file": "MenuStory.dc.html",
+      "x": 2120,
+      "y": 910,
+      "w": 980,
+      "h": 720,
+      "page": "page-account",
+      "title": "Меню · лента"
+    },
+    {
+      "file": "MenuGuest.dc.html",
+      "x": 0,
+      "y": 1820,
+      "w": 980,
+      "h": 720,
+      "page": "page-account",
+      "title": "Меню · без аккаунта"
+    },
+    {
+      "file": "MenuTimeline.dc.html",
+      "x": 0,
+      "y": 2730,
+      "w": 980,
+      "h": 720,
+      "page": "page-account",
+      "title": "Меню · лента времени"
+    },
+    {
+      "file": "MenuSections.dc.html",
+      "x": 1060,
+      "y": 2730,
+      "w": 980,
+      "h": 720,
+      "page": "page-account",
+      "title": "Меню · разделы"
+    },
+    {
+      "file": "MenuColumns.dc.html",
+      "x": 2120,
+      "y": 2730,
+      "w": 980,
+      "h": 720,
+      "page": "page-account",
+      "title": "Меню · две колонки"
+    },
+    {
+      "file": "MenuMinimal.dc.html",
+      "x": 0,
+      "y": 3640,
+      "w": 980,
+      "h": 720,
+      "page": "page-account",
+      "title": "Меню · минимум"
+    },
+    {
+      "file": "VideoMirror.dc.html",
+      "x": 0,
+      "y": 0,
+      "w": 980,
+      "h": 720,
+      "page": "page-video",
+      "title": "Видео · зеркало главного"
+    },
+    {
+      "file": "VideoPlaying.dc.html",
+      "x": 1060,
+      "y": 0,
+      "w": 980,
+      "h": 720,
+      "page": "page-video",
+      "title": "Видео · играет"
+    },
+    {
+      "file": "VideoSending.dc.html",
+      "x": 2120,
+      "y": 0,
+      "w": 980,
+      "h": 720,
+      "page": "page-video",
+      "title": "Видео · отправка"
+    },
+    {
+      "file": "VideoSent.dc.html",
+      "x": 0,
+      "y": 910,
+      "w": 980,
+      "h": 720,
+      "page": "page-video",
+      "title": "Видео · отправлено"
+    },
+    {
+      "file": "VideoDelete.dc.html",
+      "x": 1060,
+      "y": 910,
+      "w": 980,
+      "h": 720,
+      "page": "page-video",
+      "title": "Видео · удаление"
+    },
+    {
+      "file": "VideoGrid.dc.html",
+      "x": 2120,
+      "y": 910,
+      "w": 980,
+      "h": 720,
+      "page": "page-video",
+      "title": "Видео · сетка"
+    },
+    {
+      "file": "VideoList.dc.html",
+      "x": 0,
+      "y": 1820,
+      "w": 980,
+      "h": 720,
+      "page": "page-video",
+      "title": "Видео · список"
+    },
+    {
+      "file": "VideoEmpty.dc.html",
+      "x": 1060,
+      "y": 1820,
+      "w": 980,
+      "h": 720,
+      "page": "page-video",
+      "title": "Видео · пусто"
     },
     {
       "file": "ErrorInline.dc.html",
@@ -286,42 +465,6 @@
       "h": 720,
       "page": "page-strip",
       "title": "Справа · счётчик у слова"
-    },
-    {
-      "file": "MenuSections.dc.html",
-      "x": 2120,
-      "y": 2730,
-      "w": 980,
-      "h": 720,
-      "page": "page-strip",
-      "title": "Меню · разделы"
-    },
-    {
-      "file": "MenuTimeline.dc.html",
-      "x": 0,
-      "y": 3640,
-      "w": 980,
-      "h": 720,
-      "page": "page-strip",
-      "title": "Меню · лента времени"
-    },
-    {
-      "file": "MenuColumns.dc.html",
-      "x": 1060,
-      "y": 3640,
-      "w": 980,
-      "h": 720,
-      "page": "page-strip",
-      "title": "Меню · две колонки"
-    },
-    {
-      "file": "MenuMinimal.dc.html",
-      "x": 2120,
-      "y": 3640,
-      "w": 980,
-      "h": 720,
-      "page": "page-strip",
-      "title": "Меню · минимум"
     },
     {
       "file": "IslandQuiet.dc.html",
@@ -630,6 +773,174 @@
       "text": "The main screen as built, 2026-09-21 — the application's own frames from native/tests/golden, the pictures every build is held to. Refresh: cargo run --release -- --gallery <dir>, approve into tests/golden, python canvas.py, seed. The live play cannot be staged, so the scene here is its blurred backdrop."
     },
     {
+      "id": "TopLogin-note",
+      "x": 0,
+      "y": -140,
+      "w": 640,
+      "page": "page-account",
+      "text": "Пока устройство ни к кому не привязано: после трёх слов — «Войти через Telegram». Кнопка, а не точка: она про действие, и она исчезает, как только дело сделано."
+    },
+    {
+      "id": "TopAvatar-note",
+      "x": 1060,
+      "y": -140,
+      "w": 640,
+      "page": "page-account",
+      "text": "После входа кнопка становится аватаром из Telegram, 28 px, без имени — имя в меню. Клик открывает меню аккаунта."
+    },
+    {
+      "id": "TopAvatarLive-note",
+      "x": 2120,
+      "y": -140,
+      "w": 640,
+      "page": "page-account",
+      "text": "Кольцо цвета акцента вокруг аватара, пока что-то идёт: рендер, карта, отправка, работа воркера. Одна деталь вместо полосы и точки; гаснет сама."
+    },
+    {
+      "id": "LoginCard-note",
+      "x": 0,
+      "y": 770,
+      "w": 640,
+      "page": "page-account",
+      "text": "Клик по кнопке: карточка с кодом и QR. «Открыть Telegram» ведёт на t.me/бот?start=код; бот отвечает «Привязано», приложение ждёт ответа, аватар появляется на месте кнопки. Никаких паролей — только код, который живёт пять минут."
+    },
+    {
+      "id": "MenuAccount-note",
+      "x": 1060,
+      "y": 770,
+      "w": 640,
+      "page": "page-account",
+      "text": "Из аватара: шапка с именем и датой привязки, Сейчас с полосами, Недавно с временем, строка воркера, подвал «Видео уходят в этот чат · Выйти». Меню про человека и про сегодня."
+    },
+    {
+      "id": "MenuStory-note",
+      "x": 2120,
+      "y": 770,
+      "w": 640,
+      "page": "page-account",
+      "text": "Та же шапка, под ней одна лента дня: время · знак · слово · деталь, дела сверху. Короче секций, ближе к реестру; воркер — одной строкой в подвале."
+    },
+    {
+      "id": "MenuGuest-note",
+      "x": 0,
+      "y": 1680,
+      "w": 640,
+      "page": "page-account",
+      "text": "Меню открывается и без входа — дела и уведомления местные, а в подвале кнопка входа и зачем он нужен: чтобы отправлять видео в чат."
+    },
+    {
+      "id": "page-account-rec",
+      "x": 0,
+      "y": 2670,
+      "w": 980,
+      "page": "page-account",
+      "text": "Предложение: справа — кнопка входа, потом аватар с кольцом (TopAvatarLive), из него меню-аккаунт (MenuAccount); видео — четвёртое слово и зеркало главного экрана (VideoMirror): плеер на месте сцены, кнопки на месте Отрендерить, журнал видео на месте журнала реплеев. Отправка в Telegram — только отсюда, той же кнопкой-прогрессом."
+    },
+    {
+      "id": "page-account-extra",
+      "x": 1060,
+      "y": 2670,
+      "w": 980,
+      "page": "page-account",
+      "text": "Что строить, по порядку: (1) хранилище видео — ~/.dossier/Renders с индексом videos.json: реплей, карта, размер, длительность, разрешение, время; (2) экран Видео как зеркало главного: плеер (декодер через ffmpeg — кадры в текстуру, звук через cpal), журнал, кнопки; (3) вход через Telegram: код, t.me/бот?start=код, ожидание ответа бота, аватар из getUserProfilePhotos; (4) отправка видео ботом: POST /render/send с файлом, прогресс по байтам в кнопке, карточка «Ушло»; (5) меню аккаунта с очередью уведомлений (~/.dossier/notices.json); (6) кольцо на аватаре, пока что-то идёт."
+    },
+    {
+      "id": "MenuTimeline-note",
+      "x": 0,
+      "y": 2590,
+      "w": 640,
+      "page": "page-account",
+      "text": "Одна лента, новое сверху: время, знак, слово, деталь. Дела и уведомления — одна история дня; Telegram — в подвале. Ближе всего к языку реестра."
+    },
+    {
+      "id": "MenuSections-note",
+      "x": 1060,
+      "y": 2590,
+      "w": 640,
+      "page": "page-account",
+      "text": "Карточка из чипа: Сейчас с полосами, Воркер, Уведомления с временем, Telegram, строка сборки. Всё на месте, читается сверху вниз."
+    },
+    {
+      "id": "MenuColumns-note",
+      "x": 2120,
+      "y": 2590,
+      "w": 640,
+      "page": "page-account",
+      "text": "Слева — что идёт и воркер, справа — что случилось. Шире, но всё видно без прокрутки; в подвале «Всё прочитано»."
+    },
+    {
+      "id": "MenuMinimal-note",
+      "x": 0,
+      "y": 3500,
+      "w": 640,
+      "page": "page-account",
+      "text": "Только Сейчас и Уведомления. Воркер, Telegram и сборка живут в Настройках — меню про сегодня, не про устройство."
+    },
+    {
+      "id": "VideoMirror-note",
+      "x": 0,
+      "y": -140,
+      "w": 640,
+      "page": "page-video",
+      "text": "Четвёртое слово — Видео. Экран повторяет главный: сверху плеер вместо живой сцены, слева данные видео и кнопки В Telegram · В папке · Удалить, справа разрешение и размер, снизу журнал видео с длительностями. Ничему не надо учиться заново."
+    },
+    {
+      "id": "VideoPlaying-note",
+      "x": 1060,
+      "y": -140,
+      "w": 640,
+      "page": "page-video",
+      "text": "Пробел — пауза, стрелки — на 5 с, двойной клик — на весь экран. Пока играет, остаются ползунок и время, остальное чуть гаснет."
+    },
+    {
+      "id": "VideoSending-note",
+      "x": 2120,
+      "y": -140,
+      "w": 640,
+      "page": "page-video",
+      "text": "В Telegram — та же кнопка-прогресс, что у рендера: одно слово и заливка на всю ширину, по байтам. Клик — остановить."
+    },
+    {
+      "id": "VideoSent-note",
+      "x": 0,
+      "y": 770,
+      "w": 640,
+      "page": "page-video",
+      "text": "Готово — кнопка возвращается к «В Telegram», рядом ничего не остаётся; карточка внизу слева говорит, куда ушло, и уходит сама через 6 с."
+    },
+    {
+      "id": "VideoDelete-note",
+      "x": 1060,
+      "y": 770,
+      "w": 640,
+      "page": "page-video",
+      "text": "Единственный вопрос на этом экране: удалить — в корзину, реплей и карта остаются."
+    },
+    {
+      "id": "VideoGrid-note",
+      "x": 2120,
+      "y": 770,
+      "w": 640,
+      "page": "page-video",
+      "text": "Другой взгляд: сетка карточек, по четыре в ряд, длительность на кадре, кто · карта · когда · размер. Клик открывает плеер; для десятков видео быстрее, чем журнал."
+    },
+    {
+      "id": "VideoList-note",
+      "x": 0,
+      "y": 1680,
+      "w": 640,
+      "page": "page-video",
+      "text": "Реестр слева, превью и кнопки справа. Самый плотный; ближе к таблице, чем к приложению."
+    },
+    {
+      "id": "VideoEmpty-note",
+      "x": 1060,
+      "y": 1680,
+      "w": 640,
+      "page": "page-video",
+      "text": "Пока ничего не отрендерено: одна строка и ссылка к реплеям."
+    },
+    {
       "id": "ErrorInline-note",
       "x": 0,
       "y": -140,
@@ -683,7 +994,7 @@
       "y": 1760,
       "w": 980,
       "page": "page-errors",
-      "text": "Recommendation: B for Render and Get the map (the button already is the story), A for everything that has a ledger, F for states, E for the fatal few; C and D only once the operations centre exists, and then D feeds C — the centre keeps every notice, a toast shows the fresh one."
+      "text": "Chosen 2026-09-21: E. When something cannot go on, the scene dims and one card says what, where and the ways out — the first run's card, so nothing new to learn. B stays for Render and Get the map (the button already is the story); the rest of the variations are kept here for the record."
     },
     {
       "id": "StripQuiet-note",
@@ -774,52 +1085,12 @@
       "text": "Без нового элемента: у слова «Воркер» появляется счётчик очереди или непрочитанного. Дёшево, но перегружает слово-экран смыслом события."
     },
     {
-      "id": "MenuSections-note",
-      "x": 2120,
-      "y": 2590,
-      "w": 640,
-      "page": "page-strip",
-      "text": "Карточка из чипа: Сейчас с полосами, Воркер, Уведомления с временем, Telegram, строка сборки. Всё на месте, читается сверху вниз."
-    },
-    {
-      "id": "MenuTimeline-note",
-      "x": 0,
-      "y": 3500,
-      "w": 640,
-      "page": "page-strip",
-      "text": "Одна лента, новое сверху: время, знак, слово, деталь. Дела и уведомления — одна история дня; Telegram — в подвале. Ближе всего к языку реестра."
-    },
-    {
-      "id": "MenuColumns-note",
-      "x": 1060,
-      "y": 3500,
-      "w": 640,
-      "page": "page-strip",
-      "text": "Слева — что идёт и воркер, справа — что случилось. Шире, но всё видно без прокрутки; в подвале «Всё прочитано»."
-    },
-    {
-      "id": "MenuMinimal-note",
-      "x": 2120,
-      "y": 3500,
-      "w": 640,
-      "page": "page-strip",
-      "text": "Только Сейчас и Уведомления. Воркер, Telegram и сборка живут в Настройках — меню про сегодня, не про устройство."
-    },
-    {
       "id": "page-strip-rec",
       "x": 0,
-      "y": 4490,
+      "y": 3580,
       "w": 980,
       "page": "page-strip",
-      "text": "Предложение: полоса «всё важное» (дела · последнее уведомление · воркер), справа — чип аккаунта, меню — лента времени: полоса говорит, что происходит, чип — от чьего имени, лента — что было. Три места, три вопроса, ничего не дублируется."
-    },
-    {
-      "id": "page-strip-extra",
-      "x": 1060,
-      "y": 4490,
-      "w": 980,
-      "page": "page-strip",
-      "text": "What the centre needs built, in order: (1) a notice queue in the application — one struct, kind · words · time · a link — fed by Render, Get the map, the scan and the worker, kept in ~/.dossier/notices.json, at most a hundred; (2) the mark and the panel, with the count of unseen notices; (3) the worker's own events from the bot (a job taken, drawn, delivered) over the existing hello endpoint polled every 30 s, or a long poll when the bot grows one; (4) Telegram: POST /render/send with the file, and the bot's answer as a notice; (5) the build line, from hello, with Download when the bot wants a newer one — the same fetch-and-unpack as ffmpeg's."
+      "text": "Отложено 2026-09-21: полоса не строится. Право верхнего угла — аватар или кнопка входа (страница «Справа сверху»); чип с именем и счётчик у слова сняты вместе с точкой."
     },
     {
       "id": "IslandQuiet-note",

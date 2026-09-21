@@ -264,15 +264,19 @@ the keyboard. Where a choice is still open it is marked *open*.
   download button does (chosen 2026-09-21 over a ledger in the viewer,
   which took the meta line's place and was too much): its face turns to
   the soft accent, one word on it follows the work — *Reading*, *Judging*,
-  *Drawing*, *Saving* — and a two-pixel bar along its bottom fills, eased
-  frame by frame so it never jumps; the bar is the number, so there is no
-  number. Clicking it stops.
+  *Drawing*, *Saving* — and the progress fills the whole button from the
+  left, edge to edge (asked 2026-09-21; a six-pixel-inset bar looked
+  mean): a tint of the accent over the face and a two-pixel line at its
+  foot, both eased frame by frame so they never jump; the button keeps one
+  width, 150 px, so the word changing does not move it. The fill is the
+  number, so there is no number. Clicking it stops.
   The player's name and the map stay, the accuracy stays; the frame in the
   journal wears nothing (a red dot on it was tried 2026-09-21 and did not
   belong to the picture). Encoding is not a step of its
   own: the encoder eats frames as they are drawn, so *Drawing* is both.
-  When it is done the button reads *Open*, with *In folder* as a link
-  beside it, until the next choice; a stop or a failure leaves a quiet
+  When it is done the button reads *Open* and nothing sits beside it
+  (*In folder* as a link there was dropped 2026-09-21: the folder is in the
+  video store), until the next choice; a stop or a failure leaves a quiet
   *Once more*. The scene keeps playing throughout. Built 2026-09-16: the
   engine's own pipeline in a thread of its own, its progress events read
   as they come, `halt` for *Stop*. The picture is 1920×1080 at 60 fps, crf
@@ -320,14 +324,25 @@ the keyboard. Where a choice is still open it is marked *open*.
   each frame with a rise of its own, so moving from one to the next lifts
   the new while the old settles back, both smoothly — and a bubble appears
   above it: the player with the accuracy at the right, the map's title
-  under in the muted tone, then mods · combo · outcome · grade in small
-  mono; 260 px wide, 8 px above the frame, 10 px radius, a hairline border,
-  a soft shadow, no caret; it fades and rises with the frame's own lift.
-  The bubble is a layer of the screen placed by the frame's arithmetic, not
-  a tooltip widget: a tooltip inside the lifted frame lost the strip's
-  scroll, and outside it never heard the pointer. The viewer does not
-  change (a preview in the viewer was tried 2026-09-21 and the bubble
-  won). The scene does not change.
+  under in the muted tone on one line (cut with an ellipsis past 38
+  characters), then mods · combo · outcome · grade in small mono, the grade
+  left out when the outcome is a fail so *F* is not said twice; 260 × 70,
+  10 px radius, a hairline border, a soft shadow, and a caret at its foot
+  pointing at the frame's middle, the card sitting above the day labels
+  with the caret's tip 14 px over the frame. It grows from the caret's
+  tip — scale 0.84 → 1 and a fade, on the frame's own 200 ms rise — rather
+  than sliding in, so it reads as coming out of the frame (asked
+  2026-09-21 after two rounds of a bubble that slid and drifted). The
+  bubble is a layer of the screen pinned at the frame's bounds in window
+  coordinates: the frame reports them itself when the pointer enters it,
+  subtracting the strip's scroll (a widget inside a scrollable sees
+  unscrolled coordinates; the event's own cursor position gives the
+  shift), and a scroll of the strip shifts the bounds with it, so the bubble
+  stays on its frame. The frame's rise is a draw-time transform, not a
+  floating overlay: floated, the frame became an overlay under the pointer
+  and the strip stopped hearing the wheel. The viewer does not change (a
+  preview in the viewer was tried 2026-09-21 and the bubble won). The
+  scene does not change.
 - Clicking a frame chooses it: the outline slides to the frame (200 ms), the
   scene crossfades to the new replay (320 ms), the viewer's words erase from
   the right and type in from the left (450 ms, the same typewriter as a
@@ -369,29 +384,43 @@ the date line — *stable* or *lazer* — is read from the replay itself, not
 from where the file was found. Built 2026-09-16; a rescan from Settings
 comes with Settings.
 
-*The stripe, the chip, the menu.* The island was drawn (`docs/mockups/main/
-island.py`) and set aside the same day, 2026-09-21: the strip from the
-first centre round is kept, but it must earn its place — it shows what
-matters, not a mood. The stripe is a 30 px line under the top row, there
-only while there is something to say, made of segments with hairlines
-between: at the left the jobs of this machine (a breathing dot, one word,
-the thing's name, a mono figure, a two-pixel line of progress under the
-segment); then the latest notice (a tick and *Карта скачана · 13:51*, or in
-danger red a cross, *Рендер не завершился* and its own *Ещё раз*, which
-stays until dealt with); at the right the worker (*Воркер · готов · 2 в
-очереди*, or *рисует для @friend · 3 из 7*, or *Офлайн · повтор через 40
-с*). Done: *Готово · Открыть · В папке* for five seconds, then the segment
-goes. Nothing happening, no stripe. The top-right corner answers one
-question only — from whose name — as an account chip beside the three
-words (an avatar dot and the handle; a plain avatar, a count on the word
-*Воркер* and the bare row were drawn and read worse). The chip opens the
-operations menu; of the four menus drawn — sections, a timeline, two
-columns, a minimal list — the timeline is proposed: one column of *time ·
-mark · words*, the live jobs at the top with their figures, then what
-happened, the account line and *Esc — закрыть* at the foot. Three places,
-three questions: the stripe says what is happening, the chip whose, the
-menu what was. Drawn in `docs/mockups/main/strip.py`; awaiting the user's
-pick, then built after the notice queue.
+*The corner, the account, the video store.* The dot, the island and the
+stripe were each drawn and each set aside on 2026-09-21; what stays in the
+top-right corner is a person: until the device is linked, a quiet button
+after the three words — *Войти через Telegram* — and after it, the
+Telegram avatar, 28 px, no name (the name is in the menu). While something
+runs — a render, a map, a send, a worker job — the avatar wears a ring of
+the accent, which goes out by itself. Signing in is a card, not a
+password: a code that lives five minutes and a QR, *Открыть Telegram*
+leads to t.me/‹bot›?start=‹code›, the bot answers *Привязано*, the
+application waits for that answer, and the avatar fades in where the
+button was. The avatar opens the account menu: the name and the handle
+with the day the device was linked, *Сейчас* with progress lines,
+*Недавно* with times (a failure in red with its own *Ещё раз*), one line
+for the worker, a foot saying videos go to this chat and *Выйти*; without
+an account the same menu shows the local doings and, in the foot, the
+sign-in button and why. A timeline form of it (one column of time · mark
+· words) was drawn alongside as the alternative. Errors: E — when the
+application cannot go on, the scene dims and one card, the first run's,
+says what, where and the ways out (chosen 2026-09-21; B stays for Render
+and Get the map, where the button already is the story).
+Rendered videos live in the application: a fourth word, *Видео*, opens
+a screen that mirrors the main one — the player where the live scene is,
+the video's data and its buttons (*В Telegram · В папке · Удалить*)
+where the viewer is, the resolution and the size at the right, and a
+journal of videos with their lengths on the frames where the journal of
+replays is — so there is nothing new to learn. Space pauses, the arrows
+step five seconds, a double click fills the screen; while it plays, the
+scrubber and the time stay and the rest dims a little. Sending to
+Telegram happens only here, with the same one-word progress button
+(*Отправляю*, the fill following the bytes); done, the button returns and
+a small card bottom-left says where it went and leaves after six seconds.
+Deleting is the screen's one question: to the bin, the replay and the map
+stay. A grid and a list were drawn as other views. Drawn in
+`docs/mockups/main/store.py`; to be built in this order: the store
+(`~/.dossier/Renders` with an index), the video screen (frames decoded by
+ffmpeg into a texture, sound through cpal), the Telegram sign-in, the
+send, the account menu with its notice queue, the ring.
 
 *The three words.* Replays is this screen. Worker and Settings open over
 the scene, dimmed to a fifth, in the first run's centred column; the crest

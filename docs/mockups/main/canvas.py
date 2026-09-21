@@ -5,6 +5,7 @@ import built
 import centre
 import errors
 import island
+import store
 import strip
 
 HERE = Path(__file__).parent
@@ -46,19 +47,40 @@ for name, html in island_boards.items():
 strip_boards = strip.boards()
 for name, html in strip_boards.items():
     (HERE / f"{name}.dc.html").write_text(html)
+store_boards = store.boards()
+for name, html in store_boards.items():
+    (HERE / f"{name}.dc.html").write_text(html)
 
 artboards = [a for a, _ in built_notes]
 annotations = [n for _, n in built_notes if n]
 annotations.append({"id": "built-head", "x": 0, "y": -330, "w": 900, "page": "page-built",
                     "text": "The main screen as built, 2026-09-21 — the application's own frames from native/tests/golden, the pictures every build is held to. Refresh: cargo run --release -- --gallery <dir>, approve into tests/golden, python canvas.py, seed. The live play cannot be staged, so the scene here is its blurred backdrop."})
 
-names = ["ErrorInline", "ErrorButton", "ErrorToast", "ErrorCentre", "ErrorFatal", "ErrorOffline"]
-a, n = lay(names, errors.NOTES, "page-errors", errors.RECOMMENDED)
+names = ["TopLogin", "TopAvatar", "TopAvatarLive", "LoginCard", "MenuAccount", "MenuStory", "MenuGuest"]
+a, n = lay(names, store.NOTES, "page-account", store.RECOMMENDED, store.TO_BUILD)
+artboards += a
+annotations += n
+menus = ["MenuTimeline", "MenuSections", "MenuColumns", "MenuMinimal"]
+a, n = lay(menus, strip.NOTES, "page-account")
+for board in a:
+    board["y"] += 3 * (H + GY)
+for note in n:
+    note["y"] += 3 * (H + GY)
 artboards += a
 annotations += n
 
-names = ["StripQuiet", "StripJobs", "StripFull", "StripWorker", "StripDone", "StripBad", "StripOffline", "RightPlain", "RightChip", "RightAvatar", "RightCount", "MenuSections", "MenuTimeline", "MenuColumns", "MenuMinimal"]
-a, n = lay(names, strip.NOTES, "page-strip", strip.RECOMMENDED, centre.TO_BUILD)
+names = ["VideoMirror", "VideoPlaying", "VideoSending", "VideoSent", "VideoDelete", "VideoGrid", "VideoList", "VideoEmpty"]
+a, n = lay(names, store.NOTES, "page-video")
+artboards += a
+annotations += n
+
+names = ["ErrorInline", "ErrorButton", "ErrorToast", "ErrorCentre", "ErrorFatal", "ErrorOffline"]
+a, n = lay(names, errors.NOTES, "page-errors", errors.CHOSEN)
+artboards += a
+annotations += n
+
+names = ["StripQuiet", "StripJobs", "StripFull", "StripWorker", "StripDone", "StripBad", "StripOffline", "RightPlain", "RightChip", "RightAvatar", "RightCount"]
+a, n = lay(names, strip.NOTES, "page-strip", strip.DEFERRED)
 artboards += a
 annotations += n
 
@@ -80,9 +102,11 @@ annotations += [b for b in old["annotations"] if b["page"] == "page-directions"]
 manifest = {
     "pages": [
         {"id": "page-built", "name": "Main screen · as built"},
-        {"id": "page-strip", "name": "Полоса · справа · меню"},
+        {"id": "page-account", "name": "Справа сверху · вход · меню"},
+        {"id": "page-video", "name": "Видео · хранилище"},
+        {"id": "page-errors", "name": "Errors · E chosen"},
+        {"id": "page-strip", "name": "Полоса · отложена"},
         {"id": "page-island", "name": "Остров · отложен"},
-        {"id": "page-errors", "name": "Errors · variations"},
         {"id": "page-centre", "name": "Operations centre · first variations"},
     ] + keep_pages,
     "artboards": artboards,

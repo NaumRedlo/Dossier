@@ -64,6 +64,7 @@ pub enum Message {
     Looked(scan::Step),
     Live(live::Frame),
     TogglePlay,
+    Traced(PathBuf, std::sync::Arc<Vec<(f64, f32, f32)>>),
     Dropped(PathBuf),
     Resized(f32),
     Tick(Instant),
@@ -114,6 +115,27 @@ impl Fetching {
 }
 
 #[derive(Debug, Clone)]
+pub struct Trail {
+    pub for_path: PathBuf,
+    pub points: std::sync::Arc<Vec<(f64, f32, f32)>>,
+    pub from_ms: f64,
+    pub to_ms: f64,
+    pub started: Instant,
+    pub paused_at: Option<f64>,
+}
+
+impl Trail {
+    pub fn at_ms(&self, now: Instant) -> f64 {
+        if let Some(at) = self.paused_at {
+            return at;
+        }
+        let span = (self.to_ms - self.from_ms).max(1.0);
+        let elapsed = now.saturating_duration_since(self.started).as_secs_f64() * 1000.0;
+        self.from_ms + elapsed % span
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct Live {
     pub control: std::sync::Arc<live::Control>,
     pub for_path: PathBuf,
@@ -141,6 +163,8 @@ pub struct Main {
     pub looking: Option<scan::Step>,
     pub live: Option<Live>,
     pub live_before: Option<image::Handle>,
+    pub hatch: image::Handle,
+    pub trail: Option<Trail>,
     pub ffmpeg: Option<PathBuf>,
     pub now: Instant,
     pub started: Instant,
@@ -182,6 +206,8 @@ impl Main {
             looking: None,
             live: None,
             live_before: None,
+            hatch: ui::hatched_picture(live::SIZE.0, live::SIZE.1, live::dim_at),
+            trail: None,
             ffmpeg: crate::checks::ffmpeg_on_path(),
             now: Instant::now(),
             started: Instant::now(),
@@ -212,6 +238,7 @@ impl Main {
             || self.fetching.as_ref().is_some_and(|f| !f.is_over())
             || matches!(self.looking, Some(scan::Step::Looking { .. }))
             || self.live.as_ref().is_some_and(|l| l.fade.is_animating(self.now))
+            || self.trail.as_ref().is_some_and(|t| t.paused_at.is_none())
             || self.enter.is_animating(self.now)
             || self.arrive.is_animating(self.now)
             || self.swap.is_animating(self.now)
@@ -314,10 +341,15 @@ impl Main {
             live.control.stop();
             self.live_before = live.frame;
         }
+        self.trail = None;
         let Some(ask) = self.chosen_entry().and_then(|entry| {
             let map = entry.map.as_ref()?;
             Some(live::Ask { replay: entry.path.clone(), map: map.file.clone(), map_hash: entry.map_hash.clone() })
         }) else {
+            if let Some(entry) = self.chosen_entry() {
+                let path = entry.path.clone();
+                return ui::in_thread(move || Message::Traced(path.clone(), std::sync::Arc::new(live::trace(&path))));
+            }
             return Task::none();
         };
         let control = std::sync::Arc::new(live::Control::default());
@@ -593,6 +625,24 @@ impl Main {
                 if let Some(live) = &self.live {
                     live.control.pause(!live.control.paused());
                 }
+                if let Some(trail) = &mut self.trail {
+                    match trail.paused_at {
+                        Some(at) => {
+                            let span = (trail.to_ms - trail.from_ms).max(1.0);
+                            trail.started = Instant::now() - Duration::from_secs_f64(((at - trail.from_ms) % span) / 1000.0);
+                            trail.paused_at = None;
+                        }
+                        None => trail.paused_at = Some(trail.at_ms(Instant::now())),
+                    }
+                }
+                Task::none()
+            }
+            Message::Traced(path, points) => {
+                if self.chosen_entry().is_some_and(|e| e.path == path && e.map.is_none()) && points.len() > 1 {
+                    let from_ms = points.first().map_or(0.0, |p| p.0);
+                    let to_ms = points.last().map_or(0.0, |p| p.0);
+                    self.trail = Some(Trail { for_path: path, points, from_ms, to_ms, started: Instant::now(), paused_at: None });
+                }
                 Task::none()
             }
             Message::OpenOut => {
@@ -662,7 +712,7 @@ impl Main {
             Some(entry) => match (self.scenes.get(&entry.map_hash), entry.map.is_some()) {
                 (Some(handle), _) => full(handle, alpha * s),
                 (None, true) => blank(),
-                (None, false) => container(ui::hatch()).width(Length::Fill).height(Length::Fill).into(),
+                (None, false) => full(&self.hatch, alpha),
             },
             None => blank(),
         };
@@ -670,14 +720,21 @@ impl Main {
             (Some(before), Some(_)) if s < 1.0 => full(before, alpha * (1.0 - s)),
             _ => blank(),
         };
-        let live: Element<'_, Message> = match (entry, &self.live) {
-            (Some(entry), Some(live)) if live.for_path == entry.path => match &live.frame {
+        let live: Element<'_, Message> = match (entry, &self.live, &self.trail) {
+            (Some(entry), Some(live), _) if live.for_path == entry.path => match &live.frame {
                 Some(handle) => {
                     let seen = live.fade.interpolate(0.0, 1.0, self.now);
                     mouse_area(full(handle, alpha * seen)).on_press(Message::TogglePlay).into()
                 }
                 None => blank(),
             },
+            (Some(entry), _, Some(trail)) if trail.for_path == entry.path => mouse_area(
+                iced::widget::canvas(ui::Trail { points: trail.points.clone(), at_ms: trail.at_ms(self.now), window_ms: 3000.0 })
+                    .width(Length::Fill)
+                    .height(Length::Fill),
+            )
+            .on_press(Message::TogglePlay)
+            .into(),
             _ => blank(),
         };
         let body: Element<'_, Message> = if loaded { ui::fading(k, || self.body(k, s)) } else { blank() };
@@ -1066,10 +1123,9 @@ impl Main {
             .style(theme::frame(chosen, lit))
             .on_press(Message::Choose(at));
         let sensed = mouse_area(pressed).on_enter(Message::Hover(Some(at))).on_exit(Message::Hover(None));
-        let caption = self.caption(entry);
-        let tipped = tooltip(sensed, caption, tooltip::Position::Top).gap(10).padding(0);
         let scale = if chosen { 1.0 } else { 1.0 + 0.04 * rise };
-        float(tipped).scale(scale).translate(move |_, _| Vector::new(0.0, -2.0 * rise)).into()
+        let lifted = float(sensed).scale(scale).translate(move |_, _| Vector::new(0.0, -2.0 * rise));
+        tooltip(lifted, self.caption(entry), tooltip::Position::Top).gap(10).padding(0).into()
     }
 
     fn caption(&self, entry: &Entry) -> Element<'_, Message> {

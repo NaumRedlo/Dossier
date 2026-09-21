@@ -144,6 +144,21 @@ fn run(ask: &Ask, control: &Control, push: &mut dyn FnMut(Frame) -> bool) -> Res
     }
 }
 
+pub fn trace(replay: &std::path::Path) -> Vec<(f64, f32, f32)> {
+    let Ok(bytes) = std::fs::read(replay) else {
+        return Vec::new();
+    };
+    let Ok(parsed) = dossier_replay::Replay::parse(&bytes) else {
+        return Vec::new();
+    };
+    parsed
+        .frames
+        .iter()
+        .filter(|f| f.time_ms >= 0)
+        .map(|f| (f.time_ms as f64, f.x, f.y))
+        .collect()
+}
+
 const DIM: [(f32, f32); 5] = [(0.0, 0.96), (0.28, 0.4), (0.5, 0.4), (0.7, 0.93), (1.0, 0.99)];
 
 pub fn dim_at(t: f32) -> f32 {

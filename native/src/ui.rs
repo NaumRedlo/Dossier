@@ -837,3 +837,73 @@ impl<'a, Message: 'a> From<Veil> for Element<'a, Message> {
 pub fn veil<'a, Message: 'a>(colour: Color) -> Element<'a, Message> {
     Veil::new(colour).into()
 }
+
+pub struct Trail {
+    pub points: std::sync::Arc<Vec<(f64, f32, f32)>>,
+    pub at_ms: f64,
+    pub window_ms: f64,
+}
+
+const PLAYFIELD: (f32, f32) = (512.0, 384.0);
+
+impl<Message> canvas::Program<Message> for Trail {
+    type State = ();
+
+    fn draw(&self, _: &(), renderer: &Renderer, _: &Theme, bounds: Rectangle, _: mouse::Cursor) -> Vec<Geometry> {
+        let mut frame = Frame::new(renderer, bounds.size());
+        let scale = (bounds.height * 0.8 / PLAYFIELD.1).min(bounds.width * 0.8 / PLAYFIELD.0);
+        let origin = Point::new(
+            (bounds.width - PLAYFIELD.0 * scale) / 2.0,
+            (bounds.height - PLAYFIELD.1 * scale) / 2.0 + 8.0 * scale,
+        );
+        let place = |x: f32, y: f32| Point::new(origin.x + x * scale, origin.y + y * scale);
+        let from = self.at_ms - self.window_ms;
+        let start = self.points.partition_point(|(t, _, _)| *t < from);
+        let end = self.points.partition_point(|(t, _, _)| *t <= self.at_ms);
+        if end > start + 1 {
+            let slice = &self.points[start..end];
+            let pieces = 12usize;
+            let per = (slice.len() / pieces).max(2);
+            let mut at = 0;
+            while at + 1 < slice.len() {
+                let stop = (at + per + 1).min(slice.len());
+                let age = 1.0 - ((slice[stop - 1].0 - from) / self.window_ms) as f32;
+                let alpha = (0.75 * (1.0 - age).powf(1.5)).clamp(0.05, 0.75);
+                let path = Path::new(|b| {
+                    let (_, x, y) = slice[at];
+                    b.move_to(place(x, y));
+                    for (_, x, y) in &slice[at + 1..stop] {
+                        b.line_to(place(*x, *y));
+                    }
+                });
+                frame.stroke(&path, Stroke::default().with_width(2.0).with_color(Color { a: alpha, ..ACCENT }));
+                at = stop - 1;
+            }
+        }
+        if let Some((_, x, y)) = self.points.get(end.saturating_sub(1)).filter(|_| end > 0) {
+            let here = place(*x, *y);
+            frame.fill(&Path::circle(here, 5.0), ACCENT);
+            frame.stroke(&Path::circle(here, 11.0), Stroke::default().with_width(1.5).with_color(Color { a: 0.5, ..ACCENT }));
+        }
+        vec![frame.into_geometry()]
+    }
+}
+
+pub fn hatched_picture(width: u32, height: u32, dim: impl Fn(f32) -> f32) -> image::Handle {
+    let ground = [theme::GROUND.r * 255.0, theme::GROUND.g * 255.0, theme::GROUND.b * 255.0];
+    let mut rgba = vec![0u8; (width * height * 4) as usize];
+    for y in 0..height {
+        let a = dim(y as f32 / (height.max(2) - 1) as f32);
+        for x in 0..width {
+            let diagonal = (x as i64 + y as i64).rem_euclid(18);
+            let stripe = if diagonal < 8 { 0.03 } else { 0.0 };
+            let at = ((y * width + x) * 4) as usize;
+            for c in 0..3 {
+                let lit = ground[c] * (1.0 - stripe) + 255.0 * stripe;
+                rgba[at + c] = (lit * (1.0 - a) + ground[c] * a).round().clamp(0.0, 255.0) as u8;
+            }
+            rgba[at + 3] = 255;
+        }
+    }
+    image::Handle::from_rgba(width, height, rgba)
+}

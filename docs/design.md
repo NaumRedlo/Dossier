@@ -285,8 +285,13 @@ the keyboard. Where a choice is still open it is marked *open*.
   the grade are real, not a dash; the length is the replay's last frame; the
   map's name is parsed from the file's name when it has one, else *Unknown
   map*. One button, *Get the map*, and no line beside it — the hatched
-  ground has already said why. Its frame in the journal is hatched with the
-  grade in the corner.
+  ground has already said why. Its frame in the journal is hatched. Built
+  2026-09-21: the path is the replay's own frames, the last three seconds
+  drawn as a fading accent line with the cursor as a dot and a ring, looped
+  over the play, paused and resumed by a click like the live picture; the
+  hatched ground is a picture too, dimmed at the top and the bottom the
+  same way as every other scene, so it never looks brighter than its
+  neighbours.
 - *Get the map* is the render's ledger applied to fetching: *Looking up the
   map* becomes *Found on osu.direct · #2190769* (a mirror's answer to a hash
   carries the set's number and little else; the song's name arrives with
@@ -306,7 +311,9 @@ the keyboard. Where a choice is still open it is marked *open*.
 
 *The journal.*
 - Hovering a frame lifts it 2 px and brightens it to full over 200 ms, and
-  a caption appears above it, pointing at it with a small caret: the player
+  a caption appears above it (the caption wraps the lifted frame, not the
+  other way round: a tooltip inside a float lost the strip's scroll and
+  landed far to the left), pointing at it with a small caret: the player
   in semi-bold with the accuracy in mono at the right, the map under in the
   muted tone, then one mono line — mod badges · combo · length · outcome
   (*FC*, *SB*, *×27*). The pointer leaving drops it back; nothing else on

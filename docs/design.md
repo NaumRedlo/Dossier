@@ -210,8 +210,7 @@ never a farm; the farm is the bot's word for all of them together.
   other and 98,71 beside 97,88 tells the eye nothing; the number lives in
   the viewer where it is large, and the rest — full combo, sliderbreak,
   misses — is the caption on hover. A replay whose map is not on disk is a
-  frame of fine diagonal hatching; a replay being rendered wears a red dot
-  in the middle of its frame. A day is labelled the way its language says it:
+  frame of fine diagonal hatching. A day is labelled the way its language says it:
   *today* / *сегодня* as the bare word, then *Aug 14* / *14 авг*, and the
   year only when it is not this one — *May 10, 2025* / *10 мая 2025*. It
   scrolls sideways, and the line above it is its scrubber: a two-pixel
@@ -268,8 +267,9 @@ the keyboard. Where a choice is still open it is marked *open*.
   *Drawing*, *Saving* — and a two-pixel bar along its bottom fills, eased
   frame by frame so it never jumps; the bar is the number, so there is no
   number. Clicking it stops.
-  The player's name and the map stay, the accuracy stays, the frame in the
-  journal wears a red dot in its middle. Encoding is not a step of its
+  The player's name and the map stay, the accuracy stays; the frame in the
+  journal wears nothing (a red dot on it was tried 2026-09-21 and did not
+  belong to the picture). Encoding is not a step of its
   own: the encoder eats frames as they are drawn, so *Drawing* is both.
   When it is done the button reads *Open*, with *In folder* as a link
   beside it, until the next choice; a stop or a failure leaves a quiet
@@ -302,7 +302,8 @@ the keyboard. Where a choice is still open it is marked *open*.
 - *Get the map* is the same progress button, a word at a time: *Looking*,
   *Found*, *Downloading*, *Unpacking*, *Checking*, the bar filling with the
   bytes; clicking it stops. (A mirror's answer to a hash carries the set's
-  number and little else; the song's name arrives with the files.) The frame wears the red dot. When the hash agrees with the replay's, the map joins
+  number and little else; the song's name arrives with the files.) When
+  the hash agrees with the replay's, the map joins
   every replay that names it, the scene crossfades from the hatched ground
   to the map's background, the frame takes it too, and the button reads
   *Render*. When no mirror knows the map, the line turns red — *Not on any

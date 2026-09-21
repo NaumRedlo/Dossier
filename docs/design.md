@@ -316,18 +316,18 @@ the keyboard. Where a choice is still open it is marked *open*.
   did not.
 
 *The journal.*
-- Hovering a frame lifts it 2 px and brightens it to full over 200 ms, and
-  the viewer previews it: its words — date, player, map, mods, combo,
-  accuracy, outcome — crossfade in over the chosen replay's in 180 ms, the
-  button excepted, and fade back when the pointer leaves; the scene does
-  not change. This is the *open* choice above, settled 2026-09-21 in favour
-  of the viewer: the caption in a bubble was sloppy and told nothing the
-  viewer does not. What follows describes the caption that was: the player
-  in semi-bold with the accuracy in mono at the right, the map under in the
-  muted tone, then one mono line — mod badges · combo · length · outcome
-  (*FC*, *SB*, *×27*). The pointer leaving drops it back; nothing else on
-  the screen changes. *Open:* instead of a caption, the viewer could
-  preview the hovered replay and fall back when the pointer leaves.
+- Hovering a frame lifts it 2 px and brightens it to full over 200 ms —
+  each frame with a rise of its own, so moving from one to the next lifts
+  the new while the old settles back, both smoothly — and a bubble appears
+  above it: the player with the accuracy at the right, the map's title
+  under in the muted tone, then mods · combo · outcome · grade in small
+  mono; 260 px wide, 8 px above the frame, 10 px radius, a hairline border,
+  a soft shadow, no caret; it fades and rises with the frame's own lift.
+  The bubble is a layer of the screen placed by the frame's arithmetic, not
+  a tooltip widget: a tooltip inside the lifted frame lost the strip's
+  scroll, and outside it never heard the pointer. The viewer does not
+  change (a preview in the viewer was tried 2026-09-21 and the bubble
+  won). The scene does not change.
 - Clicking a frame chooses it: the outline slides to the frame (200 ms), the
   scene crossfades to the new replay (320 ms), the viewer's words erase from
   the right and type in from the left (450 ms, the same typewriter as a
@@ -377,13 +377,16 @@ they are built, each is one card — its name and *Coming later* / *Будет
 
 *The scene.* The engine draws the chosen replay live, bare — no score, no
 counters, no key overlay, the play alone over the map's background — at
-960×540 and 60 frames a second on one CPU thread, on a fixed cadence so
-frames come evenly, looping from the lead-in to the end, muted. Each frame
+960×540 on one CPU thread, one frame for every beat of the window's own
+redraw — the display's refresh rate, 60 or 120 — asked for by the window
+and drawn to order, so the picture and the screen never disagree; when a
+frame takes longer than a beat the requests fold into one and the play
+simply skips ahead. It loops from the lead-in to the end, muted. Each frame
 is dimmed before it is shown: near-black at the top and the bottom, easing
 to a centre held at two-fifths dark, so the words read over any play. A
 click on the scene does not freeze it: the play eases to a stop over 700
-ms, and once still, softens into a light blur; another click eases it back
-up to speed and the blur lifts. Under the live picture, and
+ms and rests sharp (a blur on rest was tried and taken out); another click
+eases it back up to speed. Under the live picture, and
 before its first frame arrives, sits the map's background, blurred and
 dimmed harder (two-thirds at the centre); the picture fades in over it in
 640 ms. A choice stops the old play and starts the new one. The dim is baked

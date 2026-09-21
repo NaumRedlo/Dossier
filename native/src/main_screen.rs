@@ -1448,7 +1448,7 @@ impl Main {
             for (at, video) in self.store.videos.iter().enumerate() {
                 rows = rows.push(self.video_row(at, video));
             }
-            scrollable(container(rows).padding(Padding { top: 8.0, right: 40.0, bottom: 24.0, left: 40.0 }))
+            scrollable(container(rows).padding(Padding { top: 34.0, right: 40.0, bottom: 24.0, left: 40.0 }))
                 .width(Length::Fill)
                 .height(Length::Fill)
                 .into()
@@ -1600,25 +1600,24 @@ impl Main {
             .spacing(1)
         });
         let buttons = ui::fading(ui::fade() * dim, || {
-            row![
-                ui::primary(w.t("to-telegram"), None),
-                ui::quiet(w.t("in-folder"), Some(Message::RevealVideo)),
-                ui::quiet(w.t("delete"), Some(Message::AskDelete)),
-            ]
-            .spacing(4)
-            .align_y(iced::Center)
+            row![ui::quiet(w.t("in-folder"), Some(Message::RevealVideo)), ui::quiet(w.t("delete"), Some(Message::AskDelete))]
+                .spacing(4)
+                .align_y(iced::Center)
         });
         let under = row![container(caption).width(Length::Fill).clip(true), buttons].spacing(16).align_y(iced::Center);
+        let stage_w = (self.width - 2.0 * STAGE_GAP).max(320.0);
+        let room = (self.height - 2.0 * STAGE_GAP - STAGE_UNDER).max(180.0);
+        let screen_h = (stage_w * 9.0 / 16.0).min(room);
+        let screen_w = (screen_h * 16.0 / 9.0).min(stage_w);
         let inside = column![
-            container(screen).width(Length::Fill).height(Length::Fill),
-            container(timeline).padding([6, 24]),
-            container(under).padding(Padding { top: 8.0, right: 24.0, bottom: 18.0, left: 24.0 }),
+            container(screen).width(Length::Fill).height(screen_h),
+            container(timeline).padding(Padding { top: 8.0, right: 24.0, bottom: 4.0, left: 24.0 }),
+            container(under).padding(Padding { top: 6.0, right: 24.0, bottom: 18.0, left: 24.0 }).height(STAGE_UNDER - 30.0),
         ]
-        .width(Length::Fill)
-        .height(Length::Fill);
-        let card = container(inside).width(Length::Fill).height(Length::Fill).style(theme::stage).clip(true);
+        .width(Length::Fill);
+        let card = container(inside).width(screen_w).height(screen_h + STAGE_UNDER).style(theme::stage).clip(true);
         let backdrop = mouse_area(ui::veil(theme::SCRIM)).on_press(Message::ClosePlayer);
-        stack![backdrop, container(card).padding(40).width(Length::Fill).height(Length::Fill)]
+        stack![backdrop, container(card).width(Length::Fill).height(Length::Fill).center(Length::Fill)]
             .width(Length::Fill)
             .height(Length::Fill)
             .into()
@@ -1652,6 +1651,8 @@ impl Main {
 }
 
 const VIDEO_THUMB: (u32, u32) = (64, 36);
+const STAGE_GAP: f32 = 40.0;
+const STAGE_UNDER: f32 = 118.0;
 
 pub fn grade_colour(grade: Grade) -> Color {
     match grade {

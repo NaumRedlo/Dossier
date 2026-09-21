@@ -58,6 +58,7 @@ pub struct Rehearsal {
     pub hover: Option<usize>,
     pub videos: bool,
     pub play: Option<usize>,
+    pub menu: Option<String>,
 }
 
 impl Rehearsal {
@@ -78,7 +79,8 @@ impl Rehearsal {
         let hover = args.iter().position(|a| a == "--hover").and_then(|i| args.get(i + 1)).and_then(|s| s.parse().ok());
         let videos = args.iter().any(|a| a == "--videos-first");
         let play = args.iter().position(|a| a == "--play").and_then(|i| args.get(i + 1)).and_then(|s| s.parse().ok());
-        Some(Rehearsal { folder, snap_to, after, render, get_map, look, step, hover, videos, play })
+        let menu = args.iter().position(|a| a == "--menu").and_then(|i| args.get(i + 1)).cloned();
+        Some(Rehearsal { folder, snap_to, after, render, get_map, look, step, hover, videos, play, menu })
     }
 }
 
@@ -113,6 +115,13 @@ impl App {
             } else if let Some(at) = rehearsal.play {
                 Task::perform(async { tokio_sleep(std::time::Duration::from_millis(1500)).await }, |_| Message::Main(main_screen::Message::Show(main_screen::Overlay::Videos)))
                     .chain(Task::perform(async { tokio_sleep(std::time::Duration::from_millis(1200)).await }, move |_| Message::Main(main_screen::Message::OpenVideo(at))))
+            } else if let Some(tab) = rehearsal.menu.clone() {
+                let tab = match tab.as_str() {
+                    "feed" => main_screen::Tab::Feed,
+                    "stats" => main_screen::Tab::Stats,
+                    _ => main_screen::Tab::Account,
+                };
+                Task::perform(async { tokio_sleep(std::time::Duration::from_millis(1500)).await }, move |_| Message::Main(main_screen::Message::MenuTab(tab)))
             } else if rehearsal.videos {
                 Task::perform(async { tokio_sleep(std::time::Duration::from_millis(1500)).await }, |_| Message::Main(main_screen::Message::Show(main_screen::Overlay::Videos)))
             } else {

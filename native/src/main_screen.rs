@@ -632,6 +632,9 @@ impl Main {
             }
             Message::MenuTab(tab) => {
                 self.menu = Some(tab);
+                if tab == Tab::Feed {
+                    self.notices.see_all();
+                }
                 Task::none()
             }
             Message::MenuClose => {
@@ -711,6 +714,11 @@ impl Main {
             }
             Message::Known(Ok(me)) => {
                 let wants_avatar = me.avatar;
+                let said = if me.username.is_empty() { me.name.clone() } else { format!("@{}", me.username) };
+                if !said.is_empty() && self.settings.linked_as != said {
+                    self.settings.linked_as = said;
+                    let _ = self.settings.save();
+                }
                 self.account = Some(me);
                 if !wants_avatar {
                     return Task::none();
@@ -2035,7 +2043,7 @@ impl Main {
                     .as_ref()
                     .map(|a| a.name.clone())
                     .filter(|n| !n.is_empty())
-                    .unwrap_or_else(|| self.settings.linked_as.clone())
+                    .unwrap_or_else(|| self.settings.linked_as.trim_start_matches('@').to_owned())
                     .chars()
                     .next()
                     .map(|c| c.to_uppercase().to_string())
@@ -2060,7 +2068,8 @@ impl Main {
         let name = self.account.as_ref().map(|a| a.name.clone()).filter(|n| !n.is_empty()).unwrap_or_else(|| self.settings.linked_as.clone());
         let handle = self.account.as_ref().map(|a| a.username.clone()).filter(|u| !u.is_empty()).map(|u| format!("@{u}"));
         let (title, under) = if self.signed_in() {
-            (if name.is_empty() { w.t("signed-in") } else { name }, handle.unwrap_or_else(|| w.t("linked")))
+            let chat = self.chat_name();
+            (if name.is_empty() { w.t("signed-in") } else { name }, handle.unwrap_or(if chat == "—" { w.t("linked") } else { chat }))
         } else {
             (w.t("not-signed-in"), w.t("stays-here"))
         };
@@ -2085,7 +2094,9 @@ impl Main {
                 .style(theme::tab(on))
                 .on_press(Message::MenuTab(this))
         };
-        let tabs = row![tab_word("account", Tab::Account), tab_word("feed", Tab::Feed), tab_word("stats", Tab::Stats)].spacing(18);
+        let tabs = container(row![tab_word("account", Tab::Account), tab_word("feed", Tab::Feed), tab_word("stats", Tab::Stats)].spacing(22))
+            .width(Length::Fill)
+            .center_x(Length::Fill);
         let body = match tab {
             Tab::Account => self.account_tab(),
             Tab::Feed => self.feed_tab(),
@@ -2111,19 +2122,14 @@ impl Main {
     }
 
     fn kv(&self, key: String, value: String) -> Element<'_, Message> {
-        row![text(key).font(theme::SANS).size(theme::CAPTION).color(ui::faded(MUTED)), ui::grow(), ui::mono_small(value, INK)]
-            .spacing(12)
-            .align_y(iced::Center)
-            .height(26.0)
-            .into()
-    }
-
-    fn foot<'a>(&'a self, left: Element<'a, Message>, right: Element<'a, Message>) -> Element<'a, Message> {
-        column![
-            container(Space::new().height(1.0)).width(Length::Fill).style(theme::rule),
-            row![left, ui::grow(), right].spacing(12).align_y(iced::Center),
+        row![
+            text(key).font(theme::SANS).size(theme::CAPTION).color(ui::faded(MUTED)),
+            ui::grow(),
+            text(value).font(theme::MONO).size(theme::CAPTION).color(ui::faded(INK)),
         ]
-        .spacing(10)
+        .spacing(12)
+        .align_y(iced::Center)
+        .height(26.0)
         .into()
     }
 
@@ -2133,20 +2139,28 @@ impl Main {
             return column![
                 text(w.t("why-sign-in")).font(theme::SANS).size(theme::CAPTION).color(ui::faded(MUTED)),
                 container(ui::primary(w.t("sign-in"), Some(Message::SignIn))).padding(Padding::ZERO.top(4.0)),
-                self.foot(ui::faint(format!("{} {}", w.t("build"), bot::BUILD)), ui::faint(w.t("esc-close"))),
             ]
             .spacing(10)
             .into();
         }
-        let chat = self.account.as_ref().map(|a| a.username.clone()).filter(|u| !u.is_empty()).map(|u| format!("@{u}")).unwrap_or_else(|| self.settings.linked_as.clone());
+        let chat = self.chat_name();
         column![
             self.kv(w.t("videos-go-to"), chat),
             self.kv(w.t("worker"), w.t("coming-later")),
             self.kv(w.t("build"), bot::BUILD.to_owned()),
-            self.foot(ui::faint(w.t("esc-close")), ui::link(w.t("sign-out"), Message::SignOut)),
+            row![ui::grow(), ui::link(w.t("sign-out"), Message::SignOut)].padding(Padding::ZERO.top(4.0)),
         ]
         .spacing(2)
         .into()
+    }
+
+    fn chat_name(&self) -> String {
+        match &self.account {
+            Some(me) if !me.username.is_empty() => format!("@{}", me.username),
+            Some(me) if !me.name.is_empty() => me.name.clone(),
+            _ if !self.settings.linked_as.is_empty() => self.settings.linked_as.clone(),
+            _ => "—".to_owned(),
+        }
     }
 
     fn feed_tab(&self) -> Element<'_, Message> {
@@ -2194,7 +2208,12 @@ impl Main {
             .spacing(8)
             .align_y(iced::Center)
             .height(24.0);
-            let detail = text(format!("· {}", notice.detail)).font(theme::SANS).size(theme::CAPTION).wrapping(text::Wrapping::None).color(ui::faded(FAINT));
+            let room: usize = if matches!(notice.link, notices::Link::None) { 44 } else { 34 };
+            let detail = text(ui::shortened(format!("· {}", notice.detail), room.saturating_sub(notice.words.chars().count().min(24)).max(8)))
+                .font(theme::SANS)
+                .size(theme::CAPTION)
+                .wrapping(text::Wrapping::None)
+                .color(ui::faded(FAINT));
             line = line.push(container(detail).width(Length::Fill).clip(true));
             if matches!(notice.link, notices::Link::RenderAgain(_) | notices::Link::OpenVideo(_)) {
                 let words = if matches!(notice.link, notices::Link::OpenVideo(_)) { w.t("open") } else { w.t("once-more") };
@@ -2205,7 +2224,7 @@ impl Main {
         if self.notices.notices.is_empty() && !self.busy() {
             rows = rows.push(container(ui::cap(w.t("nothing-yet"))).height(24.0));
         }
-        column![rows, self.foot(ui::faint(w.t("esc-close")), ui::link(w.t("all-read"), Message::SeenAll))].spacing(10).into()
+        rows.into()
     }
 
     fn stats_tab(&self) -> Element<'_, Message> {
@@ -2220,7 +2239,6 @@ impl Main {
             self.kv(w.t("replays-in-journal"), self.entries().len().to_string()),
             self.kv(w.t("rendered-count"), format!("{} · {}", self.store.videos.len(), w.mb(self.store.total_size()))),
             self.kv(w.t("sent-count"), format!("{} · {}", sent, w.mb(sent_size))),
-            self.foot(ui::faint(w.t("esc-close")), Space::new().into()),
         ]
         .spacing(2)
         .into()

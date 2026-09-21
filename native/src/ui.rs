@@ -1482,8 +1482,8 @@ impl<Message> canvas::Program<Message> for Disc {
             }
             frame.stroke(&disc, Stroke::default().with_width(1.0).with_color(faded(Color::from_rgba(1.0, 1.0, 1.0, 0.1))));
         } else {
-            frame.fill(&disc, faded(Color::from_rgb(0.23, 0.063, 0.082)));
-            frame.fill(&Path::circle(Point::new(centre.x + side * 0.12, centre.y + side * 0.12), side * 0.36), faded(Color { a: 0.55, ..ACCENT }));
+            frame.fill(&disc, faded(ACCENT));
+            frame.stroke(&disc, Stroke::default().with_width(1.0).with_color(faded(Color::from_rgba(1.0, 1.0, 1.0, 0.12))));
             if !self.letter.is_empty() {
                 frame.fill_text(canvas::Text {
                     content: self.letter.clone(),
@@ -1563,10 +1563,11 @@ impl<Message> canvas::Program<Message> for Thread {
     fn draw(&self, _: &(), renderer: &Renderer, _: &Theme, bounds: Rectangle, _: mouse::Cursor) -> Vec<Geometry> {
         let mut frame = Frame::new(renderer, bounds.size());
         let y = bounds.height / 2.0;
-        frame.stroke(&Path::line(Point::new(0.0, y), Point::new(bounds.width, y)), Stroke::default().with_width(2.0).with_color(faded(Color::from_rgba(1.0, 1.0, 1.0, 0.08))));
-        let x = bounds.width * self.fraction.clamp(0.0, 1.0);
-        if x > 0.5 {
-            frame.stroke(&Path::line(Point::new(0.0, y), Point::new(x, y)), Stroke::default().with_width(2.0).with_color(faded(ACCENT)));
+        let cap = canvas::LineCap::Round;
+        frame.stroke(&Path::line(Point::new(1.0, y), Point::new(bounds.width - 1.0, y)), Stroke::default().with_width(2.0).with_line_cap(cap).with_color(faded(Color::from_rgba(1.0, 1.0, 1.0, 0.08))));
+        let x = (bounds.width * self.fraction.clamp(0.0, 1.0)).max(1.0);
+        if x > 1.5 {
+            frame.stroke(&Path::line(Point::new(1.0, y), Point::new(x, y)), Stroke::default().with_width(2.0).with_line_cap(cap).with_color(faded(ACCENT)));
         }
         vec![frame.into_geometry()]
     }

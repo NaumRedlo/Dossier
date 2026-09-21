@@ -102,7 +102,7 @@ impl App {
             } else if rehearsal.step {
                 Task::perform(async { tokio_sleep(std::time::Duration::from_millis(2500)).await }, |_| Message::Main(main_screen::Message::Step(1)))
             } else if let Some(at) = rehearsal.hover {
-                Task::perform(async { tokio_sleep(std::time::Duration::from_millis(2500)).await }, move |_| Message::Main(main_screen::Message::Hover(Some(at))))
+                Task::perform(async { tokio_sleep(std::time::Duration::from_millis(2500)).await }, move |_| Message::Main(main_screen::Message::HoverStaged(at)))
             } else {
                 Task::none()
             };

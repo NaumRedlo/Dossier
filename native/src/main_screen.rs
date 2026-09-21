@@ -6,7 +6,7 @@ use iced::animation::Easing;
 use iced::widget::{
     button, column, container, float, image, mouse_area, pin, row, scrollable, stack, text, Space,
 };
-use iced::{window, Animation, Color, ContentFit, Element, Length, Padding, Subscription, Task, Vector};
+use iced::{window, Animation, Color, ContentFit, Element, Length, Padding, Point, Subscription, Task, Vector};
 
 use crate::lang::{typed, Words};
 use crate::library::{self, Entry, Grade, Library};
@@ -30,6 +30,7 @@ const CREST_RISE: f32 = 8.0;
 const JOURNAL_RISE: f32 = 140.0;
 const BUBBLE_W: f32 = 260.0;
 const BUBBLE_H: f32 = 70.0;
+const CARET: f32 = 8.0;
 const THUMB: (u32, u32) = (176, 100);
 const SCENE_WIDTH: u32 = 960;
 
@@ -51,6 +52,7 @@ pub enum Message {
     Escape,
     Hover(Option<usize>),
     Over(usize, iced::Rectangle),
+    HoverStaged(usize),
     Show(Overlay),
     OpenFolder,
     Render,
@@ -468,6 +470,11 @@ impl Main {
                 self.hover_bounds = Some(bounds);
                 self.update(Message::Hover(Some(at)))
             }
+            Message::HoverStaged(at) => {
+                let x = 40.0 + theme::FRAME_W + 8.0 + 22.0 + at.saturating_sub(1) as f32 * (theme::FRAME_W + 6.0);
+                let bounds = iced::Rectangle::new(Point::new(x, self.height - 10.0 - theme::FRAME_H), iced::Size::new(theme::FRAME_W, theme::FRAME_H));
+                self.update(Message::Over(at, bounds))
+            }
             Message::Hover(at) => {
                 self.hover = at;
                 if at.is_none() {
@@ -655,6 +662,9 @@ impl Main {
             }
             Message::Strip(viewport) => {
                 let offset = viewport.absolute_offset().x;
+                if let (Some((before, _, _)), Some(bounds)) = (self.strip_view, self.hover_bounds.as_mut()) {
+                    bounds.x -= offset - before;
+                }
                 self.strip_view = Some((offset, viewport.content_bounds().width, viewport.bounds().width));
                 Task::none()
             }
@@ -928,12 +938,7 @@ impl Main {
     fn render_button(&self, rendering: &Rendering) -> Element<'_, Message> {
         let w = &self.words;
         match rendering.last() {
-            Some(Step::Saved(_)) => row![
-                ui::primary(w.t("open"), Some(Message::OpenOut)),
-                container(ui::link(w.t("in-folder"), Message::ShowOut)).padding(Padding::ZERO.left(6.0)),
-            ]
-            .align_y(iced::Center)
-            .into(),
+            Some(Step::Saved(_)) => ui::primary(w.t("open"), Some(Message::OpenOut)),
             Some(Step::Failed(_)) | Some(Step::Stopped) => ui::quiet(w.t("once-more"), (self.ffmpeg.is_some()).then_some(Message::Render)),
             step => {
                 let label = match step {
@@ -1123,9 +1128,10 @@ impl Main {
             .padding(edge)
             .style(theme::frame(chosen, lit))
             .on_press(Message::Choose(at));
-        let sensed = ui::sensed(pressed, move |bounds| Message::Over(at, bounds), Message::Hover(None));
-        let scale = if chosen { 1.0 } else { 1.0 + 0.04 * rise };
-        float(sensed).scale(scale).translate(move |_, _| Vector::new(0.0, -2.0 * rise)).into()
+        let scale = if chosen { 1.0 } else { 1.0 + 0.03 * rise };
+        ui::sensed(pressed, move |bounds| Message::Over(at, bounds), Message::Hover(None))
+            .risen(2.0 * rise, scale)
+            .into()
     }
 
     fn bubble_layer(&self) -> Element<'_, Message> {
@@ -1138,11 +1144,14 @@ impl Main {
         let rise = self.lifts.get(&at).map_or(0.0, |lift| lift.interpolate(0.0, 1.0, self.now));
         let frame_top = bounds.y - 2.0 * rise;
         let x = (bounds.center_x() - BUBBLE_W / 2.0).clamp(16.0, (self.width - BUBBLE_W - 16.0).max(16.0));
-        let y = frame_top - 8.0 - BUBBLE_H + (1.0 - rise) * 6.0;
-        pin(ui::fading(ui::fade() * rise, || self.bubble(entry))).x(x).y(y).into()
+        let y = frame_top - 14.0 - BUBBLE_H - CARET;
+        let tip = (bounds.center_x() - x).clamp(16.0, BUBBLE_W - 16.0);
+        let anchor = Point::new(tip / BUBBLE_W, 1.0);
+        let bubble = ui::fading(ui::fade() * rise, || self.bubble(entry, tip));
+        pin(ui::grown(bubble, anchor, 0.0, 0.84 + 0.16 * rise)).x(x).y(y).into()
     }
 
-    fn bubble(&self, entry: &Entry) -> Element<'_, Message> {
+    fn bubble(&self, entry: &Entry, tip: f32) -> Element<'_, Message> {
         let alpha = ui::fade();
         let w = &self.words;
         let mut how = row![].spacing(6).align_y(iced::Center);
@@ -1155,8 +1164,10 @@ impl Main {
         how = how.push(ui::mono(format!("{}x", entry.combo), MUTED));
         how = how.push(ui::mono("·".to_owned(), FAINT));
         how = how.push(text(entry.outcome.mark()).font(theme::MONO_BOLD).size(11.0).color(ui::faded(if entry.outcome.is_bad() { ACCENT } else { MUTED })));
-        how = how.push(ui::mono("·".to_owned(), FAINT));
-        how = how.push(text(entry.grade.letter()).font(theme::MONO_BOLD).size(11.0).color(ui::faded(grade_colour(entry.grade))));
+        if entry.outcome != library::Outcome::Fail {
+            how = how.push(ui::mono("·".to_owned(), FAINT));
+            how = how.push(text(entry.grade.letter()).font(theme::MONO_BOLD).size(11.0).color(ui::faded(grade_colour(entry.grade))));
+        }
         let inside = column![
             row![
                 text(entry.player.clone()).font(theme::SANS_SEMI).size(theme::BODY).color(ui::faded(INK)),
@@ -1165,12 +1176,18 @@ impl Main {
             ]
             .spacing(16)
             .align_y(iced::Center),
-            text(entry.title().unwrap_or_else(|| w.t("unknown-map"))).font(theme::SANS).size(theme::CAPTION).color(ui::faded(MUTED)),
+            text(ui::shortened(entry.title().unwrap_or_else(|| w.t("unknown-map")), 38))
+                .font(theme::SANS)
+                .size(theme::CAPTION)
+                .wrapping(text::Wrapping::None)
+                .color(ui::faded(MUTED)),
             container(how).padding(Padding::ZERO.top(3.0)),
         ]
         .spacing(2)
         .width(Length::Fill);
-        container(inside).padding([8, 10]).width(BUBBLE_W).style(theme::bubble_faded(alpha)).into()
+        let card = container(inside).padding([8, 10]).width(BUBBLE_W).height(BUBBLE_H);
+        let skin = iced::widget::canvas(ui::Skin { at: tip, alpha }).width(BUBBLE_W).height(BUBBLE_H + CARET);
+        stack![skin, column![card, Space::new().height(CARET)]].width(BUBBLE_W).height(BUBBLE_H + CARET).into()
     }
 
     fn overlay_view(&self) -> Element<'_, Message> {

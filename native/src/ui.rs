@@ -994,8 +994,20 @@ impl<Message> canvas::Program<Message> for Bar {
         let mut frame = Frame::new(renderer, bounds.size());
         let width = bounds.width * self.fraction.clamp(0.0, 1.0);
         if width > 0.5 {
-            let path = Path::rounded_rectangle(Point::ORIGIN, Size::new(width, bounds.height), (bounds.height / 2.0).into());
-            frame.fill(&path, Color { a: ACCENT.a * self.alpha, ..ACCENT });
+            let r = theme::CONTROL_RADIUS;
+            let right = (width - (bounds.width - r)).clamp(0.0, r);
+            let face = Path::rounded_rectangle(
+                Point::ORIGIN,
+                Size::new(width, bounds.height),
+                iced::border::Radius { top_left: r, top_right: right, bottom_right: right, bottom_left: r },
+            );
+            frame.fill(&face, Color { a: 0.16 * self.alpha, ..ACCENT });
+            let inset = 3.0;
+            let end = width.min(bounds.width - inset);
+            if end > inset + 2.0 {
+                let line = Path::rounded_rectangle(Point::new(inset, bounds.height - 4.0), Size::new(end - inset, 2.0), 1.0.into());
+                frame.fill(&line, Color { a: ACCENT.a * self.alpha, ..ACCENT });
+            }
         }
         vec![frame.into_geometry()]
     }
@@ -1003,13 +1015,10 @@ impl<Message> canvas::Program<Message> for Bar {
 
 pub fn progress<'a, Message: Clone + 'a>(words: String, fraction: f32, on: Option<Message>) -> Element<'a, Message> {
     let label = container(text(words).font(theme::SANS_SEMI).size(theme::BODY).color(faded(INK)))
-        .center_y(theme::CONTROL_HEIGHT - 2.0)
-        .padding([0, 12]);
-    let bar = Canvas::new(Bar { fraction, alpha: fade() }).width(Length::Fill).height(2.0);
-    let face = iced::widget::stack![
-        label,
-        container(bar).width(Length::Fill).height(Length::Fill).align_y(iced::alignment::Vertical::Bottom).padding([1, 6]),
-    ];
+        .center_x(Length::Fill)
+        .center_y(Length::Fill);
+    let bar = Canvas::new(Bar { fraction, alpha: fade() }).width(Length::Fill).height(Length::Fill);
+    let face = iced::widget::stack![bar, label].width(theme::PROGRESS_WIDTH).height(theme::CONTROL_HEIGHT - 2.0);
     let made = button(face).padding(0).style(dimmed(theme::progressing, fade()));
     match on {
         Some(message) => made.on_press(message).into(),
@@ -1021,6 +1030,8 @@ pub struct Sensed<'a, Message> {
     content: Element<'a, Message>,
     on_enter: Box<dyn Fn(Rectangle) -> Message + 'a>,
     on_exit: Message,
+    lift: f32,
+    scale: f32,
 }
 
 #[derive(Debug, Default)]
@@ -1033,7 +1044,20 @@ pub fn sensed<'a, Message: Clone + 'a>(
     on_enter: impl Fn(Rectangle) -> Message + 'a,
     on_exit: Message,
 ) -> Sensed<'a, Message> {
-    Sensed { content: content.into(), on_enter: Box::new(on_enter), on_exit }
+    Sensed { content: content.into(), on_enter: Box::new(on_enter), on_exit, lift: 0.0, scale: 1.0 }
+}
+
+impl<Message> Sensed<'_, Message> {
+    pub fn risen(mut self, lift: f32, scale: f32) -> Self {
+        self.lift = lift;
+        self.scale = scale;
+        self
+    }
+}
+
+fn about(bounds: Rectangle, anchor: Point, lift: f32, scale: f32) -> iced::Transformation {
+    let (cx, cy) = (bounds.x + bounds.width * anchor.x, bounds.y + bounds.height * anchor.y);
+    iced::Transformation::translate(cx, cy - lift) * iced::Transformation::scale(scale) * iced::Transformation::translate(-cx, -cy)
 }
 
 impl<Message: Clone> iced::advanced::Widget<Message, Theme, Renderer> for Sensed<'_, Message> {
@@ -1090,18 +1114,25 @@ impl<Message: Clone> iced::advanced::Widget<Message, Theme, Renderer> for Sensed
         self.content
             .as_widget_mut()
             .update(&mut tree.children[0], event, layout, cursor, renderer, clipboard, shell, viewport);
-        if let iced::Event::Mouse(mouse::Event::CursorMoved { .. }) | iced::Event::Mouse(mouse::Event::CursorLeft) = event {
-            let bounds = layout.bounds();
-            let seen = bounds.intersection(viewport).unwrap_or(Rectangle::new(bounds.position(), Size::ZERO));
-            let inside = cursor.is_over(seen);
-            let state = tree.state.downcast_mut::<SensedState>();
-            if inside != state.inside {
-                state.inside = inside;
-                if inside {
-                    shell.publish((self.on_enter)(bounds));
-                } else {
-                    shell.publish(self.on_exit.clone());
-                }
+        let window = match event {
+            iced::Event::Mouse(mouse::Event::CursorMoved { position }) => Some(*position),
+            iced::Event::Mouse(mouse::Event::CursorLeft) => None,
+            _ => return,
+        };
+        let bounds = layout.bounds();
+        let seen = bounds.intersection(viewport).unwrap_or(Rectangle::new(bounds.position(), Size::ZERO));
+        let inside = cursor.is_over(seen);
+        let state = tree.state.downcast_mut::<SensedState>();
+        if inside != state.inside {
+            state.inside = inside;
+            if inside {
+                let shift = match (cursor.position(), window) {
+                    (Some(local), Some(window)) => local - window,
+                    _ => iced::Vector::ZERO,
+                };
+                shell.publish((self.on_enter)(bounds - shift));
+            } else {
+                shell.publish(self.on_exit.clone());
             }
         }
     }
@@ -1127,7 +1158,15 @@ impl<Message: Clone> iced::advanced::Widget<Message, Theme, Renderer> for Sensed
         cursor: mouse::Cursor,
         viewport: &Rectangle,
     ) {
-        self.content.as_widget().draw(&tree.children[0], renderer, theme, style, layout, cursor, viewport);
+        if self.lift == 0.0 && self.scale == 1.0 {
+            self.content.as_widget().draw(&tree.children[0], renderer, theme, style, layout, cursor, viewport);
+            return;
+        }
+        use iced::advanced::Renderer as _;
+        let transformation = about(layout.bounds(), Point::new(0.5, 0.5), self.lift, self.scale);
+        renderer.with_transformation(transformation, |renderer| {
+            self.content.as_widget().draw(&tree.children[0], renderer, theme, style, layout, cursor, viewport);
+        });
     }
 
     fn overlay<'b>(
@@ -1147,3 +1186,165 @@ impl<'a, Message: Clone + 'a> From<Sensed<'a, Message>> for Element<'a, Message>
         Element::new(sensed)
     }
 }
+
+pub struct Grown<'a, Message> {
+    content: Element<'a, Message>,
+    anchor: Point,
+    lift: f32,
+    scale: f32,
+}
+
+pub fn grown<'a, Message: 'a>(content: impl Into<Element<'a, Message>>, anchor: Point, lift: f32, scale: f32) -> Grown<'a, Message> {
+    Grown { content: content.into(), anchor, lift, scale }
+}
+
+impl<Message> iced::advanced::Widget<Message, Theme, Renderer> for Grown<'_, Message> {
+    fn tag(&self) -> iced::advanced::widget::tree::Tag {
+        self.content.as_widget().tag()
+    }
+
+    fn state(&self) -> iced::advanced::widget::tree::State {
+        self.content.as_widget().state()
+    }
+
+    fn children(&self) -> Vec<iced::advanced::widget::Tree> {
+        self.content.as_widget().children()
+    }
+
+    fn diff(&self, tree: &mut iced::advanced::widget::Tree) {
+        self.content.as_widget().diff(tree);
+    }
+
+    fn size(&self) -> Size<Length> {
+        self.content.as_widget().size()
+    }
+
+    fn layout(
+        &mut self,
+        tree: &mut iced::advanced::widget::Tree,
+        renderer: &Renderer,
+        limits: &iced::advanced::layout::Limits,
+    ) -> iced::advanced::layout::Node {
+        self.content.as_widget_mut().layout(tree, renderer, limits)
+    }
+
+    fn operate(
+        &mut self,
+        tree: &mut iced::advanced::widget::Tree,
+        layout: iced::advanced::Layout<'_>,
+        renderer: &Renderer,
+        operation: &mut dyn iced::advanced::widget::Operation,
+    ) {
+        self.content.as_widget_mut().operate(tree, layout, renderer, operation);
+    }
+
+    fn update(
+        &mut self,
+        tree: &mut iced::advanced::widget::Tree,
+        event: &iced::Event,
+        layout: iced::advanced::Layout<'_>,
+        cursor: mouse::Cursor,
+        renderer: &Renderer,
+        clipboard: &mut dyn iced::advanced::Clipboard,
+        shell: &mut iced::advanced::Shell<'_, Message>,
+        viewport: &Rectangle,
+    ) {
+        self.content.as_widget_mut().update(tree, event, layout, cursor, renderer, clipboard, shell, viewport);
+    }
+
+    fn mouse_interaction(
+        &self,
+        tree: &iced::advanced::widget::Tree,
+        layout: iced::advanced::Layout<'_>,
+        cursor: mouse::Cursor,
+        viewport: &Rectangle,
+        renderer: &Renderer,
+    ) -> mouse::Interaction {
+        self.content.as_widget().mouse_interaction(tree, layout, cursor, viewport, renderer)
+    }
+
+    fn draw(
+        &self,
+        tree: &iced::advanced::widget::Tree,
+        renderer: &mut Renderer,
+        theme: &Theme,
+        style: &iced::advanced::renderer::Style,
+        layout: iced::advanced::Layout<'_>,
+        cursor: mouse::Cursor,
+        viewport: &Rectangle,
+    ) {
+        if self.lift == 0.0 && (self.scale - 1.0).abs() < 0.001 {
+            self.content.as_widget().draw(tree, renderer, theme, style, layout, cursor, viewport);
+            return;
+        }
+        use iced::advanced::Renderer as _;
+        let transformation = about(layout.bounds(), self.anchor, self.lift, self.scale);
+        renderer.with_transformation(transformation, |renderer| {
+            self.content.as_widget().draw(tree, renderer, theme, style, layout, cursor, viewport);
+        });
+    }
+}
+
+impl<'a, Message: 'a> From<Grown<'a, Message>> for Element<'a, Message> {
+    fn from(grown: Grown<'a, Message>) -> Element<'a, Message> {
+        Element::new(grown)
+    }
+}
+
+pub fn shortened(words: String, at_most: usize) -> String {
+    if words.chars().count() <= at_most {
+        return words;
+    }
+    let mut cut: String = words.chars().take(at_most - 1).collect();
+    while cut.ends_with(' ') {
+        cut.pop();
+    }
+    cut.push('…');
+    cut
+}
+
+pub struct Skin {
+    pub at: f32,
+    pub alpha: f32,
+}
+
+impl<Message> canvas::Program<Message> for Skin {
+    type State = ();
+
+    fn draw(&self, _: &(), renderer: &Renderer, theme: &Theme, bounds: Rectangle, _: mouse::Cursor) -> Vec<Geometry> {
+        let style = theme::bubble(theme);
+        let mut frame = Frame::new(renderer, bounds.size());
+        let radius = style.border.radius.top_left;
+        let card = Size::new(bounds.width, bounds.height - CARET_H);
+        for (grow, alpha) in [(6.0, 0.05), (3.0, 0.08), (1.0, 0.12)] {
+            let shade = Path::rounded_rectangle(Point::new(-grow, -grow + 4.0), Size::new(card.width + 2.0 * grow, card.height + 2.0 * grow), (radius + grow).into());
+            frame.fill(&shade, Color::from_rgba(0.0, 0.0, 0.0, alpha * self.alpha));
+        }
+        let ground = match style.background {
+            Some(iced::Background::Color(colour)) => colour,
+            _ => Color::BLACK,
+        };
+        let body = Path::new(|b| {
+            let r = radius;
+            let (w, h) = (card.width, card.height);
+            b.move_to(Point::new(r, 0.0));
+            b.line_to(Point::new(w - r, 0.0));
+            b.arc_to(Point::new(w, 0.0), Point::new(w, r), r);
+            b.line_to(Point::new(w, h - r));
+            b.arc_to(Point::new(w, h), Point::new(w - r, h), r);
+            b.line_to(Point::new(self.at + CARET_H, h));
+            b.line_to(Point::new(self.at, h + CARET_H));
+            b.line_to(Point::new(self.at - CARET_H, h));
+            b.line_to(Point::new(r, h));
+            b.arc_to(Point::new(0.0, h), Point::new(0.0, h - r), r);
+            b.line_to(Point::new(0.0, r));
+            b.arc_to(Point::new(0.0, 0.0), Point::new(r, 0.0), r);
+            b.close();
+        });
+        frame.fill(&body, Color { a: ground.a * self.alpha, ..ground });
+        frame.stroke(&body, Stroke::default().with_width(1.0).with_color(Color { a: style.border.color.a * self.alpha, ..style.border.color }));
+        vec![frame.into_geometry()]
+    }
+}
+
+const CARET_H: f32 = 8.0;

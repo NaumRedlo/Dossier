@@ -26,6 +26,7 @@ pub const CODE: f32 = 28.0;
 
 pub const CARD_RADIUS: f32 = 12.0;
 pub const CONTROL_RADIUS: f32 = 8.0;
+pub const PROGRESS_WIDTH: f32 = 150.0;
 pub const CONTROL_HEIGHT: f32 = 32.0;
 pub const COLUMN: f32 = 560.0;
 

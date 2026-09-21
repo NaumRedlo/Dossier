@@ -369,6 +369,25 @@ the date line — *stable* or *lazer* — is read from the replay itself, not
 from where the file was found. Built 2026-09-16; a rescan from Settings
 comes with Settings.
 
+*The island.* The operations centre is decided 2026-09-21 as one living
+place in the top row, between the crest and the three words, at the words'
+side: a pill — the island — that is nothing (or a 36 px drop with a faint
+dot) while nothing happens, grows into a pill when something starts, and,
+clicked, stretches down and right into the panel at the top-right corner.
+A dot in the corner was drawn and rejected. The pill: a breathing dot, one
+word and the thing's name, a mono figure at the right, and its own state as
+the bar — the pill fills with the soft accent from left to right as the
+work goes (the viewer's buttons keep their two-pixel line; the two read at
+different sizes). Two jobs split the pill with a hairline. Done: the dot
+becomes a tick, *Готово · Открыть*, five seconds, then it shrinks back.
+Failed: the edge turns danger, a cross, *Ещё раз*; it stays until dealt
+with. The worker's own job — *Воркер · для @friend*, the frames' share, the
+queue — and *Офлайн · бот молчит · повтор через 40 с* are the same pill.
+The panel it opens into: the pill's line as the head, then *Сейчас* with
+bars, *Воркер*, *Уведомления* with times, *Telegram* (who is linked, where
+renders go), the build line; Esc or a click outside closes it. Drawn in
+`docs/mockups/main/island.py`; to be built after the notice queue.
+
 *The three words.* Replays is this screen. Worker and Settings open over
 the scene, dimmed to a fifth, in the first run's centred column; the crest
 does not move, and Esc or the word *Replays* brings the scene back. Until

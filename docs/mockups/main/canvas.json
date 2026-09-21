@@ -5,12 +5,16 @@
       "name": "Main screen · as built"
     },
     {
+      "id": "page-island",
+      "name": "Остров · состояния"
+    },
+    {
       "id": "page-errors",
       "name": "Errors · variations"
     },
     {
       "id": "page-centre",
-      "name": "Operations centre · variations"
+      "name": "Operations centre · first variations"
     },
     {
       "id": "page-directions",
@@ -179,6 +183,96 @@
       "h": 720,
       "page": "page-errors",
       "title": "F · A state, not an error"
+    },
+    {
+      "file": "IslandQuiet.dc.html",
+      "x": 0,
+      "y": 0,
+      "w": 980,
+      "h": 720,
+      "page": "page-island",
+      "title": "Покой"
+    },
+    {
+      "file": "IslandOne.dc.html",
+      "x": 1060,
+      "y": 0,
+      "w": 980,
+      "h": 720,
+      "page": "page-island",
+      "title": "Одно дело · заливка"
+    },
+    {
+      "file": "IslandLine.dc.html",
+      "x": 2120,
+      "y": 0,
+      "w": 980,
+      "h": 720,
+      "page": "page-island",
+      "title": "Одно дело · линия"
+    },
+    {
+      "file": "IslandTwo.dc.html",
+      "x": 0,
+      "y": 910,
+      "w": 980,
+      "h": 720,
+      "page": "page-island",
+      "title": "Два дела"
+    },
+    {
+      "file": "IslandDone.dc.html",
+      "x": 1060,
+      "y": 910,
+      "w": 980,
+      "h": 720,
+      "page": "page-island",
+      "title": "Готово"
+    },
+    {
+      "file": "IslandBad.dc.html",
+      "x": 2120,
+      "y": 910,
+      "w": 980,
+      "h": 720,
+      "page": "page-island",
+      "title": "Не вышло"
+    },
+    {
+      "file": "IslandWorker.dc.html",
+      "x": 0,
+      "y": 1820,
+      "w": 980,
+      "h": 720,
+      "page": "page-island",
+      "title": "Воркер"
+    },
+    {
+      "file": "IslandOffline.dc.html",
+      "x": 1060,
+      "y": 1820,
+      "w": 980,
+      "h": 720,
+      "page": "page-island",
+      "title": "Офлайн"
+    },
+    {
+      "file": "IslandOpen.dc.html",
+      "x": 2120,
+      "y": 1820,
+      "w": 980,
+      "h": 720,
+      "page": "page-island",
+      "title": "Раскрыт · панель справа сверху"
+    },
+    {
+      "file": "IslandMorph.dc.html",
+      "x": 0,
+      "y": 2730,
+      "w": 980,
+      "h": 720,
+      "page": "page-island",
+      "title": "Переходы"
     },
     {
       "file": "CentreMark.dc.html",
@@ -453,6 +547,102 @@
       "text": "Recommendation: B for Render and Get the map (the button already is the story), A for everything that has a ledger, F for states, E for the fatal few; C and D only once the operations centre exists, and then D feeds C — the centre keeps every notice, a toast shows the fresh one."
     },
     {
+      "id": "IslandQuiet-note",
+      "x": 0,
+      "y": -140,
+      "w": 640,
+      "page": "page-island",
+      "text": "Остров сидит в верхней строке между знаком и тремя словами, у правого края: в покое — капля 36 px с приглушённой точкой (или ничего, если так тише). Не занимает места, не просит внимания."
+    },
+    {
+      "id": "IslandOne-note",
+      "x": 1060,
+      "y": -140,
+      "w": 640,
+      "page": "page-island",
+      "text": "Таблетка: дышащая точка, слово и имя дела, процент в моно. Состояние полосы — сама таблетка наливается мягким акцентом слева направо; когда заливка дошла до края, дело сделано."
+    },
+    {
+      "id": "IslandLine-note",
+      "x": 2120,
+      "y": -140,
+      "w": 640,
+      "page": "page-island",
+      "text": "Тот же остров, но прогресс — двухпиксельная линия по низу, как у кнопок в просмотре, а вместо процента — сколько осталось. Одна грамматика на всё приложение."
+    },
+    {
+      "id": "IslandTwo-note",
+      "x": 0,
+      "y": 770,
+      "w": 640,
+      "page": "page-island",
+      "text": "Остров делится хайрлайном на два сегмента, у каждого своё слово и процент; заливка — по первому, второе ждёт своей очереди в карточке."
+    },
+    {
+      "id": "IslandDone-note",
+      "x": 1060,
+      "y": 770,
+      "w": 640,
+      "page": "page-island",
+      "text": "Точка становится галочкой, слово — «Готово», справа ссылка «Открыть». Пять секунд — и остров сжимается обратно."
+    },
+    {
+      "id": "IslandBad-note",
+      "x": 2120,
+      "y": 770,
+      "w": 640,
+      "page": "page-island",
+      "text": "Край в цвет опасности, крест вместо точки, «Ещё раз» справа. Остров не уходит сам — только по клику или после повтора; причина ждёт в карточке."
+    },
+    {
+      "id": "IslandWorker-note",
+      "x": 0,
+      "y": 1680,
+      "w": 640,
+      "page": "page-island",
+      "text": "Когда устройство рисует для бота: «Воркер · для @friend», доля кадров, очередь. Тот же остров, тот же ход заливки."
+    },
+    {
+      "id": "IslandOffline-note",
+      "x": 1060,
+      "y": 1680,
+      "w": 640,
+      "page": "page-island",
+      "text": "Состояние, а не ошибка: точка гаснет, «Офлайн · бот молчит», когда попробует снова. Уходит сам, когда связь вернулась."
+    },
+    {
+      "id": "IslandOpen-note",
+      "x": 2120,
+      "y": 1680,
+      "w": 640,
+      "page": "page-island",
+      "text": "Клик по острову (или наведение с задержкой) растягивает его в карточку 460 px к правому краю: первая строка — тот же остров; ниже Сейчас с полосами, Воркер, Уведомления с временем, Telegram, строка сборки. Esc или клик мимо сжимает обратно."
+    },
+    {
+      "id": "IslandMorph-note",
+      "x": 0,
+      "y": 2590,
+      "w": 640,
+      "page": "page-island",
+      "text": "Три момента жизни острова: рост из капли, раскрытие в карточку, схлопывание после дела."
+    },
+    {
+      "id": "page-island-rec",
+      "x": 0,
+      "y": 3580,
+      "w": 980,
+      "page": "page-island",
+      "text": "Остров — одно живое место в верхней строке, оно же панель. Заливка таблетки (IslandOne) выразительнее линии, но линия (IslandLine) повторяет кнопки просмотра; предлагаю заливку для острова и линию для кнопок — они читаются на разном масштабе. Точки в углу нет вовсе."
+    },
+    {
+      "id": "page-island-extra",
+      "x": 1060,
+      "y": 3580,
+      "w": 980,
+      "page": "page-island",
+      "text": "What the centre needs built, in order: (1) a notice queue in the application — one struct, kind · words · time · a link — fed by Render, Get the map, the scan and the worker, kept in ~/.dossier/notices.json, at most a hundred; (2) the mark and the panel, with the count of unseen notices; (3) the worker's own events from the bot (a job taken, drawn, delivered) over the existing hello endpoint polled every 30 s, or a long poll when the bot grows one; (4) Telegram: POST /render/send with the file, and the bot's answer as a notice; (5) the build line, from hello, with Download when the bot wants a newer one — the same fetch-and-unpack as ffmpeg's."
+    },
+    {
       "id": "CentreMark-note",
       "x": 0,
       "y": -140,
@@ -499,14 +689,6 @@
       "w": 980,
       "page": "page-centre",
       "text": "Recommendation: A + B. The mark keeps the chrome as it is; the panel is a card like every other card; the drawer is for later if notices outgrow a card. D can live alongside as the in-progress line for people who never open the panel."
-    },
-    {
-      "id": "page-centre-extra",
-      "x": 1060,
-      "y": 1760,
-      "w": 980,
-      "page": "page-centre",
-      "text": "What the centre needs built, in order: (1) a notice queue in the application — one struct, kind · words · time · a link — fed by Render, Get the map, the scan and the worker, kept in ~/.dossier/notices.json, at most a hundred; (2) the mark and the panel, with the count of unseen notices; (3) the worker's own events from the bot (a job taken, drawn, delivered) over the existing hello endpoint polled every 30 s, or a long poll when the bot grows one; (4) Telegram: POST /render/send with the file, and the bot's answer as a notice; (5) the build line, from hello, with Download when the bot wants a newer one — the same fetch-and-unpack as ffmpeg's."
     },
     {
       "id": "dir-a",

@@ -186,3 +186,5 @@ send-failed = Не отправилось
 telegram-id = Telegram ID
 close = Закрыть
 map-not-fetched = Карта не скачалась
+community = Сообщество
+community-why = Будет доступно позже: мир 1984 изнутри Dossier — люди, их рендеры и рекорды, конкурсы бота — одна экосистема с ботом.

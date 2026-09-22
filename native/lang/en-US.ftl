@@ -182,3 +182,5 @@ send-failed = Could not send
 telegram-id = Telegram ID
 close = Close
 map-not-fetched = The map did not come
+community = Community
+community-why = Coming later: the world of 1984 from inside Dossier — people, their renders and records, the bot's contests — one ecosystem with the bot.

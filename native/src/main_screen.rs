@@ -40,6 +40,7 @@ const SCENE_WIDTH: u32 = 960;
 pub enum Overlay {
     None,
     Videos,
+    Community,
     Worker,
     Settings,
 }
@@ -1533,6 +1534,7 @@ impl Main {
         let words = row![
             word("replays", self.overlay == Overlay::None, Message::Show(Overlay::None)),
             word("videos", self.overlay == Overlay::Videos, Message::Show(Overlay::Videos)),
+            word("community", self.overlay == Overlay::Community, Message::Show(Overlay::Community)),
             word("worker", self.overlay == Overlay::Worker, Message::Show(Overlay::Worker)),
             word("settings", self.overlay == Overlay::Settings, Message::Show(Overlay::Settings)),
             self.circle(CIRCLE_SIDE, true),
@@ -1921,12 +1923,13 @@ impl Main {
             return self.videos_view();
         }
         let w = &self.words;
-        let name = match which {
-            Overlay::Worker => w.t("worker"),
-            _ => w.t("settings"),
+        let (name, why) = match which {
+            Overlay::Worker => (w.t("worker"), w.t("coming-later")),
+            Overlay::Community => (w.t("community"), w.t("community-why")),
+            _ => (w.t("settings"), w.t("coming-later")),
         };
         let card = ui::card(
-            column![ui::title(name), ui::cap(w.t("coming-later"))].spacing(6).into(),
+            column![ui::title(name), ui::cap(why)].spacing(6).into(),
             Some(row![ui::grow(), ui::quiet(w.t("back-to-replays"), Some(Message::Show(Overlay::None)))].into()),
         );
         stack![
@@ -2479,9 +2482,6 @@ impl Main {
                 ui::grown(framed, Point::new(1.0, 0.5), 0.0, 1.0).shifted((1.0 - alive) * 24.0)
             });
             tiles.push(tile.into());
-        }
-        if tiles.is_empty() {
-            tiles.push(self.card(container(ui::cap(w.t("nothing-yet"))).height(20.0).into(), false));
         }
         tiles
     }

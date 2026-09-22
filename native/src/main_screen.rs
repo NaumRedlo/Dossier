@@ -1151,7 +1151,8 @@ impl Main {
                         )
                     });
                     let sources = self.settings.sources.clone();
-                    let skins = ui::in_thread(move || Message::Skins(crate::settings::skins_in(&sources)));
+                    let own = self.settings.own_skins.clone();
+                    let skins = ui::in_thread(move || Message::Skins(crate::settings::skins_in(&sources, &own)));
                     let ffmpeg = self.ffmpeg.clone();
                     let version = ui::in_thread(move || Message::Ffmpeg(ffmpeg.as_deref().and_then(crate::checks::ffmpeg_version)));
                     let chats = match (self.settings.token.is_empty(), self.chats.is_empty()) {
@@ -2746,7 +2747,29 @@ impl Main {
             }
             P::RescanSkins => {
                 let sources = self.settings.sources.clone();
-                ui::in_thread(move || Message::Skins(crate::settings::skins_in(&sources)))
+                let own = self.settings.own_skins.clone();
+                ui::in_thread(move || Message::Skins(crate::settings::skins_in(&sources, &own)))
+            }
+            P::AddSkin => Task::perform(prefs::pick_renders(), |picked| Message::Prefs(P::AddedSkin(picked))),
+            P::AddedSkin(picked) => {
+                let Some(folder) = picked else {
+                    return Task::none();
+                };
+                if !self.settings.own_skins.contains(&folder) {
+                    self.settings.own_skins.push(folder.clone());
+                    keep(&self.settings);
+                }
+                self.settings.skin = Some(folder);
+                keep(&self.settings);
+                let sources = self.settings.sources.clone();
+                let own = self.settings.own_skins.clone();
+                ui::in_thread(move || Message::Skins(crate::settings::skins_in(&sources, &own)))
+            }
+            P::OpenSkinsFolder => {
+                let root = crate::settings::skins_root();
+                let _ = std::fs::create_dir_all(&root);
+                let _ = open::that_detached(root);
+                Task::none()
             }
             P::OpenSkin => {
                 if let Some(folder) = &self.settings.skin {

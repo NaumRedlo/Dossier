@@ -39,6 +39,8 @@ pub struct Settings {
     pub tell: Tell,
     #[serde(default)]
     pub skin: Option<PathBuf>,
+    #[serde(default)]
+    pub own_skins: Vec<PathBuf>,
     #[serde(default = "full")]
     pub music_level: f32,
     #[serde(default = "full")]
@@ -85,17 +87,21 @@ pub const HEIGHTS: [u32; 5] = [480, 720, 1080, 1440, 2160];
 pub const RATES: [u32; 4] = [24, 30, 60, 120];
 pub const CRFS: [u32; 5] = [26, 23, 20, 17, 14];
 
-pub fn skins_in(sources: &[Source]) -> Vec<PathBuf> {
+pub fn skins_root() -> PathBuf {
+    crate::sources::own_root().join("Skins")
+}
+
+pub fn skins_in(sources: &[Source], own: &[PathBuf]) -> Vec<PathBuf> {
     let mut roots: Vec<PathBuf> = sources.iter().filter_map(|source| source.skins.clone()).collect();
     for found in crate::sources::find() {
         if let Some(skins) = found.skins {
             roots.push(skins);
         }
     }
-    roots.push(crate::sources::own_root().join("Skins"));
+    roots.push(skins_root());
     roots.sort();
     roots.dedup();
-    let mut found: Vec<PathBuf> = Vec::new();
+    let mut found: Vec<PathBuf> = own.iter().filter(|folder| folder.is_dir()).cloned().collect();
     for root in roots {
         let Ok(read) = std::fs::read_dir(&root) else {
             continue;
@@ -154,6 +160,7 @@ impl Default for Settings {
             chat_id: None,
             tell: Tell::default(),
             skin: None,
+            own_skins: Vec::new(),
             music_level: 1.0,
             hitsound_level: 1.0,
             player_level: 1.0,

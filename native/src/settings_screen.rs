@@ -149,6 +149,9 @@ pub enum Message {
     Skin(Option<PathBuf>),
     RescanSkins,
     OpenSkin,
+    AddSkin,
+    AddedSkin(Option<PathBuf>),
+    OpenSkinsFolder,
     Music(f32),
     Hitsounds(f32),
     PlayerLevel(f32),
@@ -236,6 +239,14 @@ pub fn floating<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
         .padding([12, 14])
         .style(ui::box_faded(theme::slab_held))
         .into()
+}
+
+fn machine_name() -> String {
+    match ui::Machine::here() {
+        ui::Machine::Mac => "macOS".to_owned(),
+        ui::Machine::Windows => "Windows".to_owned(),
+        ui::Machine::Linux => "Linux".to_owned(),
+    }
 }
 
 fn tongue<'a>(ground: &Ground<'a>, lang: Lang, name: &str, on: bool) -> Element<'a, Message> {
@@ -395,6 +406,8 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
         .into(),
         Tile::Device => column![
             head(w, "device-tile"),
+            container(row![ui::badge(ui::Machine::here(), 24.0), text(machine_name()).font(theme::SANS).size(11.0).color(ui::faded(FAINT))].spacing(8).align_y(iced::Center))
+                .padding(Padding::ZERO.bottom(4.0)),
             container(
                 text_input("", ground.renaming.unwrap_or(&s.device))
                     .on_input(Message::Rename)
@@ -472,15 +485,12 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
                 cells.push(cell(name.clone(), Some(folder.clone()), ground.skin_faces.get(folder), picked, k));
             }
             let strip = container(ui::wrap(cells, 6.0)).width(if ground.skins.is_empty() { 200.0 } else { 288.0 });
-            let mut deeds = row![deed(w.t("rescan"), Message::RescanSkins, false)].spacing(6);
+            let mut deeds = row![deed(w.t("add-skin"), Message::AddSkin, false), deed(w.t("skins-folder"), Message::OpenSkinsFolder, false)].spacing(6);
             if chosen.is_some() {
                 deeds = deeds.push(deed(w.t("in-folder"), Message::OpenSkin, false));
             }
-            let under: Element<'a, Message> = if ground.skins.is_empty() {
-                text(w.t("no-skins")).font(theme::SANS).size(11.0).color(ui::faded(FAINT)).into()
-            } else {
-                text(w.n("skins-found", ground.skins.len() as u64)).font(theme::SANS).size(11.0).color(ui::faded(FAINT)).into()
-            };
+            let said = if ground.skins.is_empty() { w.t("no-skins") } else { w.n("skins-found", ground.skins.len() as u64) };
+            let under: Element<'a, Message> = text(said).font(theme::SANS).size(11.0).wrapping(text::Wrapping::None).color(ui::faded(FAINT)).into();
             column![head(w, "skins"), strip, container(under).padding(Padding::ZERO.top(2.0)), container(deeds).padding(Padding::ZERO.top(6.0))]
                 .spacing(2)
                 .into()
@@ -589,7 +599,16 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
         .into(),
         Tile::ThisDevice => column![
             head(w, "this-device"),
-            line(ground, "this-device", "·", s.device.clone(), w.t("linked"), false, None),
+            row![
+                ui::badge(ui::Machine::here(), 28.0),
+                column![
+                    text(s.device.clone()).font(theme::SANS_SEMI).size(theme::CAPTION).wrapping(text::Wrapping::None).color(ui::faded(INK)),
+                    text(w.t("linked")).font(theme::SANS).size(11.0).wrapping(text::Wrapping::None).color(ui::faded(MUTED)),
+                ]
+                .spacing(1),
+            ]
+            .spacing(10)
+            .align_y(iced::Center),
             container(deed(w.t("unlink"), Message::Unlink, true)).padding(Padding::ZERO.top(6.0)),
         ]
         .spacing(2)

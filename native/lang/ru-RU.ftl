@@ -241,3 +241,5 @@ skins-found = { $n ->
 }
 own-skin-short = Свой
 no-skins = В папках osu! скинов не нашлось
+add-skin = Добавить скин…
+skins-folder = Папка скинов

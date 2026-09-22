@@ -1744,8 +1744,10 @@ impl<Message> canvas::Program<Message> for Steps<'_, Message> {
             &Path::rounded_rectangle(Point::new(x - wide / 2.0, inset), Size::new(wide, h - 2.0 * inset), (wide / 2.0).into()),
             dim(Color { a: 0.92, ..INK }, self.alpha),
         );
-        let label_wide = self.label.chars().count() as f32 * 6.6 + 4.0;
-        let label_x = if x - wide / 2.0 - 8.0 < 10.0 + label_wide { (x + wide / 2.0 + 10.0).min(w - 10.0 - label_wide) } else { 10.0 };
+        let label_wide = self.label.chars().count() as f32 * 6.8 + 4.0;
+        let room_left = x - wide / 2.0 - 10.0;
+        let away = ((10.0 + label_wide + 10.0 - room_left) / 26.0).clamp(0.0, 1.0);
+        let label_x = 10.0 + (w - 10.0 - label_wide - 10.0) * away;
         frame.fill_text(canvas::Text {
             content: self.label.clone(),
             position: Point::new(label_x, h / 2.0),
@@ -1757,7 +1759,10 @@ impl<Message> canvas::Program<Message> for Steps<'_, Message> {
             ..canvas::Text::default()
         });
         let value_wide = self.value.chars().count() as f32 * 6.7 + 2.0;
-        let value_x = (x + wide / 2.0 + 10.0).min(w - 10.0 - value_wide);
+        let right_side = x + wide / 2.0 + 10.0;
+        let left_side = x - wide / 2.0 - 10.0 - value_wide;
+        let over = ((right_side + value_wide + 8.0 - w) / 22.0).clamp(0.0, 1.0);
+        let value_x = right_side + (left_side - right_side) * over;
         frame.fill_text(canvas::Text {
             content: self.value.clone(),
             position: Point::new(value_x, h / 2.0),
@@ -2098,7 +2103,7 @@ impl<Message: Clone, T> iced::advanced::Widget<Message, Theme, Renderer> for Dra
                     }
                 }
                 _ => {
-                    if over {
+                    if over && self.held {
                         let half = layout.bounds().center_x();
                         shell.publish((self.on_over)(position.x < half));
                     }
@@ -2349,11 +2354,29 @@ impl<'a, Message: 'a> From<Hollow<'a, Message>> for Element<'a, Message> {
     }
 }
 
-pub struct Flag {
-    pub which: Lang,
-    pub on: bool,
-    pub k: f32,
-    pub alpha: f32,
+impl Machine {
+    pub fn here() -> Machine {
+        match std::env::consts::OS {
+            "macos" => Machine::Mac,
+            "windows" => Machine::Windows,
+            _ => Machine::Linux,
+        }
+    }
+
+    fn drawing(self) -> &'static [u8] {
+        match self {
+            Machine::Mac => include_bytes!("../assets/marks/apple.svg"),
+            Machine::Windows => include_bytes!("../assets/marks/windows.svg"),
+            Machine::Linux => include_bytes!("../assets/marks/linux.svg"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Machine {
+    Mac,
+    Windows,
+    Linux,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2362,68 +2385,75 @@ pub enum Lang {
     En,
 }
 
-impl<Message> canvas::Program<Message> for Flag {
+impl Lang {
+    fn drawing(self) -> &'static [u8] {
+        match self {
+            Lang::Ru => include_bytes!("../assets/marks/flag-ru.svg"),
+            Lang::En => include_bytes!("../assets/marks/flag-gb.svg"),
+        }
+    }
+}
+
+fn drawn(bytes: &'static [u8]) -> iced::widget::svg::Handle {
+    iced::widget::svg::Handle::from_memory(bytes)
+}
+
+pub fn badge<'a, Message: 'a>(kind: Machine, side: f32) -> Element<'a, Message> {
+    let k = fade();
+    let mark = iced::widget::svg(drawn(kind.drawing()))
+        .width(side * 0.52)
+        .height(side * 0.52)
+        .opacity(k)
+        .style(move |_: &Theme, _| iced::widget::svg::Style { color: Some(Color { a: 0.92, ..INK }) });
+    let ground = Canvas::new(Round { alpha: k }).width(side).height(side);
+    iced::widget::stack![ground, container(mark).width(side).height(side).center(Length::Fill)]
+        .width(side)
+        .height(side)
+        .into()
+}
+
+pub struct Round {
+    pub alpha: f32,
+}
+
+impl<Message> canvas::Program<Message> for Round {
     type State = ();
 
     fn draw(&self, _: &(), renderer: &Renderer, _: &Theme, bounds: Rectangle, _: mouse::Cursor) -> Vec<Geometry> {
         let mut frame = Frame::new(renderer, bounds.size());
         let side = bounds.width.min(bounds.height);
         let centre = Point::new(bounds.width / 2.0, bounds.height / 2.0);
-        let r = side / 2.0;
-        let shade = |colour: Color| dim(colour, self.alpha);
-        let disc = Path::circle(centre, r);
-        frame.fill(&disc, shade(Color::from_rgba(1.0, 1.0, 1.0, 0.08)));
-        frame.with_clip(Rectangle::new(Point::ORIGIN, bounds.size()), |inner| {
-            let field = Rectangle::new(Point::new(centre.x - r, centre.y - r), Size::new(2.0 * r, 2.0 * r));
-            match self.which {
-                Lang::Ru => {
-                    let band = field.height / 3.0;
-                    for (i, colour) in [Color::WHITE, Color::from_rgb(0.15, 0.27, 0.65), Color::from_rgb(0.84, 0.16, 0.2)].into_iter().enumerate() {
-                        let top = field.y + band * i as f32;
-                        inner.with_clip(Rectangle::new(Point::ORIGIN, bounds.size()), |band_frame| {
-                            let path = Path::new(|b| {
-                                b.move_to(Point::new(field.x, top));
-                                b.line_to(Point::new(field.x + field.width, top));
-                                b.line_to(Point::new(field.x + field.width, top + band));
-                                b.line_to(Point::new(field.x, top + band));
-                                b.close();
-                            });
-                            band_frame.fill(&path, shade(colour));
-                        });
-                    }
-                }
-                Lang::En => {
-                    inner.fill(&Path::rectangle(field.position(), field.size()), shade(Color::from_rgb(0.05, 0.13, 0.4)));
-                    let white = shade(Color::WHITE);
-                    let red = shade(Color::from_rgb(0.81, 0.09, 0.19));
-                    let wide = Stroke::default().with_width(side * 0.3).with_color(white);
-                    let thin = Stroke::default().with_width(side * 0.16).with_color(red);
-                    let cross = Path::new(|b| {
-                        b.move_to(Point::new(field.x, centre.y));
-                        b.line_to(Point::new(field.x + field.width, centre.y));
-                        b.move_to(Point::new(centre.x, field.y));
-                        b.line_to(Point::new(centre.x, field.y + field.height));
-                    });
-                    let slant = Path::new(|b| {
-                        b.move_to(field.position());
-                        b.line_to(Point::new(field.x + field.width, field.y + field.height));
-                        b.move_to(Point::new(field.x + field.width, field.y));
-                        b.line_to(Point::new(field.x, field.y + field.height));
-                    });
-                    inner.stroke(&slant, Stroke::default().with_width(side * 0.14).with_color(white));
-                    inner.stroke(&cross, wide);
-                    inner.stroke(&cross, thin);
-                }
-            }
-        });
-        let edge = if self.on { Color { a: 0.85, ..ACCENT } } else { Color::from_rgba(1.0, 1.0, 1.0, 0.12) };
-        frame.stroke(&disc, Stroke::default().with_width(1.5 + 1.0 * self.k).with_color(shade(edge)));
+        frame.fill(&Path::circle(centre, side / 2.0), dim(Color::from_rgba(1.0, 1.0, 1.0, 0.1), self.alpha));
+        vec![frame.into_geometry()]
+    }
+}
+
+pub struct Rim {
+    pub on: bool,
+    pub k: f32,
+    pub alpha: f32,
+}
+
+impl<Message> canvas::Program<Message> for Rim {
+    type State = ();
+
+    fn draw(&self, _: &(), renderer: &Renderer, _: &Theme, bounds: Rectangle, _: mouse::Cursor) -> Vec<Geometry> {
+        let mut frame = Frame::new(renderer, bounds.size());
+        let side = bounds.width.min(bounds.height);
+        let centre = Point::new(bounds.width / 2.0, bounds.height / 2.0);
+        let edge = if self.on { Color { a: 0.85, ..ACCENT } } else { Color::from_rgba(1.0, 1.0, 1.0, 0.14) };
+        frame.stroke(
+            &Path::circle(centre, side / 2.0 - 0.75),
+            Stroke::default().with_width(1.5 + 1.0 * self.k).with_color(dim(edge, self.alpha)),
+        );
         vec![frame.into_geometry()]
     }
 }
 
 pub fn flag<'a, Message: 'a>(which: Lang, on: bool, k: f32, side: f32) -> Element<'a, Message> {
-    Canvas::new(Flag { which, on, k, alpha: fade() }).width(side).height(side).into()
+    let alpha = fade();
+    let picture = iced::widget::svg(drawn(which.drawing())).width(side).height(side).opacity(alpha);
+    iced::widget::stack![picture, Canvas::new(Rim { on, k, alpha }).width(side).height(side)].width(side).height(side).into()
 }
 
 pub struct FrameMark {

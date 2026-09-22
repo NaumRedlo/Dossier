@@ -234,3 +234,5 @@ skins-found = { $n ->
 }
 own-skin-short = Own
 no-skins = No skins found in the osu! folders
+add-skin = Add a skin…
+skins-folder = Skins folder

@@ -138,8 +138,58 @@ MINI_MAPS = '<div class="pane mini sm"><h3>карты</h3><span class="big">31 �
 MINI_CACHE = '<div class="pane mini sm"><h3>кэш</h3><span class="big">140 МБ<small>миниатюры, индекс карт, найденные реплеи</small></span><div class="ln" style="min-height:0;"><span class="bt" style="padding-left:0;">Очистить</span></div></div>'
 MINI_ABOUT = '<div class="pane mini sm"><h3>о программе</h3><span class="big" style="font-size:14px;">Dossier 0.12.0<small>движок 0.11.0 (53e3cc7) · MIT</small></span><div class="ln" style="min-height:0;"><span class="bt" style="padding-left:0;">Исходники</span></div></div>'
 
+S_LANG = f'<div class="pane mini sm"><h3>язык</h3>{seg(["English", "Русский"], "Русский")}</div>'
+S_DEVICE = '<div class="pane mini sm"><h3>устройство</h3><span class="fld" style="min-width:0;">drejk starsij</span></div>'
+S_SCENE = f'<div class="pane mini sm"><h3>сцена</h3><div class="ln"><span class="k">Живой реплей</span><span class="v">{tog(True)}</span></div></div>'
+S_RENDER = f'''<div class="pane" style="height:100%;"><h3>рендер</h3>
+  {row("Размер", seg(["720p", "1080p", "1440p"], "1080p"))}
+  {row("Кадры", seg(["30", "60"], "60"))}
+  {row("Качество", seg(["Хорошо", "Лучше", "Максимум"], "Лучше"))}
+  {row("Фон карты", tog(True))}
+  {row("Сториборд", tog(False))}
+  {row("Видео карты", tog(False))}
+  {row("Нажатия", seg(["click", "soft", "нет"], "click"))}
+</div>'''
+S_SOURCES = f'''<div class="pane" style="height:100%;"><h3>источники</h3>
+  <div class="srcl"><span class="th">osu!</span><div class="k"><b>osu!stable</b><div class="pth">187 реплеев · 1 240 карт</div></div>{tog(True)}</div>
+  <div class="srcl"><span class="th">lazer</span><div class="k"><b>osu!lazer</b><div class="pth">42 реплея</div></div>{tog(True)}</div>
+  <div class="srcl"><span class="th">dir</span><div class="k"><b>Dossier Corpus</b><div class="pth">96 реплеев</div></div>{tog(False)}</div>
+  <div class="ln" style="min-height:28px;"><span class="bt soft">Добавить папку…</span></div>
+</div>'''
+S_VIDEOS = '<div class="pane mini sm"><h3>видео</h3><span class="big">8 · 568 МБ</span><div class="ln" style="min-height:0;"><span class="bt" style="padding-left:0;">В папке</span><span class="bt">Изменить</span></div></div>'
+S_MAPS = '<div class="pane mini sm"><h3>карты</h3><span class="big">31 · 1,1 ГБ</span><div class="ln" style="min-height:0;"><span class="bt" style="padding-left:0;">В папке</span></div></div>'
+S_CACHE = '<div class="pane mini sm"><h3>кэш</h3><span class="big">140 МБ</span><div class="ln" style="min-height:0;"><span class="bt" style="padding-left:0;">Очистить</span></div></div>'
+S_FFMPEG = '<div class="pane mini sm"><h3>ffmpeg</h3><span class="big">7.1</span><div class="ln" style="min-height:0;"><span class="bt" style="padding-left:0;">Обновить</span></div></div>'
+S_UPDATE = '<div class="pane mini sm"><h3>dossier</h3><span class="big">0.12.0</span><div class="ln" style="min-height:0;"><span class="bt" style="padding-left:0;">Проверить</span><span class="bt">Исходники</span></div></div>'
+S_ABOUT = '<div class="pane mini sm"><h3>о программе</h3><span class="big" style="font-size:14px;">Dossier · MIT</span><div class="ln" style="min-height:0;"><span class="bt" style="padding-left:0;">Исходники</span></div></div>'
+
+B_ACCOUNT = '<div class="pane mini sm"><h3>аккаунт</h3><div class="ln" style="min-height:0;"><span class="ava" style="width:28px; height:28px; border-radius:50%; background:#e24848; display:inline-block;"></span><span class="k" style="margin-left:10px;"><b>Stepan Kapitsa</b><br><span class="pth">@NaumRedlo</span></span></div><div class="ln" style="min-height:0;"><span class="bt" style="padding-left:0;">Выйти</span></div></div>'
+B_CHAT = '<div class="pane mini sm"><h3>видео уходят в</h3><span class="big" style="font-size:16px;">@NaumRedlo</span><div class="ln" style="min-height:0;"><span class="bt" style="padding-left:0;">Личный чат</span></div></div>'
+B_SERVER = '<div class="pane mini sm"><h3>сервер</h3><span class="big" style="font-size:14px;">onenineeightfour.ignorelist.com</span><div class="ln" style="min-height:0;"><span class="dt"></span><span class="pth">отвечает · сборка 0.12.0</span></div></div>'
+B_WORKER = f'<div class="pane mini sm"><h3>воркер</h3><div class="ln"><span class="k">Брать работу бота</span><span class="v">{tog(False)}</span></div><span class="pth">будет доступно позже</span></div>'
+B_NOTIFY = f'<div class="pane mini sm"><h3>в чат</h3><div class="ln"><span class="k">Готовые рендеры</span><span class="v">{tog(True)}</span></div><div class="ln"><span class="k">Ошибки</span><span class="v">{tog(False)}</span></div></div>'
+B_NAME = '<div class="pane mini sm"><h3>это устройство у бота</h3><span class="fld" style="min-width:0;">drejk starsij</span><span class="pth">привязано 12 сен</span></div>'
+
+GROUP_CSS = '''<style>
+  .group { position: absolute; left: 40px; width: 900px; }
+  .group h2 { margin: 0 0 8px; font-size: 13px; font-weight: 600; color: #ece7e2; display: flex; align-items: center; gap: 10px; }
+  .group h2 span { color: #6b655f; font-weight: 400; font-size: 12px; }
+  .group .bento { position: static; }
+  .segtop { position: absolute; left: 40px; top: 92px; }
+  .bento.small { grid-auto-rows: minmax(104px, auto); }
+</style>'''
+
+def own3(extra):
+    return page(W, H, f'{CSS}{BENTO_CSS}{GROUP_CSS}<div style="position:absolute; inset:0; background:#0d0508;"></div>{WORDS}{extra}')
+
 def boards():
     out = {}
+    app_grid = f'<div class="bento small">{S_LANG}{S_DEVICE}{S_SCENE}<div class="tall">{S_RENDER}</div><div class="wide">{S_SOURCES}</div>{S_VIDEOS}{S_MAPS}{S_CACHE}{S_FFMPEG}{S_UPDATE}</div>'
+    bot_grid = f'<div class="bento small">{B_ACCOUNT}{B_CHAT}{B_SERVER}{B_WORKER}{B_NOTIFY}{B_NAME}</div>'
+    out["BentoStatic"] = own3(f'<div class="group" style="top:92px;">{app_grid}</div>')
+    out["BentoBot"] = own3(f'<div class="segtop">{seg(["Приложение", "Бот"], "Бот")}</div><div class="group" style="top:140px;">{bot_grid}</div>')
+    out["BentoApp"] = own3(f'<div class="segtop">{seg(["Приложение", "Бот"], "Приложение")}</div><div class="group" style="top:140px;">{app_grid}</div>')
+    out["BentoBoth"] = own3(f'<div class="group" style="top:92px;"><h2>Приложение</h2>{app_grid}</div><div class="group" style="top:604px;"><h2>Бот <span>· @NaumRedlo</span></h2>{bot_grid}</div>')
     out["BentoSettings"] = own2(f'<div class="bento">{MINI_LANG}{MINI_DEVICE}{MINI_SCENE}<div class="tall">{RENDER.replace("class=\"pane\"", "class=\"pane\" style=\"height:100%;\"")}</div><div class="wide">{SOURCES.replace("class=\"pane\"", "class=\"pane\" style=\"height:100%;\"")}</div>{MINI_VIDEOS}{MINI_MAPS}{MINI_CACHE}{MINI_FFMPEG}{MINI_BOT}{MINI_UPDATE}</div>')
     out["BentoAbove"] = own2(f'<div class="bento" style="top:92px;">{MINI_LANG}{MINI_SCENE}{MINI_DEVICE}<div class="wide">{SOURCES.replace("class=\"pane\"", "class=\"pane\" style=\"height:100%;\"")}</div>{MINI_VIDEOS}{MINI_FFMPEG}{MINI_BOT}{MINI_UPDATE}</div><div class="hint">Второй ряд: мелкие плитки — одна настройка на плитку с крупным значением, как в статистике меню; большие — рендер и источники. Прокрутки нет при 980×720, всё в трёх колонках.</div>')
     focus = f'''<div class="bento">{MINI_LANG.replace("pane", "pane dim")}{MINI_DEVICE.replace("pane", "pane dim")}{MINI_SCENE.replace("pane", "pane dim")}<div class="tall">{RENDER.replace("class=\"pane\"", "class=\"pane dim\" style=\"height:100%;\"")}</div><div class="wide">{SOURCES.replace("class=\"pane\"", "class=\"pane dim\" style=\"height:100%;\"")}</div>{MINI_VIDEOS.replace("pane", "pane dim")}{MINI_MAPS.replace("pane", "pane dim")}{MINI_CACHE.replace("pane", "pane dim")}</div>
@@ -165,6 +215,10 @@ def boards():
     return out
 
 NOTES = {
+    "BentoStatic": ("Бенто · статичное", "Без подсказок и длинных строк: плитка — заголовок, значение или переключатели, одна-две кнопки. Три колонки, рендер высокий, источники широкие; ни одна плитка не раскрывается."),
+    "BentoApp": ("Приложение · Бот — вкладка «Приложение»", "Сегменты над сеткой делят настройки на две: своё (язык, устройство, сцена, источники, рендер, хранилище, ffmpeg, сборка) и ботовское."),
+    "BentoBot": ("Приложение · Бот — вкладка «Бот»", "Всё, что касается бота: аккаунт (и Выйти), куда уходят видео, сервер и его сборка, воркер (позже), что слать в чат, как бот зовёт это устройство."),
+    "BentoBoth": ("Приложение · Бот — одной страницей", "Обе группы подряд с заголовками, с прокруткой: сверху приложение, ниже бот с ником в заголовке."),
     "BentoSettings": ("Плитки · бенто", "Три колонки: мелкие плитки по одной настройке с крупным значением (язык, устройство, сцена, видео, карты, кэш, ffmpeg, бот, обновления), рендер — высокая плитка, источники — широкая. Всё на одном экране при 980×720."),
     "BentoAbove": ("Плитки · бенто без прокрутки", "Тот же принцип, меньше плиток: без карт, кэша и «о программе» — они уезжают в плитку «Хранилище» и в подвал. Совсем без прокрутки."),
     "BentoFocus": ("Плитки · раскрытие", "Клик по плитке раскрывает её на всю ширину поверх остальных с полным набором настроек и расчётом; Esc — обратно. Плитки короткие, подробности по требованию."),
@@ -176,7 +230,7 @@ NOTES = {
     "SettingsSources": ("Раздел · Источники и Хранилище", "Папки osu! и свои с выключателями; хранилище видео и карт, кэш."),
 }
 
-RECOMMENDED = "Направление 2026-09-22: плитки. Предложение: бенто (BentoSettings) с раскрытием по клику (BentoFocus) — сетка в три колонки, мелкие плитки с крупным значением, рендер и источники крупнее, подробности раскрываются поверх. Прежнее предложение: разделы слева (SettingsSidebar) с карточками справа — шесть разделов: Общее · Источники · Рендер · Хранилище · Инструменты · О программе. Что настраивается: язык, имя устройства, живая сцена; папки реплеев; размер, к/с, качество, фон/сториборд/видео, звук нажатий; папки видео и карт, кэш; ffmpeg, адрес бота, обновления. Значения рендера по умолчанию — как у бота, и кнопка вернуть их."
+RECOMMENDED = "Направление 2026-09-22: статичное бенто без подсказок, настройки разделены на Приложение и Бот. Предложение: сегменты Приложение · Бот над сеткой (BentoApp / BentoBot) — бот отдельно и на своём месте, обе сетки без прокрутки. Раскрытие плитки (BentoFocus) — идея на будущее для подсказок. Ранее: бенто (BentoSettings) с раскрытием по клику — сетка в три колонки, мелкие плитки с крупным значением, рендер и источники крупнее, подробности раскрываются поверх. Прежнее предложение: разделы слева (SettingsSidebar) с карточками справа — шесть разделов: Общее · Источники · Рендер · Хранилище · Инструменты · О программе. Что настраивается: язык, имя устройства, живая сцена; папки реплеев; размер, к/с, качество, фон/сториборд/видео, звук нажатий; папки видео и карт, кэш; ffmpeg, адрес бота, обновления. Значения рендера по умолчанию — как у бота, и кнопка вернуть их."
 
 if __name__ == "__main__":
     for name, html in boards().items():

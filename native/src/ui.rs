@@ -1669,7 +1669,7 @@ pub struct StepsState {
     grabbed: bool,
 }
 
-const STEP_INSET: f32 = 9.0;
+const STEP_INSET: f32 = 5.0;
 const STEP_SNAP: f32 = 0.035;
 
 impl<Message> canvas::Program<Message> for Steps<'_, Message> {
@@ -1725,8 +1725,8 @@ impl<Message> canvas::Program<Message> for Steps<'_, Message> {
                 frame.fill(&Path::rounded_rectangle(Point::new(sx - 1.0, shrink), Size::new(2.0, h - 2.0 * shrink), 1.0.into()), dim(Color::from_rgba(1.0, 1.0, 1.0, alpha * 0.8), self.alpha));
             }
         }
-        let inset = 5.0 - 4.0 * on_stop;
-        let wide = 7.0 + 1.0 * on_stop;
+        let inset = 4.0 - 3.0 * on_stop;
+        let wide = 8.0 + on_stop + if state.grabbed { 2.5 } else { 0.0 };
         frame.fill(
             &Path::rounded_rectangle(Point::new(x - wide / 2.0, inset), Size::new(wide, h - 2.0 * inset), (wide / 2.0).into()),
             dim(Color { a: 0.92, ..INK }, self.alpha),

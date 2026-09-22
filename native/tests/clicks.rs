@@ -77,9 +77,9 @@ fn the_three_words_and_the_frames_answer_to_clicks() {
     let staged = main_state("main-rest");
     let backdrop = dossier_native::ui::backdrop_handle();
     let mut ui = Simulator::with_size(dossier_native::settings(), iced::Size::new(980.0, 720.0), gallery::main_frame(&staged, &backdrop));
-    let _ = ui.click("Worker").expect("clicked");
+    let _ = ui.click("Settings").expect("clicked");
     let messages: Vec<_> = ui.into_messages().collect();
-    assert!(messages.iter().any(|m| matches!(m, dossier_native::Message::Main(M::Show(Overlay::Worker)))), "{messages:?}");
+    assert!(messages.iter().any(|m| matches!(m, dossier_native::Message::Main(M::Show(Overlay::Settings)))), "{messages:?}");
 
     let mut ui = Simulator::with_size(dossier_native::settings(), iced::Size::new(980.0, 720.0), gallery::main_frame(&staged, &backdrop));
     ui.point_at(Point::new(40.0 + 88.0 + 6.0 + 44.0 + 22.0 + 8.0, 720.0 - 10.0 - 18.0 - 4.0 - 25.0));
@@ -92,12 +92,12 @@ fn the_three_words_and_the_frames_answer_to_clicks() {
 }
 
 #[test]
-fn the_worker_overlay_says_it_comes_later_and_goes_back() {
+fn the_community_overlay_says_it_comes_later_and_goes_back() {
     use dossier_native::main_screen::{Message as M, Overlay};
     let staged = main_state("main-worker");
     let backdrop = dossier_native::ui::backdrop_handle();
     let mut ui = Simulator::with_size(dossier_native::settings(), iced::Size::new(980.0, 720.0), gallery::main_frame(&staged, &backdrop));
-    assert!(ui.find("Coming later!").is_ok());
+    assert!(ui.find("Back to replays").is_ok());
     let _ = ui.click("Back to replays").expect("clicked");
     let messages: Vec<_> = ui.into_messages().collect();
     assert!(messages.iter().any(|m| matches!(m, dossier_native::Message::Main(M::Show(Overlay::None)))), "{messages:?}");

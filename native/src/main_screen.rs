@@ -358,7 +358,7 @@ impl Main {
             scenes_due: false,
             leaving: HashMap::new(),
             overlay_fade: Animation::new(false).duration(OVERLAY_FADE).easing(Easing::EaseOutCubic),
-            ground_fade: Animation::new(false).duration(OVERLAY_FADE).easing(Easing::EaseOutCubic),
+            ground_fade: Animation::new(false).duration(GROUND_UP).easing(Easing::EaseOutCubic),
             overlay_drawn: Overlay::None,
             side: Side::App,
             dragging: None,
@@ -1519,8 +1519,10 @@ impl Main {
                 if self.dragging.is_some() {
                     self.drag_held.x += (self.drag_at.x - self.drag_held.x) * 0.35;
                     self.drag_held.y += (self.drag_at.y - self.drag_held.y) * 0.35;
-                    self.slot_open += (1.0 - self.slot_open) * 0.16;
-                    self.slot_shut += (0.0 - self.slot_shut) * 0.16;
+                    let want_open = if self.drop_before.is_some() { 1.0 } else { 0.0 };
+                    let want_shut = if self.drop_before.is_some() { 0.0 } else { 1.0 };
+                    self.slot_open += (want_open - self.slot_open) * 0.16;
+                    self.slot_shut += (want_shut - self.slot_shut) * 0.16;
                 } else if self.slot_open > 0.001 {
                     self.slot_open += (0.0 - self.slot_open) * 0.2;
                     self.slot_shut = 1.0;
@@ -1711,7 +1713,7 @@ impl Main {
         } else {
             blank()
         };
-        let layers = stack![scene_before, scene, live_before, live, body, bubble, crest, ground, overlay, ask, menu, signing, failure, toasts];
+        let layers = stack![scene_before, scene, live_before, live, body, bubble, ground, overlay, crest, ask, menu, signing, failure, toasts];
         layers.width(Length::Fill).height(Length::Fill).into()
     }
 
@@ -1741,7 +1743,6 @@ impl Main {
             word("replays", self.overlay == Overlay::None, Message::Show(Overlay::None)),
             word("videos", self.overlay == Overlay::Videos, Message::Show(Overlay::Videos)),
             word("community", self.overlay == Overlay::Community, Message::Show(Overlay::Community)),
-            word("worker", self.overlay == Overlay::Worker, Message::Show(Overlay::Worker)),
             word("settings", self.overlay == Overlay::Settings, Message::Show(Overlay::Settings)),
             self.circle(CIRCLE_SIDE, true),
         ]
@@ -2417,7 +2418,13 @@ impl Main {
     }
 
     fn turn_to(&mut self, overlay: Overlay, now: Instant) {
-        self.ground_fade.go_mut(overlay != Overlay::None, now);
+        let up = overlay != Overlay::None;
+        let was = self.ground_fade.interpolate(0.0, 1.0, now);
+        if self.ground_fade.value() != up {
+            let span = if up { GROUND_UP } else { OVERLAY_FADE };
+            self.ground_fade = Animation::new(!up).duration(span).easing(Easing::EaseOutCubic).go(up, now);
+            let _ = was;
+        }
         let shown = self.overlay != Overlay::None;
         match (shown, overlay) {
             (_, Overlay::None) => {
@@ -2745,7 +2752,8 @@ impl Main {
                     self.drag_held = self.drag_at;
                     self.slot_open = 0.0;
                     self.slot_shut = 1.0;
-                    self.drop_before = Some(tile);
+                    self.drop_before = None;
+                    self.eyed = None;
                 }
                 self.dragging = Some(tile);
                 Task::none()
@@ -3308,6 +3316,7 @@ pub const TAB_FADE: Duration = Duration::from_millis(180);
 pub const NOTICE_LEAVE: Duration = Duration::from_millis(200);
 pub const NOTICE_ARRIVE: Duration = Duration::from_millis(260);
 pub const OVERLAY_FADE: Duration = Duration::from_millis(220);
+pub const GROUND_UP: Duration = Duration::from_millis(110);
 pub const TOAST_STAY: Duration = Duration::from_secs(6);
 const TOASTS_AT_MOST: usize = 3;
 

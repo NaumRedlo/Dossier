@@ -386,8 +386,8 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
         main
     };
     let mut worker = staged(Some(0));
-    worker.overlay = Overlay::Worker;
-    worker.overlay_drawn = Overlay::Worker;
+    worker.overlay = Overlay::Community;
+    worker.overlay_drawn = Overlay::Community;
     worker.overlay_fade = iced::Animation::new(true);
     worker.ground_fade = iced::Animation::new(true);
     // the ground is up for every staged catalogue

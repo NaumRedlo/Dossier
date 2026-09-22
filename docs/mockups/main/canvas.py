@@ -7,6 +7,7 @@ import centre
 import errors
 import island
 import menu
+import settingsp
 import store
 import strip
 
@@ -56,6 +57,8 @@ for name, html in bubbles.boards().items():
     (HERE / f"{name}.dc.html").write_text(html)
 for name, html in menu.boards().items():
     (HERE / f"{name}.dc.html").write_text(html)
+for name, html in settingsp.boards().items():
+    (HERE / f"{name}.dc.html").write_text(html)
 for old in ["TopLogin", "VideoMirror", "VideoGrid", "MenuSections", "MenuTimeline", "MenuColumns", "MenuMinimal"]:
     path = HERE / f"{old}.dc.html"
     if path.exists():
@@ -68,6 +71,11 @@ annotations.append({"id": "built-head", "x": 0, "y": -330, "w": 900, "page": "pa
 
 names = ["TopGuest", "TopAvatar", "TopAvatarLive", "MenuGuest", "MenuGuestStory", "LoginCard", "MenuAccount", "MenuStory", "MenuStats", "NoticeIn", "NoticeShown", "NoticeOut", "NoticeBad"]
 a, n = lay(names, store.NOTES, "page-account", store.RECOMMENDED, store.TO_BUILD)
+artboards += a
+annotations += n
+
+names = ["SettingsSidebar", "SettingsRender", "SettingsSources", "SettingsColumn", "SettingsTiles"]
+a, n = lay(names, settingsp.NOTES, "page-settings", settingsp.RECOMMENDED)
 artboards += a
 annotations += n
 
@@ -115,6 +123,7 @@ manifest = {
     "pages": [
         {"id": "page-built", "name": "Main screen · as built"},
         {"id": "page-account", "name": "Справа сверху · вход · меню"},
+        {"id": "page-settings", "name": "Настройки · прототипы"},
         {"id": "page-menu", "name": "Меню · модули"},
         {"id": "page-video", "name": "Видео · список · плеер"},
         {"id": "page-bubble", "name": "Пузырь · что в нём"},

@@ -1,0 +1,134 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Commissioner:wght@400;500;600&family=JetBrains+Mono:wght@400;700&display=swap');
+    body { margin: 0; background: #070304; color: #ece7e2; font-family: Commissioner, "Helvetica Neue", Arial, sans-serif; font-size: 14px; line-height: 20px; -webkit-font-smoothing: antialiased; }
+    .win { position: relative; overflow: hidden; background: #070304; }
+    .win > img.frame { display: block; width: 100%; height: 100%; }
+    .mono { font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; }
+    .veil { position: absolute; inset: 0; background: rgba(7,3,4,0.72); }
+    .card { position: absolute; border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; background: rgba(28,14,18,0.96); box-shadow: 0 18px 44px rgba(0,0,0,0.5); box-sizing: border-box; }
+    .line { display: flex; align-items: center; gap: 10px; height: 24px; font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: 13px; white-space: nowrap; }
+    .line .d { color: #6b655f; }
+    .line.now b { color: #ece7e2; }
+    .line.bad { color: #e24848; }
+    .line.bad .d { color: #e24848; }
+    .line.done { color: #a9a29b; }
+    .line.todo { color: #6b655f; }
+    .g { display: inline-block; width: 12px; text-align: center; }
+    .btn { display: inline-flex; align-items: center; height: 32px; padding: 0 12px; border-radius: 8px; font-weight: 600; font-size: 14px; box-sizing: border-box; }
+    .btn.primary { background: #e24848; color: #fff; }
+    .btn.quiet { color: #a9a29b; }
+    .btn.soft { background: rgba(226,72,72,0.10); border: 1px solid rgba(226,72,72,0.18); color: #ece7e2; position: relative; overflow: hidden; }
+    .btn.soft i { position: absolute; left: 6px; bottom: 1px; height: 2px; border-radius: 1px; background: #e24848; }
+    .cap { color: #a9a29b; font-size: 12px; line-height: 16px; }
+    .faint { color: #6b655f; }
+    .toast { position: absolute; left: 40px; width: 380px; padding: 12px 14px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.08); background: rgba(20,9,12,0.96); box-shadow: 0 14px 36px rgba(0,0,0,0.5); box-sizing: border-box; }
+    .toast .h { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+    .toast .h .x { color: #e24848; font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-weight: 700; }
+    .toast .b { margin-top: 3px; color: #a9a29b; font-size: 12px; line-height: 16px; }
+    .toast .b a { color: #e24848; text-decoration: none; }
+    .mark { position: absolute; top: 34px; right: 40px; width: 8px; height: 8px; border-radius: 50%; background: #6b655f; }
+    .mark.hot { background: #e24848; box-shadow: 0 0 0 4px rgba(226,72,72,0.18); }
+    .panel { position: absolute; top: 60px; right: 40px; width: 380px; padding: 18px 20px 16px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.08); background: rgba(20,9,12,0.97); box-shadow: 0 24px 60px rgba(0,0,0,0.55); box-sizing: border-box; }
+    .panel h3 { margin: 0 0 8px; font-size: 11px; line-height: 14px; letter-spacing: 0.08em; text-transform: uppercase; color: #6b655f; font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-weight: 400; }
+    .panel .sec { margin-top: 14px; }
+    .panel .sec:first-child { margin-top: 0; }
+    .panel .who { display: flex; align-items: center; gap: 10px; }
+    .panel .ava { width: 28px; height: 28px; border-radius: 50%; background: linear-gradient(135deg, #3a1015, #e24848); flex: none; }
+    .panel .n { color: #6b655f; font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: 11px; }
+    .drawer { position: absolute; top: 0; right: 0; bottom: 0; width: 420px; padding: 26px 28px; border-left: 1px solid rgba(255,255,255,0.08); background: rgba(14,6,9,0.97); box-shadow: -24px 0 60px rgba(0,0,0,0.5); box-sizing: border-box; }
+    .drawer h2 { margin: 0 0 18px; font-size: 16px; font-weight: 600; }
+    .row2 { display: flex; align-items: center; gap: 10px; }
+    .bar { height: 2px; border-radius: 1px; background: rgba(255,255,255,0.08); position: relative; margin-top: 6px; }
+    .bar i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 1px; background: #e24848; }
+    .under { position: absolute; left: 40px; width: 400px; }
+    .stripe { position: absolute; left: 0; right: 0; top: 76px; height: 28px; display: flex; align-items: center; gap: 22px; padding: 0 40px; font-size: 12px; color: #a9a29b; background: rgba(7,3,4,0.6); border-bottom: 1px solid rgba(255,255,255,0.06); }
+    .stripe b { color: #ece7e2; font-weight: 600; }
+    .note { position: absolute; left: 40px; right: 40px; font-size: 12px; line-height: 16px; color: #a9a29b; }
+    .kbd { display: inline-block; padding: 0 5px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.14); font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: 11px; color: #a9a29b; }
+  </style>
+</helmet>
+<div class="win" style="width: 980px; height: 720px;">
+
+  <style>
+    .top { position: absolute; top: 22px; left: 40px; right: 40px; height: 36px; display: flex; align-items: center; }
+    .top .crest { display: flex; align-items: center; gap: 12px; font-size: 18px; font-weight: 600; color: #ece7e2; }
+    .top .crest i { display: block; width: 26px; height: 26px; border-radius: 6px; background: linear-gradient(135deg, #e24848, #7a1c1c); }
+    .top .crest s { display: block; width: 1px; height: 22px; background: rgba(255,255,255,0.12); }
+    .words { margin-left: auto; display: flex; align-items: center; gap: 22px; font-weight: 600; color: #a9a29b; }
+    .words b { color: #ece7e2; }
+    .words .ava { width: 28px; height: 28px; border-radius: 50%; background: #e24848; }
+    .pane { border-radius: 12px; background: rgba(12,5,7,0.97); border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 8px 24px rgba(0,0,0,0.35); box-sizing: border-box; padding: 14px 16px; color: #ece7e2; font-size: 13px; }
+    .pane h3 { margin: 0 0 8px; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: #6b655f; font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-weight: 400; }
+    .ln { display: flex; align-items: center; min-height: 32px; gap: 12px; }
+    .ln .k { color: #ece7e2; }
+    .ln .k small { display: block; color: #6b655f; font-size: 11px; margin-top: 1px; }
+    .ln .v { margin-left: auto; display: flex; align-items: center; gap: 8px; color: #a9a29b; font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: 12px; }
+    .sg { display: flex; gap: 3px; padding: 3px; border-radius: 9px; background: rgba(0,0,0,0.35); border: 1px solid rgba(255,255,255,0.06); }
+    .sg span { padding: 4px 10px; border-radius: 7px; color: #6b655f; font-weight: 600; font-size: 12px; font-family: Commissioner, sans-serif; }
+    .sg span.on { background: rgba(255,255,255,0.09); color: #ece7e2; }
+    .tg { width: 34px; height: 20px; border-radius: 10px; background: rgba(255,255,255,0.1); position: relative; }
+    .tg i { position: absolute; top: 3px; left: 3px; width: 14px; height: 14px; border-radius: 50%; background: #a9a29b; }
+    .tg.on { background: #e24848; }
+    .tg.on i { left: 17px; background: #fff; }
+    .bt { display: inline-flex; align-items: center; height: 28px; padding: 0 10px; border-radius: 8px; font-weight: 600; font-size: 12px; color: #a9a29b; font-family: Commissioner, sans-serif; }
+    .bt.primary { background: #e24848; color: #fff; }
+    .bt.soft { background: rgba(255,255,255,0.07); color: #ece7e2; }
+    .fld { height: 28px; padding: 0 10px; border-radius: 8px; background: rgba(0,0,0,0.35); border: 1px solid rgba(255,255,255,0.08); display: flex; align-items: center; color: #ece7e2; font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: 12px; min-width: 180px; }
+    .pth { color: #a9a29b; font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 320px; }
+    .stacked { position: absolute; left: 40px; top: 92px; width: 900px; display: flex; flex-direction: column; gap: 10px; }
+    .twocol { position: absolute; left: 40px; top: 92px; width: 900px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; align-items: start; }
+    .sidebar { position: absolute; left: 40px; top: 92px; width: 200px; display: flex; flex-direction: column; gap: 2px; }
+    .sidebar span { padding: 8px 12px; border-radius: 8px; color: #a9a29b; font-weight: 600; font-size: 13px; }
+    .sidebar span.on { background: rgba(255,255,255,0.07); color: #ece7e2; }
+    .sidebar small { display: block; color: #6b655f; font-weight: 400; font-size: 11px; margin-top: 1px; }
+    .mainc { position: absolute; left: 264px; top: 92px; width: 676px; display: flex; flex-direction: column; gap: 10px; }
+    .hint { position: absolute; left: 40px; bottom: 24px; font-size: 12px; line-height: 16px; color: #a9a29b; width: 900px; }
+    .dt { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #8cd04a; margin-right: 6px; }
+    .dt.off { background: #6b655f; }
+    .srcl { display: flex; align-items: center; gap: 12px; min-height: 40px; }
+    .srcl .th { width: 36px; height: 36px; border-radius: 8px; background: rgba(255,255,255,0.05); display: flex; align-items: center; justify-content: center; color: #a9a29b; font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: 10px; flex: none; }
+    .srcl .k { flex: 1; min-width: 0; }
+    .srcl .k b { display: block; }
+  </style><div style="position:absolute; inset:0; background:#0d0508;"></div><div class="top"><div class="crest"><i></i><s></s>Dossier</div><div class="words"><span>Реплеи</span><span>Видео</span><span>Сообщество</span><span>Воркер</span><b>Настройки</b><span class="ava"></span></div></div><div class="twocol"><div class="pane"><h3>общее</h3>
+  <div class="ln"><span class="k">Язык</span><span class="v"><span class="sg"><span class="">English</span><span class="on">Русский</span></span></span></div>
+  <div class="ln"><span class="k">Имя устройства<small>так его видит бот</small></span><span class="v"><span class="fld">drejk starsij</span></span></div>
+  <div class="ln"><span class="k">Показывать реплей в сцене<small>живая игра за вьюером; выключено — размытый фон карты</small></span><span class="v"><span class="tg on"><i></i></span></span></div>
+</div><div class="pane"><h3>рендер</h3>
+  <div class="ln"><span class="k">Размер</span><span class="v"><span class="sg"><span class="">720p</span><span class="on">1080p</span><span class="">1440p</span></span></span></div>
+  <div class="ln"><span class="k">Кадров в секунду</span><span class="v"><span class="sg"><span class="">30</span><span class="on">60</span></span></span></div>
+  <div class="ln"><span class="k">Качество<small>CRF 20 · medium — как у бота</small></span><span class="v"><span class="sg"><span class="">Хорошо</span><span class="on">Лучше</span><span class="">Максимум</span></span></span></div>
+  <div class="ln"><span class="k">Фон карты</span><span class="v"><span class="tg on"><i></i></span></span></div>
+  <div class="ln"><span class="k">Сториборд</span><span class="v"><span class="tg "><i></i></span></span></div>
+  <div class="ln"><span class="k">Видео карты</span><span class="v"><span class="tg "><i></i></span></span></div>
+  <div class="ln"><span class="k">Звук нажатий</span><span class="v"><span class="sg"><span class="on">click</span><span class="">soft</span><span class="">none</span></span></span></div>
+</div><div class="pane"><h3>источники реплеев</h3>
+  <div class="srcl"><span class="th">osu!</span><div class="k"><b>osu!stable</b><div class="pth">~/Library/Application Support/osu/ · 187 реплеев · 1 240 карт</div></div><span class="tg on"><i></i></span><span class="bt">В папке</span></div>
+  <div class="srcl"><span class="th">lazer</span><div class="k"><b>osu!lazer</b><div class="pth">~/Library/Application Support/osu-lazer/ · 42 реплея</div></div><span class="tg on"><i></i></span><span class="bt">В папке</span></div>
+  <div class="srcl"><span class="th">dir</span><div class="k"><b>Dossier Corpus</b><div class="pth">~/Documents/Dossier Corpus · 96 реплеев</div></div><span class="tg "><i></i></span><span class="bt">Убрать</span></div>
+  <div class="ln"><span class="bt soft">Добавить папку…</span><span class="bt">Поискать на устройстве</span></div>
+</div><div class="pane"><h3>хранилище</h3>
+  <div class="ln"><span class="k">Видео<small>8 видео · 568 МБ</small></span><span class="v"><span class="pth">~/.dossier/Renders</span><span class="bt">Изменить</span><span class="bt">В папке</span></span></div>
+  <div class="ln"><span class="k">Карты, скачанные приложением<small>31 карта · 1,1 ГБ</small></span><span class="v"><span class="pth">~/.dossier/Songs</span><span class="bt">В папке</span></span></div>
+  <div class="ln"><span class="k">Кэш<small>миниатюры, индекс карт, найденные реплеи</small></span><span class="v"><span class="pth">~/.dossier</span><span class="bt">Очистить</span></span></div>
+</div><div class="pane"><h3>инструменты</h3>
+  <div class="ln"><span class="k">ffmpeg<small>~/.dossier/bin/ffmpeg</small></span><span class="v"><span class="dt"></span>7.1 · своя сборка <span class="bt">Обновить</span></span></div>
+  <div class="ln"><span class="k">Бот<small>сборка 0.12.0 · та же, что у приложения</small></span><span class="v"><span class="dt"></span>onenineeightfour.ignorelist.com <span class="bt">Изменить</span></span></div>
+  <div class="ln"><span class="k">Обновления<small>последняя проверка сегодня в 14:00</small></span><span class="v">сборка 0.12.0 <span class="bt soft">Проверить</span></span></div>
+</div><div class="pane"><h3>о программе</h3>
+  <div class="ln"><span class="k">Dossier</span><span class="v">0.12.0 · движок dossier 0.11.0 (53e3cc7)</span></div>
+  <div class="ln"><span class="k">Исходники</span><span class="v"><span class="bt">github.com/NaumRedlo/Dossier</span></span></div>
+  <div class="ln"><span class="k">Лицензия</span><span class="v">MIT</span></div>
+</div></div><div class="hint">Плитки в две колонки, всё видно сразу без прокрутки при 980 px; на узком окне колонка одна.</div>
+</div>
+</x-dc>
+</body>
+</html>

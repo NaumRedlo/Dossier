@@ -430,6 +430,7 @@ impl Main {
             || self.menu_open.is_animating(self.now)
             || self.overlay_fade.is_animating(self.now)
             || self.retype.is_animating(self.now)
+            || self.hover.is_some()
             || self.arrivals.values().any(|a| a.is_animating(self.now))
             || self.leaving.values().any(|a| a.is_animating(self.now))
             || self.tab_fade.is_animating(self.now)
@@ -843,6 +844,7 @@ impl Main {
                     "width": video.width,
                     "height": video.height,
                     "duration": (video.length_ms / 1000).max(0),
+                    "chat": self.settings.chat_id,
                 });
                 let path = video.path.clone();
                 ui::streamed(move |push| {
@@ -1997,7 +1999,8 @@ impl Main {
         ]
         .spacing(12)
         .align_y(iced::Center);
-        let how = container(how).width(Length::Fill).clip(true);
+        let drift = ui::drift(self.now.saturating_duration_since(self.started).as_secs_f32());
+        let how = ui::drifting(how, drift);
         let inside = column![
             head,
             text(ui::shortened(entry.song().unwrap_or_else(|| w.t("unknown-map")), 44))

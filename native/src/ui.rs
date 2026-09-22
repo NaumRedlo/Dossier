@@ -2025,3 +2025,122 @@ impl<Message: Clone, T> iced::advanced::Widget<Message, Theme, Renderer> for Dra
         self.content.as_widget_mut().overlay(&mut tree.children[0], layout, renderer, viewport, translation)
     }
 }
+
+pub struct Drifting<'a, Message> {
+    content: Element<'a, Message>,
+    at: f32,
+}
+
+pub fn drifting<'a, Message: 'a>(content: impl Into<Element<'a, Message>>, at: f32) -> Drifting<'a, Message> {
+    Drifting { content: content.into(), at }
+}
+
+impl<Message> iced::advanced::Widget<Message, Theme, Renderer> for Drifting<'_, Message> {
+    fn tag(&self) -> iced::advanced::widget::tree::Tag {
+        self.content.as_widget().tag()
+    }
+
+    fn state(&self) -> iced::advanced::widget::tree::State {
+        self.content.as_widget().state()
+    }
+
+    fn children(&self) -> Vec<iced::advanced::widget::Tree> {
+        self.content.as_widget().children()
+    }
+
+    fn diff(&self, tree: &mut iced::advanced::widget::Tree) {
+        self.content.as_widget().diff(tree);
+    }
+
+    fn size(&self) -> Size<Length> {
+        Size { width: Length::Fill, height: self.content.as_widget().size().height }
+    }
+
+    fn layout(
+        &mut self,
+        tree: &mut iced::advanced::widget::Tree,
+        renderer: &Renderer,
+        limits: &iced::advanced::layout::Limits,
+    ) -> iced::advanced::layout::Node {
+        let loose = iced::advanced::layout::Limits::new(Size::ZERO, Size::new(f32::INFINITY, limits.max().height));
+        let inner = self.content.as_widget_mut().layout(tree, renderer, &loose);
+        let size = inner.size();
+        let room = limits.max().width;
+        iced::advanced::layout::Node::with_children(Size::new(room.min(size.width), size.height), vec![inner])
+    }
+
+    fn operate(
+        &mut self,
+        tree: &mut iced::advanced::widget::Tree,
+        layout: iced::advanced::Layout<'_>,
+        renderer: &Renderer,
+        operation: &mut dyn iced::advanced::widget::Operation,
+    ) {
+        if let Some(inner) = layout.children().next() {
+            self.content.as_widget_mut().operate(tree, inner, renderer, operation);
+        }
+    }
+
+    fn update(
+        &mut self,
+        tree: &mut iced::advanced::widget::Tree,
+        event: &iced::Event,
+        layout: iced::advanced::Layout<'_>,
+        cursor: mouse::Cursor,
+        renderer: &Renderer,
+        clipboard: &mut dyn iced::advanced::Clipboard,
+        shell: &mut iced::advanced::Shell<'_, Message>,
+        viewport: &Rectangle,
+    ) {
+        if let Some(inner) = layout.children().next() {
+            self.content.as_widget_mut().update(tree, event, inner, cursor, renderer, clipboard, shell, viewport);
+        }
+    }
+
+    fn draw(
+        &self,
+        tree: &iced::advanced::widget::Tree,
+        renderer: &mut Renderer,
+        theme: &Theme,
+        style: &iced::advanced::renderer::Style,
+        layout: iced::advanced::Layout<'_>,
+        cursor: mouse::Cursor,
+        viewport: &Rectangle,
+    ) {
+        let Some(inner) = layout.children().next() else {
+            return;
+        };
+        use iced::advanced::Renderer as _;
+        let room = layout.bounds().width;
+        let over = (inner.bounds().width - room).max(0.0);
+        let shift = if over > 0.0 { -over * self.at.clamp(0.0, 1.0) } else { 0.0 };
+        renderer.with_layer(layout.bounds(), |renderer| {
+            renderer.with_translation(iced::Vector::new(shift, 0.0), |renderer| {
+                self.content.as_widget().draw(tree, renderer, theme, style, inner, cursor, viewport);
+            });
+        });
+    }
+}
+
+impl<'a, Message: 'a> From<Drifting<'a, Message>> for Element<'a, Message> {
+    fn from(drifting: Drifting<'a, Message>) -> Element<'a, Message> {
+        Element::new(drifting)
+    }
+}
+
+pub fn drift(elapsed: f32) -> f32 {
+    let wait = 1.4;
+    let travel = 2.6;
+    let span = 2.0 * (wait + travel);
+    let at = elapsed % span;
+    let ease = |k: f32| k * k * (3.0 - 2.0 * k);
+    if at < wait {
+        0.0
+    } else if at < wait + travel {
+        ease((at - wait) / travel)
+    } else if at < span - travel {
+        1.0
+    } else {
+        1.0 - ease((at - (span - travel)) / travel)
+    }
+}

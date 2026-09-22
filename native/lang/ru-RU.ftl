@@ -239,7 +239,7 @@ skins-found = { $n ->
     [few] найдено { $n } скина
    *[other] найдено { $n } скинов
 }
-own-skin-short = Свой
+own-skin-short = Dossier Default
 no-skins = В папках osu! скинов не нашлось
 add-skin = Добавить скин…
 skins-folder = Папка скинов
@@ -261,3 +261,10 @@ speed = Скорость
 widen = Во весь экран
 narrow = Свернуть
 close-player = Закрыть
+skin-failed = Скин не распаковался
+skin-added = Скин добавлен
+skins-packed = { $n ->
+    [one] { $n } в .osk
+   *[other] { $n } в .osk
+}
+no-skin-there = Скинов в папке нет

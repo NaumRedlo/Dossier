@@ -456,10 +456,12 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
                 let framed = iced::widget::stack![picture, ui::frame_mark(k, 56.0)].width(56.0).height(56.0);
                 let inside = column![
                     framed,
-                    text(ui::shortened(name, 12))
+                    text(ui::shortened(name, 26))
                         .font(theme::SANS)
                         .size(11.0)
-                        .wrapping(text::Wrapping::None)
+                        .align_x(iced::Center)
+                        .width(64.0)
+                        .height(28.0)
                         .color(ui::faded(if picked { INK } else { MUTED })),
                 ]
                 .spacing(4)
@@ -474,23 +476,39 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
             let mut cells: Vec<Element<'a, Message>> = vec![cell(
                 w.t("own-skin-short"),
                 None,
-                None,
+                ground.skin_faces.get(std::path::Path::new("")),
                 chosen.is_none(),
                 mark_at(ground, "skin-own", chosen.is_none()),
             )];
-            for folder in ground.skins.iter().take(7) {
-                let name = folder.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+            for folder in ground.skins.iter().take(40) {
+                let name = crate::settings::skin_name(folder);
                 let picked = chosen.as_deref() == Some(folder.as_path());
                 let k = mark_at(ground, &format!("skin-{name}"), picked);
                 cells.push(cell(name.clone(), Some(folder.clone()), ground.skin_faces.get(folder), picked, k));
             }
-            let strip = container(ui::wrap(cells, 6.0)).width(if ground.skins.is_empty() { 200.0 } else { 288.0 });
+            let mut shelf = row![].spacing(6).align_y(iced::alignment::Vertical::Top);
+            for cell in cells {
+                shelf = shelf.push(cell);
+            }
+            let strip = container(
+                iced::widget::scrollable(shelf)
+                    .anchor_x(iced::widget::scrollable::Anchor::Start)
+                    .direction(iced::widget::scrollable::Direction::Horizontal(
+                        iced::widget::scrollable::Scrollbar::new().width(0).scroller_width(0).margin(0),
+                    ))
+                    .width(if ground.skins.is_empty() { 200.0 } else { 366.0 }),
+            );
+            let packed = ground.skins.iter().filter(|path| crate::settings::is_skin_file(path)).count();
+            let said = match (ground.skins.is_empty(), packed) {
+                (true, _) => w.t("no-skins"),
+                (false, 0) => w.n("skins-found", ground.skins.len() as u64),
+                (false, packed) => format!("{} · {}", w.n("skins-found", ground.skins.len() as u64), w.n("skins-packed", packed as u64)),
+            };
+            let under: Element<'a, Message> = text(said).font(theme::SANS).size(11.0).wrapping(text::Wrapping::None).color(ui::faded(FAINT)).into();
             let mut deeds = row![deed(w.t("add-skin"), Message::AddSkin, false), deed(w.t("skins-folder"), Message::OpenSkinsFolder, false)].spacing(6);
             if chosen.is_some() {
                 deeds = deeds.push(deed(w.t("in-folder"), Message::OpenSkin, false));
             }
-            let said = if ground.skins.is_empty() { w.t("no-skins") } else { w.n("skins-found", ground.skins.len() as u64) };
-            let under: Element<'a, Message> = text(said).font(theme::SANS).size(11.0).wrapping(text::Wrapping::None).color(ui::faded(FAINT)).into();
             column![head(w, "skins"), strip, container(under).padding(Padding::ZERO.top(2.0)), container(deeds).padding(Padding::ZERO.top(6.0))]
                 .spacing(2)
                 .into()

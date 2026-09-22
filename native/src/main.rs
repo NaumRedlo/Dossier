@@ -52,6 +52,18 @@ fn main() -> iced::Result {
         });
         return Ok(());
     }
+    if args.iter().any(|a| a == "--skins") {
+        let settings = dossier_native::settings::Settings::load();
+        let started = std::time::Instant::now();
+        let found = dossier_native::settings::hunt_skins(&settings.sources, &settings.own_skins);
+        println!("{} skins, {:.1?}", found.len(), started.elapsed());
+        for path in &found {
+            let what = if dossier_native::settings::is_skin_file(path) { "osk" } else { "folder" };
+            println!("  {what} · {} · {}", dossier_native::settings::skin_name(path), path.display());
+        }
+        return Ok(());
+    }
+
     if let Some(at) = args.iter().position(|a| a == "--library") {
         let root = std::path::PathBuf::from(args.get(at + 1).cloned().unwrap_or_else(|| ".".to_owned()));
         let Some(source) = dossier_native::sources::folder_at(&root) else {

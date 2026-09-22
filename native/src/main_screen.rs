@@ -1283,9 +1283,7 @@ impl Main {
                             prefs::folder_size(&root.join("maps.json")) + prefs::folder_size(&root.join("found.json")),
                         )
                     });
-                    let sources = self.settings.sources.clone();
-                    let own = self.settings.own_skins.clone();
-                    let skins = ui::in_thread(move || Message::Skins(crate::settings::skins_in(&sources, &own)));
+                    let skins = self.look_for_skins();
                     let ffmpeg = self.ffmpeg.clone();
                     let version = ui::in_thread(move || Message::Ffmpeg(ffmpeg.as_deref().and_then(crate::checks::ffmpeg_version)));
                     let chats = match (self.settings.token.is_empty(), self.chats.is_empty()) {
@@ -1600,6 +1598,13 @@ impl Main {
                 Task::none()
             }
             Message::Dropped(path) => {
+                let skinnish = crate::settings::is_skin_file(&path) || (path.is_dir() && !crate::settings::skins_under(&path).is_empty());
+                if skinnish || (path.is_dir() && crate::settings::looks_like_skin(&path)) {
+                    let named = crate::settings::skin_name(&path);
+                    let taken = self.prefs(prefs::Message::AddedSkin(Some(path)));
+                    self.announce(notices::Mark::Done, self.words.t("skin-added"), named, String::new(), String::new(), notices::Link::None);
+                    return taken;
+                }
                 if !path.extension().is_some_and(|e| e.eq_ignore_ascii_case("osr")) {
                     return Task::none();
                 }
@@ -1768,6 +1773,24 @@ impl Main {
                 }
             }
         }
+    }
+
+    fn look_for_skins(&self) -> Task<Message> {
+        let sources = self.settings.sources.clone();
+        let own = self.settings.own_skins.clone();
+        let near = {
+            let (sources, own) = (sources.clone(), own.clone());
+            ui::in_thread(move || {
+                let _ = crate::settings::adopt_skin_files(&crate::settings::skins_root());
+                Message::Skins(crate::settings::skins_in(&sources, &own))
+            })
+        };
+        let far = ui::in_thread(move || Message::Skins(crate::settings::hunt_skins(&sources, &own)));
+        Task::batch([near, far])
+    }
+
+    fn say_trouble(&mut self, why: String) {
+        self.announce(notices::Mark::Bad, self.words.t("skin-failed"), String::new(), why, String::new(), notices::Link::None);
     }
 
     pub fn announce(&mut self, mark: notices::Mark, words: String, detail: String, note: String, map_hash: String, link: notices::Link) {
@@ -2708,19 +2731,25 @@ impl Main {
     }
 
     fn skin_look(&self) -> Task<Message> {
-        let wanted: Vec<PathBuf> = self
+        let mut wanted: Vec<PathBuf> = self
             .skins
             .iter()
-            .take(8)
+            .take(40)
             .filter(|folder| !self.skin_faces.contains_key(*folder))
             .cloned()
             .collect();
+        if !self.skin_faces.contains_key(Path::new("")) {
+            wanted.insert(0, PathBuf::new());
+        }
         if wanted.is_empty() {
             return Task::none();
         }
         ui::streamed(move |push| {
             for folder in wanted {
-                let handle = crate::settings::skin_face(&folder).and_then(|file| decoded(&file, 160, Some((160, 160))));
+                let handle = match folder.as_os_str().is_empty() {
+                    true => Some(image::Handle::from_rgba(160, 160, crate::settings::own_skin_picture(160))),
+                    false => crate::settings::skin_picture(&folder, 160).map(|rgba| image::Handle::from_rgba(160, 160, rgba)),
+                };
                 if !push(Message::SkinFace(folder, handle)) {
                     return;
                 }
@@ -2982,8 +3011,23 @@ impl Main {
             }
             P::Worker(_) => Task::none(),
             P::Skin(folder) => {
+                let folder = match folder.as_deref().filter(|path| crate::settings::is_skin_file(path)) {
+                    Some(file) => match crate::settings::unpack_skin(file) {
+                        Ok(made) => {
+                            let sources = self.settings.sources.clone();
+                            let own = self.settings.own_skins.clone();
+                            let again = ui::in_thread(move || Message::Skins(crate::settings::hunt_skins(&sources, &own)));
+                            return Task::batch([self.prefs(P::Skin(Some(made))), again]);
+                        }
+                        Err(why) => {
+                            self.say_trouble(why);
+                            return Task::none();
+                        }
+                    },
+                    None => folder,
+                };
                 let name = |path: &Option<PathBuf>| match path {
-                    Some(path) => format!("skin-{}", path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default()),
+                    Some(path) => format!("skin-{}", crate::settings::skin_name(path)),
                     None => "skin-own".to_owned(),
                 };
                 self.remember_mark(&name(&self.settings.skin), false);
@@ -2992,25 +3036,39 @@ impl Main {
                 keep(&self.settings);
                 Task::none()
             }
-            P::RescanSkins => {
-                let sources = self.settings.sources.clone();
-                let own = self.settings.own_skins.clone();
-                ui::in_thread(move || Message::Skins(crate::settings::skins_in(&sources, &own)))
-            }
+            P::RescanSkins => self.look_for_skins(),
             P::AddSkin => Task::perform(prefs::pick_renders(), |picked| Message::Prefs(P::AddedSkin(picked))),
             P::AddedSkin(picked) => {
-                let Some(folder) = picked else {
+                let Some(picked) = picked else {
                     return Task::none();
                 };
-                if !self.settings.own_skins.contains(&folder) {
-                    self.settings.own_skins.push(folder.clone());
-                    keep(&self.settings);
+                let mut taken: Vec<PathBuf> = Vec::new();
+                if crate::settings::is_skin_file(&picked) || crate::settings::looks_like_skin(&picked) {
+                    match crate::settings::is_skin_file(&picked) {
+                        true => match crate::settings::unpack_skin(&picked) {
+                            Ok(made) => taken.push(made),
+                            Err(why) => {
+                                self.say_trouble(why);
+                                return Task::none();
+                            }
+                        },
+                        false => taken.push(picked.clone()),
+                    }
+                } else {
+                    taken.extend(crate::settings::skins_under(&picked));
                 }
-                self.settings.skin = Some(folder);
+                let Some(first) = taken.first().cloned() else {
+                    self.announce(notices::Mark::Bad, self.words.t("no-skin-there"), crate::settings::skin_name(&picked), String::new(), String::new(), notices::Link::None);
+                    return Task::none();
+                };
+                for folder in taken {
+                    if !self.settings.own_skins.contains(&folder) {
+                        self.settings.own_skins.push(folder);
+                    }
+                }
+                self.settings.skin = Some(first);
                 keep(&self.settings);
-                let sources = self.settings.sources.clone();
-                let own = self.settings.own_skins.clone();
-                ui::in_thread(move || Message::Skins(crate::settings::skins_in(&sources, &own)))
+                self.look_for_skins()
             }
             P::OpenSkinsFolder => {
                 let root = crate::settings::skins_root();

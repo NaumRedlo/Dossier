@@ -232,7 +232,7 @@ skins-found = { $n ->
     [one] { $n } skin found
    *[other] { $n } skins found
 }
-own-skin-short = Own
+own-skin-short = Dossier Default
 no-skins = No skins found in the osu! folders
 add-skin = Add a skin…
 skins-folder = Skins folder
@@ -254,3 +254,10 @@ speed = Speed
 widen = Fill the window
 narrow = Shrink back
 close-player = Close
+skin-failed = The skin would not unpack
+skin-added = Skin added
+skins-packed = { $n ->
+    [one] { $n } still packed
+   *[other] { $n } still packed
+}
+no-skin-there = No skins in that folder

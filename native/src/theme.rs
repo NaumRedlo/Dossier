@@ -480,17 +480,18 @@ pub fn ghost(_: &Theme, status: button::Status) -> button::Style {
     }
 }
 
-pub fn corner(_: &Theme, status: button::Status) -> button::Style {
-    let (background, colour) = match status {
-        button::Status::Hovered | button::Status::Pressed => (Color::from_rgb(0.2, 0.09, 0.11), INK),
-        _ => (Color::from_rgb(0.1, 0.045, 0.06), MUTED),
-    };
-    button::Style {
-        background: Some(Background::Color(background)),
-        text_color: colour,
-        border: border(Color::from_rgba(1.0, 1.0, 1.0, 0.14), 10.0),
-        shadow: Shadow { color: Color::from_rgba(0.0, 0.0, 0.0, 0.4), offset: iced::Vector::new(0.0, 2.0), blur_radius: 6.0 },
-        snap: true,
+pub fn corner(bad: bool) -> impl Fn(&Theme, button::Status) -> button::Style {
+    move |_, status| {
+        let edge = if bad { Color::from_rgba(0.886, 0.282, 0.282, 0.22) } else { Color::from_rgba(1.0, 1.0, 1.0, 0.1) };
+        let ground = if bad { Color::from_rgba(0.18, 0.05, 0.06, 1.0) } else { Color::from_rgba(0.047, 0.02, 0.027, 1.0) };
+        let lit = matches!(status, button::Status::Hovered | button::Status::Pressed);
+        button::Style {
+            background: Some(Background::Color(if lit { Color { r: ground.r + 0.06, g: ground.g + 0.04, b: ground.b + 0.04, a: 1.0 } } else { ground })),
+            text_color: INK,
+            border: border(edge, 10.0),
+            shadow: Shadow::default(),
+            snap: true,
+        }
     }
 }
 

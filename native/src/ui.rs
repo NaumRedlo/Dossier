@@ -1207,11 +1207,19 @@ pub struct Grown<'a, Message> {
     content: Element<'a, Message>,
     anchor: Point,
     lift: f32,
+    shift: f32,
     scale: f32,
 }
 
 pub fn grown<'a, Message: 'a>(content: impl Into<Element<'a, Message>>, anchor: Point, lift: f32, scale: f32) -> Grown<'a, Message> {
-    Grown { content: content.into(), anchor, lift, scale }
+    Grown { content: content.into(), anchor, lift, shift: 0.0, scale }
+}
+
+impl<Message> Grown<'_, Message> {
+    pub fn shifted(mut self, shift: f32) -> Self {
+        self.shift = shift;
+        self
+    }
 }
 
 impl<Message> iced::advanced::Widget<Message, Theme, Renderer> for Grown<'_, Message> {
@@ -1289,12 +1297,12 @@ impl<Message> iced::advanced::Widget<Message, Theme, Renderer> for Grown<'_, Mes
         cursor: mouse::Cursor,
         viewport: &Rectangle,
     ) {
-        if self.lift == 0.0 && (self.scale - 1.0).abs() < 0.001 {
+        if self.lift == 0.0 && self.shift == 0.0 && (self.scale - 1.0).abs() < 0.001 {
             self.content.as_widget().draw(tree, renderer, theme, style, layout, cursor, viewport);
             return;
         }
         use iced::advanced::Renderer as _;
-        let transformation = about(layout.bounds(), self.anchor, self.lift, self.scale);
+        let transformation = iced::Transformation::translate(self.shift, 0.0) * about(layout.bounds(), self.anchor, self.lift, self.scale);
         renderer.with_transformation(transformation, |renderer| {
             self.content.as_widget().draw(tree, renderer, theme, style, layout, cursor, viewport);
         });
@@ -1585,6 +1593,24 @@ impl<Message> canvas::Program<Message> for Thread {
         if x > 1.5 {
             frame.stroke(&Path::line(Point::new(1.0, y), Point::new(x, y)), Stroke::default().with_width(2.0).with_line_cap(cap).with_color(faded(ACCENT)));
         }
+        vec![frame.into_geometry()]
+    }
+}
+
+pub struct Cross {
+    pub colour: Color,
+}
+
+impl<Message> canvas::Program<Message> for Cross {
+    type State = ();
+
+    fn draw(&self, _: &(), renderer: &Renderer, _: &Theme, bounds: Rectangle, _: mouse::Cursor) -> Vec<Geometry> {
+        let mut frame = Frame::new(renderer, bounds.size());
+        let c = Point::new(bounds.width / 2.0, bounds.height / 2.0);
+        let r = bounds.width.min(bounds.height) * 0.22;
+        let stroke = Stroke::default().with_width(2.0).with_color(faded(self.colour)).with_line_cap(canvas::LineCap::Round);
+        frame.stroke(&Path::line(Point::new(c.x - r, c.y - r), Point::new(c.x + r, c.y + r)), stroke);
+        frame.stroke(&Path::line(Point::new(c.x + r, c.y - r), Point::new(c.x - r, c.y + r)), stroke);
         vec![frame.into_geometry()]
     }
 }

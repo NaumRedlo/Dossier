@@ -247,6 +247,8 @@ pub struct Main {
     pub avatar: Option<image::Handle>,
     pub menu: Option<Tab>,
     pub error_shown: Option<u64>,
+    pub arrivals: HashMap<u64, Animation<bool>>,
+    pub leaving: HashMap<u64, Animation<bool>>,
     pub overlay_fade: Animation<bool>,
     pub overlay_drawn: Overlay,
     pub menu_open: Animation<bool>,
@@ -313,6 +315,8 @@ impl Main {
             avatar: None,
             menu: None,
             error_shown: None,
+            arrivals: HashMap::new(),
+            leaving: HashMap::new(),
             overlay_fade: Animation::new(false).duration(OVERLAY_FADE).easing(Easing::EaseOutCubic),
             overlay_drawn: Overlay::None,
             menu_open: Animation::new(false).duration(MENU_OPEN).easing(Easing::EaseOutCubic),
@@ -399,6 +403,8 @@ impl Main {
             || !self.toasts.is_empty()
             || self.menu_open.is_animating(self.now)
             || self.overlay_fade.is_animating(self.now)
+            || self.arrivals.values().any(|a| a.is_animating(self.now))
+            || self.leaving.values().any(|a| a.is_animating(self.now))
             || self.tab_fade.is_animating(self.now)
             || self.seg_slide.is_animating(self.now)
             || self.sending.as_ref().is_some_and(|s| s.over.is_none())
@@ -672,7 +678,7 @@ impl Main {
                         self.seg_from = tab;
                         self.seg_slide = Animation::new(true);
                         self.tab_fade = Animation::new(true);
-                        self.menu_open.go_mut(true, now);
+                        self.menu_open = Animation::new(false).duration(MENU_OPEN).easing(Easing::EaseOutCubic).go(true, now);
                     }
                 }
                 self.menu = Some(tab);
@@ -691,7 +697,9 @@ impl Main {
                 Task::none()
             }
             Message::MenuClose => {
-                self.menu_open.go_mut(false, Instant::now());
+                if self.menu_open.value() {
+                    self.menu_open = Animation::new(true).duration(MENU_CLOSE).easing(Easing::EaseInCubic).go(false, Instant::now());
+                }
                 Task::none()
             }
             Message::SeenAll => {
@@ -1326,6 +1334,14 @@ impl Main {
                 if self.menu.is_some() && !self.menu_open.value() && !self.menu_open.is_animating(now) {
                     self.menu = None;
                 }
+                let gone: Vec<u64> = self.leaving.iter().filter(|(_, a)| !a.value() && !a.is_animating(now)).map(|(id, _)| *id).collect();
+                for id in gone {
+                    self.leaving.remove(&id);
+                    self.arrivals.remove(&id);
+                    self.toasts.retain(|t| t.id != id);
+                    self.notices.remove(id);
+                }
+                self.arrivals.retain(|_, a| a.is_animating(now));
                 Task::none()
             }
             Message::ToastHover(id, over) => {
@@ -1345,11 +1361,14 @@ impl Main {
                 Task::none()
             }
             Message::DismissNotice(id) => {
-                self.notices.remove(id);
-                self.toasts.retain(|t| t.id != id);
+                let now = Instant::now();
                 if self.error_shown == Some(id) {
                     self.error_shown = None;
                 }
+                for toast in self.toasts.iter_mut().filter(|t| t.id == id) {
+                    toast.shown.go_mut(false, now);
+                }
+                self.leaving.entry(id).or_insert_with(|| Animation::new(true).duration(NOTICE_LEAVE).easing(Easing::EaseOutCubic)).go_mut(false, now);
                 Task::none()
             }
             Message::ShowError(id) => {
@@ -1392,6 +1411,9 @@ impl Main {
     pub fn announce(&mut self, mark: notices::Mark, words: String, detail: String, note: String, map_hash: String, link: notices::Link) {
         let id = self.notices.push(mark, words, detail, note, map_hash, link);
         let now = Instant::now();
+        if self.menu == Some(Tab::Feed) {
+            self.arrivals.insert(id, Animation::new(false).duration(NOTICE_ARRIVE).easing(Easing::EaseOutCubic).go(true, now));
+        }
         while self.toasts.iter().filter(|t| t.shown.value()).count() >= TOASTS_AT_MOST {
             if let Some(oldest) = self.toasts.iter_mut().find(|t| t.shown.value()) {
                 oldest.shown.go_mut(false, now);
@@ -2181,12 +2203,22 @@ impl Main {
         let open = self.menu_open.interpolate(0.0, 1.0, self.now);
         let opening = self.menu_open.value();
         let swap = self.tab_fade.interpolate(0.0, 1.0, self.now);
-        let late = |i: f32| if opening { (open * 1.6 - 0.18 * i).clamp(0.0, 1.0) } else { open };
+        let order = |t: Tab| -> f32 {
+            match t {
+                Tab::Account => 0.0,
+                Tab::Feed => 1.0,
+                Tab::Stats => 2.0,
+            }
+        };
+        let gap = order(tab) - order(self.seg_from);
+        let direction = if gap == 0.0 { 0.0 } else { gap.signum() };
+        let slide = (1.0 - swap) * 28.0 * direction;
+        let late = |i: f32| if opening { (open * 1.4 - 0.2 * i).clamp(0.0, 1.0) } else { open };
         let mut stackup = column![].spacing(8).width(MENU_W);
         let k0 = late(0.0);
-        stackup = stackup.push(ui::fading(ui::fade() * k0, || ui::grown(self.menu_head(), Point::new(1.0, 0.0), -(1.0 - k0) * 10.0, 1.0)));
+        stackup = stackup.push(ui::fading(ui::fade() * k0, || ui::grown(self.menu_head(), Point::new(1.0, 0.0), 0.0, 0.9 + 0.1 * k0)));
         let k1 = late(1.0);
-        stackup = stackup.push(ui::fading(ui::fade() * k1, || ui::grown(self.menu_segments(tab), Point::new(1.0, 0.0), -(1.0 - k1) * 10.0, 1.0)));
+        stackup = stackup.push(ui::fading(ui::fade() * k1, || ui::grown(self.menu_segments(tab), Point::new(1.0, 0.0), 0.0, 0.9 + 0.1 * k1)));
         let k2 = late(2.0) * swap;
         let tiles = ui::fading(ui::fade() * k2, || {
             let content = match tab {
@@ -2198,11 +2230,11 @@ impl Main {
             for tile in content {
                 list = list.push(tile);
             }
-            ui::grown(list, Point::new(1.0, 0.0), -(1.0 - k2) * 10.0, 1.0)
+            ui::grown(list, Point::new(1.0, 0.0), 0.0, 0.9 + 0.1 * late(2.0)).shifted(slide)
         });
         stackup = stackup.push(tiles);
         let x = (self.width - 40.0 - MENU_W).max(16.0);
-        let whole = ui::grown(stackup, Point::new(1.0, 0.0), 0.0, 0.97 + 0.03 * open);
+        let whole = ui::grown(stackup, Point::new(1.0, 0.0), -(1.0 - open) * 14.0, 1.0);
         let backdrop: Element<'_, Message> = if self.menu_open.value() {
             mouse_area(Space::new().width(Length::Fill).height(Length::Fill)).on_press(Message::MenuClose).into()
         } else {
@@ -2364,15 +2396,22 @@ impl Main {
             tiles.push(self.card(job(w.t("sending"), title, self.progress_shown), false));
         }
         for notice in self.notices.notices.iter().take(5) {
-            let card = self.card(self.notice_row(notice), notice.mark == notices::Mark::Bad);
-            tiles.push(
-                stack![
+            let bad = notice.mark == notices::Mark::Bad;
+            let alive = match (self.leaving.get(&notice.id), self.arrivals.get(&notice.id)) {
+                (Some(going), _) => going.interpolate(0.0, 1.0, self.now),
+                (None, Some(coming)) => coming.interpolate(0.0, 1.0, self.now),
+                _ => 1.0,
+            };
+            let tile = ui::fading(ui::fade() * alive, || {
+                let card = self.card(self.notice_row(notice), bad);
+                let framed = stack![
                     container(card).padding(Padding::ZERO.top(CORNER_X / 2.0)).width(Length::Fill),
-                    pin(self.dismiss(notice.id)).x(MENU_W - CORNER_X).y(0.0),
+                    pin(self.dismiss(notice.id, bad)).x(MENU_W - CORNER_X).y(0.0),
                 ]
-                .width(Length::Fill)
-                .into(),
-            );
+                .width(Length::Fill);
+                ui::grown(framed, Point::new(1.0, 0.5), 0.0, 1.0).shifted((1.0 - alive) * 24.0)
+            });
+            tiles.push(tile.into());
         }
         if tiles.is_empty() {
             tiles.push(self.card(container(ui::cap(w.t("nothing-yet"))).height(20.0).into(), false));
@@ -2477,10 +2516,11 @@ impl Main {
         .into()
     }
 
-    fn dismiss(&self, id: u64) -> Element<'_, Message> {
-        button(container(text("×").font(theme::MONO).size(theme::CAPTION)).width(CORNER_X).height(CORNER_X).center(CORNER_X))
+    fn dismiss(&self, id: u64, bad: bool) -> Element<'_, Message> {
+        let glyph = iced::widget::canvas(ui::Cross { colour: if bad { ACCENT } else { MUTED } }).width(CORNER_X).height(CORNER_X);
+        button(glyph)
             .padding(0)
-            .style(ui::button_faded(theme::corner))
+            .style(ui::button_faded(theme::corner(bad)))
             .on_press(Message::DismissNotice(id))
             .into()
     }
@@ -2556,10 +2596,13 @@ pub fn decoded_bytes(bytes: &[u8], side: u32) -> Option<image::Handle> {
 }
 const TOAST_W: f32 = 380.0;
 const TOAST_H: f32 = 74.0;
-const TOAST_TOP: f32 = 66.0;
+const TOAST_TOP: f32 = 92.0;
 pub const TOAST_IN: Duration = Duration::from_millis(180);
-pub const MENU_OPEN: Duration = Duration::from_millis(260);
-pub const TAB_FADE: Duration = Duration::from_millis(160);
+pub const MENU_OPEN: Duration = Duration::from_millis(320);
+pub const MENU_CLOSE: Duration = Duration::from_millis(170);
+pub const TAB_FADE: Duration = Duration::from_millis(180);
+pub const NOTICE_LEAVE: Duration = Duration::from_millis(200);
+pub const NOTICE_ARRIVE: Duration = Duration::from_millis(260);
 pub const OVERLAY_FADE: Duration = Duration::from_millis(220);
 pub const TOAST_STAY: Duration = Duration::from_secs(6);
 const TOASTS_AT_MOST: usize = 3;
@@ -2614,7 +2657,7 @@ impl Main {
         let sensed = mouse_area(card).on_enter(Message::ToastHover(toast.id, true)).on_exit(Message::ToastHover(toast.id, false));
         stack![
             pin(sensed).x(0.0).y(CORNER_X / 2.0),
-            pin(self.dismiss(toast.id)).x(TOAST_W - CORNER_X).y(0.0),
+            pin(self.dismiss(toast.id, bad)).x(TOAST_W - CORNER_X).y(0.0),
         ]
         .width(TOAST_W + CORNER_X / 2.0)
         .height(TOAST_H + CORNER_X / 2.0)

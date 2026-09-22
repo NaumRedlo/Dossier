@@ -19,6 +19,10 @@ pub fn fade() -> f32 {
     FADE.with(|f| f.get())
 }
 
+pub fn dim(colour: Color, k: f32) -> Color {
+    Color { a: colour.a * k.clamp(0.0, 1.0), ..colour }
+}
+
 pub fn faded(colour: Color) -> Color {
     Color {
         a: colour.a * fade(),
@@ -854,6 +858,10 @@ pub fn box_faded(style: impl Fn(&Theme) -> container::Style + 'static) -> impl F
     dimmed_box(style, fade())
 }
 
+pub fn box_at(style: impl Fn(&Theme) -> container::Style + 'static, k: f32) -> impl Fn(&Theme) -> container::Style {
+    dimmed_box(style, k)
+}
+
 pub fn button_faded(style: impl Fn(&Theme, button::Status) -> button::Style + 'static) -> impl Fn(&Theme, button::Status) -> button::Style {
     dimmed(style, fade())
 }
@@ -1563,7 +1571,13 @@ impl<Message> canvas::Program<Message> for Ring {
     }
 }
 
-pub struct Dot;
+pub struct Dot {
+    pub alpha: f32,
+}
+
+pub fn dot<'a, Message: 'a>(side: f32) -> Element<'a, Message> {
+    Canvas::new(Dot { alpha: fade() }).width(side).height(side).into()
+}
 
 impl<Message> canvas::Program<Message> for Dot {
     type State = ();
@@ -1571,14 +1585,19 @@ impl<Message> canvas::Program<Message> for Dot {
     fn draw(&self, _: &(), renderer: &Renderer, _: &Theme, bounds: Rectangle, _: mouse::Cursor) -> Vec<Geometry> {
         let mut frame = Frame::new(renderer, bounds.size());
         let centre = Point::new(bounds.width / 2.0, bounds.height / 2.0);
-        frame.fill(&Path::circle(centre, bounds.width / 2.0 + 3.0), faded(Color { a: 0.16, ..ACCENT }));
-        frame.fill(&Path::circle(centre, bounds.width / 2.0 - 1.0), faded(ACCENT));
+        frame.fill(&Path::circle(centre, bounds.width / 2.0 + 3.0), dim(Color { a: 0.16, ..ACCENT }, self.alpha));
+        frame.fill(&Path::circle(centre, bounds.width / 2.0 - 1.0), dim(ACCENT, self.alpha));
         vec![frame.into_geometry()]
     }
 }
 
 pub struct Thread {
     pub fraction: f32,
+    pub alpha: f32,
+}
+
+pub fn thread<'a, Message: 'a>(fraction: f32) -> Element<'a, Message> {
+    Canvas::new(Thread { fraction, alpha: fade() }).width(Length::Fill).height(3.0).into()
 }
 
 impl<Message> canvas::Program<Message> for Thread {
@@ -1588,10 +1607,10 @@ impl<Message> canvas::Program<Message> for Thread {
         let mut frame = Frame::new(renderer, bounds.size());
         let y = bounds.height / 2.0;
         let cap = canvas::LineCap::Round;
-        frame.stroke(&Path::line(Point::new(1.0, y), Point::new(bounds.width - 1.0, y)), Stroke::default().with_width(2.0).with_line_cap(cap).with_color(faded(Color::from_rgba(1.0, 1.0, 1.0, 0.08))));
+        frame.stroke(&Path::line(Point::new(1.0, y), Point::new(bounds.width - 1.0, y)), Stroke::default().with_width(2.0).with_line_cap(cap).with_color(dim(Color::from_rgba(1.0, 1.0, 1.0, 0.08), self.alpha)));
         let x = (bounds.width * self.fraction.clamp(0.0, 1.0)).max(1.0);
         if x > 1.5 {
-            frame.stroke(&Path::line(Point::new(1.0, y), Point::new(x, y)), Stroke::default().with_width(2.0).with_line_cap(cap).with_color(faded(ACCENT)));
+            frame.stroke(&Path::line(Point::new(1.0, y), Point::new(x, y)), Stroke::default().with_width(2.0).with_line_cap(cap).with_color(dim(ACCENT, self.alpha)));
         }
         vec![frame.into_geometry()]
     }
@@ -1621,6 +1640,7 @@ pub struct Steps<'a, Message> {
     pub at: f32,
     pub shown: f32,
     pub snap: f32,
+    pub alpha: f32,
     pub stops: Vec<f32>,
     pub on: Box<dyn Fn(f32) -> Message + 'a>,
 }
@@ -1678,8 +1698,8 @@ impl<Message> canvas::Program<Message> for Steps<'_, Message> {
         let at = state.shown.unwrap_or(self.shown).clamp(0.0, 1.0);
         let x = STEP_INSET + at * (w - 2.0 * STEP_INSET);
         let lit = state.grabbed || cursor.is_over(bounds);
-        frame.fill(&Path::rounded_rectangle(Point::ORIGIN, Size::new(w, h), 7.0.into()), faded(Color::from_rgba(1.0, 1.0, 1.0, if lit { 0.09 } else { 0.07 })));
-        frame.fill(&Path::rounded_rectangle(Point::ORIGIN, Size::new(x.max(14.0), h), 7.0.into()), faded(Color::from_rgba(1.0, 1.0, 1.0, 0.11)));
+        frame.fill(&Path::rounded_rectangle(Point::ORIGIN, Size::new(w, h), 7.0.into()), dim(Color::from_rgba(1.0, 1.0, 1.0, if lit { 0.055 } else { 0.04 }), self.alpha));
+        frame.fill(&Path::rounded_rectangle(Point::ORIGIN, Size::new(x.max(14.0), h), 7.0.into()), dim(Color::from_rgba(0.886, 0.282, 0.282, if lit { 0.2 } else { 0.15 }), self.alpha));
         let on_stop = self.snap.clamp(0.0, 1.0);
         for stop in &self.stops {
             let near = 1.0 - ((stop - at).abs() / 0.05).clamp(0.0, 1.0);
@@ -1687,16 +1707,16 @@ impl<Message> canvas::Program<Message> for Steps<'_, Message> {
             let shrink = 4.0 - 3.0 * near;
             let alpha = 0.16 * (1.0 - near);
             if alpha > 0.005 {
-                frame.fill(&Path::rounded_rectangle(Point::new(sx - 1.0, shrink), Size::new(2.0, h - 2.0 * shrink), 1.0.into()), faded(Color::from_rgba(1.0, 1.0, 1.0, alpha)));
+                frame.fill(&Path::rounded_rectangle(Point::new(sx - 1.0, shrink), Size::new(2.0, h - 2.0 * shrink), 1.0.into()), dim(Color::from_rgba(1.0, 1.0, 1.0, alpha * 0.8), self.alpha));
             }
         }
         let inset = 4.0 - 3.0 * on_stop;
-        frame.fill(&Path::rounded_rectangle(Point::new(x - 3.0, inset), Size::new(6.0, h - 2.0 * inset), 3.0.into()), faded(INK));
+        frame.fill(&Path::rounded_rectangle(Point::new(x - 3.0, inset), Size::new(6.0, h - 2.0 * inset), 3.0.into()), dim(Color { a: 0.92, ..INK }, self.alpha));
         let label_right = at < 0.2;
         frame.fill_text(canvas::Text {
             content: self.label.clone(),
             position: Point::new(if label_right { w - 10.0 } else { 10.0 }, h / 2.0),
-            color: faded(INK),
+            color: dim(INK, self.alpha),
             size: theme::CAPTION.into(),
             font: theme::SANS_SEMI,
             align_x: if label_right { iced::alignment::Horizontal::Right.into() } else { iced::alignment::Horizontal::Left.into() },
@@ -1707,7 +1727,7 @@ impl<Message> canvas::Program<Message> for Steps<'_, Message> {
         frame.fill_text(canvas::Text {
             content: self.value.clone(),
             position: Point::new(if value_left { x - 10.0 } else { x + 10.0 }, h / 2.0),
-            color: faded(INK),
+            color: dim(INK, self.alpha),
             size: 11.0.into(),
             font: theme::MONO,
             align_x: if value_left { iced::alignment::Horizontal::Right.into() } else { iced::alignment::Horizontal::Left.into() },
@@ -1735,7 +1755,7 @@ pub fn steps<'a, Message: 'a>(
     stops: Vec<f32>,
     on: impl Fn(f32) -> Message + 'a,
 ) -> Element<'a, Message> {
-    Canvas::new(Steps { label, value, at, shown, snap, stops, on: Box::new(on) })
+    Canvas::new(Steps { label, value, at, shown, snap, alpha: fade(), stops, on: Box::new(on) })
         .width(Length::Fill)
         .height(26.0)
         .into()
@@ -1745,6 +1765,7 @@ pub struct Mark {
     pub glyph: String,
     pub on: bool,
     pub k: f32,
+    pub alpha: f32,
 }
 
 impl<Message> canvas::Program<Message> for Mark {
@@ -1762,13 +1783,13 @@ impl<Message> canvas::Program<Message> for Mark {
             b: ground.b + (ACCENT.b - ground.b) * k,
             a: ground.a + (ACCENT.a - ground.a) * k,
         };
-        frame.fill(&Path::circle(centre, side / 2.0), faded(colour));
+        frame.fill(&Path::circle(centre, side / 2.0), dim(colour, self.alpha));
         if self.glyph.is_empty() {
             let r = side * 0.3;
             let stroke = |width: f32, colour: Color| {
                 Stroke::default()
                     .with_width(width)
-                    .with_color(faded(colour))
+                    .with_color(dim(colour, self.alpha))
                     .with_line_cap(canvas::LineCap::Round)
                     .with_line_join(canvas::LineJoin::Round)
             };
@@ -1786,7 +1807,7 @@ impl<Message> canvas::Program<Message> for Mark {
                         b.line_to(Point::new(elbow.x + (end.x - elbow.x) * second, elbow.y + (end.y - elbow.y) * second));
                     }
                 });
-                frame.stroke(&tick, stroke(side * 0.1, Color::WHITE));
+                frame.stroke(&tick, stroke(side * 0.1, dim(Color::WHITE, self.alpha)));
             }
             if k < 0.98 {
                 let gone = 1.0 - k;
@@ -1798,13 +1819,13 @@ impl<Message> canvas::Program<Message> for Mark {
                     b.move_to(Point::new(centre.x + arm, centre.y - arm));
                     b.line_to(Point::new(centre.x - arm, centre.y + arm));
                 });
-                frame.stroke(&cross, stroke(side * 0.075, faintly));
+                frame.stroke(&cross, stroke(side * 0.075, dim(faintly, self.alpha)));
             }
         } else {
             frame.fill_text(canvas::Text {
                 content: self.glyph.clone(),
                 position: centre,
-                color: faded(if k > 0.5 { Color::WHITE } else { INK }),
+                color: dim(if k > 0.5 { Color::WHITE } else { INK }, self.alpha),
                 size: (if self.glyph.chars().count() > 2 { side * 0.34 } else { side * 0.4 }).into(),
                 font: theme::MONO_BOLD,
                 align_x: iced::alignment::Horizontal::Center.into(),
@@ -1817,7 +1838,7 @@ impl<Message> canvas::Program<Message> for Mark {
 }
 
 pub fn mark<'a, Message: 'a>(glyph: &str, on: bool, k: f32, side: f32) -> Element<'a, Message> {
-    Canvas::new(Mark { glyph: glyph.to_owned(), on, k }).width(side).height(side).into()
+    Canvas::new(Mark { glyph: glyph.to_owned(), on, k, alpha: fade() }).width(side).height(side).into()
 }
 
 pub struct Wrap<'a, Message> {
@@ -1958,8 +1979,10 @@ pub struct Dragged<'a, Message, T> {
 
 #[derive(Debug, Default)]
 struct DraggedState {
-    pressed: bool,
+    from: Option<Point>,
 }
+
+const DRAG_SLACK: f32 = 6.0;
 
 pub fn dragged<'a, Message: Clone + 'a, T: Copy + 'a>(
     content: Element<'a, Message>,
@@ -2026,22 +2049,28 @@ impl<Message: Clone, T> iced::advanced::Widget<Message, Theme, Renderer> for Dra
         self.content
             .as_widget_mut()
             .update(&mut tree.children[0], event, layout, cursor, renderer, clipboard, shell, viewport);
+        let taken = shell.is_event_captured();
         let over = cursor.is_over(layout.bounds());
         let state = tree.state.downcast_mut::<DraggedState>();
         match event {
-            iced::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) if over => {
-                state.pressed = true;
+            iced::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) if over && !taken => {
+                state.from = cursor.position();
             }
-            iced::Event::Mouse(mouse::Event::CursorMoved { .. }) => {
-                if state.pressed && !self.held {
-                    shell.publish(self.on_grab.clone());
-                    shell.capture_event();
-                } else if over {
-                    shell.publish(self.on_over.clone());
+            iced::Event::Mouse(mouse::Event::CursorMoved { position }) => match state.from {
+                Some(from) if !self.held => {
+                    if (position.x - from.x).abs() + (position.y - from.y).abs() > DRAG_SLACK {
+                        shell.publish(self.on_grab.clone());
+                        shell.capture_event();
+                    }
                 }
-            }
+                _ => {
+                    if over {
+                        shell.publish(self.on_over.clone());
+                    }
+                }
+            },
             iced::Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => {
-                state.pressed = false;
+                state.from = None;
                 if self.held {
                     shell.publish(self.on_drop.clone());
                 }
@@ -2207,10 +2236,18 @@ pub fn drift(elapsed: f32) -> f32 {
 
 pub struct Hollow<'a, Message> {
     content: Element<'a, Message>,
+    open: f32,
 }
 
 pub fn hollow<'a, Message: 'a>(content: impl Into<Element<'a, Message>>) -> Hollow<'a, Message> {
-    Hollow { content: content.into() }
+    Hollow { content: content.into(), open: 1.0 }
+}
+
+impl<Message> Hollow<'_, Message> {
+    pub fn opened(mut self, open: f32) -> Self {
+        self.open = open;
+        self
+    }
 }
 
 impl<Message> iced::advanced::Widget<Message, Theme, Renderer> for Hollow<'_, Message> {
@@ -2240,7 +2277,9 @@ impl<Message> iced::advanced::Widget<Message, Theme, Renderer> for Hollow<'_, Me
         renderer: &Renderer,
         limits: &iced::advanced::layout::Limits,
     ) -> iced::advanced::layout::Node {
-        self.content.as_widget_mut().layout(tree, renderer, limits)
+        let node = self.content.as_widget_mut().layout(tree, renderer, limits);
+        let size = node.size();
+        iced::advanced::layout::Node::new(Size::new(size.width * self.open.clamp(0.0, 1.0), size.height))
     }
 
     fn draw(
@@ -2254,6 +2293,9 @@ impl<Message> iced::advanced::Widget<Message, Theme, Renderer> for Hollow<'_, Me
         _viewport: &Rectangle,
     ) {
         use iced::advanced::Renderer as _;
+        if layout.bounds().width < 6.0 {
+            return;
+        }
         let style = theme::slot(theme);
         renderer.fill_quad(
             iced::advanced::renderer::Quad {

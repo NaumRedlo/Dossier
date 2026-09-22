@@ -274,7 +274,10 @@ pub struct Main {
     pub slides: HashMap<String, (f32, f32)>,
     pub drag_at: Point,
     pub drag_held: Point,
+    pub slot_open: f32,
+    pub slot_shut: f32,
     pub lang_swap: bool,
+    pub turning: Option<Overlay>,
     pub side_fade: Animation<bool>,
     pub side_swap: f32,
     pub sizes: (u64, u64, u64),
@@ -361,7 +364,10 @@ impl Main {
             slides: HashMap::new(),
             drag_at: Point::ORIGIN,
             drag_held: Point::ORIGIN,
+            slot_open: 0.0,
+            slot_shut: 1.0,
             lang_swap: false,
+            turning: None,
             side_fade: Animation::new(true),
             side_swap: 0.0,
             sizes: (0, 0, 0),
@@ -451,10 +457,12 @@ impl Main {
             || !self.toasts.is_empty()
             || self.menu_open.is_animating(self.now)
             || self.overlay_fade.is_animating(self.now)
+            || self.turning.is_some()
             || self.retype.is_animating(self.now)
             || self.side_fade.is_animating(self.now)
             || self.marks.values().any(|m| m.is_animating(self.now))
             || self.dragging.is_some()
+            || self.slot_open > 0.001
             || self.overlay == Overlay::Settings
             || self.hover.is_some()
             || self.arrivals.values().any(|a| a.is_animating(self.now))
@@ -1111,18 +1119,12 @@ impl Main {
                         }
                         _ => Task::none(),
                     };
-                    self.overlay_drawn = overlay;
-                    self.overlay_fade = Animation::new(false).duration(OVERLAY_FADE).easing(Easing::EaseOutCubic).go(true, now);
+                    self.turn_to(overlay, now);
                     self.overlay = overlay;
                     return Task::batch([sizes, version, chats, skins]);
                 }
                 if overlay != self.overlay {
-                    if overlay == Overlay::None {
-                        self.overlay_fade.go_mut(false, now);
-                    } else {
-                        self.overlay_drawn = overlay;
-                        self.overlay_fade = Animation::new(false).duration(OVERLAY_FADE).easing(Easing::EaseOutCubic).go(true, now);
-                    }
+                    self.turn_to(overlay, now);
                 }
                 self.overlay = overlay;
                 if overlay != Overlay::Videos {
@@ -1476,6 +1478,18 @@ impl Main {
                 if self.dragging.is_some() {
                     self.drag_held.x += (self.drag_at.x - self.drag_held.x) * 0.35;
                     self.drag_held.y += (self.drag_at.y - self.drag_held.y) * 0.35;
+                    self.slot_open += (1.0 - self.slot_open) * 0.3;
+                    self.slot_shut += (0.0 - self.slot_shut) * 0.3;
+                } else if self.slot_open > 0.001 {
+                    self.slot_open += (0.0 - self.slot_open) * 0.35;
+                    self.slot_shut = 1.0;
+                }
+                if let Some(next) = self.turning {
+                    if !self.overlay_fade.value() && !self.overlay_fade.is_animating(now) {
+                        self.turning = None;
+                        self.overlay_drawn = next;
+                        self.overlay_fade = Animation::new(false).duration(OVERLAY_FADE).easing(Easing::EaseOutCubic).go(true, now);
+                    }
                 }
                 if self.lang_swap && !self.overlay_fade.value() && !self.overlay_fade.is_animating(now) {
                     self.lang_swap = false;
@@ -2133,7 +2147,8 @@ impl Main {
             _ => Space::new().width(Length::Fill).height(Length::Fill).into(),
         };
         let crest: Element<'_, Message> = pin(ui::brand()).x(CREST_HOME.0).y(CREST_HOME.1).into();
-        stack![ui::veil(theme::GROUND), sheet, crest, stage].width(Length::Fill).height(Length::Fill).into()
+        let ground: Element<'_, Message> = ui::fading(ui::fade().sqrt(), || ui::veil(theme::GROUND));
+        stack![ground, sheet, crest, stage].width(Length::Fill).height(Length::Fill).into()
     }
 
     fn video_head(&self) -> Element<'_, Message> {
@@ -2332,6 +2347,25 @@ pub const MARK: Duration = Duration::from_millis(200);
 pub const LANG_FADE: Duration = Duration::from_millis(150);
 
 impl Main {
+    fn turn_to(&mut self, overlay: Overlay, now: Instant) {
+        let shown = self.overlay != Overlay::None;
+        match (shown, overlay) {
+            (_, Overlay::None) => {
+                self.turning = None;
+                self.overlay_fade.go_mut(false, now);
+            }
+            (false, _) => {
+                self.turning = None;
+                self.overlay_drawn = overlay;
+                self.overlay_fade = Animation::new(false).duration(OVERLAY_FADE).easing(Easing::EaseOutCubic).go(true, now);
+            }
+            (true, _) => {
+                self.turning = Some(overlay);
+                self.overlay_fade = Animation::new(true).duration(OVERLAY_FADE / 2).easing(Easing::EaseOutCubic).go(false, now);
+            }
+        }
+    }
+
     fn skin_look(&self) -> Task<Message> {
         let Some(folder) = self.settings.skin.clone() else {
             return Task::done(Message::SkinFace(None));
@@ -2392,6 +2426,9 @@ impl Main {
             avatar: self.avatar.as_ref(),
             chats: &self.chats,
             dragging: self.dragging,
+            landing: self.drop_before,
+            opening: self.slot_open,
+            closing: self.slot_shut,
             renaming: self.renaming.as_ref(),
             skins: &self.skins,
             skin_face: self.skin_face.as_ref(),
@@ -2417,7 +2454,8 @@ impl Main {
             }
             None => Space::new().width(Length::Fill).height(Length::Fill).into(),
         };
-        stack![ui::veil(theme::GROUND), sheet, held]
+        let ground: Element<'_, Message> = ui::fading(ui::fade().sqrt(), || ui::veil(theme::GROUND));
+        stack![ground, sheet, held]
             .width(Length::Fill)
             .height(Length::Fill)
             .into()
@@ -2623,6 +2661,9 @@ impl Main {
             P::Drag(tile) => {
                 if self.dragging.is_none() {
                     self.drag_held = self.drag_at;
+                    self.slot_open = 0.0;
+                    self.slot_shut = 1.0;
+                    self.drop_before = Some(tile);
                 }
                 self.dragging = Some(tile);
                 Task::none()
@@ -2632,8 +2673,9 @@ impl Main {
                 Task::none()
             }
             P::DropBefore(tile) => {
-                if self.dragging.is_some() {
+                if self.dragging.is_some() && tile != self.dragging && self.drop_before != tile {
                     self.drop_before = tile;
+                    self.slot_open = 0.35;
                 }
                 Task::none()
             }
@@ -2924,14 +2966,14 @@ impl Main {
         let job = |words: String, detail: String, fraction: f32| -> Element<'_, Message> {
             column![
                 row![
-                    iced::widget::canvas(ui::Dot).width(8.0).height(8.0),
+                    ui::dot(8.0),
                     text(words).font(theme::SANS_SEMI).size(theme::CAPTION).color(ui::faded(INK)),
                     container(text(format!("· {detail}")).font(theme::SANS).size(theme::CAPTION).wrapping(text::Wrapping::None).color(ui::faded(MUTED))).width(Length::Fill).clip(true),
                 ]
                 .spacing(8)
                 .align_y(iced::Center)
                 .height(20.0),
-                iced::widget::canvas(ui::Thread { fraction }).width(Length::Fill).height(3.0),
+                ui::thread(fraction),
             ]
             .spacing(6)
             .into()
@@ -3103,7 +3145,7 @@ impl Main {
             Pairing::Waiting { code, .. } => {
                 left = left.push(container(text(code.clone()).font(theme::MONO_BOLD).size(26.0).color(ui::faded(INK))).padding(Padding::ZERO.top(12.0)));
                 left = left.push(ui::cap(w.t("code-lasts")));
-                left = left.push(container(row![iced::widget::canvas(ui::Dot).width(8.0).height(8.0), ui::mono_small(w.t("waiting-confirm"), MUTED)].spacing(8).align_y(iced::Center)).padding(Padding::ZERO.top(10.0)));
+                left = left.push(container(row![ui::dot(8.0), ui::mono_small(w.t("waiting-confirm"), MUTED)].spacing(8).align_y(iced::Center)).padding(Padding::ZERO.top(10.0)));
             }
             Pairing::Unavailable => {
                 left = left.push(container(ui::cap(w.t("no-pairing-yet"))).padding(Padding::ZERO.top(12.0)));

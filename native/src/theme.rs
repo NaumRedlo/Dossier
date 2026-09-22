@@ -480,6 +480,20 @@ pub fn ghost(_: &Theme, status: button::Status) -> button::Style {
     }
 }
 
+pub fn corner(_: &Theme, status: button::Status) -> button::Style {
+    let (background, colour) = match status {
+        button::Status::Hovered | button::Status::Pressed => (Color::from_rgb(0.2, 0.09, 0.11), INK),
+        _ => (Color::from_rgb(0.1, 0.045, 0.06), MUTED),
+    };
+    button::Style {
+        background: Some(Background::Color(background)),
+        text_color: colour,
+        border: border(Color::from_rgba(1.0, 1.0, 1.0, 0.14), 10.0),
+        shadow: Shadow { color: Color::from_rgba(0.0, 0.0, 0.0, 0.4), offset: iced::Vector::new(0.0, 2.0), blur_radius: 6.0 },
+        snap: true,
+    }
+}
+
 pub fn toast(pulse: f32, bad: bool) -> impl Fn(&Theme) -> container::Style {
     move |theme| {
         let mut style = bubble(theme);

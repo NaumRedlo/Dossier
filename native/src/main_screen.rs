@@ -2143,6 +2143,7 @@ const MENU_W: f32 = 400.0;
 const MENU_TOP: f32 = 80.0;
 const BADGE: f32 = 16.0;
 const BADGE_OUT: f32 = 4.0;
+const CORNER_X: f32 = 20.0;
 
 impl Main {
     fn circle(&self, side: f32, pressable: bool) -> Element<'_, Message> {
@@ -2356,7 +2357,15 @@ impl Main {
             tiles.push(self.card(job(w.t("sending"), title, self.progress_shown), false));
         }
         for notice in self.notices.notices.iter().take(5) {
-            tiles.push(self.card(self.notice_row(notice), notice.mark == notices::Mark::Bad));
+            let card = self.card(self.notice_row(notice), notice.mark == notices::Mark::Bad);
+            tiles.push(
+                stack![
+                    container(card).padding(Padding::ZERO.top(CORNER_X / 2.0)).width(Length::Fill),
+                    pin(self.dismiss(notice.id)).x(MENU_W - CORNER_X).y(0.0),
+                ]
+                .width(Length::Fill)
+                .into(),
+            );
         }
         if tiles.is_empty() {
             tiles.push(self.card(container(ui::cap(w.t("nothing-yet"))).height(20.0).into(), false));
@@ -2377,7 +2386,7 @@ impl Main {
             text(notice.words.clone()).font(theme::SANS_SEMI).size(theme::CAPTION).wrapping(text::Wrapping::None).color(ui::faded(INK)).into()
         };
         let mut second = notice.detail.clone();
-        if !notice.note.is_empty() {
+        if !notice.note.is_empty() && !bad {
             second = if second.is_empty() { notice.note.clone() } else { format!("{second} · {}", notice.note) };
         }
         let below: Element<'_, Message> = if second.is_empty() {
@@ -2388,9 +2397,7 @@ impl Main {
                 .clip(true)
                 .into()
         };
-        let mut side = column![row![ui::mono_small(w.clock(notice.at), FAINT), self.dismiss(notice.id)].spacing(6).align_y(iced::Center)]
-            .spacing(2)
-            .align_x(iced::alignment::Horizontal::Right);
+        let mut side = column![ui::mono_small(w.clock(notice.at), FAINT)].spacing(2).align_x(iced::alignment::Horizontal::Right);
         if matches!(notice.link, notices::Link::RenderAgain(_) | notices::Link::OpenVideo(_)) {
             let words = if matches!(notice.link, notices::Link::OpenVideo(_)) { w.t("open") } else { w.t("once-more") };
             side = side.push(ui::small_button(words, Message::ToastLink(notice.id)));
@@ -2464,9 +2471,9 @@ impl Main {
     }
 
     fn dismiss(&self, id: u64) -> Element<'_, Message> {
-        button(container(text("×").font(theme::MONO).size(theme::BODY)).width(20.0).height(20.0).center(20.0))
+        button(container(text("×").font(theme::MONO).size(theme::CAPTION)).width(CORNER_X).height(CORNER_X).center(CORNER_X))
             .padding(0)
-            .style(theme::ghost)
+            .style(theme::corner)
             .on_press(Message::DismissNotice(id))
             .into()
     }
@@ -2564,7 +2571,7 @@ impl Main {
             let k = toast.shown.interpolate(0.0, 1.0, self.now);
             let home = (self.width - 40.0 - TOAST_W).max(16.0);
             let x = home + (1.0 - k) * (TOAST_W + 48.0);
-            let y = TOAST_TOP + slot;
+            let y = TOAST_TOP + slot - CORNER_X / 2.0;
             let age = self.now.saturating_duration_since(toast.born).as_secs_f32();
             let pulse = if age < 3.0 && toast.shown.value() { (std::f32::consts::PI * age).sin().powi(2) } else { 0.0 };
             let card = self.toast(toast, notice, pulse);
@@ -2583,7 +2590,8 @@ impl Main {
             text(notice.words.clone()).font(theme::SANS_SEMI).size(theme::BODY).wrapping(text::Wrapping::None).color(ui::faded(if bad { ACCENT } else { INK })),
         ];
         let detail = text(notice.detail.clone()).font(theme::SANS).size(theme::CAPTION).wrapping(text::Wrapping::None).color(ui::faded(MUTED));
-        let note = text(notice.note.clone()).font(theme::MONO).size(11.0).wrapping(text::Wrapping::None).color(ui::faded(FAINT));
+        let note = if bad { String::new() } else { notice.note.clone() };
+        let note = text(note).font(theme::MONO).size(11.0).wrapping(text::Wrapping::None).color(ui::faded(FAINT));
         let column = column![words, detail, note].spacing(1).width(Length::Fill);
         let mut line = row![self.notice_mark(notice, 44.0), container(column).width(Length::Fill).clip(true)].spacing(12).align_y(iced::Center);
         let link = match notice.link {
@@ -2594,17 +2602,16 @@ impl Main {
         if let Some(words) = link {
             line = line.push(ui::small_button(words, Message::ToastLink(toast.id)));
         }
-        let face = stack![
-            container(line).padding(Padding { top: 12.0, right: 30.0, bottom: 12.0, left: 14.0 }).width(TOAST_W).height(TOAST_H),
-            pin(self.dismiss(toast.id)).x(TOAST_W - 26.0).y(6.0),
-        ]
-        .width(TOAST_W)
-        .height(TOAST_H);
+        let face = container(line).padding([12, 14]).width(TOAST_W).height(TOAST_H);
         let card = container(face).width(TOAST_W).height(TOAST_H).style(theme::toast(pulse, bad)).clip(true);
-        mouse_area(card)
-            .on_enter(Message::ToastHover(toast.id, true))
-            .on_exit(Message::ToastHover(toast.id, false))
-            .into()
+        let sensed = mouse_area(card).on_enter(Message::ToastHover(toast.id, true)).on_exit(Message::ToastHover(toast.id, false));
+        stack![
+            pin(sensed).x(0.0).y(CORNER_X / 2.0),
+            pin(self.dismiss(toast.id)).x(TOAST_W - CORNER_X).y(0.0),
+        ]
+        .width(TOAST_W + CORNER_X / 2.0)
+        .height(TOAST_H + CORNER_X / 2.0)
+        .into()
     }
 }
 const STAGE_GAP: f32 = 40.0;

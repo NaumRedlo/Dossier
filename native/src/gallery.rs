@@ -387,6 +387,8 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
     };
     let mut worker = staged(Some(0));
     worker.overlay = Overlay::Worker;
+    worker.overlay_drawn = Overlay::Worker;
+    worker.overlay_fade = iced::Animation::new(true);
     let mut rendering = staged(Some(0));
     rendering.ffmpeg = Some(PathBuf::from("ffmpeg"));
     rendering.rendering = Some(crate::main_screen::Rendering {
@@ -439,6 +441,8 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
     looking.looking = Some(crate::scan::Step::Looking { files: 84_120, found: 37, seconds: 12 });
     let mut with_videos = staged(Some(0));
     with_videos.overlay = crate::main_screen::Overlay::Videos;
+    with_videos.overlay_drawn = crate::main_screen::Overlay::Videos;
+    with_videos.overlay_fade = iced::Animation::new(true);
     let mock_video = |at: usize, made_at: i64, length_ms: i64, size: u64, mods: &[&str]| {
         let entry = &library.entries[at];
         crate::videos::Video {

@@ -1,0 +1,113 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Commissioner:wght@400;500;600&family=JetBrains+Mono:wght@400;700&display=swap');
+    body { margin: 0; background: #070304; color: #ece7e2; font-family: Commissioner, "Helvetica Neue", Arial, sans-serif; font-size: 14px; line-height: 20px; -webkit-font-smoothing: antialiased; }
+    .win { position: relative; overflow: hidden; background: #070304; }
+    .win > img.frame { display: block; width: 100%; height: 100%; }
+    .mono { font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; }
+    .veil { position: absolute; inset: 0; background: rgba(7,3,4,0.72); }
+    .card { position: absolute; border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; background: rgba(28,14,18,0.96); box-shadow: 0 18px 44px rgba(0,0,0,0.5); box-sizing: border-box; }
+    .line { display: flex; align-items: center; gap: 10px; height: 24px; font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: 13px; white-space: nowrap; }
+    .line .d { color: #6b655f; }
+    .line.now b { color: #ece7e2; }
+    .line.bad { color: #e24848; }
+    .line.bad .d { color: #e24848; }
+    .line.done { color: #a9a29b; }
+    .line.todo { color: #6b655f; }
+    .g { display: inline-block; width: 12px; text-align: center; }
+    .btn { display: inline-flex; align-items: center; height: 32px; padding: 0 12px; border-radius: 8px; font-weight: 600; font-size: 14px; box-sizing: border-box; }
+    .btn.primary { background: #e24848; color: #fff; }
+    .btn.quiet { color: #a9a29b; }
+    .btn.soft { background: rgba(226,72,72,0.10); border: 1px solid rgba(226,72,72,0.18); color: #ece7e2; position: relative; overflow: hidden; }
+    .btn.soft i { position: absolute; left: 6px; bottom: 1px; height: 2px; border-radius: 1px; background: #e24848; }
+    .cap { color: #a9a29b; font-size: 12px; line-height: 16px; }
+    .faint { color: #6b655f; }
+    .toast { position: absolute; left: 40px; width: 380px; padding: 12px 14px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.08); background: rgba(20,9,12,0.96); box-shadow: 0 14px 36px rgba(0,0,0,0.5); box-sizing: border-box; }
+    .toast .h { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+    .toast .h .x { color: #e24848; font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-weight: 700; }
+    .toast .b { margin-top: 3px; color: #a9a29b; font-size: 12px; line-height: 16px; }
+    .toast .b a { color: #e24848; text-decoration: none; }
+    .mark { position: absolute; top: 34px; right: 40px; width: 8px; height: 8px; border-radius: 50%; background: #6b655f; }
+    .mark.hot { background: #e24848; box-shadow: 0 0 0 4px rgba(226,72,72,0.18); }
+    .panel { position: absolute; top: 60px; right: 40px; width: 380px; padding: 18px 20px 16px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.08); background: rgba(20,9,12,0.97); box-shadow: 0 24px 60px rgba(0,0,0,0.55); box-sizing: border-box; }
+    .panel h3 { margin: 0 0 8px; font-size: 11px; line-height: 14px; letter-spacing: 0.08em; text-transform: uppercase; color: #6b655f; font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-weight: 400; }
+    .panel .sec { margin-top: 14px; }
+    .panel .sec:first-child { margin-top: 0; }
+    .panel .who { display: flex; align-items: center; gap: 10px; }
+    .panel .ava { width: 28px; height: 28px; border-radius: 50%; background: linear-gradient(135deg, #3a1015, #e24848); flex: none; }
+    .panel .n { color: #6b655f; font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: 11px; }
+    .drawer { position: absolute; top: 0; right: 0; bottom: 0; width: 420px; padding: 26px 28px; border-left: 1px solid rgba(255,255,255,0.08); background: rgba(14,6,9,0.97); box-shadow: -24px 0 60px rgba(0,0,0,0.5); box-sizing: border-box; }
+    .drawer h2 { margin: 0 0 18px; font-size: 16px; font-weight: 600; }
+    .row2 { display: flex; align-items: center; gap: 10px; }
+    .bar { height: 2px; border-radius: 1px; background: rgba(255,255,255,0.08); position: relative; margin-top: 6px; }
+    .bar i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 1px; background: #e24848; }
+    .under { position: absolute; left: 40px; width: 400px; }
+    .stripe { position: absolute; left: 0; right: 0; top: 76px; height: 28px; display: flex; align-items: center; gap: 22px; padding: 0 40px; font-size: 12px; color: #a9a29b; background: rgba(7,3,4,0.6); border-bottom: 1px solid rgba(255,255,255,0.06); }
+    .stripe b { color: #ece7e2; font-weight: 600; }
+    .note { position: absolute; left: 40px; right: 40px; font-size: 12px; line-height: 16px; color: #a9a29b; }
+    .kbd { display: inline-block; padding: 0 5px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.14); font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: 11px; color: #a9a29b; }
+  </style>
+</helmet>
+<div class="win" style="width: 980px; height: 720px;">
+<img class="frame" src="main-rest-ru-RU-980.jpg">
+  <style>
+    .cover { position: absolute; top: 14px; right: 30px; width: 320px; height: 52px; background: #0d0508; }
+    .words { position: absolute; top: 22px; right: 40px; display: flex; align-items: center; gap: 22px; height: 36px; font-weight: 600; color: #a9a29b; }
+    .words b { color: #ece7e2; }
+    .words .ava { width: 28px; height: 28px; border-radius: 50%; background: #e24848; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 13px; }
+    .panel { position: absolute; top: 62px; right: 40px; width: 380px; padding: 8px; border-radius: 18px; background: rgba(20,9,12,0.86); border: 1px solid rgba(255,255,255,0.08); box-shadow: 0 24px 60px rgba(0,0,0,0.55); box-sizing: border-box; display: flex; flex-direction: column; gap: 8px; color: #ece7e2; font-size: 13px; backdrop-filter: blur(24px); }
+    .tile { border-radius: 12px; background: rgba(255,255,255,0.045); border: 1px solid rgba(255,255,255,0.05); padding: 12px 14px; box-sizing: border-box; }
+    .tile.quiet { background: rgba(255,255,255,0.025); }
+    .tile.bad { background: rgba(226,72,72,0.08); border-color: rgba(226,72,72,0.18); }
+    .head { display: flex; align-items: center; gap: 12px; }
+    .head .ava { width: 40px; height: 40px; border-radius: 50%; background: #e24848; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 18px; font-weight: 600; flex: none; }
+    .head .nm { font-size: 15px; font-weight: 600; }
+    .head .hd { color: #6b655f; font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: 11px; margin-top: 2px; }
+    .head .out { margin-left: auto; color: #a9a29b; font-size: 12px; }
+    .seg { display: flex; gap: 4px; padding: 4px; }
+    .seg span { flex: 1; text-align: center; padding: 6px 0; border-radius: 8px; color: #6b655f; font-weight: 600; font-size: 12px; }
+    .seg span.on { background: rgba(255,255,255,0.08); color: #ece7e2; }
+    .kv { display: flex; align-items: center; height: 24px; color: #a9a29b; font-size: 12px; }
+    .kv .n { margin-left: auto; color: #ece7e2; font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: 12px; }
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .big { display: flex; flex-direction: column; gap: 2px; }
+    .big .v { font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: 22px; font-weight: 700; color: #ece7e2; }
+    .big .k { color: #6b655f; font-size: 11px; }
+    .row2 { display: flex; align-items: center; gap: 10px; }
+    .th { width: 40px; height: 40px; border-radius: 8px; background: #0a0507 center/cover; flex: none; position: relative; }
+    .th i { position: absolute; right: -4px; bottom: -4px; width: 16px; height: 16px; border-radius: 50%; background: #8cd04a; border: 2px solid #1a0b0f; color: #fff; font-size: 9px; font-weight: 700; display: flex; align-items: center; justify-content: center; font-style: normal; font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; }
+    .th i.x { background: #e24848; }
+    .ev { flex: 1; min-width: 0; }
+    .ev .w { font-weight: 600; font-size: 13px; display: flex; align-items: center; gap: 8px; }
+    .ev .w .t { margin-left: auto; color: #6b655f; font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: 11px; font-weight: 400; }
+    .ev .w a { color: #e24848; text-decoration: none; font-size: 12px; }
+    .ev .d { color: #a9a29b; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px; }
+    .ev .w.bad { color: #e24848; }
+    .job { display: flex; align-items: center; gap: 8px; height: 22px; font-size: 12px; }
+    .job b { color: #ece7e2; }
+    .job .d { display: block; width: 8px; height: 8px; border-radius: 50%; background: #e24848; box-shadow: 0 0 0 4px rgba(226,72,72,0.16); }
+    .job .m { color: #a9a29b; }
+    .pb { height: 3px; border-radius: 2px; background: rgba(255,255,255,0.08); position: relative; margin-top: 6px; }
+    .pb i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 2px; background: #e24848; }
+    .h3 { font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: #6b655f; font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; margin-bottom: 6px; }
+    .note { position: absolute; left: 40px; font-size: 12px; line-height: 16px; color: #a9a29b; width: 420px; }
+    .btn { display: inline-flex; align-items: center; height: 30px; padding: 0 12px; border-radius: 8px; font-weight: 600; font-size: 13px; background: #e24848; color: #fff; }
+  </style><div class="cover"></div><div class="words"><b>Реплеи</b><span>Видео</span><span>Воркер</span><span>Настройки</span><span class="ava">N</span></div><div class="panel" style="padding:0; background:transparent; border:none; box-shadow:none; gap:10px;">
+      <div class="tile head" style="background: rgba(20,9,12,0.9); box-shadow: 0 18px 44px rgba(0,0,0,0.5); border-radius: 14px;"><span class="ava">N</span><div><div class="nm">Naum Redlo</div><div class="hd">@naumredlo · ID 7</div></div><span class="out">Выйти</span></div>
+      <div class="tile" style="background: rgba(20,9,12,0.9); box-shadow: 0 18px 44px rgba(0,0,0,0.5); border-radius: 14px; padding: 8px;">
+        <div class="tile seg quiet"><span class="on">Аккаунт</span><span class="">Лента</span><span class="">Статистика</span></div>
+        <div style="padding: 6px 8px 2px;"><div class="kv"><span>Видео уходят в чат</span><span class="n">@naumredlo</span></div><div class="kv"><span>Telegram ID</span><span class="n">7</span></div><div class="kv"><span>Воркер</span><span class="n">готов · берёт работу</span></div><div class="kv"><span>Сборка</span><span class="n">0.12.0</span></div></div>
+      </div>
+    </div><div class="note" style="top:96px;">Две карточки: шапка отдельно, ниже — карточка с сегментами и содержимым. Проще плиток: разделена только верхняя часть, остальное как сейчас.</div>
+</div>
+</x-dc>
+</body>
+</html>

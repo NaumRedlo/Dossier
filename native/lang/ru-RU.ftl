@@ -233,3 +233,9 @@ sound = Звук
 music = Музыка
 hitsounds = Хитсаунды
 player-sound = Плеер
+rescan = Обновить
+skins-found = { $n ->
+    [one] найден { $n } скин
+    [few] найдено { $n } скина
+   *[other] найдено { $n } скинов
+}

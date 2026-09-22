@@ -227,3 +227,8 @@ sound = Sound
 music = Music
 hitsounds = Hitsounds
 player-sound = Player
+rescan = Rescan
+skins-found = { $n ->
+    [one] { $n } skin found
+   *[other] { $n } skins found
+}

@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::lang::Lang;
 use crate::sources::Source;
@@ -47,27 +47,6 @@ pub struct Settings {
     pub player_level: f32,
 }
 
-fn full() -> f32 {
-    1.0
-}
-
-pub fn skins_in(sources: &[Source]) -> Vec<PathBuf> {
-    let mut found: Vec<PathBuf> = Vec::new();
-    for root in sources.iter().filter_map(|source| source.skins.clone()) {
-        let Ok(read) = std::fs::read_dir(&root) else {
-            continue;
-        };
-        for entry in read.flatten() {
-            if entry.file_type().map(|kind| kind.is_dir()).unwrap_or(false) {
-                found.push(entry.path());
-            }
-        }
-    }
-    found.sort();
-    found.truncate(60);
-    found
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Tell {
     pub rendered: bool,
@@ -98,9 +77,49 @@ fn default_crf() -> u32 {
     20
 }
 
+fn full() -> f32 {
+    1.0
+}
+
 pub const HEIGHTS: [u32; 3] = [720, 1080, 1440];
 pub const RATES: [u32; 2] = [30, 60];
 pub const CRFS: [u32; 3] = [23, 20, 17];
+
+pub fn skins_in(sources: &[Source]) -> Vec<PathBuf> {
+    let mut roots: Vec<PathBuf> = sources.iter().filter_map(|source| source.skins.clone()).collect();
+    for found in crate::sources::find() {
+        if let Some(skins) = found.skins {
+            roots.push(skins);
+        }
+    }
+    roots.push(crate::sources::own_root().join("Skins"));
+    roots.sort();
+    roots.dedup();
+    let mut found: Vec<PathBuf> = Vec::new();
+    for root in roots {
+        let Ok(read) = std::fs::read_dir(&root) else {
+            continue;
+        };
+        for entry in read.flatten() {
+            if entry.file_type().map(|kind| kind.is_dir()).unwrap_or(false) && !found.contains(&entry.path()) {
+                found.push(entry.path());
+            }
+        }
+    }
+    found.sort_by_key(|path| path.file_name().map(|n| n.to_string_lossy().to_lowercase()).unwrap_or_default());
+    found.truncate(60);
+    found
+}
+
+pub fn skin_face(folder: &Path) -> Option<PathBuf> {
+    for name in ["hitcircle@2x.png", "hitcircle.png", "cursor@2x.png", "cursor.png", "menu-background.jpg", "menu-background.png"] {
+        let file = folder.join(name);
+        if file.is_file() {
+            return Some(file);
+        }
+    }
+    None
+}
 
 impl Settings {
     pub fn render_size(&self) -> (u32, u32) {

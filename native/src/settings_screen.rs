@@ -108,8 +108,12 @@ pub struct Ground<'a> {
     pub dragging: Option<Tile>,
     pub renaming: Option<&'a String>,
     pub skins: &'a [PathBuf],
+    pub skin_face: Option<&'a iced::widget::image::Handle>,
     pub marks: &'a std::collections::HashMap<String, f32>,
+    pub slides: &'a std::collections::HashMap<String, (f32, f32)>,
     pub came: f32,
+    pub swap: f32,
+    pub swap_from: f32,
 }
 
 #[derive(Debug, Clone)]
@@ -136,6 +140,8 @@ pub enum Message {
     Chat(i64),
     Worker(bool),
     Skin(Option<PathBuf>),
+    RescanSkins,
+    OpenSkin,
     Music(f32),
     Hitsounds(f32),
     PlayerLevel(f32),
@@ -167,7 +173,9 @@ pub fn view<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
         let late = (ground.came * 1.7 - 0.09 * at as f32).clamp(0.0, 1.0);
         tiles.push(draggable(ground, tile, late));
     }
-    let grid = container(ui::wrap(tiles, 10.0)).padding(Padding { top: 16.0, right: 40.0, bottom: 24.0, left: 40.0 });
+    let swap = ground.swap.clamp(0.0, 1.0);
+    let slid = ui::grown(ui::wrap(tiles, 10.0), iced::Point::new(0.5, 0.0), 0.0, 1.0).shifted((1.0 - swap) * 26.0 * ground.swap_from);
+    let grid = container(ui::fading(ui::fade() * swap, || slid)).padding(Padding { top: 16.0, right: 40.0, bottom: 24.0, left: 40.0 });
     column![container(switch).padding(Padding::ZERO.top(22.0)), grid].width(Length::Fill).into()
 }
 
@@ -175,10 +183,12 @@ fn draggable<'a>(ground: &Ground<'a>, tile: Tile, late: f32) -> Element<'a, Mess
     let held = ground.dragging == Some(tile);
     let face = one(ground, tile);
     let card: Element<'a, Message> = ui::fading(ui::fade() * late, || {
-        container(face)
-            .padding([12, 14])
-            .style(ui::box_faded(if held { theme::slot } else { theme::slab }))
-            .into()
+        let made = container(face).padding([12, 14]).style(ui::box_faded(theme::slab));
+        if held {
+            ui::hollow(made).into()
+        } else {
+            Element::from(made)
+        }
     });
     let risen = ui::grown(card, iced::Point::new(0.5, 0.0), -(1.0 - late) * 10.0, 0.96 + 0.04 * late);
     ui::dragged(risen.into(), tile, Message::Drag(tile), Message::DropBefore(Some(tile)), Message::Dropped, held)
@@ -195,8 +205,15 @@ fn mark_at(ground: &Ground<'_>, id: &str, on: bool) -> f32 {
     ground.marks.get(id).copied().unwrap_or(if on { 1.0 } else { 0.0 })
 }
 
+fn slide<'a>(ground: &Ground<'a>, id: &'static str, label: String, value: String, at: f32, stops: Vec<f32>, on: impl Fn(f32) -> Message + 'a) -> Element<'a, Message> {
+    let (shown, snap) = ground.slides.get(id).copied().unwrap_or((at, 1.0));
+    ui::steps(label, value, at, shown, snap, stops, on)
+}
+
 fn head<'a>(w: &Words, key: &str) -> Element<'a, Message> {
-    text(w.t(key)).font(theme::SANS_SEMI).size(13.0).color(ui::faded(INK)).into()
+    container(text(w.t(key)).font(theme::MONO).size(12.0).color(ui::faded(INK)))
+        .padding(Padding::ZERO.bottom(8.0))
+        .into()
 }
 
 fn line<'a>(ground: &Ground<'a>, id: &str, glyph: &str, name: String, under: String, on: bool, press: Option<Message>) -> Element<'a, Message> {
@@ -269,9 +286,9 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
             head(w, "render-tile"),
             container(
                 column![
-                    ui::steps(w.t("render-size"), format!("{}p", s.render_height), at(s.render_height, &HEIGHTS), stops(&HEIGHTS), Message::Height),
-                    ui::steps(w.t("render-frames"), s.render_fps.to_string(), at(s.render_fps, &RATES), stops(&RATES), Message::Rate),
-                    ui::steps(w.t("render-quality"), format!("CRF {}", s.render_crf), at(s.render_crf, &CRFS), stops(&CRFS), Message::Crf),
+                    slide(ground, "height", w.t("render-size"), format!("{}p", s.render_height), at(s.render_height, &HEIGHTS), stops(&HEIGHTS), Message::Height),
+                    slide(ground, "rate", w.t("render-frames"), s.render_fps.to_string(), at(s.render_fps, &RATES), stops(&RATES), Message::Rate),
+                    slide(ground, "crf", w.t("render-quality"), format!("CRF {}", s.render_crf), at(s.render_crf, &CRFS), stops(&CRFS), Message::Crf),
                 ]
                 .spacing(6)
                 .width(360.0)
@@ -322,22 +339,65 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
             rows.push(line(ground, "add-folder", "+", w.t("add-folder"), String::new(), false, Some(Message::AddFolder))).into()
         }
         Tile::Skins => {
-            let mut rows = column![head(w, "skins")].spacing(2);
-            rows = rows.push(line(ground, "skin-own", "·", w.t("own-skin"), String::new(), s.skin.is_none(), Some(Message::Skin(None))));
-            for folder in ground.skins.iter().take(6) {
-                let name = folder.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-                let chosen = s.skin.as_deref() == Some(folder.as_path());
-                rows = rows.push(line(ground, &format!("skin-{name}"), "skn", name, String::new(), chosen, Some(Message::Skin(Some(folder.clone())))));
+            let chosen = s.skin.clone();
+            let face: Element<'a, Message> = match ground.skin_face {
+                Some(handle) => iced::widget::image(handle.clone())
+                    .content_fit(iced::ContentFit::Cover)
+                    .width(44.0)
+                    .height(44.0)
+                    .border_radius(8.0)
+                    .opacity(ui::fade())
+                    .into(),
+                None => container(ui::hatch()).width(44.0).height(44.0).into(),
+            };
+            let top = row![
+                face,
+                column![
+                    text(match &chosen {
+                        Some(folder) => ui::shortened(folder.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default(), 22),
+                        None => w.t("own-skin"),
+                    })
+                    .font(theme::SANS_SEMI)
+                    .size(theme::CAPTION)
+                    .wrapping(text::Wrapping::None)
+                    .color(ui::faded(INK)),
+                    text(w.n("skins-found", ground.skins.len() as u64)).font(theme::SANS).size(11.0).wrapping(text::Wrapping::None).color(ui::faded(FAINT)),
+                ]
+                .spacing(2),
+            ]
+            .spacing(10)
+            .align_y(iced::Center);
+            let mut rows = column![head(w, "skins"), top].spacing(2);
+            rows = rows.push(container(Space::new().height(6.0)));
+            if s.skin.is_some() {
+                rows = rows.push(line(ground, "skin-own", "·", w.t("own-skin"), String::new(), false, Some(Message::Skin(None))));
             }
-            rows.into()
+            for folder in ground.skins.iter().take(5) {
+                let name = folder.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+                let picked = chosen.as_deref() == Some(folder.as_path());
+                rows = rows.push(line(
+                    ground,
+                    &format!("skin-{name}"),
+                    "skn",
+                    ui::shortened(name, 22),
+                    String::new(),
+                    picked,
+                    Some(Message::Skin(Some(folder.clone()))),
+                ));
+            }
+            let mut deeds = row![deed(w.t("rescan"), Message::RescanSkins, false)].spacing(6);
+            if chosen.is_some() {
+                deeds = deeds.push(deed(w.t("in-folder"), Message::OpenSkin, false));
+            }
+            rows.push(container(deeds).padding(Padding::ZERO.top(6.0))).into()
         }
         Tile::Sound => column![
             head(w, "sound"),
             container(
                 column![
-                    ui::steps(w.t("music"), percent(s.music_level), s.music_level, Vec::new(), Message::Music),
-                    ui::steps(w.t("hitsounds"), percent(s.hitsound_level), s.hitsound_level, Vec::new(), Message::Hitsounds),
-                    ui::steps(w.t("player-sound"), percent(s.player_level), s.player_level, Vec::new(), Message::PlayerLevel),
+                    slide(ground, "music", w.t("music"), percent(s.music_level), s.music_level, Vec::new(), Message::Music),
+                    slide(ground, "hits", w.t("hitsounds"), percent(s.hitsound_level), s.hitsound_level, Vec::new(), Message::Hitsounds),
+                    slide(ground, "player", w.t("player-sound"), percent(s.player_level), s.player_level, Vec::new(), Message::PlayerLevel),
                 ]
                 .spacing(6)
                 .width(260.0)

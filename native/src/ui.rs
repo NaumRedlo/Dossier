@@ -1619,6 +1619,8 @@ pub struct Steps<'a, Message> {
     pub label: String,
     pub value: String,
     pub at: f32,
+    pub shown: f32,
+    pub snap: f32,
     pub stops: Vec<f32>,
     pub on: Box<dyn Fn(f32) -> Message + 'a>,
 }
@@ -1673,20 +1675,22 @@ impl<Message> canvas::Program<Message> for Steps<'_, Message> {
     fn draw(&self, state: &StepsState, renderer: &Renderer, _: &Theme, bounds: Rectangle, cursor: mouse::Cursor) -> Vec<Geometry> {
         let mut frame = Frame::new(renderer, bounds.size());
         let (w, h) = (bounds.width, bounds.height);
-        let at = state.shown.unwrap_or(self.at).clamp(0.0, 1.0);
+        let at = state.shown.unwrap_or(self.shown).clamp(0.0, 1.0);
         let x = STEP_INSET + at * (w - 2.0 * STEP_INSET);
         let lit = state.grabbed || cursor.is_over(bounds);
         frame.fill(&Path::rounded_rectangle(Point::ORIGIN, Size::new(w, h), 7.0.into()), faded(Color::from_rgba(1.0, 1.0, 1.0, if lit { 0.09 } else { 0.07 })));
         frame.fill(&Path::rounded_rectangle(Point::ORIGIN, Size::new(x.max(14.0), h), 7.0.into()), faded(Color::from_rgba(1.0, 1.0, 1.0, 0.11)));
-        let on_stop = self.stops.iter().any(|s| (s - at).abs() < 0.001) || at < 0.001 || at > 0.999;
+        let on_stop = self.snap.clamp(0.0, 1.0);
         for stop in &self.stops {
-            if (stop - at).abs() < 0.001 {
-                continue;
-            }
+            let near = 1.0 - ((stop - at).abs() / 0.05).clamp(0.0, 1.0);
             let sx = STEP_INSET + stop * (w - 2.0 * STEP_INSET);
-            frame.fill(&Path::rounded_rectangle(Point::new(sx - 1.0, 4.0), Size::new(2.0, h - 8.0), 1.0.into()), faded(Color::from_rgba(1.0, 1.0, 1.0, 0.16)));
+            let shrink = 4.0 - 3.0 * near;
+            let alpha = 0.16 * (1.0 - near);
+            if alpha > 0.005 {
+                frame.fill(&Path::rounded_rectangle(Point::new(sx - 1.0, shrink), Size::new(2.0, h - 2.0 * shrink), 1.0.into()), faded(Color::from_rgba(1.0, 1.0, 1.0, alpha)));
+            }
         }
-        let inset = if on_stop { 1.0 } else { 4.0 };
+        let inset = 4.0 - 3.0 * on_stop;
         frame.fill(&Path::rounded_rectangle(Point::new(x - 3.0, inset), Size::new(6.0, h - 2.0 * inset), 3.0.into()), faded(INK));
         let label_right = at < 0.2;
         frame.fill_text(canvas::Text {
@@ -1722,8 +1726,19 @@ impl<Message> canvas::Program<Message> for Steps<'_, Message> {
     }
 }
 
-pub fn steps<'a, Message: 'a>(label: String, value: String, at: f32, stops: Vec<f32>, on: impl Fn(f32) -> Message + 'a) -> Element<'a, Message> {
-    Canvas::new(Steps { label, value, at, stops, on: Box::new(on) }).width(Length::Fill).height(26.0).into()
+pub fn steps<'a, Message: 'a>(
+    label: String,
+    value: String,
+    at: f32,
+    shown: f32,
+    snap: f32,
+    stops: Vec<f32>,
+    on: impl Fn(f32) -> Message + 'a,
+) -> Element<'a, Message> {
+    Canvas::new(Steps { label, value, at, shown, snap, stops, on: Box::new(on) })
+        .width(Length::Fill)
+        .height(26.0)
+        .into()
 }
 
 pub struct Mark {
@@ -1749,28 +1764,41 @@ impl<Message> canvas::Program<Message> for Mark {
         };
         frame.fill(&Path::circle(centre, side / 2.0), faded(colour));
         if self.glyph.is_empty() {
-            let r = side * 0.24;
-            let stroke = |width: f32, colour: Color| Stroke::default().with_width(width).with_color(faded(colour)).with_line_cap(canvas::LineCap::Round);
+            let r = side * 0.3;
+            let stroke = |width: f32, colour: Color| {
+                Stroke::default()
+                    .with_width(width)
+                    .with_color(faded(colour))
+                    .with_line_cap(canvas::LineCap::Round)
+                    .with_line_join(canvas::LineJoin::Round)
+            };
             if k > 0.02 {
-                let grown = ((k - 0.0) / 1.0).clamp(0.0, 1.0);
-                let elbow = Point::new(centre.x - r * 0.15, centre.y + r * 0.6);
-                let start = Point::new(centre.x - r, centre.y + r * 0.05);
-                let end = Point::new(centre.x + r, centre.y - r * 0.7);
-                let first = grown.min(0.45) / 0.45;
-                let second = ((grown - 0.45) / 0.55).clamp(0.0, 1.0);
+                let start = Point::new(centre.x - r * 0.92, centre.y + r * 0.06);
+                let elbow = Point::new(centre.x - r * 0.24, centre.y + r * 0.72);
+                let end = Point::new(centre.x + r * 0.92, centre.y - r * 0.66);
+                let first = (k / 0.4).clamp(0.0, 1.0);
+                let second = ((k - 0.4) / 0.6).clamp(0.0, 1.0);
                 let a = Point::new(start.x + (elbow.x - start.x) * first, start.y + (elbow.y - start.y) * first);
-                frame.stroke(&Path::line(start, a), stroke(2.0, Color::WHITE));
-                if second > 0.0 {
-                    let b = Point::new(elbow.x + (end.x - elbow.x) * second, elbow.y + (end.y - elbow.y) * second);
-                    frame.stroke(&Path::line(elbow, b), stroke(2.0, Color::WHITE));
-                }
+                let tick = Path::new(|b| {
+                    b.move_to(start);
+                    b.line_to(a);
+                    if second > 0.0 {
+                        b.line_to(Point::new(elbow.x + (end.x - elbow.x) * second, elbow.y + (end.y - elbow.y) * second));
+                    }
+                });
+                frame.stroke(&tick, stroke(side * 0.1, Color::WHITE));
             }
             if k < 0.98 {
                 let gone = 1.0 - k;
-                let arm = r * 0.8 * gone;
-                let faintly = Color { a: 0.55 * gone, ..MUTED };
-                frame.stroke(&Path::line(Point::new(centre.x - arm, centre.y - arm), Point::new(centre.x + arm, centre.y + arm)), stroke(1.6, faintly));
-                frame.stroke(&Path::line(Point::new(centre.x + arm, centre.y - arm), Point::new(centre.x - arm, centre.y + arm)), stroke(1.6, faintly));
+                let arm = r * 0.62 * gone;
+                let faintly = Color { a: 0.6 * gone, ..MUTED };
+                let cross = Path::new(|b| {
+                    b.move_to(Point::new(centre.x - arm, centre.y - arm));
+                    b.line_to(Point::new(centre.x + arm, centre.y + arm));
+                    b.move_to(Point::new(centre.x + arm, centre.y - arm));
+                    b.line_to(Point::new(centre.x - arm, centre.y + arm));
+                });
+                frame.stroke(&cross, stroke(side * 0.075, faintly));
             }
         } else {
             frame.fill_text(canvas::Text {
@@ -2174,5 +2202,72 @@ pub fn drift(elapsed: f32) -> f32 {
         1.0
     } else {
         1.0 - ease((at - (span - travel)) / travel)
+    }
+}
+
+pub struct Hollow<'a, Message> {
+    content: Element<'a, Message>,
+}
+
+pub fn hollow<'a, Message: 'a>(content: impl Into<Element<'a, Message>>) -> Hollow<'a, Message> {
+    Hollow { content: content.into() }
+}
+
+impl<Message> iced::advanced::Widget<Message, Theme, Renderer> for Hollow<'_, Message> {
+    fn tag(&self) -> iced::advanced::widget::tree::Tag {
+        self.content.as_widget().tag()
+    }
+
+    fn state(&self) -> iced::advanced::widget::tree::State {
+        self.content.as_widget().state()
+    }
+
+    fn children(&self) -> Vec<iced::advanced::widget::Tree> {
+        self.content.as_widget().children()
+    }
+
+    fn diff(&self, tree: &mut iced::advanced::widget::Tree) {
+        self.content.as_widget().diff(tree);
+    }
+
+    fn size(&self) -> Size<Length> {
+        self.content.as_widget().size()
+    }
+
+    fn layout(
+        &mut self,
+        tree: &mut iced::advanced::widget::Tree,
+        renderer: &Renderer,
+        limits: &iced::advanced::layout::Limits,
+    ) -> iced::advanced::layout::Node {
+        self.content.as_widget_mut().layout(tree, renderer, limits)
+    }
+
+    fn draw(
+        &self,
+        _tree: &iced::advanced::widget::Tree,
+        renderer: &mut Renderer,
+        theme: &Theme,
+        _style: &iced::advanced::renderer::Style,
+        layout: iced::advanced::Layout<'_>,
+        _cursor: mouse::Cursor,
+        _viewport: &Rectangle,
+    ) {
+        use iced::advanced::Renderer as _;
+        let style = theme::slot(theme);
+        renderer.fill_quad(
+            iced::advanced::renderer::Quad {
+                bounds: layout.bounds(),
+                border: style.border,
+                ..iced::advanced::renderer::Quad::default()
+            },
+            style.background.unwrap_or(iced::Background::Color(Color::TRANSPARENT)),
+        );
+    }
+}
+
+impl<'a, Message: 'a> From<Hollow<'a, Message>> for Element<'a, Message> {
+    fn from(hollow: Hollow<'a, Message>) -> Element<'a, Message> {
+        Element::new(hollow)
     }
 }

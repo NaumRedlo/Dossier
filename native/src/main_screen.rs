@@ -58,6 +58,7 @@ pub enum Message {
     Retype(Instant),
     Chats(Vec<crate::bot::Chat>),
     Skins(Vec<PathBuf>),
+    SkinFace(Option<image::Handle>),
     Sized(u64, u64, u64),
     Ffmpeg(Option<String>),
     Adopted(Vec<videos::Video>),
@@ -267,10 +268,15 @@ pub struct Main {
     pub renaming: Option<String>,
     pub chats: Vec<crate::bot::Chat>,
     pub skins: Vec<PathBuf>,
+    pub skin_face: Option<image::Handle>,
     pub marks: HashMap<String, Animation<bool>>,
     pub marks_now: HashMap<String, f32>,
+    pub slides: HashMap<String, (f32, f32)>,
     pub drag_at: Point,
+    pub drag_held: Point,
     pub lang_swap: bool,
+    pub side_fade: Animation<bool>,
+    pub side_swap: f32,
     pub sizes: (u64, u64, u64),
     pub ffmpeg_version: Option<String>,
     pub retype: Animation<bool>,
@@ -349,10 +355,15 @@ impl Main {
             renaming: None,
             chats: Vec::new(),
             skins: Vec::new(),
+            skin_face: None,
             marks: HashMap::new(),
             marks_now: HashMap::new(),
+            slides: HashMap::new(),
             drag_at: Point::ORIGIN,
+            drag_held: Point::ORIGIN,
             lang_swap: false,
+            side_fade: Animation::new(true),
+            side_swap: 0.0,
             sizes: (0, 0, 0),
             ffmpeg_version: None,
             retype: Animation::new(true),
@@ -441,8 +452,10 @@ impl Main {
             || self.menu_open.is_animating(self.now)
             || self.overlay_fade.is_animating(self.now)
             || self.retype.is_animating(self.now)
+            || self.side_fade.is_animating(self.now)
             || self.marks.values().any(|m| m.is_animating(self.now))
             || self.dragging.is_some()
+            || self.overlay == Overlay::Settings
             || self.hover.is_some()
             || self.arrivals.values().any(|a| a.is_animating(self.now))
             || self.leaving.values().any(|a| a.is_animating(self.now))
@@ -928,6 +941,10 @@ impl Main {
             }
             Message::Skins(found) => {
                 self.skins = found;
+                self.skin_look()
+            }
+            Message::SkinFace(handle) => {
+                self.skin_face = handle;
                 Task::none()
             }
             Message::Chats(chats) => {
@@ -1445,6 +1462,7 @@ impl Main {
                     None => self.progress_shown = 0.0,
                 }
                 self.marks_now = self.marks.iter().map(|(id, mark)| (id.clone(), mark.interpolate(0.0, 1.0, now))).collect();
+                self.ease_slides();
                 self.words.typed_up_to(self.retype.interpolate(0.0, 1.0, now));
                 if !self.retype.is_animating(now) {
                     self.words.settle();
@@ -1455,6 +1473,10 @@ impl Main {
                     }
                 }
                 self.toasts.retain(|t| t.shown.value() || t.shown.is_animating(now));
+                if self.dragging.is_some() {
+                    self.drag_held.x += (self.drag_at.x - self.drag_held.x) * 0.35;
+                    self.drag_held.y += (self.drag_at.y - self.drag_held.y) * 0.35;
+                }
                 if self.lang_swap && !self.overlay_fade.value() && !self.overlay_fade.is_animating(now) {
                     self.lang_swap = false;
                     self.overlay_fade = Animation::new(false).duration(LANG_FADE).easing(Easing::EaseOutCubic).go(true, now);
@@ -2310,6 +2332,42 @@ pub const MARK: Duration = Duration::from_millis(200);
 pub const LANG_FADE: Duration = Duration::from_millis(150);
 
 impl Main {
+    fn skin_look(&self) -> Task<Message> {
+        let Some(folder) = self.settings.skin.clone() else {
+            return Task::done(Message::SkinFace(None));
+        };
+        ui::in_thread(move || {
+            let handle = crate::settings::skin_face(&folder).and_then(|file| decoded(&file, 128, Some((128, 128))));
+            Message::SkinFace(handle)
+        })
+    }
+
+    fn ease_slides(&mut self) {
+        let wanted = self.slider_targets();
+        for (id, target) in wanted {
+            let (shown, snap) = self.slides.entry(id).or_insert((target, 1.0));
+            *shown += (target - *shown) * 0.3;
+            let near = 1.0 - ((target - *shown).abs() / 0.04).clamp(0.0, 1.0);
+            *snap += (near - *snap) * 0.3;
+        }
+    }
+
+    fn slider_targets(&self) -> Vec<(String, f32)> {
+        use crate::settings::{CRFS, HEIGHTS, RATES};
+        let at = |value: u32, of: &[u32]| {
+            let last = (of.len().max(2) - 1) as f32;
+            of.iter().position(|v| *v == value).map_or(0.5, |i| i as f32 / last)
+        };
+        vec![
+            ("height".to_owned(), at(self.settings.render_height, &HEIGHTS)),
+            ("rate".to_owned(), at(self.settings.render_fps, &RATES)),
+            ("crf".to_owned(), at(self.settings.render_crf, &CRFS)),
+            ("music".to_owned(), self.settings.music_level),
+            ("hits".to_owned(), self.settings.hitsound_level),
+            ("player".to_owned(), self.settings.player_level),
+        ]
+    }
+
     fn remember_mark(&mut self, id: &str, on: bool) {
         let now = Instant::now();
         self.marks
@@ -2336,15 +2394,26 @@ impl Main {
             dragging: self.dragging,
             renaming: self.renaming.as_ref(),
             skins: &self.skins,
+            skin_face: self.skin_face.as_ref(),
             marks: &self.marks_now,
+            slides: &self.slides,
             came: self.overlay_fade.interpolate(0.0, 1.0, self.now),
+            swap: self.side_fade.interpolate(0.0, 1.0, self.now),
+            swap_from: self.side_swap,
         };
         let body: Element<'_, Message> = Element::from(prefs::view(&ground)).map(Message::Prefs);
         let sheet = column![self.chrome(), body].width(Length::Fill).height(Length::Fill);
         let held: Element<'_, Message> = match self.dragging {
             Some(tile) => {
                 let card: Element<'_, Message> = Element::from(prefs::floating(&ground, tile)).map(Message::Prefs);
-                pin(ui::grown(card, Point::new(0.5, 0.5), 0.0, 1.04)).x(self.drag_at.x - 90.0).y(self.drag_at.y - 26.0).into()
+                let speed = (self.drag_at.x - self.drag_held.x).abs() + (self.drag_at.y - self.drag_held.y).abs();
+                let grown = 1.03 + (speed / 400.0).min(0.03);
+                let lean = ((self.drag_at.x - self.drag_held.x) * 0.35).clamp(-14.0, 14.0);
+                let bob = ((self.drag_at.y - self.drag_held.y) * 0.3).clamp(-10.0, 10.0);
+                pin(ui::grown(card, Point::new(0.5, 0.5), -bob, grown).shifted(lean))
+                    .x(self.drag_held.x - 90.0)
+                    .y(self.drag_held.y - 26.0)
+                    .into()
             }
             None => Space::new().width(Length::Fill).height(Length::Fill).into(),
         };
@@ -2361,6 +2430,10 @@ impl Main {
         };
         match message {
             P::Side(side) => {
+                if side != self.side {
+                    self.side_swap = if side == Side::Bot { 1.0 } else { -1.0 };
+                    self.side_fade = Animation::new(false).duration(TAB_FADE).easing(Easing::EaseOutCubic).go(true, Instant::now());
+                }
                 self.side = side;
                 let name = if side == Side::Bot { "bot" } else { "app" };
                 if self.settings.settings_tab != name {
@@ -2516,6 +2589,16 @@ impl Main {
                 self.remember_mark(&name(&folder), true);
                 self.settings.skin = folder;
                 keep(&self.settings);
+                self.skin_look()
+            }
+            P::RescanSkins => {
+                let sources = self.settings.sources.clone();
+                ui::in_thread(move || Message::Skins(crate::settings::skins_in(&sources)))
+            }
+            P::OpenSkin => {
+                if let Some(folder) = &self.settings.skin {
+                    let _ = open::that_detached(folder);
+                }
                 Task::none()
             }
             P::Music(level) => {
@@ -2538,6 +2621,9 @@ impl Main {
             }
             P::Unlink | P::SignOut => self.update(Message::SignOut),
             P::Drag(tile) => {
+                if self.dragging.is_none() {
+                    self.drag_held = self.drag_at;
+                }
                 self.dragging = Some(tile);
                 Task::none()
             }

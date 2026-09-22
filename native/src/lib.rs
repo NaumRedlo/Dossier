@@ -62,6 +62,7 @@ pub struct Rehearsal {
     pub menu: Option<String>,
     pub prefs: bool,
     pub leave: bool,
+    pub swap: bool,
 }
 
 impl Rehearsal {
@@ -85,7 +86,8 @@ impl Rehearsal {
         let menu = args.iter().position(|a| a == "--menu").and_then(|i| args.get(i + 1)).cloned();
         let prefs = args.iter().any(|a| a == "--prefs");
         let leave = args.iter().any(|a| a == "--leave");
-        Some(Rehearsal { folder, snap_to, after, render, get_map, look, step, hover, videos, play, menu, prefs, leave })
+        let swap = args.iter().any(|a| a == "--swap");
+        Some(Rehearsal { folder, snap_to, after, render, get_map, look, step, hover, videos, play, menu, prefs, leave, swap })
     }
 }
 
@@ -127,6 +129,9 @@ impl App {
                     _ => main_screen::Tab::Account,
                 };
                 Task::perform(async { tokio_sleep(std::time::Duration::from_millis(1500)).await }, move |_| Message::Main(main_screen::Message::MenuTab(tab)))
+            } else if rehearsal.swap {
+                Task::perform(async { tokio_sleep(std::time::Duration::from_millis(1200)).await }, |_| Message::Main(main_screen::Message::Show(main_screen::Overlay::Settings)))
+                    .chain(Task::perform(async { tokio_sleep(std::time::Duration::from_millis(1200)).await }, |_| Message::Main(main_screen::Message::Show(main_screen::Overlay::Videos))))
             } else if rehearsal.leave {
                 Task::perform(async { tokio_sleep(std::time::Duration::from_millis(1200)).await }, |_| Message::Main(main_screen::Message::Show(main_screen::Overlay::Settings)))
                     .chain(Task::perform(async { tokio_sleep(std::time::Duration::from_millis(1200)).await }, |_| Message::Main(main_screen::Message::Show(main_screen::Overlay::None))))

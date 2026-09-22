@@ -59,6 +59,7 @@ pub enum Message {
     Chats(Vec<crate::bot::Chat>),
     Skins(Vec<PathBuf>),
     SkinFace(Option<image::Handle>),
+    ChatFace(i64, Option<image::Handle>),
     Sized(u64, u64, u64),
     Ffmpeg(Option<String>),
     Adopted(Vec<videos::Video>),
@@ -269,13 +270,17 @@ pub struct Main {
     pub chats: Vec<crate::bot::Chat>,
     pub skins: Vec<PathBuf>,
     pub skin_face: Option<image::Handle>,
+    pub chat_faces: HashMap<i64, image::Handle>,
     pub marks: HashMap<String, Animation<bool>>,
     pub marks_now: HashMap<String, f32>,
     pub slides: HashMap<String, (f32, f32)>,
+    pub slid_at: Instant,
     pub drag_at: Point,
     pub drag_held: Point,
     pub slot_open: f32,
     pub slot_shut: f32,
+    pub landed: Option<(Tile, Instant)>,
+    pub eyed: Option<(Option<Tile>, Instant)>,
     pub lang_swap: bool,
     pub turning: Option<Overlay>,
     pub side_fade: Animation<bool>,
@@ -359,13 +364,17 @@ impl Main {
             chats: Vec::new(),
             skins: Vec::new(),
             skin_face: None,
+            chat_faces: HashMap::new(),
             marks: HashMap::new(),
             marks_now: HashMap::new(),
             slides: HashMap::new(),
+            slid_at: Instant::now(),
             drag_at: Point::ORIGIN,
             drag_held: Point::ORIGIN,
             slot_open: 0.0,
             slot_shut: 1.0,
+            landed: None,
+            eyed: None,
             lang_swap: false,
             turning: None,
             side_fade: Animation::new(true),
@@ -463,6 +472,7 @@ impl Main {
             || self.marks.values().any(|m| m.is_animating(self.now))
             || self.dragging.is_some()
             || self.slot_open > 0.001
+            || self.landed.is_some()
             || self.overlay == Overlay::Settings
             || self.hover.is_some()
             || self.arrivals.values().any(|a| a.is_animating(self.now))
@@ -956,7 +966,27 @@ impl Main {
                 Task::none()
             }
             Message::Chats(chats) => {
+                let wanted: Vec<i64> = chats.iter().filter(|chat| chat.photo && !self.chat_faces.contains_key(&chat.id)).map(|chat| chat.id).collect();
                 self.chats = chats;
+                if wanted.is_empty() {
+                    return Task::none();
+                }
+                let (server, token, name) = (self.settings.server.clone(), self.settings.token.clone(), self.settings.device.clone());
+                ui::streamed(move |push| {
+                    for id in wanted {
+                        let handle = crate::bot::chat_avatar(&server, &token, &name, id)
+                            .ok()
+                            .and_then(|bytes| decoded_bytes(&bytes, AVATAR_SIDE));
+                        if !push(Message::ChatFace(id, handle)) {
+                            return;
+                        }
+                    }
+                })
+            }
+            Message::ChatFace(id, handle) => {
+                if let Some(handle) = handle {
+                    self.chat_faces.insert(id, handle);
+                }
                 Task::none()
             }
             Message::Retype(_) => Task::none(),
@@ -1478,11 +1508,14 @@ impl Main {
                 if self.dragging.is_some() {
                     self.drag_held.x += (self.drag_at.x - self.drag_held.x) * 0.35;
                     self.drag_held.y += (self.drag_at.y - self.drag_held.y) * 0.35;
-                    self.slot_open += (1.0 - self.slot_open) * 0.3;
-                    self.slot_shut += (0.0 - self.slot_shut) * 0.3;
+                    self.slot_open += (1.0 - self.slot_open) * 0.16;
+                    self.slot_shut += (0.0 - self.slot_shut) * 0.16;
                 } else if self.slot_open > 0.001 {
-                    self.slot_open += (0.0 - self.slot_open) * 0.35;
+                    self.slot_open += (0.0 - self.slot_open) * 0.2;
                     self.slot_shut = 1.0;
+                }
+                if self.landed.is_some_and(|(_, at)| now.saturating_duration_since(at) > LANDING) {
+                    self.landed = None;
                 }
                 if let Some(next) = self.turning {
                     if !self.overlay_fade.value() && !self.overlay_fade.is_animating(now) {
@@ -1649,11 +1682,14 @@ impl Main {
         let crest: Element<'_, Message> =
             pin(float(crest).translate(move |_, _| Vector::new(0.0, (1.0 - early) * CREST_RISE))).x(CREST_HOME.0).y(CREST_HOME.1).into();
         let sheet = self.overlay_fade.interpolate(0.0, 1.0, self.now);
-        let overlay: Element<'_, Message> = if self.overlay != Overlay::None || self.overlay_fade.is_animating(self.now) {
-            ui::fading(sheet, || self.overlay_view())
+        let showing = self.overlay != Overlay::None || self.overlay_fade.is_animating(self.now);
+        let ground: Element<'_, Message> = if showing {
+            let deep = if self.turning.is_some() { 1.0 } else { sheet.sqrt() };
+            ui::fading(deep, || ui::veil(theme::GROUND))
         } else {
             blank()
         };
+        let overlay: Element<'_, Message> = if showing { ui::fading(sheet, || self.overlay_view()) } else { blank() };
         let bubble = self.bubble_layer();
         let toasts = self.toast_layer();
         let menu = self.menu_layer();
@@ -1664,7 +1700,7 @@ impl Main {
         } else {
             blank()
         };
-        let layers = stack![scene_before, scene, live_before, live, body, bubble, crest, overlay, ask, menu, signing, failure, toasts];
+        let layers = stack![scene_before, scene, live_before, live, body, bubble, crest, ground, overlay, ask, menu, signing, failure, toasts];
         layers.width(Length::Fill).height(Length::Fill).into()
     }
 
@@ -2089,7 +2125,7 @@ impl Main {
     }
 
     fn overlay_view(&self) -> Element<'_, Message> {
-        let which = if self.overlay == Overlay::None { self.overlay_drawn } else { self.overlay };
+        let which = self.overlay_drawn;
         if which == Overlay::Videos {
             return self.videos_view();
         }
@@ -2147,8 +2183,7 @@ impl Main {
             _ => Space::new().width(Length::Fill).height(Length::Fill).into(),
         };
         let crest: Element<'_, Message> = pin(ui::brand()).x(CREST_HOME.0).y(CREST_HOME.1).into();
-        let ground: Element<'_, Message> = ui::fading(ui::fade().sqrt(), || ui::veil(theme::GROUND));
-        stack![ground, sheet, crest, stage].width(Length::Fill).height(Length::Fill).into()
+        stack![sheet, crest, stage].width(Length::Fill).height(Length::Fill).into()
     }
 
     fn video_head(&self) -> Element<'_, Message> {
@@ -2344,6 +2379,8 @@ impl Main {
 const VIDEO_THUMB: (u32, u32) = (96, 54);
 pub const RETYPE: Duration = Duration::from_millis(900);
 pub const MARK: Duration = Duration::from_millis(200);
+pub const LANDING: Duration = Duration::from_millis(180);
+pub const EYED: Duration = Duration::from_millis(70);
 pub const LANG_FADE: Duration = Duration::from_millis(150);
 
 impl Main {
@@ -2379,10 +2416,11 @@ impl Main {
     fn ease_slides(&mut self) {
         let wanted = self.slider_targets();
         for (id, target) in wanted {
+            let settled = self.now.saturating_duration_since(self.slid_at).as_millis() > 140;
             let (shown, snap) = self.slides.entry(id).or_insert((target, 1.0));
-            *shown += (target - *shown) * 0.3;
-            let near = 1.0 - ((target - *shown).abs() / 0.04).clamp(0.0, 1.0);
-            *snap += (near - *snap) * 0.3;
+            *shown += (target - *shown) * 0.28;
+            let want = if settled && (target - *shown).abs() < 0.01 { 1.0 } else { 0.0 };
+            *snap += (want - *snap) * 0.25;
         }
     }
 
@@ -2425,8 +2463,10 @@ impl Main {
             account: self.account.as_ref(),
             avatar: self.avatar.as_ref(),
             chats: &self.chats,
+            chat_faces: &self.chat_faces,
             dragging: self.dragging,
             landing: self.drop_before,
+            landed: self.landed.map(|(tile, at)| (tile, (self.now.saturating_duration_since(at).as_secs_f32() / LANDING.as_secs_f32()).clamp(0.0, 1.0))),
             opening: self.slot_open,
             closing: self.slot_shut,
             renaming: self.renaming.as_ref(),
@@ -2454,8 +2494,7 @@ impl Main {
             }
             None => Space::new().width(Length::Fill).height(Length::Fill).into(),
         };
-        let ground: Element<'_, Message> = ui::fading(ui::fade().sqrt(), || ui::veil(theme::GROUND));
-        stack![ground, sheet, held]
+        stack![sheet, held]
             .width(Length::Fill)
             .height(Length::Fill)
             .into()
@@ -2530,16 +2569,19 @@ impl Main {
                 Task::none()
             }
             P::Height(at) => {
+                self.slid_at = Instant::now();
                 self.settings.render_height = prefs::nearest(at, &crate::settings::HEIGHTS);
                 keep(&self.settings);
                 Task::none()
             }
             P::Rate(at) => {
+                self.slid_at = Instant::now();
                 self.settings.render_fps = prefs::nearest(at, &crate::settings::RATES);
                 keep(&self.settings);
                 Task::none()
             }
             P::Crf(at) => {
+                self.slid_at = Instant::now();
                 self.settings.render_crf = prefs::nearest(at, &crate::settings::CRFS);
                 keep(&self.settings);
                 Task::none()
@@ -2640,16 +2682,19 @@ impl Main {
                 Task::none()
             }
             P::Music(level) => {
+                self.slid_at = Instant::now();
                 self.settings.music_level = level.clamp(0.0, 1.0);
                 keep(&self.settings);
                 Task::none()
             }
             P::Hitsounds(level) => {
+                self.slid_at = Instant::now();
                 self.settings.hitsound_level = level.clamp(0.0, 1.0);
                 keep(&self.settings);
                 Task::none()
             }
             P::PlayerLevel(level) => {
+                self.slid_at = Instant::now();
                 self.settings.player_level = level.clamp(0.0, 1.0);
                 keep(&self.settings);
                 if let Some(player) = &self.player {
@@ -2673,9 +2718,19 @@ impl Main {
                 Task::none()
             }
             P::DropBefore(tile) => {
-                if self.dragging.is_some() && tile != self.dragging && self.drop_before != tile {
-                    self.drop_before = tile;
-                    self.slot_open = 0.35;
+                let now = Instant::now();
+                if self.dragging.is_none() || tile == self.dragging || self.drop_before == tile {
+                    self.eyed = None;
+                    return Task::none();
+                }
+                match self.eyed {
+                    Some((seen, at)) if seen == tile && now.saturating_duration_since(at) > EYED => {
+                        self.eyed = None;
+                        self.drop_before = tile;
+                        self.slot_open = self.slot_open.min(0.4);
+                    }
+                    Some((seen, _)) if seen == tile => {}
+                    _ => self.eyed = Some((tile, now)),
                 }
                 Task::none()
             }
@@ -2683,6 +2738,7 @@ impl Main {
                 let (Some(what), before) = (self.dragging.take(), self.drop_before.take()) else {
                     return Task::none();
                 };
+                self.landed = Some((what, Instant::now()));
                 if Some(what) == before {
                     return Task::none();
                 }
@@ -2723,9 +2779,9 @@ impl Main {
                     .next()
                     .map(|c| c.to_uppercase().to_string())
                     .unwrap_or_default();
-                iced::widget::canvas(ui::Disc { letter, hatched: false }).width(side).height(side).into()
+                ui::disc(&letter, false, side)
             }
-            (None, false) => iced::widget::canvas(ui::Disc { letter: String::new(), hatched: true }).width(side).height(side).into(),
+            (None, false) => ui::disc("", true, side),
         };
         let layered = stack![face, iced::widget::canvas(ui::Ring { alpha: ring }).width(side).height(side)].width(side).height(side);
         if pressable {

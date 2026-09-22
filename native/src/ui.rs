@@ -1492,6 +1492,20 @@ impl<Message> canvas::Program<Message> for Seek<'_, Message> {
 pub struct Disc {
     pub letter: String,
     pub hatched: bool,
+    pub alpha: f32,
+}
+
+pub fn disc<'a, Message: 'a>(letter: &str, hatched: bool, side: f32) -> Element<'a, Message> {
+    Canvas::new(Disc { letter: letter.to_owned(), hatched, alpha: fade() })
+        .width(side)
+        .height(side)
+        .into()
+}
+
+impl Disc {
+    fn dimmed(&self, colour: Color) -> Color {
+        Color { a: colour.a * self.alpha.clamp(0.0, 1.0), ..colour }
+    }
 }
 
 impl<Message> canvas::Program<Message> for Disc {
@@ -1503,24 +1517,24 @@ impl<Message> canvas::Program<Message> for Disc {
         let centre = Point::new(bounds.width / 2.0, bounds.height / 2.0);
         let disc = Path::circle(centre, side / 2.0);
         if self.hatched {
-            frame.fill(&disc, faded(Color::from_rgba(0.08, 0.035, 0.047, 0.9)));
+            frame.fill(&disc, self.dimmed(Color::from_rgba(0.08, 0.035, 0.047, 0.9)));
             for step in 0..((side * 3.0 / 5.0) as i32) {
                 let x = -side + step as f32 * 5.0;
                 let a = Point::new(x, side);
                 let b = Point::new(x + side, 0.0);
                 if let Some((p, q)) = clip_to_circle(a, b, centre, side / 2.0 - 1.0) {
-                    frame.stroke(&Path::line(p, q), Stroke::default().with_width(1.5).with_color(faded(Color { a: 0.55, ..MUTED })));
+                    frame.stroke(&Path::line(p, q), Stroke::default().with_width(1.5).with_color(self.dimmed(Color { a: 0.55, ..MUTED })));
                 }
             }
-            frame.stroke(&disc, Stroke::default().with_width(1.0).with_color(faded(Color::from_rgba(1.0, 1.0, 1.0, 0.1))));
+            frame.stroke(&disc, Stroke::default().with_width(1.0).with_color(self.dimmed(Color::from_rgba(1.0, 1.0, 1.0, 0.1))));
         } else {
-            frame.fill(&disc, faded(ACCENT));
-            frame.stroke(&disc, Stroke::default().with_width(1.0).with_color(faded(Color::from_rgba(1.0, 1.0, 1.0, 0.12))));
+            frame.fill(&disc, self.dimmed(ACCENT));
+            frame.stroke(&disc, Stroke::default().with_width(1.0).with_color(self.dimmed(Color::from_rgba(1.0, 1.0, 1.0, 0.12))));
             if !self.letter.is_empty() {
                 frame.fill_text(canvas::Text {
                     content: self.letter.clone(),
                     position: centre,
-                    color: faded(INK),
+                    color: self.dimmed(INK),
                     size: (side * 0.5).into(),
                     font: theme::SANS_SEMI,
                     align_x: iced::alignment::Horizontal::Center.into(),
@@ -1554,6 +1568,10 @@ fn clip_to_circle(a: Point, b: Point, centre: Point, radius: f32) -> Option<(Poi
 
 pub struct Ring {
     pub alpha: f32,
+}
+
+pub fn ring<'a, Message: 'a>(k: f32, side: f32) -> Element<'a, Message> {
+    Canvas::new(Ring { alpha: k * fade() }).width(side).height(side).into()
 }
 
 impl<Message> canvas::Program<Message> for Ring {
@@ -1651,8 +1669,8 @@ pub struct StepsState {
     shown: Option<f32>,
 }
 
-const STEP_INSET: f32 = 6.0;
-const STEP_SNAP: f32 = 0.06;
+const STEP_INSET: f32 = 9.0;
+const STEP_SNAP: f32 = 0.035;
 
 impl<Message> canvas::Program<Message> for Steps<'_, Message> {
     type State = StepsState;
@@ -1699,8 +1717,8 @@ impl<Message> canvas::Program<Message> for Steps<'_, Message> {
         let x = STEP_INSET + at * (w - 2.0 * STEP_INSET);
         let lit = state.grabbed || cursor.is_over(bounds);
         frame.fill(&Path::rounded_rectangle(Point::ORIGIN, Size::new(w, h), 7.0.into()), dim(Color::from_rgba(1.0, 1.0, 1.0, if lit { 0.055 } else { 0.04 }), self.alpha));
-        frame.fill(&Path::rounded_rectangle(Point::ORIGIN, Size::new(x.max(14.0), h), 7.0.into()), dim(Color::from_rgba(0.886, 0.282, 0.282, if lit { 0.2 } else { 0.15 }), self.alpha));
-        let on_stop = self.snap.clamp(0.0, 1.0);
+        frame.fill(&Path::rounded_rectangle(Point::ORIGIN, Size::new((x + STEP_INSET).max(18.0), h), 7.0.into()), dim(Color::from_rgba(0.886, 0.282, 0.282, if lit { 0.2 } else { 0.15 }), self.alpha));
+        let on_stop = if state.grabbed { 0.0 } else { self.snap.clamp(0.0, 1.0) };
         for stop in &self.stops {
             let near = 1.0 - ((stop - at).abs() / 0.05).clamp(0.0, 1.0);
             let sx = STEP_INSET + stop * (w - 2.0 * STEP_INSET);
@@ -1710,8 +1728,12 @@ impl<Message> canvas::Program<Message> for Steps<'_, Message> {
                 frame.fill(&Path::rounded_rectangle(Point::new(sx - 1.0, shrink), Size::new(2.0, h - 2.0 * shrink), 1.0.into()), dim(Color::from_rgba(1.0, 1.0, 1.0, alpha * 0.8), self.alpha));
             }
         }
-        let inset = 4.0 - 3.0 * on_stop;
-        frame.fill(&Path::rounded_rectangle(Point::new(x - 3.0, inset), Size::new(6.0, h - 2.0 * inset), 3.0.into()), dim(Color { a: 0.92, ..INK }, self.alpha));
+        let inset = 5.0 - 4.0 * on_stop;
+        let wide = 7.0 + 1.0 * on_stop;
+        frame.fill(
+            &Path::rounded_rectangle(Point::new(x - wide / 2.0, inset), Size::new(wide, h - 2.0 * inset), (wide / 2.0).into()),
+            dim(Color { a: 0.92, ..INK }, self.alpha),
+        );
         let label_right = at < 0.2;
         frame.fill_text(canvas::Text {
             content: self.label.clone(),

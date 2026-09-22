@@ -105,8 +105,10 @@ pub struct Ground<'a> {
     pub account: Option<&'a crate::bot::Me>,
     pub avatar: Option<&'a iced::widget::image::Handle>,
     pub chats: &'a [crate::bot::Chat],
+    pub chat_faces: &'a std::collections::HashMap<i64, iced::widget::image::Handle>,
     pub dragging: Option<Tile>,
     pub landing: Option<Tile>,
+    pub landed: Option<(Tile, f32)>,
     pub opening: f32,
     pub closing: f32,
     pub renaming: Option<&'a String>,
@@ -161,7 +163,7 @@ pub fn view<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
     let word = |key: &str, side: Side| {
         button(text(w.t(key)).font(theme::SANS_SEMI).size(theme::BODY))
             .padding([4, 0])
-            .style(theme::word(ground.side == side))
+            .style(ui::button_faded(theme::word(ground.side == side)))
             .on_press(Message::Side(side))
     };
     let switch = container(row![word("app-side", Side::App), word("bot-side", Side::Bot)].spacing(28))
@@ -196,10 +198,15 @@ pub fn view<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
 }
 
 fn draggable<'a>(ground: &Ground<'a>, tile: Tile, late: f32) -> Element<'a, Message> {
+    let settling = ground.landed.filter(|(what, _)| *what == tile).map(|(_, k)| k);
     let k = (ui::fade() * late).clamp(0.0, 1.0);
     let inside: Element<'a, Message> = ui::fading(k.powf(2.2), || one(ground, tile));
     let card: Element<'a, Message> = container(inside).padding([12, 14]).style(ui::box_at(theme::slab, k.powf(0.6))).into();
-    let risen = ui::grown(card, iced::Point::new(0.5, 0.0), -(1.0 - late) * 10.0, 0.96 + 0.04 * late);
+    let grown = match settling {
+        Some(k) => 1.06 - 0.06 * k,
+        None => 0.96 + 0.04 * late,
+    };
+    let risen = ui::grown(card, iced::Point::new(0.5, 0.5), 0.0, grown);
     ui::dragged(
         risen.into(),
         tile,
@@ -219,6 +226,42 @@ pub fn floating<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
     container(one(ground, tile))
         .padding([12, 14])
         .style(ui::box_faded(theme::slab_held))
+        .into()
+}
+
+fn first_letter(name: &str) -> String {
+    name.chars().next().map(|c| c.to_uppercase().to_string()).unwrap_or_default()
+}
+
+fn chat_line<'a>(
+    ground: &Ground<'a>,
+    chat: &crate::bot::Chat,
+    face: Option<&iced::widget::image::Handle>,
+    under: String,
+    on: bool,
+) -> Element<'a, Message> {
+    let k = mark_at(ground, &format!("chat-{}", chat.id), on);
+    let mark: Element<'a, Message> = match face {
+        Some(handle) => {
+            let picture = iced::widget::image(handle.clone())
+                .content_fit(iced::ContentFit::Cover)
+                .width(28.0)
+                .height(28.0)
+                .border_radius(14.0)
+                .opacity(ui::fade());
+            iced::widget::stack![picture, ui::ring(k, 28.0)].width(28.0).height(28.0).into()
+        }
+        None => ui::mark(if chat.private { "@" } else { "#" }, on, k, 28.0),
+    };
+    let words = column![
+        text(chat.title.clone()).font(theme::SANS_SEMI).size(theme::CAPTION).wrapping(text::Wrapping::None).color(ui::faded(INK)),
+        text(under).font(theme::SANS).size(11.0).wrapping(text::Wrapping::None).color(ui::faded(MUTED)),
+    ]
+    .spacing(1);
+    button(row![mark, words].spacing(10).align_y(iced::Center))
+        .padding([2, 2])
+        .style(ui::button_faded(theme::bare))
+        .on_press(Message::Chat(chat.id))
         .into()
 }
 
@@ -245,7 +288,7 @@ fn line<'a>(ground: &Ground<'a>, id: &str, glyph: &str, name: String, under: Str
     }
     let inside = row![ui::mark(glyph, on, k, 28.0), words].spacing(10).align_y(iced::Center);
     match press {
-        Some(message) => button(inside).padding([2, 2]).style(theme::bare).on_press(message).into(),
+        Some(message) => button(inside).padding([2, 2]).style(ui::button_faded(theme::bare)).on_press(message).into(),
         None => container(inside).padding([2, 2]).into(),
     }
 }
@@ -257,7 +300,7 @@ fn pill<'a>(ground: &Ground<'a>, id: &str, name: String, on: bool, press: Messag
         .align_y(iced::Center);
     button(container(inside).padding([0, 10]).center_y(38.0))
         .padding(0)
-        .style(theme::pill(on))
+        .style(ui::button_faded(theme::pill(on)))
         .on_press(press)
         .into()
 }
@@ -274,7 +317,7 @@ fn figure<'a>(value: String, under: String) -> Element<'a, Message> {
 fn deed<'a>(words: String, press: Message, hot: bool) -> Element<'a, Message> {
     button(container(text(words).font(theme::SANS_SEMI).size(theme::CAPTION)).center_y(26.0).padding([0, 10]))
         .padding(0)
-        .style(if hot { theme::small_hot } else { theme::small })
+        .style(ui::button_faded(if hot { theme::small_hot } else { theme::small }))
         .on_press(press)
         .into()
 }
@@ -464,6 +507,7 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
                 .map(|me| me.name.clone())
                 .filter(|n| !n.is_empty())
                 .unwrap_or_else(|| s.linked_as.trim_start_matches('@').to_owned());
+            let name = if name.is_empty() { w.t("signed-in") } else { name };
             let under = match ground.account {
                 Some(me) if !me.username.is_empty() => format!("@{} · ID {}", me.username, me.telegram_id),
                 Some(me) => format!("ID {}", me.telegram_id),
@@ -477,12 +521,12 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
                     .border_radius(20.0)
                     .opacity(ui::fade())
                     .into(),
-                None => ui::mark("", true, 1.0, 40.0),
+                None => ui::disc(&first_letter(&name), false, 40.0),
             };
             let who = row![
                 face,
                 column![
-                    text(if name.is_empty() { w.t("signed-in") } else { name }).font(theme::SANS_SEMI).size(theme::BODY).wrapping(text::Wrapping::None).color(ui::faded(INK)),
+                    text(name).font(theme::SANS_SEMI).size(theme::BODY).wrapping(text::Wrapping::None).color(ui::faded(INK)),
                     text(under).font(theme::MONO).size(11.0).wrapping(text::Wrapping::None).color(ui::faded(FAINT)),
                 ]
                 .spacing(2),
@@ -498,15 +542,8 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
             let here = s.chat_id.or(ground.account.map(|me| me.telegram_id));
             for chat in ground.chats {
                 let under = if chat.private { w.t("private-chat") } else { w.t("group-chat") };
-                rows = rows.push(line(
-                    ground,
-                    &format!("chat-{}", chat.id),
-                    if chat.private { "@" } else { "#" },
-                    chat.title.clone(),
-                    under,
-                    Some(chat.id) == here,
-                    Some(Message::Chat(chat.id)),
-                ));
+                let face: Option<&iced::widget::image::Handle> = ground.chat_faces.get(&chat.id);
+                rows = rows.push(chat_line(ground, chat, face, under, Some(chat.id) == here));
             }
             if ground.chats.is_empty() {
                 rows = rows.push(line(ground, "chat-own", "@", s.linked_as.clone(), w.t("private-chat"), true, None));

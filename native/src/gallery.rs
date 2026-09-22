@@ -549,9 +549,9 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
     prefs_bot.account = Some(crate::bot::Me { telegram_id: 7, name: "Naum Redlo".into(), username: "naumredlo".into(), avatar: false });
     prefs_app.skins = vec![std::path::PathBuf::from("/skins/- # Seoul v11"), std::path::PathBuf::from("/skins/rafis 2019")];
     prefs_bot.chats = vec![
-        crate::bot::Chat { id: 7, title: "Личный чат".into(), private: true },
-        crate::bot::Chat { id: -100, title: "osu! RU · lounge".into(), private: false },
-        crate::bot::Chat { id: -101, title: "1984 crew".into(), private: false },
+        crate::bot::Chat { id: 7, title: "Личный чат".into(), private: true, photo: false },
+        crate::bot::Chat { id: -100, title: "osu! RU · lounge".into(), private: false, photo: false },
+        crate::bot::Chat { id: -101, title: "1984 crew".into(), private: false, photo: false },
     ];
     let mut signing = staged(Some(0));
     signing.pairing = crate::main_screen::Pairing::Waiting { code: "K7QN-M4XZ".into(), link: "https://t.me/bot?start=pair-K7QNM4XZ".into() };

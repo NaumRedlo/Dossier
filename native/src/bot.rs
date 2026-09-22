@@ -49,6 +49,18 @@ pub struct Chat {
     pub title: String,
     #[serde(default)]
     pub private: bool,
+    #[serde(default)]
+    pub photo: bool,
+}
+
+pub fn chat_avatar(server: &str, token: &str, name: &str, chat: i64) -> Result<Vec<u8>, Refused> {
+    let response = client()?
+        .get(format!("{server}/render/chat/{chat}/avatar"))
+        .header("X-Render-Worker", name)
+        .bearer_auth(token)
+        .send()
+        .map_err(|e| Refused::Network(e.to_string()))?;
+    status(response)?.bytes().map(|b| b.to_vec()).map_err(|e| Refused::Network(e.to_string()))
 }
 
 pub fn chats(server: &str, token: &str, name: &str) -> Result<Vec<Chat>, Refused> {

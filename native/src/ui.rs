@@ -847,7 +847,15 @@ impl<'a, Message: 'a> From<Veil> for Element<'a, Message> {
 }
 
 pub fn veil<'a, Message: 'a>(colour: Color) -> Element<'a, Message> {
-    Veil::new(colour).into()
+    Veil::new(faded(colour)).into()
+}
+
+pub fn box_faded(style: impl Fn(&Theme) -> container::Style + 'static) -> impl Fn(&Theme) -> container::Style {
+    dimmed_box(style, fade())
+}
+
+pub fn button_faded(style: impl Fn(&Theme, button::Status) -> button::Style + 'static) -> impl Fn(&Theme, button::Status) -> button::Style {
+    dimmed(style, fade())
 }
 
 pub struct Trail {

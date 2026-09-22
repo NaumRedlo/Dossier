@@ -1463,7 +1463,7 @@ impl Main {
             pin(float(crest).translate(move |_, _| Vector::new(0.0, (1.0 - early) * CREST_RISE))).x(CREST_HOME.0).y(CREST_HOME.1).into();
         let sheet = self.overlay_fade.interpolate(0.0, 1.0, self.now);
         let overlay: Element<'_, Message> = if self.overlay != Overlay::None || self.overlay_fade.is_animating(self.now) {
-            ui::fading(sheet, || ui::grown(self.overlay_view(), Point::new(0.5, 0.0), -(1.0 - sheet) * 10.0, 1.0).into())
+            ui::fading(sheet, || self.overlay_view())
         } else {
             blank()
         };
@@ -2008,7 +2008,7 @@ impl Main {
         .align_y(iced::Center);
         button(container(line).height(VIDEO_ROW).width(Length::Fill).center_y(VIDEO_ROW))
             .padding([0, 12])
-            .style(theme::row(chosen))
+            .style(ui::button_faded(theme::row(chosen)))
             .on_press(Message::OpenVideo(at))
             .into()
     }
@@ -2021,6 +2021,7 @@ impl Main {
                 .content_fit(ContentFit::Contain)
                 .width(Length::Fill)
                 .height(Length::Fill)
+                .opacity(ui::fade())
                 .border_radius(iced::border::Radius { top_left: theme::CARD_RADIUS - 1.0, top_right: theme::CARD_RADIUS - 1.0, bottom_right: 0.0, bottom_left: 0.0 })
                 .into(),
             None => match self.thumbs.get(&video.map_hash) {
@@ -2028,7 +2029,7 @@ impl Main {
                     .content_fit(ContentFit::Cover)
                     .width(Length::Fill)
                     .height(Length::Fill)
-                    .opacity(0.35_f32)
+                    .opacity(0.35 * ui::fade())
                     .border_radius(iced::border::Radius { top_left: theme::CARD_RADIUS - 1.0, top_right: theme::CARD_RADIUS - 1.0, bottom_right: 0.0, bottom_left: 0.0 })
                     .into(),
                 None => Space::new().width(Length::Fill).height(Length::Fill).into(),
@@ -2100,7 +2101,7 @@ impl Main {
             container(under).padding(Padding { top: 6.0, right: 24.0, bottom: 18.0, left: 24.0 }).height(STAGE_UNDER - 30.0),
         ]
         .width(Length::Fill);
-        let card = container(inside).width(screen_w).height(screen_h + STAGE_UNDER).style(theme::stage).clip(true);
+        let card = container(inside).width(screen_w).height(screen_h + STAGE_UNDER).style(ui::box_faded(theme::stage)).clip(true);
         let backdrop = mouse_area(ui::veil(theme::SCRIM)).on_press(Message::ClosePlayer);
         stack![backdrop, container(card).width(Length::Fill).height(Length::Fill).center(Length::Fill)]
             .width(Length::Fill)
@@ -2178,24 +2179,30 @@ impl Main {
             return Space::new().width(Length::Fill).height(Length::Fill).into();
         };
         let open = self.menu_open.interpolate(0.0, 1.0, self.now);
-        let mut cards: Vec<Element<'_, Message>> = vec![self.menu_head(), self.menu_segments(tab)];
-        let content = match tab {
-            Tab::Account => self.account_tiles(),
-            Tab::Feed => self.feed_tiles(),
-            Tab::Stats => self.stats_tiles(),
-        };
-        let swap = self.tab_fade.interpolate(0.0, 1.0, self.now);
-        for tile in content {
-            cards.push(ui::fading(ui::fade() * swap, || ui::grown(tile, Point::new(0.5, 0.0), -(1.0 - swap) * 6.0, 1.0).into()));
-        }
-        let mut stackup = column![].spacing(8).width(MENU_W);
         let opening = self.menu_open.value();
-        for (i, card) in cards.into_iter().enumerate() {
-            let late = if opening { (open * 1.6 - 0.14 * i as f32).clamp(0.0, 1.0) } else { open };
-            stackup = stackup.push(ui::fading(ui::fade() * late, || ui::grown(card, Point::new(1.0, 0.0), -(1.0 - late) * 10.0, 1.0)));
-        }
+        let swap = self.tab_fade.interpolate(0.0, 1.0, self.now);
+        let late = |i: f32| if opening { (open * 1.6 - 0.18 * i).clamp(0.0, 1.0) } else { open };
+        let mut stackup = column![].spacing(8).width(MENU_W);
+        let k0 = late(0.0);
+        stackup = stackup.push(ui::fading(ui::fade() * k0, || ui::grown(self.menu_head(), Point::new(1.0, 0.0), -(1.0 - k0) * 10.0, 1.0)));
+        let k1 = late(1.0);
+        stackup = stackup.push(ui::fading(ui::fade() * k1, || ui::grown(self.menu_segments(tab), Point::new(1.0, 0.0), -(1.0 - k1) * 10.0, 1.0)));
+        let k2 = late(2.0) * swap;
+        let tiles = ui::fading(ui::fade() * k2, || {
+            let content = match tab {
+                Tab::Account => self.account_tiles(),
+                Tab::Feed => self.feed_tiles(),
+                Tab::Stats => self.stats_tiles(),
+            };
+            let mut list = column![].spacing(8).width(MENU_W);
+            for tile in content {
+                list = list.push(tile);
+            }
+            ui::grown(list, Point::new(1.0, 0.0), -(1.0 - k2) * 10.0, 1.0)
+        });
+        stackup = stackup.push(tiles);
         let x = (self.width - 40.0 - MENU_W).max(16.0);
-        let whole = ui::grown(stackup, Point::new(1.0, 0.0), 0.0, 0.94 + 0.06 * open);
+        let whole = ui::grown(stackup, Point::new(1.0, 0.0), 0.0, 0.97 + 0.03 * open);
         let backdrop: Element<'_, Message> = if self.menu_open.value() {
             mouse_area(Space::new().width(Length::Fill).height(Length::Fill)).on_press(Message::MenuClose).into()
         } else {
@@ -2208,7 +2215,7 @@ impl Main {
         container(inside)
             .padding([12, 14])
             .width(Length::Fill)
-            .style(if bad { theme::tile_bad } else { theme::bubble })
+            .style(ui::box_faded(if bad { theme::tile_bad } else { theme::bubble }))
             .into()
     }
 
@@ -2254,18 +2261,18 @@ impl Main {
         };
         let k = self.seg_slide.interpolate(0.0, 1.0, self.now);
         let x = 4.0 + (at(self.seg_from) + (at(tab) - at(self.seg_from)) * k) * (seg_w + 4.0);
-        let pill = container(Space::new().width(seg_w).height(28.0)).style(theme::segment_pill);
+        let pill = container(Space::new().width(seg_w).height(28.0)).style(ui::box_faded(theme::segment_pill));
         let mut words = row![].spacing(4);
         for (key, this) in [("account", Tab::Account), ("feed", Tab::Feed), ("stats", Tab::Stats)] {
             words = words.push(
                 button(container(text(w.t(key)).font(theme::SANS_SEMI).size(theme::CAPTION)).width(seg_w).height(28.0).center(Length::Fill))
                     .padding(0)
-                    .style(theme::segment(tab == this))
+                    .style(ui::button_faded(theme::segment(tab == this)))
                     .on_press(Message::MenuTab(this)),
             );
         }
         let face = stack![pin(pill).x(x).y(4.0), container(words).padding(4)].width(MENU_W).height(36.0);
-        container(face).width(Length::Fill).style(theme::bubble).into()
+        container(face).width(Length::Fill).style(ui::box_faded(theme::bubble)).into()
     }
 
     fn kv(&self, key: String, value: String) -> Element<'_, Message> {
@@ -2379,7 +2386,7 @@ impl Main {
         let title: Element<'_, Message> = if bad {
             button(text(notice.words.clone()).font(theme::SANS_SEMI).size(theme::CAPTION).wrapping(text::Wrapping::None))
                 .padding(0)
-                .style(theme::danger_words)
+                .style(ui::button_faded(theme::danger_words))
                 .on_press(Message::ShowError(notice.id))
                 .into()
         } else {
@@ -2453,13 +2460,13 @@ impl Main {
                 .border_radius(8.0)
                 .opacity(ui::fade() * 0.9)
                 .into(),
-            _ => container(Space::new().width(side).height(side)).style(theme::chip).into(),
+            _ => container(Space::new().width(side).height(side)).style(ui::box_faded(theme::chip)).into(),
         };
         let badge = container(text(glyph).font(theme::MONO_BOLD).size(10.0).color(ui::faded(INK)))
             .width(BADGE)
             .height(BADGE)
             .center(BADGE)
-            .style(theme::badge_of(if notice.mark == notices::Mark::Bad { ACCENT } else { theme::GRADE_A }));
+            .style(ui::box_faded(theme::badge_of(if notice.mark == notices::Mark::Bad { ACCENT } else { theme::GRADE_A })));
         let reach = side + BADGE_OUT;
         stack![
             container(picture).width(reach).height(reach),
@@ -2473,7 +2480,7 @@ impl Main {
     fn dismiss(&self, id: u64) -> Element<'_, Message> {
         button(container(text("×").font(theme::MONO).size(theme::CAPTION)).width(CORNER_X).height(CORNER_X).center(CORNER_X))
             .padding(0)
-            .style(theme::corner)
+            .style(ui::button_faded(theme::corner))
             .on_press(Message::DismissNotice(id))
             .into()
     }

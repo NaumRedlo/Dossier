@@ -438,6 +438,34 @@ pub fn tile_bad(_: &Theme) -> container::Style {
     }
 }
 
+pub fn small(_: &Theme, status: button::Status) -> button::Style {
+    let background = match status {
+        button::Status::Hovered | button::Status::Pressed => Color::from_rgba(1.0, 1.0, 1.0, 0.12),
+        _ => Color::from_rgba(1.0, 1.0, 1.0, 0.07),
+    };
+    button::Style {
+        background: Some(Background::Color(background)),
+        text_color: INK,
+        border: border(Color::TRANSPARENT, 7.0),
+        shadow: Shadow::default(),
+        snap: true,
+    }
+}
+
+pub fn danger_words(_: &Theme, status: button::Status) -> button::Style {
+    let colour = match status {
+        button::Status::Hovered | button::Status::Pressed => Color::from_rgb(1.0, 0.45, 0.45),
+        _ => ACCENT,
+    };
+    button::Style {
+        background: None,
+        text_color: colour,
+        border: border(Color::TRANSPARENT, 0.0),
+        shadow: Shadow::default(),
+        snap: true,
+    }
+}
+
 pub fn segment_pill(_: &Theme) -> container::Style {
     container::Style {
         text_color: None,

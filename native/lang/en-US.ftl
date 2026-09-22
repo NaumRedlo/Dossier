@@ -180,3 +180,4 @@ sending = Sending
 sent-notice = Sent to Telegram
 send-failed = Could not send
 telegram-id = Telegram ID
+close = Close

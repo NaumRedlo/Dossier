@@ -512,6 +512,10 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
     menu_stats.menu = Some(crate::main_screen::Tab::Stats);
     menu_stats.store.videos = with_videos.store.videos.clone();
     menu_stats.store.videos[1].sent_at = Some(NOON);
+    let mut failing = menu_feed.clone();
+    failing.menu = None;
+    failing.menu_open = iced::Animation::new(false);
+    failing.error_shown = failing.notices.notices.iter().find(|n| n.mark == crate::notices::Mark::Bad).map(|n| n.id);
     let mut signing = staged(Some(0));
     signing.pairing = crate::main_screen::Pairing::Waiting { code: "K7QN-M4XZ".into(), link: "https://t.me/bot?start=pair-K7QNM4XZ".into() };
     signing.qr = crate::first_run::qr_for("https://t.me/bot?start=pair-K7QNM4XZ");
@@ -522,6 +526,7 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
         ("main-menu-feed".to_owned(), menu_feed),
         ("main-menu-stats".to_owned(), menu_stats),
         ("main-signing".to_owned(), signing),
+        ("main-failure".to_owned(), failing),
         ("main-videos".to_owned(), with_videos),
         ("main-player".to_owned(), playing),
         ("main-nomap".to_owned(), staged(Some(3))),

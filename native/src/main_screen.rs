@@ -54,6 +54,8 @@ pub enum Message {
     Key(iced::keyboard::key::Named),
     Adopted(Vec<videos::Video>),
     ToastLink(u64),
+    ShowError(u64),
+    HideError,
     Circle,
     MenuTab(Tab),
     MenuClose,
@@ -243,6 +245,7 @@ pub struct Main {
     pub account: Option<bot::Me>,
     pub avatar: Option<image::Handle>,
     pub menu: Option<Tab>,
+    pub error_shown: Option<u64>,
     pub menu_open: Animation<bool>,
     pub tab_fade: Animation<bool>,
     pub seg_from: Tab,
@@ -306,6 +309,7 @@ impl Main {
             account: None,
             avatar: None,
             menu: None,
+            error_shown: None,
             menu_open: Animation::new(false).duration(MENU_OPEN).easing(Easing::EaseOutCubic),
             tab_fade: Animation::new(true).duration(TAB_FADE).easing(Easing::EaseOutCubic),
             seg_from: Tab::Account,
@@ -621,7 +625,9 @@ impl Main {
                 }
             }
             Message::Escape => {
-                if matches!(self.pairing, Pairing::Asking | Pairing::Waiting { .. } | Pairing::Unavailable) {
+                if self.error_shown.is_some() {
+                    self.error_shown = None;
+                } else if matches!(self.pairing, Pairing::Asking | Pairing::Waiting { .. } | Pairing::Unavailable) {
                     self.pairing = Pairing::Idle;
                 } else if self.menu.is_some() {
                     return self.update(Message::MenuClose);
@@ -1314,7 +1320,16 @@ impl Main {
                 }
                 Task::none()
             }
+            Message::ShowError(id) => {
+                self.error_shown = Some(id);
+                Task::none()
+            }
+            Message::HideError => {
+                self.error_shown = None;
+                Task::none()
+            }
             Message::ToastLink(id) => {
+                self.error_shown = None;
                 let link = self.notices.get(id).map(|n| n.link.clone());
                 let _ = self.update(Message::ToastClose(id));
                 match link {
@@ -1419,7 +1434,8 @@ impl Main {
         let toasts = self.toast_layer();
         let menu = self.menu_layer();
         let signing = self.sign_in_layer();
-        let layers = stack![scene_before, scene, live_before, live, body, bubble, crest, overlay, menu, signing, toasts];
+        let failure = self.error_layer();
+        let layers = stack![scene_before, scene, live_before, live, body, bubble, crest, overlay, menu, signing, failure, toasts];
         layers.width(Length::Fill).height(Length::Fill).into()
     }
 
@@ -1893,7 +1909,7 @@ impl Main {
 
     fn video_head(&self) -> Element<'_, Message> {
         let w = &self.words;
-        let cell = |key: &str, width: f32| container(ui::mono_small(w.t(key).to_uppercase(), FAINT)).width(width);
+        let cell = |key: &str, width: f32| container(ui::mono_small(w.t(key).to_uppercase(), FAINT)).width(width).align_x(iced::alignment::Horizontal::Center);
         let grow = |key: &str| container(ui::mono_small(w.t(key).to_uppercase(), FAINT)).width(Length::Fill);
         let right = |key: &str, width: f32| container(ui::mono_small(w.t(key).to_uppercase(), FAINT)).width(width).align_x(iced::alignment::Horizontal::Right);
         container(
@@ -1901,7 +1917,7 @@ impl Main {
                 Space::new().width(VIDEO_THUMB.0 as f32 + 14.0 + 12.0),
                 cell("when", 84.0),
                 grow("who-and-map"),
-                cell("mods", 110.0),
+                container(ui::mono_small(w.t("mods").to_uppercase(), FAINT)).width(110.0),
                 right("length", 56.0),
                 right("size", 84.0),
             ]
@@ -1930,7 +1946,8 @@ impl Main {
             ui::mono(w.day(video.made_at, self.now_unix), FAINT),
             ui::mono(w.clock(video.made_at), FAINT),
         ]
-        .spacing(2);
+        .spacing(2)
+        .align_x(iced::Center);
         let who = column![
             text(video.player.clone()).font(theme::SANS_SEMI).size(theme::LEAD).wrapping(text::Wrapping::None).color(ui::faded(INK)),
             text(ui::shortened(video.map_line(), 70)).font(theme::SANS).size(theme::BODY).wrapping(text::Wrapping::None).color(ui::faded(MUTED)),
@@ -1942,7 +1959,7 @@ impl Main {
         }
         let line = row![
             container(picture).width(VIDEO_THUMB.0 as f32).height(VIDEO_THUMB.1 as f32),
-            container(when).width(84.0),
+            container(when).width(84.0).align_x(iced::alignment::Horizontal::Center),
             container(who).width(Length::Fill).clip(true),
             container(mods).width(110.0),
             container(ui::mono(w.length(video.length_ms), MUTED)).width(56.0).align_x(iced::alignment::Horizontal::Right),
@@ -2084,7 +2101,7 @@ const VIDEO_ROW: f32 = 72.0;
 const CIRCLE_SIDE: f32 = 28.0;
 const AVATAR_SIDE: u32 = 80;
 const MENU_W: f32 = 400.0;
-const MENU_TOP: f32 = 62.0;
+const MENU_TOP: f32 = 80.0;
 
 impl Main {
     fn circle(&self, side: f32, pressable: bool) -> Element<'_, Message> {
@@ -2308,17 +2325,15 @@ impl Main {
     fn notice_row(&self, notice: &notices::Notice) -> Element<'_, Message> {
         let w = &self.words;
         let bad = notice.mark == notices::Mark::Bad;
-        let mut first = row![
-            text(notice.words.clone()).font(theme::SANS_SEMI).size(theme::CAPTION).wrapping(text::Wrapping::None).color(ui::faded(if bad { ACCENT } else { INK })),
-            ui::grow(),
-        ]
-        .spacing(8)
-        .align_y(iced::Center);
-        if matches!(notice.link, notices::Link::RenderAgain(_) | notices::Link::OpenVideo(_)) {
-            let words = if matches!(notice.link, notices::Link::OpenVideo(_)) { w.t("open") } else { w.t("once-more") };
-            first = first.push(ui::link(words, Message::ToastLink(notice.id)));
-        }
-        first = first.push(ui::mono_small(w.clock(notice.at), FAINT));
+        let title: Element<'_, Message> = if bad {
+            button(text(notice.words.clone()).font(theme::SANS_SEMI).size(theme::CAPTION).wrapping(text::Wrapping::None))
+                .padding(0)
+                .style(theme::danger_words)
+                .on_press(Message::ShowError(notice.id))
+                .into()
+        } else {
+            text(notice.words.clone()).font(theme::SANS_SEMI).size(theme::CAPTION).wrapping(text::Wrapping::None).color(ui::faded(INK)).into()
+        };
         let mut second = notice.detail.clone();
         if !notice.note.is_empty() {
             second = if second.is_empty() { notice.note.clone() } else { format!("{second} · {}", notice.note) };
@@ -2331,10 +2346,46 @@ impl Main {
                 .clip(true)
                 .into()
         };
-        row![self.notice_mark(notice, 40.0), column![first, below].spacing(1).width(Length::Fill)]
-            .spacing(12)
-            .align_y(iced::Center)
-            .into()
+        let mut side = column![ui::mono_small(w.clock(notice.at), FAINT)].spacing(2).align_x(iced::alignment::Horizontal::Right);
+        if matches!(notice.link, notices::Link::RenderAgain(_) | notices::Link::OpenVideo(_)) {
+            let words = if matches!(notice.link, notices::Link::OpenVideo(_)) { w.t("open") } else { w.t("once-more") };
+            side = side.push(ui::small_button(words, Message::ToastLink(notice.id)));
+        }
+        row![
+            self.notice_mark(notice, 40.0),
+            column![title, below].spacing(1).width(Length::Fill),
+            container(side).align_x(iced::alignment::Horizontal::Right),
+        ]
+        .spacing(12)
+        .align_y(iced::Center)
+        .into()
+    }
+
+    fn error_layer(&self) -> Element<'_, Message> {
+        let Some(notice) = self.error_shown.and_then(|id| self.notices.get(id)) else {
+            return Space::new().width(Length::Fill).height(Length::Fill).into();
+        };
+        let w = &self.words;
+        let mut lines = column![ui::title(notice.words.clone()), ui::why(notice.detail.clone())].spacing(6);
+        if !notice.note.is_empty() {
+            lines = lines.push(container(ui::mono(notice.note.clone(), MUTED)).padding(Padding::ZERO.top(8.0)));
+        }
+        lines = lines.push(container(ui::cap(format!("{} · {}", w.day(notice.at, self.now_unix), w.clock(notice.at)))).padding(Padding::ZERO.top(4.0)));
+        let mut bottom = row![ui::grow(), ui::quiet(w.t("close"), Some(Message::HideError))].spacing(4).align_y(iced::Center);
+        if matches!(notice.link, notices::Link::RenderAgain(_)) {
+            bottom = bottom.push(ui::primary(w.t("once-more"), Some(Message::ToastLink(notice.id))));
+        }
+        let card = ui::card(lines.into(), Some(bottom.into()));
+        stack![
+            mouse_area(ui::veil(theme::SCRIM)).on_press(Message::HideError),
+            container(container(card).width(theme::COLUMN).padding(Padding::ZERO.top(180.0)))
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .center_x(Length::Fill),
+        ]
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .into()
     }
 
     fn notice_mark(&self, notice: &notices::Notice, side: f32) -> Element<'_, Message> {

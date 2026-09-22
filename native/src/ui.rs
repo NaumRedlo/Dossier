@@ -635,6 +635,14 @@ pub fn quiet<'a, Message: Clone + 'a>(words: String, on: Option<Message>) -> Ele
     }
 }
 
+pub fn small_button<'a, Message: Clone + 'a>(words: String, on: Message) -> Element<'a, Message> {
+    button(container(text(words).font(theme::SANS_SEMI).size(theme::CAPTION)).center_y(24.0))
+        .padding([0, 10])
+        .style(dimmed(theme::small, fade()))
+        .on_press(on)
+        .into()
+}
+
 pub fn link<'a, Message: Clone + 'a>(words: String, on: Message) -> Element<'a, Message> {
     button(text(words).font(theme::SANS).size(theme::CAPTION))
         .padding([6, 0])

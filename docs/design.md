@@ -461,6 +461,12 @@ the bot has no endpoint for them yet.
 *What the bubble says* is in the journal's section above; the seven
 variants stay drawn for the record.
 
+*Сообщество.* A fifth word in the top row, after *Видео* (2026-09-22),
+for the world of 1984 seen from inside Dossier — people, their renders
+and records, the bot's contests — so the application and the bot make one
+ecosystem rather than two doors to the same house. A card saying so for
+now; what it holds is to be drawn.
+
 *The three words.* Replays is this screen. Worker and Settings open over
 the scene, dimmed to a fifth, in the first run's centred column; the crest
 does not move, and Esc or the word *Replays* brings the scene back. Until

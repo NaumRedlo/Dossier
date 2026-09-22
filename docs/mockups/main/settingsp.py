@@ -182,8 +182,77 @@ GROUP_CSS = '''<style>
 def own3(extra):
     return page(W, H, f'{CSS}{BENTO_CSS}{GROUP_CSS}<div style="position:absolute; inset:0; background:#0d0508;"></div>{WORDS}{extra}')
 
+CC_CSS = '''<style>
+  .switch { position: absolute; left: 0; right: 0; top: 88px; display: flex; justify-content: center; gap: 36px; font-weight: 600; font-size: 14px; color: #6b655f; }
+  .switch span { padding-bottom: 6px; border-bottom: 2px solid transparent; }
+  .switch span.on { color: #ece7e2; border-bottom-color: #e24848; }
+  .ccgrid { position: absolute; left: 40px; top: 136px; width: 900px; display: grid; grid-template-columns: repeat(4, 1fr); grid-auto-rows: 132px; gap: 10px; }
+  .cc { border-radius: 16px; background: rgba(255,255,255,0.055); border: 1px solid rgba(255,255,255,0.06); padding: 12px; box-sizing: border-box; color: #ece7e2; font-size: 12px; display: flex; flex-direction: column; gap: 6px; overflow: hidden; }
+  .cc.w2 { grid-column: span 2; }
+  .cc.h2 { grid-row: span 2; }
+  .cc .t { font-size: 11px; color: #a9a29b; font-weight: 600; }
+  .it { display: flex; align-items: center; gap: 10px; min-height: 30px; }
+  .it .ic { width: 28px; height: 28px; border-radius: 50%; background: rgba(255,255,255,0.1); display: flex; align-items: center; justify-content: center; color: #ece7e2; font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: 11px; font-weight: 700; flex: none; }
+  .it.on .ic { background: #e24848; color: #fff; }
+  .it .lab { display: flex; flex-direction: column; line-height: 1.15; min-width: 0; }
+  .it .lab b { font-weight: 600; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .it .lab span { color: #a9a29b; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 10px; }
+  .pill { display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 10px; border-radius: 12px; background: rgba(255,255,255,0.06); font-weight: 600; font-size: 12px; }
+  .pill .ic { width: 24px; height: 24px; border-radius: 50%; background: rgba(255,255,255,0.1); flex: none; }
+  .pill.on { background: rgba(226,72,72,0.18); }
+  .pill.on .ic { background: #e24848; }
+  .sl { display: flex; flex-direction: column; gap: 4px; }
+  .sl .bar { position: relative; height: 26px; border-radius: 13px; background: rgba(255,255,255,0.08); overflow: hidden; }
+  .sl .bar i { position: absolute; left: 0; top: 0; bottom: 0; background: rgba(255,255,255,0.22); border-radius: 13px; }
+  .sl .bar b { position: absolute; left: 10px; top: 0; line-height: 26px; font-size: 12px; font-weight: 600; }
+  .sl .bar em { position: absolute; right: 10px; top: 0; line-height: 26px; font-size: 11px; font-style: normal; color: #a9a29b; font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; }
+  .num { font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: 22px; font-weight: 700; margin-top: auto; }
+  .num small { display: block; font-family: Commissioner, sans-serif; font-weight: 400; font-size: 11px; color: #a9a29b; }
+  .acts { display: flex; gap: 10px; margin-top: auto; }
+  .acts span { color: #a9a29b; font-weight: 600; font-size: 12px; }
+  .acts span.hot { color: #e24848; }
+  .avatar { width: 40px; height: 40px; border-radius: 50%; background: #e24848; flex: none; }
+</style>'''
+
+def own4(extra):
+    return page(W, H, f'{CSS}{BENTO_CSS}{CC_CSS}<div style="position:absolute; inset:0; background:#0d0508;"></div>{WORDS}{extra}')
+
+def switch(on):
+    return '<div class="switch">' + "".join(f'<span class="{"on" if k == on else ""}">{k}</span>' for k in ("Приложение", "Бот")) + "</div>"
+
+def it(ic, b, s, on=False):
+    return f'<div class="it {"on" if on else ""}"><span class="ic">{ic}</span><span class="lab"><b>{b}</b><span>{s}</span></span></div>'
+
+def pill(label, on):
+    return f'<div class="pill {"on" if on else ""}"><span class="ic"></span>{label}</div>'
+
+def slider(label, value, pct):
+    return f'<div class="sl"><div class="bar"><i style="width:{pct}%;"></i><b>{label}</b><em>{value}</em></div></div>'
+
+CC_APP = f'''<div class="ccgrid">
+  <div class="cc h2"><span class="t">Общее</span>{it("RU", "Русский", "язык", True)}{it("EN", "English", "language")}{it("·", "drejk starsij", "устройство")}{it("▶", "Живой реплей", "в сцене", True)}</div>
+  <div class="cc w2 h2"><span class="t">Рендер</span><div class="two">{pill("Фон карты", True)}{pill("Сториборд", False)}{pill("Видео карты", False)}{pill("Нажатия · click", True)}</div>{slider("Размер", "1080p", 66)}{slider("Кадры", "60", 100)}{slider("Качество", "Лучше · CRF 20", 66)}</div>
+  <div class="cc"><span class="t">Видео</span><span class="num">8<small>568 МБ · ~/.dossier/Renders</small></span><div class="acts"><span>В папке</span><span>Изменить</span></div></div>
+  <div class="cc"><span class="t">Карты и кэш</span><span class="num">31<small>1,1 ГБ · кэш 140 МБ</small></span><div class="acts"><span>В папке</span><span class="hot">Очистить кэш</span></div></div>
+  <div class="cc w2"><span class="t">Источники</span><div class="two">{it("osu", "osu!stable", "187 реплеев · 1 240 карт", True)}{it("lz", "osu!lazer", "42 реплея", True)}{it("dir", "Dossier Corpus", "96 реплеев")}{it("+", "Добавить папку…", "")}</div></div>
+  <div class="cc"><span class="t">ffmpeg</span><span class="num">7.1<small>своя сборка</small></span><div class="acts"><span>Обновить</span></div></div>
+  <div class="cc"><span class="t">Dossier</span><span class="num">0.12.0<small>движок 0.11.0</small></span><div class="acts"><span>Проверить</span><span>Исходники</span></div></div>
+</div>'''
+
+CC_BOT = f'''<div class="ccgrid">
+  <div class="cc w2"><span class="t">Аккаунт</span><div class="it on"><span class="avatar"></span><span class="lab"><b style="font-size:14px;">Stepan Kapitsa</b><span>@NaumRedlo · ID 1060298719</span></span></div><div class="acts"><span>Выйти</span></div></div>
+  <div class="cc"><span class="t">Видео уходят в</span>{it("@", "@NaumRedlo", "личный чат", True)}<div class="acts"><span>Выбрать чат</span></div></div>
+  <div class="cc"><span class="t">Сервер</span>{it("●", "отвечает", "сборка 0.12.0", True)}<span class="lab" style="font-family:'JetBrains Mono', ui-monospace, Menlo, monospace; font-size:11px; color:#a9a29b;">onenineeightfour.ignorelist.com</span></div>
+  <div class="cc w2"><span class="t">В чат</span><div class="two">{pill("Готовые рендеры", True)}{pill("Ошибки", False)}</div></div>
+  <div class="cc"><span class="t">Воркер</span>{pill("Брать работу", False)}<span class="lab" style="color:#6b655f; font-size:11px;">будет доступно позже</span></div>
+  <div class="cc"><span class="t">Это устройство</span>{it("·", "drejk starsij", "привязано 12 сен")}</div>
+</div>'''
+
 def boards():
     out = {}
+    out["CcApp"] = own4(switch("Приложение") + CC_APP)
+    out["CcBot"] = own4(switch("Бот") + CC_BOT)
     app_grid = f'<div class="bento small">{S_LANG}{S_DEVICE}{S_SCENE}<div class="tall">{S_RENDER}</div><div class="wide">{S_SOURCES}</div>{S_VIDEOS}{S_MAPS}{S_CACHE}{S_FFMPEG}{S_UPDATE}</div>'
     bot_grid = f'<div class="bento small">{B_ACCOUNT}{B_CHAT}{B_SERVER}{B_WORKER}{B_NOTIFY}{B_NAME}</div>'
     out["BentoStatic"] = own3(f'<div class="group" style="top:92px;">{app_grid}</div>')
@@ -215,6 +284,8 @@ def boards():
     return out
 
 NOTES = {
+    "CcApp": ("Пункт управления · Приложение", "Переключатель Приложение · Бот по центру, два слова с подчёркиванием, без общей панели. Плитки как в Пункте управления: кружок-значок и подпись у каждого пункта, включённое — акцентный кружок; выключатели рендера — пилюли 2×2; размер, кадры и качество — ползунки-полосы; цифры крупно с подписью."),
+    "CcBot": ("Пункт управления · Бот", "Аккаунт с аватаром на широкой плитке, чат, сервер с зелёной точкой, «В чат» пилюлями, воркер и имя устройства."),
     "BentoStatic": ("Бенто · статичное", "Без подсказок и длинных строк: плитка — заголовок, значение или переключатели, одна-две кнопки. Три колонки, рендер высокий, источники широкие; ни одна плитка не раскрывается."),
     "BentoApp": ("Приложение · Бот — вкладка «Приложение»", "Сегменты над сеткой делят настройки на две: своё (язык, устройство, сцена, источники, рендер, хранилище, ffmpeg, сборка) и ботовское."),
     "BentoBot": ("Приложение · Бот — вкладка «Бот»", "Всё, что касается бота: аккаунт (и Выйти), куда уходят видео, сервер и его сборка, воркер (позже), что слать в чат, как бот зовёт это устройство."),
@@ -230,7 +301,7 @@ NOTES = {
     "SettingsSources": ("Раздел · Источники и Хранилище", "Папки osu! и свои с выключателями; хранилище видео и карт, кэш."),
 }
 
-RECOMMENDED = "Направление 2026-09-22: статичное бенто без подсказок, настройки разделены на Приложение и Бот. Предложение: сегменты Приложение · Бот над сеткой (BentoApp / BentoBot) — бот отдельно и на своём месте, обе сетки без прокрутки. Раскрытие плитки (BentoFocus) — идея на будущее для подсказок. Ранее: бенто (BentoSettings) с раскрытием по клику — сетка в три колонки, мелкие плитки с крупным значением, рендер и источники крупнее, подробности раскрываются поверх. Прежнее предложение: разделы слева (SettingsSidebar) с карточками справа — шесть разделов: Общее · Источники · Рендер · Хранилище · Инструменты · О программе. Что настраивается: язык, имя устройства, живая сцена; папки реплеев; размер, к/с, качество, фон/сториборд/видео, звук нажатий; папки видео и карт, кэш; ffmpeg, адрес бота, обновления. Значения рендера по умолчанию — как у бота, и кнопка вернуть их."
+RECOMMENDED = "Направление 2026-09-22: плитки как в Пункте управления macOS (CcApp / CcBot): переключатель Приложение · Бот по центру, кружки-значки, пилюли и ползунки. Ранее: статичное бенто без подсказок, настройки разделены на Приложение и Бот. Предложение: сегменты Приложение · Бот над сеткой (BentoApp / BentoBot) — бот отдельно и на своём месте, обе сетки без прокрутки. Раскрытие плитки (BentoFocus) — идея на будущее для подсказок. Ранее: бенто (BentoSettings) с раскрытием по клику — сетка в три колонки, мелкие плитки с крупным значением, рендер и источники крупнее, подробности раскрываются поверх. Прежнее предложение: разделы слева (SettingsSidebar) с карточками справа — шесть разделов: Общее · Источники · Рендер · Хранилище · Инструменты · О программе. Что настраивается: язык, имя устройства, живая сцена; папки реплеев; размер, к/с, качество, фон/сториборд/видео, звук нажатий; папки видео и карт, кэш; ffmpeg, адрес бота, обновления. Значения рендера по умолчанию — как у бота, и кнопка вернуть их."
 
 if __name__ == "__main__":
     for name, html in boards().items():

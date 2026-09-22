@@ -74,7 +74,7 @@ a, n = lay(names, store.NOTES, "page-account", store.RECOMMENDED, store.TO_BUILD
 artboards += a
 annotations += n
 
-names = ["BentoApp", "BentoBot", "BentoBoth", "BentoStatic", "BentoSettings", "BentoFocus", "BentoChips", "BentoAbove", "SettingsTiles", "SettingsSidebar", "SettingsRender", "SettingsSources", "SettingsColumn"]
+names = ["CcApp", "CcBot", "BentoApp", "BentoBot", "BentoBoth", "BentoStatic", "BentoSettings", "BentoFocus", "BentoChips", "BentoAbove", "SettingsTiles", "SettingsSidebar", "SettingsRender", "SettingsSources", "SettingsColumn"]
 a, n = lay(names, settingsp.NOTES, "page-settings", settingsp.RECOMMENDED)
 artboards += a
 annotations += n

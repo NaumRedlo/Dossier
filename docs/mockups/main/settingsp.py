@@ -192,7 +192,7 @@ CC_CSS = '''<style>
   .cc.w2 { grid-column: span 2; }
   .cc.h2 { grid-row: span 2; }
   .cc.h3 { grid-row: span 3; }
-  .cc .t { font-size: 11px; color: #a9a29b; font-weight: 600; text-align: center; }
+  .cc .t { font-size: 11px; color: #a9a29b; font-weight: 600; }
   .it { display: flex; align-items: center; gap: 10px; min-height: 30px; }
   .it .ic { width: 28px; height: 28px; border-radius: 50%; background: rgba(255,255,255,0.1); display: flex; align-items: center; justify-content: center; color: #ece7e2; font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: 11px; font-weight: 700; flex: none; }
   .it.on .ic { background: #e24848; color: #fff; }
@@ -205,10 +205,16 @@ CC_CSS = '''<style>
   .pill.on { background: rgba(226,72,72,0.18); }
   .pill.on .ic { background: #e24848; }
   .sl { display: flex; flex-direction: column; gap: 4px; }
-  .sl .bar { position: relative; height: 26px; border-radius: 13px; background: rgba(255,255,255,0.08); overflow: hidden; }
-  .sl .bar i { position: absolute; left: 0; top: 0; bottom: 0; background: rgba(255,255,255,0.22); border-radius: 13px; }
+  .sl .bar { position: relative; height: 26px; border-radius: 7px; background: rgba(255,255,255,0.08); overflow: hidden; }
+  .sl .bar i { position: absolute; left: 0; top: 0; bottom: 0; background: rgba(255,255,255,0.16); border-radius: 7px; }
+  .sl .bar .hd { position: absolute; top: 4px; bottom: 4px; width: 6px; border-radius: 3px; background: #ece7e2; margin-left: -3px; }
+  .sl .bar .tk { position: absolute; top: 8px; bottom: 8px; width: 2px; border-radius: 1px; background: rgba(255,255,255,0.14); margin-left: -1px; }
+  .sl .bar .tk.hit { background: rgba(255,255,255,0.55); }
   .sl .bar b { position: absolute; left: 10px; top: 0; line-height: 26px; font-size: 12px; font-weight: 600; }
   .sl .bar em { position: absolute; right: 10px; top: 0; line-height: 26px; font-size: 11px; font-style: normal; color: #a9a29b; font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; }
+  .cc.lift { transform: rotate(-1.2deg) translate(24px, -18px); box-shadow: 0 24px 60px rgba(0,0,0,0.6); border-color: rgba(255,255,255,0.18); z-index: 3; position: relative; }
+  .cc.slot { background: transparent; border: 1px dashed rgba(255,255,255,0.18); box-shadow: none; }
+  .cc.slot > * { visibility: hidden; }
   .num { font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: 22px; font-weight: 700; margin-top: auto; }
   .num small { display: block; font-family: Commissioner, sans-serif; font-weight: 400; font-size: 11px; color: #a9a29b; }
   .acts { display: flex; gap: 6px; margin-top: auto; }
@@ -234,8 +240,9 @@ def pill(label, on):
     return f'<div class="pill {"on" if on else ""}"><span class="ic"></span>{label}</div>'
 
 def slider(label, value, pct, stops=(50,)):
-    ticks = "".join(f'<span class="tk {"hit" if abs(s - pct) < 2 else ""}" style="left:calc(10px + ({s} / 100) * (100% - 20px));"></span>' for s in stops)
-    return f'<div class="sl"><div class="bar"><i style="width:calc(10px + ({pct} / 100) * (100% - 20px));"></i>{ticks}<span class="knob" style="left:calc(10px + ({pct} / 100) * (100% - 20px));"></span><b>{label}</b><em>{value}</em></div></div>'
+    at = f"calc(6px + ({pct} / 100) * (100% - 12px))"
+    ticks = "".join(f'<span class="tk {"hit" if abs(s - pct) < 2 else ""}" style="left:calc(6px + ({s} / 100) * (100% - 12px));"></span>' for s in stops)
+    return f'<div class="sl"><div class="bar"><i style="width:{at};"></i>{ticks}<span class="hd" style="left:{at};"></span><b>{label}</b><em>{value}</em></div></div>'
 
 def tile(inner, title=""):
     head = f'<span class="t">{title}</span>' if title else ""
@@ -245,7 +252,7 @@ def colw(units, *tiles):
     return f'<div class="colw" style="flex:{units};">{"".join(tiles)}</div>'
 
 T_LANG = tile(f'<div style="display:flex; flex-direction:column; gap:2px;">{it("RU", "Русский", "", True)}{it("EN", "English", "")}</div>', "Язык")
-T_RENDER = tile(f'<div class="two">{pill("Фон карты", True)}{pill("Сториборд", False)}{pill("Видео карты", False)}</div>{slider("Размер", "1080p", 50, ())}{slider("Кадры", "60", 100, ())}{slider("Качество", "CRF 20", 50, ())}', "Рендер")
+T_RENDER = tile(f'{slider("Размер", "1080p", 50, (50,))}{slider("Кадры", "60", 100, (50,))}{slider("Качество", "CRF 20", 50, (25, 50, 75))}', "Рендер")
 T_VIDEOS = tile('<span class="num" style="margin:0;">8<small>568 МБ</small></span><div class="acts" style="margin-top:6px;"><span>В папке</span><span>Изменить</span></div>', "Видео")
 T_DEVICE = tile('<span class="fld" style="min-width:0;">drejk starsij</span><div class="acts" style="margin-top:6px;"><span>Переименовать</span></div>', "Устройство")
 T_MAPS = tile('<span class="num" style="margin:0;">31<small>1,1 ГБ · кэш 140 МБ</small></span><div class="acts" style="margin-top:6px;"><span>В папке</span><span class="hot">Очистить</span></div>', "Карты и кэш")
@@ -263,9 +270,12 @@ B_DEV = tile(f'{it("·", "drejk starsij", "привязано 12 сен")}<div c
 
 CC_BOT = f'<div class="ccgrid">{colw(2, B_ACC, B_TELLS)}{colw(1, B_CHATS)}{colw(1, B_WORK, B_DEV)}</div>'
 
+CC_DRAG = f'<div class="ccgrid">{colw(1, T_LANG, T_DEVICE.replace("class=\"cc\"", "class=\"cc slot\""), T_SCENE)}{colw(2, T_RENDER, T_SOURCES)}{colw(1, T_VIDEOS, T_DEVICE.replace("class=\"cc\"", "class=\"cc lift\""), T_MAPS, T_BUILDS)}</div>'
+
 def boards():
     out = {}
     out["CcApp"] = own4(switch("Приложение") + CC_APP)
+    out["CcDrag"] = own4(switch("Приложение") + CC_DRAG)
     out["CcBot"] = own4(switch("Бот") + CC_BOT)
     app_grid = f'<div class="bento small">{S_LANG}{S_DEVICE}{S_SCENE}<div class="tall">{S_RENDER}</div><div class="wide">{S_SOURCES}</div>{S_VIDEOS}{S_MAPS}{S_CACHE}{S_FFMPEG}{S_UPDATE}</div>'
     bot_grid = f'<div class="bento small">{B_ACCOUNT}{B_CHAT}{B_SERVER}{B_WORKER}{B_NOTIFY}{B_NAME}</div>'
@@ -298,7 +308,8 @@ def boards():
     return out
 
 NOTES = {
-    "CcApp": ("Пункт управления · Приложение", "Плитка высотой по содержимому: сетка из четырёх колонок, плитки укладываются как кладка — добавил кнопку, плитка выросла, соседи подвинулись. Ползунки без делений: заливка, ручка, значение; шаги прилипают молча. Звуков нажатий нет."),
+    "CcApp": ("Пункт управления · Приложение", "Заголовки слева. Плитка высотой по содержимому в колонках: добавил кнопку — плитка выросла, соседи подвинулись. Ползунки прямоугольные со скруглением: заливка, узкая ручка-планка, деления-штрихи внутри полосы, попавший светится, ручка мягко прилипает."),
+    "CcDrag": ("Плитки · перетаскивание", "Плитку можно взять за заголовок и перенести в другую колонку: поднятая чуть наклонена и с тенью, на её месте пунктирная ячейка; порядок запоминается в настройках — своё пространство настроек."),
     "CcBot": ("Пункт управления · Бот", "То же в боте. «Бот сообщает в чат о» — какие события бот пишет в ваш Telegram: готовые рендеры, ошибки, скачанные карты, работы воркера."),
     "BentoStatic": ("Бенто · статичное", "Без подсказок и длинных строк: плитка — заголовок, значение или переключатели, одна-две кнопки. Три колонки, рендер высокий, источники широкие; ни одна плитка не раскрывается."),
     "BentoApp": ("Приложение · Бот — вкладка «Приложение»", "Сегменты над сеткой делят настройки на две: своё (язык, устройство, сцена, источники, рендер, хранилище, ffmpeg, сборка) и ботовское."),

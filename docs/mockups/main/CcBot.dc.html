@@ -125,7 +125,7 @@
   .cc.w2 { grid-column: span 2; }
   .cc.h2 { grid-row: span 2; }
   .cc.h3 { grid-row: span 3; }
-  .cc .t { font-size: 11px; color: #a9a29b; font-weight: 600; text-align: center; }
+  .cc .t { font-size: 11px; color: #a9a29b; font-weight: 600; }
   .it { display: flex; align-items: center; gap: 10px; min-height: 30px; }
   .it .ic { width: 28px; height: 28px; border-radius: 50%; background: rgba(255,255,255,0.1); display: flex; align-items: center; justify-content: center; color: #ece7e2; font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: 11px; font-weight: 700; flex: none; }
   .it.on .ic { background: #e24848; color: #fff; }
@@ -138,10 +138,16 @@
   .pill.on { background: rgba(226,72,72,0.18); }
   .pill.on .ic { background: #e24848; }
   .sl { display: flex; flex-direction: column; gap: 4px; }
-  .sl .bar { position: relative; height: 26px; border-radius: 13px; background: rgba(255,255,255,0.08); overflow: hidden; }
-  .sl .bar i { position: absolute; left: 0; top: 0; bottom: 0; background: rgba(255,255,255,0.22); border-radius: 13px; }
+  .sl .bar { position: relative; height: 26px; border-radius: 7px; background: rgba(255,255,255,0.08); overflow: hidden; }
+  .sl .bar i { position: absolute; left: 0; top: 0; bottom: 0; background: rgba(255,255,255,0.16); border-radius: 7px; }
+  .sl .bar .hd { position: absolute; top: 4px; bottom: 4px; width: 6px; border-radius: 3px; background: #ece7e2; margin-left: -3px; }
+  .sl .bar .tk { position: absolute; top: 8px; bottom: 8px; width: 2px; border-radius: 1px; background: rgba(255,255,255,0.14); margin-left: -1px; }
+  .sl .bar .tk.hit { background: rgba(255,255,255,0.55); }
   .sl .bar b { position: absolute; left: 10px; top: 0; line-height: 26px; font-size: 12px; font-weight: 600; }
   .sl .bar em { position: absolute; right: 10px; top: 0; line-height: 26px; font-size: 11px; font-style: normal; color: #a9a29b; font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; }
+  .cc.lift { transform: rotate(-1.2deg) translate(24px, -18px); box-shadow: 0 24px 60px rgba(0,0,0,0.6); border-color: rgba(255,255,255,0.18); z-index: 3; position: relative; }
+  .cc.slot { background: transparent; border: 1px dashed rgba(255,255,255,0.18); box-shadow: none; }
+  .cc.slot > * { visibility: hidden; }
   .num { font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: 22px; font-weight: 700; margin-top: auto; }
   .num small { display: block; font-family: Commissioner, sans-serif; font-weight: 400; font-size: 11px; color: #a9a29b; }
   .acts { display: flex; gap: 6px; margin-top: auto; }

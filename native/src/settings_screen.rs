@@ -154,7 +154,7 @@ pub enum Message {
     SignOut,
     Drag(Tile),
     DragAt(iced::Point),
-    DropBefore(Option<Tile>),
+    DropBefore(Option<Tile>, bool),
     Dropped,
 }
 
@@ -211,7 +211,7 @@ fn draggable<'a>(ground: &Ground<'a>, tile: Tile, late: f32) -> Element<'a, Mess
         risen.into(),
         tile,
         Message::Drag(tile),
-        Message::DropBefore(Some(tile)),
+        move |before| Message::DropBefore(Some(tile), before),
         Message::Dropped,
         ground.dragging.is_some(),
     )

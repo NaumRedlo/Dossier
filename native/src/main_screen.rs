@@ -262,6 +262,7 @@ pub struct Main {
     pub scenes_due: bool,
     pub leaving: HashMap<u64, Animation<bool>>,
     pub overlay_fade: Animation<bool>,
+    pub ground_fade: Animation<bool>,
     pub overlay_drawn: Overlay,
     pub side: Side,
     pub dragging: Option<Tile>,
@@ -274,7 +275,7 @@ pub struct Main {
     pub marks: HashMap<String, Animation<bool>>,
     pub marks_now: HashMap<String, f32>,
     pub slides: HashMap<String, (f32, f32)>,
-    pub slid_at: Instant,
+    pub slid_at: HashMap<String, Instant>,
     pub drag_at: Point,
     pub drag_held: Point,
     pub slot_open: f32,
@@ -282,6 +283,7 @@ pub struct Main {
     pub landed: Option<(Tile, Instant)>,
     pub eyed: Option<(Option<Tile>, Instant)>,
     pub lang_swap: bool,
+    pub paused_by_hand: bool,
     pub turning: Option<Overlay>,
     pub side_fade: Animation<bool>,
     pub side_swap: f32,
@@ -356,6 +358,7 @@ impl Main {
             scenes_due: false,
             leaving: HashMap::new(),
             overlay_fade: Animation::new(false).duration(OVERLAY_FADE).easing(Easing::EaseOutCubic),
+            ground_fade: Animation::new(false).duration(OVERLAY_FADE).easing(Easing::EaseOutCubic),
             overlay_drawn: Overlay::None,
             side: Side::App,
             dragging: None,
@@ -368,7 +371,7 @@ impl Main {
             marks: HashMap::new(),
             marks_now: HashMap::new(),
             slides: HashMap::new(),
-            slid_at: Instant::now(),
+            slid_at: HashMap::new(),
             drag_at: Point::ORIGIN,
             drag_held: Point::ORIGIN,
             slot_open: 0.0,
@@ -376,6 +379,7 @@ impl Main {
             landed: None,
             eyed: None,
             lang_swap: false,
+            paused_by_hand: false,
             turning: None,
             side_fade: Animation::new(true),
             side_swap: 0.0,
@@ -466,6 +470,7 @@ impl Main {
             || !self.toasts.is_empty()
             || self.menu_open.is_animating(self.now)
             || self.overlay_fade.is_animating(self.now)
+            || self.ground_fade.is_animating(self.now)
             || self.turning.is_some()
             || self.retype.is_animating(self.now)
             || self.side_fade.is_animating(self.now)
@@ -1151,12 +1156,14 @@ impl Main {
                     };
                     self.turn_to(overlay, now);
                     self.overlay = overlay;
+                    self.rest_live(true);
                     return Task::batch([sizes, version, chats, skins]);
                 }
                 if overlay != self.overlay {
                     self.turn_to(overlay, now);
                 }
                 self.overlay = overlay;
+                self.rest_live(overlay != Overlay::None);
                 if overlay != Overlay::Videos {
                     if let Some(player) = self.player.take() {
                         player.borrow_mut().close();
@@ -1403,6 +1410,10 @@ impl Main {
                 ))
             }
             Message::TogglePlay => {
+                if self.overlay != Overlay::None {
+                    return Task::none();
+                }
+                self.paused_by_hand = !self.paused_by_hand;
                 if let Some(live) = &self.live {
                     live.control.pause(!live.control.paused());
                 }
@@ -1660,14 +1671,14 @@ impl Main {
             _ => blank(),
         };
         let live: Element<'_, Message> = match (entry, &self.live, &self.trail) {
-            (Some(entry), Some(live), _) if live.for_path == entry.path => match &live.frame {
+            (Some(entry), Some(live), _) if live.for_path == entry.path && self.overlay == Overlay::None => match &live.frame {
                 Some(handle) => {
                     let seen = live.fade.interpolate(0.0, 1.0, self.now);
                     mouse_area(full(handle, alpha * seen)).on_press(Message::TogglePlay).into()
                 }
                 None => blank(),
             },
-            (Some(entry), _, Some(trail)) if trail.for_path == entry.path => mouse_area(
+            (Some(entry), _, Some(trail)) if trail.for_path == entry.path && self.overlay == Overlay::None => mouse_area(
                 iced::widget::canvas(ui::Trail { points: trail.points.clone(), at_ms: trail.at_ms(self.now), window_ms: 3000.0 })
                     .width(Length::Fill)
                     .height(Length::Fill),
@@ -1683,8 +1694,8 @@ impl Main {
             pin(float(crest).translate(move |_, _| Vector::new(0.0, (1.0 - early) * CREST_RISE))).x(CREST_HOME.0).y(CREST_HOME.1).into();
         let sheet = self.overlay_fade.interpolate(0.0, 1.0, self.now);
         let showing = self.overlay != Overlay::None || self.overlay_fade.is_animating(self.now);
-        let ground: Element<'_, Message> = if showing {
-            let deep = if self.turning.is_some() { 1.0 } else { sheet.sqrt() };
+        let deep = self.ground_fade.interpolate(0.0, 1.0, self.now);
+        let ground: Element<'_, Message> = if deep > 0.001 {
             ui::fading(deep, || ui::veil(theme::GROUND))
         } else {
             blank()
@@ -2384,7 +2395,29 @@ pub const EYED: Duration = Duration::from_millis(70);
 pub const LANG_FADE: Duration = Duration::from_millis(150);
 
 impl Main {
+    fn rest_live(&mut self, away: bool) {
+        if let Some(live) = &self.live {
+            if away {
+                live.control.pause(true);
+            } else if !self.paused_by_hand {
+                live.control.pause(false);
+            }
+        }
+        if let Some(trail) = &mut self.trail {
+            match (away, trail.paused_at) {
+                (true, None) => trail.paused_at = Some(trail.at_ms(self.now)),
+                (false, Some(at)) if !self.paused_by_hand => {
+                    let span = (trail.to_ms - trail.from_ms).max(1.0);
+                    trail.started = Instant::now() - Duration::from_secs_f64(((at - trail.from_ms) % span) / 1000.0);
+                    trail.paused_at = None;
+                }
+                _ => {}
+            }
+        }
+    }
+
     fn turn_to(&mut self, overlay: Overlay, now: Instant) {
+        self.ground_fade.go_mut(overlay != Overlay::None, now);
         let shown = self.overlay != Overlay::None;
         match (shown, overlay) {
             (_, Overlay::None) => {
@@ -2416,7 +2449,11 @@ impl Main {
     fn ease_slides(&mut self) {
         let wanted = self.slider_targets();
         for (id, target) in wanted {
-            let settled = self.now.saturating_duration_since(self.slid_at).as_millis() > 140;
+            let settled = self
+                .slid_at
+                .get(&id)
+                .map(|at| self.now.saturating_duration_since(*at).as_millis() > 160)
+                .unwrap_or(true);
             let (shown, snap) = self.slides.entry(id).or_insert((target, 1.0));
             *shown += (target - *shown) * 0.28;
             let want = if settled && (target - *shown).abs() < 0.01 { 1.0 } else { 0.0 };
@@ -2569,19 +2606,19 @@ impl Main {
                 Task::none()
             }
             P::Height(at) => {
-                self.slid_at = Instant::now();
+                self.slid_at.insert("height".to_owned(), Instant::now());
                 self.settings.render_height = prefs::nearest(at, &crate::settings::HEIGHTS);
                 keep(&self.settings);
                 Task::none()
             }
             P::Rate(at) => {
-                self.slid_at = Instant::now();
+                self.slid_at.insert("rate".to_owned(), Instant::now());
                 self.settings.render_fps = prefs::nearest(at, &crate::settings::RATES);
                 keep(&self.settings);
                 Task::none()
             }
             P::Crf(at) => {
-                self.slid_at = Instant::now();
+                self.slid_at.insert("crf".to_owned(), Instant::now());
                 self.settings.render_crf = prefs::nearest(at, &crate::settings::CRFS);
                 keep(&self.settings);
                 Task::none()
@@ -2682,19 +2719,19 @@ impl Main {
                 Task::none()
             }
             P::Music(level) => {
-                self.slid_at = Instant::now();
+                self.slid_at.insert("music".to_owned(), Instant::now());
                 self.settings.music_level = level.clamp(0.0, 1.0);
                 keep(&self.settings);
                 Task::none()
             }
             P::Hitsounds(level) => {
-                self.slid_at = Instant::now();
+                self.slid_at.insert("hits".to_owned(), Instant::now());
                 self.settings.hitsound_level = level.clamp(0.0, 1.0);
                 keep(&self.settings);
                 Task::none()
             }
             P::PlayerLevel(level) => {
-                self.slid_at = Instant::now();
+                self.slid_at.insert("player".to_owned(), Instant::now());
                 self.settings.player_level = level.clamp(0.0, 1.0);
                 keep(&self.settings);
                 if let Some(player) = &self.player {
@@ -2717,20 +2754,39 @@ impl Main {
                 self.drag_at = at;
                 Task::none()
             }
-            P::DropBefore(tile) => {
-                let now = Instant::now();
-                if self.dragging.is_none() || tile == self.dragging || self.drop_before == tile {
+            P::DropBefore(tile, before) => {
+                let Some(held) = self.dragging else {
                     self.eyed = None;
                     return Task::none();
+                };
+                let Some(over) = tile else {
+                    return Task::none();
+                };
+                if over == held {
+                    return Task::none();
                 }
+                let (kept, all) = match self.side {
+                    Side::App => (self.settings.tiles_app.clone(), &prefs::APP[..]),
+                    Side::Bot => (self.settings.tiles_bot.clone(), &prefs::BOT[..]),
+                };
+                let list = prefs::order(&kept, all);
+                let landing = if before {
+                    Some(over)
+                } else {
+                    list.iter().position(|t| *t == over).and_then(|at| list.get(at + 1).copied()).filter(|next| *next != held)
+                };
+                if landing == self.drop_before {
+                    return Task::none();
+                }
+                let now = Instant::now();
                 match self.eyed {
-                    Some((seen, at)) if seen == tile && now.saturating_duration_since(at) > EYED => {
+                    Some((seen, at)) if seen == landing && now.saturating_duration_since(at) > EYED => {
                         self.eyed = None;
-                        self.drop_before = tile;
+                        self.drop_before = landing;
                         self.slot_open = self.slot_open.min(0.4);
                     }
-                    Some((seen, _)) if seen == tile => {}
-                    _ => self.eyed = Some((tile, now)),
+                    Some((seen, _)) if seen == landing => {}
+                    _ => self.eyed = Some((landing, now)),
                 }
                 Task::none()
             }

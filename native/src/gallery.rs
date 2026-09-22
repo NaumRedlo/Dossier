@@ -389,6 +389,8 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
     worker.overlay = Overlay::Worker;
     worker.overlay_drawn = Overlay::Worker;
     worker.overlay_fade = iced::Animation::new(true);
+    worker.ground_fade = iced::Animation::new(true);
+    // the ground is up for every staged catalogue
     let mut rendering = staged(Some(0));
     rendering.ffmpeg = Some(PathBuf::from("ffmpeg"));
     rendering.rendering = Some(crate::main_screen::Rendering {
@@ -448,6 +450,8 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
     with_videos.overlay = crate::main_screen::Overlay::Videos;
     with_videos.overlay_drawn = crate::main_screen::Overlay::Videos;
     with_videos.overlay_fade = iced::Animation::new(true);
+    with_videos.ground_fade = iced::Animation::new(true);
+    // the ground is up for every staged catalogue
     let mock_video = |at: usize, made_at: i64, length_ms: i64, size: u64, mods: &[&str]| {
         let entry = &library.entries[at];
         crate::videos::Video {
@@ -538,6 +542,8 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
     prefs_app.overlay = crate::main_screen::Overlay::Settings;
     prefs_app.overlay_drawn = crate::main_screen::Overlay::Settings;
     prefs_app.overlay_fade = iced::Animation::new(true);
+    prefs_app.ground_fade = iced::Animation::new(true);
+    // the ground is up for every staged catalogue
     prefs_app.ffmpeg_version = Some("7.1".to_owned());
     prefs_app.sizes = (596_000_000, 1_180_000_000, 146_800_000);
     prefs_app.store.videos = with_videos.store.videos.clone();

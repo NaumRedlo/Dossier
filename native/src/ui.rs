@@ -714,6 +714,7 @@ pub fn sized(w: f32, h: f32) -> Size {
 pub struct Hatch {
     pub stroke: f32,
     pub step: f32,
+    pub alpha: f32,
 }
 
 impl<Message> canvas::Program<Message> for Hatch {
@@ -727,7 +728,7 @@ impl<Message> canvas::Program<Message> for Hatch {
             let line = Path::line(Point::new(x, bounds.height), Point::new(x + bounds.height, 0.0));
             frame.stroke(
                 &line,
-                Stroke::default().with_width(self.stroke).with_color(Color::from_rgba(1.0, 1.0, 1.0, 0.03)),
+                Stroke::default().with_width(self.stroke).with_color(Color::from_rgba(1.0, 1.0, 1.0, 0.03 * self.alpha.clamp(0.0, 1.0))),
             );
             x += self.step;
         }
@@ -736,11 +737,11 @@ impl<Message> canvas::Program<Message> for Hatch {
 }
 
 pub fn hatch<'a, Message: 'a>() -> Element<'a, Message> {
-    Canvas::new(Hatch { stroke: 8.0, step: 18.0 }).width(Length::Fill).height(Length::Fill).into()
+    Canvas::new(Hatch { stroke: 8.0, step: 18.0, alpha: fade() }).width(Length::Fill).height(Length::Fill).into()
 }
 
 pub fn fine_hatch<'a, Message: 'a>() -> Element<'a, Message> {
-    Canvas::new(Hatch { stroke: 1.5, step: 5.0 }).width(Length::Fill).height(Length::Fill).into()
+    Canvas::new(Hatch { stroke: 1.5, step: 5.0, alpha: fade() }).width(Length::Fill).height(Length::Fill).into()
 }
 
 pub fn in_thread<T>(work: impl FnOnce() -> T + Send + 'static) -> iced::Task<T>
@@ -1666,7 +1667,6 @@ pub struct Steps<'a, Message> {
 #[derive(Debug, Default)]
 pub struct StepsState {
     grabbed: bool,
-    shown: Option<f32>,
 }
 
 const STEP_INSET: f32 = 9.0;
@@ -1693,17 +1693,14 @@ impl<Message> canvas::Program<Message> for Steps<'_, Message> {
                 let at = cursor.position_in(bounds)?;
                 state.grabbed = true;
                 let f = snapped(fraction_at(bounds.x + at.x));
-                state.shown = Some(f);
                 Some(canvas::Action::publish((self.on)(f)).and_capture())
             }
             iced::Event::Mouse(mouse::Event::CursorMoved { position }) if state.grabbed => {
                 let f = snapped(fraction_at(position.x));
-                state.shown = Some(f);
                 Some(canvas::Action::publish((self.on)(f)).and_capture())
             }
             iced::Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) if state.grabbed => {
                 state.grabbed = false;
-                state.shown = None;
                 Some(canvas::Action::capture())
             }
             _ => None,
@@ -1713,11 +1710,11 @@ impl<Message> canvas::Program<Message> for Steps<'_, Message> {
     fn draw(&self, state: &StepsState, renderer: &Renderer, _: &Theme, bounds: Rectangle, cursor: mouse::Cursor) -> Vec<Geometry> {
         let mut frame = Frame::new(renderer, bounds.size());
         let (w, h) = (bounds.width, bounds.height);
-        let at = state.shown.unwrap_or(self.shown).clamp(0.0, 1.0);
+        let at = self.shown.clamp(0.0, 1.0);
         let x = STEP_INSET + at * (w - 2.0 * STEP_INSET);
         let lit = state.grabbed || cursor.is_over(bounds);
         frame.fill(&Path::rounded_rectangle(Point::ORIGIN, Size::new(w, h), 7.0.into()), dim(Color::from_rgba(1.0, 1.0, 1.0, if lit { 0.055 } else { 0.04 }), self.alpha));
-        frame.fill(&Path::rounded_rectangle(Point::ORIGIN, Size::new((x + STEP_INSET).max(18.0), h), 7.0.into()), dim(Color::from_rgba(0.886, 0.282, 0.282, if lit { 0.2 } else { 0.15 }), self.alpha));
+        frame.fill(&Path::rounded_rectangle(Point::ORIGIN, Size::new(x.max(16.0), h), 7.0.into()), dim(Color::from_rgba(0.886, 0.282, 0.282, if lit { 0.2 } else { 0.15 }), self.alpha));
         let on_stop = if state.grabbed { 0.0 } else { self.snap.clamp(0.0, 1.0) };
         for stop in &self.stops {
             let near = 1.0 - ((stop - at).abs() / 0.05).clamp(0.0, 1.0);
@@ -1994,7 +1991,7 @@ pub struct Dragged<'a, Message, T> {
     content: Element<'a, Message>,
     _what: T,
     on_grab: Message,
-    on_over: Message,
+    on_over: Box<dyn Fn(bool) -> Message + 'a>,
     on_drop: Message,
     held: bool,
 }
@@ -2010,11 +2007,11 @@ pub fn dragged<'a, Message: Clone + 'a, T: Copy + 'a>(
     content: Element<'a, Message>,
     what: T,
     on_grab: Message,
-    on_over: Message,
+    on_over: impl Fn(bool) -> Message + 'a,
     on_drop: Message,
     held: bool,
 ) -> Element<'a, Message> {
-    Element::new(Dragged { content, _what: what, on_grab, on_over, on_drop, held })
+    Element::new(Dragged { content, _what: what, on_grab, on_over: Box::new(on_over), on_drop, held })
 }
 
 impl<Message: Clone, T> iced::advanced::Widget<Message, Theme, Renderer> for Dragged<'_, Message, T> {
@@ -2087,7 +2084,8 @@ impl<Message: Clone, T> iced::advanced::Widget<Message, Theme, Renderer> for Dra
                 }
                 _ => {
                     if over {
-                        shell.publish(self.on_over.clone());
+                        let half = layout.bounds().center_x();
+                        shell.publish((self.on_over)(position.x < half));
                     }
                 }
             },

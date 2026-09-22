@@ -480,6 +480,59 @@ pub fn ghost(_: &Theme, status: button::Status) -> button::Style {
     }
 }
 
+pub fn slab(_: &Theme) -> container::Style {
+    container::Style {
+        text_color: None,
+        background: Some(Background::Color(Color::from_rgba(1.0, 1.0, 1.0, 0.045))),
+        border: border(Color::from_rgba(1.0, 1.0, 1.0, 0.06), 16.0),
+        shadow: Shadow::default(),
+        snap: true,
+    }
+}
+
+pub fn slab_held(_: &Theme) -> container::Style {
+    container::Style {
+        text_color: None,
+        background: Some(Background::Color(Color::from_rgba(1.0, 1.0, 1.0, 0.09))),
+        border: border(Color::from_rgba(1.0, 1.0, 1.0, 0.18), 16.0),
+        shadow: Shadow { color: Color::from_rgba(0.0, 0.0, 0.0, 0.6), offset: iced::Vector::new(0.0, 16.0), blur_radius: 40.0 },
+        snap: true,
+    }
+}
+
+pub fn pill(on: bool) -> impl Fn(&Theme, button::Status) -> button::Style {
+    move |_, status| {
+        let lit = matches!(status, button::Status::Hovered | button::Status::Pressed);
+        let background = match (on, lit) {
+            (true, true) => Color::from_rgba(0.886, 0.282, 0.282, 0.26),
+            (true, false) => Color::from_rgba(0.886, 0.282, 0.282, 0.18),
+            (false, true) => Color::from_rgba(1.0, 1.0, 1.0, 0.1),
+            (false, false) => Color::from_rgba(1.0, 1.0, 1.0, 0.06),
+        };
+        button::Style {
+            background: Some(Background::Color(background)),
+            text_color: INK,
+            border: border(Color::TRANSPARENT, 12.0),
+            shadow: Shadow::default(),
+            snap: true,
+        }
+    }
+}
+
+pub fn small_hot(_: &Theme, status: button::Status) -> button::Style {
+    let background = match status {
+        button::Status::Hovered | button::Status::Pressed => Color::from_rgba(0.886, 0.282, 0.282, 0.26),
+        _ => Color::from_rgba(0.886, 0.282, 0.282, 0.16),
+    };
+    button::Style {
+        background: Some(Background::Color(background)),
+        text_color: ACCENT,
+        border: border(Color::TRANSPARENT, 7.0),
+        shadow: Shadow::default(),
+        snap: true,
+    }
+}
+
 pub fn corner(bad: bool) -> impl Fn(&Theme, button::Status) -> button::Style {
     move |_, status| {
         let edge = if bad { Color::from_rgba(0.886, 0.282, 0.282, 0.22) } else { Color::from_rgba(1.0, 1.0, 1.0, 0.1) };

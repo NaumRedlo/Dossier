@@ -42,6 +42,25 @@ pub struct Pairing {
     pub expires_in: u64,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+pub struct Chat {
+    pub id: i64,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub private: bool,
+}
+
+pub fn chats(server: &str, token: &str, name: &str) -> Result<Vec<Chat>, Refused> {
+    let response = client()?
+        .get(format!("{server}/render/me/chats"))
+        .header("X-Render-Worker", name)
+        .bearer_auth(token)
+        .send()
+        .map_err(|e| Refused::Network(e.to_string()))?;
+    status(response)?.json::<Vec<Chat>>().map_err(|e| Refused::Network(e.to_string()))
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
 #[serde(tag = "status", rename_all = "lowercase")]
 pub enum Paired {

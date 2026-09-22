@@ -321,8 +321,8 @@ mod tests {
         let ru = Words::new(Lang::Ru);
         assert_eq!(en.day(same_day, now), "today");
         assert_eq!(ru.day(same_day, now), "сегодня");
-        assert_eq!(en.day(august, now), "Aug 14");
-        assert_eq!(ru.day(august, now), "14 авг");
+        assert_eq!(en.day(august, now), "August 14");
+        assert_eq!(ru.day(august, now), "14 августа");
         assert_eq!(en.day(last_year, now), "May 10, 2025");
         assert_eq!(ru.day(last_year, now), "10 мая 2025");
         assert_eq!(en.clock(august), "21:34");

@@ -1614,3 +1614,414 @@ impl<Message> canvas::Program<Message> for Cross {
         vec![frame.into_geometry()]
     }
 }
+
+pub struct Steps<'a, Message> {
+    pub label: String,
+    pub value: String,
+    pub at: f32,
+    pub stops: Vec<f32>,
+    pub on: Box<dyn Fn(f32) -> Message + 'a>,
+}
+
+#[derive(Debug, Default)]
+pub struct StepsState {
+    grabbed: bool,
+    shown: Option<f32>,
+}
+
+const STEP_INSET: f32 = 6.0;
+const STEP_SNAP: f32 = 0.06;
+
+impl<Message> canvas::Program<Message> for Steps<'_, Message> {
+    type State = StepsState;
+
+    fn update(&self, state: &mut StepsState, event: &iced::Event, bounds: Rectangle, cursor: mouse::Cursor) -> Option<canvas::Action<Message>> {
+        let fraction_at = |x: f32| ((x - bounds.x - STEP_INSET) / (bounds.width - 2.0 * STEP_INSET).max(1.0)).clamp(0.0, 1.0);
+        let snapped = |f: f32| {
+            let mut best = f;
+            let mut near = STEP_SNAP;
+            for stop in [0.0, 1.0].into_iter().chain(self.stops.iter().copied()) {
+                if (stop - f).abs() < near {
+                    near = (stop - f).abs();
+                    best = stop;
+                }
+            }
+            best
+        };
+        match event {
+            iced::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
+                let at = cursor.position_in(bounds)?;
+                state.grabbed = true;
+                let f = snapped(fraction_at(bounds.x + at.x));
+                state.shown = Some(f);
+                Some(canvas::Action::publish((self.on)(f)).and_capture())
+            }
+            iced::Event::Mouse(mouse::Event::CursorMoved { position }) if state.grabbed => {
+                let f = snapped(fraction_at(position.x));
+                state.shown = Some(f);
+                Some(canvas::Action::publish((self.on)(f)).and_capture())
+            }
+            iced::Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) if state.grabbed => {
+                state.grabbed = false;
+                state.shown = None;
+                Some(canvas::Action::capture())
+            }
+            _ => None,
+        }
+    }
+
+    fn draw(&self, state: &StepsState, renderer: &Renderer, _: &Theme, bounds: Rectangle, cursor: mouse::Cursor) -> Vec<Geometry> {
+        let mut frame = Frame::new(renderer, bounds.size());
+        let (w, h) = (bounds.width, bounds.height);
+        let at = state.shown.unwrap_or(self.at).clamp(0.0, 1.0);
+        let x = STEP_INSET + at * (w - 2.0 * STEP_INSET);
+        let lit = state.grabbed || cursor.is_over(bounds);
+        frame.fill(&Path::rounded_rectangle(Point::ORIGIN, Size::new(w, h), 7.0.into()), faded(Color::from_rgba(1.0, 1.0, 1.0, if lit { 0.09 } else { 0.07 })));
+        frame.fill(&Path::rounded_rectangle(Point::ORIGIN, Size::new(x.max(14.0), h), 7.0.into()), faded(Color::from_rgba(1.0, 1.0, 1.0, 0.11)));
+        let on_stop = self.stops.iter().any(|s| (s - at).abs() < 0.001) || at < 0.001 || at > 0.999;
+        for stop in &self.stops {
+            if (stop - at).abs() < 0.001 {
+                continue;
+            }
+            let sx = STEP_INSET + stop * (w - 2.0 * STEP_INSET);
+            frame.fill(&Path::rounded_rectangle(Point::new(sx - 1.0, 4.0), Size::new(2.0, h - 8.0), 1.0.into()), faded(Color::from_rgba(1.0, 1.0, 1.0, 0.16)));
+        }
+        let inset = if on_stop { 1.0 } else { 4.0 };
+        frame.fill(&Path::rounded_rectangle(Point::new(x - 3.0, inset), Size::new(6.0, h - 2.0 * inset), 3.0.into()), faded(INK));
+        let label_right = at < 0.2;
+        frame.fill_text(canvas::Text {
+            content: self.label.clone(),
+            position: Point::new(if label_right { w - 10.0 } else { 10.0 }, h / 2.0),
+            color: faded(INK),
+            size: theme::CAPTION.into(),
+            font: theme::SANS_SEMI,
+            align_x: if label_right { iced::alignment::Horizontal::Right.into() } else { iced::alignment::Horizontal::Left.into() },
+            align_y: iced::alignment::Vertical::Center,
+            ..canvas::Text::default()
+        });
+        let value_left = at > 0.8;
+        frame.fill_text(canvas::Text {
+            content: self.value.clone(),
+            position: Point::new(if value_left { x - 10.0 } else { x + 10.0 }, h / 2.0),
+            color: faded(INK),
+            size: 11.0.into(),
+            font: theme::MONO,
+            align_x: if value_left { iced::alignment::Horizontal::Right.into() } else { iced::alignment::Horizontal::Left.into() },
+            align_y: iced::alignment::Vertical::Center,
+            ..canvas::Text::default()
+        });
+        vec![frame.into_geometry()]
+    }
+
+    fn mouse_interaction(&self, state: &StepsState, bounds: Rectangle, cursor: mouse::Cursor) -> mouse::Interaction {
+        if state.grabbed || cursor.is_over(bounds) {
+            mouse::Interaction::Pointer
+        } else {
+            mouse::Interaction::default()
+        }
+    }
+}
+
+pub fn steps<'a, Message: 'a>(label: String, value: String, at: f32, stops: Vec<f32>, on: impl Fn(f32) -> Message + 'a) -> Element<'a, Message> {
+    Canvas::new(Steps { label, value, at, stops, on: Box::new(on) }).width(Length::Fill).height(26.0).into()
+}
+
+pub struct Mark {
+    pub glyph: String,
+    pub on: bool,
+}
+
+impl<Message> canvas::Program<Message> for Mark {
+    type State = ();
+
+    fn draw(&self, _: &(), renderer: &Renderer, _: &Theme, bounds: Rectangle, _: mouse::Cursor) -> Vec<Geometry> {
+        let mut frame = Frame::new(renderer, bounds.size());
+        let side = bounds.width.min(bounds.height);
+        let centre = Point::new(bounds.width / 2.0, bounds.height / 2.0);
+        let colour = if self.on { ACCENT } else { Color::from_rgba(1.0, 1.0, 1.0, 0.1) };
+        frame.fill(&Path::circle(centre, side / 2.0), faded(colour));
+        if !self.glyph.is_empty() {
+            frame.fill_text(canvas::Text {
+                content: self.glyph.clone(),
+                position: centre,
+                color: faded(if self.on { Color::WHITE } else { INK }),
+                size: (if self.glyph.chars().count() > 2 { side * 0.34 } else { side * 0.4 }).into(),
+                font: theme::MONO_BOLD,
+                align_x: iced::alignment::Horizontal::Center.into(),
+                align_y: iced::alignment::Vertical::Center,
+                ..canvas::Text::default()
+            });
+        }
+        vec![frame.into_geometry()]
+    }
+}
+
+pub fn mark<'a, Message: 'a>(glyph: &str, on: bool, side: f32) -> Element<'a, Message> {
+    Canvas::new(Mark { glyph: glyph.to_owned(), on }).width(side).height(side).into()
+}
+
+pub struct Wrap<'a, Message> {
+    children: Vec<Element<'a, Message>>,
+    spacing: f32,
+}
+
+pub fn wrap<'a, Message: 'a>(children: Vec<Element<'a, Message>>, spacing: f32) -> Wrap<'a, Message> {
+    Wrap { children, spacing }
+}
+
+impl<Message> iced::advanced::Widget<Message, Theme, Renderer> for Wrap<'_, Message> {
+    fn children(&self) -> Vec<iced::advanced::widget::Tree> {
+        self.children.iter().map(iced::advanced::widget::Tree::new).collect()
+    }
+
+    fn diff(&self, tree: &mut iced::advanced::widget::Tree) {
+        tree.diff_children(&self.children);
+    }
+
+    fn size(&self) -> Size<Length> {
+        Size { width: Length::Fill, height: Length::Shrink }
+    }
+
+    fn layout(
+        &mut self,
+        tree: &mut iced::advanced::widget::Tree,
+        renderer: &Renderer,
+        limits: &iced::advanced::layout::Limits,
+    ) -> iced::advanced::layout::Node {
+        let max = limits.max();
+        let child_limits = iced::advanced::layout::Limits::new(Size::ZERO, Size::new(max.width, f32::INFINITY));
+        let mut nodes = Vec::with_capacity(self.children.len());
+        let (mut x, mut y, mut row_h, mut widest) = (0.0f32, 0.0f32, 0.0f32, 0.0f32);
+        for (child, state) in self.children.iter_mut().zip(tree.children.iter_mut()) {
+            let node = child.as_widget_mut().layout(state, renderer, &child_limits);
+            let size = node.size();
+            if x > 0.0 && x + size.width > max.width {
+                x = 0.0;
+                y += row_h + self.spacing;
+                row_h = 0.0;
+            }
+            nodes.push(node.move_to(Point::new(x, y)));
+            x += size.width + self.spacing;
+            row_h = row_h.max(size.height);
+            widest = widest.max(x - self.spacing);
+        }
+        let height = if nodes.is_empty() { 0.0 } else { y + row_h };
+        iced::advanced::layout::Node::with_children(Size::new(max.width.min(widest.max(max.width)), height), nodes)
+    }
+
+    fn operate(
+        &mut self,
+        tree: &mut iced::advanced::widget::Tree,
+        layout: iced::advanced::Layout<'_>,
+        renderer: &Renderer,
+        operation: &mut dyn iced::advanced::widget::Operation,
+    ) {
+        for ((child, state), place) in self.children.iter_mut().zip(tree.children.iter_mut()).zip(layout.children()) {
+            child.as_widget_mut().operate(state, place, renderer, operation);
+        }
+    }
+
+    fn update(
+        &mut self,
+        tree: &mut iced::advanced::widget::Tree,
+        event: &iced::Event,
+        layout: iced::advanced::Layout<'_>,
+        cursor: mouse::Cursor,
+        renderer: &Renderer,
+        clipboard: &mut dyn iced::advanced::Clipboard,
+        shell: &mut iced::advanced::Shell<'_, Message>,
+        viewport: &Rectangle,
+    ) {
+        for ((child, state), place) in self.children.iter_mut().zip(tree.children.iter_mut()).zip(layout.children()) {
+            child.as_widget_mut().update(state, event, place, cursor, renderer, clipboard, shell, viewport);
+        }
+    }
+
+    fn mouse_interaction(
+        &self,
+        tree: &iced::advanced::widget::Tree,
+        layout: iced::advanced::Layout<'_>,
+        cursor: mouse::Cursor,
+        viewport: &Rectangle,
+        renderer: &Renderer,
+    ) -> mouse::Interaction {
+        self.children
+            .iter()
+            .zip(tree.children.iter())
+            .zip(layout.children())
+            .map(|((child, state), place)| child.as_widget().mouse_interaction(state, place, cursor, viewport, renderer))
+            .max()
+            .unwrap_or_default()
+    }
+
+    fn draw(
+        &self,
+        tree: &iced::advanced::widget::Tree,
+        renderer: &mut Renderer,
+        theme: &Theme,
+        style: &iced::advanced::renderer::Style,
+        layout: iced::advanced::Layout<'_>,
+        cursor: mouse::Cursor,
+        viewport: &Rectangle,
+    ) {
+        for ((child, state), place) in self.children.iter().zip(tree.children.iter()).zip(layout.children()) {
+            child.as_widget().draw(state, renderer, theme, style, place, cursor, viewport);
+        }
+    }
+
+    fn overlay<'b>(
+        &'b mut self,
+        tree: &'b mut iced::advanced::widget::Tree,
+        layout: iced::advanced::Layout<'b>,
+        renderer: &Renderer,
+        viewport: &Rectangle,
+        translation: iced::Vector,
+    ) -> Option<iced::advanced::overlay::Element<'b, Message, Theme, Renderer>> {
+        iced::advanced::overlay::from_children(&mut self.children, tree, layout, renderer, viewport, translation)
+    }
+}
+
+impl<'a, Message: 'a> From<Wrap<'a, Message>> for Element<'a, Message> {
+    fn from(wrap: Wrap<'a, Message>) -> Element<'a, Message> {
+        Element::new(wrap)
+    }
+}
+
+pub struct Dragged<'a, Message, T> {
+    content: Element<'a, Message>,
+    _what: T,
+    on_grab: Message,
+    on_over: Message,
+    on_drop: Message,
+    held: bool,
+}
+
+#[derive(Debug, Default)]
+struct DraggedState {
+    pressed: bool,
+}
+
+pub fn dragged<'a, Message: Clone + 'a, T: Copy + 'a>(
+    content: Element<'a, Message>,
+    what: T,
+    on_grab: Message,
+    on_over: Message,
+    on_drop: Message,
+    held: bool,
+) -> Element<'a, Message> {
+    Element::new(Dragged { content, _what: what, on_grab, on_over, on_drop, held })
+}
+
+impl<Message: Clone, T> iced::advanced::Widget<Message, Theme, Renderer> for Dragged<'_, Message, T> {
+    fn tag(&self) -> iced::advanced::widget::tree::Tag {
+        iced::advanced::widget::tree::Tag::of::<DraggedState>()
+    }
+
+    fn state(&self) -> iced::advanced::widget::tree::State {
+        iced::advanced::widget::tree::State::new(DraggedState::default())
+    }
+
+    fn children(&self) -> Vec<iced::advanced::widget::Tree> {
+        vec![iced::advanced::widget::Tree::new(&self.content)]
+    }
+
+    fn diff(&self, tree: &mut iced::advanced::widget::Tree) {
+        tree.diff_children(std::slice::from_ref(&self.content));
+    }
+
+    fn size(&self) -> Size<Length> {
+        self.content.as_widget().size()
+    }
+
+    fn layout(
+        &mut self,
+        tree: &mut iced::advanced::widget::Tree,
+        renderer: &Renderer,
+        limits: &iced::advanced::layout::Limits,
+    ) -> iced::advanced::layout::Node {
+        self.content.as_widget_mut().layout(&mut tree.children[0], renderer, limits)
+    }
+
+    fn operate(
+        &mut self,
+        tree: &mut iced::advanced::widget::Tree,
+        layout: iced::advanced::Layout<'_>,
+        renderer: &Renderer,
+        operation: &mut dyn iced::advanced::widget::Operation,
+    ) {
+        self.content.as_widget_mut().operate(&mut tree.children[0], layout, renderer, operation);
+    }
+
+    fn update(
+        &mut self,
+        tree: &mut iced::advanced::widget::Tree,
+        event: &iced::Event,
+        layout: iced::advanced::Layout<'_>,
+        cursor: mouse::Cursor,
+        renderer: &Renderer,
+        clipboard: &mut dyn iced::advanced::Clipboard,
+        shell: &mut iced::advanced::Shell<'_, Message>,
+        viewport: &Rectangle,
+    ) {
+        self.content
+            .as_widget_mut()
+            .update(&mut tree.children[0], event, layout, cursor, renderer, clipboard, shell, viewport);
+        let over = cursor.is_over(layout.bounds());
+        let state = tree.state.downcast_mut::<DraggedState>();
+        match event {
+            iced::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) if over => {
+                state.pressed = true;
+            }
+            iced::Event::Mouse(mouse::Event::CursorMoved { .. }) => {
+                if state.pressed && !self.held {
+                    shell.publish(self.on_grab.clone());
+                    shell.capture_event();
+                } else if over {
+                    shell.publish(self.on_over.clone());
+                }
+            }
+            iced::Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => {
+                state.pressed = false;
+                if self.held {
+                    shell.publish(self.on_drop.clone());
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn mouse_interaction(
+        &self,
+        tree: &iced::advanced::widget::Tree,
+        layout: iced::advanced::Layout<'_>,
+        cursor: mouse::Cursor,
+        viewport: &Rectangle,
+        renderer: &Renderer,
+    ) -> mouse::Interaction {
+        self.content.as_widget().mouse_interaction(&tree.children[0], layout, cursor, viewport, renderer)
+    }
+
+    fn draw(
+        &self,
+        tree: &iced::advanced::widget::Tree,
+        renderer: &mut Renderer,
+        theme: &Theme,
+        style: &iced::advanced::renderer::Style,
+        layout: iced::advanced::Layout<'_>,
+        cursor: mouse::Cursor,
+        viewport: &Rectangle,
+    ) {
+        self.content.as_widget().draw(&tree.children[0], renderer, theme, style, layout, cursor, viewport);
+    }
+
+    fn overlay<'b>(
+        &'b mut self,
+        tree: &'b mut iced::advanced::widget::Tree,
+        layout: iced::advanced::Layout<'b>,
+        renderer: &Renderer,
+        viewport: &Rectangle,
+        translation: iced::Vector,
+    ) -> Option<iced::advanced::overlay::Element<'b, Message, Theme, Renderer>> {
+        self.content.as_widget_mut().overlay(&mut tree.children[0], layout, renderer, viewport, translation)
+    }
+}

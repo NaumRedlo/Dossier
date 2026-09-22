@@ -822,7 +822,7 @@ fn ffmpeg_why(why: &str) -> String {
     short
 }
 
-fn fetching_ffmpeg() -> impl iced::futures::Stream<Item = ffmpeg::Step> {
+pub fn fetching_ffmpeg() -> impl iced::futures::Stream<Item = ffmpeg::Step> {
     iced::stream::channel(16, async move |out: iced::futures::channel::mpsc::Sender<ffmpeg::Step>| {
         std::thread::spawn(move || {
             let mut out = out;

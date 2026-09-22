@@ -11,6 +11,7 @@ use iced::{window, Animation, Color, ContentFit, Element, Length, Padding, Point
 use crate::lang::{typed, Words};
 use crate::library::{self, Entry, Grade, Library};
 use crate::bot::{self, Paired, Refused};
+use crate::settings_screen::{self as prefs, Side, Tile};
 use crate::{notices, player, videos};
 use crate::live;
 use crate::maps;
@@ -30,7 +31,7 @@ pub const BRAND_WIDTH: f32 = 144.0;
 const CREST_HOME: (f32, f32) = (40.0, 24.0);
 const CREST_RISE: f32 = 8.0;
 const JOURNAL_RISE: f32 = 140.0;
-const BUBBLE_W: f32 = 300.0;
+const BUBBLE_W: f32 = 340.0;
 const BUBBLE_H: f32 = 88.0;
 const CARET: f32 = 8.0;
 const THUMB: (u32, u32) = (176, 100);
@@ -53,6 +54,11 @@ pub enum Message {
     Length(PathBuf, i64),
     MaxCombo(PathBuf, Option<u32>),
     Key(iced::keyboard::key::Named),
+    Prefs(prefs::Message),
+    Retype(Instant),
+    Chats(Vec<crate::bot::Chat>),
+    Sized(u64, u64, u64),
+    Ffmpeg(Option<String>),
     Adopted(Vec<videos::Video>),
     ToastLink(u64),
     ShowError(u64),
@@ -254,6 +260,14 @@ pub struct Main {
     pub leaving: HashMap<u64, Animation<bool>>,
     pub overlay_fade: Animation<bool>,
     pub overlay_drawn: Overlay,
+    pub side: Side,
+    pub dragging: Option<Tile>,
+    pub drop_before: Option<Tile>,
+    pub renaming: Option<String>,
+    pub chats: Vec<crate::bot::Chat>,
+    pub sizes: (u64, u64, u64),
+    pub ffmpeg_version: Option<String>,
+    pub retype: Animation<bool>,
     pub menu_open: Animation<bool>,
     pub tab_fade: Animation<bool>,
     pub seg_from: Tab,
@@ -323,6 +337,14 @@ impl Main {
             leaving: HashMap::new(),
             overlay_fade: Animation::new(false).duration(OVERLAY_FADE).easing(Easing::EaseOutCubic),
             overlay_drawn: Overlay::None,
+            side: Side::App,
+            dragging: None,
+            drop_before: None,
+            renaming: None,
+            chats: Vec::new(),
+            sizes: (0, 0, 0),
+            ffmpeg_version: None,
+            retype: Animation::new(true),
             menu_open: Animation::new(false).duration(MENU_OPEN).easing(Easing::EaseOutCubic),
             tab_fade: Animation::new(true).duration(TAB_FADE).easing(Easing::EaseOutCubic),
             seg_from: Tab::Account,
@@ -353,7 +375,7 @@ impl Main {
             height: crate::WINDOW.height,
             strip_id: iced::widget::Id::unique(),
         };
-        let strays = videos::strays(&made.store.videos);
+        let strays = videos::strays(&made.store.videos, &made.settings.renders_dir());
         let adopt = match (made.ffmpeg.clone(), strays.is_empty()) {
             (Some(ffmpeg), false) => ui::in_thread(move || Message::Adopted(strays.iter().filter_map(|p| videos::adopt(&ffmpeg, p)).collect())),
             _ => Task::none(),
@@ -407,6 +429,7 @@ impl Main {
             || !self.toasts.is_empty()
             || self.menu_open.is_animating(self.now)
             || self.overlay_fade.is_animating(self.now)
+            || self.retype.is_animating(self.now)
             || self.arrivals.values().any(|a| a.is_animating(self.now))
             || self.leaving.values().any(|a| a.is_animating(self.now))
             || self.tab_fade.is_animating(self.now)
@@ -873,6 +896,20 @@ impl Main {
                 }
                 Task::none()
             }
+            Message::Sized(videos, maps, cache) => {
+                self.sizes = (videos, maps, cache);
+                Task::none()
+            }
+            Message::Ffmpeg(version) => {
+                self.ffmpeg_version = version;
+                Task::none()
+            }
+            Message::Chats(chats) => {
+                self.chats = chats;
+                Task::none()
+            }
+            Message::Retype(_) => Task::none(),
+            Message::Prefs(inner) => self.prefs(inner),
             Message::Adopted(found) => {
                 for video in found {
                     self.store.add(video);
@@ -1008,6 +1045,32 @@ impl Main {
             }
             Message::Show(overlay) => {
                 let now = Instant::now();
+                if overlay == Overlay::Settings {
+                    self.side = if self.settings.settings_tab == "bot" { Side::Bot } else { Side::App };
+                    let renders = self.settings.renders_dir();
+                    let songs = crate::sources::own_root().join("Songs");
+                    let root = crate::sources::own_root();
+                    let sizes = ui::in_thread(move || {
+                        Message::Sized(
+                            prefs::folder_size(&renders),
+                            prefs::folder_size(&songs),
+                            prefs::folder_size(&root.join("maps.json")) + prefs::folder_size(&root.join("found.json")),
+                        )
+                    });
+                    let ffmpeg = self.ffmpeg.clone();
+                    let version = ui::in_thread(move || Message::Ffmpeg(ffmpeg.as_deref().and_then(crate::checks::ffmpeg_version)));
+                    let chats = match (self.settings.token.is_empty(), self.chats.is_empty()) {
+                        (false, true) => {
+                            let (server, token, name) = (self.settings.server.clone(), self.settings.token.clone(), self.settings.device.clone());
+                            ui::in_thread(move || Message::Chats(crate::bot::chats(&server, &token, &name).unwrap_or_default()))
+                        }
+                        _ => Task::none(),
+                    };
+                    self.overlay_drawn = overlay;
+                    self.overlay_fade = Animation::new(false).duration(OVERLAY_FADE).easing(Easing::EaseOutCubic).go(true, now);
+                    self.overlay = overlay;
+                    return Task::batch([sizes, version, chats]);
+                }
                 if overlay != self.overlay {
                     if overlay == Overlay::None {
                         self.overlay_fade.go_mut(false, now);
@@ -1061,13 +1124,16 @@ impl Main {
                 let Some(map) = &entry.map else {
                     return Task::none();
                 };
-                let out = render::renders_dir().join(render::file_name(&entry.player, &map.line()));
+                let out = self.settings.renders_dir().join(render::file_name(&entry.player, &map.line()));
                 let ask = render::Ask {
                     replay: entry.path.clone(),
                     map: map.file.clone(),
                     map_hash: entry.map_hash.clone(),
                     ffmpeg,
                     out,
+                    size: self.settings.render_size(),
+                    fps: self.settings.render_fps,
+                    crf: self.settings.render_crf,
                 };
                 self.rendering = Some(Rendering { path: entry.path.clone(), reached: Vec::new(), out: None });
                 render::run(ask).map(Message::Rendered)
@@ -1088,7 +1154,7 @@ impl Main {
                 if let Some((replay, out)) = saved {
                     if let Some(entry) = self.entries().iter().find(|e| e.path == replay).cloned() {
                         let length = self.lengths.get(&replay).copied().unwrap_or_else(|| length_of(&replay));
-                        let video = videos::Video::from_render(&entry, out.clone(), length, render::SIZE.0, render::SIZE.1, render::FPS as u32);
+                        let video = videos::Video::from_render(&entry, out.clone(), length, self.settings.render_size().0, self.settings.render_size().1, self.settings.render_fps);
                         let detail = format!("{} — {}", video.player, video.map_line());
                         let note = format!("{} · {}", self.words.length(video.length_ms), self.words.mb(video.size));
                         let hash = video.map_hash.clone();
@@ -1346,6 +1412,10 @@ impl Main {
                 match self.progress_target() {
                     Some(target) => self.progress_shown += (target - self.progress_shown) * 0.12,
                     None => self.progress_shown = 0.0,
+                }
+                self.words.typed_up_to(self.retype.interpolate(0.0, 1.0, now));
+                if !self.retype.is_animating(now) {
+                    self.words.settle();
                 }
                 for toast in &mut self.toasts {
                     if toast.shown.value() && !toast.stays && !toast.hovered && now.duration_since(toast.born) > TOAST_STAY {
@@ -1904,7 +1974,8 @@ impl Main {
         if let Some(Some(max)) = self.combos.get(&entry.path) {
             how = how.push(small(w.of_max(*max), FAINT));
         }
-        if entry.outcome != library::Outcome::Fail {
+        let doubled = matches!(entry.outcome, library::Outcome::Misses(n) if u32::from(n) == u32::from(miss));
+        if entry.outcome != library::Outcome::Fail && !doubled {
             how = how.push(dot());
             how = how.push(bold(entry.outcome.mark(), if entry.outcome.is_bad() { ACCENT } else { MUTED }));
         }
@@ -1950,6 +2021,9 @@ impl Main {
             return self.videos_view();
         }
         let w = &self.words;
+        if which == Overlay::Settings {
+            return self.settings_view();
+        }
         let (name, why) = match which {
             Overlay::Worker => (w.t("worker"), w.t("coming-later")),
             Overlay::Community => (w.t("community"), w.t("community-why")),
@@ -2194,6 +2268,215 @@ impl Main {
 }
 
 const VIDEO_THUMB: (u32, u32) = (96, 54);
+pub const RETYPE: Duration = Duration::from_millis(900);
+
+impl Main {
+    fn settings_view(&self) -> Element<'_, Message> {
+        let ground = prefs::Ground {
+            words: &self.words,
+            settings: &self.settings,
+            side: self.side,
+            replays: self.entries().len(),
+            videos: self.store.videos.len(),
+            videos_size: self.sizes.0.max(self.store.total_size()),
+            maps: self.library.as_ref().map_or(0, |l| l.maps),
+            maps_size: self.sizes.1,
+            cache_size: self.sizes.2,
+            ffmpeg: self.ffmpeg_version.clone(),
+            account: self.account.as_ref(),
+            avatar: self.avatar.as_ref(),
+            chats: &self.chats,
+            dragging: self.dragging,
+            renaming: self.renaming.as_ref(),
+        };
+        let body: Element<'_, Message> = Element::from(prefs::view(&ground)).map(Message::Prefs);
+        let sheet = column![self.chrome(), body].width(Length::Fill).height(Length::Fill);
+        let crest: Element<'_, Message> = pin(ui::brand()).x(CREST_HOME.0).y(CREST_HOME.1).into();
+        stack![ui::veil(theme::GROUND), sheet, crest]
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .into()
+    }
+
+    fn prefs(&mut self, message: prefs::Message) -> Task<Message> {
+        use prefs::Message as P;
+        let keep = |settings: &Settings| {
+            let _ = settings.save();
+        };
+        match message {
+            P::Side(side) => {
+                self.side = side;
+                let name = if side == Side::Bot { "bot" } else { "app" };
+                if self.settings.settings_tab != name {
+                    self.settings.settings_tab = name.to_owned();
+                    keep(&self.settings);
+                }
+                Task::none()
+            }
+            P::PickLang(lang) => {
+                if lang != self.settings.lang {
+                    self.settings.lang = lang;
+                    keep(&self.settings);
+                    let words = std::mem::replace(&mut self.words, Words::new(lang));
+                    self.words = words.retyping_into(lang);
+                    self.retype = Animation::new(false).duration(RETYPE).easing(Easing::Linear).go(true, Instant::now());
+                }
+                Task::none()
+            }
+            P::Rename(said) => {
+                self.renaming = Some(said);
+                Task::none()
+            }
+            P::RenameDone => {
+                if let Some(said) = self.renaming.take() {
+                    let tidy = said.trim().to_owned();
+                    if !tidy.is_empty() {
+                        self.settings.device = tidy;
+                        keep(&self.settings);
+                    }
+                }
+                Task::none()
+            }
+            P::Scene(on) => {
+                self.settings.live_scene = on;
+                keep(&self.settings);
+                if on {
+                    self.start_live()
+                } else {
+                    if let Some(live) = self.live.take() {
+                        live.control.stop();
+                    }
+                    self.trail = None;
+                    Task::none()
+                }
+            }
+            P::PauseUnfocused(on) => {
+                self.settings.pause_unfocused = on;
+                keep(&self.settings);
+                Task::none()
+            }
+            P::Height(at) => {
+                self.settings.render_height = prefs::nearest(at, &crate::settings::HEIGHTS);
+                keep(&self.settings);
+                Task::none()
+            }
+            P::Rate(at) => {
+                self.settings.render_fps = prefs::nearest(at, &crate::settings::RATES);
+                keep(&self.settings);
+                Task::none()
+            }
+            P::Crf(at) => {
+                self.settings.render_crf = prefs::nearest(at, &crate::settings::CRFS);
+                keep(&self.settings);
+                Task::none()
+            }
+            P::Source(at, on) => {
+                if let Some(source) = self.settings.sources.get_mut(at) {
+                    source.on = on;
+                    keep(&self.settings);
+                }
+                let sources = self.settings.sources.clone();
+                ui::in_thread(move || library::read(&sources)).map(Message::Loaded)
+            }
+            P::AddFolder => Task::perform(prefs::pick_folder(), |found| Message::Prefs(P::Added(found))),
+            P::Added(found) => {
+                let Some(source) = found else {
+                    return Task::none();
+                };
+                if self.settings.sources.iter().any(|s| s.root == source.root) {
+                    return Task::none();
+                }
+                self.settings.sources.push(source);
+                keep(&self.settings);
+                let sources = self.settings.sources.clone();
+                ui::in_thread(move || library::read(&sources)).map(Message::Loaded)
+            }
+            P::OpenRenders => {
+                let _ = open::that_detached(self.settings.renders_dir());
+                Task::none()
+            }
+            P::PickRenders => Task::perform(prefs::pick_renders(), |picked| Message::Prefs(P::PickedRenders(picked))),
+            P::PickedRenders(picked) => {
+                let Some(root) = picked else {
+                    return Task::none();
+                };
+                self.settings.renders_dir = Some(root.clone());
+                keep(&self.settings);
+                self.store = videos::Store::at(root.join("videos.json"));
+                let strays = videos::strays(&self.store.videos, &root);
+                match (self.ffmpeg.clone(), strays.is_empty()) {
+                    (Some(ffmpeg), false) => ui::in_thread(move || Message::Adopted(strays.iter().filter_map(|p| videos::adopt(&ffmpeg, p)).collect())),
+                    _ => Task::none(),
+                }
+            }
+            P::OpenMaps => {
+                let _ = open::that_detached(crate::sources::own_root().join("Songs"));
+                Task::none()
+            }
+            P::ClearCache => {
+                prefs::clear_cache();
+                self.sizes.2 = 0;
+                Task::none()
+            }
+            P::CheckBuild => {
+                let _ = open::that_detached("https://github.com/NaumRedlo/Dossier/releases");
+                Task::none()
+            }
+            P::GetFfmpeg => {
+                if self.ffmpeg.is_some() {
+                    let _ = open::that_detached(crate::ffmpeg::own_dir());
+                    return Task::none();
+                }
+                Task::run(crate::first_run::fetching_ffmpeg(), |step| match step {
+                    crate::ffmpeg::Step::Done(path) => Message::Ffmpeg(crate::checks::ffmpeg_version(&path)),
+                    _ => Message::Retype(Instant::now()),
+                })
+            }
+            P::Chat(id) => {
+                self.settings.chat_id = Some(id);
+                keep(&self.settings);
+                Task::none()
+            }
+            P::Tell(which, on) => {
+                match which {
+                    "rendered" => self.settings.tell.rendered = on,
+                    "errors" => self.settings.tell.errors = on,
+                    "maps" => self.settings.tell.maps = on,
+                    _ => self.settings.tell.worker = on,
+                }
+                keep(&self.settings);
+                Task::none()
+            }
+            P::Worker(_) => Task::none(),
+            P::Unlink | P::SignOut => self.update(Message::SignOut),
+            P::Drag(tile) => {
+                self.dragging = Some(tile);
+                Task::none()
+            }
+            P::DropBefore(tile) => {
+                if self.dragging.is_some() {
+                    self.drop_before = tile;
+                }
+                Task::none()
+            }
+            P::Dropped => {
+                let (Some(what), before) = (self.dragging.take(), self.drop_before.take()) else {
+                    return Task::none();
+                };
+                if Some(what) == before {
+                    return Task::none();
+                }
+                match self.side {
+                    Side::App => self.settings.tiles_app = prefs::moved(&self.settings.tiles_app, &prefs::APP, what, before),
+                    Side::Bot => self.settings.tiles_bot = prefs::moved(&self.settings.tiles_bot, &prefs::BOT, what, before),
+                }
+                keep(&self.settings);
+                Task::none()
+            }
+        }
+    }
+}
+
 const VIDEO_ROW: f32 = 72.0;
 const CIRCLE_SIDE: f32 = 28.0;
 const AVATAR_SIDE: u32 = 80;

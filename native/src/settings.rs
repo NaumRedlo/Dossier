@@ -15,6 +15,73 @@ pub struct Settings {
     pub linked_as: String,
     #[serde(default)]
     pub menu_tab: String,
+    #[serde(default = "yes")]
+    pub live_scene: bool,
+    #[serde(default = "yes")]
+    pub pause_unfocused: bool,
+    #[serde(default = "default_height")]
+    pub render_height: u32,
+    #[serde(default = "default_fps")]
+    pub render_fps: u32,
+    #[serde(default = "default_crf")]
+    pub render_crf: u32,
+    #[serde(default)]
+    pub renders_dir: Option<PathBuf>,
+    #[serde(default)]
+    pub settings_tab: String,
+    #[serde(default)]
+    pub tiles_app: Vec<String>,
+    #[serde(default)]
+    pub tiles_bot: Vec<String>,
+    #[serde(default)]
+    pub chat_id: Option<i64>,
+    #[serde(default)]
+    pub tell: Tell,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Tell {
+    pub rendered: bool,
+    pub errors: bool,
+    pub maps: bool,
+    pub worker: bool,
+}
+
+impl Default for Tell {
+    fn default() -> Tell {
+        Tell { rendered: true, errors: false, maps: false, worker: true }
+    }
+}
+
+fn yes() -> bool {
+    true
+}
+
+fn default_height() -> u32 {
+    1080
+}
+
+fn default_fps() -> u32 {
+    60
+}
+
+fn default_crf() -> u32 {
+    20
+}
+
+pub const HEIGHTS: [u32; 3] = [720, 1080, 1440];
+pub const RATES: [u32; 2] = [30, 60];
+pub const CRFS: [u32; 3] = [23, 20, 17];
+
+impl Settings {
+    pub fn render_size(&self) -> (u32, u32) {
+        let height = if HEIGHTS.contains(&self.render_height) { self.render_height } else { 1080 };
+        (height * 16 / 9, height)
+    }
+
+    pub fn renders_dir(&self) -> PathBuf {
+        self.renders_dir.clone().unwrap_or_else(|| crate::sources::own_root().join("Renders"))
+    }
 }
 
 impl Default for Settings {
@@ -27,6 +94,17 @@ impl Default for Settings {
             token: String::new(),
             linked_as: String::new(),
             menu_tab: String::new(),
+            live_scene: true,
+            pause_unfocused: true,
+            render_height: 1080,
+            render_fps: 60,
+            render_crf: 20,
+            renders_dir: None,
+            settings_tab: String::new(),
+            tiles_app: Vec::new(),
+            tiles_bot: Vec::new(),
+            chat_id: None,
+            tell: Tell::default(),
         }
     }
 }

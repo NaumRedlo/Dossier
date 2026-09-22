@@ -97,7 +97,7 @@ fn the_worker_overlay_says_it_comes_later_and_goes_back() {
     let staged = main_state("main-worker");
     let backdrop = dossier_native::ui::backdrop_handle();
     let mut ui = Simulator::with_size(dossier_native::settings(), iced::Size::new(980.0, 720.0), gallery::main_frame(&staged, &backdrop));
-    assert!(ui.find("Coming later").is_ok());
+    assert!(ui.find("Coming later!").is_ok());
     let _ = ui.click("Back to replays").expect("clicked");
     let messages: Vec<_> = ui.into_messages().collect();
     assert!(messages.iter().any(|m| matches!(m, dossier_native::Message::Main(M::Show(Overlay::None)))), "{messages:?}");

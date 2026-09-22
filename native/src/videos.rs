@@ -3,7 +3,6 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::library::Entry;
-use crate::render;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Video {
@@ -72,7 +71,7 @@ pub struct Store {
 }
 
 pub fn index_path() -> PathBuf {
-    render::renders_dir().join("videos.json")
+    crate::settings::Settings::load().renders_dir().join("videos.json")
 }
 
 impl Store {
@@ -207,8 +206,8 @@ pub fn named_from_file(stem: &str) -> (String, String, String) {
     (player, song, version)
 }
 
-pub fn strays(known: &[Video]) -> Vec<PathBuf> {
-    let Ok(read) = std::fs::read_dir(render::renders_dir()) else {
+pub fn strays(known: &[Video], dir: &Path) -> Vec<PathBuf> {
+    let Ok(read) = std::fs::read_dir(dir) else {
         return Vec::new();
     };
     let mut found: Vec<PathBuf> = read

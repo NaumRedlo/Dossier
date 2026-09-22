@@ -533,6 +533,24 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
     failing.menu = None;
     failing.menu_open = iced::Animation::new(false);
     failing.error_shown = failing.notices.notices.iter().find(|n| n.mark == crate::notices::Mark::Bad).map(|n| n.id);
+    let mut prefs_app = staged(Some(0));
+    prefs_app.now_unix = NOON;
+    prefs_app.overlay = crate::main_screen::Overlay::Settings;
+    prefs_app.overlay_drawn = crate::main_screen::Overlay::Settings;
+    prefs_app.overlay_fade = iced::Animation::new(true);
+    prefs_app.ffmpeg_version = Some("7.1".to_owned());
+    prefs_app.sizes = (596_000_000, 1_180_000_000, 146_800_000);
+    prefs_app.store.videos = with_videos.store.videos.clone();
+    let mut prefs_bot = prefs_app.clone();
+    prefs_bot.side = crate::settings_screen::Side::Bot;
+    prefs_bot.settings.token = "staged".to_owned();
+    prefs_bot.settings.linked_as = "@naumredlo".to_owned();
+    prefs_bot.account = Some(crate::bot::Me { telegram_id: 7, name: "Naum Redlo".into(), username: "naumredlo".into(), avatar: false });
+    prefs_bot.chats = vec![
+        crate::bot::Chat { id: 7, title: "Личный чат".into(), private: true },
+        crate::bot::Chat { id: -100, title: "osu! RU · lounge".into(), private: false },
+        crate::bot::Chat { id: -101, title: "1984 crew".into(), private: false },
+    ];
     let mut signing = staged(Some(0));
     signing.pairing = crate::main_screen::Pairing::Waiting { code: "K7QN-M4XZ".into(), link: "https://t.me/bot?start=pair-K7QNM4XZ".into() };
     signing.qr = crate::first_run::qr_for("https://t.me/bot?start=pair-K7QNM4XZ");
@@ -543,6 +561,8 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
         ("main-menu-feed".to_owned(), menu_feed),
         ("main-menu-stats".to_owned(), menu_stats),
         ("main-signing".to_owned(), signing),
+        ("main-prefs".to_owned(), prefs_app),
+        ("main-prefs-bot".to_owned(), prefs_bot),
         ("main-failure".to_owned(), failing),
         ("main-videos".to_owned(), with_videos),
         ("main-player".to_owned(), playing),

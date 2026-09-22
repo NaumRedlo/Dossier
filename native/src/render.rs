@@ -30,6 +30,9 @@ pub struct Ask {
     pub map_hash: String,
     pub ffmpeg: PathBuf,
     pub out: PathBuf,
+    pub size: (u32, u32),
+    pub fps: u32,
+    pub crf: u32,
 }
 
 pub const SIZE: (u32, u32) = (1920, 1080);
@@ -167,12 +170,12 @@ fn draw(ask: &Ask, tell: &Sender<Step>) -> Result<PathBuf, String> {
 
     let settings = video::Settings {
         out: ask.out.clone(),
-        fps: FPS,
-        size: SIZE,
+        fps: ask.fps as f64,
+        size: ask.size,
         from_ms: None,
         to_ms: None,
         ffmpeg: ffmpeg.clone(),
-        crf: 20,
+        crf: ask.crf,
         preset: "medium".to_owned(),
         music_level: 1.0,
         hitsound_level: 1.0,

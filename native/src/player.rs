@@ -15,6 +15,7 @@ pub const HEIGHT: u32 = 540;
 
 pub struct Player {
     pub path: PathBuf,
+    pub level: f32,
     pub length_ms: i64,
     pub frame: Option<image::Handle>,
     pub paused: bool,
@@ -36,9 +37,10 @@ struct Sound {
 }
 
 impl Player {
-    pub fn open(ffmpeg: &Path, path: &Path, length_ms: i64, fps: u32) -> Player {
+    pub fn open(ffmpeg: &Path, path: &Path, length_ms: i64, fps: u32, level: f32) -> Player {
         let mut player = Player {
             path: path.to_path_buf(),
+            level,
             length_ms,
             frame: None,
             paused: false,
@@ -61,6 +63,7 @@ impl Player {
     pub fn still(path: &Path, length_ms: i64, at_ms: i64) -> Player {
         let mut player = Player {
             path: path.to_path_buf(),
+            level: 1.0,
             length_ms,
             frame: None,
             paused: true,
@@ -251,6 +254,7 @@ impl Player {
             procs.push(child);
         }
         let (tx, rx) = sync_channel::<Vec<f32>>(16);
+        let level = self.level.clamp(0.0, 1.0);
         let stop = self.stop.clone();
         thread::spawn(move || {
             let mut bytes = vec![0u8; 4096 * 4];
@@ -289,7 +293,7 @@ impl Player {
                                 }
                             }
                         }
-                        *sample = left.0[left.1];
+                        *sample = left.0[left.1] * level;
                         left.1 += 1;
                     }
                 },

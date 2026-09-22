@@ -57,6 +57,7 @@ pub enum Message {
     Prefs(prefs::Message),
     Retype(Instant),
     Chats(Vec<crate::bot::Chat>),
+    Skins(Vec<PathBuf>),
     Sized(u64, u64, u64),
     Ffmpeg(Option<String>),
     Adopted(Vec<videos::Video>),
@@ -265,6 +266,11 @@ pub struct Main {
     pub drop_before: Option<Tile>,
     pub renaming: Option<String>,
     pub chats: Vec<crate::bot::Chat>,
+    pub skins: Vec<PathBuf>,
+    pub marks: HashMap<String, Animation<bool>>,
+    pub marks_now: HashMap<String, f32>,
+    pub drag_at: Point,
+    pub lang_swap: bool,
     pub sizes: (u64, u64, u64),
     pub ffmpeg_version: Option<String>,
     pub retype: Animation<bool>,
@@ -342,6 +348,11 @@ impl Main {
             drop_before: None,
             renaming: None,
             chats: Vec::new(),
+            skins: Vec::new(),
+            marks: HashMap::new(),
+            marks_now: HashMap::new(),
+            drag_at: Point::ORIGIN,
+            lang_swap: false,
             sizes: (0, 0, 0),
             ffmpeg_version: None,
             retype: Animation::new(true),
@@ -430,6 +441,8 @@ impl Main {
             || self.menu_open.is_animating(self.now)
             || self.overlay_fade.is_animating(self.now)
             || self.retype.is_animating(self.now)
+            || self.marks.values().any(|m| m.is_animating(self.now))
+            || self.dragging.is_some()
             || self.hover.is_some()
             || self.arrivals.values().any(|a| a.is_animating(self.now))
             || self.leaving.values().any(|a| a.is_animating(self.now))
@@ -468,6 +481,13 @@ impl Main {
         })];
         if self.moving() {
             parts.push(window::frames().map(Message::Tick));
+        }
+        if self.dragging.is_some() {
+            parts.push(iced::event::listen_with(|event, _, _| match event {
+                iced::Event::Mouse(iced::mouse::Event::CursorMoved { position }) => Some(Message::Prefs(prefs::Message::DragAt(position))),
+                iced::Event::Mouse(iced::mouse::Event::ButtonReleased(iced::mouse::Button::Left)) => Some(Message::Prefs(prefs::Message::Dropped)),
+                _ => None,
+            }));
         }
         if matches!(self.pairing, Pairing::Waiting { .. }) {
             parts.push(iced::time::every(Duration::from_secs(3)).map(|_| Message::Poll));
@@ -906,6 +926,10 @@ impl Main {
                 self.ffmpeg_version = version;
                 Task::none()
             }
+            Message::Skins(found) => {
+                self.skins = found;
+                Task::none()
+            }
             Message::Chats(chats) => {
                 self.chats = chats;
                 Task::none()
@@ -934,7 +958,7 @@ impl Main {
                 if let Some(old) = self.player.take() {
                     old.borrow_mut().close();
                 }
-                self.player = Some(std::rc::Rc::new(std::cell::RefCell::new(player::Player::open(ffmpeg, &video.path, video.length_ms, video.fps))));
+                self.player = Some(std::rc::Rc::new(std::cell::RefCell::new(player::Player::open(ffmpeg, &video.path, video.length_ms, video.fps, self.settings.player_level))));
                 self.open_video = Some(at);
                 self.asking_delete = false;
                 Task::none()
@@ -1059,6 +1083,8 @@ impl Main {
                             prefs::folder_size(&root.join("maps.json")) + prefs::folder_size(&root.join("found.json")),
                         )
                     });
+                    let sources = self.settings.sources.clone();
+                    let skins = ui::in_thread(move || Message::Skins(crate::settings::skins_in(&sources)));
                     let ffmpeg = self.ffmpeg.clone();
                     let version = ui::in_thread(move || Message::Ffmpeg(ffmpeg.as_deref().and_then(crate::checks::ffmpeg_version)));
                     let chats = match (self.settings.token.is_empty(), self.chats.is_empty()) {
@@ -1071,7 +1097,7 @@ impl Main {
                     self.overlay_drawn = overlay;
                     self.overlay_fade = Animation::new(false).duration(OVERLAY_FADE).easing(Easing::EaseOutCubic).go(true, now);
                     self.overlay = overlay;
-                    return Task::batch([sizes, version, chats]);
+                    return Task::batch([sizes, version, chats, skins]);
                 }
                 if overlay != self.overlay {
                     if overlay == Overlay::None {
@@ -1136,6 +1162,9 @@ impl Main {
                     size: self.settings.render_size(),
                     fps: self.settings.render_fps,
                     crf: self.settings.render_crf,
+                    skin: self.settings.skin.clone(),
+                    music_level: self.settings.music_level,
+                    hitsound_level: self.settings.hitsound_level,
                 };
                 self.rendering = Some(Rendering { path: entry.path.clone(), reached: Vec::new(), out: None });
                 render::run(ask).map(Message::Rendered)
@@ -1415,6 +1444,7 @@ impl Main {
                     Some(target) => self.progress_shown += (target - self.progress_shown) * 0.12,
                     None => self.progress_shown = 0.0,
                 }
+                self.marks_now = self.marks.iter().map(|(id, mark)| (id.clone(), mark.interpolate(0.0, 1.0, now))).collect();
                 self.words.typed_up_to(self.retype.interpolate(0.0, 1.0, now));
                 if !self.retype.is_animating(now) {
                     self.words.settle();
@@ -1425,6 +1455,10 @@ impl Main {
                     }
                 }
                 self.toasts.retain(|t| t.shown.value() || t.shown.is_animating(now));
+                if self.lang_swap && !self.overlay_fade.value() && !self.overlay_fade.is_animating(now) {
+                    self.lang_swap = false;
+                    self.overlay_fade = Animation::new(false).duration(LANG_FADE).easing(Easing::EaseOutCubic).go(true, now);
+                }
                 if self.menu.is_some() && !self.menu_open.value() && !self.menu_open.is_animating(now) {
                     self.menu = None;
                 }
@@ -2272,8 +2306,18 @@ impl Main {
 
 const VIDEO_THUMB: (u32, u32) = (96, 54);
 pub const RETYPE: Duration = Duration::from_millis(900);
+pub const MARK: Duration = Duration::from_millis(200);
+pub const LANG_FADE: Duration = Duration::from_millis(150);
 
 impl Main {
+    fn remember_mark(&mut self, id: &str, on: bool) {
+        let now = Instant::now();
+        self.marks
+            .entry(id.to_owned())
+            .or_insert_with(|| Animation::new(!on).duration(MARK).easing(Easing::EaseOutCubic))
+            .go_mut(on, now);
+    }
+
     fn settings_view(&self) -> Element<'_, Message> {
         let ground = prefs::Ground {
             words: &self.words,
@@ -2291,11 +2335,20 @@ impl Main {
             chats: &self.chats,
             dragging: self.dragging,
             renaming: self.renaming.as_ref(),
+            skins: &self.skins,
+            marks: &self.marks_now,
+            came: self.overlay_fade.interpolate(0.0, 1.0, self.now),
         };
         let body: Element<'_, Message> = Element::from(prefs::view(&ground)).map(Message::Prefs);
         let sheet = column![self.chrome(), body].width(Length::Fill).height(Length::Fill);
-        let crest: Element<'_, Message> = pin(ui::brand()).x(CREST_HOME.0).y(CREST_HOME.1).into();
-        stack![ui::veil(theme::GROUND), sheet, crest]
+        let held: Element<'_, Message> = match self.dragging {
+            Some(tile) => {
+                let card: Element<'_, Message> = Element::from(prefs::floating(&ground, tile)).map(Message::Prefs);
+                pin(ui::grown(card, Point::new(0.5, 0.5), 0.0, 1.04)).x(self.drag_at.x - 90.0).y(self.drag_at.y - 26.0).into()
+            }
+            None => Space::new().width(Length::Fill).height(Length::Fill).into(),
+        };
+        stack![ui::veil(theme::GROUND), sheet, held]
             .width(Length::Fill)
             .height(Length::Fill)
             .into()
@@ -2317,13 +2370,18 @@ impl Main {
                 Task::none()
             }
             P::PickLang(lang) => {
-                if lang != self.settings.lang {
-                    self.settings.lang = lang;
-                    keep(&self.settings);
-                    let words = std::mem::replace(&mut self.words, Words::new(lang));
-                    self.words = words.retyping_into(lang);
-                    self.retype = Animation::new(false).duration(RETYPE).easing(Easing::Linear).go(true, Instant::now());
+                self.remember_mark("lang-ru", lang == crate::lang::Lang::Ru);
+                self.remember_mark("lang-en", lang == crate::lang::Lang::En);
+                if lang == self.settings.lang {
+                    return Task::none();
                 }
+                self.settings.lang = lang;
+                keep(&self.settings);
+                self.words = Words::new(lang);
+                self.retype = Animation::new(true);
+                let now = Instant::now();
+                self.overlay_fade = Animation::new(true).duration(LANG_FADE).easing(Easing::EaseOutCubic).go(false, now);
+                self.lang_swap = true;
                 Task::none()
             }
             P::Rename(said) => {
@@ -2341,6 +2399,7 @@ impl Main {
                 Task::none()
             }
             P::Scene(on) => {
+                self.remember_mark("live", on);
                 self.settings.live_scene = on;
                 keep(&self.settings);
                 if on {
@@ -2354,6 +2413,7 @@ impl Main {
                 }
             }
             P::PauseUnfocused(on) => {
+                self.remember_mark("pause", on);
                 self.settings.pause_unfocused = on;
                 keep(&self.settings);
                 Task::none()
@@ -2374,6 +2434,7 @@ impl Main {
                 Task::none()
             }
             P::Source(at, on) => {
+                self.remember_mark(&format!("source-{at}"), on);
                 if let Some(source) = self.settings.sources.get_mut(at) {
                     source.on = on;
                     keep(&self.settings);
@@ -2436,24 +2497,52 @@ impl Main {
                 })
             }
             P::Chat(id) => {
+                let was = self.settings.chat_id.or(self.account.as_ref().map(|me| me.telegram_id));
+                if let Some(was) = was {
+                    self.remember_mark(&format!("chat-{was}"), false);
+                }
+                self.remember_mark(&format!("chat-{id}"), true);
                 self.settings.chat_id = Some(id);
                 keep(&self.settings);
                 Task::none()
             }
-            P::Tell(which, on) => {
-                match which {
-                    "rendered" => self.settings.tell.rendered = on,
-                    "errors" => self.settings.tell.errors = on,
-                    "maps" => self.settings.tell.maps = on,
-                    _ => self.settings.tell.worker = on,
-                }
+            P::Worker(_) => Task::none(),
+            P::Skin(folder) => {
+                let name = |path: &Option<PathBuf>| match path {
+                    Some(path) => format!("skin-{}", path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default()),
+                    None => "skin-own".to_owned(),
+                };
+                self.remember_mark(&name(&self.settings.skin), false);
+                self.remember_mark(&name(&folder), true);
+                self.settings.skin = folder;
                 keep(&self.settings);
                 Task::none()
             }
-            P::Worker(_) => Task::none(),
+            P::Music(level) => {
+                self.settings.music_level = level.clamp(0.0, 1.0);
+                keep(&self.settings);
+                Task::none()
+            }
+            P::Hitsounds(level) => {
+                self.settings.hitsound_level = level.clamp(0.0, 1.0);
+                keep(&self.settings);
+                Task::none()
+            }
+            P::PlayerLevel(level) => {
+                self.settings.player_level = level.clamp(0.0, 1.0);
+                keep(&self.settings);
+                if let Some(player) = &self.player {
+                    player.borrow_mut().level = self.settings.player_level;
+                }
+                Task::none()
+            }
             P::Unlink | P::SignOut => self.update(Message::SignOut),
             P::Drag(tile) => {
                 self.dragging = Some(tile);
+                Task::none()
+            }
+            P::DragAt(at) => {
+                self.drag_at = at;
                 Task::none()
             }
             P::DropBefore(tile) => {

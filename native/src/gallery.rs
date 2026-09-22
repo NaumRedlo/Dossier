@@ -541,11 +541,13 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
     prefs_app.ffmpeg_version = Some("7.1".to_owned());
     prefs_app.sizes = (596_000_000, 1_180_000_000, 146_800_000);
     prefs_app.store.videos = with_videos.store.videos.clone();
+    prefs_app.marks_now = std::collections::HashMap::new();
     let mut prefs_bot = prefs_app.clone();
     prefs_bot.side = crate::settings_screen::Side::Bot;
     prefs_bot.settings.token = "staged".to_owned();
     prefs_bot.settings.linked_as = "@naumredlo".to_owned();
     prefs_bot.account = Some(crate::bot::Me { telegram_id: 7, name: "Naum Redlo".into(), username: "naumredlo".into(), avatar: false });
+    prefs_app.skins = vec![std::path::PathBuf::from("/skins/- # Seoul v11"), std::path::PathBuf::from("/skins/rafis 2019")];
     prefs_bot.chats = vec![
         crate::bot::Chat { id: 7, title: "Личный чат".into(), private: true },
         crate::bot::Chat { id: -100, title: "osu! RU · lounge".into(), private: false },

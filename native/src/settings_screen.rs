@@ -22,12 +22,13 @@ pub enum Tile {
     Device,
     Scene,
     Sources,
+    Skins,
+    Sound,
     Videos,
     Maps,
     Builds,
     Account,
     Chats,
-    Tells,
     Worker,
     ThisDevice,
 }
@@ -40,12 +41,13 @@ impl Tile {
             Tile::Device => "device",
             Tile::Scene => "scene",
             Tile::Sources => "sources",
+            Tile::Skins => "skins",
+            Tile::Sound => "sound",
             Tile::Videos => "videos",
             Tile::Maps => "maps",
             Tile::Builds => "builds",
             Tile::Account => "account",
             Tile::Chats => "chats",
-            Tile::Tells => "tells",
             Tile::Worker => "worker",
             Tile::ThisDevice => "this-device",
         }
@@ -56,18 +58,20 @@ impl Tile {
     }
 }
 
-pub const APP: [Tile; 8] = [
+pub const APP: [Tile; 10] = [
     Tile::Render,
     Tile::Language,
     Tile::Device,
     Tile::Scene,
+    Tile::Sound,
     Tile::Sources,
+    Tile::Skins,
     Tile::Videos,
     Tile::Maps,
     Tile::Builds,
 ];
 
-pub const BOT: [Tile; 5] = [Tile::Account, Tile::Chats, Tile::Tells, Tile::Worker, Tile::ThisDevice];
+pub const BOT: [Tile; 4] = [Tile::Account, Tile::Chats, Tile::Worker, Tile::ThisDevice];
 
 pub fn order(kept: &[String], all: &[Tile]) -> Vec<Tile> {
     let mut out: Vec<Tile> = kept.iter().filter_map(|tag| Tile::of(tag)).filter(|tile| all.contains(tile)).collect();
@@ -103,6 +107,9 @@ pub struct Ground<'a> {
     pub chats: &'a [crate::bot::Chat],
     pub dragging: Option<Tile>,
     pub renaming: Option<&'a String>,
+    pub skins: &'a [PathBuf],
+    pub marks: &'a std::collections::HashMap<String, f32>,
+    pub came: f32,
 }
 
 #[derive(Debug, Clone)]
@@ -127,11 +134,15 @@ pub enum Message {
     CheckBuild,
     GetFfmpeg,
     Chat(i64),
-    Tell(&'static str, bool),
     Worker(bool),
+    Skin(Option<PathBuf>),
+    Music(f32),
+    Hitsounds(f32),
+    PlayerLevel(f32),
     Unlink,
     SignOut,
     Drag(Tile),
+    DragAt(iced::Point),
     DropBefore(Option<Tile>),
     Dropped,
 }
@@ -152,41 +163,58 @@ pub fn view<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
         Side::Bot => (&ground.settings.tiles_bot, &BOT[..]),
     };
     let mut tiles: Vec<Element<'a, Message>> = Vec::new();
-    for tile in order(kept, all) {
-        tiles.push(draggable(ground, tile));
+    for (at, tile) in order(kept, all).into_iter().enumerate() {
+        let late = (ground.came * 1.7 - 0.09 * at as f32).clamp(0.0, 1.0);
+        tiles.push(draggable(ground, tile, late));
     }
     let grid = container(ui::wrap(tiles, 10.0)).padding(Padding { top: 16.0, right: 40.0, bottom: 24.0, left: 40.0 });
     column![container(switch).padding(Padding::ZERO.top(22.0)), grid].width(Length::Fill).into()
 }
 
-fn draggable<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
+fn draggable<'a>(ground: &Ground<'a>, tile: Tile, late: f32) -> Element<'a, Message> {
     let held = ground.dragging == Some(tile);
     let face = one(ground, tile);
-    let card = container(face)
+    let card: Element<'a, Message> = ui::fading(ui::fade() * late, || {
+        container(face)
+            .padding([12, 14])
+            .style(ui::box_faded(if held { theme::slot } else { theme::slab }))
+            .into()
+    });
+    let risen = ui::grown(card, iced::Point::new(0.5, 0.0), -(1.0 - late) * 10.0, 0.96 + 0.04 * late);
+    ui::dragged(risen.into(), tile, Message::Drag(tile), Message::DropBefore(Some(tile)), Message::Dropped, held)
+}
+
+pub fn floating<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
+    container(one(ground, tile))
         .padding([12, 14])
-        .style(ui::box_faded(if held { theme::slab_held } else { theme::slab }))
-        .into();
-    ui::dragged(card, tile, Message::Drag(tile), Message::DropBefore(Some(tile)), Message::Dropped, held)
+        .style(ui::box_faded(theme::slab_held))
+        .into()
+}
+
+fn mark_at(ground: &Ground<'_>, id: &str, on: bool) -> f32 {
+    ground.marks.get(id).copied().unwrap_or(if on { 1.0 } else { 0.0 })
 }
 
 fn head<'a>(w: &Words, key: &str) -> Element<'a, Message> {
     text(w.t(key)).font(theme::SANS_SEMI).size(13.0).color(ui::faded(INK)).into()
 }
 
-fn line<'a>(glyph: &str, name: String, under: String, on: bool, press: Option<Message>) -> Element<'a, Message> {
+fn line<'a>(ground: &Ground<'a>, id: &str, glyph: &str, name: String, under: String, on: bool, press: Option<Message>) -> Element<'a, Message> {
+    let k = mark_at(ground, id, on);
     let mut words = column![text(name).font(theme::SANS_SEMI).size(theme::CAPTION).wrapping(text::Wrapping::None).color(ui::faded(INK))].spacing(1);
     if !under.is_empty() {
         words = words.push(text(under).font(theme::SANS).size(11.0).wrapping(text::Wrapping::None).color(ui::faded(MUTED)));
     }
-    let inside = row![ui::mark(glyph, on, 28.0), words].spacing(10).align_y(iced::Center);
+    let inside = row![ui::mark(glyph, on, k, 28.0), words].spacing(10).align_y(iced::Center);
     match press {
         Some(message) => button(inside).padding([2, 2]).style(theme::bare).on_press(message).into(),
         None => container(inside).padding([2, 2]).into(),
     }
 }
 
-fn pill<'a>(name: String, on: bool, press: Message) -> Element<'a, Message> {
-    let inside = row![ui::mark("", on, 22.0), text(name).font(theme::SANS_SEMI).size(theme::CAPTION).wrapping(text::Wrapping::None).color(ui::faded(INK))]
+fn pill<'a>(ground: &Ground<'a>, id: &str, name: String, on: bool, press: Message) -> Element<'a, Message> {
+    let k = mark_at(ground, id, on);
+    let inside = row![ui::mark("", on, k, 22.0), text(name).font(theme::SANS_SEMI).size(theme::CAPTION).wrapping(text::Wrapping::None).color(ui::faded(INK))]
         .spacing(8)
         .align_y(iced::Center);
     button(container(inside).padding([0, 10]).center_y(38.0))
@@ -211,6 +239,10 @@ fn deed<'a>(words: String, press: Message, hot: bool) -> Element<'a, Message> {
         .style(if hot { theme::small_hot } else { theme::small })
         .on_press(press)
         .into()
+}
+
+fn percent(level: f32) -> String {
+    format!("{} %", (level.clamp(0.0, 1.0) * 100.0).round() as u32)
 }
 
 fn at(value: u32, of: &[u32]) -> f32 {
@@ -250,8 +282,8 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
         .into(),
         Tile::Language => column![
             head(w, "language"),
-            line("RU", "Русский".to_owned(), String::new(), s.lang == Lang::Ru, Some(Message::PickLang(Lang::Ru))),
-            line("EN", "English".to_owned(), String::new(), s.lang == Lang::En, Some(Message::PickLang(Lang::En))),
+            line(ground, "lang-ru", "RU", "Русский".to_owned(), String::new(), s.lang == Lang::Ru, Some(Message::PickLang(Lang::Ru))),
+            line(ground, "lang-en", "EN", "English".to_owned(), String::new(), s.lang == Lang::En, Some(Message::PickLang(Lang::En))),
         ]
         .spacing(2)
         .into(),
@@ -273,8 +305,8 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
         .into(),
         Tile::Scene => column![
             head(w, "scene-tile"),
-            pill(w.t("live-replay"), s.live_scene, Message::Scene(!s.live_scene)),
-            pill(w.t("pause-unfocused"), s.pause_unfocused, Message::PauseUnfocused(!s.pause_unfocused)),
+            pill(ground, "live", w.t("live-replay"), s.live_scene, Message::Scene(!s.live_scene)),
+            pill(ground, "pause", w.t("pause-unfocused"), s.pause_unfocused, Message::PauseUnfocused(!s.pause_unfocused)),
         ]
         .spacing(6)
         .into(),
@@ -285,10 +317,35 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
                     (replays, Some(maps)) if maps > 0 => format!("{} · {}", w.count("replays-count", replays), w.count("maps-count", maps)),
                     (replays, _) => w.count("replays-count", replays),
                 };
-                rows = rows.push(line(short(source.kind), source.shown(), under, source.on, Some(Message::Source(at, !source.on))));
+                rows = rows.push(line(ground, &format!("source-{at}"), short(source.kind), source.shown(), under, source.on, Some(Message::Source(at, !source.on))));
             }
-            rows.push(line("+", w.t("add-folder"), String::new(), false, Some(Message::AddFolder))).into()
+            rows.push(line(ground, "add-folder", "+", w.t("add-folder"), String::new(), false, Some(Message::AddFolder))).into()
         }
+        Tile::Skins => {
+            let mut rows = column![head(w, "skins")].spacing(2);
+            rows = rows.push(line(ground, "skin-own", "·", w.t("own-skin"), String::new(), s.skin.is_none(), Some(Message::Skin(None))));
+            for folder in ground.skins.iter().take(6) {
+                let name = folder.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+                let chosen = s.skin.as_deref() == Some(folder.as_path());
+                rows = rows.push(line(ground, &format!("skin-{name}"), "skn", name, String::new(), chosen, Some(Message::Skin(Some(folder.clone())))));
+            }
+            rows.into()
+        }
+        Tile::Sound => column![
+            head(w, "sound"),
+            container(
+                column![
+                    ui::steps(w.t("music"), percent(s.music_level), s.music_level, Vec::new(), Message::Music),
+                    ui::steps(w.t("hitsounds"), percent(s.hitsound_level), s.hitsound_level, Vec::new(), Message::Hitsounds),
+                    ui::steps(w.t("player-sound"), percent(s.player_level), s.player_level, Vec::new(), Message::PlayerLevel),
+                ]
+                .spacing(6)
+                .width(260.0)
+            )
+            .padding(Padding::ZERO.top(6.0)),
+        ]
+        .spacing(2)
+        .into(),
         Tile::Videos => column![
             head(w, "videos"),
             figure(ground.videos.to_string(), w.mb(ground.videos_size)),
@@ -339,7 +396,7 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
                     .border_radius(20.0)
                     .opacity(ui::fade())
                     .into(),
-                None => ui::mark("", true, 40.0),
+                None => ui::mark("", true, 1.0, 40.0),
             };
             let who = row![
                 face,
@@ -361,6 +418,8 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
             for chat in ground.chats {
                 let under = if chat.private { w.t("private-chat") } else { w.t("group-chat") };
                 rows = rows.push(line(
+                    ground,
+                    &format!("chat-{}", chat.id),
                     if chat.private { "@" } else { "#" },
                     chat.title.clone(),
                     under,
@@ -369,29 +428,20 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
                 ));
             }
             if ground.chats.is_empty() {
-                rows = rows.push(line("@", s.linked_as.clone(), w.t("private-chat"), true, None));
+                rows = rows.push(line(ground, "chat-own", "@", s.linked_as.clone(), w.t("private-chat"), true, None));
             }
             rows.into()
         }
-        Tile::Tells => column![
-            head(w, "bot-tells"),
-            pill(w.t("rendered-notice"), s.tell.rendered, Message::Tell("rendered", !s.tell.rendered)),
-            pill(w.t("errors"), s.tell.errors, Message::Tell("errors", !s.tell.errors)),
-            pill(w.t("fetched-maps"), s.tell.maps, Message::Tell("maps", !s.tell.maps)),
-            pill(w.t("worker-jobs"), s.tell.worker, Message::Tell("worker", !s.tell.worker)),
-        ]
-        .spacing(6)
-        .into(),
         Tile::Worker => column![
             head(w, "worker"),
-            pill(w.t("take-jobs"), false, Message::Worker(false)),
+            pill(ground, "worker", w.t("take-jobs"), false, Message::Worker(false)),
             container(text(w.t("coming-later")).font(theme::SANS).size(11.0).color(ui::faded(FAINT))).padding(Padding::ZERO.top(4.0)),
         ]
         .spacing(6)
         .into(),
         Tile::ThisDevice => column![
             head(w, "this-device"),
-            line("·", s.device.clone(), w.t("linked"), false, None),
+            line(ground, "this-device", "·", s.device.clone(), w.t("linked"), false, None),
             container(deed(w.t("unlink"), Message::Unlink, true)).padding(Padding::ZERO.top(6.0)),
         ]
         .spacing(2)

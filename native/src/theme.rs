@@ -490,6 +490,16 @@ pub fn slab(_: &Theme) -> container::Style {
     }
 }
 
+pub fn slot(_: &Theme) -> container::Style {
+    container::Style {
+        text_color: None,
+        background: Some(Background::Color(Color::from_rgba(1.0, 1.0, 1.0, 0.02))),
+        border: border(Color::from_rgba(1.0, 1.0, 1.0, 0.12), 16.0),
+        shadow: Shadow::default(),
+        snap: true,
+    }
+}
+
 pub fn slab_held(_: &Theme) -> container::Style {
     container::Style {
         text_color: None,

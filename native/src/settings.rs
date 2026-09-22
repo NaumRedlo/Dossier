@@ -37,6 +37,35 @@ pub struct Settings {
     pub chat_id: Option<i64>,
     #[serde(default)]
     pub tell: Tell,
+    #[serde(default)]
+    pub skin: Option<PathBuf>,
+    #[serde(default = "full")]
+    pub music_level: f32,
+    #[serde(default = "full")]
+    pub hitsound_level: f32,
+    #[serde(default = "full")]
+    pub player_level: f32,
+}
+
+fn full() -> f32 {
+    1.0
+}
+
+pub fn skins_in(sources: &[Source]) -> Vec<PathBuf> {
+    let mut found: Vec<PathBuf> = Vec::new();
+    for root in sources.iter().filter_map(|source| source.skins.clone()) {
+        let Ok(read) = std::fs::read_dir(&root) else {
+            continue;
+        };
+        for entry in read.flatten() {
+            if entry.file_type().map(|kind| kind.is_dir()).unwrap_or(false) {
+                found.push(entry.path());
+            }
+        }
+    }
+    found.sort();
+    found.truncate(60);
+    found
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -105,6 +134,10 @@ impl Default for Settings {
             tiles_bot: Vec::new(),
             chat_id: None,
             tell: Tell::default(),
+            skin: None,
+            music_level: 1.0,
+            hitsound_level: 1.0,
+            player_level: 1.0,
         }
     }
 }

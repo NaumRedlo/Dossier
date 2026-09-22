@@ -33,6 +33,9 @@ pub struct Ask {
     pub size: (u32, u32),
     pub fps: u32,
     pub crf: u32,
+    pub skin: Option<PathBuf>,
+    pub music_level: f32,
+    pub hitsound_level: f32,
 }
 
 pub const SIZE: (u32, u32) = (1920, 1080);
@@ -159,6 +162,9 @@ fn draw(ask: &Ask, tell: &Sender<Step>) -> Result<PathBuf, String> {
     if let Some(font) = dossier_produce::font::find(None)? {
         skin = skin.with_font(font);
     }
+    if let Some(folder) = ask.skin.as_ref().filter(|folder| folder.is_dir()) {
+        skin = dossier_produce::skin::from_folder(skin, folder, None);
+    }
     let layering = skin.sprites.as_ref().is_none_or(|s| s.ini().layered_hit_sounds);
 
     let scratch = std::env::temp_dir().join(format!("dossier-native-{}", std::process::id()));
@@ -177,8 +183,8 @@ fn draw(ask: &Ask, tell: &Sender<Step>) -> Result<PathBuf, String> {
         ffmpeg: ffmpeg.clone(),
         crf: ask.crf,
         preset: "medium".to_owned(),
-        music_level: 1.0,
-        hitsound_level: 1.0,
+        music_level: ask.music_level,
+        hitsound_level: ask.hitsound_level,
         threads: None,
         encoder_threads: None,
         audio: locate::extract_audio(&found.origin, &beatmap.audio_filename, &scratch),

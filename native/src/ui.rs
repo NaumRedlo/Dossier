@@ -1729,6 +1729,7 @@ pub fn steps<'a, Message: 'a>(label: String, value: String, at: f32, stops: Vec<
 pub struct Mark {
     pub glyph: String,
     pub on: bool,
+    pub k: f32,
 }
 
 impl<Message> canvas::Program<Message> for Mark {
@@ -1738,13 +1739,44 @@ impl<Message> canvas::Program<Message> for Mark {
         let mut frame = Frame::new(renderer, bounds.size());
         let side = bounds.width.min(bounds.height);
         let centre = Point::new(bounds.width / 2.0, bounds.height / 2.0);
-        let colour = if self.on { ACCENT } else { Color::from_rgba(1.0, 1.0, 1.0, 0.1) };
+        let k = self.k.clamp(0.0, 1.0);
+        let ground = Color::from_rgba(1.0, 1.0, 1.0, 0.1);
+        let colour = Color {
+            r: ground.r + (ACCENT.r - ground.r) * k,
+            g: ground.g + (ACCENT.g - ground.g) * k,
+            b: ground.b + (ACCENT.b - ground.b) * k,
+            a: ground.a + (ACCENT.a - ground.a) * k,
+        };
         frame.fill(&Path::circle(centre, side / 2.0), faded(colour));
-        if !self.glyph.is_empty() {
+        if self.glyph.is_empty() {
+            let r = side * 0.24;
+            let stroke = |width: f32, colour: Color| Stroke::default().with_width(width).with_color(faded(colour)).with_line_cap(canvas::LineCap::Round);
+            if k > 0.02 {
+                let grown = ((k - 0.0) / 1.0).clamp(0.0, 1.0);
+                let elbow = Point::new(centre.x - r * 0.15, centre.y + r * 0.6);
+                let start = Point::new(centre.x - r, centre.y + r * 0.05);
+                let end = Point::new(centre.x + r, centre.y - r * 0.7);
+                let first = grown.min(0.45) / 0.45;
+                let second = ((grown - 0.45) / 0.55).clamp(0.0, 1.0);
+                let a = Point::new(start.x + (elbow.x - start.x) * first, start.y + (elbow.y - start.y) * first);
+                frame.stroke(&Path::line(start, a), stroke(2.0, Color::WHITE));
+                if second > 0.0 {
+                    let b = Point::new(elbow.x + (end.x - elbow.x) * second, elbow.y + (end.y - elbow.y) * second);
+                    frame.stroke(&Path::line(elbow, b), stroke(2.0, Color::WHITE));
+                }
+            }
+            if k < 0.98 {
+                let gone = 1.0 - k;
+                let arm = r * 0.8 * gone;
+                let faintly = Color { a: 0.55 * gone, ..MUTED };
+                frame.stroke(&Path::line(Point::new(centre.x - arm, centre.y - arm), Point::new(centre.x + arm, centre.y + arm)), stroke(1.6, faintly));
+                frame.stroke(&Path::line(Point::new(centre.x + arm, centre.y - arm), Point::new(centre.x - arm, centre.y + arm)), stroke(1.6, faintly));
+            }
+        } else {
             frame.fill_text(canvas::Text {
                 content: self.glyph.clone(),
                 position: centre,
-                color: faded(if self.on { Color::WHITE } else { INK }),
+                color: faded(if k > 0.5 { Color::WHITE } else { INK }),
                 size: (if self.glyph.chars().count() > 2 { side * 0.34 } else { side * 0.4 }).into(),
                 font: theme::MONO_BOLD,
                 align_x: iced::alignment::Horizontal::Center.into(),
@@ -1756,8 +1788,8 @@ impl<Message> canvas::Program<Message> for Mark {
     }
 }
 
-pub fn mark<'a, Message: 'a>(glyph: &str, on: bool, side: f32) -> Element<'a, Message> {
-    Canvas::new(Mark { glyph: glyph.to_owned(), on }).width(side).height(side).into()
+pub fn mark<'a, Message: 'a>(glyph: &str, on: bool, k: f32, side: f32) -> Element<'a, Message> {
+    Canvas::new(Mark { glyph: glyph.to_owned(), on, k }).width(side).height(side).into()
 }
 
 pub struct Wrap<'a, Message> {

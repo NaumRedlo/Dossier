@@ -243,6 +243,10 @@ pub struct Main {
     pub account: Option<bot::Me>,
     pub avatar: Option<image::Handle>,
     pub menu: Option<Tab>,
+    pub menu_open: Animation<bool>,
+    pub tab_fade: Animation<bool>,
+    pub seg_from: Tab,
+    pub seg_slide: Animation<bool>,
     pub pairing: Pairing,
     pub qr: Option<ui::Qr>,
     pub sending: Option<Sending>,
@@ -302,6 +306,10 @@ impl Main {
             account: None,
             avatar: None,
             menu: None,
+            menu_open: Animation::new(false).duration(MENU_OPEN).easing(Easing::EaseOutCubic),
+            tab_fade: Animation::new(true).duration(TAB_FADE).easing(Easing::EaseOutCubic),
+            seg_from: Tab::Account,
+            seg_slide: Animation::new(true).duration(TAB_FADE).easing(Easing::EaseOutCubic),
             pairing: Pairing::Idle,
             qr: None,
             sending: None,
@@ -380,6 +388,9 @@ impl Main {
             || self.lifts.values().any(|l| l.is_animating(self.now))
             || self.player.as_ref().is_some_and(|p| !p.borrow().paused)
             || !self.toasts.is_empty()
+            || self.menu_open.is_animating(self.now)
+            || self.tab_fade.is_animating(self.now)
+            || self.seg_slide.is_animating(self.now)
             || self.sending.as_ref().is_some_and(|s| s.over.is_none())
     }
 
@@ -613,7 +624,7 @@ impl Main {
                 if matches!(self.pairing, Pairing::Asking | Pairing::Waiting { .. } | Pairing::Unavailable) {
                     self.pairing = Pairing::Idle;
                 } else if self.menu.is_some() {
-                    self.menu = None;
+                    return self.update(Message::MenuClose);
                 } else if self.asking_delete {
                     self.asking_delete = false;
                 } else if self.player.is_some() {
@@ -625,10 +636,7 @@ impl Main {
             }
             Message::Circle => {
                 match self.menu {
-                    Some(_) => {
-                        self.menu = None;
-                        Task::none()
-                    }
+                    Some(_) => self.update(Message::MenuClose),
                     None => {
                         let last = match self.settings.menu_tab.as_str() {
                             "feed" => Tab::Feed,
@@ -640,6 +648,21 @@ impl Main {
                 }
             }
             Message::MenuTab(tab) => {
+                let now = Instant::now();
+                match self.menu {
+                    Some(was) if was != tab => {
+                        self.seg_from = was;
+                        self.seg_slide = Animation::new(false).duration(TAB_FADE).easing(Easing::EaseOutCubic).go(true, now);
+                        self.tab_fade = Animation::new(false).duration(TAB_FADE).easing(Easing::EaseOutCubic).go(true, now);
+                    }
+                    Some(_) => {}
+                    None => {
+                        self.seg_from = tab;
+                        self.seg_slide = Animation::new(true);
+                        self.tab_fade = Animation::new(true);
+                        self.menu_open.go_mut(true, now);
+                    }
+                }
                 self.menu = Some(tab);
                 let name = match tab {
                     Tab::Account => "account",
@@ -656,7 +679,7 @@ impl Main {
                 Task::none()
             }
             Message::MenuClose => {
-                self.menu = None;
+                self.menu_open.go_mut(false, Instant::now());
                 Task::none()
             }
             Message::SeenAll => {
@@ -665,6 +688,7 @@ impl Main {
             }
             Message::SignIn => {
                 self.menu = None;
+                self.menu_open = Animation::new(false).duration(MENU_OPEN).easing(Easing::EaseOutCubic);
                 if self.signed_in() || matches!(self.pairing, Pairing::Waiting { .. }) {
                     return Task::none();
                 }
@@ -728,6 +752,7 @@ impl Main {
                 self.account = None;
                 self.avatar = None;
                 self.menu = None;
+                self.menu_open = Animation::new(false).duration(MENU_OPEN).easing(Easing::EaseOutCubic);
                 Task::none()
             }
             Message::Known(Ok(me)) => {
@@ -1268,6 +1293,9 @@ impl Main {
                     }
                 }
                 self.toasts.retain(|t| t.shown.value() || t.shown.is_animating(now));
+                if self.menu.is_some() && !self.menu_open.value() && !self.menu_open.is_animating(now) {
+                    self.menu = None;
+                }
                 Task::none()
             }
             Message::ToastHover(id, over) => {
@@ -2090,12 +2118,51 @@ impl Main {
         let Some(tab) = self.menu else {
             return Space::new().width(Length::Fill).height(Length::Fill).into();
         };
+        let open = self.menu_open.interpolate(0.0, 1.0, self.now);
+        let mut cards: Vec<Element<'_, Message>> = vec![self.menu_head(), self.menu_segments(tab)];
+        let content = match tab {
+            Tab::Account => self.account_tiles(),
+            Tab::Feed => self.feed_tiles(),
+            Tab::Stats => self.stats_tiles(),
+        };
+        let swap = self.tab_fade.interpolate(0.0, 1.0, self.now);
+        for tile in content {
+            cards.push(ui::fading(ui::fade() * swap, || ui::grown(tile, Point::new(0.5, 0.0), -(1.0 - swap) * 6.0, 1.0).into()));
+        }
+        let mut stackup = column![].spacing(8).width(MENU_W);
+        for (i, card) in cards.into_iter().enumerate() {
+            let late = (open * 1.5 - 0.12 * i as f32).clamp(0.0, 1.0);
+            stackup = stackup.push(ui::fading(ui::fade() * late, || ui::grown(card, Point::new(1.0, 0.0), -(1.0 - late) * 8.0, 1.0)));
+        }
+        let x = (self.width - 40.0 - MENU_W).max(16.0);
+        let whole = ui::grown(stackup, Point::new(1.0, 0.0), 0.0, 0.96 + 0.04 * open);
+        let backdrop: Element<'_, Message> = if self.menu_open.value() {
+            mouse_area(Space::new().width(Length::Fill).height(Length::Fill)).on_press(Message::MenuClose).into()
+        } else {
+            Space::new().width(Length::Fill).height(Length::Fill).into()
+        };
+        stack![backdrop, pin(whole).x(x).y(MENU_TOP)].width(Length::Fill).height(Length::Fill).into()
+    }
+
+    fn card<'a>(&'a self, inside: Element<'a, Message>, bad: bool) -> Element<'a, Message> {
+        container(inside)
+            .padding([12, 14])
+            .width(Length::Fill)
+            .style(if bad { theme::tile_bad } else { theme::bubble })
+            .into()
+    }
+
+    fn menu_head(&self) -> Element<'_, Message> {
         let w = &self.words;
-        let name = self.account.as_ref().map(|a| a.name.clone()).filter(|n| !n.is_empty()).unwrap_or_else(|| self.settings.linked_as.clone());
+        let name = self.account.as_ref().map(|a| a.name.clone()).filter(|n| !n.is_empty()).unwrap_or_else(|| self.settings.linked_as.trim_start_matches('@').to_owned());
         let handle = self.account.as_ref().map(|a| a.username.clone()).filter(|u| !u.is_empty()).map(|u| format!("@{u}"));
         let (title, under) = if self.signed_in() {
             let chat = self.chat_name();
-            (if name.is_empty() { w.t("signed-in") } else { name }, handle.unwrap_or(if chat == "—" { w.t("linked") } else { chat }))
+            let mut under = handle.unwrap_or(if chat == "—" { w.t("linked") } else { chat });
+            if let Some(me) = &self.account {
+                under = format!("{under} · ID {}", me.telegram_id);
+            }
+            (if name.is_empty() { w.t("signed-in") } else { name }, under)
         } else {
             (w.t("not-signed-in"), w.t("stays-here"))
         };
@@ -2113,42 +2180,32 @@ impl Main {
         if self.signed_in() {
             head = head.push(ui::link(w.t("sign-out"), Message::SignOut));
         }
-        let tab_word = |key: &str, this: Tab| {
-            let on = tab == this;
-            let bar = container(Space::new().height(2.0)).width(Length::Fill).style(move |_| container::Style {
-                background: Some(iced::Background::Color(ui::faded(if on { ACCENT } else { Color::TRANSPARENT }))),
-                ..container::Style::default()
-            });
-            button(column![text(w.t(key)).font(theme::SANS_SEMI).size(theme::CAPTION), bar].spacing(5).width(Length::Shrink))
-                .padding(0)
-                .style(theme::tab(on))
-                .on_press(Message::MenuTab(this))
+        self.card(head.into(), false)
+    }
+
+    fn menu_segments(&self, tab: Tab) -> Element<'_, Message> {
+        let w = &self.words;
+        let inner = MENU_W - 2.0 * 4.0;
+        let seg_w = (inner - 2.0 * 4.0) / 3.0;
+        let at = |t: Tab| match t {
+            Tab::Account => 0.0,
+            Tab::Feed => 1.0,
+            Tab::Stats => 2.0,
         };
-        let tabs = container(row![tab_word("account", Tab::Account), tab_word("feed", Tab::Feed), tab_word("stats", Tab::Stats)].spacing(22))
-            .width(Length::Fill)
-            .center_x(Length::Fill);
-        let body = match tab {
-            Tab::Account => self.account_tab(),
-            Tab::Feed => self.feed_tab(),
-            Tab::Stats => self.stats_tab(),
-        };
-        let inside = column![
-            head,
-            container(Space::new().height(1.0)).width(Length::Fill).style(theme::rule),
-            tabs,
-            body,
-        ]
-        .spacing(12)
-        .width(Length::Fill);
-        let card = container(inside).padding([16, 18]).width(MENU_W).style(theme::bubble);
-        let x = (self.width - 40.0 - MENU_W).max(16.0);
-        stack![
-            mouse_area(Space::new().width(Length::Fill).height(Length::Fill)).on_press(Message::MenuClose),
-            pin(card).x(x).y(MENU_TOP),
-        ]
-        .width(Length::Fill)
-        .height(Length::Fill)
-        .into()
+        let k = self.seg_slide.interpolate(0.0, 1.0, self.now);
+        let x = 4.0 + (at(self.seg_from) + (at(tab) - at(self.seg_from)) * k) * (seg_w + 4.0);
+        let pill = container(Space::new().width(seg_w).height(28.0)).style(theme::segment_pill);
+        let mut words = row![].spacing(4);
+        for (key, this) in [("account", Tab::Account), ("feed", Tab::Feed), ("stats", Tab::Stats)] {
+            words = words.push(
+                button(container(text(w.t(key)).font(theme::SANS_SEMI).size(theme::CAPTION)).width(seg_w).height(28.0).center(Length::Fill))
+                    .padding(0)
+                    .style(theme::segment(tab == this))
+                    .on_press(Message::MenuTab(this)),
+            );
+        }
+        let face = stack![pin(pill).x(x).y(4.0), container(words).padding(4)].width(MENU_W).height(36.0);
+        container(face).width(Length::Fill).style(theme::bubble).into()
     }
 
     fn kv(&self, key: String, value: String) -> Element<'_, Message> {
@@ -2163,24 +2220,41 @@ impl Main {
         .into()
     }
 
-    fn account_tab(&self) -> Element<'_, Message> {
+    fn big(&self, value: String, key: String) -> Element<'_, Message> {
+        self.card(
+            column![
+                text(value).font(theme::MONO_BOLD).size(22.0).wrapping(text::Wrapping::None).color(ui::faded(INK)),
+                text(key).font(theme::SANS).size(11.0).wrapping(text::Wrapping::None).color(ui::faded(FAINT)),
+            ]
+            .spacing(2)
+            .into(),
+            false,
+        )
+    }
+
+    fn pair<'a>(&'a self, left: Element<'a, Message>, right: Element<'a, Message>) -> Element<'a, Message> {
+        row![container(left).width(Length::Fill), container(right).width(Length::Fill)].spacing(8).into()
+    }
+
+    fn account_tiles(&self) -> Vec<Element<'_, Message>> {
         let w = &self.words;
         if !self.signed_in() {
-            return column![
+            let ask = column![
                 text(w.t("why-sign-in")).font(theme::SANS).size(theme::CAPTION).color(ui::faded(MUTED)),
-                container(ui::primary(w.t("sign-in"), Some(Message::SignIn))).padding(Padding::ZERO.top(4.0)),
+                container(ui::primary(w.t("sign-in"), Some(Message::SignIn))).padding(Padding::ZERO.top(6.0)),
             ]
-            .spacing(10)
-            .into();
+            .spacing(6);
+            return vec![
+                self.card(ask.into(), false),
+                self.pair(self.big(self.entries().len().to_string(), w.t("replays-in-journal")), self.big(bot::BUILD.to_owned(), w.t("build"))),
+            ];
         }
-        let chat = self.chat_name();
-        let mut rows = column![self.kv(w.t("videos-go-to"), chat)].spacing(2);
-        if let Some(me) = &self.account {
-            rows = rows.push(self.kv(w.t("telegram-id"), me.telegram_id.to_string()));
-        }
-        rows = rows.push(self.kv(w.t("worker"), w.t("coming-later")));
-        rows = rows.push(self.kv(w.t("build"), bot::BUILD.to_owned()));
-        rows.into()
+        let rows = column![self.kv(w.t("videos-go-to"), self.chat_name()), self.kv(w.t("worker"), w.t("coming-later"))].spacing(2);
+        let videos = format!("{} · {}", self.store.videos.len(), w.mb(self.store.total_size()));
+        vec![
+            self.card(rows.into(), false),
+            self.pair(self.big(bot::BUILD.to_owned(), w.t("build")), self.big(self.store.videos.len().to_string(), format!("{} · {}", w.t("videos").to_lowercase(), videos.split(" · ").nth(1).unwrap_or("")))),
+        ]
     }
 
     fn chat_name(&self) -> String {
@@ -2192,44 +2266,43 @@ impl Main {
         }
     }
 
-    fn feed_tab(&self) -> Element<'_, Message> {
+    fn feed_tiles(&self) -> Vec<Element<'_, Message>> {
         let w = &self.words;
-        let mut rows = column![].spacing(6).width(Length::Fill);
+        let mut tiles = Vec::new();
         let job = |words: String, detail: String, fraction: f32| -> Element<'_, Message> {
             column![
                 row![
                     iced::widget::canvas(ui::Dot).width(8.0).height(8.0),
                     text(words).font(theme::SANS_SEMI).size(theme::CAPTION).color(ui::faded(INK)),
-                    container(text(detail).font(theme::SANS).size(theme::CAPTION).wrapping(text::Wrapping::None).color(ui::faded(MUTED))).width(Length::Fill).clip(true),
+                    container(text(format!("· {detail}")).font(theme::SANS).size(theme::CAPTION).wrapping(text::Wrapping::None).color(ui::faded(MUTED))).width(Length::Fill).clip(true),
                 ]
                 .spacing(8)
                 .align_y(iced::Center)
-                .height(22.0),
-                iced::widget::canvas(ui::Thread { fraction }).width(Length::Fill).height(2.0),
+                .height(20.0),
+                iced::widget::canvas(ui::Thread { fraction }).width(Length::Fill).height(3.0),
             ]
-            .spacing(3)
-            .padding(Padding::ZERO.bottom(4.0))
+            .spacing(6)
             .into()
         };
         if let Some(rendering) = self.rendering.as_ref().filter(|r| !r.is_over()) {
             let who = self.entries().iter().find(|e| e.path == rendering.path).map(|e| e.title().unwrap_or_default()).unwrap_or_default();
-            rows = rows.push(job(w.t("drawing"), who, self.progress_shown));
+            tiles.push(self.card(job(w.t("drawing"), who, self.progress_shown), false));
         }
         if let Some(fetching) = self.fetching.as_ref().filter(|f| !f.is_over()) {
             let title = self.entries().iter().find(|e| e.map_hash == fetching.hash).map(|e| e.title().unwrap_or_default()).unwrap_or_default();
-            rows = rows.push(job(w.t("fetch-downloading"), title, self.progress_shown));
+            tiles.push(self.card(job(w.t("fetch-downloading"), title, self.progress_shown), false));
         }
         if let Some(sending) = self.sending.as_ref().filter(|s| s.over.is_none()) {
             let title = self.store.videos.iter().find(|v| v.path == sending.path).map(|v| v.map_line()).unwrap_or_default();
-            rows = rows.push(job(w.t("sending"), title, self.progress_shown));
+            tiles.push(self.card(job(w.t("sending"), title, self.progress_shown), false));
         }
-        for notice in self.notices.notices.iter().take(7) {
-            rows = rows.push(self.notice_row(notice));
+        for notice in self.notices.notices.iter().take(5) {
+            tiles.push(self.card(self.notice_row(notice), notice.mark == notices::Mark::Bad));
         }
-        if self.notices.notices.is_empty() && !self.busy() {
-            rows = rows.push(container(ui::cap(w.t("nothing-yet"))).height(24.0));
+        if tiles.is_empty() {
+            tiles.push(self.card(container(ui::cap(w.t("nothing-yet"))).height(20.0).into(), false));
         }
-        rows.into()
+        tiles
     }
 
     fn notice_row(&self, notice: &notices::Notice) -> Element<'_, Message> {
@@ -2248,11 +2321,7 @@ impl Main {
         first = first.push(ui::mono_small(w.clock(notice.at), FAINT));
         let mut second = notice.detail.clone();
         if !notice.note.is_empty() {
-            if second.is_empty() {
-                second = notice.note.clone();
-            } else {
-                second = format!("{second} · {}", notice.note);
-            }
+            second = if second.is_empty() { notice.note.clone() } else { format!("{second} · {}", notice.note) };
         }
         let below: Element<'_, Message> = if second.is_empty() {
             Space::new().height(0.0).into()
@@ -2262,13 +2331,10 @@ impl Main {
                 .clip(true)
                 .into()
         };
-        row![
-            self.notice_mark(notice, 36.0),
-            column![first, below].spacing(1).width(Length::Fill),
-        ]
-        .spacing(10)
-        .align_y(iced::Center)
-        .into()
+        row![self.notice_mark(notice, 40.0), column![first, below].spacing(1).width(Length::Fill)]
+            .spacing(12)
+            .align_y(iced::Center)
+            .into()
     }
 
     fn notice_mark(&self, notice: &notices::Notice, side: f32) -> Element<'_, Message> {
@@ -2282,7 +2348,7 @@ impl Main {
                 .content_fit(ContentFit::Cover)
                 .width(side)
                 .height(side)
-                .border_radius(6.0)
+                .border_radius(8.0)
                 .opacity(ui::fade() * 0.9)
                 .into(),
             _ => container(Space::new().width(side).height(side)).style(theme::chip).into(),
@@ -2301,21 +2367,22 @@ impl Main {
         stack![picture, badge].width(side).height(side).into()
     }
 
-    fn stats_tab(&self) -> Element<'_, Message> {
+    fn stats_tiles(&self) -> Vec<Element<'_, Message>> {
         let w = &self.words;
         let sent = self.store.videos.iter().filter(|v| v.sent_at.is_some()).count();
         let sent_size: u64 = self.store.videos.iter().filter(|v| v.sent_at.is_some()).map(|v| v.size).sum();
-        let heading = |key: &str| container(ui::mono_small(w.t(key).to_uppercase(), FAINT)).padding(Padding::ZERO.top(6.0));
-        column![
-            heading("as-worker"),
-            self.kv(w.t("jobs-done"), w.t("coming-later")),
+        let heading = |key: &str| container(ui::mono_small(w.t(key).to_uppercase(), FAINT)).padding(Padding::ZERO.bottom(8.0));
+        let worker = column![heading("as-worker"), self.kv(w.t("jobs-done"), w.t("coming-later"))].spacing(0);
+        let device = column![
             heading("on-this-device"),
-            self.kv(w.t("replays-in-journal"), self.entries().len().to_string()),
-            self.kv(w.t("rendered-count"), format!("{} · {}", self.store.videos.len(), w.mb(self.store.total_size()))),
-            self.kv(w.t("sent-count"), format!("{} · {}", sent, w.mb(sent_size))),
+            self.pair(
+                self.big(self.entries().len().to_string(), w.t("replays-in-journal")),
+                self.big(self.store.videos.len().to_string(), format!("{} · {}", w.t("videos").to_lowercase(), w.mb(self.store.total_size()))),
+            ),
+            self.pair(self.big(sent.to_string(), format!("{} · {}", w.t("sent-count").to_lowercase(), w.mb(sent_size))), self.big(bot::BUILD.to_owned(), w.t("build"))),
         ]
-        .spacing(2)
-        .into()
+        .spacing(8);
+        vec![self.card(worker.into(), false), self.card(device.into(), false)]
     }
 
     fn sign_in_layer(&self) -> Element<'_, Message> {
@@ -2374,6 +2441,8 @@ const TOAST_H: f32 = 74.0;
 const TOAST_TOP: f32 = 66.0;
 const TOAST_RISE: f32 = 8.0;
 pub const TOAST_IN: Duration = Duration::from_millis(240);
+pub const MENU_OPEN: Duration = Duration::from_millis(200);
+pub const TAB_FADE: Duration = Duration::from_millis(160);
 pub const TOAST_STAY: Duration = Duration::from_secs(6);
 const TOASTS_AT_MOST: usize = 3;
 

@@ -473,12 +473,14 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
         67_000,
     ))));
     let mut menu_guest = staged(Some(0));
+    menu_guest.menu_open = iced::Animation::new(true);
     menu_guest.menu = Some(crate::main_screen::Tab::Account);
     let mut menu_feed = staged(Some(0));
     menu_feed.now_unix = NOON;
     menu_feed.settings.token = "staged".to_owned();
     menu_feed.settings.linked_as = "Naum Redlo".to_owned();
     menu_feed.account = Some(crate::bot::Me { telegram_id: 7, name: "Naum Redlo".into(), username: "naumredlo".into(), avatar: false });
+    menu_feed.menu_open = iced::Animation::new(true);
     menu_feed.menu = Some(crate::main_screen::Tab::Feed);
     menu_feed.rendering = Some(crate::main_screen::Rendering {
         path: library.entries[0].path.clone(),
@@ -502,9 +504,11 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
         notice.at = NOON - 60 * (i as i64 + 1) * 17;
     }
     let mut menu_account = menu_feed.clone();
+    menu_account.menu_open = iced::Animation::new(true);
     menu_account.menu = Some(crate::main_screen::Tab::Account);
     menu_account.rendering = None;
     let mut menu_stats = menu_account.clone();
+    menu_stats.menu_open = iced::Animation::new(true);
     menu_stats.menu = Some(crate::main_screen::Tab::Stats);
     menu_stats.store.videos = with_videos.store.videos.clone();
     menu_stats.store.videos[1].sent_at = Some(NOON);

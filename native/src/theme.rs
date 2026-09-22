@@ -428,6 +428,43 @@ pub fn tab(on: bool) -> impl Fn(&Theme, button::Status) -> button::Style {
     }
 }
 
+pub fn tile_bad(_: &Theme) -> container::Style {
+    container::Style {
+        text_color: None,
+        background: Some(Background::Color(Color::from_rgba(0.18, 0.05, 0.06, 0.97))),
+        border: border(Color::from_rgba(0.886, 0.282, 0.282, 0.22), 10.0),
+        shadow: Shadow { color: Color::from_rgba(0.0, 0.0, 0.0, 0.45), offset: iced::Vector::new(0.0, 8.0), blur_radius: 24.0 },
+        snap: true,
+    }
+}
+
+pub fn segment_pill(_: &Theme) -> container::Style {
+    container::Style {
+        text_color: None,
+        background: Some(Background::Color(Color::from_rgba(1.0, 1.0, 1.0, 0.08))),
+        border: border(Color::TRANSPARENT, 8.0),
+        shadow: Shadow::default(),
+        snap: true,
+    }
+}
+
+pub fn segment(on: bool) -> impl Fn(&Theme, button::Status) -> button::Style {
+    move |_, status| {
+        let colour = match (on, status) {
+            (true, _) => INK,
+            (false, button::Status::Hovered) => MUTED,
+            _ => FAINT,
+        };
+        button::Style {
+            background: None,
+            text_color: colour,
+            border: border(Color::TRANSPARENT, 8.0),
+            shadow: Shadow::default(),
+            snap: true,
+        }
+    }
+}
+
 pub fn badge_of(colour: Color) -> impl Fn(&Theme) -> container::Style {
     move |_| container::Style {
         text_color: None,

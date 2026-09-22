@@ -208,10 +208,13 @@ CC_CSS = '''<style>
   .sl .bar { position: relative; height: 26px; border-radius: 7px; background: rgba(255,255,255,0.08); overflow: hidden; }
   .sl .bar i { position: absolute; left: 0; top: 0; bottom: 0; background: rgba(255,255,255,0.16); border-radius: 7px; }
   .sl .bar .hd { position: absolute; top: 4px; bottom: 4px; width: 6px; border-radius: 3px; background: #ece7e2; margin-left: -3px; }
-  .sl .bar .tk { position: absolute; top: 8px; bottom: 8px; width: 2px; border-radius: 1px; background: rgba(255,255,255,0.14); margin-left: -1px; }
-  .sl .bar .tk.hit { background: rgba(255,255,255,0.55); }
+  .sl .bar .tk { position: absolute; top: 4px; bottom: 4px; width: 2px; border-radius: 1px; background: rgba(255,255,255,0.16); margin-left: -1px; }
+  .sl .bar .tk.hit { background: rgba(255,255,255,0.6); }
   .sl .bar b { position: absolute; left: 10px; top: 0; line-height: 26px; font-size: 12px; font-weight: 600; }
-  .sl .bar em { position: absolute; right: 10px; top: 0; line-height: 26px; font-size: 11px; font-style: normal; color: #a9a29b; font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; }
+  .sl .bar em { position: absolute; top: 0; line-height: 26px; font-size: 11px; font-style: normal; color: #ece7e2; font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; margin-left: 10px; white-space: nowrap; }
+  .sl .bar em.flip { margin-left: 0; transform: translateX(calc(-100% - 16px)); }
+  .ccgrid .colw.fit { flex: 0 0 auto; width: 196px; }
+  .ccgrid .colw.grow { flex: 1 1 auto; }
   .cc.lift { transform: rotate(-1.2deg) translate(24px, -18px); box-shadow: 0 24px 60px rgba(0,0,0,0.6); border-color: rgba(255,255,255,0.18); z-index: 3; position: relative; }
   .cc.slot { background: transparent; border: 1px dashed rgba(255,255,255,0.18); box-shadow: none; }
   .cc.slot > * { visibility: hidden; }
@@ -242,14 +245,15 @@ def pill(label, on):
 def slider(label, value, pct, stops=(50,)):
     at = f"calc(6px + ({pct} / 100) * (100% - 12px))"
     ticks = "".join(f'<span class="tk {"hit" if abs(s - pct) < 2 else ""}" style="left:calc(6px + ({s} / 100) * (100% - 12px));"></span>' for s in stops)
-    return f'<div class="sl"><div class="bar"><i style="width:{at};"></i>{ticks}<span class="hd" style="left:{at};"></span><b>{label}</b><em>{value}</em></div></div>'
+    flip = "flip" if pct > 80 else ""
+    return f'<div class="sl"><div class="bar"><i style="width:{at};"></i>{ticks}<span class="hd" style="left:{at};"></span><b>{label}</b><em class="{flip}" style="left:{at};">{value}</em></div></div>'
 
 def tile(inner, title=""):
     head = f'<span class="t">{title}</span>' if title else ""
     return f'<div class="cc">{head}{inner}</div>'
 
-def colw(units, *tiles):
-    return f'<div class="colw" style="flex:{units};">{"".join(tiles)}</div>'
+def colw(kind, *tiles):
+    return f'<div class="colw {kind}">{"".join(tiles)}</div>'
 
 T_LANG = tile(f'<div style="display:flex; flex-direction:column; gap:2px;">{it("RU", "Русский", "", True)}{it("EN", "English", "")}</div>', "Язык")
 T_RENDER = tile(f'{slider("Размер", "1080p", 50, (50,))}{slider("Кадры", "60", 100, (50,))}{slider("Качество", "CRF 20", 50, (25, 50, 75))}', "Рендер")
@@ -260,7 +264,7 @@ T_SCENE = tile(f'<div style="display:flex; flex-direction:column; gap:6px;">{pil
 T_SOURCES = tile(f'<div class="two">{it("stb", "osu!stable", "187 реплеев · 1 240 карт", True)}{it("lz", "osu!lazer", "42 реплея", True)}{it("dsr", "Dossier Corpus", "96 реплеев")}{it("+", "Добавить папку…", "")}</div>', "Источники")
 T_BUILDS = tile('<span class="num" style="margin:0;">0.12.0<small>движок 0.11.0 · ffmpeg 7.1</small></span><div class="acts" style="margin-top:6px;"><span>Проверить</span><span>ffmpeg</span></div>', "Сборки")
 
-CC_APP = f'<div class="ccgrid">{colw(1, T_LANG, T_DEVICE, T_SCENE)}{colw(2, T_RENDER, T_SOURCES)}{colw(1, T_VIDEOS, T_MAPS, T_BUILDS)}</div>'
+CC_APP = f'<div class="ccgrid">{colw("fit", T_LANG, T_DEVICE, T_SCENE)}{colw("grow", T_RENDER, T_SOURCES)}{colw("fit", T_VIDEOS, T_MAPS, T_BUILDS)}</div>'
 
 B_ACC = tile('<div class="it on"><span class="avatar"></span><span class="lab"><b style="font-size:14px;">Stepan Kapitsa</b><span>@NaumRedlo · ID 1060298719</span></span></div><div class="acts" style="margin-top:6px;"><span>Выйти</span></div>', "Аккаунт")
 B_CHATS = tile(f'<div style="display:flex; flex-direction:column; gap:4px;">{it("@", "Личный чат", "@NaumRedlo", True)}{it("#", "osu! RU · lounge", "группа · бот внутри")}{it("#", "1984 crew", "группа · бот внутри")}{it("#", "Nattu & friends", "группа · бот внутри")}{it("#", "Calvaria mapping", "группа · бот внутри")}</div>', "Видео уходят в")
@@ -268,9 +272,9 @@ B_TELLS = tile(f'<div class="two">{pill("Готовые рендеры", True)}{
 B_WORK = tile(f'{pill("Брать работу", False)}<span class="num" style="margin-top:6px;">0<small>работ сегодня</small></span>', "Воркер")
 B_DEV = tile(f'{it("·", "drejk starsij", "привязано 12 сен")}<div class="acts" style="margin-top:6px;"><span class="hot">Отвязать</span></div>', "Это устройство")
 
-CC_BOT = f'<div class="ccgrid">{colw(2, B_ACC, B_TELLS)}{colw(1, B_CHATS)}{colw(1, B_WORK, B_DEV)}</div>'
+CC_BOT = f'<div class="ccgrid">{colw("grow", B_ACC, B_TELLS)}{colw("fit", B_CHATS)}{colw("fit", B_WORK, B_DEV)}</div>'
 
-CC_DRAG = f'<div class="ccgrid">{colw(1, T_LANG, T_DEVICE.replace("class=\"cc\"", "class=\"cc slot\""), T_SCENE)}{colw(2, T_RENDER, T_SOURCES)}{colw(1, T_VIDEOS, T_DEVICE.replace("class=\"cc\"", "class=\"cc lift\""), T_MAPS, T_BUILDS)}</div>'
+CC_DRAG = f'<div class="ccgrid">{colw("fit", T_LANG, T_DEVICE.replace("class=\"cc\"", "class=\"cc slot\""), T_SCENE)}{colw("grow", T_RENDER, T_SOURCES)}{colw("fit", T_VIDEOS, T_DEVICE.replace("class=\"cc\"", "class=\"cc lift\""), T_MAPS, T_BUILDS)}</div>'
 
 def boards():
     out = {}

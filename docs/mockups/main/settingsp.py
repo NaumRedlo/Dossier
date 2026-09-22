@@ -192,7 +192,7 @@ CC_CSS = '''<style>
   .cc.w2 { grid-column: span 2; }
   .cc.h2 { grid-row: span 2; }
   .cc.h3 { grid-row: span 3; }
-  .cc .t { font-size: 11px; color: #a9a29b; font-weight: 600; }
+  .cc .t { font-size: 13px; color: #ece7e2; font-weight: 600; margin-bottom: 2px; }
   .it { display: flex; align-items: center; gap: 10px; min-height: 30px; }
   .it .ic { width: 28px; height: 28px; border-radius: 50%; background: rgba(255,255,255,0.1); display: flex; align-items: center; justify-content: center; color: #ece7e2; font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: 11px; font-weight: 700; flex: none; }
   .it.on .ic { background: #e24848; color: #fff; }
@@ -215,6 +215,10 @@ CC_CSS = '''<style>
   .sl .bar em.flip { margin-left: 0; transform: translateX(calc(-100% - 16px)); }
   .ccgrid .colw.fit { flex: 0 0 auto; width: 196px; }
   .ccgrid .colw.grow { flex: 1 1 auto; }
+  .ccflow { position: absolute; left: 40px; top: 136px; width: 900px; display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-start; align-content: flex-start; }
+  .ccflow .cc { width: max-content; max-width: 100%; }
+  .ccflow .cc.wide { width: 440px; }
+  .sl .bar .hd.snap { top: 1px; bottom: 1px; }
   .cc.lift { transform: rotate(-1.2deg) translate(24px, -18px); box-shadow: 0 24px 60px rgba(0,0,0,0.6); border-color: rgba(255,255,255,0.18); z-index: 3; position: relative; }
   .cc.slot { background: transparent; border: 1px dashed rgba(255,255,255,0.18); box-shadow: none; }
   .cc.slot > * { visibility: hidden; }
@@ -244,37 +248,38 @@ def pill(label, on):
 
 def slider(label, value, pct, stops=(50,)):
     at = f"calc(6px + ({pct} / 100) * (100% - 12px))"
-    ticks = "".join(f'<span class="tk {"hit" if abs(s - pct) < 2 else ""}" style="left:calc(6px + ({s} / 100) * (100% - 12px));"></span>' for s in stops)
+    snapped = any(abs(s - pct) < 2 for s in stops)
+    ticks = "".join(f'<span class="tk" style="left:calc(6px + ({s} / 100) * (100% - 12px));"></span>' for s in stops if abs(s - pct) >= 2)
     flip = "flip" if pct > 80 else ""
-    return f'<div class="sl"><div class="bar"><i style="width:{at};"></i>{ticks}<span class="hd" style="left:{at};"></span><b>{label}</b><em class="{flip}" style="left:{at};">{value}</em></div></div>'
+    return f'<div class="sl"><div class="bar"><i style="width:{at};"></i>{ticks}<span class="hd {"snap" if snapped else ""}" style="left:{at};"></span><b>{label}</b><em class="{flip}" style="left:{at};">{value}</em></div></div>'
 
-def tile(inner, title=""):
+def tile(inner, title="", wide=False):
     head = f'<span class="t">{title}</span>' if title else ""
-    return f'<div class="cc">{head}{inner}</div>'
+    return f'<div class="cc {"wide" if wide else ""}">{head}{inner}</div>'
 
 def colw(kind, *tiles):
     return f'<div class="colw {kind}">{"".join(tiles)}</div>'
 
 T_LANG = tile(f'<div style="display:flex; flex-direction:column; gap:2px;">{it("RU", "Русский", "", True)}{it("EN", "English", "")}</div>', "Язык")
-T_RENDER = tile(f'{slider("Размер", "1080p", 50, (50,))}{slider("Кадры", "60", 100, (50,))}{slider("Качество", "CRF 20", 50, (25, 50, 75))}', "Рендер")
+T_RENDER = tile(f'{slider("Размер", "1080p", 50, (50,))}{slider("Кадры", "60", 100, (50,))}{slider("Качество", "CRF 20", 50, (25, 50, 75))}', "Рендер", True)
 T_VIDEOS = tile('<span class="num" style="margin:0;">8<small>568 МБ</small></span><div class="acts" style="margin-top:6px;"><span>В папке</span><span>Изменить</span></div>', "Видео")
 T_DEVICE = tile('<span class="fld" style="min-width:0;">drejk starsij</span><div class="acts" style="margin-top:6px;"><span>Переименовать</span></div>', "Устройство")
 T_MAPS = tile('<span class="num" style="margin:0;">31<small>1,1 ГБ · кэш 140 МБ</small></span><div class="acts" style="margin-top:6px;"><span>В папке</span><span class="hot">Очистить</span></div>', "Карты и кэш")
 T_SCENE = tile(f'<div style="display:flex; flex-direction:column; gap:6px;">{pill("Живой реплей", True)}{pill("Пауза без фокуса", True)}</div>', "Сцена")
-T_SOURCES = tile(f'<div class="two">{it("stb", "osu!stable", "187 реплеев · 1 240 карт", True)}{it("lz", "osu!lazer", "42 реплея", True)}{it("dsr", "Dossier Corpus", "96 реплеев")}{it("+", "Добавить папку…", "")}</div>', "Источники")
+T_SOURCES = tile(f'<div style="display:flex; flex-direction:column; gap:2px;">{it("stb", "osu!stable", "187 реплеев · 1 240 карт", True)}{it("lz", "osu!lazer", "42 реплея", True)}{it("dsr", "Dossier Corpus", "96 реплеев")}{it("+", "Добавить папку…", "")}</div>', "Источники")
 T_BUILDS = tile('<span class="num" style="margin:0;">0.12.0<small>движок 0.11.0 · ffmpeg 7.1</small></span><div class="acts" style="margin-top:6px;"><span>Проверить</span><span>ffmpeg</span></div>', "Сборки")
 
-CC_APP = f'<div class="ccgrid">{colw("fit", T_LANG, T_DEVICE, T_SCENE)}{colw("grow", T_RENDER, T_SOURCES)}{colw("fit", T_VIDEOS, T_MAPS, T_BUILDS)}</div>'
+CC_APP = f'<div class="ccflow">{T_RENDER}{T_LANG}{T_DEVICE}{T_SCENE}{T_SOURCES}{T_VIDEOS}{T_MAPS}{T_BUILDS}</div>'
 
 B_ACC = tile('<div class="it on"><span class="avatar"></span><span class="lab"><b style="font-size:14px;">Stepan Kapitsa</b><span>@NaumRedlo · ID 1060298719</span></span></div><div class="acts" style="margin-top:6px;"><span>Выйти</span></div>', "Аккаунт")
 B_CHATS = tile(f'<div style="display:flex; flex-direction:column; gap:4px;">{it("@", "Личный чат", "@NaumRedlo", True)}{it("#", "osu! RU · lounge", "группа · бот внутри")}{it("#", "1984 crew", "группа · бот внутри")}{it("#", "Nattu & friends", "группа · бот внутри")}{it("#", "Calvaria mapping", "группа · бот внутри")}</div>', "Видео уходят в")
-B_TELLS = tile(f'<div class="two">{pill("Готовые рендеры", True)}{pill("Ошибки", False)}{pill("Скачанные карты", False)}{pill("Работы воркера", True)}</div>', "Бот сообщает в чат о")
+B_TELLS = tile(f'<div style="display:flex; flex-direction:column; gap:6px;">{pill("Готовые рендеры", True)}{pill("Ошибки", False)}{pill("Скачанные карты", False)}{pill("Работы воркера", True)}</div>', "Бот сообщает в чат о")
 B_WORK = tile(f'{pill("Брать работу", False)}<span class="num" style="margin-top:6px;">0<small>работ сегодня</small></span>', "Воркер")
 B_DEV = tile(f'{it("·", "drejk starsij", "привязано 12 сен")}<div class="acts" style="margin-top:6px;"><span class="hot">Отвязать</span></div>', "Это устройство")
 
-CC_BOT = f'<div class="ccgrid">{colw("grow", B_ACC, B_TELLS)}{colw("fit", B_CHATS)}{colw("fit", B_WORK, B_DEV)}</div>'
+CC_BOT = f'<div class="ccflow">{B_ACC}{B_CHATS}{B_TELLS}{B_WORK}{B_DEV}</div>'
 
-CC_DRAG = f'<div class="ccgrid">{colw("fit", T_LANG, T_DEVICE.replace("class=\"cc\"", "class=\"cc slot\""), T_SCENE)}{colw("grow", T_RENDER, T_SOURCES)}{colw("fit", T_VIDEOS, T_DEVICE.replace("class=\"cc\"", "class=\"cc lift\""), T_MAPS, T_BUILDS)}</div>'
+CC_DRAG = f'<div class="ccflow">{T_RENDER}{T_LANG}{T_DEVICE.replace("class=\"cc \"", "class=\"cc slot \"")}{T_SCENE}{T_SOURCES}{T_VIDEOS}{T_DEVICE.replace("class=\"cc \"", "class=\"cc lift \"")}{T_MAPS}{T_BUILDS}</div>'
 
 def boards():
     out = {}
@@ -312,7 +317,7 @@ def boards():
     return out
 
 NOTES = {
-    "CcApp": ("Пункт управления · Приложение", "Заголовки слева. Плитка высотой по содержимому в колонках: добавил кнопку — плитка выросла, соседи подвинулись. Ползунки прямоугольные со скруглением: заливка, узкая ручка-планка, деления-штрихи внутри полосы, попавший светится, ручка мягко прилипает."),
+    "CcApp": ("Пункт управления · Приложение", "Плитки размером по содержимому в обе стороны, укладываются потоком слева направо; только Рендер держит ширину под ползунки. При прилипании к делению ручка вырастает на всю высоту полосы, а деление сжимается в неё — они сливаются в одну черту (120 мс)."),
     "CcDrag": ("Плитки · перетаскивание", "Плитку можно взять за заголовок и перенести в другую колонку: поднятая чуть наклонена и с тенью, на её месте пунктирная ячейка; порядок запоминается в настройках — своё пространство настроек."),
     "CcBot": ("Пункт управления · Бот", "То же в боте. «Бот сообщает в чат о» — какие события бот пишет в ваш Telegram: готовые рендеры, ошибки, скачанные карты, работы воркера."),
     "BentoStatic": ("Бенто · статичное", "Без подсказок и длинных строк: плитка — заголовок, значение или переключатели, одна-две кнопки. Три колонки, рендер высокий, источники широкие; ни одна плитка не раскрывается."),

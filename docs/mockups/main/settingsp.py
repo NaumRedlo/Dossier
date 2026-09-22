@@ -190,6 +190,7 @@ CC_CSS = '''<style>
   .cc { border-radius: 16px; background: rgba(255,255,255,0.055); border: 1px solid rgba(255,255,255,0.06); padding: 12px; box-sizing: border-box; color: #ece7e2; font-size: 12px; display: flex; flex-direction: column; gap: 6px; overflow: hidden; }
   .cc.w2 { grid-column: span 2; }
   .cc.h2 { grid-row: span 2; }
+  .cc.h3 { grid-row: span 3; }
   .cc .t { font-size: 11px; color: #a9a29b; font-weight: 600; text-align: center; }
   .it { display: flex; align-items: center; gap: 10px; min-height: 30px; }
   .it .ic { width: 28px; height: 28px; border-radius: 50%; background: rgba(255,255,255,0.1); display: flex; align-items: center; justify-content: center; color: #ece7e2; font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: 11px; font-weight: 700; flex: none; }
@@ -212,8 +213,10 @@ CC_CSS = '''<style>
   .acts { display: flex; gap: 6px; margin-top: auto; }
   .acts span { display: inline-flex; align-items: center; height: 26px; padding: 0 10px; border-radius: 8px; background: rgba(255,255,255,0.08); color: #ece7e2; font-weight: 600; font-size: 12px; }
   .acts span.hot { background: rgba(226,72,72,0.16); color: #e24848; }
-  .sl .bar .tk { position: absolute; top: 8px; bottom: 8px; width: 2px; border-radius: 1px; background: rgba(255,255,255,0.18); }
-  .sl .bar .tk.hit { background: #ece7e2; box-shadow: 0 0 0 3px rgba(255,255,255,0.12); }
+  .sl .bar .tk { position: absolute; top: 10px; width: 6px; height: 6px; border-radius: 50%; background: rgba(255,255,255,0.28); margin-left: -3px; }
+  .sl .bar .tk.hit { background: #fff; box-shadow: 0 0 0 3px rgba(255,255,255,0.14); }
+  .sl .bar .knob { position: absolute; top: 4px; width: 18px; height: 18px; border-radius: 50%; background: #ece7e2; margin-left: -9px; box-shadow: 0 1px 4px rgba(0,0,0,0.5); }
+  .cc .mid { margin-top: auto; margin-bottom: auto; display: flex; flex-direction: column; gap: 8px; }
   .avatar { width: 40px; height: 40px; border-radius: 50%; background: #e24848; flex: none; }
 </style>'''
 
@@ -229,27 +232,27 @@ def it(ic, b, s, on=False):
 def pill(label, on):
     return f'<div class="pill {"on" if on else ""}"><span class="ic"></span>{label}</div>'
 
-def slider(label, value, pct, stops=(0, 50, 100)):
-    ticks = "".join(f'<span class="tk {"hit" if abs(s - pct) < 2 else ""}" style="left:calc({s}% - 1px);"></span>' for s in stops)
-    return f'<div class="sl"><div class="bar"><i style="width:{pct}%;"></i>{ticks}<b>{label}</b><em>{value}</em></div></div>'
+def slider(label, value, pct, stops=(50,)):
+    ticks = "".join(f'<span class="tk {"hit" if abs(s - pct) < 2 else ""}" style="left:calc(10px + ({s} / 100) * (100% - 20px));"></span>' for s in stops)
+    return f'<div class="sl"><div class="bar"><i style="width:calc(10px + ({pct} / 100) * (100% - 20px));"></i>{ticks}<span class="knob" style="left:calc(10px + ({pct} / 100) * (100% - 20px));"></span><b>{label}</b><em>{value}</em></div></div>'
 
 CC_APP = f'''<div class="ccgrid">
-  <div class="cc"><span class="t">Язык</span>{it("RU", "Русский", "", True)}{it("EN", "English", "")}</div>
-  <div class="cc w2 h2"><span class="t">Рендер</span><div class="two">{pill("Фон карты", True)}{pill("Сториборд", False)}{pill("Видео карты", False)}{pill("Нажатия · click", True)}</div>{slider("Размер", "1080p", 50, (0, 50, 100))}{slider("Кадры", "60", 100, (0, 100))}{slider("Качество", "CRF 20", 50, (0, 50, 100))}</div>
+  <div class="cc"><span class="t">Язык</span><div class="mid" style="gap:2px;">{it("RU", "Русский", "", True)}{it("EN", "English", "")}</div></div>
+  <div class="cc w2 h2"><span class="t">Рендер</span><div class="two">{pill("Фон карты", True)}{pill("Сториборд", False)}{pill("Видео карты", False)}{pill("click", True)}</div>{slider("Размер", "1080p", 50, (50,))}{slider("Кадры", "60", 100, ())}{slider("Качество", "CRF 20", 50, (50,))}</div>
   <div class="cc"><span class="t">Видео</span><span class="num">8<small>568 МБ</small></span><div class="acts"><span>В папке</span><span>Изменить</span></div></div>
-  <div class="cc"><span class="t">Устройство</span><span class="fld" style="min-width:0; margin-top:auto;">drejk starsij</span></div>
+  <div class="cc"><span class="t">Устройство</span><div class="mid"><span class="fld" style="min-width:0;">drejk starsij</span><div class="acts" style="margin:0;"><span>Переименовать</span></div></div></div>
   <div class="cc"><span class="t">Карты и кэш</span><span class="num">31<small>1,1 ГБ · кэш 140 МБ</small></span><div class="acts"><span>В папке</span><span class="hot">Очистить</span></div></div>
-  <div class="cc"><span class="t">Сцена</span>{pill("Живой реплей", True)}</div>
+  <div class="cc"><span class="t">Сцена</span><div class="mid">{pill("Живой реплей", True)}{pill("Пауза без фокуса", True)}</div></div>
   <div class="cc w2"><span class="t">Источники</span><div class="two">{it("stb", "osu!stable", "187 реплеев · 1 240 карт", True)}{it("lz", "osu!lazer", "42 реплея", True)}{it("dsr", "Dossier Corpus", "96 реплеев")}{it("+", "Добавить папку…", "")}</div></div>
   <div class="cc"><span class="t">Сборки</span><span class="num">0.12.0<small>движок 0.11.0 · ffmpeg 7.1</small></span><div class="acts"><span>Проверить</span><span>ffmpeg</span></div></div>
 </div>'''
 
 CC_BOT = f'''<div class="ccgrid">
   <div class="cc w2"><span class="t">Аккаунт</span><div class="it on"><span class="avatar"></span><span class="lab"><b style="font-size:14px;">Stepan Kapitsa</b><span>@NaumRedlo · ID 1060298719</span></span></div><div class="acts"><span>Выйти</span></div></div>
-  <div class="cc w2 h2"><span class="t">Видео уходят в</span>{it("@", "Личный чат", "@NaumRedlo", True)}{it("#", "osu! RU · lounge", "группа · бот внутри")}{it("#", "1984 crew", "группа · бот внутри")}{it("#", "Nattu & friends", "группа · бот внутри")}</div>
-  <div class="cc w2"><span class="t">В чат</span><div class="two">{pill("Готовые рендеры", True)}{pill("Ошибки", False)}</div></div>
-  <div class="cc"><span class="t">Воркер</span>{pill("Брать работу", False)}<span class="lab" style="color:#6b655f; font-size:11px; text-align:center;">будет доступно позже</span></div>
-  <div class="cc"><span class="t">Это устройство</span>{it("·", "drejk starsij", "привязано 12 сен")}</div>
+  <div class="cc w2 h3"><span class="t">Видео уходят в</span><div style="display:flex; flex-direction:column; gap:6px; margin-top:4px;">{it("@", "Личный чат", "@NaumRedlo", True)}{it("#", "osu! RU · lounge", "группа · бот внутри")}{it("#", "1984 crew", "группа · бот внутри")}{it("#", "Nattu & friends", "группа · бот внутри")}{it("#", "Calvaria mapping", "группа · бот внутри")}</div></div>
+  <div class="cc w2"><span class="t">В чат</span><div class="two">{pill("Готовые рендеры", True)}{pill("Ошибки", False)}{pill("Скачанные карты", False)}{pill("Работы воркера", True)}</div></div>
+  <div class="cc"><span class="t">Воркер</span><div class="mid">{pill("Брать работу", False)}<span class="num" style="margin:0;">0<small>работ сегодня</small></span></div></div>
+  <div class="cc"><span class="t">Это устройство</span><div class="mid">{it("·", "drejk starsij", "привязано 12 сен")}<div class="acts" style="margin:0;"><span class="hot">Отвязать</span></div></div></div>
 </div>'''
 
 def boards():

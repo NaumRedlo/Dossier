@@ -186,7 +186,8 @@ CC_CSS = '''<style>
   .switch { position: absolute; left: 0; right: 0; top: 88px; display: flex; justify-content: center; gap: 36px; font-weight: 600; font-size: 14px; color: #6b655f; }
   .switch span { padding-bottom: 6px; border-bottom: 2px solid transparent; }
   .switch span.on { color: #ece7e2; border-bottom-color: #e24848; }
-  .ccgrid { position: absolute; left: 40px; top: 136px; width: 900px; display: grid; grid-template-columns: repeat(4, 1fr); grid-auto-rows: 132px; gap: 10px; }
+  .ccgrid { position: absolute; left: 40px; top: 136px; width: 900px; display: flex; gap: 10px; align-items: flex-start; }
+  .colw { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
   .cc { border-radius: 16px; background: rgba(255,255,255,0.055); border: 1px solid rgba(255,255,255,0.06); padding: 12px; box-sizing: border-box; color: #ece7e2; font-size: 12px; display: flex; flex-direction: column; gap: 6px; overflow: hidden; }
   .cc.w2 { grid-column: span 2; }
   .cc.h2 { grid-row: span 2; }
@@ -236,24 +237,31 @@ def slider(label, value, pct, stops=(50,)):
     ticks = "".join(f'<span class="tk {"hit" if abs(s - pct) < 2 else ""}" style="left:calc(10px + ({s} / 100) * (100% - 20px));"></span>' for s in stops)
     return f'<div class="sl"><div class="bar"><i style="width:calc(10px + ({pct} / 100) * (100% - 20px));"></i>{ticks}<span class="knob" style="left:calc(10px + ({pct} / 100) * (100% - 20px));"></span><b>{label}</b><em>{value}</em></div></div>'
 
-CC_APP = f'''<div class="ccgrid">
-  <div class="cc"><span class="t">Язык</span><div class="mid" style="gap:2px;">{it("RU", "Русский", "", True)}{it("EN", "English", "")}</div></div>
-  <div class="cc w2 h2"><span class="t">Рендер</span><div class="two">{pill("Фон карты", True)}{pill("Сториборд", False)}{pill("Видео карты", False)}{pill("click", True)}</div>{slider("Размер", "1080p", 50, (50,))}{slider("Кадры", "60", 100, ())}{slider("Качество", "CRF 20", 50, (50,))}</div>
-  <div class="cc"><span class="t">Видео</span><span class="num">8<small>568 МБ</small></span><div class="acts"><span>В папке</span><span>Изменить</span></div></div>
-  <div class="cc"><span class="t">Устройство</span><div class="mid"><span class="fld" style="min-width:0;">drejk starsij</span><div class="acts" style="margin:0;"><span>Переименовать</span></div></div></div>
-  <div class="cc"><span class="t">Карты и кэш</span><span class="num">31<small>1,1 ГБ · кэш 140 МБ</small></span><div class="acts"><span>В папке</span><span class="hot">Очистить</span></div></div>
-  <div class="cc"><span class="t">Сцена</span><div class="mid">{pill("Живой реплей", True)}{pill("Пауза без фокуса", True)}</div></div>
-  <div class="cc w2"><span class="t">Источники</span><div class="two">{it("stb", "osu!stable", "187 реплеев · 1 240 карт", True)}{it("lz", "osu!lazer", "42 реплея", True)}{it("dsr", "Dossier Corpus", "96 реплеев")}{it("+", "Добавить папку…", "")}</div></div>
-  <div class="cc"><span class="t">Сборки</span><span class="num">0.12.0<small>движок 0.11.0 · ffmpeg 7.1</small></span><div class="acts"><span>Проверить</span><span>ffmpeg</span></div></div>
-</div>'''
+def tile(inner, title=""):
+    head = f'<span class="t">{title}</span>' if title else ""
+    return f'<div class="cc">{head}{inner}</div>'
 
-CC_BOT = f'''<div class="ccgrid">
-  <div class="cc w2"><span class="t">Аккаунт</span><div class="it on"><span class="avatar"></span><span class="lab"><b style="font-size:14px;">Stepan Kapitsa</b><span>@NaumRedlo · ID 1060298719</span></span></div><div class="acts"><span>Выйти</span></div></div>
-  <div class="cc w2 h3"><span class="t">Видео уходят в</span><div style="display:flex; flex-direction:column; gap:6px; margin-top:4px;">{it("@", "Личный чат", "@NaumRedlo", True)}{it("#", "osu! RU · lounge", "группа · бот внутри")}{it("#", "1984 crew", "группа · бот внутри")}{it("#", "Nattu & friends", "группа · бот внутри")}{it("#", "Calvaria mapping", "группа · бот внутри")}</div></div>
-  <div class="cc w2"><span class="t">В чат</span><div class="two">{pill("Готовые рендеры", True)}{pill("Ошибки", False)}{pill("Скачанные карты", False)}{pill("Работы воркера", True)}</div></div>
-  <div class="cc"><span class="t">Воркер</span><div class="mid">{pill("Брать работу", False)}<span class="num" style="margin:0;">0<small>работ сегодня</small></span></div></div>
-  <div class="cc"><span class="t">Это устройство</span><div class="mid">{it("·", "drejk starsij", "привязано 12 сен")}<div class="acts" style="margin:0;"><span class="hot">Отвязать</span></div></div></div>
-</div>'''
+def colw(units, *tiles):
+    return f'<div class="colw" style="flex:{units};">{"".join(tiles)}</div>'
+
+T_LANG = tile(f'<div style="display:flex; flex-direction:column; gap:2px;">{it("RU", "Русский", "", True)}{it("EN", "English", "")}</div>', "Язык")
+T_RENDER = tile(f'<div class="two">{pill("Фон карты", True)}{pill("Сториборд", False)}{pill("Видео карты", False)}</div>{slider("Размер", "1080p", 50, ())}{slider("Кадры", "60", 100, ())}{slider("Качество", "CRF 20", 50, ())}', "Рендер")
+T_VIDEOS = tile('<span class="num" style="margin:0;">8<small>568 МБ</small></span><div class="acts" style="margin-top:6px;"><span>В папке</span><span>Изменить</span></div>', "Видео")
+T_DEVICE = tile('<span class="fld" style="min-width:0;">drejk starsij</span><div class="acts" style="margin-top:6px;"><span>Переименовать</span></div>', "Устройство")
+T_MAPS = tile('<span class="num" style="margin:0;">31<small>1,1 ГБ · кэш 140 МБ</small></span><div class="acts" style="margin-top:6px;"><span>В папке</span><span class="hot">Очистить</span></div>', "Карты и кэш")
+T_SCENE = tile(f'<div style="display:flex; flex-direction:column; gap:6px;">{pill("Живой реплей", True)}{pill("Пауза без фокуса", True)}</div>', "Сцена")
+T_SOURCES = tile(f'<div class="two">{it("stb", "osu!stable", "187 реплеев · 1 240 карт", True)}{it("lz", "osu!lazer", "42 реплея", True)}{it("dsr", "Dossier Corpus", "96 реплеев")}{it("+", "Добавить папку…", "")}</div>', "Источники")
+T_BUILDS = tile('<span class="num" style="margin:0;">0.12.0<small>движок 0.11.0 · ffmpeg 7.1</small></span><div class="acts" style="margin-top:6px;"><span>Проверить</span><span>ffmpeg</span></div>', "Сборки")
+
+CC_APP = f'<div class="ccgrid">{colw(1, T_LANG, T_DEVICE, T_SCENE)}{colw(2, T_RENDER, T_SOURCES)}{colw(1, T_VIDEOS, T_MAPS, T_BUILDS)}</div>'
+
+B_ACC = tile('<div class="it on"><span class="avatar"></span><span class="lab"><b style="font-size:14px;">Stepan Kapitsa</b><span>@NaumRedlo · ID 1060298719</span></span></div><div class="acts" style="margin-top:6px;"><span>Выйти</span></div>', "Аккаунт")
+B_CHATS = tile(f'<div style="display:flex; flex-direction:column; gap:4px;">{it("@", "Личный чат", "@NaumRedlo", True)}{it("#", "osu! RU · lounge", "группа · бот внутри")}{it("#", "1984 crew", "группа · бот внутри")}{it("#", "Nattu & friends", "группа · бот внутри")}{it("#", "Calvaria mapping", "группа · бот внутри")}</div>', "Видео уходят в")
+B_TELLS = tile(f'<div class="two">{pill("Готовые рендеры", True)}{pill("Ошибки", False)}{pill("Скачанные карты", False)}{pill("Работы воркера", True)}</div>', "Бот сообщает в чат о")
+B_WORK = tile(f'{pill("Брать работу", False)}<span class="num" style="margin-top:6px;">0<small>работ сегодня</small></span>', "Воркер")
+B_DEV = tile(f'{it("·", "drejk starsij", "привязано 12 сен")}<div class="acts" style="margin-top:6px;"><span class="hot">Отвязать</span></div>', "Это устройство")
+
+CC_BOT = f'<div class="ccgrid">{colw(2, B_ACC, B_TELLS)}{colw(1, B_CHATS)}{colw(1, B_WORK, B_DEV)}</div>'
 
 def boards():
     out = {}
@@ -290,8 +298,8 @@ def boards():
     return out
 
 NOTES = {
-    "CcApp": ("Пункт управления · Приложение", "Заголовки плиток по центру; Общее разбито на Язык, Устройство и Сцену; качество — только CRF; кнопки — настоящие кнопки; источники помечены stb · lz · dsr. У ползунков внутри полосы деления-стопы; ручка мягко прилипает к ближайшему, попавший стоп светится."),
-    "CcBot": ("Пункт управления · Бот", "Без сервера. «Видео уходят в» — список чатов, где есть и бот, и человек (бот отдаёт его); клик переносит место отправки; личный чат первым."),
+    "CcApp": ("Пункт управления · Приложение", "Плитка высотой по содержимому: сетка из четырёх колонок, плитки укладываются как кладка — добавил кнопку, плитка выросла, соседи подвинулись. Ползунки без делений: заливка, ручка, значение; шаги прилипают молча. Звуков нажатий нет."),
+    "CcBot": ("Пункт управления · Бот", "То же в боте. «Бот сообщает в чат о» — какие события бот пишет в ваш Telegram: готовые рендеры, ошибки, скачанные карты, работы воркера."),
     "BentoStatic": ("Бенто · статичное", "Без подсказок и длинных строк: плитка — заголовок, значение или переключатели, одна-две кнопки. Три колонки, рендер высокий, источники широкие; ни одна плитка не раскрывается."),
     "BentoApp": ("Приложение · Бот — вкладка «Приложение»", "Сегменты над сеткой делят настройки на две: своё (язык, устройство, сцена, источники, рендер, хранилище, ffmpeg, сборка) и ботовское."),
     "BentoBot": ("Приложение · Бот — вкладка «Бот»", "Всё, что касается бота: аккаунт (и Выйти), куда уходят видео, сервер и его сборка, воркер (позже), что слать в чат, как бот зовёт это устройство."),

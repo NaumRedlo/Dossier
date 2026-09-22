@@ -105,8 +105,53 @@ ABOUT = f'''<div class="pane"><h3>о программе</h3>
   {row("Лицензия", "MIT")}
 </div>'''
 
+BENTO_CSS = '''
+  <style>
+    .bento { position: absolute; left: 40px; top: 92px; width: 900px; display: grid; grid-template-columns: repeat(3, 1fr); grid-auto-rows: minmax(120px, auto); gap: 10px; align-items: stretch; }
+    .bento .pane { margin: 0; }
+    .bento .tall { grid-row: span 2; }
+    .bento .wide { grid-column: span 2; }
+    .bento .pane.mini { display: flex; flex-direction: column; justify-content: space-between; }
+    .big { font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: 22px; font-weight: 700; color: #ece7e2; }
+    .big small { display: block; color: #6b655f; font-size: 11px; font-family: Commissioner, sans-serif; font-weight: 400; margin-top: 2px; }
+    .pane.dim { opacity: 0.35; }
+    .pane.focus { position: absolute; left: 40px; top: 92px; width: 900px; z-index: 2; box-shadow: 0 30px 80px rgba(0,0,0,0.6); }
+    .pane .x { position: absolute; right: 14px; top: 12px; color: #6b655f; font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; }
+    .chips { position: absolute; left: 40px; top: 92px; display: flex; gap: 6px; }
+    .chips span { padding: 5px 10px; border-radius: 8px; background: rgba(255,255,255,0.05); color: #a9a29b; font-size: 12px; font-weight: 600; }
+    .chips span.on { background: rgba(255,255,255,0.1); color: #ece7e2; }
+    .pane.sm h3 { margin-bottom: 4px; }
+    .pane .sub { color: #6b655f; font-size: 11px; }
+  </style>'''
+
+def own2(extra):
+    return page(W, H, f'{CSS}{BENTO_CSS}<div style="position:absolute; inset:0; background:#0d0508;"></div>{WORDS}{extra}')
+
+MINI_LANG = f'<div class="pane mini sm"><h3>язык</h3>{seg(["English", "Русский"], "Русский")}</div>'
+MINI_DEVICE = '<div class="pane mini sm"><h3>устройство</h3><span class="fld" style="min-width:0;">drejk starsij</span><span class="sub">так его видит бот</span></div>'
+MINI_SCENE = f'<div class="pane mini sm"><h3>сцена</h3><div class="ln"><span class="k">Живой реплей</span><span class="v">{tog(True)}</span></div><span class="sub">выключено — размытый фон карты</span></div>'
+MINI_FFMPEG = '<div class="pane mini sm"><h3>ffmpeg</h3><span class="big">7.1<small>своя сборка · ~/.dossier/bin</small></span><div class="ln" style="min-height:0;"><span class="bt" style="padding-left:0;">Обновить</span></div></div>'
+MINI_BOT = '<div class="pane mini sm"><h3>бот</h3><span class="big" style="font-size:14px;">onenineeightfour.ignorelist.com<small>сборка 0.12.0 · та же, что у приложения</small></span><div class="ln" style="min-height:0;"><span class="bt" style="padding-left:0;">Изменить</span></div></div>'
+MINI_UPDATE = '<div class="pane mini sm"><h3>обновления</h3><span class="big">0.12.0<small>последняя проверка сегодня в 14:00</small></span><div class="ln" style="min-height:0;"><span class="bt soft">Проверить</span></div></div>'
+MINI_VIDEOS = '<div class="pane mini sm"><h3>видео</h3><span class="big">8 · 568 МБ<small>~/.dossier/Renders</small></span><div class="ln" style="min-height:0;"><span class="bt" style="padding-left:0;">Изменить</span><span class="bt">В папке</span></div></div>'
+MINI_MAPS = '<div class="pane mini sm"><h3>карты</h3><span class="big">31 · 1,1 ГБ<small>~/.dossier/Songs · скачаны приложением</small></span><div class="ln" style="min-height:0;"><span class="bt" style="padding-left:0;">В папке</span></div></div>'
+MINI_CACHE = '<div class="pane mini sm"><h3>кэш</h3><span class="big">140 МБ<small>миниатюры, индекс карт, найденные реплеи</small></span><div class="ln" style="min-height:0;"><span class="bt" style="padding-left:0;">Очистить</span></div></div>'
+MINI_ABOUT = '<div class="pane mini sm"><h3>о программе</h3><span class="big" style="font-size:14px;">Dossier 0.12.0<small>движок 0.11.0 (53e3cc7) · MIT</small></span><div class="ln" style="min-height:0;"><span class="bt" style="padding-left:0;">Исходники</span></div></div>'
+
 def boards():
     out = {}
+    out["BentoSettings"] = own2(f'<div class="bento">{MINI_LANG}{MINI_DEVICE}{MINI_SCENE}<div class="tall">{RENDER.replace("class=\"pane\"", "class=\"pane\" style=\"height:100%;\"")}</div><div class="wide">{SOURCES.replace("class=\"pane\"", "class=\"pane\" style=\"height:100%;\"")}</div>{MINI_VIDEOS}{MINI_MAPS}{MINI_CACHE}{MINI_FFMPEG}{MINI_BOT}{MINI_UPDATE}</div>')
+    out["BentoAbove"] = own2(f'<div class="bento" style="top:92px;">{MINI_LANG}{MINI_SCENE}{MINI_DEVICE}<div class="wide">{SOURCES.replace("class=\"pane\"", "class=\"pane\" style=\"height:100%;\"")}</div>{MINI_VIDEOS}{MINI_FFMPEG}{MINI_BOT}{MINI_UPDATE}</div><div class="hint">Второй ряд: мелкие плитки — одна настройка на плитку с крупным значением, как в статистике меню; большие — рендер и источники. Прокрутки нет при 980×720, всё в трёх колонках.</div>')
+    focus = f'''<div class="bento">{MINI_LANG.replace("pane", "pane dim")}{MINI_DEVICE.replace("pane", "pane dim")}{MINI_SCENE.replace("pane", "pane dim")}<div class="tall">{RENDER.replace("class=\"pane\"", "class=\"pane dim\" style=\"height:100%;\"")}</div><div class="wide">{SOURCES.replace("class=\"pane\"", "class=\"pane dim\" style=\"height:100%;\"")}</div>{MINI_VIDEOS.replace("pane", "pane dim")}{MINI_MAPS.replace("pane", "pane dim")}{MINI_CACHE.replace("pane", "pane dim")}</div>
+      <div class="pane focus"><span class="x">Esc</span><h3>рендер</h3>
+        <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 0 32px;">
+          <div>{row("Размер", seg(["720p", "1080p", "1440p"], "1080p"))}{row("Кадров в секунду", seg(["30", "60"], "60"))}{row("Качество", seg(["Хорошо", "Лучше", "Максимум"], "Лучше"), "CRF 20 · medium — как у бота")}{row("Звук нажатий", seg(["click", "soft", "none"], "click"))}</div>
+          <div>{row("Фон карты", tog(True))}{row("Сториборд", tog(False))}{row("Видео карты", tog(False))}<div class="ln"><span class="k">1920×1080 · 60 к/с · CRF 20<small>около 84 МБ на 3:51 · рендер займёт ~2:40 на этой машине</small></span><span class="v"><span class="bt soft">Как у бота</span></span></div></div>
+        </div>
+      </div>'''
+    out["BentoFocus"] = own2(focus + '<div class="hint">Клик по плитке раскрывает её на всю ширину поверх остальных (остальные гаснут), с двумя колонками настроек и расчётом; Esc или клик мимо — обратно в плитку. Так плитки остаются короткими, а подробности — по требованию.</div>')
+    chips = '<div class="chips"><span class="on">Всё</span><span>Общее</span><span>Источники</span><span>Рендер</span><span>Хранилище</span><span>Инструменты</span></div>'
+    out["BentoChips"] = own2(chips + f'<div class="bento" style="top:130px;">{MINI_LANG}{MINI_DEVICE}{MINI_SCENE}<div class="tall">{RENDER.replace("class=\"pane\"", "class=\"pane\" style=\"height:100%;\"")}</div><div class="wide">{SOURCES.replace("class=\"pane\"", "class=\"pane\" style=\"height:100%;\"")}</div>{MINI_VIDEOS}{MINI_MAPS}{MINI_CACHE}</div><div class="hint">Те же плитки, сверху чипы-фильтры: «Всё» показывает всю сетку, чип оставляет плитки своего раздела. Замена боковой колонке разделов без лишней площади.</div>')
     out["SettingsColumn"] = own(f'<div class="stacked">{GENERAL}{RENDER}{SOURCES}</div><div class="hint">Одна колонка карточек, прокручивается: общее, рендер, источники, хранилище, инструменты, о программе. Каждая карточка — как плитка меню; подпись под строкой объясняет, что она значит.</div>')
     out["SettingsSidebar"] = own(f'''<div class="sidebar"><span class="on">Общее<small>язык, устройство, сцена</small></span><span>Источники<small>папки osu! и свои</small></span><span>Рендер<small>размер, качество, звук</small></span><span>Хранилище<small>видео, карты, кэш</small></span><span>Инструменты<small>ffmpeg, бот, обновления</small></span><span>О программе</span></div>
       <div class="mainc">{GENERAL}{TOOLS}</div><div class="hint">Слева разделы с подписью, справа карточки раздела — как Системные настройки macOS. Больше воздуха, но лишний клик до каждого раздела.</div>''')
@@ -120,6 +165,10 @@ def boards():
     return out
 
 NOTES = {
+    "BentoSettings": ("Плитки · бенто", "Три колонки: мелкие плитки по одной настройке с крупным значением (язык, устройство, сцена, видео, карты, кэш, ffmpeg, бот, обновления), рендер — высокая плитка, источники — широкая. Всё на одном экране при 980×720."),
+    "BentoAbove": ("Плитки · бенто без прокрутки", "Тот же принцип, меньше плиток: без карт, кэша и «о программе» — они уезжают в плитку «Хранилище» и в подвал. Совсем без прокрутки."),
+    "BentoFocus": ("Плитки · раскрытие", "Клик по плитке раскрывает её на всю ширину поверх остальных с полным набором настроек и расчётом; Esc — обратно. Плитки короткие, подробности по требованию."),
+    "BentoChips": ("Плитки · чипы", "Чипы-фильтры над сеткой вместо боковой колонки: «Всё» или один раздел."),
     "SettingsColumn": ("Настройки · колонка", "Одна прокручиваемая колонка карточек. Просто и в духе меню-плиток; для шести разделов уже длинновато."),
     "SettingsSidebar": ("Настройки · разделы", "Слева разделы с подписью, справа карточки выбранного — Системные настройки macOS. Ясно, что где; предлагаемый вариант."),
     "SettingsTiles": ("Настройки · плитки", "Все разделы плитками в две колонки. Всё сразу перед глазами, но плотно и на узком окне рассыпается в колонку."),
@@ -127,7 +176,7 @@ NOTES = {
     "SettingsSources": ("Раздел · Источники и Хранилище", "Папки osu! и свои с выключателями; хранилище видео и карт, кэш."),
 }
 
-RECOMMENDED = "Предложение: разделы слева (SettingsSidebar) с карточками справа — шесть разделов: Общее · Источники · Рендер · Хранилище · Инструменты · О программе. Что настраивается: язык, имя устройства, живая сцена; папки реплеев; размер, к/с, качество, фон/сториборд/видео, звук нажатий; папки видео и карт, кэш; ffmpeg, адрес бота, обновления. Значения рендера по умолчанию — как у бота, и кнопка вернуть их."
+RECOMMENDED = "Направление 2026-09-22: плитки. Предложение: бенто (BentoSettings) с раскрытием по клику (BentoFocus) — сетка в три колонки, мелкие плитки с крупным значением, рендер и источники крупнее, подробности раскрываются поверх. Прежнее предложение: разделы слева (SettingsSidebar) с карточками справа — шесть разделов: Общее · Источники · Рендер · Хранилище · Инструменты · О программе. Что настраивается: язык, имя устройства, живая сцена; папки реплеев; размер, к/с, качество, фон/сториборд/видео, звук нажатий; папки видео и карт, кэш; ffmpeg, адрес бота, обновления. Значения рендера по умолчанию — как у бота, и кнопка вернуть их."
 
 if __name__ == "__main__":
     for name, html in boards().items():

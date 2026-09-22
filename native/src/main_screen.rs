@@ -248,6 +248,7 @@ pub struct Main {
     pub menu: Option<Tab>,
     pub error_shown: Option<u64>,
     pub arrivals: HashMap<u64, Animation<bool>>,
+    pub scenes_due: bool,
     pub leaving: HashMap<u64, Animation<bool>>,
     pub overlay_fade: Animation<bool>,
     pub overlay_drawn: Overlay,
@@ -316,6 +317,7 @@ impl Main {
             menu: None,
             error_shown: None,
             arrivals: HashMap::new(),
+            scenes_due: false,
             leaving: HashMap::new(),
             overlay_fade: Animation::new(false).duration(OVERLAY_FADE).easing(Easing::EaseOutCubic),
             overlay_drawn: Overlay::None,
@@ -693,6 +695,7 @@ impl Main {
                 }
                 if tab == Tab::Feed {
                     self.notices.see_all();
+                    return self.scenes_for_notices();
                 }
                 Task::none()
             }
@@ -1312,6 +1315,12 @@ impl Main {
                 Task::none()
             }
             Message::Tick(now) => {
+                if self.scenes_due {
+                    self.scenes_due = false;
+                    let load = self.scenes_for_notices();
+                    self.now = now;
+                    return load.chain(self.update(Message::Tick(now)));
+                }
                 if let Some(player) = &self.player {
                     player.borrow_mut().pull();
                 }
@@ -1410,6 +1419,7 @@ impl Main {
 
     pub fn announce(&mut self, mark: notices::Mark, words: String, detail: String, note: String, map_hash: String, link: notices::Link) {
         let id = self.notices.push(mark, words, detail, note, map_hash, link);
+        self.scenes_due = true;
         let now = Instant::now();
         if self.menu == Some(Tab::Feed) {
             self.arrivals.insert(id, Animation::new(false).duration(NOTICE_ARRIVE).easing(Easing::EaseOutCubic).go(true, now));
@@ -2166,7 +2176,8 @@ const MENU_W: f32 = 400.0;
 const MENU_TOP: f32 = 80.0;
 const BADGE: f32 = 16.0;
 const BADGE_OUT: f32 = 4.0;
-const CORNER_X: f32 = 20.0;
+const CORNER_X: f32 = 16.0;
+const CORNER_OUT: f32 = 6.0;
 
 impl Main {
     fn circle(&self, side: f32, pressable: bool) -> Element<'_, Message> {
@@ -2214,7 +2225,7 @@ impl Main {
         let direction = if gap == 0.0 { 0.0 } else { gap.signum() };
         let slide = (1.0 - swap) * 28.0 * direction;
         let late = |i: f32| if opening { (open * 1.4 - 0.2 * i).clamp(0.0, 1.0) } else { open };
-        let mut stackup = column![].spacing(8).width(MENU_W);
+        let mut stackup = column![].spacing(8).width(MENU_W + CORNER_OUT);
         let k0 = late(0.0);
         stackup = stackup.push(ui::fading(ui::fade() * k0, || ui::grown(self.menu_head(), Point::new(1.0, 0.0), 0.0, 0.9 + 0.1 * k0)));
         let k1 = late(1.0);
@@ -2241,6 +2252,62 @@ impl Main {
             Space::new().width(Length::Fill).height(Length::Fill).into()
         };
         stack![backdrop, pin(whole).x(x).y(MENU_TOP)].width(Length::Fill).height(Length::Fill).into()
+    }
+
+    fn scenery(&self, map_hash: &str, width: f32, height: f32) -> Element<'_, Message> {
+        match self.scenes.get(map_hash) {
+            Some(handle) if !map_hash.is_empty() => image(handle.clone())
+                .content_fit(ContentFit::Cover)
+                .width(width)
+                .height(height)
+                .opacity(0.4 * ui::fade())
+                .border_radius(theme::CARD_RADIUS - 2.0)
+                .into(),
+            _ => Space::new().width(width).height(height).into(),
+        }
+    }
+
+    fn pictured<'a>(&'a self, inside: Element<'a, Message>, bad: bool, map_hash: &str) -> Element<'a, Message> {
+        if !self.scenes.contains_key(map_hash) || map_hash.is_empty() {
+            return self.card(inside, bad);
+        }
+        let face = container(inside).padding([12, 14]).width(Length::Fill);
+        let backdrop = self.scenery(map_hash, MENU_W, 64.0);
+        container(stack![backdrop, face].width(Length::Fill))
+            .width(Length::Fill)
+            .style(ui::box_faded(if bad { theme::tile_bad } else { theme::bubble }))
+            .clip(true)
+            .into()
+    }
+
+    fn background_for(&self, map_hash: &str) -> Option<PathBuf> {
+        self.entries()
+            .iter()
+            .find(|e| e.map_hash == map_hash)
+            .and_then(|e| e.map.as_ref().and_then(|m| m.background.clone()))
+            .or_else(|| self.store.videos.iter().find(|v| v.map_hash == map_hash).and_then(|v| v.background.clone()))
+    }
+
+    fn scenes_for_notices(&self) -> Task<Message> {
+        let wanted: Vec<(String, PathBuf)> = self
+            .notices
+            .notices
+            .iter()
+            .take(6)
+            .filter(|n| !n.map_hash.is_empty() && !self.scenes.contains_key(&n.map_hash))
+            .filter_map(|n| self.background_for(&n.map_hash).map(|bg| (n.map_hash.clone(), bg)))
+            .collect();
+        if wanted.is_empty() {
+            return Task::none();
+        }
+        ui::streamed(move |push| {
+            for (hash, path) in wanted {
+                let handle = decoded(&path, SCENE_WIDTH, None);
+                if !push(Message::Scene(hash, handle)) {
+                    return;
+                }
+            }
+        })
     }
 
     fn card<'a>(&'a self, inside: Element<'a, Message>, bad: bool) -> Element<'a, Message> {
@@ -2403,10 +2470,10 @@ impl Main {
                 _ => 1.0,
             };
             let tile = ui::fading(ui::fade() * alive, || {
-                let card = self.card(self.notice_row(notice), bad);
+                let card = self.pictured(self.notice_row(notice), bad, &notice.map_hash);
                 let framed = stack![
-                    container(card).padding(Padding::ZERO.top(CORNER_X / 2.0)).width(Length::Fill),
-                    pin(self.dismiss(notice.id, bad)).x(MENU_W - CORNER_X).y(0.0),
+                    container(card).padding(Padding { top: CORNER_OUT, right: CORNER_OUT, bottom: 0.0, left: 0.0 }).width(Length::Fill),
+                    pin(self.dismiss(notice.id, bad)).x(MENU_W - CORNER_X - 1.0).y(0.0),
                 ]
                 .width(Length::Fill);
                 ui::grown(framed, Point::new(1.0, 0.5), 0.0, 1.0).shifted((1.0 - alive) * 24.0)
@@ -2621,7 +2688,7 @@ impl Main {
             let k = toast.shown.interpolate(0.0, 1.0, self.now);
             let home = (self.width - 40.0 - TOAST_W).max(16.0);
             let x = home + (1.0 - k) * (TOAST_W + 48.0);
-            let y = TOAST_TOP + slot - CORNER_X / 2.0;
+            let y = TOAST_TOP + slot - CORNER_OUT;
             let age = self.now.saturating_duration_since(toast.born).as_secs_f32();
             let pulse = if age < 3.0 && toast.shown.value() { (std::f32::consts::PI * age).sin().powi(2) } else { 0.0 };
             let card = self.toast(toast, notice, pulse);
@@ -2653,14 +2720,15 @@ impl Main {
             line = line.push(ui::small_button(words, Message::ToastLink(toast.id)));
         }
         let face = container(line).padding([12, 14]).width(TOAST_W).height(TOAST_H);
-        let card = container(face).width(TOAST_W).height(TOAST_H).style(theme::toast(pulse, bad)).clip(true);
+        let backdrop = self.scenery(&notice.map_hash, TOAST_W, TOAST_H);
+        let card = container(stack![backdrop, face].width(TOAST_W).height(TOAST_H)).width(TOAST_W).height(TOAST_H).style(theme::toast(pulse, bad)).clip(true);
         let sensed = mouse_area(card).on_enter(Message::ToastHover(toast.id, true)).on_exit(Message::ToastHover(toast.id, false));
         stack![
-            pin(sensed).x(0.0).y(CORNER_X / 2.0),
-            pin(self.dismiss(toast.id, bad)).x(TOAST_W - CORNER_X).y(0.0),
+            pin(sensed).x(0.0).y(CORNER_OUT),
+            pin(self.dismiss(toast.id, bad)).x(TOAST_W - CORNER_X + CORNER_OUT - 1.0).y(0.0),
         ]
-        .width(TOAST_W + CORNER_X / 2.0)
-        .height(TOAST_H + CORNER_X / 2.0)
+        .width(TOAST_W + CORNER_OUT)
+        .height(TOAST_H + CORNER_OUT)
         .into()
     }
 }

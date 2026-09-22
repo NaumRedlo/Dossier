@@ -434,6 +434,11 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
     for toast in &mut rendered.toasts {
         toast.shown = iced::Animation::new(true);
     }
+    if let Some(bg) = library.entries[0].map.as_ref().and_then(|m| m.background.clone()) {
+        if let Some(handle) = crate::main_screen::decoded(&bg, 640, None) {
+            rendered.scenes.insert(library.entries[0].map_hash.clone(), handle);
+        }
+    }
     let mut empty = Main::staged(crate::lang::Words::new(lang).in_zone(3 * 3600), settings.clone(), crate::library::Library::default(), None);
     empty.now_unix = NOON;
     let mut looking = Main::staged(crate::lang::Words::new(lang).in_zone(3 * 3600), settings.clone(), crate::library::Library::default(), None);
@@ -506,6 +511,13 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
     }
     for (i, notice) in menu_feed.notices.notices.iter_mut().enumerate() {
         notice.at = NOON - 60 * (i as i64 + 1) * 17;
+    }
+    for entry in &library.entries {
+        if let Some(bg) = entry.map.as_ref().and_then(|m| m.background.clone()) {
+            if let Some(handle) = crate::main_screen::decoded(&bg, 640, None) {
+                menu_feed.scenes.insert(entry.map_hash.clone(), handle);
+            }
+        }
     }
     let mut menu_account = menu_feed.clone();
     menu_account.menu_open = iced::Animation::new(true);

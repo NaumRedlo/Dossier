@@ -488,7 +488,7 @@ pub fn corner(bad: bool) -> impl Fn(&Theme, button::Status) -> button::Style {
         button::Style {
             background: Some(Background::Color(if lit { Color { r: ground.r + 0.06, g: ground.g + 0.04, b: ground.b + 0.04, a: 1.0 } } else { ground })),
             text_color: INK,
-            border: border(edge, 10.0),
+            border: border(edge, 8.0),
             shadow: Shadow::default(),
             snap: true,
         }

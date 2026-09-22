@@ -1607,8 +1607,8 @@ impl<Message> canvas::Program<Message> for Cross {
     fn draw(&self, _: &(), renderer: &Renderer, _: &Theme, bounds: Rectangle, _: mouse::Cursor) -> Vec<Geometry> {
         let mut frame = Frame::new(renderer, bounds.size());
         let c = Point::new(bounds.width / 2.0, bounds.height / 2.0);
-        let r = bounds.width.min(bounds.height) * 0.22;
-        let stroke = Stroke::default().with_width(2.0).with_color(faded(self.colour)).with_line_cap(canvas::LineCap::Round);
+        let r = bounds.width.min(bounds.height) * 0.19;
+        let stroke = Stroke::default().with_width(1.6).with_color(faded(self.colour)).with_line_cap(canvas::LineCap::Round);
         frame.stroke(&Path::line(Point::new(c.x - r, c.y - r), Point::new(c.x + r, c.y + r)), stroke);
         frame.stroke(&Path::line(Point::new(c.x + r, c.y - r), Point::new(c.x - r, c.y + r)), stroke);
         vec![frame.into_geometry()]

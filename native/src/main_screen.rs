@@ -84,6 +84,7 @@ pub enum Message {
     SeekBy(i64),
     RevealVideo,
     AskDelete,
+    AskDeleteOf(usize),
     KeepVideo,
     DeleteVideo,
     Choose(usize),
@@ -884,6 +885,10 @@ impl Main {
                 let Some(video) = self.store.videos.get(at) else {
                     return Task::none();
                 };
+                if self.overlay != Overlay::Videos {
+                    let shown = self.update(Message::Show(Overlay::Videos));
+                    return shown.chain(self.update(Message::OpenVideo(at)));
+                }
                 let Some(ffmpeg) = &self.ffmpeg else {
                     return Task::none();
                 };
@@ -926,6 +931,13 @@ impl Main {
             Message::RevealVideo => {
                 if let Some(video) = self.open_video.and_then(|at| self.store.videos.get(at)) {
                     let _ = open::that_detached(video.path.parent().unwrap_or(Path::new(".")));
+                }
+                Task::none()
+            }
+            Message::AskDeleteOf(at) => {
+                if self.store.videos.get(at).is_some() {
+                    self.open_video = Some(at);
+                    self.asking_delete = true;
                 }
                 Task::none()
             }
@@ -1505,7 +1517,12 @@ impl Main {
         let menu = self.menu_layer();
         let signing = self.sign_in_layer();
         let failure = self.error_layer();
-        let layers = stack![scene_before, scene, live_before, live, body, bubble, crest, overlay, menu, signing, failure, toasts];
+        let ask: Element<'_, Message> = if self.asking_delete {
+            self.delete_card()
+        } else {
+            blank()
+        };
+        let layers = stack![scene_before, scene, live_before, live, body, bubble, crest, overlay, ask, menu, signing, failure, toasts];
         layers.width(Length::Fill).height(Length::Fill).into()
     }
 
@@ -1624,11 +1641,21 @@ impl Main {
         let fetching_now = self.fetching.as_ref().is_some_and(|f| !f.is_over());
         let rendering_this = self.rendering.as_ref().filter(|r| r.path == entry.path);
         let fetching_this = self.fetching.as_ref().filter(|f| f.hash == entry.map_hash);
-        match (rendering_this, fetching_this) {
-            (Some(rendering), _) => self.render_button(rendering),
-            (None, Some(fetching)) => self.fetch_button(fetching),
-            (None, None) if entry.map.is_some() => ui::primary(w.t("render"), (self.ffmpeg.is_some() && !busy).then_some(Message::Render)),
-            (None, None) => ui::primary(w.t("get-the-map"), (!fetching_now).then_some(Message::GetMap)),
+        let rendered = self
+            .store
+            .videos
+            .iter()
+            .position(|v| v.replay == entry.path || (!v.replay_hash.is_empty() && v.replay_hash == entry.replay_hash));
+        match (rendering_this, fetching_this, rendered) {
+            (Some(rendering), _, _) if !rendering.is_over() => self.render_button(rendering),
+            (Some(rendering), _, None) => self.render_button(rendering),
+            (_, _, Some(at)) => row![ui::primary(w.t("open"), Some(Message::OpenVideo(at))), ui::quiet(w.t("delete"), Some(Message::AskDeleteOf(at)))]
+                .spacing(4)
+                .align_y(iced::Center)
+                .into(),
+            (None, Some(fetching), _) => self.fetch_button(fetching),
+            (None, None, None) if entry.map.is_some() => ui::primary(w.t("render"), (self.ffmpeg.is_some() && !busy).then_some(Message::Render)),
+            (None, None, None) => ui::primary(w.t("get-the-map"), (!fetching_now).then_some(Message::GetMap)),
         }
     }
 
@@ -1972,13 +1999,8 @@ impl Main {
             (Some(player), Some(video)) => self.stage(&player.borrow(), video),
             _ => Space::new().width(Length::Fill).height(Length::Fill).into(),
         };
-        let ask: Element<'_, Message> = if self.asking_delete {
-            self.delete_card()
-        } else {
-            Space::new().width(Length::Fill).height(Length::Fill).into()
-        };
         let crest: Element<'_, Message> = pin(ui::brand()).x(CREST_HOME.0).y(CREST_HOME.1).into();
-        stack![ui::veil(theme::GROUND), sheet, crest, stage, ask].width(Length::Fill).height(Length::Fill).into()
+        stack![ui::veil(theme::GROUND), sheet, crest, stage].width(Length::Fill).height(Length::Fill).into()
     }
 
     fn video_head(&self) -> Element<'_, Message> {

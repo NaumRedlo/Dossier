@@ -474,6 +474,7 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
         mock_video(1, NOON - 38 * 3600, 134_000, 51_000_000, &["EZ"]),
         mock_video(2, NOON - 39 * 3600, 242_000, 97_700_000, &[]),
     ];
+    rendered.store.videos = with_videos.store.videos.clone();
     let mut playing = with_videos.clone();
     playing.open_video = Some(0);
     playing.player = Some(std::rc::Rc::new(std::cell::RefCell::new(crate::player::Player::still(

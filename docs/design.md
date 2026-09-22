@@ -458,6 +458,32 @@ as the body and the caption in a header, the bot handing it to the chat,
 refused past Telegram's size. The account tab shows the worker line as
 *coming later* and the statistics tab the same for the worker's figures:
 the bot has no endpoint for them yet.
+
+The player is a window, not a panel (reworked 2026-09-23, after the first
+build let the picture run to the card's edges). A title bar carries the
+player's name with its mods beside it and the map under, the close cross at
+its right, both edges lined up with the picture's own; the video sits
+inside its own frame, inset 14 px on every side, rounded and on a ground
+darker than the card, so the card reads as the window around it and never as
+the video itself. Under the frame: the scrubber, which shows the time at the
+cursor in a small bubble while hovered, fills in the accent colour, thickens
+while held and only asks for the seek when let go — dragging moves the mark,
+not the decoder. Then one row of controls, drawn from Lucide (ISC): the
+previous and next video, five seconds back and ahead, play or pause in the
+middle, the time as *at / length*; at the right a frame back and ahead (lit
+only while paused), the speed as ×0,5 to ×2, the sound with its own short
+slider, repeat and fill-the-window. The last row keeps only the three
+buttons, and it folds away when the window fills the screen; the size, the
+rate and the weight are the list's business, not the player's. Keys:
+space or K pauses, the arrows step five seconds, M mutes, L repeats, F fills,
+the comma and the full stop step a frame, the brackets change the speed, a
+digit jumps to that tenth, Esc leaves the filled window first and the player
+second; the wheel over the picture is the sound, a double click fills the
+screen. Every change says itself once in a pill over the picture, which
+fades in 900 ms. While the player is open the top row and the crest fade out,
+so nothing of the application stands over the video. Sound is shared with the
+audio thread, so the slider is heard at once; the speed re-opens both pipes at
+the same moment with `atempo`; frames arrive at 1280×720.
 *What the bubble says* is in the journal's section above; the seven
 variants stay drawn for the record.
 

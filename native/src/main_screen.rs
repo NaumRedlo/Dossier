@@ -91,6 +91,16 @@ pub enum Message {
     PlayerToggle,
     SeekTo(f32),
     SeekBy(i64),
+    Scrubbing(f32),
+    StepFrames(i64),
+    PlayerLevel(f32),
+    PlayerLouder(f32),
+    PlayerMute,
+    PlayerRate(i32),
+    PlayerLoop,
+    PlayerWiden,
+    PlayerNeighbour(i32),
+    Typed(char),
     RevealVideo,
     AskDelete,
     AskDeleteOf(usize),
@@ -252,6 +262,10 @@ pub struct Main {
     pub player: Option<std::rc::Rc<std::cell::RefCell<player::Player>>>,
     pub open_video: Option<usize>,
     pub asking_delete: bool,
+    pub cinema: Animation<bool>,
+    pub widened: Animation<bool>,
+    pub scrubbing: Option<f32>,
+    pub hint: Option<(String, Instant)>,
     pub notices: notices::Queue,
     pub toasts: Vec<Toast>,
     pub account: Option<bot::Me>,
@@ -350,6 +364,10 @@ impl Main {
             player: None,
             open_video: None,
             asking_delete: false,
+            cinema: Animation::new(false).duration(CINEMA).easing(Easing::EaseOutCubic),
+            widened: Animation::new(false).duration(WIDEN).easing(Easing::EaseOutCubic),
+            scrubbing: None,
+            hint: None,
             notices: notices::Queue::load(),
             toasts: Vec::new(),
             account: None,
@@ -471,6 +489,9 @@ impl Main {
             || self.swap.is_animating(self.now)
             || self.lifts.values().any(|l| l.is_animating(self.now))
             || self.player.as_ref().is_some_and(|p| !p.borrow().paused)
+            || self.cinema.is_animating(self.now)
+            || self.widened.is_animating(self.now)
+            || self.hint.is_some()
             || !self.toasts.is_empty()
             || self.menu_open.is_animating(self.now)
             || self.overlay_fade.is_animating(self.now)
@@ -506,6 +527,7 @@ impl Main {
                     Key::Named(Named::ArrowDown) => Some(Message::Key(Named::ArrowDown)),
                     Key::Named(Named::Space) => Some(Message::Key(Named::Space)),
                     Key::Named(Named::Escape) => Some(Message::Escape),
+                    Key::Character(letter) => letter.chars().next().map(|c| Message::Typed(c.to_lowercase().next().unwrap_or(c))),
                     _ => None,
                 }
             }
@@ -735,6 +757,9 @@ impl Main {
                 } else if self.asking_delete {
                     self.asking_delete = false;
                 } else if self.player.is_some() {
+                    if self.widened.value() {
+                        return self.update(Message::PlayerWiden);
+                    }
                     return self.update(Message::ClosePlayer);
                 } else {
                     self.overlay = Overlay::None;
@@ -1025,9 +1050,17 @@ impl Main {
                 if let Some(old) = self.player.take() {
                     old.borrow_mut().close();
                 }
-                self.player = Some(std::rc::Rc::new(std::cell::RefCell::new(player::Player::open(ffmpeg, &video.path, video.length_ms, video.fps, self.settings.player_level))));
+                let manner = player::Manner {
+                    level: self.settings.player_level,
+                    muted: self.settings.player_muted,
+                    rate: self.settings.player_rate,
+                };
+                self.player = Some(std::rc::Rc::new(std::cell::RefCell::new(player::Player::open(ffmpeg, &video.path, video.length_ms, video.fps, manner))));
                 self.open_video = Some(at);
                 self.asking_delete = false;
+                self.scrubbing = None;
+                self.hint = None;
+                self.cinema.go_mut(true, Instant::now());
                 Task::none()
             }
             Message::ClosePlayer => {
@@ -1036,6 +1069,11 @@ impl Main {
                 }
                 self.open_video = None;
                 self.asking_delete = false;
+                self.scrubbing = None;
+                self.hint = None;
+                let now = Instant::now();
+                self.cinema.go_mut(false, now);
+                self.widened.go_mut(false, now);
                 Task::none()
             }
             Message::PlayerToggle => {
@@ -1045,6 +1083,7 @@ impl Main {
                 Task::none()
             }
             Message::SeekTo(fraction) => {
+                self.scrubbing = None;
                 if let Some(player) = &self.player {
                     let mut player = player.borrow_mut();
                     let to = (fraction as f64 * player.length_ms as f64) as i64;
@@ -1052,11 +1091,105 @@ impl Main {
                 }
                 Task::none()
             }
+            Message::Scrubbing(fraction) => {
+                self.scrubbing = Some(fraction.clamp(0.0, 1.0));
+                Task::none()
+            }
             Message::SeekBy(delta) => {
                 if let Some(player) = &self.player {
                     player.borrow_mut().seek_by(delta);
                 }
+                let sign = if delta > 0 { "+" } else { "−" };
+                self.say(format!("{sign}{} {}", delta.abs() / 1000, self.words.t("seconds-short")));
                 Task::none()
+            }
+            Message::StepFrames(by) => {
+                if let Some(player) = &self.player {
+                    player.borrow_mut().step(by);
+                }
+                self.say(format!("{}{by}", if by > 0 { "+" } else { "" }));
+                Task::none()
+            }
+            Message::PlayerLevel(level) => {
+                let level = level.clamp(0.0, 1.0);
+                self.settings.player_level = level;
+                self.settings.player_muted = false;
+                let _ = self.settings.save();
+                if let Some(player) = &self.player {
+                    let mut player = player.borrow_mut();
+                    player.set_level(level);
+                    player.set_muted(false);
+                }
+                self.say(format!("{} %", (level * 100.0).round() as i32));
+                Task::none()
+            }
+            Message::PlayerLouder(by) => {
+                let level = (self.settings.player_level + by.clamp(-1.0, 1.0) * 0.05).clamp(0.0, 1.0);
+                self.update(Message::PlayerLevel(level))
+            }
+            Message::PlayerMute => {
+                let muted = !self.settings.player_muted;
+                self.settings.player_muted = muted;
+                let _ = self.settings.save();
+                if let Some(player) = &self.player {
+                    player.borrow_mut().set_muted(muted);
+                }
+                self.say(self.words.t(if muted { "sound-off" } else { "sound-on" }));
+                Task::none()
+            }
+            Message::PlayerRate(by) => {
+                let rate = player::next_rate(self.settings.player_rate, by);
+                self.settings.player_rate = rate;
+                let _ = self.settings.save();
+                if let Some(player) = &self.player {
+                    player.borrow_mut().set_rate(rate);
+                }
+                self.say(format!("×{}", self.words.rate(rate)));
+                Task::none()
+            }
+            Message::PlayerLoop => {
+                let over = !self.settings.player_loop;
+                self.settings.player_loop = over;
+                let _ = self.settings.save();
+                self.say(self.words.t(if over { "loop-on" } else { "loop-off" }));
+                Task::none()
+            }
+            Message::PlayerWiden => {
+                let now = Instant::now();
+                let wide = !self.widened.value();
+                self.widened.go_mut(wide, now);
+                Task::none()
+            }
+            Message::PlayerNeighbour(by) => {
+                let Some(at) = self.open_video else {
+                    return Task::none();
+                };
+                let next = at as i32 + by;
+                if next < 0 || next as usize >= self.store.videos.len() {
+                    return Task::none();
+                }
+                self.update(Message::OpenVideo(next as usize))
+            }
+            Message::Typed(letter) => {
+                if self.player.is_none() {
+                    return Task::none();
+                }
+                match letter {
+                    'm' | 'ь' => self.update(Message::PlayerMute),
+                    'l' | 'д' => self.update(Message::PlayerLoop),
+                    'f' | 'а' => self.update(Message::PlayerWiden),
+                    'k' | 'л' => self.update(Message::PlayerToggle),
+                    'j' | 'о' => self.update(Message::SeekBy(-10000)),
+                    ',' | 'б' => self.update(Message::StepFrames(-1)),
+                    '.' | 'ю' => self.update(Message::StepFrames(1)),
+                    '[' | 'х' => self.update(Message::PlayerRate(-1)),
+                    ']' | 'ъ' => self.update(Message::PlayerRate(1)),
+                    digit if digit.is_ascii_digit() => {
+                        let part = digit.to_digit(10).unwrap_or(0) as f32 / 10.0;
+                        self.update(Message::SeekTo(part))
+                    }
+                    _ => Task::none(),
+                }
             }
             Message::RevealVideo => {
                 if let Some(video) = self.open_video.and_then(|at| self.store.videos.get(at)) {
@@ -1500,7 +1633,14 @@ impl Main {
                     return load.chain(self.update(Message::Tick(now)));
                 }
                 if let Some(player) = &self.player {
-                    player.borrow_mut().pull();
+                    let mut player = player.borrow_mut();
+                    player.pull();
+                    if player.ended() && self.settings.player_loop {
+                        player.seek(0);
+                    }
+                }
+                if self.hint.as_ref().is_some_and(|(_, since)| now.saturating_duration_since(*since) > HINT_SHOWN) {
+                    self.hint = None;
                 }
                 self.now = now;
                 if let Some(live) = &self.live {
@@ -1702,15 +1842,16 @@ impl Main {
             _ => blank(),
         };
         let body: Element<'_, Message> = if loaded { ui::fading(k, || self.body(k, s)) } else { blank() };
-        let early = self.arrive.interpolate(0.0, 1.0, self.now);
+        let early = self.arrive.interpolate(0.0, 1.0, self.now) * (1.0 - self.cinema.interpolate(0.0, 1.0, self.now));
         let crest = ui::fading(early, ui::brand);
         let crest: Element<'_, Message> =
             pin(float(crest).translate(move |_, _| Vector::new(0.0, (1.0 - early) * CREST_RISE))).x(CREST_HOME.0).y(CREST_HOME.1).into();
         let sheet = self.overlay_fade.interpolate(0.0, 1.0, self.now);
         let showing = self.overlay != Overlay::None || self.overlay_fade.is_animating(self.now);
         let late = ((k - 0.7) / 0.3).clamp(0.0, 1.0);
-        let chrome_layer: Element<'_, Message> = if loaded {
-            ui::fading(alpha * late, || self.chrome())
+        let watching = 1.0 - self.cinema.interpolate(0.0, 1.0, self.now);
+        let chrome_layer: Element<'_, Message> = if loaded && watching > 0.001 {
+            ui::fading(alpha * late * watching, || self.chrome())
         } else {
             blank()
         };
@@ -2211,7 +2352,11 @@ impl Main {
             (Some(player), Some(video)) => self.stage(&player.borrow(), video),
             _ => Space::new().width(Length::Fill).height(Length::Fill).into(),
         };
-        let crest: Element<'_, Message> = pin(ui::brand()).x(CREST_HOME.0).y(CREST_HOME.1).into();
+        let watching = 1.0 - self.cinema.interpolate(0.0, 1.0, self.now);
+        let crest: Element<'_, Message> = match watching > 0.001 {
+            true => pin(ui::fading(ui::fade() * watching, ui::brand)).x(CREST_HOME.0).y(CREST_HOME.1).into(),
+            false => Space::new().width(Length::Fill).height(Length::Fill).into(),
+        };
         stack![sheet, crest, stage].width(Length::Fill).height(Length::Fill).into()
     }
 
@@ -2282,16 +2427,22 @@ impl Main {
             .into()
     }
 
+    fn say(&mut self, words: String) {
+        self.hint = Some((words, Instant::now()));
+    }
+
     fn stage(&self, player: &player::Player, video: &videos::Video) -> Element<'_, Message> {
         let w = &self.words;
         let playing = !player.paused;
+        let wide = self.widened.interpolate(0.0, 1.0, self.now);
+        let round: iced::border::Radius = (PICTURE_RADIUS).into();
         let picture: Element<'_, Message> = match &player.frame {
             Some(handle) => image(handle.clone())
                 .content_fit(ContentFit::Contain)
                 .width(Length::Fill)
                 .height(Length::Fill)
                 .opacity(ui::fade())
-                .border_radius(iced::border::Radius { top_left: theme::CARD_RADIUS - 1.0, top_right: theme::CARD_RADIUS - 1.0, bottom_right: 0.0, bottom_left: 0.0 })
+                .border_radius(round)
                 .into(),
             None => match self.thumbs.get(&video.map_hash) {
                 Some(handle) => image(handle.clone())
@@ -2299,56 +2450,143 @@ impl Main {
                     .width(Length::Fill)
                     .height(Length::Fill)
                     .opacity(0.35 * ui::fade())
-                    .border_radius(iced::border::Radius { top_left: theme::CARD_RADIUS - 1.0, top_right: theme::CARD_RADIUS - 1.0, bottom_right: 0.0, bottom_left: 0.0 })
+                    .border_radius(round)
                     .into(),
                 None => Space::new().width(Length::Fill).height(Length::Fill).into(),
             },
         };
         let mark: Element<'_, Message> = if player.paused {
-            container(iced::widget::canvas(ui::PlayMark).width(44.0).height(44.0)).width(Length::Fill).height(Length::Fill).center(Length::Fill).into()
+            let kind = if player.ended() { ui::Control::Again } else { ui::Control::Play };
+            container(ui::halo(kind, 72.0, 1.0))
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .align_x(iced::alignment::Horizontal::Center)
+                .align_y(iced::alignment::Vertical::Center)
+                .into()
         } else {
             Space::new().width(Length::Fill).height(Length::Fill).into()
         };
-        let screen = mouse_area(stack![picture, mark].width(Length::Fill).height(Length::Fill)).on_press(Message::PlayerToggle);
-        let seek = iced::widget::canvas(ui::Seek { played: player.fraction(), on: Box::new(Message::SeekTo) }).width(Length::Fill).height(16.0);
-        let timeline = row![
-            ui::mono_small(w.length(player.at_ms()), INK),
-            seek,
-            ui::mono_small(w.length(player.length_ms), INK),
+        let hint: Element<'_, Message> = match &self.hint {
+            Some((words, since)) => {
+                let gone = self.now.saturating_duration_since(*since).as_secs_f32() / HINT_SHOWN.as_secs_f32();
+                let k = (1.0 - gone).clamp(0.0, 1.0);
+                container(ui::fading(ui::fade() * k, || {
+                    container(text(words.clone()).font(theme::SANS_SEMI).size(theme::BODY).color(ui::faded(INK)))
+                        .padding(Padding { top: 6.0, right: 12.0, bottom: 6.0, left: 12.0 })
+                        .style(ui::box_at(theme::bubble, ui::fade() * k))
+                }))
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .align_x(iced::alignment::Horizontal::Center)
+                .padding(Padding::ZERO.top(18.0))
+                .into()
+            }
+            None => Space::new().width(Length::Fill).height(Length::Fill).into(),
+        };
+        let gap = STAGE_GAP - (STAGE_GAP - 16.0) * wide;
+        let under_h = STAGE_UNDER * (1.0 - wide);
+        let room_w = (self.width - 2.0 * gap - 2.0 * PICTURE_INSET).max(320.0);
+        let room_h = (self.height - 2.0 * gap - STAGE_TOP - STAGE_KEYS - under_h - 2.0 * PICTURE_INSET).max(180.0);
+        let screen_h = (room_w * 9.0 / 16.0).min(room_h);
+        let screen_w = (screen_h * 16.0 / 9.0).min(room_w);
+        let screen = mouse_area(
+            container(stack![picture, mark, hint].width(screen_w).height(screen_h))
+                .width(screen_w)
+                .height(screen_h)
+                .style(ui::box_faded(theme::screen))
+                .clip(true),
+        )
+        .on_press(Message::PlayerToggle)
+        .on_double_click(Message::PlayerWiden)
+        .on_scroll(|delta| {
+            let up = match delta {
+                iced::mouse::ScrollDelta::Lines { y, .. } => y,
+                iced::mouse::ScrollDelta::Pixels { y, .. } => y / 40.0,
+            };
+            Message::PlayerLouder(up)
+        });
+        let mut named = row![text(video.player.clone()).font(theme::SANS_SEMI).size(theme::LEAD).wrapping(text::Wrapping::None).color(ui::faded(INK))]
+            .spacing(6)
+            .align_y(iced::Center);
+        for acronym in &video.mods {
+            named = named.push(mod_badge(acronym));
+        }
+        let title = row![
+            column![
+                named,
+                text(ui::shortened(video.map_line(), 62)).font(theme::SANS).size(theme::CAPTION).wrapping(text::Wrapping::None).color(ui::faded(MUTED)),
+            ]
+            .spacing(2),
+            ui::grow(),
+            ui::control_button(ui::Control::Close, 18.0, Some(Message::ClosePlayer), false),
         ]
         .spacing(12)
         .align_y(iced::Center);
-        let dim = if playing { 0.6 } else { 1.0 };
-        let mut facts = row![].spacing(6).align_y(iced::Center);
-        for acronym in &video.mods {
-            facts = facts.push(mod_badge(acronym));
-        }
-        if !video.mods.is_empty() {
-            facts = facts.push(ui::mono_small("·".to_owned(), FAINT));
-        }
-        for (i, part) in [
-            w.length(video.length_ms),
-            format!("{}×{}", video.width, video.height),
-            format!("{} fps", video.fps),
-            w.mb(video.size),
-            format!("{} {}", w.day(video.made_at, self.now_unix), w.clock(video.made_at)),
+        let shown = self.scrubbing.unwrap_or_else(|| player.fraction());
+        let length_ms = player.length_ms;
+        let seek = iced::widget::canvas(ui::Seek {
+            played: shown,
+            alpha: ui::fade(),
+            at: Box::new(move |part| {
+                let ms = (part as f64 * length_ms as f64) as i64;
+                format!("{}:{:02}", ms / 60_000, (ms / 1000) % 60)
+            }),
+            on_move: Box::new(Message::Scrubbing),
+            on_drop: Box::new(Message::SeekTo),
+        })
+        .width(Length::Fill)
+        .height(32.0);
+        let at_ms = self.scrubbing.map_or_else(|| player.at_ms(), |part| (part as f64 * player.length_ms as f64) as i64);
+        let clock = row![
+            ui::mono_small(w.length(at_ms), INK),
+            ui::mono_small("/".to_owned(), FAINT),
+            ui::mono_small(w.length(player.length_ms), MUTED),
         ]
-        .into_iter()
-        .enumerate()
-        {
-            if i > 0 {
-                facts = facts.push(ui::mono_small("·".to_owned(), FAINT));
-            }
-            facts = facts.push(ui::mono_small(part, FAINT));
-        }
-        let caption = ui::fading(ui::fade() * dim, || {
-            column![
-                text(video.player.clone()).font(theme::SANS_SEMI).size(20.0).wrapping(text::Wrapping::None).color(ui::faded(INK)),
-                text(video.map_line()).font(theme::SANS).size(theme::CAPTION).wrapping(text::Wrapping::None).color(ui::faded(MUTED)),
-                container(facts).padding(Padding::ZERO.top(4.0)),
-            ]
-            .spacing(1)
-        });
+        .spacing(6)
+        .align_y(iced::Center);
+        let at = self.open_video.unwrap_or(0);
+        let earlier = (at > 0).then_some(Message::PlayerNeighbour(-1));
+        let later = (at + 1 < self.store.videos.len()).then_some(Message::PlayerNeighbour(1));
+        let step_back = player.paused.then_some(Message::StepFrames(-1));
+        let step_ahead = player.paused.then_some(Message::StepFrames(1));
+        let sound = if self.settings.player_muted || self.settings.player_level <= 0.001 {
+            ui::Control::Hushed
+        } else if self.settings.player_level < 0.5 {
+            ui::Control::Soft
+        } else {
+            ui::Control::Loud
+        };
+        let level = iced::widget::canvas(ui::Level {
+            at: if self.settings.player_muted { 0.0 } else { self.settings.player_level },
+            alpha: ui::fade(),
+            on: Box::new(Message::PlayerLevel),
+        })
+        .width(64.0)
+        .height(22.0);
+        let keys = row![
+            ui::control_button(ui::Control::Earlier, 16.0, earlier, false),
+            ui::control_button(ui::Control::Back, 16.0, Some(Message::SeekBy(-5000)), false),
+            ui::control_button(if playing { ui::Control::Pause } else { ui::Control::Play }, 20.0, Some(Message::PlayerToggle), false),
+            ui::control_button(ui::Control::Ahead, 16.0, Some(Message::SeekBy(5000)), false),
+            ui::control_button(ui::Control::Later, 16.0, later, false),
+            container(clock).padding(Padding::ZERO.left(8.0)),
+            ui::grow(),
+            ui::control_button(ui::Control::StepBack, 14.0, step_back, false),
+            ui::control_button(ui::Control::StepAhead, 14.0, step_ahead, false),
+            ui::small_button(format!("×{}", w.rate(self.settings.player_rate)), Message::PlayerRate(1)),
+            ui::control_button(sound, 16.0, Some(Message::PlayerMute), self.settings.player_muted),
+            container(level).padding(Padding::ZERO.right(4.0)),
+            ui::control_button(ui::Control::Over, 16.0, Some(Message::PlayerLoop), self.settings.player_loop),
+            ui::control_button(
+                if self.widened.value() { ui::Control::Shrink } else { ui::Control::Grow },
+                16.0,
+                Some(Message::PlayerWiden),
+                false,
+            ),
+        ]
+        .spacing(2)
+        .align_y(iced::Center);
+        let dim = if playing { 0.65 } else { 1.0 };
         let sending_this = self.sending.as_ref().filter(|s| s.path == video.path);
         let telegram: Element<'_, Message> = match sending_this {
             Some(sending) if sending.over.is_none() => ui::progress(w.t("sending"), self.progress_shown, None),
@@ -2359,18 +2597,27 @@ impl Main {
                 .spacing(4)
                 .align_y(iced::Center)
         });
-        let under = row![container(caption).width(Length::Fill).clip(true), buttons].spacing(16).align_y(iced::Center);
-        let stage_w = (self.width - 2.0 * STAGE_GAP).max(320.0);
-        let room = (self.height - 2.0 * STAGE_GAP - STAGE_UNDER).max(180.0);
-        let screen_h = (stage_w * 9.0 / 16.0).min(room);
-        let screen_w = (screen_h * 16.0 / 9.0).min(stage_w);
-        let inside = column![
-            container(screen).width(Length::Fill).height(screen_h),
-            container(timeline).padding(Padding { top: 8.0, right: 24.0, bottom: 4.0, left: 24.0 }),
-            container(under).padding(Padding { top: 6.0, right: 24.0, bottom: 18.0, left: 24.0 }).height(STAGE_UNDER - 30.0),
+        let under = row![ui::grow(), buttons].spacing(16).align_y(iced::Center);
+        let mut inside = column![
+            container(title).height(STAGE_TOP).padding(Padding { top: 0.0, right: PICTURE_INSET - 7.0, bottom: 0.0, left: PICTURE_INSET }),
+            container(screen).width(Length::Fill).height(screen_h).center_x(Length::Fill),
+            container(seek).padding(Padding { top: 4.0, right: PICTURE_INSET, bottom: 0.0, left: PICTURE_INSET }),
+            container(keys).padding(Padding { top: 0.0, right: PICTURE_INSET - 7.0, bottom: 0.0, left: PICTURE_INSET - 7.0 }).height(STAGE_KEYS - 36.0),
         ]
         .width(Length::Fill);
-        let card = container(inside).width(screen_w).height(screen_h + STAGE_UNDER).style(ui::box_faded(theme::stage)).clip(true);
+        if under_h > 1.0 {
+            inside = inside.push(
+                container(under)
+                    .padding(Padding { top: 0.0, right: PICTURE_INSET, bottom: 12.0, left: PICTURE_INSET })
+                    .height(under_h)
+                    .clip(true),
+            );
+        }
+        let card = container(inside)
+            .width(screen_w + 2.0 * PICTURE_INSET)
+            .height(screen_h + STAGE_TOP + STAGE_KEYS + under_h)
+            .style(ui::box_faded(theme::stage))
+            .clip(true);
         let backdrop = mouse_area(ui::veil(theme::SCRIM)).on_press(Message::ClosePlayer);
         stack![backdrop, container(card).width(Length::Fill).height(Length::Fill).center(Length::Fill)]
             .width(Length::Fill)
@@ -2794,7 +3041,7 @@ impl Main {
                 self.settings.player_level = level.clamp(0.0, 1.0);
                 keep(&self.settings);
                 if let Some(player) = &self.player {
-                    player.borrow_mut().level = self.settings.player_level;
+                    player.borrow_mut().set_level(self.settings.player_level);
                 }
                 Task::none()
             }
@@ -3369,6 +3616,9 @@ pub const MENU_CLOSE: Duration = Duration::from_millis(170);
 pub const TAB_FADE: Duration = Duration::from_millis(180);
 pub const NOTICE_LEAVE: Duration = Duration::from_millis(200);
 pub const NOTICE_ARRIVE: Duration = Duration::from_millis(260);
+pub const CINEMA: Duration = Duration::from_millis(220);
+pub const WIDEN: Duration = Duration::from_millis(260);
+pub const HINT_SHOWN: Duration = Duration::from_millis(900);
 pub const OVERLAY_FADE: Duration = Duration::from_millis(220);
 pub const GROUND_UP: Duration = Duration::from_millis(110);
 pub const TOAST_STAY: Duration = Duration::from_secs(6);
@@ -3433,7 +3683,11 @@ impl Main {
     }
 }
 const STAGE_GAP: f32 = 40.0;
-const STAGE_UNDER: f32 = 118.0;
+const STAGE_UNDER: f32 = 50.0;
+const STAGE_KEYS: f32 = 74.0;
+const STAGE_TOP: f32 = 56.0;
+const PICTURE_INSET: f32 = 14.0;
+const PICTURE_RADIUS: f32 = 10.0;
 
 pub fn grade_colour(grade: Grade) -> Color {
     match grade {

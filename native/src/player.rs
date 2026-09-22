@@ -1,7 +1,7 @@
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, Ordering};
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender, TryRecvError};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -10,15 +10,32 @@ use std::time::{Duration, Instant};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use iced::widget::image;
 
-pub const WIDTH: u32 = 960;
-pub const HEIGHT: u32 = 540;
+pub const WIDTH: u32 = 1280;
+pub const HEIGHT: u32 = 720;
+
+pub const RATES: [f32; 6] = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
+
+#[derive(Debug, Clone, Copy)]
+pub struct Manner {
+    pub level: f32,
+    pub muted: bool,
+    pub rate: f32,
+}
+
+impl Default for Manner {
+    fn default() -> Manner {
+        Manner { level: 1.0, muted: false, rate: 1.0 }
+    }
+}
 
 pub struct Player {
     pub path: PathBuf,
-    pub level: f32,
     pub length_ms: i64,
     pub frame: Option<image::Handle>,
     pub paused: bool,
+    level: Arc<AtomicU32>,
+    muted: Arc<AtomicBool>,
+    rate: f32,
     at_ms: Arc<AtomicI64>,
     stop: Arc<AtomicBool>,
     hold: Arc<AtomicBool>,
@@ -27,8 +44,6 @@ pub struct Player {
     fps: u32,
     sound: Option<Sound>,
     procs: Arc<Mutex<Vec<Child>>>,
-    started: Instant,
-    from_ms: i64,
     ended: bool,
 }
 
@@ -37,13 +52,15 @@ struct Sound {
 }
 
 impl Player {
-    pub fn open(ffmpeg: &Path, path: &Path, length_ms: i64, fps: u32, level: f32) -> Player {
+    pub fn open(ffmpeg: &Path, path: &Path, length_ms: i64, fps: u32, manner: Manner) -> Player {
         let mut player = Player {
             path: path.to_path_buf(),
-            level,
             length_ms,
             frame: None,
             paused: false,
+            level: Arc::new(AtomicU32::new(manner.level.clamp(0.0, 1.0).to_bits())),
+            muted: Arc::new(AtomicBool::new(manner.muted)),
+            rate: steady(manner.rate),
             at_ms: Arc::new(AtomicI64::new(0)),
             stop: Arc::new(AtomicBool::new(false)),
             hold: Arc::new(AtomicBool::new(false)),
@@ -52,8 +69,6 @@ impl Player {
             fps: fps.max(1),
             sound: None,
             procs: Arc::new(Mutex::new(Vec::new())),
-            started: Instant::now(),
-            from_ms: 0,
             ended: false,
         };
         player.start(0);
@@ -61,12 +76,14 @@ impl Player {
     }
 
     pub fn still(path: &Path, length_ms: i64, at_ms: i64) -> Player {
-        let mut player = Player {
+        Player {
             path: path.to_path_buf(),
-            level: 1.0,
             length_ms,
             frame: None,
             paused: true,
+            level: Arc::new(AtomicU32::new(1.0f32.to_bits())),
+            muted: Arc::new(AtomicBool::new(false)),
+            rate: 1.0,
             at_ms: Arc::new(AtomicI64::new(at_ms)),
             stop: Arc::new(AtomicBool::new(true)),
             hold: Arc::new(AtomicBool::new(true)),
@@ -75,12 +92,8 @@ impl Player {
             fps: 60,
             sound: None,
             procs: Arc::new(Mutex::new(Vec::new())),
-            started: Instant::now(),
-            from_ms: at_ms,
             ended: false,
-        };
-        player.paused = true;
-        player
+        }
     }
 
     pub fn at_ms(&self) -> i64 {
@@ -96,6 +109,49 @@ impl Player {
 
     pub fn ended(&self) -> bool {
         self.ended
+    }
+
+    pub fn ready(&self) -> bool {
+        self.frame.is_some()
+    }
+
+    pub fn level(&self) -> f32 {
+        f32::from_bits(self.level.load(Ordering::Relaxed))
+    }
+
+    pub fn set_level(&mut self, level: f32) {
+        self.level.store(level.clamp(0.0, 1.0).to_bits(), Ordering::Relaxed);
+        if level > 0.0 {
+            self.muted.store(false, Ordering::Relaxed);
+        }
+    }
+
+    pub fn muted(&self) -> bool {
+        self.muted.load(Ordering::Relaxed)
+    }
+
+    pub fn set_muted(&mut self, muted: bool) {
+        self.muted.store(muted, Ordering::Relaxed);
+    }
+
+    pub fn rate(&self) -> f32 {
+        self.rate
+    }
+
+    pub fn set_rate(&mut self, rate: f32) {
+        let rate = steady(rate);
+        if (rate - self.rate).abs() < 0.001 {
+            return;
+        }
+        let at = self.at_ms();
+        let held = self.paused;
+        self.rate = rate;
+        self.stop_streams();
+        self.start(at);
+        if held {
+            self.paused = true;
+            self.hold.store(true, Ordering::Relaxed);
+        }
     }
 
     pub fn pull(&mut self) {
@@ -135,16 +191,28 @@ impl Player {
     }
 
     pub fn seek(&mut self, to_ms: i64) {
-        let to = to_ms.clamp(0, self.length_ms.max(0));
-        self.stop_streams();
-        self.ended = false;
-        self.paused = false;
-        self.at_ms.store(to, Ordering::Relaxed);
-        self.start(to);
+        self.go(to_ms, false);
     }
 
     pub fn seek_by(&mut self, delta_ms: i64) {
         self.seek(self.at_ms() + delta_ms);
+    }
+
+    pub fn step(&mut self, frames: i64) {
+        let one = (1000.0 / self.fps as f64).round() as i64;
+        self.go(self.at_ms() + frames * one.max(1), true);
+    }
+
+    fn go(&mut self, to_ms: i64, held: bool) {
+        let to = to_ms.clamp(0, self.length_ms.max(0));
+        self.stop_streams();
+        self.ended = false;
+        self.paused = held;
+        self.at_ms.store(to, Ordering::Relaxed);
+        self.start(to);
+        if held {
+            self.hold.store(true, Ordering::Relaxed);
+        }
     }
 
     pub fn close(&mut self) {
@@ -167,8 +235,6 @@ impl Player {
     fn start(&mut self, from_ms: i64) {
         self.stop = Arc::new(AtomicBool::new(false));
         self.hold = Arc::new(AtomicBool::new(false));
-        self.from_ms = from_ms;
-        self.started = Instant::now();
         let (tx, rx) = sync_channel(2);
         self.frames = rx;
         self.spawn_video(from_ms, tx);
@@ -197,6 +263,7 @@ impl Player {
         let stop = self.stop.clone();
         let hold = self.hold.clone();
         let fps = self.fps;
+        let pace = self.fps as f64 * self.rate as f64;
         let frame_bytes = (WIDTH * HEIGHT * 4) as usize;
         thread::spawn(move || {
             let started = Instant::now();
@@ -210,20 +277,22 @@ impl Player {
                 if out.read_exact(&mut buffer).is_err() {
                     return;
                 }
-                let due = started + held + Duration::from_secs_f64(index as f64 / fps as f64);
-                let now = Instant::now();
-                if due > now {
-                    thread::sleep(due - now);
-                }
-                while hold.load(Ordering::Relaxed) {
-                    let paused_at = Instant::now();
-                    while hold.load(Ordering::Relaxed) {
-                        if stop.load(Ordering::Relaxed) {
-                            return;
-                        }
-                        thread::sleep(Duration::from_millis(8));
+                if index > 0 {
+                    let due = started + held + Duration::from_secs_f64(index as f64 / pace);
+                    let now = Instant::now();
+                    if due > now {
+                        thread::sleep(due - now);
                     }
-                    held += paused_at.elapsed();
+                    while hold.load(Ordering::Relaxed) {
+                        let paused_at = Instant::now();
+                        while hold.load(Ordering::Relaxed) {
+                            if stop.load(Ordering::Relaxed) {
+                                return;
+                            }
+                            thread::sleep(Duration::from_millis(8));
+                        }
+                        held += paused_at.elapsed();
+                    }
                 }
                 let at = from_ms + (index as f64 * 1000.0 / fps as f64) as i64;
                 if tx.send((at, buffer.clone())).is_err() {
@@ -240,10 +309,23 @@ impl Player {
         let config = device.default_output_config().ok()?;
         let rate = config.sample_rate();
         let channels = config.channels() as usize;
+        let mut args: Vec<String> = ["-hide_banner", "-loglevel", "error", "-ss"].iter().map(|s| s.to_string()).collect();
+        args.push(seconds(from_ms));
+        args.push("-i".to_owned());
+        args.push(self.path.to_string_lossy().into_owned());
+        if (self.rate - 1.0).abs() > 0.001 {
+            args.push("-af".to_owned());
+            args.push(format!("atempo={:.3}", self.rate));
+        }
+        for part in ["-vn", "-f", "f32le", "-acodec", "pcm_f32le", "-ac"] {
+            args.push(part.to_owned());
+        }
+        args.push(channels.to_string());
+        args.push("-ar".to_owned());
+        args.push(rate.0.to_string());
+        args.push("-".to_owned());
         let mut child = Command::new(&self.ffmpeg)
-            .args(["-hide_banner", "-loglevel", "error", "-ss", &seconds(from_ms), "-i"])
-            .arg(&self.path)
-            .args(["-vn", "-f", "f32le", "-acodec", "pcm_f32le", "-ac", &channels.to_string(), "-ar", &rate.0.to_string(), "-"])
+            .args(&args)
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .stdin(Stdio::null())
@@ -254,7 +336,6 @@ impl Player {
             procs.push(child);
         }
         let (tx, rx) = sync_channel::<Vec<f32>>(16);
-        let level = self.level.clamp(0.0, 1.0);
         let stop = self.stop.clone();
         thread::spawn(move || {
             let mut bytes = vec![0u8; 4096 * 4];
@@ -274,10 +355,13 @@ impl Player {
         });
         let leftover: Arc<Mutex<(Vec<f32>, usize)>> = Arc::new(Mutex::new((Vec::new(), 0)));
         let rx = Mutex::new(rx);
+        let level = self.level.clone();
+        let muted = self.muted.clone();
         let stream = device
             .build_output_stream(
                 &config.into(),
                 move |data: &mut [f32], _| {
+                    let gain = if muted.load(Ordering::Relaxed) { 0.0 } else { f32::from_bits(level.load(Ordering::Relaxed)) };
                     let mut left = leftover.lock().unwrap();
                     let rx = rx.lock().unwrap();
                     for sample in data.iter_mut() {
@@ -293,7 +377,7 @@ impl Player {
                                 }
                             }
                         }
-                        *sample = left.0[left.1] * level;
+                        *sample = left.0[left.1] * gain;
                         left.1 += 1;
                     }
                 },
@@ -309,6 +393,39 @@ impl Player {
 impl Drop for Player {
     fn drop(&mut self) {
         self.stop_streams();
+    }
+}
+
+fn steady(rate: f32) -> f32 {
+    RATES
+        .iter()
+        .copied()
+        .min_by(|a, b| (a - rate).abs().total_cmp(&(b - rate).abs()))
+        .unwrap_or(1.0)
+}
+
+pub fn next_rate(rate: f32, by: i32) -> f32 {
+    let at = RATES.iter().position(|r| (r - steady(rate)).abs() < 0.001).unwrap_or(2) as i32;
+    RATES[(at + by).clamp(0, RATES.len() as i32 - 1) as usize]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_speed_settles_on_one_of_the_steps() {
+        assert_eq!(steady(1.1), 1.0);
+        assert_eq!(steady(1.9), 2.0);
+        assert_eq!(steady(0.1), 0.5);
+    }
+
+    #[test]
+    fn the_speed_walks_the_steps_and_stops_at_the_ends() {
+        assert_eq!(next_rate(1.0, 1), 1.25);
+        assert_eq!(next_rate(1.0, -1), 0.75);
+        assert_eq!(next_rate(2.0, 1), 2.0);
+        assert_eq!(next_rate(0.5, -1), 0.5);
     }
 }
 

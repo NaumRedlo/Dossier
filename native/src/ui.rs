@@ -1433,21 +1433,213 @@ impl<Message> canvas::Program<Message> for PlayMark {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Control {
+    Play,
+    Pause,
+    Again,
+    Back,
+    Ahead,
+    Earlier,
+    Later,
+    StepBack,
+    StepAhead,
+    Loud,
+    Soft,
+    Hushed,
+    Over,
+    Grow,
+    Shrink,
+    Close,
+}
+
+impl Control {
+    fn drawing(self) -> &'static [u8] {
+        match self {
+            Control::Play => include_bytes!("../assets/player/play.svg"),
+            Control::Pause => include_bytes!("../assets/player/pause.svg"),
+            Control::Again => include_bytes!("../assets/player/rotate-ccw.svg"),
+            Control::Back => include_bytes!("../assets/player/rewind.svg"),
+            Control::Ahead => include_bytes!("../assets/player/fast-forward.svg"),
+            Control::Earlier => include_bytes!("../assets/player/skip-back.svg"),
+            Control::Later => include_bytes!("../assets/player/skip-forward.svg"),
+            Control::StepBack => include_bytes!("../assets/player/step-back.svg"),
+            Control::StepAhead => include_bytes!("../assets/player/step-forward.svg"),
+            Control::Loud => include_bytes!("../assets/player/volume-2.svg"),
+            Control::Soft => include_bytes!("../assets/player/volume-1.svg"),
+            Control::Hushed => include_bytes!("../assets/player/volume-x.svg"),
+            Control::Over => include_bytes!("../assets/player/repeat.svg"),
+            Control::Grow => include_bytes!("../assets/player/maximize.svg"),
+            Control::Shrink => include_bytes!("../assets/player/minimize.svg"),
+            Control::Close => include_bytes!("../assets/player/x.svg"),
+        }
+    }
+}
+
+pub fn control<'a, Message: 'a>(kind: Control, side: f32, colour: Color) -> Element<'a, Message> {
+    iced::widget::svg(drawn(kind.drawing()))
+        .width(side)
+        .height(side)
+        .opacity(fade())
+        .style(move |_: &Theme, _| iced::widget::svg::Style { color: Some(colour) })
+        .into()
+}
+
+pub fn control_button<'a, Message: Clone + 'a>(kind: Control, side: f32, on: Option<Message>, lit: bool) -> Element<'a, Message> {
+    let room = side + 14.0;
+    let colour = match (&on, lit) {
+        (None, _) => Color { a: 0.35, ..FAINT },
+        (Some(_), true) => ACCENT,
+        (Some(_), false) => INK,
+    };
+    let made = button(
+        container(control(kind, side, colour))
+            .width(room)
+            .height(room)
+            .align_x(iced::alignment::Horizontal::Center)
+            .align_y(iced::alignment::Vertical::Center),
+    )
+        .padding(0)
+        .style(dimmed(theme::glyph, fade()));
+    match on {
+        Some(message) => made.on_press(message).into(),
+        None => made.into(),
+    }
+}
+
 pub struct Seek<'a, Message> {
     pub played: f32,
-    pub on: Box<dyn Fn(f32) -> Message + 'a>,
+    pub alpha: f32,
+    pub at: Box<dyn Fn(f32) -> String + 'a>,
+    pub on_move: Box<dyn Fn(f32) -> Message + 'a>,
+    pub on_drop: Box<dyn Fn(f32) -> Message + 'a>,
 }
 
 #[derive(Debug, Default)]
 pub struct SeekState {
     grabbed: bool,
+    over: Option<f32>,
 }
+
+const SEEK_BUBBLE: f32 = 20.0;
 
 impl<Message> canvas::Program<Message> for Seek<'_, Message> {
     type State = SeekState;
 
     fn update(&self, state: &mut SeekState, event: &iced::Event, bounds: Rectangle, cursor: mouse::Cursor) -> Option<canvas::Action<Message>> {
         let fraction_at = |x: f32| ((x - bounds.x) / bounds.width.max(1.0)).clamp(0.0, 1.0);
+        match event {
+            iced::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
+                let at = cursor.position_in(bounds)?;
+                if at.y < SEEK_BUBBLE {
+                    return None;
+                }
+                state.grabbed = true;
+                state.over = Some(fraction_at(bounds.x + at.x));
+                Some(canvas::Action::publish((self.on_move)(fraction_at(bounds.x + at.x))).and_capture())
+            }
+            iced::Event::Mouse(mouse::Event::CursorMoved { position }) => {
+                if state.grabbed {
+                    state.over = Some(fraction_at(position.x));
+                    return Some(canvas::Action::publish((self.on_move)(fraction_at(position.x))).and_capture());
+                }
+                let was = state.over;
+                state.over = cursor.position_in(bounds).map(|at| fraction_at(bounds.x + at.x));
+                if was.is_some() || state.over.is_some() {
+                    Some(canvas::Action::request_redraw())
+                } else {
+                    None
+                }
+            }
+            iced::Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) if state.grabbed => {
+                state.grabbed = false;
+                let at = state.over.unwrap_or(self.played);
+                Some(canvas::Action::publish((self.on_drop)(at)).and_capture())
+            }
+            _ => None,
+        }
+    }
+
+    fn draw(&self, state: &SeekState, renderer: &Renderer, _: &Theme, bounds: Rectangle, cursor: mouse::Cursor) -> Vec<Geometry> {
+        let mut frame = Frame::new(renderer, bounds.size());
+        let y = SEEK_BUBBLE + (bounds.height - SEEK_BUBBLE) / 2.0;
+        let lit = state.grabbed || cursor.is_over(bounds);
+        let thick = if lit { 5.0 } else { 3.0 };
+        let track = Path::line(Point::new(0.0, y), Point::new(bounds.width, y));
+        frame.stroke(
+            &track,
+            Stroke::default().with_width(thick).with_color(dim(Color::from_rgba(1.0, 1.0, 1.0, 0.16), self.alpha)).with_line_cap(canvas::LineCap::Round),
+        );
+        let x = bounds.width * self.played.clamp(0.0, 1.0);
+        if let Some(over) = state.over.filter(|_| lit) {
+            let ahead = bounds.width * over;
+            if ahead > x {
+                frame.stroke(
+                    &Path::line(Point::new(x, y), Point::new(ahead, y)),
+                    Stroke::default().with_width(thick).with_color(dim(Color { a: 0.3, ..INK }, self.alpha)).with_line_cap(canvas::LineCap::Round),
+                );
+            }
+        }
+        if x > 0.5 {
+            let done = Path::line(Point::new(0.0, y), Point::new(x, y));
+            frame.stroke(&done, Stroke::default().with_width(thick).with_color(dim(ACCENT, self.alpha)).with_line_cap(canvas::LineCap::Round));
+        }
+        let radius = if state.grabbed {
+            7.0
+        } else if lit {
+            6.0
+        } else {
+            4.5
+        };
+        frame.fill(&Path::circle(Point::new(x, y), radius), dim(INK, self.alpha));
+        if let Some(over) = state.over.filter(|_| lit) {
+            let words = (self.at)(over);
+            let wide = words.chars().count() as f32 * 6.7 + 14.0;
+            let mid = (bounds.width * over).clamp(wide / 2.0, bounds.width - wide / 2.0);
+            let box_at = Rectangle { x: mid - wide / 2.0, y: 0.0, width: wide, height: SEEK_BUBBLE - 6.0 };
+            frame.fill(
+                &Path::rounded_rectangle(Point::new(box_at.x, box_at.y), box_at.size(), 6.0.into()),
+                dim(Color::from_rgba(0.047, 0.02, 0.027, 0.96), self.alpha),
+            );
+            frame.fill_text(canvas::Text {
+                content: words,
+                position: Point::new(mid, box_at.y + box_at.height / 2.0),
+                color: dim(INK, self.alpha),
+                size: 11.0.into(),
+                font: theme::MONO,
+                align_x: iced::alignment::Horizontal::Center.into(),
+                align_y: iced::alignment::Vertical::Center,
+                ..canvas::Text::default()
+            });
+        }
+        vec![frame.into_geometry()]
+    }
+
+    fn mouse_interaction(&self, state: &SeekState, bounds: Rectangle, cursor: mouse::Cursor) -> mouse::Interaction {
+        if state.grabbed || cursor.is_over(bounds) {
+            mouse::Interaction::Pointer
+        } else {
+            mouse::Interaction::default()
+        }
+    }
+}
+
+pub struct Level<'a, Message> {
+    pub at: f32,
+    pub alpha: f32,
+    pub on: Box<dyn Fn(f32) -> Message + 'a>,
+}
+
+#[derive(Debug, Default)]
+pub struct LevelState {
+    grabbed: bool,
+}
+
+impl<Message> canvas::Program<Message> for Level<'_, Message> {
+    type State = LevelState;
+
+    fn update(&self, state: &mut LevelState, event: &iced::Event, bounds: Rectangle, cursor: mouse::Cursor) -> Option<canvas::Action<Message>> {
+        let fraction_at = |x: f32| ((x - bounds.x - 3.0) / (bounds.width - 6.0).max(1.0)).clamp(0.0, 1.0);
         match event {
             iced::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
                 let at = cursor.position_in(bounds)?;
@@ -1465,29 +1657,75 @@ impl<Message> canvas::Program<Message> for Seek<'_, Message> {
         }
     }
 
-    fn draw(&self, state: &SeekState, renderer: &Renderer, _: &Theme, bounds: Rectangle, cursor: mouse::Cursor) -> Vec<Geometry> {
+    fn draw(&self, state: &LevelState, renderer: &Renderer, _: &Theme, bounds: Rectangle, cursor: mouse::Cursor) -> Vec<Geometry> {
         let mut frame = Frame::new(renderer, bounds.size());
         let y = bounds.height / 2.0;
         let lit = state.grabbed || cursor.is_over(bounds);
-        let track = Path::line(Point::new(0.0, y), Point::new(bounds.width, y));
-        frame.stroke(&track, Stroke::default().with_width(3.0).with_color(faded(Color::from_rgba(1.0, 1.0, 1.0, 0.14))).with_line_cap(canvas::LineCap::Round));
-        let x = bounds.width * self.played.clamp(0.0, 1.0);
-        if x > 0.5 {
-            let done = Path::line(Point::new(0.0, y), Point::new(x, y));
-            frame.stroke(&done, Stroke::default().with_width(3.0).with_color(faded(INK)).with_line_cap(canvas::LineCap::Round));
+        let x0 = 3.0;
+        let x1 = bounds.width - 3.0;
+        frame.stroke(
+            &Path::line(Point::new(x0, y), Point::new(x1, y)),
+            Stroke::default().with_width(3.0).with_color(dim(Color::from_rgba(1.0, 1.0, 1.0, 0.16), self.alpha)).with_line_cap(canvas::LineCap::Round),
+        );
+        let x = x0 + (x1 - x0) * self.at.clamp(0.0, 1.0);
+        if x > x0 + 0.5 {
+            frame.stroke(
+                &Path::line(Point::new(x0, y), Point::new(x, y)),
+                Stroke::default().with_width(3.0).with_color(dim(if lit { INK } else { MUTED }, self.alpha)).with_line_cap(canvas::LineCap::Round),
+            );
         }
-        let radius = if lit { 6.0 } else { 5.0 };
-        frame.fill(&Path::circle(Point::new(x, y), radius), faded(INK));
+        frame.fill(&Path::circle(Point::new(x, y), if lit { 5.0 } else { 4.0 }), dim(INK, self.alpha));
         vec![frame.into_geometry()]
     }
 
-    fn mouse_interaction(&self, state: &SeekState, bounds: Rectangle, cursor: mouse::Cursor) -> mouse::Interaction {
+    fn mouse_interaction(&self, state: &LevelState, bounds: Rectangle, cursor: mouse::Cursor) -> mouse::Interaction {
         if state.grabbed || cursor.is_over(bounds) {
             mouse::Interaction::Pointer
         } else {
             mouse::Interaction::default()
         }
     }
+}
+
+pub struct Halo {
+    pub alpha: f32,
+}
+
+impl<Message> canvas::Program<Message> for Halo {
+    type State = ();
+
+    fn draw(&self, _: &(), renderer: &Renderer, _: &Theme, bounds: Rectangle, _: mouse::Cursor) -> Vec<Geometry> {
+        let mut frame = Frame::new(renderer, bounds.size());
+        let side = bounds.width.min(bounds.height);
+        let centre = Point::new(bounds.width / 2.0, bounds.height / 2.0);
+        frame.fill(&Path::circle(centre, side / 2.0), dim(Color::from_rgba(0.04, 0.02, 0.03, 0.55), self.alpha));
+        frame.stroke(
+            &Path::circle(centre, side / 2.0 - 0.75),
+            Stroke::default().with_width(1.5).with_color(dim(Color::from_rgba(1.0, 1.0, 1.0, 0.18), self.alpha)),
+        );
+        vec![frame.into_geometry()]
+    }
+}
+
+pub fn halo<'a, Message: 'a>(kind: Control, side: f32, k: f32) -> Element<'a, Message> {
+    let alpha = fade() * k;
+    iced::widget::stack![
+        Canvas::new(Halo { alpha }).width(side).height(side),
+        container(
+            iced::widget::svg(drawn(kind.drawing()))
+                .width(side * 0.42)
+                .height(side * 0.42)
+                .opacity(alpha)
+                .style(move |_: &Theme, _| iced::widget::svg::Style { color: Some(Color { a: 0.95, ..INK }) })
+        )
+        .width(side)
+        .height(side)
+        .align_x(iced::alignment::Horizontal::Center)
+        .align_y(iced::alignment::Vertical::Center)
+    ]
+    .width(side)
+    .height(side)
+    .into()
 }
 
 pub struct Disc {
@@ -2406,7 +2644,10 @@ pub fn badge<'a, Message: 'a>(kind: Machine, side: f32) -> Element<'a, Message> 
         .opacity(k)
         .style(move |_: &Theme, _| iced::widget::svg::Style { color: Some(Color { a: 0.92, ..INK }) });
     let ground = Canvas::new(Round { alpha: k }).width(side).height(side);
-    iced::widget::stack![ground, container(mark).width(side).height(side).center(Length::Fill)]
+    iced::widget::stack![
+        ground,
+        container(mark).width(side).height(side).align_x(iced::alignment::Horizontal::Center).align_y(iced::alignment::Vertical::Center)
+    ]
         .width(side)
         .height(side)
         .into()
@@ -2454,7 +2695,11 @@ pub fn flag<'a, Message: 'a>(which: Lang, on: bool, k: f32, side: f32) -> Elemen
     let alpha = fade();
     let picture = iced::widget::svg(drawn(which.drawing())).width(side - 1.5).height(side - 1.5).opacity(alpha);
     iced::widget::stack![
-        container(picture).width(side).height(side).center(Length::Fill),
+        container(picture)
+            .width(side)
+            .height(side)
+            .align_x(iced::alignment::Horizontal::Center)
+            .align_y(iced::alignment::Vertical::Center),
         Canvas::new(Rim { on, k, alpha }).width(side).height(side)
     ]
     .width(side)

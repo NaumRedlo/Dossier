@@ -452,6 +452,21 @@ pub fn small(_: &Theme, status: button::Status) -> button::Style {
     }
 }
 
+pub fn glyph(_: &Theme, status: button::Status) -> button::Style {
+    let background = match status {
+        button::Status::Hovered => Color::from_rgba(1.0, 1.0, 1.0, 0.1),
+        button::Status::Pressed => Color::from_rgba(1.0, 1.0, 1.0, 0.16),
+        _ => Color::TRANSPARENT,
+    };
+    button::Style {
+        background: Some(Background::Color(background)),
+        text_color: INK,
+        border: border(Color::TRANSPARENT, 999.0),
+        shadow: Shadow::default(),
+        snap: true,
+    }
+}
+
 pub fn danger_words(_: &Theme, status: button::Status) -> button::Style {
     let colour = match status {
         button::Status::Hovered | button::Status::Pressed => Color::from_rgb(1.0, 0.45, 0.45),
@@ -603,6 +618,16 @@ pub fn badge_of(colour: Color) -> impl Fn(&Theme) -> container::Style {
         text_color: None,
         background: Some(Background::Color(colour)),
         border: border(Color::from_rgba(0.047, 0.02, 0.027, 1.0), 8.0),
+        shadow: Shadow::default(),
+        snap: true,
+    }
+}
+
+pub fn screen(_: &Theme) -> container::Style {
+    container::Style {
+        text_color: None,
+        background: Some(Background::Color(color!(0x050203))),
+        border: border(Color::from_rgba(1.0, 1.0, 1.0, 0.07), 10.0),
         shadow: Shadow::default(),
         snap: true,
     }

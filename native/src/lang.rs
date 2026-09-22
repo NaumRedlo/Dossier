@@ -224,6 +224,14 @@ impl Words {
         self.say("of-max", Some(&args))
     }
 
+    pub fn rate(&self, rate: f32) -> String {
+        let text = if (rate - rate.round()).abs() < 0.01 { format!("{}", rate.round() as i32) } else { format!("{rate:.2}").trim_end_matches('0').to_owned() };
+        match self.lang {
+            Lang::En => text,
+            Lang::Ru => text.replace('.', ","),
+        }
+    }
+
     pub fn length(&self, ms: i64) -> String {
         let seconds = (ms.max(0) / 1000) as u64;
         format!("{}:{:02}", seconds / 60, seconds % 60)

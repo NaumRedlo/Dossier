@@ -486,6 +486,10 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
         231_000,
         67_000,
     ))));
+    playing.cinema = iced::Animation::new(true);
+    playing.settings.player_level = 0.8;
+    let mut playing_wide = playing.clone();
+    playing_wide.widened = iced::Animation::new(true);
     let mut menu_guest = staged(Some(0));
     menu_guest.menu_open = iced::Animation::new(true);
     menu_guest.menu = Some(crate::main_screen::Tab::Account);
@@ -574,6 +578,7 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
         ("main-failure".to_owned(), failing),
         ("main-videos".to_owned(), with_videos),
         ("main-player".to_owned(), playing),
+        ("main-player-wide".to_owned(), playing_wide),
         ("main-nomap".to_owned(), staged(Some(3))),
         ("main-worker".to_owned(), worker),
         ("main-rendering".to_owned(), rendering),

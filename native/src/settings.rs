@@ -47,6 +47,12 @@ pub struct Settings {
     pub hitsound_level: f32,
     #[serde(default = "full")]
     pub player_level: f32,
+    #[serde(default)]
+    pub player_muted: bool,
+    #[serde(default = "full")]
+    pub player_rate: f32,
+    #[serde(default)]
+    pub player_loop: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -164,6 +170,9 @@ impl Default for Settings {
             music_level: 1.0,
             hitsound_level: 1.0,
             player_level: 1.0,
+            player_muted: false,
+            player_rate: 1.0,
+            player_loop: false,
         }
     }
 }

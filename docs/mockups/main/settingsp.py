@@ -190,7 +190,7 @@ CC_CSS = '''<style>
   .cc { border-radius: 16px; background: rgba(255,255,255,0.055); border: 1px solid rgba(255,255,255,0.06); padding: 12px; box-sizing: border-box; color: #ece7e2; font-size: 12px; display: flex; flex-direction: column; gap: 6px; overflow: hidden; }
   .cc.w2 { grid-column: span 2; }
   .cc.h2 { grid-row: span 2; }
-  .cc .t { font-size: 11px; color: #a9a29b; font-weight: 600; }
+  .cc .t { font-size: 11px; color: #a9a29b; font-weight: 600; text-align: center; }
   .it { display: flex; align-items: center; gap: 10px; min-height: 30px; }
   .it .ic { width: 28px; height: 28px; border-radius: 50%; background: rgba(255,255,255,0.1); display: flex; align-items: center; justify-content: center; color: #ece7e2; font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: 11px; font-weight: 700; flex: none; }
   .it.on .ic { background: #e24848; color: #fff; }
@@ -209,9 +209,11 @@ CC_CSS = '''<style>
   .sl .bar em { position: absolute; right: 10px; top: 0; line-height: 26px; font-size: 11px; font-style: normal; color: #a9a29b; font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; }
   .num { font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: 22px; font-weight: 700; margin-top: auto; }
   .num small { display: block; font-family: Commissioner, sans-serif; font-weight: 400; font-size: 11px; color: #a9a29b; }
-  .acts { display: flex; gap: 10px; margin-top: auto; }
-  .acts span { color: #a9a29b; font-weight: 600; font-size: 12px; }
-  .acts span.hot { color: #e24848; }
+  .acts { display: flex; gap: 6px; margin-top: auto; }
+  .acts span { display: inline-flex; align-items: center; height: 26px; padding: 0 10px; border-radius: 8px; background: rgba(255,255,255,0.08); color: #ece7e2; font-weight: 600; font-size: 12px; }
+  .acts span.hot { background: rgba(226,72,72,0.16); color: #e24848; }
+  .sl .bar .tk { position: absolute; top: 8px; bottom: 8px; width: 2px; border-radius: 1px; background: rgba(255,255,255,0.18); }
+  .sl .bar .tk.hit { background: #ece7e2; box-shadow: 0 0 0 3px rgba(255,255,255,0.12); }
   .avatar { width: 40px; height: 40px; border-radius: 50%; background: #e24848; flex: none; }
 </style>'''
 
@@ -227,25 +229,26 @@ def it(ic, b, s, on=False):
 def pill(label, on):
     return f'<div class="pill {"on" if on else ""}"><span class="ic"></span>{label}</div>'
 
-def slider(label, value, pct):
-    return f'<div class="sl"><div class="bar"><i style="width:{pct}%;"></i><b>{label}</b><em>{value}</em></div></div>'
+def slider(label, value, pct, stops=(0, 50, 100)):
+    ticks = "".join(f'<span class="tk {"hit" if abs(s - pct) < 2 else ""}" style="left:calc({s}% - 1px);"></span>' for s in stops)
+    return f'<div class="sl"><div class="bar"><i style="width:{pct}%;"></i>{ticks}<b>{label}</b><em>{value}</em></div></div>'
 
 CC_APP = f'''<div class="ccgrid">
-  <div class="cc h2"><span class="t">Общее</span>{it("RU", "Русский", "язык", True)}{it("EN", "English", "language")}{it("·", "drejk starsij", "устройство")}{it("▶", "Живой реплей", "в сцене", True)}</div>
-  <div class="cc w2 h2"><span class="t">Рендер</span><div class="two">{pill("Фон карты", True)}{pill("Сториборд", False)}{pill("Видео карты", False)}{pill("Нажатия · click", True)}</div>{slider("Размер", "1080p", 66)}{slider("Кадры", "60", 100)}{slider("Качество", "Лучше · CRF 20", 66)}</div>
-  <div class="cc"><span class="t">Видео</span><span class="num">8<small>568 МБ · ~/.dossier/Renders</small></span><div class="acts"><span>В папке</span><span>Изменить</span></div></div>
-  <div class="cc"><span class="t">Карты и кэш</span><span class="num">31<small>1,1 ГБ · кэш 140 МБ</small></span><div class="acts"><span>В папке</span><span class="hot">Очистить кэш</span></div></div>
-  <div class="cc w2"><span class="t">Источники</span><div class="two">{it("osu", "osu!stable", "187 реплеев · 1 240 карт", True)}{it("lz", "osu!lazer", "42 реплея", True)}{it("dir", "Dossier Corpus", "96 реплеев")}{it("+", "Добавить папку…", "")}</div></div>
-  <div class="cc"><span class="t">ffmpeg</span><span class="num">7.1<small>своя сборка</small></span><div class="acts"><span>Обновить</span></div></div>
-  <div class="cc"><span class="t">Dossier</span><span class="num">0.12.0<small>движок 0.11.0</small></span><div class="acts"><span>Проверить</span><span>Исходники</span></div></div>
+  <div class="cc"><span class="t">Язык</span>{it("RU", "Русский", "", True)}{it("EN", "English", "")}</div>
+  <div class="cc w2 h2"><span class="t">Рендер</span><div class="two">{pill("Фон карты", True)}{pill("Сториборд", False)}{pill("Видео карты", False)}{pill("Нажатия · click", True)}</div>{slider("Размер", "1080p", 50, (0, 50, 100))}{slider("Кадры", "60", 100, (0, 100))}{slider("Качество", "CRF 20", 50, (0, 50, 100))}</div>
+  <div class="cc"><span class="t">Видео</span><span class="num">8<small>568 МБ</small></span><div class="acts"><span>В папке</span><span>Изменить</span></div></div>
+  <div class="cc"><span class="t">Устройство</span><span class="fld" style="min-width:0; margin-top:auto;">drejk starsij</span></div>
+  <div class="cc"><span class="t">Карты и кэш</span><span class="num">31<small>1,1 ГБ · кэш 140 МБ</small></span><div class="acts"><span>В папке</span><span class="hot">Очистить</span></div></div>
+  <div class="cc"><span class="t">Сцена</span>{pill("Живой реплей", True)}</div>
+  <div class="cc w2"><span class="t">Источники</span><div class="two">{it("stb", "osu!stable", "187 реплеев · 1 240 карт", True)}{it("lz", "osu!lazer", "42 реплея", True)}{it("dsr", "Dossier Corpus", "96 реплеев")}{it("+", "Добавить папку…", "")}</div></div>
+  <div class="cc"><span class="t">Сборки</span><span class="num">0.12.0<small>движок 0.11.0 · ffmpeg 7.1</small></span><div class="acts"><span>Проверить</span><span>ffmpeg</span></div></div>
 </div>'''
 
 CC_BOT = f'''<div class="ccgrid">
   <div class="cc w2"><span class="t">Аккаунт</span><div class="it on"><span class="avatar"></span><span class="lab"><b style="font-size:14px;">Stepan Kapitsa</b><span>@NaumRedlo · ID 1060298719</span></span></div><div class="acts"><span>Выйти</span></div></div>
-  <div class="cc"><span class="t">Видео уходят в</span>{it("@", "@NaumRedlo", "личный чат", True)}<div class="acts"><span>Выбрать чат</span></div></div>
-  <div class="cc"><span class="t">Сервер</span>{it("●", "отвечает", "сборка 0.12.0", True)}<span class="lab" style="font-family:'JetBrains Mono', ui-monospace, Menlo, monospace; font-size:11px; color:#a9a29b;">onenineeightfour.ignorelist.com</span></div>
+  <div class="cc w2 h2"><span class="t">Видео уходят в</span>{it("@", "Личный чат", "@NaumRedlo", True)}{it("#", "osu! RU · lounge", "группа · бот внутри")}{it("#", "1984 crew", "группа · бот внутри")}{it("#", "Nattu & friends", "группа · бот внутри")}</div>
   <div class="cc w2"><span class="t">В чат</span><div class="two">{pill("Готовые рендеры", True)}{pill("Ошибки", False)}</div></div>
-  <div class="cc"><span class="t">Воркер</span>{pill("Брать работу", False)}<span class="lab" style="color:#6b655f; font-size:11px;">будет доступно позже</span></div>
+  <div class="cc"><span class="t">Воркер</span>{pill("Брать работу", False)}<span class="lab" style="color:#6b655f; font-size:11px; text-align:center;">будет доступно позже</span></div>
   <div class="cc"><span class="t">Это устройство</span>{it("·", "drejk starsij", "привязано 12 сен")}</div>
 </div>'''
 
@@ -284,8 +287,8 @@ def boards():
     return out
 
 NOTES = {
-    "CcApp": ("Пункт управления · Приложение", "Переключатель Приложение · Бот по центру, два слова с подчёркиванием, без общей панели. Плитки как в Пункте управления: кружок-значок и подпись у каждого пункта, включённое — акцентный кружок; выключатели рендера — пилюли 2×2; размер, кадры и качество — ползунки-полосы; цифры крупно с подписью."),
-    "CcBot": ("Пункт управления · Бот", "Аккаунт с аватаром на широкой плитке, чат, сервер с зелёной точкой, «В чат» пилюлями, воркер и имя устройства."),
+    "CcApp": ("Пункт управления · Приложение", "Заголовки плиток по центру; Общее разбито на Язык, Устройство и Сцену; качество — только CRF; кнопки — настоящие кнопки; источники помечены stb · lz · dsr. У ползунков внутри полосы деления-стопы; ручка мягко прилипает к ближайшему, попавший стоп светится."),
+    "CcBot": ("Пункт управления · Бот", "Без сервера. «Видео уходят в» — список чатов, где есть и бот, и человек (бот отдаёт его); клик переносит место отправки; личный чат первым."),
     "BentoStatic": ("Бенто · статичное", "Без подсказок и длинных строк: плитка — заголовок, значение или переключатели, одна-две кнопки. Три колонки, рендер высокий, источники широкие; ни одна плитка не раскрывается."),
     "BentoApp": ("Приложение · Бот — вкладка «Приложение»", "Сегменты над сеткой делят настройки на две: своё (язык, устройство, сцена, источники, рендер, хранилище, ffmpeg, сборка) и ботовское."),
     "BentoBot": ("Приложение · Бот — вкладка «Бот»", "Всё, что касается бота: аккаунт (и Выйти), куда уходят видео, сервер и его сборка, воркер (позже), что слать в чат, как бот зовёт это устройство."),

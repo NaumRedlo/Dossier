@@ -123,7 +123,7 @@
   .cc { border-radius: 16px; background: rgba(255,255,255,0.055); border: 1px solid rgba(255,255,255,0.06); padding: 12px; box-sizing: border-box; color: #ece7e2; font-size: 12px; display: flex; flex-direction: column; gap: 6px; overflow: hidden; }
   .cc.w2 { grid-column: span 2; }
   .cc.h2 { grid-row: span 2; }
-  .cc .t { font-size: 11px; color: #a9a29b; font-weight: 600; }
+  .cc .t { font-size: 11px; color: #a9a29b; font-weight: 600; text-align: center; }
   .it { display: flex; align-items: center; gap: 10px; min-height: 30px; }
   .it .ic { width: 28px; height: 28px; border-radius: 50%; background: rgba(255,255,255,0.1); display: flex; align-items: center; justify-content: center; color: #ece7e2; font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: 11px; font-weight: 700; flex: none; }
   .it.on .ic { background: #e24848; color: #fff; }
@@ -142,18 +142,21 @@
   .sl .bar em { position: absolute; right: 10px; top: 0; line-height: 26px; font-size: 11px; font-style: normal; color: #a9a29b; font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; }
   .num { font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: 22px; font-weight: 700; margin-top: auto; }
   .num small { display: block; font-family: Commissioner, sans-serif; font-weight: 400; font-size: 11px; color: #a9a29b; }
-  .acts { display: flex; gap: 10px; margin-top: auto; }
-  .acts span { color: #a9a29b; font-weight: 600; font-size: 12px; }
-  .acts span.hot { color: #e24848; }
+  .acts { display: flex; gap: 6px; margin-top: auto; }
+  .acts span { display: inline-flex; align-items: center; height: 26px; padding: 0 10px; border-radius: 8px; background: rgba(255,255,255,0.08); color: #ece7e2; font-weight: 600; font-size: 12px; }
+  .acts span.hot { background: rgba(226,72,72,0.16); color: #e24848; }
+  .sl .bar .tk { position: absolute; top: 8px; bottom: 8px; width: 2px; border-radius: 1px; background: rgba(255,255,255,0.18); }
+  .sl .bar .tk.hit { background: #ece7e2; box-shadow: 0 0 0 3px rgba(255,255,255,0.12); }
   .avatar { width: 40px; height: 40px; border-radius: 50%; background: #e24848; flex: none; }
 </style><div style="position:absolute; inset:0; background:#0d0508;"></div><div class="top"><div class="crest"><i></i><s></s>Dossier</div><div class="words"><span>Реплеи</span><span>Видео</span><span>Сообщество</span><span>Воркер</span><b>Настройки</b><span class="ava"></span></div></div><div class="switch"><span class="on">Приложение</span><span class="">Бот</span></div><div class="ccgrid">
-  <div class="cc h2"><span class="t">Общее</span><div class="it on"><span class="ic">RU</span><span class="lab"><b>Русский</b><span>язык</span></span></div><div class="it "><span class="ic">EN</span><span class="lab"><b>English</b><span>language</span></span></div><div class="it "><span class="ic">·</span><span class="lab"><b>drejk starsij</b><span>устройство</span></span></div><div class="it on"><span class="ic">▶</span><span class="lab"><b>Живой реплей</b><span>в сцене</span></span></div></div>
-  <div class="cc w2 h2"><span class="t">Рендер</span><div class="two"><div class="pill on"><span class="ic"></span>Фон карты</div><div class="pill "><span class="ic"></span>Сториборд</div><div class="pill "><span class="ic"></span>Видео карты</div><div class="pill on"><span class="ic"></span>Нажатия · click</div></div><div class="sl"><div class="bar"><i style="width:66%;"></i><b>Размер</b><em>1080p</em></div></div><div class="sl"><div class="bar"><i style="width:100%;"></i><b>Кадры</b><em>60</em></div></div><div class="sl"><div class="bar"><i style="width:66%;"></i><b>Качество</b><em>Лучше · CRF 20</em></div></div></div>
-  <div class="cc"><span class="t">Видео</span><span class="num">8<small>568 МБ · ~/.dossier/Renders</small></span><div class="acts"><span>В папке</span><span>Изменить</span></div></div>
-  <div class="cc"><span class="t">Карты и кэш</span><span class="num">31<small>1,1 ГБ · кэш 140 МБ</small></span><div class="acts"><span>В папке</span><span class="hot">Очистить кэш</span></div></div>
-  <div class="cc w2"><span class="t">Источники</span><div class="two"><div class="it on"><span class="ic">osu</span><span class="lab"><b>osu!stable</b><span>187 реплеев · 1 240 карт</span></span></div><div class="it on"><span class="ic">lz</span><span class="lab"><b>osu!lazer</b><span>42 реплея</span></span></div><div class="it "><span class="ic">dir</span><span class="lab"><b>Dossier Corpus</b><span>96 реплеев</span></span></div><div class="it "><span class="ic">+</span><span class="lab"><b>Добавить папку…</b><span></span></span></div></div></div>
-  <div class="cc"><span class="t">ffmpeg</span><span class="num">7.1<small>своя сборка</small></span><div class="acts"><span>Обновить</span></div></div>
-  <div class="cc"><span class="t">Dossier</span><span class="num">0.12.0<small>движок 0.11.0</small></span><div class="acts"><span>Проверить</span><span>Исходники</span></div></div>
+  <div class="cc"><span class="t">Язык</span><div class="it on"><span class="ic">RU</span><span class="lab"><b>Русский</b><span></span></span></div><div class="it "><span class="ic">EN</span><span class="lab"><b>English</b><span></span></span></div></div>
+  <div class="cc w2 h2"><span class="t">Рендер</span><div class="two"><div class="pill on"><span class="ic"></span>Фон карты</div><div class="pill "><span class="ic"></span>Сториборд</div><div class="pill "><span class="ic"></span>Видео карты</div><div class="pill on"><span class="ic"></span>Нажатия · click</div></div><div class="sl"><div class="bar"><i style="width:50%;"></i><span class="tk " style="left:calc(0% - 1px);"></span><span class="tk hit" style="left:calc(50% - 1px);"></span><span class="tk " style="left:calc(100% - 1px);"></span><b>Размер</b><em>1080p</em></div></div><div class="sl"><div class="bar"><i style="width:100%;"></i><span class="tk " style="left:calc(0% - 1px);"></span><span class="tk hit" style="left:calc(100% - 1px);"></span><b>Кадры</b><em>60</em></div></div><div class="sl"><div class="bar"><i style="width:50%;"></i><span class="tk " style="left:calc(0% - 1px);"></span><span class="tk hit" style="left:calc(50% - 1px);"></span><span class="tk " style="left:calc(100% - 1px);"></span><b>Качество</b><em>CRF 20</em></div></div></div>
+  <div class="cc"><span class="t">Видео</span><span class="num">8<small>568 МБ</small></span><div class="acts"><span>В папке</span><span>Изменить</span></div></div>
+  <div class="cc"><span class="t">Устройство</span><span class="fld" style="min-width:0; margin-top:auto;">drejk starsij</span></div>
+  <div class="cc"><span class="t">Карты и кэш</span><span class="num">31<small>1,1 ГБ · кэш 140 МБ</small></span><div class="acts"><span>В папке</span><span class="hot">Очистить</span></div></div>
+  <div class="cc"><span class="t">Сцена</span><div class="pill on"><span class="ic"></span>Живой реплей</div></div>
+  <div class="cc w2"><span class="t">Источники</span><div class="two"><div class="it on"><span class="ic">stb</span><span class="lab"><b>osu!stable</b><span>187 реплеев · 1 240 карт</span></span></div><div class="it on"><span class="ic">lz</span><span class="lab"><b>osu!lazer</b><span>42 реплея</span></span></div><div class="it "><span class="ic">dsr</span><span class="lab"><b>Dossier Corpus</b><span>96 реплеев</span></span></div><div class="it "><span class="ic">+</span><span class="lab"><b>Добавить папку…</b><span></span></span></div></div></div>
+  <div class="cc"><span class="t">Сборки</span><span class="num">0.12.0<small>движок 0.11.0 · ffmpeg 7.1</small></span><div class="acts"><span>Проверить</span><span>ffmpeg</span></div></div>
 </div>
 </div>
 </x-dc>

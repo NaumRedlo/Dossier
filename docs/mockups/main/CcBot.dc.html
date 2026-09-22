@@ -123,7 +123,7 @@
   .cc { border-radius: 16px; background: rgba(255,255,255,0.055); border: 1px solid rgba(255,255,255,0.06); padding: 12px; box-sizing: border-box; color: #ece7e2; font-size: 12px; display: flex; flex-direction: column; gap: 6px; overflow: hidden; }
   .cc.w2 { grid-column: span 2; }
   .cc.h2 { grid-row: span 2; }
-  .cc .t { font-size: 11px; color: #a9a29b; font-weight: 600; }
+  .cc .t { font-size: 11px; color: #a9a29b; font-weight: 600; text-align: center; }
   .it { display: flex; align-items: center; gap: 10px; min-height: 30px; }
   .it .ic { width: 28px; height: 28px; border-radius: 50%; background: rgba(255,255,255,0.1); display: flex; align-items: center; justify-content: center; color: #ece7e2; font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: 11px; font-weight: 700; flex: none; }
   .it.on .ic { background: #e24848; color: #fff; }
@@ -142,16 +142,17 @@
   .sl .bar em { position: absolute; right: 10px; top: 0; line-height: 26px; font-size: 11px; font-style: normal; color: #a9a29b; font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; }
   .num { font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: 22px; font-weight: 700; margin-top: auto; }
   .num small { display: block; font-family: Commissioner, sans-serif; font-weight: 400; font-size: 11px; color: #a9a29b; }
-  .acts { display: flex; gap: 10px; margin-top: auto; }
-  .acts span { color: #a9a29b; font-weight: 600; font-size: 12px; }
-  .acts span.hot { color: #e24848; }
+  .acts { display: flex; gap: 6px; margin-top: auto; }
+  .acts span { display: inline-flex; align-items: center; height: 26px; padding: 0 10px; border-radius: 8px; background: rgba(255,255,255,0.08); color: #ece7e2; font-weight: 600; font-size: 12px; }
+  .acts span.hot { background: rgba(226,72,72,0.16); color: #e24848; }
+  .sl .bar .tk { position: absolute; top: 8px; bottom: 8px; width: 2px; border-radius: 1px; background: rgba(255,255,255,0.18); }
+  .sl .bar .tk.hit { background: #ece7e2; box-shadow: 0 0 0 3px rgba(255,255,255,0.12); }
   .avatar { width: 40px; height: 40px; border-radius: 50%; background: #e24848; flex: none; }
 </style><div style="position:absolute; inset:0; background:#0d0508;"></div><div class="top"><div class="crest"><i></i><s></s>Dossier</div><div class="words"><span>Реплеи</span><span>Видео</span><span>Сообщество</span><span>Воркер</span><b>Настройки</b><span class="ava"></span></div></div><div class="switch"><span class="">Приложение</span><span class="on">Бот</span></div><div class="ccgrid">
   <div class="cc w2"><span class="t">Аккаунт</span><div class="it on"><span class="avatar"></span><span class="lab"><b style="font-size:14px;">Stepan Kapitsa</b><span>@NaumRedlo · ID 1060298719</span></span></div><div class="acts"><span>Выйти</span></div></div>
-  <div class="cc"><span class="t">Видео уходят в</span><div class="it on"><span class="ic">@</span><span class="lab"><b>@NaumRedlo</b><span>личный чат</span></span></div><div class="acts"><span>Выбрать чат</span></div></div>
-  <div class="cc"><span class="t">Сервер</span><div class="it on"><span class="ic">●</span><span class="lab"><b>отвечает</b><span>сборка 0.12.0</span></span></div><span class="lab" style="font-family:'JetBrains Mono', ui-monospace, Menlo, monospace; font-size:11px; color:#a9a29b;">onenineeightfour.ignorelist.com</span></div>
+  <div class="cc w2 h2"><span class="t">Видео уходят в</span><div class="it on"><span class="ic">@</span><span class="lab"><b>Личный чат</b><span>@NaumRedlo</span></span></div><div class="it "><span class="ic">#</span><span class="lab"><b>osu! RU · lounge</b><span>группа · бот внутри</span></span></div><div class="it "><span class="ic">#</span><span class="lab"><b>1984 crew</b><span>группа · бот внутри</span></span></div><div class="it "><span class="ic">#</span><span class="lab"><b>Nattu & friends</b><span>группа · бот внутри</span></span></div></div>
   <div class="cc w2"><span class="t">В чат</span><div class="two"><div class="pill on"><span class="ic"></span>Готовые рендеры</div><div class="pill "><span class="ic"></span>Ошибки</div></div></div>
-  <div class="cc"><span class="t">Воркер</span><div class="pill "><span class="ic"></span>Брать работу</div><span class="lab" style="color:#6b655f; font-size:11px;">будет доступно позже</span></div>
+  <div class="cc"><span class="t">Воркер</span><div class="pill "><span class="ic"></span>Брать работу</div><span class="lab" style="color:#6b655f; font-size:11px; text-align:center;">будет доступно позже</span></div>
   <div class="cc"><span class="t">Это устройство</span><div class="it "><span class="ic">·</span><span class="lab"><b>drejk starsij</b><span>привязано 12 сен</span></span></div></div>
 </div>
 </div>

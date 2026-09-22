@@ -2401,8 +2401,8 @@ fn drawn(bytes: &'static [u8]) -> iced::widget::svg::Handle {
 pub fn badge<'a, Message: 'a>(kind: Machine, side: f32) -> Element<'a, Message> {
     let k = fade();
     let mark = iced::widget::svg(drawn(kind.drawing()))
-        .width(side * 0.52)
-        .height(side * 0.52)
+        .width(side * 0.58)
+        .height(side * 0.58)
         .opacity(k)
         .style(move |_: &Theme, _| iced::widget::svg::Style { color: Some(Color { a: 0.92, ..INK }) });
     let ground = Canvas::new(Round { alpha: k }).width(side).height(side);
@@ -2452,8 +2452,14 @@ impl<Message> canvas::Program<Message> for Rim {
 
 pub fn flag<'a, Message: 'a>(which: Lang, on: bool, k: f32, side: f32) -> Element<'a, Message> {
     let alpha = fade();
-    let picture = iced::widget::svg(drawn(which.drawing())).width(side).height(side).opacity(alpha);
-    iced::widget::stack![picture, Canvas::new(Rim { on, k, alpha }).width(side).height(side)].width(side).height(side).into()
+    let picture = iced::widget::svg(drawn(which.drawing())).width(side - 1.5).height(side - 1.5).opacity(alpha);
+    iced::widget::stack![
+        container(picture).width(side).height(side).center(Length::Fill),
+        Canvas::new(Rim { on, k, alpha }).width(side).height(side)
+    ]
+    .width(side)
+    .height(side)
+    .into()
 }
 
 pub struct FrameMark {

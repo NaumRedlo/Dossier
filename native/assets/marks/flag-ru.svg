@@ -1,8 +1,10 @@
-<svg xmlns="http://www.w3.org/2000/svg" id="flag-icons-ru" viewBox="80 0 480 480">
-  <defs><clipPath id="round"><circle cx="320" cy="240" r="240"/></clipPath></defs>
+<svg xmlns="http://www.w3.org/2000/svg" id="flag-icons-ru" viewBox="0 0 480 480">
+  <defs><clipPath id="round"><circle cx="240" cy="240" r="240"/></clipPath></defs>
   <g clip-path="url(#round)">
-    <path fill="#fff" d="M0 0h640v160H0z"/>
-    <path fill="#0039a6" d="M0 160h640v160H0z"/>
-    <path fill="#d52b1e" d="M0 320h640v160H0z"/>
+    <g transform="translate(-80 0)">
+      <path fill="#fff" d="M0 0h640v160H0z"/>
+      <path fill="#0039a6" d="M0 160h640v160H0z"/>
+      <path fill="#d52b1e" d="M0 320h640v160H0z"/>
+    </g>
   </g>
 </svg>

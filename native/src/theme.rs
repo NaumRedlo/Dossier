@@ -466,6 +466,33 @@ pub fn danger_words(_: &Theme, status: button::Status) -> button::Style {
     }
 }
 
+pub fn ghost(_: &Theme, status: button::Status) -> button::Style {
+    let colour = match status {
+        button::Status::Hovered | button::Status::Pressed => INK,
+        _ => FAINT,
+    };
+    button::Style {
+        background: None,
+        text_color: colour,
+        border: border(Color::TRANSPARENT, 6.0),
+        shadow: Shadow::default(),
+        snap: true,
+    }
+}
+
+pub fn toast(pulse: f32, bad: bool) -> impl Fn(&Theme) -> container::Style {
+    move |theme| {
+        let mut style = bubble(theme);
+        let tint = if bad { ACCENT } else { INK };
+        let lift = 0.05 * pulse;
+        if let Some(Background::Color(c)) = style.background {
+            style.background = Some(Background::Color(Color { r: c.r + (tint.r - c.r) * lift, g: c.g + (tint.g - c.g) * lift, b: c.b + (tint.b - c.b) * lift, a: c.a }));
+        }
+        style.border.color = Color { a: 0.1 + 0.35 * pulse, ..tint };
+        style
+    }
+}
+
 pub fn segment_pill(_: &Theme) -> container::Style {
     container::Style {
         text_color: None,

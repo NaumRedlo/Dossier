@@ -55,6 +55,7 @@ pub enum Message {
     Adopted(Vec<videos::Video>),
     ToastLink(u64),
     ShowError(u64),
+    DismissNotice(u64),
     HideError,
     Circle,
     MenuTab(Tab),
@@ -246,6 +247,8 @@ pub struct Main {
     pub avatar: Option<image::Handle>,
     pub menu: Option<Tab>,
     pub error_shown: Option<u64>,
+    pub overlay_fade: Animation<bool>,
+    pub overlay_drawn: Overlay,
     pub menu_open: Animation<bool>,
     pub tab_fade: Animation<bool>,
     pub seg_from: Tab,
@@ -310,6 +313,8 @@ impl Main {
             avatar: None,
             menu: None,
             error_shown: None,
+            overlay_fade: Animation::new(false).duration(OVERLAY_FADE).easing(Easing::EaseOutCubic),
+            overlay_drawn: Overlay::None,
             menu_open: Animation::new(false).duration(MENU_OPEN).easing(Easing::EaseOutCubic),
             tab_fade: Animation::new(true).duration(TAB_FADE).easing(Easing::EaseOutCubic),
             seg_from: Tab::Account,
@@ -393,6 +398,7 @@ impl Main {
             || self.player.as_ref().is_some_and(|p| !p.borrow().paused)
             || !self.toasts.is_empty()
             || self.menu_open.is_animating(self.now)
+            || self.overlay_fade.is_animating(self.now)
             || self.tab_fade.is_animating(self.now)
             || self.seg_slide.is_animating(self.now)
             || self.sending.as_ref().is_some_and(|s| s.over.is_none())
@@ -977,6 +983,15 @@ impl Main {
                 combo
             }
             Message::Show(overlay) => {
+                let now = Instant::now();
+                if overlay != self.overlay {
+                    if overlay == Overlay::None {
+                        self.overlay_fade.go_mut(false, now);
+                    } else {
+                        self.overlay_drawn = overlay;
+                        self.overlay_fade = Animation::new(false).duration(OVERLAY_FADE).easing(Easing::EaseOutCubic).go(true, now);
+                    }
+                }
                 self.overlay = overlay;
                 if overlay != Overlay::Videos {
                     if let Some(player) = self.player.take() {
@@ -1128,7 +1143,16 @@ impl Main {
                         }),
                     ]);
                 }
+                let failed = match &step {
+                    maps::Step::Nowhere => Some(self.words.t("not-on-any-mirror")),
+                    maps::Step::Failed(why) => Some(why.clone()),
+                    _ => None,
+                };
                 fetching.reached.push(step);
+                if let Some(why) = failed {
+                    let who = self.entries().iter().find(|e| e.map_hash == hash).map(|e| e.song().unwrap_or_default()).unwrap_or_default();
+                    self.announce(notices::Mark::Bad, self.words.t("map-not-fetched"), who, why, hash, notices::Link::None);
+                }
                 Task::none()
             }
             Message::Look => {
@@ -1320,6 +1344,14 @@ impl Main {
                 }
                 Task::none()
             }
+            Message::DismissNotice(id) => {
+                self.notices.remove(id);
+                self.toasts.retain(|t| t.id != id);
+                if self.error_shown == Some(id) {
+                    self.error_shown = None;
+                }
+                Task::none()
+            }
             Message::ShowError(id) => {
                 self.error_shown = Some(id);
                 Task::none()
@@ -1429,7 +1461,12 @@ impl Main {
         let crest = ui::fading(early, ui::brand);
         let crest: Element<'_, Message> =
             pin(float(crest).translate(move |_, _| Vector::new(0.0, (1.0 - early) * CREST_RISE))).x(CREST_HOME.0).y(CREST_HOME.1).into();
-        let overlay: Element<'_, Message> = if self.overlay != Overlay::None { self.overlay_view() } else { blank() };
+        let sheet = self.overlay_fade.interpolate(0.0, 1.0, self.now);
+        let overlay: Element<'_, Message> = if self.overlay != Overlay::None || self.overlay_fade.is_animating(self.now) {
+            ui::fading(sheet, || ui::grown(self.overlay_view(), Point::new(0.5, 0.0), -(1.0 - sheet) * 10.0, 1.0).into())
+        } else {
+            blank()
+        };
         let bubble = self.bubble_layer();
         let toasts = self.toast_layer();
         let menu = self.menu_layer();
@@ -1783,8 +1820,8 @@ impl Main {
     fn bubble(&self, entry: &Entry, tip: f32) -> Element<'_, Message> {
         let alpha = ui::fade();
         let w = &self.words;
-        let small = |words: String, colour: Color| text(words).font(theme::MONO).size(11.0).color(ui::faded(colour));
-        let bold = |words: String, colour: Color| text(words).font(theme::MONO_BOLD).size(11.0).color(ui::faded(colour));
+        let small = |words: String, colour: Color| text(words).font(theme::MONO).size(11.0).wrapping(text::Wrapping::None).color(ui::faded(colour));
+        let bold = |words: String, colour: Color| text(words).font(theme::MONO_BOLD).size(11.0).wrapping(text::Wrapping::None).color(ui::faded(colour));
         let dot = || small("·".to_owned(), FAINT);
         let [c300, c100, c50, miss] = entry.counts;
         let counts = row![
@@ -1828,6 +1865,7 @@ impl Main {
         ]
         .spacing(12)
         .align_y(iced::Center);
+        let how = container(how).width(Length::Fill).clip(true);
         let inside = column![
             head,
             text(ui::shortened(entry.song().unwrap_or_else(|| w.t("unknown-map")), 44))
@@ -1846,11 +1884,12 @@ impl Main {
     }
 
     fn overlay_view(&self) -> Element<'_, Message> {
-        if self.overlay == Overlay::Videos {
+        let which = if self.overlay == Overlay::None { self.overlay_drawn } else { self.overlay };
+        if which == Overlay::Videos {
             return self.videos_view();
         }
         let w = &self.words;
-        let name = match self.overlay {
+        let name = match which {
             Overlay::Worker => w.t("worker"),
             _ => w.t("settings"),
         };
@@ -2102,6 +2141,8 @@ const CIRCLE_SIDE: f32 = 28.0;
 const AVATAR_SIDE: u32 = 80;
 const MENU_W: f32 = 400.0;
 const MENU_TOP: f32 = 80.0;
+const BADGE: f32 = 16.0;
+const BADGE_OUT: f32 = 4.0;
 
 impl Main {
     fn circle(&self, side: f32, pressable: bool) -> Element<'_, Message> {
@@ -2147,12 +2188,13 @@ impl Main {
             cards.push(ui::fading(ui::fade() * swap, || ui::grown(tile, Point::new(0.5, 0.0), -(1.0 - swap) * 6.0, 1.0).into()));
         }
         let mut stackup = column![].spacing(8).width(MENU_W);
+        let opening = self.menu_open.value();
         for (i, card) in cards.into_iter().enumerate() {
-            let late = (open * 1.5 - 0.12 * i as f32).clamp(0.0, 1.0);
-            stackup = stackup.push(ui::fading(ui::fade() * late, || ui::grown(card, Point::new(1.0, 0.0), -(1.0 - late) * 8.0, 1.0)));
+            let late = if opening { (open * 1.6 - 0.14 * i as f32).clamp(0.0, 1.0) } else { open };
+            stackup = stackup.push(ui::fading(ui::fade() * late, || ui::grown(card, Point::new(1.0, 0.0), -(1.0 - late) * 10.0, 1.0)));
         }
         let x = (self.width - 40.0 - MENU_W).max(16.0);
-        let whole = ui::grown(stackup, Point::new(1.0, 0.0), 0.0, 0.96 + 0.04 * open);
+        let whole = ui::grown(stackup, Point::new(1.0, 0.0), 0.0, 0.94 + 0.06 * open);
         let backdrop: Element<'_, Message> = if self.menu_open.value() {
             mouse_area(Space::new().width(Length::Fill).height(Length::Fill)).on_press(Message::MenuClose).into()
         } else {
@@ -2346,7 +2388,9 @@ impl Main {
                 .clip(true)
                 .into()
         };
-        let mut side = column![ui::mono_small(w.clock(notice.at), FAINT)].spacing(2).align_x(iced::alignment::Horizontal::Right);
+        let mut side = column![row![ui::mono_small(w.clock(notice.at), FAINT), self.dismiss(notice.id)].spacing(6).align_y(iced::Center)]
+            .spacing(2)
+            .align_x(iced::alignment::Horizontal::Right);
         if matches!(notice.link, notices::Link::RenderAgain(_) | notices::Link::OpenVideo(_)) {
             let words = if matches!(notice.link, notices::Link::OpenVideo(_)) { w.t("open") } else { w.t("once-more") };
             side = side.push(ui::small_button(words, Message::ToastLink(notice.id)));
@@ -2404,18 +2448,27 @@ impl Main {
                 .into(),
             _ => container(Space::new().width(side).height(side)).style(theme::chip).into(),
         };
-        let badge = container(
-            container(text(glyph).font(theme::MONO_BOLD).size(10.0).color(ui::faded(INK)))
-                .width(16.0)
-                .height(16.0)
-                .center(16.0)
-                .style(theme::badge_of(if notice.mark == notices::Mark::Bad { ACCENT } else { theme::GRADE_A })),
-        )
-        .width(side)
-        .height(side)
-        .align_x(iced::alignment::Horizontal::Right)
-        .align_y(iced::alignment::Vertical::Bottom);
-        stack![picture, badge].width(side).height(side).into()
+        let badge = container(text(glyph).font(theme::MONO_BOLD).size(10.0).color(ui::faded(INK)))
+            .width(BADGE)
+            .height(BADGE)
+            .center(BADGE)
+            .style(theme::badge_of(if notice.mark == notices::Mark::Bad { ACCENT } else { theme::GRADE_A }));
+        let reach = side + BADGE_OUT;
+        stack![
+            container(picture).width(reach).height(reach),
+            pin(badge).x(side + BADGE_OUT - BADGE).y(side + BADGE_OUT - BADGE),
+        ]
+        .width(reach)
+        .height(reach)
+        .into()
+    }
+
+    fn dismiss(&self, id: u64) -> Element<'_, Message> {
+        button(container(text("×").font(theme::MONO).size(theme::BODY)).width(20.0).height(20.0).center(20.0))
+            .padding(0)
+            .style(theme::ghost)
+            .on_press(Message::DismissNotice(id))
+            .into()
     }
 
     fn stats_tiles(&self) -> Vec<Element<'_, Message>> {
@@ -2490,10 +2543,10 @@ pub fn decoded_bytes(bytes: &[u8], side: u32) -> Option<image::Handle> {
 const TOAST_W: f32 = 380.0;
 const TOAST_H: f32 = 74.0;
 const TOAST_TOP: f32 = 66.0;
-const TOAST_RISE: f32 = 8.0;
-pub const TOAST_IN: Duration = Duration::from_millis(240);
-pub const MENU_OPEN: Duration = Duration::from_millis(200);
+pub const TOAST_IN: Duration = Duration::from_millis(180);
+pub const MENU_OPEN: Duration = Duration::from_millis(260);
 pub const TAB_FADE: Duration = Duration::from_millis(160);
+pub const OVERLAY_FADE: Duration = Duration::from_millis(220);
 pub const TOAST_STAY: Duration = Duration::from_secs(6);
 const TOASTS_AT_MOST: usize = 3;
 
@@ -2509,9 +2562,12 @@ impl Main {
                 continue;
             };
             let k = toast.shown.interpolate(0.0, 1.0, self.now);
-            let x = (self.width - 40.0 - TOAST_W).max(16.0);
-            let y = TOAST_TOP + slot - (1.0 - k) * TOAST_RISE;
-            let card = ui::fading(ui::fade() * k, || self.toast(toast, notice));
+            let home = (self.width - 40.0 - TOAST_W).max(16.0);
+            let x = home + (1.0 - k) * (TOAST_W + 48.0);
+            let y = TOAST_TOP + slot;
+            let age = self.now.saturating_duration_since(toast.born).as_secs_f32();
+            let pulse = if age < 3.0 && toast.shown.value() { (std::f32::consts::PI * age).sin().powi(2) } else { 0.0 };
+            let card = self.toast(toast, notice, pulse);
             layers = layers.push(pin(card).x(x).y(y));
             if toast.shown.value() {
                 slot += TOAST_H + 8.0;
@@ -2520,7 +2576,7 @@ impl Main {
         layers.into()
     }
 
-    fn toast(&self, toast: &Toast, notice: &notices::Notice) -> Element<'_, Message> {
+    fn toast(&self, toast: &Toast, notice: &notices::Notice, pulse: f32) -> Element<'_, Message> {
         let w = &self.words;
         let bad = notice.mark == notices::Mark::Bad;
         let words = row![
@@ -2529,20 +2585,25 @@ impl Main {
         let detail = text(notice.detail.clone()).font(theme::SANS).size(theme::CAPTION).wrapping(text::Wrapping::None).color(ui::faded(MUTED));
         let note = text(notice.note.clone()).font(theme::MONO).size(11.0).wrapping(text::Wrapping::None).color(ui::faded(FAINT));
         let column = column![words, detail, note].spacing(1).width(Length::Fill);
-        let mut line = row![self.notice_mark(notice, 48.0), container(column).width(Length::Fill).clip(true)].spacing(12).align_y(iced::Center);
+        let mut line = row![self.notice_mark(notice, 44.0), container(column).width(Length::Fill).clip(true)].spacing(12).align_y(iced::Center);
         let link = match notice.link {
             notices::Link::OpenVideo(_) => Some(w.t("open")),
             notices::Link::RenderAgain(_) => Some(w.t("once-more")),
             notices::Link::None => None,
         };
         if let Some(words) = link {
-            line = line.push(ui::quiet(words, Some(Message::ToastLink(toast.id))));
+            line = line.push(ui::small_button(words, Message::ToastLink(toast.id)));
         }
-        let card = container(line).padding([12, 14]).width(TOAST_W).height(TOAST_H).style(theme::bubble_faded(ui::fade())).clip(true);
+        let face = stack![
+            container(line).padding(Padding { top: 12.0, right: 30.0, bottom: 12.0, left: 14.0 }).width(TOAST_W).height(TOAST_H),
+            pin(self.dismiss(toast.id)).x(TOAST_W - 26.0).y(6.0),
+        ]
+        .width(TOAST_W)
+        .height(TOAST_H);
+        let card = container(face).width(TOAST_W).height(TOAST_H).style(theme::toast(pulse, bad)).clip(true);
         mouse_area(card)
             .on_enter(Message::ToastHover(toast.id, true))
             .on_exit(Message::ToastHover(toast.id, false))
-            .on_press(Message::ToastClose(toast.id))
             .into()
     }
 }

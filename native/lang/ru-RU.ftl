@@ -185,3 +185,4 @@ sent-notice = Ушло в Telegram
 send-failed = Не отправилось
 telegram-id = Telegram ID
 close = Закрыть
+map-not-fetched = Карта не скачалась

@@ -91,6 +91,11 @@ impl Queue {
         self.save();
     }
 
+    pub fn remove(&mut self, id: u64) {
+        self.notices.retain(|n| n.id != id);
+        self.save();
+    }
+
     pub fn get(&self, id: u64) -> Option<&Notice> {
         self.notices.iter().find(|n| n.id == id)
     }

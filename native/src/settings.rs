@@ -81,9 +81,9 @@ fn full() -> f32 {
     1.0
 }
 
-pub const HEIGHTS: [u32; 3] = [720, 1080, 1440];
-pub const RATES: [u32; 2] = [30, 60];
-pub const CRFS: [u32; 3] = [23, 20, 17];
+pub const HEIGHTS: [u32; 5] = [480, 720, 1080, 1440, 2160];
+pub const RATES: [u32; 4] = [24, 30, 60, 120];
+pub const CRFS: [u32; 5] = [26, 23, 20, 17, 14];
 
 pub fn skins_in(sources: &[Source]) -> Vec<PathBuf> {
     let mut roots: Vec<PathBuf> = sources.iter().filter_map(|source| source.skins.clone()).collect();
@@ -124,7 +124,7 @@ pub fn skin_face(folder: &Path) -> Option<PathBuf> {
 impl Settings {
     pub fn render_size(&self) -> (u32, u32) {
         let height = if HEIGHTS.contains(&self.render_height) { self.render_height } else { 1080 };
-        (height * 16 / 9, height)
+        ((height * 16 / 9 + 1) & !1, height)
     }
 
     pub fn renders_dir(&self) -> PathBuf {

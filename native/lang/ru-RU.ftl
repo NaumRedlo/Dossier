@@ -239,3 +239,5 @@ skins-found = { $n ->
     [few] найдено { $n } скина
    *[other] найдено { $n } скинов
 }
+own-skin-short = Свой
+no-skins = В папках osu! скинов не нашлось

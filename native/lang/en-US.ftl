@@ -232,3 +232,5 @@ skins-found = { $n ->
     [one] { $n } skin found
    *[other] { $n } skins found
 }
+own-skin-short = Own
+no-skins = No skins found in the osu! folders

@@ -108,12 +108,14 @@ pub struct Ground<'a> {
     pub chat_faces: &'a std::collections::HashMap<i64, iced::widget::image::Handle>,
     pub dragging: Option<Tile>,
     pub landing: Option<Tile>,
+    pub leaving: Option<Tile>,
+    pub leaving_open: f32,
     pub landed: Option<(Tile, f32)>,
     pub opening: f32,
     pub closing: f32,
     pub renaming: Option<&'a String>,
     pub skins: &'a [PathBuf],
-    pub skin_face: Option<&'a iced::widget::image::Handle>,
+    pub skin_faces: &'a std::collections::HashMap<PathBuf, iced::widget::image::Handle>,
     pub marks: &'a std::collections::HashMap<String, f32>,
     pub slides: &'a std::collections::HashMap<String, (f32, f32)>,
     pub came: f32,
@@ -184,6 +186,9 @@ pub fn view<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
     let held = ground.dragging;
     for (at, tile) in order(kept, all).into_iter().enumerate() {
         let late = (ground.came * 1.7 - 0.09 * at as f32).clamp(0.0, 1.0);
+        if held.is_some() && ground.leaving == Some(tile) && ground.leaving_open > 0.01 {
+            tiles.push(room(ground, held.unwrap_or(tile), ground.leaving_open));
+        }
         if held.is_some() && ground.landing == Some(tile) && ground.opening > 0.01 {
             tiles.push(room(ground, held.unwrap_or(tile), ground.opening));
         }
@@ -230,6 +235,22 @@ pub fn floating<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
     container(one(ground, tile))
         .padding([12, 14])
         .style(ui::box_faded(theme::slab_held))
+        .into()
+}
+
+fn tongue<'a>(ground: &Ground<'a>, lang: Lang, name: &str, on: bool) -> Element<'a, Message> {
+    let id = if lang == Lang::Ru { "lang-ru" } else { "lang-en" };
+    let k = mark_at(ground, id, on);
+    let face = ui::flag(if lang == Lang::Ru { ui::Lang::Ru } else { ui::Lang::En }, on, k, 28.0);
+    let words = text(name.to_owned())
+        .font(theme::SANS_SEMI)
+        .size(theme::CAPTION)
+        .wrapping(text::Wrapping::None)
+        .color(ui::faded(if on { INK } else { MUTED }));
+    button(row![face, words].spacing(10).align_y(iced::Center))
+        .padding([2, 2])
+        .style(ui::button_faded(theme::bare))
+        .on_press(Message::PickLang(lang))
         .into()
 }
 
@@ -367,8 +388,8 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
         .into(),
         Tile::Language => column![
             head(w, "language"),
-            line(ground, "lang-ru", "RU", "Русский".to_owned(), String::new(), s.lang == Lang::Ru, Some(Message::PickLang(Lang::Ru))),
-            line(ground, "lang-en", "EN", "English".to_owned(), String::new(), s.lang == Lang::En, Some(Message::PickLang(Lang::En))),
+            tongue(ground, Lang::Ru, "Русский", s.lang == Lang::Ru),
+            tongue(ground, Lang::En, "English", s.lang == Lang::En),
         ]
         .spacing(2)
         .into(),
@@ -408,56 +429,61 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
         }
         Tile::Skins => {
             let chosen = s.skin.clone();
-            let face: Element<'a, Message> = match ground.skin_face {
-                Some(handle) => iced::widget::image(handle.clone())
-                    .content_fit(iced::ContentFit::Cover)
-                    .width(44.0)
-                    .height(44.0)
-                    .border_radius(8.0)
-                    .opacity(ui::fade())
-                    .into(),
-                None => container(ui::hatch()).width(44.0).height(44.0).into(),
-            };
-            let top = row![
-                face,
-                column![
-                    text(match &chosen {
-                        Some(folder) => ui::shortened(folder.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default(), 22),
-                        None => w.t("own-skin"),
-                    })
-                    .font(theme::SANS_SEMI)
-                    .size(theme::CAPTION)
-                    .wrapping(text::Wrapping::None)
-                    .color(ui::faded(INK)),
-                    text(w.n("skins-found", ground.skins.len() as u64)).font(theme::SANS).size(11.0).wrapping(text::Wrapping::None).color(ui::faded(FAINT)),
+            let cell = |name: String, folder: Option<PathBuf>, face: Option<&iced::widget::image::Handle>, picked: bool, k: f32| -> Element<'a, Message> {
+                let picture: Element<'a, Message> = match face {
+                    Some(handle) => iced::widget::image(handle.clone())
+                        .content_fit(iced::ContentFit::Cover)
+                        .width(56.0)
+                        .height(56.0)
+                        .border_radius(10.0)
+                        .opacity(ui::fade())
+                        .into(),
+                    None => container(ui::fine_hatch()).width(56.0).height(56.0).into(),
+                };
+                let framed = iced::widget::stack![picture, ui::frame_mark(k, 56.0)].width(56.0).height(56.0);
+                let inside = column![
+                    framed,
+                    text(ui::shortened(name, 12))
+                        .font(theme::SANS)
+                        .size(11.0)
+                        .wrapping(text::Wrapping::None)
+                        .color(ui::faded(if picked { INK } else { MUTED })),
                 ]
-                .spacing(2),
-            ]
-            .spacing(10)
-            .align_y(iced::Center);
-            let mut rows = column![head(w, "skins"), top].spacing(2);
-            rows = rows.push(container(Space::new().height(6.0)));
-            if s.skin.is_some() {
-                rows = rows.push(line(ground, "skin-own", "·", w.t("own-skin"), String::new(), false, Some(Message::Skin(None))));
-            }
-            for folder in ground.skins.iter().take(5) {
+                .spacing(4)
+                .align_x(iced::Center)
+                .width(64.0);
+                button(inside)
+                    .padding([4, 2])
+                    .style(ui::button_faded(theme::bare))
+                    .on_press(Message::Skin(folder))
+                    .into()
+            };
+            let mut cells: Vec<Element<'a, Message>> = vec![cell(
+                w.t("own-skin-short"),
+                None,
+                None,
+                chosen.is_none(),
+                mark_at(ground, "skin-own", chosen.is_none()),
+            )];
+            for folder in ground.skins.iter().take(7) {
                 let name = folder.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
                 let picked = chosen.as_deref() == Some(folder.as_path());
-                rows = rows.push(line(
-                    ground,
-                    &format!("skin-{name}"),
-                    "skn",
-                    ui::shortened(name, 22),
-                    String::new(),
-                    picked,
-                    Some(Message::Skin(Some(folder.clone()))),
-                ));
+                let k = mark_at(ground, &format!("skin-{name}"), picked);
+                cells.push(cell(name.clone(), Some(folder.clone()), ground.skin_faces.get(folder), picked, k));
             }
+            let strip = container(ui::wrap(cells, 6.0)).width(if ground.skins.is_empty() { 200.0 } else { 288.0 });
             let mut deeds = row![deed(w.t("rescan"), Message::RescanSkins, false)].spacing(6);
             if chosen.is_some() {
                 deeds = deeds.push(deed(w.t("in-folder"), Message::OpenSkin, false));
             }
-            rows.push(container(deeds).padding(Padding::ZERO.top(6.0))).into()
+            let under: Element<'a, Message> = if ground.skins.is_empty() {
+                text(w.t("no-skins")).font(theme::SANS).size(11.0).color(ui::faded(FAINT)).into()
+            } else {
+                text(w.n("skins-found", ground.skins.len() as u64)).font(theme::SANS).size(11.0).color(ui::faded(FAINT)).into()
+            };
+            column![head(w, "skins"), strip, container(under).padding(Padding::ZERO.top(2.0)), container(deeds).padding(Padding::ZERO.top(6.0))]
+                .spacing(2)
+                .into()
         }
         Tile::Sound => column![
             head(w, "sound"),
@@ -634,10 +660,11 @@ mod tests {
 
     #[test]
     fn a_slider_lands_on_its_own_steps() {
-        assert_eq!(nearest(0.0, &HEIGHTS), 720);
+        assert_eq!(nearest(0.0, &HEIGHTS), HEIGHTS[0]);
+        assert_eq!(nearest(1.0, &HEIGHTS), HEIGHTS[HEIGHTS.len() - 1]);
         assert_eq!(nearest(0.5, &HEIGHTS), 1080);
-        assert_eq!(nearest(1.0, &HEIGHTS), 1440);
-        assert_eq!(nearest(0.4, &CRFS), 20);
-        assert_eq!(at(60, &RATES), 1.0);
+        assert_eq!(nearest(0.51, &CRFS), 20);
+        assert_eq!(at(RATES[RATES.len() - 1], &RATES), 1.0);
+        assert_eq!(at(HEIGHTS[0], &HEIGHTS), 0.0);
     }
 }

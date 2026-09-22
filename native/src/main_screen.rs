@@ -58,7 +58,7 @@ pub enum Message {
     Retype(Instant),
     Chats(Vec<crate::bot::Chat>),
     Skins(Vec<PathBuf>),
-    SkinFace(Option<image::Handle>),
+    SkinFace(PathBuf, Option<image::Handle>),
     ChatFace(i64, Option<image::Handle>),
     Sized(u64, u64, u64),
     Ffmpeg(Option<String>),
@@ -267,10 +267,11 @@ pub struct Main {
     pub side: Side,
     pub dragging: Option<Tile>,
     pub drop_before: Option<Tile>,
+    pub drop_was: Option<Tile>,
     pub renaming: Option<String>,
     pub chats: Vec<crate::bot::Chat>,
     pub skins: Vec<PathBuf>,
-    pub skin_face: Option<image::Handle>,
+    pub skin_faces: HashMap<PathBuf, image::Handle>,
     pub chat_faces: HashMap<i64, image::Handle>,
     pub marks: HashMap<String, Animation<bool>>,
     pub marks_now: HashMap<String, f32>,
@@ -280,6 +281,7 @@ pub struct Main {
     pub drag_held: Point,
     pub slot_open: f32,
     pub slot_shut: f32,
+    pub slot_was: f32,
     pub landed: Option<(Tile, Instant)>,
     pub eyed: Option<(Option<Tile>, Instant)>,
     pub lang_swap: bool,
@@ -363,10 +365,11 @@ impl Main {
             side: Side::App,
             dragging: None,
             drop_before: None,
+            drop_was: None,
             renaming: None,
             chats: Vec::new(),
             skins: Vec::new(),
-            skin_face: None,
+            skin_faces: HashMap::new(),
             chat_faces: HashMap::new(),
             marks: HashMap::new(),
             marks_now: HashMap::new(),
@@ -376,6 +379,7 @@ impl Main {
             drag_held: Point::ORIGIN,
             slot_open: 0.0,
             slot_shut: 1.0,
+            slot_was: 0.0,
             landed: None,
             eyed: None,
             lang_swap: false,
@@ -477,6 +481,7 @@ impl Main {
             || self.marks.values().any(|m| m.is_animating(self.now))
             || self.dragging.is_some()
             || self.slot_open > 0.001
+            || self.slot_was > 0.001
             || self.landed.is_some()
             || self.overlay == Overlay::Settings
             || self.hover.is_some()
@@ -966,8 +971,10 @@ impl Main {
                 self.skins = found;
                 self.skin_look()
             }
-            Message::SkinFace(handle) => {
-                self.skin_face = handle;
+            Message::SkinFace(folder, handle) => {
+                if let Some(handle) = handle {
+                    self.skin_faces.insert(folder, handle);
+                }
                 Task::none()
             }
             Message::Chats(chats) => {
@@ -1521,8 +1528,12 @@ impl Main {
                     self.drag_held.y += (self.drag_at.y - self.drag_held.y) * 0.35;
                     let want_open = if self.drop_before.is_some() { 1.0 } else { 0.0 };
                     let want_shut = if self.drop_before.is_some() { 0.0 } else { 1.0 };
-                    self.slot_open += (want_open - self.slot_open) * 0.16;
-                    self.slot_shut += (want_shut - self.slot_shut) * 0.16;
+                    self.slot_open += (want_open - self.slot_open) * 0.18;
+                    self.slot_shut += (want_shut - self.slot_shut) * 0.18;
+                    self.slot_was += (0.0 - self.slot_was) * 0.18;
+                    if self.slot_was < 0.01 {
+                        self.drop_was = None;
+                    }
                 } else if self.slot_open > 0.001 {
                     self.slot_open += (0.0 - self.slot_open) * 0.2;
                     self.slot_shut = 1.0;
@@ -1696,6 +1707,12 @@ impl Main {
             pin(float(crest).translate(move |_, _| Vector::new(0.0, (1.0 - early) * CREST_RISE))).x(CREST_HOME.0).y(CREST_HOME.1).into();
         let sheet = self.overlay_fade.interpolate(0.0, 1.0, self.now);
         let showing = self.overlay != Overlay::None || self.overlay_fade.is_animating(self.now);
+        let late = ((k - 0.7) / 0.3).clamp(0.0, 1.0);
+        let chrome_layer: Element<'_, Message> = if loaded {
+            ui::fading(alpha * late, || self.chrome())
+        } else {
+            blank()
+        };
         let deep = self.ground_fade.interpolate(0.0, 1.0, self.now);
         let ground: Element<'_, Message> = if deep > 0.001 {
             ui::fading(deep, || ui::veil(theme::GROUND))
@@ -1713,14 +1730,13 @@ impl Main {
         } else {
             blank()
         };
-        let layers = stack![scene_before, scene, live_before, live, body, bubble, ground, overlay, crest, ask, menu, signing, failure, toasts];
+        let layers = stack![scene_before, scene, live_before, live, body, bubble, ground, overlay, chrome_layer, crest, ask, menu, signing, failure, toasts];
         layers.width(Length::Fill).height(Length::Fill).into()
     }
 
     fn body(&self, k: f32, s: f32) -> Element<'_, Message> {
-        let late = ((k - 0.7) / 0.3).clamp(0.0, 1.0);
         column![
-            ui::fading(ui::fade() * late, || self.chrome()),
+            Space::new().height(theme::CONTROL_HEIGHT + 4.0 + 22.0),
             Space::new().height(Length::Fill),
             self.viewer(s),
             self.journal(),
@@ -2189,7 +2205,7 @@ impl Main {
                 .height(Length::Fill)
                 .into()
         };
-        let sheet = column![self.chrome(), page].width(Length::Fill).height(Length::Fill);
+        let sheet = column![Space::new().height(theme::CONTROL_HEIGHT + 4.0 + 22.0), page].width(Length::Fill).height(Length::Fill);
         let stage: Element<'_, Message> = match (&self.player, self.open_video.and_then(|at| self.store.videos.get(at))) {
             (Some(player), Some(video)) => self.stage(&player.borrow(), video),
             _ => Space::new().width(Length::Fill).height(Length::Fill).into(),
@@ -2444,12 +2460,23 @@ impl Main {
     }
 
     fn skin_look(&self) -> Task<Message> {
-        let Some(folder) = self.settings.skin.clone() else {
-            return Task::done(Message::SkinFace(None));
-        };
-        ui::in_thread(move || {
-            let handle = crate::settings::skin_face(&folder).and_then(|file| decoded(&file, 128, Some((128, 128))));
-            Message::SkinFace(handle)
+        let wanted: Vec<PathBuf> = self
+            .skins
+            .iter()
+            .take(8)
+            .filter(|folder| !self.skin_faces.contains_key(*folder))
+            .cloned()
+            .collect();
+        if wanted.is_empty() {
+            return Task::none();
+        }
+        ui::streamed(move |push| {
+            for folder in wanted {
+                let handle = crate::settings::skin_face(&folder).and_then(|file| decoded(&file, 160, Some((160, 160))));
+                if !push(Message::SkinFace(folder, handle)) {
+                    return;
+                }
+            }
         })
     }
 
@@ -2510,12 +2537,14 @@ impl Main {
             chat_faces: &self.chat_faces,
             dragging: self.dragging,
             landing: self.drop_before,
+            leaving: self.drop_was,
+            leaving_open: self.slot_was,
             landed: self.landed.map(|(tile, at)| (tile, (self.now.saturating_duration_since(at).as_secs_f32() / LANDING.as_secs_f32()).clamp(0.0, 1.0))),
             opening: self.slot_open,
             closing: self.slot_shut,
             renaming: self.renaming.as_ref(),
             skins: &self.skins,
-            skin_face: self.skin_face.as_ref(),
+            skin_faces: &self.skin_faces,
             marks: &self.marks_now,
             slides: &self.slides,
             came: self.overlay_fade.interpolate(0.0, 1.0, self.now),
@@ -2523,7 +2552,7 @@ impl Main {
             swap_from: self.side_swap,
         };
         let body: Element<'_, Message> = Element::from(prefs::view(&ground)).map(Message::Prefs);
-        let sheet = column![self.chrome(), body].width(Length::Fill).height(Length::Fill);
+        let sheet = column![Space::new().height(theme::CONTROL_HEIGHT + 4.0 + 22.0), body].width(Length::Fill).height(Length::Fill);
         let held: Element<'_, Message> = match self.dragging {
             Some(tile) => {
                 let card: Element<'_, Message> = Element::from(prefs::floating(&ground, tile)).map(Message::Prefs);
@@ -2713,7 +2742,7 @@ impl Main {
                 self.remember_mark(&name(&folder), true);
                 self.settings.skin = folder;
                 keep(&self.settings);
-                self.skin_look()
+                Task::none()
             }
             P::RescanSkins => {
                 let sources = self.settings.sources.clone();
@@ -2790,8 +2819,10 @@ impl Main {
                 match self.eyed {
                     Some((seen, at)) if seen == landing && now.saturating_duration_since(at) > EYED => {
                         self.eyed = None;
+                        self.drop_was = self.drop_before;
+                        self.slot_was = self.slot_open;
                         self.drop_before = landing;
-                        self.slot_open = self.slot_open.min(0.4);
+                        self.slot_open = 0.0;
                     }
                     Some((seen, _)) if seen == landing => {}
                     _ => self.eyed = Some((landing, now)),

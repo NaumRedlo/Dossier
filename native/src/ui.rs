@@ -1713,43 +1713,58 @@ impl<Message> canvas::Program<Message> for Steps<'_, Message> {
         let at = self.shown.clamp(0.0, 1.0);
         let x = STEP_INSET + at * (w - 2.0 * STEP_INSET);
         let lit = state.grabbed || cursor.is_over(bounds);
-        frame.fill(&Path::rounded_rectangle(Point::ORIGIN, Size::new(w, h), 7.0.into()), dim(Color::from_rgba(1.0, 1.0, 1.0, if lit { 0.055 } else { 0.04 }), self.alpha));
-        frame.fill(&Path::rounded_rectangle(Point::ORIGIN, Size::new(x.max(16.0), h), 7.0.into()), dim(Color::from_rgba(0.886, 0.282, 0.282, if lit { 0.2 } else { 0.15 }), self.alpha));
-        let on_stop = if state.grabbed { 0.0 } else { self.snap.clamp(0.0, 1.0) };
-        for stop in &self.stops {
-            let near = 1.0 - ((stop - at).abs() / 0.05).clamp(0.0, 1.0);
-            let sx = STEP_INSET + stop * (w - 2.0 * STEP_INSET);
-            let shrink = 4.0 - 3.0 * near;
-            let alpha = 0.16 * (1.0 - near);
-            if alpha > 0.005 {
-                frame.fill(&Path::rounded_rectangle(Point::new(sx - 1.0, shrink), Size::new(2.0, h - 2.0 * shrink), 1.0.into()), dim(Color::from_rgba(1.0, 1.0, 1.0, alpha * 0.8), self.alpha));
-            }
+        frame.fill(
+            &Path::rounded_rectangle(Point::ORIGIN, Size::new(w, h), 7.0.into()),
+            dim(Color::from_rgba(1.0, 1.0, 1.0, if lit { 0.055 } else { 0.04 }), self.alpha),
+        );
+        if x > 2.0 {
+            frame.fill(
+                &Path::rounded_rectangle(Point::ORIGIN, Size::new(x, h), 7.0.into()),
+                dim(Color::from_rgba(0.886, 0.282, 0.282, if lit { 0.2 } else { 0.15 }), self.alpha),
+            );
         }
+        let on_stop = if state.grabbed { 0.0 } else { self.snap.clamp(0.0, 1.0) };
         let inset = 4.0 - 3.0 * on_stop;
         let wide = 8.0 + on_stop + if state.grabbed { 2.5 } else { 0.0 };
+        for stop in &self.stops {
+            let sx = STEP_INSET + stop * (w - 2.0 * STEP_INSET);
+            let near = 1.0 - ((sx - x).abs() / 26.0).clamp(0.0, 1.0);
+            let dot = 5.0;
+            let width = dot + (wide - dot) * near;
+            let height = dot + (h - 2.0 * inset - dot) * near;
+            let alpha = (0.2 - 0.14 * near) * (1.0 - near * 0.5);
+            if alpha > 0.004 {
+                frame.fill(
+                    &Path::rounded_rectangle(Point::new(sx - width / 2.0, (h - height) / 2.0), Size::new(width, height), (width / 2.0).into()),
+                    dim(Color::from_rgba(1.0, 1.0, 1.0, alpha), self.alpha),
+                );
+            }
+        }
         frame.fill(
             &Path::rounded_rectangle(Point::new(x - wide / 2.0, inset), Size::new(wide, h - 2.0 * inset), (wide / 2.0).into()),
             dim(Color { a: 0.92, ..INK }, self.alpha),
         );
-        let label_right = at < 0.2;
+        let label_wide = self.label.chars().count() as f32 * 6.6 + 4.0;
+        let label_x = if x - wide / 2.0 - 8.0 < 10.0 + label_wide { (x + wide / 2.0 + 10.0).min(w - 10.0 - label_wide) } else { 10.0 };
         frame.fill_text(canvas::Text {
             content: self.label.clone(),
-            position: Point::new(if label_right { w - 10.0 } else { 10.0 }, h / 2.0),
+            position: Point::new(label_x, h / 2.0),
             color: dim(INK, self.alpha),
             size: theme::CAPTION.into(),
             font: theme::SANS_SEMI,
-            align_x: if label_right { iced::alignment::Horizontal::Right.into() } else { iced::alignment::Horizontal::Left.into() },
+            align_x: iced::alignment::Horizontal::Left.into(),
             align_y: iced::alignment::Vertical::Center,
             ..canvas::Text::default()
         });
-        let value_left = at > 0.8;
+        let value_wide = self.value.chars().count() as f32 * 6.7 + 2.0;
+        let value_x = (x + wide / 2.0 + 10.0).min(w - 10.0 - value_wide);
         frame.fill_text(canvas::Text {
             content: self.value.clone(),
-            position: Point::new(if value_left { x - 10.0 } else { x + 10.0 }, h / 2.0),
+            position: Point::new(value_x, h / 2.0),
             color: dim(INK, self.alpha),
             size: 11.0.into(),
             font: theme::MONO,
-            align_x: if value_left { iced::alignment::Horizontal::Right.into() } else { iced::alignment::Horizontal::Left.into() },
+            align_x: iced::alignment::Horizontal::Left.into(),
             align_y: iced::alignment::Vertical::Center,
             ..canvas::Text::default()
         });
@@ -2332,4 +2347,106 @@ impl<'a, Message: 'a> From<Hollow<'a, Message>> for Element<'a, Message> {
     fn from(hollow: Hollow<'a, Message>) -> Element<'a, Message> {
         Element::new(hollow)
     }
+}
+
+pub struct Flag {
+    pub which: Lang,
+    pub on: bool,
+    pub k: f32,
+    pub alpha: f32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Lang {
+    Ru,
+    En,
+}
+
+impl<Message> canvas::Program<Message> for Flag {
+    type State = ();
+
+    fn draw(&self, _: &(), renderer: &Renderer, _: &Theme, bounds: Rectangle, _: mouse::Cursor) -> Vec<Geometry> {
+        let mut frame = Frame::new(renderer, bounds.size());
+        let side = bounds.width.min(bounds.height);
+        let centre = Point::new(bounds.width / 2.0, bounds.height / 2.0);
+        let r = side / 2.0;
+        let shade = |colour: Color| dim(colour, self.alpha);
+        let disc = Path::circle(centre, r);
+        frame.fill(&disc, shade(Color::from_rgba(1.0, 1.0, 1.0, 0.08)));
+        frame.with_clip(Rectangle::new(Point::ORIGIN, bounds.size()), |inner| {
+            let field = Rectangle::new(Point::new(centre.x - r, centre.y - r), Size::new(2.0 * r, 2.0 * r));
+            match self.which {
+                Lang::Ru => {
+                    let band = field.height / 3.0;
+                    for (i, colour) in [Color::WHITE, Color::from_rgb(0.15, 0.27, 0.65), Color::from_rgb(0.84, 0.16, 0.2)].into_iter().enumerate() {
+                        let top = field.y + band * i as f32;
+                        inner.with_clip(Rectangle::new(Point::ORIGIN, bounds.size()), |band_frame| {
+                            let path = Path::new(|b| {
+                                b.move_to(Point::new(field.x, top));
+                                b.line_to(Point::new(field.x + field.width, top));
+                                b.line_to(Point::new(field.x + field.width, top + band));
+                                b.line_to(Point::new(field.x, top + band));
+                                b.close();
+                            });
+                            band_frame.fill(&path, shade(colour));
+                        });
+                    }
+                }
+                Lang::En => {
+                    inner.fill(&Path::rectangle(field.position(), field.size()), shade(Color::from_rgb(0.05, 0.13, 0.4)));
+                    let white = shade(Color::WHITE);
+                    let red = shade(Color::from_rgb(0.81, 0.09, 0.19));
+                    let wide = Stroke::default().with_width(side * 0.3).with_color(white);
+                    let thin = Stroke::default().with_width(side * 0.16).with_color(red);
+                    let cross = Path::new(|b| {
+                        b.move_to(Point::new(field.x, centre.y));
+                        b.line_to(Point::new(field.x + field.width, centre.y));
+                        b.move_to(Point::new(centre.x, field.y));
+                        b.line_to(Point::new(centre.x, field.y + field.height));
+                    });
+                    let slant = Path::new(|b| {
+                        b.move_to(field.position());
+                        b.line_to(Point::new(field.x + field.width, field.y + field.height));
+                        b.move_to(Point::new(field.x + field.width, field.y));
+                        b.line_to(Point::new(field.x, field.y + field.height));
+                    });
+                    inner.stroke(&slant, Stroke::default().with_width(side * 0.14).with_color(white));
+                    inner.stroke(&cross, wide);
+                    inner.stroke(&cross, thin);
+                }
+            }
+        });
+        let edge = if self.on { Color { a: 0.85, ..ACCENT } } else { Color::from_rgba(1.0, 1.0, 1.0, 0.12) };
+        frame.stroke(&disc, Stroke::default().with_width(1.5 + 1.0 * self.k).with_color(shade(edge)));
+        vec![frame.into_geometry()]
+    }
+}
+
+pub fn flag<'a, Message: 'a>(which: Lang, on: bool, k: f32, side: f32) -> Element<'a, Message> {
+    Canvas::new(Flag { which, on, k, alpha: fade() }).width(side).height(side).into()
+}
+
+pub struct FrameMark {
+    pub k: f32,
+    pub alpha: f32,
+}
+
+impl<Message> canvas::Program<Message> for FrameMark {
+    type State = ();
+
+    fn draw(&self, _: &(), renderer: &Renderer, _: &Theme, bounds: Rectangle, _: mouse::Cursor) -> Vec<Geometry> {
+        let mut frame = Frame::new(renderer, bounds.size());
+        let k = self.k.clamp(0.0, 1.0);
+        let edge = Path::rounded_rectangle(Point::new(0.5, 0.5), Size::new(bounds.width - 1.0, bounds.height - 1.0), 10.0.into());
+        let colour = Color {
+            a: (0.1 + 0.8 * k) * self.alpha,
+            ..if k > 0.02 { ACCENT } else { Color::WHITE }
+        };
+        frame.stroke(&edge, Stroke::default().with_width(1.0 + 1.5 * k).with_color(colour));
+        vec![frame.into_geometry()]
+    }
+}
+
+pub fn frame_mark<'a, Message: 'a>(k: f32, side: f32) -> Element<'a, Message> {
+    Canvas::new(FrameMark { k, alpha: fade() }).width(side).height(side).into()
 }

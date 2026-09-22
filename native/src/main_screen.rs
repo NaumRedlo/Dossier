@@ -1871,11 +1871,11 @@ impl Main {
         container(
             row![
                 Space::new().width(VIDEO_THUMB.0 as f32 + 14.0 + 12.0),
-                cell("when", 70.0),
+                cell("when", 84.0),
                 grow("who-and-map"),
-                cell("mods", 90.0),
-                right("length", 50.0),
-                right("size", 72.0),
+                cell("mods", 110.0),
+                right("length", 56.0),
+                right("size", 84.0),
             ]
             .spacing(14)
             .align_y(iced::Center),
@@ -1893,37 +1893,36 @@ impl Main {
                 .content_fit(ContentFit::Cover)
                 .width(VIDEO_THUMB.0 as f32)
                 .height(VIDEO_THUMB.1 as f32)
-                .border_radius(5.0)
-                .opacity(ui::fade() * if chosen { 1.0 } else { 0.8 })
+                .border_radius(6.0)
+                .opacity(ui::fade() * if chosen { 1.0 } else { 0.85 })
                 .into(),
             None => container(ui::fine_hatch()).width(VIDEO_THUMB.0 as f32).height(VIDEO_THUMB.1 as f32).into(),
         };
         let when = column![
-            ui::mono_small(w.day(video.made_at, self.now_unix), FAINT),
-            ui::mono_small(w.clock(video.made_at), FAINT),
+            ui::mono(w.day(video.made_at, self.now_unix), FAINT),
+            ui::mono(w.clock(video.made_at), FAINT),
         ]
-        .spacing(1);
-        let who = row![
-            text(video.player.clone()).font(theme::SANS_SEMI).size(theme::BODY).wrapping(text::Wrapping::None).color(ui::faded(INK)),
-            text(ui::shortened(format!("· {}", video.map_line()), 64)).font(theme::SANS).size(theme::BODY).wrapping(text::Wrapping::None).color(ui::faded(MUTED)),
+        .spacing(2);
+        let who = column![
+            text(video.player.clone()).font(theme::SANS_SEMI).size(theme::LEAD).wrapping(text::Wrapping::None).color(ui::faded(INK)),
+            text(ui::shortened(video.map_line(), 70)).font(theme::SANS).size(theme::BODY).wrapping(text::Wrapping::None).color(ui::faded(MUTED)),
         ]
-        .spacing(6)
-        .align_y(iced::Center);
+        .spacing(2);
         let mut mods = row![].spacing(4).align_y(iced::Center);
         for acronym in &video.mods {
             mods = mods.push(mod_badge(acronym));
         }
         let line = row![
             container(picture).width(VIDEO_THUMB.0 as f32).height(VIDEO_THUMB.1 as f32),
-            container(when).width(70.0),
+            container(when).width(84.0),
             container(who).width(Length::Fill).clip(true),
-            container(mods).width(90.0),
-            container(ui::mono_small(w.length(video.length_ms), FAINT)).width(50.0).align_x(iced::alignment::Horizontal::Right),
-            container(ui::mono_small(w.mb(video.size), FAINT)).width(72.0).align_x(iced::alignment::Horizontal::Right),
+            container(mods).width(110.0),
+            container(ui::mono(w.length(video.length_ms), MUTED)).width(56.0).align_x(iced::alignment::Horizontal::Right),
+            container(ui::mono(w.mb(video.size), MUTED)).width(84.0).align_x(iced::alignment::Horizontal::Right),
         ]
         .spacing(14)
         .align_y(iced::Center);
-        button(container(line).height(52.0).width(Length::Fill).center_y(52.0))
+        button(container(line).height(VIDEO_ROW).width(Length::Fill).center_y(VIDEO_ROW))
             .padding([0, 12])
             .style(theme::row(chosen))
             .on_press(Message::OpenVideo(at))
@@ -2052,7 +2051,8 @@ impl Main {
     }
 }
 
-const VIDEO_THUMB: (u32, u32) = (64, 36);
+const VIDEO_THUMB: (u32, u32) = (96, 54);
+const VIDEO_ROW: f32 = 72.0;
 const CIRCLE_SIDE: f32 = 28.0;
 const AVATAR_SIDE: u32 = 80;
 const MENU_W: f32 = 400.0;

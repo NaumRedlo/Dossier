@@ -219,6 +219,7 @@ CC_CSS = '''<style>
   .ccflow .cc { width: max-content; max-width: 100%; }
   .ccflow .cc.wide { width: 440px; }
   .sl .bar .hd.snap { top: 1px; bottom: 1px; }
+  .sl .bar b.right { left: auto; right: 10px; }
   .cc.lift { transform: rotate(-1.2deg) translate(24px, -18px); box-shadow: 0 24px 60px rgba(0,0,0,0.6); border-color: rgba(255,255,255,0.18); z-index: 3; position: relative; }
   .cc.slot { background: transparent; border: 1px dashed rgba(255,255,255,0.18); box-shadow: none; }
   .cc.slot > * { visibility: hidden; }
@@ -248,10 +249,11 @@ def pill(label, on):
 
 def slider(label, value, pct, stops=(50,)):
     at = f"calc(6px + ({pct} / 100) * (100% - 12px))"
-    snapped = any(abs(s - pct) < 2 for s in stops)
+    snapped = any(abs(s - pct) < 2 for s in stops) or pct < 2 or pct > 98
     ticks = "".join(f'<span class="tk" style="left:calc(6px + ({s} / 100) * (100% - 12px));"></span>' for s in stops if abs(s - pct) >= 2)
     flip = "flip" if pct > 80 else ""
-    return f'<div class="sl"><div class="bar"><i style="width:{at};"></i>{ticks}<span class="hd {"snap" if snapped else ""}" style="left:{at};"></span><b>{label}</b><em class="{flip}" style="left:{at};">{value}</em></div></div>'
+    side = "right" if pct < 20 else ""
+    return f'<div class="sl"><div class="bar"><i style="width:{at};"></i>{ticks}<span class="hd {"snap" if snapped else ""}" style="left:{at};"></span><b class="{side}">{label}</b><em class="{flip}" style="left:{at};">{value}</em></div></div>'
 
 def tile(inner, title="", wide=False):
     head = f'<span class="t">{title}</span>' if title else ""
@@ -261,7 +263,7 @@ def colw(kind, *tiles):
     return f'<div class="colw {kind}">{"".join(tiles)}</div>'
 
 T_LANG = tile(f'<div style="display:flex; flex-direction:column; gap:2px;">{it("RU", "Русский", "", True)}{it("EN", "English", "")}</div>', "Язык")
-T_RENDER = tile(f'{slider("Размер", "1080p", 50, (50,))}{slider("Кадры", "60", 100, (50,))}{slider("Качество", "CRF 20", 50, (25, 50, 75))}', "Рендер", True)
+T_RENDER = tile(f'{slider("Размер", "1080p", 50, (50,))}{slider("Кадры", "30", 0, (50,))}{slider("Качество", "CRF 20", 50, (25, 50, 75))}', "Рендер", True)
 T_VIDEOS = tile('<span class="num" style="margin:0;">8<small>568 МБ</small></span><div class="acts" style="margin-top:6px;"><span>В папке</span><span>Изменить</span></div>', "Видео")
 T_DEVICE = tile('<span class="fld" style="min-width:0;">drejk starsij</span><div class="acts" style="margin-top:6px;"><span>Переименовать</span></div>', "Устройство")
 T_MAPS = tile('<span class="num" style="margin:0;">31<small>1,1 ГБ · кэш 140 МБ</small></span><div class="acts" style="margin-top:6px;"><span>В папке</span><span class="hot">Очистить</span></div>', "Карты и кэш")
@@ -317,7 +319,7 @@ def boards():
     return out
 
 NOTES = {
-    "CcApp": ("Пункт управления · Приложение", "Плитки размером по содержимому в обе стороны, укладываются потоком слева направо; только Рендер держит ширину под ползунки. При прилипании к делению ручка вырастает на всю высоту полосы, а деление сжимается в неё — они сливаются в одну черту (120 мс)."),
+    "CcApp": ("Пункт управления · Приложение", "Плитки размером по содержимому в обе стороны, укладываются потоком слева направо; только Рендер держит ширину под ползунки. При прилипании к делению и на обоих концах полосы ручка вырастает на всю высоту, деление сжимается в неё (120 мс); у левого края название полосы переходит направо (здесь — Кадры на 30). Смена языка перепечатывает весь экран той же пишущей машинкой, что и первый запуск."),
     "CcDrag": ("Плитки · перетаскивание", "Плитку можно взять за заголовок и перенести в другую колонку: поднятая чуть наклонена и с тенью, на её месте пунктирная ячейка; порядок запоминается в настройках — своё пространство настроек."),
     "CcBot": ("Пункт управления · Бот", "То же в боте. «Бот сообщает в чат о» — какие события бот пишет в ваш Telegram: готовые рендеры, ошибки, скачанные карты, работы воркера."),
     "BentoStatic": ("Бенто · статичное", "Без подсказок и длинных строк: плитка — заголовок, значение или переключатели, одна-две кнопки. Три колонки, рендер высокий, источники широкие; ни одна плитка не раскрывается."),

@@ -1054,12 +1054,18 @@ fn reader<'a>(ground: &Ground<'a>, reading: &'a Reading) -> Element<'a, Message>
                     body.push(match block {
                         news::Block::Heading(words) => text(words.clone()).font(theme::SANS_SEMI).size(theme::LEAD + 1.0).color(ui::faded(INK)).into(),
                         news::Block::Text(words) => paragraph(words, INK, theme::BODY),
-                        news::Block::Item(words) => row![ui::mono_small("•".to_owned(), ACCENT), paragraph(words, INK, theme::BODY)].spacing(8).into(),
-                        news::Block::Quote(words) => container(paragraph(words, MUTED, theme::BODY)).padding(Padding::ZERO.left(14.0)).style(|_| container::Style {
-                            border: Border { color: Color { a: 0.6 * ui::fade(), ..ACCENT }, width: 0.0, radius: 0.0.into() },
-                            background: Some(Background::Color(Color::from_rgba(1.0, 1.0, 1.0, 0.03 * ui::fade()))),
-                            ..container::Style::default()
-                        }).into(),
+                        news::Block::Item(words) => row![text("•").font(theme::SANS_SEMI).size(theme::BODY).color(ui::faded(ACCENT)), paragraph(words, INK, theme::BODY)].spacing(10).into(),
+                        news::Block::Quote(words) => row![
+                            container(Space::new()).width(2.0).height(Length::Fill).style(|_| container::Style {
+                                background: Some(Background::Color(Color { a: 0.7 * ui::fade(), ..ACCENT })),
+                                border: Border { radius: 1.0.into(), ..Border::default() },
+                                ..container::Style::default()
+                            }),
+                            paragraph(words, MUTED, theme::BODY),
+                        ]
+                        .spacing(14)
+                        .height(Length::Shrink)
+                        .into(),
                         news::Block::Image(url) if story.image.as_deref() == Some(url.as_str()) => Space::new().height(0.0).into(),
                         news::Block::Image(url) => picture(url),
                     });

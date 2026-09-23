@@ -638,7 +638,16 @@ fn sample_news() -> crate::news::News {
             Build { stream: "Tachyon".into(), version: "2026.918.0".into(), at: NOON - 100 * 3600, url: String::new(), changes: vec![change("Improve performance when loading chat", false)] },
         ],
         stories: vec![
-            Story { title: "osu!mania 4K World Cup 2026: Semifinals Recap".into(), url: String::new(), at: NOON - 11 * 3600, lead: "A recap of the second half of the tournament.".into(), image: None, body: vec![Block::Text("A recap of the second half of the tournament.".into()), Block::Heading("osu!mania 4K World Cup 2026: Semifinals Recap".into()), Block::Text("A recap of the second half of the tournament.".into())] },
+            Story { title: "osu!mania 4K World Cup 2026: Semifinals Recap".into(), url: String::new(), at: NOON - 11 * 3600, lead: "A recap of the second half of the tournament.".into(), image: None, body: vec![
+                Block::Text("Four teams came into the last weekend before the finals, and two of them leave with a place on the final stage.".into()),
+                Block::Heading("Winners bracket".into()),
+                Block::Text("The first semifinal went the full distance: the tiebreaker was decided by a single miss in its closing stream.".into()),
+                Block::Item("South Korea 7 : 6 China".into()),
+                Block::Item("United States 7 : 3 Indonesia".into()),
+                Block::Quote("We practised the tiebreaker more than any other map in the pool, and it still nearly got away from us.".into()),
+                Block::Heading("Looking ahead".into()),
+                Block::Text("The grand finals are played next weekend, with the mappool shown on Thursday.".into()),
+            ] },
             Story { title: "New Featured Artist: Exsy".into(), url: String::new(), at: NOON - 70 * 3600, lead: "A new artist joins the Featured Artist library.".into(), image: None, body: vec![Block::Text("A new artist joins the Featured Artist library.".into()), Block::Heading("New Featured Artist: Exsy".into()), Block::Text("A new artist joins the Featured Artist library.".into())] },
             Story { title: "Project Loved: September 2026".into(), url: String::new(), at: NOON - 96 * 3600, lead: "This month's picks for Project Loved.".into(), image: None, body: vec![Block::Text("This month's picks for Project Loved.".into()), Block::Heading("Project Loved: September 2026".into()), Block::Text("This month's picks for Project Loved.".into())] },
         ],

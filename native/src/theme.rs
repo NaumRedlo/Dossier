@@ -42,11 +42,11 @@ pub const MONO_BOLD: Font = Font {
 };
 
 pub const FONTS: [&[u8]; 5] = [
-    include_bytes!("../../app/ui/fonts/Commissioner-Regular.ttf"),
-    include_bytes!("../../app/ui/fonts/Commissioner-SemiBold.ttf"),
-    include_bytes!("../../app/ui/fonts/JetBrainsMono-Regular.ttf"),
-    include_bytes!("../../app/ui/fonts/JetBrainsMono-Bold.ttf"),
-    include_bytes!("../../app/ui/fonts/MPLUSRounded1c-Regular.ttf"),
+    include_bytes!("../../assets/fonts/Commissioner-Regular.ttf"),
+    include_bytes!("../../assets/fonts/Commissioner-SemiBold.ttf"),
+    include_bytes!("../../assets/fonts/JetBrainsMono-Regular.ttf"),
+    include_bytes!("../../assets/fonts/JetBrainsMono-Bold.ttf"),
+    include_bytes!("../../assets/fonts/MPLUSRounded1c-Regular.ttf"),
 ];
 
 pub fn theme() -> Theme {

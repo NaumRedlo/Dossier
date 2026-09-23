@@ -27,12 +27,11 @@ Without any font the play still draws — the numbers simply do not.
 
 `JetBrainsMono-ExtraBold.ttf` is baked into the binary rather than read, because
 it letters the mod badges and a badge with no lettering on it is not a badge.
-`JetBrainsMono-Regular.ttf` is the application's monospace face and is here so
-that both halves ship from one folder.
-
-Only the weights the engine actually asks for live here. The application keeps
-its own copies under `app/ui/fonts/`, with the bold and semibold of Commissioner
-and M PLUS that an interface needs and a renderer does not.
+`JetBrainsMono-Regular.ttf` is the application's monospace face, and
+`Commissioner-SemiBold.ttf` the weight its headings and buttons are set in; the
+application in `native/` bakes them in from here along with Commissioner,
+JetBrains Mono Bold and M PLUS, so there is one copy of every face in the
+repository and one licence beside it.
 
 ### What was here before
 

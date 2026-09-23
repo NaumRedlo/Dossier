@@ -1,9 +1,8 @@
-# Both halves of this repository, on every push.
+# The engine and the application, on every push.
 #
-# The engine and the client are one thing to the person running a worker: they
-# `git pull` and `cargo build` and expect the result to work. So a change to
-# either has to be checked against both, and the release workflow refuses to
-# ship anything this has not passed.
+# The application links the engine in, so a change to either has to be checked
+# against both: the engine's own tests on the three systems, the application's
+# frames and clicks on the same three.
 name: ci
 
 on:
@@ -33,38 +32,19 @@ jobs:
       - run: cargo build --release
       - run: cargo test --release
 
-  client:
-    name: client (python ${{ matrix.python }})
+  tools:
+    name: tools (python)
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        # The floor the package declares, and current. A worker installs on
-        # whatever Python is already on the machine.
-        python: ["3.10", "3.13"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python }}
-      # The skin store converts a skin's samples with ffmpeg, and the tests
-      # for it build their fixtures the same way. Without it here those five
-      # skip, and the conversion — a thing that has broken twice — goes
-      # unchecked on every run.
-      - run: sudo apt-get update && sudo apt-get install -y ffmpeg
-      - run: pip install -e "./client[dev]"
-      - run: python -m pytest -q
-        working-directory: client
-      # The pinned one from `[dev]`, already installed above — not a fresh
-      # `pip install ruff`, which is how a clean tree came back with sixty-nine
-      # findings on a morning nobody had changed a line.
-      #
-      # From the root, so `client` and `tools` are held to the one policy in
-      # `ruff.toml`. Once rather than per Python: it reads the source and does
-      # not run it, so three interpreters would give the same answer three
-      # times.
-      - if: matrix.python == '3.13'
-        run: ruff check .
+          python-version: "3.13"
+      # The same pin the Python bridge carried while it lived here, so the
+      # scripts under `tools/` are held to the policy in `ruff.toml` by the
+      # linter that wrote it rather than whichever one is newest this morning.
+      - run: pip install "ruff~=0.15.0"
+      - run: ruff check .
 
   native:
     name: native (${{ matrix.os }})

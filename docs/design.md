@@ -788,6 +788,16 @@ it; `--skin-room` opens the skins window; `DOSSIER_WINDOW=820x570` opens the
 window at that size, for the small-window cases. The corpus is the
 rehearsal stage.
 
+**One application.** On 2026-09-23 the web application in `app/` (Tauri) and
+the Python bridge and terminal worker in `client/` left the repository: the
+native application is the whole product now. The worker release that froze
+`client/` into `dossier-worker` went with them, with its `packaging/` notes, and
+CI checks the engine, the application and the Python scripts under `tools/`.
+The faces the application bakes in come from `assets/fonts/`, where the one
+weight only `app/` carried, Commissioner SemiBold, was brought across. The
+engine's mod pictograms and the tool that drew them went the same day: a mod
+is its acronym on a coloured plate, as the game's own badges read.
+
 **Skins are hunted, and an .osk is taken in.** The panel lists the folders it
 knows — the clients' own Skins folders, the application's, and whatever was
 added by hand. The walk across the machine looks for archives alone (settled

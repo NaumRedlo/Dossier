@@ -33,9 +33,8 @@ it builds on a Raspberry Pi as readily as on a laptop.
 | `crates/dossier-produce` | the scene: finding the map and the skin, drawing it, encoding it |
 | `crates/dossier-exhibit` | picking the moments worth showing |
 | `crates/dossier-cli` | the `dossier` program |
-| `app/` | the desktop application — the engine linked in, with a window |
-| `client/` | the Python bridge, and the terminal render client |
-| `tools/` | the harnesses: danser's own judge, the corpus, the mod badges |
+| `native/` | the application — the engine linked in, with a window |
+| `tools/` | the harnesses: danser's own judge and the corpus |
 
 A replay file records where the cursor was and which buttons were down. It does
 **not** record what each click hit — that has to be reconstructed, and doing so
@@ -95,11 +94,11 @@ That writes `target/release/dossier`. Try it on a replay:
 ./target/release/dossier judge path/to/replay.osr
 ```
 
-The desktop application is its own workspace, because Tauri brings several
-hundred crates and the engine's tests should not have to look at them:
+The application is its own workspace, because a window brings several hundred
+crates and the engine's tests should not have to look at them:
 
 ```
-cd app && cargo run
+cd native && cargo run --release
 ```
 
 ## CLI
@@ -129,43 +128,22 @@ of why the claim above about a Raspberry Pi is a fact rather than a hope.
 
 The bot at [NaumRedlo/1984](https://github.com/NaumRedlo/1984) takes render
 requests from a chat and hands them out to whoever is offering a machine. The
-desktop application in `app/` is the friendly side of that; the render client in
-`client/` is the same thing in a terminal. It polls, claims a job, renders it and
-uploads the video. It needs two lines in `~/.dossier/worker.env`:
-
-```
-RENDER_SERVER=https://onenineeightfour.ignorelist.com
-RENDER_WORKER_TOKEN=...
-```
-
-and then:
-
-```
-python client/worker.py --check    # says what is and is not ready
-python client/worker.py            # then run it
-```
-
-`--check` answers every question at once instead of one failure at a time, and
-it reaches the bot without claiming anybody's replay.
-
-It pulls rather than listens, so nothing has to be reachable from outside: no
-port is opened and the address may move. How hard it works is not the client's
-decision either — it reads the battery, the energy mode, whether anyone is at
-the keyboard and whether the machine is hot, and will refuse work rather than
-make a laptop unpleasant to sit in front of.
-
-Windows, macOS and Linux, including ARM.
+application in `native/` is the way in: it pairs with the bot, sends finished
+videos to a chat, and is where a machine will offer itself as a worker.
 
 ## Licence, and what in here is not ours
 
 The code is **AGPL-3.0-only**. See [LICENSE](LICENSE).
 
-Two sets of files in this repository are somebody else's work and keep their own
+Some files in this repository are somebody else's work and keep their own
 terms:
 
 - **The typefaces.** Varela Round, Commissioner, M PLUS Rounded 1c and JetBrains
   Mono, all under the SIL Open Font License 1.1, each with its licence text
   beside it in `assets/fonts/`.
-- **The mod badges.** Twenty-four drawings from [SVG Repo](https://www.svgrepo.com).
-  [`assets/mods/README.md`](assets/mods/README.md) names the author of every one
-  of them, and so does the application, on its authorship page.
+- **The application's marks.** The system logos from Simple Icons (CC0 1.0), the
+  flags from flag-icons (MIT) and the player's glyphs from Lucide (ISC), each
+  with a note beside it in `native/assets/`.
+
+Mod badges are the mods' own names on a coloured plate, drawn by the engine;
+there are no pictures of them any more.

@@ -370,15 +370,21 @@ pub fn skin_face(folder: &Path) -> Option<PathBuf> {
 use dossier_render::elements::{Element, Verdict};
 use dossier_render::imported::Sprites;
 
-const PATTERN_PARTS: [Element; 9] = [
+const PATTERN_PARTS: [Element; 15] = [
     Element::HitCircle,
     Element::HitCircleOverlay,
+    Element::SliderHead,
+    Element::SliderHeadOverlay,
+    Element::SliderTail,
+    Element::SliderTailOverlay,
     Element::ApproachCircle,
     Element::Cursor,
+    Element::CursorMiddle,
     Element::CursorTrail,
     Element::Digit(1),
     Element::Digit(2),
     Element::Digit(3),
+    Element::Digit(4),
     Element::Verdict(Verdict::Three),
 ];
 
@@ -491,6 +497,7 @@ fn drawn_circle(side: u32, body: Option<[u8; 3]>, thin: f32) -> image::RgbaImage
 
 const FIELD: (f32, f32, f32, f32) = (0.0, 36.0, 512.0, 356.0);
 const NOTE_RADIUS: f32 = 42.0;
+const CURSOR_SCALE: f32 = 0.72;
 
 fn slider_road(under: &mut image::RgbaImage, road: &[(f32, f32)], radius: f32, border: [u8; 3], scale: impl Fn(f32, f32) -> (f32, f32)) {
     let points: Vec<(f32, f32)> = road.iter().map(|(x, y)| scale(*x, *y)).collect();
@@ -563,10 +570,25 @@ fn slider_rim(folder: Option<&Path>) -> [u8; 3] {
     [255, 255, 255]
 }
 
+#[derive(Clone, Copy, PartialEq)]
+enum Face {
+    Note,
+    Head,
+    Tail,
+}
+
 pub fn skin_pattern(folder: Option<&Path>, wide: u32, high: u32) -> Vec<u8> {
     let mut made = image::RgbaImage::new(wide, high);
     let sprites = folder.map(skin_sprites);
+    let speaks = |element: Element| sprites.as_ref().is_some_and(|have| !have.draw_ourselves(element));
     let part = |element: Element| sprites.as_ref().and_then(|have| sprite_of(have, element));
+    let natural = |element: Element| {
+        sprites
+            .as_ref()
+            .and_then(|have| have.get(element))
+            .map(|sprite| sprite.pixmap.width().max(sprite.pixmap.height()) as f32 / sprite.scale.max(1.0))
+    };
+    let above_number = sprites.as_ref().is_none_or(|have| have.ini().overlay_above_number);
     let colours = folder.map(combo_colours).unwrap_or_default();
     let fallback: Vec<[u8; 3]> = dossier_beatmap::DEFAULT_COMBO_COLOURS.iter().map(|c| [c.r, c.g, c.b]).collect();
     let mine = |at: usize| -> Option<[u8; 3]> {
@@ -587,48 +609,72 @@ pub fn skin_pattern(folder: Option<&Path>, wide: u32, high: u32) -> Vec<u8> {
     let rim = slider_rim(folder);
     slider_road(&mut made, &[(132.0, 300.0), (420.0, 300.0)], radius, rim, place);
     slider_road(&mut made, &[(190.0, 206.0), (276.0, 206.0)], radius, rim, place);
+    let face_of = |face: Face| -> Option<(Element, Element)> {
+        let own = match face {
+            Face::Note => None,
+            Face::Head => Some((Element::SliderHead, Element::SliderHeadOverlay)),
+            Face::Tail => Some((Element::SliderTail, Element::SliderTailOverlay)),
+        };
+        if let Some(pair) = own.filter(|pair| speaks(pair.0)) {
+            return Some(pair);
+        }
+        speaks(Element::HitCircle).then_some((Element::HitCircle, Element::HitCircleOverlay))
+    };
     let notes = [
-        (150.0, 112.0, Some(1u8), 0usize, None),
-        (246.0, 112.0, Some(2), 0, None),
-        (342.0, 112.0, Some(3), 0, None),
-        (438.0, 112.0, Some(4), 0, Some(1.55)),
-        (132.0, 300.0, Some(1), 1, None),
-        (420.0, 300.0, None, 1, None),
-        (190.0, 206.0, Some(2), 1, None),
-        (276.0, 206.0, None, 1, None),
+        (150.0, 112.0, Some(1u8), 0usize, None, Face::Note),
+        (246.0, 112.0, Some(2), 0, None, Face::Note),
+        (342.0, 112.0, Some(3), 0, None, Face::Note),
+        (438.0, 112.0, Some(4), 0, Some(1.55), Face::Note),
+        (132.0, 300.0, Some(1), 1, None, Face::Head),
+        (420.0, 300.0, None, 1, None, Face::Tail),
+        (190.0, 206.0, Some(2), 1, None, Face::Head),
+        (276.0, 206.0, None, 1, None, Face::Tail),
     ];
-    for (x, y, number, combo, approach) in notes {
+    for (x, y, number, combo, approach, face) in notes {
         let (cx, cy) = place(x, y);
         let body = mine(combo);
-        match part(Element::HitCircle) {
-            Some(drawing) => {
-                let drawing = match body {
-                    Some(colour) => image::DynamicImage::ImageRgba8(tinted(drawing.to_rgba8(), colour)),
-                    None => drawing,
-                };
-                laid_at(&mut made, &drawing, (radius * 2.0) as u32, cx, cy, 1.0);
+        let tinted_part = |element: Element| {
+            part(element).map(|drawing| match body {
+                Some(colour) => image::DynamicImage::ImageRgba8(tinted(drawing.to_rgba8(), colour)),
+                None => drawing,
+            })
+        };
+        match face_of(face) {
+            Some((disc, overlay)) => {
+                if let Some(drawing) = tinted_part(disc) {
+                    laid_at(&mut made, &drawing, (radius * 2.0) as u32, cx, cy, 1.0);
+                }
+                let over = part(overlay);
+                if !above_number {
+                    if let Some(over) = &over {
+                        laid_at(&mut made, over, (radius * 2.0) as u32, cx, cy, 1.0);
+                    }
+                }
+                if let Some(number) = number {
+                    if let (Some(drawing), Some(size)) = (part(Element::Digit(number)), natural(Element::Digit(number))) {
+                        laid_at(&mut made, &drawing, (size * radius / 64.0 * 0.8).max(4.0) as u32, cx, cy, 1.0);
+                    }
+                }
+                if above_number {
+                    if let Some(over) = &over {
+                        laid_at(&mut made, over, (radius * 2.0) as u32, cx, cy, 1.0);
+                    }
+                }
             }
+            None if face == Face::Tail => {}
             None => {
                 let own = image::DynamicImage::ImageRgba8(drawn_circle((radius * 4.0) as u32, Some(body.unwrap_or([255, 192, 0])), 0.22));
                 laid_at(&mut made, &own, (radius * 2.0) as u32, cx, cy, 1.0);
             }
         }
-        if let Some(over) = part(Element::HitCircleOverlay) {
-            laid_at(&mut made, &over, (radius * 2.0) as u32, cx, cy, 1.0);
-        }
-        if let Some(drawing) = number.and_then(|number| part(Element::Digit(number))) {
-            laid_at(&mut made, &drawing, (radius * 0.8) as u32, cx, cy, 1.0);
-        }
         if let Some(reach) = approach {
-            match part(Element::ApproachCircle) {
-                Some(drawing) => {
-                    let drawing = match body {
-                        Some(colour) => image::DynamicImage::ImageRgba8(tinted(drawing.to_rgba8(), colour)),
-                        None => drawing,
-                    };
-                    laid_at(&mut made, &drawing, (radius * 2.0 * reach) as u32, cx, cy, 0.85);
+            match speaks(Element::ApproachCircle) {
+                true => {
+                    if let Some(drawing) = tinted_part(Element::ApproachCircle) {
+                        laid_at(&mut made, &drawing, (radius * 2.0 * reach) as u32, cx, cy, 0.85);
+                    }
                 }
-                None => {
+                false => {
                     let ring = image::DynamicImage::ImageRgba8(drawn_circle((radius * 4.0) as u32, None, 0.045));
                     laid_at(&mut made, &ring, (radius * 2.0 * reach) as u32, cx, cy, 0.85);
                 }
@@ -636,15 +682,23 @@ pub fn skin_pattern(folder: Option<&Path>, wide: u32, high: u32) -> Vec<u8> {
         }
     }
     let (hand_x, hand_y) = place(70.0, 176.0);
-    if let Some(trail) = part(Element::CursorTrail) {
+    let on_screen = |element: Element| natural(element).map(|size| (size * scale * CURSOR_SCALE).max(3.0) as u32);
+    if let (Some(trail), Some(size)) = (part(Element::CursorTrail), on_screen(Element::CursorTrail)) {
         for (step, away) in [(1.0, 0.42), (2.0, 0.28), (3.0, 0.18), (4.0, 0.1)] {
             let (tx, ty) = place(70.0 + 4.0 * step, 176.0 + 32.0 * step);
-            laid_at(&mut made, &trail, (radius * 0.9) as u32, tx, ty, away);
+            laid_at(&mut made, &trail, size, tx, ty, away);
         }
     }
-    match part(Element::Cursor) {
-        Some(drawing) => laid_at(&mut made, &drawing, (radius * 1.2) as u32, hand_x, hand_y, 1.0),
-        None => {
+    match speaks(Element::Cursor) {
+        true => {
+            if let (Some(drawing), Some(size)) = (part(Element::Cursor), on_screen(Element::Cursor)) {
+                laid_at(&mut made, &drawing, size, hand_x, hand_y, 1.0);
+            }
+            if let (Some(middle), Some(size)) = (part(Element::CursorMiddle), on_screen(Element::CursorMiddle)) {
+                laid_at(&mut made, &middle, size, hand_x, hand_y, 1.0);
+            }
+        }
+        false => {
             let dot = image::DynamicImage::ImageRgba8(drawn_circle((radius * 2.0) as u32, Some([255, 255, 255]), 0.42));
             laid_at(&mut made, &dot, (radius * 0.62) as u32, hand_x, hand_y, 1.0);
         }

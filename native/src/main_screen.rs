@@ -102,7 +102,8 @@ pub enum Message {
     PlayerSpeed(f32),
     PlayerLoop,
     PlayerWiden,
-    PlayerStir,
+    PlayerStir(iced::Point),
+    ControlsHover(bool),
     PlayerNeighbour(i32),
     Typed(char),
     RevealVideo,
@@ -274,6 +275,10 @@ pub struct Main {
     pub scrubbing: Option<f32>,
     pub controls: Animation<bool>,
     pub ask_fade: Animation<bool>,
+    pub stage_open: Animation<bool>,
+    pub leaving_player: bool,
+    pub pointer: Option<iced::Point>,
+    pub over_controls: bool,
     pub stirred: Instant,
     pub hint: Option<(String, Instant)>,
     pub notices: notices::Queue,
@@ -382,6 +387,10 @@ impl Main {
             scrubbing: None,
             controls: Animation::new(true).duration(CONTROLS_FADE).easing(Easing::EaseOutCubic),
             ask_fade: Animation::new(false).duration(CINEMA).easing(Easing::EaseOutCubic),
+            stage_open: Animation::new(false).duration(STAGE_OPEN).easing(Easing::EaseOutCubic),
+            leaving_player: false,
+            pointer: None,
+            over_controls: false,
             stirred: Instant::now(),
             hint: None,
             notices: notices::Queue::load(),
@@ -506,7 +515,9 @@ impl Main {
             || self.lifts.values().any(|l| l.is_animating(self.now))
             || self.player.as_ref().is_some_and(|p| !p.borrow().paused)
             || self.cinema.is_animating(self.now)
-            || self.cinema.value() != self.player.is_some()
+            || self.cinema.value() != (self.player.is_some() && !self.leaving_player)
+            || self.stage_open.is_animating(self.now)
+            || self.leaving_player
             || self.controls.is_animating(self.now)
             || self.ask_fade.is_animating(self.now)
             || self.ask_fade.value() != self.asking_delete
@@ -1090,9 +1101,17 @@ impl Main {
                 let Some(ffmpeg) = &self.ffmpeg else {
                     return Task::none();
                 };
+                let fresh = self.player.is_none() || self.leaving_player;
                 if let Some(old) = self.player.take() {
                     old.borrow_mut().close();
                 }
+                self.leaving_player = false;
+                if fresh {
+                    self.stage_open = Animation::new(false).duration(STAGE_OPEN).easing(Easing::EaseOutCubic).go(true, Instant::now());
+                }
+                self.stirred = Instant::now();
+                self.over_controls = false;
+                self.controls = Animation::new(true).duration(CONTROLS_IN).easing(Easing::EaseOutCubic);
                 let manner = player::Manner {
                     level: self.settings.player_level,
                     muted: self.settings.player_muted,
@@ -1107,16 +1126,19 @@ impl Main {
                 Task::none()
             }
             Message::ClosePlayer => {
-                if let Some(player) = self.player.take() {
-                    player.borrow_mut().close();
+                if self.player.is_none() || self.leaving_player {
+                    return Task::none();
                 }
-                self.open_video = None;
-                self.asking_delete = false;
-                self.scrubbing = None;
-                self.hint = None;
+                if let Some(player) = &self.player {
+                    let mut player = player.borrow_mut();
+                    if !player.paused {
+                        player.toggle();
+                    }
+                }
                 let now = Instant::now();
+                self.leaving_player = true;
+                self.stage_open.go_mut(false, now);
                 self.cinema.go_mut(false, now);
-                self.widened.go_mut(false, now);
                 Task::none()
             }
             Message::PlayerToggle => {
@@ -1202,11 +1224,23 @@ impl Main {
                 self.say(format!("×{}", self.words.rate(rate)));
                 Task::none()
             }
-            Message::PlayerStir => {
+            Message::PlayerStir(at) => {
+                let moved = self.pointer.is_none_or(|was| (was.x - at.x).abs() + (was.y - at.y).abs() > 4.0);
+                self.pointer = Some(at);
+                if !moved {
+                    return Task::none();
+                }
                 let now = Instant::now();
                 self.stirred = now;
                 if !self.controls.value() {
-                    self.controls.go_mut(true, now);
+                    self.show_controls(true, now);
+                }
+                Task::none()
+            }
+            Message::ControlsHover(over) => {
+                self.over_controls = over;
+                if over && !self.controls.value() {
+                    self.show_controls(true, Instant::now());
                 }
                 Task::none()
             }
@@ -1719,7 +1753,10 @@ impl Main {
                 if self.hint.as_ref().is_some_and(|(_, since)| now.saturating_duration_since(*since) > HINT_SHOWN) {
                     self.hint = None;
                 }
-                let watching = self.player.is_some();
+                if self.leaving_player && !self.stage_open.is_animating(now) {
+                    self.finish_closing();
+                }
+                let watching = self.player.is_some() && !self.leaving_player;
                 if self.cinema.value() != watching {
                     self.cinema.go_mut(watching, now);
                 }
@@ -1727,9 +1764,9 @@ impl Main {
                     self.ask_fade.go_mut(self.asking_delete, now);
                 }
                 let resting = self.player.as_ref().is_some_and(|p| p.borrow().paused);
-                let shown = resting || self.scrubbing.is_some() || now.saturating_duration_since(self.stirred) < CONTROLS_STAY;
+                let shown = resting || self.scrubbing.is_some() || self.over_controls || now.saturating_duration_since(self.stirred) < CONTROLS_STAY;
                 if watching && self.controls.value() != shown {
-                    self.controls.go_mut(shown, now);
+                    self.show_controls(shown, now);
                 }
                 if !watching && self.widened.value() {
                     self.widened.go_mut(false, now);
@@ -1860,6 +1897,28 @@ impl Main {
                 }
             }
         }
+    }
+
+    fn show_controls(&mut self, shown: bool, now: Instant) {
+        let at = self.controls.interpolate(0.0, 1.0, now);
+        let span = if shown { CONTROLS_IN } else { CONTROLS_OUT };
+        let left = if shown { 1.0 - at } else { at };
+        self.controls = Animation::new(!shown)
+            .duration(span.mul_f32(left.clamp(0.2, 1.0)))
+            .easing(if shown { Easing::EaseOutCubic } else { Easing::EaseInOutCubic })
+            .go(shown, now);
+    }
+
+    fn finish_closing(&mut self) {
+        if let Some(player) = self.player.take() {
+            player.borrow_mut().close();
+        }
+        self.leaving_player = false;
+        self.open_video = None;
+        self.asking_delete = false;
+        self.over_controls = false;
+        self.pointer = None;
+        self.shut_cinema();
     }
 
     fn shut_cinema(&mut self) {
@@ -2588,9 +2647,14 @@ impl Main {
                 .into()
         };
         let sheet = column![Space::new().height(theme::CONTROL_HEIGHT + 4.0 + 22.0), page].width(Length::Fill).height(Length::Fill);
+        let opened = self.stage_open.interpolate(0.0, 1.0, self.now);
         let stage: Element<'_, Message> = match (&self.player, self.open_video.and_then(|at| self.store.videos.get(at))) {
-            (Some(player), Some(video)) => self.stage(&player.borrow(), video),
+            (Some(player), Some(video)) if opened > 0.001 => ui::fading(ui::fade() * opened, || self.stage(&player.borrow(), video)),
             _ => Space::new().width(Length::Fill).height(Length::Fill).into(),
+        };
+        let sheet: Element<'_, Message> = match self.player.is_some() && opened >= 0.999 {
+            true => Space::new().width(Length::Fill).height(Length::Fill).into(),
+            false => sheet.into(),
         };
         let watching = 1.0 - self.cinema.interpolate(0.0, 1.0, self.now);
         let crest: Element<'_, Message> = match watching > 0.001 {
@@ -2771,8 +2835,8 @@ impl Main {
                 alpha: ui::fade(),
                 on: Box::new(Message::PlayerSpeed),
             })
-            .width(132.0)
-            .height(40.0),
+            .width(84.0)
+            .height(28.0),
             ui::control_button(sound, 16.0, Some(Message::PlayerMute), self.settings.player_muted),
             container(level).padding(Padding::ZERO.right(4.0)),
             ui::control_button(ui::Control::Over, 16.0, Some(Message::PlayerLoop), self.settings.player_loop),
@@ -2798,7 +2862,11 @@ impl Main {
                     .width(Length::Fill)
                     .padding(Padding { top: 12.0, right: 10.0, bottom: 4.0, left: 10.0 })
                     .style(theme::under_picture(ui::fade()));
-                container(ui::grown(under_picture, iced::Point::new(0.5, 1.0), -(1.0 - out) * 14.0, 1.0))
+                let held = mouse_area(under_picture)
+                    .on_enter(Message::ControlsHover(true))
+                    .on_exit(Message::ControlsHover(false))
+                    .on_press(Message::ControlsHover(true));
+                container(ui::grown(held, iced::Point::new(0.5, 1.0), -(1.0 - out) * 12.0, 1.0))
                     .width(Length::Fill)
                     .height(Length::Fill)
                     .align_y(iced::alignment::Vertical::Bottom)
@@ -2806,6 +2874,7 @@ impl Main {
             }),
             false => Space::new().width(Length::Fill).height(Length::Fill).into(),
         };
+        let hidden_pointer = playing && out < 0.01 && !self.asking_delete;
         let screen = mouse_area(
             container(stack![picture, mark, hint, controls].width(screen_w).height(screen_h))
                 .width(screen_w)
@@ -2813,9 +2882,10 @@ impl Main {
                 .style(ui::box_faded(theme::screen))
                 .clip(true),
         )
+        .interaction(if hidden_pointer { iced::mouse::Interaction::Hidden } else { iced::mouse::Interaction::Idle })
         .on_press(Message::PlayerToggle)
         .on_double_click(Message::PlayerWiden)
-        .on_move(|_| Message::PlayerStir)
+        .on_move(Message::PlayerStir)
         .on_scroll(|delta| {
             let up = match delta {
                 iced::mouse::ScrollDelta::Lines { y, .. } => y,
@@ -2847,9 +2917,9 @@ impl Main {
         };
         let buttons = row![
             ui::grow(),
-            ui::quiet(w.t("in-folder"), Some(Message::RevealVideo)),
-            ui::quiet(w.t("delete"), Some(Message::AskDelete)),
-            telegram,
+            ui::springy(ui::quiet(w.t("in-folder"), Some(Message::RevealVideo)), 0.04),
+            ui::springy(ui::quiet(w.t("delete"), Some(Message::AskDelete)), 0.04),
+            ui::springy(telegram, 0.03),
         ]
         .spacing(6)
         .align_y(iced::Center);
@@ -2870,12 +2940,10 @@ impl Main {
                     .clip(true),
             );
         }
-        let card = container(inside)
-            .width(screen_w + 2.0 * PICTURE_INSET)
-            .height(screen_h + STAGE_TOP + under_h)
-            .style(ui::box_faded(theme::stage))
-            .clip(true);
-        let backdrop = mouse_area(ui::veil(theme::SCRIM)).on_press(Message::ClosePlayer);
+        let card = container(inside).width(screen_w + 2.0 * PICTURE_INSET).height(screen_h + STAGE_TOP + under_h);
+        let backdrop = mouse_area(ui::veil(theme::CINEMA_SCRIM)).on_press(Message::ClosePlayer);
+        let opened = self.stage_open.interpolate(0.0, 1.0, self.now);
+        let card = ui::grown(card, iced::Point::new(0.5, 0.5), -(1.0 - opened) * 14.0, 0.965 + 0.035 * opened);
         stack![backdrop, container(card).width(Length::Fill).height(Length::Fill).center(Length::Fill)]
             .width(Length::Fill)
             .height(Length::Fill)
@@ -3940,6 +4008,9 @@ pub const CINEMA: Duration = Duration::from_millis(220);
 pub const WIDEN: Duration = Duration::from_millis(260);
 pub const HINT_SHOWN: Duration = Duration::from_millis(900);
 pub const CONTROLS_FADE: Duration = Duration::from_millis(260);
+pub const CONTROLS_IN: Duration = Duration::from_millis(180);
+pub const CONTROLS_OUT: Duration = Duration::from_millis(460);
+pub const STAGE_OPEN: Duration = Duration::from_millis(280);
 pub const CONTROLS_STAY: Duration = Duration::from_secs(3);
 pub const OVERLAY_FADE: Duration = Duration::from_millis(220);
 pub const GROUND_UP: Duration = Duration::from_millis(110);
@@ -4006,7 +4077,6 @@ impl Main {
 }
 const STAGE_GAP: f32 = 40.0;
 const STAGE_UNDER: f32 = 62.0;
-const STAGE_KEYS: f32 = 86.0;
 const STAGE_TOP: f32 = 66.0;
 const ROOM_TOP: f32 = 62.0;
 const ROOM_SIDE: f32 = 16.0;

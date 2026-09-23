@@ -465,7 +465,11 @@ refused past Telegram's size. The account tab shows the worker line as
 the bot has no endpoint for them yet.
 
 The player is a window, not a panel (reworked 2026-09-23, after the first
-build let the picture run to the card's edges). A title bar carries the
+build let the picture run to the card's edges); later the same day the card
+around it went too, so the title, the cross and the buttons stand in the air
+over a near-black scrim, the list behind is not drawn at all once the window
+is open, and the window rises and settles in over 280 ms and sinks away the
+same way when closed — the sound stops at once, the picture fades after. A title bar carries the
 player's name with its mods beside it and the map under, the close cross at
 its right, both edges lined up with the picture's own; the video sits
 inside its own frame, inset 14 px on every side, rounded and on a ground
@@ -495,7 +499,10 @@ resampled into a fraction of one.
 The speed is a compass, not a button (2026-09-23): a rule of small and larger
 ticks with the speed above the mark it points at, dragged or clicked to a
 step, and the steps come round again, so ×2 leads back to ×0,5 — before, the
-last step was a wall and the speed could not be brought back. While the player is open the top row steps aside, and it comes
+last step was a wall and the speed could not be brought back. A paused player
+stays paused through a change of speed or a seek, with its sound stream
+opened paused as well; it used to start the sound at once, so that on play
+the sound ran ahead of the picture by as much as the speed had moved it. While the player is open the top row steps aside, and it comes
 back the moment the player goes, whichever way it goes — closed, deleted, or
 left behind by another catalogue — because the fade now follows whether a
 player exists at all rather than a flag set by one path (fixed 2026-09-23,
@@ -814,7 +821,12 @@ and never tall; the first cell is the engine's own skin, *Dossier Default*.
 prepared pattern, laid out in the playfield's own coordinates (settled
 2026-09-23): four circles in a row with the approach circle on the last, one
 long slider and one short one, both straight — a dark body inside the skin's
-own border colour, the head numbered and the tail plain, as in the game — and
+own border colour, the head numbered and the tail plain, as in the game, each circle
+chosen as the engine chooses it: `sliderstartcircle` and `sliderendcircle`
+when the skin speaks for them, a blank one meaning nothing is drawn, the
+hit circle otherwise, and no circle at all at a tail when the skin says
+nothing of circles; the overlay above or below the number as `skin.ini`
+asks; the cursor with its `cursormiddle`, both at their own size — and
 the cursor going up the left side, with its trail behind it only when the
 skin carries one, since a trail the application invents says nothing about
 the skin; so two skins can be told apart at a glance; choosing one there chooses it everywhere. The circle is tinted only

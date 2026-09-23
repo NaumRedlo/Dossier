@@ -267,6 +267,7 @@ pub const MOD_AUTO: Color = color!(0x5694d6);
 pub const MOD_OTHER: Color = color!(0x9668ce);
 
 pub const SCRIM: Color = Color::from_rgba(0.027, 0.012, 0.016, 0.72);
+pub const CINEMA_SCRIM: Color = Color::from_rgba(0.012, 0.006, 0.009, 0.97);
 pub const DEEP_SCRIM: Color = Color::from_rgba(0.016, 0.008, 0.011, 0.92);
 pub const CHIP: Color = Color::from_rgba(0.027, 0.012, 0.016, 0.72);
 

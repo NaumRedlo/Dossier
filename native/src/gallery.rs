@@ -487,6 +487,7 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
         67_000,
     ))));
     playing.cinema = iced::Animation::new(true);
+    playing.stage_open = iced::Animation::new(true);
     playing.settings.player_level = 0.8;
     let mut playing_wide = playing.clone();
     playing_wide.widened = iced::Animation::new(true);

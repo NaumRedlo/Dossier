@@ -73,7 +73,7 @@ impl Player {
             procs: Arc::new(Mutex::new(Vec::new())),
             ended: false,
         };
-        player.start(0);
+        player.start(0, false);
         player
     }
 
@@ -153,11 +153,7 @@ impl Player {
         let held = self.paused;
         self.rate = rate;
         self.stop_streams();
-        self.start(at);
-        if held {
-            self.paused = true;
-            self.hold.store(true, Ordering::Relaxed);
-        }
+        self.start(at, held);
     }
 
     pub fn pull(&mut self) {
@@ -186,7 +182,7 @@ impl Player {
 
     pub fn toggle(&mut self) {
         if self.ended {
-            self.seek(0);
+            self.go(0, false);
             return;
         }
         self.paused = !self.paused;
@@ -201,7 +197,7 @@ impl Player {
     }
 
     pub fn seek(&mut self, to_ms: i64) {
-        self.go(to_ms, false);
+        self.go(to_ms, self.paused && !self.ended);
     }
 
     pub fn seek_by(&mut self, delta_ms: i64) {
@@ -217,12 +213,8 @@ impl Player {
         let to = to_ms.clamp(0, self.length_ms.max(0));
         self.stop_streams();
         self.ended = false;
-        self.paused = held;
         self.at_ms.store(to, Ordering::Relaxed);
-        self.start(to);
-        if held {
-            self.hold.store(true, Ordering::Relaxed);
-        }
+        self.start(to, held);
     }
 
     pub fn close(&mut self) {
@@ -242,13 +234,14 @@ impl Player {
         }
     }
 
-    fn start(&mut self, from_ms: i64) {
+    fn start(&mut self, from_ms: i64, held: bool) {
         self.stop = Arc::new(AtomicBool::new(false));
-        self.hold = Arc::new(AtomicBool::new(false));
+        self.hold = Arc::new(AtomicBool::new(held));
+        self.paused = held;
         let (tx, rx) = sync_channel(2);
         self.frames = rx;
         self.spawn_video(from_ms, tx);
-        self.sound = self.spawn_sound(from_ms);
+        self.sound = self.spawn_sound(from_ms, held);
     }
 
     fn spawn_video(&self, from_ms: i64, tx: SyncSender<(i64, Vec<u8>)>) {
@@ -313,7 +306,7 @@ impl Player {
         });
     }
 
-    fn spawn_sound(&self, from_ms: i64) -> Option<Sound> {
+    fn spawn_sound(&self, from_ms: i64, held: bool) -> Option<Sound> {
         let host = cpal::default_host();
         let device = host.default_output_device()?;
         let config = device.default_output_config().ok()?;
@@ -395,7 +388,10 @@ impl Player {
                 None,
             )
             .ok()?;
-        stream.play().ok()?;
+        match held {
+            true => stream.pause().ok()?,
+            false => stream.play().ok()?,
+        }
         Some(Sound { _stream: stream })
     }
 }

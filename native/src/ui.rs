@@ -1353,6 +1353,146 @@ impl<'a, Message: 'a> From<Grown<'a, Message>> for Element<'a, Message> {
     }
 }
 
+pub struct Springy<'a, Message> {
+    content: Element<'a, Message>,
+    reach: f32,
+}
+
+#[derive(Debug, Default)]
+struct SpringState {
+    hover: f32,
+    press: f32,
+    over: bool,
+    held: bool,
+}
+
+pub fn springy<'a, Message: 'a>(content: impl Into<Element<'a, Message>>, reach: f32) -> Springy<'a, Message> {
+    Springy { content: content.into(), reach }
+}
+
+impl<Message> iced::advanced::Widget<Message, Theme, Renderer> for Springy<'_, Message> {
+    fn tag(&self) -> iced::advanced::widget::tree::Tag {
+        iced::advanced::widget::tree::Tag::of::<SpringState>()
+    }
+
+    fn state(&self) -> iced::advanced::widget::tree::State {
+        iced::advanced::widget::tree::State::new(SpringState::default())
+    }
+
+    fn children(&self) -> Vec<iced::advanced::widget::Tree> {
+        vec![iced::advanced::widget::Tree::new(&self.content)]
+    }
+
+    fn diff(&self, tree: &mut iced::advanced::widget::Tree) {
+        tree.diff_children(std::slice::from_ref(&self.content));
+    }
+
+    fn size(&self) -> Size<Length> {
+        self.content.as_widget().size()
+    }
+
+    fn layout(
+        &mut self,
+        tree: &mut iced::advanced::widget::Tree,
+        renderer: &Renderer,
+        limits: &iced::advanced::layout::Limits,
+    ) -> iced::advanced::layout::Node {
+        self.content.as_widget_mut().layout(&mut tree.children[0], renderer, limits)
+    }
+
+    fn operate(
+        &mut self,
+        tree: &mut iced::advanced::widget::Tree,
+        layout: iced::advanced::Layout<'_>,
+        renderer: &Renderer,
+        operation: &mut dyn iced::advanced::widget::Operation,
+    ) {
+        self.content.as_widget_mut().operate(&mut tree.children[0], layout, renderer, operation);
+    }
+
+    fn update(
+        &mut self,
+        tree: &mut iced::advanced::widget::Tree,
+        event: &iced::Event,
+        layout: iced::advanced::Layout<'_>,
+        cursor: mouse::Cursor,
+        renderer: &Renderer,
+        clipboard: &mut dyn iced::advanced::Clipboard,
+        shell: &mut iced::advanced::Shell<'_, Message>,
+        viewport: &Rectangle,
+    ) {
+        self.content.as_widget_mut().update(&mut tree.children[0], event, layout, cursor, renderer, clipboard, shell, viewport);
+        let state = tree.state.downcast_mut::<SpringState>();
+        let over = cursor.is_over(layout.bounds());
+        match event {
+            iced::Event::Mouse(mouse::Event::CursorMoved { .. }) if over != state.over => {
+                state.over = over;
+                shell.request_redraw();
+            }
+            iced::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) if over => {
+                state.held = true;
+                shell.request_redraw();
+            }
+            iced::Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) if state.held => {
+                state.held = false;
+                shell.request_redraw();
+            }
+            iced::Event::Window(iced::window::Event::RedrawRequested(_)) => {
+                let (hover, press) = (if state.over { 1.0 } else { 0.0 }, if state.held { 1.0 } else { 0.0 });
+                let settled = (state.hover - hover).abs() < 0.002 && (state.press - press).abs() < 0.002;
+                if settled {
+                    state.hover = hover;
+                    state.press = press;
+                } else {
+                    state.hover += (hover - state.hover) * 0.28;
+                    state.press += (press - state.press) * 0.4;
+                    shell.request_redraw();
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn mouse_interaction(
+        &self,
+        tree: &iced::advanced::widget::Tree,
+        layout: iced::advanced::Layout<'_>,
+        cursor: mouse::Cursor,
+        viewport: &Rectangle,
+        renderer: &Renderer,
+    ) -> mouse::Interaction {
+        self.content.as_widget().mouse_interaction(&tree.children[0], layout, cursor, viewport, renderer)
+    }
+
+    fn draw(
+        &self,
+        tree: &iced::advanced::widget::Tree,
+        renderer: &mut Renderer,
+        theme: &Theme,
+        style: &iced::advanced::renderer::Style,
+        layout: iced::advanced::Layout<'_>,
+        cursor: mouse::Cursor,
+        viewport: &Rectangle,
+    ) {
+        let state = tree.state.downcast_ref::<SpringState>();
+        let scale = 1.0 + self.reach * state.hover - self.reach * 1.4 * state.press;
+        if (scale - 1.0).abs() < 0.001 {
+            self.content.as_widget().draw(&tree.children[0], renderer, theme, style, layout, cursor, viewport);
+            return;
+        }
+        use iced::advanced::Renderer as _;
+        renderer.with_transformation(about(layout.bounds(), Point::new(0.5, 0.5), 0.0, scale), |renderer| {
+            self.content.as_widget().draw(&tree.children[0], renderer, theme, style, layout, cursor, viewport);
+        });
+    }
+}
+
+impl<'a, Message: 'a> From<Springy<'a, Message>> for Element<'a, Message> {
+    fn from(springy: Springy<'a, Message>) -> Element<'a, Message> {
+        Element::new(springy)
+    }
+}
+
 pub fn shortened(words: String, at_most: usize) -> String {
     if words.chars().count() <= at_most {
         return words;
@@ -1531,7 +1671,7 @@ pub fn control_button<'a, Message: Clone + 'a>(kind: Control, side: f32, on: Opt
         .padding(0)
         .style(dimmed(theme::glyph, fade()));
     match on {
-        Some(message) => made.on_press(message).into(),
+        Some(message) => springy(made.on_press(message), 0.09).into(),
         None => made.into(),
     }
 }
@@ -1548,6 +1688,7 @@ pub struct Seek<'a, Message> {
 pub struct SeekState {
     grabbed: bool,
     over: Option<f32>,
+    knob: f32,
 }
 
 const SEEK_BUBBLE: f32 = 20.0;
@@ -1557,6 +1698,15 @@ impl<Message> canvas::Program<Message> for Seek<'_, Message> {
 
     fn update(&self, state: &mut SeekState, event: &iced::Event, bounds: Rectangle, cursor: mouse::Cursor) -> Option<canvas::Action<Message>> {
         let fraction_at = |x: f32| ((x - bounds.x) / bounds.width.max(1.0)).clamp(0.0, 1.0);
+        if matches!(event, iced::Event::Window(iced::window::Event::RedrawRequested(_))) {
+            let want = if state.grabbed { 1.0 } else if cursor.is_over(bounds) { 0.6 } else { 0.0 };
+            if (want - state.knob).abs() < 0.003 {
+                state.knob = want;
+                return None;
+            }
+            state.knob += (want - state.knob) * 0.3;
+            return Some(canvas::Action::request_redraw());
+        }
         match event {
             iced::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
                 let at = cursor.position_in(bounds)?;
@@ -1593,7 +1743,7 @@ impl<Message> canvas::Program<Message> for Seek<'_, Message> {
         let mut frame = Frame::new(renderer, bounds.size());
         let y = SEEK_BUBBLE + (bounds.height - SEEK_BUBBLE) / 2.0;
         let lit = state.grabbed || cursor.is_over(bounds);
-        let thick = if lit { 5.0 } else { 3.0 };
+        let thick = 3.0 + 2.0 * (state.knob / 0.6).min(1.0);
         let track = Path::line(Point::new(0.0, y), Point::new(bounds.width, y));
         frame.stroke(
             &track,
@@ -1613,13 +1763,7 @@ impl<Message> canvas::Program<Message> for Seek<'_, Message> {
             let done = Path::line(Point::new(0.0, y), Point::new(x, y));
             frame.stroke(&done, Stroke::default().with_width(thick).with_color(dim(ACCENT, self.alpha)).with_line_cap(canvas::LineCap::Round));
         }
-        let radius = if state.grabbed {
-            7.0
-        } else if lit {
-            6.0
-        } else {
-            4.5
-        };
+        let radius = 4.5 + 2.5 * state.knob;
         frame.fill(&Path::circle(Point::new(x, y), radius), dim(INK, self.alpha));
         if let Some(over) = state.over.filter(|_| lit) {
             let words = (self.at)(over);
@@ -1664,6 +1808,7 @@ pub struct Compass<'a, Message> {
 #[derive(Debug, Default)]
 pub struct CompassState {
     grabbed: bool,
+    shown: Option<f32>,
 }
 
 impl<Message> canvas::Program<Message> for Compass<'_, Message> {
@@ -1676,6 +1821,16 @@ impl<Message> canvas::Program<Message> for Compass<'_, Message> {
             let at = (part * last).round() as usize;
             self.stops.get(at).copied().unwrap_or(self.at)
         };
+        if matches!(event, iced::Event::Window(iced::window::Event::RedrawRequested(_))) {
+            let want = self.stops.iter().position(|stop| (stop - self.at).abs() < 0.001).unwrap_or(0) as f32;
+            let now = state.shown.unwrap_or(want);
+            if (want - now).abs() < 0.004 {
+                state.shown = Some(want);
+                return None;
+            }
+            state.shown = Some(now + (want - now) * 0.3);
+            return Some(canvas::Action::request_redraw());
+        }
         match event {
             iced::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
                 let at = cursor.position_in(bounds)?;
@@ -1697,45 +1852,34 @@ impl<Message> canvas::Program<Message> for Compass<'_, Message> {
         let mut frame = Frame::new(renderer, bounds.size());
         let lit = state.grabbed || cursor.is_over(bounds);
         let (w, h) = (bounds.width, bounds.height);
-        let base = h - 5.0;
+        let base = h - 3.0;
         let span = w - 2.0 * COMPASS_INSET;
         let last = (self.stops.len().max(2) - 1) as f32;
-        let here = self.stops.iter().position(|stop| (stop - self.at).abs() < 0.001).unwrap_or(0) as f32;
+        let exact = self.stops.iter().position(|stop| (stop - self.at).abs() < 0.001).unwrap_or(0) as f32;
+        let here = state.shown.unwrap_or(exact);
         let at_x = COMPASS_INSET + span * (here / last);
-        frame.stroke(
-            &Path::line(Point::new(COMPASS_INSET, base), Point::new(w - COMPASS_INSET, base)),
-            Stroke::default().with_width(1.0).with_color(dim(Color::from_rgba(1.0, 1.0, 1.0, 0.16), self.alpha)),
-        );
-        for step in 0..=(self.stops.len().max(2) - 1) * 4 {
-            let part = step as f32 / (last * 4.0);
-            let x = COMPASS_INSET + span * part;
-            let big = step % 4 == 0;
-            let high = if big { 9.0 } else { 4.5 };
+        for step in 0..=(self.stops.len().max(2) - 1) * 2 {
+            let x = COMPASS_INSET + span * (step as f32 / (last * 2.0));
+            let big = step % 2 == 0;
+            let high = if big { 6.0 } else { 3.0 };
             let shade = match big {
-                true => Color::from_rgba(1.0, 1.0, 1.0, if lit { 0.5 } else { 0.35 }),
-                false => Color::from_rgba(1.0, 1.0, 1.0, if lit { 0.26 } else { 0.16 }),
+                true => Color::from_rgba(1.0, 1.0, 1.0, if lit { 0.55 } else { 0.38 }),
+                false => Color::from_rgba(1.0, 1.0, 1.0, if lit { 0.3 } else { 0.18 }),
             };
             frame.stroke(
                 &Path::line(Point::new(x, base), Point::new(x, base - high)),
-                Stroke::default().with_width(if big { 1.6 } else { 1.0 }).with_color(dim(shade, self.alpha)),
+                Stroke::default().with_width(1.0).with_color(dim(shade, self.alpha)).with_line_cap(canvas::LineCap::Round),
             );
         }
-        let mark = Path::new(|b| {
-            b.move_to(Point::new(at_x, base - 13.0));
-            b.line_to(Point::new(at_x - 4.0, base - 20.0));
-            b.line_to(Point::new(at_x + 4.0, base - 20.0));
-            b.close();
-        });
-        frame.fill(&mark, dim(ACCENT, self.alpha));
         frame.stroke(
-            &Path::line(Point::new(at_x, base - 12.0), Point::new(at_x, base - 1.0)),
-            Stroke::default().with_width(1.8).with_color(dim(ACCENT, self.alpha)),
+            &Path::line(Point::new(at_x, base - 9.0), Point::new(at_x, base + 1.0)),
+            Stroke::default().with_width(1.8).with_color(dim(ACCENT, self.alpha)).with_line_cap(canvas::LineCap::Round),
         );
         frame.fill_text(canvas::Text {
             content: self.words.clone(),
-            position: Point::new(at_x.clamp(16.0, w - 16.0), base - 24.0),
+            position: Point::new(at_x.clamp(12.0, w - 12.0), base - 11.0),
             color: dim(if lit { INK } else { MUTED }, self.alpha),
-            size: 11.0.into(),
+            size: 10.0.into(),
             font: theme::MONO,
             align_x: iced::alignment::Horizontal::Center.into(),
             align_y: iced::alignment::Vertical::Bottom,
@@ -1753,7 +1897,7 @@ impl<Message> canvas::Program<Message> for Compass<'_, Message> {
     }
 }
 
-const COMPASS_INSET: f32 = 10.0;
+const COMPASS_INSET: f32 = 6.0;
 
 pub struct Level<'a, Message> {
     pub at: f32,
@@ -1764,6 +1908,7 @@ pub struct Level<'a, Message> {
 #[derive(Debug, Default)]
 pub struct LevelState {
     grabbed: bool,
+    knob: f32,
 }
 
 impl<Message> canvas::Program<Message> for Level<'_, Message> {
@@ -1771,6 +1916,15 @@ impl<Message> canvas::Program<Message> for Level<'_, Message> {
 
     fn update(&self, state: &mut LevelState, event: &iced::Event, bounds: Rectangle, cursor: mouse::Cursor) -> Option<canvas::Action<Message>> {
         let fraction_at = |x: f32| ((x - bounds.x - 3.0) / (bounds.width - 6.0).max(1.0)).clamp(0.0, 1.0);
+        if matches!(event, iced::Event::Window(iced::window::Event::RedrawRequested(_))) {
+            let want = if state.grabbed { 1.0 } else if cursor.is_over(bounds) { 0.6 } else { 0.0 };
+            if (want - state.knob).abs() < 0.003 {
+                state.knob = want;
+                return None;
+            }
+            state.knob += (want - state.knob) * 0.3;
+            return Some(canvas::Action::request_redraw());
+        }
         match event {
             iced::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
                 let at = cursor.position_in(bounds)?;
@@ -1805,7 +1959,7 @@ impl<Message> canvas::Program<Message> for Level<'_, Message> {
                 Stroke::default().with_width(3.0).with_color(dim(if lit { INK } else { MUTED }, self.alpha)).with_line_cap(canvas::LineCap::Round),
             );
         }
-        frame.fill(&Path::circle(Point::new(x, y), if lit { 5.0 } else { 4.0 }), dim(INK, self.alpha));
+        frame.fill(&Path::circle(Point::new(x, y), 4.0 + 2.0 * state.knob), dim(INK, self.alpha));
         vec![frame.into_geometry()]
     }
 

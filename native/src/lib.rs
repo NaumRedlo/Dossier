@@ -13,6 +13,7 @@ pub mod library;
 pub mod live;
 pub mod main_screen;
 pub mod maps;
+pub mod news;
 pub mod notices;
 pub mod player;
 pub mod render;
@@ -71,6 +72,7 @@ pub struct Rehearsal {
     pub pause: bool,
     pub leave: bool,
     pub swap: bool,
+    pub community: bool,
 }
 
 impl Rehearsal {
@@ -98,7 +100,8 @@ impl Rehearsal {
         let pause = args.iter().any(|a| a == "--pause");
         let leave = args.iter().any(|a| a == "--leave");
         let swap = args.iter().any(|a| a == "--swap");
-        Some(Rehearsal { folder, snap_to, after, render, get_map, look, step, hover, videos, play, menu, prefs, skin_room, ask, pause, leave, swap })
+        let community = args.iter().any(|a| a == "--community");
+        Some(Rehearsal { folder, snap_to, after, render, get_map, look, step, hover, videos, play, menu, prefs, skin_room, ask, pause, leave, swap, community })
     }
 }
 
@@ -161,6 +164,8 @@ impl App {
             } else if rehearsal.skin_room {
                 Task::perform(async { tokio_sleep(std::time::Duration::from_millis(1200)).await }, |_| Message::Main(main_screen::Message::Show(main_screen::Overlay::Settings)))
                     .chain(Task::perform(async { tokio_sleep(std::time::Duration::from_millis(1600)).await }, |_| Message::Main(main_screen::Message::ShowSkins(true))))
+            } else if rehearsal.community {
+                Task::perform(async { tokio_sleep(std::time::Duration::from_millis(1500)).await }, |_| Message::Main(main_screen::Message::Show(main_screen::Overlay::Community)))
             } else if rehearsal.prefs {
                 Task::perform(async { tokio_sleep(std::time::Duration::from_millis(1500)).await }, |_| Message::Main(main_screen::Message::Show(main_screen::Overlay::Settings)))
             } else if rehearsal.videos {

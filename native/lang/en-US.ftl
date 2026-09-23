@@ -316,3 +316,22 @@ streak-card = { $n ->
     [one] { $n }-day streak
    *[other] { $n }-day streak
 }
+panel-live = Playing now
+panel-updates = Game updates
+panel-news = osu! news
+panel-reddit = r/osugame
+panel-channels = Channels
+panel-group = In the group
+news-loading = loading…
+news-failed = failed · try again
+news-updated = updated
+news-unreachable = not answering, will try later
+live-now = just now
+minutes-ago = { $n } min ago
+more-changes = { $n ->
+    [one] and { $n } more change
+   *[other] and { $n } more changes
+}
+channel-hint = @channel
+channel-add = Add
+channels-empty = add a channel about osu!

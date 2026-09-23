@@ -1,10 +1,11 @@
 use std::collections::HashMap;
 
-use iced::widget::{button, column, container, image, mouse_area, row, scrollable, stack, text, Space};
+use iced::widget::{button, column, container, image, mouse_area, row, scrollable, stack, text, text_input, Space};
 use iced::{Background, Border, Color, Element, Length, Padding, Shadow, Theme};
 
 use crate::community::{Board, Catalog, Happening, Kind, Person, Rarity, Title, TITLES};
 use crate::lang::Words;
+use crate::news::{self, News};
 use crate::theme::{self, ACCENT, FAINT, INK, MUTED};
 use crate::ui;
 
@@ -16,11 +17,65 @@ pub enum Section {
     Titles,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Panel {
+    Live,
+    Updates,
+    News,
+    Reddit,
+    Channels,
+    Group,
+}
+
+impl Panel {
+    pub const ALL: [Panel; 6] = [Panel::Live, Panel::Updates, Panel::News, Panel::Reddit, Panel::Channels, Panel::Group];
+
+    pub fn tag(self) -> &'static str {
+        match self {
+            Panel::Live => "live",
+            Panel::Updates => "updates",
+            Panel::News => "news",
+            Panel::Reddit => "reddit",
+            Panel::Channels => "channels",
+            Panel::Group => "group",
+        }
+    }
+
+    pub fn of(tag: &str) -> Option<Panel> {
+        Panel::ALL.into_iter().find(|panel| panel.tag() == tag)
+    }
+}
+
+pub fn panels(kept: &[String]) -> Vec<Panel> {
+    let mut out: Vec<Panel> = kept.iter().filter_map(|tag| Panel::of(tag)).collect();
+    out.dedup();
+    for panel in Panel::ALL {
+        if !out.contains(&panel) {
+            out.push(panel);
+        }
+    }
+    out
+}
+
+pub fn panel_moved(kept: &[String], what: Panel, before: Option<Panel>) -> Vec<String> {
+    let mut list = panels(kept);
+    list.retain(|panel| *panel != what);
+    let at = before.and_then(|edge| list.iter().position(|panel| *panel == edge)).unwrap_or(list.len());
+    list.insert(at.min(list.len()), what);
+    list.iter().map(|panel| panel.tag().to_owned()).collect()
+}
+
 #[derive(Debug, Clone)]
 pub enum Message {
     Section(Section),
     Board(Board),
     Person(Option<usize>),
+    Open(String),
+    Refresh,
+    ChannelDraft(String),
+    ChannelAdd,
+    ChannelRemove(String),
+    Moved(Panel, Option<Panel>),
 }
 
 pub struct Ground<'a> {
@@ -31,9 +86,22 @@ pub struct Ground<'a> {
     pub board: Board,
     pub person: Option<usize>,
     pub now_unix: i64,
+    pub news: &'a News,
+    pub pictures: &'a HashMap<String, image::Handle>,
+    pub loading: &'a std::collections::HashSet<String>,
+    pub failed: &'a std::collections::HashSet<String>,
+    pub channels: &'a [String],
+    pub channel_draft: &'a str,
+    pub panels: Vec<Panel>,
+    pub live_shown: usize,
+    pub live_k: f32,
 }
 
 const FEED_WIDE: f32 = 760.0;
+const PANEL_WIDE: f32 = 445.0;
+const PANEL_HIGH: f32 = 336.0;
+const LIVE_ROW: f32 = 40.0;
+const LIVE_SHOWN: usize = 6;
 const CARD_WIDE: f32 = 290.0;
 const DRAWER_WIDE: f32 = 400.0;
 const GRID_GAP: f32 = 10.0;
@@ -161,87 +229,350 @@ fn moved<'a>(by: i32) -> Element<'a, Message> {
 }
 
 fn feed<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
-    let w = ground.words;
-    let mut list = column![].spacing(2).width(FEED_WIDE);
-    let mut last_day: Option<String> = None;
-    for happening in &ground.catalog.feed {
-        let day = w.day(happening.at, ground.now_unix);
-        if last_day.as_ref() != Some(&day) {
-            list = list.push(container(ui::mono_small(day.to_uppercase(), FAINT)).padding(Padding { top: 14.0, right: 12.0, bottom: 6.0, left: 12.0 }));
-            last_day = Some(day);
-        }
-        list = list.push(happening_row(ground, happening));
-    }
-    rolled(list.into())
+    let pieces: Vec<(Panel, Element<'a, Message>)> = ground
+        .panels
+        .iter()
+        .map(|panel| {
+            let made = match panel {
+                Panel::Live => live_panel(ground),
+                Panel::Updates => updates_panel(ground),
+                Panel::News => news_panel(ground),
+                Panel::Reddit => reddit_panel(ground),
+                Panel::Channels => channels_panel(ground),
+                Panel::Group => group_panel(ground),
+            };
+            (*panel, made)
+        })
+        .collect();
+    let board = crate::board::board(pieces, GRID_GAP, Message::Moved).solid(theme::SLAB_SOLID);
+    let rolled = scrollable(container(container(board).max_width(PANEL_WIDE * 2.0 + GRID_GAP)).center_x(Length::Fill).padding(Padding { top: 12.0, right: 40.0, bottom: 28.0, left: 40.0 }))
+        .id(iced::widget::Id::new("community-feed"))
+        .style(ui::thin_scroll)
+        .width(Length::Fill)
+        .height(Length::Fill);
+    crate::glide::edged(rolled, iced::widget::Id::new("community-feed")).into()
 }
 
-fn happening_row<'a>(ground: &Ground<'a>, happening: &Happening) -> Element<'a, Message> {
+fn panel<'a>(title: String, status: Element<'a, Message>, body: Element<'a, Message>) -> Element<'a, Message> {
+    let head = row![ui::mono_small(title.to_uppercase(), FAINT), ui::grow(), status].align_y(iced::Center).height(20.0);
+    container(column![head, container(body).width(Length::Fill).height(Length::Fill).clip(true)].spacing(10))
+        .padding([14, 16])
+        .width(PANEL_WIDE)
+        .height(PANEL_HIGH)
+        .style(ui::box_faded(theme::slab))
+        .into()
+}
+
+fn source_state<'a>(ground: &Ground<'a>, source: &str) -> Element<'a, Message> {
+    let w = ground.words;
+    let quiet = |words: String, colour: Color| -> Element<'a, Message> {
+        button(ui::mono_small(words, colour)).padding(0).style(ui::button_faded(theme::bare)).on_press(Message::Refresh).into()
+    };
+    if ground.loading.contains(source) {
+        return ui::mono_small(w.t("news-loading"), FAINT);
+    }
+    if ground.failed.contains(source) {
+        return quiet(w.t("news-failed"), ACCENT);
+    }
+    match ground.news.fetched_at(source) {
+        Some(at) => quiet(format!("{} {}", w.t("news-updated"), w.clock(at)), FAINT),
+        None => Space::new().width(0.0).into(),
+    }
+}
+
+fn staged_mark<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
+    let k = ui::fade();
+    let dot = container(Space::new().width(6.0).height(6.0)).style(move |_| container::Style {
+        background: Some(Background::Color(Color { a: k, ..ACCENT })),
+        border: Border { radius: 3.0.into(), ..Border::default() },
+        ..container::Style::default()
+    });
+    row![dot, ui::mono_small(ground.words.t("community-staged"), FAINT)].spacing(6).align_y(iced::Center).into()
+}
+
+fn linked<'a>(inside: Element<'a, Message>, url: &str) -> Element<'a, Message> {
+    button(inside).padding([4, 6]).width(Length::Fill).style(ui::button_faded(theme::row(false))).on_press(Message::Open(url.to_owned())).into()
+}
+
+fn empty<'a>(words: String) -> Element<'a, Message> {
+    container(ui::mono_small(words, FAINT)).width(Length::Fill).height(Length::Fill).center(Length::Fill).into()
+}
+
+fn thumb<'a>(ground: &Ground<'a>, url: Option<&str>, wide: f32, high: f32) -> Element<'a, Message> {
+    match url.and_then(|url| ground.pictures.get(url)) {
+        Some(handle) => image(handle.clone()).content_fit(iced::ContentFit::Cover).width(wide).height(high).border_radius(6.0).opacity(ui::fade()).into(),
+        None => container(ui::fine_hatch()).width(wide).height(high).into(),
+    }
+}
+
+fn when<'a>(ground: &Ground<'a>, at: i64) -> String {
+    let w = ground.words;
+    let day = w.day(at, ground.now_unix);
+    if ground.now_unix - at < 86_400 && ground.now_unix >= at {
+        w.clock(at)
+    } else {
+        day
+    }
+}
+
+fn live_panel<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
+    let w = ground.words;
+    let pool = &ground.catalog.live;
+    let shown = ground.live_shown.min(pool.len());
+    let mut rows = column![].spacing(0);
+    for (place, play) in pool[..shown].iter().rev().take(LIVE_SHOWN).enumerate() {
+        let person = &ground.catalog.people[play.who];
+        let line = ground.catalog.maps.get(play.map).map(|map| map.line.clone()).unwrap_or_default();
+        let grade = match play.grade {
+            "SS" => theme::GRADE_SS,
+            "S" => theme::GRADE_S,
+            "A" => theme::GRADE_A,
+            "B" => theme::GRADE_B,
+            _ => theme::GRADE_C,
+        };
+        let ago = if place == 0 { w.t("live-now") } else { w.n("minutes-ago", place as u64 * 3) };
+        let k = if place == 0 { ground.live_k.clamp(0.0, 1.0) } else { 1.0 };
+        let made = ui::fading(ui::fade() * k, || -> Element<'a, Message> {
+            row![
+                ui::disc(&person.initial(), false, 26.0),
+                column![
+                    row![
+                        text(person.name.clone()).font(theme::SANS_SEMI).size(theme::CAPTION + 1.0).wrapping(text::Wrapping::None).color(ui::faded(INK)),
+                        ui::mono_small(ago, FAINT),
+                    ]
+                    .spacing(8)
+                    .align_y(iced::Center),
+                    text(ui::shortened(line, 38)).font(theme::SANS).size(11.0).wrapping(text::Wrapping::None).color(ui::faded(MUTED)),
+                ]
+                .spacing(1)
+                .width(Length::Fill),
+                column![
+                    row![mods(&play.mods), ui::mono(format!("{} pp", decimal(w, play.pp, 0)), INK)].spacing(6).align_y(iced::Center),
+                    row![ui::mono_small(w.percent(f64::from(play.accuracy)), MUTED), text(play.grade).font(theme::MONO_BOLD).size(11.0).color(ui::faded(grade))].spacing(6),
+                ]
+                .spacing(1)
+                .align_x(iced::alignment::Horizontal::Right),
+            ]
+            .spacing(10)
+            .align_y(iced::Center)
+            .into()
+        });
+        rows = rows.push(container(made).height(LIVE_ROW * k).clip(true).center_y(LIVE_ROW * k));
+    }
+    panel(w.t("panel-live"), staged_mark(ground), rows.into())
+}
+
+fn stream_colour(stream: &str) -> Color {
+    match stream.to_ascii_lowercase().as_str() {
+        s if s.contains("lazer") => Color::from_rgb8(0xff, 0x66, 0xab),
+        s if s.contains("tachyon") => Color::from_rgb8(0xb0, 0x6c, 0xe8),
+        s if s.contains("stable") || s.contains("cutting") || s.contains("beta") => Color::from_rgb8(0x58, 0xae, 0xfc),
+        _ => MUTED,
+    }
+}
+
+fn updates_panel<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
+    let w = ground.words;
+    let builds = &ground.news.builds;
+    let body: Element<'a, Message> = if builds.is_empty() {
+        empty(w.t("nothing-yet"))
+    } else {
+        let mut list = column![].spacing(2);
+        for build in builds.iter().take(3) {
+            let colour = stream_colour(&build.stream);
+            let k = ui::fade();
+            let pill = container(text(build.stream.clone()).font(theme::MONO_BOLD).size(10.0).color(ui::faded(colour))).padding([1, 6]).style(move |_| container::Style {
+                background: Some(Background::Color(Color { a: 0.14 * k, ..colour })),
+                border: Border { radius: 4.0.into(), ..Border::default() },
+                ..container::Style::default()
+            });
+            let mut lines = column![row![
+                pill,
+                ui::mono(build.version.clone(), INK),
+                ui::grow(),
+                ui::mono_small(when(ground, build.at), FAINT),
+            ]
+            .spacing(8)
+            .align_y(iced::Center)]
+            .spacing(3);
+            for change in build.changes.iter().take(2) {
+                lines = lines.push(
+                    text(ui::shortened(format!("· {}", change.title), 56))
+                        .font(theme::SANS)
+                        .size(11.5)
+                        .wrapping(text::Wrapping::None)
+                        .color(ui::faded(if change.major { INK } else { MUTED })),
+                );
+            }
+            if build.changes.len() > 2 {
+                lines = lines.push(ui::mono_small(w.n("more-changes", (build.changes.len() - 2) as u64), FAINT));
+            }
+            list = list.push(linked(lines.into(), &build.url));
+        }
+        list.into()
+    };
+    panel(w.t("panel-updates"), source_state(ground, news::UPDATES), body)
+}
+
+fn news_panel<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
+    let w = ground.words;
+    let stories = &ground.news.stories;
+    let body: Element<'a, Message> = if stories.is_empty() {
+        empty(w.t("nothing-yet"))
+    } else {
+        let mut list = column![].spacing(2);
+        for story in stories.iter().take(3) {
+            let inside = row![
+                thumb(ground, story.image.as_deref(), 96.0, 54.0),
+                column![
+                    text(ui::shortened(story.title.clone(), 46)).font(theme::SANS_SEMI).size(theme::CAPTION + 1.0).wrapping(text::Wrapping::None).color(ui::faded(INK)),
+                    text(ui::shortened(story.lead.clone(), 52)).font(theme::SANS).size(11.0).wrapping(text::Wrapping::None).color(ui::faded(MUTED)),
+                    ui::mono_small(when(ground, story.at), FAINT),
+                ]
+                .spacing(2)
+                .width(Length::Fill),
+            ]
+            .spacing(12)
+            .align_y(iced::Center);
+            list = list.push(linked(inside.into(), &story.url));
+        }
+        list.into()
+    };
+    panel(w.t("panel-news"), source_state(ground, news::STORIES), body)
+}
+
+fn reddit_panel<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
+    let w = ground.words;
+    let threads = &ground.news.threads;
+    let body: Element<'a, Message> = if threads.is_empty() {
+        empty(w.t(if ground.failed.contains(news::THREADS) { "news-unreachable" } else { "nothing-yet" }))
+    } else {
+        let mut list = column![].spacing(0);
+        for thread in threads.iter().take(6) {
+            let inside = column![
+                text(ui::shortened(thread.title.clone(), 58)).font(theme::SANS).size(theme::CAPTION + 1.0).wrapping(text::Wrapping::None).color(ui::faded(INK)),
+                ui::mono_small(format!("u/{} · {}", thread.author, when(ground, thread.at)), FAINT),
+            ]
+            .spacing(1);
+            list = list.push(linked(inside.into(), &thread.url));
+        }
+        list.into()
+    };
+    panel(w.t("panel-reddit"), source_state(ground, news::THREADS), body)
+}
+
+fn channels_panel<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
+    let w = ground.words;
+    let k = ui::fade();
+    let mut chips = row![].spacing(6).align_y(iced::Center);
+    for channel in ground.channels {
+        let chip = row![
+            ui::mono_small(format!("@{channel}"), MUTED),
+            button(text("✕").size(10.0).color(ui::faded(FAINT))).padding([0, 2]).style(ui::button_faded(theme::bare)).on_press(Message::ChannelRemove(channel.clone())),
+        ]
+        .spacing(4)
+        .align_y(iced::Center);
+        chips = chips.push(container(chip).padding([2, 8]).style(move |_| container::Style {
+            background: Some(Background::Color(Color::from_rgba(1.0, 1.0, 1.0, 0.05 * k))),
+            border: Border { radius: 10.0.into(), ..Border::default() },
+            ..container::Style::default()
+        }));
+    }
+    let adding = row![
+        text_input(&w.t("channel-hint"), ground.channel_draft)
+            .on_input(Message::ChannelDraft)
+            .on_submit(Message::ChannelAdd)
+            .size(12.0)
+            .padding([4, 8])
+            .width(Length::Fill),
+        button(text(w.t("channel-add")).font(theme::SANS_SEMI).size(theme::CAPTION)).padding([5, 10]).style(ui::button_faded(theme::pill(false))).on_press(Message::ChannelAdd),
+    ]
+    .spacing(6)
+    .align_y(iced::Center);
+    let posts: Vec<&news::Post> = ground.news.posts.iter().filter(|post| ground.channels.iter().any(|c| c.eq_ignore_ascii_case(&post.channel))).take(2).collect();
+    let mut list = column![chips, adding].spacing(8);
+    if posts.is_empty() {
+        list = list.push(empty(w.t(if ground.channels.is_empty() { "channels-empty" } else { "nothing-yet" })));
+    }
+    for post in posts {
+        let words = column![
+            row![
+                text(post.name.clone()).font(theme::SANS_SEMI).size(theme::CAPTION).wrapping(text::Wrapping::None).color(ui::faded(INK)),
+                ui::mono_small(when(ground, post.at), FAINT),
+            ]
+            .spacing(8)
+            .align_y(iced::Center),
+            container(text(ui::shortened(post.text.clone(), 150)).font(theme::SANS).size(11.5).color(ui::faded(MUTED))).height(46.0).clip(true),
+        ]
+        .spacing(2)
+        .width(Length::Fill);
+        let inside: Element<'a, Message> = match post.image.as_deref() {
+            Some(url) => row![thumb(ground, Some(url), 64.0, 64.0), words].spacing(10).align_y(iced::Center).into(),
+            None => words.into(),
+        };
+        list = list.push(linked(inside, &post.url));
+    }
+    let channel_sources: Vec<String> = ground.channels.iter().map(|c| news::channel_source(c)).collect();
+    let status = match channel_sources.first() {
+        Some(source) => source_state(ground, source),
+        None => Space::new().width(0.0).into(),
+    };
+    panel(w.t("panel-channels"), status, list.into())
+}
+
+fn group_panel<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
+    let w = ground.words;
+    let mut list = column![].spacing(0);
+    for happening in ground.catalog.feed.iter().take(5) {
+        list = list.push(happening_line(ground, happening));
+    }
+    panel(w.t("panel-group"), staged_mark(ground), list.into())
+}
+
+fn happening_line<'a>(ground: &Ground<'a>, happening: &Happening) -> Element<'a, Message> {
     let w = ground.words;
     let lang = w.lang();
     let person = &ground.catalog.people[happening.who];
-    let map_line = |ground: &Ground<'a>| {
-        let line = ground.catalog.map(happening.map).map(|map| map.line.clone()).unwrap_or_default();
-        text(ui::shortened(line, 64)).font(theme::SANS).size(theme::CAPTION).wrapping(text::Wrapping::None).color(ui::faded(MUTED))
-    };
-    let (left, kind, detail, right): (Element<'a, Message>, String, Element<'a, Message>, Element<'a, Message>) = match &happening.kind {
-        Kind::Render { accuracy, mods: list } => (
-            picture(ground, happening.map, 96.0, 54.0),
+    let (left, kind, detail): (Element<'a, Message>, String, String) = match &happening.kind {
+        Kind::Render { accuracy, .. } => (
+            picture(ground, happening.map, 48.0, 27.0),
             w.t("happened-render"),
-            map_line(ground).into(),
-            row![mods(list), ui::mono(w.percent(f64::from(*accuracy)), INK)].spacing(8).align_y(iced::Center).into(),
+            format!("{} · {}", ground.catalog.map(happening.map).map(|map| map.line.clone()).unwrap_or_default(), w.percent(f64::from(*accuracy))),
         ),
-        Kind::TopPlay { pp, place, mods: list } => (
-            picture(ground, happening.map, 96.0, 54.0),
+        Kind::TopPlay { pp, place, .. } => (
+            picture(ground, happening.map, 48.0, 27.0),
             format!("{} #{place}", w.t("happened-top-play")),
-            map_line(ground).into(),
-            row![mods(list), ui::mono(format!("{} pp", decimal(w, *pp, 0)), INK)].spacing(8).align_y(iced::Center).into(),
+            format!("{} · {} pp", ground.catalog.map(happening.map).map(|map| map.line.clone()).unwrap_or_default(), decimal(w, *pp, 0)),
         ),
         Kind::Title(code) => {
             let title = crate::community::title_of(code);
-            let colour = title.map_or(MUTED, |title| title.rarity.colour());
-            let rarity = title.map_or_else(String::new, |title| w.t(title.rarity.key()));
             (
-                seal("★".to_owned(), colour, 96.0, 54.0, 20.0),
+                seal("★".to_owned(), title.map_or(MUTED, |title| title.rarity.colour()), 48.0, 27.0, 12.0),
                 w.t("happened-title"),
-                row![
-                    text(title.map_or("", |title| title.name(lang))).font(theme::SANS_SEMI).size(theme::CAPTION).wrapping(text::Wrapping::None).color(ui::faded(colour)),
-                    text(title.map_or("", |title| title.about(lang)).to_owned()).font(theme::SANS).size(theme::CAPTION).wrapping(text::Wrapping::None).color(ui::faded(FAINT)),
-                ]
-                .spacing(8)
-                .into(),
-                ui::mono_small(rarity.to_lowercase(), colour),
+                title.map_or(String::new(), |title| title.name(lang).to_owned()),
             )
         }
-        Kind::Climb { board, from, to } => (
-            seal(format!("#{to}"), INK, 96.0, 54.0, 18.0),
-            w.t("happened-climb"),
-            text(format!("{} · {from} → {to}", w.t(board.key()))).font(theme::SANS).size(theme::CAPTION).color(ui::faded(MUTED)).into(),
-            moved(*from as i32 - *to as i32),
-        ),
+        Kind::Climb { board, from, to } => (seal(format!("#{to}"), INK, 48.0, 27.0, 11.0), w.t("happened-climb"), format!("{} · {from} → {to}", w.t(board.key()))),
     };
-    let middle = column![
-        row![
-            text(person.name.clone()).font(theme::SANS_SEMI).size(theme::BODY).wrapping(text::Wrapping::None).color(ui::faded(INK)),
-            ui::mono_small(kind, MUTED),
-        ]
-        .spacing(8)
-        .align_y(iced::Center),
-        detail,
-    ]
-    .spacing(3);
-    let when = ui::mono_small(w.clock(happening.at), FAINT);
     let line = row![
-        container(left).width(96.0),
-        container(middle).width(Length::Fill).clip(true),
-        column![right, when].spacing(4).align_x(iced::alignment::Horizontal::Right),
+        left,
+        column![
+            row![
+                text(person.name.clone()).font(theme::SANS_SEMI).size(theme::CAPTION + 1.0).wrapping(text::Wrapping::None).color(ui::faded(INK)),
+                ui::mono_small(kind, MUTED),
+                ui::grow(),
+                ui::mono_small(when(ground, happening.at), FAINT),
+            ]
+            .spacing(8)
+            .align_y(iced::Center),
+            text(ui::shortened(detail, 52)).font(theme::SANS).size(11.0).wrapping(text::Wrapping::None).color(ui::faded(MUTED)),
+        ]
+        .spacing(1)
+        .width(Length::Fill),
     ]
-    .spacing(14)
+    .spacing(10)
     .align_y(iced::Center);
-    button(container(line).height(70.0).center_y(70.0).width(Length::Fill))
-        .padding([0, 12])
-        .style(ui::button_faded(theme::row(false)))
-        .on_press(Message::Person(Some(happening.who)))
-        .into()
+    button(line).padding([5, 6]).width(Length::Fill).style(ui::button_faded(theme::row(false))).on_press(Message::Person(Some(happening.who))).into()
 }
 
 fn stat<'a>(value: String, label: String) -> Element<'a, Message> {

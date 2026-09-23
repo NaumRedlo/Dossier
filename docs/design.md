@@ -534,10 +534,25 @@ group, its size and, while it lasts, *образцы данных*: every figure
 staged in `native/src/community.rs` in the shape of the bot's own tables,
 and nothing yet comes from the server.
 
-- *Лента* is what happened in the group, newest first, under the journal's
-  day headings: renders, new top plays, titles unlocked, places won on a
-  board. A map's event carries its picture; a title's carries a seal in
-  its rarity's colour; a climb, the new place. Any row opens its player.
+- *Лента* is a board of panels (reworked 2026-09-23), carried and dropped
+  on the same springs as Settings' tiles and kept in the order they were
+  left in (`feed_panels`). Four are real, fetched on the device when the
+  catalogue opens and kept in `~/.dossier/news.json`, each saying when it
+  was last fetched and offering *ещё раз* when it could not be:
+  *Обновления игры* — the latest builds from osu!'s changelog, read from the
+  `json-index` the changelog page carries (the `/api/v2` path answers
+  Cloudflare's block page to anything but a browser), each with its stream
+  in the stream's colour, its version, its date and its biggest changes;
+  *Новости osu!* — the news Atom feed, picture, title, first paragraph;
+  *r/osugame* — the subreddit's Atom feed without AutoModerator's pinned
+  threads, fetched at most every half hour because reddit answers 429 to
+  anyone who asks more often; *Каналы* — public Telegram channels read from
+  their `t.me/s/` page, the list edited in the panel itself and
+  *@osunewsru* the first. Two are staged until the bot can say them:
+  *Игры в эфире*, the group's plays as they land, a new one sliding in on
+  top every few seconds, and *В группе*, what happened in the group —
+  renders, top plays, titles, places won. Every row opens its source; a
+  group row opens its player.
 - *Люди* is a card per player — initial, country, the title they wear in
   its rarity's colour, pp, global rank, accuracy, and plays, hours and the
   streak beneath. A card opens the player's page from the right: every

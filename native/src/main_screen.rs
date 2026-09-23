@@ -26,6 +26,9 @@ pub const ENTER: Duration = Duration::from_millis(1200);
 pub const ARRIVE: Duration = Duration::from_millis(450);
 pub const SWAP: Duration = Duration::from_millis(450);
 pub const LIFT: Duration = Duration::from_millis(200);
+const LIVE_FIRST: usize = 6;
+const LIVE_EVERY: Duration = Duration::from_secs(6);
+const LIVE_ARRIVE: Duration = Duration::from_millis(420);
 const HOVER_REST: Duration = Duration::from_millis(160);
 pub const LIVE_FADE: Duration = Duration::from_millis(640);
 pub const BRAND_WIDTH: f32 = 144.0;
@@ -50,6 +53,12 @@ pub enum Overlay {
 #[derive(Debug, Clone)]
 pub enum Message {
     Community(crate::community_screen::Message),
+    NewsBuilds(Result<Vec<crate::news::Build>, String>),
+    NewsStories(Result<Vec<crate::news::Story>, String>),
+    NewsThreads(Result<Vec<crate::news::Thread>, String>),
+    NewsPosts(String, Result<Vec<crate::news::Post>, String>),
+    NewsPicture(String, Option<image::Handle>),
+    LiveArrive,
     Loaded(Library),
     Thumb(String, image::Handle),
     Scene(String, Option<image::Handle>),
@@ -347,6 +356,15 @@ pub struct Main {
     pub community_section: crate::community_screen::Section,
     pub community_board: crate::community::Board,
     pub community_person: Option<usize>,
+    pub news: crate::news::News,
+    news_loaded: bool,
+    pub news_pictures: HashMap<String, image::Handle>,
+    news_asked: std::collections::HashSet<String>,
+    pub news_loading: std::collections::HashSet<String>,
+    pub news_failed: std::collections::HashSet<String>,
+    pub channel_draft: String,
+    pub live_shown: usize,
+    live_arrived: Option<Instant>,
 }
 
 fn unix_now() -> i64 {
@@ -455,6 +473,15 @@ impl Main {
             community_section: crate::community_screen::Section::Feed,
             community_board: crate::community::Board::Pp,
             community_person: None,
+            news: crate::news::News::default(),
+            news_loaded: false,
+            news_pictures: HashMap::new(),
+            news_asked: std::collections::HashSet::new(),
+            news_loading: std::collections::HashSet::new(),
+            news_failed: std::collections::HashSet::new(),
+            channel_draft: String::new(),
+            live_shown: LIVE_FIRST,
+            live_arrived: None,
         };
         let strays = videos::strays(&made.store.videos, &made.settings.renders_dir());
         let adopt = match (made.ffmpeg.clone(), strays.is_empty()) {
@@ -527,6 +554,7 @@ impl Main {
             || self.side_fade.is_animating(self.now)
             || self.marks.values().any(|m| m.is_animating(self.now))
             || self.slides_settling()
+            || self.live_arrived.is_some_and(|at| self.now.saturating_duration_since(at) < LIVE_ARRIVE)
             || self.arrivals.values().any(|a| a.is_animating(self.now))
             || self.leaving.values().any(|a| a.is_animating(self.now))
             || self.tab_fade.is_animating(self.now)
@@ -568,6 +596,10 @@ impl Main {
         }
         if matches!(self.pairing, Pairing::Waiting { .. }) {
             parts.push(iced::time::every(Duration::from_secs(3)).map(|_| Message::Poll));
+        }
+        let live_waiting = self.community.as_ref().is_some_and(|catalog| self.live_shown < catalog.live.len());
+        if self.overlay == Overlay::Community && self.community_section == crate::community_screen::Section::Feed && live_waiting {
+            parts.push(iced::time::every(LIVE_EVERY).map(|_| Message::LiveArrive));
         }
         Subscription::batch(parts)
     }
@@ -1375,9 +1407,20 @@ impl Main {
                     self.rest_live(true);
                     return Task::batch([sizes, version, chats, skins]);
                 }
-                if overlay == Overlay::Community && self.community.is_none() {
-                    self.community = Some(self.staged_community());
-                }
+                let news = match overlay == Overlay::Community {
+                    true => {
+                        self.now_unix = unix_now();
+                        if self.community.is_none() {
+                            self.community = Some(self.staged_community());
+                        }
+                        if !self.news_loaded {
+                            self.news = crate::news::News::load();
+                            self.news_loaded = true;
+                        }
+                        Task::batch([self.refresh_news(false), self.news_pictures_task()])
+                    }
+                    false => Task::none(),
+                };
                 if overlay != self.overlay {
                     self.turn_to(overlay, now);
                 }
@@ -1390,7 +1433,7 @@ impl Main {
                     self.open_video = None;
                     self.asking_delete = false;
                     self.shut_cinema();
-                    return Task::none();
+                    return news;
                 }
                 let wanted: Vec<(String, PathBuf)> = self
                     .store
@@ -1421,6 +1464,106 @@ impl Main {
                     }
                     C::Board(board) => self.community_board = board,
                     C::Person(person) => self.community_person = person,
+                    C::Open(url) => {
+                        let _ = open::that_detached(url);
+                    }
+                    C::Refresh => return self.refresh_news(true),
+                    C::ChannelDraft(said) => self.channel_draft = said,
+                    C::ChannelAdd => {
+                        let Some(name) = crate::news::channel_name(&self.channel_draft) else {
+                            return Task::none();
+                        };
+                        self.channel_draft.clear();
+                        if self.settings.news_channels.iter().any(|kept| kept.eq_ignore_ascii_case(&name)) {
+                            return Task::none();
+                        }
+                        self.settings.news_channels.push(name.clone());
+                        let _ = self.settings.save();
+                        return self.fetch_channel(name);
+                    }
+                    C::ChannelRemove(name) => {
+                        self.settings.news_channels.retain(|kept| !kept.eq_ignore_ascii_case(&name));
+                        let _ = self.settings.save();
+                        self.news.take_posts(&name, Vec::new());
+                        self.news.fetched.remove(&crate::news::channel_source(&name));
+                        self.news.save();
+                    }
+                    C::Moved(panel, before) => {
+                        self.settings.feed_panels = crate::community_screen::panel_moved(&self.settings.feed_panels, panel, before);
+                        let _ = self.settings.save();
+                    }
+                }
+                Task::none()
+            }
+            Message::NewsBuilds(result) => {
+                let source = crate::news::UPDATES;
+                self.news_loading.remove(source);
+                match result {
+                    Ok(builds) => {
+                        self.news.builds = builds;
+                        self.news_heard(source);
+                    }
+                    Err(_) => {
+                        self.news_failed.insert(source.to_owned());
+                    }
+                }
+                Task::none()
+            }
+            Message::NewsStories(result) => {
+                let source = crate::news::STORIES;
+                self.news_loading.remove(source);
+                match result {
+                    Ok(stories) => {
+                        self.news.stories = stories;
+                        self.news_heard(source);
+                        self.news_pictures_task()
+                    }
+                    Err(_) => {
+                        self.news_failed.insert(source.to_owned());
+                        Task::none()
+                    }
+                }
+            }
+            Message::NewsThreads(result) => {
+                let source = crate::news::THREADS;
+                self.news_loading.remove(source);
+                match result {
+                    Ok(threads) => {
+                        self.news.threads = threads;
+                        self.news_heard(source);
+                    }
+                    Err(_) => {
+                        self.news_failed.insert(source.to_owned());
+                    }
+                }
+                Task::none()
+            }
+            Message::NewsPosts(channel, result) => {
+                let source = crate::news::channel_source(&channel);
+                self.news_loading.remove(&source);
+                match result {
+                    Ok(posts) => {
+                        self.news.take_posts(&channel, posts);
+                        self.news_heard(&source);
+                        self.news_pictures_task()
+                    }
+                    Err(_) => {
+                        self.news_failed.insert(source);
+                        Task::none()
+                    }
+                }
+            }
+            Message::NewsPicture(url, handle) => {
+                if let Some(handle) = handle {
+                    self.news_pictures.insert(url, handle);
+                }
+                Task::none()
+            }
+            Message::LiveArrive => {
+                let pool = self.community.as_ref().map_or(0, |catalog| catalog.live.len());
+                if self.live_shown < pool {
+                    self.live_shown += 1;
+                    self.live_arrived = Some(Instant::now());
                 }
                 Task::none()
             }
@@ -3143,6 +3286,65 @@ impl Main {
             .go_mut(on, now);
     }
 
+    fn news_heard(&mut self, source: &str) {
+        self.now_unix = unix_now();
+        self.news_failed.remove(source);
+        self.news.mark(source, unix_now());
+        self.news.save();
+    }
+
+    fn fetch_channel(&mut self, channel: String) -> Task<Message> {
+        self.news_loading.insert(crate::news::channel_source(&channel));
+        ui::in_thread(move || Message::NewsPosts(channel.clone(), crate::news::fetch_posts(&channel)))
+    }
+
+    fn refresh_news(&mut self, every: bool) -> Task<Message> {
+        use crate::news;
+        let now = unix_now();
+        let due = |main: &Main, source: &str| (every || main.news.stale(source, now)) && !main.news_loading.contains(source);
+        let mut tasks = Vec::new();
+        if due(self, news::UPDATES) {
+            self.news_loading.insert(news::UPDATES.to_owned());
+            tasks.push(ui::in_thread(|| Message::NewsBuilds(news::fetch_builds())));
+        }
+        if due(self, news::STORIES) {
+            self.news_loading.insert(news::STORIES.to_owned());
+            tasks.push(ui::in_thread(|| Message::NewsStories(news::fetch_stories())));
+        }
+        if due(self, news::THREADS) {
+            self.news_loading.insert(news::THREADS.to_owned());
+            tasks.push(ui::in_thread(|| Message::NewsThreads(news::fetch_threads())));
+        }
+        for channel in self.settings.news_channels.clone() {
+            if due(self, &news::channel_source(&channel)) {
+                tasks.push(self.fetch_channel(channel));
+            }
+        }
+        Task::batch(tasks)
+    }
+
+    fn news_pictures_task(&mut self) -> Task<Message> {
+        let mut wanted: Vec<(String, (u32, u32))> = Vec::new();
+        let stories = self.news.stories.iter().take(4).filter_map(|story| story.image.clone()).map(|url| (url, (192, 108)));
+        let posts = self.news.posts.iter().take(6).filter_map(|post| post.image.clone()).map(|url| (url, (128, 128)));
+        for (url, size) in stories.chain(posts) {
+            if !self.news_pictures.contains_key(&url) && self.news_asked.insert(url.clone()) {
+                wanted.push((url, size));
+            }
+        }
+        if wanted.is_empty() {
+            return Task::none();
+        }
+        ui::streamed(move |push| {
+            for (url, (w, h)) in wanted {
+                let handle = crate::news::picture(&url).and_then(|bytes| covered_bytes(&bytes, w, h));
+                if !push(Message::NewsPicture(url, handle)) {
+                    return;
+                }
+            }
+        })
+    }
+
     pub fn staged_community(&self) -> crate::community::Catalog {
         let mut seen = std::collections::HashSet::new();
         let maps: Vec<crate::community::MapRef> = self
@@ -3172,6 +3374,18 @@ impl Main {
             board: self.community_board,
             person: self.community_person,
             now_unix: self.now_unix,
+            news: &self.news,
+            pictures: &self.news_pictures,
+            loading: &self.news_loading,
+            failed: &self.news_failed,
+            channels: &self.settings.news_channels,
+            channel_draft: &self.channel_draft,
+            panels: crate::community_screen::panels(&self.settings.feed_panels),
+            live_shown: self.live_shown,
+            live_k: self.live_arrived.map_or(1.0, |at| {
+                let k = (self.now.saturating_duration_since(at).as_secs_f32() / LIVE_ARRIVE.as_secs_f32()).clamp(0.0, 1.0);
+                1.0 - (1.0 - k) * (1.0 - k)
+            }),
         };
         let body: Element<'_, Message> = crate::community_screen::view(&ground).map(Message::Community);
         Some(column![Space::new().height(theme::CONTROL_HEIGHT + 4.0 + 22.0), body].width(Length::Fill).height(Length::Fill).into())
@@ -4011,6 +4225,12 @@ impl Main {
         .height(Length::Fill)
         .into()
     }
+}
+
+pub fn covered_bytes(bytes: &[u8], width: u32, height: u32) -> Option<image::Handle> {
+    let picture = ::image::load_from_memory(bytes).ok()?;
+    let picture = picture.resize_to_fill(width, height, ::image::imageops::FilterType::Lanczos3).to_rgba8();
+    Some(image::Handle::from_rgba(width, height, picture.into_raw()))
 }
 
 pub fn decoded_bytes(bytes: &[u8], side: u32) -> Option<image::Handle> {

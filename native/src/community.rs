@@ -191,12 +191,23 @@ pub struct Happening {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct LivePlay {
+    pub who: usize,
+    pub map: usize,
+    pub accuracy: f32,
+    pub pp: f32,
+    pub mods: Vec<&'static str>,
+    pub grade: &'static str,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct Catalog {
     pub group: String,
     pub week: u32,
     pub people: Vec<Person>,
     pub maps: Vec<MapRef>,
     pub feed: Vec<Happening>,
+    pub live: Vec<LivePlay>,
 }
 
 impl Catalog {
@@ -285,7 +296,24 @@ impl Catalog {
             Happening { who: 3, kind: Kind::Climb { board: Board::Accuracy, from: 2, to: 1 }, map: None, at: minutes(50 * 60) },
             Happening { who: 1, kind: Kind::Title("archivist"), map: None, at: minutes(52 * 60) },
         ];
-        Catalog { group: "osu! RU".to_owned(), week: 39, people, maps, feed }
+        let live_play = |who: usize, map: usize, accuracy: f32, pp: f32, mods: &[&'static str], grade: &'static str| LivePlay { who, map: spot(map), accuracy, pp, mods: mods.to_vec(), grade };
+        let live = vec![
+            live_play(4, 2, 94.12, 188.0, &["DT"], "A"),
+            live_play(7, 5, 97.80, 64.2, &[], "S"),
+            live_play(2, 1, 98.02, 402.7, &["HD"], "S"),
+            live_play(6, 3, 91.44, 120.5, &[], "B"),
+            live_play(0, 0, 96.71, 311.9, &["HD", "DT"], "A"),
+            live_play(1, 4, 99.40, 530.0, &["HD", "HR"], "S"),
+            live_play(3, 6, 100.0, 288.4, &["HD"], "SS"),
+            live_play(5, 2, 95.55, 142.1, &["DT"], "A"),
+            live_play(4, 1, 92.87, 205.3, &[], "B"),
+            live_play(2, 0, 97.13, 377.6, &["HD", "DT"], "S"),
+            live_play(0, 3, 98.61, 280.8, &["HD"], "S"),
+            live_play(7, 6, 93.30, 51.4, &[], "B"),
+            live_play(1, 5, 98.88, 498.2, &["DT"], "S"),
+            live_play(6, 4, 89.90, 97.3, &["HD"], "C"),
+        ];
+        Catalog { group: "osu! RU".to_owned(), week: 39, people, maps, feed, live }
     }
 }
 
@@ -318,6 +346,13 @@ mod tests {
         assert_eq!(catalog.people[by_pp[0]].name, "kotofey");
         let values: Vec<f64> = by_pp.iter().map(|at| Board::Pp.value(&catalog.people[*at])).collect();
         assert!(values.windows(2).all(|pair| pair[0] >= pair[1]));
+    }
+
+    #[test]
+    fn every_live_play_is_by_someone_on_some_map() {
+        let catalog = Catalog::staged(Vec::new(), "", 0);
+        assert!(catalog.live.len() > 6);
+        assert!(catalog.live.iter().all(|play| play.who < catalog.people.len() && play.map < catalog.maps.len()));
     }
 
     #[test]

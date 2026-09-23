@@ -569,6 +569,7 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
         main.overlay_fade = iced::Animation::new(true);
         main.ground_fade = iced::Animation::new(true);
         main.community = Some(main.staged_community());
+        main.news = sample_news();
         main.community_section = section;
         main.community_person = person;
         main
@@ -606,6 +607,48 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
         ("main-empty".to_owned(), empty),
         ("main-looking".to_owned(), looking),
     ]
+}
+
+fn sample_news() -> crate::news::News {
+    use crate::news::{Build, Change, News, Post, Story, Thread};
+    let change = |title: &str, major: bool| Change { category: "Gameplay".into(), title: title.into(), major, kind: "fix".into() };
+    let mut news = News {
+        builds: vec![
+            Build { stream: "Lazer".into(), version: "2026.921.0".into(), at: NOON - 30 * 3600, url: String::new(), changes: vec![change("Fix startup crashes for some windows users", true)] },
+            Build {
+                stream: "Lazer".into(),
+                version: "2026.920.0".into(),
+                at: NOON - 52 * 3600,
+                url: String::new(),
+                changes: vec![change("Add legacy style hit error bar", true), change("Use colour hit error meter by default in osu!catch HUD", false), change("Fix beatmap carousel flicker", false)],
+            },
+            Build { stream: "Tachyon".into(), version: "2026.918.0".into(), at: NOON - 100 * 3600, url: String::new(), changes: vec![change("Improve performance when loading chat", false)] },
+        ],
+        stories: vec![
+            Story { title: "osu!mania 4K World Cup 2026: Semifinals Recap".into(), url: String::new(), at: NOON - 11 * 3600, lead: "A recap of the second half of the tournament.".into(), image: None },
+            Story { title: "New Featured Artist: Exsy".into(), url: String::new(), at: NOON - 70 * 3600, lead: "A new artist joins the Featured Artist library.".into(), image: None },
+            Story { title: "Project Loved: September 2026".into(), url: String::new(), at: NOON - 96 * 3600, lead: "This month's picks for Project Loved.".into(), image: None },
+        ],
+        threads: vec![
+            Thread { title: "First FC on a map I have been farming for a year".into(), url: String::new(), author: "player_one".into(), at: NOON - 2 * 3600 },
+            Thread { title: "Which tablet area do you use?".into(), url: String::new(), author: "clickety".into(), at: NOON - 5 * 3600 },
+            Thread { title: "The world cup finals are this weekend".into(), url: String::new(), author: "spectator".into(), at: NOON - 9 * 3600 },
+        ],
+        posts: vec![Post {
+            channel: "osunewsru".into(),
+            name: "осу!новостник".into(),
+            text: "Новый рекорд недели: FC на карте из пула мирового кубка с HDDT.".into(),
+            url: String::new(),
+            at: NOON - 3 * 3600,
+            image: None,
+        }],
+        fetched: std::collections::HashMap::new(),
+    };
+    for source in [crate::news::UPDATES, crate::news::STORIES, crate::news::THREADS] {
+        news.mark(source, NOON - 600);
+    }
+    news.mark(&crate::news::channel_source("osunewsru"), NOON - 600);
+    news
 }
 
 pub fn every_main_frame() -> Vec<(String, crate::main_screen::Main, Size)> {

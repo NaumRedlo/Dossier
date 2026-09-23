@@ -327,3 +327,23 @@ streak-card = { $n ->
     [few] { $n } дня подряд
    *[other] { $n } дней подряд
 }
+panel-live = Игры в эфире
+panel-updates = Обновления игры
+panel-news = Новости osu!
+panel-reddit = r/osugame
+panel-channels = Каналы
+panel-group = В группе
+news-loading = загружаю…
+news-failed = не удалось · ещё раз
+news-updated = обновлено
+news-unreachable = не отвечает, попробую позже
+live-now = только что
+minutes-ago = { $n } мин назад
+more-changes = { $n ->
+    [one] и ещё { $n } правка
+    [few] и ещё { $n } правки
+   *[other] и ещё { $n } правок
+}
+channel-hint = @канал
+channel-add = Добавить
+channels-empty = добавьте канал про osu!

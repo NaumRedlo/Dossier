@@ -101,9 +101,7 @@ fn run(ask: &Ask, control: &Control, push: &mut dyn FnMut(Frame) -> bool) -> Res
     let state = dossier_sim::GameState::new(&beatmap, &replay);
 
     let mut skin = dossier_render::Skin::with_combo_colours(beatmap.combo_colours());
-    if let Some(font) = dossier_produce::font::find(None)? {
-        skin = skin.with_font(font);
-    }
+    skin = skin.with_font(crate::render::hud_font());
     if let Some(folder) = ask.skin.as_ref().filter(|folder| folder.is_dir()) {
         skin = dossier_produce::skin::from_folder(skin, folder, None);
     }

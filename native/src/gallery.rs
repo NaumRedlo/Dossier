@@ -859,7 +859,7 @@ mod tests {
         let reach = iced::Vector::new(std::env::var("DOSSIER_DRAG_X").ok().and_then(|v| v.parse().ok()).unwrap_or(-518.0), std::env::var("DOSSIER_DRAG_Y").ok().and_then(|v| v.parse().ok()).unwrap_or(-124.0));
         let mut at = Instant::now() + Duration::from_secs(3600);
         let tick = Duration::from_micros(16_667);
-        let mut redraw = |screen: &mut Screen<'_>, at: &mut Instant| {
+        let redraw = |screen: &mut Screen<'_>, at: &mut Instant| {
             *at += tick;
             let _ = screen.simulate([iced::Event::Window(window::Event::RedrawRequested(*at))]);
         };

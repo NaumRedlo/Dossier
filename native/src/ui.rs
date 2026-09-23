@@ -19,6 +19,30 @@ pub fn fade() -> f32 {
     FADE.with(|f| f.get())
 }
 
+pub fn elapsed(last: &mut Option<std::time::Instant>, now: std::time::Instant) -> f32 {
+    let dt = last.map_or(1.0 / 60.0, |was| now.saturating_duration_since(was).as_secs_f32()).min(1.0 / 30.0);
+    *last = Some(now);
+    dt
+}
+
+pub fn toward(value: f32, target: f32, per_sixtieth: f32, dt: f32) -> f32 {
+    target + (value - target) * (1.0 - per_sixtieth).powf(dt * 60.0)
+}
+
+#[cfg(test)]
+mod easing {
+    use super::toward;
+
+    #[test]
+    fn easing_is_the_same_at_sixty_and_a_hundred_and_twenty_frames() {
+        let at_sixty = (0..30).fold(0.0, |v, _| toward(v, 1.0, 0.28, 1.0 / 60.0));
+        let at_twice = (0..60).fold(0.0, |v, _| toward(v, 1.0, 0.28, 1.0 / 120.0));
+        assert!((at_sixty - at_twice).abs() < 1e-4, "{at_sixty} against {at_twice}");
+        let one_frame = toward(0.0, 1.0, 0.28, 1.0 / 60.0);
+        assert!((one_frame - 0.28).abs() < 1e-6, "at sixty frames it moves as it always did");
+    }
+}
+
 pub fn dim(colour: Color, k: f32) -> Color {
     Color { a: colour.a * k.clamp(0.0, 1.0), ..colour }
 }
@@ -1364,6 +1388,7 @@ struct SpringState {
     press: f32,
     over: bool,
     held: bool,
+    last: Option<std::time::Instant>,
 }
 
 pub fn springy<'a, Message: 'a>(content: impl Into<Element<'a, Message>>, reach: f32) -> Springy<'a, Message> {
@@ -1437,15 +1462,17 @@ impl<Message> iced::advanced::Widget<Message, Theme, Renderer> for Springy<'_, M
                 state.held = false;
                 shell.request_redraw();
             }
-            iced::Event::Window(iced::window::Event::RedrawRequested(_)) => {
+            iced::Event::Window(iced::window::Event::RedrawRequested(now)) => {
                 let (hover, press) = (if state.over { 1.0 } else { 0.0 }, if state.held { 1.0 } else { 0.0 });
                 let settled = (state.hover - hover).abs() < 0.002 && (state.press - press).abs() < 0.002;
                 if settled {
                     state.hover = hover;
                     state.press = press;
+                    state.last = None;
                 } else {
-                    state.hover += (hover - state.hover) * 0.28;
-                    state.press += (press - state.press) * 0.4;
+                    let dt = elapsed(&mut state.last, *now);
+                    state.hover = toward(state.hover, hover, 0.28, dt);
+                    state.press = toward(state.press, press, 0.4, dt);
                     shell.request_redraw();
                 }
             }
@@ -1709,6 +1736,7 @@ pub struct SeekState {
     grabbed: bool,
     over: Option<f32>,
     knob: f32,
+    last: Option<std::time::Instant>,
 }
 
 const SEEK_BUBBLE: f32 = 20.0;
@@ -1718,13 +1746,15 @@ impl<Message> canvas::Program<Message> for Seek<'_, Message> {
 
     fn update(&self, state: &mut SeekState, event: &iced::Event, bounds: Rectangle, cursor: mouse::Cursor) -> Option<canvas::Action<Message>> {
         let fraction_at = |x: f32| ((x - bounds.x) / bounds.width.max(1.0)).clamp(0.0, 1.0);
-        if matches!(event, iced::Event::Window(iced::window::Event::RedrawRequested(_))) {
+        if let iced::Event::Window(iced::window::Event::RedrawRequested(now)) = event {
             let want = if state.grabbed { 1.0 } else if cursor.is_over(bounds) { 0.6 } else { 0.0 };
             if (want - state.knob).abs() < 0.003 {
                 state.knob = want;
+                state.last = None;
                 return None;
             }
-            state.knob += (want - state.knob) * 0.3;
+            let dt = elapsed(&mut state.last, *now);
+            state.knob = toward(state.knob, want, 0.3, dt);
             return Some(canvas::Action::request_redraw());
         }
         match event {
@@ -1831,6 +1861,7 @@ pub struct SpeedState {
     grabbed: Option<(f32, f32)>,
     moved: bool,
     glow: f32,
+    last: Option<std::time::Instant>,
 }
 
 const SPEED_TEXT: f32 = 50.0;
@@ -1852,13 +1883,20 @@ impl<Message> canvas::Program<Message> for Speed<'_, Message> {
 
     fn update(&self, state: &mut SpeedState, event: &iced::Event, bounds: Rectangle, cursor: mouse::Cursor) -> Option<canvas::Action<Message>> {
         match event {
-            iced::Event::Window(iced::window::Event::RedrawRequested(_)) => {
+            iced::Event::Window(iced::window::Event::RedrawRequested(at)) => {
                 let want = self.index();
                 let now = state.shown.unwrap_or(want);
                 let lit = if state.grabbed.is_some() { 1.0 } else if cursor.is_over(bounds) { 0.6 } else { 0.0 };
                 let still = (want - now).abs() < 0.004 && (lit - state.glow).abs() < 0.004;
-                state.shown = Some(if still { want } else { now + (want - now) * 0.26 });
-                state.glow += (lit - state.glow) * 0.3;
+                if still {
+                    state.shown = Some(want);
+                    state.glow = lit;
+                    state.last = None;
+                } else {
+                    let dt = elapsed(&mut state.last, *at);
+                    state.shown = Some(toward(now, want, 0.26, dt));
+                    state.glow = toward(state.glow, lit, 0.3, dt);
+                }
                 (!still).then(canvas::Action::request_redraw)
             }
             iced::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
@@ -1968,6 +2006,7 @@ pub struct Level<'a, Message> {
 pub struct LevelState {
     grabbed: bool,
     knob: f32,
+    last: Option<std::time::Instant>,
 }
 
 impl<Message> canvas::Program<Message> for Level<'_, Message> {
@@ -1975,13 +2014,15 @@ impl<Message> canvas::Program<Message> for Level<'_, Message> {
 
     fn update(&self, state: &mut LevelState, event: &iced::Event, bounds: Rectangle, cursor: mouse::Cursor) -> Option<canvas::Action<Message>> {
         let fraction_at = |x: f32| ((x - bounds.x - 3.0) / (bounds.width - 6.0).max(1.0)).clamp(0.0, 1.0);
-        if matches!(event, iced::Event::Window(iced::window::Event::RedrawRequested(_))) {
+        if let iced::Event::Window(iced::window::Event::RedrawRequested(now)) = event {
             let want = if state.grabbed { 1.0 } else if cursor.is_over(bounds) { 0.6 } else { 0.0 };
             if (want - state.knob).abs() < 0.003 {
                 state.knob = want;
+                state.last = None;
                 return None;
             }
-            state.knob += (want - state.knob) * 0.3;
+            let dt = elapsed(&mut state.last, *now);
+            state.knob = toward(state.knob, want, 0.3, dt);
             return Some(canvas::Action::request_redraw());
         }
         match event {
@@ -2251,6 +2292,7 @@ pub struct StepsState {
     grabbed: bool,
     label_side: f32,
     value_side: f32,
+    last: Option<std::time::Instant>,
 }
 
 const STEP_INSET: f32 = 5.0;
@@ -2261,7 +2303,7 @@ impl<Message> canvas::Program<Message> for Steps<'_, Message> {
     type State = StepsState;
 
     fn update(&self, state: &mut StepsState, event: &iced::Event, bounds: Rectangle, cursor: mouse::Cursor) -> Option<canvas::Action<Message>> {
-        if matches!(event, iced::Event::Window(iced::window::Event::RedrawRequested(_))) {
+        if let iced::Event::Window(iced::window::Event::RedrawRequested(now)) = event {
             let (label_wide, value_wide) = (self.label.chars().count() as f32 * 6.8 + 4.0, self.value.chars().count() as f32 * 6.7 + 2.0);
             let x = STEP_INSET + self.shown.clamp(0.0, 1.0) * (bounds.width - 2.0 * STEP_INSET);
             let free_left = x - HANDLE_ROOM - 10.0;
@@ -2275,13 +2317,17 @@ impl<Message> canvas::Program<Message> for Steps<'_, Message> {
                 false => (free_right < value_wide + 4.0).then_some(1.0).unwrap_or(0.0),
             };
             let mut moving = false;
+            let dt = elapsed(&mut state.last, *now);
             for (side, want) in [(&mut state.label_side, want_label), (&mut state.value_side, want_value)] {
                 if (want - *side).abs() > 0.002 {
-                    *side += (want - *side) * 0.3;
+                    *side = toward(*side, want, 0.3, dt);
                     moving = true;
                 } else {
                     *side = want;
                 }
+            }
+            if !moving {
+                state.last = None;
             }
             return moving.then(canvas::Action::request_redraw);
         }
@@ -2613,154 +2659,6 @@ impl<'a, Message: 'a> From<Wrap<'a, Message>> for Element<'a, Message> {
     }
 }
 
-pub struct Dragged<'a, Message, T> {
-    content: Element<'a, Message>,
-    _what: T,
-    on_grab: Message,
-    on_over: Box<dyn Fn(bool) -> Message + 'a>,
-    on_drop: Message,
-    held: bool,
-}
-
-#[derive(Debug, Default)]
-struct DraggedState {
-    from: Option<Point>,
-}
-
-const DRAG_SLACK: f32 = 6.0;
-
-pub fn dragged<'a, Message: Clone + 'a, T: Copy + 'a>(
-    content: Element<'a, Message>,
-    what: T,
-    on_grab: Message,
-    on_over: impl Fn(bool) -> Message + 'a,
-    on_drop: Message,
-    held: bool,
-) -> Element<'a, Message> {
-    Element::new(Dragged { content, _what: what, on_grab, on_over: Box::new(on_over), on_drop, held })
-}
-
-impl<Message: Clone, T> iced::advanced::Widget<Message, Theme, Renderer> for Dragged<'_, Message, T> {
-    fn tag(&self) -> iced::advanced::widget::tree::Tag {
-        iced::advanced::widget::tree::Tag::of::<DraggedState>()
-    }
-
-    fn state(&self) -> iced::advanced::widget::tree::State {
-        iced::advanced::widget::tree::State::new(DraggedState::default())
-    }
-
-    fn children(&self) -> Vec<iced::advanced::widget::Tree> {
-        vec![iced::advanced::widget::Tree::new(&self.content)]
-    }
-
-    fn diff(&self, tree: &mut iced::advanced::widget::Tree) {
-        tree.diff_children(std::slice::from_ref(&self.content));
-    }
-
-    fn size(&self) -> Size<Length> {
-        self.content.as_widget().size()
-    }
-
-    fn layout(
-        &mut self,
-        tree: &mut iced::advanced::widget::Tree,
-        renderer: &Renderer,
-        limits: &iced::advanced::layout::Limits,
-    ) -> iced::advanced::layout::Node {
-        self.content.as_widget_mut().layout(&mut tree.children[0], renderer, limits)
-    }
-
-    fn operate(
-        &mut self,
-        tree: &mut iced::advanced::widget::Tree,
-        layout: iced::advanced::Layout<'_>,
-        renderer: &Renderer,
-        operation: &mut dyn iced::advanced::widget::Operation,
-    ) {
-        self.content.as_widget_mut().operate(&mut tree.children[0], layout, renderer, operation);
-    }
-
-    fn update(
-        &mut self,
-        tree: &mut iced::advanced::widget::Tree,
-        event: &iced::Event,
-        layout: iced::advanced::Layout<'_>,
-        cursor: mouse::Cursor,
-        renderer: &Renderer,
-        clipboard: &mut dyn iced::advanced::Clipboard,
-        shell: &mut iced::advanced::Shell<'_, Message>,
-        viewport: &Rectangle,
-    ) {
-        self.content
-            .as_widget_mut()
-            .update(&mut tree.children[0], event, layout, cursor, renderer, clipboard, shell, viewport);
-        let taken = shell.is_event_captured();
-        let over = cursor.is_over(layout.bounds());
-        let state = tree.state.downcast_mut::<DraggedState>();
-        match event {
-            iced::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) if over && !taken => {
-                state.from = cursor.position();
-            }
-            iced::Event::Mouse(mouse::Event::CursorMoved { position }) => match state.from {
-                Some(from) if !self.held => {
-                    if (position.x - from.x).abs() + (position.y - from.y).abs() > DRAG_SLACK {
-                        shell.publish(self.on_grab.clone());
-                        shell.capture_event();
-                    }
-                }
-                _ => {
-                    if over && self.held {
-                        let half = layout.bounds().center_x();
-                        shell.publish((self.on_over)(position.x < half));
-                    }
-                }
-            },
-            iced::Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => {
-                state.from = None;
-                if self.held {
-                    shell.publish(self.on_drop.clone());
-                }
-            }
-            _ => {}
-        }
-    }
-
-    fn mouse_interaction(
-        &self,
-        tree: &iced::advanced::widget::Tree,
-        layout: iced::advanced::Layout<'_>,
-        cursor: mouse::Cursor,
-        viewport: &Rectangle,
-        renderer: &Renderer,
-    ) -> mouse::Interaction {
-        self.content.as_widget().mouse_interaction(&tree.children[0], layout, cursor, viewport, renderer)
-    }
-
-    fn draw(
-        &self,
-        tree: &iced::advanced::widget::Tree,
-        renderer: &mut Renderer,
-        theme: &Theme,
-        style: &iced::advanced::renderer::Style,
-        layout: iced::advanced::Layout<'_>,
-        cursor: mouse::Cursor,
-        viewport: &Rectangle,
-    ) {
-        self.content.as_widget().draw(&tree.children[0], renderer, theme, style, layout, cursor, viewport);
-    }
-
-    fn overlay<'b>(
-        &'b mut self,
-        tree: &'b mut iced::advanced::widget::Tree,
-        layout: iced::advanced::Layout<'b>,
-        renderer: &Renderer,
-        viewport: &Rectangle,
-        translation: iced::Vector,
-    ) -> Option<iced::advanced::overlay::Element<'b, Message, Theme, Renderer>> {
-        self.content.as_widget_mut().overlay(&mut tree.children[0], layout, renderer, viewport, translation)
-    }
-}
-
 pub struct Drifting<'a, Message> {
     content: Element<'a, Message>,
     since: std::time::Instant,
@@ -2882,86 +2780,6 @@ fn drift(elapsed: f32) -> f32 {
         1.0
     } else {
         1.0 - ease((at - (span - travel)) / travel)
-    }
-}
-
-pub struct Hollow<'a, Message> {
-    content: Element<'a, Message>,
-    open: f32,
-}
-
-pub fn hollow<'a, Message: 'a>(content: impl Into<Element<'a, Message>>) -> Hollow<'a, Message> {
-    Hollow { content: content.into(), open: 1.0 }
-}
-
-impl<Message> Hollow<'_, Message> {
-    pub fn opened(mut self, open: f32) -> Self {
-        self.open = open;
-        self
-    }
-}
-
-impl<Message> iced::advanced::Widget<Message, Theme, Renderer> for Hollow<'_, Message> {
-    fn tag(&self) -> iced::advanced::widget::tree::Tag {
-        self.content.as_widget().tag()
-    }
-
-    fn state(&self) -> iced::advanced::widget::tree::State {
-        self.content.as_widget().state()
-    }
-
-    fn children(&self) -> Vec<iced::advanced::widget::Tree> {
-        self.content.as_widget().children()
-    }
-
-    fn diff(&self, tree: &mut iced::advanced::widget::Tree) {
-        self.content.as_widget().diff(tree);
-    }
-
-    fn size(&self) -> Size<Length> {
-        self.content.as_widget().size()
-    }
-
-    fn layout(
-        &mut self,
-        tree: &mut iced::advanced::widget::Tree,
-        renderer: &Renderer,
-        limits: &iced::advanced::layout::Limits,
-    ) -> iced::advanced::layout::Node {
-        let node = self.content.as_widget_mut().layout(tree, renderer, limits);
-        let size = node.size();
-        iced::advanced::layout::Node::new(Size::new(size.width * self.open.clamp(0.0, 1.0), size.height))
-    }
-
-    fn draw(
-        &self,
-        _tree: &iced::advanced::widget::Tree,
-        renderer: &mut Renderer,
-        theme: &Theme,
-        _style: &iced::advanced::renderer::Style,
-        layout: iced::advanced::Layout<'_>,
-        _cursor: mouse::Cursor,
-        _viewport: &Rectangle,
-    ) {
-        use iced::advanced::Renderer as _;
-        if layout.bounds().width < 6.0 {
-            return;
-        }
-        let style = theme::slot(theme);
-        renderer.fill_quad(
-            iced::advanced::renderer::Quad {
-                bounds: layout.bounds(),
-                border: style.border,
-                ..iced::advanced::renderer::Quad::default()
-            },
-            style.background.unwrap_or(iced::Background::Color(Color::TRANSPARENT)),
-        );
-    }
-}
-
-impl<'a, Message: 'a> From<Hollow<'a, Message>> for Element<'a, Message> {
-    fn from(hollow: Hollow<'a, Message>) -> Element<'a, Message> {
-        Element::new(hollow)
     }
 }
 

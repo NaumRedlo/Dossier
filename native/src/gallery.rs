@@ -621,3 +621,204 @@ pub fn write_main(dir: &Path) -> Result<usize, String> {
     }
     Ok(written)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use iced::mouse;
+    use iced::window;
+    use std::time::{Duration, Instant};
+
+    type Screen<'a> = Simulator<'a, Message>;
+
+    fn still(ui: &mut Screen<'_>, dir: &Path, name: &str) {
+        let stem = dir.join(name);
+        let _ = std::fs::remove_file(written_as(&stem));
+        let shot = ui.snapshot(&crate::theme::theme()).expect("a snapshot");
+        let _ = shot.matches_image(&stem);
+    }
+
+    #[test]
+    #[ignore]
+    fn a_wheel_notch_glides_the_journal() {
+        use crate::main_screen::Main;
+        let Some(root) = std::env::var_os("DOSSIER_CORPUS").map(PathBuf::from) else {
+            return;
+        };
+        let source = crate::sources::folder_at(&root).expect("replays");
+        let mut settings = crate::settings::Settings::default();
+        settings.sources = vec![source.clone()];
+        let library = crate::library::read(&[source]);
+        let main = Main::staged(crate::lang::Words::new(Lang::Ru), settings, library, Some(0));
+        let backdrop = ui::backdrop_handle();
+        let size = Size::new(980.0, 720.0);
+        let mut screen = Simulator::with_size(settings_once(), size, main_frame(&main, &backdrop));
+        screen.point_at(iced::Point::new(490.0, 690.0));
+        let mut at = Instant::now() + Duration::from_secs(3600);
+        let _ = screen.simulate([iced::Event::Mouse(mouse::Event::WheelScrolled { delta: mouse::ScrollDelta::Lines { x: 0.0, y: -1.0 } })]);
+        for _ in 0..40 {
+            at += Duration::from_micros(8_333);
+            let _ = screen.simulate([iced::Event::Window(window::Event::RedrawRequested(at))]);
+        }
+        let offsets: Vec<f32> = screen
+            .into_messages()
+            .filter_map(|message| match message {
+                Message::Main(crate::main_screen::Message::Strip(viewport)) => Some(viewport.absolute_offset().x),
+                _ => None,
+            })
+            .collect();
+        assert!(offsets.len() > 10, "the journal jumped instead of gliding: {offsets:?}");
+        assert!(offsets.windows(2).all(|pair| pair[1] >= pair[0]), "the journal went back and forth");
+    }
+
+    #[test]
+    #[ignore]
+    fn a_tile_carried_to_the_edge_scrolls_the_page_in_frames() {
+        let Some(dir) = std::env::var_os("DOSSIER_DRAG_FRAMES").map(PathBuf::from) else {
+            return;
+        };
+        std::fs::create_dir_all(&dir).expect("a folder");
+        let (_, main, size) = every_main_frame().into_iter().find(|(name, _, _)| name.starts_with("main-prefs-en")).expect("the settings are staged");
+        let backdrop = ui::backdrop_handle();
+        let mut screen = Simulator::with_size(settings_once(), size, main_frame(&main, &backdrop));
+        let mut at = Instant::now() + Duration::from_secs(3600);
+        let tick = Duration::from_micros(16_667);
+        let redraw = |screen: &mut Screen<'_>, at: &mut Instant| {
+            *at += tick;
+            let _ = screen.simulate([iced::Event::Window(window::Event::RedrawRequested(*at))]);
+        };
+        screen.point_at(iced::Point::new(490.0, 500.0));
+        let _ = screen.simulate([iced::Event::Mouse(mouse::Event::WheelScrolled { delta: mouse::ScrollDelta::Pixels { x: 0.0, y: -400.0 } })]);
+        redraw(&mut screen, &mut at);
+        still(&mut screen, &dir, "edge-000-scrolled");
+        let tile = screen.find("Maps and cache").expect("the maps tile").visible_bounds().expect("the maps tile is on screen");
+        let grip = iced::Point::new(tile.x + tile.width + 30.0, tile.center_y());
+        screen.point_at(grip);
+        let _ = screen.simulate([iced::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left))]);
+        let top = iced::Point::new(200.0, 150.0);
+        for step in 1..=30 {
+            let k = step as f32 / 30.0;
+            let p = grip + (top - grip) * (k * k * (3.0 - 2.0 * k));
+            screen.point_at(p);
+            let _ = screen.simulate([iced::Event::Mouse(mouse::Event::CursorMoved { position: p })]);
+            redraw(&mut screen, &mut at);
+        }
+        still(&mut screen, &dir, "edge-030-at-the-top");
+        for step in 1..=90 {
+            redraw(&mut screen, &mut at);
+            if step % 30 == 0 {
+                still(&mut screen, &dir, &format!("edge-{:03}-scrolling", 30 + step));
+            }
+        }
+        let render = iced::Point::new(120.0, 230.0);
+        for step in 1..=12 {
+            let p = top + (render - top) * (step as f32 / 12.0);
+            screen.point_at(p);
+            let _ = screen.simulate([iced::Event::Mouse(mouse::Event::CursorMoved { position: p })]);
+            redraw(&mut screen, &mut at);
+        }
+        for _ in 0..12 {
+            redraw(&mut screen, &mut at);
+        }
+        still(&mut screen, &dir, "edge-150-over-render");
+        let _ = screen.simulate([iced::Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left))]);
+        for _ in 0..50 {
+            redraw(&mut screen, &mut at);
+        }
+        still(&mut screen, &dir, "edge-200-landed");
+        let moved: Vec<_> = screen
+            .into_messages()
+            .filter_map(|message| match message {
+                Message::Main(crate::main_screen::Message::Prefs(crate::settings_screen::Message::Moved(what, before))) => Some((what, before)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(moved.first().map(|(what, _)| *what), Some(crate::settings_screen::Tile::Maps));
+    }
+
+    #[test]
+    #[ignore]
+    fn free_space_shows_the_places_in_frames() {
+        let Some(dir) = std::env::var_os("DOSSIER_DRAG_FRAMES").map(PathBuf::from) else {
+            return;
+        };
+        std::fs::create_dir_all(&dir).expect("a folder");
+        let (_, main, size) = every_main_frame().into_iter().find(|(name, _, _)| name.starts_with("main-prefs-en")).expect("the settings are staged");
+        let backdrop = ui::backdrop_handle();
+        let mut screen = Simulator::with_size(settings_once(), size, main_frame(&main, &backdrop));
+        let language = screen.find("Language").expect("the language tile").bounds();
+        let empty = iced::Point::new(language.x + 380.0, language.y + 40.0);
+        let mut at = Instant::now() + Duration::from_secs(3600);
+        let tick = Duration::from_micros(16_667);
+        screen.point_at(empty);
+        let _ = screen.simulate([iced::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left))]);
+        for step in 1..=24 {
+            at += tick;
+            let _ = screen.simulate([iced::Event::Window(window::Event::RedrawRequested(at))]);
+            if step % 8 == 0 {
+                still(&mut screen, &dir, &format!("free-{step:03}-pressed"));
+            }
+        }
+        let _ = screen.simulate([iced::Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left))]);
+        for step in 1..=90 {
+            at += tick;
+            let _ = screen.simulate([iced::Event::Window(window::Event::RedrawRequested(at))]);
+            if step % 15 == 0 {
+                still(&mut screen, &dir, &format!("free-{:03}-released", 24 + step));
+            }
+        }
+    }
+
+    #[test]
+    #[ignore]
+    fn a_dragged_tile_in_frames() {
+        let Some(dir) = std::env::var_os("DOSSIER_DRAG_FRAMES").map(PathBuf::from) else {
+            return;
+        };
+        std::fs::create_dir_all(&dir).expect("a folder");
+        let (_, main, size) = every_main_frame().into_iter().find(|(name, _, _)| name.starts_with("main-prefs-en")).expect("the settings are staged");
+        let backdrop = ui::backdrop_handle();
+        let mut screen = Simulator::with_size(settings_once(), size, main_frame(&main, &backdrop));
+        let heading = screen.find("Gameplay").expect("the gameplay tile").bounds();
+        let grip = iced::Point::new(heading.x + heading.width + 30.0, heading.center_y());
+        let reach = iced::Vector::new(std::env::var("DOSSIER_DRAG_X").ok().and_then(|v| v.parse().ok()).unwrap_or(-518.0), std::env::var("DOSSIER_DRAG_Y").ok().and_then(|v| v.parse().ok()).unwrap_or(-124.0));
+        let mut at = Instant::now() + Duration::from_secs(3600);
+        let tick = Duration::from_micros(16_667);
+        let mut redraw = |screen: &mut Screen<'_>, at: &mut Instant| {
+            *at += tick;
+            let _ = screen.simulate([iced::Event::Window(window::Event::RedrawRequested(*at))]);
+        };
+        still(&mut screen, &dir, "drag-000-rest");
+        screen.point_at(grip);
+        let _ = screen.simulate([iced::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left))]);
+        let steps = 48;
+        for step in 1..=steps {
+            let k = step as f32 / steps as f32;
+            let eased = k * k * (3.0 - 2.0 * k);
+            let p = grip + reach * eased;
+            screen.point_at(p);
+            let _ = screen.simulate([iced::Event::Mouse(mouse::Event::CursorMoved { position: p })]);
+            redraw(&mut screen, &mut at);
+            if step % 6 == 0 || step == 2 {
+                still(&mut screen, &dir, &format!("drag-{step:03}-carry"));
+            }
+        }
+        for step in 1..=30 {
+            redraw(&mut screen, &mut at);
+            if step % 10 == 0 {
+                still(&mut screen, &dir, &format!("drag-{:03}-held", steps + step));
+            }
+        }
+        let _ = screen.simulate([iced::Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left))]);
+        for step in 1..=40 {
+            redraw(&mut screen, &mut at);
+            if step % 5 == 0 {
+                still(&mut screen, &dir, &format!("drag-{:03}-land", steps + 30 + step));
+            }
+        }
+        let moved = screen
+            .into_messages()
+            .any(|message| matches!(message, Message::Main(crate::main_screen::Message::Prefs(crate::settings_screen::Message::Moved(..)))));
+        assert!(moved, "dropping a tile elsewhere did not move it");
+    }
+}

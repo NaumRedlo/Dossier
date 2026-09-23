@@ -1,9 +1,11 @@
+pub mod board;
 pub mod bot;
 pub mod checks;
 pub mod ffmpeg;
 pub mod film;
 pub mod first_run;
 pub mod gallery;
+pub mod glide;
 pub mod lang;
 pub mod library;
 pub mod live;

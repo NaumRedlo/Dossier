@@ -516,32 +516,14 @@ pub fn ghost(_: &Theme, status: button::Status) -> button::Style {
     }
 }
 
+pub const SLAB_SOLID: Color = Color::from_rgb(0.055, 0.025, 0.033);
+
 pub fn slab(_: &Theme) -> container::Style {
     container::Style {
         text_color: None,
         background: Some(Background::Color(Color::from_rgba(0.055, 0.025, 0.033, 0.96))),
         border: border(Color::from_rgba(1.0, 1.0, 1.0, 0.07), 16.0),
         shadow: Shadow::default(),
-        snap: true,
-    }
-}
-
-pub fn slot(_: &Theme) -> container::Style {
-    container::Style {
-        text_color: None,
-        background: Some(Background::Color(Color::from_rgba(1.0, 1.0, 1.0, 0.015))),
-        border: border(Color::from_rgba(1.0, 1.0, 1.0, 0.14), 16.0),
-        shadow: Shadow::default(),
-        snap: true,
-    }
-}
-
-pub fn slab_held(_: &Theme) -> container::Style {
-    container::Style {
-        text_color: None,
-        background: Some(Background::Color(Color::from_rgba(0.085, 0.04, 0.05, 0.99))),
-        border: border(Color::from_rgba(1.0, 1.0, 1.0, 0.2), 16.0),
-        shadow: Shadow { color: Color::from_rgba(0.0, 0.0, 0.0, 0.6), offset: iced::Vector::new(0.0, 16.0), blur_radius: 40.0 },
         snap: true,
     }
 }

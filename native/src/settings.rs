@@ -60,6 +60,8 @@ pub struct Settings {
     #[serde(default)]
     pub chat_id: Option<i64>,
     #[serde(default)]
+    pub chat_title: String,
+    #[serde(default)]
     pub tell: Tell,
     #[serde(default)]
     pub skin: Option<PathBuf>,
@@ -774,6 +776,7 @@ impl Default for Settings {
             tiles_app: Vec::new(),
             tiles_bot: Vec::new(),
             chat_id: None,
+            chat_title: String::new(),
             tell: Tell::default(),
             skin: None,
             own_skins: Vec::new(),

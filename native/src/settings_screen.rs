@@ -109,13 +109,6 @@ pub struct Ground<'a> {
     pub avatar: Option<&'a iced::widget::image::Handle>,
     pub chats: &'a [crate::bot::Chat],
     pub chat_faces: &'a std::collections::HashMap<i64, iced::widget::image::Handle>,
-    pub dragging: Option<Tile>,
-    pub landing: Option<Tile>,
-    pub leaving: Option<Tile>,
-    pub leaving_open: f32,
-    pub landed: Option<(Tile, f32)>,
-    pub opening: f32,
-    pub closing: f32,
     pub renaming: Option<&'a String>,
     pub skins: &'a [PathBuf],
     pub skin_faces: &'a std::collections::HashMap<PathBuf, iced::widget::image::Handle>,
@@ -167,10 +160,7 @@ pub enum Message {
     PlayerLevel(f32),
     Unlink,
     SignOut,
-    Drag(Tile),
-    DragAt(iced::Point),
-    DropBefore(Option<Tile>, bool),
-    Dropped,
+    Moved(Tile, Option<Tile>),
 }
 
 pub fn view<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
@@ -195,68 +185,35 @@ pub fn view<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
         Side::App => (&ground.settings.tiles_app, &APP[..]),
         Side::Bot => (&ground.settings.tiles_bot, &BOT[..]),
     };
-    let mut tiles: Vec<Element<'a, Message>> = Vec::new();
-    let held = ground.dragging;
-    for (at, tile) in order(kept, all).into_iter().enumerate() {
-        let late = (ground.came * 1.7 - 0.09 * at as f32).clamp(0.0, 1.0);
-        if held.is_some() && ground.leaving == Some(tile) && ground.leaving_open > 0.01 {
-            tiles.push(room(ground, held.unwrap_or(tile), ground.leaving_open));
-        }
-        if held.is_some() && ground.landing == Some(tile) && ground.opening > 0.01 {
-            tiles.push(room(ground, held.unwrap_or(tile), ground.opening));
-        }
-        if held == Some(tile) {
-            if ground.closing > 0.01 {
-                tiles.push(room(ground, tile, ground.closing));
-            }
-            continue;
-        }
-        tiles.push(draggable(ground, tile, late));
-    }
     let swap = ground.swap.clamp(0.0, 1.0);
-    let slid = ui::grown(ui::wrap(tiles, 10.0), iced::Point::new(0.5, 0.0), 0.0, 1.0).shifted((1.0 - swap) * 26.0 * ground.swap_from);
-    let grid = container(ui::fading(ui::fade() * swap, || slid)).padding(Padding { top: 16.0, right: 40.0, bottom: 28.0, left: 40.0 });
+    let tiles = order(kept, all);
+    let board = ui::fading(ui::fade() * swap, || {
+        let pieces: Vec<(Tile, Element<'a, Message>)> = tiles
+            .iter()
+            .enumerate()
+            .map(|(at, tile)| (*tile, card(ground, *tile, (ground.came * 1.7 - 0.09 * at as f32).clamp(0.0, 1.0))))
+            .collect();
+        Element::from(ui::grown(crate::board::board(pieces, 10.0, Message::Moved).solid(theme::SLAB_SOLID), iced::Point::new(0.5, 0.0), 0.0, 1.0).shifted((1.0 - swap) * 26.0 * ground.swap_from))
+    });
+    let grid = container(board).padding(Padding { top: 16.0, right: 40.0, bottom: 28.0, left: 40.0 });
     let rolled = iced::widget::scrollable(grid)
+        .id(iced::widget::Id::new("settings-tiles"))
         .anchor_y(iced::widget::scrollable::Anchor::Start)
         .style(ui::thin_scroll)
         .width(Length::Fill)
         .height(Length::Fill);
+    let rolled = crate::glide::edged(rolled, iced::widget::Id::new("settings-tiles"));
     column![container(switch).padding(Padding::ZERO.top(22.0)), rolled]
         .width(Length::Fill)
         .height(Length::Fill)
         .into()
 }
 
-fn draggable<'a>(ground: &Ground<'a>, tile: Tile, late: f32) -> Element<'a, Message> {
-    let settling = ground.landed.filter(|(what, _)| *what == tile).map(|(_, k)| k);
+fn card<'a>(ground: &Ground<'a>, tile: Tile, late: f32) -> Element<'a, Message> {
     let k = (ui::fade() * late).clamp(0.0, 1.0);
     let inside: Element<'a, Message> = ui::fading(k.powf(2.2), || one(ground, tile));
     let card: Element<'a, Message> = container(inside).padding([14, 16]).style(ui::box_at(theme::slab, k.powf(0.6))).into();
-    let grown = match settling {
-        Some(k) => 1.06 - 0.06 * k,
-        None => 0.96 + 0.04 * late,
-    };
-    let risen = ui::grown(card, iced::Point::new(0.5, 0.5), 0.0, grown);
-    ui::dragged(
-        risen.into(),
-        tile,
-        Message::Drag(tile),
-        move |before| Message::DropBefore(Some(tile), before),
-        Message::Dropped,
-        ground.dragging.is_some(),
-    )
-}
-
-fn room<'a>(ground: &Ground<'a>, tile: Tile, open: f32) -> Element<'a, Message> {
-    let inside = container(one(ground, tile)).padding([14, 16]);
-    ui::hollow(inside).opened(open.clamp(0.0, 1.0)).into()
-}
-
-pub fn floating<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
-    container(one(ground, tile))
-        .padding([14, 16])
-        .style(ui::box_faded(theme::slab_held))
-        .into()
+    ui::grown(card, iced::Point::new(0.5, 0.5), 0.0, 0.96 + 0.04 * late).into()
 }
 
 fn machine_name() -> String {

@@ -11,7 +11,7 @@ use iced::{window, Animation, Color, ContentFit, Element, Length, Padding, Point
 use crate::lang::{typed, Words};
 use crate::library::{self, Entry, Grade, Library};
 use crate::bot::{self, Paired, Refused};
-use crate::settings_screen::{self as prefs, Side, Tile};
+use crate::settings_screen::{self as prefs, Side};
 use crate::{notices, player, videos};
 use crate::live;
 use crate::maps;
@@ -26,6 +26,7 @@ pub const ENTER: Duration = Duration::from_millis(1200);
 pub const ARRIVE: Duration = Duration::from_millis(450);
 pub const SWAP: Duration = Duration::from_millis(450);
 pub const LIFT: Duration = Duration::from_millis(200);
+const HOVER_REST: Duration = Duration::from_millis(160);
 pub const LIVE_FADE: Duration = Duration::from_millis(640);
 pub const BRAND_WIDTH: f32 = 144.0;
 const CREST_HOME: (f32, f32) = (40.0, 24.0);
@@ -256,6 +257,7 @@ pub struct Main {
     pub before: Option<Shown>,
     pub search: String,
     pub hover: Option<usize>,
+    pub hover_since: Option<(usize, Instant)>,
     pub hover_bounds: Option<iced::Rectangle>,
     pub thumbs: HashMap<String, image::Handle>,
     pub scenes: HashMap<String, image::Handle>,
@@ -293,9 +295,6 @@ pub struct Main {
     pub ground_fade: Animation<bool>,
     pub overlay_drawn: Overlay,
     pub side: Side,
-    pub dragging: Option<Tile>,
-    pub drop_before: Option<Tile>,
-    pub drop_was: Option<Tile>,
     pub renaming: Option<String>,
     pub chats: Vec<crate::bot::Chat>,
     pub skins: Vec<PathBuf>,
@@ -305,13 +304,6 @@ pub struct Main {
     pub marks_now: HashMap<String, f32>,
     pub slides: HashMap<String, (f32, f32)>,
     pub slid_at: HashMap<String, Instant>,
-    pub drag_at: Point,
-    pub drag_held: Point,
-    pub slot_open: f32,
-    pub slot_shut: f32,
-    pub slot_was: f32,
-    pub landed: Option<(Tile, Instant)>,
-    pub eyed: Option<(Option<Tile>, Instant)>,
     pub lang_swap: bool,
     pub paused_by_hand: bool,
     pub turning: Option<Overlay>,
@@ -349,6 +341,7 @@ pub struct Main {
     pub width: f32,
     pub height: f32,
     strip_id: iced::widget::Id,
+    strip_aim: Option<(u64, f32)>,
 }
 
 fn unix_now() -> i64 {
@@ -368,6 +361,7 @@ impl Main {
             before: None,
             search: String::new(),
             hover: None,
+            hover_since: None,
             hover_bounds: None,
             thumbs: HashMap::new(),
             scenes: HashMap::new(),
@@ -405,9 +399,6 @@ impl Main {
             ground_fade: Animation::new(false).duration(GROUND_UP).easing(Easing::EaseOutCubic),
             overlay_drawn: Overlay::None,
             side: Side::App,
-            dragging: None,
-            drop_before: None,
-            drop_was: None,
             renaming: None,
             chats: Vec::new(),
             skins: Vec::new(),
@@ -417,13 +408,6 @@ impl Main {
             marks_now: HashMap::new(),
             slides: HashMap::new(),
             slid_at: HashMap::new(),
-            drag_at: Point::ORIGIN,
-            drag_held: Point::ORIGIN,
-            slot_open: 0.0,
-            slot_shut: 1.0,
-            slot_was: 0.0,
-            landed: None,
-            eyed: None,
             lang_swap: false,
             paused_by_hand: false,
             turning: None,
@@ -461,6 +445,7 @@ impl Main {
             width: crate::WINDOW.width,
             height: crate::WINDOW.height,
             strip_id: iced::widget::Id::unique(),
+            strip_aim: None,
         };
         let strays = videos::strays(&made.store.videos, &made.settings.renders_dir());
         let adopt = match (made.ffmpeg.clone(), strays.is_empty()) {
@@ -532,10 +517,6 @@ impl Main {
             || self.retype.is_animating(self.now)
             || self.side_fade.is_animating(self.now)
             || self.marks.values().any(|m| m.is_animating(self.now))
-            || self.dragging.is_some()
-            || self.slot_open > 0.001
-            || self.slot_was > 0.001
-            || self.landed.is_some()
             || self.slides_settling()
             || self.arrivals.values().any(|a| a.is_animating(self.now))
             || self.leaving.values().any(|a| a.is_animating(self.now))
@@ -575,13 +556,6 @@ impl Main {
         })];
         if self.moving() {
             parts.push(window::frames().map(Message::Tick));
-        }
-        if self.dragging.is_some() {
-            parts.push(iced::event::listen_with(|event, _, _| match event {
-                iced::Event::Mouse(iced::mouse::Event::CursorMoved { position }) => Some(Message::Prefs(prefs::Message::DragAt(position))),
-                iced::Event::Mouse(iced::mouse::Event::ButtonReleased(iced::mouse::Button::Left)) => Some(Message::Prefs(prefs::Message::Dropped)),
-                _ => None,
-            }));
         }
         if matches!(self.pairing, Pairing::Waiting { .. }) {
             parts.push(iced::time::every(Duration::from_secs(3)).map(|_| Message::Poll));
@@ -821,6 +795,7 @@ impl Main {
             }
             Message::MenuTab(tab) => {
                 let now = Instant::now();
+                let opening = self.menu.is_none();
                 match self.menu {
                     Some(was) if was != tab => {
                         self.seg_from = was;
@@ -845,11 +820,12 @@ impl Main {
                     self.settings.menu_tab = name.to_owned();
                     let _ = self.settings.save();
                 }
+                let chats = if opening { self.chats_task() } else { Task::none() };
                 if tab == Tab::Feed {
                     self.notices.see_all();
-                    return self.scenes_for_notices();
+                    return Task::batch([self.scenes_for_notices(), chats]);
                 }
-                Task::none()
+                chats
             }
             Message::MenuClose => {
                 if self.menu_open.value() {
@@ -1059,6 +1035,11 @@ impl Main {
             Message::Chats(chats) => {
                 let wanted: Vec<i64> = chats.iter().filter(|chat| chat.photo && !self.chat_faces.contains_key(&chat.id)).map(|chat| chat.id).collect();
                 self.chats = chats;
+                let named = self.settings.chat_id.and_then(|id| self.chats.iter().find(|chat| chat.id == id)).map(|chat| chat.title.clone());
+                if let Some(title) = named.filter(|title| *title != self.settings.chat_title) {
+                    self.settings.chat_title = title;
+                    let _ = self.settings.save();
+                }
                 if wanted.is_empty() {
                     return Task::none();
                 }
@@ -1344,15 +1325,8 @@ impl Main {
                 if at.is_none() {
                     self.hover_bounds = None;
                 }
-                let combo = match at.and_then(|at| self.entries().get(at)) {
-                    Some(entry) if !self.combos.contains_key(&entry.path) => {
-                        let (path, map, hash) = (entry.path.clone(), entry.map.clone(), entry.map_hash.clone());
-                        self.combos.insert(path.clone(), None);
-                        ui::in_thread(move || Message::MaxCombo(path.clone(), max_combo_of(&path, map.as_ref(), &hash)))
-                    }
-                    _ => Task::none(),
-                };
                 let now = Instant::now();
+                self.hover_since = at.map(|at| (at, now));
                 for (index, lift) in self.lifts.iter_mut() {
                     if Some(*index) != at {
                         lift.go_mut(false, now);
@@ -1365,7 +1339,7 @@ impl Main {
                         .go_mut(true, now);
                 }
                 self.lifts.retain(|_, lift| lift.value() || lift.is_animating(now));
-                combo
+                Task::none()
             }
             Message::Show(overlay) => {
                 let now = Instant::now();
@@ -1384,13 +1358,7 @@ impl Main {
                     let skins = self.look_for_skins();
                     let ffmpeg = self.ffmpeg.clone();
                     let version = ui::in_thread(move || Message::Ffmpeg(ffmpeg.as_deref().and_then(crate::checks::ffmpeg_version)));
-                    let chats = match (self.settings.token.is_empty(), self.chats.is_empty()) {
-                        (false, true) => {
-                            let (server, token, name) = (self.settings.server.clone(), self.settings.token.clone(), self.settings.device.clone());
-                            ui::in_thread(move || Message::Chats(crate::bot::chats(&server, &token, &name).unwrap_or_default()))
-                        }
-                        _ => Task::none(),
-                    };
+                    let chats = self.chats_task();
                     self.turn_to(overlay, now);
                     self.overlay = overlay;
                     self.rest_live(true);
@@ -1656,10 +1624,9 @@ impl Main {
                     None => self.guessed_strip(),
                 };
                 let x = (fraction * content).clamp(0.0, (content - shown).max(0.0));
-                iced::advanced::widget::operate(iced::advanced::widget::operation::scrollable::scroll_to(
-                    self.strip_id.clone(),
-                    iced::widget::scrollable::AbsoluteOffset { x: Some(x), y: None },
-                ))
+                let serial = self.strip_aim.map_or(1, |(serial, _)| serial + 1);
+                self.strip_aim = Some((serial, x));
+                Task::none()
             }
             Message::TogglePlay => {
                 if self.overlay != Overlay::None {
@@ -1744,6 +1711,7 @@ impl Main {
                 Task::none()
             }
             Message::Tick(now) => {
+                let dt = now.saturating_duration_since(self.now).as_secs_f32().min(1.0 / 30.0);
                 if self.scenes_due {
                     self.scenes_due = false;
                     let load = self.scenes_for_notices();
@@ -1785,11 +1753,11 @@ impl Main {
                     }
                 }
                 match self.progress_target() {
-                    Some(target) => self.progress_shown += (target - self.progress_shown) * 0.12,
+                    Some(target) => self.progress_shown = ui::toward(self.progress_shown, target, 0.12, dt),
                     None => self.progress_shown = 0.0,
                 }
                 self.marks_now = self.marks.iter().map(|(id, mark)| (id.clone(), mark.interpolate(0.0, 1.0, now))).collect();
-                self.ease_slides();
+                self.ease_slides(dt);
                 self.words.typed_up_to(self.retype.interpolate(0.0, 1.0, now));
                 if !self.retype.is_animating(now) {
                     self.words.settle();
@@ -1800,24 +1768,6 @@ impl Main {
                     }
                 }
                 self.toasts.retain(|t| t.shown.value() || t.shown.is_animating(now));
-                if self.dragging.is_some() {
-                    self.drag_held.x += (self.drag_at.x - self.drag_held.x) * 0.35;
-                    self.drag_held.y += (self.drag_at.y - self.drag_held.y) * 0.35;
-                    let want_open = if self.drop_before.is_some() { 1.0 } else { 0.0 };
-                    let want_shut = if self.drop_before.is_some() { 0.0 } else { 1.0 };
-                    self.slot_open += (want_open - self.slot_open) * 0.18;
-                    self.slot_shut += (want_shut - self.slot_shut) * 0.18;
-                    self.slot_was += (0.0 - self.slot_was) * 0.18;
-                    if self.slot_was < 0.01 {
-                        self.drop_was = None;
-                    }
-                } else if self.slot_open > 0.001 {
-                    self.slot_open += (0.0 - self.slot_open) * 0.2;
-                    self.slot_shut = 1.0;
-                }
-                if self.landed.is_some_and(|(_, at)| now.saturating_duration_since(at) > LANDING) {
-                    self.landed = None;
-                }
                 if let Some(next) = self.turning {
                     if !self.overlay_fade.value() && !self.overlay_fade.is_animating(now) {
                         self.turning = None;
@@ -1840,7 +1790,7 @@ impl Main {
                     self.notices.remove(id);
                 }
                 self.arrivals.retain(|_, a| a.is_animating(now));
-                Task::none()
+                self.combo_for_rested(now)
             }
             Message::ToastHover(id, over) => {
                 if let Some(toast) = self.toasts.iter_mut().find(|t| t.id == id) {
@@ -2466,6 +2416,7 @@ impl Main {
                 scrollable::Scrollbar::new().width(0).scroller_width(0).margin(0),
             ))
             .width(Length::Fill);
+        let strip = crate::glide::glide(strip, self.strip_id.clone()).aimed(self.strip_aim, self.strip_view.map_or(0.0, |(offset, _, _)| offset));
         let position = self
             .chosen
             .and_then(|c| visible.iter().position(|v| *v == c))
@@ -3014,8 +2965,6 @@ const ASK_WIDE: f32 = 400.0;
 const VIDEO_THUMB: (u32, u32) = (96, 54);
 pub const RETYPE: Duration = Duration::from_millis(900);
 pub const MARK: Duration = Duration::from_millis(200);
-pub const LANDING: Duration = Duration::from_millis(180);
-pub const EYED: Duration = Duration::from_millis(70);
 pub const LANG_FADE: Duration = Duration::from_millis(150);
 
 impl Main {
@@ -3093,7 +3042,7 @@ impl Main {
         })
     }
 
-    fn ease_slides(&mut self) {
+    fn ease_slides(&mut self, dt: f32) {
         let wanted = self.slider_targets();
         for (id, target) in wanted {
             let settled = self
@@ -3102,9 +3051,27 @@ impl Main {
                 .map(|at| self.now.saturating_duration_since(*at).as_millis() > 160)
                 .unwrap_or(true);
             let (shown, snap) = self.slides.entry(id).or_insert((target, 1.0));
-            *shown += (target - *shown) * 0.28;
+            *shown = ui::toward(*shown, target, 0.28, dt);
             let want = if settled && (target - *shown).abs() < 0.01 { 1.0 } else { 0.0 };
-            *snap += (want - *snap) * 0.25;
+            *snap = ui::toward(*snap, want, 0.25, dt);
+        }
+    }
+
+    fn combo_for_rested(&mut self, now: Instant) -> Task<Message> {
+        let Some((at, since)) = self.hover_since else {
+            return Task::none();
+        };
+        if now.saturating_duration_since(since) < HOVER_REST || self.hover != Some(at) {
+            return Task::none();
+        }
+        self.hover_since = None;
+        match self.entries().get(at) {
+            Some(entry) if !self.combos.contains_key(&entry.path) => {
+                let (path, map, hash) = (entry.path.clone(), entry.map.clone(), entry.map_hash.clone());
+                self.combos.insert(path.clone(), None);
+                ui::in_thread(move || Message::MaxCombo(path.clone(), max_combo_of(&path, map.as_ref(), &hash)))
+            }
+            _ => Task::none(),
         }
     }
 
@@ -3161,13 +3128,6 @@ impl Main {
             avatar: self.avatar.as_ref(),
             chats: &self.chats,
             chat_faces: &self.chat_faces,
-            dragging: self.dragging,
-            landing: self.drop_before,
-            leaving: self.drop_was,
-            leaving_open: self.slot_was,
-            landed: self.landed.map(|(tile, at)| (tile, (self.now.saturating_duration_since(at).as_secs_f32() / LANDING.as_secs_f32()).clamp(0.0, 1.0))),
-            opening: self.slot_open,
-            closing: self.slot_shut,
             renaming: self.renaming.as_ref(),
             skins: &self.skins,
             skin_faces: &self.skin_faces,
@@ -3179,24 +3139,7 @@ impl Main {
         };
         let body: Element<'_, Message> = Element::from(prefs::view(&ground)).map(Message::Prefs);
         let sheet = column![Space::new().height(theme::CONTROL_HEIGHT + 4.0 + 22.0), body].width(Length::Fill).height(Length::Fill);
-        let held: Element<'_, Message> = match self.dragging {
-            Some(tile) => {
-                let card: Element<'_, Message> = Element::from(prefs::floating(&ground, tile)).map(Message::Prefs);
-                let speed = (self.drag_at.x - self.drag_held.x).abs() + (self.drag_at.y - self.drag_held.y).abs();
-                let grown = 1.03 + (speed / 400.0).min(0.03);
-                let lean = ((self.drag_at.x - self.drag_held.x) * 0.35).clamp(-14.0, 14.0);
-                let bob = ((self.drag_at.y - self.drag_held.y) * 0.3).clamp(-10.0, 10.0);
-                pin(ui::grown(card, Point::new(0.5, 0.5), -bob, grown).shifted(lean))
-                    .x(self.drag_held.x - 90.0)
-                    .y(self.drag_held.y - 26.0)
-                    .into()
-            }
-            None => Space::new().width(Length::Fill).height(Length::Fill).into(),
-        };
-        stack![sheet, held]
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .into()
+        sheet.into()
     }
 
     fn prefs(&mut self, message: prefs::Message) -> Task<Message> {
@@ -3355,6 +3298,7 @@ impl Main {
                 }
                 self.remember_mark(&format!("chat-{id}"), true);
                 self.settings.chat_id = Some(id);
+                self.settings.chat_title = self.chats.iter().find(|chat| chat.id == id).map(|chat| chat.title.clone()).unwrap_or_default();
                 keep(&self.settings);
                 Task::none()
             }
@@ -3494,67 +3438,7 @@ impl Main {
                 Task::none()
             }
             P::Unlink | P::SignOut => self.update(Message::SignOut),
-            P::Drag(tile) => {
-                if self.dragging.is_none() {
-                    self.drag_held = self.drag_at;
-                    self.slot_open = 0.0;
-                    self.slot_shut = 1.0;
-                    self.drop_before = None;
-                    self.eyed = None;
-                }
-                self.dragging = Some(tile);
-                Task::none()
-            }
-            P::DragAt(at) => {
-                self.drag_at = at;
-                Task::none()
-            }
-            P::DropBefore(tile, before) => {
-                let Some(held) = self.dragging else {
-                    self.eyed = None;
-                    return Task::none();
-                };
-                let Some(over) = tile else {
-                    return Task::none();
-                };
-                if over == held {
-                    return Task::none();
-                }
-                let (kept, all) = match self.side {
-                    Side::App => (self.settings.tiles_app.clone(), &prefs::APP[..]),
-                    Side::Bot => (self.settings.tiles_bot.clone(), &prefs::BOT[..]),
-                };
-                let list = prefs::order(&kept, all);
-                let landing = if before {
-                    Some(over)
-                } else {
-                    list.iter().position(|t| *t == over).and_then(|at| list.get(at + 1).copied()).filter(|next| *next != held)
-                };
-                if landing == self.drop_before {
-                    return Task::none();
-                }
-                let now = Instant::now();
-                match self.eyed {
-                    Some((seen, at)) if seen == landing && now.saturating_duration_since(at) > EYED => {
-                        self.eyed = None;
-                        self.drop_was = self.drop_before;
-                        self.slot_was = self.slot_open;
-                        self.drop_before = landing;
-                        self.slot_open = 0.0;
-                    }
-                    Some((seen, _)) if seen == landing => {}
-                    _ => self.eyed = Some((landing, now)),
-                }
-                Task::none()
-            }
-            P::Dropped => {
-                let (Some(what), before) = (self.dragging.take(), self.drop_before.take()) else {
-                    return Task::none();
-                };
-                self.landed = Some((what, Instant::now()));
-                if Some(what) == before {
-                    return Task::none();
-                }
+            P::Moved(what, before) => {
                 match self.side {
                     Side::App => self.settings.tiles_app = prefs::moved(&self.settings.tiles_app, &prefs::APP, what, before),
                     Side::Bot => self.settings.tiles_bot = prefs::moved(&self.settings.tiles_bot, &prefs::BOT, what, before),
@@ -3820,7 +3704,21 @@ impl Main {
         ]
     }
 
+    fn chats_task(&self) -> Task<Message> {
+        if self.settings.token.is_empty() || !self.chats.is_empty() {
+            return Task::none();
+        }
+        let (server, token, name) = (self.settings.server.clone(), self.settings.token.clone(), self.settings.device.clone());
+        ui::in_thread(move || Message::Chats(crate::bot::chats(&server, &token, &name).unwrap_or_default()))
+    }
+
     fn chat_name(&self) -> String {
+        let own = self.account.as_ref().map(|me| me.telegram_id);
+        if let Some(id) = self.settings.chat_id.filter(|id| Some(*id) != own) {
+            let known = self.chats.iter().find(|chat| chat.id == id).map(|chat| chat.title.clone());
+            let remembered = Some(self.settings.chat_title.clone());
+            return known.into_iter().chain(remembered).find(|title| !title.is_empty()).unwrap_or_else(|| "…".to_owned());
+        }
         match &self.account {
             Some(me) if !me.username.is_empty() => format!("@{}", me.username),
             Some(me) if !me.name.is_empty() => me.name.clone(),
@@ -4251,4 +4149,22 @@ pub fn max_combo_of(path: &Path, map: Option<&library::Map>, hash: &str) -> Opti
     let found = dossier_produce::locate::load_map(&map.file, hash).ok()?;
     let beatmap = dossier_beatmap::Beatmap::parse(&found.text).ok()?;
     Some(dossier_assay::max_combo(&beatmap, replay.mods))
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn the_menu_names_the_chat_the_videos_go_to() {
+        let (_, mut main) = crate::gallery::main_states(crate::lang::Lang::En).into_iter().next().expect("a staged screen");
+        main.account = Some(crate::bot::Me { telegram_id: 7, name: "Naum Redlo".into(), username: "naumredlo".into(), avatar: false });
+        main.chats = vec![crate::bot::Chat { id: -100, title: "Osu Squad".into(), private: false, photo: false }];
+        assert_eq!(main.chat_name(), "@naumredlo");
+        main.settings.chat_id = Some(-100);
+        assert_eq!(main.chat_name(), "Osu Squad");
+        main.chats.clear();
+        main.settings.chat_title = "Osu Squad".into();
+        assert_eq!(main.chat_name(), "Osu Squad", "the title is remembered before the chats arrive");
+        main.settings.chat_id = Some(7);
+        assert_eq!(main.chat_name(), "@naumredlo");
+    }
 }

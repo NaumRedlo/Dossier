@@ -815,6 +815,7 @@ dependencies = [
  "iced_test",
  "image",
  "md-5",
+ "naga",
  "open",
  "png 0.17.16",
  "qrcode",

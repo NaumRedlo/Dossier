@@ -8,7 +8,6 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use iced::widget::image;
 
 pub const WIDTH: u32 = 960;
 pub const HEIGHT: u32 = 540;
@@ -33,7 +32,8 @@ impl Default for Manner {
 pub struct Player {
     pub path: PathBuf,
     pub length_ms: i64,
-    pub frame: Option<image::Handle>,
+    pub frame: Option<crate::film::Frame>,
+    reel: u64,
     pub paused: bool,
     level: Arc<AtomicU32>,
     muted: Arc<AtomicBool>,
@@ -59,6 +59,7 @@ impl Player {
             path: path.to_path_buf(),
             length_ms,
             frame: None,
+            reel: crate::film::reel(),
             paused: false,
             level: Arc::new(AtomicU32::new(manner.level.clamp(0.0, 1.0).to_bits())),
             muted: Arc::new(AtomicBool::new(manner.muted)),
@@ -82,6 +83,7 @@ impl Player {
             path: path.to_path_buf(),
             length_ms,
             frame: None,
+            reel: crate::film::reel(),
             paused: true,
             level: Arc::new(AtomicU32::new(1.0f32.to_bits())),
             muted: Arc::new(AtomicBool::new(false)),
@@ -176,7 +178,7 @@ impl Player {
             }
         }
         if let Some(rgba) = latest {
-            self.frame = Some(image::Handle::from_rgba(WIDTH, HEIGHT, rgba));
+            self.frame = Some(crate::film::Frame::new(self.reel, WIDTH, HEIGHT, rgba));
         }
     }
 

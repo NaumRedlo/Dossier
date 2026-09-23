@@ -4,7 +4,6 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use dossier_produce::{locate, scenery};
-use iced::widget::image;
 
 pub const SIZE: (u32, u32) = (960, 540);
 pub const FPS: f64 = 60.0;
@@ -72,8 +71,7 @@ impl Control {
 
 #[derive(Debug, Clone)]
 pub enum Frame {
-    Picture { handle: image::Handle, at_ms: f64, from_ms: f64, to_ms: f64 },
-    Still(image::Handle),
+    Picture { frame: crate::film::Frame, at_ms: f64, from_ms: f64, to_ms: f64 },
     Failed(String),
 }
 
@@ -131,6 +129,8 @@ fn run(ask: &Ask, control: &Control, push: &mut dyn FnMut(Frame) -> bool) -> Res
     let mut eased_since: Option<(Instant, f64, bool)> = None;
     let mut was_paused = false;
     let mut first = true;
+    let mut drawn: Option<Instant> = None;
+    let reel = crate::film::reel();
     loop {
         if control.stopped() {
             return Ok(());
@@ -168,14 +168,15 @@ fn run(ask: &Ask, control: &Control, push: &mut dyn FnMut(Frame) -> bool) -> Res
             control.settled.store(true, Ordering::SeqCst);
             continue;
         }
-        if !asked {
+        if !asked || drawn.is_some_and(|at| now.duration_since(at) < step.mul_f64(0.9)) {
             continue;
         }
+        drawn = Some(now);
         let pixmap = scene.frame(at_ms, &layout);
         let mut rgba = pixmap.take();
         dim_rows(&mut rgba, SIZE.0 as usize, SIZE.1 as usize);
-        let handle = image::Handle::from_rgba(SIZE.0, SIZE.1, rgba);
-        if !push(Frame::Picture { handle, at_ms, from_ms, to_ms }) {
+        let frame = crate::film::Frame::new(reel, SIZE.0, SIZE.1, rgba);
+        if !push(Frame::Picture { frame, at_ms, from_ms, to_ms }) {
             return Ok(());
         }
     }
@@ -212,20 +213,41 @@ pub fn dim_at(t: f32) -> f32 {
 }
 
 fn dim_rows(rgba: &mut [u8], width: usize, height: usize) {
-    let ground = [
-        (crate::theme::GROUND.r * 255.0) as f32,
-        (crate::theme::GROUND.g * 255.0) as f32,
-        (crate::theme::GROUND.b * 255.0) as f32,
-    ];
+    let ground = [crate::theme::GROUND.r, crate::theme::GROUND.g, crate::theme::GROUND.b].map(|c| c * 255.0);
     for y in 0..height {
         let a = dim_at(y as f32 / (height.max(2) - 1) as f32);
-        let keep = 1.0 - a;
+        let keep = ((1.0 - a) * 65536.0).round() as u32;
+        let lift = ground.map(|c| (c * a * 65536.0 + 32768.0) as u32);
         let row = &mut rgba[y * width * 4..(y + 1) * width * 4];
         for pixel in row.chunks_exact_mut(4) {
-            for c in 0..3 {
-                pixel[c] = (pixel[c] as f32 * keep + ground[c] * a).round().clamp(0.0, 255.0) as u8;
-            }
+            pixel[0] = ((u32::from(pixel[0]) * keep + lift[0]) >> 16).min(255) as u8;
+            pixel[1] = ((u32::from(pixel[1]) * keep + lift[1]) >> 16).min(255) as u8;
+            pixel[2] = ((u32::from(pixel[2]) * keep + lift[2]) >> 16).min(255) as u8;
             pixel[3] = 255;
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_dim_follows_its_curve_to_within_a_step() {
+        let (width, height) = (3, 64);
+        let ground = [crate::theme::GROUND.r, crate::theme::GROUND.g, crate::theme::GROUND.b].map(|c| c * 255.0);
+        for shade in [0u8, 1, 17, 128, 200, 254, 255] {
+            let mut rgba = vec![shade; width * height * 4];
+            dim_rows(&mut rgba, width, height);
+            for y in 0..height {
+                let a = dim_at(y as f32 / (height - 1) as f32);
+                for c in 0..3 {
+                    let wanted = f32::from(shade) * (1.0 - a) + ground[c] * a;
+                    let got = f32::from(rgba[y * width * 4 + c]);
+                    assert!((got - wanted).abs() <= 1.0, "row {y}, channel {c}: {got} against {wanted}");
+                }
+                assert_eq!(rgba[y * width * 4 + 3], 255);
+            }
         }
     }
 }

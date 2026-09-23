@@ -241,8 +241,7 @@ impl Trail {
 pub struct Live {
     pub control: std::sync::Arc<live::Control>,
     pub for_path: PathBuf,
-    pub frame: Option<image::Handle>,
-    pub still: Option<image::Handle>,
+    pub frame: Option<crate::film::Frame>,
     pub at_ms: f64,
     pub fade: Animation<bool>,
     pub rest: Animation<bool>,
@@ -537,8 +536,7 @@ impl Main {
             || self.slot_open > 0.001
             || self.slot_was > 0.001
             || self.landed.is_some()
-            || self.overlay == Overlay::Settings
-            || self.hover.is_some()
+            || self.slides_settling()
             || self.arrivals.values().any(|a| a.is_animating(self.now))
             || self.leaving.values().any(|a| a.is_animating(self.now))
             || self.tab_fade.is_animating(self.now)
@@ -654,9 +652,12 @@ impl Main {
     fn start_live(&mut self) -> Task<Message> {
         if let Some(live) = self.live.take() {
             live.control.stop();
-            self.live_before = live.frame;
+            self.live_before = live.frame.as_ref().map(crate::film::Frame::still);
         }
         self.trail = None;
+        if !self.settings.live_scene {
+            return Task::none();
+        }
         let Some(ask) = self.chosen_entry().and_then(|entry| {
             let map = entry.map.as_ref()?;
             Some(live::Ask {
@@ -677,7 +678,6 @@ impl Main {
             control: control.clone(),
             for_path: ask.replay.clone(),
             frame: None,
-            still: None,
             at_ms: 0.0,
             fade: Animation::new(false).duration(LIVE_FADE).easing(Easing::EaseOutCubic),
             rest: Animation::new(false).duration(LIVE_FADE).easing(Easing::EaseOutCubic),
@@ -1625,17 +1625,16 @@ impl Main {
                     return Task::none();
                 };
                 match frame {
-                    live::Frame::Picture { handle, at_ms, .. } => {
+                    live::Frame::Picture { frame, at_ms, .. } => {
                         if live.frame.is_none() {
                             live.fade.go_mut(true, Instant::now());
                         }
-                        live.frame = Some(handle);
+                        live.frame = Some(frame);
                         live.at_ms = at_ms;
                         if live.rest.value() || live.rest.is_animating(Instant::now()) {
                             live.rest.go_mut(false, Instant::now());
                         }
                     }
-                    live::Frame::Still(_) => {}
                     live::Frame::Failed(_) => {
                         live.control.stop();
                         self.live = None;
@@ -2134,9 +2133,9 @@ impl Main {
         };
         let live: Element<'_, Message> = match (entry, &self.live, &self.trail) {
             (Some(entry), Some(live), _) if live.for_path == entry.path && self.overlay == Overlay::None => match &live.frame {
-                Some(handle) => {
+                Some(frame) => {
                     let seen = live.fade.interpolate(0.0, 1.0, self.now);
-                    mouse_area(full(handle, alpha * seen)).on_press(Message::TogglePlay).into()
+                    mouse_area(crate::film::show(frame, crate::film::Fit::Cover, alpha * seen)).on_press(Message::TogglePlay).into()
                 }
                 None => blank(),
             },
@@ -2584,8 +2583,7 @@ impl Main {
         ]
         .spacing(12)
         .align_y(iced::Center);
-        let drift = ui::drift(self.now.saturating_duration_since(self.started).as_secs_f32());
-        let how = ui::drifting(how, drift);
+        let how = ui::drifting(how, self.started);
         let inside = column![
             head,
             text(ui::shortened(entry.song().unwrap_or_else(|| w.t("unknown-map")), 44))
@@ -2751,7 +2749,7 @@ impl Main {
         let wide = self.widened.interpolate(0.0, 1.0, self.now);
         let round: iced::border::Radius = (PICTURE_RADIUS).into();
         let picture: Element<'_, Message> = match &player.frame {
-            Some(handle) => image(handle.clone()).content_fit(ContentFit::Contain).width(Length::Fill).height(Length::Fill).opacity(ui::fade()).into(),
+            Some(frame) => crate::film::show(frame, crate::film::Fit::Contain, ui::fade()),
             None => match self.thumbs.get(&video.map_hash) {
                 Some(handle) => image(handle.clone())
                     .content_fit(ContentFit::Cover)
@@ -3108,6 +3106,17 @@ impl Main {
             let want = if settled && (target - *shown).abs() < 0.01 { 1.0 } else { 0.0 };
             *snap += (want - *snap) * 0.25;
         }
+    }
+
+    fn slides_settling(&self) -> bool {
+        self.slider_targets().into_iter().any(|(id, target)| {
+            let Some(&(shown, snap)) = self.slides.get(&id) else {
+                return true;
+            };
+            let recent = self.slid_at.get(&id).is_some_and(|at| self.now.saturating_duration_since(*at).as_millis() <= 160);
+            let want = if !recent && (target - shown).abs() < 0.01 { 1.0 } else { 0.0 };
+            recent || (target - shown).abs() > 0.0005 || (want - snap).abs() > 0.0005
+        })
     }
 
     fn slider_targets(&self) -> Vec<(String, f32)> {

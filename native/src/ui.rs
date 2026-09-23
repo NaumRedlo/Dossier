@@ -2763,11 +2763,11 @@ impl<Message: Clone, T> iced::advanced::Widget<Message, Theme, Renderer> for Dra
 
 pub struct Drifting<'a, Message> {
     content: Element<'a, Message>,
-    at: f32,
+    since: std::time::Instant,
 }
 
-pub fn drifting<'a, Message: 'a>(content: impl Into<Element<'a, Message>>, at: f32) -> Drifting<'a, Message> {
-    Drifting { content: content.into(), at }
+pub fn drifting<'a, Message: 'a>(content: impl Into<Element<'a, Message>>, since: std::time::Instant) -> Drifting<'a, Message> {
+    Drifting { content: content.into(), since }
 }
 
 impl<Message> iced::advanced::Widget<Message, Theme, Renderer> for Drifting<'_, Message> {
@@ -2827,9 +2827,13 @@ impl<Message> iced::advanced::Widget<Message, Theme, Renderer> for Drifting<'_, 
         shell: &mut iced::advanced::Shell<'_, Message>,
         viewport: &Rectangle,
     ) {
-        if let Some(inner) = layout.children().next() {
-            self.content.as_widget_mut().update(tree, event, inner, cursor, renderer, clipboard, shell, viewport);
+        let Some(inner) = layout.children().next() else {
+            return;
+        };
+        if matches!(event, iced::Event::Window(iced::window::Event::RedrawRequested(_))) && inner.bounds().width > layout.bounds().width {
+            shell.request_redraw();
         }
+        self.content.as_widget_mut().update(tree, event, inner, cursor, renderer, clipboard, shell, viewport);
     }
 
     fn draw(
@@ -2848,7 +2852,8 @@ impl<Message> iced::advanced::Widget<Message, Theme, Renderer> for Drifting<'_, 
         use iced::advanced::Renderer as _;
         let room = layout.bounds().width;
         let over = (inner.bounds().width - room).max(0.0);
-        let shift = if over > 0.0 { -over * self.at.clamp(0.0, 1.0) } else { 0.0 };
+        let at = drift(self.since.elapsed().as_secs_f32());
+        let shift = if over > 0.0 { -over * at.clamp(0.0, 1.0) } else { 0.0 };
         renderer.with_layer(layout.bounds(), |renderer| {
             renderer.with_translation(iced::Vector::new(shift, 0.0), |renderer| {
                 self.content.as_widget().draw(tree, renderer, theme, style, inner, cursor, viewport);
@@ -2863,7 +2868,7 @@ impl<'a, Message: 'a> From<Drifting<'a, Message>> for Element<'a, Message> {
     }
 }
 
-pub fn drift(elapsed: f32) -> f32 {
+fn drift(elapsed: f32) -> f32 {
     let wait = 1.4;
     let travel = 2.6;
     let span = 2.0 * (wait + travel);

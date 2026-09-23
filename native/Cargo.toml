@@ -40,4 +40,5 @@ dossier-assay = { path = "../crates/dossier-assay" }
 
 
 [dev-dependencies]
+naga = { version = "27", features = ["wgsl-in"] }
 rqrr = "0.11"

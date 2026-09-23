@@ -570,6 +570,7 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
         main.ground_fade = iced::Animation::new(true);
         main.community = Some(main.staged_community());
         main.news = sample_news();
+        main.community_own = main.own_stats();
         main.community_section = section;
         main.community_person = person;
         main
@@ -597,6 +598,18 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
         ("main-community-person".to_owned(), community(crate::community_screen::Section::People, Some(1))),
         ("main-community-boards".to_owned(), community(crate::community_screen::Section::Boards, None)),
         ("main-community-titles".to_owned(), community(crate::community_screen::Section::Titles, None)),
+        ("main-community-open".to_owned(), {
+            let mut main = community(crate::community_screen::Section::Feed, None);
+            main.community_open = Some(crate::community_screen::Panel::Profile);
+            main.open_fade = iced::Animation::new(true);
+            main
+        }),
+        ("main-community-reading".to_owned(), {
+            let mut main = community(crate::community_screen::Section::Feed, None);
+            main.community_reading = main.news.stories.first().cloned().map(crate::community_screen::Reading::Story);
+            main.read_fade = iced::Animation::new(true);
+            main
+        }),
         ("main-rendering".to_owned(), rendering),
         ("main-rendered".to_owned(), rendered),
         ("main-hover".to_owned(), hovering),
@@ -610,7 +623,7 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
 }
 
 fn sample_news() -> crate::news::News {
-    use crate::news::{Build, Change, News, Post, Story, Thread};
+    use crate::news::{Block, Build, Change, News, Post, Story};
     let change = |title: &str, major: bool| Change { category: "Gameplay".into(), title: title.into(), major, kind: "fix".into() };
     let mut news = News {
         builds: vec![
@@ -625,15 +638,11 @@ fn sample_news() -> crate::news::News {
             Build { stream: "Tachyon".into(), version: "2026.918.0".into(), at: NOON - 100 * 3600, url: String::new(), changes: vec![change("Improve performance when loading chat", false)] },
         ],
         stories: vec![
-            Story { title: "osu!mania 4K World Cup 2026: Semifinals Recap".into(), url: String::new(), at: NOON - 11 * 3600, lead: "A recap of the second half of the tournament.".into(), image: None },
-            Story { title: "New Featured Artist: Exsy".into(), url: String::new(), at: NOON - 70 * 3600, lead: "A new artist joins the Featured Artist library.".into(), image: None },
-            Story { title: "Project Loved: September 2026".into(), url: String::new(), at: NOON - 96 * 3600, lead: "This month's picks for Project Loved.".into(), image: None },
+            Story { title: "osu!mania 4K World Cup 2026: Semifinals Recap".into(), url: String::new(), at: NOON - 11 * 3600, lead: "A recap of the second half of the tournament.".into(), image: None, body: vec![Block::Text("A recap of the second half of the tournament.".into()), Block::Heading("osu!mania 4K World Cup 2026: Semifinals Recap".into()), Block::Text("A recap of the second half of the tournament.".into())] },
+            Story { title: "New Featured Artist: Exsy".into(), url: String::new(), at: NOON - 70 * 3600, lead: "A new artist joins the Featured Artist library.".into(), image: None, body: vec![Block::Text("A new artist joins the Featured Artist library.".into()), Block::Heading("New Featured Artist: Exsy".into()), Block::Text("A new artist joins the Featured Artist library.".into())] },
+            Story { title: "Project Loved: September 2026".into(), url: String::new(), at: NOON - 96 * 3600, lead: "This month's picks for Project Loved.".into(), image: None, body: vec![Block::Text("This month's picks for Project Loved.".into()), Block::Heading("Project Loved: September 2026".into()), Block::Text("This month's picks for Project Loved.".into())] },
         ],
-        threads: vec![
-            Thread { title: "First FC on a map I have been farming for a year".into(), url: String::new(), author: "player_one".into(), at: NOON - 2 * 3600 },
-            Thread { title: "Which tablet area do you use?".into(), url: String::new(), author: "clickety".into(), at: NOON - 5 * 3600 },
-            Thread { title: "The world cup finals are this weekend".into(), url: String::new(), author: "spectator".into(), at: NOON - 9 * 3600 },
-        ],
+        threads: Vec::new(),
         posts: vec![Post {
             channel: "osunewsru".into(),
             name: "осу!новостник".into(),
@@ -644,7 +653,7 @@ fn sample_news() -> crate::news::News {
         }],
         fetched: std::collections::HashMap::new(),
     };
-    for source in [crate::news::UPDATES, crate::news::STORIES, crate::news::THREADS] {
+    for source in [crate::news::UPDATES, crate::news::STORIES] {
         news.mark(source, NOON - 600);
     }
     news.mark(&crate::news::channel_source("osunewsru"), NOON - 600);

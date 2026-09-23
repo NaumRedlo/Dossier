@@ -201,6 +201,22 @@ pub struct LivePlay {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct Friend {
+    pub name: String,
+    pub country: &'static str,
+    pub pp: u32,
+    pub rank: u32,
+    pub online: bool,
+    pub seen_minutes: u32,
+}
+
+impl Friend {
+    pub fn initial(&self) -> String {
+        self.name.chars().next().map(|c| c.to_uppercase().to_string()).unwrap_or_default()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct Catalog {
     pub group: String,
     pub week: u32,
@@ -208,6 +224,7 @@ pub struct Catalog {
     pub maps: Vec<MapRef>,
     pub feed: Vec<Happening>,
     pub live: Vec<LivePlay>,
+    pub friends: Vec<Friend>,
 }
 
 impl Catalog {
@@ -313,7 +330,17 @@ impl Catalog {
             live_play(1, 5, 98.88, 498.2, &["DT"], "S"),
             live_play(6, 4, 89.90, 97.3, &["HD"], "C"),
         ];
-        Catalog { group: "osu! RU".to_owned(), week: 39, people, maps, feed, live }
+        let friend = |name: &str, country: &'static str, pp: u32, rank: u32, online: bool, seen_minutes: u32| Friend { name: name.to_owned(), country, pp, rank, online, seen_minutes };
+        let friends = vec![
+            friend("quietstorm", "PL", 13_902, 1_988, true, 0),
+            friend("Riv3r", "DE", 10_440, 7_310, true, 0),
+            friend("moonlit", "JP", 9_120, 12_840, false, 35),
+            friend("tsubasa_", "RU", 8_015, 20_117, true, 0),
+            friend("Kest", "US", 7_402, 27_604, false, 180),
+            friend("pixelfox", "FI", 5_660, 51_230, false, 2_880),
+            friend("hanabi", "KR", 4_210, 88_902, false, 60),
+        ];
+        Catalog { group: "osu! RU".to_owned(), week: 39, people, maps, feed, live, friends }
     }
 }
 

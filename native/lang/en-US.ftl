@@ -319,7 +319,6 @@ streak-card = { $n ->
 panel-live = Playing now
 panel-updates = Game updates
 panel-news = osu! news
-panel-reddit = r/osugame
 panel-channels = Channels
 panel-group = In the group
 news-loading = loading…
@@ -335,3 +334,23 @@ more-changes = { $n ->
 channel-hint = @channel
 channel-add = Add
 channels-empty = add a channel about osu!
+panel-profile = My profile
+panel-people = People
+people-chat = Chat
+people-game = From the game
+friends-in-osu = friends in osu!
+online = online
+hours-ago = { $n } h ago
+days-ago = { $n ->
+    [one] { $n } day ago
+   *[other] { $n } days ago
+}
+my-replays = My replays
+journal-replays = Replays in the journal
+journal-maps = Maps
+full-combos = FC
+best-accuracy = Best accuracy
+mean-accuracy = Mean accuracy
+from-journal = from the journal
+recent-plays = Recent plays
+read-outside = Open in the browser

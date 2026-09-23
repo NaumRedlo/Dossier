@@ -31,6 +31,15 @@ pub struct Build {
     pub changes: Vec<Change>,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum Block {
+    Heading(String),
+    Text(String),
+    Item(String),
+    Quote(String),
+    Image(String),
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Story {
     pub title: String,
@@ -38,6 +47,8 @@ pub struct Story {
     pub at: i64,
     pub lead: String,
     pub image: Option<String>,
+    #[serde(default)]
+    pub body: Vec<Block>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -46,6 +57,8 @@ pub struct Thread {
     pub url: String,
     pub author: String,
     pub at: i64,
+    #[serde(default)]
+    pub body: Vec<Block>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -251,6 +264,98 @@ pub fn unix_of(stamp: &str) -> Option<i64> {
     Some(days * 86_400 + hour * 3600 + minute * 60 + second - offset)
 }
 
+fn tag_name(tag: &str) -> (bool, String) {
+    let closing = tag.starts_with('/');
+    let name: String = tag.trim_start_matches('/').chars().take_while(|c| c.is_ascii_alphanumeric()).collect::<String>().to_ascii_lowercase();
+    (closing, name)
+}
+
+pub fn blocks_of(markup: &str) -> Vec<Block> {
+    #[derive(Clone, Copy, PartialEq)]
+    enum Kind {
+        Text,
+        Heading,
+        Item,
+        Quote,
+    }
+    let mut out = Vec::new();
+    let mut words = String::new();
+    let mut kind = Kind::Text;
+    let mut hidden = 0usize;
+    let mut quoted = 0usize;
+    let flush = |out: &mut Vec<Block>, words: &mut String, kind: Kind| {
+        let said = unescaped(words).split_whitespace().collect::<Vec<_>>().join(" ");
+        words.clear();
+        if said.is_empty() {
+            return;
+        }
+        out.push(match kind {
+            Kind::Heading => Block::Heading(said),
+            Kind::Item => Block::Item(said),
+            Kind::Quote => Block::Quote(said),
+            Kind::Text => Block::Text(said),
+        });
+    };
+    let mut rest = markup;
+    while let Some(open) = rest.find('<') {
+        if hidden == 0 {
+            words.push_str(&rest[..open]);
+        }
+        let Some(close) = rest[open..].find('>') else {
+            break;
+        };
+        let tag = &rest[open + 1..open + close];
+        rest = &rest[open + close + 1..];
+        if tag.starts_with('!') {
+            continue;
+        }
+        let (closing, name) = tag_name(tag);
+        match (name.as_str(), closing) {
+            ("script" | "style" | "iframe" | "figcaption", false) => hidden += 1,
+            ("script" | "style" | "iframe" | "figcaption", true) => hidden = hidden.saturating_sub(1),
+            _ if hidden > 0 => {}
+            ("h1" | "h2" | "h3" | "h4" | "h5" | "h6", false) => {
+                flush(&mut out, &mut words, kind);
+                kind = Kind::Heading;
+            }
+            ("li", false) => {
+                flush(&mut out, &mut words, kind);
+                kind = Kind::Item;
+            }
+            ("blockquote", false) => {
+                flush(&mut out, &mut words, kind);
+                quoted += 1;
+                kind = Kind::Quote;
+            }
+            ("blockquote", true) => {
+                flush(&mut out, &mut words, kind);
+                quoted = quoted.saturating_sub(1);
+                kind = if quoted > 0 { Kind::Quote } else { Kind::Text };
+            }
+            ("p" | "div" | "ul" | "ol" | "table" | "tr", _) | ("h1" | "h2" | "h3" | "h4" | "h5" | "h6" | "li", true) => {
+                flush(&mut out, &mut words, kind);
+                kind = if quoted > 0 { Kind::Quote } else { Kind::Text };
+            }
+            ("br", _) => words.push(' '),
+            ("img", false) => {
+                if let Some(src) = between(tag, "src=\"", "\"").or_else(|| between(tag, "src='", "'")) {
+                    flush(&mut out, &mut words, kind);
+                    let src = unescaped(src);
+                    if src.starts_with("http") {
+                        out.push(Block::Image(src));
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    if hidden == 0 {
+        words.push_str(rest);
+    }
+    flush(&mut out, &mut words, kind);
+    out
+}
+
 pub fn builds_from(page: &str) -> Result<Vec<Build>, String> {
     let json = between(page, "<script id=\"json-index\" type=\"application/json\">", "</script>").ok_or("the changelog page has no index")?;
     let index: serde_json::Value = serde_json::from_str(json.trim()).map_err(|e| e.to_string())?;
@@ -299,7 +404,8 @@ pub fn stories_from(atom: &str) -> Vec<Story> {
             let content = between(entry, "<content type=\"html\">", "</content>").map(unescaped).unwrap_or_default();
             let lead = between(&content, "<p class=\"osu-md__paragraph\">", "</p>").map(plain).unwrap_or_default();
             let image = between(&content, "<img", ">").and_then(|tag| between(tag, "src=\"", "\"")).map(unescaped);
-            Some(Story { title, url, at, lead, image })
+            let body = blocks_of(&content);
+            Some(Story { title, url, at, lead, image, body })
         })
         .collect()
 }
@@ -311,11 +417,14 @@ pub fn threads_from(atom: &str) -> Vec<Thread> {
             if author.ends_with("AutoModerator") {
                 return None;
             }
+            let content = between(entry, "<content type=\"html\">", "</content>").map(unescaped).unwrap_or_default();
+            let content = content.split("submitted by").next().unwrap_or_default();
             Some(Thread {
                 title: plain(between(entry, "<title>", "</title>")?),
                 url: link_of(entry)?,
                 author: author.trim_start_matches("/u/").to_owned(),
                 at: unix_of(between(entry, "<published>", "</published>")?)?,
+                body: blocks_of(content),
             })
         })
         .collect()
@@ -361,6 +470,7 @@ mod tests {
         let posts = fetch_posts("osunewsru").expect("the channel");
         assert!(!builds.is_empty() && !stories.is_empty() && !posts.is_empty());
         assert!(stories.iter().filter(|story| story.image.is_some()).count() > stories.len() / 2);
+        assert!(stories.iter().filter(|story| story.body.len() > 3).count() > stories.len() / 2, "the news came without its articles");
         assert!(posts.iter().all(|post| post.at > 0));
     }
 
@@ -373,6 +483,25 @@ mod tests {
         assert!(!news.stale(UPDATES, 1_000 + STALE_AFTER));
         assert!(news.stale(UPDATES, 1_000 + STALE_AFTER + 1));
         assert!(!news.stale(THREADS, 1_000 + STALE_AFTER + 1));
+    }
+
+    #[test]
+    fn an_article_comes_apart_into_what_a_reader_shows() {
+        let html = r#"<div class='osu-md'><h2>The final</h2><p class="x">It was <strong>close</strong> &amp; loud.</p>
+        <p><img src="https://i.ppy.sh/a.jpg" alt=""></p><ul><li>First</li><li>Second</li></ul>
+        <blockquote><p>A quote</p></blockquote><script>ignored()</script><p>After</p></div>"#;
+        assert_eq!(
+            blocks_of(html),
+            vec![
+                Block::Heading("The final".into()),
+                Block::Text("It was close & loud.".into()),
+                Block::Image("https://i.ppy.sh/a.jpg".into()),
+                Block::Item("First".into()),
+                Block::Item("Second".into()),
+                Block::Quote("A quote".into()),
+                Block::Text("After".into()),
+            ]
+        );
     }
 
     #[test]

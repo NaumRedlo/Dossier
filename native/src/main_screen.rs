@@ -29,6 +29,7 @@ pub const LIFT: Duration = Duration::from_millis(200);
 const LIVE_FIRST: usize = 6;
 const LIVE_EVERY: Duration = Duration::from_secs(6);
 const LIVE_ARRIVE: Duration = Duration::from_millis(420);
+const STAGE_SHOW: Duration = Duration::from_millis(260);
 const HOVER_REST: Duration = Duration::from_millis(160);
 pub const LIVE_FADE: Duration = Duration::from_millis(640);
 pub const BRAND_WIDTH: f32 = 144.0;
@@ -59,6 +60,7 @@ pub enum Message {
     NewsPosts(String, Result<Vec<crate::news::Post>, String>),
     NewsPicture(String, Option<image::Handle>),
     LiveArrive,
+    ReadFirst,
     Loaded(Library),
     Thumb(String, image::Handle),
     Scene(String, Option<image::Handle>),
@@ -365,6 +367,12 @@ pub struct Main {
     pub channel_draft: String,
     pub live_shown: usize,
     live_arrived: Option<Instant>,
+    pub community_open: Option<crate::community_screen::Panel>,
+    pub open_fade: Animation<bool>,
+    pub community_reading: Option<crate::community_screen::Reading>,
+    pub read_fade: Animation<bool>,
+    pub people_from: crate::community_screen::PeopleFrom,
+    pub community_own: crate::community_screen::Own,
 }
 
 fn unix_now() -> i64 {
@@ -482,6 +490,12 @@ impl Main {
             channel_draft: String::new(),
             live_shown: LIVE_FIRST,
             live_arrived: None,
+            community_open: None,
+            open_fade: Animation::new(false),
+            community_reading: None,
+            read_fade: Animation::new(false),
+            people_from: crate::community_screen::PeopleFrom::Chat,
+            community_own: crate::community_screen::Own::default(),
         };
         let strays = videos::strays(&made.store.videos, &made.settings.renders_dir());
         let adopt = match (made.ffmpeg.clone(), strays.is_empty()) {
@@ -555,6 +569,10 @@ impl Main {
             || self.marks.values().any(|m| m.is_animating(self.now))
             || self.slides_settling()
             || self.live_arrived.is_some_and(|at| self.now.saturating_duration_since(at) < LIVE_ARRIVE)
+            || self.open_fade.is_animating(self.now)
+            || self.read_fade.is_animating(self.now)
+            || (self.community_open.is_some() && !self.open_fade.value())
+            || (self.community_reading.is_some() && !self.read_fade.value())
             || self.arrivals.values().any(|a| a.is_animating(self.now))
             || self.leaving.values().any(|a| a.is_animating(self.now))
             || self.tab_fade.is_animating(self.now)
@@ -816,8 +834,12 @@ impl Main {
                         return self.update(Message::PlayerWiden);
                     }
                     return self.update(Message::ClosePlayer);
+                } else if self.overlay == Overlay::Community && self.community_reading.is_some() && self.read_fade.value() {
+                    self.read_fade.go_mut(false, Instant::now());
                 } else if self.overlay == Overlay::Community && self.community_person.is_some() {
                     self.community_person = None;
+                } else if self.overlay == Overlay::Community && self.community_open.is_some() && self.open_fade.value() {
+                    self.open_fade.go_mut(false, Instant::now());
                 } else {
                     self.overlay = Overlay::None;
                 }
@@ -1413,6 +1435,7 @@ impl Main {
                         if self.community.is_none() {
                             self.community = Some(self.staged_community());
                         }
+                        self.community_own = self.own_stats();
                         if !self.news_loaded {
                             self.news = crate::news::News::load();
                             self.news_loaded = true;
@@ -1457,7 +1480,21 @@ impl Main {
             }
             Message::Community(inner) => {
                 use crate::community_screen::Message as C;
+                let now = Instant::now();
                 match inner {
+                    C::Expand(panel) => {
+                        self.community_open = Some(panel);
+                        self.open_fade = Animation::new(false).duration(STAGE_SHOW).easing(Easing::EaseOutCubic).go(true, now);
+                    }
+                    C::Collapse => self.open_fade.go_mut(false, now),
+                    C::Read(reading) => {
+                        let wanted = reading.pictures();
+                        self.community_reading = Some(reading);
+                        self.read_fade = Animation::new(false).duration(STAGE_SHOW).easing(Easing::EaseOutCubic).go(true, now);
+                        return self.wide_pictures_task(wanted);
+                    }
+                    C::Unread => self.read_fade.go_mut(false, now),
+                    C::PeopleFrom(from) => self.people_from = from,
                     C::Section(section) => {
                         self.community_section = section;
                         self.community_person = None;
@@ -1559,6 +1596,10 @@ impl Main {
                 }
                 Task::none()
             }
+            Message::ReadFirst => match self.news.stories.first().cloned() {
+                Some(story) => self.update(Message::Community(crate::community_screen::Message::Read(crate::community_screen::Reading::Story(story)))),
+                None => Task::none(),
+            },
             Message::LiveArrive => {
                 let pool = self.community.as_ref().map_or(0, |catalog| catalog.live.len());
                 if self.live_shown < pool {
@@ -1959,6 +2000,12 @@ impl Main {
                     self.notices.remove(id);
                 }
                 self.arrivals.retain(|_, a| a.is_animating(now));
+                if !self.open_fade.value() && !self.open_fade.is_animating(now) {
+                    self.community_open = None;
+                }
+                if !self.read_fade.value() && !self.read_fade.is_animating(now) {
+                    self.community_reading = None;
+                }
                 self.combo_for_rested(now)
             }
             Message::ToastHover(id, over) => {
@@ -3311,10 +3358,6 @@ impl Main {
             self.news_loading.insert(news::STORIES.to_owned());
             tasks.push(ui::in_thread(|| Message::NewsStories(news::fetch_stories())));
         }
-        if due(self, news::THREADS) {
-            self.news_loading.insert(news::THREADS.to_owned());
-            tasks.push(ui::in_thread(|| Message::NewsThreads(news::fetch_threads())));
-        }
         for channel in self.settings.news_channels.clone() {
             if due(self, &news::channel_source(&channel)) {
                 tasks.push(self.fetch_channel(channel));
@@ -3339,6 +3382,56 @@ impl Main {
             for (url, (w, h)) in wanted {
                 let handle = crate::news::picture(&url).and_then(|bytes| covered_bytes(&bytes, w, h));
                 if !push(Message::NewsPicture(url, handle)) {
+                    return;
+                }
+            }
+        })
+    }
+
+    pub fn own_stats(&self) -> crate::community_screen::Own {
+        use crate::community_screen::{Own, OwnPlay};
+        let name = self.community.as_ref().and_then(|catalog| catalog.people.first()).map(|you| you.name.clone()).unwrap_or_default();
+        let all: Vec<&Entry> = self.entries().iter().collect();
+        let mine: Vec<&Entry> = all.iter().copied().filter(|entry| !name.is_empty() && entry.player.eq_ignore_ascii_case(&name)).collect();
+        let (list, is_mine) = if mine.is_empty() { (all, false) } else { (mine, true) };
+        if list.is_empty() {
+            return Own::default();
+        }
+        let maps: std::collections::HashSet<&str> = list.iter().map(|entry| entry.map_hash.as_str()).collect();
+        let mut recent = list.clone();
+        recent.sort_by(|a, b| b.played_at.cmp(&a.played_at));
+        Own {
+            mine: is_mine,
+            replays: list.len(),
+            maps: maps.len(),
+            best_accuracy: list.iter().map(|entry| entry.accuracy).fold(0.0, f64::max),
+            mean_accuracy: list.iter().map(|entry| entry.accuracy).sum::<f64>() / list.len() as f64,
+            full_combos: list.iter().filter(|entry| entry.outcome == library::Outcome::FullCombo).count(),
+            plays: recent
+                .iter()
+                .take(10)
+                .map(|entry| OwnPlay {
+                    map_hash: entry.map_hash.clone(),
+                    line: entry.map_line().unwrap_or_default(),
+                    accuracy: entry.accuracy,
+                    grade: entry.grade.letter(),
+                    mods: entry.mods.clone(),
+                    at: entry.played_at,
+                    full_combo: entry.outcome == library::Outcome::FullCombo,
+                })
+                .collect(),
+        }
+    }
+
+    fn wide_pictures_task(&mut self, urls: Vec<String>) -> Task<Message> {
+        let wanted: Vec<String> = urls.into_iter().filter(|url| self.news_asked.insert(crate::community_screen::wide(url))).collect();
+        if wanted.is_empty() {
+            return Task::none();
+        }
+        ui::streamed(move |push| {
+            for url in wanted {
+                let handle = crate::news::picture(&url).and_then(|bytes| fitted_bytes(&bytes, 1400));
+                if !push(Message::NewsPicture(crate::community_screen::wide(&url), handle)) {
                     return;
                 }
             }
@@ -3381,6 +3474,14 @@ impl Main {
             channels: &self.settings.news_channels,
             channel_draft: &self.channel_draft,
             panels: crate::community_screen::panels(&self.settings.feed_panels),
+            open: self.community_open,
+            open_k: self.open_fade.interpolate(0.0, 1.0, self.now),
+            reading: self.community_reading.as_ref(),
+            read_k: self.read_fade.interpolate(0.0, 1.0, self.now),
+            people_from: self.people_from,
+            own: &self.community_own,
+            avatar: self.avatar.as_ref(),
+            chat: self.chat_name(),
             live_shown: self.live_shown,
             live_k: self.live_arrived.map_or(1.0, |at| {
                 let k = (self.now.saturating_duration_since(at).as_secs_f32() / LIVE_ARRIVE.as_secs_f32()).clamp(0.0, 1.0);
@@ -4225,6 +4326,13 @@ impl Main {
         .height(Length::Fill)
         .into()
     }
+}
+
+pub fn fitted_bytes(bytes: &[u8], widest: u32) -> Option<image::Handle> {
+    let picture = ::image::load_from_memory(bytes).ok()?;
+    let picture = if picture.width() > widest { picture.resize(widest, u32::MAX, ::image::imageops::FilterType::Lanczos3) } else { picture };
+    let (width, height) = (picture.width(), picture.height());
+    Some(image::Handle::from_rgba(width, height, picture.to_rgba8().into_raw()))
 }
 
 pub fn covered_bytes(bytes: &[u8], width: u32, height: u32) -> Option<image::Handle> {

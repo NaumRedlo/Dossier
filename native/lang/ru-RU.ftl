@@ -330,7 +330,6 @@ streak-card = { $n ->
 panel-live = Игры в эфире
 panel-updates = Обновления игры
 panel-news = Новости osu!
-panel-reddit = r/osugame
 panel-channels = Каналы
 panel-group = В группе
 news-loading = загружаю…
@@ -347,3 +346,24 @@ more-changes = { $n ->
 channel-hint = @канал
 channel-add = Добавить
 channels-empty = добавьте канал про osu!
+panel-profile = Мой профиль
+panel-people = Люди
+people-chat = Беседа
+people-game = Из игры
+friends-in-osu = друзья в osu!
+online = в сети
+hours-ago = { $n } ч назад
+days-ago = { $n ->
+    [one] { $n } день назад
+    [few] { $n } дня назад
+   *[other] { $n } дней назад
+}
+my-replays = Мои реплеи
+journal-replays = Реплеи в журнале
+journal-maps = Карты
+full-combos = FC
+best-accuracy = Лучшая точность
+mean-accuracy = Средняя точность
+from-journal = из журнала
+recent-plays = Последние игры
+read-outside = Открыть в браузере

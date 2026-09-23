@@ -302,6 +302,7 @@ pub struct Board<'a, Message, K> {
     pieces: Vec<(K, Element<'a, Message>)>,
     spacing: f32,
     on_move: Box<dyn Fn(K, Option<K>) -> Message + 'a>,
+    on_tap: Option<Box<dyn Fn(K) -> Message + 'a>>,
     fade: f32,
     solid: Option<Color>,
 }
@@ -311,10 +312,15 @@ pub fn board<'a, Message: 'a, K: Copy + Eq + Hash + 'static>(
     spacing: f32,
     on_move: impl Fn(K, Option<K>) -> Message + 'a,
 ) -> Board<'a, Message, K> {
-    Board { pieces, spacing, on_move: Box::new(on_move), fade: crate::ui::fade(), solid: None }
+    Board { pieces, spacing, on_move: Box::new(on_move), on_tap: None, fade: crate::ui::fade(), solid: None }
 }
 
-impl<Message, K: Copy + Eq + Hash + 'static> Board<'_, Message, K> {
+impl<'a, Message, K: Copy + Eq + Hash + 'static> Board<'a, Message, K> {
+    pub fn on_tap(mut self, tapped: impl Fn(K) -> Message + 'a) -> Self {
+        self.on_tap = Some(Box::new(tapped));
+        self
+    }
+
     pub fn solid(mut self, colour: Color) -> Self {
         self.solid = Some(colour);
         self
@@ -528,7 +534,9 @@ impl<Message, K: Copy + Eq + Hash + 'static> Widget<Message, Theme, Renderer> fo
                 }
             }
             iced::Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => {
-                state.press = None;
+                if let (Some(press), Some(tapped)) = (state.press.take(), self.on_tap.as_ref()) {
+                    shell.publish(tapped(press.key));
+                }
                 if state.showing && state.shown_until.is_none() {
                     state.shown_until = Some(Instant::now() + SHOWN_FOR);
                     shell.request_redraw();

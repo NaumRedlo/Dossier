@@ -536,23 +536,34 @@ and nothing yet comes from the server.
 
 - *Лента* is a board of panels (reworked 2026-09-23), carried and dropped
   on the same springs as Settings' tiles and kept in the order they were
-  left in (`feed_panels`). Four are real, fetched on the device when the
-  catalogue opens and kept in `~/.dossier/news.json`, each saying when it
-  was last fetched and offering *ещё раз* when it could not be:
-  *Обновления игры* — the latest builds from osu!'s changelog, read from the
-  `json-index` the changelog page carries (the `/api/v2` path answers
-  Cloudflare's block page to anything but a browser), each with its stream
-  in the stream's colour, its version, its date and its biggest changes;
-  *Новости osu!* — the news Atom feed, picture, title, first paragraph;
-  *r/osugame* — the subreddit's Atom feed without AutoModerator's pinned
-  threads, fetched at most every half hour because reddit answers 429 to
-  anyone who asks more often; *Каналы* — public Telegram channels read from
-  their `t.me/s/` page, the list edited in the panel itself and
-  *@osunewsru* the first. Two are staged until the bot can say them:
-  *Игры в эфире*, the group's plays as they land, a new one sliding in on
-  top every few seconds, and *В группе*, what happened in the group —
-  renders, top plays, titles, places won. Every row opens its source; a
-  group row opens its player.
+  left in (`feed_panels`). A panel's lists fill it and, where they are
+  longer than it, turn over by themselves: every few seconds the list
+  glides up by one item and comes round again without end, holding still
+  while the pointer is on it. Pressing a panel anywhere but an item — or
+  its corner mark — opens it in the middle of the screen over a darkened
+  page, wider and with everything it holds; Esc or a press outside closes
+  it. Pressing an item reads it there too, not in the browser: an osu!
+  article in full, from the body its Atom entry already carries (headings,
+  paragraphs, lists, quotes and pictures), a channel's post, or a build's
+  changes by category — with *Открыть в браузере* at the end for the rest.
+  Three panels are real, fetched on the device when the catalogue opens and
+  kept in `~/.dossier/news.json`, each saying when it was last fetched and
+  offering *ещё раз* when it could not be: *Обновления игры* — the latest
+  builds from osu!'s changelog, read from the `json-index` the changelog
+  page carries (the `/api/v2` path answers Cloudflare's block page to
+  anything but a browser); *Новости osu!* — the news Atom feed; *Каналы* —
+  public Telegram channels read from their `t.me/s/` page, the list edited
+  in the panel itself and *@osunewsru* the first. *Мой профиль* is half
+  real: the figures from the journal (replays, maps, full combos, mean and
+  best accuracy, the latest plays with their maps) are the person's own —
+  their replays if the journal holds any under their name, the journal's
+  otherwise, and it says which — while pp, rank and title are staged. Three
+  are staged until the bot can say them: *Игры в эфире*, the group's plays
+  arriving live; *Люди*, the group's members or, switched, the person's
+  osu! friends with who is online; and *В группе*, what happened in the
+  group. The subreddit panel was tried and set aside (2026-09-23): reddit
+  answers 403 and 429 to anonymous reading often enough that it needs its
+  own key; its reader stays in `news.rs`.
 - *Люди* is a card per player — initial, country, the title they wear in
   its rarity's colour, pp, global rank, accuracy, and plays, hours and the
   streak beneath. A card opens the player's page from the right: every

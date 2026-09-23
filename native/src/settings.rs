@@ -492,28 +492,8 @@ fn drawn_circle(side: u32, body: Option<[u8; 3]>, thin: f32) -> image::RgbaImage
 const FIELD: (f32, f32, f32, f32) = (24.0, 56.0, 496.0, 350.0);
 const NOTE_RADIUS: f32 = 42.0;
 
-fn smoothed(road: &[(f32, f32)]) -> Vec<(f32, f32)> {
-    if road.len() < 3 {
-        return road.to_vec();
-    }
-    let at = |i: i32| -> (f32, f32) { road[i.clamp(0, road.len() as i32 - 1) as usize] };
-    let mut out = Vec::new();
-    for i in 0..road.len() as i32 - 1 {
-        let (p0, p1, p2, p3) = (at(i - 1), at(i), at(i + 1), at(i + 2));
-        for step in 0..12 {
-            let t = step as f32 / 12.0;
-            let (t2, t3) = (t * t, t * t * t);
-            let x = 0.5 * ((2.0 * p1.0) + (-p0.0 + p2.0) * t + (2.0 * p0.0 - 5.0 * p1.0 + 4.0 * p2.0 - p3.0) * t2 + (-p0.0 + 3.0 * p1.0 - 3.0 * p2.0 + p3.0) * t3);
-            let y = 0.5 * ((2.0 * p1.1) + (-p0.1 + p2.1) * t + (2.0 * p0.1 - 5.0 * p1.1 + 4.0 * p2.1 - p3.1) * t2 + (-p0.1 + 3.0 * p1.1 - 3.0 * p2.1 + p3.1) * t3);
-            out.push((x, y));
-        }
-    }
-    out.push(*road.last().unwrap_or(&(0.0, 0.0)));
-    out
-}
-
 fn slider_road(under: &mut image::RgbaImage, road: &[(f32, f32)], radius: f32, border: [u8; 3], scale: impl Fn(f32, f32) -> (f32, f32)) {
-    let points: Vec<(f32, f32)> = smoothed(road).iter().map(|(x, y)| scale(*x, *y)).collect();
+    let points: Vec<(f32, f32)> = road.iter().map(|(x, y)| scale(*x, *y)).collect();
     if points.len() < 2 {
         return;
     }
@@ -605,17 +585,17 @@ pub fn skin_pattern(folder: Option<&Path>, wide: u32, high: u32) -> Vec<u8> {
     let place = |x: f32, y: f32| (left + x * scale, top + y * scale);
     let radius = NOTE_RADIUS * scale;
     let rim = slider_rim(folder);
-    slider_road(&mut made, &[(126.0, 300.0), (210.0, 336.0), (312.0, 316.0), (430.0, 262.0)], radius, rim, place);
-    slider_road(&mut made, &[(186.0, 202.0), (218.0, 196.0), (252.0, 198.0)], radius, rim, place);
+    slider_road(&mut made, &[(120.0, 306.0), (436.0, 306.0)], radius, rim, place);
+    slider_road(&mut made, &[(186.0, 202.0), (268.0, 202.0)], radius, rim, place);
     let notes = [
         (140.0, 98.0, Some(1u8), 0usize, None),
         (244.0, 98.0, Some(2), 0, None),
         (348.0, 98.0, Some(3), 0, None),
         (452.0, 98.0, Some(4), 0, Some(1.6)),
-        (126.0, 300.0, Some(1), 1, None),
-        (430.0, 262.0, None, 1, None),
+        (120.0, 306.0, Some(1), 1, None),
+        (436.0, 306.0, None, 1, None),
         (186.0, 202.0, Some(2), 1, None),
-        (252.0, 198.0, None, 1, None),
+        (268.0, 202.0, None, 1, None),
     ];
     for (x, y, number, combo, approach) in notes {
         let (cx, cy) = place(x, y);
@@ -656,19 +636,10 @@ pub fn skin_pattern(folder: Option<&Path>, wide: u32, high: u32) -> Vec<u8> {
         }
     }
     let (hand_x, hand_y) = place(84.0, 168.0);
-    match part(Element::CursorTrail) {
-        Some(trail) => {
-            for (step, away) in [(1.0, 0.42), (2.0, 0.28), (3.0, 0.18), (4.0, 0.1)] {
-                let (tx, ty) = place(84.0 + 4.0 * step, 168.0 + 34.0 * step);
-                laid_at(&mut made, &trail, (radius * 0.9) as u32, tx, ty, away);
-            }
-        }
-        None => {
-            for (step, away) in [(1.0, 0.34), (2.0, 0.22), (3.0, 0.12)] {
-                let (tx, ty) = place(84.0 + 4.0 * step, 168.0 + 34.0 * step);
-                let dot = image::DynamicImage::ImageRgba8(drawn_circle((radius * 2.0) as u32, Some([255, 255, 255]), 0.42));
-                laid_at(&mut made, &dot, (radius * 0.5) as u32, tx, ty, away);
-            }
+    if let Some(trail) = part(Element::CursorTrail) {
+        for (step, away) in [(1.0, 0.42), (2.0, 0.28), (3.0, 0.18), (4.0, 0.1)] {
+            let (tx, ty) = place(84.0 + 4.0 * step, 168.0 + 34.0 * step);
+            laid_at(&mut made, &trail, (radius * 0.9) as u32, tx, ty, away);
         }
     }
     match part(Element::Cursor) {

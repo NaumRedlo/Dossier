@@ -206,15 +206,23 @@ pub fn view<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
     }
     let swap = ground.swap.clamp(0.0, 1.0);
     let slid = ui::grown(ui::wrap(tiles, 10.0), iced::Point::new(0.5, 0.0), 0.0, 1.0).shifted((1.0 - swap) * 26.0 * ground.swap_from);
-    let grid = container(ui::fading(ui::fade() * swap, || slid)).padding(Padding { top: 16.0, right: 40.0, bottom: 24.0, left: 40.0 });
-    column![container(switch).padding(Padding::ZERO.top(22.0)), grid].width(Length::Fill).into()
+    let grid = container(ui::fading(ui::fade() * swap, || slid)).padding(Padding { top: 16.0, right: 40.0, bottom: 28.0, left: 40.0 });
+    let rolled = iced::widget::scrollable(grid)
+        .anchor_y(iced::widget::scrollable::Anchor::Start)
+        .style(ui::thin_scroll)
+        .width(Length::Fill)
+        .height(Length::Fill);
+    column![container(switch).padding(Padding::ZERO.top(22.0)), rolled]
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .into()
 }
 
 fn draggable<'a>(ground: &Ground<'a>, tile: Tile, late: f32) -> Element<'a, Message> {
     let settling = ground.landed.filter(|(what, _)| *what == tile).map(|(_, k)| k);
     let k = (ui::fade() * late).clamp(0.0, 1.0);
     let inside: Element<'a, Message> = ui::fading(k.powf(2.2), || one(ground, tile));
-    let card: Element<'a, Message> = container(inside).padding([12, 14]).style(ui::box_at(theme::slab, k.powf(0.6))).into();
+    let card: Element<'a, Message> = container(inside).padding([14, 16]).style(ui::box_at(theme::slab, k.powf(0.6))).into();
     let grown = match settling {
         Some(k) => 1.06 - 0.06 * k,
         None => 0.96 + 0.04 * late,
@@ -231,13 +239,13 @@ fn draggable<'a>(ground: &Ground<'a>, tile: Tile, late: f32) -> Element<'a, Mess
 }
 
 fn room<'a>(ground: &Ground<'a>, tile: Tile, open: f32) -> Element<'a, Message> {
-    let inside = container(one(ground, tile)).padding([12, 14]);
+    let inside = container(one(ground, tile)).padding([14, 16]);
     ui::hollow(inside).opened(open.clamp(0.0, 1.0)).into()
 }
 
 pub fn floating<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
     container(one(ground, tile))
-        .padding([12, 14])
+        .padding([14, 16])
         .style(ui::box_faded(theme::slab_held))
         .into()
 }
@@ -313,7 +321,7 @@ fn slide<'a>(ground: &Ground<'a>, id: &'static str, label: String, value: String
 
 fn head<'a>(w: &Words, key: &str) -> Element<'a, Message> {
     container(text(w.t(key)).font(theme::MONO).size(12.0).color(ui::faded(INK)))
-        .padding(Padding::ZERO.bottom(8.0))
+        .padding(Padding { top: 2.0, right: 0.0, bottom: 12.0, left: 1.0 })
         .into()
 }
 

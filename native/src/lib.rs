@@ -62,6 +62,7 @@ pub struct Rehearsal {
     pub menu: Option<String>,
     pub prefs: bool,
     pub skin_room: bool,
+    pub ask: bool,
     pub leave: bool,
     pub swap: bool,
 }
@@ -87,9 +88,10 @@ impl Rehearsal {
         let menu = args.iter().position(|a| a == "--menu").and_then(|i| args.get(i + 1)).cloned();
         let prefs = args.iter().any(|a| a == "--prefs");
         let skin_room = args.iter().any(|a| a == "--skin-room");
+        let ask = args.iter().any(|a| a == "--ask");
         let leave = args.iter().any(|a| a == "--leave");
         let swap = args.iter().any(|a| a == "--swap");
-        Some(Rehearsal { folder, snap_to, after, render, get_map, look, step, hover, videos, play, menu, prefs, skin_room, leave, swap })
+        Some(Rehearsal { folder, snap_to, after, render, get_map, look, step, hover, videos, play, menu, prefs, skin_room, ask, leave, swap })
     }
 }
 
@@ -122,6 +124,16 @@ impl App {
             } else if let Some(at) = rehearsal.hover {
                 Task::perform(async { tokio_sleep(std::time::Duration::from_millis(2500)).await }, move |_| Message::Main(main_screen::Message::HoverStaged(at)))
             } else if let Some(at) = rehearsal.play {
+                let asking = rehearsal.ask;
+                let open = Task::perform(async { tokio_sleep(std::time::Duration::from_millis(1500)).await }, |_| Message::Main(main_screen::Message::Show(main_screen::Overlay::Videos)))
+                    .chain(Task::perform(async { tokio_sleep(std::time::Duration::from_millis(1200)).await }, move |_| Message::Main(main_screen::Message::OpenVideo(at))));
+                if asking {
+                    open.chain(Task::perform(async { tokio_sleep(std::time::Duration::from_millis(2500)).await }, |_| Message::Main(main_screen::Message::AskDelete)))
+                } else {
+                    open
+                }
+            } else if false {
+                let at = 0usize;
                 Task::perform(async { tokio_sleep(std::time::Duration::from_millis(1500)).await }, |_| Message::Main(main_screen::Message::Show(main_screen::Overlay::Videos)))
                     .chain(Task::perform(async { tokio_sleep(std::time::Duration::from_millis(1200)).await }, move |_| Message::Main(main_screen::Message::OpenVideo(at))))
             } else if let Some(tab) = rehearsal.menu.clone() {

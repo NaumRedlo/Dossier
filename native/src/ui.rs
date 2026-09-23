@@ -2036,15 +2036,42 @@ pub struct Steps<'a, Message> {
 #[derive(Debug, Default)]
 pub struct StepsState {
     grabbed: bool,
+    label_side: f32,
+    value_side: f32,
 }
 
 const STEP_INSET: f32 = 5.0;
+const HANDLE_ROOM: f32 = 6.0;
 const STEP_SNAP: f32 = 0.035;
 
 impl<Message> canvas::Program<Message> for Steps<'_, Message> {
     type State = StepsState;
 
     fn update(&self, state: &mut StepsState, event: &iced::Event, bounds: Rectangle, cursor: mouse::Cursor) -> Option<canvas::Action<Message>> {
+        if matches!(event, iced::Event::Window(iced::window::Event::RedrawRequested(_))) {
+            let (label_wide, value_wide) = (self.label.chars().count() as f32 * 6.8 + 4.0, self.value.chars().count() as f32 * 6.7 + 2.0);
+            let x = STEP_INSET + self.shown.clamp(0.0, 1.0) * (bounds.width - 2.0 * STEP_INSET);
+            let free_left = x - HANDLE_ROOM - 10.0;
+            let want_label = match state.label_side > 0.5 {
+                true => (free_left > label_wide + 22.0).then_some(0.0).unwrap_or(1.0),
+                false => (free_left < label_wide + 4.0).then_some(1.0).unwrap_or(0.0),
+            };
+            let free_right = bounds.width - 8.0 - (x + HANDLE_ROOM + 10.0);
+            let want_value = match state.value_side > 0.5 {
+                true => (free_right > value_wide + 22.0).then_some(0.0).unwrap_or(1.0),
+                false => (free_right < value_wide + 4.0).then_some(1.0).unwrap_or(0.0),
+            };
+            let mut moving = false;
+            for (side, want) in [(&mut state.label_side, want_label), (&mut state.value_side, want_value)] {
+                if (want - *side).abs() > 0.002 {
+                    *side += (want - *side) * 0.3;
+                    moving = true;
+                } else {
+                    *side = want;
+                }
+            }
+            return moving.then(canvas::Action::request_redraw);
+        }
         let fraction_at = |x: f32| ((x - bounds.x - STEP_INSET) / (bounds.width - 2.0 * STEP_INSET).max(1.0)).clamp(0.0, 1.0);
         let snapped = |f: f32| {
             let mut best = f;
@@ -2114,9 +2141,7 @@ impl<Message> canvas::Program<Message> for Steps<'_, Message> {
             dim(Color { a: 0.92, ..INK }, self.alpha),
         );
         let label_wide = self.label.chars().count() as f32 * 6.8 + 4.0;
-        let room_left = x - wide / 2.0 - 10.0;
-        let away = ((10.0 + label_wide + 10.0 - room_left) / 26.0).clamp(0.0, 1.0);
-        let label_x = 10.0 + (w - 10.0 - label_wide - 10.0) * away;
+        let label_x = 10.0 + (w - 20.0 - label_wide) * state.label_side;
         frame.fill_text(canvas::Text {
             content: self.label.clone(),
             position: Point::new(label_x, h / 2.0),
@@ -2130,8 +2155,7 @@ impl<Message> canvas::Program<Message> for Steps<'_, Message> {
         let value_wide = self.value.chars().count() as f32 * 6.7 + 2.0;
         let right_side = x + wide / 2.0 + 10.0;
         let left_side = x - wide / 2.0 - 10.0 - value_wide;
-        let over = ((right_side + value_wide + 8.0 - w) / 22.0).clamp(0.0, 1.0);
-        let value_x = right_side + (left_side - right_side) * over;
+        let value_x = right_side + (left_side - right_side) * state.value_side;
         frame.fill_text(canvas::Text {
             content: self.value.clone(),
             position: Point::new(value_x, h / 2.0),

@@ -267,6 +267,7 @@ pub const MOD_AUTO: Color = color!(0x5694d6);
 pub const MOD_OTHER: Color = color!(0x9668ce);
 
 pub const SCRIM: Color = Color::from_rgba(0.027, 0.012, 0.016, 0.72);
+pub const DEEP_SCRIM: Color = Color::from_rgba(0.016, 0.008, 0.011, 0.88);
 pub const CHIP: Color = Color::from_rgba(0.027, 0.012, 0.016, 0.72);
 
 pub const FRAME_W: f32 = 108.0;
@@ -635,6 +636,30 @@ pub fn badge_of(colour: Color) -> impl Fn(&Theme) -> container::Style {
         text_color: None,
         background: Some(Background::Color(colour)),
         border: border(Color::from_rgba(0.047, 0.02, 0.027, 1.0), 8.0),
+        shadow: Shadow::default(),
+        snap: true,
+    }
+}
+
+pub fn asking(_: &Theme) -> container::Style {
+    container::Style {
+        text_color: None,
+        background: Some(Background::Color(color!(0x170e11))),
+        border: border(Color::from_rgba(1.0, 1.0, 1.0, 0.1), CARD_RADIUS),
+        shadow: Shadow { color: Color::from_rgba(0.0, 0.0, 0.0, 0.55), offset: iced::Vector::new(0.0, 24.0), blur_radius: 60.0 },
+        snap: true,
+    }
+}
+
+pub fn under_picture(_: &Theme) -> container::Style {
+    let scrim = iced::gradient::Linear::new(std::f32::consts::PI)
+        .add_stop(0.0, Color::from_rgba(0.02, 0.01, 0.015, 0.86))
+        .add_stop(0.72, Color::from_rgba(0.02, 0.01, 0.015, 0.5))
+        .add_stop(1.0, Color::from_rgba(0.02, 0.01, 0.015, 0.0));
+    container::Style {
+        text_color: None,
+        background: Some(Background::Gradient(scrim.into())),
+        border: iced::Border::default(),
         shadow: Shadow::default(),
         snap: true,
     }

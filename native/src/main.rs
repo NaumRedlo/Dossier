@@ -98,7 +98,13 @@ fn main() -> iced::Result {
         .title("Dossier")
         .settings(settings())
         .window(window::Settings {
-            size: WINDOW,
+            size: std::env::var("DOSSIER_WINDOW")
+                .ok()
+                .and_then(|said| {
+                    let (w, h) = said.split_once('x')?;
+                    Some(Size::new(w.trim().parse().ok()?, h.trim().parse().ok()?))
+                })
+                .unwrap_or(WINDOW),
             min_size: Some(Size::new(760.0, 560.0)),
             position: window::Position::Centered,
             ..window::Settings::default()

@@ -441,7 +441,11 @@ stay and the rest dims a little. Sending to Telegram happens only here,
 with the same one-word progress button (*Отправляю*, the fill following
 the bytes) and the ring on the avatar; done, the button returns and the
 top-right card says where it went. Deleting is the screen's one
-question: to the bin, the replay and the map stay. With no videos yet,
+question, and it is a card of its own over a deeper scrim: the video's frame,
+its name and weight, then the line about the bin, and the two answers in a
+footer of their own. A render that finishes while its own replay is the one
+on the screen writes itself into the feed without the top-right card — the
+person is already looking at it. With no videos yet,
 one line and a *К реплеям* button under it. Drawn in
 `docs/mockups/main/store.py`; built 2026-09-22 as drawn, with these
 particulars: the store is `~/.dossier/Renders/videos.json`, renders
@@ -804,10 +808,11 @@ and never tall; the first cell is the engine's own skin, *Dossier Default*.
 *Подробнее…* opens a window of panels, one per skin, each holding the same
 prepared pattern, laid out in the playfield's own coordinates (settled
 2026-09-23): four circles in a row with the approach circle on the last, one
-long slider and one short one — a dark body inside the skin's own border
-colour, the head numbered and the tail plain, as in the game — and the cursor
-going up the left side with its trail behind it, so two skins can be told
-apart at a glance; choosing one there chooses it everywhere. The circle is tinted only
+long slider and one short one, both straight — a dark body inside the skin's
+own border colour, the head numbered and the tail plain, as in the game — and
+the cursor going up the left side, with its trail behind it only when the
+skin carries one, since a trail the application invents says nothing about
+the skin; so two skins can be told apart at a glance; choosing one there chooses it everywhere. The circle is tinted only
 from the skin's own `Combo1`; tinting every skin with osu!'s default orange
 made them all the same mustard blob (tried and dropped 2026-09-23). The live
 replay on the main screen is drawn with the chosen skin too, and it starts

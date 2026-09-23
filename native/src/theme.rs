@@ -651,18 +651,22 @@ pub fn asking(_: &Theme) -> container::Style {
     }
 }
 
-pub fn under_picture(_: &Theme) -> container::Style {
-    let scrim = iced::gradient::Linear::new(std::f32::consts::PI)
-        .add_stop(0.0, Color::from_rgba(0.02, 0.01, 0.015, 0.82))
-        .add_stop(0.35, Color::from_rgba(0.02, 0.01, 0.015, 0.62))
-        .add_stop(0.72, Color::from_rgba(0.02, 0.01, 0.015, 0.22))
-        .add_stop(1.0, Color::from_rgba(0.02, 0.01, 0.015, 0.0));
-    container::Style {
-        text_color: None,
-        background: Some(Background::Gradient(scrim.into())),
-        border: iced::Border::default(),
-        shadow: Shadow::default(),
-        snap: true,
+pub fn under_picture(k: f32) -> impl Fn(&Theme) -> container::Style {
+    move |_| {
+        let shade = |a: f32| Color::from_rgba(0.02, 0.01, 0.015, a * k.clamp(0.0, 1.0));
+        let wash = iced::gradient::Linear::new(0.0)
+            .add_stop(0.0, shade(0.8))
+            .add_stop(0.3, shade(0.64))
+            .add_stop(0.62, shade(0.3))
+            .add_stop(0.86, shade(0.08))
+            .add_stop(1.0, shade(0.0));
+        container::Style {
+            text_color: None,
+            background: Some(Background::Gradient(wash.into())),
+            border: iced::Border::default(),
+            shadow: Shadow::default(),
+            snap: true,
+        }
     }
 }
 

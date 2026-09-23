@@ -489,7 +489,7 @@ fn drawn_circle(side: u32, body: Option<[u8; 3]>, thin: f32) -> image::RgbaImage
     made
 }
 
-const FIELD: (f32, f32, f32, f32) = (24.0, 56.0, 496.0, 350.0);
+const FIELD: (f32, f32, f32, f32) = (0.0, 36.0, 512.0, 356.0);
 const NOTE_RADIUS: f32 = 42.0;
 
 fn slider_road(under: &mut image::RgbaImage, road: &[(f32, f32)], radius: f32, border: [u8; 3], scale: impl Fn(f32, f32) -> (f32, f32)) {
@@ -585,17 +585,17 @@ pub fn skin_pattern(folder: Option<&Path>, wide: u32, high: u32) -> Vec<u8> {
     let place = |x: f32, y: f32| (left + x * scale, top + y * scale);
     let radius = NOTE_RADIUS * scale;
     let rim = slider_rim(folder);
-    slider_road(&mut made, &[(120.0, 306.0), (436.0, 306.0)], radius, rim, place);
-    slider_road(&mut made, &[(186.0, 202.0), (268.0, 202.0)], radius, rim, place);
+    slider_road(&mut made, &[(132.0, 300.0), (420.0, 300.0)], radius, rim, place);
+    slider_road(&mut made, &[(190.0, 206.0), (276.0, 206.0)], radius, rim, place);
     let notes = [
-        (140.0, 98.0, Some(1u8), 0usize, None),
-        (244.0, 98.0, Some(2), 0, None),
-        (348.0, 98.0, Some(3), 0, None),
-        (452.0, 98.0, Some(4), 0, Some(1.6)),
-        (120.0, 306.0, Some(1), 1, None),
-        (436.0, 306.0, None, 1, None),
-        (186.0, 202.0, Some(2), 1, None),
-        (268.0, 202.0, None, 1, None),
+        (150.0, 112.0, Some(1u8), 0usize, None),
+        (246.0, 112.0, Some(2), 0, None),
+        (342.0, 112.0, Some(3), 0, None),
+        (438.0, 112.0, Some(4), 0, Some(1.55)),
+        (132.0, 300.0, Some(1), 1, None),
+        (420.0, 300.0, None, 1, None),
+        (190.0, 206.0, Some(2), 1, None),
+        (276.0, 206.0, None, 1, None),
     ];
     for (x, y, number, combo, approach) in notes {
         let (cx, cy) = place(x, y);
@@ -635,10 +635,10 @@ pub fn skin_pattern(folder: Option<&Path>, wide: u32, high: u32) -> Vec<u8> {
             }
         }
     }
-    let (hand_x, hand_y) = place(84.0, 168.0);
+    let (hand_x, hand_y) = place(70.0, 176.0);
     if let Some(trail) = part(Element::CursorTrail) {
         for (step, away) in [(1.0, 0.42), (2.0, 0.28), (3.0, 0.18), (4.0, 0.1)] {
-            let (tx, ty) = place(84.0 + 4.0 * step, 168.0 + 34.0 * step);
+            let (tx, ty) = place(70.0 + 4.0 * step, 176.0 + 32.0 * step);
             laid_at(&mut made, &trail, (radius * 0.9) as u32, tx, ty, away);
         }
     }

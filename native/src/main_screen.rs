@@ -1930,30 +1930,33 @@ impl Main {
                 ui::control_button(ui::Control::Close, 18.0, Some(Message::ShowSkins(false)), false),
             ]
             .align_y(iced::Center);
-            let wide = (self.width - 120.0).clamp(420.0, 1180.0);
-            let each = PANEL.0 + 22.0;
-            let per = (((wide - 46.0) / each).floor() as usize).max(1);
+            let each = PANEL.0 + 12.0 + ROOM_GAP;
+            let per = ((((self.width - 120.0).clamp(420.0, 1180.0) - 2.0 * ROOM_SIDE + ROOM_GAP) / each).floor() as usize).clamp(1, cells.len().max(1));
+            let wide = per as f32 * each - ROOM_GAP + 2.0 * ROOM_SIDE;
             let lines = cells.len().div_ceil(per);
-            let line_high = PANEL.1 + 24.0 + 22.0;
-            let room_high = lines as f32 * line_high + 22.0;
+            let line_high = PANEL.1 + 12.0 + 26.0;
+            let room_high = lines as f32 * line_high + (lines.saturating_sub(1)) as f32 * ROOM_GAP + ROOM_SIDE;
             let tall = (ROOM_TOP + room_high).min(self.height - 150.0).max(ROOM_TOP + line_high);
-            let mut grid = column![].spacing(2);
-            let mut line = row![].spacing(2);
+            let mut grid = column![].spacing(ROOM_GAP);
+            let mut line = row![].spacing(ROOM_GAP);
             let mut at = 0;
             for cell in cells {
                 line = line.push(cell);
                 at += 1;
                 if at % per == 0 {
                     grid = grid.push(line);
-                    line = row![].spacing(2);
+                    line = row![].spacing(ROOM_GAP);
                 }
             }
             if at % per != 0 {
                 grid = grid.push(line);
             }
             let inside = column![
-                container(title).height(ROOM_TOP).padding(Padding { top: 0.0, right: 7.0, bottom: 0.0, left: 18.0 }),
-                scrollable(container(grid).width(Length::Fill).padding(Padding { top: 0.0, right: 12.0, bottom: 14.0, left: 12.0 }))
+                container(title)
+                    .height(ROOM_TOP)
+                    .align_y(iced::alignment::Vertical::Center)
+                    .padding(Padding { top: 2.0, right: ROOM_SIDE - 7.0, bottom: 0.0, left: ROOM_SIDE + 6.0 }),
+                scrollable(container(grid).width(Length::Fill).padding(Padding { top: 0.0, right: ROOM_SIDE, bottom: ROOM_SIDE, left: ROOM_SIDE }))
                     .anchor_y(scrollable::Anchor::Start)
                     .style(ui::thin_scroll)
                     .height(tall - ROOM_TOP),
@@ -2794,7 +2797,7 @@ impl Main {
                 let under_picture = container(column![container(seek).padding(Padding::ZERO.right(4.0).left(4.0)), container(keys).height(46.0)].width(Length::Fill))
                     .width(Length::Fill)
                     .padding(Padding { top: 12.0, right: 10.0, bottom: 4.0, left: 10.0 })
-                    .style(ui::box_at(theme::under_picture, ui::fade()));
+                    .style(theme::under_picture(ui::fade()));
                 container(ui::grown(under_picture, iced::Point::new(0.5, 1.0), -(1.0 - out) * 14.0, 1.0))
                     .width(Length::Fill)
                     .height(Length::Fill)
@@ -2844,22 +2847,26 @@ impl Main {
         };
         let buttons = row![
             ui::grow(),
-            telegram,
             ui::quiet(w.t("in-folder"), Some(Message::RevealVideo)),
-            ui::quiet(w.t("delete"), Some(Message::AskDelete))
+            ui::quiet(w.t("delete"), Some(Message::AskDelete)),
+            telegram,
         ]
-        .spacing(4)
+        .spacing(6)
         .align_y(iced::Center);
         let mut inside = column![
-            container(title).height(STAGE_TOP).padding(Padding { top: 0.0, right: PICTURE_INSET - 7.0, bottom: 0.0, left: PICTURE_INSET }),
+            container(title)
+                .height(STAGE_TOP)
+                .align_y(iced::alignment::Vertical::Center)
+                .padding(Padding { top: 2.0, right: PICTURE_INSET - 7.0, bottom: 0.0, left: PICTURE_INSET }),
             container(screen).width(Length::Fill).height(screen_h).center_x(Length::Fill),
         ]
         .width(Length::Fill);
         if under_h > 1.0 {
             inside = inside.push(
                 container(buttons)
-                    .padding(Padding { top: 0.0, right: PICTURE_INSET, bottom: 12.0, left: PICTURE_INSET })
+                    .padding(Padding { top: 0.0, right: PICTURE_INSET, bottom: 0.0, left: PICTURE_INSET })
                     .height(under_h)
+                    .align_y(iced::alignment::Vertical::Center)
                     .clip(true),
             );
         }
@@ -3998,10 +4005,12 @@ impl Main {
     }
 }
 const STAGE_GAP: f32 = 40.0;
-const STAGE_UNDER: f32 = 58.0;
+const STAGE_UNDER: f32 = 62.0;
 const STAGE_KEYS: f32 = 86.0;
-const STAGE_TOP: f32 = 56.0;
-const ROOM_TOP: f32 = 52.0;
+const STAGE_TOP: f32 = 66.0;
+const ROOM_TOP: f32 = 62.0;
+const ROOM_SIDE: f32 = 16.0;
+const ROOM_GAP: f32 = 10.0;
 const PATTERN: (u32, u32) = (520, 292);
 const PANEL: (f32, f32) = (246.0, 138.0);
 const PICTURE_INSET: f32 = 14.0;

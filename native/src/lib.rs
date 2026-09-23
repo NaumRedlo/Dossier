@@ -63,6 +63,7 @@ pub struct Rehearsal {
     pub prefs: bool,
     pub skin_room: bool,
     pub ask: bool,
+    pub pause: bool,
     pub leave: bool,
     pub swap: bool,
 }
@@ -89,9 +90,10 @@ impl Rehearsal {
         let prefs = args.iter().any(|a| a == "--prefs");
         let skin_room = args.iter().any(|a| a == "--skin-room");
         let ask = args.iter().any(|a| a == "--ask");
+        let pause = args.iter().any(|a| a == "--pause");
         let leave = args.iter().any(|a| a == "--leave");
         let swap = args.iter().any(|a| a == "--swap");
-        Some(Rehearsal { folder, snap_to, after, render, get_map, look, step, hover, videos, play, menu, prefs, skin_room, ask, leave, swap })
+        Some(Rehearsal { folder, snap_to, after, render, get_map, look, step, hover, videos, play, menu, prefs, skin_room, ask, pause, leave, swap })
     }
 }
 
@@ -129,6 +131,8 @@ impl App {
                     .chain(Task::perform(async { tokio_sleep(std::time::Duration::from_millis(1200)).await }, move |_| Message::Main(main_screen::Message::OpenVideo(at))));
                 if asking {
                     open.chain(Task::perform(async { tokio_sleep(std::time::Duration::from_millis(2500)).await }, |_| Message::Main(main_screen::Message::AskDelete)))
+                } else if rehearsal.pause {
+                    open.chain(Task::perform(async { tokio_sleep(std::time::Duration::from_millis(2500)).await }, |_| Message::Main(main_screen::Message::PlayerToggle)))
                 } else {
                     open
                 }

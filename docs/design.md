@@ -478,7 +478,8 @@ previous and next video, five seconds back and ahead, play or pause in the
 middle, the time as *at / length*; at the right a frame back and ahead (lit
 only while paused), the speed as ×0,5 to ×2, the sound with its own short
 slider, repeat and fill-the-window. The last row keeps only the three
-buttons, and it folds away when the window fills the screen; the size, the
+buttons, centred in their strip, *Отправить в Telegram* last so that the one
+filled button ends on the picture's own edge, as the close cross does above; and it folds away when the window fills the screen; the size, the
 rate and the weight are the list's business, not the player's. Keys:
 space or K pauses, the arrows step five seconds, M mutes, L repeats, F fills,
 the comma and the full stop step a frame, the brackets change the speed, a
@@ -774,7 +775,10 @@ out.png --after ms` takes the window's own picture and leaves,
 `--render-first` presses Render on arrival; `dossier --render <replay>`
 renders one file from the terminal with the steps timed; `--library
 <folder>` prints what the index made of a folder, `--skins` prints what the
-hunt found on this machine and how long it took. The corpus is the
+hunt found on this machine and how long it took; `--play N` opens a video,
+with `--pause` to stop it and `--ask` to raise the question about deleting
+it; `--skin-room` opens the skins window; `DOSSIER_WINDOW=820x570` opens the
+window at that size, for the small-window cases. The corpus is the
 rehearsal stage.
 
 **Skins are hunted, and an .osk is taken in.** The panel lists the folders it

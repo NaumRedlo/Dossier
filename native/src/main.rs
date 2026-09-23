@@ -44,7 +44,7 @@ fn main() -> iced::Result {
             std::process::exit(1);
         };
         let out = std::env::temp_dir().join(dossier_native::render::file_name(&entry.player, &map.line()));
-        let ask = dossier_native::render::Ask { replay: entry.path.clone(), map: map.file.clone(), map_hash: entry.map_hash.clone(), ffmpeg, out, size: dossier_native::render::SIZE, fps: dossier_native::render::FPS as u32, crf: 20, skin: None, music_level: 1.0, hitsound_level: 1.0 };
+        let ask = dossier_native::render::Ask { replay: entry.path.clone(), map: map.file.clone(), map_hash: entry.map_hash.clone(), ffmpeg, out, size: dossier_native::render::SIZE, fps: dossier_native::render::FPS as u32, crf: 20, skin: None, music_level: 1.0, hitsound_level: 1.0, play: dossier_native::render::Play::default() };
         let started = std::time::Instant::now();
         dossier_native::render::perform(ask, &mut |step| {
             println!("{:>7.2?} {step:?}", started.elapsed());

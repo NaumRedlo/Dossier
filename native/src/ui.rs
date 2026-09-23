@@ -1493,6 +1493,26 @@ impl<'a, Message: 'a> From<Springy<'a, Message>> for Element<'a, Message> {
     }
 }
 
+pub fn trailing<'a, Message: 'a>(line: Element<'a, Message>, wide: f32, high: f32, under: Color) -> Element<'a, Message> {
+    let k = fade();
+    let veil = container(Space::new().width(FADE_TAIL).height(high)).style(move |_: &Theme| {
+        let tail = iced::gradient::Linear::new(std::f32::consts::FRAC_PI_2)
+            .add_stop(0.0, Color { a: 0.0, ..under })
+            .add_stop(0.7, Color { a: under.a * 0.85 * k, ..under })
+            .add_stop(1.0, Color { a: under.a * k, ..under });
+        container::Style { background: Some(iced::Background::Gradient(tail.into())), ..container::Style::default() }
+    });
+    iced::widget::stack![
+        container(line).width(wide).height(high).clip(true).align_y(iced::alignment::Vertical::Center),
+        container(veil).width(wide).height(high).align_x(iced::alignment::Horizontal::Right)
+    ]
+    .width(wide)
+    .height(high)
+    .into()
+}
+
+const FADE_TAIL: f32 = 34.0;
+
 pub fn shortened(words: String, at_most: usize) -> String {
     if words.chars().count() <= at_most {
         return words;
@@ -1797,7 +1817,7 @@ impl<Message> canvas::Program<Message> for Seek<'_, Message> {
     }
 }
 
-pub struct Compass<'a, Message> {
+pub struct Speed<'a, Message> {
     pub at: f32,
     pub stops: Vec<f32>,
     pub words: String,
@@ -1806,98 +1826,137 @@ pub struct Compass<'a, Message> {
 }
 
 #[derive(Debug, Default)]
-pub struct CompassState {
-    grabbed: bool,
+pub struct SpeedState {
     shown: Option<f32>,
+    grabbed: Option<(f32, f32)>,
+    moved: bool,
+    glow: f32,
 }
 
-impl<Message> canvas::Program<Message> for Compass<'_, Message> {
-    type State = CompassState;
+const SPEED_TEXT: f32 = 50.0;
+const SPEED_STEP: f32 = 15.0;
 
-    fn update(&self, state: &mut CompassState, event: &iced::Event, bounds: Rectangle, cursor: mouse::Cursor) -> Option<canvas::Action<Message>> {
-        let nearest = |x: f32| -> f32 {
-            let part = ((x - bounds.x - COMPASS_INSET) / (bounds.width - 2.0 * COMPASS_INSET).max(1.0)).clamp(0.0, 1.0);
-            let last = (self.stops.len().max(2) - 1) as f32;
-            let at = (part * last).round() as usize;
-            self.stops.get(at).copied().unwrap_or(self.at)
-        };
-        if matches!(event, iced::Event::Window(iced::window::Event::RedrawRequested(_))) {
-            let want = self.stops.iter().position(|stop| (stop - self.at).abs() < 0.001).unwrap_or(0) as f32;
-            let now = state.shown.unwrap_or(want);
-            if (want - now).abs() < 0.004 {
-                state.shown = Some(want);
-                return None;
-            }
-            state.shown = Some(now + (want - now) * 0.3);
-            return Some(canvas::Action::request_redraw());
-        }
+impl<Message> Speed<'_, Message> {
+    fn index(&self) -> f32 {
+        self.stops.iter().position(|stop| (stop - self.at).abs() < 0.001).unwrap_or(0) as f32
+    }
+
+    fn stop(&self, index: f32) -> f32 {
+        let last = self.stops.len().saturating_sub(1) as f32;
+        self.stops.get(index.round().clamp(0.0, last) as usize).copied().unwrap_or(self.at)
+    }
+}
+
+impl<Message> canvas::Program<Message> for Speed<'_, Message> {
+    type State = SpeedState;
+
+    fn update(&self, state: &mut SpeedState, event: &iced::Event, bounds: Rectangle, cursor: mouse::Cursor) -> Option<canvas::Action<Message>> {
         match event {
+            iced::Event::Window(iced::window::Event::RedrawRequested(_)) => {
+                let want = self.index();
+                let now = state.shown.unwrap_or(want);
+                let lit = if state.grabbed.is_some() { 1.0 } else if cursor.is_over(bounds) { 0.6 } else { 0.0 };
+                let still = (want - now).abs() < 0.004 && (lit - state.glow).abs() < 0.004;
+                state.shown = Some(if still { want } else { now + (want - now) * 0.26 });
+                state.glow += (lit - state.glow) * 0.3;
+                (!still).then(canvas::Action::request_redraw)
+            }
             iced::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
                 let at = cursor.position_in(bounds)?;
-                state.grabbed = true;
-                Some(canvas::Action::publish((self.on)(nearest(bounds.x + at.x))).and_capture())
-            }
-            iced::Event::Mouse(mouse::Event::CursorMoved { position }) if state.grabbed => {
-                Some(canvas::Action::publish((self.on)(nearest(position.x))).and_capture())
-            }
-            iced::Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) if state.grabbed => {
-                state.grabbed = false;
+                state.grabbed = Some((at.x, self.index()));
+                state.moved = false;
                 Some(canvas::Action::capture())
+            }
+            iced::Event::Mouse(mouse::Event::CursorMoved { position }) => {
+                let (from_x, from) = state.grabbed?;
+                let travel = position.x - bounds.x - from_x;
+                if travel.abs() > 3.0 {
+                    state.moved = true;
+                }
+                let next = self.stop(from - travel / SPEED_STEP);
+                if (next - self.at).abs() > 0.001 {
+                    return Some(canvas::Action::publish((self.on)(next)).and_capture());
+                }
+                Some(canvas::Action::capture())
+            }
+            iced::Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => {
+                let (from_x, from) = state.grabbed.take()?;
+                if state.moved {
+                    return Some(canvas::Action::capture());
+                }
+                let middle = SPEED_TEXT + (bounds.width - SPEED_TEXT - 6.0) / 2.0;
+                let next = self.stop(if from_x < middle { from - 1.0 } else { from + 1.0 });
+                Some(canvas::Action::publish((self.on)(next)).and_capture())
+            }
+            iced::Event::Mouse(mouse::Event::WheelScrolled { delta }) if cursor.is_over(bounds) => {
+                let up = match delta {
+                    mouse::ScrollDelta::Lines { y, .. } => *y,
+                    mouse::ScrollDelta::Pixels { y, .. } => *y / 30.0,
+                };
+                if up.abs() < 0.5 {
+                    return Some(canvas::Action::capture());
+                }
+                let next = self.stop(self.index() + up.signum());
+                Some(canvas::Action::publish((self.on)(next)).and_capture())
             }
             _ => None,
         }
     }
 
-    fn draw(&self, state: &CompassState, renderer: &Renderer, _: &Theme, bounds: Rectangle, cursor: mouse::Cursor) -> Vec<Geometry> {
+    fn draw(&self, state: &SpeedState, renderer: &Renderer, _: &Theme, bounds: Rectangle, _: mouse::Cursor) -> Vec<Geometry> {
         let mut frame = Frame::new(renderer, bounds.size());
-        let lit = state.grabbed || cursor.is_over(bounds);
         let (w, h) = (bounds.width, bounds.height);
-        let base = h - 3.0;
-        let span = w - 2.0 * COMPASS_INSET;
-        let last = (self.stops.len().max(2) - 1) as f32;
-        let exact = self.stops.iter().position(|stop| (stop - self.at).abs() < 0.001).unwrap_or(0) as f32;
-        let here = state.shown.unwrap_or(exact);
-        let at_x = COMPASS_INSET + span * (here / last);
-        for step in 0..=(self.stops.len().max(2) - 1) * 2 {
-            let x = COMPASS_INSET + span * (step as f32 / (last * 2.0));
-            let big = step % 2 == 0;
-            let high = if big { 6.0 } else { 3.0 };
-            let shade = match big {
-                true => Color::from_rgba(1.0, 1.0, 1.0, if lit { 0.55 } else { 0.38 }),
-                false => Color::from_rgba(1.0, 1.0, 1.0, if lit { 0.3 } else { 0.18 }),
-            };
-            frame.stroke(
-                &Path::line(Point::new(x, base), Point::new(x, base - high)),
-                Stroke::default().with_width(1.0).with_color(dim(shade, self.alpha)).with_line_cap(canvas::LineCap::Round),
-            );
-        }
-        frame.stroke(
-            &Path::line(Point::new(at_x, base - 9.0), Point::new(at_x, base + 1.0)),
-            Stroke::default().with_width(1.8).with_color(dim(ACCENT, self.alpha)).with_line_cap(canvas::LineCap::Round),
+        let glow = state.glow;
+        frame.fill(
+            &Path::rounded_rectangle(Point::ORIGIN, bounds.size(), (h / 2.0).into()),
+            dim(Color::from_rgba(1.0, 1.0, 1.0, 0.06 + 0.05 * glow), self.alpha),
         );
         frame.fill_text(canvas::Text {
             content: self.words.clone(),
-            position: Point::new(at_x.clamp(12.0, w - 12.0), base - 11.0),
-            color: dim(if lit { INK } else { MUTED }, self.alpha),
-            size: 10.0.into(),
+            position: Point::new(12.0, h / 2.0),
+            color: dim(mix(MUTED, INK, 0.5 + 0.5 * glow), self.alpha),
+            size: 11.0.into(),
             font: theme::MONO,
-            align_x: iced::alignment::Horizontal::Center.into(),
-            align_y: iced::alignment::Vertical::Bottom,
+            align_x: iced::alignment::Horizontal::Left.into(),
+            align_y: iced::alignment::Vertical::Center,
             ..canvas::Text::default()
         });
+        let (left, right) = (SPEED_TEXT, w - 6.0);
+        let middle = (left + right) / 2.0;
+        let reach = (right - left) / 2.0;
+        let here = state.shown.unwrap_or_else(|| self.index());
+        let last = self.stops.len().saturating_sub(1) as i32;
+        for half in 0..=(last * 2) {
+            let at = half as f32 / 2.0;
+            let x = middle + (at - here) * SPEED_STEP;
+            let away = ((x - middle).abs() / reach).clamp(0.0, 1.0);
+            if away >= 1.0 {
+                continue;
+            }
+            let whole = half % 2 == 0;
+            let tall = if whole { 8.0 } else { 4.0 };
+            let shade = Color::from_rgba(1.0, 1.0, 1.0, (if whole { 0.6 } else { 0.32 }) * (1.0 - away * away));
+            frame.stroke(
+                &Path::line(Point::new(x, h / 2.0 - tall / 2.0), Point::new(x, h / 2.0 + tall / 2.0)),
+                Stroke::default().with_width(1.2).with_color(dim(shade, self.alpha)).with_line_cap(canvas::LineCap::Round),
+            );
+        }
+        frame.stroke(
+            &Path::line(Point::new(middle, h / 2.0 - 7.0), Point::new(middle, h / 2.0 + 7.0)),
+            Stroke::default().with_width(2.0).with_color(dim(ACCENT, self.alpha)).with_line_cap(canvas::LineCap::Round),
+        );
         vec![frame.into_geometry()]
     }
 
-    fn mouse_interaction(&self, state: &CompassState, bounds: Rectangle, cursor: mouse::Cursor) -> mouse::Interaction {
-        if state.grabbed || cursor.is_over(bounds) {
-            mouse::Interaction::Pointer
-        } else {
-            mouse::Interaction::default()
+    fn mouse_interaction(&self, state: &SpeedState, bounds: Rectangle, cursor: mouse::Cursor) -> mouse::Interaction {
+        match (state.grabbed.is_some() && state.moved, cursor.is_over(bounds)) {
+            (true, _) => mouse::Interaction::Grabbing,
+            (false, true) => mouse::Interaction::Pointer,
+            _ => mouse::Interaction::default(),
         }
     }
 }
 
-const COMPASS_INSET: f32 = 6.0;
 
 pub struct Level<'a, Message> {
     pub at: f32,

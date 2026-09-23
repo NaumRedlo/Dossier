@@ -1459,6 +1459,14 @@ impl Main {
                     skin: self.settings.skin.clone(),
                     music_level: self.settings.music_level,
                     hitsound_level: self.settings.hitsound_level,
+                    play: render::Play {
+                        hud: self.settings.hud,
+                        cursor_grows: self.settings.cursor_grows,
+                        dim: (self.settings.background_dim * 100.0).round() as u32,
+                        blur: (self.settings.background_blur * 100.0).round() as u32,
+                        map_sounds: self.settings.map_sounds,
+                        skin_sounds: self.settings.skin_sounds,
+                    },
                 };
                 self.rendering = Some(Rendering { path: entry.path.clone(), reached: Vec::new(), out: None });
                 render::run(ask).map(Message::Rendered)
@@ -1962,11 +1970,13 @@ impl Main {
                     Some(handle) => image(handle.clone()).width(PANEL.0).height(PANEL.1).opacity(ui::fade()).into(),
                     None => container(ui::fine_hatch()).width(PANEL.0).height(PANEL.1).into(),
                 };
-                let inside = column![
-                    container(face).width(PANEL.0).height(PANEL.1).style(ui::box_faded(theme::screen)).clip(true),
-                    text(name).font(theme::SANS_SEMI).size(theme::BODY).wrapping(text::Wrapping::None).color(ui::faded(if picked { INK } else { MUTED })),
-                ]
-                .spacing(6);
+                let fits = name.chars().count() as f32 * NAME_WIDTH <= PANEL.0 - 8.0;
+                let words = text(name).font(theme::SANS_SEMI).size(theme::BODY).wrapping(text::Wrapping::None).color(ui::faded(if picked { INK } else { MUTED }));
+                let label: Element<'_, Message> = match fits {
+                    true => container(words).width(PANEL.0).height(22.0).center_x(PANEL.0).align_y(iced::alignment::Vertical::Center).into(),
+                    false => ui::trailing(words.into(), PANEL.0, 22.0, if picked { theme::ROOM_PICKED } else { theme::ROOM_GROUND }),
+                };
+                let inside = column![container(face).width(PANEL.0).height(PANEL.1).style(ui::box_faded(theme::screen)).clip(true), label].spacing(6);
                 button(inside)
                     .padding(6)
                     .style(ui::button_faded(theme::slot_choice(picked)))
@@ -2781,74 +2791,6 @@ impl Main {
             }
             None => Space::new().width(Length::Fill).height(Length::Fill).into(),
         };
-        let shown = self.scrubbing.unwrap_or_else(|| player.fraction());
-        let length_ms = player.length_ms;
-        let seek = iced::widget::canvas(ui::Seek {
-            played: shown,
-            alpha: ui::fade(),
-            at: Box::new(move |part| {
-                let ms = (part as f64 * length_ms as f64) as i64;
-                format!("{}:{:02}", ms / 60_000, (ms / 1000) % 60)
-            }),
-            on_move: Box::new(Message::Scrubbing),
-            on_drop: Box::new(Message::SeekTo),
-        })
-        .width(Length::Fill)
-        .height(30.0);
-        let at_ms = self.scrubbing.map_or_else(|| player.at_ms(), |part| (part as f64 * player.length_ms as f64) as i64);
-        let clock = row![
-            ui::mono_small(w.length(at_ms), INK),
-            ui::mono_small("/".to_owned(), FAINT),
-            ui::mono_small(w.length(player.length_ms), MUTED),
-        ]
-        .spacing(6)
-        .align_y(iced::Center);
-        let at = self.open_video.unwrap_or(0);
-        let earlier = (at > 0).then_some(Message::PlayerNeighbour(-1));
-        let later = (at + 1 < self.store.videos.len()).then_some(Message::PlayerNeighbour(1));
-        let sound = if self.settings.player_muted || self.settings.player_level <= 0.001 {
-            ui::Control::Hushed
-        } else if self.settings.player_level < 0.5 {
-            ui::Control::Soft
-        } else {
-            ui::Control::Loud
-        };
-        let level = iced::widget::canvas(ui::Level {
-            at: if self.settings.player_muted { 0.0 } else { self.settings.player_level },
-            alpha: ui::fade(),
-            on: Box::new(Message::PlayerLevel),
-        })
-        .width(64.0)
-        .height(22.0);
-        let keys = row![
-            ui::control_button(ui::Control::Earlier, 16.0, earlier, false),
-            ui::control_button(ui::Control::Back, 16.0, Some(Message::SeekBy(-5000)), false),
-            ui::control_button(if playing { ui::Control::Pause } else { ui::Control::Play }, 20.0, Some(Message::PlayerToggle), false),
-            ui::control_button(ui::Control::Ahead, 16.0, Some(Message::SeekBy(5000)), false),
-            ui::control_button(ui::Control::Later, 16.0, later, false),
-            container(clock).padding(Padding::ZERO.left(8.0)),
-            ui::grow(),
-            iced::widget::canvas(ui::Compass {
-                at: self.settings.player_rate,
-                stops: player::RATES.to_vec(),
-                words: format!("×{}", w.rate(self.settings.player_rate)),
-                alpha: ui::fade(),
-                on: Box::new(Message::PlayerSpeed),
-            })
-            .width(84.0)
-            .height(28.0),
-            ui::control_button(sound, 16.0, Some(Message::PlayerMute), self.settings.player_muted),
-            container(level).padding(Padding::ZERO.right(4.0)),
-            ui::control_button(ui::Control::Over, 16.0, Some(Message::PlayerLoop), self.settings.player_loop),
-            ui::control_button(
-                if self.widened.value() { ui::Control::Shrink } else { ui::Control::Grow },
-                16.0,
-                Some(Message::PlayerWiden),
-                false,
-            ),
-        ]
-        .spacing(2)
-        .align_y(iced::Center);
         let gap = STAGE_GAP - (STAGE_GAP - 16.0) * wide;
         let under_h = STAGE_UNDER * (1.0 - wide);
         let room_w = (self.width - 2.0 * gap - 2.0 * PICTURE_INSET).max(320.0);
@@ -2858,9 +2800,80 @@ impl Main {
         let out = self.controls.interpolate(0.0, 1.0, self.now);
         let controls: Element<'_, Message> = match out > 0.004 {
             true => ui::fading(ui::fade() * out, || {
-                let under_picture = container(column![container(seek).padding(Padding::ZERO.right(4.0).left(4.0)), container(keys).height(46.0)].width(Length::Fill))
+                let shown = self.scrubbing.unwrap_or_else(|| player.fraction());
+                let length_ms = player.length_ms;
+                let seek = iced::widget::canvas(ui::Seek {
+                    played: shown,
+                    alpha: ui::fade(),
+                    at: Box::new(move |part| {
+                        let ms = (part as f64 * length_ms as f64) as i64;
+                        format!("{}:{:02}", ms / 60_000, (ms / 1000) % 60)
+                    }),
+                    on_move: Box::new(Message::Scrubbing),
+                    on_drop: Box::new(Message::SeekTo),
+                })
+                .width(Length::Fill)
+                .height(30.0);
+                let at_ms = self.scrubbing.map_or_else(|| player.at_ms(), |part| (part as f64 * player.length_ms as f64) as i64);
+                let clock = row![
+                    ui::mono_small(w.length(at_ms), INK),
+                    ui::mono_small("/".to_owned(), FAINT),
+                    ui::mono_small(w.length(player.length_ms), MUTED),
+                ]
+                .spacing(6)
+                .align_y(iced::Center);
+                let at = self.open_video.unwrap_or(0);
+                let earlier = (at > 0).then_some(Message::PlayerNeighbour(-1));
+                let later = (at + 1 < self.store.videos.len()).then_some(Message::PlayerNeighbour(1));
+                let sound = if self.settings.player_muted || self.settings.player_level <= 0.001 {
+                    ui::Control::Hushed
+                } else if self.settings.player_level < 0.5 {
+                    ui::Control::Soft
+                } else {
+                    ui::Control::Loud
+                };
+                let level = iced::widget::canvas(ui::Level {
+                    at: if self.settings.player_muted { 0.0 } else { self.settings.player_level },
+                    alpha: ui::fade(),
+                    on: Box::new(Message::PlayerLevel),
+                })
+                .width(64.0)
+                .height(22.0);
+                let keys = row![
+                    ui::control_button(ui::Control::Earlier, 16.0, earlier, false),
+                    ui::control_button(ui::Control::Back, 16.0, Some(Message::SeekBy(-5000)), false),
+                    ui::control_button(if playing { ui::Control::Pause } else { ui::Control::Play }, 20.0, Some(Message::PlayerToggle), false),
+                    ui::control_button(ui::Control::Ahead, 16.0, Some(Message::SeekBy(5000)), false),
+                    ui::control_button(ui::Control::Later, 16.0, later, false),
+                    container(clock).padding(Padding::ZERO.left(8.0)),
+                    ui::grow(),
+                    container(
+                        iced::widget::canvas(ui::Speed {
+                            at: self.settings.player_rate,
+                            stops: player::RATES.to_vec(),
+                            words: format!("{}×", w.rate(self.settings.player_rate)),
+                            alpha: ui::fade(),
+                            on: Box::new(Message::PlayerSpeed),
+                        })
+                        .width(118.0)
+                        .height(26.0)
+                    )
+                    .padding(Padding::ZERO.right(6.0)),
+                    ui::control_button(sound, 16.0, Some(Message::PlayerMute), self.settings.player_muted),
+                    container(level).padding(Padding::ZERO.right(4.0)),
+                    ui::control_button(ui::Control::Over, 16.0, Some(Message::PlayerLoop), self.settings.player_loop),
+                    ui::control_button(
+                        if self.widened.value() { ui::Control::Shrink } else { ui::Control::Grow },
+                        16.0,
+                        Some(Message::PlayerWiden),
+                        false,
+                    ),
+                ]
+                .spacing(2)
+                .align_y(iced::Center);
+                let under_picture = container(column![container(seek).padding(Padding::ZERO.right(4.0).left(4.0)), container(keys).height(40.0)].width(Length::Fill))
                     .width(Length::Fill)
-                    .padding(Padding { top: 12.0, right: 10.0, bottom: 4.0, left: 10.0 })
+                    .padding(Padding { top: 8.0, right: 10.0, bottom: 2.0, left: 10.0 })
                     .style(theme::under_picture(ui::fade()));
                 let held = mouse_area(under_picture)
                     .on_enter(Message::ControlsHover(true))
@@ -3110,6 +3123,8 @@ impl Main {
             ("music".to_owned(), self.settings.music_level),
             ("hits".to_owned(), self.settings.hitsound_level),
             ("player".to_owned(), self.settings.player_level),
+            ("dim".to_owned(), self.settings.background_dim),
+            ("blur".to_owned(), self.settings.background_blur),
         ]
     }
 
@@ -3410,6 +3425,42 @@ impl Main {
                 if let Some(folder) = &self.settings.skin {
                     let _ = open::that_detached(folder);
                 }
+                Task::none()
+            }
+            P::Dim(level) => {
+                self.slid_at.insert("dim".to_owned(), Instant::now());
+                self.settings.background_dim = level.clamp(0.0, 1.0);
+                keep(&self.settings);
+                Task::none()
+            }
+            P::Blur(level) => {
+                self.slid_at.insert("blur".to_owned(), Instant::now());
+                self.settings.background_blur = level.clamp(0.0, 1.0);
+                keep(&self.settings);
+                Task::none()
+            }
+            P::Hud(on) => {
+                self.remember_mark("hud", on);
+                self.settings.hud = on;
+                keep(&self.settings);
+                Task::none()
+            }
+            P::CursorGrows(on) => {
+                self.remember_mark("cursor-grows", on);
+                self.settings.cursor_grows = on;
+                keep(&self.settings);
+                Task::none()
+            }
+            P::MapSounds(on) => {
+                self.remember_mark("map-sounds", on);
+                self.settings.map_sounds = on;
+                keep(&self.settings);
+                Task::none()
+            }
+            P::SkinSounds(on) => {
+                self.remember_mark("skin-sounds", on);
+                self.settings.skin_sounds = on;
+                keep(&self.settings);
                 Task::none()
             }
             P::Music(level) => {
@@ -4079,6 +4130,7 @@ const STAGE_GAP: f32 = 40.0;
 const STAGE_UNDER: f32 = 62.0;
 const STAGE_TOP: f32 = 66.0;
 const ROOM_TOP: f32 = 62.0;
+const NAME_WIDTH: f32 = 7.9;
 const ROOM_SIDE: f32 = 16.0;
 const ROOM_GAP: f32 = 10.0;
 const PATTERN: (u32, u32) = (520, 292);

@@ -835,6 +835,15 @@ made them all the same mustard blob (tried and dropped 2026-09-23). The live
 replay on the main screen is drawn with the chosen skin too, and it starts
 again the moment the choice changes.
 
+**How the video plays is a tile of its own** (added 2026-09-23): *Игровой
+процесс* holds the background's dim and blur as two bars — the dim as the
+share the map's artwork is darkened, 82 % by default as the engine's own, the
+blur as a share of the engine's own softening — and four switches: the
+interface, the cursor answering presses (the engine's `cursor_expand`, still
+subject to the skin's own `CursorExpand`), the map's own hitsounds and the
+skin's. All of it goes to the render only; the live replay keeps its own
+look.
+
 **Maps come from mirrors by hash.** A replay names its map by MD5 alone, and
 ppy has no endpoint from a hash to an id, so a mirror is asked: osu.direct
 first, because it also carries graveyard, which is most of what a replay

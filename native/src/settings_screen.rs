@@ -24,6 +24,7 @@ pub enum Tile {
     Sources,
     Skins,
     Sound,
+    Play,
     Videos,
     Maps,
     Builds,
@@ -43,6 +44,7 @@ impl Tile {
             Tile::Sources => "sources",
             Tile::Skins => "skins",
             Tile::Sound => "sound",
+            Tile::Play => "play",
             Tile::Videos => "videos",
             Tile::Maps => "maps",
             Tile::Builds => "builds",
@@ -58,12 +60,13 @@ impl Tile {
     }
 }
 
-pub const APP: [Tile; 10] = [
+pub const APP: [Tile; 11] = [
     Tile::Render,
     Tile::Language,
     Tile::Device,
     Tile::Scene,
     Tile::Sound,
+    Tile::Play,
     Tile::Sources,
     Tile::Skins,
     Tile::Videos,
@@ -154,6 +157,12 @@ pub enum Message {
     AddedSkin(Option<PathBuf>),
     OpenSkinsFolder,
     Music(f32),
+    Dim(f32),
+    Blur(f32),
+    Hud(bool),
+    CursorGrows(bool),
+    MapSounds(bool),
+    SkinSounds(bool),
     Hitsounds(f32),
     PlayerLevel(f32),
     Unlink,
@@ -538,6 +547,30 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
             .padding(Padding::ZERO.top(6.0)),
         ]
         .spacing(2)
+        .into(),
+        Tile::Play => column![
+            head(w, "play-tile"),
+            container(
+                column![
+                    slide(ground, "dim", w.t("background-dim"), percent(s.background_dim), s.background_dim, Vec::new(), Message::Dim),
+                    slide(ground, "blur", w.t("background-blur"), percent(s.background_blur), s.background_blur, Vec::new(), Message::Blur),
+                ]
+                .spacing(6)
+                .width(280.0)
+            )
+            .padding(Padding { top: 6.0, right: 0.0, bottom: 4.0, left: 0.0 }),
+            ui::wrap(
+                vec![
+                    pill(ground, "hud", w.t("hud"), s.hud, Message::Hud(!s.hud)),
+                    pill(ground, "cursor-grows", w.t("cursor-grows"), s.cursor_grows, Message::CursorGrows(!s.cursor_grows)),
+                    pill(ground, "map-sounds", w.t("map-sounds"), s.map_sounds, Message::MapSounds(!s.map_sounds)),
+                    pill(ground, "skin-sounds", w.t("skin-sounds"), s.skin_sounds, Message::SkinSounds(!s.skin_sounds)),
+                ],
+                6.0,
+            ),
+        ]
+        .spacing(4)
+        .width(Length::Shrink)
         .into(),
         Tile::Videos => column![
             head(w, "videos"),

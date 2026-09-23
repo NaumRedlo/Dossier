@@ -262,3 +262,10 @@ skins-packed = { $n ->
 }
 no-skin-there = No skins in that folder
 more-skins = More…
+play-tile = Gameplay
+background-dim = Dim
+background-blur = Blur
+hud = Interface
+cursor-grows = Cursor on presses
+map-sounds = Map sounds
+skin-sounds = Skin sounds

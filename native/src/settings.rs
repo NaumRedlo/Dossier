@@ -77,6 +77,18 @@ pub struct Settings {
     pub player_rate: f32,
     #[serde(default)]
     pub player_loop: bool,
+    #[serde(default = "yes")]
+    pub hud: bool,
+    #[serde(default)]
+    pub cursor_grows: bool,
+    #[serde(default = "default_dim")]
+    pub background_dim: f32,
+    #[serde(default = "full")]
+    pub background_blur: f32,
+    #[serde(default = "yes")]
+    pub map_sounds: bool,
+    #[serde(default = "yes")]
+    pub skin_sounds: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -111,6 +123,10 @@ fn default_crf() -> u32 {
 
 fn full() -> f32 {
     1.0
+}
+
+fn default_dim() -> f32 {
+    0.82
 }
 
 pub const HEIGHTS: [u32; 5] = [480, 720, 1080, 1440, 2160];
@@ -767,6 +783,12 @@ impl Default for Settings {
             player_muted: false,
             player_rate: 1.0,
             player_loop: false,
+            hud: true,
+            cursor_grows: false,
+            background_dim: 0.82,
+            background_blur: 1.0,
+            map_sounds: true,
+            skin_sounds: true,
         }
     }
 }

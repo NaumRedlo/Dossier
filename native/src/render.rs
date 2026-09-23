@@ -36,6 +36,23 @@ pub struct Ask {
     pub skin: Option<PathBuf>,
     pub music_level: f32,
     pub hitsound_level: f32,
+    pub play: Play,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct Play {
+    pub hud: bool,
+    pub cursor_grows: bool,
+    pub dim: u32,
+    pub blur: u32,
+    pub map_sounds: bool,
+    pub skin_sounds: bool,
+}
+
+impl Default for Play {
+    fn default() -> Play {
+        Play { hud: true, cursor_grows: false, dim: 82, blur: 100, map_sounds: true, skin_sounds: true }
+    }
 }
 
 pub const SIZE: (u32, u32) = (1920, 1080);
@@ -165,6 +182,7 @@ fn draw(ask: &Ask, tell: &Sender<Step>) -> Result<PathBuf, String> {
     if let Some(folder) = ask.skin.as_ref().filter(|folder| folder.is_dir()) {
         skin = dossier_produce::skin::from_folder(skin, folder, None);
     }
+    skin.cursor_expand = ask.play.cursor_grows;
     let layering = skin.sprites.as_ref().is_none_or(|s| s.ini().layered_hit_sounds);
 
     let scratch = std::env::temp_dir().join(format!("dossier-native-{}", std::process::id()));
@@ -202,14 +220,14 @@ fn draw(ask: &Ask, tell: &Sender<Step>) -> Result<PathBuf, String> {
         origin: &found.origin,
         skin,
         leaderboard: dossier_render::Leaderboard::default(),
-        bare: false,
+        bare: !ask.play.hud,
         layering,
         behind: scenery::Behind {
             background: true,
             storyboard: false,
             video: false,
-            dim: None,
-            blur: None,
+            dim: Some(ask.play.dim.min(100)),
+            blur: Some(ask.play.blur.min(100)),
             ffmpeg: &ffmpeg,
             size: SIZE,
             at_ms: None,
@@ -220,12 +238,12 @@ fn draw(ask: &Ask, tell: &Sender<Step>) -> Result<PathBuf, String> {
 
     let kit = dossier_audio::Kit::by_name("click").unwrap_or_else(dossier_audio::Kit::plain);
     let samples = {
-        let mut pack = match ask.skin.as_ref().filter(|folder| folder.is_dir()) {
+        let mut pack = match ask.skin.as_ref().filter(|folder| folder.is_dir() && ask.play.skin_sounds) {
             Some(folder) => dossier_audio::SamplePack::load(folder),
             None => dossier_audio::SamplePack::load(Path::new("")),
         };
         let from_map = scratch.join("map-samples");
-        if std::fs::create_dir_all(&from_map).is_ok() && locate::extract_samples(&found.origin, &from_map, &ffmpeg) > 0 {
+        if ask.play.map_sounds && std::fs::create_dir_all(&from_map).is_ok() && locate::extract_samples(&found.origin, &from_map, &ffmpeg) > 0 {
             pack = pack.with_beatmap(&from_map);
         }
         pack

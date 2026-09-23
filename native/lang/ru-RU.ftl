@@ -269,3 +269,10 @@ skins-packed = { $n ->
 }
 no-skin-there = Скинов в папке нет
 more-skins = Подробнее…
+play-tile = Игровой процесс
+background-dim = Затемнение
+background-blur = Размытие
+hud = Интерфейс
+cursor-grows = Курсор на нажатия
+map-sounds = Звуки карты
+skin-sounds = Звуки скина

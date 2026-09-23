@@ -489,7 +489,7 @@ fn drawn_circle(side: u32, body: Option<[u8; 3]>, thin: f32) -> image::RgbaImage
     made
 }
 
-const FIELD: (f32, f32, f32, f32) = (20.0, 60.0, 500.0, 352.0);
+const FIELD: (f32, f32, f32, f32) = (24.0, 56.0, 496.0, 350.0);
 const NOTE_RADIUS: f32 = 42.0;
 
 fn smoothed(road: &[(f32, f32)]) -> Vec<(f32, f32)> {
@@ -605,13 +605,17 @@ pub fn skin_pattern(folder: Option<&Path>, wide: u32, high: u32) -> Vec<u8> {
     let place = |x: f32, y: f32| (left + x * scale, top + y * scale);
     let radius = NOTE_RADIUS * scale;
     let rim = slider_rim(folder);
-    slider_road(&mut made, &[(96.0, 268.0), (150.0, 302.0), (215.0, 296.0), (262.0, 250.0)], radius, rim, place);
-    slider_road(&mut made, &[(330.0, 126.0), (386.0, 100.0), (436.0, 134.0)], radius, rim, place);
+    slider_road(&mut made, &[(126.0, 300.0), (210.0, 336.0), (312.0, 316.0), (430.0, 262.0)], radius, rim, place);
+    slider_road(&mut made, &[(186.0, 202.0), (218.0, 196.0), (252.0, 198.0)], radius, rim, place);
     let notes = [
-        (96.0, 268.0, 1u8, 0usize, None),
-        (262.0, 250.0, 2, 0, Some(1.35)),
-        (330.0, 126.0, 3, 1, None),
-        (436.0, 134.0, 4, 1, Some(1.8)),
+        (140.0, 98.0, Some(1u8), 0usize, None),
+        (244.0, 98.0, Some(2), 0, None),
+        (348.0, 98.0, Some(3), 0, None),
+        (452.0, 98.0, Some(4), 0, Some(1.6)),
+        (126.0, 300.0, Some(1), 1, None),
+        (430.0, 262.0, None, 1, None),
+        (186.0, 202.0, Some(2), 1, None),
+        (252.0, 198.0, None, 1, None),
     ];
     for (x, y, number, combo, approach) in notes {
         let (cx, cy) = place(x, y);
@@ -632,9 +636,8 @@ pub fn skin_pattern(folder: Option<&Path>, wide: u32, high: u32) -> Vec<u8> {
         if let Some(over) = part(Element::HitCircleOverlay) {
             laid_at(&mut made, &over, (radius * 2.0) as u32, cx, cy, 1.0);
         }
-        match part(Element::Digit(number)) {
-            Some(drawing) => laid_at(&mut made, &drawing, (radius * 0.8) as u32, cx, cy, 1.0),
-            None => {}
+        if let Some(drawing) = number.and_then(|number| part(Element::Digit(number))) {
+            laid_at(&mut made, &drawing, (radius * 0.8) as u32, cx, cy, 1.0);
         }
         if let Some(reach) = approach {
             match part(Element::ApproachCircle) {
@@ -652,22 +655,27 @@ pub fn skin_pattern(folder: Option<&Path>, wide: u32, high: u32) -> Vec<u8> {
             }
         }
     }
-    if let Some(verdict) = part(Element::Verdict(Verdict::Three)) {
-        let (vx, vy) = place(170.0, 190.0);
-        laid_at(&mut made, &verdict, (radius * 1.5) as u32, vx, vy, 0.9);
-    }
-    let (hand_x, hand_y) = place(262.0, 250.0);
-    if let Some(trail) = part(Element::CursorTrail) {
-        for (step, away) in [(0.35, 0.34), (0.7, 0.2), (1.05, 0.12)] {
-            let (tx, ty) = place(262.0 - 30.0 * step, 250.0 + 26.0 * step);
-            laid_at(&mut made, &trail, (radius * 0.8) as u32, tx, ty, away);
+    let (hand_x, hand_y) = place(84.0, 168.0);
+    match part(Element::CursorTrail) {
+        Some(trail) => {
+            for (step, away) in [(1.0, 0.42), (2.0, 0.28), (3.0, 0.18), (4.0, 0.1)] {
+                let (tx, ty) = place(84.0 + 4.0 * step, 168.0 + 34.0 * step);
+                laid_at(&mut made, &trail, (radius * 0.9) as u32, tx, ty, away);
+            }
+        }
+        None => {
+            for (step, away) in [(1.0, 0.34), (2.0, 0.22), (3.0, 0.12)] {
+                let (tx, ty) = place(84.0 + 4.0 * step, 168.0 + 34.0 * step);
+                let dot = image::DynamicImage::ImageRgba8(drawn_circle((radius * 2.0) as u32, Some([255, 255, 255]), 0.42));
+                laid_at(&mut made, &dot, (radius * 0.5) as u32, tx, ty, away);
+            }
         }
     }
     match part(Element::Cursor) {
-        Some(drawing) => laid_at(&mut made, &drawing, (radius * 1.1) as u32, hand_x, hand_y, 1.0),
+        Some(drawing) => laid_at(&mut made, &drawing, (radius * 1.2) as u32, hand_x, hand_y, 1.0),
         None => {
             let dot = image::DynamicImage::ImageRgba8(drawn_circle((radius * 2.0) as u32, Some([255, 255, 255]), 0.42));
-            laid_at(&mut made, &dot, (radius * 0.5) as u32, hand_x, hand_y, 1.0);
+            laid_at(&mut made, &dot, (radius * 0.62) as u32, hand_x, hand_y, 1.0);
         }
     }
     made.into_raw()

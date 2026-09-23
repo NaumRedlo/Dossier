@@ -482,12 +482,19 @@ second; the wheel over the picture is the sound, a double click fills the
 screen. Every change says itself once in a pill over the picture, which
 fades in 900 ms. While the player is open the top row and the crest fade out,
 so nothing of the application stands over the video. Sound is shared with the
-audio thread, so the slider is heard at once; frames arrive at 1280×720.
+audio thread, so the slider is heard at once; frames arrive at 960×540, and
+the picture's box is rounded down to whole pixels, so a frame is never
+resampled into a fraction of one.
 
 The speed is a compass, not a button (2026-09-23): a rule of small and larger
 ticks with the speed above the mark it points at, dragged or clicked to a
 step, and the steps come round again, so ×2 leads back to ×0,5 — before, the
-last step was a wall and the speed could not be brought back. The picture is
+last step was a wall and the speed could not be brought back. While the player is open the top row steps aside, and it comes
+back the moment the player goes, whichever way it goes — closed, deleted, or
+left behind by another catalogue — because the fade now follows whether a
+player exists at all rather than a flag set by one path (fixed 2026-09-23,
+when leaving the video by another door left the application without its top
+row). The picture is
 asked of ffmpeg at sixty frames a second whatever the speed (`fps=60/rate`),
 and the decoder paces those frames by the speed, so a double speed no longer
 asks for a hundred and twenty frames a second of raw video — that was the
@@ -795,10 +802,12 @@ as the engine draws it. The strip in the settings shows one circle per skin
 in a row that scrolls sideways with no bar under it, so the tile grows wide
 and never tall; the first cell is the engine's own skin, *Dossier Default*.
 *Подробнее…* opens a window of panels, one per skin, each holding the same
-prepared pattern, laid out in the playfield's own coordinates: two sliders
-drawn as the engine draws them — a dark body inside the skin's own border
-colour — with the circles at their ends, numbered, two approach circles and
-the cursor with its trail, so two skins can be told apart at a glance; choosing one there chooses it everywhere. The circle is tinted only
+prepared pattern, laid out in the playfield's own coordinates (settled
+2026-09-23): four circles in a row with the approach circle on the last, one
+long slider and one short one — a dark body inside the skin's own border
+colour, the head numbered and the tail plain, as in the game — and the cursor
+going up the left side with its trail behind it, so two skins can be told
+apart at a glance; choosing one there chooses it everywhere. The circle is tinted only
 from the skin's own `Combo1`; tinting every skin with osu!'s default orange
 made them all the same mustard blob (tried and dropped 2026-09-23). The live
 replay on the main screen is drawn with the chosen skin too, and it starts

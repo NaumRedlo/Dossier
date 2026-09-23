@@ -10,8 +10,8 @@ use std::time::{Duration, Instant};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use iced::widget::image;
 
-pub const WIDTH: u32 = 1280;
-pub const HEIGHT: u32 = 720;
+pub const WIDTH: u32 = 960;
+pub const HEIGHT: u32 = 540;
 
 pub const RATES: [f32; 6] = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
 

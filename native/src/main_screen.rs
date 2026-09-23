@@ -499,6 +499,7 @@ impl Main {
             || self.lifts.values().any(|l| l.is_animating(self.now))
             || self.player.as_ref().is_some_and(|p| !p.borrow().paused)
             || self.cinema.is_animating(self.now)
+            || self.cinema.value() != self.player.is_some()
             || self.room_fade.is_animating(self.now)
             || self.widened.is_animating(self.now)
             || self.hint.is_some()
@@ -1270,6 +1271,7 @@ impl Main {
                     player.borrow_mut().close();
                 }
                 self.open_video = None;
+                self.shut_cinema();
                 if videos::to_bin(&video.path).is_ok() || !video.path.exists() {
                     self.store.forget(&video.path);
                 }
@@ -1352,6 +1354,7 @@ impl Main {
                     }
                     self.open_video = None;
                     self.asking_delete = false;
+                    self.shut_cinema();
                     return Task::none();
                 }
                 let wanted: Vec<(String, PathBuf)> = self
@@ -1690,6 +1693,13 @@ impl Main {
                 if self.hint.as_ref().is_some_and(|(_, since)| now.saturating_duration_since(*since) > HINT_SHOWN) {
                     self.hint = None;
                 }
+                let watching = self.player.is_some();
+                if self.cinema.value() != watching {
+                    self.cinema.go_mut(watching, now);
+                }
+                if !watching && self.widened.value() {
+                    self.widened.go_mut(false, now);
+                }
                 self.now = now;
                 if let Some(live) = &self.live {
                     if !(live.control.paused() && live.control.settled()) {
@@ -1816,6 +1826,14 @@ impl Main {
                 }
             }
         }
+    }
+
+    fn shut_cinema(&mut self) {
+        let now = Instant::now();
+        self.cinema.go_mut(false, now);
+        self.widened.go_mut(false, now);
+        self.scrubbing = None;
+        self.hint = None;
     }
 
     fn skin_scenery(&self) -> Task<Message> {
@@ -2618,7 +2636,6 @@ impl Main {
                 .width(Length::Fill)
                 .height(Length::Fill)
                 .opacity(ui::fade())
-                .border_radius(round)
                 .into(),
             None => match self.thumbs.get(&video.map_hash) {
                 Some(handle) => image(handle.clone())
@@ -2663,8 +2680,8 @@ impl Main {
         let under_h = STAGE_UNDER * (1.0 - wide);
         let room_w = (self.width - 2.0 * gap - 2.0 * PICTURE_INSET).max(320.0);
         let room_h = (self.height - 2.0 * gap - STAGE_TOP - STAGE_KEYS - under_h - 2.0 * PICTURE_INSET).max(180.0);
-        let screen_h = (room_w * 9.0 / 16.0).min(room_h);
-        let screen_w = (screen_h * 16.0 / 9.0).min(room_w);
+        let screen_h = (room_w * 9.0 / 16.0).min(room_h).floor();
+        let screen_w = (screen_h * 16.0 / 9.0).min(room_w).floor();
         let screen = mouse_area(
             container(stack![picture, mark, hint].width(screen_w).height(screen_h))
                 .width(screen_w)

@@ -174,7 +174,7 @@ impl Scene<'_> {
         let (from, to) = self.snake(object, index, time_ms);
         self.draw_slider_body(
             pixmap,
-            object,
+            (index, time_ms),
             (from, to),
             colour,
             self.body_alpha(index, object, time_ms),
@@ -1014,20 +1014,74 @@ impl Scene<'_> {
     fn draw_slider_body(
         &self,
         pixmap: &mut Pixmap,
-        object: &TimedObject,
+        (index, time_ms): (usize, f64),
         snake: (f64, f64),
         colour: tiny_skia::Color,
         alpha: f32,
         layout: &Layout,
     ) {
-        let Some(path) = body_path(object, snake) else {
+        if alpha <= 0.0 {
+            return;
+        }
+        let whole = snake == (0.0, 1.0);
+        let kept = whole
+            .then(|| {
+                let bodies = self.bodies.lock().ok()?;
+                let body = bodies.get(&index).filter(|body| body.layout == *layout)?;
+                Some((std::sync::Arc::clone(&body.tube), body.at))
+            })
+            .flatten();
+        let (tube, at) = match kept {
+            Some(kept) => kept,
+            None => {
+                let object = &self.state.timeline().objects[index];
+                let Some((tube, at)) = self.slider_tube(object, snake, colour, layout) else {
+                    return;
+                };
+                let tube = std::sync::Arc::new(tube);
+                if whole {
+                    self.keep_body(index, time_ms, layout, std::sync::Arc::clone(&tube), at);
+                }
+                (tube, at)
+            }
+        };
+        pixmap.draw_pixmap(
+            at.0,
+            at.1,
+            tube.as_ref().as_ref(),
+            &PixmapPaint {
+                opacity: alpha.clamp(0.0, 1.0),
+                quality: tiny_skia::FilterQuality::Nearest,
+                ..Default::default()
+            },
+            Transform::identity(),
+            None,
+        );
+    }
+
+    fn keep_body(&self, index: usize, time_ms: f64, layout: &Layout, tube: std::sync::Arc<Pixmap>, at: (i32, i32)) {
+        let Ok(mut bodies) = self.bodies.lock() else {
             return;
         };
+        bodies.retain(|_, body| body.shown_ms.0 - BODY_KEPT_AROUND_MS <= time_ms && time_ms <= body.shown_ms.1 + BODY_KEPT_AROUND_MS);
+        let start = self.state.timeline().objects[index].start_ms;
+        let shown_ms = (start - self.state.difficulty().preempt_ms(), start + self.longest_life_ms);
+        bodies.insert(index, Body { layout: *layout, shown_ms, tube, at });
+    }
+
+    fn slider_tube(
+        &self,
+        object: &TimedObject,
+        snake: (f64, f64),
+        colour: tiny_skia::Color,
+        layout: &Layout,
+    ) -> Option<(Pixmap, (i32, i32))> {
+        let path = body_path(object, snake)?;
 
         let radius = self.state.difficulty().circle_radius() as f32;
         let half = layout.length(self.state.difficulty().circle_radius());
-        if half < 0.5 || alpha <= 0.0 {
-            return;
+        if half < 0.5 {
+            return None;
         }
 
         let bounds = path.bounds();
@@ -1043,9 +1097,7 @@ impl Scene<'_> {
         let (left, top) = (x0.min(x1) - margin, y0.min(y1) - margin);
         let width = ((x1 - x0).abs() + margin * 2.0).ceil() as u32;
         let height = ((y1 - y0).abs() + margin * 2.0).ceil() as u32;
-        let Some(mut tube) = Pixmap::new(width.max(1), height.max(1)) else {
-            return;
-        };
+        let mut tube = Pixmap::new(width.max(1), height.max(1))?;
         let into_tube = Transform::from_translate(-left, -top).pre_concat(layout.transform());
 
         let steps = ((half / 2.0).ceil() as usize).clamp(8, 48);
@@ -1077,18 +1129,7 @@ impl Scene<'_> {
             tube.stroke_path(&path, &paint, &stroke, into_tube, None);
         }
 
-        pixmap.draw_pixmap(
-            left.floor() as i32,
-            top.floor() as i32,
-            tube.as_ref(),
-            &PixmapPaint {
-                opacity: alpha.clamp(0.0, 1.0),
-                quality: tiny_skia::FilterQuality::Nearest,
-                ..Default::default()
-            },
-            Transform::identity(),
-            None,
-        );
+        Some((tube, (left.floor() as i32, top.floor() as i32)))
     }
 
     fn draw_spinner(

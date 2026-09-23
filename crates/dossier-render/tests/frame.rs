@@ -947,6 +947,27 @@ fn a_slider_does_not_change_shape_while_it_is_watched() {
     );
 }
 
+#[test]
+fn a_slider_drawn_from_memory_is_the_slider_drawn_afresh() {
+    let map = beatmap(LONE_SLIDER);
+    let state = GameState::from_beatmap(&map, Mods::default());
+    let layout = Layout::new(640, 480);
+    let object = &state.timeline().objects[0];
+    let at = object.start_ms + (object.end_ms - object.start_ms) * 0.5;
+
+    let fresh = Scene::new(&state, Skin::default()).frame(at, &layout);
+
+    let remembering = Scene::new(&state, Skin::default());
+    let _ = remembering.frame(at - 16.0, &layout);
+    let remembered = remembering.frame(at, &layout);
+    assert!(fresh.data() == remembered.data(), "a kept body differs from one drawn now");
+
+    let resized = Scene::new(&state, Skin::default());
+    let _ = resized.frame(at - 16.0, &Layout::new(800, 600));
+    let after_resizing = resized.frame(at, &layout);
+    assert!(fresh.data() == after_resizing.data(), "a body kept for another size was drawn at this one");
+}
+
 fn reach(frame: &tiny_skia::Pixmap, background: tiny_skia::Color) -> i64 {
     let bg = background.to_color_u8();
     (0..frame.width())

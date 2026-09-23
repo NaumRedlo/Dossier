@@ -34,6 +34,8 @@ const HIDDEN_FADE_OUT: f64 = 0.3;
 const HIT_FADE_MS: f64 = 240.0;
 
 const BODY_SNAKE_FADE_MS: f64 = 40.0;
+
+const BODY_KEPT_AROUND_MS: f64 = 1000.0;
 const MISS_FADE_MS: f64 = 100.0;
 
 const NUMBER_FADE_MS: f64 = HIT_FADE_MS / 4.0;
@@ -329,8 +331,18 @@ pub struct Scene<'a> {
     bare: bool,
 
     backdrop: Option<Pixmap>,
+    backdrop_covers: bool,
     show: Option<crate::storyboard::Show>,
     over_video: bool,
+
+    bodies: std::sync::Mutex<std::collections::HashMap<usize, Body>>,
+}
+
+struct Body {
+    layout: Layout,
+    shown_ms: (f64, f64),
+    tube: std::sync::Arc<Pixmap>,
+    at: (i32, i32),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -499,8 +511,10 @@ impl<'a> Scene<'a> {
             keys: KeyTrack::build(state.cursor_track(), state.is_lazer()),
             bare: false,
             backdrop: None,
+            backdrop_covers: false,
             show: None,
             over_video: false,
+            bodies: std::sync::Mutex::new(std::collections::HashMap::new()),
         }
     }
 
@@ -536,6 +550,7 @@ impl<'a> Scene<'a> {
     #[must_use]
 
     pub fn with_backdrop(mut self, backdrop: Pixmap) -> Self {
+        self.backdrop_covers = backdrop.pixels().iter().all(|p| p.alpha() == u8::MAX);
         self.backdrop = Some(backdrop);
         self
     }
@@ -815,6 +830,10 @@ impl<'a> Scene<'a> {
             pixmap.fill(self.skin.background);
             return;
         };
+        if self.backdrop_covers && (backdrop.width(), backdrop.height()) == (pixmap.width(), pixmap.height()) {
+            pixmap.data_mut().copy_from_slice(backdrop.data());
+            return;
+        }
         pixmap.fill(self.skin.background);
         pixmap.draw_pixmap(
             0,

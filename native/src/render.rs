@@ -55,6 +55,42 @@ impl Default for Play {
     }
 }
 
+pub fn verdicts(replay: &Path, map: &Path, map_hash: &str) -> Result<Vec<(f64, String)>, String> {
+    let bytes = std::fs::read(replay).map_err(|e| e.to_string())?;
+    let replay = dossier_replay::Replay::parse(&bytes).map_err(|e| e.to_string())?;
+    let found = locate::load_map(map, map_hash)?;
+    let beatmap = dossier_beatmap::Beatmap::parse(&found.text).map_err(|e| e.to_string())?;
+    let state = dossier_sim::GameState::new(&beatmap, &replay);
+    let Some(judge) = state.judge() else {
+        return Ok(Vec::new());
+    };
+    Ok(judge
+        .events()
+        .iter()
+        .filter(|event| event.result != dossier_sim::Judgement::Great)
+        .map(|event| (event.time_ms, format!("{:?}", event.result)))
+        .collect())
+}
+
+pub fn still(replay: &Path, map: &Path, map_hash: &str, skin_folder: Option<&Path>, hud: bool, at_ms: f64, size: (u32, u32)) -> Result<Vec<u8>, String> {
+    let bytes = std::fs::read(replay).map_err(|e| e.to_string())?;
+    let replay = dossier_replay::Replay::parse(&bytes).map_err(|e| e.to_string())?;
+    let found = locate::load_map(map, map_hash)?;
+    let beatmap = dossier_beatmap::Beatmap::parse(&found.text).map_err(|e| e.to_string())?;
+    let state = dossier_sim::GameState::new(&beatmap, &replay);
+    let mut skin = dossier_render::Skin::with_combo_colours(beatmap.combo_colours());
+    if let Some(font) = dossier_produce::font::find(None)? {
+        skin = skin.with_font(font);
+    }
+    if let Some(folder) = skin_folder.filter(|folder| folder.is_dir()) {
+        skin = dossier_produce::skin::from_folder(skin, folder, None);
+    }
+    let scene = dossier_render::Scene::new(&state, skin).signed_by(&replay);
+    let scene = if hud { scene } else { scene.bare() };
+    let frame = scene.frame(at_ms, &dossier_render::Layout::new(size.0, size.1));
+    frame.encode_png().map_err(|e| e.to_string())
+}
+
 fn plain_sounds(beatmap: &dossier_beatmap::Beatmap) -> dossier_beatmap::Beatmap {
     let mut plain = beatmap.clone();
     plain.sample_set = dossier_beatmap::SampleSet::Normal;

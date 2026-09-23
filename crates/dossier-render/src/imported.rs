@@ -204,6 +204,8 @@ pub fn tinted(pixmap: &Pixmap, tint: Color) -> Pixmap {
     out
 }
 
+const SEEN_ALPHA: u8 = 32;
+
 #[derive(Clone)]
 pub struct Sprite {
     pub pixmap: Pixmap,
@@ -219,7 +221,7 @@ impl Sprite {
         let (mut left, mut right) = (pixmap.width(), 0u32);
         let (mut top, mut bottom) = (pixmap.height(), 0u32);
         for (index, pixel) in pixmap.pixels().iter().enumerate() {
-            if pixel.alpha() == 0 {
+            if pixel.alpha() < SEEN_ALPHA {
                 continue;
             }
             let (x, y) = (index as u32 % pixmap.width(), index as u32 / pixmap.width());
@@ -267,6 +269,8 @@ pub struct Sprites {
 
     off: HashSet<Element>,
 
+    animated: HashSet<Element>,
+
     ini: Ini,
 
     palette: usize,
@@ -297,6 +301,7 @@ impl Sprites {
         let mut have = HashMap::new();
         let mut frames: HashMap<Element, Vec<Sprite>> = HashMap::new();
         let mut off = HashSet::new();
+        let mut animated = HashSet::new();
 
         for &element in wanted {
             let named = element.stem_with(&ini).to_ascii_lowercase();
@@ -306,39 +311,49 @@ impl Sprites {
                 named
             };
 
-            let found = index
-                .get(&format!("{stem}-0@2x.png"))
-                .map(|p| (p, 2.0))
-                .or_else(|| index.get(&format!("{stem}-0.png")).map(|p| (p, 1.0)))
-                .or_else(|| index.get(&format!("{stem}0@2x.png")).map(|p| (p, 2.0)))
-                .or_else(|| index.get(&format!("{stem}0.png")).map(|p| (p, 1.0)))
-                .or_else(|| index.get(&format!("{stem}@2x.png")).map(|p| (p, 2.0)))
-                .or_else(|| index.get(&format!("{stem}.png")).map(|p| (p, 1.0)));
-            let Some((path, scale)) = found else { continue };
-            let Some(pixmap) = fs::read(path)
-                .ok()
-                .and_then(|b| Pixmap::decode_png(&b).ok())
+            let decoded = |path: &PathBuf| fs::read(path).ok().and_then(|b| Pixmap::decode_png(&b).ok());
+            let pairs = [
+                (format!("{stem}-0@2x.png"), format!("{stem}-0.png"), true),
+                (format!("{stem}0@2x.png"), format!("{stem}0.png"), true),
+                (format!("{stem}@2x.png"), format!("{stem}.png"), false),
+            ];
+            let Some((doubled_name, plain_name, framed)) = pairs
+                .iter()
+                .find(|(doubled, plain, _)| index.contains_key(doubled) || index.contains_key(plain))
             else {
                 continue;
             };
+            let framed = *framed;
+            let doubled_picture = index.get(doubled_name).and_then(decoded);
+            let plain_picture = index.get(plain_name).and_then(decoded);
+            let inked = |pixmap: &Pixmap| pixmap.pixels().iter().any(|p| p.alpha() > 0);
+            let chosen = match (doubled_picture, plain_picture) {
+                (Some(doubled), Some(plain)) if !inked(&doubled) && inked(&plain) => Some((plain, 1.0)),
+                (Some(doubled), _) => Some((doubled, 2.0)),
+                (None, Some(plain)) => Some((plain, 1.0)),
+                (None, None) => None,
+            };
+            let Some((pixmap, scale)) = chosen else { continue };
+            let doubled = scale > 1.5;
             let first = Sprite::new(pixmap, scale);
 
             let mut strip = vec![first];
             for n in 1.. {
-                let next = index
-                    .get(&format!("{stem}-{n}@2x.png"))
-                    .map(|p| (p, 2.0))
-                    .or_else(|| index.get(&format!("{stem}-{n}.png")).map(|p| (p, 1.0)))
-                    .or_else(|| index.get(&format!("{stem}{n}@2x.png")).map(|p| (p, 2.0)))
-                    .or_else(|| index.get(&format!("{stem}{n}.png")).map(|p| (p, 1.0)));
+                let ways = match doubled {
+                    true => [format!("{stem}-{n}@2x.png"), format!("{stem}-{n}.png"), format!("{stem}{n}@2x.png"), format!("{stem}{n}.png")],
+                    false => [format!("{stem}-{n}.png"), format!("{stem}-{n}@2x.png"), format!("{stem}{n}.png"), format!("{stem}{n}@2x.png")],
+                };
+                let next = ways
+                    .iter()
+                    .find_map(|name| index.get(name).map(|path| (path, if name.contains("@2x") { 2.0 } else { 1.0 })));
                 let Some((path, scale)) = next else { break };
-                match fs::read(path)
-                    .ok()
-                    .and_then(|b| Pixmap::decode_png(&b).ok())
-                {
+                match decoded(path) {
                     Some(pixmap) => strip.push(Sprite::new(pixmap, scale)),
                     None => break,
                 }
+            }
+            if framed {
+                animated.insert(element);
             }
 
             if strip.iter().all(Sprite::is_blank) {
@@ -356,9 +371,31 @@ impl Sprites {
             have,
             frames,
             off,
+            animated,
             ini,
             palette: 0,
             tinted: HashMap::new(),
+        }
+    }
+
+    pub fn animated(&self, element: Element) -> bool {
+        self.animated.contains(&element) || self.frames.get(&element).is_some_and(|strip| strip.len() > 1)
+    }
+
+    pub fn steady_ink(&self, element: Element) -> Option<(f32, f32)> {
+        let median = |mut values: Vec<f32>| -> f32 {
+            values.sort_by(f32::total_cmp);
+            values[values.len() / 2]
+        };
+        match self.frames.get(&element) {
+            Some(strip) if strip.len() > 1 => {
+                let inked: Vec<&Sprite> = strip.iter().filter(|s| s.ink_width > 0.0 && s.ink_height > 0.0).collect();
+                if inked.is_empty() {
+                    return None;
+                }
+                Some((median(inked.iter().map(|s| s.ink_width).collect()), median(inked.iter().map(|s| s.ink_height).collect())))
+            }
+            _ => self.have.get(&element).map(|s| (s.ink_width, s.ink_height)),
         }
     }
 
@@ -633,6 +670,47 @@ mod tests {
         let sprites = Sprites::read(&dir, WANTED);
         assert!(sprites.silenced(Element::HitCircle));
         assert!(!sprites.draw_ourselves(Element::HitCircle));
+    }
+
+    #[test]
+    fn a_blank_double_does_not_hide_the_drawn_single_beside_it() {
+        let dir = folder("blank-double");
+        write(&dir, "scorebar-colour@2x.png", 1, 0);
+        write(&dir, "scorebar-colour.png", 64, 255);
+        let sprites = Sprites::read(&dir, &[Element::ScoreBarFill]);
+        let bar = sprites.get(Element::ScoreBarFill).expect("the drawn one is read");
+        assert_eq!(bar.scale, 1.0, "the standard picture stands in for the blank double");
+        write(&dir, "scorebar-colour.png", 64, 0);
+        let hidden = Sprites::read(&dir, &[Element::ScoreBarFill]);
+        assert!(hidden.silenced(Element::ScoreBarFill), "when both are blank the skin hides it");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_animations_size_is_its_settled_frames_not_its_burst() {
+        let dir = folder("burst");
+        write(&dir, "hit100-0.png", 100, 255);
+        for n in 1..=4 {
+            write(&dir, &format!("hit100-{n}.png"), 30, 255);
+        }
+        let sprites = Sprites::read(&dir, &[Element::Verdict(crate::elements::Verdict::Hundred)]);
+        let (wide, high) = sprites.steady_ink(Element::Verdict(crate::elements::Verdict::Hundred)).expect("measured");
+        assert_eq!((wide, high), (30.0, 30.0), "the flash on the first frame is not the mark's size");
+        assert!(sprites.animated(Element::Verdict(crate::elements::Verdict::Hundred)));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_single_numbered_frame_still_counts_as_an_animation_and_a_faint_haze_is_not_ink() {
+        let dir = folder("single-frame");
+        write(&dir, "hit0-0@2x.png", 60, 255);
+        write(&dir, "hit50.png", 80, 10);
+        let sprites = Sprites::read(&dir, &[Element::Verdict(crate::elements::Verdict::Miss), Element::Verdict(crate::elements::Verdict::Fifty)]);
+        assert!(sprites.animated(Element::Verdict(crate::elements::Verdict::Miss)), "osu! plays a lone -0 as an animation");
+        assert!(!sprites.animated(Element::Verdict(crate::elements::Verdict::Fifty)));
+        let fifty = sprites.get(Element::Verdict(crate::elements::Verdict::Fifty)).expect("read");
+        assert_eq!((fifty.ink_width, fifty.ink_height), (0.0, 0.0), "a haze below what the eye sees is not ink");
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

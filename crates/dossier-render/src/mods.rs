@@ -12,8 +12,6 @@ const CORNER: f32 = 0.26;
 
 const LETTER_SHARE: f32 = 0.52;
 
-const MARK_SHARE: f32 = 0.62;
-
 const GAP: f32 = 0.12;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -25,141 +23,39 @@ pub enum Kind {
     Other,
 }
 
-type Art = Option<&'static [u8]>;
-
-const KNOWN: &[(&str, Kind, Art)] = &[
-    (
-        "NM",
-        Kind::Other,
-        Some(include_bytes!("../../../assets/mods/mod-no-mod.png")),
-    ),
-    (
-        "EZ",
-        Kind::Easier,
-        Some(include_bytes!("../../../assets/mods/mod-easy.png")),
-    ),
-    (
-        "NF",
-        Kind::Easier,
-        Some(include_bytes!("../../../assets/mods/mod-no-fail.png")),
-    ),
-    (
-        "HT",
-        Kind::Easier,
-        Some(include_bytes!("../../../assets/mods/mod-half-time.png")),
-    ),
-    (
-        "DC",
-        Kind::Easier,
-        Some(include_bytes!("../../../assets/mods/mod-daycore.png")),
-    ),
-    (
-        "HD",
-        Kind::Harder,
-        Some(include_bytes!("../../../assets/mods/mod-hidden.png")),
-    ),
-    (
-        "HR",
-        Kind::Harder,
-        Some(include_bytes!("../../../assets/mods/mod-hard-rock.png")),
-    ),
-    (
-        "SD",
-        Kind::Harder,
-        Some(include_bytes!("../../../assets/mods/mod-sudden-death.png")),
-    ),
-    (
-        "PF",
-        Kind::Harder,
-        Some(include_bytes!("../../../assets/mods/mod-perfect.png")),
-    ),
-    (
-        "DT",
-        Kind::Harder,
-        Some(include_bytes!("../../../assets/mods/mod-double-time.png")),
-    ),
-    (
-        "NC",
-        Kind::Harder,
-        Some(include_bytes!("../../../assets/mods/mod-nightcore.png")),
-    ),
-    (
-        "FL",
-        Kind::Harder,
-        Some(include_bytes!("../../../assets/mods/mod-flashlight.png")),
-    ),
-    (
-        "BL",
-        Kind::Harder,
-        Some(include_bytes!("../../../assets/mods/mod-blinds.png")),
-    ),
-    (
-        "RX",
-        Kind::Automatic,
-        Some(include_bytes!("../../../assets/mods/mod-relax.png")),
-    ),
-    (
-        "AP",
-        Kind::Automatic,
-        Some(include_bytes!("../../../assets/mods/mod-autopilot.png")),
-    ),
-    (
-        "SO",
-        Kind::Automatic,
-        Some(include_bytes!("../../../assets/mods/mod-spun-out.png")),
-    ),
-    (
-        "AT",
-        Kind::Automatic,
-        Some(include_bytes!("../../../assets/mods/mod-autoplay.png")),
-    ),
-    (
-        "CN",
-        Kind::Automatic,
-        Some(include_bytes!("../../../assets/mods/mod-cinema.png")),
-    ),
-    (
-        "TD",
-        Kind::Converted,
-        Some(include_bytes!("../../../assets/mods/mod-touch-device.png")),
-    ),
-    (
-        "MR",
-        Kind::Converted,
-        Some(include_bytes!("../../../assets/mods/mod-mirror.png")),
-    ),
-    ("V2", Kind::Converted, None),
-    (
-        "TP",
-        Kind::Converted,
-        Some(include_bytes!(
-            "../../../assets/mods/mod-target-practice.png"
-        )),
-    ),
-    (
-        "RD",
-        Kind::Converted,
-        Some(include_bytes!("../../../assets/mods/mod-random.png")),
-    ),
-    (
-        "CL",
-        Kind::Converted,
-        Some(include_bytes!("../../../assets/mods/mod-classic.png")),
-    ),
-    (
-        "DA",
-        Kind::Converted,
-        Some(include_bytes!(
-            "../../../assets/mods/mod-difficulty-adjust.png"
-        )),
-    ),
+const KNOWN: &[(&str, Kind)] = &[
+    ("NM", Kind::Other),
+    ("EZ", Kind::Easier),
+    ("NF", Kind::Easier),
+    ("HT", Kind::Easier),
+    ("DC", Kind::Easier),
+    ("HD", Kind::Harder),
+    ("HR", Kind::Harder),
+    ("SD", Kind::Harder),
+    ("PF", Kind::Harder),
+    ("DT", Kind::Harder),
+    ("NC", Kind::Harder),
+    ("FL", Kind::Harder),
+    ("BL", Kind::Harder),
+    ("RX", Kind::Automatic),
+    ("AP", Kind::Automatic),
+    ("SO", Kind::Automatic),
+    ("AT", Kind::Automatic),
+    ("CN", Kind::Automatic),
+    ("TD", Kind::Converted),
+    ("MR", Kind::Converted),
+    ("V2", Kind::Converted),
+    ("TP", Kind::Converted),
+    ("RD", Kind::Converted),
+    ("CL", Kind::Converted),
+    ("DA", Kind::Converted),
 ];
 
 pub fn kind_of(acronym: &str) -> Kind {
     KNOWN
         .iter()
-        .find(|(name, _, _)| name.eq_ignore_ascii_case(acronym))
-        .map_or(Kind::Other, |(_, kind, _)| *kind)
+        .find(|(name, _)| name.eq_ignore_ascii_case(acronym))
+        .map_or(Kind::Other, |(_, kind)| *kind)
 }
 
 pub fn colour_of(kind: Kind) -> Color {
@@ -175,11 +71,11 @@ pub fn colour_of(kind: Kind) -> Color {
 pub fn known(acronym: &str) -> bool {
     KNOWN
         .iter()
-        .any(|(name, _, _)| name.eq_ignore_ascii_case(acronym))
+        .any(|(name, _)| name.eq_ignore_ascii_case(acronym))
 }
 
 pub fn every() -> Vec<&'static str> {
-    KNOWN.iter().map(|(name, _, _)| *name).collect()
+    KNOWN.iter().map(|(name, _)| *name).collect()
 }
 
 fn letters() -> Option<&'static Font> {
@@ -216,43 +112,6 @@ fn plate(into: &mut Pixmap, wide: f32, high: f32, colour: Color) {
     );
 }
 
-fn glyphs() -> &'static std::collections::HashMap<&'static str, Pixmap> {
-    static HELD: OnceLock<std::collections::HashMap<&'static str, Pixmap>> = OnceLock::new();
-    HELD.get_or_init(|| {
-        let mut all = std::collections::HashMap::new();
-        for (name, _, bytes) in KNOWN {
-            let Some(bytes) = bytes else { continue };
-            if let Ok(art) = Pixmap::decode_png(bytes) {
-                all.insert(*name, art);
-            }
-        }
-        all
-    })
-}
-
-fn draw_mark(into: &mut Pixmap, acronym: &str, wide: f32, high: f32) -> bool {
-    let Some(art) = glyphs().get(acronym) else {
-        return false;
-    };
-    let reach = high * MARK_SHARE;
-    let scale = reach / art.height() as f32;
-    let drawn = art.width() as f32 * scale;
-    into.draw_pixmap(
-        0,
-        0,
-        art.as_ref(),
-        &PixmapPaint {
-            opacity: 1.0,
-            quality: tiny_skia::FilterQuality::Bilinear,
-            ..Default::default()
-        },
-        Transform::from_translate((wide - drawn) / 2.0, (high - reach) / 2.0)
-            .pre_scale(scale, scale),
-        None,
-    );
-    true
-}
-
 pub fn icon(acronym: &str, high: u32) -> Option<Pixmap> {
     if !known(acronym) {
         return None;
@@ -269,10 +128,6 @@ pub fn icon(acronym: &str, high: u32) -> Option<Pixmap> {
     );
 
     let name = acronym.to_ascii_uppercase();
-    if draw_mark(&mut out, &name, wide as f32, high as f32) {
-        return Some(out);
-    }
-
     let font = letters()?;
     let size = high as f32 * LETTER_SHARE;
     font.draw(
@@ -331,26 +186,17 @@ mod tests {
     }
 
     #[test]
-    fn every_mod_but_score_v2_has_a_picture_that_decodes() {
+    fn every_mod_wears_its_own_name() {
         for name in every() {
-            if name == "V2" {
-                assert!(!glyphs().contains_key(name), "V2 is meant to wear its name");
-                continue;
-            }
-            assert!(glyphs().contains_key(name), "{name} has no glyph");
+            let made = icon(name, 100).unwrap_or_else(|| panic!("{name} draws"));
+            assert_eq!((made.width(), made.height()), (162, 100));
+            let white = made
+                .pixels()
+                .iter()
+                .filter(|p| p.red() > 230 && p.green() > 230 && p.blue() > 230)
+                .count();
+            assert!(white > 200, "{name}: only {white} pixels of lettering");
         }
-    }
-
-    #[test]
-    fn a_mod_without_a_picture_wears_its_name_instead() {
-        let made = icon("V2", 100).expect("score v2 draws");
-        assert_eq!((made.width(), made.height()), (162, 100));
-        let white = made
-            .pixels()
-            .iter()
-            .filter(|p| p.red() > 230 && p.green() > 230 && p.blue() > 230)
-            .count();
-        assert!(white > 200, "only {white} pixels of lettering");
     }
 
     #[test]

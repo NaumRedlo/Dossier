@@ -162,7 +162,8 @@ impl Scene<'_> {
             if verdict == Judgement::Miss && self.skin_version() > 1.0 {
                 at.1 += layout.length(miss_drift(age));
             }
-            let settle = verdict_settle(age, verdict == Judgement::Miss);
+            let animated = self.skin.sprites.as_ref().is_some_and(|sprites| sprites.animated(element));
+            let settle = if animated { 1.0 } else { verdict_settle(age, verdict == Judgement::Miss) };
             let size = layout.length(radius * scale) * settle;
             if self.skin_speaks_for(element) {
                 let own = self
@@ -173,7 +174,7 @@ impl Scene<'_> {
                     .map_or(0.0, |(sprites, sprite)| {
                         let full = layout.length(f64::from(sprite.width()));
 
-                        full * verdict_held(sprites, sprite, radius) as f32
+                        full * verdict_held(sprites, element, radius) as f32
                     });
 
                 if own > 0.0 {
@@ -363,11 +364,7 @@ impl Scene<'_> {
     }
 }
 
-fn verdict_held(
-    sprites: &crate::imported::Sprites,
-    sprite: &crate::imported::Sprite,
-    radius: f64,
-) -> f64 {
+fn verdict_held(sprites: &crate::imported::Sprites, element: crate::elements::Element, radius: f64) -> f64 {
     let ceiling = radius * 2.0 * VERDICT_INK_SHARE;
     let held = |ink: f32| -> f64 {
         let ink = f64::from(ink);
@@ -380,12 +377,12 @@ fn verdict_held(
 
     let widest = crate::elements::Verdict::ALL
         .iter()
-        .filter_map(|verdict| sprites.get(crate::elements::Element::Verdict(*verdict)))
-        .filter(|other| other.ink_width > 0.0 && other.ink_height > 0.0)
-        .map(|other| f64::from(other.ink_width) * held(other.ink_height))
+        .filter_map(|verdict| sprites.steady_ink(crate::elements::Element::Verdict(*verdict)))
+        .filter(|(wide, high)| *wide > 0.0 && *high > 0.0)
+        .map(|(wide, high)| f64::from(wide) * held(high))
         .fold(0.0, f64::max);
 
-    let mine = held(sprite.ink_height);
+    let mine = sprites.steady_ink(element).map_or(1.0, |(_, high)| held(high));
     let room = radius * 2.0 * VERDICT_WIDTH_SHARE;
     if widest > room && widest > 0.0 {
         mine * room / widest

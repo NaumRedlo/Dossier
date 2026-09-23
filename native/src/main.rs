@@ -75,6 +75,41 @@ fn main() -> iced::Result {
         });
         return Ok(());
     }
+    if let Some(at) = args.iter().position(|a| a == "--frame") {
+        let replay = std::path::PathBuf::from(args.get(at + 1).cloned().unwrap_or_default());
+        let when: f64 = args.get(at + 2).and_then(|t| t.parse().ok()).unwrap_or(10_000.0);
+        let out = std::path::PathBuf::from(args.get(at + 3).cloned().unwrap_or_else(|| "frame.png".to_owned()));
+        let folder = replay.parent().map(std::path::Path::to_path_buf).unwrap_or_default();
+        let Some(source) = dossier_native::sources::folder_at(&folder) else {
+            eprintln!("no replays beside {}", replay.display());
+            std::process::exit(1);
+        };
+        let library = dossier_native::library::read(&[source]);
+        let Some(entry) = library.entries.iter().find(|e| e.path == replay) else {
+            eprintln!("{} is not in the library", replay.display());
+            std::process::exit(1);
+        };
+        let Some(map) = &entry.map else {
+            eprintln!("no map on disk");
+            std::process::exit(1);
+        };
+        let said = dossier_native::settings::Settings::load();
+        if args.get(at + 2).map(String::as_str) == Some("list") {
+            for (when, what) in dossier_native::render::verdicts(&entry.path, &map.file, &entry.map_hash).unwrap_or_default() {
+                println!("{when:>9.0} ms  {what}");
+            }
+            return Ok(());
+        }
+        match dossier_native::render::still(&entry.path, &map.file, &entry.map_hash, said.skin.as_deref(), said.hud, when, (1280, 720)) {
+            Ok(png) => {
+                let _ = std::fs::write(&out, png);
+                println!("{} at {when} ms", out.display());
+            }
+            Err(why) => eprintln!("{why}"),
+        }
+        return Ok(());
+    }
+
     if args.iter().any(|a| a == "--skins") {
         let settings = dossier_native::settings::Settings::load();
         let started = std::time::Instant::now();

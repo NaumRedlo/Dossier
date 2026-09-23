@@ -269,3 +269,50 @@ hud = Interface
 cursor-grows = Cursor on presses
 map-sounds = Map sounds
 skin-sounds = Skin sounds
+community-feed = Feed
+community-people = People
+community-boards = Rankings
+community-titles = Titles
+community-staged = sample data
+players = { $n ->
+    [one] player
+   *[other] players
+}
+games = { $n ->
+    [one] play
+   *[other] plays
+}
+happened-render = render
+happened-top-play = top play
+happened-title = new title
+happened-climb = ranking
+board-pp = pp
+board-accuracy = Accuracy
+board-plays = Plays
+board-hours = Time
+board-score = Ranked score
+board-hits = Hits per play
+boards-week = Week { $n } · places and changes this week
+no-title = no title
+streak = Streak
+streak-days = { $n ->
+    [one] { $n } day in a row
+   *[other] { $n } days in a row
+}
+hours-short = h
+global-rank = Global rank
+top-plays = Top plays
+nobody-yet = nobody yet
+secret-title = Secret title
+unlocked = unlocked
+rarity-common = Common
+rarity-uncommon = Uncommon
+rarity-rare = Rare
+rarity-epic = Epic
+rarity-legendary = Legendary
+rarity-mythic = Mythic
+rarity-secret = Secret
+streak-card = { $n ->
+    [one] { $n }-day streak
+   *[other] { $n }-day streak
+}

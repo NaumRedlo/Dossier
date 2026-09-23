@@ -49,6 +49,7 @@ pub enum Overlay {
 
 #[derive(Debug, Clone)]
 pub enum Message {
+    Community(crate::community_screen::Message),
     Loaded(Library),
     Thumb(String, image::Handle),
     Scene(String, Option<image::Handle>),
@@ -342,6 +343,10 @@ pub struct Main {
     pub height: f32,
     strip_id: iced::widget::Id,
     strip_aim: Option<(u64, f32)>,
+    pub community: Option<crate::community::Catalog>,
+    pub community_section: crate::community_screen::Section,
+    pub community_board: crate::community::Board,
+    pub community_person: Option<usize>,
 }
 
 fn unix_now() -> i64 {
@@ -446,6 +451,10 @@ impl Main {
             height: crate::WINDOW.height,
             strip_id: iced::widget::Id::unique(),
             strip_aim: None,
+            community: None,
+            community_section: crate::community_screen::Section::Feed,
+            community_board: crate::community::Board::Pp,
+            community_person: None,
         };
         let strays = videos::strays(&made.store.videos, &made.settings.renders_dir());
         let adopt = match (made.ffmpeg.clone(), strays.is_empty()) {
@@ -775,6 +784,8 @@ impl Main {
                         return self.update(Message::PlayerWiden);
                     }
                     return self.update(Message::ClosePlayer);
+                } else if self.overlay == Overlay::Community && self.community_person.is_some() {
+                    self.community_person = None;
                 } else {
                     self.overlay = Overlay::None;
                 }
@@ -1364,6 +1375,9 @@ impl Main {
                     self.rest_live(true);
                     return Task::batch([sizes, version, chats, skins]);
                 }
+                if overlay == Overlay::Community && self.community.is_none() {
+                    self.community = Some(self.staged_community());
+                }
                 if overlay != self.overlay {
                     self.turn_to(overlay, now);
                 }
@@ -1397,6 +1411,18 @@ impl Main {
                         }
                     }
                 })
+            }
+            Message::Community(inner) => {
+                use crate::community_screen::Message as C;
+                match inner {
+                    C::Section(section) => {
+                        self.community_section = section;
+                        self.community_person = None;
+                    }
+                    C::Board(board) => self.community_board = board,
+                    C::Person(person) => self.community_person = person,
+                }
+                Task::none()
             }
             Message::OpenFolder => {
                 if let Some(entry) = self.chosen_entry() {
@@ -2561,6 +2587,11 @@ impl Main {
         if which == Overlay::Settings {
             return self.settings_view();
         }
+        if which == Overlay::Community {
+            if let Some(view) = self.community_view() {
+                return view;
+            }
+        }
         let (name, why) = match which {
             Overlay::Worker => (w.t("worker"), w.t("coming-later")),
             Overlay::Community => (w.t("community"), w.t("community-why")),
@@ -3110,6 +3141,40 @@ impl Main {
             .entry(id.to_owned())
             .or_insert_with(|| Animation::new(!on).duration(MARK).easing(Easing::EaseOutCubic))
             .go_mut(on, now);
+    }
+
+    pub fn staged_community(&self) -> crate::community::Catalog {
+        let mut seen = std::collections::HashSet::new();
+        let maps: Vec<crate::community::MapRef> = self
+            .entries()
+            .iter()
+            .filter(|entry| entry.map.as_ref().is_some_and(|map| map.background.is_some()))
+            .filter(|entry| seen.insert(entry.map_hash.clone()))
+            .take(8)
+            .filter_map(|entry| entry.map.as_ref().map(|map| crate::community::MapRef { hash: entry.map_hash.clone(), line: map.line() }))
+            .collect();
+        let you = self
+            .account
+            .as_ref()
+            .map(|me| me.username.clone())
+            .filter(|name| !name.is_empty())
+            .unwrap_or_else(|| self.settings.linked_as.clone());
+        crate::community::Catalog::staged(maps, &you, self.now_unix)
+    }
+
+    fn community_view(&self) -> Option<Element<'_, Message>> {
+        let catalog = self.community.as_ref()?;
+        let ground = crate::community_screen::Ground {
+            words: &self.words,
+            catalog,
+            thumbs: &self.thumbs,
+            section: self.community_section,
+            board: self.community_board,
+            person: self.community_person,
+            now_unix: self.now_unix,
+        };
+        let body: Element<'_, Message> = crate::community_screen::view(&ground).map(Message::Community);
+        Some(column![Space::new().height(theme::CONTROL_HEIGHT + 4.0 + 22.0), body].width(Length::Fill).height(Length::Fill).into())
     }
 
     fn settings_view(&self) -> Element<'_, Message> {
@@ -4065,7 +4130,7 @@ pub fn mod_colour(acronym: &str) -> Color {
     }
 }
 
-fn mod_badge<'a, Message: 'a>(acronym: &str) -> Element<'a, Message> {
+pub fn mod_badge<'a, Message: 'a>(acronym: &str) -> Element<'a, Message> {
     let colour = mod_colour(acronym);
     let alpha = ui::fade();
     container(text(acronym.to_owned()).font(theme::MONO_BOLD).size(10.0).color(ui::faded(theme::ON_ACCENT)))

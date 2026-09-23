@@ -390,7 +390,6 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
     worker.overlay_drawn = Overlay::Community;
     worker.overlay_fade = iced::Animation::new(true);
     worker.ground_fade = iced::Animation::new(true);
-    // the ground is up for every staged catalogue
     let mut rendering = staged(Some(0));
     rendering.ffmpeg = Some(PathBuf::from("ffmpeg"));
     rendering.rendering = Some(crate::main_screen::Rendering {
@@ -451,7 +450,6 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
     with_videos.overlay_drawn = crate::main_screen::Overlay::Videos;
     with_videos.overlay_fade = iced::Animation::new(true);
     with_videos.ground_fade = iced::Animation::new(true);
-    // the ground is up for every staged catalogue
     let mock_video = |at: usize, made_at: i64, length_ms: i64, size: u64, mods: &[&str]| {
         let entry = &library.entries[at];
         crate::videos::Video {
@@ -548,7 +546,6 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
     prefs_app.overlay_drawn = crate::main_screen::Overlay::Settings;
     prefs_app.overlay_fade = iced::Animation::new(true);
     prefs_app.ground_fade = iced::Animation::new(true);
-    // the ground is up for every staged catalogue
     prefs_app.ffmpeg_version = Some("7.1".to_owned());
     prefs_app.sizes = (596_000_000, 1_180_000_000, 146_800_000);
     prefs_app.store.videos = with_videos.store.videos.clone();
@@ -564,6 +561,18 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
         crate::bot::Chat { id: -100, title: "osu! RU · lounge".into(), private: false, photo: false },
         crate::bot::Chat { id: -101, title: "1984 crew".into(), private: false, photo: false },
     ];
+    let community = |section: crate::community_screen::Section, person: Option<usize>| {
+        let mut main = staged(Some(0));
+        main.now_unix = NOON;
+        main.overlay = Overlay::Community;
+        main.overlay_drawn = Overlay::Community;
+        main.overlay_fade = iced::Animation::new(true);
+        main.ground_fade = iced::Animation::new(true);
+        main.community = Some(main.staged_community());
+        main.community_section = section;
+        main.community_person = person;
+        main
+    };
     let mut signing = staged(Some(0));
     signing.pairing = crate::main_screen::Pairing::Waiting { code: "K7QN-M4XZ".into(), link: "https://t.me/bot?start=pair-K7QNM4XZ".into() };
     signing.qr = crate::first_run::qr_for("https://t.me/bot?start=pair-K7QNM4XZ");
@@ -582,6 +591,11 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
         ("main-player-wide".to_owned(), playing_wide),
         ("main-nomap".to_owned(), staged(Some(3))),
         ("main-worker".to_owned(), worker),
+        ("main-community-feed".to_owned(), community(crate::community_screen::Section::Feed, None)),
+        ("main-community-people".to_owned(), community(crate::community_screen::Section::People, None)),
+        ("main-community-person".to_owned(), community(crate::community_screen::Section::People, Some(1))),
+        ("main-community-boards".to_owned(), community(crate::community_screen::Section::Boards, None)),
+        ("main-community-titles".to_owned(), community(crate::community_screen::Section::Titles, None)),
         ("main-rendering".to_owned(), rendering),
         ("main-rendered".to_owned(), rendered),
         ("main-hover".to_owned(), hovering),

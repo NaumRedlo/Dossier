@@ -525,8 +525,39 @@ variants stay drawn for the record.
 *Сообщество.* A fifth word in the top row, after *Видео* (2026-09-22),
 for the world of 1984 seen from inside Dossier — people, their renders
 and records, the bot's contests — so the application and the bot make one
-ecosystem rather than two doors to the same house. A card saying so for
-now; what it holds is to be drawn.
+ecosystem rather than two doors to the same house.
+
+The first prototype (2026-09-23) holds one group — the Telegram chat the
+bot keeps its players by — under the same underlined words as Settings:
+*Лента · Люди · Рейтинг · Титулы*, and a faint line under them naming the
+group, its size and, while it lasts, *образцы данных*: every figure is
+staged in `native/src/community.rs` in the shape of the bot's own tables,
+and nothing yet comes from the server.
+
+- *Лента* is what happened in the group, newest first, under the journal's
+  day headings: renders, new top plays, titles unlocked, places won on a
+  board. A map's event carries its picture; a title's carries a seal in
+  its rarity's colour; a climb, the new place. Any row opens its player.
+- *Люди* is a card per player — initial, country, the title they wear in
+  its rarity's colour, pp, global rank, accuracy, and plays, hours and the
+  streak beneath. A card opens the player's page from the right: every
+  figure the bot keeps, the top three plays with their maps and grades,
+  and every title as a chip.
+- *Рейтинг* is the bot's six boards (pp, accuracy, plays, time, ranked
+  score, hits per play) as chips, each row a place, the week's move (▲ in
+  green, ▼ in red, — for none), the player, the value and a bar against
+  the leader. The week is the bot's ISO week in Moscow time.
+- *Титулы* is the bot's catalogue by rarity, each rarity in the colour the
+  bot draws it with, *открыто n из m* for the group, and on every card
+  whose faces have it. A secret nobody holds shows *???*.
+
+What it needs from the bot, when it stops being a prototype: the group's
+players with the figures above (the `users` table), the board a week ago
+(`leaderboard_snapshots`), the titles and who holds them
+(`user_title_progress`), top plays (`user_best_scores`) and a log of what
+happened — which the bot does not keep yet for renders: a finished render
+goes to Telegram and is forgotten. Contests are not drawn: the bot's
+bounty and duel columns have nothing behind them any more.
 
 *The three words.* Replays is this screen. Worker and Settings open over
 the scene, dimmed to a fifth, in the first run's centred column; the crest

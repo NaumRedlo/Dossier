@@ -1,6 +1,8 @@
 pub mod board;
 pub mod bot;
 pub mod checks;
+pub mod community;
+pub mod community_screen;
 pub mod ffmpeg;
 pub mod film;
 pub mod first_run;

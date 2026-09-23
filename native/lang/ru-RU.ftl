@@ -276,3 +276,54 @@ hud = Интерфейс
 cursor-grows = Курсор на нажатия
 map-sounds = Звуки карты
 skin-sounds = Звуки скина
+community-feed = Лента
+community-people = Люди
+community-boards = Рейтинг
+community-titles = Титулы
+community-staged = образцы данных
+players = { $n ->
+    [one] игрок
+    [few] игрока
+   *[other] игроков
+}
+games = { $n ->
+    [one] игра
+    [few] игры
+   *[other] игр
+}
+happened-render = рендер
+happened-top-play = топ-плей
+happened-title = новый титул
+happened-climb = рейтинг
+board-pp = pp
+board-accuracy = Точность
+board-plays = Игры
+board-hours = Время
+board-score = Рейтинговые очки
+board-hits = Попаданий за игру
+boards-week = Неделя { $n } · места и изменения за неделю
+no-title = без титула
+streak = Серия
+streak-days = { $n ->
+    [one] { $n } день подряд
+    [few] { $n } дня подряд
+   *[other] { $n } дней подряд
+}
+hours-short = ч
+global-rank = Мировой ранг
+top-plays = Топ-плеи
+nobody-yet = пока ни у кого
+secret-title = Секретный титул
+unlocked = открыто
+rarity-common = Обычные
+rarity-uncommon = Необычные
+rarity-rare = Редкие
+rarity-epic = Эпические
+rarity-legendary = Легендарные
+rarity-mythic = Мифические
+rarity-secret = Секретные
+streak-card = { $n ->
+    [one] { $n } день подряд
+    [few] { $n } дня подряд
+   *[other] { $n } дней подряд
+}

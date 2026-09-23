@@ -125,6 +125,7 @@ struct State<K> {
     showing: bool,
     shown_until: Option<Instant>,
     last: Option<Instant>,
+    window_shift: Vector,
 }
 
 impl<K: Copy + Eq + Hash> State<K> {
@@ -138,6 +139,7 @@ impl<K: Copy + Eq + Hash> State<K> {
             order: None,
             press: None,
             held: None,
+            window_shift: Vector::ZERO,
             pending: None,
             frame: Spot::default(),
             frame_seen: Spring::default(),
@@ -302,9 +304,10 @@ pub struct Board<'a, Message, K> {
     pieces: Vec<(K, Element<'a, Message>)>,
     spacing: f32,
     on_move: Box<dyn Fn(K, Option<K>) -> Message + 'a>,
-    on_tap: Option<Box<dyn Fn(K) -> Message + 'a>>,
+    on_tap: Option<Box<dyn Fn(K, Rectangle) -> Message + 'a>>,
     fade: f32,
     solid: Option<Color>,
+    hidden: Option<K>,
 }
 
 pub fn board<'a, Message: 'a, K: Copy + Eq + Hash + 'static>(
@@ -312,12 +315,17 @@ pub fn board<'a, Message: 'a, K: Copy + Eq + Hash + 'static>(
     spacing: f32,
     on_move: impl Fn(K, Option<K>) -> Message + 'a,
 ) -> Board<'a, Message, K> {
-    Board { pieces, spacing, on_move: Box::new(on_move), on_tap: None, fade: crate::ui::fade(), solid: None }
+    Board { pieces, spacing, on_move: Box::new(on_move), on_tap: None, fade: crate::ui::fade(), solid: None, hidden: None }
 }
 
 impl<'a, Message, K: Copy + Eq + Hash + 'static> Board<'a, Message, K> {
-    pub fn on_tap(mut self, tapped: impl Fn(K) -> Message + 'a) -> Self {
+    pub fn on_tap(mut self, tapped: impl Fn(K, Rectangle) -> Message + 'a) -> Self {
         self.on_tap = Some(Box::new(tapped));
+        self
+    }
+
+    pub fn hidden(mut self, key: Option<K>) -> Self {
+        self.hidden = key;
         self
     }
 
@@ -452,6 +460,9 @@ impl<Message, K: Copy + Eq + Hash + 'static> Widget<Message, Theme, Renderer> fo
             }
         }
 
+        if let (iced::Event::Mouse(mouse::Event::CursorMoved { position }), Some(at)) = (event, cursor.land().position()) {
+            state.window_shift = at - *position;
+        }
         let dragging = state.held.is_some_and(|held| !held.released);
         match event {
             iced::Event::Mouse(mouse::Event::CursorMoved { .. }) if dragging => {
@@ -501,7 +512,7 @@ impl<Message, K: Copy + Eq + Hash + 'static> Widget<Message, Theme, Renderer> fo
         let held = state.held.map(|held| held.key);
         let spots: HashMap<K, Point> = state.spots.iter().map(|(k, s)| (*k, s.point())).collect();
         for (((key, piece), child), place) in self.pieces.iter_mut().zip(tree.children.iter_mut()).zip(layout.children()) {
-            if Some(*key) == held && !matches!(event, iced::Event::Window(_)) {
+            if (Some(*key) == held || Some(*key) == self.hidden) && !matches!(event, iced::Event::Window(_)) {
                 continue;
             }
             let shown = spots.get(key).map_or(place.bounds().position(), |p| *p + origin_v);
@@ -535,7 +546,9 @@ impl<Message, K: Copy + Eq + Hash + 'static> Widget<Message, Theme, Renderer> fo
             }
             iced::Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => {
                 if let (Some(press), Some(tapped)) = (state.press.take(), self.on_tap.as_ref()) {
-                    shell.publish(tapped(press.key));
+                    let spot = state.spots.get(&press.key).map_or(Point::ORIGIN, |spot| spot.point()) + origin_v;
+                    let size = state.sizes.get(&press.key).copied().unwrap_or(Size::ZERO);
+                    shell.publish(tapped(press.key, Rectangle::new(spot - state.window_shift, size)));
                 }
                 if state.showing && state.shown_until.is_none() {
                     state.shown_until = Some(Instant::now() + SHOWN_FOR);
@@ -603,7 +616,7 @@ impl<Message, K: Copy + Eq + Hash + 'static> Widget<Message, Theme, Renderer> fo
         }
 
         for (((key, piece), child), place) in self.pieces.iter().zip(tree.children.iter()).zip(layout.children()) {
-            if held.is_some_and(|held| held.key == *key) {
+            if held.is_some_and(|held| held.key == *key) || self.hidden == Some(*key) {
                 continue;
             }
             let at = state.spots.get(key).map_or(place.bounds().position(), |s| s.point() + origin_v);
@@ -618,7 +631,7 @@ impl<Message, K: Copy + Eq + Hash + 'static> Widget<Message, Theme, Renderer> fo
                 if travelling {
                     self.backing(renderer, place.bounds());
                 }
-                piece.as_widget().draw(child, renderer, theme, style, place, shifted(cursor, by), viewport);
+                piece.as_widget().draw(child, renderer, theme, style, place, shifted(cursor, by), &(*viewport * transformation.inverse()));
             });
         }
 
@@ -653,7 +666,7 @@ impl<Message, K: Copy + Eq + Hash + 'static> Widget<Message, Theme, Renderer> fo
             });
             let transformation = about(lifted, scale) * Transformation::translate(by.x, by.y);
             renderer.with_transformation(transformation, |renderer| {
-                piece.as_widget().draw(child, renderer, theme, style, place, mouse::Cursor::Unavailable, viewport);
+                piece.as_widget().draw(child, renderer, theme, style, place, mouse::Cursor::Unavailable, &(*viewport * transformation.inverse()));
             });
             renderer.with_transformation(about(lifted, scale), |renderer| {
                 outline(renderer, lifted, RADIUS, 1.0, Color::from_rgba(1.0, 1.0, 1.0, 0.13 * lift * fade));

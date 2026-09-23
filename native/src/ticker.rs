@@ -220,13 +220,18 @@ impl<Message> Widget<Message, Theme, Renderer> for Ticker<'_, Message> {
         renderer.with_layer(bounds, |renderer| {
             for copy in copies {
                 let shift = copy * state.period - state.offset;
+                let seen = Rectangle { y: viewport.y - shift, ..*viewport };
+                let pointer = match cursor.position() {
+                    Some(at) if bounds.contains(at) => mouse::Cursor::Available(at - Vector::new(0.0, shift)),
+                    _ => mouse::Cursor::Unavailable,
+                };
                 renderer.with_translation(Vector::new(0.0, shift), |renderer| {
                     for ((item, child), place) in self.items.iter().zip(tree.children.iter()).zip(layout.children()) {
                         let top = place.bounds().y + shift;
                         if top > bounds.y + bounds.height || top + place.bounds().height < bounds.y {
                             continue;
                         }
-                        item.as_widget().draw(child, renderer, theme, style, place, cursor, viewport);
+                        item.as_widget().draw(child, renderer, theme, style, place, pointer, &seen);
                     }
                 });
             }

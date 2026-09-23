@@ -570,7 +570,6 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
         main.ground_fade = iced::Animation::new(true);
         main.community = Some(main.staged_community());
         main.news = sample_news();
-        main.community_own = main.own_stats();
         main.community_section = section;
         main.community_person = person;
         main
@@ -638,27 +637,38 @@ fn sample_news() -> crate::news::News {
             Build { stream: "Tachyon".into(), version: "2026.918.0".into(), at: NOON - 100 * 3600, url: String::new(), changes: vec![change("Improve performance when loading chat", false)] },
         ],
         stories: vec![
-            Story { title: "osu!mania 4K World Cup 2026: Semifinals Recap".into(), url: String::new(), at: NOON - 11 * 3600, lead: "A recap of the second half of the tournament.".into(), image: None, body: vec![
-                Block::Text("Four teams came into the last weekend before the finals, and two of them leave with a place on the final stage.".into()),
-                Block::Heading("Winners bracket".into()),
-                Block::Text("The first semifinal went the full distance: the tiebreaker was decided by a single miss in its closing stream.".into()),
-                Block::Item("South Korea 7 : 6 China".into()),
-                Block::Item("United States 7 : 3 Indonesia".into()),
-                Block::Quote("We practised the tiebreaker more than any other map in the pool, and it still nearly got away from us.".into()),
-                Block::Heading("Looking ahead".into()),
-                Block::Text("The grand finals are played next weekend, with the mappool shown on Thursday.".into()),
-            ] },
-            Story { title: "New Featured Artist: Exsy".into(), url: String::new(), at: NOON - 70 * 3600, lead: "A new artist joins the Featured Artist library.".into(), image: None, body: vec![Block::Text("A new artist joins the Featured Artist library.".into()), Block::Heading("New Featured Artist: Exsy".into()), Block::Text("A new artist joins the Featured Artist library.".into())] },
-            Story { title: "Project Loved: September 2026".into(), url: String::new(), at: NOON - 96 * 3600, lead: "This month's picks for Project Loved.".into(), image: None, body: vec![Block::Text("This month's picks for Project Loved.".into()), Block::Heading("Project Loved: September 2026".into()), Block::Text("This month's picks for Project Loved.".into())] },
+            Story {
+                title: "osu!mania 4K World Cup 2026: Semifinals Recap".into(),
+                url: "https://osu.ppy.sh/home/news/2026-09-22-mwc4k-semifinals".into(),
+                at: NOON - 11 * 3600,
+                lead: "A recap of the second half of the tournament.".into(),
+                image: None,
+                body: crate::news::blocks_of(
+                    "<p>Four teams came into the last weekend before the finals, and two of them leave with a place on the <strong>final stage</strong>.</p>\
+                     <h2>Winners bracket</h2>\
+                     <p>The first semifinal went the full distance: the tiebreaker was decided by a single miss in its closing stream. Every match is on the <a href=\"/wiki/en/Tournaments/MWC\">tournament's wiki page</a>.</p>\
+                     <ul><li>South Korea 7 : 6 China</li><li>United States 7 : 3 Indonesia</li></ul>\
+                     <blockquote><p>We practised the tiebreaker more than any other map in the pool, and it still nearly got away from us.</p></blockquote>\
+                     <h2>Looking ahead</h2><p>The grand finals are played next weekend, with the mappool shown on Thursday.</p>",
+                    "https://osu.ppy.sh/home/news/2026-09-22-mwc4k-semifinals",
+                    crate::news::Flow::Article,
+                ),
+            },
+            Story { title: "New Featured Artist: Exsy".into(), url: String::new(), at: NOON - 70 * 3600, lead: "A new artist joins the Featured Artist library.".into(), image: None, body: vec![Block::Text(vec![crate::news::Span::plain("A new artist joins the Featured Artist library.")])] },
+            Story { title: "Project Loved: September 2026".into(), url: String::new(), at: NOON - 96 * 3600, lead: "This month's picks for Project Loved.".into(), image: None, body: vec![Block::Text(vec![crate::news::Span::plain("This month's picks for Project Loved.")])] },
         ],
         threads: Vec::new(),
-        posts: vec![Post {
-            channel: "osunewsru".into(),
-            name: "осу!новостник".into(),
-            text: "Новый рекорд недели: FC на карте из пула мирового кубка с HDDT.".into(),
-            url: String::new(),
-            at: NOON - 3 * 3600,
-            image: None,
+        posts: vec![{
+            let markup = "<a href=\"https://osu.ppy.sh/users/2\"><b>kotofey</b></a> поставил <b>первое HDDT FC</b> на карте из пула мирового кубка<br/>сыграв в 99.21% аккураси<br/><br/><a href=\"?q=%23скор\"><b>#скор</b></a>";
+            Post {
+                channel: "osunewsru".into(),
+                name: "осу!новостник".into(),
+                text: crate::news::plain(markup),
+                url: "https://t.me/osunewsru/1".into(),
+                at: NOON - 3 * 3600,
+                image: None,
+                body: crate::news::blocks_of(markup, "https://t.me/s/osunewsru", crate::news::Flow::Post),
+            }
         }],
         fetched: std::collections::HashMap::new(),
     };
@@ -841,6 +851,30 @@ mod tests {
             if step % 15 == 0 {
                 still(&mut screen, &dir, &format!("free-{:03}-released", 24 + step));
             }
+        }
+    }
+
+    #[test]
+    #[ignore]
+    fn a_panel_unfolds_out_of_its_place_in_frames() {
+        let Some(dir) = std::env::var_os("DOSSIER_UNFOLD_FRAMES").map(PathBuf::from) else {
+            return;
+        };
+        std::fs::create_dir_all(&dir).expect("a folder");
+        let (_, main, size) = every_main_frame().into_iter().find(|(name, _, _)| name.starts_with("main-community-feed-en")).expect("the feed is staged");
+        let backdrop = ui::backdrop_handle();
+        let head = Simulator::with_size(settings_once(), size, main_frame(&main, &backdrop)).find("MY PROFILE").expect("the profile panel").bounds();
+        let from = iced::Rectangle::new(iced::Point::new(head.x - 16.0, head.y - 14.0), Size::new(445.0, 336.0));
+        let start = Instant::now();
+        let length = Duration::from_millis(460);
+        for (step, share) in [0.0_f32, 0.08, 0.16, 0.25, 0.35, 0.5, 0.7, 1.0].into_iter().enumerate() {
+            let (_, mut main, _) = every_main_frame().into_iter().find(|(name, _, _)| name.starts_with("main-community-feed-en")).expect("the feed is staged");
+            main.community_open = Some(crate::community_screen::Panel::Profile);
+            main.community_from = Some(from);
+            main.open_fade = iced::Animation::new(false).duration(length).easing(iced::animation::Easing::EaseOutCubic).go(true, start);
+            main.now = start + length.mul_f32(share);
+            let mut screen = Simulator::with_size(settings_once(), size, main_frame(&main, &backdrop));
+            still(&mut screen, &dir, &format!("unfold-{step}"));
         }
     }
 

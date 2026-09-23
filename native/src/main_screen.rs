@@ -29,7 +29,11 @@ pub const LIFT: Duration = Duration::from_millis(200);
 const LIVE_FIRST: usize = 6;
 const LIVE_EVERY: Duration = Duration::from_secs(6);
 const LIVE_ARRIVE: Duration = Duration::from_millis(420);
-const STAGE_SHOW: Duration = Duration::from_millis(260);
+const STAGE_SHOW: Duration = Duration::from_millis(340);
+const UNFOLD: Duration = Duration::from_millis(460);
+const COMMUNITY_EVERY: Duration = Duration::from_secs(60);
+const FRIENDS_EVERY: Duration = Duration::from_secs(120);
+const CARD_EVERY: Duration = Duration::from_secs(300);
 const HOVER_REST: Duration = Duration::from_millis(160);
 pub const LIVE_FADE: Duration = Duration::from_millis(640);
 pub const BRAND_WIDTH: f32 = 144.0;
@@ -60,6 +64,11 @@ pub enum Message {
     NewsPosts(String, Result<Vec<crate::news::Post>, String>),
     NewsPicture(String, Option<image::Handle>),
     LiveArrive,
+    CommunityArrived(Result<crate::community::wire::Community, String>),
+    FriendsArrived(Result<crate::bot::Friends, String>),
+    CardArrived(Result<crate::community::wire::Card, String>),
+    Flag(String, Option<Vec<u8>>),
+    CommunityTick,
     ReadFirst,
     Loaded(Library),
     Thumb(String, image::Handle),
@@ -372,7 +381,14 @@ pub struct Main {
     pub community_reading: Option<crate::community_screen::Reading>,
     pub read_fade: Animation<bool>,
     pub people_from: crate::community_screen::PeopleFrom,
-    pub community_own: crate::community_screen::Own,
+    pub community_card: Option<crate::community::wire::Card>,
+    pub flags: HashMap<String, iced::widget::svg::Handle>,
+    flags_asked: std::collections::HashSet<String>,
+    card_asked: Option<Instant>,
+    pub community_from: Option<iced::Rectangle>,
+    pub community_fetch: crate::community_screen::Fetch,
+    community_asked: Option<Instant>,
+    friends_asked: Option<Instant>,
 }
 
 fn unix_now() -> i64 {
@@ -495,7 +511,14 @@ impl Main {
             community_reading: None,
             read_fade: Animation::new(false),
             people_from: crate::community_screen::PeopleFrom::Chat,
-            community_own: crate::community_screen::Own::default(),
+            community_card: None,
+            flags: HashMap::new(),
+            flags_asked: std::collections::HashSet::new(),
+            card_asked: None,
+            community_from: None,
+            community_fetch: crate::community_screen::Fetch::Staged,
+            community_asked: None,
+            friends_asked: None,
         };
         let strays = videos::strays(&made.store.videos, &made.settings.renders_dir());
         let adopt = match (made.ffmpeg.clone(), strays.is_empty()) {
@@ -614,6 +637,9 @@ impl Main {
         }
         if matches!(self.pairing, Pairing::Waiting { .. }) {
             parts.push(iced::time::every(Duration::from_secs(3)).map(|_| Message::Poll));
+        }
+        if self.overlay == Overlay::Community && !self.settings.token.is_empty() {
+            parts.push(iced::time::every(COMMUNITY_EVERY).map(|_| Message::CommunityTick));
         }
         let live_waiting = self.community.as_ref().is_some_and(|catalog| self.live_shown < catalog.live.len());
         if self.overlay == Overlay::Community && self.community_section == crate::community_screen::Section::Feed && live_waiting {
@@ -1433,14 +1459,13 @@ impl Main {
                     true => {
                         self.now_unix = unix_now();
                         if self.community.is_none() {
-                            self.community = Some(self.staged_community());
+                            self.community = Some(self.first_community());
                         }
-                        self.community_own = self.own_stats();
                         if !self.news_loaded {
                             self.news = crate::news::News::load();
                             self.news_loaded = true;
                         }
-                        Task::batch([self.refresh_news(false), self.news_pictures_task()])
+                        Task::batch([self.refresh_news(false), self.news_pictures_task(), self.community_task(false), self.community_pictures_task()])
                     }
                     false => Task::none(),
                 };
@@ -1482,9 +1507,10 @@ impl Main {
                 use crate::community_screen::Message as C;
                 let now = Instant::now();
                 match inner {
-                    C::Expand(panel) => {
+                    C::Expand(panel, from) => {
                         self.community_open = Some(panel);
-                        self.open_fade = Animation::new(false).duration(STAGE_SHOW).easing(Easing::EaseOutCubic).go(true, now);
+                        self.community_from = from;
+                        self.open_fade = Animation::new(false).duration(UNFOLD).easing(Easing::EaseOutCubic).go(true, now);
                     }
                     C::Collapse => self.open_fade.go_mut(false, now),
                     C::Read(reading) => {
@@ -1494,7 +1520,19 @@ impl Main {
                         return self.wide_pictures_task(wanted);
                     }
                     C::Unread => self.read_fade.go_mut(false, now),
-                    C::PeopleFrom(from) => self.people_from = from,
+                    C::PeopleFrom(from) => {
+                        self.people_from = from;
+                        if from == crate::community_screen::PeopleFrom::Game {
+                            return self.friends_task(false);
+                        }
+                    }
+                    C::Again => {
+                        let friends = match self.people_from {
+                            crate::community_screen::PeopleFrom::Game => self.friends_task(true),
+                            crate::community_screen::PeopleFrom::Chat => Task::none(),
+                        };
+                        return Task::batch([self.community_task(true), friends, self.card_task(true)]);
+                    }
                     C::Section(section) => {
                         self.community_section = section;
                         self.community_person = None;
@@ -1600,6 +1638,62 @@ impl Main {
                 Some(story) => self.update(Message::Community(crate::community_screen::Message::Read(crate::community_screen::Reading::Story(story)))),
                 None => Task::none(),
             },
+            Message::CommunityTick => self.community_task(false),
+            Message::CommunityArrived(Ok(said)) => {
+                crate::community::wire::save(&said);
+                self.now_unix = unix_now();
+                let mut fresh = crate::community::Catalog::from_wire(said);
+                let previous = self.community.take();
+                if let Some(previous) = previous.as_ref().filter(|previous| !previous.staged) {
+                    if matches!(previous.friends_state, crate::community::Friends::Ready | crate::community::Friends::Need(_)) {
+                        fresh.friends = previous.friends.clone();
+                        fresh.friends_state = previous.friends_state.clone();
+                    }
+                }
+                let newest = previous.as_ref().filter(|previous| !previous.staged).and_then(|previous| previous.live.last().map(|play| play.at));
+                let newer = newest.map_or(0, |newest| fresh.live.iter().filter(|play| play.at > newest).count());
+                self.live_shown = fresh.live.len() - newer.min(fresh.live.len());
+                if self.community_person.is_some_and(|at| at >= fresh.people.len()) {
+                    self.community_person = None;
+                }
+                self.community = Some(fresh);
+                self.community_fetch = crate::community_screen::Fetch::Fresh(self.now_unix);
+                let card = self.card_task(false);
+                let friends = match self.people_from {
+                    crate::community_screen::PeopleFrom::Game => self.friends_task(false),
+                    crate::community_screen::PeopleFrom::Chat => Task::none(),
+                };
+                Task::batch([self.community_pictures_task(), friends, card])
+            }
+            Message::CommunityArrived(Err(_)) => {
+                self.community_fetch = crate::community_screen::Fetch::Failed;
+                if self.community.as_ref().is_some_and(|catalog| !catalog.staged && catalog.people.is_empty() && catalog.me.is_none()) {
+                    self.community = Some(self.staged_community());
+                }
+                Task::none()
+            }
+            Message::CardArrived(Ok(card)) => {
+                crate::community::wire::save_card(&card);
+                self.community_card = Some(card);
+                self.community_pictures_task()
+            }
+            Message::CardArrived(Err(_)) => Task::none(),
+            Message::Flag(code, bytes) => {
+                if let Some(bytes) = bytes {
+                    self.flags.insert(code, iced::widget::svg::Handle::from_memory(bytes));
+                }
+                Task::none()
+            }
+            Message::FriendsArrived(said) => {
+                if let Some(catalog) = self.community.as_mut().filter(|catalog| !catalog.staged) {
+                    match said {
+                        Ok(crate::bot::Friends::Listed(listed)) => catalog.take_friends(listed),
+                        Ok(crate::bot::Friends::Need(need)) => catalog.friends_state = crate::community::Friends::Need(need),
+                        Err(_) => catalog.friends_state = crate::community::Friends::Failed,
+                    }
+                }
+                self.community_pictures_task()
+            }
             Message::LiveArrive => {
                 let pool = self.community.as_ref().map_or(0, |catalog| catalog.live.len());
                 if self.live_shown < pool {
@@ -2002,6 +2096,7 @@ impl Main {
                 self.arrivals.retain(|_, a| a.is_animating(now));
                 if !self.open_fade.value() && !self.open_fade.is_animating(now) {
                     self.community_open = None;
+                    self.community_from = None;
                 }
                 if !self.read_fade.value() && !self.read_fade.is_animating(now) {
                     self.community_reading = None;
@@ -3388,39 +3483,123 @@ impl Main {
         })
     }
 
-    pub fn own_stats(&self) -> crate::community_screen::Own {
-        use crate::community_screen::{Own, OwnPlay};
-        let name = self.community.as_ref().and_then(|catalog| catalog.people.first()).map(|you| you.name.clone()).unwrap_or_default();
-        let all: Vec<&Entry> = self.entries().iter().collect();
-        let mine: Vec<&Entry> = all.iter().copied().filter(|entry| !name.is_empty() && entry.player.eq_ignore_ascii_case(&name)).collect();
-        let (list, is_mine) = if mine.is_empty() { (all, false) } else { (mine, true) };
-        if list.is_empty() {
-            return Own::default();
+    fn first_community(&mut self) -> crate::community::Catalog {
+        if self.settings.token.is_empty() {
+            self.community_fetch = crate::community_screen::Fetch::Staged;
+            return self.staged_community();
         }
-        let maps: std::collections::HashSet<&str> = list.iter().map(|entry| entry.map_hash.as_str()).collect();
-        let mut recent = list.clone();
-        recent.sort_by(|a, b| b.played_at.cmp(&a.played_at));
-        Own {
-            mine: is_mine,
-            replays: list.len(),
-            maps: maps.len(),
-            best_accuracy: list.iter().map(|entry| entry.accuracy).fold(0.0, f64::max),
-            mean_accuracy: list.iter().map(|entry| entry.accuracy).sum::<f64>() / list.len() as f64,
-            full_combos: list.iter().filter(|entry| entry.outcome == library::Outcome::FullCombo).count(),
-            plays: recent
-                .iter()
-                .take(10)
-                .map(|entry| OwnPlay {
-                    map_hash: entry.map_hash.clone(),
-                    line: entry.map_line().unwrap_or_default(),
-                    accuracy: entry.accuracy,
-                    grade: entry.grade.letter(),
-                    mods: entry.mods.clone(),
-                    at: entry.played_at,
-                    full_combo: entry.outcome == library::Outcome::FullCombo,
-                })
-                .collect(),
+        match crate::community::wire::load() {
+            Some(kept) => {
+                self.community_card = crate::community::wire::load_card();
+                self.community_fetch = crate::community_screen::Fetch::Fresh(kept.at.unwrap_or(self.now_unix));
+                let catalog = crate::community::Catalog::from_wire(kept);
+                self.live_shown = catalog.live.len();
+                catalog
+            }
+            None => {
+                self.community_fetch = crate::community_screen::Fetch::Loading;
+                let mut catalog = self.staged_community();
+                catalog.people.clear();
+                catalog.live.clear();
+                catalog.feed.clear();
+                catalog.friends.clear();
+                catalog.group.clear();
+                catalog.staged = false;
+                catalog.friends_state = crate::community::Friends::Waiting;
+                catalog
+            }
         }
+    }
+
+    fn community_task(&mut self, force: bool) -> Task<Message> {
+        if self.settings.token.is_empty() {
+            self.community_fetch = crate::community_screen::Fetch::Staged;
+            return Task::none();
+        }
+        let now = Instant::now();
+        if !force && self.community_asked.is_some_and(|at| now.saturating_duration_since(at) < COMMUNITY_EVERY - Duration::from_secs(2)) {
+            return Task::none();
+        }
+        self.community_asked = Some(now);
+        if !matches!(self.community_fetch, crate::community_screen::Fetch::Fresh(_)) {
+            self.community_fetch = crate::community_screen::Fetch::Loading;
+        }
+        let (server, token, name) = (self.settings.server.clone(), self.settings.token.clone(), self.settings.device.clone());
+        let chat = self.settings.chat_id.filter(|id| *id < 0);
+        ui::in_thread(move || Message::CommunityArrived(crate::bot::community(&server, &token, &name, chat).map_err(|e| e.to_string())))
+    }
+
+    fn friends_task(&mut self, force: bool) -> Task<Message> {
+        if self.settings.token.is_empty() || self.community.as_ref().is_none_or(|catalog| catalog.staged) {
+            return Task::none();
+        }
+        let now = Instant::now();
+        if !force && self.friends_asked.is_some_and(|at| now.saturating_duration_since(at) < FRIENDS_EVERY) {
+            return Task::none();
+        }
+        self.friends_asked = Some(now);
+        if let Some(catalog) = self.community.as_mut() {
+            if !matches!(catalog.friends_state, crate::community::Friends::Ready) {
+                catalog.friends_state = crate::community::Friends::Waiting;
+            }
+        }
+        let (server, token, name) = (self.settings.server.clone(), self.settings.token.clone(), self.settings.device.clone());
+        ui::in_thread(move || Message::FriendsArrived(crate::bot::friends(&server, &token, &name).map_err(|e| e.to_string())))
+    }
+
+    fn card_task(&mut self, force: bool) -> Task<Message> {
+        if self.settings.token.is_empty() {
+            return Task::none();
+        }
+        let now = Instant::now();
+        if !force && self.card_asked.is_some_and(|at| now.saturating_duration_since(at) < CARD_EVERY) {
+            return Task::none();
+        }
+        self.card_asked = Some(now);
+        let (server, token, name) = (self.settings.server.clone(), self.settings.token.clone(), self.settings.device.clone());
+        let chat = self.settings.chat_id.filter(|id| *id < 0);
+        ui::in_thread(move || Message::CardArrived(crate::bot::card(&server, &token, &name, chat).map_err(|e| e.to_string())))
+    }
+
+    fn flag_task(&mut self) -> Task<Message> {
+        let country = self
+            .community_card
+            .as_ref()
+            .map(|card| card.country.clone())
+            .or_else(|| self.community.as_ref().and_then(|catalog| catalog.you()).map(|you| you.country.clone()))
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+        let Some(url) = crate::profile_card::flag_url(&country) else {
+            return Task::none();
+        };
+        if self.flags.contains_key(&country) || !self.flags_asked.insert(country.clone()) {
+            return Task::none();
+        }
+        ui::in_thread(move || Message::Flag(country, crate::news::picture(&url)))
+    }
+
+    fn community_pictures_task(&mut self) -> Task<Message> {
+        let Some(catalog) = self.community.as_ref() else {
+            return Task::none();
+        };
+        let mut wanted: Vec<(String, u32)> = catalog.pictures();
+        if let Some(card) = self.community_card.as_ref().cloned().or_else(|| catalog.card_of()) {
+            wanted.extend(crate::profile_card::pictures(&card));
+        }
+        let wanted: Vec<(String, u32)> = wanted.into_iter().filter(|(url, _)| !self.news_pictures.contains_key(url) && self.news_asked.insert(url.clone())).collect();
+        let flag = self.flag_task();
+        if wanted.is_empty() {
+            return flag;
+        }
+        let pictures = ui::streamed(move |push| {
+            for (url, side) in wanted {
+                let handle = crate::news::picture(&url).and_then(|bytes| if side <= 256 { covered_bytes(&bytes, side, side) } else { fitted_bytes(&bytes, side) });
+                if !push(Message::NewsPicture(url, handle)) {
+                    return;
+                }
+            }
+        });
+        Task::batch([pictures, flag])
     }
 
     fn wide_pictures_task(&mut self, urls: Vec<String>) -> Task<Message> {
@@ -3446,7 +3625,7 @@ impl Main {
             .filter(|entry| entry.map.as_ref().is_some_and(|map| map.background.is_some()))
             .filter(|entry| seen.insert(entry.map_hash.clone()))
             .take(8)
-            .filter_map(|entry| entry.map.as_ref().map(|map| crate::community::MapRef { hash: entry.map_hash.clone(), line: map.line() }))
+            .filter_map(|entry| entry.map.as_ref().map(|map| crate::community::MapRef::local(entry.map_hash.clone(), map.line())))
             .collect();
         let you = self
             .account
@@ -3476,10 +3655,13 @@ impl Main {
             panels: crate::community_screen::panels(&self.settings.feed_panels),
             open: self.community_open,
             open_k: self.open_fade.interpolate(0.0, 1.0, self.now),
+            from: self.community_from,
+            fetch: self.community_fetch,
             reading: self.community_reading.as_ref(),
             read_k: self.read_fade.interpolate(0.0, 1.0, self.now),
             people_from: self.people_from,
-            own: &self.community_own,
+            card: self.community_card.as_ref(),
+            flags: &self.flags,
             avatar: self.avatar.as_ref(),
             chat: self.chat_name(),
             live_shown: self.live_shown,

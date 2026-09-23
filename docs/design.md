@@ -539,29 +539,41 @@ and nothing yet comes from the server.
   left in (`feed_panels`). A panel's lists fill it and, where they are
   longer than it, turn over by themselves: every few seconds the list
   glides up by one item and comes round again without end, holding still
-  while the pointer is on it. Pressing a panel anywhere but an item — or
-  its corner mark — opens it in the middle of the screen over a darkened
-  page, wider and with everything it holds; Esc or a press outside closes
-  it. Pressing an item reads it there too, not in the browser: an osu!
-  article in full, from the body its Atom entry already carries (headings,
-  paragraphs, lists, quotes and pictures), a channel's post, or a build's
-  changes by category — with *Открыть в браузере* at the end for the rest.
-  Three panels are real, fetched on the device when the catalogue opens and
-  kept in `~/.dossier/news.json`, each saying when it was last fetched and
-  offering *ещё раз* when it could not be: *Обновления игры* — the latest
-  builds from osu!'s changelog, read from the `json-index` the changelog
-  page carries (the `/api/v2` path answers Cloudflare's block page to
-  anything but a browser); *Новости osu!* — the news Atom feed; *Каналы* —
-  public Telegram channels read from their `t.me/s/` page, the list edited
-  in the panel itself and *@osunewsru* the first. *Мой профиль* is half
-  real: the figures from the journal (replays, maps, full combos, mean and
-  best accuracy, the latest plays with their maps) are the person's own —
-  their replays if the journal holds any under their name, the journal's
-  otherwise, and it says which — while pp, rank and title are staged. Three
-  are staged until the bot can say them: *Игры в эфире*, the group's plays
-  arriving live; *Люди*, the group's members or, switched, the person's
-  osu! friends with who is online; and *В группе*, what happened in the
-  group. The subreddit panel was tried and set aside (2026-09-23): reddit
+  while the pointer is on it. Pressing a panel anywhere but an item opens
+  it: the panel lifts out of its place in the grid and grows into a wide
+  stage in the middle of the page, its compact face giving way to the full
+  one, while the page darkens beneath; Esc or a press outside folds it back
+  into the same place. Nothing under a stage, a reader or a person's drawer
+  scrolls or answers the pointer. Pressing an item reads it there too, not
+  in the browser: an osu! article in full, from the body its Atom entry
+  already carries, or a channel's post laid out the way the channel wrote
+  it — its lines, paragraphs, bold words — with every link in either
+  opening the browser, and *Открыть в браузере* at the end for the rest.
+- The feed's people, plays and happenings come from the bot once the
+  application is linked to it (`/render/community`, a chat the person is in:
+  the one videos go to if it is a group, their first group otherwise), are
+  kept in `~/.dossier/community.json` and asked for again every minute
+  while the catalogue is open; plays that arrived since the last answer
+  come into *Игры в эфире* one by one. Until the application is linked, or
+  while the bot cannot answer, the catalogue shows its sample and says so.
+  *Люди* switches between the chat's members and the person's osu!
+  friends, which the bot reads with the person's own osu! link and so needs
+  the `friends.read` permission — a person linked before it asked for that
+  is told to link osu! again. *Мой профиль* is the bot's own profile card
+  (`pf`), drawn with the application's widgets rather than sent as a
+  picture: the same hero with the ringed avatar and both rankings, the same
+  strip, grades, top plays, player stats and rank history, from the same
+  data (`/render/me/card`), in the bot's own colours — the one place where
+  the card's palette, its level bar and the poster shading overrule this
+  document's single hue, because it has to read as the card the person
+  already knows. Flags come from osu!'s own set, fetched like avatars.
+  *Обновления игры*, *Новости osu!* and *Каналы* are read on the device
+  and kept in `~/.dossier/news.json`, each saying when it was last fetched
+  and offering *ещё раз* when it could not be: the changelog's `json-index`
+  (the `/api/v2` path answers Cloudflare's block page to anything but a
+  browser), the news Atom feed, and public Telegram channels read from their
+  `t.me/s/` page, the list edited in the panel itself and *@osunewsru* the
+  first. The subreddit panel was tried and set aside (2026-09-23): reddit
   answers 403 and 429 to anonymous reading often enough that it needs its
   own key; its reader stays in `news.rs`.
 - *Люди* is a card per player — initial, country, the title they wear in

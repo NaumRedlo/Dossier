@@ -31,13 +31,59 @@ pub struct Build {
     pub changes: Vec<Change>,
 }
 
+fn is_false(said: &bool) -> bool {
+    !*said
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct Span {
+    pub text: String,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub bold: bool,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub italic: bool,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub code: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub link: Option<String>,
+}
+
+impl Span {
+    pub fn plain(text: &str) -> Span {
+        Span { text: text.to_owned(), ..Span::default() }
+    }
+
+    fn same_look(&self, other: &Span) -> bool {
+        self.bold == other.bold && self.italic == other.italic && self.code == other.code && self.link == other.link
+    }
+}
+
+pub fn words_of(spans: &[Span]) -> String {
+    spans.iter().map(|span| span.text.as_str()).collect()
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Block {
-    Heading(String),
-    Text(String),
-    Item(String),
-    Quote(String),
+    Heading(Vec<Span>),
+    Text(Vec<Span>),
+    Item(Vec<Span>),
+    Quote(Vec<Span>),
     Image(String),
+}
+
+impl Block {
+    pub fn words(&self) -> String {
+        match self {
+            Block::Heading(spans) | Block::Text(spans) | Block::Item(spans) | Block::Quote(spans) => words_of(spans),
+            Block::Image(_) => String::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Flow {
+    Article,
+    Post,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -69,6 +115,8 @@ pub struct Post {
     pub url: String,
     pub at: i64,
     pub image: Option<String>,
+    #[serde(default)]
+    pub body: Vec<Block>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -270,7 +318,125 @@ fn tag_name(tag: &str) -> (bool, String) {
     (closing, name)
 }
 
-pub fn blocks_of(markup: &str) -> Vec<Block> {
+pub fn resolved(href: &str, base: &str) -> Option<String> {
+    let href = unescaped(href.trim());
+    if href.is_empty() || href.starts_with('#') || href.to_ascii_lowercase().starts_with("javascript:") {
+        return None;
+    }
+    if href.starts_with("http://") || href.starts_with("https://") || href.starts_with("mailto:") {
+        return Some(href);
+    }
+    if let Some(rest) = href.strip_prefix("//") {
+        return Some(format!("https://{rest}"));
+    }
+    let scheme_end = base.find("://").map_or(0, |at| at + 3);
+    let origin = match base[scheme_end..].find('/') {
+        Some(slash) => &base[..scheme_end + slash],
+        None => base,
+    };
+    if href.starts_with('/') {
+        return Some(format!("{origin}{href}"));
+    }
+    if href.starts_with('?') {
+        let page = base.split(['?', '#']).next().unwrap_or(base);
+        return Some(format!("{page}{href}"));
+    }
+    Some(format!("{origin}/{href}"))
+}
+
+fn attribute(tag: &str, name: &str) -> Option<String> {
+    let lower = tag.to_ascii_lowercase();
+    let mut from = 0;
+    while let Some(found) = lower[from..].find(name) {
+        let at = from + found;
+        let before = lower[..at].chars().last();
+        let rest = lower[at + name.len()..].trim_start();
+        if before.is_some_and(|c| c.is_whitespace()) && rest.starts_with('=') {
+            let offset = tag.len() - rest.len() + 1;
+            let value = tag[offset..].trim_start();
+            let quote = value.chars().next()?;
+            if quote == '"' || quote == '\'' {
+                return value[1..].find(quote).map(|end| value[1..1 + end].to_owned());
+            }
+            return Some(value.split(|c: char| c.is_whitespace() || c == '>').next().unwrap_or_default().to_owned());
+        }
+        from = at + name.len();
+    }
+    None
+}
+
+fn collapsed(words: &str) -> String {
+    let mut out = String::with_capacity(words.len());
+    let mut space = false;
+    for ch in words.chars() {
+        if ch.is_whitespace() {
+            space = true;
+            continue;
+        }
+        if space {
+            out.push(' ');
+            space = false;
+        }
+        out.push(ch);
+    }
+    if space {
+        out.push(' ');
+    }
+    out
+}
+
+fn tidied(spans: Vec<Span>) -> Vec<Span> {
+    let mut chars: Vec<(char, usize)> = Vec::new();
+    for (at, span) in spans.iter().enumerate() {
+        for ch in span.text.chars() {
+            match ch {
+                ' ' => {
+                    if chars.last().is_some_and(|(last, _)| *last != ' ' && *last != '\n') {
+                        chars.push((' ', at));
+                    }
+                }
+                '\n' => {
+                    while chars.last().is_some_and(|(last, _)| *last == ' ') {
+                        chars.pop();
+                    }
+                    let breaks = chars.iter().rev().take_while(|(last, _)| *last == '\n').count();
+                    if !chars.is_empty() && breaks < 2 {
+                        chars.push(('\n', at));
+                    }
+                }
+                _ => chars.push((ch, at)),
+            }
+        }
+    }
+    while chars.last().is_some_and(|(last, _)| last.is_whitespace()) {
+        chars.pop();
+    }
+    let mut out: Vec<Span> = Vec::new();
+    for (ch, at) in chars {
+        let like = &spans[at];
+        match out.last_mut() {
+            Some(last) if last.same_look(like) => last.text.push(ch),
+            _ => out.push(Span { text: ch.to_string(), ..like.clone() }),
+        }
+    }
+    out
+}
+
+fn paragraphs(spans: Vec<Span>) -> Vec<Vec<Span>> {
+    let mut out: Vec<Vec<Span>> = vec![Vec::new()];
+    for span in tidied(spans) {
+        let mut parts = span.text.split("\n\n");
+        if let (Some(first), Some(current)) = (parts.next(), out.last_mut()) {
+            current.push(Span { text: first.to_owned(), ..span.clone() });
+        }
+        for part in parts {
+            out.push(vec![Span { text: part.to_owned(), ..span.clone() }]);
+        }
+    }
+    out.into_iter().map(tidied).filter(|spans| !spans.is_empty()).collect()
+}
+
+pub fn blocks_of(markup: &str, base: &str, flow: Flow) -> Vec<Block> {
     #[derive(Clone, Copy, PartialEq)]
     enum Kind {
         Text,
@@ -278,34 +444,63 @@ pub fn blocks_of(markup: &str) -> Vec<Block> {
         Item,
         Quote,
     }
+    #[derive(Clone, Copy, PartialEq)]
+    enum Effect {
+        Bold,
+        Italic,
+        Code,
+        Link,
+        Emoji,
+        Nothing,
+    }
     let mut out = Vec::new();
-    let mut words = String::new();
+    let mut spans: Vec<Span> = Vec::new();
     let mut kind = Kind::Text;
     let mut hidden = 0usize;
     let mut quoted = 0usize;
-    let flush = |out: &mut Vec<Block>, words: &mut String, kind: Kind| {
-        let said = unescaped(words).split_whitespace().collect::<Vec<_>>().join(" ");
-        words.clear();
-        if said.is_empty() {
+    let mut open: Vec<(String, Effect)> = Vec::new();
+    let mut links: Vec<String> = Vec::new();
+    let look = |open: &[(String, Effect)], links: &[String]| Span {
+        text: String::new(),
+        bold: open.iter().any(|(_, effect)| *effect == Effect::Bold),
+        italic: open.iter().any(|(_, effect)| *effect == Effect::Italic),
+        code: open.iter().any(|(_, effect)| *effect == Effect::Code),
+        link: links.last().cloned(),
+    };
+    let add = |spans: &mut Vec<Span>, words: String, like: Span| {
+        if words.is_empty() {
             return;
         }
-        out.push(match kind {
-            Kind::Heading => Block::Heading(said),
-            Kind::Item => Block::Item(said),
-            Kind::Quote => Block::Quote(said),
-            Kind::Text => Block::Text(said),
-        });
+        match spans.last_mut() {
+            Some(last) if last.same_look(&like) => last.text.push_str(&words),
+            _ => spans.push(Span { text: words, ..like }),
+        }
+    };
+    let flush = |out: &mut Vec<Block>, spans: &mut Vec<Span>, kind: Kind| {
+        let taken = std::mem::take(spans);
+        let pieces = match (flow, kind) {
+            (Flow::Post, Kind::Text | Kind::Quote) => paragraphs(taken),
+            _ => vec![tidied(taken)],
+        };
+        for piece in pieces.into_iter().filter(|piece| !piece.is_empty()) {
+            out.push(match kind {
+                Kind::Heading => Block::Heading(piece),
+                Kind::Item => Block::Item(piece),
+                Kind::Quote => Block::Quote(piece),
+                Kind::Text => Block::Text(piece),
+            });
+        }
     };
     let mut rest = markup;
-    while let Some(open) = rest.find('<') {
+    while let Some(at) = rest.find('<') {
         if hidden == 0 {
-            words.push_str(&rest[..open]);
+            add(&mut spans, collapsed(&unescaped(&rest[..at])), look(&open, &links));
         }
-        let Some(close) = rest[open..].find('>') else {
+        let Some(close) = rest[at..].find('>') else {
             break;
         };
-        let tag = &rest[open + 1..open + close];
-        rest = &rest[open + close + 1..];
+        let tag = &rest[at + 1..at + close];
+        rest = &rest[at + close + 1..];
         if tag.starts_with('!') {
             continue;
         }
@@ -315,34 +510,61 @@ pub fn blocks_of(markup: &str) -> Vec<Block> {
             ("script" | "style" | "iframe" | "figcaption", true) => hidden = hidden.saturating_sub(1),
             _ if hidden > 0 => {}
             ("h1" | "h2" | "h3" | "h4" | "h5" | "h6", false) => {
-                flush(&mut out, &mut words, kind);
+                flush(&mut out, &mut spans, kind);
                 kind = Kind::Heading;
             }
             ("li", false) => {
-                flush(&mut out, &mut words, kind);
+                flush(&mut out, &mut spans, kind);
                 kind = Kind::Item;
             }
             ("blockquote", false) => {
-                flush(&mut out, &mut words, kind);
+                flush(&mut out, &mut spans, kind);
                 quoted += 1;
                 kind = Kind::Quote;
             }
             ("blockquote", true) => {
-                flush(&mut out, &mut words, kind);
+                flush(&mut out, &mut spans, kind);
                 quoted = quoted.saturating_sub(1);
                 kind = if quoted > 0 { Kind::Quote } else { Kind::Text };
             }
             ("p" | "div" | "ul" | "ol" | "table" | "tr", _) | ("h1" | "h2" | "h3" | "h4" | "h5" | "h6" | "li", true) => {
-                flush(&mut out, &mut words, kind);
+                flush(&mut out, &mut spans, kind);
                 kind = if quoted > 0 { Kind::Quote } else { Kind::Text };
             }
-            ("br", _) => words.push(' '),
+            ("br", _) => add(&mut spans, "\n".to_owned(), look(&open, &links)),
             ("img", false) => {
-                if let Some(src) = between(tag, "src=\"", "\"").or_else(|| between(tag, "src='", "'")) {
-                    flush(&mut out, &mut words, kind);
-                    let src = unescaped(src);
+                if let Some(src) = attribute(tag, "src").and_then(|src| resolved(&src, base)) {
+                    flush(&mut out, &mut spans, kind);
                     if src.starts_with("http") {
                         out.push(Block::Image(src));
+                    }
+                }
+            }
+            ("b" | "strong" | "i" | "em" | "code" | "pre" | "a" | "span" | "tg-emoji" | "u" | "s" | "del" | "tg-spoiler", false) if !tag.ends_with('/') => {
+                let inside_emoji = open.last().is_some_and(|(_, effect)| *effect == Effect::Emoji);
+                let effect = match name.as_str() {
+                    _ if inside_emoji => Effect::Nothing,
+                    "i" if attribute(tag, "class").is_some_and(|class| class.contains("emoji")) => Effect::Emoji,
+                    "b" | "strong" => Effect::Bold,
+                    "i" | "em" => Effect::Italic,
+                    "code" | "pre" => Effect::Code,
+                    "a" => match attribute(tag, "href").and_then(|href| resolved(&href, base)) {
+                        Some(link) => {
+                            links.push(link);
+                            Effect::Link
+                        }
+                        None => Effect::Nothing,
+                    },
+                    _ => Effect::Nothing,
+                };
+                open.push((name, effect));
+            }
+            ("b" | "strong" | "i" | "em" | "code" | "pre" | "a" | "span" | "tg-emoji" | "u" | "s" | "del" | "tg-spoiler", true) => {
+                if let Some(found) = open.iter().rposition(|(opened, _)| *opened == name) {
+                    for (_, effect) in open.drain(found..) {
+                        if effect == Effect::Link {
+                            links.pop();
+                        }
                     }
                 }
             }
@@ -350,9 +572,9 @@ pub fn blocks_of(markup: &str) -> Vec<Block> {
         }
     }
     if hidden == 0 {
-        words.push_str(rest);
+        add(&mut spans, collapsed(&unescaped(rest)), look(&open, &links));
     }
-    flush(&mut out, &mut words, kind);
+    flush(&mut out, &mut spans, kind);
     out
 }
 
@@ -404,7 +626,7 @@ pub fn stories_from(atom: &str) -> Vec<Story> {
             let content = between(entry, "<content type=\"html\">", "</content>").map(unescaped).unwrap_or_default();
             let lead = between(&content, "<p class=\"osu-md__paragraph\">", "</p>").map(plain).unwrap_or_default();
             let image = between(&content, "<img", ">").and_then(|tag| between(tag, "src=\"", "\"")).map(unescaped);
-            let body = blocks_of(&content);
+            let body = blocks_of(&content, &url, Flow::Article);
             Some(Story { title, url, at, lead, image, body })
         })
         .collect()
@@ -419,12 +641,13 @@ pub fn threads_from(atom: &str) -> Vec<Thread> {
             }
             let content = between(entry, "<content type=\"html\">", "</content>").map(unescaped).unwrap_or_default();
             let content = content.split("submitted by").next().unwrap_or_default();
+            let url = link_of(entry)?;
             Some(Thread {
                 title: plain(between(entry, "<title>", "</title>")?),
-                url: link_of(entry)?,
+                body: blocks_of(content, &url, Flow::Article),
+                url,
                 author: author.trim_start_matches("/u/").to_owned(),
                 at: unix_of(between(entry, "<published>", "</published>")?)?,
-                body: blocks_of(content),
             })
         })
         .collect()
@@ -436,7 +659,9 @@ pub fn posts_from(channel: &str, page: &str) -> Vec<Post> {
         .chain(after(page, "<div class=\"tgme_widget_message_wrap").map(|last| last.rsplit("<div class=\"tgme_widget_message_wrap").next().unwrap_or(last)))
         .filter_map(|message| {
             let id = between(message, "data-post=\"", "\"")?;
-            let text = between(message, "js-message_text\" dir=\"auto\">", "</div>").map(plain).unwrap_or_default();
+            let markup = between(message, "js-message_text\" dir=\"auto\">", "</div>").unwrap_or_default();
+            let text = plain(markup);
+            let body = blocks_of(markup, &format!("https://t.me/s/{channel}"), Flow::Post);
             let image = between(message, "tgme_widget_message_photo_wrap", ">")
                 .and_then(|tag| between(tag, "background-image:url('", "')"))
                 .map(unescaped);
@@ -450,6 +675,7 @@ pub fn posts_from(channel: &str, page: &str) -> Vec<Post> {
                 url: format!("https://t.me/{id}"),
                 at: between(message, "<time datetime=\"", "\"").and_then(unix_of).unwrap_or(0),
                 image,
+                body,
             })
         })
         .collect();
@@ -490,18 +716,74 @@ mod tests {
         let html = r#"<div class='osu-md'><h2>The final</h2><p class="x">It was <strong>close</strong> &amp; loud.</p>
         <p><img src="https://i.ppy.sh/a.jpg" alt=""></p><ul><li>First</li><li>Second</li></ul>
         <blockquote><p>A quote</p></blockquote><script>ignored()</script><p>After</p></div>"#;
+        let blocks = blocks_of(html, "https://osu.ppy.sh/home/news/x", Flow::Article);
+        let words: Vec<(&str, String)> = blocks
+            .iter()
+            .map(|block| {
+                let kind = match block {
+                    Block::Heading(_) => "heading",
+                    Block::Text(_) => "text",
+                    Block::Item(_) => "item",
+                    Block::Quote(_) => "quote",
+                    Block::Image(_) => "image",
+                };
+                (kind, if let Block::Image(url) = block { url.clone() } else { block.words() })
+            })
+            .collect();
         assert_eq!(
-            blocks_of(html),
+            words,
             vec![
-                Block::Heading("The final".into()),
-                Block::Text("It was close & loud.".into()),
-                Block::Image("https://i.ppy.sh/a.jpg".into()),
-                Block::Item("First".into()),
-                Block::Item("Second".into()),
-                Block::Quote("A quote".into()),
-                Block::Text("After".into()),
+                ("heading", "The final".to_owned()),
+                ("text", "It was close & loud.".to_owned()),
+                ("image", "https://i.ppy.sh/a.jpg".to_owned()),
+                ("item", "First".to_owned()),
+                ("item", "Second".to_owned()),
+                ("quote", "A quote".to_owned()),
+                ("text", "After".to_owned()),
             ]
         );
+        let Block::Text(spans) = &blocks[1] else { panic!("a paragraph") };
+        assert_eq!(spans.iter().map(|span| (span.text.as_str(), span.bold)).collect::<Vec<_>>(), vec![("It was ", false), ("close", true), (" & loud.", false)]);
+    }
+
+    #[test]
+    fn a_link_in_an_article_leads_somewhere_whole() {
+        let html = r##"<p>See <a href="/wiki/Tournaments">the wiki</a>, <a href="https://x.com/a">this</a> and <a href="#top">nothing</a>.</p>"##;
+        let blocks = blocks_of(html, "https://osu.ppy.sh/home/news/2026-09-22-x", Flow::Article);
+        let Block::Text(spans) = &blocks[0] else { panic!("a paragraph") };
+        let links: Vec<(&str, Option<&str>)> = spans.iter().map(|span| (span.text.as_str(), span.link.as_deref())).collect();
+        assert_eq!(
+            links,
+            vec![
+                ("See ", None),
+                ("the wiki", Some("https://osu.ppy.sh/wiki/Tournaments")),
+                (", ", None),
+                ("this", Some("https://x.com/a")),
+                (" and nothing.", None),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_post_keeps_its_lines_and_paragraphs_as_written() {
+        let markup = r#"<a href="https://osu.ppy.sh/users/1" onclick="return confirm('Open?');"><b>quaccking</b></a> (#27<i class="emoji" style="background-image:url('//telegram.org/e.png')"><b>🇦🇹</b></i>) поставил <b>первое DT FC </b>на карте<br/>вторая строка<br/><br/><a href="?q=%23скор"><b>#скор</b></a><b><br/><br/></b>подпись"#;
+        let blocks = blocks_of(markup, "https://t.me/s/osunewsru", Flow::Post);
+        assert_eq!(blocks.len(), 3, "{blocks:?}");
+        assert_eq!(blocks[0].words(), "quaccking (#27🇦🇹) поставил первое DT FC на карте\nвторая строка");
+        let Block::Text(first) = &blocks[0] else { panic!("text") };
+        assert_eq!(first[0].link.as_deref(), Some("https://osu.ppy.sh/users/1"));
+        assert!(first[0].bold);
+        assert!(first.iter().all(|span| !span.italic), "an emoji is not italic");
+        let Block::Text(tag) = &blocks[1] else { panic!("text") };
+        assert_eq!(tag[0].link.as_deref(), Some("https://t.me/s/osunewsru?q=%23скор"));
+        assert_eq!(blocks[2].words(), "подпись");
+    }
+
+    #[test]
+    fn spaces_around_breaks_and_between_pieces_are_one_space() {
+        let blocks = blocks_of("  a <b> b </b>  c <br/>  d  ", "https://x.org", Flow::Post);
+        assert_eq!(blocks.len(), 1);
+        assert_eq!(blocks[0].words(), "a b c\nd");
     }
 
     #[test]

@@ -16,6 +16,7 @@ pub mod maps;
 pub mod news;
 pub mod notices;
 pub mod player;
+pub mod profile_card;
 pub mod render;
 pub mod scan;
 pub mod settings;
@@ -23,6 +24,7 @@ pub mod settings_screen;
 pub mod sources;
 pub mod theme;
 pub mod ticker;
+pub mod unfold;
 pub mod ui;
 pub mod videos;
 

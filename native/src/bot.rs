@@ -179,6 +179,45 @@ pub fn avatar(server: &str, token: &str, name: &str) -> Result<Vec<u8>, Refused>
     status(response)?.bytes().map(|b| b.to_vec()).map_err(|e| Refused::Network(e.to_string()))
 }
 
+pub fn community(server: &str, token: &str, name: &str, chat: Option<i64>) -> Result<crate::community::wire::Community, Refused> {
+    let mut request = client()?.get(format!("{server}/render/community")).header("X-Render-Worker", name).bearer_auth(token);
+    if let Some(chat) = chat {
+        request = request.query(&[("chat", chat)]);
+    }
+    let response = request.send().map_err(|e| Refused::Network(e.to_string()))?;
+    status(response)?.json().map_err(|e| Refused::Network(e.to_string()))
+}
+
+pub fn card(server: &str, token: &str, name: &str, chat: Option<i64>) -> Result<crate::community::wire::Card, Refused> {
+    let mut request = client()?.get(format!("{server}/render/me/card")).header("X-Render-Worker", name).bearer_auth(token);
+    if let Some(chat) = chat {
+        request = request.query(&[("chat", chat)]);
+    }
+    let response = request.send().map_err(|e| Refused::Network(e.to_string()))?;
+    status(response)?.json().map_err(|e| Refused::Network(e.to_string()))
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Friends {
+    Listed(Vec<crate::community::wire::Friend>),
+    Need(String),
+}
+
+pub fn friends(server: &str, token: &str, name: &str) -> Result<Friends, Refused> {
+    let response = client()?
+        .get(format!("{server}/render/me/friends"))
+        .header("X-Render-Worker", name)
+        .bearer_auth(token)
+        .send()
+        .map_err(|e| Refused::Network(e.to_string()))?;
+    if response.status().as_u16() == 409 {
+        let said: serde_json::Value = response.json().map_err(|e| Refused::Network(e.to_string()))?;
+        return Ok(Friends::Need(said.get("need").and_then(|need| need.as_str()).unwrap_or("link").to_owned()));
+    }
+    let said: crate::community::wire::Friends = status(response)?.json().map_err(|e| Refused::Network(e.to_string()))?;
+    Ok(Friends::Listed(said.friends))
+}
+
 struct Counted<R> {
     inner: R,
     done: u64,

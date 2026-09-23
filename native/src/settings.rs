@@ -64,8 +64,6 @@ pub struct Settings {
     #[serde(default = "default_channels")]
     pub news_channels: Vec<String>,
     #[serde(default)]
-    pub feed_panels: Vec<String>,
-    #[serde(default)]
     pub tell: Tell,
     #[serde(default)]
     pub skin: Option<PathBuf>,
@@ -782,7 +780,6 @@ impl Default for Settings {
             chat_id: None,
             chat_title: String::new(),
             news_channels: default_channels(),
-            feed_panels: Vec::new(),
             tell: Tell::default(),
             skin: None,
             own_skins: Vec::new(),

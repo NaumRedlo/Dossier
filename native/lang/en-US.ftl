@@ -282,10 +282,6 @@ games = { $n ->
     [one] play
    *[other] plays
 }
-happened-render = render
-happened-top-play = top play
-happened-title = new title
-happened-climb = ranking
 board-pp = pp
 board-accuracy = Accuracy
 board-plays = Plays
@@ -316,26 +312,18 @@ streak-card = { $n ->
     [one] { $n }-day streak
    *[other] { $n }-day streak
 }
-panel-live = Playing now
-panel-updates = Game updates
 panel-news = osu! news
-panel-channels = Channels
-panel-group = In the group
 news-loading = loading…
 news-failed = failed · try again
 news-updated = updated
 news-unreachable = not answering, will try later
 live-now = just now
 minutes-ago = { $n } min ago
-more-changes = { $n ->
     [one] and { $n } more change
    *[other] and { $n } more changes
 }
 channel-hint = @channel
 channel-add = Add
-channels-empty = add a channel about osu!
-panel-profile = My profile
-panel-people = People
 people-chat = Chat
 people-game = From the game
 friends-in-osu = friends in osu!
@@ -346,34 +334,113 @@ days-ago = { $n ->
    *[other] { $n } days ago
 }
 read-outside = Open in the browser
-card-global-rank = Global Ranking
-card-country-rank = Country Ranking
-card-unknown-country = Unknown
-card-pp = Performance
-card-accuracy = Accuracy
-card-plays = Play Count
-card-level = Level
-card-joined = Join Date
-card-seen = Last Seen
-card-online = Online
-card-hidden = Hidden
 card-grades = GRADES
-card-top = TOP PLAYS
-card-stats = PLAYER STATS
-card-history = RANK HISTORY
-card-total-maps = TOTAL MAPS PLAYED:
-card-hits = Total Hits
-card-average-hits = Avg Hits / Play
-card-combo = Maximum Combo
-card-replays = Replays Watched
-card-score = Total Score
-card-hours = Hours Played
-card-hours-suffix = h
 card-no-data = Not enough data
-card-90d = 90 days ago
-card-60d = 60 days ago
-card-30d = 30 days ago
-card-now = now
 friends-link = Link osu! in the bot to see your friends
 friends-relink = Link osu! again in the bot (Settings → Account) to see your friends
 community-no-group = The bot has not found you in any group
+community-profile = Profile
+act-board = Rankings
+act-browser = In the browser
+act-changes = All changes
+act-collapse = Less
+act-details = More
+act-map = Map
+act-read = Read
+act-telegram = In Telegram
+act-titles = All titles
+activity-head = Activity · 13 weeks
+activity-hint = Point at a day
+all-boards = All rankings →
+best-plays = Best plays
+board-short-pp = PP
+board-short-accuracy = Acc.
+board-short-plays = Plays
+board-short-hours = Hours
+board-short-score = Score
+board-short-hits = Hits
+channels-head = Channels
+climb-said = Climbed to this place
+climb-was = was
+compare = Compare
+day-today = Today
+day-yesterday = Yesterday
+days-long = { $n ->
+    [one] { $n } day
+   *[other] { $n } days
+}
+days-short = { $n }d
+filter-all = All
+filter-plays = Plays
+filter-top = Top plays
+filter-titles = Titles
+filter-ranks = Rankings
+filter-news = News
+filter-builds = Updates
+fresh-events = { $n ->
+    [one] { $n } new event
+   *[other] { $n } new events
+}
+friends-head = Friends in game
+friends-online = { $n } online
+grade-a = A
+grade-s = S gold
+grade-sh = S silver (Hidden)
+grade-ss = SS gold
+grade-ssh = SS silver (Hidden)
+grades-hint = Point at a grade
+held-by = held by
+info-country = Country
+info-duels = Duels
+info-since = In osu!
+info-since-from = since
+it-is-you = you
+kind-build = update
+kind-climb = ranking
+kind-news = news
+kind-play = play
+kind-post = channel
+kind-render = video
+kind-title = title
+kind-top = top play
+less = less
+level-short = Lv.
+metric-accuracy-short = Acc.
+metric-world = Global
+more = more
+my-profile-open = My profile →
+no-plays = no plays
+of-all-grades = of all grades
+of-people = of { $n }
+offline = offline
+open-osu = Open in osu!
+place-head = Place in the group
+plays-n = { $n ->
+    [one] { $n } play
+   *[other] { $n } plays
+}
+press-to-open = press to open
+show-what = Show
+spot-head = In the spotlight
+spot-gain = Most pp gained this week
+spot-accuracy = Best accuracy in the group
+spot-title = A new title
+spot-streak = The longest streak
+spot-top = First in the group by pp
+spot-you = You · place by pp
+streak-best-n = best { $n }
+title-got = earned
+title-not-yet = not earned yet
+top-place = #{ $n } in their top
+week-short = Week { $n }
+weekday-mon = Mon
+weekday-tue = Tue
+weekday-wed = Wed
+weekday-thu = Thu
+weekday-fri = Fri
+weekday-sat = Sat
+weekday-sun = Sun
+years = { $n ->
+    [one] { $n } year
+   *[other] { $n } years
+}

@@ -597,12 +597,7 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
         ("main-community-person".to_owned(), community(crate::community_screen::Section::People, Some(1))),
         ("main-community-boards".to_owned(), community(crate::community_screen::Section::Boards, None)),
         ("main-community-titles".to_owned(), community(crate::community_screen::Section::Titles, None)),
-        ("main-community-open".to_owned(), {
-            let mut main = community(crate::community_screen::Section::Feed, None);
-            main.community_open = Some(crate::community_screen::Panel::Profile);
-            main.open_fade = iced::Animation::new(true);
-            main
-        }),
+        ("main-community-profile".to_owned(), community(crate::community_screen::Section::Profile, None)),
         ("main-community-reading".to_owned(), {
             let mut main = community(crate::community_screen::Section::Feed, None);
             main.community_reading = main.news.stories.first().cloned().map(crate::community_screen::Reading::Story);
@@ -851,30 +846,6 @@ mod tests {
             if step % 15 == 0 {
                 still(&mut screen, &dir, &format!("free-{:03}-released", 24 + step));
             }
-        }
-    }
-
-    #[test]
-    #[ignore]
-    fn a_panel_unfolds_out_of_its_place_in_frames() {
-        let Some(dir) = std::env::var_os("DOSSIER_UNFOLD_FRAMES").map(PathBuf::from) else {
-            return;
-        };
-        std::fs::create_dir_all(&dir).expect("a folder");
-        let (_, main, size) = every_main_frame().into_iter().find(|(name, _, _)| name.starts_with("main-community-feed-en")).expect("the feed is staged");
-        let backdrop = ui::backdrop_handle();
-        let head = Simulator::with_size(settings_once(), size, main_frame(&main, &backdrop)).find("MY PROFILE").expect("the profile panel").bounds();
-        let from = iced::Rectangle::new(iced::Point::new(head.x - 16.0, head.y - 14.0), Size::new(445.0, 336.0));
-        let start = Instant::now();
-        let length = Duration::from_millis(460);
-        for (step, share) in [0.0_f32, 0.08, 0.16, 0.25, 0.35, 0.5, 0.7, 1.0].into_iter().enumerate() {
-            let (_, mut main, _) = every_main_frame().into_iter().find(|(name, _, _)| name.starts_with("main-community-feed-en")).expect("the feed is staged");
-            main.community_open = Some(crate::community_screen::Panel::Profile);
-            main.community_from = Some(from);
-            main.open_fade = iced::Animation::new(false).duration(length).easing(iced::animation::Easing::EaseOutCubic).go(true, start);
-            main.now = start + length.mul_f32(share);
-            let mut screen = Simulator::with_size(settings_once(), size, main_frame(&main, &backdrop));
-            still(&mut screen, &dir, &format!("unfold-{step}"));
         }
     }
 

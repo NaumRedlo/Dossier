@@ -291,10 +291,6 @@ games = { $n ->
     [few] игры
    *[other] игр
 }
-happened-render = рендер
-happened-top-play = топ-плей
-happened-title = новый титул
-happened-climb = рейтинг
 board-pp = pp
 board-accuracy = Точность
 board-plays = Игры
@@ -327,27 +323,19 @@ streak-card = { $n ->
     [few] { $n } дня подряд
    *[other] { $n } дней подряд
 }
-panel-live = Игры в эфире
-panel-updates = Обновления игры
 panel-news = Новости osu!
-panel-channels = Каналы
-panel-group = В группе
 news-loading = загружаю…
 news-failed = не удалось · ещё раз
 news-updated = обновлено
 news-unreachable = не отвечает, попробую позже
 live-now = только что
 minutes-ago = { $n } мин назад
-more-changes = { $n ->
     [one] и ещё { $n } правка
     [few] и ещё { $n } правки
    *[other] и ещё { $n } правок
 }
 channel-hint = @канал
 channel-add = Добавить
-channels-empty = добавьте канал про osu!
-panel-profile = Мой профиль
-panel-people = Люди
 people-chat = Беседа
 people-game = Из игры
 friends-in-osu = друзья в osu!
@@ -359,34 +347,117 @@ days-ago = { $n ->
    *[other] { $n } дней назад
 }
 read-outside = Открыть в браузере
-card-global-rank = Мировой рейтинг
-card-country-rank = Рейтинг страны
-card-unknown-country = Неизвестно
-card-pp = PP
-card-accuracy = Точность
-card-plays = Игр сыграно
-card-level = Уровень
-card-joined = Зарегистрирован
-card-seen = В сети
-card-online = Сейчас
-card-hidden = Скрыто
 card-grades = ОЦЕНКИ
-card-top = ТОП ИГР
-card-stats = СТАТИСТИКА ИГРОКА
-card-history = ИСТОРИЯ РЕЙТИНГА
-card-total-maps = ВСЕГО ПОЛУЧЕНО ОЦЕНОК:
-card-hits = Всего попаданий
-card-average-hits = Ср. попаданий на игру
-card-combo = Макс. комбо
-card-replays = Просмотров реплеев
-card-score = Всего очков
-card-hours = Часов сыграно
-card-hours-suffix = ч
 card-no-data = Недостаточно данных
-card-90d = 90д. назад
-card-60d = 60д. назад
-card-30d = 30д. назад
-card-now = сейчас
 friends-link = Привяжите osu! в боте, чтобы видеть друзей
 friends-relink = Перепривяжите osu! в боте (Настройки → Аккаунт), чтобы видеть друзей
 community-no-group = Бот не нашёл вас ни в одной группе
+community-profile = Профиль
+act-board = Рейтинг
+act-browser = В браузере
+act-changes = Список изменений
+act-collapse = Свернуть
+act-details = Подробнее
+act-map = Карта
+act-read = Читать
+act-telegram = В Telegram
+act-titles = Все титулы
+activity-head = Активность · 13 недель
+activity-hint = Наведите на день
+all-boards = Весь рейтинг →
+best-plays = Лучшие игры
+board-short-pp = PP
+board-short-accuracy = Точн.
+board-short-plays = Игры
+board-short-hours = Часы
+board-short-score = Очки
+board-short-hits = Попад.
+channels-head = Каналы
+climb-said = Поднялся на это место
+climb-was = было
+compare = Сравнить
+day-today = Сегодня
+day-yesterday = Вчера
+days-long = { $n ->
+    [one] { $n } день
+    [few] { $n } дня
+   *[other] { $n } дней
+}
+days-short = { $n }д
+filter-all = Всё
+filter-plays = Игры
+filter-top = Топ-плеи
+filter-titles = Титулы
+filter-ranks = Рейтинг
+filter-news = Новости
+filter-builds = Обновления
+fresh-events = { $n ->
+    [one] { $n } новое событие
+    [few] { $n } новых события
+   *[other] { $n } новых событий
+}
+friends-head = Друзья в игре
+friends-online = { $n } онлайн
+grade-a = A
+grade-s = S золотая
+grade-sh = S серебряная (Hidden)
+grade-ss = SS золотая
+grade-ssh = SS серебряная (Hidden)
+grades-hint = Наведите на оценку
+held-by = есть у
+info-country = Страна
+info-duels = Дуэли
+info-since = В osu!
+info-since-from = с
+it-is-you = это вы
+kind-build = обновление
+kind-climb = рейтинг
+kind-news = новость
+kind-play = игра
+kind-post = канал
+kind-render = видео
+kind-title = титул
+kind-top = топ-плей
+less = меньше
+level-short = Ур.
+metric-accuracy-short = Точн.
+metric-world = Мировой
+more = больше
+my-profile-open = Мой профиль →
+no-plays = без игр
+of-all-grades = всех оценок
+of-people = из { $n }
+offline = не в сети
+open-osu = Открыть в osu!
+place-head = Место в группе
+plays-n = { $n ->
+    [one] { $n } игра
+    [few] { $n } игры
+   *[other] { $n } игр
+}
+press-to-open = нажмите, чтобы раскрыть
+show-what = Показывать
+spot-head = В центре внимания
+spot-gain = Больше всех pp за неделю
+spot-accuracy = Лучшая точность группы
+spot-title = Новый титул
+spot-streak = Самая длинная серия
+spot-top = Первый в группе по pp
+spot-you = Это вы · место по pp
+streak-best-n = лучшая { $n }
+title-got = получен
+title-not-yet = ещё не получен
+top-place = #{ $n } в личном топе
+week-short = Неделя { $n }
+weekday-mon = Пн
+weekday-tue = Вт
+weekday-wed = Ср
+weekday-thu = Чт
+weekday-fri = Пт
+weekday-sat = Сб
+weekday-sun = Вс
+years = { $n ->
+    [one] { $n } год
+    [few] { $n } года
+   *[other] { $n } лет
+}

@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 
 use iced::widget::{button, column, container, image, mouse_area, row, scrollable, stack, text, text_input, Space};
-use iced::{Background, Border, Color, Element, Length, Padding, Rectangle, Shadow, Theme};
+use iced::{Background, Border, Color, Element, Length, Padding, Shadow, Theme};
 
-use crate::community::{Board, Catalog, Friend, Friends, Happening, Kind, Person, Play, Rarity, Title};
+use crate::community::{Board, Catalog, Friend, Friends, Person, Play, Rarity, Title};
 use crate::lang::Words;
 use crate::news::{self, News};
 use crate::theme::{self, ACCENT, FAINT, INK, MUTED};
@@ -11,72 +11,11 @@ use crate::ui;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Section {
+    Profile,
     Feed,
     People,
     Boards,
     Titles,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Panel {
-    Profile,
-    Live,
-    Updates,
-    News,
-    People,
-    Channels,
-    Group,
-}
-
-impl Panel {
-    pub const ALL: [Panel; 7] = [Panel::Profile, Panel::Live, Panel::Updates, Panel::News, Panel::People, Panel::Channels, Panel::Group];
-
-    pub fn tag(self) -> &'static str {
-        match self {
-            Panel::Profile => "profile",
-            Panel::Live => "live",
-            Panel::Updates => "updates",
-            Panel::News => "news",
-            Panel::People => "people",
-            Panel::Channels => "channels",
-            Panel::Group => "group",
-        }
-    }
-
-    pub fn key(self) -> &'static str {
-        match self {
-            Panel::Profile => "panel-profile",
-            Panel::Live => "panel-live",
-            Panel::Updates => "panel-updates",
-            Panel::News => "panel-news",
-            Panel::People => "panel-people",
-            Panel::Channels => "panel-channels",
-            Panel::Group => "panel-group",
-        }
-    }
-
-    pub fn of(tag: &str) -> Option<Panel> {
-        Panel::ALL.into_iter().find(|panel| panel.tag() == tag)
-    }
-}
-
-pub fn panels(kept: &[String]) -> Vec<Panel> {
-    let mut out: Vec<Panel> = kept.iter().filter_map(|tag| Panel::of(tag)).collect();
-    out.dedup();
-    for panel in Panel::ALL {
-        if !out.contains(&panel) {
-            out.push(panel);
-        }
-    }
-    out
-}
-
-pub fn panel_moved(kept: &[String], what: Panel, before: Option<Panel>) -> Vec<String> {
-    let mut list = panels(kept);
-    list.retain(|panel| *panel != what);
-    let at = before.and_then(|edge| list.iter().position(|panel| *panel == edge)).unwrap_or(list.len());
-    list.insert(at.min(list.len()), what);
-    list.iter().map(|panel| panel.tag().to_owned()).collect()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -132,8 +71,6 @@ pub enum Fetch {
 
 #[derive(Debug, Clone)]
 pub enum Message {
-    Expand(Panel, Option<Rectangle>),
-    Collapse,
     Read(Reading),
     Unread,
     PeopleFrom(PeopleFrom),
@@ -146,7 +83,18 @@ pub enum Message {
     ChannelDraft(String),
     ChannelAdd,
     ChannelRemove(String),
-    Moved(Panel, Option<Panel>),
+    Filter(crate::chronicle::Filter),
+    Toggle(String),
+    Reveal,
+    Spot(usize),
+    SpotHold(bool),
+    Rank(usize),
+    RankHold(bool),
+    Metric(crate::dossier::Metric),
+    Span(u32),
+    GradeHover(Option<usize>),
+    TitlePick(String),
+    PlayOpen(usize),
 }
 
 pub struct Ground<'a> {
@@ -163,12 +111,8 @@ pub struct Ground<'a> {
     pub failed: &'a std::collections::HashSet<String>,
     pub channels: &'a [String],
     pub channel_draft: &'a str,
-    pub panels: Vec<Panel>,
     pub live_shown: usize,
     pub live_k: f32,
-    pub open: Option<Panel>,
-    pub open_k: f32,
-    pub from: Option<Rectangle>,
     pub reading: Option<&'a Reading>,
     pub read_k: f32,
     pub people_from: PeopleFrom,
@@ -177,17 +121,25 @@ pub struct Ground<'a> {
     pub avatar: Option<&'a image::Handle>,
     pub chat: String,
     pub fetch: Fetch,
+    pub width: f32,
+    pub filter: crate::chronicle::Filter,
+    pub open_events: &'a std::collections::HashSet<String>,
+    pub seen: i64,
+    pub spot: usize,
+    pub spot_k: f32,
+    pub rank: usize,
+    pub rank_k: f32,
+    pub rank_started: std::time::Instant,
+    pub rank_held: bool,
+    pub metric: crate::dossier::Metric,
+    pub span: u32,
+    pub grade_hover: Option<usize>,
+    pub title_pick: Option<&'a str>,
+    pub play_open: Option<usize>,
 }
 
 const FEED_WIDE: f32 = 760.0;
-const PANEL_WIDE: f32 = 445.0;
-const PANEL_HIGH: f32 = 336.0;
-const LIVE_ROW: f32 = 38.0;
-const LIVE_SHOWN: usize = 7;
-const OPEN_WIDE: f32 = 920.0;
 const READ_WIDE: f32 = 760.0;
-const TICK: std::time::Duration = std::time::Duration::from_millis(4200);
-const TICK_SLOW: std::time::Duration = std::time::Duration::from_millis(5600);
 const CARD_WIDE: f32 = 290.0;
 const DRAWER_WIDE: f32 = 400.0;
 const GRID_GAP: f32 = 10.0;
@@ -214,6 +166,7 @@ pub fn view<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
             .on_press(Message::Section(section))
     };
     let switch = row![
+        word("community-profile", Section::Profile),
         word("community-feed", Section::Feed),
         word("community-people", Section::People),
         word("community-boards", Section::Boards),
@@ -222,16 +175,14 @@ pub fn view<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
     .spacing(28);
     let head = column![container(switch).center_x(Length::Fill), container(group_note(ground)).center_x(Length::Fill)].spacing(10);
     let body = match ground.section {
-        Section::Feed => feed(ground),
+        Section::Profile => crate::dossier::view(ground),
+        Section::Feed => crate::chronicle::view(ground),
         Section::People => people(ground),
         Section::Boards => boards(ground),
         Section::Titles => titles(ground),
     };
     let page = column![container(head).padding(Padding::ZERO.top(22.0)), body].width(Length::Fill).height(Length::Fill);
     let mut layers: Vec<Element<'a, Message>> = vec![page.into()];
-    if let Some(panel) = ground.open.filter(|_| ground.open_k > 0.001) {
-        layers.push(opened(ground, panel));
-    }
     if let Some(person) = ground.person.and_then(|at| ground.catalog.people.get(at)) {
         layers.push(crate::unfold::shield(drawer(ground, person)).into());
     }
@@ -282,7 +233,21 @@ fn hatch<'a>(wide: f32, high: f32) -> Element<'a, Message> {
     container(ui::fine_hatch()).width(wide).height(high).into()
 }
 
-fn picture<'a>(ground: &Ground<'a>, map: Option<usize>, wide: f32, high: f32) -> Element<'a, Message> {
+pub(crate) fn avatar_colour(name: &str) -> Color {
+    let tones = [(0.886, 0.282, 0.282), (0.753, 0.337, 0.478), (0.353, 0.478, 0.784), (0.345, 0.627, 0.690), (0.753, 0.541, 0.227), (0.478, 0.353, 0.784), (0.541, 0.416, 0.290), (0.290, 0.627, 0.478)];
+    let sum: usize = name.bytes().map(usize::from).sum();
+    let (r, g, b) = tones[sum % tones.len()];
+    Color::from_rgb(r, g, b)
+}
+
+pub(crate) fn picture<'a>(ground: &Ground<'a>, map: Option<usize>, wide: f32, high: f32) -> Element<'a, Message> {
+    if wide <= 0.0 {
+        let found = ground.catalog.map(map).and_then(|map| ground.thumbs.get(&map.hash).or_else(|| map.card().and_then(|card| ground.pictures.get(&card))));
+        return match found {
+            Some(handle) => image(handle.clone()).content_fit(iced::ContentFit::Cover).width(Length::Fill).height(high).border_radius(12.0).opacity(ui::fade()).into(),
+            None => container(ui::fine_hatch()).width(Length::Fill).height(high).into(),
+        };
+    }
     let Some(map) = ground.catalog.map(map) else {
         return hatch(wide, high);
     };
@@ -293,38 +258,23 @@ fn picture<'a>(ground: &Ground<'a>, map: Option<usize>, wide: f32, high: f32) ->
     }
 }
 
-fn round<'a>(handle: Option<&image::Handle>, initial: &str, side: f32) -> Element<'a, Message> {
+pub(crate) fn round<'a>(handle: Option<&image::Handle>, initial: &str, side: f32) -> Element<'a, Message> {
     match handle {
         Some(handle) => image(handle.clone()).content_fit(iced::ContentFit::Cover).width(side).height(side).border_radius(side / 2.0).opacity(ui::fade()).into(),
         None => ui::disc(initial, false, side),
     }
 }
 
-fn face<'a>(ground: &Ground<'a>, person: &Person, side: f32) -> Element<'a, Message> {
+pub(crate) fn face<'a>(ground: &Ground<'a>, person: &Person, side: f32) -> Element<'a, Message> {
     let handle = ground.pictures.get(&person.avatar).or(if person.you { ground.avatar } else { None });
     round(handle, &person.initial(), side)
 }
 
-fn friend_face<'a>(ground: &Ground<'a>, friend: &Friend, side: f32) -> Element<'a, Message> {
+pub(crate) fn friend_face<'a>(ground: &Ground<'a>, friend: &Friend, side: f32) -> Element<'a, Message> {
     round(ground.pictures.get(&friend.avatar), &friend.initial(), side)
 }
 
-fn seal<'a>(words: String, colour: Color, wide: f32, high: f32, size: f32) -> Element<'a, Message> {
-    let k = ui::fade();
-    container(text(words).font(theme::MONO_BOLD).size(size).color(ui::faded(colour)))
-        .width(wide)
-        .height(high)
-        .align_x(iced::alignment::Horizontal::Center)
-        .align_y(iced::alignment::Vertical::Center)
-        .style(move |_| container::Style {
-            background: Some(Background::Color(Color { a: 0.12 * k, ..colour })),
-            border: Border { color: Color { a: 0.35 * k, ..colour }, width: 1.0, radius: 6.0.into() },
-            ..container::Style::default()
-        })
-        .into()
-}
-
-fn mods<'a>(list: &[String]) -> Element<'a, Message> {
+pub(crate) fn mods<'a>(list: &[String]) -> Element<'a, Message> {
     let mut shown = row![].spacing(4).align_y(iced::Center);
     for acronym in list {
         shown = shown.push(crate::main_screen::mod_badge(acronym));
@@ -332,18 +282,18 @@ fn mods<'a>(list: &[String]) -> Element<'a, Message> {
     shown.into()
 }
 
-fn title_line<'a>(ground: &Ground<'a>, person: &Person, size: f32) -> Element<'a, Message> {
+pub(crate) fn title_line<'a>(ground: &Ground<'a>, person: &Person, size: f32) -> Element<'a, Message> {
     match ground.catalog.shown_title(person) {
         Some(title) => text(title.name(ground.words.lang()).to_owned()).font(theme::SANS).size(size).wrapping(text::Wrapping::None).color(ui::faded(title.rarity.colour())).into(),
         None => text(ground.words.t("no-title")).font(theme::SANS).size(size).wrapping(text::Wrapping::None).color(ui::faded(FAINT)).into(),
     }
 }
 
-fn pp_of(words: &Words, pp: u32) -> String {
+pub(crate) fn pp_of(words: &Words, pp: u32) -> String {
     format!("{} pp", words.lang().group(u64::from(pp)))
 }
 
-fn decimal(words: &Words, value: f32, places: usize) -> String {
+pub(crate) fn decimal(words: &Words, value: f32, places: usize) -> String {
     let made = format!("{value:.places$}");
     match words.lang() {
         crate::lang::Lang::En => made,
@@ -351,7 +301,7 @@ fn decimal(words: &Words, value: f32, places: usize) -> String {
     }
 }
 
-fn rank_of(words: &Words, rank: u32) -> String {
+pub(crate) fn rank_of(words: &Words, rank: u32) -> String {
     if rank == 0 {
         "—".to_owned()
     } else {
@@ -359,7 +309,7 @@ fn rank_of(words: &Words, rank: u32) -> String {
     }
 }
 
-fn shown_value(words: &Words, board: Board, person: &Person) -> String {
+pub(crate) fn shown_value(words: &Words, board: Board, person: &Person) -> String {
     match board {
         Board::Pp => pp_of(words, person.pp),
         Board::Accuracy => words.percent(f64::from(person.accuracy)),
@@ -370,7 +320,7 @@ fn shown_value(words: &Words, board: Board, person: &Person) -> String {
     }
 }
 
-fn moved<'a>(by: i32) -> Element<'a, Message> {
+pub(crate) fn moved<'a>(by: i32) -> Element<'a, Message> {
     match by {
         0 => ui::mono_small("—".to_owned(), FAINT),
         up if up > 0 => ui::mono_small(format!("▲{up}"), theme::HIT_100),
@@ -378,45 +328,7 @@ fn moved<'a>(by: i32) -> Element<'a, Message> {
     }
 }
 
-fn feed<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
-    let pieces: Vec<(Panel, Element<'a, Message>)> = ground.panels.iter().map(|panel| (*panel, panel_of(ground, *panel))).collect();
-    let hidden = ground.open.filter(|_| ground.open_k > 0.001 && ground.from.is_some());
-    let board = crate::board::board(pieces, GRID_GAP, Message::Moved)
-        .on_tap(|panel, rect| Message::Expand(panel, Some(rect)))
-        .hidden(hidden)
-        .solid(theme::SLAB_SOLID);
-    let rolled = scrollable(container(container(board).max_width(PANEL_WIDE * 2.0 + GRID_GAP)).center_x(Length::Fill).padding(Padding { top: 12.0, right: 40.0, bottom: 28.0, left: 40.0 }))
-        .id(iced::widget::Id::new("community-feed"))
-        .style(ui::thin_scroll)
-        .width(Length::Fill)
-        .height(Length::Fill);
-    crate::glide::edged(rolled, iced::widget::Id::new("community-feed")).into()
-}
-
-fn panel_of<'a>(ground: &Ground<'a>, panel: Panel) -> Element<'a, Message> {
-    match panel {
-        Panel::Profile => profile_panel(ground),
-        Panel::Live => live_panel(ground),
-        Panel::Updates => updates_panel(ground),
-        Panel::News => news_panel(ground),
-        Panel::People => people_panel(ground),
-        Panel::Channels => channels_panel(ground),
-        Panel::Group => group_panel(ground),
-    }
-}
-
-fn panel<'a>(title: String, status: Element<'a, Message>, body: Element<'a, Message>) -> Element<'a, Message> {
-    let grow = ui::control_button(ui::Control::Grow, 13.0, None::<Message>, false);
-    let head = row![ui::mono_small(title.to_uppercase(), FAINT), ui::grow(), status, grow].spacing(8).align_y(iced::Center).height(20.0);
-    container(column![head, container(body).width(Length::Fill).height(Length::Fill).clip(true)].spacing(10))
-        .padding([14, 16])
-        .width(PANEL_WIDE)
-        .height(PANEL_HIGH)
-        .style(ui::box_faded(theme::slab))
-        .into()
-}
-
-fn source_state<'a>(ground: &Ground<'a>, source: &str) -> Element<'a, Message> {
+pub(crate) fn source_state<'a>(ground: &Ground<'a>, source: &str) -> Element<'a, Message> {
     let w = ground.words;
     let quiet = |words: String, colour: Color| -> Element<'a, Message> {
         button(ui::mono_small(words, colour)).padding(0).style(ui::button_faded(theme::bare)).on_press(Message::Refresh).into()
@@ -433,48 +345,18 @@ fn source_state<'a>(ground: &Ground<'a>, source: &str) -> Element<'a, Message> {
     }
 }
 
-fn staged_mark<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
-    let k = ui::fade();
-    let dot = container(Space::new().width(6.0).height(6.0)).style(move |_| container::Style {
-        background: Some(Background::Color(Color { a: k, ..ACCENT })),
-        border: Border { radius: 3.0.into(), ..Border::default() },
-        ..container::Style::default()
-    });
-    row![dot, ui::mono_small(ground.words.t("community-staged"), FAINT)].spacing(6).align_y(iced::Center).into()
-}
-
-fn bot_state<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
-    let w = ground.words;
-    let quiet = |words: String, colour: Color| -> Element<'a, Message> {
-        button(ui::mono_small(words, colour)).padding(0).style(ui::button_faded(theme::bare)).on_press(Message::Again).into()
-    };
-    if ground.catalog.staged {
-        return staged_mark(ground);
-    }
-    match ground.fetch {
-        Fetch::Staged => staged_mark(ground),
-        Fetch::Loading => ui::mono_small(w.t("news-loading"), FAINT),
-        Fetch::Fresh(at) => quiet(format!("{} {}", w.t("news-updated"), w.clock(at)), FAINT),
-        Fetch::Failed => quiet(w.t("news-failed"), ACCENT),
-    }
-}
-
-fn pressed<'a>(inside: Element<'a, Message>, message: Message) -> Element<'a, Message> {
-    button(inside).padding([4, 6]).width(Length::Fill).style(ui::button_faded(theme::row(false))).on_press(message).into()
-}
-
-fn empty<'a>(words: String) -> Element<'a, Message> {
+pub(crate) fn empty<'a>(words: String) -> Element<'a, Message> {
     container(ui::mono_small(words, FAINT)).width(Length::Fill).height(Length::Fill).center(Length::Fill).into()
 }
 
-fn thumb<'a>(ground: &Ground<'a>, url: Option<&str>, wide: f32, high: f32) -> Element<'a, Message> {
+pub(crate) fn thumb<'a>(ground: &Ground<'a>, url: Option<&str>, wide: f32, high: f32) -> Element<'a, Message> {
     match url.and_then(|url| ground.pictures.get(url)) {
         Some(handle) => image(handle.clone()).content_fit(iced::ContentFit::Cover).width(wide).height(high).border_radius(6.0).opacity(ui::fade()).into(),
         None => hatch(wide, high),
     }
 }
 
-fn when<'a>(ground: &Ground<'a>, at: i64) -> String {
+pub(crate) fn when<'a>(ground: &Ground<'a>, at: i64) -> String {
     let w = ground.words;
     if ground.now_unix - at < 86_400 && ground.now_unix >= at {
         w.clock(at)
@@ -483,7 +365,7 @@ fn when<'a>(ground: &Ground<'a>, at: i64) -> String {
     }
 }
 
-fn ago(words: &Words, minutes: u32) -> String {
+pub(crate) fn ago(words: &Words, minutes: u32) -> String {
     match minutes {
         0 => words.t("online"),
         m if m < 60 => words.n("minutes-ago", u64::from(m)),
@@ -493,7 +375,7 @@ fn ago(words: &Words, minutes: u32) -> String {
     }
 }
 
-fn since<'a>(ground: &Ground<'a>, at: i64) -> String {
+pub(crate) fn since<'a>(ground: &Ground<'a>, at: i64) -> String {
     let w = ground.words;
     let seconds = (ground.now_unix - at).max(0);
     match seconds {
@@ -504,7 +386,7 @@ fn since<'a>(ground: &Ground<'a>, at: i64) -> String {
     }
 }
 
-fn grade_colour(grade: &str) -> Color {
+pub(crate) fn grade_colour(grade: &str) -> Color {
     match grade {
         "SS" => theme::GRADE_SS,
         "S" => theme::GRADE_S,
@@ -515,15 +397,15 @@ fn grade_colour(grade: &str) -> Color {
     }
 }
 
-fn grade<'a>(letter: &str, size: f32) -> Element<'a, Message> {
+pub(crate) fn grade<'a>(letter: &str, size: f32) -> Element<'a, Message> {
     text(letter.to_owned()).font(theme::MONO_BOLD).size(size).color(ui::faded(grade_colour(letter))).into()
 }
 
-fn line_of(ground: &Ground<'_>, map: usize) -> String {
+pub(crate) fn line_of(ground: &Ground<'_>, map: usize) -> String {
     ground.catalog.maps.get(map).map(|map| map.line.clone()).unwrap_or_default()
 }
 
-fn play_row<'a>(ground: &Ground<'a>, play: &Play, wide: f32, high: f32, room: usize, with_pp: bool) -> Element<'a, Message> {
+pub(crate) fn play_row<'a>(ground: &Ground<'a>, play: &Play, wide: f32, high: f32, room: usize, with_pp: bool) -> Element<'a, Message> {
     let w = ground.words;
     let right: Element<'a, Message> = if with_pp && play.pp > 0.0 {
         column![ui::mono(format!("{} pp", decimal(w, play.pp, 0)), INK), grade(&play.grade, 12.0)].spacing(2).align_x(iced::alignment::Horizontal::Right).into()
@@ -545,7 +427,7 @@ fn play_row<'a>(ground: &Ground<'a>, play: &Play, wide: f32, high: f32, room: us
     .into()
 }
 
-fn chip<'a>(inside: Element<'a, Message>, colour: Color) -> Element<'a, Message> {
+pub(crate) fn chip<'a>(inside: Element<'a, Message>, colour: Color) -> Element<'a, Message> {
     let k = ui::fade();
     container(inside)
         .padding([3, 8])
@@ -557,89 +439,9 @@ fn chip<'a>(inside: Element<'a, Message>, colour: Color) -> Element<'a, Message>
         .into()
 }
 
-fn title_chip<'a>(title: &Title, lang: crate::lang::Lang) -> Element<'a, Message> {
+pub(crate) fn title_chip<'a>(title: &Title, lang: crate::lang::Lang) -> Element<'a, Message> {
     let colour = title.rarity.colour();
     chip(text(title.name(lang).to_owned()).font(theme::SANS_SEMI).size(11.0).wrapping(text::Wrapping::None).color(ui::faded(colour)).into(), colour)
-}
-
-fn seen<'a>(ground: &Ground<'a>, card: &crate::community::wire::Card) -> crate::profile_card::Seen<'a> {
-    let code = if card.title_code.is_empty() { ground.catalog.you().and_then(|you| you.title.clone()).unwrap_or_default() } else { card.title_code.clone() };
-    crate::profile_card::Seen {
-        words: ground.words,
-        pictures: ground.pictures,
-        thumbs: ground.thumbs,
-        flags: ground.flags,
-        avatar: ground.avatar,
-        title: crate::profile_card::title_of(ground.words.lang(), ground.catalog, &code),
-        now: ground.now_unix,
-    }
-}
-
-fn the_card(ground: &Ground<'_>) -> Option<crate::community::wire::Card> {
-    ground.card.cloned().or_else(|| ground.catalog.card_of())
-}
-
-fn profile_panel<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
-    let w = ground.words;
-    let body = match the_card(ground) {
-        Some(card) => crate::profile_card::compact(&seen(ground, &card), &card, Message::Open),
-        None => empty(w.t("nothing-yet")),
-    };
-    panel(w.t("panel-profile"), bot_state(ground), body)
-}
-
-fn live_rows<'a>(ground: &Ground<'a>, limit: usize, row_high: f32, room: usize) -> Element<'a, Message> {
-    let w = ground.words;
-    let pool = &ground.catalog.live;
-    let shown = ground.live_shown.min(pool.len());
-    if shown == 0 {
-        return empty(w.t("nothing-yet"));
-    }
-    let mut rows = column![].spacing(0);
-    for (place, play) in pool[..shown].iter().rev().take(limit).enumerate() {
-        let Some(person) = ground.catalog.people.get(play.who) else {
-            continue;
-        };
-        let line = line_of(ground, play.map);
-        let when_said = match ground.catalog.staged {
-            true if place == 0 => w.t("live-now"),
-            true => w.n("minutes-ago", place as u64 * 3),
-            false => since(ground, play.at),
-        };
-        let k = if place == 0 { ground.live_k.clamp(0.0, 1.0) } else { 1.0 };
-        let made = ui::fading(ui::fade() * k, || -> Element<'a, Message> {
-            let pp: Element<'a, Message> = if play.passed { ui::mono(format!("{} pp", decimal(w, play.pp, 0)), INK) } else { ui::mono("F".to_owned(), ACCENT) };
-            row![
-                face(ground, person, 26.0),
-                column![
-                    row![
-                        text(person.name.clone()).font(theme::SANS_SEMI).size(theme::CAPTION + 1.0).wrapping(text::Wrapping::None).color(ui::faded(INK)),
-                        ui::mono_small(when_said, FAINT),
-                    ]
-                    .spacing(8)
-                    .align_y(iced::Center),
-                    text(ui::shortened(line, room)).font(theme::SANS).size(11.0).wrapping(text::Wrapping::None).color(ui::faded(MUTED)),
-                ]
-                .spacing(1)
-                .width(Length::Fill),
-                column![
-                    row![mods(&play.mods), pp].spacing(6).align_y(iced::Center),
-                    row![ui::mono_small(w.percent(f64::from(play.accuracy)), MUTED), grade(&play.grade, 11.0)].spacing(6),
-                ]
-                .spacing(1)
-                .align_x(iced::alignment::Horizontal::Right),
-            ]
-            .spacing(10)
-            .align_y(iced::Center)
-            .into()
-        });
-        rows = rows.push(container(made).height(row_high * k).clip(true).center_y(row_high * k));
-    }
-    rows.into()
-}
-
-fn live_panel<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
-    panel(ground.words.t("panel-live"), bot_state(ground), live_rows(ground, LIVE_SHOWN, LIVE_ROW, 36))
 }
 
 fn stream_colour(stream: &str) -> Color {
@@ -651,7 +453,7 @@ fn stream_colour(stream: &str) -> Color {
     }
 }
 
-fn stream_pill<'a>(stream: &str) -> Element<'a, Message> {
+pub(crate) fn stream_pill<'a>(stream: &str) -> Element<'a, Message> {
     let colour = stream_colour(stream);
     let k = ui::fade();
     container(text(stream.to_owned()).font(theme::MONO_BOLD).size(10.0).color(ui::faded(colour)))
@@ -664,66 +466,7 @@ fn stream_pill<'a>(stream: &str) -> Element<'a, Message> {
         .into()
 }
 
-fn build_block<'a>(ground: &Ground<'a>, build: &news::Build, shown: usize, room: usize) -> Element<'a, Message> {
-    let w = ground.words;
-    let mut lines = column![row![stream_pill(&build.stream), ui::mono(build.version.clone(), INK), ui::grow(), ui::mono_small(when(ground, build.at), FAINT)]
-        .spacing(8)
-        .align_y(iced::Center)]
-    .spacing(3);
-    for change in build.changes.iter().take(shown) {
-        lines = lines.push(
-            text(ui::shortened(format!("· {}", change.title), room))
-                .font(theme::SANS)
-                .size(11.5)
-                .wrapping(text::Wrapping::None)
-                .color(ui::faded(if change.major { INK } else { MUTED })),
-        );
-    }
-    if build.changes.len() > shown {
-        lines = lines.push(ui::mono_small(w.n("more-changes", (build.changes.len() - shown) as u64), FAINT));
-    }
-    pressed(lines.into(), Message::Read(Reading::Build(build.clone())))
-}
-
-fn updates_panel<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
-    let w = ground.words;
-    let builds = &ground.news.builds;
-    let body: Element<'a, Message> = if builds.is_empty() {
-        empty(w.t("nothing-yet"))
-    } else {
-        crate::ticker::ticker(builds.iter().take(8).map(|build| build_block(ground, build, 3, 56)).collect(), 6.0, TICK_SLOW).into()
-    };
-    panel(w.t("panel-updates"), source_state(ground, news::UPDATES), body)
-}
-
-fn story_line<'a>(ground: &Ground<'a>, story: &news::Story) -> Element<'a, Message> {
-    let inside = row![
-        thumb(ground, story.image.as_deref(), 96.0, 54.0),
-        column![
-            text(ui::shortened(story.title.clone(), 46)).font(theme::SANS_SEMI).size(theme::CAPTION + 1.0).wrapping(text::Wrapping::None).color(ui::faded(INK)),
-            text(ui::shortened(story.lead.clone(), 52)).font(theme::SANS).size(11.0).wrapping(text::Wrapping::None).color(ui::faded(MUTED)),
-            ui::mono_small(when(ground, story.at), FAINT),
-        ]
-        .spacing(2)
-        .width(Length::Fill),
-    ]
-    .spacing(12)
-    .align_y(iced::Center);
-    pressed(inside.into(), Message::Read(Reading::Story(story.clone())))
-}
-
-fn news_panel<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
-    let w = ground.words;
-    let stories = &ground.news.stories;
-    let body: Element<'a, Message> = if stories.is_empty() {
-        empty(w.t("nothing-yet"))
-    } else {
-        crate::ticker::ticker(stories.iter().take(12).map(|story| story_line(ground, story)).collect(), 2.0, TICK).into()
-    };
-    panel(w.t("panel-news"), source_state(ground, news::STORIES), body)
-}
-
-fn people_switch<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
+pub(crate) fn people_switch<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
     let w = ground.words;
     let pill = |key: &str, from: PeopleFrom| {
         button(text(w.t(key)).font(theme::SANS_SEMI).size(theme::CAPTION))
@@ -742,29 +485,7 @@ fn people_switch<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
         .into()
 }
 
-fn member_line<'a>(ground: &Ground<'a>, at: usize, person: &Person) -> Element<'a, Message> {
-    let w = ground.words;
-    let inside = row![
-        face(ground, person, 26.0),
-        column![
-            row![
-                text(person.name.clone()).font(theme::SANS_SEMI).size(theme::CAPTION + 1.0).wrapping(text::Wrapping::None).color(ui::faded(INK)),
-                ui::mono_small(person.country.clone(), FAINT),
-            ]
-            .spacing(6)
-            .align_y(iced::Center),
-            title_line(ground, person, 11.0),
-        ]
-        .spacing(1)
-        .width(Length::Fill),
-        ui::mono(pp_of(w, person.pp), INK),
-    ]
-    .spacing(10)
-    .align_y(iced::Center);
-    pressed(inside.into(), Message::Person(Some(at)))
-}
-
-fn friend_line<'a>(ground: &Ground<'a>, friend: &Friend) -> Element<'a, Message> {
+pub(crate) fn friend_line<'a>(ground: &Ground<'a>, friend: &Friend) -> Element<'a, Message> {
     let w = ground.words;
     let k = ui::fade();
     let dot_colour = if friend.online { theme::HIT_100 } else { Color::from_rgba(1.0, 1.0, 1.0, 0.18) };
@@ -798,7 +519,7 @@ fn friend_line<'a>(ground: &Ground<'a>, friend: &Friend) -> Element<'a, Message>
         .into()
 }
 
-fn friends_said<'a>(ground: &Ground<'a>) -> Option<Element<'a, Message>> {
+pub(crate) fn friends_said<'a>(ground: &Ground<'a>) -> Option<Element<'a, Message>> {
     let w = ground.words;
     match &ground.catalog.friends_state {
         Friends::Staged | Friends::Ready if ground.catalog.friends.is_empty() => Some(empty(w.t("nothing-yet"))),
@@ -815,17 +536,7 @@ fn friends_said<'a>(ground: &Ground<'a>) -> Option<Element<'a, Message>> {
     }
 }
 
-fn people_panel<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
-    let w = ground.words;
-    let list: Element<'a, Message> = match ground.people_from {
-        PeopleFrom::Chat if ground.catalog.people.is_empty() => empty(w.t("community-no-group")),
-        PeopleFrom::Chat => crate::ticker::ticker(ground.catalog.people.iter().enumerate().map(|(at, person)| member_line(ground, at, person)).collect(), 0.0, TICK).into(),
-        PeopleFrom::Game => friends_said(ground).unwrap_or_else(|| crate::ticker::ticker(ground.catalog.friends.iter().map(|friend| friend_line(ground, friend)).collect(), 0.0, TICK).into()),
-    };
-    panel(w.t("panel-people"), bot_state(ground), column![people_switch(ground), list].spacing(10).into())
-}
-
-fn channel_tools<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
+pub(crate) fn channel_tools<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
     let w = ground.words;
     let k = ui::fade();
     let mut chips = row![].spacing(6).align_y(iced::Center);
@@ -856,100 +567,6 @@ fn channel_tools<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
     column![chips, adding].spacing(8).into()
 }
 
-fn chosen_posts<'a>(ground: &Ground<'a>) -> Vec<&'a news::Post> {
-    let channels = ground.channels;
-    ground.news.posts.iter().filter(|post| channels.iter().any(|c| c.eq_ignore_ascii_case(&post.channel))).collect()
-}
-
-fn post_line<'a>(ground: &Ground<'a>, post: &news::Post, side: f32, lines: f32, room: usize) -> Element<'a, Message> {
-    let words = column![
-        row![
-            text(post.name.clone()).font(theme::SANS_SEMI).size(theme::CAPTION).wrapping(text::Wrapping::None).color(ui::faded(INK)),
-            ui::mono_small(when(ground, post.at), FAINT),
-        ]
-        .spacing(8)
-        .align_y(iced::Center),
-        container(text(ui::shortened(post.text.clone(), room)).font(theme::SANS).size(11.5).color(ui::faded(MUTED))).height(lines * 15.5).clip(true),
-    ]
-    .spacing(2)
-    .width(Length::Fill);
-    let inside: Element<'a, Message> = match post.image.as_deref() {
-        Some(url) => row![thumb(ground, Some(url), side, side), words].spacing(10).align_y(iced::Center).into(),
-        None => words.into(),
-    };
-    pressed(inside, Message::Read(Reading::Post(post.clone())))
-}
-
-fn channels_panel<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
-    let w = ground.words;
-    let posts = chosen_posts(ground);
-    let list: Element<'a, Message> = if posts.is_empty() {
-        empty(w.t(if ground.channels.is_empty() { "channels-empty" } else { "nothing-yet" }))
-    } else {
-        crate::ticker::ticker(posts.iter().take(12).map(|post| post_line(ground, post, 56.0, 3.0, 150)).collect(), 2.0, TICK).into()
-    };
-    let status = match ground.channels.first() {
-        Some(channel) => source_state(ground, &news::channel_source(channel)),
-        None => Space::new().width(0.0).into(),
-    };
-    panel(w.t("panel-channels"), status, column![channel_tools(ground), list].spacing(10).into())
-}
-
-fn group_panel<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
-    let w = ground.words;
-    let body: Element<'a, Message> = if ground.catalog.feed.is_empty() {
-        empty(w.t("nothing-yet"))
-    } else {
-        crate::ticker::ticker(ground.catalog.feed.iter().take(12).map(|happening| happening_line(ground, happening)).collect(), 0.0, TICK).into()
-    };
-    panel(w.t("panel-group"), bot_state(ground), body)
-}
-
-fn happening_line<'a>(ground: &Ground<'a>, happening: &Happening) -> Element<'a, Message> {
-    let w = ground.words;
-    let lang = w.lang();
-    let Some(person) = ground.catalog.people.get(happening.who) else {
-        return Space::new().height(0.0).into();
-    };
-    let map_line = || ground.catalog.map(happening.map).map(|map| map.line.clone()).unwrap_or_default();
-    let (left, kind, detail): (Element<'a, Message>, String, String) = match &happening.kind {
-        Kind::Render { accuracy, .. } => (picture(ground, happening.map, 48.0, 27.0), w.t("happened-render"), format!("{} · {}", map_line(), w.percent(f64::from(*accuracy)))),
-        Kind::TopPlay { pp, place, .. } => (
-            picture(ground, happening.map, 48.0, 27.0),
-            format!("{} #{place}", w.t("happened-top-play")),
-            format!("{} · {} pp", map_line(), decimal(w, *pp, 0)),
-        ),
-        Kind::Title(code) => {
-            let title = ground.catalog.title_of(code);
-            (
-                seal("★".to_owned(), title.map_or(MUTED, |title| title.rarity.colour()), 48.0, 27.0, 12.0),
-                w.t("happened-title"),
-                title.map_or(String::new(), |title| title.name(lang).to_owned()),
-            )
-        }
-        Kind::Climb { board, from, to } => (seal(format!("#{to}"), INK, 48.0, 27.0, 11.0), w.t("happened-climb"), format!("{} · {from} → {to}", w.t(board.key()))),
-    };
-    let line = row![
-        left,
-        column![
-            row![
-                text(person.name.clone()).font(theme::SANS_SEMI).size(theme::CAPTION + 1.0).wrapping(text::Wrapping::None).color(ui::faded(INK)),
-                ui::mono_small(kind, MUTED),
-                ui::grow(),
-                ui::mono_small(when(ground, happening.at), FAINT),
-            ]
-            .spacing(8)
-            .align_y(iced::Center),
-            text(ui::shortened(detail, 52)).font(theme::SANS).size(11.0).wrapping(text::Wrapping::None).color(ui::faded(MUTED)),
-        ]
-        .spacing(1)
-        .width(Length::Fill),
-    ]
-    .spacing(10)
-    .align_y(iced::Center);
-    button(line).padding([5, 6]).width(Length::Fill).style(ui::button_faded(theme::row(false))).on_press(Message::Person(Some(happening.who))).into()
-}
-
 fn stage_look() -> crate::unfold::Look {
     let k = ui::fade();
     crate::unfold::Look {
@@ -960,129 +577,15 @@ fn stage_look() -> crate::unfold::Look {
     }
 }
 
-fn stage_head<'a>(title: String, status: Element<'a, Message>, on_close: Message) -> Element<'a, Message> {
-    let close = button(text("✕").font(theme::SANS_SEMI).size(theme::LEAD).color(ui::faded(MUTED))).padding([2, 8]).style(ui::button_faded(theme::bare)).on_press(on_close);
-    row![text(title).font(theme::SANS_SEMI).size(theme::TITLE).wrapping(text::Wrapping::None).color(ui::faded(INK)), ui::grow(), status, close]
-        .spacing(12)
-        .align_y(iced::Center)
-        .into()
-}
-
 fn stage_rolled<'a>(inside: Element<'a, Message>) -> Element<'a, Message> {
     scrollable(container(inside).padding(Padding::ZERO.right(10.0))).style(ui::thin_scroll).width(Length::Fill).height(Length::Fill).into()
 }
 
-fn opened<'a>(ground: &Ground<'a>, panel: Panel) -> Element<'a, Message> {
-    let w = ground.words;
-    let k = ground.open_k;
-    let after = ui::fading(ui::fade() * smooth(0.32, 0.9, k), || -> Element<'a, Message> {
-        let (status, body): (Element<'a, Message>, Element<'a, Message>) = match panel {
-            Panel::Profile => (bot_state(ground), profile_wide(ground)),
-            Panel::Live => (bot_state(ground), stage_rolled(live_rows(ground, usize::MAX, 46.0, 70))),
-            Panel::Updates => (source_state(ground, news::UPDATES), updates_wide(ground)),
-            Panel::News => (source_state(ground, news::STORIES), news_wide(ground)),
-            Panel::People => (bot_state(ground), people_wide(ground)),
-            Panel::Channels => (
-                ground.channels.first().map_or_else(|| Space::new().width(0.0).into(), |channel| source_state(ground, &news::channel_source(channel))),
-                channels_wide(ground),
-            ),
-            Panel::Group => (bot_state(ground), group_wide(ground)),
-        };
-        container(column![stage_head(w.t(panel.key()), status, Message::Collapse), body].spacing(18)).padding([22, 26]).width(Length::Fill).height(Length::Fill).into()
-    });
-    let before = ground.from.map(|_| ui::fading(ui::fade() * (1.0 - smooth(0.0, 0.3, k)), || panel_of(ground, panel)));
-    crate::unfold::unfold(after, before, ground.from, k, Message::Collapse).wide(OPEN_WIDE).room(STAGE_ROOM).look(stage_look()).into()
-}
-
-fn profile_wide<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
-    match the_card(ground) {
-        Some(card) => stage_rolled(crate::profile_card::wide(&seen(ground, &card), &card, Message::Open)),
-        None => empty(ground.words.t("nothing-yet")),
-    }
-}
-
-fn updates_wide<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
-    let w = ground.words;
-    if ground.news.builds.is_empty() {
-        return empty(w.t("nothing-yet"));
-    }
-    let mut list = column![].spacing(12);
-    for build in &ground.news.builds {
-        list = list.push(build_block(ground, build, 5, 110));
-    }
-    stage_rolled(list.into())
-}
-
-fn news_wide<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
-    let w = ground.words;
-    if ground.news.stories.is_empty() {
-        return empty(w.t("nothing-yet"));
-    }
-    let mut list = column![].spacing(10);
-    for story in &ground.news.stories {
-        let inside = row![
-            thumb(ground, story.image.as_deref(), 192.0, 108.0),
-            column![
-                text(story.title.clone()).font(theme::SANS_SEMI).size(theme::LEAD).color(ui::faded(INK)),
-                text(story.lead.clone()).font(theme::SANS).size(theme::CAPTION + 1.0).color(ui::faded(MUTED)),
-                ui::mono_small(when(ground, story.at), FAINT),
-            ]
-            .spacing(6)
-            .width(Length::Fill),
-        ]
-        .spacing(16)
-        .align_y(iced::Center);
-        list = list.push(pressed(inside.into(), Message::Read(Reading::Story(story.clone()))));
-    }
-    stage_rolled(list.into())
-}
-
-fn people_wide<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
-    let w = ground.words;
-    let listed: Element<'a, Message> = match ground.people_from {
-        PeopleFrom::Chat if ground.catalog.people.is_empty() => empty(w.t("community-no-group")),
-        PeopleFrom::Chat => {
-            let cards = ground.catalog.people.iter().enumerate().map(|(at, person)| container(member_line(ground, at, person)).width(270.0).into()).collect();
-            stage_rolled(ui::wrap(cards, 12.0).into())
-        }
-        PeopleFrom::Game => friends_said(ground).unwrap_or_else(|| {
-            let cards = ground.catalog.friends.iter().map(|friend| container(friend_line(ground, friend)).width(270.0).into()).collect();
-            stage_rolled(ui::wrap(cards, 12.0).into())
-        }),
-    };
-    column![people_switch(ground), listed].spacing(14).into()
-}
-
-fn channels_wide<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
-    let w = ground.words;
-    let posts = chosen_posts(ground);
-    let mut list = column![].spacing(8);
-    for post in &posts {
-        list = list.push(post_line(ground, post, 120.0, 6.0, 600));
-    }
-    if posts.is_empty() {
-        list = list.push(ui::mono_small(w.t(if ground.channels.is_empty() { "channels-empty" } else { "nothing-yet" }), FAINT));
-    }
-    column![container(channel_tools(ground)).max_width(460.0), stage_rolled(list.into())].spacing(14).into()
-}
-
-fn group_wide<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
-    let w = ground.words;
-    if ground.catalog.feed.is_empty() {
-        return empty(w.t("nothing-yet"));
-    }
-    let mut list = column![].spacing(2);
-    for happening in &ground.catalog.feed {
-        list = list.push(happening_line(ground, happening));
-    }
-    stage_rolled(list.into())
-}
-
-fn rich<'a>(spans: &[news::Span], colour: Color, size: f32) -> Element<'a, Message> {
+pub(crate) fn rich<'a>(spans: &[news::Span], colour: Color, size: f32) -> Element<'a, Message> {
     rich_as(spans, colour, size, false)
 }
 
-fn rich_as<'a>(spans: &[news::Span], colour: Color, size: f32, heading: bool) -> Element<'a, Message> {
+pub(crate) fn rich_as<'a>(spans: &[news::Span], colour: Color, size: f32, heading: bool) -> Element<'a, Message> {
     let made: Vec<iced::widget::text::Span<'a, String>> = spans
         .iter()
         .map(|piece| {
@@ -1211,8 +714,17 @@ fn slab<'a>(inside: Element<'a, Message>, wide: f32) -> container::Container<'a,
 
 fn people<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
     let w = ground.words;
+    let wide = CARD_WIDE * 3.0 + GRID_GAP * 2.0;
+    let switch = container(people_switch(ground)).max_width(wide);
+    if ground.people_from == PeopleFrom::Game {
+        let body: Element<'a, Message> = match friends_said(ground) {
+            Some(said) => container(said).height(160.0).max_width(wide).into(),
+            None => ui::wrap(ground.catalog.friends.iter().map(|friend| container(friend_line(ground, friend)).width(CARD_WIDE).into()).collect(), GRID_GAP).into(),
+        };
+        return rolled(column![switch, container(body).max_width(wide)].spacing(14).into());
+    }
     if ground.catalog.people.is_empty() {
-        return empty(w.t("community-no-group"));
+        return rolled(column![switch, container(empty(w.t("community-no-group"))).height(160.0)].spacing(14).into());
     }
     let cards: Vec<Element<'a, Message>> = ground
         .catalog
@@ -1250,7 +762,7 @@ fn people<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
             button(card).padding(0).style(ui::button_faded(theme::bare)).on_press(Message::Person(Some(at))).into()
         })
         .collect();
-    rolled(container(ui::wrap(cards, GRID_GAP)).max_width(CARD_WIDE * 3.0 + GRID_GAP * 2.0).into())
+    rolled(column![switch, container(ui::wrap(cards, GRID_GAP)).max_width(wide)].spacing(14).into())
 }
 
 fn bar<'a>(share: f32) -> Element<'a, Message> {

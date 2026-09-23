@@ -529,53 +529,66 @@ ecosystem rather than two doors to the same house.
 
 The first prototype (2026-09-23) holds one group — the Telegram chat the
 bot keeps its players by — under the same underlined words as Settings:
-*Лента · Люди · Рейтинг · Титулы*, and a faint line under them naming the
-group, its size and, while it lasts, *образцы данных*: every figure is
-staged in `native/src/community.rs` in the shape of the bot's own tables,
-and nothing yet comes from the server.
+*Профиль · Лента · Люди · Рейтинг · Титулы*, and a faint line under them
+naming the group, its size and when the bot last answered — or *образцы
+данных* while the figures are the sample staged in
+`native/src/community.rs` in the shape of the bot's own tables.
 
-- *Лента* is a board of panels (reworked 2026-09-23), carried and dropped
-  on the same springs as Settings' tiles and kept in the order they were
-  left in (`feed_panels`). A panel's lists fill it and, where they are
-  longer than it, turn over by themselves: every few seconds the list
-  glides up by one item and comes round again without end, holding still
-  while the pointer is on it. Pressing a panel anywhere but an item opens
-  it: the panel lifts out of its place in the grid and grows into a wide
-  stage in the middle of the page, its compact face giving way to the full
-  one, while the page darkens beneath; Esc or a press outside folds it back
-  into the same place. Nothing under a stage, a reader or a person's drawer
-  scrolls or answers the pointer. Pressing an item reads it there too, not
-  in the browser: an osu! article in full, from the body its Atom entry
-  already carries, or a channel's post laid out the way the channel wrote
-  it — its lines, paragraphs, bold words — with every link in either
-  opening the browser, and *Открыть в браузере* at the end for the rest.
-- The feed's people, plays and happenings come from the bot once the
-  application is linked to it (`/render/community`, a chat the person is in:
-  the one videos go to if it is a group, their first group otherwise), are
-  kept in `~/.dossier/community.json` and asked for again every minute
-  while the catalogue is open; plays that arrived since the last answer
-  come into *Игры в эфире* one by one. Until the application is linked, or
-  while the bot cannot answer, the catalogue shows its sample and says so.
-  *Люди* switches between the chat's members and the person's osu!
-  friends, which the bot reads with the person's own osu! link and so needs
-  the `friends.read` permission — a person linked before it asked for that
-  is told to link osu! again. *Мой профиль* is the bot's own profile card
-  (`pf`), drawn with the application's widgets rather than sent as a
-  picture: the same hero with the ringed avatar and both rankings, the same
-  strip, grades, top plays, player stats and rank history, from the same
-  data (`/render/me/card`), in the bot's own colours — the one place where
-  the card's palette, its level bar and the poster shading overrule this
-  document's single hue, because it has to read as the card the person
-  already knows. Flags come from osu!'s own set, fetched like avatars.
-  *Обновления игры*, *Новости osu!* and *Каналы* are read on the device
-  and kept in `~/.dossier/news.json`, each saying when it was last fetched
-  and offering *ещё раз* when it could not be: the changelog's `json-index`
-  (the `/api/v2` path answers Cloudflare's block page to anything but a
-  browser), the news Atom feed, and public Telegram channels read from their
-  `t.me/s/` page, the list edited in the panel itself and *@osunewsru* the
-  first. The subreddit panel was tried and set aside (2026-09-23): reddit
-  answers 403 and 429 to anonymous reading often enough that it needs its
-  own key; its reader stays in `news.rs`.
+- *Лента* is a chronicle (2026-09-24), chosen from three drawn concepts
+  over a board of panels and a daily digest: one stream of everything that
+  happened — the group's plays, new top plays, titles and climbs, osu!'s
+  news, the chosen Telegram channels' posts and the game's builds — newest
+  first under *Сегодня*, *Вчера* and the dates before. Pills filter it
+  (*Всё · Игры · Топ-плеи · Титулы · Рейтинг · Новости · Обновления*); a
+  card lights under the pointer, opens its details where it has any
+  (a top play's hits and combo, a build's full list) and carries its own
+  actions (the map, the reader, the browser, the rankings). What arrives
+  while the page is open waits behind a red *N новых событий* at the top
+  rather than pushing the stream down under the reader. Beside it: the
+  person's own card (level ring, pp, rank, accuracy with the week's gain,
+  the streak, *Мой профиль →*) with the filters and channels; *В центре
+  внимания*, turning every five seconds to the week's biggest gain, the
+  best accuracy, the newest title, the longest streak and the person
+  themselves; the friends in the game; and the week's table, turning every
+  six seconds through its six boards with a thin line draining towards the
+  next and its bars growing afresh. The pointer on either holds it still;
+  its dots and tabs choose by hand. At the width of three columns the
+  stream is in the middle; narrower, the filters go above it and the
+  person's card to the top of the right column.
+- *Профиль* is the dossier (2026-09-24): the ringed avatar with the level
+  and its progress, the title worn, whether the person is online, the
+  country with its rank, the years in osu!, the streak and the duels, *Открыть
+  в osu!* and *Сравнить*; the place on each of the six boards this week;
+  five figures — pp, global rank, accuracy, plays, hours — each with its
+  gain, which choose what the chart draws over 30 or 90 days (rank from
+  the daily history osu! keeps, the rest from the bot's weekly snapshots),
+  the pointer reading any day off it; the best plays, opening onto their
+  hits; the grades, the one under the pointer lit and its share told; the
+  titles as a collection, bar by rarity, the held ones filled and the next
+  ones dashed, a press telling what each asks and when it was earned; and
+  thirteen weeks of plays a day. Its data is the bot's card
+  (`/render/me/card`) with the weeks, the days and the titles' dates from
+  `/render/community`; the sample stands in until the application is linked.
+- Where the figures come from: the feed's people, plays and happenings
+  come from the bot once the application is linked to it
+  (`/render/community`, a chat the person is in: the one videos go to if it
+  is a group, their first group otherwise), are kept in
+  `~/.dossier/community.json` and asked for again every minute while the
+  catalogue is open. Until the application is linked, or while the bot
+  cannot answer, the catalogue shows its sample and says so. *Люди* switches
+  between the chat's members and the person's osu! friends, which the bot
+  reads with the person's own osu! link and so needs the `friends.read`
+  permission — a person linked before it asked for that is told to link osu!
+  again. News, channels and builds are read on the device and kept in
+  `~/.dossier/news.json`: the changelog's `json-index` (the `/api/v2` path
+  answers Cloudflare's block page to anything but a browser), the news Atom
+  feed, and public Telegram channels read from their `t.me/s/` page, the
+  list edited under the filters and *@osunewsru* the first. An article, a
+  post or a build opens in the reader, not the browser: an osu! article in
+  full from the body its Atom entry carries, a post laid out as the channel
+  wrote it, every link opening the browser. The subreddit was tried and set
+  aside (2026-09-23): reddit answers 403 and 429 to anonymous reading often
+  enough that it needs its own key; its reader stays in `news.rs`.
 - *Люди* is a card per player — initial, country, the title they wear in
   its rarity's colour, pp, global rank, accuracy, and plays, hours and the
   streak beneath. A card opens the player's page from the right: every

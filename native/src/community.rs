@@ -131,6 +131,17 @@ impl Board {
         }
     }
 
+    pub fn short_key(self) -> &'static str {
+        match self {
+            Board::Pp => "board-short-pp",
+            Board::Accuracy => "board-short-accuracy",
+            Board::Plays => "board-short-plays",
+            Board::Hours => "board-short-hours",
+            Board::Score => "board-short-score",
+            Board::HitsPerPlay => "board-short-hits",
+        }
+    }
+
     pub fn of(said: &str) -> Option<Board> {
         match said {
             "pp" => Some(Board::Pp),
@@ -159,7 +170,7 @@ impl Board {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct Play {
     pub map: usize,
     pub pp: f32,
@@ -168,6 +179,10 @@ pub struct Play {
     pub grade: String,
     pub at: i64,
     pub full_combo: bool,
+    pub combo: Option<u32>,
+    pub max_combo: Option<u32>,
+    pub stars: Option<f32>,
+    pub counts: [Option<u32>; 4],
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -276,12 +291,24 @@ impl Friend {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Week {
+    pub at: i64,
+    pub pp: f64,
+    pub accuracy: f64,
+    pub plays: f64,
+    pub hours: f64,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Me {
     pub person: Person,
     pub recent: Vec<Play>,
     pub duels: [u32; 2],
     pub points: u32,
+    pub title_dates: std::collections::HashMap<String, i64>,
+    pub history: Vec<Week>,
+    pub activity: Vec<(i64, u32)>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -339,7 +366,18 @@ impl Catalog {
         let maps = if maps.is_empty() { vec![MapRef::local(String::new(), "Y&Co. — Daisuke [moph's Expert]".to_owned())] } else { maps };
         let spot = |n: usize| n % maps.len();
         let owned = |list: &[&str]| list.iter().map(|m| (*m).to_owned()).collect::<Vec<String>>();
-        let play = |map: usize, pp: f32, accuracy: f32, mods: &[&str], grade: &str| Play { map: spot(map), pp, accuracy, mods: owned(mods), grade: grade.to_owned(), at: 0, full_combo: false };
+        let play = |map: usize, pp: f32, accuracy: f32, mods: &[&str], grade: &str| Play {
+            map: spot(map),
+            pp,
+            accuracy,
+            mods: owned(mods),
+            grade: grade.to_owned(),
+            combo: Some(1_400 + (pp as u32 % 600)),
+            max_combo: Some(2_000),
+            stars: Some(6.1 + pp / 400.0),
+            counts: [Some(1_600 + (pp as u32 % 300)), Some(20 + (pp as u32 % 60)), Some(pp as u32 % 5), Some(u32::from(grade != "SS" && grade != "S"))],
+            ..Play::default()
+        };
         let person = |name: &str, country: &str, pp: u32, rank: u32, accuracy: f32, plays: u32, hours: u32, score: u64, hits_per_play: f32| Person {
             name: name.to_owned(),
             country: country.to_owned(),
@@ -426,6 +464,11 @@ impl Catalog {
             live_play(1, 5, 98.88, 498.2, &["DT"], "S"),
             live_play(6, 4, 89.90, 97.3, &["HD"], "C"),
         ];
+        let mut live = live;
+        let pool = live.len() as i64;
+        for (at, play) in live.iter_mut().enumerate() {
+            play.at = now - (pool - at as i64) * 180;
+        }
         let friend = |name: &str, country: &str, pp: u32, rank: u32, online: bool, away: i64| Friend {
             name: name.to_owned(),
             country: country.to_owned(),
@@ -444,6 +487,31 @@ impl Catalog {
             friend("pixelfox", "FI", 5_660, 51_230, false, 2_880),
             friend("hanabi", "KR", 4_210, 88_902, false, 60),
         ];
+        let day = 86_400;
+        let history = (0..13)
+            .map(|week| {
+                let t = f64::from(week) / 12.0;
+                Week {
+                    at: now - i64::from(12 - week) * 7 * day,
+                    pp: 9_130.0 + 740.0 * (1.0 - (1.0 - t).powf(1.2)),
+                    accuracy: 97.53 + 0.31 * t,
+                    plays: 36_016.0 + 2_104.0 * t,
+                    hours: 1_118.0 + 86.0 * t,
+                }
+            })
+            .collect();
+        let today = now - now.rem_euclid(day);
+        let activity = (0..91)
+            .filter_map(|back: i64| {
+                let n = ((back * 37 + 11) % 23) as u32;
+                (n > 4).then_some((today - back * day, n - 4))
+            })
+            .collect();
+        let title_dates = [("wysi", 77), ("masks_5", 114), ("graveyard", 134), ("s_50", 204), ("combo_2000", 66), ("doublethink", 52), ("registered", 900)]
+            .into_iter()
+            .map(|(code, back)| (code.to_owned(), now - back * day))
+            .collect();
+        let me = Me { person: people[0].clone(), recent: Vec::new(), duels: [3, 1], points: 120, title_dates, history, activity };
         Catalog {
             group: "osu! RU".to_owned(),
             week: 39,
@@ -454,7 +522,7 @@ impl Catalog {
             friends,
             friends_state: Friends::Staged,
             titles: staged_titles(),
-            me: None,
+            me: Some(me),
             staged: true,
         }
     }
@@ -470,7 +538,19 @@ impl Catalog {
                     maps.len() - 1
                 }
             };
-            Play { map: at, pp: play.pp, accuracy: play.accuracy, mods: play.mods.clone(), grade: play.grade.clone(), at: play.at.unwrap_or(0), full_combo: play.full_combo }
+            Play {
+                map: at,
+                pp: play.pp,
+                accuracy: play.accuracy,
+                mods: play.mods.clone(),
+                grade: play.grade.clone(),
+                at: play.at.unwrap_or(0),
+                full_combo: play.full_combo,
+                combo: play.combo,
+                max_combo: play.max_combo,
+                stars: play.map.stars,
+                counts: std::array::from_fn(|at| play.counts.get(at).copied().flatten()),
+            }
         };
         let person_of = |said: &wire::Person, play_of: &mut dyn FnMut(&wire::Play) -> Play| Person {
             id: said.id,
@@ -538,6 +618,13 @@ impl Catalog {
             recent: me.recent.iter().map(|play| play_of(&play.play)).collect(),
             duels: [me.duels.first().copied().unwrap_or(0), me.duels.get(1).copied().unwrap_or(0)],
             points: me.points,
+            title_dates: me.title_dates.iter().filter_map(|(code, at)| at.map(|at| (code.clone(), at))).collect(),
+            history: me.history.iter().map(|week| Week { at: week.at.unwrap_or(0), pp: week.pp, accuracy: week.accuracy, plays: week.plays, hours: week.hours }).collect(),
+            activity: me
+                .activity
+                .iter()
+                .filter_map(|day| crate::news::unix_of(&format!("{}T00:00:00Z", day.day)).map(|at| (at, day.n)))
+                .collect(),
         });
         let titles = said
             .titles
@@ -712,7 +799,31 @@ pub mod wire {
         #[serde(default)]
         pub full_combo: bool,
         #[serde(default)]
+        pub counts: Vec<Option<u32>>,
+        #[serde(default)]
         pub at: Option<i64>,
+    }
+
+    #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+    pub struct Week {
+        #[serde(default)]
+        pub at: Option<i64>,
+        #[serde(default)]
+        pub pp: f64,
+        #[serde(default)]
+        pub accuracy: f64,
+        #[serde(default)]
+        pub plays: f64,
+        #[serde(default)]
+        pub hours: f64,
+    }
+
+    #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+    pub struct Day {
+        #[serde(default)]
+        pub day: String,
+        #[serde(default)]
+        pub n: u32,
     }
 
     #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -837,6 +948,12 @@ pub mod wire {
         pub duels: Vec<u32>,
         #[serde(default)]
         pub points: u32,
+        #[serde(default)]
+        pub title_dates: std::collections::HashMap<String, Option<i64>>,
+        #[serde(default)]
+        pub history: Vec<Week>,
+        #[serde(default)]
+        pub activity: Vec<Day>,
     }
 
     #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -1025,6 +1142,29 @@ pub mod wire {
         pub title_code: String,
     }
 
+    impl Card {
+        pub fn pictures(&self) -> Vec<(String, u32)> {
+            let mut wanted = Vec::new();
+            if !self.avatar_url.is_empty() {
+                wanted.push((self.avatar_url.clone(), 256));
+            }
+            if !self.cover_url.is_empty() {
+                wanted.push((self.cover_url.clone(), 1400));
+            }
+            wanted.extend(self.top_scores.iter().filter_map(Score::cover).map(|url| (url, 400)));
+            wanted
+        }
+    }
+
+    pub fn flag_url(country: &str) -> Option<String> {
+        let code = country.trim();
+        if code.len() != 2 || !code.chars().all(|c| c.is_ascii_alphabetic()) {
+            return None;
+        }
+        let points: Vec<String> = code.to_ascii_uppercase().chars().map(|c| format!("{:x}", 0x1f1e6 + (c as u32 - 'A' as u32))).collect();
+        Some(format!("https://osu.ppy.sh/assets/images/flags/{}.svg", points.join("-")))
+    }
+
     pub fn card_path() -> std::path::PathBuf {
         crate::sources::own_root().join("card.json")
     }
@@ -1147,6 +1287,12 @@ mod tests {
         let wanted: Vec<String> = catalog.pictures().into_iter().map(|(url, _)| url).collect();
         assert!(wanted.contains(&"https://a.ppy.sh/80".to_owned()));
         assert!(wanted.contains(&"https://assets.ppy.sh/beatmaps/4/covers/card.jpg".to_owned()));
+    }
+
+    #[test]
+    fn a_country_names_its_flag_the_way_osu_files_it() {
+        assert_eq!(wire::flag_url("ru").as_deref(), Some("https://osu.ppy.sh/assets/images/flags/1f1f7-1f1fa.svg"));
+        assert_eq!(wire::flag_url("—"), None);
     }
 
     #[test]

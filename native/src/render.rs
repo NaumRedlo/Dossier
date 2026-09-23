@@ -220,7 +220,10 @@ fn draw(ask: &Ask, tell: &Sender<Step>) -> Result<PathBuf, String> {
 
     let kit = dossier_audio::Kit::by_name("click").unwrap_or_else(dossier_audio::Kit::plain);
     let samples = {
-        let mut pack = dossier_audio::SamplePack::load(Path::new(""));
+        let mut pack = match ask.skin.as_ref().filter(|folder| folder.is_dir()) {
+            Some(folder) => dossier_audio::SamplePack::load(folder),
+            None => dossier_audio::SamplePack::load(Path::new("")),
+        };
         let from_map = scratch.join("map-samples");
         if std::fs::create_dir_all(&from_map).is_ok() && locate::extract_samples(&found.origin, &from_map, &ffmpeg) > 0 {
             pack = pack.with_beatmap(&from_map);

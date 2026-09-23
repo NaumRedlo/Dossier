@@ -99,6 +99,7 @@ pub enum Message {
     PlayerLouder(f32),
     PlayerMute,
     PlayerRate(i32),
+    PlayerSpeed(f32),
     PlayerLoop,
     PlayerWiden,
     PlayerNeighbour(i32),
@@ -1169,6 +1170,18 @@ impl Main {
             }
             Message::PlayerRate(by) => {
                 let rate = player::next_rate(self.settings.player_rate, by);
+                self.settings.player_rate = rate;
+                let _ = self.settings.save();
+                if let Some(player) = &self.player {
+                    player.borrow_mut().set_rate(rate);
+                }
+                self.say(format!("×{}", self.words.rate(rate)));
+                Task::none()
+            }
+            Message::PlayerSpeed(rate) => {
+                if (rate - self.settings.player_rate).abs() < 0.001 {
+                    return Task::none();
+                }
                 self.settings.player_rate = rate;
                 let _ = self.settings.save();
                 if let Some(player) = &self.player {
@@ -2736,7 +2749,15 @@ impl Main {
             ui::grow(),
             ui::control_button(ui::Control::StepBack, 14.0, step_back, false),
             ui::control_button(ui::Control::StepAhead, 14.0, step_ahead, false),
-            ui::small_button(format!("×{}", w.rate(self.settings.player_rate)), Message::PlayerRate(1)),
+            iced::widget::canvas(ui::Compass {
+                at: self.settings.player_rate,
+                stops: player::RATES.to_vec(),
+                words: format!("×{}", w.rate(self.settings.player_rate)),
+                alpha: ui::fade(),
+                on: Box::new(Message::PlayerSpeed),
+            })
+            .width(132.0)
+            .height(40.0),
             ui::control_button(sound, 16.0, Some(Message::PlayerMute), self.settings.player_muted),
             container(level).padding(Padding::ZERO.right(4.0)),
             ui::control_button(ui::Control::Over, 16.0, Some(Message::PlayerLoop), self.settings.player_loop),
@@ -2765,7 +2786,7 @@ impl Main {
             container(title).height(STAGE_TOP).padding(Padding { top: 0.0, right: PICTURE_INSET - 7.0, bottom: 0.0, left: PICTURE_INSET }),
             container(screen).width(Length::Fill).height(screen_h).center_x(Length::Fill),
             container(seek).padding(Padding { top: 4.0, right: PICTURE_INSET, bottom: 0.0, left: PICTURE_INSET }),
-            container(keys).padding(Padding { top: 0.0, right: PICTURE_INSET - 7.0, bottom: 0.0, left: PICTURE_INSET - 7.0 }).height(STAGE_KEYS - 36.0),
+            container(keys).padding(Padding { top: 0.0, right: PICTURE_INSET - 7.0, bottom: 0.0, left: PICTURE_INSET - 7.0 }).height(STAGE_KEYS - 34.0),
         ]
         .width(Length::Fill);
         if under_h > 1.0 {
@@ -3177,11 +3198,15 @@ impl Main {
                 self.skin_again()
             }
             P::RescanSkins => self.look_for_skins(),
-            P::AddSkin => Task::perform(prefs::pick_renders(), |picked| Message::Prefs(P::AddedSkin(picked))),
+            P::AddSkin => Task::perform(prefs::pick_skin(), |picked| Message::Prefs(P::AddedSkin(picked))),
             P::MoreSkins => self.update(Message::ShowSkins(true)),
             P::AddedSkin(picked) => {
                 let Some(picked) = picked else {
                     return Task::none();
+                };
+                let picked = match picked.is_file() && !crate::settings::is_skin_file(&picked) {
+                    true => picked.parent().map(Path::to_path_buf).unwrap_or(picked),
+                    false => picked,
                 };
                 let mut taken: Vec<PathBuf> = Vec::new();
                 if crate::settings::is_skin_file(&picked) || crate::settings::looks_like_skin(&picked) {
@@ -3883,7 +3908,7 @@ impl Main {
 }
 const STAGE_GAP: f32 = 40.0;
 const STAGE_UNDER: f32 = 50.0;
-const STAGE_KEYS: f32 = 74.0;
+const STAGE_KEYS: f32 = 86.0;
 const STAGE_TOP: f32 = 56.0;
 const ROOM_TOP: f32 = 52.0;
 const PATTERN: (u32, u32) = (520, 292);

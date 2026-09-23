@@ -482,8 +482,23 @@ second; the wheel over the picture is the sound, a double click fills the
 screen. Every change says itself once in a pill over the picture, which
 fades in 900 ms. While the player is open the top row and the crest fade out,
 so nothing of the application stands over the video. Sound is shared with the
-audio thread, so the slider is heard at once; the speed re-opens both pipes at
-the same moment with `atempo`; frames arrive at 1280×720.
+audio thread, so the slider is heard at once; frames arrive at 1280×720.
+
+The speed is a compass, not a button (2026-09-23): a rule of small and larger
+ticks with the speed above the mark it points at, dragged or clicked to a
+step, and the steps come round again, so ×2 leads back to ×0,5 — before, the
+last step was a wall and the speed could not be brought back. The picture is
+asked of ffmpeg at sixty frames a second whatever the speed (`fps=60/rate`),
+and the decoder paces those frames by the speed, so a double speed no longer
+asks for a hundred and twenty frames a second of raw video — that was the
+flicker, and at times the picture gave out altogether while the sound played
+on. Only the last frame of a beat becomes a texture, so a late drain costs
+one upload, not four.
+
+A render now carries the skin's own hitsounds: the sample pack is read from
+the chosen skin's folder before the beatmap's own samples are laid over it
+(fixed 2026-09-23; it used to be read from an empty path, so a skin was seen
+and never heard).
 *What the bubble says* is in the journal's section above; the seven
 variants stay drawn for the record.
 
@@ -765,10 +780,11 @@ skin. `--skins` prints what the hunt found and how long it took.
 An `.osk` is a zip, and the engine already knew how to open one
 (`skin::unpack`, which refuses entries that climb out of the folder and keeps
 everything else, nested folders and all). One dropped on the window, or a
-skin folder dropped on it, is taken at once; *Добавить скин…* asks for a
-folder — the skin's own, or one holding skins and archives, which are all
-taken in together — because no one dialog offers files and folders at the
-same time. An archive wrapped in a single folder is lifted out of it and an
+skin folder dropped on it, is taken at once; *Добавить скин…* asks for a file: an `.osk`, or
+the `skin.ini` of a folder, which stands for the folder it sits in — no one
+dialog offers files and folders at the same time, and the archive is what
+could not be reached before (fixed 2026-09-23, when a folder-only dialog left
+an archive impossible to add by hand). An archive wrapped in a single folder is lifted out of it and an
 archive already unpacked is left alone.
 
 A skin is shown the way the engine will draw it, not by blowing up one file:
@@ -779,9 +795,10 @@ as the engine draws it. The strip in the settings shows one circle per skin
 in a row that scrolls sideways with no bar under it, so the tile grows wide
 and never tall; the first cell is the engine's own skin, *Dossier Default*.
 *Подробнее…* opens a window of panels, one per skin, each holding the same
-prepared pattern — three circles in the skin's combo colours, the approach
-circle, the cursor and its trail, a 300 — so two skins can be told apart at a
-glance; choosing one there chooses it everywhere. The circle is tinted only
+prepared pattern, laid out in the playfield's own coordinates: two sliders
+drawn as the engine draws them — a dark body inside the skin's own border
+colour — with the circles at their ends, numbered, two approach circles and
+the cursor with its trail, so two skins can be told apart at a glance; choosing one there chooses it everywhere. The circle is tinted only
 from the skin's own `Combo1`; tinting every skin with osu!'s default orange
 made them all the same mustard blob (tried and dropped 2026-09-23). The live
 replay on the main screen is drawn with the chosen skin too, and it starts

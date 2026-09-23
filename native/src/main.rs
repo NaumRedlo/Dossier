@@ -59,7 +59,13 @@ fn main() -> iced::Result {
         println!("{} skins, {:.1?}", found.len(), started.elapsed());
         for path in &found {
             let what = if dossier_native::settings::is_skin_file(path) { "osk" } else { "folder" };
-            println!("  {what} · {} · {}", dossier_native::settings::skin_name(path), path.display());
+            let sounds = dossier_audio::SamplePack::load(path);
+            println!(
+                "  {what} · {} · {} · {}",
+                dossier_native::settings::skin_name(path),
+                if sounds.is_empty() { "no sounds of its own".to_owned() } else { "sounds of its own".to_owned() },
+                path.display()
+            );
         }
         return Ok(());
     }

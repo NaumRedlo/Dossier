@@ -489,10 +489,102 @@ fn drawn_circle(side: u32, body: Option<[u8; 3]>, thin: f32) -> image::RgbaImage
     made
 }
 
+const FIELD: (f32, f32, f32, f32) = (20.0, 60.0, 500.0, 352.0);
+const NOTE_RADIUS: f32 = 42.0;
+
+fn smoothed(road: &[(f32, f32)]) -> Vec<(f32, f32)> {
+    if road.len() < 3 {
+        return road.to_vec();
+    }
+    let at = |i: i32| -> (f32, f32) { road[i.clamp(0, road.len() as i32 - 1) as usize] };
+    let mut out = Vec::new();
+    for i in 0..road.len() as i32 - 1 {
+        let (p0, p1, p2, p3) = (at(i - 1), at(i), at(i + 1), at(i + 2));
+        for step in 0..12 {
+            let t = step as f32 / 12.0;
+            let (t2, t3) = (t * t, t * t * t);
+            let x = 0.5 * ((2.0 * p1.0) + (-p0.0 + p2.0) * t + (2.0 * p0.0 - 5.0 * p1.0 + 4.0 * p2.0 - p3.0) * t2 + (-p0.0 + 3.0 * p1.0 - 3.0 * p2.0 + p3.0) * t3);
+            let y = 0.5 * ((2.0 * p1.1) + (-p0.1 + p2.1) * t + (2.0 * p0.1 - 5.0 * p1.1 + 4.0 * p2.1 - p3.1) * t2 + (-p0.1 + 3.0 * p1.1 - 3.0 * p2.1 + p3.1) * t3);
+            out.push((x, y));
+        }
+    }
+    out.push(*road.last().unwrap_or(&(0.0, 0.0)));
+    out
+}
+
+fn slider_road(under: &mut image::RgbaImage, road: &[(f32, f32)], radius: f32, border: [u8; 3], scale: impl Fn(f32, f32) -> (f32, f32)) {
+    let points: Vec<(f32, f32)> = smoothed(road).iter().map(|(x, y)| scale(*x, *y)).collect();
+    if points.len() < 2 {
+        return;
+    }
+    let reach = radius;
+    let rim = reach * 0.14;
+    let (wide, high) = (under.width() as i32, under.height() as i32);
+    let (mut left, mut top, mut right, mut bottom) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
+    for (x, y) in &points {
+        left = left.min(x - reach);
+        right = right.max(x + reach);
+        top = top.min(y - reach);
+        bottom = bottom.max(y + reach);
+    }
+    for y in (top.floor().max(0.0) as i32)..=(bottom.ceil().min(high as f32 - 1.0) as i32) {
+        for x in (left.floor().max(0.0) as i32)..=(right.ceil().min(wide as f32 - 1.0) as i32) {
+            let (px, py) = (x as f32 + 0.5, y as f32 + 0.5);
+            let mut away = f32::MAX;
+            for pair in points.windows(2) {
+                let ((ax, ay), (bx, by)) = (pair[0], pair[1]);
+                let (dx, dy) = (bx - ax, by - ay);
+                let len = (dx * dx + dy * dy).max(0.0001);
+                let t = (((px - ax) * dx + (py - ay) * dy) / len).clamp(0.0, 1.0);
+                let (cx, cy) = (ax + dx * t, ay + dy * t);
+                away = away.min(((px - cx).powi(2) + (py - cy).powi(2)).sqrt());
+            }
+            if away > reach {
+                continue;
+            }
+            let edge = (reach - away + 0.5).clamp(0.0, 1.0);
+            let inner = reach - rim;
+            let shade = if away > inner {
+                image::Rgba([border[0], border[1], border[2], (edge * 235.0) as u8])
+            } else {
+                let deep = (away / inner).clamp(0.0, 1.0);
+                let body = 26.0 + 26.0 * (1.0 - deep);
+                image::Rgba([body as u8, body as u8, (body + 6.0) as u8, 226])
+            };
+            let under_pixel = under.get_pixel_mut(x as u32, y as u32);
+            let over = shade.0[3] as f32 / 255.0;
+            for at in 0..3 {
+                under_pixel.0[at] = (shade.0[at] as f32 * over + under_pixel.0[at] as f32 * (1.0 - over)) as u8;
+            }
+            under_pixel.0[3] = (255.0 * over + under_pixel.0[3] as f32 * (1.0 - over)).min(255.0) as u8;
+        }
+    }
+}
+
+fn slider_rim(folder: Option<&Path>) -> [u8; 3] {
+    let Some(folder) = folder else {
+        return [255, 255, 255];
+    };
+    let Ok(bytes) = std::fs::read(folder.join("skin.ini")) else {
+        return [255, 255, 255];
+    };
+    for line in String::from_utf8_lossy(&bytes).lines() {
+        let Some(rest) = line.trim().strip_prefix("SliderBorder") else {
+            continue;
+        };
+        let Some(values) = rest.trim_start().strip_prefix(':') else {
+            continue;
+        };
+        let parts: Vec<u8> = values.split(',').filter_map(|part| part.trim().parse().ok()).collect();
+        if let [r, g, b, ..] = parts.as_slice() {
+            return [*r, *g, *b];
+        }
+    }
+    [255, 255, 255]
+}
+
 pub fn skin_pattern(folder: Option<&Path>, wide: u32, high: u32) -> Vec<u8> {
     let mut made = image::RgbaImage::new(wide, high);
-    let (w, h) = (wide as f32, high as f32);
-    let circle = (h * 0.44) as u32;
     let sprites = folder.map(skin_sprites);
     let part = |element: Element| sprites.as_ref().and_then(|have| sprite_of(have, element));
     let colours = folder.map(combo_colours).unwrap_or_default();
@@ -504,56 +596,78 @@ pub fn skin_pattern(folder: Option<&Path>, wide: u32, high: u32) -> Vec<u8> {
             (false, _) => Some(fallback[at % fallback.len()]),
         }
     };
-    let spots = [(0.24 * w, 0.66 * h), (0.47 * w, 0.34 * h), (0.70 * w, 0.62 * h)];
-    if let Some(trail) = part(Element::CursorTrail) {
-        for (step, away) in [(0.12, 0.30), (0.08, 0.45), (0.04, 0.6)] {
-            laid_at(&mut made, &trail, (circle as f32 * 0.42) as u32, 0.70 * w + step * w, 0.62 * h - step * h * 0.8, away);
-        }
-    }
-    for (at, (x, y)) in spots.iter().enumerate() {
-        let body = mine(at);
+    let (fx, fy, fr, fb) = FIELD;
+    let scale = (wide as f32 / (fr - fx)).min(high as f32 / (fb - fy));
+    let (left, top) = (
+        (wide as f32 - (fr - fx) * scale) / 2.0 - fx * scale,
+        (high as f32 - (fb - fy) * scale) / 2.0 - fy * scale,
+    );
+    let place = |x: f32, y: f32| (left + x * scale, top + y * scale);
+    let radius = NOTE_RADIUS * scale;
+    let rim = slider_rim(folder);
+    slider_road(&mut made, &[(96.0, 268.0), (150.0, 302.0), (215.0, 296.0), (262.0, 250.0)], radius, rim, place);
+    slider_road(&mut made, &[(330.0, 126.0), (386.0, 100.0), (436.0, 134.0)], radius, rim, place);
+    let notes = [
+        (96.0, 268.0, 1u8, 0usize, None),
+        (262.0, 250.0, 2, 0, Some(1.35)),
+        (330.0, 126.0, 3, 1, None),
+        (436.0, 134.0, 4, 1, Some(1.8)),
+    ];
+    for (x, y, number, combo, approach) in notes {
+        let (cx, cy) = place(x, y);
+        let body = mine(combo);
         match part(Element::HitCircle) {
             Some(drawing) => {
                 let drawing = match body {
                     Some(colour) => image::DynamicImage::ImageRgba8(tinted(drawing.to_rgba8(), colour)),
                     None => drawing,
                 };
-                laid_at(&mut made, &drawing, circle, *x, *y, 1.0);
+                laid_at(&mut made, &drawing, (radius * 2.0) as u32, cx, cy, 1.0);
             }
             None => {
-                let own = image::DynamicImage::ImageRgba8(drawn_circle(circle * 2, Some(body.unwrap_or([255, 192, 0])), 0.22));
-                laid_at(&mut made, &own, circle, *x, *y, 1.0);
+                let own = image::DynamicImage::ImageRgba8(drawn_circle((radius * 4.0) as u32, Some(body.unwrap_or([255, 192, 0])), 0.22));
+                laid_at(&mut made, &own, (radius * 2.0) as u32, cx, cy, 1.0);
             }
         }
         if let Some(over) = part(Element::HitCircleOverlay) {
-            laid_at(&mut made, &over, circle, *x, *y, 1.0);
+            laid_at(&mut made, &over, (radius * 2.0) as u32, cx, cy, 1.0);
         }
-        if let Some(number) = part(Element::Digit(at as u8 + 1)) {
-            laid_at(&mut made, &number, (circle as f32 * 0.36) as u32, *x, *y, 1.0);
+        match part(Element::Digit(number)) {
+            Some(drawing) => laid_at(&mut made, &drawing, (radius * 0.8) as u32, cx, cy, 1.0),
+            None => {}
         }
-    }
-    let (last_x, last_y) = spots[2];
-    match part(Element::ApproachCircle) {
-        Some(drawing) => {
-            let drawing = match mine(2) {
-                Some(colour) => image::DynamicImage::ImageRgba8(tinted(drawing.to_rgba8(), colour)),
-                None => drawing,
-            };
-            laid_at(&mut made, &drawing, (circle as f32 * 1.55) as u32, last_x, last_y, 0.9);
-        }
-        None => {
-            let ring = image::DynamicImage::ImageRgba8(drawn_circle(circle * 2, None, 0.05));
-            laid_at(&mut made, &ring, (circle as f32 * 1.55) as u32, last_x, last_y, 0.9);
+        if let Some(reach) = approach {
+            match part(Element::ApproachCircle) {
+                Some(drawing) => {
+                    let drawing = match body {
+                        Some(colour) => image::DynamicImage::ImageRgba8(tinted(drawing.to_rgba8(), colour)),
+                        None => drawing,
+                    };
+                    laid_at(&mut made, &drawing, (radius * 2.0 * reach) as u32, cx, cy, 0.85);
+                }
+                None => {
+                    let ring = image::DynamicImage::ImageRgba8(drawn_circle((radius * 4.0) as u32, None, 0.045));
+                    laid_at(&mut made, &ring, (radius * 2.0 * reach) as u32, cx, cy, 0.85);
+                }
+            }
         }
     }
     if let Some(verdict) = part(Element::Verdict(Verdict::Three)) {
-        laid_at(&mut made, &verdict, (circle as f32 * 0.8) as u32, spots[0].0, spots[0].1, 0.85);
+        let (vx, vy) = place(170.0, 190.0);
+        laid_at(&mut made, &verdict, (radius * 1.5) as u32, vx, vy, 0.9);
+    }
+    let (hand_x, hand_y) = place(262.0, 250.0);
+    if let Some(trail) = part(Element::CursorTrail) {
+        for (step, away) in [(0.35, 0.34), (0.7, 0.2), (1.05, 0.12)] {
+            let (tx, ty) = place(262.0 - 30.0 * step, 250.0 + 26.0 * step);
+            laid_at(&mut made, &trail, (radius * 0.8) as u32, tx, ty, away);
+        }
     }
     match part(Element::Cursor) {
-        Some(drawing) => laid_at(&mut made, &drawing, (circle as f32 * 0.62) as u32, 0.70 * w, 0.62 * h, 1.0),
+        Some(drawing) => laid_at(&mut made, &drawing, (radius * 1.1) as u32, hand_x, hand_y, 1.0),
         None => {
-            let dot = image::DynamicImage::ImageRgba8(drawn_circle(circle, Some([255, 255, 255]), 0.5));
-            laid_at(&mut made, &dot, (circle as f32 * 0.3) as u32, 0.70 * w, 0.62 * h, 1.0);
+            let dot = image::DynamicImage::ImageRgba8(drawn_circle((radius * 2.0) as u32, Some([255, 255, 255]), 0.42));
+            laid_at(&mut made, &dot, (radius * 0.5) as u32, hand_x, hand_y, 1.0);
         }
     }
     made.into_raw()

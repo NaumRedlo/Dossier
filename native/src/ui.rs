@@ -1653,6 +1653,108 @@ impl<Message> canvas::Program<Message> for Seek<'_, Message> {
     }
 }
 
+pub struct Compass<'a, Message> {
+    pub at: f32,
+    pub stops: Vec<f32>,
+    pub words: String,
+    pub alpha: f32,
+    pub on: Box<dyn Fn(f32) -> Message + 'a>,
+}
+
+#[derive(Debug, Default)]
+pub struct CompassState {
+    grabbed: bool,
+}
+
+impl<Message> canvas::Program<Message> for Compass<'_, Message> {
+    type State = CompassState;
+
+    fn update(&self, state: &mut CompassState, event: &iced::Event, bounds: Rectangle, cursor: mouse::Cursor) -> Option<canvas::Action<Message>> {
+        let nearest = |x: f32| -> f32 {
+            let part = ((x - bounds.x - COMPASS_INSET) / (bounds.width - 2.0 * COMPASS_INSET).max(1.0)).clamp(0.0, 1.0);
+            let last = (self.stops.len().max(2) - 1) as f32;
+            let at = (part * last).round() as usize;
+            self.stops.get(at).copied().unwrap_or(self.at)
+        };
+        match event {
+            iced::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
+                let at = cursor.position_in(bounds)?;
+                state.grabbed = true;
+                Some(canvas::Action::publish((self.on)(nearest(bounds.x + at.x))).and_capture())
+            }
+            iced::Event::Mouse(mouse::Event::CursorMoved { position }) if state.grabbed => {
+                Some(canvas::Action::publish((self.on)(nearest(position.x))).and_capture())
+            }
+            iced::Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) if state.grabbed => {
+                state.grabbed = false;
+                Some(canvas::Action::capture())
+            }
+            _ => None,
+        }
+    }
+
+    fn draw(&self, state: &CompassState, renderer: &Renderer, _: &Theme, bounds: Rectangle, cursor: mouse::Cursor) -> Vec<Geometry> {
+        let mut frame = Frame::new(renderer, bounds.size());
+        let lit = state.grabbed || cursor.is_over(bounds);
+        let (w, h) = (bounds.width, bounds.height);
+        let base = h - 5.0;
+        let span = w - 2.0 * COMPASS_INSET;
+        let last = (self.stops.len().max(2) - 1) as f32;
+        let here = self.stops.iter().position(|stop| (stop - self.at).abs() < 0.001).unwrap_or(0) as f32;
+        let at_x = COMPASS_INSET + span * (here / last);
+        frame.stroke(
+            &Path::line(Point::new(COMPASS_INSET, base), Point::new(w - COMPASS_INSET, base)),
+            Stroke::default().with_width(1.0).with_color(dim(Color::from_rgba(1.0, 1.0, 1.0, 0.16), self.alpha)),
+        );
+        for step in 0..=(self.stops.len().max(2) - 1) * 4 {
+            let part = step as f32 / (last * 4.0);
+            let x = COMPASS_INSET + span * part;
+            let big = step % 4 == 0;
+            let high = if big { 9.0 } else { 4.5 };
+            let shade = match big {
+                true => Color::from_rgba(1.0, 1.0, 1.0, if lit { 0.5 } else { 0.35 }),
+                false => Color::from_rgba(1.0, 1.0, 1.0, if lit { 0.26 } else { 0.16 }),
+            };
+            frame.stroke(
+                &Path::line(Point::new(x, base), Point::new(x, base - high)),
+                Stroke::default().with_width(if big { 1.6 } else { 1.0 }).with_color(dim(shade, self.alpha)),
+            );
+        }
+        let mark = Path::new(|b| {
+            b.move_to(Point::new(at_x, base - 13.0));
+            b.line_to(Point::new(at_x - 4.0, base - 20.0));
+            b.line_to(Point::new(at_x + 4.0, base - 20.0));
+            b.close();
+        });
+        frame.fill(&mark, dim(ACCENT, self.alpha));
+        frame.stroke(
+            &Path::line(Point::new(at_x, base - 12.0), Point::new(at_x, base - 1.0)),
+            Stroke::default().with_width(1.8).with_color(dim(ACCENT, self.alpha)),
+        );
+        frame.fill_text(canvas::Text {
+            content: self.words.clone(),
+            position: Point::new(at_x.clamp(16.0, w - 16.0), base - 24.0),
+            color: dim(if lit { INK } else { MUTED }, self.alpha),
+            size: 11.0.into(),
+            font: theme::MONO,
+            align_x: iced::alignment::Horizontal::Center.into(),
+            align_y: iced::alignment::Vertical::Bottom,
+            ..canvas::Text::default()
+        });
+        vec![frame.into_geometry()]
+    }
+
+    fn mouse_interaction(&self, state: &CompassState, bounds: Rectangle, cursor: mouse::Cursor) -> mouse::Interaction {
+        if state.grabbed || cursor.is_over(bounds) {
+            mouse::Interaction::Pointer
+        } else {
+            mouse::Interaction::default()
+        }
+    }
+}
+
+const COMPASS_INSET: f32 = 10.0;
+
 pub struct Level<'a, Message> {
     pub at: f32,
     pub alpha: f32,
@@ -1984,7 +2086,7 @@ impl<Message> canvas::Program<Message> for Steps<'_, Message> {
             &Path::rounded_rectangle(Point::ORIGIN, Size::new(w, h), 7.0.into()),
             dim(Color::from_rgba(1.0, 1.0, 1.0, if lit { 0.055 } else { 0.04 }), self.alpha),
         );
-        if x > 2.0 {
+        if at > 0.004 && x > STEP_INSET + 2.0 {
             frame.fill(
                 &Path::rounded_rectangle(Point::ORIGIN, Size::new(x, h), 7.0.into()),
                 dim(Color::from_rgba(0.886, 0.282, 0.282, if lit { 0.2 } else { 0.15 }), self.alpha),

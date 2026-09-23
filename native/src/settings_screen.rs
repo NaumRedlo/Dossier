@@ -651,6 +651,11 @@ pub async fn pick_folder() -> Option<Source> {
     sources::read(picked.path())
 }
 
+pub async fn pick_skin() -> Option<PathBuf> {
+    let picked = rfd::AsyncFileDialog::new().add_filter("osu!", &["osk", "ini"]).pick_file().await?;
+    Some(picked.path().to_path_buf())
+}
+
 pub async fn pick_renders() -> Option<PathBuf> {
     let picked = rfd::AsyncFileDialog::new().pick_folder().await?;
     Some(picked.path().to_path_buf())

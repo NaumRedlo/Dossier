@@ -15,6 +15,8 @@ pub const HEIGHT: u32 = 720;
 
 pub const RATES: [f32; 6] = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
 
+const SHOWN_FPS: f64 = 60.0;
+
 #[derive(Debug, Clone, Copy)]
 pub struct Manner {
     pub level: f32,
@@ -138,6 +140,10 @@ impl Player {
         self.rate
     }
 
+    fn shown_fps(&self) -> f64 {
+        (SHOWN_FPS / self.rate as f64).min(self.fps as f64).max(6.0)
+    }
+
     pub fn set_rate(&mut self, rate: f32) {
         let rate = steady(rate);
         if (rate - self.rate).abs() < 0.001 {
@@ -155,11 +161,12 @@ impl Player {
     }
 
     pub fn pull(&mut self) {
+        let mut latest: Option<Vec<u8>> = None;
         loop {
             match self.frames.try_recv() {
                 Ok((at, rgba)) => {
                     self.at_ms.store(at, Ordering::Relaxed);
-                    self.frame = Some(image::Handle::from_rgba(WIDTH, HEIGHT, rgba));
+                    latest = Some(rgba);
                 }
                 Err(TryRecvError::Empty) => break,
                 Err(TryRecvError::Disconnected) => {
@@ -171,6 +178,9 @@ impl Player {
                     break;
                 }
             }
+        }
+        if let Some(rgba) = latest {
+            self.frame = Some(image::Handle::from_rgba(WIDTH, HEIGHT, rgba));
         }
     }
 
@@ -242,10 +252,11 @@ impl Player {
     }
 
     fn spawn_video(&self, from_ms: i64, tx: SyncSender<(i64, Vec<u8>)>) {
+        let shown = self.shown_fps();
         let mut child = match Command::new(&self.ffmpeg)
             .args(["-hide_banner", "-loglevel", "error", "-ss", &seconds(from_ms), "-i"])
             .arg(&self.path)
-            .args(["-an", "-f", "rawvideo", "-pix_fmt", "rgba", "-vf", &format!("scale={WIDTH}:{HEIGHT}"), "-"])
+            .args(["-an", "-f", "rawvideo", "-pix_fmt", "rgba", "-vf", &format!("scale={WIDTH}:{HEIGHT},fps={shown:.4}"), "-"])
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .stdin(Stdio::null())
@@ -262,8 +273,7 @@ impl Player {
         }
         let stop = self.stop.clone();
         let hold = self.hold.clone();
-        let fps = self.fps;
-        let pace = self.fps as f64 * self.rate as f64;
+        let pace = shown * self.rate as f64;
         let frame_bytes = (WIDTH * HEIGHT * 4) as usize;
         thread::spawn(move || {
             let started = Instant::now();
@@ -294,7 +304,7 @@ impl Player {
                         held += paused_at.elapsed();
                     }
                 }
-                let at = from_ms + (index as f64 * 1000.0 / fps as f64) as i64;
+                let at = from_ms + (index as f64 * 1000.0 / shown) as i64;
                 if tx.send((at, buffer.clone())).is_err() {
                     return;
                 }
@@ -405,8 +415,9 @@ fn steady(rate: f32) -> f32 {
 }
 
 pub fn next_rate(rate: f32, by: i32) -> f32 {
+    let many = RATES.len() as i32;
     let at = RATES.iter().position(|r| (r - steady(rate)).abs() < 0.001).unwrap_or(2) as i32;
-    RATES[(at + by).clamp(0, RATES.len() as i32 - 1) as usize]
+    RATES[(at + by).rem_euclid(many) as usize]
 }
 
 #[cfg(test)]
@@ -421,11 +432,11 @@ mod tests {
     }
 
     #[test]
-    fn the_speed_walks_the_steps_and_stops_at_the_ends() {
+    fn the_speed_walks_the_steps_and_comes_round_again() {
         assert_eq!(next_rate(1.0, 1), 1.25);
         assert_eq!(next_rate(1.0, -1), 0.75);
-        assert_eq!(next_rate(2.0, 1), 2.0);
-        assert_eq!(next_rate(0.5, -1), 0.5);
+        assert_eq!(next_rate(2.0, 1), 0.5, "the last step leads back to the first");
+        assert_eq!(next_rate(0.5, -1), 2.0);
     }
 }
 

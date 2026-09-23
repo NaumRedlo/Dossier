@@ -190,6 +190,20 @@ for a host that has supplied no folder. A blank still ends the search wherever
 it is found: laying osu!'s own underneath must not put back a sound somebody
 deliberately removed.
 
+### The spinner's two sounds are bankless in stable and banked in lazer
+
+stable loads `spinnerspin` (the loop whose frequency climbs as the spinner is
+turned) and `spinnerbonus` through its sample loader with the flag that
+skips the `{set}-` prefix, so it only ever asks for the bare name; a skin's
+`normal-spinnerspin`, `soft-spinnerspin` and `drum-spinnerspin` are never
+read. lazer looks a spinner's samples up as it looks every sample up — the
+banked name first, the bare one after. A skin can therefore sound different
+in the two clients, and some do on purpose: one read on 2026-09-23 ships a
+44-byte, blank `spinnerspin.wav` beside three real banked ones, so its
+spinner is silent in stable and spins in lazer. The engine follows the
+client that recorded the replay — `SamplePack::looked_up_as_lazer` is set
+for a lazer replay, and only these two voices take the banked name first.
+
 ## How the client actually reads a skin
 
 The types survived. All nine in `osu.Graphics.Skinning` keep their own names —

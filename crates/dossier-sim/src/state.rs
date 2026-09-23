@@ -435,6 +435,10 @@ impl GameState {
         &self.timeline.difficulty
     }
 
+    pub fn from_lazer(&self) -> bool {
+        self.lazer
+    }
+
     pub fn spin(&self) -> crate::judge::Spin {
         crate::judge::Spin {
             spun_out: self.timeline.mods.contains(dossier_replay::bits::SPUN_OUT),

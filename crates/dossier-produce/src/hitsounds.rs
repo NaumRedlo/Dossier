@@ -15,6 +15,7 @@ pub fn build(
     pack: SamplePack,
     layering: bool,
 ) -> Track {
+    let pack = if state.from_lazer() { pack.looked_up_as_lazer() } else { pack };
     let mut track = Track::new(video_seconds, kit).with_samples(pack);
     let Some(judge) = state.judge() else {
         return track;

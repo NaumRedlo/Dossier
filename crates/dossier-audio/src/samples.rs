@@ -34,6 +34,10 @@ pub struct SamplePack {
     beatmap: Banks,
 
     game: Banks,
+
+    banked_spinner: HashMap<(SampleSet, Voice), Vec<f32>>,
+
+    lazer: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -81,6 +85,8 @@ const BANKLESS: [(Voice, &str); 5] = [
     (Voice::SectionPass, "sectionpass"),
     (Voice::SectionFail, "sectionfail"),
 ];
+
+const SPINNER: [(Voice, &str); 2] = [(Voice::Bonus, "spinnerbonus"), (Voice::Spin, "spinnerspin")];
 
 const SOUND_ENDINGS: [&str; 3] = ["wav", "ogg", "mp3"];
 
@@ -144,6 +150,14 @@ impl SamplePack {
                 skin.insert((SampleSet::Normal, voice, 1), samples);
             }
         }
+        let mut banked_spinner = HashMap::new();
+        for (voice, name) in SPINNER {
+            for set in SampleSet::ALL {
+                if let Some(samples) = files.get(&format!("{}-{name}", set.name())).and_then(|path| Self::read(path)) {
+                    banked_spinner.insert((set, voice), samples);
+                }
+            }
+        }
 
         let mut guessed = Vec::new();
         for name in unfiled_in(folder) {
@@ -171,7 +185,22 @@ impl SamplePack {
             skin,
             beatmap: HashMap::new(),
             game: HashMap::new(),
+            banked_spinner,
+            lazer: false,
         }
+    }
+
+    #[must_use]
+    pub fn looked_up_as_lazer(mut self) -> Self {
+        self.lazer = true;
+        self
+    }
+
+    fn lazer_first(&self, set: SampleSet, voice: Voice) -> Option<&Vec<f32>> {
+        if !self.lazer {
+            return None;
+        }
+        self.banked_spinner.get(&(set, voice))
     }
 
     pub fn unused(&self) -> &[String] {
@@ -196,7 +225,7 @@ impl SamplePack {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.skin.is_empty() && self.beatmap.is_empty()
+        self.skin.is_empty() && self.beatmap.is_empty() && self.banked_spinner.is_empty()
     }
 
     pub fn len(&self) -> usize {
@@ -226,6 +255,9 @@ impl SamplePack {
     }
 
     pub fn trace(&self, set: SampleSet, voice: Voice, index: u32) -> Found {
+        if let Some(sound) = self.lazer_first(set, voice) {
+            return if sound.is_empty() { Found::Blank } else { Found::SkinPlain };
+        }
         let index = index.max(1);
         for (store, at, step) in self.ladder(set, voice, index) {
             if let Some(sound) = store.get(&at) {
@@ -236,6 +268,9 @@ impl SamplePack {
     }
 
     pub fn get(&self, set: SampleSet, voice: Voice, index: u32) -> Option<&[f32]> {
+        if let Some(sound) = self.lazer_first(set, voice) {
+            return Some(sound.as_slice());
+        }
         let index = index.max(1);
         for (store, at, _) in self.ladder(set, voice, index) {
             if let Some(sound) = store.get(&at) {
@@ -279,7 +314,8 @@ fn unfiled_in(folder: &Path) -> Vec<String> {
         .into_keys()
         .filter(|stem| {
             let bankless = BANKLESS.iter().any(|(_, name)| name == stem);
-            parse_sample_name(stem).is_none() && !bankless
+            let banked_spinner = SPINNER.iter().any(|(_, name)| SampleSet::ALL.iter().any(|set| *stem == format!("{}-{name}", set.name())));
+            parse_sample_name(stem).is_none() && !bankless && !banked_spinner
         })
         .collect();
     out.sort();
@@ -495,6 +531,30 @@ mod tests {
         assert!(found["normal-hitnormal"]
             .to_string_lossy()
             .ends_with(".wav"));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_lazer_replay_hears_the_banked_spinner_a_stable_one_does_not() {
+        let dir = std::env::temp_dir().join(format!("dossier-spinner-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("a place to write");
+        let tone: Vec<i16> = (0..(SAMPLE_RATE / 8) as i16).map(|n| (n % 64) * 200).collect();
+        std::fs::write(dir.join("spinnerspin.wav"), wav(2, 16, SAMPLE_RATE, &[])).expect("written");
+        std::fs::write(dir.join("soft-spinnerspin.wav"), wav(2, 16, SAMPLE_RATE, &tone)).expect("written");
+        std::fs::write(dir.join("normal-spinnerbonus.wav"), wav(2, 16, SAMPLE_RATE, &tone)).expect("written");
+
+        let stable = SamplePack::load(&dir);
+        assert_eq!(stable.get(SampleSet::Soft, Voice::Spin, 1).map(<[f32]>::len), Some(0), "stable reads only the bare name, and it is blank");
+        assert_eq!(stable.trace(SampleSet::Soft, Voice::Spin, 1), Found::Blank);
+        assert!(stable.unused().is_empty(), "a banked spinner sound is not an unknown file: {:?}", stable.unused());
+
+        let lazer = SamplePack::load(&dir).looked_up_as_lazer();
+        assert!(lazer.get(SampleSet::Soft, Voice::Spin, 1).is_some_and(|sound| !sound.is_empty()));
+        assert_eq!(lazer.trace(SampleSet::Soft, Voice::Spin, 1), Found::SkinPlain);
+        assert_eq!(lazer.get(SampleSet::Normal, Voice::Spin, 1).map(<[f32]>::len), Some(0), "no normal-spinnerspin: the bare blank again");
+        assert!(lazer.get(SampleSet::Normal, Voice::Bonus, 1).is_some_and(|sound| !sound.is_empty()));
 
         let _ = std::fs::remove_dir_all(&dir);
     }

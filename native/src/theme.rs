@@ -267,7 +267,7 @@ pub const MOD_AUTO: Color = color!(0x5694d6);
 pub const MOD_OTHER: Color = color!(0x9668ce);
 
 pub const SCRIM: Color = Color::from_rgba(0.027, 0.012, 0.016, 0.72);
-pub const DEEP_SCRIM: Color = Color::from_rgba(0.016, 0.008, 0.011, 0.88);
+pub const DEEP_SCRIM: Color = Color::from_rgba(0.016, 0.008, 0.011, 0.92);
 pub const CHIP: Color = Color::from_rgba(0.027, 0.012, 0.016, 0.72);
 
 pub const FRAME_W: f32 = 108.0;
@@ -653,8 +653,9 @@ pub fn asking(_: &Theme) -> container::Style {
 
 pub fn under_picture(_: &Theme) -> container::Style {
     let scrim = iced::gradient::Linear::new(std::f32::consts::PI)
-        .add_stop(0.0, Color::from_rgba(0.02, 0.01, 0.015, 0.86))
-        .add_stop(0.72, Color::from_rgba(0.02, 0.01, 0.015, 0.5))
+        .add_stop(0.0, Color::from_rgba(0.02, 0.01, 0.015, 0.82))
+        .add_stop(0.35, Color::from_rgba(0.02, 0.01, 0.015, 0.62))
+        .add_stop(0.72, Color::from_rgba(0.02, 0.01, 0.015, 0.22))
         .add_stop(1.0, Color::from_rgba(0.02, 0.01, 0.015, 0.0));
     container::Style {
         text_color: None,

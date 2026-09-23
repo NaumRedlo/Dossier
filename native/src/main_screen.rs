@@ -102,6 +102,7 @@ pub enum Message {
     PlayerSpeed(f32),
     PlayerLoop,
     PlayerWiden,
+    PlayerStir,
     PlayerNeighbour(i32),
     Typed(char),
     RevealVideo,
@@ -271,6 +272,9 @@ pub struct Main {
     pub cinema: Animation<bool>,
     pub widened: Animation<bool>,
     pub scrubbing: Option<f32>,
+    pub controls: Animation<bool>,
+    pub ask_fade: Animation<bool>,
+    pub stirred: Instant,
     pub hint: Option<(String, Instant)>,
     pub notices: notices::Queue,
     pub toasts: Vec<Toast>,
@@ -376,6 +380,9 @@ impl Main {
             cinema: Animation::new(false).duration(CINEMA).easing(Easing::EaseOutCubic),
             widened: Animation::new(false).duration(WIDEN).easing(Easing::EaseOutCubic),
             scrubbing: None,
+            controls: Animation::new(true).duration(CONTROLS_FADE).easing(Easing::EaseOutCubic),
+            ask_fade: Animation::new(false).duration(CINEMA).easing(Easing::EaseOutCubic),
+            stirred: Instant::now(),
             hint: None,
             notices: notices::Queue::load(),
             toasts: Vec::new(),
@@ -500,6 +507,10 @@ impl Main {
             || self.player.as_ref().is_some_and(|p| !p.borrow().paused)
             || self.cinema.is_animating(self.now)
             || self.cinema.value() != self.player.is_some()
+            || self.controls.is_animating(self.now)
+            || self.ask_fade.is_animating(self.now)
+            || self.ask_fade.value() != self.asking_delete
+            || self.player.as_ref().is_some_and(|p| p.borrow().paused && !self.controls.value())
             || self.room_fade.is_animating(self.now)
             || self.widened.is_animating(self.now)
             || self.hint.is_some()
@@ -1191,6 +1202,14 @@ impl Main {
                 self.say(format!("×{}", self.words.rate(rate)));
                 Task::none()
             }
+            Message::PlayerStir => {
+                let now = Instant::now();
+                self.stirred = now;
+                if !self.controls.value() {
+                    self.controls.go_mut(true, now);
+                }
+                Task::none()
+            }
             Message::PlayerLoop => {
                 let over = !self.settings.player_loop;
                 self.settings.player_loop = over;
@@ -1704,6 +1723,14 @@ impl Main {
                 if self.cinema.value() != watching {
                     self.cinema.go_mut(watching, now);
                 }
+                if self.ask_fade.value() != self.asking_delete {
+                    self.ask_fade.go_mut(self.asking_delete, now);
+                }
+                let resting = self.player.as_ref().is_some_and(|p| p.borrow().paused);
+                let shown = resting || self.scrubbing.is_some() || now.saturating_duration_since(self.stirred) < CONTROLS_STAY;
+                if watching && self.controls.value() != shown {
+                    self.controls.go_mut(shown, now);
+                }
                 if !watching && self.widened.value() {
                     self.widened.go_mut(false, now);
                 }
@@ -2076,7 +2103,7 @@ impl Main {
         let menu = self.menu_layer();
         let signing = self.sign_in_layer();
         let failure = self.error_layer();
-        let ask: Element<'_, Message> = if self.asking_delete {
+        let ask: Element<'_, Message> = if self.asking_delete || self.ask_fade.is_animating(self.now) {
             self.delete_card()
         } else {
             blank()
@@ -2659,7 +2686,7 @@ impl Main {
                 None => Space::new().width(Length::Fill).height(Length::Fill).into(),
             },
         };
-        let mark: Element<'_, Message> = if player.paused {
+        let mark: Element<'_, Message> = if player.paused && !self.asking_delete {
             let kind = if player.ended() { ui::Control::Again } else { ui::Control::Play };
             container(ui::halo(kind, 72.0, 1.0))
                 .width(Length::Fill)
@@ -2761,15 +2788,21 @@ impl Main {
         let room_h = (self.height - 2.0 * gap - STAGE_TOP - under_h - 2.0 * PICTURE_INSET).max(180.0);
         let screen_h = (room_w * 9.0 / 16.0).min(room_h).floor();
         let screen_w = (screen_h * 16.0 / 9.0).min(room_w).floor();
-        let under_picture = container(column![container(seek).padding(Padding::ZERO.right(4.0).left(4.0)), container(keys).height(46.0)].width(Length::Fill))
-            .width(Length::Fill)
-            .padding(Padding { top: 26.0, right: 10.0, bottom: 4.0, left: 10.0 })
-            .style(ui::box_at(theme::under_picture, ui::fade()));
-        let controls: Element<'_, Message> = container(under_picture)
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .align_y(iced::alignment::Vertical::Bottom)
-            .into();
+        let out = self.controls.interpolate(0.0, 1.0, self.now);
+        let controls: Element<'_, Message> = match out > 0.004 {
+            true => ui::fading(ui::fade() * out, || {
+                let under_picture = container(column![container(seek).padding(Padding::ZERO.right(4.0).left(4.0)), container(keys).height(46.0)].width(Length::Fill))
+                    .width(Length::Fill)
+                    .padding(Padding { top: 12.0, right: 10.0, bottom: 4.0, left: 10.0 })
+                    .style(ui::box_at(theme::under_picture, ui::fade()));
+                container(ui::grown(under_picture, iced::Point::new(0.5, 1.0), -(1.0 - out) * 14.0, 1.0))
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+                    .align_y(iced::alignment::Vertical::Bottom)
+                    .into()
+            }),
+            false => Space::new().width(Length::Fill).height(Length::Fill).into(),
+        };
         let screen = mouse_area(
             container(stack![picture, mark, hint, controls].width(screen_w).height(screen_h))
                 .width(screen_w)
@@ -2779,6 +2812,7 @@ impl Main {
         )
         .on_press(Message::PlayerToggle)
         .on_double_click(Message::PlayerWiden)
+        .on_move(|_| Message::PlayerStir)
         .on_scroll(|delta| {
             let up = match delta {
                 iced::mouse::ScrollDelta::Lines { y, .. } => y,
@@ -2846,49 +2880,51 @@ impl Main {
         let Some(video) = self.open_video.and_then(|at| self.store.videos.get(at)) else {
             return Space::new().width(Length::Fill).height(Length::Fill).into();
         };
-        let picture: Element<'_, Message> = match self.thumbs.get(&video.map_hash) {
-            Some(handle) => image(handle.clone())
-                .content_fit(ContentFit::Cover)
-                .width(ASK_THUMB.0)
-                .height(ASK_THUMB.1)
-                .border_radius(8.0)
-                .opacity(ui::fade())
-                .into(),
-            None => container(ui::fine_hatch()).width(ASK_THUMB.0).height(ASK_THUMB.1).into(),
-        };
-        let said = column![
-            text(video.player.clone()).font(theme::SANS_SEMI).size(theme::BODY).wrapping(text::Wrapping::None).color(ui::faded(INK)),
-            text(ui::shortened(video.map_line(), 46)).font(theme::SANS).size(theme::CAPTION).wrapping(text::Wrapping::None).color(ui::faded(MUTED)),
-            text(w.mb(video.size)).font(theme::MONO).size(11.0).wrapping(text::Wrapping::None).color(ui::faded(FAINT)),
-        ]
-        .spacing(3);
-        let top = column![
-            ui::title(w.t("delete-video")),
-            container(row![picture, said].spacing(14).align_y(iced::Center)).padding(Padding { top: 14.0, right: 0.0, bottom: 12.0, left: 0.0 }),
-            text(w.t("to-the-bin")).font(theme::SANS).size(theme::CAPTION).color(ui::faded(MUTED)),
-        ]
-        .spacing(2);
-        let bottom = row![ui::grow(), ui::quiet(w.t("keep"), Some(Message::KeepVideo)), ui::primary(w.t("delete"), Some(Message::DeleteVideo))]
+        let k = self.ask_fade.interpolate(0.0, 1.0, self.now);
+        ui::fading(k, || {
+            let picture: Element<'_, Message> = match self.thumbs.get(&video.map_hash) {
+                Some(handle) => image(handle.clone())
+                    .content_fit(ContentFit::Cover)
+                    .width(ASK_THUMB.0)
+                    .height(ASK_THUMB.1)
+                    .border_radius(10.0)
+                    .opacity(ui::fade())
+                    .into(),
+                None => container(ui::fine_hatch()).width(ASK_THUMB.0).height(ASK_THUMB.1).into(),
+            };
+            let who = match video.map_line().is_empty() {
+                true => format!("{} · {}", video.player, w.mb(video.size)),
+                false => format!("{} — {} · {}", video.player, ui::shortened(video.map_line(), 44), w.mb(video.size)),
+            };
+            let middle = column![
+                picture,
+                container(text(w.t("delete-video")).font(theme::SANS_SEMI).size(20.0).color(ui::faded(INK))).padding(Padding::ZERO.top(16.0)),
+                text(who).font(theme::SANS).size(theme::CAPTION).align_x(iced::Center).color(ui::faded(MUTED)),
+                text(w.t("to-the-bin")).font(theme::SANS).size(11.0).align_x(iced::Center).color(ui::faded(FAINT)),
+                container(
+                    row![ui::quiet(w.t("keep"), Some(Message::KeepVideo)), ui::primary(w.t("delete"), Some(Message::DeleteVideo))]
+                        .spacing(8)
+                        .align_y(iced::Center)
+                )
+                .padding(Padding::ZERO.top(18.0)),
+            ]
             .spacing(6)
-            .align_y(iced::Center);
-        let inside = column![
-            container(top).padding(Padding { top: 20.0, right: 22.0, bottom: 18.0, left: 22.0 }),
-            container(Space::new().height(1.0)).width(Length::Fill).style(theme::rule),
-            container(bottom).padding(Padding { top: 14.0, right: 16.0, bottom: 16.0, left: 22.0 }),
-        ];
-        let card = container(inside).width(ASK_WIDE).style(ui::box_faded(theme::asking));
-        stack![
-            mouse_area(ui::veil(theme::DEEP_SCRIM)).on_press(Message::KeepVideo),
-            container(card).width(Length::Fill).height(Length::Fill).center(Length::Fill),
-        ]
-        .width(Length::Fill)
-        .height(Length::Fill)
-        .into()
+            .align_x(iced::Center)
+            .width(ASK_WIDE);
+            let risen = ui::grown(middle, iced::Point::new(0.5, 0.5), (1.0 - k) * -10.0, 0.97 + 0.03 * k);
+            stack![
+                mouse_area(ui::veil(theme::DEEP_SCRIM)).on_press(Message::KeepVideo),
+                container(risen).width(Length::Fill).height(Length::Fill).center(Length::Fill),
+            ]
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .into()
+        })
     }
 }
 
-const ASK_THUMB: (f32, f32) = (112.0, 63.0);
-const ASK_WIDE: f32 = 460.0;
+const ASK_THUMB: (f32, f32) = (176.0, 99.0);
+const ASK_WIDE: f32 = 400.0;
 const VIDEO_THUMB: (u32, u32) = (96, 54);
 pub const RETYPE: Duration = Duration::from_millis(900);
 pub const MARK: Duration = Duration::from_millis(200);
@@ -3896,6 +3932,8 @@ pub const NOTICE_ARRIVE: Duration = Duration::from_millis(260);
 pub const CINEMA: Duration = Duration::from_millis(220);
 pub const WIDEN: Duration = Duration::from_millis(260);
 pub const HINT_SHOWN: Duration = Duration::from_millis(900);
+pub const CONTROLS_FADE: Duration = Duration::from_millis(260);
+pub const CONTROLS_STAY: Duration = Duration::from_secs(3);
 pub const OVERLAY_FADE: Duration = Duration::from_millis(220);
 pub const GROUND_UP: Duration = Duration::from_millis(110);
 pub const TOAST_STAY: Duration = Duration::from_secs(6);

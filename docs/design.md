@@ -441,9 +441,10 @@ stay and the rest dims a little. Sending to Telegram happens only here,
 with the same one-word progress button (*Отправляю*, the fill following
 the bytes) and the ring on the avatar; done, the button returns and the
 top-right card says where it went. Deleting is the screen's one
-question, and it is a card of its own over a deeper scrim: the video's frame,
-its name and weight, then the line about the bin, and the two answers in a
-footer of their own. A render that finishes while its own replay is the one
+question, asked the way the first application asked it: no card, only a
+deeper scrim and a small centred stack — the video's frame, *Удалить видео?*,
+who and the weight, the line about the bin, and the two answers side by side
+— rising and fading in over 220 ms. A render that finishes while its own replay is the one
 on the screen writes itself into the feed without the top-right card — the
 person is already looking at it. With no videos yet,
 one line and a *К реплеям* button under it. Drawn in

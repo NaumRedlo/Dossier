@@ -636,6 +636,52 @@ fn chart<'a>(ground: &Ground<'a>, card: &wire::Card) -> Element<'a, Message> {
     slab(column![head.push(ui::grow()).push(control), canvas].spacing(12), [16, 18]).into()
 }
 
+fn score_rows<'a>(ground: &Ground<'a>, card: &wire::Card) -> Element<'a, Message> {
+    let w = ground.words;
+    let mut rows = column![].spacing(2);
+    for (index, score) in card.top_scores.iter().take(5).enumerate() {
+        let open = ground.play_open == Some(index);
+        let grade = match score.rank.to_ascii_uppercase().as_str() {
+            "X" | "XH" | "SS" | "SSH" => "SS".to_owned(),
+            "SH" => "S".to_owned(),
+            other => other.to_owned(),
+        };
+        let line = match (score.artist.is_empty(), score.version.is_empty()) {
+            (false, false) => format!("{} — {} [{}]", score.artist, score.title, score.version),
+            (false, true) => format!("{} — {}", score.artist, score.title),
+            _ => score.title.clone(),
+        };
+        let mods: Vec<String> = score.mods.split(',').map(str::trim).filter(|m| !m.is_empty() && *m != "CL" && *m != "NM").map(str::to_owned).collect();
+        let cover = score.cover().and_then(|url| ground.pictures.get(&url)).or_else(|| ground.thumbs.get(&score.hash));
+        let picture: Element<'a, Message> = match cover {
+            Some(handle) => iced::widget::image(handle.clone()).content_fit(iced::ContentFit::Cover).width(72.0).height(40.0).border_radius(6.0).opacity(ui::fade()).into(),
+            None => container(ui::fine_hatch()).width(72.0).height(40.0).into(),
+        };
+        let line = row![
+            ui::mono_small(format!("{}", index + 1), FAINT),
+            picture,
+            column![
+                text(ui::shortened(line, 56)).font(theme::SANS).size(13.0).wrapping(text::Wrapping::None).color(ui::faded(INK)),
+                row![ui::mono_small(w.percent(score.accuracy), MUTED), screen::mods(&mods)].spacing(6).align_y(iced::Center),
+            ]
+            .spacing(3)
+            .width(Length::Fill),
+            column![ui::mono(format!("{} pp", screen::decimal(w, score.pp as f32, 0)), INK), screen::grade(&grade, 12.0)].spacing(2).align_x(iced::alignment::Horizontal::Right),
+        ]
+        .spacing(12)
+        .align_y(iced::Center);
+        let mut inside = column![line].spacing(8);
+        if open {
+            let counted = |n: f64| (n > 0.0 || score.great > 0.0).then_some(n as u32);
+            let combo = (score.max_combo > 0.0).then(|| (score.max_combo as u32, if score.map_max_combo > 0.0 { score.map_max_combo as u32 } else { score.max_combo as u32 }));
+            let stars = (score.stars > 0.0).then_some(score.stars as f32);
+            inside = inside.push(container(chronicle::counts_row(ground, [counted(score.great), counted(score.ok), counted(score.meh), counted(score.miss)], combo, stars)).padding(Padding { top: 0.0, right: 0.0, bottom: 4.0, left: 24.0 }));
+        }
+        rows = rows.push(button(inside).padding([6, 8]).width(Length::Fill).style(ui::button_faded(theme::row(open))).on_press(Message::PlayOpen(index)));
+    }
+    slab(column![row![caption(w.t("best-plays")), ui::grow(), ui::mono_small(w.t("press-to-open"), FAINT)].align_y(iced::Center), rows].spacing(8), [14, 16]).into()
+}
+
 fn top_plays<'a>(ground: &Ground<'a>, you: &Person) -> Element<'a, Message> {
     let w = ground.words;
     let mut rows = column![].spacing(2);
@@ -845,10 +891,11 @@ pub fn view<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
         return container(ui::mono_small(w.t("nothing-yet"), FAINT)).center(Length::Fill).into();
     };
     let rolled = |inside: Element<'a, Message>| -> Element<'a, Message> {
-        scrollable(container(inside).padding(Padding { top: 2.0, right: 8.0, bottom: 28.0, left: 0.0 })).style(ui::thin_scroll).height(Length::Fill).into()
+        scrollable(container(inside).padding(Padding { top: 2.0, right: 8.0, bottom: 28.0, left: 0.0 })).style(ui::thin_scroll).direction(ui::hidden_bar()).height(Length::Fill).into()
     };
     let wide = ground.width >= LEFT + RIGHT + 540.0 + 32.0 + 80.0;
-    let middle = column![metrics(ground, &card_data), chart(ground, &card_data), top_plays(ground, you)].spacing(14);
+    let best = if card_data.top_scores.iter().any(|score| score.pp > 0.0 && score.hash.is_empty()) { score_rows(ground, &card_data) } else { top_plays(ground, you) };
+    let middle = column![metrics(ground, &card_data), chart(ground, &card_data), best].spacing(14);
     let content: Element<'a, Message> = if wide {
         row![
             container(rolled(column![identity(ground, you, &card_data), places(ground)].spacing(14).into())).width(LEFT).height(Length::Fill),

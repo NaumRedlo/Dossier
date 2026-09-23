@@ -18,6 +18,7 @@ pub mod main_screen;
 pub mod maps;
 pub mod news;
 pub mod notices;
+pub mod osu_profile;
 pub mod player;
 pub mod render;
 pub mod scan;

@@ -454,8 +454,13 @@ fn made<'a>(ground: &Ground<'a>, event: &Event<'a>) -> Option<Made<'a>> {
             } else {
                 screen::rich(&spans, INK, 13.0)
             };
-            let body: Element<'a, Message> = match post.image.as_deref() {
-                Some(url) => row![screen::thumb(ground, Some(url), 96.0, 96.0), container(words).width(Length::Fill).max_height(120.0).clip(true)].spacing(14).align_y(iced::Center).into(),
+            let side: Option<Element<'a, Message>> = match (post.image.as_deref(), post.videos.first()) {
+                (Some(url), _) => Some(screen::thumb(ground, Some(url), 96.0, 96.0)),
+                (None, Some(video)) => Some(screen::video_tile(ground, video, false, 96.0)),
+                (None, None) => None,
+            };
+            let body: Element<'a, Message> = match side {
+                Some(side) => row![side, container(words).width(Length::Fill).max_height(120.0).clip(true)].spacing(14).align_y(iced::Center).into(),
                 None => container(words).width(Length::Fill).max_height(120.0).clip(true).into(),
             };
             Made {
@@ -590,7 +595,7 @@ fn timeline<'a>(ground: &Ground<'a>, pills_here: bool) -> Element<'a, Message> {
     }
     scrollable(container(list).padding(Padding { top: 2.0, right: 10.0, bottom: 28.0, left: 2.0 }))
         .id(iced::widget::Id::new("community-feed"))
-        .style(ui::thin_scroll)
+        .style(ui::thin_scroll).direction(ui::hidden_bar())
         .width(Length::Fill)
         .height(Length::Fill)
         .into()
@@ -1027,10 +1032,10 @@ pub fn view<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
         if me_first {
             side = side.push(filters_card(ground));
         }
-        scrollable(container(side).padding(Padding { top: 2.0, right: 8.0, bottom: 28.0, left: 0.0 })).style(ui::thin_scroll).height(Length::Fill).into()
+        scrollable(container(side).padding(Padding { top: 2.0, right: 8.0, bottom: 28.0, left: 0.0 })).style(ui::thin_scroll).direction(ui::hidden_bar()).height(Length::Fill).into()
     };
     let content: Element<'a, Message> = if wide_enough {
-        let left = scrollable(container(column![me_card(ground), filters_card(ground)].spacing(12)).padding(Padding { top: 2.0, right: 6.0, bottom: 28.0, left: 0.0 })).style(ui::thin_scroll).height(Length::Fill);
+        let left = scrollable(container(column![me_card(ground), filters_card(ground)].spacing(12)).padding(Padding { top: 2.0, right: 6.0, bottom: 28.0, left: 0.0 })).style(ui::thin_scroll).direction(ui::hidden_bar()).height(Length::Fill);
         row![
             container(left).width(LEFT_WIDE).height(Length::Fill),
             container(timeline(ground, false)).width(Length::Fill).height(Length::Fill),

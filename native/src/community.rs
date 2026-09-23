@@ -1066,6 +1066,18 @@ pub mod wire {
         pub beatmapset_id: f64,
         #[serde(default, deserialize_with = "words")]
         pub creator: String,
+        #[serde(default, deserialize_with = "number")]
+        pub great: f64,
+        #[serde(default, deserialize_with = "number")]
+        pub ok: f64,
+        #[serde(default, deserialize_with = "number")]
+        pub meh: f64,
+        #[serde(default, deserialize_with = "number")]
+        pub miss: f64,
+        #[serde(default, deserialize_with = "number")]
+        pub stars: f64,
+        #[serde(default, deserialize_with = "number")]
+        pub map_max_combo: f64,
         #[serde(skip)]
         pub hash: String,
     }

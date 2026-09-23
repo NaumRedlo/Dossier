@@ -51,7 +51,7 @@ impl Reading {
                     _ => None,
                 }))
                 .collect(),
-            Reading::Post(post) => post.image.iter().cloned().collect(),
+            Reading::Post(post) => post.images.iter().cloned().chain(post.image.iter().cloned()).chain(post.videos.iter().filter_map(|video| video.thumb.clone())).collect(),
             Reading::Build(_) => Vec::new(),
         }
     }
@@ -95,6 +95,7 @@ pub enum Message {
     GradeHover(Option<usize>),
     TitlePick(String),
     PlayOpen(usize),
+    PlayClip(Option<String>, String),
 }
 
 pub struct Ground<'a> {
@@ -136,6 +137,7 @@ pub struct Ground<'a> {
     pub grade_hover: Option<usize>,
     pub title_pick: Option<&'a str>,
     pub play_open: Option<usize>,
+    pub clips_loading: &'a std::collections::HashSet<String>,
 }
 
 const FEED_WIDE: f32 = 760.0;
@@ -223,7 +225,7 @@ fn group_note<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
 
 fn rolled<'a>(inside: Element<'a, Message>) -> Element<'a, Message> {
     scrollable(container(inside).center_x(Length::Fill).padding(Padding { top: 12.0, right: 40.0, bottom: 28.0, left: 40.0 }))
-        .style(ui::thin_scroll)
+        .style(ui::thin_scroll).direction(ui::hidden_bar())
         .width(Length::Fill)
         .height(Length::Fill)
         .into()
@@ -231,6 +233,40 @@ fn rolled<'a>(inside: Element<'a, Message>) -> Element<'a, Message> {
 
 fn hatch<'a>(wide: f32, high: f32) -> Element<'a, Message> {
     container(ui::fine_hatch()).width(wide).height(high).into()
+}
+
+pub(crate) fn video_tile<'a>(ground: &Ground<'a>, video: &news::Video, wide: bool, high: f32) -> Element<'a, Message> {
+    let w = ground.words;
+    let k = ui::fade();
+    let handle = video.thumb.as_deref().and_then(|url| if wide { ground.pictures.get(&self::wide(url)) } else { ground.pictures.get(url) });
+    let width = if wide { Length::Fill } else { Length::Fixed(high) };
+    let back: Element<'a, Message> = match handle {
+        Some(handle) => image(handle.clone()).content_fit(iced::ContentFit::Cover).width(width).height(high).border_radius(if wide { 12.0 } else { 6.0 }).opacity(k).into(),
+        None => container(ui::fine_hatch()).width(width).height(high).into(),
+    };
+    let loading = ground.clips_loading.contains(&video.link);
+    let circle = if wide { 54.0 } else { 30.0 };
+    let play = container(crate::glyphs::glyph(crate::glyphs::Icon::Play, circle * 0.55, Color::WHITE)).width(circle).height(circle).center(circle).style(move |_| container::Style {
+        background: Some(Background::Color(Color::from_rgba(0.047, 0.027, 0.035, 0.6 * k))),
+        border: Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.2 * k), width: 1.0, radius: (circle / 2.0).into() },
+        ..container::Style::default()
+    });
+    let said = if loading { w.t("news-loading") } else if video.duration.is_empty() { String::new() } else { video.duration.clone() };
+    let badge: Element<'a, Message> = if said.is_empty() {
+        Space::new().height(0.0).into()
+    } else {
+        container(ui::mono_small(said, Color::WHITE)).padding([2, 6]).style(move |_| container::Style {
+            background: Some(Background::Color(Color::from_rgba(0.047, 0.027, 0.035, 0.7 * k))),
+            border: Border { radius: 5.0.into(), ..Border::default() },
+            ..container::Style::default()
+        }).into()
+    };
+    let front = stack![
+        container(play).width(width).height(high).center(Length::Fill),
+        container(badge).width(width).height(high).padding(if wide { 10 } else { 4 }).align_x(iced::alignment::Horizontal::Right).align_y(iced::alignment::Vertical::Bottom),
+    ];
+    let tile = stack![back, front].width(width).height(high);
+    button(tile).padding(0).style(ui::button_faded(theme::bare)).on_press(Message::PlayClip(video.src.clone(), video.link.clone())).into()
 }
 
 pub(crate) fn avatar_colour(name: &str) -> Color {
@@ -578,7 +614,7 @@ fn stage_look() -> crate::unfold::Look {
 }
 
 fn stage_rolled<'a>(inside: Element<'a, Message>) -> Element<'a, Message> {
-    scrollable(container(inside).padding(Padding::ZERO.right(10.0))).style(ui::thin_scroll).width(Length::Fill).height(Length::Fill).into()
+    scrollable(container(inside).padding(Padding::ZERO.right(10.0))).style(ui::thin_scroll).direction(ui::hidden_bar()).width(Length::Fill).height(Length::Fill).into()
 }
 
 pub(crate) fn rich<'a>(spans: &[news::Span], colour: Color, size: f32) -> Element<'a, Message> {
@@ -653,8 +689,15 @@ fn reader<'a>(ground: &Ground<'a>, reading: &'a Reading) -> Element<'a, Message>
             Reading::Post(post) => {
                 let post = ground.news.posts.iter().find(|fresh| fresh.url == post.url).unwrap_or(post);
                 let mut body: Vec<Element<'a, Message>> = Vec::new();
-                if let Some(url) = &post.image {
+                let mut photos: Vec<&String> = post.images.iter().collect();
+                if photos.is_empty() {
+                    photos.extend(post.image.iter());
+                }
+                for url in photos {
                     body.push(picture(url));
+                }
+                for video in &post.videos {
+                    body.push(video_tile(ground, video, true, 300.0));
                 }
                 if post.body.is_empty() {
                     body.push(rich(&[news::Span::plain(&post.text)], INK, theme::LEAD));
@@ -952,7 +995,7 @@ fn drawer<'a>(ground: &Ground<'a>, person: &Person) -> Element<'a, Message> {
         days => figures.push(kv(w.t("streak"), w.n("streak-days", u64::from(days)))),
     };
     let inside = column![head, figures, plays, titles].spacing(22).padding(Padding { top: 24.0, right: 24.0, bottom: 28.0, left: 24.0 });
-    let panel = container(scrollable(inside).style(ui::thin_scroll).height(Length::Fill)).width(DRAWER_WIDE).height(Length::Fill).style(drawer_style);
+    let panel = container(scrollable(inside).style(ui::thin_scroll).direction(ui::hidden_bar()).height(Length::Fill)).width(DRAWER_WIDE).height(Length::Fill).style(drawer_style);
     stack![
         mouse_area(ui::veil(Color::from_rgba(0.027, 0.012, 0.016, 0.45))).on_press(Message::Person(None)),
         container(panel).width(Length::Fill).height(Length::Fill).align_x(iced::alignment::Horizontal::Right),

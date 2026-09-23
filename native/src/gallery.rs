@@ -663,6 +663,8 @@ fn sample_news() -> crate::news::News {
                 at: NOON - 3 * 3600,
                 image: None,
                 body: crate::news::blocks_of(markup, "https://t.me/s/osunewsru", crate::news::Flow::Post),
+                images: Vec::new(),
+                videos: vec![crate::news::Video { thumb: None, src: None, duration: "0:42".into(), link: "https://t.me/osunewsru/1".into() }],
             }
         }],
         fetched: std::collections::HashMap::new(),

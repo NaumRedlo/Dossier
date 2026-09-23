@@ -108,6 +108,18 @@ pub struct Thread {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct Video {
+    #[serde(default)]
+    pub thumb: Option<String>,
+    #[serde(default)]
+    pub src: Option<String>,
+    #[serde(default)]
+    pub duration: String,
+    #[serde(default)]
+    pub link: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Post {
     pub channel: String,
     pub name: String,
@@ -117,6 +129,16 @@ pub struct Post {
     pub image: Option<String>,
     #[serde(default)]
     pub body: Vec<Block>,
+    #[serde(default)]
+    pub images: Vec<String>,
+    #[serde(default)]
+    pub videos: Vec<Video>,
+}
+
+impl Post {
+    pub fn cover(&self) -> Option<&str> {
+        self.image.as_deref().or_else(|| self.videos.iter().find_map(|video| video.thumb.as_deref()))
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -174,6 +196,10 @@ fn client() -> Result<reqwest::blocking::Client, String> {
     reqwest::blocking::Client::builder().timeout(PATIENCE).user_agent(AGENT).default_headers(headers).build().map_err(|e| e.to_string())
 }
 
+pub fn page(url: &str) -> Result<String, String> {
+    fetched(url)
+}
+
 fn fetched(url: &str) -> Result<String, String> {
     let response = client()?.get(url).send().map_err(|e| e.to_string())?;
     if !response.status().is_success() {
@@ -185,6 +211,29 @@ fn fetched(url: &str) -> Result<String, String> {
 pub fn picture(url: &str) -> Option<Vec<u8>> {
     let response = client().ok()?.get(url).send().ok()?;
     response.status().is_success().then(|| response.bytes().ok().map(|bytes| bytes.to_vec())).flatten()
+}
+
+pub fn save_to(url: &str, path: &std::path::Path) -> Result<(), String> {
+    let client = reqwest::blocking::Client::builder().timeout(Duration::from_secs(300)).user_agent(AGENT).build().map_err(|e| e.to_string())?;
+    let response = client.get(url).send().map_err(|e| e.to_string())?;
+    if !response.status().is_success() {
+        return Err(format!("{} answered {}", url, response.status().as_u16()));
+    }
+    let bytes = response.bytes().map_err(|e| e.to_string())?;
+    if let Some(folder) = path.parent() {
+        std::fs::create_dir_all(folder).map_err(|e| e.to_string())?;
+    }
+    let part = path.with_extension("part");
+    std::fs::write(&part, &bytes).map_err(|e| e.to_string())?;
+    std::fs::rename(&part, path).map_err(|e| e.to_string())
+}
+
+pub fn clip_path(link: &str) -> std::path::PathBuf {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in link.bytes() {
+        hash = (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3);
+    }
+    crate::sources::own_root().join("cache").join("clips").join(format!("{hash:016x}.mp4"))
 }
 
 pub fn fetch_builds() -> Result<Vec<Build>, String> {
@@ -653,6 +702,48 @@ pub fn threads_from(atom: &str) -> Vec<Thread> {
         .collect()
 }
 
+fn photos_in(message: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut rest = message;
+    while let Some(at) = rest.find("tgme_widget_message_photo_wrap") {
+        rest = &rest[at + "tgme_widget_message_photo_wrap".len()..];
+        let tag = rest.split('>').next().unwrap_or_default();
+        if let Some(url) = between(tag, "background-image:url('", "')").map(unescaped) {
+            if !out.contains(&url) {
+                out.push(url);
+            }
+        }
+    }
+    out
+}
+
+fn videos_in(message: &str) -> Vec<Video> {
+    let mut out = Vec::new();
+    for class in ["tgme_widget_message_video_player", "tgme_widget_message_roundvideo_player"] {
+        let mut from = 0;
+        while let Some(found) = message[from..].find(class) {
+            let at = from + found;
+            let start = message[..at].rfind("<a").unwrap_or(at);
+            let tag_end = message[at..].find('>').map_or(message.len(), |end| at + end + 1);
+            let block_end = message[tag_end..].find("</a>").map_or(message.len(), |end| tag_end + end);
+            let tag = &message[start..tag_end];
+            let block = &message[tag_end..block_end];
+            let duration = between(block, "message_video_duration", "</time>")
+                .and_then(|said| said.split('>').nth(1))
+                .map(|said| plain(said))
+                .unwrap_or_default();
+            out.push(Video {
+                thumb: between(block, "background-image:url('", "')").map(unescaped),
+                src: between(block, "<video src=\"", "\"").map(unescaped),
+                duration,
+                link: attribute(tag, "href").map(|href| unescaped(&href)).unwrap_or_default(),
+            });
+            from = block_end;
+        }
+    }
+    out
+}
+
 pub fn posts_from(channel: &str, page: &str) -> Vec<Post> {
     let name = between(page, "<meta property=\"og:title\" content=\"", "\"").map(unescaped).unwrap_or_else(|| channel.to_owned());
     let mut posts: Vec<Post> = pieces(page, "<div class=\"tgme_widget_message_wrap", "<div class=\"tgme_widget_message_wrap")
@@ -662,10 +753,10 @@ pub fn posts_from(channel: &str, page: &str) -> Vec<Post> {
             let markup = between(message, "js-message_text\" dir=\"auto\">", "</div>").unwrap_or_default();
             let text = plain(markup);
             let body = blocks_of(markup, &format!("https://t.me/s/{channel}"), Flow::Post);
-            let image = between(message, "tgme_widget_message_photo_wrap", ">")
-                .and_then(|tag| between(tag, "background-image:url('", "')"))
-                .map(unescaped);
-            if text.is_empty() && image.is_none() {
+            let images = photos_in(message);
+            let videos = videos_in(message);
+            let image = images.first().cloned();
+            if text.is_empty() && image.is_none() && videos.is_empty() {
                 return None;
             }
             Some(Post {
@@ -676,6 +767,8 @@ pub fn posts_from(channel: &str, page: &str) -> Vec<Post> {
                 at: between(message, "<time datetime=\"", "\"").and_then(unix_of).unwrap_or(0),
                 image,
                 body,
+                images,
+                videos,
             })
         })
         .collect();
@@ -777,6 +870,31 @@ mod tests {
         let Block::Text(tag) = &blocks[1] else { panic!("text") };
         assert_eq!(tag[0].link.as_deref(), Some("https://t.me/s/osunewsru?q=%23скор"));
         assert_eq!(blocks[2].words(), "подпись");
+    }
+
+    #[test]
+    fn a_post_brings_its_album_and_its_videos() {
+        let page = r#"<meta property="og:title" content="news">
+        <div class="tgme_widget_message_wrap js-widget_message_wrap"><div class="tgme_widget_message" data-post="news/7">
+        <a class="tgme_widget_message_photo_wrap grouped" style="width:1px;background-image:url('https://cdn/a.jpg')"></a>
+        <a class="tgme_widget_message_photo_wrap grouped" style="width:1px;background-image:url('https://cdn/b.jpg')"></a>
+        <a class="tgme_widget_message_video_player js-message_video_player" href="https://t.me/news/8"><i class="tgme_widget_message_video_thumb" style="background-image:url('https://cdn/v.jpg')"></i>
+        <div class="tgme_widget_message_video_wrap"><video src="https://cdn/v.mp4?token=a&amp;b=1" class="tgme_widget_message_video js-message_video"></video></div>
+        <time class="message_video_duration js-message_video_duration">0:20</time></a>
+        <a class="tgme_widget_message_video_player not_supported js-message_video_player" href="https://t.me/news/9"><i class="tgme_widget_message_video_thumb" style="background-image:url('https://cdn/w.jpg')"></i>
+        <time class="message_video_duration js-message_video_duration">7:21</time><div class="message_media_not_supported_label">Media is too big</div></a>
+        <time datetime="2026-09-23T10:00:00+00:00" class="time"></time></div></div>"#;
+        let posts = posts_from("news", page);
+        assert_eq!(posts.len(), 1, "a post of pictures and videos alone is still a post");
+        let post = &posts[0];
+        assert_eq!(post.images, vec!["https://cdn/a.jpg".to_owned(), "https://cdn/b.jpg".to_owned()]);
+        assert_eq!(post.videos.len(), 2);
+        assert_eq!(post.videos[0].src.as_deref(), Some("https://cdn/v.mp4?token=a&b=1"));
+        assert_eq!(post.videos[0].duration, "0:20");
+        assert_eq!(post.videos[0].link, "https://t.me/news/8");
+        assert_eq!(post.videos[1].src, None, "a video too big for the page is only a link");
+        assert_eq!(post.videos[1].thumb.as_deref(), Some("https://cdn/w.jpg"));
+        assert_eq!(post.cover(), Some("https://cdn/a.jpg"));
     }
 
     #[test]

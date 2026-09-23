@@ -2922,3 +2922,130 @@ impl<Message> canvas::Program<Message> for FrameMark {
 pub fn frame_mark<'a, Message: 'a>(k: f32, side: f32) -> Element<'a, Message> {
     Canvas::new(FrameMark { k, alpha: fade() }).width(side).height(side).into()
 }
+
+pub struct Scaled<'a, Message> {
+    content: Element<'a, Message>,
+    factor: f32,
+}
+
+pub fn scaled<'a, Message: 'a>(content: impl Into<Element<'a, Message>>, factor: f32) -> Scaled<'a, Message> {
+    Scaled { content: content.into(), factor: factor.clamp(0.3, 3.0) }
+}
+
+impl<Message> Scaled<'_, Message> {
+    fn inward(&self, origin: Point, cursor: mouse::Cursor) -> mouse::Cursor {
+        let map = |at: Point| Point::new(origin.x + (at.x - origin.x) / self.factor, origin.y + (at.y - origin.y) / self.factor);
+        match cursor {
+            mouse::Cursor::Available(at) => mouse::Cursor::Available(map(at)),
+            mouse::Cursor::Levitating(at) => mouse::Cursor::Levitating(map(at)),
+            mouse::Cursor::Unavailable => mouse::Cursor::Unavailable,
+        }
+    }
+
+    fn transformation(&self, origin: Point) -> iced::Transformation {
+        iced::Transformation::translate(origin.x, origin.y) * iced::Transformation::scale(self.factor) * iced::Transformation::translate(-origin.x, -origin.y)
+    }
+}
+
+impl<Message> iced::advanced::Widget<Message, Theme, Renderer> for Scaled<'_, Message> {
+    fn tag(&self) -> iced::advanced::widget::tree::Tag {
+        self.content.as_widget().tag()
+    }
+
+    fn state(&self) -> iced::advanced::widget::tree::State {
+        self.content.as_widget().state()
+    }
+
+    fn children(&self) -> Vec<iced::advanced::widget::Tree> {
+        self.content.as_widget().children()
+    }
+
+    fn diff(&self, tree: &mut iced::advanced::widget::Tree) {
+        self.content.as_widget().diff(tree);
+    }
+
+    fn size(&self) -> Size<Length> {
+        self.content.as_widget().size()
+    }
+
+    fn layout(&mut self, tree: &mut iced::advanced::widget::Tree, renderer: &Renderer, limits: &iced::advanced::layout::Limits) -> iced::advanced::layout::Node {
+        let inner = iced::advanced::layout::Limits::new(limits.min() * (1.0 / self.factor), limits.max() * (1.0 / self.factor));
+        let node = self.content.as_widget_mut().layout(tree, renderer, &inner);
+        let size = node.size();
+        iced::advanced::layout::Node::with_children(size * self.factor, vec![node])
+    }
+
+    fn operate(&mut self, tree: &mut iced::advanced::widget::Tree, layout: iced::advanced::Layout<'_>, renderer: &Renderer, operation: &mut dyn iced::advanced::widget::Operation) {
+        if let Some(inner) = layout.children().next() {
+            self.content.as_widget_mut().operate(tree, inner, renderer, operation);
+        }
+    }
+
+    fn update(
+        &mut self,
+        tree: &mut iced::advanced::widget::Tree,
+        event: &iced::Event,
+        layout: iced::advanced::Layout<'_>,
+        cursor: mouse::Cursor,
+        renderer: &Renderer,
+        clipboard: &mut dyn iced::advanced::Clipboard,
+        shell: &mut iced::advanced::Shell<'_, Message>,
+        viewport: &Rectangle,
+    ) {
+        let Some(inner) = layout.children().next() else {
+            return;
+        };
+        let origin = layout.bounds().position();
+        let cursor = self.inward(origin, cursor);
+        let event = match event {
+            iced::Event::Mouse(mouse::Event::CursorMoved { position }) => {
+                iced::Event::Mouse(mouse::Event::CursorMoved { position: Point::new(origin.x + (position.x - origin.x) / self.factor, origin.y + (position.y - origin.y) / self.factor) })
+            }
+            other => other.clone(),
+        };
+        let seen = *viewport * self.transformation(origin).inverse();
+        self.content.as_widget_mut().update(tree, &event, inner, cursor, renderer, clipboard, shell, &seen);
+    }
+
+    fn mouse_interaction(&self, tree: &iced::advanced::widget::Tree, layout: iced::advanced::Layout<'_>, cursor: mouse::Cursor, viewport: &Rectangle, renderer: &Renderer) -> mouse::Interaction {
+        let Some(inner) = layout.children().next() else {
+            return mouse::Interaction::default();
+        };
+        let origin = layout.bounds().position();
+        let seen = *viewport * self.transformation(origin).inverse();
+        self.content.as_widget().mouse_interaction(tree, inner, self.inward(origin, cursor), &seen, renderer)
+    }
+
+    fn draw(
+        &self,
+        tree: &iced::advanced::widget::Tree,
+        renderer: &mut Renderer,
+        theme: &Theme,
+        style: &iced::advanced::renderer::Style,
+        layout: iced::advanced::Layout<'_>,
+        cursor: mouse::Cursor,
+        viewport: &Rectangle,
+    ) {
+        use iced::advanced::Renderer as _;
+        let Some(inner) = layout.children().next() else {
+            return;
+        };
+        let origin = layout.bounds().position();
+        let transformation = self.transformation(origin);
+        let seen = *viewport * transformation.inverse();
+        let cursor = self.inward(origin, cursor);
+        renderer.with_transformation(transformation, |renderer| {
+            self.content.as_widget().draw(tree, renderer, theme, style, inner, cursor, &seen);
+        });
+    }
+}
+
+impl<'a, Message: 'a> From<Scaled<'a, Message>> for Element<'a, Message> {
+    fn from(scaled: Scaled<'a, Message>) -> Element<'a, Message> {
+        Element::new(scaled)
+    }
+}
+
+pub fn hidden_bar() -> iced::widget::scrollable::Direction {
+    iced::widget::scrollable::Direction::Vertical(iced::widget::scrollable::Scrollbar::hidden())
+}

@@ -586,9 +586,32 @@ naming the group, its size and when the bot last answered — or *образцы
   list edited under the filters and *@osunewsru* the first. An article, a
   post or a build opens in the reader, not the browser: an osu! article in
   full from the body its Atom entry carries, a post laid out as the channel
-  wrote it, every link opening the browser. The subreddit was tried and set
+  wrote it, every link opening the browser. A post brings its whole album
+  and its videos (2026-09-24): the first picture is its cover in the stream,
+  every picture stands in the reader, and a video is its still with ▶ and
+  its length. Pressing one fetches the file Telegram's page names into
+  `~/.dossier/cache/clips` (a `.part` renamed when whole, then kept) and
+  opens it in the system's player; a video too big for the page to carry
+  opens the post in the browser. It plays in the application's own player
+  later. The subreddit was tried and set
   aside (2026-09-23): reddit answers 403 and 429 to anonymous reading often
   enough that it needs its own key; its reader stays in `news.rs`.
+- The person's own figures do not wait for the bot (2026-09-24). The
+  application reads the person's osu! page itself — the profile page's
+  `data-initial-data`, which carries the statistics, the level, the grades,
+  the avatar, the cover and ninety days of rank, and the public
+  `/users/{id}/scores/best` list for the best plays with their hits —
+  keeps it in `~/.dossier/osu-profile.json` and asks again at most every ten
+  minutes. The name is the bot card's, else the person's own entry in the
+  group, else the one kept. The bot's card still wins when it answers; this
+  one fills the dossier and dresses the sample's *you* with the real avatar,
+  cover and figures until it does. The dossier's chart opens on rank, the
+  one line osu! keeps by the day.
+- The whole catalogue is drawn at 0.84 of its size (2026-09-24): the tabs,
+  the stream and the columns are laid out for the width divided by 0.84 and
+  drawn scaled, the pointer mapped back through the same scale, so the
+  three columns and the dossier's figures fit a laptop's window. Nothing in
+  it shows a scrollbar; the wheel and the trackpad scroll it.
 - *Люди* is a card per player — initial, country, the title they wear in
   its rarity's colour, pp, global rank, accuracy, and plays, hours and the
   streak beneath. A card opens the player's page from the right: every

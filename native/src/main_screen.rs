@@ -33,6 +33,7 @@ const STAGE_SHOW: Duration = Duration::from_millis(340);
 const COMMUNITY_EVERY: Duration = Duration::from_secs(60);
 const FRIENDS_EVERY: Duration = Duration::from_secs(120);
 const CARD_EVERY: Duration = Duration::from_secs(300);
+const COMMUNITY_SCALE: f32 = 0.84;
 const HOVER_REST: Duration = Duration::from_millis(160);
 pub const LIVE_FADE: Duration = Duration::from_millis(640);
 pub const BRAND_WIDTH: f32 = 144.0;
@@ -69,6 +70,8 @@ pub enum Message {
     Flag(String, Option<Vec<u8>>),
     CommunityTick,
     FeedClock,
+    ClipFetched(String, Result<PathBuf, String>),
+    OsuProfile(Result<crate::community::wire::Card, String>),
     ReadFirst,
     Loaded(Library),
     Thumb(String, image::Handle),
@@ -397,6 +400,9 @@ pub struct Main {
     pub grade_hover: Option<usize>,
     pub title_pick: Option<String>,
     pub play_open: Option<usize>,
+    clips_loading: std::collections::HashSet<String>,
+    pub osu_card: Option<crate::community::wire::Card>,
+    osu_asked: Option<Instant>,
     pub community_fetch: crate::community_screen::Fetch,
     community_asked: Option<Instant>,
     friends_asked: Option<Instant>,
@@ -533,11 +539,14 @@ impl Main {
             rank: 0,
             rank_at: Instant::now() - Duration::from_secs(3600),
             rank_held: false,
-            dossier_metric: crate::dossier::Metric::Pp,
+            dossier_metric: crate::dossier::Metric::Rank,
             dossier_span: 90,
             grade_hover: None,
             title_pick: None,
             play_open: None,
+            clips_loading: std::collections::HashSet::new(),
+            osu_card: None,
+            osu_asked: None,
             community_fetch: crate::community_screen::Fetch::Staged,
             community_asked: None,
             friends_asked: None,
@@ -1489,7 +1498,11 @@ impl Main {
                             self.news = crate::news::News::load();
                             self.news_loaded = true;
                         }
-                        Task::batch([self.refresh_news(false), self.news_pictures_task(), self.community_task(false), self.community_pictures_task()])
+                        if self.osu_card.is_none() {
+                            self.osu_card = crate::osu_profile::load();
+                            self.dress_staged_you();
+                        }
+                        Task::batch([self.refresh_news(false), self.news_pictures_task(), self.community_task(false), self.community_pictures_task(), self.osu_task(false)])
                     }
                     false => Task::none(),
                 };
@@ -1616,6 +1629,21 @@ impl Main {
                     C::GradeHover(hover) => self.grade_hover = hover,
                     C::TitlePick(code) => self.title_pick = Some(code),
                     C::PlayOpen(index) => self.play_open = if self.play_open == Some(index) { None } else { Some(index) },
+                    C::PlayClip(src, link) => {
+                        let Some(src) = src else {
+                            let _ = open::that_detached(link);
+                            return Task::none();
+                        };
+                        let path = crate::news::clip_path(&link);
+                        if path.exists() {
+                            let _ = open::that_detached(&path);
+                        } else if self.clips_loading.insert(link.clone()) {
+                            return ui::in_thread(move || {
+                                let saved = crate::news::save_to(&src, &path).map(|_| path);
+                                Message::ClipFetched(link, saved)
+                            });
+                        }
+                    }
                 }
                 Task::none()
             }
@@ -1688,6 +1716,25 @@ impl Main {
                 None => Task::none(),
             },
             Message::CommunityTick => self.community_task(false),
+            Message::OsuProfile(Ok(card)) => {
+                crate::osu_profile::save(&card);
+                self.osu_card = Some(card);
+                self.dress_staged_you();
+                self.community_pictures_task()
+            }
+            Message::OsuProfile(Err(_)) => Task::none(),
+            Message::ClipFetched(link, saved) => {
+                self.clips_loading.remove(&link);
+                match saved {
+                    Ok(path) => {
+                        let _ = open::that_detached(&path);
+                    }
+                    Err(_) => {
+                        let _ = open::that_detached(&link);
+                    }
+                }
+                Task::none()
+            }
             Message::FeedClock => {
                 let now = Instant::now();
                 if !self.spot_held && now.saturating_duration_since(self.spot_at) >= crate::chronicle::SPOT_EVERY {
@@ -3521,7 +3568,7 @@ impl Main {
     fn news_pictures_task(&mut self) -> Task<Message> {
         let mut wanted: Vec<(String, (u32, u32))> = Vec::new();
         let stories = self.news.stories.iter().take(4).filter_map(|story| story.image.clone()).map(|url| (url, (192, 108)));
-        let posts = self.news.posts.iter().take(6).filter_map(|post| post.image.clone()).map(|url| (url, (128, 128)));
+        let posts = self.news.posts.iter().take(12).filter_map(|post| post.cover().map(str::to_owned)).map(|url| (url, (128, 128)));
         for (url, size) in stories.chain(posts) {
             if !self.news_pictures.contains_key(&url) && self.news_asked.insert(url.clone()) {
                 wanted.push((url, size));
@@ -3538,6 +3585,61 @@ impl Main {
                 }
             }
         })
+    }
+
+    fn osu_task(&mut self, force: bool) -> Task<Message> {
+        let now = Instant::now();
+        if !force && self.osu_asked.is_some_and(|at| now.saturating_duration_since(at) < Duration::from_secs(600)) {
+            return Task::none();
+        }
+        let name = self
+            .community_card
+            .as_ref()
+            .map(|card| card.username.clone())
+            .filter(|name| !name.is_empty())
+            .or_else(|| self.community.as_ref().and_then(|catalog| catalog.you()).map(|you| you.name.clone()))
+            .or_else(|| self.osu_card.as_ref().map(|card| card.username.clone()))
+            .unwrap_or_default();
+        if name.trim().is_empty() {
+            return Task::none();
+        }
+        self.osu_asked = Some(now);
+        ui::in_thread(move || Message::OsuProfile(crate::osu_profile::fetch(&name)))
+    }
+
+    fn dress_staged_you(&mut self) {
+        let Some(card) = self.osu_card.clone() else {
+            return;
+        };
+        let Some(catalog) = self.community.as_mut().filter(|catalog| catalog.staged) else {
+            return;
+        };
+        let dress = |person: &mut crate::community::Person| {
+            person.name = card.username.clone();
+            person.pp = card.pp.round() as u32;
+            person.rank = card.global_rank as u32;
+            person.accuracy = card.accuracy as f32;
+            person.plays = card.play_count as u32;
+            person.hours = (card.play_seconds / 3600.0) as u32;
+            person.score = card.ranked_score as u64;
+            person.country = card.country.clone();
+            person.level = card.level as u32;
+            person.ss = (card.grade_counts.ss + card.grade_counts.ssh) as u32;
+            person.s = (card.grade_counts.s + card.grade_counts.sh) as u32;
+            person.avatar = card.avatar_url.clone();
+            person.cover = card.cover_url.clone();
+            person.supporter = card.is_supporter;
+            person.joined = crate::news::unix_of(&card.join_date).unwrap_or(0);
+            person.gained = [0.0; 6];
+        };
+        if let Some(you) = catalog.people.iter_mut().find(|person| person.you) {
+            dress(you);
+        }
+        if let Some(me) = catalog.me.as_mut() {
+            dress(&mut me.person);
+            me.history.clear();
+            me.activity.clear();
+        }
     }
 
     fn newest_event(&self) -> i64 {
@@ -3645,7 +3747,7 @@ impl Main {
             return Task::none();
         };
         let mut wanted: Vec<(String, u32)> = catalog.pictures();
-        if let Some(card) = self.community_card.as_ref().cloned().or_else(|| catalog.card_of()) {
+        if let Some(card) = self.community_card.as_ref().or(self.osu_card.as_ref()).cloned().or_else(|| catalog.card_of()) {
             wanted.extend(card.pictures());
         }
         let wanted: Vec<(String, u32)> = wanted.into_iter().filter(|(url, _)| !self.news_pictures.contains_key(url) && self.news_asked.insert(url.clone())).collect();
@@ -3715,7 +3817,7 @@ impl Main {
             channels: &self.settings.news_channels,
             channel_draft: &self.channel_draft,
             fetch: self.community_fetch,
-            width: self.width,
+            width: self.width / COMMUNITY_SCALE,
             filter: self.feed_filter,
             open_events: &self.feed_open,
             seen: self.feed_seen,
@@ -3736,10 +3838,11 @@ impl Main {
             grade_hover: self.grade_hover,
             title_pick: self.title_pick.as_deref(),
             play_open: self.play_open,
+            clips_loading: &self.clips_loading,
             reading: self.community_reading.as_ref(),
             read_k: self.read_fade.interpolate(0.0, 1.0, self.now),
             people_from: self.people_from,
-            card: self.community_card.as_ref(),
+            card: self.community_card.as_ref().or(self.osu_card.as_ref()),
             flags: &self.flags,
             avatar: self.avatar.as_ref(),
             chat: self.chat_name(),
@@ -3750,6 +3853,7 @@ impl Main {
             }),
         };
         let body: Element<'_, Message> = crate::community_screen::view(&ground).map(Message::Community);
+        let body: Element<'_, Message> = ui::scaled(body, COMMUNITY_SCALE).into();
         Some(column![Space::new().height(theme::CONTROL_HEIGHT + 4.0 + 22.0), body].width(Length::Fill).height(Length::Fill).into())
     }
 

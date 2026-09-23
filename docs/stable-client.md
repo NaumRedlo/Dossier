@@ -119,6 +119,25 @@ rather than stable's. It is still the right answer for the skins that need it �
 the ones whose `hit0` is twice their `hit300` — but the default is the case it
 must not break.
 
+### A judgement plays at sixty frames a second
+
+The mark is a `pAnimation` built at scale 1 on the gamefield, looping once, and
+nothing in the osu! branch ever sets its frame delay — so it keeps the class
+default of `16.666666666666668` ms. `AnimationFramerate` reaches only the
+animations that call the skin-rate setter by name (the scorebar fill, the
+follow points and a few more), and the marks are not among them. A skin whose
+`hit100` shrinks over 28 frames is therefore small again within half a
+second, and holds its last frame until it fades.
+
+Whether a mark pops is decided by the length of that strip alone:
+
+```csharp
+bool flag4 = obj4.FrameCount == 1;
+```
+
+One texture pops — 0.6 → 1.1 → 0.9 → 1 for a hit, 2 → 1 for a miss — whether
+it was found as `hit0` or as a lone `hit0-0`. Two or more play at scale 1.
+
 ### The bar is new style
 
 The default skin ships `scorebar-marker` and **no** `scorebar-ki`,

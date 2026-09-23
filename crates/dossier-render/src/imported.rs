@@ -269,7 +269,6 @@ pub struct Sprites {
 
     off: HashSet<Element>,
 
-    animated: HashSet<Element>,
 
     ini: Ini,
 
@@ -301,7 +300,6 @@ impl Sprites {
         let mut have = HashMap::new();
         let mut frames: HashMap<Element, Vec<Sprite>> = HashMap::new();
         let mut off = HashSet::new();
-        let mut animated = HashSet::new();
 
         for &element in wanted {
             let named = element.stem_with(&ini).to_ascii_lowercase();
@@ -313,17 +311,16 @@ impl Sprites {
 
             let decoded = |path: &PathBuf| fs::read(path).ok().and_then(|b| Pixmap::decode_png(&b).ok());
             let pairs = [
-                (format!("{stem}-0@2x.png"), format!("{stem}-0.png"), true),
-                (format!("{stem}0@2x.png"), format!("{stem}0.png"), true),
-                (format!("{stem}@2x.png"), format!("{stem}.png"), false),
+                (format!("{stem}-0@2x.png"), format!("{stem}-0.png")),
+                (format!("{stem}0@2x.png"), format!("{stem}0.png")),
+                (format!("{stem}@2x.png"), format!("{stem}.png")),
             ];
-            let Some((doubled_name, plain_name, framed)) = pairs
+            let Some((doubled_name, plain_name)) = pairs
                 .iter()
-                .find(|(doubled, plain, _)| index.contains_key(doubled) || index.contains_key(plain))
+                .find(|(doubled, plain)| index.contains_key(doubled) || index.contains_key(plain))
             else {
                 continue;
             };
-            let framed = *framed;
             let doubled_picture = index.get(doubled_name).and_then(decoded);
             let plain_picture = index.get(plain_name).and_then(decoded);
             let inked = |pixmap: &Pixmap| pixmap.pixels().iter().any(|p| p.alpha() > 0);
@@ -352,10 +349,6 @@ impl Sprites {
                     None => break,
                 }
             }
-            if framed {
-                animated.insert(element);
-            }
-
             if strip.iter().all(Sprite::is_blank) {
                 off.insert(element);
                 continue;
@@ -371,7 +364,6 @@ impl Sprites {
             have,
             frames,
             off,
-            animated,
             ini,
             palette: 0,
             tinted: HashMap::new(),
@@ -379,7 +371,7 @@ impl Sprites {
     }
 
     pub fn animated(&self, element: Element) -> bool {
-        self.animated.contains(&element) || self.frames.get(&element).is_some_and(|strip| strip.len() > 1)
+        self.frames.get(&element).is_some_and(|strip| strip.len() > 1)
     }
 
     pub fn steady_ink(&self, element: Element) -> Option<(f32, f32)> {
@@ -701,12 +693,13 @@ mod tests {
     }
 
     #[test]
-    fn a_single_numbered_frame_still_counts_as_an_animation_and_a_faint_haze_is_not_ink() {
+    fn a_single_numbered_frame_is_a_still_and_a_faint_haze_is_not_ink() {
         let dir = folder("single-frame");
         write(&dir, "hit0-0@2x.png", 60, 255);
         write(&dir, "hit50.png", 80, 10);
         let sprites = Sprites::read(&dir, &[Element::Verdict(crate::elements::Verdict::Miss), Element::Verdict(crate::elements::Verdict::Fifty)]);
-        assert!(sprites.animated(Element::Verdict(crate::elements::Verdict::Miss)), "osu! plays a lone -0 as an animation");
+        assert!(sprites.get(Element::Verdict(crate::elements::Verdict::Miss)).is_some(), "a lone -0 is read");
+        assert!(!sprites.animated(Element::Verdict(crate::elements::Verdict::Miss)), "osu! pops a mark of one frame, numbered or not");
         assert!(!sprites.animated(Element::Verdict(crate::elements::Verdict::Fifty)));
         let fifty = sprites.get(Element::Verdict(crate::elements::Verdict::Fifty)).expect("read");
         assert_eq!((fifty.ink_width, fifty.ink_height), (0.0, 0.0), "a haze below what the eye sees is not ink");

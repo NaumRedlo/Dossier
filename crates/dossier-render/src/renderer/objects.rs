@@ -663,7 +663,8 @@ impl Scene<'_> {
         layout: &Layout,
         elapsed_ms: f64,
     ) {
-        let frame = self.animation_frame_once(element, elapsed_ms);
+        let count = self.skin.sprites.as_ref().map_or(1, |sprites| sprites.frame_count(element));
+        let frame = ((elapsed_ms.max(0.0) / VERDICT_FRAME_MS) as usize).min(count.saturating_sub(1));
         self.draw_wide(pixmap, element, centre, width, alpha, layout, 0.0, frame);
     }
 
@@ -2299,14 +2300,6 @@ impl Scene<'_> {
 
 impl Scene<'_> {
     fn animation_frame(&self, element: Element, elapsed_ms: f64) -> usize {
-        self.frame_of(element, elapsed_ms, true)
-    }
-
-    fn animation_frame_once(&self, element: Element, elapsed_ms: f64) -> usize {
-        self.frame_of(element, elapsed_ms, false)
-    }
-
-    fn frame_of(&self, element: Element, elapsed_ms: f64, looping: bool) -> usize {
         let Some(sprites) = &self.skin.sprites else {
             return 0;
         };
@@ -2320,12 +2313,7 @@ impl Scene<'_> {
         } else {
             count as f64
         };
-        let at = (elapsed_ms.max(0.0) / 1000.0 * per_second) as usize;
-        if looping {
-            at % count
-        } else {
-            at.min(count - 1)
-        }
+        (elapsed_ms.max(0.0) / 1000.0 * per_second) as usize % count
     }
 
     #[allow(clippy::too_many_arguments)]

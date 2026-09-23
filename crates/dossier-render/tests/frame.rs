@@ -3754,15 +3754,19 @@ fn the_cursor_and_its_trail_are_read_by_the_same_ruler() {
 }
 
 #[test]
-fn a_judgement_a_skin_animated_moves() {
+fn a_judgement_a_skin_animated_moves_at_sixty_frames_a_second() {
     use dossier_render::elements::{Element, Verdict};
     use dossier_render::imported::Sprites;
 
     let dir = skin_folder("moving-300");
 
-    write_glyph(&dir, "hit300.png", 48, (255, 0, 0));
-    write_glyph(&dir, "hit300-1.png", 48, (0, 255, 0));
+    write_glyph(&dir, "hit300.png", 48, (0, 0, 255));
+    write_glyph(&dir, "hit300-1.png", 48, (0, 0, 255));
     write_glyph(&dir, "hit300-2.png", 48, (0, 0, 255));
+    write_glyph(&dir, "hit300-3.png", 48, (0, 255, 0));
+    write_glyph(&dir, "hit300-4.png", 48, (0, 255, 0));
+    write_glyph(&dir, "hit300-5.png", 48, (0, 255, 0));
+    write_glyph(&dir, "hit300-6.png", 48, (0, 255, 0));
 
     std::fs::write(dir.join("skin.ini"), "[General]\nAnimationFramerate: 10\n").expect("written");
 
@@ -3799,20 +3803,19 @@ fn a_judgement_a_skin_animated_moves() {
         count
     };
 
-    let green_at_first = ink(3050.0, (0, 255, 0));
-    let green_later = ink(3150.0, (0, 255, 0));
+    let green_before = ink(3040.0, (0, 255, 0));
+    let green_on_frame_four = ink(3075.0, (0, 255, 0));
     assert!(
-        green_later > green_at_first * 3 && green_later > 200,
-        "the strip does not advance — the still is drawn for ever: \
-         {green_at_first} green on frame zero against {green_later} on frame one"
+        green_on_frame_four > green_before + 200,
+        "osu! plays a judgement at sixty frames a second whatever AnimationFramerate says, \
+         so frame four is up by 75 ms: {green_before} green at 40 ms against {green_on_frame_four} at 75 ms"
     );
 
-    let blue_at_first = ink(3050.0, (0, 0, 255));
-    let blue_past_the_end = ink(3600.0, (0, 0, 255));
+    let green_past_the_end = ink(3600.0, (0, 255, 0));
     assert!(
-        blue_past_the_end > blue_at_first * 3 && blue_past_the_end > 200,
+        green_past_the_end > green_before + 200,
         "the strip wrapped rather than holding its last frame: \
-         {blue_at_first} blue at the start against {blue_past_the_end} at the end"
+         {green_past_the_end} green at the end against {green_before} before it began"
     );
 }
 

@@ -44,7 +44,30 @@ fn main() -> iced::Result {
             std::process::exit(1);
         };
         let out = std::env::temp_dir().join(dossier_native::render::file_name(&entry.player, &map.line()));
-        let ask = dossier_native::render::Ask { replay: entry.path.clone(), map: map.file.clone(), map_hash: entry.map_hash.clone(), ffmpeg, out, size: dossier_native::render::SIZE, fps: dossier_native::render::FPS as u32, crf: 20, skin: None, music_level: 1.0, hitsound_level: 1.0, play: dossier_native::render::Play::default() };
+        let said = dossier_native::settings::Settings::load();
+        let height: u32 = std::env::var("DOSSIER_RENDER_HEIGHT").ok().and_then(|h| h.parse().ok()).unwrap_or(1080);
+        let ask = dossier_native::render::Ask {
+            replay: entry.path.clone(),
+            map: map.file.clone(),
+            map_hash: entry.map_hash.clone(),
+            ffmpeg,
+            out,
+            size: ((height * 16 / 9 + 1) & !1, height),
+            fps: std::env::var("DOSSIER_RENDER_FPS").ok().and_then(|f| f.parse().ok()).unwrap_or(60),
+            crf: 20,
+            skin: said.skin.clone(),
+            music_level: said.music_level,
+            hitsound_level: said.hitsound_level,
+            play: dossier_native::render::Play {
+                hud: said.hud,
+                cursor_grows: said.cursor_grows,
+                dim: (said.background_dim * 100.0).round() as u32,
+                blur: (said.background_blur * 100.0).round() as u32,
+                map_sounds: said.map_sounds,
+                skin_sounds: said.skin_sounds,
+            },
+        };
+        println!("skin {:?} · {:?}", ask.skin, ask.play);
         let started = std::time::Instant::now();
         dossier_native::render::perform(ask, &mut |step| {
             println!("{:>7.2?} {step:?}", started.elapsed());
@@ -61,11 +84,15 @@ fn main() -> iced::Result {
             let what = if dossier_native::settings::is_skin_file(path) { "osk" } else { "folder" };
             let sounds = dossier_audio::SamplePack::load(path);
             println!(
-                "  {what} · {} · {} · {}",
+                "  {what} · {} · {} sounds of its own, {} not taken · {}",
                 dossier_native::settings::skin_name(path),
-                if sounds.is_empty() { "no sounds of its own".to_owned() } else { "sounds of its own".to_owned() },
+                sounds.len(),
+                sounds.unused().len(),
                 path.display()
             );
+            if args.iter().any(|a| a == "--loud") {
+                println!("    not taken: {}", sounds.unused().join(", "));
+            }
         }
         return Ok(());
     }

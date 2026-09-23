@@ -55,6 +55,25 @@ impl Default for Play {
     }
 }
 
+fn plain_sounds(beatmap: &dossier_beatmap::Beatmap) -> dossier_beatmap::Beatmap {
+    let mut plain = beatmap.clone();
+    plain.sample_set = dossier_beatmap::SampleSet::Normal;
+    for point in &mut plain.timing.samples {
+        point.set = dossier_beatmap::SampleSet::Normal;
+        point.set_given = true;
+        point.index = 1;
+    }
+    for object in &mut plain.objects {
+        object.hit_sound = 0;
+        object.hit_sample = dossier_beatmap::HitSample { volume: object.hit_sample.volume, ..dossier_beatmap::HitSample::default() };
+        if let dossier_beatmap::ObjectKind::Slider(slider) = &mut object.kind {
+            slider.edge_sounds.iter_mut().for_each(|sound| *sound = 0);
+            slider.edge_sets.iter_mut().for_each(|set| *set = (0, 0));
+        }
+    }
+    plain
+}
+
 pub const SIZE: (u32, u32) = (1920, 1080);
 pub const FPS: f64 = 60.0;
 
@@ -174,6 +193,10 @@ fn draw(ask: &Ask, tell: &Sender<Step>) -> Result<PathBuf, String> {
 
     let state = dossier_sim::GameState::new(&beatmap, &replay);
     let _ = tell.send(Step::Judged);
+    let heard = match ask.play.map_sounds {
+        true => beatmap.clone(),
+        false => plain_sounds(&beatmap),
+    };
 
     let mut skin = dossier_render::Skin::with_combo_colours(beatmap.combo_colours());
     if let Some(font) = dossier_produce::font::find(None)? {
@@ -251,7 +274,7 @@ fn draw(ask: &Ask, tell: &Sender<Step>) -> Result<PathBuf, String> {
     let sounds = |plan: &video::Plan| -> Option<PathBuf> {
         let track = dossier_produce::hitsounds::build(
             &state,
-            &beatmap,
+            &heard,
             |map_ms| plan.video_time_of(map_ms),
             plan.video_seconds,
             kit,
@@ -284,6 +307,44 @@ mod tests {
         assert_eq!(step_of(r#"{"event":"wrote","path":"a.mp4","bytes":10}"#), Some(Step::Encoded));
         assert_eq!(step_of(r#"{"event":"video","width":1920,"height":1080,"seconds":231.4}"#), None);
         assert_eq!(step_of("not json"), None);
+    }
+
+    #[test]
+    fn without_the_maps_sounds_every_hit_is_the_skins_plain_one() {
+        let text = "osu file format v14
+
+[General]
+AudioFilename: audio.mp3
+SampleSet: Soft
+
+[Difficulty]
+HPDrainRate:5
+CircleSize:4
+OverallDifficulty:8
+ApproachRate:9
+SliderMultiplier:1.4
+SliderTickRate:1
+
+[TimingPoints]
+0,500,4,2,3,70,1,0
+
+[HitObjects]
+256,192,1000,1,10,2:3:4:60:
+100,100,1500,2,8,L|200:100,1,100,2|10,1:2|3:0,0:0:0:0:
+";
+        let beatmap = dossier_beatmap::Beatmap::parse(text).expect("a map");
+        let plain = plain_sounds(&beatmap);
+        assert_eq!(plain.sample_set, dossier_beatmap::SampleSet::Normal);
+        assert!(plain.timing.samples.iter().all(|p| p.set == dossier_beatmap::SampleSet::Normal && p.index == 1));
+        assert!(plain.timing.samples.iter().zip(&beatmap.timing.samples).all(|(a, b)| a.volume == b.volume), "the map's loudness stays");
+        for object in &plain.objects {
+            assert_eq!(object.hit_sound, 0);
+            assert_eq!((object.hit_sample.normal_set, object.hit_sample.addition_set, object.hit_sample.index), (0, 0, 0));
+            if let dossier_beatmap::ObjectKind::Slider(slider) = &object.kind {
+                assert!(slider.edge_sounds.iter().all(|sound| *sound == 0));
+                assert!(slider.edge_sets.iter().all(|set| *set == (0, 0)));
+            }
+        }
     }
 
     #[test]

@@ -842,7 +842,17 @@ blur as a share of the engine's own softening — and four switches: the
 interface, the cursor answering presses (the engine's `cursor_expand`, still
 subject to the skin's own `CursorExpand`), the map's own hitsounds and the
 skin's. All of it goes to the render only; the live replay keeps its own
-look.
+look. *Звуки карты* off means the mapper's sound design is set aside as a
+whole, not only its custom samples: every hit is the skin's plain
+`normal-hitnormal` at the map's loudness, with no whistle, finish or clap and
+no sample set of the map's choosing, the slider's slide and ticks in the same
+normal bank (sharpened 2026-09-23, when turning the map's sounds off still
+left its claps and whistles playing in the skin's voice). The skin's own
+sounds are read whole from its folder — every gameplay sample it carries;
+the menu's sounds and numbered variants are left, as osu! leaves them in a
+skin. `dossier --render <replay>` now renders as the application would, with
+the saved skin and the saved gameplay choices, `DOSSIER_RENDER_HEIGHT` and
+`DOSSIER_RENDER_FPS` making it quick.
 
 **Maps come from mirrors by hash.** A replay names its map by MD5 alone, and
 ppy has no endpoint from a hash to an id, so a mirror is asked: osu.direct

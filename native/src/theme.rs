@@ -401,6 +401,23 @@ pub fn row(chosen: bool) -> impl Fn(&Theme, button::Status) -> button::Style {
     }
 }
 
+pub fn slot_choice(chosen: bool) -> impl Fn(&Theme, button::Status) -> button::Style {
+    move |_, status| {
+        let background = match (chosen, status) {
+            (true, _) => Some(Color::from_rgba(0.886, 0.282, 0.282, 0.1)),
+            (false, button::Status::Hovered) => Some(RAISED),
+            _ => None,
+        };
+        button::Style {
+            background: background.map(Background::Color),
+            text_color: INK,
+            border: border(if chosen { ACCENT } else { Color::TRANSPARENT }, 14.0),
+            shadow: Shadow::default(),
+            snap: true,
+        }
+    }
+}
+
 pub fn bare(_: &Theme, _: button::Status) -> button::Style {
     button::Style {
         background: None,

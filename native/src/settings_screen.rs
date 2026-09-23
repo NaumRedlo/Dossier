@@ -150,6 +150,7 @@ pub enum Message {
     RescanSkins,
     OpenSkin,
     AddSkin,
+    MoreSkins,
     AddedSkin(Option<PathBuf>),
     OpenSkinsFolder,
     Music(f32),
@@ -505,10 +506,12 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
                 (false, packed) => format!("{} · {}", w.n("skins-found", ground.skins.len() as u64), w.n("skins-packed", packed as u64)),
             };
             let under: Element<'a, Message> = text(said).font(theme::SANS).size(11.0).wrapping(text::Wrapping::None).color(ui::faded(FAINT)).into();
-            let mut deeds = row![deed(w.t("add-skin"), Message::AddSkin, false), deed(w.t("skins-folder"), Message::OpenSkinsFolder, false)].spacing(6);
-            if chosen.is_some() {
-                deeds = deeds.push(deed(w.t("in-folder"), Message::OpenSkin, false));
-            }
+            let deeds = row![
+                deed(w.t("more-skins"), Message::MoreSkins, false),
+                deed(w.t("add-skin"), Message::AddSkin, false),
+                deed(w.t("skins-folder"), Message::OpenSkinsFolder, false)
+            ]
+            .spacing(6);
             column![head(w, "skins"), strip, container(under).padding(Padding::ZERO.top(2.0)), container(deeds).padding(Padding::ZERO.top(6.0))]
                 .spacing(2)
                 .into()

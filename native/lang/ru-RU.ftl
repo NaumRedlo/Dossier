@@ -268,3 +268,4 @@ skins-packed = { $n ->
    *[other] { $n } в .osk
 }
 no-skin-there = Скинов в папке нет
+more-skins = Подробнее…

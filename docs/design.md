@@ -750,41 +750,42 @@ renders one file from the terminal with the steps timed; `--library
 hunt found on this machine and how long it took. The corpus is the
 rehearsal stage.
 
-**Skins are hunted, and an .osk is taken in.** The panel used to list only
-the folders it already knew — the clients' own Skins folders, the
-application's, and whatever was added by hand. Now it also walks the machine
-(added 2026-09-23): the home folder and what stands beside it, every mounted
-volume, four levels deep, skipping the system's own folders, anything hidden
-and the heavy ones (`Library`, `node_modules`, `target`), giving up after
-eight seconds or twenty thousand folders, and it runs on its own thread, so
-the panel fills in while it looks. A folder is a skin when it holds
-`skin.ini`, or three of the marks a skin is made of, and never when a `.osu`
-sits in it — that is a map, not a skin. A root itself is never a skin, so a
-Desktop with a loose `cursor.png` is not offered.
+**Skins are hunted, and an .osk is taken in.** The panel lists the folders it
+knows — the clients' own Skins folders, the application's, and whatever was
+added by hand. The walk across the machine looks for archives alone (settled
+2026-09-23, after a first pass that also collected loose folders and offered
+a Desktop with a stray `cursor.png` as a skin): the home folder and what
+stands beside it, every mounted volume, four levels deep, skipping the
+system's own folders, anything hidden and the heavy ones, giving up after
+eight seconds or twenty thousand folders, on its own thread. A folder with
+`skin.ini` in it is not a find; an `.osk` is, and it is taken in at once —
+unpacked into the application's Skins folder, where it becomes an ordinary
+skin. `--skins` prints what the hunt found and how long it took.
 
 An `.osk` is a zip, and the engine already knew how to open one
-(`skin::unpack`, which refuses entries that climb out of the folder). One
-left in `~/.dossier/Skins` is unpacked beside itself on the next look; one
-found elsewhere is listed as it is and unpacked into the application's Skins
-folder the moment it is chosen; one dropped on the window, or picked through
-*Добавить скин…*, is unpacked at once and chosen. An archive wrapped in a
-single folder is lifted out of it, an archive already unpacked is left alone
-and no longer listed twice, and the count under the strip says how many of
-the skins are still packed. *Добавить скин…* asks for a folder — the skin's
-own, or one holding skins and archives, which are all taken in at once —
-because no one dialog offers files and folders together; an archive is added
-by dropping it on the window, by leaving it in the skins folder, or by
-choosing it where the hunt found it. A dropped folder is taken the same way.
+(`skin::unpack`, which refuses entries that climb out of the folder and keeps
+everything else, nested folders and all). One dropped on the window, or a
+skin folder dropped on it, is taken at once; *Добавить скин…* asks for a
+folder — the skin's own, or one holding skins and archives, which are all
+taken in together — because no one dialog offers files and folders at the
+same time. An archive wrapped in a single folder is lifted out of it and an
+archive already unpacked is left alone.
 
-The strip shows the skins in one row that scrolls sideways, with no bar under
-it, so the tile grows wide and never tall; the names sit on two lines. The
-first cell is the engine's own skin, *Dossier Default*, drawn as the engine
-draws it — the first default combo colour inside a white border. The others
-are drawn as osu! draws a circle: `hitcircle` with `hitcircleoverlay` over it
-at the same size and the combo number in the middle when the skin has one,
-each scaled from `@2x` when it exists. The circle is tinted only when the
-skin's own `skin.ini` names `Combo1` — tinting every skin with osu!'s default
-orange made them all the same mustard blob (tried and dropped 2026-09-23).
+A skin is shown the way the engine will draw it, not by blowing up one file:
+the preview asks `Sprites::read` for the same elements the renderer asks for,
+so a skin.ini prefix, an animation's first frame and the `@2x` pair are
+honoured, and whatever the skin does not carry is drawn by the application
+as the engine draws it. The strip in the settings shows one circle per skin
+in a row that scrolls sideways with no bar under it, so the tile grows wide
+and never tall; the first cell is the engine's own skin, *Dossier Default*.
+*Подробнее…* opens a window of panels, one per skin, each holding the same
+prepared pattern — three circles in the skin's combo colours, the approach
+circle, the cursor and its trail, a 300 — so two skins can be told apart at a
+glance; choosing one there chooses it everywhere. The circle is tinted only
+from the skin's own `Combo1`; tinting every skin with osu!'s default orange
+made them all the same mustard blob (tried and dropped 2026-09-23). The live
+replay on the main screen is drawn with the chosen skin too, and it starts
+again the moment the choice changes.
 
 **Maps come from mirrors by hash.** A replay names its map by MD5 alone, and
 ppy has no endpoint from a hash to an id, so a mirror is asked: osu.direct

@@ -851,6 +851,35 @@ impl<'a, Message: 'a> From<Veil> for Element<'a, Message> {
     }
 }
 
+pub fn thin_scroll(_: &Theme, status: iced::widget::scrollable::Status) -> iced::widget::scrollable::Style {
+    let held = matches!(
+        status,
+        iced::widget::scrollable::Status::Hovered { is_vertical_scrollbar_hovered: true, .. }
+            | iced::widget::scrollable::Status::Dragged { is_vertical_scrollbar_dragged: true, .. }
+    );
+    let k = fade();
+    let rail = iced::widget::scrollable::Rail {
+        background: Some(iced::Background::Color(dim(Color::from_rgba(1.0, 1.0, 1.0, 0.04), k))),
+        border: iced::Border { radius: 4.0.into(), ..iced::Border::default() },
+        scroller: iced::widget::scrollable::Scroller {
+            background: iced::Background::Color(dim(Color::from_rgba(1.0, 1.0, 1.0, if held { 0.38 } else { 0.2 }), k)),
+            border: iced::Border { radius: 4.0.into(), ..iced::Border::default() },
+        },
+    };
+    iced::widget::scrollable::Style {
+        container: container::Style::default(),
+        vertical_rail: rail,
+        horizontal_rail: rail,
+        gap: None,
+        auto_scroll: iced::widget::scrollable::AutoScroll {
+            background: iced::Background::Color(Color::TRANSPARENT),
+            border: iced::Border::default(),
+            shadow: iced::Shadow::default(),
+            icon: Color::TRANSPARENT,
+        },
+    }
+}
+
 pub fn veil<'a, Message: 'a>(colour: Color) -> Element<'a, Message> {
     Veil::new(faded(colour)).into()
 }

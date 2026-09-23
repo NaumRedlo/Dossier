@@ -59,6 +59,8 @@ pub enum Message {
     Chats(Vec<crate::bot::Chat>),
     Skins(Vec<PathBuf>),
     SkinFace(PathBuf, Option<image::Handle>),
+    SkinScene(PathBuf, Option<image::Handle>),
+    ShowSkins(bool),
     ChatFace(i64, Option<image::Handle>),
     Sized(u64, u64, u64),
     Ffmpeg(Option<String>),
@@ -262,6 +264,9 @@ pub struct Main {
     pub player: Option<std::rc::Rc<std::cell::RefCell<player::Player>>>,
     pub open_video: Option<usize>,
     pub asking_delete: bool,
+    pub skin_room: bool,
+    pub room_fade: Animation<bool>,
+    pub skin_scenes: HashMap<PathBuf, image::Handle>,
     pub cinema: Animation<bool>,
     pub widened: Animation<bool>,
     pub scrubbing: Option<f32>,
@@ -364,6 +369,9 @@ impl Main {
             player: None,
             open_video: None,
             asking_delete: false,
+            skin_room: false,
+            room_fade: Animation::new(false).duration(CINEMA).easing(Easing::EaseOutCubic),
+            skin_scenes: HashMap::new(),
             cinema: Animation::new(false).duration(CINEMA).easing(Easing::EaseOutCubic),
             widened: Animation::new(false).duration(WIDEN).easing(Easing::EaseOutCubic),
             scrubbing: None,
@@ -490,6 +498,7 @@ impl Main {
             || self.lifts.values().any(|l| l.is_animating(self.now))
             || self.player.as_ref().is_some_and(|p| !p.borrow().paused)
             || self.cinema.is_animating(self.now)
+            || self.room_fade.is_animating(self.now)
             || self.widened.is_animating(self.now)
             || self.hint.is_some()
             || !self.toasts.is_empty()
@@ -626,7 +635,12 @@ impl Main {
         self.trail = None;
         let Some(ask) = self.chosen_entry().and_then(|entry| {
             let map = entry.map.as_ref()?;
-            Some(live::Ask { replay: entry.path.clone(), map: map.file.clone(), map_hash: entry.map_hash.clone() })
+            Some(live::Ask {
+                replay: entry.path.clone(),
+                map: map.file.clone(),
+                map_hash: entry.map_hash.clone(),
+                skin: self.settings.skin.clone(),
+            })
         }) else {
             if let Some(entry) = self.chosen_entry() {
                 let path = entry.path.clone();
@@ -754,6 +768,8 @@ impl Main {
                     self.pairing = Pairing::Idle;
                 } else if self.menu.is_some() {
                     return self.update(Message::MenuClose);
+                } else if self.skin_room {
+                    return self.update(Message::ShowSkins(false));
                 } else if self.asking_delete {
                     self.asking_delete = false;
                 } else if self.player.is_some() {
@@ -1001,6 +1017,20 @@ impl Main {
                     self.skin_faces.insert(folder, handle);
                 }
                 Task::none()
+            }
+            Message::SkinScene(folder, handle) => {
+                if let Some(handle) = handle {
+                    self.skin_scenes.insert(folder, handle);
+                }
+                Task::none()
+            }
+            Message::ShowSkins(open) => {
+                self.skin_room = open;
+                self.room_fade.go_mut(open, Instant::now());
+                match open {
+                    true => self.skin_scenery(),
+                    false => Task::none(),
+                }
             }
             Message::Chats(chats) => {
                 let wanted: Vec<i64> = chats.iter().filter(|chat| chat.photo && !self.chat_faces.contains_key(&chat.id)).map(|chat| chat.id).collect();
@@ -1775,6 +1805,115 @@ impl Main {
         }
     }
 
+    fn skin_scenery(&self) -> Task<Message> {
+        let wanted: Vec<PathBuf> = std::iter::once(PathBuf::new())
+            .chain(self.skins.iter().cloned())
+            .filter(|folder| !self.skin_scenes.contains_key(folder))
+            .collect();
+        if wanted.is_empty() {
+            return Task::none();
+        }
+        ui::streamed(move |push| {
+            for folder in wanted {
+                let at = (!folder.as_os_str().is_empty()).then_some(folder.as_path());
+                let rgba = crate::settings::skin_pattern(at, PATTERN.0, PATTERN.1);
+                let handle = image::Handle::from_rgba(PATTERN.0, PATTERN.1, rgba);
+                if !push(Message::SkinScene(folder, Some(handle))) {
+                    return;
+                }
+            }
+        })
+    }
+
+    fn skin_room_layer(&self) -> Element<'_, Message> {
+        let k = self.room_fade.interpolate(0.0, 1.0, self.now);
+        if !self.skin_room && k < 0.001 {
+            return Space::new().width(Length::Fill).height(Length::Fill).into();
+        }
+        ui::fading(k, || {
+            let w = &self.words;
+            let chosen = self.settings.skin.clone();
+            let panel = |name: String, folder: Option<PathBuf>, picture: Option<&image::Handle>, picked: bool| -> Element<'_, Message> {
+                let face: Element<'_, Message> = match picture {
+                    Some(handle) => image(handle.clone()).width(PANEL.0).height(PANEL.1).opacity(ui::fade()).into(),
+                    None => container(ui::fine_hatch()).width(PANEL.0).height(PANEL.1).into(),
+                };
+                let inside = column![
+                    container(face).width(PANEL.0).height(PANEL.1).style(ui::box_faded(theme::screen)).clip(true),
+                    text(name).font(theme::SANS_SEMI).size(theme::BODY).wrapping(text::Wrapping::None).color(ui::faded(if picked { INK } else { MUTED })),
+                ]
+                .spacing(6);
+                button(inside)
+                    .padding(6)
+                    .style(ui::button_faded(theme::slot_choice(picked)))
+                    .on_press(Message::Prefs(prefs::Message::Skin(folder)))
+                    .into()
+            };
+            let mut cells: Vec<Element<'_, Message>> = vec![panel(
+                w.t("own-skin-short"),
+                None,
+                self.skin_scenes.get(Path::new("")),
+                chosen.is_none(),
+            )];
+            for folder in &self.skins {
+                let picked = chosen.as_deref() == Some(folder.as_path());
+                cells.push(panel(crate::settings::skin_name(folder), Some(folder.clone()), self.skin_scenes.get(folder), picked));
+            }
+            let title = row![
+                text(w.t("skins")).font(theme::SANS_SEMI).size(20.0).color(ui::faded(INK)),
+                ui::grow(),
+                ui::control_button(ui::Control::Close, 18.0, Some(Message::ShowSkins(false)), false),
+            ]
+            .align_y(iced::Center);
+            let wide = (self.width - 120.0).clamp(420.0, 1180.0);
+            let each = PANEL.0 + 22.0;
+            let per = (((wide - 46.0) / each).floor() as usize).max(1);
+            let lines = cells.len().div_ceil(per);
+            let line_high = PANEL.1 + 24.0 + 22.0;
+            let room_high = lines as f32 * line_high + 22.0;
+            let tall = (ROOM_TOP + room_high).min(self.height - 150.0).max(ROOM_TOP + line_high);
+            let mut grid = column![].spacing(2);
+            let mut line = row![].spacing(2);
+            let mut at = 0;
+            for cell in cells {
+                line = line.push(cell);
+                at += 1;
+                if at % per == 0 {
+                    grid = grid.push(line);
+                    line = row![].spacing(2);
+                }
+            }
+            if at % per != 0 {
+                grid = grid.push(line);
+            }
+            let inside = column![
+                container(title).height(ROOM_TOP).padding(Padding { top: 0.0, right: 7.0, bottom: 0.0, left: 18.0 }),
+                scrollable(container(grid).width(Length::Fill).padding(Padding { top: 0.0, right: 12.0, bottom: 14.0, left: 12.0 }))
+                    .anchor_y(scrollable::Anchor::Start)
+                    .style(ui::thin_scroll)
+                    .height(tall - ROOM_TOP),
+            ]
+            .width(Length::Fill);
+            let card = container(inside).width(wide).height(tall).style(ui::box_faded(theme::stage)).clip(true);
+            stack![
+                mouse_area(ui::veil(theme::SCRIM)).on_press(Message::ShowSkins(false)),
+                container(card).width(Length::Fill).height(Length::Fill).center(Length::Fill)
+            ]
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .into()
+        })
+    }
+
+    fn skin_again(&mut self) -> Task<Message> {
+        if self.live.is_none() && self.trail.is_none() {
+            return Task::none();
+        }
+        let again = self.start_live();
+        self.rest_live(self.overlay != Overlay::None);
+        again
+    }
+
     fn look_for_skins(&self) -> Task<Message> {
         let sources = self.settings.sources.clone();
         let own = self.settings.own_skins.clone();
@@ -1895,7 +2034,8 @@ impl Main {
         } else {
             blank()
         };
-        let layers = stack![scene_before, scene, live_before, live, body, bubble, ground, overlay, chrome_layer, crest, ask, menu, signing, failure, toasts];
+        let room = self.skin_room_layer();
+        let layers = stack![scene_before, scene, live_before, live, body, bubble, ground, overlay, chrome_layer, crest, room, ask, menu, signing, failure, toasts];
         layers.width(Length::Fill).height(Length::Fill).into()
     }
 
@@ -3034,10 +3174,11 @@ impl Main {
                 self.remember_mark(&name(&folder), true);
                 self.settings.skin = folder;
                 keep(&self.settings);
-                Task::none()
+                self.skin_again()
             }
             P::RescanSkins => self.look_for_skins(),
             P::AddSkin => Task::perform(prefs::pick_renders(), |picked| Message::Prefs(P::AddedSkin(picked))),
+            P::MoreSkins => self.update(Message::ShowSkins(true)),
             P::AddedSkin(picked) => {
                 let Some(picked) = picked else {
                     return Task::none();
@@ -3068,7 +3209,7 @@ impl Main {
                 }
                 self.settings.skin = Some(first);
                 keep(&self.settings);
-                self.look_for_skins()
+                Task::batch([self.look_for_skins(), self.skin_again()])
             }
             P::OpenSkinsFolder => {
                 let root = crate::settings::skins_root();
@@ -3744,6 +3885,9 @@ const STAGE_GAP: f32 = 40.0;
 const STAGE_UNDER: f32 = 50.0;
 const STAGE_KEYS: f32 = 74.0;
 const STAGE_TOP: f32 = 56.0;
+const ROOM_TOP: f32 = 52.0;
+const PATTERN: (u32, u32) = (520, 292);
+const PANEL: (f32, f32) = (246.0, 138.0);
 const PICTURE_INSET: f32 = 14.0;
 const PICTURE_RADIUS: f32 = 10.0;
 

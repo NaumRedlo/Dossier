@@ -82,6 +82,7 @@ pub struct Ask {
     pub replay: PathBuf,
     pub map: PathBuf,
     pub map_hash: String,
+    pub skin: Option<PathBuf>,
 }
 
 pub fn play(ask: Ask, control: Arc<Control>) -> iced::Task<Frame> {
@@ -102,6 +103,9 @@ fn run(ask: &Ask, control: &Control, push: &mut dyn FnMut(Frame) -> bool) -> Res
     let mut skin = dossier_render::Skin::with_combo_colours(beatmap.combo_colours());
     if let Some(font) = dossier_produce::font::find(None)? {
         skin = skin.with_font(font);
+    }
+    if let Some(folder) = ask.skin.as_ref().filter(|folder| folder.is_dir()) {
+        skin = dossier_produce::skin::from_folder(skin, folder, None);
     }
     let layering = skin.sprites.as_ref().is_none_or(|s| s.ini().layered_hit_sounds);
     let scene = dossier_render::Scene::new(&state, skin).signed_by(&replay).bare();

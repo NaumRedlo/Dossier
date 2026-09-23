@@ -261,3 +261,4 @@ skins-packed = { $n ->
    *[other] { $n } still packed
 }
 no-skin-there = No skins in that folder
+more-skins = More…

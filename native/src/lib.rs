@@ -61,6 +61,7 @@ pub struct Rehearsal {
     pub play: Option<usize>,
     pub menu: Option<String>,
     pub prefs: bool,
+    pub skin_room: bool,
     pub leave: bool,
     pub swap: bool,
 }
@@ -85,9 +86,10 @@ impl Rehearsal {
         let play = args.iter().position(|a| a == "--play").and_then(|i| args.get(i + 1)).and_then(|s| s.parse().ok());
         let menu = args.iter().position(|a| a == "--menu").and_then(|i| args.get(i + 1)).cloned();
         let prefs = args.iter().any(|a| a == "--prefs");
+        let skin_room = args.iter().any(|a| a == "--skin-room");
         let leave = args.iter().any(|a| a == "--leave");
         let swap = args.iter().any(|a| a == "--swap");
-        Some(Rehearsal { folder, snap_to, after, render, get_map, look, step, hover, videos, play, menu, prefs, leave, swap })
+        Some(Rehearsal { folder, snap_to, after, render, get_map, look, step, hover, videos, play, menu, prefs, skin_room, leave, swap })
     }
 }
 
@@ -135,6 +137,9 @@ impl App {
             } else if rehearsal.leave {
                 Task::perform(async { tokio_sleep(std::time::Duration::from_millis(1200)).await }, |_| Message::Main(main_screen::Message::Show(main_screen::Overlay::Settings)))
                     .chain(Task::perform(async { tokio_sleep(std::time::Duration::from_millis(1200)).await }, |_| Message::Main(main_screen::Message::Show(main_screen::Overlay::None))))
+            } else if rehearsal.skin_room {
+                Task::perform(async { tokio_sleep(std::time::Duration::from_millis(1200)).await }, |_| Message::Main(main_screen::Message::Show(main_screen::Overlay::Settings)))
+                    .chain(Task::perform(async { tokio_sleep(std::time::Duration::from_millis(1600)).await }, |_| Message::Main(main_screen::Message::ShowSkins(true))))
             } else if rehearsal.prefs {
                 Task::perform(async { tokio_sleep(std::time::Duration::from_millis(1500)).await }, |_| Message::Main(main_screen::Message::Show(main_screen::Overlay::Settings)))
             } else if rehearsal.videos {

@@ -1,3 +1,27 @@
+pub fn skin_picture(folder: &Path, side: u32) -> Option<Vec<u8>> {
+    let sprites = skin_sprites(folder);
+    let mut made = image::RgbaImage::new(side, side);
+    let reach = (side as f32 * 0.84) as u32;
+    let colour = first_combo(folder);
+    match sprite_of(&sprites, Element::HitCircle) {
+        Some(circle) => {
+            let circle = match colour {
+                Some(colour) => image::DynamicImage::ImageRgba8(tinted(circle.to_rgba8(), colour)),
+                None => circle,
+            };
+            laid(&mut made, &circle, reach);
+        }
+        None => laid(&mut made, &image::DynamicImage::ImageRgba8(drawn_circle(side * 2, Some(colour.unwrap_or([255, 192, 0])), 0.22)), reach),
+    }
+    if let Some(over) = sprite_of(&sprites, Element::HitCircleOverlay) {
+        laid(&mut made, &over, reach);
+    }
+    if let Some(number) = sprite_of(&sprites, Element::Digit(1)) {
+        laid(&mut made, &number, (side as f32 * 0.3) as u32);
+    }
+    Some(made.into_raw())
+}
+
 use std::path::{Path, PathBuf};
 
 use crate::lang::Lang;
@@ -268,13 +292,12 @@ pub fn adopt_skin_files(root: &Path) -> Vec<PathBuf> {
 }
 
 pub fn hunt_skins(sources: &[Source], own: &[PathBuf]) -> Vec<PathBuf> {
-    let _ = adopt_skin_files(&skins_root());
-    let mut found = skins_in(sources, own);
+    let root = skins_root();
+    let _ = adopt_skin_files(&root);
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(8);
-    let mut seen: std::collections::HashSet<PathBuf> = found.iter().cloned().collect();
     let mut walked = 0usize;
     let roots = hunt_roots();
-    let mut queue: std::collections::VecDeque<(PathBuf, u32)> = roots.iter().cloned().map(|root| (root, 0)).collect();
+    let mut queue: std::collections::VecDeque<(PathBuf, u32)> = roots.iter().cloned().map(|at| (at, 0)).collect();
     while let Some((folder, deep)) = queue.pop_front() {
         if walked > 20_000 || std::time::Instant::now() > deadline {
             break;
@@ -289,34 +312,22 @@ pub fn hunt_skins(sources: &[Source], own: &[PathBuf]) -> Vec<PathBuf> {
                 continue;
             };
             if kind.is_file() {
-                if is_skin_file(&path) && seen.insert(path.clone()) {
-                    found.push(path);
+                if is_skin_file(&path) && !already_unpacked(&path) {
+                    let _ = unpack_skin_into(&path, &root);
                 }
                 continue;
             }
-            if !kind.is_dir() {
+            if !kind.is_dir() || deep >= 4 {
                 continue;
             }
             let name = entry.file_name().to_string_lossy().to_string();
             if name.starts_with('.') || SKIPPED.iter().any(|skip| skip.eq_ignore_ascii_case(&name)) {
                 continue;
             }
-            if !roots.contains(&path) && looks_like_skin(&path) {
-                if seen.insert(path.clone()) {
-                    found.push(path);
-                }
-                continue;
-            }
-            if deep < 4 {
-                queue.push_back((path, deep + 1));
-            }
+            queue.push_back((path, deep + 1));
         }
     }
-    found.retain(|path| !is_skin_file(path) || !already_unpacked(path));
-    found.sort_by_key(|path| skin_name(path).to_lowercase());
-    found.dedup();
-    found.truncate(120);
-    found
+    skins_in(sources, own)
 }
 
 fn hunt_roots() -> Vec<PathBuf> {
@@ -356,16 +367,57 @@ pub fn skin_face(folder: &Path) -> Option<PathBuf> {
     None
 }
 
-fn skin_part(folder: &Path, name: &str) -> Option<image::DynamicImage> {
-    for at in [format!("{name}@2x.png"), format!("{name}.png"), format!("{name}@2x.jpg"), format!("{name}.jpg")] {
-        let file = folder.join(&at);
-        if file.is_file() {
-            if let Ok(picture) = image::open(&file) {
-                return Some(picture);
+use dossier_render::elements::{Element, Verdict};
+use dossier_render::imported::Sprites;
+
+const PATTERN_PARTS: [Element; 9] = [
+    Element::HitCircle,
+    Element::HitCircleOverlay,
+    Element::ApproachCircle,
+    Element::Cursor,
+    Element::CursorTrail,
+    Element::Digit(1),
+    Element::Digit(2),
+    Element::Digit(3),
+    Element::Verdict(Verdict::Three),
+];
+
+pub fn skin_sprites(folder: &Path) -> Sprites {
+    Sprites::read(folder, &PATTERN_PARTS)
+}
+
+fn sprite_of(sprites: &Sprites, element: Element) -> Option<image::DynamicImage> {
+    let sprite = sprites.get(element)?;
+    let pixmap = &sprite.pixmap;
+    let mut made = image::RgbaImage::new(pixmap.width(), pixmap.height());
+    for (under, over) in made.pixels_mut().zip(pixmap.pixels()) {
+        let straight = over.demultiply();
+        *under = image::Rgba([straight.red(), straight.green(), straight.blue(), straight.alpha()]);
+    }
+    Some(image::DynamicImage::ImageRgba8(made))
+}
+
+pub fn combo_colours(folder: &Path) -> Vec<[u8; 3]> {
+    let Ok(bytes) = std::fs::read(folder.join("skin.ini")) else {
+        return Vec::new();
+    };
+    let mut found = Vec::new();
+    for line in String::from_utf8_lossy(&bytes).lines() {
+        let line = line.trim();
+        for which in 1..=8 {
+            let Some(rest) = line.strip_prefix(&format!("Combo{which}")) else {
+                continue;
+            };
+            let Some(values) = rest.trim_start().strip_prefix(':') else {
+                continue;
+            };
+            let parts: Vec<u8> = values.split(',').filter_map(|part| part.trim().parse().ok()).collect();
+            if let [r, g, b, ..] = parts.as_slice() {
+                found.push([*r, *g, *b]);
             }
         }
     }
-    None
+    found
 }
 
 pub fn first_combo(folder: &Path) -> Option<[u8; 3]> {
@@ -395,13 +447,116 @@ fn tinted(mut picture: image::RgbaImage, colour: [u8; 3]) -> image::RgbaImage {
 }
 
 fn laid(under: &mut image::RgbaImage, part: &image::DynamicImage, reach: u32) {
+    let (middle_x, middle_y) = (under.width() as f32 / 2.0, under.height() as f32 / 2.0);
+    laid_at(under, part, reach, middle_x, middle_y, 1.0);
+}
+
+fn laid_at(under: &mut image::RgbaImage, part: &image::DynamicImage, reach: u32, at_x: f32, at_y: f32, alpha: f32) {
     let (wide, high) = (part.width().max(1), part.height().max(1));
     let scale = reach as f32 / wide.max(high) as f32;
     let (w, h) = (((wide as f32 * scale) as u32).max(1), ((high as f32 * scale) as u32).max(1));
-    let scaled = image::imageops::resize(part, w, h, image::imageops::FilterType::Lanczos3);
-    let x = (under.width() as i64 - w as i64) / 2;
-    let y = (under.height() as i64 - h as i64) / 2;
+    let mut scaled = image::imageops::resize(part, w, h, image::imageops::FilterType::Lanczos3);
+    if alpha < 1.0 {
+        for pixel in scaled.pixels_mut() {
+            pixel.0[3] = (pixel.0[3] as f32 * alpha) as u8;
+        }
+    }
+    let x = (at_x - w as f32 / 2.0).round() as i64;
+    let y = (at_y - h as f32 / 2.0).round() as i64;
     image::imageops::overlay(under, &scaled, x, y);
+}
+
+fn drawn_circle(side: u32, body: Option<[u8; 3]>, thin: f32) -> image::RgbaImage {
+    let mut made = image::RgbaImage::new(side, side);
+    let middle = side as f32 / 2.0;
+    let outer = side as f32 / 2.0 - 1.0;
+    let border = outer * thin;
+    for (x, y, pixel) in made.enumerate_pixels_mut() {
+        let away = ((x as f32 + 0.5 - middle).powi(2) + (y as f32 + 0.5 - middle).powi(2)).sqrt();
+        let inside = (outer - away + 0.5).clamp(0.0, 1.0);
+        if inside <= 0.0 {
+            continue;
+        }
+        let ring = (away - (outer - border) + 0.5).clamp(0.0, 1.0);
+        match body {
+            Some(body) => {
+                let shade: Vec<u8> = body.iter().map(|part| (*part as f32 + (255.0 - *part as f32) * ring) as u8).collect();
+                *pixel = image::Rgba([shade[0], shade[1], shade[2], (inside * 255.0) as u8]);
+            }
+            None => *pixel = image::Rgba([255, 255, 255, (inside * ring * 255.0) as u8]),
+        }
+    }
+    made
+}
+
+pub fn skin_pattern(folder: Option<&Path>, wide: u32, high: u32) -> Vec<u8> {
+    let mut made = image::RgbaImage::new(wide, high);
+    let (w, h) = (wide as f32, high as f32);
+    let circle = (h * 0.44) as u32;
+    let sprites = folder.map(skin_sprites);
+    let part = |element: Element| sprites.as_ref().and_then(|have| sprite_of(have, element));
+    let colours = folder.map(combo_colours).unwrap_or_default();
+    let fallback: Vec<[u8; 3]> = dossier_beatmap::DEFAULT_COMBO_COLOURS.iter().map(|c| [c.r, c.g, c.b]).collect();
+    let mine = |at: usize| -> Option<[u8; 3]> {
+        match (folder.is_some(), colours.is_empty()) {
+            (true, true) => None,
+            (true, false) => Some(colours[at % colours.len()]),
+            (false, _) => Some(fallback[at % fallback.len()]),
+        }
+    };
+    let spots = [(0.24 * w, 0.66 * h), (0.47 * w, 0.34 * h), (0.70 * w, 0.62 * h)];
+    if let Some(trail) = part(Element::CursorTrail) {
+        for (step, away) in [(0.12, 0.30), (0.08, 0.45), (0.04, 0.6)] {
+            laid_at(&mut made, &trail, (circle as f32 * 0.42) as u32, 0.70 * w + step * w, 0.62 * h - step * h * 0.8, away);
+        }
+    }
+    for (at, (x, y)) in spots.iter().enumerate() {
+        let body = mine(at);
+        match part(Element::HitCircle) {
+            Some(drawing) => {
+                let drawing = match body {
+                    Some(colour) => image::DynamicImage::ImageRgba8(tinted(drawing.to_rgba8(), colour)),
+                    None => drawing,
+                };
+                laid_at(&mut made, &drawing, circle, *x, *y, 1.0);
+            }
+            None => {
+                let own = image::DynamicImage::ImageRgba8(drawn_circle(circle * 2, Some(body.unwrap_or([255, 192, 0])), 0.22));
+                laid_at(&mut made, &own, circle, *x, *y, 1.0);
+            }
+        }
+        if let Some(over) = part(Element::HitCircleOverlay) {
+            laid_at(&mut made, &over, circle, *x, *y, 1.0);
+        }
+        if let Some(number) = part(Element::Digit(at as u8 + 1)) {
+            laid_at(&mut made, &number, (circle as f32 * 0.36) as u32, *x, *y, 1.0);
+        }
+    }
+    let (last_x, last_y) = spots[2];
+    match part(Element::ApproachCircle) {
+        Some(drawing) => {
+            let drawing = match mine(2) {
+                Some(colour) => image::DynamicImage::ImageRgba8(tinted(drawing.to_rgba8(), colour)),
+                None => drawing,
+            };
+            laid_at(&mut made, &drawing, (circle as f32 * 1.55) as u32, last_x, last_y, 0.9);
+        }
+        None => {
+            let ring = image::DynamicImage::ImageRgba8(drawn_circle(circle * 2, None, 0.05));
+            laid_at(&mut made, &ring, (circle as f32 * 1.55) as u32, last_x, last_y, 0.9);
+        }
+    }
+    if let Some(verdict) = part(Element::Verdict(Verdict::Three)) {
+        laid_at(&mut made, &verdict, (circle as f32 * 0.8) as u32, spots[0].0, spots[0].1, 0.85);
+    }
+    match part(Element::Cursor) {
+        Some(drawing) => laid_at(&mut made, &drawing, (circle as f32 * 0.62) as u32, 0.70 * w, 0.62 * h, 1.0),
+        None => {
+            let dot = image::DynamicImage::ImageRgba8(drawn_circle(circle, Some([255, 255, 255]), 0.5));
+            laid_at(&mut made, &dot, (circle as f32 * 0.3) as u32, 0.70 * w, 0.62 * h, 1.0);
+        }
+    }
+    made.into_raw()
 }
 
 pub fn skins_under(folder: &Path) -> Vec<PathBuf> {
@@ -420,46 +575,9 @@ pub fn skins_under(folder: &Path) -> Vec<PathBuf> {
 
 pub fn own_skin_picture(side: u32) -> Vec<u8> {
     let mut made = image::RgbaImage::new(side, side);
-    let middle = side as f32 / 2.0;
-    let outer = side as f32 * 0.42;
-    let border = outer * 0.22;
-    for (x, y, pixel) in made.enumerate_pixels_mut() {
-        let away = ((x as f32 + 0.5 - middle).powi(2) + (y as f32 + 0.5 - middle).powi(2)).sqrt();
-        let inside = (outer - away + 0.5).clamp(0.0, 1.0);
-        if inside <= 0.0 {
-            continue;
-        }
-        let ring = (away - (outer - border) + 0.5).clamp(0.0, 1.0);
-        let body = [255.0, 192.0, 0.0];
-        let shade: Vec<u8> = body.iter().map(|part| (part + (255.0 - part) * ring) as u8).collect();
-        *pixel = image::Rgba([shade[0], shade[1], shade[2], (inside * 255.0) as u8]);
-    }
+    let own = image::DynamicImage::ImageRgba8(drawn_circle(side * 2, Some([255, 192, 0]), 0.22));
+    laid(&mut made, &own, (side as f32 * 0.84) as u32);
     made.into_raw()
-}
-
-pub fn skin_picture(folder: &Path, side: u32) -> Option<Vec<u8>> {
-    let mut made = image::RgbaImage::new(side, side);
-    match skin_part(folder, "hitcircle") {
-        Some(circle) => {
-            let reach = (side as f32 * 0.84) as u32;
-            let circle = match first_combo(folder) {
-                Some(colour) => image::DynamicImage::ImageRgba8(tinted(circle.to_rgba8(), colour)),
-                None => circle,
-            };
-            laid(&mut made, &circle, reach);
-            if let Some(over) = skin_part(folder, "hitcircleoverlay") {
-                laid(&mut made, &over, reach);
-            }
-            if let Some(number) = skin_part(folder, "default-1") {
-                laid(&mut made, &number, (side as f32 * 0.3) as u32);
-            }
-        }
-        None => {
-            let alone = skin_part(folder, "cursor").or_else(|| skin_part(folder, "menu-background"))?;
-            laid(&mut made, &alone, (side as f32 * 0.8) as u32);
-        }
-    }
-    Some(made.into_raw())
 }
 
 impl Settings {
@@ -602,6 +720,28 @@ mod tests {
         std::fs::write(root.join("Rafis").join("marker"), b"mine").unwrap();
         assert_eq!(adopt_skin_files(&root), vec![root.join("Rafis")]);
         assert!(root.join("Rafis").join("marker").is_file(), "an unpacked skin is left as it is");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn everything_in_the_archive_lands_on_disk() {
+        let root = scratch("whole");
+        let file = root.join("Whole.osk");
+        std::fs::write(
+            &file,
+            packed(&[
+                ("skin.ini", b"[General]\nName: whole\n"),
+                ("hitcircle.png", b"a"),
+                ("hitcircleoverlay@2x.png", b"b"),
+                ("sounds/normal-hitnormal.wav", b"c"),
+                ("numbers/default-1.png", b"d"),
+            ]),
+        )
+        .unwrap();
+        let made = unpack_skin_into(&file, &root).unwrap();
+        for at in ["skin.ini", "hitcircle.png", "hitcircleoverlay@2x.png", "sounds/normal-hitnormal.wav", "numbers/default-1.png"] {
+            assert!(made.join(at).is_file(), "{at} came out of the archive");
+        }
         let _ = std::fs::remove_dir_all(&root);
     }
 

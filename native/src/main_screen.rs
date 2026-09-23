@@ -2464,7 +2464,7 @@ impl Main {
                     Some(S::Found(_)) => w.t("found"),
                     Some(S::Downloading { .. }) => w.t("fetch-downloading"),
                     Some(S::Unpacking) => w.t("unpacking-map"),
-                    Some(S::Checking) => w.t("checking"),
+                    Some(S::Checking) => w.t("checking-map"),
                     _ => w.t("looking"),
                 };
                 ui::progress(label, self.progress_shown, Some(Message::StopFetch))
@@ -3884,7 +3884,7 @@ impl Main {
         let handle = self.account.as_ref().map(|a| a.username.clone()).filter(|u| !u.is_empty()).map(|u| format!("@{u}"));
         let (title, under) = if self.signed_in() {
             let chat = self.chat_name();
-            let mut under = handle.unwrap_or(if chat == "—" { w.t("linked") } else { chat });
+            let mut under = handle.unwrap_or(if chat == "—" { w.t("linked-status") } else { chat });
             if let Some(me) = &self.account {
                 under = format!("{under} · ID {}", me.telegram_id);
             }

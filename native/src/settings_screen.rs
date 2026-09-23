@@ -622,7 +622,7 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
                 ui::badge(ui::Machine::here(), 28.0),
                 column![
                     text(s.device.clone()).font(theme::SANS_SEMI).size(theme::CAPTION).wrapping(text::Wrapping::None).color(ui::faded(INK)),
-                    text(w.t("linked")).font(theme::SANS).size(11.0).wrapping(text::Wrapping::None).color(ui::faded(MUTED)),
+                    text(w.t("linked-status")).font(theme::SANS).size(11.0).wrapping(text::Wrapping::None).color(ui::faded(MUTED)),
                 ]
                 .spacing(1),
             ]

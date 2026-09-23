@@ -273,6 +273,15 @@ mod tests {
     }
 
     #[test]
+    fn no_key_is_defined_twice() {
+        for lang in [Lang::En, Lang::Ru] {
+            let names = keys(lang);
+            let twice: Vec<&String> = names.windows(2).filter(|pair| pair[0] == pair[1]).map(|pair| &pair[0]).collect();
+            assert!(twice.is_empty(), "{} defines {twice:?} more than once, and only the first is ever shown", lang.tag());
+        }
+    }
+
+    #[test]
     fn every_key_in_one_language_is_in_the_other() {
         assert_eq!(keys(Lang::En), keys(Lang::Ru));
         assert!(keys(Lang::En).len() > 40);

@@ -210,7 +210,6 @@ cache = cache
 clear = Clear
 builds = Builds
 check = Check
-engine-is = engine { $who }
 no-ffmpeg = ffmpeg not found
 private-chat = private chat
 group-chat = group · the bot is in

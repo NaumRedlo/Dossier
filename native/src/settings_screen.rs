@@ -600,11 +600,14 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
         }
         Tile::Builds => {
             let engine = crate::bot::BUILD.to_owned();
-            let under = match &ground.ffmpeg {
-                Some(version) => format!("{} · ffmpeg {version}", w.who("engine-is", crate::bot::ENGINE)),
-                None => w.t("no-ffmpeg"),
-            };
-            let under = if crate::bot::PRERELEASE { format!("{} · {under}", w.t("prerelease")) } else { under };
+            let mut under: Vec<String> = Vec::new();
+            if crate::bot::PRERELEASE {
+                under.push(w.t("prerelease"));
+            }
+            if ground.ffmpeg.is_none() {
+                under.push(w.t("no-ffmpeg"));
+            }
+            let under = under.join(" · ");
             column![
                 head(w, "builds"),
                 figure(engine, under),

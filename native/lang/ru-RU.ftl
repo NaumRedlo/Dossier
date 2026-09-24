@@ -216,7 +216,6 @@ cache = кэш
 clear = Очистить
 builds = Сборки
 check = Проверить
-engine-is = движок { $who }
 no-ffmpeg = ffmpeg не найден
 private-chat = личный чат
 group-chat = группа · бот внутри

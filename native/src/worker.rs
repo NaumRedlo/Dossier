@@ -307,7 +307,15 @@ fn length_of(replay: &Path) -> Duration {
 
 fn ffmpeg(binary: &Path, args: &[&str]) -> Result<(), String> {
     let mut command = Command::new(binary);
-    command.args(["-hide_banner", "-loglevel", "error", "-y"]).args(args);
+    command.args(["-hide_banner", "-loglevel", "error", "-y"]);
+    match (render::threads().1, args.split_last()) {
+        (Some(n), Some((out, head))) => {
+            command.args(head).args(["-threads", &n.to_string()]).arg(out);
+        }
+        _ => {
+            command.args(args);
+        }
+    }
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;

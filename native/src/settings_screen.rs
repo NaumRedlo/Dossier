@@ -4,7 +4,7 @@ use iced::widget::{button, column, container, row, text, text_input, Space};
 use iced::{Element, Length, Padding};
 
 use crate::lang::{Lang, Words};
-use crate::settings::{Settings, CRFS, HEIGHTS, RATES};
+use crate::settings::{Settings, CPU_SHARES, CRFS, HEIGHTS, RATES};
 use crate::sources::{self, Kind, Source};
 use crate::theme::{self, ACCENT, FAINT, INK, MUTED};
 use crate::ui;
@@ -142,6 +142,7 @@ pub enum Message {
     Height(f32),
     Rate(f32),
     Crf(f32),
+    Cpu(f32),
     Source(usize, bool),
     AddFolder,
     Added(Option<Source>),
@@ -361,6 +362,7 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
                     slide(ground, "height", w.t("render-size"), format!("{}p", s.render_height), at(s.render_height, &HEIGHTS), stops(&HEIGHTS), Message::Height),
                     slide(ground, "rate", w.t("render-frames"), s.render_fps.to_string(), at(s.render_fps, &RATES), stops(&RATES), Message::Rate),
                     slide(ground, "crf", w.t("render-quality"), format!("CRF {}", s.render_crf), at(s.render_crf, &CRFS), stops(&CRFS), Message::Crf),
+                    slide(ground, "cpu", w.t("render-cpu"), format!("{} %", s.cpu_share), at(s.cpu_share, &CPU_SHARES), stops(&CPU_SHARES), Message::Cpu),
                 ]
                 .spacing(6)
                 .width(360.0)

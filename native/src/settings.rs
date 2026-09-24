@@ -71,6 +71,8 @@ pub struct Settings {
     pub worker_on: bool,
     #[serde(default)]
     pub quiet_updates: bool,
+    #[serde(default = "whole_cpu")]
+    pub cpu_share: u32,
     #[serde(default)]
     pub last_build: String,
     #[serde(default)]
@@ -135,6 +137,10 @@ fn full() -> f32 {
     1.0
 }
 
+fn whole_cpu() -> u32 {
+    100
+}
+
 fn default_dim() -> f32 {
     0.82
 }
@@ -142,6 +148,7 @@ fn default_dim() -> f32 {
 pub const HEIGHTS: [u32; 5] = [480, 720, 1080, 1440, 2160];
 pub const RATES: [u32; 4] = [24, 30, 60, 120];
 pub const CRFS: [u32; 5] = [26, 23, 20, 17, 14];
+pub const CPU_SHARES: [u32; 4] = [25, 50, 75, 100];
 
 pub fn skins_root() -> PathBuf {
     crate::sources::own_root().join("Skins")
@@ -790,6 +797,7 @@ impl Default for Settings {
             skin: None,
             worker_on: false,
             quiet_updates: false,
+            cpu_share: 100,
             last_build: String::new(),
             own_skins: Vec::new(),
             music_level: 1.0,

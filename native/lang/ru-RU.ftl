@@ -226,6 +226,7 @@ unlink = Отвязать
 render-size = Размер
 render-frames = Кадры
 render-quality = Качество
+render-cpu = Процессор
 skins = Скины
 own-skin = Свой скин приложения
 sound = Звук

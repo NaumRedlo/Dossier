@@ -663,6 +663,7 @@ impl Main {
 
     pub fn launched(&mut self) -> Task<Message> {
         crate::updates::touched();
+        crate::render::share_cpu(self.settings.cpu_share);
         let build = crate::bot::BUILD;
         if self.settings.last_build != build {
             let before = std::mem::replace(&mut self.settings.last_build, build.to_owned());
@@ -4126,7 +4127,7 @@ impl Main {
     }
 
     fn slider_targets(&self) -> Vec<(String, f32)> {
-        use crate::settings::{CRFS, HEIGHTS, RATES};
+        use crate::settings::{CPU_SHARES, CRFS, HEIGHTS, RATES};
         let at = |value: u32, of: &[u32]| {
             let last = (of.len().max(2) - 1) as f32;
             of.iter().position(|v| *v == value).map_or(0.5, |i| i as f32 / last)
@@ -4135,6 +4136,7 @@ impl Main {
             ("height".to_owned(), at(self.settings.render_height, &HEIGHTS)),
             ("rate".to_owned(), at(self.settings.render_fps, &RATES)),
             ("crf".to_owned(), at(self.settings.render_crf, &CRFS)),
+            ("cpu".to_owned(), at(self.settings.cpu_share, &CPU_SHARES)),
             ("music".to_owned(), self.settings.music_level),
             ("hits".to_owned(), self.settings.hitsound_level),
             ("player".to_owned(), self.settings.player_level),
@@ -4778,6 +4780,13 @@ impl Main {
             P::Rate(at) => {
                 self.slid_at.insert("rate".to_owned(), Instant::now());
                 self.settings.render_fps = prefs::nearest(at, &crate::settings::RATES);
+                keep(&self.settings);
+                Task::none()
+            }
+            P::Cpu(at) => {
+                self.slid_at.insert("cpu".to_owned(), Instant::now());
+                self.settings.cpu_share = prefs::nearest(at, &crate::settings::CPU_SHARES);
+                crate::render::share_cpu(self.settings.cpu_share);
                 keep(&self.settings);
                 Task::none()
             }

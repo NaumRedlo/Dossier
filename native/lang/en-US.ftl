@@ -220,6 +220,7 @@ unlink = Unlink
 render-size = Size
 render-frames = Frames
 render-quality = Quality
+render-cpu = Processor
 skins = Skins
 own-skin = The application's own
 sound = Sound

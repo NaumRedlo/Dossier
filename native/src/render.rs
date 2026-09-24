@@ -156,6 +156,23 @@ pub fn run(ask: Ask) -> iced::Task<Step> {
 }
 
 static BUSY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static CPU: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(100);
+
+pub fn share_cpu(percent: u32) {
+    CPU.store(percent.clamp(10, 100), std::sync::atomic::Ordering::SeqCst);
+}
+
+pub fn threads() -> (Option<usize>, Option<usize>) {
+    threads_of(CPU.load(std::sync::atomic::Ordering::SeqCst), std::thread::available_parallelism().map_or(1, |n| n.get()))
+}
+
+pub fn threads_of(share: u32, cores: usize) -> (Option<usize>, Option<usize>) {
+    if share >= 100 {
+        return (None, None);
+    }
+    let allowed = ((cores * share as usize + 50) / 100).clamp(1, cores.max(1));
+    (Some(allowed.saturating_sub(1).max(1)), Some(allowed))
+}
 
 pub fn busy() -> bool {
     BUSY.load(std::sync::atomic::Ordering::SeqCst)
@@ -271,8 +288,8 @@ fn draw(ask: &Ask, tell: &Sender<Step>) -> Result<PathBuf, String> {
         preset: "medium".to_owned(),
         music_level: ask.music_level,
         hitsound_level: ask.hitsound_level,
-        threads: None,
-        encoder_threads: None,
+        threads: threads().0,
+        encoder_threads: threads().1,
         audio: locate::extract_audio(&found.origin, &beatmap.audio_filename, &scratch),
         video: None,
         hitsounds: None,
@@ -336,6 +353,15 @@ fn draw(ask: &Ask, tell: &Sender<Step>) -> Result<PathBuf, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_share_of_the_processor_leaves_the_rest_alone() {
+        assert_eq!(threads_of(100, 8), (None, None));
+        assert_eq!(threads_of(50, 8), (Some(3), Some(4)));
+        assert_eq!(threads_of(25, 8), (Some(1), Some(2)));
+        assert_eq!(threads_of(25, 2), (Some(1), Some(1)));
+        assert_eq!(threads_of(75, 1), (Some(1), Some(1)));
+    }
 
     #[test]
     fn progress_lines_become_steps() {

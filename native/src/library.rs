@@ -259,7 +259,7 @@ fn entry(path: &Path, kind: Kind, index: &Index) -> Option<Entry> {
     Some(Entry {
         path: path.to_path_buf(),
         kind,
-        client: if replay.score_info.is_some() { Client::Lazer } else { Client::Stable },
+        client: if kind == Kind::Lazer || replay.game_version >= crate::sources::LAZER_VERSIONS || replay.score_info.is_some() { Client::Lazer } else { Client::Stable },
         player: replay.player.clone(),
         replay_hash: if replay.replay_hash.is_empty() { path.display().to_string() } else { replay.replay_hash.clone() },
         map_hash: replay.beatmap_hash.clone(),

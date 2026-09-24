@@ -10,12 +10,15 @@ type Renderer = iced::Renderer;
 
 const LINE: f32 = 84.0;
 const RATE: f32 = 13.0;
+const SLOP: f32 = 6.0;
+const FLING: f32 = 0.22;
 
 pub struct Glide<'a, Message> {
     content: Element<'a, Message>,
     target: iced::widget::Id,
     aim: Option<(u64, f32)>,
     at: f32,
+    grabbed: bool,
 }
 
 #[derive(Debug, Default)]
@@ -23,13 +26,28 @@ struct State {
     pending: f32,
     seen: u64,
     last: Option<Instant>,
+    grab: Option<Grab>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct Grab {
+    from: f32,
+    last: f32,
+    moved: bool,
+    speed: f32,
+    at: Instant,
 }
 
 pub fn glide<'a, Message: 'a>(content: impl Into<Element<'a, Message>>, target: iced::widget::Id) -> Glide<'a, Message> {
-    Glide { content: content.into(), target, aim: None, at: 0.0 }
+    Glide { content: content.into(), target, aim: None, at: 0.0, grabbed: false }
 }
 
 impl<Message> Glide<'_, Message> {
+    pub fn grabbed(mut self) -> Self {
+        self.grabbed = true;
+        self
+    }
+
     pub fn aimed(mut self, aim: Option<(u64, f32)>, at: f32) -> Self {
         self.aim = aim;
         self.at = at;
@@ -103,6 +121,52 @@ impl<Message> Widget<Message, Theme, Renderer> for Glide<'_, Message> {
                 shell.request_redraw();
             }
         }
+        if self.grabbed {
+            match event {
+                iced::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
+                    if let Some(point) = cursor.position_over(layout.bounds()) {
+                        state.grab = Some(Grab { from: point.x, last: point.x, moved: false, speed: 0.0, at: Instant::now() });
+                    }
+                }
+                iced::Event::Mouse(mouse::Event::CursorMoved { position }) => {
+                    if let Some(mut grab) = state.grab {
+                        if !grab.moved && (position.x - grab.from).abs() > SLOP {
+                            grab.moved = true;
+                            grab.last = position.x;
+                            state.pending = 0.0;
+                        }
+                        if grab.moved {
+                            let by = grab.last - position.x;
+                            let now = Instant::now();
+                            let dt = now.saturating_duration_since(grab.at).as_secs_f32().max(0.004);
+                            grab.speed = grab.speed * 0.6 + (by / dt) * 0.4;
+                            grab.at = now;
+                            grab.last = position.x;
+                            state.grab = Some(grab);
+                            self.scroll(tree, layout, renderer, by);
+                            shell.request_redraw();
+                            shell.capture_event();
+                            return;
+                        }
+                        state.grab = Some(grab);
+                    }
+                }
+                iced::Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => {
+                    if let Some(grab) = state.grab.take() {
+                        if grab.moved {
+                            let resting = Instant::now().saturating_duration_since(grab.at).as_secs_f32() > 0.08;
+                            state.pending = if resting { 0.0 } else { grab.speed * FLING };
+                            state.last = None;
+                            shell.request_redraw();
+                            self.content.as_widget_mut().update(&mut tree.children[0], event, layout, mouse::Cursor::Unavailable, renderer, clipboard, shell, viewport);
+                            shell.capture_event();
+                            return;
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
         match event {
             iced::Event::Mouse(mouse::Event::WheelScrolled { delta }) if cursor.is_over(layout.bounds()) => {
                 match *delta {
@@ -138,6 +202,9 @@ impl<Message> Widget<Message, Theme, Renderer> for Glide<'_, Message> {
     }
 
     fn mouse_interaction(&self, tree: &Tree, layout: Layout<'_>, cursor: mouse::Cursor, viewport: &Rectangle, renderer: &Renderer) -> mouse::Interaction {
+        if tree.state.downcast_ref::<State>().grab.is_some_and(|grab| grab.moved) {
+            return mouse::Interaction::Grabbing;
+        }
         self.content.as_widget().mouse_interaction(&tree.children[0], layout, cursor, viewport, renderer)
     }
 

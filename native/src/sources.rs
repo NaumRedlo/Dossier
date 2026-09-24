@@ -128,8 +128,18 @@ fn holds_beatmaps(songs: &Path) -> bool {
         .unwrap_or(false)
 }
 
+pub fn lazer_install(root: &Path) -> bool {
+    root.join("Update.exe").is_file()
+        || std::fs::read_dir(root).is_ok_and(|entries| {
+            entries.flatten().any(|e| e.file_type().is_ok_and(|kind| kind.is_dir()) && e.file_name().to_string_lossy().starts_with("app-") && e.path().join("osu!.exe").is_file())
+        })
+}
+
 pub fn stable_at(root: &Path) -> Option<Source> {
-    let evidence = root.join("osu!.exe").is_file() || stable_config(root).is_some();
+    if root.join("client.realm").is_file() || lazer_install(root) {
+        return None;
+    }
+    let evidence = root.join("osu!.db").is_file() || stable_config(root).is_some() || (root.join("osu!.exe").is_file() && root.join("Songs").is_dir());
     if !evidence && !holds_beatmaps(&root.join("Songs")) {
         return None;
     }
@@ -167,6 +177,8 @@ pub fn storage_redirect(ini: &str) -> Option<PathBuf> {
     })
 }
 
+pub const LAZER_VERSIONS: i32 = 30_000_000;
+
 pub fn is_osr(head: &[u8]) -> bool {
     head.len() >= 39
         && head[0] <= 3
@@ -175,7 +187,7 @@ pub fn is_osr(head: &[u8]) -> bool {
         && head[7..39].iter().all(|b| b.is_ascii_hexdigit())
         && {
             let version = i32::from_le_bytes([head[1], head[2], head[3], head[4]]);
-            (2007_00_00..=2099_12_31).contains(&version)
+            (2007_00_00..=2099_12_31).contains(&version) || (LAZER_VERSIONS..LAZER_VERSIONS + 10_000_000).contains(&version)
         }
 }
 
@@ -371,7 +383,10 @@ pub fn own() -> Result<Source, String> {
 }
 
 pub fn read(root: &Path) -> Option<Source> {
-    stable_at(root).or_else(|| lazer_at(root)).or_else(|| folder_at(root))
+    stable_at(root)
+        .or_else(|| lazer_at(root))
+        .or_else(|| lazer_install(root).then(|| lazer_roots().iter().find_map(|data| lazer_at(data))).flatten())
+        .or_else(|| folder_at(root))
 }
 
 fn stable_roots() -> Vec<PathBuf> {
@@ -516,6 +531,36 @@ mod tests {
         assert_eq!(first, 200);
         assert_eq!(second, 200);
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn lazer_is_never_taken_for_stable() {
+        let install = scratch("lazer-install");
+        std::fs::write(install.join("osu!.exe"), b"").unwrap();
+        std::fs::write(install.join("Update.exe"), b"").unwrap();
+        std::fs::create_dir_all(install.join("app-2025.912.0")).unwrap();
+        std::fs::write(install.join("app-2025.912.0").join("osu!.exe"), b"").unwrap();
+        assert_eq!(stable_at(&install), None);
+        let data = scratch("lazer-data");
+        std::fs::write(data.join("client.realm"), b"").unwrap();
+        std::fs::create_dir_all(data.join("files")).unwrap();
+        std::fs::create_dir_all(data.join("Songs")).unwrap();
+        std::fs::write(data.join("osu!.exe"), b"").unwrap();
+        assert_eq!(stable_at(&data), None);
+        assert_eq!(read(&data).map(|s| s.kind), Some(Kind::Lazer));
+        let _ = std::fs::remove_dir_all(&install);
+        let _ = std::fs::remove_dir_all(&data);
+    }
+
+    #[test]
+    fn a_lazer_replay_carries_a_version_past_thirty_million() {
+        let mut head = vec![0u8];
+        head.extend(30_000_016i32.to_le_bytes());
+        head.extend([0x0b, 0x20]);
+        head.extend(b"0123456789abcdef0123456789abcdef");
+        assert!(is_osr(&head));
+        head[1..5].copy_from_slice(&40_000_001i32.to_le_bytes());
+        assert!(!is_osr(&head));
     }
 
     #[test]

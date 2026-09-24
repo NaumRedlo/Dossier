@@ -3207,7 +3207,7 @@ impl Main {
                 scrollable::Scrollbar::new().width(0).scroller_width(0).margin(0),
             ))
             .width(Length::Fill);
-        let strip = crate::glide::glide(strip, self.strip_id.clone()).aimed(self.strip_aim, self.strip_view.map_or(0.0, |(offset, _, _)| offset));
+        let strip = crate::glide::glide(strip, self.strip_id.clone()).aimed(self.strip_aim, self.strip_view.map_or(0.0, |(offset, _, _)| offset)).grabbed();
         let position = self
             .chosen
             .and_then(|c| visible.iter().position(|v| *v == c))
@@ -3338,7 +3338,7 @@ impl Main {
         ]
         .spacing(2)
         .width(Length::Fill);
-        let card = container(inside).padding([8, 10]).width(BUBBLE_W).height(BUBBLE_H).clip(true);
+        let card = container(inside).padding([8, 10]).width(BUBBLE_W).height(BUBBLE_H).clip(true).style(theme::bubble_faded(alpha));
         let skin = iced::widget::canvas(ui::Skin { at: tip, alpha }).width(BUBBLE_W).height(BUBBLE_H + CARET);
         stack![skin, column![card, Space::new().height(CARET)]].width(BUBBLE_W).height(BUBBLE_H + CARET).into()
     }

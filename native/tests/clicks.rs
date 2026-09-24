@@ -103,3 +103,33 @@ fn the_worker_is_a_part_of_settings_and_the_bar_turns_between_them() {
     let messages: Vec<_> = ui.into_messages().collect();
     assert!(messages.iter().any(|m| matches!(m, dossier_native::Message::Main(M::Prefs(P::Side(Side::App))))), "{messages:?}");
 }
+
+#[test]
+fn the_strip_is_dragged_by_its_frames_and_a_drag_is_not_a_click() {
+    use dossier_native::main_screen::Message as M;
+    use iced::mouse;
+    let staged = main_state("main-rest");
+    let backdrop = dossier_native::ui::backdrop_handle();
+    let size = iced::Size::new(760.0, 560.0);
+    let mut ui = Simulator::with_size(dossier_native::settings(), size, gallery::main_frame(&staged, &backdrop));
+    let from = Point::new(560.0, size.height - 10.0 - 18.0 - 4.0 - 25.0);
+    ui.point_at(from);
+    let mut events = vec![iced::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left))];
+    for step in 1..=12 {
+        events.push(iced::Event::Mouse(mouse::Event::CursorMoved { position: Point::new(from.x - 30.0 * step as f32, from.y) }));
+        events.push(iced::Event::Window(iced::window::Event::RedrawRequested(std::time::Instant::now())));
+    }
+    events.push(iced::Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)));
+    events.push(iced::Event::Window(iced::window::Event::RedrawRequested(std::time::Instant::now())));
+    let _ = ui.simulate(events);
+    let messages: Vec<_> = ui.into_messages().collect();
+    assert!(!messages.iter().any(|m| matches!(m, dossier_native::Message::Main(M::Choose(_)))), "a drag chose a replay: {messages:?}");
+    let furthest = messages
+        .iter()
+        .filter_map(|m| match m {
+            dossier_native::Message::Main(M::Strip(viewport)) => Some(viewport.absolute_offset().x),
+            _ => None,
+        })
+        .fold(0.0f32, f32::max);
+    assert!(furthest > 100.0, "the strip moved only {furthest}: {messages:?}");
+}

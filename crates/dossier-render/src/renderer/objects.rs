@@ -1711,12 +1711,15 @@ impl Scene<'_> {
         };
 
         if disjoint {
-            let mut age = TRAIL_STEP_MS;
-            while age <= TRAIL_DISJOINT_MS {
-                if let Some(sample) = track.sample(time_ms - age) {
-                    mark(sample.pos, 1.0 - (age / TRAIL_DISJOINT_MS) as f32);
+            let mut at = (time_ms / TRAIL_STEP_MS).floor() * TRAIL_STEP_MS;
+            while time_ms - at <= TRAIL_DISJOINT_MS {
+                let age = time_ms - at;
+                if age > 0.0 {
+                    if let Some(sample) = track.sample(at) {
+                        mark(sample.pos, 1.0 - (age / TRAIL_DISJOINT_MS) as f32);
+                    }
                 }
-                age += TRAIL_STEP_MS;
+                at -= TRAIL_STEP_MS;
             }
             return;
         }
@@ -1725,24 +1728,24 @@ impl Scene<'_> {
         if interval <= 0.0 {
             return;
         }
-        let Some(head) = track.sample(time_ms) else {
+        let Some(now) = track.travelled_at(time_ms) else {
             return;
         };
-        let (mut last, mut walked) = (head.pos, 0.0f64);
-        let mut age = 0.0f64;
-        while age < TRAIL_CONTINUOUS_MS {
-            age += TRAIL_STEP_MS / 4.0;
-            let Some(sample) = track.sample(time_ms - age) else {
+        let mut distance = (now / interval).floor() * interval;
+        let mut placed = 0;
+        while distance > 0.0 && placed < TRAIL_MOST {
+            let Some((when, at)) = track.when_travelled(distance) else {
                 break;
             };
-            let step = f64::from((sample.pos.x - last.x).hypot(sample.pos.y - last.y));
-            last = sample.pos;
-            walked += step;
-            if walked < interval {
-                continue;
+            let age = time_ms - when;
+            if age >= TRAIL_CONTINUOUS_MS {
+                break;
             }
-            walked = 0.0;
-            mark(sample.pos, 1.0 - (age / TRAIL_CONTINUOUS_MS) as f32);
+            if age >= 0.0 {
+                mark(at, 1.0 - (age / TRAIL_CONTINUOUS_MS) as f32);
+                placed += 1;
+            }
+            distance -= interval;
         }
     }
 
@@ -1775,7 +1778,15 @@ impl Scene<'_> {
                     .sprites
                     .as_ref()
                     .is_none_or(|sprites| sprites.ini().cursor_expand);
-            let held = expands && sample.keys.is_pressed();
+            let grown = if expands {
+                track.pressed_since(time_ms).map_or(0.0, |(down, since)| {
+                    let k = (since / CURSOR_EXPAND_MS).clamp(0.0, 1.0);
+                    let k = (1.0 - (1.0 - k) * (1.0 - k)) as f32;
+                    if down { k } else { 1.0 - k }
+                })
+            } else {
+                0.0
+            };
             if self.skin_speaks_for(Element::Cursor) {
                 let own = self
                     .skin
@@ -1785,7 +1796,7 @@ impl Scene<'_> {
                     .map_or(radius * 2.0 * self.skin.cursor_scale, |sprite| {
                         self.skin_pixels(layout, sprite.width()) * self.skin.cursor_scale
                     });
-                let wide = own * if held { 1.25 } else { 1.0 };
+                let wide = own * (1.0 + 0.25 * grown);
                 self.draw_sprite_wide_turned(
                     pixmap,
                     Element::Cursor,
@@ -1828,7 +1839,7 @@ impl Scene<'_> {
             self.dot(
                 pixmap,
                 sample.pos,
-                radius * if held { 0.95 } else { 0.75 } * scale,
+                radius * (0.75 + 0.2 * grown) * scale,
                 self.skin.cursor,
                 1.0,
                 layout,

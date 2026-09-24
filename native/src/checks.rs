@@ -24,12 +24,57 @@ pub fn quiet(program: impl AsRef<std::ffi::OsStr>) -> std::process::Command {
 
 pub fn ffmpeg_on_path() -> Option<PathBuf> {
     let own = crate::ffmpeg::own();
-    if own.is_file() {
+    if own_works(&own) {
         return Some(own);
     }
     let name = if cfg!(windows) { "ffmpeg.exe" } else { "ffmpeg" };
     let on_path: Vec<PathBuf> = std::env::var_os("PATH").map(|paths| std::env::split_paths(&paths).collect()).unwrap_or_default();
-    on_path.into_iter().chain(usual_places()).map(|dir| dir.join(name)).find(|candidate| candidate.is_file())
+    on_path.into_iter().chain(usual_places()).map(|dir| dir.join(name)).find(|candidate| runnable(candidate))
+}
+
+fn stamp(path: &std::path::Path) -> Option<String> {
+    let meta = std::fs::metadata(path).ok()?;
+    let modified = meta.modified().ok()?.duration_since(std::time::UNIX_EPOCH).ok()?.as_secs();
+    Some(format!("{}:{modified}", meta.len()))
+}
+
+pub fn vouch_for(path: &std::path::Path) {
+    if let Some(stamp) = stamp(path) {
+        let _ = std::fs::write(path.with_extension("ok"), stamp);
+    }
+}
+
+fn own_works(own: &std::path::Path) -> bool {
+    if !runnable(own) {
+        return false;
+    }
+    let known = stamp(own);
+    if known.is_some() && std::fs::read_to_string(own.with_extension("ok")).ok() == known {
+        return true;
+    }
+    if ffmpeg_version(own).is_some() {
+        vouch_for(own);
+        return true;
+    }
+    let _ = std::fs::remove_file(own);
+    let _ = std::fs::remove_file(own.with_extension("ok"));
+    false
+}
+
+pub fn runnable(path: &std::path::Path) -> bool {
+    if !path.is_file() {
+        return false;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = |path: &std::path::Path| std::fs::metadata(path).map(|meta| meta.permissions().mode()).unwrap_or(0);
+        if mode(path) & 0o111 == 0 {
+            let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755));
+            return mode(path) & 0o111 != 0;
+        }
+    }
+    true
 }
 
 fn usual_places() -> Vec<PathBuf> {

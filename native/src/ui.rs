@@ -4003,3 +4003,93 @@ mod tests {
         assert_eq!(refit(Size::new(980.0, 720.0), 1.0, 1.0, least), None);
     }
 }
+
+thread_local! {
+    static PLACES: std::cell::RefCell<std::collections::HashMap<String, f32>> = std::cell::RefCell::new(std::collections::HashMap::new());
+}
+
+pub fn places() -> std::collections::HashMap<String, f32> {
+    PLACES.with(|places| places.borrow().clone())
+}
+
+pub struct Flip<'a, Message> {
+    content: Element<'a, Message>,
+    key: String,
+    from: Option<f32>,
+    k: f32,
+}
+
+pub fn flip<'a, Message: 'a>(content: impl Into<Element<'a, Message>>, key: String, from: Option<f32>, k: f32) -> Flip<'a, Message> {
+    Flip { content: content.into(), key, from, k: k.clamp(0.0, 1.0) }
+}
+
+impl<Message> iced::advanced::Widget<Message, Theme, Renderer> for Flip<'_, Message> {
+    fn children(&self) -> Vec<iced::advanced::widget::Tree> {
+        vec![iced::advanced::widget::Tree::new(&self.content)]
+    }
+
+    fn diff(&self, tree: &mut iced::advanced::widget::Tree) {
+        tree.diff_children(std::slice::from_ref(&self.content));
+    }
+
+    fn size(&self) -> Size<Length> {
+        self.content.as_widget().size()
+    }
+
+    fn layout(&mut self, tree: &mut iced::advanced::widget::Tree, renderer: &Renderer, limits: &iced::advanced::layout::Limits) -> iced::advanced::layout::Node {
+        self.content.as_widget_mut().layout(&mut tree.children[0], renderer, limits)
+    }
+
+    fn operate(&mut self, tree: &mut iced::advanced::widget::Tree, layout: iced::advanced::Layout<'_>, renderer: &Renderer, operation: &mut dyn iced::advanced::widget::Operation) {
+        self.content.as_widget_mut().operate(&mut tree.children[0], layout, renderer, operation);
+    }
+
+    fn update(
+        &mut self,
+        tree: &mut iced::advanced::widget::Tree,
+        event: &iced::Event,
+        layout: iced::advanced::Layout<'_>,
+        cursor: mouse::Cursor,
+        renderer: &Renderer,
+        clipboard: &mut dyn iced::advanced::Clipboard,
+        shell: &mut iced::advanced::Shell<'_, Message>,
+        viewport: &Rectangle,
+    ) {
+        self.content.as_widget_mut().update(&mut tree.children[0], event, layout, cursor, renderer, clipboard, shell, viewport);
+    }
+
+    fn mouse_interaction(&self, tree: &iced::advanced::widget::Tree, layout: iced::advanced::Layout<'_>, cursor: mouse::Cursor, viewport: &Rectangle, renderer: &Renderer) -> mouse::Interaction {
+        self.content.as_widget().mouse_interaction(&tree.children[0], layout, cursor, viewport, renderer)
+    }
+
+    fn draw(
+        &self,
+        tree: &iced::advanced::widget::Tree,
+        renderer: &mut Renderer,
+        theme: &Theme,
+        style: &iced::advanced::renderer::Style,
+        layout: iced::advanced::Layout<'_>,
+        cursor: mouse::Cursor,
+        viewport: &Rectangle,
+    ) {
+        let x = layout.bounds().x;
+        PLACES.with(|places| {
+            places.borrow_mut().insert(self.key.clone(), x);
+        });
+        match self.from.filter(|_| self.k < 1.0) {
+            Some(from) => {
+                let shift = iced::Vector::new((from - x) * (1.0 - self.k), 0.0);
+                iced::advanced::Renderer::with_translation(renderer, shift, |renderer| {
+                    self.content.as_widget().draw(&tree.children[0], renderer, theme, style, layout, cursor, &Rectangle { x: viewport.x - shift.x, ..*viewport });
+                });
+            }
+            None => self.content.as_widget().draw(&tree.children[0], renderer, theme, style, layout, cursor, viewport),
+        }
+    }
+}
+
+impl<'a, Message: 'a> From<Flip<'a, Message>> for Element<'a, Message> {
+    fn from(flip: Flip<'a, Message>) -> Element<'a, Message> {
+        Element::new(flip)
+    }
+}

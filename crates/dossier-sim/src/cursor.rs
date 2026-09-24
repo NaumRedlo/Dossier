@@ -11,6 +11,7 @@ pub struct Cursor {
 pub struct CursorTrack {
     frames: Vec<ReplayFrame>,
     buttons: Vec<Buttons>,
+    travelled: Vec<f64>,
     hint: std::sync::atomic::AtomicUsize,
 }
 
@@ -52,11 +53,69 @@ impl Clone for CursorTrack {
 impl CursorTrack {
     pub fn new(frames: Vec<ReplayFrame>) -> Self {
         let buttons = Self::button_states(&frames);
+        let mut travelled = Vec::with_capacity(frames.len());
+        let mut walked = 0.0f64;
+        for (at, frame) in frames.iter().enumerate() {
+            if at > 0 {
+                let before = &frames[at - 1];
+                walked += f64::from(frame.x - before.x).hypot(f64::from(frame.y - before.y));
+            }
+            travelled.push(walked);
+        }
         Self {
             frames,
             buttons,
+            travelled,
             hint: std::sync::atomic::AtomicUsize::new(0),
         }
+    }
+
+    pub fn travelled_at(&self, time_ms: f64) -> Option<f64> {
+        if self.frames.is_empty() {
+            return None;
+        }
+        let at = self.index_at(time_ms);
+        let base = self.travelled[at];
+        let Some(next) = self.frames.get(at + 1) else {
+            return Some(base);
+        };
+        let current = &self.frames[at];
+        let span = (next.time_ms - current.time_ms) as f64;
+        let t = if span > 0.0 { ((time_ms - current.time_ms as f64) / span).clamp(0.0, 1.0) } else { 0.0 };
+        Some(base + (self.travelled[at + 1] - base) * t)
+    }
+
+    pub fn when_travelled(&self, distance: f64) -> Option<(f64, Point)> {
+        if self.frames.is_empty() || distance < 0.0 {
+            return None;
+        }
+        let at = self.travelled.partition_point(|walked| *walked < distance);
+        let later = self.frames.get(at)?;
+        let point = |frame: &ReplayFrame| Point { x: f64::from(frame.x), y: f64::from(frame.y) };
+        if at == 0 {
+            return Some((later.time_ms as f64, point(later)));
+        }
+        let earlier = &self.frames[at - 1];
+        let (from, to) = (self.travelled[at - 1], self.travelled[at]);
+        let t = if to > from { ((distance - from) / (to - from)).clamp(0.0, 1.0) } else { 0.0 };
+        Some((
+            lerp(earlier.time_ms as f64, later.time_ms as f64, t),
+            Point { x: lerp(f64::from(earlier.x), f64::from(later.x), t), y: lerp(f64::from(earlier.y), f64::from(later.y), t) },
+        ))
+    }
+
+    pub fn pressed_since(&self, time_ms: f64) -> Option<(bool, f64)> {
+        if self.frames.is_empty() {
+            return None;
+        }
+        let at = self.index_at(time_ms);
+        let down = self.frames[at].keys.is_pressed();
+        let mut first = at;
+        while first > 0 && self.frames[first - 1].keys.is_pressed() == down {
+            first -= 1;
+        }
+        let since = if first == 0 { f64::INFINITY } else { (time_ms - self.frames[first].time_ms as f64).max(0.0) };
+        Some((down, since))
     }
 
     fn button_states(frames: &[ReplayFrame]) -> Vec<Buttons> {
@@ -238,4 +297,32 @@ impl CursorTrack {
 
 fn lerp(a: f64, b: f64, t: f64) -> f64 {
     a + (b - a) * t
+}
+
+#[cfg(test)]
+mod travel {
+    use super::*;
+
+    fn at(time_ms: i32, x: f32, y: f32, keys: u8) -> ReplayFrame {
+        ReplayFrame { time_ms: time_ms.into(), x, y, keys: Keys(keys) }
+    }
+
+    #[test]
+    fn the_path_is_measured_once_and_read_back_both_ways() {
+        let track = CursorTrack::new(vec![at(0, 0.0, 0.0, 0), at(10, 30.0, 40.0, 0), at(20, 30.0, 40.0, 0), at(30, 30.0, 100.0, 0)]);
+        assert_eq!(track.travelled_at(5.0), Some(25.0));
+        assert_eq!(track.travelled_at(30.0), Some(110.0));
+        let (when, where_) = track.when_travelled(80.0).expect("a point on the path");
+        assert!((when - 25.0).abs() < 1e-9);
+        assert!((where_.y - 70.0).abs() < 1e-9);
+        assert_eq!(track.when_travelled(500.0), None);
+    }
+
+    #[test]
+    fn a_press_is_timed_from_its_first_frame() {
+        let track = CursorTrack::new(vec![at(0, 0.0, 0.0, 0), at(10, 0.0, 0.0, Keys::K1), at(20, 0.0, 0.0, Keys::K1), at(40, 0.0, 0.0, 0)]);
+        assert_eq!(track.pressed_since(25.0), Some((true, 15.0)));
+        assert_eq!(track.pressed_since(45.0), Some((false, 5.0)));
+        assert_eq!(track.pressed_since(5.0).map(|(down, since)| (down, since.is_infinite())), Some((false, true)));
+    }
 }

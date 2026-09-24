@@ -58,6 +58,7 @@ fn main() -> iced::Result {
         };
         let out = std::env::temp_dir().join(dossier_native::render::file_name(&entry.player, &map.line()));
         let said = dossier_native::settings::Settings::load();
+        dossier_native::render::share_cpu(std::env::var("DOSSIER_CPU").ok().and_then(|share| share.parse().ok()).unwrap_or(said.cpu_share));
         let height: u32 = std::env::var("DOSSIER_RENDER_HEIGHT").ok().and_then(|h| h.parse().ok()).unwrap_or(1080);
         let ask = dossier_native::render::Ask {
             replay: entry.path.clone(),

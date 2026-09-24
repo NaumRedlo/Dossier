@@ -633,7 +633,12 @@ fn spawn(
     }
 
     if let Some(threads) = settings.encoder_threads {
-        command.args(["-threads", &threads.to_string()]);
+        command.args(["-threads", &threads.to_string(), "-filter_threads", &threads.to_string()]);
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            command.creation_flags(0x0800_0000 | 0x0000_4000);
+        }
     }
 
     command

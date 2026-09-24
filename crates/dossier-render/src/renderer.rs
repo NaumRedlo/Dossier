@@ -263,6 +263,8 @@ const TRAIL_DISJOINT_MS: f64 = 150.0;
 const CURSOR_TURN_MS: f64 = 10_000.0;
 
 const TRAIL_CONTINUOUS_MS: f64 = 500.0;
+const TRAIL_MOST: usize = 400;
+const CURSOR_EXPAND_MS: f64 = 110.0;
 
 const TRAIL_INTERVAL_SHARE: f32 = 1.0 / 2.5;
 

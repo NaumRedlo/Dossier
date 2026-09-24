@@ -408,6 +408,8 @@ pub struct Main {
     covers_asked: std::collections::HashSet<String>,
     pub(crate) scale_draft: Option<u32>,
     hush_next: bool,
+    flip_from: HashMap<String, f32>,
+    flip_at: Option<Instant>,
     watch_sig: u64,
     pub(crate) update_wanted: bool,
     update_told: Option<String>,
@@ -592,6 +594,8 @@ impl Main {
             covers_asked: std::collections::HashSet::new(),
             scale_draft: None,
             hush_next: false,
+            flip_from: HashMap::new(),
+            flip_at: None,
             watch_sig: 0,
             update_wanted: false,
             update_told: None,
@@ -813,6 +817,7 @@ impl Main {
             || self.ask_fade.value() != self.asking_delete
             || self.player.as_ref().is_some_and(|p| p.borrow().paused && !self.controls.value())
             || self.room_fade.is_animating(self.now)
+            || self.flip_at.is_some_and(|at| self.now.saturating_duration_since(at) < FLIP)
             || self.widened.is_animating(self.now)
             || self.hint.is_some()
             || !self.toasts.is_empty()
@@ -1240,6 +1245,7 @@ impl Main {
                 } else if self.overlay == Overlay::Community && self.community_person.is_some() && self.person_fade.value() {
                     self.person_fade.go_mut(false, Instant::now());
                 } else if self.overlay == Overlay::None && !self.search.is_empty() {
+                    self.sorting();
                     self.search.clear();
                     return iced::advanced::widget::operate(iced::advanced::widget::operation::focusable::unfocus::<Message>());
                 } else if self.overlay == Overlay::Community {
@@ -1724,12 +1730,14 @@ impl Main {
                 self.update(Message::OpenVideo(next as usize))
             }
             Message::Search(query) => {
+                self.sorting();
                 self.search = query;
                 Task::none()
             }
             Message::Typed(letter) => {
                 if self.player.is_none() {
                     if self.overlay == Overlay::None && self.menu.is_none() && self.library.is_some() && (letter.is_alphanumeric() || letter == '+') {
+                        self.sorting();
                         self.search.push(letter);
                         let id = self.search_id.clone();
                         return iced::advanced::widget::operate(iced::advanced::widget::operation::focusable::focus::<Message>(id.clone()))
@@ -3539,6 +3547,11 @@ impl Main {
                 _ => days.push((label, vec![*at])),
             }
         }
+        let (seen_from, seen_to) = match self.strip_view {
+            Some((offset, _, shown)) => (offset - shown * STRIP_MARGIN, offset + shown * (1.0 + STRIP_MARGIN)),
+            None => (0.0, (self.width - 80.0).max(0.0) * (1.0 + STRIP_MARGIN)),
+        };
+        let mut x = 0.0f32;
         let mut strip = row![].spacing(22).align_y(iced::alignment::Vertical::Bottom);
         for (label, list) in &days {
             let on_day = list.iter().any(|i| Some(*i) == self.chosen);
@@ -3551,10 +3564,15 @@ impl Main {
             let head = row![dot, text(label.clone()).font(theme::MONO).size(11.0).color(ui::faded(if on_day { INK } else { FAINT }))]
                 .spacing(6)
                 .align_y(iced::Center);
-            let mut frames = row![].spacing(6).align_y(iced::alignment::Vertical::Bottom);
-            for at in list {
-                frames = frames.push(self.frame(*at, &entries[*at]));
+            let mut frames = row![].spacing(FRAME_GAP).align_y(iced::alignment::Vertical::Bottom);
+            let widths: Vec<f32> = list.iter().map(|at| if self.chosen == Some(*at) { theme::FRAME_W + 8.0 } else { theme::FRAME_W }).collect();
+            for slot in slots(&widths, x, (seen_from, seen_to)) {
+                frames = match slot {
+                    Slot::Frame(index) => frames.push(self.frame(list[index], &entries[list[index]])),
+                    Slot::Gap(wide) => frames.push(Space::new().width(wide).height(theme::FRAME_H)),
+                };
             }
+            x += widths.iter().sum::<f32>() + FRAME_GAP * widths.len().saturating_sub(1) as f32 + 22.0;
             strip = strip.push(column![head, frames].spacing(6));
         }
         let strip = scrollable(strip)
@@ -3609,6 +3627,29 @@ impl Main {
     }
 
     fn frame(&self, at: usize, entry: &Entry) -> Element<'_, Message> {
+        let k = self.flip_k();
+        let key = entry.path.display().to_string();
+        let from = self.flip_at.and(self.flip_from.get(&key).copied());
+        let built = if from.is_none() && k < 1.0 { ui::fading(ui::fade() * k, || self.frame_drawn(at, entry)) } else { self.frame_drawn(at, entry) };
+        ui::flip(built, key, from, k).into()
+    }
+
+    fn flip_k(&self) -> f32 {
+        match self.flip_at {
+            Some(at) => {
+                let t = (self.now.saturating_duration_since(at).as_secs_f32() / FLIP.as_secs_f32()).clamp(0.0, 1.0);
+                1.0 - (1.0 - t).powi(3)
+            }
+            None => 1.0,
+        }
+    }
+
+    fn sorting(&mut self) {
+        self.flip_from = ui::places();
+        self.flip_at = Some(Instant::now());
+    }
+
+    fn frame_drawn(&self, at: usize, entry: &Entry) -> Element<'_, Message> {
         let chosen = self.chosen == Some(at);
         let lit = self.hover == Some(at);
         let rise = self.lifts.get(&at).map_or(0.0, |lift| lift.interpolate(0.0, 1.0, self.now));
@@ -5954,7 +5995,40 @@ const PICTURE_INSET: f32 = 14.0;
 const PICTURE_RADIUS: f32 = 10.0;
 
 const REFRESH_AT_MOST: Duration = Duration::from_secs(20);
+const STRIP_MARGIN: f32 = 0.75;
+const FLIP: Duration = Duration::from_millis(320);
 const COVERS_AT_ONCE: usize = 240;
+
+const FRAME_GAP: f32 = 6.0;
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Slot {
+    Frame(usize),
+    Gap(f32),
+}
+
+fn slots(widths: &[f32], start: f32, seen: (f32, f32)) -> Vec<Slot> {
+    let mut out = Vec::new();
+    let mut hidden: Option<(f32, f32)> = None;
+    let mut x = start;
+    for (index, wide) in widths.iter().copied().enumerate() {
+        let gap = if index == 0 { 0.0 } else { FRAME_GAP };
+        if x + gap + wide < seen.0 || x > seen.1 {
+            let (run, lead) = hidden.unwrap_or((0.0, gap));
+            hidden = Some((run + gap + wide, lead));
+        } else {
+            if let Some((run, lead)) = hidden.take() {
+                out.push(Slot::Gap(run - lead));
+            }
+            out.push(Slot::Frame(index));
+        }
+        x += gap + wide;
+    }
+    if let Some((run, lead)) = hidden {
+        out.push(Slot::Gap(run - lead));
+    }
+    out
+}
 
 fn read_library(sources: Vec<crate::sources::Source>, done: fn(Library) -> Message) -> Task<Message> {
     ui::streamed(move |push: &mut dyn FnMut(Message) -> bool| {
@@ -6081,6 +6155,32 @@ pub fn max_combo_of(path: &Path, map: Option<&library::Map>, hash: &str) -> Opti
 
 #[cfg(test)]
 mod tests {
+    use super::{slots, Slot, FRAME_GAP};
+
+    #[test]
+    fn a_windowed_strip_is_exactly_as_wide_as_the_whole_one() {
+        let widths: Vec<f32> = (0..40).map(|at| if at == 17 { 116.0 } else { 108.0 }).collect();
+        let whole = widths.iter().sum::<f32>() + FRAME_GAP * (widths.len() - 1) as f32;
+        for (from, to) in [(0.0, 400.0), (900.0, 1600.0), (3000.0, 9000.0), (-500.0, -10.0), (-1.0, 99_999.0), (2000.0, 2001.0)] {
+            let laid = slots(&widths, 0.0, (from, to));
+            let wide: f32 = laid
+                .iter()
+                .map(|slot| match slot {
+                    Slot::Frame(index) => widths[*index],
+                    Slot::Gap(wide) => *wide,
+                })
+                .sum::<f32>()
+                + FRAME_GAP * laid.len().saturating_sub(1) as f32;
+            assert!((wide - whole).abs() < 0.01, "window {from}..{to}: {wide} against {whole}");
+            for slot in &laid {
+                if let Slot::Frame(index) = slot {
+                    let x = widths[..*index].iter().sum::<f32>() + FRAME_GAP * *index as f32;
+                    assert!(x <= to && x + widths[*index] + FRAME_GAP >= from, "frame {index} is outside {from}..{to}");
+                }
+            }
+        }
+    }
+
     #[test]
     fn the_menu_names_the_chat_the_videos_go_to() {
         let (_, mut main) = crate::gallery::main_states(crate::lang::Lang::En).into_iter().next().expect("a staged screen");

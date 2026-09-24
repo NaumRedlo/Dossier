@@ -103,6 +103,7 @@ fn fetch_from(build: &Build, dir: &std::path::Path, report: &mut impl FnMut(Step
     let target = dir.join(binary_name());
     std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     let archive = dir.join("ffmpeg.download");
+    let _ = std::fs::remove_file(&archive);
     let mut file = std::fs::File::create(&archive).map_err(|e| e.to_string())?;
     let mut done = 0u64;
     let mut buffer = [0u8; 64 * 1024];
@@ -127,16 +128,17 @@ fn fetch_from(build: &Build, dir: &std::path::Path, report: &mut impl FnMut(Step
     file.flush().map_err(|e| e.to_string())?;
     drop(file);
     report(Step::Unpacking { from: build.from });
-    let unpacked = unpack(&archive, &target);
+    let fresh = dir.join(format!("{}.new", binary_name()));
+    let unpacked = unpack(&archive, &fresh);
     let _ = std::fs::remove_file(&archive);
     unpacked?;
-    match crate::checks::ffmpeg_version(&target) {
-        Some(_) => Ok(target),
-        None => {
-            let _ = std::fs::remove_file(&target);
-            Err("the file does not run".to_owned())
-        }
+    if crate::checks::ffmpeg_version(&fresh).is_none() {
+        let _ = std::fs::remove_file(&fresh);
+        return Err("the file does not run".to_owned());
     }
+    std::fs::rename(&fresh, &target).map_err(|e| e.to_string())?;
+    crate::checks::vouch_for(&target);
+    Ok(target)
 }
 
 fn unpack(archive: &std::path::Path, target: &std::path::Path) -> Result<(), String> {

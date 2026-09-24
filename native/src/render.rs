@@ -171,7 +171,8 @@ pub fn threads_of(share: u32, cores: usize) -> (Option<usize>, Option<usize>) {
         return (None, None);
     }
     let allowed = ((cores * share as usize + 50) / 100).clamp(1, cores.max(1));
-    (Some(allowed.saturating_sub(1).max(1)), Some(allowed))
+    let draw = allowed.div_ceil(2);
+    (Some(draw), Some(allowed.saturating_sub(draw).max(1)))
 }
 
 pub fn busy() -> bool {
@@ -357,8 +358,9 @@ mod tests {
     #[test]
     fn a_share_of_the_processor_leaves_the_rest_alone() {
         assert_eq!(threads_of(100, 8), (None, None));
-        assert_eq!(threads_of(50, 8), (Some(3), Some(4)));
-        assert_eq!(threads_of(25, 8), (Some(1), Some(2)));
+        assert_eq!(threads_of(50, 8), (Some(2), Some(2)));
+        assert_eq!(threads_of(25, 12), (Some(2), Some(1)));
+        assert_eq!(threads_of(75, 16), (Some(6), Some(6)));
         assert_eq!(threads_of(25, 2), (Some(1), Some(1)));
         assert_eq!(threads_of(75, 1), (Some(1), Some(1)));
     }

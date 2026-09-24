@@ -164,6 +164,29 @@ impl Words {
         self.say(key, Some(&args))
     }
 
+    pub fn with(&self, key: &str, pairs: &[(&str, String)]) -> String {
+        let mut args = FluentArgs::new();
+        for (name, value) in pairs {
+            args.set(*name, FluentValue::from(value.clone()));
+        }
+        self.say(key, Some(&args))
+    }
+
+    pub fn week_span(&self, began: i64) -> String {
+        use chrono::Datelike;
+        let Some(start) = chrono::DateTime::from_timestamp(began + 3 * 3600, 0) else {
+            return String::new();
+        };
+        let end = start + chrono::Duration::days(6);
+        let month = |m: u32| self.t(&format!("month-{m}"));
+        match (self.lang, start.month() == end.month()) {
+            (Lang::Ru, true) => format!("{}–{} {}", start.day(), end.day(), month(end.month())),
+            (Lang::Ru, false) => format!("{} {} – {} {}", start.day(), month(start.month()), end.day(), month(end.month())),
+            (Lang::En, true) => format!("{} {}–{}", month(end.month()), start.day(), end.day()),
+            (Lang::En, false) => format!("{} {} – {} {}", month(start.month()), start.day(), month(end.month()), end.day()),
+        }
+    }
+
     pub fn count(&self, key: &str, n: u64) -> String {
         format!("{} {}", self.lang.group(n), self.n(key, n))
     }
@@ -270,6 +293,15 @@ mod tests {
             .collect();
         names.sort();
         names
+    }
+
+    #[test]
+    fn a_week_is_told_by_its_moscow_days() {
+        let monday = 1_789_938_000;
+        assert_eq!(Words::new(Lang::Ru).week_span(monday), "21–27 сентября");
+        assert_eq!(Words::new(Lang::En).week_span(monday), "September 21–27");
+        let across = monday + 7 * 86_400;
+        assert_eq!(Words::new(Lang::Ru).week_span(across), "28 сентября – 4 октября");
     }
 
     #[test]

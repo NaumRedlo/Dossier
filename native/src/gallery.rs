@@ -596,6 +596,11 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
         ("main-community-people".to_owned(), community(crate::community_screen::Section::People, None)),
         ("main-community-person".to_owned(), community(crate::community_screen::Section::People, Some(1))),
         ("main-community-boards".to_owned(), community(crate::community_screen::Section::Boards, None)),
+        ("main-community-adaptive".to_owned(), {
+            let mut main = community(crate::community_screen::Section::Boards, None);
+            main.community_standing = crate::community_screen::Standing::Adaptive;
+            main
+        }),
         ("main-community-titles".to_owned(), community(crate::community_screen::Section::Titles, None)),
         ("main-community-profile".to_owned(), community(crate::community_screen::Section::Profile, None)),
         ("main-community-reading".to_owned(), {

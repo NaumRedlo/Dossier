@@ -563,7 +563,17 @@ naming the group, its size and when the bot last answered — or *образцы
   failed play shows only its red F. The spotlight says who, why, one large
   figure and one small one beside it — no second pp, no best play; the
   week's table names its board above a single segmented line of six, and
-  a row carries a move only when there is one.
+  a row carries a move only when there is one. The pointer over either
+  pauses it: the countdown stops where it was and goes on from there when
+  the pointer leaves, and nothing turns or grows again on leaving (it used
+  to restart both, so the spotlight blinked and the bars regrew).
+  The stream itself was made compact the same evening: a play, a render, a
+  title and a climb are one row of 62 — the player's ringed avatar, who,
+  what and when on one line, the map, the title or the board on the next,
+  the pp and the grade in a badge (or the medal, or the new place) at the
+  end and the map as an icon — laid over the map's cover, or a faint wash
+  of the title's or the climb's colour. A top play, a post, an article and
+  a build stay cards, tighter, the top play's banner 96 high.
 - *Профиль* is the dossier (2026-09-24): the ringed avatar with the level
   and its progress, the title worn, whether the person is online, the
   country with its rank, the years in osu!, the streak and the duels, *Открыть
@@ -571,8 +581,9 @@ naming the group, its size and when the bot last answered — or *образцы
   five figures — pp, global rank, accuracy, plays, hours — each with its
   gain, which choose what the chart draws over 30 or 90 days (rank from
   the daily history osu! keeps, the rest from the bot's weekly snapshots),
-  the pointer reading any day off it; the best plays, opening onto their
-  hits; the grades, the one under the pointer lit and its share told; the
+  the pointer reading any day off it; the best plays as strips of 54 over
+  their map's cover — the grade in a badge, the title over artist and
+  version, the mods, the accuracy and the pp — opening onto their hits; the grades, the one under the pointer lit and its share told; the
   titles as a collection, bar by rarity, the held ones filled and the next
   ones dashed, a press telling what each asks and when it was earned; and
   thirteen weeks of plays a day. The chart has no values at its side —
@@ -634,9 +645,11 @@ naming the group, its size and when the bot last answered — or *образцы
   drawn scaled, the pointer mapped back through the same scale, so the
   three columns and the dossier's figures fit a laptop's window. Nothing in
   it shows a scrollbar; the wheel and the trackpad scroll it.
-- *Люди* is a card per player — avatar, name and flag, the title they wear
-  in its rarity's colour, the place in the group by pp, pp, global rank,
-  accuracy, and plays, hours and the streak beneath — in pp order, in a grid
+- *Люди* is a card per player over their osu! cover — avatar ringed in
+  the medal's colour for the first three, name and flag, the title they
+  wear in its rarity's colour, the place in the group large at the right,
+  pp, global rank and accuracy, and plays, hours and the streak in a foot
+  that darkens rather than a rule — in pp order, in a grid
   across the whole width (as many columns as fit at about 420 each), and
   *Титулы* the same way at about 360. A country is drawn as its flag
   everywhere a code stood (osu!'s own pictures, kept in
@@ -645,10 +658,25 @@ naming the group, its size and when the bot last answered — or *образцы
   green or red pill. A card opens the player's page from the right: every
   figure the bot keeps, the top three plays with their maps and grades,
   and every title as a chip.
-- *Рейтинг* is the bot's six boards (pp, accuracy, plays, time, ranked
-  score, hits per play) as chips, each row a place, the week's move (▲ in
-  green, ▼ in red, — for none), the player, the value and a bar against
-  the leader. The week is the bot's ISO week in Moscow time.
+- *Рейтинг* is the bot's leaderboard in both of its modes (2026-09-24),
+  *Общий* and *Адаптивный*, over the same six boards. *Общий* is the
+  standing for all time. *Адаптивный* is the week's gain, as the bot's
+  card draws it: only those who gained, the gain in green with the whole
+  beneath (*6 396 всего*), a move against where the player closed last
+  week (an arrow, *NEW* for no place then, — for the same), *неделя 39 ·
+  22–28 сентября*, the count of participants and how many sat out, the
+  person's own row telling how far the next place is (*до 16-го места
+  осталось 12 pp*) or, if they have not played, pinned below; before the
+  week's first snapshot it says the data is still gathering and when the
+  first standing comes. The first three stand on a podium — second, first,
+  third, the first tallest, each over its cover with its medal's ring and
+  glow; the rest are rows of 60 over their covers. The bot sends what the
+  app cannot work out: `was`, the places each player closed last week on
+  (the snapshot's `prev_positions`), `collecting` and `week_began`. A
+  player's cover is fetched once at 720 wide, softened and darkened to 62 %
+  before it is ever drawn, and every picture laid under words is shaded
+  from 90 % to 98 %: blending is linear, so a lighter shade left bright
+  covers glaring through the text.
 - *Титулы* is the bot's catalogue by rarity, each rarity in the colour the
   bot draws it with, *открыто n из m* for the group, and on every card
   whose faces have it. A secret nobody holds shows *???*.

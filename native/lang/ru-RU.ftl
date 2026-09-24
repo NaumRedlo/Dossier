@@ -460,3 +460,24 @@ years = { $n ->
     [few] { $n } года
    *[other] { $n } лет
 }
+board-general = Общий
+board-adaptive = Адаптивный
+board-title-general = Лидерборд · Общий
+board-title-adaptive = Лидерборд · Адаптивный
+board-all-time = за всё время
+board-week-span = неделя { $week } · { $span }
+participants = { $n ->
+    [one] участник
+    [few] участника
+   *[other] участников
+}
+board-sat-out = { $n } без прироста
+board-total = { $value } всего
+board-gap = до { $place }-го места осталось { $value }
+board-new = NEW
+board-no-gain = на этой неделе прироста пока ни у кого
+board-collecting = идёт сбор данных — первый зачёт { $date }
+board-not-played = ещё не играл на этой неделе
+board-acc-unit = п.п.
+minutes-short = м
+in-group = в группе

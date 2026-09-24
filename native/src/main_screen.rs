@@ -401,6 +401,7 @@ pub struct Main {
     pub community_reading: Option<crate::community_screen::Reading>,
     pub read_fade: Animation<bool>,
     pub people_from: crate::community_screen::PeopleFrom,
+    pub community_standing: crate::community_screen::Standing,
     pub community_card: Option<crate::community::wire::Card>,
     pub flags: HashMap<String, iced::widget::svg::Handle>,
     flags_asked: std::collections::HashSet<String>,
@@ -410,10 +411,12 @@ pub struct Main {
     pub feed_seen: i64,
     pub spot: usize,
     spot_at: Instant,
-    spot_held: bool,
+    spot_due: Instant,
+    spot_held: Option<Instant>,
     pub rank: usize,
     rank_at: Instant,
-    rank_held: bool,
+    rank_due: Instant,
+    rank_held: Option<Instant>,
     pub dossier_metric: crate::dossier::Metric,
     pub dossier_span: u32,
     pub grade_hover: Option<usize>,
@@ -546,6 +549,7 @@ impl Main {
             community_reading: None,
             read_fade: Animation::new(false),
             people_from: crate::community_screen::PeopleFrom::Chat,
+            community_standing: crate::community_screen::Standing::General,
             community_card: None,
             flags: HashMap::new(),
             flags_asked: std::collections::HashSet::new(),
@@ -555,10 +559,12 @@ impl Main {
             feed_seen: 0,
             spot: 0,
             spot_at: Instant::now() - Duration::from_secs(3600),
-            spot_held: false,
+            spot_due: Instant::now(),
+            spot_held: None,
             rank: 0,
             rank_at: Instant::now() - Duration::from_secs(3600),
-            rank_held: false,
+            rank_due: Instant::now(),
+            rank_held: None,
             dossier_metric: crate::dossier::Metric::Rank,
             dossier_span: 90,
             grade_hover: None,
@@ -1575,6 +1581,7 @@ impl Main {
                         return self.wide_pictures_task(wanted);
                     }
                     C::Unread => self.read_fade.go_mut(false, now),
+                    C::Standing(standing) => self.community_standing = standing,
                     C::PeopleFrom(from) => {
                         self.people_from = from;
                         if from == crate::community_screen::PeopleFrom::Game {
@@ -1629,25 +1636,37 @@ impl Main {
                     }
                     C::Reveal => self.feed_seen = self.newest_event(),
                     C::Spot(index) => {
-                        self.spot = index;
-                        self.spot_at = now;
-                    }
-                    C::SpotHold(held) => {
-                        self.spot_held = held;
-                        if !held {
-                            self.spot_at = now.max(self.spot_at);
+                        if index != self.spot {
+                            self.spot = index;
+                            self.spot_at = now;
                         }
+                        self.spot_due = now;
+                        self.spot_held = self.spot_held.map(|_| now);
                     }
+                    C::SpotHold(held) => match (held, self.spot_held) {
+                        (true, None) => self.spot_held = Some(now),
+                        (false, Some(since)) => {
+                            self.spot_due += now.saturating_duration_since(since);
+                            self.spot_held = None;
+                        }
+                        _ => {}
+                    },
                     C::Rank(index) => {
-                        self.rank = index;
-                        self.rank_at = now;
-                    }
-                    C::RankHold(held) => {
-                        self.rank_held = held;
-                        if !held {
+                        if index != self.rank {
+                            self.rank = index;
                             self.rank_at = now;
                         }
+                        self.rank_due = now;
+                        self.rank_held = self.rank_held.map(|_| now);
                     }
+                    C::RankHold(held) => match (held, self.rank_held) {
+                        (true, None) => self.rank_held = Some(now),
+                        (false, Some(since)) => {
+                            self.rank_due += now.saturating_duration_since(since);
+                            self.rank_held = None;
+                        }
+                        _ => {}
+                    },
                     C::Metric(metric) => self.dossier_metric = metric,
                     C::Span(span) => self.dossier_span = span,
                     C::GradeHover(hover) => self.grade_hover = hover,
@@ -1771,13 +1790,15 @@ impl Main {
             }
             Message::FeedClock => {
                 let now = Instant::now();
-                if !self.spot_held && now.saturating_duration_since(self.spot_at) >= crate::chronicle::SPOT_EVERY {
+                if self.spot_held.is_none() && now.saturating_duration_since(self.spot_due) >= crate::chronicle::SPOT_EVERY {
                     self.spot = self.spot.wrapping_add(1);
                     self.spot_at = now;
+                    self.spot_due = now;
                 }
-                if !self.rank_held && now.saturating_duration_since(self.rank_at) >= crate::chronicle::RANK_EVERY {
+                if self.rank_held.is_none() && now.saturating_duration_since(self.rank_due) >= crate::chronicle::RANK_EVERY {
                     self.rank = (self.rank + 1) % crate::community::Board::ALL.len();
                     self.rank_at = now;
+                    self.rank_due = now;
                 }
                 Task::none()
             }
@@ -3867,7 +3888,11 @@ impl Main {
         }
         let pictures = ui::streamed(move |push| {
             for (url, side) in wanted {
-                let handle = crate::news::picture(&url).and_then(|bytes| if side <= 256 { covered_bytes(&bytes, side, side) } else { fitted_bytes(&bytes, side) });
+                let handle = crate::news::picture(&url).and_then(|bytes| match side {
+                    crate::community::BACKDROP => backdrop_bytes(&bytes, side),
+                    side if side <= 256 => covered_bytes(&bytes, side, side),
+                    side => fitted_bytes(&bytes, side),
+                });
                 if !push(Message::NewsPicture(url, handle)) {
                     return;
                 }
@@ -3941,8 +3966,8 @@ impl Main {
                 let k = (self.now.saturating_duration_since(self.rank_at).as_secs_f32() / crate::chronicle::RANK_GROW.as_secs_f32()).clamp(0.0, 1.0);
                 1.0 - (1.0 - k).powi(3)
             },
-            rank_started: self.rank_at,
-            rank_held: self.rank_held,
+            rank_started: self.rank_due,
+            rank_held: self.rank_held.map(|since| 1.0 - (since.saturating_duration_since(self.rank_due).as_secs_f32() / crate::chronicle::RANK_EVERY.as_secs_f32()).clamp(0.0, 1.0)),
             metric: self.dossier_metric,
             span: self.dossier_span,
             grade_hover: self.grade_hover,
@@ -3952,6 +3977,7 @@ impl Main {
             reading: self.community_reading.as_ref(),
             read_k: self.read_fade.interpolate(0.0, 1.0, self.now),
             people_from: self.people_from,
+            standing: self.community_standing,
             card: self.community_card.as_ref().or(self.osu_card.as_ref()),
             flags: &self.flags,
             avatar: self.avatar.as_ref(),
@@ -4815,6 +4841,19 @@ pub fn fitted_bytes(bytes: &[u8], widest: u32) -> Option<image::Handle> {
     let picture = if picture.width() > widest { picture.resize(widest, u32::MAX, ::image::imageops::FilterType::Lanczos3) } else { picture };
     let (width, height) = (picture.width(), picture.height());
     Some(image::Handle::from_rgba(width, height, picture.to_rgba8().into_raw()))
+}
+
+pub fn backdrop_bytes(bytes: &[u8], widest: u32) -> Option<image::Handle> {
+    let picture = ::image::load_from_memory(bytes).ok()?;
+    let picture = if picture.width() > widest { picture.resize(widest, u32::MAX, ::image::imageops::FilterType::Triangle) } else { picture };
+    let mut soft = ::image::imageops::blur(&picture.to_rgba8(), 2.5);
+    for pixel in soft.pixels_mut() {
+        for channel in 0..3 {
+            pixel.0[channel] = (f32::from(pixel.0[channel]) * 0.62) as u8;
+        }
+    }
+    let (width, height) = soft.dimensions();
+    Some(image::Handle::from_rgba(width, height, soft.into_raw()))
 }
 
 fn flag_bytes(code: &str, url: &str) -> Option<Vec<u8>> {

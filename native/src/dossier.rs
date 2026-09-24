@@ -692,80 +692,123 @@ fn chart<'a>(ground: &Ground<'a>, card: &wire::Card) -> Element<'a, Message> {
     slab(column![head.push(ui::grow()).push(control), canvas].spacing(12), [16, 18]).into()
 }
 
+pub(crate) fn grade_badge<'a>(grade: &str, side: f32) -> Element<'a, Message> {
+    let colour = screen::grade_colour(grade);
+    let k = ui::fade();
+    container(text(grade.to_owned()).font(theme::SANS_SEMI).size(side * 0.5).color(ui::faded(colour)))
+        .width(side)
+        .height(side)
+        .center(side)
+        .style(move |_| container::Style {
+            background: Some(Background::Color(Color { a: 0.16 * k, ..colour })),
+            border: Border { color: Color { a: 0.45 * k, ..colour }, width: 1.0, radius: (side * 0.3).into() },
+            ..container::Style::default()
+        })
+        .into()
+}
+
+fn split_line(line: &str) -> (String, String) {
+    match line.split_once(" — ") {
+        Some((artist, rest)) => (rest.to_owned(), artist.to_owned()),
+        None => (line.to_owned(), String::new()),
+    }
+}
+
+struct Strip<'a> {
+    index: usize,
+    grade: String,
+    title: String,
+    under: String,
+    mods: Vec<String>,
+    accuracy: f64,
+    pp: f64,
+    cover: Option<&'a iced::widget::image::Handle>,
+    details: Option<Element<'a, Message>>,
+}
+
+fn play_strip<'a>(ground: &Ground<'a>, strip: Strip<'a>) -> Element<'a, Message> {
+    let w = ground.words;
+    let high = 54.0;
+    let open = ground.play_open == Some(strip.index);
+    let line = row![
+        grade_badge(&strip.grade, 32.0),
+        container(
+            column![
+                text(ui::shortened(strip.title, 64)).font(theme::SANS_SEMI).size(13.5).wrapping(text::Wrapping::None).color(ui::faded(INK)),
+                text(ui::shortened(strip.under, 70)).font(theme::SANS).size(11.5).wrapping(text::Wrapping::None).color(ui::faded(MUTED)),
+            ]
+            .spacing(2),
+        )
+        .width(Length::Fill)
+        .clip(true),
+        screen::mods(&strip.mods),
+        container(ui::mono_small(w.percent(strip.accuracy), MUTED)).width(62.0).align_x(iced::alignment::Horizontal::Right),
+        container(text(format!("{} pp", screen::decimal(w, strip.pp as f32, 0))).font(theme::SANS_SEMI).size(15.0).wrapping(text::Wrapping::None).color(ui::faded(INK))).width(74.0).align_x(iced::alignment::Horizontal::Right),
+    ]
+    .spacing(12)
+    .align_y(iced::Center);
+    let face = stack![screen::backdrop(strip.cover, high, 12.0, screen::grade_colour(&strip.grade), true), container(line).width(Length::Fill).height(high).padding([0, 12]).center_y(high)].height(high);
+    let mut inside = column![face].spacing(0);
+    if let (true, Some(details)) = (open, strip.details) {
+        inside = inside.push(container(details).padding(Padding { top: 10.0, right: 12.0, bottom: 12.0, left: 12.0 }));
+    }
+    let k = ui::fade();
+    button(inside)
+        .padding(0)
+        .width(Length::Fill)
+        .style(move |_, status: button::Status| {
+            let lit = open || matches!(status, button::Status::Hovered | button::Status::Pressed);
+            button::Style {
+                background: Some(Background::Color(Color::from_rgba(1.0, 1.0, 1.0, if open { 0.02 * k } else { 0.0 }))),
+                text_color: INK,
+                border: Border { color: Color::from_rgba(1.0, 1.0, 1.0, if lit { 0.12 * k } else { 0.04 * k }), width: 1.0, radius: 12.0.into() },
+                shadow: Shadow::default(),
+                snap: true,
+            }
+        })
+        .on_press(Message::PlayOpen(strip.index))
+        .into()
+}
+
 fn score_rows<'a>(ground: &Ground<'a>, card: &wire::Card) -> Element<'a, Message> {
     let w = ground.words;
-    let mut rows = column![].spacing(2);
+    let mut rows = column![].spacing(6);
     for (index, score) in card.top_scores.iter().take(5).enumerate() {
-        let open = ground.play_open == Some(index);
         let grade = match score.rank.to_ascii_uppercase().as_str() {
             "X" | "XH" | "SS" | "SSH" => "SS".to_owned(),
             "SH" => "S".to_owned(),
             other => other.to_owned(),
         };
-        let line = match (score.artist.is_empty(), score.version.is_empty()) {
-            (false, false) => format!("{} — {} [{}]", score.artist, score.title, score.version),
-            (false, true) => format!("{} — {}", score.artist, score.title),
-            _ => score.title.clone(),
+        let under = match (score.artist.is_empty(), score.version.is_empty()) {
+            (false, false) => format!("{} · {}", score.artist, score.version),
+            (false, true) => score.artist.clone(),
+            (true, false) => score.version.clone(),
+            _ => String::new(),
         };
         let mods: Vec<String> = score.mods.split(',').map(str::trim).filter(|m| !m.is_empty() && *m != "CL" && *m != "NM").map(str::to_owned).collect();
         let cover = score.cover().and_then(|url| ground.pictures.get(&url)).or_else(|| ground.thumbs.get(&score.hash));
-        let picture: Element<'a, Message> = match cover {
-            Some(handle) => iced::widget::image(handle.clone()).content_fit(iced::ContentFit::Cover).width(72.0).height(40.0).border_radius(6.0).opacity(ui::fade()).into(),
-            None => container(ui::fine_hatch()).width(72.0).height(40.0).into(),
-        };
-        let line = row![
-            ui::mono_small(format!("{}", index + 1), FAINT),
-            picture,
-            column![
-                text(ui::shortened(line, 56)).font(theme::SANS).size(13.0).wrapping(text::Wrapping::None).color(ui::faded(INK)),
-                row![ui::mono_small(w.percent(score.accuracy), MUTED), screen::mods(&mods)].spacing(6).align_y(iced::Center),
-            ]
-            .spacing(3)
-            .width(Length::Fill),
-            column![ui::mono(format!("{} pp", screen::decimal(w, score.pp as f32, 0)), INK), screen::grade(&grade, 12.0)].spacing(2).align_x(iced::alignment::Horizontal::Right),
-        ]
-        .spacing(12)
-        .align_y(iced::Center);
-        let mut inside = column![line].spacing(8);
-        if open {
-            let counted = |n: f64| (n > 0.0 || score.great > 0.0).then_some(n as u32);
-            let combo = (score.max_combo > 0.0).then(|| (score.max_combo as u32, if score.map_max_combo > 0.0 { score.map_max_combo as u32 } else { score.max_combo as u32 }));
-            let stars = (score.stars > 0.0).then_some(score.stars as f32);
-            inside = inside.push(container(chronicle::counts_row(ground, [counted(score.great), counted(score.ok), counted(score.meh), counted(score.miss)], combo, stars)).padding(Padding { top: 0.0, right: 0.0, bottom: 4.0, left: 24.0 }));
-        }
-        rows = rows.push(button(inside).padding([6, 8]).width(Length::Fill).style(ui::button_faded(theme::row(open))).on_press(Message::PlayOpen(index)));
+        let counted = |n: f64| (n > 0.0 || score.great > 0.0).then_some(n as u32);
+        let combo = (score.max_combo > 0.0).then(|| (score.max_combo as u32, if score.map_max_combo > 0.0 { score.map_max_combo as u32 } else { score.max_combo as u32 }));
+        let stars = (score.stars > 0.0).then_some(score.stars as f32);
+        let details = chronicle::counts_row(ground, [counted(score.great), counted(score.ok), counted(score.meh), counted(score.miss)], combo, stars);
+        rows = rows.push(play_strip(ground, Strip { index, grade, title: score.title.clone(), under, mods, accuracy: score.accuracy, pp: score.pp, cover, details: Some(details) }));
     }
-    slab(column![row![caption(w.t("best-plays")), ui::grow(), ui::mono_small(w.t("press-to-open"), FAINT)].align_y(iced::Center), rows].spacing(8), [14, 16]).into()
+    slab(column![row![caption(w.t("best-plays")), ui::grow(), ui::mono_small(w.t("press-to-open"), FAINT)].align_y(iced::Center), rows].spacing(10), [14, 16]).into()
 }
 
 fn top_plays<'a>(ground: &Ground<'a>, you: &Person) -> Element<'a, Message> {
     let w = ground.words;
-    let mut rows = column![].spacing(2);
+    let mut rows = column![].spacing(6);
     for (index, play) in you.top.iter().take(5).enumerate() {
-        let open = ground.play_open == Some(index);
-        let line = row![
-            ui::mono_small(format!("{}", index + 1), FAINT),
-            screen::picture(ground, Some(play.map), 72.0, 40.0),
-            column![
-                text(ui::shortened(screen::line_of(ground, play.map), 56)).font(theme::SANS).size(13.0).wrapping(text::Wrapping::None).color(ui::faded(INK)),
-                row![ui::mono_small(w.percent(f64::from(play.accuracy)), MUTED), screen::mods(&play.mods)].spacing(6).align_y(iced::Center),
-            ]
-            .spacing(3)
-            .width(Length::Fill),
-            column![ui::mono(format!("{} pp", screen::decimal(w, play.pp, 0)), INK), screen::grade(&play.grade, 12.0)].spacing(2).align_x(iced::alignment::Horizontal::Right),
-        ]
-        .spacing(12)
-        .align_y(iced::Center);
-        let mut inside = column![line].spacing(8);
-        if open {
-            inside = inside.push(container(chronicle::counts_row(ground, play.counts, play.combo.zip(play.max_combo), play.stars)).padding(Padding { top: 0.0, right: 0.0, bottom: 4.0, left: 24.0 }));
-        }
-        rows = rows.push(button(inside).padding([6, 8]).width(Length::Fill).style(ui::button_faded(theme::row(open))).on_press(Message::PlayOpen(index)));
+        let (title, under) = split_line(&screen::line_of(ground, play.map));
+        let cover = ground.catalog.map(Some(play.map)).and_then(|map| ground.thumbs.get(&map.hash).or_else(|| map.card().and_then(|card| ground.pictures.get(&card))));
+        let details = chronicle::counts_row(ground, play.counts, play.combo.zip(play.max_combo), play.stars);
+        rows = rows.push(play_strip(ground, Strip { index, grade: play.grade.clone(), title, under, mods: play.mods.clone(), accuracy: f64::from(play.accuracy), pp: f64::from(play.pp), cover, details: Some(details) }));
     }
     if you.top.is_empty() {
         rows = rows.push(ui::mono_small(w.t("nothing-yet"), FAINT));
     }
-    slab(column![row![caption(w.t("best-plays")), ui::grow(), ui::mono_small(w.t("press-to-open"), FAINT)].align_y(iced::Center), rows].spacing(8), [14, 16]).into()
+    slab(column![row![caption(w.t("best-plays")), ui::grow(), ui::mono_small(w.t("press-to-open"), FAINT)].align_y(iced::Center), rows].spacing(10), [14, 16]).into()
 }
 
 fn grades<'a>(ground: &Ground<'a>, card: &wire::Card) -> Element<'a, Message> {

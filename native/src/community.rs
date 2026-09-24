@@ -210,6 +210,7 @@ pub struct Person {
     pub cover: String,
     pub moved: [i32; 6],
     pub gained: [f64; 6],
+    pub was: [u32; 6],
     pub top: Vec<Play>,
     pub you: bool,
 }
@@ -320,10 +321,14 @@ pub enum Friends {
     Ready,
 }
 
+pub const BACKDROP: u32 = 720;
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Catalog {
     pub group: String,
     pub week: u32,
+    pub week_began: i64,
+    pub collecting: bool,
     pub people: Vec<Person>,
     pub maps: Vec<MapRef>,
     pub feed: Vec<Happening>,
@@ -421,6 +426,20 @@ impl Catalog {
         equip(&mut people[5], None, &["masks_5", "dejavu"], 2, [0, 0, 0, 0, 0, 1]);
         equip(&mut people[6], Some("broken_record"), &["broken_record", "graveyard", "choke_95"], 0, [-1, 0, -1, 0, 0, 0]);
         equip(&mut people[7], Some("registered"), &[], 4, [0, 0, 1, -1, 0, -2]);
+        let weekly: [([f64; 6], [u32; 6]); 8] = [
+            ([74.0, 0.12, 412.0, 21.0, 96_300_120.0, 612.8], [3, 4, 2, 2, 3, 2]),
+            ([118.0, 0.04, 655.0, 30.0, 184_770_020.0, 701.2], [1, 6, 1, 1, 1, 1]),
+            ([41.0, 0.0, 300.0, 12.0, 58_410_900.0, 644.0], [2, 0, 4, 4, 2, 3]),
+            ([96.0, 0.21, 120.0, 5.0, 20_100_400.0, 590.5], [0, 1, 6, 6, 5, 4]),
+            ([12.0, 0.0, 510.0, 26.0, 70_402_000.0, 433.9], [5, 0, 3, 3, 4, 6]),
+            ([0.0, 0.0, 0.0, 0.0, 0.0, 0.0], [0, 0, 0, 0, 0, 0]),
+            ([3.0, 0.09, 88.0, 4.0, 9_900_300.0, 379.4], [0, 2, 5, 5, 6, 5]),
+            ([0.0, 0.0, 0.0, 0.0, 0.0, 0.0], [4, 3, 0, 0, 0, 0]),
+        ];
+        for (person, (gained, was)) in people.iter_mut().zip(weekly) {
+            person.gained = gained;
+            person.was = was;
+        }
         let tops: [Vec<Play>; 8] = [
             vec![play(0, 412.6, 98.34, &["HD"], "S"), play(1, 398.1, 97.02, &["HD", "DT"], "A"), play(2, 377.9, 99.10, &[], "S")],
             vec![play(3, 611.2, 99.21, &["HD", "HR"], "S"), play(0, 588.7, 98.44, &["DT"], "S"), play(4, 571.0, 97.66, &["HD", "DT"], "A")],
@@ -515,6 +534,8 @@ impl Catalog {
         Catalog {
             group: "osu! RU".to_owned(),
             week: 39,
+            week_began: now - now.rem_euclid(day) - 3 * day - 3 * 3600,
+            collecting: false,
             people,
             maps,
             feed,
@@ -576,6 +597,7 @@ impl Catalog {
             cover: said.cover.clone(),
             moved: std::array::from_fn(|at| said.moved.get(at).copied().unwrap_or(0)),
             gained: std::array::from_fn(|at| said.gained.get(at).copied().unwrap_or(0.0)),
+            was: std::array::from_fn(|at| said.was.get(at).copied().unwrap_or(0)),
             top: said.top.iter().map(|play| play_of(play)).collect(),
             you: said.you,
         };
@@ -639,6 +661,8 @@ impl Catalog {
         Catalog {
             group: said.group,
             week: said.week,
+            week_began: said.week_began.unwrap_or(0),
+            collecting: said.collecting,
             people,
             maps,
             feed,
@@ -735,6 +759,9 @@ impl Catalog {
         }
         for person in &self.people {
             want(&person.avatar, 128);
+        }
+        for person in &self.people {
+            want(&person.cover, BACKDROP);
         }
         for friend in &self.friends {
             want(&friend.avatar, 128);
@@ -877,6 +904,8 @@ pub mod wire {
         #[serde(default)]
         pub gained: Vec<f64>,
         #[serde(default)]
+        pub was: Vec<u32>,
+        #[serde(default)]
         pub top: Vec<Play>,
         #[serde(default)]
         pub you: bool,
@@ -964,6 +993,10 @@ pub mod wire {
         pub group: String,
         #[serde(default)]
         pub week: u32,
+        #[serde(default)]
+        pub week_began: Option<i64>,
+        #[serde(default)]
+        pub collecting: bool,
         #[serde(default)]
         pub people: Vec<Person>,
         #[serde(default)]

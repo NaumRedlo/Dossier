@@ -443,3 +443,23 @@ years = { $n ->
     [one] { $n } year
    *[other] { $n } years
 }
+board-general = General
+board-adaptive = Adaptive
+board-title-general = Leaderboard · General
+board-title-adaptive = Leaderboard · Adaptive
+board-all-time = all-time standings
+board-week-span = week { $week } · { $span }
+participants = { $n ->
+    [one] participant
+   *[other] participants
+}
+board-sat-out = { $n } without gains
+board-total = { $value } total
+board-gap = { $value } left to place { $place }
+board-new = NEW
+board-no-gain = no one has gained anything yet this week
+board-collecting = collecting data — first standings on { $date }
+board-not-played = hasn't played yet this week
+board-acc-unit = pp.
+minutes-short = m
+in-group = in group

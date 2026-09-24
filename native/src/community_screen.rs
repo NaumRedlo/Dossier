@@ -24,6 +24,13 @@ pub enum PeopleFrom {
     Game,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Standing {
+    #[default]
+    General,
+    Adaptive,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Reading {
     Story(news::Story),
@@ -74,6 +81,7 @@ pub enum Message {
     Read(Reading),
     Unread,
     PeopleFrom(PeopleFrom),
+    Standing(Standing),
     Section(Section),
     Board(Board),
     Person(Option<usize>),
@@ -117,6 +125,7 @@ pub struct Ground<'a> {
     pub reading: Option<&'a Reading>,
     pub read_k: f32,
     pub people_from: PeopleFrom,
+    pub standing: Standing,
     pub card: Option<&'a crate::community::wire::Card>,
     pub flags: &'a HashMap<String, iced::widget::svg::Handle>,
     pub avatar: Option<&'a image::Handle>,
@@ -131,7 +140,7 @@ pub struct Ground<'a> {
     pub rank: usize,
     pub rank_k: f32,
     pub rank_started: std::time::Instant,
-    pub rank_held: bool,
+    pub rank_held: Option<f32>,
     pub metric: crate::dossier::Metric,
     pub span: u32,
     pub grade_hover: Option<usize>,
@@ -140,7 +149,6 @@ pub struct Ground<'a> {
     pub clips_loading: &'a std::collections::HashSet<String>,
 }
 
-const FEED_WIDE: f32 = 760.0;
 const READ_WIDE: f32 = 760.0;
 const DRAWER_WIDE: f32 = 400.0;
 const GRID_GAP: f32 = 10.0;
@@ -822,20 +830,12 @@ fn figure<'a>(value: String, label: String, colour: Color) -> Element<'a, Messag
     .into()
 }
 
-fn place_colour(place: usize) -> Color {
-    match place {
-        1 => theme::GRADE_S,
-        2 => Color::from_rgb8(200, 204, 220),
-        3 => Color::from_rgb8(205, 127, 50),
-        _ => FAINT,
-    }
-}
-
 fn person_card<'a>(ground: &Ground<'a>, at: usize, person: &Person, place: usize) -> Element<'a, Message> {
     let w = ground.words;
-    let k = ui::fade();
+    let high = 204.0;
+    let place_colour = medal(place).unwrap_or(Color::from_rgba(0.925, 0.906, 0.886, 0.55));
     let head = row![
-        face(ground, person, 52.0),
+        ringed(ground, person, 54.0, medal(place).unwrap_or(Color::from_rgba(1.0, 1.0, 1.0, 0.22))),
         column![
             row![
                 container(text(person.name.clone()).font(theme::SANS_SEMI).size(18.0).wrapping(text::Wrapping::None).color(ui::faded(INK))).clip(true),
@@ -847,7 +847,12 @@ fn person_card<'a>(ground: &Ground<'a>, at: usize, person: &Person, place: usize
         ]
         .spacing(3)
         .width(Length::Fill),
-        container(text(format!("#{place}")).font(theme::MONO_BOLD).size(13.0).color(ui::faded(place_colour(place)))).align_y(iced::alignment::Vertical::Top),
+        column![
+            text(format!("#{place}")).font(theme::SANS_SEMI).size(30.0).wrapping(text::Wrapping::None).color(ui::faded(place_colour)),
+            ui::mono_small(w.t("in-group"), FAINT),
+        ]
+        .spacing(0)
+        .align_x(iced::alignment::Horizontal::Right),
     ]
     .spacing(14)
     .align_y(iced::Center);
@@ -857,12 +862,11 @@ fn person_card<'a>(ground: &Ground<'a>, at: usize, person: &Person, place: usize
         figure(w.percent(f64::from(person.accuracy)), w.t("board-accuracy"), INK),
     ]
     .spacing(12);
-    let rule = container(Space::new().height(1.0)).width(Length::Fill).style(move |_| container::Style { background: Some(Background::Color(Color::from_rgba(1.0, 1.0, 1.0, 0.05 * k))), ..container::Style::default() });
     let mut facts = row![
-        crate::glyphs::glyph(crate::glyphs::Icon::Play, 12.0, FAINT),
+        crate::glyphs::glyph(crate::glyphs::Icon::Play, 12.0, MUTED),
         ui::mono_small(w.count("games", u64::from(person.plays)), MUTED),
         Space::new().width(6.0),
-        crate::glyphs::glyph(crate::glyphs::Icon::Clock, 12.0, FAINT),
+        crate::glyphs::glyph(crate::glyphs::Icon::Clock, 12.0, MUTED),
         ui::mono_small(format!("{} {}", w.lang().group(u64::from(person.hours)), w.t("hours-short")), MUTED),
     ]
     .spacing(6)
@@ -870,8 +874,26 @@ fn person_card<'a>(ground: &Ground<'a>, at: usize, person: &Person, place: usize
     if person.streak > 0 {
         facts = facts.push(Space::new().width(6.0)).push(crate::glyphs::glyph(crate::glyphs::Icon::Flame, 12.0, Color::from_rgb(0.941, 0.408, 0.408))).push(ui::mono_small(w.n("streak-card", u64::from(person.streak)), MUTED));
     }
-    let inside = column![head, numbers, rule, container(facts).clip(true)].spacing(14);
-    button(container(inside).padding([18, 20]).width(Length::Fill)).padding(0).width(Length::Fill).style(ui::button_faded(lifted)).on_press(Message::Person(Some(at))).into()
+    let k = ui::fade();
+    let ground_colour = Color::from_rgb(0.047, 0.027, 0.035);
+    let foot = container(container(facts).clip(true))
+        .width(Length::Fill)
+        .padding(Padding { top: 14.0, right: 20.0, bottom: 14.0, left: 20.0 })
+        .style(move |_| container::Style {
+            background: Some(Background::Gradient(iced::Gradient::Linear(
+                iced::gradient::Linear::new(iced::Radians(std::f32::consts::PI)).add_stop(0.0, Color { a: 0.0, ..ground_colour }).add_stop(1.0, Color { a: 0.55 * k, ..Color::BLACK }),
+            ))),
+            border: Border { radius: iced::border::Radius { top_left: 0.0, top_right: 0.0, bottom_right: 16.0, bottom_left: 16.0 }, ..Border::default() },
+            ..container::Style::default()
+        });
+    let inside = column![container(column![head, numbers].spacing(18)).padding(Padding { top: 18.0, right: 20.0, bottom: 0.0, left: 20.0 }), ui::grow_tall(), foot].height(high);
+    let cover = ground.pictures.get(&person.cover);
+    button(stack![backdrop(cover, high, 16.0, avatar_colour(&person.name), false), inside].height(high))
+        .padding(0)
+        .width(Length::Fill)
+        .style(ui::button_faded(lifted))
+        .on_press(Message::Person(Some(at)))
+        .into()
 }
 
 fn people<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
@@ -905,28 +927,296 @@ fn spread<'a>(inside: Element<'a, Message>) -> Element<'a, Message> {
         .into()
 }
 
-fn bar<'a>(share: f32) -> Element<'a, Message> {
+pub(crate) fn backdrop<'a>(handle: Option<&image::Handle>, high: f32, radius: f32, tint: Color, across: bool) -> Element<'a, Message> {
     let k = ui::fade();
-    let filled = (share.clamp(0.0, 1.0) * 1000.0).round() as u16;
-    let part = |colour: Color, portion: u16| {
-        container(Space::new().height(4.0)).width(Length::FillPortion(portion.max(1))).style(move |_| container::Style {
-            background: Some(Background::Color(Color { a: colour.a * k, ..colour })),
-            border: Border { radius: 2.0.into(), ..Border::default() },
+    let angle = if across { std::f32::consts::FRAC_PI_2 } else { std::f32::consts::PI };
+    let Some(handle) = handle else {
+        return container(Space::new().width(Length::Fill).height(high))
+            .style(move |_| container::Style {
+                background: Some(Background::Gradient(iced::Gradient::Linear(
+                    iced::gradient::Linear::new(iced::Radians(angle)).add_stop(0.0, Color { a: 0.03 * k, ..tint }).add_stop(1.0, Color { a: 0.0, ..tint }),
+                ))),
+                border: Border { radius: radius.into(), ..Border::default() },
+                ..container::Style::default()
+            })
+            .into();
+    };
+    let ground = Color::from_rgb(0.047, 0.027, 0.035);
+    let (first, middle, last) = if across { (0.9, 0.94, 0.98) } else { (0.8, 0.9, 0.98) };
+    let shade = container(Space::new().width(Length::Fill).height(high)).style(move |_| container::Style {
+        background: Some(Background::Gradient(iced::Gradient::Linear(
+            iced::gradient::Linear::new(iced::Radians(angle))
+                .add_stop(0.0, Color { a: first * k, ..ground })
+                .add_stop(0.5, Color { a: middle * k, ..ground })
+                .add_stop(1.0, Color { a: last * k, ..ground }),
+        ))),
+        border: Border { radius: radius.into(), ..Border::default() },
+        ..container::Style::default()
+    });
+    stack![image(handle.clone()).content_fit(iced::ContentFit::Cover).width(Length::Fill).height(high).border_radius(radius).opacity(k), shade].width(Length::Fill).height(high).into()
+}
+
+pub(crate) fn medal(place: usize) -> Option<Color> {
+    match place {
+        1 => Some(theme::GRADE_S),
+        2 => Some(Color::from_rgb8(200, 204, 220)),
+        3 => Some(Color::from_rgb8(205, 127, 50)),
+        _ => None,
+    }
+}
+
+pub(crate) fn ringed<'a>(ground: &Ground<'a>, person: &Person, side: f32, ring: Color) -> Element<'a, Message> {
+    let k = ui::fade();
+    container(face(ground, person, side))
+        .padding(2)
+        .style(move |_| container::Style {
+            border: Border { color: Color { a: ring.a * k, ..ring }, width: 2.0, radius: (side / 2.0 + 2.0).into() },
             ..container::Style::default()
         })
+        .into()
+}
+
+struct Standings {
+    order: Vec<(usize, f64)>,
+    out: usize,
+}
+
+fn standings(catalog: &Catalog, board: Board, standing: Standing) -> Standings {
+    let at = board.index();
+    match standing {
+        Standing::General => {
+            let order: Vec<(usize, f64)> = catalog.ranked(board).into_iter().map(|who| (who, board.value(&catalog.people[who]))).filter(|(_, value)| *value > 0.0).collect();
+            let out = catalog.people.len() - order.len();
+            Standings { order, out }
+        }
+        Standing::Adaptive => {
+            let mut order: Vec<(usize, f64)> = (0..catalog.people.len()).map(|who| (who, catalog.people[who].gained[at])).filter(|(_, gained)| *gained > 0.0).collect();
+            order.sort_by(|a, b| b.1.total_cmp(&a.1).then_with(|| board.value(&catalog.people[b.0]).total_cmp(&board.value(&catalog.people[a.0]))));
+            let out = catalog.people.len() - order.len();
+            Standings { order, out }
+        }
+    }
+}
+
+fn grown(words: &Words, board: Board, value: f64, plus: bool) -> String {
+    let sign = if plus { "+" } else { "" };
+    match board {
+        Board::Pp => format!("{sign}{} pp", words.lang().group(value.round() as u64)),
+        Board::Accuracy => format!("{sign}{} {}", decimal(words, value as f32, 2), words.t("board-acc-unit")),
+        Board::Plays | Board::Score => format!("{sign}{}", words.lang().group(value.round() as u64)),
+        Board::Hours => {
+            let minutes = (value / 60.0).round() as u64;
+            match (minutes / 60, minutes % 60) {
+                (0, m) => format!("{sign}{m} {}", words.t("minutes-short")),
+                (h, 0) => format!("{sign}{h} {}", words.t("hours-short")),
+                (h, m) => format!("{sign}{h} {} {m:02} {}", words.t("hours-short"), words.t("minutes-short")),
+            }
+        }
+        Board::HitsPerPlay => decimal(words, value as f32, 1),
+    }
+}
+
+fn whole(words: &Words, board: Board, person: &Person) -> String {
+    match board {
+        Board::Pp => words.lang().group(u64::from(person.pp)),
+        _ => shown_value(words, board, person),
+    }
+}
+
+struct Said {
+    value: String,
+    sub: String,
+    note: Option<String>,
+    moved: Option<Option<i32>>,
+}
+
+fn said_for(ground: &Ground<'_>, list: &Standings, place: usize, who: usize, value: f64) -> Said {
+    let w = ground.words;
+    let board = ground.board;
+    let person = &ground.catalog.people[who];
+    match ground.standing {
+        Standing::General => Said {
+            value: shown_value(w, board, person),
+            sub: if board == Board::Pp { rank_of(w, person.rank) } else { String::new() },
+            note: None,
+            moved: None,
+        },
+        Standing::Adaptive => {
+            let was = person.was[board.index()];
+            let note = (person.you && place > 1)
+                .then(|| list.order.get(place - 2).map(|above| above.1 - value))
+                .flatten()
+                .filter(|gap| *gap > 0.0)
+                .map(|gap| w.with("board-gap", &[("value", grown(w, board, gap, false)), ("place", (place - 1).to_string())]));
+            Said {
+                value: grown(w, board, value, board != Board::HitsPerPlay),
+                sub: w.with("board-total", &[("value", whole(w, board, person))]),
+                note,
+                moved: Some((was > 0).then(|| was as i32 - place as i32)),
+            }
+        }
+    }
+}
+
+fn movement<'a>(ground: &Ground<'a>, shift: Option<Option<i32>>) -> Element<'a, Message> {
+    let k = ui::fade();
+    match shift {
+        None => Space::new().width(0.0).height(0.0).into(),
+        Some(None) => container(text(ground.words.t("board-new")).font(theme::MONO_BOLD).size(10.0).color(ui::faded(theme::HIT_100)))
+            .padding([2, 7])
+            .style(move |_| container::Style {
+                background: Some(Background::Color(Color { a: 0.14 * k, ..theme::HIT_100 })),
+                border: Border { radius: 8.0.into(), ..Border::default() },
+                ..container::Style::default()
+            })
+            .into(),
+        Some(Some(0)) => ui::mono_small("—".to_owned(), FAINT),
+        Some(Some(by)) => moved(by),
+    }
+}
+
+fn row_style(you: bool, frame: Option<Color>) -> impl Fn(&Theme, button::Status) -> button::Style {
+    move |_, status| {
+        let lit = matches!(status, button::Status::Hovered | button::Status::Pressed);
+        let edge = if you { ACCENT } else { frame.unwrap_or(Color::WHITE) };
+        let strength = match (you || frame.is_some(), lit) {
+            (true, true) => 0.9,
+            (true, false) => 0.6,
+            (false, true) => 0.14,
+            (false, false) => 0.06,
+        };
+        button::Style {
+            background: Some(Background::Color(Color::from_rgba(0.055, 0.025, 0.033, 0.96))),
+            text_color: INK,
+            border: Border { color: Color { a: strength, ..edge }, width: if you || frame.is_some() { 1.5 } else { 1.0 }, radius: 14.0.into() },
+            shadow: match frame.or(you.then_some(ACCENT)) {
+                Some(glow) if lit || frame.is_some() => Shadow { color: Color { a: 0.22, ..glow }, offset: iced::Vector::ZERO, blur_radius: 18.0 },
+                _ => Shadow::default(),
+            },
+            snap: true,
+        }
+    }
+}
+
+fn podium_card<'a>(ground: &Ground<'a>, list: &Standings, place: usize, who: usize, value: f64, high: f32) -> Element<'a, Message> {
+    let person = &ground.catalog.people[who];
+    let colour = medal(place).unwrap_or(INK);
+    let said = said_for(ground, list, place, who, value);
+    let side = if place == 1 { 68.0 } else { 56.0 };
+    let value_colour = if ground.standing == Standing::Adaptive { theme::HIT_100 } else { INK };
+    let k = ui::fade();
+    let badge = container(text(place.to_string()).font(theme::MONO_BOLD).size(12.0).color(Color { a: k, ..Color::from_rgb(0.08, 0.04, 0.05) }))
+        .width(22.0)
+        .height(22.0)
+        .center(22.0)
+        .style(move |_| container::Style {
+            background: Some(Background::Color(Color { a: k, ..colour })),
+            border: Border { radius: 11.0.into(), ..Border::default() },
+            ..container::Style::default()
+        });
+    let mut inside = column![
+        stack![ringed(ground, person, side, colour), container(badge).width(side + 8.0).height(side + 8.0).align_x(iced::alignment::Horizontal::Right).align_y(iced::alignment::Vertical::Bottom)],
+        row![container(text(person.name.clone()).font(theme::SANS_SEMI).size(16.0).wrapping(text::Wrapping::None).color(ui::faded(INK))).clip(true), flag(ground, &person.country, 11.0)].spacing(6).align_y(iced::Center),
+        title_line(ground, person, 11.5),
+        Space::new().height(4.0),
+        text(said.value).font(theme::SANS_SEMI).size(if place == 1 { 22.0 } else { 19.0 }).wrapping(text::Wrapping::None).color(ui::faded(value_colour)),
+    ]
+    .spacing(3)
+    .align_x(iced::alignment::Horizontal::Center);
+    if !said.sub.is_empty() {
+        inside = inside.push(ui::mono_small(said.sub, MUTED));
+    }
+    if let Some(note) = said.note {
+        inside = inside.push(text(note).font(theme::SANS).size(11.5).color(ui::faded(Color::from_rgb(0.941, 0.408, 0.408))));
+    }
+    if said.moved.is_some() {
+        inside = inside.push(container(movement(ground, said.moved)).padding(Padding::ZERO.top(4.0)));
+    }
+    let content = container(inside).width(Length::Fill).height(high).padding([16, 12]).center_x(Length::Fill).align_y(iced::alignment::Vertical::Bottom);
+    let cover = ground.pictures.get(&person.cover);
+    button(stack![backdrop(cover, high, 14.0, colour, false), content])
+        .padding(0)
+        .width(Length::FillPortion(1))
+        .style(ui::button_faded(row_style(person.you, Some(colour))))
+        .on_press(Message::Person(Some(who)))
+        .into()
+}
+
+fn board_row<'a>(ground: &Ground<'a>, list: &Standings, place: Option<usize>, who: usize, value: f64) -> Element<'a, Message> {
+    let high = 60.0;
+    let person = &ground.catalog.people[who];
+    let said = match place {
+        Some(place) => said_for(ground, list, place, who, value),
+        None => Said { value: "—".to_owned(), sub: ground.words.with("board-total", &[("value", whole(ground.words, ground.board, person))]), note: Some(ground.words.t("board-not-played")), moved: None },
     };
-    let mut made = row![].spacing(0).width(140.0);
-    if filled > 0 {
-        made = made.push(part(ACCENT, filled));
+    let value_colour = if ground.standing == Standing::Adaptive && place.is_some() { theme::HIT_100 } else { INK };
+    let under: Element<'a, Message> = match (&said.note, ground.catalog.shown_title(person)) {
+        (Some(note), _) => text(note.clone()).font(theme::SANS).size(11.5).wrapping(text::Wrapping::None).color(ui::faded(Color::from_rgb(0.941, 0.408, 0.408))).into(),
+        (None, _) => title_line(ground, person, 11.5),
+    };
+    let mut line = row![
+        container(text(place.map_or_else(|| "—".to_owned(), |p| p.to_string())).font(theme::MONO_BOLD).size(14.0).color(ui::faded(if person.you { ACCENT } else { MUTED }))).width(30.0).align_x(iced::alignment::Horizontal::Center),
+        ringed(ground, person, 36.0, if person.you { ACCENT } else { Color::from_rgba(1.0, 1.0, 1.0, 0.16) }),
+        container(column![row![text(person.name.clone()).font(theme::SANS_SEMI).size(15.0).wrapping(text::Wrapping::None).color(ui::faded(if person.you { Color::from_rgb(0.941, 0.408, 0.408) } else { INK })), flag(ground, &person.country, 11.0)].spacing(7).align_y(iced::Center), under].spacing(2))
+            .width(Length::Fill)
+            .clip(true),
+    ]
+    .spacing(12)
+    .align_y(iced::Center);
+    if ground.standing == Standing::Adaptive {
+        line = line.push(container(movement(ground, said.moved)).width(54.0).center_x(54.0));
     }
-    if filled < 1000 {
-        made = made.push(part(Color::from_rgba(1.0, 1.0, 1.0, 0.08), 1000 - filled));
+    let mut numbers = column![text(said.value).font(theme::SANS_SEMI).size(15.0).wrapping(text::Wrapping::None).color(ui::faded(value_colour))].align_x(iced::alignment::Horizontal::Right).spacing(1);
+    if !said.sub.is_empty() {
+        numbers = numbers.push(ui::mono_small(said.sub, MUTED));
     }
-    made.into()
+    line = line.push(container(numbers).width(170.0).align_x(iced::alignment::Horizontal::Right));
+    let content = container(line).width(Length::Fill).height(high).padding([0, 16]).center_y(high);
+    let cover = ground.pictures.get(&person.cover);
+    button(stack![backdrop(cover, high, 14.0, avatar_colour(&person.name), true), content])
+        .padding(0)
+        .width(Length::Fill)
+        .style(ui::button_faded(row_style(person.you, None)))
+        .on_press(Message::Person(Some(who)))
+        .into()
+}
+
+fn segmented<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
+    let w = ground.words;
+    let k = ui::fade();
+    let part = |key: &str, standing: Standing| {
+        let on = ground.standing == standing;
+        button(container(text(w.t(key)).font(theme::SANS_SEMI).size(12.5)).center_x(Length::Fill))
+            .padding([6, 0])
+            .width(120.0)
+            .style(ui::button_faded(move |_, status: button::Status| button::Style {
+                background: Some(Background::Color(if on {
+                    Color::from_rgba(0.886, 0.282, 0.282, 0.2)
+                } else if matches!(status, button::Status::Hovered) {
+                    Color::from_rgba(1.0, 1.0, 1.0, 0.04)
+                } else {
+                    Color::TRANSPARENT
+                })),
+                text_color: if on { INK } else { MUTED },
+                border: Border { color: if on { Color::from_rgba(0.886, 0.282, 0.282, 0.5) } else { Color::TRANSPARENT }, width: 1.0, radius: 8.0.into() },
+                shadow: Shadow::default(),
+                snap: true,
+            }))
+            .on_press(Message::Standing(standing))
+    };
+    container(row![part("board-general", Standing::General), part("board-adaptive", Standing::Adaptive)].spacing(2))
+        .padding(3)
+        .style(move |_| container::Style {
+            background: Some(Background::Color(Color::from_rgba(0.0, 0.0, 0.0, 0.3 * k))),
+            border: Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.06 * k), width: 1.0, radius: 10.0.into() },
+            ..container::Style::default()
+        })
+        .into()
 }
 
 fn boards<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
     let w = ground.words;
+    let catalog = ground.catalog;
     let mut chips = row![].spacing(6);
     for board in Board::ALL {
         chips = chips.push(
@@ -936,43 +1226,64 @@ fn boards<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
                 .on_press(Message::Board(board)),
         );
     }
-    let order = ground.catalog.ranked(ground.board);
-    let top = order.first().map_or(1.0, |at| ground.board.value(&ground.catalog.people[*at])).max(f64::EPSILON);
-    let mut list = column![
-        container(chips).center_x(Length::Fill),
-        container(ui::mono_small(w.n("boards-week", u64::from(ground.catalog.week)), FAINT)).center_x(Length::Fill).padding(Padding::ZERO.bottom(8.0)),
-    ]
-    .spacing(10)
-    .width(FEED_WIDE);
-    for (place, at) in order.iter().enumerate() {
-        let person = &ground.catalog.people[*at];
-        let colour = if place < 3 { INK } else { MUTED };
-        let line = row![
-            container(ui::mono(format!("{}", place + 1), colour)).width(26.0).align_x(iced::alignment::Horizontal::Right),
-            container(moved(person.moved[ground.board.index()])).width(40.0),
-            face(ground, person, 30.0),
-            container(
-                column![
-                    text(person.name.clone()).font(theme::SANS_SEMI).size(theme::BODY).wrapping(text::Wrapping::None).color(ui::faded(INK)),
-                    title_line(ground, person, 11.0),
-                ]
-                .spacing(1),
-            )
-            .width(Length::Fill)
-            .clip(true),
-            container(ui::mono(shown_value(w, ground.board, person), INK)).width(130.0).align_x(iced::alignment::Horizontal::Right),
-            bar((ground.board.value(person) / top) as f32),
-        ]
-        .spacing(14)
-        .align_y(iced::Center);
-        list = list.push(
-            button(container(line).height(52.0).center_y(52.0).width(Length::Fill))
-                .padding([0, 12])
-                .style(ui::button_faded(theme::row(ground.person == Some(*at))))
-                .on_press(Message::Person(Some(*at))),
-        );
+    let list = standings(catalog, ground.board, ground.standing);
+    let adaptive = ground.standing == Standing::Adaptive;
+    let title = w.t(if adaptive { "board-title-adaptive" } else { "board-title-general" });
+    let subtitle = if adaptive { w.with("board-week-span", &[("week", catalog.week.to_string()), ("span", w.week_span(catalog.week_began))]) } else { w.t("board-all-time") };
+    let many = if adaptive { catalog.people.len() } else { list.order.len() };
+    let mut who = w.count("participants", many as u64);
+    if adaptive && list.out > 0 {
+        who = format!("{who} · {}", w.n("board-sat-out", list.out as u64));
     }
-    rolled(list.into())
+    let head = row![
+        column![text(title).font(theme::SANS_SEMI).size(19.0).color(ui::faded(INK)), ui::mono_small(subtitle, MUTED)].spacing(3),
+        ui::grow(),
+        column![text(w.t(ground.board.key())).font(theme::SANS_SEMI).size(14.0).color(ui::faded(INK)), ui::mono_small(who, FAINT)].spacing(3).align_x(iced::alignment::Horizontal::Right),
+    ]
+    .align_y(iced::Center);
+    let mut page = column![
+        container(segmented(ground)).center_x(Length::Fill),
+        container(chips).center_x(Length::Fill),
+        container(head).padding(Padding { top: 8.0, right: 4.0, bottom: 2.0, left: 4.0 }),
+    ]
+    .spacing(12)
+    .width(Length::Fill)
+    .max_width(920.0);
+    if adaptive && catalog.collecting {
+        let date = chrono::DateTime::from_timestamp(catalog.week_began + 7 * 86_400 + 3 * 3600, 0).map_or_else(String::new, |at| at.format("%d.%m").to_string());
+        page = page.push(container(empty(w.with("board-collecting", &[("date", date)]))).height(200.0));
+        return rolled(page.into());
+    }
+    if list.order.is_empty() {
+        page = page.push(container(empty(w.t(if adaptive { "board-no-gain" } else { "nothing-yet" }))).height(200.0));
+        return rolled(page.into());
+    }
+    let podium: Vec<(usize, usize, f64)> = list.order.iter().take(3).enumerate().map(|(at, (who, value))| (at + 1, *who, *value)).collect();
+    let mut stand = row![].spacing(12).align_y(iced::alignment::Vertical::Bottom);
+    for place in [2usize, 1, 3] {
+        match podium.iter().find(|(p, _, _)| *p == place) {
+            Some((place, who, value)) => {
+                let high = match place {
+                    1 => 236.0,
+                    2 => 214.0,
+                    _ => 202.0,
+                };
+                stand = stand.push(podium_card(ground, &list, *place, *who, *value, high));
+            }
+            None => stand = stand.push(Space::new().width(Length::FillPortion(1)).height(0.0)),
+        }
+    }
+    page = page.push(stand);
+    let mut rows = column![].spacing(8);
+    for (at, (who, value)) in list.order.iter().enumerate().skip(3) {
+        rows = rows.push(board_row(ground, &list, Some(at + 1), *who, *value));
+    }
+    let you_out = catalog.people.iter().position(|p| p.you).filter(|you| !list.order.iter().any(|(who, _)| who == you));
+    if let Some(you) = you_out {
+        rows = rows.push(container(board_row(ground, &list, None, you, 0.0)).padding(Padding::ZERO.top(8.0)));
+    }
+    page = page.push(rows);
+    rolled(page.into())
 }
 
 fn faces<'a>(ground: &Ground<'a>, holders: &[usize]) -> Element<'a, Message> {
@@ -1101,4 +1412,30 @@ fn drawer<'a>(ground: &Ground<'a>, person: &Person) -> Element<'a, Message> {
     .width(Length::Fill)
     .height(Length::Fill)
     .into()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_adaptive_board_ranks_only_the_week_s_gains() {
+        let catalog = Catalog::staged(Vec::new(), "", 1_790_000_000);
+        let adaptive = standings(&catalog, Board::Pp, Standing::Adaptive);
+        let names: Vec<&str> = adaptive.order.iter().map(|(who, _)| catalog.people[*who].name.as_str()).collect();
+        assert_eq!(names, ["kotofey", "ssnowy", "NaumRedlo", "Mirrorwave", "d1ce", "tarakan_3000"]);
+        assert_eq!(adaptive.out, 2, "those who gained nothing sit out");
+        let general = standings(&catalog, Board::Pp, Standing::General);
+        assert_eq!(general.order.len(), catalog.people.len());
+        assert_eq!(catalog.people[general.order[0].0].name, "kotofey");
+    }
+
+    #[test]
+    fn a_gain_reads_the_way_the_bot_writes_it() {
+        let words = Words::new(crate::lang::Lang::Ru);
+        assert_eq!(grown(&words, Board::Pp, 74.4, true), "+74 pp");
+        assert_eq!(grown(&words, Board::Accuracy, 0.12, true), "+0,12 п.п.");
+        assert_eq!(grown(&words, Board::Hours, 21.0 * 3600.0 + 5.0 * 60.0, true), "+21 ч 05 м");
+        assert_eq!(grown(&words, Board::HitsPerPlay, 612.84, false), "612,8");
+    }
 }

@@ -731,6 +731,10 @@ pub fn grow<'a, Message: 'a>() -> Element<'a, Message> {
     Space::new().width(Length::Fill).into()
 }
 
+pub fn grow_tall<'a, Message: 'a>() -> Element<'a, Message> {
+    Space::new().height(Length::Fill).into()
+}
+
 pub fn sized(w: f32, h: f32) -> Size {
     Size::new(w, h)
 }

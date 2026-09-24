@@ -425,6 +425,9 @@ pub struct Main {
     pub feed_seen: i64,
     pub spot: usize,
     spot_at: Instant,
+    pub(crate) section_at: Instant,
+    pub(crate) shift_at: Instant,
+    pub(crate) person_at: Instant,
     pub(crate) spot_due: Instant,
     pub(crate) spot_held: Option<Instant>,
     pub rank: usize,
@@ -582,6 +585,9 @@ impl Main {
             feed_seen: 0,
             spot: 0,
             spot_at: Instant::now() - Duration::from_secs(3600),
+            section_at: Instant::now() - Duration::from_secs(3600),
+            shift_at: Instant::now() - Duration::from_secs(3600),
+            person_at: Instant::now() - Duration::from_secs(3600),
             spot_due: Instant::now(),
             spot_held: None,
             rank: 0,
@@ -675,6 +681,7 @@ impl Main {
             || self.live_arrived.is_some_and(|at| self.now.saturating_duration_since(at) < LIVE_ARRIVE)
             || self.read_fade.is_animating(self.now)
             || self.person_fade.is_animating(self.now)
+            || (self.overlay == Overlay::Community && [self.section_at, self.shift_at, self.person_at].iter().any(|at| self.now.saturating_duration_since(*at).as_secs_f32() < ui::APPEAR_ALL))
             || (self.overlay == Overlay::Community && self.now.saturating_duration_since(self.spot_at) < crate::chronicle::SPOT_SWAP)
             || (self.overlay == Overlay::Community && self.now.saturating_duration_since(self.rank_at) < crate::chronicle::RANK_GROW)
             || (self.community_reading.is_some() && !self.read_fade.value())
@@ -1572,6 +1579,9 @@ impl Main {
                 };
                 if overlay != self.overlay {
                     self.turn_to(overlay, now);
+                    if overlay == Overlay::Community {
+                        self.section_at = now;
+                    }
                 }
                 self.overlay = overlay;
                 self.rest_live(overlay != Overlay::None);
@@ -1616,8 +1626,16 @@ impl Main {
                         return self.wide_pictures_task(wanted);
                     }
                     C::Unread => self.read_fade.go_mut(false, now),
-                    C::Standing(standing) => self.community_standing = standing,
+                    C::Standing(standing) => {
+                        if standing != self.community_standing {
+                            self.shift_at = now;
+                        }
+                        self.community_standing = standing;
+                    }
                     C::PeopleFrom(from) => {
+                        if from != self.people_from {
+                            self.shift_at = now;
+                        }
                         self.people_from = from;
                         if from == crate::community_screen::PeopleFrom::Game {
                             return self.friends_task(false);
@@ -1631,14 +1649,23 @@ impl Main {
                         return Task::batch([self.community_task(true), friends, self.card_task(true)]);
                     }
                     C::Section(section) => {
+                        if section != self.community_section {
+                            self.section_at = now;
+                        }
                         self.community_section = section;
                         self.community_person = None;
                     }
                     C::Board(board) => {
+                        if self.community_section != crate::community_screen::Section::Boards {
+                            self.section_at = now;
+                        } else if board != self.community_board {
+                            self.shift_at = now;
+                        }
                         self.community_board = board;
                         self.community_section = crate::community_screen::Section::Boards;
                     }
                     C::Person(Some(at)) => {
+                        self.person_at = now;
                         self.community_person = Some(at);
                         self.person_fade = Animation::new(false).duration(STAGE_SHOW).easing(Easing::EaseOutCubic).go(true, now);
                         return self.person_task(at);
@@ -1668,9 +1695,24 @@ impl Main {
                         self.news.fetched.remove(&crate::news::channel_source(&name));
                         self.news.save();
                     }
-                    C::Filter(filter) => self.feed_filter = filter,
-                    C::Source(source) => self.feed_source = source,
-                    C::Stream(stream) => self.feed_stream = stream,
+                    C::Filter(filter) => {
+                        if filter != self.feed_filter {
+                            self.shift_at = now;
+                        }
+                        self.feed_filter = filter;
+                    }
+                    C::Source(source) => {
+                        if source != self.feed_source {
+                            self.shift_at = now;
+                        }
+                        self.feed_source = source;
+                    }
+                    C::Stream(stream) => {
+                        if stream != self.feed_stream {
+                            self.shift_at = now;
+                        }
+                        self.feed_stream = stream;
+                    }
                     C::Search(query) => self.feed_query = query,
                     C::Toggle(key) => {
                         if !self.feed_open.remove(&key) {
@@ -1714,7 +1756,10 @@ impl Main {
                     C::Span(span) => self.dossier_span = span,
                     C::GradeHover(hover) => self.grade_hover = hover,
                     C::TitlePick(code) => self.title_pick = Some(code),
-                    C::PlayOpen(index) => self.play_open = if self.play_open == Some(index) { None } else { Some(index) },
+                    C::PlayOpen(index) => {
+                        self.shift_at = now;
+                        self.play_open = if self.play_open == Some(index) { None } else { Some(index) };
+                    }
                     C::PlayClip(src, link) => {
                         let Some(src) = src else {
                             let _ = open::that_detached(link);
@@ -4125,6 +4170,9 @@ impl Main {
                 let k = (self.now.saturating_duration_since(self.spot_at).as_secs_f32() / crate::chronicle::SPOT_SWAP.as_secs_f32()).clamp(0.0, 1.0);
                 1.0 - (1.0 - k).powi(3)
             },
+            section_t: self.now.saturating_duration_since(self.section_at).as_secs_f32().min(60.0),
+            shift_t: self.now.saturating_duration_since(self.shift_at).as_secs_f32().min(60.0),
+            person_t: self.now.saturating_duration_since(self.person_at).as_secs_f32().min(60.0),
             rank: self.rank,
             rank_k: {
                 let k = (self.now.saturating_duration_since(self.rank_at).as_secs_f32() / crate::chronicle::RANK_GROW.as_secs_f32()).clamp(0.0, 1.0);

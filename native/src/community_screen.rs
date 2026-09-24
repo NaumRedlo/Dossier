@@ -149,6 +149,9 @@ pub struct Ground<'a> {
     pub spot_k: f32,
     pub rank: usize,
     pub rank_k: f32,
+    pub section_t: f32,
+    pub shift_t: f32,
+    pub person_t: f32,
     pub rank_started: std::time::Instant,
     pub rank_held: Option<f32>,
     pub metric: crate::dossier::Metric,
@@ -173,11 +176,14 @@ pub fn view<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
     let word = |key: &str, section: Section| {
         let on = ground.section == section;
         let k = ui::fade();
-        let bar = container(Space::new().height(2.0)).width(Length::Fill).style(move |_| container::Style {
+        let reach = if on { (ui::appear(ground.section_t, 0) * 1000.0).round() as u16 } else { 1000 };
+        let side = Length::FillPortion(((1000 - reach) / 2).max(1));
+        let line = container(Space::new().height(2.0)).width(Length::FillPortion(reach.max(1))).style(move |_| container::Style {
             background: Some(Background::Color(ui::dim(if on { ACCENT } else { Color::TRANSPARENT }, k))),
             border: Border { radius: 1.0.into(), ..Border::default() },
             ..container::Style::default()
         });
+        let bar: Element<'a, Message> = if reach >= 1000 { line.width(Length::Fill).into() } else { row![Space::new().width(side).height(2.0), line, Space::new().width(side).height(2.0)].width(Length::Fill).into() };
         button(column![text(w.t(key)).font(theme::SANS_SEMI).size(theme::BODY), bar].spacing(5).width(Length::Shrink))
             .padding([4, 0])
             .style(ui::button_faded(theme::word(on)))
@@ -600,7 +606,7 @@ fn stage_look() -> crate::unfold::Look {
     crate::unfold::Look {
         fill: Color { a: k, ..theme::SLAB_SOLID },
         line: Color::from_rgba(1.0, 1.0, 1.0, 0.1 * k),
-        veil: Color::from_rgba(0.027, 0.012, 0.016, 0.7 * k),
+        veil: Color::from_rgba(0.027, 0.012, 0.016, 0.88 * k),
         radius: 16.0,
     }
 }
@@ -817,7 +823,13 @@ fn people<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
         let body: Element<'a, Message> = match friends_said(ground) {
             Some(said) => container(said).height(160.0).width(Length::Fill).into(),
             None => grid(
-                ground.catalog.friends.iter().map(|friend| container(friend_line(ground, friend)).padding([6, 8]).style(ui::box_faded(theme::slab)).into()).collect(),
+                ground
+                    .catalog
+                    .friends
+                    .iter()
+                    .enumerate()
+                    .map(|(at, friend)| ui::appearing(ui::appear(ground.section_t.min(ground.shift_t), at), 10.0, || container(friend_line(ground, friend)).padding([6, 8]).style(ui::box_faded(theme::slab)).into()))
+                    .collect(),
                 columns_for(ground, 360.0),
                 GRID_GAP,
             ),
@@ -828,7 +840,8 @@ fn people<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
         return spread(column![switch, container(empty(w.t("community-no-group"))).height(160.0)].spacing(16).into());
     }
     let order = ground.catalog.ranked(Board::Pp);
-    let cards: Vec<Element<'a, Message>> = order.iter().enumerate().map(|(place, at)| person_card(ground, *at, &ground.catalog.people[*at], place + 1)).collect();
+    let t = ground.section_t.min(ground.shift_t);
+    let cards: Vec<Element<'a, Message>> = order.iter().enumerate().map(|(place, at)| ui::appearing(ui::appear(t, place), 12.0, || person_card(ground, *at, &ground.catalog.people[*at], place + 1))).collect();
     spread(column![switch, grid(cards, columns_for(ground, 420.0), 14.0)].spacing(16).into())
 }
 
@@ -1188,7 +1201,8 @@ fn boards<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
                     2 => 234.0,
                     _ => 222.0,
                 };
-                stand = stand.push(podium_card(ground, &list, *place, *who, *value, high));
+                let order = [2usize, 1, 0][*place - 1];
+                stand = stand.push(ui::appearing(ui::appear(ground.section_t.min(ground.shift_t), order), 16.0, || podium_card(ground, &list, *place, *who, *value, high)));
             }
             None => stand = stand.push(Space::new().width(Length::FillPortion(1)).height(0.0)),
         }
@@ -1196,7 +1210,7 @@ fn boards<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
     page = page.push(stand);
     let mut rows = column![].spacing(8);
     for (at, (who, value)) in list.order.iter().enumerate().skip(3) {
-        rows = rows.push(board_row(ground, &list, Some(at + 1), *who, *value));
+        rows = rows.push(ui::appearing(ui::appear(ground.section_t.min(ground.shift_t), at), 10.0, || board_row(ground, &list, Some(at + 1), *who, *value)));
     }
     let you_out = catalog.people.iter().position(|p| p.you).filter(|you| !list.order.iter().any(|(who, _)| who == you));
     if let Some(you) = you_out {
@@ -1244,6 +1258,7 @@ fn title_card<'a>(ground: &Ground<'a>, title: &Title) -> Element<'a, Message> {
 fn titles<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
     let w = ground.words;
     let mut list = column![].spacing(22).width(Length::Fill);
+    let mut shown = 0;
     for rarity in Rarity::ALL {
         let defs: Vec<&Title> = ground.catalog.titles.iter().filter(|title| title.rarity == rarity).collect();
         if defs.is_empty() {
@@ -1256,7 +1271,13 @@ fn titles<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
         ]
         .spacing(10)
         .align_y(iced::Center);
-        let cards: Vec<Element<'a, Message>> = defs.iter().map(|title| title_card(ground, title)).collect();
+        let cards: Vec<Element<'a, Message>> = defs
+            .iter()
+            .map(|title| {
+                shown += 1;
+                ui::appearing(ui::appear(ground.section_t, shown), 10.0, || title_card(ground, title))
+            })
+            .collect();
         list = list.push(column![head, grid(cards, columns_for(ground, 360.0), GRID_GAP)].spacing(10));
     }
     spread(list.into())
@@ -1276,7 +1297,7 @@ fn profile_panel<'a>(ground: &Ground<'a>, at: usize) -> Element<'a, Message> {
             .on_press(Message::Person(None));
         let status: Element<'a, Message> = if ground.person_loading { ui::mono_small(w.t("news-loading"), FAINT) } else { Space::new().width(0.0).into() };
         let head = row![ui::mono_small(w.t("dossier-of").to_uppercase(), FAINT), ui::mono_small(person.name.clone(), MUTED), ui::grow(), status, close].spacing(10).align_y(iced::Center);
-        container(column![head, crate::dossier::columns(ground, &whose, wide - 44.0)].spacing(10)).padding(Padding { top: 12.0, right: 22.0, bottom: 0.0, left: 22.0 }).width(Length::Fill).height(Length::Fill).into()
+        container(column![head, crate::dossier::columns(ground, &whose, wide - 44.0, ground.person_t)].spacing(10)).padding(Padding { top: 12.0, right: 22.0, bottom: 0.0, left: 22.0 }).width(Length::Fill).height(Length::Fill).into()
     });
     crate::unfold::unfold(after, None, None, k, Message::Person(None)).wide(wide).room(STAGE_ROOM).look(stage_look()).into()
 }

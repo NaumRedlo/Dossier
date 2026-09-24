@@ -457,14 +457,13 @@ fn identity<'a>(ground: &Ground<'a>, whose: &Whose<'a>) -> Element<'a, Message> 
         .style(|_| container::Style {
             background: Some(Background::Color(Color { a: ui::fade(), ..ACCENT })),
             border: Border { radius: 10.0.into(), ..Border::default() },
-            shadow: Shadow { color: Color::from_rgba(0.886, 0.282, 0.282, 0.4 * ui::fade()), offset: Vector::new(0.0, 4.0), blur_radius: 12.0 },
+            shadow: Shadow { color: Color::from_rgba(0.886, 0.282, 0.282, 0.16 * ui::fade()), offset: Vector::new(0.0, 3.0), blur_radius: 8.0 },
             ..container::Style::default()
         });
-    let avatar = stack![
-        container(chronicle::ring(ground, you, 156.0, share, 6.0)).width(Length::Fill).center_x(Length::Fill),
-        container(badge).width(Length::Fill).height(168.0).center_x(Length::Fill).align_y(iced::alignment::Vertical::Bottom),
-    ]
-    .height(168.0);
+    let mut avatar = stack![container(chronicle::ring(ground, you, 156.0, share, 6.0)).width(Length::Fill).center_x(Length::Fill)].height(168.0);
+    if card.level >= 1.0 {
+        avatar = avatar.push(container(badge).width(Length::Fill).height(168.0).center_x(Length::Fill).align_y(iced::alignment::Vertical::Bottom));
+    }
     let online_colour = if card.is_online { GREEN } else { FAINT };
     let status: Element<'a, Message> = row![
         container(Space::new().width(8.0).height(8.0)).style(move |_| container::Style { background: Some(Background::Color(Color { a: ui::fade(), ..online_colour })), border: Border { radius: 4.0.into(), ..Border::default() }, ..container::Style::default() }),
@@ -602,7 +601,7 @@ fn metric_style(on: bool) -> impl Fn(&Theme, button::Status) -> button::Style {
             background: Some(Background::Color(if on { Color::from_rgba(0.886, 0.282, 0.282, 0.1) } else if lit { Color::from_rgba(1.0, 1.0, 1.0, 0.016) } else { theme::RAISED })),
             text_color: INK,
             border: Border { color: if on { Color::from_rgba(0.886, 0.282, 0.282, 0.55) } else if lit { Color::from_rgba(1.0, 1.0, 1.0, 0.07) } else { theme::LINE }, width: 1.0, radius: 12.0.into() },
-            shadow: if on { Shadow { color: Color::from_rgba(0.886, 0.282, 0.282, 0.18), offset: Vector::ZERO, blur_radius: 14.0 } } else { Shadow::default() },
+            shadow: if on { Shadow { color: Color::from_rgba(0.886, 0.282, 0.282, 0.07), offset: Vector::ZERO, blur_radius: 8.0 } } else { Shadow::default() },
             snap: true,
         }
     }
@@ -1068,7 +1067,8 @@ fn best_plays<'a>(ground: &Ground<'a>, whose: &Whose<'a>, wide: f32) -> Element<
     let columns = if wide >= 720.0 { 5 } else { 3 };
     let each = (wide - 32.0 - 10.0 * (columns as f32 - 1.0)) / columns as f32;
     let cards: Vec<Element<'a, Message>> = posters.iter().enumerate().map(|(at, poster)| poster_card(ground, at, poster, at == chosen, each)).collect();
-    slab(column![head, screen::grid(cards, columns, 10.0), poster_detail(ground, &posters[chosen])].spacing(12), [14, 16]).into()
+    let detail = ui::appearing(ui::appear(ground.shift_t, 0), 8.0, || poster_detail(ground, &posters[chosen]));
+    slab(column![head, screen::grid(cards, columns, 10.0), detail].spacing(12), [14, 16]).into()
 }
 
 fn grades<'a>(ground: &Ground<'a>, card: &wire::Card) -> Element<'a, Message> {
@@ -1262,7 +1262,8 @@ pub fn card_from(person: &Person) -> wire::Card {
     }
 }
 
-pub fn columns<'a>(ground: &Ground<'a>, whose: &Whose<'a>, room: f32) -> Element<'a, Message> {
+pub fn columns<'a>(ground: &Ground<'a>, whose: &Whose<'a>, room: f32, t: f32) -> Element<'a, Message> {
+    let block = |index: usize, build: &dyn Fn() -> Element<'a, Message>| ui::appearing(ui::appear(t, index), 14.0, build);
     let rolled = |inside: Element<'a, Message>| -> Element<'a, Message> {
         scrollable(container(inside).padding(Padding { top: 2.0, right: 8.0, bottom: 28.0, left: 0.0 })).style(ui::thin_scroll).direction(ui::hidden_bar()).height(Length::Fill).into()
     };
@@ -1270,19 +1271,19 @@ pub fn columns<'a>(ground: &Ground<'a>, whose: &Whose<'a>, room: f32) -> Element
     let left = (room * 0.21).clamp(LEFT, SIDE_MOST);
     let right = (room * 0.21).clamp(RIGHT, SIDE_MOST);
     let middle_wide = if wide { room - left - right - 32.0 } else { room - left - 16.0 };
-    let middle = column![metrics(ground, whose), chart(ground, whose), best_plays(ground, whose, middle_wide)].spacing(14);
+    let middle = column![block(0, &|| metrics(ground, whose)), block(1, &|| chart(ground, whose)), block(2, &|| best_plays(ground, whose, middle_wide))].spacing(14);
     if wide {
         row![
-            container(rolled(column![identity(ground, whose), places(ground, whose)].spacing(14).into())).width(left).height(Length::Fill),
+            container(rolled(column![block(0, &|| identity(ground, whose)), block(1, &|| places(ground, whose))].spacing(14).into())).width(left).height(Length::Fill),
             container(rolled(middle.into())).width(Length::Fill).height(Length::Fill),
-            container(rolled(column![grades(ground, &whose.card), titles(ground, whose), activity(ground, whose)].spacing(14).into())).width(right).height(Length::Fill),
+            container(rolled(column![block(1, &|| grades(ground, &whose.card)), block(2, &|| titles(ground, whose)), block(3, &|| activity(ground, whose))].spacing(14).into())).width(right).height(Length::Fill),
         ]
         .spacing(16)
         .into()
     } else {
         row![
-            container(rolled(column![identity(ground, whose), places(ground, whose), grades(ground, &whose.card)].spacing(14).into())).width(left).height(Length::Fill),
-            container(rolled(middle.push(titles(ground, whose)).push(activity(ground, whose)).into())).width(Length::Fill).height(Length::Fill),
+            container(rolled(column![block(0, &|| identity(ground, whose)), block(1, &|| places(ground, whose)), block(2, &|| grades(ground, &whose.card))].spacing(14).into())).width(left).height(Length::Fill),
+            container(rolled(middle.push(block(3, &|| titles(ground, whose))).push(block(4, &|| activity(ground, whose))).into())).width(Length::Fill).height(Length::Fill),
         ]
         .spacing(16)
         .into()
@@ -1299,5 +1300,5 @@ pub fn view<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
         return container(ui::mono_small(w.t("nothing-yet"), FAINT)).center(Length::Fill).into();
     };
     let whose = Whose { at, person, card, me: ground.catalog.me.as_ref() };
-    container(columns(ground, &whose, ground.width - 80.0)).padding(Padding { top: 12.0, right: 40.0, bottom: 0.0, left: 40.0 }).width(Length::Fill).height(Length::Fill).into()
+    container(columns(ground, &whose, ground.width - 80.0, ground.section_t)).padding(Padding { top: 12.0, right: 40.0, bottom: 0.0, left: 40.0 }).width(Length::Fill).height(Length::Fill).into()
 }

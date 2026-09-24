@@ -597,6 +597,27 @@ naming the group, its size and when the bot last answered — or *образцы
   names, maps and events, the highlights, the side cards' names and the
   streak, the names on the boards and the people's cards, and a poster's
   version; it asks for frames only while it moves.
+  The catalogue moves as it changes (2026-09-24). Opening it or turning to
+  another part starts that part's clock; choosing a stream, a filter, a
+  source, a board, a standing, *Беседа · Из игры* or a poster starts the
+  clock of what they change. Whatever the clock governs comes in by fading
+  from nothing while it rises 10–16 px into place over 340 ms (ease-out),
+  one after another 40 ms apart, counting at most sixteen before the rest
+  come together: the side cards, the stream's head, its highlights, the
+  journal's days and rows, the news cards; the people's cards; the titles;
+  the podium third, second, first and then the rows; the dossier's blocks
+  column by column, for oneself when the part opens and in another's panel
+  when it unfolds; the chosen play's particulars when a poster is chosen.
+  The red line under the chosen part grows from its middle. The rise is a
+  translation drawn over an untouched layout, so nothing reflows while it
+  plays, and the wrapper stays in the tree after the last frame, so no
+  row's state is dropped when it settles. At rest every frame is the same
+  as before, to the pixel.
+  Panels over the page (another's dossier, the reader) darken what lies
+  behind to 88 % rather than 70 %: blending is linear, and the page read
+  through at 70 %. Another's dossier shows no level pill while the level is
+  unknown (it said *Ур. 0 · 0 %*), and the chosen figure's and the level's
+  glows are as faint as the board's.
   The middle was rebuilt the same night from the fifth of the concepts
   drawn on a canvas (two streams under the day's highlights). A segmented
   *Всё · Группа · Новости*, *N новых событий* and a search by player, map,

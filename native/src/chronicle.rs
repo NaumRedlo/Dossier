@@ -588,7 +588,7 @@ fn counted<'a, T: Copy + PartialEq + 'static>(ground: &Ground<'a>, options: &[T]
     ui::wrap(pills, 6.0).into()
 }
 
-fn by_day<'a>(ground: &Ground<'a>, list: &[Event<'a>], draw: impl Fn(&Event<'a>) -> Option<Element<'a, Message>>) -> Vec<Element<'a, Message>> {
+fn by_day<'a>(ground: &Ground<'a>, list: &[Event<'a>], t: f32, from: usize, draw: impl Fn(&Event<'a>) -> Option<Element<'a, Message>>) -> Vec<Element<'a, Message>> {
     let today = ground.now_unix - ground.now_unix.rem_euclid(86_400);
     let day_of = |at: i64| if at >= today { 0 } else { (today - at) / 86_400 + 1 };
     let mut last: Option<i64> = None;
@@ -596,11 +596,14 @@ fn by_day<'a>(ground: &Ground<'a>, list: &[Event<'a>], draw: impl Fn(&Event<'a>)
     for event in list {
         let day = day_of(event.at);
         if last != Some(day) {
-            out.push(day_divider(ground, event.at));
+            let index = from + out.len();
+            out.push(ui::appearing(ui::appear(t, index), 10.0, || day_divider(ground, event.at)));
             last = Some(day);
         }
-        if let Some(made) = draw(event) {
-            out.push(made);
+        let k = ui::appear(t, from + out.len());
+        let made = if k >= 0.999 { draw(event) } else { ui::fading(ui::fade() * k, || draw(event)) };
+        if let Some(made) = made {
+            out.push(ui::lifted(made, k, 10.0));
         }
     }
     out
@@ -649,15 +652,15 @@ fn timeline<'a>(ground: &Ground<'a>, wide: f32) -> Element<'a, Message> {
             ..container::Style::default()
         }),
     );
-    let mut page = column![top].spacing(12);
-    if let Some(shelf) = shelf(ground, &seen) {
-        page = page.push(shelf);
+    let lately = ground.section_t.min(ground.shift_t);
+    let mut page = column![ui::appearing(ui::appear(ground.section_t, 0), 10.0, || top.into())].spacing(12);
+    let k = ui::appear(lately, 1);
+    if let Some(shelf) = if k >= 0.999 { shelf(ground, &seen) } else { ui::fading(ui::fade() * k, || shelf(ground, &seen)) } {
+        page = page.push(ui::lifted(shelf, k, 10.0));
     }
 
     let group_counts = |filter: Filter| group_all.iter().filter(|event| event.admitted(filter)).count();
     let news_counts = |source: Source| news_all.iter().filter(|event| event.sourced(source)).count();
-    let group_pills = counted(ground, &Filter::ALL, ground.filter, Filter::key, group_counts, Message::Filter);
-    let news_pills = counted(ground, &Source::ALL, ground.source, Source::key, news_counts, Message::Source);
     let nothing = || -> Element<'a, Message> { container(ui::mono_small(w.t("nothing-yet"), FAINT)).center_x(Length::Fill).padding(28).into() };
     let heading = |icon: Icon, key: &str, count: &str, n: usize| -> Element<'a, Message> {
         row![
@@ -676,17 +679,22 @@ fn timeline<'a>(ground: &Ground<'a>, wide: f32) -> Element<'a, Message> {
             rows = rows.push(nothing());
         } else {
             rows = rows.push(journal_head(ground, table));
-            for made in by_day(ground, &group, |event| journal_row(ground, event, table)) {
+            for made in by_day(ground, &group, lately, 3, |event| journal_row(ground, event, table)) {
                 rows = rows.push(made);
             }
         }
-        column![heading(Icon::Play, "stream-group", "events", group_all.len()), group_pills, rows].spacing(10).into()
+        let head = ui::appearing(ui::appear(ground.section_t, 2), 10.0, || {
+            column![heading(Icon::Play, "stream-group", "events", group_all.len()), counted(ground, &Filter::ALL, ground.filter, Filter::key, group_counts, Message::Filter)].spacing(10).into()
+        });
+        column![head, rows].spacing(10).into()
     };
     let news_list = |columns: usize| -> Element<'a, Message> {
         let mut cards: Vec<Element<'a, Message>> = Vec::new();
         for event in &news {
-            if let Some(made) = news_card(ground, event) {
-                cards.push(made);
+            let k = ui::appear(lately, 3 + cards.len());
+            let made = if k >= 0.999 { news_card(ground, event) } else { ui::fading(ui::fade() * k, || news_card(ground, event)) };
+            if let Some(made) = made {
+                cards.push(ui::lifted(made, k, 10.0));
             }
         }
         if cards.is_empty() {
@@ -698,7 +706,12 @@ fn timeline<'a>(ground: &Ground<'a>, wide: f32) -> Element<'a, Message> {
             iced::widget::Column::with_children(cards).spacing(10).into()
         }
     };
-    let news_panel = |columns: usize| -> Element<'a, Message> { column![heading(Icon::News, "filter-news", "news-items", news_all.len()), news_pills, news_list(columns)].spacing(10).into() };
+    let news_panel = |columns: usize| -> Element<'a, Message> {
+        let head = ui::appearing(ui::appear(ground.section_t, 2), 10.0, || {
+            column![heading(Icon::News, "filter-news", "news-items", news_all.len()), counted(ground, &Source::ALL, ground.source, Source::key, news_counts, Message::Source)].spacing(10).into()
+        });
+        column![head, news_list(columns)].spacing(10).into()
+    };
 
     let body: Element<'a, Message> = match ground.stream {
         Stream::Group => group_panel(wide - 12.0),
@@ -1187,12 +1200,16 @@ pub fn view<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
     let medium = room >= RIGHT_WIDE + 460.0 + GAP;
     let right_parts = |me_first: bool| -> Element<'a, Message> {
         let mut side = column![].spacing(12);
+        let t = ground.section_t;
         if me_first {
-            side = side.push(me_card(ground));
+            side = side.push(ui::appearing(ui::appear(t, 0), 12.0, || me_card(ground)));
         }
-        side = side.push(spotlight(ground)).push(friends_card(ground)).push(leaderboard(ground));
+        side = side
+            .push(ui::appearing(ui::appear(t, 1), 12.0, || spotlight(ground)))
+            .push(ui::appearing(ui::appear(t, 2), 12.0, || friends_card(ground)))
+            .push(ui::appearing(ui::appear(t, 3), 12.0, || leaderboard(ground)));
         if me_first {
-            side = side.push(channels_card(ground));
+            side = side.push(ui::appearing(ui::appear(t, 4), 12.0, || channels_card(ground)));
         }
         scrollable(container(side).padding(Padding { top: 2.0, right: 8.0, bottom: 28.0, left: 0.0 })).style(ui::thin_scroll).direction(ui::hidden_bar()).height(Length::Fill).into()
     };
@@ -1200,7 +1217,8 @@ pub fn view<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
         let left_wide = (room * 0.2).clamp(LEFT_WIDE, 360.0);
         let right_wide = (room * 0.23).clamp(RIGHT_WIDE, 400.0);
         let middle = (room - left_wide - right_wide - GAP * 2.0).min(CENTRE_MOST);
-        let left = scrollable(container(column![me_card(ground), channels_card(ground)].spacing(12)).padding(Padding { top: 2.0, right: 6.0, bottom: 28.0, left: 0.0 })).style(ui::thin_scroll).direction(ui::hidden_bar()).height(Length::Fill);
+        let t = ground.section_t;
+        let left = scrollable(container(column![ui::appearing(ui::appear(t, 0), 12.0, || me_card(ground)), ui::appearing(ui::appear(t, 1), 12.0, || channels_card(ground))].spacing(12)).padding(Padding { top: 2.0, right: 6.0, bottom: 28.0, left: 0.0 })).style(ui::thin_scroll).direction(ui::hidden_bar()).height(Length::Fill);
         container(
             row![
                 container(left).width(left_wide).height(Length::Fill),

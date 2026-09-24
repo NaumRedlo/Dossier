@@ -567,13 +567,23 @@ naming the group, its size and when the bot last answered — or *образцы
   pauses it: the countdown stops where it was and goes on from there when
   the pointer leaves, and nothing turns or grows again on leaving (it used
   to restart both, so the spotlight blinked and the bars regrew).
-  The stream itself was made compact the same evening: a play, a render, a
-  title and a climb are one row of 62 — the player's ringed avatar, who,
-  what and when on one line, the map, the title or the board on the next,
-  the pp and the grade in a badge (or the medal, or the new place) at the
-  end and the map as an icon — laid over the map's cover, or a faint wash
-  of the title's or the climb's colour. A top play, a post, an article and
-  a build stay cards, tighter, the top play's banner 96 high.
+  The middle was rebuilt the same night from the fifth of the concepts
+  drawn on a canvas (two streams under the day's highlights). A segmented
+  *Всё · Группа · Новости*, *N новых событий* and a search by player, map,
+  title or words sit on one line; under them *Главное*, four cards over
+  their covers or a wash of their colour — the newest top play, title,
+  climb and piece of news — each opening its player, board or reader.
+  *Всё* sets the group's journal beside the news (three parts to two; one
+  above the other under 620): the journal is rows of 46 — the time, the
+  avatar, who and the map, the pp and the grade in a badge — with a top
+  play, a title and a climb as rows of the same height behind a square of
+  their colour, its own pills *Всё · Игры · Топ-плеи · Титулы · Рейтинг*
+  with their counts, a top play opening onto its hits; the news is cards,
+  a post's picture or video above its words, an article's title and lead,
+  a build's first three changes, with *Всё · osu! · Каналы · Обновления*.
+  *Группа* widens the journal into columns — time, player, the map with
+  its cover, accuracy, mods, pp, grade; *Новости* lays the cards two
+  abreast. The filters left the side card, which keeps only the channels.
 - *Профиль* is the dossier (2026-09-24): the ringed avatar with the level
   and its progress, the title worn, whether the person is online, the
   country with its rank, the years in osu!, the streak and the duels, *Открыть

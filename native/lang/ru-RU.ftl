@@ -297,7 +297,6 @@ board-plays = Игры
 board-hours = Время
 board-score = Рейтинговые очки
 board-hits = Попаданий за игру
-boards-week = Неделя { $n } · места и изменения за неделю
 no-title = без титула
 streak = Серия
 streak-days = { $n ->
@@ -352,15 +351,7 @@ friends-link = Привяжите osu! в боте, чтобы видеть др
 friends-relink = Перепривяжите osu! в боте (Настройки → Аккаунт), чтобы видеть друзей
 community-no-group = Бот не нашёл вас ни в одной группе
 community-profile = Профиль
-act-board = Рейтинг
-act-browser = В браузере
-act-changes = Список изменений
-act-collapse = Свернуть
-act-details = Подробнее
-act-map = Карта
-act-read = Читать
 act-telegram = В Telegram
-act-titles = Все титулы
 activity-head = Активность · 13 недель
 all-boards = Весь рейтинг →
 best-plays = Лучшие игры
@@ -371,7 +362,6 @@ board-short-hours = Часы
 board-short-score = Очки
 board-short-hits = Попад.
 channels-head = Каналы
-climb-said = Поднялся на это место
 climb-was = было
 compare = Сравнить
 day-today = Сегодня
@@ -406,13 +396,8 @@ info-country = Страна
 info-duels = Дуэли
 info-since = В osu!
 info-since-from = с
-it-is-you = это вы
-kind-build = обновление
 kind-climb = рейтинг
 kind-news = новость
-kind-play = игра
-kind-post = канал
-kind-render = видео
 kind-title = титул
 kind-top = топ-плей
 less = меньше
@@ -431,7 +416,6 @@ plays-n = { $n ->
     [few] { $n } игры
    *[other] { $n } игр
 }
-show-what = Показывать
 spot-head = В центре внимания
 spot-gain = Больше всех pp за неделю
 spot-accuracy = Лучшая точность группы
@@ -477,3 +461,14 @@ board-not-played = ещё не играл на этой неделе
 board-acc-unit = п.п.
 minutes-short = м
 in-group = в группе
+stream-group = Группа
+source-osu = osu!
+source-channels = Каналы
+highlights = Главное
+feed-search = Игрок или карта
+events = { $n ->
+    [one] событие
+    [few] события
+   *[other] событий
+}
+more-changes-n = и ещё { $n }

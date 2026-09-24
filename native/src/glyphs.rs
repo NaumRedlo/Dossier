@@ -22,6 +22,7 @@ pub enum Icon {
     Compare,
     Up,
     Down,
+    Search,
     Film,
     Flag,
 }
@@ -189,6 +190,10 @@ impl<Message> canvas::Program<Message> for Glyph {
             Icon::Up => {
                 frame.stroke(&Path::line(at(10.0, 16.0), at(10.0, 4.0)), pen);
                 frame.stroke(&polyline(&[(5.0, 9.0), (10.0, 4.0), (15.0, 9.0)], false), pen);
+            }
+            Icon::Search => {
+                frame.stroke(&Path::circle(at(9.0, 9.0), 5.5 * s), pen);
+                frame.stroke(&Path::line(at(13.0, 13.0), at(17.0, 17.0)), pen);
             }
             Icon::Down => {
                 frame.stroke(&Path::line(at(10.0, 4.0), at(10.0, 16.0)), pen);

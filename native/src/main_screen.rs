@@ -407,6 +407,9 @@ pub struct Main {
     flags_asked: std::collections::HashSet<String>,
     card_asked: Option<Instant>,
     pub feed_filter: crate::chronicle::Filter,
+    pub feed_source: crate::chronicle::Source,
+    pub feed_stream: crate::chronicle::Stream,
+    pub feed_query: String,
     pub feed_open: std::collections::HashSet<String>,
     pub feed_seen: i64,
     pub spot: usize,
@@ -555,6 +558,9 @@ impl Main {
             flags_asked: std::collections::HashSet::new(),
             card_asked: None,
             feed_filter: crate::chronicle::Filter::All,
+            feed_source: crate::chronicle::Source::All,
+            feed_stream: crate::chronicle::Stream::All,
+            feed_query: String::new(),
             feed_open: std::collections::HashSet::new(),
             feed_seen: 0,
             spot: 0,
@@ -1629,6 +1635,9 @@ impl Main {
                         self.news.save();
                     }
                     C::Filter(filter) => self.feed_filter = filter,
+                    C::Source(source) => self.feed_source = source,
+                    C::Stream(stream) => self.feed_stream = stream,
+                    C::Search(query) => self.feed_query = query,
                     C::Toggle(key) => {
                         if !self.feed_open.remove(&key) {
                             self.feed_open.insert(key);
@@ -3954,6 +3963,9 @@ impl Main {
             fetch: self.community_fetch,
             width: self.width / COMMUNITY_SCALE,
             filter: self.feed_filter,
+            source: self.feed_source,
+            stream: self.feed_stream,
+            query: &self.feed_query,
             open_events: &self.feed_open,
             seen: self.feed_seen,
             spot: self.spot,

@@ -3050,6 +3050,18 @@ impl<'a, Message: 'a> From<Scaled<'a, Message>> for Element<'a, Message> {
     }
 }
 
+pub fn bare_input(_: &Theme, _: iced::widget::text_input::Status) -> iced::widget::text_input::Style {
+    let k = fade();
+    iced::widget::text_input::Style {
+        background: iced::Background::Color(Color::TRANSPARENT),
+        border: iced::Border::default(),
+        icon: Color { a: k, ..theme::FAINT },
+        placeholder: Color { a: k, ..theme::FAINT },
+        value: Color { a: k, ..theme::INK },
+        selection: Color::from_rgba(0.886, 0.282, 0.282, 0.35 * k),
+    }
+}
+
 pub fn hidden_bar() -> iced::widget::scrollable::Direction {
     iced::widget::scrollable::Direction::Vertical(iced::widget::scrollable::Scrollbar::hidden())
 }

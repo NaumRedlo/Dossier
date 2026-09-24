@@ -288,7 +288,6 @@ board-plays = Plays
 board-hours = Time
 board-score = Ranked score
 board-hits = Hits per play
-boards-week = Week { $n } · places and changes this week
 no-title = no title
 streak = Streak
 streak-days = { $n ->
@@ -339,15 +338,7 @@ friends-link = Link osu! in the bot to see your friends
 friends-relink = Link osu! again in the bot (Settings → Account) to see your friends
 community-no-group = The bot has not found you in any group
 community-profile = Profile
-act-board = Rankings
-act-browser = In the browser
-act-changes = All changes
-act-collapse = Less
-act-details = More
-act-map = Map
-act-read = Read
 act-telegram = In Telegram
-act-titles = All titles
 activity-head = Activity · 13 weeks
 all-boards = All rankings →
 best-plays = Best plays
@@ -358,7 +349,6 @@ board-short-hours = Hours
 board-short-score = Score
 board-short-hits = Hits
 channels-head = Channels
-climb-said = Climbed to this place
 climb-was = was
 compare = Compare
 day-today = Today
@@ -391,13 +381,8 @@ info-country = Country
 info-duels = Duels
 info-since = In osu!
 info-since-from = since
-it-is-you = you
-kind-build = update
 kind-climb = ranking
 kind-news = news
-kind-play = play
-kind-post = channel
-kind-render = video
 kind-title = title
 kind-top = top play
 less = less
@@ -415,7 +400,6 @@ plays-n = { $n ->
     [one] { $n } play
    *[other] { $n } plays
 }
-show-what = Show
 spot-head = In the spotlight
 spot-gain = Most pp gained this week
 spot-accuracy = Best accuracy in the group
@@ -459,3 +443,13 @@ board-not-played = hasn't played yet this week
 board-acc-unit = pp.
 minutes-short = m
 in-group = in group
+stream-group = Group
+source-osu = osu!
+source-channels = Channels
+highlights = Highlights
+feed-search = Player or map
+events = { $n ->
+    [one] event
+   *[other] events
+}
+more-changes-n = and { $n } more

@@ -92,6 +92,9 @@ pub enum Message {
     ChannelAdd,
     ChannelRemove(String),
     Filter(crate::chronicle::Filter),
+    Source(crate::chronicle::Source),
+    Stream(crate::chronicle::Stream),
+    Search(String),
     Toggle(String),
     Reveal,
     Spot(usize),
@@ -133,6 +136,9 @@ pub struct Ground<'a> {
     pub fetch: Fetch,
     pub width: f32,
     pub filter: crate::chronicle::Filter,
+    pub source: crate::chronicle::Source,
+    pub stream: crate::chronicle::Stream,
+    pub query: &'a str,
     pub open_events: &'a std::collections::HashSet<String>,
     pub seen: i64,
     pub spot: usize,
@@ -463,13 +469,6 @@ pub(crate) fn empty<'a>(words: String) -> Element<'a, Message> {
     container(ui::mono_small(words, FAINT)).width(Length::Fill).height(Length::Fill).center(Length::Fill).into()
 }
 
-pub(crate) fn thumb<'a>(ground: &Ground<'a>, url: Option<&str>, wide: f32, high: f32) -> Element<'a, Message> {
-    match url.and_then(|url| ground.pictures.get(url)) {
-        Some(handle) => image(handle.clone()).content_fit(iced::ContentFit::Cover).width(wide).height(high).border_radius(6.0).opacity(ui::fade()).into(),
-        None => hatch(wide, high),
-    }
-}
-
 pub(crate) fn when<'a>(ground: &Ground<'a>, at: i64) -> String {
     let w = ground.words;
     if ground.now_unix - at < 86_400 && ground.now_unix >= at {
@@ -556,28 +555,6 @@ pub(crate) fn chip<'a>(inside: Element<'a, Message>, colour: Color) -> Element<'
 pub(crate) fn title_chip<'a>(title: &Title, lang: crate::lang::Lang) -> Element<'a, Message> {
     let colour = title.rarity.colour();
     chip(text(title.name(lang).to_owned()).font(theme::SANS_SEMI).size(11.0).wrapping(text::Wrapping::None).color(ui::faded(colour)).into(), colour)
-}
-
-fn stream_colour(stream: &str) -> Color {
-    match stream.to_ascii_lowercase().as_str() {
-        s if s.contains("lazer") => Color::from_rgb8(0xff, 0x66, 0xab),
-        s if s.contains("tachyon") => Color::from_rgb8(0xb0, 0x6c, 0xe8),
-        s if s.contains("stable") || s.contains("cutting") || s.contains("beta") => Color::from_rgb8(0x58, 0xae, 0xfc),
-        _ => MUTED,
-    }
-}
-
-pub(crate) fn stream_pill<'a>(stream: &str) -> Element<'a, Message> {
-    let colour = stream_colour(stream);
-    let k = ui::fade();
-    container(text(stream.to_owned()).font(theme::MONO_BOLD).size(10.0).color(ui::faded(colour)))
-        .padding([1, 6])
-        .style(move |_| container::Style {
-            background: Some(Background::Color(Color { a: 0.14 * k, ..colour })),
-            border: Border { radius: 4.0.into(), ..Border::default() },
-            ..container::Style::default()
-        })
-        .into()
 }
 
 pub(crate) fn people_switch<'a>(ground: &Ground<'a>) -> Element<'a, Message> {

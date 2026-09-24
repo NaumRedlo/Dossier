@@ -213,15 +213,17 @@ impl<Message: Clone> Widget<Message, Theme, Renderer> for Unfold<'_, Message> {
         let shown = between(start, card, k);
         let radius = mix(crate::theme::CARD_RADIUS, self.look.radius, k);
         let veil = Color { a: self.look.veil.a * k, ..self.look.veil };
+        let body = (k / 0.35).clamp(0.0, 1.0);
+        let body = body * body * (3.0 - 2.0 * body);
         renderer.fill_quad(renderer::Quad { bounds, ..renderer::Quad::default() }, Background::Color(veil));
         renderer.fill_quad(
             renderer::Quad {
                 bounds: shown,
-                border: Border { color: Color { a: self.look.line.a * k.max(0.4), ..self.look.line }, width: 1.0, radius: radius.into() },
+                border: Border { color: Color { a: self.look.line.a * body, ..self.look.line }, width: 1.0, radius: radius.into() },
                 shadow: Shadow { color: Color::from_rgba(0.0, 0.0, 0.0, 0.55 * k), offset: Vector::new(0.0, 24.0 * k), blur_radius: 60.0 * k },
                 snap: true,
             },
-            Background::Color(self.look.fill),
+            Background::Color(Color { a: self.look.fill.a * body, ..self.look.fill }),
         );
         let inside = if self.settled() { cursor } else { mouse::Cursor::Unavailable };
         renderer.with_layer(shown, |renderer| {

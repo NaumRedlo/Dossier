@@ -327,8 +327,8 @@ impl canvas::Program<Message> for Heat {
             return None;
         }
         let next = cursor.position_in(bounds).and_then(|at| {
-            let column = (at.x / (CELL + CELL_GAP)).floor() as i32;
-            let line = (at.y / (CELL + CELL_GAP)).floor() as i32;
+            let column = ((at.x - HEAT_PAD) / (CELL + CELL_GAP)).floor() as i32;
+            let line = ((at.y - HEAT_PAD) / (CELL + CELL_GAP)).floor() as i32;
             let index = column * 7 + line;
             ((0..13).contains(&column) && (0..7).contains(&line) && (index as usize) < self.days.len()).then_some(index as usize)
         });
@@ -347,14 +347,14 @@ impl canvas::Program<Message> for Heat {
             let line = (index % 7) as f32;
             let lit = state.at == Some(index);
             let grow = if lit { 2.0 } else { 0.0 };
-            let corner = Point::new(column * (CELL + CELL_GAP) - grow / 2.0, line * (CELL + CELL_GAP) - grow / 2.0);
+            let corner = Point::new(HEAT_PAD + column * (CELL + CELL_GAP) - grow / 2.0, HEAT_PAD + line * (CELL + CELL_GAP) - grow / 2.0);
             let side = iced::Size::new(CELL + grow, CELL + grow);
             frame.fill(&Path::rounded_rectangle(corner, side, 3.0.into()), Color::from_rgba(0.886, 0.282, 0.282, heat_share(*n) * k));
             if lit {
                 frame.stroke(&Path::rounded_rectangle(corner, side, 3.0.into()), Stroke::default().with_color(Color::from_rgba(1.0, 1.0, 1.0, 0.5 * k)).with_width(1.0));
             }
         }
-        let foot = 7.0 * (CELL + CELL_GAP) + 10.0;
+        let foot = HEAT_PAD + 7.0 * (CELL + CELL_GAP) + 10.0;
         let said = match state.at.and_then(|index| self.days.get(index)) {
             Some((day, 0)) => format!("{day} · {}", self.none),
             Some((day, n)) => format!("{day} · {}", self.plays.get(*n as usize).cloned().unwrap_or_default()),
@@ -362,7 +362,7 @@ impl canvas::Program<Message> for Heat {
         };
         frame.fill_text(canvas::Text {
             content: said,
-            position: Point::new(0.0, foot + 6.0),
+            position: Point::new(HEAT_PAD, foot + 6.0),
             color: Color { a: k, ..MUTED },
             size: 12.0.into(),
             font: theme::SANS,
@@ -1269,6 +1269,8 @@ fn titles<'a>(ground: &Ground<'a>, whose: &Whose<'a>) -> Element<'a, Message> {
     slab(column![row![caption(w.t("community-titles")), ui::grow(), ui::mono_small(count, INK)].align_y(iced::Center), bars.width(Length::Fill), ui::wrap(chips, 6.0), detail].spacing(10), [14, 16]).into()
 }
 
+const HEAT_PAD: f32 = 2.0;
+
 fn activity<'a>(ground: &Ground<'a>, whose: &Whose<'a>) -> Element<'a, Message> {
     let you = whose.person;
     let w = ground.words;
@@ -1288,7 +1290,7 @@ fn activity<'a>(ground: &Ground<'a>, whose: &Whose<'a>) -> Element<'a, Message> 
         .collect();
     let most = days.iter().map(|d| d.1).max().unwrap_or(0) as usize;
     let plays = (0..=most).map(|n| w.n("plays-n", n as u64)).collect();
-    let heat = Canvas::new(Heat { days, none: w.t("no-plays"), plays, less: w.t("less"), more: w.t("more"), alpha: ui::fade() }).width(Length::Fill).height(7.0 * (CELL + CELL_GAP) + 40.0);
+    let heat = Canvas::new(Heat { days, none: w.t("no-plays"), plays, less: w.t("less"), more: w.t("more"), alpha: ui::fade() }).width(Length::Fill).height(HEAT_PAD + 7.0 * (CELL + CELL_GAP) + 40.0);
     let mut head = row![caption(w.t("activity-head")), ui::grow()].align_y(iced::Center);
     if you.streak > 0 {
         head = head.push(ui::mono_small(w.n("streak-card", u64::from(you.streak)), CORAL));

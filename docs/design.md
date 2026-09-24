@@ -668,6 +668,21 @@ naming the group, its size and when the bot last answered — or *образцы
   in 420 ms and folds back into it on closing, its content clipped to the
   growing frame. A top play's hits in the journal unfold and fold back in
   280 ms, their height growing from nothing rather than jumping.
+  A panel now grows out of the very card that asked for it and folds back
+  into it: the card under the pointer notes its frame as the press lands,
+  and the catalogue carries that frame (shifted out of any scrolled list)
+  to the panel; a press on nothing in particular falls back to a
+  card-sized frame around the point. The panel's body and edge fade out
+  over the last third of its closing and in over the first third of its
+  opening, so no dark slab lingers and then vanishes. Going to the board
+  from another's dossier (a place in the group, *Сравнить*) folds the
+  dossier away and shows the board rather than leaving the panel over it.
+  The main words (*Реплеи · Видео · Сообщество · Настройки*) have the same
+  sliding red line as the parts' words, and the parts' words rise in with
+  their sheet. The activity grid sits 2 px in from its edges, so the
+  hovered day's larger square and outline are no longer cut at the corner;
+  the titles come in a rarity at a time and the people a row at a time,
+  not card by card, so a grid never stands ragged mid-way.
   The feed keeps itself current without a button: the group is asked
   every 30 s and the news every minute while the catalogue is open (a
   channel is fetched again after 90 s, osu! and the builds after 10

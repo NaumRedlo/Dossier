@@ -5,6 +5,7 @@ use iced::{mouse, Color, ContentFit, Element, Length, Point, Rectangle, Renderer
 use crate::theme::{self, ACCENT, FAINT, INK, MUTED};
 
 thread_local! {
+    static PRESSED: std::cell::Cell<Option<(Rectangle, Point)>> = const { std::cell::Cell::new(None) };
     static FADE: std::cell::Cell<f32> = const { std::cell::Cell::new(1.0) };
 }
 
@@ -3501,6 +3502,11 @@ impl<Message> iced::advanced::Widget<Message, Theme, Renderer> for Hover<'_, Mes
         viewport: &Rectangle,
     ) {
         self.content.as_widget_mut().update(&mut tree.children[0], event, layout, cursor, renderer, clipboard, shell, viewport);
+        if let iced::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) = event {
+            if let Some(at) = cursor.position_over(layout.bounds()) {
+                PRESSED.with(|pressed| pressed.set(Some((layout.bounds(), at))));
+            }
+        }
         let state = tree.state.downcast_mut::<HoverState>();
         match event {
             iced::Event::Mouse(mouse::Event::CursorMoved { .. } | mouse::Event::CursorLeft | mouse::Event::WheelScrolled { .. }) => {
@@ -3748,10 +3754,10 @@ impl<Message> iced::advanced::Widget<Message, Theme, Renderer> for Slide<'_, Mes
 
 pub struct Tapped<'a, Message> {
     content: Element<'a, Message>,
-    on_tap: Box<dyn Fn(Point) -> Message + 'a>,
+    on_tap: Box<dyn Fn(Point, Option<Rectangle>) -> Message + 'a>,
 }
 
-pub fn tapped<'a, Message: 'a>(content: impl Into<Element<'a, Message>>, on_tap: impl Fn(Point) -> Message + 'a) -> Element<'a, Message> {
+pub fn tapped<'a, Message: 'a>(content: impl Into<Element<'a, Message>>, on_tap: impl Fn(Point, Option<Rectangle>) -> Message + 'a) -> Element<'a, Message> {
     Element::new(Tapped { content: content.into(), on_tap: Box::new(on_tap) })
 }
 
@@ -3791,12 +3797,17 @@ impl<Message> iced::advanced::Widget<Message, Theme, Renderer> for Tapped<'_, Me
         shell: &mut iced::advanced::Shell<'_, Message>,
         viewport: &Rectangle,
     ) {
-        if let iced::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) = event {
-            if let Some(at) = cursor.position_over(layout.bounds()) {
-                shell.publish((self.on_tap)(at));
-            }
+        let press = matches!(event, iced::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)));
+        if press {
+            PRESSED.with(|pressed| pressed.set(None));
         }
         self.content.as_widget_mut().update(&mut tree.children[0], event, layout, cursor, renderer, clipboard, shell, viewport);
+        if press {
+            if let Some(at) = cursor.position_over(layout.bounds()) {
+                let card = PRESSED.with(|pressed| pressed.take()).map(|(bounds, seen)| Rectangle { x: bounds.x + at.x - seen.x, y: bounds.y + at.y - seen.y, ..bounds });
+                shell.publish((self.on_tap)(at, card));
+            }
+        }
     }
 
     fn mouse_interaction(&self, tree: &iced::advanced::widget::Tree, layout: iced::advanced::Layout<'_>, cursor: mouse::Cursor, viewport: &Rectangle, renderer: &Renderer) -> mouse::Interaction {

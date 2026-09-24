@@ -425,8 +425,8 @@ pub struct Main {
     pub feed_query: String,
     pub feed_open: std::collections::HashSet<String>,
     feed_fold_at: HashMap<String, Instant>,
-    community_tap: Option<iced::Point>,
-    panel_from: Option<iced::Point>,
+    community_tap: Option<iced::Rectangle>,
+    panel_from: Option<iced::Rectangle>,
     pub feed_seen: i64,
     pub spot: usize,
     spot_at: Instant,
@@ -1634,7 +1634,7 @@ impl Main {
                 use crate::community_screen::Message as C;
                 let now = Instant::now();
                 match inner {
-                    C::Tap(at) => self.community_tap = Some(at),
+                    C::Tap(at, card) => self.community_tap = Some(card.unwrap_or(iced::Rectangle { x: at.x - 160.0, y: at.y - 100.0, width: 320.0, height: 200.0 })),
                     C::Read(reading) => {
                         let wanted = reading.pictures();
                         self.community_reading = Some(reading);
@@ -1672,10 +1672,15 @@ impl Main {
                         if self.community_reading.is_some() && self.read_fade.value() {
                             self.read_fade.go_mut(false, now);
                         }
+                        if self.community_person.is_some() && self.person_fade.value() {
+                            self.person_fade.go_mut(false, now);
+                        }
                         self.community_section = section;
-                        self.community_person = None;
                     }
                     C::Board(board) => {
+                        if self.community_person.is_some() && self.person_fade.value() {
+                            self.person_fade.go_mut(false, now);
+                        }
                         if self.community_section != crate::community_screen::Section::Boards {
                             self.section_at = now;
                         } else if board != self.community_board {
@@ -2818,20 +2823,23 @@ impl Main {
     fn chrome(&self) -> Element<'_, Message> {
         let w = &self.words;
         let word = |key: &str, on: bool, msg: Message| {
-            button(text(w.t(key)).font(theme::SANS_SEMI).size(theme::BODY))
-                .padding([6, 0])
+            button(column![Space::new().height(2.0), text(w.t(key)).font(theme::SANS_SEMI).size(theme::BODY), Space::new().height(2.0)].spacing(4))
+                .padding(0)
                 .style(theme::word(on))
                 .on_press(msg)
         };
-        let words = row![
+        let places = [Overlay::None, Overlay::Videos, Overlay::Community, Overlay::Settings];
+        let chosen = places.iter().position(|place| *place == self.overlay).unwrap_or(usize::MAX);
+        let nav = row![
             word("replays", self.overlay == Overlay::None, Message::Show(Overlay::None)),
             word("videos", self.overlay == Overlay::Videos, Message::Show(Overlay::Videos)),
             word("community", self.overlay == Overlay::Community, Message::Show(Overlay::Community)),
             word("settings", self.overlay == Overlay::Settings, Message::Show(Overlay::Settings)),
-            self.circle(CIRCLE_SIDE, true),
         ]
         .spacing(22)
         .align_y(iced::Center);
+        let nav = ui::sliding(nav, chosen, ui::Pill { fill: Color { a: 0.85, ..ACCENT }, edge: Color::TRANSPARENT, radius: 1.0, underline: Some(0.0) });
+        let words = row![nav, self.circle(CIRCLE_SIDE, true)].spacing(22).align_y(iced::Center);
         let mut top = row![Space::new().width(BRAND_WIDTH)].align_y(iced::Center).height(theme::CONTROL_HEIGHT + 4.0);
         if let Some(tabs) = self.part_tabs() {
             top = top.push(Space::new().width(34.0)).push(tabs);
@@ -2859,7 +2867,7 @@ impl Main {
         };
         let pill = ui::Pill { fill: ACCENT, edge: Color::TRANSPARENT, radius: 1.0, underline: Some(0.0) };
         let sheet = self.overlay_fade.interpolate(0.0, 1.0, self.now);
-        match self.overlay {
+        let tabs = match self.overlay {
             Overlay::Community if self.community.is_some() => Some(ui::fading(ui::fade() * sheet, || {
                 let parts = [
                     ("community-profile", Section::Profile),
@@ -2879,7 +2887,8 @@ impl Main {
                 ui::sliding(line, active, pill)
             })),
             _ => None,
-        }
+        };
+        tabs.map(|tabs| ui::lifted(tabs, sheet, 8.0))
     }
 
     fn viewer(&self, s: f32) -> Element<'_, Message> {

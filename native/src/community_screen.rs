@@ -78,7 +78,7 @@ pub enum Fetch {
 
 #[derive(Debug, Clone)]
 pub enum Message {
-    Tap(iced::Point),
+    Tap(iced::Point, Option<iced::Rectangle>),
     Read(Reading),
     Unread,
     PeopleFrom(PeopleFrom),
@@ -145,7 +145,7 @@ pub struct Ground<'a> {
     pub query: &'a str,
     pub open_events: &'a std::collections::HashSet<String>,
     pub folds: HashMap<String, f32>,
-    pub panel_from: Option<iced::Point>,
+    pub panel_from: Option<iced::Rectangle>,
     pub seen: i64,
     pub spot: usize,
     pub spot_k: f32,
@@ -585,7 +585,7 @@ pub(crate) fn channel_tools<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
 }
 
 fn panel_from(ground: &Ground<'_>) -> Option<iced::Rectangle> {
-    ground.panel_from.map(|at| iced::Rectangle { x: at.x - 160.0, y: at.y - 100.0, width: 320.0, height: 200.0 })
+    ground.panel_from
 }
 
 fn stage_look() -> crate::unfold::Look {
@@ -826,8 +826,9 @@ fn people<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
     }
     let order = ground.catalog.ranked(Board::Pp);
     let t = ground.section_t.min(ground.shift_t);
-    let cards: Vec<Element<'a, Message>> = order.iter().enumerate().map(|(place, at)| ui::appearing(ui::appear(t, place), 12.0, || person_card(ground, *at, &ground.catalog.people[*at], place + 1))).collect();
-    spread(column![switch, grid(cards, columns_for(ground, 420.0), 14.0)].spacing(16).into())
+    let across = columns_for(ground, 420.0).max(1);
+    let cards: Vec<Element<'a, Message>> = order.iter().enumerate().map(|(place, at)| ui::appearing(ui::appear(t, place / across), 12.0, || person_card(ground, *at, &ground.catalog.people[*at], place + 1))).collect();
+    spread(column![switch, grid(cards, across, 14.0)].spacing(16).into())
 }
 
 fn spread<'a>(inside: Element<'a, Message>) -> Element<'a, Message> {
@@ -1242,6 +1243,7 @@ fn titles<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
     let w = ground.words;
     let mut list = column![].spacing(22).width(Length::Fill);
     let mut shown = 0;
+    let t = ground.section_t;
     for rarity in Rarity::ALL {
         let defs: Vec<&Title> = ground.catalog.titles.iter().filter(|title| title.rarity == rarity).collect();
         if defs.is_empty() {
@@ -1254,14 +1256,12 @@ fn titles<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
         ]
         .spacing(10)
         .align_y(iced::Center);
-        let cards: Vec<Element<'a, Message>> = defs
-            .iter()
-            .map(|title| {
-                shown += 1;
-                ui::appearing(ui::appear(ground.section_t, shown), 10.0, || title_card(ground, title))
-            })
-            .collect();
-        list = list.push(column![head, grid(cards, columns_for(ground, 360.0), GRID_GAP)].spacing(10));
+        let at = shown;
+        shown += 1;
+        list = list.push(ui::appearing(ui::appear(t, at * 2), 12.0, || {
+            let cards: Vec<Element<'a, Message>> = defs.iter().map(|title| title_card(ground, title)).collect();
+            column![head, grid(cards, columns_for(ground, 360.0), GRID_GAP)].spacing(10).into()
+        }));
     }
     spread(list.into())
 }

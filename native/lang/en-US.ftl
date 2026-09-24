@@ -326,7 +326,6 @@ channel-hint = @channel
 channel-add = Add
 people-chat = Chat
 people-game = From the game
-friends-in-osu = friends in osu!
 online = online
 hours-ago = { $n } h ago
 days-ago = { $n ->
@@ -350,7 +349,6 @@ act-read = Read
 act-telegram = In Telegram
 act-titles = All titles
 activity-head = Activity · 13 weeks
-activity-hint = Point at a day
 all-boards = All rankings →
 best-plays = Best plays
 board-short-pp = PP
@@ -388,7 +386,6 @@ grade-s = S gold
 grade-sh = S silver (Hidden)
 grade-ss = SS gold
 grade-ssh = SS silver (Hidden)
-grades-hint = Point at a grade
 held-by = held by
 info-country = Country
 info-duels = Duels
@@ -418,7 +415,6 @@ plays-n = { $n ->
     [one] { $n } play
    *[other] { $n } plays
 }
-press-to-open = press to open
 show-what = Show
 spot-head = In the spotlight
 spot-gain = Most pp gained this week

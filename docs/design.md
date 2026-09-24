@@ -586,7 +586,10 @@ naming the group, its size and when the bot last answered — or *образцы
   version, the mods, the accuracy and the pp — opening onto their hits; the grades, the one under the pointer lit and its share told; the
   titles as a collection, bar by rarity, the held ones filled and the next
   ones dashed, a press telling what each asks and when it was earned; and
-  thirteen weeks of plays a day. The chart has no values at its side —
+  thirteen weeks of plays a day. No panel says *наведите* or *нажмите*:
+  the grades tell a hovered grade's share in their heading, where the total
+  stands otherwise, and the days tell theirs under the squares only while
+  one is under the pointer. The chart has no values at its side —
   the pointer reads them — and its line and its shading are one monotone
   curve through the days, so the fill never parts from the line and the
   dot sits on it. *Место в группе* says how many and which week once, and
@@ -659,7 +662,8 @@ naming the group, its size and when the bot last answered — or *образцы
   figure the bot keeps, the top three plays with their maps and grades,
   and every title as a chip.
 - *Рейтинг* is the bot's leaderboard in both of its modes (2026-09-24),
-  *Общий* and *Адаптивный*, over the same six boards. *Общий* is the
+  *Общий* and *Адаптивный*, over the same six boards, chosen on a
+  segmented switch that *Люди* uses too for *Беседа* and *Из игры*. *Общий* is the
   standing for all time. *Адаптивный* is the week's gain, as the bot's
   card draws it: only those who gained, the gain in green with the whole
   beneath (*6 396 всего*), a move against where the player closed last

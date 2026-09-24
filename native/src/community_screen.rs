@@ -582,21 +582,12 @@ pub(crate) fn stream_pill<'a>(stream: &str) -> Element<'a, Message> {
 
 pub(crate) fn people_switch<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
     let w = ground.words;
-    let pill = |key: &str, from: PeopleFrom| {
-        button(text(w.t(key)).font(theme::SANS_SEMI).size(theme::CAPTION))
-            .padding([3, 10])
-            .style(ui::button_faded(theme::pill(ground.people_from == from)))
-            .on_press(Message::PeopleFrom(from))
-    };
-    let whose = match ground.people_from {
-        PeopleFrom::Chat if !ground.catalog.group.is_empty() => ground.catalog.group.clone(),
-        PeopleFrom::Chat => ground.chat.clone(),
-        PeopleFrom::Game => w.t("friends-in-osu"),
-    };
-    row![pill("people-chat", PeopleFrom::Chat), pill("people-game", PeopleFrom::Game), ui::grow(), ui::mono_small(ui::shortened(whose, 22), FAINT)]
-        .spacing(6)
-        .align_y(iced::Center)
-        .into()
+    container(segmented(vec![
+        (w.t("people-chat"), ground.people_from == PeopleFrom::Chat, Message::PeopleFrom(PeopleFrom::Chat)),
+        (w.t("people-game"), ground.people_from == PeopleFrom::Game, Message::PeopleFrom(PeopleFrom::Game)),
+    ]))
+    .center_x(Length::Fill)
+    .into()
 }
 
 pub(crate) fn friend_line<'a>(ground: &Ground<'a>, friend: &Friend) -> Element<'a, Message> {
@@ -1181,30 +1172,31 @@ fn board_row<'a>(ground: &Ground<'a>, list: &Standings, place: Option<usize>, wh
         .into()
 }
 
-fn segmented<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
-    let w = ground.words;
+pub(crate) fn segmented<'a>(parts: Vec<(String, bool, Message)>) -> Element<'a, Message> {
     let k = ui::fade();
-    let part = |key: &str, standing: Standing| {
-        let on = ground.standing == standing;
-        button(container(text(w.t(key)).font(theme::SANS_SEMI).size(12.5)).center_x(Length::Fill))
-            .padding([6, 0])
-            .width(120.0)
-            .style(ui::button_faded(move |_, status: button::Status| button::Style {
-                background: Some(Background::Color(if on {
-                    Color::from_rgba(0.886, 0.282, 0.282, 0.2)
-                } else if matches!(status, button::Status::Hovered) {
-                    Color::from_rgba(1.0, 1.0, 1.0, 0.04)
-                } else {
-                    Color::TRANSPARENT
-                })),
-                text_color: if on { INK } else { MUTED },
-                border: Border { color: if on { Color::from_rgba(0.886, 0.282, 0.282, 0.5) } else { Color::TRANSPARENT }, width: 1.0, radius: 8.0.into() },
-                shadow: Shadow::default(),
-                snap: true,
-            }))
-            .on_press(Message::Standing(standing))
-    };
-    container(row![part("board-general", Standing::General), part("board-adaptive", Standing::Adaptive)].spacing(2))
+    let mut line = row![].spacing(2);
+    for (label, on, message) in parts {
+        line = line.push(
+            button(container(text(label).font(theme::SANS_SEMI).size(12.5)).center_x(Length::Fill))
+                .padding([6, 0])
+                .width(120.0)
+                .style(ui::button_faded(move |_, status: button::Status| button::Style {
+                    background: Some(Background::Color(if on {
+                        Color::from_rgba(0.886, 0.282, 0.282, 0.2)
+                    } else if matches!(status, button::Status::Hovered) {
+                        Color::from_rgba(1.0, 1.0, 1.0, 0.04)
+                    } else {
+                        Color::TRANSPARENT
+                    })),
+                    text_color: if on { INK } else { MUTED },
+                    border: Border { color: if on { Color::from_rgba(0.886, 0.282, 0.282, 0.5) } else { Color::TRANSPARENT }, width: 1.0, radius: 8.0.into() },
+                    shadow: Shadow::default(),
+                    snap: true,
+                }))
+                .on_press(message),
+        );
+    }
+    container(line)
         .padding(3)
         .style(move |_| container::Style {
             background: Some(Background::Color(Color::from_rgba(0.0, 0.0, 0.0, 0.3 * k))),
@@ -1242,7 +1234,11 @@ fn boards<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
     ]
     .align_y(iced::Center);
     let mut page = column![
-        container(segmented(ground)).center_x(Length::Fill),
+        container(segmented(vec![
+            (w.t("board-general"), ground.standing == Standing::General, Message::Standing(Standing::General)),
+            (w.t("board-adaptive"), ground.standing == Standing::Adaptive, Message::Standing(Standing::Adaptive)),
+        ]))
+        .center_x(Length::Fill),
         container(chips).center_x(Length::Fill),
         container(head).padding(Padding { top: 8.0, right: 4.0, bottom: 2.0, left: 4.0 }),
     ]

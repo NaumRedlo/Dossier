@@ -298,7 +298,6 @@ impl canvas::Program<Message> for Chart {
 
 struct Heat {
     days: Vec<(String, u32)>,
-    idle: String,
     none: String,
     plays: Vec<String>,
     less: String,
@@ -358,7 +357,7 @@ impl canvas::Program<Message> for Heat {
         let said = match state.at.and_then(|index| self.days.get(index)) {
             Some((day, 0)) => format!("{day} · {}", self.none),
             Some((day, n)) => format!("{day} · {}", self.plays.get(*n as usize).cloned().unwrap_or_default()),
-            None => self.idle.clone(),
+            None => String::new(),
         };
         frame.fill_text(canvas::Text {
             content: said,
@@ -793,7 +792,7 @@ fn score_rows<'a>(ground: &Ground<'a>, card: &wire::Card) -> Element<'a, Message
         let details = chronicle::counts_row(ground, [counted(score.great), counted(score.ok), counted(score.meh), counted(score.miss)], combo, stars);
         rows = rows.push(play_strip(ground, Strip { index, grade, title: score.title.clone(), under, mods, accuracy: score.accuracy, pp: score.pp, cover, details: Some(details) }));
     }
-    slab(column![row![caption(w.t("best-plays")), ui::grow(), ui::mono_small(w.t("press-to-open"), FAINT)].align_y(iced::Center), rows].spacing(10), [14, 16]).into()
+    slab(column![caption(w.t("best-plays")), rows].spacing(10), [14, 16]).into()
 }
 
 fn top_plays<'a>(ground: &Ground<'a>, you: &Person) -> Element<'a, Message> {
@@ -808,7 +807,7 @@ fn top_plays<'a>(ground: &Ground<'a>, you: &Person) -> Element<'a, Message> {
     if you.top.is_empty() {
         rows = rows.push(ui::mono_small(w.t("nothing-yet"), FAINT));
     }
-    slab(column![row![caption(w.t("best-plays")), ui::grow(), ui::mono_small(w.t("press-to-open"), FAINT)].align_y(iced::Center), rows].spacing(10), [14, 16]).into()
+    slab(column![caption(w.t("best-plays")), rows].spacing(10), [14, 16]).into()
 }
 
 fn grades<'a>(ground: &Ground<'a>, card: &wire::Card) -> Element<'a, Message> {
@@ -852,16 +851,10 @@ fn grades<'a>(ground: &Ground<'a>, card: &wire::Card) -> Element<'a, Message> {
         }
     }
     let said = match ground.grade_hover.and_then(|index| entries.get(index)) {
-        Some((_, n, _, key)) => format!("{} · {} · {} {}", w.t(key), w.lang().group(*n as u64), share(*n), w.t("of-all-grades")),
-        None => w.t("grades-hint"),
+        Some((_, n, colour, key)) => ui::mono_small(format!("{} · {} {}", w.t(key), share(*n), w.t("of-all-grades")), *colour),
+        None => ui::mono_small(w.lang().group(total as u64), INK),
     };
-    let body = column![
-        row![caption(w.t("card-grades")), ui::grow(), ui::mono_small(w.lang().group(total as u64), INK)].align_y(iced::Center),
-        tiles,
-        bar.width(Length::Fill),
-        text(said).font(theme::SANS).size(12.0).color(ui::faded(MUTED)),
-    ]
-    .spacing(10);
+    let body = column![row![caption(w.t("card-grades")), ui::grow(), said].align_y(iced::Center), tiles, bar.width(Length::Fill)].spacing(10);
     mouse_area(slab(body, [14, 16])).on_exit(Message::GradeHover(None)).into()
 }
 
@@ -973,7 +966,7 @@ fn activity<'a>(ground: &Ground<'a>, you: &Person) -> Element<'a, Message> {
         .collect();
     let most = days.iter().map(|d| d.1).max().unwrap_or(0) as usize;
     let plays = (0..=most).map(|n| w.n("plays-n", n as u64)).collect();
-    let heat = Canvas::new(Heat { days, idle: w.t("activity-hint"), none: w.t("no-plays"), plays, less: w.t("less"), more: w.t("more"), alpha: ui::fade() }).width(Length::Fill).height(7.0 * (CELL + CELL_GAP) + 40.0);
+    let heat = Canvas::new(Heat { days, none: w.t("no-plays"), plays, less: w.t("less"), more: w.t("more"), alpha: ui::fade() }).width(Length::Fill).height(7.0 * (CELL + CELL_GAP) + 40.0);
     let mut head = row![caption(w.t("activity-head")), ui::grow()].align_y(iced::Center);
     if you.streak > 0 {
         head = head.push(ui::mono_small(w.n("streak-card", u64::from(you.streak)), CORAL));

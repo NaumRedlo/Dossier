@@ -338,7 +338,6 @@ channel-hint = @канал
 channel-add = Добавить
 people-chat = Беседа
 people-game = Из игры
-friends-in-osu = друзья в osu!
 online = в сети
 hours-ago = { $n } ч назад
 days-ago = { $n ->
@@ -363,7 +362,6 @@ act-read = Читать
 act-telegram = В Telegram
 act-titles = Все титулы
 activity-head = Активность · 13 недель
-activity-hint = Наведите на день
 all-boards = Весь рейтинг →
 best-plays = Лучшие игры
 board-short-pp = PP
@@ -403,7 +401,6 @@ grade-s = S золотая
 grade-sh = S серебряная (Hidden)
 grade-ss = SS золотая
 grade-ssh = SS серебряная (Hidden)
-grades-hint = Наведите на оценку
 held-by = есть у
 info-country = Страна
 info-duels = Дуэли
@@ -434,7 +431,6 @@ plays-n = { $n ->
     [few] { $n } игры
    *[other] { $n } игр
 }
-press-to-open = нажмите, чтобы раскрыть
 show-what = Показывать
 spot-head = В центре внимания
 spot-gain = Больше всех pp за неделю

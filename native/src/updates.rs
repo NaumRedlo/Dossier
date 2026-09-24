@@ -30,6 +30,7 @@ pub struct Release {
 pub struct Staged {
     pub version: String,
     pub payload: PathBuf,
+    pub dir: PathBuf,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -298,7 +299,7 @@ fn stage(shelf: &Path, release: &Release, place: &Place, report: &mut dyn FnMut(
     let unpacked = dir.join("unpacked");
     if dir.join("ready").is_file() {
         if let Some(payload) = payload_in(&unpacked, place) {
-            return Ok(Staged { version: release.version.clone(), payload });
+            return Ok(Staged { version: release.version.clone(), payload, dir });
         }
     }
     let _ = std::fs::remove_dir_all(&dir);
@@ -317,7 +318,7 @@ fn stage(shelf: &Path, release: &Release, place: &Place, report: &mut dyn FnMut(
     let payload = payload_in(&unpacked, place).ok_or("the archive holds no application")?;
     runnable(&payload);
     std::fs::write(dir.join("ready"), &release.version).map_err(|e| e.to_string())?;
-    Ok(Staged { version: release.version.clone(), payload })
+    Ok(Staged { version: release.version.clone(), payload, dir })
 }
 
 fn remove(path: &Path) -> std::io::Result<()> {
@@ -373,7 +374,7 @@ pub fn apply(staged: &Staged, place: &Place) -> Result<PathBuf, String> {
     }
     runnable(&target);
     let _ = remove(&aside);
-    let _ = std::fs::remove_dir_all(shelf());
+    let _ = std::fs::remove_dir_all(&staged.dir);
     Ok(target)
 }
 
@@ -430,7 +431,7 @@ fn staged_newer(place: &Place) -> Option<Staged> {
                 return None;
             }
             let payload = payload_in(&entry.path().join("unpacked"), place)?;
-            Some((at, Staged { version: name, payload }))
+            Some((at, Staged { version: name, payload, dir: entry.path() }))
         })
         .max_by_key(|(at, _)| *at)
         .map(|(_, staged)| staged)
@@ -547,7 +548,7 @@ mod tests {
         let exe = root.join("app").join("dossier-test");
         std::fs::write(&exe, b"old").unwrap();
         std::fs::write(root.join("new").join("dossier-test"), b"new").unwrap();
-        let staged = Staged { version: "9.9.9".to_owned(), payload: root.join("new").join("dossier-test") };
+        let staged = Staged { version: "9.9.9".to_owned(), payload: root.join("new").join("dossier-test"), dir: root.join("new") };
         let place = Place::Binary(exe.clone());
         assert_eq!(apply(&staged, &place).unwrap(), exe);
         assert_eq!(std::fs::read(&exe).unwrap(), b"new");
@@ -604,6 +605,21 @@ mod tests {
         assert!(steps.iter().any(|s| s.starts_with("Downloading")));
         let again = stage(&shelf, &release, &place, &mut |_| true).unwrap();
         assert_eq!(again, staged, "a staged update is taken from the shelf, not downloaded again");
+        if cfg!(target_os = "macos") {
+            let apps = shelf.join("Applications");
+            let old = apps.join("Dossier.app");
+            std::fs::create_dir_all(old.join("Contents").join("MacOS")).unwrap();
+            std::fs::write(old.join("Contents").join("MacOS").join("dossier"), b"old").unwrap();
+            let put = apply(&staged, &Place::Bundle(old.clone())).unwrap();
+            assert_eq!(put, old);
+            let plist = std::fs::read_to_string(old.join("Contents").join("Info.plist")).unwrap();
+            assert!(plist.contains(&format!("<string>{}</string>", release.version)), "the bundle is the new version");
+            let binary = std::fs::read(old.join("Contents").join("MacOS").join("dossier")).unwrap();
+            assert_eq!(&binary[..4], &[0xcf, 0xfa, 0xed, 0xfe], "the new executable is in place");
+            assert!(old.join("Contents").join("Resources").join("AppIcon.icns").is_file());
+            assert!(!apps.join("Dossier.app.old").exists(), "nothing is left aside");
+            assert!(!staged.dir.exists(), "the staged copy is gone");
+        }
         let _ = std::fs::remove_dir_all(&shelf);
     }
 

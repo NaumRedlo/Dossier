@@ -1,0 +1,101 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: build (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: macos-arm64, os: macos-latest, target: aarch64-apple-darwin }
+          - { name: macos-x64, os: macos-latest, target: x86_64-apple-darwin }
+          - { name: windows-x64, os: windows-latest, target: x86_64-pc-windows-msvc }
+          - { name: linux-x64, os: ubuntu-latest, target: x86_64-unknown-linux-gnu }
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: native
+          key: ${{ matrix.target }}
+      - run: cargo build --release --target ${{ matrix.target }}
+        working-directory: native
+      - name: pack
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          out="dossier-${version}-${{ matrix.name }}"
+          mkdir -p "$out/licenses"
+          cp LICENSE "$out/licenses/LICENSE-Dossier.txt"
+          cp assets/fonts/OFL-*.txt "$out/licenses/"
+          bin="native/target/${{ matrix.target }}/release/dossier"
+          case "${{ runner.os }}" in
+            macOS)
+              app="$out/Dossier.app/Contents"
+              mkdir -p "$app/MacOS"
+              cp "$bin" "$app/MacOS/dossier"
+              cat > "$app/Info.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>CFBundleName</key><string>Dossier</string>
+            <key>CFBundleDisplayName</key><string>Dossier</string>
+            <key>CFBundleIdentifier</key><string>com.naumredlo.dossier</string>
+            <key>CFBundleExecutable</key><string>dossier</string>
+            <key>CFBundlePackageType</key><string>APPL</string>
+            <key>CFBundleShortVersionString</key><string>${version}</string>
+            <key>CFBundleVersion</key><string>${version}</string>
+            <key>LSMinimumSystemVersion</key><string>11.0</string>
+            <key>NSHighResolutionCapable</key><true/>
+          </dict>
+          </plist>
+          PLIST
+              ditto -c -k --keepParent "$out" "$out.zip"
+              ;;
+            Windows)
+              cp "$bin.exe" "$out/dossier.exe"
+              7z a "$out.zip" "$out" > /dev/null
+              ;;
+            Linux)
+              cp "$bin" "$out/dossier"
+              tar czf "$out.tar.gz" "$out"
+              ;;
+          esac
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: |
+            dossier-*.zip
+            dossier-*.tar.gz
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          notes="docs/releases/${GITHUB_REF_NAME}.md"
+          gh release create "$GITHUB_REF_NAME" dist/* --prerelease --title "Dossier ${GITHUB_REF_NAME}" --notes-file "$notes"

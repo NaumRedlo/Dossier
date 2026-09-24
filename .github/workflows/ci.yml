@@ -1,8 +1,3 @@
-# The engine and the application, on every push.
-#
-# The application links the engine in, so a change to either has to be checked
-# against both: the engine's own tests on the three systems, the application's
-# frames and clicks on the same three.
 name: ci
 
 on:
@@ -21,12 +16,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Three, because a worker runs on whatever machine somebody has spare
-        # and the differences that bite are the platform ones — paths, the
-        # `.exe`, and what the machine will say about its own battery.
         os: [ubuntu-latest, windows-latest, macos-latest]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --release
@@ -36,13 +28,10 @@ jobs:
     name: tools (python)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
-      # The same pin the Python bridge carried while it lived here, so the
-      # scripts under `tools/` are held to the policy in `ruff.toml` by the
-      # linter that wrote it rather than whichever one is newest this morning.
       - run: pip install "ruff~=0.15.0"
       - run: ruff check .
 
@@ -53,15 +42,15 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
+    env:
+      ICED_TEST_BACKEND: tiny-skia
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: native
-      # The frames are drawn without a window. A runner with no GPU falls
-      # back to the software renderer and writes its own set of frames rather
-      # than comparing against the ones approved on a machine with one; the
-      # size and edge checks run everywhere.
       - run: cargo test --release
         working-directory: native

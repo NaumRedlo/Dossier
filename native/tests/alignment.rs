@@ -61,11 +61,12 @@ fn every_ledger_name_starts_on_the_same_line() {
 
 #[test]
 fn the_reason_the_path_and_the_ledger_hang_off_one_left_edge() {
+    let home = format!("~{}osu", std::path::MAIN_SEPARATOR);
     for lang in Lang::ALL {
         let mut ui = frame_of("folder-stable", lang);
         let (why, ledger, path) = match lang {
-            Lang::En => (bounds(&mut ui, "Found on this device!"), bounds(&mut ui, "Language"), bounds(&mut ui, "~/osu")),
-            Lang::Ru => (bounds(&mut ui, "Нашлась на этом устройстве!"), bounds(&mut ui, "Язык"), bounds(&mut ui, "~/osu")),
+            Lang::En => (bounds(&mut ui, "Found on this device!"), bounds(&mut ui, "Language"), bounds(&mut ui, &home)),
+            Lang::Ru => (bounds(&mut ui, "Нашлась на этом устройстве!"), bounds(&mut ui, "Язык"), bounds(&mut ui, &home)),
         };
         same(ledger.x - why.x, 26.0, "a ledger name sits one glyph and one gap in from the content edge");
         same(path.x - why.x, 12.0, "the path sits one control inset in from the content edge");

@@ -21,3 +21,5 @@ venv/
 !/docs/mockups/*/*.dc.html
 /docs/mockups/first-run/frames/
 /docs/mockups/main/frames/
+
+/native/tests/golden/*-tiny-skia.png

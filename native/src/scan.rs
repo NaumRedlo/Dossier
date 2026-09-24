@@ -119,6 +119,7 @@ pub fn source(paths: &[PathBuf]) -> Source {
         maps: None,
         skin_count: 0,
         replay_count: paths.len() as u64,
+        scores: 0,
         on: true,
     }
 }

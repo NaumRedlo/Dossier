@@ -425,10 +425,13 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
         Tile::Sources => {
             let mut rows = column![head(w, "sources")].spacing(2);
             for (at, source) in s.sources.iter().enumerate() {
-                let under = match (source.replay_count, source.maps) {
+                let mut under = match (source.replay_count, source.maps) {
                     (replays, Some(maps)) if maps > 0 => format!("{} · {}", w.count("replays-count", replays), w.count("maps-count", maps)),
                     (replays, _) => w.count("replays-count", replays),
                 };
+                if source.scores > 0 {
+                    under = format!("{under} · {}", w.count("scores-count", source.scores));
+                }
                 rows = rows.push(line(ground, &format!("source-{at}"), short(source.kind), source.shown(), under, source.on, Some(Message::Source(at, !source.on))));
             }
             rows.push(line(ground, "add-folder", "+", w.t("add-folder"), String::new(), false, Some(Message::AddFolder))).into()

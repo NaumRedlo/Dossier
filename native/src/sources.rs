@@ -31,6 +31,8 @@ pub struct Source {
     pub maps: Option<u64>,
     pub skin_count: u64,
     pub replay_count: u64,
+    #[serde(default)]
+    pub scores: u64,
     pub on: bool,
 }
 
@@ -162,6 +164,7 @@ pub fn stable_at(root: &Path) -> Option<Source> {
         maps: Some(count_dirs(&songs)),
         skin_count: count_dirs(&skins),
         replay_count: count_files(&replays, "osr"),
+        scores: crate::scores::with_replays(root).len() as u64,
         songs: Some(songs),
         skins: skins.is_dir().then_some(skins),
         replays: replays.is_dir().then_some(replays),
@@ -330,6 +333,7 @@ pub fn lazer_at(root: &Path) -> Option<Source> {
         maps: None,
         skin_count: count_files(&exports, "osk"),
         replay_count: count_files(&exports, "osr") + store_known(&root.join("files")).unwrap_or(0),
+        scores: 0,
         songs: None,
         skins: exports.is_dir().then_some(exports.clone()),
         replays: exports.is_dir().then_some(exports),
@@ -349,6 +353,7 @@ pub fn folder_at(root: &Path) -> Option<Source> {
         maps: songs.as_deref().map(count_dirs),
         skin_count: 0,
         replay_count: replays,
+        scores: 0,
         songs,
         skins: None,
         replays: Some(root.to_path_buf()),
@@ -374,6 +379,7 @@ pub fn own() -> Result<Source, String> {
         maps: Some(count_dirs(&songs)),
         skin_count: count_dirs(&skins),
         replay_count: count_files(&replays, "osr"),
+        scores: 0,
         songs: Some(songs),
         skins: Some(skins),
         replays: Some(replays),

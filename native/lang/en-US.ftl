@@ -205,6 +205,10 @@ replays-count = { $n ->
     [one] replay
    *[other] replays
 }
+scores-count = { $n ->
+    [one] score from scores.db
+   *[other] scores from scores.db
+}
 maps-count = { $n ->
     [one] map
    *[other] maps

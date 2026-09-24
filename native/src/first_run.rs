@@ -176,7 +176,7 @@ impl FirstRun {
         if self.counting.contains(&source.root) {
             "…".to_owned()
         } else {
-            self.words.lang().group(source.replay_count)
+            self.words.lang().group(source.replay_count + source.scores)
         }
     }
 
@@ -581,7 +581,7 @@ impl FirstRun {
         if self.counting.contains(&source.root) {
             counts.push(format!("… {}", w.n("replays-label", 0)));
         } else {
-            counts.push(w.count("replays-label", source.replay_count));
+            counts.push(w.count("replays-label", source.replay_count + source.scores));
         }
         container(
             row![
@@ -653,7 +653,7 @@ impl FirstRun {
                     _ => ui::tile(w.lang().group(source.skin_count), w.n("skins-label", source.skin_count)),
                 };
                 body = body.push(
-                    row![maps, skins, ui::tile(self.replays_shown(source), w.n("replays-label", source.replay_count))].spacing(8),
+                    row![maps, skins, ui::tile(self.replays_shown(source), w.n("replays-label", source.replay_count + source.scores))].spacing(8),
                 );
                 body = body.push(
                     row![

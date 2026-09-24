@@ -20,6 +20,7 @@ fn stable() -> Source {
         maps: Some(1342),
         skin_count: 14,
         replay_count: 187,
+        scores: 0,
         on: true,
     }
 }
@@ -34,6 +35,7 @@ fn own() -> Source {
         maps: Some(0),
         skin_count: 0,
         replay_count: 0,
+        scores: 0,
         on: true,
     }
 }
@@ -48,6 +50,7 @@ fn lazer() -> Source {
         maps: None,
         skin_count: 3,
         replay_count: 212,
+        scores: 0,
         on: true,
     }
 }

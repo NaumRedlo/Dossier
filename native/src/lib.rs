@@ -23,6 +23,7 @@ pub mod osu_profile;
 pub mod player;
 pub mod render;
 pub mod scan;
+pub mod scores;
 pub mod settings;
 pub mod settings_screen;
 pub mod sources;

@@ -210,6 +210,15 @@ pub fn read(sources: &[Source]) -> Library {
                 }
             }
         }
+        if source.kind == Kind::Stable {
+            for (path, replay) in crate::scores::with_replays(&source.root) {
+                if let Some(entry) = entry_of(&replay, &path, source.kind, &index) {
+                    if seen.insert(entry.replay_hash.clone()) {
+                        entries.push(entry);
+                    }
+                }
+            }
+        }
     }
     entries.sort_by(|a, b| b.played_at.cmp(&a.played_at).then_with(|| a.path.cmp(&b.path)));
     Library { entries, maps: index.by_hash.len() }
@@ -238,6 +247,10 @@ fn replay_files(source: &Source) -> Vec<PathBuf> {
 fn entry(path: &Path, kind: Kind, index: &Index) -> Option<Entry> {
     let bytes = std::fs::read(path).ok()?;
     let replay = dossier_replay::Replay::heading(&bytes).ok()?;
+    entry_of(&replay, path, kind, index)
+}
+
+fn entry_of(replay: &dossier_replay::Replay, path: &Path, kind: Kind, index: &Index) -> Option<Entry> {
     if replay.mode != dossier_replay::GameMode::Standard {
         return None;
     }

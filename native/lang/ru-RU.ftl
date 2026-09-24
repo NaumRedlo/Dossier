@@ -210,6 +210,11 @@ replays-count = { $n ->
     [few] реплея
    *[other] реплеев
 }
+scores-count = { $n ->
+    [one] скор из scores.db
+    [few] скора из scores.db
+   *[other] скоров из scores.db
+}
 maps-count = { $n ->
     [one] карта
     [few] карты

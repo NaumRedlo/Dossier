@@ -219,40 +219,12 @@ fn replay_files(source: &Source) -> Vec<PathBuf> {
         }
     }
     if source.kind == Kind::Lazer {
-        out.extend(store_replays(&source.root.join("files")));
+        out.extend(crate::sources::store_replays(&source.root.join("files")));
     }
     if source.kind == Kind::Found {
         out.extend(crate::scan::remembered());
     }
     out
-}
-
-fn store_replays(files: &Path) -> Vec<PathBuf> {
-    let mut found = Vec::new();
-    let Ok(shards) = std::fs::read_dir(files) else {
-        return found;
-    };
-    let mut stack: Vec<PathBuf> = shards.flatten().map(|e| e.path()).collect();
-    let mut head = [0u8; 40];
-    while let Some(path) = stack.pop() {
-        if path.is_dir() {
-            if let Ok(inner) = std::fs::read_dir(&path) {
-                stack.extend(inner.flatten().map(|e| e.path()));
-            }
-            continue;
-        }
-        let Ok(mut file) = std::fs::File::open(&path) else {
-            continue;
-        };
-        use std::io::Read;
-        let Ok(n) = file.read(&mut head) else {
-            continue;
-        };
-        if crate::sources::is_osr(&head[..n]) {
-            found.push(path);
-        }
-    }
-    found
 }
 
 fn entry(path: &Path, kind: Kind, index: &Index) -> Option<Entry> {
@@ -349,22 +321,22 @@ impl Index {
             .unwrap_or_default();
         let mut fresh: HashMap<PathBuf, Remembered> = HashMap::new();
         let mut by_hash = HashMap::new();
+        let mut unknown = Vec::new();
         for root in songs {
-            for file in osu_files(root) {
-                let modified = std::fs::metadata(&file)
-                    .and_then(|m| m.modified())
-                    .ok()
-                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                    .map_or(0, |d| d.as_secs());
-                let known = match remembered.remove(&file) {
-                    Some(seen) if seen.modified == modified => seen,
-                    _ => match describe(&file) {
-                        Some((hash, map)) => Remembered { modified, hash, map },
-                        None => continue,
-                    },
-                };
-                by_hash.insert(known.hash.clone(), known.map.clone());
-                fresh.insert(file, known);
+            for (file, modified) in osu_files(root) {
+                match remembered.remove(&file) {
+                    Some(seen) if seen.modified == modified => {
+                        by_hash.insert(seen.hash.clone(), seen.map.clone());
+                        fresh.insert(file, seen);
+                    }
+                    _ => unknown.push((file, modified)),
+                }
+            }
+        }
+        for (file, modified, described) in described_all(unknown) {
+            if let Some((hash, map)) = described {
+                by_hash.insert(hash.clone(), map.clone());
+                fresh.insert(file, Remembered { modified, hash, map });
             }
         }
         if let Ok(text) = serde_json::to_string(&fresh) {
@@ -377,7 +349,7 @@ impl Index {
     }
 }
 
-fn osu_files(root: &Path) -> Vec<PathBuf> {
+fn osu_files(root: &Path) -> Vec<(PathBuf, u64)> {
     let mut out = Vec::new();
     let mut stack = vec![root.to_path_buf()];
     while let Some(dir) = stack.pop() {
@@ -385,15 +357,39 @@ fn osu_files(root: &Path) -> Vec<PathBuf> {
             continue;
         };
         for entry in entries.flatten() {
+            let Ok(kind) = entry.file_type() else {
+                continue;
+            };
             let path = entry.path();
-            if path.is_dir() {
+            if kind.is_dir() {
                 stack.push(path);
             } else if path.extension().is_some_and(|e| e.eq_ignore_ascii_case("osu")) {
-                out.push(path);
+                let modified = entry
+                    .metadata()
+                    .and_then(|m| m.modified())
+                    .ok()
+                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map_or(0, |d| d.as_secs());
+                out.push((path, modified));
             }
         }
     }
     out
+}
+
+fn described_all(unknown: Vec<(PathBuf, u64)>) -> Vec<(PathBuf, u64, Option<(String, Map)>)> {
+    if unknown.is_empty() {
+        return Vec::new();
+    }
+    let lanes = std::thread::available_parallelism().map_or(4, |n| n.get()).clamp(2, 8);
+    let share = unknown.len().div_ceil(lanes);
+    std::thread::scope(|scope| {
+        let lanes: Vec<_> = unknown
+            .chunks(share)
+            .map(|chunk| scope.spawn(move || chunk.iter().map(|(file, modified)| (file.clone(), *modified, describe(file))).collect::<Vec<_>>()))
+            .collect();
+        lanes.into_iter().flat_map(|lane| lane.join().unwrap_or_default()).collect()
+    })
 }
 
 pub fn describe(file: &Path) -> Option<(String, Map)> {

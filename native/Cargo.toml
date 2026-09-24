@@ -2,7 +2,7 @@
 
 [package]
 name = "dossier-native"
-version = "0.89.4"
+version = "0.89.5"
 edition = "2021"
 license = "AGPL-3.0-only"
 description = "The Dossier desktop application"

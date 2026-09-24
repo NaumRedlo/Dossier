@@ -66,6 +66,7 @@ pub enum Message {
     Continue,
     Back,
     Looked(Vec<Source>),
+    Counted(std::path::PathBuf, u64),
     Switch(usize, bool),
     Browse,
     Browsed(Option<Source>),
@@ -100,6 +101,7 @@ pub struct FirstRun {
     pub step: Step,
     pub looked: bool,
     pub sources: Vec<Source>,
+    pub counting: std::collections::HashSet<std::path::PathBuf>,
     pub pairing: Pairing,
     pub qr: Option<ui::Qr>,
     pub checks: Vec<(Check, Option<Outcome>)>,
@@ -143,6 +145,7 @@ impl FirstRun {
             step: Step::Language,
             looked: false,
             sources: Vec::new(),
+            counting: std::collections::HashSet::new(),
             pairing: Pairing::Idle,
             qr: None,
             checks: Vec::new(),
@@ -154,7 +157,27 @@ impl FirstRun {
             retype: settled(),
             fetch: Fetch::Idle,
         };
-        (made, Task::perform(async { sources::find() }, Message::Looked))
+        (made, ui::in_thread(sources::find).map(Message::Looked))
+    }
+
+    fn count_later(&mut self, source: &Source) -> Task<Message> {
+        if source.kind != sources::Kind::Lazer {
+            return Task::none();
+        }
+        self.counting.insert(source.root.clone());
+        let source = source.clone();
+        ui::in_thread(move || {
+            let counted = sources::counted(&source);
+            Message::Counted(counted.root, counted.replay_count)
+        })
+    }
+
+    fn replays_shown(&self, source: &Source) -> String {
+        if self.counting.contains(&source.root) {
+            "…".to_owned()
+        } else {
+            self.words.lang().group(source.replay_count)
+        }
     }
 
     fn waiting_on_something(&self) -> bool {
@@ -270,7 +293,20 @@ impl FirstRun {
             }
             Message::Looked(found) => {
                 self.looked = true;
-                self.sources = found;
+                let mut counts = Vec::new();
+                for source in found {
+                    if !self.sources.iter().any(|s| s.root == source.root) {
+                        counts.push(self.count_later(&source));
+                        self.sources.push(source);
+                    }
+                }
+                Task::batch(counts)
+            }
+            Message::Counted(root, replays) => {
+                self.counting.remove(&root);
+                if let Some(source) = self.sources.iter_mut().find(|s| s.root == root) {
+                    source.replay_count = replays;
+                }
                 Task::none()
             }
             Message::Switch(index, on) => {
@@ -287,12 +323,15 @@ impl FirstRun {
                 Message::Browsed,
             ),
             Message::Browsed(found) => {
+                let mut count = Task::none();
                 if let Some(source) = found {
                     if !self.sources.iter().any(|s| s.root == source.root) {
+                        count = self.count_later(&source);
                         self.sources.push(source);
+                        self.looked = true;
                     }
                 }
-                Task::none()
+                count
             }
             Message::OwnFolder => Task::perform(async { sources::own() }, Message::OwnFolderMade),
             Message::OwnFolderMade(Ok(source)) => {
@@ -539,7 +578,11 @@ impl FirstRun {
         if source.skin_count > 0 {
             counts.push(w.count("skins-label", source.skin_count));
         }
-        counts.push(w.count("replays-label", source.replay_count));
+        if self.counting.contains(&source.root) {
+            counts.push(format!("… {}", w.n("replays-label", 0)));
+        } else {
+            counts.push(w.count("replays-label", source.replay_count));
+        }
         container(
             row![
                 ui::tag(source.kind.tag().to_owned()),
@@ -562,7 +605,12 @@ impl FirstRun {
     fn folder_body(&self) -> Element<'_, Message> {
         let w = &self.words;
         if !self.looked {
-            return column![ui::heading(w.t("step-folder"), "…".to_owned())].into();
+            return column![
+                ui::heading(w.t("step-folder"), w.t("folder-looking")),
+                row![ui::quiet(w.t("back"), Some(Message::Back)), ui::grow(), ui::primary(w.t("browse"), Some(Message::Browse))].spacing(8),
+            ]
+            .spacing(16)
+            .into();
         }
         let mut body = column![].spacing(16);
         match self.sources.len() {
@@ -605,7 +653,7 @@ impl FirstRun {
                     _ => ui::tile(w.lang().group(source.skin_count), w.n("skins-label", source.skin_count)),
                 };
                 body = body.push(
-                    row![maps, skins, ui::tile(w.lang().group(source.replay_count), w.n("replays-label", source.replay_count))].spacing(8),
+                    row![maps, skins, ui::tile(self.replays_shown(source), w.n("replays-label", source.replay_count))].spacing(8),
                 );
                 body = body.push(
                     row![
@@ -866,6 +914,7 @@ impl FirstRun {
             step,
             looked: true,
             sources,
+            counting: std::collections::HashSet::new(),
             pairing,
             qr,
             checks,

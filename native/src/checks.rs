@@ -48,7 +48,7 @@ pub fn folder(sources: &[Source]) -> Outcome {
         return Outcome::Failed(String::new());
     }
     let maps: u64 = live.iter().filter_map(|s| s.maps).sum();
-    let replays: u64 = live.iter().map(|s| s.replay_count).sum();
+    let replays: u64 = live.iter().map(|s| crate::sources::counted(s).replay_count).sum();
     Outcome::Passed(format!("{maps} maps, {replays} replays"))
 }
 

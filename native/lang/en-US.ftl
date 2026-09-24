@@ -16,6 +16,7 @@ back = Back
 
 folder-found = Found on this device!
 folder-found-two = There are two on this device. The switches choose which client to read.
+folder-looking = Looking for osu! on this device…
 folder-missing = No osu! on this device…
 folder-missing-note = The application can keep maps, skins and replays in a folder of its own.
 folder-own = The application keeps everything in a folder of its own.

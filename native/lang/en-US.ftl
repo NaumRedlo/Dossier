@@ -454,3 +454,15 @@ events = { $n ->
 }
 more-changes-n = and { $n } more
 dossier-of = Dossier ·
+weighted-pp = { $pp } pp weighted · best { $n }
+mapped-by = mapped by
+open-map = Map
+storage = Storage
+storage-app = the application takes
+storage-videos = Videos
+storage-skins = Skins
+storage-maps = Maps
+storage-cache = Cache
+storage-rest = The rest
+clear-cache = Clear the cache
+prerelease = pre-release

@@ -547,6 +547,25 @@ pub fn pill(on: bool) -> impl Fn(&Theme, button::Status) -> button::Style {
     }
 }
 
+pub fn filter_chip(on: bool) -> impl Fn(&Theme, button::Status) -> button::Style {
+    move |_, status| {
+        let lit = matches!(status, button::Status::Hovered | button::Status::Pressed);
+        let (background, edge) = match (on, lit) {
+            (true, true) => (color!(0x4a1c20), color!(0xb0403f)),
+            (true, false) => (color!(0x3b171a), color!(0x8f3234)),
+            (false, true) => (color!(0x2a1c20), color!(0x4a383d)),
+            (false, false) => (color!(0x1c1215), color!(0x322428)),
+        };
+        button::Style {
+            background: Some(Background::Color(background)),
+            text_color: INK,
+            border: border(edge, 15.0),
+            shadow: if on { Shadow { color: Color::from_rgba(0.886, 0.282, 0.282, 0.18), offset: iced::Vector::ZERO, blur_radius: 12.0 } } else { Shadow::default() },
+            snap: true,
+        }
+    }
+}
+
 pub fn small_hot(_: &Theme, status: button::Status) -> button::Style {
     let background = match status {
         button::Status::Hovered | button::Status::Pressed => Color::from_rgba(0.886, 0.282, 0.282, 0.26),

@@ -2,6 +2,7 @@ use std::time::Duration;
 
 pub const ENGINE: &str = concat!("dossier ", env!("CARGO_PKG_VERSION"));
 pub const BUILD: &str = env!("CARGO_PKG_VERSION");
+pub const PRERELEASE: bool = true;
 
 const PATIENCE: Duration = Duration::from_secs(8);
 
@@ -195,6 +196,17 @@ pub fn card(server: &str, token: &str, name: &str, chat: Option<i64>) -> Result<
     }
     let response = request.send().map_err(|e| Refused::Network(e.to_string()))?;
     status(response)?.json().map_err(|e| Refused::Network(e.to_string()))
+}
+
+pub fn share_card(server: &str, token: &str, name: &str, card: &crate::community::wire::Card) -> Result<(), Refused> {
+    let response = client()?
+        .post(format!("{server}/render/me/profile"))
+        .header("X-Render-Worker", name)
+        .bearer_auth(token)
+        .json(card)
+        .send()
+        .map_err(|e| Refused::Network(e.to_string()))?;
+    status(response).map(|_| ())
 }
 
 pub fn person(server: &str, token: &str, name: &str, chat: i64, id: i64) -> Result<crate::community::wire::Me, Refused> {

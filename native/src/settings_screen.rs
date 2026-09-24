@@ -27,6 +27,7 @@ pub enum Tile {
     Play,
     Videos,
     Maps,
+    Storage,
     Builds,
     Account,
     Chats,
@@ -47,6 +48,7 @@ impl Tile {
             Tile::Play => "play",
             Tile::Videos => "videos",
             Tile::Maps => "maps",
+            Tile::Storage => "storage",
             Tile::Builds => "builds",
             Tile::Account => "account",
             Tile::Chats => "chats",
@@ -60,7 +62,7 @@ impl Tile {
     }
 }
 
-pub const APP: [Tile; 11] = [
+pub const APP: [Tile; 12] = [
     Tile::Render,
     Tile::Language,
     Tile::Device,
@@ -71,6 +73,7 @@ pub const APP: [Tile; 11] = [
     Tile::Skins,
     Tile::Videos,
     Tile::Maps,
+    Tile::Storage,
     Tile::Builds,
 ];
 
@@ -104,6 +107,7 @@ pub struct Ground<'a> {
     pub maps: usize,
     pub maps_size: u64,
     pub cache_size: u64,
+    pub storage: &'a Storage,
     pub ffmpeg: Option<String>,
     pub account: Option<&'a crate::bot::Me>,
     pub avatar: Option<&'a iced::widget::image::Handle>,
@@ -138,6 +142,8 @@ pub enum Message {
     PickedRenders(Option<PathBuf>),
     OpenMaps,
     ClearCache,
+    OpenData,
+    ClearAppCache,
     CheckBuild,
     GetFfmpeg,
     Chat(i64),
@@ -545,12 +551,60 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
         ]
         .spacing(2)
         .into(),
+        Tile::Storage => {
+            let k = ui::fade();
+            let store = ground.storage;
+            let rest = store.data.saturating_sub(store.videos + store.skins + store.maps + store.cache);
+            let parts = [
+                ("storage-videos", store.videos, theme::ACCENT),
+                ("storage-skins", store.skins, theme::GRADE_C),
+                ("storage-maps", store.maps, theme::HIT_300),
+                ("storage-cache", store.cache, theme::GRADE_S),
+                ("storage-rest", rest, FAINT),
+            ];
+            let total = parts.iter().map(|part| part.1).sum::<u64>().max(1);
+            let mut bar = row![].spacing(2).height(8.0).width(Length::Fill);
+            for (_, size, colour) in parts {
+                if size > 0 {
+                    let share = ((size as f64 / total as f64) * 1000.0).round().max(1.0) as u16;
+                    bar = bar.push(container(Space::new().height(8.0)).width(Length::FillPortion(share)).style(move |_| container::Style {
+                        background: Some(iced::Background::Color(iced::Color { a: k, ..colour })),
+                        border: iced::Border { radius: 3.0.into(), ..iced::Border::default() },
+                        ..container::Style::default()
+                    }));
+                }
+            }
+            let mut legend = column![].spacing(5);
+            for (key, size, colour) in parts {
+                let dot = container(Space::new().width(8.0).height(8.0)).style(move |_| container::Style {
+                    background: Some(iced::Background::Color(iced::Color { a: k, ..colour })),
+                    border: iced::Border { radius: 4.0.into(), ..iced::Border::default() },
+                    ..container::Style::default()
+                });
+                legend = legend.push(
+                    row![dot, text(w.t(key)).font(theme::SANS).size(12.0).color(ui::faded(MUTED)), ui::grow(), text(w.mb(size)).font(theme::MONO).size(12.0).color(ui::faded(INK))]
+                        .spacing(8)
+                        .align_y(iced::Center),
+                );
+            }
+            column![
+                head(w, "storage"),
+                figure(w.mb(store.data), format!("{} {}", w.t("storage-app"), w.mb(store.app))),
+                container(bar).padding(Padding { top: 10.0, right: 0.0, bottom: 8.0, left: 0.0 }),
+                legend,
+                container(row![deed(w.t("in-folder"), Message::OpenData, false), deed(w.t("clear-cache"), Message::ClearAppCache, true)].spacing(6)).padding(Padding::ZERO.top(8.0)),
+            ]
+            .spacing(2)
+            .width(Length::Fixed(260.0))
+            .into()
+        }
         Tile::Builds => {
             let engine = crate::bot::BUILD.to_owned();
             let under = match &ground.ffmpeg {
                 Some(version) => format!("{} · ffmpeg {version}", w.who("engine-is", crate::bot::ENGINE)),
                 None => w.t("no-ffmpeg"),
             };
+            let under = if crate::bot::PRERELEASE { format!("{} · {under}", w.t("prerelease")) } else { under };
             column![
                 head(w, "builds"),
                 figure(engine, under),
@@ -659,7 +713,60 @@ pub async fn pick_renders() -> Option<PathBuf> {
     Some(picked.path().to_path_buf())
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct Storage {
+    pub app: u64,
+    pub data: u64,
+    pub videos: u64,
+    pub skins: u64,
+    pub maps: u64,
+    pub cache: u64,
+}
+
+const CACHES: [&str; 8] = ["cache", "maps.json", "found.json", "news.json", "community.json", "card.json", "osu-profile.json", "people.json"];
+
+pub fn app_size() -> u64 {
+    let Ok(exe) = std::env::current_exe() else {
+        return 0;
+    };
+    match exe.ancestors().find(|folder| folder.extension().is_some_and(|ext| ext == "app")) {
+        Some(bundle) => folder_size(bundle),
+        None => folder_size(&exe),
+    }
+}
+
+pub fn measure(renders: &std::path::Path) -> Storage {
+    let root = sources::own_root();
+    let videos = folder_size(renders);
+    let inside = renders.starts_with(&root);
+    Storage {
+        app: app_size(),
+        data: folder_size(&root) + if inside { 0 } else { videos },
+        videos,
+        skins: folder_size(&root.join("Skins")) + folder_size(&root.join("worker-skins")),
+        maps: folder_size(&root.join("Songs")),
+        cache: CACHES.iter().map(|name| folder_size(&root.join(name))).sum(),
+    }
+}
+
+pub fn clear_app_cache() {
+    let root = sources::own_root();
+    for name in CACHES {
+        let path = root.join(name);
+        if path.is_dir() {
+            let _ = std::fs::remove_dir_all(&path);
+        } else {
+            let _ = std::fs::remove_file(&path);
+        }
+    }
+}
+
 pub fn folder_size(root: &std::path::Path) -> u64 {
+    if let Ok(meta) = std::fs::symlink_metadata(root) {
+        if meta.is_file() {
+            return meta.len();
+        }
+    }
     let Ok(read) = std::fs::read_dir(root) else {
         return 0;
     };

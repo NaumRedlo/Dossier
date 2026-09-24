@@ -213,6 +213,7 @@ pub struct Person {
     pub was: [u32; 6],
     pub top: Vec<Play>,
     pub you: bool,
+    pub app: bool,
 }
 
 impl Person {
@@ -373,6 +374,7 @@ fn person_into(maps: &mut Vec<MapRef>, said: &wire::Person) -> Person {
     was: std::array::from_fn(|at| said.was.get(at).copied().unwrap_or(0)),
     top: said.top.iter().map(|play| play_into(maps, play)).collect(),
     you: said.you,
+    app: said.app,
     }
 }
 
@@ -925,6 +927,8 @@ pub mod wire {
         pub top: Vec<Play>,
         #[serde(default)]
         pub you: bool,
+        #[serde(default)]
+        pub app: bool,
     }
 
     fn passed() -> bool {
@@ -999,6 +1003,10 @@ pub mod wire {
         pub history: Vec<Week>,
         #[serde(default)]
         pub activity: Vec<Day>,
+        #[serde(default)]
+        pub card: Option<Card>,
+        #[serde(default)]
+        pub card_at: Option<i64>,
     }
 
     #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -1127,6 +1135,12 @@ pub mod wire {
         pub stars: f64,
         #[serde(default, deserialize_with = "number")]
         pub map_max_combo: f64,
+        #[serde(default, deserialize_with = "number")]
+        pub bpm: f64,
+        #[serde(default, deserialize_with = "number")]
+        pub length: f64,
+        #[serde(default, deserialize_with = "words")]
+        pub played: String,
         #[serde(skip)]
         pub hash: String,
     }

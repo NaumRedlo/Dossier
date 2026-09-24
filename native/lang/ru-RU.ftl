@@ -473,3 +473,15 @@ events = { $n ->
 }
 more-changes-n = и ещё { $n }
 dossier-of = Досье ·
+weighted-pp = { $pp } pp с весом · лучшие { $n }
+mapped-by = карта
+open-map = Карта
+storage = Хранилище
+storage-app = само приложение —
+storage-videos = Видео
+storage-skins = Скины
+storage-maps = Карты
+storage-cache = Кэш
+storage-rest = Остальное
+clear-cache = Очистить кэш
+prerelease = пред-релиз

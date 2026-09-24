@@ -60,7 +60,7 @@ fn all_passed() -> Vec<(Check, Option<Outcome>)> {
     checked(&[
         (Check::Folder, Some(Outcome::Passed("1,342 maps".into()))),
         (Check::Ffmpeg, Some(Outcome::Passed("7.1".into()))),
-        (Check::Engine, Some(Outcome::Passed("0.12.0".into()))),
+        (Check::Engine, Some(Outcome::Passed("0.89.4".into()))),
         (Check::Bot, Some(Outcome::Passed("41 ms".into()))),
     ])
 }
@@ -110,7 +110,7 @@ pub fn states(lang: Lang) -> Vec<(String, FirstRun)> {
                 checked(&[
                     (Check::Folder, Some(Outcome::Passed("1,342 maps".into()))),
                     (Check::Ffmpeg, Some(Outcome::Failed(String::new()))),
-                    (Check::Engine, Some(Outcome::Passed("0.12.0".into()))),
+                    (Check::Engine, Some(Outcome::Passed("0.89.4".into()))),
                     (Check::Bot, Some(Outcome::Passed("41 ms".into()))),
                 ]),
             ),
@@ -124,7 +124,7 @@ pub fn states(lang: Lang) -> Vec<(String, FirstRun)> {
                 checked(&[
                     (Check::Folder, Some(Outcome::Passed("1,342 maps".into()))),
                     (Check::Ffmpeg, Some(Outcome::Failed(String::new()))),
-                    (Check::Engine, Some(Outcome::Passed("0.12.0".into()))),
+                    (Check::Engine, Some(Outcome::Passed("0.89.4".into()))),
                     (Check::Bot, Some(Outcome::Passed("41 ms".into()))),
                 ]),
             );
@@ -142,7 +142,7 @@ pub fn states(lang: Lang) -> Vec<(String, FirstRun)> {
                 checked(&[
                     (Check::Folder, Some(Outcome::Passed(String::new()))),
                     (Check::Ffmpeg, Some(Outcome::Passed("7.1".into()))),
-                    (Check::Engine, Some(Outcome::Passed("0.12.0".into()))),
+                    (Check::Engine, Some(Outcome::Passed("0.89.4".into()))),
                     (Check::Bot, Some(Outcome::Skipped(String::new()))),
                 ]),
             ),
@@ -509,7 +509,7 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
         (crate::notices::Mark::Bad, "Рендер не завершился", "Guest — xi — Blue Zenith", "ffmpeg завершился с кодом 1", 1, crate::notices::Link::RenderAgain(library.entries[1].path.clone())),
         (crate::notices::Mark::Done, "Карта скачана", "xi — Blue Zenith", "[FOUR DIMENSIONS]", 1, crate::notices::Link::None),
         (crate::notices::Mark::Done, "Ушло в Telegram", "-legusshhka- — xi — FREEDOM DiVE [Extra]", "@naumredlo · 97,7 МБ", 2, crate::notices::Link::None),
-        (crate::notices::Mark::Plain, "Открыто", "сборка 0.12.0", "", 0, crate::notices::Link::None),
+        (crate::notices::Mark::Plain, "Открыто", "сборка 0.89.4", "", 0, crate::notices::Link::None),
     ]
     .into_iter()
     .rev()
@@ -548,6 +548,7 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
     prefs_app.ground_fade = iced::Animation::new(true);
     prefs_app.ffmpeg_version = Some("7.1".to_owned());
     prefs_app.sizes = (596_000_000, 1_180_000_000, 146_800_000);
+    prefs_app.storage = crate::settings_screen::Storage { app: 48_200_000, data: 2_140_000_000, videos: 596_000_000, skins: 277_000_000, maps: 1_180_000_000, cache: 14_600_000 };
     prefs_app.store.videos = with_videos.store.videos.clone();
     prefs_app.marks_now = std::collections::HashMap::new();
     let mut prefs_bot = prefs_app.clone();

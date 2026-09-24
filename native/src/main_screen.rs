@@ -34,6 +34,7 @@ const COMMUNITY_EVERY: Duration = Duration::from_secs(60);
 const FRIENDS_EVERY: Duration = Duration::from_secs(120);
 const CARD_EVERY: Duration = Duration::from_secs(300);
 const COMMUNITY_SCALE: f32 = 0.84;
+const SHARED_FRESH: i64 = 3 * 3600;
 const HOVER_REST: Duration = Duration::from_millis(160);
 pub const LIVE_FADE: Duration = Duration::from_millis(640);
 pub const BRAND_WIDTH: f32 = 144.0;
@@ -74,6 +75,7 @@ pub enum Message {
     OsuProfile(Result<crate::community::wire::Card, String>),
     PersonCard(String, Result<crate::community::wire::Card, String>),
     PersonDossier(i64, Result<crate::community::wire::Me, String>),
+    CardShared(Result<(), String>),
     ReadFirst,
     Loaded(Library),
     Thumb(String, image::Handle),
@@ -90,6 +92,7 @@ pub enum Message {
     ShowSkins(bool),
     ChatFace(i64, Option<image::Handle>),
     Sized(u64, u64, u64),
+    Stored(prefs::Storage),
     Ffmpeg(Option<String>),
     Adopted(Vec<videos::Video>),
     ToastLink(u64),
@@ -355,6 +358,7 @@ pub struct Main {
     pub side_fade: Animation<bool>,
     pub side_swap: f32,
     pub sizes: (u64, u64, u64),
+    pub storage: prefs::Storage,
     pub ffmpeg_version: Option<String>,
     pub retype: Animation<bool>,
     pub menu_open: Animation<bool>,
@@ -510,6 +514,7 @@ impl Main {
             side_fade: Animation::new(true),
             side_swap: 0.0,
             sizes: (0, 0, 0),
+            storage: prefs::Storage::default(),
             ffmpeg_version: None,
             retype: Animation::new(true),
             menu_open: Animation::new(false).duration(MENU_OPEN).easing(Easing::EaseOutCubic),
@@ -1171,6 +1176,10 @@ impl Main {
                 self.sizes = (videos, maps, cache);
                 Task::none()
             }
+            Message::Stored(storage) => {
+                self.storage = storage;
+                Task::none()
+            }
             Message::Ffmpeg(version) => {
                 self.ffmpeg_version = version;
                 Task::none()
@@ -1517,6 +1526,7 @@ impl Main {
                     let renders = self.settings.renders_dir();
                     let songs = crate::sources::own_root().join("Songs");
                     let root = crate::sources::own_root();
+                    let measured = renders.clone();
                     let sizes = ui::in_thread(move || {
                         Message::Sized(
                             prefs::folder_size(&renders),
@@ -1524,6 +1534,7 @@ impl Main {
                             prefs::folder_size(&root.join("maps.json")) + prefs::folder_size(&root.join("found.json")),
                         )
                     });
+                    let stored = ui::in_thread(move || Message::Stored(prefs::measure(&measured)));
                     let skins = self.look_for_skins();
                     let ffmpeg = self.ffmpeg.clone();
                     let version = ui::in_thread(move || Message::Ffmpeg(ffmpeg.as_deref().and_then(crate::checks::ffmpeg_version)));
@@ -1531,7 +1542,7 @@ impl Main {
                     self.turn_to(overlay, now);
                     self.overlay = overlay;
                     self.rest_live(true);
-                    return Task::batch([sizes, version, chats, skins]);
+                    return Task::batch([sizes, stored, version, chats, skins]);
                 }
                 let news = match overlay == Overlay::Community {
                     true => {
@@ -1796,7 +1807,8 @@ impl Main {
                 crate::osu_profile::save(&card);
                 self.osu_card = Some(card);
                 self.dress_staged_you();
-                self.community_pictures_task()
+                let pictures = self.community_pictures_task();
+                Task::batch([pictures, self.share_task()])
             }
             Message::OsuProfile(Err(_)) => Task::none(),
             Message::PersonCard(name, said) => {
@@ -1812,13 +1824,35 @@ impl Main {
             }
             Message::PersonDossier(id, said) => {
                 self.people_asked.remove(&format!("me:{id}"));
-                if let (Ok(said), Some(catalog)) = (said, self.community.as_mut()) {
+                let Some(catalog) = self.community.as_mut() else {
+                    return Task::none();
+                };
+                let Some(at) = catalog.people.iter().position(|person| person.id == id) else {
+                    return Task::none();
+                };
+                let name = catalog.people[at].name.to_lowercase();
+                let mut shared = None;
+                if let Ok(said) = said {
                     let dossier = catalog.take_someone(&said);
                     self.people_dossiers.insert(id, dossier);
-                    return self.community_pictures_task();
+                    let fresh = said.card_at.is_some_and(|at| unix_now() - at < SHARED_FRESH);
+                    shared = said.card.filter(|card| card.pp > 0.0 || !card.username.is_empty()).map(|card| (card, fresh));
                 }
-                Task::none()
+                let mut tasks = vec![self.community_pictures_task()];
+                match shared {
+                    Some((card, fresh)) => {
+                        let wanted: Vec<(String, u32)> = card.pictures().into_iter().map(|(url, side)| (url, if side > 256 { crate::community::BACKDROP } else { side })).collect();
+                        self.people_cards.entry(name.clone()).or_insert(card);
+                        tasks.push(self.pictures_task(wanted));
+                        if !fresh {
+                            tasks.push(self.scrape_task(at));
+                        }
+                    }
+                    None => tasks.push(self.scrape_task(at)),
+                }
+                Task::batch(tasks)
             }
+            Message::CardShared(_) => Task::none(),
             Message::ClipFetched(link, probed) => {
                 self.clips_loading.remove(&link);
                 match probed {
@@ -3922,21 +3956,43 @@ impl Main {
         let Some(person) = self.community.as_ref().and_then(|catalog| catalog.people.get(at)).cloned() else {
             return Task::none();
         };
-        let mut tasks = Vec::new();
-        let name = person.name.to_lowercase();
-        if !self.people_cards.contains_key(&name) && self.people_asked.insert(format!("card:{name}")) {
-            let asked = person.name.clone();
-            tasks.push(ui::in_thread(move || Message::PersonCard(asked.to_lowercase(), crate::osu_profile::fetch(&asked))));
-        }
         let staged = self.community.as_ref().is_none_or(|catalog| catalog.staged);
         let chat = self.settings.chat_id.filter(|id| *id < 0).or_else(|| self.community.as_ref().and_then(|catalog| catalog.chat));
-        if let (false, Some(chat)) = (staged || self.settings.token.is_empty(), chat) {
-            if !self.people_dossiers.contains_key(&person.id) && self.people_asked.insert(format!("me:{}", person.id)) {
+        match (staged || self.settings.token.is_empty(), chat) {
+            (false, Some(chat)) => {
+                if self.people_dossiers.contains_key(&person.id) || !self.people_asked.insert(format!("me:{}", person.id)) {
+                    return Task::none();
+                }
                 let (server, token, device, id) = (self.settings.server.clone(), self.settings.token.clone(), self.settings.device.clone(), person.id);
-                tasks.push(ui::in_thread(move || Message::PersonDossier(id, crate::bot::person(&server, &token, &device, chat, id).map_err(|e| e.to_string()))));
+                let asked = ui::in_thread(move || Message::PersonDossier(id, crate::bot::person(&server, &token, &device, chat, id).map_err(|e| e.to_string())));
+                match person.app {
+                    true => asked,
+                    false => Task::batch([asked, self.scrape_task(at)]),
+                }
             }
+            _ => self.scrape_task(at),
         }
-        Task::batch(tasks)
+    }
+
+    fn scrape_task(&mut self, at: usize) -> Task<Message> {
+        let Some(person) = self.community.as_ref().and_then(|catalog| catalog.people.get(at)).cloned() else {
+            return Task::none();
+        };
+        let name = person.name.to_lowercase();
+        if !self.people_asked.insert(format!("card:{name}")) {
+            return Task::none();
+        }
+        let asked = person.name.clone();
+        ui::in_thread(move || Message::PersonCard(asked.to_lowercase(), crate::osu_profile::fetch(&asked)))
+    }
+
+    fn share_task(&mut self) -> Task<Message> {
+        let staged = self.community.as_ref().is_none_or(|catalog| catalog.staged);
+        let Some(card) = self.osu_card.clone().filter(|_| !staged && !self.settings.token.is_empty()) else {
+            return Task::none();
+        };
+        let (server, token, device) = (self.settings.server.clone(), self.settings.token.clone(), self.settings.device.clone());
+        ui::in_thread(move || Message::CardShared(crate::bot::share_card(&server, &token, &device, &card).map_err(|e| e.to_string())))
     }
 
     fn pictures_task(&mut self, wanted: Vec<(String, u32)>) -> Task<Message> {
@@ -4103,6 +4159,7 @@ impl Main {
             maps: self.library.as_ref().map_or(0, |l| l.maps),
             maps_size: self.sizes.1,
             cache_size: self.sizes.2,
+            storage: &self.storage,
             ffmpeg: self.ffmpeg_version.clone(),
             account: self.account.as_ref(),
             avatar: self.avatar.as_ref(),
@@ -4256,6 +4313,18 @@ impl Main {
                 prefs::clear_cache();
                 self.sizes.2 = 0;
                 Task::none()
+            }
+            P::OpenData => {
+                let _ = open::that_detached(crate::sources::own_root());
+                Task::none()
+            }
+            P::ClearAppCache => {
+                prefs::clear_app_cache();
+                self.sizes.2 = 0;
+                self.flags.clear();
+                self.flags_asked.clear();
+                let renders = self.settings.renders_dir();
+                ui::in_thread(move || Message::Stored(prefs::measure(&renders)))
             }
             P::CheckBuild => {
                 let _ = open::that_detached("https://github.com/NaumRedlo/Dossier/releases");

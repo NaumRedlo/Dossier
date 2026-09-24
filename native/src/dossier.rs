@@ -707,108 +707,292 @@ pub(crate) fn grade_badge<'a>(grade: &str, side: f32) -> Element<'a, Message> {
         .into()
 }
 
-fn split_line(line: &str) -> (String, String) {
-    match line.split_once(" — ") {
-        Some((artist, rest)) => (rest.to_owned(), artist.to_owned()),
-        None => (line.to_owned(), String::new()),
-    }
-}
-
-struct Strip<'a> {
-    index: usize,
+struct Poster<'a> {
     grade: String,
     title: String,
-    under: String,
-    mods: Vec<String>,
-    accuracy: f64,
+    version: String,
+    artist: String,
+    mapper: String,
     pp: f64,
+    accuracy: f64,
+    mods: Vec<String>,
+    counts: [Option<u32>; 4],
+    combo: Option<u32>,
+    most: Option<u32>,
+    stars: Option<f32>,
+    bpm: Option<f64>,
+    length: Option<f64>,
+    played: Option<i64>,
     cover: Option<&'a iced::widget::image::Handle>,
-    details: Option<Element<'a, Message>>,
+    set: Option<u64>,
 }
 
-fn play_strip<'a>(ground: &Ground<'a>, strip: Strip<'a>) -> Element<'a, Message> {
-    let w = ground.words;
-    let high = 54.0;
-    let open = ground.play_open == Some(strip.index);
-    let line = row![
-        grade_badge(&strip.grade, 32.0),
-        container(
-            column![
-                text(ui::shortened(strip.title, 64)).font(theme::SANS_SEMI).size(13.5).wrapping(text::Wrapping::None).color(ui::faded(INK)),
-                text(ui::shortened(strip.under, 70)).font(theme::SANS).size(11.5).wrapping(text::Wrapping::None).color(ui::faded(MUTED)),
-            ]
-            .spacing(2),
-        )
-        .width(Length::Fill)
-        .clip(true),
-        screen::mods(&strip.mods),
-        container(ui::mono_small(w.percent(strip.accuracy), MUTED)).width(62.0).align_x(iced::alignment::Horizontal::Right),
-        container(text(format!("{} pp", screen::decimal(w, strip.pp as f32, 0))).font(theme::SANS_SEMI).size(15.0).wrapping(text::Wrapping::None).color(ui::faded(INK))).width(74.0).align_x(iced::alignment::Horizontal::Right),
-    ]
-    .spacing(12)
-    .align_y(iced::Center);
-    let face = stack![screen::backdrop(strip.cover, high, 12.0, screen::grade_colour(&strip.grade), true), container(line).width(Length::Fill).height(high).padding([0, 12]).center_y(high)].height(high);
-    let mut inside = column![face].spacing(0);
-    if let (true, Some(details)) = (open, strip.details) {
-        inside = inside.push(container(details).padding(Padding { top: 10.0, right: 12.0, bottom: 12.0, left: 12.0 }));
+impl Poster<'_> {
+    fn misses(&self) -> Option<u32> {
+        self.counts[3]
     }
+
+    fn full(&self) -> bool {
+        self.misses() == Some(0) && self.most.is_none_or(|most| self.combo.is_none_or(|combo| combo + 10 >= most))
+    }
+}
+
+fn posters_of<'a>(ground: &Ground<'a>, whose: &Whose<'a>) -> Vec<Poster<'a>> {
+    let card = &whose.card;
+    if card.top_scores.iter().any(|score| score.pp > 0.0 && score.hash.is_empty()) {
+        return card
+            .top_scores
+            .iter()
+            .take(5)
+            .map(|score| {
+                let grade = match score.rank.to_ascii_uppercase().as_str() {
+                    "X" | "XH" | "SS" | "SSH" => "SS".to_owned(),
+                    "SH" => "S".to_owned(),
+                    other => other.to_owned(),
+                };
+                let counted = |n: f64| (n > 0.0 || score.great > 0.0).then_some(n as u32);
+                Poster {
+                    grade,
+                    title: score.title.clone(),
+                    version: score.version.clone(),
+                    artist: score.artist.clone(),
+                    mapper: score.creator.clone(),
+                    pp: score.pp,
+                    accuracy: score.accuracy,
+                    mods: score.mods.split(',').map(str::trim).filter(|m| !m.is_empty() && *m != "CL" && *m != "NM").map(str::to_owned).collect(),
+                    counts: [counted(score.great), counted(score.ok), counted(score.meh), counted(score.miss)],
+                    combo: (score.max_combo > 0.0).then_some(score.max_combo as u32),
+                    most: (score.map_max_combo > 0.0).then_some(score.map_max_combo as u32),
+                    stars: (score.stars > 0.0).then_some(score.stars as f32),
+                    bpm: (score.bpm > 0.0).then_some(score.bpm),
+                    length: (score.length > 0.0).then_some(score.length),
+                    played: crate::news::unix_of(&score.played),
+                    cover: score.cover().and_then(|url| ground.pictures.get(&url)).or_else(|| ground.thumbs.get(&score.hash)),
+                    set: (score.beatmapset_id > 0.0).then_some(score.beatmapset_id as u64),
+                }
+            })
+            .collect();
+    }
+    whose
+        .person
+        .top
+        .iter()
+        .take(5)
+        .map(|play| {
+            let map = ground.catalog.map(Some(play.map));
+            let line = screen::line_of(ground, play.map);
+            let (artist, rest) = line.split_once(" — ").map_or((String::new(), line.clone()), |(artist, rest)| (artist.to_owned(), rest.to_owned()));
+            let (title, version) = match rest.rsplit_once(" [") {
+                Some((title, version)) => (title.to_owned(), version.trim_end_matches(']').to_owned()),
+                None => (rest, String::new()),
+            };
+            Poster {
+                grade: play.grade.clone(),
+                title,
+                version,
+                artist,
+                mapper: String::new(),
+                pp: f64::from(play.pp),
+                accuracy: f64::from(play.accuracy),
+                mods: play.mods.clone(),
+                counts: play.counts,
+                combo: play.combo,
+                most: play.max_combo,
+                stars: play.stars,
+                bpm: None,
+                length: None,
+                played: (play.at > 0).then_some(play.at),
+                cover: map.and_then(|map| ground.thumbs.get(&map.hash).or_else(|| map.card().and_then(|card| ground.pictures.get(&card)))),
+                set: map.and_then(|map| map.set),
+            }
+        })
+        .collect()
+}
+
+fn poster_card<'a>(ground: &Ground<'a>, index: usize, poster: &Poster<'a>, chosen: bool) -> Element<'a, Message> {
+    let w = ground.words;
+    let colour = screen::grade_colour(&poster.grade);
     let k = ui::fade();
-    button(inside)
+    let high = 118.0;
+    let picture: Element<'a, Message> = match poster.cover {
+        Some(handle) => iced::widget::image(handle.clone()).content_fit(iced::ContentFit::Cover).width(Length::Fill).height(high).opacity(k).into(),
+        None => container(ui::fine_hatch()).width(Length::Fill).height(high).into(),
+    };
+    let shade = container(Space::new().width(Length::Fill).height(high)).style(move |_| container::Style {
+        background: Some(Background::Gradient(iced::Gradient::Linear(
+            iced::gradient::Linear::new(iced::Radians(std::f32::consts::PI)).add_stop(0.0, Color::from_rgba(0.047, 0.027, 0.035, 0.0)).add_stop(0.55, Color::from_rgba(0.047, 0.027, 0.035, 0.35 * k)).add_stop(1.0, Color::from_rgba(0.047, 0.027, 0.035, 0.97 * k)),
+        ))),
+        ..container::Style::default()
+    });
+    let place = container(text(format!("#{}", index + 1)).font(theme::MONO_BOLD).size(11.0).color(ui::faded(INK)))
+        .padding(Padding { top: 2.0, right: 7.0, bottom: 2.0, left: 7.0 })
+        .style(move |_| container::Style { background: Some(Background::Color(Color::from_rgba(0.047, 0.027, 0.035, 0.75 * k))), border: Border { radius: 6.0.into(), ..Border::default() }, ..container::Style::default() });
+    let seal = container(text(poster.grade.clone()).font(theme::SANS_SEMI).size(19.0).color(ui::faded(colour)))
+        .width(42.0)
+        .height(42.0)
+        .center(42.0)
+        .style(move |_| container::Style {
+            background: Some(Background::Color(Color { a: k, ..Color::from_rgb8(0x16, 0x0b, 0x0e) })),
+            border: Border { color: Color { a: k, ..colour }, width: 2.0, radius: 21.0.into() },
+            shadow: Shadow { color: Color { a: 0.4 * k, ..colour }, offset: Vector::ZERO, blur_radius: 14.0 },
+            ..container::Style::default()
+        });
+    let top = stack![
+        picture,
+        shade,
+        container(place).padding(8).width(Length::Fill).height(high),
+        container(seal).padding(Padding { top: 0.0, right: 10.0, bottom: 0.0, left: 0.0 }).width(Length::Fill).height(high + 18.0).align_x(iced::alignment::Horizontal::Right).align_y(iced::alignment::Vertical::Bottom),
+    ]
+    .height(high + 18.0);
+    let tail: Element<'a, Message> = match (poster.full(), poster.misses()) {
+        (true, _) => ui::mono_small("FC".to_owned(), GREEN),
+        (false, Some(misses)) if misses > 0 => ui::mono_small(format!("{misses} ✕"), ACCENT),
+        _ => Space::new().width(0.0).into(),
+    };
+    let body = column![
+        row![text(screen::decimal(w, poster.pp as f32, 0)).font(theme::SANS_SEMI).size(24.0).wrapping(text::Wrapping::None).color(ui::faded(INK)), text("pp").font(theme::SANS).size(12.0).color(ui::faded(MUTED))].spacing(4).align_y(iced::alignment::Vertical::Bottom),
+        container(text(poster.title.clone()).font(theme::SANS_SEMI).size(13.0).color(ui::faded(INK))).height(34.0).clip(true),
+        container(text(poster.version.clone()).font(theme::SANS).size(11.5).wrapping(text::Wrapping::None).color(ui::faded(MUTED))).clip(true),
+        row![ui::mono_small(w.percent(poster.accuracy), INK), ui::grow(), tail].align_y(iced::Center),
+    ]
+    .spacing(5)
+    .padding(Padding { top: 0.0, right: 12.0, bottom: 12.0, left: 12.0 });
+    button(column![top, body].spacing(0))
         .padding(0)
-        .width(Length::Fill)
+        .width(Length::FillPortion(1))
         .style(move |_, status: button::Status| {
-            let lit = open || matches!(status, button::Status::Hovered | button::Status::Pressed);
+            let lit = chosen || matches!(status, button::Status::Hovered | button::Status::Pressed);
+            let k = ui::fade();
             button::Style {
-                background: Some(Background::Color(Color::from_rgba(1.0, 1.0, 1.0, if open { 0.02 * k } else { 0.0 }))),
+                background: Some(Background::Color(Color { a: k, ..Color::from_rgb8(0x17, 0x0d, 0x10) })),
                 text_color: INK,
-                border: Border { color: Color::from_rgba(1.0, 1.0, 1.0, if lit { 0.12 * k } else { 0.04 * k }), width: 1.0, radius: 12.0.into() },
-                shadow: Shadow::default(),
+                border: Border { color: if chosen { Color { a: k, ..colour } } else { Color::from_rgba(1.0, 1.0, 1.0, if lit { 0.16 } else { 0.07 } * k) }, width: 1.0, radius: 14.0.into() },
+                shadow: if chosen { Shadow { color: Color { a: 0.25 * k, ..colour }, offset: Vector::ZERO, blur_radius: 22.0 } } else { Shadow::default() },
                 snap: true,
             }
         })
-        .on_press(Message::PlayOpen(strip.index))
+        .on_press(Message::PlayOpen(index))
         .into()
 }
 
-fn score_rows<'a>(ground: &Ground<'a>, card: &wire::Card) -> Element<'a, Message> {
+fn judgement_bar<'a>(ground: &Ground<'a>, counts: [Option<u32>; 4]) -> Option<Element<'a, Message>> {
     let w = ground.words;
-    let mut rows = column![].spacing(6);
-    for (index, score) in card.top_scores.iter().take(5).enumerate() {
-        let grade = match score.rank.to_ascii_uppercase().as_str() {
-            "X" | "XH" | "SS" | "SSH" => "SS".to_owned(),
-            "SH" => "S".to_owned(),
-            other => other.to_owned(),
-        };
-        let under = match (score.artist.is_empty(), score.version.is_empty()) {
-            (false, false) => format!("{} · {}", score.artist, score.version),
-            (false, true) => score.artist.clone(),
-            (true, false) => score.version.clone(),
-            _ => String::new(),
-        };
-        let mods: Vec<String> = score.mods.split(',').map(str::trim).filter(|m| !m.is_empty() && *m != "CL" && *m != "NM").map(str::to_owned).collect();
-        let cover = score.cover().and_then(|url| ground.pictures.get(&url)).or_else(|| ground.thumbs.get(&score.hash));
-        let counted = |n: f64| (n > 0.0 || score.great > 0.0).then_some(n as u32);
-        let combo = (score.max_combo > 0.0).then(|| (score.max_combo as u32, if score.map_max_combo > 0.0 { score.map_max_combo as u32 } else { score.max_combo as u32 }));
-        let stars = (score.stars > 0.0).then_some(score.stars as f32);
-        let details = chronicle::counts_row(ground, [counted(score.great), counted(score.ok), counted(score.meh), counted(score.miss)], combo, stars);
-        rows = rows.push(play_strip(ground, Strip { index, grade, title: score.title.clone(), under, mods, accuracy: score.accuracy, pp: score.pp, cover, details: Some(details) }));
+    let k = ui::fade();
+    let shades = [theme::HIT_300, theme::HIT_100, theme::HIT_50, ACCENT];
+    let labels = ["300", "100", "50", "✕"];
+    let total: u32 = counts.iter().flatten().sum();
+    if total == 0 {
+        return None;
     }
-    slab(column![caption(w.t("best-plays")), rows].spacing(10), [14, 16]).into()
+    let mut bar = row![].spacing(2).height(9.0);
+    for (count, colour) in counts.iter().zip(shades) {
+        if let Some(n) = count.filter(|n| *n > 0) {
+            bar = bar.push(container(Space::new().height(9.0)).width(Length::FillPortion((n.clamp(1, 65_000)) as u16)).style(move |_| container::Style {
+                background: Some(Background::Color(Color { a: k, ..colour })),
+                border: Border { radius: 4.0.into(), ..Border::default() },
+                ..container::Style::default()
+            }));
+        }
+    }
+    let mut tags = row![].spacing(16);
+    for ((count, colour), label) in counts.iter().zip(shades).zip(labels) {
+        if let Some(n) = count {
+            tags = tags.push(row![ui::mono_small(label.to_owned(), colour), text(w.lang().group(u64::from(*n))).font(theme::MONO).size(12.0).color(ui::faded(INK))].spacing(5).align_y(iced::Center));
+        }
+    }
+    Some(column![bar.width(Length::Fill), tags].spacing(8).into())
 }
 
-fn top_plays<'a>(ground: &Ground<'a>, you: &Person) -> Element<'a, Message> {
+fn fact_pill<'a>(inside: Element<'a, Message>) -> Element<'a, Message> {
+    let k = ui::fade();
+    container(inside)
+        .padding(Padding { top: 3.0, right: 9.0, bottom: 3.0, left: 9.0 })
+        .style(move |_| container::Style {
+            background: Some(Background::Color(Color { a: k, ..Color::from_rgb8(0x24, 0x18, 0x1b) })),
+            border: Border { radius: 11.0.into(), ..Border::default() },
+            ..container::Style::default()
+        })
+        .into()
+}
+
+fn poster_detail<'a>(ground: &Ground<'a>, poster: &Poster<'a>) -> Element<'a, Message> {
     let w = ground.words;
-    let mut rows = column![].spacing(6);
-    for (index, play) in you.top.iter().take(5).enumerate() {
-        let (title, under) = split_line(&screen::line_of(ground, play.map));
-        let cover = ground.catalog.map(Some(play.map)).and_then(|map| ground.thumbs.get(&map.hash).or_else(|| map.card().and_then(|card| ground.pictures.get(&card))));
-        let details = chronicle::counts_row(ground, play.counts, play.combo.zip(play.max_combo), play.stars);
-        rows = rows.push(play_strip(ground, Strip { index, grade: play.grade.clone(), title, under, mods: play.mods.clone(), accuracy: f64::from(play.accuracy), pp: f64::from(play.pp), cover, details: Some(details) }));
+    let mut facts: Vec<Element<'a, Message>> = Vec::new();
+    let combo_said = match (poster.combo, poster.most) {
+        (Some(combo), Some(most)) => Some(format!("{} / {}x", w.lang().group(u64::from(combo)), w.lang().group(u64::from(most)))),
+        (Some(combo), None) => Some(format!("{}x", w.lang().group(u64::from(combo)))),
+        _ => None,
+    };
+    if let Some(said) = combo_said {
+        let full = poster.full();
+        let colour = if full { GREEN } else { MUTED };
+        let said = if full { format!("{said} · FC") } else { poster.misses().filter(|n| *n > 0).map_or(said.clone(), |n| format!("{said} · {n} ✕")) };
+        facts.push(fact_pill(row![glyph(Icon::Chain, 12.0, colour), ui::mono_small(said, colour)].spacing(5).align_y(iced::Center).into()));
     }
-    if you.top.is_empty() {
-        rows = rows.push(ui::mono_small(w.t("nothing-yet"), FAINT));
+    if let Some(stars) = poster.stars {
+        facts.push(fact_pill(row![glyph(Icon::Star, 11.0, theme::GRADE_S), ui::mono_small(format!("{}★", screen::decimal(w, stars, 2)), INK)].spacing(5).align_y(iced::Center).into()));
     }
-    slab(column![caption(w.t("best-plays")), rows].spacing(10), [14, 16]).into()
+    if let Some(bpm) = poster.bpm {
+        facts.push(fact_pill(ui::mono_small(format!("{} BPM", bpm.round() as u32), MUTED)));
+    }
+    if let Some(length) = poster.length {
+        facts.push(fact_pill(row![glyph(Icon::Clock, 12.0, MUTED), ui::mono_small(format!("{}:{:02}", length as u32 / 60, length as u32 % 60), MUTED)].spacing(5).align_y(iced::Center).into()));
+    }
+    if let Some(at) = poster.played {
+        facts.push(fact_pill(row![glyph(Icon::Calendar, 12.0, MUTED), ui::mono_small(w.day(at, ground.now_unix), MUTED)].spacing(5).align_y(iced::Center).into()));
+    }
+    if !poster.mods.is_empty() {
+        facts.push(screen::mods(&poster.mods));
+    }
+    let mut under = vec![format!("[{}]", poster.version)];
+    if !poster.mapper.is_empty() {
+        under.push(format!("{} {}", w.t("mapped-by"), poster.mapper));
+    }
+    let named = if poster.artist.is_empty() { poster.title.clone() } else { format!("{} — {}", poster.artist, poster.title) };
+    let left = column![
+        text(named).font(theme::SANS_SEMI).size(16.0).color(ui::faded(INK)),
+        text(under.join(" · ")).font(theme::SANS).size(12.5).color(ui::faded(MUTED)),
+        ui::wrap(facts, 6.0),
+    ]
+    .spacing(8)
+    .width(Length::FillPortion(13));
+    let mut right = column![].spacing(12).width(Length::FillPortion(10));
+    if let Some(bar) = judgement_bar(ground, poster.counts) {
+        right = right.push(bar);
+    }
+    if let Some(set) = poster.set {
+        right = right.push(
+            button(row![glyph(Icon::External, 13.0, MUTED), text(w.t("open-map")).font(theme::SANS_SEMI).size(12.5).color(ui::faded(MUTED))].spacing(6).align_y(iced::Center))
+                .padding([7, 12])
+                .style(ui::button_faded(outline))
+                .on_press(Message::Open(format!("https://osu.ppy.sh/beatmapsets/{set}"))),
+        );
+    }
+    let k = ui::fade();
+    container(row![left, right].spacing(20).align_y(iced::Center))
+        .padding([14, 16])
+        .width(Length::Fill)
+        .style(move |_| container::Style {
+            background: Some(Background::Color(Color { a: k, ..Color::from_rgb8(0x16, 0x0c, 0x0f) })),
+            border: Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.07 * k), width: 1.0, radius: 14.0.into() },
+            ..container::Style::default()
+        })
+        .into()
+}
+
+fn best_plays<'a>(ground: &Ground<'a>, whose: &Whose<'a>, wide: f32) -> Element<'a, Message> {
+    let w = ground.words;
+    let posters = posters_of(ground, whose);
+    let mut head = row![caption(w.t("best-plays")), ui::grow()].align_y(iced::Center);
+    if posters.is_empty() {
+        return slab(column![head, ui::mono_small(w.t("nothing-yet"), FAINT)].spacing(10), [14, 16]).into();
+    }
+    let weighted: f64 = posters.iter().enumerate().map(|(at, poster)| poster.pp * 0.95f64.powi(at as i32)).sum();
+    head = head.push(ui::mono_small(w.with("weighted-pp", &[("pp", w.lang().group(weighted.round() as u64)), ("n", posters.len().to_string())]), MUTED));
+    let chosen = ground.play_open.filter(|at| *at < posters.len()).unwrap_or(0);
+    let cards: Vec<Element<'a, Message>> = posters.iter().enumerate().map(|(at, poster)| poster_card(ground, at, poster, at == chosen)).collect();
+    let columns = if wide >= 720.0 { 5 } else { 3 };
+    slab(column![head, screen::grid(cards, columns, 10.0), poster_detail(ground, &posters[chosen])].spacing(12), [14, 16]).into()
 }
 
 fn grades<'a>(ground: &Ground<'a>, card: &wire::Card) -> Element<'a, Message> {
@@ -1009,8 +1193,8 @@ pub fn columns<'a>(ground: &Ground<'a>, whose: &Whose<'a>, room: f32) -> Element
     let wide = room >= LEFT + RIGHT + 540.0 + 32.0;
     let left = (room * 0.21).clamp(LEFT, SIDE_MOST);
     let right = (room * 0.21).clamp(RIGHT, SIDE_MOST);
-    let best = if whose.card.top_scores.iter().any(|score| score.pp > 0.0 && score.hash.is_empty()) { score_rows(ground, &whose.card) } else { top_plays(ground, whose.person) };
-    let middle = column![metrics(ground, whose), chart(ground, whose), best].spacing(14);
+    let middle_wide = if wide { room - left - right - 32.0 } else { room - left - 16.0 };
+    let middle = column![metrics(ground, whose), chart(ground, whose), best_plays(ground, whose, middle_wide)].spacing(14);
     if wide {
         row![
             container(rolled(column![identity(ground, whose), places(ground, whose)].spacing(14).into())).width(left).height(Length::Fill),

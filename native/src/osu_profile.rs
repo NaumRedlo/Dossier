@@ -77,6 +77,9 @@ pub fn scores_from(json: &str) -> Vec<Score> {
                 miss: number(&statistics["miss"]),
                 stars: number(&score["beatmap"]["difficulty_rating"]),
                 map_max_combo: number(&score["beatmap"]["max_combo"]),
+                bpm: number(&score["beatmap"]["bpm"]),
+                length: number(&score["beatmap"]["total_length"]),
+                played: score["ended_at"].as_str().or_else(|| score["created_at"].as_str()).unwrap_or_default().to_owned(),
                 ..Score::default()
             }
         })
@@ -136,12 +139,13 @@ mod tests {
 
     #[test]
     fn best_scores_read_with_their_hits() {
-        let json = r#"[{"pp":386.125,"accuracy":0.996479,"rank":"S","mods":[{"acronym":"CL"},{"acronym":"HD"}],"max_combo":1705,"statistics":{"ok":9,"great":1695},"beatmap_id":1494828,"beatmap":{"version":"Grace","difficulty_rating":6.6731,"max_combo":1710},"beatmapset":{"artist":"yaseta","title":"Bluenation","creator":"Meg","id":707032}}]"#;
+        let json = r#"[{"pp":386.125,"accuracy":0.996479,"rank":"S","mods":[{"acronym":"CL"},{"acronym":"HD"}],"max_combo":1705,"statistics":{"ok":9,"great":1695},"beatmap_id":1494828,"ended_at":"2026-05-11T13:10:05Z","beatmap":{"version":"Grace","difficulty_rating":6.6731,"max_combo":1710,"bpm":180,"total_length":320},"beatmapset":{"artist":"yaseta","title":"Bluenation","creator":"Meg","id":707032}}]"#;
         let scores = scores_from(json);
         assert_eq!(scores.len(), 1);
         assert_eq!(scores[0].mods, "HD");
         assert_eq!(scores[0].great, 1_695.0);
         assert_eq!(scores[0].ok, 9.0);
+        assert_eq!((scores[0].bpm, scores[0].length, scores[0].played.as_str()), (180.0, 320.0, "2026-05-11T13:10:05Z"));
         assert!((scores[0].accuracy - 99.6479).abs() < 1e-6);
         assert_eq!(scores[0].cover().as_deref(), Some("https://assets.ppy.sh/beatmaps/707032/covers/cover.jpg"));
     }

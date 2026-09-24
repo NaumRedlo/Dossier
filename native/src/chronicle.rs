@@ -594,10 +594,19 @@ fn counted<'a, T: Copy + PartialEq + 'static>(ground: &Ground<'a>, options: &[T]
         if n == 0 && option != chosen {
             continue;
         }
+        let on = option == chosen;
+        let k = ui::fade();
+        let count = container(text(n.to_string()).font(theme::MONO_BOLD).size(10.0).color(ui::faded(if on { INK } else { MUTED })))
+            .padding(Padding { top: 1.0, right: 6.0, bottom: 1.0, left: 6.0 })
+            .style(move |_| container::Style {
+                background: Some(Background::Color(Color { a: k, ..if on { Color::from_rgb8(0x6a, 0x26, 0x2a) } else { Color::from_rgb8(0x2e, 0x21, 0x25) } })),
+                border: Border { radius: 8.0.into(), ..Border::default() },
+                ..container::Style::default()
+            });
         pills.push(
-            button(row![text(w.t(key(option))).font(theme::SANS_SEMI).size(12.0), ui::mono_small(n.to_string(), FAINT)].spacing(6).align_y(iced::Center))
-                .padding([5, 11])
-                .style(ui::button_faded(theme::pill(option == chosen)))
+            button(row![text(w.t(key(option))).font(theme::SANS_SEMI).size(12.0).color(ui::faded(if on { INK } else { MUTED })), count].spacing(7).align_y(iced::Center))
+                .padding(Padding { top: 5.0, right: 6.0, bottom: 5.0, left: 12.0 })
+                .style(ui::button_faded(theme::filter_chip(on)))
                 .on_press(message(option))
                 .into(),
         );

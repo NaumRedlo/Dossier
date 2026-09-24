@@ -591,9 +591,14 @@ naming the group, its size and when the bot last answered — or *образцы
   five figures — pp, global rank, accuracy, plays, hours — each with its
   gain, which choose what the chart draws over 30 or 90 days (rank from
   the daily history osu! keeps, the rest from the bot's weekly snapshots),
-  the pointer reading any day off it; the best plays as strips of 54 over
-  their map's cover — the grade in a badge, the title over artist and
-  version, the mods, the accuracy and the pp — opening onto their hits; the grades, the one under the pointer lit and its share told; the
+  the pointer reading any day off it; the best plays as five posters
+  (chosen from four concepts drawn on a canvas, 2026-09-24) — the map's
+  cover with the place over it and the grade in a glowing ring on its edge,
+  the pp large, the title, the version, the accuracy and FC or the misses —
+  with the chosen one's particulars under them: artist and title, version
+  and mapper, the combo (with the map's own when osu! says it), stars, BPM,
+  length, the day it was set, the mods, the 300/100/50/miss bar and a way to
+  the map; the heading sums them weighted as osu! does (×0.95 each); the grades, the one under the pointer lit and its share told; the
   titles as a collection, bar by rarity, the held ones filled and the next
   ones dashed, a press telling what each asks and when it was earned; and
   thirteen weeks of plays a day. No panel says *наведите* or *нажмите*:
@@ -700,6 +705,26 @@ naming the group, its size and when the bot last answered — or *образцы
   When the bot does not send `week_began` (an older bot), the week is taken
   from Monday 00:00 in Moscow of the current week, not from 1970, which read
   as *1–7 января*.
+
+*Хранилище*, a tile in the application's settings (2026-09-24), gives
+the size of the application itself (its bundle) and of everything it
+keeps, split in a bar and a legend — videos, skins, maps, cache and the
+rest — with *Показать в папке* and *Очистить кэш*, which drops the
+pictures', flags', clips' and the catalogue's caches (they come back when
+needed). A folder's size used to be read with a function that only walked
+folders, so the maps' cache, two files, always read as nothing.
+
+The application shares what it read of its person's osu! page with the
+bot (`POST /render/me/profile`, kept on their rows as `app_profile`), and
+the bot hands it back with that person's dossier (`card`, `card_at`) and
+marks them in the group's list (`app`). Another member opening them takes
+that card first and reads the osu! page only when there is none or it is
+older than three hours — so one player's use of the application serves
+everyone who opens them. The feed's filters are solid chips with their
+count in a small badge, drawn in opaque colours rather than white at low
+alpha. The application is 0.89.4 from here, a pre-release, and says so
+beside its build in the settings.
+
 - *Титулы* is the bot's catalogue by rarity, each rarity in the colour the
   bot draws it with, *открыто n из m* for the group, and on every card
   whose faces have it. A secret nobody holds shows *???*.

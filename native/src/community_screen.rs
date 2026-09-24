@@ -1034,7 +1034,7 @@ fn podium_card<'a>(ground: &Ground<'a>, list: &Standings, place: usize, who: usi
         row![container(text(person.name.clone()).font(theme::SANS_SEMI).size(16.0).wrapping(text::Wrapping::None).color(ui::faded(INK))).clip(true), flag(ground, &person.country, 11.0)].spacing(6).align_y(iced::Center),
         title_line(ground, person, 11.5),
         Space::new().height(4.0),
-        text(said.value).font(theme::SANS_SEMI).size(if place == 1 { 22.0 } else { 19.0 }).wrapping(text::Wrapping::None).color(ui::faded(value_colour)),
+        row![text(said.value).font(theme::SANS_SEMI).size(if place == 1 { 22.0 } else { 19.0 }).wrapping(text::Wrapping::None).color(ui::faded(value_colour)), movement(ground, said.moved)].spacing(8).align_y(iced::Center),
     ]
     .spacing(3)
     .align_x(iced::alignment::Horizontal::Center);
@@ -1042,10 +1042,7 @@ fn podium_card<'a>(ground: &Ground<'a>, list: &Standings, place: usize, who: usi
         inside = inside.push(ui::mono_small(said.sub, MUTED));
     }
     if let Some(note) = said.note {
-        inside = inside.push(text(note).font(theme::SANS).size(11.5).color(ui::faded(Color::from_rgb(0.941, 0.408, 0.408))));
-    }
-    if said.moved.is_some() {
-        inside = inside.push(container(movement(ground, said.moved)).padding(Padding::ZERO.top(4.0)));
+        inside = inside.push(text(note).font(theme::SANS).size(11.5).wrapping(text::Wrapping::None).color(ui::faded(Color::from_rgb(0.941, 0.408, 0.408))));
     }
     let content = container(inside).width(Length::Fill).height(high).padding([16, 12]).center_x(Length::Fill).align_y(iced::alignment::Vertical::Bottom);
     let cover = ground.pictures.get(&person.cover);
@@ -1136,9 +1133,9 @@ fn boards<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
     let mut chips = row![].spacing(6);
     for board in Board::ALL {
         chips = chips.push(
-            button(text(w.t(board.key())).font(theme::SANS_SEMI).size(theme::CAPTION))
-                .padding([5, 12])
-                .style(ui::button_faded(theme::pill(ground.board == board)))
+            button(text(w.t(board.key())).font(theme::SANS_SEMI).size(theme::CAPTION).color(ui::faded(if ground.board == board { INK } else { MUTED })))
+                .padding([6, 13])
+                .style(ui::button_faded(theme::filter_chip(ground.board == board)))
                 .on_press(Message::Board(board)),
         );
     }
@@ -1184,9 +1181,9 @@ fn boards<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
         match podium.iter().find(|(p, _, _)| *p == place) {
             Some((place, who, value)) => {
                 let high = match place {
-                    1 => 236.0,
-                    2 => 214.0,
-                    _ => 202.0,
+                    1 => 252.0,
+                    2 => 234.0,
+                    _ => 222.0,
                 };
                 stand = stand.push(podium_card(ground, &list, *place, *who, *value, high));
             }

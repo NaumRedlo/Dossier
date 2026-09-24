@@ -910,7 +910,7 @@ fn poster_card<'a>(ground: &Ground<'a>, index: usize, poster: &Poster<'a>, chose
         container(
             column![
                 container(text(poster.title.clone()).font(theme::SANS_SEMI).size(13.5).color(ui::faded(INK))).max_height(36.0).clip(true),
-                container(text(poster.version.clone()).font(theme::SANS).size(11.5).wrapping(text::Wrapping::None).color(ui::faded(MUTED))).clip(true),
+                ui::marquee(vec![ui::piece(poster.version.clone(), theme::SANS, 11.5, MUTED)]),
             ]
             .spacing(2),
         )

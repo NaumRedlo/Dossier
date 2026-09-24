@@ -572,8 +572,9 @@ naming the group, its size and when the bot last answered — or *образцы
   *Профиль*: the level ring, the name with the flag, the title, the
   country's rank and the level, the place in the group large in its
   medal's colour; pp, world rank and accuracy as three small tiles, the
-  week's gain under the pp and the accuracy; the streak as a small chip
-  (it gives way before *Мой профиль →* when the card is narrow). The
+  week's gain under the pp and the accuracy; the streak as a chip that
+  takes the room left of *Мой профиль*, a plain framed button with no
+  arrow (the card itself no longer answers a press). The
   week's table is always the adaptive one, as the bot draws it, with no
   switch: *Лидеры недели* and the week's days, the six boards turning as
   before, the first three on a small podium (second, first, third, the
@@ -584,8 +585,18 @@ naming the group, its size and when the bot last answered — or *образцы
   and lifts it 6 px. While the week is still gathering, or no one has
   gained on a board, it says so in a line.
   The headings over the two streams say what they count in words that fit
-  them — *Группа · 16 событий*, *Новости · 7 записей* — in the page's own
-  face rather than the monospaced one.
+  them — *Группа 16 событий*, *Новости 7 записей* — in the page's own
+  face rather than the monospaced one, with no dot between.
+  A line too long for its place no longer stops at a hard edge: it rests
+  two seconds, glides to its end at 26 px a second (eased, at least 0.8 s),
+  rests, and glides back, and its edges fade out over 22 px wherever text
+  runs past them — the right edge at rest, both while it moves, the left at
+  its end. The fade is the text's own alpha, drawn in six slices, not a
+  veil of the page's colour, so it holds over covers and lit rows alike; a
+  line that fits is drawn once, as plain text. It carries the journal's
+  names, maps and events, the highlights, the side cards' names and the
+  streak, the names on the boards and the people's cards, and a poster's
+  version; it asks for frames only while it moves.
   The middle was rebuilt the same night from the fifth of the concepts
   drawn on a canvas (two streams under the day's highlights). A segmented
   *Всё · Группа · Новости*, *N новых событий* and a search by player, map,

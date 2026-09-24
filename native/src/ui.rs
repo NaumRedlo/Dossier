@@ -3079,3 +3079,199 @@ pub fn bare_input(_: &Theme, _: iced::widget::text_input::Status) -> iced::widge
 pub fn hidden_bar() -> iced::widget::scrollable::Direction {
     iced::widget::scrollable::Direction::Vertical(iced::widget::scrollable::Scrollbar::hidden())
 }
+
+pub struct Piece {
+    words: String,
+    font: iced::Font,
+    size: f32,
+    colour: Color,
+    gap: f32,
+}
+
+pub fn piece(words: impl Into<String>, font: iced::Font, size: f32, colour: Color) -> Piece {
+    Piece { words: words.into(), font, size, colour: faded(colour), gap: 0.0 }
+}
+
+impl Piece {
+    pub fn after(mut self, gap: f32) -> Piece {
+        self.gap = gap;
+        self
+    }
+}
+
+pub struct Marquee {
+    pieces: Vec<Piece>,
+    width: Length,
+    centred: bool,
+}
+
+pub fn marquee(pieces: Vec<Piece>) -> Marquee {
+    Marquee { pieces, width: Length::Fill, centred: false }
+}
+
+impl Marquee {
+    pub fn width(mut self, width: impl Into<Length>) -> Marquee {
+        self.width = width.into();
+        self
+    }
+
+    pub fn centred(mut self) -> Marquee {
+        self.centred = true;
+        self
+    }
+}
+
+type Paragraph = <Renderer as iced::advanced::text::Renderer>::Paragraph;
+
+#[derive(Default)]
+struct MarqueeState {
+    laid: Vec<(String, u32, iced::Font)>,
+    paragraphs: Vec<Paragraph>,
+    born: Option<std::time::Instant>,
+    now: Option<std::time::Instant>,
+}
+
+impl MarqueeState {
+    fn wide(&self, pieces: &[Piece]) -> f32 {
+        self.paragraphs.iter().zip(pieces).map(|(paragraph, piece)| piece.gap + iced::advanced::text::Paragraph::min_width(paragraph)).sum()
+    }
+}
+
+const MARQUEE_REST: f32 = 2.0;
+const MARQUEE_SPEED: f32 = 26.0;
+const MARQUEE_EDGE: f32 = 22.0;
+const MARQUEE_SLICES: usize = 6;
+
+fn glide(over: f32, spent: f32) -> (f32, f32) {
+    let travel = (over / MARQUEE_SPEED).max(0.8);
+    let cycle = 2.0 * (MARQUEE_REST + travel);
+    let t = spent.rem_euclid(cycle);
+    let ease = |x: f32| x * x * (3.0 - 2.0 * x);
+    if t < MARQUEE_REST {
+        (0.0, MARQUEE_REST - t)
+    } else if t < MARQUEE_REST + travel {
+        (over * ease((t - MARQUEE_REST) / travel), 0.0)
+    } else if t < 2.0 * MARQUEE_REST + travel {
+        (over, 2.0 * MARQUEE_REST + travel - t)
+    } else {
+        (over * (1.0 - ease((t - 2.0 * MARQUEE_REST - travel) / travel)), 0.0)
+    }
+}
+
+impl<M> iced::advanced::Widget<M, Theme, Renderer> for Marquee {
+    fn tag(&self) -> iced::advanced::widget::tree::Tag {
+        iced::advanced::widget::tree::Tag::of::<MarqueeState>()
+    }
+
+    fn state(&self) -> iced::advanced::widget::tree::State {
+        iced::advanced::widget::tree::State::new(MarqueeState::default())
+    }
+
+    fn size(&self) -> Size<Length> {
+        Size { width: self.width, height: Length::Shrink }
+    }
+
+    fn layout(&mut self, tree: &mut iced::advanced::widget::Tree, _: &Renderer, limits: &iced::advanced::layout::Limits) -> iced::advanced::layout::Node {
+        use iced::advanced::text::Paragraph as _;
+        let state = tree.state.downcast_mut::<MarqueeState>();
+        let key: Vec<(String, u32, iced::Font)> = self.pieces.iter().map(|piece| (piece.words.clone(), piece.size.to_bits(), piece.font)).collect();
+        if state.laid != key {
+            state.paragraphs = self
+                .pieces
+                .iter()
+                .map(|piece| {
+                    Paragraph::with_text(iced::advanced::text::Text {
+                        content: piece.words.as_str(),
+                        bounds: Size::INFINITE,
+                        size: iced::Pixels(piece.size),
+                        line_height: iced::widget::text::LineHeight::default(),
+                        font: piece.font,
+                        align_x: iced::widget::text::Alignment::Left,
+                        align_y: iced::alignment::Vertical::Top,
+                        shaping: iced::widget::text::Shaping::default(),
+                        wrapping: iced::widget::text::Wrapping::None,
+                    })
+                })
+                .collect();
+            state.laid = key;
+            state.born = None;
+        }
+        let high = state.paragraphs.iter().map(|paragraph| paragraph.min_height()).fold(0.0, f32::max);
+        iced::advanced::layout::Node::new(limits.resolve(self.width, Length::Shrink, Size::new(state.wide(&self.pieces), high)))
+    }
+
+    fn update(
+        &mut self,
+        tree: &mut iced::advanced::widget::Tree,
+        event: &iced::Event,
+        layout: iced::advanced::Layout<'_>,
+        _: mouse::Cursor,
+        _: &Renderer,
+        _: &mut dyn iced::advanced::Clipboard,
+        shell: &mut iced::advanced::Shell<'_, M>,
+        _: &Rectangle,
+    ) {
+        if let iced::Event::Window(iced::window::Event::RedrawRequested(now)) = event {
+            let state = tree.state.downcast_mut::<MarqueeState>();
+            let born = *state.born.get_or_insert(*now);
+            state.now = Some(*now);
+            let over = state.wide(&self.pieces) - layout.bounds().width;
+            if over > 0.5 {
+                let (_, rest) = glide(over, now.saturating_duration_since(born).as_secs_f32());
+                shell.request_redraw_at(iced::window::RedrawRequest::At(*now + std::time::Duration::from_secs_f32(rest.max(0.016))));
+            }
+        }
+    }
+
+    fn draw(&self, tree: &iced::advanced::widget::Tree, renderer: &mut Renderer, _: &Theme, _: &iced::advanced::renderer::Style, layout: iced::advanced::Layout<'_>, _: mouse::Cursor, viewport: &Rectangle) {
+        use iced::advanced::text::{Paragraph as _, Renderer as _};
+        let state = tree.state.downcast_ref::<MarqueeState>();
+        let bounds = layout.bounds();
+        let Some(visible) = bounds.intersection(viewport) else {
+            return;
+        };
+        let wide = state.wide(&self.pieces);
+        let over = wide - bounds.width;
+        let draw_at = |renderer: &mut Renderer, start: f32, alpha: f32, clip: Rectangle| {
+            let mut x = start;
+            for (paragraph, piece) in state.paragraphs.iter().zip(&self.pieces) {
+                x += piece.gap;
+                let y = bounds.y + (bounds.height - paragraph.min_height()) / 2.0;
+                renderer.fill_paragraph(paragraph, Point::new(x, y), Color { a: piece.colour.a * alpha, ..piece.colour }, clip);
+                x += paragraph.min_width();
+            }
+        };
+        if over <= 0.5 {
+            let start = if self.centred { bounds.x + (bounds.width - wide) / 2.0 } else { bounds.x };
+            draw_at(renderer, start, 1.0, visible);
+            return;
+        }
+        let spent = state.now.zip(state.born).map_or(0.0, |(now, born)| now.saturating_duration_since(born).as_secs_f32());
+        let (offset, _) = glide(over, spent);
+        let start = bounds.x - offset;
+        let edge = MARQUEE_EDGE.min(bounds.width / 3.0);
+        let fade_left = (offset / edge).clamp(0.0, 1.0);
+        let fade_right = ((over - offset) / edge).clamp(0.0, 1.0);
+        let cut = |from: f32, to: f32| Rectangle { x: from, y: bounds.y, width: (to - from).max(0.0), height: bounds.height }.intersection(&visible);
+        if let Some(middle) = cut(bounds.x + edge, bounds.x + bounds.width - edge) {
+            draw_at(renderer, start, 1.0, middle);
+        }
+        for slice in 0..MARQUEE_SLICES {
+            let near = slice as f32 / MARQUEE_SLICES as f32;
+            let far = (slice + 1) as f32 / MARQUEE_SLICES as f32;
+            let depth = (slice as f32 + 0.5) / MARQUEE_SLICES as f32;
+            if let Some(left) = cut(bounds.x + edge * near, bounds.x + edge * far) {
+                draw_at(renderer, start, 1.0 - fade_left * (1.0 - depth), left);
+            }
+            if let Some(right) = cut(bounds.x + bounds.width - edge * far, bounds.x + bounds.width - edge * near) {
+                draw_at(renderer, start, 1.0 - fade_right * (1.0 - depth), right);
+            }
+        }
+    }
+}
+
+impl<'a, M: 'a> From<Marquee> for Element<'a, M> {
+    fn from(marquee: Marquee) -> Element<'a, M> {
+        Element::new(marquee)
+    }
+}

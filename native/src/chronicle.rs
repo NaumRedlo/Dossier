@@ -330,7 +330,7 @@ fn player_cell<'a>(ground: &Ground<'a>, who: usize, table: Table) -> Element<'a,
     let Some(person) = ground.catalog.people.get(who) else {
         return Space::new().width(table.player).into();
     };
-    container(row![screen::face(ground, person, 22.0), text(person.name.clone()).font(theme::SANS_SEMI).size(13.0).wrapping(text::Wrapping::None).color(ui::faded(INK))].spacing(8).align_y(iced::Center))
+    container(row![screen::face(ground, person, 22.0), ui::marquee(vec![ui::piece(person.name.clone(), theme::SANS_SEMI, 13.0, INK)])].spacing(8).align_y(iced::Center))
         .width(table.player)
         .clip(true)
         .into()
@@ -343,11 +343,8 @@ fn map_cell<'a>(ground: &Ground<'a>, map: usize, table: Table) -> Element<'a, Me
         None => container(ui::fine_hatch()).width(wide).height(high).into(),
     };
     let (title, version) = title_and_version(ground, map);
-    let words = row![
-        text(title).font(theme::SANS).size(13.0).wrapping(text::Wrapping::None).color(ui::faded(INK)),
-        text(version).font(theme::SANS).size(13.0).wrapping(text::Wrapping::None).color(ui::faded(MUTED)),
-    ];
-    row![thumb, container(words).width(Length::Fill).clip(true)].spacing(if table.full { 10.0 } else { 8.0 }).align_y(iced::Center).into()
+    let words = ui::marquee(vec![ui::piece(title, theme::SANS, 13.0, INK), ui::piece(version, theme::SANS, 13.0, MUTED)]);
+    row![thumb, words].spacing(if table.full { 10.0 } else { 8.0 }).align_y(iced::Center).into()
 }
 
 fn grade_cell<'a>(grade: Option<String>, table: Table) -> Element<'a, Message> {
@@ -371,16 +368,14 @@ fn played_line<'a>(ground: &Ground<'a>, at: i64, table: Table, who: usize, map: 
     line.push(container(pp).width(table.pp).align_x(iced::alignment::Horizontal::Right)).push(grade_cell(grade, table)).into()
 }
 
-fn event_line<'a>(ground: &Ground<'a>, at: i64, table: Table, icon: Icon, colour: Color, name: String, verb: String, object: Element<'a, Message>, value: Option<Element<'a, Message>>) -> Element<'a, Message> {
+fn event_line<'a>(ground: &Ground<'a>, at: i64, table: Table, icon: Icon, colour: Color, name: String, verb: String, object: ui::Piece, value: Option<Element<'a, Message>>) -> Element<'a, Message> {
     let words = row![
         container(glyph(icon, 14.0, colour)).width(22.0).center_x(22.0),
-        text(name).font(theme::SANS_SEMI).size(13.0).wrapping(text::Wrapping::None).color(ui::faded(INK)),
-        text(verb).font(theme::SANS).size(13.0).wrapping(text::Wrapping::None).color(ui::faded(MUTED)),
-        object,
+        ui::marquee(vec![ui::piece(name, theme::SANS_SEMI, 13.0, INK), ui::piece(verb, theme::SANS, 13.0, MUTED).after(8.0), object.after(8.0)]),
     ]
     .spacing(8)
     .align_y(iced::Center);
-    let mut line = row![time_cell(ground, at, table), container(words).width(Length::Fill).clip(true)].spacing(table.gap).align_y(iced::Center);
+    let mut line = row![time_cell(ground, at, table), container(words).width(Length::Fill)].spacing(table.gap).align_y(iced::Center);
     if let Some(value) = value {
         line = line.push(value).push(Space::new().width(table.grade));
     }
@@ -405,6 +400,7 @@ fn journal_row<'a>(ground: &Ground<'a>, event: &Event<'a>, table: Table) -> Opti
     let words = |said: String, colour: Color, strong: bool| -> Element<'a, Message> {
         text(said).font(if strong { theme::SANS_SEMI } else { theme::SANS }).size(13.0).wrapping(text::Wrapping::None).color(ui::faded(colour)).into()
     };
+    let object = |said: String, colour: Color, strong: bool| ui::piece(said, if strong { theme::SANS_SEMI } else { theme::SANS }, 13.0, colour);
     let (line, press, details): (Element<'a, Message>, Message, Option<Element<'a, Message>>) = match event.item {
         Item::Play(play) => {
             catalog.people.get(play.who)?;
@@ -424,16 +420,16 @@ fn journal_row<'a>(ground: &Ground<'a>, event: &Event<'a>, table: Table) -> Opti
                     let play = person.top.iter().find(|play| play.map == map && (play.pp - pp).abs() < 0.5);
                     let details = ground.open_events.contains(&key).then(|| play.map(|play| counts_row(ground, play.counts, play.combo.zip(play.max_combo), play.stars))).flatten();
                     let value = ui::mono_small(format!("{} pp · #{place}", screen::decimal(w, *pp, 0)), CORAL);
-                    (event_line(ground, event.at, table, Icon::Star, CORAL, person.name.clone(), w.t("event-top"), words(title_and_version(ground, map).0, INK, false), Some(value)), Message::Toggle(key), details)
+                    (event_line(ground, event.at, table, Icon::Star, CORAL, person.name.clone(), w.t("event-top"), object(title_and_version(ground, map).0, INK, false), Some(value)), Message::Toggle(key), details)
                 }
                 Kind::Title(code) => {
                     let title = catalog.title_of(code)?;
                     let colour = title.rarity.colour();
-                    (event_line(ground, event.at, table, Icon::Trophy, colour, person.name.clone(), w.t("event-title"), words(title.name(w.lang()).to_owned(), colour, true), None), Message::Person(Some(happened.who)), None)
+                    (event_line(ground, event.at, table, Icon::Trophy, colour, person.name.clone(), w.t("event-title"), object(title.name(w.lang()).to_owned(), colour, true), None), Message::Person(Some(happened.who)), None)
                 }
                 Kind::Climb { board, from, to } => {
                     let value = ui::mono_small(format!("#{from} → #{to}"), GREEN);
-                    (event_line(ground, event.at, table, Icon::Up, GREEN, person.name.clone(), w.t("event-climb"), words(w.t(board.key()), INK, false), Some(value)), Message::Board(*board), None)
+                    (event_line(ground, event.at, table, Icon::Up, GREEN, person.name.clone(), w.t("event-climb"), object(w.t(board.key()), INK, false), Some(value)), Message::Board(*board), None)
                 }
             }
         }
@@ -500,11 +496,9 @@ fn shelf_card<'a>(ground: &Ground<'a>, icon: Icon, colour: Color, label: String,
     let k = ui::fade();
     let mut lower = column![].spacing(5);
     if let Some(person) = who.and_then(|at| ground.catalog.people.get(at)) {
-        lower = lower.push(row![screen::face(ground, person, 20.0), text(person.name.clone()).font(theme::SANS_SEMI).size(12.5).wrapping(text::Wrapping::None).color(ui::faded(INK))].spacing(7).align_y(iced::Center));
+        lower = lower.push(row![screen::face(ground, person, 20.0), ui::marquee(vec![ui::piece(person.name.clone(), theme::SANS_SEMI, 12.5, INK)])].spacing(7).align_y(iced::Center));
     }
-    lower = lower
-        .push(text(big).font(theme::SANS_SEMI).size(20.0).wrapping(text::Wrapping::None).color(ui::faded(INK)))
-        .push(text(small).font(theme::SANS).size(11.5).wrapping(text::Wrapping::None).color(ui::faded(MUTED)));
+    lower = lower.push(ui::marquee(vec![ui::piece(big, theme::SANS_SEMI, 20.0, INK)])).push(ui::marquee(vec![ui::piece(small, theme::SANS, 11.5, MUTED)]));
     let inside = column![row![glyph(icon, 13.0, colour), ui::mono_small(label.to_uppercase(), colour)].spacing(7).align_y(iced::Center), ui::grow_tall(), container(lower).clip(true)]
         .height(high)
         .padding([12, 12]);
@@ -669,7 +663,7 @@ fn timeline<'a>(ground: &Ground<'a>, wide: f32) -> Element<'a, Message> {
         row![
             glyph(icon, 14.0, INK),
             text(w.t(key)).font(theme::SANS_SEMI).size(14.0).color(ui::faded(INK)),
-            text(format!("· {}", w.count(count, n as u64))).font(theme::SANS).size(12.5).color(ui::faded(FAINT)),
+            text(w.count(count, n as u64)).font(theme::SANS).size(12.5).color(ui::faded(FAINT)),
         ]
         .spacing(8)
         .align_y(iced::Center)
@@ -805,14 +799,11 @@ fn me_card<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
     let mut head = row![
         ring(ground, you, 62.0, share, 3.5),
         column![
-            row![
-                container(text(you.name.clone()).font(theme::SANS_SEMI).size(17.0).wrapping(text::Wrapping::None).color(ui::faded(INK))).clip(true),
-                screen::flag(ground, &you.country, 11.0),
-            ]
+            row![ui::marquee(vec![ui::piece(you.name.clone(), theme::SANS_SEMI, 17.0, INK)]).width(Length::Shrink), screen::flag(ground, &you.country, 11.0)]
             .spacing(7)
             .align_y(iced::Center),
             screen::title_line(ground, you, 12.0),
-            container(ui::mono_small(place.join(" · "), MUTED)).clip(true),
+            ui::marquee(vec![ui::piece(place.join(" · "), theme::MONO, 11.0, MUTED)]),
         ]
         .spacing(3)
         .width(Length::Fill),
@@ -840,33 +831,53 @@ fn me_card<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
         let chip = container(
                 row![
                     glyph(Icon::Flame, 13.0, coral),
-                    text(w.n("streak-card", u64::from(you.streak))).font(theme::SANS_SEMI).size(12.0).wrapping(text::Wrapping::None).color(ui::faded(INK)),
-                    ui::mono_small(w.n("streak-best-n", u64::from(you.streak_best.max(you.streak))), MUTED),
+                    ui::marquee(vec![
+                        ui::piece(w.n("streak-card", u64::from(you.streak)), theme::SANS_SEMI, 12.0, INK),
+                        ui::piece(w.n("streak-best-n", u64::from(you.streak_best.max(you.streak))), theme::MONO, 11.0, MUTED).after(7.0),
+                    ]),
                 ]
                 .spacing(7)
                 .align_y(iced::Center),
             )
-            .padding(Padding { top: 5.0, right: 11.0, bottom: 5.0, left: 9.0 })
-            .clip(true)
+            .padding(Padding { top: 6.0, right: 11.0, bottom: 6.0, left: 9.0 })
+            .width(Length::Fill)
             .style(move |_| container::Style {
                 background: Some(Background::Color(Color { a: k, ..Color::from_rgb8(0x33, 0x16, 0x19) })),
                 border: Border { color: Color { a: k, ..Color::from_rgb8(0x5c, 0x25, 0x28) }, width: 1.0, radius: 14.0.into() },
                 ..container::Style::default()
             });
-        foot = foot.push(container(chip).width(Length::Fill).clip(true));
+        foot = foot.push(chip);
     } else {
         foot = foot.push(ui::grow());
     }
-    foot = foot.push(text(w.t("my-profile-open")).font(theme::SANS_SEMI).size(12.0).wrapping(text::Wrapping::None).color(ui::faded(coral)));
-    let high = 206.0;
+    foot = foot.push(
+        button(text(w.t("my-profile-open")).font(theme::SANS_SEMI).size(12.0).wrapping(text::Wrapping::None))
+            .padding([6, 14])
+            .style(ui::button_faded(framed))
+            .on_press(Message::Section(Section::Profile)),
+    );
+    let high = 208.0;
     let inside = container(column![head, tiles, foot].spacing(14)).padding(16).width(Length::Fill).height(high);
     let cover = ground.pictures.get(&you.cover);
-    button(stack![screen::backdrop(cover, high, 14.0, screen::avatar_colour(&you.name), false), inside].height(high))
-        .padding(0)
+    container(stack![screen::backdrop(cover, high, 14.0, screen::avatar_colour(&you.name), false), inside].height(high))
         .width(Length::Fill)
-        .style(ui::button_faded(screen::lifted))
-        .on_press(Message::Section(Section::Profile))
+        .style(move |_| container::Style {
+            background: Some(Background::Color(Color::from_rgba(0.055, 0.025, 0.033, 0.96 * k))),
+            border: Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.07 * k), width: 1.0, radius: 14.0.into() },
+            ..container::Style::default()
+        })
         .into()
+}
+
+fn framed(_: &Theme, status: button::Status) -> button::Style {
+    let lit = matches!(status, button::Status::Hovered | button::Status::Pressed);
+    button::Style {
+        background: Some(Background::Color(if lit { Color::from_rgb8(0x2c, 0x1d, 0x21) } else { Color::from_rgb8(0x1d, 0x12, 0x16) })),
+        text_color: INK,
+        border: Border { color: if lit { Color::from_rgb8(0x55, 0x40, 0x45) } else { Color::from_rgb8(0x36, 0x27, 0x2b) }, width: 1.0, radius: 8.0.into() },
+        shadow: Shadow::default(),
+        snap: true,
+    }
 }
 
 fn channels_card<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
@@ -970,7 +981,7 @@ fn spotlight<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
         });
         let named = column![
             row![
-                container(text(person.name.clone()).font(theme::SANS_SEMI).size(17.0).wrapping(text::Wrapping::None).color(ui::faded(INK))).clip(true),
+                ui::marquee(vec![ui::piece(person.name.clone(), theme::SANS_SEMI, 17.0, INK)]).width(Length::Shrink),
                 screen::flag(ground, &person.country, 11.0),
             ]
             .spacing(7)
@@ -1108,7 +1119,7 @@ fn leaderboard<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
                 let face = stack![screen::ringed(ground, person, side, colour), container(badge).width(side + 8.0).height(side + 8.0).align_x(iced::alignment::Horizontal::Right).align_y(iced::alignment::Vertical::Bottom)];
                 let inside = column![
                     face,
-                    container(text(person.name.clone()).font(theme::SANS_SEMI).size(12.5).wrapping(text::Wrapping::None).color(ui::faded(if person.you { coral } else { INK }))).clip(true),
+                    ui::marquee(vec![ui::piece(person.name.clone(), theme::SANS_SEMI, 12.5, if person.you { coral } else { INK })]).centred(),
                     text(gain(value)).font(theme::SANS_SEMI).size(13.0).wrapping(text::Wrapping::None).color(ui::faded(GREEN)),
                 ]
                 .spacing(4)
@@ -1130,7 +1141,7 @@ fn leaderboard<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
                     row![
                         container(text(place.map_or_else(|| "—".to_owned(), |place| place.to_string())).font(theme::MONO_BOLD).size(11.0).color(ui::faded(MUTED))).width(16.0).align_x(iced::alignment::Horizontal::Right),
                         screen::face(ground, person, 22.0),
-                        container(text(person.name.clone()).font(theme::SANS_SEMI).size(13.0).wrapping(text::Wrapping::None).color(ui::faded(if you { coral } else { INK }))).width(Length::Fill).clip(true),
+                        ui::marquee(vec![ui::piece(person.name.clone(), theme::SANS_SEMI, 13.0, if you { coral } else { INK })]),
                         screen::movement(ground, shift),
                         text(value.map_or_else(|| "—".to_owned(), gain)).font(theme::SANS_SEMI).size(12.5).wrapping(text::Wrapping::None).color(ui::faded(if value.is_some() { GREEN } else { FAINT })),
                     ]

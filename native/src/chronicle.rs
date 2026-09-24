@@ -690,8 +690,10 @@ fn timeline<'a>(ground: &Ground<'a>, wide: f32) -> Element<'a, Message> {
         })),
     );
     let lately = ground.section_t.min(ground.shift_t);
+    let group_lately = lately.min(ground.group_t);
+    let news_lately = lately.min(ground.news_t);
     let mut page = column![ui::appearing(ui::appear(ground.section_t, 0), 10.0, || top.into())].spacing(12);
-    let k = ui::appear(lately, 1);
+    let k = ui::appear(ground.section_t.min(ground.shift_t), 1);
     if let Some(shelf) = if k >= 0.999 { shelf(ground, &seen) } else { ui::fading(ui::fade() * k, || shelf(ground, &seen)) } {
         page = page.push(ui::lifted(shelf, k, 10.0));
     }
@@ -715,8 +717,8 @@ fn timeline<'a>(ground: &Ground<'a>, wide: f32) -> Element<'a, Message> {
         if group.is_empty() {
             rows = rows.push(nothing());
         } else {
-            rows = rows.push(journal_head(ground, table));
-            for made in by_day(ground, &group, lately, 3, |event| journal_row(ground, event, table)) {
+            rows = rows.push(ui::appearing(ui::appear(group_lately, 3), 10.0, || journal_head(ground, table)));
+            for made in by_day(ground, &group, group_lately, 4, |event| journal_row(ground, event, table)) {
                 rows = rows.push(made);
             }
         }
@@ -731,9 +733,9 @@ fn timeline<'a>(ground: &Ground<'a>, wide: f32) -> Element<'a, Message> {
         for event in &news {
             let k = if is_fresh(ground, event) {
                 fresh += 1;
-                ui::appear(ground.fresh_t, fresh - 1).min(ui::appear(lately, 3 + cards.len()))
+                ui::appear(ground.fresh_t, fresh - 1).min(ui::appear(news_lately, 3 + cards.len()))
             } else {
-                ui::appear(lately, 3 + cards.len())
+                ui::appear(news_lately, 3 + cards.len())
             };
             let made = if k >= 0.999 { news_card(ground, event) } else { ui::fading(ui::fade() * k, || news_card(ground, event)) };
             if let Some(made) = made {

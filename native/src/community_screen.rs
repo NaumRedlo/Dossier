@@ -155,6 +155,8 @@ pub struct Ground<'a> {
     pub shift_t: f32,
     pub person_t: f32,
     pub play_t: f32,
+    pub group_t: f32,
+    pub news_t: f32,
     pub rank_started: std::time::Instant,
     pub rank_held: Option<f32>,
     pub metric: crate::dossier::Metric,
@@ -804,7 +806,7 @@ fn person_card<'a>(ground: &Ground<'a>, at: usize, person: &Person, place: usize
 
 fn people<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
     let w = ground.words;
-    let switch = people_switch(ground);
+    let switch = ui::appearing(ui::appear(ground.section_t, 0), 10.0, || people_switch(ground));
     if ground.people_from == PeopleFrom::Game {
         let body: Element<'a, Message> = match friends_said(ground) {
             Some(said) => container(said).height(160.0).width(Length::Fill).into(),
@@ -1130,40 +1132,45 @@ pub(crate) fn segmented<'a>(parts: Vec<(String, bool, Message)>) -> Element<'a, 
 fn boards<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
     let w = ground.words;
     let catalog = ground.catalog;
-    let mut chips = row![].spacing(6);
-    for board in Board::ALL {
-        chips = chips.push(ui::hover(
-            button(text(w.t(board.key())).font(theme::SANS_SEMI).size(13.5).color(ui::faded(if ground.board == board { INK } else { MUTED })))
-                .padding([8, 16])
-                .style(ui::button_faded(ui::calm(theme::filter_chip(ground.board == board))))
-                .on_press(Message::Board(board)),
-            ui::Glow::tile(15.0).edge(Color::from_rgba(1.0, 1.0, 1.0, 0.14)),
-        ));
-    }
     let list = standings(catalog, ground.board, ground.standing);
     let adaptive = ground.standing == Standing::Adaptive;
-    let title = w.t(if adaptive { "board-title-adaptive" } else { "board-title-general" });
-    let subtitle = if adaptive { w.with("board-week-span", &[("week", catalog.week.to_string()), ("span", w.week_span(catalog.week_began))]) } else { w.t("board-all-time") };
-    let many = if adaptive { catalog.people.len() } else { list.order.len() };
-    let mut who = w.count("participants", many as u64);
-    if adaptive && list.out > 0 {
-        who = format!("{who} · {}", w.n("board-sat-out", list.out as u64));
-    }
-    let head = row![
-        column![text(title).font(theme::SANS_SEMI).size(19.0).color(ui::faded(INK)), ui::mono_small(subtitle, MUTED)].spacing(3),
-        ui::grow(),
-        column![text(w.t(ground.board.key())).font(theme::SANS_SEMI).size(14.0).color(ui::faded(INK)), ui::mono_small(who, FAINT)].spacing(3).align_x(iced::alignment::Horizontal::Right),
-    ]
-    .align_y(iced::Center);
-    let mut page = column![
-        container(segmented(vec![
-            (w.t("board-general"), ground.standing == Standing::General, Message::Standing(Standing::General)),
-            (w.t("board-adaptive"), ground.standing == Standing::Adaptive, Message::Standing(Standing::Adaptive)),
-        ]))
-        .center_x(Length::Fill),
-        container(chips).center_x(Length::Fill),
-        container(head).padding(Padding { top: 8.0, right: 4.0, bottom: 2.0, left: 4.0 }),
-    ]
+    let top = ui::appearing(ui::appear(ground.section_t, 0), 10.0, || {
+        let mut chips = row![].spacing(6);
+        for board in Board::ALL {
+            chips = chips.push(ui::hover(
+                button(text(w.t(board.key())).font(theme::SANS_SEMI).size(13.5).color(ui::faded(if ground.board == board { INK } else { MUTED })))
+                    .padding([8, 16])
+                    .style(ui::button_faded(ui::calm(theme::filter_chip(ground.board == board))))
+                    .on_press(Message::Board(board)),
+                ui::Glow::tile(15.0).edge(Color::from_rgba(1.0, 1.0, 1.0, 0.14)),
+            ));
+        }
+        let title = w.t(if adaptive { "board-title-adaptive" } else { "board-title-general" });
+        let subtitle = if adaptive { w.with("board-week-span", &[("week", catalog.week.to_string()), ("span", w.week_span(catalog.week_began))]) } else { w.t("board-all-time") };
+        let many = if adaptive { catalog.people.len() } else { list.order.len() };
+        let mut who = w.count("participants", many as u64);
+        if adaptive && list.out > 0 {
+            who = format!("{who} · {}", w.n("board-sat-out", list.out as u64));
+        }
+        let head = row![
+            column![text(title).font(theme::SANS_SEMI).size(19.0).color(ui::faded(INK)), ui::mono_small(subtitle, MUTED)].spacing(3),
+            ui::grow(),
+            column![text(w.t(ground.board.key())).font(theme::SANS_SEMI).size(14.0).color(ui::faded(INK)), ui::mono_small(who, FAINT)].spacing(3).align_x(iced::alignment::Horizontal::Right),
+        ]
+        .align_y(iced::Center);
+        column![
+            container(segmented(vec![
+                (w.t("board-general"), ground.standing == Standing::General, Message::Standing(Standing::General)),
+                (w.t("board-adaptive"), ground.standing == Standing::Adaptive, Message::Standing(Standing::Adaptive)),
+            ]))
+            .center_x(Length::Fill),
+            container(chips).center_x(Length::Fill),
+            container(head).padding(Padding { top: 8.0, right: 4.0, bottom: 2.0, left: 4.0 }),
+        ]
+        .spacing(12)
+        .into()
+    });
+    let mut page = column![top]
     .spacing(12)
     .width(Length::Fill)
     .max_width(920.0);
@@ -1251,15 +1258,15 @@ fn titles<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
             continue;
         }
         let held = defs.iter().filter(|title| !ground.catalog.holders(&title.code).is_empty()).count();
-        let head = row![
-            text(w.t(rarity.key())).font(theme::SANS_SEMI).size(theme::BODY).color(ui::faded(rarity.colour())),
-            ui::mono_small(format!("{} {}", w.t("unlocked"), w.of(held as u64, defs.len() as u64)), FAINT),
-        ]
-        .spacing(10)
-        .align_y(iced::Center);
         let at = shown;
         shown += 1;
         list = list.push(ui::appearing(ui::appear(t, at * 2), 12.0, || {
+            let head = row![
+                text(w.t(rarity.key())).font(theme::SANS_SEMI).size(theme::BODY).color(ui::faded(rarity.colour())),
+                ui::mono_small(format!("{} {}", w.t("unlocked"), w.of(held as u64, defs.len() as u64)), FAINT),
+            ]
+            .spacing(10)
+            .align_y(iced::Center);
             let cards: Vec<Element<'a, Message>> = defs.iter().map(|title| title_card(ground, title)).collect();
             column![head, grid(cards, columns_for(ground, 360.0), GRID_GAP)].spacing(10).into()
         }));

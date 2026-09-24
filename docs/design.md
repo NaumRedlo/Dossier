@@ -690,6 +690,12 @@ naming the group, its size and when the bot last answered — or *образцы
   (posts, stories, names, maps) while a sheet is fading, so they neither
   hang bright over a fading page nor pop in ahead of it; our own marks
   (✕, ★) stay.
+  The journal's filters and the news' sources have clocks of their own:
+  a filter brings in only the journal's rows (and its table head), a
+  source only the news cards — neither replays the page around them. The
+  titles' rarity names, the table head and the board's switches and
+  heading are built inside their entrance, so they fade in with what they
+  head rather than standing there first.
   The feed keeps itself current without a button: the group is asked
   every 30 s and the news every minute while the catalogue is open (a
   channel is fetched again after 90 s, osu! and the builds after 10

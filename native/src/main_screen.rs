@@ -434,6 +434,8 @@ pub struct Main {
     pub(crate) shift_at: Instant,
     pub(crate) person_at: Instant,
     pub(crate) play_at: Instant,
+    pub(crate) group_at: Instant,
+    pub(crate) news_at: Instant,
     pub(crate) spot_due: Instant,
     pub(crate) spot_held: Option<Instant>,
     pub rank: usize,
@@ -598,6 +600,8 @@ impl Main {
             shift_at: Instant::now() - Duration::from_secs(3600),
             person_at: Instant::now() - Duration::from_secs(3600),
             play_at: Instant::now() - Duration::from_secs(3600),
+            group_at: Instant::now() - Duration::from_secs(3600),
+            news_at: Instant::now() - Duration::from_secs(3600),
             spot_due: Instant::now(),
             spot_held: None,
             rank: 0,
@@ -693,7 +697,7 @@ impl Main {
             || self.feed_fold_at.values().any(|at| self.now.saturating_duration_since(*at) < FOLD)
             || self.read_fade.is_animating(self.now)
             || self.person_fade.is_animating(self.now)
-            || (self.overlay == Overlay::Community && [self.section_at, self.shift_at, self.person_at, self.play_at].iter().any(|at| self.now.saturating_duration_since(*at).as_secs_f32() < ui::APPEAR_ALL))
+            || (self.overlay == Overlay::Community && [self.section_at, self.shift_at, self.person_at, self.play_at, self.group_at, self.news_at].iter().any(|at| self.now.saturating_duration_since(*at).as_secs_f32() < ui::APPEAR_ALL))
             || (self.overlay == Overlay::Community && self.now.saturating_duration_since(self.spot_at) < crate::chronicle::SPOT_SWAP)
             || (self.overlay == Overlay::Community && self.now.saturating_duration_since(self.rank_at) < crate::chronicle::RANK_GROW)
             || (self.community_reading.is_some() && !self.read_fade.value())
@@ -1723,13 +1727,13 @@ impl Main {
                     }
                     C::Filter(filter) => {
                         if filter != self.feed_filter {
-                            self.shift_at = now;
+                            self.group_at = now;
                         }
                         self.feed_filter = filter;
                     }
                     C::Source(source) => {
                         if source != self.feed_source {
-                            self.shift_at = now;
+                            self.news_at = now;
                         }
                         self.feed_source = source;
                     }
@@ -4293,6 +4297,8 @@ impl Main {
             shift_t: self.now.saturating_duration_since(self.shift_at).as_secs_f32().min(60.0),
             person_t: self.now.saturating_duration_since(self.person_at).as_secs_f32().min(60.0),
             play_t: self.now.saturating_duration_since(self.play_at).as_secs_f32().min(60.0),
+            group_t: self.now.saturating_duration_since(self.group_at).as_secs_f32().min(60.0),
+            news_t: self.now.saturating_duration_since(self.news_at).as_secs_f32().min(60.0),
             rank: self.rank,
             rank_k: {
                 let k = (self.now.saturating_duration_since(self.rank_at).as_secs_f32() / crate::chronicle::RANK_GROW.as_secs_f32()).clamp(0.0, 1.0);

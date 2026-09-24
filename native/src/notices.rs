@@ -15,6 +15,7 @@ pub enum Link {
     RenderAgain(PathBuf),
     Update,
     Page(String),
+    Replay(PathBuf),
     None,
 }
 

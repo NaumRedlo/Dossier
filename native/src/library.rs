@@ -189,7 +189,17 @@ pub struct Library {
     pub maps: usize,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Reading {
+    pub maps: (usize, usize),
+    pub replays: (usize, usize),
+}
+
 pub fn read(sources: &[Source]) -> Library {
+    read_with(sources, &mut |_| {})
+}
+
+pub fn read_with(sources: &[Source], report: &mut dyn FnMut(Reading)) -> Library {
     let live: Vec<&Source> = sources.iter().filter(|s| s.on).collect();
     let mut songs: Vec<PathBuf> = live.iter().filter_map(|s| s.songs.clone()).collect();
     if live.iter().any(|s| s.kind == Kind::Found) {
@@ -199,25 +209,45 @@ pub fn read(sources: &[Source]) -> Library {
             }
         }
     }
-    let index = Index::load(&songs);
+    let mut maps = (0, 0);
+    let index = Index::load_with(&songs, &mut |done, total| {
+        maps = (done, total);
+        report(Reading { maps, replays: (0, 0) });
+    });
     let mut entries: Vec<Entry> = Vec::new();
     let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
-    for source in &live {
-        for path in replay_files(source) {
-            if let Some(entry) = entry(&path, source.kind, &index) {
+    let files: Vec<(Kind, Vec<PathBuf>)> = live.iter().map(|source| (source.kind, replay_files(source))).collect();
+    let scores: Vec<(Kind, Vec<(PathBuf, dossier_replay::Replay)>)> =
+        live.iter().filter(|source| source.kind == Kind::Stable).map(|source| (source.kind, crate::scores::with_replays(&source.root))).collect();
+    let total = files.iter().map(|(_, list)| list.len()).sum::<usize>() + scores.iter().map(|(_, list)| list.len()).sum::<usize>();
+    let mut done = 0;
+    let mut told = std::time::Instant::now();
+    let mut tell = |done: usize, report: &mut dyn FnMut(Reading)| {
+        if done == total || told.elapsed() >= std::time::Duration::from_millis(100) {
+            told = std::time::Instant::now();
+            report(Reading { maps, replays: (done, total) });
+        }
+    };
+    for (kind, list) in &files {
+        for path in list {
+            if let Some(entry) = entry(path, *kind, &index) {
                 if seen.insert(entry.replay_hash.clone()) {
                     entries.push(entry);
                 }
             }
+            done += 1;
+            tell(done, report);
         }
-        if source.kind == Kind::Stable {
-            for (path, replay) in crate::scores::with_replays(&source.root) {
-                if let Some(entry) = entry_of(&replay, &path, source.kind, &index) {
-                    if seen.insert(entry.replay_hash.clone()) {
-                        entries.push(entry);
-                    }
+    }
+    for (kind, list) in &scores {
+        for (path, replay) in list {
+            if let Some(entry) = entry_of(replay, path, *kind, &index) {
+                if seen.insert(entry.replay_hash.clone()) {
+                    entries.push(entry);
                 }
             }
+            done += 1;
+            tell(done, report);
         }
     }
     entries.sort_by(|a, b| b.played_at.cmp(&a.played_at).then_with(|| a.path.cmp(&b.path)));
@@ -336,6 +366,10 @@ fn cache_path() -> PathBuf {
 
 impl Index {
     pub fn load(songs: &[PathBuf]) -> Index {
+        Index::load_with(songs, &mut |_, _| {})
+    }
+
+    pub fn load_with(songs: &[PathBuf], report: &mut dyn FnMut(usize, usize)) -> Index {
         let mut remembered: HashMap<PathBuf, Remembered> = std::fs::read_to_string(cache_path())
             .ok()
             .and_then(|text| serde_json::from_str(&text).ok())
@@ -343,18 +377,24 @@ impl Index {
         let mut fresh: HashMap<PathBuf, Remembered> = HashMap::new();
         let mut by_hash = HashMap::new();
         let mut unknown = Vec::new();
-        for root in songs {
-            for (file, modified) in osu_files(root) {
+        let mut known = 0;
+        let found: Vec<(PathBuf, u64)> = songs.iter().flat_map(|root| osu_files(root)).collect();
+        let total = found.len();
+        report(0, total);
+        {
+            for (file, modified) in found {
                 match remembered.remove(&file) {
                     Some(seen) if seen.modified == modified => {
                         by_hash.insert(seen.hash.clone(), seen.map.clone());
                         fresh.insert(file, seen);
+                        known += 1;
                     }
                     _ => unknown.push((file, modified)),
                 }
             }
         }
-        for (file, modified, described) in described_all(unknown) {
+        report(known, total);
+        for (file, modified, described) in described_all(unknown, &mut |done| report(known + done, total)) {
             if let Some((hash, map)) = described {
                 by_hash.insert(hash.clone(), map.clone());
                 fresh.insert(file, Remembered { modified, hash, map });
@@ -398,17 +438,35 @@ fn osu_files(root: &Path) -> Vec<(PathBuf, u64)> {
     out
 }
 
-fn described_all(unknown: Vec<(PathBuf, u64)>) -> Vec<(PathBuf, u64, Option<(String, Map)>)> {
+fn described_all(unknown: Vec<(PathBuf, u64)>, report: &mut dyn FnMut(usize)) -> Vec<(PathBuf, u64, Option<(String, Map)>)> {
     if unknown.is_empty() {
         return Vec::new();
     }
     let lanes = std::thread::available_parallelism().map_or(4, |n| n.get()).clamp(2, 8);
     let share = unknown.len().div_ceil(lanes);
+    let done = std::sync::atomic::AtomicUsize::new(0);
     std::thread::scope(|scope| {
         let lanes: Vec<_> = unknown
             .chunks(share)
-            .map(|chunk| scope.spawn(move || chunk.iter().map(|(file, modified)| (file.clone(), *modified, describe(file))).collect::<Vec<_>>()))
+            .map(|chunk| {
+                let done = &done;
+                scope.spawn(move || {
+                    chunk
+                        .iter()
+                        .map(|(file, modified)| {
+                            let described = describe(file);
+                            done.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                            (file.clone(), *modified, described)
+                        })
+                        .collect::<Vec<_>>()
+                })
+            })
             .collect();
+        while lanes.iter().any(|lane| !lane.is_finished()) {
+            report(done.load(std::sync::atomic::Ordering::Relaxed));
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        report(done.load(std::sync::atomic::Ordering::Relaxed));
         lanes.into_iter().flat_map(|lane| lane.join().unwrap_or_default()).collect()
     })
 }

@@ -310,6 +310,39 @@ fn store_replays_minding(files: &Path, memory: &Path) -> Vec<PathBuf> {
     found
 }
 
+pub fn watched(source: &Source) -> Vec<PathBuf> {
+    let mut out: Vec<PathBuf> = [source.replays.clone(), source.songs.clone()].into_iter().flatten().collect();
+    match source.kind {
+        Kind::Stable => {
+            out.push(source.root.join("scores.db"));
+            out.push(source.root.join("Data").join("r"));
+        }
+        Kind::Lazer => out.push(source.root.join("client.realm")),
+        Kind::Own | Kind::Folder | Kind::Found => out.push(source.root.clone()),
+    }
+    out
+}
+
+pub fn signature(sources: &[Source]) -> u64 {
+    let mut hash = 0xcbf2_9ce4_8422_2325u64;
+    let mut mix = |bytes: &[u8]| {
+        for byte in bytes {
+            hash = (hash ^ *byte as u64).wrapping_mul(0x0100_0000_01b3);
+        }
+    };
+    for source in sources.iter().filter(|s| s.on) {
+        for path in watched(source) {
+            mix(path.to_string_lossy().as_bytes());
+            if let Ok(meta) = std::fs::metadata(&path) {
+                let stamp = meta.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map_or(0, |d| d.as_nanos() as u64);
+                mix(&stamp.to_le_bytes());
+                mix(&meta.len().to_le_bytes());
+            }
+        }
+    }
+    hash
+}
+
 pub fn counted(source: &Source) -> Source {
     let mut out = source.clone();
     if source.kind == Kind::Lazer {
@@ -567,6 +600,22 @@ mod tests {
         assert!(is_osr(&head));
         head[1..5].copy_from_slice(&40_000_001i32.to_le_bytes());
         assert!(!is_osr(&head));
+    }
+
+    #[test]
+    fn a_new_replay_changes_the_signature_and_nothing_else_does() {
+        let root = scratch("watch");
+        std::fs::create_dir_all(root.join("Replays")).unwrap();
+        let source = folder_at(&root).map_or_else(
+            || Source { kind: Kind::Folder, root: root.clone(), songs: None, skins: None, replays: Some(root.join("Replays")), maps: None, skin_count: 0, replay_count: 0, scores: 0, on: true },
+            |s| s,
+        );
+        let before = signature(std::slice::from_ref(&source));
+        assert_eq!(before, signature(std::slice::from_ref(&source)));
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        std::fs::write(root.join("Replays").join("new.osr"), b"x").unwrap();
+        assert_ne!(before, signature(std::slice::from_ref(&source)));
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]

@@ -530,3 +530,10 @@ update-out = An update is out
 updated = Dossier updated
 search-journal = Player, map, +HDDT…
 search-nothing = No replays match this
+reading-maps = Reading maps
+reading-replays = Reading replays
+new-replay = A new replay
+new-replays = { $n ->
+    [one] new replay
+   *[other] new replays
+}

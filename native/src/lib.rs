@@ -133,7 +133,8 @@ impl App {
             if let Some(source) = rehearsal.folder.as_deref().and_then(sources::folder_at) {
                 said.sources = vec![source];
             }
-            let (main, task) = Main::new(Words::new(said.lang), said);
+            let (mut main, task) = Main::new(Words::new(said.lang), said);
+            main.notices = notices::Queue::default();
             let snap = match &rehearsal.snap_to {
                 Some(_) => {
                     let after = rehearsal.after;

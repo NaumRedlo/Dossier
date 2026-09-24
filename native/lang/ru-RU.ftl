@@ -550,3 +550,11 @@ update-out = Вышло обновление
 updated = Dossier обновлён
 search-journal = Игрок, карта, +HDDT…
 search-nothing = По этому запросу реплеев нет
+reading-maps = Разбираю карты
+reading-replays = Читаю реплеи
+new-replay = Новый реплей
+new-replays = { $n ->
+    [one] новый реплей
+    [few] новых реплея
+   *[other] новых реплеев
+}

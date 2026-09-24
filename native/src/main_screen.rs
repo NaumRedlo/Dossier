@@ -88,6 +88,10 @@ pub enum Message {
     CardShared(Result<(), String>),
     ReadFirst,
     Loaded(Library),
+    Reading(library::Reading),
+    Refreshed(Library),
+    WatchTick,
+    Watched(u64),
     Thumb(String, image::Handle),
     Scene(String, Option<image::Handle>),
     Length(PathBuf, i64),
@@ -397,6 +401,10 @@ pub struct Main {
     pub(crate) worker_back: u32,
     pub(crate) farm: Option<crate::bot::Farm>,
     pub update: UpdateState,
+    pub reading: Option<library::Reading>,
+    refreshing: bool,
+    refreshed_at: Instant,
+    watch_sig: u64,
     pub(crate) update_wanted: bool,
     update_told: Option<String>,
     pub now: Instant,
@@ -573,6 +581,10 @@ impl Main {
             worker_back: 0,
             farm: None,
             update: UpdateState::Unknown,
+            reading: None,
+            refreshing: false,
+            refreshed_at: Instant::now(),
+            watch_sig: 0,
             update_wanted: false,
             update_told: None,
             now: Instant::now(),
@@ -658,7 +670,7 @@ impl Main {
         let who = made.ask_who();
         let warm = if made.settings.token.is_empty() { Task::none() } else { warm_pictures() };
         let warm = if made.settings.worker_on { Task::batch([warm, made.start_worker()]) } else { warm };
-        (made, Task::batch([ui::in_thread(move || library::read(&sources)).map(Message::Loaded), adopt, who, warm]))
+        (made, Task::batch([read_library(sources, Message::Loaded), adopt, who, warm]))
     }
 
     pub fn launched(&mut self) -> Task<Message> {
@@ -862,6 +874,9 @@ impl Main {
         if !matches!(self.update, UpdateState::Source | UpdateState::Unknown) {
             parts.push(iced::time::every(crate::updates::EVERY).map(|_| Message::UpdateTick));
         }
+        if self.library.is_some() && !self.refreshing {
+            parts.push(iced::time::every(Duration::from_secs(4)).map(|_| Message::WatchTick));
+        }
         if matches!(self.update, UpdateState::Ready { .. }) && (self.update_wanted || self.settings.quiet_updates) {
             parts.push(iced::time::every(Duration::from_secs(5)).map(|_| Message::UpdateIdle));
         }
@@ -1003,6 +1018,22 @@ impl Main {
         Task::batch(tasks)
     }
 
+    fn watch_task(&self) -> Task<Message> {
+        let sources = self.settings.sources.clone();
+        ui::in_thread(move || Message::Watched(crate::sources::signature(&sources)))
+    }
+
+    pub fn reading_line(&self) -> Option<String> {
+        let w = &self.words;
+        let reading = self.reading?;
+        let group = |n: usize| w.lang().group(n as u64);
+        Some(if reading.replays.1 == 0 {
+            format!("{} {} / {}", w.t("reading-maps"), group(reading.maps.0), group(reading.maps.1))
+        } else {
+            format!("{} {} / {}", w.t("reading-replays"), group(reading.replays.0), group(reading.replays.1))
+        })
+    }
+
     fn thumbs_task(&self) -> Task<Message> {
         let wanted: Vec<(String, PathBuf)> = {
             let mut seen = std::collections::HashSet::new();
@@ -1027,7 +1058,56 @@ impl Main {
 
     pub fn update(&mut self, message: Message) -> Task<Message> {
         match message {
+            Message::Reading(reading) => {
+                self.reading = Some(reading);
+                Task::none()
+            }
+            Message::WatchTick => {
+                if self.refreshing || self.library.is_none() {
+                    return Task::none();
+                }
+                self.watch_task()
+            }
+            Message::Watched(sig) => {
+                if self.refreshing || self.watch_sig == 0 || sig == self.watch_sig {
+                    self.watch_sig = if self.refreshing { self.watch_sig } else { sig };
+                    return Task::none();
+                }
+                if self.refreshed_at.elapsed() < REFRESH_AT_MOST {
+                    return Task::none();
+                }
+                self.watch_sig = sig;
+                self.refreshing = true;
+                self.refreshed_at = Instant::now();
+                read_library(self.settings.sources.clone(), Message::Refreshed)
+            }
+            Message::Refreshed(library) => {
+                self.refreshing = false;
+                self.reading = None;
+                let before: std::collections::HashSet<String> = self.entries().iter().map(|e| e.replay_hash.clone()).collect();
+                let was = self.chosen_entry().map(|e| e.path.clone());
+                let fresh: Vec<Entry> = library.entries.iter().filter(|e| !before.contains(&e.replay_hash)).cloned().collect();
+                self.library = Some(library);
+                self.chosen = was.and_then(|path| self.entries().iter().position(|e| e.path == path)).or_else(|| self.visible().first().copied());
+                self.hover = None;
+                self.hover_bounds = None;
+                self.hover_since = None;
+                self.lifts.clear();
+                let entries = self.entries().to_vec();
+                self.store.marry(&entries);
+                if !before.is_empty() {
+                    if let Some(newest) = fresh.iter().max_by_key(|e| e.played_at) {
+                        let words = if fresh.len() == 1 { self.words.t("new-replay") } else { self.words.count("new-replays", fresh.len() as u64) };
+                        let detail = format!("{} — {}", newest.player, newest.song().unwrap_or_else(|| self.words.t("unknown-map")));
+                        self.announce(notices::Mark::Done, words, detail, String::new(), newest.map_hash.clone(), notices::Link::Replay(newest.path.clone()));
+                    }
+                }
+                self.thumbs_task()
+            }
             Message::Loaded(library) => {
+                self.reading = None;
+                self.refreshing = false;
+                self.watch_sig = 0;
                 self.library = Some(library);
                 self.now_unix = unix_now();
                 let entries = self.entries().to_vec();
@@ -1035,7 +1115,7 @@ impl Main {
                 self.enter = Animation::new(false).duration(ENTER).easing(Easing::EaseOutCubic).go(true, Instant::now());
                 let first = self.visible().first().copied();
                 self.chosen = first;
-                Task::batch([self.fetch_for_chosen(), self.thumbs_task(), self.start_live()])
+                Task::batch([self.fetch_for_chosen(), self.thumbs_task(), self.start_live(), self.watch_task()])
             }
             Message::Thumb(hash, handle) => {
                 self.thumbs.insert(hash, handle);
@@ -2740,6 +2820,16 @@ impl Main {
                         }
                     }
                     Some(notices::Link::Update) => self.get_update(true),
+                    Some(notices::Link::Replay(path)) => {
+                        let shown = self.update(Message::Show(Overlay::None));
+                        match self.entries().iter().position(|e| e.path == path) {
+                            Some(at) => {
+                                self.search.clear();
+                                shown.chain(self.choose(at))
+                            }
+                            None => shown,
+                        }
+                    }
                     Some(notices::Link::Page(page)) => {
                         let _ = open::that_detached(page);
                         Task::none()
@@ -3038,7 +3128,11 @@ impl Main {
             .into(),
             _ => blank(),
         };
-        let body: Element<'_, Message> = if loaded { ui::fading(k, || self.body(k, s)) } else { blank() };
+        let body: Element<'_, Message> = match (loaded, self.reading_line()) {
+            (true, _) => ui::fading(k, || self.body(k, s)),
+            (false, Some(line)) => pin(ui::fading(self.arrive.interpolate(0.0, 1.0, self.now), || ui::mono_small(line, FAINT))).x(40.0).y((self.height - 40.0).max(0.0)).into(),
+            (false, None) => blank(),
+        };
         let early = self.arrive.interpolate(0.0, 1.0, self.now) * (1.0 - self.cinema.interpolate(0.0, 1.0, self.now));
         let crest = ui::fading(early, ui::brand);
         let crest: Element<'_, Message> =
@@ -3442,7 +3536,11 @@ impl Main {
             .padding([3, 10])
             .width(190.0)
             .style(theme::field_faded(ui::fade()));
-        let rail = row![scrub, container(search).padding(Padding::ZERO.left(14.0)), container(counter).padding(Padding::ZERO.left(10.0))].align_y(iced::Center);
+        let mut rail = row![scrub].align_y(iced::Center);
+        if let Some(line) = self.reading_line() {
+            rail = rail.push(container(ui::mono_small(line, FAINT)).padding(Padding::ZERO.left(14.0)));
+        }
+        let rail = rail.push(container(search).padding(Padding::ZERO.left(14.0))).push(container(counter).padding(Padding::ZERO.left(10.0)));
         let strip: Element<'_, Message> = if visible.is_empty() && !self.search.trim().is_empty() {
             container(text(w.t("search-nothing")).font(theme::SANS).size(theme::CAPTION).color(ui::faded(FAINT)))
                 .height(theme::FRAME_H + 4.0 + 17.0)
@@ -5432,6 +5530,7 @@ impl Main {
             notices::Link::RenderAgain(_) => Some(w.t("once-more")),
             notices::Link::Update => Some(w.t("update-now")),
             notices::Link::Page(_) => Some(w.t("whats-new")),
+            notices::Link::Replay(_) => Some(w.t("open")),
             notices::Link::None => None,
         };
         if let Some(words) = link {
@@ -5744,6 +5843,7 @@ impl Main {
             notices::Link::RenderAgain(_) => Some(w.t("once-more")),
             notices::Link::Update => Some(w.t("update-now")),
             notices::Link::Page(_) => Some(w.t("whats-new")),
+            notices::Link::Replay(_) => Some(w.t("open")),
             notices::Link::None => None,
         };
         if let Some(words) = link {
@@ -5773,6 +5873,17 @@ const PATTERN: (u32, u32) = (520, 292);
 const PANEL: (f32, f32) = (246.0, 138.0);
 const PICTURE_INSET: f32 = 14.0;
 const PICTURE_RADIUS: f32 = 10.0;
+
+const REFRESH_AT_MOST: Duration = Duration::from_secs(20);
+
+fn read_library(sources: Vec<crate::sources::Source>, done: fn(Library) -> Message) -> Task<Message> {
+    ui::streamed(move |push: &mut dyn FnMut(Message) -> bool| {
+        let library = library::read_with(&sources, &mut |reading| {
+            let _ = push(Message::Reading(reading));
+        });
+        let _ = push(done(library));
+    })
+}
 
 pub fn grade_colour(grade: Grade) -> Color {
     match grade {

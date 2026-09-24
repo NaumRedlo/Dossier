@@ -3050,6 +3050,64 @@ impl<'a, Message: 'a> From<Scaled<'a, Message>> for Element<'a, Message> {
     }
 }
 
+pub fn framed(handle: &iced::widget::image::Handle, wide: f32, high: f32, radius: impl Into<iced::border::Radius>) -> iced::widget::Image {
+    let picture = iced::widget::image(handle.clone()).width(Length::Fill).height(high).border_radius(radius);
+    match handle {
+        iced::widget::image::Handle::Rgba { width, height, .. } if *width > 0 && *height > 0 && wide > 0.0 && high > 0.0 => {
+            let want = wide / high;
+            let (w, h) = (*width as f32, *height as f32);
+            let (cut_w, cut_h) = if w / h > want { ((h * want).round().max(1.0), h) } else { (w, (w / want).round().max(1.0)) };
+            let region = Rectangle { x: ((w - cut_w) / 2.0) as u32, y: ((h - cut_h) / 2.0) as u32, width: cut_w as u32, height: cut_h as u32 };
+            picture.crop(region).content_fit(iced::ContentFit::Fill)
+        }
+        _ => picture.content_fit(iced::ContentFit::Cover),
+    }
+}
+
+pub struct Caps {
+    pub radius: f32,
+    pub fill: Color,
+    pub edge: Color,
+}
+
+impl<Message> canvas::Program<Message> for Caps {
+    type State = ();
+
+    fn draw(&self, _: &(), renderer: &Renderer, _: &Theme, bounds: Rectangle, _: mouse::Cursor) -> Vec<canvas::Geometry> {
+        use iced::widget::canvas::{Frame, Path, Stroke};
+        let mut frame = Frame::new(renderer, bounds.size());
+        let r = self.radius.min(bounds.width / 2.0).min(bounds.height / 2.0);
+        let right = bounds.width;
+        let left_cap = Path::new(|b| {
+            b.move_to(Point::new(0.0, 0.0));
+            b.line_to(Point::new(0.0, r));
+            b.arc_to(Point::new(0.0, 0.0), Point::new(r, 0.0), r);
+            b.close();
+        });
+        let right_cap = Path::new(|b| {
+            b.move_to(Point::new(right, 0.0));
+            b.line_to(Point::new(right - r, 0.0));
+            b.arc_to(Point::new(right, 0.0), Point::new(right, r), r);
+            b.close();
+        });
+        frame.fill(&left_cap, self.fill);
+        frame.fill(&right_cap, self.fill);
+        let inset = 0.5;
+        let arcs = Path::new(|b| {
+            b.move_to(Point::new(inset, r));
+            b.arc_to(Point::new(inset, inset), Point::new(r, inset), r - inset);
+            b.move_to(Point::new(right - r, inset));
+            b.arc_to(Point::new(right - inset, inset), Point::new(right - inset, r), r - inset);
+        });
+        frame.stroke(&arcs, Stroke::default().with_color(self.edge).with_width(1.0));
+        vec![frame.into_geometry()]
+    }
+}
+
+pub fn caps<'a, Message: 'a>(radius: f32, fill: Color, edge: Color, high: f32) -> Element<'a, Message> {
+    Canvas::new(Caps { radius, fill, edge }).width(Length::Fill).height(high).into()
+}
+
 pub fn bare_input(_: &Theme, _: iced::widget::text_input::Status) -> iced::widget::text_input::Style {
     let k = fade();
     iced::widget::text_input::Style {

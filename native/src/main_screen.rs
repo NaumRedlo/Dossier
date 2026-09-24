@@ -413,6 +413,7 @@ pub struct Main {
     pub people_from: crate::community_screen::PeopleFrom,
     pub community_standing: crate::community_screen::Standing,
     pub community_card: Option<crate::community::wire::Card>,
+    pub shown_card: Option<crate::community::wire::Card>,
     pub flags: HashMap<String, iced::widget::svg::Handle>,
     flags_asked: std::collections::HashSet<String>,
     card_asked: Option<Instant>,
@@ -569,6 +570,7 @@ impl Main {
             people_from: crate::community_screen::PeopleFrom::Chat,
             community_standing: crate::community_screen::Standing::General,
             community_card: None,
+            shown_card: None,
             flags: HashMap::new(),
             flags_asked: std::collections::HashSet::new(),
             card_asked: None,
@@ -947,8 +949,12 @@ impl Main {
                     self.read_fade.go_mut(false, Instant::now());
                 } else if self.overlay == Overlay::Community && self.community_person.is_some() && self.person_fade.value() {
                     self.person_fade.go_mut(false, Instant::now());
-                } else {
-                    self.overlay = Overlay::None;
+                } else if self.overlay == Overlay::Community {
+                    self.feed_query.clear();
+                    self.channel_draft.clear();
+                    return iced::advanced::widget::operate(iced::advanced::widget::operation::focusable::unfocus::<Message>());
+                } else if self.overlay != Overlay::None {
+                    return self.update(Message::Show(Overlay::None));
                 }
                 Task::none()
             }
@@ -1557,6 +1563,7 @@ impl Main {
                         }
                         if self.osu_card.is_none() {
                             self.osu_card = crate::osu_profile::load();
+                            self.remerge();
                             self.dress_staged_you();
                         }
                         Task::batch([self.refresh_news(false), self.news_pictures_task(), self.community_task(false), self.community_pictures_task(), self.osu_task(false)])
@@ -1806,6 +1813,7 @@ impl Main {
             Message::OsuProfile(Ok(card)) => {
                 crate::osu_profile::save(&card);
                 self.osu_card = Some(card);
+                self.remerge();
                 self.dress_staged_you();
                 let pictures = self.community_pictures_task();
                 Task::batch([pictures, self.share_task()])
@@ -1914,6 +1922,7 @@ impl Main {
             Message::CardArrived(Ok(card)) => {
                 crate::community::wire::save_card(&card);
                 self.community_card = Some(card);
+                self.remerge();
                 self.community_pictures_task()
             }
             Message::CardArrived(Err(_)) => Task::none(),
@@ -3853,6 +3862,7 @@ impl Main {
         match crate::community::wire::load() {
             Some(kept) => {
                 self.community_card = crate::community::wire::load_card();
+                self.remerge();
                 self.community_fetch = crate::community_screen::Fetch::Fresh(kept.at.unwrap_or(self.now_unix));
                 let catalog = crate::community::Catalog::from_wire(kept);
                 self.live_shown = catalog.live.len();
@@ -3926,7 +3936,7 @@ impl Main {
 
     fn flag_task(&mut self) -> Task<Message> {
         let mut codes: Vec<String> = Vec::new();
-        if let Some(card) = self.community_card.as_ref().or(self.osu_card.as_ref()) {
+        if let Some(card) = self.shown_card.as_ref() {
             codes.push(card.country.clone());
         }
         if let Some(catalog) = self.community.as_ref() {
@@ -3950,6 +3960,10 @@ impl Main {
                 }
             }
         })
+    }
+
+    pub fn remerge(&mut self) {
+        self.shown_card = crate::community::wire::enriched(self.community_card.as_ref(), self.osu_card.as_ref());
     }
 
     fn person_task(&mut self, at: usize) -> Task<Message> {
@@ -4019,7 +4033,7 @@ impl Main {
             return Task::none();
         };
         let mut wanted: Vec<(String, u32)> = catalog.pictures();
-        if let Some(card) = self.community_card.as_ref().or(self.osu_card.as_ref()).cloned().or_else(|| catalog.card_of()) {
+        if let Some(card) = self.shown_card.clone().or_else(|| catalog.card_of()) {
             wanted.extend(card.pictures());
         }
         let wanted: Vec<(String, u32)> = wanted.into_iter().filter(|(url, _)| !self.news_pictures.contains_key(url) && self.news_asked.insert(url.clone())).collect();
@@ -4126,7 +4140,7 @@ impl Main {
             read_k: self.read_fade.interpolate(0.0, 1.0, self.now),
             people_from: self.people_from,
             standing: self.community_standing,
-            card: self.community_card.as_ref().or(self.osu_card.as_ref()),
+            card: self.shown_card.as_ref(),
             flags: &self.flags,
             avatar: self.avatar.as_ref(),
             chat: self.chat_name(),

@@ -598,7 +598,14 @@ naming the group, its size and when the bot last answered — or *образцы
   with the chosen one's particulars under them: artist and title, version
   and mapper, the combo (with the map's own when osu! says it), stars, BPM,
   length, the day it was set, the mods, the 300/100/50/miss bar and a way to
-  the map; the heading sums them weighted as osu! does (×0.95 each); the grades, the one under the pointer lit and its share told; the
+  the map; the heading sums them weighted as osu! does (×0.95 each). The
+  bot's card knows a play's pp, grade and combo but not its hits, stars,
+  BPM, length or day, so one's own dossier fills those from the osu! page
+  it reads, play by play (the same map and difficulty). A cover drawn to
+  fill its frame is drawn larger than the frame and cut, and iced rounds
+  what it draws rather than the frame, so the poster's top corners are
+  rounded by two small caps of the panel's colour drawn over them, with the
+  card's own edge along their arcs; the grades, the one under the pointer lit and its share told; the
   titles as a collection, bar by rarity, the held ones filled and the next
   ones dashed, a press telling what each asks and when it was earned; and
   thirteen weeks of plays a day. No panel says *наведите* or *нажмите*:
@@ -736,6 +743,13 @@ players with the figures above (the `users` table), the board a week ago
 happened — which the bot does not keep yet for renders: a finished render
 goes to Telegram and is forgotten. Contests are not drawn: the bot's
 bounty and duel columns have nothing behind them any more.
+
+Esc inside the catalogue closes only what lies over it — the player, the
+reader, a member's panel — or else clears the search and lets go of a
+field; it never closes the catalogue itself (it used to, at once and
+without the fold, which read as the page vanishing). In Settings, Videos
+and the worker it goes back to the replays through the same fade as the
+word *Реплеи*.
 
 *The three words.* Replays is this screen. Worker and Settings open over
 the scene, dimmed to a fifth, in the first run's centred column; the crest

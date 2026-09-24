@@ -1145,6 +1145,67 @@ pub mod wire {
         pub hash: String,
     }
 
+    pub fn enriched(bot: Option<&Card>, osu: Option<&Card>) -> Option<Card> {
+        let (bot, osu) = match (bot, osu) {
+            (Some(bot), Some(osu)) => (bot, osu),
+            (Some(bot), None) => return Some(bot.clone()),
+            (None, osu) => return osu.cloned(),
+        };
+        let mut made = bot.clone();
+        if made.top_scores.is_empty() {
+            made.top_scores = osu.top_scores.clone();
+        }
+        for score in &mut made.top_scores {
+            let same = osu.top_scores.iter().find(|other| {
+                (score.beatmap_id > 0.0 && other.beatmap_id == score.beatmap_id)
+                    || (other.title.eq_ignore_ascii_case(&score.title) && other.version.eq_ignore_ascii_case(&score.version))
+            });
+            let Some(other) = same else {
+                continue;
+            };
+            let fill = |mine: &mut f64, theirs: f64| {
+                if *mine <= 0.0 {
+                    *mine = theirs;
+                }
+            };
+            if score.great <= 0.0 && score.ok <= 0.0 && score.meh <= 0.0 && score.miss <= 0.0 {
+                score.great = other.great;
+                score.ok = other.ok;
+                score.meh = other.meh;
+                score.miss = other.miss;
+            }
+            fill(&mut score.stars, other.stars);
+            fill(&mut score.bpm, other.bpm);
+            fill(&mut score.length, other.length);
+            fill(&mut score.map_max_combo, other.map_max_combo);
+            fill(&mut score.max_combo, other.max_combo);
+            fill(&mut score.beatmapset_id, other.beatmapset_id);
+            fill(&mut score.beatmap_id, other.beatmap_id);
+            if score.played.is_empty() {
+                score.played = other.played.clone();
+            }
+            if score.creator.is_empty() {
+                score.creator = other.creator.clone();
+            }
+            if score.artist.is_empty() {
+                score.artist = other.artist.clone();
+            }
+        }
+        if made.rank_history.is_empty() {
+            made.rank_history = osu.rank_history.clone();
+        }
+        if made.level_progress <= 0.0 {
+            made.level_progress = osu.level_progress;
+        }
+        if made.avatar_url.is_empty() {
+            made.avatar_url = osu.avatar_url.clone();
+        }
+        if made.cover_url.is_empty() {
+            made.cover_url = osu.cover_url.clone();
+        }
+        Some(made)
+    }
+
     impl Score {
         pub fn cover(&self) -> Option<String> {
             (self.beatmapset_id > 0.0).then(|| format!("https://assets.ppy.sh/beatmaps/{}/covers/cover.jpg", self.beatmapset_id as u64))
@@ -1274,6 +1335,28 @@ pub mod wire {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_bot_card_borrows_what_osu_says_of_its_plays() {
+        let bot = wire::Card {
+            username: "NaumRedlo".into(),
+            top_scores: vec![wire::Score { title: "Bluenation".into(), version: "Grace".into(), pp: 386.0, max_combo: 1705.0, ..wire::Score::default() }],
+            ..wire::Card::default()
+        };
+        let osu = wire::Card {
+            rank_history: vec![52_555.0, 52_567.0],
+            top_scores: vec![wire::Score { title: "Bluenation".into(), version: "grace".into(), great: 1695.0, ok: 9.0, stars: 6.67, bpm: 180.0, length: 320.0, played: "2026-05-11T13:10:05Z".into(), beatmapset_id: 707_032.0, ..wire::Score::default() }],
+            ..wire::Card::default()
+        };
+        let made = wire::enriched(Some(&bot), Some(&osu)).expect("a card");
+        let score = &made.top_scores[0];
+        assert_eq!((score.great, score.ok, score.stars, score.bpm, score.length), (1695.0, 9.0, 6.67, 180.0, 320.0));
+        assert_eq!(score.max_combo, 1705.0, "what the bot knew stays");
+        assert_eq!(score.cover().as_deref(), Some("https://assets.ppy.sh/beatmaps/707032/covers/cover.jpg"));
+        assert_eq!(made.rank_history, vec![52_555.0, 52_567.0]);
+        assert_eq!(wire::enriched(None, Some(&osu)).map(|card| card.top_scores.len()), Some(1));
+        assert_eq!(wire::enriched(None, None), None);
+    }
 
     #[test]
     fn a_week_starts_on_a_moscow_monday() {

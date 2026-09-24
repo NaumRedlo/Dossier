@@ -809,19 +809,21 @@ fn posters_of<'a>(ground: &Ground<'a>, whose: &Whose<'a>) -> Vec<Poster<'a>> {
         .collect()
 }
 
-fn poster_card<'a>(ground: &Ground<'a>, index: usize, poster: &Poster<'a>, chosen: bool) -> Element<'a, Message> {
+fn poster_card<'a>(ground: &Ground<'a>, index: usize, poster: &Poster<'a>, chosen: bool, wide: f32) -> Element<'a, Message> {
     let w = ground.words;
     let colour = screen::grade_colour(&poster.grade);
     let k = ui::fade();
     let high = 118.0;
+    let top_round = iced::border::Radius { top_left: 13.0, top_right: 13.0, bottom_right: 0.0, bottom_left: 0.0 };
     let picture: Element<'a, Message> = match poster.cover {
-        Some(handle) => iced::widget::image(handle.clone()).content_fit(iced::ContentFit::Cover).width(Length::Fill).height(high).opacity(k).into(),
+        Some(handle) => container(ui::framed(handle, wide, high, top_round).opacity(k)).width(Length::Fill).height(high).clip(true).into(),
         None => container(ui::fine_hatch()).width(Length::Fill).height(high).into(),
     };
     let shade = container(Space::new().width(Length::Fill).height(high)).style(move |_| container::Style {
         background: Some(Background::Gradient(iced::Gradient::Linear(
             iced::gradient::Linear::new(iced::Radians(std::f32::consts::PI)).add_stop(0.0, Color::from_rgba(0.047, 0.027, 0.035, 0.0)).add_stop(0.55, Color::from_rgba(0.047, 0.027, 0.035, 0.35 * k)).add_stop(1.0, Color::from_rgba(0.047, 0.027, 0.035, 0.97 * k)),
         ))),
+        border: Border { radius: top_round, ..Border::default() },
         ..container::Style::default()
     });
     let place = container(text(format!("#{}", index + 1)).font(theme::MONO_BOLD).size(11.0).color(ui::faded(INK)))
@@ -837,9 +839,11 @@ fn poster_card<'a>(ground: &Ground<'a>, index: usize, poster: &Poster<'a>, chose
             shadow: Shadow { color: Color { a: 0.4 * k, ..colour }, offset: Vector::ZERO, blur_radius: 14.0 },
             ..container::Style::default()
         });
+    let edge = if chosen { Color { a: k, ..colour } } else { Color::from_rgba(1.0, 1.0, 1.0, 0.07 * k) };
     let top = stack![
         picture,
         shade,
+        ui::caps(14.0, Color { a: k, ..Color::from_rgb(0.054, 0.025, 0.033) }, edge, high),
         container(place).padding(8).width(Length::Fill).height(high),
         container(seal).padding(Padding { top: 0.0, right: 10.0, bottom: 0.0, left: 0.0 }).width(Length::Fill).height(high + 18.0).align_x(iced::alignment::Horizontal::Right).align_y(iced::alignment::Vertical::Bottom),
     ]
@@ -849,13 +853,23 @@ fn poster_card<'a>(ground: &Ground<'a>, index: usize, poster: &Poster<'a>, chose
         (false, Some(misses)) if misses > 0 => ui::mono_small(format!("{misses} ✕"), ACCENT),
         _ => Space::new().width(0.0).into(),
     };
+    let mut meta = row![ui::mono_small(w.percent(poster.accuracy), INK)].spacing(8).align_y(iced::Center);
+    if let Some(stars) = poster.stars {
+        meta = meta.push(ui::mono_small(format!("{}★", screen::decimal(w, stars, 1)), MUTED));
+    }
     let body = column![
         row![text(screen::decimal(w, poster.pp as f32, 0)).font(theme::SANS_SEMI).size(24.0).wrapping(text::Wrapping::None).color(ui::faded(INK)), text("pp").font(theme::SANS).size(12.0).color(ui::faded(MUTED))].spacing(4).align_y(iced::alignment::Vertical::Bottom),
-        container(text(poster.title.clone()).font(theme::SANS_SEMI).size(13.0).color(ui::faded(INK))).height(34.0).clip(true),
-        container(text(poster.version.clone()).font(theme::SANS).size(11.5).wrapping(text::Wrapping::None).color(ui::faded(MUTED))).clip(true),
-        row![ui::mono_small(w.percent(poster.accuracy), INK), ui::grow(), tail].align_y(iced::Center),
+        container(
+            column![
+                container(text(poster.title.clone()).font(theme::SANS_SEMI).size(13.0).color(ui::faded(INK))).max_height(34.0).clip(true),
+                container(text(poster.version.clone()).font(theme::SANS).size(11.5).wrapping(text::Wrapping::None).color(ui::faded(MUTED))).clip(true),
+            ]
+            .spacing(2),
+        )
+        .height(52.0),
+        row![meta, ui::grow(), tail].align_y(iced::Center),
     ]
-    .spacing(5)
+    .spacing(6)
     .padding(Padding { top: 0.0, right: 12.0, bottom: 12.0, left: 12.0 });
     button(column![top, body].spacing(0))
         .padding(0)
@@ -961,12 +975,13 @@ fn poster_detail<'a>(ground: &Ground<'a>, poster: &Poster<'a>) -> Element<'a, Me
         right = right.push(bar);
     }
     if let Some(set) = poster.set {
-        right = right.push(
+        right = right.push(row![
+            ui::grow(),
             button(row![glyph(Icon::External, 13.0, MUTED), text(w.t("open-map")).font(theme::SANS_SEMI).size(12.5).color(ui::faded(MUTED))].spacing(6).align_y(iced::Center))
                 .padding([7, 12])
                 .style(ui::button_faded(outline))
                 .on_press(Message::Open(format!("https://osu.ppy.sh/beatmapsets/{set}"))),
-        );
+        ]);
     }
     let k = ui::fade();
     container(row![left, right].spacing(20).align_y(iced::Center))
@@ -990,8 +1005,9 @@ fn best_plays<'a>(ground: &Ground<'a>, whose: &Whose<'a>, wide: f32) -> Element<
     let weighted: f64 = posters.iter().enumerate().map(|(at, poster)| poster.pp * 0.95f64.powi(at as i32)).sum();
     head = head.push(ui::mono_small(w.with("weighted-pp", &[("pp", w.lang().group(weighted.round() as u64)), ("n", posters.len().to_string())]), MUTED));
     let chosen = ground.play_open.filter(|at| *at < posters.len()).unwrap_or(0);
-    let cards: Vec<Element<'a, Message>> = posters.iter().enumerate().map(|(at, poster)| poster_card(ground, at, poster, at == chosen)).collect();
     let columns = if wide >= 720.0 { 5 } else { 3 };
+    let each = (wide - 32.0 - 10.0 * (columns as f32 - 1.0)) / columns as f32;
+    let cards: Vec<Element<'a, Message>> = posters.iter().enumerate().map(|(at, poster)| poster_card(ground, at, poster, at == chosen, each)).collect();
     slab(column![head, screen::grid(cards, columns, 10.0), poster_detail(ground, &posters[chosen])].spacing(12), [14, 16]).into()
 }
 

@@ -724,6 +724,7 @@ struct Poster<'a> {
     length: Option<f64>,
     played: Option<i64>,
     cover: Option<&'a iced::widget::image::Handle>,
+    art: Option<&'a iced::widget::image::Handle>,
     set: Option<u64>,
 }
 
@@ -768,6 +769,7 @@ fn posters_of<'a>(ground: &Ground<'a>, whose: &Whose<'a>) -> Vec<Poster<'a>> {
                     length: (score.length > 0.0).then_some(score.length),
                     played: crate::news::unix_of(&score.played),
                     cover: score.cover().and_then(|url| ground.pictures.get(&url)).or_else(|| ground.thumbs.get(&score.hash)),
+                    art: score.cover().and_then(|url| ground.pictures.get(&crate::community::poster_key(&url))),
                     set: (score.beatmapset_id > 0.0).then_some(score.beatmapset_id as u64),
                 }
             })
@@ -803,6 +805,7 @@ fn posters_of<'a>(ground: &Ground<'a>, whose: &Whose<'a>) -> Vec<Poster<'a>> {
                 length: None,
                 played: (play.at > 0).then_some(play.at),
                 cover: map.and_then(|map| ground.thumbs.get(&map.hash).or_else(|| map.card().and_then(|card| ground.pictures.get(&card)))),
+                art: map.and_then(|map| map.poster()).and_then(|key| ground.pictures.get(&key)),
                 set: map.and_then(|map| map.set),
             }
         })
@@ -847,19 +850,36 @@ fn poster_card<'a>(ground: &Ground<'a>, index: usize, poster: &Poster<'a>, chose
     let w = ground.words;
     let colour = screen::grade_colour(&poster.grade);
     let k = ui::fade();
-    let high = 132.0;
     let ground_colour = Color::from_rgb8(0x17, 0x0d, 0x10);
     let top_round = iced::border::Radius { top_left: 13.0, top_right: 13.0, bottom_right: 0.0, bottom_left: 0.0 };
-    let picture: Element<'a, Message> = match poster.cover {
-        Some(handle) => container(ui::framed(handle, wide, high, top_round).opacity(k)).width(Length::Fill).height(high).clip(true).into(),
-        None => container(ui::fine_hatch()).width(Length::Fill).height(high).into(),
+    let shape = |handle: &iced::widget::image::Handle| match handle {
+        iced::widget::image::Handle::Rgba { width, height, .. } if *height > 0 => *width as f32 / *height as f32,
+        _ => crate::community::POSTER_SHAPE,
     };
-    let shade = container(Space::new().width(Length::Fill).height(high)).style(move |_| container::Style {
+    let fits = |handle: &&iced::widget::image::Handle| shape(handle) < 2.2;
+    let (high, picture): (f32, Element<'a, Message>) = match poster.art.or(poster.cover.filter(fits)) {
+        Some(handle) => {
+            let high = (wide / shape(handle)).clamp(86.0, 150.0);
+            let picture = iced::widget::image(handle.clone()).content_fit(iced::ContentFit::Fill).width(Length::Fill).height(high).border_radius(13.0).opacity(k);
+            (high, container(picture).width(Length::Fill).height(high).clip(true).into())
+        }
+        None => {
+            let high = (wide / crate::community::POSTER_SHAPE).clamp(86.0, 150.0);
+            let picture: Element<'a, Message> = match poster.cover {
+                Some(handle) => container(ui::framed(handle, wide, high, 13.0).opacity(k)).width(Length::Fill).height(high).clip(true).into(),
+                None => container(ui::fine_hatch()).width(Length::Fill).height(high).into(),
+            };
+            (high, picture)
+        }
+    };
+    let reach = (high - 4.0) / (high + 20.0);
+    let shade = container(Space::new().width(Length::Fill).height(high + 20.0)).style(move |_| container::Style {
         background: Some(Background::Gradient(iced::Gradient::Linear(
             iced::gradient::Linear::new(iced::Radians(std::f32::consts::PI))
                 .add_stop(0.0, Color { a: 0.0, ..ground_colour })
-                .add_stop(0.45, Color { a: 0.3 * k, ..ground_colour })
-                .add_stop(0.78, Color { a: 0.86 * k, ..ground_colour })
+                .add_stop(0.45 * reach, Color { a: 0.3 * k, ..ground_colour })
+                .add_stop(0.78 * reach, Color { a: 0.86 * k, ..ground_colour })
+                .add_stop(reach, Color { a: k, ..ground_colour })
                 .add_stop(1.0, Color { a: k, ..ground_colour }),
         ))),
         border: Border { radius: top_round, ..Border::default() },
@@ -888,11 +908,9 @@ fn poster_card<'a>(ground: &Ground<'a>, index: usize, poster: &Poster<'a>, chose
         });
     let mods: Element<'a, Message> = if poster.mods.is_empty() { Space::new().width(0.0).height(0.0).into() } else { screen::mods(&poster.mods) };
     let foot = row![mods, ui::grow(), seal].align_y(iced::alignment::Vertical::Bottom);
-    let edge = if chosen { Color { a: k, ..colour } } else { Color::from_rgba(1.0, 1.0, 1.0, 0.07 * k) };
     let top = stack![
         picture,
         shade,
-        ui::caps(14.0, Color { a: k, ..Color::from_rgb(0.054, 0.025, 0.033) }, edge, high),
         container(head).padding(8).width(Length::Fill).height(high),
         container(foot).padding(Padding { top: 0.0, right: 10.0, bottom: 0.0, left: 10.0 }).width(Length::Fill).height(high + 20.0).align_y(iced::alignment::Vertical::Bottom),
     ]
@@ -916,7 +934,11 @@ fn poster_card<'a>(ground: &Ground<'a>, index: usize, poster: &Poster<'a>, chose
     ]
     .spacing(6)
     .padding(Padding { top: 0.0, right: 12.0, bottom: 12.0, left: 12.0 });
-    button(column![top, body].spacing(0))
+    let outline = container(Space::new().width(Length::Fill).height(Length::Fill)).width(Length::Fill).height(Length::Fill).style(move |_| container::Style {
+        border: Border { color: if chosen { Color { a: k, ..colour } } else { Color::from_rgba(1.0, 1.0, 1.0, 0.08 * k) }, width: if chosen { 1.5 } else { 1.0 }, radius: 14.0.into() },
+        ..container::Style::default()
+    });
+    button(stack![column![top, body].spacing(0), outline])
         .padding(0)
         .width(Length::FillPortion(1))
         .style(move |_, status: button::Status| {
@@ -925,7 +947,7 @@ fn poster_card<'a>(ground: &Ground<'a>, index: usize, poster: &Poster<'a>, chose
             button::Style {
                 background: Some(Background::Color(Color { a: k, ..ground_colour })),
                 text_color: INK,
-                border: Border { color: if chosen { Color { a: k, ..colour } } else { Color::from_rgba(1.0, 1.0, 1.0, if lit { 0.16 } else { 0.07 } * k) }, width: 1.0, radius: 14.0.into() },
+                border: Border { color: Color::from_rgba(1.0, 1.0, 1.0, if lit && !chosen { 0.16 } else { 0.0 } * k), width: 1.0, radius: 14.0.into() },
                 shadow: if chosen {
                     Shadow { color: Color { a: 0.28 * k, ..colour }, offset: Vector::ZERO, blur_radius: 24.0 }
                 } else if lit {
@@ -995,7 +1017,7 @@ fn poster_detail<'a>(ground: &Ground<'a>, poster: &Poster<'a>) -> Element<'a, Me
         facts.push(fact_pill(row![glyph(Icon::Chain, 12.0, colour), ui::mono_small(said, colour)].spacing(5).align_y(iced::Center).into()));
     }
     if let Some(stars) = poster.stars {
-        facts.push(fact_pill(row![glyph(Icon::Star, 11.0, theme::GRADE_S), ui::mono_small(format!("{}★", screen::decimal(w, stars, 2)), INK)].spacing(5).align_y(iced::Center).into()));
+        facts.push(fact_pill(row![glyph(Icon::Star, 11.0, theme::GRADE_S), ui::mono_small(screen::decimal(w, stars, 2), INK)].spacing(5).align_y(iced::Center).into()));
     }
     if let Some(bpm) = poster.bpm {
         facts.push(fact_pill(ui::mono_small(format!("{} BPM", bpm.round() as u32), MUTED)));
@@ -1051,12 +1073,10 @@ fn poster_detail<'a>(ground: &Ground<'a>, poster: &Poster<'a>) -> Element<'a, Me
 fn best_plays<'a>(ground: &Ground<'a>, whose: &Whose<'a>, wide: f32) -> Element<'a, Message> {
     let w = ground.words;
     let posters = posters_of(ground, whose);
-    let mut head = row![caption(w.t("best-plays")), ui::grow()].align_y(iced::Center);
+    let head = caption(w.t("best-plays"));
     if posters.is_empty() {
         return slab(column![head, ui::mono_small(w.t("nothing-yet"), FAINT)].spacing(10), [14, 16]).into();
     }
-    let weighted: f64 = posters.iter().enumerate().map(|(at, poster)| poster.pp * 0.95f64.powi(at as i32)).sum();
-    head = head.push(ui::mono_small(w.with("weighted-pp", &[("pp", w.lang().group(weighted.round() as u64)), ("n", posters.len().to_string())]), MUTED));
     let chosen = ground.play_open.filter(|at| *at < posters.len()).unwrap_or(0);
     let columns = if wide >= 720.0 { 5 } else { 3 };
     let each = (wide - 32.0 - 10.0 * (columns as f32 - 1.0)) / columns as f32;

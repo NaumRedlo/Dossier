@@ -3064,50 +3064,6 @@ pub fn framed(handle: &iced::widget::image::Handle, wide: f32, high: f32, radius
     }
 }
 
-pub struct Caps {
-    pub radius: f32,
-    pub fill: Color,
-    pub edge: Color,
-}
-
-impl<Message> canvas::Program<Message> for Caps {
-    type State = ();
-
-    fn draw(&self, _: &(), renderer: &Renderer, _: &Theme, bounds: Rectangle, _: mouse::Cursor) -> Vec<canvas::Geometry> {
-        use iced::widget::canvas::{Frame, Path, Stroke};
-        let mut frame = Frame::new(renderer, bounds.size());
-        let r = self.radius.min(bounds.width / 2.0).min(bounds.height / 2.0);
-        let right = bounds.width;
-        let left_cap = Path::new(|b| {
-            b.move_to(Point::new(0.0, 0.0));
-            b.line_to(Point::new(0.0, r));
-            b.arc_to(Point::new(0.0, 0.0), Point::new(r, 0.0), r);
-            b.close();
-        });
-        let right_cap = Path::new(|b| {
-            b.move_to(Point::new(right, 0.0));
-            b.line_to(Point::new(right - r, 0.0));
-            b.arc_to(Point::new(right, 0.0), Point::new(right, r), r);
-            b.close();
-        });
-        frame.fill(&left_cap, self.fill);
-        frame.fill(&right_cap, self.fill);
-        let inset = 0.5;
-        let arcs = Path::new(|b| {
-            b.move_to(Point::new(inset, r));
-            b.arc_to(Point::new(inset, inset), Point::new(r, inset), r - inset);
-            b.move_to(Point::new(right - r, inset));
-            b.arc_to(Point::new(right - inset, inset), Point::new(right - inset, r), r - inset);
-        });
-        frame.stroke(&arcs, Stroke::default().with_color(self.edge).with_width(1.0));
-        vec![frame.into_geometry()]
-    }
-}
-
-pub fn caps<'a, Message: 'a>(radius: f32, fill: Color, edge: Color, high: f32) -> Element<'a, Message> {
-    Canvas::new(Caps { radius, fill, edge }).width(Length::Fill).height(high).into()
-}
-
 pub fn bare_input(_: &Theme, _: iced::widget::text_input::Status) -> iced::widget::text_input::Style {
     let k = fade();
     iced::widget::text_input::Style {

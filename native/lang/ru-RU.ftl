@@ -472,7 +472,6 @@ events = { $n ->
 }
 more-changes-n = и ещё { $n }
 dossier-of = Досье ·
-weighted-pp = { $pp } pp с весом · лучшие { $n }
 mapped-by = карта
 open-map = Карта
 storage = Хранилище

@@ -238,6 +238,10 @@ impl MapRef {
     pub fn card(&self) -> Option<String> {
         self.set.map(|set| format!("https://assets.ppy.sh/beatmaps/{set}/covers/card.jpg"))
     }
+
+    pub fn poster(&self) -> Option<String> {
+        self.set.map(|set| poster_key(&format!("https://assets.ppy.sh/beatmaps/{set}/covers/cover.jpg")))
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -391,6 +395,16 @@ fn me_into(maps: &mut Vec<MapRef>, me: &wire::Me) -> Me {
 }
 
 pub const BACKDROP: u32 = 720;
+pub const POSTER: u32 = 721;
+pub const POSTER_SHAPE: f32 = 1.45;
+
+pub fn poster_key(url: &str) -> String {
+    format!("poster:{url}")
+}
+
+pub fn fetched(key: &str) -> &str {
+    key.strip_prefix("poster:").unwrap_or(key)
+}
 
 pub fn moscow_monday(now: i64) -> i64 {
     let day = (now + 3 * 3600).div_euclid(86_400);
@@ -787,6 +801,12 @@ impl Catalog {
         for map in &self.maps {
             if let Some(card) = map.card() {
                 want(&card, 400);
+            }
+        }
+        let tops: Vec<usize> = self.people.iter().filter(|person| person.you).flat_map(|person| person.top.iter().map(|play| play.map)).collect();
+        for at in tops {
+            if let Some(poster) = self.maps.get(at).and_then(MapRef::poster) {
+                want(&poster, POSTER);
             }
         }
         wanted
@@ -1288,6 +1308,7 @@ pub mod wire {
                 wanted.push((self.cover_url.clone(), 1400));
             }
             wanted.extend(self.top_scores.iter().filter_map(Score::cover).map(|url| (url, 400)));
+            wanted.extend(self.top_scores.iter().filter_map(Score::cover).map(|url| (super::poster_key(&url), super::POSTER)));
             wanted
         }
     }

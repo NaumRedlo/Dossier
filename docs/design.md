@@ -598,16 +598,19 @@ naming the group, its size and when the bot last answered — or *образцы
   with the chosen one's particulars under them: artist and title, version
   and mapper, the combo (with the map's own when osu! says it), stars, BPM,
   length, the day it was set, the mods, the 300/100/50/miss bar and a way to
-  the map; the heading sums them weighted as osu! does (×0.95 each). The
+  the map; the heading is only the panel's name, with no sum beside it. The
   bot's card knows a play's pp, grade and combo but not its hits, stars,
   BPM, length or day, so one's own dossier fills those from the osu! page
   it reads, play by play (the same map and difficulty). A cover drawn to
-  fill its frame is drawn larger than the frame and cut, and iced rounds
-  what it draws rather than the frame, so the poster's top corners are
-  rounded by two small caps of the panel's colour drawn over them, with the
-  card's own edge along their arcs. The cover melts into the card's own
-  colour down to full opacity at its foot (a shade that stopped short left
-  a seam), the stars sit on it in a pill of osu!'s own difficulty colour,
+  fill its frame is drawn larger than the frame and spills, so a poster's
+  cover is cut to the poster's shape (1.45 : 1) when it is fetched and
+  drawn exactly into its frame, clipped to it, with one radius on every
+  corner (iced lost a top-only radius); the card's edge is drawn over the
+  whole poster, cover included, so the outline and the lit frame run
+  unbroken round it. The cover melts into the card's own colour: the shade
+  spans the cover and the grade's ring below it and is opaque a few points
+  above the cover's foot (a shade that ended at the foot let the cover's
+  last row through as a line), the stars sit on it in a pill of osu!'s own difficulty colour,
   the mods in its corner, FC and the misses are small pills, and the chosen
   play's particulars lie over its cover in a frame of its grade's colour; the grades, the one under the pointer lit and its share told; the
   titles as a collection, bar by rarity, the held ones filled and the next

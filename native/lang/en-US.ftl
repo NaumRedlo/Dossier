@@ -453,7 +453,6 @@ events = { $n ->
 }
 more-changes-n = and { $n } more
 dossier-of = Dossier ·
-weighted-pp = { $pp } pp weighted · best { $n }
 mapped-by = mapped by
 open-map = Map
 storage = Storage

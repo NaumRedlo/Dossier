@@ -1823,7 +1823,7 @@ impl Main {
                 self.people_asked.remove(&format!("card:{name}"));
                 match said {
                     Ok(card) => {
-                        let wanted: Vec<(String, u32)> = card.pictures().into_iter().map(|(url, side)| (url, if side > 256 { crate::community::BACKDROP } else { side })).collect();
+                        let wanted: Vec<(String, u32)> = card.pictures();
                         self.people_cards.insert(name, card);
                         self.pictures_task(wanted)
                     }
@@ -1849,7 +1849,7 @@ impl Main {
                 let mut tasks = vec![self.community_pictures_task()];
                 match shared {
                     Some((card, fresh)) => {
-                        let wanted: Vec<(String, u32)> = card.pictures().into_iter().map(|(url, side)| (url, if side > 256 { crate::community::BACKDROP } else { side })).collect();
+                        let wanted: Vec<(String, u32)> = card.pictures();
                         self.people_cards.entry(name.clone()).or_insert(card);
                         tasks.push(self.pictures_task(wanted));
                         if !fresh {
@@ -4016,8 +4016,9 @@ impl Main {
         }
         ui::streamed(move |push| {
             for (url, side) in wanted {
-                let handle = crate::news::picture(&url).and_then(|bytes| match side {
+                let handle = crate::news::picture(crate::community::fetched(&url)).and_then(|bytes| match side {
                     crate::community::BACKDROP => backdrop_bytes(&bytes, side),
+                    crate::community::POSTER => poster_bytes(&bytes),
                     side if side <= 256 => covered_bytes(&bytes, side, side),
                     side => fitted_bytes(&bytes, side),
                 });
@@ -4043,8 +4044,9 @@ impl Main {
         }
         let pictures = ui::streamed(move |push| {
             for (url, side) in wanted {
-                let handle = crate::news::picture(&url).and_then(|bytes| match side {
+                let handle = crate::news::picture(crate::community::fetched(&url)).and_then(|bytes| match side {
                     crate::community::BACKDROP => backdrop_bytes(&bytes, side),
+                    crate::community::POSTER => poster_bytes(&bytes),
                     side if side <= 256 => covered_bytes(&bytes, side, side),
                     side => fitted_bytes(&bytes, side),
                 });
@@ -5014,6 +5016,20 @@ impl Main {
 pub fn fitted_bytes(bytes: &[u8], widest: u32) -> Option<image::Handle> {
     let picture = ::image::load_from_memory(bytes).ok()?;
     let picture = if picture.width() > widest { picture.resize(widest, u32::MAX, ::image::imageops::FilterType::Lanczos3) } else { picture };
+    let (width, height) = (picture.width(), picture.height());
+    Some(image::Handle::from_rgba(width, height, picture.to_rgba8().into_raw()))
+}
+
+pub fn poster_bytes(bytes: &[u8]) -> Option<image::Handle> {
+    let picture = ::image::load_from_memory(bytes).ok()?;
+    let high = picture.height().min(300).max(1);
+    let picture = picture.resize(u32::MAX, high, ::image::imageops::FilterType::Lanczos3);
+    let (width, height) = (picture.width(), picture.height());
+    let want = ((height as f32) * crate::community::POSTER_SHAPE).round() as u32;
+    let picture = if width > want { picture.crop_imm((width - want) / 2, 0, want, height) } else {
+        let tall = ((width as f32) / crate::community::POSTER_SHAPE).round().max(1.0) as u32;
+        picture.crop_imm(0, height.saturating_sub(tall) / 2, width, tall.min(height))
+    };
     let (width, height) = (picture.width(), picture.height());
     Some(image::Handle::from_rgba(width, height, picture.to_rgba8().into_raw()))
 }

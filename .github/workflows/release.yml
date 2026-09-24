@@ -67,7 +67,7 @@ jobs:
           </dict>
           </plist>
           PLIST
-              ditto -c -k --keepParent "$out" "$out.zip"
+              ditto -c -k --norsrc --noextattr --keepParent "$out" "$out.zip"
               ;;
             Windows)
               cp "$bin.exe" "$out/dossier.exe"

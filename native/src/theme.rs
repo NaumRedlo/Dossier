@@ -560,7 +560,7 @@ pub fn filter_chip(on: bool) -> impl Fn(&Theme, button::Status) -> button::Style
             background: Some(Background::Color(background)),
             text_color: INK,
             border: border(edge, 15.0),
-            shadow: if on { Shadow { color: Color::from_rgba(0.886, 0.282, 0.282, 0.18), offset: iced::Vector::ZERO, blur_radius: 12.0 } } else { Shadow::default() },
+            shadow: if on { Shadow { color: Color::from_rgba(0.886, 0.282, 0.282, 0.07), offset: iced::Vector::ZERO, blur_radius: 8.0 } } else { Shadow::default() },
             snap: true,
         }
     }

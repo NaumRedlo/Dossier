@@ -574,16 +574,25 @@ naming the group, its size and when the bot last answered — or *образцы
   their covers or a wash of their colour — the newest top play, title,
   climb and piece of news — each opening its player, board or reader.
   *Всё* sets the group's journal beside the news (three parts to two; one
-  above the other under 620): the journal is rows of 46 — the time, the
-  avatar, who and the map, the pp and the grade in a badge — with a top
-  play, a title and a climb as rows of the same height behind a square of
-  their colour, its own pills *Всё · Игры · Топ-плеи · Титулы · Рейтинг*
-  with their counts, a top play opening onto its hits; the news is cards,
-  a post's picture or video above its words, an article's title and lead,
-  a build's first three changes, with *Всё · osu! · Каналы · Обновления*.
-  *Группа* widens the journal into columns — time, player, the map with
-  its cover, accuracy, mods, pp, grade; *Новости* lays the cards two
-  abreast. The filters left the side card, which keeps only the channels.
+  above the other under 620). The journal has no frame, as the news has
+  none: its heading, its pills *Всё · Игры · Топ-плеи · Титулы · Рейтинг*
+  with their counts and its rows lie on the page, level with the news
+  (2026-09-24, from the journal drawn on the feed's canvas). It is a table
+  of rows of 40 under a head of *Время · Игрок · Карта · pp*: the time, the
+  avatar and the name, the map's cover and its title with the version
+  muted, the pp and the grade as a letter of its colour; below 600 wide it
+  keeps those columns, and wider (*Группа*) it adds the accuracy and the
+  mods. A top play, a title and a climb are one line across the player's
+  and the map's columns — the event's glyph where the avatar stands, the
+  name, what happened (*новый топ-плей*, *получил титул*, *поднялся в
+  таблице*) and its object, a title in its rarity's colour — with the pp
+  and the place or the move (*#4 → #2*) under the pp column; a top play
+  opens onto its hits. Rows have no fill and no frame of their own, only a
+  faint light under the pointer (tinted rows read as boxes). The news is
+  cards, a post's picture or video above its words, an article's title and
+  lead, a build's first three changes, with *Всё · osu! · Каналы ·
+  Обновления*; *Новости* lays the cards two abreast. The filters left the
+  side card, which keeps only the channels.
 - *Профиль* is the dossier (2026-09-24): the ringed avatar with the level
   and its progress, the title worn, whether the person is online, the
   country with its rank, the years in osu!, the streak and the duels, *Открыть
@@ -605,9 +614,12 @@ naming the group, its size and when the bot last answered — or *образцы
   fill its frame is drawn larger than the frame and spills, so a poster's
   cover is cut to the poster's shape (1.45 : 1) when it is fetched and
   drawn exactly into its frame, clipped to it, with one radius on every
-  corner (iced lost a top-only radius); the card's edge is drawn over the
-  whole poster, cover included, so the outline and the lit frame run
-  unbroken round it. The cover melts into the card's own colour: the shade
+  corner (iced lost a top-only radius); the poster's press, its edge and
+  its light under the pointer are a clear button laid over the whole
+  poster, so the edge runs unbroken round it and lights over the cover too
+  (a stack draws its later layers after its neighbours, so the chosen
+  poster's glow stays on the card beneath, not on that button, or it
+  would fall over the next poster). The cover melts into the card's own colour: the shade
   spans the cover and the grade's ring below it and is opaque a few points
   above the cover's foot (a shade that ended at the foot let the cover's
   last row through as a line), the stars sit on it in a pill of osu!'s own difficulty colour,
@@ -706,8 +718,11 @@ naming the group, its size and when the bot last answered — or *образцы
   осталось 12 pp*) or, if they have not played, pinned below; before the
   week's first snapshot it says the data is still gathering and when the
   first standing comes. The first three stand on a podium — second, first,
-  third, the first tallest, each over its cover with its medal's ring and
-  glow; the rest are rows of 60 over their covers. The bot sends what the
+  third, the first tallest, each over its cover with its medal's ring and a
+  thin edge of its colour; the glow round them is barely there (5 %, 10 px)
+  and only grows a little under the pointer (10 %, 14 px), and a chosen
+  filter's glow is as faint — the stronger glows (22 %, 18 px) glared; the
+  rest are rows of 60 over their covers. The bot sends what the
   app cannot work out: `was`, the places each player closed last week on
   (the snapshot's `prev_positions`), `collecting` and `week_began`. A
   player's cover is fetched once at 720 wide, softened and darkened to 62 %

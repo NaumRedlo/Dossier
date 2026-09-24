@@ -994,18 +994,21 @@ fn row_style(you: bool, frame: Option<Color>) -> impl Fn(&Theme, button::Status)
     move |_, status| {
         let lit = matches!(status, button::Status::Hovered | button::Status::Pressed);
         let edge = if you { ACCENT } else { frame.unwrap_or(Color::WHITE) };
-        let strength = match (you || frame.is_some(), lit) {
-            (true, true) => 0.9,
-            (true, false) => 0.6,
-            (false, true) => 0.14,
-            (false, false) => 0.06,
+        let strength = match (you, frame.is_some(), lit) {
+            (true, _, true) => 0.9,
+            (true, _, false) => 0.6,
+            (false, true, true) => 0.62,
+            (false, true, false) => 0.34,
+            (false, false, true) => 0.14,
+            (false, false, false) => 0.06,
         };
         button::Style {
             background: Some(Background::Color(Color::from_rgba(0.055, 0.025, 0.033, 0.96))),
             text_color: INK,
-            border: Border { color: Color { a: strength, ..edge }, width: if you || frame.is_some() { 1.5 } else { 1.0 }, radius: 14.0.into() },
-            shadow: match frame.or(you.then_some(ACCENT)) {
-                Some(glow) if lit || frame.is_some() => Shadow { color: Color { a: 0.22, ..glow }, offset: iced::Vector::ZERO, blur_radius: 18.0 },
+            border: Border { color: Color { a: strength, ..edge }, width: if you { 1.5 } else { 1.0 }, radius: 14.0.into() },
+            shadow: match (frame.or(you.then_some(ACCENT)), lit) {
+                (Some(glow), true) => Shadow { color: Color { a: 0.1, ..glow }, offset: iced::Vector::ZERO, blur_radius: 14.0 },
+                (Some(glow), false) if frame.is_some() => Shadow { color: Color { a: 0.045, ..glow }, offset: iced::Vector::ZERO, blur_radius: 10.0 },
                 _ => Shadow::default(),
             },
             snap: true,

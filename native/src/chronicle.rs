@@ -285,185 +285,176 @@ fn first_line(words: &str) -> String {
     words.lines().map(str::trim).find(|line| !line.is_empty()).unwrap_or_default().to_owned()
 }
 
-fn clock<'a>(ground: &Ground<'a>, at: i64, wide: f32) -> Element<'a, Message> {
-    container(ui::mono_small(ground.words.clock(at), MUTED)).width(wide).into()
+#[derive(Clone, Copy)]
+struct Table {
+    full: bool,
+    time: f32,
+    player: f32,
+    thumb: (f32, f32),
+    pp: f32,
+    grade: f32,
+    gap: f32,
 }
 
-fn tinted_square<'a>(icon: Icon, colour: Color, side: f32) -> Element<'a, Message> {
-    let k = ui::fade();
-    container(glyph(icon, side * 0.54, colour))
-        .width(side)
-        .height(side)
-        .center(side)
-        .style(move |_| container::Style {
-            background: Some(Background::Color(Color { a: 0.14 * k, ..colour })),
-            border: Border { color: Color { a: 0.42 * k, ..colour }, width: 1.0, radius: (side * 0.3).into() },
-            ..container::Style::default()
-        })
-        .into()
-}
-
-fn row_press(lit_colour: Option<Color>) -> impl Fn(&Theme, button::Status) -> button::Style {
-    move |_, status| {
-        let lit = matches!(status, button::Status::Hovered | button::Status::Pressed);
-        let k = ui::fade();
-        let wash = lit_colour.map(|colour| Background::Gradient(iced::Gradient::Linear(
-            iced::gradient::Linear::new(iced::Radians(std::f32::consts::FRAC_PI_2)).add_stop(0.0, Color { a: 0.022 * k, ..colour }).add_stop(0.6, Color { a: 0.0, ..colour }),
-        )));
-        button::Style {
-            background: if lit { Some(Background::Color(Color::from_rgba(1.0, 1.0, 1.0, 0.035))) } else { wash },
-            text_color: INK,
-            border: Border { radius: 9.0.into(), ..Border::default() },
-            shadow: Shadow::default(),
-            snap: true,
+impl Table {
+    fn for_width(wide: f32) -> Table {
+        if wide >= 600.0 {
+            Table { full: true, time: 44.0, player: 164.0, thumb: (46.0, 26.0), pp: 52.0, grade: 24.0, gap: 12.0 }
+        } else {
+            Table { full: false, time: 38.0, player: 118.0, thumb: (34.0, 20.0), pp: 40.0, grade: 16.0, gap: 9.0 }
         }
     }
 }
 
-struct Line<'a> {
-    icon: Option<(Icon, Color)>,
-    who: Option<usize>,
-    name: String,
-    under: String,
-    tail: Element<'a, Message>,
-    press: Message,
-    details: Option<Element<'a, Message>>,
-    tint: Option<Color>,
-    cover: Option<usize>,
-    accuracy: Option<f32>,
-    mods: Vec<String>,
+const ACCURACY_WIDE: f32 = 64.0;
+const MODS_WIDE: f32 = 84.0;
+const JOURNAL_ROW: f32 = 40.0;
+const CORAL: Color = Color::from_rgb(0.941, 0.408, 0.408);
+
+fn journal_head<'a>(ground: &Ground<'a>, table: Table) -> Element<'a, Message> {
+    let w = ground.words;
+    let cell = |key: &str, width: Length, right: bool| -> Element<'a, Message> {
+        let label = container(caption(w.t(key))).width(width);
+        if right { label.align_x(iced::alignment::Horizontal::Right).into() } else { label.into() }
+    };
+    let mut line = row![cell("journal-time", Length::Fixed(table.time), false), cell("journal-player", Length::Fixed(table.player), false), cell("journal-map", Length::Fill, false)].spacing(table.gap);
+    if table.full {
+        line = line.push(cell("journal-accuracy", Length::Fixed(ACCURACY_WIDE), true)).push(cell("journal-mods", Length::Fixed(MODS_WIDE), true));
+    }
+    line = line.push(cell("journal-pp", Length::Fixed(table.pp), true)).push(Space::new().width(table.grade));
+    container(line).padding(Padding { top: 0.0, right: 10.0, bottom: 4.0, left: 10.0 }).into()
 }
 
-fn line_of<'a>(ground: &Ground<'a>, event: &Event<'a>) -> Option<Line<'a>> {
+fn title_and_version(ground: &Ground<'_>, map: usize) -> (String, String) {
+    let whole = map_title(ground, map);
+    match whole.rfind(" [") {
+        Some(at) if whole.ends_with(']') => (whole[..at].to_owned(), whole[at..].to_owned()),
+        _ => (whole, String::new()),
+    }
+}
+
+fn time_cell<'a>(ground: &Ground<'a>, at: i64, table: Table) -> Element<'a, Message> {
+    container(ui::mono_small(ground.words.clock(at), MUTED)).width(table.time).into()
+}
+
+fn player_cell<'a>(ground: &Ground<'a>, who: usize, table: Table) -> Element<'a, Message> {
+    let Some(person) = ground.catalog.people.get(who) else {
+        return Space::new().width(table.player).into();
+    };
+    container(row![screen::face(ground, person, 22.0), text(person.name.clone()).font(theme::SANS_SEMI).size(13.0).wrapping(text::Wrapping::None).color(ui::faded(INK))].spacing(8).align_y(iced::Center))
+        .width(table.player)
+        .clip(true)
+        .into()
+}
+
+fn map_cell<'a>(ground: &Ground<'a>, map: usize, table: Table) -> Element<'a, Message> {
+    let (wide, high) = table.thumb;
+    let thumb: Element<'a, Message> = match map_cover(ground, map) {
+        Some(handle) => container(ui::framed(handle, wide, high, 5.0).opacity(ui::fade())).width(wide).height(high).clip(true).into(),
+        None => container(ui::fine_hatch()).width(wide).height(high).into(),
+    };
+    let (title, version) = title_and_version(ground, map);
+    let words = row![
+        text(title).font(theme::SANS).size(13.0).wrapping(text::Wrapping::None).color(ui::faded(INK)),
+        text(version).font(theme::SANS).size(13.0).wrapping(text::Wrapping::None).color(ui::faded(MUTED)),
+    ];
+    row![thumb, container(words).width(Length::Fill).clip(true)].spacing(if table.full { 10.0 } else { 8.0 }).align_y(iced::Center).into()
+}
+
+fn grade_cell<'a>(grade: Option<String>, table: Table) -> Element<'a, Message> {
+    match grade {
+        Some(grade) => {
+            let colour = screen::grade_colour(&grade);
+            container(text(grade).font(theme::SANS_SEMI).size(13.0).wrapping(text::Wrapping::None).color(ui::faded(colour))).width(table.grade).center_x(table.grade).into()
+        }
+        None => Space::new().width(table.grade).into(),
+    }
+}
+
+fn played_line<'a>(ground: &Ground<'a>, at: i64, table: Table, who: usize, map: usize, accuracy: Option<f32>, mods: &[String], pp: Element<'a, Message>, grade: Option<String>) -> Element<'a, Message> {
+    let mut line = row![time_cell(ground, at, table), player_cell(ground, who, table), container(map_cell(ground, map, table)).width(Length::Fill).clip(true)].spacing(table.gap).align_y(iced::Center);
+    if table.full {
+        let said: Element<'a, Message> = accuracy.map_or_else(|| Space::new().width(0.0).into(), |accuracy| ui::mono_small(ground.words.percent(f64::from(accuracy)), MUTED));
+        line = line
+            .push(container(said).width(ACCURACY_WIDE).align_x(iced::alignment::Horizontal::Right))
+            .push(container(screen::mods(mods)).width(MODS_WIDE).align_x(iced::alignment::Horizontal::Right));
+    }
+    line.push(container(pp).width(table.pp).align_x(iced::alignment::Horizontal::Right)).push(grade_cell(grade, table)).into()
+}
+
+fn event_line<'a>(ground: &Ground<'a>, at: i64, table: Table, icon: Icon, colour: Color, name: String, verb: String, object: Element<'a, Message>, value: Option<Element<'a, Message>>) -> Element<'a, Message> {
+    let words = row![
+        container(glyph(icon, 14.0, colour)).width(22.0).center_x(22.0),
+        text(name).font(theme::SANS_SEMI).size(13.0).wrapping(text::Wrapping::None).color(ui::faded(INK)),
+        text(verb).font(theme::SANS).size(13.0).wrapping(text::Wrapping::None).color(ui::faded(MUTED)),
+        object,
+    ]
+    .spacing(8)
+    .align_y(iced::Center);
+    let mut line = row![time_cell(ground, at, table), container(words).width(Length::Fill).clip(true)].spacing(table.gap).align_y(iced::Center);
+    if let Some(value) = value {
+        line = line.push(value).push(Space::new().width(table.grade));
+    }
+    line.into()
+}
+
+fn row_hover(_: &Theme, status: button::Status) -> button::Style {
+    let lit = matches!(status, button::Status::Hovered | button::Status::Pressed);
+    button::Style {
+        background: lit.then_some(Background::Color(Color::from_rgba(1.0, 1.0, 1.0, 0.035))),
+        text_color: INK,
+        border: Border { radius: 8.0.into(), ..Border::default() },
+        shadow: Shadow::default(),
+        snap: true,
+    }
+}
+
+fn journal_row<'a>(ground: &Ground<'a>, event: &Event<'a>, table: Table) -> Option<Element<'a, Message>> {
     let w = ground.words;
     let catalog = ground.catalog;
     let key = event.key();
-    Some(match event.item {
+    let words = |said: String, colour: Color, strong: bool| -> Element<'a, Message> {
+        text(said).font(if strong { theme::SANS_SEMI } else { theme::SANS }).size(13.0).wrapping(text::Wrapping::None).color(ui::faded(colour)).into()
+    };
+    let (line, press, details): (Element<'a, Message>, Message, Option<Element<'a, Message>>) = match event.item {
         Item::Play(play) => {
-            let person = catalog.people.get(play.who)?;
-            let tail: Element<'a, Message> = match (play.passed, play.pp >= 0.5) {
-                (false, _) => row![Space::new().width(50.0), crate::dossier::grade_badge("F", 24.0)].spacing(10).align_y(iced::Center).into(),
-                (true, true) => row![container(text(format!("{} pp", screen::decimal(w, play.pp, 0))).font(theme::SANS_SEMI).size(13.0).wrapping(text::Wrapping::None).color(ui::faded(INK))).width(64.0).align_x(iced::alignment::Horizontal::Right), crate::dossier::grade_badge(&play.grade, 24.0)].spacing(10).align_y(iced::Center).into(),
-                (true, false) => row![Space::new().width(64.0), crate::dossier::grade_badge(&play.grade, 24.0)].spacing(10).align_y(iced::Center).into(),
-            };
-            Line { icon: None, who: Some(play.who), name: person.name.clone(), under: map_title(ground, play.map), tail, press: Message::Person(Some(play.who)), details: None, tint: None, cover: Some(play.map), accuracy: Some(play.accuracy), mods: play.mods.clone() }
+            catalog.people.get(play.who)?;
+            let pp: Element<'a, Message> = if play.passed && play.pp >= 0.5 { words(screen::decimal(w, play.pp, 0), INK, true) } else { Space::new().width(0.0).into() };
+            let grade = if play.passed { play.grade.clone() } else { "F".to_owned() };
+            (played_line(ground, event.at, table, play.who, play.map, Some(play.accuracy), &play.mods, pp, Some(grade)), Message::Person(Some(play.who)), None)
         }
         Item::Happened(happened) => {
             let person = catalog.people.get(happened.who)?;
             match &happened.kind {
-                Kind::TopPlay { pp, place, mods } => {
+                Kind::Render { accuracy, mods } => {
+                    let map = happened.map?;
+                    (played_line(ground, event.at, table, happened.who, map, Some(*accuracy), mods, glyph(Icon::Film, 14.0, MUTED), None), Message::Person(Some(happened.who)), None)
+                }
+                Kind::TopPlay { pp, place, .. } => {
                     let map = happened.map?;
                     let play = person.top.iter().find(|play| play.map == map && (play.pp - pp).abs() < 0.5);
                     let details = ground.open_events.contains(&key).then(|| play.map(|play| counts_row(ground, play.counts, play.combo.zip(play.max_combo), play.stars))).flatten();
-                    let colour = Color::from_rgb(0.941, 0.408, 0.408);
-                    Line {
-                        icon: Some((Icon::Star, colour)),
-                        who: None,
-                        name: person.name.clone(),
-                        under: format!("{} · {} · {}", w.t("kind-top"), w.n("top-place", u64::from(*place)), map_title(ground, map)),
-                        tail: row![container(text(format!("{} pp", screen::decimal(w, *pp, 0))).font(theme::SANS_SEMI).size(13.0).wrapping(text::Wrapping::None).color(ui::faded(colour))).width(64.0).align_x(iced::alignment::Horizontal::Right), container(glyph(Icon::Star, 14.0, colour)).width(24.0).center_x(24.0)].spacing(10).align_y(iced::Center).into(),
-                        press: Message::Toggle(key),
-                        details,
-                        tint: Some(colour),
-                        cover: None,
-                        accuracy: play.map(|play| play.accuracy),
-                        mods: mods.clone(),
-                    }
-                }
-                Kind::Render { accuracy, mods } => {
-                    let map = happened.map?;
-                    Line { icon: None, who: Some(happened.who), name: person.name.clone(), under: map_title(ground, map), tail: row![Space::new().width(64.0), container(glyph(Icon::Film, 16.0, MUTED)).width(24.0).center_x(24.0)].spacing(10).align_y(iced::Center).into(), press: Message::Person(Some(happened.who)), details: None, tint: None, cover: Some(map), accuracy: Some(*accuracy), mods: mods.clone() }
+                    let value = ui::mono_small(format!("{} pp · #{place}", screen::decimal(w, *pp, 0)), CORAL);
+                    (event_line(ground, event.at, table, Icon::Star, CORAL, person.name.clone(), w.t("event-top"), words(title_and_version(ground, map).0, INK, false), Some(value)), Message::Toggle(key), details)
                 }
                 Kind::Title(code) => {
                     let title = catalog.title_of(code)?;
                     let colour = title.rarity.colour();
-                    Line {
-                        icon: Some((Icon::Trophy, colour)),
-                        who: None,
-                        name: person.name.clone(),
-                        under: format!("{} · {}", w.t("kind-title"), title.name(w.lang())),
-                        tail: ui::mono_small(w.t(title.rarity.key()), colour),
-                        press: Message::Person(Some(happened.who)),
-                        details: None,
-                        tint: Some(colour),
-                        cover: None,
-                        accuracy: None,
-                        mods: Vec::new(),
-                    }
+                    (event_line(ground, event.at, table, Icon::Trophy, colour, person.name.clone(), w.t("event-title"), words(title.name(w.lang()).to_owned(), colour, true), None), Message::Person(Some(happened.who)), None)
                 }
-                Kind::Climb { board, from, to } => Line {
-                    icon: Some((Icon::Up, GREEN)),
-                    who: None,
-                    name: person.name.clone(),
-                    under: format!("{} · {} #{from}", w.t(board.key()), w.t("climb-was")),
-                    tail: text(format!("#{to}")).font(theme::SANS_SEMI).size(14.0).color(ui::faded(GREEN)).into(),
-                    press: Message::Board(*board),
-                    details: None,
-                    tint: Some(GREEN),
-                    cover: None,
-                    accuracy: None,
-                    mods: Vec::new(),
-                },
+                Kind::Climb { board, from, to } => {
+                    let value = ui::mono_small(format!("#{from} → #{to}"), GREEN);
+                    (event_line(ground, event.at, table, Icon::Up, GREEN, person.name.clone(), w.t("event-climb"), words(w.t(board.key()), INK, false), Some(value)), Message::Board(*board), None)
+                }
             }
         }
         _ => return None,
-    })
-}
-
-fn journal_row<'a>(ground: &Ground<'a>, event: &Event<'a>, wide: bool) -> Option<Element<'a, Message>> {
-    let Line { icon, who, name, under, tail, press, details, tint, cover, accuracy, mods } = line_of(ground, event)?;
-    let lead: Element<'a, Message> = match (icon, who.and_then(|at| ground.catalog.people.get(at))) {
-        (Some((icon, colour)), _) => tinted_square(icon, colour, 26.0),
-        (None, Some(person)) => screen::face(ground, person, 26.0),
-        (None, None) => Space::new().width(26.0).into(),
     };
-    let high = if wide { 42.0 } else { 46.0 };
-    let line: Element<'a, Message> = if wide {
-        let map_cell: Element<'a, Message> = match cover {
-            Some(map) => {
-                let thumb: Element<'a, Message> = match map_cover(ground, map) {
-                    Some(handle) => iced::widget::image(handle.clone()).content_fit(iced::ContentFit::Cover).width(46.0).height(26.0).border_radius(5.0).opacity(ui::fade()).into(),
-                    None => container(ui::fine_hatch()).width(46.0).height(26.0).into(),
-                };
-                row![thumb, container(text(under.clone()).font(theme::SANS).size(13.0).wrapping(text::Wrapping::None).color(ui::faded(INK))).width(Length::Fill).clip(true)].spacing(10).align_y(iced::Center).into()
-            }
-            None => container(text(under.clone()).font(theme::SANS).size(13.0).wrapping(text::Wrapping::None).color(ui::faded(tint.unwrap_or(MUTED)))).width(Length::Fill).clip(true).into(),
-        };
-        row![
-            clock(ground, event.at, 46.0),
-            container(row![lead, text(name).font(theme::SANS_SEMI).size(13.0).wrapping(text::Wrapping::None).color(ui::faded(INK))].spacing(9).align_y(iced::Center)).width(170.0).clip(true),
-            container(map_cell).width(Length::Fill).clip(true),
-            container(accuracy.map_or_else(|| Space::new().width(0.0).into(), |accuracy| ui::mono_small(ground.words.percent(f64::from(accuracy)), MUTED))).width(64.0).align_x(iced::alignment::Horizontal::Right),
-            container(screen::mods(&mods)).width(78.0).align_x(iced::alignment::Horizontal::Right),
-            tail,
-        ]
-        .spacing(12)
-        .align_y(iced::Center)
-        .into()
-    } else {
-        row![
-            clock(ground, event.at, 40.0),
-            lead,
-            container(
-                column![
-                    text(name).font(theme::SANS_SEMI).size(12.5).wrapping(text::Wrapping::None).color(ui::faded(INK)),
-                    text(under).font(theme::SANS).size(12.0).wrapping(text::Wrapping::None).color(ui::faded(if cover.is_some() { MUTED } else { tint.unwrap_or(MUTED) })),
-                ]
-                .spacing(1),
-            )
-            .width(Length::Fill)
-            .clip(true),
-            tail,
-        ]
-        .spacing(10)
-        .align_y(iced::Center)
-        .into()
-    };
-    let mut inside = column![container(line).height(high).center_y(high).padding([0, 10])];
+    let mut inside = column![container(line).height(JOURNAL_ROW).center_y(JOURNAL_ROW).padding([0, 10])];
     if let Some(details) = details {
-        inside = inside.push(container(details).padding(Padding { top: 2.0, right: 10.0, bottom: 10.0, left: 50.0 }));
+        inside = inside.push(container(details).padding(Padding { top: 2.0, right: 10.0, bottom: 10.0, left: 10.0 + table.time + table.gap }));
     }
-    Some(button(inside).padding(0).width(Length::Fill).style(ui::button_faded(row_press(tint))).on_press(press).into())
+    Some(button(inside).padding(0).width(Length::Fill).style(ui::button_faded(row_hover)).on_press(press).into())
 }
 
 fn news_card<'a>(ground: &Ground<'a>, event: &Event<'a>) -> Option<Element<'a, Message>> {
@@ -688,15 +679,18 @@ fn timeline<'a>(ground: &Ground<'a>, wide: f32) -> Element<'a, Message> {
     let heading = |icon: Icon, key: &str, n: usize| -> Element<'a, Message> {
         row![glyph(icon, 14.0, INK), text(w.t(key)).font(theme::SANS_SEMI).size(14.0).color(ui::faded(INK)), ui::mono_small(w.count("events", n as u64), MUTED)].spacing(8).align_y(iced::Center).into()
     };
-    let group_panel = |wide_rows: bool| -> Element<'a, Message> {
-        let mut rows = column![].spacing(2);
-        for made in by_day(ground, &group, |event| journal_row(ground, event, wide_rows)) {
-            rows = rows.push(made);
-        }
+    let group_panel = |room: f32| -> Element<'a, Message> {
+        let table = Table::for_width(room);
+        let mut rows = column![].spacing(1);
         if group.is_empty() {
             rows = rows.push(nothing());
+        } else {
+            rows = rows.push(journal_head(ground, table));
+            for made in by_day(ground, &group, |event| journal_row(ground, event, table)) {
+                rows = rows.push(made);
+            }
         }
-        card(column![container(heading(Icon::Play, "stream-group", group_all.len())).padding([0, 6]), container(group_pills).padding([0, 6]), rows].spacing(10), [12, 8]).into()
+        column![heading(Icon::Play, "stream-group", group_all.len()), group_pills, rows].spacing(10).into()
     };
     let news_list = |columns: usize| -> Element<'a, Message> {
         let mut cards: Vec<Element<'a, Message>> = Vec::new();
@@ -717,10 +711,10 @@ fn timeline<'a>(ground: &Ground<'a>, wide: f32) -> Element<'a, Message> {
     let news_panel = |columns: usize| -> Element<'a, Message> { column![heading(Icon::News, "filter-news", news_all.len()), news_pills, news_list(columns)].spacing(10).into() };
 
     let body: Element<'a, Message> = match ground.stream {
-        Stream::Group => group_panel(wide >= 640.0),
+        Stream::Group => group_panel(wide - 12.0),
         Stream::News => news_panel(if wide >= 560.0 { 2 } else { 1 }),
-        Stream::All if wide >= 620.0 => row![container(group_panel(false)).width(Length::FillPortion(3)), container(news_panel(1)).width(Length::FillPortion(2))].spacing(14).into(),
-        Stream::All => column![group_panel(false), news_panel(1)].spacing(14).into(),
+        Stream::All if wide >= 620.0 => row![container(group_panel((wide - 26.0) * 0.6)).width(Length::FillPortion(3)), container(news_panel(1)).width(Length::FillPortion(2))].spacing(14).into(),
+        Stream::All => column![group_panel(wide - 12.0), news_panel(1)].spacing(14).into(),
     };
     page = page.push(body);
     scrollable(container(page).padding(Padding { top: 2.0, right: 10.0, bottom: 28.0, left: 2.0 }))

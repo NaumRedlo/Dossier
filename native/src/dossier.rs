@@ -692,21 +692,6 @@ fn chart<'a>(ground: &Ground<'a>, whose: &Whose<'a>) -> Element<'a, Message> {
     slab(column![head.push(ui::grow()).push(control), canvas].spacing(12), [16, 18]).into()
 }
 
-pub(crate) fn grade_badge<'a>(grade: &str, side: f32) -> Element<'a, Message> {
-    let colour = screen::grade_colour(grade);
-    let k = ui::fade();
-    container(text(grade.to_owned()).font(theme::SANS_SEMI).size(side * 0.5).color(ui::faded(colour)))
-        .width(side)
-        .height(side)
-        .center(side)
-        .style(move |_| container::Style {
-            background: Some(Background::Color(Color { a: 0.16 * k, ..colour })),
-            border: Border { color: Color { a: 0.45 * k, ..colour }, width: 1.0, radius: (side * 0.3).into() },
-            ..container::Style::default()
-        })
-        .into()
-}
-
 struct Poster<'a> {
     grade: String,
     title: String,
@@ -934,32 +919,34 @@ fn poster_card<'a>(ground: &Ground<'a>, index: usize, poster: &Poster<'a>, chose
     ]
     .spacing(6)
     .padding(Padding { top: 0.0, right: 12.0, bottom: 12.0, left: 12.0 });
-    let outline = container(Space::new().width(Length::Fill).height(Length::Fill)).width(Length::Fill).height(Length::Fill).style(move |_| container::Style {
-        border: Border { color: if chosen { Color { a: k, ..colour } } else { Color::from_rgba(1.0, 1.0, 1.0, 0.08 * k) }, width: if chosen { 1.5 } else { 1.0 }, radius: 14.0.into() },
+    let card = container(column![top, body].spacing(0)).width(Length::Fill).style(move |_| container::Style {
+        background: Some(Background::Color(Color { a: k, ..ground_colour })),
+        border: Border { radius: 14.0.into(), ..Border::default() },
+        shadow: if chosen { Shadow { color: Color { a: 0.28 * k, ..colour }, offset: Vector::ZERO, blur_radius: 24.0 } } else { Shadow::default() },
         ..container::Style::default()
     });
-    button(stack![column![top, body].spacing(0), outline])
+    let frame = button(Space::new().width(Length::Fill).height(Length::Fill))
         .padding(0)
-        .width(Length::FillPortion(1))
+        .width(Length::Fill)
+        .height(Length::Fill)
         .style(move |_, status: button::Status| {
-            let lit = chosen || matches!(status, button::Status::Hovered | button::Status::Pressed);
+            let lit = matches!(status, button::Status::Hovered | button::Status::Pressed);
             let k = ui::fade();
+            let edge = match (chosen, lit) {
+                (true, _) => Color { a: k, ..colour },
+                (false, true) => Color::from_rgba(1.0, 1.0, 1.0, 0.3 * k),
+                (false, false) => Color::from_rgba(1.0, 1.0, 1.0, 0.08 * k),
+            };
             button::Style {
-                background: Some(Background::Color(Color { a: k, ..ground_colour })),
+                background: None,
                 text_color: INK,
-                border: Border { color: Color::from_rgba(1.0, 1.0, 1.0, if lit && !chosen { 0.16 } else { 0.0 } * k), width: 1.0, radius: 14.0.into() },
-                shadow: if chosen {
-                    Shadow { color: Color { a: 0.28 * k, ..colour }, offset: Vector::ZERO, blur_radius: 24.0 }
-                } else if lit {
-                    Shadow { color: Color::from_rgba(0.0, 0.0, 0.0, 0.5 * k), offset: Vector::new(0.0, 10.0), blur_radius: 22.0 }
-                } else {
-                    Shadow::default()
-                },
+                border: Border { color: edge, width: if chosen { 1.5 } else { 1.0 }, radius: 14.0.into() },
+                shadow: Shadow::default(),
                 snap: true,
             }
         })
-        .on_press(Message::PlayOpen(index))
-        .into()
+        .on_press(Message::PlayOpen(index));
+    container(stack![card, frame]).width(Length::FillPortion(1)).into()
 }
 
 fn judgement_bar<'a>(ground: &Ground<'a>, counts: [Option<u32>; 4]) -> Option<Element<'a, Message>> {

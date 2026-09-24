@@ -1168,7 +1168,7 @@ pub mod wire {
                     *mine = theirs;
                 }
             };
-            if score.great <= 0.0 && score.ok <= 0.0 && score.meh <= 0.0 && score.miss <= 0.0 {
+            if score.great <= 0.0 && other.great > 0.0 {
                 score.great = other.great;
                 score.ok = other.ok;
                 score.meh = other.meh;

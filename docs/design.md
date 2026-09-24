@@ -605,7 +605,11 @@ naming the group, its size and when the bot last answered — or *образцы
   fill its frame is drawn larger than the frame and cut, and iced rounds
   what it draws rather than the frame, so the poster's top corners are
   rounded by two small caps of the panel's colour drawn over them, with the
-  card's own edge along their arcs; the grades, the one under the pointer lit and its share told; the
+  card's own edge along their arcs. The cover melts into the card's own
+  colour down to full opacity at its foot (a shade that stopped short left
+  a seam), the stars sit on it in a pill of osu!'s own difficulty colour,
+  the mods in its corner, FC and the misses are small pills, and the chosen
+  play's particulars lie over its cover in a frame of its grade's colour; the grades, the one under the pointer lit and its share told; the
   titles as a collection, bar by rarity, the held ones filled and the next
   ones dashed, a press telling what each asks and when it was earned; and
   thirteen weeks of plays a day. No panel says *наведите* or *нажмите*:

@@ -809,11 +809,46 @@ fn posters_of<'a>(ground: &Ground<'a>, whose: &Whose<'a>) -> Vec<Poster<'a>> {
         .collect()
 }
 
+pub(crate) fn star_colour(stars: f32) -> Color {
+    let stops: [(f32, [u8; 3]); 11] = [
+        (0.1, [0x42, 0x90, 0xfb]),
+        (1.25, [0x4f, 0xc0, 0xff]),
+        (2.0, [0x4f, 0xff, 0xd5]),
+        (2.5, [0x7c, 0xff, 0x4f]),
+        (3.3, [0xf6, 0xf0, 0x5c]),
+        (4.2, [0xff, 0x80, 0x68]),
+        (4.9, [0xff, 0x4e, 0x6f]),
+        (5.8, [0xc6, 0x45, 0xb8]),
+        (6.7, [0x65, 0x63, 0xde]),
+        (7.7, [0x18, 0x15, 0x8e]),
+        (9.0, [0x00, 0x00, 0x00]),
+    ];
+    let stars = stars.clamp(0.1, 9.0);
+    let at = stops.windows(2).position(|pair| stars <= pair[1].0).unwrap_or(stops.len() - 2);
+    let ((from, a), (to, b)) = (stops[at], stops[at + 1]);
+    let t = ((stars - from) / (to - from)).clamp(0.0, 1.0);
+    let mix = |i: usize| (f32::from(a[i]) + (f32::from(b[i]) - f32::from(a[i])) * t) / 255.0;
+    Color::from_rgb(mix(0), mix(1), mix(2))
+}
+
+fn badge_pill<'a>(inside: Element<'a, Message>, fill: Color) -> Element<'a, Message> {
+    let k = ui::fade();
+    container(inside)
+        .padding(Padding { top: 2.0, right: 7.0, bottom: 2.0, left: 7.0 })
+        .style(move |_| container::Style {
+            background: Some(Background::Color(Color { a: fill.a * k, ..fill })),
+            border: Border { radius: 8.0.into(), ..Border::default() },
+            ..container::Style::default()
+        })
+        .into()
+}
+
 fn poster_card<'a>(ground: &Ground<'a>, index: usize, poster: &Poster<'a>, chosen: bool, wide: f32) -> Element<'a, Message> {
     let w = ground.words;
     let colour = screen::grade_colour(&poster.grade);
     let k = ui::fade();
-    let high = 118.0;
+    let high = 132.0;
+    let ground_colour = Color::from_rgb8(0x17, 0x0d, 0x10);
     let top_round = iced::border::Radius { top_left: 13.0, top_right: 13.0, bottom_right: 0.0, bottom_left: 0.0 };
     let picture: Element<'a, Message> = match poster.cover {
         Some(handle) => container(ui::framed(handle, wide, high, top_round).opacity(k)).width(Length::Fill).height(high).clip(true).into(),
@@ -821,53 +856,63 @@ fn poster_card<'a>(ground: &Ground<'a>, index: usize, poster: &Poster<'a>, chose
     };
     let shade = container(Space::new().width(Length::Fill).height(high)).style(move |_| container::Style {
         background: Some(Background::Gradient(iced::Gradient::Linear(
-            iced::gradient::Linear::new(iced::Radians(std::f32::consts::PI)).add_stop(0.0, Color::from_rgba(0.047, 0.027, 0.035, 0.0)).add_stop(0.55, Color::from_rgba(0.047, 0.027, 0.035, 0.35 * k)).add_stop(1.0, Color::from_rgba(0.047, 0.027, 0.035, 0.97 * k)),
+            iced::gradient::Linear::new(iced::Radians(std::f32::consts::PI))
+                .add_stop(0.0, Color { a: 0.0, ..ground_colour })
+                .add_stop(0.45, Color { a: 0.3 * k, ..ground_colour })
+                .add_stop(0.78, Color { a: 0.86 * k, ..ground_colour })
+                .add_stop(1.0, Color { a: k, ..ground_colour }),
         ))),
         border: Border { radius: top_round, ..Border::default() },
         ..container::Style::default()
     });
-    let place = container(text(format!("#{}", index + 1)).font(theme::MONO_BOLD).size(11.0).color(ui::faded(INK)))
-        .padding(Padding { top: 2.0, right: 7.0, bottom: 2.0, left: 7.0 })
-        .style(move |_| container::Style { background: Some(Background::Color(Color::from_rgba(0.047, 0.027, 0.035, 0.75 * k))), border: Border { radius: 6.0.into(), ..Border::default() }, ..container::Style::default() });
-    let seal = container(text(poster.grade.clone()).font(theme::SANS_SEMI).size(19.0).color(ui::faded(colour)))
-        .width(42.0)
-        .height(42.0)
-        .center(42.0)
+    let place = badge_pill(text(format!("#{}", index + 1)).font(theme::MONO_BOLD).size(11.0).color(ui::faded(INK)).into(), Color::from_rgba(0.047, 0.027, 0.035, 0.78));
+    let mut corner = row![].spacing(5).align_y(iced::Center);
+    if let Some(stars) = poster.stars {
+        let tint = star_colour(stars);
+        let ink = if stars >= 6.5 { Color::from_rgb8(0xff, 0xd9, 0x66) } else { Color::from_rgba(0.0, 0.0, 0.0, 0.8) };
+        corner = corner.push(badge_pill(
+            row![glyph(Icon::Star, 10.0, ink), text(screen::decimal(w, stars, 2)).font(theme::MONO_BOLD).size(11.0).color(ui::faded(ink))].spacing(3).align_y(iced::Center).into(),
+            tint,
+        ));
+    }
+    let head = row![place, ui::grow(), corner].align_y(iced::Center);
+    let seal = container(text(poster.grade.clone()).font(theme::SANS_SEMI).size(20.0).color(ui::faded(colour)))
+        .width(44.0)
+        .height(44.0)
+        .center(44.0)
         .style(move |_| container::Style {
-            background: Some(Background::Color(Color { a: k, ..Color::from_rgb8(0x16, 0x0b, 0x0e) })),
-            border: Border { color: Color { a: k, ..colour }, width: 2.0, radius: 21.0.into() },
-            shadow: Shadow { color: Color { a: 0.4 * k, ..colour }, offset: Vector::ZERO, blur_radius: 14.0 },
+            background: Some(Background::Color(Color { a: k, ..ground_colour })),
+            border: Border { color: Color { a: k, ..colour }, width: 2.0, radius: 22.0.into() },
+            shadow: Shadow { color: Color { a: 0.45 * k, ..colour }, offset: Vector::ZERO, blur_radius: 16.0 },
             ..container::Style::default()
         });
+    let mods: Element<'a, Message> = if poster.mods.is_empty() { Space::new().width(0.0).height(0.0).into() } else { screen::mods(&poster.mods) };
+    let foot = row![mods, ui::grow(), seal].align_y(iced::alignment::Vertical::Bottom);
     let edge = if chosen { Color { a: k, ..colour } } else { Color::from_rgba(1.0, 1.0, 1.0, 0.07 * k) };
     let top = stack![
         picture,
         shade,
         ui::caps(14.0, Color { a: k, ..Color::from_rgb(0.054, 0.025, 0.033) }, edge, high),
-        container(place).padding(8).width(Length::Fill).height(high),
-        container(seal).padding(Padding { top: 0.0, right: 10.0, bottom: 0.0, left: 0.0 }).width(Length::Fill).height(high + 18.0).align_x(iced::alignment::Horizontal::Right).align_y(iced::alignment::Vertical::Bottom),
+        container(head).padding(8).width(Length::Fill).height(high),
+        container(foot).padding(Padding { top: 0.0, right: 10.0, bottom: 0.0, left: 10.0 }).width(Length::Fill).height(high + 20.0).align_y(iced::alignment::Vertical::Bottom),
     ]
-    .height(high + 18.0);
+    .height(high + 20.0);
     let tail: Element<'a, Message> = match (poster.full(), poster.misses()) {
-        (true, _) => ui::mono_small("FC".to_owned(), GREEN),
-        (false, Some(misses)) if misses > 0 => ui::mono_small(format!("{misses} ✕"), ACCENT),
+        (true, _) => badge_pill(text("FC").font(theme::MONO_BOLD).size(10.5).color(ui::faded(GREEN)).into(), Color::from_rgb8(38, 62, 44)),
+        (false, Some(misses)) if misses > 0 => badge_pill(text(format!("{misses} ✕")).font(theme::MONO_BOLD).size(10.5).color(ui::faded(CORAL)).into(), Color::from_rgb8(70, 26, 29)),
         _ => Space::new().width(0.0).into(),
     };
-    let mut meta = row![ui::mono_small(w.percent(poster.accuracy), INK)].spacing(8).align_y(iced::Center);
-    if let Some(stars) = poster.stars {
-        meta = meta.push(ui::mono_small(format!("{}★", screen::decimal(w, stars, 1)), MUTED));
-    }
     let body = column![
-        row![text(screen::decimal(w, poster.pp as f32, 0)).font(theme::SANS_SEMI).size(24.0).wrapping(text::Wrapping::None).color(ui::faded(INK)), text("pp").font(theme::SANS).size(12.0).color(ui::faded(MUTED))].spacing(4).align_y(iced::alignment::Vertical::Bottom),
+        row![text(screen::decimal(w, poster.pp as f32, 0)).font(theme::SANS_SEMI).size(27.0).wrapping(text::Wrapping::None).color(ui::faded(INK)), text("pp").font(theme::SANS).size(13.0).color(ui::faded(MUTED))].spacing(4).align_y(iced::alignment::Vertical::Bottom),
         container(
             column![
-                container(text(poster.title.clone()).font(theme::SANS_SEMI).size(13.0).color(ui::faded(INK))).max_height(34.0).clip(true),
+                container(text(poster.title.clone()).font(theme::SANS_SEMI).size(13.5).color(ui::faded(INK))).max_height(36.0).clip(true),
                 container(text(poster.version.clone()).font(theme::SANS).size(11.5).wrapping(text::Wrapping::None).color(ui::faded(MUTED))).clip(true),
             ]
             .spacing(2),
         )
-        .height(52.0),
-        row![meta, ui::grow(), tail].align_y(iced::Center),
+        .height(54.0),
+        row![ui::mono_small(w.percent(poster.accuracy), INK), ui::grow(), tail].align_y(iced::Center),
     ]
     .spacing(6)
     .padding(Padding { top: 0.0, right: 12.0, bottom: 12.0, left: 12.0 });
@@ -878,10 +923,16 @@ fn poster_card<'a>(ground: &Ground<'a>, index: usize, poster: &Poster<'a>, chose
             let lit = chosen || matches!(status, button::Status::Hovered | button::Status::Pressed);
             let k = ui::fade();
             button::Style {
-                background: Some(Background::Color(Color { a: k, ..Color::from_rgb8(0x17, 0x0d, 0x10) })),
+                background: Some(Background::Color(Color { a: k, ..ground_colour })),
                 text_color: INK,
                 border: Border { color: if chosen { Color { a: k, ..colour } } else { Color::from_rgba(1.0, 1.0, 1.0, if lit { 0.16 } else { 0.07 } * k) }, width: 1.0, radius: 14.0.into() },
-                shadow: if chosen { Shadow { color: Color { a: 0.25 * k, ..colour }, offset: Vector::ZERO, blur_radius: 22.0 } } else { Shadow::default() },
+                shadow: if chosen {
+                    Shadow { color: Color { a: 0.28 * k, ..colour }, offset: Vector::ZERO, blur_radius: 24.0 }
+                } else if lit {
+                    Shadow { color: Color::from_rgba(0.0, 0.0, 0.0, 0.5 * k), offset: Vector::new(0.0, 10.0), blur_radius: 22.0 }
+                } else {
+                    Shadow::default()
+                },
                 snap: true,
             }
         })
@@ -984,12 +1035,14 @@ fn poster_detail<'a>(ground: &Ground<'a>, poster: &Poster<'a>) -> Element<'a, Me
         ]);
     }
     let k = ui::fade();
-    container(row![left, right].spacing(20).align_y(iced::Center))
-        .padding([14, 16])
+    let high = 132.0;
+    let colour = screen::grade_colour(&poster.grade);
+    let content = container(row![left, right].spacing(20).align_y(iced::Center)).padding([14, 18]).width(Length::Fill).height(high).center_y(high);
+    container(stack![screen::backdrop(poster.cover, high, 14.0, colour, true), content].height(high))
         .width(Length::Fill)
         .style(move |_| container::Style {
             background: Some(Background::Color(Color { a: k, ..Color::from_rgb8(0x16, 0x0c, 0x0f) })),
-            border: Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.07 * k), width: 1.0, radius: 14.0.into() },
+            border: Border { color: Color { a: 0.35 * k, ..colour }, width: 1.0, radius: 14.0.into() },
             ..container::Style::default()
         })
         .into()

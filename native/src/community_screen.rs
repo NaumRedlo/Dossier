@@ -78,6 +78,7 @@ pub enum Fetch {
 
 #[derive(Debug, Clone)]
 pub enum Message {
+    Tap(iced::Point),
     Read(Reading),
     Unread,
     PeopleFrom(PeopleFrom),
@@ -96,7 +97,6 @@ pub enum Message {
     Stream(crate::chronicle::Stream),
     Search(String),
     Toggle(String),
-    Reveal,
     Spot(usize),
     SpotHold(bool),
     Rank(usize),
@@ -124,7 +124,7 @@ pub struct Ground<'a> {
     pub channels: &'a [String],
     pub channel_draft: &'a str,
     pub live_shown: usize,
-    pub live_k: f32,
+    pub fresh_t: f32,
     pub reading: Option<&'a Reading>,
     pub read_k: f32,
     pub people_from: PeopleFrom,
@@ -144,6 +144,8 @@ pub struct Ground<'a> {
     pub stream: crate::chronicle::Stream,
     pub query: &'a str,
     pub open_events: &'a std::collections::HashSet<String>,
+    pub folds: HashMap<String, f32>,
+    pub panel_from: Option<iced::Point>,
     pub seen: i64,
     pub spot: usize,
     pub spot_k: f32,
@@ -189,7 +191,7 @@ pub fn view<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
     if let Some(reading) = ground.reading.filter(|_| ground.read_k > 0.001) {
         layers.push(reader(ground, reading));
     }
-    iced::widget::Stack::with_children(layers).width(Length::Fill).height(Length::Fill).into()
+    ui::tapped(iced::widget::Stack::with_children(layers).width(Length::Fill).height(Length::Fill), Message::Tap)
 }
 
 fn group_note<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
@@ -329,13 +331,18 @@ pub(crate) fn rank_of(words: &Words, rank: u32) -> String {
 }
 
 pub(crate) fn shown_value(words: &Words, board: Board, person: &Person) -> String {
+    shown_value_at(words, board, person, 1.0)
+}
+
+pub(crate) fn shown_value_at(words: &Words, board: Board, person: &Person, f: f64) -> String {
+    let counted = |value: f64| (value * f).round() as u64;
     match board {
-        Board::Pp => pp_of(words, person.pp),
-        Board::Accuracy => words.percent(f64::from(person.accuracy)),
-        Board::Plays => words.lang().group(u64::from(person.plays)),
-        Board::Hours => format!("{} {}", words.lang().group(u64::from(person.hours)), words.t("hours-short")),
-        Board::Score => words.lang().group(person.score),
-        Board::HitsPerPlay => decimal(words, person.hits_per_play, 1),
+        Board::Pp => pp_of(words, counted(f64::from(person.pp)) as u32),
+        Board::Accuracy => words.percent(f64::from(person.accuracy) * f),
+        Board::Plays => words.lang().group(counted(f64::from(person.plays))),
+        Board::Hours => format!("{} {}", words.lang().group(counted(f64::from(person.hours))), words.t("hours-short")),
+        Board::Score => words.lang().group(counted(person.score as f64)),
+        Board::HitsPerPlay => decimal(words, (f64::from(person.hits_per_play) * f) as f32, 1),
     }
 }
 
@@ -577,6 +584,10 @@ pub(crate) fn channel_tools<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
     column![chips, adding].spacing(8).into()
 }
 
+fn panel_from(ground: &Ground<'_>) -> Option<iced::Rectangle> {
+    ground.panel_from.map(|at| iced::Rectangle { x: at.x - 160.0, y: at.y - 100.0, width: 320.0, height: 200.0 })
+}
+
 fn stage_look() -> crate::unfold::Look {
     let k = ui::fade();
     crate::unfold::Look {
@@ -710,7 +721,7 @@ fn reader<'a>(ground: &Ground<'a>, reading: &'a Reading) -> Element<'a, Message>
         let body = scrollable(container(iced::widget::Column::with_children(body).spacing(14)).padding(Padding::ZERO.right(10.0))).style(ui::thin_scroll).direction(ui::hidden_bar()).width(Length::Fill).height(Length::Shrink);
         container(column![head, body].spacing(16)).padding([22, 26]).width(Length::Fill).into()
     });
-    crate::unfold::unfold(after, None, None, k, Message::Unread).wide(READ_WIDE).room(STAGE_ROOM).look(stage_look()).fit().into()
+    crate::unfold::unfold(after, None, panel_from(ground), k, Message::Unread).wide(READ_WIDE).room(STAGE_ROOM).look(stage_look()).fit().into()
 }
 
 fn figure<'a>(value: String, label: String, colour: Color) -> Element<'a, Message> {
@@ -724,6 +735,7 @@ fn figure<'a>(value: String, label: String, colour: Color) -> Element<'a, Messag
 }
 
 fn person_card<'a>(ground: &Ground<'a>, at: usize, person: &Person, place: usize) -> Element<'a, Message> {
+    let f = ui::tally(ground.section_t.min(ground.shift_t), 0.1 + 0.04 * place.min(16) as f32);
     let w = ground.words;
     let high = 204.0;
     let place_colour = medal(place).unwrap_or(Color::from_rgba(0.925, 0.906, 0.886, 0.55));
@@ -750,9 +762,9 @@ fn person_card<'a>(ground: &Ground<'a>, at: usize, person: &Person, place: usize
     .spacing(14)
     .align_y(iced::Center);
     let numbers = row![
-        figure(w.lang().group(u64::from(person.pp)), w.t("board-pp"), Color::from_rgb(0.941, 0.408, 0.408)),
-        figure(rank_of(w, person.rank), w.t("global-rank"), INK),
-        figure(w.percent(f64::from(person.accuracy)), w.t("board-accuracy"), INK),
+        figure(w.lang().group((f64::from(person.pp) * f).round() as u64), w.t("board-pp"), Color::from_rgb(0.941, 0.408, 0.408)),
+        figure(rank_of(w, if person.rank > 0 { ((f64::from(person.rank) * f).round() as u32).max(1) } else { 0 }), w.t("global-rank"), INK),
+        figure(w.percent(f64::from(person.accuracy) * f), w.t("board-accuracy"), INK),
     ]
     .spacing(12);
     let mut facts = row![
@@ -931,13 +943,13 @@ struct Said {
     moved: Option<Option<i32>>,
 }
 
-fn said_for(ground: &Ground<'_>, list: &Standings, place: usize, who: usize, value: f64) -> Said {
+fn said_for(ground: &Ground<'_>, list: &Standings, place: usize, who: usize, value: f64, f: f64) -> Said {
     let w = ground.words;
     let board = ground.board;
     let person = &ground.catalog.people[who];
     match ground.standing {
         Standing::General => Said {
-            value: shown_value(w, board, person),
+            value: shown_value_at(w, board, person, f),
             sub: if board == Board::Pp { rank_of(w, person.rank) } else { String::new() },
             note: None,
             moved: None,
@@ -950,7 +962,7 @@ fn said_for(ground: &Ground<'_>, list: &Standings, place: usize, who: usize, val
                 .filter(|gap| *gap > 0.0)
                 .map(|gap| w.with("board-gap", &[("value", grown(w, board, gap, false)), ("place", (place - 1).to_string())]));
             Said {
-                value: grown(w, board, value, board != Board::HitsPerPlay),
+                value: grown(w, board, value * f, board != Board::HitsPerPlay),
                 sub: w.with("board-total", &[("value", whole(w, board, person))]),
                 note,
                 moved: Some((was > 0).then(|| was as i32 - place as i32)),
@@ -1005,7 +1017,7 @@ fn row_style(you: bool, frame: Option<Color>) -> impl Fn(&Theme, button::Status)
 fn podium_card<'a>(ground: &Ground<'a>, list: &Standings, place: usize, who: usize, value: f64, high: f32) -> Element<'a, Message> {
     let person = &ground.catalog.people[who];
     let colour = medal(place).unwrap_or(INK);
-    let said = said_for(ground, list, place, who, value);
+    let said = said_for(ground, list, place, who, value, ui::tally(ground.section_t.min(ground.shift_t), 0.1 + 0.04 * (3 - place.min(3)) as f32));
     let side = if place == 1 { 68.0 } else { 56.0 };
     let value_colour = if ground.standing == Standing::Adaptive { theme::HIT_100 } else { INK };
     let k = ui::fade();
@@ -1047,7 +1059,7 @@ fn board_row<'a>(ground: &Ground<'a>, list: &Standings, place: Option<usize>, wh
     let high = 60.0;
     let person = &ground.catalog.people[who];
     let said = match place {
-        Some(place) => said_for(ground, list, place, who, value),
+        Some(place) => said_for(ground, list, place, who, value, ui::tally(ground.section_t.min(ground.shift_t), 0.1 + 0.04 * place.min(16) as f32)),
         None => Said { value: "—".to_owned(), sub: ground.words.with("board-total", &[("value", whole(ground.words, ground.board, person))]), note: Some(ground.words.t("board-not-played")), moved: None },
     };
     let value_colour = if ground.standing == Standing::Adaptive && place.is_some() { theme::HIT_100 } else { INK };
@@ -1270,7 +1282,7 @@ fn profile_panel<'a>(ground: &Ground<'a>, at: usize) -> Element<'a, Message> {
         let head = row![ui::mono_small(w.t("dossier-of").to_uppercase(), FAINT), ui::mono_small(person.name.clone(), MUTED), ui::grow(), status, close].spacing(10).align_y(iced::Center);
         container(column![head, crate::dossier::columns(ground, &whose, wide - 44.0, ground.person_t)].spacing(10)).padding(Padding { top: 12.0, right: 22.0, bottom: 0.0, left: 22.0 }).width(Length::Fill).height(Length::Fill).into()
     });
-    crate::unfold::unfold(after, None, None, k, Message::Person(None)).wide(wide).room(STAGE_ROOM).look(stage_look()).into()
+    crate::unfold::unfold(after, None, panel_from(ground), k, Message::Person(None)).wide(wide).room(STAGE_ROOM).look(stage_look()).into()
 }
 
 #[cfg(test)]

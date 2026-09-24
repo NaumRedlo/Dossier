@@ -7,6 +7,7 @@ const AGENT: &str = concat!("Dossier/", env!("CARGO_PKG_VERSION"), " (+https://g
 const PATIENCE: Duration = Duration::from_secs(15);
 pub const STALE_AFTER: i64 = 10 * 60;
 pub const REDDIT_STALE_AFTER: i64 = 30 * 60;
+pub const CHANNEL_STALE_AFTER: i64 = 90;
 pub const UPDATES: &str = "updates";
 pub const STORIES: &str = "news";
 pub const THREADS: &str = "reddit";
@@ -171,7 +172,13 @@ impl News {
     }
 
     pub fn stale(&self, source: &str, now: i64) -> bool {
-        let after = if source == THREADS { REDDIT_STALE_AFTER } else { STALE_AFTER };
+        let after = if source == THREADS {
+            REDDIT_STALE_AFTER
+        } else if source.starts_with("channel:") {
+            CHANNEL_STALE_AFTER
+        } else {
+            STALE_AFTER
+        };
         self.fetched.get(source).is_none_or(|at| now - at > after)
     }
 

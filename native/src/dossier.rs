@@ -585,7 +585,8 @@ fn shift<'a>(by: i32) -> Element<'a, Message> {
     row![glyph(icon, 10.0, colour), text(by.unsigned_abs().to_string()).font(theme::MONO_BOLD).size(10.5).wrapping(text::Wrapping::None).color(ui::faded(colour))].spacing(1).align_y(iced::Center).into()
 }
 
-fn places<'a>(ground: &Ground<'a>, whose: &Whose<'a>) -> Element<'a, Message> {
+fn places<'a>(ground: &Ground<'a>, whose: &Whose<'a>, t: f32) -> Element<'a, Message> {
+    let f = ui::tally(t, 0.15);
     let w = ground.words;
     let catalog = ground.catalog;
     let you = whose.at;
@@ -606,7 +607,7 @@ fn places<'a>(ground: &Ground<'a>, whose: &Whose<'a>) -> Element<'a, Message> {
             button(
                 column![
                     row![container(ui::mono_small(w.t(board.short_key()).to_uppercase(), FAINT)).width(Length::Fill).clip(true), shift(moved)].spacing(4).align_y(iced::Center),
-                    text(format!("#{place}")).font(theme::SANS_SEMI).size(22.0).wrapping(text::Wrapping::None).color(ui::faded(colour)),
+                    text(format!("#{}", ((place as f64 * f).round() as usize).max(1))).font(theme::SANS_SEMI).size(22.0).wrapping(text::Wrapping::None).color(ui::faded(colour)),
                     standing(share, if place <= 3 { colour } else { ACCENT }),
                 ]
                 .spacing(6),
@@ -646,11 +647,12 @@ fn metric_style(on: bool) -> impl Fn(&Theme, button::Status) -> button::Style {
     }
 }
 
-fn metrics<'a>(ground: &Ground<'a>, whose: &Whose<'a>) -> Element<'a, Message> {
+fn metrics<'a>(ground: &Ground<'a>, whose: &Whose<'a>, t: f32) -> Element<'a, Message> {
     let card = &whose.card;
     let w = ground.words;
     let mut tiles = row![].spacing(8);
-    for metric in Metric::ALL {
+    for (index, metric) in Metric::ALL.into_iter().enumerate() {
+        let f = ui::tally(t, 0.05 * index as f32);
         let current = match metric {
             Metric::Pp => card.pp,
             Metric::Rank => card.global_rank,
@@ -658,7 +660,7 @@ fn metrics<'a>(ground: &Ground<'a>, whose: &Whose<'a>) -> Element<'a, Message> {
             Metric::Plays => card.play_count,
             Metric::Hours => card.play_seconds / 3600.0,
         };
-        let value = if current > 0.0 { full(w, metric, current).replace(" pp", "") } else { "—".to_owned() };
+        let value = if current > 0.0 { full(w, metric, (current * f).max(if metric == Metric::Rank { 1.0 } else { 0.0 })).replace(" pp", "") } else { "—".to_owned() };
         let change = delta(w, metric, &series(ground, whose, metric, 90));
         let mut under = column![ui::mono_small(w.t(metric.key()).to_uppercase(), FAINT)].spacing(1);
         if let Some((said, better)) = change {
@@ -871,7 +873,7 @@ fn badge_pill<'a>(inside: Element<'a, Message>, fill: Color) -> Element<'a, Mess
         .into()
 }
 
-fn poster_card<'a>(ground: &Ground<'a>, index: usize, poster: &Poster<'a>, chosen: bool, wide: f32) -> Element<'a, Message> {
+fn poster_card<'a>(ground: &Ground<'a>, index: usize, poster: &Poster<'a>, chosen: bool, wide: f32, f: f64) -> Element<'a, Message> {
     let w = ground.words;
     let colour = screen::grade_colour(&poster.grade);
     let k = ui::fade();
@@ -960,7 +962,7 @@ fn poster_card<'a>(ground: &Ground<'a>, index: usize, poster: &Poster<'a>, chose
         _ => Space::new().width(0.0).into(),
     };
     let body = column![
-        row![text(screen::decimal(w, poster.pp as f32, 0)).font(theme::SANS_SEMI).size(27.0).wrapping(text::Wrapping::None).color(ui::faded(INK)), text("pp").font(theme::SANS).size(13.0).color(ui::faded(MUTED))].spacing(4).align_y(iced::alignment::Vertical::Bottom),
+        row![text(screen::decimal(w, (poster.pp * f) as f32, 0)).font(theme::SANS_SEMI).size(27.0).wrapping(text::Wrapping::None).color(ui::faded(INK)), text("pp").font(theme::SANS).size(13.0).color(ui::faded(MUTED))].spacing(4).align_y(iced::alignment::Vertical::Bottom),
         container(
             column![
                 container(text(poster.title.clone()).font(theme::SANS_SEMI).size(13.5).color(ui::faded(INK))).max_height(36.0).clip(true),
@@ -969,7 +971,7 @@ fn poster_card<'a>(ground: &Ground<'a>, index: usize, poster: &Poster<'a>, chose
             .spacing(2),
         )
         .height(54.0),
-        row![ui::mono_small(w.percent(poster.accuracy), INK), ui::grow(), tail].align_y(iced::Center),
+        row![ui::mono_small(w.percent(poster.accuracy * f), INK), ui::grow(), tail].align_y(iced::Center),
     ]
     .spacing(6)
     .padding(Padding { top: 0.0, right: 12.0, bottom: 12.0, left: 12.0 });
@@ -995,7 +997,7 @@ fn poster_card<'a>(ground: &Ground<'a>, index: usize, poster: &Poster<'a>, chose
     ui::hover(container(stack![card, frame]).width(Length::FillPortion(1)), glow)
 }
 
-fn judgement_bar<'a>(ground: &Ground<'a>, counts: [Option<u32>; 4]) -> Option<Element<'a, Message>> {
+fn judgement_bar<'a>(ground: &Ground<'a>, counts: [Option<u32>; 4], f: f64) -> Option<Element<'a, Message>> {
     let w = ground.words;
     let k = ui::fade();
     let shades = [theme::HIT_300, theme::HIT_100, theme::HIT_50, ACCENT];
@@ -1018,7 +1020,7 @@ fn judgement_bar<'a>(ground: &Ground<'a>, counts: [Option<u32>; 4]) -> Option<El
     for ((count, colour), label) in counts.iter().zip(shades).zip(labels) {
         if let Some(n) = count {
             tiles = tiles.push(
-                container(column![ui::mono_small(label.to_owned(), colour), text(w.lang().group(u64::from(*n))).font(theme::SANS_SEMI).size(15.0).wrapping(text::Wrapping::None).color(ui::faded(INK))].spacing(1))
+                container(column![ui::mono_small(label.to_owned(), colour), text(w.lang().group((f64::from(*n) * f).round() as u64)).font(theme::SANS_SEMI).size(15.0).wrapping(text::Wrapping::None).color(ui::faded(INK))].spacing(1))
                     .padding([6, 10])
                     .width(Length::FillPortion(1))
                     .clip(true)
@@ -1045,7 +1047,7 @@ fn fact_pill<'a>(inside: Element<'a, Message>) -> Element<'a, Message> {
         .into()
 }
 
-fn poster_detail<'a>(ground: &Ground<'a>, poster: &Poster<'a>) -> Element<'a, Message> {
+fn poster_detail<'a>(ground: &Ground<'a>, poster: &Poster<'a>, f: f64) -> Element<'a, Message> {
     let w = ground.words;
     let mut facts: Vec<Element<'a, Message>> = Vec::new();
     let combo_said = match (poster.combo, poster.most) {
@@ -1084,7 +1086,7 @@ fn poster_detail<'a>(ground: &Ground<'a>, poster: &Poster<'a>) -> Element<'a, Me
         .push(ui::marquee(vec![ui::piece(under.join(" · "), theme::SANS, 12.5, MUTED)]))
         .push(container(ui::wrap(facts, 6.0)).padding(Padding::ZERO.top(6.0)));
     let mut right = column![].spacing(12).width(Length::FillPortion(10));
-    if let Some(bar) = judgement_bar(ground, poster.counts) {
+    if let Some(bar) = judgement_bar(ground, poster.counts, f) {
         right = right.push(bar);
     }
     if let Some(set) = poster.set {
@@ -1113,7 +1115,7 @@ fn poster_detail<'a>(ground: &Ground<'a>, poster: &Poster<'a>) -> Element<'a, Me
         .into()
 }
 
-fn best_plays<'a>(ground: &Ground<'a>, whose: &Whose<'a>, wide: f32) -> Element<'a, Message> {
+fn best_plays<'a>(ground: &Ground<'a>, whose: &Whose<'a>, wide: f32, t: f32) -> Element<'a, Message> {
     let w = ground.words;
     let posters = posters_of(ground, whose);
     let head = caption(w.t("best-plays"));
@@ -1123,8 +1125,8 @@ fn best_plays<'a>(ground: &Ground<'a>, whose: &Whose<'a>, wide: f32) -> Element<
     let chosen = ground.play_open.filter(|at| *at < posters.len()).unwrap_or(0);
     let columns = if wide >= 720.0 { 5 } else { 3 };
     let each = (wide - 32.0 - 10.0 * (columns as f32 - 1.0)) / columns as f32;
-    let cards: Vec<Element<'a, Message>> = posters.iter().enumerate().map(|(at, poster)| poster_card(ground, at, poster, at == chosen, each)).collect();
-    let detail = ui::appearing(ui::appear(ground.play_t, 0), 8.0, || poster_detail(ground, &posters[chosen]));
+    let cards: Vec<Element<'a, Message>> = posters.iter().enumerate().map(|(at, poster)| poster_card(ground, at, poster, at == chosen, each, ui::tally(t, 0.2 + 0.05 * at as f32))).collect();
+    let detail = ui::appearing(ui::appear(ground.play_t, 0), 8.0, || poster_detail(ground, &posters[chosen], ui::tally(ground.play_t.min(t), 0.1)));
     slab(column![head, screen::grid(cards, columns, 10.0), detail].spacing(12), [14, 16]).into()
 }
 
@@ -1328,10 +1330,10 @@ pub fn columns<'a>(ground: &Ground<'a>, whose: &Whose<'a>, room: f32, t: f32) ->
     let left = (room * 0.21).clamp(LEFT, SIDE_MOST);
     let right = (room * 0.21).clamp(RIGHT, SIDE_MOST);
     let middle_wide = if wide { room - left - right - 32.0 } else { room - left - 16.0 };
-    let middle = column![block(0, &|| metrics(ground, whose)), block(1, &|| chart(ground, whose)), block(2, &|| best_plays(ground, whose, middle_wide))].spacing(14);
+    let middle = column![block(0, &|| metrics(ground, whose, t)), block(1, &|| chart(ground, whose)), block(2, &|| best_plays(ground, whose, middle_wide, t))].spacing(14);
     if wide {
         row![
-            container(rolled(column![block(0, &|| identity(ground, whose)), block(1, &|| places(ground, whose))].spacing(14).into())).width(left).height(Length::Fill),
+            container(rolled(column![block(0, &|| identity(ground, whose)), block(1, &|| places(ground, whose, t))].spacing(14).into())).width(left).height(Length::Fill),
             container(rolled(middle.into())).width(Length::Fill).height(Length::Fill),
             container(rolled(column![block(1, &|| grades(ground, &whose.card)), block(2, &|| titles(ground, whose)), block(3, &|| activity(ground, whose))].spacing(14).into())).width(right).height(Length::Fill),
         ]
@@ -1339,7 +1341,7 @@ pub fn columns<'a>(ground: &Ground<'a>, whose: &Whose<'a>, room: f32, t: f32) ->
         .into()
     } else {
         row![
-            container(rolled(column![block(0, &|| identity(ground, whose)), block(1, &|| places(ground, whose)), block(2, &|| grades(ground, &whose.card))].spacing(14).into())).width(left).height(Length::Fill),
+            container(rolled(column![block(0, &|| identity(ground, whose)), block(1, &|| places(ground, whose, t)), block(2, &|| grades(ground, &whose.card))].spacing(14).into())).width(left).height(Length::Fill),
             container(rolled(middle.push(block(3, &|| titles(ground, whose))).push(block(4, &|| activity(ground, whose))).into())).width(Length::Fill).height(Length::Fill),
         ]
         .spacing(16)

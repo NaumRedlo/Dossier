@@ -656,6 +656,26 @@ naming the group, its size and when the bot last answered — or *образцы
   particulars drop the stars (the poster has them), give the BPM a
   metronome, put the artist over a larger title, and show the hits as
   four tiles under a thinner bar.
+  Numbers count up to themselves when their part comes in (over 800 ms,
+  easing out, a little after the card they sit on): the dossier's five
+  figures, its places, the posters' pp and accuracy, the chosen play's
+  hits (again whenever another poster is chosen), the person's own card,
+  the people's cards, the board's podium and rows, and the week's leaders
+  each time the side table turns. At rest they are exact, so every frame
+  is the same as before. Panels open out of where they were asked for:
+  the catalogue notes where each press lands, and another's dossier or
+  the reader grows from a card-sized frame around that point to its place
+  in 420 ms and folds back into it on closing, its content clipped to the
+  growing frame. A top play's hits in the journal unfold and fold back in
+  280 ms, their height growing from nothing rather than jumping.
+  The feed keeps itself current without a button: the group is asked
+  every 30 s and the news every minute while the catalogue is open (a
+  channel is fetched again after 90 s, osu! and the builds after 10
+  minutes), and whatever arrives goes straight into the stream at its
+  place, fading and rising in one after another, with a red wash and edge
+  that fade over four seconds; *N новых событий* is gone. The plays the
+  bot sends ahead still trickle in one at a time every six seconds, each
+  arriving the same way.
   The middle was rebuilt the same night from the fifth of the concepts
   drawn on a canvas (two streams under the day's highlights). A segmented
   *Всё · Группа · Новости*, *N новых событий* and a search by player, map,

@@ -364,10 +364,6 @@ filter-titles = Titles
 filter-ranks = Rankings
 filter-news = News
 filter-builds = Updates
-fresh-events = { $n ->
-    [one] { $n } new event
-   *[other] { $n } new events
-}
 friends-head = Friends in game
 friends-online = { $n } online
 grade-a = A

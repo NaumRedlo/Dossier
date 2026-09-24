@@ -14,6 +14,7 @@ use crate::theme::{self, ACCENT, FAINT, INK, MUTED};
 use crate::ui;
 
 pub const SPOT_EVERY: Duration = Duration::from_secs(5);
+pub const FRESH_GLOW: f32 = 4.0;
 pub const RANK_EVERY: Duration = Duration::from_secs(6);
 pub const SPOT_SWAP: Duration = Duration::from_millis(450);
 pub const RANK_GROW: Duration = Duration::from_millis(900);
@@ -400,7 +401,7 @@ fn journal_row<'a>(ground: &Ground<'a>, event: &Event<'a>, table: Table) -> Opti
         text(said).font(if strong { theme::SANS_SEMI } else { theme::SANS }).size(13.0).wrapping(text::Wrapping::None).color(ui::faded(colour)).into()
     };
     let object = |said: String, colour: Color, strong: bool| ui::piece(said, if strong { theme::SANS_SEMI } else { theme::SANS }, 13.0, colour);
-    let (line, press, details): (Element<'a, Message>, Message, Option<Element<'a, Message>>) = match event.item {
+    let (line, press, details): (Element<'a, Message>, Message, Option<(f32, Element<'a, Message>)>) = match event.item {
         Item::Play(play) => {
             catalog.people.get(play.who)?;
             let pp: Element<'a, Message> = if play.passed && play.pp >= 0.5 { words(screen::decimal(w, play.pp, 0), INK, true) } else { Space::new().width(0.0).into() };
@@ -417,7 +418,8 @@ fn journal_row<'a>(ground: &Ground<'a>, event: &Event<'a>, table: Table) -> Opti
                 Kind::TopPlay { pp, place, .. } => {
                     let map = happened.map?;
                     let play = person.top.iter().find(|play| play.map == map && (play.pp - pp).abs() < 0.5);
-                    let details = ground.open_events.contains(&key).then(|| play.map(|play| counts_row(ground, play.counts, play.combo.zip(play.max_combo), play.stars))).flatten();
+                    let fold = ground.folds.get(&key).copied().unwrap_or(if ground.open_events.contains(&key) { 1.0 } else { 0.0 });
+                    let details = (fold > 0.001).then(|| play.map(|play| (fold, counts_row(ground, play.counts, play.combo.zip(play.max_combo), play.stars)))).flatten();
                     let value = ui::mono_small(format!("{} pp · #{place}", screen::decimal(w, *pp, 0)), CORAL);
                     (event_line(ground, event.at, table, Icon::Star, CORAL, person.name.clone(), w.t("event-top"), object(title_and_version(ground, map).0, INK, false), Some(value)), Message::Toggle(key), details)
                 }
@@ -435,10 +437,20 @@ fn journal_row<'a>(ground: &Ground<'a>, event: &Event<'a>, table: Table) -> Opti
         _ => return None,
     };
     let mut inside = column![container(line).height(JOURNAL_ROW).center_y(JOURNAL_ROW).padding([0, 10])];
-    if let Some(details) = details {
-        inside = inside.push(container(details).padding(Padding { top: 2.0, right: 10.0, bottom: 10.0, left: 10.0 + table.time + table.gap }));
+    if let Some((fold, details)) = details {
+        inside = inside.push(ui::reveal(fold, || container(details).padding(Padding { top: 2.0, right: 10.0, bottom: 10.0, left: 10.0 + table.time + table.gap }).into()));
     }
-    Some(ui::hover(button(inside).padding(0).width(Length::Fill).style(ui::button_faded(row_hover)).on_press(press), ui::Glow::row(8.0)))
+    let glow = glow_of(ground, event) * ui::fade();
+    let row = ui::hover(button(inside).padding(0).width(Length::Fill).style(ui::button_faded(row_hover)).on_press(press), ui::Glow::row(8.0));
+    Some(
+        container(row)
+            .style(move |_| container::Style {
+                background: (glow > 0.001).then_some(Background::Color(Color { a: 0.09 * glow, ..ACCENT })),
+                border: Border { color: Color { a: 0.35 * glow, ..ACCENT }, width: if glow > 0.001 { 1.0 } else { 0.0 }, radius: 8.0.into() },
+                ..container::Style::default()
+            })
+            .into(),
+    )
 }
 
 fn news_card<'a>(ground: &Ground<'a>, event: &Event<'a>) -> Option<Element<'a, Message>> {
@@ -487,7 +499,17 @@ fn news_card<'a>(ground: &Ground<'a>, event: &Event<'a>) -> Option<Element<'a, M
         inside = inside.push(media);
     }
     inside = inside.push(header).push(body);
-    Some(ui::hover(button(container(inside).padding(10)).padding(0).width(Length::Fill).style(ui::button_faded(ui::calm(surface(false)))).on_press(press), ui::Glow::card(14.0).edge(Color::from_rgba(1.0, 1.0, 1.0, 0.1)).lift(2.0)))
+    let card = ui::hover(button(container(inside).padding(10)).padding(0).width(Length::Fill).style(ui::button_faded(ui::calm(surface(false)))).on_press(press), ui::Glow::card(14.0).edge(Color::from_rgba(1.0, 1.0, 1.0, 0.1)).lift(2.0));
+    let glow = glow_of(ground, event) * ui::fade();
+    Some(
+        container(card)
+            .style(move |_| container::Style {
+                border: Border { color: Color { a: 0.7 * glow, ..ACCENT }, width: if glow > 0.001 { 1.0 } else { 0.0 }, radius: 14.0.into() },
+                shadow: if glow > 0.001 { Shadow { color: Color { a: 0.25 * glow, ..ACCENT }, offset: Vector::ZERO, blur_radius: 16.0 } } else { Shadow::default() },
+                ..container::Style::default()
+            })
+            .into(),
+    )
 }
 
 fn news_weight(event: &Event<'_>) -> f32 {
@@ -599,11 +621,25 @@ fn counted<'a, T: Copy + PartialEq + 'static>(ground: &Ground<'a>, options: &[T]
     ui::wrap(pills, 6.0).into()
 }
 
+fn is_fresh(ground: &Ground<'_>, event: &Event<'_>) -> bool {
+    ground.seen > 0 && event.at > ground.seen && ground.fresh_t < FRESH_GLOW
+}
+
+fn glow_of(ground: &Ground<'_>, event: &Event<'_>) -> f32 {
+    if is_fresh(ground, event) {
+        let x = (1.0 - ground.fresh_t / FRESH_GLOW).clamp(0.0, 1.0);
+        x * x
+    } else {
+        0.0
+    }
+}
+
 fn by_day<'a>(ground: &Ground<'a>, list: &[Event<'a>], t: f32, from: usize, draw: impl Fn(&Event<'a>) -> Option<Element<'a, Message>>) -> Vec<Element<'a, Message>> {
     let today = ground.now_unix - ground.now_unix.rem_euclid(86_400);
     let day_of = |at: i64| if at >= today { 0 } else { (today - at) / 86_400 + 1 };
     let mut last: Option<i64> = None;
     let mut out = Vec::new();
+    let mut fresh = 0;
     for event in list {
         let day = day_of(event.at);
         if last != Some(day) {
@@ -611,7 +647,12 @@ fn by_day<'a>(ground: &Ground<'a>, list: &[Event<'a>], t: f32, from: usize, draw
             out.push(ui::appearing(ui::appear(t, index), 10.0, || day_divider(ground, event.at)));
             last = Some(day);
         }
-        let k = ui::appear(t, from + out.len());
+        let k = if is_fresh(ground, event) {
+            fresh += 1;
+            ui::appear(ground.fresh_t, fresh - 1).min(ui::appear(t, from + out.len()))
+        } else {
+            ui::appear(t, from + out.len())
+        };
         let made = if k >= 0.999 { draw(event) } else { ui::fading(ui::fade() * k, || draw(event)) };
         if let Some(made) = made {
             out.push(ui::lifted(made, k, 10.0));
@@ -623,8 +664,7 @@ fn by_day<'a>(ground: &Ground<'a>, list: &[Event<'a>], t: f32, from: usize, draw
 fn timeline<'a>(ground: &Ground<'a>, wide: f32) -> Element<'a, Message> {
     let w = ground.words;
     let all = events(ground.catalog, ground.news, ground.channels, ground.live_shown);
-    let fresh = all.iter().filter(|event| event.at > ground.seen && ground.seen > 0).count();
-    let seen: Vec<Event<'a>> = all.iter().copied().filter(|event| !(event.at > ground.seen && ground.seen > 0)).filter(|event| event.found(ground.catalog, ground.query)).collect();
+    let seen: Vec<Event<'a>> = all.iter().copied().filter(|event| event.found(ground.catalog, ground.query)).collect();
     let group_all: Vec<Event<'a>> = seen.iter().copied().filter(Event::in_group).collect();
     let news_all: Vec<Event<'a>> = seen.iter().copied().filter(|event| !event.in_group()).collect();
     let group: Vec<Event<'a>> = group_all.iter().copied().filter(|event| event.admitted(ground.filter)).collect();
@@ -632,20 +672,6 @@ fn timeline<'a>(ground: &Ground<'a>, wide: f32) -> Element<'a, Message> {
 
     let streams = screen::segmented(Stream::ALL.iter().map(|stream| (w.t(stream.key()), ground.stream == *stream, Message::Stream(*stream))).collect());
     let mut top = row![streams, ui::grow()].spacing(10).align_y(iced::Center);
-    if fresh > 0 {
-        top = top.push(
-            button(row![glyph(Icon::Up, 12.0, Color::WHITE), text(w.n("fresh-events", fresh as u64)).font(theme::SANS_SEMI).size(12.0).color(Color::WHITE)].spacing(6).align_y(iced::Center))
-                .padding([6, 12])
-                .style(ui::button_faded(|_, status| button::Style {
-                    background: Some(Background::Color(if matches!(status, button::Status::Hovered) { Color::from_rgb(0.925, 0.337, 0.337) } else { ACCENT })),
-                    text_color: Color::WHITE,
-                    border: Border { radius: 16.0.into(), ..Border::default() },
-                    shadow: Shadow { color: Color::from_rgba(0.886, 0.282, 0.282, 0.35), offset: Vector::new(0.0, 4.0), blur_radius: 14.0 },
-                    snap: true,
-                }))
-                .on_press(Message::Reveal),
-        );
-    }
     top = top.push(
         container(
             row![
@@ -701,8 +727,14 @@ fn timeline<'a>(ground: &Ground<'a>, wide: f32) -> Element<'a, Message> {
     };
     let news_list = |columns: usize| -> Element<'a, Message> {
         let mut cards: Vec<(f32, Element<'a, Message>)> = Vec::new();
+        let mut fresh = 0;
         for event in &news {
-            let k = ui::appear(lately, 3 + cards.len());
+            let k = if is_fresh(ground, event) {
+                fresh += 1;
+                ui::appear(ground.fresh_t, fresh - 1).min(ui::appear(lately, 3 + cards.len()))
+            } else {
+                ui::appear(lately, 3 + cards.len())
+            };
             let made = if k >= 0.999 { news_card(ground, event) } else { ui::fading(ui::fade() * k, || news_card(ground, event)) };
             if let Some(made) = made {
                 cards.push((news_weight(event), ui::lifted(made, k, 10.0)));
@@ -824,6 +856,7 @@ fn me_card<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
     };
     let at = ground.catalog.people.iter().position(|person| person.you);
     let in_group = at.and_then(|at| ground.catalog.ranked(Board::Pp).iter().position(|x| *x == at)).map(|x| x + 1);
+    let f = ui::tally(ground.section_t, 0.1);
     let coral = Color::from_rgb(0.941, 0.408, 0.408);
     let mut head = row![
         ring(ground, you, 62.0, share, 3.5),
@@ -842,16 +875,16 @@ fn me_card<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
     if let Some(place) = in_group {
         head = head.push(
             column![
-                text(format!("#{place}")).font(theme::SANS_SEMI).size(24.0).wrapping(text::Wrapping::None).color(ui::faded(screen::medal(place).unwrap_or(INK))),
+                text(format!("#{}", ((place as f64 * f).round() as usize).max(1))).font(theme::SANS_SEMI).size(24.0).wrapping(text::Wrapping::None).color(ui::faded(screen::medal(place).unwrap_or(INK))),
                 ui::mono_small(w.t("in-group"), FAINT),
             ]
             .align_x(iced::alignment::Horizontal::Right),
         );
     }
     let tiles = row![
-        tile(w.lang().group(u64::from(you.pp)), w.t("board-pp"), signed(you.gained[0], 0), coral),
-        tile(screen::rank_of(w, you.rank), w.t("metric-world"), None, INK),
-        tile(w.percent(f64::from(you.accuracy)), w.t("metric-accuracy-short"), signed(you.gained[1], 2), INK),
+        tile(w.lang().group((f64::from(you.pp) * f).round() as u64), w.t("board-pp"), signed(you.gained[0], 0), coral),
+        tile(screen::rank_of(w, if you.rank > 0 { ((f64::from(you.rank) * f).round() as u32).max(1) } else { 0 }), w.t("metric-world"), None, INK),
+        tile(w.percent(f64::from(you.accuracy) * f), w.t("metric-accuracy-short"), signed(you.gained[1], 2), INK),
     ]
     .spacing(8);
     let k = ui::fade();
@@ -1124,7 +1157,8 @@ fn leaderboard<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
     });
     let list = screen::standings(catalog, board, screen::Standing::Adaptive);
     let coral = Color::from_rgb(0.941, 0.408, 0.408);
-    let gain = |value: f64| screen::grown(w, board, value, board != Board::HitsPerPlay);
+    let counting = f64::from(ground.rank_k) * ui::tally(ground.section_t, 0.2);
+    let gain = move |value: f64| screen::grown(w, board, value * counting, board != Board::HitsPerPlay);
     let said = |words: String| -> Element<'a, Message> { container(text(words).font(theme::SANS).size(12.0).color(ui::faded(MUTED))).padding([14, 4]).width(Length::Fill).into() };
     let shown: Element<'a, Message> = if catalog.collecting {
         let date = chrono::DateTime::from_timestamp(catalog.week_began + 7 * 86_400 + 3 * 3600, 0).map_or_else(String::new, |at| at.format("%d.%m").to_string());

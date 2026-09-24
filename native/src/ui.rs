@@ -3289,7 +3289,13 @@ impl<'a, M: 'a> From<Marquee> for Element<'a, M> {
 
 pub const APPEAR: f32 = 0.34;
 pub const STAGGER: f32 = 0.04;
-pub const APPEAR_ALL: f32 = 1.1;
+pub const APPEAR_ALL: f32 = 1.4;
+pub const TALLY: f32 = 0.8;
+
+pub fn tally(t: f32, delay: f32) -> f64 {
+    let x = ((t - delay) / TALLY).clamp(0.0, 1.0);
+    f64::from(1.0 - (1.0 - x).powi(3))
+}
 
 pub fn appear(t: f32, index: usize) -> f32 {
     let x = ((t - index.min(16) as f32 * STAGGER) / APPEAR).clamp(0.0, 1.0);
@@ -3737,5 +3743,172 @@ impl<Message> iced::advanced::Widget<Message, Theme, Renderer> for Slide<'_, Mes
         translation: iced::Vector,
     ) -> Option<iced::advanced::overlay::Element<'b, Message, Theme, Renderer>> {
         self.content.as_widget_mut().overlay(&mut tree.children[0], layout, renderer, viewport, translation)
+    }
+}
+
+pub struct Tapped<'a, Message> {
+    content: Element<'a, Message>,
+    on_tap: Box<dyn Fn(Point) -> Message + 'a>,
+}
+
+pub fn tapped<'a, Message: 'a>(content: impl Into<Element<'a, Message>>, on_tap: impl Fn(Point) -> Message + 'a) -> Element<'a, Message> {
+    Element::new(Tapped { content: content.into(), on_tap: Box::new(on_tap) })
+}
+
+impl<Message> iced::advanced::Widget<Message, Theme, Renderer> for Tapped<'_, Message> {
+    fn children(&self) -> Vec<iced::advanced::widget::Tree> {
+        vec![iced::advanced::widget::Tree::new(&self.content)]
+    }
+
+    fn diff(&self, tree: &mut iced::advanced::widget::Tree) {
+        tree.diff_children(std::slice::from_ref(&self.content));
+    }
+
+    fn size(&self) -> Size<Length> {
+        self.content.as_widget().size()
+    }
+
+    fn size_hint(&self) -> Size<Length> {
+        self.content.as_widget().size_hint()
+    }
+
+    fn layout(&mut self, tree: &mut iced::advanced::widget::Tree, renderer: &Renderer, limits: &iced::advanced::layout::Limits) -> iced::advanced::layout::Node {
+        self.content.as_widget_mut().layout(&mut tree.children[0], renderer, limits)
+    }
+
+    fn operate(&mut self, tree: &mut iced::advanced::widget::Tree, layout: iced::advanced::Layout<'_>, renderer: &Renderer, operation: &mut dyn iced::advanced::widget::Operation) {
+        self.content.as_widget_mut().operate(&mut tree.children[0], layout, renderer, operation);
+    }
+
+    fn update(
+        &mut self,
+        tree: &mut iced::advanced::widget::Tree,
+        event: &iced::Event,
+        layout: iced::advanced::Layout<'_>,
+        cursor: mouse::Cursor,
+        renderer: &Renderer,
+        clipboard: &mut dyn iced::advanced::Clipboard,
+        shell: &mut iced::advanced::Shell<'_, Message>,
+        viewport: &Rectangle,
+    ) {
+        if let iced::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) = event {
+            if let Some(at) = cursor.position_over(layout.bounds()) {
+                shell.publish((self.on_tap)(at));
+            }
+        }
+        self.content.as_widget_mut().update(&mut tree.children[0], event, layout, cursor, renderer, clipboard, shell, viewport);
+    }
+
+    fn mouse_interaction(&self, tree: &iced::advanced::widget::Tree, layout: iced::advanced::Layout<'_>, cursor: mouse::Cursor, viewport: &Rectangle, renderer: &Renderer) -> mouse::Interaction {
+        self.content.as_widget().mouse_interaction(&tree.children[0], layout, cursor, viewport, renderer)
+    }
+
+    fn draw(
+        &self,
+        tree: &iced::advanced::widget::Tree,
+        renderer: &mut Renderer,
+        theme: &Theme,
+        style: &iced::advanced::renderer::Style,
+        layout: iced::advanced::Layout<'_>,
+        cursor: mouse::Cursor,
+        viewport: &Rectangle,
+    ) {
+        self.content.as_widget().draw(&tree.children[0], renderer, theme, style, layout, cursor, viewport);
+    }
+
+    fn overlay<'b>(
+        &'b mut self,
+        tree: &'b mut iced::advanced::widget::Tree,
+        layout: iced::advanced::Layout<'b>,
+        renderer: &Renderer,
+        viewport: &Rectangle,
+        translation: iced::Vector,
+    ) -> Option<iced::advanced::overlay::Element<'b, Message, Theme, Renderer>> {
+        self.content.as_widget_mut().overlay(&mut tree.children[0], layout, renderer, viewport, translation)
+    }
+}
+
+pub struct Reveal<'a, Message> {
+    content: Element<'a, Message>,
+    k: f32,
+}
+
+pub fn reveal<'a, Message: 'a>(k: f32, build: impl FnOnce() -> Element<'a, Message>) -> Element<'a, Message> {
+    let k = k.clamp(0.0, 1.0);
+    let content = if k >= 0.999 { build() } else { fading(fade() * k, build) };
+    Element::new(Reveal { content, k })
+}
+
+impl<Message> iced::advanced::Widget<Message, Theme, Renderer> for Reveal<'_, Message> {
+    fn children(&self) -> Vec<iced::advanced::widget::Tree> {
+        vec![iced::advanced::widget::Tree::new(&self.content)]
+    }
+
+    fn diff(&self, tree: &mut iced::advanced::widget::Tree) {
+        tree.diff_children(std::slice::from_ref(&self.content));
+    }
+
+    fn size(&self) -> Size<Length> {
+        Size { width: self.content.as_widget().size().width, height: Length::Shrink }
+    }
+
+    fn layout(&mut self, tree: &mut iced::advanced::widget::Tree, renderer: &Renderer, limits: &iced::advanced::layout::Limits) -> iced::advanced::layout::Node {
+        let inner = self.content.as_widget_mut().layout(&mut tree.children[0], renderer, limits);
+        let full = inner.size();
+        iced::advanced::layout::Node::with_children(Size::new(full.width, full.height * self.k), vec![inner])
+    }
+
+    fn operate(&mut self, tree: &mut iced::advanced::widget::Tree, layout: iced::advanced::Layout<'_>, renderer: &Renderer, operation: &mut dyn iced::advanced::widget::Operation) {
+        if let Some(inner) = layout.children().next() {
+            self.content.as_widget_mut().operate(&mut tree.children[0], inner, renderer, operation);
+        }
+    }
+
+    fn update(
+        &mut self,
+        tree: &mut iced::advanced::widget::Tree,
+        event: &iced::Event,
+        layout: iced::advanced::Layout<'_>,
+        cursor: mouse::Cursor,
+        renderer: &Renderer,
+        clipboard: &mut dyn iced::advanced::Clipboard,
+        shell: &mut iced::advanced::Shell<'_, Message>,
+        viewport: &Rectangle,
+    ) {
+        if self.k < 0.999 {
+            return;
+        }
+        if let Some(inner) = layout.children().next() {
+            self.content.as_widget_mut().update(&mut tree.children[0], event, inner, cursor, renderer, clipboard, shell, viewport);
+        }
+    }
+
+    fn mouse_interaction(&self, tree: &iced::advanced::widget::Tree, layout: iced::advanced::Layout<'_>, cursor: mouse::Cursor, viewport: &Rectangle, renderer: &Renderer) -> mouse::Interaction {
+        layout.children().next().map_or(mouse::Interaction::None, |inner| self.content.as_widget().mouse_interaction(&tree.children[0], inner, cursor, viewport, renderer))
+    }
+
+    fn draw(
+        &self,
+        tree: &iced::advanced::widget::Tree,
+        renderer: &mut Renderer,
+        theme: &Theme,
+        style: &iced::advanced::renderer::Style,
+        layout: iced::advanced::Layout<'_>,
+        cursor: mouse::Cursor,
+        viewport: &Rectangle,
+    ) {
+        use iced::advanced::Renderer as _;
+        let Some(inner) = layout.children().next() else {
+            return;
+        };
+        if self.k >= 0.999 {
+            self.content.as_widget().draw(&tree.children[0], renderer, theme, style, inner, cursor, viewport);
+            return;
+        }
+        if let Some(clip) = layout.bounds().intersection(viewport) {
+            renderer.with_layer(clip, |renderer| {
+                self.content.as_widget().draw(&tree.children[0], renderer, theme, style, inner, cursor, &clip);
+            });
+        }
     }
 }

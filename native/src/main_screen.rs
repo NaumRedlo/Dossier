@@ -28,9 +28,10 @@ pub const SWAP: Duration = Duration::from_millis(450);
 pub const LIFT: Duration = Duration::from_millis(200);
 const LIVE_FIRST: usize = 6;
 const LIVE_EVERY: Duration = Duration::from_secs(6);
-const LIVE_ARRIVE: Duration = Duration::from_millis(420);
-const STAGE_SHOW: Duration = Duration::from_millis(340);
-const COMMUNITY_EVERY: Duration = Duration::from_secs(60);
+const PANEL_SHOW: Duration = Duration::from_millis(420);
+const FOLD: Duration = Duration::from_millis(280);
+const COMMUNITY_EVERY: Duration = Duration::from_secs(30);
+const NEWS_EVERY: Duration = Duration::from_secs(60);
 const FRIENDS_EVERY: Duration = Duration::from_secs(120);
 const CARD_EVERY: Duration = Duration::from_secs(300);
 const COMMUNITY_SCALE: f32 = 0.84;
@@ -70,6 +71,7 @@ pub enum Message {
     CardArrived(Result<crate::community::wire::Card, String>),
     Flag(String, Option<Vec<u8>>),
     CommunityTick,
+    NewsTick,
     FeedClock,
     ClipFetched(String, Result<(PathBuf, i64, u32), String>),
     OsuProfile(Result<crate::community::wire::Card, String>),
@@ -407,7 +409,7 @@ pub struct Main {
     pub news_failed: std::collections::HashSet<String>,
     pub channel_draft: String,
     pub live_shown: usize,
-    live_arrived: Option<Instant>,
+    feed_fresh_at: Instant,
     pub community_reading: Option<crate::community_screen::Reading>,
     pub read_fade: Animation<bool>,
     pub people_from: crate::community_screen::PeopleFrom,
@@ -422,6 +424,9 @@ pub struct Main {
     pub feed_stream: crate::chronicle::Stream,
     pub feed_query: String,
     pub feed_open: std::collections::HashSet<String>,
+    feed_fold_at: HashMap<String, Instant>,
+    community_tap: Option<iced::Point>,
+    panel_from: Option<iced::Point>,
     pub feed_seen: i64,
     pub spot: usize,
     spot_at: Instant,
@@ -568,7 +573,7 @@ impl Main {
             news_failed: std::collections::HashSet::new(),
             channel_draft: String::new(),
             live_shown: LIVE_FIRST,
-            live_arrived: None,
+            feed_fresh_at: Instant::now() - Duration::from_secs(3600),
             community_reading: None,
             read_fade: Animation::new(false),
             people_from: crate::community_screen::PeopleFrom::Chat,
@@ -583,6 +588,9 @@ impl Main {
             feed_stream: crate::chronicle::Stream::All,
             feed_query: String::new(),
             feed_open: std::collections::HashSet::new(),
+            feed_fold_at: HashMap::new(),
+            community_tap: None,
+            panel_from: None,
             feed_seen: 0,
             spot: 0,
             spot_at: Instant::now() - Duration::from_secs(3600),
@@ -681,7 +689,8 @@ impl Main {
             || self.side_fade.is_animating(self.now)
             || self.marks.values().any(|m| m.is_animating(self.now))
             || self.slides_settling()
-            || self.live_arrived.is_some_and(|at| self.now.saturating_duration_since(at) < LIVE_ARRIVE)
+            || (self.overlay == Overlay::Community && self.now.saturating_duration_since(self.feed_fresh_at).as_secs_f32() < crate::chronicle::FRESH_GLOW)
+            || self.feed_fold_at.values().any(|at| self.now.saturating_duration_since(*at) < FOLD)
             || self.read_fade.is_animating(self.now)
             || self.person_fade.is_animating(self.now)
             || (self.overlay == Overlay::Community && [self.section_at, self.shift_at, self.person_at, self.play_at].iter().any(|at| self.now.saturating_duration_since(*at).as_secs_f32() < ui::APPEAR_ALL))
@@ -732,6 +741,9 @@ impl Main {
         }
         if self.overlay == Overlay::Community && !self.settings.token.is_empty() {
             parts.push(iced::time::every(COMMUNITY_EVERY).map(|_| Message::CommunityTick));
+        }
+        if self.overlay == Overlay::Community {
+            parts.push(iced::time::every(NEWS_EVERY).map(|_| Message::NewsTick));
         }
         if self.overlay == Overlay::Community && self.community_section == crate::community_screen::Section::Feed {
             parts.push(iced::time::every(Duration::from_millis(500)).map(|_| Message::FeedClock));
@@ -1622,10 +1634,12 @@ impl Main {
                 use crate::community_screen::Message as C;
                 let now = Instant::now();
                 match inner {
+                    C::Tap(at) => self.community_tap = Some(at),
                     C::Read(reading) => {
                         let wanted = reading.pictures();
                         self.community_reading = Some(reading);
-                        self.read_fade = Animation::new(false).duration(STAGE_SHOW).easing(Easing::EaseOutCubic).go(true, now);
+                        self.panel_from = self.community_tap;
+                        self.read_fade = Animation::new(false).duration(PANEL_SHOW).easing(Easing::EaseOutCubic).go(true, now);
                         return self.wide_pictures_task(wanted);
                     }
                     C::Unread => self.read_fade.go_mut(false, now),
@@ -1673,7 +1687,8 @@ impl Main {
                     C::Person(Some(at)) => {
                         self.person_at = now;
                         self.community_person = Some(at);
-                        self.person_fade = Animation::new(false).duration(STAGE_SHOW).easing(Easing::EaseOutCubic).go(true, now);
+                        self.panel_from = self.community_tap;
+                        self.person_fade = Animation::new(false).duration(PANEL_SHOW).easing(Easing::EaseOutCubic).go(true, now);
                         return self.person_task(at);
                     }
                     C::Person(None) => self.person_fade.go_mut(false, now),
@@ -1721,11 +1736,12 @@ impl Main {
                     }
                     C::Search(query) => self.feed_query = query,
                     C::Toggle(key) => {
+                        self.feed_fold_at.retain(|_, at| now.saturating_duration_since(*at) < FOLD);
+                        self.feed_fold_at.insert(key.clone(), now);
                         if !self.feed_open.remove(&key) {
                             self.feed_open.insert(key);
                         }
                     }
-                    C::Reveal => self.feed_seen = self.newest_event(),
                     C::Spot(index) => {
                         if index != self.spot {
                             self.spot = index;
@@ -1797,8 +1813,10 @@ impl Main {
                 self.news_loading.remove(source);
                 match result {
                     Ok(builds) => {
+                        let before = self.newest_event();
                         self.news.builds = builds;
                         self.news_heard(source);
+                        self.fresh_from(before);
                     }
                     Err(_) => {
                         self.news_failed.insert(source.to_owned());
@@ -1811,8 +1829,10 @@ impl Main {
                 self.news_loading.remove(source);
                 match result {
                     Ok(stories) => {
+                        let before = self.newest_event();
                         self.news.stories = stories;
                         self.news_heard(source);
+                        self.fresh_from(before);
                         self.news_pictures_task()
                     }
                     Err(_) => {
@@ -1840,8 +1860,10 @@ impl Main {
                 self.news_loading.remove(&source);
                 match result {
                     Ok(posts) => {
+                        let before = self.newest_event();
                         self.news.take_posts(&channel, posts);
                         self.news_heard(&source);
+                        self.fresh_from(before);
                         self.news_pictures_task()
                     }
                     Err(_) => {
@@ -1861,6 +1883,7 @@ impl Main {
                 None => Task::none(),
             },
             Message::CommunityTick => self.community_task(false),
+            Message::NewsTick => self.refresh_news(false),
             Message::OsuProfile(Ok(card)) => {
                 crate::osu_profile::save(&card);
                 self.osu_card = Some(card);
@@ -1941,6 +1964,7 @@ impl Main {
                 Task::none()
             }
             Message::CommunityArrived(Ok(said)) => {
+                let before = self.newest_event();
                 crate::community::wire::save(&said);
                 self.now_unix = unix_now();
                 let mut fresh = crate::community::Catalog::from_wire(said);
@@ -1958,6 +1982,7 @@ impl Main {
                     self.community_person = None;
                 }
                 self.community = Some(fresh);
+                self.fresh_from(before);
                 self.community_fetch = crate::community_screen::Fetch::Fresh(self.now_unix);
                 let card = self.card_task(false);
                 let friends = self.friends_task(false);
@@ -1996,8 +2021,9 @@ impl Main {
             Message::LiveArrive => {
                 let pool = self.community.as_ref().map_or(0, |catalog| catalog.live.len());
                 if self.live_shown < pool {
+                    let before = self.newest_event();
                     self.live_shown += 1;
-                    self.live_arrived = Some(Instant::now());
+                    self.fresh_from(before);
                 }
                 Task::none()
             }
@@ -3831,6 +3857,13 @@ impl Main {
             .go_mut(on, now);
     }
 
+    fn fresh_from(&mut self, before: i64) {
+        if before > 0 && self.newest_event() > before {
+            self.feed_seen = before;
+            self.feed_fresh_at = Instant::now();
+        }
+    }
+
     fn news_heard(&mut self, source: &str) {
         self.now_unix = unix_now();
         self.news_failed.remove(source);
@@ -4204,6 +4237,15 @@ impl Main {
 
     fn community_view(&self) -> Option<Element<'_, Message>> {
         let catalog = self.community.as_ref()?;
+        let folds: HashMap<String, f32> = self
+            .feed_fold_at
+            .iter()
+            .map(|(key, at)| {
+                let x = (self.now.saturating_duration_since(*at).as_secs_f32() / FOLD.as_secs_f32()).clamp(0.0, 1.0);
+                let eased = 1.0 - (1.0 - x).powi(3);
+                (key.clone(), if self.feed_open.contains(key) { eased } else { 1.0 - eased })
+            })
+            .collect();
         let ground = crate::community_screen::Ground {
             words: &self.words,
             catalog,
@@ -4229,6 +4271,8 @@ impl Main {
             stream: self.feed_stream,
             query: &self.feed_query,
             open_events: &self.feed_open,
+            folds,
+            panel_from: self.panel_from,
             seen: self.feed_seen,
             spot: self.spot,
             spot_k: {
@@ -4261,10 +4305,7 @@ impl Main {
             avatar: self.avatar.as_ref(),
             chat: self.chat_name(),
             live_shown: self.live_shown,
-            live_k: self.live_arrived.map_or(1.0, |at| {
-                let k = (self.now.saturating_duration_since(at).as_secs_f32() / LIVE_ARRIVE.as_secs_f32()).clamp(0.0, 1.0);
-                1.0 - (1.0 - k) * (1.0 - k)
-            }),
+            fresh_t: self.now.saturating_duration_since(self.feed_fresh_at).as_secs_f32().min(60.0),
         };
         let opened = self.stage_open.interpolate(0.0, 1.0, self.now);
         let stage = match (&self.player, &self.clip) {

@@ -378,11 +378,6 @@ filter-titles = Титулы
 filter-ranks = Рейтинг
 filter-news = Новости
 filter-builds = Обновления
-fresh-events = { $n ->
-    [one] { $n } новое событие
-    [few] { $n } новых события
-   *[other] { $n } новых событий
-}
 friends-head = Друзья в игре
 friends-online = { $n } онлайн
 grade-a = A

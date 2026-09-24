@@ -683,6 +683,13 @@ naming the group, its size and when the bot last answered — or *образцы
   hovered day's larger square and outline are no longer cut at the corner;
   the titles come in a rarity at a time and the people a row at a time,
   not card by card, so a grid never stands ragged mid-way.
+  Text fields fade with their sheet too (the search's placeholder and the
+  channel field kept full strength and a red edge while the catalogue
+  went away), and colour emoji — which the renderer draws in their own
+  colours, whatever the text's alpha — are left out of outside text
+  (posts, stories, names, maps) while a sheet is fading, so they neither
+  hang bright over a fading page nor pop in ahead of it; our own marks
+  (✕, ★) stay.
   The feed keeps itself current without a button: the group is asked
   every 30 s and the news every minute while the catalogue is open (a
   channel is fetched again after 90 s, osu! and the builds after 10

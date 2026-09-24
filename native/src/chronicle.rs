@@ -470,14 +470,14 @@ fn news_card<'a>(ground: &Ground<'a>, event: &Event<'a>) -> Option<Element<'a, M
                 news::Block::Text(spans) | news::Block::Quote(spans) | news::Block::Item(spans) | news::Block::Heading(spans) => Some(spans.clone()),
                 news::Block::Image(_) => None,
             }).flatten().collect();
-            let words: Element<'a, Message> = if spans.is_empty() { text(ui::shortened(post.text.clone(), 200)).font(theme::SANS).size(12.5).color(ui::faded(INK)).into() } else { screen::rich(&spans, INK, 12.5) };
+            let words: Element<'a, Message> = if spans.is_empty() { text(ui::shortened(ui::settled(&post.text), 200)).font(theme::SANS).size(12.5).color(ui::faded(INK)).into() } else { screen::rich(&spans, INK, 12.5) };
             (media, head(Icon::Send, LINK_BLUE, format!("@{}", post.channel)), container(words).max_height(88.0).clip(true).into(), Message::Read(Reading::Post(post.clone())))
         }
         Item::Story(story) => {
             let media = story.image.as_deref().and_then(|url| ground.pictures.get(url)).map(|handle| iced::widget::image(handle.clone()).content_fit(iced::ContentFit::Cover).width(Length::Fill).height(110.0).border_radius(10.0).opacity(ui::fade()).into());
             let body = column![
-                text(story.title.clone()).font(theme::SANS_SEMI).size(13.5).color(ui::faded(INK)),
-                text(ui::shortened(story.lead.clone(), 140)).font(theme::SANS).size(12.0).color(ui::faded(MUTED)),
+                text(ui::settled(&story.title)).font(theme::SANS_SEMI).size(13.5).color(ui::faded(INK)),
+                text(ui::shortened(ui::settled(&story.lead), 140)).font(theme::SANS).size(12.0).color(ui::faded(MUTED)),
             ]
             .spacing(4);
             (media, head(Icon::News, LINK_BLUE, "osu!".to_owned()), body.into(), Message::Read(Reading::Story(story.clone())))
@@ -676,7 +676,7 @@ fn timeline<'a>(ground: &Ground<'a>, wide: f32) -> Element<'a, Message> {
         container(
             row![
                 glyph(Icon::Search, 13.0, FAINT),
-                iced::widget::text_input(&w.t("feed-search"), ground.query).on_input(Message::Search).size(12.0).padding(0).style(ui::bare_input).width(Length::Fill),
+                iced::widget::text_input(&w.t("feed-search"), ground.query).on_input(Message::Search).size(12.0).padding(0).style(ui::bare_input(ui::fade())).width(Length::Fill),
             ]
             .spacing(8)
             .align_y(iced::Center),

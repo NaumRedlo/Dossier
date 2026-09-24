@@ -3112,8 +3112,9 @@ impl Main {
         let mut strip = row![].spacing(22).align_y(iced::alignment::Vertical::Bottom);
         for (label, list) in &days {
             let on_day = list.iter().any(|i| Some(*i) == self.chosen);
+            let shade = ui::faded(if on_day { ACCENT } else { FAINT });
             let dot = container(Space::new().width(5.0).height(5.0)).style(move |_| container::Style {
-                background: Some(iced::Background::Color(ui::faded(if on_day { ACCENT } else { FAINT }))),
+                background: Some(iced::Background::Color(shade)),
                 border: iced::Border { radius: 3.0.into(), ..iced::Border::default() },
                 ..container::Style::default()
             });

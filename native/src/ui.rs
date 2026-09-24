@@ -3076,15 +3076,26 @@ pub fn framed(handle: &iced::widget::image::Handle, wide: f32, high: f32, radius
     }
 }
 
-pub fn bare_input(_: &Theme, _: iced::widget::text_input::Status) -> iced::widget::text_input::Style {
-    let k = fade();
-    iced::widget::text_input::Style {
+pub fn bare_input(k: f32) -> impl Fn(&Theme, iced::widget::text_input::Status) -> iced::widget::text_input::Style {
+    move |_, _| iced::widget::text_input::Style {
         background: iced::Background::Color(Color::TRANSPARENT),
         border: iced::Border::default(),
         icon: Color { a: k, ..theme::FAINT },
         placeholder: Color { a: k, ..theme::FAINT },
         value: Color { a: k, ..theme::INK },
         selection: Color::from_rgba(0.886, 0.282, 0.282, 0.35 * k),
+    }
+}
+
+fn pictograph(c: char) -> bool {
+    matches!(c as u32, 0x1F000..=0x1FAFF | 0x2300..=0x23FF | 0x2600..=0x2604 | 0x2606..=0x2714 | 0x2716..=0x27BF | 0x2B00..=0x2BFF | 0xFE00..=0xFE0F | 0x200D | 0x20E3 | 0xE0020..=0xE007F | 0x3030 | 0x303D | 0x3297 | 0x3299)
+}
+
+pub fn settled(words: &str) -> String {
+    if fade() >= 0.999 {
+        words.to_owned()
+    } else {
+        words.chars().filter(|c| !pictograph(*c)).collect()
     }
 }
 
@@ -3101,7 +3112,7 @@ pub struct Piece {
 }
 
 pub fn piece(words: impl Into<String>, font: iced::Font, size: f32, colour: Color) -> Piece {
-    Piece { words: words.into(), font, size, colour: faded(colour), gap: 0.0 }
+    Piece { words: settled(&words.into()), font, size, colour: faded(colour), gap: 0.0 }
 }
 
 impl Piece {

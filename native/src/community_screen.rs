@@ -576,7 +576,8 @@ pub(crate) fn channel_tools<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
             .on_submit(Message::ChannelAdd)
             .size(12.0)
             .padding([4, 8])
-            .width(Length::Fill),
+            .width(Length::Fill)
+            .style(theme::field_faded(ui::fade())),
         button(text(w.t("channel-add")).font(theme::SANS_SEMI).size(theme::CAPTION)).padding([5, 10]).style(ui::button_faded(theme::pill(false))).on_press(Message::ChannelAdd),
     ]
     .spacing(6)
@@ -611,7 +612,7 @@ pub(crate) fn rich_as<'a>(spans: &[news::Span], colour: Color, size: f32, headin
                 (false, true) => theme::SANS_SEMI,
                 (false, false) => theme::SANS,
             };
-            let span = iced::widget::span(piece.text.clone()).font(font).size(if piece.code { size - 1.0 } else { size }).color(ui::faded(colour));
+            let span = iced::widget::span(ui::settled(&piece.text)).font(font).size(if piece.code { size - 1.0 } else { size }).color(ui::faded(colour));
             match &piece.link {
                 Some(link) => span.link(link.clone()).color(ui::faded(ACCENT)).underline(true),
                 None => span,
@@ -714,7 +715,7 @@ fn reader<'a>(ground: &Ground<'a>, reading: &'a Reading) -> Element<'a, Message>
         body.push(container(ui::primary(w.t("read-outside"), Some(Message::Open(reading.url().to_owned())))).padding(Padding::ZERO.top(8.0)).into());
         let head = column![
             row![ui::mono_small(source.to_uppercase(), FAINT), ui::grow(), button(text("✕").font(theme::SANS_SEMI).size(theme::LEAD).color(ui::faded(MUTED))).padding([2, 8]).style(ui::button_faded(theme::bare)).on_press(Message::Unread)].align_y(iced::Center),
-            text(title).font(theme::SANS_SEMI).size(theme::TITLE).color(ui::faded(INK)),
+            text(ui::settled(&title)).font(theme::SANS_SEMI).size(theme::TITLE).color(ui::faded(INK)),
             ui::mono_small(meta, FAINT),
         ]
         .spacing(6);

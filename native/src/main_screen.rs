@@ -680,6 +680,19 @@ impl Main {
         self.check_update()
     }
 
+    fn rescaled(&self, before: f32) -> Task<Message> {
+        let after = ui::scale_of(self.settings.ui_scale);
+        let least = crate::MINIMUM;
+        let fit = ui::refit(iced::Size::new(self.width, self.height), before, after, crate::WINDOW);
+        window::oldest().and_then(move |id| {
+            let floor = window::set_min_size(id, Some(least));
+            match fit {
+                Some(size) => floor.chain(window::resize(id, size)),
+                None => floor,
+            }
+        })
+    }
+
     fn check_update(&mut self) -> Task<Message> {
         if matches!(self.update, UpdateState::Source | UpdateState::Checking | UpdateState::Getting { .. } | UpdateState::Ready { .. }) {
             return Task::none();
@@ -4127,7 +4140,7 @@ impl Main {
     }
 
     fn slider_targets(&self) -> Vec<(String, f32)> {
-        use crate::settings::{CPU_SHARES, CRFS, HEIGHTS, RATES};
+        use crate::settings::{CPU_SHARES, CRFS, HEIGHTS, RATES, SCALES};
         let at = |value: u32, of: &[u32]| {
             let last = (of.len().max(2) - 1) as f32;
             of.iter().position(|v| *v == value).map_or(0.5, |i| i as f32 / last)
@@ -4137,6 +4150,7 @@ impl Main {
             ("rate".to_owned(), at(self.settings.render_fps, &RATES)),
             ("crf".to_owned(), at(self.settings.render_crf, &CRFS)),
             ("cpu".to_owned(), at(self.settings.cpu_share, &CPU_SHARES)),
+            ("scale".to_owned(), at(SCALES.iter().copied().min_by_key(|stop| stop.abs_diff(if self.settings.ui_scale == 0 { ui::auto_scale() } else { self.settings.ui_scale })).unwrap_or(100), &SCALES)),
             ("music".to_owned(), self.settings.music_level),
             ("hits".to_owned(), self.settings.hitsound_level),
             ("player".to_owned(), self.settings.player_level),
@@ -4782,6 +4796,20 @@ impl Main {
                 self.settings.render_fps = prefs::nearest(at, &crate::settings::RATES);
                 keep(&self.settings);
                 Task::none()
+            }
+            P::Scale(at) => {
+                self.slid_at.insert("scale".to_owned(), Instant::now());
+                let before = ui::scale_of(self.settings.ui_scale);
+                self.settings.ui_scale = prefs::nearest(at, &crate::settings::SCALES);
+                keep(&self.settings);
+                self.rescaled(before)
+            }
+            P::AutoScale(on) => {
+                self.remember_mark("auto-scale", on);
+                let before = ui::scale_of(self.settings.ui_scale);
+                self.settings.ui_scale = if on { 0 } else { ui::auto_scale() };
+                keep(&self.settings);
+                self.rescaled(before)
             }
             P::Cpu(at) => {
                 self.slid_at.insert("cpu".to_owned(), Instant::now());

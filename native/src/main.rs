@@ -188,5 +188,6 @@ fn main() -> iced::Result {
         })
         .theme(App::theme)
         .subscription(App::subscription)
+        .scale_factor(App::scale_factor)
         .run()
 }

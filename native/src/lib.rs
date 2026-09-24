@@ -42,6 +42,7 @@ use main_screen::Main;
 use settings::Settings;
 
 pub const WINDOW: Size = Size::new(980.0, 720.0);
+pub const MINIMUM: Size = Size::new(760.0, 560.0);
 
 pub enum Screen {
     FirstRun(FirstRun),
@@ -51,6 +52,8 @@ pub enum Screen {
 pub struct App {
     pub screen: Screen,
     pub backdrop: image::Handle,
+    viewport: Size,
+    measured: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -60,6 +63,10 @@ pub enum Message {
     Snap,
     Snapped(Option<iced::window::Id>),
     Shot(iced::window::Screenshot),
+    Opened(Size),
+    Measure,
+    Monitor(Option<Size>),
+    Viewport(Size),
 }
 
 pub struct Rehearsal {
@@ -186,16 +193,16 @@ impl App {
             } else {
                 Task::none()
             };
-            return (App { screen: Screen::Main(main), backdrop }, Task::batch([task.map(Message::Main), snap, press]));
+            return (App { screen: Screen::Main(main), backdrop, viewport: WINDOW, measured: false }, Task::batch([task.map(Message::Main), snap, press]));
         }
         if settings::first_run() {
             let (flow, task) = FirstRun::new();
-            (App { screen: Screen::FirstRun(flow), backdrop }, task.map(Message::FirstRun))
+            (App { screen: Screen::FirstRun(flow), backdrop, viewport: WINDOW, measured: false }, task.map(Message::FirstRun))
         } else {
             let said = Settings::load();
             let (mut main, task) = Main::new(Words::new(said.lang), said);
             let launched = main.launched();
-            (App { screen: Screen::Main(main), backdrop }, Task::batch([task, launched]).map(Message::Main))
+            (App { screen: Screen::Main(main), backdrop, viewport: WINDOW, measured: false }, Task::batch([task, launched]).map(Message::Main))
         }
     }
 
@@ -221,6 +228,37 @@ impl App {
                 };
                 main.update(inner).map(Message::Main)
             }
+            Message::Opened(size) => {
+                self.viewport = size;
+                self.update(Message::Measure)
+            }
+            Message::Measure => iced::window::oldest().and_then(iced::window::monitor_size).map(Message::Monitor),
+            Message::Viewport(size) => {
+                self.viewport = size;
+                Task::none()
+            }
+            Message::Monitor(None) => Task::none(),
+            Message::Monitor(Some(monitor)) => {
+                let now = self.scale_factor();
+                let auto = ui::auto_scale_for(monitor.height * now);
+                let first = !self.measured;
+                self.measured = true;
+                if auto == ui::auto_scale() && !first {
+                    return Task::none();
+                }
+                ui::set_auto_scale(auto);
+                let after = self.scale_factor();
+                let room = Size::new(monitor.width * now / after * 0.94, monitor.height * now / after * 0.9);
+                let least = Size::new(WINDOW.width.min(room.width), WINDOW.height.min(room.height));
+                let fit = if first { Some(least) } else { ui::refit(self.viewport, now, after, least) };
+                iced::window::oldest().and_then(move |id| {
+                    let floor = iced::window::set_min_size(id, Some(MINIMUM));
+                    match fit {
+                        Some(size) => floor.chain(iced::window::resize(id, size)),
+                        None => floor,
+                    }
+                })
+            }
             Message::Snap => iced::window::oldest().map(Message::Snapped),
             Message::Snapped(Some(id)) => iced::window::screenshot(id).map(Message::Shot),
             Message::Snapped(None) => iced::exit(),
@@ -245,10 +283,25 @@ impl App {
     }
 
     pub fn subscription(&self) -> Subscription<Message> {
-        match &self.screen {
+        let screen = match &self.screen {
             Screen::FirstRun(flow) => flow.subscription().map(Message::FirstRun),
             Screen::Main(main) => main.subscription().map(Message::Main),
-        }
+        };
+        let window = iced::event::listen_with(|event, _, _| match event {
+            iced::Event::Window(iced::window::Event::Opened { size, .. }) => Some(Message::Opened(size)),
+            iced::Event::Window(iced::window::Event::Moved(_)) => Some(Message::Measure),
+            iced::Event::Window(iced::window::Event::Resized(size)) => Some(Message::Viewport(size)),
+            _ => None,
+        });
+        Subscription::batch([screen, window])
+    }
+
+    pub fn scale_factor(&self) -> f32 {
+        let chosen = match &self.screen {
+            Screen::FirstRun(flow) => flow.settings.ui_scale,
+            Screen::Main(main) => main.settings.ui_scale,
+        };
+        ui::scale_of(chosen)
     }
 
     pub fn theme(&self) -> Theme {

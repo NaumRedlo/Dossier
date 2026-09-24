@@ -74,6 +74,8 @@ pub struct Settings {
     #[serde(default = "whole_cpu")]
     pub cpu_share: u32,
     #[serde(default)]
+    pub ui_scale: u32,
+    #[serde(default)]
     pub last_build: String,
     #[serde(default)]
     pub own_skins: Vec<PathBuf>,
@@ -149,6 +151,7 @@ pub const HEIGHTS: [u32; 5] = [480, 720, 1080, 1440, 2160];
 pub const RATES: [u32; 4] = [24, 30, 60, 120];
 pub const CRFS: [u32; 5] = [26, 23, 20, 17, 14];
 pub const CPU_SHARES: [u32; 4] = [25, 50, 75, 100];
+pub const SCALES: [u32; 6] = [80, 90, 100, 110, 125, 150];
 
 pub fn skins_root() -> PathBuf {
     crate::sources::own_root().join("Skins")
@@ -798,6 +801,7 @@ impl Default for Settings {
             worker_on: false,
             quiet_updates: false,
             cpu_share: 100,
+            ui_scale: 0,
             last_build: String::new(),
             own_skins: Vec::new(),
             music_level: 1.0,

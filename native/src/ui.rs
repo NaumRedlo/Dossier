@@ -382,6 +382,34 @@ pub fn qr<'a, Message: 'a>(code: &Qr) -> Element<'a, Message> {
     Canvas::new(code.clone()).width(QR_SIDE).height(QR_SIDE).into()
 }
 
+static AUTO_SCALE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(100);
+
+pub fn auto_scale() -> u32 {
+    AUTO_SCALE.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+pub fn set_auto_scale(percent: u32) {
+    AUTO_SCALE.store(percent, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub fn auto_scale_for(logical_height: f32) -> u32 {
+    let k = (logical_height / 1080.0).max(0.1).powf(0.7);
+    ((k * 20.0).round() * 5.0).clamp(80.0, 160.0) as u32
+}
+
+pub fn scale_of(chosen: u32) -> f32 {
+    let percent = if chosen == 0 { auto_scale() } else { chosen };
+    percent as f32 / 100.0
+}
+
+pub fn refit(viewport: Size, before: f32, after: f32, least: Size) -> Option<Size> {
+    if after <= 0.0 || (before - after).abs() < 0.001 {
+        return None;
+    }
+    let seen = Size::new(viewport.width * before / after, viewport.height * before / after);
+    (seen.width < least.width || seen.height < least.height).then(|| Size::new(seen.width.max(least.width), seen.height.max(least.height)))
+}
+
 pub fn brand<'a, Message: 'a>() -> Element<'a, Message> {
     let alpha = fade();
     row![
@@ -3936,5 +3964,23 @@ impl<Message> iced::advanced::Widget<Message, Theme, Renderer> for Reveal<'_, Me
                 self.content.as_widget().draw(&tree.children[0], renderer, theme, style, inner, cursor, &clip);
             });
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_scale_follows_the_monitor_and_the_window_grows_only_when_it_must() {
+        assert_eq!(auto_scale_for(1080.0), 100);
+        assert_eq!(auto_scale_for(1440.0), 120);
+        assert_eq!(auto_scale_for(768.0), 80);
+        assert_eq!(auto_scale_for(4320.0), 160);
+        let least = Size::new(980.0, 720.0);
+        assert_eq!(refit(Size::new(980.0, 720.0), 1.0, 1.2, least), Some(least));
+        assert_eq!(refit(Size::new(1600.0, 1000.0), 1.0, 1.2, least), None);
+        assert_eq!(refit(Size::new(980.0, 720.0), 1.2, 1.0, least), None);
+        assert_eq!(refit(Size::new(980.0, 720.0), 1.0, 1.0, least), None);
     }
 }

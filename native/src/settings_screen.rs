@@ -4,7 +4,7 @@ use iced::widget::{button, column, container, row, text, text_input, Space};
 use iced::{Element, Length, Padding};
 
 use crate::lang::{Lang, Words};
-use crate::settings::{Settings, CPU_SHARES, CRFS, HEIGHTS, RATES};
+use crate::settings::{Settings, CPU_SHARES, CRFS, HEIGHTS, RATES, SCALES};
 use crate::sources::{self, Kind, Source};
 use crate::theme::{self, ACCENT, FAINT, INK, MUTED};
 use crate::ui;
@@ -19,6 +19,7 @@ pub enum Side {
 pub enum Tile {
     Render,
     Language,
+    Look,
     Device,
     Scene,
     Sources,
@@ -40,6 +41,7 @@ impl Tile {
         match self {
             Tile::Render => "render",
             Tile::Language => "language",
+            Tile::Look => "look",
             Tile::Device => "device",
             Tile::Scene => "scene",
             Tile::Sources => "sources",
@@ -62,10 +64,11 @@ impl Tile {
     }
 }
 
-pub const APP: [Tile; 13] = [
+pub const APP: [Tile; 14] = [
     Tile::Render,
     Tile::Worker,
     Tile::Language,
+    Tile::Look,
     Tile::Device,
     Tile::Scene,
     Tile::Sound,
@@ -143,6 +146,8 @@ pub enum Message {
     Rate(f32),
     Crf(f32),
     Cpu(f32),
+    Scale(f32),
+    AutoScale(bool),
     Source(usize, bool),
     AddFolder,
     Added(Option<Source>),
@@ -378,6 +383,20 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
         ]
         .spacing(2)
         .into(),
+        Tile::Look => {
+            let shown = if s.ui_scale == 0 { ui::auto_scale() } else { s.ui_scale };
+            let nearest_stop = SCALES.iter().copied().min_by_key(|stop| stop.abs_diff(shown)).unwrap_or(100);
+            let value = if s.ui_scale == 0 { format!("{} · {} %", w.t("scale-auto"), shown) } else { format!("{shown} %") };
+            column![
+                head(w, "look-tile"),
+                pill(ground, "auto-scale", w.t("scale-to-monitor"), s.ui_scale == 0, Message::AutoScale(s.ui_scale != 0)),
+                container(slide(ground, "scale", w.t("scale"), value, at(nearest_stop, &SCALES), stops(&SCALES), Message::Scale))
+                    .width(280.0)
+                    .padding(Padding::ZERO.top(8.0)),
+            ]
+            .spacing(2)
+            .into()
+        }
         Tile::Device => column![
             head(w, "device-tile"),
             container(row![ui::badge(ui::Machine::here(), 24.0), text(machine_name()).font(theme::SANS).size(11.0).color(ui::faded(FAINT))].spacing(8).align_y(iced::Center))

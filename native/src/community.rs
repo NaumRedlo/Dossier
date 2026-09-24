@@ -321,10 +321,83 @@ pub enum Friends {
     Ready,
 }
 
+fn play_into(maps: &mut Vec<MapRef>, play: &wire::Play) -> Play {
+    let line = play.map.line();
+    let at = match maps.iter().position(|kept| kept.set == play.map.set && kept.line == line) {
+        Some(at) => at,
+        None => {
+            maps.push(MapRef { hash: String::new(), line, set: play.map.set, stars: play.map.stars });
+            maps.len() - 1
+        }
+    };
+    Play {
+        map: at,
+        pp: play.pp,
+        accuracy: play.accuracy,
+        mods: play.mods.clone(),
+        grade: play.grade.clone(),
+        at: play.at.unwrap_or(0),
+        full_combo: play.full_combo,
+        combo: play.combo,
+        max_combo: play.max_combo,
+        stars: play.map.stars,
+        counts: std::array::from_fn(|at| play.counts.get(at).copied().flatten()),
+    }
+}
+
+fn person_into(maps: &mut Vec<MapRef>, said: &wire::Person) -> Person {
+    Person {
+    id: said.id,
+    name: said.name.clone(),
+    country: said.country.clone(),
+    pp: said.pp,
+    rank: said.rank,
+    accuracy: said.accuracy,
+    plays: said.plays,
+    hours: said.hours,
+    score: said.score,
+    hits_per_play: said.hits_per_play,
+    level: said.level,
+    ss: said.ss,
+    s: said.s,
+    joined: said.joined.unwrap_or(0),
+    supporter: said.supporter,
+    title: said.title.clone().filter(|code| !code.is_empty()),
+    titles: said.titles.clone(),
+    streak: said.streak,
+    streak_best: said.streak_best,
+    avatar: said.avatar.clone(),
+    cover: said.cover.clone(),
+    moved: std::array::from_fn(|at| said.moved.get(at).copied().unwrap_or(0)),
+    gained: std::array::from_fn(|at| said.gained.get(at).copied().unwrap_or(0.0)),
+    was: std::array::from_fn(|at| said.was.get(at).copied().unwrap_or(0)),
+    top: said.top.iter().map(|play| play_into(maps, play)).collect(),
+    you: said.you,
+    }
+}
+
+fn me_into(maps: &mut Vec<MapRef>, me: &wire::Me) -> Me {
+    Me {
+        person: person_into(maps, &me.person),
+        recent: me.recent.iter().map(|play| play_into(maps, &play.play)).collect(),
+        duels: [me.duels.first().copied().unwrap_or(0), me.duels.get(1).copied().unwrap_or(0)],
+        points: me.points,
+        title_dates: me.title_dates.iter().filter_map(|(code, at)| at.map(|at| (code.clone(), at))).collect(),
+        history: me.history.iter().map(|week| Week { at: week.at.unwrap_or(0), pp: week.pp, accuracy: week.accuracy, plays: week.plays, hours: week.hours }).collect(),
+        activity: me.activity.iter().filter_map(|day| crate::news::unix_of(&format!("{}T00:00:00Z", day.day)).map(|at| (at, day.n))).collect(),
+    }
+}
+
 pub const BACKDROP: u32 = 720;
+
+pub fn moscow_monday(now: i64) -> i64 {
+    let day = (now + 3 * 3600).div_euclid(86_400);
+    (day - (day + 3).rem_euclid(7)) * 86_400 - 3 * 3600
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Catalog {
+    pub chat: Option<i64>,
     pub group: String,
     pub week: u32,
     pub week_began: i64,
@@ -532,9 +605,10 @@ impl Catalog {
             .collect();
         let me = Me { person: people[0].clone(), recent: Vec::new(), duels: [3, 1], points: 120, title_dates, history, activity };
         Catalog {
+            chat: None,
             group: "osu! RU".to_owned(),
             week: 39,
-            week_began: now - now.rem_euclid(day) - 3 * day - 3 * 3600,
+            week_began: moscow_monday(now),
             collecting: false,
             people,
             maps,
@@ -550,65 +624,14 @@ impl Catalog {
 
     pub fn from_wire(said: wire::Community) -> Catalog {
         let mut maps: Vec<MapRef> = Vec::new();
-        let mut play_of = |play: &wire::Play| -> Play {
-            let line = play.map.line();
-            let at = match maps.iter().position(|kept| kept.set == play.map.set && kept.line == line) {
-                Some(at) => at,
-                None => {
-                    maps.push(MapRef { hash: String::new(), line, set: play.map.set, stars: play.map.stars });
-                    maps.len() - 1
-                }
-            };
-            Play {
-                map: at,
-                pp: play.pp,
-                accuracy: play.accuracy,
-                mods: play.mods.clone(),
-                grade: play.grade.clone(),
-                at: play.at.unwrap_or(0),
-                full_combo: play.full_combo,
-                combo: play.combo,
-                max_combo: play.max_combo,
-                stars: play.map.stars,
-                counts: std::array::from_fn(|at| play.counts.get(at).copied().flatten()),
-            }
-        };
-        let person_of = |said: &wire::Person, play_of: &mut dyn FnMut(&wire::Play) -> Play| Person {
-            id: said.id,
-            name: said.name.clone(),
-            country: said.country.clone(),
-            pp: said.pp,
-            rank: said.rank,
-            accuracy: said.accuracy,
-            plays: said.plays,
-            hours: said.hours,
-            score: said.score,
-            hits_per_play: said.hits_per_play,
-            level: said.level,
-            ss: said.ss,
-            s: said.s,
-            joined: said.joined.unwrap_or(0),
-            supporter: said.supporter,
-            title: said.title.clone().filter(|code| !code.is_empty()),
-            titles: said.titles.clone(),
-            streak: said.streak,
-            streak_best: said.streak_best,
-            avatar: said.avatar.clone(),
-            cover: said.cover.clone(),
-            moved: std::array::from_fn(|at| said.moved.get(at).copied().unwrap_or(0)),
-            gained: std::array::from_fn(|at| said.gained.get(at).copied().unwrap_or(0.0)),
-            was: std::array::from_fn(|at| said.was.get(at).copied().unwrap_or(0)),
-            top: said.top.iter().map(|play| play_of(play)).collect(),
-            you: said.you,
-        };
-        let people: Vec<Person> = said.people.iter().map(|person| person_of(person, &mut play_of)).collect();
+        let people: Vec<Person> = said.people.iter().map(|person| person_into(&mut maps, person)).collect();
         let index = |id: i64| people.iter().position(|person| person.id == id);
         let mut live: Vec<LivePlay> = said
             .live
             .iter()
             .filter_map(|play| {
                 let who = index(play.who)?;
-                let made = play_of(&play.play);
+                let made = play_into(&mut maps, &play.play);
                 Some(LivePlay { who, map: made.map, accuracy: made.accuracy, pp: made.pp, mods: made.mods, grade: made.grade, at: made.at, passed: play.passed })
             })
             .collect();
@@ -621,7 +644,7 @@ impl Catalog {
                 let at = happened.at.unwrap_or(0);
                 match happened.kind.as_str() {
                     "top_play" => {
-                        let play = happened.play.as_ref().map(&mut play_of)?;
+                        let play = happened.play.as_ref().map(|play| play_into(&mut maps, play))?;
                         Some(Happening { who, kind: Kind::TopPlay { pp: play.pp, place: happened.place.unwrap_or(0), mods: play.mods }, map: Some(play.map), at })
                     }
                     "title" => Some(Happening { who, kind: Kind::Title(happened.title.clone()?), map: None, at }),
@@ -635,19 +658,7 @@ impl Catalog {
                 }
             })
             .collect();
-        let me = said.me.as_ref().map(|me| Me {
-            person: person_of(&me.person, &mut play_of),
-            recent: me.recent.iter().map(|play| play_of(&play.play)).collect(),
-            duels: [me.duels.first().copied().unwrap_or(0), me.duels.get(1).copied().unwrap_or(0)],
-            points: me.points,
-            title_dates: me.title_dates.iter().filter_map(|(code, at)| at.map(|at| (code.clone(), at))).collect(),
-            history: me.history.iter().map(|week| Week { at: week.at.unwrap_or(0), pp: week.pp, accuracy: week.accuracy, plays: week.plays, hours: week.hours }).collect(),
-            activity: me
-                .activity
-                .iter()
-                .filter_map(|day| crate::news::unix_of(&format!("{}T00:00:00Z", day.day)).map(|at| (at, day.n)))
-                .collect(),
-        });
+        let me = said.me.as_ref().map(|me| me_into(&mut maps, me));
         let titles = said
             .titles
             .iter()
@@ -659,9 +670,10 @@ impl Catalog {
             })
             .collect();
         Catalog {
+            chat: said.chat,
             group: said.group,
             week: said.week,
-            week_began: said.week_began.unwrap_or(0),
+            week_began: said.week_began.filter(|at| *at > 0).unwrap_or_else(|| moscow_monday(said.at.unwrap_or_else(|| std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |since| since.as_secs() as i64)))),
             collecting: said.collecting,
             people,
             maps,
@@ -673,6 +685,10 @@ impl Catalog {
             me,
             staged: false,
         }
+    }
+
+    pub fn take_someone(&mut self, said: &wire::Me) -> Me {
+        me_into(&mut self.maps, said)
     }
 
     pub fn take_friends(&mut self, listed: Vec<wire::Friend>) {
@@ -1244,6 +1260,13 @@ pub mod wire {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_week_starts_on_a_moscow_monday() {
+        assert_eq!(moscow_monday(1_790_215_719), 1_789_938_000);
+        assert_eq!(moscow_monday(1_789_938_000), 1_789_938_000);
+        assert_eq!(moscow_monday(1_789_937_999), 1_789_938_000 - 7 * 86_400);
+    }
 
     #[test]
     fn every_title_the_catalogue_names_is_known() {

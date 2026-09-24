@@ -197,6 +197,17 @@ pub fn card(server: &str, token: &str, name: &str, chat: Option<i64>) -> Result<
     status(response)?.json().map_err(|e| Refused::Network(e.to_string()))
 }
 
+pub fn person(server: &str, token: &str, name: &str, chat: i64, id: i64) -> Result<crate::community::wire::Me, Refused> {
+    let response = client()?
+        .get(format!("{server}/render/community/person"))
+        .header("X-Render-Worker", name)
+        .bearer_auth(token)
+        .query(&[("chat", chat), ("id", id)])
+        .send()
+        .map_err(|e| Refused::Network(e.to_string()))?;
+    status(response)?.json().map_err(|e| Refused::Network(e.to_string()))
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Friends {
     Listed(Vec<crate::community::wire::Friend>),

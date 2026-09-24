@@ -72,6 +72,8 @@ pub enum Message {
     FeedClock,
     ClipFetched(String, Result<(PathBuf, i64, u32), String>),
     OsuProfile(Result<crate::community::wire::Card, String>),
+    PersonCard(String, Result<crate::community::wire::Card, String>),
+    PersonDossier(i64, Result<crate::community::wire::Me, String>),
     ReadFirst,
     Loaded(Library),
     Thumb(String, image::Handle),
@@ -389,6 +391,10 @@ pub struct Main {
     pub community_section: crate::community_screen::Section,
     pub community_board: crate::community::Board,
     pub community_person: Option<usize>,
+    pub person_fade: Animation<bool>,
+    pub people_cards: HashMap<String, crate::community::wire::Card>,
+    pub people_dossiers: HashMap<i64, crate::community::Me>,
+    people_asked: std::collections::HashSet<String>,
     pub news: crate::news::News,
     news_loaded: bool,
     pub news_pictures: HashMap<String, image::Handle>,
@@ -540,6 +546,10 @@ impl Main {
             community_section: crate::community_screen::Section::Feed,
             community_board: crate::community::Board::Pp,
             community_person: None,
+            person_fade: Animation::new(false),
+            people_cards: HashMap::new(),
+            people_dossiers: HashMap::new(),
+            people_asked: std::collections::HashSet::new(),
             news: crate::news::News::default(),
             news_loaded: false,
             news_pictures: HashMap::new(),
@@ -657,6 +667,7 @@ impl Main {
             || self.slides_settling()
             || self.live_arrived.is_some_and(|at| self.now.saturating_duration_since(at) < LIVE_ARRIVE)
             || self.read_fade.is_animating(self.now)
+            || self.person_fade.is_animating(self.now)
             || (self.overlay == Overlay::Community && self.now.saturating_duration_since(self.spot_at) < crate::chronicle::SPOT_SWAP)
             || (self.overlay == Overlay::Community && self.now.saturating_duration_since(self.rank_at) < crate::chronicle::RANK_GROW)
             || (self.community_reading.is_some() && !self.read_fade.value())
@@ -929,8 +940,8 @@ impl Main {
                     return self.update(Message::ClosePlayer);
                 } else if self.overlay == Overlay::Community && self.community_reading.is_some() && self.read_fade.value() {
                     self.read_fade.go_mut(false, Instant::now());
-                } else if self.overlay == Overlay::Community && self.community_person.is_some() {
-                    self.community_person = None;
+                } else if self.overlay == Overlay::Community && self.community_person.is_some() && self.person_fade.value() {
+                    self.person_fade.go_mut(false, Instant::now());
                 } else {
                     self.overlay = Overlay::None;
                 }
@@ -1609,7 +1620,12 @@ impl Main {
                         self.community_board = board;
                         self.community_section = crate::community_screen::Section::Boards;
                     }
-                    C::Person(person) => self.community_person = person,
+                    C::Person(Some(at)) => {
+                        self.community_person = Some(at);
+                        self.person_fade = Animation::new(false).duration(STAGE_SHOW).easing(Easing::EaseOutCubic).go(true, now);
+                        return self.person_task(at);
+                    }
+                    C::Person(None) => self.person_fade.go_mut(false, now),
                     C::Open(url) => {
                         let _ = open::that_detached(url);
                     }
@@ -1783,6 +1799,26 @@ impl Main {
                 self.community_pictures_task()
             }
             Message::OsuProfile(Err(_)) => Task::none(),
+            Message::PersonCard(name, said) => {
+                self.people_asked.remove(&format!("card:{name}"));
+                match said {
+                    Ok(card) => {
+                        let wanted: Vec<(String, u32)> = card.pictures().into_iter().map(|(url, side)| (url, if side > 256 { crate::community::BACKDROP } else { side })).collect();
+                        self.people_cards.insert(name, card);
+                        self.pictures_task(wanted)
+                    }
+                    Err(_) => Task::none(),
+                }
+            }
+            Message::PersonDossier(id, said) => {
+                self.people_asked.remove(&format!("me:{id}"));
+                if let (Ok(said), Some(catalog)) = (said, self.community.as_mut()) {
+                    let dossier = catalog.take_someone(&said);
+                    self.people_dossiers.insert(id, dossier);
+                    return self.community_pictures_task();
+                }
+                Task::none()
+            }
             Message::ClipFetched(link, probed) => {
                 self.clips_loading.remove(&link);
                 match probed {
@@ -3882,6 +3918,46 @@ impl Main {
         })
     }
 
+    fn person_task(&mut self, at: usize) -> Task<Message> {
+        let Some(person) = self.community.as_ref().and_then(|catalog| catalog.people.get(at)).cloned() else {
+            return Task::none();
+        };
+        let mut tasks = Vec::new();
+        let name = person.name.to_lowercase();
+        if !self.people_cards.contains_key(&name) && self.people_asked.insert(format!("card:{name}")) {
+            let asked = person.name.clone();
+            tasks.push(ui::in_thread(move || Message::PersonCard(asked.to_lowercase(), crate::osu_profile::fetch(&asked))));
+        }
+        let staged = self.community.as_ref().is_none_or(|catalog| catalog.staged);
+        let chat = self.settings.chat_id.filter(|id| *id < 0).or_else(|| self.community.as_ref().and_then(|catalog| catalog.chat));
+        if let (false, Some(chat)) = (staged || self.settings.token.is_empty(), chat) {
+            if !self.people_dossiers.contains_key(&person.id) && self.people_asked.insert(format!("me:{}", person.id)) {
+                let (server, token, device, id) = (self.settings.server.clone(), self.settings.token.clone(), self.settings.device.clone(), person.id);
+                tasks.push(ui::in_thread(move || Message::PersonDossier(id, crate::bot::person(&server, &token, &device, chat, id).map_err(|e| e.to_string()))));
+            }
+        }
+        Task::batch(tasks)
+    }
+
+    fn pictures_task(&mut self, wanted: Vec<(String, u32)>) -> Task<Message> {
+        let wanted: Vec<(String, u32)> = wanted.into_iter().filter(|(url, _)| !url.is_empty() && !self.news_pictures.contains_key(url) && self.news_asked.insert(url.clone())).collect();
+        if wanted.is_empty() {
+            return Task::none();
+        }
+        ui::streamed(move |push| {
+            for (url, side) in wanted {
+                let handle = crate::news::picture(&url).and_then(|bytes| match side {
+                    crate::community::BACKDROP => backdrop_bytes(&bytes, side),
+                    side if side <= 256 => covered_bytes(&bytes, side, side),
+                    side => fitted_bytes(&bytes, side),
+                });
+                if !push(Message::NewsPicture(url, handle)) {
+                    return;
+                }
+            }
+        })
+    }
+
     fn community_pictures_task(&mut self) -> Task<Message> {
         let Some(catalog) = self.community.as_ref() else {
             return Task::none();
@@ -3953,6 +4029,10 @@ impl Main {
             section: self.community_section,
             board: self.community_board,
             person: self.community_person,
+            person_k: self.person_fade.interpolate(0.0, 1.0, self.now),
+            person_card: self.community_person.and_then(|at| self.community.as_ref()?.people.get(at)).and_then(|person| self.people_cards.get(&person.name.to_lowercase())),
+            person_dossier: self.community_person.and_then(|at| self.community.as_ref()?.people.get(at)).and_then(|person| self.people_dossiers.get(&person.id)),
+            person_loading: self.community_person.and_then(|at| self.community.as_ref()?.people.get(at)).is_some_and(|person| self.people_asked.contains(&format!("card:{}", person.name.to_lowercase())) || self.people_asked.contains(&format!("me:{}", person.id))),
             now_unix: self.now_unix,
             news: &self.news,
             pictures: &self.news_pictures,

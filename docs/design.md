@@ -668,9 +668,13 @@ naming the group, its size and when the bot last answered — or *образцы
   everywhere a code stood (osu!'s own pictures, kept in
   `~/.dossier/cache/flags`); until one arrives, its two letters in a small
   frame. A rise or a fall on a board is a small arrow with the number in a
-  green or red pill. A card opens the player's page from the right: every
-  figure the bot keeps, the top three plays with their maps and grades,
-  and every title as a chip.
+  green or red pill. A card opens that player's dossier in a large panel
+  that unfolds over the catalogue (2026-09-24) — the same columns as
+  *Профиль*: their osu! page read by the application (level, rank history,
+  grades, best plays, avatar, cover) and what the bot keeps of them
+  (`/render/community/person?chat=…&id=…`, answered only to a member of
+  that group: weeks, days, titles' dates, duels); until those come, what
+  the group's list knows. Esc or ✕ folds it back.
 - *Рейтинг* is the bot's leaderboard in both of its modes (2026-09-24),
   *Общий* and *Адаптивный*, over the same six boards, chosen on a
   segmented switch that *Люди* uses too for *Беседа* and *Из игры*. *Общий* is the
@@ -690,7 +694,12 @@ naming the group, its size and when the bot last answered — or *образцы
   player's cover is fetched once at 720 wide, softened and darkened to 62 %
   before it is ever drawn, and every picture laid under words is shaded
   from 90 % to 98 %: blending is linear, so a lighter shade left bright
-  covers glaring through the text.
+  covers glaring through the text. The cover lies 2 px inside its shade and
+  the shade 1 px inside the card, so the picture's softened edge never shows
+  as a light rim at a rounded corner; *NEW* is an opaque dark green pill.
+  When the bot does not send `week_began` (an older bot), the week is taken
+  from Monday 00:00 in Moscow of the current week, not from 1970, which read
+  as *1–7 января*.
 - *Титулы* is the bot's catalogue by rarity, each rarity in the colour the
   bot draws it with, *открыто n из m* for the group, and on every card
   whose faces have it. A secret nobody holds shows *???*.

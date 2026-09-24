@@ -45,7 +45,8 @@ struct Series {
     lower_better: bool,
 }
 
-fn series(ground: &Ground<'_>, card: &wire::Card, metric: Metric, span: u32) -> Series {
+fn series(ground: &Ground<'_>, whose: &Whose<'_>, metric: Metric, span: u32) -> Series {
+    let card = &whose.card;
     let now = ground.now_unix;
     let since = now - i64::from(span) * DAY;
     if metric == Metric::Rank {
@@ -59,7 +60,7 @@ fn series(ground: &Ground<'_>, card: &wire::Card, metric: Metric, span: u32) -> 
         Metric::Plays => card.play_count,
         _ => card.play_seconds / 3600.0,
     };
-    let weeks = ground.catalog.me.as_ref().map(|me| me.history.as_slice()).unwrap_or_default();
+    let weeks = whose.me.map(|me| me.history.as_slice()).unwrap_or_default();
     let mut points: Vec<(i64, f64)> = weeks
         .iter()
         .filter(|week| week.at >= since && week.at < now - DAY / 2)
@@ -447,7 +448,8 @@ fn years(words: &crate::lang::Words, joined: i64, now: i64) -> Option<String> {
     (joined > 0).then(|| words.n("years", ((now - joined) / (365 * DAY)).max(0) as u64))
 }
 
-fn identity<'a>(ground: &Ground<'a>, you: &Person, card: &wire::Card) -> Element<'a, Message> {
+fn identity<'a>(ground: &Ground<'a>, whose: &Whose<'a>) -> Element<'a, Message> {
+    let (you, card) = (whose.person, &whose.card);
     let w = ground.words;
     let share = (card.level_progress / 100.0) as f32;
     let badge = container(text(format!("{} {} · {}%", w.t("level-short").to_uppercase(), card.level.floor() as u64, card.level_progress.round() as u64)).font(theme::MONO_BOLD).size(11.0).color(Color::WHITE))
@@ -506,7 +508,7 @@ fn identity<'a>(ground: &Ground<'a>, you: &Person, card: &wire::Card) -> Element
     if you.streak > 0 || you.streak_best > 0 {
         rows = rows.push(info_row(glyph(Icon::Flame, 15.0, MUTED), w.t("streak"), format!("{} · {}", w.n("streak-card", u64::from(you.streak)), w.n("streak-best-n", u64::from(you.streak_best.max(you.streak)))), CORAL));
     }
-    if let Some(me) = &ground.catalog.me {
+    if let Some(me) = whose.me {
         if me.duels[0] + me.duels[1] > 0 {
             rows = rows.push(info_row(glyph(Icon::Swords, 15.0, MUTED), w.t("info-duels"), format!("{} : {}", me.duels[0], me.duels[1]), INK));
         }
@@ -545,12 +547,10 @@ fn standing<'a>(share: f32, colour: Color) -> Element<'a, Message> {
         .into()
 }
 
-fn places<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
+fn places<'a>(ground: &Ground<'a>, whose: &Whose<'a>) -> Element<'a, Message> {
     let w = ground.words;
     let catalog = ground.catalog;
-    let Some(you) = catalog.people.iter().position(|p| p.you) else {
-        return Space::new().height(0.0).into();
-    };
+    let you = whose.at;
     let many = catalog.people.len();
     let mut tiles: Vec<Element<'a, Message>> = Vec::new();
     for board in Board::ALL {
@@ -608,7 +608,8 @@ fn metric_style(on: bool) -> impl Fn(&Theme, button::Status) -> button::Style {
     }
 }
 
-fn metrics<'a>(ground: &Ground<'a>, card: &wire::Card) -> Element<'a, Message> {
+fn metrics<'a>(ground: &Ground<'a>, whose: &Whose<'a>) -> Element<'a, Message> {
+    let card = &whose.card;
     let w = ground.words;
     let mut tiles = row![].spacing(8);
     for metric in Metric::ALL {
@@ -620,7 +621,7 @@ fn metrics<'a>(ground: &Ground<'a>, card: &wire::Card) -> Element<'a, Message> {
             Metric::Hours => card.play_seconds / 3600.0,
         };
         let value = if current > 0.0 { full(w, metric, current).replace(" pp", "") } else { "—".to_owned() };
-        let change = delta(w, metric, &series(ground, card, metric, 90));
+        let change = delta(w, metric, &series(ground, whose, metric, 90));
         let mut under = column![ui::mono_small(w.t(metric.key()).to_uppercase(), FAINT)].spacing(1);
         if let Some((said, better)) = change {
             under = under.push(self::change(metric, said, better));
@@ -646,10 +647,10 @@ fn segment(on: bool) -> impl Fn(&Theme, button::Status) -> button::Style {
     }
 }
 
-fn chart<'a>(ground: &Ground<'a>, card: &wire::Card) -> Element<'a, Message> {
+fn chart<'a>(ground: &Ground<'a>, whose: &Whose<'a>) -> Element<'a, Message> {
     let w = ground.words;
     let metric = ground.metric;
-    let data = series(ground, card, metric, ground.span);
+    let data = series(ground, whose, metric, ground.span);
     let (lo, hi) = data.points.iter().fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), (_, v)| (lo.min(*v), hi.max(*v)));
     let spread = (hi - lo).max(match metric {
         Metric::Accuracy => 0.05,
@@ -871,7 +872,8 @@ fn chip_style(colour: Color, held: bool, on: bool) -> impl Fn(&Theme, button::St
     }
 }
 
-fn titles<'a>(ground: &Ground<'a>, you: &Person) -> Element<'a, Message> {
+fn titles<'a>(ground: &Ground<'a>, whose: &Whose<'a>) -> Element<'a, Message> {
+    let you = whose.person;
     let w = ground.words;
     let catalog = ground.catalog;
     let held = |title: &Title| you.titles.iter().any(|code| *code == title.code);
@@ -918,7 +920,7 @@ fn titles<'a>(ground: &Ground<'a>, you: &Person) -> Element<'a, Message> {
             let secret = !got && title.rarity == Rarity::Secret;
             let colour = title.rarity.colour();
             let holders = catalog.holders(&title.code).len();
-            let when = match (got, ground.catalog.me.as_ref().and_then(|me| me.title_dates.get(&title.code))) {
+            let when = match (got, whose.me.and_then(|me| me.title_dates.get(&title.code))) {
                 (true, Some(at)) => format!("{} {} · {} {}", w.t("title-got"), w.day(*at, ground.now_unix), w.t("held-by"), w.of(holders as u64, catalog.people.len() as u64)),
                 (true, None) => format!("{} {}", w.t("held-by"), w.of(holders as u64, catalog.people.len() as u64)),
                 (false, _) => format!("{} · {} {}", w.t("title-not-yet"), w.t("held-by"), w.of(holders as u64, catalog.people.len() as u64)),
@@ -948,11 +950,12 @@ fn titles<'a>(ground: &Ground<'a>, you: &Person) -> Element<'a, Message> {
     slab(column![row![caption(w.t("community-titles")), ui::grow(), ui::mono_small(count, INK)].align_y(iced::Center), bars.width(Length::Fill), ui::wrap(chips, 6.0), detail].spacing(10), [14, 16]).into()
 }
 
-fn activity<'a>(ground: &Ground<'a>, you: &Person) -> Element<'a, Message> {
+fn activity<'a>(ground: &Ground<'a>, whose: &Whose<'a>) -> Element<'a, Message> {
+    let you = whose.person;
     let w = ground.words;
     let today = ground.now_unix - ground.now_unix.rem_euclid(DAY);
     let first = today - 90 * DAY;
-    let played = ground.catalog.me.as_ref().map(|me| me.activity.as_slice()).unwrap_or_default();
+    let played = whose.me.map(|me| me.activity.as_slice()).unwrap_or_default();
     let weekday = |at: i64| -> String {
         let index = ((at / DAY) + 3).rem_euclid(7) as usize;
         w.t(["weekday-mon", "weekday-tue", "weekday-wed", "weekday-thu", "weekday-fri", "weekday-sat", "weekday-sun"][index])
@@ -974,38 +977,67 @@ fn activity<'a>(ground: &Ground<'a>, you: &Person) -> Element<'a, Message> {
     slab(column![head, heat].spacing(10), [14, 16]).into()
 }
 
-pub fn view<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
-    let w = ground.words;
-    let Some(you) = ground.catalog.you() else {
-        return container(ui::mono_small(w.t("nothing-yet"), FAINT)).center(Length::Fill).into();
-    };
-    let Some(card_data) = ground.card.cloned().or_else(|| ground.catalog.card_of()) else {
-        return container(ui::mono_small(w.t("nothing-yet"), FAINT)).center(Length::Fill).into();
-    };
+pub struct Whose<'a> {
+    pub at: usize,
+    pub person: &'a Person,
+    pub card: wire::Card,
+    pub me: Option<&'a crate::community::Me>,
+}
+
+pub fn card_from(person: &Person) -> wire::Card {
+    wire::Card {
+        username: person.name.clone(),
+        pp: f64::from(person.pp),
+        global_rank: f64::from(person.rank),
+        accuracy: f64::from(person.accuracy),
+        play_count: f64::from(person.plays),
+        play_seconds: f64::from(person.hours) * 3600.0,
+        ranked_score: person.score as f64,
+        level: f64::from(person.level),
+        country: person.country.clone(),
+        avatar_url: person.avatar.clone(),
+        cover_url: person.cover.clone(),
+        grade_counts: wire::Grades { ss: f64::from(person.ss), s: f64::from(person.s), ..wire::Grades::default() },
+        ..wire::Card::default()
+    }
+}
+
+pub fn columns<'a>(ground: &Ground<'a>, whose: &Whose<'a>, room: f32) -> Element<'a, Message> {
     let rolled = |inside: Element<'a, Message>| -> Element<'a, Message> {
         scrollable(container(inside).padding(Padding { top: 2.0, right: 8.0, bottom: 28.0, left: 0.0 })).style(ui::thin_scroll).direction(ui::hidden_bar()).height(Length::Fill).into()
     };
-    let room = ground.width - 80.0;
     let wide = room >= LEFT + RIGHT + 540.0 + 32.0;
     let left = (room * 0.21).clamp(LEFT, SIDE_MOST);
     let right = (room * 0.21).clamp(RIGHT, SIDE_MOST);
-    let best = if card_data.top_scores.iter().any(|score| score.pp > 0.0 && score.hash.is_empty()) { score_rows(ground, &card_data) } else { top_plays(ground, you) };
-    let middle = column![metrics(ground, &card_data), chart(ground, &card_data), best].spacing(14);
-    let content: Element<'a, Message> = if wide {
+    let best = if whose.card.top_scores.iter().any(|score| score.pp > 0.0 && score.hash.is_empty()) { score_rows(ground, &whose.card) } else { top_plays(ground, whose.person) };
+    let middle = column![metrics(ground, whose), chart(ground, whose), best].spacing(14);
+    if wide {
         row![
-            container(rolled(column![identity(ground, you, &card_data), places(ground)].spacing(14).into())).width(left).height(Length::Fill),
+            container(rolled(column![identity(ground, whose), places(ground, whose)].spacing(14).into())).width(left).height(Length::Fill),
             container(rolled(middle.into())).width(Length::Fill).height(Length::Fill),
-            container(rolled(column![grades(ground, &card_data), titles(ground, you), activity(ground, you)].spacing(14).into())).width(right).height(Length::Fill),
+            container(rolled(column![grades(ground, &whose.card), titles(ground, whose), activity(ground, whose)].spacing(14).into())).width(right).height(Length::Fill),
         ]
         .spacing(16)
         .into()
     } else {
         row![
-            container(rolled(column![identity(ground, you, &card_data), places(ground), grades(ground, &card_data)].spacing(14).into())).width(left).height(Length::Fill),
-            container(rolled(middle.push(titles(ground, you)).push(activity(ground, you)).into())).width(Length::Fill).height(Length::Fill),
+            container(rolled(column![identity(ground, whose), places(ground, whose), grades(ground, &whose.card)].spacing(14).into())).width(left).height(Length::Fill),
+            container(rolled(middle.push(titles(ground, whose)).push(activity(ground, whose)).into())).width(Length::Fill).height(Length::Fill),
         ]
         .spacing(16)
         .into()
+    }
+}
+
+pub fn view<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
+    let w = ground.words;
+    let Some(at) = ground.catalog.people.iter().position(|p| p.you) else {
+        return container(ui::mono_small(w.t("nothing-yet"), FAINT)).center(Length::Fill).into();
     };
-    container(content).padding(Padding { top: 12.0, right: 40.0, bottom: 0.0, left: 40.0 }).width(Length::Fill).height(Length::Fill).into()
+    let person = &ground.catalog.people[at];
+    let Some(card) = ground.card.cloned().or_else(|| ground.catalog.card_of()) else {
+        return container(ui::mono_small(w.t("nothing-yet"), FAINT)).center(Length::Fill).into();
+    };
+    let whose = Whose { at, person, card, me: ground.catalog.me.as_ref() };
+    container(columns(ground, &whose, ground.width - 80.0)).padding(Padding { top: 12.0, right: 40.0, bottom: 0.0, left: 40.0 }).width(Length::Fill).height(Length::Fill).into()
 }

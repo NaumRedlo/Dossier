@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 
-use iced::widget::{button, column, container, image, mouse_area, row, scrollable, stack, text, text_input, Space};
+use iced::widget::{button, column, container, image, row, scrollable, stack, text, text_input, Space};
 use iced::{Background, Border, Color, Element, Length, Padding, Shadow, Theme};
 
-use crate::community::{Board, Catalog, Friend, Friends, Person, Play, Rarity, Title};
+use crate::community::{Board, Catalog, Friend, Friends, Person, Rarity, Title};
 use crate::lang::Words;
 use crate::news::{self, News};
 use crate::theme::{self, ACCENT, FAINT, INK, MUTED};
@@ -129,6 +129,10 @@ pub struct Ground<'a> {
     pub read_k: f32,
     pub people_from: PeopleFrom,
     pub standing: Standing,
+    pub person_k: f32,
+    pub person_card: Option<&'a crate::community::wire::Card>,
+    pub person_dossier: Option<&'a crate::community::Me>,
+    pub person_loading: bool,
     pub card: Option<&'a crate::community::wire::Card>,
     pub flags: &'a HashMap<String, iced::widget::svg::Handle>,
     pub avatar: Option<&'a image::Handle>,
@@ -156,7 +160,6 @@ pub struct Ground<'a> {
 }
 
 const READ_WIDE: f32 = 760.0;
-const DRAWER_WIDE: f32 = 400.0;
 const GRID_GAP: f32 = 10.0;
 const STAGE_ROOM: Padding = Padding { top: 8.0, right: 40.0, bottom: 28.0, left: 40.0 };
 
@@ -198,8 +201,8 @@ pub fn view<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
     };
     let page = column![container(head).padding(Padding::ZERO.top(22.0)), body].width(Length::Fill).height(Length::Fill);
     let mut layers: Vec<Element<'a, Message>> = vec![page.into()];
-    if let Some(person) = ground.person.and_then(|at| ground.catalog.people.get(at)) {
-        layers.push(crate::unfold::shield(drawer(ground, person)).into());
+    if let Some(at) = ground.person.filter(|at| *at < ground.catalog.people.len() && ground.person_k > 0.001) {
+        layers.push(profile_panel(ground, at));
     }
     if let Some(reading) = ground.reading.filter(|_| ground.read_k > 0.001) {
         layers.push(reader(ground, reading));
@@ -242,10 +245,6 @@ fn rolled<'a>(inside: Element<'a, Message>) -> Element<'a, Message> {
         .width(Length::Fill)
         .height(Length::Fill)
         .into()
-}
-
-fn hatch<'a>(wide: f32, high: f32) -> Element<'a, Message> {
-    container(ui::fine_hatch()).width(wide).height(high).into()
 }
 
 pub(crate) fn video_tile<'a>(ground: &Ground<'a>, video: &news::Video, wide: bool, high: f32) -> Element<'a, Message> {
@@ -294,24 +293,6 @@ pub(crate) fn avatar_colour(name: &str) -> Color {
     let sum: usize = name.bytes().map(usize::from).sum();
     let (r, g, b) = tones[sum % tones.len()];
     Color::from_rgb(r, g, b)
-}
-
-pub(crate) fn picture<'a>(ground: &Ground<'a>, map: Option<usize>, wide: f32, high: f32) -> Element<'a, Message> {
-    if wide <= 0.0 {
-        let found = ground.catalog.map(map).and_then(|map| ground.thumbs.get(&map.hash).or_else(|| map.card().and_then(|card| ground.pictures.get(&card))));
-        return match found {
-            Some(handle) => image(handle.clone()).content_fit(iced::ContentFit::Cover).width(Length::Fill).height(high).border_radius(12.0).opacity(ui::fade()).into(),
-            None => container(ui::fine_hatch()).width(Length::Fill).height(high).into(),
-        };
-    }
-    let Some(map) = ground.catalog.map(map) else {
-        return hatch(wide, high);
-    };
-    let handle = ground.thumbs.get(&map.hash).or_else(|| map.card().and_then(|card| ground.pictures.get(&card)));
-    match handle {
-        Some(handle) => image(handle.clone()).content_fit(iced::ContentFit::Cover).width(wide).height(high).border_radius(6.0).opacity(ui::fade()).into(),
-        None => hatch(wide, high),
-    }
 }
 
 pub(crate) fn round<'a>(handle: Option<&image::Handle>, initial: &str, side: f32) -> Element<'a, Message> {
@@ -469,15 +450,6 @@ pub(crate) fn empty<'a>(words: String) -> Element<'a, Message> {
     container(ui::mono_small(words, FAINT)).width(Length::Fill).height(Length::Fill).center(Length::Fill).into()
 }
 
-pub(crate) fn when<'a>(ground: &Ground<'a>, at: i64) -> String {
-    let w = ground.words;
-    if ground.now_unix - at < 86_400 && ground.now_unix >= at {
-        w.clock(at)
-    } else {
-        w.day(at, ground.now_unix)
-    }
-}
-
 pub(crate) fn ago(words: &Words, minutes: u32) -> String {
     match minutes {
         0 => words.t("online"),
@@ -510,34 +482,8 @@ pub(crate) fn grade_colour(grade: &str) -> Color {
     }
 }
 
-pub(crate) fn grade<'a>(letter: &str, size: f32) -> Element<'a, Message> {
-    text(letter.to_owned()).font(theme::MONO_BOLD).size(size).color(ui::faded(grade_colour(letter))).into()
-}
-
 pub(crate) fn line_of(ground: &Ground<'_>, map: usize) -> String {
     ground.catalog.maps.get(map).map(|map| map.line.clone()).unwrap_or_default()
-}
-
-pub(crate) fn play_row<'a>(ground: &Ground<'a>, play: &Play, wide: f32, high: f32, room: usize, with_pp: bool) -> Element<'a, Message> {
-    let w = ground.words;
-    let right: Element<'a, Message> = if with_pp && play.pp > 0.0 {
-        column![ui::mono(format!("{} pp", decimal(w, play.pp, 0)), INK), grade(&play.grade, 12.0)].spacing(2).align_x(iced::alignment::Horizontal::Right).into()
-    } else {
-        column![grade(&play.grade, 12.0), ui::mono_small(when(ground, play.at), FAINT)].spacing(2).align_x(iced::alignment::Horizontal::Right).into()
-    };
-    row![
-        picture(ground, Some(play.map), wide, high),
-        column![
-            text(ui::shortened(line_of(ground, play.map), room)).font(theme::SANS).size(theme::CAPTION).wrapping(text::Wrapping::None).color(ui::faded(INK)),
-            row![ui::mono_small(w.percent(f64::from(play.accuracy)), MUTED), mods(&play.mods)].spacing(8).align_y(iced::Center),
-        ]
-        .spacing(3)
-        .width(Length::Fill),
-        right,
-    ]
-    .spacing(12)
-    .align_y(iced::Center)
-    .into()
 }
 
 pub(crate) fn chip<'a>(inside: Element<'a, Message>, colour: Color) -> Element<'a, Message> {
@@ -911,17 +857,18 @@ pub(crate) fn backdrop<'a>(handle: Option<&image::Handle>, high: f32, radius: f3
     };
     let ground = Color::from_rgb(0.047, 0.027, 0.035);
     let (first, middle, last) = if across { (0.9, 0.94, 0.98) } else { (0.8, 0.9, 0.98) };
-    let shade = container(Space::new().width(Length::Fill).height(high)).style(move |_| container::Style {
+    let shade = container(Space::new().width(Length::Fill).height(Length::Fill)).style(move |_| container::Style {
         background: Some(Background::Gradient(iced::Gradient::Linear(
             iced::gradient::Linear::new(iced::Radians(angle))
                 .add_stop(0.0, Color { a: first * k, ..ground })
                 .add_stop(0.5, Color { a: middle * k, ..ground })
                 .add_stop(1.0, Color { a: last * k, ..ground }),
         ))),
-        border: Border { radius: radius.into(), ..Border::default() },
+        border: Border { radius: (radius - 1.0).max(0.0).into(), ..Border::default() },
         ..container::Style::default()
     });
-    stack![image(handle.clone()).content_fit(iced::ContentFit::Cover).width(Length::Fill).height(high).border_radius(radius).opacity(k), shade].width(Length::Fill).height(high).into()
+    let picture = container(image(handle.clone()).content_fit(iced::ContentFit::Cover).width(Length::Fill).height(Length::Fill).border_radius((radius - 2.0).max(0.0)).opacity(k)).padding(2.0).width(Length::Fill).height(high);
+    stack![picture, container(shade).padding(1.0).width(Length::Fill).height(high)].width(Length::Fill).height(high).into()
 }
 
 pub(crate) fn medal(place: usize) -> Option<Color> {
@@ -1031,10 +978,10 @@ fn movement<'a>(ground: &Ground<'a>, shift: Option<Option<i32>>) -> Element<'a, 
     match shift {
         None => Space::new().width(0.0).height(0.0).into(),
         Some(None) => container(text(ground.words.t("board-new")).font(theme::MONO_BOLD).size(10.0).color(ui::faded(theme::HIT_100)))
-            .padding([2, 7])
+            .padding(Padding { top: 3.0, right: 9.0, bottom: 3.0, left: 9.0 })
             .style(move |_| container::Style {
-                background: Some(Background::Color(Color { a: 0.14 * k, ..theme::HIT_100 })),
-                border: Border { radius: 8.0.into(), ..Border::default() },
+                background: Some(Background::Color(Color { a: k, ..Color::from_rgb8(38, 62, 44) })),
+                border: Border { radius: 10.0.into(), ..Border::default() },
                 ..container::Style::default()
             })
             .into(),
@@ -1315,76 +1262,23 @@ fn titles<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
     spread(list.into())
 }
 
-fn drawer_style(_: &Theme) -> container::Style {
-    let k = ui::fade();
-    container::Style {
-        text_color: None,
-        background: Some(Background::Color(Color { a: k, ..theme::SLAB_SOLID })),
-        border: Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.08 * k), width: 1.0, radius: 0.0.into() },
-        shadow: Shadow { color: Color::from_rgba(0.0, 0.0, 0.0, 0.5 * k), offset: iced::Vector::new(-24.0, 0.0), blur_radius: 60.0 },
-        snap: true,
-    }
-}
-
-fn drawer<'a>(ground: &Ground<'a>, person: &Person) -> Element<'a, Message> {
+fn profile_panel<'a>(ground: &Ground<'a>, at: usize) -> Element<'a, Message> {
     let w = ground.words;
-    let lang = w.lang();
-    let close = button(text("✕").font(theme::SANS_SEMI).size(theme::LEAD).color(ui::faded(MUTED)))
-        .padding([2, 8])
-        .style(ui::button_faded(theme::bare))
-        .on_press(Message::Person(None));
-    let head = row![
-        face(ground, person, 60.0),
-        column![
-            text(person.name.clone()).font(theme::SANS_SEMI).size(theme::TITLE).wrapping(text::Wrapping::None).color(ui::faded(INK)),
-            row![flag(ground, &person.country, 13.0), title_line(ground, person, theme::CAPTION)].spacing(8).align_y(iced::Center),
-        ]
-        .spacing(4)
-        .width(Length::Fill),
-        close,
-    ]
-    .spacing(14)
-    .align_y(iced::Center);
-    let kv = |key: String, value: String| {
-        row![
-            text(key).font(theme::SANS).size(theme::CAPTION).color(ui::faded(MUTED)),
-            ui::grow(),
-            ui::mono(value, INK),
-        ]
-        .height(24.0)
-        .align_y(iced::Center)
-    };
-    let figures = column![
-        kv(w.t("board-pp"), pp_of(w, person.pp)),
-        kv(w.t("global-rank"), rank_of(w, person.rank)),
-        kv(w.t("board-accuracy"), w.percent(f64::from(person.accuracy))),
-        kv(w.t("board-plays"), w.lang().group(u64::from(person.plays))),
-        kv(w.t("board-hours"), format!("{} {}", w.lang().group(u64::from(person.hours)), w.t("hours-short"))),
-        kv(w.t("board-score"), w.lang().group(person.score)),
-        kv(w.t("board-hits"), decimal(w, person.hits_per_play, 1)),
-    ]
-    .spacing(0);
-    let mut plays = column![ui::mono_small(w.t("top-plays").to_uppercase(), FAINT)].spacing(8);
-    for play in &person.top {
-        plays = plays.push(play_row(ground, play, 64.0, 36.0, 34, true));
-    }
-    let mut held: Vec<&Title> = person.titles.iter().filter_map(|code| ground.catalog.title_of(code)).collect();
-    held.sort_by_key(|title| std::cmp::Reverse(Rarity::ALL.iter().position(|rarity| *rarity == title.rarity)));
-    let chips: Vec<Element<'a, Message>> = held.iter().map(|title| title_chip(title, lang)).collect();
-    let titles = column![ui::mono_small(format!("{} · {}", w.t("community-titles").to_uppercase(), held.len()), FAINT), ui::wrap(chips, 6.0)].spacing(8);
-    let figures = match person.streak {
-        0 => figures,
-        days => figures.push(kv(w.t("streak"), w.n("streak-days", u64::from(days)))),
-    };
-    let inside = column![head, figures, plays, titles].spacing(22).padding(Padding { top: 24.0, right: 24.0, bottom: 28.0, left: 24.0 });
-    let panel = container(scrollable(inside).style(ui::thin_scroll).direction(ui::hidden_bar()).height(Length::Fill)).width(DRAWER_WIDE).height(Length::Fill).style(drawer_style);
-    stack![
-        mouse_area(ui::veil(Color::from_rgba(0.027, 0.012, 0.016, 0.45))).on_press(Message::Person(None)),
-        container(panel).width(Length::Fill).height(Length::Fill).align_x(iced::alignment::Horizontal::Right),
-    ]
-    .width(Length::Fill)
-    .height(Length::Fill)
-    .into()
+    let k = ground.person_k;
+    let person = &ground.catalog.people[at];
+    let wide = (ground.width - STAGE_ROOM.left - STAGE_ROOM.right).clamp(640.0, 1560.0);
+    let after = ui::fading(ui::fade() * smooth(0.2, 1.0, k), || -> Element<'a, Message> {
+        let card = ground.person_card.cloned().unwrap_or_else(|| crate::dossier::card_from(person));
+        let whose = crate::dossier::Whose { at, person, card, me: ground.person_dossier };
+        let close = button(container(text("✕").font(theme::SANS_SEMI).size(theme::LEAD).color(ui::faded(MUTED))).width(32.0).height(32.0).center(32.0))
+            .padding(0)
+            .style(ui::button_faded(theme::bare))
+            .on_press(Message::Person(None));
+        let status: Element<'a, Message> = if ground.person_loading { ui::mono_small(w.t("news-loading"), FAINT) } else { Space::new().width(0.0).into() };
+        let head = row![ui::mono_small(w.t("dossier-of").to_uppercase(), FAINT), ui::mono_small(person.name.clone(), MUTED), ui::grow(), status, close].spacing(10).align_y(iced::Center);
+        container(column![head, crate::dossier::columns(ground, &whose, wide - 44.0)].spacing(10)).padding(Padding { top: 12.0, right: 22.0, bottom: 0.0, left: 22.0 }).width(Length::Fill).height(Length::Fill).into()
+    });
+    crate::unfold::unfold(after, None, None, k, Message::Person(None)).wide(wide).room(STAGE_ROOM).look(stage_look()).into()
 }
 
 #[cfg(test)]

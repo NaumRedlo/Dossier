@@ -572,6 +572,7 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
         main.news = sample_news();
         main.community_section = section;
         main.community_person = person;
+        main.person_fade = iced::Animation::new(person.is_some());
         main
     };
     let mut signing = staged(Some(0));

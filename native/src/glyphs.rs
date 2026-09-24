@@ -25,6 +25,7 @@ pub enum Icon {
     Search,
     Film,
     Flag,
+    Metronome,
 }
 
 pub struct Glyph {
@@ -208,6 +209,12 @@ impl<Message> canvas::Program<Message> for Glyph {
             Icon::Flag => {
                 frame.stroke(&Path::line(at(4.0, 2.5), at(4.0, 17.5)), pen);
                 frame.stroke(&polyline(&[(4.0, 3.5), (15.5, 3.5), (13.0, 7.0), (15.5, 10.5), (4.0, 10.5)], false), pen);
+            }
+            Icon::Metronome => {
+                frame.stroke(&polyline(&[(7.2, 2.5), (12.8, 2.5), (16.5, 17.5), (3.5, 17.5)], true), pen);
+                frame.stroke(&Path::line(at(4.6, 13.2), at(15.4, 13.2)), pen);
+                frame.stroke(&Path::line(at(10.0, 13.2), at(14.8, 4.2)), pen);
+                frame.fill(&Path::circle(at(12.9, 7.8), 1.5 * s), ink);
             }
         }
         vec![frame.into_geometry()]

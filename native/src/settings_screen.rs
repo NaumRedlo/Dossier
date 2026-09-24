@@ -170,23 +170,6 @@ pub enum Message {
 }
 
 pub fn view<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
-    let w = ground.words;
-    let word = |key: &str, side: Side| {
-        let on = ground.side == side;
-        let k = ui::fade();
-        let bar = container(Space::new().height(2.0)).width(Length::Fill).style(move |_| iced::widget::container::Style {
-            background: Some(iced::Background::Color(ui::dim(if on { ACCENT } else { iced::Color::TRANSPARENT }, k))),
-            border: iced::Border { radius: 1.0.into(), ..iced::Border::default() },
-            ..iced::widget::container::Style::default()
-        });
-        button(column![text(w.t(key)).font(theme::SANS_SEMI).size(theme::BODY), bar].spacing(5).width(Length::Shrink))
-            .padding([4, 0])
-            .style(ui::button_faded(theme::word(on)))
-            .on_press(Message::Side(side))
-    };
-    let switch = container(row![word("app-side", Side::App), word("bot-side", Side::Bot)].spacing(28))
-        .width(Length::Fill)
-        .center_x(Length::Fill);
     let (kept, all) = match ground.side {
         Side::App => (&ground.settings.tiles_app, &APP[..]),
         Side::Bot => (&ground.settings.tiles_bot, &BOT[..]),
@@ -209,10 +192,7 @@ pub fn view<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
         .width(Length::Fill)
         .height(Length::Fill);
     let rolled = crate::glide::edged(rolled, iced::widget::Id::new("settings-tiles"));
-    column![container(switch).padding(Padding::ZERO.top(22.0)), rolled]
-        .width(Length::Fill)
-        .height(Length::Fill)
-        .into()
+    column![rolled].width(Length::Fill).height(Length::Fill).into()
 }
 
 fn card<'a>(ground: &Ground<'a>, tile: Tile, late: f32) -> Element<'a, Message> {

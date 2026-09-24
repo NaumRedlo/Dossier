@@ -152,6 +152,7 @@ pub struct Ground<'a> {
     pub section_t: f32,
     pub shift_t: f32,
     pub person_t: f32,
+    pub play_t: f32,
     pub rank_started: std::time::Instant,
     pub rank_held: Option<f32>,
     pub metric: crate::dossier::Metric,
@@ -172,32 +173,7 @@ fn smooth(from: f32, to: f32, k: f32) -> f32 {
 }
 
 pub fn view<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
-    let w = ground.words;
-    let word = |key: &str, section: Section| {
-        let on = ground.section == section;
-        let k = ui::fade();
-        let reach = if on { (ui::appear(ground.section_t, 0) * 1000.0).round() as u16 } else { 1000 };
-        let side = Length::FillPortion(((1000 - reach) / 2).max(1));
-        let line = container(Space::new().height(2.0)).width(Length::FillPortion(reach.max(1))).style(move |_| container::Style {
-            background: Some(Background::Color(ui::dim(if on { ACCENT } else { Color::TRANSPARENT }, k))),
-            border: Border { radius: 1.0.into(), ..Border::default() },
-            ..container::Style::default()
-        });
-        let bar: Element<'a, Message> = if reach >= 1000 { line.width(Length::Fill).into() } else { row![Space::new().width(side).height(2.0), line, Space::new().width(side).height(2.0)].width(Length::Fill).into() };
-        button(column![text(w.t(key)).font(theme::SANS_SEMI).size(theme::BODY), bar].spacing(5).width(Length::Shrink))
-            .padding([4, 0])
-            .style(ui::button_faded(theme::word(on)))
-            .on_press(Message::Section(section))
-    };
-    let switch = row![
-        word("community-profile", Section::Profile),
-        word("community-feed", Section::Feed),
-        word("community-people", Section::People),
-        word("community-boards", Section::Boards),
-        word("community-titles", Section::Titles),
-    ]
-    .spacing(28);
-    let head = column![container(switch).center_x(Length::Fill), container(group_note(ground)).center_x(Length::Fill)].spacing(10);
+    let head = container(group_note(ground)).center_x(Length::Fill);
     let body = match ground.section {
         Section::Profile => crate::dossier::view(ground),
         Section::Feed => crate::chronicle::view(ground),
@@ -205,7 +181,7 @@ pub fn view<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
         Section::Boards => boards(ground),
         Section::Titles => titles(ground),
     };
-    let page = column![container(head).padding(Padding::ZERO.top(22.0)), body].width(Length::Fill).height(Length::Fill);
+    let page = column![container(head).padding(Padding { top: 10.0, right: 0.0, bottom: 4.0, left: 0.0 }), body].width(Length::Fill).height(Length::Fill);
     let mut layers: Vec<Element<'a, Message>> = vec![page.into()];
     if let Some(at) = ground.person.filter(|at| *at < ground.catalog.people.len() && ground.person_k > 0.001) {
         layers.push(profile_panel(ground, at));
@@ -611,10 +587,6 @@ fn stage_look() -> crate::unfold::Look {
     }
 }
 
-fn stage_rolled<'a>(inside: Element<'a, Message>) -> Element<'a, Message> {
-    scrollable(container(inside).padding(Padding::ZERO.right(10.0))).style(ui::thin_scroll).direction(ui::hidden_bar()).width(Length::Fill).height(Length::Fill).into()
-}
-
 pub(crate) fn rich<'a>(spans: &[news::Span], colour: Color, size: f32) -> Element<'a, Message> {
     rich_as(spans, colour, size, false)
 }
@@ -646,11 +618,11 @@ fn blocks<'a>(list: &[news::Block], skip_image: Option<&str>, size: f32, picture
             news::Block::Text(spans) => rich(spans, INK, size),
             news::Block::Item(spans) => row![text("•").font(theme::SANS_SEMI).size(size).color(ui::faded(ACCENT)), rich(spans, INK, size)].spacing(10).into(),
             news::Block::Quote(spans) => row![
-                container(Space::new()).width(2.0).height(Length::Fill).style(|_| container::Style {
-                    background: Some(Background::Color(Color { a: 0.7 * ui::fade(), ..ACCENT })),
+                container(Space::new()).width(2.0).height(Length::Fill).style(ui::box_faded(|_| container::Style {
+                    background: Some(Background::Color(Color { a: 0.7, ..ACCENT })),
                     border: Border { radius: 1.0.into(), ..Border::default() },
                     ..container::Style::default()
-                }),
+                })),
                 rich(spans, MUTED, size),
             ]
             .spacing(14)
@@ -735,9 +707,10 @@ fn reader<'a>(ground: &Ground<'a>, reading: &'a Reading) -> Element<'a, Message>
             ui::mono_small(meta, FAINT),
         ]
         .spacing(6);
-        container(column![head, stage_rolled(iced::widget::Column::with_children(body).spacing(14).into())].spacing(16)).padding([22, 26]).width(Length::Fill).height(Length::Fill).into()
+        let body = scrollable(container(iced::widget::Column::with_children(body).spacing(14)).padding(Padding::ZERO.right(10.0))).style(ui::thin_scroll).direction(ui::hidden_bar()).width(Length::Fill).height(Length::Shrink);
+        container(column![head, body].spacing(16)).padding([22, 26]).width(Length::Fill).into()
     });
-    crate::unfold::unfold(after, None, None, k, Message::Unread).wide(READ_WIDE).room(STAGE_ROOM).look(stage_look()).into()
+    crate::unfold::unfold(after, None, None, k, Message::Unread).wide(READ_WIDE).room(STAGE_ROOM).look(stage_look()).fit().into()
 }
 
 fn figure<'a>(value: String, label: String, colour: Color) -> Element<'a, Message> {
@@ -808,12 +781,12 @@ fn person_card<'a>(ground: &Ground<'a>, at: usize, person: &Person, place: usize
         });
     let inside = column![container(column![head, numbers].spacing(18)).padding(Padding { top: 18.0, right: 20.0, bottom: 0.0, left: 20.0 }), ui::grow_tall(), foot].height(high);
     let cover = ground.pictures.get(&person.cover);
-    button(stack![backdrop(cover, high, 16.0, avatar_colour(&person.name), false), inside].height(high))
+    let card = button(stack![backdrop(cover, high, 16.0, avatar_colour(&person.name), false), inside].height(high))
         .padding(0)
         .width(Length::Fill)
-        .style(ui::button_faded(lifted))
-        .on_press(Message::Person(Some(at)))
-        .into()
+        .style(ui::button_faded(ui::calm(lifted)))
+        .on_press(Message::Person(Some(at)));
+    ui::hover(card, ui::Glow::card(16.0).edge(Color::from_rgba(1.0, 1.0, 1.0, 0.14)))
 }
 
 fn people<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
@@ -1062,12 +1035,12 @@ fn podium_card<'a>(ground: &Ground<'a>, list: &Standings, place: usize, who: usi
     }
     let content = container(inside).width(Length::Fill).height(high).padding([16, 12]).center_x(Length::Fill).align_y(iced::alignment::Vertical::Bottom);
     let cover = ground.pictures.get(&person.cover);
-    button(stack![backdrop(cover, high, 14.0, colour, false), content])
+    let card = button(stack![backdrop(cover, high, 14.0, colour, false), content])
         .padding(0)
         .width(Length::FillPortion(1))
-        .style(ui::button_faded(row_style(person.you, Some(colour))))
-        .on_press(Message::Person(Some(who)))
-        .into()
+        .style(ui::button_faded(ui::calm(row_style(person.you, Some(colour)))))
+        .on_press(Message::Person(Some(who)));
+    ui::hover(card, ui::Glow::card(14.0).edge(Color { a: 0.4, ..if person.you { ACCENT } else { colour } }).shadow(Color { a: 0.14, ..colour }))
 }
 
 fn board_row<'a>(ground: &Ground<'a>, list: &Standings, place: Option<usize>, who: usize, value: f64) -> Element<'a, Message> {
@@ -1101,43 +1074,40 @@ fn board_row<'a>(ground: &Ground<'a>, list: &Standings, place: Option<usize>, wh
     line = line.push(container(numbers).width(170.0).align_x(iced::alignment::Horizontal::Right));
     let content = container(line).width(Length::Fill).height(high).padding([0, 16]).center_y(high);
     let cover = ground.pictures.get(&person.cover);
-    button(stack![backdrop(cover, high, 14.0, avatar_colour(&person.name), true), content])
+    let card = button(stack![backdrop(cover, high, 14.0, avatar_colour(&person.name), true), content])
         .padding(0)
         .width(Length::Fill)
-        .style(ui::button_faded(row_style(person.you, None)))
-        .on_press(Message::Person(Some(who)))
-        .into()
+        .style(ui::button_faded(ui::calm(row_style(person.you, None))))
+        .on_press(Message::Person(Some(who)));
+    ui::hover(card, ui::Glow::card(14.0).edge(Color { a: if person.you { 0.35 } else { 0.1 }, ..if person.you { ACCENT } else { Color::WHITE } }).shadow(Color::from_rgba(0.0, 0.0, 0.0, 0.35)).lift(2.0))
 }
 
 pub(crate) fn segmented<'a>(parts: Vec<(String, bool, Message)>) -> Element<'a, Message> {
     let k = ui::fade();
     let mut line = row![].spacing(2);
+    let active = parts.iter().position(|(_, on, _)| *on).unwrap_or(0);
     for (label, on, message) in parts {
-        line = line.push(
-            button(container(text(label).font(theme::SANS_SEMI).size(12.5)).center_x(Length::Fill))
-                .padding([6, 0])
-                .width(120.0)
-                .style(ui::button_faded(move |_, status: button::Status| button::Style {
-                    background: Some(Background::Color(if on {
-                        Color::from_rgba(0.886, 0.282, 0.282, 0.2)
-                    } else if matches!(status, button::Status::Hovered) {
-                        Color::from_rgba(1.0, 1.0, 1.0, 0.04)
-                    } else {
-                        Color::TRANSPARENT
-                    })),
+        line = line.push(ui::hover(
+            button(container(text(label).font(theme::SANS_SEMI).size(14.5)).center_x(Length::Fill))
+                .padding([9, 0])
+                .width(152.0)
+                .style(ui::button_faded(move |_, _| button::Style {
+                    background: None,
                     text_color: if on { INK } else { MUTED },
-                    border: Border { color: if on { Color::from_rgba(0.886, 0.282, 0.282, 0.5) } else { Color::TRANSPARENT }, width: 1.0, radius: 8.0.into() },
+                    border: Border { radius: 10.0.into(), ..Border::default() },
                     shadow: Shadow::default(),
                     snap: true,
                 }))
                 .on_press(message),
-        );
+            ui::Glow::row(10.0),
+        ));
     }
-    container(line)
-        .padding(3)
+    let pill = ui::Pill { fill: Color::from_rgba(0.886, 0.282, 0.282, 0.2), edge: Color::from_rgba(0.886, 0.282, 0.282, 0.5), radius: 10.0, underline: None };
+    container(ui::sliding(line, active, pill))
+        .padding(4)
         .style(move |_| container::Style {
             background: Some(Background::Color(Color::from_rgba(0.0, 0.0, 0.0, 0.3 * k))),
-            border: Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.06 * k), width: 1.0, radius: 10.0.into() },
+            border: Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.06 * k), width: 1.0, radius: 13.0.into() },
             ..container::Style::default()
         })
         .into()
@@ -1148,12 +1118,13 @@ fn boards<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
     let catalog = ground.catalog;
     let mut chips = row![].spacing(6);
     for board in Board::ALL {
-        chips = chips.push(
-            button(text(w.t(board.key())).font(theme::SANS_SEMI).size(theme::CAPTION).color(ui::faded(if ground.board == board { INK } else { MUTED })))
-                .padding([6, 13])
-                .style(ui::button_faded(theme::filter_chip(ground.board == board)))
+        chips = chips.push(ui::hover(
+            button(text(w.t(board.key())).font(theme::SANS_SEMI).size(13.5).color(ui::faded(if ground.board == board { INK } else { MUTED })))
+                .padding([8, 16])
+                .style(ui::button_faded(ui::calm(theme::filter_chip(ground.board == board))))
                 .on_press(Message::Board(board)),
-        );
+            ui::Glow::tile(15.0).edge(Color::from_rgba(1.0, 1.0, 1.0, 0.14)),
+        ));
     }
     let list = standings(catalog, ground.board, ground.standing);
     let adaptive = ground.standing == Standing::Adaptive;

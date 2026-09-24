@@ -620,14 +620,25 @@ pub fn mono<'a, Message: 'a>(words: String, colour: Color) -> Element<'a, Messag
     text(words).font(theme::MONO).size(theme::BODY).color(faded(colour)).into()
 }
 
+fn dim_background(background: iced::Background, k: f32) -> iced::Background {
+    match background {
+        iced::Background::Color(colour) => iced::Background::Color(Color { a: colour.a * k, ..colour }),
+        iced::Background::Gradient(iced::Gradient::Linear(mut linear)) => {
+            for stop in linear.stops.iter_mut().flatten() {
+                stop.color.a *= k;
+            }
+            iced::Background::Gradient(iced::Gradient::Linear(linear))
+        }
+    }
+}
+
 fn dimmed(style: impl Fn(&Theme, button::Status) -> button::Style + 'static, k: f32) -> impl Fn(&Theme, button::Status) -> button::Style {
     move |theme, status| {
         let mut made = style(theme, status);
         made.text_color = Color { a: made.text_color.a * k, ..made.text_color };
-        if let Some(iced::Background::Color(colour)) = made.background {
-            made.background = Some(iced::Background::Color(Color { a: colour.a * k, ..colour }));
-        }
+        made.background = made.background.map(|background| dim_background(background, k));
         made.border.color = Color { a: made.border.color.a * k, ..made.border.color };
+        made.shadow.color = Color { a: made.shadow.color.a * k, ..made.shadow.color };
         made
     }
 }
@@ -635,10 +646,10 @@ fn dimmed(style: impl Fn(&Theme, button::Status) -> button::Style + 'static, k: 
 fn dimmed_box(style: impl Fn(&Theme) -> container::Style + 'static, k: f32) -> impl Fn(&Theme) -> container::Style {
     move |theme| {
         let mut made = style(theme);
-        if let Some(iced::Background::Color(colour)) = made.background {
-            made.background = Some(iced::Background::Color(Color { a: colour.a * k, ..colour }));
-        }
+        made.background = made.background.map(|background| dim_background(background, k));
         made.border.color = Color { a: made.border.color.a * k, ..made.border.color };
+        made.shadow.color = Color { a: made.shadow.color.a * k, ..made.shadow.color };
+        made.text_color = made.text_color.map(|colour| Color { a: colour.a * k, ..colour });
         made
     }
 }
@@ -3362,6 +3373,359 @@ impl<Message> iced::advanced::Widget<Message, Theme, Renderer> for Lift<'_, Mess
         renderer.with_translation(shift, |renderer| {
             self.content.as_widget().draw(&tree.children[0], renderer, theme, style, layout, cursor, &seen);
         });
+    }
+
+    fn overlay<'b>(
+        &'b mut self,
+        tree: &'b mut iced::advanced::widget::Tree,
+        layout: iced::advanced::Layout<'b>,
+        renderer: &Renderer,
+        viewport: &Rectangle,
+        translation: iced::Vector,
+    ) -> Option<iced::advanced::overlay::Element<'b, Message, Theme, Renderer>> {
+        self.content.as_widget_mut().overlay(&mut tree.children[0], layout, renderer, viewport, translation)
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct Glow {
+    pub radius: f32,
+    pub edge: Color,
+    pub wash: Color,
+    pub shadow: Color,
+    pub lift: f32,
+}
+
+impl Glow {
+    pub fn card(radius: f32) -> Glow {
+        Glow { radius, edge: Color::from_rgba(1.0, 1.0, 1.0, 0.16), wash: Color::TRANSPARENT, shadow: Color::from_rgba(0.0, 0.0, 0.0, 0.45), lift: 3.0 }
+    }
+
+    pub fn row(radius: f32) -> Glow {
+        Glow { radius, edge: Color::TRANSPARENT, wash: Color::from_rgba(1.0, 1.0, 1.0, 0.035), shadow: Color::TRANSPARENT, lift: 0.0 }
+    }
+
+    pub fn tile(radius: f32) -> Glow {
+        Glow { radius, edge: Color::from_rgba(1.0, 1.0, 1.0, 0.1), wash: Color::from_rgba(1.0, 1.0, 1.0, 0.025), shadow: Color::TRANSPARENT, lift: 0.0 }
+    }
+
+    pub fn edge(mut self, colour: Color) -> Glow {
+        self.edge = colour;
+        self
+    }
+
+    pub fn shadow(mut self, colour: Color) -> Glow {
+        self.shadow = colour;
+        self
+    }
+
+    pub fn lift(mut self, lift: f32) -> Glow {
+        self.lift = lift;
+        self
+    }
+}
+
+pub fn calm(style: impl Fn(&Theme, button::Status) -> button::Style + 'static) -> impl Fn(&Theme, button::Status) -> button::Style {
+    move |theme, status| match status {
+        button::Status::Hovered | button::Status::Pressed => style(theme, button::Status::Active),
+        other => style(theme, other),
+    }
+}
+
+pub struct Hover<'a, Message> {
+    content: Element<'a, Message>,
+    glow: Glow,
+}
+
+pub fn hover<'a, Message: 'a>(content: impl Into<Element<'a, Message>>, glow: Glow) -> Element<'a, Message> {
+    let k = fade();
+    let dim = |colour: Color| Color { a: colour.a * k, ..colour };
+    Element::new(Hover { content: content.into(), glow: Glow { edge: dim(glow.edge), wash: dim(glow.wash), shadow: dim(glow.shadow), ..glow } })
+}
+
+#[derive(Debug, Default)]
+struct HoverState {
+    over: bool,
+    lit: f32,
+    last: Option<std::time::Instant>,
+}
+
+impl<Message> iced::advanced::Widget<Message, Theme, Renderer> for Hover<'_, Message> {
+    fn tag(&self) -> iced::advanced::widget::tree::Tag {
+        iced::advanced::widget::tree::Tag::of::<HoverState>()
+    }
+
+    fn state(&self) -> iced::advanced::widget::tree::State {
+        iced::advanced::widget::tree::State::new(HoverState::default())
+    }
+
+    fn children(&self) -> Vec<iced::advanced::widget::Tree> {
+        vec![iced::advanced::widget::Tree::new(&self.content)]
+    }
+
+    fn diff(&self, tree: &mut iced::advanced::widget::Tree) {
+        tree.diff_children(std::slice::from_ref(&self.content));
+    }
+
+    fn size(&self) -> Size<Length> {
+        self.content.as_widget().size()
+    }
+
+    fn size_hint(&self) -> Size<Length> {
+        self.content.as_widget().size_hint()
+    }
+
+    fn layout(&mut self, tree: &mut iced::advanced::widget::Tree, renderer: &Renderer, limits: &iced::advanced::layout::Limits) -> iced::advanced::layout::Node {
+        self.content.as_widget_mut().layout(&mut tree.children[0], renderer, limits)
+    }
+
+    fn operate(&mut self, tree: &mut iced::advanced::widget::Tree, layout: iced::advanced::Layout<'_>, renderer: &Renderer, operation: &mut dyn iced::advanced::widget::Operation) {
+        self.content.as_widget_mut().operate(&mut tree.children[0], layout, renderer, operation);
+    }
+
+    fn update(
+        &mut self,
+        tree: &mut iced::advanced::widget::Tree,
+        event: &iced::Event,
+        layout: iced::advanced::Layout<'_>,
+        cursor: mouse::Cursor,
+        renderer: &Renderer,
+        clipboard: &mut dyn iced::advanced::Clipboard,
+        shell: &mut iced::advanced::Shell<'_, Message>,
+        viewport: &Rectangle,
+    ) {
+        self.content.as_widget_mut().update(&mut tree.children[0], event, layout, cursor, renderer, clipboard, shell, viewport);
+        let state = tree.state.downcast_mut::<HoverState>();
+        match event {
+            iced::Event::Mouse(mouse::Event::CursorMoved { .. } | mouse::Event::CursorLeft | mouse::Event::WheelScrolled { .. }) => {
+                let over = matches!(event, iced::Event::Mouse(mouse::Event::CursorLeft)).then_some(false).unwrap_or_else(|| cursor.is_over(layout.bounds()));
+                if over != state.over {
+                    state.over = over;
+                    state.last = None;
+                    shell.request_redraw();
+                }
+            }
+            iced::Event::Window(iced::window::Event::RedrawRequested(now)) => {
+                let target = if state.over { 1.0 } else { 0.0 };
+                if (state.lit - target).abs() < 0.003 {
+                    state.lit = target;
+                    state.last = None;
+                } else {
+                    let dt = elapsed(&mut state.last, *now);
+                    state.lit = toward(state.lit, target, 0.2, dt);
+                    shell.request_redraw();
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn mouse_interaction(&self, tree: &iced::advanced::widget::Tree, layout: iced::advanced::Layout<'_>, cursor: mouse::Cursor, viewport: &Rectangle, renderer: &Renderer) -> mouse::Interaction {
+        self.content.as_widget().mouse_interaction(&tree.children[0], layout, cursor, viewport, renderer)
+    }
+
+    fn draw(
+        &self,
+        tree: &iced::advanced::widget::Tree,
+        renderer: &mut Renderer,
+        theme: &Theme,
+        style: &iced::advanced::renderer::Style,
+        layout: iced::advanced::Layout<'_>,
+        cursor: mouse::Cursor,
+        viewport: &Rectangle,
+    ) {
+        use iced::advanced::Renderer as _;
+        let lit = tree.state.downcast_ref::<HoverState>().lit;
+        if lit < 0.002 {
+            self.content.as_widget().draw(&tree.children[0], renderer, theme, style, layout, cursor, viewport);
+            return;
+        }
+        let glow = self.glow;
+        let rise = iced::Vector::new(0.0, -glow.lift * lit);
+        let bounds = layout.bounds() + rise;
+        let quad = |border: iced::Border, shadow: iced::Shadow| iced::advanced::renderer::Quad { bounds, border, shadow, snap: true };
+        if glow.shadow.a > 0.0 {
+            renderer.fill_quad(
+                quad(iced::Border { radius: glow.radius.into(), ..iced::Border::default() }, iced::Shadow { color: Color { a: glow.shadow.a * lit, ..glow.shadow }, offset: iced::Vector::new(0.0, 8.0 * lit), blur_radius: 22.0 }),
+                iced::Background::Color(Color::TRANSPARENT),
+            );
+        }
+        if glow.wash.a > 0.0 {
+            renderer.fill_quad(quad(iced::Border { radius: glow.radius.into(), ..iced::Border::default() }, iced::Shadow::default()), iced::Background::Color(Color { a: glow.wash.a * lit, ..glow.wash }));
+        }
+        if glow.lift > 0.0 {
+            let seen = *viewport - rise;
+            renderer.with_translation(rise, |renderer| {
+                self.content.as_widget().draw(&tree.children[0], renderer, theme, style, layout, cursor, &seen);
+            });
+        } else {
+            self.content.as_widget().draw(&tree.children[0], renderer, theme, style, layout, cursor, viewport);
+        }
+        if glow.edge.a > 0.0 {
+            if let Some(reach) = bounds.expand(2.0).intersection(viewport) {
+                renderer.with_layer(reach, |renderer| {
+                    renderer.fill_quad(quad(iced::Border { color: Color { a: glow.edge.a * lit, ..glow.edge }, width: 1.0, radius: glow.radius.into() }, iced::Shadow::default()), iced::Background::Color(Color::TRANSPARENT));
+                });
+            }
+        }
+    }
+
+    fn overlay<'b>(
+        &'b mut self,
+        tree: &'b mut iced::advanced::widget::Tree,
+        layout: iced::advanced::Layout<'b>,
+        renderer: &Renderer,
+        viewport: &Rectangle,
+        translation: iced::Vector,
+    ) -> Option<iced::advanced::overlay::Element<'b, Message, Theme, Renderer>> {
+        self.content.as_widget_mut().overlay(&mut tree.children[0], layout, renderer, viewport, translation)
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct Pill {
+    pub fill: Color,
+    pub edge: Color,
+    pub radius: f32,
+    pub underline: Option<f32>,
+}
+
+pub struct Slide<'a, Message> {
+    content: Element<'a, Message>,
+    active: usize,
+    pill: Pill,
+}
+
+pub fn sliding<'a, Message: 'a>(content: impl Into<Element<'a, Message>>, active: usize, pill: Pill) -> Element<'a, Message> {
+    let k = fade();
+    let pill = Pill { fill: Color { a: pill.fill.a * k, ..pill.fill }, edge: Color { a: pill.edge.a * k, ..pill.edge }, ..pill };
+    Element::new(Slide { content: content.into(), active, pill })
+}
+
+const SLIDE: f32 = 0.26;
+
+#[derive(Debug, Default)]
+struct SlideState {
+    to: Option<usize>,
+    from: Option<Rectangle>,
+    started: Option<std::time::Instant>,
+    now: Option<std::time::Instant>,
+}
+
+fn slots(layout: iced::advanced::Layout<'_>) -> Vec<Rectangle> {
+    let origin = layout.bounds().position();
+    layout.children().map(|child| child.bounds()).map(|bounds| Rectangle { x: bounds.x - origin.x, y: bounds.y - origin.y, ..bounds }).collect()
+}
+
+fn blend(from: Rectangle, to: Rectangle, k: f32) -> Rectangle {
+    let at = |a: f32, b: f32| a + (b - a) * k;
+    Rectangle { x: at(from.x, to.x), y: at(from.y, to.y), width: at(from.width, to.width), height: at(from.height, to.height) }
+}
+
+impl SlideState {
+    fn shown(&self, slots: &[Rectangle]) -> Option<Rectangle> {
+        let target = *slots.get(self.to?)?;
+        let from = self.from.unwrap_or(target);
+        let spent = self.now.zip(self.started).map_or(SLIDE, |(now, started)| now.saturating_duration_since(started).as_secs_f32());
+        let k = (spent / SLIDE).clamp(0.0, 1.0);
+        Some(blend(from, target, 1.0 - (1.0 - k).powi(3)))
+    }
+}
+
+impl<Message> iced::advanced::Widget<Message, Theme, Renderer> for Slide<'_, Message> {
+    fn tag(&self) -> iced::advanced::widget::tree::Tag {
+        iced::advanced::widget::tree::Tag::of::<SlideState>()
+    }
+
+    fn state(&self) -> iced::advanced::widget::tree::State {
+        iced::advanced::widget::tree::State::new(SlideState::default())
+    }
+
+    fn children(&self) -> Vec<iced::advanced::widget::Tree> {
+        vec![iced::advanced::widget::Tree::new(&self.content)]
+    }
+
+    fn diff(&self, tree: &mut iced::advanced::widget::Tree) {
+        tree.diff_children(std::slice::from_ref(&self.content));
+    }
+
+    fn size(&self) -> Size<Length> {
+        self.content.as_widget().size()
+    }
+
+    fn size_hint(&self) -> Size<Length> {
+        self.content.as_widget().size_hint()
+    }
+
+    fn layout(&mut self, tree: &mut iced::advanced::widget::Tree, renderer: &Renderer, limits: &iced::advanced::layout::Limits) -> iced::advanced::layout::Node {
+        self.content.as_widget_mut().layout(&mut tree.children[0], renderer, limits)
+    }
+
+    fn operate(&mut self, tree: &mut iced::advanced::widget::Tree, layout: iced::advanced::Layout<'_>, renderer: &Renderer, operation: &mut dyn iced::advanced::widget::Operation) {
+        self.content.as_widget_mut().operate(&mut tree.children[0], layout, renderer, operation);
+    }
+
+    fn update(
+        &mut self,
+        tree: &mut iced::advanced::widget::Tree,
+        event: &iced::Event,
+        layout: iced::advanced::Layout<'_>,
+        cursor: mouse::Cursor,
+        renderer: &Renderer,
+        clipboard: &mut dyn iced::advanced::Clipboard,
+        shell: &mut iced::advanced::Shell<'_, Message>,
+        viewport: &Rectangle,
+    ) {
+        self.content.as_widget_mut().update(&mut tree.children[0], event, layout, cursor, renderer, clipboard, shell, viewport);
+        if let iced::Event::Window(iced::window::Event::RedrawRequested(now)) = event {
+            let state = tree.state.downcast_mut::<SlideState>();
+            let slots = slots(layout);
+            state.now = Some(*now);
+            match state.to {
+                None => state.to = Some(self.active),
+                Some(to) if to != self.active => {
+                    state.from = state.shown(&slots);
+                    state.to = Some(self.active);
+                    state.started = Some(*now);
+                }
+                _ => {}
+            }
+            if state.started.is_some_and(|started| now.saturating_duration_since(started).as_secs_f32() < SLIDE) {
+                shell.request_redraw();
+            }
+        }
+    }
+
+    fn mouse_interaction(&self, tree: &iced::advanced::widget::Tree, layout: iced::advanced::Layout<'_>, cursor: mouse::Cursor, viewport: &Rectangle, renderer: &Renderer) -> mouse::Interaction {
+        self.content.as_widget().mouse_interaction(&tree.children[0], layout, cursor, viewport, renderer)
+    }
+
+    fn draw(
+        &self,
+        tree: &iced::advanced::widget::Tree,
+        renderer: &mut Renderer,
+        theme: &Theme,
+        style: &iced::advanced::renderer::Style,
+        layout: iced::advanced::Layout<'_>,
+        cursor: mouse::Cursor,
+        viewport: &Rectangle,
+    ) {
+        use iced::advanced::Renderer as _;
+        let state = tree.state.downcast_ref::<SlideState>();
+        let slots = slots(layout);
+        let shown = state.shown(&slots).or_else(|| slots.get(self.active).copied());
+        if let Some(shown) = shown {
+            let origin = layout.bounds().position();
+            let mut bounds = Rectangle { x: shown.x + origin.x, y: shown.y + origin.y, ..shown };
+            if let Some(inset) = self.pill.underline {
+                bounds = Rectangle { y: bounds.y + bounds.height - inset - 2.0, height: 2.0, ..bounds };
+            }
+            renderer.fill_quad(
+                iced::advanced::renderer::Quad { bounds, border: iced::Border { color: self.pill.edge, width: if self.pill.edge.a > 0.0 { 1.0 } else { 0.0 }, radius: self.pill.radius.into() }, shadow: iced::Shadow::default(), snap: true },
+                iced::Background::Color(self.pill.fill),
+            );
+        }
+        self.content.as_widget().draw(&tree.children[0], renderer, theme, style, layout, cursor, viewport);
     }
 
     fn overlay<'b>(

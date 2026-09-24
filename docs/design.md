@@ -618,6 +618,44 @@ naming the group, its size and when the bot last answered — or *образцы
   through at 70 %. Another's dossier shows no level pill while the level is
   unknown (it said *Ур. 0 · 0 %*), and the chosen figure's and the level's
   glows are as faint as the board's.
+  The parts' words left the page for the top bar (2026-09-24): beside the
+  crest, the catalogue's *Профиль · Лента · Люди · Рейтинг · Титулы* and
+  Settings' *Приложение · Бот* stand at 17 (15.5 under 1200 wide, 14 under
+  1060, so they never run into *Реплеи · Видео · Сообщество · Настройки*),
+  fading with their sheet, and the red line under the chosen one slides
+  to the next along the words' own widths in 260 ms; the page keeps only
+  the line naming the group. Every switch slides its chosen half the same
+  way (*Всё · Группа · Новости*, *Общий · Адаптивный*, *Беседа · Из игры*,
+  the week's six boards, 30 and 90 days), and the switches and chips grew
+  (the halves 152 wide at 14.5, the boards' chips at 13.5). Hovering eases
+  in and out instead of snapping: a card, a row, a tile or a chip keeps
+  its resting look, and a wrapper brings the light in over about 200 ms —
+  a faint wash under a row, an edge over a card (drawn in a layer of its
+  own, clipped to the view, so a cover never hides it), a lift of 2–3 px
+  and a shadow for cards, the podium's edge and shadow in its medal's
+  colour. The fade that carries a panel away now dims shadows, gradients
+  and a container's text as well as fills and edges, and no style reads
+  the fade while drawing (it is 1 then) — glows and dots used to linger
+  to the last frame and vanish at once. Pictures are kept on disk for a
+  week under `cache/pictures` (a stale copy stands in when the network
+  fails), fetched on six lanes, avatars first, then posters, then covers,
+  and a few seconds after launch the known ones are fetched ahead, so the
+  catalogue opens with them. The news lie in balanced columns — each card
+  goes under the shorter column by an estimate of its height — not in
+  rows as tall as their tallest card, and the reader is as tall as its
+  story, up to the room there is, a little above the middle. Choosing a
+  poster has a clock of its own, so what lies under another's dossier no
+  longer comes in again behind it. The dossier's head: the level as a
+  medallion on the ring's foot, a green dot on the ring when online, the
+  title alone on its line and under it *в сети* or *последний визит 3 ч
+  назад*; the country's row has the flag glyph in the icon's place and the
+  country's flag before its name. A place in the group carries its move
+  as a small arrow and number beside the board's name, so a two-figure
+  place never pushes it out. A poster's place is a large numeral over a
+  soft shade in its corner rather than a pill; the chosen play's
+  particulars drop the stars (the poster has them), give the BPM a
+  metronome, put the artist over a larger title, and show the hits as
+  four tiles under a thinner bar.
   The middle was rebuilt the same night from the fifth of the concepts
   drawn on a canvas (two streams under the day's highlights). A segmented
   *Всё · Группа · Новости*, *N новых событий* and a search by player, map,

@@ -208,7 +208,44 @@ fn fetched(url: &str) -> Result<String, String> {
     response.text().map_err(|e| e.to_string())
 }
 
+const PICTURE_FRESH: Duration = Duration::from_secs(7 * 24 * 3600);
+
+fn hashed(words: &str) -> u64 {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in words.bytes() {
+        hash = (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3);
+    }
+    hash
+}
+
+pub fn picture_path(url: &str) -> std::path::PathBuf {
+    crate::sources::own_root().join("cache").join("pictures").join(format!("{:016x}", hashed(url)))
+}
+
 pub fn picture(url: &str) -> Option<Vec<u8>> {
+    let path = picture_path(url);
+    let fresh = std::fs::metadata(&path).ok().and_then(|meta| meta.modified().ok()).and_then(|at| at.elapsed().ok()).is_some_and(|age| age < PICTURE_FRESH);
+    if fresh {
+        if let Ok(bytes) = std::fs::read(&path) {
+            return Some(bytes);
+        }
+    }
+    match fetch_picture(url) {
+        Some(bytes) => {
+            if let Some(folder) = path.parent() {
+                let _ = std::fs::create_dir_all(folder);
+            }
+            let part = path.with_extension("part");
+            if std::fs::write(&part, &bytes).is_ok() {
+                let _ = std::fs::rename(&part, &path);
+            }
+            Some(bytes)
+        }
+        None => std::fs::read(&path).ok(),
+    }
+}
+
+fn fetch_picture(url: &str) -> Option<Vec<u8>> {
     let response = client().ok()?.get(url).send().ok()?;
     response.status().is_success().then(|| response.bytes().ok().map(|bytes| bytes.to_vec())).flatten()
 }
@@ -229,11 +266,7 @@ pub fn save_to(url: &str, path: &std::path::Path) -> Result<(), String> {
 }
 
 pub fn clip_path(link: &str) -> std::path::PathBuf {
-    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
-    for byte in link.bytes() {
-        hash = (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3);
-    }
-    crate::sources::own_root().join("cache").join("clips").join(format!("{hash:016x}.mp4"))
+    crate::sources::own_root().join("cache").join("clips").join(format!("{:016x}.mp4", hashed(link)))
 }
 
 pub fn fetch_builds() -> Result<Vec<Build>, String> {

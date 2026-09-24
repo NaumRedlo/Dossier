@@ -428,6 +428,7 @@ pub struct Main {
     pub(crate) section_at: Instant,
     pub(crate) shift_at: Instant,
     pub(crate) person_at: Instant,
+    pub(crate) play_at: Instant,
     pub(crate) spot_due: Instant,
     pub(crate) spot_held: Option<Instant>,
     pub rank: usize,
@@ -588,6 +589,7 @@ impl Main {
             section_at: Instant::now() - Duration::from_secs(3600),
             shift_at: Instant::now() - Duration::from_secs(3600),
             person_at: Instant::now() - Duration::from_secs(3600),
+            play_at: Instant::now() - Duration::from_secs(3600),
             spot_due: Instant::now(),
             spot_held: None,
             rank: 0,
@@ -613,7 +615,8 @@ impl Main {
             _ => Task::none(),
         };
         let who = made.ask_who();
-        (made, Task::batch([ui::in_thread(move || library::read(&sources)).map(Message::Loaded), adopt, who]))
+        let warm = if made.settings.token.is_empty() { Task::none() } else { warm_pictures() };
+        (made, Task::batch([ui::in_thread(move || library::read(&sources)).map(Message::Loaded), adopt, who, warm]))
     }
 
     fn ask_who(&self) -> Task<Message> {
@@ -681,7 +684,7 @@ impl Main {
             || self.live_arrived.is_some_and(|at| self.now.saturating_duration_since(at) < LIVE_ARRIVE)
             || self.read_fade.is_animating(self.now)
             || self.person_fade.is_animating(self.now)
-            || (self.overlay == Overlay::Community && [self.section_at, self.shift_at, self.person_at].iter().any(|at| self.now.saturating_duration_since(*at).as_secs_f32() < ui::APPEAR_ALL))
+            || (self.overlay == Overlay::Community && [self.section_at, self.shift_at, self.person_at, self.play_at].iter().any(|at| self.now.saturating_duration_since(*at).as_secs_f32() < ui::APPEAR_ALL))
             || (self.overlay == Overlay::Community && self.now.saturating_duration_since(self.spot_at) < crate::chronicle::SPOT_SWAP)
             || (self.overlay == Overlay::Community && self.now.saturating_duration_since(self.rank_at) < crate::chronicle::RANK_GROW)
             || (self.community_reading.is_some() && !self.read_fade.value())
@@ -1652,6 +1655,9 @@ impl Main {
                         if section != self.community_section {
                             self.section_at = now;
                         }
+                        if self.community_reading.is_some() && self.read_fade.value() {
+                            self.read_fade.go_mut(false, now);
+                        }
                         self.community_section = section;
                         self.community_person = None;
                     }
@@ -1757,7 +1763,7 @@ impl Main {
                     C::GradeHover(hover) => self.grade_hover = hover,
                     C::TitlePick(code) => self.title_pick = Some(code),
                     C::PlayOpen(index) => {
-                        self.shift_at = now;
+                        self.play_at = now;
                         self.play_open = if self.play_open == Some(index) { None } else { Some(index) };
                     }
                     C::PlayClip(src, link) => {
@@ -2800,14 +2806,54 @@ impl Main {
         ]
         .spacing(22)
         .align_y(iced::Center);
-        container(
-            row![Space::new().width(BRAND_WIDTH), ui::grow(), words]
-                .align_y(iced::Center)
-                .height(theme::CONTROL_HEIGHT + 4.0),
-        )
+        let mut top = row![Space::new().width(BRAND_WIDTH)].align_y(iced::Center).height(theme::CONTROL_HEIGHT + 4.0);
+        if let Some(tabs) = self.part_tabs() {
+            top = top.push(Space::new().width(34.0)).push(tabs);
+        }
+        container(top.push(ui::grow()).push(words))
         .padding(Padding { top: 22.0, right: 40.0, bottom: 0.0, left: 40.0 })
         .width(Length::Fill)
         .into()
+    }
+
+    fn part_tabs(&self) -> Option<Element<'_, Message>> {
+        use crate::community_screen::{Message as C, Section};
+        let w = &self.words;
+        let (size, gap) = match self.width {
+            wide if wide >= 1200.0 => (17.0, 26.0),
+            wide if wide >= 1060.0 => (15.5, 22.0),
+            _ => (14.0, 20.0),
+        };
+        let tab = |key: &str, on: bool, msg: Message| -> Element<'_, Message> {
+            button(column![Space::new().height(2.0), text(w.t(key)).font(theme::SANS_SEMI).size(size), Space::new().height(2.0)].spacing(5))
+                .padding(0)
+                .style(ui::button_faded(theme::word(on)))
+                .on_press(msg)
+                .into()
+        };
+        let pill = ui::Pill { fill: ACCENT, edge: Color::TRANSPARENT, radius: 1.0, underline: Some(0.0) };
+        let sheet = self.overlay_fade.interpolate(0.0, 1.0, self.now);
+        match self.overlay {
+            Overlay::Community if self.community.is_some() => Some(ui::fading(ui::fade() * sheet, || {
+                let parts = [
+                    ("community-profile", Section::Profile),
+                    ("community-feed", Section::Feed),
+                    ("community-people", Section::People),
+                    ("community-boards", Section::Boards),
+                    ("community-titles", Section::Titles),
+                ];
+                let active = parts.iter().position(|(_, section)| *section == self.community_section).unwrap_or(0);
+                let line = iced::widget::Row::with_children(parts.iter().map(|(key, section)| tab(key, *section == self.community_section, Message::Community(C::Section(*section))))).spacing(gap).align_y(iced::Center);
+                ui::sliding(line, active, pill)
+            })),
+            Overlay::Settings => Some(ui::fading(ui::fade() * sheet, || {
+                let parts = [("app-side", Side::App), ("bot-side", Side::Bot)];
+                let active = parts.iter().position(|(_, side)| *side == self.side).unwrap_or(0);
+                let line = iced::widget::Row::with_children(parts.iter().map(|(key, side)| tab(key, *side == self.side, Message::Prefs(prefs::Message::Side(*side))))).spacing(gap).align_y(iced::Center);
+                ui::sliding(line, active, pill)
+            })),
+            _ => None,
+        }
     }
 
     fn viewer(&self, s: f32) -> Element<'_, Message> {
@@ -3830,14 +3876,20 @@ impl Main {
         if wanted.is_empty() {
             return Task::none();
         }
-        ui::streamed(move |push| {
-            for (url, (w, h)) in wanted {
-                let handle = crate::news::picture(&url).and_then(|bytes| covered_bytes(&bytes, w, h));
-                if !push(Message::NewsPicture(url, handle)) {
-                    return;
+        let mut lanes: Vec<Vec<(String, (u32, u32))>> = vec![Vec::new(); PICTURE_LANES];
+        for (at, one) in wanted.into_iter().enumerate() {
+            lanes[at % PICTURE_LANES].push(one);
+        }
+        Task::batch(lanes.into_iter().filter(|lane| !lane.is_empty()).map(|lane| {
+            ui::streamed(move |push| {
+                for (url, (w, h)) in lane {
+                    let handle = crate::news::picture(&url).and_then(|bytes| covered_bytes(&bytes, w, h));
+                    if !push(Message::NewsPicture(url, handle)) {
+                        return;
+                    }
                 }
-            }
-        })
+            })
+        }))
     }
 
     fn osu_task(&mut self, force: bool) -> Task<Message> {
@@ -4087,20 +4139,33 @@ impl Main {
         if wanted.is_empty() {
             return flag;
         }
-        let pictures = ui::streamed(move |push| {
-            for (url, side) in wanted {
-                let handle = crate::news::picture(crate::community::fetched(&url)).and_then(|bytes| match side {
-                    crate::community::BACKDROP => backdrop_bytes(&bytes, side),
-                    crate::community::POSTER => poster_bytes(&bytes),
-                    side if side <= 256 => covered_bytes(&bytes, side, side),
-                    side => fitted_bytes(&bytes, side),
-                });
-                if !push(Message::NewsPicture(url, handle)) {
-                    return;
-                }
-            }
+        let mut wanted = wanted;
+        wanted.sort_by_key(|(_, side)| match *side {
+            side if side <= 256 => 0,
+            crate::community::POSTER => 1,
+            crate::community::BACKDROP => 3,
+            _ => 2,
         });
-        Task::batch([pictures, flag])
+        let mut lanes: Vec<Vec<(String, u32)>> = vec![Vec::new(); PICTURE_LANES];
+        for (at, one) in wanted.into_iter().enumerate() {
+            lanes[at % PICTURE_LANES].push(one);
+        }
+        let pictures = lanes.into_iter().filter(|lane| !lane.is_empty()).map(|lane| {
+            ui::streamed(move |push| {
+                for (url, side) in lane {
+                    let handle = crate::news::picture(crate::community::fetched(&url)).and_then(|bytes| match side {
+                        crate::community::BACKDROP => backdrop_bytes(&bytes, side),
+                        crate::community::POSTER => poster_bytes(&bytes),
+                        side if side <= 256 => covered_bytes(&bytes, side, side),
+                        side => fitted_bytes(&bytes, side),
+                    });
+                    if !push(Message::NewsPicture(url, handle)) {
+                        return;
+                    }
+                }
+            })
+        });
+        Task::batch(pictures.chain(std::iter::once(flag)))
     }
 
     fn wide_pictures_task(&mut self, urls: Vec<String>) -> Task<Message> {
@@ -4173,6 +4238,7 @@ impl Main {
             section_t: self.now.saturating_duration_since(self.section_at).as_secs_f32().min(60.0),
             shift_t: self.now.saturating_duration_since(self.shift_at).as_secs_f32().min(60.0),
             person_t: self.now.saturating_duration_since(self.person_at).as_secs_f32().min(60.0),
+            play_t: self.now.saturating_duration_since(self.play_at).as_secs_f32().min(60.0),
             rank: self.rank,
             rank_k: {
                 let k = (self.now.saturating_duration_since(self.rank_at).as_secs_f32() / crate::chronicle::RANK_GROW.as_secs_f32()).clamp(0.0, 1.0);
@@ -5093,6 +5159,42 @@ pub fn backdrop_bytes(bytes: &[u8], widest: u32) -> Option<image::Handle> {
     }
     let (width, height) = soft.dimensions();
     Some(image::Handle::from_rgba(width, height, soft.into_raw()))
+}
+
+const PICTURE_LANES: usize = 6;
+
+fn warm_pictures() -> Task<Message> {
+    ui::in_thread(|| {
+        std::thread::sleep(Duration::from_secs(4));
+        let mut wanted: Vec<(String, u32)> = Vec::new();
+        if let Some(kept) = crate::community::wire::load() {
+            wanted.extend(crate::community::Catalog::from_wire(kept).pictures());
+        }
+        for card in [crate::community::wire::load_card(), crate::osu_profile::load()].into_iter().flatten() {
+            wanted.extend(card.pictures());
+        }
+        let mut urls: Vec<String> = Vec::new();
+        for (key, _) in wanted {
+            let url = crate::community::fetched(&key).to_owned();
+            if !url.is_empty() && !urls.contains(&url) {
+                urls.push(url);
+            }
+        }
+        let mut lanes: Vec<Vec<String>> = vec![Vec::new(); 4];
+        for (at, url) in urls.into_iter().enumerate() {
+            lanes[at % 4].push(url);
+        }
+        std::thread::scope(|scope| {
+            for lane in &lanes {
+                scope.spawn(move || {
+                    for url in lane {
+                        let _ = crate::news::picture(url);
+                    }
+                });
+            }
+        });
+    })
+    .discard()
 }
 
 fn flag_bytes(code: &str, url: &str) -> Option<Vec<u8>> {

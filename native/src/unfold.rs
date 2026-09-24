@@ -20,6 +20,7 @@ pub struct Unfold<'a, Message> {
     room: Padding,
     look: Look,
     on_close: Message,
+    fit: bool,
 }
 
 pub fn unfold<'a, Message: Clone + 'a>(after: Element<'a, Message>, before: Option<Element<'a, Message>>, from: Option<Rectangle>, k: f32, on_close: Message) -> Unfold<'a, Message> {
@@ -33,6 +34,7 @@ pub fn unfold<'a, Message: Clone + 'a>(after: Element<'a, Message>, before: Opti
         room: Padding::ZERO,
         look: Look { fill: Color::BLACK, line: Color::TRANSPARENT, veil: Color::TRANSPARENT, radius: 16.0 },
         on_close,
+        fit: false,
     }
 }
 
@@ -49,6 +51,11 @@ impl<'a, Message: Clone + 'a> Unfold<'a, Message> {
 
     pub fn look(mut self, look: Look) -> Self {
         self.look = look;
+        self
+    }
+
+    pub fn fit(mut self) -> Self {
+        self.fit = true;
         self
     }
 }
@@ -119,7 +126,13 @@ impl<Message: Clone> Widget<Message, Theme, Renderer> for Unfold<'_, Message> {
         for (at, (child, state)) in self.children.iter_mut().zip(tree.children.iter_mut()).enumerate() {
             let size = if at == 0 { card.size() } else { start.size() };
             let node = child.as_widget_mut().layout(state, renderer, &layout::Limits::new(Size::ZERO, size));
-            nodes.push(if at == 0 { node.move_to(card.position()) } else { node });
+            let place = if at == 0 && self.fit {
+                let high = node.size().height.min(card.height);
+                iced::Point::new(card.x, card.y + (card.height - high).max(0.0) * 0.3)
+            } else {
+                card.position()
+            };
+            nodes.push(if at == 0 { node.move_to(place) } else { node });
         }
         Node::with_children(area, nodes)
     }

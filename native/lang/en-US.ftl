@@ -465,6 +465,7 @@ news-items = { $n ->
    *[other] items
 }
 week-leaders = Week's leaders
+last-seen = last seen { $when }
 more-changes-n = and { $n } more
 dossier-of = Dossier ·
 mapped-by = mapped by

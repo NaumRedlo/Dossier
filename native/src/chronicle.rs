@@ -382,10 +382,9 @@ fn event_line<'a>(ground: &Ground<'a>, at: i64, table: Table, icon: Icon, colour
     line.into()
 }
 
-fn row_hover(_: &Theme, status: button::Status) -> button::Style {
-    let lit = matches!(status, button::Status::Hovered | button::Status::Pressed);
+fn row_hover(_: &Theme, _: button::Status) -> button::Style {
     button::Style {
-        background: lit.then_some(Background::Color(Color::from_rgba(1.0, 1.0, 1.0, 0.035))),
+        background: None,
         text_color: INK,
         border: Border { radius: 8.0.into(), ..Border::default() },
         shadow: Shadow::default(),
@@ -439,7 +438,7 @@ fn journal_row<'a>(ground: &Ground<'a>, event: &Event<'a>, table: Table) -> Opti
     if let Some(details) = details {
         inside = inside.push(container(details).padding(Padding { top: 2.0, right: 10.0, bottom: 10.0, left: 10.0 + table.time + table.gap }));
     }
-    Some(button(inside).padding(0).width(Length::Fill).style(ui::button_faded(row_hover)).on_press(press).into())
+    Some(ui::hover(button(inside).padding(0).width(Length::Fill).style(ui::button_faded(row_hover)).on_press(press), ui::Glow::row(8.0)))
 }
 
 fn news_card<'a>(ground: &Ground<'a>, event: &Event<'a>) -> Option<Element<'a, Message>> {
@@ -488,12 +487,27 @@ fn news_card<'a>(ground: &Ground<'a>, event: &Event<'a>) -> Option<Element<'a, M
         inside = inside.push(media);
     }
     inside = inside.push(header).push(body);
-    Some(button(container(inside).padding(10)).padding(0).width(Length::Fill).style(ui::button_faded(surface(false))).on_press(press).into())
+    Some(ui::hover(button(container(inside).padding(10)).padding(0).width(Length::Fill).style(ui::button_faded(ui::calm(surface(false)))).on_press(press), ui::Glow::card(14.0).edge(Color::from_rgba(1.0, 1.0, 1.0, 0.1)).lift(2.0)))
+}
+
+fn news_weight(event: &Event<'_>) -> f32 {
+    let lines = |words: &str, across: f32| (words.chars().count() as f32 / across).ceil();
+    match event.item {
+        Item::Post(post) => {
+            let media = if post.image.is_some() || !post.videos.is_empty() { 132.0 } else { 0.0 };
+            media + 44.0 + (lines(&post.text, 46.0) * 18.0).min(88.0)
+        }
+        Item::Story(story) => {
+            let media = if story.image.is_some() { 118.0 } else { 0.0 };
+            media + 44.0 + lines(&story.title, 40.0) * 20.0 + (lines(&story.lead, 52.0) * 17.0).min(51.0)
+        }
+        Item::Build(build) => 44.0 + build.changes.len().min(3) as f32 * 17.0 + if build.changes.len() > 3 { 17.0 } else { 0.0 },
+        _ => 60.0,
+    }
 }
 
 fn shelf_card<'a>(ground: &Ground<'a>, icon: Icon, colour: Color, label: String, who: Option<usize>, big: String, small: String, cover: Option<&'a iced::widget::image::Handle>, press: Message) -> Element<'a, Message> {
     let high = 146.0;
-    let k = ui::fade();
     let mut lower = column![].spacing(5);
     if let Some(person) = who.and_then(|at| ground.catalog.people.get(at)) {
         lower = lower.push(row![screen::face(ground, person, 20.0), ui::marquee(vec![ui::piece(person.name.clone(), theme::SANS_SEMI, 12.5, INK)])].spacing(7).align_y(iced::Center));
@@ -502,21 +516,18 @@ fn shelf_card<'a>(ground: &Ground<'a>, icon: Icon, colour: Color, label: String,
     let inside = column![row![glyph(icon, 13.0, colour), ui::mono_small(label.to_uppercase(), colour)].spacing(7).align_y(iced::Center), ui::grow_tall(), container(lower).clip(true)]
         .height(high)
         .padding([12, 12]);
-    button(stack![screen::backdrop(cover, high, 14.0, colour, false), inside].height(high))
+    let card = button(stack![screen::backdrop(cover, high, 14.0, colour, false), inside].height(high))
         .padding(0)
         .width(Length::FillPortion(1))
-        .style(ui::button_faded(move |_, status: button::Status| {
-            let lit = matches!(status, button::Status::Hovered | button::Status::Pressed);
-            button::Style {
-                background: Some(Background::Color(Color::from_rgba(0.055, 0.025, 0.033, 0.96))),
-                text_color: INK,
-                border: Border { color: Color { a: if lit { 0.7 * k } else { 0.32 * k }, ..colour }, width: 1.0, radius: 14.0.into() },
-                shadow: if lit { Shadow { color: Color { a: 0.25 * k, ..colour }, offset: Vector::ZERO, blur_radius: 18.0 } } else { Shadow::default() },
-                snap: true,
-            }
+        .style(ui::button_faded(move |_, _| button::Style {
+            background: Some(Background::Color(Color::from_rgba(0.055, 0.025, 0.033, 0.96))),
+            text_color: INK,
+            border: Border { color: Color { a: 0.32, ..colour }, width: 1.0, radius: 14.0.into() },
+            shadow: Shadow::default(),
+            snap: true,
         }))
-        .on_press(press)
-        .into()
+        .on_press(press);
+    ui::hover(card, ui::Glow::card(14.0).edge(Color { a: 0.55, ..colour }).shadow(Color { a: 0.3, ..colour }))
 }
 
 fn shelf<'a>(ground: &Ground<'a>, seen: &[Event<'a>]) -> Option<Element<'a, Message>> {
@@ -570,20 +581,20 @@ fn counted<'a, T: Copy + PartialEq + 'static>(ground: &Ground<'a>, options: &[T]
         }
         let on = option == chosen;
         let k = ui::fade();
-        let count = container(text(n.to_string()).font(theme::MONO_BOLD).size(10.0).color(ui::faded(if on { INK } else { MUTED })))
+        let count = container(text(n.to_string()).font(theme::MONO_BOLD).size(11.0).color(ui::faded(if on { INK } else { MUTED })))
             .padding(Padding { top: 1.0, right: 6.0, bottom: 1.0, left: 6.0 })
             .style(move |_| container::Style {
                 background: Some(Background::Color(Color { a: k, ..if on { Color::from_rgb8(0x6a, 0x26, 0x2a) } else { Color::from_rgb8(0x2e, 0x21, 0x25) } })),
                 border: Border { radius: 8.0.into(), ..Border::default() },
                 ..container::Style::default()
             });
-        pills.push(
-            button(row![text(w.t(key(option))).font(theme::SANS_SEMI).size(12.0).color(ui::faded(if on { INK } else { MUTED })), count].spacing(7).align_y(iced::Center))
-                .padding(Padding { top: 5.0, right: 6.0, bottom: 5.0, left: 12.0 })
-                .style(ui::button_faded(theme::filter_chip(on)))
-                .on_press(message(option))
-                .into(),
-        );
+        pills.push(ui::hover(
+            button(row![text(w.t(key(option))).font(theme::SANS_SEMI).size(13.0).color(ui::faded(if on { INK } else { MUTED })), count].spacing(8).align_y(iced::Center))
+                .padding(Padding { top: 7.0, right: 7.0, bottom: 7.0, left: 14.0 })
+                .style(ui::button_faded(ui::calm(theme::filter_chip(on))))
+                .on_press(message(option)),
+            ui::Glow::tile(15.0).edge(Color::from_rgba(1.0, 1.0, 1.0, 0.14)),
+        ));
     }
     ui::wrap(pills, 6.0).into()
 }
@@ -646,11 +657,11 @@ fn timeline<'a>(ground: &Ground<'a>, wide: f32) -> Element<'a, Message> {
         )
         .padding([6, 10])
         .width(if wide < 560.0 { 150.0 } else { 200.0 })
-        .style(|_| container::Style {
-            background: Some(Background::Color(Color::from_rgba(0.0, 0.0, 0.0, 0.25 * ui::fade()))),
-            border: Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.07 * ui::fade()), width: 1.0, radius: 8.0.into() },
+        .style(ui::box_faded(|_| container::Style {
+            background: Some(Background::Color(Color::from_rgba(0.0, 0.0, 0.0, 0.25))),
+            border: Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.07), width: 1.0, radius: 8.0.into() },
             ..container::Style::default()
-        }),
+        })),
     );
     let lately = ground.section_t.min(ground.shift_t);
     let mut page = column![ui::appearing(ui::appear(ground.section_t, 0), 10.0, || top.into())].spacing(12);
@@ -689,22 +700,27 @@ fn timeline<'a>(ground: &Ground<'a>, wide: f32) -> Element<'a, Message> {
         column![head, rows].spacing(10).into()
     };
     let news_list = |columns: usize| -> Element<'a, Message> {
-        let mut cards: Vec<Element<'a, Message>> = Vec::new();
+        let mut cards: Vec<(f32, Element<'a, Message>)> = Vec::new();
         for event in &news {
             let k = ui::appear(lately, 3 + cards.len());
             let made = if k >= 0.999 { news_card(ground, event) } else { ui::fading(ui::fade() * k, || news_card(ground, event)) };
             if let Some(made) = made {
-                cards.push(ui::lifted(made, k, 10.0));
+                cards.push((news_weight(event), ui::lifted(made, k, 10.0)));
             }
         }
         if cards.is_empty() {
             return nothing();
         }
-        if columns > 1 {
-            screen::grid(cards, columns, 12.0)
-        } else {
-            iced::widget::Column::with_children(cards).spacing(10).into()
+        let columns = columns.max(1);
+        let mut stacks: Vec<(f32, Vec<Element<'a, Message>>)> = (0..columns).map(|_| (0.0, Vec::new())).collect();
+        for (weight, card) in cards {
+            if let Some(lightest) = stacks.iter_mut().min_by(|a, b| a.0.total_cmp(&b.0)) {
+                lightest.0 += weight + 12.0;
+                lightest.1.push(card);
+            }
         }
+        let lanes: Vec<Element<'a, Message>> = stacks.into_iter().map(|(_, cards)| iced::widget::Column::with_children(cards).spacing(12).width(Length::FillPortion(1)).into()).collect();
+        iced::widget::Row::with_children(lanes).spacing(12).into()
     };
     let news_panel = |columns: usize| -> Element<'a, Message> {
         let head = ui::appearing(ui::appear(ground.section_t, 2), 10.0, || {
@@ -864,10 +880,13 @@ fn me_card<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
         foot = foot.push(ui::grow());
     }
     foot = foot.push(
-        button(text(w.t("my-profile-open")).font(theme::SANS_SEMI).size(12.0).wrapping(text::Wrapping::None))
-            .padding([6, 14])
-            .style(ui::button_faded(framed))
-            .on_press(Message::Section(Section::Profile)),
+        ui::hover(
+            button(text(w.t("my-profile-open")).font(theme::SANS_SEMI).size(12.0).wrapping(text::Wrapping::None))
+                .padding([6, 14])
+                .style(ui::button_faded(ui::calm(framed)))
+                .on_press(Message::Section(Section::Profile)),
+            ui::Glow::tile(8.0).edge(Color::from_rgba(1.0, 1.0, 1.0, 0.16)),
+        ),
     );
     let high = 208.0;
     let inside = container(column![head, tiles, foot].spacing(14)).padding(16).width(Length::Fill).height(high);
@@ -1034,7 +1053,7 @@ fn friends_card<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
         });
         let face = stack![screen::friend_face(ground, friend, 28.0), container(dot).width(28.0).height(28.0).align_x(iced::alignment::Horizontal::Right).align_y(iced::alignment::Vertical::Bottom)];
         let status = if friend.online { w.t("online") } else { screen::ago(w, friend.minutes_away(ground.now_unix)) };
-        list = list.push(
+        list = list.push(ui::hover(
             button(
                 row![
                     face,
@@ -1051,9 +1070,10 @@ fn friends_card<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
             )
             .padding([5, 6])
             .width(Length::Fill)
-            .style(ui::button_faded(theme::row(false)))
+            .style(ui::button_faded(ui::calm(theme::row(false))))
             .on_press(Message::Open(format!("https://osu.ppy.sh/users/{}", friend.name))),
-        );
+            ui::Glow::row(theme::CONTROL_RADIUS),
+        ));
     }
     let said = screen::friends_said(ground);
     let body: Element<'a, Message> = match said {
@@ -1071,9 +1091,9 @@ fn tab_style(on: bool) -> impl Fn(&Theme, button::Status) -> button::Style {
     move |_, status| {
         let lit = matches!(status, button::Status::Hovered);
         button::Style {
-            background: Some(Background::Color(if on { Color::from_rgba(0.886, 0.282, 0.282, 0.14) } else if lit { Color::from_rgba(1.0, 1.0, 1.0, 0.02) } else { Color::TRANSPARENT })),
+            background: Some(Background::Color(if lit && !on { Color::from_rgba(1.0, 1.0, 1.0, 0.02) } else { Color::TRANSPARENT })),
             text_color: if on || lit { INK } else { FAINT },
-            border: Border { color: if on { Color::from_rgba(0.886, 0.282, 0.282, 0.45) } else { Color::TRANSPARENT }, width: 1.0, radius: 6.0.into() },
+            border: Border { radius: 6.0.into(), ..Border::default() },
             shadow: Shadow::default(),
             snap: true,
         }
@@ -1096,6 +1116,7 @@ fn leaderboard<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
         );
     }
     let k = ui::fade();
+    let tabs = ui::sliding(tabs, chosen, ui::Pill { fill: Color::from_rgba(0.886, 0.282, 0.282, 0.14), edge: Color::from_rgba(0.886, 0.282, 0.282, 0.45), radius: 6.0, underline: None });
     let tabs = container(tabs).padding(2).style(move |_| container::Style {
         background: Some(Background::Color(Color::from_rgba(0.0, 0.0, 0.0, 0.22 * k))),
         border: Border { radius: 8.0.into(), ..Border::default() },
@@ -1137,12 +1158,14 @@ fn leaderboard<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
                 ]
                 .spacing(4)
                 .align_x(iced::alignment::Horizontal::Center);
-                button(container(inside).center_x(Length::Fill).padding(Padding::ZERO.bottom(if place == 1 { 8.0 } else { 0.0 })))
-                    .padding([6, 2])
-                    .width(Length::FillPortion(1))
-                    .style(ui::button_faded(theme::row(false)))
-                    .on_press(Message::Person(Some(who)))
-                    .into()
+                ui::hover(
+                    button(container(inside).center_x(Length::Fill).padding(Padding::ZERO.bottom(if place == 1 { 8.0 } else { 0.0 })))
+                        .padding([6, 2])
+                        .width(Length::FillPortion(1))
+                        .style(ui::button_faded(ui::calm(theme::row(false))))
+                        .on_press(Message::Person(Some(who))),
+                    ui::Glow::row(theme::CONTROL_RADIUS).lift(2.0),
+                )
             };
             let podium = row![step(2), step(1), step(3)].spacing(4).align_y(iced::alignment::Vertical::Bottom);
             let line = |place: Option<usize>, who: usize, value: Option<f64>| -> Element<'a, Message> {
@@ -1150,22 +1173,19 @@ fn leaderboard<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
                 let you = person.you;
                 let was = person.was[board.index()];
                 let shift = place.map(|place| (was > 0).then(|| was as i32 - place as i32));
-                button(
-                    row![
-                        container(text(place.map_or_else(|| "—".to_owned(), |place| place.to_string())).font(theme::MONO_BOLD).size(11.0).color(ui::faded(MUTED))).width(16.0).align_x(iced::alignment::Horizontal::Right),
-                        screen::face(ground, person, 22.0),
-                        ui::marquee(vec![ui::piece(person.name.clone(), theme::SANS_SEMI, 13.0, if you { coral } else { INK })]),
-                        screen::movement(ground, shift),
-                        text(value.map_or_else(|| "—".to_owned(), gain)).font(theme::SANS_SEMI).size(12.5).wrapping(text::Wrapping::None).color(ui::faded(if value.is_some() { GREEN } else { FAINT })),
-                    ]
-                    .spacing(8)
-                    .align_y(iced::Center),
+                let line = row![
+                    container(text(place.map_or_else(|| "—".to_owned(), |place| place.to_string())).font(theme::MONO_BOLD).size(11.0).color(ui::faded(MUTED))).width(16.0).align_x(iced::alignment::Horizontal::Right),
+                    screen::face(ground, person, 22.0),
+                    ui::marquee(vec![ui::piece(person.name.clone(), theme::SANS_SEMI, 13.0, if you { coral } else { INK })]),
+                    screen::movement(ground, shift),
+                    text(value.map_or_else(|| "—".to_owned(), gain)).font(theme::SANS_SEMI).size(12.5).wrapping(text::Wrapping::None).color(ui::faded(if value.is_some() { GREEN } else { FAINT })),
+                ]
+                .spacing(8)
+                .align_y(iced::Center);
+                ui::hover(
+                    button(line).padding([6, 6]).width(Length::Fill).style(ui::button_faded(ui::calm(theme::row(you)))).on_press(Message::Person(Some(who))),
+                    ui::Glow::row(theme::CONTROL_RADIUS),
                 )
-                .padding([6, 6])
-                .width(Length::Fill)
-                .style(ui::button_faded(theme::row(you)))
-                .on_press(Message::Person(Some(who)))
-                .into()
             };
             let mut rows = column![].spacing(2);
             for (at, (who, value)) in list.order.iter().enumerate().skip(3).take(2) {

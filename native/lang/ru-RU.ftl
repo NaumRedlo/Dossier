@@ -485,6 +485,7 @@ news-items = { $n ->
    *[other] записей
 }
 week-leaders = Лидеры недели
+last-seen = последний визит { $when }
 more-changes-n = и ещё { $n }
 dossier-of = Досье ·
 mapped-by = карта

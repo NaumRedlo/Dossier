@@ -957,6 +957,26 @@ the window loses focus, and the wheel as a scrub.
 replay is beyond the viewer — the judgement's counts, whether it agrees with
 the header, the score — is designed after this screen is real, not before.
 
+**The journal** (2026-09-24) is searched from a field between its scrubber
+and its counter: player, map and mods, *+HDDT* for a set of mods and *+NM*
+for none; typing anywhere on the main screen starts it and Escape clears it.
+Its frames are dragged like a film strip, with a fling, and a drag never
+chooses a replay. It watches its sources: the replays' and maps' folders,
+stable's `scores.db` and `Data/r`, lazer's database — when they change it
+rereads, at most every twenty seconds, keeps what was chosen and announces
+what is new. A stable folder brings every local score whose replay lies in
+`Data/r`, read from `scores.db` rather than file by file. While the library
+is read the screen says how far through the maps and the replays it is. lazer
+is never taken for stable: its install folder leads to its data, and its
+replays are known by their versions past thirty million.
+
+**Интерфейс** is a tile beside *Язык*: the scale follows the monitor — 100
+percent at 1080 logical pixels, more on taller screens, less on small ones,
+measured when the window opens and when it moves — or is set by hand from 80
+to 150 percent. When the scale grows the window grows with it. The *Рендер*
+tile holds a fourth slider, *Процессор*, which holds one's renders and the
+worker's to a quarter, half or three quarters of the cores.
+
 **Воркер** is a tile of the application's settings, second after *Рендер*
 (2026-09-24; it was a third part of Settings for a day, and a part of its
 own did not earn its place): the farm is back in the bot, and a machine

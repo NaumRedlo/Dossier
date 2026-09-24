@@ -479,6 +479,12 @@ events = { $n ->
     [few] события
    *[other] событий
 }
+news-items = { $n ->
+    [one] запись
+    [few] записи
+   *[other] записей
+}
+week-leaders = Лидеры недели
 more-changes-n = и ещё { $n }
 dossier-of = Досье ·
 mapped-by = карта

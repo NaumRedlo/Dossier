@@ -418,7 +418,7 @@ pub(crate) fn grid<'a>(cells: Vec<Element<'a, Message>>, columns: usize, gap: f3
     rows.into()
 }
 
-fn lifted(_: &Theme, status: button::Status) -> button::Style {
+pub(crate) fn lifted(_: &Theme, status: button::Status) -> button::Style {
     let lit = matches!(status, button::Status::Hovered | button::Status::Pressed);
     button::Style {
         background: Some(Background::Color(if lit { Color::from_rgba(0.075, 0.035, 0.045, 0.98) } else { Color::from_rgba(0.055, 0.025, 0.033, 0.96) })),
@@ -891,12 +891,12 @@ pub(crate) fn ringed<'a>(ground: &Ground<'a>, person: &Person, side: f32, ring: 
         .into()
 }
 
-struct Standings {
-    order: Vec<(usize, f64)>,
-    out: usize,
+pub(crate) struct Standings {
+    pub(crate) order: Vec<(usize, f64)>,
+    pub(crate) out: usize,
 }
 
-fn standings(catalog: &Catalog, board: Board, standing: Standing) -> Standings {
+pub(crate) fn standings(catalog: &Catalog, board: Board, standing: Standing) -> Standings {
     let at = board.index();
     match standing {
         Standing::General => {
@@ -913,7 +913,7 @@ fn standings(catalog: &Catalog, board: Board, standing: Standing) -> Standings {
     }
 }
 
-fn grown(words: &Words, board: Board, value: f64, plus: bool) -> String {
+pub(crate) fn grown(words: &Words, board: Board, value: f64, plus: bool) -> String {
     let sign = if plus { "+" } else { "" };
     match board {
         Board::Pp => format!("{sign}{} pp", words.lang().group(value.round() as u64)),
@@ -973,7 +973,7 @@ fn said_for(ground: &Ground<'_>, list: &Standings, place: usize, who: usize, val
     }
 }
 
-fn movement<'a>(ground: &Ground<'a>, shift: Option<Option<i32>>) -> Element<'a, Message> {
+pub(crate) fn movement<'a>(ground: &Ground<'a>, shift: Option<Option<i32>>) -> Element<'a, Message> {
     let k = ui::fade();
     match shift {
         None => Space::new().width(0.0).height(0.0).into(),

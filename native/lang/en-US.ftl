@@ -460,6 +460,11 @@ events = { $n ->
     [one] event
    *[other] events
 }
+news-items = { $n ->
+    [one] item
+   *[other] items
+}
+week-leaders = Week's leaders
 more-changes-n = and { $n } more
 dossier-of = Dossier ·
 mapped-by = mapped by

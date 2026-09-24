@@ -567,6 +567,25 @@ naming the group, its size and when the bot last answered — or *образцы
   pauses it: the countdown stops where it was and goes on from there when
   the pointer leaves, and nothing turns or grows again on leaving (it used
   to restart both, so the spotlight blinked and the bars regrew).
+  Both side cards were redrawn once more (2026-09-24). The person's own
+  card lies over their cover like a card on *Люди* and is one press into
+  *Профиль*: the level ring, the name with the flag, the title, the
+  country's rank and the level, the place in the group large in its
+  medal's colour; pp, world rank and accuracy as three small tiles, the
+  week's gain under the pp and the accuracy; the streak as a small chip
+  (it gives way before *Мой профиль →* when the card is narrow). The
+  week's table is always the adaptive one, as the bot draws it, with no
+  switch: *Лидеры недели* and the week's days, the six boards turning as
+  before, the first three on a small podium (second, first, third, the
+  first raised and larger, each ringed and numbered in its medal's colour,
+  its gain in green), then the fourth and fifth as rows with their move
+  and gain, and the person's own row below if they stand lower or have
+  not gained (*—*); the bars are gone, and a turn fades the new board in
+  and lifts it 6 px. While the week is still gathering, or no one has
+  gained on a board, it says so in a line.
+  The headings over the two streams say what they count in words that fit
+  them — *Группа · 16 событий*, *Новости · 7 записей* — in the page's own
+  face rather than the monospaced one.
   The middle was rebuilt the same night from the fifth of the concepts
   drawn on a canvas (two streams under the day's highlights). A segmented
   *Всё · Группа · Новости*, *N новых событий* and a search by player, map,

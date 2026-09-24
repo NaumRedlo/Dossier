@@ -519,3 +519,5 @@ whats-new = What's new
 quiet-updates = Update quietly while I'm away
 update-out = An update is out
 updated = Dossier updated
+search-journal = Player, map, +HDDT…
+search-nothing = No replays match this

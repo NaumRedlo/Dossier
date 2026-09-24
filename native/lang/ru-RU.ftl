@@ -538,3 +538,5 @@ whats-new = Что нового
 quiet-updates = Обновляться молча, пока меня нет
 update-out = Вышло обновление
 updated = Dossier обновлён
+search-journal = Игрок, карта, +HDDT…
+search-nothing = По этому запросу реплеев нет

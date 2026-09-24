@@ -146,6 +146,7 @@ pub enum Message {
     ControlsHover(bool),
     PlayerNeighbour(i32),
     Typed(char),
+    Search(String),
     RevealVideo,
     AskDelete,
     AskDeleteOf(usize),
@@ -409,6 +410,7 @@ pub struct Main {
     pub width: f32,
     pub height: f32,
     strip_id: iced::widget::Id,
+    search_id: iced::widget::Id,
     strip_aim: Option<(u64, f32)>,
     pub community: Option<crate::community::Catalog>,
     pub community_section: crate::community_screen::Section,
@@ -584,6 +586,7 @@ impl Main {
             width: crate::WINDOW.width,
             height: crate::WINDOW.height,
             strip_id: iced::widget::Id::unique(),
+            search_id: iced::widget::Id::unique(),
             strip_aim: None,
             community: None,
             community_section: crate::community_screen::Section::Feed,
@@ -1089,6 +1092,9 @@ impl Main {
                     self.read_fade.go_mut(false, Instant::now());
                 } else if self.overlay == Overlay::Community && self.community_person.is_some() && self.person_fade.value() {
                     self.person_fade.go_mut(false, Instant::now());
+                } else if self.overlay == Overlay::None && !self.search.is_empty() {
+                    self.search.clear();
+                    return iced::advanced::widget::operate(iced::advanced::widget::operation::focusable::unfocus::<Message>());
                 } else if self.overlay == Overlay::Community {
                     self.feed_query.clear();
                     self.channel_draft.clear();
@@ -1570,8 +1576,18 @@ impl Main {
                 }
                 self.update(Message::OpenVideo(next as usize))
             }
+            Message::Search(query) => {
+                self.search = query;
+                Task::none()
+            }
             Message::Typed(letter) => {
                 if self.player.is_none() {
+                    if self.overlay == Overlay::None && self.menu.is_none() && self.library.is_some() && (letter.is_alphanumeric() || letter == '+') {
+                        self.search.push(letter);
+                        let id = self.search_id.clone();
+                        return iced::advanced::widget::operate(iced::advanced::widget::operation::focusable::focus::<Message>(id.clone()))
+                            .chain(iced::advanced::widget::operate(iced::advanced::widget::operation::text_input::move_cursor_to_end::<Message>(id)));
+                    }
                     return Task::none();
                 }
                 match letter {
@@ -3404,7 +3420,23 @@ impl Main {
         let scrub = iced::widget::canvas(ui::Scrub { start, len, on: Box::new(Message::ScrubTo) })
             .width(Length::Fill)
             .height(14.0);
-        let rail = row![scrub, container(counter).padding(Padding::ZERO.left(14.0))].align_y(iced::Center);
+        let search = iced::widget::text_input(&w.t("search-journal"), &self.search)
+            .id(self.search_id.clone())
+            .on_input(Message::Search)
+            .font(theme::MONO)
+            .size(11.0)
+            .padding([3, 10])
+            .width(190.0)
+            .style(theme::field_faded(ui::fade()));
+        let rail = row![scrub, container(search).padding(Padding::ZERO.left(14.0)), container(counter).padding(Padding::ZERO.left(10.0))].align_y(iced::Center);
+        let strip: Element<'_, Message> = if visible.is_empty() && !self.search.trim().is_empty() {
+            container(text(w.t("search-nothing")).font(theme::SANS).size(theme::CAPTION).color(ui::faded(FAINT)))
+                .height(theme::FRAME_H + 4.0 + 17.0)
+                .center_y(theme::FRAME_H + 4.0 + 17.0)
+                .into()
+        } else {
+            strip.into()
+        };
         container(column![rail, container(strip).padding(Padding::ZERO.top(8.0))].spacing(2))
             .padding(Padding { top: 0.0, right: 40.0, bottom: 10.0, left: 40.0 })
             .width(Length::Fill)

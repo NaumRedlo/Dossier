@@ -161,17 +161,25 @@ impl Entry {
         if query.is_empty() {
             return true;
         }
+        let mods: Vec<String> = self.mods.iter().map(|m| m.to_lowercase()).collect();
         let mut hay = vec![self.player.to_lowercase()];
         if let Some(line) = self.map_line() {
             hay.push(line.to_lowercase());
         }
-        hay.extend(self.mods.iter().map(|m| m.to_lowercase()));
+        hay.extend(mods.iter().cloned());
         match self.outcome {
             Outcome::FullCombo => hay.push("fc".to_owned()),
             Outcome::Misses(_) => hay.push("miss".to_owned()),
             _ => {}
         }
-        query.split_whitespace().all(|word| hay.iter().any(|h| h.contains(word)))
+        query.split_whitespace().all(|word| match word.strip_prefix('+') {
+            Some("nm") => mods.is_empty(),
+            Some(wanted) if !wanted.is_empty() => {
+                let letters: Vec<char> = wanted.chars().collect();
+                letters.len() % 2 == 0 && letters.chunks(2).all(|pair| mods.iter().any(|m| m.chars().eq(pair.iter().copied())))
+            }
+            _ => hay.iter().any(|h| h.contains(word)),
+        })
     }
 }
 
@@ -446,6 +454,7 @@ pub fn md5_hex(bytes: &[u8]) -> String {
 mod tests {
     use super::*;
 
+
     #[test]
     fn grades_follow_the_game_s_table() {
         assert_eq!(Grade::of([100, 0, 0, 0], false), Grade::Ss);
@@ -514,5 +523,13 @@ mod tests {
         assert!(!entry.matches("miss"));
         assert!(!entry.matches("freedom"));
         assert!(entry.matches(""));
+        assert!(entry.matches("+hddt"));
+        assert!(entry.matches("+DT"));
+        assert!(entry.matches("guest +hd"));
+        assert!(!entry.matches("+hdhr"));
+        assert!(!entry.matches("+hdd"));
+        assert!(!entry.matches("+nm"));
+        let plain = Entry { mods: Vec::new(), ..entry.clone() };
+        assert!(plain.matches("+nm"));
     }
 }

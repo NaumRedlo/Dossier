@@ -389,8 +389,10 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
     worker.overlay = Overlay::Settings;
     worker.overlay_drawn = Overlay::Settings;
     worker.overlay_fade = iced::Animation::new(true);
-    worker.side = crate::settings_screen::Side::Worker;
+    worker.side = crate::settings_screen::Side::App;
     worker.settings.worker_on = true;
+    worker.settings.token = "staged".into();
+    worker.ffmpeg_version = Some("7.1".to_owned());
     worker.worker_step = Some(crate::worker::Step::Drawing { title: "NaumRedlo — yaseta - Bluenation [Grace]".into(), done: 9_120, of: 19_200, left_seconds: 96.0, fps: 142.0 });
     worker.worker_done = 3;
     worker.worker_back = 1;
@@ -561,6 +563,7 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
     prefs_app.overlay_fade = iced::Animation::new(true);
     prefs_app.ground_fade = iced::Animation::new(true);
     prefs_app.ffmpeg_version = Some("7.1".to_owned());
+    prefs_app.update = crate::updates::State::Latest { at: NOON };
     prefs_app.sizes = (596_000_000, 1_180_000_000, 146_800_000);
     prefs_app.storage = crate::settings_screen::Storage { app: 48_200_000, data: 2_140_000_000, videos: 596_000_000, skins: 277_000_000, maps: 1_180_000_000, cache: 14_600_000 };
     prefs_app.store.videos = with_videos.store.videos.clone();

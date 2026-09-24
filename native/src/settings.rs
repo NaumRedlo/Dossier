@@ -70,6 +70,10 @@ pub struct Settings {
     #[serde(default)]
     pub worker_on: bool,
     #[serde(default)]
+    pub quiet_updates: bool,
+    #[serde(default)]
+    pub last_build: String,
+    #[serde(default)]
     pub own_skins: Vec<PathBuf>,
     #[serde(default = "full")]
     pub music_level: f32,
@@ -785,6 +789,8 @@ impl Default for Settings {
             tell: Tell::default(),
             skin: None,
             worker_on: false,
+            quiet_updates: false,
+            last_build: String::new(),
             own_skins: Vec::new(),
             music_level: 1.0,
             hitsound_level: 1.0,

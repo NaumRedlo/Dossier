@@ -13,6 +13,8 @@ pub enum Mark {
 pub enum Link {
     OpenVideo(PathBuf),
     RenderAgain(PathBuf),
+    Update,
+    Page(String),
     None,
 }
 

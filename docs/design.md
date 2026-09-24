@@ -957,24 +957,44 @@ the window loses focus, and the wheel as a scrub.
 replay is beyond the viewer — the judgement's counts, whether it agrees with
 the header, the score — is designed after this screen is real, not before.
 
-**Воркер** lives only in Settings, as its third part beside *Приложение* and
-*Бот* (2026-09-24): the farm is back in the bot, and a machine lends itself
-from here. One switch — *Брать работу у бота* — with a sentence under it
-saying what it does. Two cards: the device (its name, a coloured state —
+**Воркер** is a tile of the application's settings, second after *Рендер*
+(2026-09-24; it was a third part of Settings for a day, and a part of its
+own did not earn its place): the farm is back in the bot, and a machine
+lends itself from here. The tile holds one switch — *Брать работу у бота* —
+with the sentence saying what it does while it is off; a coloured state —
 waiting, resting while one's own render runs, no answer from the bot,
-fetching the replay, finding the map, fetching the skin, drawing,
-evening the loudness, sending — three tiles for speed, delivered and handed
-back, the checks that fail, the job being drawn with its bar and time left,
-and the last job's outcome) and the farm (how many jobs wait, and who is
-online: name, state, delivered, this device marked). The worker is a loop on
-its own thread: it asks for a job every eight seconds unless one's own
-render is running, fetches the replay, finds the map in the library by its
-hash or downloads it from the mirrors, fetches and unpacks the job's skin
-once per hash, draws at 1920×1080 and 60 FPS, beats every fifteen seconds
-with its progress (and stops if the bot has given the job away), evens the
-loudness with `loudnorm` to −14 LUFS, refits the video to the bot's limit
-when it is larger, and sends it — or hands the job back with the reason.
-While it draws, one's own *Render* waits and says why.
+fetching the replay, finding the map, fetching the skin, drawing (with the
+frames per second on the right), evening the loudness, sending; the job
+being drawn with its bar and time left; delivered and handed back in one
+line; the checks that fail; the last job's outcome; and, once paired, the
+farm — how many jobs wait and who is online, this device marked. The menu's
+account card names the worker's state and the stats count its delivered
+jobs. The worker is a loop on its own thread: it asks for a job every eight
+seconds unless one's own render is running, fetches the replay, finds the
+map in the library by its hash or downloads it from the mirrors, fetches and
+unpacks the job's skin once per hash, draws at 1920×1080 and 60 FPS, beats
+every fifteen seconds with its progress (and stops if the bot has given the
+job away), evens the loudness with `loudnorm` to −14 LUFS, refits the video
+to the bot's limit when it is larger, and sends it — or hands the job back
+with the reason. While it draws, one's own *Render* waits and says why.
+
+**Обновления** live in the *Сборки* tile. At launch and every six hours the
+application reads the repository's releases — pre-releases included, for
+everyone — and takes the newest one that has an archive for this system and
+a `SHA256SUMS`. The tile says what it knows: checking, the latest with the
+time it was checked, *Вышла 0.90.0 · пред-релиз* in red, the download's
+percent, ready, or why it failed; *Настройки* in the top bar carries a small
+red dot while an update waits, and a toast offers it once. *Обновить*
+downloads the archive, checks its sum, unpacks it beside the data, puts the
+new application where the old one stood (the whole bundle on macOS, the
+executable elsewhere; the old one is set aside and cleared at the next
+launch) and starts it — but never while a render, a worker's job, a map's
+download, a sending or a search is under way; then it waits for them. The
+switch *Обновляться молча, пока меня нет* downloads as soon as an update is
+out and puts it in after half an hour without a touch, or at the next
+launch, starting the new one in the background. A build from the source says
+it updates with git and does nothing. The first launch of a new version
+toasts *Dossier обновлён* with the versions and a link to what is new.
 
 **Настройки.** A rail of eight: Подключение, Папки, Видео, Звук, Скины, Игра,
 Клиент, Авторство. Each row is a name, at most one short line under it, and

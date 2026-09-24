@@ -167,6 +167,9 @@ fn main() -> iced::Result {
         }
         return Ok(());
     }
+    if dossier_native::REHEARSAL.get().is_none() && !settings::first_run() && dossier_native::updates::on_launch(settings::Settings::load().quiet_updates) {
+        return Ok(());
+    }
     iced::application(App::boot, App::update, App::view)
         .title("Dossier")
         .settings(settings())

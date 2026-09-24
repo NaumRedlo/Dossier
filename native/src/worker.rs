@@ -41,6 +41,7 @@ pub enum Step {
 
 static ON: AtomicBool = AtomicBool::new(false);
 static DRAWING: AtomicBool = AtomicBool::new(false);
+static HOLDING: AtomicBool = AtomicBool::new(false);
 
 const RESTING: Duration = Duration::from_secs(8);
 const QUIET: Duration = Duration::from_secs(20);
@@ -52,6 +53,10 @@ pub fn stop() {
 
 pub fn drawing() -> bool {
     DRAWING.load(Ordering::SeqCst)
+}
+
+pub fn holding() -> bool {
+    HOLDING.load(Ordering::SeqCst)
 }
 
 pub fn run(setup: Setup) -> iced::Task<Step> {
@@ -81,12 +86,16 @@ fn work(setup: &Setup, push: &mut dyn FnMut(Step) -> bool) {
         }
         match bot::claim(&setup.server, &setup.token, &setup.name, true) {
             Ok(Some(job)) => {
+                HOLDING.store(true, Ordering::SeqCst);
                 let title = job.title.clone();
                 if !push(Step::Taken { title: title.clone() }) {
                     let _ = bot::give_back(&setup.server, &setup.token, &setup.name, &job.id, "the application closed");
+                    HOLDING.store(false, Ordering::SeqCst);
                     break;
                 }
-                match one(setup, &job, push) {
+                let outcome = one(setup, &job, push);
+                HOLDING.store(false, Ordering::SeqCst);
+                match outcome {
                     Ok(()) => {
                         if !push(Step::Delivered { title }) {
                             break;

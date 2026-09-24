@@ -78,15 +78,13 @@ jobs:
             Linux)
               cp "$bin" "$out/dossier"
               cp native/assets/icon/dossier-512.png "$out/dossier.png"
-              tar czf "$out.tar.gz" "$out"
+              zip -qry "$out.zip" "$out"
               ;;
           esac
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.name }}
-          path: |
-            dossier-*.zip
-            dossier-*.tar.gz
+          path: dossier-*.zip
 
   publish:
     needs: build
@@ -100,5 +98,6 @@ jobs:
       - env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          (cd dist && sha256sum dossier-*.zip > SHA256SUMS)
           notes="docs/releases/${GITHUB_REF_NAME}.md"
           gh release create "$GITHUB_REF_NAME" dist/* --prerelease --title "Dossier ${GITHUB_REF_NAME}" --notes-file "$notes"

@@ -21,6 +21,7 @@ use crate::settings::Settings;
 use crate::sources::Kind;
 use crate::theme::{self, ACCENT, FAINT, INK, MUTED};
 use crate::ui::{self, Line, Mood};
+use crate::updates::State as UpdateState;
 
 pub const ENTER: Duration = Duration::from_millis(1200);
 pub const ARRIVE: Duration = Duration::from_millis(450);
@@ -74,6 +75,10 @@ pub enum Message {
     WorkerSwitch(bool),
     Worked(crate::worker::Step),
     FarmHeard(Option<crate::bot::Farm>),
+    UpdateTick,
+    UpdateChecked(Result<Option<crate::updates::Release>, String>),
+    UpdateGot(crate::updates::Step),
+    UpdateIdle,
     NewsTick,
     FeedClock,
     ClipFetched(String, Result<(PathBuf, i64, u32), String>),
@@ -390,6 +395,9 @@ pub struct Main {
     pub(crate) worker_done: u32,
     pub(crate) worker_back: u32,
     pub(crate) farm: Option<crate::bot::Farm>,
+    pub update: UpdateState,
+    pub(crate) update_wanted: bool,
+    update_told: Option<String>,
     pub now: Instant,
     pub started: Instant,
     pub now_unix: i64,
@@ -562,6 +570,9 @@ impl Main {
             worker_done: 0,
             worker_back: 0,
             farm: None,
+            update: UpdateState::Unknown,
+            update_wanted: false,
+            update_told: None,
             now: Instant::now(),
             started: Instant::now(),
             now_unix: unix_now(),
@@ -647,6 +658,79 @@ impl Main {
         (made, Task::batch([ui::in_thread(move || library::read(&sources)).map(Message::Loaded), adopt, who, warm]))
     }
 
+    pub fn launched(&mut self) -> Task<Message> {
+        crate::updates::touched();
+        let build = crate::bot::BUILD;
+        if self.settings.last_build != build {
+            let before = std::mem::replace(&mut self.settings.last_build, build.to_owned());
+            let _ = self.settings.save();
+            if !before.is_empty() {
+                let page = format!("{}/tag/v{build}", crate::updates::PAGE);
+                self.announce(notices::Mark::Done, self.words.t("updated"), format!("{before} → {build}"), String::new(), String::new(), notices::Link::Page(page));
+            }
+        }
+        if crate::updates::place() == crate::updates::Place::Source {
+            self.update = UpdateState::Source;
+            return Task::none();
+        }
+        self.check_update()
+    }
+
+    fn check_update(&mut self) -> Task<Message> {
+        if matches!(self.update, UpdateState::Source | UpdateState::Checking | UpdateState::Getting { .. } | UpdateState::Ready { .. }) {
+            return Task::none();
+        }
+        self.update = UpdateState::Checking;
+        ui::in_thread(crate::updates::check).map(Message::UpdateChecked)
+    }
+
+    fn get_update(&mut self, wanted: bool) -> Task<Message> {
+        self.update_wanted |= wanted;
+        match self.update.clone() {
+            UpdateState::Ready { .. } if self.update_wanted => self.put_in_when_calm(),
+            UpdateState::Found(release) | UpdateState::Failed { release: Some(release), .. } => {
+                self.update = UpdateState::Getting { total: Some(release.size).filter(|size| *size > 0), release: release.clone(), done: 0 };
+                let place = crate::updates::place();
+                ui::streamed(move |push| crate::updates::fetch(&release, &place, push)).map(Message::UpdateGot)
+            }
+            _ => Task::none(),
+        }
+    }
+
+    pub(crate) fn calm_for_update(&self) -> bool {
+        !crate::render::busy()
+            && !crate::worker::holding()
+            && self.sending.as_ref().is_none_or(|sending| sending.over.is_some())
+            && self.fetching.as_ref().is_none_or(|fetching| fetching.is_over())
+            && !matches!(self.looking, Some(scan::Step::Looking { .. }))
+    }
+
+    fn put_in_when_calm(&mut self) -> Task<Message> {
+        if self.calm_for_update() {
+            self.put_in(false)
+        } else {
+            Task::none()
+        }
+    }
+
+    fn put_in(&mut self, quiet: bool) -> Task<Message> {
+        let UpdateState::Ready { release, staged } = self.update.clone() else {
+            return Task::none();
+        };
+        let place = crate::updates::place();
+        match crate::updates::apply(&staged, &place).and_then(|what| crate::updates::launch(&what, quiet)) {
+            Ok(()) => {
+                crate::worker::stop();
+                iced::exit()
+            }
+            Err(why) => {
+                self.update = UpdateState::Failed { release: Some(release), why };
+                self.update_wanted = false;
+                Task::none()
+            }
+        }
+    }
+
     fn ask_who(&self) -> Task<Message> {
         if self.settings.token.is_empty() {
             return Task::none();
@@ -725,7 +809,11 @@ impl Main {
     }
 
     pub fn subscription(&self) -> Subscription<Message> {
-        let mut parts = vec![iced::event::listen_with(|event, status, _| match (event, status) {
+        let mut parts = vec![iced::event::listen_with(|event, status, _| {
+            if matches!(event, iced::Event::Mouse(_) | iced::Event::Keyboard(_) | iced::Event::Touch(_)) {
+                crate::updates::touched();
+            }
+            match (event, status) {
             (iced::Event::Window(window::Event::FileDropped(path)), _) => Some(Message::Dropped(path)),
             (iced::Event::Window(window::Event::Resized(size)), _) => Some(Message::Resized(size.width, size.height)),
             (iced::Event::Window(window::Event::Opened { size, .. }), _) => Some(Message::Resized(size.width, size.height)),
@@ -752,7 +840,14 @@ impl Main {
                 }
             }
             _ => None,
+        }
         })];
+        if !matches!(self.update, UpdateState::Source | UpdateState::Unknown) {
+            parts.push(iced::time::every(crate::updates::EVERY).map(|_| Message::UpdateTick));
+        }
+        if matches!(self.update, UpdateState::Ready { .. }) && (self.update_wanted || self.settings.quiet_updates) {
+            parts.push(iced::time::every(Duration::from_secs(5)).map(|_| Message::UpdateIdle));
+        }
         if self.moving() {
             parts.push(window::frames().map(Message::Tick));
         }
@@ -765,7 +860,7 @@ impl Main {
         if self.overlay == Overlay::Community {
             parts.push(iced::time::every(NEWS_EVERY).map(|_| Message::NewsTick));
         }
-        if self.overlay == Overlay::Settings && self.side == Side::Worker && !self.settings.token.is_empty() {
+        if self.overlay == Overlay::Settings && self.side == Side::App && !self.settings.token.is_empty() {
             parts.push(iced::time::every(Duration::from_secs(10)).map(|_| Message::FarmTick));
         }
         if self.overlay == Overlay::Community && self.community_section == crate::community_screen::Section::Feed {
@@ -1575,7 +1670,6 @@ impl Main {
                 if overlay == Overlay::Settings {
                     self.side = match self.settings.settings_tab.as_str() {
                         "bot" => Side::Bot,
-                        "worker" => Side::Worker,
                         _ => Side::App,
                     };
                     let renders = self.settings.renders_dir();
@@ -1597,7 +1691,7 @@ impl Main {
                     self.turn_to(overlay, now);
                     self.overlay = overlay;
                     self.rest_live(true);
-                    return Task::batch([sizes, stored, version, chats, skins]);
+                    return Task::batch([sizes, stored, version, chats, skins, self.farm_task()]);
                 }
                 let news = match overlay == Overlay::Community {
                     true => {
@@ -2537,6 +2631,71 @@ impl Main {
                 self.error_shown = None;
                 Task::none()
             }
+            Message::UpdateTick => self.check_update(),
+            Message::UpdateChecked(Ok(Some(release))) => {
+                if matches!(&self.update, UpdateState::Getting { release: known, .. } | UpdateState::Ready { release: known, .. } if known.version == release.version) {
+                    return Task::none();
+                }
+                self.update = UpdateState::Found(release.clone());
+                if self.settings.quiet_updates || self.update_wanted {
+                    return self.get_update(false);
+                }
+                if self.update_told.as_deref() != Some(release.version.as_str()) {
+                    self.update_told = Some(release.version.clone());
+                    let detail = if release.pre { format!("Dossier {} · {}", release.version, self.words.t("prerelease")) } else { format!("Dossier {}", release.version) };
+                    self.announce(notices::Mark::Plain, self.words.t("update-out"), detail, String::new(), String::new(), notices::Link::Update);
+                }
+                Task::none()
+            }
+            Message::UpdateChecked(Ok(None)) => {
+                self.update = UpdateState::Latest { at: chrono::Utc::now().timestamp() };
+                Task::none()
+            }
+            Message::UpdateChecked(Err(why)) => {
+                self.update = UpdateState::Failed { release: None, why };
+                Task::none()
+            }
+            Message::UpdateGot(step) => match step {
+                crate::updates::Step::Downloading { done, total } => {
+                    if let UpdateState::Getting { done: was, total: all, .. } = &mut self.update {
+                        *was = done;
+                        if total.is_some() {
+                            *all = total;
+                        }
+                    }
+                    Task::none()
+                }
+                crate::updates::Step::Unpacking => Task::none(),
+                crate::updates::Step::Ready(staged) => {
+                    if let Some(release) = self.update.release().cloned() {
+                        self.update = UpdateState::Ready { release, staged };
+                    }
+                    if self.update_wanted {
+                        self.put_in_when_calm()
+                    } else {
+                        Task::none()
+                    }
+                }
+                crate::updates::Step::Failed(why) => {
+                    let release = self.update.release().cloned();
+                    self.update = UpdateState::Failed { release, why };
+                    self.update_wanted = false;
+                    Task::none()
+                }
+            },
+            Message::UpdateIdle => {
+                if !matches!(self.update, UpdateState::Ready { .. }) || !self.calm_for_update() {
+                    return Task::none();
+                }
+                if self.update_wanted {
+                    return self.put_in(false);
+                }
+                let playing = self.player.as_ref().is_some_and(|player| !player.borrow().paused);
+                if self.settings.quiet_updates && !playing && crate::updates::idle() >= crate::updates::IDLE {
+                    return self.put_in(true);
+                }
+                Task::none()
+            }
             Message::ToastLink(id) => {
                 self.error_shown = None;
                 let link = self.notices.get(id).map(|n| n.link.clone());
@@ -2549,6 +2708,11 @@ impl Main {
                             Some(at) => shown.chain(self.update(Message::OpenVideo(at))),
                             None => shown,
                         }
+                    }
+                    Some(notices::Link::Update) => self.get_update(true),
+                    Some(notices::Link::Page(page)) => {
+                        let _ = open::that_detached(page);
+                        Task::none()
                     }
                     Some(notices::Link::RenderAgain(replay)) => {
                         let at = self.entries().iter().position(|e| e.path == replay);
@@ -2901,13 +3065,29 @@ impl Main {
                 .style(theme::word(on))
                 .on_press(msg)
         };
+        let beckons = self.update.waiting() && self.overlay != Overlay::Settings;
+        let settings_word = {
+            let mut label = row![text(w.t("settings")).font(theme::SANS_SEMI).size(theme::BODY)].spacing(6).align_y(iced::Center);
+            if beckons {
+                let k = ui::fade();
+                label = label.push(container(Space::new().width(6.0).height(6.0)).style(move |_| container::Style {
+                    background: Some(iced::Background::Color(Color { a: k, ..ACCENT })),
+                    border: iced::Border { radius: 3.0.into(), ..iced::Border::default() },
+                    ..container::Style::default()
+                }));
+            }
+            button(column![Space::new().height(2.0), label, Space::new().height(2.0)].spacing(4))
+                .padding(0)
+                .style(theme::word(self.overlay == Overlay::Settings))
+                .on_press(Message::Show(Overlay::Settings))
+        };
         let places = [Overlay::None, Overlay::Videos, Overlay::Community, Overlay::Settings];
         let chosen = places.iter().position(|place| *place == self.overlay).unwrap_or(usize::MAX);
         let nav = row![
             word("replays", self.overlay == Overlay::None, Message::Show(Overlay::None)),
             word("videos", self.overlay == Overlay::Videos, Message::Show(Overlay::Videos)),
             word("community", self.overlay == Overlay::Community, Message::Show(Overlay::Community)),
-            word("settings", self.overlay == Overlay::Settings, Message::Show(Overlay::Settings)),
+            settings_word,
         ]
         .spacing(22)
         .align_y(iced::Center);
@@ -2954,7 +3134,7 @@ impl Main {
                 ui::sliding(line, active, pill)
             })),
             Overlay::Settings => Some(ui::fading(ui::fade() * sheet, || {
-                let parts = [("app-side", Side::App), ("bot-side", Side::Bot), ("worker", Side::Worker)];
+                let parts = [("app-side", Side::App), ("bot-side", Side::Bot)];
                 let active = parts.iter().position(|(_, side)| *side == self.side).unwrap_or(0);
                 let line = iced::widget::Row::with_children(parts.iter().map(|(key, side)| tab(key, *side == self.side, Message::Prefs(prefs::Message::Side(*side))))).spacing(gap).align_y(iced::Center);
                 ui::sliding(line, active, pill)
@@ -3379,161 +3559,6 @@ impl Main {
 }
 
 impl Main {
-    fn worker_view(&self) -> Element<'_, Message> {
-        use crate::worker::{Getting, Step as W};
-        let w = &self.words;
-        let k = ui::fade();
-        let on = self.settings.worker_on;
-        let green = theme::HIT_100;
-        let gold = theme::GRADE_S;
-        let panel = move |inside: Element<'static, Message>| -> Element<'static, Message> {
-            container(inside)
-                .padding([18, 20])
-                .width(Length::Fill)
-                .style(move |_| iced::widget::container::Style {
-                    background: Some(iced::Background::Color(Color::from_rgba(0.055, 0.025, 0.033, 0.96 * k))),
-                    border: iced::Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.07 * k), width: 1.0, radius: 16.0.into() },
-                    ..iced::widget::container::Style::default()
-                })
-                .into()
-        };
-        let dot = move |colour: Color| -> Element<'static, Message> {
-            container(Space::new().width(8.0).height(8.0))
-                .style(move |_| iced::widget::container::Style {
-                    background: Some(iced::Background::Color(Color { a: k, ..colour })),
-                    border: iced::Border { radius: 4.0.into(), ..iced::Border::default() },
-                    ..iced::widget::container::Style::default()
-                })
-                .into()
-        };
-        let tile = move |value: String, label: String| -> Element<'static, Message> {
-            container(column![text(value).font(theme::SANS_SEMI).size(20.0).color(Color { a: k, ..INK }), text(label).font(theme::MONO).size(11.0).color(Color { a: k, ..FAINT })].spacing(2))
-                .padding([10, 14])
-                .width(Length::FillPortion(1))
-                .style(move |_| iced::widget::container::Style {
-                    background: Some(iced::Background::Color(Color::from_rgba(1.0, 1.0, 1.0, 0.022 * k))),
-                    border: iced::Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.07 * k), width: 1.0, radius: 10.0.into() },
-                    ..iced::widget::container::Style::default()
-                })
-                .into()
-        };
-        let head = row![
-            column![text(w.t("worker-take")).font(theme::SANS_SEMI).size(theme::LEAD).color(ui::faded(if on { INK } else { MUTED })), ui::cap(w.t("worker-about"))].spacing(6).width(Length::Fill),
-            iced::widget::toggler(on).on_toggle(Message::WorkerSwitch).size(22.0).style(theme::switch),
-        ]
-        .spacing(24)
-        .align_y(iced::Center);
-        let (said, colour) = match (&self.worker_step, on) {
-            (_, false) => (w.t("worker-off"), FAINT),
-            (None | Some(W::Waiting { .. }) | Some(W::Stopped) | Some(W::Delivered { .. }) | Some(W::HandedBack { .. }), true) => (w.t("worker-waiting"), green),
-            (Some(W::Resting), true) => (w.t("worker-resting"), MUTED),
-            (Some(W::Offline(why)), true) => (format!("{} · {why}", w.t("worker-offline")), ACCENT),
-            (Some(W::Taken { .. }), true) => (w.t("worker-taken"), gold),
-            (Some(W::Getting { what, .. }), true) => (
-                w.t(match what {
-                    Getting::Replay => "worker-getting-replay",
-                    Getting::Map => "worker-getting-map",
-                    Getting::Skin => "worker-getting-skin",
-                }),
-                gold,
-            ),
-            (Some(W::Drawing { .. }), true) => (w.t("worker-drawing"), gold),
-            (Some(W::Polishing { .. }), true) => (w.t("worker-polishing"), gold),
-            (Some(W::Sending { .. }), true) => (w.t("worker-sending"), gold),
-        };
-        let speed = match &self.worker_step {
-            Some(W::Drawing { fps, .. }) if *fps > 0.0 => w.with("worker-fps", &[("n", format!("{}", fps.round() as u64))]),
-            _ => "—".to_owned(),
-        };
-        let mut device = column![
-            row![
-                text(self.settings.device.clone()).font(theme::SANS_SEMI).size(theme::LEAD).color(ui::faded(INK)),
-                ui::grow(),
-                dot(colour),
-                text(said).font(theme::SANS).size(theme::BODY).color(ui::faded(colour)),
-            ]
-            .spacing(8)
-            .align_y(iced::Center),
-            row![tile(speed, w.t("worker-speed")), tile(self.worker_done.to_string(), w.t("worker-delivered")), tile(self.worker_back.to_string(), w.t("worker-handed-back"))].spacing(8),
-        ]
-        .spacing(14);
-        let mut problems: Vec<String> = Vec::new();
-        if self.settings.token.is_empty() {
-            problems.push(w.t("worker-not-paired"));
-        }
-        if self.ffmpeg.is_none() {
-            problems.push(w.t("worker-no-ffmpeg"));
-        }
-        for problem in problems {
-            device = device.push(row![text("✕").font(theme::SANS_SEMI).size(theme::BODY).color(ui::faded(ACCENT)), text(problem).font(theme::SANS).size(theme::BODY).color(ui::faded(INK))].spacing(8));
-        }
-        let current = match &self.worker_step {
-            Some(W::Taken { title } | W::Getting { title, .. } | W::Polishing { title }) => Some((title.clone(), None, None)),
-            Some(W::Drawing { title, done, of, left_seconds, .. }) => {
-                let left = *left_seconds as u64;
-                Some((title.clone(), Some(if *of > 0 { *done as f32 / *of as f32 } else { 0.0 }), Some(w.with("worker-left", &[("left", format!("{}:{:02}", left / 60, left % 60))]))))
-            }
-            Some(W::Sending { title, done, of }) => Some((title.clone(), Some(if *of > 0 { *done as f32 / *of as f32 } else { 0.0 }), None)),
-            _ => None,
-        };
-        if let Some((title, share, left)) = current {
-            let mut block = column![ui::marquee(vec![ui::piece(title, theme::SANS_SEMI, 15.0, INK)])].spacing(8);
-            if let Some(share) = share {
-                let filled = (share.clamp(0.0, 1.0) * 1000.0).round().max(1.0) as u16;
-                let bar = row![
-                    container(Space::new().height(4.0)).width(Length::FillPortion(filled)).style(move |_| iced::widget::container::Style {
-                        background: Some(iced::Background::Color(Color { a: k, ..gold })),
-                        border: iced::Border { radius: 2.0.into(), ..iced::Border::default() },
-                        ..iced::widget::container::Style::default()
-                    }),
-                    Space::new().width(Length::FillPortion(1000u16.saturating_sub(filled).max(1))).height(4.0),
-                ];
-                block = block.push(bar);
-            }
-            if let Some(left) = left {
-                block = block.push(ui::mono_small(left, MUTED));
-            }
-            device = device.push(block);
-        }
-        match &self.worker_last {
-            Some(W::Delivered { title }) => device = device.push(text(w.with("worker-last-delivered", &[("title", title.clone())])).font(theme::SANS).size(12.5).color(ui::faded(green))),
-            Some(W::HandedBack { title, reason }) => device = device.push(text(w.with("worker-last-back", &[("title", title.clone()), ("reason", reason.clone())])).font(theme::SANS).size(12.5).color(ui::faded(ACCENT))),
-            _ => {}
-        }
-        let mut farm = column![row![
-            text(w.t("farm-head")).font(theme::SANS_SEMI).size(theme::LEAD).color(ui::faded(INK)),
-            ui::grow(),
-            ui::mono_small(w.with("farm-waiting", &[("n", self.farm.as_ref().map_or(0, |f| f.waiting).to_string())]), MUTED),
-        ]
-        .align_y(iced::Center)]
-        .spacing(10);
-        let workers = self.farm.as_ref().map(|f| f.workers.clone()).unwrap_or_default();
-        if workers.is_empty() {
-            farm = farm.push(ui::cap(w.t("farm-nobody")));
-        }
-        for worker in workers {
-            let (state, colour) = match worker.state.as_str() {
-                "rendering" => (w.t("farm-rendering"), gold),
-                "ready" => (w.t("farm-ready"), green),
-                _ => (w.t("farm-resting"), FAINT),
-            };
-            let name = if worker.mine { format!("{} · {}", worker.name, w.t("farm-this")) } else { worker.name.clone() };
-            farm = farm.push(
-                row![
-                    dot(colour),
-                    ui::marquee(vec![ui::piece(name, theme::SANS_SEMI, 13.5, if worker.mine { INK } else { MUTED })]),
-                    text(state).font(theme::SANS).size(12.5).color(ui::faded(colour)),
-                    ui::mono_small(format!("{}", worker.delivered), FAINT),
-                ]
-                .spacing(10)
-                .align_y(iced::Center),
-            );
-        }
-        let body = column![head, row![container(panel(device.into())).width(Length::FillPortion(3)), container(panel(farm.into())).width(Length::FillPortion(2))].spacing(16)].spacing(20).max_width(1100.0);
-        let sheet = column![Space::new().height(theme::CONTROL_HEIGHT + 4.0 + 22.0 + 24.0), container(body).padding(Padding { top: 0.0, right: 40.0, bottom: 28.0, left: 40.0 }).center_x(Length::Fill)];
-        scrollable(sheet).style(ui::thin_scroll).width(Length::Fill).height(Length::Fill).into()
-    }
-
     fn videos_view(&self) -> Element<'_, Message> {
         let w = &self.words;
         let page: Element<'_, Message> = if self.store.videos.is_empty() {
@@ -4621,11 +4646,14 @@ impl Main {
             came: self.overlay_fade.interpolate(0.0, 1.0, self.now),
             swap: self.side_fade.interpolate(0.0, 1.0, self.now),
             swap_from: self.side_swap,
+            update: &self.update,
+            update_waits: self.update_wanted && matches!(self.update, UpdateState::Ready { .. }) && !self.calm_for_update(),
+            worker: self.worker_step.as_ref(),
+            worker_last: self.worker_last.as_ref(),
+            worker_done: self.worker_done,
+            worker_back: self.worker_back,
+            farm: self.farm.as_ref(),
         };
-        if self.side == Side::Worker {
-            let swap = self.side_fade.interpolate(0.0, 1.0, self.now);
-            return ui::fading(ui::fade() * swap, || self.worker_view());
-        }
         let body: Element<'_, Message> = Element::from(prefs::view(&ground)).map(Message::Prefs);
         let sheet = column![Space::new().height(theme::CONTROL_HEIGHT + 4.0 + 22.0), body].width(Length::Fill).height(Length::Fill);
         sheet.into()
@@ -4641,7 +4669,6 @@ impl Main {
                 let order = |side: Side| match side {
                     Side::App => 0,
                     Side::Bot => 1,
-                    Side::Worker => 2,
                 };
                 if side != self.side {
                     self.side_swap = if order(side) > order(self.side) { 1.0 } else { -1.0 };
@@ -4651,13 +4678,12 @@ impl Main {
                 let name = match side {
                     Side::App => "app",
                     Side::Bot => "bot",
-                    Side::Worker => "worker",
                 };
                 if self.settings.settings_tab != name {
                     self.settings.settings_tab = name.to_owned();
                     keep(&self.settings);
                 }
-                if side == Side::Worker {
+                if side == Side::App {
                     return self.farm_task();
                 }
                 Task::none()
@@ -4790,9 +4816,22 @@ impl Main {
                 let renders = self.settings.renders_dir();
                 ui::in_thread(move || Message::Stored(prefs::measure(&renders)))
             }
-            P::CheckBuild => {
-                let _ = open::that_detached("https://github.com/NaumRedlo/Dossier/releases");
+            P::CheckBuild => self.check_update(),
+            P::Update => self.get_update(true),
+            P::WhatsNew => {
+                let page = self.update.release().map(|release| release.page.clone()).filter(|page| !page.is_empty()).unwrap_or_else(|| crate::updates::PAGE.to_owned());
+                let _ = open::that_detached(page);
                 Task::none()
+            }
+            P::QuietUpdates(on) => {
+                self.remember_mark("quiet-updates", on);
+                self.settings.quiet_updates = on;
+                keep(&self.settings);
+                if on {
+                    self.get_update(false)
+                } else {
+                    Task::none()
+                }
             }
             P::GetFfmpeg => {
                 if self.ffmpeg.is_some() {
@@ -4815,7 +4854,10 @@ impl Main {
                 keep(&self.settings);
                 Task::none()
             }
-            P::Worker(_) => Task::none(),
+            P::Worker(on) => {
+                self.remember_mark("worker", on);
+                self.update(Message::WorkerSwitch(on))
+            }
             P::Skin(folder) => {
                 let folder = match folder.as_deref().filter(|path| crate::settings::is_skin_file(path)) {
                     Some(file) => match crate::settings::unpack_skin(file) {
@@ -4955,7 +4997,6 @@ impl Main {
                 match self.side {
                     Side::App => self.settings.tiles_app = prefs::moved(&self.settings.tiles_app, &prefs::APP, what, before),
                     Side::Bot => self.settings.tiles_bot = prefs::moved(&self.settings.tiles_bot, &prefs::BOT, what, before),
-                    Side::Worker => {}
                 }
                 keep(&self.settings);
                 Task::none()
@@ -5210,7 +5251,7 @@ impl Main {
                 self.pair(self.big(self.entries().len().to_string(), w.t("replays-in-journal")), self.big(bot::BUILD.to_owned(), w.t("build"))),
             ];
         }
-        let rows = column![self.kv(w.t("videos-go-to"), self.chat_name()), self.kv(w.t("worker"), w.t("coming-later"))].spacing(2);
+        let rows = column![self.kv(w.t("videos-go-to"), self.chat_name()), self.kv(w.t("worker"), prefs::worker_said(w, self.worker_step.as_ref(), self.settings.worker_on).0)].spacing(2);
         let videos = format!("{} · {}", self.store.videos.len(), w.mb(self.store.total_size()));
         vec![
             self.card(rows.into(), false),
@@ -5317,8 +5358,14 @@ impl Main {
                 .into()
         };
         let mut side = column![ui::mono_small(w.clock(notice.at), FAINT)].spacing(2).align_x(iced::alignment::Horizontal::Right);
-        if matches!(notice.link, notices::Link::RenderAgain(_) | notices::Link::OpenVideo(_)) {
-            let words = if matches!(notice.link, notices::Link::OpenVideo(_)) { w.t("open") } else { w.t("once-more") };
+        let link = match notice.link {
+            notices::Link::OpenVideo(_) => Some(w.t("open")),
+            notices::Link::RenderAgain(_) => Some(w.t("once-more")),
+            notices::Link::Update => Some(w.t("update-now")),
+            notices::Link::Page(_) => Some(w.t("whats-new")),
+            notices::Link::None => None,
+        };
+        if let Some(words) = link {
             side = side.push(ui::small_button(words, Message::ToastLink(notice.id)));
         }
         row![
@@ -5403,7 +5450,8 @@ impl Main {
         let sent = self.store.videos.iter().filter(|v| v.sent_at.is_some()).count();
         let sent_size: u64 = self.store.videos.iter().filter(|v| v.sent_at.is_some()).map(|v| v.size).sum();
         let heading = |key: &str| container(ui::mono_small(w.t(key).to_uppercase(), FAINT)).padding(Padding::ZERO.bottom(8.0));
-        let worker = column![heading("as-worker"), self.kv(w.t("jobs-done"), w.t("coming-later"))].spacing(0);
+        let delivered = self.farm.as_ref().and_then(|farm| farm.workers.iter().find(|worker| worker.mine)).map_or(self.worker_done as u64, |mine| mine.delivered as u64);
+        let worker = column![heading("as-worker"), self.kv(w.t("jobs-done"), delivered.to_string())].spacing(0);
         let device = column![
             heading("on-this-device"),
             self.pair(
@@ -5625,6 +5673,8 @@ impl Main {
         let link = match notice.link {
             notices::Link::OpenVideo(_) => Some(w.t("open")),
             notices::Link::RenderAgain(_) => Some(w.t("once-more")),
+            notices::Link::Update => Some(w.t("update-now")),
+            notices::Link::Page(_) => Some(w.t("whats-new")),
             notices::Link::None => None,
         };
         if let Some(words) = link {

@@ -924,6 +924,7 @@ dependencies = [
  "rqrr",
  "serde",
  "serde_json",
+ "sha2",
  "sys-locale",
  "trash",
  "unic-langid",

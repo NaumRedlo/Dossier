@@ -13,7 +13,6 @@ use crate::ui;
 pub enum Side {
     App,
     Bot,
-    Worker,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -63,8 +62,9 @@ impl Tile {
     }
 }
 
-pub const APP: [Tile; 12] = [
+pub const APP: [Tile; 13] = [
     Tile::Render,
+    Tile::Worker,
     Tile::Language,
     Tile::Device,
     Tile::Scene,
@@ -78,7 +78,7 @@ pub const APP: [Tile; 12] = [
     Tile::Builds,
 ];
 
-pub const BOT: [Tile; 4] = [Tile::Account, Tile::Chats, Tile::Worker, Tile::ThisDevice];
+pub const BOT: [Tile; 3] = [Tile::Account, Tile::Chats, Tile::ThisDevice];
 
 pub fn order(kept: &[String], all: &[Tile]) -> Vec<Tile> {
     let mut out: Vec<Tile> = kept.iter().filter_map(|tag| Tile::of(tag)).filter(|tile| all.contains(tile)).collect();
@@ -122,6 +122,13 @@ pub struct Ground<'a> {
     pub came: f32,
     pub swap: f32,
     pub swap_from: f32,
+    pub update: &'a crate::updates::State,
+    pub update_waits: bool,
+    pub worker: Option<&'a crate::worker::Step>,
+    pub worker_last: Option<&'a crate::worker::Step>,
+    pub worker_done: u32,
+    pub worker_back: u32,
+    pub farm: Option<&'a crate::bot::Farm>,
 }
 
 #[derive(Debug, Clone)]
@@ -146,6 +153,9 @@ pub enum Message {
     OpenData,
     ClearAppCache,
     CheckBuild,
+    Update,
+    WhatsNew,
+    QuietUpdates(bool),
     GetFfmpeg,
     Chat(i64),
     Worker(bool),
@@ -172,7 +182,7 @@ pub enum Message {
 
 pub fn view<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
     let (kept, all) = match ground.side {
-        Side::App | Side::Worker => (&ground.settings.tiles_app, &APP[..]),
+        Side::App => (&ground.settings.tiles_app, &APP[..]),
         Side::Bot => (&ground.settings.tiles_bot, &BOT[..]),
     };
     let swap = ground.swap.clamp(0.0, 1.0);
@@ -580,6 +590,7 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
             .into()
         }
         Tile::Builds => {
+            use crate::updates::State as U;
             let engine = crate::bot::BUILD.to_owned();
             let mut under: Vec<String> = Vec::new();
             if crate::bot::PRERELEASE {
@@ -589,11 +600,45 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
                 under.push(w.t("no-ffmpeg"));
             }
             let under = under.join(" · ");
+            let pre = |release: &crate::updates::Release| if release.pre { format!(" · {}", w.t("prerelease")) } else { String::new() };
+            let (said, colour) = match ground.update {
+                U::Unknown | U::Checking => (w.t("update-checking"), FAINT),
+                U::Latest { at } => (format!("{} · {}", w.t("update-latest"), w.clock(*at)), FAINT),
+                U::Found(release) => (format!("{} {}{}", w.t("update-found"), release.version, pre(release)), ACCENT),
+                U::Getting { release, done, total } => {
+                    let how_far = match total {
+                        Some(total) if *total > 0 => format!("{} %", (done * 100 / total).min(100)),
+                        _ => w.mb(*done),
+                    };
+                    (format!("{} {} · {how_far}", w.t("update-getting"), release.version), INK)
+                }
+                U::Ready { release, .. } => {
+                    let when = if ground.update_waits {
+                        w.t("update-ready-waits")
+                    } else if s.quiet_updates {
+                        w.t("update-ready-quiet")
+                    } else {
+                        w.t("update-ready")
+                    };
+                    (format!("{} · {when}", release.version), INK)
+                }
+                U::Failed { why, .. } => (format!("{} · {why}", w.t("update-failed")), ACCENT),
+                U::Source => (w.t("update-source"), FAINT),
+            };
+            let said = text(ui::shortened(said, 52)).font(theme::SANS).size(11.0).wrapping(text::Wrapping::None).color(ui::faded(colour));
+            let mut deeds = row![].spacing(6);
+            match ground.update {
+                U::Found(_) | U::Failed { release: Some(_), .. } | U::Ready { .. } => deeds = deeds.push(deed(w.t("update-now"), Message::Update, false)),
+                U::Latest { .. } | U::Failed { release: None, .. } => deeds = deeds.push(deed(w.t("check"), Message::CheckBuild, false)),
+                _ => {}
+            }
+            let deeds = deeds.push(deed(w.t("whats-new"), Message::WhatsNew, false)).push(deed("ffmpeg".to_owned(), Message::GetFfmpeg, false));
             column![
                 head(w, "builds"),
                 figure(engine, under),
-                container(row![deed(w.t("check"), Message::CheckBuild, false), deed("ffmpeg".to_owned(), Message::GetFfmpeg, false)].spacing(6))
-                    .padding(Padding::ZERO.top(6.0)),
+                container(said).padding(Padding::ZERO.top(6.0)),
+                container(deeds).padding(Padding::ZERO.top(6.0)),
+                container(pill(ground, "quiet-updates", w.t("quiet-updates"), s.quiet_updates, Message::QuietUpdates(!s.quiet_updates))).padding(Padding::ZERO.top(8.0)),
             ]
             .spacing(2)
             .into()
@@ -647,13 +692,7 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
             }
             rows.into()
         }
-        Tile::Worker => column![
-            head(w, "worker"),
-            pill(ground, "worker", w.t("take-jobs"), false, Message::Worker(false)),
-            container(text(w.t("coming-later")).font(theme::SANS).size(11.0).color(ui::faded(FAINT))).padding(Padding::ZERO.top(4.0)),
-        ]
-        .spacing(6)
-        .into(),
+        Tile::Worker => worker_tile(ground),
         Tile::ThisDevice => column![
             head(w, "this-device"),
             row![
@@ -671,6 +710,141 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
         .spacing(2)
         .into(),
     }
+}
+
+pub fn worker_said(w: &Words, step: Option<&crate::worker::Step>, on: bool) -> (String, iced::Color) {
+    use crate::worker::{Getting, Step as W};
+    let (green, gold) = (theme::HIT_100, theme::GRADE_S);
+    match (step, on) {
+        (_, false) => (w.t("worker-off"), FAINT),
+        (None | Some(W::Waiting { .. }) | Some(W::Stopped) | Some(W::Delivered { .. }) | Some(W::HandedBack { .. }), true) => (w.t("worker-waiting"), green),
+        (Some(W::Resting), true) => (w.t("worker-resting"), MUTED),
+        (Some(W::Offline(why)), true) => (format!("{} · {why}", w.t("worker-offline")), ACCENT),
+        (Some(W::Taken { .. }), true) => (w.t("worker-taken"), gold),
+        (Some(W::Getting { what, .. }), true) => (
+            w.t(match what {
+                Getting::Replay => "worker-getting-replay",
+                Getting::Map => "worker-getting-map",
+                Getting::Skin => "worker-getting-skin",
+            }),
+            gold,
+        ),
+        (Some(W::Drawing { .. }), true) => (w.t("worker-drawing"), gold),
+        (Some(W::Polishing { .. }), true) => (w.t("worker-polishing"), gold),
+        (Some(W::Sending { .. }), true) => (w.t("worker-sending"), gold),
+    }
+}
+
+fn worker_tile<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
+    use crate::worker::Step as W;
+    let w = ground.words;
+    let s = ground.settings;
+    let k = ui::fade();
+    let on = s.worker_on;
+    let (green, gold) = (theme::HIT_100, theme::GRADE_S);
+    let dot = move |colour: iced::Color| -> Element<'a, Message> {
+        container(Space::new().width(7.0).height(7.0))
+            .style(move |_| container::Style {
+                background: Some(iced::Background::Color(iced::Color { a: k * colour.a, ..colour })),
+                border: iced::Border { radius: 4.0.into(), ..iced::Border::default() },
+                ..container::Style::default()
+            })
+            .into()
+    };
+    let small = |words: String, colour: iced::Color| -> Element<'a, Message> { text(words).font(theme::SANS).size(11.0).color(ui::faded(colour)).into() };
+    let (said, colour) = worker_said(w, ground.worker, on);
+    let mut state = row![dot(colour), text(ui::shortened(said, 40)).font(theme::SANS_SEMI).size(theme::CAPTION).wrapping(text::Wrapping::None).color(ui::faded(colour))]
+        .spacing(8)
+        .align_y(iced::Center)
+        .width(Length::Fill);
+    if let Some(W::Drawing { fps, .. }) = ground.worker {
+        if *fps > 0.0 {
+            state = state.push(ui::grow()).push(ui::mono_small(w.with("worker-fps", &[("n", format!("{}", fps.round() as u64))]), MUTED));
+        }
+    }
+    let mut body = column![head(w, "worker"), pill(ground, "worker", w.t("worker-take"), on, Message::Worker(!on))].spacing(2).width(Length::Fixed(330.0));
+    if !on {
+        body = body.push(container(small(w.t("worker-about"), FAINT)).padding(Padding::ZERO.top(8.0)));
+    }
+    body = body.push(container(state).padding(Padding::ZERO.top(10.0)));
+    let current = match ground.worker {
+        Some(W::Taken { title } | W::Getting { title, .. } | W::Polishing { title }) => Some((title.clone(), None, None)),
+        Some(W::Drawing { title, done, of, left_seconds, .. }) => {
+            let left = *left_seconds as u64;
+            Some((title.clone(), Some(if *of > 0 { *done as f32 / *of as f32 } else { 0.0 }), Some(w.with("worker-left", &[("left", format!("{}:{:02}", left / 60, left % 60))]))))
+        }
+        Some(W::Sending { title, done, of }) => Some((title.clone(), Some(if *of > 0 { *done as f32 / *of as f32 } else { 0.0 }), None)),
+        _ => None,
+    };
+    if let Some((title, share, left)) = current.filter(|_| on) {
+        let mut block = column![ui::marquee(vec![ui::piece(title, theme::SANS, theme::CAPTION, INK)])].spacing(6);
+        if let Some(share) = share {
+            let filled = (share.clamp(0.0, 1.0) * 1000.0).round().max(1.0) as u16;
+            block = block.push(row![
+                container(Space::new().height(4.0)).width(Length::FillPortion(filled)).style(move |_| container::Style {
+                    background: Some(iced::Background::Color(iced::Color { a: k, ..gold })),
+                    border: iced::Border { radius: 2.0.into(), ..iced::Border::default() },
+                    ..container::Style::default()
+                }),
+                Space::new().width(Length::FillPortion(1000u16.saturating_sub(filled).max(1))).height(4.0),
+            ]);
+        }
+        if let Some(left) = left {
+            block = block.push(ui::mono_small(left, MUTED));
+        }
+        body = body.push(container(block).padding(Padding::ZERO.top(8.0)));
+    }
+    body = body.push(
+        container(ui::mono_small(format!("{} {} · {} {}", w.t("worker-delivered"), ground.worker_done, w.t("worker-handed-back"), ground.worker_back), FAINT))
+            .padding(Padding::ZERO.top(8.0)),
+    );
+    let mut problems: Vec<String> = Vec::new();
+    if s.token.is_empty() {
+        problems.push(w.t("worker-not-paired"));
+    }
+    if ground.ffmpeg.is_none() {
+        problems.push(w.t("worker-no-ffmpeg"));
+    }
+    for problem in problems {
+        body = body.push(container(row![text("✕").font(theme::SANS_SEMI).size(11.0).color(ui::faded(ACCENT)), small(problem, INK)].spacing(6)).padding(Padding::ZERO.top(6.0)));
+    }
+    match ground.worker_last {
+        Some(W::Delivered { title }) => body = body.push(container(small(ui::shortened(w.with("worker-last-delivered", &[("title", title.clone())]), 60), green)).padding(Padding::ZERO.top(6.0))),
+        Some(W::HandedBack { title, reason }) => {
+            body = body.push(container(small(ui::shortened(w.with("worker-last-back", &[("title", title.clone()), ("reason", reason.clone())]), 80), ACCENT)).padding(Padding::ZERO.top(6.0)))
+        }
+        _ => {}
+    }
+    if !s.token.is_empty() {
+        let waiting = ground.farm.map_or(0, |farm| farm.waiting);
+        let mut farm = column![row![text(w.t("farm-head")).font(theme::SANS_SEMI).size(theme::CAPTION).color(ui::faded(INK)), ui::grow(), ui::mono_small(w.with("farm-waiting", &[("n", waiting.to_string())]), MUTED)].align_y(iced::Center)]
+            .spacing(6);
+        let workers = ground.farm.map(|farm| farm.workers.clone()).unwrap_or_default();
+        if workers.is_empty() {
+            farm = farm.push(small(w.t("farm-nobody"), FAINT));
+        }
+        for worker in workers.into_iter().take(5) {
+            let (said, colour) = match worker.state.as_str() {
+                "rendering" => (w.t("farm-rendering"), gold),
+                "ready" => (w.t("farm-ready"), green),
+                _ => (w.t("farm-resting"), FAINT),
+            };
+            let name = if worker.mine { format!("{} · {}", worker.name, w.t("farm-this")) } else { worker.name.clone() };
+            farm = farm.push(
+                row![
+                    dot(colour),
+                    text(ui::shortened(name, 30)).font(theme::SANS).size(12.0).wrapping(text::Wrapping::None).color(ui::faded(if worker.mine { INK } else { MUTED })),
+                    ui::grow(),
+                    small(said, colour),
+                    ui::mono_small(worker.delivered.to_string(), FAINT),
+                ]
+                .spacing(8)
+                .align_y(iced::Center),
+            );
+        }
+        body = body.push(container(farm).padding(Padding::ZERO.top(14.0)));
+    }
+    body.into()
 }
 
 fn short(kind: Kind) -> &'static str {
@@ -783,10 +957,10 @@ mod tests {
     #[test]
     fn a_moved_tile_keeps_the_others_in_order() {
         let kept: Vec<String> = Vec::new();
-        let after = moved(&kept, &APP, Tile::Builds, Some(Tile::Language));
+        let after = moved(&kept, &APP, Tile::Builds, Some(Tile::Worker));
         assert_eq!(after[0], Tile::Render.tag());
         assert_eq!(after[1], Tile::Builds.tag());
-        assert_eq!(after[2], Tile::Language.tag());
+        assert_eq!(after[2], Tile::Worker.tag());
         assert_eq!(after.len(), APP.len());
         let last = moved(&after, &APP, Tile::Render, None);
         assert_eq!(last.last().map(String::as_str), Some(Tile::Render.tag()));

@@ -28,6 +28,7 @@ pub mod settings_screen;
 pub mod sources;
 pub mod theme;
 pub mod unfold;
+pub mod updates;
 pub mod ui;
 pub mod videos;
 pub mod worker;
@@ -192,8 +193,9 @@ impl App {
             (App { screen: Screen::FirstRun(flow), backdrop }, task.map(Message::FirstRun))
         } else {
             let said = Settings::load();
-            let (main, task) = Main::new(Words::new(said.lang), said);
-            (App { screen: Screen::Main(main), backdrop }, task.map(Message::Main))
+            let (mut main, task) = Main::new(Words::new(said.lang), said);
+            let launched = main.launched();
+            (App { screen: Screen::Main(main), backdrop }, Task::batch([task, launched]).map(Message::Main))
         }
     }
 
@@ -206,9 +208,10 @@ impl App {
                 let (task, done) = flow.update(inner);
                 if let first_run::Done::Finished(said) = done {
                     let _ = said.save();
-                    let (main, task) = Main::new(Words::new(said.lang), said);
+                    let (mut main, task) = Main::new(Words::new(said.lang), said);
+                    let launched = main.launched();
                     self.screen = Screen::Main(main);
-                    return task.map(Message::Main);
+                    return Task::batch([task, launched]).map(Message::Main);
                 }
                 task.map(Message::FirstRun)
             }

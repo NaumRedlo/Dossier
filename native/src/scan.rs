@@ -24,6 +24,18 @@ const SKIPPED: &[&str] = &[
     "snap",
     "Steam",
     "steamapps",
+    "Windows",
+    "Windows.old",
+    "WindowsApps",
+    "Program Files",
+    "Program Files (x86)",
+    "ProgramData",
+    "$Recycle.Bin",
+    "$WinREAgent",
+    "System Volume Information",
+    "Recovery",
+    "PerfLogs",
+    "MSOCache",
 ];
 
 const EVERY: Duration = Duration::from_millis(150);
@@ -50,7 +62,15 @@ pub fn roots() -> Vec<PathBuf> {
     let home = sources::home();
     let mut out = likely_first(&home);
     out.push(home);
+    out.extend(drives());
     out
+}
+
+fn drives() -> Vec<PathBuf> {
+    if !cfg!(windows) {
+        return Vec::new();
+    }
+    ('C'..='Z').map(|letter| PathBuf::from(format!("{letter}:\\"))).filter(|root| root.is_dir()).collect()
 }
 
 fn is_replay(path: &Path) -> bool {

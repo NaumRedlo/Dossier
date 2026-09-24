@@ -76,6 +76,8 @@ pub struct Settings {
     #[serde(default)]
     pub ui_scale: u32,
     #[serde(default)]
+    pub exported_only: bool,
+    #[serde(default)]
     pub last_build: String,
     #[serde(default)]
     pub own_skins: Vec<PathBuf>,
@@ -151,7 +153,16 @@ pub const HEIGHTS: [u32; 5] = [480, 720, 1080, 1440, 2160];
 pub const RATES: [u32; 4] = [24, 30, 60, 120];
 pub const CRFS: [u32; 5] = [26, 23, 20, 17, 14];
 pub const CPU_SHARES: [u32; 4] = [25, 50, 75, 100];
-pub const SCALES: [u32; 6] = [80, 90, 100, 110, 125, 150];
+pub const SCALE_LEAST: u32 = 80;
+pub const SCALE_MOST: u32 = 150;
+
+pub fn scale_at(fraction: f32) -> u32 {
+    (SCALE_LEAST as f32 + fraction.clamp(0.0, 1.0) * (SCALE_MOST - SCALE_LEAST) as f32).round() as u32
+}
+
+pub fn scale_fraction(percent: u32) -> f32 {
+    (percent.clamp(SCALE_LEAST, SCALE_MOST) - SCALE_LEAST) as f32 / (SCALE_MOST - SCALE_LEAST) as f32
+}
 
 pub fn skins_root() -> PathBuf {
     crate::sources::own_root().join("Skins")
@@ -802,6 +813,7 @@ impl Default for Settings {
             quiet_updates: false,
             cpu_share: 100,
             ui_scale: 0,
+            exported_only: false,
             last_build: String::new(),
             own_skins: Vec::new(),
             music_level: 1.0,
@@ -851,7 +863,7 @@ impl Settings {
 }
 
 pub fn device_name() -> String {
-    let said = std::process::Command::new("hostname")
+    let said = crate::checks::quiet("hostname")
         .output()
         .ok()
         .and_then(|out| String::from_utf8(out.stdout).ok())

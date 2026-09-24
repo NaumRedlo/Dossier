@@ -1,5 +1,5 @@
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 
 use dossier_beatmap::Point;
 use dossier_exhibit::{Clip, Reason};
@@ -87,7 +87,7 @@ fn stitch(parts: &[Part], settings: &video::Settings) -> Result<(), String> {
         return Err("the crossfades are longer than the clips they join".to_owned());
     }
 
-    let mut command = Command::new(&settings.ffmpeg);
+    let mut command = crate::quiet(&settings.ffmpeg);
     command.args(["-y", "-loglevel", "error"]);
     for part in parts {
         command.arg("-i").arg(&part.path);

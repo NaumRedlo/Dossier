@@ -154,7 +154,7 @@ pub struct Probe {
 }
 
 pub fn probe(ffmpeg: &Path, path: &Path) -> Option<Probe> {
-    let out = std::process::Command::new(ffmpeg).args(["-hide_banner", "-i"]).arg(path).output().ok()?;
+    let out = crate::checks::quiet(ffmpeg).args(["-hide_banner", "-i"]).arg(path).output().ok()?;
     let text = String::from_utf8_lossy(&out.stderr);
     read_probe(&text)
 }

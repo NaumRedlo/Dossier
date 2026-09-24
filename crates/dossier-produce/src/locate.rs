@@ -3,7 +3,6 @@ use dossier_replay::Replay;
 use std::fs;
 use std::io::{Cursor, Read};
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use md5::{Digest, Md5};
 
@@ -348,7 +347,7 @@ pub fn extract_samples(origin: &Origin, into: &Path, ffmpeg: &str) -> usize {
             written += 1;
             continue;
         }
-        let done = Command::new(ffmpeg)
+        let done = crate::quiet(ffmpeg)
             .args(["-nostdin", "-v", "error", "-y", "-i"])
             .arg(&source)
             .args(["-ac", "2", "-ar", "44100", "-c:a", "pcm_s16le", "-f", "wav"])

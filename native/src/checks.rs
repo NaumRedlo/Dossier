@@ -10,23 +10,65 @@ pub enum Outcome {
     Skipped(String),
 }
 
+pub fn quiet(program: impl AsRef<std::ffi::OsStr>) -> std::process::Command {
+    let command = std::process::Command::new(program);
+    #[cfg(windows)]
+    let command = {
+        use std::os::windows::process::CommandExt;
+        let mut command = command;
+        command.creation_flags(0x0800_0000);
+        command
+    };
+    command
+}
+
 pub fn ffmpeg_on_path() -> Option<PathBuf> {
     let own = crate::ffmpeg::own();
     if own.is_file() {
         return Some(own);
     }
     let name = if cfg!(windows) { "ffmpeg.exe" } else { "ffmpeg" };
-    std::env::var_os("PATH")
-        .map(|paths| {
-            std::env::split_paths(&paths)
-                .map(|dir| dir.join(name))
-                .find(|candidate| candidate.is_file())
-        })
-        .flatten()
+    let on_path: Vec<PathBuf> = std::env::var_os("PATH").map(|paths| std::env::split_paths(&paths).collect()).unwrap_or_default();
+    on_path.into_iter().chain(usual_places()).map(|dir| dir.join(name)).find(|candidate| candidate.is_file())
+}
+
+fn usual_places() -> Vec<PathBuf> {
+    let home = crate::sources::home();
+    let mut out: Vec<PathBuf> = Vec::new();
+    if cfg!(target_os = "macos") {
+        out.extend(["/opt/homebrew/bin", "/usr/local/bin", "/opt/local/bin"].map(PathBuf::from));
+    }
+    if cfg!(target_os = "linux") {
+        out.extend(["/usr/bin", "/usr/local/bin", "/snap/bin"].map(PathBuf::from));
+        out.push(home.join(".local").join("bin"));
+    }
+    if cfg!(windows) {
+        if let Some(local) = std::env::var_os("LOCALAPPDATA") {
+            out.push(PathBuf::from(local).join("Microsoft").join("WinGet").join("Links"));
+        }
+        out.push(PathBuf::from(r"C:\ProgramData\chocolatey\bin"));
+        out.push(home.join("scoop").join("shims"));
+        out.push(PathBuf::from(r"C:\ffmpeg\bin"));
+    }
+    out
+}
+
+pub fn lend_ffmpeg_to_path() {
+    let Some(dir) = ffmpeg_on_path().and_then(|path| path.parent().map(std::path::Path::to_path_buf)) else {
+        return;
+    };
+    let mut paths: Vec<PathBuf> = std::env::var_os("PATH").map(|paths| std::env::split_paths(&paths).collect()).unwrap_or_default();
+    if paths.contains(&dir) {
+        return;
+    }
+    paths.insert(0, dir);
+    if let Ok(joined) = std::env::join_paths(paths) {
+        std::env::set_var("PATH", joined);
+    }
 }
 
 pub fn ffmpeg_version(path: &std::path::Path) -> Option<String> {
-    let out = std::process::Command::new(path).arg("-version").output().ok()?;
+    let out = quiet(path).arg("-version").output().ok()?;
     let text = String::from_utf8_lossy(&out.stdout);
     let first = text.lines().next()?;
     first

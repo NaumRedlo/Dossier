@@ -1,3 +1,5 @@
+#![cfg_attr(windows, windows_subsystem = "windows")]
+
 use dossier_native::{gallery, settings, App, WINDOW};
 use iced::{window, Size};
 
@@ -167,6 +169,7 @@ fn main() -> iced::Result {
         }
         return Ok(());
     }
+    dossier_native::checks::lend_ffmpeg_to_path();
     if dossier_native::REHEARSAL.get().is_none() && !settings::first_run() && dossier_native::updates::on_launch(settings::Settings::load().quiet_updates) {
         return Ok(());
     }

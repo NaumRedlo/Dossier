@@ -45,6 +45,26 @@ use settings::Settings;
 pub const WINDOW: Size = Size::new(980.0, 720.0);
 pub const MINIMUM: Size = Size::new(760.0, 560.0);
 
+pub fn refit_window<T: Send + 'static>(fit: Option<Size>) -> Task<T> {
+    iced::window::oldest().and_then(move |id| {
+        iced::window::is_maximized(id).then(move |maximized| {
+            if maximized {
+                return Task::none();
+            }
+            iced::window::mode(id).then(move |mode| {
+                if mode != iced::window::Mode::Windowed {
+                    return Task::none();
+                }
+                let floor = iced::window::set_min_size(id, Some(MINIMUM));
+                match fit {
+                    Some(size) => floor.chain(iced::window::resize(id, size)),
+                    None => floor,
+                }
+            })
+        })
+    })
+}
+
 pub enum Screen {
     FirstRun(FirstRun),
     Main(Main),
@@ -253,13 +273,7 @@ impl App {
                 let room = Size::new(monitor.width * now / after * 0.94, monitor.height * now / after * 0.9);
                 let least = Size::new(WINDOW.width.min(room.width), WINDOW.height.min(room.height));
                 let fit = if first { Some(least) } else { ui::refit(self.viewport, now, after, least) };
-                iced::window::oldest().and_then(move |id| {
-                    let floor = iced::window::set_min_size(id, Some(MINIMUM));
-                    match fit {
-                        Some(size) => floor.chain(iced::window::resize(id, size)),
-                        None => floor,
-                    }
-                })
+                refit_window(fit)
             }
             Message::Snap => iced::window::oldest().map(Message::Snapped),
             Message::Snapped(Some(id)) => iced::window::screenshot(id).map(Message::Shot),

@@ -9,3 +9,15 @@ pub use synth::Voice;
 pub use track::Track;
 
 pub const SAMPLE_RATE: u32 = 44_100;
+
+pub fn quiet(program: impl AsRef<std::ffi::OsStr>) -> std::process::Command {
+    let command = std::process::Command::new(program);
+    #[cfg(windows)]
+    let command = {
+        use std::os::windows::process::CommandExt;
+        let mut command = command;
+        command.creation_flags(0x0800_0000);
+        command
+    };
+    command
+}

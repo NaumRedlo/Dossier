@@ -218,7 +218,7 @@ pub fn read_with(sources: &[Source], report: &mut dyn FnMut(Reading)) -> Library
     let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
     let files: Vec<(Kind, Vec<PathBuf>)> = live.iter().map(|source| (source.kind, replay_files(source))).collect();
     let scores: Vec<(Kind, Vec<(PathBuf, dossier_replay::Replay)>)> =
-        live.iter().filter(|source| source.kind == Kind::Stable).map(|source| (source.kind, crate::scores::with_replays(&source.root))).collect();
+        live.iter().filter(|source| source.kind == Kind::Stable && !exported_only()).map(|source| (source.kind, crate::scores::with_replays(&source.root))).collect();
     let total = files.iter().map(|(_, list)| list.len()).sum::<usize>() + scores.iter().map(|(_, list)| list.len()).sum::<usize>();
     let mut done = 0;
     let mut told = std::time::Instant::now();
@@ -254,6 +254,16 @@ pub fn read_with(sources: &[Source], report: &mut dyn FnMut(Reading)) -> Library
     Library { entries, maps: index.by_hash.len() }
 }
 
+static EXPORTED_ONLY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub fn only_exported(on: bool) {
+    EXPORTED_ONLY.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+fn exported_only() -> bool {
+    EXPORTED_ONLY.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 fn replay_files(source: &Source) -> Vec<PathBuf> {
     let mut out = Vec::new();
     if let Some(dir) = &source.replays {
@@ -265,7 +275,7 @@ fn replay_files(source: &Source) -> Vec<PathBuf> {
             );
         }
     }
-    if source.kind == Kind::Lazer {
+    if source.kind == Kind::Lazer && !exported_only() {
         out.extend(crate::sources::store_replays(&source.root.join("files")));
     }
     if source.kind == Kind::Found {
@@ -353,7 +363,11 @@ struct Remembered {
     modified: u64,
     hash: String,
     map: Map,
+    #[serde(default)]
+    sought: u32,
 }
+
+const SOUGHT: u32 = 2;
 
 #[derive(Debug, Default)]
 pub struct Index {
@@ -384,7 +398,7 @@ impl Index {
         {
             for (file, modified) in found {
                 match remembered.remove(&file) {
-                    Some(seen) if seen.modified == modified => {
+                    Some(seen) if seen.modified == modified && (seen.map.background.is_some() || seen.sought >= SOUGHT) => {
                         by_hash.insert(seen.hash.clone(), seen.map.clone());
                         fresh.insert(file, seen);
                         known += 1;
@@ -397,7 +411,7 @@ impl Index {
         for (file, modified, described) in described_all(unknown, &mut |done| report(known + done, total)) {
             if let Some((hash, map)) = described {
                 by_hash.insert(hash.clone(), map.clone());
-                fresh.insert(file, Remembered { modified, hash, map });
+                fresh.insert(file, Remembered { modified, hash, map, sought: SOUGHT });
             }
         }
         if let Ok(text) = serde_json::to_string(&fresh) {
@@ -500,9 +514,9 @@ pub fn describe(file: &Path) -> Option<(String, Map)> {
             "[Events]" if background.is_none() => {
                 let parts: Vec<&str> = line.split(',').collect();
                 if parts.len() >= 3 && (parts[0].trim() == "0" || parts[0].trim() == "Background") {
-                    let name = parts[2].trim().trim_matches('"');
+                    let name = parts[2].trim().trim_matches('"').replace('\\', "/");
                     if !name.is_empty() {
-                        background = file.parent().map(|dir| dir.join(name)).filter(|p| p.is_file());
+                        background = file.parent().and_then(|dir| found_in(dir, &name));
                     }
                 }
             }
@@ -512,7 +526,39 @@ pub fn describe(file: &Path) -> Option<(String, Map)> {
     if title.is_empty() {
         return None;
     }
+    let background = background.or_else(|| file.parent().and_then(largest_picture));
     Some((hash, Map { file: file.to_path_buf(), artist, title, version, background }))
+}
+
+fn found_in(dir: &Path, name: &str) -> Option<PathBuf> {
+    let exact = dir.join(name);
+    if exact.is_file() {
+        return Some(exact);
+    }
+    let mut at = dir.to_path_buf();
+    for part in Path::new(name).components() {
+        let part = part.as_os_str().to_string_lossy().to_lowercase();
+        let next = at.join(&part);
+        at = if next.exists() {
+            next
+        } else {
+            std::fs::read_dir(&at).ok()?.flatten().find(|entry| entry.file_name().to_string_lossy().to_lowercase() == part)?.path()
+        };
+    }
+    at.is_file().then_some(at)
+}
+
+fn largest_picture(dir: &Path) -> Option<PathBuf> {
+    std::fs::read_dir(dir)
+        .ok()?
+        .flatten()
+        .filter(|entry| {
+            let name = entry.file_name().to_string_lossy().to_lowercase();
+            [".jpg", ".jpeg", ".png"].iter().any(|ext| name.ends_with(ext))
+        })
+        .filter_map(|entry| entry.metadata().ok().filter(|m| m.is_file() && m.len() >= 40 * 1024).map(|m| (m.len(), entry.path())))
+        .max_by_key(|(size, _)| *size)
+        .map(|(_, path)| path)
 }
 
 pub fn md5_hex(bytes: &[u8]) -> String {
@@ -566,6 +612,23 @@ mod tests {
         assert_eq!(hash.len(), 32);
         assert_eq!(map.line(), "xi — Blue Zenith [FOUR DIMENSIONS]");
         assert_eq!(map.background, Some(dir.join("bg.jpg")));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_background_is_found_whatever_its_case_or_slashes_or_else_the_largest_picture_stands_in() {
+        let dir = std::env::temp_dir().join(format!("dossier-bg-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("SB")).unwrap();
+        std::fs::write(dir.join("SB").join("Back.JPG"), vec![0u8; 50 * 1024]).unwrap();
+        std::fs::write(dir.join("hitcircle.png"), vec![0u8; 900]).unwrap();
+        let found = found_in(&dir, "sb/back.jpg").expect("the background");
+        assert!(found.is_file());
+        assert_eq!(found.file_name().map(|n| n.to_string_lossy().to_lowercase()), Some("back.jpg".to_owned()));
+        assert_eq!(found_in(&dir, "missing.jpg"), None);
+        assert_eq!(largest_picture(&dir), None, "a small skin picture is not a background");
+        std::fs::write(dir.join("wide.jpg"), vec![0u8; 80 * 1024]).unwrap();
+        assert_eq!(largest_picture(&dir), Some(dir.join("wide.jpg")));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

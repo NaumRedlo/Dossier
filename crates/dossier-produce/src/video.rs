@@ -1,6 +1,6 @@
 use std::io::Write;
 use std::path::Path;
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Stdio};
 
 use dossier_render::{Layout, Scene};
 use tiny_skia::Pixmap;
@@ -526,7 +526,7 @@ fn spawn(
     from_ms: f64,
 ) -> Result<Child, String> {
     let (width, height) = settings.size;
-    let mut command = Command::new(&settings.ffmpeg);
+    let mut command = crate::quiet(&settings.ffmpeg);
 
     let mut inputs = 0usize;
     command.args([

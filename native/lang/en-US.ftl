@@ -201,6 +201,7 @@ live-replay = Live replay
 pause-unfocused = Pause when away
 sources = Sources
 add-folder = Add a folder…
+exported-only = Only exported replays
 replays-count = { $n ->
     [one] replay
    *[other] replays

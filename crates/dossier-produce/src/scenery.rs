@@ -71,7 +71,7 @@ pub fn still(
     };
 
     let seconds = ((at_ms - named.start_ms) / 1000.0).max(0.0);
-    let shot = std::process::Command::new(behind.ffmpeg)
+    let shot = crate::quiet(behind.ffmpeg)
         .args(["-nostdin", "-loglevel", "error", "-ss"])
         .arg(format!("{seconds:.3}"))
         .arg("-i")

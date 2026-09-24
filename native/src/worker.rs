@@ -1,5 +1,4 @@
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -306,7 +305,7 @@ fn length_of(replay: &Path) -> Duration {
 }
 
 fn ffmpeg(binary: &Path, args: &[&str]) -> Result<(), String> {
-    let mut command = Command::new(binary);
+    let mut command = crate::checks::quiet(binary);
     command.args(["-hide_banner", "-loglevel", "error", "-y"]);
     match (render::threads().1, args.split_last()) {
         (Some(n), Some((out, head))) => {
@@ -315,11 +314,6 @@ fn ffmpeg(binary: &Path, args: &[&str]) -> Result<(), String> {
         _ => {
             command.args(args);
         }
-    }
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        command.creation_flags(0x0800_0000);
     }
     let done = command.output().map_err(|e| e.to_string())?;
     if done.status.success() {

@@ -1,6 +1,6 @@
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, Ordering};
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender, TryRecvError};
 use std::sync::{Arc, Mutex};
@@ -248,7 +248,7 @@ impl Player {
 
     fn spawn_video(&self, from_ms: i64, tx: SyncSender<(i64, Vec<u8>)>) {
         let shown = self.shown_fps();
-        let mut child = match Command::new(&self.ffmpeg)
+        let mut child = match crate::checks::quiet(&self.ffmpeg)
             .args(["-hide_banner", "-loglevel", "error", "-ss", &seconds(from_ms), "-i"])
             .arg(&self.path)
             .args(["-an", "-f", "rawvideo", "-pix_fmt", "rgba", "-vf", &format!("scale={WIDTH}:{HEIGHT}:force_original_aspect_ratio=decrease,pad={WIDTH}:{HEIGHT}:(ow-iw)/2:(oh-ih)/2:color=0x050203,fps={shown:.4}"), "-"])
@@ -329,7 +329,7 @@ impl Player {
         args.push("-ar".to_owned());
         args.push(rate.0.to_string());
         args.push("-".to_owned());
-        let mut child = Command::new(&self.ffmpeg)
+        let mut child = crate::checks::quiet(&self.ffmpeg)
             .args(&args)
             .stdout(Stdio::piped())
             .stderr(Stdio::null())

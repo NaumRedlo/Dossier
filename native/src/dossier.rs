@@ -462,12 +462,13 @@ fn identity<'a>(ground: &Ground<'a>, whose: &Whose<'a>) -> Element<'a, Message> 
     let side = 156.0;
     let mut face = stack![chronicle::ring(ground, you, side, share, 6.0)].width(side).height(side);
     if card.is_online {
-        let dot = container(Space::new().width(12.0).height(12.0)).style(move |_| container::Style {
+        let dot = container(Space::new().width(26.0).height(26.0)).style(move |_| container::Style {
             background: Some(Background::Color(Color { a: k, ..GREEN })),
-            border: Border { color: Color { a: k, ..theme::SLAB_SOLID }, width: 3.0, radius: 9.0.into() },
+            border: Border { color: Color { a: k, ..theme::SLAB_SOLID }, width: 5.0, radius: 13.0.into() },
+            shadow: iced::Shadow { color: Color { a: 0.45 * k, ..GREEN }, offset: Vector::ZERO, blur_radius: 10.0 },
             ..container::Style::default()
         });
-        face = face.push(container(dot).width(side).height(side).align_x(iced::alignment::Horizontal::Right).align_y(iced::alignment::Vertical::Bottom).padding(Padding { top: 0.0, right: 17.0, bottom: 17.0, left: 0.0 }));
+        face = face.push(container(dot).width(side).height(side).align_x(iced::alignment::Horizontal::Right).align_y(iced::alignment::Vertical::Bottom).padding(Padding { top: 0.0, right: 12.0, bottom: 12.0, left: 0.0 }));
     }
     let mut avatar = stack![container(face).width(Length::Fill).center_x(Length::Fill)].height(side + 14.0);
     if card.level >= 1.0 {
@@ -887,7 +888,7 @@ fn poster_card<'a>(ground: &Ground<'a>, index: usize, poster: &Poster<'a>, chose
     let (high, picture): (f32, Element<'a, Message>) = match poster.art.or(poster.cover.filter(fits)) {
         Some(handle) => {
             let high = (wide / shape(handle)).clamp(86.0, 150.0);
-            let picture = iced::widget::image(handle.clone()).content_fit(iced::ContentFit::Fill).width(Length::Fill).height(high).border_radius(13.0).opacity(k);
+            let picture = ui::framed(handle, wide, high, 13.0).opacity(k);
             (high, container(picture).width(Length::Fill).height(high).clip(true).into())
         }
         None => {

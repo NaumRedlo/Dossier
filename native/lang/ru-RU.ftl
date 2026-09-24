@@ -205,6 +205,7 @@ live-replay = Живой реплей
 pause-unfocused = Пауза без фокуса
 sources = Источники
 add-folder = Добавить папку…
+exported-only = Только экспортированные реплеи
 replays-count = { $n ->
     [one] реплей
     [few] реплея

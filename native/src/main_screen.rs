@@ -93,6 +93,7 @@ pub enum Message {
     WatchTick,
     Watched(u64),
     Thumb(String, image::Handle),
+    MapKnown(String, crate::maps::Known),
     Scene(String, Option<image::Handle>),
     Length(PathBuf, i64),
     MaxCombo(PathBuf, Option<u32>),
@@ -404,6 +405,9 @@ pub struct Main {
     pub reading: Option<library::Reading>,
     refreshing: bool,
     refreshed_at: Instant,
+    covers_asked: std::collections::HashSet<String>,
+    pub(crate) scale_draft: Option<u32>,
+    hush_next: bool,
     watch_sig: u64,
     pub(crate) update_wanted: bool,
     update_told: Option<String>,
@@ -492,6 +496,7 @@ fn unix_now() -> i64 {
 impl Main {
     pub fn new(words: Words, settings: Settings) -> (Main, Task<Message>) {
         let sources = settings.sources.clone();
+        library::only_exported(settings.exported_only);
         let mut made = Main {
             words,
             settings,
@@ -584,6 +589,9 @@ impl Main {
             reading: None,
             refreshing: false,
             refreshed_at: Instant::now(),
+            covers_asked: std::collections::HashSet::new(),
+            scale_draft: None,
+            hush_next: false,
             watch_sig: 0,
             update_wanted: false,
             update_told: None,
@@ -676,6 +684,8 @@ impl Main {
     pub fn launched(&mut self) -> Task<Message> {
         crate::updates::touched();
         crate::render::share_cpu(self.settings.cpu_share);
+        let ffmpeg = self.ffmpeg.clone();
+        let version = ui::in_thread(move || Message::Ffmpeg(ffmpeg.as_deref().and_then(crate::checks::ffmpeg_version)));
         let build = crate::bot::BUILD;
         if self.settings.last_build != build {
             let before = std::mem::replace(&mut self.settings.last_build, build.to_owned());
@@ -687,22 +697,14 @@ impl Main {
         }
         if crate::updates::place() == crate::updates::Place::Source {
             self.update = UpdateState::Source;
-            return Task::none();
+            return version;
         }
-        self.check_update()
+        Task::batch([version, self.check_update()])
     }
 
     fn rescaled(&self, before: f32) -> Task<Message> {
         let after = ui::scale_of(self.settings.ui_scale);
-        let least = crate::MINIMUM;
-        let fit = ui::refit(iced::Size::new(self.width, self.height), before, after, crate::WINDOW);
-        window::oldest().and_then(move |id| {
-            let floor = window::set_min_size(id, Some(least));
-            match fit {
-                Some(size) => floor.chain(window::resize(id, size)),
-                None => floor,
-            }
-        })
+        crate::refit_window(ui::refit(iced::Size::new(self.width, self.height), before, after, crate::WINDOW))
     }
 
     fn check_update(&mut self) -> Task<Message> {
@@ -1009,7 +1011,17 @@ impl Main {
         if !self.scenes.contains_key(&entry.map_hash) {
             let hash = entry.map_hash.clone();
             let background = entry.map.as_ref().and_then(|m| m.background.clone());
-            tasks.push(ui::in_thread(move || Message::Scene(hash, background.as_deref().and_then(|p| decoded(p, SCENE_WIDTH, None)))));
+            let elsewhere = entry.map.is_none();
+            tasks.push(ui::in_thread(move || {
+                let scene = background.as_deref().and_then(|p| decoded(p, SCENE_WIDTH, None)).or_else(|| {
+                    elsewhere
+                        .then(|| crate::maps::known(&hash))
+                        .flatten()
+                        .and_then(|known| crate::news::picture(&known.cover()))
+                        .and_then(|bytes| decoded_from(&bytes, SCENE_WIDTH, None))
+                });
+                Message::Scene(hash, scene)
+            }));
         }
         if !self.lengths.contains_key(&entry.path) {
             let path = entry.path.clone();
@@ -1031,6 +1043,38 @@ impl Main {
             format!("{} {} / {}", w.t("reading-maps"), group(reading.maps.0), group(reading.maps.1))
         } else {
             format!("{} {} / {}", w.t("reading-replays"), group(reading.replays.0), group(reading.replays.1))
+        })
+    }
+
+    fn covers_task(&mut self) -> Task<Message> {
+        let wanted: Vec<String> = {
+            let mut seen = std::collections::HashSet::new();
+            self.entries()
+                .iter()
+                .filter(|e| e.map.is_none() && !self.thumbs.contains_key(&e.map_hash) && !self.covers_asked.contains(&e.map_hash))
+                .filter(|e| seen.insert(e.map_hash.clone()))
+                .take(COVERS_AT_ONCE)
+                .map(|e| e.map_hash.clone())
+                .collect()
+        };
+        if wanted.is_empty() {
+            return Task::none();
+        }
+        self.covers_asked.extend(wanted.iter().cloned());
+        ui::streamed(move |push| {
+            for hash in wanted {
+                let Some(known) = crate::maps::known(&hash) else {
+                    continue;
+                };
+                if !push(Message::MapKnown(hash.clone(), known.clone())) {
+                    return;
+                }
+                if let Some(handle) = crate::news::picture(&known.cover()).and_then(|bytes| decoded_from(&bytes, THUMB.0, Some(THUMB))) {
+                    if !push(Message::Thumb(hash, handle)) {
+                        return;
+                    }
+                }
+            }
         })
     }
 
@@ -1095,14 +1139,15 @@ impl Main {
                 self.lifts.clear();
                 let entries = self.entries().to_vec();
                 self.store.marry(&entries);
-                if !before.is_empty() {
+                let hushed = std::mem::take(&mut self.hush_next);
+                if !before.is_empty() && !hushed {
                     if let Some(newest) = fresh.iter().max_by_key(|e| e.played_at) {
                         let words = if fresh.len() == 1 { self.words.t("new-replay") } else { self.words.count("new-replays", fresh.len() as u64) };
                         let detail = format!("{} — {}", newest.player, newest.song().unwrap_or_else(|| self.words.t("unknown-map")));
                         self.announce(notices::Mark::Done, words, detail, String::new(), newest.map_hash.clone(), notices::Link::Replay(newest.path.clone()));
                     }
                 }
-                self.thumbs_task()
+                Task::batch([self.thumbs_task(), self.covers_task()])
             }
             Message::Loaded(library) => {
                 self.reading = None;
@@ -1115,7 +1160,15 @@ impl Main {
                 self.enter = Animation::new(false).duration(ENTER).easing(Easing::EaseOutCubic).go(true, Instant::now());
                 let first = self.visible().first().copied();
                 self.chosen = first;
-                Task::batch([self.fetch_for_chosen(), self.thumbs_task(), self.start_live(), self.watch_task()])
+                Task::batch([self.fetch_for_chosen(), self.thumbs_task(), self.covers_task(), self.start_live(), self.watch_task()])
+            }
+            Message::MapKnown(hash, known) => {
+                if let Some(library) = self.library.as_mut() {
+                    for entry in library.entries.iter_mut().filter(|e| e.map_hash == hash && e.map.is_none() && e.named.is_none()) {
+                        entry.named = Some(library::Named { artist: known.artist.clone(), title: known.title.clone(), version: known.version.clone() });
+                    }
+                }
+                Task::none()
             }
             Message::Thumb(hash, handle) => {
                 self.thumbs.insert(hash, handle);
@@ -4238,7 +4291,7 @@ impl Main {
     }
 
     fn slider_targets(&self) -> Vec<(String, f32)> {
-        use crate::settings::{CPU_SHARES, CRFS, HEIGHTS, RATES, SCALES};
+        use crate::settings::{CPU_SHARES, CRFS, HEIGHTS, RATES};
         let at = |value: u32, of: &[u32]| {
             let last = (of.len().max(2) - 1) as f32;
             of.iter().position(|v| *v == value).map_or(0.5, |i| i as f32 / last)
@@ -4248,7 +4301,7 @@ impl Main {
             ("rate".to_owned(), at(self.settings.render_fps, &RATES)),
             ("crf".to_owned(), at(self.settings.render_crf, &CRFS)),
             ("cpu".to_owned(), at(self.settings.cpu_share, &CPU_SHARES)),
-            ("scale".to_owned(), at(SCALES.iter().copied().min_by_key(|stop| stop.abs_diff(if self.settings.ui_scale == 0 { ui::auto_scale() } else { self.settings.ui_scale })).unwrap_or(100), &SCALES)),
+            ("scale".to_owned(), crate::settings::scale_fraction(self.scale_draft.unwrap_or(if self.settings.ui_scale == 0 { ui::auto_scale() } else { self.settings.ui_scale }))),
             ("music".to_owned(), self.settings.music_level),
             ("hits".to_owned(), self.settings.hitsound_level),
             ("player".to_owned(), self.settings.player_level),
@@ -4780,6 +4833,7 @@ impl Main {
             cache_size: self.sizes.2,
             storage: &self.storage,
             ffmpeg: self.ffmpeg_version.clone(),
+            ffmpeg_found: self.ffmpeg.is_some(),
             account: self.account.as_ref(),
             avatar: self.avatar.as_ref(),
             chats: &self.chats,
@@ -4799,6 +4853,7 @@ impl Main {
             worker_done: self.worker_done,
             worker_back: self.worker_back,
             farm: self.farm.as_ref(),
+            scale_draft: self.scale_draft,
         };
         let body: Element<'_, Message> = Element::from(prefs::view(&ground)).map(Message::Prefs);
         let sheet = column![Space::new().height(theme::CONTROL_HEIGHT + 4.0 + 22.0), body].width(Length::Fill).height(Length::Fill);
@@ -4897,8 +4952,32 @@ impl Main {
             }
             P::Scale(at) => {
                 self.slid_at.insert("scale".to_owned(), Instant::now());
+                self.scale_draft = Some(crate::settings::scale_at(at));
+                Task::none()
+            }
+            P::ExportedOnly(on) => {
+                self.remember_mark("exported-only", on);
+                self.settings.exported_only = on;
+                library::only_exported(on);
+                keep(&self.settings);
+                if self.refreshing {
+                    return Task::none();
+                }
+                self.hush_next = true;
+                self.refreshing = true;
+                self.refreshed_at = Instant::now();
+                read_library(self.settings.sources.clone(), Message::Refreshed)
+            }
+            P::ScaleDone => {
+                let Some(chosen) = self.scale_draft.take() else {
+                    return Task::none();
+                };
+                if chosen == self.settings.ui_scale {
+                    return Task::none();
+                }
                 let before = ui::scale_of(self.settings.ui_scale);
-                self.settings.ui_scale = prefs::nearest(at, &crate::settings::SCALES);
+                self.remember_mark("auto-scale", false);
+                self.settings.ui_scale = chosen;
                 keep(&self.settings);
                 self.rescaled(before)
             }
@@ -5875,6 +5954,7 @@ const PICTURE_INSET: f32 = 14.0;
 const PICTURE_RADIUS: f32 = 10.0;
 
 const REFRESH_AT_MOST: Duration = Duration::from_secs(20);
+const COVERS_AT_ONCE: usize = 240;
 
 fn read_library(sources: Vec<crate::sources::Source>, done: fn(Library) -> Message) -> Task<Message> {
     ui::streamed(move |push: &mut dyn FnMut(Message) -> bool| {
@@ -5915,7 +5995,15 @@ pub fn mod_badge<'a, Message: 'a>(acronym: &str) -> Element<'a, Message> {
 }
 
 pub fn decoded(path: &Path, max_width: u32, cover: Option<(u32, u32)>) -> Option<image::Handle> {
-    let picture = ::image::open(path).ok()?;
+    let picture = ::image::ImageReader::open(path).ok()?.with_guessed_format().ok()?.decode().ok()?;
+    shaped(picture, max_width, cover)
+}
+
+pub fn decoded_from(bytes: &[u8], max_width: u32, cover: Option<(u32, u32)>) -> Option<image::Handle> {
+    shaped(::image::load_from_memory(bytes).ok()?, max_width, cover)
+}
+
+fn shaped(picture: ::image::DynamicImage, max_width: u32, cover: Option<(u32, u32)>) -> Option<image::Handle> {
     let picture = match cover {
         Some((w, h)) => {
             let scale = (w as f64 / picture.width() as f64).max(h as f64 / picture.height() as f64);

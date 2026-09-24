@@ -2333,6 +2333,7 @@ pub struct Steps<'a, Message> {
     pub alpha: f32,
     pub stops: Vec<f32>,
     pub on: Box<dyn Fn(f32) -> Message + 'a>,
+    pub release: Option<Box<dyn Fn() -> Message + 'a>>,
 }
 
 #[derive(Debug, Default)]
@@ -2404,7 +2405,10 @@ impl<Message> canvas::Program<Message> for Steps<'_, Message> {
             }
             iced::Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) if state.grabbed => {
                 state.grabbed = false;
-                Some(canvas::Action::capture())
+                match &self.release {
+                    Some(release) => Some(canvas::Action::publish(release()).and_capture()),
+                    None => Some(canvas::Action::capture()),
+                }
             }
             _ => None,
         }
@@ -2494,7 +2498,22 @@ pub fn steps<'a, Message: 'a>(
     stops: Vec<f32>,
     on: impl Fn(f32) -> Message + 'a,
 ) -> Element<'a, Message> {
-    Canvas::new(Steps { label, value, at, shown, snap, alpha: fade(), stops, on: Box::new(on) })
+    Canvas::new(Steps { label, value, at, shown, snap, alpha: fade(), stops, on: Box::new(on), release: None })
+        .width(Length::Fill)
+        .height(26.0)
+        .into()
+}
+
+pub fn steps_released<'a, Message: 'a>(
+    label: String,
+    value: String,
+    at: f32,
+    shown: f32,
+    snap: f32,
+    on: impl Fn(f32) -> Message + 'a,
+    release: impl Fn() -> Message + 'a,
+) -> Element<'a, Message> {
+    Canvas::new(Steps { label, value, at, shown, snap, alpha: fade(), stops: Vec::new(), on: Box::new(on), release: Some(Box::new(release)) })
         .width(Length::Fill)
         .height(26.0)
         .into()

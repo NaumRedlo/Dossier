@@ -22,6 +22,60 @@ pub struct Found {
     pub set: u64,
     pub artist: String,
     pub title: String,
+    pub version: String,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct Known {
+    pub set: u64,
+    pub artist: String,
+    pub title: String,
+    #[serde(default)]
+    pub version: String,
+}
+
+impl Known {
+    pub fn cover(&self) -> String {
+        format!("https://assets.ppy.sh/beatmaps/{}/covers/cover.jpg", self.set)
+    }
+}
+
+static KNOWN: std::sync::Mutex<Option<std::collections::HashMap<String, Option<Known>>>> = std::sync::Mutex::new(None);
+
+fn known_file() -> std::path::PathBuf {
+    crate::sources::own_root().join("cache").join("sets.json")
+}
+
+pub fn known(hash: &str) -> Option<Known> {
+    {
+        let mut book = KNOWN.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let book = book.get_or_insert_with(|| std::fs::read(known_file()).ok().and_then(|bytes| serde_json::from_slice(&bytes).ok()).unwrap_or_default());
+        if let Some(said) = book.get(hash) {
+            return said.clone();
+        }
+    }
+    let mut answer: Option<Option<Known>> = None;
+    for mirror in &MIRRORS {
+        match ask(mirror, hash) {
+            Answer::Found(found) => {
+                answer = Some(Some(Known { set: found.set, artist: found.artist, title: found.title, version: found.version }));
+                break;
+            }
+            Answer::Unknown => answer = Some(answer.flatten()),
+            Answer::Silent(_) => {}
+        }
+    }
+    let answer = answer?;
+    let mut book = KNOWN.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let book = book.get_or_insert_with(Default::default);
+    book.insert(hash.to_owned(), answer.clone());
+    if let Some(dir) = known_file().parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    if let Ok(text) = serde_json::to_vec(&*book) {
+        let _ = std::fs::write(known_file(), text);
+    }
+    answer
 }
 
 impl Found {
@@ -141,6 +195,7 @@ pub fn parse_look_up(mirror: &'static Mirror, body: &serde_json::Value) -> Optio
         set,
         artist: tidy(&said(body, &[&["beatmapset", "artist"], &["set", "artist"], &["artist"]])),
         title: tidy(&said(body, &[&["beatmapset", "title"], &["set", "title"], &["title"]])),
+        version: said(body, &[&["version"]]).trim().to_owned(),
     })
 }
 

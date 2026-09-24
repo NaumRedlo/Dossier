@@ -427,7 +427,7 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
         hash: library.entries[3].map_hash.clone(),
         reached: vec![
             crate::maps::Step::Looking,
-            crate::maps::Step::Found(crate::maps::Found { from: "osu.direct", set: 2190769, artist: "Chocofan".into(), title: "LUCKY CAT".into() }),
+            crate::maps::Step::Found(crate::maps::Found { from: "osu.direct", set: 2190769, artist: "Chocofan".into(), title: "LUCKY CAT".into(), version: String::new() }),
             crate::maps::Step::Downloading { from: "osu.direct", done: 14_890_000, total: Some(22_860_000) },
         ],
     });

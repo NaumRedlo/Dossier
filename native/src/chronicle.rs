@@ -165,9 +165,20 @@ impl Event<'_> {
     }
 }
 
+const POSTS_EACH: usize = 20;
+
 fn chosen_posts<'a>(news: &'a News, channels: &[String]) -> impl Iterator<Item = &'a news::Post> + 'a {
     let channels: Vec<String> = channels.iter().map(|c| c.to_ascii_lowercase()).collect();
-    news.posts.iter().filter(move |post| channels.contains(&post.channel.to_ascii_lowercase()))
+    let mut taken: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    news.posts.iter().filter(move |post| {
+        let channel = post.channel.to_ascii_lowercase();
+        if !channels.contains(&channel) {
+            return false;
+        }
+        let count = taken.entry(channel).or_insert(0);
+        *count += 1;
+        *count <= POSTS_EACH
+    })
 }
 
 fn events<'a>(catalog: &'a Catalog, news: &'a News, channels: &[String], live_shown: usize) -> Vec<Event<'a>> {
@@ -176,7 +187,7 @@ fn events<'a>(catalog: &'a Catalog, news: &'a News, channels: &[String], live_sh
     out.extend(catalog.live[..shown].iter().map(|play| Event { at: play.at, item: Item::Play(play) }));
     out.extend(catalog.feed.iter().map(|happened| Event { at: happened.at, item: Item::Happened(happened) }));
     out.extend(news.stories.iter().take(12).map(|story| Event { at: story.at, item: Item::Story(story) }));
-    out.extend(chosen_posts(news, channels).take(20).map(|post| Event { at: post.at, item: Item::Post(post) }));
+    out.extend(chosen_posts(news, channels).map(|post| Event { at: post.at, item: Item::Post(post) }));
     out.extend(news.builds.iter().take(8).map(|build| Event { at: build.at, item: Item::Build(build) }));
     out.sort_by(|a, b| b.at.cmp(&a.at));
     out.truncate(90);
@@ -898,19 +909,20 @@ fn me_card<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
                     ui::marquee(vec![
                         ui::piece(w.n("streak-card", u64::from(you.streak)), theme::SANS_SEMI, 12.0, INK),
                         ui::piece(w.n("streak-best-n", u64::from(you.streak_best.max(you.streak))), theme::MONO, 11.0, MUTED).after(7.0),
-                    ]),
+                    ])
+                    .width(Length::Shrink),
                 ]
                 .spacing(7)
                 .align_y(iced::Center),
             )
-            .padding(Padding { top: 6.0, right: 11.0, bottom: 6.0, left: 9.0 })
-            .width(Length::Fill)
+            .padding(Padding { top: 6.0, right: 12.0, bottom: 6.0, left: 10.0 })
+            .width(Length::Shrink)
             .style(move |_| container::Style {
                 background: Some(Background::Color(Color { a: k, ..Color::from_rgb8(0x33, 0x16, 0x19) })),
                 border: Border { color: Color { a: k, ..Color::from_rgb8(0x5c, 0x25, 0x28) }, width: 1.0, radius: 14.0.into() },
                 ..container::Style::default()
             });
-        foot = foot.push(chip);
+        foot = foot.push(container(chip).width(Length::Fill).align_x(iced::alignment::Horizontal::Left));
     } else {
         foot = foot.push(ui::grow());
     }
@@ -1355,6 +1367,20 @@ impl<'a, M: 'a> From<Drain> for Element<'a, M> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_busy_channel_does_not_crowd_out_a_quiet_one() {
+        let mut news = News::default();
+        for n in 0..60 {
+            news.posts.push(news::Post { channel: "osunow".into(), text: format!("busy {n}"), at: 2_000_000 + n, ..news::Post::default() });
+        }
+        news.posts.push(news::Post { channel: "osunewsru".into(), text: "quiet".into(), at: 1_000_000, ..news::Post::default() });
+        news.posts.sort_by(|a, b| b.at.cmp(&a.at));
+        let channels = vec!["osunewsru".to_owned(), "osunow".to_owned()];
+        let chosen: Vec<&news::Post> = chosen_posts(&news, &channels).collect();
+        assert!(chosen.iter().any(|post| post.channel == "osunewsru"));
+        assert_eq!(chosen.iter().filter(|post| post.channel == "osunow").count(), POSTS_EACH);
+    }
 
     #[test]
     fn a_filter_lets_through_only_its_own_events() {

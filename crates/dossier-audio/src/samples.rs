@@ -91,7 +91,7 @@ const SPINNER: [(Voice, &str); 2] = [(Voice::Bonus, "spinnerbonus"), (Voice::Spi
 const SOUND_ENDINGS: [&str; 3] = ["wav", "ogg", "mp3"];
 
 fn decode_through_ffmpeg(path: &Path) -> Option<Vec<f32>> {
-    let done = std::process::Command::new("ffmpeg")
+    let done = crate::quiet("ffmpeg")
         .args(["-v", "error", "-i"])
         .arg(path)
         .args([

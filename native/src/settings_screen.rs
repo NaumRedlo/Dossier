@@ -4,7 +4,7 @@ use iced::widget::{button, column, container, row, text, text_input, Space};
 use iced::{Element, Length, Padding};
 
 use crate::lang::{Lang, Words};
-use crate::settings::{Settings, CPU_SHARES, CRFS, HEIGHTS, RATES, SCALES};
+use crate::settings::{Settings, CPU_SHARES, CRFS, HEIGHTS, RATES};
 use crate::sources::{self, Kind, Source};
 use crate::theme::{self, ACCENT, FAINT, INK, MUTED};
 use crate::ui;
@@ -113,6 +113,7 @@ pub struct Ground<'a> {
     pub cache_size: u64,
     pub storage: &'a Storage,
     pub ffmpeg: Option<String>,
+    pub ffmpeg_found: bool,
     pub account: Option<&'a crate::bot::Me>,
     pub avatar: Option<&'a iced::widget::image::Handle>,
     pub chats: &'a [crate::bot::Chat],
@@ -132,6 +133,7 @@ pub struct Ground<'a> {
     pub worker_done: u32,
     pub worker_back: u32,
     pub farm: Option<&'a crate::bot::Farm>,
+    pub scale_draft: Option<u32>,
 }
 
 #[derive(Debug, Clone)]
@@ -147,6 +149,8 @@ pub enum Message {
     Crf(f32),
     Cpu(f32),
     Scale(f32),
+    ScaleDone,
+    ExportedOnly(bool),
     AutoScale(bool),
     Source(usize, bool),
     AddFolder,
@@ -384,13 +388,15 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
         .spacing(2)
         .into(),
         Tile::Look => {
-            let shown = if s.ui_scale == 0 { ui::auto_scale() } else { s.ui_scale };
-            let nearest_stop = SCALES.iter().copied().min_by_key(|stop| stop.abs_diff(shown)).unwrap_or(100);
-            let value = if s.ui_scale == 0 { format!("{} · {} %", w.t("scale-auto"), shown) } else { format!("{shown} %") };
+            let applied = if s.ui_scale == 0 { ui::auto_scale() } else { s.ui_scale };
+            let shown = ground.scale_draft.unwrap_or(applied);
+            let value = if s.ui_scale == 0 && ground.scale_draft.is_none() { format!("{} {} %", w.t("scale-auto"), shown) } else { format!("{shown} %") };
+            let fraction = crate::settings::scale_fraction(shown);
+            let (moving, snap) = ground.slides.get("scale").copied().unwrap_or((fraction, 1.0));
             column![
                 head(w, "look-tile"),
                 pill(ground, "auto-scale", w.t("scale-to-monitor"), s.ui_scale == 0, Message::AutoScale(s.ui_scale != 0)),
-                container(slide(ground, "scale", w.t("scale"), value, at(nearest_stop, &SCALES), stops(&SCALES), Message::Scale))
+                container(ui::steps_released(w.t("scale"), value, fraction, moving, snap, Message::Scale, || Message::ScaleDone))
                     .width(280.0)
                     .padding(Padding::ZERO.top(8.0)),
             ]
@@ -434,7 +440,9 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
                 }
                 rows = rows.push(line(ground, &format!("source-{at}"), short(source.kind), source.shown(), under, source.on, Some(Message::Source(at, !source.on))));
             }
-            rows.push(line(ground, "add-folder", "+", w.t("add-folder"), String::new(), false, Some(Message::AddFolder))).into()
+            rows.push(line(ground, "add-folder", "+", w.t("add-folder"), String::new(), false, Some(Message::AddFolder)))
+                .push(container(pill(ground, "exported-only", w.t("exported-only"), s.exported_only, Message::ExportedOnly(!s.exported_only))).padding(Padding::ZERO.top(8.0)))
+                .into()
         }
         Tile::Skins => {
             let chosen = s.skin.clone();
@@ -620,7 +628,7 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
             if crate::bot::PRERELEASE {
                 under.push(w.t("prerelease"));
             }
-            if ground.ffmpeg.is_none() {
+            if !ground.ffmpeg_found {
                 under.push(w.t("no-ffmpeg"));
             }
             let under = under.join(" · ");
@@ -826,7 +834,7 @@ fn worker_tile<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
     if s.token.is_empty() {
         problems.push(w.t("worker-not-paired"));
     }
-    if ground.ffmpeg.is_none() {
+    if !ground.ffmpeg_found {
         problems.push(w.t("worker-no-ffmpeg"));
     }
     for problem in problems {

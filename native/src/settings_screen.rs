@@ -13,6 +13,7 @@ use crate::ui;
 pub enum Side {
     App,
     Bot,
+    Worker,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -171,7 +172,7 @@ pub enum Message {
 
 pub fn view<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
     let (kept, all) = match ground.side {
-        Side::App => (&ground.settings.tiles_app, &APP[..]),
+        Side::App | Side::Worker => (&ground.settings.tiles_app, &APP[..]),
         Side::Bot => (&ground.settings.tiles_bot, &BOT[..]),
     };
     let swap = ground.swap.clamp(0.0, 1.0);

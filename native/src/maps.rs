@@ -281,7 +281,7 @@ pub fn fetch(hash: String, songs: PathBuf) -> iced::Task<Step> {
     })
 }
 
-fn bring(hash: &str, songs: &Path, report: &mut dyn FnMut(Step) -> bool) -> Step {
+pub fn bring(hash: &str, songs: &Path, report: &mut dyn FnMut(Step) -> bool) -> Step {
     let hash = match hex(hash) {
         Ok(hash) => hash,
         Err(why) => return Step::Failed(why),

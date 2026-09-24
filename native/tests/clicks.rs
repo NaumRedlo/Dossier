@@ -92,13 +92,14 @@ fn the_three_words_and_the_frames_answer_to_clicks() {
 }
 
 #[test]
-fn the_community_overlay_says_it_comes_later_and_goes_back() {
-    use dossier_native::main_screen::{Message as M, Overlay};
+fn the_worker_is_a_part_of_settings_and_the_bar_turns_between_them() {
+    use dossier_native::main_screen::Message as M;
+    use dossier_native::settings_screen::{Message as P, Side};
     let staged = main_state("main-worker");
     let backdrop = dossier_native::ui::backdrop_handle();
     let mut ui = Simulator::with_size(dossier_native::settings(), iced::Size::new(980.0, 720.0), gallery::main_frame(&staged, &backdrop));
-    assert!(ui.find("Back to replays").is_ok());
-    let _ = ui.click("Back to replays").expect("clicked");
+    assert!(ui.find("Take work from the bot").is_ok());
+    let _ = ui.click("Application").expect("clicked");
     let messages: Vec<_> = ui.into_messages().collect();
-    assert!(messages.iter().any(|m| matches!(m, dossier_native::Message::Main(M::Show(Overlay::None)))), "{messages:?}");
+    assert!(messages.iter().any(|m| matches!(m, dossier_native::Message::Main(M::Prefs(P::Side(Side::App))))), "{messages:?}");
 }

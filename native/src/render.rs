@@ -155,7 +155,14 @@ pub fn run(ask: Ask) -> iced::Task<Step> {
     crate::ui::streamed(move |push| perform(ask, push))
 }
 
+static BUSY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub fn busy() -> bool {
+    BUSY.load(std::sync::atomic::Ordering::SeqCst)
+}
+
 pub fn perform(ask: Ask, push: &mut dyn FnMut(Step) -> bool) {
+    BUSY.store(true, std::sync::atomic::Ordering::SeqCst);
     {
         let (tell, heard) = std::sync::mpsc::channel::<Step>();
         let worker = std::thread::spawn(move || {
@@ -187,6 +194,7 @@ pub fn perform(ask: Ask, push: &mut dyn FnMut(Step) -> bool) {
         forward(heard, push);
         let _ = worker.join();
     }
+    BUSY.store(false, std::sync::atomic::Ordering::SeqCst);
 }
 
 const EVERY: Duration = Duration::from_millis(120);

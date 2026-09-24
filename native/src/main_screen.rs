@@ -53,7 +53,6 @@ pub enum Overlay {
     None,
     Videos,
     Community,
-    Worker,
     Settings,
 }
 
@@ -71,6 +70,10 @@ pub enum Message {
     CardArrived(Result<crate::community::wire::Card, String>),
     Flag(String, Option<Vec<u8>>),
     CommunityTick,
+    FarmTick,
+    WorkerSwitch(bool),
+    Worked(crate::worker::Step),
+    FarmHeard(Option<crate::bot::Farm>),
     NewsTick,
     FeedClock,
     ClipFetched(String, Result<(PathBuf, i64, u32), String>),
@@ -381,6 +384,12 @@ pub struct Main {
     pub strip_view: Option<(f32, f32, f32)>,
     pub progress_shown: f32,
     pub ffmpeg: Option<PathBuf>,
+    pub(crate) worker_step: Option<crate::worker::Step>,
+    pub(crate) worker_last: Option<crate::worker::Step>,
+    pub(crate) worker_running: bool,
+    pub(crate) worker_done: u32,
+    pub(crate) worker_back: u32,
+    pub(crate) farm: Option<crate::bot::Farm>,
     pub now: Instant,
     pub started: Instant,
     pub now_unix: i64,
@@ -465,7 +474,7 @@ fn unix_now() -> i64 {
 impl Main {
     pub fn new(words: Words, settings: Settings) -> (Main, Task<Message>) {
         let sources = settings.sources.clone();
-        let made = Main {
+        let mut made = Main {
             words,
             settings,
             library: None,
@@ -547,6 +556,12 @@ impl Main {
             strip_view: None,
             progress_shown: 0.0,
             ffmpeg: crate::checks::ffmpeg_on_path(),
+            worker_step: None,
+            worker_last: None,
+            worker_running: false,
+            worker_done: 0,
+            worker_back: 0,
+            farm: None,
             now: Instant::now(),
             started: Instant::now(),
             now_unix: unix_now(),
@@ -628,6 +643,7 @@ impl Main {
         };
         let who = made.ask_who();
         let warm = if made.settings.token.is_empty() { Task::none() } else { warm_pictures() };
+        let warm = if made.settings.worker_on { Task::batch([warm, made.start_worker()]) } else { warm };
         (made, Task::batch([ui::in_thread(move || library::read(&sources)).map(Message::Loaded), adopt, who, warm]))
     }
 
@@ -748,6 +764,9 @@ impl Main {
         }
         if self.overlay == Overlay::Community {
             parts.push(iced::time::every(NEWS_EVERY).map(|_| Message::NewsTick));
+        }
+        if self.overlay == Overlay::Settings && self.side == Side::Worker && !self.settings.token.is_empty() {
+            parts.push(iced::time::every(Duration::from_secs(10)).map(|_| Message::FarmTick));
         }
         if self.overlay == Overlay::Community && self.community_section == crate::community_screen::Section::Feed {
             parts.push(iced::time::every(Duration::from_millis(500)).map(|_| Message::FeedClock));
@@ -1554,7 +1573,11 @@ impl Main {
             Message::Show(overlay) => {
                 let now = Instant::now();
                 if overlay == Overlay::Settings {
-                    self.side = if self.settings.settings_tab == "bot" { Side::Bot } else { Side::App };
+                    self.side = match self.settings.settings_tab.as_str() {
+                        "bot" => Side::Bot,
+                        "worker" => Side::Worker,
+                        _ => Side::App,
+                    };
                     let renders = self.settings.renders_dir();
                     let songs = crate::sources::own_root().join("Songs");
                     let root = crate::sources::own_root();
@@ -1892,6 +1915,47 @@ impl Main {
                 None => Task::none(),
             },
             Message::CommunityTick => self.community_task(false),
+            Message::FarmTick => self.farm_task(),
+            Message::FarmHeard(farm) => {
+                if farm.is_some() {
+                    self.farm = farm;
+                }
+                Task::none()
+            }
+            Message::WorkerSwitch(on) => {
+                self.settings.worker_on = on;
+                let _ = self.settings.save();
+                if on {
+                    Task::batch([self.start_worker(), self.farm_task()])
+                } else {
+                    crate::worker::stop();
+                    Task::none()
+                }
+            }
+            Message::Worked(step) => {
+                use crate::worker::Step as W;
+                match &step {
+                    W::Stopped => {
+                        self.worker_running = false;
+                        self.worker_step = None;
+                        return if self.settings.worker_on { self.start_worker() } else { Task::none() };
+                    }
+                    W::Delivered { .. } => {
+                        self.worker_done += 1;
+                        self.worker_last = Some(step.clone());
+                        self.worker_step = None;
+                        return self.farm_task();
+                    }
+                    W::HandedBack { .. } => {
+                        self.worker_back += 1;
+                        self.worker_last = Some(step.clone());
+                        self.worker_step = None;
+                        return self.farm_task();
+                    }
+                    _ => self.worker_step = Some(step),
+                }
+                Task::none()
+            }
             Message::NewsTick => self.refresh_news(false),
             Message::OsuProfile(Ok(card)) => {
                 crate::osu_profile::save(&card);
@@ -2044,6 +2108,11 @@ impl Main {
             }
             Message::Render => {
                 if self.rendering.as_ref().is_some_and(|r| !r.is_over()) {
+                    return Task::none();
+                }
+                if crate::worker::drawing() {
+                    let words = self.words.t("worker-busy");
+                    self.say(words);
                     return Task::none();
                 }
                 let (Some(entry), Some(ffmpeg)) = (self.chosen_entry(), self.ffmpeg.clone()) else {
@@ -2885,7 +2954,7 @@ impl Main {
                 ui::sliding(line, active, pill)
             })),
             Overlay::Settings => Some(ui::fading(ui::fade() * sheet, || {
-                let parts = [("app-side", Side::App), ("bot-side", Side::Bot)];
+                let parts = [("app-side", Side::App), ("bot-side", Side::Bot), ("worker", Side::Worker)];
                 let active = parts.iter().position(|(_, side)| *side == self.side).unwrap_or(0);
                 let line = iced::widget::Row::with_children(parts.iter().map(|(key, side)| tab(key, *side == self.side, Message::Prefs(prefs::Message::Side(*side))))).spacing(gap).align_y(iced::Center);
                 ui::sliding(line, active, pill)
@@ -3289,7 +3358,6 @@ impl Main {
             }
         }
         let (name, why) = match which {
-            Overlay::Worker => (w.t("worker"), w.t("coming-later")),
             Overlay::Community => (w.t("community"), w.t("community-why")),
             _ => (w.t("settings"), w.t("coming-later")),
         };
@@ -3311,6 +3379,161 @@ impl Main {
 }
 
 impl Main {
+    fn worker_view(&self) -> Element<'_, Message> {
+        use crate::worker::{Getting, Step as W};
+        let w = &self.words;
+        let k = ui::fade();
+        let on = self.settings.worker_on;
+        let green = theme::HIT_100;
+        let gold = theme::GRADE_S;
+        let panel = move |inside: Element<'static, Message>| -> Element<'static, Message> {
+            container(inside)
+                .padding([18, 20])
+                .width(Length::Fill)
+                .style(move |_| iced::widget::container::Style {
+                    background: Some(iced::Background::Color(Color::from_rgba(0.055, 0.025, 0.033, 0.96 * k))),
+                    border: iced::Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.07 * k), width: 1.0, radius: 16.0.into() },
+                    ..iced::widget::container::Style::default()
+                })
+                .into()
+        };
+        let dot = move |colour: Color| -> Element<'static, Message> {
+            container(Space::new().width(8.0).height(8.0))
+                .style(move |_| iced::widget::container::Style {
+                    background: Some(iced::Background::Color(Color { a: k, ..colour })),
+                    border: iced::Border { radius: 4.0.into(), ..iced::Border::default() },
+                    ..iced::widget::container::Style::default()
+                })
+                .into()
+        };
+        let tile = move |value: String, label: String| -> Element<'static, Message> {
+            container(column![text(value).font(theme::SANS_SEMI).size(20.0).color(Color { a: k, ..INK }), text(label).font(theme::MONO).size(11.0).color(Color { a: k, ..FAINT })].spacing(2))
+                .padding([10, 14])
+                .width(Length::FillPortion(1))
+                .style(move |_| iced::widget::container::Style {
+                    background: Some(iced::Background::Color(Color::from_rgba(1.0, 1.0, 1.0, 0.022 * k))),
+                    border: iced::Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.07 * k), width: 1.0, radius: 10.0.into() },
+                    ..iced::widget::container::Style::default()
+                })
+                .into()
+        };
+        let head = row![
+            column![text(w.t("worker-take")).font(theme::SANS_SEMI).size(theme::LEAD).color(ui::faded(if on { INK } else { MUTED })), ui::cap(w.t("worker-about"))].spacing(6).width(Length::Fill),
+            iced::widget::toggler(on).on_toggle(Message::WorkerSwitch).size(22.0).style(theme::switch),
+        ]
+        .spacing(24)
+        .align_y(iced::Center);
+        let (said, colour) = match (&self.worker_step, on) {
+            (_, false) => (w.t("worker-off"), FAINT),
+            (None | Some(W::Waiting { .. }) | Some(W::Stopped) | Some(W::Delivered { .. }) | Some(W::HandedBack { .. }), true) => (w.t("worker-waiting"), green),
+            (Some(W::Resting), true) => (w.t("worker-resting"), MUTED),
+            (Some(W::Offline(why)), true) => (format!("{} · {why}", w.t("worker-offline")), ACCENT),
+            (Some(W::Taken { .. }), true) => (w.t("worker-taken"), gold),
+            (Some(W::Getting { what, .. }), true) => (
+                w.t(match what {
+                    Getting::Replay => "worker-getting-replay",
+                    Getting::Map => "worker-getting-map",
+                    Getting::Skin => "worker-getting-skin",
+                }),
+                gold,
+            ),
+            (Some(W::Drawing { .. }), true) => (w.t("worker-drawing"), gold),
+            (Some(W::Polishing { .. }), true) => (w.t("worker-polishing"), gold),
+            (Some(W::Sending { .. }), true) => (w.t("worker-sending"), gold),
+        };
+        let speed = match &self.worker_step {
+            Some(W::Drawing { fps, .. }) if *fps > 0.0 => w.with("worker-fps", &[("n", format!("{}", fps.round() as u64))]),
+            _ => "—".to_owned(),
+        };
+        let mut device = column![
+            row![
+                text(self.settings.device.clone()).font(theme::SANS_SEMI).size(theme::LEAD).color(ui::faded(INK)),
+                ui::grow(),
+                dot(colour),
+                text(said).font(theme::SANS).size(theme::BODY).color(ui::faded(colour)),
+            ]
+            .spacing(8)
+            .align_y(iced::Center),
+            row![tile(speed, w.t("worker-speed")), tile(self.worker_done.to_string(), w.t("worker-delivered")), tile(self.worker_back.to_string(), w.t("worker-handed-back"))].spacing(8),
+        ]
+        .spacing(14);
+        let mut problems: Vec<String> = Vec::new();
+        if self.settings.token.is_empty() {
+            problems.push(w.t("worker-not-paired"));
+        }
+        if self.ffmpeg.is_none() {
+            problems.push(w.t("worker-no-ffmpeg"));
+        }
+        for problem in problems {
+            device = device.push(row![text("✕").font(theme::SANS_SEMI).size(theme::BODY).color(ui::faded(ACCENT)), text(problem).font(theme::SANS).size(theme::BODY).color(ui::faded(INK))].spacing(8));
+        }
+        let current = match &self.worker_step {
+            Some(W::Taken { title } | W::Getting { title, .. } | W::Polishing { title }) => Some((title.clone(), None, None)),
+            Some(W::Drawing { title, done, of, left_seconds, .. }) => {
+                let left = *left_seconds as u64;
+                Some((title.clone(), Some(if *of > 0 { *done as f32 / *of as f32 } else { 0.0 }), Some(w.with("worker-left", &[("left", format!("{}:{:02}", left / 60, left % 60))]))))
+            }
+            Some(W::Sending { title, done, of }) => Some((title.clone(), Some(if *of > 0 { *done as f32 / *of as f32 } else { 0.0 }), None)),
+            _ => None,
+        };
+        if let Some((title, share, left)) = current {
+            let mut block = column![ui::marquee(vec![ui::piece(title, theme::SANS_SEMI, 15.0, INK)])].spacing(8);
+            if let Some(share) = share {
+                let filled = (share.clamp(0.0, 1.0) * 1000.0).round().max(1.0) as u16;
+                let bar = row![
+                    container(Space::new().height(4.0)).width(Length::FillPortion(filled)).style(move |_| iced::widget::container::Style {
+                        background: Some(iced::Background::Color(Color { a: k, ..gold })),
+                        border: iced::Border { radius: 2.0.into(), ..iced::Border::default() },
+                        ..iced::widget::container::Style::default()
+                    }),
+                    Space::new().width(Length::FillPortion(1000u16.saturating_sub(filled).max(1))).height(4.0),
+                ];
+                block = block.push(bar);
+            }
+            if let Some(left) = left {
+                block = block.push(ui::mono_small(left, MUTED));
+            }
+            device = device.push(block);
+        }
+        match &self.worker_last {
+            Some(W::Delivered { title }) => device = device.push(text(w.with("worker-last-delivered", &[("title", title.clone())])).font(theme::SANS).size(12.5).color(ui::faded(green))),
+            Some(W::HandedBack { title, reason }) => device = device.push(text(w.with("worker-last-back", &[("title", title.clone()), ("reason", reason.clone())])).font(theme::SANS).size(12.5).color(ui::faded(ACCENT))),
+            _ => {}
+        }
+        let mut farm = column![row![
+            text(w.t("farm-head")).font(theme::SANS_SEMI).size(theme::LEAD).color(ui::faded(INK)),
+            ui::grow(),
+            ui::mono_small(w.with("farm-waiting", &[("n", self.farm.as_ref().map_or(0, |f| f.waiting).to_string())]), MUTED),
+        ]
+        .align_y(iced::Center)]
+        .spacing(10);
+        let workers = self.farm.as_ref().map(|f| f.workers.clone()).unwrap_or_default();
+        if workers.is_empty() {
+            farm = farm.push(ui::cap(w.t("farm-nobody")));
+        }
+        for worker in workers {
+            let (state, colour) = match worker.state.as_str() {
+                "rendering" => (w.t("farm-rendering"), gold),
+                "ready" => (w.t("farm-ready"), green),
+                _ => (w.t("farm-resting"), FAINT),
+            };
+            let name = if worker.mine { format!("{} · {}", worker.name, w.t("farm-this")) } else { worker.name.clone() };
+            farm = farm.push(
+                row![
+                    dot(colour),
+                    ui::marquee(vec![ui::piece(name, theme::SANS_SEMI, 13.5, if worker.mine { INK } else { MUTED })]),
+                    text(state).font(theme::SANS).size(12.5).color(ui::faded(colour)),
+                    ui::mono_small(format!("{}", worker.delivered), FAINT),
+                ]
+                .spacing(10)
+                .align_y(iced::Center),
+            );
+        }
+        let body = column![head, row![container(panel(device.into())).width(Length::FillPortion(3)), container(panel(farm.into())).width(Length::FillPortion(2))].spacing(16)].spacing(20).max_width(1100.0);
+        let sheet = column![Space::new().height(theme::CONTROL_HEIGHT + 4.0 + 22.0 + 24.0), container(body).padding(Padding { top: 0.0, right: 40.0, bottom: 28.0, left: 40.0 }).center_x(Length::Fill)];
+        scrollable(sheet).style(ui::thin_scroll).width(Length::Fill).height(Length::Fill).into()
+    }
+
     fn videos_view(&self) -> Element<'_, Message> {
         let w = &self.words;
         let page: Element<'_, Message> = if self.store.videos.is_empty() {
@@ -3871,6 +4094,44 @@ impl Main {
             .go_mut(on, now);
     }
 
+    fn worker_setup(&self) -> Option<crate::worker::Setup> {
+        if self.settings.token.is_empty() {
+            return None;
+        }
+        let ffmpeg = self.ffmpeg.clone()?;
+        let live: Vec<&crate::sources::Source> = self.settings.sources.iter().filter(|s| s.on).collect();
+        let own_songs = live
+            .iter()
+            .find(|s| s.kind == Kind::Own)
+            .or_else(|| live.iter().find(|s| s.kind == Kind::Folder))
+            .and_then(|s| s.songs.clone())
+            .unwrap_or_else(|| crate::sources::own_root().join("Songs"));
+        let mut songs: Vec<PathBuf> = live.iter().filter_map(|s| s.songs.clone()).collect();
+        if !songs.contains(&own_songs) {
+            songs.push(own_songs.clone());
+        }
+        Some(crate::worker::Setup { server: self.settings.server.clone(), token: self.settings.token.clone(), name: self.settings.device.clone(), ffmpeg, songs, own_songs })
+    }
+
+    fn start_worker(&mut self) -> Task<Message> {
+        if self.worker_running {
+            return Task::none();
+        }
+        let Some(setup) = self.worker_setup() else {
+            return Task::none();
+        };
+        self.worker_running = true;
+        crate::worker::run(setup).map(Message::Worked)
+    }
+
+    fn farm_task(&self) -> Task<Message> {
+        if self.settings.token.is_empty() {
+            return Task::none();
+        }
+        let (server, token, name) = (self.settings.server.clone(), self.settings.token.clone(), self.settings.device.clone());
+        ui::in_thread(move || Message::FarmHeard(crate::bot::farm(&server, &token, &name).ok()))
+    }
+
     fn fresh_from(&mut self, before: i64) {
         if before > 0 && self.newest_event() > before {
             self.feed_seen = before;
@@ -4361,6 +4622,10 @@ impl Main {
             swap: self.side_fade.interpolate(0.0, 1.0, self.now),
             swap_from: self.side_swap,
         };
+        if self.side == Side::Worker {
+            let swap = self.side_fade.interpolate(0.0, 1.0, self.now);
+            return ui::fading(ui::fade() * swap, || self.worker_view());
+        }
         let body: Element<'_, Message> = Element::from(prefs::view(&ground)).map(Message::Prefs);
         let sheet = column![Space::new().height(theme::CONTROL_HEIGHT + 4.0 + 22.0), body].width(Length::Fill).height(Length::Fill);
         sheet.into()
@@ -4373,15 +4638,27 @@ impl Main {
         };
         match message {
             P::Side(side) => {
+                let order = |side: Side| match side {
+                    Side::App => 0,
+                    Side::Bot => 1,
+                    Side::Worker => 2,
+                };
                 if side != self.side {
-                    self.side_swap = if side == Side::Bot { 1.0 } else { -1.0 };
+                    self.side_swap = if order(side) > order(self.side) { 1.0 } else { -1.0 };
                     self.side_fade = Animation::new(false).duration(TAB_FADE).easing(Easing::EaseOutCubic).go(true, Instant::now());
                 }
                 self.side = side;
-                let name = if side == Side::Bot { "bot" } else { "app" };
+                let name = match side {
+                    Side::App => "app",
+                    Side::Bot => "bot",
+                    Side::Worker => "worker",
+                };
                 if self.settings.settings_tab != name {
                     self.settings.settings_tab = name.to_owned();
                     keep(&self.settings);
+                }
+                if side == Side::Worker {
+                    return self.farm_task();
                 }
                 Task::none()
             }
@@ -4678,6 +4955,7 @@ impl Main {
                 match self.side {
                     Side::App => self.settings.tiles_app = prefs::moved(&self.settings.tiles_app, &prefs::APP, what, before),
                     Side::Bot => self.settings.tiles_bot = prefs::moved(&self.settings.tiles_bot, &prefs::BOT, what, before),
+                    Side::Worker => {}
                 }
                 keep(&self.settings);
                 Task::none()

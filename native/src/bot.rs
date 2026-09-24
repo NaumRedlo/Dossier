@@ -287,6 +287,165 @@ pub fn send(
     Ok(answer.get("message_id").and_then(|m| m.as_i64()).unwrap_or(0))
 }
 
+#[derive(Debug, Clone, PartialEq, serde::Deserialize)]
+pub struct Job {
+    pub id: String,
+    #[serde(default)]
+    pub title: String,
+    pub beatmap_md5: String,
+    #[serde(default)]
+    pub beatmapset_id: Option<u64>,
+    pub settings: JobLook,
+    #[serde(default)]
+    pub skin: Option<JobSkin>,
+    #[serde(default)]
+    pub most: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Deserialize)]
+pub struct JobLook {
+    pub width: u32,
+    pub height: u32,
+    pub fps: u32,
+    #[serde(default)]
+    pub loudness: f64,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Deserialize)]
+pub struct JobSkin {
+    pub name: String,
+    pub hash: String,
+    #[serde(default)]
+    pub size: u64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, serde::Deserialize)]
+pub struct Farm {
+    #[serde(default)]
+    pub waiting: u32,
+    #[serde(default)]
+    pub workers: Vec<FarmWorker>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Deserialize)]
+pub struct FarmWorker {
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub state: String,
+    #[serde(default)]
+    pub delivered: u32,
+    #[serde(default)]
+    pub handed_back: u32,
+    #[serde(default)]
+    pub mine: bool,
+}
+
+fn long(timeout: Duration) -> Result<reqwest::blocking::Client, Refused> {
+    reqwest::blocking::Client::builder().timeout(timeout).user_agent(ENGINE).build().map_err(|e| Refused::Network(e.to_string()))
+}
+
+pub fn claim(server: &str, token: &str, name: &str, take: bool) -> Result<Option<Job>, Refused> {
+    let response = client()?
+        .post(format!("{server}/render/claim"))
+        .header("X-Render-Worker", name)
+        .bearer_auth(token)
+        .json(&serde_json::json!({"build": BUILD, "take": take}))
+        .send()
+        .map_err(|e| Refused::Network(e.to_string()))?;
+    if response.status().as_u16() == 204 {
+        return Ok(None);
+    }
+    status(response)?.json::<Job>().map(Some).map_err(|e| Refused::Network(e.to_string()))
+}
+
+pub fn job_file(server: &str, token: &str, name: &str, job: &str, what: &str, into: &std::path::Path) -> Result<u64, Refused> {
+    let mut response = long(Duration::from_secs(600))?
+        .get(format!("{server}/render/job/{job}/{what}"))
+        .header("X-Render-Worker", name)
+        .bearer_auth(token)
+        .send()
+        .map_err(|e| Refused::Network(e.to_string()))?;
+    if response.status().as_u16() == 409 {
+        return Err(Refused::Said("not yours".to_owned()));
+    }
+    response = status(response)?;
+    if let Some(folder) = into.parent() {
+        std::fs::create_dir_all(folder).map_err(|e| Refused::Network(e.to_string()))?;
+    }
+    let part = into.with_extension("part");
+    let mut out = std::fs::File::create(&part).map_err(|e| Refused::Network(e.to_string()))?;
+    let written = std::io::copy(&mut response, &mut out).map_err(|e| Refused::Network(e.to_string()))?;
+    drop(out);
+    std::fs::rename(&part, into).map_err(|e| Refused::Network(e.to_string()))?;
+    Ok(written)
+}
+
+pub fn heartbeat(server: &str, token: &str, name: &str, job: &str, progress: &serde_json::Value) -> Result<bool, Refused> {
+    let response = client()?
+        .post(format!("{server}/render/job/{job}/heartbeat"))
+        .header("X-Render-Worker", name)
+        .bearer_auth(token)
+        .json(&serde_json::json!({"progress": progress}))
+        .send()
+        .map_err(|e| Refused::Network(e.to_string()))?;
+    match response.status().as_u16() {
+        200..=299 => Ok(true),
+        409 => Ok(false),
+        code => Err(Refused::Said(format!("{code}"))),
+    }
+}
+
+pub fn deliver(
+    server: &str,
+    token: &str,
+    name: &str,
+    job: &str,
+    file: &std::path::Path,
+    meta: &serde_json::Value,
+    tell: impl FnMut(u64) + Send + 'static,
+) -> Result<(), Refused> {
+    let opened = std::fs::File::open(file).map_err(|e| Refused::Network(e.to_string()))?;
+    let size = opened.metadata().map(|m| m.len()).unwrap_or(0);
+    let body = reqwest::blocking::Body::sized(Counted { inner: opened, done: 0, tell: Box::new(tell) }, size);
+    let response = long(Duration::from_secs(1800))?
+        .post(format!("{server}/render/job/{job}/result"))
+        .header("X-Render-Worker", name)
+        .header("X-Render-Meta", meta.to_string())
+        .header("Content-Type", "video/mp4")
+        .bearer_auth(token)
+        .body(body)
+        .send()
+        .map_err(|e| Refused::Network(e.to_string()))?;
+    match response.status().as_u16() {
+        200..=299 => Ok(()),
+        413 => Err(Refused::Said("too large".to_owned())),
+        409 => Err(Refused::Said("not yours".to_owned())),
+        code => Err(Refused::Said(format!("{code}"))),
+    }
+}
+
+pub fn give_back(server: &str, token: &str, name: &str, job: &str, reason: &str) -> Result<(), Refused> {
+    let response = client()?
+        .post(format!("{server}/render/job/{job}/give-back"))
+        .header("X-Render-Worker", name)
+        .bearer_auth(token)
+        .json(&serde_json::json!({"reason": reason}))
+        .send()
+        .map_err(|e| Refused::Network(e.to_string()))?;
+    status(response).map(|_| ())
+}
+
+pub fn farm(server: &str, token: &str, name: &str) -> Result<Farm, Refused> {
+    let response = client()?
+        .get(format!("{server}/render/farm"))
+        .header("X-Render-Worker", name)
+        .bearer_auth(token)
+        .send()
+        .map_err(|e| Refused::Network(e.to_string()))?;
+    status(response)?.json::<Farm>().map_err(|e| Refused::Network(e.to_string()))
+}
+
 pub fn pretty(code: &str) -> String {
     let clean: String = code.chars().filter(|c| c.is_ascii_alphanumeric()).collect();
     if clean.len() == 8 {

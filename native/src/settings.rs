@@ -68,6 +68,8 @@ pub struct Settings {
     #[serde(default)]
     pub skin: Option<PathBuf>,
     #[serde(default)]
+    pub worker_on: bool,
+    #[serde(default)]
     pub own_skins: Vec<PathBuf>,
     #[serde(default = "full")]
     pub music_level: f32,
@@ -782,6 +784,7 @@ impl Default for Settings {
             news_channels: default_channels(),
             tell: Tell::default(),
             skin: None,
+            worker_on: false,
             own_skins: Vec::new(),
             music_level: 1.0,
             hitsound_level: 1.0,

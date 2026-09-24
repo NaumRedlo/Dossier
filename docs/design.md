@@ -957,10 +957,24 @@ the window loses focus, and the wheel as a scrub.
 replay is beyond the viewer — the judgement's counts, whether it agrees with
 the header, the score — is designed after this screen is real, not before.
 
-**Воркер.** Title. One switch: take work from the bot. Two cards: the device
-(state line, three tiles: speed, delivered, handed back; then only the checks
-that fail, each with its fix) and the ledger of what is being drawn now. Below,
-who else is online: device, state, threads, delivered.
+**Воркер** lives only in Settings, as its third part beside *Приложение* and
+*Бот* (2026-09-24): the farm is back in the bot, and a machine lends itself
+from here. One switch — *Брать работу у бота* — with a sentence under it
+saying what it does. Two cards: the device (its name, a coloured state —
+waiting, resting while one's own render runs, no answer from the bot,
+fetching the replay, finding the map, fetching the skin, drawing,
+evening the loudness, sending — three tiles for speed, delivered and handed
+back, the checks that fail, the job being drawn with its bar and time left,
+and the last job's outcome) and the farm (how many jobs wait, and who is
+online: name, state, delivered, this device marked). The worker is a loop on
+its own thread: it asks for a job every eight seconds unless one's own
+render is running, fetches the replay, finds the map in the library by its
+hash or downloads it from the mirrors, fetches and unpacks the job's skin
+once per hash, draws at 1920×1080 and 60 FPS, beats every fifteen seconds
+with its progress (and stops if the bot has given the job away), evens the
+loudness with `loudnorm` to −14 LUFS, refits the video to the bot's limit
+when it is larger, and sends it — or hands the job back with the reason.
+While it draws, one's own *Render* waits and says why.
 
 **Настройки.** A rail of eight: Подключение, Папки, Видео, Звук, Скины, Игра,
 Клиент, Авторство. Each row is a name, at most one short line under it, and

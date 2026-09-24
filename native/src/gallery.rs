@@ -386,9 +386,23 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
         main
     };
     let mut worker = staged(Some(0));
-    worker.overlay = Overlay::Community;
-    worker.overlay_drawn = Overlay::Community;
+    worker.overlay = Overlay::Settings;
+    worker.overlay_drawn = Overlay::Settings;
     worker.overlay_fade = iced::Animation::new(true);
+    worker.side = crate::settings_screen::Side::Worker;
+    worker.settings.worker_on = true;
+    worker.worker_step = Some(crate::worker::Step::Drawing { title: "NaumRedlo — yaseta - Bluenation [Grace]".into(), done: 9_120, of: 19_200, left_seconds: 96.0, fps: 142.0 });
+    worker.worker_done = 3;
+    worker.worker_back = 1;
+    worker.worker_last = Some(crate::worker::Step::Delivered { title: "kotofey — xi - FREEDOM DiVE [Extra]".into() });
+    worker.farm = Some(crate::bot::Farm {
+        waiting: 2,
+        workers: vec![
+            crate::bot::FarmWorker { name: "MacBook Pro Наума".into(), state: "rendering".into(), delivered: 3, handed_back: 1, mine: true },
+            crate::bot::FarmWorker { name: "ssnowy-pc".into(), state: "ready".into(), delivered: 12, handed_back: 0, mine: false },
+            crate::bot::FarmWorker { name: "kotofey studio".into(), state: "resting".into(), delivered: 7, handed_back: 2, mine: false },
+        ],
+    });
     worker.ground_fade = iced::Animation::new(true);
     let mut rendering = staged(Some(0));
     rendering.ffmpeg = Some(PathBuf::from("ffmpeg"));

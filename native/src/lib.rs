@@ -29,6 +29,7 @@ pub mod theme;
 pub mod unfold;
 pub mod ui;
 pub mod videos;
+pub mod worker;
 
 use iced::widget::{image, stack};
 use iced::{Element, Length, Size, Subscription, Task, Theme};

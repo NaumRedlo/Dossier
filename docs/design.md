@@ -555,6 +555,15 @@ naming the group, its size and when the bot last answered — or *образцы
   its dots and tabs choose by hand. At the width of three columns the
   stream is in the middle; narrower, the filters go above it and the
   person's card to the top of the right column.
+  Reworked the same day after the first real window (2026-09-24): the side
+  columns grow with the window (a fifth and a little under a quarter of it)
+  and the stream stops at 860, the three centred together, so a wide window
+  no longer gives the stream a hall of empty cards. A card's actions and
+  *Подробнее* sit in its heading row rather than a row of their own; a
+  failed play shows only its red F. The spotlight says who, why, one large
+  figure and one small one beside it — no second pp, no best play; the
+  week's table names its board above a single segmented line of six, and
+  a row carries a move only when there is one.
 - *Профиль* is the dossier (2026-09-24): the ringed avatar with the level
   and its progress, the title worn, whether the person is online, the
   country with its rank, the years in osu!, the streak and the duels, *Открыть
@@ -566,7 +575,13 @@ naming the group, its size and when the bot last answered — or *образцы
   hits; the grades, the one under the pointer lit and its share told; the
   titles as a collection, bar by rarity, the held ones filled and the next
   ones dashed, a press telling what each asks and when it was earned; and
-  thirteen weeks of plays a day. Its data is the bot's card
+  thirteen weeks of plays a day. The chart has no values at its side —
+  the pointer reads them — and its line and its shading are one monotone
+  curve through the days, so the fill never parts from the line and the
+  dot sits on it. *Место в группе* says how many and which week once, and
+  each tile the board, the place (gold, silver and bronze for the first
+  three), a move as an arrow beside it and a thin bar for the standing. Its
+  side columns grow with the window up to 380. Its data is the bot's card
   (`/render/me/card`) with the weeks, the days and the titles' dates from
   `/render/community`; the sample stands in until the application is linked.
 - Where the figures come from: the feed's people, plays and happenings
@@ -591,9 +606,16 @@ naming the group, its size and when the bot last answered — or *образцы
   every picture stands in the reader, and a video is its still with ▶ and
   its length. Pressing one fetches the file Telegram's page names into
   `~/.dossier/cache/clips` (a `.part` renamed when whole, then kept) and
-  opens it in the system's player; a video too big for the page to carry
-  opens the post in the browser. It plays in the application's own player
-  later. The subreddit was tried and set
+  plays it in the application's own player over the catalogue — the
+  channel's name and the post's first line above it, *Показать в папке* and
+  *В Telegram* under it, every key the renders' player knows; a clip that
+  is not 16:9 is letterboxed rather than stretched. A video too big for the
+  page to carry — most of *@osunewsru*'s: Telegram answers *Media is too
+  big* to anyone but its own apps, on the channel's page and the post's
+  alike — wears an outward arrow and *В Telegram* instead of ▶ and its
+  length, and opens the post. The player's scrim is fully
+  opaque: blending is linear, so the old 97 % let a bright page through at
+  about a sixth. The subreddit was tried and set
   aside (2026-09-23): reddit answers 403 and 429 to anonymous reading often
   enough that it needs its own key; its reader stays in `news.rs`.
 - The person's own figures do not wait for the bot (2026-09-24). The
@@ -612,9 +634,15 @@ naming the group, its size and when the bot last answered — or *образцы
   drawn scaled, the pointer mapped back through the same scale, so the
   three columns and the dossier's figures fit a laptop's window. Nothing in
   it shows a scrollbar; the wheel and the trackpad scroll it.
-- *Люди* is a card per player — initial, country, the title they wear in
-  its rarity's colour, pp, global rank, accuracy, and plays, hours and the
-  streak beneath. A card opens the player's page from the right: every
+- *Люди* is a card per player — avatar, name and flag, the title they wear
+  in its rarity's colour, the place in the group by pp, pp, global rank,
+  accuracy, and plays, hours and the streak beneath — in pp order, in a grid
+  across the whole width (as many columns as fit at about 420 each), and
+  *Титулы* the same way at about 360. A country is drawn as its flag
+  everywhere a code stood (osu!'s own pictures, kept in
+  `~/.dossier/cache/flags`); until one arrives, its two letters in a small
+  frame. A rise or a fall on a board is a small arrow with the number in a
+  green or red pill. A card opens the player's page from the right: every
   figure the bot keeps, the top three plays with their maps and grades,
   and every title as a chip.
 - *Рейтинг* is the bot's six boards (pp, accuracy, plays, time, ranked

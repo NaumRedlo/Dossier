@@ -269,7 +269,7 @@ pub const MOD_OTHER: Color = color!(0x9668ce);
 pub const SCRIM: Color = Color::from_rgba(0.027, 0.012, 0.016, 0.72);
 pub const ROOM_GROUND: Color = color!(0x0c0507);
 pub const ROOM_PICKED: Color = Color::from_rgb(0.131, 0.046, 0.053);
-pub const CINEMA_SCRIM: Color = Color::from_rgba(0.012, 0.006, 0.009, 0.97);
+pub const CINEMA_SCRIM: Color = Color::from_rgba(0.012, 0.006, 0.009, 1.0);
 pub const DEEP_SCRIM: Color = Color::from_rgba(0.016, 0.008, 0.011, 0.92);
 pub const CHIP: Color = Color::from_rgba(0.027, 0.012, 0.016, 0.72);
 

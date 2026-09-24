@@ -426,7 +426,6 @@ more = больше
 my-profile-open = Мой профиль →
 no-plays = без игр
 of-all-grades = всех оценок
-of-people = из { $n }
 offline = не в сети
 open-osu = Открыть в osu!
 place-head = Место в группе

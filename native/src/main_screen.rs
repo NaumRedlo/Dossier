@@ -70,7 +70,7 @@ pub enum Message {
     Flag(String, Option<Vec<u8>>),
     CommunityTick,
     FeedClock,
-    ClipFetched(String, Result<PathBuf, String>),
+    ClipFetched(String, Result<(PathBuf, i64, u32), String>),
     OsuProfile(Result<crate::community::wire::Card, String>),
     ReadFirst,
     Loaded(Library),
@@ -189,6 +189,25 @@ pub enum Pairing {
     Asking,
     Waiting { code: String, link: String },
     Unavailable,
+}
+
+struct Bill<'a> {
+    still: Option<&'a image::Handle>,
+    name: String,
+    mods: &'a [String],
+    line: String,
+    buttons: Element<'a, Message>,
+    earlier: Option<Message>,
+    later: Option<Message>,
+}
+
+#[derive(Debug, Clone)]
+pub struct Clip {
+    pub path: PathBuf,
+    pub link: String,
+    pub from: String,
+    pub said: String,
+    pub thumb: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -401,6 +420,7 @@ pub struct Main {
     pub title_pick: Option<String>,
     pub play_open: Option<usize>,
     clips_loading: std::collections::HashSet<String>,
+    pub clip: Option<Clip>,
     pub osu_card: Option<crate::community::wire::Card>,
     osu_asked: Option<Instant>,
     pub community_fetch: crate::community_screen::Fetch,
@@ -545,6 +565,7 @@ impl Main {
             title_pick: None,
             play_open: None,
             clips_loading: std::collections::HashSet::new(),
+            clip: None,
             osu_card: None,
             osu_asked: None,
             community_fetch: crate::community_screen::Fetch::Staged,
@@ -1393,7 +1414,9 @@ impl Main {
                 }
             }
             Message::RevealVideo => {
-                if let Some(video) = self.open_video.and_then(|at| self.store.videos.get(at)) {
+                if let Some(clip) = &self.clip {
+                    let _ = open::that_detached(clip.path.parent().unwrap_or(Path::new(".")));
+                } else if let Some(video) = self.open_video.and_then(|at| self.store.videos.get(at)) {
                     let _ = open::that_detached(video.path.parent().unwrap_or(Path::new(".")));
                 }
                 Task::none()
@@ -1516,6 +1539,7 @@ impl Main {
                         player.borrow_mut().close();
                     }
                     self.open_video = None;
+                    self.clip = None;
                     self.asking_delete = false;
                     self.shut_cinema();
                     return news;
@@ -1634,15 +1658,23 @@ impl Main {
                             let _ = open::that_detached(link);
                             return Task::none();
                         };
-                        let path = crate::news::clip_path(&link);
-                        if path.exists() {
-                            let _ = open::that_detached(&path);
-                        } else if self.clips_loading.insert(link.clone()) {
-                            return ui::in_thread(move || {
-                                let saved = crate::news::save_to(&src, &path).map(|_| path);
-                                Message::ClipFetched(link, saved)
-                            });
+                        if !self.clips_loading.insert(link.clone()) {
+                            return Task::none();
                         }
+                        let path = crate::news::clip_path(&link);
+                        let ffmpeg = self.ffmpeg.clone();
+                        return ui::in_thread(move || {
+                            let saved = match path.exists() {
+                                true => Ok(()),
+                                false => crate::news::save_to(&src, &path),
+                            };
+                            let probed = saved.and_then(|_| {
+                                let ffmpeg = ffmpeg.ok_or("no ffmpeg")?;
+                                let probe = videos::probe(&ffmpeg, &path).ok_or("the clip does not read")?;
+                                Ok((path, probe.length_ms, probe.fps))
+                            });
+                            Message::ClipFetched(link, probed)
+                        });
                     }
                 }
                 Task::none()
@@ -1723,12 +1755,14 @@ impl Main {
                 self.community_pictures_task()
             }
             Message::OsuProfile(Err(_)) => Task::none(),
-            Message::ClipFetched(link, saved) => {
+            Message::ClipFetched(link, probed) => {
                 self.clips_loading.remove(&link);
-                match saved {
-                    Ok(path) => {
+                match probed {
+                    Ok((path, length_ms, fps)) if self.overlay == Overlay::Community => self.play_clip(link, path, length_ms, fps),
+                    Ok((path, _, _)) if self.ffmpeg.is_none() => {
                         let _ = open::that_detached(&path);
                     }
+                    Ok(_) => {}
                     Err(_) => {
                         let _ = open::that_detached(&link);
                     }
@@ -1753,7 +1787,7 @@ impl Main {
                 let mut fresh = crate::community::Catalog::from_wire(said);
                 let previous = self.community.take();
                 if let Some(previous) = previous.as_ref().filter(|previous| !previous.staged) {
-                    if matches!(previous.friends_state, crate::community::Friends::Ready | crate::community::Friends::Need(_)) {
+                    if matches!(previous.friends_state, crate::community::Friends::Ready | crate::community::Friends::Need(_) | crate::community::Friends::Failed) {
                         fresh.friends = previous.friends.clone();
                         fresh.friends_state = previous.friends_state.clone();
                     }
@@ -1767,10 +1801,7 @@ impl Main {
                 self.community = Some(fresh);
                 self.community_fetch = crate::community_screen::Fetch::Fresh(self.now_unix);
                 let card = self.card_task(false);
-                let friends = match self.people_from {
-                    crate::community_screen::PeopleFrom::Game => self.friends_task(false),
-                    crate::community_screen::PeopleFrom::Chat => Task::none(),
-                };
+                let friends = self.friends_task(false);
                 Task::batch([self.community_pictures_task(), friends, card])
             }
             Message::CommunityArrived(Err(_)) => {
@@ -1788,7 +1819,7 @@ impl Main {
             Message::CardArrived(Err(_)) => Task::none(),
             Message::Flag(code, bytes) => {
                 if let Some(bytes) = bytes {
-                    self.flags.insert(code, iced::widget::svg::Handle::from_memory(bytes));
+                    self.flags.insert(code, iced::widget::svg::Handle::from_memory(flag_shape(bytes)));
                 }
                 Task::none()
             }
@@ -2281,12 +2312,48 @@ impl Main {
             .go(shown, now);
     }
 
+    fn play_clip(&mut self, link: String, path: PathBuf, length_ms: i64, fps: u32) {
+        let Some(ffmpeg) = self.ffmpeg.clone() else {
+            return;
+        };
+        let post = self.news.posts.iter().find(|post| post.videos.iter().any(|video| video.link == link));
+        let thumb = post.and_then(|post| post.videos.iter().find(|video| video.link == link)).and_then(|video| video.thumb.clone());
+        let clip = Clip {
+            path: path.clone(),
+            from: post.map_or_else(String::new, |post| if post.name.is_empty() { format!("@{}", post.channel) } else { post.name.clone() }),
+            said: post.map_or_else(String::new, |post| post.text.lines().map(str::trim).find(|line| !line.is_empty()).unwrap_or_default().to_owned()),
+            link,
+            thumb,
+        };
+        let fresh = self.player.is_none() || self.leaving_player;
+        if let Some(old) = self.player.take() {
+            old.borrow_mut().close();
+        }
+        self.leaving_player = false;
+        let now = Instant::now();
+        if fresh {
+            self.stage_open = Animation::new(false).duration(STAGE_OPEN).easing(Easing::EaseOutCubic).go(true, now);
+        }
+        self.stirred = now;
+        self.over_controls = false;
+        self.controls = Animation::new(true).duration(CONTROLS_IN).easing(Easing::EaseOutCubic);
+        let manner = player::Manner { level: self.settings.player_level, muted: self.settings.player_muted, rate: self.settings.player_rate };
+        self.player = Some(std::rc::Rc::new(std::cell::RefCell::new(player::Player::open(&ffmpeg, &path, length_ms, fps, manner))));
+        self.open_video = None;
+        self.clip = Some(clip);
+        self.asking_delete = false;
+        self.scrubbing = None;
+        self.hint = None;
+        self.cinema.go_mut(true, now);
+    }
+
     fn finish_closing(&mut self) {
         if let Some(player) = self.player.take() {
             player.borrow_mut().close();
         }
         self.leaving_player = false;
         self.open_video = None;
+        self.clip = None;
         self.asking_delete = false;
         self.over_controls = false;
         self.pointer = None;
@@ -3028,7 +3095,7 @@ impl Main {
         let sheet = column![Space::new().height(theme::CONTROL_HEIGHT + 4.0 + 22.0), page].width(Length::Fill).height(Length::Fill);
         let opened = self.stage_open.interpolate(0.0, 1.0, self.now);
         let stage: Element<'_, Message> = match (&self.player, self.open_video.and_then(|at| self.store.videos.get(at))) {
-            (Some(player), Some(video)) if opened > 0.001 => ui::fading(ui::fade() * opened, || self.stage(&player.borrow(), video)),
+            (Some(player), Some(video)) if opened > 0.001 => ui::fading(ui::fade() * opened, || self.stage(&player.borrow(), self.video_bill(video))),
             _ => Space::new().width(Length::Fill).height(Length::Fill).into(),
         };
         let sheet: Element<'_, Message> = match self.player.is_some() && opened >= 0.999 {
@@ -3114,14 +3181,62 @@ impl Main {
         self.hint = Some((words, Instant::now()));
     }
 
-    fn stage(&self, player: &player::Player, video: &videos::Video) -> Element<'_, Message> {
+    fn video_bill<'a>(&'a self, video: &'a videos::Video) -> Bill<'a> {
+        let w = &self.words;
+        let sending_this = self.sending.as_ref().filter(|s| s.path == video.path);
+        let telegram: Element<'_, Message> = match sending_this {
+            Some(sending) if sending.over.is_none() => ui::progress(w.t("sending"), self.progress_shown, None),
+            _ => ui::primary(w.t("to-telegram"), Some(Message::SendVideo)),
+        };
+        let buttons = row![
+            ui::grow(),
+            ui::springy(ui::quiet(w.t("in-folder"), Some(Message::RevealVideo)), 0.04),
+            ui::springy(ui::quiet(w.t("delete"), Some(Message::AskDelete)), 0.04),
+            ui::springy(telegram, 0.03),
+        ]
+        .spacing(6)
+        .align_y(iced::Center);
+        let at = self.open_video.unwrap_or(0);
+        Bill {
+            still: self.thumbs.get(&video.map_hash),
+            name: video.player.clone(),
+            mods: &video.mods,
+            line: video.map_line(),
+            buttons: buttons.into(),
+            earlier: (at > 0).then_some(Message::PlayerNeighbour(-1)),
+            later: (at + 1 < self.store.videos.len()).then_some(Message::PlayerNeighbour(1)),
+        }
+    }
+
+    fn clip_bill<'a>(&'a self, clip: &'a Clip) -> Bill<'a> {
+        let w = &self.words;
+        let buttons = row![
+            ui::grow(),
+            ui::springy(ui::quiet(w.t("in-folder"), Some(Message::RevealVideo)), 0.04),
+            ui::springy(ui::primary(w.t("act-telegram"), Some(Message::Community(crate::community_screen::Message::Open(clip.link.clone())))), 0.03),
+        ]
+        .spacing(6)
+        .align_y(iced::Center);
+        Bill {
+            still: clip.thumb.as_deref().and_then(|url| self.news_pictures.get(&crate::community_screen::wide(url)).or_else(|| self.news_pictures.get(url))),
+            name: clip.from.clone(),
+            mods: &[],
+            line: clip.said.clone(),
+            buttons: buttons.into(),
+            earlier: None,
+            later: None,
+        }
+    }
+
+    fn stage<'a>(&'a self, player: &player::Player, bill: Bill<'a>) -> Element<'a, Message> {
         let w = &self.words;
         let playing = !player.paused;
         let wide = self.widened.interpolate(0.0, 1.0, self.now);
         let round: iced::border::Radius = (PICTURE_RADIUS).into();
+        let Bill { still, name, mods, line, buttons, earlier, later } = bill;
         let picture: Element<'_, Message> = match &player.frame {
             Some(frame) => crate::film::show(frame, crate::film::Fit::Contain, ui::fade()),
-            None => match self.thumbs.get(&video.map_hash) {
+            None => match still {
                 Some(handle) => image(handle.clone())
                     .content_fit(ContentFit::Cover)
                     .width(Length::Fill)
@@ -3191,9 +3306,6 @@ impl Main {
                 ]
                 .spacing(6)
                 .align_y(iced::Center);
-                let at = self.open_video.unwrap_or(0);
-                let earlier = (at > 0).then_some(Message::PlayerNeighbour(-1));
-                let later = (at + 1 < self.store.videos.len()).then_some(Message::PlayerNeighbour(1));
                 let sound = if self.settings.player_muted || self.settings.player_level <= 0.001 {
                     ui::Control::Hushed
                 } else if self.settings.player_level < 0.5 {
@@ -3275,35 +3387,22 @@ impl Main {
             };
             Message::PlayerLouder(up)
         });
-        let mut named = row![text(video.player.clone()).font(theme::SANS_SEMI).size(theme::LEAD).wrapping(text::Wrapping::None).color(ui::faded(INK))]
+        let mut named = row![text(name).font(theme::SANS_SEMI).size(theme::LEAD).wrapping(text::Wrapping::None).color(ui::faded(INK))]
             .spacing(6)
             .align_y(iced::Center);
-        for acronym in &video.mods {
+        for acronym in mods {
             named = named.push(mod_badge(acronym));
         }
         let title = row![
             column![
                 named,
-                text(ui::shortened(video.map_line(), 62)).font(theme::SANS).size(theme::CAPTION).wrapping(text::Wrapping::None).color(ui::faded(MUTED)),
+                text(ui::shortened(line, 62)).font(theme::SANS).size(theme::CAPTION).wrapping(text::Wrapping::None).color(ui::faded(MUTED)),
             ]
             .spacing(2),
             ui::grow(),
             ui::control_button(ui::Control::Close, 18.0, Some(Message::ClosePlayer), false),
         ]
         .spacing(12)
-        .align_y(iced::Center);
-        let sending_this = self.sending.as_ref().filter(|s| s.path == video.path);
-        let telegram: Element<'_, Message> = match sending_this {
-            Some(sending) if sending.over.is_none() => ui::progress(w.t("sending"), self.progress_shown, None),
-            _ => ui::primary(w.t("to-telegram"), Some(Message::SendVideo)),
-        };
-        let buttons = row![
-            ui::grow(),
-            ui::springy(ui::quiet(w.t("in-folder"), Some(Message::RevealVideo)), 0.04),
-            ui::springy(ui::quiet(w.t("delete"), Some(Message::AskDelete)), 0.04),
-            ui::springy(telegram, 0.03),
-        ]
-        .spacing(6)
         .align_y(iced::Center);
         let mut inside = column![
             container(title)
@@ -3726,20 +3825,31 @@ impl Main {
     }
 
     fn flag_task(&mut self) -> Task<Message> {
-        let country = self
-            .community_card
-            .as_ref()
-            .map(|card| card.country.clone())
-            .or_else(|| self.community.as_ref().and_then(|catalog| catalog.you()).map(|you| you.country.clone()))
-            .unwrap_or_default()
-            .to_ascii_lowercase();
-        let Some(url) = crate::community::wire::flag_url(&country) else {
-            return Task::none();
-        };
-        if self.flags.contains_key(&country) || !self.flags_asked.insert(country.clone()) {
+        let mut codes: Vec<String> = Vec::new();
+        if let Some(card) = self.community_card.as_ref().or(self.osu_card.as_ref()) {
+            codes.push(card.country.clone());
+        }
+        if let Some(catalog) = self.community.as_ref() {
+            codes.extend(catalog.people.iter().map(|person| person.country.clone()));
+            codes.extend(catalog.friends.iter().map(|friend| friend.country.clone()));
+        }
+        let wanted: Vec<(String, String)> = codes
+            .into_iter()
+            .map(|code| code.trim().to_ascii_lowercase())
+            .filter_map(|code| crate::community::wire::flag_url(&code).map(|url| (code, url)))
+            .filter(|(code, _)| !self.flags.contains_key(code) && self.flags_asked.insert(code.clone()))
+            .collect();
+        if wanted.is_empty() {
             return Task::none();
         }
-        ui::in_thread(move || Message::Flag(country, crate::news::picture(&url)))
+        ui::streamed(move |push| {
+            for (code, url) in wanted {
+                let bytes = flag_bytes(&code, &url);
+                if !push(Message::Flag(code, bytes)) {
+                    return;
+                }
+            }
+        })
     }
 
     fn community_pictures_task(&mut self) -> Task<Message> {
@@ -3852,9 +3962,16 @@ impl Main {
                 1.0 - (1.0 - k) * (1.0 - k)
             }),
         };
+        let opened = self.stage_open.interpolate(0.0, 1.0, self.now);
+        let stage = match (&self.player, &self.clip) {
+            (Some(player), Some(clip)) if opened > 0.001 => Some(ui::fading(ui::fade() * opened, || self.stage(&player.borrow(), self.clip_bill(clip)))),
+            _ => None,
+        };
         let body: Element<'_, Message> = crate::community_screen::view(&ground).map(Message::Community);
         let body: Element<'_, Message> = ui::scaled(body, COMMUNITY_SCALE).into();
-        Some(column![Space::new().height(theme::CONTROL_HEIGHT + 4.0 + 22.0), body].width(Length::Fill).height(Length::Fill).into())
+        let page: Element<'_, Message> = column![Space::new().height(theme::CONTROL_HEIGHT + 4.0 + 22.0), body].width(Length::Fill).height(Length::Fill).into();
+        let stage = stage.unwrap_or_else(|| Space::new().width(Length::Fill).height(Length::Fill).into());
+        Some(stack![page, stage].width(Length::Fill).height(Length::Fill).into())
     }
 
     fn settings_view(&self) -> Element<'_, Message> {
@@ -4698,6 +4815,26 @@ pub fn fitted_bytes(bytes: &[u8], widest: u32) -> Option<image::Handle> {
     let picture = if picture.width() > widest { picture.resize(widest, u32::MAX, ::image::imageops::FilterType::Lanczos3) } else { picture };
     let (width, height) = (picture.width(), picture.height());
     Some(image::Handle::from_rgba(width, height, picture.to_rgba8().into_raw()))
+}
+
+fn flag_bytes(code: &str, url: &str) -> Option<Vec<u8>> {
+    let path = crate::sources::own_root().join("cache").join("flags").join(format!("{code}.svg"));
+    if let Ok(bytes) = std::fs::read(&path) {
+        return Some(bytes);
+    }
+    let bytes = crate::news::picture(url)?;
+    if let Some(folder) = path.parent() {
+        let _ = std::fs::create_dir_all(folder);
+    }
+    let _ = std::fs::write(&path, &bytes);
+    Some(bytes)
+}
+
+pub fn flag_shape(bytes: Vec<u8>) -> Vec<u8> {
+    match String::from_utf8(bytes) {
+        Ok(svg) => svg.replacen("viewBox=\"0 0 36 36\"", "viewBox=\"0 5 36 26\"", 1).into_bytes(),
+        Err(error) => error.into_bytes(),
+    }
 }
 
 pub fn covered_bytes(bytes: &[u8], width: u32, height: u32) -> Option<image::Handle> {

@@ -411,7 +411,6 @@ more = more
 my-profile-open = My profile →
 no-plays = no plays
 of-all-grades = of all grades
-of-people = of { $n }
 offline = offline
 open-osu = Open in osu!
 place-head = Place in the group

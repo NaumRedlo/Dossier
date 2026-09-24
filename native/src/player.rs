@@ -251,7 +251,7 @@ impl Player {
         let mut child = match Command::new(&self.ffmpeg)
             .args(["-hide_banner", "-loglevel", "error", "-ss", &seconds(from_ms), "-i"])
             .arg(&self.path)
-            .args(["-an", "-f", "rawvideo", "-pix_fmt", "rgba", "-vf", &format!("scale={WIDTH}:{HEIGHT},fps={shown:.4}"), "-"])
+            .args(["-an", "-f", "rawvideo", "-pix_fmt", "rgba", "-vf", &format!("scale={WIDTH}:{HEIGHT}:force_original_aspect_ratio=decrease,pad={WIDTH}:{HEIGHT}:(ow-iw)/2:(oh-ih)/2:color=0x050203,fps={shown:.4}"), "-"])
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .stdin(Stdio::null())

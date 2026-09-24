@@ -142,7 +142,6 @@ pub struct Ground<'a> {
 
 const FEED_WIDE: f32 = 760.0;
 const READ_WIDE: f32 = 760.0;
-const CARD_WIDE: f32 = 290.0;
 const DRAWER_WIDE: f32 = 400.0;
 const GRID_GAP: f32 = 10.0;
 const STAGE_ROOM: Padding = Padding { top: 8.0, right: 40.0, bottom: 28.0, left: 40.0 };
@@ -246,12 +245,19 @@ pub(crate) fn video_tile<'a>(ground: &Ground<'a>, video: &news::Video, wide: boo
     };
     let loading = ground.clips_loading.contains(&video.link);
     let circle = if wide { 54.0 } else { 30.0 };
-    let play = container(crate::glyphs::glyph(crate::glyphs::Icon::Play, circle * 0.55, Color::WHITE)).width(circle).height(circle).center(circle).style(move |_| container::Style {
+    let (icon, inset) = if video.src.is_some() { (crate::glyphs::Icon::Play, 0.55) } else { (crate::glyphs::Icon::External, 0.42) };
+    let play = container(crate::glyphs::glyph(icon, circle * inset, Color::WHITE)).width(circle).height(circle).center(circle).style(move |_| container::Style {
         background: Some(Background::Color(Color::from_rgba(0.047, 0.027, 0.035, 0.6 * k))),
         border: Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.2 * k), width: 1.0, radius: (circle / 2.0).into() },
         ..container::Style::default()
     });
-    let said = if loading { w.t("news-loading") } else if video.duration.is_empty() { String::new() } else { video.duration.clone() };
+    let said = if loading {
+        w.t("news-loading")
+    } else if video.src.is_none() {
+        w.t("act-telegram")
+    } else {
+        video.duration.clone()
+    };
     let badge: Element<'a, Message> = if said.is_empty() {
         Space::new().height(0.0).into()
     } else {
@@ -357,10 +363,74 @@ pub(crate) fn shown_value(words: &Words, board: Board, person: &Person) -> Strin
 }
 
 pub(crate) fn moved<'a>(by: i32) -> Element<'a, Message> {
-    match by {
-        0 => ui::mono_small("—".to_owned(), FAINT),
-        up if up > 0 => ui::mono_small(format!("▲{up}"), theme::HIT_100),
-        down => ui::mono_small(format!("▼{}", -down), ACCENT),
+    if by == 0 {
+        return Space::new().width(0.0).height(0.0).into();
+    }
+    let (icon, colour) = if by > 0 { (crate::glyphs::Icon::Up, theme::HIT_100) } else { (crate::glyphs::Icon::Down, ACCENT) };
+    let k = ui::fade();
+    container(row![crate::glyphs::glyph(icon, 10.0, colour), text(by.unsigned_abs().to_string()).font(theme::MONO_BOLD).size(10.5).color(ui::faded(colour))].spacing(2).align_y(iced::Center))
+        .padding(Padding { top: 1.0, right: 6.0, bottom: 1.0, left: 4.0 })
+        .style(move |_| container::Style {
+            background: Some(Background::Color(Color { a: 0.13 * k, ..colour })),
+            border: Border { radius: 7.0.into(), ..Border::default() },
+            ..container::Style::default()
+        })
+        .into()
+}
+
+pub(crate) fn flag<'a>(ground: &Ground<'a>, code: &str, high: f32) -> Element<'a, Message> {
+    let code = code.trim();
+    let wide = (high * 36.0 / 26.0).round();
+    if let Some(handle) = ground.flags.get(&code.to_ascii_lowercase()) {
+        return iced::widget::svg(handle.clone()).width(wide).height(high).opacity(ui::fade()).into();
+    }
+    if code.chars().count() != 2 {
+        return Space::new().width(0.0).height(0.0).into();
+    }
+    let k = ui::fade();
+    container(text(code.to_ascii_uppercase()).font(theme::MONO_BOLD).size((high * 0.62).max(7.5)).color(ui::faded(MUTED)))
+        .width(wide)
+        .height(high)
+        .center_x(wide)
+        .center_y(high)
+        .style(move |_| container::Style {
+            background: Some(Background::Color(Color::from_rgba(1.0, 1.0, 1.0, 0.06 * k))),
+            border: Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.08 * k), width: 1.0, radius: (high * 0.2).into() },
+            ..container::Style::default()
+        })
+        .into()
+}
+
+pub(crate) fn columns_for(ground: &Ground<'_>, target: f32) -> usize {
+    let room = (ground.width - 80.0).max(target);
+    ((room / target).round() as usize).clamp(1, 6)
+}
+
+pub(crate) fn grid<'a>(cells: Vec<Element<'a, Message>>, columns: usize, gap: f32) -> Element<'a, Message> {
+    let columns = columns.max(1);
+    let mut rows = column![].spacing(gap).width(Length::Fill);
+    let mut cells = cells.into_iter().peekable();
+    while cells.peek().is_some() {
+        let mut line = row![].spacing(gap).width(Length::Fill);
+        for _ in 0..columns {
+            line = line.push(match cells.next() {
+                Some(cell) => container(cell).width(Length::FillPortion(1)),
+                None => container(Space::new().width(0.0).height(0.0)).width(Length::FillPortion(1)),
+            });
+        }
+        rows = rows.push(line);
+    }
+    rows.into()
+}
+
+fn lifted(_: &Theme, status: button::Status) -> button::Style {
+    let lit = matches!(status, button::Status::Hovered | button::Status::Pressed);
+    button::Style {
+        background: Some(Background::Color(if lit { Color::from_rgba(0.075, 0.035, 0.045, 0.98) } else { Color::from_rgba(0.055, 0.025, 0.033, 0.96) })),
+        text_color: INK,
+        border: Border { color: Color::from_rgba(1.0, 1.0, 1.0, if lit { 0.13 } else { 0.07 }), width: 1.0, radius: 16.0.into() },
+        shadow: if lit { Shadow { color: Color::from_rgba(0.0, 0.0, 0.0, 0.4), offset: iced::Vector::new(0.0, 10.0), blur_radius: 26.0 } } else { Shadow::default() },
+        snap: true,
     }
 }
 
@@ -535,9 +605,9 @@ pub(crate) fn friend_line<'a>(ground: &Ground<'a>, friend: &Friend) -> Element<'
         column![
             row![
                 text(friend.name.clone()).font(theme::SANS_SEMI).size(theme::CAPTION + 1.0).wrapping(text::Wrapping::None).color(ui::faded(INK)),
-                ui::mono_small(friend.country.clone(), FAINT),
+                flag(ground, &friend.country, 11.0),
             ]
-            .spacing(6)
+            .spacing(7)
             .align_y(iced::Center),
             ui::mono_small(ago(w, friend.minutes_away(ground.now_unix)), if friend.online { theme::HIT_100 } else { FAINT }),
         ]
@@ -742,70 +812,97 @@ fn reader<'a>(ground: &Ground<'a>, reading: &'a Reading) -> Element<'a, Message>
     crate::unfold::unfold(after, None, None, k, Message::Unread).wide(READ_WIDE).room(STAGE_ROOM).look(stage_look()).into()
 }
 
-fn stat<'a>(value: String, label: String) -> Element<'a, Message> {
+fn figure<'a>(value: String, label: String, colour: Color) -> Element<'a, Message> {
     column![
-        text(value).font(theme::MONO_BOLD).size(13.0).wrapping(text::Wrapping::None).color(ui::faded(INK)),
-        text(label).font(theme::SANS).size(11.0).wrapping(text::Wrapping::None).color(ui::faded(FAINT)),
+        text(value).font(theme::MONO_BOLD).size(16.0).wrapping(text::Wrapping::None).color(ui::faded(colour)),
+        text(label).font(theme::SANS).size(11.5).wrapping(text::Wrapping::None).color(ui::faded(FAINT)),
     ]
-    .spacing(1)
+    .spacing(2)
+    .width(Length::FillPortion(1))
     .into()
 }
 
-fn slab<'a>(inside: Element<'a, Message>, wide: f32) -> container::Container<'a, Message> {
-    container(inside).padding([14, 16]).width(wide).style(ui::box_faded(theme::slab))
+fn place_colour(place: usize) -> Color {
+    match place {
+        1 => theme::GRADE_S,
+        2 => Color::from_rgb8(200, 204, 220),
+        3 => Color::from_rgb8(205, 127, 50),
+        _ => FAINT,
+    }
+}
+
+fn person_card<'a>(ground: &Ground<'a>, at: usize, person: &Person, place: usize) -> Element<'a, Message> {
+    let w = ground.words;
+    let k = ui::fade();
+    let head = row![
+        face(ground, person, 52.0),
+        column![
+            row![
+                container(text(person.name.clone()).font(theme::SANS_SEMI).size(18.0).wrapping(text::Wrapping::None).color(ui::faded(INK))).clip(true),
+                flag(ground, &person.country, 13.0),
+            ]
+            .spacing(8)
+            .align_y(iced::Center),
+            title_line(ground, person, 12.5),
+        ]
+        .spacing(3)
+        .width(Length::Fill),
+        container(text(format!("#{place}")).font(theme::MONO_BOLD).size(13.0).color(ui::faded(place_colour(place)))).align_y(iced::alignment::Vertical::Top),
+    ]
+    .spacing(14)
+    .align_y(iced::Center);
+    let numbers = row![
+        figure(w.lang().group(u64::from(person.pp)), w.t("board-pp"), Color::from_rgb(0.941, 0.408, 0.408)),
+        figure(rank_of(w, person.rank), w.t("global-rank"), INK),
+        figure(w.percent(f64::from(person.accuracy)), w.t("board-accuracy"), INK),
+    ]
+    .spacing(12);
+    let rule = container(Space::new().height(1.0)).width(Length::Fill).style(move |_| container::Style { background: Some(Background::Color(Color::from_rgba(1.0, 1.0, 1.0, 0.05 * k))), ..container::Style::default() });
+    let mut facts = row![
+        crate::glyphs::glyph(crate::glyphs::Icon::Play, 12.0, FAINT),
+        ui::mono_small(w.count("games", u64::from(person.plays)), MUTED),
+        Space::new().width(6.0),
+        crate::glyphs::glyph(crate::glyphs::Icon::Clock, 12.0, FAINT),
+        ui::mono_small(format!("{} {}", w.lang().group(u64::from(person.hours)), w.t("hours-short")), MUTED),
+    ]
+    .spacing(6)
+    .align_y(iced::Center);
+    if person.streak > 0 {
+        facts = facts.push(Space::new().width(6.0)).push(crate::glyphs::glyph(crate::glyphs::Icon::Flame, 12.0, Color::from_rgb(0.941, 0.408, 0.408))).push(ui::mono_small(w.n("streak-card", u64::from(person.streak)), MUTED));
+    }
+    let inside = column![head, numbers, rule, container(facts).clip(true)].spacing(14);
+    button(container(inside).padding([18, 20]).width(Length::Fill)).padding(0).width(Length::Fill).style(ui::button_faded(lifted)).on_press(Message::Person(Some(at))).into()
 }
 
 fn people<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
     let w = ground.words;
-    let wide = CARD_WIDE * 3.0 + GRID_GAP * 2.0;
-    let switch = container(people_switch(ground)).max_width(wide);
+    let switch = people_switch(ground);
     if ground.people_from == PeopleFrom::Game {
         let body: Element<'a, Message> = match friends_said(ground) {
-            Some(said) => container(said).height(160.0).max_width(wide).into(),
-            None => ui::wrap(ground.catalog.friends.iter().map(|friend| container(friend_line(ground, friend)).width(CARD_WIDE).into()).collect(), GRID_GAP).into(),
+            Some(said) => container(said).height(160.0).width(Length::Fill).into(),
+            None => grid(
+                ground.catalog.friends.iter().map(|friend| container(friend_line(ground, friend)).padding([6, 8]).style(ui::box_faded(theme::slab)).into()).collect(),
+                columns_for(ground, 360.0),
+                GRID_GAP,
+            ),
         };
-        return rolled(column![switch, container(body).max_width(wide)].spacing(14).into());
+        return spread(column![switch, body].spacing(16).into());
     }
     if ground.catalog.people.is_empty() {
-        return rolled(column![switch, container(empty(w.t("community-no-group"))).height(160.0)].spacing(14).into());
+        return spread(column![switch, container(empty(w.t("community-no-group"))).height(160.0)].spacing(16).into());
     }
-    let cards: Vec<Element<'a, Message>> = ground
-        .catalog
-        .people
-        .iter()
-        .enumerate()
-        .map(|(at, person)| {
-            let head = row![
-                face(ground, person, 40.0),
-                column![
-                    row![
-                        text(person.name.clone()).font(theme::SANS_SEMI).size(theme::LEAD).wrapping(text::Wrapping::None).color(ui::faded(INK)),
-                        ui::mono_small(person.country.clone(), FAINT),
-                    ]
-                    .spacing(8)
-                    .align_y(iced::Center),
-                    title_line(ground, person, theme::CAPTION),
-                ]
-                .spacing(2),
-            ]
-            .spacing(12)
-            .align_y(iced::Center);
-            let numbers = row![
-                stat(w.lang().group(u64::from(person.pp)), w.t("board-pp")),
-                stat(rank_of(w, person.rank), w.t("global-rank")),
-                stat(w.percent(f64::from(person.accuracy)), w.t("board-accuracy")),
-            ]
-            .spacing(18);
-            let mut facts = vec![w.count("games", u64::from(person.plays)), format!("{} {}", w.lang().group(u64::from(person.hours)), w.t("hours-short"))];
-            if person.streak > 0 {
-                facts.push(w.n("streak-card", u64::from(person.streak)));
-            }
-            let under = text(facts.join(" · ")).font(theme::MONO).size(11.0).wrapping(text::Wrapping::None).color(ui::faded(FAINT));
-            let card = slab(column![head, numbers, under].spacing(12).into(), CARD_WIDE);
-            button(card).padding(0).style(ui::button_faded(theme::bare)).on_press(Message::Person(Some(at))).into()
-        })
-        .collect();
-    rolled(column![switch, container(ui::wrap(cards, GRID_GAP)).max_width(wide)].spacing(14).into())
+    let order = ground.catalog.ranked(Board::Pp);
+    let cards: Vec<Element<'a, Message>> = order.iter().enumerate().map(|(place, at)| person_card(ground, *at, &ground.catalog.people[*at], place + 1)).collect();
+    spread(column![switch, grid(cards, columns_for(ground, 420.0), 14.0)].spacing(16).into())
+}
+
+fn spread<'a>(inside: Element<'a, Message>) -> Element<'a, Message> {
+    scrollable(container(inside).width(Length::Fill).padding(Padding { top: 12.0, right: 40.0, bottom: 28.0, left: 40.0 }))
+        .style(ui::thin_scroll)
+        .direction(ui::hidden_bar())
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .into()
 }
 
 fn bar<'a>(share: f32) -> Element<'a, Message> {
@@ -899,22 +996,23 @@ fn title_card<'a>(ground: &Ground<'a>, title: &Title) -> Element<'a, Message> {
     let colour = if holders.is_empty() { FAINT } else { title.rarity.colour() };
     let name = if known { title.name(w.lang()).to_owned() } else { "???".to_owned() };
     let about = if known { title.about(w.lang()).to_owned() } else { w.t("secret-title") };
-    slab(
+    container(
         column![
-            text(name).font(theme::SANS_SEMI).size(theme::BODY).wrapping(text::Wrapping::None).color(ui::faded(colour)),
-            text(about).font(theme::SANS).size(11.0).color(ui::faded(MUTED)),
+            text(name).font(theme::SANS_SEMI).size(15.0).wrapping(text::Wrapping::None).color(ui::faded(colour)),
+            text(about).font(theme::SANS).size(12.0).color(ui::faded(MUTED)),
             faces(ground, &holders),
         ]
-        .spacing(6)
-        .into(),
-        CARD_WIDE,
+        .spacing(7),
     )
+    .padding([16, 18])
+    .width(Length::Fill)
+    .style(ui::box_faded(theme::slab))
     .into()
 }
 
 fn titles<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
     let w = ground.words;
-    let mut list = column![].spacing(22).max_width(CARD_WIDE * 3.0 + GRID_GAP * 2.0);
+    let mut list = column![].spacing(22).width(Length::Fill);
     for rarity in Rarity::ALL {
         let defs: Vec<&Title> = ground.catalog.titles.iter().filter(|title| title.rarity == rarity).collect();
         if defs.is_empty() {
@@ -928,9 +1026,9 @@ fn titles<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
         .spacing(10)
         .align_y(iced::Center);
         let cards: Vec<Element<'a, Message>> = defs.iter().map(|title| title_card(ground, title)).collect();
-        list = list.push(column![head, ui::wrap(cards, GRID_GAP)].spacing(10));
+        list = list.push(column![head, grid(cards, columns_for(ground, 360.0), GRID_GAP)].spacing(10));
     }
-    rolled(list.into())
+    spread(list.into())
 }
 
 fn drawer_style(_: &Theme) -> container::Style {
@@ -955,7 +1053,7 @@ fn drawer<'a>(ground: &Ground<'a>, person: &Person) -> Element<'a, Message> {
         face(ground, person, 60.0),
         column![
             text(person.name.clone()).font(theme::SANS_SEMI).size(theme::TITLE).wrapping(text::Wrapping::None).color(ui::faded(INK)),
-            row![ui::mono_small(person.country.clone(), FAINT), title_line(ground, person, theme::CAPTION)].spacing(8).align_y(iced::Center),
+            row![flag(ground, &person.country, 13.0), title_line(ground, person, theme::CAPTION)].spacing(8).align_y(iced::Center),
         ]
         .spacing(4)
         .width(Length::Fill),

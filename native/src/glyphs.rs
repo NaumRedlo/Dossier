@@ -21,6 +21,7 @@ pub enum Icon {
     External,
     Compare,
     Up,
+    Down,
     Film,
     Flag,
 }
@@ -188,6 +189,10 @@ impl<Message> canvas::Program<Message> for Glyph {
             Icon::Up => {
                 frame.stroke(&Path::line(at(10.0, 16.0), at(10.0, 4.0)), pen);
                 frame.stroke(&polyline(&[(5.0, 9.0), (10.0, 4.0), (15.0, 9.0)], false), pen);
+            }
+            Icon::Down => {
+                frame.stroke(&Path::line(at(10.0, 4.0), at(10.0, 16.0)), pen);
+                frame.stroke(&polyline(&[(5.0, 11.0), (10.0, 16.0), (15.0, 11.0)], false), pen);
             }
             Icon::Film => {
                 frame.stroke(&Path::rounded_rectangle(at(2.5, 4.0), Size::new(15.0 * s, 12.0 * s), (2.0 * s).into()), pen);

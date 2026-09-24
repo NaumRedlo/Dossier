@@ -604,6 +604,20 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
             main.read_fade = iced::Animation::new(true);
             main
         }),
+        ("main-community-clip".to_owned(), {
+            let mut main = community(crate::community_screen::Section::Feed, None);
+            main.clip = Some(crate::main_screen::Clip {
+                path: std::path::PathBuf::from("/clips/osunewsru.mp4"),
+                link: "https://t.me/osunewsru/4242".into(),
+                from: "осу!новостник".into(),
+                said: "kotofey поставил первое HDDT FC на карте из пула мирового кубка".into(),
+                thumb: None,
+            });
+            main.player = Some(std::rc::Rc::new(std::cell::RefCell::new(crate::player::Player::still(std::path::Path::new("/clips/osunewsru.mp4"), 42_000, 12_000))));
+            main.cinema = iced::Animation::new(true);
+            main.stage_open = iced::Animation::new(true);
+            main
+        }),
         ("main-rendering".to_owned(), rendering),
         ("main-rendered".to_owned(), rendered),
         ("main-hover".to_owned(), hovering),
@@ -664,7 +678,7 @@ fn sample_news() -> crate::news::News {
                 image: None,
                 body: crate::news::blocks_of(markup, "https://t.me/s/osunewsru", crate::news::Flow::Post),
                 images: Vec::new(),
-                videos: vec![crate::news::Video { thumb: None, src: None, duration: "0:42".into(), link: "https://t.me/osunewsru/1".into() }],
+                videos: vec![crate::news::Video { thumb: None, src: Some("https://cdn4.telesco.pe/file/clip.mp4".into()), duration: "0:42".into(), link: "https://t.me/osunewsru/1".into() }],
             }
         }],
         fetched: std::collections::HashMap::new(),

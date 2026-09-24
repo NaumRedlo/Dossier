@@ -14,6 +14,7 @@ const CORAL: Color = Color::from_rgb(0.941, 0.408, 0.408);
 const GREEN: Color = theme::HIT_100;
 const LEFT: f32 = 300.0;
 const RIGHT: f32 = 296.0;
+const SIDE_MOST: f32 = 380.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Metric {
@@ -89,17 +90,6 @@ fn full(words: &crate::lang::Words, metric: Metric, value: f64) -> String {
     }
 }
 
-fn short(words: &crate::lang::Words, metric: Metric, value: f64) -> String {
-    let thousands = |v: f64, places: usize| screen::decimal(words, (v / 1000.0) as f32, places) + "k";
-    match metric {
-        Metric::Pp => thousands(value, 2),
-        Metric::Rank => format!("#{}", thousands(value, 1)),
-        Metric::Accuracy => screen::decimal(words, value as f32, 2) + "%",
-        Metric::Plays => thousands(value, 1),
-        Metric::Hours => words.lang().group(value.round() as u64),
-    }
-}
-
 fn delta(words: &crate::lang::Words, metric: Metric, series: &Series) -> Option<(String, bool)> {
     let (first, last) = (series.points.first()?.1, series.points.last()?.1);
     let change = last - first;
@@ -115,8 +105,16 @@ fn delta(words: &crate::lang::Words, metric: Metric, series: &Series) -> Option<
         Metric::Plays => words.lang().group(size.round() as u64),
         Metric::Hours => format!("{} {}", words.lang().group(size.round() as u64), words.t("hours-short")),
     };
-    let sign = if metric == Metric::Rank { if better { "▲" } else { "▼" } } else if change > 0.0 { "+" } else { "−" };
+    let sign = if metric == Metric::Rank { "" } else if change > 0.0 { "+" } else { "−" };
     Some((format!("{sign}{said}"), better))
+}
+
+fn change<'a>(metric: Metric, said: String, better: bool) -> Element<'a, Message> {
+    let colour = if better { GREEN } else { ACCENT };
+    if metric != Metric::Rank {
+        return ui::mono_small(said, colour);
+    }
+    row![glyph(if better { Icon::Up } else { Icon::Down }, 10.0, colour), ui::mono_small(said, colour)].spacing(3).align_y(iced::Center).into()
 }
 
 fn date(words: &crate::lang::Words, at: i64, now: i64) -> String {
@@ -126,7 +124,6 @@ fn date(words: &crate::lang::Words, at: i64, now: i64) -> String {
 struct Chart {
     points: Vec<(f32, f32)>,
     tips: Vec<(String, String)>,
-    ticks: [String; 4],
     marks: [String; 4],
     empty: String,
     alpha: f32,
@@ -137,12 +134,61 @@ struct Hover {
     at: Option<usize>,
 }
 
-const LABELS: f32 = 60.0;
 const FOOT: f32 = 22.0;
+const EDGE: f32 = 6.0;
+
+fn smooth(points: &[Point], ground: Option<f32>) -> Path {
+    let n = points.len();
+    let mut slopes = vec![0.0f32; n.saturating_sub(1)];
+    for k in 0..n.saturating_sub(1) {
+        let dx = points[k + 1].x - points[k].x;
+        slopes[k] = if dx.abs() < 0.001 { 0.0 } else { (points[k + 1].y - points[k].y) / dx };
+    }
+    let mut tangents = vec![0.0f32; n];
+    if n >= 2 {
+        tangents[0] = slopes[0];
+        tangents[n - 1] = slopes[n - 2];
+    }
+    for k in 1..n.saturating_sub(1) {
+        tangents[k] = if slopes[k - 1] * slopes[k] <= 0.0 { 0.0 } else { (slopes[k - 1] + slopes[k]) / 2.0 };
+    }
+    for k in 0..n.saturating_sub(1) {
+        if slopes[k] == 0.0 {
+            tangents[k] = 0.0;
+            tangents[k + 1] = 0.0;
+            continue;
+        }
+        let a = tangents[k] / slopes[k];
+        let b = tangents[k + 1] / slopes[k];
+        let h = a * a + b * b;
+        if h > 9.0 {
+            let t = 3.0 / h.sqrt();
+            tangents[k] = t * a * slopes[k];
+            tangents[k + 1] = t * b * slopes[k];
+        }
+    }
+    Path::new(|b| {
+        match ground {
+            Some(ground) => {
+                b.move_to(Point::new(points[0].x, ground));
+                b.line_to(points[0]);
+            }
+            None => b.move_to(points[0]),
+        }
+        for k in 0..n.saturating_sub(1) {
+            let dx = (points[k + 1].x - points[k].x) / 3.0;
+            b.bezier_curve_to(Point::new(points[k].x + dx, points[k].y + tangents[k] * dx), Point::new(points[k + 1].x - dx, points[k + 1].y - tangents[k + 1] * dx), points[k + 1]);
+        }
+        if let Some(ground) = ground {
+            b.line_to(Point::new(points[n - 1].x, ground));
+            b.close();
+        }
+    })
+}
 
 impl Chart {
     fn plot(bounds: Rectangle) -> Rectangle {
-        Rectangle { x: LABELS, y: 8.0, width: (bounds.width - LABELS - 6.0).max(1.0), height: (bounds.height - FOOT - 8.0).max(1.0) }
+        Rectangle { x: EDGE, y: 10.0, width: (bounds.width - EDGE * 2.0).max(1.0), height: (bounds.height - FOOT - 10.0).max(1.0) }
     }
 
     fn at(&self, plot: Rectangle, index: usize) -> Point {
@@ -192,27 +238,14 @@ impl canvas::Program<Message> for Chart {
         for step in 0..4 {
             let y = plot.y + plot.height * step as f32 / 3.0;
             frame.stroke(&Path::line(Point::new(plot.x, y), Point::new(plot.x + plot.width, y)), Stroke::default().with_color(fade(Color::from_rgba(1.0, 1.0, 1.0, 0.012))).with_width(1.0));
-            frame.fill_text(words(self.ticks[step].clone(), Point::new(plot.x - 10.0, y), iced::widget::text::Alignment::Right, FAINT, 10.5));
         }
         let points: Vec<Point> = (0..self.points.len()).map(|index| self.at(plot, index)).collect();
         let ground = plot.y + plot.height;
-        let area = Path::new(|b| {
-            b.move_to(Point::new(points[0].x, ground));
-            for point in &points {
-                b.line_to(*point);
-            }
-            b.line_to(Point::new(points[points.len() - 1].x, ground));
-            b.close();
-        });
-        frame.fill(&area, fade(Color::from_rgba(0.886, 0.282, 0.282, 0.16)));
-        let curve = Path::new(|b| {
-            b.move_to(points[0]);
-            for pair in points.windows(2) {
-                let middle = Point::new((pair[0].x + pair[1].x) / 2.0, (pair[0].y + pair[1].y) / 2.0);
-                b.quadratic_curve_to(pair[0], middle);
-            }
-            b.line_to(points[points.len() - 1]);
-        });
+        let shade = canvas::gradient::Linear::new(Point::new(0.0, plot.y), Point::new(0.0, ground))
+            .add_stop(0.0, fade(Color::from_rgba(0.886, 0.282, 0.282, 0.26)))
+            .add_stop(1.0, fade(Color::from_rgba(0.886, 0.282, 0.282, 0.02)));
+        frame.fill(&smooth(&points, Some(ground)), canvas::Fill { style: canvas::Style::Gradient(shade.into()), ..canvas::Fill::default() });
+        let curve = smooth(&points, None);
         frame.stroke(&curve, Stroke::default().with_color(fade(ACCENT)).with_width(2.4).with_line_join(canvas::LineJoin::Round).with_line_cap(canvas::LineCap::Round));
         for (step, mark) in self.marks.iter().enumerate() {
             let x = plot.x + plot.width * step as f32 / 3.0;
@@ -496,26 +529,52 @@ fn identity<'a>(ground: &Ground<'a>, you: &Person, card: &wire::Card) -> Element
     slab(column![heading, rows, buttons].spacing(12), [18, 18]).into()
 }
 
+fn standing<'a>(share: f32, colour: Color) -> Element<'a, Message> {
+    let k = ui::fade();
+    let filled = (share.clamp(0.0, 1.0) * 1000.0).round().max(1.0) as u16;
+    let bar = row![
+        container(Space::new().height(3.0)).width(Length::FillPortion(filled)).style(move |_| container::Style {
+            background: Some(Background::Color(Color { a: colour.a * k, ..colour })),
+            border: Border { radius: 2.0.into(), ..Border::default() },
+            ..container::Style::default()
+        }),
+        Space::new().width(Length::FillPortion(1000u16.saturating_sub(filled).max(1))).height(3.0),
+    ];
+    container(bar)
+        .width(Length::Fill)
+        .style(move |_| container::Style { background: Some(Background::Color(Color::from_rgba(1.0, 1.0, 1.0, 0.04 * k))), border: Border { radius: 2.0.into(), ..Border::default() }, ..container::Style::default() })
+        .into()
+}
+
 fn places<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
     let w = ground.words;
     let catalog = ground.catalog;
     let Some(you) = catalog.people.iter().position(|p| p.you) else {
         return Space::new().height(0.0).into();
     };
+    let many = catalog.people.len();
     let mut tiles: Vec<Element<'a, Message>> = Vec::new();
     for board in Board::ALL {
         let order = catalog.ranked(board);
         let place = order.iter().position(|at| *at == you).map_or(0, |x| x + 1);
         let moved = catalog.people[you].moved[board.index()];
+        let colour = match place {
+            1 => theme::GRADE_S,
+            2 => Color::from_rgb8(200, 204, 220),
+            3 => Color::from_rgb8(205, 127, 50),
+            _ => INK,
+        };
+        let share = if many > 1 && place > 0 { 1.0 - (place - 1) as f32 / (many - 1) as f32 } else { 1.0 };
         tiles.push(
             button(
                 column![
-                    row![ui::mono_small(w.t(board.short_key()).to_uppercase(), FAINT), ui::grow(), screen::moved(moved)].align_y(iced::Center),
-                    row![text(format!("#{place}")).font(theme::SANS_SEMI).size(20.0).color(ui::faded(INK)), ui::mono_small(w.n("of-people", catalog.people.len() as u64), FAINT)].spacing(4).align_y(iced::alignment::Vertical::Bottom),
+                    container(ui::mono_small(w.t(board.short_key()).to_uppercase(), FAINT)).width(Length::Fill).clip(true),
+                    row![text(format!("#{place}")).font(theme::SANS_SEMI).size(22.0).wrapping(text::Wrapping::None).color(ui::faded(colour)), ui::grow(), screen::moved(moved)].spacing(4).align_y(iced::Center),
+                    standing(share, if place <= 3 { colour } else { ACCENT }),
                 ]
-                .spacing(2),
+                .spacing(6),
             )
-            .padding([9, 10])
+            .padding([10, 12])
             .width(Length::FillPortion(1))
             .style(ui::button_faded(outline))
             .on_press(Message::Board(board))
@@ -533,7 +592,8 @@ fn places<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
         }
         grid = grid.push(line);
     }
-    slab(column![row![caption(w.t("place-head")), ui::grow(), ui::mono_small(w.n("week-short", u64::from(catalog.week)), MUTED)].align_y(iced::Center), grid].spacing(10), [14, 16]).into()
+    let said = format!("{} · {}", w.count("players", many as u64), w.n("week-short", u64::from(catalog.week)).to_lowercase());
+    slab(column![row![caption(w.t("place-head")), ui::grow(), ui::mono_small(said, MUTED)].align_y(iced::Center), grid].spacing(10), [14, 16]).into()
 }
 
 fn metric_style(on: bool) -> impl Fn(&Theme, button::Status) -> button::Style {
@@ -564,7 +624,7 @@ fn metrics<'a>(ground: &Ground<'a>, card: &wire::Card) -> Element<'a, Message> {
         let change = delta(w, metric, &series(ground, card, metric, 90));
         let mut under = column![ui::mono_small(w.t(metric.key()).to_uppercase(), FAINT)].spacing(1);
         if let Some((said, better)) = change {
-            under = under.push(ui::mono_small(said, if better { GREEN } else { ACCENT }));
+            under = under.push(self::change(metric, said, better));
         }
         tiles = tiles.push(
             button(container(column![text(value).font(theme::SANS_SEMI).size(20.0).wrapping(text::Wrapping::None).color(ui::faded(if metric == Metric::Pp { CORAL } else { INK })), under].spacing(3)).width(Length::Fill).clip(true))
@@ -610,10 +670,6 @@ fn chart<'a>(ground: &Ground<'a>, card: &wire::Card) -> Element<'a, Message> {
         })
         .collect();
     let tips = data.points.iter().map(|(at, value)| (full(w, metric, *value), date(w, *at, ground.now_unix))).collect();
-    let ticks: [String; 4] = std::array::from_fn(|step| {
-        let value = if data.lower_better { lo + spread * step as f64 / 3.0 } else { lo + spread * (3 - step) as f64 / 3.0 };
-        short(w, metric, value)
-    });
     let marks: [String; 4] = std::array::from_fn(|step| {
         if step == 3 {
             w.t("day-today").to_lowercase()
@@ -622,7 +678,7 @@ fn chart<'a>(ground: &Ground<'a>, card: &wire::Card) -> Element<'a, Message> {
             date(w, at, ground.now_unix)
         }
     });
-    let canvas = Canvas::new(Chart { points, tips, ticks, marks, empty: w.t("card-no-data"), alpha: ui::fade() }).width(Length::Fill).height(200.0);
+    let canvas = Canvas::new(Chart { points, tips, marks, empty: w.t("card-no-data"), alpha: ui::fade() }).width(Length::Fill).height(200.0);
     let mut ranges = row![].spacing(2);
     for span in [30u32, 90] {
         ranges = ranges.push(button(text(w.n("days-short", u64::from(span))).font(theme::MONO_BOLD).size(11.0)).padding([4, 10]).style(ui::button_faded(segment(ground.span == span))).on_press(Message::Span(span)));
@@ -631,7 +687,7 @@ fn chart<'a>(ground: &Ground<'a>, card: &wire::Card) -> Element<'a, Message> {
     let control = container(ranges).padding(2).style(move |_| container::Style { background: Some(Background::Color(Color::from_rgba(0.0, 0.0, 0.0, 0.25 * k))), border: Border { radius: 8.0.into(), ..Border::default() }, ..container::Style::default() });
     let mut head = row![caption(format!("{} · {}", w.t(metric.key()), w.n("days-long", u64::from(ground.span))))].spacing(10).align_y(iced::Center);
     if let Some((said, better)) = delta(w, metric, &data) {
-        head = head.push(ui::mono_small(said, if better { GREEN } else { ACCENT }));
+        head = head.push(change(metric, said, better));
     }
     slab(column![head.push(ui::grow()).push(control), canvas].spacing(12), [16, 18]).into()
 }
@@ -737,7 +793,7 @@ fn grades<'a>(ground: &Ground<'a>, card: &wire::Card) -> Element<'a, Message> {
                 .align_x(iced::alignment::Horizontal::Center),
             )
             .padding([8, 0])
-            .width(Length::Fill)
+            .center_x(Length::Fill)
             .style(move |_| container::Style {
                 background: Some(Background::Color(if on { Color { a: 0.1 * k, ..colour } } else { Color::from_rgba(0.0, 0.0, 0.0, 0.18 * k) })),
                 border: Border { color: if on { Color { a: 0.5 * k, ..colour } } else { Color::from_rgba(1.0, 1.0, 1.0, 0.012 * k) }, width: 1.0, radius: 10.0.into() },
@@ -893,20 +949,23 @@ pub fn view<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
     let rolled = |inside: Element<'a, Message>| -> Element<'a, Message> {
         scrollable(container(inside).padding(Padding { top: 2.0, right: 8.0, bottom: 28.0, left: 0.0 })).style(ui::thin_scroll).direction(ui::hidden_bar()).height(Length::Fill).into()
     };
-    let wide = ground.width >= LEFT + RIGHT + 540.0 + 32.0 + 80.0;
+    let room = ground.width - 80.0;
+    let wide = room >= LEFT + RIGHT + 540.0 + 32.0;
+    let left = (room * 0.21).clamp(LEFT, SIDE_MOST);
+    let right = (room * 0.21).clamp(RIGHT, SIDE_MOST);
     let best = if card_data.top_scores.iter().any(|score| score.pp > 0.0 && score.hash.is_empty()) { score_rows(ground, &card_data) } else { top_plays(ground, you) };
     let middle = column![metrics(ground, &card_data), chart(ground, &card_data), best].spacing(14);
     let content: Element<'a, Message> = if wide {
         row![
-            container(rolled(column![identity(ground, you, &card_data), places(ground)].spacing(14).into())).width(LEFT).height(Length::Fill),
+            container(rolled(column![identity(ground, you, &card_data), places(ground)].spacing(14).into())).width(left).height(Length::Fill),
             container(rolled(middle.into())).width(Length::Fill).height(Length::Fill),
-            container(rolled(column![grades(ground, &card_data), titles(ground, you), activity(ground, you)].spacing(14).into())).width(RIGHT).height(Length::Fill),
+            container(rolled(column![grades(ground, &card_data), titles(ground, you), activity(ground, you)].spacing(14).into())).width(right).height(Length::Fill),
         ]
         .spacing(16)
         .into()
     } else {
         row![
-            container(rolled(column![identity(ground, you, &card_data), places(ground), grades(ground, &card_data)].spacing(14).into())).width(LEFT).height(Length::Fill),
+            container(rolled(column![identity(ground, you, &card_data), places(ground), grades(ground, &card_data)].spacing(14).into())).width(left).height(Length::Fill),
             container(rolled(middle.push(titles(ground, you)).push(activity(ground, you)).into())).width(Length::Fill).height(Length::Fill),
         ]
         .spacing(16)

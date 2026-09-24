@@ -20,6 +20,7 @@ pub const RANK_GROW: Duration = Duration::from_millis(900);
 
 const LEFT_WIDE: f32 = 268.0;
 const RIGHT_WIDE: f32 = 304.0;
+const CENTRE_MOST: f32 = 860.0;
 const GAP: f32 = 18.0;
 const GREEN: Color = theme::HIT_100;
 const LINK_BLUE: Color = Color::from_rgb(0.345, 0.682, 0.988);
@@ -209,8 +210,9 @@ fn banner<'a>(ground: &Ground<'a>, map: Option<usize>, high: f32, inside: Elemen
 fn play_line<'a>(ground: &Ground<'a>, map: usize, accuracy: f32, mods: &[String], pp: Option<f32>, grade: &str, passed: bool) -> Element<'a, Message> {
     let w = ground.words;
     let pp_said: Element<'a, Message> = match (pp, passed) {
-        (Some(pp), true) => ui::mono(format!("{} pp", screen::decimal(w, pp, 0)), INK),
-        (Some(_), false) => ui::mono("F".to_owned(), ACCENT),
+        (_, false) => screen::grade("F", 16.0),
+        (Some(pp), true) if pp >= 0.5 => column![ui::mono(format!("{} pp", screen::decimal(w, pp, 0)), INK), screen::grade(grade, 12.0)].spacing(2).align_x(iced::alignment::Horizontal::Right).into(),
+        (Some(_), true) => screen::grade(grade, 16.0),
         (None, _) => glyph(Icon::Film, 16.0, MUTED),
     };
     let k = ui::fade();
@@ -223,7 +225,7 @@ fn play_line<'a>(ground: &Ground<'a>, map: usize, accuracy: f32, mods: &[String]
             ]
             .spacing(3)
             .width(Length::Fill),
-            column![pp_said, screen::grade(grade, 12.0)].spacing(2).align_x(iced::alignment::Horizontal::Right),
+            pp_said,
         ]
         .spacing(12)
         .align_y(iced::Center),
@@ -513,34 +515,33 @@ fn event_card<'a>(ground: &Ground<'a>, event: &Event<'a>) -> Option<Element<'a, 
     let key = event.key();
     let open = ground.open_events.contains(&key);
     let Made { icon, colour, kind, who, when, body, actions, details, press } = made(ground, event)?;
-    let head = row![
+    let mut head = row![
         kind_disc(icon, colour),
-        column![
-            row![text(who).font(theme::SANS_SEMI).size(14.0).wrapping(text::Wrapping::None).color(ui::faded(INK)), ui::mono_small(kind, colour)].spacing(8).align_y(iced::alignment::Vertical::Bottom),
-            ui::mono_small(when, FAINT),
-        ]
-        .spacing(1),
+        container(
+            column![
+                row![text(who).font(theme::SANS_SEMI).size(14.0).wrapping(text::Wrapping::None).color(ui::faded(INK)), ui::mono_small(kind, colour)].spacing(8).align_y(iced::alignment::Vertical::Bottom),
+                ui::mono_small(when, FAINT),
+            ]
+            .spacing(1),
+        )
+        .width(Length::Fill)
+        .clip(true),
     ]
     .spacing(10)
     .align_y(iced::Center);
-    let mut inside = column![head, body].spacing(12);
-    let has_details = details.is_some();
-    if !actions.is_empty() || has_details {
-        let mut tools = row![].spacing(8).align_y(iced::Center);
-        for made in actions {
-            tools = tools.push(made);
-        }
-        if has_details {
-            tools = tools.push(ui::grow());
-            tools = tools.push(
-                button(text(w.t(if open { "act-collapse" } else { "act-details" })).font(theme::SANS_SEMI).size(12.0))
-                    .padding([6, 10])
-                    .style(ui::button_faded(quiet))
-                    .on_press(Message::Toggle(key.clone())),
-            );
-        }
-        inside = inside.push(tools);
+    for made in actions {
+        head = head.push(made);
     }
+    let has_details = details.is_some();
+    if has_details {
+        head = head.push(
+            button(text(w.t(if open { "act-collapse" } else { "act-details" })).font(theme::SANS_SEMI).size(12.0))
+                .padding([6, 10])
+                .style(ui::button_faded(quiet))
+                .on_press(Message::Toggle(key.clone())),
+        );
+    }
+    let mut inside = column![head, body].spacing(12);
     if let (true, Some(details)) = (open, details) {
         let k = ui::fade();
         inside = inside.push(column![container(Space::new().height(1.0)).width(Length::Fill).style(move |_| container::Style { background: Some(Background::Color(Color { a: theme::LINE.a * k, ..theme::LINE })), ..container::Style::default() }), details].spacing(10));
@@ -673,7 +674,7 @@ fn me_card<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
     let (level, share) = card_data.as_ref().map_or((you.level, 0.0), |c| (c.level as u32, (c.level_progress / 100.0) as f32));
     let title: Element<'a, Message> = screen::title_line(ground, you, 12.0);
     let country_rank = card_data.as_ref().map_or(0.0, |c| c.country_rank);
-    let mut place = vec![you.country.clone()];
+    let mut place: Vec<String> = Vec::new();
     if country_rank > 0.0 {
         place.push(format!("#{}", w.lang().group(country_rank as u64)));
     }
@@ -716,9 +717,9 @@ fn me_card<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
         column![
             text(you.name.clone()).font(theme::SANS_SEMI).size(17.0).wrapping(text::Wrapping::None).color(ui::faded(INK)),
             title,
-            ui::mono_small(place.join(" · "), MUTED),
+            row![screen::flag(ground, &you.country, 11.0), ui::mono_small(place.join(" · "), MUTED)].spacing(6).align_y(iced::Center),
         ]
-        .spacing(2),
+        .spacing(3),
     ]
     .spacing(12)
     .align_y(iced::Center);
@@ -763,6 +764,7 @@ struct Spot {
     why: &'static str,
     big: String,
     small: String,
+    tint: Color,
 }
 
 fn spots(ground: &Ground<'_>) -> Vec<Spot> {
@@ -770,39 +772,41 @@ fn spots(ground: &Ground<'_>) -> Vec<Spot> {
     let people = &ground.catalog.people;
     let mut out: Vec<Spot> = Vec::new();
     let mut taken: Vec<usize> = Vec::new();
-    let mut push = |who: Option<usize>, why: &'static str, big: String, small: String, out: &mut Vec<Spot>| {
+    let mut push = |who: Option<usize>, why: &'static str, big: String, small: String, tint: Color, out: &mut Vec<Spot>| {
         if let Some(who) = who.filter(|who| !taken.contains(who)) {
             taken.push(who);
-            out.push(Spot { who, why, big, small });
+            out.push(Spot { who, why, big, small, tint });
         }
     };
+    let coral = Color::from_rgb(0.941, 0.408, 0.408);
     let best = |key: fn(&Person) -> f64| (0..people.len()).max_by(|a, b| key(&people[*a]).total_cmp(&key(&people[*b])));
     if let Some(at) = best(|p| p.gained[0]).filter(|at| people[*at].gained[0] > 0.0) {
         let p = &people[at];
-        push(Some(at), "spot-gain", format!("+{} pp", screen::decimal(w, p.gained[0] as f32, 0)), format!("{} pp", w.lang().group(u64::from(p.pp))), &mut out);
+        push(Some(at), "spot-gain", format!("+{} pp", screen::decimal(w, p.gained[0] as f32, 0)), screen::pp_of(w, p.pp), GREEN, &mut out);
     }
     if let Some(at) = best(|p| f64::from(p.accuracy)) {
         let p = &people[at];
-        push(Some(at), "spot-accuracy", w.percent(f64::from(p.accuracy)), format!("{} pp", w.lang().group(u64::from(p.pp))), &mut out);
+        push(Some(at), "spot-accuracy", w.percent(f64::from(p.accuracy)), screen::rank_of(w, p.rank), INK, &mut out);
     }
     if let Some(happened) = ground.catalog.feed.iter().find(|h| matches!(h.kind, Kind::Title(_))) {
         if let Kind::Title(code) = &happened.kind {
-            let name = ground.catalog.title_of(code).map(|t| t.name(w.lang()).to_owned()).unwrap_or_default();
-            push(Some(happened.who), "spot-title", name, screen::since(ground, happened.at), &mut out);
+            if let Some(title) = ground.catalog.title_of(code) {
+                push(Some(happened.who), "spot-title", title.name(w.lang()).to_owned(), screen::since(ground, happened.at), title.rarity.colour(), &mut out);
+            }
         }
     }
     if let Some(at) = best(|p| f64::from(p.streak)).filter(|at| people[*at].streak > 0) {
         let p = &people[at];
-        push(Some(at), "spot-streak", w.n("streak-card", u64::from(p.streak)), w.n("streak-best-n", u64::from(p.streak_best.max(p.streak))), &mut out);
+        push(Some(at), "spot-streak", w.n("streak-card", u64::from(p.streak)), w.n("streak-best-n", u64::from(p.streak_best.max(p.streak))), coral, &mut out);
     }
     if let Some(at) = people.iter().position(|p| p.you) {
         let p = &people[at];
         let place = ground.catalog.ranked(Board::Pp).iter().position(|x| *x == at).map_or(0, |x| x + 1);
-        push(Some(at), "spot-you", format!("#{place}"), format!("{} · {}", w.t("board-pp"), w.lang().group(u64::from(p.pp))), &mut out);
+        push(Some(at), "spot-you", format!("#{place}"), screen::pp_of(w, p.pp), coral, &mut out);
     }
     if let Some(at) = best(|p| f64::from(p.pp)) {
         let p = &people[at];
-        push(Some(at), "spot-top", format!("{} pp", w.lang().group(u64::from(p.pp))), screen::rank_of(w, p.rank), &mut out);
+        push(Some(at), "spot-top", screen::pp_of(w, p.pp), screen::rank_of(w, p.rank), theme::GRADE_S, &mut out);
     }
     out
 }
@@ -839,49 +843,34 @@ fn spotlight<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
     let shown = ui::fading(ui::fade() * ground.spot_k, || -> Element<'a, Message> {
         let k = ui::fade();
         let colour = screen::avatar_colour(&person.name);
-        let face = container(screen::face(ground, person, 44.0)).padding(3).style(move |_| container::Style {
+        let face = container(screen::face(ground, person, 46.0)).padding(3).style(move |_| container::Style {
             background: Some(Background::Color(Color { a: k, ..colour })),
-            border: Border { radius: 25.0.into(), ..Border::default() },
+            border: Border { radius: 26.0.into(), ..Border::default() },
             shadow: Shadow { color: Color { a: 0.5 * k, ..colour }, offset: Vector::ZERO, blur_radius: 16.0 },
             ..container::Style::default()
         });
-        let mut inside = column![
+        let named = column![
             row![
-                face,
-                column![
-                    row![text(person.name.clone()).font(theme::SANS_SEMI).size(17.0).wrapping(text::Wrapping::None).color(ui::faded(INK)), ui::mono_small(format!("{} pp", w.lang().group(u64::from(person.pp))), MUTED)]
-                        .spacing(8)
-                        .align_y(iced::alignment::Vertical::Bottom),
-                    text(w.t(spot.why)).font(theme::SANS).size(12.0).color(ui::faded(MUTED)),
-                ]
-                .spacing(3),
+                container(text(person.name.clone()).font(theme::SANS_SEMI).size(17.0).wrapping(text::Wrapping::None).color(ui::faded(INK))).clip(true),
+                screen::flag(ground, &person.country, 11.0),
             ]
-            .spacing(12)
+            .spacing(7)
             .align_y(iced::Center),
-            row![text(spot.big.clone()).font(theme::SANS_SEMI).size(24.0).wrapping(text::Wrapping::None).color(ui::faded(Color::from_rgb(0.941, 0.408, 0.408))), ui::mono_small(spot.small.clone(), MUTED)]
-                .spacing(12)
-                .align_y(iced::alignment::Vertical::Bottom),
+            text(w.t(spot.why)).font(theme::SANS).size(12.0).color(ui::faded(MUTED)),
         ]
-        .spacing(12);
-        if let Some(play) = person.top.first() {
-            inside = inside.push(
-                container(
-                    row![
-                        screen::picture(ground, Some(play.map), 44.0, 30.0),
-                        container(column![text(ui::shortened(screen::line_of(ground, play.map), 26)).font(theme::SANS).size(12.0).wrapping(text::Wrapping::None).color(ui::faded(INK)), screen::mods(&play.mods)].spacing(2)).width(Length::Fill).clip(true),
-                        ui::mono(format!("{} pp", screen::decimal(w, play.pp, 0)), INK),
-                    ]
-                    .spacing(10)
-                    .align_y(iced::Center),
-                )
-                .padding(8)
-                .style(move |_| container::Style { background: Some(Background::Color(Color::from_rgba(0.0, 0.0, 0.0, 0.22 * k))), border: Border { radius: 10.0.into(), ..Border::default() }, ..container::Style::default() }),
-            );
-        }
+        .spacing(3)
+        .width(Length::Fill);
+        let figure = row![
+            container(text(spot.big.clone()).font(theme::SANS_SEMI).size(24.0).wrapping(text::Wrapping::None).color(ui::faded(spot.tint))).clip(true),
+            ui::grow(),
+            ui::mono_small(spot.small.clone(), MUTED),
+        ]
+        .spacing(10)
+        .align_y(iced::alignment::Vertical::Bottom);
         let lift = (1.0 - ground.spot_k) * 8.0;
-        container(inside).padding(Padding::ZERO.top(lift)).into()
+        container(column![row![face, named].spacing(12).align_y(iced::Center), figure].spacing(10)).padding(Padding::ZERO.top(lift)).into()
     });
-    let body = column![row![caption(w.t("spot-head")), ui::grow(), dots].align_y(iced::Center), container(shown).height(168.0).clip(true)].spacing(12);
+    let body = column![row![caption(w.t("spot-head")), ui::grow(), dots].align_y(iced::Center), container(shown).height(98.0).clip(true)].spacing(12);
     mouse_area(card(body, [14, 16])).on_enter(Message::SpotHold(true)).on_exit(Message::SpotHold(false)).on_press(Message::Person(Some(spot.who))).into()
 }
 
@@ -907,8 +896,8 @@ fn friends_card<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
                 row![
                     face,
                     column![
-                        text(friend.name.clone()).font(theme::SANS_SEMI).size(13.0).wrapping(text::Wrapping::None).color(ui::faded(INK)),
-                        text(format!("{status} · {}", friend.country)).font(theme::SANS).size(11.0).color(ui::faded(if friend.online { GREEN } else { FAINT })),
+                        row![text(friend.name.clone()).font(theme::SANS_SEMI).size(13.0).wrapping(text::Wrapping::None).color(ui::faded(INK)), screen::flag(ground, &friend.country, 10.0)].spacing(6).align_y(iced::Center),
+                        text(status).font(theme::SANS).size(11.0).color(ui::faded(if friend.online { GREEN } else { FAINT })),
                     ]
                     .spacing(1)
                     .width(Length::Fill),
@@ -951,17 +940,24 @@ fn tab_style(on: bool) -> impl Fn(&Theme, button::Status) -> button::Style {
 fn leaderboard<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
     let w = ground.words;
     let catalog = ground.catalog;
-    let board = Board::ALL[ground.rank % Board::ALL.len()];
-    let mut tabs: Vec<Element<'a, Message>> = Vec::new();
+    let chosen = ground.rank % Board::ALL.len();
+    let board = Board::ALL[chosen];
+    let mut tabs = row![].spacing(2);
     for (index, each) in Board::ALL.iter().enumerate() {
-        tabs.push(
-            button(text(w.t(each.short_key())).font(theme::SANS_SEMI).size(11.0))
-                .padding([3, 8])
-                .style(ui::button_faded(tab_style(index == ground.rank % Board::ALL.len())))
-                .on_press(Message::Rank(index))
-                .into(),
+        tabs = tabs.push(
+            button(container(text(w.t(each.short_key())).font(theme::SANS_SEMI).size(11.0).wrapping(text::Wrapping::None)).center_x(Length::Fill))
+                .padding([4, 0])
+                .width(Length::FillPortion(1))
+                .style(ui::button_faded(tab_style(index == chosen)))
+                .on_press(Message::Rank(index)),
         );
     }
+    let k = ui::fade();
+    let tabs = container(tabs).padding(2).style(move |_| container::Style {
+        background: Some(Background::Color(Color::from_rgba(0.0, 0.0, 0.0, 0.22 * k))),
+        border: Border { radius: 8.0.into(), ..Border::default() },
+        ..container::Style::default()
+    });
     let order = catalog.ranked(board);
     let top = order.first().map_or(1.0, |at| board.value(&catalog.people[*at])).max(f64::EPSILON);
     let floor = match board {
@@ -977,30 +973,34 @@ fn leaderboard<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
         let person = &catalog.people[at];
         let place = order.iter().position(|x| *x == at).map_or(0, |x| x + 1);
         let share = (((board.value(person) - floor) / (top - floor)).clamp(0.04, 1.0) as f32) * ground.rank_k;
-        let k = ui::fade();
         let you = person.you;
         let bar_colour = if you { ACCENT } else { Color::from_rgba(0.925, 0.906, 0.886, 0.55) };
         let filled = (share * 1000.0).round().max(1.0) as u16;
         let bar = row![
-            container(Space::new().height(4.0)).width(Length::FillPortion(filled)).style(move |_| container::Style { background: Some(Background::Color(Color { a: bar_colour.a * k, ..bar_colour })), border: Border { radius: 2.0.into(), ..Border::default() }, ..container::Style::default() }),
-            Space::new().width(Length::FillPortion(1000u16.saturating_sub(filled).max(1))).height(4.0),
+            container(Space::new().height(3.0)).width(Length::FillPortion(filled)).style(move |_| container::Style { background: Some(Background::Color(Color { a: bar_colour.a * k, ..bar_colour })), border: Border { radius: 2.0.into(), ..Border::default() }, ..container::Style::default() }),
+            Space::new().width(Length::FillPortion(1000u16.saturating_sub(filled).max(1))).height(3.0),
         ];
-        let track = container(bar).width(Length::Fill).style(move |_| container::Style { background: Some(Background::Color(Color::from_rgba(1.0, 1.0, 1.0, 0.012 * k))), border: Border { radius: 2.0.into(), ..Border::default() }, ..container::Style::default() });
+        let place_colour = match place {
+            1 => theme::GRADE_S,
+            2 => Color::from_rgb8(200, 204, 220),
+            3 => Color::from_rgb8(205, 127, 50),
+            _ => MUTED,
+        };
         rows = rows.push(
             button(
                 column![
                     row![
-                        container(ui::mono_small(format!("{place}"), if place <= 3 { INK } else { MUTED })).width(14.0).align_x(iced::alignment::Horizontal::Right),
-                        container(screen::moved(person.moved[board.index()])).width(26.0),
-                        screen::face(ground, person, 20.0),
-                        text(person.name.clone()).font(theme::SANS_SEMI).size(13.0).wrapping(text::Wrapping::None).color(ui::faded(if you { Color::from_rgb(0.941, 0.408, 0.408) } else { INK })).width(Length::Fill),
+                        container(text(format!("{place}")).font(theme::MONO_BOLD).size(11.0).color(ui::faded(place_colour))).width(16.0).align_x(iced::alignment::Horizontal::Right),
+                        screen::face(ground, person, 22.0),
+                        container(text(person.name.clone()).font(theme::SANS_SEMI).size(13.0).wrapping(text::Wrapping::None).color(ui::faded(if you { Color::from_rgb(0.941, 0.408, 0.408) } else { INK }))).width(Length::Fill).clip(true),
+                        screen::moved(person.moved[board.index()]),
                         ui::mono_small(screen::shown_value(w, board, person), INK),
                     ]
                     .spacing(8)
                     .align_y(iced::Center),
-                    container(track).padding(Padding::ZERO.left(56.0)),
+                    container(bar).padding(Padding::ZERO.left(54.0)),
                 ]
-                .spacing(4),
+                .spacing(5),
             )
             .padding([5, 6])
             .width(Length::Fill)
@@ -1010,8 +1010,8 @@ fn leaderboard<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
     }
     let drain = Drain { started: ground.rank_started, length: RANK_EVERY, held: ground.rank_held, alpha: ui::fade() };
     let body = column![
-        row![caption(w.n("week-short", u64::from(catalog.week))), ui::grow(), ui::mono_small(w.t(board.key()).to_uppercase(), INK)].align_y(iced::Center),
-        ui::wrap(tabs, 4.0),
+        row![caption(w.t(board.key())), ui::grow(), ui::mono_small(w.n("week-short", u64::from(catalog.week)), FAINT)].align_y(iced::Center),
+        tabs,
         Element::from(drain),
         rows,
         button(text(w.t("all-boards")).font(theme::SANS_SEMI).size(12.0).color(ui::faded(ACCENT))).padding([4, 6]).style(ui::button_faded(theme::bare)).on_press(Message::Section(Section::Boards)),
@@ -1021,8 +1021,9 @@ fn leaderboard<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
 }
 
 pub fn view<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
-    let wide_enough = ground.width >= LEFT_WIDE + RIGHT_WIDE + 520.0 + GAP * 2.0 + 80.0;
-    let medium = ground.width >= RIGHT_WIDE + 460.0 + GAP + 80.0;
+    let room = ground.width - 80.0;
+    let wide_enough = room >= LEFT_WIDE + RIGHT_WIDE + 520.0 + GAP * 2.0;
+    let medium = room >= RIGHT_WIDE + 460.0 + GAP;
     let right_parts = |me_first: bool| -> Element<'a, Message> {
         let mut side = column![].spacing(12);
         if me_first {
@@ -1035,16 +1036,23 @@ pub fn view<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
         scrollable(container(side).padding(Padding { top: 2.0, right: 8.0, bottom: 28.0, left: 0.0 })).style(ui::thin_scroll).direction(ui::hidden_bar()).height(Length::Fill).into()
     };
     let content: Element<'a, Message> = if wide_enough {
+        let left_wide = (room * 0.2).clamp(LEFT_WIDE, 360.0);
+        let right_wide = (room * 0.23).clamp(RIGHT_WIDE, 400.0);
+        let middle = (room - left_wide - right_wide - GAP * 2.0).min(CENTRE_MOST);
         let left = scrollable(container(column![me_card(ground), filters_card(ground)].spacing(12)).padding(Padding { top: 2.0, right: 6.0, bottom: 28.0, left: 0.0 })).style(ui::thin_scroll).direction(ui::hidden_bar()).height(Length::Fill);
-        row![
-            container(left).width(LEFT_WIDE).height(Length::Fill),
-            container(timeline(ground, false)).width(Length::Fill).height(Length::Fill),
-            container(right_parts(false)).width(RIGHT_WIDE).height(Length::Fill),
-        ]
-        .spacing(GAP)
+        container(
+            row![
+                container(left).width(left_wide).height(Length::Fill),
+                container(timeline(ground, false)).width(middle).height(Length::Fill),
+                container(right_parts(false)).width(right_wide).height(Length::Fill),
+            ]
+            .spacing(GAP),
+        )
+        .center_x(Length::Fill)
         .into()
     } else if medium {
-        row![container(timeline(ground, true)).width(Length::Fill).height(Length::Fill), container(right_parts(true)).width(RIGHT_WIDE).height(Length::Fill)].spacing(GAP).into()
+        let right_wide = (room * 0.3).clamp(RIGHT_WIDE, 380.0);
+        row![container(timeline(ground, true)).width(Length::Fill).height(Length::Fill), container(right_parts(true)).width(right_wide).height(Length::Fill)].spacing(GAP).into()
     } else {
         timeline(ground, true)
     };

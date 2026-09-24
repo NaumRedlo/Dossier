@@ -54,3 +54,16 @@ jobs:
           workspaces: native
       - run: cargo test --release
         working-directory: native
+      - if: runner.os == 'Windows'
+        name: the executable carries its icon
+        shell: bash
+        run: |
+          cargo build --release --manifest-path native/Cargo.toml
+          python -m pip install --quiet pefile
+          python - <<'PY'
+          import pefile
+          exe = pefile.PE("native/target/release/dossier.exe")
+          kinds = [entry.id for entry in exe.DIRECTORY_ENTRY_RESOURCE.entries]
+          assert 14 in kinds and 16 in kinds, kinds
+          print("icon and version in", kinds)
+          PY

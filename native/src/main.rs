@@ -14,6 +14,17 @@ fn main() -> iced::Result {
         }
         return Ok(());
     }
+    if let Some(at) = args.iter().position(|a| a == "--icons") {
+        let dir = args.get(at + 1).cloned().unwrap_or_else(|| "assets/icon".to_owned());
+        match dossier_native::icon::write(std::path::Path::new(&dir)) {
+            Ok(n) => println!("{n} icons in {dir}"),
+            Err(why) => {
+                eprintln!("{why}");
+                std::process::exit(1);
+            }
+        }
+        return Ok(());
+    }
     if let Some(rehearsal) = dossier_native::Rehearsal::from_args(&args) {
         let _ = dossier_native::REHEARSAL.set(rehearsal);
     }
@@ -168,6 +179,7 @@ fn main() -> iced::Result {
                 })
                 .unwrap_or(WINDOW),
             min_size: Some(Size::new(760.0, 560.0)),
+            icon: dossier_native::icon::window(),
             position: window::Position::Centered,
             ..window::Settings::default()
         })

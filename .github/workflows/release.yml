@@ -48,8 +48,9 @@ jobs:
           case "${{ runner.os }}" in
             macOS)
               app="$out/Dossier.app/Contents"
-              mkdir -p "$app/MacOS"
+              mkdir -p "$app/MacOS" "$app/Resources"
               cp "$bin" "$app/MacOS/dossier"
+              cp native/assets/icon/dossier.icns "$app/Resources/AppIcon.icns"
               cat > "$app/Info.plist" <<PLIST
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -59,6 +60,7 @@ jobs:
             <key>CFBundleDisplayName</key><string>Dossier</string>
             <key>CFBundleIdentifier</key><string>com.naumredlo.dossier</string>
             <key>CFBundleExecutable</key><string>dossier</string>
+            <key>CFBundleIconFile</key><string>AppIcon</string>
             <key>CFBundlePackageType</key><string>APPL</string>
             <key>CFBundleShortVersionString</key><string>${version}</string>
             <key>CFBundleVersion</key><string>${version}</string>
@@ -75,6 +77,7 @@ jobs:
               ;;
             Linux)
               cp "$bin" "$out/dossier"
+              cp native/assets/icon/dossier-512.png "$out/dossier.png"
               tar czf "$out.tar.gz" "$out"
               ;;
           esac

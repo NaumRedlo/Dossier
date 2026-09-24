@@ -162,7 +162,7 @@ pub fn sign<'a, Message: 'a>(which: Sign) -> Element<'a, Message> {
 }
 
 const LETTER_MASK: &[u8] = include_bytes!("../assets/letter-mask.png");
-const ACCENT_DEEP: Color = Color::from_rgb(0.788, 0.204, 0.184);
+pub const ACCENT_DEEP: Color = Color::from_rgb(0.788, 0.204, 0.184);
 
 pub struct Letter {
     pub side: u32,
@@ -204,6 +204,10 @@ impl Letter {
             }
         }
         Letter { side: side as u32, mask }
+    }
+
+    pub fn mask(&self) -> &[u8] {
+        &self.mask
     }
 
     pub fn tinted(&self, top: Color, bottom: Color) -> image::Handle {

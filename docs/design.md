@@ -972,10 +972,27 @@ replays are known by their versions past thirty million.
 
 **Интерфейс** is a tile beside *Язык*: the scale follows the monitor — 100
 percent at 1080 logical pixels, more on taller screens, less on small ones,
-measured when the window opens and when it moves — or is set by hand from 80
-to 150 percent. When the scale grows the window grows with it. The *Рендер*
-tile holds a fourth slider, *Процессор*, which holds one's renders and the
-worker's to a quarter, half or three quarters of the cores.
+measured when the window opens and when it moves — or is set by hand on a
+continuous slider from 80 to 150 percent that applies when it is let go. When
+the scale grows a window grows with it; a maximised or full-screen window is
+never touched. The *Рендер* tile holds a fourth slider, *Процессор*, which
+holds one's renders and the worker's to a quarter, half or three quarters of
+the cores, split between drawing and encoding.
+
+**Also in the journal** (2026-09-25): only the frames near what is seen are
+built, so thousands of replays cost nothing; a search slides the frames to
+their new places; left alone for a while the journal leaves through its
+replays by itself (*Листать журнал самому* in *Сцена*); a map missing from
+disk borrows its cover and its name from the mirrors, and a map no server has
+can be taken from the player's own disk (*Указать карту…*). *Только
+экспортированные реплеи* in *Источники* keeps out stable's local scores and
+lazer's store.
+
+**Титулы** are worn and taken off from the application — in one's own dossier
+and on each title card one holds — through the bot. **The feed** no longer
+waits for *rs*: the bot asks osu! for every registered player's recent plays
+in turn, and when the application sees its person's new replay it tells the
+bot, which asks for that player at once.
 
 **Воркер** is a tile of the application's settings, second after *Рендер*
 (2026-09-24; it was a third part of Settings for a day, and a part of its

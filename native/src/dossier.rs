@@ -1255,7 +1255,7 @@ fn titles<'a>(ground: &Ground<'a>, whose: &Whose<'a>) -> Element<'a, Message> {
                     .spacing(8)
                     .align_y(iced::Center),
                     text(if secret { w.t("secret-title") } else { title.about(w.lang()).to_owned() }).font(theme::SANS).size(12.0).color(ui::faded(MUTED)),
-                    ui::mono_small(when, FAINT),
+                    row![ui::mono_small(when, FAINT), ui::grow(), wear_button(ground, you, title)].align_y(iced::Center),
                 ]
                 .spacing(3),
             )
@@ -1268,6 +1268,23 @@ fn titles<'a>(ground: &Ground<'a>, whose: &Whose<'a>) -> Element<'a, Message> {
     };
     let count = w.of(owned.len() as u64, catalog.titles.len() as u64);
     slab(column![row![caption(w.t("community-titles")), ui::grow(), ui::mono_small(count, INK)].align_y(iced::Center), bars.width(Length::Fill), ui::wrap(chips, 6.0), detail].spacing(10), [14, 16]).into()
+}
+
+pub fn wear_button<'a>(ground: &Ground<'a>, you: &crate::community::Person, title: &Title) -> Element<'a, Message> {
+    let w = ground.words;
+    if !you.you || !you.titles.iter().any(|code| *code == title.code) {
+        return Space::new().width(0.0).into();
+    }
+    let worn = you.title.as_deref() == Some(title.code.as_str());
+    let (words, press) = if worn { (w.t("take-off-title"), Message::Wear(None)) } else { (w.t("wear-title"), Message::Wear(Some(title.code.clone()))) };
+    ui::hover(
+        button(text(words).font(theme::SANS_SEMI).size(11.5))
+            .padding([4, 11])
+            .style(ui::button_faded(ui::calm(chip_style(title.rarity.colour(), true, worn))))
+            .on_press(press),
+        ui::Glow::tile(10.0).edge(Color { a: 0.45, ..title.rarity.colour() }),
+    )
+    .into()
 }
 
 const HEAT_PAD: f32 = 2.0;

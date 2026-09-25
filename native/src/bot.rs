@@ -189,6 +189,27 @@ pub fn community(server: &str, token: &str, name: &str, chat: Option<i64>) -> Re
     status(response)?.json().map_err(|e| Refused::Network(e.to_string()))
 }
 
+pub fn played(server: &str, token: &str, name: &str) -> Result<(), Refused> {
+    let response = client()?
+        .post(format!("{server}/render/me/played"))
+        .header("X-Render-Worker", name)
+        .bearer_auth(token)
+        .send()
+        .map_err(|e| Refused::Network(e.to_string()))?;
+    status(response).map(|_| ())
+}
+
+pub fn wear_title(server: &str, token: &str, name: &str, chat: Option<i64>, code: Option<&str>) -> Result<(), Refused> {
+    let response = client()?
+        .post(format!("{server}/render/me/title"))
+        .header("X-Render-Worker", name)
+        .bearer_auth(token)
+        .json(&serde_json::json!({ "chat": chat, "code": code }))
+        .send()
+        .map_err(|e| Refused::Network(e.to_string()))?;
+    status(response).map(|_| ())
+}
+
 pub fn card(server: &str, token: &str, name: &str, chat: Option<i64>) -> Result<crate::community::wire::Card, Refused> {
     let mut request = client()?.get(format!("{server}/render/me/card")).header("X-Render-Worker", name).bearer_auth(token);
     if let Some(chat) = chat {

@@ -144,6 +144,7 @@ pub enum Message {
     RenameDone,
     Scene(bool),
     PauseUnfocused(bool),
+    AutoFlip(bool),
     Height(f32),
     Rate(f32),
     Crf(f32),
@@ -425,6 +426,7 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
             head(w, "scene-tile"),
             pill(ground, "live", w.t("live-replay"), s.live_scene, Message::Scene(!s.live_scene)),
             pill(ground, "pause", w.t("pause-unfocused"), s.pause_unfocused, Message::PauseUnfocused(!s.pause_unfocused)),
+            pill(ground, "auto-flip", w.t("auto-flip"), s.auto_flip, Message::AutoFlip(!s.auto_flip)),
         ]
         .spacing(6)
         .into(),

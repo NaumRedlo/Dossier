@@ -86,11 +86,14 @@ pub enum Message {
     PersonCard(String, Result<crate::community::wire::Card, String>),
     PersonDossier(i64, Result<crate::community::wire::Me, String>),
     CardShared(Result<(), String>),
+    Worn(Result<(), String>),
+    Nudged,
     ReadFirst,
     Loaded(Library),
     Reading(library::Reading),
     Refreshed(Library),
     WatchTick,
+    AutoNext,
     Watched(u64),
     Thumb(String, image::Handle),
     MapKnown(String, crate::maps::Known),
@@ -171,6 +174,8 @@ pub enum Message {
     OpenOut,
     ShowOut,
     GetMap,
+    PickMap,
+    MapPicked(Option<PathBuf>),
     StopFetch,
     Fetched(maps::Step),
     Look,
@@ -884,6 +889,9 @@ impl Main {
         if self.library.is_some() && !self.refreshing {
             parts.push(iced::time::every(Duration::from_secs(4)).map(|_| Message::WatchTick));
         }
+        if self.settings.auto_flip && self.library.is_some() && self.overlay == Overlay::None && self.player.is_none() {
+            parts.push(iced::time::every(AUTO_EVERY).map(|_| Message::AutoNext));
+        }
         if matches!(self.update, UpdateState::Ready { .. }) && (self.update_wanted || self.settings.quiet_updates) {
             parts.push(iced::time::every(Duration::from_secs(5)).map(|_| Message::UpdateIdle));
         }
@@ -1111,6 +1119,23 @@ impl Main {
                 self.reading = Some(reading);
                 Task::none()
             }
+            Message::AutoNext => {
+                let busy = self.rendering.as_ref().is_some_and(|r| !r.is_over())
+                    || self.fetching.as_ref().is_some_and(|f| !f.is_over())
+                    || matches!(self.looking, Some(scan::Step::Looking { .. }));
+                if !self.settings.auto_flip || busy || self.overlay != Overlay::None || self.player.is_some() || self.menu.is_some() || crate::updates::idle() < AUTO_IDLE {
+                    return Task::none();
+                }
+                let visible = self.visible();
+                if visible.len() < 2 {
+                    return Task::none();
+                }
+                let next = match self.chosen.and_then(|c| visible.iter().position(|v| *v == c)) {
+                    Some(at) if at + 1 < visible.len() => visible[at + 1],
+                    _ => visible[0],
+                };
+                self.choose(next)
+            }
             Message::WatchTick => {
                 if self.refreshing || self.library.is_none() {
                     return Task::none();
@@ -1145,6 +1170,17 @@ impl Main {
                 let entries = self.entries().to_vec();
                 self.store.marry(&entries);
                 let hushed = std::mem::take(&mut self.hush_next);
+                let own = self.community.as_ref().and_then(|catalog| catalog.people.iter().find(|p| p.you)).map(|you| you.name.to_lowercase());
+                let played = !hushed && !self.settings.token.is_empty() && fresh.iter().any(|e| own.as_ref().is_none_or(|own| e.player.to_lowercase() == *own));
+                let nudge = if played {
+                    let (server, token, name) = (self.settings.server.clone(), self.settings.token.clone(), self.settings.device.clone());
+                    ui::in_thread(move || {
+                        let _ = crate::bot::played(&server, &token, &name);
+                        Message::Nudged
+                    })
+                } else {
+                    Task::none()
+                };
                 if !before.is_empty() && !hushed {
                     if let Some(newest) = fresh.iter().max_by_key(|e| e.played_at) {
                         let words = if fresh.len() == 1 { self.words.t("new-replay") } else { self.words.count("new-replays", fresh.len() as u64) };
@@ -1152,7 +1188,7 @@ impl Main {
                         self.announce(notices::Mark::Done, words, detail, String::new(), newest.map_hash.clone(), notices::Link::Replay(newest.path.clone()));
                     }
                 }
-                Task::batch([self.thumbs_task(), self.covers_task()])
+                Task::batch([self.thumbs_task(), self.covers_task(), nudge])
             }
             Message::Loaded(library) => {
                 self.reading = None;
@@ -2075,6 +2111,14 @@ impl Main {
                     C::Span(span) => self.dossier_span = span,
                     C::GradeHover(hover) => self.grade_hover = hover,
                     C::TitlePick(code) => self.title_pick = Some(code),
+                    C::Wear(code) => {
+                        let chat = self.community.as_ref().and_then(|catalog| catalog.chat);
+                        if let Some(me) = self.community.as_mut().and_then(|catalog| catalog.people.iter_mut().find(|p| p.you)) {
+                            me.title = code.clone();
+                        }
+                        let (server, token, name) = (self.settings.server.clone(), self.settings.token.clone(), self.settings.device.clone());
+                        return ui::in_thread(move || Message::Worn(crate::bot::wear_title(&server, &token, &name, chat, code.as_deref()).map_err(|e| e.to_string())));
+                    }
                     C::PlayOpen(index) => {
                         self.play_at = now;
                         self.play_open = if self.play_open == Some(index) { None } else { Some(index) };
@@ -2271,6 +2315,13 @@ impl Main {
                     None => tasks.push(self.scrape_task(at)),
                 }
                 Task::batch(tasks)
+            }
+            Message::Nudged => Task::none(),
+            Message::Worn(result) => {
+                if let Err(why) = result {
+                    self.announce(notices::Mark::Bad, self.words.t("title-not-worn"), String::new(), why, String::new(), notices::Link::None);
+                }
+                self.community_task(true)
             }
             Message::CardShared(_) => Task::none(),
             Message::ClipFetched(link, probed) => {
@@ -2470,6 +2521,29 @@ impl Main {
                 self.fetching = Some(Fetching { hash: hash.clone(), reached: Vec::new() });
                 maps::fetch(hash, songs).map(Message::Fetched)
             }
+            Message::PickMap => Task::perform(
+                async {
+                    let picked = rfd::AsyncFileDialog::new().add_filter("osu!", &["osz", "osu", "zip"]).pick_file().await?;
+                    Some(picked.path().to_path_buf())
+                },
+                Message::MapPicked,
+            ),
+            Message::MapPicked(None) => Task::none(),
+            Message::MapPicked(Some(picked)) => {
+                let Some(entry) = self.chosen_entry() else {
+                    return Task::none();
+                };
+                let hash = entry.map_hash.clone();
+                let live: Vec<&crate::sources::Source> = self.settings.sources.iter().filter(|s| s.on).collect();
+                let songs = live
+                    .iter()
+                    .find(|s| s.kind == Kind::Own)
+                    .or_else(|| live.iter().find(|s| s.kind == Kind::Folder))
+                    .and_then(|s| s.songs.clone())
+                    .unwrap_or_else(|| crate::sources::own_root().join("Songs"));
+                self.fetching = Some(Fetching { hash: hash.clone(), reached: vec![maps::Step::Checking] });
+                ui::in_thread(move || Message::Fetched(maps::import(&picked, &songs, &hash)))
+            }
             Message::StopFetch => {
                 maps::stop();
                 Task::none()
@@ -2515,6 +2589,7 @@ impl Main {
                 }
                 let failed = match &step {
                     maps::Step::Nowhere => Some(self.words.t("not-on-any-mirror")),
+                    maps::Step::Failed(why) if why == maps::NOT_THIS_MAP => Some(self.words.t("not-this-map")),
                     maps::Step::Failed(why) => Some(why.clone()),
                     _ => None,
                 };
@@ -3442,8 +3517,8 @@ impl Main {
         use maps::Step as S;
         let w = &self.words;
         match fetching.last() {
-            Some(S::Nowhere) => ui::quiet(w.t("not-found"), Some(Message::GetMap)),
-            Some(S::Failed(_)) | Some(S::Stopped) => ui::quiet(w.t("once-more"), Some(Message::GetMap)),
+            Some(S::Nowhere) => row![ui::quiet(w.t("not-found"), Some(Message::GetMap)), ui::quiet(w.t("pick-map"), Some(Message::PickMap))].spacing(4).align_y(iced::Center).into(),
+            Some(S::Failed(_)) | Some(S::Stopped) => row![ui::quiet(w.t("once-more"), Some(Message::GetMap)), ui::quiet(w.t("pick-map"), Some(Message::PickMap))].spacing(4).align_y(iced::Center).into(),
             step => {
                 let label = match step {
                     None | Some(S::Looking) => w.t("looking"),
@@ -5009,6 +5084,12 @@ impl Main {
                 self.refreshed_at = Instant::now();
                 read_library(self.settings.sources.clone(), Message::Refreshed)
             }
+            P::AutoFlip(on) => {
+                self.remember_mark("auto-flip", on);
+                self.settings.auto_flip = on;
+                keep(&self.settings);
+                Task::none()
+            }
             P::ScaleDone => {
                 let Some(chosen) = self.scale_draft.take() else {
                     return Task::none();
@@ -5997,6 +6078,8 @@ const PICTURE_RADIUS: f32 = 10.0;
 const REFRESH_AT_MOST: Duration = Duration::from_secs(20);
 const STRIP_MARGIN: f32 = 0.75;
 const FLIP: Duration = Duration::from_millis(320);
+const AUTO_EVERY: Duration = Duration::from_secs(20);
+const AUTO_IDLE: Duration = Duration::from_secs(12);
 const COVERS_AT_ONCE: usize = 240;
 
 const FRAME_GAP: f32 = 6.0;

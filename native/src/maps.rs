@@ -328,6 +328,55 @@ fn difficulty_in(folder: &Path, hash: &str) -> Option<Map> {
     None
 }
 
+pub const NOT_THIS_MAP: &str = "not this map";
+
+fn copy_all(from: &Path, to: &Path) -> std::io::Result<()> {
+    if from.is_dir() {
+        std::fs::create_dir_all(to)?;
+        for entry in std::fs::read_dir(from)? {
+            let entry = entry?;
+            copy_all(&entry.path(), &to.join(entry.file_name()))?;
+        }
+        Ok(())
+    } else {
+        std::fs::copy(from, to).map(|_| ())
+    }
+}
+
+pub fn import(from: &Path, songs: &Path, hash: &str) -> Step {
+    let kind = from.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();
+    let (source, name) = match kind.as_str() {
+        "osz" | "zip" => (from.to_path_buf(), from.file_stem().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()),
+        "osu" => match from.parent() {
+            Some(dir) => (dir.to_path_buf(), dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()),
+            None => return Step::Failed("no folder around the map".to_owned()),
+        },
+        _ if from.is_dir() => (from.to_path_buf(), from.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()),
+        _ => return Step::Failed(NOT_THIS_MAP.to_owned()),
+    };
+    let folder = free_folder(songs, &tidy(if name.is_empty() { hash } else { &name }));
+    let placed = if source.is_dir() { copy_all(&source, &folder).map_err(|e| e.to_string()) } else { unpack(&source, &folder).map(|_| ()) };
+    if let Err(why) = placed {
+        let _ = std::fs::remove_dir_all(&folder);
+        return Step::Failed(why);
+    }
+    let found = std::fs::read_dir(&folder)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().is_some_and(|e| e.eq_ignore_ascii_case("osu")))
+        .filter_map(|path| crate::library::describe(&path))
+        .find(|(found, _)| found == hash);
+    match found {
+        Some((_, map)) => Step::Done(map),
+        None => {
+            let _ = std::fs::remove_dir_all(&folder);
+            Step::Failed(NOT_THIS_MAP.to_owned())
+        }
+    }
+}
+
 pub fn fetch(hash: String, songs: PathBuf) -> iced::Task<Step> {
     crate::ui::streamed(move |push| {
         STOP.store(false, Ordering::SeqCst);
@@ -409,6 +458,30 @@ pub fn bring(hash: &str, songs: &Path, report: &mut dyn FnMut(Step) -> bool) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_map_from_the_players_own_disk_is_taken_in_only_if_it_is_the_one() {
+        let root = std::env::temp_dir().join(format!("dossier-import-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let elsewhere = root.join("elsewhere").join("1 - a - b");
+        std::fs::create_dir_all(&elsewhere).unwrap();
+        let text = "osu file format v14\n\n[Metadata]\nTitle:Blue Zenith\nArtist:xi\nVersion:FOUR DIMENSIONS\n";
+        std::fs::write(elsewhere.join("map.osu"), text).unwrap();
+        std::fs::write(elsewhere.join("audio.mp3"), b"sound").unwrap();
+        let hash = crate::library::md5_hex(text.as_bytes());
+        let songs = root.join("Songs");
+        match import(&elsewhere.join("map.osu"), &songs, &hash) {
+            Step::Done(map) => {
+                assert_eq!(map.title, "Blue Zenith");
+                assert!(map.file.starts_with(&songs));
+                assert!(map.file.parent().unwrap().join("audio.mp3").is_file());
+            }
+            other => panic!("{other:?}"),
+        }
+        assert!(matches!(import(&elsewhere.join("map.osu"), &songs, "0123"), Step::Failed(why) if why == NOT_THIS_MAP));
+        assert_eq!(std::fs::read_dir(&songs).unwrap().count(), 1, "a wrong map leaves nothing behind");
+        let _ = std::fs::remove_dir_all(&root);
+    }
 
     #[test]
     fn a_mirror_s_answer_names_the_set_and_the_song() {

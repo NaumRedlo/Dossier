@@ -105,6 +105,7 @@ pub enum Message {
     Span(u32),
     GradeHover(Option<usize>),
     TitlePick(String),
+    Wear(Option<String>),
     PlayOpen(usize),
     PlayClip(Option<String>, String),
 }
@@ -1233,11 +1234,15 @@ fn title_card<'a>(ground: &Ground<'a>, title: &Title) -> Element<'a, Message> {
     let colour = if holders.is_empty() { FAINT } else { title.rarity.colour() };
     let name = if known { title.name(w.lang()).to_owned() } else { "???".to_owned() };
     let about = if known { title.about(w.lang()).to_owned() } else { w.t("secret-title") };
+    let mut foot = row![faces(ground, &holders), ui::grow()].align_y(iced::Center);
+    if let Some(you) = ground.catalog.people.iter().find(|p| p.you) {
+        foot = foot.push(crate::dossier::wear_button(ground, you, title));
+    }
     container(
         column![
             text(name).font(theme::SANS_SEMI).size(15.0).wrapping(text::Wrapping::None).color(ui::faded(colour)),
             text(about).font(theme::SANS).size(12.0).color(ui::faded(MUTED)),
-            faces(ground, &holders),
+            foot,
         ]
         .spacing(7),
     )

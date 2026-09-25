@@ -203,6 +203,7 @@ device-tile = Устройство
 scene-tile = Сцена
 live-replay = Живой реплей
 pause-unfocused = Пауза без фокуса
+auto-flip = Листать журнал самому
 sources = Источники
 add-folder = Добавить папку…
 exported-only = Только экспортированные реплеи
@@ -559,3 +560,8 @@ new-replays = { $n ->
     [few] новых реплея
    *[other] новых реплеев
 }
+wear-title = Надеть
+take-off-title = Снять
+title-not-worn = Титул не сменился
+pick-map = Указать карту…
+not-this-map = Это другая карта — реплей сыгран не на ней

@@ -199,6 +199,7 @@ device-tile = Device
 scene-tile = Scene
 live-replay = Live replay
 pause-unfocused = Pause when away
+auto-flip = Leaf through the journal
 sources = Sources
 add-folder = Add a folder…
 exported-only = Only exported replays
@@ -538,3 +539,8 @@ new-replays = { $n ->
     [one] new replay
    *[other] new replays
 }
+wear-title = Wear
+take-off-title = Take off
+title-not-worn = The title did not change
+pick-map = Choose the map…
+not-this-map = That is another map — the replay was not played on it

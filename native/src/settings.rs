@@ -43,6 +43,8 @@ pub struct Settings {
     pub live_scene: bool,
     #[serde(default = "yes")]
     pub pause_unfocused: bool,
+    #[serde(default = "yes")]
+    pub auto_flip: bool,
     #[serde(default = "default_height")]
     pub render_height: u32,
     #[serde(default = "default_fps")]
@@ -797,6 +799,7 @@ impl Default for Settings {
             menu_tab: String::new(),
             live_scene: true,
             pause_unfocused: true,
+            auto_flip: true,
             render_height: 1080,
             render_fps: 60,
             render_crf: 20,

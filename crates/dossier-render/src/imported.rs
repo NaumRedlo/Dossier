@@ -524,7 +524,7 @@ mod tests {
 
     #[test]
     fn a_prefix_that_names_a_subfolder_is_found() {
-        let dir = std::env::temp_dir().join(format!("dossier-skin-nested-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("dossier-skin-prefixed-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(dir.join("num")).expect("a skin folder");
         fs::write(dir.join("skin.ini"), "[Fonts]\nScorePrefix: num\\berlin\n").expect("an ini");

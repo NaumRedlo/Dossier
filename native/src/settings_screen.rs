@@ -656,10 +656,20 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
                     };
                     (format!("{} · {when}", release.version), INK)
                 }
-                U::Failed { why, .. } => (format!("{} · {why}", w.t("update-failed")), ACCENT),
+                U::Failed { why, .. } => {
+                    let said = match why.as_str() {
+                        crate::updates::FROM_SOURCE => w.t("update-source"),
+                        crate::updates::MOVED => w.t("update-moved"),
+                        crate::updates::QUARANTINED => w.t("update-quarantined"),
+                        crate::updates::DAMAGED => w.t("update-damaged"),
+                        crate::updates::EMPTY => w.t("update-empty"),
+                        other => other.to_owned(),
+                    };
+                    (format!("{} · {said}", w.t("update-failed")), ACCENT)
+                }
                 U::Source => (w.t("update-source"), FAINT),
             };
-            let said = text(ui::shortened(said, 52)).font(theme::SANS).size(11.0).wrapping(text::Wrapping::None).color(ui::faded(colour));
+            let said = text(said).font(theme::SANS).size(11.0).width(Length::Fixed(300.0)).color(ui::faded(colour));
             let mut deeds = row![].spacing(6);
             match ground.update {
                 U::Found(_) | U::Failed { release: Some(_), .. } | U::Ready { .. } => deeds = deeds.push(deed(w.t("update-now"), Message::Update, false)),

@@ -38,7 +38,15 @@ pub enum Place {
     Bundle(PathBuf),
     Binary(PathBuf),
     Source,
+    Moved,
+    Quarantined,
 }
+
+pub const FROM_SOURCE: &str = "from source";
+pub const MOVED: &str = "moved";
+pub const QUARANTINED: &str = "quarantined";
+pub const DAMAGED: &str = "damaged";
+pub const EMPTY: &str = "empty";
 
 #[derive(Debug, Clone)]
 pub enum Step {
@@ -165,14 +173,29 @@ pub fn check() -> Result<Option<Release>, String> {
 }
 
 pub fn place() -> Place {
-    match std::env::current_exe().and_then(|exe| exe.canonicalize()) {
-        Ok(exe) => place_of(&exe),
-        Err(_) => Place::Source,
+    let Ok(exe) = std::env::current_exe() else {
+        return Place::Moved;
+    };
+    match exe.canonicalize() {
+        Ok(real) => place_of(&real),
+        Err(_) => Place::Moved,
+    }
+}
+
+fn refusal(place: &Place) -> Option<&'static str> {
+    match place {
+        Place::Source => Some(FROM_SOURCE),
+        Place::Moved => Some(MOVED),
+        Place::Quarantined => Some(QUARANTINED),
+        Place::Bundle(_) | Place::Binary(_) => None,
     }
 }
 
 pub fn place_of(exe: &Path) -> Place {
     let names: Vec<String> = exe.components().map(|part| part.as_os_str().to_string_lossy().into_owned()).collect();
+    if names.iter().any(|name| name == "AppTranslocation") {
+        return Place::Quarantined;
+    }
     if let Some(at) = names.iter().position(|name| name == "target") {
         if names[at + 1..].iter().any(|name| name == "release" || name == "debug") {
             return Place::Source;
@@ -292,8 +315,8 @@ pub fn fetch(release: &Release, place: &Place, report: &mut dyn FnMut(Step) -> b
 }
 
 fn stage(shelf: &Path, release: &Release, place: &Place, report: &mut dyn FnMut(Step) -> bool) -> Result<Staged, String> {
-    if *place == Place::Source {
-        return Err("a build from the source is updated with git".to_owned());
+    if let Some(why) = refusal(place) {
+        return Err(why.to_owned());
     }
     let dir = shelf.join(&release.version);
     let unpacked = dir.join("unpacked");
@@ -310,12 +333,12 @@ fn stage(shelf: &Path, release: &Release, place: &Place, report: &mut dyn FnMut(
     let got = download(&client, release, &archive, report)?;
     if got != expected {
         let _ = std::fs::remove_dir_all(&dir);
-        return Err("the archive does not match its checksum".to_owned());
+        return Err(DAMAGED.to_owned());
     }
     report(Step::Unpacking);
     unpack(&archive, &unpacked)?;
     let _ = std::fs::remove_file(&archive);
-    let payload = payload_in(&unpacked, place).ok_or("the archive holds no application")?;
+    let payload = payload_in(&unpacked, place).ok_or(EMPTY)?;
     runnable(&payload);
     std::fs::write(dir.join("ready"), &release.version).map_err(|e| e.to_string())?;
     Ok(Staged { version: release.version.clone(), payload, dir })
@@ -363,7 +386,7 @@ pub fn apply(staged: &Staged, place: &Place) -> Result<PathBuf, String> {
     let target = match place {
         Place::Bundle(app) => app.clone(),
         Place::Binary(exe) => exe.clone(),
-        Place::Source => return Err("a build from the source is updated with git".to_owned()),
+        other => return Err(refusal(other).unwrap_or(FROM_SOURCE).to_owned()),
     };
     let aside = aside_for(&target);
     std::fs::rename(&target, &aside).map_err(|e| format!("{}: {e}", target.display()))?;
@@ -439,7 +462,7 @@ fn staged_newer(place: &Place) -> Option<Staged> {
 
 pub fn on_launch(quiet: bool) -> bool {
     let place = place();
-    if place == Place::Source {
+    if refusal(&place).is_some() {
         return false;
     }
     tidy(&place);
@@ -527,6 +550,7 @@ mod tests {
         assert_eq!(place_of(Path::new("/home/n/apps/dossier/dossier")), Place::Binary(PathBuf::from("/home/n/apps/dossier/dossier")));
         assert_eq!(place_of(Path::new("/home/n/Dossier/native/target/release/dossier")), Place::Source);
         assert_eq!(place_of(Path::new("/home/n/Dossier/native/target/x86_64-apple-darwin/debug/dossier")), Place::Source);
+        assert_eq!(place_of(Path::new("/private/var/folders/x/T/AppTranslocation/0A1B/d/Dossier.app/Contents/MacOS/dossier")), Place::Quarantined);
     }
 
     #[test]
@@ -621,6 +645,18 @@ mod tests {
             assert!(!staged.dir.exists(), "the staged copy is gone");
         }
         let _ = std::fs::remove_dir_all(&shelf);
+    }
+
+    #[test]
+    fn an_update_that_cannot_happen_here_says_why_before_downloading_anything() {
+        let release = Release { version: "9.9.9".into(), pre: false, page: String::new(), archive: String::new(), url: "http://127.0.0.1:9/".into(), size: 0, sums: String::new() };
+        let shelf = std::env::temp_dir().join(format!("dossier-refused-{}", std::process::id()));
+        for (place, why) in [(Place::Source, FROM_SOURCE), (Place::Moved, MOVED), (Place::Quarantined, QUARANTINED)] {
+            assert_eq!(stage(&shelf, &release, &place, &mut |_| true), Err(why.to_owned()));
+            let staged = Staged { version: "9.9.9".into(), payload: shelf.clone(), dir: shelf.clone() };
+            assert_eq!(apply(&staged, &place), Err(why.to_owned()));
+        }
+        assert!(!shelf.exists());
     }
 
     #[test]

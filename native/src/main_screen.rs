@@ -704,7 +704,7 @@ impl Main {
                 self.announce(notices::Mark::Done, self.words.t("updated"), format!("{before} → {build}"), String::new(), String::new(), notices::Link::Page(page));
             }
         }
-        if crate::updates::place() == crate::updates::Place::Source {
+        if matches!(crate::updates::place(), crate::updates::Place::Source) {
             self.update = UpdateState::Source;
             return version;
         }

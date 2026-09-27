@@ -4,6 +4,7 @@ use iced::widget::{button, column, container, image, row, scrollable, stack, tex
 use iced::{Background, Border, Color, Element, Length, Padding, Shadow, Theme};
 
 use crate::community::{Board, Catalog, Friend, Friends, Person, Rarity, Title};
+use crate::glyphs::{glyph, Icon};
 use crate::lang::Words;
 use crate::news::{self, News};
 use crate::theme::{self, ACCENT, FAINT, INK, MUTED};
@@ -96,6 +97,7 @@ pub enum Message {
     Source(crate::chronicle::Source),
     Stream(crate::chronicle::Stream),
     Search(String),
+    PeopleSearch(String),
     Toggle(String),
     Spot(usize),
     SpotHold(bool),
@@ -125,10 +127,11 @@ pub struct Ground<'a> {
     pub channels: &'a [String],
     pub channel_draft: &'a str,
     pub live_shown: usize,
-    pub fresh_t: f32,
+    pub arrivals: HashMap<String, f32>,
     pub reading: Option<&'a Reading>,
     pub read_k: f32,
     pub people_from: PeopleFrom,
+    pub people_query: &'a str,
     pub standing: Standing,
     pub person_k: f32,
     pub person_card: Option<&'a crate::community::wire::Card>,
@@ -147,13 +150,13 @@ pub struct Ground<'a> {
     pub open_events: &'a std::collections::HashSet<String>,
     pub folds: HashMap<String, f32>,
     pub panel_from: Option<iced::Rectangle>,
-    pub seen: i64,
     pub spot: usize,
     pub spot_k: f32,
     pub rank: usize,
     pub rank_k: f32,
     pub section_t: f32,
     pub shift_t: f32,
+    pub stream_t: f32,
     pub person_t: f32,
     pub play_t: f32,
     pub group_t: f32,
@@ -188,9 +191,6 @@ pub fn view<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
     };
     let page = column![container(head).padding(Padding { top: 10.0, right: 0.0, bottom: 4.0, left: 0.0 }), body].width(Length::Fill).height(Length::Fill);
     let mut layers: Vec<Element<'a, Message>> = vec![page.into()];
-    if let Some(at) = ground.person.filter(|at| *at < ground.catalog.people.len() && ground.person_k > 0.001) {
-        layers.push(profile_panel(ground, at));
-    }
     if let Some(reading) = ground.reading.filter(|_| ground.read_k > 0.001) {
         layers.push(reader(ground, reading));
     }
@@ -214,11 +214,9 @@ fn group_note<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
         Fetch::Fresh(at) => (format!("{} {}", w.t("news-updated"), w.clock(at)), FAINT, true),
         Fetch::Failed => (w.t("news-failed"), ACCENT, true),
     };
-    let said = parts.join(" · ");
-    let note: Element<'a, Message> = match tail.is_empty() {
-        true => ui::mono_small(said, FAINT),
-        false => row![ui::mono_small(said + " · ", FAINT), ui::mono_small(tail, colour)].align_y(iced::Center).into(),
-    };
+    let mut note = iced::widget::Row::with_children(parts.into_iter().map(|part| ui::mono_small(part, FAINT))).spacing(14).align_y(iced::Center);
+    if !tail.is_empty() { note = note.push(ui::mono_small(tail, colour)); }
+    let note: Element<'a, Message> = note.into();
     if again {
         button(note).padding(0).style(ui::button_faded(theme::bare)).on_press(Message::Again).into()
     } else {
@@ -369,7 +367,20 @@ pub(crate) fn flag<'a>(ground: &Ground<'a>, code: &str, high: f32) -> Element<'a
     let code = code.trim();
     let wide = (high * 36.0 / 26.0).round();
     if let Some(handle) = ground.flags.get(&code.to_ascii_lowercase()) {
-        return iced::widget::svg(handle.clone()).width(wide).height(high).opacity(ui::fade()).into();
+        let picture = iced::widget::svg(handle.clone()).width(wide).height(high).opacity(ui::fade());
+        let k = ui::fade();
+        return container(picture)
+            .width(wide)
+            .height(high)
+            .clip(true)
+            .style(move |_| container::Style {
+                border: Border { radius: (high * 0.2).into(), ..Border::default() },
+                text_color: None,
+                background: None,
+                shadow: Default::default(),
+                snap: k > 0.0,
+            })
+            .into();
     }
     if code.chars().count() != 2 {
         return Space::new().width(0.0).height(0.0).into();
@@ -432,10 +443,7 @@ pub(crate) fn source_state<'a>(ground: &Ground<'a>, source: &str) -> Element<'a,
     if ground.failed.contains(source) {
         return quiet(w.t("news-failed"), ACCENT);
     }
-    match ground.news.fetched_at(source) {
-        Some(at) => quiet(format!("{} {}", w.t("news-updated"), w.clock(at)), FAINT),
-        None => Space::new().width(0.0).into(),
-    }
+    Space::new().width(0.0).into()
 }
 
 pub(crate) fn empty<'a>(words: String) -> Element<'a, Message> {
@@ -478,21 +486,11 @@ pub(crate) fn line_of(ground: &Ground<'_>, map: usize) -> String {
     ground.catalog.maps.get(map).map(|map| map.line.clone()).unwrap_or_default()
 }
 
-pub(crate) fn chip<'a>(inside: Element<'a, Message>, colour: Color) -> Element<'a, Message> {
-    let k = ui::fade();
-    container(inside)
-        .padding([3, 8])
-        .style(move |_| container::Style {
-            background: Some(Background::Color(Color { a: 0.12 * k, ..colour })),
-            border: Border { color: Color { a: 0.28 * k, ..colour }, width: 1.0, radius: 7.0.into() },
-            ..container::Style::default()
-        })
-        .into()
-}
-
 pub(crate) fn title_chip<'a>(title: &Title, lang: crate::lang::Lang) -> Element<'a, Message> {
     let colour = title.rarity.colour();
-    chip(text(title.name(lang).to_owned()).font(theme::SANS_SEMI).size(11.0).wrapping(text::Wrapping::None).color(ui::faded(colour)).into(), colour)
+    container(text(title.name(lang).to_owned()).font(theme::SANS_SEMI).size(12.5).color(ui::faded(colour)))
+        .padding([2, 0])
+        .into()
 }
 
 pub(crate) fn people_switch<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
@@ -514,29 +512,48 @@ pub(crate) fn friend_line<'a>(ground: &Ground<'a>, friend: &Friend) -> Element<'
         border: Border { radius: 4.0.into(), ..Border::default() },
         ..container::Style::default()
     });
-    let inside = row![
-        stack![friend_face(ground, friend, 26.0), container(dot).width(26.0).height(26.0).align_x(iced::alignment::Horizontal::Right).align_y(iced::alignment::Vertical::Bottom)],
+    let member = friend_person(ground.catalog, &friend.name);
+    let status = ago(w, friend.minutes_away(ground.now_unix));
+    let status = if !friend.online && friend.seen.is_some() { w.with("last-seen", &[("when", status)]) } else { status };
+    let head = row![
+        stack![friend_face(ground, friend, 48.0), container(dot).width(48.0).height(48.0).align_x(iced::alignment::Horizontal::Right).align_y(iced::alignment::Vertical::Bottom)],
         column![
             row![
-                text(friend.name.clone()).font(theme::SANS_SEMI).size(theme::CAPTION + 1.0).wrapping(text::Wrapping::None).color(ui::faded(INK)),
-                flag(ground, &friend.country, 11.0),
+                text(friend.name.clone()).font(theme::SANS_SEMI).size(17.0).wrapping(text::Wrapping::None).color(ui::faded(INK)),
             ]
             .spacing(7)
             .align_y(iced::Center),
-            ui::mono_small(ago(w, friend.minutes_away(ground.now_unix)), if friend.online { theme::HIT_100 } else { FAINT }),
+            row![flag(ground, &friend.country, 13.0), ui::mono_small(friend.country.to_ascii_uppercase(), MUTED), ui::mono_small(status, if friend.online { theme::HIT_100 } else { FAINT })].spacing(7).align_y(iced::Center),
         ]
-        .spacing(1)
+        .spacing(5)
         .width(Length::Fill),
-        column![ui::mono(pp_of(w, friend.pp), INK), ui::mono_small(rank_of(w, friend.rank), FAINT)].spacing(1).align_x(iced::alignment::Horizontal::Right),
     ]
-    .spacing(10)
+    .spacing(12)
     .align_y(iced::Center);
-    button(container(inside).padding([4, 6]))
+    let stat = |label: String, value: String| container(column![
+        ui::mono_small(label, FAINT), text(value).font(theme::SANS_SEMI).size(21.0).color(ui::faded(INK)),
+    ].spacing(5)).width(Length::FillPortion(1)).padding([10, 12]).style(ui::box_faded(theme::slab));
+    let facts = row![stat(w.t("board-short-pp"), w.lang().group(u64::from(friend.pp))), stat(w.t("metric-world"), rank_of(w, friend.rank))].spacing(8);
+    let (label, press) = match member {
+        Some(at) => (w.t("people-open-dossier"), Message::Person(Some(at))),
+        None => (w.t("open-osu"), Message::Open(format!("https://osu.ppy.sh/users/{}", friend.name))),
+    };
+    let foot = row![ui::grow(), ui::mono_small(label, MUTED), glyph(if member.is_some() { Icon::Chart } else { Icon::External }, 12.0, MUTED)].spacing(6).align_y(iced::Center);
+    ui::hover(button(container(column![head, facts, foot].spacing(14)).padding(16).style(ui::box_faded(theme::slab)))
         .padding(0)
         .width(Length::Fill)
-        .style(ui::button_faded(theme::row(false)))
-        .on_press(Message::Open(format!("https://osu.ppy.sh/users/{}", friend.name)))
+        .style(ui::button_faded(ui::calm(theme::row(false))))
+        .on_press(press), ui::Glow::tile(12.0).lift(2.0))
         .into()
+}
+
+fn friend_person(catalog: &Catalog, name: &str) -> Option<usize> {
+    let name = name.trim().to_lowercase();
+    catalog.people.iter().position(|person| person.name.trim().to_lowercase() == name)
+}
+
+fn people_match(name: &str, query: &str) -> bool {
+    name.to_lowercase().contains(&query.trim().to_lowercase())
 }
 
 pub(crate) fn friends_said<'a>(ground: &Ground<'a>) -> Option<Element<'a, Message>> {
@@ -669,7 +686,7 @@ fn reader<'a>(ground: &Ground<'a>, reading: &'a Reading) -> Element<'a, Message>
                     body.push(rich(&[news::Span::plain(&story.lead)], INK, theme::BODY));
                 }
                 body.extend(blocks(&story.body, story.image.as_deref(), theme::BODY, &picture));
-                (w.t("panel-news"), story.title.clone(), w.day(story.at, ground.now_unix) + " · " + &w.clock(story.at), body)
+                (w.t("panel-news"), story.title.clone(), w.day(story.at, ground.now_unix) + "  " + &w.clock(story.at), body)
             }
             Reading::Post(post) => {
                 let post = ground.news.posts.iter().find(|fresh| fresh.url == post.url).unwrap_or(post);
@@ -688,7 +705,7 @@ fn reader<'a>(ground: &Ground<'a>, reading: &'a Reading) -> Element<'a, Message>
                     body.push(rich(&[news::Span::plain(&post.text)], INK, theme::LEAD));
                 }
                 body.extend(blocks(&post.body, None, theme::LEAD, &picture));
-                (format!("@{}", post.channel), post.name.clone(), w.day(post.at, ground.now_unix) + " · " + &w.clock(post.at), body)
+                (format!("@{}", post.channel), post.name.clone(), w.day(post.at, ground.now_unix) + "  " + &w.clock(post.at), body)
             }
             Reading::Build(build) => {
                 let build = ground.news.builds.iter().find(|fresh| fresh.url == build.url).unwrap_or(build);
@@ -808,31 +825,51 @@ fn person_card<'a>(ground: &Ground<'a>, at: usize, person: &Person, place: usize
 fn people<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
     let w = ground.words;
     let switch = ui::appearing(ui::appear(ground.section_t, 0), 10.0, || people_switch(ground));
+    let total = if ground.people_from == PeopleFrom::Game { ground.catalog.friends.len() } else { ground.catalog.people.len() };
+    let found = if ground.people_from == PeopleFrom::Game {
+        ground.catalog.friends.iter().filter(|friend| people_match(&friend.name, ground.people_query)).count()
+    } else {
+        ground.catalog.people.iter().filter(|person| people_match(&person.name, ground.people_query)).count()
+    };
+    let mut search = row![text_input(&w.t("people-search"), ground.people_query).id(iced::widget::Id::new("community-people-search"))
+        .on_input(Message::PeopleSearch).font(theme::SANS).size(13.0).padding([8, 12]).width(Length::Fill).style(theme::field_faded(ui::fade()))].spacing(8).align_y(iced::Center);
+    if !ground.people_query.is_empty() {
+        search = search.push(button(text(w.t("clear")).font(theme::SANS_SEMI).size(12.0)).padding([8, 10]).style(ui::button_faded(theme::bare)).on_press(Message::PeopleSearch(String::new())));
+    }
+    let controls = column![switch, row![Space::new().width(Length::FillPortion(1)),
+        container(search).id(iced::widget::Id::new("people-search-box")).width(300),
+        container(ui::mono_small(w.of(found as u64, total as u64), FAINT)).width(Length::FillPortion(1)).align_x(iced::alignment::Horizontal::Right)
+    ].spacing(14).align_y(iced::Center)].spacing(12);
+    let no_results = || container(empty(w.t("people-no-results"))).height(160.0).width(Length::Fill).into();
     if ground.people_from == PeopleFrom::Game {
         let body: Element<'a, Message> = match friends_said(ground) {
             Some(said) => container(said).height(160.0).width(Length::Fill).into(),
+            None if found == 0 => no_results(),
             None => grid(
                 ground
                     .catalog
                     .friends
                     .iter()
+                    .filter(|friend| people_match(&friend.name, ground.people_query))
                     .enumerate()
-                    .map(|(at, friend)| ui::appearing(ui::appear(ground.section_t.min(ground.shift_t), at), 10.0, || container(friend_line(ground, friend)).padding([6, 8]).style(ui::box_faded(theme::slab)).into()))
+                    .map(|(at, friend)| ui::appearing(ui::appear(ground.section_t.min(ground.shift_t), at), 10.0, || friend_line(ground, friend)))
                     .collect(),
                 columns_for(ground, 360.0),
                 GRID_GAP,
             ),
         };
-        return spread(column![switch, body].spacing(16).into());
+        return spread(column![controls, body].spacing(16).into());
     }
     if ground.catalog.people.is_empty() {
-        return spread(column![switch, container(empty(w.t("community-no-group"))).height(160.0)].spacing(16).into());
+        return spread(column![controls, container(empty(w.t("community-no-group"))).height(160.0)].spacing(16).into());
     }
+    if found == 0 { return spread(column![controls, no_results()].spacing(16).into()); }
     let order = ground.catalog.ranked(Board::Pp);
     let t = ground.section_t.min(ground.shift_t);
     let across = columns_for(ground, 420.0).max(1);
-    let cards: Vec<Element<'a, Message>> = order.iter().enumerate().map(|(place, at)| ui::appearing(ui::appear(t, place / across), 12.0, || person_card(ground, *at, &ground.catalog.people[*at], place + 1))).collect();
-    spread(column![switch, grid(cards, across, 14.0)].spacing(16).into())
+    let cards: Vec<Element<'a, Message>> = order.iter().enumerate().filter(|(_, at)| people_match(&ground.catalog.people[**at].name, ground.people_query))
+        .enumerate().map(|(shown, (place, at))| ui::appearing(ui::appear(t, shown / across), 12.0, || person_card(ground, *at, &ground.catalog.people[*at], place + 1))).collect();
+    spread(column![controls, grid(cards, across, 14.0)].spacing(16).into())
 }
 
 fn spread<'a>(inside: Element<'a, Message>) -> Element<'a, Message> {
@@ -870,7 +907,8 @@ pub(crate) fn backdrop<'a>(handle: Option<&image::Handle>, high: f32, radius: f3
         border: Border { radius: (radius - 1.0).max(0.0).into(), ..Border::default() },
         ..container::Style::default()
     });
-    let picture = container(image(handle.clone()).content_fit(iced::ContentFit::Cover).width(Length::Fill).height(Length::Fill).border_radius((radius - 2.0).max(0.0)).opacity(k)).padding(2.0).width(Length::Fill).height(high);
+    let picture = image(handle.clone()).content_fit(iced::ContentFit::Cover).width(Length::Fill).height((high - 4.0).max(1.0)).border_radius((radius - 2.0).max(0.0)).opacity(k);
+    let picture = ui::clipped(container(picture).padding(2.0).width(Length::Fill).height(high));
     stack![picture, container(shade).padding(1.0).width(Length::Fill).height(high)].width(Length::Fill).height(high).into()
 }
 
@@ -896,7 +934,6 @@ pub(crate) fn ringed<'a>(ground: &Ground<'a>, person: &Person, side: f32, ring: 
 
 pub(crate) struct Standings {
     pub(crate) order: Vec<(usize, f64)>,
-    pub(crate) out: usize,
 }
 
 pub(crate) fn standings(catalog: &Catalog, board: Board, standing: Standing) -> Standings {
@@ -904,14 +941,12 @@ pub(crate) fn standings(catalog: &Catalog, board: Board, standing: Standing) -> 
     match standing {
         Standing::General => {
             let order: Vec<(usize, f64)> = catalog.ranked(board).into_iter().map(|who| (who, board.value(&catalog.people[who]))).filter(|(_, value)| *value > 0.0).collect();
-            let out = catalog.people.len() - order.len();
-            Standings { order, out }
+            Standings { order }
         }
         Standing::Adaptive => {
             let mut order: Vec<(usize, f64)> = (0..catalog.people.len()).map(|who| (who, catalog.people[who].gained[at])).filter(|(_, gained)| *gained > 0.0).collect();
             order.sort_by(|a, b| b.1.total_cmp(&a.1).then_with(|| board.value(&catalog.people[b.0]).total_cmp(&board.value(&catalog.people[a.0]))));
-            let out = catalog.people.len() - order.len();
-            Standings { order, out }
+            Standings { order }
         }
     }
 }
@@ -1148,15 +1183,10 @@ fn boards<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
         }
         let title = w.t(if adaptive { "board-title-adaptive" } else { "board-title-general" });
         let subtitle = if adaptive { w.with("board-week-span", &[("week", catalog.week.to_string()), ("span", w.week_span(catalog.week_began))]) } else { w.t("board-all-time") };
-        let many = if adaptive { catalog.people.len() } else { list.order.len() };
-        let mut who = w.count("participants", many as u64);
-        if adaptive && list.out > 0 {
-            who = format!("{who} · {}", w.n("board-sat-out", list.out as u64));
-        }
         let head = row![
             column![text(title).font(theme::SANS_SEMI).size(19.0).color(ui::faded(INK)), ui::mono_small(subtitle, MUTED)].spacing(3),
             ui::grow(),
-            column![text(w.t(ground.board.key())).font(theme::SANS_SEMI).size(14.0).color(ui::faded(INK)), ui::mono_small(who, FAINT)].spacing(3).align_x(iced::alignment::Horizontal::Right),
+            text(w.t(ground.board.key())).font(theme::SANS_SEMI).size(14.0).color(ui::faded(INK)),
         ]
         .align_y(iced::Center);
         column![
@@ -1262,16 +1292,10 @@ fn titles<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
         if defs.is_empty() {
             continue;
         }
-        let held = defs.iter().filter(|title| !ground.catalog.holders(&title.code).is_empty()).count();
         let at = shown;
         shown += 1;
         list = list.push(ui::appearing(ui::appear(t, at * 2), 12.0, || {
-            let head = row![
-                text(w.t(rarity.key())).font(theme::SANS_SEMI).size(theme::BODY).color(ui::faded(rarity.colour())),
-                ui::mono_small(format!("{} {}", w.t("unlocked"), w.of(held as u64, defs.len() as u64)), FAINT),
-            ]
-            .spacing(10)
-            .align_y(iced::Center);
+            let head = text(w.t(rarity.key())).font(theme::SANS_SEMI).size(theme::BODY).color(ui::faded(rarity.colour()));
             let cards: Vec<Element<'a, Message>> = defs.iter().map(|title| title_card(ground, title)).collect();
             column![head, grid(cards, columns_for(ground, 360.0), GRID_GAP)].spacing(10).into()
         }));
@@ -1279,23 +1303,32 @@ fn titles<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
     spread(list.into())
 }
 
-fn profile_panel<'a>(ground: &Ground<'a>, at: usize) -> Element<'a, Message> {
+pub(crate) fn profile_panel<'a>(ground: &Ground<'a>, at: usize) -> Element<'a, Message> {
     let w = ground.words;
     let k = ground.person_k;
     let person = &ground.catalog.people[at];
     let wide = (ground.width - STAGE_ROOM.left - STAGE_ROOM.right).clamp(640.0, 1560.0);
     let after = ui::fading(ui::fade() * smooth(0.2, 1.0, k), || -> Element<'a, Message> {
-        let card = ground.person_card.cloned().unwrap_or_else(|| crate::dossier::card_from(person));
-        let whose = crate::dossier::Whose { at, person, card, me: ground.person_dossier };
+        let own_card = if person.you { ground.card.cloned().or_else(|| ground.catalog.card_of()) } else { None };
+        let person = ground.person_dossier.map(|me| &me.person).unwrap_or(person);
+        let card = own_card.or_else(|| ground.person_card.cloned()).unwrap_or_else(|| crate::dossier::card_from(person));
+        let me = ground.person_dossier.or_else(|| if person.you { ground.catalog.me.as_ref() } else { None });
+        let whose = crate::dossier::Whose { at, person, card, me };
         let close = button(container(text("✕").font(theme::SANS_SEMI).size(theme::LEAD).color(ui::faded(MUTED))).width(32.0).height(32.0).center(32.0))
             .padding(0)
             .style(ui::button_faded(theme::bare))
             .on_press(Message::Person(None));
-        let status: Element<'a, Message> = if ground.person_loading { ui::mono_small(w.t("news-loading"), FAINT) } else { Space::new().width(0.0).into() };
-        let head = row![ui::mono_small(w.t("dossier-of").to_uppercase(), FAINT), ui::mono_small(person.name.clone(), MUTED), ui::grow(), status, close].spacing(10).align_y(iced::Center);
-        container(column![head, crate::dossier::columns(ground, &whose, wide - 44.0, ground.person_t)].spacing(10)).padding(Padding { top: 12.0, right: 22.0, bottom: 0.0, left: 22.0 }).width(Length::Fill).height(Length::Fill).into()
+        let status: Element<'a, Message> = if ground.person_loading {
+            let key = if me.is_some() || ground.person_card.is_some() { "dossier-refreshing" } else { "news-loading" };
+            ui::mono_small(w.t(key), FAINT)
+        } else { Space::new().width(0.0).into() };
+        let head = row![ui::mono_small(w.t("dossier-of").to_uppercase(), FAINT), ui::mono_small(person.name.clone(), MUTED), status, ui::grow(), close].spacing(10).align_y(iced::Center);
+        container(column![head, crate::dossier::columns(ground, &whose, wide - 44.0, ground.person_t)].spacing(10)).padding(Padding { top: 12.0, right: 22.0, bottom: 16.0, left: 22.0 }).width(Length::Fill).height(Length::Fill).into()
     });
-    crate::unfold::unfold(after, None, panel_from(ground), k, Message::Person(None)).wide(wide).room(STAGE_ROOM).look(stage_look()).into()
+    let mut look = stage_look();
+    look.veil = Color::TRANSPARENT;
+    look.radius = 20.0;
+    crate::unfold::unfold(after, None, panel_from(ground), k, Message::Person(None)).wide(wide).room(STAGE_ROOM).look(look).into()
 }
 
 #[cfg(test)]
@@ -1308,7 +1341,6 @@ mod tests {
         let adaptive = standings(&catalog, Board::Pp, Standing::Adaptive);
         let names: Vec<&str> = adaptive.order.iter().map(|(who, _)| catalog.people[*who].name.as_str()).collect();
         assert_eq!(names, ["kotofey", "ssnowy", "NaumRedlo", "Mirrorwave", "d1ce", "tarakan_3000"]);
-        assert_eq!(adaptive.out, 2, "those who gained nothing sit out");
         let general = standings(&catalog, Board::Pp, Standing::General);
         assert_eq!(general.order.len(), catalog.people.len());
         assert_eq!(catalog.people[general.order[0].0].name, "kotofey");

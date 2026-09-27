@@ -29,10 +29,10 @@ fn the_brand_and_the_headline_sit_on_the_axis_of_the_card() {
         let mut ui = frame_of("folder-stable", lang);
         let word = bounds(&mut ui, "Dossier");
         let head = if lang == Lang::En { bounds(&mut ui, "Setting up") } else { bounds(&mut ui, "Настройка") };
-        let dot = bounds(&mut ui, "·");
         let count = if lang == Lang::En { bounds(&mut ui, "2 of 4") } else { bounds(&mut ui, "2 из 4") };
         same(middle(head), middle(count), "headline and its count share a middle");
-        same(dot.x - (head.x + head.width), count.x - (dot.x + dot.width), "the dot stands as far from the words as from the count");
+        assert!(ui.find("·").is_err(), "headline uses spacing instead of a separator dot");
+        same(count.x - (head.x + head.width), 8.0, "the count follows the headline with a clear gap");
         let axis = 980.0 / 2.0;
         let headline_span = (head.x, count.x + count.width);
         let headline_centre = (headline_span.0 + headline_span.1) / 2.0;
@@ -65,8 +65,8 @@ fn the_reason_the_path_and_the_ledger_hang_off_one_left_edge() {
     for lang in Lang::ALL {
         let mut ui = frame_of("folder-stable", lang);
         let (why, ledger, path) = match lang {
-            Lang::En => (bounds(&mut ui, "Found on this device!"), bounds(&mut ui, "Language"), bounds(&mut ui, &home)),
-            Lang::Ru => (bounds(&mut ui, "Нашлась на этом устройстве!"), bounds(&mut ui, "Язык"), bounds(&mut ui, &home)),
+            Lang::En => (bounds(&mut ui, "osu! found on this device"), bounds(&mut ui, "Language"), bounds(&mut ui, &home)),
+            Lang::Ru => (bounds(&mut ui, "osu! найдена на этом устройстве"), bounds(&mut ui, "Язык"), bounds(&mut ui, &home)),
         };
         same(ledger.x - why.x, 26.0, "a ledger name sits one glyph and one gap in from the content edge");
         same(path.x - why.x, 12.0, "the path sits one control inset in from the content edge");
@@ -96,7 +96,7 @@ fn the_buttons_of_a_row_share_a_middle() {
         let mut ui = frame_of("folder-stable", lang);
         let (back, add, go) = match lang {
             Lang::En => (bounds(&mut ui, "Back"), bounds(&mut ui, "Add another…"), bounds(&mut ui, "Use this")),
-            Lang::Ru => (bounds(&mut ui, "Назад"), bounds(&mut ui, "Добавить ещё…"), bounds(&mut ui, "Взять эту")),
+            Lang::Ru => (bounds(&mut ui, "Назад"), bounds(&mut ui, "Добавить ещё…"), bounds(&mut ui, "Выбрать")),
         };
         same(middle(back), middle(add), "quiet buttons share a middle");
         same(middle(add), middle(go), "the primary button shares it too");
@@ -109,8 +109,8 @@ fn the_waiting_line_and_the_code_stack_under_the_caption() {
     for lang in Lang::ALL {
         let mut ui = frame_of("bot-waiting", lang);
         let (cap, code, open, waiting) = match lang {
-            Lang::En => (bounds(&mut ui, "Code · 10 minutes"), bounds(&mut ui, "K7QN-M4XZ"), bounds(&mut ui, "Open Telegram"), bounds(&mut ui, "Waiting for Telegram…")),
-            Lang::Ru => (bounds(&mut ui, "Код · 10 минут"), bounds(&mut ui, "K7QN-M4XZ"), bounds(&mut ui, "Открыть Telegram"), bounds(&mut ui, "Жду Telegram…")),
+            Lang::En => (bounds(&mut ui, "Confirmation code"), bounds(&mut ui, "K7QN-M4XZ"), bounds(&mut ui, "Open Telegram"), bounds(&mut ui, "Waiting for confirmation…")),
+            Lang::Ru => (bounds(&mut ui, "Код подтверждения"), bounds(&mut ui, "K7QN-M4XZ"), bounds(&mut ui, "Открыть Telegram"), bounds(&mut ui, "Ожидание подтверждения…")),
         };
         same(cap.x, code.x, "the code starts under its caption");
         assert!((open.x - cap.x - 12.0).abs() < 1.0, "the button label is one inset in: {} against {}", open.x, cap.x);

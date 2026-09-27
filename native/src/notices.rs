@@ -94,6 +94,11 @@ impl Queue {
         self.save();
     }
 
+    pub fn clear(&mut self) {
+        self.notices.clear();
+        self.save();
+    }
+
     pub fn remove(&mut self, id: u64) {
         self.notices.retain(|n| n.id != id);
         self.save();
@@ -123,6 +128,9 @@ mod tests {
         let again = Queue::at(dir.join("notices.json"));
         assert_eq!(again.unseen(), 0);
         assert_eq!(again.notices.len(), KEEP);
+        queue.clear();
+        assert!(queue.notices.is_empty());
+        assert!(Queue::at(dir.join("notices.json")).notices.is_empty());
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

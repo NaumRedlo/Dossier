@@ -184,6 +184,7 @@ impl<Message: Clone> Widget<Message, Theme, Renderer> for Unfold<'_, Message> {
     }
 
     fn mouse_interaction(&self, tree: &Tree, layout: Layout<'_>, cursor: mouse::Cursor, viewport: &Rectangle, renderer: &Renderer) -> mouse::Interaction {
+        if !cursor.is_over(layout.bounds()) { return mouse::Interaction::None; }
         let inner = match (self.settled(), self.children.first(), tree.children.first(), layout.children().next()) {
             (true, Some(child), Some(state), Some(place)) => child.as_widget().mouse_interaction(state, place, cursor, viewport, renderer),
             _ => mouse::Interaction::None,

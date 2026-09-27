@@ -77,7 +77,7 @@ pub fn fetch_into(dir: &std::path::Path, mut report: impl FnMut(Step)) {
                 report(Step::Done(path));
                 return;
             }
-            Err(why) => last = format!("{} · {}", build.from, why),
+            Err(why) => last = format!("{}: {}", build.from, why),
         }
     }
     report(Step::Failed(if last.is_empty() { "no build for this system".to_owned() } else { last }));

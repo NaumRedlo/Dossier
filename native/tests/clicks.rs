@@ -92,7 +92,7 @@ fn the_three_words_and_the_frames_answer_to_clicks() {
 }
 
 #[test]
-fn the_worker_is_a_tile_of_the_application_settings_and_its_switch_answers() {
+fn the_worker_is_a_tile_of_the_bot_settings_and_its_switch_answers() {
     use dossier_native::main_screen::Message as M;
     use dossier_native::settings_screen::{Message as P, Side};
     let staged = main_state("main-worker");
@@ -102,7 +102,9 @@ fn the_worker_is_a_tile_of_the_application_settings_and_its_switch_answers() {
     let messages: Vec<_> = ui.into_messages().collect();
     assert!(messages.iter().any(|m| matches!(m, dossier_native::Message::Main(M::Prefs(P::Worker(false))))), "{messages:?}");
 
-    let mut ui = Simulator::with_size(dossier_native::settings(), iced::Size::new(980.0, 720.0), gallery::main_frame(&staged, &backdrop));
+    let app = main_state("main-prefs");
+    let mut ui = Simulator::with_size(dossier_native::settings(), iced::Size::new(980.0, 720.0), gallery::main_frame(&app, &backdrop));
+    assert!(ui.find("Take work from the bot").is_err());
     let _ = ui.click("Bot").expect("clicked");
     let messages: Vec<_> = ui.into_messages().collect();
     assert!(messages.iter().any(|m| matches!(m, dossier_native::Message::Main(M::Prefs(P::Side(Side::Bot))))), "{messages:?}");

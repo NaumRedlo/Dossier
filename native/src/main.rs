@@ -127,7 +127,7 @@ fn main() -> iced::Result {
     if args.iter().any(|a| a == "--skins") {
         let settings = dossier_native::settings::Settings::load();
         let started = std::time::Instant::now();
-        let found = dossier_native::settings::hunt_skins(&settings.sources, &settings.own_skins);
+        let found = dossier_native::settings::hunt_skins_except(&settings.sources, &settings.own_skins, &settings.removed_skins);
         println!("{} skins, {:.1?}", found.len(), started.elapsed());
         for path in &found {
             let what = if dossier_native::settings::is_skin_file(path) { "osk" } else { "folder" };

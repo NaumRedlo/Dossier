@@ -588,7 +588,7 @@ impl FirstRun {
                 ui::tag(source.kind.tag().to_owned()),
                 ui::mono(source.shown(), INK),
                 ui::grow(),
-                text(counts.join(" · ")).font(theme::SANS).size(theme::CAPTION).color(ui::faded(MUTED)),
+                text(counts.join("  ")).font(theme::SANS).size(theme::CAPTION).color(ui::faded(MUTED)),
                 toggler(source.on).on_toggle(move |on| Message::Switch(index, on)).size(18.0).style(theme::switch),
             ]
             .spacing(12)
@@ -782,7 +782,7 @@ impl FirstRun {
                         let live = self.live_sources();
                         let maps: u64 = live.iter().filter_map(|s| s.maps).sum();
                         let replays: u64 = live.iter().map(|s| s.replay_count).sum();
-                        format!("{} · {}", w.count("maps-label", maps), w.count("replays-label", replays))
+                        format!("{}  {}", w.count("maps-label", maps), w.count("replays-label", replays))
                     }
                     _ => detail.clone(),
                 };
@@ -797,7 +797,7 @@ impl FirstRun {
                                 Some(total) => w.mb_of(*done, *total),
                                 None => w.mb(*done),
                             };
-                            Line::new(Mood::Now, name).detail(format!("{} · {} · {}", w.t("downloading"), size, from))
+                            Line::new(Mood::Now, name).detail(format!("{}  {}  {}", w.t("downloading"), size, from))
                         }
                         Fetch::Going(_) => Line::new(Mood::Now, name).detail(w.t("unpacking")),
                         Fetch::Failed(why) => line

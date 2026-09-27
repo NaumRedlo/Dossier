@@ -98,7 +98,29 @@ pub fn fetch(name: &str) -> Result<Card, String> {
             card.top_scores = scores_from(&json);
         }
     }
+    let previous = load_player(&card.username);
+    let now = chrono::Utc::now().timestamp();
+    card.remember_country_rank(previous.as_ref(), now);
+    save_player(&card);
     Ok(card)
+}
+
+fn player_cache_path(name: &str) -> std::path::PathBuf {
+    use sha2::{Digest, Sha256};
+    let key = Sha256::digest(name.trim().to_lowercase().as_bytes());
+    crate::sources::own_root().join("profiles").join(format!("{key:x}.json"))
+}
+
+pub fn load_player(name: &str) -> Option<Card> {
+    std::fs::read(player_cache_path(name)).ok().and_then(|bytes| serde_json::from_slice(&bytes).ok())
+}
+
+fn save_player(card: &Card) {
+    if let Ok(bytes) = serde_json::to_vec(card) {
+        let path = player_cache_path(&card.username);
+        if let Some(parent) = path.parent() { let _ = std::fs::create_dir_all(parent); }
+        let _ = std::fs::write(path, bytes);
+    }
 }
 
 pub fn cache_path() -> std::path::PathBuf {

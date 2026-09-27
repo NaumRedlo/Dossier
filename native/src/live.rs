@@ -173,8 +173,7 @@ fn run(ask: &Ask, control: &Control, push: &mut dyn FnMut(Frame) -> bool) -> Res
         }
         drawn = Some(now);
         let pixmap = scene.frame(at_ms, &layout);
-        let mut rgba = pixmap.take();
-        dim_rows(&mut rgba, SIZE.0 as usize, SIZE.1 as usize);
+        let rgba = pixmap.take();
         let frame = crate::film::Frame::new(reel, SIZE.0, SIZE.1, rgba);
         if !push(Frame::Picture { frame, at_ms, from_ms, to_ms }) {
             return Ok(());
@@ -212,42 +211,20 @@ pub fn dim_at(t: f32) -> f32 {
     DIM[DIM.len() - 1].1
 }
 
-fn dim_rows(rgba: &mut [u8], width: usize, height: usize) {
-    let ground = [crate::theme::GROUND.r, crate::theme::GROUND.g, crate::theme::GROUND.b].map(|c| c * 255.0);
-    for y in 0..height {
-        let a = dim_at(y as f32 / (height.max(2) - 1) as f32);
-        let keep = ((1.0 - a) * 65536.0).round() as u32;
-        let lift = ground.map(|c| (c * a * 65536.0 + 32768.0) as u32);
-        let row = &mut rgba[y * width * 4..(y + 1) * width * 4];
-        for pixel in row.chunks_exact_mut(4) {
-            pixel[0] = ((u32::from(pixel[0]) * keep + lift[0]) >> 16).min(255) as u8;
-            pixel[1] = ((u32::from(pixel[1]) * keep + lift[1]) >> 16).min(255) as u8;
-            pixel[2] = ((u32::from(pixel[2]) * keep + lift[2]) >> 16).min(255) as u8;
-            pixel[3] = 255;
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn the_dim_follows_its_curve_to_within_a_step() {
-        let (width, height) = (3, 64);
-        let ground = [crate::theme::GROUND.r, crate::theme::GROUND.g, crate::theme::GROUND.b].map(|c| c * 255.0);
-        for shade in [0u8, 1, 17, 128, 200, 254, 255] {
-            let mut rgba = vec![shade; width * height * 4];
-            dim_rows(&mut rgba, width, height);
-            for y in 0..height {
-                let a = dim_at(y as f32 / (height - 1) as f32);
-                for c in 0..3 {
-                    let wanted = f32::from(shade) * (1.0 - a) + ground[c] * a;
-                    let got = f32::from(rgba[y * width * 4 + c]);
-                    assert!((got - wanted).abs() <= 1.0, "row {y}, channel {c}: {got} against {wanted}");
-                }
-                assert_eq!(rgba[y * width * 4 + 3], 255);
-            }
+    fn resting_lowers_the_journal_shade_without_losing_the_bottom_edge() {
+        for curve in [dim_at as fn(f32) -> f32, crate::main_screen::dim_at] {
+            let awake = crate::ui::SceneShade { alpha: 1.0, rest: 0.0, curve };
+            let resting = crate::ui::SceneShade { alpha: 1.0, rest: 1.0, curve };
+            let midway = crate::ui::SceneShade { alpha: 1.0, rest: 0.5, curve };
+            assert!((awake.at(0.7) - curve(0.7)).abs() < 0.001);
+            assert!(resting.at(0.72) < midway.at(0.72) && midway.at(0.72) < awake.at(0.72));
+            assert_eq!(resting.at(1.0), awake.at(1.0));
+            assert_eq!(resting.at(0.0), awake.at(0.0));
         }
     }
 }

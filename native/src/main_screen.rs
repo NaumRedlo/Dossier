@@ -36,7 +36,6 @@ const NEWS_EVERY: Duration = Duration::from_secs(60);
 const FRIENDS_EVERY: Duration = Duration::from_secs(120);
 const CARD_EVERY: Duration = Duration::from_secs(300);
 const COMMUNITY_SCALE: f32 = 0.84;
-const SHARED_FRESH: i64 = 3 * 3600;
 const HOVER_REST: Duration = Duration::from_millis(160);
 pub const LIVE_FADE: Duration = Duration::from_millis(640);
 pub const BRAND_WIDTH: f32 = 144.0;
@@ -48,6 +47,9 @@ const BUBBLE_H: f32 = 88.0;
 const CARET: f32 = 8.0;
 const THUMB: (u32, u32) = (176, 100);
 const SCENE_WIDTH: u32 = 960;
+const REST_AFTER: Duration = Duration::from_secs(120);
+const REST_FADE: Duration = Duration::from_millis(600);
+const REST_BRAND_SCALE: f32 = 1.5;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Overlay {
@@ -59,6 +61,9 @@ pub enum Overlay {
 
 #[derive(Debug, Clone)]
 pub enum Message {
+    UserInput(Option<Box<Message>>),
+    PointerActivity(Point),
+    RestCheck(Instant),
     Community(crate::community_screen::Message),
     NewsBuilds(Result<Vec<crate::news::Build>, String>),
     NewsStories(Result<Vec<crate::news::Story>, String>),
@@ -81,10 +86,11 @@ pub enum Message {
     UpdateIdle,
     NewsTick,
     FeedClock,
-    ClipFetched(String, Result<(PathBuf, i64, u32), String>),
+    ClipFetched(String, Result<(PathBuf, videos::Probe), String>),
     OsuProfile(Result<crate::community::wire::Card, String>),
     PersonCard(String, Result<crate::community::wire::Card, String>),
-    PersonDossier(i64, Result<crate::community::wire::Me, String>),
+    PersonDossier(crate::dossier_cache::Request, Result<crate::community::wire::Me, String>),
+    PersonDossierCached(crate::dossier_cache::Request, Option<crate::dossier_cache::Entry>),
     CardShared(Result<(), String>),
     Worn(Result<(), String>),
     Nudged,
@@ -108,6 +114,7 @@ pub enum Message {
     SkinFace(PathBuf, Option<image::Handle>),
     SkinScene(PathBuf, Option<image::Handle>),
     ShowSkins(bool),
+    SkinDeleted(PathBuf, Result<(), String>),
     ChatFace(i64, Option<image::Handle>),
     Sized(u64, u64, u64),
     Stored(prefs::Storage),
@@ -121,6 +128,7 @@ pub enum Message {
     MenuTab(Tab),
     MenuClose,
     SeenAll,
+    ClearNotices,
     SignIn,
     PairAsked(Result<(String, String), Refused>),
     Poll,
@@ -137,6 +145,7 @@ pub enum Message {
     ToastHover(u64, bool),
     ToastClose(u64),
     OpenVideo(usize),
+    VideoReady(PathBuf, Option<videos::Probe>),
     ClosePlayer,
     PlayerToggle,
     SeekTo(f32),
@@ -156,6 +165,7 @@ pub enum Message {
     Typed(char),
     Search(String),
     RevealVideo,
+    FolderOpened(Result<(), String>),
     AskDelete,
     AskDeleteOf(usize),
     KeepVideo,
@@ -164,6 +174,7 @@ pub enum Message {
     Step(i32),
     Escape,
     Hover(Option<usize>),
+    HoverLeft(usize),
     Over(usize, iced::Rectangle),
     HoverStaged(usize),
     Show(Overlay),
@@ -250,7 +261,24 @@ pub struct Toast {
     pub shown: Animation<bool>,
     pub born: Instant,
     pub hovered: bool,
+    pub paused_at: Option<Instant>,
     pub stays: bool,
+}
+
+impl Toast {
+    fn age(&self, now: Instant) -> Duration {
+        self.paused_at.unwrap_or(now).saturating_duration_since(self.born)
+    }
+
+    fn hover(&mut self, over: bool, now: Instant) {
+        if over == self.hovered { return; }
+        self.hovered = over;
+        if over {
+            self.paused_at = Some(now);
+        } else if let Some(paused) = self.paused_at.take() {
+            self.born += now.saturating_duration_since(paused);
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -336,11 +364,17 @@ pub struct Main {
     pub store: videos::Store,
     pub player: Option<std::rc::Rc<std::cell::RefCell<player::Player>>>,
     pub open_video: Option<usize>,
+    video_request: Option<PathBuf>,
     pub asking_delete: bool,
     pub skin_room: bool,
+    pub skin_delete: Option<PathBuf>,
+    pub skin_deleting: bool,
     pub room_fade: Animation<bool>,
     pub skin_scenes: HashMap<PathBuf, image::Handle>,
     pub cinema: Animation<bool>,
+    pub resting: Animation<bool>,
+    last_input: Instant,
+    input_pointer: Option<Point>,
     pub widened: Animation<bool>,
     pub scrubbing: Option<f32>,
     pub controls: Animation<bool>,
@@ -438,6 +472,7 @@ pub struct Main {
     pub person_fade: Animation<bool>,
     pub people_cards: HashMap<String, crate::community::wire::Card>,
     pub people_dossiers: HashMap<i64, crate::community::Me>,
+    dossier_cache: crate::dossier_cache::Cache,
     people_asked: std::collections::HashSet<String>,
     pub news: crate::news::News,
     news_loaded: bool,
@@ -447,10 +482,11 @@ pub struct Main {
     pub news_failed: std::collections::HashSet<String>,
     pub channel_draft: String,
     pub live_shown: usize,
-    feed_fresh_at: Instant,
+    feed_arrivals: crate::chronicle::Arrivals,
     pub community_reading: Option<crate::community_screen::Reading>,
     pub read_fade: Animation<bool>,
     pub people_from: crate::community_screen::PeopleFrom,
+    pub people_query: String,
     pub community_standing: crate::community_screen::Standing,
     pub community_card: Option<crate::community::wire::Card>,
     pub shown_card: Option<crate::community::wire::Card>,
@@ -465,11 +501,11 @@ pub struct Main {
     feed_fold_at: HashMap<String, Instant>,
     community_tap: Option<iced::Rectangle>,
     panel_from: Option<iced::Rectangle>,
-    pub feed_seen: i64,
     pub spot: usize,
     spot_at: Instant,
     pub(crate) section_at: Instant,
     pub(crate) shift_at: Instant,
+    pub(crate) stream_at: Instant,
     pub(crate) person_at: Instant,
     pub(crate) play_at: Instant,
     pub(crate) group_at: Instant,
@@ -492,6 +528,10 @@ pub struct Main {
     pub community_fetch: crate::community_screen::Fetch,
     community_asked: Option<Instant>,
     friends_asked: Option<Instant>,
+}
+
+fn reveal_path(path: PathBuf) -> Task<Message> {
+    ui::in_thread(move || Message::FolderOpened(crate::desktop::reveal(&path)))
 }
 
 fn unix_now() -> i64 {
@@ -522,11 +562,17 @@ impl Main {
             store: videos::Store::load(),
             player: None,
             open_video: None,
+            video_request: None,
             asking_delete: false,
             skin_room: false,
+            skin_delete: None,
+            skin_deleting: false,
             room_fade: Animation::new(false).duration(CINEMA).easing(Easing::EaseOutCubic),
             skin_scenes: HashMap::new(),
             cinema: Animation::new(false).duration(CINEMA).easing(Easing::EaseOutCubic),
+            resting: Animation::new(false).duration(REST_FADE).easing(Easing::EaseOutCubic),
+            last_input: Instant::now(),
+            input_pointer: None,
             widened: Animation::new(false).duration(WIDEN).easing(Easing::EaseOutCubic),
             scrubbing: None,
             controls: Animation::new(true).duration(CONTROLS_FADE).easing(Easing::EaseOutCubic),
@@ -581,7 +627,7 @@ impl Main {
             looking: None,
             live: None,
             live_before: None,
-            hatch: ui::hatched_picture(live::SIZE.0, live::SIZE.1, live::dim_at),
+            hatch: ui::hatched_picture(live::SIZE.0, live::SIZE.1, |_| 0.0),
             trail: None,
             strip_view: None,
             progress_shown: 0.0,
@@ -624,6 +670,7 @@ impl Main {
             person_fade: Animation::new(false),
             people_cards: HashMap::new(),
             people_dossiers: HashMap::new(),
+            dossier_cache: crate::dossier_cache::Cache::default(),
             people_asked: std::collections::HashSet::new(),
             news: crate::news::News::default(),
             news_loaded: false,
@@ -633,10 +680,11 @@ impl Main {
             news_failed: std::collections::HashSet::new(),
             channel_draft: String::new(),
             live_shown: LIVE_FIRST,
-            feed_fresh_at: Instant::now() - Duration::from_secs(3600),
+            feed_arrivals: crate::chronicle::Arrivals::default(),
             community_reading: None,
             read_fade: Animation::new(false),
             people_from: crate::community_screen::PeopleFrom::Chat,
+            people_query: String::new(),
             community_standing: crate::community_screen::Standing::General,
             community_card: None,
             shown_card: None,
@@ -651,11 +699,11 @@ impl Main {
             feed_fold_at: HashMap::new(),
             community_tap: None,
             panel_from: None,
-            feed_seen: 0,
             spot: 0,
             spot_at: Instant::now() - Duration::from_secs(3600),
             section_at: Instant::now() - Duration::from_secs(3600),
             shift_at: Instant::now() - Duration::from_secs(3600),
+            stream_at: Instant::now() - Duration::from_secs(3600),
             person_at: Instant::now() - Duration::from_secs(3600),
             play_at: Instant::now() - Duration::from_secs(3600),
             group_at: Instant::now() - Duration::from_secs(3600),
@@ -814,6 +862,7 @@ impl Main {
             || self.lifts.values().any(|l| l.is_animating(self.now))
             || self.player.as_ref().is_some_and(|p| !p.borrow().paused)
             || self.cinema.is_animating(self.now)
+            || self.resting.is_animating(self.now)
             || self.cinema.value() != (self.player.is_some() && !self.leaving_player)
             || self.stage_open.is_animating(self.now)
             || self.leaving_player
@@ -834,11 +883,11 @@ impl Main {
             || self.side_fade.is_animating(self.now)
             || self.marks.values().any(|m| m.is_animating(self.now))
             || self.slides_settling()
-            || (self.overlay == Overlay::Community && self.now.saturating_duration_since(self.feed_fresh_at).as_secs_f32() < crate::chronicle::FRESH_GLOW)
+            || (self.overlay == Overlay::Community && self.feed_arrivals.animating(self.now))
             || self.feed_fold_at.values().any(|at| self.now.saturating_duration_since(*at) < FOLD)
             || self.read_fade.is_animating(self.now)
             || self.person_fade.is_animating(self.now)
-            || (self.overlay == Overlay::Community && [self.section_at, self.shift_at, self.person_at, self.play_at, self.group_at, self.news_at].iter().any(|at| self.now.saturating_duration_since(*at).as_secs_f32() < ui::APPEAR_ALL))
+            || (self.overlay == Overlay::Community && [self.section_at, self.shift_at, self.stream_at, self.person_at, self.play_at, self.group_at, self.news_at].iter().any(|at| self.now.saturating_duration_since(*at).as_secs_f32() < ui::APPEAR_ALL))
             || (self.overlay == Overlay::Community && self.now.saturating_duration_since(self.spot_at) < crate::chronicle::SPOT_SWAP)
             || (self.overlay == Overlay::Community && self.now.saturating_duration_since(self.rank_at) < crate::chronicle::RANK_GROW)
             || (self.community_reading.is_some() && !self.read_fade.value())
@@ -851,10 +900,17 @@ impl Main {
 
     pub fn subscription(&self) -> Subscription<Message> {
         let mut parts = vec![iced::event::listen_with(|event, status, _| {
-            if matches!(event, iced::Event::Mouse(_) | iced::Event::Keyboard(_) | iced::Event::Touch(_)) {
+            if let iced::Event::Mouse(iced::mouse::Event::CursorMoved { position }) = event {
+                return Some(Message::PointerActivity(position));
+            }
+            let active = matches!(event,
+                iced::Event::Mouse(iced::mouse::Event::ButtonPressed(_) | iced::mouse::Event::ButtonReleased(_) | iced::mouse::Event::WheelScrolled { .. })
+                | iced::Event::Keyboard(iced::keyboard::Event::KeyPressed { .. } | iced::keyboard::Event::KeyReleased { .. })
+                | iced::Event::Touch(_));
+            if active {
                 crate::updates::touched();
             }
-            match (event, status) {
+            let action = match (event, status) {
             (iced::Event::Window(window::Event::FileDropped(path)), _) => Some(Message::Dropped(path)),
             (iced::Event::Window(window::Event::Resized(size)), _) => Some(Message::Resized(size.width, size.height)),
             (iced::Event::Window(window::Event::Opened { size, .. }), _) => Some(Message::Resized(size.width, size.height)),
@@ -881,8 +937,12 @@ impl Main {
                 }
             }
             _ => None,
-        }
+        };
+            if active { Some(Message::UserInput(action.map(Box::new))) } else { action }
         })];
+        if self.can_rest() != self.resting.value() {
+            parts.push(iced::time::every(Duration::from_secs(1)).map(Message::RestCheck));
+        }
         if !matches!(self.update, UpdateState::Source | UpdateState::Unknown) {
             parts.push(iced::time::every(crate::updates::EVERY).map(|_| Message::UpdateTick));
         }
@@ -907,7 +967,7 @@ impl Main {
         if self.overlay == Overlay::Community {
             parts.push(iced::time::every(NEWS_EVERY).map(|_| Message::NewsTick));
         }
-        if self.overlay == Overlay::Settings && self.side == Side::App && !self.settings.token.is_empty() {
+        if self.overlay == Overlay::Settings && self.side == Side::Bot && !self.settings.token.is_empty() {
             parts.push(iced::time::every(Duration::from_secs(10)).map(|_| Message::FarmTick));
         }
         if self.overlay == Overlay::Community && self.community_section == crate::community_screen::Section::Feed {
@@ -945,10 +1005,10 @@ impl Main {
             if let Some(ms) = self.lengths.get(&entry.path) {
                 parts.push(w.length(*ms));
             }
-            parts.join(" · ")
+            parts.join("  ")
         };
         Shown {
-            date: format!("{} · {} · {}", w.day(entry.played_at, self.now_unix), w.clock(entry.played_at), entry.client.tag()),
+            date: format!("{}  {}  {}", w.day(entry.played_at, self.now_unix), w.clock(entry.played_at), entry.client.tag()),
             player: entry.player.clone(),
             map: entry.map_line().unwrap_or_else(|| w.t("unknown-map")),
             mods: entry.mods.clone(),
@@ -1113,8 +1173,61 @@ impl Main {
         })
     }
 
+    fn can_rest(&self) -> bool {
+        self.library.is_some() && self.overlay == Overlay::None && self.player.is_none()
+            && !self.cinema.value() && !self.cinema.is_animating(self.now)
+            && !self.overlay_fade.is_animating(self.now) && self.turning.is_none()
+            && self.menu.is_none() && !self.menu_open.is_animating(self.now)
+            && !self.skin_room && !self.room_fade.is_animating(self.now) && self.skin_delete.is_none()
+            && !self.asking_delete && !self.ask_fade.is_animating(self.now) && self.error_shown.is_none()
+            && matches!(self.pairing, Pairing::Idle) && self.toasts.is_empty()
+            && !self.rendering.as_ref().is_some_and(|job| !job.is_over())
+            && !self.fetching.as_ref().is_some_and(|job| !job.is_over())
+            && !matches!(self.looking, Some(scan::Step::Looking { .. }))
+    }
+
+    fn wake(&mut self, now: Instant) {
+        self.last_input = now;
+        if self.resting.value() {
+            self.resting.go_mut(false, now);
+        }
+    }
+
+    fn check_rest(&mut self, now: Instant) {
+        if !self.can_rest() {
+            self.wake(now);
+        } else if !self.resting.value() && now.saturating_duration_since(self.last_input) >= REST_AFTER {
+            self.resting.go_mut(true, now);
+            self.hover = None;
+            self.hover_bounds = None;
+            self.hover_since = None;
+            for lift in self.lifts.values_mut() {
+                lift.go_mut(false, now);
+            }
+        }
+    }
+
     pub fn update(&mut self, message: Message) -> Task<Message> {
         match message {
+            Message::PointerActivity(position) => {
+                if self.input_pointer != Some(position) {
+                    self.input_pointer = Some(position);
+                    crate::updates::touched();
+                    self.wake(Instant::now());
+                }
+                Task::none()
+            }
+            Message::UserInput(action) => {
+                let hidden = self.resting.value() || self.resting.interpolate(0.0, 1.0, self.now) > 0.001;
+                let now = Instant::now();
+                self.wake(now);
+                if hidden { Task::none() } else { action.map_or_else(Task::none, |message| self.update(*message)) }
+            }
+            Message::RestCheck(now) => {
+                self.check_rest(now);
+                self.now = now;
+                Task::none()
+            }
             Message::Reading(reading) => {
                 self.reading = Some(reading);
                 Task::none()
@@ -1191,6 +1304,7 @@ impl Main {
                 Task::batch([self.thumbs_task(), self.covers_task(), nudge])
             }
             Message::Loaded(library) => {
+                self.wake(Instant::now());
                 self.reading = None;
                 self.refreshing = false;
                 self.watch_sig = 0;
@@ -1265,6 +1379,8 @@ impl Main {
                     self.error_shown = None;
                 } else if matches!(self.pairing, Pairing::Asking | Pairing::Waiting { .. } | Pairing::Unavailable) {
                     self.pairing = Pairing::Idle;
+                } else if self.skin_delete.is_some() {
+                    return self.prefs(prefs::Message::KeepSkin);
                 } else if self.menu.is_some() {
                     return self.update(Message::MenuClose);
                 } else if self.skin_room {
@@ -1350,6 +1466,14 @@ impl Main {
                 self.notices.see_all();
                 Task::none()
             }
+            Message::ClearNotices => {
+                self.notices.clear();
+                self.leaving.clear();
+                self.arrivals.clear();
+                self.toasts.clear();
+                self.error_shown = None;
+                Task::none()
+            }
             Message::SignIn => {
                 self.menu = None;
                 self.menu_open = Animation::new(false).duration(MENU_OPEN).easing(Easing::EaseOutCubic);
@@ -1385,6 +1509,7 @@ impl Main {
             },
             Message::Polled(Ok(Paired::Linked { token, who })) => {
                 self.settings.token = token;
+                self.sync_dossiers();
                 self.settings.linked_as = who;
                 let _ = self.settings.save();
                 self.pairing = Pairing::Idle;
@@ -1411,6 +1536,8 @@ impl Main {
             }
             Message::SignOut => {
                 self.settings.token.clear();
+                self.dossier_cache.clear();
+                self.people_dossiers.clear();
                 self.settings.linked_as.clear();
                 let _ = self.settings.save();
                 self.account = None;
@@ -1494,15 +1621,21 @@ impl Main {
                 let Some(sending) = &mut self.sending else {
                     return Task::none();
                 };
+                if sending.over.is_some() {
+                    return Task::none();
+                }
                 let path = sending.path.clone();
+                let bytes = sending.total;
                 sending.over = Some(outcome.clone());
+                if outcome.is_ok() {
+                    self.store.mark_sent(&path, unix_now(), bytes);
+                }
                 let video = self.store.videos.iter().find(|v| v.path == path).cloned();
                 let who = self.account.as_ref().map(|a| format!("@{}", a.username)).filter(|u| u.len() > 1).unwrap_or_else(|| self.settings.linked_as.clone());
                 match (outcome, video) {
                     (Ok(_), Some(video)) => {
-                        self.store.mark_sent(&path, unix_now());
                         let detail = format!("{} — {}", video.player, video.map_line());
-                        let note = format!("{} · {}", who, self.words.mb(video.size));
+                        let note = format!("{}  {}", who, self.words.mb(video.size));
                         self.announce(notices::Mark::Done, self.words.t("sent-notice"), detail, note, video.map_hash.clone(), notices::Link::None);
                     }
                     (Err(why), video) => {
@@ -1525,17 +1658,40 @@ impl Main {
                 self.ffmpeg_version = version;
                 Task::none()
             }
-            Message::Skins(found) => {
+            Message::Skins(mut found) => {
+                found.retain(|path| crate::settings::skin_allowed(path, &self.settings.removed_skins, &crate::settings::skins_root()));
+                crate::settings::order_skins(&mut found, &self.settings.skin_order);
                 self.skins = found;
                 self.skin_look()
             }
+            Message::SkinDeleted(folder, result) => {
+                if self.skin_delete.as_ref() != Some(&folder) || !self.skin_deleting { return Task::none(); }
+                self.skin_deleting = false;
+                match result {
+                    Err(why) => {
+                        self.announce(notices::Mark::Bad, self.words.t("skin-delete-failed"), crate::settings::skin_name(&folder), why, String::new(), notices::Link::None);
+                        Task::none()
+                    }
+                    Ok(()) => {
+                        self.skin_delete = None;
+                        self.skins.retain(|path| *path != folder);
+                        self.skin_faces.remove(&folder);
+                        self.skin_scenes.remove(&folder);
+                        let changed = self.settings.forget_skin(&folder);
+                        let _ = self.settings.save();
+                        if changed { self.skin_again() } else { Task::none() }
+                    }
+                }
+            }
             Message::SkinFace(folder, handle) => {
+                if self.settings.removed_skins.contains(&folder) { return Task::none(); }
                 if let Some(handle) = handle {
                     self.skin_faces.insert(folder, handle);
                 }
                 Task::none()
             }
             Message::SkinScene(folder, handle) => {
+                if self.settings.removed_skins.contains(&folder) { return Task::none(); }
                 if let Some(handle) = handle {
                     self.skin_scenes.insert(folder, handle);
                 }
@@ -1596,6 +1752,28 @@ impl Main {
                     let shown = self.update(Message::Show(Overlay::Videos));
                     return shown.chain(self.update(Message::OpenVideo(at)));
                 }
+                let Some(ffmpeg) = self.ffmpeg.clone() else {
+                    return Task::none();
+                };
+                let path = video.path.clone();
+                self.video_request = Some(path.clone());
+                ui::in_thread(move || {
+                    let media = videos::probe(&ffmpeg, &path);
+                    Message::VideoReady(path, media)
+                })
+            }
+            Message::VideoReady(path, media) => {
+                if self.video_request.as_ref() != Some(&path) || self.overlay != Overlay::Videos {
+                    return Task::none();
+                }
+                self.video_request = None;
+                if let Some(media) = media {
+                    self.store.refresh_media(&path, media);
+                }
+                let Some(at) = self.store.videos.iter().position(|v| v.path == path) else {
+                    return Task::none();
+                };
+                let video = &self.store.videos[at];
                 let Some(ffmpeg) = &self.ffmpeg else {
                     return Task::none();
                 };
@@ -1615,7 +1793,7 @@ impl Main {
                     muted: self.settings.player_muted,
                     rate: self.settings.player_rate,
                 };
-                self.player = Some(std::rc::Rc::new(std::cell::RefCell::new(player::Player::open(ffmpeg, &video.path, video.length_ms, video.fps, manner))));
+                self.player = Some(std::rc::Rc::new(std::cell::RefCell::new(player::Player::open(ffmpeg, &video.path, videos::Probe { length_ms: video.length_ms, width: video.width, height: video.height, fps: video.fps }, manner))));
                 self.open_video = Some(at);
                 self.asking_delete = false;
                 self.scrubbing = None;
@@ -1624,6 +1802,7 @@ impl Main {
                 Task::none()
             }
             Message::ClosePlayer => {
+                self.video_request = None;
                 if self.player.is_none() || self.leaving_player {
                     return Task::none();
                 }
@@ -1800,9 +1979,9 @@ impl Main {
             }
             Message::RevealVideo => {
                 if let Some(clip) = &self.clip {
-                    let _ = open::that_detached(clip.path.parent().unwrap_or(Path::new(".")));
+                    return reveal_path(clip.path.clone());
                 } else if let Some(video) = self.open_video.and_then(|at| self.store.videos.get(at)) {
-                    let _ = open::that_detached(video.path.parent().unwrap_or(Path::new(".")));
+                    return reveal_path(video.path.clone());
                 }
                 Task::none()
             }
@@ -1810,6 +1989,12 @@ impl Main {
                 if self.store.videos.get(at).is_some() {
                     self.open_video = Some(at);
                     self.asking_delete = true;
+                }
+                Task::none()
+            }
+            Message::FolderOpened(result) => {
+                if let Err(why) = result {
+                    self.say_trouble(why);
                 }
                 Task::none()
             }
@@ -1843,7 +2028,13 @@ impl Main {
                 Task::none()
             }
             Message::Over(at, bounds) => {
-                self.hover_bounds = Some(bounds);
+                let moved = self.hover_bounds.is_none_or(|before| {
+                    (bounds.x - before.x).abs() >= 0.5 || (bounds.y - before.y).abs() >= 0.5
+                        || (bounds.width - before.width).abs() >= 0.5 || (bounds.height - before.height).abs() >= 0.5
+                });
+                if self.hover != Some(at) || moved {
+                    self.hover_bounds = Some(bounds);
+                }
                 self.update(Message::Hover(Some(at)))
             }
             Message::HoverStaged(at) => {
@@ -1852,6 +2043,9 @@ impl Main {
                 self.update(Message::Over(at, bounds))
             }
             Message::Hover(at) => {
+                if self.hover == at {
+                    return Task::none();
+                }
                 self.hover = at;
                 if at.is_none() {
                     self.hover_bounds = None;
@@ -1870,6 +2064,12 @@ impl Main {
                         .go_mut(true, now);
                 }
                 self.lifts.retain(|_, lift| lift.value() || lift.is_animating(now));
+                Task::none()
+            }
+            Message::HoverLeft(at) => {
+                if self.hover == Some(at) {
+                    return self.update(Message::Hover(None));
+                }
                 Task::none()
             }
             Message::Show(overlay) => {
@@ -1906,7 +2106,6 @@ impl Main {
                         if self.community.is_none() {
                             self.community = Some(self.first_community());
                         }
-                        self.feed_seen = self.newest_event();
                         if !self.news_loaded {
                             self.news = crate::news::News::load();
                             self.news_loaded = true;
@@ -1986,6 +2185,7 @@ impl Main {
                             return self.friends_task(false);
                         }
                     }
+                    C::PeopleSearch(query) => self.people_query = query,
                     C::Again => {
                         let friends = match self.people_from {
                             crate::community_screen::PeopleFrom::Game => self.friends_task(true),
@@ -2063,7 +2263,7 @@ impl Main {
                     }
                     C::Stream(stream) => {
                         if stream != self.feed_stream {
-                            self.shift_at = now;
+                            self.stream_at = now;
                         }
                         self.feed_stream = stream;
                     }
@@ -2141,7 +2341,7 @@ impl Main {
                             let probed = saved.and_then(|_| {
                                 let ffmpeg = ffmpeg.ok_or("no ffmpeg")?;
                                 let probe = videos::probe(&ffmpeg, &path).ok_or("the clip does not read")?;
-                                Ok((path, probe.length_ms, probe.fps))
+                                Ok((path, probe))
                             });
                             Message::ClipFetched(link, probed)
                         });
@@ -2154,7 +2354,7 @@ impl Main {
                 self.news_loading.remove(source);
                 match result {
                     Ok(builds) => {
-                        let before = self.newest_event();
+                        let before = self.feed_keys();
                         self.news.builds = builds;
                         self.news_heard(source);
                         self.fresh_from(before);
@@ -2170,7 +2370,7 @@ impl Main {
                 self.news_loading.remove(source);
                 match result {
                     Ok(stories) => {
-                        let before = self.newest_event();
+                        let before = self.feed_keys();
                         self.news.stories = stories;
                         self.news_heard(source);
                         self.fresh_from(before);
@@ -2201,7 +2401,7 @@ impl Main {
                 self.news_loading.remove(&source);
                 match result {
                     Ok(posts) => {
-                        let before = self.newest_event();
+                        let before = self.feed_keys();
                         self.news.take_posts(&channel, posts);
                         self.news_heard(&source);
                         self.fresh_from(before);
@@ -2286,35 +2486,21 @@ impl Main {
                     Err(_) => Task::none(),
                 }
             }
-            Message::PersonDossier(id, said) => {
-                self.people_asked.remove(&format!("me:{id}"));
-                let Some(catalog) = self.community.as_mut() else {
-                    return Task::none();
-                };
-                let Some(at) = catalog.people.iter().position(|person| person.id == id) else {
-                    return Task::none();
-                };
-                let name = catalog.people[at].name.to_lowercase();
-                let mut shared = None;
-                if let Ok(said) = said {
-                    let dossier = catalog.take_someone(&said);
-                    self.people_dossiers.insert(id, dossier);
-                    let fresh = said.card_at.is_some_and(|at| unix_now() - at < SHARED_FRESH);
-                    shared = said.card.filter(|card| card.pp > 0.0 || !card.username.is_empty()).map(|card| (card, fresh));
-                }
-                let mut tasks = vec![self.community_pictures_task()];
-                match shared {
-                    Some((card, fresh)) => {
-                        let wanted: Vec<(String, u32)> = card.pictures();
-                        self.people_cards.entry(name.clone()).or_insert(card);
-                        tasks.push(self.pictures_task(wanted));
-                        if !fresh {
-                            tasks.push(self.scrape_task(at));
-                        }
-                    }
-                    None => tasks.push(self.scrape_task(at)),
-                }
-                Task::batch(tasks)
+            Message::PersonDossierCached(request, entry) => {
+                self.sync_dossiers();
+                if entry.is_some_and(|entry| self.dossier_cache.cached(&request, entry, unix_now())) {
+                    self.show_dossier(request.id)
+                } else { Task::none() }
+            }
+            Message::PersonDossier(request, said) => {
+                self.sync_dossiers();
+                let Some(entry) = self.dossier_cache.finish(&request, said, unix_now()) else { return Task::none(); };
+                let shown = self.show_dossier(request.id);
+                let saved = ui::in_thread(move || {
+                    crate::dossier_cache::save(&crate::sources::own_root(), &request, &entry);
+                    Message::Nudged
+                });
+                Task::batch([shown, saved])
             }
             Message::Nudged => Task::none(),
             Message::Worn(result) => {
@@ -2327,8 +2513,8 @@ impl Main {
             Message::ClipFetched(link, probed) => {
                 self.clips_loading.remove(&link);
                 match probed {
-                    Ok((path, length_ms, fps)) if self.overlay == Overlay::Community => self.play_clip(link, path, length_ms, fps),
-                    Ok((path, _, _)) if self.ffmpeg.is_none() => {
+                    Ok((path, media)) if self.overlay == Overlay::Community => self.play_clip(link, path, media),
+                    Ok((path, _)) if self.ffmpeg.is_none() => {
                         let _ = open::that_detached(&path);
                     }
                     Ok(_) => {}
@@ -2353,11 +2539,13 @@ impl Main {
                 Task::none()
             }
             Message::CommunityArrived(Ok(said)) => {
-                let before = self.newest_event();
-                crate::community::wire::save(&said);
+                let before = self.feed_keys();
+                let saved = said.clone();
+                let save = ui::in_thread(move || { crate::community::wire::save(&saved); Message::Nudged });
                 self.now_unix = unix_now();
                 let mut fresh = crate::community::Catalog::from_wire(said);
                 let previous = self.community.take();
+                let selected = self.community_person.and_then(|at| previous.as_ref()?.people.get(at)).map(|person| person.id);
                 if let Some(previous) = previous.as_ref().filter(|previous| !previous.staged) {
                     if matches!(previous.friends_state, crate::community::Friends::Ready | crate::community::Friends::Need(_) | crate::community::Friends::Failed) {
                         fresh.friends = previous.friends.clone();
@@ -2367,15 +2555,25 @@ impl Main {
                 let newest = previous.as_ref().filter(|previous| !previous.staged).and_then(|previous| previous.live.last().map(|play| play.at));
                 let newer = newest.map_or(0, |newest| fresh.live.iter().filter(|play| play.at > newest).count());
                 self.live_shown = fresh.live.len() - newer.min(fresh.live.len());
-                if self.community_person.is_some_and(|at| at >= fresh.people.len()) {
-                    self.community_person = None;
-                }
+                self.community_person = selected.and_then(|id| fresh.people.iter().position(|person| person.id == id));
                 self.community = Some(fresh);
+                self.sync_dossiers();
+                self.people_dossiers.clear();
+                if let Some(catalog) = self.community.as_mut() {
+                    let people: Vec<_> = catalog.people.iter().map(|person| (person.id, person.you)).collect();
+                    for (id, you) in people {
+                        if let Some(entry) = self.dossier_cache.get(id) {
+                            let mut dossier = catalog.take_someone(&entry.dossier);
+                            dossier.person.you = you;
+                            self.people_dossiers.insert(id, dossier);
+                        }
+                    }
+                }
                 self.fresh_from(before);
                 self.community_fetch = crate::community_screen::Fetch::Fresh(self.now_unix);
                 let card = self.card_task(false);
                 let friends = self.friends_task(false);
-                Task::batch([self.community_pictures_task(), friends, card])
+                Task::batch([self.community_pictures_task(), friends, card, save])
             }
             Message::CommunityArrived(Err(_)) => {
                 self.community_fetch = crate::community_screen::Fetch::Failed;
@@ -2384,7 +2582,8 @@ impl Main {
                 }
                 Task::none()
             }
-            Message::CardArrived(Ok(card)) => {
+            Message::CardArrived(Ok(mut card)) => {
+                card.remember_country_rank(self.community_card.as_ref(), unix_now());
                 crate::community::wire::save_card(&card);
                 self.community_card = Some(card);
                 self.remerge();
@@ -2410,7 +2609,7 @@ impl Main {
             Message::LiveArrive => {
                 let pool = self.community.as_ref().map_or(0, |catalog| catalog.live.len());
                 if self.live_shown < pool {
-                    let before = self.newest_event();
+                    let before = self.feed_keys();
                     self.live_shown += 1;
                     self.fresh_from(before);
                 }
@@ -2418,7 +2617,7 @@ impl Main {
             }
             Message::OpenFolder => {
                 if let Some(entry) = self.chosen_entry() {
-                    let _ = open::that_detached(entry.path.parent().unwrap_or(Path::new(".")));
+                    return reveal_path(entry.path.clone());
                 }
                 Task::none()
             }
@@ -2469,18 +2668,17 @@ impl Main {
             Message::Rendered(step) => {
                 let mut saved = None;
                 if let Some(rendering) = &mut self.rendering {
-                    if let Step::Saved(path) = &step {
+                    if let Step::Saved(path, media) = &step {
                         rendering.out = Some(path.clone());
-                        saved = Some((rendering.path.clone(), path.clone()));
+                        saved = Some((rendering.path.clone(), path.clone(), *media));
                     }
                     rendering.reached.push(step);
                 }
-                if let Some((replay, out)) = saved {
+                if let Some((replay, out, media)) = saved {
                     if let Some(entry) = self.entries().iter().find(|e| e.path == replay).cloned() {
-                        let length = self.lengths.get(&replay).copied().unwrap_or_else(|| length_of(&replay));
-                        let video = videos::Video::from_render(&entry, out.clone(), length, self.settings.render_size().0, self.settings.render_size().1, self.settings.render_fps);
+                        let video = videos::Video::from_render(&entry, out.clone(), media.length_ms, media.width, media.height, media.fps);
                         let detail = format!("{} — {}", video.player, video.map_line());
-                        let note = format!("{} · {}", self.words.length(video.length_ms), self.words.mb(video.size));
+                        let note = format!("{}  {}", self.words.length(video.length_ms), self.words.mb(video.size));
                         let hash = video.map_hash.clone();
                         self.store.add(video);
                         let watching_it = self.overlay == Overlay::None && self.chosen_entry().is_some_and(|chosen| chosen.path == replay);
@@ -2659,9 +2857,6 @@ impl Main {
             }
             Message::Strip(viewport) => {
                 let offset = viewport.absolute_offset().x;
-                if let (Some((before, _, _)), Some(bounds)) = (self.strip_view, self.hover_bounds.as_mut()) {
-                    bounds.x -= offset - before;
-                }
                 self.strip_view = Some((offset, viewport.content_bounds().width, viewport.bounds().width));
                 Task::none()
             }
@@ -2720,11 +2915,12 @@ impl Main {
             }
             Message::ShowOut => {
                 if let Some(out) = self.rendering.as_ref().and_then(|r| r.out.clone()) {
-                    let _ = open::that_detached(out.parent().unwrap_or(Path::new(".")));
+                    return reveal_path(out.clone());
                 }
                 Task::none()
             }
             Message::Dropped(path) => {
+                self.wake(Instant::now());
                 let skinnish = crate::settings::is_skin_file(&path) || (path.is_dir() && !crate::settings::skins_under(&path).is_empty());
                 if skinnish || (path.is_dir() && crate::settings::looks_like_skin(&path)) {
                     let named = crate::settings::skin_name(&path);
@@ -2758,6 +2954,7 @@ impl Main {
                 Task::none()
             }
             Message::Tick(now) => {
+                self.check_rest(now);
                 let dt = now.saturating_duration_since(self.now).as_secs_f32().min(1.0 / 30.0);
                 if self.scenes_due {
                     self.scenes_due = false;
@@ -2810,7 +3007,7 @@ impl Main {
                     self.words.settle();
                 }
                 for toast in &mut self.toasts {
-                    if toast.shown.value() && !toast.stays && !toast.hovered && now.duration_since(toast.born) > TOAST_STAY {
+                    if toast.shown.value() && !toast.stays && !toast.hovered && toast.age(now) > TOAST_STAY {
                         toast.shown.go_mut(false, now);
                     }
                 }
@@ -2844,10 +3041,7 @@ impl Main {
             }
             Message::ToastHover(id, over) => {
                 if let Some(toast) = self.toasts.iter_mut().find(|t| t.id == id) {
-                    toast.hovered = over;
-                    if !over {
-                        toast.born = Instant::now();
-                    }
+                    toast.hover(over, Instant::now());
                 }
                 Task::none()
             }
@@ -2866,7 +3060,8 @@ impl Main {
                 for toast in self.toasts.iter_mut().filter(|t| t.id == id) {
                     toast.shown.go_mut(false, now);
                 }
-                self.leaving.entry(id).or_insert_with(|| Animation::new(true).duration(NOTICE_LEAVE).easing(Easing::EaseOutCubic)).go_mut(false, now);
+                let arrival = self.arrivals.get(&id).cloned();
+                self.leaving.entry(id).or_insert_with(|| arrival.unwrap_or_else(|| Animation::new(true).duration(NOTICE_LEAVE).easing(Easing::EaseOutCubic))).go_mut(false, now);
                 Task::none()
             }
             Message::ShowError(id) => {
@@ -2888,7 +3083,7 @@ impl Main {
                 }
                 if self.update_told.as_deref() != Some(release.version.as_str()) {
                     self.update_told = Some(release.version.clone());
-                    let detail = if release.pre { format!("Dossier {} · {}", release.version, self.words.t("prerelease")) } else { format!("Dossier {}", release.version) };
+                    let detail = if release.pre { format!("Dossier {}  {}", release.version, self.words.t("prerelease")) } else { format!("Dossier {}", release.version) };
                     self.announce(notices::Mark::Plain, self.words.t("update-out"), detail, String::new(), String::new(), notices::Link::Update);
                 }
                 Task::none()
@@ -2996,7 +3191,7 @@ impl Main {
             .go(shown, now);
     }
 
-    fn play_clip(&mut self, link: String, path: PathBuf, length_ms: i64, fps: u32) {
+    fn play_clip(&mut self, link: String, path: PathBuf, media: videos::Probe) {
         let Some(ffmpeg) = self.ffmpeg.clone() else {
             return;
         };
@@ -3022,7 +3217,7 @@ impl Main {
         self.over_controls = false;
         self.controls = Animation::new(true).duration(CONTROLS_IN).easing(Easing::EaseOutCubic);
         let manner = player::Manner { level: self.settings.player_level, muted: self.settings.player_muted, rate: self.settings.player_rate };
-        self.player = Some(std::rc::Rc::new(std::cell::RefCell::new(player::Player::open(&ffmpeg, &path, length_ms, fps, manner))));
+        self.player = Some(std::rc::Rc::new(std::cell::RefCell::new(player::Player::open(&ffmpeg, &path, media, manner))));
         self.open_video = None;
         self.clip = Some(clip);
         self.asking_delete = false;
@@ -3045,6 +3240,7 @@ impl Main {
     }
 
     fn shut_cinema(&mut self) {
+        self.video_request = None;
         let now = Instant::now();
         self.cinema.go_mut(false, now);
         self.widened.go_mut(false, now);
@@ -3072,6 +3268,22 @@ impl Main {
         })
     }
 
+    fn skin_delete_layer(&self) -> Element<'_, Message> {
+        let Some(folder) = &self.skin_delete else { return Space::new().into(); };
+        let w = &self.words;
+        let keep = (!self.skin_deleting).then_some(Message::Prefs(prefs::Message::KeepSkin));
+        let delete = (!self.skin_deleting).then_some(Message::Prefs(prefs::Message::DeleteSkin));
+        let body = column![
+            text(w.with("delete-skin", &[("name", crate::settings::skin_name(folder))])).font(theme::SANS_SEMI).size(20.0).wrapping(text::Wrapping::WordOrGlyph).color(INK),
+            text(folder.to_string_lossy().into_owned()).font(theme::MONO).size(11.0).wrapping(text::Wrapping::WordOrGlyph).color(MUTED),
+            text(w.t("skin-delete-note")).font(theme::SANS).size(13.0).color(MUTED),
+            row![ui::quiet(w.t("keep"), keep.clone()), container(ui::primary(w.t(if self.skin_deleting { "skin-deleting" } else { "delete" }), delete)).id(iced::widget::Id::new("skin-delete-confirm"))].spacing(8),
+        ].spacing(16);
+        let card = mouse_area(container(body).padding(24).width(440).style(theme::stage)).on_press(Message::Prefs(prefs::Message::SkinDeleteTap));
+        let veil = mouse_area(ui::veil(theme::DEEP_SCRIM)).on_press(Message::Prefs(prefs::Message::KeepSkin));
+        stack![veil, container(card).width(Length::Fill).height(Length::Fill).center(Length::Fill)].into()
+    }
+
     fn skin_room_layer(&self) -> Element<'_, Message> {
         let k = self.room_fade.interpolate(0.0, 1.0, self.now);
         if !self.skin_room && k < 0.001 {
@@ -3091,22 +3303,35 @@ impl Main {
                     true => container(words).width(PANEL.0).height(22.0).center_x(PANEL.0).align_y(iced::alignment::Vertical::Center).into(),
                     false => ui::trailing(words.into(), PANEL.0, 22.0, if picked { theme::ROOM_PICKED } else { theme::ROOM_GROUND }),
                 };
-                let inside = column![container(face).width(PANEL.0).height(PANEL.1).style(ui::box_faded(theme::screen)).clip(true), label].spacing(6);
-                button(inside)
+                let mut inside = column![container(face).width(PANEL.0).height(PANEL.1).style(ui::box_faded(theme::screen)).clip(true), label].spacing(6);
+                let delete: Element<'_, Message> = match folder {
+                    Some(path) => container(ui::small_button(w.t("delete"), Message::Prefs(prefs::Message::AskDeleteSkin(path.clone()))))
+                        .id(iced::widget::Id::from(format!("skin-remove-{}", path.display())))
+                        .width(PANEL.0).height(24).align_x(iced::alignment::Horizontal::Right).into(),
+                    None => Space::new().height(24).into(),
+                };
+                inside = inside.push(delete);
+                container(inside)
                     .padding(6)
-                    .style(ui::button_faded(theme::slot_choice(picked)))
-                    .on_press(Message::Prefs(prefs::Message::Skin(folder)))
+                    .style(ui::box_faded(move |t| {
+                        let look = theme::slot_choice(picked)(t, button::Status::Active);
+                        container::Style { background: look.background, border: look.border, shadow: look.shadow, ..container::Style::default() }
+                    }))
                     .into()
             };
-            let mut cells: Vec<Element<'_, Message>> = vec![panel(
+            let keys = crate::settings::skin_keys(&self.skins);
+            let identity = format!("{keys:?}");
+            let tapped = keys.clone();
+            let mut cells = vec![(usize::MAX, panel(
                 w.t("own-skin-short"),
                 None,
                 self.skin_scenes.get(Path::new("")),
                 chosen.is_none(),
-            )];
+            ))];
             for folder in &self.skins {
                 let picked = chosen.as_deref() == Some(folder.as_path());
-                cells.push(panel(crate::settings::skin_name(folder), Some(folder.clone()), self.skin_scenes.get(folder), picked));
+                let key = keys.iter().position(|path| path == folder).unwrap();
+                cells.push((key, panel(crate::settings::skin_name(folder), Some(folder.clone()), self.skin_scenes.get(folder), picked)));
             }
             let title = row![
                 text(w.t("skins")).font(theme::SANS_SEMI).size(20.0).color(ui::faded(INK)),
@@ -3114,27 +3339,17 @@ impl Main {
                 ui::control_button(ui::Control::Close, 18.0, Some(Message::ShowSkins(false)), false),
             ]
             .align_y(iced::Center);
+            let title = column![title, text(w.t("skin-reorder-hint")).font(theme::SANS).size(11.0).color(ui::faded(FAINT))].spacing(4);
             let each = PANEL.0 + 12.0 + ROOM_GAP;
             let per = ((((self.width - 120.0).clamp(420.0, 1180.0) - 2.0 * ROOM_SIDE + ROOM_GAP) / each).floor() as usize).clamp(1, cells.len().max(1));
             let wide = per as f32 * each - ROOM_GAP + 2.0 * ROOM_SIDE;
             let lines = cells.len().div_ceil(per);
-            let line_high = PANEL.1 + 12.0 + 26.0;
+            let line_high = PANEL.1 + 12.0 + 22.0 + 12.0 + 24.0;
             let room_high = lines as f32 * line_high + (lines.saturating_sub(1)) as f32 * ROOM_GAP + ROOM_SIDE;
             let tall = (ROOM_TOP + room_high).min(self.height - 150.0).max(ROOM_TOP + line_high);
-            let mut grid = column![].spacing(ROOM_GAP);
-            let mut line = row![].spacing(ROOM_GAP);
-            let mut at = 0;
-            for cell in cells {
-                line = line.push(cell);
-                at += 1;
-                if at % per == 0 {
-                    grid = grid.push(line);
-                    line = row![].spacing(ROOM_GAP);
-                }
-            }
-            if at % per != 0 {
-                grid = grid.push(line);
-            }
+            let grid = crate::board::board(cells, ROOM_GAP, move |what, before| Message::Prefs(prefs::Message::MoveSkin(keys[what].clone(), before.and_then(|key| keys.get(key).cloned()))))
+                .fixed_first(usize::MAX).identity(identity).solid(theme::ROOM_GROUND)
+                .on_tap(move |key, _| Message::Prefs(prefs::Message::Skin(tapped.get(key).cloned())));
             let inside = column![
                 container(title)
                     .height(ROOM_TOP)
@@ -3169,14 +3384,16 @@ impl Main {
     fn look_for_skins(&self) -> Task<Message> {
         let sources = self.settings.sources.clone();
         let own = self.settings.own_skins.clone();
+        let removed = self.settings.removed_skins.clone();
         let near = {
             let (sources, own) = (sources.clone(), own.clone());
+            let removed = removed.clone();
             ui::in_thread(move || {
-                let _ = crate::settings::adopt_skin_files(&crate::settings::skins_root());
-                Message::Skins(crate::settings::skins_in(&sources, &own))
+                let _ = crate::settings::adopt_skin_files_except(&crate::settings::skins_root(), &removed);
+                Message::Skins(crate::settings::skins_in_except(&sources, &own, &removed))
             })
         };
-        let far = ui::in_thread(move || Message::Skins(crate::settings::hunt_skins(&sources, &own)));
+        let far = ui::in_thread(move || Message::Skins(crate::settings::hunt_skins_except(&sources, &own, &removed)));
         Task::batch([near, far])
     }
 
@@ -3200,7 +3417,7 @@ impl Main {
         if self.menu == Some(Tab::Feed) {
             self.arrivals.insert(id, Animation::new(false).duration(NOTICE_ARRIVE).easing(Easing::EaseOutCubic).go(true, now));
         }
-        while self.toasts.iter().filter(|t| t.shown.value()).count() >= TOASTS_AT_MOST {
+        while self.toasts.iter().filter(|t| t.shown.value()).count() >= self.toast_capacity() {
             if let Some(oldest) = self.toasts.iter_mut().find(|t| t.shown.value()) {
                 oldest.shown.go_mut(false, now);
             } else {
@@ -3212,23 +3429,28 @@ impl Main {
             shown: Animation::new(false).duration(TOAST_IN).easing(Easing::EaseOutCubic).go(true, now),
             born: now,
             hovered: false,
+            paused_at: None,
             stays: mark == notices::Mark::Bad,
         });
     }
 
     pub fn view(&self) -> Element<'_, Message> {
         let k = self.enter.interpolate(0.0, 1.0, self.now);
+        let rest = self.resting.interpolate(0.0, 1.0, self.now);
+        let awake = 1.0 - rest;
         let s = if self.swap_waits { 0.0 } else { self.swap.interpolate(0.0, 1.0, self.now) };
         let loaded = self.library.is_some();
         let blank = || -> Element<'_, Message> { Space::new().width(Length::Fill).height(Length::Fill).into() };
         let alpha = k.min(1.0);
         let full = |handle: &image::Handle, opacity: f32| -> Element<'_, Message> {
-            image(handle.clone())
+            let picture = image(handle.clone())
                 .content_fit(ContentFit::Cover)
                 .width(Length::Fill)
                 .height(Length::Fill)
-                .opacity(opacity)
-                .into()
+                .opacity(opacity);
+            let shade = iced::widget::canvas(ui::SceneShade { alpha: opacity, rest, curve: dim_at })
+                .width(Length::Fill).height(Length::Fill);
+            stack![picture, shade].into()
         };
         let entry = self.chosen_entry();
         let scene_before: Element<'_, Message> = match (&self.scene_before, entry) {
@@ -3251,7 +3473,10 @@ impl Main {
             (Some(entry), Some(live), _) if live.for_path == entry.path && self.overlay == Overlay::None => match &live.frame {
                 Some(frame) => {
                     let seen = live.fade.interpolate(0.0, 1.0, self.now);
-                    mouse_area(crate::film::show(frame, crate::film::Fit::Cover, alpha * seen)).on_press(Message::TogglePlay).into()
+                    let opacity = alpha * seen;
+                    let shade = iced::widget::canvas(ui::SceneShade { alpha: opacity, rest, curve: live::dim_at })
+                        .width(Length::Fill).height(Length::Fill);
+                    mouse_area(stack![crate::film::show(frame, crate::film::Fit::Cover, opacity), shade]).on_press(Message::TogglePlay).into()
                 }
                 None => blank(),
             },
@@ -3265,11 +3490,12 @@ impl Main {
             _ => blank(),
         };
         let body: Element<'_, Message> = match (loaded, self.reading_line()) {
-            (true, _) => ui::fading(k, || self.body(k, s)),
+            (true, _) if awake > 0.001 => ui::fading(k * awake, || self.body(k, s)),
+            (true, _) => blank(),
             (false, Some(line)) => pin(ui::fading(self.arrive.interpolate(0.0, 1.0, self.now), || ui::mono_small(line, FAINT))).x(40.0).y((self.height - 40.0).max(0.0)).into(),
             (false, None) => blank(),
         };
-        let early = self.arrive.interpolate(0.0, 1.0, self.now) * (1.0 - self.cinema.interpolate(0.0, 1.0, self.now));
+        let early = self.arrive.interpolate(0.0, 1.0, self.now) * (1.0 - self.cinema.interpolate(0.0, 1.0, self.now)) * awake;
         let crest = ui::fading(early, ui::brand);
         let crest: Element<'_, Message> =
             pin(float(crest).translate(move |_, _| Vector::new(0.0, (1.0 - early) * CREST_RISE))).x(CREST_HOME.0).y(CREST_HOME.1).into();
@@ -3277,8 +3503,8 @@ impl Main {
         let showing = self.overlay != Overlay::None || self.overlay_fade.is_animating(self.now);
         let late = ((k - 0.7) / 0.3).clamp(0.0, 1.0);
         let watching = 1.0 - self.cinema.interpolate(0.0, 1.0, self.now);
-        let chrome_layer: Element<'_, Message> = if loaded && watching > 0.001 {
-            ui::fading(alpha * late * watching, || self.chrome())
+        let chrome_layer: Element<'_, Message> = if loaded && watching * awake > 0.001 {
+            ui::fading(alpha * late * watching * awake, || self.chrome())
         } else {
             blank()
         };
@@ -3289,7 +3515,10 @@ impl Main {
             blank()
         };
         let overlay: Element<'_, Message> = if showing { ui::fading(sheet, || self.overlay_view()) } else { blank() };
-        let bubble = self.bubble_layer();
+        let bubble = if self.resting.value() { blank() } else { self.bubble_layer() };
+        let person = if self.overlay_drawn == Overlay::Community && showing {
+            ui::fading(sheet * awake, || self.community_view(true).unwrap_or_else(blank))
+        } else { blank() };
         let toasts = self.toast_layer();
         let menu = self.menu_layer();
         let signing = self.sign_in_layer();
@@ -3300,15 +3529,37 @@ impl Main {
             blank()
         };
         let room = self.skin_room_layer();
-        let layers = stack![scene_before, scene, live_before, live, body, bubble, ground, overlay, chrome_layer, crest, room, ask, menu, signing, failure, toasts];
+        let skin_ask = self.skin_delete_layer();
+        let resting: Element<'_, Message> = if rest > 0.001 || self.resting.value() {
+            let mark = container(ui::fading(rest, || ui::brand_scaled(REST_BRAND_SCALE))).id(iced::widget::Id::new("rest-mark"));
+            let mark = pin(mark).x(CREST_HOME.0).y((self.height - 40.0 - ui::EMBLEM * REST_BRAND_SCALE).max(24.0));
+            let shield = iced::widget::opaque(mouse_area(Space::new().width(Length::Fill).height(Length::Fill))
+                .on_press(Message::UserInput(None)).on_right_press(Message::UserInput(None))
+                .on_middle_press(Message::UserInput(None)).on_scroll(|_| Message::UserInput(None))
+                .interaction(iced::mouse::Interaction::Idle));
+            stack![shield, mark].into()
+        } else { blank() };
+        let layers = stack![scene_before, scene, live_before, live, body, bubble, ground, overlay, chrome_layer, crest, person, room, ask, menu, signing, skin_ask, failure, toasts, resting];
         layers.width(Length::Fill).height(Length::Fill).into()
     }
 
     fn body(&self, k: f32, s: f32) -> Element<'_, Message> {
+        let size = iced::Size::new(self.width, self.height);
+        let surface = self.chosen_entry().and_then(|entry| self.scenes.get(&entry.map_hash))
+            .map_or(theme::GROUND, |handle| ui::scene_surface(handle, size));
+        let before = self.scene_before.as_ref().and_then(|handle| handle.as_ref())
+            .map_or(theme::GROUND, |handle| ui::scene_surface(handle, size));
+        let mut surface = ui::mix(before, surface, s);
+        if let Some((_, live)) = self.chosen_entry().zip(self.live.as_ref())
+            .filter(|(entry, live)| live.for_path == entry.path && live.frame.is_some() && self.overlay == Overlay::None) {
+            // Decoded video lives on the GPU. A conservative bright estimate avoids frame readback
+            // and keeps the text stable instead of pulsing with every video frame.
+            surface = ui::mix(surface, ui::mix(iced::Color::WHITE, theme::GROUND, 0.66), live.fade.interpolate(0.0, 1.0, self.now));
+        }
         column![
             Space::new().height(theme::CONTROL_HEIGHT + 4.0 + 22.0),
             Space::new().height(Length::Fill),
-            self.viewer(s),
+            ui::on_surface(surface, || self.viewer(s)),
             self.journal(),
             Space::new().height((1.0 - k) * JOURNAL_RISE),
         ]
@@ -3322,7 +3573,7 @@ impl Main {
         let word = |key: &str, on: bool, msg: Message| {
             button(column![Space::new().height(2.0), text(w.t(key)).font(theme::SANS_SEMI).size(theme::BODY), Space::new().height(2.0)].spacing(4))
                 .padding(0)
-                .style(theme::word(on))
+                .style(ui::button_faded(theme::word(on)))
                 .on_press(msg)
         };
         let beckons = self.update.waiting() && self.overlay != Overlay::Settings;
@@ -3338,7 +3589,7 @@ impl Main {
             }
             button(column![Space::new().height(2.0), label, Space::new().height(2.0)].spacing(4))
                 .padding(0)
-                .style(theme::word(self.overlay == Overlay::Settings))
+                .style(ui::button_faded(theme::word(self.overlay == Overlay::Settings)))
                 .on_press(Message::Show(Overlay::Settings))
         };
         let places = [Overlay::None, Overlay::Videos, Overlay::Community, Overlay::Settings];
@@ -3446,7 +3697,7 @@ impl Main {
             meta = meta.push(ui::fading(ui::fade() * badge_alpha, || mod_badge(acronym)));
         }
         if !badges.is_empty() {
-            meta = meta.push(ui::fading(ui::fade() * badge_alpha, || ui::mono("·".to_owned(), FAINT)));
+            meta = meta.push(Space::new().width(8));
         }
         meta = meta.push(ui::mono(retype(&was.meta, &now.meta), MUTED));
         let action: Element<'_, Message> = if with_actions { self.action(entry) } else { Space::new().height(theme::CONTROL_HEIGHT).into() };
@@ -3498,7 +3749,7 @@ impl Main {
     fn render_button(&self, rendering: &Rendering) -> Element<'_, Message> {
         let w = &self.words;
         match rendering.last() {
-            Some(Step::Saved(_)) => ui::primary(w.t("open"), Some(Message::OpenOut)),
+            Some(Step::Saved(..)) => ui::primary(w.t("open"), Some(Message::OpenOut)),
             Some(Step::Failed(_)) | Some(Step::Stopped) => ui::quiet(w.t("once-more"), (self.ffmpeg.is_some()).then_some(Message::Render)),
             step => {
                 let label = match step {
@@ -3569,7 +3820,7 @@ impl Main {
         let line = match step {
             scan::Step::Looking { files, found, seconds } => Line::new(Mood::Now, w.t("looking-on-device"))
                 .detail(format!(
-                    "{} · {} · {}",
+                    "{}  {}  {}",
                     w.count("files-label", *files),
                     w.count("replays-label", *found),
                     w.n("seconds-left", *seconds)
@@ -3671,7 +3922,7 @@ impl Main {
             Some((offset, content, shown)) if content > 0.0 => (offset / content, (shown / content).min(1.0)),
             _ => (0.0, (guessed_shown / guessed_content.max(1.0)).min(1.0)),
         };
-        let scrub = iced::widget::canvas(ui::Scrub { start, len, on: Box::new(Message::ScrubTo) })
+        let scrub = iced::widget::canvas(ui::Scrub { start, len, alpha: ui::fade(), on: Box::new(Message::ScrubTo) })
             .width(Length::Fill)
             .height(14.0);
         let search = iced::widget::text_input(&w.t("search-journal"), &self.search)
@@ -3742,12 +3993,15 @@ impl Main {
             (None, false) => container(ui::fine_hatch()).width(w - inner).height(h - inner).into(),
         };
         let edge = if chosen { 2.0 } else { 1.0 };
-        let pressed = button(container(picture).width(w - 2.0 * edge).height(h - 2.0 * edge))
+        let pressed = button(ui::clipped(container(picture).width(w - 2.0 * edge).height(h - 2.0 * edge)))
             .padding(edge)
-            .style(theme::frame(chosen, lit))
+            .style(ui::button_faded(theme::frame(chosen, lit)))
             .on_press(Message::Choose(at));
         let scale = if chosen { 1.0 } else { 1.0 + 0.03 * rise };
-        ui::sensed(pressed, move |bounds| Message::Over(at, bounds), Message::Hover(None))
+        ui::sensed(pressed, move |bounds| Message::Over(at, bounds), Message::HoverLeft(at))
+            .keyed(at)
+            .horizontal_viewport(40.0)
+            .hit_padding(Padding { top: 4.0, right: 2.0, bottom: 0.0, left: 2.0 })
             .risen(2.0 * rise, scale)
             .into()
     }
@@ -3760,7 +4014,7 @@ impl Main {
             return Space::new().width(Length::Fill).height(Length::Fill).into();
         };
         let rise = self.lifts.get(&at).map_or(0.0, |lift| lift.interpolate(0.0, 1.0, self.now));
-        let frame_top = bounds.y - 2.0 * rise;
+        let frame_top = bounds.y - 2.0;
         let x = (bounds.center_x() - BUBBLE_W / 2.0).clamp(16.0, (self.width - BUBBLE_W - 16.0).max(16.0));
         let y = frame_top - 14.0 - BUBBLE_H - CARET;
         let tip = (bounds.center_x() - x).clamp(16.0, BUBBLE_W - 16.0);
@@ -3774,18 +4028,18 @@ impl Main {
         let w = &self.words;
         let small = |words: String, colour: Color| text(words).font(theme::MONO).size(11.0).wrapping(text::Wrapping::None).color(ui::faded(colour));
         let bold = |words: String, colour: Color| text(words).font(theme::MONO_BOLD).size(11.0).wrapping(text::Wrapping::None).color(ui::faded(colour));
-        let dot = || small("·".to_owned(), FAINT);
+        let gap = || Space::new().width(7);
         let [c300, c100, c50, miss] = entry.counts;
         let counts = row![
             small("300".to_owned(), theme::HIT_300),
             bold(c300.to_string(), INK),
-            dot(),
+            gap(),
             small("100".to_owned(), theme::HIT_100),
             bold(c100.to_string(), INK),
-            dot(),
+            gap(),
             small("50".to_owned(), theme::HIT_50),
             bold(c50.to_string(), INK),
-            dot(),
+            gap(),
             small("✕".to_owned(), ACCENT),
             bold(miss.to_string(), INK),
         ]
@@ -3797,12 +4051,12 @@ impl Main {
         }
         let doubled = matches!(entry.outcome, library::Outcome::Misses(n) if u32::from(n) == u32::from(miss));
         if entry.outcome != library::Outcome::Fail && !doubled {
-            how = how.push(dot());
+            how = how.push(gap());
             how = how.push(bold(entry.outcome.mark(), if entry.outcome.is_bad() { ACCENT } else { MUTED }));
         }
-        how = how.push(dot());
+        how = how.push(gap());
         how = how.push(small(
-            format!("{} · {} {}", entry.client.tag(), w.day(entry.played_at, self.now_unix), w.clock(entry.played_at)),
+            format!("{}  {} {}", entry.client.tag(), w.day(entry.played_at, self.now_unix), w.clock(entry.played_at)),
             FAINT,
         ));
         let head = row![
@@ -3810,7 +4064,6 @@ impl Main {
             ui::grow(),
             row![
                 text(entry.grade.letter()).font(theme::MONO_BOLD).size(theme::CAPTION).color(ui::faded(grade_colour(entry.grade))),
-                text("·").font(theme::MONO).size(theme::CAPTION).color(ui::faded(FAINT)),
                 text(w.percent(entry.accuracy)).font(theme::MONO_BOLD).size(theme::CAPTION).color(ui::faded(INK)),
             ]
             .spacing(5)
@@ -3846,7 +4099,7 @@ impl Main {
             return self.settings_view();
         }
         if which == Overlay::Community {
-            if let Some(view) = self.community_view() {
+            if let Some(view) = self.community_view(false) {
                 return view;
             }
         }
@@ -3918,8 +4171,8 @@ impl Main {
         let right = |key: &str, width: f32| container(ui::mono_small(w.t(key).to_uppercase(), FAINT)).width(width).align_x(iced::alignment::Horizontal::Right);
         container(
             row![
-                Space::new().width(VIDEO_THUMB.0 as f32 + 14.0 + 12.0),
-                cell("when", 84.0),
+                Space::new().width(VIDEO_THUMB.0 as f32),
+                cell("when", VIDEO_DATE_W),
                 grow("who-and-map"),
                 container(ui::mono_small(w.t("mods").to_uppercase(), FAINT)).width(110.0),
                 right("length", 56.0),
@@ -3928,7 +4181,7 @@ impl Main {
             .spacing(14)
             .align_y(iced::Center),
         )
-        .padding(Padding::ZERO.right(12.0))
+        .padding([0, 12])
         .height(24.0)
         .into()
     }
@@ -3946,12 +4199,11 @@ impl Main {
                 .into(),
             None => container(ui::fine_hatch()).width(VIDEO_THUMB.0 as f32).height(VIDEO_THUMB.1 as f32).into(),
         };
-        let when = column![
-            ui::mono(w.day(video.made_at, self.now_unix), FAINT),
-            ui::mono(w.clock(video.made_at), FAINT),
-        ]
-        .spacing(2)
-        .align_x(iced::Center);
+        let stamp = w.compact_date(video.made_at, self.now_unix);
+        let (day, time) = stamp.rsplit_once(' ').unwrap_or((&stamp, ""));
+        let when = column![ui::mono_small(day.to_owned(), MUTED), ui::mono_small(time.to_owned(), FAINT)]
+            .spacing(2)
+            .align_x(iced::alignment::Horizontal::Center);
         let who = column![
             text(video.player.clone()).font(theme::SANS_SEMI).size(theme::LEAD).wrapping(text::Wrapping::None).color(ui::faded(INK)),
             text(ui::shortened(video.map_line(), 70)).font(theme::SANS).size(theme::BODY).wrapping(text::Wrapping::None).color(ui::faded(MUTED)),
@@ -3963,7 +4215,7 @@ impl Main {
         }
         let line = row![
             container(picture).width(VIDEO_THUMB.0 as f32).height(VIDEO_THUMB.1 as f32),
-            container(when).width(84.0).align_x(iced::alignment::Horizontal::Center),
+            container(when).width(VIDEO_DATE_W).align_x(iced::alignment::Horizontal::Center),
             container(who).width(Length::Fill).clip(true),
             container(mods).width(110.0),
             container(ui::mono(w.length(video.length_ms), MUTED)).width(56.0).align_x(iced::alignment::Horizontal::Right),
@@ -4098,7 +4350,7 @@ impl Main {
                     on_drop: Box::new(Message::SeekTo),
                 })
                 .width(Length::Fill)
-                .height(30.0);
+                .height(36.0);
                 let at_ms = self.scrubbing.map_or_else(|| player.at_ms(), |part| (part as f64 * player.length_ms as f64) as i64);
                 let clock = row![
                     ui::mono_small(w.length(at_ms), INK),
@@ -4250,8 +4502,8 @@ impl Main {
                 None => container(ui::fine_hatch()).width(ASK_THUMB.0).height(ASK_THUMB.1).into(),
             };
             let who = match video.map_line().is_empty() {
-                true => format!("{} · {}", video.player, w.mb(video.size)),
-                false => format!("{} — {} · {}", video.player, ui::shortened(video.map_line(), 44), w.mb(video.size)),
+                true => format!("{}  {}", video.player, w.mb(video.size)),
+                false => format!("{} — {}  {}", video.player, ui::shortened(video.map_line(), 44), w.mb(video.size)),
             };
             let middle = column![
                 picture,
@@ -4310,6 +4562,7 @@ impl Main {
     }
 
     fn turn_to(&mut self, overlay: Overlay, now: Instant) {
+        self.video_request = None;
         let up = overlay != Overlay::None;
         let was = self.ground_fade.interpolate(0.0, 1.0, now);
         if self.ground_fade.value() != up {
@@ -4472,11 +4725,8 @@ impl Main {
         ui::in_thread(move || Message::FarmHeard(crate::bot::farm(&server, &token, &name).ok()))
     }
 
-    fn fresh_from(&mut self, before: i64) {
-        if before > 0 && self.newest_event() > before {
-            self.feed_seen = before;
-            self.feed_fresh_at = Instant::now();
-        }
+    fn fresh_from(&mut self, before: Vec<String>) {
+        self.feed_arrivals.refresh(&before, &self.feed_keys(), Instant::now());
     }
 
     fn news_heard(&mut self, source: &str) {
@@ -4595,8 +4845,8 @@ impl Main {
         }
     }
 
-    fn newest_event(&self) -> i64 {
-        self.community.as_ref().map_or(0, |catalog| crate::chronicle::newest(catalog, &self.news, &self.settings.news_channels, self.live_shown))
+    fn feed_keys(&self) -> Vec<String> {
+        self.community.as_ref().map_or_else(Vec::new, |catalog| crate::chronicle::event_keys(catalog, &self.news, &self.settings.news_channels, self.live_shown))
     }
 
     fn first_community(&mut self) -> crate::community::Catalog {
@@ -4711,7 +4961,34 @@ impl Main {
         self.shown_card = crate::community::wire::enriched(self.community_card.as_ref(), self.osu_card.as_ref());
     }
 
+    fn sync_dossiers(&mut self) {
+        let chat = self.settings.chat_id.filter(|id| *id < 0).or_else(|| self.community.as_ref().and_then(|catalog| catalog.chat)).unwrap_or(0);
+        let scope = if self.settings.token.is_empty() { String::new() } else {
+            crate::dossier_cache::scope(&self.settings.server, &self.settings.token, &self.settings.device, chat)
+        };
+        if self.dossier_cache.configure(scope) { self.people_dossiers.clear(); }
+    }
+
+    fn show_dossier(&mut self, id: i64) -> Task<Message> {
+        let Some(entry) = self.dossier_cache.get(id).cloned() else { return Task::none(); };
+        let Some(catalog) = self.community.as_mut() else { return Task::none(); };
+        let Some(at) = catalog.people.iter().position(|person| person.id == id) else { return Task::none(); };
+        let name = catalog.people[at].name.to_lowercase();
+        let mut dossier = catalog.take_someone(&entry.dossier);
+        dossier.person.you = catalog.people[at].you;
+        self.people_dossiers.insert(id, dossier);
+        let mut tasks = vec![self.community_pictures_task()];
+        if let Some(mut card) = entry.dossier.card.filter(|card| card.pp > 0.0 || !card.username.is_empty()) {
+            card.remember_country_rank(self.people_cards.get(&name), unix_now());
+            let wanted = card.pictures();
+            self.people_cards.entry(name).or_insert(card);
+            tasks.push(self.pictures_task(wanted));
+        }
+        Task::batch(tasks)
+    }
+
     fn person_task(&mut self, at: usize) -> Task<Message> {
+        self.sync_dossiers();
         let Some(person) = self.community.as_ref().and_then(|catalog| catalog.people.get(at)).cloned() else {
             return Task::none();
         };
@@ -4719,15 +4996,17 @@ impl Main {
         let chat = self.settings.chat_id.filter(|id| *id < 0).or_else(|| self.community.as_ref().and_then(|catalog| catalog.chat));
         match (staged || self.settings.token.is_empty(), chat) {
             (false, Some(chat)) => {
-                if self.people_dossiers.contains_key(&person.id) || !self.people_asked.insert(format!("me:{}", person.id)) {
-                    return Task::none();
-                }
+                let Some(request) = self.dossier_cache.request(person.id, Instant::now(), unix_now()) else {
+                    return self.scrape_task(at);
+                };
                 let (server, token, device, id) = (self.settings.server.clone(), self.settings.token.clone(), self.settings.device.clone(), person.id);
-                let asked = ui::in_thread(move || Message::PersonDossier(id, crate::bot::person(&server, &token, &device, chat, id).map_err(|e| e.to_string())));
-                match person.app {
-                    true => asked,
-                    false => Task::batch([asked, self.scrape_task(at)]),
-                }
+                let asked = ui::streamed(move |push| {
+                    let cached = crate::dossier_cache::load(&crate::sources::own_root(), &request);
+                    if !push(Message::PersonDossierCached(request.clone(), cached)) { return; }
+                    let said = crate::bot::person(&server, &token, &device, chat, id).map_err(|e| e.to_string());
+                    let _ = push(Message::PersonDossier(request, said));
+                });
+                Task::batch([asked, self.scrape_task(at)])
             }
             _ => self.scrape_task(at),
         }
@@ -4738,11 +5017,17 @@ impl Main {
             return Task::none();
         };
         let name = person.name.to_lowercase();
+        let cached = if !self.people_cards.contains_key(&name) { crate::osu_profile::load_player(&name) } else { None };
+        let pictures = if let Some(card) = cached {
+            let wanted = card.pictures();
+            self.people_cards.insert(name.clone(), card);
+            self.pictures_task(wanted)
+        } else { Task::none() };
         if !self.people_asked.insert(format!("card:{name}")) {
-            return Task::none();
+            return pictures;
         }
         let asked = person.name.clone();
-        ui::in_thread(move || Message::PersonCard(asked.to_lowercase(), crate::osu_profile::fetch(&asked)))
+        Task::batch([pictures, ui::in_thread(move || Message::PersonCard(asked.to_lowercase(), crate::osu_profile::fetch(&asked)))])
     }
 
     fn share_task(&mut self) -> Task<Message> {
@@ -4779,6 +5064,10 @@ impl Main {
             return Task::none();
         };
         let mut wanted: Vec<(String, u32)> = catalog.pictures();
+        for dossier in self.people_dossiers.values() {
+            if !dossier.person.avatar.is_empty() { wanted.push((dossier.person.avatar.clone(), 256)); }
+            if !dossier.person.cover.is_empty() { wanted.push((dossier.person.cover.clone(), 1400)); }
+        }
         if let Some(card) = self.shown_card.clone().or_else(|| catalog.card_of()) {
             wanted.extend(card.pictures());
         }
@@ -4850,7 +5139,7 @@ impl Main {
         crate::community::Catalog::staged(maps, &you, self.now_unix)
     }
 
-    fn community_view(&self) -> Option<Element<'_, Message>> {
+    fn community_view(&self, person_only: bool) -> Option<Element<'_, Message>> {
         let catalog = self.community.as_ref()?;
         let folds: HashMap<String, f32> = self
             .feed_fold_at
@@ -4871,7 +5160,7 @@ impl Main {
             person_k: self.person_fade.interpolate(0.0, 1.0, self.now),
             person_card: self.community_person.and_then(|at| self.community.as_ref()?.people.get(at)).and_then(|person| self.people_cards.get(&person.name.to_lowercase())),
             person_dossier: self.community_person.and_then(|at| self.community.as_ref()?.people.get(at)).and_then(|person| self.people_dossiers.get(&person.id)),
-            person_loading: self.community_person.and_then(|at| self.community.as_ref()?.people.get(at)).is_some_and(|person| self.people_asked.contains(&format!("card:{}", person.name.to_lowercase())) || self.people_asked.contains(&format!("me:{}", person.id))),
+            person_loading: self.community_person.and_then(|at| self.community.as_ref()?.people.get(at)).is_some_and(|person| self.people_asked.contains(&format!("card:{}", person.name.to_lowercase())) || self.dossier_cache.loading(person.id)),
             now_unix: self.now_unix,
             news: &self.news,
             pictures: &self.news_pictures,
@@ -4888,7 +5177,6 @@ impl Main {
             open_events: &self.feed_open,
             folds,
             panel_from: self.panel_from,
-            seen: self.feed_seen,
             spot: self.spot,
             spot_k: {
                 let k = (self.now.saturating_duration_since(self.spot_at).as_secs_f32() / crate::chronicle::SPOT_SWAP.as_secs_f32()).clamp(0.0, 1.0);
@@ -4896,6 +5184,7 @@ impl Main {
             },
             section_t: self.now.saturating_duration_since(self.section_at).as_secs_f32().min(60.0),
             shift_t: self.now.saturating_duration_since(self.shift_at).as_secs_f32().min(60.0),
+            stream_t: self.now.saturating_duration_since(self.stream_at).as_secs_f32().min(60.0),
             person_t: self.now.saturating_duration_since(self.person_at).as_secs_f32().min(60.0),
             play_t: self.now.saturating_duration_since(self.play_at).as_secs_f32().min(60.0),
             group_t: self.now.saturating_duration_since(self.group_at).as_secs_f32().min(60.0),
@@ -4916,14 +5205,24 @@ impl Main {
             reading: self.community_reading.as_ref(),
             read_k: self.read_fade.interpolate(0.0, 1.0, self.now),
             people_from: self.people_from,
+            people_query: &self.people_query,
             standing: self.community_standing,
             card: self.shown_card.as_ref(),
             flags: &self.flags,
             avatar: self.avatar.as_ref(),
             chat: self.chat_name(),
             live_shown: self.live_shown,
-            fresh_t: self.now.saturating_duration_since(self.feed_fresh_at).as_secs_f32().min(60.0),
+            arrivals: self.feed_arrivals.ages(self.now),
         };
+        if person_only {
+            let at = ground.person.filter(|at| *at < catalog.people.len() && ground.person_k > 0.001)?;
+            let panel = crate::community_screen::profile_panel(&ground, at).map(Message::Community);
+            let panel: Element<'_, Message> = ui::scaled(panel, COMMUNITY_SCALE).into();
+            let shield = iced::widget::opaque(mouse_area(ui::veil(Color::from_rgba(0.027, 0.012, 0.016, 0.88 * ground.person_k)))
+                .on_press(Message::Community(crate::community_screen::Message::Person(None))).interaction(iced::mouse::Interaction::Idle));
+            let page = column![Space::new().height(theme::CONTROL_HEIGHT + 26.0), panel].width(Length::Fill).height(Length::Fill);
+            return Some(stack![shield, page].width(Length::Fill).height(Length::Fill).into());
+        }
         let opened = self.stage_open.interpolate(0.0, 1.0, self.now);
         let stage = match (&self.player, &self.clip) {
             (Some(player), Some(clip)) if opened > 0.001 => Some(ui::fading(ui::fade() * opened, || self.stage(&player.borrow(), self.clip_bill(clip)))),
@@ -5000,7 +5299,7 @@ impl Main {
                     self.settings.settings_tab = name.to_owned();
                     keep(&self.settings);
                 }
-                if side == Side::App {
+                if side == Side::Bot {
                     return self.farm_task();
                 }
                 Task::none()
@@ -5132,6 +5431,15 @@ impl Main {
                 let sources = self.settings.sources.clone();
                 ui::in_thread(move || library::read(&sources)).map(Message::Loaded)
             }
+            P::RemoveSource(at) => {
+                if at >= self.settings.sources.len() {
+                    return Task::none();
+                }
+                self.settings.sources.remove(at);
+                keep(&self.settings);
+                let sources = self.settings.sources.clone();
+                ui::in_thread(move || library::read(&sources)).map(Message::Loaded)
+            }
             P::AddFolder => Task::perform(prefs::pick_folder(), |found| Message::Prefs(P::Added(found))),
             P::Added(found) => {
                 let Some(source) = found else {
@@ -5178,6 +5486,8 @@ impl Main {
             }
             P::ClearAppCache => {
                 prefs::clear_app_cache();
+                self.dossier_cache.clear();
+                self.people_dossiers.clear();
                 self.sizes.2 = 0;
                 self.flags.clear();
                 self.flags_asked.clear();
@@ -5218,6 +5528,7 @@ impl Main {
                 }
                 self.remember_mark(&format!("chat-{id}"), true);
                 self.settings.chat_id = Some(id);
+                self.sync_dossiers();
                 self.settings.chat_title = self.chats.iter().find(|chat| chat.id == id).map(|chat| chat.title.clone()).unwrap_or_default();
                 keep(&self.settings);
                 Task::none()
@@ -5227,12 +5538,14 @@ impl Main {
                 self.update(Message::WorkerSwitch(on))
             }
             P::Skin(folder) => {
+                if self.skin_deleting { return Task::none(); }
                 let folder = match folder.as_deref().filter(|path| crate::settings::is_skin_file(path)) {
                     Some(file) => match crate::settings::unpack_skin(file) {
                         Ok(made) => {
                             let sources = self.settings.sources.clone();
                             let own = self.settings.own_skins.clone();
-                            let again = ui::in_thread(move || Message::Skins(crate::settings::hunt_skins(&sources, &own)));
+                            let removed = self.settings.removed_skins.clone();
+                            let again = ui::in_thread(move || Message::Skins(crate::settings::hunt_skins_except(&sources, &own, &removed)));
                             return Task::batch([self.prefs(P::Skin(Some(made))), again]);
                         }
                         Err(why) => {
@@ -5251,6 +5564,28 @@ impl Main {
                 self.settings.skin = folder;
                 keep(&self.settings);
                 self.skin_again()
+            }
+            P::MoveSkin(what, before) => {
+                if crate::settings::move_skin(&mut self.skins, &what, before.as_deref()) {
+                    self.settings.skin_order = self.skins.clone();
+                    keep(&self.settings);
+                }
+                Task::none()
+            }
+            P::AskDeleteSkin(folder) => {
+                if !self.skin_deleting && self.skins.contains(&folder) { self.skin_delete = Some(folder); }
+                Task::none()
+            }
+            P::KeepSkin => {
+                if !self.skin_deleting { self.skin_delete = None; }
+                Task::none()
+            }
+            P::SkinDeleteTap => Task::none(),
+            P::DeleteSkin => {
+                let Some(folder) = self.skin_delete.clone().filter(|path| self.skins.contains(path)) else { return Task::none(); };
+                if self.skin_deleting { return Task::none(); }
+                self.skin_deleting = true;
+                ui::in_thread(move || { let result = videos::to_bin(&folder); Message::SkinDeleted(folder, result) })
             }
             P::RescanSkins => self.look_for_skins(),
             P::AddSkin => Task::perform(prefs::pick_skin(), |picked| Message::Prefs(P::AddedSkin(picked))),
@@ -5283,6 +5618,7 @@ impl Main {
                     return Task::none();
                 };
                 for folder in taken {
+                    self.settings.restore_skin(&folder);
                     if !self.settings.own_skins.contains(&folder) {
                         self.settings.own_skins.push(folder);
                     }
@@ -5374,13 +5710,13 @@ impl Main {
 }
 
 const VIDEO_ROW: f32 = 72.0;
+const VIDEO_DATE_W: f32 = 80.0;
 const CIRCLE_SIDE: f32 = 28.0;
 const AVATAR_SIDE: u32 = 80;
 const MENU_W: f32 = 400.0;
 const MENU_TOP: f32 = 80.0;
-const BADGE: f32 = 16.0;
+const BADGE: f32 = 18.0;
 const BADGE_OUT: f32 = 4.0;
-const CORNER_X: f32 = 16.0;
 const CORNER_OUT: f32 = 6.0;
 
 impl Main {
@@ -5441,10 +5777,16 @@ impl Main {
                 Tab::Feed => self.feed_tiles(),
                 Tab::Stats => self.stats_tiles(),
             };
-            let mut list = column![].spacing(8).width(MENU_W);
+            let mut list = column![].spacing(if tab == Tab::Feed { 0 } else { 8 }).width(MENU_W);
             for tile in content {
                 list = list.push(tile);
             }
+            let list: Element<'_, Message> = if tab == Tab::Feed {
+                scrollable(container(list).padding(Padding::ZERO.right(8.0).bottom(16.0)))
+                    .style(ui::thin_scroll)
+                    .direction(scrollable::Direction::Vertical(scrollable::Scrollbar::new().width(3.0).scroller_width(3.0)))
+                    .height((self.height - MENU_TOP - 120.0 - 24.0).max(140.0)).width(MENU_W + 8.0).into()
+            } else { list.into() };
             ui::grown(list, Point::new(1.0, 0.0), 0.0, 0.9 + 0.1 * late(2.0)).shifted(slide)
         });
         stackup = stackup.push(tiles);
@@ -5456,32 +5798,6 @@ impl Main {
             Space::new().width(Length::Fill).height(Length::Fill).into()
         };
         stack![backdrop, pin(whole).x(x).y(MENU_TOP)].width(Length::Fill).height(Length::Fill).into()
-    }
-
-    fn scenery(&self, map_hash: &str, width: f32, height: f32) -> Element<'_, Message> {
-        match self.scenes.get(map_hash) {
-            Some(handle) if !map_hash.is_empty() => image(handle.clone())
-                .content_fit(ContentFit::Cover)
-                .width(width)
-                .height(height)
-                .opacity(0.4 * ui::fade())
-                .border_radius(theme::CARD_RADIUS - 2.0)
-                .into(),
-            _ => Space::new().width(width).height(height).into(),
-        }
-    }
-
-    fn pictured<'a>(&'a self, inside: Element<'a, Message>, bad: bool, map_hash: &str) -> Element<'a, Message> {
-        if !self.scenes.contains_key(map_hash) || map_hash.is_empty() {
-            return self.card(inside, bad);
-        }
-        let face = container(inside).padding([12, 14]).width(Length::Fill);
-        let backdrop = self.scenery(map_hash, MENU_W, 64.0);
-        container(stack![backdrop, face].width(Length::Fill))
-            .width(Length::Fill)
-            .style(ui::box_faded(if bad { theme::tile_bad } else { theme::bubble }))
-            .clip(true)
-            .into()
     }
 
     fn background_for(&self, map_hash: &str) -> Option<PathBuf> {
@@ -5530,7 +5846,7 @@ impl Main {
             let chat = self.chat_name();
             let mut under = handle.unwrap_or(if chat == "—" { w.t("linked-status") } else { chat });
             if let Some(me) = &self.account {
-                under = format!("{under} · ID {}", me.telegram_id);
+                under = format!("{under}  ID {}", me.telegram_id);
             }
             (if name.is_empty() { w.t("signed-in") } else { name }, under)
         } else {
@@ -5555,27 +5871,25 @@ impl Main {
 
     fn menu_segments(&self, tab: Tab) -> Element<'_, Message> {
         let w = &self.words;
-        let inner = MENU_W - 2.0 * 4.0;
-        let seg_w = (inner - 2.0 * 4.0) / 3.0;
-        let at = |t: Tab| match t {
-            Tab::Account => 0.0,
-            Tab::Feed => 1.0,
-            Tab::Stats => 2.0,
+        let active = match tab {
+            Tab::Account => 0,
+            Tab::Feed => 1,
+            Tab::Stats => 2,
         };
-        let k = self.seg_slide.interpolate(0.0, 1.0, self.now);
-        let x = 4.0 + (at(self.seg_from) + (at(tab) - at(self.seg_from)) * k) * (seg_w + 4.0);
-        let pill = container(Space::new().width(seg_w).height(28.0)).style(ui::box_faded(theme::segment_pill));
-        let mut words = row![].spacing(4);
+        let mut words = row![].spacing(4).width(Length::Fill);
         for (key, this) in [("account", Tab::Account), ("feed", Tab::Feed), ("stats", Tab::Stats)] {
             words = words.push(
-                button(container(text(w.t(key)).font(theme::SANS_SEMI).size(theme::CAPTION)).width(seg_w).height(28.0).center(Length::Fill))
+                button(container(text(w.t(key)).font(theme::SANS_SEMI).size(theme::CAPTION)).center_x(Length::Fill).center_y(28.0))
+                    .width(Length::FillPortion(1))
                     .padding(0)
                     .style(ui::button_faded(theme::segment(tab == this)))
                     .on_press(Message::MenuTab(this)),
             );
         }
-        let face = stack![pin(pill).x(x).y(4.0), container(words).padding(4)].width(MENU_W).height(36.0);
-        container(face).width(Length::Fill).style(ui::box_faded(theme::bubble)).into()
+        let face = ui::sliding(words, active, ui::Pill {
+            fill: Color::from_rgba(1.0, 1.0, 1.0, 0.08), edge: Color::TRANSPARENT, radius: 8.0, underline: None,
+        });
+        container(face).padding(4).width(MENU_W).height(36.0).style(ui::box_faded(theme::bubble)).into()
     }
 
     fn kv(&self, key: String, value: String) -> Element<'_, Message> {
@@ -5593,8 +5907,12 @@ impl Main {
     fn big(&self, value: String, key: String) -> Element<'_, Message> {
         self.card(
             column![
-                text(value).font(theme::MONO_BOLD).size(22.0).wrapping(text::Wrapping::None).color(ui::faded(INK)),
-                text(key).font(theme::SANS).size(11.0).wrapping(text::Wrapping::None).color(ui::faded(FAINT)),
+                container(text(value).font(theme::MONO_BOLD).size(22.0).wrapping(text::Wrapping::None).color(ui::faded(INK)))
+                    .width(Length::Fill)
+                    .clip(true),
+                container(text(key).font(theme::SANS).size(11.0).wrapping(text::Wrapping::None).color(ui::faded(FAINT)))
+                    .width(Length::Fill)
+                    .clip(true),
             ]
             .spacing(2)
             .into(),
@@ -5616,15 +5934,11 @@ impl Main {
             .spacing(6);
             return vec![
                 self.card(ask.into(), false),
-                self.pair(self.big(self.entries().len().to_string(), w.t("replays-in-journal")), self.big(bot::BUILD.to_owned(), w.t("build"))),
+                self.big(self.entries().len().to_string(), w.t("replays-in-journal")),
             ];
         }
         let rows = column![self.kv(w.t("videos-go-to"), self.chat_name()), self.kv(w.t("worker"), prefs::worker_said(w, self.worker_step.as_ref(), self.settings.worker_on).0)].spacing(2);
-        let videos = format!("{} · {}", self.store.videos.len(), w.mb(self.store.total_size()));
-        vec![
-            self.card(rows.into(), false),
-            self.pair(self.big(bot::BUILD.to_owned(), w.t("build")), self.big(self.store.videos.len().to_string(), format!("{} · {}", w.t("videos").to_lowercase(), videos.split(" · ").nth(1).unwrap_or("")))),
-        ]
+        vec![self.card(rows.into(), false)]
     }
 
     fn chats_task(&self) -> Task<Message> {
@@ -5658,7 +5972,7 @@ impl Main {
                 row![
                     ui::dot(8.0),
                     text(words).font(theme::SANS_SEMI).size(theme::CAPTION).color(ui::faded(INK)),
-                    container(text(format!("· {detail}")).font(theme::SANS).size(theme::CAPTION).wrapping(text::Wrapping::None).color(ui::faded(MUTED))).width(Length::Fill).clip(true),
+                    container(text(detail.to_owned()).font(theme::SANS).size(theme::CAPTION).wrapping(text::Wrapping::None).color(ui::faded(MUTED))).width(Length::Fill).clip(true),
                 ]
                 .spacing(8)
                 .align_y(iced::Center)
@@ -5680,71 +5994,28 @@ impl Main {
             let title = self.store.videos.iter().find(|v| v.path == sending.path).map(|v| v.map_line()).unwrap_or_default();
             tiles.push(self.card(job(w.t("sending"), title, self.progress_shown), false));
         }
-        for notice in self.notices.notices.iter().take(5) {
-            let bad = notice.mark == notices::Mark::Bad;
+        if self.notices.notices.len() > 5 {
+            let clear = row![
+                Space::new().width(Length::Fill),
+                ui::quiet(w.t("clear-feed"), Some(Message::ClearNotices)),
+            ]
+            .align_y(iced::Center);
+            tiles.push(self.card(container(clear).padding(Padding::ZERO.bottom(2.0)).into(), false));
+        }
+        let mut tiles: Vec<Element<'_, Message>> = tiles.into_iter().map(|tile| container(tile).padding(Padding::ZERO.bottom(8.0)).into()).collect();
+        for notice in &self.notices.notices {
             let alive = match (self.leaving.get(&notice.id), self.arrivals.get(&notice.id)) {
                 (Some(going), _) => going.interpolate(0.0, 1.0, self.now),
                 (None, Some(coming)) => coming.interpolate(0.0, 1.0, self.now),
                 _ => 1.0,
             };
             let tile = ui::fading(ui::fade() * alive, || {
-                let card = self.pictured(self.notice_row(notice), bad, &notice.map_hash);
-                let framed = stack![
-                    container(card).padding(Padding { top: CORNER_OUT, right: CORNER_OUT, bottom: 0.0, left: 0.0 }).width(Length::Fill),
-                    pin(self.dismiss(notice.id, bad)).x(MENU_W - CORNER_X - 1.0).y(0.0),
-                ]
-                .width(Length::Fill);
-                ui::grown(framed, Point::new(1.0, 0.5), 0.0, 1.0).shifted((1.0 - alive) * 24.0)
+                ui::grown(self.notification_card(notice, None, MENU_W), Point::new(1.0, 0.5), 0.0, 1.0).shifted((1.0 - alive) * 24.0)
             });
-            tiles.push(tile.into());
+            let going = self.leaving.contains_key(&notice.id);
+            tiles.push(ui::collapsing(container(tile).padding(Padding::ZERO.bottom(8.0)), if going { alive } else { 1.0 }));
         }
         tiles
-    }
-
-    fn notice_row(&self, notice: &notices::Notice) -> Element<'_, Message> {
-        let w = &self.words;
-        let bad = notice.mark == notices::Mark::Bad;
-        let title: Element<'_, Message> = if bad {
-            button(text(notice.words.clone()).font(theme::SANS_SEMI).size(theme::CAPTION).wrapping(text::Wrapping::None))
-                .padding(0)
-                .style(ui::button_faded(theme::danger_words))
-                .on_press(Message::ShowError(notice.id))
-                .into()
-        } else {
-            text(notice.words.clone()).font(theme::SANS_SEMI).size(theme::CAPTION).wrapping(text::Wrapping::None).color(ui::faded(INK)).into()
-        };
-        let mut second = notice.detail.clone();
-        if !notice.note.is_empty() && !bad {
-            second = if second.is_empty() { notice.note.clone() } else { format!("{second} · {}", notice.note) };
-        }
-        let below: Element<'_, Message> = if second.is_empty() {
-            Space::new().height(0.0).into()
-        } else {
-            container(text(second).font(theme::SANS).size(theme::CAPTION).wrapping(text::Wrapping::None).color(ui::faded(MUTED)))
-                .width(Length::Fill)
-                .clip(true)
-                .into()
-        };
-        let mut side = column![ui::mono_small(w.clock(notice.at), FAINT)].spacing(2).align_x(iced::alignment::Horizontal::Right);
-        let link = match notice.link {
-            notices::Link::OpenVideo(_) => Some(w.t("open")),
-            notices::Link::RenderAgain(_) => Some(w.t("once-more")),
-            notices::Link::Update => Some(w.t("update-now")),
-            notices::Link::Page(_) => Some(w.t("whats-new")),
-            notices::Link::Replay(_) => Some(w.t("open")),
-            notices::Link::None => None,
-        };
-        if let Some(words) = link {
-            side = side.push(ui::small_button(words, Message::ToastLink(notice.id)));
-        }
-        row![
-            self.notice_mark(notice, 40.0),
-            column![title, below].spacing(1).width(Length::Fill),
-            container(side).align_x(iced::alignment::Horizontal::Right),
-        ]
-        .spacing(12)
-        .align_y(iced::Center)
-        .into()
     }
 
     fn error_layer(&self) -> Element<'_, Message> {
@@ -5756,7 +6027,7 @@ impl Main {
         if !notice.note.is_empty() {
             lines = lines.push(container(ui::mono(notice.note.clone(), MUTED)).padding(Padding::ZERO.top(8.0)));
         }
-        lines = lines.push(container(ui::cap(format!("{} · {}", w.day(notice.at, self.now_unix), w.clock(notice.at)))).padding(Padding::ZERO.top(4.0)));
+        lines = lines.push(container(ui::cap(format!("{}  {}", w.day(notice.at, self.now_unix), w.clock(notice.at)))).padding(Padding::ZERO.top(4.0)));
         let mut bottom = row![ui::grow(), ui::quiet(w.t("close"), Some(Message::HideError))].spacing(4).align_y(iced::Center);
         if matches!(notice.link, notices::Link::RenderAgain(_)) {
             bottom = bottom.push(ui::primary(w.t("once-more"), Some(Message::ToastLink(notice.id))));
@@ -5777,24 +6048,32 @@ impl Main {
     fn notice_mark(&self, notice: &notices::Notice, side: f32) -> Element<'_, Message> {
         let glyph = match notice.mark {
             notices::Mark::Done => "✓",
-            notices::Mark::Bad => "✕",
-            notices::Mark::Plain => "·",
+            notices::Mark::Bad => "!",
+            notices::Mark::Plain => "i",
         };
+        let tint = match notice.mark { notices::Mark::Bad => ACCENT, notices::Mark::Done => theme::NOTICE_SUCCESS, notices::Mark::Plain => theme::NOTICE_INFO };
+        if notice.map_hash.is_empty() || !self.thumbs.contains_key(&notice.map_hash) {
+            return container(text(glyph).font(theme::MONO_BOLD).size(20.0).color(ui::faded(tint)))
+                .width(side).height(side).center(side)
+                .style(ui::box_faded(move |_| container::Style {
+                    background: Some(iced::Background::Color(Color { a: 0.08, ..tint })),
+                    border: iced::Border { radius: (side / 2.0).into(), ..iced::Border::default() }, ..container::Style::default()
+                })).into();
+        }
         let picture: Element<'_, Message> = match self.thumbs.get(&notice.map_hash) {
-            Some(handle) if !notice.map_hash.is_empty() => image(handle.clone())
+            Some(handle) if !notice.map_hash.is_empty() => ui::clipped(image(handle.clone())
                 .content_fit(ContentFit::Cover)
                 .width(side)
                 .height(side)
                 .border_radius(8.0)
-                .opacity(ui::fade() * 0.9)
-                .into(),
+                .opacity(ui::fade() * 0.9)),
             _ => container(Space::new().width(side).height(side)).style(ui::box_faded(theme::chip)).into(),
         };
-        let badge = container(text(glyph).font(theme::MONO_BOLD).size(10.0).color(ui::faded(INK)))
+        let badge = container(text(glyph).font(theme::MONO_BOLD).size(11.0).color(ui::faded(INK)))
             .width(BADGE)
             .height(BADGE)
             .center(BADGE)
-            .style(ui::box_faded(theme::badge_of(if notice.mark == notices::Mark::Bad { ACCENT } else { theme::GRADE_A })));
+            .style(ui::box_faded(theme::badge_of(tint)));
         let reach = side + BADGE_OUT;
         stack![
             container(picture).width(reach).height(reach),
@@ -5805,19 +6084,9 @@ impl Main {
         .into()
     }
 
-    fn dismiss(&self, id: u64, bad: bool) -> Element<'_, Message> {
-        let glyph = iced::widget::canvas(ui::Cross { colour: if bad { ACCENT } else { MUTED } }).width(CORNER_X).height(CORNER_X);
-        button(glyph)
-            .padding(0)
-            .style(ui::button_faded(theme::corner(bad)))
-            .on_press(Message::DismissNotice(id))
-            .into()
-    }
-
     fn stats_tiles(&self) -> Vec<Element<'_, Message>> {
         let w = &self.words;
-        let sent = self.store.videos.iter().filter(|v| v.sent_at.is_some()).count();
-        let sent_size: u64 = self.store.videos.iter().filter(|v| v.sent_at.is_some()).map(|v| v.size).sum();
+        let (sent, _) = self.store.delivery_totals();
         let heading = |key: &str| container(ui::mono_small(w.t(key).to_uppercase(), FAINT)).padding(Padding::ZERO.bottom(8.0));
         let delivered = self.farm.as_ref().and_then(|farm| farm.workers.iter().find(|worker| worker.mine)).map_or(self.worker_done as u64, |mine| mine.delivered as u64);
         let worker = column![heading("as-worker"), self.kv(w.t("jobs-done"), delivered.to_string())].spacing(0);
@@ -5825,9 +6094,9 @@ impl Main {
             heading("on-this-device"),
             self.pair(
                 self.big(self.entries().len().to_string(), w.t("replays-in-journal")),
-                self.big(self.store.videos.len().to_string(), format!("{} · {}", w.t("videos").to_lowercase(), w.mb(self.store.total_size()))),
+                self.big(self.library.as_ref().map_or(0, |library| library.maps).to_string(), w.t("maps-in-library")),
             ),
-            self.pair(self.big(sent.to_string(), format!("{} · {}", w.t("sent-count").to_lowercase(), w.mb(sent_size))), self.big(bot::BUILD.to_owned(), w.t("build"))),
+            self.pair(self.big(sent.to_string(), w.t("sent-count")), self.big(bot::BUILD.to_owned(), w.t("build"))),
         ]
         .spacing(8);
         vec![self.card(worker.into(), false), self.card(device.into(), false)]
@@ -5980,8 +6249,8 @@ pub fn decoded_bytes(bytes: &[u8], side: u32) -> Option<image::Handle> {
     let picture = picture.resize_to_fill(side, side, ::image::imageops::FilterType::Lanczos3).to_rgba8();
     Some(image::Handle::from_rgba(side, side, picture.into_raw()))
 }
-const TOAST_W: f32 = 380.0;
-const TOAST_H: f32 = 74.0;
+const TOAST_W: f32 = 340.0;
+const TOAST_H: f32 = 104.0;
 const TOAST_TOP: f32 = 92.0;
 pub const TOAST_IN: Duration = Duration::from_millis(180);
 pub const MENU_OPEN: Duration = Duration::from_millis(320);
@@ -6003,66 +6272,72 @@ pub const TOAST_STAY: Duration = Duration::from_secs(6);
 const TOASTS_AT_MOST: usize = 3;
 
 impl Main {
+    fn toast_capacity(&self) -> usize {
+        (((self.height - TOAST_TOP - 24.0) / (TOAST_H + 10.0)).floor() as usize).clamp(1, TOASTS_AT_MOST)
+    }
+
     fn toast_layer(&self) -> Element<'_, Message> {
-        if self.toasts.is_empty() {
-            return Space::new().width(Length::Fill).height(Length::Fill).into();
-        }
         let mut layers = stack![].width(Length::Fill).height(Length::Fill);
+        let width = TOAST_W.min((self.width - 32.0).max(240.0));
         let mut slot = 0.0;
         for toast in &self.toasts {
-            let Some(notice) = self.notices.get(toast.id) else {
-                continue;
-            };
+            let Some(notice) = self.notices.get(toast.id) else { continue; };
             let k = toast.shown.interpolate(0.0, 1.0, self.now);
-            let home = (self.width - 40.0 - TOAST_W).max(16.0);
-            let x = home + (1.0 - k) * (TOAST_W + 48.0);
-            let y = TOAST_TOP + slot - CORNER_OUT;
-            let age = self.now.saturating_duration_since(toast.born).as_secs_f32();
-            let pulse = if age < 3.0 && toast.shown.value() { (std::f32::consts::PI * age).sin().powi(2) } else { 0.0 };
-            let card = self.toast(toast, notice, pulse);
-            layers = layers.push(pin(card).x(x).y(y));
-            if toast.shown.value() {
-                slot += TOAST_H + 8.0;
-            }
+            let home = (self.width - 40.0 - width).max(16.0);
+            let x = home + (1.0 - k) * 24.0;
+            let sensed = ui::fading(ui::fade() * k, || mouse_area(self.notification_card(notice, Some(toast), width))
+                .on_enter(Message::ToastHover(toast.id, true)).on_exit(Message::ToastHover(toast.id, false)));
+            layers = layers.push(pin(sensed).x(x).y(TOAST_TOP + slot));
+            // Collapse departing slots smoothly instead of jumping the next card.
+            slot += (TOAST_H + 10.0) * k;
         }
         layers.into()
     }
 
-    fn toast(&self, toast: &Toast, notice: &notices::Notice, pulse: f32) -> Element<'_, Message> {
-        let w = &self.words;
+    fn notification_card(&self, notice: &notices::Notice, toast: Option<&Toast>, width: f32) -> Element<'_, Message> {
         let bad = notice.mark == notices::Mark::Bad;
-        let words = row![
-            text(notice.words.clone()).font(theme::SANS_SEMI).size(theme::BODY).wrapping(text::Wrapping::None).color(ui::faded(if bad { ACCENT } else { INK })),
-        ];
-        let detail = text(notice.detail.clone()).font(theme::SANS).size(theme::CAPTION).wrapping(text::Wrapping::None).color(ui::faded(MUTED));
-        let note = if bad { String::new() } else { notice.note.clone() };
-        let note = text(note).font(theme::MONO).size(11.0).wrapping(text::Wrapping::None).color(ui::faded(FAINT));
-        let column = column![words, detail, note].spacing(1).width(Length::Fill);
-        let mut line = row![self.notice_mark(notice, 44.0), container(column).width(Length::Fill).clip(true)].spacing(12).align_y(iced::Center);
+        let close = button(iced::widget::canvas(ui::Cross { colour: MUTED }).width(20.0).height(20.0))
+            .padding(0).style(ui::button_faded(theme::notice_action(false)))
+            .on_press(if toast.is_some() { Message::ToastClose(notice.id) } else { Message::DismissNotice(notice.id) });
+        let title_limit = ((width - 92.0) / 7.0).floor().max(12.0) as usize;
+        let title = ui::clipped(container(text(notice_preview(&notice.words, title_limit)).font(theme::SANS_SEMI).size(13.0)
+            .wrapping(text::Wrapping::None).color(ui::faded(INK))).width(Length::Fill).height(20.0).center_y(20.0));
+        let header = row![title, close].spacing(6).align_y(iced::Center);
+        let detail = if notice.detail.is_empty() && bad { notice.note.clone() } else { notice.detail.clone() };
+        let detail_limit = (((width - 70.0) / 6.7) * 2.0).floor().max(24.0) as usize;
+        let description = ui::clipped(container(text(notice_preview(&detail, detail_limit)).font(theme::SANS).size(12.0)
+            .line_height(iced::Pixels(14.0)).wrapping(text::Wrapping::WordOrGlyph)
+            .color(ui::faded(MUTED))).width(Length::Fill).height(28.0));
+        let top = row![self.notice_mark(notice, 40.0), column![header, description].spacing(6).width(Length::Fill)]
+            .spacing(10).height(54.0);
+        let action = |label: String, message, primary| button(text(label).font(theme::SANS_SEMI).size(theme::CAPTION))
+            .padding([3, 7]).style(ui::button_faded(theme::notice_action(primary))).on_press(message);
+        let mut footer = row![].spacing(4).align_y(iced::Center).height(24.0);
+        footer = footer.push(text(self.words.clock(notice.at)).font(theme::SANS).size(10.5).color(ui::faded(theme::NOTICE_META)));
+        footer = footer.push(Space::new().width(Length::Fill));
+        if bad {
+            footer = footer.push(action(self.words.t("notice-details"), Message::ShowError(notice.id), false));
+        }
         let link = match notice.link {
-            notices::Link::OpenVideo(_) => Some(w.t("open")),
-            notices::Link::RenderAgain(_) => Some(w.t("once-more")),
-            notices::Link::Update => Some(w.t("update-now")),
-            notices::Link::Page(_) => Some(w.t("whats-new")),
-            notices::Link::Replay(_) => Some(w.t("open")),
+            notices::Link::OpenVideo(_) | notices::Link::Replay(_) => Some("open"),
+            notices::Link::RenderAgain(_) => Some("once-more"),
+            notices::Link::Update => Some("update-now"),
+            notices::Link::Page(_) => Some("whats-new"),
             notices::Link::None => None,
         };
-        if let Some(words) = link {
-            line = line.push(ui::small_button(words, Message::ToastLink(toast.id)));
-        }
-        let face = container(line).padding([12, 14]).width(TOAST_W).height(TOAST_H);
-        let backdrop = self.scenery(&notice.map_hash, TOAST_W, TOAST_H);
-        let card = container(stack![backdrop, face].width(TOAST_W).height(TOAST_H)).width(TOAST_W).height(TOAST_H).style(theme::toast(pulse, bad)).clip(true);
-        let sensed = mouse_area(card).on_enter(Message::ToastHover(toast.id, true)).on_exit(Message::ToastHover(toast.id, false));
-        stack![
-            pin(sensed).x(0.0).y(CORNER_OUT),
-            pin(self.dismiss(toast.id, bad)).x(TOAST_W - CORNER_X + CORNER_OUT - 1.0).y(0.0),
-        ]
-        .width(TOAST_W + CORNER_OUT)
-        .height(TOAST_H + CORNER_OUT)
-        .into()
+        if let Some(key) = link { footer = footer.push(action(self.words.t(key), Message::ToastLink(notice.id), true)); }
+        let face = container(column![top, footer].spacing(6)).padding([10, 10]).width(width).height(TOAST_H);
+        let card = container(face)
+            .width(width).height(TOAST_H).style(ui::box_faded(theme::notification(toast.is_some_and(|t| t.hovered)))).clip(true);
+        card.id(iced::widget::Id::new(if toast.is_some() { "toast-card" } else { "notice-card" })).into()
     }
 }
+
+fn notice_preview(value: &str, limit: usize) -> String {
+    let value = value.split_whitespace().collect::<Vec<_>>().join(" ");
+    if value.chars().count() <= limit { value } else { format!("{}…", value.chars().take(limit.saturating_sub(1)).collect::<String>()) }
+}
+
 const STAGE_GAP: f32 = 40.0;
 const STAGE_UNDER: f32 = 62.0;
 const STAGE_TOP: f32 = 66.0;
@@ -6145,10 +6420,10 @@ pub fn mod_colour(acronym: &str) -> Color {
 pub fn mod_badge<'a, Message: 'a>(acronym: &str) -> Element<'a, Message> {
     let colour = mod_colour(acronym);
     let alpha = ui::fade();
-    container(text(acronym.to_owned()).font(theme::MONO_BOLD).size(10.0).color(ui::faded(theme::ON_ACCENT)))
+    let badge = container(text(acronym.to_owned()).font(theme::MONO_BOLD).size(10.0).color(ui::faded(theme::ON_ACCENT)))
         .padding([1, 6])
-        .style(theme::badge(Color { a: colour.a * alpha, ..colour }))
-        .into()
+        .style(theme::badge(Color { a: colour.a * alpha, ..colour }));
+    ui::hover(badge, ui::Glow::tile(5.0).edge(Color { a: 0.35 * alpha, ..theme::ON_ACCENT }).lift(1.0).scale(1.06))
 }
 
 pub fn decoded(path: &Path, max_width: u32, cover: Option<(u32, u32)>) -> Option<image::Handle> {
@@ -6178,10 +6453,7 @@ fn shaped(picture: ::image::DynamicImage, max_width: u32, cover: Option<(u32, u3
             scaled.fast_blur(3.0)
         }
     };
-    let mut rgba = picture.to_rgba8();
-    if cover.is_none() {
-        dim_into_ground(&mut rgba);
-    }
+    let rgba = picture.to_rgba8();
     Some(image::Handle::from_rgba(rgba.width(), rgba.height(), rgba.into_raw()))
 }
 
@@ -6198,20 +6470,6 @@ pub fn dim_at(t: f32) -> f32 {
         }
     }
     DIM[DIM.len() - 1].1
-}
-
-fn dim_into_ground(rgba: &mut ::image::RgbaImage) {
-    let ground = [theme::GROUND.r * 255.0, theme::GROUND.g * 255.0, theme::GROUND.b * 255.0];
-    let height = rgba.height().max(1);
-    for (y, row) in rgba.rows_mut().enumerate() {
-        let a = dim_at(y as f32 / (height - 1).max(1) as f32);
-        for pixel in row {
-            for c in 0..3 {
-                pixel[c] = (pixel[c] as f32 * (1.0 - a) + ground[c] * a).round().clamp(0.0, 255.0) as u8;
-            }
-            pixel[3] = 255;
-        }
-    }
 }
 
 pub fn length_of(path: &Path) -> i64 {
@@ -6241,6 +6499,260 @@ mod tests {
     use super::{slots, Slot, FRAME_GAP};
 
     #[test]
+    fn notification_hover_preserves_remaining_time_and_ignores_duplicate_enters() {
+        use std::time::{Duration, Instant};
+        let now = Instant::now();
+        let mut toast = super::Toast { id: 1, shown: iced::Animation::new(true), born: now, hovered: false, paused_at: None, stays: false };
+        toast.hover(true, now + Duration::from_secs(2));
+        toast.hover(true, now + Duration::from_secs(8));
+        assert_eq!(toast.age(now + Duration::from_secs(10)), Duration::from_secs(2));
+        toast.hover(false, now + Duration::from_secs(12));
+        assert_eq!(toast.age(now + Duration::from_secs(15)), Duration::from_secs(5));
+        toast.hover(false, now + Duration::from_secs(16));
+        assert_eq!(toast.age(now + Duration::from_secs(16)), Duration::from_secs(6));
+    }
+
+    #[test]
+    fn dismissing_an_arriving_notification_keeps_the_visible_opacity() {
+        let (_, mut main) = crate::gallery::main_states(crate::lang::Lang::En).into_iter().find(|(name, _)| name == "main-menu-feed").unwrap();
+        let id = main.notices.notices[0].id;
+        let now = std::time::Instant::now();
+        main.arrivals.insert(id, iced::Animation::new(false).duration(super::NOTICE_ARRIVE).easing(iced::animation::Easing::EaseOutCubic).go(true, now - std::time::Duration::from_millis(50)));
+        let before = main.arrivals[&id].interpolate(0.0_f32, 1.0, now);
+        let _ = main.update(super::Message::DismissNotice(id));
+        let after = main.leaving[&id].interpolate(0.0_f32, 1.0, std::time::Instant::now());
+        assert!((before - after).abs() < 0.02, "dismissal must reverse the current arrival instead of jumping to full opacity: {before} -> {after}");
+    }
+
+    #[test]
+    fn notification_errors_stay_and_closing_a_popup_keeps_its_history() {
+        let (_, mut main) = crate::gallery::main_states(crate::lang::Lang::En).into_iter().find(|(name, _)| name == "main-notifications").unwrap();
+        let bad = main.toasts.iter().find(|toast| toast.stays).unwrap().id;
+        let _ = main.update(super::Message::Tick(main.now + std::time::Duration::from_secs(20)));
+        assert!(main.toasts.iter().find(|toast| toast.id == bad).unwrap().shown.value());
+        assert!(main.toasts.iter().filter(|toast| !toast.stays).all(|toast| !toast.shown.value()));
+        let _ = main.update(super::Message::ToastClose(bad));
+        assert!(!main.toasts.iter().find(|toast| toast.id == bad).unwrap().shown.value());
+        assert!(main.notices.get(bad).is_some());
+        main.height = 400.0;
+        for n in 0..8 {
+            main.announce(crate::notices::Mark::Plain, format!("event {n}"), String::new(), String::new(), String::new(), crate::notices::Link::None);
+        }
+        assert_eq!(main.toasts.iter().filter(|toast| toast.shown.value()).count(), 2);
+        assert_eq!(main.notices.notices.len(), 11);
+        assert_eq!(super::notice_preview("Карта\nс очень длинным именем", 8), "Карта с…");
+    }
+
+    #[test]
+    fn repeated_pointer_positions_do_not_wake_the_resting_interface() {
+        let (_, mut main) = crate::gallery::main_states(crate::lang::Lang::En).into_iter().find(|(name, _)| name == "main-rest").unwrap();
+        main.input_pointer = Some(iced::Point::new(100.0, 100.0));
+        main.resting = iced::Animation::new(true);
+        let last_input = main.last_input;
+        let _ = main.update(super::Message::PointerActivity(iced::Point::new(100.0, 100.0)));
+        assert!(main.resting.value());
+        assert_eq!(main.last_input, last_input);
+        let _ = main.update(super::Message::PointerActivity(iced::Point::new(101.0, 100.0)));
+        assert!(!main.resting.value());
+    }
+
+    #[test]
+    fn the_main_menu_rests_only_after_two_minutes_without_input() {
+        use super::{Message, REST_AFTER};
+        let (_, mut main) = crate::gallery::main_states(crate::lang::Lang::En).into_iter().find(|(name, _)| name == "main-rest").unwrap();
+        let began = std::time::Instant::now();
+        main.last_input = began;
+        main.now = began;
+        main.hover = Some(0);
+        let _ = main.update(Message::RestCheck(began + REST_AFTER - std::time::Duration::from_millis(1)));
+        assert!(!main.resting.value());
+        let _ = main.update(Message::RestCheck(began + REST_AFTER));
+        assert!(main.resting.value());
+        assert!(main.hover.is_none());
+        let _ = main.update(Message::UserInput(Some(Box::new(Message::Typed('x')))));
+        assert!(!main.resting.value());
+        assert!(main.search.is_empty(), "the first key wakes the interface without triggering a shortcut");
+        main.resting = iced::Animation::new(false);
+        let _ = main.update(Message::UserInput(Some(Box::new(Message::Typed('x')))));
+        assert_eq!(main.search, "x", "keyboard actions work again after waking");
+        let touched = main.last_input;
+        let _ = main.update(Message::RestCheck(touched + REST_AFTER - std::time::Duration::from_millis(1)));
+        assert!(!main.resting.value(), "input resets the deadline");
+    }
+
+    #[test]
+    fn open_panels_and_active_work_keep_the_interface_visible() {
+        use super::{Message, REST_AFTER};
+        let states = crate::gallery::main_states(crate::lang::Lang::En);
+        for name in ["main-prefs", "main-community-feed", "main-videos", "main-menu-account", "main-player", "main-rendering", "main-fetching"] {
+            let (_, base) = states.iter().find(|(state, _)| state == name).unwrap_or_else(|| panic!("missing gallery state {name}"));
+            let mut main = base.clone();
+            let began = std::time::Instant::now();
+            main.last_input = began;
+            main.now = began;
+            let _ = main.update(Message::RestCheck(began + REST_AFTER * 2));
+            assert!(!main.resting.value(), "{name}");
+            assert_eq!(main.last_input, began + REST_AFTER * 2, "time in a panel does not consume the next idle interval");
+        }
+    }
+
+    #[test]
+    fn a_cached_profile_keeps_its_content_and_close_control_while_updating() {
+        let backdrop = crate::ui::backdrop_handle();
+        for lang in crate::lang::Lang::ALL {
+            let (_, mut main) = crate::gallery::main_states(lang).into_iter().find(|(name, _)| name == "main-community-person").unwrap();
+            main.settings.token = "test-account".into();
+            main.settings.chat_id = Some(-42);
+            main.community.as_mut().unwrap().staged = false;
+            let at = main.community_person.unwrap();
+            let person = main.community.as_ref().unwrap().people[at].clone();
+            main.sync_dossiers();
+            let mut dossier = main.community.as_ref().unwrap().me.clone().unwrap();
+            dossier.person = person.clone();
+            main.people_dossiers.insert(person.id, dossier);
+            main.dossier_cache.request(person.id, std::time::Instant::now(), super::unix_now()).unwrap();
+            main.person_fade = iced::Animation::new(true);
+            main.person_at -= std::time::Duration::from_secs(2);
+            for width in [980.0, 1440.0] {
+                main.width = width;
+                main.height = 1100.0;
+                let mut ui = iced_test::Simulator::with_size(crate::settings(), iced::Size::new(width, main.height), crate::gallery::main_frame(&main, &backdrop));
+                assert!(ui.find(main.words.t("dossier-refreshing")).is_ok());
+                assert!(ui.find(person.name.as_str()).is_ok());
+                assert!(ui.find("✕").is_ok(), "refresh keeps the panel interactive");
+                if let Ok(dir) = std::env::var("DOSSIER_DOSSIER_REVIEW") {
+                    std::fs::create_dir_all(&dir).unwrap();
+                    ui.snapshot(&crate::theme::theme()).unwrap().matches_image(std::path::Path::new(&dir).join(format!("cached-profile-{}-{}", lang.tag(), width as u32))).unwrap();
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_cached_dossier_stays_visible_during_refresh_and_catalogue_reordering() {
+        use crate::community::wire;
+        use crate::dossier_cache::Entry;
+        let (_, mut main) = crate::gallery::main_states(crate::lang::Lang::En).into_iter().find(|(name, _)| name == "main-community-person").unwrap();
+        main.settings.token = "test-account".into();
+        main.settings.chat_id = Some(-42);
+        main.community.as_mut().unwrap().staged = false;
+        let at = main.community.as_ref().unwrap().people.iter().position(|person| !person.you).unwrap();
+        let person = main.community.as_ref().unwrap().people[at].clone();
+        main.community_person = Some(at);
+        main.sync_dossiers();
+        let time = super::unix_now();
+        let request = main.dossier_cache.request(person.id, std::time::Instant::now(), time).unwrap();
+        let dossier = wire::Me {
+            person: wire::Person { id: person.id, name: person.name.clone(), ..Default::default() },
+            points: 123,
+            recent: vec![wire::Recent { play: wire::Play { map: wire::Map { title: "Cached map".into(), ..Default::default() }, ..Default::default() }, ..Default::default() }],
+            ..Default::default()
+        };
+        let entered = main.person_at;
+        let fade = main.person_fade.value();
+        let _ = main.update(super::Message::PersonDossierCached(request.clone(), Some(Entry { saved_at: time - 120, dossier })));
+        assert_eq!(main.people_dossiers[&person.id].points, 123);
+        assert!(main.dossier_cache.loading(person.id));
+        assert_eq!(main.person_at, entered);
+        assert_eq!(main.person_fade.value(), fade);
+        let _ = main.update(super::Message::PersonDossier(request.clone(), Err("offline".into())));
+        assert_eq!(main.people_dossiers[&person.id].points, 123);
+        assert!(!main.dossier_cache.loading(person.id));
+        let retry = main.dossier_cache.request(person.id, std::time::Instant::now() + std::time::Duration::from_secs(20), time + 20).unwrap();
+        let refreshed = wire::Me {
+            points: 124,
+            ..main.dossier_cache.get(person.id).unwrap().dossier.clone()
+        };
+        let _ = main.update(super::Message::PersonDossier(retry, Ok(refreshed)));
+        assert_eq!(main.people_dossiers[&person.id].points, 124);
+        assert_eq!(main.person_at, entered);
+        assert_eq!(main.person_fade.value(), fade);
+        let fresh = wire::Community {
+            chat: Some(-42),
+            people: vec![wire::Person { id: person.id, name: person.name.clone(), ..Default::default() }],
+            ..Default::default()
+        };
+        let _ = main.update(super::Message::CommunityArrived(Ok(fresh)));
+        assert_eq!(main.community_person, Some(0), "selection follows identity, not the former row position");
+        let shown = &main.people_dossiers[&person.id];
+        assert_eq!(shown.points, 124);
+        assert!(main.community.as_ref().unwrap().maps[shown.recent[0].map].line.contains("Cached map"));
+        assert_eq!(main.person_at, entered, "refresh must not restart the opening animation");
+        main.settings.chat_id = Some(-43);
+        main.sync_dossiers();
+        assert!(main.people_dossiers.is_empty());
+        let late = wire::Me { person: wire::Person { id: person.id, ..Default::default() }, points: 999, ..Default::default() };
+        let _ = main.update(super::Message::PersonDossier(request, Ok(late)));
+        assert!(main.people_dossiers.is_empty(), "an old group's response must not enter the new cache");
+    }
+
+    #[test]
+    fn selected_community_switches_do_not_restart_panel_animations() {
+        use crate::community_screen::{Message as C, PeopleFrom, Section, Standing};
+        let (_, mut main) = crate::gallery::main_states(crate::lang::Lang::En).into_iter().find(|(name, _)| name == "main-community-boards").unwrap();
+        for standing in [Standing::Adaptive, Standing::General] {
+            let _ = main.update(super::Message::Community(C::Standing(standing)));
+            let started = main.shift_at;
+            let _ = main.update(super::Message::Community(C::Standing(standing)));
+            assert_eq!(main.shift_at, started);
+        }
+        for board in crate::community::Board::ALL {
+            let _ = main.update(super::Message::Community(C::Board(board)));
+            let started = main.shift_at;
+            let _ = main.update(super::Message::Community(C::Board(board)));
+            assert_eq!(main.shift_at, started);
+        }
+        for section in [Section::People, Section::Profile, Section::Feed, Section::Boards, Section::Titles] {
+            let _ = main.update(super::Message::Community(C::Section(section)));
+            let started = main.section_at;
+            let _ = main.update(super::Message::Community(C::Section(section)));
+            assert_eq!(main.section_at, started);
+        }
+        for from in [PeopleFrom::Game, PeopleFrom::Chat] {
+            let _ = main.update(super::Message::Community(C::PeopleFrom(from)));
+            let started = main.shift_at;
+            let _ = main.update(super::Message::Community(C::PeopleFrom(from)));
+            assert_eq!(main.shift_at, started);
+        }
+        for filter in crate::chronicle::Filter::ALL {
+            let _ = main.update(super::Message::Community(C::Filter(filter)));
+            let started = main.group_at;
+            let news = main.news_at;
+            let _ = main.update(super::Message::Community(C::Filter(filter)));
+            assert_eq!((main.group_at, main.news_at), (started, news));
+            assert_eq!(main.feed_filter, filter);
+        }
+        for source in crate::chronicle::Source::ALL {
+            let _ = main.update(super::Message::Community(C::Source(source)));
+            let started = main.news_at;
+            let group = main.group_at;
+            let _ = main.update(super::Message::Community(C::Source(source)));
+            assert_eq!((main.news_at, main.group_at), (started, group));
+            assert_eq!(main.feed_source, source);
+        }
+    }
+
+    #[test]
+    fn stream_switches_only_restart_the_timeline_transition() {
+        use crate::chronicle::Stream;
+        use crate::community_screen::Message as CommunityMessage;
+        let (_, mut main) = crate::gallery::main_states(crate::lang::Lang::En).into_iter().find(|(name, _)| name == "main-community-feed").unwrap();
+        let section = main.section_at;
+        let shift = main.shift_at;
+        let group = main.group_at;
+        let news = main.news_at;
+        for stream in [Stream::Group, Stream::News, Stream::All] {
+            let previous = main.stream_at;
+            let _ = main.update(super::Message::Community(CommunityMessage::Stream(stream)));
+            assert!(main.stream_at > previous);
+            assert_eq!((main.section_at, main.shift_at, main.group_at, main.news_at), (section, shift, group, news));
+            let same = main.stream_at;
+            let _ = main.update(super::Message::Community(CommunityMessage::Stream(stream)));
+            assert_eq!(main.stream_at, same, "clicking the selected stream must not replay its animation");
+        }
+    }
+
+    #[test]
     fn a_windowed_strip_is_exactly_as_wide_as_the_whole_one() {
         let widths: Vec<f32> = (0..40).map(|at| if at == 17 { 116.0 } else { 108.0 }).collect();
         let whole = widths.iter().sum::<f32>() + FRAME_GAP * (widths.len() - 1) as f32;
@@ -6261,6 +6773,61 @@ mod tests {
                     assert!(x <= to && x + widths[*index] + FRAME_GAP >= from, "frame {index} is outside {from}..{to}");
                 }
             }
+        }
+    }
+
+    #[test]
+    fn a_saved_video_uses_encoded_metadata_instead_of_replay_time_or_current_settings() {
+        let (_, mut main) = crate::gallery::main_states(crate::lang::Lang::En).into_iter().next().unwrap();
+        let replay = main.entries()[0].path.clone();
+        main.lengths.insert(replay.clone(), 300_000);
+        main.settings.render_fps = 30;
+        main.settings.render_height = 720;
+        main.rendering = Some(super::Rendering { path: replay, reached: vec![], out: None });
+        let media = crate::videos::Probe { length_ms: 202_500, width: 1920, height: 1080, fps: 120.0 };
+        let _ = main.update(super::Message::Rendered(crate::render::Step::Saved("finished.mp4".into(), media)));
+        let saved = &main.store.videos[0];
+        assert_eq!((saved.length_ms, saved.width, saved.height, saved.fps), (202_500, 1920, 1080, 120.0));
+    }
+
+    #[test]
+    fn leaving_the_previous_frame_does_not_clear_the_new_hover() {
+        let (_, mut main) = crate::gallery::main_states(crate::lang::Lang::En).into_iter().next().unwrap();
+        let bounds = iced::Rectangle::new(iced::Point::ORIGIN, iced::Size::new(108.0, 70.0));
+        let _ = main.update(super::Message::Over(2, bounds));
+        let _ = main.update(super::Message::Over(1, bounds));
+        let since = main.hover_since;
+        let _ = main.update(super::Message::HoverLeft(2));
+        assert_eq!(main.hover, Some(1));
+        let _ = main.update(super::Message::Over(1, bounds));
+        assert_eq!(main.hover_since, since, "layout updates must not restart the hover animation");
+        let _ = main.update(super::Message::HoverLeft(1));
+        assert_eq!(main.hover, None);
+    }
+
+    #[test]
+    fn bubble_anchor_ignores_subpixel_noise_and_follows_real_layout_moves() {
+        let (_, mut main) = crate::gallery::main_states(crate::lang::Lang::En).into_iter().next().unwrap();
+        let bounds = iced::Rectangle::new(iced::Point::new(100.0, 650.0), iced::Size::new(108.0, 70.0));
+        let _ = main.update(super::Message::Over(1, bounds));
+        let since = main.hover_since;
+        let noisy = iced::Rectangle { x: bounds.x + 0.1, y: bounds.y - 0.1, ..bounds };
+        let _ = main.update(super::Message::Over(1, noisy));
+        assert_eq!(main.hover_bounds, Some(bounds));
+        let scrolled = iced::Rectangle { x: bounds.x - 24.0, ..bounds };
+        let _ = main.update(super::Message::Over(1, scrolled));
+        assert_eq!(main.hover_bounds, Some(scrolled));
+        assert_eq!(main.hover_since, since);
+    }
+
+    #[test]
+    fn operations_menu_can_open_in_every_catalogue() {
+        let (_, mut main) = crate::gallery::main_states(crate::lang::Lang::En).into_iter().next().unwrap();
+        for overlay in [super::Overlay::None, super::Overlay::Videos, super::Overlay::Community, super::Overlay::Settings] {
+            main.menu = None;
+            let _ = main.update(super::Message::Show(overlay));
+            let _ = main.update(super::Message::Circle);
+            assert_eq!(main.menu, Some(super::Tab::Account));
         }
     }
 

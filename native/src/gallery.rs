@@ -176,11 +176,13 @@ static FONTS_LOADED: std::sync::Once = std::sync::Once::new();
 
 fn settings_once() -> iced::Settings {
     let mut settings = crate::settings();
-    let mut first = false;
-    FONTS_LOADED.call_once(|| first = true);
-    if !first {
-        settings.fonts.clear();
-    }
+    FONTS_LOADED.call_once(|| {
+        let mut fonts = iced::advanced::graphics::text::font_system().write().expect("the font system");
+        for bytes in crate::theme::FONTS {
+            fonts.load_font(std::borrow::Cow::Borrowed(bytes));
+        }
+    });
+    settings.fonts.clear();
     settings
 }
 
@@ -210,6 +212,26 @@ pub fn written_as(stem: &Path) -> PathBuf {
         .unwrap_or_else(|| dir.join(format!("{name}-unknown.png")))
 }
 
+/// Export into a private staging directory, then replace the completed PNG atomically.
+/// Unlike `Snapshot::matches_image`, this always writes the current frame.
+pub fn write_snapshot(shot: &iced_test::simulator::Snapshot, stem: &Path) -> Result<PathBuf, String> {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    struct Staging(PathBuf);
+    impl Drop for Staging { fn drop(&mut self) { let _ = std::fs::remove_dir_all(&self.0); } }
+    let parent = stem.parent().filter(|path| !path.as_os_str().is_empty()).unwrap_or_else(|| Path::new("."));
+    std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    let serial = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_err(|e| e.to_string())?.as_nanos();
+    let staged = Staging(parent.join(format!(".dossier-frame-{}-{stamp}-{serial}", std::process::id())));
+    std::fs::create_dir(&staged.0).map_err(|e| e.to_string())?;
+    let name = stem.file_name().ok_or_else(|| "snapshot needs a file name".to_owned())?;
+    shot.matches_image(staged.0.join(name)).map_err(|e| format!("{e:?}"))?;
+    let file = written_as(&staged.0.join(name));
+    let into = parent.join(file.file_name().ok_or_else(|| "snapshot PNG was not written".to_owned())?);
+    std::fs::rename(&file, &into).map_err(|e| e.to_string())?;
+    Ok(into)
+}
+
 pub fn every_frame() -> Vec<(String, FirstRun, Size)> {
     let mut out = Vec::new();
     for lang in Lang::ALL {
@@ -231,10 +253,8 @@ pub fn write(dir: &Path) -> Result<usize, String> {
     let mut written = 0;
     for (name, flow, size) in every_frame() {
         let stem = dir.join(&name);
-        let _ = std::fs::remove_file(written_as(&stem));
-        let _ = std::fs::remove_file(written_as(&stem));
         let shot = snapshot(&flow, size).map_err(|e| format!("{e:?}"))?;
-        shot.matches_image(&stem).map_err(|e| format!("{e:?}"))?;
+        write_snapshot(&shot, &stem)?;
         written += 1;
     }
     let _ = App::boot;
@@ -392,7 +412,7 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
     worker.overlay = Overlay::Settings;
     worker.overlay_drawn = Overlay::Settings;
     worker.overlay_fade = iced::Animation::new(true);
-    worker.side = crate::settings_screen::Side::App;
+    worker.side = crate::settings_screen::Side::Bot;
     worker.settings.worker_on = true;
     worker.settings.token = "staged".into();
     worker.ffmpeg_version = Some("7.1".to_owned());
@@ -440,19 +460,21 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
     rendered.ffmpeg = Some(PathBuf::from("ffmpeg"));
     rendered.rendering = Some(crate::main_screen::Rendering {
         path: library.entries[0].path.clone(),
-        reached: vec![crate::render::Step::Encoded, crate::render::Step::Saved(PathBuf::from("out.mp4"))],
+        reached: vec![crate::render::Step::Encoded, crate::render::Step::Saved(PathBuf::from("out.mp4"), crate::videos::Probe { length_ms: 120_000, width: 1920, height: 1080, fps: 60.0 })],
         out: Some(PathBuf::from("out.mp4")),
     });
     rendered.announce(
         crate::notices::Mark::Done,
         rendered.words.t("rendered-notice"),
         "NaumRedlo — Dj Grimoire — Astral Quantization [Nattu VN0TH3R]".to_owned(),
-        "3:51 · 84,2 МБ".to_owned(),
+        "3:51  84,2 МБ".to_owned(),
         library.entries[0].map_hash.clone(),
         crate::notices::Link::OpenVideo(PathBuf::from("out.mp4")),
     );
+    for notice in &mut rendered.notices.notices { notice.at = NOON; }
     for toast in &mut rendered.toasts {
         toast.shown = iced::Animation::new(true);
+        toast.born = rendered.now - std::time::Duration::from_secs(2);
     }
     if let Some(bg) = library.entries[0].map.as_ref().and_then(|m| m.background.clone()) {
         if let Some(handle) = crate::main_screen::decoded(&bg, 640, None) {
@@ -483,7 +505,7 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
             length_ms,
             width: 1920,
             height: 1080,
-            fps: 60,
+            fps: 60.0,
             size,
             made_at,
             sent_at: None,
@@ -527,7 +549,7 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
     for (mark, words, detail, note, at, link) in [
         (crate::notices::Mark::Bad, "Рендер не завершился", "Guest — xi — Blue Zenith", "ffmpeg завершился с кодом 1", 1, crate::notices::Link::RenderAgain(library.entries[1].path.clone())),
         (crate::notices::Mark::Done, "Карта скачана", "xi — Blue Zenith", "[FOUR DIMENSIONS]", 1, crate::notices::Link::None),
-        (crate::notices::Mark::Done, "Ушло в Telegram", "-legusshhka- — xi — FREEDOM DiVE [Extra]", "@naumredlo · 97,7 МБ", 2, crate::notices::Link::None),
+        (crate::notices::Mark::Done, "Ушло в Telegram", "-legusshhka- — xi — FREEDOM DiVE [Extra]", "@naumredlo  97,7 МБ", 2, crate::notices::Link::None),
         (crate::notices::Mark::Plain, "Открыто", "сборка 0.89.4", "", 0, crate::notices::Link::None),
     ]
     .into_iter()
@@ -579,7 +601,7 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
     prefs_app.skins = vec![std::path::PathBuf::from("/skins/- # Seoul v11"), std::path::PathBuf::from("/skins/rafis 2019")];
     prefs_bot.chats = vec![
         crate::bot::Chat { id: 7, title: "Личный чат".into(), private: true, photo: false },
-        crate::bot::Chat { id: -100, title: "osu! RU · lounge".into(), private: false, photo: false },
+        crate::bot::Chat { id: -100, title: "osu! RU  lounge".into(), private: false, photo: false },
         crate::bot::Chat { id: -101, title: "1984 crew".into(), private: false, photo: false },
     ];
     let community = |section: crate::community_screen::Section, person: Option<usize>| {
@@ -601,8 +623,26 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
     let mut signing = staged(Some(0));
     signing.pairing = crate::main_screen::Pairing::Waiting { code: "K7QN-M4XZ".into(), link: "https://t.me/bot?start=pair-K7QNM4XZ".into() };
     signing.qr = crate::first_run::qr_for("https://t.me/bot?start=pair-K7QNM4XZ");
+    let mut idle = staged(Some(0));
+    idle.resting = iced::Animation::new(true);
+    let mut notifications = staged(Some(0));
+    notifications.now_unix = NOON;
+    for (mark, heading, detail, note, link) in [
+        (crate::notices::Mark::Done, notifications.words.t("rendered-notice"), "NaumRedlo — Dj Grimoire — Astral Quantization [Nattu VN0TH3R]", "3:51  84,2 МБ", crate::notices::Link::OpenVideo(PathBuf::from("out.mp4"))),
+        (crate::notices::Mark::Plain, notifications.words.t("whats-new"), "Dossier 0.92.1", "", crate::notices::Link::Page("https://example.com/changes".into())),
+        (crate::notices::Mark::Bad, notifications.words.t("render-failed"), "A very long map name with several words that should wrap naturally inside the notification without covering its actions or closing button", "ffmpeg exited with code 1", crate::notices::Link::RenderAgain(library.entries[0].path.clone())),
+    ] {
+        notifications.announce(mark, heading, detail.into(), note.into(), String::new(), link);
+    }
+    for notice in &mut notifications.notices.notices { notice.at = NOON; }
+    for toast in &mut notifications.toasts {
+        toast.shown = iced::Animation::new(true);
+        toast.born = notifications.now - std::time::Duration::from_secs(2);
+    }
     vec![
         ("main-rest".to_owned(), staged(Some(0))),
+        ("main-idle".to_owned(), idle),
+        ("main-notifications".to_owned(), notifications),
         ("main-menu-guest".to_owned(), menu_guest),
         ("main-menu-account".to_owned(), menu_account),
         ("main-menu-feed".to_owned(), menu_feed),
@@ -724,10 +764,12 @@ pub fn every_main_frame() -> Vec<(String, crate::main_screen::Main, Size)> {
     for lang in Lang::ALL {
         for (name, main) in main_states(lang) {
             for (label, size) in SIZES {
-                if label != SIZES[0].0 && name != "main-rest" {
+                if label != SIZES[0].0 && name != "main-rest" && name != "main-idle" && name != "main-notifications" {
                     continue;
                 }
-                out.push((format!("{name}-{}-{label}", lang.tag()), main.clone(), size));
+                let mut frame = main.clone();
+                if name == "main-idle" || name == "main-notifications" { frame.width = size.width; frame.height = size.height; }
+                out.push((format!("{name}-{}-{label}", lang.tag()), frame, size));
             }
         }
     }
@@ -739,9 +781,8 @@ pub fn write_main(dir: &Path) -> Result<usize, String> {
     let mut written = 0;
     for (name, main, size) in every_main_frame() {
         let stem = dir.join(&name);
-        let _ = std::fs::remove_file(written_as(&stem));
         let shot = snapshot_main(&main, size).map_err(|e| format!("{e:?}"))?;
-        shot.matches_image(&stem).map_err(|e| format!("{e:?}"))?;
+        write_snapshot(&shot, &stem)?;
         written += 1;
     }
     Ok(written)

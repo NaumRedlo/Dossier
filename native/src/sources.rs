@@ -435,6 +435,7 @@ fn stable_roots() -> Vec<PathBuf> {
         home.join("osu"),
         home.join("Games").join("osu!"),
         home.join(".local").join("share").join("osu-stable"),
+        home.join(".local").join("share").join("osu-wine").join("osu!"),
     ];
     for key in ["LOCALAPPDATA", "PROGRAMFILES", "PROGRAMFILES(X86)"] {
         if let Some(base) = std::env::var_os(key) {

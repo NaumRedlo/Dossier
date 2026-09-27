@@ -17,7 +17,7 @@ pub struct Video {
     pub length_ms: i64,
     pub width: u32,
     pub height: u32,
-    pub fps: u32,
+    pub fps: f64,
     pub size: u64,
     pub made_at: i64,
     pub sent_at: Option<i64>,
@@ -25,7 +25,7 @@ pub struct Video {
 }
 
 impl Video {
-    pub fn from_render(entry: &Entry, path: PathBuf, length_ms: i64, width: u32, height: u32, fps: u32) -> Video {
+    pub fn from_render(entry: &Entry, path: PathBuf, length_ms: i64, width: u32, height: u32, fps: f64) -> Video {
         let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
         let (song, version, background) = match &entry.map {
             Some(map) => (format!("{} — {}", map.artist, map.title), map.version.clone(), map.background.clone()),
@@ -66,8 +66,19 @@ impl Video {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Store {
     pub videos: Vec<Video>,
+    #[serde(default)]
+    pub deliveries: Deliveries,
     #[serde(skip)]
     at: PathBuf,
+}
+
+/// Lifetime totals are independent of the files still present in the catalogue.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Deliveries {
+    pub count: u64,
+    pub bytes: u64,
+    #[serde(default)]
+    migrated: bool,
 }
 
 pub fn index_path() -> PathBuf {
@@ -85,6 +96,14 @@ impl Store {
             .and_then(|bytes| serde_json::from_slice(&bytes).ok())
             .unwrap_or_default();
         store.at = index;
+        if !store.deliveries.migrated {
+            for video in store.videos.iter().filter(|v| v.sent_at.is_some()) {
+                store.deliveries.count += 1;
+                store.deliveries.bytes = store.deliveries.bytes.saturating_add(video.size);
+            }
+            store.deliveries.migrated = true;
+            // Count missing files too; the next write persists the migrated totals.
+        }
         store.videos.retain(|v| v.path.exists());
         store.videos.sort_by_key(|v| std::cmp::Reverse(v.made_at));
         store
@@ -113,11 +132,14 @@ impl Store {
         self.save();
     }
 
-    pub fn mark_sent(&mut self, path: &Path, at: i64) {
+    pub fn mark_sent(&mut self, path: &Path, at: i64, bytes: u64) {
         if let Some(video) = self.videos.iter_mut().find(|v| v.path == path) {
             video.sent_at = Some(at);
-            self.save();
         }
+        self.deliveries.count = self.deliveries.count.saturating_add(1);
+        self.deliveries.bytes = self.deliveries.bytes.saturating_add(bytes);
+        self.deliveries.migrated = true;
+        self.save();
     }
 
     pub fn marry(&mut self, entries: &[Entry]) {
@@ -144,13 +166,34 @@ impl Store {
     pub fn total_size(&self) -> u64 {
         self.videos.iter().map(|v| v.size).sum()
     }
+
+    pub fn delivery_totals(&self) -> (u64, u64) {
+        if self.deliveries.count > 0 || self.deliveries.bytes > 0 {
+            return (self.deliveries.count, self.deliveries.bytes);
+        }
+        self.videos
+            .iter()
+            .filter(|video| video.sent_at.is_some())
+            .fold((0, 0), |(count, bytes), video| (count.saturating_add(1), bytes.saturating_add(video.size)))
+    }
+
+    pub fn refresh_media(&mut self, path: &Path, media: Probe) {
+        if let Some(video) = self.videos.iter_mut().find(|v| v.path == path) {
+            video.length_ms = media.length_ms;
+            video.width = media.width;
+            video.height = media.height;
+            video.fps = media.fps;
+            self.save();
+        }
+    }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Probe {
     pub length_ms: i64,
     pub width: u32,
     pub height: u32,
-    pub fps: u32,
+    pub fps: f64,
 }
 
 pub fn probe(ffmpeg: &Path, path: &Path) -> Option<Probe> {
@@ -177,7 +220,7 @@ pub fn read_probe(text: &str) -> Option<Probe> {
             for part in line.split(',') {
                 let part = part.trim();
                 if let Some(rate) = part.strip_suffix(" fps") {
-                    fps = rate.trim().parse::<f64>().ok().map(|f| f.round() as u32);
+                    fps = rate.trim().parse::<f64>().ok().filter(|f| f.is_finite() && *f > 0.0);
                 }
                 let dims = part.split(' ').next().unwrap_or("");
                 if let Some((w, h)) = dims.split_once('x') {
@@ -191,7 +234,7 @@ pub fn read_probe(text: &str) -> Option<Probe> {
         }
     }
     let (width, height) = size?;
-    Some(Probe { length_ms: length_ms?, width, height, fps: fps.unwrap_or(60) })
+    Some(Probe { length_ms: length_ms?, width, height, fps: fps.unwrap_or(60.0) })
 }
 
 pub fn named_from_file(stem: &str) -> (String, String, String) {
@@ -262,7 +305,13 @@ mod tests {
     fn ffmpeg_banner_gives_length_size_and_rate() {
         let text = "  Duration: 00:03:51.20, start: 0.000000, bitrate: 3373 kb/s\n  Stream #0:0[0x1](und): Video: h264 (High) (avc1 / 0x31637661), yuv420p(tv, bt709/unknown/unknown, progressive), 1920x1080, 3153 kb/s, 60 fps, 60 tbr, 15360 tbn (default)\n";
         let probe = read_probe(text).unwrap();
-        assert_eq!((probe.length_ms, probe.width, probe.height, probe.fps), (231_200, 1920, 1080, 60));
+        assert_eq!((probe.length_ms, probe.width, probe.height, probe.fps), (231_200, 1920, 1080, 60.0));
+    }
+
+    #[test]
+    fn fractional_frame_rates_are_not_rounded() {
+        let media = read_probe("Duration: 00:00:02.00, start: 0.0\nStream #0:0: Video: h264, yuv420p, 1280x720, 59.94 fps").unwrap();
+        assert!((media.fps - 59.94).abs() < 0.0001);
     }
 
     #[test]
@@ -292,7 +341,7 @@ mod tests {
             length_ms: 0,
             width: 1920,
             height: 1080,
-            fps: 60,
+            fps: 60.0,
             size: 1,
             made_at,
             sent_at: None,
@@ -312,4 +361,68 @@ mod tests {
         assert_eq!(again.videos[0].made_at, 3);
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn deliveries_survive_deletion_replacement_and_restart() {
+        let dir = std::env::temp_dir().join(format!("dossier-deliveries-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("already-deleted.mp4");
+        let index = dir.join("videos.json");
+        let mut store = Store::at(index.clone());
+        store.mark_sent(&path, 100, 400);
+        store.mark_sent(&path, 200, 600);
+        store.forget(&path);
+        let store = Store::at(index.clone());
+        assert!(store.videos.is_empty());
+        assert_eq!((store.deliveries.count, store.deliveries.bytes), (2, 1000));
+        let again = Store::at(index);
+        assert_eq!(again.deliveries, store.deliveries);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn delivery_totals_can_read_legacy_sent_marks_before_migration() {
+        let mut store = Store::default();
+        store.videos = vec![Video {
+            path: PathBuf::from("old.mp4"),
+            replay: PathBuf::new(),
+            replay_hash: String::new(),
+            map_hash: String::new(),
+            player: "p".into(),
+            song: "s".into(),
+            version: String::new(),
+            mods: Vec::new(),
+            length_ms: 0,
+            width: 1920,
+            height: 1080,
+            fps: 60.0,
+            size: 1234,
+            made_at: 0,
+            sent_at: Some(1),
+            background: None,
+        }];
+        assert_eq!(store.delivery_totals(), (1, 1234));
+    }
+
+    #[test]
+    fn legacy_sent_files_are_counted_before_missing_files_are_pruned() {
+        let dir = std::env::temp_dir().join(format!("dossier-delivery-migration-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let index = dir.join("videos.json");
+        let legacy = serde_json::json!({"videos": [{
+            "path": dir.join("missing.mp4"), "replay": "", "replay_hash": "", "map_hash": "",
+            "player": "p", "song": "s", "version": "", "mods": [], "length_ms": 1000,
+            "width": 1920, "height": 1080, "fps": 60, "size": 1234, "made_at": 1,
+            "sent_at": 2, "background": null
+        }]});
+        std::fs::write(&index, serde_json::to_vec(&legacy).unwrap()).unwrap();
+        let mut store = Store::at(index.clone());
+        assert!(store.videos.is_empty());
+        assert_eq!((store.deliveries.count, store.deliveries.bytes), (1, 1234));
+        store.mark_sent(&dir.join("missing.mp4"), 3, 50);
+        let again = Store::at(index);
+        assert_eq!((again.deliveries.count, again.deliveries.bytes), (2, 1284));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
 }

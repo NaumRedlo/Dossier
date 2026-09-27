@@ -612,7 +612,7 @@ impl Catalog {
         let activity = (0..91)
             .filter_map(|back: i64| {
                 let n = ((back * 37 + 11) % 23) as u32;
-                (n > 4).then_some((today - back * day, n - 4))
+                (n > 4).then(|| (today - back * day, n - 4))
             })
             .collect();
         let title_dates = [("wysi", 77), ("masks_5", 114), ("graveyard", 134), ("s_50", 204), ("combo_2000", 66), ("doublethink", 52), ("registered", 900)]
@@ -757,6 +757,7 @@ impl Catalog {
         if self.staged {
             card.handle = format!("@{}", you.name.to_lowercase());
             card.country_rank = 412.0;
+            card.country_rank_history = (0..90).map(|day| (610.0 - 198.0 * day as f64 / 89.0).round()).collect();
             card.level_progress = 45.0;
             card.maximum_combo = 3_421.0;
             card.replays_watched = 234.0;
@@ -1172,6 +1173,10 @@ pub mod wire {
             (None, osu) => return osu.cloned(),
         };
         let mut made = bot.clone();
+        if (bot.osu_id > 0.0 && osu.osu_id > 0.0 && bot.osu_id != osu.osu_id)
+            || ((bot.osu_id <= 0.0 || osu.osu_id <= 0.0) && !bot.username.is_empty() && !osu.username.is_empty() && !bot.username.eq_ignore_ascii_case(&osu.username)) {
+            return Some(made);
+        }
         if made.top_scores.is_empty() {
             made.top_scores = osu.top_scores.clone();
         }
@@ -1214,6 +1219,20 @@ pub mod wire {
         if made.rank_history.is_empty() {
             made.rank_history = osu.rank_history.clone();
         }
+        if !made.country.is_empty() && !osu.country.is_empty() && !made.country.eq_ignore_ascii_case(&osu.country) {
+            made.country_rank_history.clear();
+            made.country_rank_samples.clear();
+        }
+        if !osu.country_rank_history.is_empty() { made.country_rank_history = osu.country_rank_history.clone(); }
+        if !osu.country_rank_samples.is_empty() { made.country_rank_samples = osu.country_rank_samples.clone(); }
+        if !osu.country.is_empty() {
+            made.country_rank = osu.country_rank;
+            made.country = osu.country.clone();
+            made.country_name = osu.country_name.clone();
+        }
+        // Live presence comes from the latest osu! profile, rather than a saved bot card.
+        made.is_online = osu.is_online;
+        made.last_visit = osu.last_visit.clone();
         if made.level_progress <= 0.0 {
             made.level_progress = osu.level_progress;
         }
@@ -1292,6 +1311,10 @@ pub mod wire {
         pub cover_url: String,
         #[serde(default, deserialize_with = "numbers")]
         pub rank_history: Vec<f64>,
+        #[serde(default, deserialize_with = "numbers")]
+        pub country_rank_history: Vec<f64>,
+        #[serde(default)]
+        pub country_rank_samples: Vec<(i64, f64)>,
         #[serde(default)]
         pub top_scores: Vec<Score>,
         #[serde(default, deserialize_with = "words")]
@@ -1299,6 +1322,27 @@ pub mod wire {
     }
 
     impl Card {
+        pub fn remember_country_rank(&mut self, previous: Option<&Card>, now: i64) {
+            if let Some(previous) = previous {
+                let same_person = if self.osu_id > 0.0 && previous.osu_id > 0.0 {
+                    self.osu_id == previous.osu_id
+                } else {
+                    !self.username.is_empty() && self.username.eq_ignore_ascii_case(&previous.username)
+                };
+                if same_person && !self.country.is_empty() && self.country.eq_ignore_ascii_case(&previous.country) {
+                    self.country_rank_samples.extend(previous.country_rank_samples.iter().copied());
+                }
+            }
+            self.country_rank_samples.retain(|(at, rank)| *at >= now - 90 * 86_400 && *at <= now && rank.is_finite() && *rank > 0.0);
+            self.country_rank_samples.sort_by_key(|(at, _)| *at);
+            self.country_rank_samples.dedup_by_key(|(at, _)| *at);
+            if self.country_rank.is_finite() && self.country_rank > 0.0 && !self.country.is_empty() {
+                let day = now.div_euclid(86_400);
+                self.country_rank_samples.retain(|(at, _)| at.div_euclid(86_400) != day);
+                self.country_rank_samples.push((now, self.country_rank));
+            }
+        }
+
         pub fn pictures(&self) -> Vec<(String, u32)> {
             let mut wanted = Vec::new();
             if !self.avatar_url.is_empty() {
@@ -1384,6 +1428,44 @@ mod tests {
         assert_eq!(moscow_monday(1_790_215_719), 1_789_938_000);
         assert_eq!(moscow_monday(1_789_938_000), 1_789_938_000);
         assert_eq!(moscow_monday(1_789_937_999), 1_789_938_000 - 7 * 86_400);
+    }
+
+    #[test]
+    fn country_rank_observations_survive_updates_without_mixing_players_or_countries() {
+        let day = 20_000 * 86_400;
+        let mut previous = wire::Card { osu_id: 1.0, username: "Player".into(), country: "RU".into(), country_rank: 500.0, ..wire::Card::default() };
+        previous.remember_country_rank(None, day);
+        let mut fresh = wire::Card { country_rank: 480.0, country_rank_samples: Vec::new(), ..previous.clone() };
+        fresh.remember_country_rank(Some(&previous), day + 60);
+        assert_eq!(fresh.country_rank_samples, vec![(day + 60, 480.0)]);
+        let mut next = wire::Card { country_rank: 450.0, country_rank_samples: Vec::new(), ..fresh.clone() };
+        next.remember_country_rank(Some(&fresh), day + 86_400);
+        assert_eq!(next.country_rank_samples, vec![(day + 60, 480.0), (day + 86_400, 450.0)]);
+        let encoded = serde_json::to_vec(&next).unwrap();
+        let decoded: wire::Card = serde_json::from_slice(&encoded).unwrap();
+        assert_eq!(decoded.country_rank_samples, next.country_rank_samples);
+        for (id, country) in [(2.0, "RU"), (1.0, "FR")] {
+            let mut other = wire::Card { osu_id: id, country: country.into(), country_rank_samples: Vec::new(), ..next.clone() };
+            other.remember_country_rank(Some(&next), day + 2 * 86_400);
+            assert_eq!(other.country_rank_samples.len(), 1);
+        }
+        next.remember_country_rank(None, day + 100 * 86_400);
+        assert_eq!(next.country_rank_samples.len(), 1);
+    }
+
+    #[test]
+    fn live_profile_updates_presence_and_keeps_country_history_separate_from_world_rank() {
+        let mut bot = wire::Card { username: "Player".into(), country: "RU".into(), country_rank_history: vec![500.0, 450.0], ..wire::Card::default() };
+        let mut osu = wire::Card { username: "Player".into(), country: "RU".into(), country_rank: 412.0, is_online: true, rank_history: vec![15_000.0, 14_000.0], ..wire::Card::default() };
+        let online = wire::enriched(Some(&bot), Some(&osu)).unwrap();
+        assert!(online.is_online);
+        assert_eq!(online.country_rank_history, vec![500.0, 450.0]);
+        assert_eq!(online.rank_history, vec![15_000.0, 14_000.0]);
+        bot.is_online = true;
+        osu.is_online = false;
+        assert!(!wire::enriched(Some(&bot), Some(&osu)).unwrap().is_online);
+        osu.username = "Someone else".into();
+        assert_eq!(wire::enriched(Some(&bot), Some(&osu)).unwrap(), bot);
     }
 
     #[test]

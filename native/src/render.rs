@@ -12,14 +12,14 @@ pub enum Step {
     Judged,
     Drawing { frames: u64, of: u64, left_seconds: f64 },
     Encoded,
-    Saved(PathBuf),
+    Saved(PathBuf, crate::videos::Probe),
     Stopped,
     Failed(String),
 }
 
 impl Step {
     pub fn is_last(&self) -> bool {
-        matches!(self, Step::Saved(_) | Step::Stopped | Step::Failed(_))
+        matches!(self, Step::Saved(..) | Step::Stopped | Step::Failed(_))
     }
 }
 
@@ -196,7 +196,10 @@ pub fn perform(ask: Ask, push: &mut dyn FnMut(Step) -> bool) {
             events::unlisten();
             notes::unlisten();
             let last = match outcome {
-                Ok(path) => Step::Saved(path),
+                Ok(path) => match crate::videos::probe(&ask.ffmpeg, &path) {
+                    Some(media) => Step::Saved(path, media),
+                    None => Step::Failed("Could not read the rendered video's duration and dimensions".to_owned()),
+                },
                 Err(why) if halt::was_it(&why) || halt::asked() => {
                     let _ = std::fs::remove_file(&ask.out);
                     Step::Stopped

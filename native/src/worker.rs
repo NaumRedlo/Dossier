@@ -233,7 +233,7 @@ fn steps(
     });
     DRAWING.store(false, Ordering::SeqCst);
     match last {
-        Some(render::Step::Saved(_)) => {}
+        Some(render::Step::Saved(..)) => {}
         Some(render::Step::Failed(why)) => return Err(why),
         _ => return Err("the render was stopped".to_owned()),
     }
@@ -275,26 +275,101 @@ fn map_for(setup: &Setup, hash: &str) -> Result<PathBuf, String> {
 }
 
 fn skin_for(setup: &Setup, job: &bot::Job, skin: &bot::JobSkin) -> Result<PathBuf, String> {
-    let hash: String = skin.hash.chars().filter(|c| c.is_ascii_hexdigit()).take(64).collect();
-    if hash.is_empty() {
-        return Err("the skin has no hash".to_owned());
-    }
     let skins = crate::sources::own_root().join("cache").join("farm-skins");
-    let unpacked = skins.join(&hash);
-    if unpacked.is_dir() {
-        return Ok(unpacked);
+    prepare_skin(&skins, skin, |archive| {
+        bot::job_file_limited(&setup.server, &setup.token, &setup.name, &job.id, "skin", archive, SKIN_ARCHIVE_LIMIT)
+            .map_err(|e| e.to_string())
+    }).map_err(|why| format!("the skin: {why}"))
+}
+
+const SKIN_ARCHIVE_LIMIT: u64 = 256 * 1024 * 1024;
+const SKIN_EXPANDED_LIMIT: u64 = 512 * 1024 * 1024;
+const SKIN_FILES_LIMIT: usize = 8192;
+const SKIN_READY: &str = ".dossier-ready-v1";
+
+fn prepare_skin(cache: &Path, skin: &bot::JobSkin, fetch: impl FnOnce(&Path) -> Result<u64, String>) -> Result<PathBuf, String> {
+    let hash = skin.hash.to_ascii_lowercase();
+    if !matches!(hash.len(), 32 | 64) || !hash.bytes().all(|c| c.is_ascii_hexdigit()) {
+        return Err("expected the MD5 or SHA-256 of the skin archive".into());
     }
-    let archive = skins.join(format!("{hash}.osk"));
-    bot::job_file(&setup.server, &setup.token, &setup.name, &job.id, "skin", &archive).map_err(|e| format!("the skin: {e}"))?;
-    let opened = crate::maps::unpack(&archive, &unpacked);
-    let _ = std::fs::remove_file(&archive);
-    match opened {
-        Ok(_) => Ok(unpacked),
-        Err(why) => {
-            let _ = std::fs::remove_dir_all(&unpacked);
-            Err(format!("the skin: {why}"))
+    if skin.size > SKIN_ARCHIVE_LIMIT { return Err("the skin archive is too large".into()); }
+    let destination = cache.join(&hash);
+    if std::fs::read_to_string(destination.join(SKIN_READY)).ok().as_deref() == Some(hash.as_str()) {
+        if let Ok(root) = skin_root(&destination) { return Ok(root); }
+    }
+    std::fs::create_dir_all(cache).map_err(|e| e.to_string())?;
+    let staging = cache.join(format!(".{hash}.part"));
+    if staging.exists() { std::fs::remove_dir_all(&staging).map_err(|e| e.to_string())?; }
+    std::fs::create_dir(&staging).map_err(|e| e.to_string())?;
+    let result = (|| {
+        let archive = staging.join("skin.osk");
+        fetch(&archive)?;
+        let size = std::fs::metadata(&archive).map_err(|e| e.to_string())?.len();
+        if size == 0 || size > SKIN_ARCHIVE_LIMIT { return Err("the skin archive is empty or too large".into()); }
+        if skin.size > 0 && size != skin.size { return Err("the skin archive size does not match the job".into()); }
+        use sha2::Digest;
+        let mut file = std::fs::File::open(&archive).map_err(|e| e.to_string())?;
+        let actual = if hash.len() == 64 {
+            let mut digest = sha2::Sha256::new();
+            std::io::copy(&mut file, &mut digest).map_err(|e| e.to_string())?;
+            format!("{:x}", digest.finalize())
+        } else {
+            let mut digest = md5::Md5::new();
+            std::io::copy(&mut file, &mut digest).map_err(|e| e.to_string())?;
+            format!("{:x}", digest.finalize())
+        };
+        if actual != hash { return Err("the skin archive checksum does not match the job".into()); }
+        let extracted = staging.join("files");
+        unpack_worker_skin(&archive, &extracted)?;
+        let root = skin_root(&extracted)?;
+        let relative = root.strip_prefix(&extracted).map_err(|e| e.to_string())?.to_path_buf();
+        std::fs::write(extracted.join(SKIN_READY), &hash).map_err(|e| e.to_string())?;
+        if destination.exists() { std::fs::remove_dir_all(&destination).map_err(|e| e.to_string())?; }
+        std::fs::rename(&extracted, &destination).map_err(|e| e.to_string())?;
+        Ok(destination.join(relative))
+    })();
+    let _ = std::fs::remove_dir_all(&staging);
+    result
+}
+
+fn unpack_worker_skin(archive: &Path, into: &Path) -> Result<(), String> {
+    let mut zip = zip::ZipArchive::new(std::fs::File::open(archive).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+    if zip.len() > SKIN_FILES_LIMIT { return Err("the skin has too many files".into()); }
+    let mut remaining = SKIN_EXPANDED_LIMIT;
+    for at in 0..zip.len() {
+        let mut entry = zip.by_index(at).map_err(|e| e.to_string())?;
+        let relative = entry.enclosed_name().ok_or("the skin contains an invalid path")?;
+        if entry.name().contains('\\') || relative.components().any(|c| c.as_os_str().to_string_lossy().contains(':')) {
+            return Err("the skin contains an invalid path".into());
+        }
+        if entry.unix_mode().is_some_and(|mode| mode & 0o170000 == 0o120000) { return Err("the skin contains a symbolic link".into()); }
+        if entry.is_dir() { continue; }
+        if entry.size() > remaining { return Err("the expanded skin is too large".into()); }
+        let target = into.join(relative);
+        std::fs::create_dir_all(target.parent().ok_or("the skin contains an invalid path")?).map_err(|e| e.to_string())?;
+        let mut out = std::fs::File::create(&target).map_err(|e| e.to_string())?;
+        let written = std::io::copy(&mut std::io::Read::take(&mut entry, remaining + 1), &mut out).map_err(|e| e.to_string())?;
+        remaining = remaining.checked_sub(written).ok_or("the expanded skin is too large")?;
+    }
+    Ok(())
+}
+
+fn skin_root(folder: &Path) -> Result<PathBuf, String> {
+    if crate::settings::looks_like_skin(folder) { return Ok(folder.to_path_buf()); }
+    let mut pending = vec![folder.to_path_buf()];
+    let mut found = None;
+    while let Some(dir) = pending.pop() {
+        for entry in std::fs::read_dir(&dir).map_err(|e| e.to_string())? {
+            let entry = entry.map_err(|e| e.to_string())?;
+            if !entry.file_type().map_err(|e| e.to_string())?.is_dir() { continue; }
+            let path = entry.path();
+            if crate::settings::looks_like_skin(&path) {
+                if found.is_some() { return Err("the archive contains several skins; send one skin".into()); }
+                found = Some(path);
+            } else { pending.push(path); }
         }
     }
+    found.ok_or_else(|| "the archive does not contain a skin".into())
 }
 
 fn length_of(replay: &Path) -> Duration {
@@ -353,6 +428,84 @@ fn fit(binary: &Path, from: &Path, into: &Path, most: u64, length: Duration) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn skin_archive(files: &[(&str, &[u8])]) -> Vec<u8> {
+        use std::io::Write;
+        let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        for (name, bytes) in files {
+            zip.start_file(*name, zip::write::SimpleFileOptions::default()).unwrap();
+            zip.write_all(bytes).unwrap();
+        }
+        zip.finish().unwrap().into_inner()
+    }
+
+    fn skin_case(bytes: &[u8]) -> (PathBuf, bot::JobSkin) {
+        use sha2::Digest;
+        static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let root = std::env::temp_dir().join(format!("dossier-worker-skin-{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::SeqCst)));
+        (root, bot::JobSkin { name: "Player skin".into(), hash: format!("{:x}", sha2::Sha256::digest(bytes)), size: bytes.len() as u64 })
+    }
+
+    #[test]
+    fn worker_skin_is_verified_cached_and_found_in_a_nested_folder() {
+        let mut picture = Vec::new();
+        {
+            let mut encoder = png::Encoder::new(&mut picture, 16, 16);
+            encoder.set_color(png::ColorType::Rgba);
+            encoder.set_depth(png::BitDepth::Eight);
+            encoder.write_header().unwrap().write_image_data(&[12, 34, 56, 255].repeat(256)).unwrap();
+        }
+        let bytes = skin_archive(&[("My skin/skin.ini", b"[General]\nName: Player\n[Colours]\nCombo1: 3,17,99"), ("My skin/cursor.png", &picture)]);
+        let (root, mut skin) = skin_case(&bytes);
+        skin.hash = skin.hash.to_uppercase();
+        let loaded = prepare_skin(&root, &skin, |path| { std::fs::write(path, &bytes).unwrap(); Ok(bytes.len() as u64) }).unwrap();
+        assert_eq!(std::fs::read(loaded.join("cursor.png")).unwrap(), picture);
+        assert_eq!(loaded.file_name().unwrap(), "My skin");
+        assert_eq!(prepare_skin(&root, &skin, |_| panic!("verified skin should not be downloaded again")).unwrap(), loaded);
+        let rendered_skin = dossier_produce::skin::from_folder(dossier_render::Skin::default(), &loaded, None);
+        assert!((rendered_skin.combo_colours[0].red() - 3.0 / 255.0).abs() < 1e-6);
+        assert!(rendered_skin.sprites.as_ref().unwrap().get(dossier_render::elements::Element::Cursor).is_some(), "the renderer must import the uploaded cursor");
+        use sha2::Digest;
+        skin.hash = format!("{:x}", md5::Md5::digest(&bytes));
+        assert!(prepare_skin(&root, &skin, |path| { std::fs::write(path, &bytes).unwrap(); Ok(bytes.len() as u64) }).unwrap().join("skin.ini").is_file());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn an_interrupted_skin_cache_is_replaced_and_failed_downloads_are_cleaned() {
+        let bytes = skin_archive(&[("skin.ini", b"[General]")]);
+        let (root, skin) = skin_case(&bytes);
+        let stale = root.join(&skin.hash);
+        std::fs::create_dir_all(&stale).unwrap();
+        std::fs::write(stale.join("partial.png"), b"partial").unwrap();
+        assert!(prepare_skin(&root, &skin, |path| { std::fs::write(path, b"partial").unwrap(); Err("disconnected".into()) }).is_err());
+        assert!(!root.join(format!(".{}.part", skin.hash)).exists());
+        let loaded = prepare_skin(&root, &skin, |path| { std::fs::write(path, &bytes).unwrap(); Ok(bytes.len() as u64) }).unwrap();
+        assert!(loaded.join("skin.ini").is_file());
+        assert!(!loaded.join("partial.png").exists());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn incorrect_hash_size_and_archives_never_become_ready_skins() {
+        for files in [vec![("../escaped", &b"bad"[..])], vec![("notes.txt", &b"not a skin"[..])], vec![("A/skin.ini", &b"A"[..]), ("B/skin.ini", &b"B"[..])]] {
+            let bytes = skin_archive(&files);
+            let (root, skin) = skin_case(&bytes);
+            assert!(prepare_skin(&root, &skin, |path| { std::fs::write(path, &bytes).unwrap(); Ok(bytes.len() as u64) }).is_err());
+            assert!(!root.join(&skin.hash).exists());
+            std::fs::remove_dir_all(root).unwrap();
+        }
+        let bytes = skin_archive(&[("skin.ini", b"[General]")]);
+        let (root, mut skin) = skin_case(&bytes);
+        skin.size += 1;
+        assert!(prepare_skin(&root, &skin, |path| { std::fs::write(path, &bytes).unwrap(); Ok(0) }).unwrap_err().contains("size"));
+        skin.size = 0;
+        skin.hash = "a".repeat(64);
+        assert!(prepare_skin(&root, &skin, |path| { std::fs::write(path, &bytes).unwrap(); Ok(0) }).unwrap_err().contains("checksum"));
+        skin.hash = "../abc".into();
+        assert!(prepare_skin(&root, &skin, |_| panic!("invalid hashes must not reach the downloader")).is_err());
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn a_long_video_is_given_a_bitrate_that_fits_the_limit() {

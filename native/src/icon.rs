@@ -9,6 +9,10 @@ use crate::ui::ACCENT_DEEP;
 const MASTER: u32 = 1024;
 const ROUNDNESS: f32 = 5.0;
 const LETTER: f32 = 0.6;
+// The mark in letter-mask.png has a few extra pixels on its right edge.
+// Place its visible bounds at the centre of the app tile, rather than its
+// source canvas centre.
+const LETTER_CENTRE: (f32, f32) = (261.5 / 512.0, 255.5 / 512.0);
 const ICO: [u32; 7] = [16, 24, 32, 48, 64, 128, 256];
 const ICNS: [(&[u8; 4], u32); 11] = [
     (b"icp4", 16),
@@ -95,8 +99,8 @@ pub fn master(margin: f32) -> RgbaImage {
     let tile = side * (1.0 - 2.0 * margin);
     let (left, centre, half) = (side * margin, side / 2.0, tile / 2.0);
     let drawn = tile * LETTER;
-    let letter_left = centre - drawn / 2.0;
-    let letter_top = centre - drawn / 2.0;
+    let letter_left = centre - drawn * LETTER_CENTRE.0;
+    let letter_top = centre - drawn * LETTER_CENTRE.1;
     let small = 256u32;
     let mut glow = GrayImage::new(small, small);
     for y in 0..small {

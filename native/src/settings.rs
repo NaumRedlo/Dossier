@@ -83,6 +83,10 @@ pub struct Settings {
     pub last_build: String,
     #[serde(default)]
     pub own_skins: Vec<PathBuf>,
+    #[serde(default)]
+    pub skin_order: Vec<PathBuf>,
+    #[serde(default)]
+    pub removed_skins: Vec<PathBuf>,
     #[serde(default = "full")]
     pub music_level: f32,
     #[serde(default = "full")]
@@ -171,6 +175,15 @@ pub fn skins_root() -> PathBuf {
 }
 
 pub fn skins_in(sources: &[Source], own: &[PathBuf]) -> Vec<PathBuf> {
+    skins_in_except(sources, own, &[])
+}
+
+pub fn skin_allowed(path: &Path, removed: &[PathBuf], root: &Path) -> bool {
+    !removed.iter().any(|gone| gone == path)
+        && (!is_skin_file(path) || !removed.contains(&root.join(skin_name(path))))
+}
+
+pub fn skins_in_except(sources: &[Source], own: &[PathBuf], removed: &[PathBuf]) -> Vec<PathBuf> {
     let mut roots: Vec<PathBuf> = sources.iter().filter_map(|source| source.skins.clone()).collect();
     for found in crate::sources::find() {
         if let Some(skins) = found.skins {
@@ -203,9 +216,31 @@ pub fn skins_in(sources: &[Source], own: &[PathBuf]) -> Vec<PathBuf> {
         }
     }
     found.retain(|path| !is_skin_file(path) || !already_unpacked(path));
+    found.retain(|path| skin_allowed(path, removed, &skins_root()));
     found.sort_by_key(|path| skin_name(path).to_lowercase());
     found.truncate(80);
     found
+}
+
+pub fn order_skins(found: &mut [PathBuf], order: &[PathBuf]) {
+    found.sort_by_key(|path| order.iter().position(|kept| kept == path).unwrap_or(usize::MAX));
+}
+
+pub fn move_skin(skins: &mut Vec<PathBuf>, what: &Path, before: Option<&Path>) -> bool {
+    if before == Some(what) || before.is_some_and(|path| !skins.iter().any(|skin| skin == path)) { return false; }
+    let Some(at) = skins.iter().position(|path| path == what) else { return false; };
+    let old = skins.clone();
+    let moved = skins.remove(at);
+    let at = before.and_then(|path| skins.iter().position(|skin| skin == path)).unwrap_or(skins.len());
+    skins.insert(at, moved);
+    *skins != old
+}
+
+pub fn skin_keys(skins: &[PathBuf]) -> Vec<PathBuf> {
+    let mut keys = skins.to_vec();
+    keys.sort();
+    keys.dedup();
+    keys
 }
 
 const SKIN_MARKS: [&str; 14] = [
@@ -325,13 +360,17 @@ fn lift_lonely_folder(root: &Path) {
 }
 
 pub fn adopt_skin_files(root: &Path) -> Vec<PathBuf> {
+    adopt_skin_files_except(root, &[])
+}
+
+pub fn adopt_skin_files_except(root: &Path, removed: &[PathBuf]) -> Vec<PathBuf> {
     let Ok(read) = std::fs::read_dir(root) else {
         return Vec::new();
     };
     let mut made = Vec::new();
     for entry in read.flatten() {
         let path = entry.path();
-        if is_skin_file(&path) {
+        if is_skin_file(&path) && skin_allowed(&path, removed, root) {
             if let Ok(folder) = unpack_skin_into(&path, root) {
                 made.push(folder);
             }
@@ -341,8 +380,12 @@ pub fn adopt_skin_files(root: &Path) -> Vec<PathBuf> {
 }
 
 pub fn hunt_skins(sources: &[Source], own: &[PathBuf]) -> Vec<PathBuf> {
+    hunt_skins_except(sources, own, &[])
+}
+
+pub fn hunt_skins_except(sources: &[Source], own: &[PathBuf], removed: &[PathBuf]) -> Vec<PathBuf> {
     let root = skins_root();
-    let _ = adopt_skin_files(&root);
+    let _ = adopt_skin_files_except(&root, removed);
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(8);
     let mut walked = 0usize;
     let roots = hunt_roots();
@@ -361,7 +404,7 @@ pub fn hunt_skins(sources: &[Source], own: &[PathBuf]) -> Vec<PathBuf> {
                 continue;
             };
             if kind.is_file() {
-                if is_skin_file(&path) && !already_unpacked(&path) {
+                if is_skin_file(&path) && !already_unpacked(&path) && skin_allowed(&path, removed, &root) {
                     let _ = unpack_skin_into(&path, &root);
                 }
                 continue;
@@ -376,7 +419,7 @@ pub fn hunt_skins(sources: &[Source], own: &[PathBuf]) -> Vec<PathBuf> {
             queue.push_back((path, deep + 1));
         }
     }
-    skins_in(sources, own)
+    skins_in_except(sources, own, removed)
 }
 
 fn hunt_roots() -> Vec<PathBuf> {
@@ -655,6 +698,8 @@ pub fn skin_pattern(folder: Option<&Path>, wide: u32, high: u32) -> Vec<u8> {
     );
     let place = |x: f32, y: f32| (left + x * scale, top + y * scale);
     let radius = NOTE_RADIUS * scale;
+    // Skin sprites use 128 logical pixels per circle, including @2x assets.
+    let reach = |element: Element| (natural(element).unwrap_or(128.0) * radius / 64.0).round().max(1.0) as u32;
     let rim = slider_rim(folder);
     slider_road(&mut made, &[(132.0, 300.0), (420.0, 300.0)], radius, rim, place);
     slider_road(&mut made, &[(190.0, 206.0), (276.0, 206.0)], radius, rim, place);
@@ -691,12 +736,12 @@ pub fn skin_pattern(folder: Option<&Path>, wide: u32, high: u32) -> Vec<u8> {
         match face_of(face) {
             Some((disc, overlay)) => {
                 if let Some(drawing) = tinted_part(disc) {
-                    laid_at(&mut made, &drawing, (radius * 2.0) as u32, cx, cy, 1.0);
+                    laid_at(&mut made, &drawing, reach(disc), cx, cy, 1.0);
                 }
                 let over = part(overlay);
                 if !above_number {
                     if let Some(over) = &over {
-                        laid_at(&mut made, over, (radius * 2.0) as u32, cx, cy, 1.0);
+                        laid_at(&mut made, over, reach(overlay), cx, cy, 1.0);
                     }
                 }
                 if let Some(number) = number {
@@ -706,7 +751,7 @@ pub fn skin_pattern(folder: Option<&Path>, wide: u32, high: u32) -> Vec<u8> {
                 }
                 if above_number {
                     if let Some(over) = &over {
-                        laid_at(&mut made, over, (radius * 2.0) as u32, cx, cy, 1.0);
+                        laid_at(&mut made, over, reach(overlay), cx, cy, 1.0);
                     }
                 }
             }
@@ -716,16 +761,16 @@ pub fn skin_pattern(folder: Option<&Path>, wide: u32, high: u32) -> Vec<u8> {
                 laid_at(&mut made, &own, (radius * 2.0) as u32, cx, cy, 1.0);
             }
         }
-        if let Some(reach) = approach {
+        if let Some(growth) = approach {
             match speaks(Element::ApproachCircle) {
                 true => {
                     if let Some(drawing) = tinted_part(Element::ApproachCircle) {
-                        laid_at(&mut made, &drawing, (radius * 2.0 * reach) as u32, cx, cy, 0.85);
+                        laid_at(&mut made, &drawing, (reach(Element::ApproachCircle) as f32 * growth).round() as u32, cx, cy, 0.85);
                     }
                 }
                 false => {
                     let ring = image::DynamicImage::ImageRgba8(drawn_circle((radius * 4.0) as u32, None, 0.045));
-                    laid_at(&mut made, &ring, (radius * 2.0 * reach) as u32, cx, cy, 0.85);
+                    laid_at(&mut made, &ring, (radius * 2.0 * growth) as u32, cx, cy, 0.85);
                 }
             }
         }
@@ -777,6 +822,19 @@ pub fn own_skin_picture(side: u32) -> Vec<u8> {
 }
 
 impl Settings {
+    pub fn forget_skin(&mut self, folder: &Path) -> bool {
+        if !self.removed_skins.iter().any(|path| path == folder) { self.removed_skins.push(folder.to_path_buf()); }
+        self.own_skins.retain(|path| path != folder);
+        self.skin_order.retain(|path| path != folder);
+        let changed = self.skin.as_deref() == Some(folder);
+        if changed { self.skin = None; }
+        changed
+    }
+
+    pub fn restore_skin(&mut self, folder: &Path) {
+        self.removed_skins.retain(|path| path != folder);
+    }
+
     pub fn render_size(&self) -> (u32, u32) {
         let height = if HEIGHTS.contains(&self.render_height) { self.render_height } else { 1080 };
         ((height * 16 / 9 + 1) & !1, height)
@@ -819,6 +877,8 @@ impl Default for Settings {
             exported_only: false,
             last_build: String::new(),
             own_skins: Vec::new(),
+            skin_order: Vec::new(),
+            removed_skins: Vec::new(),
             music_level: 1.0,
             hitsound_level: 1.0,
             player_level: 1.0,
@@ -883,6 +943,47 @@ pub fn device_name() -> String {
 #[cfg(test)]
 mod tests {
 
+    #[test]
+    fn skin_order_survives_serialization_and_rescans() {
+        use super::*;
+        let mut settings = Settings::default();
+        let mut skins: Vec<PathBuf> = ["A", "B", "C"].into_iter().map(PathBuf::from).collect();
+        let keys = skin_keys(&skins);
+        assert!(move_skin(&mut skins, Path::new("C"), Some(Path::new("A"))));
+        settings.skin_order = skins.clone();
+        let json = serde_json::to_string(&settings).unwrap();
+        let loaded: Settings = serde_json::from_str(&json).unwrap();
+        let mut scan: Vec<PathBuf> = ["A", "B", "C", "D"].into_iter().map(PathBuf::from).collect();
+        order_skins(&mut scan, &loaded.skin_order);
+        assert_eq!(scan, ["C", "A", "B", "D"].map(PathBuf::from));
+        assert_eq!(skin_keys(&skins), keys, "drag keys stay attached to paths after reordering");
+        assert!(move_skin(&mut skins, Path::new("C"), None));
+        assert_eq!(skins, ["A", "B", "C"].map(PathBuf::from));
+        assert!(!move_skin(&mut skins, Path::new("A"), Some(Path::new("A"))));
+        assert!(!move_skin(&mut skins, Path::new("missing"), None));
+        assert!(!move_skin(&mut skins, Path::new("A"), Some(Path::new("missing"))));
+        let mut old: serde_json::Value = serde_json::from_str(&json).unwrap();
+        old.as_object_mut().unwrap().remove("skin_order");
+        assert!(serde_json::from_value::<Settings>(old).unwrap().skin_order.is_empty());
+    }
+
+    #[test]
+    fn forgetting_a_skin_keeps_other_skins_and_falls_back_only_when_selected() {
+        use super::*;
+        let mut settings = Settings::default();
+        settings.skin = Some(PathBuf::from("A"));
+        settings.own_skins = ["A", "B"].map(PathBuf::from).to_vec();
+        settings.skin_order = settings.own_skins.clone();
+        assert!(!settings.forget_skin(Path::new("B")));
+        assert_eq!(settings.skin, Some(PathBuf::from("A")));
+        assert_eq!(settings.own_skins, [PathBuf::from("A")]);
+        assert_eq!(settings.skin_order, [PathBuf::from("A")]);
+        assert!(settings.forget_skin(Path::new("A")));
+        assert!(settings.skin.is_none());
+        assert!(settings.own_skins.is_empty());
+        assert!(settings.skin_order.is_empty());
+    }
+
     fn packed(files: &[(&str, &[u8])]) -> Vec<u8> {
         use std::io::Write;
         let mut made = Vec::new();
@@ -935,6 +1036,25 @@ mod tests {
         std::fs::write(root.join("Rafis").join("marker"), b"mine").unwrap();
         assert_eq!(adopt_skin_files(&root), vec![root.join("Rafis")]);
         assert!(root.join("Rafis").join("marker").is_file(), "an unpacked skin is left as it is");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn deleted_skins_are_not_automatically_unpacked_again() {
+        let root = scratch("removed");
+        let archive = root.join("Rafis.osk");
+        let folder = root.join("Rafis");
+        std::fs::write(&archive, packed(&[("skin.ini", b"[General]")])).unwrap();
+        let mut settings = Settings::default();
+        settings.forget_skin(&folder);
+        let persisted: Settings = serde_json::from_str(&serde_json::to_string(&settings).unwrap()).unwrap();
+        assert!(adopt_skin_files_except(&root, &persisted.removed_skins).is_empty());
+        assert!(!folder.exists());
+        assert!(!skin_allowed(&archive, &persisted.removed_skins, &root));
+        assert!(!skin_allowed(&folder, &persisted.removed_skins, &root));
+        settings.restore_skin(&folder);
+        assert!(skin_allowed(&archive, &settings.removed_skins, &root));
+        assert_eq!(adopt_skin_files_except(&root, &settings.removed_skins), vec![folder]);
         let _ = std::fs::remove_dir_all(&root);
     }
 

@@ -7,6 +7,94 @@ use crate::theme::{self, ACCENT, FAINT, INK, MUTED};
 thread_local! {
     static PRESSED: std::cell::Cell<Option<(Rectangle, Point)>> = const { std::cell::Cell::new(None) };
     static FADE: std::cell::Cell<f32> = const { std::cell::Cell::new(1.0) };
+    static TEXT_SURFACE: std::cell::Cell<Color> = const { std::cell::Cell::new(theme::GROUND) };
+}
+
+pub fn on_surface<T>(surface: Color, build: impl FnOnce() -> T) -> T {
+    struct Restore(Color);
+    impl Drop for Restore {
+        fn drop(&mut self) { TEXT_SURFACE.with(|slot| slot.set(self.0)); }
+    }
+    let _restore = Restore(TEXT_SURFACE.with(|slot| slot.replace(surface)));
+    build()
+}
+
+fn text_colour(colour: Color) -> Color {
+    TEXT_SURFACE.with(|slot| theme::secondary_on(colour, slot.get()))
+}
+
+/// Sample the visible crop once per image and window aspect, without copying RGBA frames.
+/// Use a bright percentile and the weakest scene veil for conservative text contrast.
+pub fn scene_surface(handle: &image::Handle, size: Size) -> Color {
+    type Key = (iced::advanced::image::Id, u32);
+    thread_local! { static CACHE: std::cell::RefCell<Vec<(Key, Color)>> = const { std::cell::RefCell::new(Vec::new()) }; }
+    let ratio = (size.width / size.height.max(1.0)).clamp(0.1, 10.0);
+    let key = (handle.id(), (ratio * 256.0).round() as u32);
+    CACHE.with(|cache| {
+        if let Some((_, colour)) = cache.borrow().iter().find(|(seen, _)| *seen == key) { return *colour; }
+        let decoded = match handle {
+            image::Handle::Bytes(_, bytes) => ::image::load_from_memory(bytes).ok().map(|image| image.to_rgba8()),
+            image::Handle::Path(_, path) => ::image::open(path).ok().map(|image| image.to_rgba8()),
+            _ => None,
+        };
+        let raw = match handle {
+            image::Handle::Rgba { width, height, pixels, .. } => Some((*width, *height, pixels.as_ref())),
+            _ => decoded.as_ref().map(|image| (image.width(), image.height(), image.as_raw().as_slice())),
+        };
+        let colour = raw.filter(|(w, h, bytes)| *w > 0 && *h > 0 && bytes.len() as u64 >= u64::from(*w) * u64::from(*h) * 4).map(|(w, h, pixels)| {
+            let cw = (h as f32 * ratio).min(w as f32);
+            let ch = (w as f32 / ratio).min(h as f32);
+            let mut samples = Vec::with_capacity(256);
+            for y in 0..8 {
+                for x in 0..32 {
+                    let px = ((w as f32 - cw) * 0.5 + cw * (x as f32 + 0.5) / 32.0) as u32;
+                    let py = ((h as f32 - ch) * 0.5 + ch * (0.5 + 0.5 * (y as f32 + 0.5) / 8.0)) as u32;
+                    let i = ((py.min(h - 1) * w + px.min(w - 1)) * 4) as usize;
+                    let ink = Color::from_rgb(pixels[i] as f32 / 255.0, pixels[i + 1] as f32 / 255.0, pixels[i + 2] as f32 / 255.0);
+                    samples.push(mix(theme::GROUND, ink, pixels[i + 3] as f32 / 255.0));
+                }
+            }
+            samples.sort_by(|a, b| theme::luminance(*a).total_cmp(&theme::luminance(*b)));
+            mix(samples[243], theme::GROUND, 0.66)
+        }).unwrap_or(theme::GROUND);
+        let mut cache = cache.borrow_mut();
+        if cache.len() >= 16 { cache.remove(0); }
+        cache.push((key, colour));
+        colour
+    })
+}
+
+#[cfg(test)]
+mod adaptive_text {
+    use super::*;
+
+    #[test]
+    fn scene_crop_and_transparency_determine_text_contrast() {
+        let dark = image::Handle::from_rgba(4, 4, [0, 0, 0, 255].repeat(16));
+        let bright = image::Handle::from_rgba(4, 4, [255, 255, 255, 255].repeat(16));
+        let transparent = image::Handle::from_rgba(4, 4, [255, 255, 255, 0].repeat(16));
+        let size = Size::new(980.0, 720.0);
+        let on_dark = on_surface(scene_surface(&dark, size), || faded(FAINT));
+        let on_light = on_surface(scene_surface(&bright, size), || faded(FAINT));
+        assert!(theme::luminance(on_light) > theme::luminance(on_dark));
+        assert_eq!(scene_surface(&transparent, size), theme::GROUND);
+        assert_eq!(faded(FAINT), FAINT, "surface scope restores the ordinary panel palette");
+        let pixels = (0..400).flat_map(|i| if i % 100 < 25 || i % 100 >= 75 { [255, 255, 255, 255] } else { [0, 0, 0, 255] }).collect::<Vec<_>>();
+        let sides = image::Handle::from_rgba(100, 4, pixels);
+        assert!(theme::luminance(scene_surface(&sides, size)) < 0.01, "cover crop excludes bright offscreen borders");
+    }
+
+    #[test]
+    fn surface_scopes_nest_without_affecting_status_colours_or_opacity() {
+        on_surface(Color::WHITE, || {
+            let outside = faded(FAINT);
+            on_surface(theme::GROUND, || assert_eq!(faded(FAINT), FAINT));
+            assert_eq!(faded(FAINT), outside);
+            assert_eq!(faded(ACCENT), ACCENT);
+            fading(0.25, || assert_eq!(faded(FAINT).a, 0.25));
+        });
+        assert_eq!(faded(FAINT), FAINT);
+    }
 }
 
 pub fn fading<T>(k: f32, build: impl FnOnce() -> T) -> T {
@@ -49,6 +137,7 @@ pub fn dim(colour: Color, k: f32) -> Color {
 }
 
 pub fn faded(colour: Color) -> Color {
+    let colour = text_colour(colour);
     Color {
         a: colour.a * fade(),
         ..colour
@@ -411,21 +500,58 @@ pub fn refit(viewport: Size, before: f32, after: f32, least: Size) -> Option<Siz
 }
 
 pub fn brand<'a, Message: 'a>() -> Element<'a, Message> {
+    brand_scaled(1.0)
+}
+
+pub fn brand_scaled<'a, Message: 'a>(scale: f32) -> Element<'a, Message> {
     let alpha = fade();
     row![
-        Canvas::new(Emblem { alpha }).width(EMBLEM).height(EMBLEM),
-        container(Space::new().width(1.0).height(22.0)).style(move |theme| {
+        Canvas::new(Emblem { alpha }).width(EMBLEM * scale).height(EMBLEM * scale),
+        container(Space::new().width(1.0).height(22.0 * scale)).style(move |theme| {
             let mut style = theme::rule_high(theme);
             if let Some(iced::Background::Color(c)) = style.background {
                 style.background = Some(iced::Background::Color(Color { a: c.a * alpha, ..c }));
             }
             style
         }),
-        text("Dossier").font(theme::SANS_SEMI).size(20.0).color(faded(INK)),
+        text("Dossier").font(theme::SANS_SEMI).size(20.0 * scale).color(faded(INK)),
     ]
-    .spacing(14)
+    .spacing(14.0 * scale)
     .align_y(iced::Center)
     .into()
+}
+
+/// Screen-space shading stays movable even when the background frame is paused.
+pub struct SceneShade {
+    pub alpha: f32,
+    pub rest: f32,
+    pub curve: fn(f32) -> f32,
+}
+
+impl SceneShade {
+    pub fn at(&self, t: f32) -> f32 {
+        let edge = 0.5 + 0.28 * self.rest.clamp(0.0, 1.0);
+        let sample = if t <= 0.5 { t } else { 0.5 + 0.5 * ((t - edge) / (1.0 - edge)).clamp(0.0, 1.0) };
+        (self.curve)(sample) * self.alpha
+    }
+}
+
+impl<Message> canvas::Program<Message> for SceneShade {
+    type State = ();
+
+    fn draw(&self, _: &(), renderer: &Renderer, _: &Theme, bounds: Rectangle, _: mouse::Cursor) -> Vec<Geometry> {
+        let mut frame = Frame::new(renderer, bounds.size());
+        let edge = 0.5 + 0.28 * self.rest.clamp(0.0, 1.0);
+        let mut shade = canvas::gradient::Linear::new(Point::ORIGIN, Point::new(0.0, bounds.height));
+        // One continuous path avoids antialiased seams between gradient strips.
+        // Canvas gradients support at most eight stops.
+        for t in [0.0, 0.14, 0.3, 0.5, edge, edge + (1.0 - edge) * 0.45, edge + (1.0 - edge) * 0.7, 1.0] {
+            shade = shade.add_stop(t, Color { a: self.at(t), ..theme::GROUND });
+        }
+        frame.fill(&Path::rectangle(Point::ORIGIN, bounds.size()),
+            canvas::Fill { style: canvas::Style::Gradient(shade.into()), ..canvas::Fill::default() });
+        vec![frame.into_geometry()]
+    }
 }
 
 const BACKDROP: (u32, u32) = (490, 360);
@@ -481,7 +607,6 @@ pub fn headline<'a, Message: 'a>(which: Sign, words: String, count: String) -> E
     row![
         sign(which),
         text(words).font(theme::SANS_SEMI).size(theme::LEAD).color(INK),
-        text("·").font(theme::SANS).size(theme::LEAD).color(FAINT),
         text(count).font(theme::SANS).size(theme::LEAD).color(MUTED),
     ]
     .spacing(8)
@@ -575,9 +700,8 @@ pub fn ledger_with<'a, Message: Clone + 'a>(
         } else {
             Sign::growing(which, line.settled)
         };
-        let mut words = row![text(line.name.clone()).font(face).size(theme::BODY).color(colour)].spacing(7);
+        let mut words = row![text(line.name.clone()).font(face).size(theme::BODY).color(colour)].spacing(14);
         if !line.detail.is_empty() {
-            words = words.push(text("·").font(theme::MONO).size(theme::BODY).color(faded(FAINT)));
             words = words.push(text(line.detail.clone()).font(theme::MONO).size(theme::BODY).color(detail_colour));
         }
         rows = rows.push(
@@ -666,8 +790,14 @@ fn dim_background(background: iced::Background, k: f32) -> iced::Background {
 }
 
 fn dimmed(style: impl Fn(&Theme, button::Status) -> button::Style + 'static, k: f32) -> impl Fn(&Theme, button::Status) -> button::Style {
+    let surface = TEXT_SURFACE.with(|slot| slot.get());
     move |theme, status| {
         let mut made = style(theme, status);
+        let background = match made.background {
+            Some(iced::Background::Color(colour)) => mix(surface, colour, colour.a),
+            _ => surface,
+        };
+        made.text_color = theme::secondary_on(made.text_color, background);
         made.text_color = Color { a: made.text_color.a * k, ..made.text_color };
         made.background = made.background.map(|background| dim_background(background, k));
         made.border.color = Color { a: made.border.color.a * k, ..made.border.color };
@@ -1045,6 +1175,7 @@ pub fn hatched_picture(width: u32, height: u32, dim: impl Fn(f32) -> f32) -> ima
 pub struct Scrub<'a, Message> {
     pub start: f32,
     pub len: f32,
+    pub alpha: f32,
     pub on: Box<dyn Fn(f32) -> Message + 'a>,
 }
 
@@ -1090,13 +1221,13 @@ impl<Message> canvas::Program<Message> for Scrub<'_, Message> {
         let y = bounds.height / 2.0;
         let lit = state.grabbed.is_some() || cursor.is_over(bounds);
         let track = Path::line(Point::new(0.0, y), Point::new(bounds.width, y));
-        frame.stroke(&track, Stroke::default().with_width(2.0).with_color(faded(Color::from_rgba(1.0, 1.0, 1.0, 0.06))));
+        frame.stroke(&track, Stroke::default().with_width(2.0).with_color(Color::from_rgba(1.0, 1.0, 1.0, 0.06 * self.alpha)));
         if self.len < 1.0 {
             let x0 = bounds.width * self.start;
             let x1 = bounds.width * (self.start + self.len);
             let thumb = Path::line(Point::new(x0, y), Point::new(x1, y));
             let colour = if lit { MUTED } else { Color { a: 0.55, ..MUTED } };
-            frame.stroke(&thumb, Stroke::default().with_width(2.0).with_color(faded(colour)).with_line_cap(canvas::LineCap::Round));
+            frame.stroke(&thumb, Stroke::default().with_width(2.0).with_color(Color { a: colour.a * self.alpha, ..colour }).with_line_cap(canvas::LineCap::Round));
         }
         vec![frame.into_geometry()]
     }
@@ -1158,11 +1289,16 @@ pub struct Sensed<'a, Message> {
     on_exit: Message,
     lift: f32,
     scale: f32,
+    key: usize,
+    hit_padding: iced::Padding,
+    viewport_x: Option<f32>,
 }
 
 #[derive(Debug, Default)]
 struct SensedState {
     inside: bool,
+    key: usize,
+    bounds: Option<Rectangle>,
 }
 
 pub fn sensed<'a, Message: Clone + 'a>(
@@ -1170,20 +1306,62 @@ pub fn sensed<'a, Message: Clone + 'a>(
     on_enter: impl Fn(Rectangle) -> Message + 'a,
     on_exit: Message,
 ) -> Sensed<'a, Message> {
-    Sensed { content: content.into(), on_enter: Box::new(on_enter), on_exit, lift: 0.0, scale: 1.0 }
+    Sensed { content: content.into(), on_enter: Box::new(on_enter), on_exit, lift: 0.0, scale: 1.0, key: 0, hit_padding: iced::Padding::ZERO, viewport_x: None }
 }
 
 impl<Message> Sensed<'_, Message> {
+    pub fn keyed(mut self, key: usize) -> Self {
+        self.key = key;
+        self
+    }
+
     pub fn risen(mut self, lift: f32, scale: f32) -> Self {
         self.lift = lift;
         self.scale = scale;
         self
+    }
+
+    pub fn hit_padding(mut self, padding: iced::Padding) -> Self {
+        self.hit_padding = padding;
+        self
+    }
+
+    /// Window-space left edge of the containing horizontal scroll viewport.
+    /// Anchors must follow scrolling even when a parent consumes mouse events.
+    pub fn horizontal_viewport(mut self, x: f32) -> Self {
+        self.viewport_x = Some(x);
+        self
+    }
+}
+
+fn sensed_hit_bounds(bounds: Rectangle, padding: iced::Padding, viewport: Rectangle) -> Rectangle {
+    Rectangle {
+        x: bounds.x - padding.left,
+        y: bounds.y - padding.top,
+        width: bounds.width + padding.left + padding.right,
+        height: bounds.height + padding.top + padding.bottom,
+    }
+    .intersection(&viewport)
+    .unwrap_or(Rectangle::new(bounds.position(), Size::ZERO))
+}
+
+fn sensed_content_cursor(cursor: mouse::Cursor, bounds: Rectangle, hit_bounds: Rectangle) -> mouse::Cursor {
+    match cursor.position().filter(|point| hit_bounds.contains(*point)) {
+        Some(point) if !bounds.contains(point) => mouse::Cursor::Available(Point::new(
+            point.x.clamp(bounds.x, bounds.x + (bounds.width - 0.01).max(0.0)),
+            point.y.clamp(bounds.y, bounds.y + (bounds.height - 0.01).max(0.0)),
+        )),
+        _ => cursor,
     }
 }
 
 fn about(bounds: Rectangle, anchor: Point, lift: f32, scale: f32) -> iced::Transformation {
     let (cx, cy) = (bounds.x + bounds.width * anchor.x, bounds.y + bounds.height * anchor.y);
     iced::Transformation::translate(cx, cy - lift) * iced::Transformation::scale(scale) * iced::Transformation::translate(-cx, -cy)
+}
+
+fn sensed_changed(inside: bool, was_inside: bool, bounds_changed: bool, redraw: bool) -> bool {
+    inside != was_inside || (inside && bounds_changed && redraw)
 }
 
 impl<Message: Clone> iced::advanced::Widget<Message, Theme, Renderer> for Sensed<'_, Message> {
@@ -1237,26 +1415,33 @@ impl<Message: Clone> iced::advanced::Widget<Message, Theme, Renderer> for Sensed
         shell: &mut iced::advanced::Shell<'_, Message>,
         viewport: &Rectangle,
     ) {
+        let bounds = layout.bounds();
+        let seen = sensed_hit_bounds(bounds, self.hit_padding, *viewport);
+        let content_cursor = sensed_content_cursor(cursor, bounds, seen);
         self.content
             .as_widget_mut()
-            .update(&mut tree.children[0], event, layout, cursor, renderer, clipboard, shell, viewport);
-        let window = match event {
-            iced::Event::Mouse(mouse::Event::CursorMoved { position }) => Some(*position),
-            iced::Event::Mouse(mouse::Event::CursorLeft) => None,
-            _ => return,
-        };
-        let bounds = layout.bounds();
-        let seen = bounds.intersection(viewport).unwrap_or(Rectangle::new(bounds.position(), Size::ZERO));
-        let inside = cursor.is_over(seen);
+            .update(&mut tree.children[0], event, layout, content_cursor, renderer, clipboard, shell, viewport);
         let state = tree.state.downcast_mut::<SensedState>();
-        if inside != state.inside {
+        match event {
+            iced::Event::Mouse(mouse::Event::CursorMoved { .. }) | iced::Event::Mouse(mouse::Event::CursorLeft) => {},
+            iced::Event::Window(iced::window::Event::RedrawRequested(_)) => {}
+            _ => return,
+        }
+        if state.key != self.key {
+            state.key = self.key;
+            state.inside = false;
+            state.bounds = None;
+        }
+        let inside = !matches!(event, iced::Event::Mouse(mouse::Event::CursorLeft)) && cursor.is_over(seen);
+        let shift = iced::Vector::new(self.viewport_x.map_or(0.0, |x| viewport.x - x), 0.0);
+        let window_bounds = bounds - shift;
+        let bounds_changed = state.bounds != Some(window_bounds);
+        let redraw = matches!(event, iced::Event::Window(iced::window::Event::RedrawRequested(_)));
+        if sensed_changed(inside, state.inside, bounds_changed, redraw) {
             state.inside = inside;
+            state.bounds = Some(window_bounds);
             if inside {
-                let shift = match (cursor.position(), window) {
-                    (Some(local), Some(window)) => local - window,
-                    _ => iced::Vector::ZERO,
-                };
-                shell.publish((self.on_enter)(bounds - shift));
+                shell.publish((self.on_enter)(window_bounds));
             } else {
                 shell.publish(self.on_exit.clone());
             }
@@ -1271,7 +1456,9 @@ impl<Message: Clone> iced::advanced::Widget<Message, Theme, Renderer> for Sensed
         viewport: &Rectangle,
         renderer: &Renderer,
     ) -> mouse::Interaction {
-        self.content.as_widget().mouse_interaction(&tree.children[0], layout, cursor, viewport, renderer)
+        let bounds = layout.bounds();
+        let seen = sensed_hit_bounds(bounds, self.hit_padding, *viewport);
+        self.content.as_widget().mouse_interaction(&tree.children[0], layout, sensed_content_cursor(cursor, bounds, seen), viewport, renderer)
     }
 
     fn draw(
@@ -1284,6 +1471,8 @@ impl<Message: Clone> iced::advanced::Widget<Message, Theme, Renderer> for Sensed
         cursor: mouse::Cursor,
         viewport: &Rectangle,
     ) {
+        let bounds = layout.bounds();
+        let cursor = sensed_content_cursor(cursor, bounds, sensed_hit_bounds(bounds, self.hit_padding, *viewport));
         if self.lift == 0.0 && self.scale == 1.0 {
             self.content.as_widget().draw(&tree.children[0], renderer, theme, style, layout, cursor, viewport);
             return;
@@ -1793,7 +1982,7 @@ impl<Message> canvas::Program<Message> for Seek<'_, Message> {
     type State = SeekState;
 
     fn update(&self, state: &mut SeekState, event: &iced::Event, bounds: Rectangle, cursor: mouse::Cursor) -> Option<canvas::Action<Message>> {
-        let fraction_at = |x: f32| ((x - bounds.x) / bounds.width.max(1.0)).clamp(0.0, 1.0);
+        let fraction_at = |x: f32| ((x - bounds.x - 7.0) / (bounds.width - 14.0).max(1.0)).clamp(0.0, 1.0);
         if let iced::Event::Window(iced::window::Event::RedrawRequested(now)) = event {
             let want = if state.grabbed { 1.0 } else if cursor.is_over(bounds) { 0.6 } else { 0.0 };
             if (want - state.knob).abs() < 0.003 {
@@ -1842,14 +2031,16 @@ impl<Message> canvas::Program<Message> for Seek<'_, Message> {
         let y = SEEK_BUBBLE + (bounds.height - SEEK_BUBBLE) / 2.0;
         let lit = state.grabbed || cursor.is_over(bounds);
         let thick = 3.0 + 2.0 * (state.knob / 0.6).min(1.0);
-        let track = Path::line(Point::new(0.0, y), Point::new(bounds.width, y));
+        let x0 = 7.0;
+        let x1 = (bounds.width - 7.0).max(x0);
+        let track = Path::line(Point::new(x0, y), Point::new(x1, y));
         frame.stroke(
             &track,
             Stroke::default().with_width(thick).with_color(dim(Color::from_rgba(1.0, 1.0, 1.0, 0.16), self.alpha)).with_line_cap(canvas::LineCap::Round),
         );
-        let x = bounds.width * self.played.clamp(0.0, 1.0);
+        let x = x0 + (x1 - x0) * self.played.clamp(0.0, 1.0);
         if let Some(over) = state.over.filter(|_| lit) {
-            let ahead = bounds.width * over;
+            let ahead = x0 + (x1 - x0) * over;
             if ahead > x {
                 frame.stroke(
                     &Path::line(Point::new(x, y), Point::new(ahead, y)),
@@ -1857,8 +2048,8 @@ impl<Message> canvas::Program<Message> for Seek<'_, Message> {
                 );
             }
         }
-        if x > 0.5 {
-            let done = Path::line(Point::new(0.0, y), Point::new(x, y));
+        if x > x0 + 0.5 {
+            let done = Path::line(Point::new(x0, y), Point::new(x, y));
             frame.stroke(&done, Stroke::default().with_width(thick).with_color(dim(ACCENT, self.alpha)).with_line_cap(canvas::LineCap::Round));
         }
         let radius = 4.5 + 2.5 * state.knob;
@@ -1993,10 +2184,6 @@ impl<Message> canvas::Program<Message> for Speed<'_, Message> {
         let mut frame = Frame::new(renderer, bounds.size());
         let (w, h) = (bounds.width, bounds.height);
         let glow = state.glow;
-        frame.fill(
-            &Path::rounded_rectangle(Point::ORIGIN, bounds.size(), (h / 2.0).into()),
-            dim(Color::from_rgba(1.0, 1.0, 1.0, 0.06 + 0.05 * glow), self.alpha),
-        );
         frame.fill_text(canvas::Text {
             content: self.words.clone(),
             position: Point::new(12.0, h / 2.0),
@@ -2061,7 +2248,7 @@ impl<Message> canvas::Program<Message> for Level<'_, Message> {
     type State = LevelState;
 
     fn update(&self, state: &mut LevelState, event: &iced::Event, bounds: Rectangle, cursor: mouse::Cursor) -> Option<canvas::Action<Message>> {
-        let fraction_at = |x: f32| ((x - bounds.x - 3.0) / (bounds.width - 6.0).max(1.0)).clamp(0.0, 1.0);
+        let fraction_at = |x: f32| ((x - bounds.x - 6.0) / (bounds.width - 12.0).max(1.0)).clamp(0.0, 1.0);
         if let iced::Event::Window(iced::window::Event::RedrawRequested(now)) = event {
             let want = if state.grabbed { 1.0 } else if cursor.is_over(bounds) { 0.6 } else { 0.0 };
             if (want - state.knob).abs() < 0.003 {
@@ -2094,8 +2281,8 @@ impl<Message> canvas::Program<Message> for Level<'_, Message> {
         let mut frame = Frame::new(renderer, bounds.size());
         let y = bounds.height / 2.0;
         let lit = state.grabbed || cursor.is_over(bounds);
-        let x0 = 3.0;
-        let x1 = bounds.width - 3.0;
+        let x0 = 6.0;
+        let x1 = (bounds.width - 6.0).max(x0);
         frame.stroke(
             &Path::line(Point::new(x0, y), Point::new(x1, y)),
             Stroke::default().with_width(3.0).with_color(dim(Color::from_rgba(1.0, 1.0, 1.0, 0.16), self.alpha)).with_line_cap(canvas::LineCap::Round),
@@ -2339,6 +2526,7 @@ pub struct Steps<'a, Message> {
 #[derive(Debug, Default)]
 pub struct StepsState {
     grabbed: bool,
+    initialized: bool,
     label_side: f32,
     value_side: f32,
     last: Option<std::time::Instant>,
@@ -2365,6 +2553,13 @@ impl<Message> canvas::Program<Message> for Steps<'_, Message> {
                 true => (free_right > value_wide + 22.0).then_some(0.0).unwrap_or(1.0),
                 false => (free_right < value_wide + 4.0).then_some(1.0).unwrap_or(0.0),
             };
+            // A newly opened control has no previous position to animate from.
+            if !state.initialized {
+                state.label_side = want_label;
+                state.value_side = want_value;
+                state.initialized = true;
+                return None;
+            }
             let mut moving = false;
             let dt = elapsed(&mut state.last, *now);
             for (side, want) in [(&mut state.label_side, want_label), (&mut state.value_side, want_value)] {
@@ -2466,7 +2661,8 @@ impl<Message> canvas::Program<Message> for Steps<'_, Message> {
         let value_wide = self.value.chars().count() as f32 * 6.7 + 2.0;
         let right_side = x + wide / 2.0 + 10.0;
         let left_side = x - wide / 2.0 - 10.0 - value_wide;
-        let value_x = right_side + (left_side - right_side) * state.value_side;
+        let value_x = (right_side + (left_side - right_side) * state.value_side)
+            .clamp(10.0, (w - value_wide - 10.0).max(10.0));
         frame.fill_text(canvas::Text {
             content: self.value.clone(),
             position: Point::new(value_x, h / 2.0),
@@ -2921,8 +3117,8 @@ impl<Message> canvas::Program<Message> for Round {
     fn draw(&self, _: &(), renderer: &Renderer, _: &Theme, bounds: Rectangle, _: mouse::Cursor) -> Vec<Geometry> {
         let mut frame = Frame::new(renderer, bounds.size());
         let side = bounds.width.min(bounds.height);
-        let centre = Point::new(bounds.width / 2.0, bounds.height / 2.0);
-        frame.fill(&Path::circle(centre, side / 2.0), dim(Color::from_rgba(1.0, 1.0, 1.0, 0.1), self.alpha));
+        let tile = Path::rounded_rectangle(Point::new(0.5, 0.5), Size::new(side - 1.0, side - 1.0), (side * 0.22).into());
+        frame.fill(&tile, dim(Color::from_rgb8(0x0c, 0x0a, 0x0b), self.alpha));
         vec![frame.into_geometry()]
     }
 }
@@ -3113,6 +3309,87 @@ impl<'a, Message: 'a> From<Scaled<'a, Message>> for Element<'a, Message> {
     }
 }
 
+pub struct Clipped<'a, Message> {
+    content: Element<'a, Message>,
+}
+
+pub fn clipped<'a, Message: 'a>(content: impl Into<Element<'a, Message>>) -> Element<'a, Message> {
+    Element::new(Clipped { content: content.into() })
+}
+
+impl<Message> iced::advanced::Widget<Message, Theme, Renderer> for Clipped<'_, Message> {
+    fn tag(&self) -> iced::advanced::widget::tree::Tag { self.content.as_widget().tag() }
+    fn state(&self) -> iced::advanced::widget::tree::State { self.content.as_widget().state() }
+    fn children(&self) -> Vec<iced::advanced::widget::Tree> { self.content.as_widget().children() }
+    fn diff(&self, tree: &mut iced::advanced::widget::Tree) { self.content.as_widget().diff(tree); }
+    fn size(&self) -> Size<Length> { self.content.as_widget().size() }
+
+    fn layout(&mut self, tree: &mut iced::advanced::widget::Tree, renderer: &Renderer, limits: &iced::advanced::layout::Limits) -> iced::advanced::layout::Node {
+        self.content.as_widget_mut().layout(tree, renderer, limits)
+    }
+
+    fn operate(&mut self, tree: &mut iced::advanced::widget::Tree, layout: iced::advanced::Layout<'_>, renderer: &Renderer, operation: &mut dyn iced::advanced::widget::Operation) {
+        self.content.as_widget_mut().operate(tree, layout, renderer, operation);
+    }
+
+    fn update(&mut self, tree: &mut iced::advanced::widget::Tree, event: &iced::Event, layout: iced::advanced::Layout<'_>, cursor: mouse::Cursor, renderer: &Renderer, clipboard: &mut dyn iced::advanced::Clipboard, shell: &mut iced::advanced::Shell<'_, Message>, viewport: &Rectangle) {
+        self.content.as_widget_mut().update(tree, event, layout, cursor, renderer, clipboard, shell, viewport);
+    }
+
+    fn mouse_interaction(&self, tree: &iced::advanced::widget::Tree, layout: iced::advanced::Layout<'_>, cursor: mouse::Cursor, viewport: &Rectangle, renderer: &Renderer) -> mouse::Interaction {
+        self.content.as_widget().mouse_interaction(tree, layout, cursor, viewport, renderer)
+    }
+
+    fn draw(&self, tree: &iced::advanced::widget::Tree, renderer: &mut Renderer, theme: &Theme, style: &iced::advanced::renderer::Style, layout: iced::advanced::Layout<'_>, cursor: mouse::Cursor, viewport: &Rectangle) {
+        use iced::advanced::Renderer as _;
+        if let Some(bounds) = layout.bounds().intersection(viewport) {
+            // A container viewport alone does not create a renderer scissor layer.
+            renderer.with_layer(bounds, |renderer| self.content.as_widget().draw(tree, renderer, theme, style, layout, cursor, &bounds));
+        }
+    }
+
+    fn overlay<'b>(&'b mut self, tree: &'b mut iced::advanced::widget::Tree, layout: iced::advanced::Layout<'b>, renderer: &Renderer, viewport: &Rectangle, translation: iced::Vector) -> Option<iced::advanced::overlay::Element<'b, Message, Theme, Renderer>> {
+        self.content.as_widget_mut().overlay(tree, layout, renderer, viewport, translation)
+    }
+}
+
+// Keep the child's full geometry while smoothly releasing its space in a list.
+pub fn collapsing<'a, Message: 'a>(content: impl Into<Element<'a, Message>>, fraction: f32) -> Element<'a, Message> {
+    Element::new(Collapsing { content: content.into(), fraction: fraction.clamp(0.0, 1.0) })
+}
+
+struct Collapsing<'a, Message> { content: Element<'a, Message>, fraction: f32 }
+
+impl<Message> iced::advanced::Widget<Message, Theme, Renderer> for Collapsing<'_, Message> {
+    fn tag(&self) -> iced::advanced::widget::tree::Tag { self.content.as_widget().tag() }
+    fn state(&self) -> iced::advanced::widget::tree::State { self.content.as_widget().state() }
+    fn children(&self) -> Vec<iced::advanced::widget::Tree> { self.content.as_widget().children() }
+    fn diff(&self, tree: &mut iced::advanced::widget::Tree) { self.content.as_widget().diff(tree); }
+    fn size(&self) -> Size<Length> { Size { width: self.content.as_widget().size().width, height: Length::Shrink } }
+    fn layout(&mut self, tree: &mut iced::advanced::widget::Tree, renderer: &Renderer, limits: &iced::advanced::layout::Limits) -> iced::advanced::layout::Node {
+        let node = self.content.as_widget_mut().layout(tree, renderer, limits);
+        let size = Size::new(node.size().width, node.size().height * self.fraction);
+        iced::advanced::layout::Node::with_children(size, vec![node])
+    }
+    fn operate(&mut self, tree: &mut iced::advanced::widget::Tree, layout: iced::advanced::Layout<'_>, renderer: &Renderer, operation: &mut dyn iced::advanced::widget::Operation) {
+        if let Some(inner) = layout.children().next() { self.content.as_widget_mut().operate(tree, inner, renderer, operation); }
+    }
+    fn update(&mut self, tree: &mut iced::advanced::widget::Tree, event: &iced::Event, layout: iced::advanced::Layout<'_>, cursor: mouse::Cursor, renderer: &Renderer, clipboard: &mut dyn iced::advanced::Clipboard, shell: &mut iced::advanced::Shell<'_, Message>, viewport: &Rectangle) {
+        if self.fraction < 0.999 { return; }
+        if let Some(inner) = layout.children().next() { self.content.as_widget_mut().update(tree, event, inner, cursor, renderer, clipboard, shell, viewport); }
+    }
+    fn mouse_interaction(&self, tree: &iced::advanced::widget::Tree, layout: iced::advanced::Layout<'_>, cursor: mouse::Cursor, viewport: &Rectangle, renderer: &Renderer) -> mouse::Interaction {
+        if self.fraction < 0.999 { return mouse::Interaction::None; }
+        layout.children().next().map_or(mouse::Interaction::None, |inner| self.content.as_widget().mouse_interaction(tree, inner, cursor, viewport, renderer))
+    }
+    fn draw(&self, tree: &iced::advanced::widget::Tree, renderer: &mut Renderer, theme: &Theme, style: &iced::advanced::renderer::Style, layout: iced::advanced::Layout<'_>, cursor: mouse::Cursor, viewport: &Rectangle) {
+        use iced::advanced::Renderer as _;
+        if let (Some(bounds), Some(inner)) = (layout.bounds().intersection(viewport), layout.children().next()) {
+            renderer.with_layer(bounds, |renderer| self.content.as_widget().draw(tree, renderer, theme, style, inner, cursor, &bounds));
+        }
+    }
+}
+
 pub fn framed(handle: &iced::widget::image::Handle, wide: f32, high: f32, radius: impl Into<iced::border::Radius>) -> iced::widget::Image {
     let picture = iced::widget::image(handle.clone()).width(Length::Fill).height(high).border_radius(radius);
     match handle {
@@ -3164,6 +3441,10 @@ pub struct Piece {
 
 pub fn piece(words: impl Into<String>, font: iced::Font, size: f32, colour: Color) -> Piece {
     Piece { words: settled(&words.into()), font, size, colour: faded(colour), gap: 0.0 }
+}
+
+pub fn pieces(parts: Vec<String>, font: iced::Font, size: f32, colour: Color) -> Vec<Piece> {
+    parts.into_iter().enumerate().map(|(at, words)| piece(words, font, size, colour).after(if at == 0 { 0.0 } else { 14.0 })).collect()
 }
 
 impl Piece {
@@ -3463,19 +3744,20 @@ pub struct Glow {
     pub wash: Color,
     pub shadow: Color,
     pub lift: f32,
+    pub scale: f32,
 }
 
 impl Glow {
     pub fn card(radius: f32) -> Glow {
-        Glow { radius, edge: Color::from_rgba(1.0, 1.0, 1.0, 0.16), wash: Color::TRANSPARENT, shadow: Color::from_rgba(0.0, 0.0, 0.0, 0.45), lift: 3.0 }
+        Glow { radius, edge: Color::from_rgba(1.0, 1.0, 1.0, 0.16), wash: Color::TRANSPARENT, shadow: Color::from_rgba(0.0, 0.0, 0.0, 0.45), lift: 3.0, scale: 1.0 }
     }
 
     pub fn row(radius: f32) -> Glow {
-        Glow { radius, edge: Color::TRANSPARENT, wash: Color::from_rgba(1.0, 1.0, 1.0, 0.035), shadow: Color::TRANSPARENT, lift: 0.0 }
+        Glow { radius, edge: Color::TRANSPARENT, wash: Color::from_rgba(1.0, 1.0, 1.0, 0.035), shadow: Color::TRANSPARENT, lift: 0.0, scale: 1.0 }
     }
 
     pub fn tile(radius: f32) -> Glow {
-        Glow { radius, edge: Color::from_rgba(1.0, 1.0, 1.0, 0.1), wash: Color::from_rgba(1.0, 1.0, 1.0, 0.025), shadow: Color::TRANSPARENT, lift: 0.0 }
+        Glow { radius, edge: Color::from_rgba(1.0, 1.0, 1.0, 0.1), wash: Color::from_rgba(1.0, 1.0, 1.0, 0.025), shadow: Color::TRANSPARENT, lift: 0.0, scale: 1.0 }
     }
 
     pub fn edge(mut self, colour: Color) -> Glow {
@@ -3490,6 +3772,11 @@ impl Glow {
 
     pub fn lift(mut self, lift: f32) -> Glow {
         self.lift = lift;
+        self
+    }
+
+    pub fn scale(mut self, scale: f32) -> Glow {
+        self.scale = scale.max(1.0);
         self
     }
 }
@@ -3627,9 +3914,13 @@ impl<Message> iced::advanced::Widget<Message, Theme, Renderer> for Hover<'_, Mes
         if glow.wash.a > 0.0 {
             renderer.fill_quad(quad(iced::Border { radius: glow.radius.into(), ..iced::Border::default() }, iced::Shadow::default()), iced::Background::Color(Color { a: glow.wash.a * lit, ..glow.wash }));
         }
-        if glow.lift > 0.0 {
+        if glow.lift > 0.0 || glow.scale > 1.0 {
+            let centre = bounds.center();
+            let transformation = iced::Transformation::translate(centre.x, centre.y - glow.lift * lit)
+                * iced::Transformation::scale(1.0 + (glow.scale - 1.0) * lit)
+                * iced::Transformation::translate(-centre.x, -centre.y);
             let seen = *viewport - rise;
-            renderer.with_translation(rise, |renderer| {
+            renderer.with_transformation(transformation, |renderer| {
                 self.content.as_widget().draw(&tree.children[0], renderer, theme, style, layout, cursor, &seen);
             });
         } else {
@@ -3991,6 +4282,43 @@ mod tests {
     use super::*;
 
     #[test]
+    fn sliding_highlight_retargets_from_the_visible_position_and_settles_after_resize() {
+        use iced::advanced::{Widget, widget::Tree, layout::Limits, Layout, Shell, renderer::Headless};
+        let renderer = iced_test::futures::futures::executor::block_on(Renderer::new(theme::SANS, iced::Pixels(14.0), Some("tiny-skia"))).unwrap();
+        let make = |active| Slide::<()> {
+            content: row![Space::new().width(80.0).height(30.0), Space::new().width(120.0).height(30.0), Space::new().width(60.0).height(30.0)].spacing(6).into(),
+            active,
+            pill: Pill { fill: ACCENT, edge: Color::TRANSPARENT, radius: 8.0, underline: None },
+        };
+        let mut slide = make(0);
+        let mut tree = Tree::new(&slide as &dyn Widget<(), Theme, Renderer>);
+        let start = std::time::Instant::now();
+        let viewport = Rectangle::new(Point::ORIGIN, Size::new(400.0, 100.0));
+        let frame = |slide: &mut Slide<'_, ()>, tree: &mut Tree, now| {
+            let node = slide.layout(tree, &renderer, &Limits::new(Size::ZERO, viewport.size()));
+            let layout = Layout::new(&node);
+            let mut messages = Vec::new();
+            let mut shell = Shell::new(&mut messages);
+            slide.update(tree, &iced::Event::Window(iced::window::Event::RedrawRequested(now)), layout, mouse::Cursor::Unavailable, &renderer, &mut iced::advanced::clipboard::Null, &mut shell, &viewport);
+            tree.state.downcast_ref::<SlideState>().shown(&slots(layout)).unwrap()
+        };
+        let first = frame(&mut slide, &mut tree, start);
+        slide.active = 1;
+        assert_eq!(frame(&mut slide, &mut tree, start), first, "changing selection cannot jump to its destination");
+        let half = start + std::time::Duration::from_millis(130);
+        let shown = frame(&mut slide, &mut tree, half);
+        assert!(shown.x > first.x && shown.x < 86.0);
+        slide.active = 2;
+        assert_eq!(frame(&mut slide, &mut tree, half), shown, "a rapid second click must continue from the visible highlight");
+        // Rebuild a different-sized row while retaining the actual widget tree.
+        slide.content = row![Space::new().width(100.0).height(36.0), Space::new().width(160.0).height(36.0), Space::new().width(90.0).height(36.0)].spacing(6).into();
+        slide.diff(&mut tree);
+        let settled = frame(&mut slide, &mut tree, half + std::time::Duration::from_secs(1));
+        assert_eq!(settled, Rectangle { x: 272.0, y: 0.0, width: 90.0, height: 36.0 });
+        assert_eq!(frame(&mut slide, &mut tree, half + std::time::Duration::from_secs(2)), settled);
+    }
+
+    #[test]
     fn the_scale_follows_the_monitor_and_the_window_grows_only_when_it_must() {
         assert_eq!(auto_scale_for(1080.0), 100);
         assert_eq!(auto_scale_for(1440.0), 120);
@@ -4001,6 +4329,14 @@ mod tests {
         assert_eq!(refit(Size::new(1600.0, 1000.0), 1.0, 1.2, least), None);
         assert_eq!(refit(Size::new(980.0, 720.0), 1.2, 1.0, least), None);
         assert_eq!(refit(Size::new(980.0, 720.0), 1.0, 1.0, least), None);
+    }
+
+    #[test]
+    fn sensed_hover_does_not_reannounce_when_the_pointer_moves_inside() {
+        assert!(!sensed_changed(true, true, true, false));
+        assert!(sensed_changed(true, true, true, true));
+        assert!(sensed_changed(true, false, false, false));
+        assert!(sensed_changed(false, true, false, false));
     }
 }
 

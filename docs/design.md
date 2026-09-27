@@ -43,11 +43,18 @@ written anywhere else.
 | `line` | white 8% | every border; there is no other border |
 | `line-high` | white 16% | a border under the pointer |
 | `ink` | `#ece7e2` | the current line, headlines, values |
-| `muted` | `#a9a29b` | finished lines, captions, secondary text |
-| `faint` | `#6b655f` | what may be ignored |
+| `muted` | `#c9aaa6` | finished lines, captions, secondary text |
+| `faint` | `#a98689` | quiet metadata, placeholders and inactive labels |
 | `accent` | `#e24848` | the mark's own red: the dot, the tick, the primary button (white on it) |
 | `accent-soft` | accent 16% | a selected row, the halo of the dot |
 | `danger` | `#e24848` | failure and destruction — the same red, told apart by glyph and words, never by hue |
+
+Secondary text uses a warm rose tint. On the fixed dark panels it retains
+the two levels above; over map artwork its tone adapts to the visible crop,
+with a minimum contrast target of 4.5:1 before transition opacity. Image
+samples are cached by handle and aspect ratio. During a map transition the
+estimated background blends with the scene. Video uses a stable conservative
+estimate, avoiding both GPU readback and flickering text.
 
 One red, chosen 2026-09-15 over a warm gold and a rose: it is the colour the
 mark already owns. It means "alive" on a dot and "done" on a tick; it means
@@ -1201,6 +1208,12 @@ it can be drawn without a window and compared with a picture that was approved.
 
 - `tests/golden/<screen>-<state>-<size>.png` — approved frames. A frame is
   approved once, by a person; after that any difference fails the build.
+  The default golden suite pins `tiny-skia`; `ICED_TEST_BACKEND=wgpu` selects
+  the separate GPU set when a headless GPU is available. Tests only read
+  references: missing or damaged PNGs fail instead of approving themselves.
+  Current frames are exported separately, with their paths reported on failure.
+  Gallery exports finish each PNG in a private staging directory before replacing
+  its destination. See `native/tests/golden/README.md` for the review procedure.
 - States: empty, loading, ready, busy, failed, first run. Sizes: 980×720,
   1280×800, 1920×1080.
 - Invariants checked on every frame, with no picture needed: no text is

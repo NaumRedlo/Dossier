@@ -111,6 +111,7 @@ struct Held<K> {
 
 struct State<K> {
     keys: Vec<K>,
+    identity: Option<String>,
     sizes: HashMap<K, Size>,
     width: f32,
     targets: HashMap<K, Point>,
@@ -132,6 +133,7 @@ impl<K: Copy + Eq + Hash> State<K> {
     fn new(keys: Vec<K>) -> Self {
         State {
             keys,
+            identity: None,
             sizes: HashMap::new(),
             width: 0.0,
             targets: HashMap::new(),
@@ -258,7 +260,7 @@ fn aimed<K: Copy + Eq + Hash>(order: &[K], held: K, targets: &HashMap<K, Point>,
     (pointer.y > bottom && !others.is_empty()).then(|| placed(others.len()))
 }
 
-fn aim_at<K: Copy + Eq + Hash>(state: &mut State<K>, origin: Vector) {
+fn aim_at<K: Copy + Eq + Hash>(state: &mut State<K>, origin: Vector, fixed: Option<K>) {
     let Some(held) = state.held.as_mut() else {
         return;
     };
@@ -266,7 +268,9 @@ fn aim_at<K: Copy + Eq + Hash>(state: &mut State<K>, origin: Vector) {
     let (key, pointer) = (held.key, held.pointer);
     let order = state.shown_order();
     match aimed(&order, key, &state.targets, &state.sizes, pointer) {
-        Some(next) if next != order => {
+        Some(mut next) if next != order => {
+            if let Some(key) = fixed { next.retain(|item| *item != key); next.insert(0, key); }
+            if next == order { state.pending = None; return; }
             if state.pending.as_ref().is_none_or(|(waiting, _)| *waiting != next) {
                 let since = state.last.unwrap_or_else(Instant::now);
                 state.pending = Some((next, since));
@@ -308,6 +312,8 @@ pub struct Board<'a, Message, K> {
     fade: f32,
     solid: Option<Color>,
     hidden: Option<K>,
+    fixed_first: Option<K>,
+    identity: Option<String>,
 }
 
 pub fn board<'a, Message: 'a, K: Copy + Eq + Hash + 'static>(
@@ -315,10 +321,20 @@ pub fn board<'a, Message: 'a, K: Copy + Eq + Hash + 'static>(
     spacing: f32,
     on_move: impl Fn(K, Option<K>) -> Message + 'a,
 ) -> Board<'a, Message, K> {
-    Board { pieces, spacing, on_move: Box::new(on_move), on_tap: None, fade: crate::ui::fade(), solid: None, hidden: None }
+    Board { pieces, spacing, on_move: Box::new(on_move), on_tap: None, fade: crate::ui::fade(), solid: None, hidden: None, fixed_first: None, identity: None }
 }
 
 impl<'a, Message, K: Copy + Eq + Hash + 'static> Board<'a, Message, K> {
+    // Numeric keys may be reused after a rescan. Cancel gestures when their underlying collection changes.
+    pub fn identity(mut self, identity: String) -> Self {
+        self.identity = Some(identity);
+        self
+    }
+
+    pub fn fixed_first(mut self, key: K) -> Self {
+        self.fixed_first = Some(key);
+        self
+    }
     pub fn on_tap(mut self, tapped: impl Fn(K, Rectangle) -> Message + 'a) -> Self {
         self.on_tap = Some(Box::new(tapped));
         self
@@ -356,7 +372,9 @@ impl<Message, K: Copy + Eq + Hash + 'static> Widget<Message, Theme, Renderer> fo
     }
 
     fn state(&self) -> tree::State {
-        tree::State::new(State::new(self.keys()))
+        let mut state = State::new(self.keys());
+        state.identity = self.identity.clone();
+        tree::State::new(state)
     }
 
     fn children(&self) -> Vec<Tree> {
@@ -366,16 +384,21 @@ impl<Message, K: Copy + Eq + Hash + 'static> Widget<Message, Theme, Renderer> fo
     fn diff(&self, tree: &mut Tree) {
         let keys = self.keys();
         let state = tree.state.downcast_mut::<State<K>>();
+        let replaced = state.identity != self.identity;
+        state.identity = self.identity.clone();
         let before = std::mem::replace(&mut state.keys, keys.clone());
         if state.order.as_ref().is_some_and(|order| *order == keys) && state.held.is_none_or(|held| held.released) {
             state.order = None;
         }
-        if before.len() != keys.len() || !keys.iter().all(|k| before.contains(k)) {
+        if replaced || before.len() != keys.len() || !keys.iter().all(|k| before.contains(k)) {
             state.order = None;
             state.held = None;
             state.press = None;
+            state.pending = None;
+            if replaced { state.spots.clear(); }
         }
         let mut old: HashMap<K, Tree> = before.into_iter().zip(tree.children.drain(..)).collect();
+        if replaced { old.clear(); }
         tree.children = self
             .pieces
             .iter()
@@ -448,7 +471,7 @@ impl<Message, K: Copy + Eq + Hash + 'static> Widget<Message, Theme, Renderer> fo
                 if let (Some(held), Some(at)) = (state.held.as_mut(), cursor.land().position()) {
                     held.screen = at;
                 }
-                aim_at(state, origin_v);
+                aim_at(state, origin_v, self.fixed_first);
             }
             if state.step(*now) {
                 shell.request_redraw();
@@ -469,7 +492,7 @@ impl<Message, K: Copy + Eq + Hash + 'static> Widget<Message, Theme, Renderer> fo
                 if let (Some(held), Some(at)) = (state.held.as_mut(), cursor.land().position()) {
                     held.screen = at;
                 }
-                aim_at(state, origin_v);
+                aim_at(state, origin_v, self.fixed_first);
                 shell.capture_event();
                 shell.request_redraw();
                 return;
@@ -493,6 +516,7 @@ impl<Message, K: Copy + Eq + Hash + 'static> Widget<Message, Theme, Renderer> fo
                 if let (Some(press), Some(position)) = (state.press, cursor.land().position()) {
                     if (position.x - press.from.x).abs() + (position.y - press.from.y).abs() > SLACK {
                         state.press = None;
+                        if Some(press.key) == self.fixed_first { return; }
                         let pointer = position - origin_v;
                         state.held = Some(Held { key: press.key, grab: press.grab, pointer, screen: position, released: false, lift: Spring::default() });
                         state.order = Some(state.shown_order());
@@ -535,6 +559,7 @@ impl<Message, K: Copy + Eq + Hash + 'static> Widget<Message, Theme, Renderer> fo
                 match hit {
                     Some((key, rect)) => {
                         state.press = Some(Press { key, from: at, grab: at - rect.position() });
+                        if self.on_tap.is_some() { shell.capture_event(); }
                     }
                     None if layout.bounds().contains(at) => {
                         state.showing = true;
@@ -577,6 +602,7 @@ impl<Message, K: Copy + Eq + Hash + 'static> Widget<Message, Theme, Renderer> fo
             })
             .max()
             .unwrap_or_default()
+            .max(if self.on_tap.is_some() && cursor.is_over(layout.bounds()) { mouse::Interaction::Pointer } else { mouse::Interaction::None })
     }
 
     fn draw(
@@ -702,6 +728,34 @@ impl<'a, Message: 'a, K: Copy + Eq + Hash + 'static> From<Board<'a, Message, K>>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_fixed_first_tile_cannot_be_displaced_by_a_drag() {
+        let mut state = State::new(vec![0u8, 1, 2]);
+        state.sizes = [(0, Size::new(100.0, 100.0)), (1, Size::new(100.0, 100.0)), (2, Size::new(100.0, 100.0))].into();
+        state.targets = flow(&state.keys, &state.sizes, 400.0, 10.0).0;
+        state.held = Some(Held { key: 2, grab: Vector::ZERO, pointer: Point::new(10.0, 50.0), screen: Point::new(10.0, 50.0), released: false, lift: Spring::default() });
+        aim_at(&mut state, Vector::ZERO, Some(0));
+        assert_eq!(state.pending.as_ref().unwrap().0, vec![0, 2, 1]);
+    }
+
+    #[test]
+    fn replacing_the_collection_cancels_a_drag_with_reused_numeric_keys() {
+        let pieces = || vec![(0u8, Element::<()>::from(iced::widget::Space::new().width(100).height(100)))];
+        let mut old = board(pieces(), 10.0, |_, _| ()).identity("Alpha".into());
+        let mut tree = Tree::new(&mut old as &mut dyn Widget<(), Theme, Renderer>);
+        let state = tree.state.downcast_mut::<State<u8>>();
+        state.press = Some(Press { key: 0, from: Point::ORIGIN, grab: Vector::ZERO });
+        state.order = Some(vec![0]);
+        state.pending = Some((vec![0], Instant::now()));
+        let next = board(pieces(), 10.0, |_, _| ()).identity("Beta".into());
+        next.diff(&mut tree);
+        let state = tree.state.downcast_ref::<State<u8>>();
+        assert!(state.press.is_none());
+        assert!(state.order.is_none());
+        assert!(state.pending.is_none());
+        assert_eq!(state.identity.as_deref(), Some("Beta"));
+    }
 
     #[test]
     fn a_spring_arrives_without_a_jump_and_comes_to_rest() {

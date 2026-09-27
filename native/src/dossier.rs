@@ -21,18 +21,22 @@ pub enum Metric {
     #[default]
     Pp,
     Rank,
+    CountryRank,
     Accuracy,
     Plays,
     Hours,
 }
 
 impl Metric {
-    pub const ALL: [Metric; 5] = [Metric::Pp, Metric::Rank, Metric::Accuracy, Metric::Plays, Metric::Hours];
+    pub const ALL: [Metric; 6] = [Metric::Pp, Metric::Rank, Metric::CountryRank, Metric::Accuracy, Metric::Plays, Metric::Hours];
+
+    fn is_rank(self) -> bool { matches!(self, Self::Rank | Self::CountryRank) }
 
     fn key(self) -> &'static str {
         match self {
             Metric::Pp => "board-pp",
             Metric::Rank => "metric-world",
+            Metric::CountryRank => "metric-country",
             Metric::Accuracy => "board-accuracy",
             Metric::Plays => "board-plays",
             Metric::Hours => "board-hours",
@@ -49,9 +53,19 @@ fn series(ground: &Ground<'_>, whose: &Whose<'_>, metric: Metric, span: u32) -> 
     let card = &whose.card;
     let now = ground.now_unix;
     let since = now - i64::from(span) * DAY;
-    if metric == Metric::Rank {
-        let count = card.rank_history.len() as i64;
-        let points = card.rank_history.iter().enumerate().map(|(at, value)| (now - (count - 1 - at as i64) * DAY, *value)).filter(|(at, _)| *at >= since).collect();
+    if metric.is_rank() {
+        let history = if metric == Metric::Rank { &card.rank_history } else { &card.country_rank_history };
+        let count = history.len() as i64;
+        let mut points: Vec<_> = history.iter().enumerate().map(|(at, value)| (now - (count - 1 - at as i64) * DAY, *value)).filter(|(at, value)| *at >= since && value.is_finite() && *value > 0.0).collect();
+        if metric == Metric::CountryRank {
+            if points.is_empty() {
+                points = card.country_rank_samples.iter().copied().filter(|(at, rank)| *at >= since && *at <= now && rank.is_finite() && *rank > 0.0).collect();
+            }
+            if card.country_rank.is_finite() && card.country_rank > 0.0 {
+                if points.last().is_some_and(|(at, _)| at.div_euclid(DAY) == now.div_euclid(DAY)) { points.pop(); }
+                points.push((now, card.country_rank));
+            }
+        }
         return Series { points, lower_better: true };
     }
     let current = match metric {
@@ -84,7 +98,7 @@ fn series(ground: &Ground<'_>, whose: &Whose<'_>, metric: Metric, span: u32) -> 
 fn full(words: &crate::lang::Words, metric: Metric, value: f64) -> String {
     match metric {
         Metric::Pp => format!("{} pp", words.lang().group(value.round() as u64)),
-        Metric::Rank => format!("#{}", words.lang().group(value.round() as u64)),
+        Metric::Rank | Metric::CountryRank => format!("#{}", words.lang().group(value.round() as u64)),
         Metric::Accuracy => words.percent(value),
         Metric::Plays => words.lang().group(value.round() as u64),
         Metric::Hours => format!("{} {}", words.lang().group(value.round() as u64), words.t("hours-short")),
@@ -101,18 +115,18 @@ fn delta(words: &crate::lang::Words, metric: Metric, series: &Series) -> Option<
     let size = change.abs();
     let said = match metric {
         Metric::Pp => format!("{} pp", words.lang().group(size.round() as u64)),
-        Metric::Rank => words.lang().group(size.round() as u64),
+        Metric::Rank | Metric::CountryRank => words.lang().group(size.round() as u64),
         Metric::Accuracy => screen::decimal(words, size as f32, 2) + "%",
         Metric::Plays => words.lang().group(size.round() as u64),
         Metric::Hours => format!("{} {}", words.lang().group(size.round() as u64), words.t("hours-short")),
     };
-    let sign = if metric == Metric::Rank { "" } else if change > 0.0 { "+" } else { "−" };
+    let sign = if metric.is_rank() { "" } else if change > 0.0 { "+" } else { "−" };
     Some((format!("{sign}{said}"), better))
 }
 
 fn change<'a>(metric: Metric, said: String, better: bool) -> Element<'a, Message> {
     let colour = if better { GREEN } else { ACCENT };
-    if metric != Metric::Rank {
+    if !metric.is_rank() {
         return ui::mono_small(said, colour);
     }
     row![glyph(if better { Icon::Up } else { Icon::Down }, 10.0, colour), ui::mono_small(said, colour)].spacing(3).align_y(iced::Center).into()
@@ -128,6 +142,7 @@ struct Chart {
     marks: [String; 4],
     empty: String,
     alpha: f32,
+    reveal: f32,
 }
 
 #[derive(Default)]
@@ -138,7 +153,14 @@ struct Hover {
 const FOOT: f32 = 22.0;
 const EDGE: f32 = 6.0;
 
-fn smooth(points: &[Point], ground: Option<f32>) -> Path {
+fn curve_part(a: Point, b: Point, c: Point, d: Point, t: f32) -> [Point; 3] {
+    let mix = |from: Point, to: Point| from + (to - from) * t;
+    let (ab, bc, cd) = (mix(a, b), mix(b, c), mix(c, d));
+    let (abc, bcd) = (mix(ab, bc), mix(bc, cd));
+    [ab, abc, mix(abc, bcd)]
+}
+
+fn smooth(points: &[Point], ground: Option<f32>, through: f32) -> Path {
     let n = points.len();
     let mut slopes = vec![0.0f32; n.saturating_sub(1)];
     for k in 0..n.saturating_sub(1) {
@@ -176,12 +198,25 @@ fn smooth(points: &[Point], ground: Option<f32>) -> Path {
             }
             None => b.move_to(points[0]),
         }
+        let mut end = points[0];
         for k in 0..n.saturating_sub(1) {
+            if points[k].x >= through { break; }
             let dx = (points[k + 1].x - points[k].x) / 3.0;
-            b.bezier_curve_to(Point::new(points[k].x + dx, points[k].y + tangents[k] * dx), Point::new(points[k + 1].x - dx, points[k + 1].y - tangents[k + 1] * dx), points[k + 1]);
+            let first = Point::new(points[k].x + dx, points[k].y + tangents[k] * dx);
+            let second = Point::new(points[k + 1].x - dx, points[k + 1].y - tangents[k + 1] * dx);
+            if points[k + 1].x <= through {
+                b.bezier_curve_to(first, second, points[k + 1]);
+                end = points[k + 1];
+            } else {
+                let t = ((through - points[k].x) / (points[k + 1].x - points[k].x)).clamp(0.0, 1.0);
+                let [first, second, last] = curve_part(points[k], first, second, points[k + 1], t);
+                b.bezier_curve_to(first, second, last);
+                end = last;
+                break;
+            }
         }
         if let Some(ground) = ground {
-            b.line_to(Point::new(points[n - 1].x, ground));
+            b.line_to(Point::new(end.x, ground));
             b.close();
         }
     })
@@ -195,6 +230,10 @@ impl Chart {
     fn at(&self, plot: Rectangle, index: usize) -> Point {
         let (x, y) = self.points[index];
         Point::new(plot.x + x * plot.width, plot.y + y * plot.height)
+    }
+
+    fn visible_hover(&self, index: Option<usize>) -> Option<usize> {
+        index.filter(|index| self.points.get(*index).is_some_and(|(x, _)| *x <= self.reveal) && *index < self.tips.len())
     }
 }
 
@@ -210,6 +249,7 @@ impl canvas::Program<Message> for Chart {
             let share = ((at.x - plot.x) / plot.width).clamp(0.0, 1.0);
             self.points.iter().enumerate().min_by(|a, b| (a.1 .0 - share).abs().total_cmp(&(b.1 .0 - share).abs())).map_or(0, |(index, _)| index)
         });
+        let next = self.visible_hover(next);
         if next != state.at {
             state.at = next;
             return Some(canvas::Action::request_redraw());
@@ -245,9 +285,12 @@ impl canvas::Program<Message> for Chart {
         let shade = canvas::gradient::Linear::new(Point::new(0.0, plot.y), Point::new(0.0, ground))
             .add_stop(0.0, fade(Color::from_rgba(0.886, 0.282, 0.282, 0.26)))
             .add_stop(1.0, fade(Color::from_rgba(0.886, 0.282, 0.282, 0.02)));
-        frame.fill(&smooth(&points, Some(ground)), canvas::Fill { style: canvas::Style::Gradient(shade.into()), ..canvas::Fill::default() });
-        let curve = smooth(&points, None);
-        frame.stroke(&curve, Stroke::default().with_color(fade(ACCENT)).with_width(2.4).with_line_join(canvas::LineJoin::Round).with_line_cap(canvas::LineCap::Round));
+        if self.reveal > 0.0 {
+            let through = plot.x + plot.width * self.reveal;
+            frame.fill(&smooth(&points, Some(ground), through), canvas::Fill { style: canvas::Style::Gradient(shade.into()), ..canvas::Fill::default() });
+            let curve = smooth(&points, None, through);
+            frame.stroke(&curve, Stroke::default().with_color(fade(ACCENT)).with_width(2.4).with_line_join(canvas::LineJoin::Round).with_line_cap(canvas::LineCap::Round));
+        }
         for (step, mark) in self.marks.iter().enumerate() {
             let x = plot.x + plot.width * step as f32 / 3.0;
             let align = match step {
@@ -257,7 +300,7 @@ impl canvas::Program<Message> for Chart {
             };
             frame.fill_text(words(mark.clone(), Point::new(x, ground + FOOT / 2.0 + 2.0), align, FAINT, 10.5));
         }
-        match state.at {
+        match self.visible_hover(state.at) {
             Some(index) => {
                 let point = points[index];
                 frame.stroke(&Path::line(Point::new(point.x, plot.y), Point::new(point.x, ground)), Stroke::default().with_color(fade(Color::from_rgba(1.0, 1.0, 1.0, 0.06))).with_width(1.0));
@@ -282,7 +325,9 @@ impl canvas::Program<Message> for Chart {
                 frame.fill_text(words(when.clone(), Point::new(left + 8.0, top + 29.0), iced::widget::text::Alignment::Left, MUTED, 10.0));
             }
             None => {
-                frame.fill(&Path::circle(points[points.len() - 1], 4.5), fade(CORAL));
+                if self.reveal >= 1.0 {
+                    frame.fill(&Path::circle(points[points.len() - 1], 4.5), fade(CORAL));
+                }
             }
         }
         vec![frame.into_geometry()]
@@ -306,8 +351,23 @@ struct Heat {
     alpha: f32,
 }
 
-const CELL: f32 = 14.0;
 const CELL_GAP: f32 = 4.0;
+
+fn heat_cell(wide: f32) -> f32 { ((wide - 2.0 * HEAT_PAD - 12.0 * CELL_GAP) / 13.0).max(1.0) }
+fn heat_height(wide: f32) -> f32 { 2.0 * HEAT_PAD + 7.0 * heat_cell(wide) + 6.0 * CELL_GAP + 40.0 }
+
+impl Heat {
+    fn cell_at(&self, bounds: Rectangle, at: Point) -> Option<usize> {
+        let cell = heat_cell(bounds.width);
+        let x = at.x - HEAT_PAD;
+        let y = at.y - HEAT_PAD;
+        if x < 0.0 || y < 0.0 { return None; }
+        let column = (x / (cell + CELL_GAP)).floor() as usize;
+        let line = (y / (cell + CELL_GAP)).floor() as usize;
+        let index = column * 7 + line;
+        (column < 13 && line < 7 && x % (cell + CELL_GAP) < cell && y % (cell + CELL_GAP) < cell && index < self.days.len()).then_some(index)
+    }
+}
 
 fn heat_share(n: u32) -> f32 {
     match n {
@@ -326,12 +386,7 @@ impl canvas::Program<Message> for Heat {
         if !matches!(event, canvas::Event::Mouse(_)) {
             return None;
         }
-        let next = cursor.position_in(bounds).and_then(|at| {
-            let column = ((at.x - HEAT_PAD) / (CELL + CELL_GAP)).floor() as i32;
-            let line = ((at.y - HEAT_PAD) / (CELL + CELL_GAP)).floor() as i32;
-            let index = column * 7 + line;
-            ((0..13).contains(&column) && (0..7).contains(&line) && (index as usize) < self.days.len()).then_some(index as usize)
-        });
+        let next = cursor.position_in(bounds).and_then(|at| self.cell_at(bounds, at));
         if next != state.at {
             state.at = next;
             return Some(canvas::Action::request_redraw());
@@ -342,22 +397,23 @@ impl canvas::Program<Message> for Heat {
     fn draw(&self, state: &Hover, renderer: &Renderer, _: &Theme, bounds: Rectangle, _: mouse::Cursor) -> Vec<Geometry> {
         let mut frame = Frame::new(renderer, bounds.size());
         let k = self.alpha;
+        let cell = heat_cell(bounds.width);
         for (index, (_, n)) in self.days.iter().enumerate() {
             let column = (index / 7) as f32;
             let line = (index % 7) as f32;
             let lit = state.at == Some(index);
             let grow = if lit { 2.0 } else { 0.0 };
-            let corner = Point::new(HEAT_PAD + column * (CELL + CELL_GAP) - grow / 2.0, HEAT_PAD + line * (CELL + CELL_GAP) - grow / 2.0);
-            let side = iced::Size::new(CELL + grow, CELL + grow);
+            let corner = Point::new(HEAT_PAD + column * (cell + CELL_GAP) - grow / 2.0, HEAT_PAD + line * (cell + CELL_GAP) - grow / 2.0);
+            let side = iced::Size::new(cell + grow, cell + grow);
             frame.fill(&Path::rounded_rectangle(corner, side, 3.0.into()), Color::from_rgba(0.886, 0.282, 0.282, heat_share(*n) * k));
             if lit {
                 frame.stroke(&Path::rounded_rectangle(corner, side, 3.0.into()), Stroke::default().with_color(Color::from_rgba(1.0, 1.0, 1.0, 0.5 * k)).with_width(1.0));
             }
         }
-        let foot = HEAT_PAD + 7.0 * (CELL + CELL_GAP) + 10.0;
+        let foot = HEAT_PAD + 7.0 * cell + 6.0 * CELL_GAP + 10.0;
         let said = match state.at.and_then(|index| self.days.get(index)) {
-            Some((day, 0)) => format!("{day} · {}", self.none),
-            Some((day, n)) => format!("{day} · {}", self.plays.get(*n as usize).cloned().unwrap_or_default()),
+            Some((day, 0)) => format!("{day}  {}", self.none),
+            Some((day, n)) => format!("{day}  {}", self.plays.get(*n as usize).cloned().unwrap_or_default()),
             None => String::new(),
         };
         frame.fill_text(canvas::Text {
@@ -454,48 +510,71 @@ fn years(words: &crate::lang::Words, joined: i64, now: i64) -> Option<String> {
     (joined > 0).then(|| words.n("years", ((now - joined) / (365 * DAY)).max(0) as u64))
 }
 
-fn identity<'a>(ground: &Ground<'a>, whose: &Whose<'a>) -> Element<'a, Message> {
+// Cache the faded, transparent cover so both renderers use the same rounded edge.
+fn cover_picture(handle: Option<&iced::widget::image::Handle>, wide: f32, tint: Color) -> iced::widget::image::Handle {
+    use iced::widget::image::Handle;
+    type Key = (Option<iced::advanced::image::Id>, u32, [u8; 3]);
+    thread_local! { static COVERS: std::cell::RefCell<Vec<(Key, Handle)>> = const { std::cell::RefCell::new(Vec::new()) }; }
+    let width = (wide.max(1.0) * 2.0).round() as u32;
+    let height = 392;
+    let tint = [(tint.r * 255.0) as u8, (tint.g * 255.0) as u8, (tint.b * 255.0) as u8];
+    let key = (handle.map(Handle::id), width, tint);
+    COVERS.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        if let Some((_, picture)) = cache.iter().find(|(old, _)| *old == key) { return picture.clone(); }
+        let source = handle.and_then(|handle| match handle {
+            Handle::Rgba { width, height, pixels, .. } => image::RgbaImage::from_raw(*width, *height, pixels.to_vec()),
+            Handle::Bytes(_, bytes) => image::load_from_memory(bytes).ok().map(|image| image.to_rgba8()),
+            Handle::Path(_, path) => image::open(path).ok().map(|image| image.to_rgba8()),
+        }).filter(|image| image.width() > 0 && image.height() > 0);
+        let source = source.map(|source| {
+            let (w, h) = source.dimensions();
+            let ratio = width as f32 / height as f32;
+            let (cw, ch) = if w as f32 / h as f32 > ratio { ((h as f32 * ratio).round().max(1.0) as u32, h) } else { (w, (w as f32 / ratio).round().max(1.0) as u32) };
+            let cut = image::imageops::crop_imm(&source, (w - cw.min(w)) / 2, (h - ch.min(h)) / 2, cw.min(w), ch.min(h)).to_image();
+            image::imageops::resize(&cut, width, height, image::imageops::FilterType::Triangle)
+        });
+        let mut pixels = image::RgbaImage::new(width, height);
+        let radius = 26.0_f32.min(width as f32 / 2.0);
+        for (x, y, pixel) in pixels.enumerate_pixels_mut() {
+            let t = (y as f32 + 0.5) / height as f32;
+            let fade = 1.0 - { let u = ((t - 0.3) / 0.7).clamp(0.0, 1.0); u * u * (3.0 - 2.0 * u) };
+            let shade = 0.28 + 0.2 * t;
+            let corner_x = (radius - (x as f32 + 0.5)).max(x as f32 + 0.5 - (width as f32 - radius)).max(0.0);
+            let corner_y = (radius - (y as f32 + 0.5)).max(0.0);
+            let edge = if corner_x > 0.0 && corner_y > 0.0 { (radius - corner_x.hypot(corner_y) + 0.5).clamp(0.0, 1.0) } else { 1.0 };
+            let art = source.as_ref().map(|source| source.get_pixel(x, y).0).unwrap_or([tint[0], tint[1], tint[2], 20]);
+            let base = theme::SLAB_SOLID;
+            *pixel = image::Rgba([
+                (art[0] as f32 * (1.0 - shade) + base.r * 255.0 * shade) as u8,
+                (art[1] as f32 * (1.0 - shade) + base.g * 255.0 * shade) as u8,
+                (art[2] as f32 * (1.0 - shade) + base.b * 255.0 * shade) as u8,
+                (art[3] as f32 * fade * edge).round() as u8,
+            ]);
+        }
+        let picture = Handle::from_rgba(width, height, pixels.into_raw());
+        if cache.len() >= 16 { cache.remove(0); }
+        cache.push((key, picture.clone()));
+        picture
+    })
+}
+
+fn profile_cover<'a>(handle: Option<&iced::widget::image::Handle>, wide: f32, tint: Color) -> Element<'a, Message> {
+    iced::widget::image(cover_picture(handle, wide, tint)).width(Length::Fill).height(196.0)
+        .content_fit(iced::ContentFit::Fill).opacity(ui::fade()).into()
+}
+
+fn identity<'a>(ground: &Ground<'a>, whose: &Whose<'a>, wide: f32) -> Element<'a, Message> {
     let (you, card) = (whose.person, &whose.card);
     let w = ground.words;
-    let share = (card.level_progress / 100.0) as f32;
-    let k = ui::fade();
     let side = 156.0;
-    let mut face = stack![chronicle::ring(ground, you, side, share, 6.0)].width(side).height(side);
-    if card.is_online {
-        let dot = container(Space::new().width(26.0).height(26.0)).style(move |_| container::Style {
-            background: Some(Background::Color(Color { a: k, ..GREEN })),
-            border: Border { color: Color { a: k, ..theme::SLAB_SOLID }, width: 5.0, radius: 13.0.into() },
-            shadow: iced::Shadow { color: Color { a: 0.45 * k, ..GREEN }, offset: Vector::ZERO, blur_radius: 10.0 },
-            ..container::Style::default()
-        });
-        face = face.push(container(dot).width(side).height(side).align_x(iced::alignment::Horizontal::Right).align_y(iced::alignment::Vertical::Bottom).padding(Padding { top: 0.0, right: 12.0, bottom: 12.0, left: 0.0 }));
-    }
-    let mut avatar = stack![container(face).width(Length::Fill).center_x(Length::Fill)].height(side + 14.0);
-    if card.level >= 1.0 {
-        let medallion = container(
-            column![
-                text((card.level.floor() as u64).to_string()).font(theme::MONO_BOLD).size(15.0).color(ui::faded(INK)),
-                text(w.t("level-short").to_uppercase()).font(theme::MONO).size(8.5).color(ui::faded(MUTED)),
-            ]
-            .align_x(iced::alignment::Horizontal::Center),
-        )
-        .width(46.0)
-        .height(46.0)
-        .center(46.0)
-        .style(move |_| container::Style {
-            background: Some(Background::Color(Color { a: k, ..theme::SLAB_SOLID })),
-            border: Border { color: Color { a: k, ..ACCENT }, width: 1.5, radius: 23.0.into() },
-            ..container::Style::default()
-        });
-        avatar = avatar.push(container(medallion).width(Length::Fill).height(side + 14.0).center_x(Length::Fill).align_y(iced::alignment::Vertical::Bottom));
-    }
-    let seen = if card.is_online {
-        Some((w.t("online"), GREEN))
-    } else {
-        crate::news::unix_of(&card.last_visit).map(|at| (w.with("last-seen", &[("when", screen::since(ground, at))]), FAINT))
-    };
+    let face = chronicle::ring(ground, you, side, 1.0, 3.0);
+    let cover = ground.pictures.get(&card.cover_url).or_else(|| ground.pictures.get(&you.cover));
+    let avatar = container(face).width(Length::Fill).height(196.0).center_x(Length::Fill).center_y(196.0);
+    let banner = container(stack![profile_cover(cover, wide - 2.0, screen::avatar_colour(&you.name)), avatar].width(Length::Fill).height(196.0))
+        .padding(Padding::ZERO.top(1.0).left(1.0).right(1.0)).id("profile-cover");
+    let seen = if card.is_online { (w.t("online"), GREEN) } else { (w.t("offline"), FAINT) };
     let mut heading = column![
-        avatar,
         text(you.name.clone()).font(theme::SANS_SEMI).size(28.0).wrapping(text::Wrapping::None).color(ui::faded(INK)),
     ]
     .spacing(6)
@@ -509,14 +588,11 @@ fn identity<'a>(ground: &Ground<'a>, whose: &Whose<'a>) -> Element<'a, Message> 
         None => text(w.t("no-title")).font(theme::SANS).size(12.5).color(ui::faded(FAINT)).into(),
     };
     heading = heading.push(worn);
-    if let Some((said, colour)) = seen {
-        heading = heading.push(text(said).font(theme::SANS).size(12.0).color(ui::faded(colour)));
+    heading = heading.push(text(seen.0).font(theme::SANS).size(12.0).color(ui::faded(seen.1)));
+    if card.level >= 1.0 {
+        heading = heading.push(ui::mono_small(format!("{} {}", w.t("level-short"), card.level.floor() as u64), MUTED));
     }
     let country = if card.country_name.is_empty() { card.country.to_ascii_uppercase() } else { card.country_name.clone() };
-    let country = match card.country_rank {
-        rank if rank > 0.0 => format!("{country} · #{}", w.lang().group(rank as u64)),
-        _ => country,
-    };
     let flag: Element<'a, Message> = match ground.flags.get(&card.country.to_ascii_lowercase()) {
         Some(handle) => iced::widget::svg(handle.clone()).width(16.0).height(11.0).opacity(ui::fade()).into(),
         None => Space::new().width(0.0).into(),
@@ -526,12 +602,12 @@ fn identity<'a>(ground: &Ground<'a>, whose: &Whose<'a>) -> Element<'a, Message> 
     if let Some(joined) = crate::news::unix_of(&card.join_date).or((you.joined > 0).then_some(you.joined)) {
         let mut said = format!("{} {}", w.t("info-since-from"), numeric_date(joined));
         if let Some(years) = years(w, joined, ground.now_unix) {
-            said = format!("{said} · {years}");
+            said = format!("{said} ({years})");
         }
         rows = rows.push(info_row(glyph(Icon::Calendar, 15.0, MUTED), w.t("info-since"), said, INK));
     }
-    if you.streak > 0 || you.streak_best > 0 {
-        rows = rows.push(info_row(glyph(Icon::Flame, 15.0, MUTED), w.t("streak"), format!("{} · {}", w.n("streak-card", u64::from(you.streak)), w.n("streak-best-n", u64::from(you.streak_best.max(you.streak)))), CORAL));
+    if you.streak > 0 {
+        rows = rows.push(info_row(glyph(Icon::Flame, 15.0, MUTED), w.t("streak"), w.n("streak-card", u64::from(you.streak)), CORAL));
     }
     if let Some(me) = whose.me {
         if me.duels[0] + me.duels[1] > 0 {
@@ -558,7 +634,8 @@ fn identity<'a>(ground: &Ground<'a>, whose: &Whose<'a>) -> Element<'a, Message> 
         ),
     ]
     .spacing(8);
-    slab(column![heading, rows, buttons].spacing(12), [18, 18]).into()
+    let details = container(column![heading, rows, buttons].spacing(12)).padding(Padding { top: 0.0, right: 18.0, bottom: 18.0, left: 18.0 });
+    slab(column![banner, details].spacing(6), 0).id("profile-identity").into()
 }
 
 fn standing<'a>(share: f32, colour: Color) -> Element<'a, Message> {
@@ -631,8 +708,7 @@ fn places<'a>(ground: &Ground<'a>, whose: &Whose<'a>, t: f32) -> Element<'a, Mes
         }
         grid = grid.push(line);
     }
-    let said = format!("{} · {}", w.count("players", many as u64), w.n("week-short", u64::from(catalog.week)).to_lowercase());
-    slab(column![row![caption(w.t("place-head")), ui::grow(), ui::mono_small(said, MUTED)].align_y(iced::Center), grid].spacing(10), [14, 16]).into()
+    slab(column![caption(w.t("place-head")), grid].spacing(10), [14, 16]).into()
 }
 
 fn metric_style(on: bool) -> impl Fn(&Theme, button::Status) -> button::Style {
@@ -648,33 +724,40 @@ fn metric_style(on: bool) -> impl Fn(&Theme, button::Status) -> button::Style {
     }
 }
 
-fn metrics<'a>(ground: &Ground<'a>, whose: &Whose<'a>, t: f32) -> Element<'a, Message> {
+fn metrics<'a>(ground: &Ground<'a>, whose: &Whose<'a>, room: f32, t: f32) -> Element<'a, Message> {
     let card = &whose.card;
     let w = ground.words;
-    let mut tiles = row![].spacing(8);
+    let per_row = if room < 820.0 { 3 } else { 6 };
+    let mut tiles = column![].spacing(8);
+    let mut line = row![].spacing(8);
     for (index, metric) in Metric::ALL.into_iter().enumerate() {
         let f = ui::tally(t, 0.05 * index as f32);
         let current = match metric {
             Metric::Pp => card.pp,
             Metric::Rank => card.global_rank,
+            Metric::CountryRank => card.country_rank,
             Metric::Accuracy => card.accuracy,
             Metric::Plays => card.play_count,
             Metric::Hours => card.play_seconds / 3600.0,
         };
-        let value = if current > 0.0 { full(w, metric, (current * f).max(if metric == Metric::Rank { 1.0 } else { 0.0 })).replace(" pp", "") } else { "—".to_owned() };
+        let value = if current > 0.0 { full(w, metric, (current * f).max(if metric.is_rank() { 1.0 } else { 0.0 })).replace(" pp", "") } else { "—".to_owned() };
         let change = delta(w, metric, &series(ground, whose, metric, 90));
         let mut under = column![ui::mono_small(w.t(metric.key()).to_uppercase(), FAINT)].spacing(1);
         if let Some((said, better)) = change {
             under = under.push(self::change(metric, said, better));
         }
-        tiles = tiles.push(ui::hover(
+        line = line.push(container(ui::hover(
             button(container(column![text(value).font(theme::SANS_SEMI).size(20.0).wrapping(text::Wrapping::None).color(ui::faded(if metric == Metric::Pp { CORAL } else { INK })), under].spacing(3)).width(Length::Fill).clip(true))
                 .padding([12, 14])
                 .width(Length::FillPortion(1))
                 .style(ui::button_faded(ui::calm(metric_style(ground.metric == metric))))
                 .on_press(Message::Metric(metric)),
             ui::Glow::tile(12.0).lift(2.0),
-        ));
+        )).width(Length::FillPortion(1)).id(iced::widget::Id::from(format!("dossier-metric-{index}"))));
+        if (index + 1) % per_row == 0 {
+            tiles = tiles.push(line);
+            line = row![].spacing(8);
+        }
     }
     tiles.into()
 }
@@ -689,7 +772,7 @@ fn segment(on: bool) -> impl Fn(&Theme, button::Status) -> button::Style {
     }
 }
 
-fn chart<'a>(ground: &Ground<'a>, whose: &Whose<'a>) -> Element<'a, Message> {
+fn chart<'a>(ground: &Ground<'a>, whose: &Whose<'a>, t: f32) -> Element<'a, Message> {
     let w = ground.words;
     let metric = ground.metric;
     let data = series(ground, whose, metric, ground.span);
@@ -720,7 +803,8 @@ fn chart<'a>(ground: &Ground<'a>, whose: &Whose<'a>) -> Element<'a, Message> {
             date(w, at, ground.now_unix)
         }
     });
-    let canvas = Canvas::new(Chart { points, tips, marks, empty: w.t("card-no-data"), alpha: ui::fade() }).width(Length::Fill).height(200.0);
+    let empty = if metric == Metric::CountryRank && data.points.len() == 1 { w.t("country-history-start") } else { w.t("card-no-data") };
+    let canvas = Canvas::new(Chart { points, tips, marks, empty, alpha: ui::fade(), reveal: ui::tally(t, 0.10) as f32 }).width(Length::Fill).height(200.0);
     let mut ranges = row![].spacing(2);
     for span in [30u32, 90] {
         ranges = ranges.push(button(text(w.n("days-short", u64::from(span))).font(theme::MONO_BOLD).size(11.0)).padding([4, 10]).style(ui::button_faded(segment(ground.span == span))).on_press(Message::Span(span)));
@@ -728,7 +812,7 @@ fn chart<'a>(ground: &Ground<'a>, whose: &Whose<'a>) -> Element<'a, Message> {
     let k = ui::fade();
     let ranges = ui::sliding(ranges, if ground.span == 30 { 0 } else { 1 }, ui::Pill { fill: Color::from_rgba(1.0, 1.0, 1.0, 0.06), edge: Color::TRANSPARENT, radius: 6.0, underline: None });
     let control = container(ranges).padding(2).style(move |_| container::Style { background: Some(Background::Color(Color::from_rgba(0.0, 0.0, 0.0, 0.25 * k))), border: Border { radius: 8.0.into(), ..Border::default() }, ..container::Style::default() });
-    let mut head = row![caption(format!("{} · {}", w.t(metric.key()), w.n("days-long", u64::from(ground.span))))].spacing(10).align_y(iced::Center);
+    let mut head = row![caption(format!("{}  {}", w.t(metric.key()), w.n("days-long", u64::from(ground.span))))].spacing(10).align_y(iced::Center);
     if let Some((said, better)) = delta(w, metric, &data) {
         head = head.push(change(metric, said, better));
     }
@@ -1059,7 +1143,7 @@ fn poster_detail<'a>(ground: &Ground<'a>, poster: &Poster<'a>, f: f64) -> Elemen
     if let Some(said) = combo_said {
         let full = poster.full();
         let colour = if full { GREEN } else { MUTED };
-        let said = if full { format!("{said} · FC") } else { poster.misses().filter(|n| *n > 0).map_or(said.clone(), |n| format!("{said} · {n} ✕")) };
+        let said = if full { format!("{said}  FC") } else { poster.misses().filter(|n| *n > 0).map_or(said.clone(), |n| format!("{said}  {n} ✕")) };
         facts.push(fact_pill(row![glyph(Icon::Chain, 12.0, colour), ui::mono_small(said, colour)].spacing(5).align_y(iced::Center).into()));
     }
     if let Some(bpm) = poster.bpm {
@@ -1084,7 +1168,7 @@ fn poster_detail<'a>(ground: &Ground<'a>, poster: &Poster<'a>, f: f64) -> Elemen
     }
     let left = left
         .push(ui::marquee(vec![ui::piece(poster.title.clone(), theme::SANS_SEMI, 19.0, INK)]))
-        .push(ui::marquee(vec![ui::piece(under.join(" · "), theme::SANS, 12.5, MUTED)]))
+        .push(ui::marquee(ui::pieces(under, theme::SANS, 12.5, MUTED)))
         .push(container(ui::wrap(facts, 6.0)).padding(Padding::ZERO.top(6.0)));
     let mut right = column![].spacing(12).width(Length::FillPortion(10));
     if let Some(bar) = judgement_bar(ground, poster.counts, f) {
@@ -1150,7 +1234,7 @@ fn grades<'a>(ground: &Ground<'a>, card: &wire::Card) -> Element<'a, Message> {
                 column![
                     text(letter.to_string()).font(theme::SANS_SEMI).size(20.0).color(ui::faded(colour)),
                     text(w.lang().group(*n as u64)).font(theme::SANS_SEMI).size(13.0).color(ui::faded(INK)),
-                    ui::mono_small(share(*n), FAINT),
+                    ui::mono_small(share(*n), if on { INK } else { FAINT }),
                 ]
                 .spacing(1)
                 .align_x(iced::alignment::Horizontal::Center),
@@ -1172,8 +1256,8 @@ fn grades<'a>(ground: &Ground<'a>, card: &wire::Card) -> Element<'a, Message> {
         }
     }
     let said = match ground.grade_hover.and_then(|index| entries.get(index)) {
-        Some((_, n, colour, key)) => ui::mono_small(format!("{} · {} {}", w.t(key), share(*n), w.t("of-all-grades")), *colour),
-        None => ui::mono_small(w.lang().group(total as u64), INK),
+        Some((_, n, colour, key)) => ui::mono_small(format!("{}  {} {}", w.t(key), share(*n), w.t("of-all-grades")), *colour),
+        None => Space::new().width(0.0).into(),
     };
     let body = column![row![caption(w.t("card-grades")), ui::grow(), said].align_y(iced::Center), tiles, bar.width(Length::Fill)].spacing(10);
     mouse_area(slab(body, [14, 16])).on_exit(Message::GradeHover(None)).into()
@@ -1239,21 +1323,15 @@ fn titles<'a>(ground: &Ground<'a>, whose: &Whose<'a>) -> Element<'a, Message> {
             let got = held(title);
             let secret = !got && title.rarity == Rarity::Secret;
             let colour = title.rarity.colour();
-            let holders = catalog.holders(&title.code).len();
             let when = match (got, whose.me.and_then(|me| me.title_dates.get(&title.code))) {
-                (true, Some(at)) => format!("{} {} · {} {}", w.t("title-got"), w.day(*at, ground.now_unix), w.t("held-by"), w.of(holders as u64, catalog.people.len() as u64)),
-                (true, None) => format!("{} {}", w.t("held-by"), w.of(holders as u64, catalog.people.len() as u64)),
-                (false, _) => format!("{} · {} {}", w.t("title-not-yet"), w.t("held-by"), w.of(holders as u64, catalog.people.len() as u64)),
+                (true, Some(at)) => format!("{} {}", w.t("title-got"), w.day(*at, ground.now_unix)),
+                (true, None) => w.t("title-got"),
+                (false, _) => w.t("title-not-yet"),
             };
             let k = ui::fade();
             container(
                 column![
-                    row![
-                        text(if secret { "???".to_owned() } else { title.name(w.lang()).to_owned() }).font(theme::SANS_SEMI).size(14.0).color(ui::faded(colour)),
-                        ui::mono_small(w.t(title.rarity.key()).to_uppercase(), colour),
-                    ]
-                    .spacing(8)
-                    .align_y(iced::Center),
+                    text(if secret { "???".to_owned() } else { title.name(w.lang()).to_owned() }).font(theme::SANS_SEMI).size(14.0).color(ui::faded(colour)),
                     text(if secret { w.t("secret-title") } else { title.about(w.lang()).to_owned() }).font(theme::SANS).size(12.0).color(ui::faded(MUTED)),
                     row![ui::mono_small(when, FAINT), ui::grow(), wear_button(ground, you, title)].align_y(iced::Center),
                 ]
@@ -1266,8 +1344,7 @@ fn titles<'a>(ground: &Ground<'a>, whose: &Whose<'a>) -> Element<'a, Message> {
         }
         None => Space::new().height(0.0).into(),
     };
-    let count = w.of(owned.len() as u64, catalog.titles.len() as u64);
-    slab(column![row![caption(w.t("community-titles")), ui::grow(), ui::mono_small(count, INK)].align_y(iced::Center), bars.width(Length::Fill), ui::wrap(chips, 6.0), detail].spacing(10), [14, 16]).into()
+    slab(column![caption(w.t("community-titles")), bars.width(Length::Fill), ui::wrap(chips, 6.0), detail].spacing(10), [14, 16]).into()
 }
 
 pub fn wear_button<'a>(ground: &Ground<'a>, you: &crate::community::Person, title: &Title) -> Element<'a, Message> {
@@ -1276,6 +1353,9 @@ pub fn wear_button<'a>(ground: &Ground<'a>, you: &crate::community::Person, titl
         return Space::new().width(0.0).into();
     }
     let worn = you.title.as_deref() == Some(title.code.as_str());
+    if worn && ground.person.is_some() {
+        return Space::new().width(0.0).into();
+    }
     let (words, press) = if worn { (w.t("take-off-title"), Message::Wear(None)) } else { (w.t("wear-title"), Message::Wear(Some(title.code.clone()))) };
     ui::hover(
         button(text(words).font(theme::SANS_SEMI).size(11.5))
@@ -1289,8 +1369,7 @@ pub fn wear_button<'a>(ground: &Ground<'a>, you: &crate::community::Person, titl
 
 const HEAT_PAD: f32 = 2.0;
 
-fn activity<'a>(ground: &Ground<'a>, whose: &Whose<'a>) -> Element<'a, Message> {
-    let you = whose.person;
+fn activity<'a>(ground: &Ground<'a>, whose: &Whose<'a>, wide: f32) -> Element<'a, Message> {
     let w = ground.words;
     let today = ground.now_unix - ground.now_unix.rem_euclid(DAY);
     let first = today - 90 * DAY;
@@ -1308,11 +1387,8 @@ fn activity<'a>(ground: &Ground<'a>, whose: &Whose<'a>) -> Element<'a, Message> 
         .collect();
     let most = days.iter().map(|d| d.1).max().unwrap_or(0) as usize;
     let plays = (0..=most).map(|n| w.n("plays-n", n as u64)).collect();
-    let heat = Canvas::new(Heat { days, none: w.t("no-plays"), plays, less: w.t("less"), more: w.t("more"), alpha: ui::fade() }).width(Length::Fill).height(HEAT_PAD + 7.0 * (CELL + CELL_GAP) + 40.0);
-    let mut head = row![caption(w.t("activity-head")), ui::grow()].align_y(iced::Center);
-    if you.streak > 0 {
-        head = head.push(ui::mono_small(w.n("streak-card", u64::from(you.streak)), CORAL));
-    }
+    let heat = Canvas::new(Heat { days, none: w.t("no-plays"), plays, less: w.t("less"), more: w.t("more"), alpha: ui::fade() }).width(Length::Fill).height(heat_height(wide - 32.0));
+    let head = caption(w.t("activity-head"));
     slab(column![head, heat].spacing(10), [14, 16]).into()
 }
 
@@ -1350,19 +1426,19 @@ pub fn columns<'a>(ground: &Ground<'a>, whose: &Whose<'a>, room: f32, t: f32) ->
     let left = (room * 0.21).clamp(LEFT, SIDE_MOST);
     let right = (room * 0.21).clamp(RIGHT, SIDE_MOST);
     let middle_wide = if wide { room - left - right - 32.0 } else { room - left - 16.0 };
-    let middle = column![block(0, &|| metrics(ground, whose, t)), block(1, &|| chart(ground, whose)), block(2, &|| best_plays(ground, whose, middle_wide, t))].spacing(14);
+    let middle = column![block(0, &|| metrics(ground, whose, middle_wide - 8.0, t)), block(1, &|| chart(ground, whose, t)), block(2, &|| best_plays(ground, whose, middle_wide, t))].spacing(14);
     if wide {
         row![
-            container(rolled(column![block(0, &|| identity(ground, whose)), block(1, &|| places(ground, whose, t))].spacing(14).into())).width(left).height(Length::Fill),
+            container(rolled(column![block(0, &|| identity(ground, whose, left - 8.0)), block(1, &|| places(ground, whose, t))].spacing(14).into())).width(left).height(Length::Fill),
             container(rolled(middle.into())).width(Length::Fill).height(Length::Fill),
-            container(rolled(column![block(1, &|| grades(ground, &whose.card)), block(2, &|| titles(ground, whose)), block(3, &|| activity(ground, whose))].spacing(14).into())).width(right).height(Length::Fill),
+            container(rolled(column![block(1, &|| grades(ground, &whose.card)), block(2, &|| titles(ground, whose)), block(3, &|| activity(ground, whose, right - 8.0))].spacing(14).into())).width(right).height(Length::Fill),
         ]
         .spacing(16)
         .into()
     } else {
         row![
-            container(rolled(column![block(0, &|| identity(ground, whose)), block(1, &|| places(ground, whose, t)), block(2, &|| grades(ground, &whose.card))].spacing(14).into())).width(left).height(Length::Fill),
-            container(rolled(middle.push(block(3, &|| titles(ground, whose))).push(block(4, &|| activity(ground, whose))).into())).width(Length::Fill).height(Length::Fill),
+            container(rolled(column![block(0, &|| identity(ground, whose, left - 8.0)), block(1, &|| places(ground, whose, t)), block(2, &|| grades(ground, &whose.card))].spacing(14).into())).width(left).height(Length::Fill),
+            container(rolled(middle.push(block(3, &|| titles(ground, whose))).push(block(4, &|| activity(ground, whose, middle_wide - 8.0))).into())).width(Length::Fill).height(Length::Fill),
         ]
         .spacing(16)
         .into()
@@ -1380,4 +1456,95 @@ pub fn view<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
     };
     let whose = Whose { at, person, card, me: ground.catalog.me.as_ref() };
     container(columns(ground, &whose, ground.width - 80.0, ground.section_t)).padding(Padding { top: 12.0, right: 40.0, bottom: 0.0, left: 40.0 }).width(Length::Fill).height(Length::Fill).into()
+}
+
+#[cfg(test)]
+mod chart_tests {
+    use super::*;
+
+    #[test]
+    fn a_bright_profile_cover_fades_to_the_card_and_stays_inside_its_bounds() {
+        let handle = iced::widget::image::Handle::from_rgba(100, 500, [255, 255, 255, 255].repeat(50_000));
+        let inside = container(profile_cover(Some(&handle), 180.0, ACCENT)).width(180.0);
+        let root = container(inside).padding(20).width(220).height(240).style(|_| container::Style {
+            background: Some(Background::Color(Color::BLACK)), ..container::Style::default()
+        });
+        let mut ui = iced_test::Simulator::with_size(crate::settings(), iced::Size::new(220.0, 240.0), root);
+        let stem = std::env::temp_dir().join(format!("dossier-profile-cover-{}", std::process::id()));
+        ui.snapshot(&theme::theme()).unwrap().matches_image(&stem).unwrap();
+        let path = crate::gallery::written_as(&stem);
+        let image = image::open(&path).unwrap().to_rgba8();
+        let scale = image.width() / 220;
+        let pixel = |x, y| image.get_pixel(x * scale, y * scale)[0];
+        assert!(pixel(40, 45) > 140, "the upper cover remains visible");
+        assert!(pixel(40, 210) < 35, "the lower edge must fade before the name and title");
+        assert_eq!(pixel(110, 10), 0, "cover cannot escape above its bounds");
+        assert_eq!(pixel(110, 230), 0, "cover cannot escape below its bounds");
+        assert_eq!(pixel(20, 20), 0, "the rounded corner stays transparent instead of painting the card colour");
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn activity_cells_fill_the_width_and_hover_only_real_squares() {
+        let heat = Heat { days: vec![(String::new(), 0); 91], none: String::new(), plays: vec![], less: String::new(), more: String::new(), alpha: 1.0 };
+        for width in [232.0, 296.0, 500.0, 900.0] {
+            let cell = heat_cell(width);
+            let bounds = Rectangle::with_size(iced::Size::new(width, heat_height(width)));
+            assert!((2.0 * HEAT_PAD + 13.0 * cell + 12.0 * CELL_GAP - width).abs() < 0.001);
+            assert_eq!(heat.cell_at(bounds, Point::new(HEAT_PAD + cell / 2.0, HEAT_PAD + cell / 2.0)), Some(0));
+            assert_eq!(heat.cell_at(bounds, Point::new(width - HEAT_PAD - cell / 2.0, HEAT_PAD + 6.0 * (cell + CELL_GAP) + cell / 2.0)), Some(90));
+            for point in [Point::ORIGIN, Point::new(HEAT_PAD + cell + 1.0, HEAT_PAD + 1.0), Point::new(HEAT_PAD + 1.0, bounds.height - 5.0)] {
+                assert_eq!(heat.cell_at(bounds, point), None, "padding, gaps and legend must not show a day's tooltip");
+            }
+        }
+    }
+
+    fn sample(reveal: f32) -> Chart {
+        Chart {
+            points: vec![(0.0, 0.8), (0.5, 0.2), (1.0, 0.6)],
+            tips: vec![("10".into(), "Monday".into()); 3],
+            marks: ["1".into(), "2".into(), "3".into(), "4".into()],
+            empty: String::new(), alpha: 1.0, reveal,
+        }
+    }
+
+    #[test]
+    fn chart_hover_cannot_use_hidden_or_stale_points() {
+        let mut chart = sample(0.5);
+        assert_eq!(chart.visible_hover(Some(1)), Some(1));
+        assert_eq!(chart.visible_hover(Some(2)), None);
+        chart.reveal = 1.0;
+        assert_eq!(chart.visible_hover(Some(2)), Some(2));
+        chart.points.truncate(2);
+        assert_eq!(chart.visible_hover(Some(2)), None);
+        chart.tips.clear();
+        assert_eq!(chart.visible_hover(Some(0)), None);
+    }
+
+    #[test]
+    fn chart_reveals_the_curve_without_hiding_date_labels() {
+        use iced_test::Simulator;
+        let mut images = Vec::new();
+        for (index, reveal) in [0.0, 0.5, 1.0].into_iter().enumerate() {
+            let canvas = Canvas::new(sample(reveal)).width(360).height(200);
+            let mut ui = Simulator::with_size(crate::settings(), iced::Size::new(360.0, 200.0), canvas);
+            let stem = std::env::temp_dir().join(format!("dossier-chart-reveal-{}-{index}", std::process::id()));
+            ui.snapshot(&theme::theme()).unwrap().matches_image(&stem).unwrap();
+            let path = crate::gallery::written_as(&stem);
+            images.push(image::open(&path).unwrap().to_rgba8());
+            std::fs::remove_file(path).unwrap();
+        }
+        let scale = images[0].width() / 360;
+        let red = |image: &image::RgbaImage, from: u32, to: u32| {
+            (from * scale..to * scale).flat_map(|x| (10 * scale..178 * scale).map(move |y| (x, y)))
+                .filter(|(x, y)| { let p = image.get_pixel(*x, *y); p[0] > 100 && u16::from(p[0]) > u16::from(p[1]) * 2 && u16::from(p[0]) > u16::from(p[2]) * 2 }).count()
+        };
+        assert_eq!(red(&images[0], 0, 360), 0);
+        assert!(red(&images[1], 0, 180) > 100);
+        assert_eq!(red(&images[1], 190, 360), 0);
+        assert!(red(&images[2], 190, 360) > 100);
+        for image in &images[1..] {
+            assert_eq!(image::imageops::crop_imm(image, 0, 180 * scale, image.width(), 20 * scale).to_image(), image::imageops::crop_imm(&images[0], 0, 180 * scale, image.width(), 20 * scale).to_image());
+        }
+    }
 }

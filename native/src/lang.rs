@@ -233,6 +233,18 @@ impl Words {
         }
     }
 
+    pub fn compact_date(&self, unix: i64, now: i64) -> String {
+        use chrono::Datelike;
+        let (Some(when), Some(today)) = (self.local(unix), self.local(now)) else {
+            return String::new();
+        };
+        if when.date_naive() == today.date_naive() {
+            return format!("{} {}", self.t("today"), when.format("%H:%M"));
+        }
+        let format = if when.year() == today.year() { "%d.%m %H:%M" } else { "%d.%m.%y %H:%M" };
+        when.format(format).to_string()
+    }
+
     pub fn percent(&self, value: f64) -> String {
         let text = format!("{value:.2}%");
         match self.lang {
@@ -293,6 +305,67 @@ mod tests {
             .collect();
         names.sort();
         names
+    }
+
+    #[test]
+    fn translation_resources_have_no_syntax_errors() {
+        for lang in Lang::ALL {
+            if let Err((_, errors)) = FluentResource::try_new(lang.source().to_owned()) {
+                panic!("{} has invalid Fluent syntax: {errors:?}", lang.tag());
+            }
+        }
+    }
+
+    #[test]
+    fn every_translation_formats_without_missing_messages_or_arguments() {
+        for lang in Lang::ALL {
+            let bundle = bundle_for(lang);
+            for n in [0_u64, 1, 2, 5, 11, 21, 101, 1000] {
+                let mut args = FluentArgs::new();
+                for part in lang.source().split('$').skip(1) {
+                    let name: String = part.chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '_').collect();
+                    if name == "n" { args.set(name, FluentValue::from(n)); }
+                    else { args.set(name, "sample"); }
+                }
+                for key in keys(lang) {
+                    let message = bundle.get_message(&key).unwrap_or_else(|| panic!("{} cannot resolve {key}", lang.tag()));
+                    let pattern = message.value().unwrap_or_else(|| panic!("{} has no value for {key}", lang.tag()));
+                    let mut errors = Vec::new();
+                    let value = bundle.format_pattern(pattern, Some(&args), &mut errors);
+                    assert!(errors.is_empty(), "{} {key} ({n}): {errors:?}", lang.tag());
+                    assert!(!value.trim().is_empty(), "{} {key} has an empty translation", lang.tag());
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn translation_arguments_match_between_languages() {
+        let contracts = |lang: Lang| {
+            let mut out = std::collections::BTreeMap::<String, std::collections::BTreeSet<String>>::new();
+            let mut key = None;
+            for line in lang.source().lines() {
+                if !line.starts_with(char::is_whitespace) {
+                    key = line.split_once(" = ").map(|(name, _)| name.to_owned());
+                }
+                if let Some(key) = &key {
+                    let names = out.entry(key.clone()).or_default();
+                    for part in line.split('$').skip(1) {
+                        names.insert(part.chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '_').collect());
+                    }
+                }
+            }
+            out
+        };
+        assert_eq!(contracts(Lang::En), contracts(Lang::Ru));
+    }
+
+    #[test]
+    fn recent_activity_times_contain_only_the_formatted_time() {
+        for n in [1, 2, 5, 59] {
+            assert_eq!(Words::new(Lang::Ru).n("minutes-ago", n), format!("{n} мин назад"));
+            assert_eq!(Words::new(Lang::En).n("minutes-ago", n), format!("{n} min ago"));
+        }
     }
 
     #[test]
@@ -378,6 +451,17 @@ mod tests {
         assert_eq!(en.percent(98.7123), "98.71%");
         assert_eq!(ru.percent(98.7123), "98,71%");
         assert_eq!(en.length(231_400), "3:51");
+    }
+
+    #[test]
+    fn compact_video_dates_use_the_local_day_and_keep_the_year_when_needed() {
+        use chrono::TimeZone;
+        let utc = |y, m, d, h, min| chrono::Utc.with_ymd_and_hms(y, m, d, h, min, 0).unwrap().timestamp();
+        let ru = Words::new(Lang::Ru).in_zone(3 * 3600);
+        let now = utc(2026, 9, 27, 0, 0);
+        assert_eq!(ru.compact_date(utc(2026, 9, 26, 22, 15), now), "сегодня 01:15");
+        assert_eq!(ru.compact_date(utc(2026, 9, 25, 18, 5), now), "25.09 21:05");
+        assert_eq!(ru.compact_date(utc(2025, 12, 1, 9, 0), now), "01.12.25 12:00");
     }
 
     #[test]

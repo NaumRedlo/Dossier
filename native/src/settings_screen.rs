@@ -64,9 +64,8 @@ impl Tile {
     }
 }
 
-pub const APP: [Tile; 14] = [
+pub const APP: [Tile; 13] = [
     Tile::Render,
-    Tile::Worker,
     Tile::Language,
     Tile::Look,
     Tile::Device,
@@ -81,7 +80,7 @@ pub const APP: [Tile; 14] = [
     Tile::Builds,
 ];
 
-pub const BOT: [Tile; 3] = [Tile::Account, Tile::Chats, Tile::ThisDevice];
+pub const BOT: [Tile; 4] = [Tile::Account, Tile::Chats, Tile::Worker, Tile::ThisDevice];
 
 pub fn order(kept: &[String], all: &[Tile]) -> Vec<Tile> {
     let mut out: Vec<Tile> = kept.iter().filter_map(|tag| Tile::of(tag)).filter(|tile| all.contains(tile)).collect();
@@ -154,6 +153,7 @@ pub enum Message {
     ExportedOnly(bool),
     AutoScale(bool),
     Source(usize, bool),
+    RemoveSource(usize),
     AddFolder,
     Added(Option<Source>),
     OpenRenders,
@@ -171,6 +171,11 @@ pub enum Message {
     Chat(i64),
     Worker(bool),
     Skin(Option<PathBuf>),
+    MoveSkin(PathBuf, Option<PathBuf>),
+    AskDeleteSkin(PathBuf),
+    KeepSkin,
+    DeleteSkin,
+    SkinDeleteTap,
     RescanSkins,
     OpenSkin,
     AddSkin,
@@ -225,11 +230,27 @@ fn card<'a>(ground: &Ground<'a>, tile: Tile, late: f32) -> Element<'a, Message> 
 }
 
 fn machine_name() -> String {
-    match ui::Machine::here() {
-        ui::Machine::Mac => "macOS".to_owned(),
-        ui::Machine::Windows => "Windows".to_owned(),
-        ui::Machine::Linux => "Linux".to_owned(),
-    }
+    static NAME: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    NAME.get_or_init(|| {
+        #[cfg(target_os = "macos")]
+        let found = crate::checks::quiet("sysctl")
+            .args(["-n", "hw.model"])
+            .output()
+            .ok()
+            .and_then(|out| String::from_utf8(out.stdout).ok());
+        #[cfg(target_os = "linux")]
+        let found = std::fs::read_to_string("/sys/devices/virtual/dmi/id/product_name")
+            .ok()
+            .or_else(|| std::fs::read_to_string("/etc/hostname").ok());
+        #[cfg(target_os = "windows")]
+        let found = std::env::var("COMPUTERNAME").ok();
+        #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+        let found = None;
+        found
+            .and_then(|name| name.lines().next().map(str::trim).filter(|name| !name.is_empty()).map(str::to_owned))
+            .unwrap_or_else(crate::settings::device_name)
+    })
+    .clone()
 }
 
 fn tongue<'a>(ground: &Ground<'a>, lang: Lang, name: &str, on: bool) -> Element<'a, Message> {
@@ -301,14 +322,24 @@ fn head<'a>(w: &Words, key: &str) -> Element<'a, Message> {
 
 fn line<'a>(ground: &Ground<'a>, id: &str, glyph: &str, name: String, under: String, on: bool, press: Option<Message>) -> Element<'a, Message> {
     let k = mark_at(ground, id, on);
-    let mut words = column![text(name).font(theme::SANS_SEMI).size(theme::CAPTION).wrapping(text::Wrapping::None).color(ui::faded(INK))].spacing(1);
+    let mut words = column![
+        container(text(name).font(theme::SANS_SEMI).size(theme::CAPTION).wrapping(text::Wrapping::None).color(ui::faded(INK)))
+            .width(Length::Fill)
+            .clip(true),
+    ]
+    .spacing(1)
+    .width(Length::Fill);
     if !under.is_empty() {
-        words = words.push(text(under).font(theme::SANS).size(11.0).wrapping(text::Wrapping::None).color(ui::faded(MUTED)));
+        words = words.push(
+            container(text(under).font(theme::SANS).size(11.0).wrapping(text::Wrapping::WordOrGlyph).color(ui::faded(MUTED)))
+                .width(Length::Fill)
+                .clip(true),
+        );
     }
-    let inside = row![ui::mark(glyph, on, k, 28.0), words].spacing(10).align_y(iced::Center);
+    let inside = row![ui::mark(glyph, on, k, 28.0), words].spacing(10).align_y(iced::Center).width(Length::Fill);
     match press {
-        Some(message) => button(inside).padding([2, 2]).style(ui::button_faded(theme::bare)).on_press(message).into(),
-        None => container(inside).padding([2, 2]).into(),
+        Some(message) => button(inside).width(Length::Fill).padding([2, 2]).style(ui::button_faded(theme::bare)).on_press(message).into(),
+        None => container(inside).width(Length::Fill).padding([2, 2]).into(),
     }
 }
 
@@ -327,7 +358,7 @@ fn pill<'a>(ground: &Ground<'a>, id: &str, name: String, on: bool, press: Messag
 fn figure<'a>(value: String, under: String) -> Element<'a, Message> {
     column![
         text(value).font(theme::MONO_BOLD).size(22.0).wrapping(text::Wrapping::None).color(ui::faded(INK)),
-        text(under).font(theme::SANS).size(11.0).wrapping(text::Wrapping::None).color(ui::faded(FAINT)),
+        text(under).font(theme::SANS).size(11.0).wrapping(text::Wrapping::WordOrGlyph).color(ui::faded(FAINT)),
     ]
     .spacing(2)
     .into()
@@ -394,15 +425,22 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
             let value = if s.ui_scale == 0 && ground.scale_draft.is_none() { format!("{} {} %", w.t("scale-auto"), shown) } else { format!("{shown} %") };
             let fraction = crate::settings::scale_fraction(shown);
             let (moving, snap) = ground.slides.get("scale").copied().unwrap_or((fraction, 1.0));
-            column![
+            let mut panel = column![
                 head(w, "look-tile"),
                 pill(ground, "auto-scale", w.t("scale-to-monitor"), s.ui_scale == 0, Message::AutoScale(s.ui_scale != 0)),
                 container(ui::steps_released(w.t("scale"), value, fraction, moving, snap, Message::Scale, || Message::ScaleDone))
                     .width(280.0)
                     .padding(Padding::ZERO.top(8.0)),
             ]
-            .spacing(2)
-            .into()
+            .spacing(2);
+            if shown > 100 {
+                panel = panel.push(
+                    container(text(w.t("scale-space-note")).font(theme::SANS).size(11.0).color(ui::faded(MUTED)))
+                        .width(280.0)
+                        .padding(Padding::ZERO.top(8.0)),
+                );
+            }
+            panel.into()
         }
         Tile::Device => column![
             head(w, "device-tile"),
@@ -434,16 +472,25 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
             let mut rows = column![head(w, "sources")].spacing(2);
             for (at, source) in s.sources.iter().enumerate() {
                 let mut under = match (source.replay_count, source.maps) {
-                    (replays, Some(maps)) if maps > 0 => format!("{} · {}", w.count("replays-count", replays), w.count("maps-count", maps)),
+                    (replays, Some(maps)) if maps > 0 => format!("{}  {}", w.count("replays-count", replays), w.count("maps-count", maps)),
                     (replays, _) => w.count("replays-count", replays),
                 };
                 if source.scores > 0 {
-                    under = format!("{under} · {}", w.count("scores-count", source.scores));
+                    under = format!("{under}  {}", w.count("scores-count", source.scores));
                 }
-                rows = rows.push(line(ground, &format!("source-{at}"), short(source.kind), source.shown(), under, source.on, Some(Message::Source(at, !source.on))));
+                let source_line = line(ground, &format!("source-{at}"), short(source.kind), source.shown(), under, source.on, Some(Message::Source(at, !source.on)));
+                rows = rows.push(
+                    row![
+                        container(source_line).width(Length::Fill),
+                        ui::small_button(w.t("delete"), Message::RemoveSource(at)),
+                    ]
+                    .spacing(4)
+                    .align_y(iced::Center),
+                );
             }
             rows.push(line(ground, "add-folder", "+", w.t("add-folder"), String::new(), false, Some(Message::AddFolder)))
                 .push(container(pill(ground, "exported-only", w.t("exported-only"), s.exported_only, Message::ExportedOnly(!s.exported_only))).padding(Padding::ZERO.top(8.0)))
+                .width(Length::Fixed(360.0))
                 .into()
         }
         Tile::Skins => {
@@ -459,7 +506,12 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
                         .into(),
                     None => container(ui::fine_hatch()).width(56.0).height(56.0).into(),
                 };
-                let framed = iced::widget::stack![picture, ui::frame_mark(k, 56.0)].width(56.0).height(56.0);
+                let framed: Element<'a, Message> = match &folder {
+                    Some(path) => iced::widget::stack![picture, ui::frame_mark(k, 56.0), container(button(text("×").size(14.0)).padding([0, 4]).style(ui::button_faded(theme::bare)).on_press(Message::AskDeleteSkin(path.clone())))
+                        .id(iced::widget::Id::from(format!("skin-remove-{}", path.display())))
+                        .width(56.0).height(56.0).align_x(iced::alignment::Horizontal::Right)].width(56.0).height(56.0).into(),
+                    None => iced::widget::stack![picture, ui::frame_mark(k, 56.0)].width(56.0).height(56.0).into(),
+                };
                 let inside = column![
                     framed,
                     text(ui::shortened(name, 26))
@@ -473,29 +525,30 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
                 .spacing(4)
                 .align_x(iced::Center)
                 .width(64.0);
-                button(inside)
+                container(inside)
                     .padding([4, 2])
-                    .style(ui::button_faded(theme::bare))
-                    .on_press(Message::Skin(folder))
                     .into()
             };
-            let mut cells: Vec<Element<'a, Message>> = vec![cell(
+            let keys = crate::settings::skin_keys(ground.skins);
+            let identity = format!("{keys:?}");
+            let tapped = keys.clone();
+            let mut cells = vec![(usize::MAX, cell(
                 w.t("own-skin-short"),
                 None,
                 ground.skin_faces.get(std::path::Path::new("")),
                 chosen.is_none(),
                 mark_at(ground, "skin-own", chosen.is_none()),
-            )];
+            ))];
             for folder in ground.skins.iter().take(40) {
                 let name = crate::settings::skin_name(folder);
                 let picked = chosen.as_deref() == Some(folder.as_path());
                 let k = mark_at(ground, &format!("skin-{name}"), picked);
-                cells.push(cell(name.clone(), Some(folder.clone()), ground.skin_faces.get(folder), picked, k));
+                let key = keys.iter().position(|path| path == folder).unwrap();
+                cells.push((key, cell(name.clone(), Some(folder.clone()), ground.skin_faces.get(folder), picked, k)));
             }
-            let mut shelf = row![].spacing(6).align_y(iced::alignment::Vertical::Top);
-            for cell in cells {
-                shelf = shelf.push(cell);
-            }
+            let width = cells.len() as f32 * 68.0 + cells.len().saturating_sub(1) as f32 * 6.0;
+            let shelf = container(crate::board::board(cells, 6.0, move |what, before| Message::MoveSkin(keys[what].clone(), before.and_then(|key| keys.get(key).cloned())))
+                .fixed_first(usize::MAX).identity(identity).on_tap(move |key, _| Message::Skin(tapped.get(key).cloned()))).width(width);
             let strip = container(
                 iced::widget::scrollable(shelf)
                     .anchor_x(iced::widget::scrollable::Anchor::Start)
@@ -508,9 +561,10 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
             let said = match (ground.skins.is_empty(), packed) {
                 (true, _) => w.t("no-skins"),
                 (false, 0) => w.n("skins-found", ground.skins.len() as u64),
-                (false, packed) => format!("{} · {}", w.n("skins-found", ground.skins.len() as u64), w.n("skins-packed", packed as u64)),
+                (false, packed) => format!("{}  {}", w.n("skins-found", ground.skins.len() as u64), w.n("skins-packed", packed as u64)),
             };
-            let under: Element<'a, Message> = text(said).font(theme::SANS).size(11.0).wrapping(text::Wrapping::None).color(ui::faded(FAINT)).into();
+            let under: Element<'a, Message> = column![text(said).font(theme::SANS).size(11.0).wrapping(text::Wrapping::None).color(ui::faded(FAINT)),
+                text(w.t("skin-reorder-hint")).font(theme::SANS).size(11.0).color(ui::faded(FAINT))].spacing(4).into();
             let deeds = row![
                 deed(w.t("more-skins"), Message::MoreSkins, false),
                 deed(w.t("add-skin"), Message::AddSkin, false),
@@ -570,7 +624,7 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
         .into(),
         Tile::Maps => column![
             head(w, "maps-and-cache"),
-            figure(ground.maps.to_string(), format!("{} · {} {}", w.mb(ground.maps_size), w.t("cache"), w.mb(ground.cache_size))),
+            figure(ground.maps.to_string(), format!("{}  {} {}", w.mb(ground.maps_size), w.t("cache"), w.mb(ground.cache_size))),
             container(row![deed(w.t("in-folder"), Message::OpenMaps, false), deed(w.t("clear"), Message::ClearCache, true)].spacing(6))
                 .padding(Padding::ZERO.top(6.0)),
         ]
@@ -633,18 +687,18 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
             if !ground.ffmpeg_found {
                 under.push(w.t("no-ffmpeg"));
             }
-            let under = under.join(" · ");
-            let pre = |release: &crate::updates::Release| if release.pre { format!(" · {}", w.t("prerelease")) } else { String::new() };
+            let under = under.join("  ");
+            let pre = |release: &crate::updates::Release| if release.pre { format!("  {}", w.t("prerelease")) } else { String::new() };
             let (said, colour) = match ground.update {
                 U::Unknown | U::Checking => (w.t("update-checking"), FAINT),
-                U::Latest { at } => (format!("{} · {}", w.t("update-latest"), w.clock(*at)), FAINT),
+                U::Latest { at } => (format!("{}  {}", w.t("update-latest"), w.clock(*at)), FAINT),
                 U::Found(release) => (format!("{} {}{}", w.t("update-found"), release.version, pre(release)), ACCENT),
                 U::Getting { release, done, total } => {
                     let how_far = match total {
                         Some(total) if *total > 0 => format!("{} %", (done * 100 / total).min(100)),
                         _ => w.mb(*done),
                     };
-                    (format!("{} {} · {how_far}", w.t("update-getting"), release.version), INK)
+                    (format!("{} {}  {how_far}", w.t("update-getting"), release.version), INK)
                 }
                 U::Ready { release, .. } => {
                     let when = if ground.update_waits {
@@ -654,7 +708,7 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
                     } else {
                         w.t("update-ready")
                     };
-                    (format!("{} · {when}", release.version), INK)
+                    (format!("{}  {when}", release.version), INK)
                 }
                 U::Failed { why, .. } => {
                     let said = match why.as_str() {
@@ -665,7 +719,7 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
                         crate::updates::EMPTY => w.t("update-empty"),
                         other => other.to_owned(),
                     };
-                    (format!("{} · {said}", w.t("update-failed")), ACCENT)
+                    (format!("{}  {said}", w.t("update-failed")), ACCENT)
                 }
                 U::Source => (w.t("update-source"), FAINT),
             };
@@ -695,7 +749,7 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
                 .unwrap_or_else(|| s.linked_as.trim_start_matches('@').to_owned());
             let name = if name.is_empty() { w.t("signed-in") } else { name };
             let under = match ground.account {
-                Some(me) if !me.username.is_empty() => format!("@{} · ID {}", me.username, me.telegram_id),
+                Some(me) if !me.username.is_empty() => format!("@{}  ID {}", me.username, me.telegram_id),
                 Some(me) => format!("ID {}", me.telegram_id),
                 None => s.linked_as.clone(),
             };
@@ -763,7 +817,7 @@ pub fn worker_said(w: &Words, step: Option<&crate::worker::Step>, on: bool) -> (
         (_, false) => (w.t("worker-off"), FAINT),
         (None | Some(W::Waiting { .. }) | Some(W::Stopped) | Some(W::Delivered { .. }) | Some(W::HandedBack { .. }), true) => (w.t("worker-waiting"), green),
         (Some(W::Resting), true) => (w.t("worker-resting"), MUTED),
-        (Some(W::Offline(why)), true) => (format!("{} · {why}", w.t("worker-offline")), ACCENT),
+        (Some(W::Offline(why)), true) => (format!("{}  {why}", w.t("worker-offline")), ACCENT),
         (Some(W::Taken { .. }), true) => (w.t("worker-taken"), gold),
         (Some(W::Getting { what, .. }), true) => (
             w.t(match what {
@@ -839,7 +893,7 @@ fn worker_tile<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
         body = body.push(container(block).padding(Padding::ZERO.top(8.0)));
     }
     body = body.push(
-        container(ui::mono_small(format!("{} {} · {} {}", w.t("worker-delivered"), ground.worker_done, w.t("worker-handed-back"), ground.worker_back), FAINT))
+        container(ui::mono_small(format!("{} {}  {} {}", w.t("worker-delivered"), ground.worker_done, w.t("worker-handed-back"), ground.worker_back), FAINT))
             .padding(Padding::ZERO.top(8.0)),
     );
     let mut problems: Vec<String> = Vec::new();
@@ -861,7 +915,7 @@ fn worker_tile<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
     }
     if !s.token.is_empty() {
         let waiting = ground.farm.map_or(0, |farm| farm.waiting);
-        let mut farm = column![row![text(w.t("farm-head")).font(theme::SANS_SEMI).size(theme::CAPTION).color(ui::faded(INK)), ui::grow(), ui::mono_small(w.with("farm-waiting", &[("n", waiting.to_string())]), MUTED)].align_y(iced::Center)]
+        let mut farm = column![text(w.t("farm-head")).font(theme::SANS_SEMI).size(theme::CAPTION).color(ui::faded(INK)), small(w.with("farm-waiting", &[("n", waiting.to_string())]), MUTED)]
             .spacing(6);
         let workers = ground.farm.map(|farm| farm.workers.clone()).unwrap_or_default();
         if workers.is_empty() {
@@ -873,7 +927,7 @@ fn worker_tile<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
                 "ready" => (w.t("farm-ready"), green),
                 _ => (w.t("farm-resting"), FAINT),
             };
-            let name = if worker.mine { format!("{} · {}", worker.name, w.t("farm-this")) } else { worker.name.clone() };
+            let name = if worker.mine { format!("{}  {}", worker.name, w.t("farm-this")) } else { worker.name.clone() };
             farm = farm.push(
                 row![
                     dot(colour),
@@ -1001,13 +1055,20 @@ mod tests {
     #[test]
     fn a_moved_tile_keeps_the_others_in_order() {
         let kept: Vec<String> = Vec::new();
-        let after = moved(&kept, &APP, Tile::Builds, Some(Tile::Worker));
+        let after = moved(&kept, &APP, Tile::Builds, Some(Tile::Language));
         assert_eq!(after[0], Tile::Render.tag());
         assert_eq!(after[1], Tile::Builds.tag());
-        assert_eq!(after[2], Tile::Worker.tag());
+        assert_eq!(after[2], Tile::Language.tag());
         assert_eq!(after.len(), APP.len());
         let last = moved(&after, &APP, Tile::Render, None);
         assert_eq!(last.last().map(String::as_str), Some(Tile::Render.tag()));
+    }
+
+    #[test]
+    fn a_saved_application_order_does_not_keep_the_worker_on_the_old_tab() {
+        let kept = vec!["worker".to_owned(), "render".to_owned(), "language".to_owned()];
+        assert!(!order(&kept, &APP).contains(&Tile::Worker));
+        assert!(order(&[], &BOT).contains(&Tile::Worker));
     }
 
     #[test]

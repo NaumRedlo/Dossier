@@ -14,7 +14,6 @@ pub const HEIGHT: u32 = 540;
 
 pub const RATES: [f32; 6] = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
 
-const SHOWN_FPS: f64 = 60.0;
 
 #[derive(Debug, Clone, Copy)]
 pub struct Manner {
@@ -43,10 +42,12 @@ pub struct Player {
     hold: Arc<AtomicBool>,
     frames: Receiver<(i64, Vec<u8>)>,
     ffmpeg: PathBuf,
-    fps: u32,
+    fps: f64,
+    size: (u32, u32),
     sound: Option<Sound>,
     procs: Arc<Mutex<Vec<Child>>>,
     ended: bool,
+    wake: Option<crate::playback_wake::PlaybackWake>,
 }
 
 struct Sound {
@@ -54,10 +55,10 @@ struct Sound {
 }
 
 impl Player {
-    pub fn open(ffmpeg: &Path, path: &Path, length_ms: i64, fps: u32, manner: Manner) -> Player {
+    pub fn open(ffmpeg: &Path, path: &Path, media: crate::videos::Probe, manner: Manner) -> Player {
         let mut player = Player {
             path: path.to_path_buf(),
-            length_ms,
+            length_ms: media.length_ms,
             frame: None,
             reel: crate::film::reel(),
             paused: false,
@@ -69,10 +70,12 @@ impl Player {
             hold: Arc::new(AtomicBool::new(false)),
             frames: sync_channel(1).1,
             ffmpeg: ffmpeg.to_path_buf(),
-            fps: fps.max(1),
+            fps: media.fps.max(1.0),
+            size: (media.width.max(1), media.height.max(1)),
             sound: None,
             procs: Arc::new(Mutex::new(Vec::new())),
             ended: false,
+            wake: Some(crate::playback_wake::PlaybackWake::new()),
         };
         player.start(0, false);
         player
@@ -93,10 +96,12 @@ impl Player {
             hold: Arc::new(AtomicBool::new(true)),
             frames: sync_channel(1).1,
             ffmpeg: PathBuf::new(),
-            fps: 60,
+            fps: 60.0,
+            size: (WIDTH, HEIGHT),
             sound: None,
             procs: Arc::new(Mutex::new(Vec::new())),
             ended: false,
+            wake: None,
         }
     }
 
@@ -143,7 +148,7 @@ impl Player {
     }
 
     fn shown_fps(&self) -> f64 {
-        (SHOWN_FPS / self.rate as f64).min(self.fps as f64).max(6.0)
+        self.fps
     }
 
     pub fn set_rate(&mut self, rate: f32) {
@@ -168,17 +173,21 @@ impl Player {
                 }
                 Err(TryRecvError::Empty) => break,
                 Err(TryRecvError::Disconnected) => {
-                    if !self.paused && self.frame.is_some() && self.at_ms() >= self.length_ms.saturating_sub(120) {
+                    self.keep_awake(false);
+                    if !self.paused && self.frame.is_some() {
                         self.ended = true;
                         self.paused = true;
                         self.hold.store(true, Ordering::Relaxed);
+                        if let Some(sound) = &self.sound {
+                            let _ = sound._stream.pause();
+                        }
                     }
                     break;
                 }
             }
         }
         if let Some(rgba) = latest {
-            self.frame = Some(crate::film::Frame::new(self.reel, WIDTH, HEIGHT, rgba));
+            self.frame = Some(crate::film::Frame::new(self.reel, self.size.0, self.size.1, rgba));
         }
     }
 
@@ -189,6 +198,7 @@ impl Player {
         }
         self.paused = !self.paused;
         self.hold.store(self.paused, Ordering::Relaxed);
+        self.keep_awake(!self.paused);
         if let Some(sound) = &self.sound {
             if self.paused {
                 let _ = sound._stream.pause();
@@ -207,8 +217,8 @@ impl Player {
     }
 
     pub fn step(&mut self, frames: i64) {
-        let one = (1000.0 / self.fps as f64).round() as i64;
-        self.go(self.at_ms() + frames * one.max(1), true);
+        let frame = (self.at_ms() as f64 * self.fps / 1000.0).round() + frames as f64;
+        self.go((frame * 1000.0 / self.fps).round() as i64, true);
     }
 
     fn go(&mut self, to_ms: i64, held: bool) {
@@ -220,7 +230,12 @@ impl Player {
     }
 
     pub fn close(&mut self) {
+        self.keep_awake(false);
         self.stop_streams();
+    }
+
+    fn keep_awake(&mut self, playing: bool) {
+        if let Some(wake) = &mut self.wake { wake.playing(playing); }
     }
 
     fn stop_streams(&mut self) {
@@ -240,6 +255,7 @@ impl Player {
         self.stop = Arc::new(AtomicBool::new(false));
         self.hold = Arc::new(AtomicBool::new(held));
         self.paused = held;
+        self.keep_awake(!held);
         let (tx, rx) = sync_channel(2);
         self.frames = rx;
         self.spawn_video(from_ms, tx);
@@ -248,10 +264,11 @@ impl Player {
 
     fn spawn_video(&self, from_ms: i64, tx: SyncSender<(i64, Vec<u8>)>) {
         let shown = self.shown_fps();
+        let (width, height) = self.size;
         let mut child = match crate::checks::quiet(&self.ffmpeg)
             .args(["-hide_banner", "-loglevel", "error", "-ss", &seconds(from_ms), "-i"])
             .arg(&self.path)
-            .args(["-an", "-f", "rawvideo", "-pix_fmt", "rgba", "-vf", &format!("scale={WIDTH}:{HEIGHT}:force_original_aspect_ratio=decrease,pad={WIDTH}:{HEIGHT}:(ow-iw)/2:(oh-ih)/2:color=0x050203,fps={shown:.4}"), "-"])
+            .args(["-an", "-f", "rawvideo", "-pix_fmt", "rgba", "-vf", &format!("scale={width}:{height},fps={shown:.6}"), "-"])
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .stdin(Stdio::null())
@@ -269,7 +286,7 @@ impl Player {
         let stop = self.stop.clone();
         let hold = self.hold.clone();
         let pace = shown * self.rate as f64;
-        let frame_bytes = (WIDTH * HEIGHT * 4) as usize;
+        let frame_bytes = width as usize * height as usize * 4;
         thread::spawn(move || {
             let started = Instant::now();
             let mut held = Duration::ZERO;
@@ -300,8 +317,9 @@ impl Player {
                     }
                 }
                 let at = from_ms + (index as f64 * 1000.0 / shown) as i64;
-                if tx.send((at, buffer.clone())).is_err() {
-                    return;
+                match tx.try_send((at, buffer.clone())) {
+                    Ok(()) | Err(std::sync::mpsc::TrySendError::Full(_)) => {}
+                    Err(std::sync::mpsc::TrySendError::Disconnected(_)) => return,
                 }
                 index += 1;
             }
@@ -421,6 +439,34 @@ pub fn next_rate(rate: f32, by: i32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[ignore = "requires ffmpeg with the libx264 encoder"]
+    fn decoded_frames_keep_the_source_resolution_and_cadence() {
+        let ffmpeg = crate::checks::ffmpeg_on_path().expect("ffmpeg installed");
+        let path = std::env::temp_dir().join(format!("dossier-player-{}.mp4", std::process::id()));
+        let status = crate::checks::quiet(&ffmpeg)
+            .args(["-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=1200x800:rate=120", "-t", "0.2", "-c:v", "libx264", "-preset", "ultrafast"])
+            .arg(&path).status().unwrap();
+        assert!(status.success());
+        let media = crate::videos::probe(&ffmpeg, &path).unwrap();
+        assert_eq!((media.width, media.height, media.fps), (1200, 800, 120.0));
+        let mut player = Player::still(&path, media.length_ms, 0);
+        player.ffmpeg = ffmpeg;
+        player.size = (media.width, media.height);
+        player.fps = media.fps;
+        player.stop.store(false, Ordering::Relaxed);
+        player.hold.store(false, Ordering::Relaxed);
+        let (tx, rx) = sync_channel(32);
+        player.spawn_video(0, tx);
+        let frames: Vec<_> = rx.into_iter().collect();
+        assert_eq!(frames.len(), 24);
+        assert!(frames.iter().all(|(_, rgba)| rgba.len() == 1200 * 800 * 4));
+        assert_eq!(frames[1].0, 8);
+        assert_eq!(frames.last().unwrap().0, 191);
+        player.close();
+        std::fs::remove_file(path).unwrap();
+    }
 
     #[test]
     fn a_speed_settles_on_one_of_the_steps() {

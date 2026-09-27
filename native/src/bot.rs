@@ -220,11 +220,17 @@ pub fn card(server: &str, token: &str, name: &str, chat: Option<i64>) -> Result<
 }
 
 pub fn share_card(server: &str, token: &str, name: &str, card: &crate::community::wire::Card) -> Result<(), Refused> {
+    let mut payload = serde_json::to_value(card).map_err(|error| Refused::Network(error.to_string()))?;
+    // Keep local rank history out of the existing profile upload contract.
+    if let Some(fields) = payload.as_object_mut() {
+        fields.remove("country_rank_samples");
+        fields.remove("country_rank_history");
+    }
     let response = client()?
         .post(format!("{server}/render/me/profile"))
         .header("X-Render-Worker", name)
         .bearer_auth(token)
-        .json(card)
+        .json(&payload)
         .send()
         .map_err(|e| Refused::Network(e.to_string()))?;
     status(response).map(|_| ())
@@ -381,6 +387,10 @@ pub fn claim(server: &str, token: &str, name: &str, take: bool) -> Result<Option
 }
 
 pub fn job_file(server: &str, token: &str, name: &str, job: &str, what: &str, into: &std::path::Path) -> Result<u64, Refused> {
+    job_file_limited(server, token, name, job, what, into, u64::MAX)
+}
+
+pub fn job_file_limited(server: &str, token: &str, name: &str, job: &str, what: &str, into: &std::path::Path, most: u64) -> Result<u64, Refused> {
     let mut response = long(Duration::from_secs(600))?
         .get(format!("{server}/render/job/{job}/{what}"))
         .header("X-Render-Worker", name)
@@ -391,15 +401,35 @@ pub fn job_file(server: &str, token: &str, name: &str, job: &str, what: &str, in
         return Err(Refused::Said("not yours".to_owned()));
     }
     response = status(response)?;
+    if response.content_length().is_some_and(|size| size > most) {
+        return Err(Refused::Said("the job file is too large".to_owned()));
+    }
     if let Some(folder) = into.parent() {
         std::fs::create_dir_all(folder).map_err(|e| Refused::Network(e.to_string()))?;
     }
     let part = into.with_extension("part");
-    let mut out = std::fs::File::create(&part).map_err(|e| Refused::Network(e.to_string()))?;
-    let written = std::io::copy(&mut response, &mut out).map_err(|e| Refused::Network(e.to_string()))?;
-    drop(out);
-    std::fs::rename(&part, into).map_err(|e| Refused::Network(e.to_string()))?;
-    Ok(written)
+    let copied = (|| {
+        let mut out = std::fs::File::create(&part).map_err(|e| Refused::Network(e.to_string()))?;
+        let written = copy_job_file(&mut response, &mut out, most).map_err(|e| Refused::Network(e.to_string()))?;
+        out.sync_all().map_err(|e| Refused::Network(e.to_string()))?;
+        drop(out);
+        std::fs::rename(&part, into).map_err(|e| Refused::Network(e.to_string()))?;
+        Ok(written)
+    })();
+    if copied.is_err() { let _ = std::fs::remove_file(&part); }
+    copied
+}
+
+fn copy_job_file(from: &mut impl std::io::Read, into: &mut impl std::io::Write, most: u64) -> std::io::Result<u64> {
+    let mut written = 0u64;
+    let mut bytes = [0u8; 64 * 1024];
+    loop {
+        let count = from.read(&mut bytes)?;
+        if count == 0 { return Ok(written); }
+        written = written.checked_add(count as u64).filter(|size| *size <= most)
+            .ok_or_else(|| std::io::Error::other("the job file is too large"))?;
+        into.write_all(&bytes[..count])?;
+    }
 }
 
 pub fn heartbeat(server: &str, token: &str, name: &str, job: &str, progress: &serde_json::Value) -> Result<bool, Refused> {
@@ -486,6 +516,17 @@ pub fn tidy(code: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn job_download_limits_also_apply_without_a_content_length_header() {
+        let mut source = std::io::Cursor::new(b"12345");
+        let mut output = Vec::new();
+        assert!(copy_job_file(&mut source, &mut output, 4).is_err());
+        assert!(output.is_empty());
+        source.set_position(0);
+        assert_eq!(copy_job_file(&mut source, &mut output, 5).unwrap(), 5);
+        assert_eq!(output, b"12345");
+    }
 
     #[test]
     fn a_code_is_shown_in_two_halves_and_read_back_as_one() {

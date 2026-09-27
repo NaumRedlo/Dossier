@@ -4,11 +4,58 @@ use iced::{color, font, Background, Border, Color, Font, Shadow, Theme};
 pub const GROUND: Color = color!(0x0d0508);
 pub const GROUND_TOP: Color = color!(0x3a1015);
 pub const INK: Color = color!(0xece7e2);
-pub const MUTED: Color = color!(0xa9a29b);
-pub const FAINT: Color = color!(0x6b655f);
+pub const MUTED: Color = color!(0xc9aaa6);
+pub const FAINT: Color = color!(0xa98689);
 pub const ACCENT: Color = color!(0xe24848);
 pub const ON_ACCENT: Color = color!(0xffffff);
 pub const DANGER: Color = ACCENT;
+pub const NOTICE_SUCCESS: Color = color!(0xa2b485);
+pub const NOTICE_INFO: Color = color!(0xa2a0ab);
+pub const NOTICE_META: Color = FAINT;
+
+pub fn luminance(colour: Color) -> f32 {
+    let linear = |v: f32| if v <= 0.04045 { v / 12.92 } else { ((v + 0.055) / 1.055).powf(2.4) };
+    0.2126 * linear(colour.r) + 0.7152 * linear(colour.g) + 0.0722 * linear(colour.b)
+}
+
+/// Only secondary text participates; status, title and action colours retain their meaning.
+pub fn secondary_on(colour: Color, background: Color) -> Color {
+    if colour != MUTED && colour != FAINT && colour != NOTICE_META { return colour; }
+    let contrast = |ink: Color| {
+        let (a, b) = (luminance(ink), luminance(background));
+        (a.max(b) + 0.05) / (a.min(b) + 0.05)
+    };
+    if contrast(colour) >= 4.5 { return colour; }
+    let light = Color { a: colour.a, ..Color::WHITE };
+    let dark = Color { a: colour.a, ..GROUND };
+    let target = if contrast(light) >= contrast(dark) { light } else { dark };
+    let (mut low, mut high) = (0.0, 1.0);
+    for _ in 0..16 {
+        let middle = (low + high) * 0.5;
+        if contrast(crate::ui::mix(colour, target, middle)) >= 4.5 { high = middle; } else { low = middle; }
+    }
+    crate::ui::mix(colour, target, high)
+}
+
+#[cfg(test)]
+mod secondary_contrast {
+    use super::*;
+
+    #[test]
+    fn secondary_text_remains_readable_across_dark_light_and_coloured_surfaces() {
+        for surface in [GROUND, GROUND_TOP, Color::WHITE, color!(0x777777), color!(0x78515b), color!(0x284d7d)] {
+            for ink in [MUTED, FAINT, NOTICE_META] {
+                let made = secondary_on(ink, surface);
+                let (a, b) = (luminance(made), luminance(surface));
+                assert!((a.max(b) + 0.05) / (a.min(b) + 0.05) >= 4.499);
+                assert_eq!(made.a, ink.a);
+            }
+        }
+        assert_eq!(secondary_on(ACCENT, Color::WHITE), ACCENT);
+        assert_eq!(secondary_on(INK, Color::WHITE), INK);
+        assert_eq!(secondary_on(FAINT, GROUND), FAINT);
+    }
+}
 
 pub const RAISED: Color = Color::from_rgba(1.0, 1.0, 1.0, 0.0077);
 pub const SUNK: Color = Color::from_rgba(0.0, 0.0, 0.0, 0.4844);
@@ -595,16 +642,25 @@ pub fn corner(bad: bool) -> impl Fn(&Theme, button::Status) -> button::Style {
     }
 }
 
-pub fn toast(pulse: f32, bad: bool) -> impl Fn(&Theme) -> container::Style {
+pub fn notification(hovered: bool) -> impl Fn(&Theme) -> container::Style {
     move |theme| {
         let mut style = bubble(theme);
-        let tint = if bad { ACCENT } else { INK };
-        let lift = 0.05 * pulse;
-        if let Some(Background::Color(c)) = style.background {
-            style.background = Some(Background::Color(Color { r: c.r + (tint.r - c.r) * lift, g: c.g + (tint.g - c.g) * lift, b: c.b + (tint.b - c.b) * lift, a: c.a }));
-        }
-        style.border.color = Color { a: 0.1 + 0.35 * pulse, ..tint };
+        style.background = Some(Background::Color(if hovered { color!(0x2a242b) } else { color!(0x211b22) }));
+        style.border = border(Color::from_rgba(1.0, 1.0, 1.0, if hovered { 0.12 } else { 0.06 }), CARD_RADIUS);
+        style.shadow = Shadow { color: Color::from_rgba(0.0, 0.0, 0.0, 0.28), offset: iced::Vector::new(0.0, 5.0), blur_radius: 16.0 };
         style
+    }
+}
+
+pub fn notice_action(primary: bool) -> impl Fn(&Theme, button::Status) -> button::Style {
+    move |_, status| {
+        let lit = matches!(status, button::Status::Hovered | button::Status::Pressed);
+        button::Style {
+            background: Some(Background::Color(Color { a: if lit { 0.07 } else { 0.0 }, ..INK })),
+            text_color: if primary || lit { INK } else { MUTED },
+            border: border(Color::TRANSPARENT, 6.0),
+            ..button::Style::default()
+        }
     }
 }
 
@@ -622,8 +678,8 @@ pub fn segment(on: bool) -> impl Fn(&Theme, button::Status) -> button::Style {
     move |_, status| {
         let colour = match (on, status) {
             (true, _) => INK,
-            (false, button::Status::Hovered) => MUTED,
-            _ => FAINT,
+            (false, button::Status::Hovered | button::Status::Pressed) => INK,
+            _ => MUTED,
         };
         button::Style {
             background: None,

@@ -482,7 +482,7 @@ fn profile_country_rank_selects_the_chart_and_title_has_no_holder_fraction() {
 }
 
 #[test]
-fn own_dossier_hides_title_removal_and_only_shows_the_active_streak() {
+fn profile_and_own_dossier_leave_title_actions_to_the_titles_tab_and_show_only_the_active_streak() {
     let backdrop = dossier_native::ui::backdrop_handle();
     for lang in Lang::ALL {
         let states = gallery::main_states(lang);
@@ -500,7 +500,7 @@ fn own_dossier_hides_title_removal_and_only_shows_the_active_streak() {
         main.title_pick = Some(title);
         {
             let mut ui = Simulator::with_size(dossier_native::settings(), Size::new(main.width, main.height), gallery::main_frame(&main, &backdrop));
-            assert!(ui.find(main.words.t("take-off-title")).is_ok(), "main profile keeps title management");
+            assert!(ui.find(main.words.t("take-off-title")).is_err(), "main profile leaves title management to the titles tab");
             assert!(ui.find(main.words.n("streak-card", 7)).is_ok());
             assert!(ui.find(main.words.n("streak-best-n", 27)).is_err());
         }

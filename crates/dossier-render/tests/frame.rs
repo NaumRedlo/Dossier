@@ -2496,6 +2496,51 @@ fn the_keys_sit_where_they_sit_whatever_the_panel_measures() {
     );
 }
 
+#[test]
+fn a_key_count_stays_on_its_key_when_the_file_leaves_room_beside_it() {
+    use dossier_render::elements::Element;
+    use dossier_render::imported::Sprites;
+
+    let dir = skin_folder("keys-padded");
+    let mut art = tiny_skia::Pixmap::new(60, 60).expect("a canvas");
+    for (index, pixel) in art.pixels_mut().iter_mut().enumerate() {
+        if index % 60 >= 10 {
+            *pixel = tiny_skia::PremultipliedColorU8::from_rgba(0, 0, 120, 255).expect("a colour");
+        }
+    }
+    std::fs::write(
+        dir.join("inputoverlay-key.png"),
+        art.encode_png().expect("png"),
+    )
+    .expect("written");
+
+    let (map, replay) = tapped();
+    let mut skin = Skin::with_combo_colours(map.combo_colours()).with_font(font());
+    skin.sprites = Some(std::sync::Arc::new(
+        Sprites::read(&dir, &[Element::InputOverlayKey]).tint_for(&skin.combo_colours),
+    ));
+    let state = GameState::new(&map, &replay);
+    let frame = Scene::new(&state, skin).frame(4200.0, &Layout::new(640, 480));
+
+    let ink: Vec<u32> = (200..238u32)
+        .flat_map(|y| (560..640u32).map(move |x| (x, y)))
+        .filter(|&(x, y)| {
+            frame
+                .pixel(x, y)
+                .is_some_and(|p| p.red() > 200 && p.green() > 200 && p.blue() > 200)
+        })
+        .map(|(x, _)| x)
+        .collect();
+    let button = 640.0 - 24.0 * 0.625 - 30.0 * 0.625 + 10.0 * 0.625;
+    assert!(!ink.is_empty(), "the first key's count was not drawn");
+    let leftmost = *ink.iter().min().expect("some ink");
+    assert!(
+        f64::from(leftmost) >= button,
+        "the count starts at {leftmost}, off the button that starts at {button}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 fn miss_mark_width(circle_size: &str, dir: &std::path::Path) -> usize {
     use dossier_render::elements::Element;
     use dossier_render::elements::Verdict;

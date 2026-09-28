@@ -12,14 +12,13 @@ const KEY_NAMES: [&str; 4] = ["K1", "K2", "M1", "M2"];
 #[derive(Debug, Default)]
 pub(super) struct KeyTrack {
     holds: [Vec<(f64, f64)>; 4],
+    counted: [Vec<f64>; 4],
 }
 
 impl KeyTrack {
     fn pressed(&self, key: usize, time_ms: f64, rate: f64) -> f32 {
         let (down_ms, up_ms) = (KEYS_PRESS_DOWN_MS * rate, KEYS_PRESS_UP_MS * rate);
-        let holds = &self.holds[key];
-        let index = holds.partition_point(|(from, _)| *from <= time_ms);
-        let Some(&(down, up)) = index.checked_sub(1).and_then(|i| holds.get(i)) else {
+        let Some((down, up)) = self.last_hold(key, time_ms) else {
             return 0.0;
         };
         let fell = |elapsed: f64, over: f64| ((elapsed / over.max(1e-6)).clamp(0.0, 1.0)) as f32;
@@ -30,14 +29,67 @@ impl KeyTrack {
         reached * (1.0 - eased_out(fell(time_ms - up, up_ms)))
     }
 
-    pub(super) fn build(cursor: &dossier_sim::CursorTrack, lazer: bool) -> Self {
-        Self {
-            holds: cursor.holds_each(lazer),
+    fn lit(&self, key: usize, time_ms: f64, rate: f64) -> f32 {
+        let Some((_, up)) = self.last_hold(key, time_ms) else {
+            return 0.0;
+        };
+        if time_ms < up {
+            return 1.0;
         }
+        (1.0 - (time_ms - up) / (KEYS_LIT_FADE_MS * rate)).clamp(0.0, 1.0) as f32
+    }
+
+    fn last_hold(&self, key: usize, time_ms: f64) -> Option<(f64, f64)> {
+        let holds = &self.holds[key];
+        let index = holds.partition_point(|(from, _)| *from <= time_ms);
+        index.checked_sub(1).and_then(|i| holds.get(i)).copied()
+    }
+
+    pub(super) fn build(
+        cursor: &dossier_sim::CursorTrack,
+        lazer: bool,
+        quiet: &[(f64, f64)],
+    ) -> Self {
+        let holds = cursor.holds_each(lazer);
+        let counted = std::array::from_fn(|key| {
+            holds[key]
+                .iter()
+                .map(|&(down, _)| down)
+                .filter(|down| !quiet.iter().any(|&(from, to)| *down >= from && *down <= to))
+                .collect()
+        });
+        Self { holds, counted }
+    }
+
+    pub(super) fn quiet_spans(state: &dossier_sim::GameState) -> Vec<(f64, f64)> {
+        let timeline = state.timeline();
+        if state.is_lazer() {
+            return Vec::new();
+        }
+        let (Some(first), Some(last)) = (
+            timeline.objects.first().map(|object| object.start_ms),
+            timeline
+                .objects
+                .iter()
+                .map(|object| object.end_ms)
+                .max_by(f64::total_cmp),
+        ) else {
+            return Vec::new();
+        };
+        let mut quiet = vec![
+            (f64::NEG_INFINITY, first - timeline.difficulty.preempt_ms()),
+            (last + timeline.difficulty.hit_window_50(), f64::INFINITY),
+        ];
+        quiet.extend(timeline.breaks.iter().copied());
+        quiet
+    }
+
+    fn is_empty(&self) -> bool {
+        self.holds.iter().all(Vec::is_empty)
     }
 
     fn count(&self, key: usize, time_ms: f64) -> usize {
-        self.holds[key].partition_point(|(from, _)| *from <= time_ms)
+        self.counted[key].partition_point(|down| *down <= time_ms)
     }
 
     fn named(&self, key: usize, time_ms: f64, rate: f64) -> f32 {
@@ -47,22 +99,102 @@ impl KeyTrack {
         if time_ms < first {
             return 1.0;
         }
-        1.0 - eased_out(((time_ms - first) / (KEYS_SWAP_MS * rate)) as f32)
+        (1.0 - (time_ms - first) / (KEYS_SWAP_MS * rate)).clamp(0.0, 1.0) as f32
     }
 }
 
-const KEYS_INSET: f64 = 0.018;
-
-const KEYS_BOX: f64 = 0.052;
-
-const KEYS_WIDTH: f32 = 1.35;
-
-const KEYS_GAP: f32 = 0.18;
-
-const KEYS_PRESS_SHRINK: f32 = 0.14;
-
 const KEYS_PRESS_DOWN_MS: f64 = 160.0;
 const KEYS_PRESS_UP_MS: f64 = 160.0;
+const KEYS_LIT_FADE_MS: f64 = 100.0;
+const KEYS_SWAP_MS: f64 = 100.0;
+
+const OWN_ART_PER: f32 = 3.0;
+const OWN_KEY: (f32, f32) = (43.0, 46.0);
+const OWN_PLATE: (f32, f32) = (193.0, 55.0);
+const OWN_KEY_CORNER: f32 = 9.0;
+const OWN_KEY_EDGE: f32 = 2.0;
+const OWN_KEY_FILL: f32 = 0.18;
+const OWN_KEY_RIM: f32 = 0.8;
+const OWN_PLATE_FILL: f32 = 0.5;
+const OWN_PLATE_RIM: f32 = 0.12;
+
+#[derive(Debug)]
+pub(super) struct OverlayArt {
+    key: Pixmap,
+    plate: Pixmap,
+}
+
+impl OverlayArt {
+    pub(super) fn drawn() -> Option<Self> {
+        let at = |(wide, tall): (f32, f32)| {
+            Pixmap::new(
+                (wide * OWN_ART_PER).round() as u32,
+                (tall * OWN_ART_PER).round() as u32,
+            )
+        };
+        let mut key = at(OWN_KEY)?;
+        let edge = OWN_KEY_EDGE * OWN_ART_PER;
+        let side = key.width() as f32 - edge;
+        let cap = rounded_rect(
+            edge / 2.0,
+            (key.height() as f32 - side) / 2.0,
+            side,
+            side,
+            OWN_KEY_CORNER * OWN_ART_PER,
+        )?;
+        fill_and_edge(
+            &mut key,
+            &cap,
+            with_alpha(tiny_skia::Color::WHITE, OWN_KEY_FILL),
+            with_alpha(tiny_skia::Color::WHITE, OWN_KEY_RIM),
+            edge,
+        );
+
+        let mut plate = at(OWN_PLATE)?;
+        let rim = OWN_ART_PER;
+        let bar = rounded_rect(
+            rim / 2.0,
+            rim / 2.0,
+            plate.width() as f32 - rim,
+            plate.height() as f32 - rim,
+            plate.height() as f32 * 0.3,
+        )?;
+        fill_and_edge(
+            &mut plate,
+            &bar,
+            with_alpha(tiny_skia::Color::BLACK, OWN_PLATE_FILL),
+            with_alpha(tiny_skia::Color::WHITE, OWN_PLATE_RIM),
+            rim,
+        );
+        Some(Self { key, plate })
+    }
+}
+
+fn fill_and_edge(
+    pixmap: &mut Pixmap,
+    path: &tiny_skia::Path,
+    fill: tiny_skia::Color,
+    rim: tiny_skia::Color,
+    width: f32,
+) {
+    let mut paint = Paint {
+        anti_alias: true,
+        ..Default::default()
+    };
+    paint.set_color(fill);
+    pixmap.fill_path(path, &paint, FillRule::Winding, Transform::identity(), None);
+    paint.set_color(rim);
+    pixmap.stroke_path(
+        path,
+        &paint,
+        &Stroke {
+            width,
+            ..Default::default()
+        },
+        Transform::identity(),
+        None,
+    );
+}
 
 impl Scene<'_> {
     pub(super) fn draw_keys(
@@ -72,101 +204,229 @@ impl Scene<'_> {
         layout: &Layout,
         presence: f32,
     ) {
-        if presence <= 0.01 || !self.skin.keypad {
+        if presence <= 0.01 || !self.skin.keypad || self.keys.is_empty() {
             return;
         }
-        if self.skin_speaks_for(Element::InputOverlayKey) {
-            self.draw_skin_keys(pixmap, time_ms, layout, presence);
+        self.draw_overlay_keys(pixmap, time_ms, layout, presence);
+    }
+
+    fn overlay_art(&self, element: Element) -> Option<(&Pixmap, f32)> {
+        if let Some(sprites) = self.skin.sprites.as_ref() {
+            if !sprites.draw_ourselves(element) {
+                return sprites.coloured(element, 0);
+            }
+        }
+        let own = self.overlay_art.as_ref()?;
+        match element {
+            Element::InputOverlayKey => Some((&own.key, OWN_ART_PER)),
+            Element::InputOverlayBackground => Some((&own.plate, OWN_ART_PER)),
+            _ => None,
+        }
+    }
+}
+
+const OVERLAY_PLATE_TOP: f32 = 320.0;
+const OVERLAY_STRETCH: f32 = 1.05;
+const OVERLAY_KEY_FROM_RIGHT: f32 = 24.0;
+const OVERLAY_KEY_TOP: f32 = 350.4;
+const OVERLAY_KEY_STEP: f32 = 47.2;
+const OVERLAY_PRESSED: f32 = 0.8;
+const OVERLAY_TEXT: f32 = 14.0;
+
+impl Scene<'_> {
+    fn draw_overlay_keys(
+        &self,
+        pixmap: &mut Pixmap,
+        time_ms: f64,
+        layout: &Layout,
+        presence: f32,
+    ) {
+        let right = layout.width as f32;
+        let ink = self.overlay_ink();
+
+        let (plate, length) = self.plate_size(layout);
+        if length > 0.0 {
+            self.draw_upright(
+                pixmap,
+                Element::InputOverlayBackground,
+                (
+                    right - plate,
+                    self.skin_pixels(layout, OVERLAY_PLATE_TOP),
+                    plate,
+                    length,
+                ),
+                presence,
+            );
+        }
+
+        let (key_wide, key_tall) = self.key_size(layout);
+        let centre_x = right - self.skin_pixels(layout, OVERLAY_KEY_FROM_RIGHT);
+        let rate = self.state.playback_rate().max(0.001);
+        for index in 0..KEY_NAMES.len() {
+            let squeeze = 1.0 + (OVERLAY_PRESSED - 1.0) * self.keys.pressed(index, time_ms, rate);
+            let centre_y = self.skin_pixels(
+                layout,
+                OVERLAY_KEY_TOP + OVERLAY_KEY_STEP * index as f32,
+            );
+            let (wide, tall) = (key_wide * squeeze, key_tall * squeeze);
+            let lit = blend(
+                tiny_skia::Color::WHITE,
+                active_colour(index),
+                self.keys.lit(index, time_ms, rate),
+            );
+            self.draw_key_sprite(
+                pixmap,
+                (centre_x - wide / 2.0, centre_y - tall / 2.0),
+                wide,
+                lit,
+                presence,
+            );
+
+            let shown = 1.0 - self.keys.named(index, time_ms, rate);
+            if shown > 0.0 {
+                let text = self.skin_pixels(layout, OVERLAY_TEXT) * squeeze;
+                let count = self.keys.count(index, time_ms).to_string();
+                self.draw_key_text(
+                    pixmap,
+                    &count,
+                    (centre_x, centre_y + text * 0.5),
+                    text,
+                    ink,
+                    presence * shown,
+                );
+            }
+        }
+    }
+
+    fn overlay_ink(&self) -> tiny_skia::Color {
+        self.skin
+            .sprites
+            .as_ref()
+            .and_then(|s| s.ini().input_overlay_text)
+            .unwrap_or(self.skin.hud)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn draw_key_text(
+        &self,
+        pixmap: &mut Pixmap,
+        text: &str,
+        (x, baseline): (f32, f32),
+        size: f32,
+        ink: tiny_skia::Color,
+        alpha: f32,
+    ) {
+        if alpha <= 0.01 {
+            return;
+        }
+        if self.draw_hud_text_in(pixmap, text, x, baseline, size, Align::Centre, alpha, ink) {
             return;
         }
         let Some(font) = &self.skin.font else {
             return;
         };
-        let (width, height) = (f64::from(layout.width), f64::from(layout.height));
-        let box_side = (height * KEYS_BOX) as f32;
-        let box_wide = box_side * KEYS_WIDTH;
-        let step = box_side * (1.0 + KEYS_GAP);
-        let right = (width * (1.0 - KEYS_INSET)) as f32;
+        font.draw(
+            pixmap,
+            Label {
+                text,
+                x,
+                y: baseline,
+                size,
+                colour: with_alpha(ink, alpha),
+                align: Align::Centre,
+            },
+        );
+    }
 
-        let top = (height as f32 - (step * 4.0 - box_side * KEYS_GAP)) / 2.0;
+    fn key_size(&self, layout: &Layout) -> (f32, f32) {
+        let Some((art, per)) = self.overlay_art(Element::InputOverlayKey) else {
+            return (0.0, 0.0);
+        };
+        (
+            self.skin_pixels(layout, art.width() as f32 / per),
+            self.skin_pixels(layout, art.height() as f32 / per),
+        )
+    }
 
-        let rate = self.state.playback_rate().max(0.001);
-        for (index, name) in KEY_NAMES.iter().enumerate() {
-            let down = self.keys.pressed(index, time_ms, rate);
-            let count = self.keys.count(index, time_ms);
-            let shrink = KEYS_PRESS_SHRINK * down;
-            let side = box_side * (1.0 - shrink);
-            let wide = box_wide * (1.0 - shrink);
-            let x = right - box_wide + (box_wide - wide) / 2.0;
-            let y = top + step * index as f32 + (box_side - side) / 2.0;
+    fn plate_size(&self, layout: &Layout) -> (f32, f32) {
+        let Some((art, per)) = self.overlay_art(Element::InputOverlayBackground) else {
+            return (0.0, 0.0);
+        };
 
-            let Some(card) = rounded_rect(x, y, wide, side, side * 0.3) else {
-                continue;
-            };
-            let mut fill = Paint {
-                anti_alias: true,
-                ..Default::default()
-            };
+        (
+            self.skin_pixels(layout, art.height() as f32 / per),
+            self.skin_pixels(layout, art.width() as f32 / per) * OVERLAY_STRETCH,
+        )
+    }
 
-            let body = with_alpha(
-                blend(self.skin.background, self.skin.verdict_miss, down),
-                (0.55 + 0.30 * down) * presence,
-            );
-            let ink = self.skin.hud;
-            fill.set_color(body);
-            pixmap.fill_path(&card, &fill, FillRule::Winding, Transform::identity(), None);
-
-            let mut edge = Paint {
-                anti_alias: true,
-                ..Default::default()
-            };
-            edge.set_color(with_alpha(ink, (0.35 + 0.55 * down) * presence));
-            pixmap.stroke_path(
-                &card,
-                &edge,
-                &Stroke {
-                    width: (side * 0.05).max(1.0),
-                    ..Default::default()
-                },
-                Transform::identity(),
-                None,
-            );
-
-            font.draw(
-                pixmap,
-                Label {
-                    text: name,
-                    x: x + wide / 2.0,
-                    y: y + side * 0.34,
-                    size: side * 0.26,
-                    colour: with_alpha(ink, 0.7 * presence),
-                    align: Align::Centre,
-                },
-            );
-
-            let count = count.to_string();
-            if !self.draw_hud_text(
-                pixmap,
-                &count,
-                x + wide / 2.0,
-                y + side * 0.78,
-                side * 0.42,
-                Align::Centre,
-                0.95 * presence,
-            ) {
-                font.draw(
-                    pixmap,
-                    Label {
-                        text: &count,
-                        x: x + wide / 2.0,
-                        y: y + side * 0.78,
-                        size: side * 0.42,
-                        colour: with_alpha(ink, 0.95 * presence),
-                        align: Align::Centre,
-                    },
-                );
-            }
+    fn draw_upright(
+        &self,
+        pixmap: &mut Pixmap,
+        element: Element,
+        (x, y, wide, tall): (f32, f32, f32, f32),
+        alpha: f32,
+    ) {
+        let Some((art, _)) = self.overlay_art(element) else {
+            return;
+        };
+        if alpha <= 0.0 || wide <= 0.0 || tall <= 0.0 {
+            return;
         }
+
+        let transform = Transform::from_translate(x + wide, y)
+            .pre_rotate(90.0)
+            .pre_scale(tall / art.width() as f32, wide / art.height() as f32);
+        pixmap.draw_pixmap(
+            0,
+            0,
+            art.as_ref(),
+            &tiny_skia::PixmapPaint {
+                opacity: alpha.clamp(0.0, 1.0),
+                quality: tiny_skia::FilterQuality::Bilinear,
+                ..Default::default()
+            },
+            transform,
+            None,
+        );
+    }
+
+    fn draw_key_sprite(
+        &self,
+        pixmap: &mut Pixmap,
+        (x, y): (f32, f32),
+        wide: f32,
+        colour: tiny_skia::Color,
+        alpha: f32,
+    ) {
+        let Some((art, _)) = self.overlay_art(Element::InputOverlayKey) else {
+            return;
+        };
+        if alpha <= 0.0 || wide <= 0.0 {
+            return;
+        }
+        let painted = crate::imported::tinted(art, colour);
+
+        let scale = wide / art.width() as f32;
+        pixmap.draw_pixmap(
+            0,
+            0,
+            painted.as_ref(),
+            &tiny_skia::PixmapPaint {
+                opacity: alpha.clamp(0.0, 1.0),
+                quality: tiny_skia::FilterQuality::Bilinear,
+                ..Default::default()
+            },
+            Transform::from_translate(x, y).pre_scale(scale, scale),
+            None,
+        );
+    }
+}
+
+fn active_colour(key: usize) -> tiny_skia::Color {
+    if key < 2 {
+        tiny_skia::Color::from_rgba8(0xff, 0xde, 0x00, 0xff)
+    } else {
+        tiny_skia::Color::from_rgba8(0xf8, 0x00, 0x9e, 0xff)
     }
 }
 
@@ -185,7 +445,7 @@ mod keys {
                 keys: Keys(keys),
             })
             .collect();
-        KeyTrack::build(&dossier_sim::CursorTrack::new(frames), false)
+        KeyTrack::build(&dossier_sim::CursorTrack::new(frames), false, &[])
     }
 
     #[test]
@@ -292,6 +552,38 @@ mod keys {
     }
 
     #[test]
+    fn a_press_lights_the_key_at_once_and_the_light_goes_over_a_hundred() {
+        let track = track(&[(0, 0), (100, Keys::K1), (400, 0)]);
+        let at = |t: f64| track.lit(0, t, 1.0);
+        assert_eq!(at(99.0), 0.0);
+        assert_eq!(at(100.0), 1.0, "lit on the press itself");
+        assert_eq!(at(399.0), 1.0);
+        assert!((at(450.0) - 0.5).abs() < 1e-6, "halfway out at fifty");
+        assert_eq!(at(500.0), 0.0);
+    }
+
+    #[test]
+    fn a_press_in_a_quiet_span_is_not_counted_but_still_shows_the_count() {
+        let frames = [(0, 0), (100, Keys::K1), (150, 0), (1_000, Keys::K1), (1_050, 0)]
+            .iter()
+            .map(|&(time_ms, keys)| ReplayFrame {
+                time_ms,
+                x: 0.0,
+                y: 0.0,
+                keys: Keys(keys),
+            })
+            .collect();
+        let track = KeyTrack::build(
+            &dossier_sim::CursorTrack::new(frames),
+            false,
+            &[(f64::NEG_INFINITY, 500.0)],
+        );
+        assert_eq!(track.count(0, 400.0), 0, "before the map starts");
+        assert_eq!(track.named(0, 400.0, 1.0), 0.0, "but the zero is up");
+        assert_eq!(track.count(0, 1_100.0), 1);
+    }
+
+    #[test]
     fn a_key_wears_its_name_until_it_is_first_pressed() {
         let track = track(&[(0, 0), (500, Keys::K1), (600, 0)]);
         assert_eq!(track.named(0, 100.0, 1.0), 1.0, "before any press");
@@ -303,268 +595,5 @@ mod keys {
             1.0,
             "a key never pressed keeps its name"
         );
-    }
-}
-
-const OVERLAY_KEY: f32 = 46.0;
-const OVERLAY_SPACING: f32 = 1.8;
-const OVERLAY_PRESSED: f32 = 0.75;
-
-const OVERLAY_KEY_INSET: f32 = 1.5;
-const OVERLAY_KEY_DROP: f32 = 7.0;
-
-const KEYS_SWAP_MS: f64 = 160.0;
-
-const OVERLAY_PLATE_RISE: f32 = 64.0;
-
-const OVERLAY_STRETCH: f32 = 1.05;
-
-const OVERLAY_TEXT: f32 = 0.32;
-
-impl Scene<'_> {
-    fn draw_skin_keys(&self, pixmap: &mut Pixmap, time_ms: f64, layout: &Layout, presence: f32) {
-        let (key, key_tall) = self.key_size(layout);
-        let gap = self.skin_pixels(layout, OVERLAY_SPACING);
-        let right = layout.width as f32;
-        let ink = self.overlay_ink();
-
-        let (plate, length) = self.plate_size(layout);
-        let drop = self.skin_pixels(layout, OVERLAY_KEY_DROP);
-        let plate_top = layout.height as f32 / 2.0 - self.skin_pixels(layout, OVERLAY_PLATE_RISE);
-        if length > 0.0 {
-            self.draw_upright(
-                pixmap,
-                Element::InputOverlayBackground,
-                (right - plate, plate_top, plate, length),
-                presence,
-            );
-        }
-        let top = plate_top + drop;
-
-        let rate = self.state.playback_rate().max(0.001);
-        for index in 0..KEY_NAMES.len() {
-            let down = self.keys.pressed(index, time_ms, rate);
-
-            let shrink = 1.0 + (OVERLAY_PRESSED - 1.0) * down;
-            let side = key * shrink;
-            let wall = right - self.skin_pixels(layout, OVERLAY_KEY_INSET);
-            let centre_x = wall - key / 2.0;
-            let centre_y = top + (key_tall + gap) * index as f32 + key_tall / 2.0;
-
-            let lit = blend(tiny_skia::Color::WHITE, active_colour(index), down);
-            self.draw_key_sprite(
-                pixmap,
-                (centre_x - side / 2.0, centre_y - side / 2.0),
-                side,
-                lit,
-                presence,
-            );
-
-            let named = self.keys.named(index, time_ms, rate);
-            if named < 1.0 {
-                let text = key * OVERLAY_TEXT * shrink;
-                let count = self.keys.count(index, time_ms).to_string();
-                self.draw_key_text(
-                    pixmap,
-                    &count,
-                    (centre_x + self.key_count_offset(side), centre_y + text * 0.5),
-                    text,
-                    ink,
-                    presence * (1.0 - named),
-                );
-            }
-        }
-    }
-
-    fn overlay_ink(&self) -> tiny_skia::Color {
-        self.skin
-            .sprites
-            .as_ref()
-            .and_then(|s| s.ini().input_overlay_text)
-            .unwrap_or(self.skin.hud)
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn draw_key_text(
-        &self,
-        pixmap: &mut Pixmap,
-        text: &str,
-        (x, baseline): (f32, f32),
-        size: f32,
-        ink: tiny_skia::Color,
-        alpha: f32,
-    ) {
-        if alpha <= 0.01 {
-            return;
-        }
-        if self.draw_hud_text_in(pixmap, text, x, baseline, size, Align::Centre, alpha, ink) {
-            return;
-        }
-        let Some(font) = &self.skin.font else {
-            return;
-        };
-        font.draw(
-            pixmap,
-            Label {
-                text,
-                x,
-                y: baseline,
-                size,
-                colour: with_alpha(ink, alpha),
-                align: Align::Centre,
-            },
-        );
-    }
-
-    fn key_size(&self, layout: &Layout) -> (f32, f32) {
-        match self.key_art() {
-            Some((art, _, _, _, _)) => (
-                self.skin_pixels(layout, art.width() as f32 / self.key_per()),
-                self.skin_pixels(layout, art.height() as f32 / self.key_per()),
-            ),
-            None => {
-                let side = self.skin_pixels(layout, OVERLAY_KEY);
-                (side, side)
-            }
-        }
-    }
-
-    fn key_per(&self) -> f32 {
-        self.skin
-            .sprites
-            .as_ref()
-            .and_then(|s| s.coloured(Element::InputOverlayKey, 0))
-            .map_or(1.0, |(_, per)| per)
-    }
-
-    fn key_count_offset(&self, wide: f32) -> f32 {
-        match self.key_art() {
-            Some((art, _, _, left, _)) if left > 1.0 => {
-                let share = left / art.width() as f32;
-                wide * (share / 2.0 - 0.5)
-            }
-            _ => 0.0,
-        }
-    }
-
-    fn key_art(&self) -> Option<(&tiny_skia::Pixmap, f32, f32, f32, f32)> {
-        let (art, per) = self
-            .skin
-            .sprites
-            .as_ref()?
-            .coloured(Element::InputOverlayKey, 0)?;
-        let (mut x0, mut y0, mut x1, mut y1) = (u32::MAX, u32::MAX, 0u32, 0u32);
-        for (index, pixel) in art.pixels().iter().enumerate() {
-            if pixel.alpha() == 0 {
-                continue;
-            }
-            let (x, y) = (index as u32 % art.width(), index as u32 / art.width());
-            x0 = x0.min(x);
-            y0 = y0.min(y);
-            x1 = x1.max(x + 1);
-            y1 = y1.max(y + 1);
-        }
-        if x1 <= x0 || y1 <= y0 {
-            return None;
-        }
-
-        let _ = per;
-        Some((
-            art,
-            (x1 - x0) as f32,
-            (y1 - y0) as f32,
-            x0 as f32,
-            y0 as f32,
-        ))
-    }
-
-    fn plate_size(&self, layout: &Layout) -> (f32, f32) {
-        let Some(sprites) = self.skin.sprites.as_ref() else {
-            return (0.0, 0.0);
-        };
-        let Some((art, per)) = sprites.coloured(Element::InputOverlayBackground, 0) else {
-            return (0.0, 0.0);
-        };
-
-        (
-            self.skin_pixels(layout, art.height() as f32 / per),
-            self.skin_pixels(layout, art.width() as f32 / per) * OVERLAY_STRETCH,
-        )
-    }
-
-    fn draw_upright(
-        &self,
-        pixmap: &mut Pixmap,
-        element: Element,
-        (x, y, wide, tall): (f32, f32, f32, f32),
-        alpha: f32,
-    ) {
-        let Some(sprites) = &self.skin.sprites else {
-            return;
-        };
-        let Some((art, _)) = sprites.coloured(element, 0) else {
-            return;
-        };
-        if alpha <= 0.0 || wide <= 0.0 || tall <= 0.0 {
-            return;
-        }
-
-        let transform = Transform::from_translate(x + wide, y)
-            .pre_rotate(90.0)
-            .pre_scale(tall / art.width() as f32, wide / art.height() as f32);
-        pixmap.draw_pixmap(
-            0,
-            0,
-            art.as_ref(),
-            &tiny_skia::PixmapPaint {
-                opacity: alpha.clamp(0.0, 1.0),
-                quality: tiny_skia::FilterQuality::Bilinear,
-                ..Default::default()
-            },
-            transform,
-            None,
-        );
-    }
-
-    fn draw_key_sprite(
-        &self,
-        pixmap: &mut Pixmap,
-        (x, y): (f32, f32),
-        side: f32,
-        colour: tiny_skia::Color,
-        alpha: f32,
-    ) {
-        let Some(sprites) = &self.skin.sprites else {
-            return;
-        };
-        let Some((art, _)) = sprites.coloured(Element::InputOverlayKey, 0) else {
-            return;
-        };
-        if alpha <= 0.0 || side <= 0.0 {
-            return;
-        }
-        let painted = crate::imported::tinted(art, colour);
-
-        let scale = side / art.width() as f32;
-        pixmap.draw_pixmap(
-            0,
-            0,
-            painted.as_ref(),
-            &tiny_skia::PixmapPaint {
-                opacity: alpha.clamp(0.0, 1.0),
-                quality: tiny_skia::FilterQuality::Bilinear,
-                ..Default::default()
-            },
-            Transform::from_translate(x, y).pre_scale(scale, scale),
-            None,
-        );
-    }
-}
-
-fn active_colour(key: usize) -> tiny_skia::Color {
-    if key < 2 {
-        tiny_skia::Color::from_rgba8(0xff, 0xde, 0x00, 0xff)
-    } else {
-        tiny_skia::Color::from_rgba8(0xf8, 0x00, 0x9e, 0xff)
     }
 }

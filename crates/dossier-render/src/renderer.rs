@@ -341,6 +341,8 @@ pub struct Scene<'a> {
     bodies: std::sync::Mutex<std::collections::HashMap<usize, Body>>,
 
     flashlight: Option<flashlight::Flashlight>,
+
+    overlay_art: Option<keys::OverlayArt>,
 }
 
 struct Body {
@@ -513,7 +515,11 @@ impl<'a> Scene<'a> {
             signature: None,
             leaderboard: crate::leaderboard::Leaderboard::default(),
             pictures: std::collections::HashMap::new(),
-            keys: KeyTrack::build(state.cursor_track(), state.is_lazer()),
+            keys: KeyTrack::build(
+                state.cursor_track(),
+                state.is_lazer(),
+                &KeyTrack::quiet_spans(state),
+            ),
             bare: false,
             backdrop: None,
             backdrop_covers: false,
@@ -521,6 +527,7 @@ impl<'a> Scene<'a> {
             over_video: false,
             bodies: std::sync::Mutex::new(std::collections::HashMap::new()),
             flashlight: flashlight::Flashlight::of(state),
+            overlay_art: keys::OverlayArt::drawn(),
         }
     }
 

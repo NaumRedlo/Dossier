@@ -212,8 +212,6 @@ pub fn written_as(stem: &Path) -> PathBuf {
         .unwrap_or_else(|| dir.join(format!("{name}-unknown.png")))
 }
 
-/// Export into a private staging directory, then replace the completed PNG atomically.
-/// Unlike `Snapshot::matches_image`, this always writes the current frame.
 pub fn write_snapshot(shot: &iced_test::simulator::Snapshot, stem: &Path) -> Result<PathBuf, String> {
     static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     struct Staging(PathBuf);
@@ -280,6 +278,7 @@ pub fn shot_folder(root: &Path, lang: Lang, out: &Path) -> Result<(), String> {
     let source = crate::sources::folder_at(root).ok_or_else(|| format!("no replays in {}", root.display()))?;
     let mut settings = crate::settings::Settings::default();
     settings.lang = lang;
+    settings.device = "Dossier device".to_owned();
     settings.sources = vec![source.clone()];
     let library = crate::library::read(&[source]);
     let mut main = Main::staged(crate::lang::Words::new(lang), settings, library, Some(0));

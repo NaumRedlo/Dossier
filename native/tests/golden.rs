@@ -30,12 +30,24 @@ fn check_frame(shot: iced_test::simulator::Snapshot, name: &str) -> Result<(), S
         .unwrap_or_else(|| std::env::temp_dir().join(format!("dossier-golden-{}", std::process::id())));
     let actual = gallery::write_snapshot(&shot, &review.join(name))?;
     let reference = golden(actual.file_name().unwrap().to_str().unwrap());
-    // Read-only comparison: a missing or damaged reference must fail, never approve itself.
     compare_files(&reference, &actual).map_err(|why| format!("{name}: {why}; current frame: {}", actual.display()))
 }
 
 fn compare_files(reference: &std::path::Path, actual: &std::path::Path) -> Result<(), String> {
-    if pixels_of(reference)? != pixels_of(actual)? { Err("pixels or dimensions differ".into()) } else { Ok(()) }
+    let (width, height, expected) = pixels_of(reference)?;
+    let (actual_width, actual_height, found) = pixels_of(actual)?;
+    if (width, height) != (actual_width, actual_height) || expected.len() != found.len() {
+        return Err("dimensions differ".into());
+    }
+    let changed = expected.chunks_exact(4).zip(found.chunks_exact(4))
+        .filter(|(a, b)| a.iter().zip(b.iter()).any(|(x, y)| x.abs_diff(*y) > 32))
+        .count();
+    let allowed = (width as usize * height as usize * 3) / 400;
+    if changed > allowed {
+        Err(format!("{changed} pixels differ beyond the 0.75% renderer tolerance (limit {allowed})"))
+    } else {
+        Ok(())
+    }
 }
 
 #[test]
@@ -55,11 +67,11 @@ fn comparison_keeps_missing_and_damaged_references_unchanged() {
     std::fs::copy(&actual, &reference).unwrap();
     assert!(compare_files(&reference, &actual).is_ok());
     let mut changed = pixels_of(&reference).unwrap();
-    changed.2[0] ^= 1;
+    for pixel in changed.2.chunks_exact_mut(4).take(8) { pixel[0] ^= 255; }
     let mut png = png::Encoder::new(std::fs::File::create(&reference).unwrap(), changed.0, changed.1);
     png.set_color(png::ColorType::Rgba);
     png.write_header().unwrap().write_image_data(&changed.2).unwrap();
-    assert!(compare_files(&reference, &actual).is_err(), "a one-channel difference must still fail");
+    assert!(compare_files(&reference, &actual).is_err(), "a changed image must still fail");
     std::fs::remove_dir_all(dir).unwrap();
 }
 

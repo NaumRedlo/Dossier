@@ -103,6 +103,8 @@ pub fn moved(kept: &[String], all: &[Tile], what: Tile, before: Option<Tile>) ->
 pub struct Ground<'a> {
     pub words: &'a Words,
     pub settings: &'a Settings,
+    pub machine: ui::Machine,
+    pub machine_name: String,
     pub side: Side,
     pub replays: usize,
     pub videos: usize,
@@ -229,7 +231,7 @@ fn card<'a>(ground: &Ground<'a>, tile: Tile, late: f32) -> Element<'a, Message> 
     ui::grown(card, iced::Point::new(0.5, 0.5), 0.0, 0.96 + 0.04 * late).into()
 }
 
-fn machine_name() -> String {
+pub fn machine_name() -> String {
     static NAME: std::sync::OnceLock<String> = std::sync::OnceLock::new();
     NAME.get_or_init(|| {
         #[cfg(target_os = "macos")]
@@ -444,7 +446,7 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
         }
         Tile::Device => column![
             head(w, "device-tile"),
-            container(row![ui::badge(ui::Machine::here(), 24.0), text(machine_name()).font(theme::SANS).size(11.0).color(ui::faded(FAINT))].spacing(8).align_y(iced::Center))
+            container(row![ui::badge(ground.machine, 24.0), text(ground.machine_name.clone()).font(theme::SANS).size(11.0).color(ui::faded(FAINT))].spacing(8).align_y(iced::Center))
                 .padding(Padding::ZERO.bottom(4.0)),
             container(
                 text_input("", ground.renaming.unwrap_or(&s.device))
@@ -794,7 +796,7 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
         Tile::ThisDevice => column![
             head(w, "this-device"),
             row![
-                ui::badge(ui::Machine::here(), 28.0),
+                ui::badge(ground.machine, 28.0),
                 column![
                     text(s.device.clone()).font(theme::SANS_SEMI).size(theme::CAPTION).wrapping(text::Wrapping::None).color(ui::faded(INK)),
                     text(w.t("linked-status")).font(theme::SANS).size(11.0).wrapping(text::Wrapping::None).color(ui::faded(MUTED)),

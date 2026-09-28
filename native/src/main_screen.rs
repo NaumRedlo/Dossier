@@ -355,6 +355,7 @@ pub struct Live {
 pub struct Main {
     pub words: Words,
     pub settings: Settings,
+    gallery: bool,
     pub library: Option<Library>,
     pub chosen: Option<usize>,
     pub before: Option<Shown>,
@@ -557,6 +558,7 @@ impl Main {
         let mut made = Main {
             words,
             settings,
+            gallery: false,
             library: None,
             chosen: None,
             before: None,
@@ -854,6 +856,8 @@ impl Main {
 
     pub fn staged(words: Words, settings: Settings, library: Library, chosen: Option<usize>) -> Main {
         let (mut made, _) = Main::new(words, settings);
+        made.gallery = true;
+        made.ffmpeg = Some(PathBuf::from("ffmpeg"));
         made.library = Some(library);
         made.chosen = chosen;
         made.store = videos::Store::default();
@@ -5396,6 +5400,8 @@ impl Main {
         let ground = prefs::Ground {
             words: &self.words,
             settings: &self.settings,
+            machine: if self.gallery { ui::Machine::Mac } else { ui::Machine::here() },
+            machine_name: if self.gallery { "MacBook Pro".to_owned() } else { prefs::machine_name() },
             side: self.side,
             replays: self.entries().len(),
             videos: self.store.videos.len(),

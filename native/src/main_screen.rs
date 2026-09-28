@@ -201,6 +201,10 @@ pub enum Message {
     Traced(PathBuf, std::sync::Arc<Vec<(f64, f32, f32)>>),
     Dropped(PathBuf),
     Resized(f32, f32),
+    WindowOpened(window::Id, f32, f32),
+    CheckMinimized(window::Id),
+    PollMinimized,
+    Minimized(Option<bool>),
     Tick(Instant),
 }
 
@@ -365,6 +369,9 @@ pub struct Main {
     pub combos: HashMap<PathBuf, Option<u32>>,
     pub store: videos::Store,
     pub player: Option<std::rc::Rc<std::cell::RefCell<player::Player>>>,
+    minimized: bool,
+    window_id: Option<window::Id>,
+    resume_player: Option<std::rc::Weak<std::cell::RefCell<player::Player>>>,
     pub open_video: Option<usize>,
     video_request: Option<PathBuf>,
     pub asking_delete: bool,
@@ -564,6 +571,9 @@ impl Main {
             combos: HashMap::new(),
             store: videos::Store::load(),
             player: None,
+            minimized: false,
+            window_id: None,
+            resume_player: None,
             open_video: None,
             video_request: None,
             asking_delete: false,
@@ -854,6 +864,7 @@ impl Main {
     }
 
     pub fn moving(&self) -> bool {
+        if self.minimized { return false; }
         self.rendering.as_ref().is_some_and(|r| !r.is_over())
             || self.fetching.as_ref().is_some_and(|f| !f.is_over())
             || matches!(self.looking, Some(scan::Step::Looking { .. }))
@@ -903,7 +914,7 @@ impl Main {
     }
 
     pub fn subscription(&self) -> Subscription<Message> {
-        let mut parts = vec![iced::event::listen_with(|event, status, _| {
+        let mut parts = vec![iced::event::listen_with(|event, status, id| {
             if let iced::Event::Mouse(iced::mouse::Event::CursorMoved { position }) = event {
                 return Some(Message::PointerActivity(position));
             }
@@ -917,7 +928,8 @@ impl Main {
             let action = match (event, status) {
             (iced::Event::Window(window::Event::FileDropped(path)), _) => Some(Message::Dropped(path)),
             (iced::Event::Window(window::Event::Resized(size)), _) => Some(Message::Resized(size.width, size.height)),
-            (iced::Event::Window(window::Event::Opened { size, .. }), _) => Some(Message::Resized(size.width, size.height)),
+            (iced::Event::Window(window::Event::Opened { size, .. }), _) => Some(Message::WindowOpened(id, size.width, size.height)),
+            (iced::Event::Window(window::Event::Focused | window::Event::Unfocused), _) => Some(Message::CheckMinimized(id)),
             (iced::Event::Keyboard(iced::keyboard::Event::KeyPressed { key, .. }), iced::event::Status::Ignored) => {
                 use iced::keyboard::key::{Key, Named};
                 match key.as_ref() {
@@ -944,6 +956,12 @@ impl Main {
         };
             if active { Some(Message::UserInput(action.map(Box::new))) } else { action }
         })];
+        if self.window_id.is_some() {
+            parts.push(iced::time::every(Duration::from_secs(2)).map(|_| Message::PollMinimized));
+        }
+        if self.minimized {
+            return Subscription::batch(parts);
+        }
         if self.can_rest() != self.resting.value() {
             parts.push(iced::time::every(Duration::from_secs(1)).map(Message::RestCheck));
         }
@@ -1215,8 +1233,53 @@ impl Main {
         }
     }
 
+    fn set_minimized(&mut self, minimized: bool) {
+        if self.minimized == minimized { return; }
+        self.minimized = minimized;
+        if minimized {
+            self.resume_player = self.player.as_ref().and_then(|player| {
+                (!player.borrow().paused).then(|| std::rc::Rc::downgrade(player))
+            });
+            if self.resume_player.is_some() {
+                if let Some(player) = &self.player { player.borrow_mut().toggle(); }
+            }
+        } else {
+            if let (Some(previous), Some(player)) = (self.resume_player.take(), &self.player) {
+                if previous.upgrade().is_some_and(|previous| std::rc::Rc::ptr_eq(&previous, player)) {
+                    let mut player = player.borrow_mut();
+                    if player.paused && !player.ended() { player.toggle(); }
+                }
+            }
+            self.now = Instant::now();
+            self.last_input = self.now;
+        }
+    }
+
     pub fn update(&mut self, message: Message) -> Task<Message> {
+        if self.minimized && matches!(&message,
+            Message::Tick(_) | Message::RestCheck(_) | Message::WatchTick | Message::AutoNext
+            | Message::UpdateTick | Message::UpdateIdle | Message::Poll | Message::CommunityTick
+            | Message::NewsTick | Message::FarmTick | Message::FeedClock | Message::LiveArrive)
+        {
+            return Task::none();
+        }
         match message {
+            Message::WindowOpened(id, width, height) => {
+                self.window_id = Some(id);
+                self.width = width;
+                self.height = height;
+                Task::none()
+            }
+            Message::CheckMinimized(id) => {
+                self.window_id = Some(id);
+                window::is_minimized(id).map(Message::Minimized)
+            }
+            Message::PollMinimized => self.window_id.map_or_else(Task::none, |id| window::is_minimized(id).map(Message::Minimized)),
+            Message::Minimized(Some(minimized)) => {
+                self.set_minimized(minimized);
+                Task::none()
+            }
+            Message::Minimized(None) => Task::none(),
             Message::PointerActivity(position) => {
                 if self.input_pointer != Some(position) {
                     self.input_pointer = Some(position);
@@ -6593,6 +6656,36 @@ pub fn max_combo_of(path: &Path, map: Option<&library::Map>, hash: &str) -> Opti
 #[cfg(test)]
 mod tests {
     use super::{slots, Slot, FRAME_GAP};
+
+    #[test]
+    fn minimizing_stops_periodic_work_and_restores_only_the_same_playing_video() {
+        let mut main = super::Main::staged(crate::lang::Words::new(crate::lang::Lang::En), crate::settings::Settings::default(), crate::library::Library::default(), None);
+        main.window_id = Some(iced::window::Id::unique());
+        let player = std::rc::Rc::new(std::cell::RefCell::new(crate::player::Player::still(std::path::Path::new("sample.mp4"), 1_000, 0)));
+        player.borrow_mut().toggle();
+        main.player = Some(player.clone());
+        assert!(!player.borrow().paused);
+        main.set_minimized(true);
+        assert!(player.borrow().paused);
+        assert!(!main.moving());
+        assert_eq!(main.subscription().units(), 2);
+        let frozen_at = main.now;
+        let _ = main.update(super::Message::Tick(frozen_at + std::time::Duration::from_secs(1)));
+        assert_eq!(main.now, frozen_at);
+        main.set_minimized(false);
+        assert!(!player.borrow().paused);
+        assert!(main.subscription().units() > 2);
+        player.borrow_mut().toggle();
+        main.set_minimized(true);
+        main.set_minimized(false);
+        assert!(player.borrow().paused);
+        player.borrow_mut().toggle();
+        main.set_minimized(true);
+        let replacement = std::rc::Rc::new(std::cell::RefCell::new(crate::player::Player::still(std::path::Path::new("other.mp4"), 1_000, 0)));
+        main.player = Some(replacement.clone());
+        main.set_minimized(false);
+        assert!(replacement.borrow().paused);
+    }
 
     #[test]
     fn notification_hover_preserves_remaining_time_and_ignores_duplicate_enters() {

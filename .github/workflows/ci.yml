@@ -44,6 +44,7 @@ jobs:
         os: [ubuntu-latest, windows-latest, macos-latest]
     env:
       ICED_TEST_BACKEND: tiny-skia
+      DOSSIER_GOLDEN_REVIEW: ${{ runner.temp }}/dossier-golden-review
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
@@ -54,6 +55,11 @@ jobs:
           workspaces: native
       - run: cargo test --release
         working-directory: native
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: golden-review-${{ runner.os }}
+          path: ${{ runner.temp }}/dossier-golden-review/*.png
       - if: runner.os == 'Windows'
         name: the executable carries its icon
         shell: bash

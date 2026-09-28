@@ -212,8 +212,6 @@ fn steps(
         skin,
         music_level: 1.0,
         hitsound_level: 1.0,
-        // Beatmap samples override skin samples in the renderer. Farm jobs use
-        // the selected skin's hit sounds even when the map bundles its own.
         play: render::Play { map_sounds: false, ..render::Play::default() },
     };
     DRAWING.store(true, Ordering::SeqCst);

@@ -221,7 +221,6 @@ pub fn card(server: &str, token: &str, name: &str, chat: Option<i64>) -> Result<
 
 pub fn share_card(server: &str, token: &str, name: &str, card: &crate::community::wire::Card) -> Result<(), Refused> {
     let mut payload = serde_json::to_value(card).map_err(|error| Refused::Network(error.to_string()))?;
-    // Keep local rank history out of the existing profile upload contract.
     if let Some(fields) = payload.as_object_mut() {
         fields.remove("country_rank_samples");
         fields.remove("country_rank_history");

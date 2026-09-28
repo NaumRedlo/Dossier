@@ -18,7 +18,6 @@ pub fn luminance(colour: Color) -> f32 {
     0.2126 * linear(colour.r) + 0.7152 * linear(colour.g) + 0.0722 * linear(colour.b)
 }
 
-/// Only secondary text participates; status, title and action colours retain their meaning.
 pub fn secondary_on(colour: Color, background: Color) -> Color {
     if colour != MUTED && colour != FAINT && colour != NOTICE_META { return colour; }
     let contrast = |ink: Color| {

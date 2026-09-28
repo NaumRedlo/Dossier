@@ -1405,7 +1405,6 @@ mod tests {
         assert!((ages["first"] - 0.2).abs() < 0.0001);
         assert_eq!(ages["second"], 0.0);
         assert!(!ages.contains_key("old"));
-        // A duplicate response must leave both animations running from their origins.
         arrivals.refresh(&second, &second, later + Duration::from_millis(100));
         assert!((arrivals.ages(later + Duration::from_millis(100))["first"] - 0.3).abs() < 0.0001);
         assert!(!arrivals.animating(now + Duration::from_secs(5)));

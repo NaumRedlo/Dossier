@@ -95,7 +95,6 @@ fn ranking_switches_select_the_metric_and_ranking_mode() {
                 let mut ui = Simulator::with_size(dossier_native::settings(), Size::new(width, 720.0), gallery::main_frame(&main, &backdrop));
                 let label = main.words.t(if standing == Standing::Adaptive { "board-adaptive" } else { "board-general" });
                 let bounds = ui.find(label.as_str()).unwrap().bounds();
-                // Community content is displayed at 84% of its logical layout.
                 let origin = dossier_native::theme::CONTROL_HEIGHT + 26.0;
                 ui.point_at(Point::new(bounds.center_x() * 0.84, origin + (bounds.center_y() - origin) * 0.84));
                 ui.simulate(iced_test::simulator::click());

@@ -72,7 +72,6 @@ pub struct Store {
     at: PathBuf,
 }
 
-/// Lifetime totals are independent of the files still present in the catalogue.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Deliveries {
     pub count: u64,
@@ -102,7 +101,6 @@ impl Store {
                 store.deliveries.bytes = store.deliveries.bytes.saturating_add(video.size);
             }
             store.deliveries.migrated = true;
-            // Count missing files too; the next write persists the migrated totals.
         }
         store.videos.retain(|v| v.path.exists());
         store.videos.sort_by_key(|v| std::cmp::Reverse(v.made_at));

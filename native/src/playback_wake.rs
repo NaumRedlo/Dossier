@@ -3,8 +3,6 @@ use std::time::Duration;
 
 const RETRY: Duration = Duration::from_secs(30);
 
-/// Owns a worker so Windows acquires and releases its thread-local request on
-/// the same thread, and Linux session-bus calls never block the UI.
 pub(crate) struct PlaybackWake {
     sender: Sender<bool>,
     playing: bool,
@@ -47,7 +45,6 @@ fn run<G>(receiver: Receiver<bool>, mut make: impl FnMut() -> Result<G, String>)
             }
         } else if !wanted { guard = None; }
     }
-    // Release on this worker, including when the player or application is dropped.
     drop(guard);
 }
 
@@ -55,7 +52,6 @@ struct SystemWake(Vec<keepawake::KeepAwake>);
 
 impl Drop for SystemWake {
     fn drop(&mut self) {
-        // A disappearing Linux session bus must not unwind the player worker.
         while let Some(request) = self.0.pop() {
             let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| drop(request)));
         }
@@ -75,8 +71,6 @@ fn acquire() -> Result<SystemWake, String> {
     { request(true, true).map(|request| SystemWake(vec![request])) }
     #[cfg(target_os = "linux")]
     {
-        // The session screensaver and logind are independent services. Keep a
-        // supported request even if the other service is unavailable.
         let mut requests = Vec::new();
         let mut errors = Vec::new();
         for (display, idle) in [(true, false), (false, true)] {

@@ -325,7 +325,6 @@ pub fn board<'a, Message: 'a, K: Copy + Eq + Hash + 'static>(
 }
 
 impl<'a, Message, K: Copy + Eq + Hash + 'static> Board<'a, Message, K> {
-    // Numeric keys may be reused after a rescan. Cancel gestures when their underlying collection changes.
     pub fn identity(mut self, identity: String) -> Self {
         self.identity = Some(identity);
         self

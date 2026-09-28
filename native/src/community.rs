@@ -1230,7 +1230,6 @@ pub mod wire {
             made.country = osu.country.clone();
             made.country_name = osu.country_name.clone();
         }
-        // Live presence comes from the latest osu! profile, rather than a saved bot card.
         made.is_online = osu.is_online;
         made.last_visit = osu.last_visit.clone();
         if made.level_progress <= 0.0 {

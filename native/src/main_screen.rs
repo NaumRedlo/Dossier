@@ -147,6 +147,8 @@ pub enum Message {
     OpenVideo(usize),
     VideoReady(PathBuf, Option<videos::Probe>),
     ClosePlayer,
+    PlayerMinimize,
+    PlayerRestore,
     PlayerToggle,
     SeekTo(f32),
     SeekBy(i64),
@@ -380,6 +382,7 @@ pub struct Main {
     pub controls: Animation<bool>,
     pub ask_fade: Animation<bool>,
     pub stage_open: Animation<bool>,
+    pub mini_player: bool,
     pub leaving_player: bool,
     pub pointer: Option<iced::Point>,
     pub over_controls: bool,
@@ -578,6 +581,7 @@ impl Main {
             controls: Animation::new(true).duration(CONTROLS_FADE).easing(Easing::EaseOutCubic),
             ask_fade: Animation::new(false).duration(CINEMA).easing(Easing::EaseOutCubic),
             stage_open: Animation::new(false).duration(STAGE_OPEN).easing(Easing::EaseOutCubic),
+            mini_player: false,
             leaving_player: false,
             pointer: None,
             over_controls: false,
@@ -863,7 +867,7 @@ impl Main {
             || self.player.as_ref().is_some_and(|p| !p.borrow().paused)
             || self.cinema.is_animating(self.now)
             || self.resting.is_animating(self.now)
-            || self.cinema.value() != (self.player.is_some() && !self.leaving_player)
+            || self.cinema.value() != (self.player.is_some() && !self.leaving_player && !self.mini_player)
             || self.stage_open.is_animating(self.now)
             || self.leaving_player
             || self.controls.is_animating(self.now)
@@ -1777,11 +1781,12 @@ impl Main {
                 let Some(ffmpeg) = &self.ffmpeg else {
                     return Task::none();
                 };
-                let fresh = self.player.is_none() || self.leaving_player;
+                let fresh = self.player.is_none() || self.leaving_player || self.mini_player;
                 if let Some(old) = self.player.take() {
                     old.borrow_mut().close();
                 }
                 self.leaving_player = false;
+                self.mini_player = false;
                 if fresh {
                     self.stage_open = Animation::new(false).duration(STAGE_OPEN).easing(Easing::EaseOutCubic).go(true, Instant::now());
                 }
@@ -1795,6 +1800,7 @@ impl Main {
                 };
                 self.player = Some(std::rc::Rc::new(std::cell::RefCell::new(player::Player::open(ffmpeg, &video.path, videos::Probe { length_ms: video.length_ms, width: video.width, height: video.height, fps: video.fps }, manner))));
                 self.open_video = Some(at);
+                self.clip = None;
                 self.asking_delete = false;
                 self.scrubbing = None;
                 self.hint = None;
@@ -1817,6 +1823,34 @@ impl Main {
                 self.stage_open.go_mut(false, now);
                 self.cinema.go_mut(false, now);
                 Task::none()
+            }
+            Message::PlayerMinimize => {
+                if self.player.is_none() || self.leaving_player || self.mini_player {
+                    return Task::none();
+                }
+                self.mini_player = true;
+                self.asking_delete = false;
+                self.over_controls = false;
+                self.scrubbing = None;
+                self.pointer = None;
+                let now = Instant::now();
+                self.stage_open.go_mut(false, now);
+                self.cinema.go_mut(false, now);
+                self.widened.go_mut(false, now);
+                Task::none()
+            }
+            Message::PlayerRestore => {
+                if self.player.is_none() || !self.mini_player || self.leaving_player {
+                    return Task::none();
+                }
+                let home = if self.clip.is_some() { Overlay::Community } else { Overlay::Videos };
+                let shown = if self.overlay != home { self.update(Message::Show(home)) } else { Task::none() };
+                self.mini_player = false;
+                let now = Instant::now();
+                self.stage_open = Animation::new(false).duration(STAGE_OPEN).easing(Easing::EaseOutCubic).go(true, now);
+                self.cinema.go_mut(true, now);
+                self.stirred = now;
+                shown
             }
             Message::PlayerToggle => {
                 if let Some(player) = &self.player {
@@ -2021,6 +2055,7 @@ impl Main {
                     player.borrow_mut().close();
                 }
                 self.open_video = None;
+                self.mini_player = false;
                 self.shut_cinema();
                 if videos::to_bin(&video.path).is_ok() || !video.path.exists() {
                     self.store.forget(&video.path);
@@ -2127,7 +2162,7 @@ impl Main {
                 }
                 self.overlay = overlay;
                 self.rest_live(overlay != Overlay::None);
-                if overlay != Overlay::Videos {
+                if overlay != Overlay::Videos && !self.mini_player {
                     if let Some(player) = self.player.take() {
                         player.borrow_mut().close();
                     }
@@ -2975,7 +3010,7 @@ impl Main {
                 if self.leaving_player && !self.stage_open.is_animating(now) {
                     self.finish_closing();
                 }
-                let watching = self.player.is_some() && !self.leaving_player;
+                let watching = self.player.is_some() && !self.leaving_player && !self.mini_player;
                 if self.cinema.value() != watching {
                     self.cinema.go_mut(watching, now);
                 }
@@ -3204,11 +3239,12 @@ impl Main {
             link,
             thumb,
         };
-        let fresh = self.player.is_none() || self.leaving_player;
+        let fresh = self.player.is_none() || self.leaving_player || self.mini_player;
         if let Some(old) = self.player.take() {
             old.borrow_mut().close();
         }
         self.leaving_player = false;
+        self.mini_player = false;
         let now = Instant::now();
         if fresh {
             self.stage_open = Animation::new(false).duration(STAGE_OPEN).easing(Easing::EaseOutCubic).go(true, now);
@@ -3231,6 +3267,7 @@ impl Main {
             player.borrow_mut().close();
         }
         self.leaving_player = false;
+        self.mini_player = false;
         self.open_video = None;
         self.clip = None;
         self.asking_delete = false;
@@ -3539,7 +3576,8 @@ impl Main {
                 .interaction(iced::mouse::Interaction::Idle));
             stack![shield, mark].into()
         } else { blank() };
-        let layers = stack![scene_before, scene, live_before, live, body, bubble, ground, overlay, chrome_layer, crest, person, room, ask, menu, signing, skin_ask, failure, toasts, resting];
+        let mini = self.mini_player_layer();
+        let layers = stack![scene_before, scene, live_before, live, body, bubble, ground, overlay, chrome_layer, crest, mini, person, room, ask, menu, signing, skin_ask, failure, toasts, resting];
         layers.width(Length::Fill).height(Length::Fill).into()
     }
 
@@ -4125,6 +4163,59 @@ impl Main {
 }
 
 impl Main {
+    fn mini_player_layer(&self) -> Element<'_, Message> {
+        if !self.mini_player || self.leaving_player {
+            return Space::new().width(Length::Fill).height(Length::Fill).into();
+        }
+        let Some(player) = &self.player else {
+            return Space::new().width(Length::Fill).height(Length::Fill).into();
+        };
+        let (name, line, still) = if let Some(clip) = &self.clip {
+            let still = clip.thumb.as_deref().and_then(|url| self.news_pictures.get(&crate::community_screen::wide(url)).or_else(|| self.news_pictures.get(url)));
+            (clip.from.clone(), clip.said.clone(), still)
+        } else if let Some(video) = self.open_video.and_then(|at| self.store.videos.get(at)) {
+            (video.player.clone(), video.map_line(), self.thumbs.get(&video.map_hash))
+        } else {
+            return Space::new().width(Length::Fill).height(Length::Fill).into();
+        };
+        let player = player.borrow();
+        let wide = (self.width - 48.0).min(356.0).max(160.0);
+        let picture_h = (wide * 9.0 / 16.0).floor();
+        let picture: Element<'_, Message> = match &player.frame {
+            Some(frame) => crate::film::show(frame, crate::film::Fit::Contain, ui::fade()),
+            None => match still {
+                Some(handle) => image(handle.clone()).content_fit(ContentFit::Cover).width(Length::Fill).height(Length::Fill).opacity(0.55 * ui::fade()).into(),
+                None => container(ui::fine_hatch()).width(Length::Fill).height(Length::Fill).into(),
+            },
+        };
+        let picture = mouse_area(container(picture).width(wide).height(picture_h).style(theme::screen).clip(true))
+            .on_press(Message::PlayerRestore);
+        let title = column![
+            text(ui::shortened(name, 28)).font(theme::SANS_SEMI).size(theme::BODY).wrapping(text::Wrapping::None).color(ui::faded(INK)),
+            text(ui::shortened(line, 32)).font(theme::SANS).size(theme::CAPTION).wrapping(text::Wrapping::None).color(ui::faded(MUTED)),
+        ]
+        .spacing(2)
+        .width(Length::Fill);
+        let actions = row![
+            ui::control_button(if player.paused { ui::Control::Play } else { ui::Control::Pause }, 16.0, Some(Message::PlayerToggle), false),
+            ui::control_button(ui::Control::Grow, 16.0, Some(Message::PlayerRestore), false),
+            ui::control_button(ui::Control::Close, 16.0, Some(Message::ClosePlayer), false),
+        ]
+        .spacing(0)
+        .align_y(iced::Center);
+        let bar = row![container(title).width(Length::Fill).clip(true), actions]
+            .spacing(6)
+            .align_y(iced::Center);
+        let card = container(column![picture, container(bar).height(58.0).padding([4, 10]).align_y(iced::Center)])
+            .width(wide)
+            .style(theme::stage)
+            .clip(true);
+        pin(card)
+            .x((self.width - wide - 24.0).max(12.0))
+            .y((self.height - picture_h - 58.0 - 24.0).max(12.0))
+            .into()
+    }
+
     fn videos_view(&self) -> Element<'_, Message> {
         let w = &self.words;
         let page: Element<'_, Message> = if self.store.videos.is_empty() {
@@ -4149,10 +4240,10 @@ impl Main {
         let sheet = column![Space::new().height(theme::CONTROL_HEIGHT + 4.0 + 22.0), page].width(Length::Fill).height(Length::Fill);
         let opened = self.stage_open.interpolate(0.0, 1.0, self.now);
         let stage: Element<'_, Message> = match (&self.player, self.open_video.and_then(|at| self.store.videos.get(at))) {
-            (Some(player), Some(video)) if opened > 0.001 => ui::fading(ui::fade() * opened, || self.stage(&player.borrow(), self.video_bill(video))),
+            (Some(player), Some(video)) if !self.mini_player && opened > 0.001 => ui::fading(ui::fade() * opened, || self.stage(&player.borrow(), self.video_bill(video))),
             _ => Space::new().width(Length::Fill).height(Length::Fill).into(),
         };
-        let sheet: Element<'_, Message> = match self.player.is_some() && opened >= 0.999 {
+        let sheet: Element<'_, Message> = match self.player.is_some() && !self.mini_player && opened >= 0.999 {
             true => Space::new().width(Length::Fill).height(Length::Fill).into(),
             false => sheet.into(),
         };
@@ -4453,6 +4544,7 @@ impl Main {
             ]
             .spacing(2),
             ui::grow(),
+            ui::control_button(ui::Control::Mini, 18.0, Some(Message::PlayerMinimize), false),
             ui::control_button(ui::Control::Close, 18.0, Some(Message::ClosePlayer), false),
         ]
         .spacing(12)
@@ -5225,7 +5317,7 @@ impl Main {
         }
         let opened = self.stage_open.interpolate(0.0, 1.0, self.now);
         let stage = match (&self.player, &self.clip) {
-            (Some(player), Some(clip)) if opened > 0.001 => Some(ui::fading(ui::fade() * opened, || self.stage(&player.borrow(), self.clip_bill(clip)))),
+            (Some(player), Some(clip)) if !self.mini_player && opened > 0.001 => Some(ui::fading(ui::fade() * opened, || self.stage(&player.borrow(), self.clip_bill(clip)))),
             _ => None,
         };
         let body: Element<'_, Message> = crate::community_screen::view(&ground).map(Message::Community);

@@ -700,3 +700,30 @@ fn player_dossiers_dim_and_block_the_navigation_above_the_community() {
         assert!(!messages.iter().any(|m| matches!(m, Message::Main(MainMessage::Show(Overlay::Settings)))), "navigation behind the dossier cannot activate");
     }
 }
+
+#[test]
+fn mini_player_keeps_the_same_video_across_sections_and_restores_its_home() {
+    use dossier_native::main_screen::{Message, Overlay};
+    for (state, home) in [("main-player", Overlay::Videos), ("main-community-clip", Overlay::Community)] {
+        let (_, mut main) = gallery::main_states(Lang::En).into_iter().find(|(name, _)| name == state).unwrap();
+        let player = main.player.as_ref().unwrap().clone();
+        let paused = player.borrow().paused;
+        let _ = main.update(Message::PlayerMinimize);
+        assert!(main.mini_player);
+        assert!(std::rc::Rc::ptr_eq(main.player.as_ref().unwrap(), &player));
+        assert_eq!(player.borrow().paused, paused, "minimizing must not restart or pause playback");
+        for section in [Overlay::Settings, Overlay::None, Overlay::Videos, Overlay::Community] {
+            let _ = main.update(Message::Show(section));
+            assert!(std::rc::Rc::ptr_eq(main.player.as_ref().unwrap(), &player), "section {section:?} closed the mini player");
+        }
+        let _ = main.update(Message::PlayerRestore);
+        assert!(!main.mini_player);
+        assert_eq!(main.overlay, home);
+        assert!(main.stage_open.value());
+        assert!(std::rc::Rc::ptr_eq(main.player.as_ref().unwrap(), &player));
+        let _ = main.update(Message::PlayerMinimize);
+        let _ = main.update(Message::ClosePlayer);
+        let _ = main.update(Message::Tick(std::time::Instant::now() + std::time::Duration::from_secs(1)));
+        assert!(main.player.is_none(), "closing the mini player must release it");
+    }
+}

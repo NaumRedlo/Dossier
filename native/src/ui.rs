@@ -1903,6 +1903,7 @@ pub enum Control {
     Over,
     Grow,
     Shrink,
+    Mini,
     Close,
 }
 
@@ -1924,6 +1925,7 @@ impl Control {
             Control::Over => include_bytes!("../assets/player/repeat.svg"),
             Control::Grow => include_bytes!("../assets/player/maximize.svg"),
             Control::Shrink => include_bytes!("../assets/player/minimize.svg"),
+            Control::Mini => include_bytes!("../assets/player/picture-in-picture.svg"),
             Control::Close => include_bytes!("../assets/player/x.svg"),
         }
     }

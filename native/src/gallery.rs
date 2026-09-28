@@ -528,6 +528,10 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
     playing.cinema = iced::Animation::new(true);
     playing.stage_open = iced::Animation::new(true);
     playing.settings.player_level = 0.8;
+    let mut playing_mini = playing.clone();
+    playing_mini.mini_player = true;
+    playing_mini.cinema = iced::Animation::new(false);
+    playing_mini.stage_open = iced::Animation::new(false);
     let mut playing_wide = playing.clone();
     playing_wide.widened = iced::Animation::new(true);
     let mut menu_guest = staged(Some(0));
@@ -653,6 +657,7 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
         ("main-failure".to_owned(), failing),
         ("main-videos".to_owned(), with_videos),
         ("main-player".to_owned(), playing),
+        ("main-player-mini".to_owned(), playing_mini),
         ("main-player-wide".to_owned(), playing_wide),
         ("main-nomap".to_owned(), staged(Some(3))),
         ("main-worker".to_owned(), worker),
@@ -685,6 +690,19 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
             main.player = Some(std::rc::Rc::new(std::cell::RefCell::new(crate::player::Player::still(std::path::Path::new("/clips/osunewsru.mp4"), 42_000, 12_000))));
             main.cinema = iced::Animation::new(true);
             main.stage_open = iced::Animation::new(true);
+            main
+        }),
+        ("main-community-clip-mini".to_owned(), {
+            let mut main = community(crate::community_screen::Section::Feed, None);
+            main.clip = Some(crate::main_screen::Clip {
+                path: std::path::PathBuf::from("/clips/osunewsru.mp4"),
+                link: "https://t.me/osunewsru/4242".into(),
+                from: "осу!новостник".into(),
+                said: "kotofey поставил первое HDDT FC на карте из пула мирового кубка".into(),
+                thumb: None,
+            });
+            main.player = Some(std::rc::Rc::new(std::cell::RefCell::new(crate::player::Player::still(std::path::Path::new("/clips/osunewsru.mp4"), 42_000, 12_000))));
+            main.mini_player = true;
             main
         }),
         ("main-rendering".to_owned(), rendering),
@@ -764,11 +782,11 @@ pub fn every_main_frame() -> Vec<(String, crate::main_screen::Main, Size)> {
     for lang in Lang::ALL {
         for (name, main) in main_states(lang) {
             for (label, size) in SIZES {
-                if label != SIZES[0].0 && name != "main-rest" && name != "main-idle" && name != "main-notifications" {
+                if label != SIZES[0].0 && name != "main-rest" && name != "main-idle" && name != "main-notifications" && name != "main-player-mini" && name != "main-community-clip-mini" {
                     continue;
                 }
                 let mut frame = main.clone();
-                if name == "main-idle" || name == "main-notifications" { frame.width = size.width; frame.height = size.height; }
+                if name == "main-idle" || name == "main-notifications" || name == "main-player-mini" || name == "main-community-clip-mini" { frame.width = size.width; frame.height = size.height; }
                 out.push((format!("{name}-{}-{label}", lang.tag()), frame, size));
             }
         }

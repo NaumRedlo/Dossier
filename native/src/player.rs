@@ -52,6 +52,7 @@ pub struct Player {
 
 struct Sound {
     _stream: cpal::Stream,
+    clock: Arc<AtomicI64>,
 }
 
 impl Player {
@@ -71,7 +72,7 @@ impl Player {
             frames: sync_channel(1).1,
             ffmpeg: ffmpeg.to_path_buf(),
             fps: media.fps.max(1.0),
-            size: (media.width.max(1), media.height.max(1)),
+            size: display_size(media.width, media.height),
             sound: None,
             procs: Arc::new(Mutex::new(Vec::new())),
             ended: false,
@@ -148,7 +149,7 @@ impl Player {
     }
 
     fn shown_fps(&self) -> f64 {
-        self.fps
+        self.fps.min(60.0).min(60.0 / self.rate as f64)
     }
 
     pub fn set_rate(&mut self, rate: f32) {
@@ -258,11 +259,11 @@ impl Player {
         self.keep_awake(!held);
         let (tx, rx) = sync_channel(2);
         self.frames = rx;
-        self.spawn_video(from_ms, tx);
         self.sound = self.spawn_sound(from_ms, held);
+        self.spawn_video(from_ms, tx, self.sound.as_ref().map(|sound| sound.clock.clone()));
     }
 
-    fn spawn_video(&self, from_ms: i64, tx: SyncSender<(i64, Vec<u8>)>) {
+    fn spawn_video(&self, from_ms: i64, tx: SyncSender<(i64, Vec<u8>)>, audio_clock: Option<Arc<AtomicI64>>) {
         let shown = self.shown_fps();
         let (width, height) = self.size;
         let mut child = match crate::checks::quiet(&self.ffmpeg)
@@ -299,24 +300,38 @@ impl Player {
                 if out.read_exact(&mut buffer).is_err() {
                     return;
                 }
+                let at = from_ms + (index as f64 * 1000.0 / shown) as i64;
                 if index > 0 {
-                    let due = started + held + Duration::from_secs_f64(index as f64 / pace);
-                    let now = Instant::now();
-                    if due > now {
-                        thread::sleep(due - now);
-                    }
-                    while hold.load(Ordering::Relaxed) {
-                        let paused_at = Instant::now();
-                        while hold.load(Ordering::Relaxed) {
-                            if stop.load(Ordering::Relaxed) {
-                                return;
-                            }
-                            thread::sleep(Duration::from_millis(8));
+                    loop {
+                        if stop.load(Ordering::Relaxed) {
+                            return;
                         }
-                        held += paused_at.elapsed();
+                        if hold.load(Ordering::Relaxed) {
+                            let paused_at = Instant::now();
+                            while hold.load(Ordering::Relaxed) {
+                                if stop.load(Ordering::Relaxed) {
+                                    return;
+                                }
+                                thread::sleep(Duration::from_millis(8));
+                            }
+                            held += paused_at.elapsed();
+                            continue;
+                        }
+                        let clock = audio_clock.as_ref().map(|clock| clock.load(Ordering::Relaxed)).unwrap_or(-2);
+                        if clock == -2 {
+                            let due = started + held + Duration::from_secs_f64(index as f64 / pace);
+                            let now = Instant::now();
+                            if due > now {
+                                thread::sleep((due - now).min(Duration::from_millis(4)));
+                                continue;
+                            }
+                        } else if clock < at {
+                            thread::sleep(Duration::from_millis(2));
+                            continue;
+                        }
+                        break;
                     }
                 }
-                let at = from_ms + (index as f64 * 1000.0 / shown) as i64;
                 match tx.try_send((at, buffer.clone())) {
                     Ok(()) | Err(std::sync::mpsc::TrySendError::Full(_)) => {}
                     Err(std::sync::mpsc::TrySendError::Disconnected(_)) => return,
@@ -380,6 +395,10 @@ impl Player {
         let rx = Mutex::new(rx);
         let level = self.level.clone();
         let muted = self.muted.clone();
+        let clock = Arc::new(AtomicI64::new(-1));
+        let output_clock = clock.clone();
+        let speed = self.rate as f64;
+        let mut rendered_samples = 0i64;
         let stream = device
             .build_output_stream(
                 &config.into(),
@@ -394,7 +413,12 @@ impl Player {
                                     left.0 = chunk;
                                     left.1 = 0;
                                 }
-                                Err(_) => {
+                                Err(TryRecvError::Disconnected) => {
+                                    output_clock.store(-2, Ordering::Relaxed);
+                                    *sample = 0.0;
+                                    continue;
+                                }
+                                Err(TryRecvError::Empty) => {
                                     *sample = 0.0;
                                     continue;
                                 }
@@ -402,6 +426,11 @@ impl Player {
                         }
                         *sample = left.0[left.1] * gain;
                         left.1 += 1;
+                        rendered_samples += 1;
+                    }
+                    if rendered_samples > 0 && output_clock.load(Ordering::Relaxed) != -2 {
+                        let at = from_ms + ((rendered_samples as f64 / channels as f64 / rate.0 as f64) * speed * 1000.0) as i64;
+                        output_clock.store(at, Ordering::Relaxed);
                     }
                 },
                 |_| {},
@@ -412,7 +441,7 @@ impl Player {
             true => stream.pause().ok()?,
             false => stream.play().ok()?,
         }
-        Some(Sound { _stream: stream })
+        Some(Sound { _stream: stream, clock })
     }
 }
 
@@ -430,6 +459,14 @@ fn steady(rate: f32) -> f32 {
         .unwrap_or(1.0)
 }
 
+fn display_size(width: u32, height: u32) -> (u32, u32) {
+    let width = width.max(1);
+    let height = height.max(1);
+    let scale = (1280.0 / width as f64).min(720.0 / height as f64).min(1.0);
+    let even = |side: u32| ((side as f64 * scale).round() as u32).max(2) & !1;
+    (even(width), even(height))
+}
+
 pub fn next_rate(rate: f32, by: i32) -> f32 {
     let many = RATES.len() as i32;
     let at = RATES.iter().position(|r| (r - steady(rate)).abs() < 0.001).unwrap_or(2) as i32;
@@ -442,7 +479,7 @@ mod tests {
 
     #[test]
     #[ignore = "requires ffmpeg with the libx264 encoder"]
-    fn decoded_frames_keep_the_source_resolution_and_cadence() {
+    fn decoded_frames_keep_the_playback_resolution_and_cadence() {
         let ffmpeg = crate::checks::ffmpeg_on_path().expect("ffmpeg installed");
         let path = std::env::temp_dir().join(format!("dossier-player-{}.mp4", std::process::id()));
         let status = crate::checks::quiet(&ffmpeg)
@@ -453,17 +490,44 @@ mod tests {
         assert_eq!((media.width, media.height, media.fps), (1200, 800, 120.0));
         let mut player = Player::still(&path, media.length_ms, 0);
         player.ffmpeg = ffmpeg;
-        player.size = (media.width, media.height);
+        player.size = display_size(media.width, media.height);
         player.fps = media.fps;
         player.stop.store(false, Ordering::Relaxed);
         player.hold.store(false, Ordering::Relaxed);
         let (tx, rx) = sync_channel(32);
-        player.spawn_video(0, tx);
+        player.spawn_video(0, tx, None);
         let frames: Vec<_> = rx.into_iter().collect();
-        assert_eq!(frames.len(), 24);
-        assert!(frames.iter().all(|(_, rgba)| rgba.len() == 1200 * 800 * 4));
-        assert_eq!(frames[1].0, 8);
-        assert_eq!(frames.last().unwrap().0, 191);
+        assert_eq!(frames.len(), 12);
+        assert!(frames.iter().all(|(_, rgba)| rgba.len() == 1080 * 720 * 4));
+        assert_eq!(frames[1].0, 16);
+        assert_eq!(frames.last().unwrap().0, 183);
+        player.close();
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    #[ignore = "requires ffmpeg with the libx264 encoder"]
+    fn video_waits_for_the_audio_clock_at_double_speed() {
+        let ffmpeg = crate::checks::ffmpeg_on_path().expect("ffmpeg installed");
+        let path = std::env::temp_dir().join(format!("dossier-player-clock-{}.mp4", std::process::id()));
+        let status = crate::checks::quiet(&ffmpeg)
+            .args(["-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=120", "-t", "0.2", "-c:v", "libx264", "-preset", "ultrafast"])
+            .arg(&path).status().unwrap();
+        assert!(status.success());
+        let mut player = Player::still(&path, 200, 0);
+        player.ffmpeg = ffmpeg;
+        player.size = (320, 180);
+        player.fps = 120.0;
+        player.rate = 2.0;
+        player.stop.store(false, Ordering::Relaxed);
+        player.hold.store(false, Ordering::Relaxed);
+        let clock = Arc::new(AtomicI64::new(-1));
+        let (tx, rx) = sync_channel(2);
+        player.spawn_video(0, tx, Some(clock.clone()));
+        assert_eq!(rx.recv_timeout(Duration::from_secs(2)).unwrap().0, 0);
+        assert!(rx.recv_timeout(Duration::from_millis(40)).is_err());
+        clock.store(35, Ordering::Relaxed);
+        assert_eq!(rx.recv_timeout(Duration::from_secs(2)).unwrap().0, 33);
         player.close();
         std::fs::remove_file(path).unwrap();
     }
@@ -473,6 +537,16 @@ mod tests {
         assert_eq!(steady(1.1), 1.0);
         assert_eq!(steady(1.9), 2.0);
         assert_eq!(steady(0.1), 0.5);
+    }
+
+    #[test]
+    fn high_frame_rate_video_stays_within_the_display_budget_at_double_speed() {
+        let mut player = Player::still(Path::new("sample.mp4"), 1_000, 0);
+        player.fps = 120.0;
+        player.rate = 2.0;
+        assert_eq!(player.shown_fps(), 30.0);
+        assert_eq!(display_size(1920, 1080), (1280, 720));
+        assert_eq!(display_size(640, 480), (640, 480));
     }
 
     #[test]

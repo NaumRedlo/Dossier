@@ -1414,6 +1414,7 @@ pub fn card_from(person: &Person) -> wire::Card {
 }
 
 pub fn columns<'a>(ground: &Ground<'a>, whose: &Whose<'a>, room: f32, t: f32) -> Element<'a, Message> {
+    let room = room.min(1880.0);
     let block = |index: usize, build: &dyn Fn() -> Element<'a, Message>| ui::appearing(ui::appear(t, index), 14.0, build);
     let rolled = |inside: Element<'a, Message>| -> Element<'a, Message> {
         scrollable(container(inside).padding(Padding { top: 2.0, right: 8.0, bottom: 28.0, left: 0.0 })).style(ui::thin_scroll).direction(ui::hidden_bar()).height(Length::Fill).into()
@@ -1424,20 +1425,20 @@ pub fn columns<'a>(ground: &Ground<'a>, whose: &Whose<'a>, room: f32, t: f32) ->
     let middle_wide = if wide { room - left - right - 32.0 } else { room - left - 16.0 };
     let middle = column![block(0, &|| metrics(ground, whose, middle_wide - 8.0, t)), block(1, &|| chart(ground, whose, t)), block(2, &|| best_plays(ground, whose, middle_wide, t))].spacing(14);
     if wide {
-        row![
+        let content = row![
             container(rolled(column![block(0, &|| identity(ground, whose, left - 8.0)), block(1, &|| places(ground, whose, t))].spacing(14).into())).width(left).height(Length::Fill),
             container(rolled(middle.into())).width(Length::Fill).height(Length::Fill),
             container(rolled(column![block(1, &|| grades(ground, &whose.card)), block(2, &|| titles(ground, whose)), block(3, &|| activity(ground, whose, right - 8.0))].spacing(14).into())).width(right).height(Length::Fill),
         ]
-        .spacing(16)
-        .into()
+        .spacing(16).width(room);
+        container(content).width(Length::Fill).height(Length::Fill).center_x(Length::Fill).into()
     } else {
-        row![
+        let content = row![
             container(rolled(column![block(0, &|| identity(ground, whose, left - 8.0)), block(1, &|| places(ground, whose, t)), block(2, &|| grades(ground, &whose.card))].spacing(14).into())).width(left).height(Length::Fill),
             container(rolled(middle.push(block(3, &|| titles(ground, whose))).push(block(4, &|| activity(ground, whose, middle_wide - 8.0))).into())).width(Length::Fill).height(Length::Fill),
         ]
-        .spacing(16)
-        .into()
+        .spacing(16).width(room);
+        container(content).width(Length::Fill).height(Length::Fill).center_x(Length::Fill).into()
     }
 }
 

@@ -1789,11 +1789,6 @@ impl<Message> canvas::Program<Message> for ScrollEdgeFade {
         let mut frame = Frame::new(renderer, bounds.size());
         let edge = 22.0_f32.min(bounds.height / 2.0);
         if edge > 0.0 {
-            let top = canvas::gradient::Linear::new(Point::ORIGIN, Point::new(0.0, edge))
-                .add_stop(0.0, Color { a: 0.92 * self.alpha, ..theme::GROUND })
-                .add_stop(1.0, Color { a: 0.0, ..theme::GROUND });
-            frame.fill(&Path::rectangle(Point::ORIGIN, Size::new(bounds.width, edge)),
-                canvas::Fill { style: canvas::Style::Gradient(top.into()), ..canvas::Fill::default() });
             let bottom = canvas::gradient::Linear::new(Point::new(0.0, bounds.height - edge), Point::new(0.0, bounds.height))
                 .add_stop(0.0, Color { a: 0.0, ..theme::GROUND })
                 .add_stop(1.0, Color { a: 0.92 * self.alpha, ..theme::GROUND });

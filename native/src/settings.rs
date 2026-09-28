@@ -1109,9 +1109,16 @@ mod tests {
         said.lang = Lang::Ru;
         said.device = "MacBook Pro".to_owned();
         said.token = "abc".to_owned();
+        said.worker_done = 42;
+        said.worker_back = 3;
         let text = serde_json::to_string(&said).unwrap();
         let back: Settings = serde_json::from_str(&text).unwrap();
         assert_eq!(said, back);
+        let mut legacy: serde_json::Value = serde_json::from_str(&text).unwrap();
+        legacy.as_object_mut().unwrap().remove("worker_done");
+        legacy.as_object_mut().unwrap().remove("worker_back");
+        let old: Settings = serde_json::from_value(legacy).unwrap();
+        assert_eq!((old.worker_done, old.worker_back), (0, 0));
     }
 
     #[test]

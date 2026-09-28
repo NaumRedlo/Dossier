@@ -90,8 +90,8 @@ const SPINNER: [(Voice, &str); 2] = [(Voice::Bonus, "spinnerbonus"), (Voice::Spi
 
 const SOUND_ENDINGS: [&str; 3] = ["wav", "ogg", "mp3"];
 
-fn decode_through_ffmpeg(path: &Path) -> Option<Vec<f32>> {
-    let done = crate::quiet("ffmpeg")
+fn decode_through_ffmpeg(path: &Path, ffmpeg: &Path) -> Option<Vec<f32>> {
+    let done = crate::quiet(ffmpeg)
         .args(["-v", "error", "-i"])
         .arg(path)
         .args([
@@ -117,7 +117,7 @@ fn decode_through_ffmpeg(path: &Path) -> Option<Vec<f32>> {
 }
 
 impl SamplePack {
-    fn read(path: &Path) -> Option<Vec<f32>> {
+    fn read(path: &Path, ffmpeg: &Path) -> Option<Vec<f32>> {
         let bytes = std::fs::read(path).ok()?;
         if bytes.is_empty() {
             return Some(Vec::new());
@@ -125,10 +125,14 @@ impl SamplePack {
         if let Some(samples) = decode_wav(&bytes) {
             return Some(samples);
         }
-        decode_through_ffmpeg(path)
+        decode_through_ffmpeg(path, ffmpeg)
     }
 
     pub fn load(folder: &Path) -> Self {
+        Self::load_with_ffmpeg(folder, Path::new("ffmpeg"))
+    }
+
+    pub fn load_with_ffmpeg(folder: &Path, ffmpeg: &Path) -> Self {
         let files = index_of(folder);
         let mut skin = HashMap::new();
         let mut numbered: Vec<String> = Vec::new();
@@ -140,12 +144,12 @@ impl SamplePack {
                 numbered.push(stem.clone());
                 continue;
             }
-            if let Some(samples) = Self::read(path) {
+            if let Some(samples) = Self::read(path, ffmpeg) {
                 skin.insert(key, samples);
             }
         }
         for (voice, name) in BANKLESS {
-            let found = files.get(name).and_then(|path| Self::read(path));
+            let found = files.get(name).and_then(|path| Self::read(path, ffmpeg));
             if let Some(samples) = found {
                 skin.insert((SampleSet::Normal, voice, 1), samples);
             }
@@ -153,7 +157,7 @@ impl SamplePack {
         let mut banked_spinner = HashMap::new();
         for (voice, name) in SPINNER {
             for set in SampleSet::ALL {
-                if let Some(samples) = files.get(&format!("{}-{name}", set.name())).and_then(|path| Self::read(path)) {
+                if let Some(samples) = files.get(&format!("{}-{name}", set.name())).and_then(|path| Self::read(path, ffmpeg)) {
                     banked_spinner.insert((set, voice), samples);
                 }
             }
@@ -170,7 +174,7 @@ impl SamplePack {
                 guessed.push(name);
                 continue;
             }
-            match files.get(&name).and_then(|path| Self::read(path)) {
+            match files.get(&name).and_then(|path| Self::read(path, ffmpeg)) {
                 Some(samples) if !samples.is_empty() => {
                     skin.insert(key, samples);
                 }
@@ -327,7 +331,7 @@ fn banked_in(folder: &Path) -> Vec<((SampleSet, Voice, u32), Vec<f32>)> {
         .into_iter()
         .filter_map(|(stem, path)| {
             let key = parse_sample_name(&stem)?;
-            Some((key, SamplePack::read(&path)?))
+            Some((key, SamplePack::read(&path, Path::new("ffmpeg"))?))
         })
         .collect()
 }
@@ -780,6 +784,23 @@ mod tests {
         let pack = SamplePack::load(Path::new("/nowhere/at/all"));
         assert!(pack.is_empty());
         assert!(pack.get(SampleSet::Normal, Voice::Normal, 1).is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_custom_decoder_reads_compressed_skin_sounds() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("dossier-custom-sound-{}-{}", std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("normal-hitnormal.ogg"), b"compressed").unwrap();
+        let decoder = dir.join("decoder");
+        std::fs::write(&decoder, b"#!/bin/sh\nprintf '\\000\\000\\000\\077'\n").unwrap();
+        std::fs::set_permissions(&decoder, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let pack = SamplePack::load_with_ffmpeg(&dir, &decoder);
+        assert_eq!(pack.trace(SampleSet::Normal, Voice::Normal, 1), Found::SkinPlain);
+        assert_eq!(pack.get(SampleSet::Normal, Voice::Normal, 1), Some(&[0.5][..]));
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

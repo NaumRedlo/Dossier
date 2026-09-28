@@ -98,8 +98,6 @@ fn a_toast_background_cannot_paint_below_its_card() {
     let without_path = gallery::write_snapshot(&ui.snapshot(&dossier_native::theme::theme()).unwrap(), &dir.join("without-toast")).unwrap();
     let without = image::open(&without_path).unwrap().to_rgba8();
     let scale = with.width() as f32 / main.width;
-    // Compare beyond the intended 5 px offset and 16 px shadow blur,
-    // where an oversized cover image previously still painted.
     for y in ((bounds.y + bounds.height + 36.0) * scale).ceil() as u32..((bounds.y + bounds.height + 60.0) * scale).floor() as u32 {
         for x in ((bounds.x + 10.0) * scale).ceil() as u32..((bounds.x + bounds.width - 10.0) * scale).floor() as u32 {
             assert_eq!(with.get_pixel(x, y), without.get_pixel(x, y), "toast background escaped at {x}, {y}");
@@ -155,6 +153,28 @@ fn notification_actions_fit_and_popup_close_keeps_the_event_in_the_feed() {
         ui.simulate(iced_test::simulator::click());
         assert!(ui.into_messages().any(|message| matches!(message, Message::Main(MainMessage::DismissNotice(closed)) if closed == id)));
     }
+}
+
+#[test]
+fn notification_height_tracks_text_and_stays_bounded() {
+    let backdrop = dossier_native::ui::backdrop_handle();
+    let (_, base) = gallery::main_states(Lang::En).into_iter()
+        .find(|(name, _)| name == "main-notifications").unwrap();
+    let mut main = base.clone();
+    let id = main.toasts[0].id;
+    main.toasts.retain(|toast| toast.id == id);
+    let notice = main.notices.notices.iter_mut().find(|notice| notice.id == id).unwrap();
+    notice.mark = dossier_native::notices::Mark::Plain;
+    notice.link = dossier_native::notices::Link::None;
+    notice.detail.clear();
+    let mut ui = Simulator::with_size(dossier_native::settings(), Size::new(main.width, main.height), gallery::main_frame(&main, &backdrop));
+    let short = ui.find(iced::widget::Id::new("toast-card")).unwrap().bounds();
+    assert!(short.height < 70.0, "short notification must stay compact: {short:?}");
+    drop(ui);
+    main.notices.notices.iter_mut().find(|notice| notice.id == id).unwrap().detail = "A longer detail wraps across several lines and still stays within a fixed height in the popup notification card".into();
+    let mut ui = Simulator::with_size(dossier_native::settings(), Size::new(main.width, main.height), gallery::main_frame(&main, &backdrop));
+    let long = ui.find(iced::widget::Id::new("toast-card")).unwrap().bounds();
+    assert!(long.height > short.height + 15.0 && long.height <= 112.0, "notification must grow with text up to its cap: {short:?} -> {long:?}");
 }
 
 #[test]
@@ -307,7 +327,6 @@ fn journal_anchor_follows_scroll_without_consumed_mouse_events() {
         ui.point_at(point);
         ui.simulate([Event::Mouse(iced::mouse::Event::CursorMoved { position: point }), redraw()]);
     }
-    // A parent may consume the movement; redraw still receives the latest cursor.
     for x in [125.0, 135.0, 115.0, 130.0] {
         ui.point_at(Point::new(x, 45.0));
         ui.simulate([redraw()]);

@@ -23,8 +23,6 @@ fn text_colour(colour: Color) -> Color {
     TEXT_SURFACE.with(|slot| theme::secondary_on(colour, slot.get()))
 }
 
-/// Sample the visible crop once per image and window aspect, without copying RGBA frames.
-/// Use a bright percentile and the weakest scene veil for conservative text contrast.
 pub fn scene_surface(handle: &image::Handle, size: Size) -> Color {
     type Key = (iced::advanced::image::Id, u32);
     thread_local! { static CACHE: std::cell::RefCell<Vec<(Key, Color)>> = const { std::cell::RefCell::new(Vec::new()) }; }
@@ -521,7 +519,6 @@ pub fn brand_scaled<'a, Message: 'a>(scale: f32) -> Element<'a, Message> {
     .into()
 }
 
-/// Screen-space shading stays movable even when the background frame is paused.
 pub struct SceneShade {
     pub alpha: f32,
     pub rest: f32,
@@ -543,8 +540,6 @@ impl<Message> canvas::Program<Message> for SceneShade {
         let mut frame = Frame::new(renderer, bounds.size());
         let edge = 0.5 + 0.28 * self.rest.clamp(0.0, 1.0);
         let mut shade = canvas::gradient::Linear::new(Point::ORIGIN, Point::new(0.0, bounds.height));
-        // One continuous path avoids antialiased seams between gradient strips.
-        // Canvas gradients support at most eight stops.
         for t in [0.0, 0.14, 0.3, 0.5, edge, edge + (1.0 - edge) * 0.45, edge + (1.0 - edge) * 0.7, 1.0] {
             shade = shade.add_stop(t, Color { a: self.at(t), ..theme::GROUND });
         }
@@ -1326,8 +1321,6 @@ impl<Message> Sensed<'_, Message> {
         self
     }
 
-    /// Window-space left edge of the containing horizontal scroll viewport.
-    /// Anchors must follow scrolling even when a parent consumes mouse events.
     pub fn horizontal_viewport(mut self, x: f32) -> Self {
         self.viewport_x = Some(x);
         self
@@ -1773,6 +1766,42 @@ pub fn trailing<'a, Message: 'a>(line: Element<'a, Message>, wide: f32, high: f3
     .width(wide)
     .height(high)
     .into()
+}
+
+pub fn scroll_fades<'a, Message: 'a>(content: Element<'a, Message>, width: f32, height: f32) -> Element<'a, Message> {
+    iced::widget::stack![
+        content,
+        Canvas::new(ScrollEdgeFade { alpha: fade() }).width(width).height(height),
+    ]
+    .width(width)
+    .height(height)
+    .into()
+}
+
+struct ScrollEdgeFade {
+    alpha: f32,
+}
+
+impl<Message> canvas::Program<Message> for ScrollEdgeFade {
+    type State = ();
+
+    fn draw(&self, _: &(), renderer: &Renderer, _: &Theme, bounds: Rectangle, _: mouse::Cursor) -> Vec<Geometry> {
+        let mut frame = Frame::new(renderer, bounds.size());
+        let edge = 22.0_f32.min(bounds.height / 2.0);
+        if edge > 0.0 {
+            let top = canvas::gradient::Linear::new(Point::ORIGIN, Point::new(0.0, edge))
+                .add_stop(0.0, Color { a: 0.92 * self.alpha, ..theme::GROUND })
+                .add_stop(1.0, Color { a: 0.0, ..theme::GROUND });
+            frame.fill(&Path::rectangle(Point::ORIGIN, Size::new(bounds.width, edge)),
+                canvas::Fill { style: canvas::Style::Gradient(top.into()), ..canvas::Fill::default() });
+            let bottom = canvas::gradient::Linear::new(Point::new(0.0, bounds.height - edge), Point::new(0.0, bounds.height))
+                .add_stop(0.0, Color { a: 0.0, ..theme::GROUND })
+                .add_stop(1.0, Color { a: 0.92 * self.alpha, ..theme::GROUND });
+            frame.fill(&Path::rectangle(Point::new(0.0, bounds.height - edge), Size::new(bounds.width, edge)),
+                canvas::Fill { style: canvas::Style::Gradient(bottom.into()), ..canvas::Fill::default() });
+        }
+        vec![frame.into_geometry()]
+    }
 }
 
 const FADE_TAIL: f32 = 34.0;
@@ -2555,7 +2584,6 @@ impl<Message> canvas::Program<Message> for Steps<'_, Message> {
                 true => (free_right > value_wide + 22.0).then_some(0.0).unwrap_or(1.0),
                 false => (free_right < value_wide + 4.0).then_some(1.0).unwrap_or(0.0),
             };
-            // A newly opened control has no previous position to animate from.
             if !state.initialized {
                 state.label_side = want_label;
                 state.value_side = want_value;
@@ -3345,7 +3373,6 @@ impl<Message> iced::advanced::Widget<Message, Theme, Renderer> for Clipped<'_, M
     fn draw(&self, tree: &iced::advanced::widget::Tree, renderer: &mut Renderer, theme: &Theme, style: &iced::advanced::renderer::Style, layout: iced::advanced::Layout<'_>, cursor: mouse::Cursor, viewport: &Rectangle) {
         use iced::advanced::Renderer as _;
         if let Some(bounds) = layout.bounds().intersection(viewport) {
-            // A container viewport alone does not create a renderer scissor layer.
             renderer.with_layer(bounds, |renderer| self.content.as_widget().draw(tree, renderer, theme, style, layout, cursor, &bounds));
         }
     }
@@ -3355,7 +3382,6 @@ impl<Message> iced::advanced::Widget<Message, Theme, Renderer> for Clipped<'_, M
     }
 }
 
-// Keep the child's full geometry while smoothly releasing its space in a list.
 pub fn collapsing<'a, Message: 'a>(content: impl Into<Element<'a, Message>>, fraction: f32) -> Element<'a, Message> {
     Element::new(Collapsing { content: content.into(), fraction: fraction.clamp(0.0, 1.0) })
 }
@@ -4312,7 +4338,6 @@ mod tests {
         assert!(shown.x > first.x && shown.x < 86.0);
         slide.active = 2;
         assert_eq!(frame(&mut slide, &mut tree, half), shown, "a rapid second click must continue from the visible highlight");
-        // Rebuild a different-sized row while retaining the actual widget tree.
         slide.content = row![Space::new().width(100.0).height(36.0), Space::new().width(160.0).height(36.0), Space::new().width(90.0).height(36.0)].spacing(6).into();
         slide.diff(&mut tree);
         let settled = frame(&mut slide, &mut tree, half + std::time::Duration::from_secs(1));

@@ -3594,8 +3594,6 @@ impl Main {
         let mut surface = ui::mix(before, surface, s);
         if let Some((_, live)) = self.chosen_entry().zip(self.live.as_ref())
             .filter(|(entry, live)| live.for_path == entry.path && live.frame.is_some() && self.overlay == Overlay::None) {
-            // Decoded video lives on the GPU. A conservative bright estimate avoids frame readback
-            // and keeps the text stable instead of pulsing with every video frame.
             surface = ui::mix(surface, ui::mix(iced::Color::WHITE, theme::GROUND, 0.66), live.fade.interpolate(0.0, 1.0, self.now));
         }
         column![
@@ -5878,10 +5876,10 @@ impl Main {
                 list = list.push(tile);
             }
             let list: Element<'_, Message> = if tab == Tab::Feed {
-                scrollable(container(list).padding(Padding::ZERO.right(8.0).bottom(16.0)))
-                    .style(ui::thin_scroll)
-                    .direction(scrollable::Direction::Vertical(scrollable::Scrollbar::new().width(3.0).scroller_width(3.0)))
-                    .height((self.height - MENU_TOP - 120.0 - 24.0).max(140.0)).width(MENU_W + 8.0).into()
+                let height = (self.height - MENU_TOP - 120.0 - 24.0).max(140.0);
+                let scroll: Element<'_, Message> = scrollable(container(list).padding(Padding::ZERO.bottom(16.0)))
+                    .direction(ui::hidden_bar()).height(height).width(MENU_W).into();
+                ui::scroll_fades(scroll, MENU_W, height)
             } else { list.into() };
             ui::grown(list, Point::new(1.0, 0.0), 0.0, 0.9 + 0.1 * late(2.0)).shifted(slide)
         });
@@ -5930,7 +5928,7 @@ impl Main {
         container(inside)
             .padding([12, 14])
             .width(Length::Fill)
-            .style(ui::box_faded(if bad { theme::tile_bad } else { theme::bubble }))
+            .style(ui::box_faded(move |theme| if bad { theme::tile_bad(theme) } else { theme::notification(false)(theme) }))
             .into()
     }
 
@@ -5985,7 +5983,7 @@ impl Main {
         let face = ui::sliding(words, active, ui::Pill {
             fill: Color::from_rgba(1.0, 1.0, 1.0, 0.08), edge: Color::TRANSPARENT, radius: 8.0, underline: None,
         });
-        container(face).padding(4).width(MENU_W).height(36.0).style(ui::box_faded(theme::bubble)).into()
+        container(face).padding(4).width(MENU_W).height(36.0).style(ui::box_faded(theme::notification(false))).into()
     }
 
     fn kv(&self, key: String, value: String) -> Element<'_, Message> {
@@ -6346,7 +6344,7 @@ pub fn decoded_bytes(bytes: &[u8], side: u32) -> Option<image::Handle> {
     Some(image::Handle::from_rgba(side, side, picture.into_raw()))
 }
 const TOAST_W: f32 = 340.0;
-const TOAST_H: f32 = 104.0;
+const TOAST_MAX_H: f32 = 112.0;
 const TOAST_TOP: f32 = 92.0;
 pub const TOAST_IN: Duration = Duration::from_millis(180);
 pub const MENU_OPEN: Duration = Duration::from_millis(320);
@@ -6369,25 +6367,24 @@ const TOASTS_AT_MOST: usize = 3;
 
 impl Main {
     fn toast_capacity(&self) -> usize {
-        (((self.height - TOAST_TOP - 24.0) / (TOAST_H + 10.0)).floor() as usize).clamp(1, TOASTS_AT_MOST)
+        (((self.height - TOAST_TOP - 24.0) / (TOAST_MAX_H + 10.0)).floor() as usize).clamp(1, TOASTS_AT_MOST)
     }
 
     fn toast_layer(&self) -> Element<'_, Message> {
-        let mut layers = stack![].width(Length::Fill).height(Length::Fill);
         let width = TOAST_W.min((self.width - 32.0).max(240.0));
-        let mut slot = 0.0;
+        let home = (self.width - 40.0 - width).max(16.0);
+        let mut cards = column![].width(width);
         for toast in &self.toasts {
             let Some(notice) = self.notices.get(toast.id) else { continue; };
             let k = toast.shown.interpolate(0.0, 1.0, self.now);
-            let home = (self.width - 40.0 - width).max(16.0);
-            let x = home + (1.0 - k) * 24.0;
-            let sensed = ui::fading(ui::fade() * k, || mouse_area(self.notification_card(notice, Some(toast), width))
-                .on_enter(Message::ToastHover(toast.id, true)).on_exit(Message::ToastHover(toast.id, false)));
-            layers = layers.push(pin(sensed).x(x).y(TOAST_TOP + slot));
-            // Collapse departing slots smoothly instead of jumping the next card.
-            slot += (TOAST_H + 10.0) * k;
+            let sensed = ui::fading(ui::fade() * k, || {
+                ui::grown(mouse_area(self.notification_card(notice, Some(toast), width))
+                    .on_enter(Message::ToastHover(toast.id, true)).on_exit(Message::ToastHover(toast.id, false)),
+                    Point::new(1.0, 0.5), 0.0, 1.0).shifted((1.0 - k) * 24.0)
+            });
+            cards = cards.push(ui::collapsing(container(sensed).padding(Padding::ZERO.bottom(10.0)), k));
         }
-        layers.into()
+        pin(cards).x(home).y(TOAST_TOP).into()
     }
 
     fn notification_card(&self, notice: &notices::Notice, toast: Option<&Toast>, width: f32) -> Element<'_, Message> {
@@ -6400,17 +6397,18 @@ impl Main {
             .wrapping(text::Wrapping::None).color(ui::faded(INK))).width(Length::Fill).height(20.0).center_y(20.0));
         let header = row![title, close].spacing(6).align_y(iced::Center);
         let detail = if notice.detail.is_empty() && bad { notice.note.clone() } else { notice.detail.clone() };
-        let detail_limit = (((width - 70.0) / 6.7) * 2.0).floor().max(24.0) as usize;
-        let description = ui::clipped(container(text(notice_preview(&detail, detail_limit)).font(theme::SANS).size(12.0)
-            .line_height(iced::Pixels(14.0)).wrapping(text::Wrapping::WordOrGlyph)
-            .color(ui::faded(MUTED))).width(Length::Fill).height(28.0));
-        let top = row![self.notice_mark(notice, 40.0), column![header, description].spacing(6).width(Length::Fill)]
-            .spacing(10).height(54.0);
+        let mut copy = column![header].spacing(4).width(Length::Fill);
+        if !detail.is_empty() {
+            let detail_limit = (((width - 70.0) / 6.7) * 3.0).floor().max(36.0) as usize;
+            let description = container(text(notice_preview(&detail, detail_limit)).font(theme::SANS).size(12.0)
+                .line_height(iced::Pixels(14.0)).wrapping(text::Wrapping::WordOrGlyph)
+                .color(ui::faded(MUTED))).width(Length::Fill).max_height(42.0).clip(true);
+            copy = copy.push(description);
+        }
+        let top = row![self.notice_mark(notice, 40.0), copy].spacing(10).align_y(iced::Center);
         let action = |label: String, message, primary| button(text(label).font(theme::SANS_SEMI).size(theme::CAPTION))
             .padding([3, 7]).style(ui::button_faded(theme::notice_action(primary))).on_press(message);
-        let mut footer = row![].spacing(4).align_y(iced::Center).height(24.0);
-        footer = footer.push(text(self.words.clock(notice.at)).font(theme::SANS).size(10.5).color(ui::faded(theme::NOTICE_META)));
-        footer = footer.push(Space::new().width(Length::Fill));
+        let mut footer = row![Space::new().width(Length::Fill)].spacing(4).align_y(iced::Center).height(24.0);
         if bad {
             footer = footer.push(action(self.words.t("notice-details"), Message::ShowError(notice.id), false));
         }
@@ -6422,9 +6420,11 @@ impl Main {
             notices::Link::None => None,
         };
         if let Some(key) = link { footer = footer.push(action(self.words.t(key), Message::ToastLink(notice.id), true)); }
-        let face = container(column![top, footer].spacing(6)).padding([10, 10]).width(width).height(TOAST_H);
+        let mut content = column![top].spacing(2);
+        if bad || link.is_some() { content = content.push(footer); }
+        let face = container(content).padding([8, 10]).width(width).max_height(TOAST_MAX_H);
         let card = container(face)
-            .width(width).height(TOAST_H).style(ui::box_faded(theme::notification(toast.is_some_and(|t| t.hovered)))).clip(true);
+            .width(width).max_height(TOAST_MAX_H).style(ui::box_faded(theme::notification(toast.is_some_and(|t| t.hovered)))).clip(true);
         card.id(iced::widget::Id::new(if toast.is_some() { "toast-card" } else { "notice-card" })).into()
     }
 }

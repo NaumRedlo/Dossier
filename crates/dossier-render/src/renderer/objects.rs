@@ -474,18 +474,6 @@ impl Scene<'_> {
                 );
             }
         }
-
-        if annotation.missed && time_ms > annotation.resolved_ms {
-            self.ring(
-                pixmap,
-                object.pos,
-                radius,
-                radius * 0.18,
-                self.skin.spinner,
-                alpha * 0.7,
-                layout,
-            );
-        }
     }
 
     fn face_of(&self, face: Face) -> Option<(Element, Element)> {

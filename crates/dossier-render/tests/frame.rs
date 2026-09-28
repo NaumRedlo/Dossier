@@ -5052,6 +5052,55 @@ fn a_dropped_slider_throws_its_follow_circle_wide() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+#[test]
+fn a_missed_note_leaves_no_ring_where_it_was() {
+    let map = beatmap(
+        "[Difficulty]\nApproachRate:5\nCircleSize:4\nOverallDifficulty:5\n\n[HitObjects]\n256,192,3000,1,0\n",
+    );
+    let replay = replay_over(
+        (0..=6_000 / 16)
+            .map(|n| dossier_replay::ReplayFrame {
+                time_ms: n * 16,
+                x: 40.0,
+                y: 40.0,
+                keys: dossier_replay::Keys(0),
+            })
+            .collect(),
+    );
+    let state = GameState::new(&map, &replay);
+    let skin = Skin::with_combo_colours(map.combo_colours());
+    let background = skin.background.to_color_u8();
+    let scene = Scene::new(&state, skin);
+    let layout = Layout::new(640, 480);
+    let (cx, cy) = layout.map(dossier_beatmap::Point { x: 256.0, y: 192.0 });
+    let radius = layout.length(state.difficulty().circle_radius());
+
+    let rim = |time_ms: f64| {
+        let frame = scene.frame(time_ms, &layout);
+        let mut count = 0;
+        for y in 0..frame.height() {
+            for x in 0..frame.width() {
+                let (dx, dy) = (x as f32 - cx, y as f32 - cy);
+                let distance = (dx * dx + dy * dy).sqrt();
+                if distance < radius * 1.03 || distance > radius * 1.09 {
+                    continue;
+                }
+                let p = frame.pixel(x, y).expect("inside the frame");
+                if p.red() != background.red()
+                    || p.green() != background.green()
+                    || p.blue() != background.blue()
+                {
+                    count += 1;
+                }
+            }
+        }
+        count
+    };
+
+    let missed = 3_000.0 + state.difficulty().hit_window_50();
+    assert_eq!(rim(missed + 20.0), 0, "a ring was drawn round the missed note");
+}
+
 fn resting_at(x: f32, y: f32, until_ms: i64) -> dossier_replay::Replay {
     let frames = (0..=until_ms / 16)
         .map(|n| dossier_replay::ReplayFrame { time_ms: n * 16, x, y, keys: dossier_replay::Keys(0) })

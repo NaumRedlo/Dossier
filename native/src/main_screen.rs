@@ -962,10 +962,8 @@ impl Main {
         };
             if active { Some(Message::UserInput(action.map(Box::new))) } else { action }
         })];
-        if self.window_id.is_some() {
-            parts.push(iced::time::every(Duration::from_secs(2)).map(|_| Message::PollMinimized));
-        }
         if self.minimized {
+            parts.push(iced::time::every(MINIMIZED_POLL).map(|_| Message::PollMinimized));
             return Subscription::batch(parts);
         }
         if self.can_rest() != self.resting.value() {
@@ -1278,7 +1276,11 @@ impl Main {
             }
             Message::CheckMinimized(id) => {
                 self.window_id = Some(id);
-                window::is_minimized(id).map(Message::Minimized)
+                let later = |after: Duration| ui::in_thread(move || {
+                    std::thread::sleep(after);
+                    Message::PollMinimized
+                });
+                Task::batch([window::is_minimized(id).map(Message::Minimized), later(Duration::from_millis(600)), later(Duration::from_millis(1800))])
             }
             Message::PollMinimized => self.window_id.map_or_else(Task::none, |id| window::is_minimized(id).map(Message::Minimized)),
             Message::Minimized(Some(minimized)) => {
@@ -6524,6 +6526,7 @@ const PICTURE_RADIUS: f32 = 10.0;
 const REFRESH_AT_MOST: Duration = Duration::from_secs(20);
 const STRIP_MARGIN: f32 = 0.75;
 const FLIP: Duration = Duration::from_millis(320);
+const MINIMIZED_POLL: Duration = Duration::from_secs(15);
 const AUTO_EVERY: Duration = Duration::from_secs(20);
 const AUTO_IDLE: Duration = Duration::from_secs(12);
 const COVERS_AT_ONCE: usize = 240;

@@ -28,7 +28,6 @@ pub struct Skin {
     pub cursor_expand: bool,
     pub cursor_trail: bool,
     pub keypad: bool,
-    pub key_bars: bool,
     pub unstable_rate: bool,
     pub slider_body: Option<Color>,
 
@@ -112,7 +111,6 @@ impl Default for Skin {
             cursor_expand: false,
             cursor_trail: true,
             keypad: true,
-            key_bars: true,
             unstable_rate: true,
             slider_body: None,
             slider_body_dim: 0.35,
@@ -313,13 +311,12 @@ mod body_shades {
 pub struct Effects;
 
 impl Effects {
-    pub const ALL: [&'static str; 9] = [
+    pub const ALL: [&'static str; 8] = [
         "snake-in",
         "snake-out",
         "cursor-expand",
         "cursor-trail",
         "keypad",
-        "key-bars",
         "unstable-rate",
         "hit-lighting",
         "slider-ball-tint",
@@ -337,7 +334,6 @@ impl Effects {
         skin.cursor_expand = on("cursor-expand");
         skin.cursor_trail = on("cursor-trail");
         skin.keypad = on("keypad");
-        skin.key_bars = on("key-bars");
         skin.unstable_rate = on("unstable-rate");
         skin.hit_lighting = on("hit-lighting");
         skin.slider_ball_tint = on("slider-ball-tint");
@@ -355,7 +351,6 @@ impl Effects {
             ("cursor-expand", skin.cursor_expand),
             ("cursor-trail", skin.cursor_trail),
             ("keypad", skin.keypad),
-            ("key-bars", skin.key_bars),
             ("unstable-rate", skin.unstable_rate),
             ("hit-lighting", skin.hit_lighting),
             ("slider-ball-tint", skin.slider_ball_tint),

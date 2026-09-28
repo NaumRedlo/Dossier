@@ -59,75 +59,12 @@ const KEYS_WIDTH: f32 = 1.35;
 
 const KEYS_GAP: f32 = 0.18;
 
-const KEYS_TRAIL_MS: f64 = 1_300.0;
-
-const KEYS_TRAIL_REACH: f64 = 0.135;
-
-const KEYS_MARK_MIN: f32 = 0.03;
-
-const KEYS_MARK_HEIGHT: f32 = 0.6;
-
 const KEYS_PRESS_SHRINK: f32 = 0.14;
 
 const KEYS_PRESS_DOWN_MS: f64 = 160.0;
 const KEYS_PRESS_UP_MS: f64 = 160.0;
 
 impl Scene<'_> {
-    fn draw_key_trail(
-        &self,
-        pixmap: &mut Pixmap,
-        key: usize,
-        time_ms: f64,
-        layout: &Layout,
-        presence: f32,
-        place: (f32, f32, f32),
-    ) {
-        let (right, top, height) = place;
-        let reach = (f64::from(layout.width) * KEYS_TRAIL_REACH) as f32;
-        let rate = self.state.playback_rate().max(0.001);
-
-        let window = KEYS_TRAIL_MS * rate;
-        let from = time_ms - window;
-
-        let bar = height * KEYS_MARK_HEIGHT;
-        let bar_top = top + (height - bar) / 2.0;
-        let x_of = |at: f64| right - ((time_ms - at) / window) as f32 * reach;
-
-        for &(down, up) in self.keys.holds[key]
-            .iter()
-            .rev()
-            .take_while(|(_, up)| *up >= from)
-        {
-            let (a, b) = (down.max(from), up.min(time_ms));
-            if b <= a {
-                continue;
-            }
-            let (left, width) = (x_of(a), (x_of(b) - x_of(a)).max(1.0));
-
-            let width = width.max(reach * KEYS_MARK_MIN);
-            let Some(mark) = rounded_rect(left, bar_top, width, bar, bar * 0.35) else {
-                continue;
-            };
-
-            let age = ((time_ms - b) / window).clamp(0.0, 1.0) as f32;
-            let mut paint = Paint {
-                anti_alias: true,
-                ..Default::default()
-            };
-            paint.set_color(with_alpha(
-                self.skin.verdict_miss,
-                0.75 * (1.0 - age) * presence,
-            ));
-            pixmap.fill_path(
-                &mark,
-                &paint,
-                FillRule::Winding,
-                Transform::identity(),
-                None,
-            );
-        }
-    }
-
     pub(super) fn draw_keys(
         &self,
         pixmap: &mut Pixmap,
@@ -156,12 +93,6 @@ impl Scene<'_> {
         let rate = self.state.playback_rate().max(0.001);
         for (index, name) in KEY_NAMES.iter().enumerate() {
             let down = self.keys.pressed(index, time_ms, rate);
-            if self.skin.key_bars {
-                self.draw_key_trail(pixmap, index, time_ms, layout, presence, {
-                    let y = top + step * index as f32;
-                    (right - box_wide, y, box_side)
-                });
-            }
             let count = self.keys.count(index, time_ms);
             let shrink = KEYS_PRESS_SHRINK * down;
             let side = box_side * (1.0 - shrink);

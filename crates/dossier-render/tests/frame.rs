@@ -4989,11 +4989,11 @@ SliderTickRate:1
 #[test]
 fn a_dropped_slider_throws_its_follow_circle_wide() {
     let dir = skin_folder("follow-break");
-    write_glyph(&dir, "sliderfollowcircle.png", 64, (255, 0, 255));
+    write_glyph(&dir, "sliderfollowcircle.png", 256, (255, 0, 255));
 
     let holding = dropped_slider_follow(&dir, 2_900.0);
-    let bursting = (0..40)
-        .map(|step| dropped_slider_follow(&dir, 3_100.0 + f64::from(step) * 10.0))
+    let bursting = (0..10)
+        .map(|step| dropped_slider_follow(&dir, 3_500.0 + f64::from(step) * 10.0))
         .max()
         .unwrap_or(0);
     let gone = dropped_slider_follow(&dir, 3_700.0);

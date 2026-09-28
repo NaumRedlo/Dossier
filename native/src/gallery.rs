@@ -632,7 +632,7 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
     notifications.now_unix = NOON;
     for (mark, heading, detail, note, link) in [
         (crate::notices::Mark::Done, notifications.words.t("rendered-notice"), "NaumRedlo — Dj Grimoire — Astral Quantization [Nattu VN0TH3R]", "3:51  84,2 МБ", crate::notices::Link::OpenVideo(PathBuf::from("out.mp4"))),
-        (crate::notices::Mark::Plain, notifications.words.t("whats-new"), "Dossier 0.92.1", "", crate::notices::Link::Page("https://example.com/changes".into())),
+        (crate::notices::Mark::Plain, notifications.words.t("whats-new"), &format!("Dossier {}", env!("CARGO_PKG_VERSION")), "", crate::notices::Link::Page("https://example.com/changes".into())),
         (crate::notices::Mark::Bad, notifications.words.t("render-failed"), "A very long map name with several words that should wrap naturally inside the notification without covering its actions or closing button", "ffmpeg exited with code 1", crate::notices::Link::RenderAgain(library.entries[0].path.clone())),
     ] {
         notifications.announce(mark, heading, detail.into(), note.into(), String::new(), link);

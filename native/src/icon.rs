@@ -9,10 +9,7 @@ use crate::ui::ACCENT_DEEP;
 const MASTER: u32 = 1024;
 const ROUNDNESS: f32 = 5.0;
 const LETTER: f32 = 0.6;
-// The mark in letter-mask.png has a few extra pixels on its right edge.
-// Place its visible bounds at the centre of the app tile, rather than its
-// source canvas centre.
-const LETTER_CENTRE: (f32, f32) = (261.5 / 512.0, 255.5 / 512.0);
+const OPTICAL: f32 = 0.5;
 const ICO: [u32; 7] = [16, 24, 32, 48, 64, 128, 256];
 const ICNS: [(&[u8; 4], u32); 11] = [
     (b"icp4", 16),
@@ -71,6 +68,35 @@ fn coverage(x: u32, y: u32, centre: f32, half: f32) -> f32 {
     inside as f32 / 16.0
 }
 
+fn letter_centre() -> (f32, f32) {
+    let letter = crate::ui::letter();
+    let side = letter.side as usize;
+    let mask = letter.mask();
+    let (mut left, mut right, mut top, mut bottom) = (side, 0, side, 0);
+    let (mut mass, mut sum_x) = (0.0f64, 0.0f64);
+    for y in 0..side {
+        for x in 0..side {
+            let a = mask[y * side + x];
+            if a > 127 {
+                left = left.min(x);
+                right = right.max(x + 1);
+                top = top.min(y);
+                bottom = bottom.max(y + 1);
+            }
+            mass += f64::from(a);
+            sum_x += f64::from(a) * (x as f64 + 0.5);
+        }
+    }
+    if right <= left || bottom <= top || mass <= 0.0 {
+        return (0.5, 0.5);
+    }
+    let bounds_x = (left + right) as f32 / 2.0;
+    let weight_x = (sum_x / mass) as f32;
+    let x = bounds_x + (weight_x - bounds_x) * OPTICAL;
+    let y = (top + bottom) as f32 / 2.0;
+    (x / side as f32, y / side as f32)
+}
+
 fn letter_alpha(nx: f32, ny: f32) -> f32 {
     let letter = crate::ui::letter();
     let side = letter.side as usize;
@@ -99,8 +125,9 @@ pub fn master(margin: f32) -> RgbaImage {
     let tile = side * (1.0 - 2.0 * margin);
     let (left, centre, half) = (side * margin, side / 2.0, tile / 2.0);
     let drawn = tile * LETTER;
-    let letter_left = centre - drawn * LETTER_CENTRE.0;
-    let letter_top = centre - drawn * LETTER_CENTRE.1;
+    let (across, down) = letter_centre();
+    let letter_left = centre - drawn * across;
+    let letter_top = centre - drawn * down;
     let small = 256u32;
     let mut glow = GrayImage::new(small, small);
     for y in 0..small {

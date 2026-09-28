@@ -278,7 +278,6 @@ pub fn shot_folder(root: &Path, lang: Lang, out: &Path) -> Result<(), String> {
     let source = crate::sources::folder_at(root).ok_or_else(|| format!("no replays in {}", root.display()))?;
     let mut settings = crate::settings::Settings::default();
     settings.lang = lang;
-    settings.device = "Dossier device".to_owned();
     settings.sources = vec![source.clone()];
     let library = crate::library::read(&[source]);
     let mut main = Main::staged(crate::lang::Words::new(lang), settings, library, Some(0));
@@ -386,6 +385,7 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
     use crate::main_screen::{decoded, Main, Overlay};
     let mut settings = crate::settings::Settings::default();
     settings.lang = lang;
+    settings.device = "Dossier device".to_owned();
     let library = mock_library();
     let staged = |chosen: Option<usize>| {
         let mut main = Main::staged(crate::lang::Words::new(lang).in_zone(3 * 3600), settings.clone(), library.clone(), chosen);

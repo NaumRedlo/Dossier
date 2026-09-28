@@ -878,7 +878,7 @@ impl Main {
             || self.flip_at.is_some_and(|at| self.now.saturating_duration_since(at) < FLIP)
             || self.widened.is_animating(self.now)
             || self.hint.is_some()
-            || !self.toasts.is_empty()
+            || self.toasts.iter().any(|toast| toast.shown.is_animating(self.now))
             || self.menu_open.is_animating(self.now)
             || self.overlay_fade.is_animating(self.now)
             || self.ground_fade.is_animating(self.now)
@@ -959,8 +959,12 @@ impl Main {
         if matches!(self.update, UpdateState::Ready { .. }) && (self.update_wanted || self.settings.quiet_updates) {
             parts.push(iced::time::every(Duration::from_secs(5)).map(|_| Message::UpdateIdle));
         }
-        if self.moving() {
+        let moving = self.moving();
+        if moving {
             parts.push(window::frames().map(Message::Tick));
+        }
+        if !moving && self.toasts.iter().any(|toast| toast.shown.value() && !toast.stays && !toast.hovered) {
+            parts.push(iced::time::every(Duration::from_millis(250)).map(Message::Tick));
         }
         if matches!(self.pairing, Pairing::Waiting { .. }) {
             parts.push(iced::time::every(Duration::from_secs(3)).map(|_| Message::Poll));
@@ -6602,6 +6606,24 @@ mod tests {
         assert_eq!(toast.age(now + Duration::from_secs(15)), Duration::from_secs(5));
         toast.hover(false, now + Duration::from_secs(16));
         assert_eq!(toast.age(now + Duration::from_secs(16)), Duration::from_secs(6));
+    }
+
+    #[test]
+    fn settled_toasts_do_not_keep_the_window_rendering_at_frame_rate() {
+        use std::time::{Duration, Instant};
+        let mut main = super::Main::staged(crate::lang::Words::new(crate::lang::Lang::En), crate::settings::Settings::default(), crate::library::Library::default(), None);
+        let now = Instant::now() + Duration::from_secs(10);
+        let _ = main.update(super::Message::Tick(now));
+        assert!(!main.moving(), "the staged screen must be settled before checking toast work");
+        main.toasts.push(super::Toast { id: 1, shown: iced::Animation::new(true), born: now, hovered: false, paused_at: None, stays: true });
+        assert!(!main.moving(), "a persistent error needs no continuous redraw once it is visible");
+        main.toasts[0].stays = false;
+        let _ = main.update(super::Message::Tick(now + Duration::from_secs(7)));
+        assert!(!main.toasts[0].shown.value());
+        assert!(main.moving(), "the dismissal animation still needs frames");
+        let _ = main.update(super::Message::Tick(now + Duration::from_secs(8)));
+        assert!(main.toasts.is_empty());
+        assert!(!main.moving());
     }
 
     #[test]

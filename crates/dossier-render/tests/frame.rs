@@ -5006,3 +5006,70 @@ fn a_dropped_slider_throws_its_follow_circle_wide() {
     assert_eq!(gone, 0, "the burst outlived its hundred milliseconds");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+fn resting_at(x: f32, y: f32, until_ms: i64) -> dossier_replay::Replay {
+    let frames = (0..=until_ms / 16)
+        .map(|n| dossier_replay::ReplayFrame { time_ms: n * 16, x, y, keys: dossier_replay::Keys(0) })
+        .collect();
+    dossier_replay::Replay {
+        mode: dossier_replay::GameMode::Standard,
+        game_version: 20250101,
+        beatmap_hash: String::new(),
+        player: "test".into(),
+        replay_hash: String::new(),
+        hits: dossier_replay::HitCounts::default(),
+        score: 0,
+        max_combo: 0,
+        perfect_combo: false,
+        mods: Mods::new(bits::FLASHLIGHT),
+        life_bar: String::new(),
+        timestamp_ticks: 0,
+        online_score_id: 0,
+        target_practice_accuracy: None,
+        frames,
+        rng_seed: None,
+        score_info: None,
+    }
+}
+
+fn lit_near(scene: &Scene, layout: &Layout, time_ms: f64, at: (f64, f64)) -> usize {
+    let frame = scene.frame(time_ms, layout);
+    let (cx, cy) = layout.map(dossier_beatmap::Point { x: at.0, y: at.1 });
+    let mut lit = 0;
+    for y in (cy as i32 - 8).max(0)..(cy as i32 + 8).min(layout.height as i32) {
+        for x in (cx as i32 - 8).max(0)..(cx as i32 + 8).min(layout.width as i32) {
+            let pixel = frame.pixel(x as u32, y as u32).expect("inside the frame");
+            if pixel.red() > 8 || pixel.green() > 8 || pixel.blue() > 8 {
+                lit += 1;
+            }
+        }
+    }
+    lit
+}
+
+#[test]
+fn flashlight_hides_what_lies_far_from_the_cursor_and_shows_what_is_near() {
+    let map = beatmap(
+        "
+[Difficulty]
+CircleSize:4
+ApproachRate:5
+
+[HitObjects]
+60,60,5000,1,0
+450,330,5000,1,0
+",
+    );
+    let replay = resting_at(60.0, 60.0, 8000);
+    let layout = Layout::new(640, 480);
+    let lit = GameState::new(&map, &replay);
+    let scene = Scene::new(&lit, Skin::with_combo_colours(map.combo_colours()));
+    assert!(lit_near(&scene, &layout, 4900.0, (60.0, 60.0)) > 0, "the circle under the light shows");
+    assert_eq!(lit_near(&scene, &layout, 4900.0, (450.0, 330.0)), 0, "the far circle is in the dark");
+
+    let mut plain = replay.clone();
+    plain.mods = Mods::default();
+    let open = GameState::new(&map, &plain);
+    let scene = Scene::new(&open, Skin::with_combo_colours(map.combo_colours()));
+    assert!(lit_near(&scene, &layout, 4900.0, (450.0, 330.0)) > 0, "without the mod both circles show");
+}

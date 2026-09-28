@@ -11,6 +11,7 @@ mod format;
 mod paint;
 use paint::rounded_rect;
 
+mod flashlight;
 mod hud;
 mod keys;
 mod objects;
@@ -338,6 +339,8 @@ pub struct Scene<'a> {
     over_video: bool,
 
     bodies: std::sync::Mutex<std::collections::HashMap<usize, Body>>,
+
+    flashlight: Option<flashlight::Flashlight>,
 }
 
 struct Body {
@@ -517,6 +520,7 @@ impl<'a> Scene<'a> {
             show: None,
             over_video: false,
             bodies: std::sync::Mutex::new(std::collections::HashMap::new()),
+            flashlight: flashlight::Flashlight::of(state),
         }
     }
 
@@ -805,6 +809,7 @@ impl<'a> Scene<'a> {
         for index in self.candidates(time_ms).rev() {
             self.draw_approach(pixmap, index, time_ms, close);
         }
+        self.draw_flashlight(pixmap, time_ms, close);
         self.draw_cursor(pixmap, time_ms, close);
         if interface <= 0.0 {
             return;
@@ -903,9 +908,20 @@ impl<'a> Scene<'a> {
             self.draw_approach(pixmap, index, time_ms, close);
         }
         self.draw_verdicts(pixmap, time_ms, layout);
+        self.draw_flashlight(pixmap, time_ms, close);
         self.draw_break_warning(pixmap, time_ms, layout);
         self.draw_section(pixmap, time_ms, layout);
         self.draw_cursor(pixmap, time_ms, close);
+    }
+
+    fn draw_flashlight(&self, pixmap: &mut Pixmap, time_ms: f64, layout: &Layout) {
+        let Some(light) = &self.flashlight else {
+            return;
+        };
+        let Some(centre) = light.centre(self.state.cursor_track(), time_ms) else {
+            return;
+        };
+        flashlight::shade(pixmap, layout.map(centre), layout.length(light.size_at(time_ms)), light.dim_at(time_ms));
     }
 
     fn draw_overlay(&self, pixmap: &mut Pixmap, time_ms: f64, layout: &Layout) {

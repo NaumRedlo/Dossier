@@ -1,6 +1,5 @@
 use std::path::Path;
 
-/// Run on a worker thread: desktop launchers can wait for a session bus reply.
 pub fn reveal(path: &Path) -> Result<(), String> {
     let path = std::path::absolute(path).map_err(|e| e.to_string())?;
     std::fs::metadata(&path).map_err(|e| e.to_string())?;
@@ -12,13 +11,7 @@ pub fn reveal(path: &Path) -> Result<(), String> {
         return Ok(());
     }
     #[cfg(windows)]
-    {
-        let mut selected = std::ffi::OsString::from("/select,");
-        selected.push(&path);
-        if crate::checks::quiet("explorer.exe").arg(selected).spawn().is_ok() {
-            return Ok(());
-        }
-    }
+    return open_folder(path.parent().unwrap_or(Path::new(".")));
     #[cfg(target_os = "linux")]
     if let Ok(uri) = reqwest::Url::from_file_path(&path) {
         let result = crate::checks::quiet("dbus-send")
@@ -30,6 +23,7 @@ pub fn reveal(path: &Path) -> Result<(), String> {
             return Ok(());
         }
     }
+    #[cfg(not(windows))]
     open_folder(path.parent().unwrap_or(Path::new(".")))
 }
 

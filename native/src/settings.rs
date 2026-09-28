@@ -72,6 +72,10 @@ pub struct Settings {
     #[serde(default)]
     pub worker_on: bool,
     #[serde(default)]
+    pub worker_done: u32,
+    #[serde(default)]
+    pub worker_back: u32,
+    #[serde(default)]
     pub quiet_updates: bool,
     #[serde(default = "whole_cpu")]
     pub cpu_share: u32,
@@ -698,7 +702,6 @@ pub fn skin_pattern(folder: Option<&Path>, wide: u32, high: u32) -> Vec<u8> {
     );
     let place = |x: f32, y: f32| (left + x * scale, top + y * scale);
     let radius = NOTE_RADIUS * scale;
-    // Skin sprites use 128 logical pixels per circle, including @2x assets.
     let reach = |element: Element| (natural(element).unwrap_or(128.0) * radius / 64.0).round().max(1.0) as u32;
     let rim = slider_rim(folder);
     slider_road(&mut made, &[(132.0, 300.0), (420.0, 300.0)], radius, rim, place);
@@ -871,6 +874,8 @@ impl Default for Settings {
             tell: Tell::default(),
             skin: None,
             worker_on: false,
+            worker_done: 0,
+            worker_back: 0,
             quiet_updates: false,
             cpu_share: 100,
             ui_scale: 0,

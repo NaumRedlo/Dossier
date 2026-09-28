@@ -510,7 +510,6 @@ fn years(words: &crate::lang::Words, joined: i64, now: i64) -> Option<String> {
     (joined > 0).then(|| words.n("years", ((now - joined) / (365 * DAY)).max(0) as u64))
 }
 
-// Cache the faded, transparent cover so both renderers use the same rounded edge.
 fn cover_picture(handle: Option<&iced::widget::image::Handle>, wide: f32, tint: Color) -> iced::widget::image::Handle {
     use iced::widget::image::Handle;
     type Key = (Option<iced::advanced::image::Id>, u32, [u8; 3]);
@@ -1349,13 +1348,10 @@ fn titles<'a>(ground: &Ground<'a>, whose: &Whose<'a>) -> Element<'a, Message> {
 
 pub fn wear_button<'a>(ground: &Ground<'a>, you: &crate::community::Person, title: &Title) -> Element<'a, Message> {
     let w = ground.words;
-    if !you.you || !you.titles.iter().any(|code| *code == title.code) {
+    if ground.section != crate::community_screen::Section::Titles || ground.person.is_some() || !you.you || !you.titles.iter().any(|code| *code == title.code) {
         return Space::new().width(0.0).into();
     }
     let worn = you.title.as_deref() == Some(title.code.as_str());
-    if worn && ground.person.is_some() {
-        return Space::new().width(0.0).into();
-    }
     let (words, press) = if worn { (w.t("take-off-title"), Message::Wear(None)) } else { (w.t("wear-title"), Message::Wear(Some(title.code.clone()))) };
     ui::hover(
         button(text(words).font(theme::SANS_SEMI).size(11.5))

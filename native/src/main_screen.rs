@@ -553,6 +553,8 @@ fn unix_now() -> i64 {
 
 impl Main {
     pub fn new(words: Words, settings: Settings) -> (Main, Task<Message>) {
+        let worker_done = settings.worker_done;
+        let worker_back = settings.worker_back;
         let sources = settings.sources.clone();
         library::only_exported(settings.exported_only);
         let mut made = Main {
@@ -651,8 +653,8 @@ impl Main {
             worker_step: None,
             worker_last: None,
             worker_running: false,
-            worker_done: 0,
-            worker_back: 0,
+            worker_done,
+            worker_back,
             farm: None,
             update: UpdateState::Unknown,
             reading: None,
@@ -2556,13 +2558,17 @@ impl Main {
                         return if self.settings.worker_on { self.start_worker() } else { Task::none() };
                     }
                     W::Delivered { .. } => {
-                        self.worker_done += 1;
+                        self.worker_done = self.worker_done.saturating_add(1);
+                        self.settings.worker_done = self.worker_done;
+                        let _ = self.settings.save();
                         self.worker_last = Some(step.clone());
                         self.worker_step = None;
                         return self.farm_task();
                     }
                     W::HandedBack { .. } => {
-                        self.worker_back += 1;
+                        self.worker_back = self.worker_back.saturating_add(1);
+                        self.settings.worker_back = self.worker_back;
+                        let _ = self.settings.save();
                         self.worker_last = Some(step.clone());
                         self.worker_step = None;
                         return self.farm_task();

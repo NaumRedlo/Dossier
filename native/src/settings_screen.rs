@@ -33,6 +33,7 @@ pub enum Tile {
     Builds,
     Account,
     Chats,
+    Community,
     Worker,
     ThisDevice,
 }
@@ -56,6 +57,7 @@ impl Tile {
             Tile::Builds => "builds",
             Tile::Account => "account",
             Tile::Chats => "chats",
+            Tile::Community => "community",
             Tile::Worker => "worker",
             Tile::ThisDevice => "this-device",
         }
@@ -83,7 +85,7 @@ pub const APP: [Tile; 14] = [
     Tile::Builds,
 ];
 
-pub const BOT: [Tile; 4] = [Tile::Account, Tile::Chats, Tile::Worker, Tile::ThisDevice];
+pub const BOT: [Tile; 5] = [Tile::Account, Tile::Chats, Tile::Community, Tile::Worker, Tile::ThisDevice];
 
 pub fn order(kept: &[String], all: &[Tile]) -> Vec<Tile> {
     let mut out: Vec<Tile> = kept.iter().filter_map(|tag| Tile::of(tag)).filter(|tile| all.contains(tile)).collect();
@@ -139,6 +141,8 @@ pub struct Ground<'a> {
     pub donated: usize,
     pub tray: bool,
     pub build: &'static str,
+    pub pin: Option<&'a crate::community::wire::Pin>,
+    pub now_unix: i64,
     pub farm: Option<&'a crate::bot::Farm>,
     pub scale_draft: Option<u32>,
 }
@@ -162,6 +166,8 @@ pub enum Message {
     ExportedOnly(bool),
     AutoScale(bool),
     CloseToTray(bool),
+    PeopleEveryone(bool),
+    Pin(i64),
     Source(usize, bool),
     RemoveSource(usize),
     AddFolder,
@@ -292,8 +298,9 @@ fn chat_line<'a>(
     face: Option<&iced::widget::image::Handle>,
     under: String,
     on: bool,
+    (mark, press): (&str, Message),
 ) -> Element<'a, Message> {
-    let k = mark_at(ground, &format!("chat-{}", chat.id), on);
+    let k = mark_at(ground, &format!("{mark}-{}", chat.id), on);
     let mark: Element<'a, Message> = match face {
         Some(handle) => {
             let picture = iced::widget::image(handle.clone())
@@ -314,7 +321,7 @@ fn chat_line<'a>(
     button(row![mark, words].spacing(10).align_y(iced::Center))
         .padding([2, 2])
         .style(ui::button_faded(theme::bare))
-        .on_press(Message::Chat(chat.id))
+        .on_press(press)
         .into()
 }
 
@@ -827,13 +834,14 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
             for chat in ground.chats {
                 let under = if chat.private { w.t("private-chat") } else { w.t("group-chat") };
                 let face: Option<&iced::widget::image::Handle> = ground.chat_faces.get(&chat.id);
-                rows = rows.push(chat_line(ground, chat, face, under, Some(chat.id) == here));
+                rows = rows.push(chat_line(ground, chat, face, under, Some(chat.id) == here, ("chat", Message::Chat(chat.id))));
             }
             if ground.chats.is_empty() {
                 rows = rows.push(line(ground, "chat-own", "@", s.linked_as.clone(), w.t("private-chat"), true, None));
             }
             rows.into()
         }
+        Tile::Community => community_tile(ground),
         Tile::Worker => worker_tile(ground),
         Tile::ThisDevice => column![
             head(w, "this-device"),
@@ -875,6 +883,30 @@ pub fn worker_said(w: &Words, step: Option<&crate::worker::Step>, on: bool) -> (
         (Some(W::Polishing { .. }), true) => (w.t("worker-polishing"), gold),
         (Some(W::Sending { .. }), true) => (w.t("worker-sending"), gold),
     }
+}
+
+fn community_tile<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
+    let w = ground.words;
+    let s = ground.settings;
+    let pinned = ground.pin.and_then(|pin| pin.chat);
+    let free_at = ground.pin.and_then(|pin| pin.free_at).filter(|at| *at > ground.now_unix);
+    let mut body = column![head(w, "community-tile")].spacing(2);
+    let groups: Vec<&crate::bot::Chat> = ground.chats.iter().filter(|chat| !chat.private).collect();
+    for chat in &groups {
+        let face: Option<&iced::widget::image::Handle> = ground.chat_faces.get(&chat.id);
+        let on = pinned == Some(chat.id);
+        let under = if on { w.t("chat-pinned") } else { w.t("group-chat") };
+        body = body.push(chat_line(ground, chat, face, under, on, ("pin", Message::Pin(chat.id))));
+    }
+    let said = match (pinned, free_at) {
+        (_, _) if groups.is_empty() => w.t("pin-no-groups"),
+        (Some(_), Some(at)) => w.with("pin-free-from", &[("day", w.day(at, ground.now_unix))]),
+        (Some(_), None) => w.t("pin-can-move"),
+        (None, _) => w.t("pin-first"),
+    };
+    body = body.push(container(text(said).font(theme::SANS).size(11.0).color(ui::faded(FAINT))).width(300.0).padding(Padding::ZERO.top(6.0)));
+    body = body.push(container(pill(ground, "people-everyone", w.t("people-everyone"), s.people_everyone, Message::PeopleEveryone(!s.people_everyone))).padding(Padding::ZERO.top(14.0)));
+    body.into()
 }
 
 fn worker_tile<'a>(ground: &Ground<'a>) -> Element<'a, Message> {

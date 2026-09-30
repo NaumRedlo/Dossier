@@ -260,6 +260,50 @@ pub fn person(server: &str, token: &str, name: &str, chat: i64, id: i64) -> Resu
     status(response)?.json().map_err(|e| Refused::Network(e.to_string()))
 }
 
+pub fn players(server: &str, token: &str, name: &str) -> Result<crate::community::wire::Everyone, Refused> {
+    let response = client()?
+        .get(format!("{server}/render/players"))
+        .header("X-Render-Worker", name)
+        .bearer_auth(token)
+        .send()
+        .map_err(|e| Refused::Network(e.to_string()))?;
+    status(response)?.json().map_err(|e| Refused::Network(e.to_string()))
+}
+
+pub fn player(server: &str, token: &str, name: &str, id: i64) -> Result<crate::community::wire::Me, Refused> {
+    let response = client()?
+        .get(format!("{server}/render/players/{id}"))
+        .header("X-Render-Worker", name)
+        .bearer_auth(token)
+        .send()
+        .map_err(|e| Refused::Network(e.to_string()))?;
+    status(response)?.json().map_err(|e| Refused::Network(e.to_string()))
+}
+
+pub fn pinned(server: &str, token: &str, name: &str) -> Result<crate::community::wire::Pin, Refused> {
+    let response = client()?
+        .get(format!("{server}/render/me/pin"))
+        .header("X-Render-Worker", name)
+        .bearer_auth(token)
+        .send()
+        .map_err(|e| Refused::Network(e.to_string()))?;
+    status(response)?.json().map_err(|e| Refused::Network(e.to_string()))
+}
+
+pub fn pin(server: &str, token: &str, name: &str, chat: i64) -> Result<crate::community::wire::Pin, Refused> {
+    let response = client()?
+        .post(format!("{server}/render/me/pin"))
+        .header("X-Render-Worker", name)
+        .bearer_auth(token)
+        .json(&serde_json::json!({"chat": chat}))
+        .send()
+        .map_err(|e| Refused::Network(e.to_string()))?;
+    match response.status().as_u16() {
+        200..=299 | 409 => response.json().map_err(|e| Refused::Network(e.to_string())),
+        _ => status(response).and_then(|response| response.json().map_err(|e| Refused::Network(e.to_string()))),
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Friends {
     Listed(Vec<crate::community::wire::Friend>),

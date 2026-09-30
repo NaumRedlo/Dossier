@@ -214,6 +214,8 @@ pub struct Person {
     pub top: Vec<Play>,
     pub you: bool,
     pub app: bool,
+    pub player: Option<i64>,
+    pub outside: bool,
 }
 
 impl Person {
@@ -379,6 +381,8 @@ fn person_into(maps: &mut Vec<MapRef>, said: &wire::Person) -> Person {
     top: said.top.iter().map(|play| play_into(maps, play)).collect(),
     you: said.you,
     app: said.app,
+    player: said.player,
+    outside: false,
     }
 }
 
@@ -434,6 +438,26 @@ impl Catalog {
         let mut order: Vec<usize> = (0..self.people.len()).collect();
         order.sort_by(|a, b| board.value(&self.people[*b]).total_cmp(&board.value(&self.people[*a])));
         order
+    }
+
+    pub fn welcome(&mut self, everyone: &[wire::Person]) {
+        self.people.retain(|person| !person.outside);
+        let here = |said: &wire::Person| {
+            self.people.iter().any(|person| match (person.player, said.player) {
+                (Some(ours), Some(theirs)) => ours == theirs,
+                _ => person.name.trim().eq_ignore_ascii_case(said.name.trim()),
+            })
+        };
+        let joining: Vec<wire::Person> = everyone.iter().filter(|said| !here(said)).cloned().collect();
+        for said in &joining {
+            let mut person = person_into(&mut self.maps, said);
+            person.outside = true;
+            self.people.push(person);
+        }
+    }
+
+    pub fn farewell(&mut self) {
+        self.people.retain(|person| !person.outside);
     }
 
     pub fn holders(&self, code: &str) -> Vec<usize> {
@@ -899,6 +923,8 @@ pub mod wire {
         #[serde(default)]
         pub osu_id: Option<i64>,
         #[serde(default)]
+        pub player: Option<i64>,
+        #[serde(default)]
         pub name: String,
         #[serde(default)]
         pub country: String,
@@ -1054,6 +1080,26 @@ pub mod wire {
         pub me: Option<Me>,
         #[serde(default)]
         pub at: Option<i64>,
+    }
+
+    #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+    pub struct Everyone {
+        #[serde(default)]
+        pub people: Vec<Person>,
+        #[serde(default)]
+        pub at: Option<i64>,
+    }
+
+    #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+    pub struct Pin {
+        #[serde(default)]
+        pub chat: Option<i64>,
+        #[serde(default)]
+        pub since: Option<i64>,
+        #[serde(default)]
+        pub free_at: Option<i64>,
+        #[serde(default)]
+        pub error: String,
     }
 
     #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -1532,6 +1578,38 @@ mod tests {
                "recent": [{"passed": false, "map": {"set": 9, "artist": "Phoneboy", "title": "Nevermind", "version": "Insane"}, "pp": 0, "accuracy": 80.0, "grade": "F", "at": 1790157400}],
                "duels": [3, 1], "points": 120}
     }"#;
+
+    #[test]
+    fn every_player_joins_the_chat_after_its_own_people_and_leaves_them_as_they_were() {
+        let said: wire::Community = serde_json::from_str(ANSWER).expect("the answer reads");
+        let mut catalog = Catalog::from_wire(said);
+        catalog.people[0].player = Some(80);
+        catalog.people[1].player = Some(70);
+        let before: Vec<(i64, String)> = catalog.people.iter().map(|person| (person.id, person.name.clone())).collect();
+        let feed_before: Vec<usize> = catalog.feed.iter().map(|happened| happened.who).collect();
+        let everyone: Vec<wire::Person> = serde_json::from_str(r#"[
+            {"id": 81, "player": 80, "name": "kotofey", "pp": 12480},
+            {"id": 71, "player": 70, "name": "NaumRedlo", "pp": 9870, "you": true},
+            {"id": 300, "player": 30, "name": "Mirrorwave", "pp": 11215, "gained": [0, 0, 0, 0, 0, 0]},
+            {"id": 400, "name": "lumen", "pp": 3402}
+        ]"#).expect("the list reads");
+        catalog.welcome(&everyone);
+        let names: Vec<&str> = catalog.people.iter().map(|person| person.name.as_str()).collect();
+        assert_eq!(names, ["kotofey", "NaumRedlo", "Mirrorwave", "lumen"], "someone came twice or the chat's own people moved");
+        assert!(!catalog.people[0].outside && !catalog.people[1].outside);
+        assert!(catalog.people[2].outside && catalog.people[3].outside);
+        assert_eq!(catalog.feed.iter().map(|happened| happened.who).collect::<Vec<_>>(), feed_before, "the feed now points at other people");
+        let weekly = crate::community_screen::standings(&catalog, Board::Pp, crate::community_screen::Standing::Adaptive);
+        assert!(weekly.order.iter().all(|(who, _)| !catalog.people[*who].outside), "a player without a week in this chat is ranked for the week");
+        let general = crate::community_screen::standings(&catalog, Board::Pp, crate::community_screen::Standing::General);
+        assert_eq!(catalog.people[general.order[0].0].name, "kotofey");
+        assert!(general.order.iter().any(|(who, _)| catalog.people[*who].name == "Mirrorwave"), "the server's players are left out of the ranking");
+
+        catalog.welcome(&everyone);
+        assert_eq!(catalog.people.len(), 4, "welcoming twice doubled the outsiders");
+        catalog.farewell();
+        assert_eq!(catalog.people.iter().map(|person| (person.id, person.name.clone())).collect::<Vec<_>>(), before);
+    }
 
     #[test]
     fn the_bots_answer_becomes_a_catalogue() {

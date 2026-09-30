@@ -47,6 +47,8 @@ pub struct Settings {
     pub auto_flip: bool,
     #[serde(default = "yes")]
     pub close_to_tray: bool,
+    #[serde(default)]
+    pub people_everyone: bool,
     #[serde(default = "default_height")]
     pub render_height: u32,
     #[serde(default = "default_fps")]
@@ -962,6 +964,7 @@ impl Default for Settings {
             pause_unfocused: true,
             auto_flip: true,
             close_to_tray: true,
+            people_everyone: false,
             render_height: 1080,
             render_fps: 60,
             render_crf: 20,

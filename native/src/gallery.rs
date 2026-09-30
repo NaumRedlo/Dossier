@@ -636,6 +636,8 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
         crate::bot::Chat { id: -100, title: "osu! RU  lounge".into(), private: false, photo: false },
         crate::bot::Chat { id: -101, title: "1984 crew".into(), private: false, photo: false },
     ];
+    prefs_bot.now_unix = NOON;
+    prefs_bot.pin = Some(crate::community::wire::Pin { chat: Some(-100), since: Some(NOON - 5 * DAY), free_at: Some(NOON + 25 * DAY), error: String::new() });
     let community = |section: crate::community_screen::Section, person: Option<usize>| {
         let mut main = staged(Some(0));
         main.now_unix = NOON;
@@ -691,6 +693,32 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
         ("main-worker".to_owned(), worker),
         ("main-community-feed".to_owned(), community(crate::community_screen::Section::Feed, None)),
         ("main-community-people".to_owned(), community(crate::community_screen::Section::People, None)),
+        ("main-community-everyone".to_owned(), {
+            let mut main = community(crate::community_screen::Section::People, None);
+            main.settings.people_everyone = true;
+            if let Some(catalog) = main.community.as_mut() {
+                let outsiders: Vec<crate::community::Person> = [("Mirrorwave", "KZ", 11_215, 5_127), ("ssnowy", "BY", 8_402, 18_966)]
+                    .into_iter()
+                    .enumerate()
+                    .map(|(at, (name, country, pp, rank))| crate::community::Person {
+                        id: 900 + at as i64,
+                        player: Some(90 + at as i64),
+                        name: name.to_owned(),
+                        country: country.to_owned(),
+                        pp,
+                        rank,
+                        accuracy: 97.4,
+                        plays: 31_000,
+                        hours: 1_100,
+                        outside: true,
+                        ..crate::community::Person::default()
+                    })
+                    .collect();
+                catalog.people.retain(|person| person.name != "Mirrorwave" && person.name != "ssnowy");
+                catalog.people.extend(outsiders);
+            }
+            main
+        }),
         ("main-community-person".to_owned(), community(crate::community_screen::Section::People, Some(1))),
         ("main-community-boards".to_owned(), community(crate::community_screen::Section::Boards, None)),
         ("main-community-adaptive".to_owned(), {

@@ -73,6 +73,9 @@ pub enum Message {
     NewsPicture(String, Option<image::Handle>),
     LiveArrive,
     CommunityArrived(Result<crate::community::wire::Community, String>),
+    EveryoneArrived(Result<crate::community::wire::Everyone, String>),
+    PinRead(Result<crate::community::wire::Pin, String>),
+    Pinned(Result<crate::community::wire::Pin, String>),
     FriendsArrived(Result<crate::bot::Friends, String>),
     CardArrived(Result<crate::community::wire::Card, String>),
     Flag(String, Option<Vec<u8>>),
@@ -450,6 +453,8 @@ pub struct Main {
     pub side: Side,
     pub renaming: Option<String>,
     pub chats: Vec<crate::bot::Chat>,
+    everyone: Vec<crate::community::wire::Person>,
+    pub pin: Option<crate::community::wire::Pin>,
     pub skins: Vec<PathBuf>,
     pub skin_faces: HashMap<PathBuf, image::Handle>,
     pub chat_faces: HashMap<i64, image::Handle>,
@@ -660,6 +665,8 @@ impl Main {
             overlay_drawn: Overlay::None,
             side: Side::App,
             renaming: None,
+            everyone: Vec::new(),
+            pin: None,
             chats: Vec::new(),
             skins: Vec::new(),
             skin_faces: HashMap::new(),
@@ -818,11 +825,20 @@ impl Main {
                 self.announce(notices::Mark::Done, self.words.t("updated"), format!("{before} → {build}"), String::new(), String::new(), notices::Link::Page(page));
             }
         }
+        let pin = self.pin_task();
         if matches!(crate::updates::place(), crate::updates::Place::Source) {
             self.update = UpdateState::Source;
-            return version;
+            return Task::batch([version, pin]);
         }
-        Task::batch([version, self.check_update()])
+        Task::batch([version, self.check_update(), pin])
+    }
+
+    fn pin_task(&self) -> Task<Message> {
+        if self.settings.token.is_empty() {
+            return Task::none();
+        }
+        let (server, token, name) = (self.settings.server.clone(), self.settings.token.clone(), self.settings.device.clone());
+        ui::in_thread(move || Message::PinRead(crate::bot::pinned(&server, &token, &name).map_err(|e| e.to_string())))
     }
 
     fn rescaled(&self, before: f32) -> Task<Message> {
@@ -2693,6 +2709,9 @@ impl Main {
                 let save = ui::in_thread(move || { crate::community::wire::save(&saved); Message::Nudged });
                 self.now_unix = unix_now();
                 let mut fresh = crate::community::Catalog::from_wire(said);
+                if self.settings.people_everyone {
+                    fresh.welcome(&self.everyone);
+                }
                 let previous = self.community.take();
                 let selected = self.community_person.and_then(|at| previous.as_ref()?.people.get(at)).map(|person| person.id);
                 if let Some(previous) = previous.as_ref().filter(|previous| !previous.staged) {
@@ -2722,7 +2741,40 @@ impl Main {
                 self.community_fetch = crate::community_screen::Fetch::Fresh(self.now_unix);
                 let card = self.card_task(false);
                 let friends = self.friends_task(false);
-                Task::batch([self.community_pictures_task(), friends, card, save])
+                Task::batch([self.community_pictures_task(), friends, card, save, self.everyone_task()])
+            }
+            Message::EveryoneArrived(Ok(said)) => {
+                self.everyone = said.people;
+                self.welcome_everyone();
+                self.community_pictures_task()
+            }
+            Message::EveryoneArrived(Err(_)) => Task::none(),
+            Message::PinRead(Ok(pin)) => {
+                let before = self.community_chat();
+                self.pin = Some(pin);
+                if self.community.is_some() && self.community_chat() != before {
+                    return self.community_task(true);
+                }
+                Task::none()
+            }
+            Message::PinRead(Err(_)) => Task::none(),
+            Message::Pinned(Ok(pin)) => {
+                if pin.error.is_empty() {
+                    let words = self.words.t("pin-done");
+                    self.say(words);
+                    self.pin = Some(pin);
+                    return self.community_task(true);
+                }
+                let day = pin.free_at.map(|at| self.words.day(at, unix_now())).unwrap_or_default();
+                let words = if pin.error == "too soon" { self.words.with("pin-too-soon", &[("day", day)]) } else { self.words.t("pin-failed") };
+                self.say(words);
+                self.pin = Some(crate::community::wire::Pin { error: String::new(), ..pin });
+                Task::none()
+            }
+            Message::Pinned(Err(_)) => {
+                let words = self.words.t("pin-failed");
+                self.say(words);
+                Task::none()
             }
             Message::CommunityArrived(Err(_)) => {
                 self.community_fetch = crate::community_screen::Fetch::Failed;
@@ -5186,7 +5238,7 @@ impl Main {
             self.community_fetch = crate::community_screen::Fetch::Loading;
         }
         let (server, token, name) = (self.settings.server.clone(), self.settings.token.clone(), self.settings.device.clone());
-        let chat = self.settings.chat_id.filter(|id| *id < 0);
+        let chat = self.community_chat();
         ui::in_thread(move || Message::CommunityArrived(crate::bot::community(&server, &token, &name, chat).map_err(|e| e.to_string())))
     }
 
@@ -5218,7 +5270,7 @@ impl Main {
         }
         self.card_asked = Some(now);
         let (server, token, name) = (self.settings.server.clone(), self.settings.token.clone(), self.settings.device.clone());
-        let chat = self.settings.chat_id.filter(|id| *id < 0);
+        let chat = self.community_chat();
         ui::in_thread(move || Message::CardArrived(crate::bot::card(&server, &token, &name, chat).map_err(|e| e.to_string())))
     }
 
@@ -5255,7 +5307,7 @@ impl Main {
     }
 
     fn sync_dossiers(&mut self) {
-        let chat = self.settings.chat_id.filter(|id| *id < 0).or_else(|| self.community.as_ref().and_then(|catalog| catalog.chat)).unwrap_or(0);
+        let chat = self.community_chat().or_else(|| self.community.as_ref().and_then(|catalog| catalog.chat)).unwrap_or(0);
         let scope = if self.settings.token.is_empty() { String::new() } else {
             crate::dossier_cache::scope(&self.settings.server, &self.settings.token, &self.settings.device, chat)
         };
@@ -5286,17 +5338,22 @@ impl Main {
             return Task::none();
         };
         let staged = self.community.as_ref().is_none_or(|catalog| catalog.staged);
-        let chat = self.settings.chat_id.filter(|id| *id < 0).or_else(|| self.community.as_ref().and_then(|catalog| catalog.chat));
+        let chat = self.community_chat().or_else(|| self.community.as_ref().and_then(|catalog| catalog.chat));
         match (staged || self.settings.token.is_empty(), chat) {
             (false, Some(chat)) => {
                 let Some(request) = self.dossier_cache.request(person.id, Instant::now(), unix_now()) else {
                     return self.scrape_task(at);
                 };
                 let (server, token, device, id) = (self.settings.server.clone(), self.settings.token.clone(), self.settings.device.clone(), person.id);
+                let outside = person.player.filter(|_| person.outside);
                 let asked = ui::streamed(move |push| {
                     let cached = crate::dossier_cache::load(&crate::sources::own_root(), &request);
                     if !push(Message::PersonDossierCached(request.clone(), cached)) { return; }
-                    let said = crate::bot::person(&server, &token, &device, chat, id).map_err(|e| e.to_string());
+                    let said = match outside {
+                        Some(player) => crate::bot::player(&server, &token, &device, player),
+                        None => crate::bot::person(&server, &token, &device, chat, id),
+                    }
+                    .map_err(|e| e.to_string());
                     let _ = push(Message::PersonDossier(request, said));
                 });
                 Task::batch([asked, self.scrape_task(at)])
@@ -5515,6 +5572,7 @@ impl Main {
             reading: self.community_reading.as_ref(),
             read_k: self.read_fade.interpolate(0.0, 1.0, self.now),
             people_from: self.people_from,
+            everyone: self.settings.people_everyone,
             people_query: &self.people_query,
             standing: self.community_standing,
             card: self.shown_card.as_ref(),
@@ -5581,6 +5639,8 @@ impl Main {
             donated: self.donated,
             tray: self.gallery || crate::tray::available(),
             build: self.shown_build(),
+            pin: self.pin.as_ref(),
+            now_unix: self.now_unix,
             worker_back: self.worker_back,
             farm: self.farm.as_ref(),
             scale_draft: self.scale_draft,
@@ -5723,6 +5783,20 @@ impl Main {
                 self.settings.ui_scale = chosen;
                 keep(&self.settings);
                 self.rescaled(before)
+            }
+            P::PeopleEveryone(on) => {
+                self.remember_mark("people-everyone", on);
+                self.settings.people_everyone = on;
+                keep(&self.settings);
+                self.welcome_everyone();
+                self.everyone_task()
+            }
+            P::Pin(chat) => {
+                if self.pin.as_ref().and_then(|pin| pin.chat) == Some(chat) || self.settings.token.is_empty() {
+                    return Task::none();
+                }
+                let (server, token, name) = (self.settings.server.clone(), self.settings.token.clone(), self.settings.device.clone());
+                ui::in_thread(move || Message::Pinned(crate::bot::pin(&server, &token, &name, chat).map_err(|e| e.to_string())))
             }
             P::CloseToTray(on) => {
                 self.remember_mark("close-to-tray", on);
@@ -6292,7 +6366,34 @@ impl Main {
             return Task::none();
         }
         let (server, token, name) = (self.settings.server.clone(), self.settings.token.clone(), self.settings.device.clone());
-        ui::in_thread(move || Message::Chats(crate::bot::chats(&server, &token, &name).unwrap_or_default()))
+        let chats = ui::in_thread(move || Message::Chats(crate::bot::chats(&server, &token, &name).unwrap_or_default()));
+        Task::batch([chats, self.pin_task()])
+    }
+
+    fn community_chat(&self) -> Option<i64> {
+        self.pin.as_ref().and_then(|pin| pin.chat).or(self.settings.chat_id).filter(|id| *id < 0)
+    }
+
+    fn everyone_task(&self) -> Task<Message> {
+        let staged = self.community.as_ref().is_none_or(|catalog| catalog.staged);
+        if !self.settings.people_everyone || self.settings.token.is_empty() || staged {
+            return Task::none();
+        }
+        let (server, token, name) = (self.settings.server.clone(), self.settings.token.clone(), self.settings.device.clone());
+        ui::in_thread(move || Message::EveryoneArrived(crate::bot::players(&server, &token, &name).map_err(|e| e.to_string())))
+    }
+
+    fn welcome_everyone(&mut self) {
+        let Some(catalog) = self.community.as_mut().filter(|catalog| !catalog.staged) else {
+            return;
+        };
+        let selected = self.community_person.and_then(|at| catalog.people.get(at)).map(|person| person.id);
+        if self.settings.people_everyone {
+            catalog.welcome(&self.everyone);
+        } else {
+            catalog.farewell();
+        }
+        self.community_person = selected.and_then(|id| catalog.people.iter().position(|person| person.id == id));
     }
 
     fn chat_name(&self) -> String {
@@ -6879,6 +6980,65 @@ mod tests {
         main.player = Some(replacement.clone());
         main.set_minimized(false);
         assert!(replacement.borrow().paused);
+    }
+
+    fn chat_catalogue() -> crate::community::Catalog {
+        let said: crate::community::wire::Community = serde_json::from_str(r#"{"chat": -100, "group": "Osu Squad", "people": [
+            {"id": 7, "player": 70, "name": "NaumRedlo", "pp": 9870, "you": true},
+            {"id": 8, "player": 80, "name": "kotofey", "pp": 12480}
+        ]}"#).unwrap();
+        crate::community::Catalog::from_wire(said)
+    }
+
+    #[test]
+    fn every_player_comes_and_goes_with_the_setting_and_the_open_dossier_stays_open() {
+        use super::Message as M;
+        let mut main = super::Main::staged(crate::lang::Words::new(crate::lang::Lang::En), crate::settings::Settings::default(), crate::library::Library::default(), None);
+        main.community = Some(chat_catalogue());
+        main.community_person = Some(1);
+        let everyone: crate::community::wire::Everyone = serde_json::from_str(r#"{"people": [
+            {"id": 7, "player": 70, "name": "NaumRedlo", "pp": 9870},
+            {"id": 900, "player": 90, "name": "Mirrorwave", "pp": 11215}
+        ]}"#).unwrap();
+        let _ = main.update(M::EveryoneArrived(Ok(everyone)));
+        assert_eq!(main.community.as_ref().unwrap().people.len(), 2, "every player came in while the setting was off");
+
+        main.settings.people_everyone = true;
+        main.welcome_everyone();
+        let people = &main.community.as_ref().unwrap().people;
+        assert_eq!(people.iter().map(|person| person.name.as_str()).collect::<Vec<_>>(), ["NaumRedlo", "kotofey", "Mirrorwave"]);
+        assert!(people[2].outside);
+        assert_eq!(main.community_person, Some(1), "the open dossier moved to someone else");
+
+        main.community_person = Some(2);
+        main.settings.people_everyone = false;
+        main.welcome_everyone();
+        assert_eq!(main.community.as_ref().unwrap().people.len(), 2);
+        assert_eq!(main.community_person, None, "a dossier of someone no longer listed stayed open");
+    }
+
+    #[test]
+    fn a_pin_refused_says_when_it_can_move_and_a_pin_moves_the_community() {
+        use super::Message as M;
+        use crate::community::wire::Pin;
+        let mut settings = crate::settings::Settings::default();
+        settings.chat_id = Some(-100);
+        let mut main = super::Main::staged(crate::lang::Words::new(crate::lang::Lang::En), settings, crate::library::Library::default(), None);
+        main.community = Some(chat_catalogue());
+        assert_eq!(main.community_chat(), Some(-100));
+
+        let _ = main.update(M::PinRead(Ok(Pin { chat: Some(-200), since: Some(1_790_000_000), free_at: Some(1_792_592_000), error: String::new() })));
+        assert_eq!(main.community_chat(), Some(-200), "the community did not follow the pinned chat");
+
+        main.hint = None;
+        let _ = main.update(M::Pinned(Ok(Pin { chat: Some(-200), since: Some(1_790_000_000), free_at: Some(1_792_592_000), error: "too soon".into() })));
+        let (said, _) = main.hint.clone().expect("nothing was said about the refusal");
+        assert!(said.contains(&main.words.day(1_792_592_000, super::unix_now())), "the refusal did not say when: {said}");
+        assert_eq!(main.pin.as_ref().and_then(|pin| pin.chat), Some(-200));
+
+        let _ = main.update(M::Pinned(Ok(Pin { chat: Some(-300), since: Some(1_795_000_000), free_at: Some(1_797_592_000), error: String::new() })));
+        assert_eq!(main.community_chat(), Some(-300));
+        assert_eq!(main.hint.clone().map(|(said, _)| said), Some(main.words.t("pin-done")));
     }
 
     #[test]

@@ -120,6 +120,7 @@ pub struct Ground<'a> {
     pub board: Board,
     pub person: Option<usize>,
     pub now_unix: i64,
+    pub everyone: bool,
     pub news: &'a News,
     pub pictures: &'a HashMap<String, image::Handle>,
     pub loading: &'a std::collections::HashSet<String>,
@@ -496,7 +497,7 @@ pub(crate) fn title_chip<'a>(title: &Title, lang: crate::lang::Lang) -> Element<
 pub(crate) fn people_switch<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
     let w = ground.words;
     container(segmented(vec![
-        (w.t("people-chat"), ground.people_from == PeopleFrom::Chat, Message::PeopleFrom(PeopleFrom::Chat)),
+        (w.t(if ground.everyone { "people-everyone-tab" } else { "people-chat" }), ground.people_from == PeopleFrom::Chat, Message::PeopleFrom(PeopleFrom::Chat)),
         (w.t("people-game"), ground.people_from == PeopleFrom::Game, Message::PeopleFrom(PeopleFrom::Game)),
     ]))
     .center_x(Length::Fill)
@@ -775,7 +776,7 @@ fn person_card<'a>(ground: &Ground<'a>, at: usize, person: &Person, place: usize
         .width(Length::Fill),
         column![
             text(format!("#{place}")).font(theme::SANS_SEMI).size(30.0).wrapping(text::Wrapping::None).color(ui::faded(place_colour)),
-            ui::mono_small(w.t("in-group"), FAINT),
+            ui::mono_small(w.t(if person.outside { "on-server" } else { "in-group" }), FAINT),
         ]
         .spacing(0)
         .align_x(iced::alignment::Horizontal::Right),

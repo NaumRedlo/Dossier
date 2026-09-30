@@ -33,6 +33,7 @@ pub mod settings;
 pub mod settings_screen;
 pub mod sources;
 pub mod theme;
+pub mod tray;
 pub mod unfold;
 pub mod updates;
 pub mod ui;
@@ -80,6 +81,9 @@ pub struct App {
     pub backdrop: image::Handle,
     viewport: Size,
     measured: bool,
+    opened: bool,
+    tray: Option<tray::Tray>,
+    hidden: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -90,6 +94,8 @@ pub enum Message {
     Snapped(Option<iced::window::Id>),
     Shot(iced::window::Screenshot),
     Opened(Size),
+    CloseAsked(iced::window::Id),
+    Tray(tray::Said),
     Measure,
     Monitor(Option<Size>),
     Viewport(Size),
@@ -220,16 +226,16 @@ impl App {
             } else {
                 Task::none()
             };
-            return (App { screen: Screen::Main(main), backdrop, viewport: WINDOW, measured: false }, Task::batch([task.map(Message::Main), snap, press]));
+            return (App { screen: Screen::Main(main), backdrop, viewport: WINDOW, measured: false, opened: false, tray: None, hidden: false }, Task::batch([task.map(Message::Main), snap, press]));
         }
         if settings::first_run() {
             let (flow, task) = FirstRun::new();
-            (App { screen: Screen::FirstRun(flow), backdrop, viewport: WINDOW, measured: false }, task.map(Message::FirstRun))
+            (App { screen: Screen::FirstRun(flow), backdrop, viewport: WINDOW, measured: false, opened: false, tray: None, hidden: false }, task.map(Message::FirstRun))
         } else {
             let said = Settings::load();
             let (mut main, task) = Main::new(Words::new(said.lang), said);
             let launched = main.launched();
-            (App { screen: Screen::Main(main), backdrop, viewport: WINDOW, measured: false }, Task::batch([task, launched]).map(Message::Main))
+            (App { screen: Screen::Main(main), backdrop, viewport: WINDOW, measured: false, opened: false, tray: None, hidden: false }, Task::batch([task, launched]).map(Message::Main))
         }
     }
 
@@ -265,6 +271,7 @@ impl App {
                     let (mut main, task) = Main::new(Words::new(said.lang), said);
                     let launched = main.launched();
                     self.screen = Screen::Main(main);
+                    self.keep_tray();
                     return Task::batch([task, launched]).map(Message::Main);
                 }
                 task.map(Message::FirstRun)
@@ -273,12 +280,46 @@ impl App {
                 let Screen::Main(main) = &mut self.screen else {
                     return Task::none();
                 };
-                main.update(inner).map(Message::Main)
+                let task = main.update(inner).map(Message::Main);
+                self.keep_tray();
+                task
             }
             Message::Opened(size) => {
                 self.viewport = size;
+                self.opened = true;
+                self.keep_tray();
                 self.handle(Message::Measure)
             }
+            Message::CloseAsked(id) => match (&mut self.screen, &self.tray) {
+                (Screen::Main(main), Some(_)) => {
+                    self.hidden = true;
+                    main.set_hidden(true);
+                    tray::dock(false);
+                    let hidden = iced::window::set_mode(id, iced::window::Mode::Hidden);
+                    if cfg!(target_os = "linux") {
+                        hidden.chain(iced::window::minimize(id, true))
+                    } else {
+                        hidden
+                    }
+                }
+                _ => iced::exit(),
+            },
+            Message::Tray(tray::Said::Show) => {
+                if let Screen::Main(main) = &mut self.screen {
+                    main.set_hidden(false);
+                }
+                let was_hidden = std::mem::replace(&mut self.hidden, false);
+                tray::dock(true);
+                iced::window::oldest().and_then(move |id| {
+                    let shown = match (was_hidden, cfg!(target_os = "linux")) {
+                        (false, _) => Task::none(),
+                        (true, false) => iced::window::set_mode(id, iced::window::Mode::Windowed),
+                        (true, true) => iced::window::minimize(id, false).chain(iced::window::set_mode(id, iced::window::Mode::Windowed)),
+                    };
+                    shown.chain(iced::window::gain_focus(id))
+                })
+            }
+            Message::Tray(tray::Said::Quit) => iced::exit(),
             Message::Measure => iced::window::oldest().and_then(iced::window::monitor_size).map(Message::Monitor),
             Message::Viewport(size) => {
                 self.viewport = size;
@@ -342,7 +383,25 @@ impl App {
             iced::Event::Window(iced::window::Event::Resized(size)) => Some(Message::Viewport(size)),
             _ => None,
         });
-        Subscription::batch([screen, window])
+        let closing = iced::window::close_requests().map(Message::CloseAsked);
+        let tray = match self.tray {
+            Some(_) => Subscription::run(tray::events).map(Message::Tray),
+            None => Subscription::none(),
+        };
+        Subscription::batch([screen, window, closing, tray])
+    }
+
+    fn keep_tray(&mut self) {
+        let Screen::Main(main) = &self.screen else {
+            return;
+        };
+        let wanted = self.opened && main.settings.close_to_tray && REHEARSAL.get().is_none();
+        match (&mut self.tray, wanted) {
+            (Some(tray), true) => tray.speak(&main.words),
+            (None, true) => self.tray = tray::Tray::new(&main.words),
+            (Some(_), false) if !self.hidden => self.tray = None,
+            _ => {}
+        }
     }
 
     pub fn scale_factor(&self) -> f32 {

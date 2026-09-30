@@ -59,7 +59,7 @@ fn settings_switches_request_the_opposite_value_after_tiles_are_reordered() {
                 ("scene", vec![("live-replay", P::Scene(!on)), ("pause-unfocused", P::PauseUnfocused(!on)), ("auto-flip", P::AutoFlip(!on))]),
                 ("play", vec![("hud", P::Hud(!on)), ("cursor-grows", P::CursorGrows(!on)), ("map-sounds", P::MapSounds(!on)), ("skin-sounds", P::SkinSounds(!on))]),
                 ("elements", Effect::ALL.into_iter().map(|effect| (effect.tag(), P::Effect(effect, !on))).collect()),
-                ("look", vec![("scale-to-monitor", P::AutoScale(!on))]),
+                ("look", vec![("scale-to-monitor", P::AutoScale(!on)), ("close-to-tray", P::CloseToTray(!on))]),
                 ("sources", vec![("exported-only", P::ExportedOnly(!on))]),
                 ("builds", vec![("quiet-updates", P::QuietUpdates(!on))]),
             ] {
@@ -75,6 +75,7 @@ fn settings_switches_request_the_opposite_value_after_tiles_are_reordered() {
                 main.settings.ui_scale = if on { 0 } else { 100 };
                 main.settings.exported_only = on;
                 main.settings.quiet_updates = on;
+                main.settings.close_to_tray = on;
                 for effect in Effect::ALL {
                     main.settings.set_effect(effect, on);
                 }

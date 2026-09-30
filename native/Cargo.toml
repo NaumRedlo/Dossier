@@ -32,6 +32,7 @@ sha2 = "0.10"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
 keepawake = "0.6.1"
+tray-icon = { version = "0.26", default-features = false, features = ["ksni"] }
 dossier-replay = { path = "../crates/dossier-replay" }
 dossier-beatmap = { path = "../crates/dossier-beatmap" }
 dossier-sim = { path = "../crates/dossier-sim" }
@@ -40,6 +41,13 @@ dossier-audio = { path = "../crates/dossier-audio" }
 dossier-produce = { path = "../crates/dossier-produce" }
 dossier-assay = { path = "../crates/dossier-assay" }
 
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSResponder", "NSRunningApplication"] }
+
+[target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
+zbus = { version = "5", default-features = false, features = ["blocking-api", "async-io"] }
 
 [target.'cfg(windows)'.build-dependencies]
 winresource = "0.1"

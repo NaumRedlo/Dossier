@@ -182,6 +182,7 @@ fn main() -> iced::Result {
             min_size: Some(Size::new(760.0, 560.0)),
             icon: dossier_native::icon::window(),
             position: window::Position::Centered,
+            exit_on_close_request: false,
             ..window::Settings::default()
         })
         .theme(App::theme)

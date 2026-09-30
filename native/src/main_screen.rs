@@ -409,6 +409,7 @@ pub struct Main {
     pub store: videos::Store,
     pub player: Option<std::rc::Rc<std::cell::RefCell<player::Player>>>,
     minimized: bool,
+    hidden: bool,
     window_id: Option<window::Id>,
     resume_player: Option<std::rc::Weak<std::cell::RefCell<player::Player>>>,
     pub open_video: Option<usize>,
@@ -619,6 +620,7 @@ impl Main {
             store: videos::Store::load(),
             player: None,
             minimized: false,
+            hidden: false,
             window_id: None,
             resume_player: None,
             open_video: None,
@@ -1284,6 +1286,11 @@ impl Main {
         }
     }
 
+    pub fn set_hidden(&mut self, hidden: bool) {
+        self.hidden = hidden;
+        self.set_minimized(hidden);
+    }
+
     fn set_minimized(&mut self, minimized: bool) {
         if self.minimized == minimized { return; }
         self.minimized = minimized;
@@ -1331,7 +1338,7 @@ impl Main {
             }
             Message::PollMinimized => self.window_id.map_or_else(Task::none, |id| window::is_minimized(id).map(Message::Minimized)),
             Message::Minimized(Some(minimized)) => {
-                self.set_minimized(minimized);
+                self.set_minimized(minimized || self.hidden);
                 Task::none()
             }
             Message::Minimized(None) => Task::none(),
@@ -5564,6 +5571,7 @@ impl Main {
             worker_last: self.worker_last.as_ref(),
             worker_done: self.worker_done,
             donated: self.donated,
+            tray: self.gallery || crate::tray::available(),
             worker_back: self.worker_back,
             farm: self.farm.as_ref(),
             scale_draft: self.scale_draft,
@@ -5706,6 +5714,12 @@ impl Main {
                 self.settings.ui_scale = chosen;
                 keep(&self.settings);
                 self.rescaled(before)
+            }
+            P::CloseToTray(on) => {
+                self.remember_mark("close-to-tray", on);
+                self.settings.close_to_tray = on;
+                keep(&self.settings);
+                Task::none()
             }
             P::AutoScale(on) => {
                 self.remember_mark("auto-scale", on);

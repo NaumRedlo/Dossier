@@ -137,6 +137,7 @@ pub struct Ground<'a> {
     pub worker_done: u32,
     pub worker_back: u32,
     pub donated: usize,
+    pub tray: bool,
     pub farm: Option<&'a crate::bot::Farm>,
     pub scale_draft: Option<u32>,
 }
@@ -159,6 +160,7 @@ pub enum Message {
     ScaleDone,
     ExportedOnly(bool),
     AutoScale(bool),
+    CloseToTray(bool),
     Source(usize, bool),
     RemoveSource(usize),
     AddFolder,
@@ -451,6 +453,9 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
                         .width(280.0)
                         .padding(Padding::ZERO.top(8.0)),
                 );
+            }
+            if ground.tray {
+                panel = panel.push(container(pill(ground, "close-to-tray", w.t("close-to-tray"), s.close_to_tray, Message::CloseToTray(!s.close_to_tray))).padding(Padding::ZERO.top(10.0)));
             }
             panel.into()
         }

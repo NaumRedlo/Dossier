@@ -72,6 +72,8 @@ pub struct Settings {
     #[serde(default)]
     pub worker_on: bool,
     #[serde(default)]
+    pub donate_replays: bool,
+    #[serde(default)]
     pub worker_done: u32,
     #[serde(default)]
     pub worker_back: u32,
@@ -874,6 +876,7 @@ impl Default for Settings {
             tell: Tell::default(),
             skin: None,
             worker_on: false,
+            donate_replays: false,
             worker_done: 0,
             worker_back: 0,
             quiet_updates: false,

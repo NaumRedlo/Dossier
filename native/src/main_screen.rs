@@ -94,6 +94,7 @@ pub enum Message {
     CardShared(Result<(), String>),
     Worn(Result<(), String>),
     Nudged,
+    Donated(usize),
     ReadFirst,
     Loaded(Library),
     Reading(library::Reading),
@@ -449,6 +450,7 @@ pub struct Main {
     pub(crate) worker_last: Option<crate::worker::Step>,
     pub(crate) worker_running: bool,
     pub(crate) worker_done: u32,
+    donated: usize,
     pub(crate) worker_back: u32,
     pub(crate) farm: Option<crate::bot::Farm>,
     pub update: UpdateState,
@@ -554,6 +556,8 @@ fn unix_now() -> i64 {
 impl Main {
     pub fn new(words: Words, settings: Settings) -> (Main, Task<Message>) {
         let worker_done = settings.worker_done;
+        crate::donate::allow(settings.donate_replays);
+        let donated = crate::donate::given(&crate::donate::ledger()).len();
         let worker_back = settings.worker_back;
         let sources = settings.sources.clone();
         library::only_exported(settings.exported_only);
@@ -654,6 +658,7 @@ impl Main {
             worker_last: None,
             worker_running: false,
             worker_done,
+            donated,
             worker_back,
             farm: None,
             update: UpdateState::Unknown,
@@ -1380,7 +1385,7 @@ impl Main {
                         self.announce(notices::Mark::Done, words, detail, String::new(), newest.map_hash.clone(), notices::Link::Replay(newest.path.clone()));
                     }
                 }
-                Task::batch([self.thumbs_task(), self.covers_task(), nudge])
+                Task::batch([self.thumbs_task(), self.covers_task(), nudge, self.donate_task()])
             }
             Message::Loaded(library) => {
                 self.wake(Instant::now());
@@ -1394,7 +1399,7 @@ impl Main {
                 self.enter = Animation::new(false).duration(ENTER).easing(Easing::EaseOutCubic).go(true, Instant::now());
                 let first = self.visible().first().copied();
                 self.chosen = first;
-                Task::batch([self.fetch_for_chosen(), self.thumbs_task(), self.covers_task(), self.start_live(), self.watch_task()])
+                Task::batch([self.fetch_for_chosen(), self.thumbs_task(), self.covers_task(), self.start_live(), self.watch_task(), self.donate_task()])
             }
             Message::MapKnown(hash, known) => {
                 if let Some(library) = self.library.as_mut() {
@@ -2617,6 +2622,10 @@ impl Main {
                 Task::batch([shown, saved])
             }
             Message::Nudged => Task::none(),
+            Message::Donated(count) => {
+                self.donated = count;
+                Task::none()
+            }
             Message::Worn(result) => {
                 if let Err(why) = result {
                     self.announce(notices::Mark::Bad, self.words.t("title-not-worn"), String::new(), why, String::new(), notices::Link::None);
@@ -5199,6 +5208,23 @@ impl Main {
         Task::batch([pictures, ui::in_thread(move || Message::PersonCard(asked.to_lowercase(), crate::osu_profile::fetch(&asked)))])
     }
 
+    fn donate_task(&self) -> Task<Message> {
+        if !self.settings.donate_replays || self.settings.token.is_empty() {
+            return Task::none();
+        }
+        let plays: Vec<crate::donate::Play> = self.entries().iter().map(|entry| crate::donate::Play { path: entry.path.clone(), hash: entry.replay_hash.clone() }).collect();
+        if plays.is_empty() {
+            return Task::none();
+        }
+        let (server, token, device) = (self.settings.server.clone(), self.settings.token.clone(), self.settings.device.clone());
+        ui::streamed(move |push| {
+            let _ = crate::donate::give(&server, &token, &device, &plays, &crate::donate::ledger(), |count| {
+                push(count);
+            });
+        })
+        .map(Message::Donated)
+    }
+
     fn share_task(&mut self) -> Task<Message> {
         let staged = self.community.as_ref().is_none_or(|catalog| catalog.staged);
         let Some(card) = self.osu_card.clone().filter(|_| !staged && !self.settings.token.is_empty()) else {
@@ -5437,6 +5463,7 @@ impl Main {
             worker: self.worker_step.as_ref(),
             worker_last: self.worker_last.as_ref(),
             worker_done: self.worker_done,
+            donated: self.donated,
             worker_back: self.worker_back,
             farm: self.farm.as_ref(),
             scale_draft: self.scale_draft,
@@ -5517,6 +5544,13 @@ impl Main {
                     self.trail = None;
                     Task::none()
                 }
+            }
+            P::Donate(on) => {
+                self.remember_mark("donate", on);
+                self.settings.donate_replays = on;
+                crate::donate::allow(on);
+                keep(&self.settings);
+                self.donate_task()
             }
             P::PauseUnfocused(on) => {
                 self.remember_mark("pause", on);

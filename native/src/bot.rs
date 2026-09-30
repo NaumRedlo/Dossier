@@ -5,6 +5,7 @@ pub const BUILD: &str = env!("CARGO_PKG_VERSION");
 pub const PRERELEASE: bool = true;
 
 const PATIENCE: Duration = Duration::from_secs(8);
+const DONATE_PATIENCE: Duration = Duration::from_secs(60);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Refused {
@@ -187,6 +188,19 @@ pub fn community(server: &str, token: &str, name: &str, chat: Option<i64>) -> Re
     }
     let response = request.send().map_err(|e| Refused::Network(e.to_string()))?;
     status(response)?.json().map_err(|e| Refused::Network(e.to_string()))
+}
+
+pub fn donate(server: &str, token: &str, name: &str, replay: Vec<u8>) -> Result<bool, Refused> {
+    let response = long(DONATE_PATIENCE)?
+        .post(format!("{server}/render/me/replay"))
+        .header("X-Render-Worker", name)
+        .header("Content-Type", "application/octet-stream")
+        .bearer_auth(token)
+        .body(replay)
+        .send()
+        .map_err(|e| Refused::Network(e.to_string()))?;
+    let answer: serde_json::Value = status(response)?.json().map_err(|e| Refused::Network(e.to_string()))?;
+    Ok(answer.get("known").and_then(|known| known.as_bool()).unwrap_or(false))
 }
 
 pub fn played(server: &str, token: &str, name: &str) -> Result<(), Refused> {

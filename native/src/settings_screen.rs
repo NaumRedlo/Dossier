@@ -133,6 +133,7 @@ pub struct Ground<'a> {
     pub worker_last: Option<&'a crate::worker::Step>,
     pub worker_done: u32,
     pub worker_back: u32,
+    pub donated: usize,
     pub farm: Option<&'a crate::bot::Farm>,
     pub scale_draft: Option<u32>,
 }
@@ -145,6 +146,7 @@ pub enum Message {
     RenameDone,
     Scene(bool),
     PauseUnfocused(bool),
+    Donate(bool),
     AutoFlip(bool),
     Height(f32),
     Rate(f32),
@@ -944,6 +946,9 @@ fn worker_tile<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
         }
         body = body.push(container(farm).padding(Padding::ZERO.top(14.0)));
     }
+    body = body.push(container(pill(ground, "donate", w.t("donate-replays"), s.donate_replays, Message::Donate(!s.donate_replays))).padding(Padding::ZERO.top(14.0)));
+    let donated = if s.donate_replays { w.with("donate-count", &[("n", ground.donated.to_string())]) } else { w.t("donate-about") };
+    body = body.push(container(small(donated, FAINT)).padding(Padding::ZERO.top(6.0)));
     body.into()
 }
 

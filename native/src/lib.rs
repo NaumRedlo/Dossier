@@ -4,6 +4,7 @@ pub mod chronicle;
 pub mod checks;
 pub mod community;
 pub mod community_screen;
+pub mod donate;
 pub mod dossier;
 pub mod dossier_cache;
 pub mod desktop;

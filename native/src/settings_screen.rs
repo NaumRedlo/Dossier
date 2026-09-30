@@ -138,6 +138,7 @@ pub struct Ground<'a> {
     pub worker_back: u32,
     pub donated: usize,
     pub tray: bool,
+    pub build: &'static str,
     pub farm: Option<&'a crate::bot::Farm>,
     pub scale_draft: Option<u32>,
 }
@@ -722,7 +723,7 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
         }
         Tile::Builds => {
             use crate::updates::State as U;
-            let engine = crate::bot::BUILD.to_owned();
+            let engine = ground.build.to_owned();
             let mut under: Vec<String> = Vec::new();
             if crate::bot::PRERELEASE {
                 under.push(w.t("prerelease"));

@@ -3954,6 +3954,14 @@ impl Main {
         self.start_render(next.path, next.ask)
     }
 
+    pub(crate) fn shown_build(&self) -> &'static str {
+        if self.gallery {
+            crate::gallery::SHOWN_BUILD
+        } else {
+            bot::BUILD
+        }
+    }
+
     fn render_running(&self) -> bool {
         self.rendering.as_ref().is_some_and(|r| !r.is_over())
     }
@@ -5572,6 +5580,7 @@ impl Main {
             worker_done: self.worker_done,
             donated: self.donated,
             tray: self.gallery || crate::tray::available(),
+            build: self.shown_build(),
             worker_back: self.worker_back,
             farm: self.farm.as_ref(),
             scale_draft: self.scale_draft,
@@ -6437,7 +6446,7 @@ impl Main {
                 self.big(self.entries().len().to_string(), w.t("replays-in-journal")),
                 self.big(self.library.as_ref().map_or(0, |library| library.maps).to_string(), w.t("maps-in-library")),
             ),
-            self.pair(self.big(sent.to_string(), w.t("sent-count")), self.big(bot::BUILD.to_owned(), w.t("build"))),
+            self.pair(self.big(sent.to_string(), w.t("sent-count")), self.big(self.shown_build().to_owned(), w.t("build"))),
         ]
         .spacing(8);
         vec![self.card(worker.into(), false), self.card(device.into(), false)]

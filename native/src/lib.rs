@@ -5,6 +5,7 @@ pub mod checks;
 pub mod community;
 pub mod community_screen;
 pub mod donate;
+pub mod frames;
 pub mod dossier;
 pub mod dossier_cache;
 pub mod desktop;
@@ -233,6 +234,26 @@ impl App {
     }
 
     pub fn update(&mut self, message: Message) -> Task<Message> {
+        if !frames::on() {
+            return self.handle(message);
+        }
+        let label = match (&message, &self.screen) {
+            (Message::Main(inner), Screen::Main(main)) => {
+                if let main_screen::Message::Tick(at) = inner {
+                    frames::frame(*at, &frames::name(&main.overlay));
+                }
+                frames::name(inner)
+            }
+            (Message::FirstRun(inner), _) => frames::name(inner),
+            _ => frames::name(&message),
+        };
+        let from = std::time::Instant::now();
+        let task = self.handle(message);
+        frames::slow("update", from, &label);
+        task
+    }
+
+    fn handle(&mut self, message: Message) -> Task<Message> {
         match message {
             Message::FirstRun(inner) => {
                 let Screen::FirstRun(flow) = &mut self.screen else {
@@ -256,7 +277,7 @@ impl App {
             }
             Message::Opened(size) => {
                 self.viewport = size;
-                self.update(Message::Measure)
+                self.handle(Message::Measure)
             }
             Message::Measure => iced::window::oldest().and_then(iced::window::monitor_size).map(Message::Monitor),
             Message::Viewport(size) => {
@@ -292,10 +313,18 @@ impl App {
     }
 
     pub fn view(&self) -> Element<'_, Message> {
+        let from = std::time::Instant::now();
         let front: Element<'_, Message> = match &self.screen {
             Screen::FirstRun(flow) => flow.view().map(Message::FirstRun),
             Screen::Main(main) => main.view().map(Message::Main),
         };
+        if frames::on() {
+            let label = match &self.screen {
+                Screen::Main(main) => frames::name(&main.overlay),
+                Screen::FirstRun(_) => "FirstRun".to_owned(),
+            };
+            frames::slow("view", from, &label);
+        }
         stack![ui::backdrop(&self.backdrop), front]
             .width(Length::Fill)
             .height(Length::Fill)

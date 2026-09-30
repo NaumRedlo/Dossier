@@ -27,6 +27,7 @@ fn main() -> iced::Result {
         }
         return Ok(());
     }
+    dossier_native::frames::start();
     if let Some(rehearsal) = dossier_native::Rehearsal::from_args(&args) {
         let _ = dossier_native::REHEARSAL.set(rehearsal);
     }

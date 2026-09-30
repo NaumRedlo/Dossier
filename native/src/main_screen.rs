@@ -185,6 +185,7 @@ pub enum Message {
     OpenFolder,
     Render,
     StopRender,
+    Unqueue(PathBuf),
     Rendered(Step),
     OpenOut,
     ShowOut,
@@ -287,6 +288,12 @@ impl Toast {
             self.born += now.saturating_duration_since(paused);
         }
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct Queued {
+    pub path: PathBuf,
+    pub(crate) ask: render::Ask,
 }
 
 #[derive(Debug, Clone)]
@@ -467,6 +474,7 @@ pub struct Main {
     pub sending: Option<Sending>,
     pub overlay: Overlay,
     pub rendering: Option<Rendering>,
+    pub queued: Vec<Queued>,
     pub fetching: Vec<Fetching>,
     fetch_serial: u64,
     pub looking: Option<scan::Step>,
@@ -676,6 +684,7 @@ impl Main {
             sending: None,
             overlay: Overlay::None,
             rendering: None,
+            queued: Vec::new(),
             fetching: Vec::new(),
             fetch_serial: 0,
             looking: None,
@@ -845,6 +854,7 @@ impl Main {
             && !crate::worker::holding()
             && self.sending.as_ref().is_none_or(|sending| sending.over.is_some())
             && !self.fetch_running()
+            && self.queued.is_empty()
             && !matches!(self.looking, Some(scan::Step::Looking { .. }))
     }
 
@@ -888,6 +898,7 @@ impl Main {
 
     pub fn busy(&self) -> bool {
         self.rendering.as_ref().is_some_and(|r| !r.is_over())
+            || !self.queued.is_empty()
             || self.fetch_running()
             || matches!(self.looking, Some(scan::Step::Looking { .. }))
             || self.sending.as_ref().is_some_and(|s| s.over.is_none())
@@ -1248,6 +1259,7 @@ impl Main {
             && matches!(self.pairing, Pairing::Idle) && self.toasts.is_empty()
             && !self.rendering.as_ref().is_some_and(|job| !job.is_over())
             && !self.fetch_running()
+            && self.queued.is_empty()
             && !matches!(self.looking, Some(scan::Step::Looking { .. }))
     }
 
@@ -1348,6 +1360,7 @@ impl Main {
             }
             Message::AutoNext => {
                 let busy = self.rendering.as_ref().is_some_and(|r| !r.is_over())
+                    || !self.queued.is_empty()
                     || self.fetch_running()
                     || matches!(self.looking, Some(scan::Step::Looking { .. }));
                 if !self.settings.auto_flip || busy || self.overlay != Overlay::None || self.player.is_some() || self.menu.is_some() || crate::updates::idle() < AUTO_IDLE {
@@ -2587,32 +2600,8 @@ impl Main {
                 }
             }
             Message::Worked(step) => {
-                use crate::worker::Step as W;
-                match &step {
-                    W::Stopped => {
-                        self.worker_running = false;
-                        self.worker_step = None;
-                        return if self.settings.worker_on { self.start_worker() } else { Task::none() };
-                    }
-                    W::Delivered { .. } => {
-                        self.worker_done = self.worker_done.saturating_add(1);
-                        self.settings.worker_done = self.worker_done;
-                        let _ = self.settings.save();
-                        self.worker_last = Some(step.clone());
-                        self.worker_step = None;
-                        return self.farm_task();
-                    }
-                    W::HandedBack { .. } => {
-                        self.worker_back = self.worker_back.saturating_add(1);
-                        self.settings.worker_back = self.worker_back;
-                        let _ = self.settings.save();
-                        self.worker_last = Some(step.clone());
-                        self.worker_step = None;
-                        return self.farm_task();
-                    }
-                    _ => self.worker_step = Some(step),
-                }
-                Task::none()
+                let worked = self.worked(step);
+                Task::batch([worked, self.next_render()])
             }
             Message::NewsTick => self.refresh_news(false),
             Message::OsuProfile(Ok(card)) => {
@@ -2775,7 +2764,15 @@ impl Main {
                 Task::none()
             }
             Message::Render => {
-                if self.rendering.as_ref().is_some_and(|r| !r.is_over()) {
+                let Some(entry) = self.chosen_entry() else {
+                    return Task::none();
+                };
+                let path = entry.path.clone();
+                if self.render_running() {
+                    let waiting = self.rendering.as_ref().is_some_and(|r| r.path == path) || self.queued.iter().any(|q| q.path == path);
+                    if let Some(ask) = self.render_ask(entry).filter(|_| !waiting) {
+                        self.queued.push(Queued { path, ask });
+                    }
                     return Task::none();
                 }
                 if crate::worker::drawing() {
@@ -2783,76 +2780,22 @@ impl Main {
                     self.say(words);
                     return Task::none();
                 }
-                let (Some(entry), Some(ffmpeg)) = (self.chosen_entry(), self.ffmpeg.clone()) else {
-                    return Task::none();
-                };
-                let Some(map) = &entry.map else {
-                    return Task::none();
-                };
-                let out = self.settings.renders_dir().join(render::file_name(&entry.player, &map.line()));
-                let ask = render::Ask {
-                    replay: entry.path.clone(),
-                    map: map.file.clone(),
-                    map_hash: entry.map_hash.clone(),
-                    ffmpeg,
-                    out,
-                    size: self.settings.render_size(),
-                    fps: self.settings.render_fps,
-                    crf: self.settings.render_crf,
-                    skin: self.settings.skin.clone(),
-                    music_level: self.settings.music_level,
-                    hitsound_level: self.settings.hitsound_level,
-                    play: render::Play {
-                        hud: self.settings.hud,
-                        cursor_grows: self.settings.cursor_grows,
-                        dim: (self.settings.background_dim * 100.0).round() as u32,
-                        blur: (self.settings.background_blur * 100.0).round() as u32,
-                        map_sounds: self.settings.map_sounds,
-                        skin_sounds: self.settings.skin_sounds,
-                    },
-                };
-                self.rendering = Some(Rendering { path: entry.path.clone(), reached: Vec::new(), out: None });
-                render::run(ask).map(Message::Rendered)
+                match self.render_ask(entry) {
+                    Some(ask) => self.start_render(path, ask),
+                    None => Task::none(),
+                }
+            }
+            Message::Unqueue(path) => {
+                self.queued.retain(|queued| queued.path != path);
+                Task::none()
             }
             Message::StopRender => {
                 render::stop();
                 Task::none()
             }
             Message::Rendered(step) => {
-                let mut saved = None;
-                if let Some(rendering) = &mut self.rendering {
-                    if let Step::Saved(path, media) = &step {
-                        rendering.out = Some(path.clone());
-                        saved = Some((rendering.path.clone(), path.clone(), *media));
-                    }
-                    rendering.reached.push(step);
-                }
-                if let Some((replay, out, media)) = saved {
-                    if let Some(entry) = self.entries().iter().find(|e| e.path == replay).cloned() {
-                        let video = videos::Video::from_render(&entry, out.clone(), media.length_ms, media.width, media.height, media.fps);
-                        let detail = format!("{} — {}", video.player, video.map_line());
-                        let note = format!("{}  {}", self.words.length(video.length_ms), self.words.mb(video.size));
-                        let hash = video.map_hash.clone();
-                        self.store.add(video);
-                        let watching_it = self.overlay == Overlay::None && self.chosen_entry().is_some_and(|chosen| chosen.path == replay);
-                        let words = self.words.t("rendered-notice");
-                        match watching_it {
-                            true => {
-                                let _ = self.write_notice(notices::Mark::Done, words, detail, note, hash, notices::Link::OpenVideo(out));
-                            }
-                            false => self.announce(notices::Mark::Done, words, detail, note, hash, notices::Link::OpenVideo(out)),
-                        }
-                    }
-                }
-                if let Some(Step::Failed(why)) = self.rendering.as_ref().and_then(|r| r.last().cloned()) {
-                    if let Some(replay) = self.rendering.as_ref().map(|r| r.path.clone()) {
-                        let entry = self.entries().iter().find(|e| e.path == replay);
-                        let who = entry.map(|e| format!("{} — {}", e.player, e.song().unwrap_or_default())).unwrap_or_default();
-                        let hash = entry.map(|e| e.map_hash.clone()).unwrap_or_default();
-                        self.announce(notices::Mark::Bad, self.words.t("render-failed"), who, why, hash, notices::Link::RenderAgain(replay));
-                    }
-                }
-                Task::none()
+                let shown = self.rendered(step);
+                Task::batch([shown, self.next_render()])
             }
             Message::GetMap => {
                 let Some(entry) = self.chosen_entry() else {
@@ -3888,6 +3831,12 @@ impl Main {
         let busy = self.rendering.as_ref().is_some_and(|r| !r.is_over());
         let rendering_this = self.rendering.as_ref().filter(|r| r.path == entry.path);
         let fetching_this = self.fetch_of(&entry.map_hash);
+        if self.queued.iter().any(|queued| queued.path == entry.path) {
+            return row![ui::quiet(w.t("render-queued"), None), ui::quiet(w.t("unqueue"), Some(Message::Unqueue(entry.path.clone())))]
+                .spacing(4)
+                .align_y(iced::Center)
+                .into();
+        }
         let rendered = self
             .store
             .videos
@@ -3901,7 +3850,7 @@ impl Main {
                 .align_y(iced::Center)
                 .into(),
             (None, Some(fetching), _) => self.fetch_button(fetching),
-            (None, None, None) if entry.map.is_some() => ui::primary(w.t("render"), (self.ffmpeg.is_some() && !busy).then_some(Message::Render)),
+            (None, None, None) if entry.map.is_some() => ui::primary(w.t(if busy { "render-later" } else { "render" }), self.ffmpeg.is_some().then_some(Message::Render)),
             (None, None, None) => ui::primary(w.t("get-the-map"), self.fetch_room().then_some(Message::GetMap)),
         }
     }
@@ -3959,6 +3908,117 @@ impl Main {
             });
         }
         None
+    }
+
+    fn worked(&mut self, step: crate::worker::Step) -> Task<Message> {
+        use crate::worker::Step as W;
+        match &step {
+            W::Stopped => {
+                self.worker_running = false;
+                self.worker_step = None;
+                return if self.settings.worker_on { self.start_worker() } else { Task::none() };
+            }
+            W::Delivered { .. } => {
+                self.worker_done = self.worker_done.saturating_add(1);
+                self.settings.worker_done = self.worker_done;
+                let _ = self.settings.save();
+                self.worker_last = Some(step.clone());
+                self.worker_step = None;
+                return self.farm_task();
+            }
+            W::HandedBack { .. } => {
+                self.worker_back = self.worker_back.saturating_add(1);
+                self.settings.worker_back = self.worker_back;
+                let _ = self.settings.save();
+                self.worker_last = Some(step.clone());
+                self.worker_step = None;
+                return self.farm_task();
+            }
+            _ => self.worker_step = Some(step),
+        }
+        Task::none()
+    }
+
+    fn next_render(&mut self) -> Task<Message> {
+        if self.queued.is_empty() || self.render_running() || crate::worker::drawing() {
+            return Task::none();
+        }
+        let next = self.queued.remove(0);
+        self.start_render(next.path, next.ask)
+    }
+
+    fn render_running(&self) -> bool {
+        self.rendering.as_ref().is_some_and(|r| !r.is_over())
+    }
+
+    fn render_ask(&self, entry: &Entry) -> Option<render::Ask> {
+        let ffmpeg = self.ffmpeg.clone()?;
+        let map = entry.map.as_ref()?;
+        let out = self.settings.renders_dir().join(render::file_name(&entry.player, &map.line()));
+        Some(render::Ask {
+            replay: entry.path.clone(),
+            map: map.file.clone(),
+            map_hash: entry.map_hash.clone(),
+            ffmpeg,
+            out,
+            size: self.settings.render_size(),
+            fps: self.settings.render_fps,
+            crf: self.settings.render_crf,
+            skin: self.settings.skin.clone(),
+            music_level: self.settings.music_level,
+            hitsound_level: self.settings.hitsound_level,
+            play: render::Play {
+                hud: self.settings.hud,
+                cursor_grows: self.settings.cursor_grows,
+                dim: (self.settings.background_dim * 100.0).round() as u32,
+                blur: (self.settings.background_blur * 100.0).round() as u32,
+                map_sounds: self.settings.map_sounds,
+                skin_sounds: self.settings.skin_sounds,
+            },
+        })
+    }
+
+    fn start_render(&mut self, path: PathBuf, ask: render::Ask) -> Task<Message> {
+        self.rendering = Some(Rendering { path, reached: Vec::new(), out: None });
+        self.progress_shown = 0.0;
+        render::run(ask).map(Message::Rendered)
+    }
+
+    fn rendered(&mut self, step: Step) -> Task<Message> {
+        let mut saved = None;
+        if let Some(rendering) = &mut self.rendering {
+            if let Step::Saved(path, media) = &step {
+                rendering.out = Some(path.clone());
+                saved = Some((rendering.path.clone(), path.clone(), *media));
+            }
+            rendering.reached.push(step);
+        }
+        if let Some((replay, out, media)) = saved {
+            if let Some(entry) = self.entries().iter().find(|e| e.path == replay).cloned() {
+                let video = videos::Video::from_render(&entry, out.clone(), media.length_ms, media.width, media.height, media.fps);
+                let detail = format!("{} — {}", video.player, video.map_line());
+                let note = format!("{}  {}", self.words.length(video.length_ms), self.words.mb(video.size));
+                let hash = video.map_hash.clone();
+                self.store.add(video);
+                let watching_it = self.overlay == Overlay::None && self.chosen_entry().is_some_and(|chosen| chosen.path == replay);
+                let words = self.words.t("rendered-notice");
+                match watching_it {
+                    true => {
+                        let _ = self.write_notice(notices::Mark::Done, words, detail, note, hash, notices::Link::OpenVideo(out));
+                    }
+                    false => self.announce(notices::Mark::Done, words, detail, note, hash, notices::Link::OpenVideo(out)),
+                }
+            }
+        }
+        if let Some(Step::Failed(why)) = self.rendering.as_ref().and_then(|r| r.last().cloned()) {
+            if let Some(replay) = self.rendering.as_ref().map(|r| r.path.clone()) {
+                let entry = self.entries().iter().find(|e| e.path == replay);
+                let who = entry.map(|e| format!("{} — {}", e.player, e.song().unwrap_or_default())).unwrap_or_default();
+                let hash = entry.map(|e| e.map_hash.clone()).unwrap_or_default();
+                self.announce(notices::Mark::Bad, self.words.t("render-failed"), who, why, hash, notices::Link::RenderAgain(replay));
+            }
+        }
+        Task::none()
     }
 
     fn fetch_running(&self) -> bool {
@@ -6236,6 +6296,10 @@ impl Main {
             let who = self.entries().iter().find(|e| e.path == rendering.path).map(|e| e.title().unwrap_or_default()).unwrap_or_default();
             tiles.push(self.card(job(w.t("drawing"), who, self.progress_shown), false));
         }
+        for queued in &self.queued {
+            let who = self.entries().iter().find(|e| e.path == queued.path).map(|e| e.title().unwrap_or_default()).unwrap_or_default();
+            tiles.push(self.card(job(w.t("render-queued"), who, 0.0), false));
+        }
         for fetching in self.fetching.iter().filter(|f| !f.is_over()) {
             let title = self.entries().iter().find(|e| e.map_hash == fetching.hash).map(|e| e.title().unwrap_or_default()).unwrap_or_default();
             tiles.push(self.card(job(w.t("fetch-downloading"), title, fetching.shown), false));
@@ -6779,6 +6843,43 @@ mod tests {
         main.player = Some(replacement.clone());
         main.set_minimized(false);
         assert!(replacement.borrow().paused);
+    }
+
+    #[test]
+    fn renders_asked_for_while_one_runs_wait_their_turn_and_start_by_themselves() {
+        use super::Message as M;
+        use crate::render::Step as R;
+        let (_, mut main) = crate::gallery::main_states(crate::lang::Lang::En).into_iter().find(|(name, _)| name == "main-rest").unwrap();
+        main.ffmpeg = Some(std::path::PathBuf::from("ffmpeg"));
+        let drawable: Vec<std::path::PathBuf> = main.entries().iter().filter(|entry| entry.map.is_some()).map(|entry| entry.path.clone()).collect();
+        assert!(drawable.len() >= 3, "the staged library needs three replays with maps");
+        let press = |main: &mut super::Main, path: &std::path::Path| {
+            main.chosen = main.entries().iter().position(|entry| entry.path == path);
+            let _ = main.update(M::Render);
+        };
+        let queue = |main: &super::Main| main.queued.iter().map(|queued| queued.path.clone()).collect::<Vec<_>>();
+
+        press(&mut main, &drawable[0]);
+        assert_eq!(main.rendering.as_ref().map(|r| r.path.clone()), Some(drawable[0].clone()));
+        assert!(main.queued.is_empty());
+        press(&mut main, &drawable[1]);
+        press(&mut main, &drawable[1]);
+        press(&mut main, &drawable[0]);
+        press(&mut main, &drawable[2]);
+        assert_eq!(queue(&main), vec![drawable[1].clone(), drawable[2].clone()], "a replay was queued twice or the running one again");
+        assert!(main.busy());
+
+        let _ = main.update(M::Unqueue(drawable[2].clone()));
+        assert_eq!(queue(&main), vec![drawable[1].clone()]);
+        let _ = main.update(M::Rendered(R::Drawing { frames: 10, of: 100, left_seconds: 5.0 }));
+        assert_eq!(main.rendering.as_ref().map(|r| r.path.clone()), Some(drawable[0].clone()), "the queue jumped ahead of a running render");
+
+        let _ = main.update(M::Rendered(R::Stopped));
+        assert_eq!(main.rendering.as_ref().map(|r| r.path.clone()), Some(drawable[1].clone()), "the next render did not start after a stop");
+        assert!(main.queued.is_empty());
+        assert!(main.rendering.as_ref().unwrap().reached.is_empty());
+        let _ = main.update(M::Rendered(R::Failed("ffmpeg".into())));
+        assert!(!main.busy(), "an empty queue kept the app busy");
     }
 
     #[test]

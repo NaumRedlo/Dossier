@@ -441,6 +441,32 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
         out: None,
     });
     rendering.progress_shown = rendering.progress_target().unwrap_or(0.0);
+    let mut queued = staged(Some(1));
+    queued.ffmpeg = Some(PathBuf::from("ffmpeg"));
+    queued.rendering = rendering.rendering.clone();
+    queued.progress_shown = rendering.progress_shown;
+    queued.menu_open = iced::Animation::new(true);
+    queued.menu = Some(crate::main_screen::Tab::Feed);
+    queued.queued = [1, 2]
+        .into_iter()
+        .map(|at| crate::main_screen::Queued {
+            path: library.entries[at].path.clone(),
+            ask: crate::render::Ask {
+                replay: library.entries[at].path.clone(),
+                map: PathBuf::from("map.osu"),
+                map_hash: library.entries[at].map_hash.clone(),
+                ffmpeg: PathBuf::from("ffmpeg"),
+                out: PathBuf::from("out.mp4"),
+                size: crate::render::SIZE,
+                fps: 60,
+                crf: 20,
+                skin: None,
+                music_level: 1.0,
+                hitsound_level: 1.0,
+                play: crate::render::Play::default(),
+            },
+        })
+        .collect();
     let mut fetching = staged(Some(3));
     fetching.fetching = vec![crate::main_screen::Fetching::new(
         1,
@@ -706,6 +732,7 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
             main
         }),
         ("main-rendering".to_owned(), rendering),
+        ("main-queued".to_owned(), queued),
         ("main-rendered".to_owned(), rendered),
         ("main-hover".to_owned(), hovering),
         ("main-fetching".to_owned(), {

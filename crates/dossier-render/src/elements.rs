@@ -218,6 +218,7 @@ pub enum Element {
     ScoreBarBackground,
     ScoreBarFill,
     ScoreBarMark(Health),
+    ScoreBarMarker,
 
     Score(char),
 
@@ -341,6 +342,7 @@ impl Element {
             Self::ScoreBarBackground => "scorebar-bg".to_owned(),
             Self::ScoreBarFill => "scorebar-colour".to_owned(),
             Self::ScoreBarMark(state) => state.stem().to_owned(),
+            Self::ScoreBarMarker => "scorebar-marker".to_owned(),
 
             Self::Score(c) | Self::Combo(c) => match c {
                 ',' => "score-comma".to_owned(),
@@ -415,7 +417,7 @@ impl Element {
             Self::SpinnerSpin | Self::SpinnerClear => 512,
             Self::SectionPass | Self::SectionFail => 800,
             Self::WarningArrow => 128,
-            Self::ScoreBarMark(_) => 160,
+            Self::ScoreBarMark(_) | Self::ScoreBarMarker => 160,
             Self::Cursor | Self::CursorMiddle => 128,
             Self::CursorTrail => 64,
             Self::SpinnerApproachCircle => 384,
@@ -523,6 +525,7 @@ pub fn element(skin: &crate::skin::Skin, element: Element, size: u32) -> Option<
         | Element::ScoreBarBackground
         | Element::ScoreBarFill
         | Element::ScoreBarMark(_)
+        | Element::ScoreBarMarker
         | Element::SpinnerCircle
         | Element::SpinnerMiddle
         | Element::SpinnerMiddle2

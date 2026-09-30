@@ -57,6 +57,7 @@ pub const DRAWN_FROM_SKINS: &[Element] = &[
 fn scorebar_pieces() -> Vec<Element> {
     let mut all = vec![Element::ScoreBarBackground, Element::ScoreBarFill];
     all.extend([Health::Fine, Health::Low, Health::Critical].map(Element::ScoreBarMark));
+    all.push(Element::ScoreBarMarker);
     all
 }
 

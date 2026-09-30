@@ -24,6 +24,11 @@ const EDGE_MARGIN: f64 = 12.8 / 768.0;
 const OUR_BAR_WIDTH: f32 = 0.325;
 
 const FILL_OFFSET: (f32, f32) = (3.0 * 1.6, 10.0 * 1.6);
+const NEW_FILL_OFFSET: (f32, f32) = (7.5 * 1.6, 7.8 * 1.6);
+const NEW_MARK_Y: f32 = 10.625 * 1.6;
+const BAR_TALLEST: f32 = 120.0;
+const BAR_RISE: f32 = 20.0 * 1.6;
+const BAR_HIDDEN_SCALE: f32 = 1.6;
 
 use tiny_skia::{Pixmap, PixmapPaint, Transform};
 
@@ -620,10 +625,14 @@ impl Scene<'_> {
         if self.cannot_die() {
             return;
         }
-        let Some(health) = self.state.health_at(time_ms) else {
+        let Some(real) = self.state.health_at(time_ms) else {
             return;
         };
-        if self.draw_skin_health(pixmap, health, presence, layout) {
+        let health = self
+            .health_show
+            .as_ref()
+            .map_or(real, |show| show.shown_at(time_ms));
+        if self.draw_skin_health(pixmap, time_ms, health, presence, layout) {
             return;
         }
 
@@ -659,11 +668,12 @@ impl Scene<'_> {
     fn draw_skin_health(
         &self,
         pixmap: &mut Pixmap,
+        time_ms: f64,
         health: f32,
         presence: f32,
         layout: &Layout,
     ) -> bool {
-        use crate::elements::Element;
+        use crate::elements::{Element, Health};
         let fill = Element::ScoreBarFill;
         let frame = Element::ScoreBarBackground;
 
@@ -678,27 +688,74 @@ impl Scene<'_> {
         };
         let alpha = presence.clamp(0.0, 1.0);
         let health = health.clamp(0.0, 1.0);
+        let new_style = self.skin_speaks_for(Element::ScoreBarMarker);
+        let rise = self.skin_pixels(layout, BAR_RISE) * (1.0 - alpha);
+        let tint = new_style.then(|| super::health::tint_for(health));
 
         self.blit_bar(
             pixmap,
             frame,
-            0.0,
-            0.0,
+            (0.0, -rise),
             self.bar_share(frame),
-            alpha,
+            (alpha, None),
+            time_ms,
             layout,
         );
 
+        let (fill_x, fill_y) = if new_style {
+            NEW_FILL_OFFSET
+        } else {
+            FILL_OFFSET
+        };
         let at = (
-            self.skin_pixels(layout, FILL_OFFSET.0),
-            self.skin_pixels(layout, FILL_OFFSET.1),
+            self.skin_pixels(layout, fill_x),
+            self.skin_pixels(layout, fill_y),
         );
-        self.blit_bar(pixmap, fill, at.0, at.1, health, alpha, layout);
+        self.blit_bar(
+            pixmap,
+            fill,
+            (at.0, at.1 - rise),
+            health,
+            (alpha, tint),
+            time_ms,
+            layout,
+        );
 
-        let mark = Element::ScoreBarMark(crate::elements::Health::of(health));
-        if let (Some(shape), true) = (sprites.get(fill), self.skin_speaks_for(mark)) {
-            let along = self.skin_pixels(layout, shape.width()) * health;
-            self.blit_mark(pixmap, mark, at.0 + along, at.1, alpha, layout);
+        let Some(shape) = sprites.get(fill) else {
+            return true;
+        };
+        let centre = (
+            at.0 + self.skin_pixels(layout, shape.width()) * health,
+            self.skin_pixels(layout, if new_style { NEW_MARK_Y } else { FILL_OFFSET.1 }),
+        );
+        let (mark, additive) = if new_style {
+            (Element::ScoreBarMarker, health >= 0.5)
+        } else {
+            (Element::ScoreBarMark(Health::of(health)), false)
+        };
+        let show = self.health_show.as_ref();
+        let bulge = show.map_or(1.0, |show| show.marker_scale(time_ms))
+            * (1.0 + (BAR_HIDDEN_SCALE - 1.0) * (1.0 - alpha));
+        if !(new_style && health < 0.2) && self.skin_speaks_for(mark) {
+            self.blit_mark(pixmap, mark, centre, bulge, (alpha, tint, additive), layout);
+        }
+
+        if let Some(share) = show.and_then(|show| show.burst_at(time_ms)) {
+            let base = if new_style {
+                Element::ScoreBarMarker
+            } else {
+                Element::ScoreBarMark(Health::Fine)
+            };
+            let (grow, from) = if additive { (2.0, 0.5) } else { (1.6, 1.0) };
+            let out = eased_out(share);
+            self.blit_mark(
+                pixmap,
+                base,
+                centre,
+                1.0 + (grow - 1.0) * out,
+                (alpha * from * (1.0 - out), None, additive),
+                layout,
+            );
         }
         true
     }
@@ -739,16 +796,29 @@ impl Scene<'_> {
         &self,
         pixmap: &mut Pixmap,
         element: crate::elements::Element,
-        x: f32,
-        y: f32,
+        (x, y): (f32, f32),
         share: f32,
-        alpha: f32,
+        (alpha, tint): (f32, Option<tiny_skia::Color>),
+        time_ms: f64,
         layout: &Layout,
     ) {
         let Some(sprites) = &self.skin.sprites else {
             return;
         };
-        let Some((art, per)) = sprites.coloured(element, 0) else {
+        let count = sprites.frame_count(element);
+        let picture = if count > 1 {
+            let framerate = sprites.ini().animation_framerate;
+            let delay = if framerate > 0.0 {
+                1000.0 / f64::from(framerate)
+            } else {
+                1000.0 / count as f64
+            };
+            let clock = time_ms.max(0.0) / self.state.playback_rate().max(0.01);
+            sprites.frame(element, (clock / delay) as usize)
+        } else {
+            sprites.coloured(element, 0)
+        };
+        let Some((art, per)) = picture else {
             return;
         };
         let share = share.clamp(0.0, 1.0);
@@ -758,8 +828,13 @@ impl Scene<'_> {
 
         let scale = layout.height as f32 / 768.0 / per;
         let full = (art.width() as f32 * scale, art.height() as f32 * scale);
+        let tallest = if element == crate::elements::Element::ScoreBarFill {
+            self.skin_pixels(layout, BAR_TALLEST)
+        } else {
+            full.1
+        };
         let visible = (full.0 * share).ceil().max(1.0) as u32;
-        let Some(mut strip) = Pixmap::new(visible, full.1.ceil().max(1.0) as u32) else {
+        let Some(mut strip) = Pixmap::new(visible, full.1.min(tallest).ceil().max(1.0) as u32) else {
             return;
         };
         strip.draw_pixmap(
@@ -773,6 +848,10 @@ impl Scene<'_> {
             Transform::from_scale(scale, scale),
             None,
         );
+        let strip = match tint {
+            Some(colour) => crate::imported::tinted(&strip, colour),
+            None => strip,
+        };
         pixmap.draw_pixmap(
             x as i32,
             y as i32,
@@ -790,9 +869,9 @@ impl Scene<'_> {
         &self,
         pixmap: &mut Pixmap,
         element: crate::elements::Element,
-        x: f32,
-        y: f32,
-        alpha: f32,
+        (x, y): (f32, f32),
+        size: f32,
+        (alpha, tint, additive): (f32, Option<tiny_skia::Color>, bool),
         layout: &Layout,
     ) {
         let Some(sprites) = &self.skin.sprites else {
@@ -801,16 +880,25 @@ impl Scene<'_> {
         let Some((art, per)) = sprites.coloured(element, 0) else {
             return;
         };
-        let scale = layout.height as f32 / 768.0 / per;
+        if alpha <= 0.0 || size <= 0.0 {
+            return;
+        }
+        let painted = tint.map(|colour| crate::imported::tinted(art, colour));
+        let art = painted.as_ref().unwrap_or(art);
+        let scale = layout.height as f32 / 768.0 / per * size;
         let (w, h) = (art.width() as f32 * scale, art.height() as f32 * scale);
         pixmap.draw_pixmap(
             0,
             0,
             art.as_ref(),
             &PixmapPaint {
-                opacity: alpha,
+                opacity: alpha.clamp(0.0, 1.0),
                 quality: tiny_skia::FilterQuality::Bilinear,
-                ..Default::default()
+                blend_mode: if additive {
+                    tiny_skia::BlendMode::Plus
+                } else {
+                    tiny_skia::BlendMode::SourceOver
+                },
             },
             Transform::from_translate(x - w / 2.0, y - h / 2.0).pre_scale(scale, scale),
             None,

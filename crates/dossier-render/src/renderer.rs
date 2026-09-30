@@ -12,6 +12,7 @@ mod paint;
 use paint::rounded_rect;
 
 mod flashlight;
+mod health;
 mod hud;
 mod keys;
 mod objects;
@@ -343,6 +344,8 @@ pub struct Scene<'a> {
     flashlight: Option<flashlight::Flashlight>,
 
     overlay_art: Option<keys::OverlayArt>,
+
+    health_show: Option<health::HealthShow>,
 }
 
 struct Body {
@@ -528,6 +531,7 @@ impl<'a> Scene<'a> {
             bodies: std::sync::Mutex::new(std::collections::HashMap::new()),
             flashlight: flashlight::Flashlight::of(state),
             overlay_art: keys::OverlayArt::drawn(),
+            health_show: health::HealthShow::of(state),
         }
     }
 

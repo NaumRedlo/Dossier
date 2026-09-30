@@ -5101,6 +5101,63 @@ fn a_missed_note_leaves_no_ring_where_it_was() {
     assert_eq!(rim(missed + 20.0), 0, "a ring was drawn round the missed note");
 }
 
+fn health_marks(dir: &std::path::Path) -> (usize, usize) {
+    use dossier_render::elements::{Element, Health};
+    use dossier_render::imported::Sprites;
+    let (map, replay) = tapped();
+    let mut skin = Skin::with_combo_colours(map.combo_colours()).with_font(font());
+    let wanted = [
+        Element::ScoreBarFill,
+        Element::ScoreBarMark(Health::Fine),
+        Element::ScoreBarMark(Health::Low),
+        Element::ScoreBarMark(Health::Critical),
+        Element::ScoreBarMarker,
+    ];
+    skin.sprites = Some(std::sync::Arc::new(
+        Sprites::read(dir, &wanted).tint_for(&skin.combo_colours),
+    ));
+    let state = GameState::new(&map, &replay);
+    let frame = Scene::new(&state, skin).frame(4200.0, &Layout::new(640, 480));
+    let (mut red, mut blue) = (0, 0);
+    for y in 0..60u32 {
+        for x in 0..640u32 {
+            let Some(p) = frame.pixel(x, y) else { continue };
+            if p.red() > 180 && p.green() < 60 && p.blue() < 60 {
+                red += 1;
+            }
+            if p.blue() > 180 && p.red() < 60 && p.green() < 60 {
+                blue += 1;
+            }
+        }
+    }
+    (red, blue)
+}
+
+#[test]
+fn a_skin_with_a_marker_gets_the_new_bar_and_its_ki_goes_unused() {
+    let old = skin_folder("health-old");
+    write_glyph_sized(&old, "scorebar-colour.png", 400, 20, (0, 200, 0));
+    for name in ["scorebar-ki.png", "scorebar-kidanger.png", "scorebar-kidanger2.png"] {
+        write_glyph(&old, name, 30, (220, 0, 0));
+    }
+    let new = skin_folder("health-new");
+    write_glyph_sized(&new, "scorebar-colour.png", 400, 20, (0, 200, 0));
+    for name in ["scorebar-ki.png", "scorebar-kidanger.png", "scorebar-kidanger2.png"] {
+        write_glyph(&new, name, 30, (220, 0, 0));
+    }
+    write_glyph(&new, "scorebar-marker.png", 30, (0, 0, 220));
+
+    let (ki, none) = health_marks(&old);
+    assert!(ki > 50 && none == 0, "the old bar wears its ki: {ki} red, {none} blue");
+    let (unused, marker) = health_marks(&new);
+    assert!(
+        unused == 0 && marker > 50,
+        "the new bar wears its marker: {unused} red, {marker} blue"
+    );
+    let _ = std::fs::remove_dir_all(&old);
+    let _ = std::fs::remove_dir_all(&new);
+}
+
 fn resting_at(x: f32, y: f32, until_ms: i64) -> dossier_replay::Replay {
     let frames = (0..=until_ms / 16)
         .map(|n| dossier_replay::ReplayFrame { time_ms: n * 16, x, y, keys: dossier_replay::Keys(0) })

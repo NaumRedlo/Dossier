@@ -28,6 +28,7 @@ pub const ARRIVE: Duration = Duration::from_millis(450);
 pub const SWAP: Duration = Duration::from_millis(450);
 pub const LIFT: Duration = Duration::from_millis(200);
 const LIVE_FIRST: usize = 6;
+const FETCHES_AT_ONCE: usize = 3;
 const LIVE_EVERY: Duration = Duration::from_secs(6);
 const PANEL_SHOW: Duration = Duration::from_millis(420);
 const FOLD: Duration = Duration::from_millis(280);
@@ -190,8 +191,8 @@ pub enum Message {
     GetMap,
     PickMap,
     MapPicked(Option<PathBuf>),
-    StopFetch,
-    Fetched(maps::Step),
+    StopFetch(u64),
+    Fetched(u64, maps::Step),
     Look,
     StopLook,
     Looked(scan::Step),
@@ -307,17 +308,46 @@ impl Rendering {
 
 #[derive(Debug, Clone)]
 pub struct Fetching {
+    pub id: u64,
     pub hash: String,
     pub reached: Vec<maps::Step>,
+    pub shown: f32,
+    stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl Fetching {
+    pub fn new(id: u64, hash: String, reached: Vec<maps::Step>) -> Fetching {
+        Fetching { id, hash, reached, shown: 0.0, stop: Default::default() }
+    }
+
     pub fn last(&self) -> Option<&maps::Step> {
         self.reached.last()
     }
 
     pub fn is_over(&self) -> bool {
         self.last().is_some_and(maps::Step::is_last)
+    }
+
+    pub fn target(&self) -> Option<f32> {
+        use maps::Step as S;
+        if self.is_over() {
+            return None;
+        }
+        Some(match self.last() {
+            None | Some(S::Looking) => 0.04,
+            Some(S::Found(_)) => 0.1,
+            Some(S::Downloading { done, total, .. }) => match total {
+                Some(total) if *total > 0 => 0.1 + 0.8 * (*done as f32 / *total as f32),
+                _ => 0.3,
+            },
+            Some(S::Unpacking) => 0.93,
+            Some(S::Checking) => 0.97,
+            _ => 1.0,
+        })
+    }
+
+    fn stop(&self) {
+        self.stop.store(true, std::sync::atomic::Ordering::SeqCst);
     }
 }
 
@@ -437,7 +467,8 @@ pub struct Main {
     pub sending: Option<Sending>,
     pub overlay: Overlay,
     pub rendering: Option<Rendering>,
-    pub fetching: Option<Fetching>,
+    pub fetching: Vec<Fetching>,
+    fetch_serial: u64,
     pub looking: Option<scan::Step>,
     pub live: Option<Live>,
     pub live_before: Option<image::Handle>,
@@ -645,7 +676,8 @@ impl Main {
             sending: None,
             overlay: Overlay::None,
             rendering: None,
-            fetching: None,
+            fetching: Vec::new(),
+            fetch_serial: 0,
             looking: None,
             live: None,
             live_before: None,
@@ -812,7 +844,7 @@ impl Main {
         !crate::render::busy()
             && !crate::worker::holding()
             && self.sending.as_ref().is_none_or(|sending| sending.over.is_some())
-            && self.fetching.as_ref().is_none_or(|fetching| fetching.is_over())
+            && !self.fetch_running()
             && !matches!(self.looking, Some(scan::Step::Looking { .. }))
     }
 
@@ -856,7 +888,7 @@ impl Main {
 
     pub fn busy(&self) -> bool {
         self.rendering.as_ref().is_some_and(|r| !r.is_over())
-            || self.fetching.as_ref().is_some_and(|f| !f.is_over())
+            || self.fetch_running()
             || matches!(self.looking, Some(scan::Step::Looking { .. }))
             || self.sending.as_ref().is_some_and(|s| s.over.is_none())
     }
@@ -877,7 +909,7 @@ impl Main {
     pub fn moving(&self) -> bool {
         if self.minimized { return false; }
         self.rendering.as_ref().is_some_and(|r| !r.is_over())
-            || self.fetching.as_ref().is_some_and(|f| !f.is_over())
+            || self.fetch_running()
             || matches!(self.looking, Some(scan::Step::Looking { .. }))
             || self.live.as_ref().is_some_and(|l| l.fade.is_animating(self.now) || !(l.control.paused() && l.control.settled()))
             || self.trail.as_ref().is_some_and(|t| t.paused_at.is_none())
@@ -1066,9 +1098,7 @@ impl Main {
         if self.rendering.as_ref().is_some_and(Rendering::is_over) {
             self.rendering = None;
         }
-        if self.fetching.as_ref().is_some_and(Fetching::is_over) {
-            self.fetching = None;
-        }
+        self.fetching.retain(|fetching| !fetching.is_over());
         if !self.swap_waits {
             self.swap = Animation::new(false).duration(SWAP).easing(Easing::EaseOutCubic).go(true, Instant::now());
         }
@@ -1217,7 +1247,7 @@ impl Main {
             && !self.asking_delete && !self.ask_fade.is_animating(self.now) && self.error_shown.is_none()
             && matches!(self.pairing, Pairing::Idle) && self.toasts.is_empty()
             && !self.rendering.as_ref().is_some_and(|job| !job.is_over())
-            && !self.fetching.as_ref().is_some_and(|job| !job.is_over())
+            && !self.fetch_running()
             && !matches!(self.looking, Some(scan::Step::Looking { .. }))
     }
 
@@ -1318,7 +1348,7 @@ impl Main {
             }
             Message::AutoNext => {
                 let busy = self.rendering.as_ref().is_some_and(|r| !r.is_over())
-                    || self.fetching.as_ref().is_some_and(|f| !f.is_over())
+                    || self.fetch_running()
                     || matches!(self.looking, Some(scan::Step::Looking { .. }));
                 if !self.settings.auto_flip || busy || self.overlay != Overlay::None || self.player.is_some() || self.menu.is_some() || crate::updates::idle() < AUTO_IDLE {
                     return Task::none();
@@ -2825,13 +2855,13 @@ impl Main {
                 Task::none()
             }
             Message::GetMap => {
-                if self.fetching.as_ref().is_some_and(|f| !f.is_over()) {
-                    return Task::none();
-                }
                 let Some(entry) = self.chosen_entry() else {
                     return Task::none();
                 };
                 let hash = entry.map_hash.clone();
+                if !self.fetch_room() || self.fetch_of(&hash).is_some_and(|f| !f.is_over()) {
+                    return Task::none();
+                }
                 let live: Vec<&crate::sources::Source> = self.settings.sources.iter().filter(|s| s.on).collect();
                 let songs = live
                     .iter()
@@ -2839,8 +2869,8 @@ impl Main {
                     .or_else(|| live.iter().find(|s| s.kind == Kind::Folder))
                     .and_then(|s| s.songs.clone())
                     .unwrap_or_else(|| crate::sources::own_root().join("Songs"));
-                self.fetching = Some(Fetching { hash: hash.clone(), reached: Vec::new() });
-                maps::fetch(hash, songs).map(Message::Fetched)
+                let fetching = self.start_fetch(hash.clone(), Vec::new());
+                maps::fetch(hash, songs, fetching.stop.clone()).map(move |step| Message::Fetched(fetching.id, step))
             }
             Message::PickMap => Task::perform(
                 async {
@@ -2862,21 +2892,23 @@ impl Main {
                     .or_else(|| live.iter().find(|s| s.kind == Kind::Folder))
                     .and_then(|s| s.songs.clone())
                     .unwrap_or_else(|| crate::sources::own_root().join("Songs"));
-                self.fetching = Some(Fetching { hash: hash.clone(), reached: vec![maps::Step::Checking] });
-                ui::in_thread(move || Message::Fetched(maps::import(&picked, &songs, &hash)))
+                let id = self.start_fetch(hash.clone(), vec![maps::Step::Checking]).id;
+                ui::in_thread(move || Message::Fetched(id, maps::import(&picked, &songs, &hash)))
             }
-            Message::StopFetch => {
-                maps::stop();
+            Message::StopFetch(id) => {
+                if let Some(fetching) = self.fetching.iter().find(|f| f.id == id) {
+                    fetching.stop();
+                }
                 Task::none()
             }
-            Message::Fetched(step) => {
-                let Some(fetching) = &mut self.fetching else {
+            Message::Fetched(id, step) => {
+                let Some(at) = self.fetching.iter().position(|f| f.id == id) else {
                     return Task::none();
                 };
-                let hash = fetching.hash.clone();
+                let hash = self.fetching[at].hash.clone();
                 if let maps::Step::Done(map) = &step {
                     let map = map.clone();
-                    self.fetching = None;
+                    self.fetching.remove(at);
                     self.announce(notices::Mark::Done, self.words.t("map-fetched"), format!("{} — {}", map.artist, map.title), format!("[{}]", map.version), hash.clone(), notices::Link::None);
                     if let Some(library) = &mut self.library {
                         for entry in library.entries.iter_mut().filter(|e| e.map_hash == hash) {
@@ -2914,7 +2946,7 @@ impl Main {
                     maps::Step::Failed(why) => Some(why.clone()),
                     _ => None,
                 };
-                fetching.reached.push(step);
+                self.fetching[at].reached.push(step);
                 if let Some(why) = failed {
                     let who = self.entries().iter().find(|e| e.map_hash == hash).map(|e| e.song().unwrap_or_default()).unwrap_or_default();
                     self.announce(notices::Mark::Bad, self.words.t("map-not-fetched"), who, why, hash, notices::Link::None);
@@ -3122,6 +3154,11 @@ impl Main {
                 match self.progress_target() {
                     Some(target) => self.progress_shown = ui::toward(self.progress_shown, target, 0.12, dt),
                     None => self.progress_shown = 0.0,
+                }
+                for fetching in &mut self.fetching {
+                    if let Some(target) = fetching.target() {
+                        fetching.shown = ui::toward(fetching.shown, target, 0.12, dt);
+                    }
                 }
                 self.marks_now = self.marks.iter().map(|(id, mark)| (id.clone(), mark.interpolate(0.0, 1.0, now))).collect();
                 self.ease_slides(dt);
@@ -3849,9 +3886,8 @@ impl Main {
     fn action(&self, entry: &Entry) -> Element<'_, Message> {
         let w = &self.words;
         let busy = self.rendering.as_ref().is_some_and(|r| !r.is_over());
-        let fetching_now = self.fetching.as_ref().is_some_and(|f| !f.is_over());
         let rendering_this = self.rendering.as_ref().filter(|r| r.path == entry.path);
-        let fetching_this = self.fetching.as_ref().filter(|f| f.hash == entry.map_hash);
+        let fetching_this = self.fetch_of(&entry.map_hash);
         let rendered = self
             .store
             .videos
@@ -3866,7 +3902,7 @@ impl Main {
                 .into(),
             (None, Some(fetching), _) => self.fetch_button(fetching),
             (None, None, None) if entry.map.is_some() => ui::primary(w.t("render"), (self.ffmpeg.is_some() && !busy).then_some(Message::Render)),
-            (None, None, None) => ui::primary(w.t("get-the-map"), (!fetching_now).then_some(Message::GetMap)),
+            (None, None, None) => ui::primary(w.t("get-the-map"), self.fetch_room().then_some(Message::GetMap)),
         }
     }
 
@@ -3903,7 +3939,7 @@ impl Main {
                     Some(S::Checking) => w.t("checking-map"),
                     _ => w.t("looking"),
                 };
-                ui::progress(label, self.progress_shown, Some(Message::StopFetch))
+                ui::progress(label, fetching.shown, Some(Message::StopFetch(fetching.id)))
             }
         }
     }
@@ -3922,21 +3958,30 @@ impl Main {
                 _ => 1.0,
             });
         }
-        if let Some(fetching) = self.fetching.as_ref().filter(|f| !f.is_over()) {
-            use maps::Step as S;
-            return Some(match fetching.last() {
-                None | Some(S::Looking) => 0.04,
-                Some(S::Found(_)) => 0.1,
-                Some(S::Downloading { done, total, .. }) => match total {
-                    Some(total) if *total > 0 => 0.1 + 0.8 * (*done as f32 / *total as f32),
-                    _ => 0.3,
-                },
-                Some(S::Unpacking) => 0.93,
-                Some(S::Checking) => 0.97,
-                _ => 1.0,
-            });
-        }
         None
+    }
+
+    fn fetch_running(&self) -> bool {
+        self.fetching.iter().any(|fetching| !fetching.is_over())
+    }
+
+    fn fetch_room(&self) -> bool {
+        self.fetching.iter().filter(|fetching| !fetching.is_over()).count() < FETCHES_AT_ONCE
+    }
+
+    fn fetch_of(&self, hash: &str) -> Option<&Fetching> {
+        self.fetching.iter().find(|fetching| fetching.hash == hash)
+    }
+
+    fn start_fetch(&mut self, hash: String, reached: Vec<maps::Step>) -> Fetching {
+        if let Some(old) = self.fetch_of(&hash) {
+            old.stop();
+        }
+        self.fetching.retain(|fetching| fetching.hash != hash);
+        self.fetch_serial += 1;
+        let fetching = Fetching::new(self.fetch_serial, hash, reached);
+        self.fetching.push(fetching.clone());
+        fetching
     }
 
     fn look_ledger(&self, step: &scan::Step) -> Element<'_, Message> {
@@ -6191,9 +6236,9 @@ impl Main {
             let who = self.entries().iter().find(|e| e.path == rendering.path).map(|e| e.title().unwrap_or_default()).unwrap_or_default();
             tiles.push(self.card(job(w.t("drawing"), who, self.progress_shown), false));
         }
-        if let Some(fetching) = self.fetching.as_ref().filter(|f| !f.is_over()) {
+        for fetching in self.fetching.iter().filter(|f| !f.is_over()) {
             let title = self.entries().iter().find(|e| e.map_hash == fetching.hash).map(|e| e.title().unwrap_or_default()).unwrap_or_default();
-            tiles.push(self.card(job(w.t("fetch-downloading"), title, self.progress_shown), false));
+            tiles.push(self.card(job(w.t("fetch-downloading"), title, fetching.shown), false));
         }
         if let Some(sending) = self.sending.as_ref().filter(|s| s.over.is_none()) {
             let title = self.store.videos.iter().find(|v| v.path == sending.path).map(|v| v.map_line()).unwrap_or_default();
@@ -6734,6 +6779,54 @@ mod tests {
         main.player = Some(replacement.clone());
         main.set_minimized(false);
         assert!(replacement.borrow().paused);
+    }
+
+    #[test]
+    fn maps_download_side_by_side_and_each_keeps_its_own_progress_and_stop() {
+        use super::Message as M;
+        use crate::maps::Step as S;
+        use std::sync::atomic::Ordering;
+        let (_, mut main) = crate::gallery::main_states(crate::lang::Lang::En).into_iter().find(|(name, _)| name == "main-rest").unwrap();
+        let mut hashes: Vec<String> = Vec::new();
+        for entry in main.entries() {
+            if !hashes.contains(&entry.map_hash) {
+                hashes.push(entry.map_hash.clone());
+            }
+        }
+        assert!(hashes.len() >= 4, "the staged library needs four maps");
+        let choose = |main: &mut super::Main, hash: &str| {
+            main.chosen = main.entries().iter().position(|entry| entry.map_hash == hash);
+        };
+        for hash in &hashes[..4] {
+            choose(&mut main, hash);
+            let _ = main.update(M::GetMap);
+        }
+        assert_eq!(main.fetching.len(), super::FETCHES_AT_ONCE, "a download started past the limit");
+        assert!(!main.fetch_room());
+        let (first, second) = (main.fetching[0].id, main.fetching[1].id);
+
+        let _ = main.update(M::Fetched(second, S::Downloading { from: "osu.direct", done: 50, total: Some(100) }));
+        assert!(main.fetching[0].last().is_none(), "one download's step went to another");
+        assert!(matches!(main.fetching[1].last(), Some(S::Downloading { done: 50, .. })));
+        let _ = main.update(M::Tick(main.now + std::time::Duration::from_millis(500)));
+        assert!(main.fetching[1].shown > main.fetching[0].shown, "the progress is not each download's own");
+
+        let _ = main.update(M::StopFetch(first));
+        assert!(main.fetching[0].stop.load(Ordering::SeqCst));
+        assert!(!main.fetching[1].stop.load(Ordering::SeqCst), "stopping one download stopped another");
+        let _ = main.update(M::Fetched(first, S::Stopped));
+        assert!(main.fetch_room(), "a stopped download kept its place");
+
+        let _ = main.update(M::Fetched(first + 100, S::Nowhere));
+        assert_eq!(main.fetching.len(), super::FETCHES_AT_ONCE, "a step of no download changed the list");
+
+        choose(&mut main, &hashes[0]);
+        let _ = main.update(M::GetMap);
+        let again: Vec<_> = main.fetching.iter().filter(|fetching| fetching.hash == hashes[0]).collect();
+        assert_eq!(again.len(), 1, "the map is fetched twice");
+        assert_ne!(again[0].id, first);
+        let _ = main.update(M::Fetched(first, S::Downloading { from: "osu.direct", done: 1, total: None }));
+        assert!(main.fetch_of(&hashes[0]).unwrap().last().is_none(), "a late step of the stopped download reached the new one");
     }
 
     #[test]

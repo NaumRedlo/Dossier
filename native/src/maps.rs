@@ -1,6 +1,7 @@
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crate::library::{self, Map};
@@ -118,15 +119,45 @@ impl Step {
 
 const BIGGEST: u64 = 512 * 1024 * 1024;
 const EVERY: Duration = Duration::from_millis(120);
+const SET_BUSY: Duration = Duration::from_millis(200);
 
-static STOP: AtomicBool = AtomicBool::new(false);
+static SETS: std::sync::Mutex<Vec<u64>> = std::sync::Mutex::new(Vec::new());
 
-pub fn stop() {
-    STOP.store(true, Ordering::SeqCst);
+struct Claim(u64);
+
+impl Claim {
+    fn take(set: u64) -> Option<Claim> {
+        let mut held = SETS.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        if held.contains(&set) {
+            return None;
+        }
+        held.push(set);
+        Some(Claim(set))
+    }
 }
 
-fn stopped() -> bool {
-    STOP.load(Ordering::SeqCst)
+impl Drop for Claim {
+    fn drop(&mut self) {
+        SETS.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).retain(|held| *held != self.0);
+    }
+}
+
+struct Leash<'a> {
+    stop: &'a AtomicBool,
+    report: &'a mut dyn FnMut(Step) -> bool,
+    cut: bool,
+}
+
+impl Leash<'_> {
+    fn tell(&mut self, step: Step) {
+        if !(self.report)(step) {
+            self.cut = true;
+        }
+    }
+
+    fn stopped(&self) -> bool {
+        self.cut || self.stop.load(Ordering::SeqCst)
+    }
 }
 
 pub fn tidy(text: &str) -> String {
@@ -228,7 +259,7 @@ fn ask(mirror: &'static Mirror, hash: &str) -> Answer {
     }
 }
 
-fn download(mirror: &'static Mirror, set: u64, into: &Path, report: &mut dyn FnMut(Step) -> bool) -> Result<(), String> {
+fn download(mirror: &'static Mirror, set: u64, into: &Path, leash: &mut Leash) -> Result<(), String> {
     let http = client(1800)?;
     let mut reply = http.get(format!("{}{set}", mirror.download)).send().map_err(|e| e.to_string())?;
     if !reply.status().is_success() {
@@ -242,9 +273,9 @@ fn download(mirror: &'static Mirror, set: u64, into: &Path, report: &mut dyn FnM
     let mut done = 0u64;
     let mut chunk = [0u8; 64 * 1024];
     let mut told = Instant::now() - EVERY;
-    report(Step::Downloading { from: mirror.name, done, total });
+    leash.tell(Step::Downloading { from: mirror.name, done, total });
     loop {
-        if stopped() {
+        if leash.stopped() {
             return Err("stopped".to_owned());
         }
         let n = reply.read(&mut chunk).map_err(|e| e.to_string())?;
@@ -258,7 +289,7 @@ fn download(mirror: &'static Mirror, set: u64, into: &Path, report: &mut dyn FnM
         }
         if told.elapsed() >= EVERY {
             told = Instant::now();
-            report(Step::Downloading { from: mirror.name, done, total });
+            leash.tell(Step::Downloading { from: mirror.name, done, total });
         }
     }
     file.flush().map_err(|e| e.to_string())?;
@@ -266,6 +297,14 @@ fn download(mirror: &'static Mirror, set: u64, into: &Path, report: &mut dyn FnM
         return Err(format!("{} gave an empty file", mirror.name));
     }
     Ok(())
+}
+
+fn already(songs: &Path, found: &Found, hash: &str) -> Option<Map> {
+    let wanted = found.folder();
+    std::iter::once(songs.join(&wanted))
+        .chain((2..100).map(|n| songs.join(format!("{wanted} ({n})"))))
+        .take_while(|folder| folder.is_dir())
+        .find_map(|folder| difficulty_in(&folder, hash))
 }
 
 fn free_folder(songs: &Path, wanted: &str) -> PathBuf {
@@ -377,24 +416,24 @@ pub fn import(from: &Path, songs: &Path, hash: &str) -> Step {
     }
 }
 
-pub fn fetch(hash: String, songs: PathBuf) -> iced::Task<Step> {
+pub fn fetch(hash: String, songs: PathBuf, stop: Arc<AtomicBool>) -> iced::Task<Step> {
     crate::ui::streamed(move |push| {
-        STOP.store(false, Ordering::SeqCst);
-        let last = bring(&hash, &songs, push);
+        let last = bring(&hash, &songs, &stop, push);
         push(last);
     })
 }
 
-pub fn bring(hash: &str, songs: &Path, report: &mut dyn FnMut(Step) -> bool) -> Step {
+pub fn bring(hash: &str, songs: &Path, stop: &AtomicBool, report: &mut dyn FnMut(Step) -> bool) -> Step {
     let hash = match hex(hash) {
         Ok(hash) => hash,
         Err(why) => return Step::Failed(why),
     };
-    report(Step::Looking);
+    let mut leash = Leash { stop, report, cut: false };
+    leash.tell(Step::Looking);
     let mut found = None;
     let mut silence = None;
     for mirror in MIRRORS.iter() {
-        if stopped() {
+        if leash.stopped() {
             return Step::Stopped;
         }
         match ask(mirror, &hash) {
@@ -412,31 +451,43 @@ pub fn bring(hash: &str, songs: &Path, report: &mut dyn FnMut(Step) -> bool) -> 
             None => Step::Nowhere,
         };
     };
-    report(Step::Found(found.clone()));
+    leash.tell(Step::Found(found.clone()));
 
     if std::fs::create_dir_all(songs).is_err() {
         return Step::Failed(format!("cannot write to {}", songs.display()));
+    }
+    let _claim = loop {
+        if leash.stopped() {
+            return Step::Stopped;
+        }
+        if let Some(claim) = Claim::take(found.set) {
+            break claim;
+        }
+        std::thread::sleep(SET_BUSY);
+    };
+    if let Some(map) = already(songs, &found, &hash) {
+        return Step::Done(map);
     }
     let archive = songs.join(format!(".{}.osz.download", found.set));
     let mut order: Vec<&'static Mirror> = MIRRORS.iter().filter(|m| m.name == found.from).collect();
     order.extend(MIRRORS.iter().filter(|m| m.name != found.from));
     let mut fetched = Err("no mirror gave the map".to_owned());
     for mirror in order {
-        if stopped() {
+        if leash.stopped() {
             let _ = std::fs::remove_file(&archive);
             return Step::Stopped;
         }
-        fetched = download(mirror, found.set, &archive, report);
+        fetched = download(mirror, found.set, &archive, &mut leash);
         if fetched.is_ok() {
             break;
         }
     }
     if let Err(why) = fetched {
         let _ = std::fs::remove_file(&archive);
-        return if stopped() { Step::Stopped } else { Step::Failed(why) };
+        return if leash.stopped() { Step::Stopped } else { Step::Failed(why) };
     }
 
-    report(Step::Unpacking);
+    leash.tell(Step::Unpacking);
     let into = free_folder(songs, &found.folder());
     let unpacked = unpack(&archive, &into);
     let _ = std::fs::remove_file(&archive);
@@ -445,7 +496,7 @@ pub fn bring(hash: &str, songs: &Path, report: &mut dyn FnMut(Step) -> bool) -> 
         return Step::Failed(why);
     }
 
-    report(Step::Checking);
+    leash.tell(Step::Checking);
     match difficulty_in(&into, &hash) {
         Some(map) => Step::Done(map),
         None => {
@@ -531,5 +582,44 @@ mod tests {
         assert_eq!(map.line(), "xi — Blue Zenith [Hard]");
         assert!(difficulty_in(&into, "0000").is_none());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_set_is_fetched_by_one_download_at_a_time_and_found_after_it() {
+        let set = 4_000_000_000 + u64::from(std::process::id());
+        let first = Claim::take(set).expect("a free set");
+        assert!(Claim::take(set).is_none(), "two downloads took the same set");
+        drop(first);
+        assert!(Claim::take(set).is_some(), "a finished download kept its set");
+
+        let songs = std::env::temp_dir().join(format!("dossier-sets-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&songs);
+        let found = Found { from: "osu.direct", set: 7, artist: "xi".into(), title: "Blue Zenith".into(), version: String::new() };
+        let osu = "osu file format v14\n\n[Metadata]\nTitle:Blue Zenith\nArtist:xi\nVersion:Another\n";
+        let hash = library::md5_hex(osu.as_bytes());
+        assert!(already(&songs, &found, &hash).is_none());
+        std::fs::create_dir_all(songs.join(found.folder())).unwrap();
+        let second = songs.join(format!("{} (2)", found.folder()));
+        std::fs::create_dir_all(&second).unwrap();
+        std::fs::write(second.join("another.osu"), osu).unwrap();
+        assert_eq!(already(&songs, &found, &hash).map(|map| map.version), Some("Another".to_owned()));
+        let _ = std::fs::remove_dir_all(&songs);
+    }
+
+    #[test]
+    fn a_download_stops_when_asked_or_when_nobody_listens() {
+        let stop = AtomicBool::new(false);
+        let mut report = |_: Step| true;
+        let mut leash = Leash { stop: &stop, report: &mut report, cut: false };
+        leash.tell(Step::Looking);
+        assert!(!leash.stopped());
+        stop.store(true, Ordering::SeqCst);
+        assert!(leash.stopped(), "the stop button went unheard");
+
+        let calm = AtomicBool::new(false);
+        let mut gone = |_: Step| false;
+        let mut deaf = Leash { stop: &calm, report: &mut gone, cut: false };
+        deaf.tell(Step::Looking);
+        assert!(deaf.stopped(), "a download went on with nobody to tell");
     }
 }

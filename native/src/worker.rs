@@ -266,7 +266,7 @@ fn map_for(setup: &Setup, hash: &str) -> Result<PathBuf, String> {
     if let Some(map) = index.by_hash.get(&hash.to_ascii_lowercase()) {
         return Ok(map.file.clone());
     }
-    match crate::maps::bring(hash, &setup.own_songs, &mut |_| ON.load(Ordering::SeqCst)) {
+    match crate::maps::bring(hash, &setup.own_songs, &AtomicBool::new(false), &mut |_| ON.load(Ordering::SeqCst)) {
         crate::maps::Step::Done(map) => Ok(map.file),
         crate::maps::Step::Nowhere => Err("no mirror has the map".to_owned()),
         crate::maps::Step::Failed(why) => Err(format!("the map: {why}")),

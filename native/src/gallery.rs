@@ -442,14 +442,15 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
     });
     rendering.progress_shown = rendering.progress_target().unwrap_or(0.0);
     let mut fetching = staged(Some(3));
-    fetching.fetching = Some(crate::main_screen::Fetching {
-        hash: library.entries[3].map_hash.clone(),
-        reached: vec![
+    fetching.fetching = vec![crate::main_screen::Fetching::new(
+        1,
+        library.entries[3].map_hash.clone(),
+        vec![
             crate::maps::Step::Looking,
             crate::maps::Step::Found(crate::maps::Found { from: "osu.direct", set: 2190769, artist: "Chocofan".into(), title: "LUCKY CAT".into(), version: String::new() }),
             crate::maps::Step::Downloading { from: "osu.direct", done: 14_890_000, total: Some(22_860_000) },
         ],
-    });
+    )];
     let mut hovering = staged(Some(0));
     hovering.hover = Some(1);
     hovering.hover_bounds = Some(iced::Rectangle::new(iced::Point::new(40.0 + 116.0 + 22.0, 720.0 - 10.0 - 61.0), iced::Size::new(108.0, 61.0)));
@@ -708,7 +709,9 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
         ("main-rendered".to_owned(), rendered),
         ("main-hover".to_owned(), hovering),
         ("main-fetching".to_owned(), {
-            fetching.progress_shown = fetching.progress_target().unwrap_or(0.0);
+            for job in &mut fetching.fetching {
+                job.shown = job.target().unwrap_or(0.0);
+            }
             fetching
         }),
         ("main-empty".to_owned(), empty),

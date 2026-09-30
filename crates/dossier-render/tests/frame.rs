@@ -5158,6 +5158,32 @@ fn a_skin_with_a_marker_gets_the_new_bar_and_its_ki_goes_unused() {
     let _ = std::fs::remove_dir_all(&new);
 }
 
+#[test]
+fn the_hit_error_bar_can_be_left_out_and_nothing_else_goes_with_it() {
+    let (map, replay) = tapped();
+    let state = GameState::new(&map, &replay);
+    let skin = Skin::with_combo_colours(map.combo_colours()).with_font(font());
+    let mut without = skin.clone();
+    without.error_bar = false;
+    let layout = Layout::new(640, 480);
+    let shown = Scene::new(&state, skin).frame(4200.0, &layout);
+    let hidden = Scene::new(&state, without).frame(4200.0, &layout);
+    let (mut low, mut elsewhere) = (0, 0);
+    for y in 0..480u32 {
+        for x in 0..640u32 {
+            if shown.pixel(x, y) != hidden.pixel(x, y) {
+                if y >= 400 && (160..480).contains(&x) {
+                    low += 1;
+                } else {
+                    elsewhere += 1;
+                }
+            }
+        }
+    }
+    assert!(low > 50, "the bar was not there to leave out: {low} pixels changed");
+    assert_eq!(elsewhere, 0, "leaving the bar out changed the rest of the frame");
+}
+
 fn resting_at(x: f32, y: f32, until_ms: i64) -> dossier_replay::Replay {
     let frames = (0..=until_ms / 16)
         .map(|n| dossier_replay::ReplayFrame { time_ms: n * 16, x, y, keys: dossier_replay::Keys(0) })

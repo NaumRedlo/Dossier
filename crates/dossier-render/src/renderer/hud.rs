@@ -1033,6 +1033,9 @@ impl Scene<'_> {
     }
 
     fn draw_error_bar(&self, pixmap: &mut Pixmap, time_ms: f64, layout: &Layout, presence: f32) {
+        if !self.skin.error_bar {
+            return;
+        }
         let Some(judge) = self.state.judge() else {
             return;
         };

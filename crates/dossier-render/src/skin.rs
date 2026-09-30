@@ -29,6 +29,7 @@ pub struct Skin {
     pub cursor_trail: bool,
     pub keypad: bool,
     pub unstable_rate: bool,
+    pub error_bar: bool,
     pub slider_body: Option<Color>,
 
     pub slider_body_dim: f32,
@@ -112,6 +113,7 @@ impl Default for Skin {
             cursor_trail: true,
             keypad: true,
             unstable_rate: true,
+            error_bar: true,
             slider_body: None,
             slider_body_dim: 0.35,
             slider_body_alpha: 0.70,

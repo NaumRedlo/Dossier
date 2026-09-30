@@ -3967,14 +3967,7 @@ impl Main {
             skin: self.settings.skin.clone(),
             music_level: self.settings.music_level,
             hitsound_level: self.settings.hitsound_level,
-            play: render::Play {
-                hud: self.settings.hud,
-                cursor_grows: self.settings.cursor_grows,
-                dim: (self.settings.background_dim * 100.0).round() as u32,
-                blur: (self.settings.background_blur * 100.0).round() as u32,
-                map_sounds: self.settings.map_sounds,
-                skin_sounds: self.settings.skin_sounds,
-            },
+            play: render::Play::of(&self.settings),
         })
     }
 
@@ -4943,7 +4936,7 @@ impl Main {
     }
 
     fn slider_targets(&self) -> Vec<(String, f32)> {
-        use crate::settings::{CPU_SHARES, CRFS, HEIGHTS, RATES};
+        use crate::settings::{CPU_SHARES, CRFS, CURSOR_SIZES, HEIGHTS, METER_SIZES, RATES};
         let at = |value: u32, of: &[u32]| {
             let last = (of.len().max(2) - 1) as f32;
             of.iter().position(|v| *v == value).map_or(0.5, |i| i as f32 / last)
@@ -4959,6 +4952,8 @@ impl Main {
             ("player".to_owned(), self.settings.player_level),
             ("dim".to_owned(), self.settings.background_dim),
             ("blur".to_owned(), self.settings.background_blur),
+            ("cursor-size".to_owned(), at(self.settings.cursor_size, &CURSOR_SIZES)),
+            ("meter-size".to_owned(), at(self.settings.meter_size, &METER_SIZES)),
         ]
     }
 
@@ -5970,6 +5965,24 @@ impl Main {
             P::CursorGrows(on) => {
                 self.remember_mark("cursor-grows", on);
                 self.settings.cursor_grows = on;
+                keep(&self.settings);
+                Task::none()
+            }
+            P::Effect(effect, on) => {
+                self.remember_mark(effect.tag(), on);
+                self.settings.set_effect(effect, on);
+                keep(&self.settings);
+                Task::none()
+            }
+            P::CursorSize(at) => {
+                self.slid_at.insert("cursor-size".to_owned(), Instant::now());
+                self.settings.cursor_size = prefs::nearest(at, &crate::settings::CURSOR_SIZES);
+                keep(&self.settings);
+                Task::none()
+            }
+            P::MeterSize(at) => {
+                self.slid_at.insert("meter-size".to_owned(), Instant::now());
+                self.settings.meter_size = prefs::nearest(at, &crate::settings::METER_SIZES);
                 keep(&self.settings);
                 Task::none()
             }

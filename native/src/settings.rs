@@ -117,6 +117,28 @@ pub struct Settings {
     pub map_sounds: bool,
     #[serde(default = "yes")]
     pub skin_sounds: bool,
+    #[serde(default)]
+    pub snaking: bool,
+    #[serde(default)]
+    pub hit_lighting: bool,
+    #[serde(default = "yes")]
+    pub cursor_trail: bool,
+    #[serde(default = "yes")]
+    pub key_overlay: bool,
+    #[serde(default = "yes")]
+    pub error_meter: bool,
+    #[serde(default = "yes")]
+    pub unstable_rate: bool,
+    #[serde(default = "yes")]
+    pub show_300: bool,
+    #[serde(default)]
+    pub storyboard: bool,
+    #[serde(default)]
+    pub map_video: bool,
+    #[serde(default = "whole_cpu")]
+    pub cursor_size: u32,
+    #[serde(default = "whole_cpu")]
+    pub meter_size: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -157,6 +179,37 @@ fn whole_cpu() -> u32 {
     100
 }
 
+impl Settings {
+    pub fn effect(&self, effect: Effect) -> bool {
+        match effect {
+            Effect::Snaking => self.snaking,
+            Effect::HitLighting => self.hit_lighting,
+            Effect::CursorTrail => self.cursor_trail,
+            Effect::KeyOverlay => self.key_overlay,
+            Effect::ErrorMeter => self.error_meter,
+            Effect::UnstableRate => self.unstable_rate,
+            Effect::Show300 => self.show_300,
+            Effect::Storyboard => self.storyboard,
+            Effect::MapVideo => self.map_video,
+        }
+    }
+
+    pub fn set_effect(&mut self, effect: Effect, on: bool) {
+        let field = match effect {
+            Effect::Snaking => &mut self.snaking,
+            Effect::HitLighting => &mut self.hit_lighting,
+            Effect::CursorTrail => &mut self.cursor_trail,
+            Effect::KeyOverlay => &mut self.key_overlay,
+            Effect::ErrorMeter => &mut self.error_meter,
+            Effect::UnstableRate => &mut self.unstable_rate,
+            Effect::Show300 => &mut self.show_300,
+            Effect::Storyboard => &mut self.storyboard,
+            Effect::MapVideo => &mut self.map_video,
+        };
+        *field = on;
+    }
+}
+
 fn default_dim() -> f32 {
     0.82
 }
@@ -165,6 +218,49 @@ pub const HEIGHTS: [u32; 5] = [480, 720, 1080, 1440, 2160];
 pub const RATES: [u32; 4] = [24, 30, 60, 120];
 pub const CRFS: [u32; 5] = [26, 23, 20, 17, 14];
 pub const CPU_SHARES: [u32; 4] = [25, 50, 75, 100];
+pub const CURSOR_SIZES: [u32; 6] = [50, 75, 100, 125, 150, 200];
+pub const METER_SIZES: [u32; 5] = [50, 75, 100, 150, 200];
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Effect {
+    Snaking,
+    HitLighting,
+    CursorTrail,
+    KeyOverlay,
+    ErrorMeter,
+    UnstableRate,
+    Show300,
+    Storyboard,
+    MapVideo,
+}
+
+impl Effect {
+    pub const ALL: [Effect; 9] = [
+        Effect::Snaking,
+        Effect::HitLighting,
+        Effect::CursorTrail,
+        Effect::KeyOverlay,
+        Effect::ErrorMeter,
+        Effect::UnstableRate,
+        Effect::Show300,
+        Effect::Storyboard,
+        Effect::MapVideo,
+    ];
+
+    pub fn tag(self) -> &'static str {
+        match self {
+            Effect::Snaking => "snaking",
+            Effect::HitLighting => "hit-lighting",
+            Effect::CursorTrail => "cursor-trail",
+            Effect::KeyOverlay => "key-overlay",
+            Effect::ErrorMeter => "error-meter",
+            Effect::UnstableRate => "unstable-rate",
+            Effect::Show300 => "show-300",
+            Effect::Storyboard => "storyboard",
+            Effect::MapVideo => "map-video",
+        }
+    }
+}
 pub const SCALE_LEAST: u32 = 80;
 pub const SCALE_MOST: u32 = 150;
 
@@ -899,6 +995,17 @@ impl Default for Settings {
             background_blur: 1.0,
             map_sounds: true,
             skin_sounds: true,
+            snaking: false,
+            hit_lighting: false,
+            cursor_trail: true,
+            key_overlay: true,
+            error_meter: true,
+            unstable_rate: true,
+            show_300: true,
+            storyboard: false,
+            map_video: false,
+            cursor_size: 100,
+            meter_size: 100,
         }
     }
 }

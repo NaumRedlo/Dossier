@@ -73,14 +73,7 @@ fn main() -> iced::Result {
             skin: said.skin.clone(),
             music_level: said.music_level,
             hitsound_level: said.hitsound_level,
-            play: dossier_native::render::Play {
-                hud: said.hud,
-                cursor_grows: said.cursor_grows,
-                dim: (said.background_dim * 100.0).round() as u32,
-                blur: (said.background_blur * 100.0).round() as u32,
-                map_sounds: said.map_sounds,
-                skin_sounds: said.skin_sounds,
-            },
+            play: dossier_native::render::Play::of(&said),
         };
         println!("skin {:?} · {:?}", ask.skin, ask.play);
         let started = std::time::Instant::now();

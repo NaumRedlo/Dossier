@@ -2562,6 +2562,9 @@ const STEP_INSET: f32 = 5.0;
 const HANDLE_ROOM: f32 = 6.0;
 const STEP_SNAP: f32 = 0.035;
 
+const STOP_CLEARANCE: f32 = 4.0;
+const STOP_FADE: f32 = 6.0;
+
 impl<Message> canvas::Program<Message> for Steps<'_, Message> {
     type State = StepsState;
 
@@ -2653,13 +2656,21 @@ impl<Message> canvas::Program<Message> for Steps<'_, Message> {
         let on_stop = if state.grabbed { 0.0 } else { self.snap.clamp(0.0, 1.0) };
         let inset = 4.0 - 3.0 * on_stop;
         let wide = 8.0 + on_stop + if state.grabbed { 2.5 } else { 0.0 };
+        let label_wide = self.label.chars().count() as f32 * 6.8 + 4.0;
+        let label_x = 10.0 + (w - 20.0 - label_wide) * state.label_side;
+        let value_wide = self.value.chars().count() as f32 * 6.7 + 2.0;
+        let right_side = x + wide / 2.0 + 10.0;
+        let left_side = x - wide / 2.0 - 10.0 - value_wide;
+        let value_x = (right_side + (left_side - right_side) * state.value_side)
+            .clamp(10.0, (w - value_wide - 10.0).max(10.0));
+        let clear_of = |sx: f32, from: f32, span: f32| ((from - STOP_CLEARANCE - sx).max(sx - from - span - STOP_CLEARANCE) / STOP_FADE).clamp(0.0, 1.0);
         for stop in &self.stops {
             let sx = STEP_INSET + stop * (w - 2.0 * STEP_INSET);
             let near = 1.0 - ((sx - x).abs() / 26.0).clamp(0.0, 1.0);
             let dot = 5.0;
             let width = dot + (wide - dot) * near;
             let height = dot + (h - 2.0 * inset - dot) * near;
-            let alpha = (0.2 - 0.14 * near) * (1.0 - near * 0.5);
+            let alpha = (0.2 - 0.14 * near) * (1.0 - near * 0.5) * clear_of(sx, label_x, label_wide) * clear_of(sx, value_x, value_wide);
             if alpha > 0.004 {
                 frame.fill(
                     &Path::rounded_rectangle(Point::new(sx - width / 2.0, (h - height) / 2.0), Size::new(width, height), (width / 2.0).into()),
@@ -2671,8 +2682,6 @@ impl<Message> canvas::Program<Message> for Steps<'_, Message> {
             &Path::rounded_rectangle(Point::new(x - wide / 2.0, inset), Size::new(wide, h - 2.0 * inset), (wide / 2.0).into()),
             dim(Color { a: 0.92, ..INK }, self.alpha),
         );
-        let label_wide = self.label.chars().count() as f32 * 6.8 + 4.0;
-        let label_x = 10.0 + (w - 20.0 - label_wide) * state.label_side;
         frame.fill_text(canvas::Text {
             content: self.label.clone(),
             position: Point::new(label_x, h / 2.0),
@@ -2683,11 +2692,6 @@ impl<Message> canvas::Program<Message> for Steps<'_, Message> {
             align_y: iced::alignment::Vertical::Center,
             ..canvas::Text::default()
         });
-        let value_wide = self.value.chars().count() as f32 * 6.7 + 2.0;
-        let right_side = x + wide / 2.0 + 10.0;
-        let left_side = x - wide / 2.0 - 10.0 - value_wide;
-        let value_x = (right_side + (left_side - right_side) * state.value_side)
-            .clamp(10.0, (w - value_wide - 10.0).max(10.0));
         frame.fill_text(canvas::Text {
             content: self.value.clone(),
             position: Point::new(value_x, h / 2.0),

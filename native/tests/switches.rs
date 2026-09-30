@@ -1,3 +1,4 @@
+use dossier_native::settings::Effect;
 use dossier_native::{gallery, lang::Lang, main_screen::{Main, Message as M, Overlay}, settings_screen::{Message as P, Side}, community_screen::{Message as C, Section, Standing}};
 use iced::{Size, Point};
 use iced_test::Simulator;
@@ -57,6 +58,7 @@ fn settings_switches_request_the_opposite_value_after_tiles_are_reordered() {
             for (tile, controls) in [
                 ("scene", vec![("live-replay", P::Scene(!on)), ("pause-unfocused", P::PauseUnfocused(!on)), ("auto-flip", P::AutoFlip(!on))]),
                 ("play", vec![("hud", P::Hud(!on)), ("cursor-grows", P::CursorGrows(!on)), ("map-sounds", P::MapSounds(!on)), ("skin-sounds", P::SkinSounds(!on))]),
+                ("elements", Effect::ALL.into_iter().map(|effect| (effect.tag(), P::Effect(effect, !on))).collect()),
                 ("look", vec![("scale-to-monitor", P::AutoScale(!on))]),
                 ("sources", vec![("exported-only", P::ExportedOnly(!on))]),
                 ("builds", vec![("quiet-updates", P::QuietUpdates(!on))]),
@@ -73,6 +75,9 @@ fn settings_switches_request_the_opposite_value_after_tiles_are_reordered() {
                 main.settings.ui_scale = if on { 0 } else { 100 };
                 main.settings.exported_only = on;
                 main.settings.quiet_updates = on;
+                for effect in Effect::ALL {
+                    main.settings.set_effect(effect, on);
+                }
                 for (key, expected) in controls {
                     let mut ui = Simulator::with_size(dossier_native::settings(), Size::new(980.0, 720.0), gallery::main_frame(&main, &backdrop));
                     ui.click(main.words.t(key)).unwrap();

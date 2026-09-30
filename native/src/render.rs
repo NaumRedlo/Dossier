@@ -39,7 +39,7 @@ pub struct Ask {
     pub play: Play,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Play {
     pub hud: bool,
     pub cursor_grows: bool,
@@ -47,11 +47,78 @@ pub struct Play {
     pub blur: u32,
     pub map_sounds: bool,
     pub skin_sounds: bool,
+    pub snaking: bool,
+    pub hit_lighting: bool,
+    pub cursor_trail: bool,
+    pub key_overlay: bool,
+    pub error_meter: bool,
+    pub unstable_rate: bool,
+    pub show_300: bool,
+    pub storyboard: bool,
+    pub map_video: bool,
+    pub cursor_size: u32,
+    pub meter_size: u32,
 }
 
 impl Default for Play {
     fn default() -> Play {
-        Play { hud: true, cursor_grows: false, dim: 82, blur: 100, map_sounds: true, skin_sounds: true }
+        Play {
+            hud: true,
+            cursor_grows: false,
+            dim: 82,
+            blur: 100,
+            map_sounds: true,
+            skin_sounds: true,
+            snaking: false,
+            hit_lighting: false,
+            cursor_trail: true,
+            key_overlay: true,
+            error_meter: true,
+            unstable_rate: true,
+            show_300: true,
+            storyboard: false,
+            map_video: false,
+            cursor_size: 100,
+            meter_size: 100,
+        }
+    }
+}
+
+impl Play {
+    pub fn of(settings: &crate::settings::Settings) -> Play {
+        Play {
+            hud: settings.hud,
+            cursor_grows: settings.cursor_grows,
+            dim: (settings.background_dim * 100.0).round() as u32,
+            blur: (settings.background_blur * 100.0).round() as u32,
+            map_sounds: settings.map_sounds,
+            skin_sounds: settings.skin_sounds,
+            snaking: settings.snaking,
+            hit_lighting: settings.hit_lighting,
+            cursor_trail: settings.cursor_trail,
+            key_overlay: settings.key_overlay,
+            error_meter: settings.error_meter,
+            unstable_rate: settings.unstable_rate,
+            show_300: settings.show_300,
+            storyboard: settings.storyboard,
+            map_video: settings.map_video,
+            cursor_size: settings.cursor_size,
+            meter_size: settings.meter_size,
+        }
+    }
+
+    pub fn dress(&self, skin: &mut dossier_render::Skin) {
+        skin.cursor_expand = self.cursor_grows;
+        skin.snake_in = self.snaking;
+        skin.snake_out = self.snaking;
+        skin.hit_lighting = self.hit_lighting;
+        skin.cursor_trail = self.cursor_trail;
+        skin.keypad = self.key_overlay;
+        skin.error_bar = self.error_meter;
+        skin.unstable_rate = self.unstable_rate;
+        skin.show_300 = self.show_300;
+        skin.cursor_scale = self.cursor_size.clamp(40, 200) as f32 / 100.0;
+        skin.meter_scale = self.meter_size.clamp(50, 300) as f32 / 100.0;
     }
 }
 
@@ -271,7 +338,7 @@ fn draw(ask: &Ask, tell: &Sender<Step>) -> Result<PathBuf, String> {
     if let Some(folder) = ask.skin.as_ref().filter(|folder| folder.is_dir()) {
         skin = dossier_produce::skin::from_folder(skin, folder, None);
     }
-    skin.cursor_expand = ask.play.cursor_grows;
+    ask.play.dress(&mut skin);
     let layering = skin.sprites.as_ref().is_none_or(|s| s.ini().layered_hit_sounds);
 
     let scratch = std::env::temp_dir().join(format!("dossier-native-{}", std::process::id()));
@@ -313,8 +380,8 @@ fn draw(ask: &Ask, tell: &Sender<Step>) -> Result<PathBuf, String> {
         layering,
         behind: scenery::Behind {
             background: true,
-            storyboard: false,
-            video: false,
+            storyboard: ask.play.storyboard,
+            video: ask.play.map_video,
             dim: Some(ask.play.dim.min(100)),
             blur: Some(ask.play.blur.min(100)),
             ffmpeg: &ffmpeg,
@@ -357,6 +424,37 @@ fn draw(ask: &Ask, tell: &Sender<Step>) -> Result<PathBuf, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn untouched_settings_draw_what_the_engine_draws_on_its_own() {
+        assert_eq!(Play::of(&crate::settings::Settings::default()), Play::default());
+        let plain = dossier_render::Skin::default();
+        let mut dressed = dossier_render::Skin::default();
+        Play::default().dress(&mut dressed);
+        assert_eq!(
+            (dressed.snake_in, dressed.snake_out, dressed.hit_lighting, dressed.cursor_trail, dressed.keypad, dressed.error_bar, dressed.unstable_rate, dressed.show_300, dressed.cursor_expand),
+            (plain.snake_in, plain.snake_out, plain.hit_lighting, plain.cursor_trail, plain.keypad, plain.error_bar, plain.unstable_rate, plain.show_300, plain.cursor_expand),
+            "a farm render would look different from before"
+        );
+        assert_eq!((dressed.cursor_scale, dressed.meter_scale), (plain.cursor_scale, plain.meter_scale));
+    }
+
+    #[test]
+    fn every_switch_reaches_the_skin() {
+        let mut settings = crate::settings::Settings::default();
+        for effect in crate::settings::Effect::ALL {
+            settings.set_effect(effect, !settings.effect(effect));
+        }
+        settings.cursor_size = 150;
+        settings.meter_size = 200;
+        let play = Play::of(&settings);
+        let mut skin = dossier_render::Skin::default();
+        play.dress(&mut skin);
+        assert!(skin.snake_in && skin.snake_out && skin.hit_lighting);
+        assert!(!skin.cursor_trail && !skin.keypad && !skin.error_bar && !skin.unstable_rate && !skin.show_300);
+        assert!(play.storyboard && play.map_video);
+        assert_eq!((skin.cursor_scale, skin.meter_scale), (1.5, 2.0));
+    }
 
     #[test]
     fn a_share_of_the_processor_leaves_the_rest_alone() {

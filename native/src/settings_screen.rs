@@ -4,7 +4,7 @@ use iced::widget::{button, column, container, row, text, text_input, Space};
 use iced::{Element, Length, Padding};
 
 use crate::lang::{Lang, Words};
-use crate::settings::{Settings, CPU_SHARES, CRFS, HEIGHTS, RATES};
+use crate::settings::{Effect, Settings, CPU_SHARES, CRFS, CURSOR_SIZES, HEIGHTS, METER_SIZES, RATES};
 use crate::sources::{self, Kind, Source};
 use crate::theme::{self, ACCENT, FAINT, INK, MUTED};
 use crate::ui;
@@ -26,6 +26,7 @@ pub enum Tile {
     Skins,
     Sound,
     Play,
+    Elements,
     Videos,
     Maps,
     Storage,
@@ -48,6 +49,7 @@ impl Tile {
             Tile::Skins => "skins",
             Tile::Sound => "sound",
             Tile::Play => "play",
+            Tile::Elements => "elements",
             Tile::Videos => "videos",
             Tile::Maps => "maps",
             Tile::Storage => "storage",
@@ -64,7 +66,7 @@ impl Tile {
     }
 }
 
-pub const APP: [Tile; 13] = [
+pub const APP: [Tile; 14] = [
     Tile::Render,
     Tile::Language,
     Tile::Look,
@@ -72,6 +74,7 @@ pub const APP: [Tile; 13] = [
     Tile::Scene,
     Tile::Sound,
     Tile::Play,
+    Tile::Elements,
     Tile::Sources,
     Tile::Skins,
     Tile::Videos,
@@ -191,6 +194,9 @@ pub enum Message {
     Blur(f32),
     Hud(bool),
     CursorGrows(bool),
+    Effect(Effect, bool),
+    CursorSize(f32),
+    MeterSize(f32),
     MapSounds(bool),
     SkinSounds(bool),
     Hitsounds(f32),
@@ -379,6 +385,8 @@ fn deed<'a>(words: String, press: Message, hot: bool) -> Element<'a, Message> {
 fn percent(level: f32) -> String {
     format!("{} %", (level.clamp(0.0, 1.0) * 100.0).round() as u32)
 }
+
+const ELEMENTS_WIDE: f32 = 420.0;
 
 fn at(value: u32, of: &[u32]) -> f32 {
     let last = (of.len().max(2) - 1) as f32;
@@ -614,6 +622,32 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
                 ],
                 6.0,
             ),
+        ]
+        .spacing(4)
+        .width(Length::Shrink)
+        .into(),
+        Tile::Elements => column![
+            head(w, "elements-tile"),
+            container(
+                column![
+                    slide(ground, "cursor-size", w.t("cursor-size"), format!("{} %", s.cursor_size), at(s.cursor_size, &CURSOR_SIZES), stops(&CURSOR_SIZES), Message::CursorSize),
+                    slide(ground, "meter-size", w.t("meter-size"), format!("{} %", s.meter_size), at(s.meter_size, &METER_SIZES), stops(&METER_SIZES), Message::MeterSize),
+                ]
+                .spacing(6)
+                .width(ELEMENTS_WIDE)
+            )
+            .padding(Padding { top: 6.0, right: 0.0, bottom: 4.0, left: 0.0 }),
+            container(ui::wrap(
+                Effect::ALL
+                    .into_iter()
+                    .map(|effect| {
+                        let on = s.effect(effect);
+                        pill(ground, effect.tag(), w.t(effect.tag()), on, Message::Effect(effect, !on))
+                    })
+                    .collect(),
+                6.0,
+            ))
+            .width(ELEMENTS_WIDE),
         ]
         .spacing(4)
         .width(Length::Shrink)

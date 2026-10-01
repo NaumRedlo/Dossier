@@ -494,6 +494,22 @@ Who may send is the person's choice on the bot tab of the settings, the tile
 *Видео от других*: from shared chats, from everyone, from nobody; the bot
 checks it, and only players with Dossier paired are offered at all.
 
+The journal is mixed (2026-10-01). A pill on the bot tab, *Делиться своими
+реплеями* in the community tile, sends the person's own plays — the replays in
+the journal whose player is their osu! name, newest first, three hundred at
+most — to the bot (`POST /render/replays`, each once, the ledger is
+`~/.dossier/shared.txt`); the line under it counts what the server holds, and
+switching it off takes them all away. The other half is a source: signed in,
+the sources tile gains *Реплеи игроков*, off until the person turns it on. On,
+the application keeps `~/.dossier/Shared` in step with the bot's list
+(`GET /render/replays`, the two hundred newest plays of the people of shared
+chats, or of every player when *Все игроки сервера* is on) — at start, every
+ten minutes and when switched — and the journal reads that folder like any
+other: the files are named player, artist, title and difficulty so a map the
+person does not have still has its words, the map is fetched by the same
+button, and the render is the same render. Such replays never announce
+themselves as a new play and are never donated.
+
 The player is a window, not a panel (reworked 2026-09-23, after the first
 build let the picture run to the card's edges); later the same day the card
 around it went too, so the title, the cross and the buttons stand in the air

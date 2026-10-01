@@ -181,3 +181,31 @@ fn a_notice_about_a_received_video_opens_it() {
     assert_eq!(main.sharing.open, Some(9));
     assert_eq!(main.sharing.tab, Tab::Received);
 }
+
+#[test]
+fn sharing_own_replays_is_switched_on_the_bot_tab_and_falls_back_when_refused() {
+    for lang in Lang::ALL {
+        let mut main = staged(lang, "main-prefs-bot");
+        let label = main.words.t("share-replays");
+        let said = clicked(&main, &label);
+        assert!(said.iter().any(|message| message.contains("ShareReplays(false)")), "{lang:?}: {said:?}");
+        let _ = main.update(M::Prefs(P::ShareReplays(false)));
+        assert_eq!(main.sharing.replays.as_ref().map(|state| (state.on, state.count)), Some((false, 0)));
+        assert!(shows(&main, &main.words.t("share-replays-about")));
+        let _ = main.update(M::Sharing(S::ReplaysSwitched(true, Err("offline".into()))));
+        assert!(main.sharing.replays.as_ref().unwrap().on);
+        let fresh = dossier_native::mixed::State { on: true, name: "NaumRedlo".into(), count: 3, most: 300 };
+        let _ = main.update(M::Sharing(S::Replays(Ok(fresh))));
+        assert!(shows(&main, &main.words.with("share-replays-count", &[("n", "3".to_owned()), ("most", "300".to_owned())])));
+    }
+}
+
+#[test]
+fn the_replays_of_other_players_are_a_source_with_a_name_and_a_switch() {
+    for lang in Lang::ALL {
+        let main = staged(lang, "main-prefs-shared");
+        let at = main.settings.sources.iter().position(|source| source.is_shared()).unwrap();
+        let said = clicked(&main, &main.words.t("source-shared"));
+        assert!(said.iter().any(|message| message.contains(&format!("Source({at}, false)"))), "{lang:?}: {said:?}");
+    }
+}

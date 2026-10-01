@@ -509,6 +509,62 @@ pub fn inbox_video(server: &str, token: &str, name: &str, id: u64, into: &std::p
     copied
 }
 
+pub fn replays_state(server: &str, token: &str, name: &str) -> Result<crate::mixed::State, Refused> {
+    let response = long(INBOX_PATIENCE)?
+        .get(format!("{server}/render/me/replays"))
+        .header("X-Render-Worker", name)
+        .bearer_auth(token)
+        .send()
+        .map_err(|e| Refused::Network(e.to_string()))?;
+    status(response)?.json().map_err(|e| Refused::Network(e.to_string()))
+}
+
+pub fn replays_switch(server: &str, token: &str, name: &str, on: bool) -> Result<crate::mixed::State, Refused> {
+    let response = long(INBOX_PATIENCE)?
+        .post(format!("{server}/render/me/replays"))
+        .header("X-Render-Worker", name)
+        .bearer_auth(token)
+        .json(&serde_json::json!({ "on": on }))
+        .send()
+        .map_err(|e| Refused::Network(e.to_string()))?;
+    status(response)?.json().map_err(|e| Refused::Network(e.to_string()))
+}
+
+pub fn replay_share(server: &str, token: &str, name: &str, replay: Vec<u8>, meta: &serde_json::Value) -> Result<bool, Refused> {
+    let response = long(DONATE_PATIENCE)?
+        .post(format!("{server}/render/replays"))
+        .header("X-Render-Worker", name)
+        .header("X-Render-Meta", meta.to_string())
+        .header("Content-Type", "application/octet-stream")
+        .bearer_auth(token)
+        .body(replay)
+        .send()
+        .map_err(|e| Refused::Network(e.to_string()))?;
+    let answer: serde_json::Value = status(response)?.json().map_err(|e| Refused::Network(e.to_string()))?;
+    Ok(answer.get("known").and_then(|known| known.as_bool()).unwrap_or(false))
+}
+
+pub fn replays_listed(server: &str, token: &str, name: &str, everyone: bool) -> Result<Vec<crate::mixed::Listed>, Refused> {
+    let response = long(INBOX_PATIENCE)?
+        .get(format!("{server}/render/replays"))
+        .header("X-Render-Worker", name)
+        .bearer_auth(token)
+        .query(&[("scope", if everyone { "all" } else { "chat" })])
+        .send()
+        .map_err(|e| Refused::Network(e.to_string()))?;
+    status(response)?.json::<crate::mixed::List>().map(|list| list.replays).map_err(|e| Refused::Network(e.to_string()))
+}
+
+pub fn replay_file(server: &str, token: &str, name: &str, hash: &str) -> Result<Vec<u8>, Refused> {
+    let response = long(DONATE_PATIENCE)?
+        .get(format!("{server}/render/replays/{hash}"))
+        .header("X-Render-Worker", name)
+        .bearer_auth(token)
+        .send()
+        .map_err(|e| Refused::Network(e.to_string()))?;
+    status(response)?.bytes().map(|b| b.to_vec()).map_err(|e| Refused::Network(e.to_string()))
+}
+
 fn inbox_deed(server: &str, token: &str, name: &str, id: u64, what: &str, patience: Duration) -> Result<(), Refused> {
     let response = long(patience)?
         .post(format!("{server}/render/inbox/{id}/{what}"))

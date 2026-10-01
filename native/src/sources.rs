@@ -40,6 +40,30 @@ impl Source {
     pub fn shown(&self) -> String {
         shortened(&self.root)
     }
+
+    pub fn is_shared(&self) -> bool {
+        self.root == shared_root()
+    }
+}
+
+pub fn shared_root() -> PathBuf {
+    own_root().join("Shared")
+}
+
+pub fn shared(on: bool) -> Source {
+    let root = shared_root();
+    Source {
+        kind: Kind::Folder,
+        songs: None,
+        skins: None,
+        replays: Some(root.clone()),
+        maps: None,
+        skin_count: 0,
+        replay_count: count_files(&root, "osr"),
+        scores: 0,
+        root,
+        on,
+    }
 }
 
 pub fn shortened(path: &Path) -> String {

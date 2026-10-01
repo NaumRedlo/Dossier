@@ -150,6 +150,7 @@ pub struct Ground<'a> {
     pub accept: crate::inbox::Accept,
     pub accept_ready: bool,
     pub accept_unregistered: bool,
+    pub share_replays: Option<&'a crate::mixed::State>,
 }
 
 #[derive(Debug, Clone)]
@@ -218,6 +219,7 @@ pub enum Message {
     Unlink,
     SignOut,
     Accept(crate::inbox::Accept),
+    ShareReplays(bool),
     Moved(Tile, Option<Tile>),
 }
 
@@ -515,7 +517,16 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
                 if source.scores > 0 {
                     under = format!("{under}  {}", w.count("scores-count", source.scores));
                 }
-                let source_line = line(ground, &format!("source-{at}"), short(source.kind), source.shown(), under, source.on, Some(Message::Source(at, !source.on)));
+                let shared = source.is_shared();
+                if shared && source.replay_count == 0 {
+                    under = w.t("source-shared-how");
+                }
+                let (glyph, name) = if shared { ("bot", w.t("source-shared")) } else { (short(source.kind), source.shown()) };
+                let source_line = line(ground, &format!("source-{at}"), glyph, name, under, source.on, Some(Message::Source(at, !source.on)));
+                if shared {
+                    rows = rows.push(source_line);
+                    continue;
+                }
                 rows = rows.push(
                     row![
                         container(source_line).width(Length::Fill),
@@ -937,6 +948,14 @@ fn community_tile<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
     };
     body = body.push(container(text(said).font(theme::SANS).size(11.0).color(ui::faded(FAINT))).width(300.0).padding(Padding::ZERO.top(6.0)));
     body = body.push(container(pill(ground, "people-everyone", w.t("people-everyone"), s.people_everyone, Message::PeopleEveryone(!s.people_everyone))).padding(Padding::ZERO.top(14.0)));
+    if let Some(sharing) = ground.share_replays {
+        body = body.push(container(pill(ground, "share-replays", w.t("share-replays"), sharing.on, Message::ShareReplays(!sharing.on))).padding(Padding::ZERO.top(8.0)));
+        let said = match sharing.on {
+            true => w.with("share-replays-count", &[("n", sharing.count.to_string()), ("most", sharing.most.to_string())]),
+            false => w.t("share-replays-about"),
+        };
+        body = body.push(container(text(said).font(theme::SANS).size(11.0).color(ui::faded(FAINT))).width(300.0).padding(Padding::ZERO.top(6.0)));
+    }
     body.into()
 }
 

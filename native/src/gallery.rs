@@ -693,6 +693,10 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
     prefs_bot.now_unix = NOON;
     prefs_bot.sharing.loaded = true;
     prefs_bot.sharing.registered = true;
+    prefs_bot.sharing.replays = Some(crate::mixed::State { on: true, name: "NaumRedlo".into(), count: 128, most: 300 });
+    let mut prefs_shared = prefs_app.clone();
+    prefs_shared.settings.tiles_app = vec!["sources".to_owned()];
+    prefs_shared.settings.sources.push(Source { replay_count: 37, ..crate::sources::shared(true) });
     prefs_bot.pin = Some(crate::community::wire::Pin { chat: Some(-100), since: Some(NOON - 5 * DAY), free_at: Some(NOON + 25 * DAY), error: String::new() });
     let community = |section: crate::community_screen::Section, person: Option<usize>| {
         let mut main = staged(Some(0));
@@ -801,6 +805,7 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
         ("main-signing".to_owned(), signing),
         ("main-prefs".to_owned(), prefs_app),
         ("main-prefs-bot".to_owned(), prefs_bot),
+        ("main-prefs-shared".to_owned(), prefs_shared),
         ("main-failure".to_owned(), failing),
         ("main-videos".to_owned(), with_videos),
         ("main-videos-received".to_owned(), received),

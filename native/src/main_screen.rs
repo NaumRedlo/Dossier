@@ -1463,7 +1463,7 @@ impl Main {
                 self.reading = None;
                 let before: std::collections::HashSet<String> = self.entries().iter().map(|e| e.replay_hash.clone()).collect();
                 let was = self.chosen_entry().map(|e| e.path.clone());
-                let fresh: Vec<Entry> = library.entries.iter().filter(|e| !before.contains(&e.replay_hash)).cloned().collect();
+                let fresh: Vec<Entry> = library.entries.iter().filter(|e| !before.contains(&e.replay_hash) && !crate::mixed::is_shared(&e.path)).cloned().collect();
                 self.library = Some(library);
                 self.chosen = was.and_then(|path| self.entries().iter().position(|e| e.path == path)).or_else(|| self.visible().first().copied());
                 self.hover = None;
@@ -1491,7 +1491,7 @@ impl Main {
                         self.announce(notices::Mark::Done, words, detail, String::new(), newest.map_hash.clone(), notices::Link::Replay(newest.path.clone()));
                     }
                 }
-                Task::batch([self.thumbs_task(), self.covers_task(), nudge, self.donate_task()])
+                Task::batch([self.thumbs_task(), self.covers_task(), nudge, self.donate_task(), self.replays_give_task()])
             }
             Message::Loaded(library) => {
                 self.wake(Instant::now());
@@ -1505,7 +1505,7 @@ impl Main {
                 self.enter = Animation::new(false).duration(ENTER).easing(Easing::EaseOutCubic).go(true, Instant::now());
                 let first = self.visible().first().copied();
                 self.chosen = first;
-                Task::batch([self.fetch_for_chosen(), self.thumbs_task(), self.covers_task(), self.start_live(), self.watch_task(), self.donate_task()])
+                Task::batch([self.fetch_for_chosen(), self.thumbs_task(), self.covers_task(), self.start_live(), self.watch_task(), self.donate_task(), self.replays_give_task()])
             }
             Message::MapKnown(hash, known) => {
                 if let Some(library) = self.library.as_mut() {
@@ -1747,7 +1747,8 @@ impl Main {
                     let _ = self.settings.save();
                 }
                 self.account = Some(me);
-                let inbox = self.inbox_task(true);
+                self.offer_shared_source();
+                let inbox = Task::batch([self.inbox_task(true), self.replays_state_task(), self.replays_sync_task(true)]);
                 if !wants_avatar {
                     return inbox;
                 }
@@ -5558,7 +5559,12 @@ impl Main {
         if !self.settings.donate_replays || self.settings.token.is_empty() {
             return Task::none();
         }
-        let plays: Vec<crate::donate::Play> = self.entries().iter().map(|entry| crate::donate::Play { path: entry.path.clone(), hash: entry.replay_hash.clone() }).collect();
+        let plays: Vec<crate::donate::Play> = self
+            .entries()
+            .iter()
+            .filter(|entry| !crate::mixed::is_shared(&entry.path))
+            .map(|entry| crate::donate::Play { path: entry.path.clone(), hash: entry.replay_hash.clone() })
+            .collect();
         if plays.is_empty() {
             return Task::none();
         }
@@ -5868,6 +5874,7 @@ impl Main {
             accept: self.sharing.accept,
             accept_ready: self.sharing.loaded && self.sharing.registered,
             accept_unregistered: self.sharing.loaded && !self.sharing.registered,
+            share_replays: self.sharing.replays.as_ref(),
         };
         let body: Element<'_, Message> = Element::from(prefs::view(&ground)).map(Message::Prefs);
         self.sided(self.settings_entries(), body, 1.0)
@@ -6012,7 +6019,7 @@ impl Main {
                 self.settings.people_everyone = on;
                 keep(&self.settings);
                 self.welcome_everyone();
-                self.everyone_task()
+                Task::batch([self.everyone_task(), self.replays_sync_task(true)])
             }
             P::Accept(accept) => self.sharing_update(sharing::Message::Accept(accept)),
             P::Pin(chat) => {
@@ -6054,9 +6061,14 @@ impl Main {
                     source.on = on;
                     keep(&self.settings);
                 }
+                let sync = match on && self.settings.sources.get(at).is_some_and(|source| source.is_shared()) {
+                    true => self.replays_sync_task(true),
+                    false => Task::none(),
+                };
                 let sources = self.settings.sources.clone();
-                ui::in_thread(move || library::read(&sources)).map(Message::Loaded)
+                Task::batch([sync, ui::in_thread(move || library::read(&sources)).map(Message::Loaded)])
             }
+            P::ShareReplays(on) => self.sharing_update(sharing::Message::ShareReplays(on)),
             P::RemoveSource(at) => {
                 if at >= self.settings.sources.len() {
                     return Task::none();
@@ -7747,6 +7759,26 @@ mod tests {
         assert_eq!(main.sharing.drawing, None);
         assert_eq!(main.chosen_entry().map(|entry| entry.path.clone()), Some(path.clone()));
         assert_eq!(main.sharing.looks.get(&path).map(|look| look.fps), Some(30));
+    }
+
+    #[test]
+    fn replays_brought_from_other_players_do_not_say_a_new_play_happened() {
+        let (_, mut main) = crate::gallery::main_states(crate::lang::Lang::En).into_iter().next().unwrap();
+        let mut library = main.library.clone().unwrap();
+        let mut brought = library.entries[0].clone();
+        brought.path = crate::sources::shared_root().join(format!("kotofey ({}).osr", "f".repeat(32)));
+        brought.replay_hash = "f".repeat(32);
+        library.entries.insert(0, brought.clone());
+        let before = main.notices.notices.len();
+        let _ = main.update(super::Message::Refreshed(library.clone()));
+        assert_eq!(main.notices.notices.len(), before);
+        assert!(main.entries().iter().any(|entry| entry.replay_hash == brought.replay_hash));
+        let mut own = brought;
+        own.path = "/replays/own.osr".into();
+        own.replay_hash = "e".repeat(32);
+        library.entries.insert(0, own);
+        let _ = main.update(super::Message::Refreshed(library));
+        assert_eq!(main.notices.notices.len(), before + 1);
     }
 
     #[test]

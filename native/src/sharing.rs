@@ -9,15 +9,16 @@ use iced::widget::{button, column, container, image, mouse_area, row, scrollable
 use iced::{Animation, ContentFit, Element, Length, Padding, Task};
 
 use super::{
-    covered_bytes, mod_badge, unix_now, Bill, Main, Message as Outer, Overlay, Sending, CONTROLS_IN, PICTURE_INSET, PICTURE_RADIUS, STAGE_GAP, STAGE_OPEN, STAGE_TOP,
-    STAGE_UNDER, VIDEO_DATE_W, VIDEO_ROW, VIDEO_THUMB,
+    covered_bytes, mod_badge, read_library, unix_now, Bill, Main, Message as Outer, Overlay, Sending, CONTROLS_IN, PICTURE_INSET, PICTURE_RADIUS, STAGE_GAP, STAGE_OPEN,
+    STAGE_TOP, STAGE_UNDER, VIDEO_DATE_W, VIDEO_ROW, VIDEO_THUMB,
 };
 use crate::inbox::{self, Accept, Face, Look, Received};
 use crate::sources::Kind;
 use crate::theme::{self, FAINT, INK, MUTED};
-use crate::{bot, library, notices, player, ui, videos};
+use crate::{bot, library, mixed, notices, player, ui, videos};
 
 pub const EVERY: Duration = Duration::from_secs(60);
+const SYNC_EVERY: Duration = Duration::from_secs(600);
 const TOLD_AT_ONCE: usize = 3;
 const LIST_HIGH: f32 = 296.0;
 const FACE: f32 = 32.0;
@@ -55,6 +56,11 @@ pub enum Message {
     Close,
     Accept(Accept),
     Accepted(Accept, Result<String, String>),
+    Replays(Result<mixed::State, String>),
+    ShareReplays(bool),
+    ReplaysSwitched(bool, Result<mixed::State, String>),
+    ReplaysGiven(usize),
+    ReplaysSynced(Result<mixed::Change, String>),
     Quiet,
 }
 
@@ -95,6 +101,8 @@ pub struct State {
     pub looks: HashMap<PathBuf, Look>,
     pub draw_wanted: Option<String>,
     pub render_look: Option<Look>,
+    pub replays: Option<mixed::State>,
+    pub replays_synced: Option<Instant>,
 }
 
 impl State {
@@ -131,6 +139,65 @@ impl Main {
         self.sharing.asked = Some(now);
         let (server, token, name) = self.bot_keys();
         ui::in_thread(move || Outer::Sharing(Message::Arrived(bot::inbox(&server, &token, &name).map_err(|e| e.to_string()))))
+    }
+
+    pub(super) fn replays_state_task(&self) -> Task<Outer> {
+        if self.settings.token.is_empty() || self.gallery {
+            return Task::none();
+        }
+        let (server, token, name) = self.bot_keys();
+        ui::in_thread(move || Outer::Sharing(Message::Replays(bot::replays_state(&server, &token, &name).map_err(|e| e.to_string()))))
+    }
+
+    pub(super) fn replays_give_task(&self) -> Task<Outer> {
+        let Some(state) = self.sharing.replays.as_ref().filter(|state| state.on && !state.name.is_empty()) else {
+            return Task::none();
+        };
+        if self.settings.token.is_empty() || self.gallery {
+            return Task::none();
+        }
+        let own = state.name.to_lowercase();
+        let plays: Vec<mixed::Play> = self
+            .entries()
+            .iter()
+            .filter(|entry| !mixed::is_shared(&entry.path) && entry.player.to_lowercase() == own)
+            .take(state.most.max(1) as usize)
+            .map(|entry| {
+                let (artist, title, version) = match (&entry.map, &entry.named) {
+                    (Some(map), _) => (map.artist.clone(), map.title.clone(), map.version.clone()),
+                    (None, Some(named)) => (named.artist.clone(), named.title.clone(), named.version.clone()),
+                    (None, None) => Default::default(),
+                };
+                mixed::Play { path: entry.path.clone(), hash: entry.replay_hash.clone(), artist, title, version }
+            })
+            .collect();
+        if plays.is_empty() {
+            return Task::none();
+        }
+        let (server, token, name) = self.bot_keys();
+        ui::in_thread(move || Outer::Sharing(Message::ReplaysGiven(mixed::give(&server, &token, &name, &plays, &mixed::ledger(), |_| {}).unwrap_or(0))))
+    }
+
+    pub(super) fn replays_sync_task(&mut self, force: bool) -> Task<Outer> {
+        if self.settings.token.is_empty() || self.gallery || !self.settings.sources.iter().any(|source| source.is_shared() && source.on) {
+            return Task::none();
+        }
+        let now = Instant::now();
+        if !force && self.sharing.replays_synced.is_some_and(|at| now.saturating_duration_since(at) < SYNC_EVERY) {
+            return Task::none();
+        }
+        self.sharing.replays_synced = Some(now);
+        let (server, token, name) = self.bot_keys();
+        let everyone = self.settings.people_everyone;
+        ui::in_thread(move || Outer::Sharing(Message::ReplaysSynced(mixed::sync(&server, &token, &name, everyone).map_err(|e| e.to_string()))))
+    }
+
+    pub(super) fn offer_shared_source(&mut self) {
+        if self.settings.token.is_empty() || self.gallery || self.settings.sources.iter().any(|source| source.is_shared()) {
+            return;
+        }
+        self.settings.sources.push(crate::sources::shared(false));
+        let _ = self.settings.save();
     }
 
     pub(super) fn send_meta(&self, video: &videos::Video, chat: Option<i64>) -> serde_json::Value {
@@ -260,7 +327,7 @@ impl Main {
                     Tab::Mine => Task::none(),
                 }
             }
-            Message::Tick => self.inbox_task(false),
+            Message::Tick => Task::batch([self.inbox_task(false), self.replays_sync_task(false)]),
             Message::Arrived(Err(_)) => {
                 self.sharing.failed = !self.sharing.loaded;
                 Task::none()
@@ -686,6 +753,63 @@ impl Main {
             Message::Accepted(_, Ok(said)) => {
                 self.accept_now(Accept::of(&said));
                 Task::none()
+            }
+            Message::Replays(Ok(state)) => {
+                mixed::allow(state.on);
+                self.marks.remove("share-replays");
+                self.marks_now.remove("share-replays");
+                self.sharing.replays = Some(state);
+                self.replays_give_task()
+            }
+            Message::Replays(Err(_)) => Task::none(),
+            Message::ShareReplays(on) => {
+                let Some(state) = self.sharing.replays.as_mut().filter(|state| state.on != on) else {
+                    return Task::none();
+                };
+                state.on = on;
+                mixed::allow(on);
+                if !on {
+                    state.count = 0;
+                    mixed::forget_given();
+                }
+                self.remember_mark("share-replays", on);
+                let (server, token, name) = self.bot_keys();
+                ui::in_thread(move || Outer::Sharing(Message::ReplaysSwitched(!on, bot::replays_switch(&server, &token, &name, on).map_err(|e| e.to_string()))))
+            }
+            Message::ReplaysSwitched(_, Ok(state)) => {
+                mixed::allow(state.on);
+                self.sharing.replays = Some(state);
+                self.replays_give_task()
+            }
+            Message::ReplaysSwitched(was, Err(_)) => {
+                if let Some(state) = &mut self.sharing.replays {
+                    state.on = was;
+                }
+                mixed::allow(was);
+                self.remember_mark("share-replays", was);
+                let words = self.words.t("accept-failed");
+                self.say(words);
+                Task::none()
+            }
+            Message::ReplaysGiven(sent) => match sent {
+                0 => Task::none(),
+                _ => self.replays_state_task(),
+            },
+            Message::ReplaysSynced(Err(_)) => Task::none(),
+            Message::ReplaysSynced(Ok(change)) => {
+                if let Some(source) = self.settings.sources.iter_mut().find(|source| source.is_shared()) {
+                    let counted = crate::sources::shared(source.on).replay_count;
+                    if source.replay_count != counted {
+                        source.replay_count = counted;
+                        let _ = self.settings.save();
+                    }
+                }
+                if change == mixed::Change::default() || self.refreshing {
+                    return Task::none();
+                }
+                self.refreshing = true;
+                self.refreshed_at = Instant::now();
+                read_library(self.settings.sources.clone(), Outer::Refreshed)
             }
             Message::Accepted(was, Err(_)) => {
                 let now = self.sharing.accept;

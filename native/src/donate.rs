@@ -42,7 +42,7 @@ pub fn given(at: &Path) -> HashSet<String> {
         .unwrap_or_default()
 }
 
-fn note(at: &Path, hash: &str) {
+pub(crate) fn note(at: &Path, hash: &str) {
     if let Some(folder) = at.parent() {
         let _ = std::fs::create_dir_all(folder);
     }
@@ -51,7 +51,7 @@ fn note(at: &Path, hash: &str) {
     }
 }
 
-fn waiting(play: &Play, done: &HashSet<String>) -> Option<(String, Vec<u8>)> {
+pub(crate) fn waiting(play: &Play, done: &HashSet<String>) -> Option<(String, Vec<u8>)> {
     let named = keyed(&play.hash).then(|| play.hash.to_ascii_lowercase());
     if named.as_ref().is_some_and(|hash| done.contains(hash)) {
         return None;

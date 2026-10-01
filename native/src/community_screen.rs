@@ -416,20 +416,7 @@ pub(crate) fn columns_for(ground: &Ground<'_>, target: f32) -> usize {
 }
 
 pub(crate) fn grid<'a>(cells: Vec<Element<'a, Message>>, columns: usize, gap: f32) -> Element<'a, Message> {
-    let columns = columns.max(1);
-    let mut rows = column![].spacing(gap).width(Length::Fill);
-    let mut cells = cells.into_iter().peekable();
-    while cells.peek().is_some() {
-        let mut line = row![].spacing(gap).width(Length::Fill);
-        for _ in 0..columns {
-            line = line.push(match cells.next() {
-                Some(cell) => container(cell).width(Length::FillPortion(1)),
-                None => container(Space::new().width(0.0).height(0.0)).width(Length::FillPortion(1)),
-            });
-        }
-        rows = rows.push(line);
-    }
-    rows.into()
+    crate::board::flowing(cells.into_iter().enumerate().collect(), gap).across(columns).into()
 }
 
 pub(crate) fn lifted(_: &Theme, status: button::Status) -> button::Style {

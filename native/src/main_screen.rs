@@ -37,6 +37,8 @@ const NEWS_EVERY: Duration = Duration::from_secs(60);
 const FRIENDS_EVERY: Duration = Duration::from_secs(120);
 const CARD_EVERY: Duration = Duration::from_secs(300);
 const COMMUNITY_SCALE: f32 = 0.84;
+const SIDE_OPEN: Duration = Duration::from_millis(220);
+const SIDE_WAIT: Duration = Duration::from_millis(70);
 const HOVER_REST: Duration = Duration::from_millis(160);
 pub const LIVE_FADE: Duration = Duration::from_millis(640);
 pub const BRAND_WIDTH: f32 = 144.0;
@@ -181,6 +183,8 @@ pub enum Message {
     Step(i32),
     Escape,
     Hover(Option<usize>),
+    SideOpen(bool),
+    SideMoved(&'static str, Option<&'static str>),
     HoverLeft(usize),
     Over(usize, iced::Rectangle),
     HoverStaged(usize),
@@ -469,6 +473,7 @@ pub struct Main {
     pub paused_by_hand: bool,
     pub turning: Option<Overlay>,
     pub side_fade: Animation<bool>,
+    pub side_open: Animation<bool>,
     pub side_swap: f32,
     pub sizes: (u64, u64, u64),
     pub storage: prefs::Storage,
@@ -685,6 +690,7 @@ impl Main {
             paused_by_hand: false,
             turning: None,
             side_fade: Animation::new(true),
+            side_open: Animation::new(false).duration(SIDE_OPEN).easing(Easing::EaseOutCubic).delay(SIDE_WAIT),
             side_swap: 0.0,
             sizes: (0, 0, 0),
             storage: prefs::Storage::default(),
@@ -975,6 +981,7 @@ impl Main {
             || self.turning.is_some()
             || self.retype.is_animating(self.now)
             || self.side_fade.is_animating(self.now)
+            || self.side_open.is_animating(self.now)
             || self.marks.values().any(|m| m.is_animating(self.now))
             || self.slides_settling()
             || (self.overlay == Overlay::Community && self.feed_arrivals.animating(self.now))
@@ -2229,6 +2236,21 @@ impl Main {
                 let x = 40.0 + theme::FRAME_W + 8.0 + 22.0 + at.saturating_sub(1) as f32 * (theme::FRAME_W + 6.0);
                 let bounds = iced::Rectangle::new(Point::new(x, self.height - 10.0 - theme::FRAME_H), iced::Size::new(theme::FRAME_W, theme::FRAME_H));
                 self.update(Message::Over(at, bounds))
+            }
+            Message::SideOpen(open) => {
+                if self.side_open.value() != open {
+                    self.side_open.go_mut(open, Instant::now());
+                }
+                Task::none()
+            }
+            Message::SideMoved(what, before) => {
+                let mut entries = self.community_entries();
+                entries.push(crate::sidebar::Entry::Caption(String::new()));
+                entries.extend(self.settings_entries());
+                let shown = crate::sidebar::groups(&crate::sidebar::arranged(entries, &self.settings.side_order));
+                self.settings.side_order = crate::sidebar::moved(&shown, &self.settings.side_order, what, before);
+                let _ = self.settings.save();
+                Task::none()
             }
             Message::Hover(at) => {
                 if self.hover == at {
@@ -5521,7 +5543,7 @@ impl Main {
         crate::community::Catalog::staged(maps, &you, self.now_unix)
     }
 
-    fn community_side(&self) -> Element<'_, Message> {
+    fn community_entries(&self) -> Vec<crate::sidebar::Entry<Message>> {
         use crate::community_screen::{Message as C, PeopleFrom, Section};
         use crate::glyphs::Icon;
         use crate::sidebar::Entry;
@@ -5529,7 +5551,7 @@ impl Main {
         let section = self.community_section;
         let item = |key: &'static str, icon: Icon, label: String, on: bool, section: Section, from: Option<PeopleFrom>| Entry::Item { key, icon, label, on, press: Message::Community(C::Go(section, from)) };
         let people = |from: PeopleFrom| section == Section::People && self.people_from == from;
-        let entries = vec![
+        vec![
             item("profile", Icon::Person, w.t("community-profile"), section == Section::Profile, Section::Profile, None),
             item("feed", Icon::News, w.t("community-feed"), section == Section::Feed, Section::Feed, None),
             Entry::Caption(w.t("community-people")),
@@ -5539,19 +5561,25 @@ impl Main {
             Entry::Caption(w.t("community-standing")),
             item("boards", Icon::Chart, w.t("community-boards"), section == Section::Boards, Section::Boards, None),
             item("titles", Icon::Trophy, w.t("community-titles"), section == Section::Titles, Section::Titles, None),
-        ];
-        crate::sidebar::view(entries, self.width)
+        ]
     }
 
-    fn settings_side(&self) -> Element<'_, Message> {
+    fn settings_entries(&self) -> Vec<crate::sidebar::Entry<Message>> {
         use crate::glyphs::Icon;
         use crate::sidebar::Entry;
         let w = &self.words;
-        let entries = vec![
+        vec![
             Entry::Item { key: "app-side", icon: Icon::Gear, label: w.t("app-side"), on: self.side == Side::App, press: Message::Prefs(prefs::Message::Side(Side::App)) },
             Entry::Item { key: "bot-side", icon: Icon::Send, label: w.t("bot-side"), on: self.side == Side::Bot, press: Message::Prefs(prefs::Message::Side(Side::Bot)) },
-        ];
-        crate::sidebar::view(entries, self.width)
+        ]
+    }
+
+    fn sided<'a>(&'a self, entries: Vec<crate::sidebar::Entry<Message>>, body: Element<'a, Message>) -> Element<'a, Message> {
+        let entries = crate::sidebar::arranged(entries, &self.settings.side_order);
+        let open = self.side_open.interpolate(0.0, 1.0, self.now);
+        let side = ui::fading(ui::fade() * self.overlay_fade.interpolate(0.0, 1.0, self.now), || crate::sidebar::view(entries, open, Message::SideOpen, Message::SideMoved));
+        let room = row![Space::new().width(crate::sidebar::NARROW), body].height(Length::Fill);
+        column![Space::new().height(theme::CONTROL_HEIGHT + 4.0 + 22.0), stack![room, side].width(Length::Fill).height(Length::Fill)].width(Length::Fill).height(Length::Fill).into()
     }
 
     fn community_view(&self, person_only: bool) -> Option<Element<'_, Message>> {
@@ -5584,7 +5612,7 @@ impl Main {
             channels: &self.settings.news_channels,
             channel_draft: &self.channel_draft,
             fetch: self.community_fetch,
-            width: self.width / COMMUNITY_SCALE,
+            width: if person_only { self.width } else { self.width - crate::sidebar::NARROW } / COMMUNITY_SCALE,
             filter: self.feed_filter,
             source: self.feed_source,
             stream: self.feed_stream,
@@ -5649,8 +5677,7 @@ impl Main {
         };
         let body: Element<'_, Message> = crate::community_screen::view(&ground).map(Message::Community);
         let body: Element<'_, Message> = ui::scaled(body, COMMUNITY_SCALE).into();
-        let side = ui::fading(ui::fade() * self.overlay_fade.interpolate(0.0, 1.0, self.now), || self.community_side());
-        let page: Element<'_, Message> = column![Space::new().height(theme::CONTROL_HEIGHT + 4.0 + 22.0), row![side, body].height(Length::Fill)].width(Length::Fill).height(Length::Fill).into();
+        let page = self.sided(self.community_entries(), body);
         let stage = stage.unwrap_or_else(|| Space::new().width(Length::Fill).height(Length::Fill).into());
         Some(stack![page, stage].width(Length::Fill).height(Length::Fill).into())
     }
@@ -5698,9 +5725,7 @@ impl Main {
             scale_draft: self.scale_draft,
         };
         let body: Element<'_, Message> = Element::from(prefs::view(&ground)).map(Message::Prefs);
-        let side = ui::fading(ui::fade() * self.overlay_fade.interpolate(0.0, 1.0, self.now), || self.settings_side());
-        let sheet = column![Space::new().height(theme::CONTROL_HEIGHT + 4.0 + 22.0), row![side, body].height(Length::Fill)].width(Length::Fill).height(Length::Fill);
-        sheet.into()
+        self.sided(self.settings_entries(), body)
     }
 
     fn prefs(&mut self, message: prefs::Message) -> Task<Message> {

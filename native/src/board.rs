@@ -15,18 +15,18 @@ const SHOWN_FOR: Duration = Duration::from_millis(700);
 const RADIUS: f32 = 16.0;
 
 #[derive(Debug, Clone, Copy, Default)]
-struct Spring {
+pub(crate) struct Spring {
     x: f32,
     v: f32,
 }
 
 #[derive(Debug, Clone, Copy)]
-struct Feel {
+pub(crate) struct Feel {
     omega: f32,
     zeta: f32,
 }
 
-const FLOW: Feel = Feel { omega: 15.0, zeta: 0.92 };
+pub(crate) const FLOW: Feel = Feel { omega: 15.0, zeta: 0.92 };
 const FOLLOW: Feel = Feel { omega: 26.0, zeta: 0.8 };
 const LAND: Feel = Feel { omega: 17.0, zeta: 0.86 };
 const LIFT: Feel = Feel { omega: 16.0, zeta: 1.0 };
@@ -71,21 +71,26 @@ impl Spring {
 }
 
 #[derive(Debug, Clone, Copy, Default)]
-struct Spot {
+pub(crate) struct Spot {
     x: Spring,
     y: Spring,
 }
 
 impl Spot {
-    fn at(p: Point) -> Self {
+    pub(crate) fn at(p: Point) -> Self {
         Spot { x: Spring::at(p.x), y: Spring::at(p.y) }
     }
 
-    fn point(&self) -> Point {
+    pub(crate) fn point(&self) -> Point {
         Point::new(self.x.x, self.y.x)
     }
 
-    fn step(&mut self, target: Point, dt: f32, feel: Feel) -> bool {
+    pub(crate) fn moved_by(&mut self, by: Vector) {
+        self.x.x += by.x;
+        self.y.x += by.y;
+    }
+
+    pub(crate) fn step(&mut self, target: Point, dt: f32, feel: Feel) -> bool {
         let a = self.x.step(target.x, dt, feel);
         let b = self.y.step(target.y, dt, feel);
         a || b
@@ -214,7 +219,7 @@ fn flow<K: Copy + Eq + Hash>(order: &[K], sizes: &HashMap<K, Size>, width: f32, 
     let (mut x, mut y, mut row) = (0.0f32, 0.0f32, 0.0f32);
     for key in order {
         let size = sizes.get(key).copied().unwrap_or(Size::ZERO);
-        if x > 0.0 && x + size.width > width {
+        if x > 0.0 && x + size.width > width + 0.5 {
             x = 0.0;
             y += row + spacing;
             row = 0.0;
@@ -307,7 +312,10 @@ fn outline(renderer: &mut Renderer, bounds: Rectangle, radius: f32, width: f32, 
 pub struct Board<'a, Message, K> {
     pieces: Vec<(K, Element<'a, Message>)>,
     spacing: f32,
-    on_move: Box<dyn Fn(K, Option<K>) -> Message + 'a>,
+    on_move: Option<Box<dyn Fn(K, Option<K>) -> Message + 'a>>,
+    across: Option<usize>,
+    anywhere: bool,
+    radius: f32,
     on_tap: Option<Box<dyn Fn(K, Rectangle) -> Message + 'a>>,
     fade: f32,
     solid: Option<Color>,
@@ -321,12 +329,31 @@ pub fn board<'a, Message: 'a, K: Copy + Eq + Hash + 'static>(
     spacing: f32,
     on_move: impl Fn(K, Option<K>) -> Message + 'a,
 ) -> Board<'a, Message, K> {
-    Board { pieces, spacing, on_move: Box::new(on_move), on_tap: None, fade: crate::ui::fade(), solid: None, hidden: None, fixed_first: None, identity: None }
+    Board { pieces, spacing, on_move: Some(Box::new(on_move)), on_tap: None, across: None, anywhere: false, radius: RADIUS, fade: crate::ui::fade(), solid: None, hidden: None, fixed_first: None, identity: None }
+}
+
+pub fn flowing<'a, Message: 'a, K: Copy + Eq + Hash + 'static>(pieces: Vec<(K, Element<'a, Message>)>, spacing: f32) -> Board<'a, Message, K> {
+    Board { pieces, spacing, on_move: None, on_tap: None, across: None, anywhere: false, radius: RADIUS, fade: crate::ui::fade(), solid: None, hidden: None, fixed_first: None, identity: None }
 }
 
 impl<'a, Message, K: Copy + Eq + Hash + 'static> Board<'a, Message, K> {
     pub fn identity(mut self, identity: String) -> Self {
         self.identity = Some(identity);
+        self
+    }
+
+    pub fn across(mut self, columns: usize) -> Self {
+        self.across = Some(columns.max(1));
+        self
+    }
+
+    pub fn anywhere(mut self) -> Self {
+        self.anywhere = true;
+        self
+    }
+
+    pub fn radius(mut self, radius: f32) -> Self {
+        self.radius = radius;
         self
     }
 
@@ -355,7 +382,7 @@ impl<'a, Message, K: Copy + Eq + Hash + 'static> Board<'a, Message, K> {
             return;
         };
         renderer.fill_quad(
-            renderer::Quad { bounds, border: Border { radius: RADIUS.into(), ..Border::default() }, ..renderer::Quad::default() },
+            renderer::Quad { bounds, border: Border { radius: self.radius.into(), ..Border::default() }, ..renderer::Quad::default() },
             Background::Color(Color { a: colour.a * self.fade, ..colour }),
         );
     }
@@ -417,7 +444,13 @@ impl<Message, K: Copy + Eq + Hash + 'static> Widget<Message, Theme, Renderer> fo
 
     fn layout(&mut self, tree: &mut Tree, renderer: &Renderer, limits: &layout::Limits) -> Node {
         let width = limits.max().width;
-        let loose = layout::Limits::new(Size::ZERO, Size::new(width, f32::INFINITY));
+        let loose = match self.across {
+            Some(columns) => {
+                let each = ((width - self.spacing * (columns - 1) as f32) / columns as f32).max(0.0);
+                layout::Limits::new(Size::new(each, 0.0), Size::new(each, f32::INFINITY))
+            }
+            None => layout::Limits::new(Size::ZERO, Size::new(width, f32::INFINITY)),
+        };
         let nodes: Vec<Node> = self
             .pieces
             .iter_mut()
@@ -501,9 +534,9 @@ impl<Message, K: Copy + Eq + Hash + 'static> Widget<Message, Theme, Renderer> fo
                 let order = state.shown_order();
                 if let Some(held) = state.held.as_mut() {
                     held.released = true;
-                    if order != state.keys {
+                    if let (true, Some(on_move)) = (order != state.keys, self.on_move.as_ref()) {
                         let before = order.iter().position(|k| *k == held.key).and_then(|at| order.get(at + 1).copied());
-                        shell.publish((self.on_move)(held.key, before));
+                        shell.publish(on_move(held.key, before));
                     }
                 }
                 state.press = None;
@@ -523,6 +556,13 @@ impl<Message, K: Copy + Eq + Hash + 'static> Widget<Message, Theme, Renderer> fo
                         state.frame = Spot::at(slot);
                         state.frame_seen = Spring::default();
                         state.last = None;
+                        if self.anywhere {
+                            let lifted = self.pieces.iter_mut().zip(tree.children.iter_mut()).zip(layout.children()).find(|(((key, _), _), _)| *key == press.key);
+                            if let Some((((_, piece), child), place)) = lifted {
+                                let let_go = iced::Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left));
+                                piece.as_widget_mut().update(child, &let_go, place, mouse::Cursor::Unavailable, renderer, clipboard, shell, viewport);
+                            }
+                        }
                         shell.capture_event();
                         shell.request_redraw();
                         return;
@@ -545,7 +585,7 @@ impl<Message, K: Copy + Eq + Hash + 'static> Widget<Message, Theme, Renderer> fo
 
         let state = tree.state.downcast_mut::<State<K>>();
         match event {
-            iced::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) if !shell.is_event_captured() && state.held.is_none() => {
+            iced::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) if self.on_move.is_some() && (self.anywhere || !shell.is_event_captured()) && state.held.is_none() => {
                 let Some(at) = cursor.position() else {
                     return;
                 };
@@ -560,7 +600,7 @@ impl<Message, K: Copy + Eq + Hash + 'static> Widget<Message, Theme, Renderer> fo
                         state.press = Some(Press { key, from: at, grab: at - rect.position() });
                         if self.on_tap.is_some() { shell.capture_event(); }
                     }
-                    None if layout.bounds().contains(at) => {
+                    None if !self.anywhere && layout.bounds().contains(at) => {
                         state.showing = true;
                         state.shown_until = None;
                         shell.request_redraw();
@@ -628,7 +668,7 @@ impl<Message, K: Copy + Eq + Hash + 'static> Widget<Message, Theme, Renderer> fo
                     continue;
                 };
                 let slot = Rectangle::new(*target + origin_v, *size).expand(4.0);
-                outline(renderer, slot, RADIUS + 4.0, 1.0, Color::from_rgba(1.0, 1.0, 1.0, 0.2 * shown * fade));
+                outline(renderer, slot, self.radius + 4.0, 1.0, Color::from_rgba(1.0, 1.0, 1.0, 0.2 * shown * fade));
             }
         }
 
@@ -636,7 +676,7 @@ impl<Message, K: Copy + Eq + Hash + 'static> Widget<Message, Theme, Renderer> fo
             if let Some(size) = state.sizes.get(&held.key) {
                 let seen = state.frame_seen.x.clamp(0.0, 1.0);
                 let frame = Rectangle::new(state.frame.point() + origin_v, *size);
-                outline(renderer, frame, RADIUS, 1.5, Color::from_rgba(1.0, 1.0, 1.0, 0.22 * seen * fade));
+                outline(renderer, frame, self.radius, 1.5, Color::from_rgba(1.0, 1.0, 1.0, 0.22 * seen * fade));
             }
         }
 
@@ -677,7 +717,7 @@ impl<Message, K: Copy + Eq + Hash + 'static> Widget<Message, Theme, Renderer> fo
                 renderer.fill_quad(
                     renderer::Quad {
                         bounds: lifted,
-                        border: Border { radius: RADIUS.into(), ..Border::default() },
+                        border: Border { radius: self.radius.into(), ..Border::default() },
                         shadow: Shadow {
                             color: Color::from_rgba(0.0, 0.0, 0.0, 0.55 * lift * fade),
                             offset: Vector::new(0.0, 6.0 + 10.0 * lift),
@@ -694,7 +734,7 @@ impl<Message, K: Copy + Eq + Hash + 'static> Widget<Message, Theme, Renderer> fo
                 piece.as_widget().draw(child, renderer, theme, style, place, mouse::Cursor::Unavailable, &(*viewport * transformation.inverse()));
             });
             renderer.with_transformation(about(lifted, scale), |renderer| {
-                outline(renderer, lifted, RADIUS, 1.0, Color::from_rgba(1.0, 1.0, 1.0, 0.13 * lift * fade));
+                outline(renderer, lifted, self.radius, 1.0, Color::from_rgba(1.0, 1.0, 1.0, 0.13 * lift * fade));
             });
         });
     }

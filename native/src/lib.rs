@@ -17,6 +17,7 @@ pub mod gallery;
 pub mod glide;
 pub mod glyphs;
 pub mod icon;
+pub mod lanes;
 pub mod lang;
 pub mod library;
 pub mod live;

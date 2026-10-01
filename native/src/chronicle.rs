@@ -9,6 +9,7 @@ use iced::{mouse, Background, Border, Color, Element, Length, Padding, Rectangle
 use crate::community::{Board, Catalog, Happening, Kind, LivePlay, Person};
 use crate::community_screen::{self as screen, Ground, Message, Reading, Section};
 use crate::glyphs::{glyph, Icon};
+use crate::lanes::{self, Lane};
 use crate::news::{self, News};
 use crate::theme::{self, ACCENT, FAINT, INK, MUTED};
 use crate::ui;
@@ -1284,49 +1285,54 @@ fn leaderboard<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
     mouse_area(card(body, [14, 16])).on_enter(Message::RankHold(true)).on_exit(Message::RankHold(false)).into()
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum Part {
+    Timeline,
+    Me,
+    Channels,
+    Future,
+    Spot,
+    Friends,
+    Leaders,
+}
+
+fn plan(room: f32) -> Vec<Lane<Part>> {
+    use Part::*;
+    if room >= LEFT_WIDE + RIGHT_WIDE + 520.0 + GAP * 2.0 {
+        let left = (room * 0.2).clamp(LEFT_WIDE, 360.0);
+        let right = (room * 0.23).clamp(RIGHT_WIDE, 400.0);
+        let middle = (room - left - right - GAP * 2.0).min(CENTRE_MOST);
+        let x = ((room - left - right - middle - GAP * 2.0) / 2.0).max(0.0);
+        vec![Lane::stack(x, left, [Me, Channels, Future]), Lane::fill(x + left + GAP, middle, Timeline), Lane::stack(x + left + middle + GAP * 2.0, right, [Spot, Friends, Leaders])]
+    } else if room >= RIGHT_WIDE + 460.0 + GAP {
+        let right = (room * 0.3).clamp(RIGHT_WIDE, 380.0);
+        vec![Lane::fill(0.0, room - right - GAP, Timeline), Lane::stack(room - right, right, [Me, Spot, Friends, Leaders, Channels, Future])]
+    } else {
+        vec![Lane::fill(0.0, room, Timeline)]
+    }
+}
+
 pub fn view<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
     let room = ground.width - 80.0;
-    let wide_enough = room >= LEFT_WIDE + RIGHT_WIDE + 520.0 + GAP * 2.0;
-    let medium = room >= RIGHT_WIDE + 460.0 + GAP;
-    let right_parts = |me_first: bool| -> Element<'a, Message> {
-        let mut side = column![].spacing(12);
-        let t = ground.section_t;
-        if me_first {
-            side = side.push(ui::appearing(ui::appear(t, 0), 12.0, || me_card(ground)));
+    let planned = plan(room);
+    let t = ground.section_t;
+    let mut pieces = vec![(Part::Timeline, timeline(ground, lanes::width_of(&planned, Part::Timeline).unwrap_or(room)))];
+    for (stack, lane) in planned.iter().filter(|lane| !lane.fill).enumerate() {
+        for (at, part) in lane.keys.iter().enumerate() {
+            let k = ui::appear(t, stack + at);
+            let card = match part {
+                Part::Me => ui::appearing(k, 12.0, || me_card(ground)),
+                Part::Channels => ui::appearing(k, 12.0, || channels_card(ground)),
+                Part::Future => ui::appearing(k, 12.0, || future_card(ground)),
+                Part::Spot => ui::appearing(k, 12.0, || spotlight(ground)),
+                Part::Friends => ui::appearing(k, 12.0, || friends_card(ground)),
+                Part::Leaders => ui::appearing(k, 12.0, || leaderboard(ground)),
+                Part::Timeline => continue,
+            };
+            pieces.push((*part, card));
         }
-        side = side
-            .push(ui::appearing(ui::appear(t, 1), 12.0, || spotlight(ground)))
-            .push(ui::appearing(ui::appear(t, 2), 12.0, || friends_card(ground)))
-            .push(ui::appearing(ui::appear(t, 3), 12.0, || leaderboard(ground)));
-        if me_first {
-            side = side.push(ui::appearing(ui::appear(t, 4), 12.0, || channels_card(ground)));
-            side = side.push(ui::appearing(ui::appear(t, 5), 12.0, || future_card(ground)));
-        }
-        scrollable(container(side).padding(Padding { top: 2.0, right: 8.0, bottom: 28.0, left: 0.0 })).style(ui::thin_scroll).direction(ui::hidden_bar()).height(Length::Fill).into()
-    };
-    let content: Element<'a, Message> = if wide_enough {
-        let left_wide = (room * 0.2).clamp(LEFT_WIDE, 360.0);
-        let right_wide = (room * 0.23).clamp(RIGHT_WIDE, 400.0);
-        let middle = (room - left_wide - right_wide - GAP * 2.0).min(CENTRE_MOST);
-        let t = ground.section_t;
-        let left = scrollable(container(column![ui::appearing(ui::appear(t, 0), 12.0, || me_card(ground)), ui::appearing(ui::appear(t, 1), 12.0, || channels_card(ground)), ui::appearing(ui::appear(t, 2), 12.0, || future_card(ground))].spacing(12)).padding(Padding { top: 2.0, right: 6.0, bottom: 28.0, left: 0.0 })).style(ui::thin_scroll).direction(ui::hidden_bar()).height(Length::Fill);
-        container(
-            row![
-                container(left).width(left_wide).height(Length::Fill),
-                container(timeline(ground, middle)).width(middle).height(Length::Fill),
-                container(right_parts(false)).width(right_wide).height(Length::Fill),
-            ]
-            .spacing(GAP),
-        )
-        .center_x(Length::Fill)
-        .into()
-    } else if medium {
-        let right_wide = (room * 0.3).clamp(RIGHT_WIDE, 380.0);
-        row![container(timeline(ground, room - right_wide - GAP)).width(Length::Fill).height(Length::Fill), container(right_parts(true)).width(right_wide).height(Length::Fill)].spacing(GAP).into()
-    } else {
-        timeline(ground, room)
-    };
-    container(content).padding(Padding { top: 12.0, right: 40.0, bottom: 0.0, left: 40.0 }).width(Length::Fill).height(Length::Fill).into()
+    }
+    container(lanes::lanes(pieces, plan).spacing(12.0).room(2.0, 28.0)).padding(Padding { top: 12.0, right: 40.0, bottom: 0.0, left: 40.0 }).width(Length::Fill).height(Length::Fill).into()
 }
 
 pub struct Drain {

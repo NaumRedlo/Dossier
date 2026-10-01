@@ -1,11 +1,12 @@
 use iced::widget::canvas::{self, Canvas, Frame, Geometry, Path, Stroke};
-use iced::widget::{button, column, container, mouse_area, row, scrollable, stack, text, Space};
+use iced::widget::{button, column, container, mouse_area, row, stack, text, Space};
 use iced::{mouse, Background, Border, Color, Element, Length, Padding, Point, Rectangle, Renderer, Shadow, Theme, Vector};
 
 use crate::chronicle::{self, card as slab};
 use crate::community::{wire, Board, Person, Rarity, Title};
 use crate::community_screen::{self as screen, Ground, Message};
 use crate::glyphs::{glyph, Icon};
+use crate::lanes::{self, Lane};
 use crate::theme::{self, ACCENT, FAINT, INK, MUTED};
 use crate::ui;
 
@@ -1413,33 +1414,54 @@ pub fn card_from(person: &Person) -> wire::Card {
     }
 }
 
-pub fn columns<'a>(ground: &Ground<'a>, whose: &Whose<'a>, room: f32, t: f32) -> Element<'a, Message> {
-    let room = room.min(1880.0);
-    let block = |index: usize, build: &dyn Fn() -> Element<'a, Message>| ui::appearing(ui::appear(t, index), 14.0, build);
-    let rolled = |inside: Element<'a, Message>| -> Element<'a, Message> {
-        scrollable(container(inside).padding(Padding { top: 2.0, right: 8.0, bottom: 28.0, left: 0.0 })).style(ui::thin_scroll).direction(ui::hidden_bar()).height(Length::Fill).into()
-    };
-    let wide = room >= LEFT + RIGHT + 540.0 + 32.0;
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum Block {
+    Identity,
+    Places,
+    Grades,
+    Titles,
+    Activity,
+    Metrics,
+    Chart,
+    Best,
+}
+
+fn plan(width: f32) -> Vec<Lane<Block>> {
+    use Block::*;
+    let room = width.min(1880.0);
+    let x = ((width - room) / 2.0).max(0.0);
     let left = (room * 0.21).clamp(LEFT, SIDE_MOST);
-    let right = (room * 0.21).clamp(RIGHT, SIDE_MOST);
-    let middle_wide = if wide { room - left - right - 32.0 } else { room - left - 16.0 };
-    let middle = column![block(0, &|| metrics(ground, whose, middle_wide - 8.0, t)), block(1, &|| chart(ground, whose, t)), block(2, &|| best_plays(ground, whose, middle_wide, t))].spacing(14);
-    if wide {
-        let content = row![
-            container(rolled(column![block(0, &|| identity(ground, whose, left - 8.0)), block(1, &|| places(ground, whose, t))].spacing(14).into())).width(left).height(Length::Fill),
-            container(rolled(middle.into())).width(Length::Fill).height(Length::Fill),
-            container(rolled(column![block(1, &|| grades(ground, &whose.card)), block(2, &|| titles(ground, whose)), block(3, &|| activity(ground, whose, right - 8.0))].spacing(14).into())).width(right).height(Length::Fill),
-        ]
-        .spacing(16).width(room);
-        container(content).width(Length::Fill).height(Length::Fill).center_x(Length::Fill).into()
+    if room >= LEFT + RIGHT + 540.0 + 32.0 {
+        let right = (room * 0.21).clamp(RIGHT, SIDE_MOST);
+        let middle = room - left - right - 32.0;
+        vec![Lane::stack(x, left, [Identity, Places]), Lane::stack(x + left + 16.0, middle, [Metrics, Chart, Best]), Lane::stack(x + left + middle + 32.0, right, [Grades, Titles, Activity])]
     } else {
-        let content = row![
-            container(rolled(column![block(0, &|| identity(ground, whose, left - 8.0)), block(1, &|| places(ground, whose, t)), block(2, &|| grades(ground, &whose.card))].spacing(14).into())).width(left).height(Length::Fill),
-            container(rolled(middle.push(block(3, &|| titles(ground, whose))).push(block(4, &|| activity(ground, whose, middle_wide - 8.0))).into())).width(Length::Fill).height(Length::Fill),
-        ]
-        .spacing(16).width(room);
-        container(content).width(Length::Fill).height(Length::Fill).center_x(Length::Fill).into()
+        let middle = room - left - 16.0;
+        vec![Lane::stack(x, left, [Identity, Places, Grades]), Lane::stack(x + left + 16.0, middle, [Metrics, Chart, Best, Titles, Activity])]
     }
+}
+
+pub fn columns<'a>(ground: &Ground<'a>, whose: &Whose<'a>, room: f32, t: f32) -> Element<'a, Message> {
+    let planned = plan(room);
+    let mut pieces = Vec::new();
+    for (index, lane) in planned.iter().enumerate() {
+        let wide = lane.width;
+        for (at, block) in lane.keys.iter().enumerate() {
+            let k = ui::appear(t, at + usize::from(index >= 2));
+            let piece = match block {
+                Block::Identity => ui::appearing(k, 14.0, || identity(ground, whose, wide)),
+                Block::Places => ui::appearing(k, 14.0, || places(ground, whose, t)),
+                Block::Grades => ui::appearing(k, 14.0, || grades(ground, &whose.card)),
+                Block::Titles => ui::appearing(k, 14.0, || titles(ground, whose)),
+                Block::Activity => ui::appearing(k, 14.0, || activity(ground, whose, wide)),
+                Block::Metrics => ui::appearing(k, 14.0, || metrics(ground, whose, wide, t)),
+                Block::Chart => ui::appearing(k, 14.0, || chart(ground, whose, t)),
+                Block::Best => ui::appearing(k, 14.0, || best_plays(ground, whose, wide, t)),
+            };
+            pieces.push((*block, piece));
+        }
+    }
+    lanes::lanes(pieces, plan).spacing(14.0).room(2.0, 28.0).into()
 }
 
 pub fn view<'a>(ground: &Ground<'a>) -> Element<'a, Message> {

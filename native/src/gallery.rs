@@ -693,6 +693,11 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
         ("main-worker".to_owned(), worker),
         ("main-community-feed".to_owned(), community(crate::community_screen::Section::Feed, None)),
         ("main-community-people".to_owned(), community(crate::community_screen::Section::People, None)),
+        ("main-community-sidebar".to_owned(), {
+            let mut main = community(crate::community_screen::Section::Feed, None);
+            main.side_open = iced::Animation::new(true);
+            main
+        }),
         ("main-community-compare".to_owned(), {
             let mut main = community(crate::community_screen::Section::Compare, None);
             main.pool_players();

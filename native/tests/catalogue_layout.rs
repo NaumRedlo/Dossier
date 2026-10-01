@@ -3,13 +3,13 @@ use iced::{widget::{button, container, Space}, Event, Padding, Point, Size};
 use iced_test::Simulator;
 
 fn community_point(bounds: iced::Rectangle, width: f32) -> Point {
-    let side = dossier_native::sidebar::width_for(width);
+    let side = dossier_native::sidebar::NARROW;
     let origin_y = dossier_native::theme::CONTROL_HEIGHT + 26.0;
     Point::new(side + (bounds.center_x() - side) * 0.84, origin_y + (bounds.center_y() - origin_y) * 0.84)
 }
 
 fn content_middle(width: f32) -> f32 {
-    let side = dossier_native::sidebar::width_for(width);
+    let side = dossier_native::sidebar::NARROW;
     side + (width - side) / 2.0
 }
 
@@ -300,7 +300,7 @@ fn feed_stream_switches_preserve_highlight_pixels() {
         let path = gallery::written_as(&stem);
         let image = image::open(&path).unwrap().to_rgba8();
         let origin_y = dossier_native::theme::CONTROL_HEIGHT + 26.0;
-        let side = dossier_native::sidebar::width_for(main.width);
+        let side = dossier_native::sidebar::NARROW;
         let x = ((side + (heading.x - side) * 0.84) * 2.0).ceil() as u32;
         let y = ((origin_y + (heading.y - origin_y) * 0.84) * 2.0).ceil() as u32;
         let crop = image::imageops::crop_imm(&image, x, y, (300.0 * 0.84 * 2.0) as u32, ((heading.height + 8.0 + 146.0) * 0.84 * 2.0) as u32).to_image();

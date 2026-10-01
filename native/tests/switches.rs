@@ -23,7 +23,7 @@ fn navigation_and_section_tabs_fit_and_route_in_both_languages() {
     let backdrop = dossier_native::ui::backdrop_handle();
     for lang in Lang::ALL {
         for width in [980.0, 1060.0, 1200.0, 1440.0] {
-            let side = dossier_native::sidebar::width_for(width);
+            let side = dossier_native::sidebar::NARROW;
             for name in ["main-community-profile", "main-prefs"] {
                 let main = staged(lang, name, width);
                 let parts: Vec<(&str, M)> = if name == "main-prefs" {
@@ -123,7 +123,7 @@ fn ranking_switches_select_the_metric_and_ranking_mode() {
                 let label = main.words.t(if standing == Standing::Adaptive { "board-adaptive" } else { "board-general" });
                 let bounds = ui.find(label.as_str()).unwrap().bounds();
                 let origin = dossier_native::theme::CONTROL_HEIGHT + 26.0;
-                let side = dossier_native::sidebar::width_for(width);
+                let side = dossier_native::sidebar::NARROW;
                 ui.point_at(Point::new(side + (bounds.center_x() - side) * 0.84, origin + (bounds.center_y() - origin) * 0.84));
                 ui.simulate(iced_test::simulator::click());
                 let messages: Vec<_> = ui.into_messages().collect();
@@ -136,7 +136,7 @@ fn ranking_switches_select_the_metric_and_ranking_mode() {
                 let mut ui = Simulator::with_size(dossier_native::settings(), Size::new(width, 720.0), gallery::main_frame(&main, &backdrop));
                 let bounds = ui.find(main.words.t(board.key())).unwrap().bounds();
                 let origin = dossier_native::theme::CONTROL_HEIGHT + 26.0;
-                let side = dossier_native::sidebar::width_for(width);
+                let side = dossier_native::sidebar::NARROW;
                 ui.point_at(Point::new(side + (bounds.center_x() - side) * 0.84, origin + (bounds.center_y() - origin) * 0.84));
                 ui.simulate(iced_test::simulator::click());
                 assert!(ui.into_messages().any(|message| matches!(message, dossier_native::Message::Main(M::Community(C::Board(actual))) if actual == board)), "{lang:?} {width} {board:?}");
@@ -181,4 +181,53 @@ fn language_source_and_chat_choices_route_to_the_exact_item() {
             assert!(ui.into_messages().any(|message| matches!(message, dossier_native::Message::Main(M::Prefs(P::Chat(id))) if id == chat.id)), "{lang:?} chat {}", chat.id);
         }
     }
+}
+
+#[test]
+fn the_sidebar_gives_its_words_room_only_while_it_is_open() {
+    let backdrop = dossier_native::ui::backdrop_handle();
+    for lang in Lang::ALL {
+        let mut main = staged(lang, "main-community-feed", 980.0);
+        let feed = main.words.t("community-feed");
+        let mut ui = Simulator::with_size(dossier_native::settings(), Size::new(980.0, 720.0), gallery::main_frame(&main, &backdrop));
+        let shut = ui.find(iced::widget::Id::new("side-feed")).unwrap().bounds();
+        assert!(shut.x + shut.width <= dossier_native::sidebar::NARROW + 1.0, "{lang:?}: a closed sidebar is {shut:?}");
+        assert!(ui.find(feed.as_str()).is_err(), "{lang:?}: a closed sidebar shows its words");
+        drop(ui);
+        main.side_open = iced::Animation::new(true);
+        let mut ui = Simulator::with_size(dossier_native::settings(), Size::new(980.0, 720.0), gallery::main_frame(&main, &backdrop));
+        let open = ui.find(iced::widget::Id::new("side-feed")).unwrap().bounds();
+        assert!(open.y == shut.y && open.height == shut.height, "{lang:?}: opening moved the icon from {shut:?} to {open:?}");
+        assert!(open.x + open.width > dossier_native::sidebar::NARROW + 40.0 && open.x + open.width <= dossier_native::sidebar::WIDE + 1.0, "{lang:?}: an open sidebar is {open:?}");
+        let words = ui.find(feed.as_str()).unwrap().bounds();
+        assert!(words.x > open.x && words.x + words.width <= open.x + open.width, "{lang:?}: {feed} sits outside its item: {words:?} in {open:?}");
+        ui.point_at(Point::new(open.x + open.width - 10.0, 700.0));
+        let _ = ui.simulate(iced_test::simulator::click());
+        let messages: Vec<_> = ui.into_messages().filter(|message| !matches!(message, dossier_native::Message::Main(M::SideOpen(_)))).collect();
+        assert!(messages.is_empty(), "{lang:?}: a click on the open sidebar reached the feed under it: {messages:?}");
+    }
+}
+
+#[test]
+fn a_sidebar_icon_is_dragged_above_its_neighbour_and_a_drag_is_not_a_click() {
+    use iced::{mouse, window, Event};
+    let backdrop = dossier_native::ui::backdrop_handle();
+    let main = staged(Lang::En, "main-community-feed", 980.0);
+    let mut ui = Simulator::with_size(dossier_native::settings(), Size::new(980.0, 720.0), gallery::main_frame(&main, &backdrop));
+    let feed = ui.find(iced::widget::Id::new("side-feed")).unwrap().bounds();
+    let profile = ui.find(iced::widget::Id::new("side-profile")).unwrap().bounds();
+    let from = Point::new(feed.center_x(), feed.center_y());
+    ui.point_at(from);
+    let _ = ui.simulate([Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left))]);
+    let start = std::time::Instant::now();
+    for step in 1..=8 {
+        let at = Point::new(from.x, from.y + (profile.y + 6.0 - from.y) * step as f32 / 8.0);
+        ui.point_at(at);
+        let _ = ui.simulate([Event::Mouse(mouse::Event::CursorMoved { position: at }), Event::Window(window::Event::RedrawRequested(start + std::time::Duration::from_millis(40 * step)))]);
+    }
+    let _ = ui.simulate([Event::Window(window::Event::RedrawRequested(start + std::time::Duration::from_millis(600)))]);
+    let _ = ui.simulate([Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left))]);
+    let messages: Vec<_> = ui.into_messages().collect();
+    assert!(messages.iter().any(|message| matches!(message, dossier_native::Message::Main(M::SideMoved("feed", Some("profile"))))), "{messages:?}");
+    assert!(!messages.iter().any(|message| matches!(message, dossier_native::Message::Main(M::Community(_)))), "the drag also pressed the icon: {messages:?}");
 }

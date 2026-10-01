@@ -144,7 +144,7 @@ fn the_strip_is_dragged_by_its_frames_and_a_drag_is_not_a_click() {
 fn a_staged_screen_saves_its_settings_away_from_the_real_ones() {
     use dossier_native::main_screen::Message as M;
     use dossier_native::settings_screen::{Message as P, Side};
-    let real = std::path::PathBuf::from(std::env::var_os("HOME").expect("a home")).join(".dossier");
+    let real = std::path::PathBuf::from(std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")).expect("a home")).join(".dossier");
     let mut app = main_state("main-prefs");
     let kept = dossier_native::settings::path();
     assert!(!kept.starts_with(&real), "a staged screen keeps its settings in {}", kept.display());

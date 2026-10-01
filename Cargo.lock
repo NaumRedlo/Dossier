@@ -239,6 +239,10 @@ dependencies = [
 [[package]]
 name = "dossier-witness"
 version = "0.11.0"
+dependencies = [
+ "dossier-replay",
+ "lzma-rs",
+]
 
 [[package]]
 name = "equivalent"

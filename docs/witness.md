@@ -61,6 +61,29 @@ format, so nothing is at a fixed address.
   negative, a screen is one of the known ones). A client the patterns do not
   know is reported as such and left alone.
 
+What the bench has shown (2026-10-01, stable 20251102 under CrossOver, offline):
+
+- The four anchors are found once the game itself has loaded; before that the
+  code they sit in has not been compiled yet, so a client still at its first
+  dialog is simply "not ready", not "unknown".
+- The score being played holds its replay frames in a list at +0x34: objects
+  with x at +4, y at +8, the keys at +0xC and the time at +0x10. Its first frame
+  is the one the client itself inserts (0, 256, −500). The life bar is a list of
+  time and health pairs at +0x24, the hit errors a list of integers at +0x38.
+- The runtime moves objects while the game runs: the score changed its address
+  in the middle of a play. A play is therefore known by its frames — the last
+  frame read is still where it was — never by the address of its score.
+- A play is over when the screen leaves Play; reaching the results means it was
+  passed, and the score shown there is the same object with its last frames.
+- The replay written from memory was given to the engine: its judgement of
+  that replay matched the client's own counts exactly (84 / 14 / 1 / 0, combo
+  188, 89.73%).
+
+`witness --record DIR --player NAME` does this: it follows the client and
+writes every play of 120 frames or more as an `.osr` into the folder. The
+client's own name is used when it has one; offline it has none, and the name
+given is written instead.
+
 The client also has a door of its own: `InterProcessOsu`, a .NET Remoting object
 whose `GetBulkClientData` tells the screen, the map's hash and id and the audio
 time. It tells the score only in tournament mode, so it cannot replace reading,

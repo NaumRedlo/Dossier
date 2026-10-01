@@ -47,14 +47,100 @@ fn main() {
         }
     };
     println!("witness: anchors {anchors:x?}");
+    if let Some(out) = args.iter().position(|arg| arg == "--record").and_then(|at| args.get(at + 1)) {
+        let player = args.iter().position(|arg| arg == "--player").and_then(|at| args.get(at + 1)).cloned().unwrap_or_default();
+        record(&process, &anchors, std::path::Path::new(out), &player);
+        return;
+    }
+    let exploring = args.iter().any(|arg| arg == "--explore");
+    let mut last = String::new();
     for round in 0..rounds {
         match stable::glance(&process, &anchors) {
-            Some(seen) => println!("witness: {seen:?}"),
+            Some(seen) => {
+                let said = format!("{:?} {:?} {:?}", seen.mode, seen.map.as_ref().map(|map| (&map.md5, &map.title, &map.version)), seen.play);
+                if !exploring || said != last || round % 4 == 0 {
+                    println!("witness: [{round}] t={} {said}", seen.time_ms);
+                }
+                last = said;
+            }
             None => println!("witness: nothing could be read"),
+        }
+        if exploring && round % 4 == 0 {
+            explore(&process, &anchors);
         }
         if round + 1 < rounds {
             std::thread::sleep(std::time::Duration::from_millis(500));
         }
+    }
+}
+
+#[cfg(windows)]
+const FRAMES_LEAST: usize = 120;
+
+#[cfg(windows)]
+fn record(process: &dossier_witness::windows::Process, anchors: &dossier_witness::stable::Anchors, out: &std::path::Path, player: &str) {
+    use dossier_witness::{osr, stable};
+    let _ = std::fs::create_dir_all(out);
+    let mut recorder = stable::Recorder::default();
+    let mut told = 0usize;
+    println!("witness: recording into {}", out.display());
+    loop {
+        if dossier_witness::memory::Reads::u32(process, anchors.status).is_none() {
+            println!("witness: the client is gone");
+            return;
+        }
+        if let Some(take) = recorder.poll(process, anchors) {
+            let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |since| since.as_secs() as i64);
+            if take.frames.len() < FRAMES_LEAST {
+                println!("witness: a play of {} frames is too short to keep", take.frames.len());
+            } else {
+                let file = out.join(osr::file_name(&take, player, now));
+                match std::fs::write(&file, osr::write(&take, player, now)) {
+                    Ok(()) => println!("witness: kept {} ({} frames, {} points, passed {})", file.display(), take.frames.len(), take.play.score, take.passed),
+                    Err(why) => println!("witness: {} was not written: {why}", file.display()),
+                }
+            }
+            told = 0;
+        }
+        if let Some(take) = recorder.recording() {
+            if take.frames.len() / 600 > told {
+                told = take.frames.len() / 600;
+                println!("witness: {} frames of {} [{}], {} points", take.frames.len(), take.map.title, take.map.version, take.play.score);
+            }
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+}
+
+#[cfg(windows)]
+fn explore(process: &dossier_witness::windows::Process, anchors: &dossier_witness::stable::Anchors) {
+    use dossier_witness::memory::Reads;
+    let Some(score) = dossier_witness::stable::score_at(process, anchors) else {
+        return;
+    };
+    let hex = |bytes: &[u8]| bytes.iter().map(|byte| format!("{byte:02x}")).collect::<Vec<_>>().join(" ");
+    println!("witness:   score at {score:x}");
+    for offset in (4u64..0x70).step_by(4) {
+        let Some(held) = process.pointer(score + offset) else {
+            continue;
+        };
+        let Some((items, size)) = process.list(held) else {
+            continue;
+        };
+        if size == 0 {
+            println!("witness:   +{offset:#x}: an empty list");
+            continue;
+        }
+        let item = |at: usize| -> String {
+            let Some(word) = process.u32(items + 4 * at as u64) else {
+                return "unreadable".to_owned();
+            };
+            match process.bytes(u64::from(word), 28).filter(|_| word > 0x1_0000) {
+                Some(object) => format!("object {word:x}: {}", hex(&object)),
+                None => format!("value {} ({word:#x})", word as i32),
+            }
+        };
+        println!("witness:   +{offset:#x}: a list of {size}; first {}; last {}", item(0), item(size - 1));
     }
 }
 

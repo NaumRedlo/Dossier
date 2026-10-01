@@ -202,10 +202,10 @@ fn the_sidebar_gives_its_words_room_only_while_it_is_open() {
         let words = ui.find(feed.as_str()).unwrap().bounds();
         assert!(words.x > open.x && words.x + words.width <= open.x + open.width, "{lang:?}: {feed} sits outside its item: {words:?} in {open:?}");
         let last = ui.find(iced::widget::Id::new("side-titles")).unwrap().bounds();
-        ui.point_at(Point::new(open.x + open.width - 10.0, last.y + last.height + 7.0));
+        ui.point_at(Point::new(last.x + last.width - 10.0, last.center_y()));
         let _ = ui.simulate(iced_test::simulator::click());
         let messages: Vec<_> = ui.into_messages().filter(|message| !matches!(message, dossier_native::Message::Main(M::SideOpen(_)))).collect();
-        assert!(messages.is_empty(), "{lang:?}: a click on the open sidebar reached the feed under it: {messages:?}");
+        assert!(matches!(messages.as_slice(), [dossier_native::Message::Main(M::Community(C::Go(Section::Titles, None)))]), "{lang:?}: a click on an open tile over the feed gave {messages:?}");
     }
 }
 

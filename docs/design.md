@@ -1242,6 +1242,16 @@ Learned building the main screen, kept so nobody rediscovers it:
   veil.
 - A `FillPortion` row inside a `stack` child drew nothing at all; a
   two-pixel bar that must be a fraction of its button is a small canvas.
+- Every layer holding canvas geometry cost the window a full-screen
+  antialiasing pass, a copy of its result and a restart of the frame under it:
+  about 0.4 ms each on a Retina screen, and a screen with twenty of them took
+  25 ms where an empty one takes 8, so every animation ran at a third of the
+  display's rate. `native/vendor/iced_wgpu` is iced 0.14's renderer with that
+  one thing changed (`native/vendor/README.md` says what and how it was
+  checked): layers whose canvases do not overlap share one pass, and the frame
+  is never restarted. Layers that overlap still draw in the order they were
+  made, and the frames are byte for byte what the stock renderer drew. A new
+  iced means porting the patch, or dropping it if iced has fixed this itself.
 
 ### Two renderers, one look
 

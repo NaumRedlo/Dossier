@@ -77,6 +77,12 @@ pub fn frame(at: Instant, label: &str) {
     }
 }
 
+pub fn mark(kind: &str, at: Instant, label: &str) {
+    if on() {
+        write(kind, at, Duration::ZERO, label);
+    }
+}
+
 fn slow_from() -> Duration {
     static FROM: std::sync::OnceLock<Duration> = std::sync::OnceLock::new();
     *FROM.get_or_init(|| std::env::var("DOSSIER_FRAMES_SLOW").ok().and_then(|said| said.parse::<f64>().ok()).map_or(SLOW, |ms| Duration::from_secs_f64(ms.max(0.0) / 1000.0)))

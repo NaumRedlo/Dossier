@@ -52,7 +52,8 @@ const JOURNAL_RISE: f32 = 140.0;
 const BUBBLE_W: f32 = 340.0;
 const BUBBLE_H: f32 = 88.0;
 const CARET: f32 = 8.0;
-const SHARED_MARK: f32 = 16.0;
+const SHARED_MARK: f32 = 20.0;
+const SHARED_RING: f32 = 1.5;
 const THUMB: (u32, u32) = (176, 100);
 const SCENE_WIDTH: u32 = 960;
 const REST_AFTER: Duration = Duration::from_secs(120);
@@ -1407,6 +1408,7 @@ impl Main {
 
     fn set_minimized(&mut self, minimized: bool) {
         if self.minimized == minimized { return; }
+        crate::frames::mark("window", Instant::now(), if minimized { "minimized" } else { "restored" });
         self.minimized = minimized;
         if minimized {
             self.resume_player = self.player.as_ref().and_then(|player| {
@@ -1443,6 +1445,7 @@ impl Main {
                 Task::none()
             }
             Message::CheckMinimized(id) => {
+                crate::frames::mark("window", Instant::now(), "focus changed");
                 self.window_id = Some(id);
                 let later = |after: Duration| ui::in_thread(move || {
                     std::thread::sleep(after);
@@ -3414,7 +3417,9 @@ impl Main {
                 }
                 if let Some(player) = &self.player {
                     let mut player = player.borrow_mut();
-                    player.pull(now);
+                    if player.pull(now) && crate::frames::on() {
+                        crate::frames::mark("film", now, &player.at_ms().to_string());
+                    }
                     if player.ended() && self.settings.player_loop {
                         player.seek(0);
                     }
@@ -3916,7 +3921,8 @@ impl Main {
                 .width(Length::Fill).height(Length::Fill);
             stack![picture, shade].into()
         };
-        let entry = self.chosen_entry();
+        let buried = self.ground_fade.value() && !self.ground_fade.is_animating(self.now);
+        let entry = self.chosen_entry().filter(|_| !buried);
         let scene_before: Element<'_, Message> = match (&self.scene_before, entry) {
             (Some(Some(before)), Some(_)) if s < 1.0 => full(before, alpha * (1.0 - s)),
             _ => blank(),
@@ -4547,7 +4553,7 @@ impl Main {
         };
         let picture: Element<'_, Message> = match crate::mixed::is_shared(&entry.path) {
             true => {
-                stack![picture, container(shared_mark(&entry.player)).padding(4)].into()
+                stack![picture, container(self.shared_mark(&entry.player)).padding(4)].into()
             }
             false => picture,
         };
@@ -4563,6 +4569,31 @@ impl Main {
             .hit_padding(Padding { top: 4.0, right: 2.0, bottom: 0.0, left: 2.0 })
             .risen(2.0 * rise, scale)
             .into()
+    }
+
+    fn shared_avatar(&self, player: &str) -> Option<&str> {
+        let wanted = player.to_lowercase();
+        let known = self.community.as_ref().and_then(|catalog| catalog.people.iter().find(|person| person.name.to_lowercase() == wanted).map(|person| person.avatar.as_str()));
+        known.or_else(|| self.everyone.iter().find(|person| person.name.to_lowercase() == wanted).map(|person| person.avatar.as_str())).filter(|avatar| !avatar.is_empty())
+    }
+
+    fn shared_mark(&self, player: &str) -> Element<'_, Message> {
+        let (fill, ink) = (ui::faded(theme::SHARED), ui::faded(theme::GROUND));
+        let round = move |_: &iced::Theme| container::Style {
+            background: Some(iced::Background::Color(fill)),
+            border: iced::Border { radius: (SHARED_MARK / 2.0).into(), ..iced::Border::default() },
+            ..container::Style::default()
+        };
+        match self.shared_avatar(player).and_then(|avatar| self.news_pictures.get(avatar)) {
+            Some(face) => {
+                let inside = SHARED_MARK - 2.0 * SHARED_RING;
+                container(image(face.clone()).content_fit(ContentFit::Cover).width(inside).height(inside).border_radius(inside / 2.0).opacity(ui::fade())).center(SHARED_MARK).style(round).into()
+            }
+            None => {
+                let initial = player.chars().next().map(|first| first.to_uppercase().to_string()).unwrap_or_default();
+                container(text(initial).font(theme::MONO_BOLD).size(10.0).color(ink)).center(SHARED_MARK).style(round).into()
+            }
+        }
     }
 
     fn bubble_layer(&self) -> Element<'_, Message> {
@@ -4618,7 +4649,7 @@ impl Main {
             format!("{}  {} {}", entry.client.tag(), w.day(entry.played_at, self.now_unix), w.clock(entry.played_at)),
             FAINT,
         ));
-        let whose: Element<'_, Message> = if crate::mixed::is_shared(&entry.path) { shared_mark(&entry.player) } else { Space::new().into() };
+        let whose: Element<'_, Message> = if crate::mixed::is_shared(&entry.path) { self.shared_mark(&entry.player) } else { Space::new().into() };
         let head = row![
             row![whose, text(ui::shortened(entry.player.clone(), 22)).font(theme::SANS_SEMI).size(theme::BODY).wrapping(text::Wrapping::None).color(ui::faded(INK))].spacing(7).align_y(iced::Center),
             ui::grow(),
@@ -5760,6 +5791,10 @@ impl Main {
         if let Some(card) = self.shown_card.clone().or_else(|| catalog.card_of()) {
             wanted.extend(card.pictures());
         }
+        let mut sharing: Vec<&str> = self.entries().iter().filter(|entry| crate::mixed::is_shared(&entry.path)).map(|entry| entry.player.as_str()).collect();
+        sharing.sort_unstable();
+        sharing.dedup();
+        wanted.extend(sharing.into_iter().filter_map(|player| self.shared_avatar(player)).map(|avatar| (avatar.to_owned(), 128)));
         let wanted: Vec<(String, u32)> = wanted.into_iter().filter(|(url, _)| !self.news_pictures.contains_key(url) && self.news_asked.insert(url.clone())).collect();
         let flag = self.flag_task();
         if wanted.is_empty() {
@@ -7113,19 +7148,6 @@ pub fn covered_bytes(bytes: &[u8], width: u32, height: u32) -> Option<image::Han
     let picture = ::image::load_from_memory(bytes).ok()?;
     let picture = picture.resize_to_fill(width, height, ::image::imageops::FilterType::Lanczos3).to_rgba8();
     Some(image::Handle::from_rgba(width, height, picture.into_raw()))
-}
-
-fn shared_mark<'a>(player: &str) -> Element<'a, Message> {
-    let (fill, ink) = (ui::faded(theme::SHARED), ui::faded(theme::GROUND));
-    let initial = player.chars().next().map(|first| first.to_uppercase().to_string()).unwrap_or_default();
-    container(text(initial).font(theme::MONO_BOLD).size(9.0).color(ink))
-        .center(SHARED_MARK)
-        .style(move |_| container::Style {
-            background: Some(iced::Background::Color(fill)),
-            border: iced::Border { radius: (SHARED_MARK / 2.0).into(), ..iced::Border::default() },
-            ..container::Style::default()
-        })
-        .into()
 }
 
 pub fn decoded_bytes(bytes: &[u8], side: u32) -> Option<image::Handle> {

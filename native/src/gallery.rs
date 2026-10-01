@@ -966,6 +966,18 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
                     entry.path = crate::sources::shared_root().join(name);
                 }
             }
+            let face = "avatar://staged".to_owned();
+            let picture = Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("docs").join("mockups").join("main").join("bg-nevermind.jpg");
+            if let Some(handle) = std::fs::read(&picture).ok().and_then(|bytes| crate::main_screen::covered_bytes(&bytes, 128, 128)) {
+                shared.news_pictures.insert(face.clone(), handle);
+            }
+            let sharing = shared.entries().first().map(|entry| entry.player.to_lowercase());
+            shared.community = Some(shared.staged_community());
+            if let Some(catalog) = shared.community.as_mut() {
+                for person in catalog.people.iter_mut().filter(|person| Some(person.name.to_lowercase()) == sharing) {
+                    person.avatar = face.clone();
+                }
+            }
             shared
         }),
         ("main-fetching".to_owned(), {

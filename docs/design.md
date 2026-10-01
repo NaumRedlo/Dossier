@@ -1489,3 +1489,21 @@ each pane is cut from it for the place it stands in, with its corners rounded
 in the picture itself and the dimming baked in, so it reads the same on the
 GPU and in the software renderer. The cuts are remembered by cover, width and
 pane.
+
+Three things after the first release with the new player (2026-10-02). The
+mark on another player's replay shows that player's avatar inside the blue
+ring when the server knows them, and the initial only when it does not. The
+player's clock no longer jumps with the sound: now and then a sound device
+takes a third of a second of sound at once and then none for as long, and the
+picture was thrown ahead and stood still; the clock now follows the sound by
+at most a twelfth of a millisecond a refresh and takes a jump for real only
+when it has lasted 0.7 s. It also learns a change of the screen's rate within
+two refreshes. And the map's backdrop with its shade is not drawn under an
+overlay whose ground is fully up: nothing of it could be seen, and it cost a
+full-window picture and an antialiased pass on every frame of the settings,
+the videos and the community. The journal under the overlay is still built —
+its scroll position lives in the widget tree.
+
+The frame journal (`DOSSIER_FRAMES`) also writes `film` (each video frame
+shown), `pace` (the player's clock on every refresh), `player` and `window`
+lines; that is how the jump was found.

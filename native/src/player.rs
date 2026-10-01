@@ -18,7 +18,9 @@ const AHEAD: usize = 4;
 const SOUND_WAIT: Duration = Duration::from_millis(500);
 const HEARD_FOR: f64 = 150.0;
 const SNAP: f64 = 200.0;
+const SETTLE: Duration = Duration::from_millis(700);
 const FOLLOW: f64 = 0.02;
+const SLEW: f64 = 0.08;
 
 fn epoch() -> Instant {
     static EPOCH: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
@@ -41,8 +43,10 @@ pub struct Pace {
     held: Duration,
     offset: f64,
     synced: bool,
+    far_since: Option<Instant>,
     bias: f64,
     last: Option<Instant>,
+    gap_ms: f64,
     tick_ms: f64,
 }
 
@@ -88,7 +92,10 @@ impl Pace {
         if let Some(before) = self.last.replace(now) {
             let gap = now.saturating_duration_since(before).as_secs_f64() * 1000.0;
             if gap > 0.5 && gap < 50.0 {
-                self.tick_ms = if self.tick_ms > 0.0 { self.tick_ms + (gap - self.tick_ms) * 0.1 } else { gap };
+                if (gap - self.gap_ms).abs() < 1.5 {
+                    self.tick_ms = (gap + self.gap_ms) / 2.0;
+                }
+                self.gap_ms = gap;
             }
         }
         let wall = self.wall(now)?;
@@ -96,8 +103,16 @@ impl Pace {
             let since = now.saturating_duration_since(stamp).as_secs_f64() * 1000.0 * self.rate;
             if since <= HEARD_FOR {
                 let off = at + since - (wall + self.offset);
-                self.offset += if off.abs() > SNAP || !self.synced { off } else { off * FOLLOW };
-                self.synced = true;
+                if !self.synced {
+                    self.offset += off;
+                    self.synced = true;
+                } else if off.abs() <= SNAP {
+                    self.far_since = None;
+                    self.offset += (off * FOLLOW).clamp(-SLEW, SLEW);
+                } else if now.saturating_duration_since(*self.far_since.get_or_insert(now)) >= SETTLE {
+                    self.offset += off;
+                    self.far_since = None;
+                }
             }
         }
         Some(wall + self.offset + self.bias)
@@ -291,7 +306,7 @@ impl Player {
         self.start(at, held);
     }
 
-    pub fn pull(&mut self, now: Instant) {
+    pub fn pull(&mut self, now: Instant) -> bool {
         let heard = self.sound.as_ref().and_then(|sound| sound.heard.said());
         if self.next.is_none() {
             self.next = self.frames.try_recv().ok();
@@ -318,13 +333,19 @@ impl Player {
             latest = self.next.take();
             self.fresh = false;
         }
-        if let Some((frame_at, rgba)) = latest {
-            if let Some(at) = at {
-                self.pace.shown(at, frame_at as f64);
-            }
-            self.at_ms.store(frame_at, Ordering::Relaxed);
-            self.frame = Some(crate::film::Frame::new(self.reel, self.size.0, self.size.1, rgba));
+        if crate::frames::on() {
+            let heard_said = heard.map(|(heard_at, stamp)| format!("{:.1}/{:.1}", heard_at, now.saturating_duration_since(stamp).as_secs_f64() * 1000.0)).unwrap_or_default();
+            crate::frames::mark("pace", now, &format!("at={:.1} offset={:.2} bias={:.2} heard={heard_said} took={:?} waiting={}", at.unwrap_or(-1.0), self.pace.offset, self.pace.bias, latest.as_ref().map(|(frame_at, _)| *frame_at), self.next.is_some()));
         }
+        let Some((frame_at, rgba)) = latest else {
+            return false;
+        };
+        if let Some(at) = at {
+            self.pace.shown(at, frame_at as f64);
+        }
+        self.at_ms.store(frame_at, Ordering::Relaxed);
+        self.frame = Some(crate::film::Frame::new(self.reel, self.size.0, self.size.1, rgba));
+        true
     }
 
     fn over(&mut self) {
@@ -340,6 +361,7 @@ impl Player {
     }
 
     pub fn toggle(&mut self) {
+        crate::frames::mark("player", Instant::now(), if self.ended { "again" } else if self.paused { "play" } else { "pause" });
         if self.ended {
             self.go(0, false);
             return;
@@ -373,6 +395,7 @@ impl Player {
     }
 
     fn go(&mut self, to_ms: i64, held: bool) {
+        crate::frames::mark("player", Instant::now(), &format!("go {to_ms}"));
         let to = to_ms.clamp(0, self.length_ms.max(0));
         self.stop_streams();
         self.ended = false;
@@ -627,6 +650,63 @@ mod tests {
         assert_eq!(frames.last().unwrap().0, 183);
         player.close();
         std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn a_burst_from_the_sound_device_does_not_throw_the_picture_ahead() {
+        let began = Instant::now();
+        let ms = |at: f64| began + Duration::from_secs_f64(at / 1000.0);
+        let mut pace = Pace::new(0, 1.0, 60.0, false, began);
+        let heard = |wall: f64| -> (f64, Instant) {
+            let step = 10.667;
+            let told = if (3000.0..3352.0).contains(&wall) { 3352.0 } else { (wall / step).floor() * step };
+            let stamp = if (3000.0..3352.0).contains(&wall) { wall } else { (wall / step).floor() * step };
+            (told, ms(stamp))
+        };
+        let mut worst: f64 = 0.0;
+        for tick in 0..720 {
+            let wall = tick as f64 * 1000.0 / 120.0;
+            let at = pace.at(ms(wall), Some(heard(wall)), true, true).unwrap();
+            if wall > 500.0 {
+                worst = worst.max((at - wall).abs());
+            }
+        }
+        assert!(worst < 20.0, "the picture left the wall clock by {worst:.1} ms when the sound device took a third of a second at once");
+        let mut moved = Pace::new(0, 1.0, 60.0, false, began);
+        let mut last = 0.0;
+        for tick in 0..480 {
+            let wall = tick as f64 * 1000.0 / 120.0;
+            let told = if wall < 1000.0 { wall } else { wall + 900.0 };
+            last = moved.at(ms(wall), Some((told, ms(wall))), true, true).unwrap() - wall;
+        }
+        assert!((last - 900.0).abs() < 30.0, "a sound that really moved was not followed: {last:.1}");
+    }
+
+    #[test]
+    fn a_screen_that_changes_its_rate_costs_the_picture_a_frame_or_two_and_no_more() {
+        let began = Instant::now();
+        let mut pace = Pace::new(0, 1.0, 60.0, false, began);
+        let frame_ms = 1000.0 / 60.0;
+        let (mut wall, mut shown, mut last_wall, mut odd, mut seen) = (0.0f64, -1i64, 0.0f64, 0usize, 0usize);
+        for tick in 0..2_400 {
+            let slow = (600..1_200).contains(&tick) || tick >= 1_800;
+            wall += if slow { 1000.0 / 60.0 } else { 1000.0 / 120.0 };
+            let now = began + Duration::from_secs_f64(wall / 1000.0);
+            let at = pace.at(now, None, false, true).unwrap();
+            let due = (at / frame_ms).floor() as i64;
+            if due > shown {
+                pace.shown(at, due as f64 * frame_ms);
+                if shown >= 0 && tick > 60 {
+                    seen += 1;
+                    if due - shown != 1 || (wall - last_wall - frame_ms).abs() > 1.0 {
+                        odd += 1;
+                    }
+                }
+                shown = due;
+                last_wall = wall;
+            }
+        }
+        assert!(seen > 1_500 && odd <= 8, "{odd} of {seen} frames were skipped or held when the screen went between 120 and 60 refreshes a second");
     }
 
     fn played(rate: f32, shown_fps: f64, tick_ms: f64, sound_every_ms: Option<f64>, ticks: usize) -> Vec<usize> {

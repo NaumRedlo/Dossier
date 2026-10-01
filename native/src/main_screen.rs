@@ -876,9 +876,23 @@ impl Main {
         Task::batch([version, self.check_update(), pin, witness])
     }
 
+    pub fn witness_source(&mut self) {
+        match self.settings.sources.iter_mut().find(|source| source.is_witnessed()) {
+            Some(source) => {
+                source.on = true;
+                source.replay_count = crate::sources::witnessed(true).replay_count;
+            }
+            None => self.settings.sources.push(crate::sources::witnessed(true)),
+        }
+    }
+
     pub fn witness_task(&mut self) -> Task<Message> {
         if !self.settings.witness || self.gallery || self.witness_control.is_some() {
             return Task::none();
+        }
+        if !self.settings.sources.iter().any(|source| source.is_witnessed()) {
+            self.witness_source();
+            let _ = self.settings.save();
         }
         let control = std::sync::Arc::new(crate::witness::Control::default());
         self.witness_control = Some(control.clone());
@@ -2809,6 +2823,9 @@ impl Main {
                 if let crate::witness::Event::Kept(kept) = &event {
                     if let Err(why) = crate::witness::keep(kept, &crate::witness::folder()) {
                         self.announce(notices::Mark::Bad, self.words.t("witness-not-kept"), why, String::new(), String::new(), notices::Link::None);
+                    }
+                    if let Some(source) = self.settings.sources.iter_mut().find(|source| source.is_witnessed()) {
+                        source.replay_count = crate::sources::witnessed(source.on).replay_count;
                     }
                     return self.watch_task();
                 }
@@ -6124,6 +6141,8 @@ impl Main {
                 self.settings.witness = on;
                 keep(&self.settings);
                 if on {
+                    self.witness_source();
+                    keep(&self.settings);
                     return self.witness_task();
                 }
                 if let Some(control) = self.witness_control.take() {

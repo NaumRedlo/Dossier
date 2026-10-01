@@ -717,3 +717,5 @@ witness-watching = Подключён к osu!
 witness-playing = Идёт игра: { $map }
 witness-kept = Записано игр за сеанс: { $n }
 witness-not-kept = Игра не записана
+source-witnessed = Записано Свидетелем
+source-witnessed-how = сюда ложится каждая сыгранная игра

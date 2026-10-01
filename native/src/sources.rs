@@ -44,14 +44,29 @@ impl Source {
     pub fn is_shared(&self) -> bool {
         self.root == shared_root()
     }
+
+    pub fn is_witnessed(&self) -> bool {
+        self.root == witnessed_root()
+    }
 }
 
 pub fn shared_root() -> PathBuf {
     own_root().join("Shared")
 }
 
+pub fn witnessed_root() -> PathBuf {
+    own_root().join("Witnessed")
+}
+
 pub fn shared(on: bool) -> Source {
-    let root = shared_root();
+    kept_in(shared_root(), on)
+}
+
+pub fn witnessed(on: bool) -> Source {
+    kept_in(witnessed_root(), on)
+}
+
+fn kept_in(root: PathBuf, on: bool) -> Source {
     Source {
         kind: Kind::Folder,
         songs: None,

@@ -551,12 +551,22 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
                     under = format!("{under}  {}", w.count("scores-count", source.scores));
                 }
                 let shared = source.is_shared();
+                let witnessed = source.is_witnessed();
                 if shared && source.replay_count == 0 {
                     under = w.t("source-shared-how");
                 }
-                let (glyph, name) = if shared { ("bot", w.t("source-shared")) } else { (short(source.kind), source.shown()) };
+                if witnessed && source.replay_count == 0 {
+                    under = w.t("source-witnessed-how");
+                }
+                let (glyph, name) = if shared {
+                    ("bot", w.t("source-shared"))
+                } else if witnessed {
+                    ("wtn", w.t("source-witnessed"))
+                } else {
+                    (short(source.kind), source.shown())
+                };
                 let source_line = line(ground, &format!("source-{at}"), glyph, name, under, source.on, Some(Message::Source(at, !source.on)));
-                if shared {
+                if shared || witnessed {
                     rows = rows.push(source_line);
                     continue;
                 }

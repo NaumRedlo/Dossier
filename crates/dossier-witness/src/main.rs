@@ -6,7 +6,8 @@ fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.iter().any(|arg| arg == "--serve") {
         let player = args.iter().position(|arg| arg == "--player").and_then(|at| args.get(at + 1)).cloned().unwrap_or_default();
-        serve(&player);
+        let leash = args.iter().any(|arg| arg == "--leash").then(|| std::env::current_exe().ok().and_then(|program| dossier_witness::leash::beside(&program))).flatten();
+        serve(&player, leash.as_deref());
         return;
     }
     let rounds: usize = args.iter().position(|arg| arg == "--watch").and_then(|at| args.get(at + 1)).and_then(|said| said.parse().ok()).unwrap_or(1);
@@ -89,7 +90,14 @@ fn say(line: String) {
 }
 
 #[cfg(windows)]
-fn serve(player: &str) {
+fn let_go(leash: Option<&std::path::Path>) {
+    if leash.is_some_and(|leash| !dossier_witness::leash::held(leash, std::time::SystemTime::now())) {
+        std::process::exit(0);
+    }
+}
+
+#[cfg(windows)]
+fn serve(player: &str, leash: Option<&std::path::Path>) {
     use dossier_witness::memory::Reads;
     use dossier_witness::{osr, stable, windows, wire};
     use std::time::{Duration, Instant};
@@ -97,6 +105,7 @@ fn serve(player: &str) {
     const NAME: &str = "osu!.exe";
     let mut idle_told = false;
     loop {
+        let_go(leash);
         let Some(process) = windows::processes_named(NAME).iter().find_map(|pid| windows::Process::open(*pid)) else {
             say(wire::plain(if idle_told { "alive" } else { "waiting" }));
             idle_told = true;
@@ -113,6 +122,7 @@ fn serve(player: &str) {
             if !windows::processes_named(NAME).contains(&process.pid) {
                 break None;
             }
+            let_go(leash);
             say(wire::plain(if loading_told { "alive" } else { "loading" }));
             loading_told = true;
             std::thread::sleep(Duration::from_secs(2));
@@ -125,7 +135,12 @@ fn serve(player: &str) {
         let mut last_state = String::new();
         let mut told_at = Instant::now();
         let mut alive_at = Instant::now();
+        let mut checked_at = Instant::now();
         loop {
+            if checked_at.elapsed() >= Duration::from_secs(2) {
+                let_go(leash);
+                checked_at = Instant::now();
+            }
             if process.u32(anchors.status).is_none() {
                 say(wire::plain("gone"));
                 break;

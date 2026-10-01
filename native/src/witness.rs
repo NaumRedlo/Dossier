@@ -13,6 +13,8 @@ const CLIENT: &str = "osu!.exe";
 const LOOK_EVERY: Duration = Duration::from_secs(4);
 const AGAIN_AFTER: Duration = Duration::from_secs(3);
 const NAME_MOST: usize = 160;
+const LEASH: &str = "witness.alive";
+const LEASH_EVERY: Duration = Duration::from_secs(5);
 
 #[derive(Debug, Clone, PartialEq, Default, Deserialize)]
 #[serde(default)]
@@ -166,7 +168,7 @@ pub fn program() -> Option<PathBuf> {
 }
 
 pub fn folder() -> PathBuf {
-    crate::sources::own_root().join("Replays")
+    crate::sources::witnessed_root()
 }
 
 pub fn bytes_of(hex: &str) -> Option<Vec<u8>> {
@@ -306,7 +308,7 @@ pub fn command(launch: &Launch, program: &Path, player: &str) -> Command {
             command
         }
     };
-    command.arg("--serve");
+    command.arg("--serve").arg("--leash");
     if !player.is_empty() {
         command.arg("--player").arg(player);
     }
@@ -370,6 +372,18 @@ pub fn run(control: Arc<Control>, player: String, push: &mut dyn FnMut(Event) ->
         let _ = push(Event::Unavailable);
         return;
     };
+    let leash = program.parent().map(|dir| dir.join(LEASH));
+    if let Some(leash) = leash.clone() {
+        let _ = std::fs::write(&leash, b"held");
+        let holder = control.clone();
+        std::thread::spawn(move || {
+            while !holder.stopped() {
+                let _ = std::fs::write(&leash, b"held");
+                holder.rest(LEASH_EVERY);
+            }
+            let _ = std::fs::remove_file(&leash);
+        });
+    }
     let mut absent_told = false;
     while !control.stopped() {
         let Some(launch) = launch() else {
@@ -464,9 +478,9 @@ mod tests {
         let program = Path::new("/home/none/.dossier/bin/witness.exe");
         let args = |command: &Command| command.get_args().map(|arg| arg.to_string_lossy().into_owned()).collect::<Vec<_>>();
         let direct = command(&Launch::Direct, program, "NaumRedlo");
-        assert_eq!((direct.get_program(), args(&direct)), (program.as_os_str(), vec!["--serve".to_owned(), "--player".to_owned(), "NaumRedlo".to_owned()]));
+        assert_eq!((direct.get_program(), args(&direct)), (program.as_os_str(), vec!["--serve".to_owned(), "--leash".to_owned(), "--player".to_owned(), "NaumRedlo".to_owned()]));
         let bottle = command(&Launch::CrossOver { wine: PathBuf::from("/cx/bin/wine"), bottle: "osu-stable".into() }, program, "");
-        assert_eq!(args(&bottle), vec!["--bottle", "osu-stable", "/home/none/.dossier/bin/witness.exe", "--serve"]);
+        assert_eq!(args(&bottle), vec!["--bottle", "osu-stable", "/home/none/.dossier/bin/witness.exe", "--serve", "--leash"]);
         let wine = command(&Launch::Wine { loader: PathBuf::from("/opt/wine/bin/wine"), prefix: PathBuf::from("/home/none/prefix") }, program, "");
         assert_eq!(wine.get_program(), "/opt/wine/bin/wine");
         assert!(wine.get_envs().any(|(key, value)| key == "WINEPREFIX" && value == Some(std::ffi::OsStr::new("/home/none/prefix"))));

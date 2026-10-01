@@ -131,9 +131,17 @@ client and listens to it.
   `playing` once a second, `kept` with the replay itself as hex, `gone`, and
   `alive` so that a dead listener is noticed. Nothing is passed through files,
   so the two sides need no path they both understand.
-- A kept play is checked to be a replay and written into `~/.dossier/Replays`,
-  Dossier's own source; the journal notices it the way it notices any new
-  replay, and announces it the same way.
+- A kept play is checked to be a replay and written into `~/.dossier/Witnessed`,
+  a source of its own (*Записано Свидетелем*) that is added and switched on
+  with the tile's switch; the journal notices it the way it notices any new
+  replay, and announces it the same way. The first version wrote into
+  `~/.dossier/Replays`, which is only read by someone who has Dossier's own
+  folder among their sources — the person it was first tried on did not.
+- Witness is held on a leash. Inside Wine its output never closes when the
+  listener goes, because the prefix's server keeps the pipe open, so a Witness
+  whose application had gone stayed for good. The application now touches
+  `witness.alive` beside the program every five seconds, and a Witness started
+  with `--leash` leaves when that file is twenty seconds old or gone.
 
 ## What is checked by a machine
 

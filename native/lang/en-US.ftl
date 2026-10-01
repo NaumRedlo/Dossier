@@ -697,3 +697,5 @@ witness-watching = Connected to osu!
 witness-playing = Playing: { $map }
 witness-kept = Plays kept this session: { $n }
 witness-not-kept = The play was not kept
+source-witnessed = Kept by Witness
+source-witnessed-how = every play you make lands here

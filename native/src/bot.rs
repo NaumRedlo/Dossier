@@ -358,7 +358,7 @@ pub fn send(
     file: &std::path::Path,
     meta: &serde_json::Value,
     tell: impl FnMut(u64) + Send + 'static,
-) -> Result<i64, Refused> {
+) -> Result<Sent, Refused> {
     let opened = std::fs::File::open(file).map_err(|e| Refused::Network(e.to_string()))?;
     let size = opened.metadata().map(|m| m.len()).unwrap_or(0);
     let body = reqwest::blocking::Body::sized(Counted { inner: opened, done: 0, tell: Box::new(tell) }, size);
@@ -378,8 +378,163 @@ pub fn send(
     if response.status().as_u16() == 413 {
         return Err(Refused::Said("too large".to_owned()));
     }
+    status(response)?.json().map_err(|e| Refused::Network(e.to_string()))
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Deserialize)]
+pub struct Sent {
+    #[serde(default, rename = "message_id")]
+    pub message: i64,
+    #[serde(default)]
+    pub video: Option<u64>,
+}
+
+const INBOX_PATIENCE: Duration = Duration::from_secs(20);
+const VIDEO_PATIENCE: Duration = Duration::from_secs(3600);
+
+pub fn receivers(server: &str, token: &str, name: &str) -> Result<Vec<crate::inbox::Face>, Refused> {
+    let response = long(INBOX_PATIENCE)?
+        .get(format!("{server}/render/videos/receivers"))
+        .header("X-Render-Worker", name)
+        .bearer_auth(token)
+        .send()
+        .map_err(|e| Refused::Network(e.to_string()))?;
+    status(response)?.json::<crate::inbox::Receivers>().map(|found| found.people).map_err(|e| Refused::Network(e.to_string()))
+}
+
+pub fn video_replay(server: &str, token: &str, name: &str, video: u64, replay: Vec<u8>) -> Result<(), Refused> {
+    let response = long(DONATE_PATIENCE)?
+        .put(format!("{server}/render/videos/{video}/replay"))
+        .header("X-Render-Worker", name)
+        .header("Content-Type", "application/octet-stream")
+        .bearer_auth(token)
+        .body(replay)
+        .send()
+        .map_err(|e| Refused::Network(e.to_string()))?;
+    status(response).map(|_| ())
+}
+
+pub fn share(server: &str, token: &str, name: &str, video: u64, to: &[i64]) -> Result<crate::inbox::Shared, Refused> {
+    let response = long(INBOX_PATIENCE)?
+        .post(format!("{server}/render/videos/{video}/share"))
+        .header("X-Render-Worker", name)
+        .bearer_auth(token)
+        .json(&serde_json::json!({ "to": to }))
+        .send()
+        .map_err(|e| Refused::Network(e.to_string()))?;
+    status(response)?.json().map_err(|e| Refused::Network(e.to_string()))
+}
+
+pub fn inbox(server: &str, token: &str, name: &str) -> Result<crate::inbox::Inbox, Refused> {
+    let response = long(INBOX_PATIENCE)?
+        .get(format!("{server}/render/me/inbox"))
+        .header("X-Render-Worker", name)
+        .bearer_auth(token)
+        .send()
+        .map_err(|e| Refused::Network(e.to_string()))?;
+    status(response)?.json().map_err(|e| Refused::Network(e.to_string()))
+}
+
+pub fn accept(server: &str, token: &str, name: &str, from: &str) -> Result<String, Refused> {
+    let response = long(INBOX_PATIENCE)?
+        .post(format!("{server}/render/me/accept"))
+        .header("X-Render-Worker", name)
+        .bearer_auth(token)
+        .json(&serde_json::json!({ "from": from }))
+        .send()
+        .map_err(|e| Refused::Network(e.to_string()))?;
     let answer: serde_json::Value = status(response)?.json().map_err(|e| Refused::Network(e.to_string()))?;
-    Ok(answer.get("message_id").and_then(|m| m.as_i64()).unwrap_or(0))
+    Ok(answer.get("accept").and_then(|said| said.as_str()).unwrap_or(from).to_owned())
+}
+
+fn inbox_bytes(server: &str, token: &str, name: &str, id: u64, what: &str) -> Result<Vec<u8>, Refused> {
+    let response = long(DONATE_PATIENCE)?
+        .get(format!("{server}/render/inbox/{id}/{what}"))
+        .header("X-Render-Worker", name)
+        .bearer_auth(token)
+        .send()
+        .map_err(|e| Refused::Network(e.to_string()))?;
+    status(response)?.bytes().map(|b| b.to_vec()).map_err(|e| Refused::Network(e.to_string()))
+}
+
+pub fn inbox_thumb(server: &str, token: &str, name: &str, id: u64) -> Result<Vec<u8>, Refused> {
+    inbox_bytes(server, token, name, id, "thumb")
+}
+
+pub fn inbox_replay(server: &str, token: &str, name: &str, id: u64) -> Result<Vec<u8>, Refused> {
+    inbox_bytes(server, token, name, id, "replay")
+}
+
+pub fn inbox_video(server: &str, token: &str, name: &str, id: u64, into: &std::path::Path, mut tell: impl FnMut(u64, u64) -> bool) -> Result<u64, Refused> {
+    let mut response = status(
+        long(VIDEO_PATIENCE)?
+            .get(format!("{server}/render/inbox/{id}/video"))
+            .header("X-Render-Worker", name)
+            .bearer_auth(token)
+            .send()
+            .map_err(|e| Refused::Network(e.to_string()))?,
+    )?;
+    let total = response.content_length().unwrap_or(0);
+    if let Some(folder) = into.parent() {
+        std::fs::create_dir_all(folder).map_err(|e| Refused::Network(e.to_string()))?;
+    }
+    let part = into.with_extension("part");
+    let copied = (|| {
+        use std::io::{Read, Write};
+        let mut out = std::fs::File::create(&part).map_err(|e| Refused::Network(e.to_string()))?;
+        let mut written = 0u64;
+        let mut bytes = vec![0u8; 256 * 1024];
+        loop {
+            let count = response.read(&mut bytes).map_err(|e| Refused::Network(e.to_string()))?;
+            if count == 0 {
+                break;
+            }
+            out.write_all(&bytes[..count]).map_err(|e| Refused::Network(e.to_string()))?;
+            written += count as u64;
+            if !tell(written, total) {
+                return Err(Refused::Said("stopped".to_owned()));
+            }
+        }
+        if written == 0 || (total > 0 && written < total) {
+            return Err(Refused::Network("the video came short".to_owned()));
+        }
+        out.sync_all().map_err(|e| Refused::Network(e.to_string()))?;
+        drop(out);
+        std::fs::rename(&part, into).map_err(|e| Refused::Network(e.to_string()))?;
+        Ok(written)
+    })();
+    if copied.is_err() {
+        let _ = std::fs::remove_file(&part);
+    }
+    copied
+}
+
+fn inbox_deed(server: &str, token: &str, name: &str, id: u64, what: &str, patience: Duration) -> Result<(), Refused> {
+    let response = long(patience)?
+        .post(format!("{server}/render/inbox/{id}/{what}"))
+        .header("X-Render-Worker", name)
+        .bearer_auth(token)
+        .send()
+        .map_err(|e| Refused::Network(e.to_string()))?;
+    status(response).map(|_| ())
+}
+
+pub fn inbox_telegram(server: &str, token: &str, name: &str, id: u64) -> Result<(), Refused> {
+    inbox_deed(server, token, name, id, "telegram", DONATE_PATIENCE)
+}
+
+pub fn inbox_seen(server: &str, token: &str, name: &str, id: u64) -> Result<(), Refused> {
+    inbox_deed(server, token, name, id, "seen", INBOX_PATIENCE)
+}
+
+pub fn inbox_drop(server: &str, token: &str, name: &str, id: u64) -> Result<(), Refused> {
+    let response = long(INBOX_PATIENCE)?
+        .delete(format!("{server}/render/inbox/{id}"))
+        .header("X-Render-Worker", name)
+        .bearer_auth(token)
+        .send()
+        .map_err(|e| Refused::Network(e.to_string()))?;
+    status(response).map(|_| ())
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Deserialize)]

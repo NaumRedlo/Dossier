@@ -16,6 +16,7 @@ pub enum Link {
     Update,
     Page(String),
     Replay(PathBuf),
+    Received(u64),
     None,
 }
 

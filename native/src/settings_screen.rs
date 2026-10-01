@@ -33,6 +33,7 @@ pub enum Tile {
     Builds,
     Account,
     Chats,
+    Receive,
     Community,
     Worker,
     ThisDevice,
@@ -57,6 +58,7 @@ impl Tile {
             Tile::Builds => "builds",
             Tile::Account => "account",
             Tile::Chats => "chats",
+            Tile::Receive => "receive",
             Tile::Community => "community",
             Tile::Worker => "worker",
             Tile::ThisDevice => "this-device",
@@ -85,7 +87,7 @@ pub const APP: [Tile; 14] = [
     Tile::Builds,
 ];
 
-pub const BOT: [Tile; 5] = [Tile::Account, Tile::Chats, Tile::Community, Tile::Worker, Tile::ThisDevice];
+pub const BOT: [Tile; 6] = [Tile::Account, Tile::Chats, Tile::Receive, Tile::Community, Tile::Worker, Tile::ThisDevice];
 
 pub fn order(kept: &[String], all: &[Tile]) -> Vec<Tile> {
     let mut out: Vec<Tile> = kept.iter().filter_map(|tag| Tile::of(tag)).filter(|tile| all.contains(tile)).collect();
@@ -145,6 +147,9 @@ pub struct Ground<'a> {
     pub now_unix: i64,
     pub farm: Option<&'a crate::bot::Farm>,
     pub scale_draft: Option<u32>,
+    pub accept: crate::inbox::Accept,
+    pub accept_ready: bool,
+    pub accept_unregistered: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -212,6 +217,7 @@ pub enum Message {
     PlayerLevel(f32),
     Unlink,
     SignOut,
+    Accept(crate::inbox::Accept),
     Moved(Tile, Option<Tile>),
 }
 
@@ -852,6 +858,19 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
                 rows = rows.push(container(own).padding([2, 2]));
             }
             rows.into()
+        }
+        Tile::Receive => {
+            use crate::inbox::Accept;
+            let mut rows = column![head(w, "accept-tile")].spacing(2);
+            for (accept, glyph) in [(Accept::Shared, "#"), (Accept::Everyone, "*"), (Accept::Nobody, "-")] {
+                let key = format!("accept-{}", accept.tag());
+                let on = ground.accept_ready && ground.accept == accept;
+                rows = rows.push(line(ground, &key, glyph, w.t(&key), w.t(&format!("{key}-how")), on, ground.accept_ready.then_some(Message::Accept(accept))));
+            }
+            if ground.accept_unregistered {
+                rows = rows.push(container(text(w.t("accept-unregistered")).font(theme::SANS).size(11.0).color(ui::faded(FAINT))).padding(Padding::ZERO.top(6.0)));
+            }
+            container(rows).width(Length::Fixed(196.0)).into()
         }
         Tile::Community => community_tile(ground),
         Tile::Worker => worker_tile(ground),

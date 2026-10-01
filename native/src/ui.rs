@@ -741,6 +741,51 @@ pub fn sheet<'a, Message: 'a>(top: Element<'a, Message>, bottom: Option<Element<
     container(halves(top, bottom)).width(Length::Fill).style(box_faded(theme::sheet)).into()
 }
 
+pub fn switch<'a, Message: Clone + 'a>(sides: Vec<(String, Option<String>, bool, Message)>) -> Element<'a, Message> {
+    let k = fade();
+    let mut inside = row![].spacing(2);
+    for (label, count, on, press) in sides {
+        let mut words = row![text(label).font(theme::SANS_SEMI).size(13.0).wrapping(text::Wrapping::None)].spacing(7).align_y(iced::Center);
+        if let Some(count) = count {
+            let badge = container(text(count).font(theme::MONO_BOLD).size(10.0).color(faded(Color::WHITE)))
+                .padding([1, 6])
+                .style(move |_| container::Style {
+                    background: Some(iced::Background::Color(Color { a: k, ..theme::ACCENT })),
+                    border: iced::Border { radius: 8.0.into(), ..iced::Border::default() },
+                    ..container::Style::default()
+                });
+            words = words.push(badge);
+        }
+        inside = inside.push(
+            button(container(words).center_y(32.0))
+                .padding([0, 16])
+                .style(button_faded(move |_: &Theme, status: button::Status| {
+                    let lit = matches!(status, button::Status::Hovered | button::Status::Pressed);
+                    button::Style {
+                        background: match (on, lit) {
+                            (true, _) => Some(iced::Background::Color(Color::from_rgb(0.231, 0.09, 0.102))),
+                            (false, true) => Some(iced::Background::Color(Color::from_rgb(0.102, 0.071, 0.078))),
+                            (false, false) => None,
+                        },
+                        text_color: if on { INK } else { MUTED },
+                        border: iced::Border { radius: 8.0.into(), ..iced::Border::default() },
+                        shadow: iced::Shadow::default(),
+                        snap: true,
+                    }
+                }))
+                .on_press(press),
+        );
+    }
+    container(inside)
+        .padding(3)
+        .style(move |_| container::Style {
+            background: Some(iced::Background::Color(Color { a: k, ..Color::from_rgb(0.035, 0.016, 0.022) })),
+            border: iced::Border { color: Color { a: k, ..Color::from_rgb(0.118, 0.094, 0.102) }, width: 1.0, radius: 10.0.into() },
+            ..container::Style::default()
+        })
+        .into()
+}
+
 pub fn title<'a, Message: 'a>(words: String) -> Element<'a, Message> {
     text(words).font(theme::SANS_SEMI).size(theme::LEAD).color(faded(INK)).into()
 }

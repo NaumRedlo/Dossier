@@ -538,6 +538,8 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
             made_at,
             sent_at: None,
             background: None,
+            remote: None,
+            look: None,
         }
     };
     with_videos.store.videos = vec![
@@ -556,6 +558,58 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
     playing.cinema = iced::Animation::new(true);
     playing.stage_open = iced::Animation::new(true);
     playing.settings.player_level = 0.8;
+    let got = |id: u64, from: (i64, &str), at: usize, mods: &[&str], duration: u32, size: u64, ago: i64, seen: bool| {
+        let entry = &library.entries[at];
+        crate::inbox::Received {
+            id,
+            from: Some(crate::inbox::Face { player: from.0, name: from.1.to_owned(), country: "RU".into(), avatar: String::new(), shared: true }),
+            player: from.1.to_owned(),
+            song: entry.song().unwrap_or_default(),
+            version: entry.map.as_ref().map(|m| m.version.clone()).unwrap_or_default(),
+            mods: mods.iter().map(|m| (*m).to_owned()).collect(),
+            map_hash: entry.map_hash.clone(),
+            duration,
+            size,
+            width: 1920,
+            height: 1080,
+            thumb: true,
+            replay: true,
+            settings: None,
+            sent_at: NOON - ago,
+            seen,
+        }
+    };
+    let mut received = with_videos.clone();
+    received.settings.token = "staged".to_owned();
+    received.settings.linked_as = "@naumredlo".to_owned();
+    received.account = Some(crate::bot::Me { telegram_id: 7, name: "Naum Redlo".into(), username: "naumredlo".into(), avatar: false });
+    received.sharing.tab = crate::main_screen::sharing::Tab::Received;
+    received.sharing.loaded = true;
+    received.sharing.registered = true;
+    received.sharing.videos = vec![
+        got(3, (2, "kotofey"), 1, &["HD", "HR"], 134, 51_000_000, 1200, false),
+        got(2, (3, "ssnowy"), 2, &[], 242, 97_700_000, 26 * 3600, true),
+        got(1, (2, "kotofey"), 0, &["DT"], 231, 84_200_000, 4 * 86_400, true),
+    ];
+    let mut received_open = received.clone();
+    received_open.sharing.open = Some(3);
+    received_open.sharing.videos[0].seen = true;
+    received_open.cinema = iced::Animation::new(true);
+    received_open.stage_open = iced::Animation::new(true);
+    let mut received_getting = received_open.clone();
+    received_getting.sharing.getting = Some(crate::main_screen::sharing::Getting { id: 3, done: 19_400_000, total: 51_000_000, stop: Default::default() });
+    let mut share = playing.clone();
+    share.settings.token = "staged".to_owned();
+    share.settings.linked_as = "@naumredlo".to_owned();
+    share.account = Some(crate::bot::Me { telegram_id: 7, name: "Naum Redlo".into(), username: "naumredlo".into(), avatar: false });
+    share.sharing.loaded = true;
+    share.sharing.registered = true;
+    share.sharing.receivers = Some(vec![
+        crate::inbox::Face { player: 2, name: "kotofey".into(), country: "RU".into(), avatar: String::new(), shared: true },
+        crate::inbox::Face { player: 3, name: "ssnowy".into(), country: "RU".into(), avatar: String::new(), shared: true },
+        crate::inbox::Face { player: 4, name: "Mirrorwave".into(), country: "KZ".into(), avatar: String::new(), shared: false },
+    ]);
+    share.sharing.picker = Some(crate::main_screen::sharing::Picker { path: std::path::PathBuf::from("/renders/NaumRedlo.mp4"), picked: vec![2], busy: false });
     let mut playing_mini = playing.clone();
     playing_mini.mini_player = true;
     playing_mini.cinema = iced::Animation::new(false);
@@ -637,6 +691,8 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
         crate::bot::Chat { id: -101, title: "1984 crew".into(), private: false, photo: false },
     ];
     prefs_bot.now_unix = NOON;
+    prefs_bot.sharing.loaded = true;
+    prefs_bot.sharing.registered = true;
     prefs_bot.pin = Some(crate::community::wire::Pin { chat: Some(-100), since: Some(NOON - 5 * DAY), free_at: Some(NOON + 25 * DAY), error: String::new() });
     let community = |section: crate::community_screen::Section, person: Option<usize>| {
         let mut main = staged(Some(0));
@@ -747,6 +803,10 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
         ("main-prefs-bot".to_owned(), prefs_bot),
         ("main-failure".to_owned(), failing),
         ("main-videos".to_owned(), with_videos),
+        ("main-videos-received".to_owned(), received),
+        ("main-videos-received-open".to_owned(), received_open),
+        ("main-videos-received-getting".to_owned(), received_getting),
+        ("main-videos-share".to_owned(), share),
         ("main-player".to_owned(), playing),
         ("main-player-mini".to_owned(), playing_mini),
         ("main-player-wide".to_owned(), playing_wide),

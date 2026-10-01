@@ -23,6 +23,9 @@ use crate::theme::{self, ACCENT, FAINT, INK, MUTED};
 use crate::ui::{self, Line, Mood};
 use crate::updates::State as UpdateState;
 
+#[path = "sharing.rs"]
+pub mod sharing;
+
 pub const ENTER: Duration = Duration::from_millis(1200);
 pub const ARRIVE: Duration = Duration::from_millis(450);
 pub const SWAP: Duration = Duration::from_millis(450);
@@ -150,7 +153,8 @@ pub enum Message {
     Avatar(Option<image::Handle>),
     SendVideo,
     Sending(u64),
-    Sent(Result<i64, String>),
+    Sent(Result<bot::Sent, String>),
+    Sharing(sharing::Message),
     ToastHover(u64, bool),
     ToastClose(u64),
     OpenVideo(usize),
@@ -254,6 +258,7 @@ struct Bill<'a> {
     buttons: Element<'a, Message>,
     earlier: Option<Message>,
     later: Option<Message>,
+    aside: Option<Element<'a, Message>>,
 }
 
 #[derive(Debug, Clone)]
@@ -488,6 +493,7 @@ pub struct Main {
     pub pairing: Pairing,
     pub qr: Option<ui::Qr>,
     pub sending: Option<Sending>,
+    pub sharing: sharing::State,
     pub overlay: Overlay,
     pub rendering: Option<Rendering>,
     pub queued: Vec<Queued>,
@@ -710,6 +716,7 @@ impl Main {
             pairing: Pairing::Idle,
             qr: None,
             sending: None,
+            sharing: sharing::State::default(),
             overlay: Overlay::None,
             rendering: None,
             queued: Vec::new(),
@@ -938,6 +945,10 @@ impl Main {
         !self.settings.token.is_empty()
     }
 
+    fn watching(&self) -> bool {
+        (self.player.is_some() || self.sharing.open.is_some()) && !self.leaving_player && !self.mini_player
+    }
+
     pub fn busy(&self) -> bool {
         self.rendering.as_ref().is_some_and(|r| !r.is_over())
             || !self.queued.is_empty()
@@ -975,7 +986,7 @@ impl Main {
             || self.player.as_ref().is_some_and(|p| !p.borrow().paused)
             || self.cinema.is_animating(self.now)
             || self.resting.is_animating(self.now)
-            || self.cinema.value() != (self.player.is_some() && !self.leaving_player && !self.mini_player)
+            || self.cinema.value() != self.watching()
             || self.stage_open.is_animating(self.now)
             || self.leaving_player
             || self.controls.is_animating(self.now)
@@ -1054,6 +1065,9 @@ impl Main {
         };
             if active { Some(Message::UserInput(action.map(Box::new))) } else { action }
         })];
+        if !self.settings.token.is_empty() && !self.gallery {
+            parts.push(iced::time::every(sharing::EVERY).map(|_| Message::Sharing(sharing::Message::Tick)));
+        }
         if self.minimized {
             parts.push(iced::time::every(MINIMIZED_POLL).map(|_| Message::PollMinimized));
             return Subscription::batch(parts);
@@ -1563,7 +1577,9 @@ impl Main {
                     return self.update(Message::ShowSkins(false));
                 } else if self.asking_delete {
                     self.asking_delete = false;
-                } else if self.player.is_some() {
+                } else if self.sharing.picker.is_some() {
+                    return self.update(Message::Sharing(sharing::Message::Close));
+                } else if self.player.is_some() || self.sharing.open.is_some() {
                     if self.widened.value() {
                         return self.update(Message::PlayerWiden);
                     }
@@ -1718,6 +1734,7 @@ impl Main {
                 let _ = self.settings.save();
                 self.account = None;
                 self.avatar = None;
+                self.sharing = sharing::State::default();
                 self.menu = None;
                 self.menu_open = Animation::new(false).duration(MENU_OPEN).easing(Easing::EaseOutCubic);
                 Task::none()
@@ -1730,14 +1747,18 @@ impl Main {
                     let _ = self.settings.save();
                 }
                 self.account = Some(me);
+                let inbox = self.inbox_task(true);
                 if !wants_avatar {
-                    return Task::none();
+                    return inbox;
                 }
                 let (server, token, name) = (self.settings.server.clone(), self.settings.token.clone(), self.settings.device.clone());
-                ui::in_thread(move || {
-                    let bytes = bot::avatar(&server, &token, &name).ok();
-                    Message::Avatar(bytes.and_then(|b| decoded_bytes(&b, AVATAR_SIDE)))
-                })
+                Task::batch([
+                    inbox,
+                    ui::in_thread(move || {
+                        let bytes = bot::avatar(&server, &token, &name).ok();
+                        Message::Avatar(bytes.and_then(|b| decoded_bytes(&b, AVATAR_SIDE)))
+                    }),
+                ])
             }
             Message::Known(Err(_)) => Task::none(),
             Message::Avatar(handle) => {
@@ -1756,14 +1777,7 @@ impl Main {
                 };
                 self.sending = Some(Sending { path: video.path.clone(), done: 0, total: video.size.max(1), over: None });
                 let (server, token, name) = (self.settings.server.clone(), self.settings.token.clone(), self.settings.device.clone());
-                let meta = serde_json::json!({
-                    "caption": format!("{} — {}", video.player, video.map_line()),
-                    "name": video.path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default(),
-                    "width": video.width,
-                    "height": video.height,
-                    "duration": (video.length_ms / 1000).max(0),
-                    "chat": self.settings.chat_id,
-                });
+                let meta = self.send_meta(&video, self.settings.chat_id);
                 let path = video.path.clone();
                 ui::streamed(move |push| {
                     let (tx, rx) = std::sync::mpsc::channel::<u64>();
@@ -1780,7 +1794,7 @@ impl Main {
                         }
                     }
                     let outcome = match worker.join() {
-                        Ok(Ok(id)) => Ok(id),
+                        Ok(Ok(sent)) => Ok(sent),
                         Ok(Err(e)) => Err(e.to_string()),
                         Err(_) => Err("sending stopped".to_owned()),
                     };
@@ -1802,9 +1816,12 @@ impl Main {
                 }
                 let path = sending.path.clone();
                 let bytes = sending.total;
-                sending.over = Some(outcome.clone());
-                if outcome.is_ok() {
+                sending.over = Some(outcome.clone().map(|sent| sent.message));
+                if let Ok(sent) = &outcome {
                     self.store.mark_sent(&path, unix_now(), bytes);
+                    if let Some(remote) = sent.video {
+                        self.store.remember_remote(&path, remote);
+                    }
                 }
                 let video = self.store.videos.iter().find(|v| v.path == path).cloned();
                 let who = self.account.as_ref().map(|a| format!("@{}", a.username)).filter(|u| u.len() > 1).unwrap_or_else(|| self.settings.linked_as.clone());
@@ -1973,6 +1990,7 @@ impl Main {
                 self.player = Some(std::rc::Rc::new(std::cell::RefCell::new(player::Player::open(ffmpeg, &video.path, videos::Probe { length_ms: video.length_ms, width: video.width, height: video.height, fps: video.fps }, manner))));
                 self.open_video = Some(at);
                 self.clip = None;
+                self.sharing.open = None;
                 self.asking_delete = false;
                 self.scrubbing = None;
                 self.hint = None;
@@ -1981,7 +1999,7 @@ impl Main {
             }
             Message::ClosePlayer => {
                 self.video_request = None;
-                if self.player.is_none() || self.leaving_player {
+                if (self.player.is_none() && self.sharing.open.is_none()) || self.leaving_player {
                     return Task::none();
                 }
                 if let Some(player) = &self.player {
@@ -2186,6 +2204,8 @@ impl Main {
             Message::RevealVideo => {
                 if let Some(clip) = &self.clip {
                     return reveal_path(clip.path.clone());
+                } else if let Some(path) = self.sharing.opened().and_then(|got| got.cached()) {
+                    return reveal_path(path);
                 } else if let Some(video) = self.open_video.and_then(|at| self.store.videos.get(at)) {
                     return reveal_path(video.path.clone());
                 }
@@ -2355,6 +2375,7 @@ impl Main {
                     }
                     self.open_video = None;
                     self.clip = None;
+                    self.sharing.open = None;
                     self.asking_delete = false;
                     self.shut_cinema();
                     return news;
@@ -2366,18 +2387,22 @@ impl Main {
                     .filter(|v| !self.thumbs.contains_key(&v.map_hash))
                     .filter_map(|v| v.background.clone().map(|bg| (v.map_hash.clone(), bg)))
                     .collect();
+                let inbox = self.inbox_task(false);
                 if wanted.is_empty() {
-                    return Task::none();
+                    return inbox;
                 }
-                ui::streamed(move |push| {
-                    for (hash, path) in wanted {
-                        if let Some(handle) = decoded(&path, THUMB.0, Some(THUMB)) {
-                            if !push(Message::Thumb(hash, handle)) {
-                                return;
+                Task::batch([
+                    inbox,
+                    ui::streamed(move |push| {
+                        for (hash, path) in wanted {
+                            if let Some(handle) = decoded(&path, THUMB.0, Some(THUMB)) {
+                                if !push(Message::Thumb(hash, handle)) {
+                                    return;
+                                }
                             }
                         }
-                    }
-                })
+                    }),
+                ])
             }
             Message::Community(inner) => {
                 use crate::community_screen::Message as C;
@@ -2711,6 +2736,7 @@ impl Main {
                 None => Task::none(),
             },
             Message::CommunityTick => self.community_task(false),
+            Message::Sharing(message) => self.sharing_update(message),
             Message::FarmTick => self.farm_task(),
             Message::FarmHeard(farm) => {
                 if farm.is_some() {
@@ -3062,7 +3088,16 @@ impl Main {
                     let background = map.background.clone();
                     let for_thumb = background.clone();
                     let hash_for_thumb = hash.clone();
+                    let wanted = self.sharing.draw_wanted.as_deref() == Some(hash.as_str());
+                    let draw = match wanted && self.chosen_entry().is_some_and(|e| e.map_hash == hash) {
+                        true => self.update(Message::Render),
+                        false => Task::none(),
+                    };
+                    if wanted {
+                        self.sharing.draw_wanted = None;
+                    }
                     return Task::batch([
+                        draw,
                         restart,
                         ui::in_thread(move || Message::Scene(hash, background.as_deref().and_then(|p| decoded(p, SCENE_WIDTH, None)))),
                         ui::in_thread(move || match for_thumb.as_deref().and_then(|p| decoded(p, THUMB.0, Some(THUMB))) {
@@ -3261,7 +3296,7 @@ impl Main {
                 if self.leaving_player && !self.stage_open.is_animating(now) {
                     self.finish_closing();
                 }
-                let watching = self.player.is_some() && !self.leaving_player && !self.mini_player;
+                let watching = self.watching();
                 if self.cinema.value() != watching {
                     self.cinema.go_mut(watching, now);
                 }
@@ -3442,6 +3477,7 @@ impl Main {
                         }
                     }
                     Some(notices::Link::Update) => self.get_update(true),
+                    Some(notices::Link::Received(id)) => self.update(Message::Sharing(sharing::Message::Open(id))),
                     Some(notices::Link::Replay(path)) => {
                         let shown = self.update(Message::Show(Overlay::None));
                         match self.entries().iter().position(|e| e.path == path) {
@@ -3511,6 +3547,7 @@ impl Main {
         let manner = player::Manner { level: self.settings.player_level, muted: self.settings.player_muted, rate: self.settings.player_rate };
         self.player = Some(std::rc::Rc::new(std::cell::RefCell::new(player::Player::open(&ffmpeg, &path, media, manner))));
         self.open_video = None;
+        self.sharing.open = None;
         self.clip = Some(clip);
         self.asking_delete = false;
         self.scrubbing = None;
@@ -3526,6 +3563,7 @@ impl Main {
         self.mini_player = false;
         self.open_video = None;
         self.clip = None;
+        self.sharing.open = None;
         self.asking_delete = false;
         self.over_controls = false;
         self.pointer = None;
@@ -3819,6 +3857,7 @@ impl Main {
         let toasts = self.toast_layer();
         let menu = self.menu_layer();
         let signing = self.sign_in_layer();
+        let sharing = self.share_layer();
         let failure = self.error_layer();
         let ask: Element<'_, Message> = if self.asking_delete || self.ask_fade.is_animating(self.now) {
             self.delete_card()
@@ -3837,7 +3876,7 @@ impl Main {
             stack![shield, mark].into()
         } else { blank() };
         let mini = self.mini_player_layer();
-        let layers = stack![scene_before, scene, live_before, live, body, bubble, ground, overlay, chrome_layer, crest, mini, person, room, ask, menu, signing, skin_ask, failure, toasts, resting];
+        let layers = stack![scene_before, scene, live_before, live, body, bubble, ground, overlay, chrome_layer, crest, mini, person, room, ask, sharing, menu, signing, skin_ask, failure, toasts, resting];
         layers.width(Length::Fill).height(Length::Fill).into()
     }
 
@@ -4111,7 +4150,7 @@ impl Main {
         let ffmpeg = self.ffmpeg.clone()?;
         let map = entry.map.as_ref()?;
         let out = self.settings.renders_dir().join(render::file_name(&entry.player, &map.line()));
-        Some(render::Ask {
+        let mut ask = render::Ask {
             replay: entry.path.clone(),
             map: map.file.clone(),
             map_hash: entry.map_hash.clone(),
@@ -4124,10 +4163,15 @@ impl Main {
             music_level: self.settings.music_level,
             hitsound_level: self.settings.hitsound_level,
             play: render::Play::of(&self.settings),
-        })
+        };
+        if let Some(look) = self.sharing.looks.get(&entry.path) {
+            look.dress(&mut ask);
+        }
+        Some(ask)
     }
 
     fn start_render(&mut self, path: PathBuf, ask: render::Ask) -> Task<Message> {
+        self.sharing.render_look = Some(crate::inbox::Look::of(&ask));
         self.rendering = Some(Rendering { path, reached: Vec::new(), out: None });
         self.progress_shown = 0.0;
         render::run(ask).map(Message::Rendered)
@@ -4144,7 +4188,8 @@ impl Main {
         }
         if let Some((replay, out, media)) = saved {
             if let Some(entry) = self.entries().iter().find(|e| e.path == replay).cloned() {
-                let video = videos::Video::from_render(&entry, out.clone(), media.length_ms, media.width, media.height, media.fps);
+                let mut video = videos::Video::from_render(&entry, out.clone(), media.length_ms, media.width, media.height, media.fps);
+                video.look = self.sharing.render_look.take();
                 let detail = format!("{} — {}", video.player, video.map_line());
                 let note = format!("{}  {}", self.words.length(video.length_ms), self.words.mb(video.size));
                 let hash = video.map_hash.clone();
@@ -4515,6 +4560,8 @@ impl Main {
             (clip.from.clone(), clip.said.clone(), still)
         } else if let Some(video) = self.open_video.and_then(|at| self.store.videos.get(at)) {
             (video.player.clone(), video.map_line(), self.thumbs.get(&video.map_hash))
+        } else if let Some(got) = self.sharing.opened() {
+            (got.player.clone(), got.map_line(), self.thumbs.get(&got.map_hash).or_else(|| self.sharing.thumbs.get(&got.id)))
         } else {
             return Space::new().width(Length::Fill).height(Length::Fill).into();
         };
@@ -4556,31 +4603,53 @@ impl Main {
             .into()
     }
 
+    fn videos_lone<'a>(&'a self, content: Element<'a, Message>) -> Element<'a, Message> {
+        match self.signed_in() {
+            true => stack![content, container(self.videos_switch()).padding(Padding { top: 34.0, right: 0.0, bottom: 0.0, left: 40.0 })].width(Length::Fill).height(Length::Fill).into(),
+            false => content,
+        }
+    }
+
+    fn videos_listed<'a>(&'a self, head: Element<'a, Message>, lines: Vec<Element<'a, Message>>) -> Element<'a, Message> {
+        let mut rows = column![].spacing(0).width(Length::Fill);
+        if self.signed_in() {
+            rows = rows.push(container(self.videos_switch()).padding(Padding { top: 0.0, right: 0.0, bottom: 20.0, left: 12.0 }));
+        }
+        rows = rows.push(head);
+        for line in lines {
+            rows = rows.push(line);
+        }
+        crate::glide::brim(scrollable(container(rows).padding(Padding { top: 34.0, right: 28.0, bottom: 24.0, left: 28.0 })).direction(ui::hidden_bar()).width(Length::Fill).height(Length::Fill)).into()
+    }
+
     fn videos_view(&self) -> Element<'_, Message> {
         let w = &self.words;
-        let page: Element<'_, Message> = if self.store.videos.is_empty() {
-            let empty = column![
-                text(w.t("no-videos")).font(theme::SANS_SEMI).size(theme::TITLE).color(ui::faded(INK)),
-                ui::cap(w.t("render-one")),
-                container(ui::primary(w.t("back-to-replays"), Some(Message::Show(Overlay::None)))).padding(Padding::ZERO.top(12.0)),
-            ]
-            .spacing(6)
-            .align_x(iced::Center);
-            container(empty).width(Length::Fill).height(Length::Fill).center(Length::Fill).into()
-        } else {
-            let mut rows = column![self.video_head()].spacing(0).width(Length::Fill);
-            for (at, video) in self.store.videos.iter().enumerate() {
-                rows = rows.push(self.video_row(at, video));
+        let received = self.signed_in() && self.sharing.tab == sharing::Tab::Received;
+        let page: Element<'_, Message> = match (received, self.sharing.videos.is_empty(), self.store.videos.is_empty()) {
+            (true, true, _) => self.videos_lone(self.received_empty()),
+            (true, false, _) => self.videos_listed(self.received_head(), self.sharing.videos.iter().map(|got| self.received_row(got)).collect()),
+            (false, _, true) => {
+                let empty = column![
+                    text(w.t("no-videos")).font(theme::SANS_SEMI).size(theme::TITLE).color(ui::faded(INK)),
+                    ui::cap(w.t("render-one")),
+                    container(ui::primary(w.t("back-to-replays"), Some(Message::Show(Overlay::None)))).padding(Padding::ZERO.top(12.0)),
+                ]
+                .spacing(6)
+                .align_x(iced::Center);
+                self.videos_lone(container(empty).width(Length::Fill).height(Length::Fill).center(Length::Fill).into())
             }
-            crate::glide::brim(scrollable(container(rows).padding(Padding { top: 34.0, right: 28.0, bottom: 24.0, left: 28.0 })).direction(ui::hidden_bar()).width(Length::Fill).height(Length::Fill)).into()
+            (false, _, false) => self.videos_listed(self.video_head(), self.store.videos.iter().enumerate().map(|(at, video)| self.video_row(at, video)).collect()),
         };
         let sheet = column![Space::new().height(theme::CONTROL_HEIGHT + 4.0 + 22.0), page].width(Length::Fill).height(Length::Fill);
         let opened = self.stage_open.interpolate(0.0, 1.0, self.now);
-        let stage: Element<'_, Message> = match (&self.player, self.open_video.and_then(|at| self.store.videos.get(at))) {
-            (Some(player), Some(video)) if !self.mini_player && opened > 0.001 => ui::fading(ui::fade() * opened, || self.stage(&player.borrow(), self.video_bill(video))),
+        let shown = !self.mini_player && opened > 0.001;
+        let stage: Element<'_, Message> = match (&self.player, self.open_video.and_then(|at| self.store.videos.get(at)), self.sharing.opened()) {
+            (Some(player), Some(video), _) if shown => ui::fading(ui::fade() * opened, || self.stage(&player.borrow(), self.video_bill(video))),
+            (Some(player), None, Some(got)) if shown => ui::fading(ui::fade() * opened, || self.stage(&player.borrow(), self.received_bill(got))),
+            (None, None, Some(got)) if shown => ui::fading(ui::fade() * opened, || self.received_stage(got)),
             _ => Space::new().width(Length::Fill).height(Length::Fill).into(),
         };
-        let sheet: Element<'_, Message> = match self.player.is_some() && !self.mini_player && opened >= 0.999 {
+        let sheet: Element<'_, Message> = match (self.player.is_some() || self.sharing.open.is_some()) && !self.mini_player && opened >= 0.999 {
             true => Space::new().width(Length::Fill).height(Length::Fill).into(),
             false => sheet.into(),
         };
@@ -4673,6 +4742,7 @@ impl Main {
             ui::grow(),
             ui::springy(ui::quiet(w.t("in-folder"), Some(Message::RevealVideo)), 0.04),
             ui::springy(ui::quiet(w.t("delete"), Some(Message::AskDelete)), 0.04),
+            ui::springy(ui::quiet(w.t("to-player"), sending_this.is_none_or(|s| s.over.is_some()).then_some(Message::Sharing(sharing::Message::Pick))), 0.04),
             ui::springy(telegram, 0.03),
         ]
         .spacing(6)
@@ -4686,6 +4756,7 @@ impl Main {
             buttons: buttons.into(),
             earlier: (at > 0).then_some(Message::PlayerNeighbour(-1)),
             later: (at + 1 < self.store.videos.len()).then_some(Message::PlayerNeighbour(1)),
+            aside: None,
         }
     }
 
@@ -4706,6 +4777,7 @@ impl Main {
             buttons: buttons.into(),
             earlier: None,
             later: None,
+            aside: None,
         }
     }
 
@@ -4714,7 +4786,7 @@ impl Main {
         let playing = !player.paused;
         let wide = self.widened.interpolate(0.0, 1.0, self.now);
         let round: iced::border::Radius = (PICTURE_RADIUS).into();
-        let Bill { still, name, mods, line, buttons, earlier, later } = bill;
+        let Bill { still, name, mods, line, buttons, earlier, later, aside } = bill;
         let picture: Element<'_, Message> = match &player.frame {
             Some(frame) => crate::film::show(frame, crate::film::Fit::Contain, ui::fade()),
             None => match still {
@@ -4874,18 +4946,22 @@ impl Main {
         for acronym in mods {
             named = named.push(mod_badge(acronym));
         }
-        let title = row![
+        let mut title = row![
             column![
                 named,
                 text(ui::shortened(line, 62)).font(theme::SANS).size(theme::CAPTION).wrapping(text::Wrapping::None).color(ui::faded(MUTED)),
             ]
             .spacing(2),
             ui::grow(),
-            ui::control_button(ui::Control::Mini, 18.0, Some(Message::PlayerMinimize), false),
-            ui::control_button(ui::Control::Close, 18.0, Some(Message::ClosePlayer), false),
         ]
         .spacing(12)
         .align_y(iced::Center);
+        if let Some(aside) = aside {
+            title = title.push(aside);
+        }
+        let title = title
+            .push(ui::control_button(ui::Control::Mini, 18.0, Some(Message::PlayerMinimize), false))
+            .push(ui::control_button(ui::Control::Close, 18.0, Some(Message::ClosePlayer), false));
         let mut inside = column![
             container(title)
                 .height(STAGE_TOP)
@@ -5789,6 +5865,9 @@ impl Main {
             worker_back: self.worker_back,
             farm: self.farm.as_ref(),
             scale_draft: self.scale_draft,
+            accept: self.sharing.accept,
+            accept_ready: self.sharing.loaded && self.sharing.registered,
+            accept_unregistered: self.sharing.loaded && !self.sharing.registered,
         };
         let body: Element<'_, Message> = Element::from(prefs::view(&ground)).map(Message::Prefs);
         self.sided(self.settings_entries(), body, 1.0)
@@ -5935,6 +6014,7 @@ impl Main {
                 self.welcome_everyone();
                 self.everyone_task()
             }
+            P::Accept(accept) => self.sharing_update(sharing::Message::Accept(accept)),
             P::Pin(chat) => {
                 if self.pin.as_ref().and_then(|pin| pin.chat) == Some(chat) || self.settings.token.is_empty() {
                     return Task::none();
@@ -6928,7 +7008,7 @@ impl Main {
             footer = footer.push(action(self.words.t("notice-details"), Message::ShowError(notice.id), false));
         }
         let link = match notice.link {
-            notices::Link::OpenVideo(_) | notices::Link::Replay(_) => Some("open"),
+            notices::Link::OpenVideo(_) | notices::Link::Replay(_) | notices::Link::Received(_) => Some("open"),
             notices::Link::RenderAgain(_) => Some("once-more"),
             notices::Link::Update => Some("update-now"),
             notices::Link::Page(_) => Some("whats-new"),
@@ -7627,6 +7707,46 @@ mod tests {
         let _ = main.update(super::Message::Rendered(crate::render::Step::Saved("finished.mp4".into(), media)));
         let saved = &main.store.videos[0];
         assert_eq!((saved.length_ms, saved.width, saved.height, saved.fps), (202_500, 1920, 1080, 120.0));
+    }
+
+    #[test]
+    fn a_borrowed_replay_is_drawn_with_the_look_it_came_with_and_the_video_keeps_it() {
+        let (_, mut main) = crate::gallery::main_states(crate::lang::Lang::En).into_iter().next().unwrap();
+        main.ffmpeg = Some("ffmpeg".into());
+        main.settings.render_fps = 60;
+        let entry = main.entries().iter().find(|entry| entry.map.is_some()).cloned().unwrap();
+        let own = main.render_ask(&entry).unwrap();
+        let look = crate::inbox::Look { width: 1280, height: 720, fps: 30, music: 0.4, hitsounds: 0.9, play: Some(crate::render::Play { hud: false, ..crate::render::Play::default() }) };
+        main.sharing.looks.insert(entry.path.clone(), look.clone());
+        let borrowed = main.render_ask(&entry).unwrap();
+        assert_eq!((borrowed.size, borrowed.fps, borrowed.play.hud), ((1280, 720), 30, false));
+        assert_eq!((borrowed.skin, borrowed.crf, borrowed.out), (own.skin, own.crf, own.out));
+        main.sharing.render_look = Some(look.clone());
+        main.rendering = Some(super::Rendering { path: entry.path.clone(), reached: vec![], out: None });
+        let media = crate::videos::Probe { length_ms: 1000, width: 1280, height: 720, fps: 30.0 };
+        let _ = main.update(super::Message::Rendered(crate::render::Step::Saved("borrowed.mp4".into(), media)));
+        assert_eq!(main.store.videos[0].look, Some(look.clone()));
+        let meta = main.send_meta(&main.store.videos[0], None);
+        assert_eq!(meta["settings"]["fps"], 30);
+        assert_eq!(meta["settings"]["play"]["hud"], false);
+        assert_eq!(meta["player"], entry.player.as_str());
+        assert!(meta["chat"].is_null());
+    }
+
+    #[test]
+    fn drawing_a_received_replay_brings_it_into_the_journal_and_picks_it() {
+        let (_, mut main) = crate::gallery::main_states(crate::lang::Lang::En).into_iter().find(|(name, _)| name == "main-videos-received-open").unwrap();
+        let library = main.library.clone().unwrap();
+        let at = library.entries.iter().position(|entry| entry.map.is_some()).unwrap();
+        let path = library.entries[at].path.clone();
+        main.sharing.videos[0].settings = Some(crate::inbox::Look { width: 1280, height: 720, fps: 30, ..crate::inbox::Look::default() });
+        main.sharing.drawing = Some(3);
+        let _ = main.update(super::Message::Sharing(super::sharing::Message::Drawn(3, Ok((path.clone(), Box::new(library))))));
+        assert_eq!(main.overlay, super::Overlay::None);
+        assert_eq!(main.sharing.open, None);
+        assert_eq!(main.sharing.drawing, None);
+        assert_eq!(main.chosen_entry().map(|entry| entry.path.clone()), Some(path.clone()));
+        assert_eq!(main.sharing.looks.get(&path).map(|look| look.fps), Some(30));
     }
 
     #[test]

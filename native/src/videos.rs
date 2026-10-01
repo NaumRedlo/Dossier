@@ -22,6 +22,10 @@ pub struct Video {
     pub made_at: i64,
     pub sent_at: Option<i64>,
     pub background: Option<PathBuf>,
+    #[serde(default)]
+    pub remote: Option<u64>,
+    #[serde(default)]
+    pub look: Option<crate::inbox::Look>,
 }
 
 impl Video {
@@ -51,6 +55,8 @@ impl Video {
             made_at: chrono::Utc::now().timestamp(),
             sent_at: None,
             background,
+            remote: None,
+            look: None,
         }
     }
 
@@ -138,6 +144,13 @@ impl Store {
         self.deliveries.bytes = self.deliveries.bytes.saturating_add(bytes);
         self.deliveries.migrated = true;
         self.save();
+    }
+
+    pub fn remember_remote(&mut self, path: &Path, remote: u64) {
+        if let Some(video) = self.videos.iter_mut().find(|v| v.path == path) {
+            video.remote = Some(remote);
+            self.save();
+        }
     }
 
     pub fn marry(&mut self, entries: &[Entry]) {
@@ -288,6 +301,8 @@ pub fn adopt(ffmpeg: &Path, path: &Path) -> Option<Video> {
         made_at,
         sent_at: None,
         background: None,
+        remote: None,
+        look: None,
     })
 }
 
@@ -344,6 +359,8 @@ mod tests {
             made_at,
             sent_at: None,
             background: None,
+            remote: None,
+            look: None,
         };
         let index = dir.join("videos.json");
         let mut first = Store::at(index.clone());
@@ -398,6 +415,8 @@ mod tests {
             made_at: 0,
             sent_at: Some(1),
             background: None,
+            remote: None,
+            look: None,
         }];
         assert_eq!(store.delivery_totals(), (1, 1234));
     }

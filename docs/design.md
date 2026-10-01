@@ -471,6 +471,29 @@ refused past Telegram's size. The account tab shows the worker line as
 *coming later* and the statistics tab the same for the worker's figures:
 the bot has no endpoint for them yet.
 
+Videos travel between players (2026-10-01). Under the picture a quiet
+*Отправить игроку* stands before *Отправить в Telegram* and opens a sheet:
+the players who would take a video, each a face, a name and one caption —
+*общая беседа* or *на сервере* — with a mark at the right; *Отправить* is
+lit once someone is marked. The video goes to Telegram once, to the person's
+own chat with the bot, and the bot remembers it by `file_id`
+(`POST /render/send` answers with its number, kept in `videos.json`); the
+replay and the look it was drawn with go along, and
+`POST /render/videos/{id}/share` names the receivers. The server keeps no
+video. Signed in, the list wears a switch, *Мои* and *Полученные*, the second
+with a count of the unseen; a received row reads frame, when, who played and
+the map, from whom, length, size, and an unseen one carries a dot. A row opens
+the same window as an own video, with the sender at the right of the title:
+the frame waits under a play mark, a press downloads the file through the bot
+(`/render/inbox/{id}/video`, the bar and the megabytes in the middle, *Остановить*
+under them) into `~/.dossier/cache/received` and plays it. Under the picture:
+*Убрать*, *Нарисовать у себя* — the replay lands in the journal and is rendered
+with the sender's look, the map fetched first when it is missing — and
+*Получить в Telegram*. A new video says itself top-right and the card opens it.
+Who may send is the person's choice on the bot tab of the settings, the tile
+*Видео от других*: from shared chats, from everyone, from nobody; the bot
+checks it, and only players with Dossier paired are offered at all.
+
 The player is a window, not a panel (reworked 2026-09-23, after the first
 build let the picture run to the card's edges); later the same day the card
 around it went too, so the title, the cross and the buttons stand in the air

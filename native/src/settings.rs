@@ -66,6 +66,8 @@ pub struct Settings {
     #[serde(default)]
     pub side_order: Vec<String>,
     #[serde(default)]
+    pub inbox_heard: i64,
+    #[serde(default)]
     pub chat_id: Option<i64>,
     #[serde(default)]
     pub chat_title: String,
@@ -975,6 +977,7 @@ impl Default for Settings {
             tiles_app: Vec::new(),
             tiles_bot: Vec::new(),
             side_order: Vec::new(),
+            inbox_heard: 0,
             chat_id: None,
             chat_title: String::new(),
             news_channels: default_channels(),

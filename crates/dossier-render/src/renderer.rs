@@ -74,6 +74,8 @@ const WARNING_ENTRY_MS: f64 = 150.0;
 const SPINNER_RADIUS: f64 = 180.0;
 const SPINNER_CORE: f64 = 12.0;
 const SPINNER_DOT: f64 = 20.0;
+const SPINNER_DISC: f64 = 78.0;
+const SPINNER_DISC_BAND: f64 = 5.0;
 
 const BOARD_LEFT: f64 = 0.022;
 

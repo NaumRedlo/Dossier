@@ -1207,7 +1207,7 @@ impl Scene<'_> {
                 layout,
             );
         } else {
-            self.draw_our_spinner(pixmap, alpha, layout);
+            self.draw_our_spinner(pixmap, filled, alpha, layout);
         }
 
         self.draw_spinner_approach(pixmap, elapsed, alpha, layout);
@@ -1216,8 +1216,18 @@ impl Scene<'_> {
         self.draw_spin_bonus(pixmap, index, object, time_ms, alpha, layout);
     }
 
-    fn draw_our_spinner(&self, pixmap: &mut Pixmap, alpha: f32, layout: &Layout) {
+    fn draw_our_spinner(&self, pixmap: &mut Pixmap, filled: f32, alpha: f32, layout: &Layout) {
         let band = SPINNER_DOT - SPINNER_CORE;
+        let grown = SPIN_SETTLED + SPIN_GROW * f64::from(eased_out(filled));
+        self.ring(
+            pixmap,
+            Point::CENTRE,
+            layout.length(SPINNER_DISC * grown),
+            layout.length(SPINNER_DISC_BAND),
+            lighten(self.skin.spinner, 0.35 * filled),
+            alpha * (0.45 + 0.55 * filled),
+            layout,
+        );
         self.ring(
             pixmap,
             Point::CENTRE,

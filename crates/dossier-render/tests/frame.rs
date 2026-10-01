@@ -1490,16 +1490,76 @@ fn the_spinner_ring_closes_onto_its_centre_mark() {
         "the ring closes: {opening} then {closing}"
     );
 
-    let mark = layout.length(20.0);
+    let disc = layout.length(78.0 * 0.8 + 2.5);
     assert!(
-        (closing - mark).abs() < layout.length(6.0),
-        "it lands on the mark: {closing} against a mark of {mark}"
+        (closing - disc).abs() < layout.length(3.0),
+        "at the end only the unspun disc is left outside the mark: {closing} against {disc}"
     );
+    let between = |t: f64| {
+        let frame = scene.frame(t, &layout);
+        let (cx, cy) = layout.map(dossier_beatmap::Point::CENTRE);
+        let mut ink = 0usize;
+        for y in 0..frame.height() {
+            for x in 0..frame.width() {
+                let (dx, dy) = (x as f32 - cx, y as f32 - cy);
+                let far = (dx * dx + dy * dy).sqrt();
+                let p = frame.pixel(x, y).expect("inside the frame");
+                if far > layout.length(30.0) && far < layout.length(55.0) && (p.red() != background.red() || p.green() != background.green() || p.blue() != background.blue()) {
+                    ink += 1;
+                }
+            }
+        }
+        ink
+    };
+    assert_eq!(between(object.end_ms - 50.0), 0, "the closing ring had not reached the centre mark by the end");
+    assert!(between(object.start_ms + (object.end_ms - object.start_ms) * 0.86) > 0, "the closing ring is nowhere between the disc and the mark on its way in");
 
     assert!(
         ink_near_centre(&scene, &layout, object.start_ms + 50.0) > 0,
         "the centre mark is there while the ring is still wide"
     );
+}
+
+#[test]
+fn our_own_spinner_grows_as_it_is_spun() {
+    let map = beatmap(LONE_SPINNER);
+    let widest = |spun: bool, t: f64| {
+        let frames = (0..=400)
+            .map(|step| {
+                let at = 1_900 + step * 11;
+                let angle = if spun { f64::from(step) * 0.5 } else { 0.0 };
+                dossier_replay::ReplayFrame { time_ms: i64::from(at), x: 256.0 + (130.0 * angle.cos()) as f32, y: 192.0 + (130.0 * angle.sin()) as f32, keys: dossier_replay::Keys(dossier_replay::Keys::K1) }
+            })
+            .collect();
+        let replay = replay_over(frames);
+        let state = GameState::new(&map, &replay);
+        let skin = Skin::default();
+        let background = skin.background.to_color_u8();
+        let layout = Layout::new(640, 480);
+        let frame = Scene::new(&state, skin).frame(t, &layout);
+        let (cx, cy) = layout.map(dossier_beatmap::Point::CENTRE);
+        let mut furthest = [0.0f32; 12];
+        for y in 0..frame.height() {
+            for x in 0..frame.width() {
+                let p = frame.pixel(x, y).expect("inside the frame");
+                if p.red() == background.red() && p.green() == background.green() && p.blue() == background.blue() {
+                    continue;
+                }
+                let (dx, dy) = (x as f32 - cx, y as f32 - cy);
+                let far = (dx * dx + dy * dy).sqrt();
+                if far > 50.0 && far < 100.0 {
+                    let side = (((dy.atan2(dx) + std::f32::consts::PI) / std::f32::consts::TAU * 12.0) as usize).min(11);
+                    furthest[side] = furthest[side].max(far);
+                }
+            }
+        }
+        furthest.sort_by(f32::total_cmp);
+        furthest[5]
+    };
+    let late = 5_950.0;
+    let (still, spun) = (widest(false, late), widest(true, late));
+    assert!((still - (78.0 * 0.8 + 2.5)).abs() < 3.0, "an unspun spinner rests at four fifths: {still}");
+    assert!((spun - (78.0 + 2.5)).abs() < 3.0, "a spinner spun full is at its whole size: {spun}");
 }
 
 fn ink_near_centre(scene: &Scene<'_>, layout: &Layout, t: f64) -> usize {

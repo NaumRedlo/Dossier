@@ -47,7 +47,7 @@ fn every_ledger_name_starts_on_the_same_line() {
     for lang in Lang::ALL {
         let mut ui = frame_of("device", lang);
         let names: Vec<&str> = match lang {
-            Lang::En => vec!["Language", "osu! folder", "The bot"],
+            Lang::En => vec!["Language", "osu! folder", "Bot"],
             Lang::Ru => vec!["Язык", "Папка osu!", "Бот"],
         };
         let lefts: Vec<f32> = names.iter().map(|n| bounds(&mut ui, n).x).collect();

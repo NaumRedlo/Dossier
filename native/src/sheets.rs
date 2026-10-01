@@ -468,7 +468,7 @@ pub(crate) fn score<'a>(ground: &Ground<'a>, scored: &'a Scored) -> Element<'a, 
         combo = combo.push(bar(&[(share, GREEN)], 8.0));
     }
     let combo = tile(combo);
-    let marks = [(play.counts[0], BLUE, "300".to_owned()), (play.counts[1], GREEN, "100".to_owned()), (play.counts[2], GOLD, "50".to_owned()), (play.counts[3], YOURS, w.t("score-miss"))];
+    let marks = [(play.counts[0], BLUE, "300".to_owned()), (play.counts[1], GREEN, "100".to_owned()), (play.counts[2], GOLD, "50".to_owned()), (play.counts[3], YOURS, w.n("score-miss", u64::from(play.counts[3].unwrap_or(0))))];
     let total: u32 = marks.iter().filter_map(|(count, _, _)| *count).sum();
     let mut counts = row![].align_y(iced::Bottom);
     let mut shares: Vec<(f32, Color)> = Vec::new();

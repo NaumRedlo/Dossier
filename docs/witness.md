@@ -133,7 +133,7 @@ setting saved then is read as the new one.)
   `alive` so that a dead listener is noticed. Nothing is passed through files,
   so the two sides need no path they both understand.
 - With the switch on, a kept play is checked to be a replay and written into `~/.dossier/Witnessed`,
-  a source of its own (*Записано Witness*) that is added and switched on
+  a source of its own (*Реплеи Witness*) that is added and switched on
   with the tile's switch; the journal notices it the way it notices any new
   replay, and announces it the same way. The first version wrote into
   `~/.dossier/Replays`, which is only read by someone who has Dossier's own

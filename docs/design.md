@@ -624,10 +624,10 @@ and *Вчера* are counted in calendar days of the local zone, the way the
 times beside them are written.
 
 *Witness* (2026-10-01; the name is not translated) is a tile among the application's settings: what it
-does in two sentences, one line saying where it stands — *osu! не запущен*,
-*osu! загружается*, *Подключён к osu!*, *Идёт игра: …* — how many plays it
-has sent to the feed this session, and one switch, *Класть реплей каждой
-игры в журнал*, with the count of replays kept under it. Witness itself has
+does in two sentences, one line saying where it stands — *Клиент osu! не запущен*,
+*Клиент osu! загружается*, *Подключение к osu! установлено*, *Идёт игра: …* — how many results it
+has sent to the feed this session, and one switch, *Сохранять реплей каждой
+игры в журнале*, with the count of replays kept under it. Witness itself has
 no switch: it runs whenever the application does, because what the
 application is to grow into — a play in the chat's feed the moment it ends,
 and more between the people of a chat after that — stands on it. Only
@@ -1445,3 +1445,11 @@ lazer's store, which is the game's to write — and kept only if the header
 reads `osu file format v`, the size is under 50 MB and the MD5 is the one
 the replay asked for, following osu!'s own `BeatmapStore`. This is what
 `app/src/mirror.rs` and `tools/fetch-maps.py` already do, carried over.
+
+The application's words were gone over on 2026-10-02 in both languages: the
+register is formal and plain — things are *найдены*, *сохранены*, *не удалось
+выполнить*, a device *ожидает задачу* — with no exclamations, no talk of
+programs as if they were people and no slang, while osu!'s own terms (реплей,
+скин, моды, pp, комбо, хитсаунды, сториборд, топ-плей) and the bot's (титул,
+*надеть*, беседа, воркер) stay as players know them. A count and its noun
+agree: the misses of a play are *1 промах*, *2 промаха*, *5 промахов*.

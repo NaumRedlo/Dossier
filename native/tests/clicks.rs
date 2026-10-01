@@ -43,7 +43,7 @@ fn a_missing_ffmpeg_offers_a_download_and_a_way_past() {
     let staged = flow("checks-ffmpeg-missing");
     let backdrop = dossier_native::ui::backdrop_handle();
     let mut ui = Simulator::with_size(dossier_native::settings(), iced::Size::new(980.0, 720.0), gallery::frame(&staged, &backdrop));
-    assert!(ui.find("Where to get it").is_err(), "the link belongs to a failed download, not to a missing ffmpeg");
+    assert!(ui.find("Where to download").is_err(), "the link belongs to a failed download, not to a missing ffmpeg");
     let _ = ui.click("Download").expect("clicked");
     let messages: Vec<_> = ui.into_messages().collect();
     assert!(messages.iter().any(|m| matches!(m, dossier_native::Message::FirstRun(Message::Download))), "{messages:?}");
@@ -98,13 +98,13 @@ fn the_worker_is_a_tile_of_the_bot_settings_and_its_switch_answers() {
     let staged = main_state("main-worker");
     let backdrop = dossier_native::ui::backdrop_handle();
     let mut ui = Simulator::with_size(dossier_native::settings(), iced::Size::new(980.0, 720.0), gallery::main_frame(&staged, &backdrop));
-    let _ = ui.click("Take work from the bot").expect("clicked");
+    let _ = ui.click("Accept tasks from the bot").expect("clicked");
     let messages: Vec<_> = ui.into_messages().collect();
     assert!(messages.iter().any(|m| matches!(m, dossier_native::Message::Main(M::Prefs(P::Worker(false))))), "{messages:?}");
 
     let app = main_state("main-prefs");
     let mut ui = Simulator::with_size(dossier_native::settings(), iced::Size::new(980.0, 720.0), gallery::main_frame(&app, &backdrop));
-    assert!(ui.find("Take work from the bot").is_err());
+    assert!(ui.find("Accept tasks from the bot").is_err());
     let _ = ui.click(iced::widget::Id::new("side-bot-side")).expect("clicked");
     let messages: Vec<_> = ui.into_messages().collect();
     assert!(messages.iter().any(|m| matches!(m, dossier_native::Message::Main(M::Prefs(P::Side(Side::Bot))))), "{messages:?}");

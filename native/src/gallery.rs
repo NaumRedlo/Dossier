@@ -634,9 +634,9 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
     });
     menu_feed.progress_shown = menu_feed.progress_target().unwrap_or(0.0);
     for (mark, words, detail, note, at, link) in [
-        (crate::notices::Mark::Bad, "Рендер не завершился", "Guest — xi — Blue Zenith", "ffmpeg завершился с кодом 1", 1, crate::notices::Link::RenderAgain(library.entries[1].path.clone())),
+        (crate::notices::Mark::Bad, "Не удалось завершить рендер", "Guest — xi — Blue Zenith", "ffmpeg завершился с кодом 1", 1, crate::notices::Link::RenderAgain(library.entries[1].path.clone())),
         (crate::notices::Mark::Done, "Карта скачана", "xi — Blue Zenith", "[FOUR DIMENSIONS]", 1, crate::notices::Link::None),
-        (crate::notices::Mark::Done, "Ушло в Telegram", "-legusshhka- — xi — FREEDOM DiVE [Extra]", "@naumredlo  97,7 МБ", 2, crate::notices::Link::None),
+        (crate::notices::Mark::Done, "Отправлено в Telegram", "-legusshhka- — xi — FREEDOM DiVE [Extra]", "@naumredlo  97,7 МБ", 2, crate::notices::Link::None),
         (crate::notices::Mark::Plain, "Открыто", "сборка 0.89.4", "", 0, crate::notices::Link::None),
     ]
     .into_iter()

@@ -3404,7 +3404,7 @@ impl Main {
                 }
                 if let Some(player) = &self.player {
                     let mut player = player.borrow_mut();
-                    player.pull();
+                    player.pull(now);
                     if player.ended() && self.settings.player_loop {
                         player.seek(0);
                     }

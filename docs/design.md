@@ -1453,3 +1453,22 @@ programs as if they were people and no slang, while osu!'s own terms (репле
 скин, моды, pp, комбо, хитсаунды, сториборд, топ-плей) and the bot's (титул,
 *надеть*, беседа, воркер) stay as players know them. A count and its noun
 agree: the misses of a play are *1 промах*, *2 промаха*, *5 промахов*.
+
+The player picks its picture, it is not handed one (2026-10-02). Until then the
+reading thread released each frame when the sound's clock had passed it, and
+that clock moves in steps of one sound buffer (about 10.7 ms on the built-in
+output, far more on wireless ones): on a 120 Hz screen a 60-frame video showed
+its frames for one, two and three refreshes in equal thirds, and dropped some
+when a step let several through at once. Now the reader only decodes a few
+frames ahead and waits for room; every refresh the window asks a clock of its
+own where the film is and takes the newest frame that is due. The clock runs
+on the wall, follows the sound slowly (the first word from the sound sets it,
+later ones pull it by a fiftieth), stands still while paused and ignores what
+the sound said before a pause. When the screen's rate is a whole multiple of
+the film's, the moment of choosing is kept in the middle of a refresh, so a
+frame is not taken now early and now late. Measured on a rendered 1080p60
+video: every frame of 656 stayed for exactly two refreshes, none was lost.
+`cargo run --release --example player_cadence -- <video> [seconds] [refreshes a second]`
+measures it again; `--open <folder> --flood <rate>` feeds the window pointer
+movements at a chosen rate while the frame journal (`DOSSIER_FRAMES`, and
+`DOSSIER_FRAMES_SLOW=0` to write down every update and view) is kept.

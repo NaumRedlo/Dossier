@@ -77,9 +77,14 @@ pub fn frame(at: Instant, label: &str) {
     }
 }
 
+fn slow_from() -> Duration {
+    static FROM: std::sync::OnceLock<Duration> = std::sync::OnceLock::new();
+    *FROM.get_or_init(|| std::env::var("DOSSIER_FRAMES_SLOW").ok().and_then(|said| said.parse::<f64>().ok()).map_or(SLOW, |ms| Duration::from_secs_f64(ms.max(0.0) / 1000.0)))
+}
+
 pub fn slow(kind: &str, from: Instant, label: &str) {
     let took = from.elapsed();
-    if on() && took >= SLOW {
+    if on() && took >= slow_from() {
         write(kind, from, took, label);
     }
 }

@@ -128,6 +128,7 @@ pub struct Rehearsal {
     pub swap: bool,
     pub community: bool,
     pub read: bool,
+    pub flood: Option<f64>,
 }
 
 impl Rehearsal {
@@ -157,7 +158,8 @@ impl Rehearsal {
         let swap = args.iter().any(|a| a == "--swap");
         let community = args.iter().any(|a| a == "--community");
         let read = args.iter().any(|a| a == "--read");
-        Some(Rehearsal { folder, snap_to, after, render, get_map, look, step, hover, videos, play, menu, prefs, skin_room, ask, pause, leave, swap, community, read })
+        let flood = args.iter().position(|a| a == "--flood").and_then(|i| args.get(i + 1)).and_then(|s| s.parse::<f64>().ok()).filter(|hz| *hz > 0.0);
+        Some(Rehearsal { folder, snap_to, after, render, get_map, look, step, hover, videos, play, menu, prefs, skin_room, ask, pause, leave, swap, community, read, flood })
     }
 }
 
@@ -233,7 +235,23 @@ impl App {
             } else {
                 Task::none()
             };
-            return (App { screen: Screen::Main(main), backdrop, viewport: WINDOW, measured: false, opened: false, tray: None, hidden: false }, Task::batch([task.map(Message::Main), snap, press]));
+            let flood = match rehearsal.flood {
+                Some(hz) => ui::streamed(move |push| {
+                    let began = std::time::Instant::now();
+                    let mut n = 0u64;
+                    loop {
+                        n += 1;
+                        if let Some(wait) = (began + std::time::Duration::from_secs_f64(n as f64 / hz)).checked_duration_since(std::time::Instant::now()) {
+                            std::thread::sleep(wait);
+                        }
+                        if !push(Message::Main(main_screen::Message::PointerActivity(iced::Point::new(200.0 + (n % 400) as f32, 300.0)))) {
+                            return;
+                        }
+                    }
+                }),
+                None => Task::none(),
+            };
+            return (App { screen: Screen::Main(main), backdrop, viewport: WINDOW, measured: false, opened: false, tray: None, hidden: false }, Task::batch([task.map(Message::Main), snap, press, flood]));
         }
         if settings::first_run() {
             let (flow, task) = FirstRun::new();

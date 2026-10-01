@@ -310,7 +310,6 @@ community-feed = Feed
 community-people = People
 community-boards = Rankings
 community-titles = Titles
-community-staged = sample data
 players = { $n ->
     [one] player
    *[other] players
@@ -351,7 +350,6 @@ streak-card = { $n ->
 panel-news = osu! news
 news-loading = loading…
 news-failed = Could not load. Try again.
-news-updated = updated
 news-unreachable = No connection. Will try again later.
 live-now = just now
 minutes-ago = { $n } min ago
@@ -687,3 +685,5 @@ link-telegram-how = Open the bot in Telegram and confirm linking this account.
 telegram-linked = Telegram is linked
 account-osu = osu! account
 no-telegram-chats = Link Telegram to send videos.
+open-result = Result
+title-see-holders = Holders

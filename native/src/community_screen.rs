@@ -162,6 +162,7 @@ pub struct Ground<'a> {
     pub live_shown: usize,
     pub arrivals: HashMap<String, f32>,
     pub reading: Option<&'a Reading>,
+    pub read_above: bool,
     pub read_k: f32,
     pub people_from: PeopleFrom,
     pub people_query: &'a str,
@@ -217,8 +218,11 @@ fn smooth(from: f32, to: f32, k: f32) -> f32 {
     t * t * (3.0 - 2.0 * t)
 }
 
+pub(crate) fn sheet_seen(k: f32) -> f32 {
+    smooth(0.2, 1.0, k).powf(2.2)
+}
+
 pub fn view<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
-    let head = container(group_note(ground)).center_x(Length::Fill);
     let body = match ground.section {
         Section::Profile => crate::dossier::view(ground),
         Section::Feed => crate::chronicle::view(ground),
@@ -227,39 +231,20 @@ pub fn view<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
         Section::Titles => titles(ground),
         Section::Compare => comparing(ground),
     };
-    let page = column![container(head).padding(Padding { top: 10.0, right: 0.0, bottom: 4.0, left: 0.0 }), body].width(Length::Fill).height(Length::Fill);
-    let mut layers: Vec<Element<'a, Message>> = vec![page.into()];
-    if let Some(reading) = ground.reading.filter(|_| ground.read_k > 0.001) {
+    let mut page = column![].width(Length::Fill).height(Length::Fill);
+    if ground.fetch == Fetch::Failed {
+        let again = button(ui::mono_small(ground.words.t("news-failed"), ACCENT)).padding(0).style(ui::button_faded(theme::bare)).on_press(Message::Again);
+        page = page.push(container(again).center_x(Length::Fill).padding(Padding { top: 10.0, right: 0.0, bottom: 4.0, left: 0.0 }));
+    }
+    let mut layers: Vec<Element<'a, Message>> = vec![page.push(body).into()];
+    if let Some(reading) = ground.reading.filter(|_| ground.read_k > 0.001 && !ground.read_above) {
         layers.push(reader(ground, reading));
     }
     ui::tapped(iced::widget::Stack::with_children(layers).width(Length::Fill).height(Length::Fill), Message::Tap)
 }
 
-fn group_note<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
-    let w = ground.words;
-    let catalog = ground.catalog;
-    let mut parts: Vec<String> = Vec::new();
-    if !catalog.group.is_empty() {
-        parts.push(catalog.group.clone());
-    }
-    parts.push(w.count("players", catalog.people.len() as u64));
-    if catalog.staged {
-        parts.push(w.t("community-staged"));
-    }
-    let (tail, colour, again) = match ground.fetch {
-        Fetch::Staged => (String::new(), FAINT, false),
-        Fetch::Loading => (w.t("news-loading"), FAINT, false),
-        Fetch::Fresh(at) => (format!("{} {}", w.t("news-updated"), w.clock(at)), FAINT, true),
-        Fetch::Failed => (w.t("news-failed"), ACCENT, true),
-    };
-    let mut note = iced::widget::Row::with_children(parts.into_iter().map(|part| ui::mono_small(part, FAINT))).spacing(14).align_y(iced::Center);
-    if !tail.is_empty() { note = note.push(ui::mono_small(tail, colour)); }
-    let note: Element<'a, Message> = note.into();
-    if again {
-        button(note).padding(0).style(ui::button_faded(theme::bare)).on_press(Message::Again).into()
-    } else {
-        note.into()
-    }
+pub(crate) fn reading_above<'a>(ground: &Ground<'a>) -> Option<Element<'a, Message>> {
+    ground.reading.filter(|_| ground.read_above && ground.read_k > 0.001).map(|reading| reader(ground, reading))
 }
 
 fn rolled<'a>(inside: Element<'a, Message>) -> Element<'a, Message> {
@@ -684,14 +669,14 @@ fn reader<'a>(ground: &Ground<'a>, reading: &'a Reading) -> Element<'a, Message>
     let w = ground.words;
     let k = ground.read_k;
     if let Reading::Score(_) | Reading::Title { .. } = reading {
-        let sheet = ui::fading(ui::fade() * smooth(0.2, 1.0, k), || match reading {
+        let sheet = ui::fading(ui::fade() * sheet_seen(k), || match reading {
             Reading::Score(scored) => crate::sheets::score(ground, scored),
             Reading::Title { code, who } => crate::sheets::title(ground, code, *who),
             _ => Space::new().into(),
         });
         return crate::unfold::unfold(sheet, None, panel_from(ground), k, Message::Unread).wide(crate::sheets::WIDE).room(STAGE_ROOM).look(stage_look()).fit().into();
     }
-    let after = ui::fading(ui::fade() * smooth(0.2, 1.0, k), || -> Element<'a, Message> {
+    let after = ui::fading(ui::fade() * sheet_seen(k), || -> Element<'a, Message> {
         let picture = |url: &str| -> Element<'a, Message> {
             match ground.pictures.get(&wide(url)) {
                 Some(handle) => image(handle.clone()).width(Length::Fill).content_fit(iced::ContentFit::Contain).opacity(ui::fade()).into(),
@@ -764,6 +749,7 @@ fn reader<'a>(ground: &Ground<'a>, reading: &'a Reading) -> Element<'a, Message>
         ]
         .spacing(6);
         let body = scrollable(container(iced::widget::Column::with_children(body).spacing(14)).padding(Padding::ZERO.right(10.0))).style(ui::thin_scroll).direction(ui::hidden_bar()).width(Length::Fill).height(Length::Shrink);
+        let body = crate::glide::brim(body).on(theme::SLAB_SOLID).both().high(22.0);
         container(column![head, body].spacing(16)).padding([22, 26]).width(Length::Fill).into()
     });
     crate::unfold::unfold(after, None, panel_from(ground), k, Message::Unread).wide(READ_WIDE).room(STAGE_ROOM).look(stage_look()).fit().into()
@@ -1404,7 +1390,7 @@ pub(crate) fn profile_panel<'a>(ground: &Ground<'a>, at: usize) -> Element<'a, M
     let k = ground.person_k;
     let person = &ground.catalog.people[at];
     let wide = (ground.width - STAGE_ROOM.left - STAGE_ROOM.right).clamp(640.0, 1560.0);
-    let after = ui::fading(ui::fade() * smooth(0.2, 1.0, k), || -> Element<'a, Message> {
+    let after = ui::fading(ui::fade() * sheet_seen(k), || -> Element<'a, Message> {
         let own_card = if person.you { ground.card.cloned().or_else(|| ground.catalog.card_of()) } else { None };
         let person = ground.person_dossier.map(|me| &me.person).unwrap_or(person);
         let card = own_card.or_else(|| ground.person_card.cloned()).unwrap_or_else(|| crate::dossier::card_from(person));

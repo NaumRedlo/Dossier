@@ -594,6 +594,35 @@ naming the group, its size and when the bot last answered — or *образцы
 данных* while the figures are the sample staged in
 `native/src/community.rs` in the shape of the bot's own tables.
 
+That faint line is gone (2026-10-01, asked for): the page begins with its
+own content, and only a failed answer says so there, as a line that asks
+again when pressed.
+
+A result and a title open as sheets over whatever is on the screen
+(2026-10-01). A title opens where it was pressed — the feed, the profile's
+*Обладатели*, a dossier — and no longer carries the person to the catalogue
+of titles; its *Надеть* works in every tab. A top play in the feed opens its
+result whatever its place, because the event carries the whole play, and a
+poster in the profile opens its result on a second press or by *Результат*
+under it. A sheet opened from a dossier lies over the dossier; a dossier
+opened from a sheet lies over the sheet. The result's board is as tall as
+its lines, three at the least and five at the most, the scale beside it the
+same height; the combo is told against the map's own longest, which the
+bot asks osu! for once, and has no bar when nobody knows it. Lists inside
+a sheet fade into it at both edges while there is more beyond them.
+
+A sheet leaves the way it came. Everything in it fades together — a style
+that read the fade when it was drawn rather than when it was built stayed
+lit while the rest went (the grade's ring, a title's coloured side) — and
+it fades by the eye, not by the number: the window blends in linear light,
+where a tenth of white over the dark ground is still a third as bright, so
+the content's share is raised to 2.2 and is gone before the card under it
+is.
+
+The feed's days turn at the person's own midnight, not UTC's: *Сегодня*
+and *Вчера* are counted in calendar days of the local zone, the way the
+times beside them are written.
+
 - *Лента* is a chronicle (2026-09-24), chosen from three drawn concepts
   over a board of panels and a daily digest: one stream of everything that
   happened — the group's plays, new top plays, titles and climbs, osu!'s

@@ -16,6 +16,8 @@ const RING: f32 = 136.0;
 const SIDE: f32 = 26.0;
 const BOARD: f32 = 234.0;
 const LINE: f32 = 42.0;
+const GAP: f32 = 6.0;
+const EDGE: f32 = 22.0;
 const MARK: f32 = 72.0;
 const TITLE_HIGH: f32 = 606.0;
 const TITLE_LEFT: f32 = 300.0;
@@ -131,6 +133,14 @@ pub(crate) fn signed(value: f64) -> String {
     }
 }
 
+pub(crate) fn board_high(rows: usize) -> f32 {
+    (rows as f32 * (LINE + GAP) - GAP).clamp(3.0 * (LINE + GAP) - GAP, BOARD)
+}
+
+fn edged<'a>(rolled: impl Into<Element<'a, Message>>) -> Element<'a, Message> {
+    crate::glide::brim(rolled).on(theme::SLAB_SOLID).both().high(EDGE).into()
+}
+
 fn length(seconds: u32) -> String {
     format!("{}:{:02}", seconds / 60, seconds % 60)
 }
@@ -209,11 +219,11 @@ fn table_line<'a>(ground: &Ground<'a>, said: &'a wire::BoardRow, by_score: bool,
 }
 
 fn table<'a>(ground: &Ground<'a>, board: &'a wire::MapBoard, scored: &Scored) -> Element<'a, Message> {
-    let mut lines = column![].spacing(6);
+    let mut lines = column![].spacing(GAP);
     for said in &board.rows {
         lines = lines.push(table_line(ground, said, board.by_score(), said.who == scored.who));
     }
-    scrollable(lines).direction(ui::hidden_bar()).height(BOARD).width(Length::Fill).into()
+    edged(scrollable(lines).direction(ui::hidden_bar()).height(board_high(board.rows.len())).width(Length::Fill))
 }
 
 fn placed_at<'a>(share: f32, inside: Element<'a, Message>) -> Element<'a, Message> {
@@ -308,7 +318,7 @@ fn scale<'a>(ground: &Ground<'a>, board: &'a wire::MapBoard, scored: &Scored) ->
         layers.push(placed_at(share(values[at]), mark.into()));
     }
     container(container(iced::widget::Stack::with_children(layers).width(Length::Fill).height(108.0)).center_y(Length::Fill))
-        .height(BOARD)
+        .height(board_high(board.rows.len()))
         .width(Length::Fill)
         .padding([0, 20])
         .style(move |_| well(k, 14.0))
@@ -395,7 +405,7 @@ pub(crate) fn score<'a>(ground: &Ground<'a>, scored: &'a Scored) -> Element<'a, 
         }
     }
     let right = column![mono(pp, 36.0, INK, true), facts].spacing(6).align_x(iced::Right);
-    let when = format!("{} {}", w.day(play.at, ground.now_unix), w.clock(play.at));
+    let when = if play.at > 0 { format!("{} {}", w.day(play.at, ground.now_unix), w.clock(play.at)) } else { String::new() };
     let head = stack![
         cover_back(ground, scored),
         container(mono(when, 12.0, MUTED, false)).center_x(Length::Fill).padding(Padding::ZERO.top(20.0)),
@@ -426,27 +436,36 @@ pub(crate) fn score<'a>(ground: &Ground<'a>, scored: &'a Scored) -> Element<'a, 
         .height(STRIP)
         .align_y(iced::Bottom)
         .padding([0.0, SIDE]);
+    let rim = tinted(shade, 1.0);
     let ring = container(text(grade).font(theme::MONO_BOLD).size(68.0).color(ui::faded(shade))).width(RING).height(RING).center(RING).style(move |_| container::Style {
         background: Some(Background::Color(Color { a: k, ..theme::SLAB_SOLID })),
-        border: Border { color: tinted(shade, 1.0), width: 5.0, radius: (RING / 2.0).into() },
+        border: Border { color: rim, width: 5.0, radius: (RING / 2.0).into() },
         ..container::Style::default()
     });
     let top = stack![column![head, strip], pin(ring).x(SIDE).y(HEAD + STRIP - RING)].height(HEAD + STRIP);
 
     let accuracy = tile(column![caption(w.t("score-accuracy")), mono(w.percent(f64::from(play.accuracy)), 24.0, INK, true), ui::grow_tall(), bar(&[(play.accuracy / 100.0, shade)], 8.0)].spacing(10));
     let mut combo_line = row![].spacing(8).align_y(iced::Bottom);
-    let mut combo_bar: Vec<(f32, Color)> = Vec::new();
-    match (play.combo, play.max_combo) {
-        (Some(combo), Some(most)) if most > 0 => {
+    let most = play.max_combo.or(board.and_then(|(_, board)| board.map.as_ref()).and_then(|about| about.max_combo)).filter(|most| *most > 0);
+    let reached = match (play.combo, most) {
+        (Some(combo), Some(most)) => Some(combo as f32 / most as f32),
+        (_, None) if play.full_combo => Some(1.0),
+        _ => None,
+    };
+    match (play.combo, most) {
+        (Some(combo), Some(most)) => {
             combo_line = combo_line
                 .push(mono(format!("{}x", w.lang().group(u64::from(combo))), 24.0, INK, true))
                 .push(container(mono(format!("/ {}x", w.lang().group(u64::from(most))), 15.0, FAINT, false)).padding(Padding::ZERO.bottom(3.0)));
-            combo_bar.push((combo as f32 / most as f32, GREEN));
         }
-        (Some(combo), _) => combo_line = combo_line.push(mono(format!("{}x", w.lang().group(u64::from(combo))), 24.0, INK, true)),
+        (Some(combo), None) => combo_line = combo_line.push(mono(format!("{}x", w.lang().group(u64::from(combo))), 24.0, INK, true)),
         _ => combo_line = combo_line.push(mono("—".to_owned(), 24.0, FAINT, true)),
     }
-    let combo = tile(column![caption(w.t("score-combo")), combo_line, ui::grow_tall(), bar(&combo_bar, 8.0)].spacing(10));
+    let mut combo = column![caption(w.t("score-combo")), combo_line, ui::grow_tall()].spacing(10);
+    if let Some(share) = reached {
+        combo = combo.push(bar(&[(share, GREEN)], 8.0));
+    }
+    let combo = tile(combo);
     let marks = [(play.counts[0], BLUE, "300".to_owned()), (play.counts[1], GREEN, "100".to_owned()), (play.counts[2], GOLD, "50".to_owned()), (play.counts[3], YOURS, w.t("score-miss"))];
     let total: u32 = marks.iter().filter_map(|(count, _, _)| *count).sum();
     let mut counts = row![].align_y(iced::Bottom);
@@ -474,7 +493,7 @@ pub(crate) fn score<'a>(ground: &Ground<'a>, scored: &'a Scored) -> Element<'a, 
 
     let mut body = column![tiles].spacing(16);
     let note = |words: String, colour: Color| -> Element<'a, Message> {
-        container(text(words).font(theme::SANS).size(theme::BODY).color(ui::faded(colour))).center(Length::Fill).height(BOARD).width(Length::Fill).style(move |_| well(k, 14.0)).into()
+        container(text(words).font(theme::SANS).size(theme::BODY).color(ui::faded(colour))).center(Length::Fill).height(board_high(0)).width(Length::Fill).style(move |_| well(k, 14.0)).into()
     };
     let label = || mono(w.t("score-board").to_uppercase(), 11.0, FAINT, false);
     match (scored.map.beatmap, board) {
@@ -627,9 +646,10 @@ pub(crate) fn title<'a>(ground: &Ground<'a>, code: &str, who: Option<i64>) -> El
     ]
     .spacing(10)
     .align_x(iced::Center);
+    let (wash, edge) = (blend(tint, 0.09), blend(tint, 0.3));
     let left = container(left).width(TITLE_LEFT).height(TITLE_HIGH).padding(Padding { top: 30.0, right: 24.0, bottom: 24.0, left: 24.0 }).style(move |_| container::Style {
-        background: Some(Background::Color(blend(tint, 0.09))),
-        border: Border { color: blend(tint, 0.3), width: 1.0, radius: iced::border::Radius { top_left: 15.0, top_right: 0.0, bottom_right: 0.0, bottom_left: 15.0 } },
+        background: Some(Background::Color(wash)),
+        border: Border { color: edge, width: 1.0, radius: iced::border::Radius { top_left: 15.0, top_right: 0.0, bottom_right: 0.0, bottom_left: 15.0 } },
         ..container::Style::default()
     });
 
@@ -656,7 +676,7 @@ pub(crate) fn title<'a>(ground: &Ground<'a>, code: &str, who: Option<i64>) -> El
     }
     let mut right = column![
         row![mono(w.t("title-holders").to_uppercase(), 11.0, FAINT, false), ui::grow(), close()].align_y(iced::Center),
-        scrollable(list).direction(ui::hidden_bar()).height(Length::Fill),
+        edged(scrollable(list).direction(ui::hidden_bar()).height(Length::Fill)),
     ]
     .spacing(10);
     match (yours, you, progress) {
@@ -664,9 +684,9 @@ pub(crate) fn title<'a>(ground: &Ground<'a>, code: &str, who: Option<i64>) -> El
             let since = earned(you).map_or(w.t("title-yours"), |at| w.with("title-yours-since", &[("day", w.day(at, ground.now_unix))]));
             let worn = catalog.shown_title(you).map_or(w.t("title-none-worn"), |worn| w.with("title-worn-now", &[("title", worn.name(w.lang()).to_owned())]));
             right = right.push(
-                container(row![column![text(since).font(theme::SANS_SEMI).size(14.0).color(ui::faded(INK)), caption(worn)].spacing(3).width(Length::Fill), crate::dossier::wear_button(ground, you, title)].spacing(14).align_y(iced::Center))
+                container(row![column![text(since).font(theme::SANS_SEMI).size(14.0).color(ui::faded(INK)), caption(worn)].spacing(3).width(Length::Fill), crate::dossier::wear_button_anywhere(ground, you, title)].spacing(14).align_y(iced::Center))
                     .padding([14, 16])
-                    .style(move |_| container::Style { background: Some(Background::Color(blend(tint, 0.09))), border: Border { color: blend(tint, 0.3), width: 1.0, radius: 14.0.into() }, ..container::Style::default() }),
+                    .style(move |_| container::Style { background: Some(Background::Color(wash)), border: Border { color: edge, width: 1.0, radius: 14.0.into() }, ..container::Style::default() }),
             );
         }
         (false, Some(_), Some(value)) if title.target > 1 => {
@@ -708,6 +728,15 @@ mod tests {
         assert_eq!(signed(0.2), "0");
         assert_eq!(signed(240_000.0), "+240k");
         assert_eq!(short(1_250_000.0), "1.2M");
+    }
+
+    #[test]
+    fn a_short_board_takes_less_room_and_a_long_one_no_more_than_five_lines() {
+        assert_eq!(board_high(0), board_high(3));
+        assert_eq!(board_high(3), 3.0 * LINE + 2.0 * GAP);
+        assert!(board_high(4) > board_high(3) && board_high(4) < BOARD);
+        assert_eq!(board_high(5), BOARD);
+        assert_eq!(board_high(40), BOARD);
     }
 
     #[test]

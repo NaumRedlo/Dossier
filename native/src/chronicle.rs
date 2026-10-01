@@ -254,13 +254,10 @@ fn caption<'a>(words: String) -> Element<'a, Message> {
 
 fn day_divider<'a>(ground: &Ground<'a>, at: i64) -> Element<'a, Message> {
     let w = ground.words;
-    let today = ground.now_unix - ground.now_unix.rem_euclid(86_400);
-    let said = if at >= today {
-        w.t("day-today")
-    } else if at >= today - 86_400 {
-        w.t("day-yesterday")
-    } else {
-        w.day(at, ground.now_unix)
+    let said = match w.days_back(at, ground.now_unix) {
+        0 => w.t("day-today"),
+        1 => w.t("day-yesterday"),
+        _ => w.day(at, ground.now_unix),
     };
     let k = ui::fade();
     row![
@@ -446,13 +443,12 @@ fn journal_row<'a>(ground: &Ground<'a>, event: &Event<'a>, table: Table) -> Opti
                     let map = happened.map?;
                     (played_line(ground, event.at, table, happened.who, map, Some(*accuracy), mods, glyph(Icon::Film, 14.0, MUTED), None), Message::Person(Some(happened.who)), None)
                 }
-                Kind::TopPlay { pp, place, .. } => {
+                Kind::TopPlay { pp, place, more, .. } => {
                     let map = happened.map?;
-                    let play = person.top.iter().find(|play| play.map == map && (play.pp - pp).abs() < 0.5);
                     let fold = ground.folds.get(&key).copied().unwrap_or(if ground.open_events.contains(&key) { 1.0 } else { 0.0 });
-                    let details = (fold > 0.001).then(|| play.map(|play| (fold, counts_row(ground, play.counts, play.combo.zip(play.max_combo), play.stars)))).flatten();
+                    let details = (fold > 0.001).then(|| (fold, counts_row(ground, more.counts, more.combo.zip(more.max_combo), more.stars)));
                     let value = ui::mono_small(format!("{} pp  #{place}", screen::decimal(w, *pp, 0)), CORAL);
-                    let press = play.and_then(|play| Scored::of(catalog, happened.who, play, true)).map_or(Message::Toggle(key), |scored| Message::Read(Reading::Score(scored)));
+                    let press = Scored::of(catalog, happened.who, more, true).map_or(Message::Toggle(key), |scored| Message::Read(Reading::Score(scored)));
                     (event_line(ground, event.at, table, Icon::Star, CORAL, person.name.clone(), w.t("event-top"), object(title_and_version(ground, map).0, INK, false), Some(value)), press, details)
                 }
                 Kind::Title(code) => {
@@ -584,10 +580,8 @@ fn shelf_card<'a>(ground: &Ground<'a>, icon: Icon, colour: Color, label: String,
     ui::hover(card, ui::Glow::card(14.0).edge(Color { a: 0.55, ..colour }).shadow(Color { a: 0.3, ..colour }))
 }
 
-fn top_press(ground: &Ground<'_>, who: usize, map: usize, pp: f32) -> Message {
-    let catalog = ground.catalog;
-    let play = catalog.people.get(who).and_then(|person| person.top.iter().find(|play| play.map == map && (play.pp - pp).abs() < 0.5));
-    play.and_then(|play| Scored::of(catalog, who, play, true)).map_or(Message::Person(Some(who)), |scored| Message::Read(Reading::Score(scored)))
+fn top_press(ground: &Ground<'_>, who: usize, play: &crate::community::Play) -> Message {
+    Scored::of(ground.catalog, who, play, true).map_or(Message::Person(Some(who)), |scored| Message::Read(Reading::Score(scored)))
 }
 
 fn shelf<'a>(ground: &Ground<'a>, seen: &[Event<'a>]) -> Option<Element<'a, Message>> {
@@ -599,8 +593,8 @@ fn shelf<'a>(ground: &Ground<'a>, seen: &[Event<'a>]) -> Option<Element<'a, Mess
         _ => None,
     });
     if let Some(happened) = happened(|kind| matches!(kind, Kind::TopPlay { .. })) {
-        if let (Kind::TopPlay { pp, place, .. }, Some(map)) = (&happened.kind, happened.map) {
-            cards.push(shelf_card(ground, Icon::Star, Color::from_rgb(0.941, 0.408, 0.408), w.t("kind-top"), Some(happened.who), format!("{} pp", screen::decimal(w, *pp, 0)), format!("{}  {}", w.n("top-place", u64::from(*place)), map_title(ground, map)), map_cover(ground, map), top_press(ground, happened.who, map, *pp)));
+        if let (Kind::TopPlay { pp, place, more, .. }, Some(map)) = (&happened.kind, happened.map) {
+            cards.push(shelf_card(ground, Icon::Star, Color::from_rgb(0.941, 0.408, 0.408), w.t("kind-top"), Some(happened.who), format!("{} pp", screen::decimal(w, *pp, 0)), format!("{}  {}", w.n("top-place", u64::from(*place)), map_title(ground, map)), map_cover(ground, map), top_press(ground, happened.who, more)));
         }
     }
     if let Some(happened) = happened(|kind| matches!(kind, Kind::Title(_))) {
@@ -673,8 +667,7 @@ fn glow_of(ground: &Ground<'_>, event: &Event<'_>) -> f32 {
 }
 
 fn by_day<'a>(ground: &Ground<'a>, list: &[Event<'a>], t: f32, from: usize, draw: impl Fn(&Event<'a>) -> Option<Element<'a, Message>>) -> Vec<Element<'a, Message>> {
-    let today = ground.now_unix - ground.now_unix.rem_euclid(86_400);
-    let day_of = |at: i64| if at >= today { 0 } else { (today - at) / 86_400 + 1 };
+    let day_of = |at: i64| ground.words.days_back(at, ground.now_unix);
     let mut last: Option<i64> = None;
     let mut out = Vec::new();
     for event in list {

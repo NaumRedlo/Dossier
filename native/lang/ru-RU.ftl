@@ -318,7 +318,6 @@ community-feed = Лента
 community-people = Люди
 community-boards = Рейтинг
 community-titles = Титулы
-community-staged = образцы данных
 players = { $n ->
     [one] игрок
     [few] игрока
@@ -363,7 +362,6 @@ streak-card = { $n ->
 panel-news = Новости osu!
 news-loading = Загрузка…
 news-failed = Не удалось загрузить. Попробуйте снова.
-news-updated = обновлено
 news-unreachable = Нет связи. Повторим попытку позже.
 live-now = только что
 minutes-ago = { $n } мин назад
@@ -707,3 +705,5 @@ link-telegram-how = Откройте бота в Telegram и подтверди�
 telegram-linked = Telegram привязан
 account-osu = аккаунт osu!
 no-telegram-chats = Привяжите Telegram, чтобы отправлять видео.
+open-result = Результат
+title-see-holders = Обладатели

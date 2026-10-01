@@ -838,6 +838,7 @@ struct Poster<'a> {
     cover: Option<&'a iced::widget::image::Handle>,
     art: Option<&'a iced::widget::image::Handle>,
     set: Option<u64>,
+    scored: Option<screen::Scored>,
 }
 
 impl Poster<'_> {
@@ -864,6 +865,34 @@ fn posters_of<'a>(ground: &Ground<'a>, whose: &Whose<'a>) -> Vec<Poster<'a>> {
                     other => other.to_owned(),
                 };
                 let counted = |n: f64| (n > 0.0 || score.great > 0.0).then_some(n as u32);
+                let mods: Vec<String> = score.mods.split(',').map(str::trim).filter(|m| !m.is_empty() && *m != "CL" && *m != "NM").map(str::to_owned).collect();
+                let counts = [counted(score.great), counted(score.ok), counted(score.meh), counted(score.miss)];
+                let combo = (score.max_combo > 0.0).then_some(score.max_combo as u32);
+                let most = (score.map_max_combo > 0.0).then_some(score.map_max_combo as u32);
+                let stars = (score.stars > 0.0).then_some(score.stars as f32);
+                let set = (score.beatmapset_id > 0.0).then_some(score.beatmapset_id as u64);
+                let beatmap = (score.beatmap_id > 0.0).then_some(score.beatmap_id as u64);
+                let played = crate::news::unix_of(&score.played);
+                let about = wire::Map { beatmap, set, artist: score.artist.clone(), title: score.title.clone(), version: score.version.clone(), creator: score.creator.clone(), stars };
+                let scored = screen::Scored {
+                    who: whose.person.id,
+                    name: whose.person.name.clone(),
+                    map: crate::community::MapRef { hash: score.hash.clone(), line: about.line(), set, stars, beatmap },
+                    play: crate::community::Play {
+                        pp: score.pp as f32,
+                        accuracy: score.accuracy as f32,
+                        mods: mods.clone(),
+                        grade: grade.clone(),
+                        at: played.unwrap_or(0),
+                        full_combo: counts[3] == Some(0) && most.is_none_or(|most| combo.is_none_or(|combo| combo + 10 >= most)),
+                        combo,
+                        max_combo: most,
+                        stars,
+                        counts,
+                        ..crate::community::Play::default()
+                    },
+                    passed: true,
+                };
                 Poster {
                     grade,
                     title: score.title.clone(),
@@ -872,17 +901,18 @@ fn posters_of<'a>(ground: &Ground<'a>, whose: &Whose<'a>) -> Vec<Poster<'a>> {
                     mapper: score.creator.clone(),
                     pp: score.pp,
                     accuracy: score.accuracy,
-                    mods: score.mods.split(',').map(str::trim).filter(|m| !m.is_empty() && *m != "CL" && *m != "NM").map(str::to_owned).collect(),
-                    counts: [counted(score.great), counted(score.ok), counted(score.meh), counted(score.miss)],
-                    combo: (score.max_combo > 0.0).then_some(score.max_combo as u32),
-                    most: (score.map_max_combo > 0.0).then_some(score.map_max_combo as u32),
-                    stars: (score.stars > 0.0).then_some(score.stars as f32),
+                    mods,
+                    counts,
+                    combo,
+                    most,
+                    stars,
                     bpm: (score.bpm > 0.0).then_some(score.bpm),
                     length: (score.length > 0.0).then_some(score.length),
-                    played: crate::news::unix_of(&score.played),
+                    played,
                     cover: score.cover().and_then(|url| ground.pictures.get(&url)).or_else(|| ground.thumbs.get(&score.hash)),
                     art: score.cover().and_then(|url| ground.pictures.get(&crate::community::poster_key(&url))),
-                    set: (score.beatmapset_id > 0.0).then_some(score.beatmapset_id as u64),
+                    set,
+                    scored: Some(scored),
                 }
             })
             .collect();
@@ -919,6 +949,7 @@ fn posters_of<'a>(ground: &Ground<'a>, whose: &Whose<'a>) -> Vec<Poster<'a>> {
                 cover: map.and_then(|map| ground.thumbs.get(&map.hash).or_else(|| map.card().and_then(|card| ground.pictures.get(&card)))),
                 art: map.and_then(|map| map.poster()).and_then(|key| ground.pictures.get(&key)),
                 set: map.and_then(|map| map.set),
+                scored: screen::Scored::of(ground.catalog, whose.at, play, true),
             }
         })
         .collect()
@@ -1077,7 +1108,10 @@ fn poster_card<'a>(ground: &Ground<'a>, index: usize, poster: &Poster<'a>, chose
             shadow: Shadow::default(),
             snap: true,
         })
-        .on_press(Message::PlayOpen(index));
+        .on_press(match (chosen, &poster.scored) {
+            (true, Some(scored)) => Message::Read(screen::Reading::Score(scored.clone())),
+            _ => Message::PlayOpen(index),
+        });
     let glow = if chosen { ui::Glow::card(14.0).edge(Color::TRANSPARENT).shadow(Color::TRANSPARENT) } else { ui::Glow::card(14.0).edge(Color::from_rgba(1.0, 1.0, 1.0, 0.3)).shadow(Color::from_rgba(0.0, 0.0, 0.0, 0.5)) };
     ui::hover(container(stack![card, frame]).width(Length::FillPortion(1)), glow)
 }
@@ -1174,17 +1208,24 @@ fn poster_detail<'a>(ground: &Ground<'a>, poster: &Poster<'a>, f: f64) -> Elemen
     if let Some(bar) = judgement_bar(ground, poster.counts, f) {
         right = right.push(bar);
     }
+    let deed = |icon: Icon, words: String, press: Message| {
+        ui::hover(
+            button(row![glyph(icon, 13.0, MUTED), text(words).font(theme::SANS_SEMI).size(12.5).color(ui::faded(MUTED))].spacing(6).align_y(iced::Center))
+                .padding([7, 12])
+                .style(ui::button_faded(ui::calm(outline)))
+                .on_press(press),
+            ui::Glow::tile(10.0),
+        )
+    };
+    let mut deeds = row![ui::grow()].spacing(8);
+    if let Some(scored) = &poster.scored {
+        deeds = deeds.push(deed(Icon::Chart, w.t("open-result"), Message::Read(screen::Reading::Score(scored.clone()))));
+    }
     if let Some(set) = poster.set {
-        right = right.push(row![
-            ui::grow(),
-            ui::hover(
-                button(row![glyph(Icon::External, 13.0, MUTED), text(w.t("open-map")).font(theme::SANS_SEMI).size(12.5).color(ui::faded(MUTED))].spacing(6).align_y(iced::Center))
-                    .padding([7, 12])
-                    .style(ui::button_faded(ui::calm(outline)))
-                    .on_press(Message::Open(format!("https://osu.ppy.sh/beatmapsets/{set}"))),
-                ui::Glow::tile(10.0),
-            ),
-        ]);
+        deeds = deeds.push(deed(Icon::External, w.t("open-map"), Message::Open(format!("https://osu.ppy.sh/beatmapsets/{set}"))));
+    }
+    if poster.scored.is_some() || poster.set.is_some() {
+        right = right.push(deeds);
     }
     let k = ui::fade();
     let high = 156.0;
@@ -1333,7 +1374,20 @@ fn titles<'a>(ground: &Ground<'a>, whose: &Whose<'a>) -> Element<'a, Message> {
                 column![
                     text(if secret { "???".to_owned() } else { title.name(w.lang()).to_owned() }).font(theme::SANS_SEMI).size(14.0).color(ui::faded(colour)),
                     text(if secret { w.t("secret-title") } else { title.about(w.lang()).to_owned() }).font(theme::SANS).size(12.0).color(ui::faded(MUTED)),
-                    row![ui::mono_small(when, FAINT), ui::grow(), wear_button(ground, you, title)].align_y(iced::Center),
+                    row![
+                        ui::mono_small(when, FAINT),
+                        ui::grow(),
+                        ui::hover(
+                            button(text(w.t("title-see-holders")).font(theme::SANS_SEMI).size(11.5))
+                                .padding([4, 11])
+                                .style(ui::button_faded(ui::calm(chip_style(colour, false, false))))
+                                .on_press(Message::Read(screen::Reading::Title { code: title.code.clone(), who: Some(you.id) })),
+                            ui::Glow::tile(10.0).edge(Color { a: 0.45, ..colour }),
+                        ),
+                        wear_button(ground, you, title),
+                    ]
+                    .spacing(6)
+                    .align_y(iced::Center),
                 ]
                 .spacing(3),
             )
@@ -1348,8 +1402,15 @@ fn titles<'a>(ground: &Ground<'a>, whose: &Whose<'a>) -> Element<'a, Message> {
 }
 
 pub fn wear_button<'a>(ground: &Ground<'a>, you: &crate::community::Person, title: &Title) -> Element<'a, Message> {
+    if ground.section != crate::community_screen::Section::Titles || ground.person.is_some() {
+        return Space::new().width(0.0).into();
+    }
+    wear_button_anywhere(ground, you, title)
+}
+
+pub fn wear_button_anywhere<'a>(ground: &Ground<'a>, you: &crate::community::Person, title: &Title) -> Element<'a, Message> {
     let w = ground.words;
-    if ground.section != crate::community_screen::Section::Titles || ground.person.is_some() || !you.you || !you.titles.iter().any(|code| *code == title.code) {
+    if !you.you || !you.titles.iter().any(|code| *code == title.code) {
         return Space::new().width(0.0).into();
     }
     let worn = you.title.as_deref() == Some(title.code.as_str());

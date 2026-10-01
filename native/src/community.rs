@@ -272,7 +272,7 @@ impl MapRef {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Kind {
     Render { accuracy: f32, mods: Vec<String> },
-    TopPlay { pp: f32, place: u32, mods: Vec<String> },
+    TopPlay { pp: f32, place: u32, mods: Vec<String>, more: Play },
     Title(String),
     Climb { board: Board, from: u32, to: u32 },
 }
@@ -624,12 +624,12 @@ impl Catalog {
         let minutes = |m: i64| now - m * 60;
         let feed = vec![
             Happening { who: 1, kind: Kind::Render { accuracy: 99.21, mods: owned(&["HD", "HR"]) }, map: Some(spot(3)), at: minutes(18) },
-            Happening { who: 0, kind: Kind::TopPlay { pp: 412.6, place: 1, mods: owned(&["HD"]) }, map: Some(spot(0)), at: minutes(52) },
+            Happening { who: 0, kind: Kind::TopPlay { pp: 412.6, place: 1, mods: owned(&["HD"]), more: people[0].top[0].clone() }, map: Some(spot(0)), at: minutes(52) },
             Happening { who: 3, kind: Kind::Title("ss_streak_10".to_owned()), map: None, at: minutes(95) },
             Happening { who: 2, kind: Kind::Climb { board: Board::Pp, from: 4, to: 2 }, map: None, at: minutes(240) },
             Happening { who: 0, kind: Kind::Render { accuracy: 98.34, mods: owned(&["HD"]) }, map: Some(spot(0)), at: minutes(300) },
             Happening { who: 4, kind: Kind::Title("streak_30d".to_owned()), map: None, at: minutes(26 * 60) },
-            Happening { who: 2, kind: Kind::TopPlay { pp: 540.3, place: 1, mods: owned(&["HD", "DT"]) }, map: Some(spot(1)), at: minutes(27 * 60 + 12) },
+            Happening { who: 2, kind: Kind::TopPlay { pp: 540.3, place: 1, mods: owned(&["HD", "DT"]), more: people[2].top[0].clone() }, map: Some(spot(1)), at: minutes(27 * 60 + 12) },
             Happening { who: 6, kind: Kind::Render { accuracy: 92.30, mods: owned(&["DT"]) }, map: Some(spot(6)), at: minutes(30 * 60) },
             Happening { who: 3, kind: Kind::Climb { board: Board::Accuracy, from: 2, to: 1 }, map: None, at: minutes(50 * 60) },
             Happening { who: 1, kind: Kind::Title("archivist".to_owned()), map: None, at: minutes(52 * 60) },
@@ -749,7 +749,7 @@ impl Catalog {
                 match happened.kind.as_str() {
                     "top_play" => {
                         let play = happened.play.as_ref().map(|play| play_into(&mut maps, play))?;
-                        Some(Happening { who, kind: Kind::TopPlay { pp: play.pp, place: happened.place.unwrap_or(0), mods: play.mods }, map: Some(play.map), at })
+                        Some(Happening { who, kind: Kind::TopPlay { pp: play.pp, place: happened.place.unwrap_or(0), mods: play.mods.clone(), more: play.clone() }, map: Some(play.map), at })
                     }
                     "title" => Some(Happening { who, kind: Kind::Title(happened.title.clone()?), map: None, at }),
                     "climb" => Some(Happening {
@@ -1737,6 +1737,25 @@ mod tests {
                "recent": [{"passed": false, "map": {"set": 9, "artist": "Phoneboy", "title": "Nevermind", "version": "Insane"}, "pp": 0, "accuracy": 80.0, "grade": "F", "at": 1790157400}],
                "duels": [3, 1], "points": 120}
     }"#;
+
+    #[test]
+    fn a_top_play_brings_its_whole_result_even_when_it_is_not_among_the_best_five() {
+        let said: wire::Community = serde_json::from_str(
+            r#"{"people": [{"id": 7, "name": "NaumRedlo", "you": true}],
+                "happened": [{"who": 7, "kind": "top_play", "place": 37, "at": 1790000000,
+                    "play": {"id": 5, "map": {"beatmap": 3, "set": 4, "artist": "xi", "title": "FREEDOM DiVE", "version": "FOUR DIMENSIONS"}, "score": 912345, "pp": 211.4, "accuracy": 97.3,
+                             "mods": ["HD"], "grade": "A", "combo": 1204, "counts": [1500, 30, 2, 4], "at": 1790000000}}]}"#,
+        )
+        .expect("the answer reads");
+        let catalog = Catalog::from_wire(said);
+        assert!(catalog.people[0].top.is_empty());
+        let Kind::TopPlay { place, more, .. } = &catalog.feed[0].kind else {
+            panic!("not a top play: {:?}", catalog.feed[0].kind);
+        };
+        assert_eq!((*place, more.combo, more.counts, more.score), (37, Some(1204), [Some(1500), Some(30), Some(2), Some(4)], 912_345));
+        let scored = crate::community_screen::Scored::of(&catalog, catalog.feed[0].who, more, true).expect("a result to open");
+        assert_eq!((scored.name.as_str(), scored.map.beatmap, scored.map.line.as_str()), ("NaumRedlo", Some(3), "xi — FREEDOM DiVE [FOUR DIMENSIONS]"));
+    }
 
     #[test]
     fn every_player_joins_the_chat_after_its_own_people_and_leaves_them_as_they_were() {

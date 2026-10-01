@@ -568,6 +568,7 @@ pub struct Main {
     map_boards_fresh: std::collections::HashSet<u64>,
     pub score_scale: bool,
     pub read_fade: Animation<bool>,
+    pub read_over_person: bool,
     pub people_from: crate::community_screen::PeopleFrom,
     pub people_query: String,
     pub community_standing: crate::community_screen::Standing,
@@ -791,6 +792,7 @@ impl Main {
             map_boards_fresh: std::collections::HashSet::new(),
             score_scale: false,
             read_fade: Animation::new(false),
+            read_over_person: false,
             people_from: crate::community_screen::PeopleFrom::Chat,
             people_query: String::new(),
             community_standing: crate::community_screen::Standing::General,
@@ -2463,7 +2465,8 @@ impl Main {
                             _ => None,
                         };
                         self.community_reading = Some(reading);
-                        self.panel_from = self.community_tap;
+                        self.read_over_person = self.community_person.is_some() && self.person_fade.value();
+                        self.panel_from = if self.read_over_person { None } else { self.community_tap };
                         self.read_fade = Animation::new(false).duration(PANEL_SHOW).easing(Easing::EaseOutCubic).go(true, now);
                         let pictures = self.wide_pictures_task(wanted);
                         return match board {
@@ -2472,12 +2475,7 @@ impl Main {
                         };
                     }
                     C::ScoreScale(on) => self.score_scale = on,
-                    C::TitleOf(code, who) => {
-                        self.community_tap = None;
-                        let moved = self.update(Message::Community(C::Section(crate::community_screen::Section::Titles)));
-                        let read = self.update(Message::Community(C::Read(crate::community_screen::Reading::Title { code, who })));
-                        return Task::batch([moved, read]);
-                    }
+                    C::TitleOf(code, who) => return self.update(Message::Community(C::Read(crate::community_screen::Reading::Title { code, who }))),
                     C::Unread => self.read_fade.go_mut(false, now),
                     C::Standing(standing) => {
                         if standing != self.community_standing {
@@ -2551,6 +2549,9 @@ impl Main {
                         self.community_section = crate::community_screen::Section::Boards;
                     }
                     C::Person(Some(at)) => {
+                        if self.read_over_person && self.community_reading.is_some() && self.read_fade.value() {
+                            self.read_fade.go_mut(false, now);
+                        }
                         self.person_at = now;
                         self.community_person = Some(at);
                         self.panel_from = self.community_tap;
@@ -5841,6 +5842,7 @@ impl Main {
             score_scale: self.score_scale,
             clips_loading: &self.clips_loading,
             reading: self.community_reading.as_ref(),
+            read_above: self.read_over_person,
             read_k: self.read_fade.interpolate(0.0, 1.0, self.now),
             people_from: self.people_from,
             everyone: self.settings.people_everyone,
@@ -5863,7 +5865,12 @@ impl Main {
             let shield = iced::widget::opaque(mouse_area(ui::veil(Color::from_rgba(0.027, 0.012, 0.016, 0.88 * ground.person_k)))
                 .on_press(Message::Community(crate::community_screen::Message::Person(None))).interaction(iced::mouse::Interaction::Idle));
             let page = column![Space::new().height(theme::CONTROL_HEIGHT + 26.0), panel].width(Length::Fill).height(Length::Fill);
-            return Some(stack![shield, page].width(Length::Fill).height(Length::Fill).into());
+            let mut layers: Vec<Element<'_, Message>> = vec![shield.into(), page.into()];
+            if let Some(sheet) = crate::community_screen::reading_above(&ground) {
+                let sheet: Element<'_, Message> = ui::scaled(sheet.map(Message::Community), COMMUNITY_SCALE).into();
+                layers.push(column![Space::new().height(theme::CONTROL_HEIGHT + 26.0), sheet].width(Length::Fill).height(Length::Fill).into());
+            }
+            return Some(iced::widget::Stack::with_children(layers).width(Length::Fill).height(Length::Fill).into());
         }
         let opened = self.stage_open.interpolate(0.0, 1.0, self.now);
         let stage = match (&self.player, &self.clip) {

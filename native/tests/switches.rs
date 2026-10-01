@@ -272,7 +272,7 @@ fn a_play_in_the_feed_opens_its_result_and_a_title_opens_its_holders() {
     let _ = main.update(M::Community(C::Read(Reading::Score(scored))));
     assert!(matches!(main.community_reading, Some(Reading::Score(_))));
     let _ = main.update(M::Community(C::TitleOf("wysi".into(), Some(catalog.people[0].id))));
-    assert_eq!(main.community_section, Section::Titles);
+    assert_eq!(main.community_section, Section::Feed, "a title opens where it was pressed");
     assert!(matches!(&main.community_reading, Some(Reading::Title { code, who: Some(_) }) if code == "wysi"));
     let _ = main.update(M::MapBoard(7, false, Ok(dossier_native::community::wire::MapBoard { beatmap: 7, ..Default::default() })));
     let _ = main.update(M::MapBoard(8, false, Err("no connection".into())));

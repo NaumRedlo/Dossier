@@ -225,6 +225,13 @@ impl Words {
         }
     }
 
+    pub fn days_back(&self, unix: i64, now: i64) -> i64 {
+        match (self.local(unix), self.local(now)) {
+            (Some(when), Some(today)) => (today.date_naive() - when.date_naive()).num_days().max(0),
+            _ => (now - unix).div_euclid(86_400).max(0),
+        }
+    }
+
     pub fn clock(&self, unix: i64) -> String {
         use chrono::Timelike;
         match self.local(unix) {
@@ -451,6 +458,20 @@ mod tests {
         assert_eq!(en.percent(98.7123), "98.71%");
         assert_eq!(ru.percent(98.7123), "98,71%");
         assert_eq!(en.length(231_400), "3:51");
+    }
+
+    #[test]
+    fn a_day_in_the_feed_turns_at_local_midnight() {
+        use chrono::TimeZone;
+        let utc = |d, h, min| chrono::Utc.with_ymd_and_hms(2026, 10, d, h, min, 0).unwrap().timestamp();
+        let moscow = Words::new(Lang::Ru).in_zone(3 * 3600);
+        let now = utc(1, 22, 30);
+        assert_eq!(moscow.days_back(utc(1, 21, 10), now), 0);
+        assert_eq!(moscow.days_back(utc(1, 20, 50), now), 1);
+        assert_eq!(moscow.days_back(utc(1, 0, 30), now), 1);
+        assert_eq!(moscow.days_back(utc(1, 22, 40), now), 0);
+        let london = Words::new(Lang::En).in_zone(0);
+        assert_eq!(london.days_back(utc(1, 0, 30), now), 0);
     }
 
     #[test]

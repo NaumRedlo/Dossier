@@ -388,13 +388,18 @@ pub fn brim_strength(under: f32) -> f32 {
 }
 
 pub fn draw_brim(renderer: &mut Renderer, top: Rectangle, colour: iced::Color, k: f32) {
+    draw_edge(renderer, top, colour, k, false);
+}
+
+pub fn draw_edge(renderer: &mut Renderer, edge: Rectangle, colour: iced::Color, k: f32, rising: bool) {
     use iced::advanced::Renderer as _;
-    if k <= 0.003 || top.width <= 0.0 || top.height <= 0.0 {
+    if k <= 0.003 || edge.width <= 0.0 || edge.height <= 0.0 {
         return;
     }
-    let shade = BRIM_STOPS.iter().fold(iced::gradient::Linear::new(iced::Radians(std::f32::consts::PI)), |shade, (at, a)| shade.add_stop(*at, iced::Color { a: a * k, ..colour }));
-    renderer.with_layer(top, |renderer| {
-        renderer.fill_quad(renderer::Quad { bounds: top, ..renderer::Quad::default() }, iced::Background::Gradient(shade.into()));
+    let angle = if rising { 0.0 } else { std::f32::consts::PI };
+    let shade = BRIM_STOPS.iter().fold(iced::gradient::Linear::new(iced::Radians(angle)), |shade, (at, a)| shade.add_stop(*at, iced::Color { a: a * k, ..colour }));
+    renderer.with_layer(edge, |renderer| {
+        renderer.fill_quad(renderer::Quad { bounds: edge, ..renderer::Quad::default() }, iced::Background::Gradient(shade.into()));
     });
 }
 
@@ -402,15 +407,18 @@ pub struct Brim<'a, Message> {
     content: Element<'a, Message>,
     colour: iced::Color,
     fade: f32,
+    foot: bool,
+    high: f32,
 }
 
 #[derive(Debug, Default)]
 struct BrimState {
     under: f32,
+    ahead: f32,
 }
 
 pub fn brim<'a, Message: 'a>(content: impl Into<Element<'a, Message>>) -> Brim<'a, Message> {
-    Brim { content: content.into(), colour: crate::theme::GROUND, fade: crate::ui::fade() }
+    Brim { content: content.into(), colour: crate::theme::GROUND, fade: crate::ui::fade(), foot: false, high: BRIM }
 }
 
 impl<Message> Brim<'_, Message> {
@@ -418,9 +426,23 @@ impl<Message> Brim<'_, Message> {
         self.colour = colour;
         self
     }
+
+    pub fn both(mut self) -> Self {
+        self.foot = true;
+        self
+    }
+
+    pub fn high(mut self, high: f32) -> Self {
+        self.high = high;
+        self
+    }
 }
 
-struct Scrolled(Option<f32>);
+pub fn ahead(viewport: f32, content: f32, under: f32) -> f32 {
+    (content - viewport - under).max(0.0)
+}
+
+struct Scrolled(Option<(f32, f32)>);
 
 impl Operation for Scrolled {
     fn traverse(&mut self, operate: &mut dyn FnMut(&mut dyn Operation)) {
@@ -429,9 +451,9 @@ impl Operation for Scrolled {
         }
     }
 
-    fn scrollable(&mut self, _: Option<&iced::widget::Id>, _: Rectangle, _: Rectangle, translation: Vector, _: &mut dyn operation::Scrollable) {
+    fn scrollable(&mut self, _: Option<&iced::widget::Id>, bounds: Rectangle, content: Rectangle, translation: Vector, _: &mut dyn operation::Scrollable) {
         if self.0.is_none() {
-            self.0 = Some(translation.y);
+            self.0 = Some((translation.y, ahead(bounds.height, content.height, translation.y)));
         }
     }
 }
@@ -480,7 +502,10 @@ impl<Message> Widget<Message, Theme, Renderer> for Brim<'_, Message> {
         if let iced::Event::Window(iced::window::Event::RedrawRequested(_)) = event {
             let mut found = Scrolled(None);
             self.content.as_widget_mut().operate(&mut tree.children[0], layout, renderer, &mut found);
-            tree.state.downcast_mut::<BrimState>().under = found.0.unwrap_or(0.0);
+            let (under, ahead) = found.0.unwrap_or((0.0, 0.0));
+            let state = tree.state.downcast_mut::<BrimState>();
+            state.under = under;
+            state.ahead = ahead;
         }
     }
 
@@ -491,8 +516,12 @@ impl<Message> Widget<Message, Theme, Renderer> for Brim<'_, Message> {
     fn draw(&self, tree: &Tree, renderer: &mut Renderer, theme: &Theme, style: &renderer::Style, layout: Layout<'_>, cursor: mouse::Cursor, viewport: &Rectangle) {
         self.content.as_widget().draw(&tree.children[0], renderer, theme, style, layout, cursor, viewport);
         let bounds = layout.bounds();
-        let k = brim_strength(tree.state.downcast_ref::<BrimState>().under) * self.fade;
-        draw_brim(renderer, Rectangle { height: BRIM.min(bounds.height), ..bounds }, self.colour, k);
+        let state = tree.state.downcast_ref::<BrimState>();
+        let high = self.high.min(bounds.height);
+        draw_brim(renderer, Rectangle { height: high, ..bounds }, self.colour, brim_strength(state.under) * self.fade);
+        if self.foot {
+            draw_edge(renderer, Rectangle { y: bounds.y + bounds.height - high, height: high, ..bounds }, self.colour, brim_strength(state.ahead) * self.fade, true);
+        }
     }
 
     fn overlay<'b>(
@@ -525,6 +554,14 @@ mod tests {
         assert_eq!(brim_strength(-400.0), 1.0);
         assert!(BRIM_STOPS.windows(2).all(|pair| pair[0].0 < pair[1].0 && pair[0].1 > pair[1].1), "the fade does not thin out steadily");
         assert!(BRIM_STOPS[0].1 == 1.0 && BRIM_STOPS[BRIM_STOPS.len() - 1].1 == 0.0);
+    }
+
+    #[test]
+    fn the_bottom_edge_fades_while_something_is_still_below() {
+        assert_eq!(ahead(200.0, 500.0, 0.0), 300.0);
+        assert_eq!(ahead(200.0, 500.0, 300.0), 0.0);
+        assert_eq!(ahead(200.0, 120.0, 0.0), 0.0);
+        assert_eq!(brim_strength(ahead(200.0, 500.0, 296.0)), 0.5);
     }
 
     #[test]

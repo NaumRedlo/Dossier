@@ -455,6 +455,9 @@ pub struct Main {
     pub chats: Vec<crate::bot::Chat>,
     everyone: Vec<crate::community::wire::Person>,
     pub pin: Option<crate::community::wire::Pin>,
+    pub compare: Vec<i64>,
+    pub compare_query: String,
+    pub(crate) compare_pool: Vec<crate::community::Person>,
     pub skins: Vec<PathBuf>,
     pub skin_faces: HashMap<PathBuf, image::Handle>,
     pub chat_faces: HashMap<i64, image::Handle>,
@@ -667,6 +670,9 @@ impl Main {
             renaming: None,
             everyone: Vec::new(),
             pin: None,
+            compare: Vec::new(),
+            compare_query: String::new(),
+            compare_pool: Vec::new(),
             chats: Vec::new(),
             skins: Vec::new(),
             skin_faces: HashMap::new(),
@@ -2365,6 +2371,7 @@ impl Main {
                         if from == crate::community_screen::PeopleFrom::Game {
                             return self.friends_task(false);
                         }
+
                     }
                     C::PeopleSearch(query) => self.people_query = query,
                     C::Again => {
@@ -2385,6 +2392,29 @@ impl Main {
                             self.person_fade.go_mut(false, now);
                         }
                         self.community_section = section;
+                        if section == crate::community_screen::Section::Compare {
+                            self.pool_players();
+                            if self.compare.is_empty() {
+                                if let Some(you) = self.compare_pool.iter().find(|person| person.you) {
+                                    self.compare.push(you.id);
+                                }
+                            }
+                            return self.everyone_task();
+                        }
+                    }
+                    C::Go(section, from) => {
+                        let mut tasks = Vec::new();
+                        if let Some(from) = from {
+                            if section == self.community_section && from != self.people_from {
+                                self.shift_at = now;
+                            }
+                            self.people_from = from;
+                            if from == crate::community_screen::PeopleFrom::Game {
+                                tasks.push(self.friends_task(false));
+                            }
+                        }
+                        tasks.push(self.update(Message::Community(C::Section(section))));
+                        return Task::batch(tasks);
                     }
                     C::Board(board) => {
                         if self.community_person.is_some() && self.person_fade.value() {
@@ -2406,6 +2436,32 @@ impl Main {
                         return self.person_task(at);
                     }
                     C::Person(None) => self.person_fade.go_mut(false, now),
+                    C::CompareWith(at) => {
+                        let Some(catalog) = self.community.as_ref() else {
+                            return Task::none();
+                        };
+                        let you = catalog.people.iter().find(|person| person.you).map(|person| person.id);
+                        let them = catalog.people.get(at).map(|person| person.id);
+                        self.compare = you.into_iter().chain(them.filter(|them| Some(*them) != you)).collect();
+                        self.compare_query.clear();
+                        if self.community_person.is_some() && self.person_fade.value() {
+                            self.person_fade.go_mut(false, now);
+                        }
+                        if self.community_section != crate::community_screen::Section::Compare {
+                            self.section_at = now;
+                        }
+                        self.community_section = crate::community_screen::Section::Compare;
+                        self.pool_players();
+                        return self.everyone_task();
+                    }
+                    C::CompareAdd(id) => {
+                        if self.compare.len() < crate::compare::MOST && !self.compare.contains(&id) {
+                            self.compare.push(id);
+                        }
+                        self.compare_query.clear();
+                    }
+                    C::CompareRemove(id) => self.compare.retain(|chosen| *chosen != id),
+                    C::CompareSearch(said) => self.compare_query = said,
                     C::Open(url) => {
                         let _ = open::that_detached(url);
                     }
@@ -2738,6 +2794,7 @@ impl Main {
                     }
                 }
                 self.fresh_from(before);
+                self.pool_players();
                 self.community_fetch = crate::community_screen::Fetch::Fresh(self.now_unix);
                 let card = self.card_task(false);
                 let friends = self.friends_task(false);
@@ -2746,6 +2803,7 @@ impl Main {
             Message::EveryoneArrived(Ok(said)) => {
                 self.everyone = said.people;
                 self.welcome_everyone();
+                self.pool_players();
                 self.community_pictures_task()
             }
             Message::EveryoneArrived(Err(_)) => Task::none(),
@@ -3767,55 +3825,11 @@ impl Main {
         .align_y(iced::Center);
         let nav = ui::sliding(nav, chosen, ui::Pill { fill: Color { a: 0.85, ..ACCENT }, edge: Color::TRANSPARENT, radius: 1.0, underline: Some(0.0) });
         let words = row![nav, self.circle(CIRCLE_SIDE, true)].spacing(22).align_y(iced::Center);
-        let mut top = row![Space::new().width(BRAND_WIDTH)].align_y(iced::Center).height(theme::CONTROL_HEIGHT + 4.0);
-        if let Some(tabs) = self.part_tabs() {
-            top = top.push(Space::new().width(34.0)).push(tabs);
-        }
+        let top = row![Space::new().width(BRAND_WIDTH)].align_y(iced::Center).height(theme::CONTROL_HEIGHT + 4.0);
         container(top.push(ui::grow()).push(words))
         .padding(Padding { top: 22.0, right: 40.0, bottom: 0.0, left: 40.0 })
         .width(Length::Fill)
         .into()
-    }
-
-    fn part_tabs(&self) -> Option<Element<'_, Message>> {
-        use crate::community_screen::{Message as C, Section};
-        let w = &self.words;
-        let (size, gap) = match self.width {
-            wide if wide >= 1200.0 => (17.0, 26.0),
-            wide if wide >= 1060.0 => (15.5, 22.0),
-            _ => (14.0, 20.0),
-        };
-        let tab = |key: &str, on: bool, msg: Message| -> Element<'_, Message> {
-            button(column![Space::new().height(2.0), text(w.t(key)).font(theme::SANS_SEMI).size(size), Space::new().height(2.0)].spacing(5))
-                .padding(0)
-                .style(ui::button_faded(theme::word(on)))
-                .on_press(msg)
-                .into()
-        };
-        let pill = ui::Pill { fill: ACCENT, edge: Color::TRANSPARENT, radius: 1.0, underline: Some(0.0) };
-        let sheet = self.overlay_fade.interpolate(0.0, 1.0, self.now);
-        let tabs = match self.overlay {
-            Overlay::Community if self.community.is_some() => Some(ui::fading(ui::fade() * sheet, || {
-                let parts = [
-                    ("community-profile", Section::Profile),
-                    ("community-feed", Section::Feed),
-                    ("community-people", Section::People),
-                    ("community-boards", Section::Boards),
-                    ("community-titles", Section::Titles),
-                ];
-                let active = parts.iter().position(|(_, section)| *section == self.community_section).unwrap_or(0);
-                let line = iced::widget::Row::with_children(parts.iter().map(|(key, section)| tab(key, *section == self.community_section, Message::Community(C::Section(*section))))).spacing(gap).align_y(iced::Center);
-                ui::sliding(line, active, pill)
-            })),
-            Overlay::Settings => Some(ui::fading(ui::fade() * sheet, || {
-                let parts = [("app-side", Side::App), ("bot-side", Side::Bot)];
-                let active = parts.iter().position(|(_, side)| *side == self.side).unwrap_or(0);
-                let line = iced::widget::Row::with_children(parts.iter().map(|(key, side)| tab(key, *side == self.side, Message::Prefs(prefs::Message::Side(*side))))).spacing(gap).align_y(iced::Center);
-                ui::sliding(line, active, pill)
-            })),
-            _ => None,
-        };
-        tabs.map(|tabs| ui::lifted(tabs, sheet, 8.0))
     }
 
     fn viewer(&self, s: f32) -> Element<'_, Message> {
@@ -5506,6 +5520,39 @@ impl Main {
         crate::community::Catalog::staged(maps, &you, self.now_unix)
     }
 
+    fn community_side(&self) -> Element<'_, Message> {
+        use crate::community_screen::{Message as C, PeopleFrom, Section};
+        use crate::glyphs::Icon;
+        use crate::sidebar::Entry;
+        let w = &self.words;
+        let section = self.community_section;
+        let item = |key: &'static str, icon: Icon, label: String, on: bool, section: Section, from: Option<PeopleFrom>| Entry::Item { key, icon, label, on, press: Message::Community(C::Go(section, from)) };
+        let people = |from: PeopleFrom| section == Section::People && self.people_from == from;
+        let entries = vec![
+            item("profile", Icon::Person, w.t("community-profile"), section == Section::Profile, Section::Profile, None),
+            item("feed", Icon::News, w.t("community-feed"), section == Section::Feed, Section::Feed, None),
+            Entry::Caption(w.t("community-people")),
+            item("chat", Icon::Chat, w.t(if self.settings.people_everyone { "people-everyone-tab" } else { "people-chat" }), people(PeopleFrom::Chat), Section::People, Some(PeopleFrom::Chat)),
+            item("game", Icon::Circle, w.t("people-game"), people(PeopleFrom::Game), Section::People, Some(PeopleFrom::Game)),
+            item("compare", Icon::Compare, w.t("community-compare"), section == Section::Compare, Section::Compare, None),
+            Entry::Caption(w.t("community-standing")),
+            item("boards", Icon::Chart, w.t("community-boards"), section == Section::Boards, Section::Boards, None),
+            item("titles", Icon::Trophy, w.t("community-titles"), section == Section::Titles, Section::Titles, None),
+        ];
+        crate::sidebar::view(entries, self.width)
+    }
+
+    fn settings_side(&self) -> Element<'_, Message> {
+        use crate::glyphs::Icon;
+        use crate::sidebar::Entry;
+        let w = &self.words;
+        let entries = vec![
+            Entry::Item { key: "app-side", icon: Icon::Gear, label: w.t("app-side"), on: self.side == Side::App, press: Message::Prefs(prefs::Message::Side(Side::App)) },
+            Entry::Item { key: "bot-side", icon: Icon::Send, label: w.t("bot-side"), on: self.side == Side::Bot, press: Message::Prefs(prefs::Message::Side(Side::Bot)) },
+        ];
+        crate::sidebar::view(entries, self.width)
+    }
+
     fn community_view(&self, person_only: bool) -> Option<Element<'_, Message>> {
         let catalog = self.community.as_ref()?;
         let folds: HashMap<String, f32> = self
@@ -5573,6 +5620,9 @@ impl Main {
             read_k: self.read_fade.interpolate(0.0, 1.0, self.now),
             people_from: self.people_from,
             everyone: self.settings.people_everyone,
+            pool: &self.compare_pool,
+            compare: &self.compare,
+            compare_query: &self.compare_query,
             people_query: &self.people_query,
             standing: self.community_standing,
             card: self.shown_card.as_ref(),
@@ -5598,7 +5648,8 @@ impl Main {
         };
         let body: Element<'_, Message> = crate::community_screen::view(&ground).map(Message::Community);
         let body: Element<'_, Message> = ui::scaled(body, COMMUNITY_SCALE).into();
-        let page: Element<'_, Message> = column![Space::new().height(theme::CONTROL_HEIGHT + 4.0 + 22.0), body].width(Length::Fill).height(Length::Fill).into();
+        let side = ui::fading(ui::fade() * self.overlay_fade.interpolate(0.0, 1.0, self.now), || self.community_side());
+        let page: Element<'_, Message> = column![Space::new().height(theme::CONTROL_HEIGHT + 4.0 + 22.0), row![side, body].height(Length::Fill)].width(Length::Fill).height(Length::Fill).into();
         let stage = stage.unwrap_or_else(|| Space::new().width(Length::Fill).height(Length::Fill).into());
         Some(stack![page, stage].width(Length::Fill).height(Length::Fill).into())
     }
@@ -5646,7 +5697,8 @@ impl Main {
             scale_draft: self.scale_draft,
         };
         let body: Element<'_, Message> = Element::from(prefs::view(&ground)).map(Message::Prefs);
-        let sheet = column![Space::new().height(theme::CONTROL_HEIGHT + 4.0 + 22.0), body].width(Length::Fill).height(Length::Fill);
+        let side = ui::fading(ui::fade() * self.overlay_fade.interpolate(0.0, 1.0, self.now), || self.settings_side());
+        let sheet = column![Space::new().height(theme::CONTROL_HEIGHT + 4.0 + 22.0), row![side, body].height(Length::Fill)].width(Length::Fill).height(Length::Fill);
         sheet.into()
     }
 
@@ -6374,9 +6426,22 @@ impl Main {
         self.pin.as_ref().and_then(|pin| pin.chat).or(self.settings.chat_id).filter(|id| *id < 0)
     }
 
+    pub(crate) fn pool_players(&mut self) {
+        let Some(catalog) = self.community.as_ref() else {
+            self.compare_pool.clear();
+            return;
+        };
+        let mut pool = catalog.people.clone();
+        pool.extend(catalog.strangers(&self.everyone));
+        self.compare_pool = pool;
+        let known: Vec<i64> = self.compare_pool.iter().map(|person| person.id).collect();
+        self.compare.retain(|id| known.contains(id));
+    }
+
     fn everyone_task(&self) -> Task<Message> {
         let staged = self.community.as_ref().is_none_or(|catalog| catalog.staged);
-        if !self.settings.people_everyone || self.settings.token.is_empty() || staged {
+        let wanted = self.settings.people_everyone || self.community_section == crate::community_screen::Section::Compare;
+        if !wanted || self.settings.token.is_empty() || staged {
             return Task::none();
         }
         let (server, token, name) = (self.settings.server.clone(), self.settings.token.clone(), self.settings.device.clone());
@@ -6394,6 +6459,7 @@ impl Main {
             catalog.farewell();
         }
         self.community_person = selected.and_then(|id| catalog.people.iter().position(|person| person.id == id));
+        self.pool_players();
     }
 
     fn chat_name(&self) -> String {
@@ -6980,6 +7046,41 @@ mod tests {
         main.player = Some(replacement.clone());
         main.set_minimized(false);
         assert!(replacement.borrow().paused);
+    }
+
+    #[test]
+    fn compare_opens_with_you_and_them_and_holds_four_at_most() {
+        use super::Message as M;
+        use crate::community_screen::{Message as C, Section};
+        let mut main = super::Main::staged(crate::lang::Words::new(crate::lang::Lang::En), crate::settings::Settings::default(), crate::library::Library::default(), None);
+        main.community = Some(chat_catalogue());
+        let _ = main.update(M::Community(C::CompareWith(1)));
+        assert_eq!(main.community_section, Section::Compare);
+        assert_eq!(main.compare, [7, 8], "the dossier's compare did not start with you and them");
+
+        let _ = main.update(M::Community(C::CompareWith(0)));
+        assert_eq!(main.compare, [7], "comparing yourself put you in twice");
+
+        main.everyone = serde_json::from_str::<crate::community::wire::Everyone>(r#"{"people": [
+            {"id": 901, "player": 91, "name": "a", "pp": 1}, {"id": 902, "player": 92, "name": "b", "pp": 2},
+            {"id": 903, "player": 93, "name": "c", "pp": 3}, {"id": 904, "player": 94, "name": "d", "pp": 4}
+        ]}"#).unwrap().people;
+        main.pool_players();
+        for id in [8, 901, 902, 903, 8] {
+            let _ = main.update(M::Community(C::CompareAdd(id)));
+        }
+        assert_eq!(main.compare, [7, 8, 901, 902], "more than four were compared or one came twice");
+        let _ = main.update(M::Community(C::CompareSearch("c".into())));
+        let _ = main.update(M::Community(C::CompareRemove(901)));
+        assert_eq!(main.compare, [7, 8, 902]);
+        let _ = main.update(M::Community(C::CompareAdd(903)));
+        assert_eq!(main.compare, [7, 8, 902, 903]);
+        assert!(main.compare_query.is_empty(), "the search stayed after adding");
+
+        main.compare.clear();
+        let _ = main.update(M::Community(C::Section(Section::People)));
+        let _ = main.update(M::Community(C::Section(Section::Compare)));
+        assert_eq!(main.compare, [7], "an empty comparison did not start with you");
     }
 
     fn chat_catalogue() -> crate::community::Catalog {

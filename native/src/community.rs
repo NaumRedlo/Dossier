@@ -456,6 +456,20 @@ impl Catalog {
         }
     }
 
+    pub fn strangers(&self, everyone: &[wire::Person]) -> Vec<Person> {
+        let mut maps = Vec::new();
+        everyone
+            .iter()
+            .filter(|said| {
+                !self.people.iter().any(|person| match (person.player, said.player) {
+                    (Some(ours), Some(theirs)) => ours == theirs,
+                    _ => person.name.trim().eq_ignore_ascii_case(said.name.trim()),
+                })
+            })
+            .map(|said| Person { top: Vec::new(), outside: true, ..person_into(&mut maps, said) })
+            .collect()
+    }
+
     pub fn farewell(&mut self) {
         self.people.retain(|person| !person.outside);
     }
@@ -520,6 +534,9 @@ impl Catalog {
             person("tarakan_3000", "RU", 4_890, 78_224, 93.48, 29_870, 966, 18_550_402_876, 377.1),
             person("lumen", "RU", 3_402, 131_560, 96.40, 9_805, 311, 7_120_993_445, 402.8),
         ];
+        for (at, person) in people.iter_mut().enumerate() {
+            person.id = at as i64 + 1;
+        }
         people[0].you = true;
         people[0].level = 101;
         people[0].ss = 214;

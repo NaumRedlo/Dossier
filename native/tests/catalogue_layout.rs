@@ -2,9 +2,15 @@ use dossier_native::{gallery, lang::Lang};
 use iced::{widget::{button, container, Space}, Event, Padding, Point, Size};
 use iced_test::Simulator;
 
-fn community_point(bounds: iced::Rectangle) -> Point {
+fn community_point(bounds: iced::Rectangle, width: f32) -> Point {
+    let side = dossier_native::sidebar::width_for(width);
     let origin_y = dossier_native::theme::CONTROL_HEIGHT + 26.0;
-    Point::new(bounds.center_x() * 0.84, origin_y + (bounds.center_y() - origin_y) * 0.84)
+    Point::new(side + (bounds.center_x() - side) * 0.84, origin_y + (bounds.center_y() - origin_y) * 0.84)
+}
+
+fn content_middle(width: f32) -> f32 {
+    let side = dossier_native::sidebar::width_for(width);
+    side + (width - side) / 2.0
 }
 
 #[test]
@@ -198,7 +204,7 @@ fn people_search_keeps_original_member_ids_and_filters_game_friends() {
                 let target = ui.find(format!("#{place}")).unwrap().bounds();
                 assert!(ui.find(format!("#{other_place}")).is_err());
                 assert!(ui.find(main.words.of(1, main.community.as_ref().unwrap().people.len() as u64)).is_ok());
-                ui.point_at(community_point(target));
+                ui.point_at(community_point(target, main.width));
                 ui.simulate(iced_test::simulator::click());
                 assert!(ui.into_messages().any(|message| matches!(message, Message::Main(MainMessage::Community(CommunityMessage::Person(Some(index)))) if index == at)), "filtered position must not replace the player's catalogue index");
             }
@@ -216,7 +222,7 @@ fn people_search_keeps_original_member_ids_and_filters_game_friends() {
                 assert!(ui.find(main.words.t("metric-world")).is_ok());
                 assert!(ui.find(main.words.t("people-open-dossier")).is_ok());
                 let target = ui.find("D1CE").unwrap().bounds();
-                ui.point_at(community_point(target));
+                ui.point_at(community_point(target, main.width));
                 ui.simulate(iced_test::simulator::click());
                 assert!(ui.into_messages().any(|message| matches!(message, Message::Main(MainMessage::Community(CommunityMessage::Person(Some(index)))) if index == at)));
             }
@@ -230,7 +236,7 @@ fn people_search_keeps_original_member_ids_and_filters_game_friends() {
             assert!(ui.find("quietstorm").is_ok());
             assert!(ui.find(main.words.t("open-osu")).is_ok());
             let target = ui.find("quietstorm").unwrap().bounds();
-            ui.point_at(community_point(target));
+            ui.point_at(community_point(target, main.width));
             ui.simulate(iced_test::simulator::click());
             assert!(ui.into_messages().any(|message| matches!(message, Message::Main(MainMessage::Community(CommunityMessage::Open(url))) if url.ends_with("/quietstorm"))));
             if let Ok(dir) = std::env::var("DOSSIER_PEOPLE_REVIEW") {
@@ -257,8 +263,8 @@ fn people_search_input_and_clear_have_their_own_messages() {
         let input = ui.find(iced::widget::Id::new("community-people-search")).unwrap().bounds();
         let search = ui.find(iced::widget::Id::new("people-search-box")).unwrap().bounds();
         assert_eq!(search.width, 300.0);
-        assert!((community_point(search).x - main.width / 2.0).abs() < 1.0, "search must stay centered: {search:?}");
-        ui.point_at(community_point(input));
+        assert!((community_point(search, main.width).x - content_middle(main.width)).abs() < 1.0, "search must stay centered: {search:?}");
+        ui.point_at(community_point(input, main.width));
         ui.simulate(iced_test::simulator::click());
         ui.typewrite("k");
         let messages: Vec<_> = ui.into_messages().collect();
@@ -269,7 +275,7 @@ fn people_search_input_and_clear_have_their_own_messages() {
     assert_eq!(main.feed_query, "keep-feed-query");
     let mut ui = Simulator::with_size(dossier_native::settings(), Size::new(main.width, main.height), gallery::main_frame(&main, &backdrop));
     let clear = ui.find(main.words.t("clear")).unwrap().bounds();
-    ui.point_at(community_point(clear));
+    ui.point_at(community_point(clear, main.width));
     ui.simulate(iced_test::simulator::click());
     assert!(ui.into_messages().any(|message| matches!(message, Message::Main(MainMessage::Community(CommunityMessage::PeopleSearch(query))) if query.is_empty())));
 }
@@ -294,7 +300,8 @@ fn feed_stream_switches_preserve_highlight_pixels() {
         let path = gallery::written_as(&stem);
         let image = image::open(&path).unwrap().to_rgba8();
         let origin_y = dossier_native::theme::CONTROL_HEIGHT + 26.0;
-        let x = (heading.x * 0.84 * 2.0).ceil() as u32;
+        let side = dossier_native::sidebar::width_for(main.width);
+        let x = ((side + (heading.x - side) * 0.84) * 2.0).ceil() as u32;
         let y = ((origin_y + (heading.y - origin_y) * 0.84) * 2.0).ceil() as u32;
         let crop = image::imageops::crop_imm(&image, x, y, (300.0 * 0.84 * 2.0) as u32, ((heading.height + 8.0 + 146.0) * 0.84 * 2.0) as u32).to_image();
         highlights.push(crop);
@@ -462,8 +469,7 @@ fn profile_country_rank_selects_the_chart_and_title_has_no_holder_fraction() {
             assert!(ranking.y < country.y);
             assert!(ui.find("#412").is_ok());
             assert!(ui.find(main.words.t("held-by")).is_err());
-            let origin_y = dossier_native::theme::CONTROL_HEIGHT + 26.0;
-            ui.point_at(Point::new(ranking.center_x() * 0.84, origin_y + (ranking.center_y() - origin_y) * 0.84));
+            ui.point_at(community_point(ranking, width));
             ui.simulate(iced_test::simulator::click());
             let messages: Vec<_> = ui.into_messages().collect();
             assert!(messages.iter().any(|message| matches!(message, dossier_native::Message::Main(dossier_native::main_screen::Message::Community(dossier_native::community_screen::Message::Metric(dossier_native::dossier::Metric::CountryRank))))), "{ranking:?}: {messages:?}");
@@ -602,7 +608,7 @@ fn community_channels_and_future_have_separate_panels_without_event_headers() {
                 let mut ui = Simulator::with_size(dossier_native::settings(), Size::new(main.width, main.height), gallery::main_frame(&main, &backdrop));
                 let search = ui.find(iced::widget::Id::new("people-search-box")).unwrap().bounds();
                 assert_eq!(search.width, 300.0);
-                assert!((community_point(search).x - width / 2.0).abs() < 1.0);
+                assert!((community_point(search, main.width).x - content_middle(main.width)).abs() < 1.0);
                 ui.snapshot(&dossier_native::theme::theme()).unwrap().matches_image(std::path::Path::new(&dir).join(format!("people-{}-{}", lang.tag(), width as u32))).unwrap();
             }
         }

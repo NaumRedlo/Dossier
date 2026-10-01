@@ -26,6 +26,9 @@ pub enum Icon {
     Film,
     Flag,
     Metronome,
+    Person,
+    Chat,
+    Circle,
 }
 
 pub struct Glyph {
@@ -181,6 +184,22 @@ impl<Message> canvas::Program<Message> for Glyph {
                 frame.stroke(&polyline(&[(11.0, 3.0), (17.0, 3.0), (17.0, 9.0)], false), pen);
                 frame.stroke(&Path::line(at(17.0, 3.0), at(9.0, 11.0)), pen);
                 frame.stroke(&polyline(&[(14.0, 11.5), (14.0, 16.0), (13.0, 17.5), (4.5, 17.5), (3.0, 16.0), (3.0, 7.5), (4.5, 6.0), (9.0, 6.0)], false), pen);
+            }
+            Icon::Person => {
+                frame.stroke(&Path::circle(at(10.0, 6.8), 3.3 * s), pen);
+                let shoulders = Path::new(|b| {
+                    b.move_to(at(3.8, 17.2));
+                    b.bezier_curve_to(at(4.4, 12.2), at(15.6, 12.2), at(16.2, 17.2));
+                });
+                frame.stroke(&shoulders, pen);
+            }
+            Icon::Chat => {
+                frame.stroke(&Path::rounded_rectangle(at(2.5, 3.5), Size::new(15.0 * s, 10.5 * s), (3.0 * s).into()), pen);
+                frame.stroke(&polyline(&[(6.5, 14.0), (5.8, 17.5), (10.0, 14.0)], false), pen);
+            }
+            Icon::Circle => {
+                frame.stroke(&Path::circle(at(10.0, 10.0), 7.5 * s), pen);
+                frame.stroke(&Path::circle(at(10.0, 10.0), 3.6 * s), pen);
             }
             Icon::Compare => {
                 frame.stroke(&Path::line(at(6.0, 3.0), at(6.0, 17.0)), pen);

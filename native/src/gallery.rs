@@ -693,6 +693,13 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
         ("main-worker".to_owned(), worker),
         ("main-community-feed".to_owned(), community(crate::community_screen::Section::Feed, None)),
         ("main-community-people".to_owned(), community(crate::community_screen::Section::People, None)),
+        ("main-community-compare".to_owned(), {
+            let mut main = community(crate::community_screen::Section::Compare, None);
+            main.pool_players();
+            let pick = |name: &str| main.compare_pool.iter().find(|person| person.name == name).map(|person| person.id);
+            main.compare = main.compare_pool.iter().filter(|person| person.you).map(|person| person.id).chain(pick("kotofey")).chain(pick("Mirrorwave")).collect();
+            main
+        }),
         ("main-community-everyone".to_owned(), {
             let mut main = community(crate::community_screen::Section::People, None);
             main.settings.people_everyone = true;

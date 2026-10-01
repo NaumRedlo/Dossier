@@ -593,6 +593,25 @@ pub fn pill(on: bool) -> impl Fn(&Theme, button::Status) -> button::Style {
     }
 }
 
+pub fn side(on: bool) -> impl Fn(&Theme, button::Status) -> button::Style {
+    move |_, status| {
+        let lit = matches!(status, button::Status::Hovered | button::Status::Pressed);
+        let (background, edge) = match (on, lit) {
+            (true, true) => (Some(color!(0x4a1c20)), color!(0x8f3234)),
+            (true, false) => (Some(color!(0x3b171a)), color!(0x6e2a2d)),
+            (false, true) => (Some(Color::from_rgba(1.0, 1.0, 1.0, 0.05)), Color::TRANSPARENT),
+            (false, false) => (None, Color::TRANSPARENT),
+        };
+        button::Style {
+            background: background.map(Background::Color),
+            text_color: INK,
+            border: border(edge, 10.0),
+            shadow: Shadow::default(),
+            snap: true,
+        }
+    }
+}
+
 pub fn filter_chip(on: bool) -> impl Fn(&Theme, button::Status) -> button::Style {
     move |_, status| {
         let lit = matches!(status, button::Status::Hovered | button::Status::Pressed);

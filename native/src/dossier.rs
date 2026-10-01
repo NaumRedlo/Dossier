@@ -4,7 +4,7 @@ use iced::{mouse, Background, Border, Color, Element, Length, Padding, Point, Re
 
 use crate::chronicle::{self, card as slab};
 use crate::community::{wire, Board, Person, Rarity, Title};
-use crate::community_screen::{self as screen, Ground, Message, Section};
+use crate::community_screen::{self as screen, Ground, Message};
 use crate::glyphs::{glyph, Icon};
 use crate::theme::{self, ACCENT, FAINT, INK, MUTED};
 use crate::ui;
@@ -628,7 +628,7 @@ fn identity<'a>(ground: &Ground<'a>, whose: &Whose<'a>, wide: f32) -> Element<'a
                 .padding([10, 0])
                 .width(Length::Fill)
                 .style(ui::button_faded(ui::calm(outline)))
-                .on_press(Message::Section(Section::Boards)),
+                .on_press(Message::CompareWith(whose.at)),
             ui::Glow::tile(10.0),
         ),
     ]

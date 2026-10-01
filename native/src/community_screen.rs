@@ -17,6 +17,7 @@ pub enum Section {
     People,
     Boards,
     Titles,
+    Compare,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -110,6 +111,11 @@ pub enum Message {
     Wear(Option<String>),
     PlayOpen(usize),
     PlayClip(Option<String>, String),
+    Go(Section, Option<PeopleFrom>),
+    CompareWith(usize),
+    CompareAdd(i64),
+    CompareRemove(i64),
+    CompareSearch(String),
 }
 
 pub struct Ground<'a> {
@@ -121,6 +127,9 @@ pub struct Ground<'a> {
     pub person: Option<usize>,
     pub now_unix: i64,
     pub everyone: bool,
+    pub pool: &'a [Person],
+    pub compare: &'a [i64],
+    pub compare_query: &'a str,
     pub news: &'a News,
     pub pictures: &'a HashMap<String, image::Handle>,
     pub loading: &'a std::collections::HashSet<String>,
@@ -189,6 +198,7 @@ pub fn view<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
         Section::People => people(ground),
         Section::Boards => boards(ground),
         Section::Titles => titles(ground),
+        Section::Compare => comparing(ground),
     };
     let page = column![container(head).padding(Padding { top: 10.0, right: 0.0, bottom: 4.0, left: 0.0 }), body].width(Length::Fill).height(Length::Fill);
     let mut layers: Vec<Element<'a, Message>> = vec![page.into()];
@@ -492,16 +502,6 @@ pub(crate) fn title_chip<'a>(title: &Title, lang: crate::lang::Lang) -> Element<
     container(text(title.name(lang).to_owned()).font(theme::SANS_SEMI).size(12.5).color(ui::faded(colour)))
         .padding([2, 0])
         .into()
-}
-
-pub(crate) fn people_switch<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
-    let w = ground.words;
-    container(segmented(vec![
-        (w.t(if ground.everyone { "people-everyone-tab" } else { "people-chat" }), ground.people_from == PeopleFrom::Chat, Message::PeopleFrom(PeopleFrom::Chat)),
-        (w.t("people-game"), ground.people_from == PeopleFrom::Game, Message::PeopleFrom(PeopleFrom::Game)),
-    ]))
-    .center_x(Length::Fill)
-    .into()
 }
 
 pub(crate) fn friend_line<'a>(ground: &Ground<'a>, friend: &Friend) -> Element<'a, Message> {
@@ -825,7 +825,6 @@ fn person_card<'a>(ground: &Ground<'a>, at: usize, person: &Person, place: usize
 
 fn people<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
     let w = ground.words;
-    let switch = ui::appearing(ui::appear(ground.section_t, 0), 10.0, || people_switch(ground));
     let total = if ground.people_from == PeopleFrom::Game { ground.catalog.friends.len() } else { ground.catalog.people.len() };
     let found = if ground.people_from == PeopleFrom::Game {
         ground.catalog.friends.iter().filter(|friend| people_match(&friend.name, ground.people_query)).count()
@@ -837,7 +836,7 @@ fn people<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
     if !ground.people_query.is_empty() {
         search = search.push(button(text(w.t("clear")).font(theme::SANS_SEMI).size(12.0)).padding([8, 10]).style(ui::button_faded(theme::bare)).on_press(Message::PeopleSearch(String::new())));
     }
-    let controls = column![switch, row![Space::new().width(Length::FillPortion(1)),
+    let controls = column![row![Space::new().width(Length::FillPortion(1)),
         container(search).id(iced::widget::Id::new("people-search-box")).width(300),
         container(ui::mono_small(w.of(found as u64, total as u64), FAINT)).width(Length::FillPortion(1)).align_x(iced::alignment::Horizontal::Right)
     ].spacing(14).align_y(iced::Center)].spacing(12);
@@ -1241,6 +1240,78 @@ fn boards<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
         rows = rows.push(container(board_row(ground, &list, None, you, 0.0)).padding(Padding::ZERO.top(8.0)));
     }
     page = page.push(rows);
+    rolled(page.into())
+}
+
+fn comparing<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
+    let w = ground.words;
+    let people = crate::compare::chosen(ground.pool, ground.compare);
+    let full = people.len() >= crate::compare::MOST;
+    let search = text_input(&w.t(if full { "compare-full" } else { "compare-add" }), ground.compare_query)
+        .id(iced::widget::Id::new("compare-search"))
+        .on_input_maybe((!full).then_some(Message::CompareSearch))
+        .font(theme::SANS)
+        .size(13.0)
+        .padding([8, 12])
+        .width(300)
+        .style(theme::field_faded(ui::fade()));
+    let offered: Vec<Element<'a, Message>> = crate::compare::offered(ground.pool, ground.compare, ground.compare_query)
+        .into_iter()
+        .map(|person| {
+            let inside = row![face(ground, person, 22.0), text(person.name.clone()).font(theme::SANS_SEMI).size(13.0).color(ui::faded(INK)), ui::mono_small(format!("{} pp", w.lang().group(u64::from(person.pp))), MUTED)]
+                .spacing(8)
+                .align_y(iced::Center);
+            button(inside).padding([6, 12]).style(ui::button_faded(ui::calm(theme::filter_chip(false)))).on_press(Message::CompareAdd(person.id)).into()
+        })
+        .collect();
+    let mut page = column![ui::appearing(ui::appear(ground.section_t, 0), 10.0, || container(search).center_x(Length::Fill).into())].spacing(14).width(Length::Fill).max_width(920.0);
+    if !offered.is_empty() {
+        page = page.push(container(ui::wrap(offered, 6.0)).center_x(Length::Fill));
+    }
+    if people.len() < 2 {
+        let hint = if people.is_empty() { "compare-empty" } else { "compare-hint" };
+        let mut alone = column![].spacing(14).align_x(iced::Center);
+        if let Some(person) = people.first() {
+            alone = alone.push(ringed(ground, person, 64.0, Color::from_rgba(1.0, 1.0, 1.0, 0.22))).push(text(person.name.clone()).font(theme::SANS_SEMI).size(17.0).color(ui::faded(INK)));
+        }
+        alone = alone.push(empty(w.t(hint)));
+        return rolled(page.push(container(alone).center_x(Length::Fill).padding(Padding::ZERO.top(24.0))).into());
+    }
+    let label_part = 3;
+    let mut heads = row![Space::new().width(Length::FillPortion(label_part))].spacing(12).align_y(iced::alignment::Vertical::Bottom);
+    for person in &people {
+        let remove = button(text("✕").size(11.0).color(ui::faded(FAINT))).padding([2, 4]).style(ui::button_faded(theme::bare)).on_press(Message::CompareRemove(person.id));
+        let whose = column![
+            ringed(ground, person, 52.0, if person.you { theme::ACCENT } else { Color::from_rgba(1.0, 1.0, 1.0, 0.22) }),
+            row![ui::marquee(vec![ui::piece(person.name.clone(), theme::SANS_SEMI, 15.0, INK)]).width(Length::Shrink), flag(ground, &person.country, 11.0)].spacing(6).align_y(iced::Center),
+            remove,
+        ]
+        .spacing(6)
+        .align_x(iced::Center);
+        heads = heads.push(container(whose).width(Length::FillPortion(2)).center_x(Length::FillPortion(2)));
+    }
+    let mut table = column![heads].spacing(10);
+    let k = ui::fade();
+    for (at, compared) in crate::compare::table(w, &people).into_iter().enumerate() {
+        let mut line = row![container(text(w.t(compared.line.key())).font(theme::SANS).size(13.0).color(ui::faded(MUTED))).width(Length::FillPortion(label_part))].spacing(12).align_y(iced::Center);
+        for ((cell, best), share) in compared.cells.into_iter().zip(compared.best).zip(compared.share) {
+            let colour = if best { theme::ACCENT } else { INK };
+            let filled = (share.clamp(0.0, 1.0) * 1000.0).round().max(1.0) as u16;
+            let bar_colour = if best { theme::ACCENT } else { Color::from_rgba(1.0, 1.0, 1.0, 0.28) };
+            let bar = row![
+                container(Space::new().height(3.0)).width(Length::FillPortion(filled)).style(move |_| container::Style {
+                    background: Some(Background::Color(Color { a: bar_colour.a * k, ..bar_colour })),
+                    border: Border { radius: 2.0.into(), ..Border::default() },
+                    ..container::Style::default()
+                }),
+                Space::new().width(Length::FillPortion(1000u16.saturating_sub(filled).max(1))).height(3.0),
+            ];
+            let value = column![text(cell).font(theme::SANS_SEMI).size(15.0).color(ui::faded(colour)).wrapping(text::Wrapping::None), bar].spacing(5).align_x(iced::Center);
+            line = line.push(container(value).width(Length::FillPortion(2)).center_x(Length::FillPortion(2)));
+        }
+        table = table.push(ui::appearing(ui::appear(ground.section_t.min(ground.shift_t), at + 1), 10.0, || container(line).padding([10, 16]).style(ui::box_faded(theme::slab)).into()));
+    }
+    page = page.push(table);
     rolled(page.into())
 }
 

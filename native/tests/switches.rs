@@ -19,22 +19,43 @@ fn staged(lang: Lang, name: &str, width: f32) -> Main {
 
 #[test]
 fn navigation_and_section_tabs_fit_and_route_in_both_languages() {
+    use dossier_native::community_screen::PeopleFrom;
     let backdrop = dossier_native::ui::backdrop_handle();
     for lang in Lang::ALL {
         for width in [980.0, 1060.0, 1200.0, 1440.0] {
+            let side = dossier_native::sidebar::width_for(width);
             for name in ["main-community-profile", "main-prefs"] {
                 let main = staged(lang, name, width);
-                let parts: Vec<_> = if name == "main-prefs" {
+                let parts: Vec<(&str, M)> = if name == "main-prefs" {
                     vec![("app-side", M::Prefs(P::Side(Side::App))), ("bot-side", M::Prefs(P::Side(Side::Bot)))]
                 } else {
-                    vec![("community-profile", M::Community(C::Section(Section::Profile))), ("community-feed", M::Community(C::Section(Section::Feed))), ("community-people", M::Community(C::Section(Section::People))), ("community-boards", M::Community(C::Section(Section::Boards))), ("community-titles", M::Community(C::Section(Section::Titles)))]
+                    vec![
+                        ("profile", M::Community(C::Go(Section::Profile, None))),
+                        ("feed", M::Community(C::Go(Section::Feed, None))),
+                        ("chat", M::Community(C::Go(Section::People, Some(PeopleFrom::Chat)))),
+                        ("game", M::Community(C::Go(Section::People, Some(PeopleFrom::Game)))),
+                        ("compare", M::Community(C::Go(Section::Compare, None))),
+                        ("boards", M::Community(C::Go(Section::Boards, None))),
+                        ("titles", M::Community(C::Go(Section::Titles, None))),
+                    ]
                 };
-                let targets = parts.into_iter().chain([
+                let mut previous_bottom = 0.0;
+                for (key, expected) in parts {
+                    let mut ui = Simulator::with_size(dossier_native::settings(), Size::new(width, 720.0), gallery::main_frame(&main, &backdrop));
+                    let bounds = ui.find(iced::widget::Id::from(format!("side-{key}"))).unwrap_or_else(|_| panic!("{lang:?} {name} {width}: no {key} in the sidebar")).bounds();
+                    assert!(bounds.x >= 0.0 && bounds.x + bounds.width <= side + 1.0, "{lang:?} {width}: {key} leaves the sidebar: {bounds:?}");
+                    assert!(bounds.y >= previous_bottom, "{lang:?} {width}: {key} overlaps the item above: {bounds:?}");
+                    previous_bottom = bounds.y + bounds.height;
+                    ui.point_at(Point::new(bounds.x + bounds.width / 2.0, bounds.y + bounds.height / 2.0));
+                    let _ = ui.simulate(iced_test::simulator::click());
+                    let messages: Vec<_> = ui.into_messages().collect();
+                    assert!(messages.iter().any(|message| matches!(message, dossier_native::Message::Main(actual) if format!("{actual:?}") == format!("{expected:?}"))), "{lang:?} {width} {key}: {messages:?}");
+                }
+                let mut previous_right = 0.0;
+                for (key, expected) in [
                     ("replays", M::Show(Overlay::None)), ("videos", M::Show(Overlay::Videos)),
                     ("community", M::Show(Overlay::Community)), ("settings", M::Show(Overlay::Settings)),
-                ]);
-                let mut previous_right = 0.0;
-                for (key, expected) in targets {
+                ] {
                     let mut ui = Simulator::with_size(dossier_native::settings(), Size::new(width, 720.0), gallery::main_frame(&main, &backdrop));
                     let label = main.words.t(key);
                     let bounds = ui.find(top_label(label.as_str())).unwrap().bounds();
@@ -102,7 +123,8 @@ fn ranking_switches_select_the_metric_and_ranking_mode() {
                 let label = main.words.t(if standing == Standing::Adaptive { "board-adaptive" } else { "board-general" });
                 let bounds = ui.find(label.as_str()).unwrap().bounds();
                 let origin = dossier_native::theme::CONTROL_HEIGHT + 26.0;
-                ui.point_at(Point::new(bounds.center_x() * 0.84, origin + (bounds.center_y() - origin) * 0.84));
+                let side = dossier_native::sidebar::width_for(width);
+                ui.point_at(Point::new(side + (bounds.center_x() - side) * 0.84, origin + (bounds.center_y() - origin) * 0.84));
                 ui.simulate(iced_test::simulator::click());
                 let messages: Vec<_> = ui.into_messages().collect();
                 assert!(messages.iter().any(|message| matches!(message, dossier_native::Message::Main(M::Community(C::Standing(actual))) if *actual == standing)), "{lang:?} {width}: {messages:?}");
@@ -114,7 +136,8 @@ fn ranking_switches_select_the_metric_and_ranking_mode() {
                 let mut ui = Simulator::with_size(dossier_native::settings(), Size::new(width, 720.0), gallery::main_frame(&main, &backdrop));
                 let bounds = ui.find(main.words.t(board.key())).unwrap().bounds();
                 let origin = dossier_native::theme::CONTROL_HEIGHT + 26.0;
-                ui.point_at(Point::new(bounds.center_x() * 0.84, origin + (bounds.center_y() - origin) * 0.84));
+                let side = dossier_native::sidebar::width_for(width);
+                ui.point_at(Point::new(side + (bounds.center_x() - side) * 0.84, origin + (bounds.center_y() - origin) * 0.84));
                 ui.simulate(iced_test::simulator::click());
                 assert!(ui.into_messages().any(|message| matches!(message, dossier_native::Message::Main(M::Community(C::Board(actual))) if actual == board)), "{lang:?} {width} {board:?}");
                 let _ = main.update(M::Community(C::Board(board)));

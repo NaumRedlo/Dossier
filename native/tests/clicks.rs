@@ -105,7 +105,7 @@ fn the_worker_is_a_tile_of_the_bot_settings_and_its_switch_answers() {
     let app = main_state("main-prefs");
     let mut ui = Simulator::with_size(dossier_native::settings(), iced::Size::new(980.0, 720.0), gallery::main_frame(&app, &backdrop));
     assert!(ui.find("Take work from the bot").is_err());
-    let _ = ui.click("Bot").expect("clicked");
+    let _ = ui.click(iced::widget::Id::new("side-bot-side")).expect("clicked");
     let messages: Vec<_> = ui.into_messages().collect();
     assert!(messages.iter().any(|m| matches!(m, dossier_native::Message::Main(M::Prefs(P::Side(Side::Bot))))), "{messages:?}");
 }

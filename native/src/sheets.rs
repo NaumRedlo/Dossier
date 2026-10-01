@@ -1,41 +1,140 @@
-use iced::widget::{button, column, container, row, text, Space};
-use iced::{Background, Border, Color, Element, Length};
+use iced::widget::canvas::{self, Canvas, Frame, Geometry, Path, Stroke};
+use iced::widget::{button, column, container, image, pin, row, scrollable, stack, text, Space};
+use iced::{mouse, Background, Border, Color, Element, Length, Padding, Point, Radians, Rectangle, Renderer, Shadow, Theme};
 
-use crate::community::{placed, wire, Person, Placed, Rarity};
+use crate::community::{wire, Person, Rarity, Title};
 use crate::community_screen::{self as screen, Ground, Message, Scored};
 use crate::glyphs::{glyph, Icon};
+use crate::lang::Words;
 use crate::theme::{self, ACCENT, FAINT, INK, MUTED};
 use crate::ui;
 
+pub(crate) const WIDE: f32 = 920.0;
+const HEAD: f32 = 184.0;
+const STRIP: f32 = 44.0;
+const RING: f32 = 136.0;
+const SIDE: f32 = 26.0;
+const BOARD: f32 = 234.0;
+const LINE: f32 = 42.0;
+const MARK: f32 = 72.0;
+const TITLE_HIGH: f32 = 606.0;
+const TITLE_LEFT: f32 = 300.0;
+const GOLD: Color = theme::GRADE_S;
 const GREEN: Color = theme::HIT_100;
+const BLUE: Color = theme::HIT_300;
+const YOURS: Color = Color::from_rgb(0.941, 0.439, 0.439);
 
-pub(crate) struct Sheet<'a> {
-    pub source: String,
-    pub tint: Color,
-    pub title: String,
-    pub meta: String,
-    pub body: Vec<Element<'a, Message>>,
-    pub outside: Option<(String, String)>,
+fn tinted(colour: Color, a: f32) -> Color {
+    Color { a: a * ui::fade(), ..colour }
 }
 
-fn well<'a>(inside: impl Into<Element<'a, Message>>) -> Element<'a, Message> {
+fn well(k: f32, radius: f32) -> container::Style {
+    container::Style {
+        background: Some(Background::Color(Color::from_rgba(0.0, 0.0, 0.0, 0.26 * k))),
+        border: Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.06 * k), width: 1.0, radius: radius.into() },
+        ..container::Style::default()
+    }
+}
+
+fn tile<'a>(inside: impl Into<Element<'a, Message>>) -> Element<'a, Message> {
     let k = ui::fade();
-    container(inside)
-        .padding([16, 18])
+    container(inside).padding([14, 16]).width(Length::Fill).height(Length::Fill).style(move |_| well(k, 14.0)).into()
+}
+
+fn caption<'a>(words: String) -> Element<'a, Message> {
+    text(words).font(theme::SANS).size(12.0).wrapping(text::Wrapping::None).color(ui::faded(FAINT)).into()
+}
+
+fn mono<'a>(words: String, size: f32, colour: Color, strong: bool) -> Element<'a, Message> {
+    text(words).font(if strong { theme::MONO_BOLD } else { theme::MONO }).size(size).wrapping(text::Wrapping::None).color(ui::faded(colour)).into()
+}
+
+fn filled<'a>(colour: Color, high: f32) -> Element<'a, Message> {
+    let colour = tinted(colour, colour.a);
+    container(Space::new().height(high))
         .width(Length::Fill)
-        .style(move |_| container::Style {
-            background: Some(Background::Color(Color::from_rgba(0.0, 0.0, 0.0, 0.24 * k))),
-            border: Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.06 * k), width: 1.0, radius: 14.0.into() },
-            ..container::Style::default()
-        })
+        .style(move |_| container::Style { background: Some(Background::Color(colour)), border: Border { radius: (high / 2.0).into(), ..Border::default() }, ..container::Style::default() })
         .into()
 }
 
-fn said<'a>(words: String, colour: Color) -> Element<'a, Message> {
-    text(words).font(theme::SANS).size(theme::BODY).color(ui::faded(colour)).into()
+fn bar<'a>(parts: &[(f32, Color)], high: f32) -> Element<'a, Message> {
+    let k = ui::fade();
+    let mut line = row![].spacing(2).height(high);
+    let mut used = 0u16;
+    for (share, colour) in parts {
+        let wide = ((share.clamp(0.0, 1.0) * 1000.0).round() as u16).min(1000 - used.min(1000));
+        if wide > 0 {
+            line = line.push(container(filled(*colour, high)).width(Length::FillPortion(wide)));
+            used += wide;
+        }
+    }
+    if used < 1000 {
+        line = line.push(Space::new().width(Length::FillPortion(1000 - used)));
+    }
+    container(line)
+        .width(Length::Fill)
+        .height(high)
+        .style(move |_| container::Style { background: Some(Background::Color(Color::from_rgba(1.0, 1.0, 1.0, 0.07 * k))), border: Border { radius: (high / 2.0).into(), ..Border::default() }, ..container::Style::default() })
+        .into()
 }
 
-fn worth(w: &crate::lang::Words, play: &wire::Play, by_score: bool) -> String {
+fn chip<'a>(words: String, colour: Color) -> Element<'a, Message> {
+    let edge = tinted(colour, 0.55);
+    container(mono(words, 11.0, colour, false))
+        .padding([1, 7])
+        .style(move |_| container::Style { border: Border { color: edge, width: 1.0, radius: 6.0.into() }, ..container::Style::default() })
+        .into()
+}
+
+fn close<'a>() -> Element<'a, Message> {
+    button(container(text("✕").font(theme::SANS_SEMI).size(theme::LEAD).color(ui::faded(MUTED))).width(36.0).height(36.0).center(36.0))
+        .padding(0)
+        .style(ui::button_faded(theme::bare))
+        .on_press(Message::Unread)
+        .into()
+}
+
+pub(crate) fn named(line: &str) -> (String, String, String) {
+    let (head, version) = match line.rfind(" [") {
+        Some(at) if line.ends_with(']') => (&line[..at], &line[at + 2..line.len() - 1]),
+        _ => (line, ""),
+    };
+    let (artist, title) = head.split_once(" — ").unwrap_or(("", head));
+    (artist.to_owned(), title.to_owned(), version.to_owned())
+}
+
+pub(crate) fn short(value: f64) -> String {
+    let size = value.abs();
+    if size >= 1_000_000.0 {
+        format!("{:.1}M", value / 1_000_000.0)
+    } else if size >= 10_000.0 {
+        format!("{:.0}k", value / 1_000.0)
+    } else {
+        format!("{value:.0}")
+    }
+}
+
+pub(crate) fn signed(value: f64) -> String {
+    match value {
+        v if v >= 0.5 => format!("+{}", short(v)),
+        v if v <= -0.5 => format!("−{}", short(-v)),
+        _ => "0".to_owned(),
+    }
+}
+
+fn length(seconds: u32) -> String {
+    format!("{}:{:02}", seconds / 60, seconds % 60)
+}
+
+fn worth(play: &wire::Play, by_score: bool) -> f64 {
+    match (by_score, play.pp > 0.0) {
+        (true, _) => play.score as f64,
+        (false, true) => f64::from(play.pp),
+        (false, false) => f64::from(play.pp_if.unwrap_or(0.0)),
+    }
+}
+
+fn worth_said(w: &Words, play: &wire::Play, by_score: bool) -> String {
     match (by_score, play.pp > 0.0, play.pp_if) {
         (true, _, _) => w.lang().group(play.score),
         (false, true, _) => format!("{} pp", screen::decimal(w, play.pp, 0)),
@@ -44,253 +143,567 @@ fn worth(w: &crate::lang::Words, play: &wire::Play, by_score: bool) -> String {
     }
 }
 
-fn board_row<'a>(ground: &Ground<'a>, row_said: &'a wire::BoardRow, by_score: bool, chosen: bool) -> Element<'a, Message> {
-    let w = ground.words;
-    let known = ground.catalog.people.iter().position(|person| person.id == row_said.who);
-    let face: Element<'a, Message> = match known {
-        Some(at) => screen::face(ground, &ground.catalog.people[at], 24.0),
-        None => screen::round(ground.pictures.get(&row_said.avatar), &row_said.name.chars().next().map(|first| first.to_uppercase().to_string()).unwrap_or_default(), 24.0),
-    };
-    let place = text(format!("#{}", row_said.place))
-        .font(theme::MONO_BOLD)
-        .size(13.0)
-        .color(ui::faded(screen::medal(row_said.place as usize).unwrap_or(FAINT)));
-    let mut name = row![text(row_said.name.clone()).font(theme::SANS_SEMI).size(14.0).wrapping(text::Wrapping::None).color(ui::faded(INK))].spacing(8).align_y(iced::Center);
-    if row_said.you {
-        name = name.push(ui::mono_small(w.t("score-you"), ACCENT));
+fn initial(name: &str) -> String {
+    name.chars().next().map(|first| first.to_uppercase().to_string()).unwrap_or_default()
+}
+
+fn row_face<'a>(ground: &Ground<'a>, said: &wire::BoardRow, side: f32) -> Element<'a, Message> {
+    match ground.catalog.people.iter().find(|person| person.id == said.who) {
+        Some(person) => screen::face(ground, person, side),
+        None => screen::round(ground.pictures.get(&said.avatar), &initial(&said.name), side),
     }
-    let combo = row_said.play.combo.map_or(String::new(), |combo| format!("{}x", w.lang().group(u64::from(combo))));
+}
+
+fn line_style(edge: Color, fill: Option<Color>, wide: f32, radius: f32) -> impl Fn(&Theme, button::Status) -> button::Style {
+    move |_, status| {
+        let lit = matches!(status, button::Status::Hovered | button::Status::Pressed);
+        let wash = fill.or(lit.then_some(Color::from_rgba(1.0, 1.0, 1.0, 0.04)));
+        button::Style { background: wash.map(Background::Color), text_color: INK, border: Border { color: edge, width: wide, radius: radius.into() }, shadow: Shadow::default(), snap: true }
+    }
+}
+
+fn framed(chosen: bool, you: bool) -> (Color, Option<Color>, f32) {
+    match (chosen, you) {
+        (true, _) => (Color::from_rgb(0.541, 0.455, 0.188), Some(Color::from_rgb(0.09, 0.071, 0.039)), 1.0),
+        (false, true) => (Color::from_rgb(0.561, 0.196, 0.204), None, 1.0),
+        (false, false) => (Color::from_rgba(1.0, 1.0, 1.0, 0.07), None, 1.0),
+    }
+}
+
+fn table_line<'a>(ground: &Ground<'a>, said: &'a wire::BoardRow, by_score: bool, chosen: bool) -> Element<'a, Message> {
+    let w = ground.words;
+    let known = ground.catalog.people.iter().position(|person| person.id == said.who);
+    let place = mono(format!("#{}", said.place), 12.0, screen::medal(said.place as usize).unwrap_or(FAINT), true);
+    let mut name = row![text(said.name.clone()).font(theme::SANS_SEMI).size(14.0).wrapping(text::Wrapping::None).color(ui::faded(INK))].spacing(8).align_y(iced::Center);
+    if said.you {
+        name = name.push(chip(w.t("score-you"), YOURS));
+    }
+    let when = said.play.at.map_or(String::new(), |at| w.day(at, ground.now_unix));
+    let combo = said.play.combo.map_or(String::new(), |combo| format!("{}x", w.lang().group(u64::from(combo))));
     let line = row![
-        container(place).width(34.0),
-        face,
+        container(place).width(30.0),
+        row_face(ground, said, 24.0),
         container(name).width(Length::Fill).clip(true),
-        screen::mods(&row_said.play.mods),
-        container(ui::mono_small(w.percent(f64::from(row_said.play.accuracy)), MUTED)).width(64.0).align_x(iced::alignment::Horizontal::Right),
-        container(ui::mono_small(combo, MUTED)).width(58.0).align_x(iced::alignment::Horizontal::Right),
-        container(text(worth(w, &row_said.play, by_score)).font(theme::MONO_BOLD).size(13.0).wrapping(text::Wrapping::None).color(ui::faded(INK))).width(92.0).align_x(iced::alignment::Horizontal::Right),
-        container(text(row_said.play.grade.clone()).font(theme::MONO_BOLD).size(13.0).color(ui::faded(screen::grade_colour(&row_said.play.grade)))).width(26.0).align_x(iced::alignment::Horizontal::Right),
+        container(text(when).font(theme::SANS).size(12.0).wrapping(text::Wrapping::None).color(ui::faded(if chosen { GOLD } else { FAINT }))).width(110.0),
+        container(mono(w.percent(f64::from(said.play.accuracy)), 12.0, MUTED, false)).width(64.0).align_x(iced::alignment::Horizontal::Right),
+        container(mono(combo, 12.0, MUTED, false)).width(64.0).align_x(iced::alignment::Horizontal::Right),
+        container(mono(worth_said(w, &said.play, by_score), 13.0, INK, true)).width(92.0).align_x(iced::alignment::Horizontal::Right),
     ]
-    .spacing(10)
+    .spacing(12)
     .align_y(iced::Center);
-    let pressed = button(line).padding([7, 10]).width(Length::Fill).style(ui::button_faded(ui::calm(screen::row_style(row_said.you, chosen.then_some(theme::GRADE_S)))));
+    let (edge, fill, wide) = framed(chosen, said.you);
+    let pressed = button(container(line).height(LINE).center_y(LINE).padding([0, 14])).padding(0).width(Length::Fill).style(ui::button_faded(ui::calm(line_style(edge, fill, wide, 10.0))));
     match known {
         Some(at) => pressed.on_press(Message::Person(Some(at))).into(),
         None => pressed.into(),
     }
 }
 
-fn standing<'a>(ground: &Ground<'a>, board: &wire::MapBoard, scored: &Scored) -> Element<'a, Message> {
-    let w = ground.words;
-    let pair = |place: u32, of: u32| [("place", place.to_string()), ("of", of.to_string())];
-    let (icon, colour, words) = match placed(board, scored.who, &scored.play, scored.passed) {
-        Placed::Took { place, of } => (Icon::Trophy, screen::medal(place as usize).unwrap_or(GREEN), w.with("score-took", &pair(place, of))),
-        Placed::Would { place, of, best } => {
-            let mut pairs = pair(place, of).to_vec();
-            pairs.push(("best", best.to_string()));
-            (Icon::Up, MUTED, w.with("score-would", &pairs))
-        }
-        Placed::Failed { best: Some(best), .. } => (Icon::Circle, FAINT, w.with("score-failed-best", &[("best", best.to_string())])),
-        Placed::Failed { best: None, .. } => (Icon::Circle, FAINT, w.t("score-failed")),
-    };
-    row![glyph(icon, 16.0, colour), text(words).font(theme::SANS_SEMI).size(theme::BODY).color(ui::faded(colour))].spacing(10).align_y(iced::Center).into()
+fn table<'a>(ground: &Ground<'a>, board: &'a wire::MapBoard, scored: &Scored) -> Element<'a, Message> {
+    let mut lines = column![].spacing(6);
+    for said in &board.rows {
+        lines = lines.push(table_line(ground, said, board.by_score(), said.who == scored.who));
+    }
+    scrollable(lines).direction(ui::hidden_bar()).height(BOARD).width(Length::Fill).into()
 }
 
-pub(crate) fn score<'a>(ground: &Ground<'a>, scored: &'a Scored, picture: &dyn Fn(&str) -> Element<'a, Message>) -> Sheet<'a> {
+fn placed_at<'a>(share: f32, inside: Element<'a, Message>) -> Element<'a, Message> {
+    let before = (share.clamp(0.0, 1.0) * 10_000.0).round() as u16;
+    let mut line = row![];
+    if before > 0 {
+        line = line.push(Space::new().width(Length::FillPortion(before)));
+    }
+    line = line.push(inside);
+    if before < 10_000 {
+        line = line.push(Space::new().width(Length::FillPortion(10_000 - before)));
+    }
+    line.width(Length::Fill).into()
+}
+
+fn scale<'a>(ground: &Ground<'a>, board: &'a wire::MapBoard, scored: &Scored) -> Element<'a, Message> {
     let w = ground.words;
+    let k = ui::fade();
+    let by_score = board.by_score();
+    let values: Vec<f64> = board.rows.iter().map(|said| worth(&said.play, by_score)).collect();
+    let (low, high) = values.iter().fold((f64::INFINITY, f64::NEG_INFINITY), |(low, high), value| (low.min(*value), high.max(*value)));
+    let share = |value: f64| if high > low { ((value - low) / (high - low)) as f32 } else { 0.5 };
+    let own = board.rows.iter().position(|said| said.you);
+    let hero = board.rows.iter().position(|said| said.who == scored.who);
+    let base = own.or(hero).map(|at| values[at]);
+    let crowded = board.rows.len() > 8;
+    let ends = |at: usize| values[at] == high || values[at] == low;
+
+    let mut order: Vec<usize> = (0..board.rows.len()).collect();
+    order.sort_by_key(|at| (Some(*at) == hero, Some(*at) == own, ends(*at)));
+    let inset = Padding { top: 44.0, right: MARK / 2.0, bottom: 0.0, left: MARK / 2.0 };
+    let line = container(Space::new().height(4.0)).width(Length::Fill).style(move |_| container::Style {
+        background: Some(Background::Color(Color::from_rgba(1.0, 1.0, 1.0, 0.1 * k))),
+        border: Border { radius: 2.0.into(), ..Border::default() },
+        ..container::Style::default()
+    });
+    let mut layers: Vec<Element<'a, Message>> = vec![container(line).padding(inset).width(Length::Fill).height(Length::Fill).into()];
+    if let (Some(own), Some(hero)) = (own, hero) {
+        let (from, to) = (share(values[own]).min(share(values[hero])), share(values[own]).max(share(values[hero])));
+        if to - from > 0.002 {
+            let lit = container(Space::new().height(4.0)).width(Length::FillPortion(((to - from) * 10_000.0).round().max(1.0) as u16)).style(move |_| container::Style {
+                background: Some(Background::Color(Color { a: 0.75 * k, ..Color::from_rgb(0.541, 0.455, 0.188) })),
+                ..container::Style::default()
+            });
+            let mut span = row![];
+            if from > 0.0005 {
+                span = span.push(Space::new().width(Length::FillPortion((from * 10_000.0).round().max(1.0) as u16)));
+            }
+            span = span.push(lit);
+            if to < 0.9995 {
+                span = span.push(Space::new().width(Length::FillPortion(((1.0 - to) * 10_000.0).round().max(1.0) as u16)));
+            }
+            layers.push(container(span).padding(inset).into());
+        }
+    }
+    for at in order {
+        let said = &board.rows[at];
+        let (is_hero, is_own) = (Some(at) == hero, Some(at) == own);
+        let told = !crowded || is_hero || is_own || ends(at);
+        let side = if is_hero { 44.0 } else if told { 28.0 } else { 20.0 };
+        let colour = if is_hero { GOLD } else if is_own { YOURS } else { MUTED };
+        let above: Element<'a, Message> = match (told, is_own, base) {
+            (false, _, _) => Space::new().into(),
+            (true, true, _) => mono(w.t("score-you"), 12.0, colour, true),
+            (true, false, Some(base)) if own.is_some() || !is_hero => mono(signed(values[at] - base), if is_hero { 15.0 } else { 12.0 }, colour, is_hero),
+            _ => Space::new().into(),
+        };
+        let ring = if is_hero || is_own { tinted(colour, 1.0) } else { Color::TRANSPARENT };
+        let band = if is_hero { 3.0 } else { 2.0 };
+        let face = container(row_face(ground, said, side - band * 2.0))
+            .width(side)
+            .height(side)
+            .center(side)
+            .style(move |_| container::Style { border: Border { color: ring, width: band, radius: (side / 2.0).into() }, ..container::Style::default() });
+        let below: Element<'a, Message> = match told {
+            true => mono(if by_score { short(values[at]) } else { format!("{:.0}", values[at]) }, if is_hero { 13.0 } else { 12.0 }, if is_hero || is_own { colour } else { FAINT }, is_hero),
+            false => Space::new().into(),
+        };
+        let name: Element<'a, Message> = match told && (is_hero || ends(at)) && !is_own {
+            true => text(said.name.clone()).font(theme::SANS).size(12.0).wrapping(text::Wrapping::None).color(ui::faded(if is_hero { INK } else { FAINT })).into(),
+            false => Space::new().into(),
+        };
+        let mark = column![
+            container(above).height(20.0).align_y(iced::Bottom),
+            container(face).height(44.0).center_y(44.0),
+            container(below).height(16.0),
+            container(name).height(16.0),
+        ]
+        .spacing(4)
+        .width(MARK)
+        .align_x(iced::Center);
+        layers.push(placed_at(share(values[at]), mark.into()));
+    }
+    container(container(iced::widget::Stack::with_children(layers).width(Length::Fill).height(108.0)).center_y(Length::Fill))
+        .height(BOARD)
+        .width(Length::Fill)
+        .padding([0, 20])
+        .style(move |_| well(k, 14.0))
+        .into()
+}
+
+fn switch<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
+    let w = ground.words;
+    let k = ui::fade();
+    let side = |label: String, on: bool, to: bool| {
+        button(container(text(label).font(theme::SANS_SEMI).size(13.0).wrapping(text::Wrapping::None)).center_y(32.0))
+            .padding([0, 16])
+            .style(ui::button_faded(move |_: &Theme, status: button::Status| {
+                let lit = matches!(status, button::Status::Hovered | button::Status::Pressed);
+                button::Style {
+                    background: match (on, lit) {
+                        (true, _) => Some(Background::Color(Color::from_rgb(0.231, 0.09, 0.102))),
+                        (false, true) => Some(Background::Color(Color::from_rgba(1.0, 1.0, 1.0, 0.05))),
+                        (false, false) => None,
+                    },
+                    text_color: if on { INK } else { MUTED },
+                    border: Border { radius: 8.0.into(), ..Border::default() },
+                    shadow: Shadow::default(),
+                    snap: true,
+                }
+            }))
+            .on_press(Message::ScoreScale(to))
+    };
+    container(row![side(w.t("score-table"), !ground.score_scale, false), side(w.t("score-scale"), ground.score_scale, true)].spacing(2))
+        .padding(3)
+        .style(move |_| well(k, 10.0))
+        .into()
+}
+
+fn cover_back<'a>(ground: &Ground<'a>, scored: &Scored) -> Element<'a, Message> {
+    let k = ui::fade();
+    let top = iced::border::Radius { top_left: 15.0, top_right: 15.0, bottom_right: 0.0, bottom_left: 0.0 };
+    let under = container(Space::new().width(Length::Fill).height(HEAD)).style(move |_| container::Style {
+        background: Some(Background::Color(Color { a: k, ..Color::from_rgb(0.106, 0.067, 0.078) })),
+        border: Border { radius: top, ..Border::default() },
+        ..container::Style::default()
+    });
+    match scored.map.cover().and_then(|url| ground.pictures.get(&screen::wide(&url))) {
+        Some(handle) => stack![under, image(handle.clone()).content_fit(iced::ContentFit::Cover).width(Length::Fill).height(HEAD).border_radius(top).opacity(0.42 * k)].into(),
+        None => under.into(),
+    }
+}
+
+pub(crate) fn score<'a>(ground: &Ground<'a>, scored: &'a Scored) -> Element<'a, Message> {
+    let w = ground.words;
+    let k = ui::fade();
     let play = &scored.play;
     let known = ground.catalog.people.iter().position(|person| person.id == scored.who);
-    let mut body: Vec<Element<'a, Message>> = Vec::new();
-    if let Some(url) = scored.map.cover() {
-        body.push(picture(&url));
-    }
-
+    let board = scored.map.beatmap.and_then(|beatmap| ground.boards.get(&beatmap).map(|board| (beatmap, board)));
     let grade = if scored.passed { play.grade.clone() } else { "F".to_owned() };
-    let face: Element<'a, Message> = match known {
-        Some(at) => screen::face(ground, &ground.catalog.people[at], 30.0),
-        None => screen::round(None, &scored.name.chars().next().map(|first| first.to_uppercase().to_string()).unwrap_or_default(), 30.0),
-    };
-    let name = row![face, text(scored.name.clone()).font(theme::SANS_SEMI).size(theme::LEAD).wrapping(text::Wrapping::None).color(ui::faded(INK))].spacing(10).align_y(iced::Center);
-    let who = button(name).padding([2, 4]).style(ui::button_faded(theme::bare));
-    let who = match known {
-        Some(at) => who.on_press(Message::Person(Some(at))),
-        None => who,
-    };
+    let shade = screen::grade_colour(&grade);
+    let (artist, title, version) = named(&scored.map.line);
+
+    let mut name = row![text(title).font(theme::SANS_SEMI).size(30.0).wrapping(text::Wrapping::None).color(ui::faded(INK))].spacing(12).align_y(iced::Center);
+    if !version.is_empty() {
+        name = name.push(chip(version, INK));
+    }
+    let mut titles = column![container(name).clip(true)].spacing(6).width(Length::Fill);
+    if !artist.is_empty() {
+        titles = titles.push(text(artist).font(theme::SANS).size(15.0).wrapping(text::Wrapping::None).color(ui::faded(MUTED)));
+    }
     let pp = match (play.pp > 0.0, play.pp_if) {
         (true, _) => format!("{} pp", screen::decimal(w, play.pp, 0)),
         (false, Some(guess)) => format!("≈{} pp", screen::decimal(w, guess, 0)),
         (false, None) => "—".to_owned(),
     };
-    let top = row![
-        text(grade.clone()).font(theme::MONO_BOLD).size(40.0).color(ui::faded(screen::grade_colour(&grade))),
-        column![who, screen::mods(&play.mods)].spacing(6),
-        ui::grow(),
-        text(pp).font(theme::MONO_BOLD).size(26.0).wrapping(text::Wrapping::None).color(ui::faded(INK)),
-    ]
-    .spacing(16)
-    .align_y(iced::Center);
-    let combo = match (play.combo, play.max_combo) {
-        (Some(combo), Some(most)) => format!("{} / {}x", w.lang().group(u64::from(combo)), w.lang().group(u64::from(most))),
-        (Some(combo), None) => format!("{}x", w.lang().group(u64::from(combo))),
-        _ => "—".to_owned(),
-    };
-    let points = if play.score > 0 { w.lang().group(play.score) } else { "—".to_owned() };
-    let figures = row![
-        screen::figure(w.percent(f64::from(play.accuracy)), w.t("score-accuracy"), INK),
-        screen::figure(combo, w.t("score-combo"), if play.full_combo { GREEN } else { INK }),
-        screen::figure(points, w.t("score-points"), INK),
-        screen::figure(format!("{} {}", w.day(play.at, ground.now_unix), w.clock(play.at)), w.t("score-played"), MUTED),
-    ]
-    .spacing(10);
-    let mut result = column![top, figures].spacing(14);
-    if play.counts.iter().any(Option::is_some) {
-        result = result.push(crate::chronicle::counts_row(ground, play.counts, None, None));
+    let mut facts = row![].spacing(14);
+    if let Some(stars) = scored.map.stars.or(play.stars) {
+        facts = facts.push(mono(format!("{}★", screen::decimal(w, stars, 2)), 13.0, MUTED, false));
     }
-    body.push(well(result));
+    if let Some(about) = board.and_then(|(_, board)| board.map.as_ref()) {
+        if let Some(bpm) = about.bpm {
+            facts = facts.push(mono(format!("{bpm:.0} BPM"), 13.0, MUTED, false));
+        }
+        if let Some(seconds) = about.length {
+            facts = facts.push(mono(length(seconds), 13.0, MUTED, false));
+        }
+    }
+    let right = column![mono(pp, 36.0, INK, true), facts].spacing(6).align_x(iced::Right);
+    let when = format!("{} {}", w.day(play.at, ground.now_unix), w.clock(play.at));
+    let head = stack![
+        cover_back(ground, scored),
+        container(mono(when, 12.0, MUTED, false)).center_x(Length::Fill).padding(Padding::ZERO.top(20.0)),
+        container(row![ui::grow(), close()]).padding(Padding { top: 8.0, right: 10.0, bottom: 0.0, left: 0.0 }),
+        container(row![Space::new().width(RING + 4.0), titles, right].spacing(18).align_y(iced::Bottom))
+            .height(HEAD)
+            .align_y(iced::Bottom)
+            .padding(Padding { top: 0.0, right: SIDE, bottom: 16.0, left: SIDE }),
+    ]
+    .height(HEAD);
 
-    let board = scored.map.beatmap.and_then(|beatmap| ground.boards.get(&beatmap).map(|board| (beatmap, board)));
+    let face: Element<'a, Message> = match known {
+        Some(at) => screen::face(ground, &ground.catalog.people[at], 28.0),
+        None => screen::round(None, &initial(&scored.name), 28.0),
+    };
+    let who = button(row![face, text(scored.name.clone()).font(theme::SANS_SEMI).size(16.0).wrapping(text::Wrapping::None).color(ui::faded(INK))].spacing(10).align_y(iced::Center))
+        .padding([1, 2])
+        .style(ui::button_faded(theme::bare));
+    let who = match known {
+        Some(at) => who.on_press(Message::Person(Some(at))),
+        None => who,
+    };
+    let points: Element<'a, Message> = match play.score > 0 {
+        true => mono(w.lang().group(play.score), 20.0, INK, true),
+        false => Space::new().into(),
+    };
+    let strip = container(row![Space::new().width(RING + 12.0), who, screen::mods(&play.mods), container(points).center_x(Length::Fill)].spacing(10).align_y(iced::Center))
+        .height(STRIP)
+        .align_y(iced::Bottom)
+        .padding([0.0, SIDE]);
+    let ring = container(text(grade).font(theme::MONO_BOLD).size(68.0).color(ui::faded(shade))).width(RING).height(RING).center(RING).style(move |_| container::Style {
+        background: Some(Background::Color(Color { a: k, ..theme::SLAB_SOLID })),
+        border: Border { color: tinted(shade, 1.0), width: 5.0, radius: (RING / 2.0).into() },
+        ..container::Style::default()
+    });
+    let top = stack![column![head, strip], pin(ring).x(SIDE).y(HEAD + STRIP - RING)].height(HEAD + STRIP);
+
+    let accuracy = tile(column![caption(w.t("score-accuracy")), mono(w.percent(f64::from(play.accuracy)), 24.0, INK, true), ui::grow_tall(), bar(&[(play.accuracy / 100.0, shade)], 8.0)].spacing(10));
+    let mut combo_line = row![].spacing(8).align_y(iced::Bottom);
+    let mut combo_bar: Vec<(f32, Color)> = Vec::new();
+    match (play.combo, play.max_combo) {
+        (Some(combo), Some(most)) if most > 0 => {
+            combo_line = combo_line
+                .push(mono(format!("{}x", w.lang().group(u64::from(combo))), 24.0, INK, true))
+                .push(container(mono(format!("/ {}x", w.lang().group(u64::from(most))), 15.0, FAINT, false)).padding(Padding::ZERO.bottom(3.0)));
+            combo_bar.push((combo as f32 / most as f32, GREEN));
+        }
+        (Some(combo), _) => combo_line = combo_line.push(mono(format!("{}x", w.lang().group(u64::from(combo))), 24.0, INK, true)),
+        _ => combo_line = combo_line.push(mono("—".to_owned(), 24.0, FAINT, true)),
+    }
+    let combo = tile(column![caption(w.t("score-combo")), combo_line, ui::grow_tall(), bar(&combo_bar, 8.0)].spacing(10));
+    let marks = [(play.counts[0], BLUE, "300".to_owned()), (play.counts[1], GREEN, "100".to_owned()), (play.counts[2], GOLD, "50".to_owned()), (play.counts[3], YOURS, w.t("score-miss"))];
+    let total: u32 = marks.iter().filter_map(|(count, _, _)| *count).sum();
+    let mut counts = row![].align_y(iced::Bottom);
+    let mut shares: Vec<(f32, Color)> = Vec::new();
+    let mut shown = 0;
+    for (count, colour, label) in marks {
+        let Some(count) = count else {
+            continue;
+        };
+        if shown > 0 {
+            counts = counts.push(ui::grow());
+        }
+        shown += 1;
+        counts = counts.push(
+            row![mono(w.lang().group(u64::from(count)), 18.0, INK, true), container(text(label).font(theme::SANS).size(12.0).wrapping(text::Wrapping::None).color(ui::faded(colour))).padding(Padding::ZERO.bottom(2.0))]
+                .spacing(6)
+                .align_y(iced::Bottom),
+        );
+        if count > 0 && total > 0 {
+            shares.push(((count as f32 / total as f32).max(0.012), colour));
+        }
+    }
+    let hits = tile(column![caption(w.t("score-hits")), counts, ui::grow_tall(), bar(&shares, 8.0)].spacing(10));
+    let tiles = row![container(accuracy).width(Length::FillPortion(2)), container(combo).width(Length::FillPortion(2)), container(hits).width(Length::FillPortion(3))].spacing(10).height(118.0);
+
+    let mut body = column![tiles].spacing(16);
+    let note = |words: String, colour: Color| -> Element<'a, Message> {
+        container(text(words).font(theme::SANS).size(theme::BODY).color(ui::faded(colour))).center(Length::Fill).height(BOARD).width(Length::Fill).style(move |_| well(k, 14.0)).into()
+    };
+    let label = || mono(w.t("score-board").to_uppercase(), 11.0, FAINT, false);
     match (scored.map.beatmap, board) {
         (_, Some((beatmap, board))) => {
-            body.push(standing(ground, board, scored));
-            let by = w.t(if board.by_score() { "score-by-score" } else { "score-by-pp" });
-            let mut head = row![ui::mono_small(w.t("score-board").to_uppercase(), FAINT), ui::mono_small(by, FAINT)].spacing(10).align_y(iced::Center);
+            let mut over = row![label()].spacing(12).align_y(iced::Center);
             if ground.boards_waiting.contains(&beatmap) {
-                head = head.push(ui::mono_small(w.t("score-board-refreshing"), FAINT));
+                over = over.push(caption(w.t("score-board-refreshing")));
             }
-            head = head.push(ui::grow()).push(ui::mono_small(format!("{}  ·  {}", w.count("games", u64::from(board.plays)), w.count("players", u64::from(board.players))), FAINT));
-            let mut list = column![head].spacing(4);
-            if board.rows.is_empty() {
-                list = list.push(container(said(w.t("score-board-empty"), FAINT)).padding([10, 0]));
-            }
-            for row_said in &board.rows {
-                list = list.push(board_row(ground, row_said, board.by_score(), row_said.who == scored.who));
-            }
-            body.push(list.into());
-            if board.records.len() > 1 {
-                let mut records = column![ui::mono_small(w.t("score-records").to_uppercase(), FAINT)].spacing(6);
-                for record in &board.records {
-                    let value = if board.by_score() { w.lang().group(record.score) } else { format!("{} pp", screen::decimal(w, record.pp, 0)) };
-                    let when = record.at.map_or(String::new(), |at| w.day(at, ground.now_unix));
-                    records = records.push(
-                        row![
-                            container(ui::mono_small(when, FAINT)).width(120.0),
-                            text(record.name.clone()).font(theme::SANS_SEMI).size(13.0).wrapping(text::Wrapping::None).color(ui::faded(INK)),
-                            ui::grow(),
-                            ui::mono_small(value, MUTED),
-                        ]
-                        .spacing(10)
-                        .align_y(iced::Center),
-                    );
-                }
-                body.push(well(records));
-            }
+            body = body.push(over.push(ui::grow()).push(switch(ground)));
+            body = body.push(match (board.rows.is_empty(), ground.score_scale) {
+                (true, _) => note(w.t("score-board-empty"), FAINT),
+                (false, true) => scale(ground, board, scored),
+                (false, false) => table(ground, board, scored),
+            });
         }
-        (Some(beatmap), None) if ground.boards_failed.contains(&beatmap) => body.push(said(w.t("score-board-failed"), ACCENT)),
-        (Some(_), None) if !ground.catalog.staged => body.push(said(w.t("score-board-loading"), FAINT)),
+        (Some(beatmap), None) if ground.boards_failed.contains(&beatmap) => body = body.push(label()).push(note(w.t("score-board-failed"), ACCENT)),
+        (Some(_), None) if !ground.catalog.staged => body = body.push(label()).push(note(w.t("score-board-loading"), FAINT)),
         _ => {}
     }
+    let mut deeds = row![].spacing(8);
+    if let Some(beatmap) = scored.map.beatmap {
+        deeds = deeds.push(ui::primary(w.t("score-open-map"), Some(Message::Open(format!("https://osu.ppy.sh/b/{beatmap}")))));
+    }
+    if let Some(at) = known {
+        deeds = deeds.push(ui::quiet(w.t("score-open-player"), Some(Message::Person(Some(at)))));
+    }
+    body = body.push(deeds);
+    let rolled = scrollable(container(body).padding(Padding { top: 24.0, right: SIDE, bottom: 22.0, left: SIDE })).direction(ui::hidden_bar()).height(Length::Shrink);
+    column![top, rolled].width(Length::Fill).into()
+}
 
-    Sheet {
-        source: w.t("panel-score"),
-        tint: FAINT,
-        title: scored.map.line.clone(),
-        meta: match scored.map.stars {
-            Some(stars) => format!("{}★", screen::decimal(w, stars, 2)),
-            None => String::new(),
-        },
-        body,
-        outside: scored.map.beatmap.map(|beatmap| (w.t("score-open-map"), format!("https://osu.ppy.sh/b/{beatmap}"))),
+struct Dial {
+    share: f32,
+    colour: Color,
+    disc: Color,
+    band: f32,
+}
+
+impl<M> canvas::Program<M> for Dial {
+    type State = ();
+
+    fn draw(&self, _: &(), renderer: &Renderer, _: &Theme, bounds: Rectangle, _: mouse::Cursor) -> Vec<Geometry> {
+        let mut frame = Frame::new(renderer, bounds.size());
+        let centre = Point::new(bounds.width / 2.0, bounds.height / 2.0);
+        let outer = bounds.width.min(bounds.height) / 2.0;
+        let radius = outer - self.band / 2.0;
+        frame.fill(&Path::circle(centre, outer), self.disc);
+        let stroke = |colour: Color| Stroke::default().with_color(colour).with_width(self.band).with_line_cap(canvas::LineCap::Round);
+        frame.stroke(&Path::circle(centre, radius), stroke(Color { a: self.colour.a * 0.28, ..self.colour }));
+        let share = self.share.clamp(0.0, 1.0);
+        if share > 0.002 {
+            let start = -std::f32::consts::FRAC_PI_2;
+            let arc = Path::new(|path| path.arc(canvas::path::Arc { center: centre, radius, start_angle: Radians(start), end_angle: Radians(start + std::f32::consts::TAU * share) }));
+            frame.stroke(&arc, stroke(self.colour));
+        }
+        vec![frame.into_geometry()]
     }
 }
 
-fn holder<'a>(ground: &Ground<'a>, at: usize, person: &'a Person, earned: Option<i64>, chosen: bool, first: bool) -> Element<'a, Message> {
+pub(crate) fn rarity_place(catalog: &crate::community::Catalog, code: &str) -> (usize, usize) {
+    let held = |title: &Title| catalog.held.get(&title.code).copied().unwrap_or(0).max(catalog.holders(&title.code).len() as u32);
+    let mut ranked: Vec<(u32, &str)> = catalog.titles.iter().map(|title| (held(title), title.code.as_str())).collect();
+    ranked.sort();
+    (ranked.iter().position(|(_, other)| *other == code).map_or(0, |at| at + 1), ranked.len())
+}
+
+fn holder_card<'a>(ground: &Ground<'a>, at: usize, person: &'a Person, earned: Option<i64>, first: Option<i64>, chosen: bool) -> Element<'a, Message> {
     let w = ground.words;
-    let mut name = row![text(person.name.clone()).font(theme::SANS_SEMI).size(14.0).wrapping(text::Wrapping::None).color(ui::faded(INK)), screen::flag(ground, &person.country, 11.0)].spacing(8).align_y(iced::Center);
+    let mut name = row![text(person.name.clone()).font(theme::SANS_SEMI).size(15.0).wrapping(text::Wrapping::None).color(ui::faded(INK))].spacing(6).align_y(iced::Center);
     if person.you {
-        name = name.push(ui::mono_small(w.t("score-you"), ACCENT));
+        name = name.push(chip(w.t("score-you"), YOURS));
     }
-    if first {
-        name = name.push(ui::mono_small(w.t("title-first"), theme::GRADE_S));
-    }
-    let when = earned.map_or(String::new(), |at| w.with("title-earned", &[("day", w.day(at, ground.now_unix))]));
-    let line = row![screen::face(ground, person, 26.0), container(name).width(Length::Fill).clip(true), ui::mono_small(when, FAINT)].spacing(12).align_y(iced::Center);
-    button(line)
-        .padding([7, 10])
+    let second: Element<'a, Message> = match (earned, first) {
+        (Some(mine), Some(first)) if mine == first => chip(w.t("title-first"), GOLD),
+        (Some(mine), Some(first)) => caption(w.with("title-later", &[("days", w.n("days-long", ((mine - first).max(0) as u64).div_ceil(86_400).max(1)))])),
+        _ => Space::new().height(15.0).into(),
+    };
+    let when = earned.map_or(String::new(), |at| w.day(at, ground.now_unix));
+    let inside = column![screen::face(ground, person, 52.0), container(name).clip(true), second, mono(when, 12.0, MUTED, false)].spacing(6).align_x(iced::Center).width(Length::Fill);
+    let (edge, fill, wide) = match chosen {
+        true => (GOLD, Some(Color::from_rgb(0.09, 0.071, 0.039)), 2.0),
+        false => framed(false, person.you),
+    };
+    button(container(inside).padding([14, 10]))
+        .padding(0)
         .width(Length::Fill)
-        .style(ui::button_faded(ui::calm(screen::row_style(person.you, chosen.then_some(theme::GRADE_S)))))
+        .style(ui::button_faded(ui::calm(line_style(edge, fill, wide, 14.0))))
         .on_press(Message::Person(Some(at)))
         .into()
 }
 
-pub(crate) fn title<'a>(ground: &Ground<'a>, code: &str, who: Option<i64>) -> Sheet<'a> {
+fn waiting_card<'a>(ground: &Ground<'a>, you: &'a Person, left: Option<u32>) -> Element<'a, Message> {
     let w = ground.words;
+    let k = ui::fade();
+    let name = row![text(you.name.clone()).font(theme::SANS_SEMI).size(15.0).wrapping(text::Wrapping::None).color(ui::faded(INK)), chip(w.t("score-you"), YOURS)].spacing(6).align_y(iced::Center);
+    let left = left.map_or(String::new(), |left| w.with("title-left", &[("n", w.lang().group(u64::from(left)))]));
+    let inside = column![ui::fading(k * 0.45, || screen::face(ground, you, 52.0)), container(name).clip(true), caption(w.t("title-not-yet")), mono(left, 12.0, MUTED, false)].spacing(6).align_x(iced::Center).width(Length::Fill);
+    container(inside)
+        .padding([14, 10])
+        .width(Length::Fill)
+        .style(move |_| container::Style { border: Border { color: Color::from_rgba(0.353, 0.137, 0.149, k), width: 1.0, radius: 14.0.into() }, ..container::Style::default() })
+        .into()
+}
+
+pub(crate) fn title<'a>(ground: &Ground<'a>, code: &str, who: Option<i64>) -> Element<'a, Message> {
+    let w = ground.words;
+    let k = ui::fade();
     let catalog = ground.catalog;
     let Some(title) = catalog.title_of(code) else {
-        return Sheet { source: w.t("kind-title"), tint: FAINT, title: code.to_owned(), meta: String::new(), body: Vec::new(), outside: None };
+        return container(row![caption(code.to_owned()), ui::grow(), close()]).padding(20).into();
     };
     let holders = catalog.holders(code);
     let known = !holders.is_empty() || title.rarity != Rarity::Secret;
-    let tint = if holders.is_empty() { FAINT } else { title.rarity.colour() };
+    let tint = if known { title.rarity.colour() } else { FAINT };
     let earned = |person: &Person| -> Option<i64> {
         person.title_dates.get(code).copied().or_else(|| catalog.me.as_ref().filter(|me| me.person.id == person.id).and_then(|me| me.title_dates.get(code).copied()))
     };
-    let mut ordered: Vec<usize> = holders.clone();
+    let mut ordered = holders.clone();
     ordered.sort_by_key(|at| (earned(&catalog.people[*at]).unwrap_or(i64::MAX), *at));
-    let dated = ordered.iter().filter(|at| earned(&catalog.people[**at]).is_some()).count();
+    let first = ordered.iter().filter_map(|at| earned(&catalog.people[*at])).min();
+    let server = catalog.held.get(code).copied().unwrap_or(0).max(holders.len() as u32);
+    let everyone = catalog.players.max(catalog.people.len() as u32).max(1);
+    let share = server as f32 / everyone as f32;
+    let (place, of) = rarity_place(catalog, code);
 
-    let mut body: Vec<Element<'a, Message>> = Vec::new();
-    let server = catalog.held.get(code).copied().unwrap_or(holders.len() as u32).max(holders.len() as u32);
-    let everyone = catalog.players.max(catalog.people.len() as u32);
-    let share = if everyone > 0 { w.percent(f64::from(server) * 100.0 / f64::from(everyone)) } else { String::new() };
-    let figures = row![
-        screen::figure(w.of(holders.len() as u64, catalog.people.len() as u64), w.t("title-held-chat"), INK),
-        screen::figure(w.of(u64::from(server), u64::from(everyone)), w.t("title-held-server"), INK),
-        screen::figure(share, w.t("title-share"), tint),
+    let emblem = stack![
+        Canvas::new(Dial { share, colour: tinted(tint, 1.0), disc: Color { a: k, ..theme::SLAB_SOLID }, band: 6.0 }).width(RING).height(RING),
+        container(glyph(Icon::Trophy, 48.0, tint)).width(RING).height(RING).center(RING),
+    ];
+    let mut ticks = row![].spacing(3);
+    for at in 1..=of {
+        let shade = tinted(tint, if at == place { 1.0 } else if at < place { 0.34 } else { 0.14 });
+        ticks = ticks.push(container(Space::new().height(8.0)).width(Length::FillPortion(1)).style(move |_| container::Style { background: Some(Background::Color(shade)), border: Border { radius: 2.0.into(), ..Border::default() }, ..container::Style::default() }));
+    }
+    let left = column![
+        emblem,
+        container(mono(w.t(title.rarity.key()).to_uppercase(), 11.0, tint, false)).padding(Padding::ZERO.top(6.0)),
+        text(if known { title.name(w.lang()).to_owned() } else { "???".to_owned() }).font(theme::SANS_SEMI).size(26.0).color(ui::faded(INK)).align_x(iced::Center),
+        text(if known { title.about(w.lang()).to_owned() } else { w.t("secret-title") }).font(theme::SANS).size(14.0).color(ui::faded(MUTED)).align_x(iced::Center),
+        ui::grow_tall(),
+        column![mono(format!("{:.0}%", share * 100.0), 22.0, tint, true), text(w.t("title-share-said")).font(theme::SANS).size(12.0).color(ui::faded(MUTED))].spacing(4).width(Length::Fill),
+        column![
+            row![caption(w.with("title-rarity-among", &[("n", of.to_string())])), ui::grow(), mono(w.with("title-rarity-place", &[("n", place.to_string())]), 13.0, INK, false)].align_y(iced::Center),
+            ticks,
+            row![text(w.t("title-rare-end")).font(theme::SANS).size(11.0).color(ui::faded(FAINT)), ui::grow(), text(w.t("title-common-end")).font(theme::SANS).size(11.0).color(ui::faded(FAINT))],
+        ]
+        .spacing(6)
+        .width(Length::Fill),
+    ]
+    .spacing(10)
+    .align_x(iced::Center);
+    let left = container(left).width(TITLE_LEFT).height(TITLE_HIGH).padding(Padding { top: 30.0, right: 24.0, bottom: 24.0, left: 24.0 }).style(move |_| container::Style {
+        background: Some(Background::Color(tinted(tint, 0.09))),
+        border: Border { color: tinted(tint, 0.3), width: 1.0, radius: iced::border::Radius { top_left: 15.0, top_right: 0.0, bottom_right: 0.0, bottom_left: 15.0 } },
+        ..container::Style::default()
+    });
+
+    let you = catalog.people.iter().find(|person| person.you);
+    let yours = you.is_some_and(|you| you.titles.iter().any(|held| held == code));
+    let progress = catalog.me.as_ref().and_then(|me| me.title_progress.get(code).copied());
+    let mut cards: Vec<Element<'a, Message>> = ordered.iter().map(|at| holder_card(ground, *at, &catalog.people[*at], earned(&catalog.people[*at]), first, who == Some(catalog.people[*at].id))).collect();
+    if let (Some(you), false) = (you, yours) {
+        cards.push(waiting_card(ground, you, progress.filter(|_| title.target > 1).map(|value| title.target.saturating_sub(value))));
+    }
+    let waiting: Vec<&Person> = catalog.people.iter().filter(|person| !person.you && !person.titles.iter().any(|held| held == code)).collect();
+    let mut list = column![screen::grid(cards, 3, 10.0)].spacing(14);
+    if !waiting.is_empty() {
+        let mut faces = row![].spacing(4).align_y(iced::Center);
+        for person in waiting.iter().take(5) {
+            faces = faces.push(screen::face(ground, person, 26.0));
+        }
+        list = list.push(
+            container(row![faces, text(w.count("players", waiting.len() as u64)).font(theme::SANS_SEMI).size(13.0).color(ui::faded(INK)), caption(w.t("title-others-wait"))].spacing(12).align_y(iced::Center))
+                .padding([10, 14])
+                .width(Length::Fill)
+                .style(move |_| container::Style { border: Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.07 * k), width: 1.0, radius: 12.0.into() }, ..container::Style::default() }),
+        );
+    }
+    let mut right = column![
+        row![mono(w.t("title-holders").to_uppercase(), 11.0, FAINT, false), ui::grow(), close()].align_y(iced::Center),
+        scrollable(list).direction(ui::hidden_bar()).height(Length::Fill),
     ]
     .spacing(10);
-    body.push(well(figures));
+    match (yours, you, progress) {
+        (true, Some(you), _) => {
+            let since = earned(you).map_or(w.t("title-yours"), |at| w.with("title-yours-since", &[("day", w.day(at, ground.now_unix))]));
+            let worn = catalog.shown_title(you).map_or(w.t("title-none-worn"), |worn| w.with("title-worn-now", &[("title", worn.name(w.lang()).to_owned())]));
+            right = right.push(
+                container(row![column![text(since).font(theme::SANS_SEMI).size(14.0).color(ui::faded(INK)), caption(worn)].spacing(3).width(Length::Fill), crate::dossier::wear_button(ground, you, title)].spacing(14).align_y(iced::Center))
+                    .padding([14, 16])
+                    .style(move |_| container::Style { background: Some(Background::Color(tinted(tint, 0.09))), border: Border { color: tinted(tint, 0.3), width: 1.0, radius: 14.0.into() }, ..container::Style::default() }),
+            );
+        }
+        (false, Some(_), Some(value)) if title.target > 1 => {
+            let done = (value.min(title.target) as f32 / title.target as f32) * 4.0;
+            let mut steps = row![].spacing(4);
+            let mut marks = row![].spacing(4);
+            for at in 0..4u32 {
+                steps = steps.push(container(bar(&[((done - at as f32).clamp(0.0, 1.0), ACCENT)], 10.0)).width(Length::FillPortion(1)));
+                marks = marks.push(container(mono(w.lang().group(u64::from(title.target) * u64::from(at + 1) / 4), 11.0, FAINT, false)).width(Length::FillPortion(1)).align_x(iced::alignment::Horizontal::Right));
+            }
+            let head = row![text(w.t("title-progress")).font(theme::SANS_SEMI).size(14.0).color(ui::faded(INK)), ui::grow(), mono(w.of(u64::from(value.min(title.target)), u64::from(title.target)), 14.0, INK, false)].align_y(iced::Center);
+            right = right.push(
+                container(column![head, steps, marks].spacing(10))
+                    .padding([14, 16])
+                    .style(move |_| container::Style { border: Border { color: Color::from_rgba(0.353, 0.137, 0.149, k), width: 1.0, radius: 14.0.into() }, ..container::Style::default() }),
+            );
+        }
+        _ => {}
+    }
+    let right = container(right).height(TITLE_HIGH).width(Length::Fill).padding(Padding { top: 14.0, right: 18.0, bottom: 22.0, left: 24.0 });
+    scrollable(row![left, right]).direction(ui::hidden_bar()).height(Length::Shrink).into()
+}
 
-    let mine = catalog.you().filter(|you| !you.titles.iter().any(|held| held == code));
-    let progress = catalog.me.as_ref().and_then(|me| me.title_progress.get(code).copied());
-    if let (Some(_), Some(value), true) = (mine, progress, title.target > 1) {
-        let share = (value as f32 / title.target as f32).clamp(0.0, 1.0);
-        let k = ui::fade();
-        let bar = container(
-            container(Space::new().height(6.0))
-                .width(Length::FillPortion((share * 1000.0).round().max(1.0) as u16))
-                .style(move |_| container::Style { background: Some(Background::Color(Color { a: tint.a * k, ..tint })), border: Border { radius: 3.0.into(), ..Border::default() }, ..container::Style::default() }),
-        );
-        let rest = Space::new().width(Length::FillPortion(((1.0 - share) * 1000.0).round().max(1.0) as u16));
-        let track = container(row![bar, rest])
-            .width(Length::Fill)
-            .style(move |_| container::Style { background: Some(Background::Color(Color::from_rgba(1.0, 1.0, 1.0, 0.07 * k))), border: Border { radius: 3.0.into(), ..Border::default() }, ..container::Style::default() });
-        body.push(well(
-            column![
-                row![ui::mono_small(w.t("title-progress").to_uppercase(), FAINT), ui::grow(), ui::mono_small(w.of(u64::from(value.min(title.target)), u64::from(title.target)), MUTED)].align_y(iced::Center),
-                track,
-            ]
-            .spacing(10),
-        ));
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_map_line_gives_its_song_its_artist_and_its_difficulty() {
+        assert_eq!(named("Phoneboy — Nevermind [Insane]"), ("Phoneboy".to_owned(), "Nevermind".to_owned(), "Insane".to_owned()));
+        assert_eq!(named("xi — FREEDOM DiVE"), ("xi".to_owned(), "FREEDOM DiVE".to_owned(), String::new()));
+        assert_eq!(named("Blue Zenith [FOUR DIMENSIONS]"), (String::new(), "Blue Zenith".to_owned(), "FOUR DIMENSIONS".to_owned()));
     }
 
-    let mut list = column![ui::mono_small(w.t("title-holders").to_uppercase(), FAINT)].spacing(4);
-    if ordered.is_empty() {
-        list = list.push(container(said(w.t("title-nobody"), FAINT)).padding([10, 0]));
-    }
-    for (place, at) in ordered.iter().enumerate() {
-        let person = &catalog.people[*at];
-        list = list.push(holder(ground, *at, person, earned(person), who == Some(person.id), place == 0 && dated > 1));
-    }
-    body.push(list.into());
-    if let Some(you) = catalog.people.iter().find(|person| person.you) {
-        body.push(crate::dossier::wear_button(ground, you, title));
+    #[test]
+    fn a_gap_is_signed_and_a_large_score_is_shortened() {
+        assert_eq!(signed(117.4), "+117");
+        assert_eq!(signed(-56.0), "−56");
+        assert_eq!(signed(0.2), "0");
+        assert_eq!(signed(240_000.0), "+240k");
+        assert_eq!(short(1_250_000.0), "1.2M");
     }
 
-    Sheet {
-        source: w.t(title.rarity.key()),
-        tint,
-        title: if known { title.name(w.lang()).to_owned() } else { "???".to_owned() },
-        meta: if known { title.about(w.lang()).to_owned() } else { w.t("secret-title") },
-        body,
-        outside: None,
+    #[test]
+    fn the_rarest_title_comes_first_and_the_most_common_last() {
+        let mut catalog = crate::community::Catalog::staged(Vec::new(), "NaumRedlo", 1_789_560_000);
+        catalog.held = [("ss_8star", 1), ("archivist", 1), ("registered", 43)].into_iter().map(|(code, held)| (code.to_owned(), held)).collect();
+        let of = catalog.titles.len();
+        assert_eq!(rarity_place(&catalog, "registered"), (of, of));
+        assert!(rarity_place(&catalog, "archivist").0 < rarity_place(&catalog, "registered").0);
     }
 }

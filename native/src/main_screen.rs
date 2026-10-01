@@ -556,6 +556,7 @@ pub struct Main {
     pub map_boards_waiting: std::collections::HashSet<u64>,
     pub map_boards_failed: std::collections::HashSet<u64>,
     map_boards_fresh: std::collections::HashSet<u64>,
+    pub score_scale: bool,
     pub read_fade: Animation<bool>,
     pub people_from: crate::community_screen::PeopleFrom,
     pub people_query: String,
@@ -777,6 +778,7 @@ impl Main {
             map_boards_waiting: std::collections::HashSet::new(),
             map_boards_failed: std::collections::HashSet::new(),
             map_boards_fresh: std::collections::HashSet::new(),
+            score_scale: false,
             read_fade: Animation::new(false),
             people_from: crate::community_screen::PeopleFrom::Chat,
             people_query: String::new(),
@@ -2397,6 +2399,7 @@ impl Main {
                             None => pictures,
                         };
                     }
+                    C::ScoreScale(on) => self.score_scale = on,
                     C::TitleOf(code, who) => {
                         let moved = self.update(Message::Community(C::Section(crate::community_screen::Section::Titles)));
                         let read = self.update(Message::Community(C::Read(crate::community_screen::Reading::Title { code, who })));
@@ -5706,6 +5709,7 @@ impl Main {
             boards: &self.map_boards,
             boards_waiting: &self.map_boards_waiting,
             boards_failed: &self.map_boards_failed,
+            score_scale: self.score_scale,
             clips_loading: &self.clips_loading,
             reading: self.community_reading.as_ref(),
             read_k: self.read_fade.interpolate(0.0, 1.0, self.now),

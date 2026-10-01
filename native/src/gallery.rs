@@ -654,6 +654,67 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
         main.rank_held = Some(main.rank_due);
         main
     };
+    let scored = |scale: bool| {
+        use crate::community::wire;
+        let mut main = community(crate::community_screen::Section::Feed, None);
+        let staged = main.community.as_ref().and_then(|catalog| {
+            let play = catalog.live.iter().filter(|play| play.passed && catalog.people.get(play.who).is_some_and(|person| !person.you)).max_by(|a, b| a.pp.total_cmp(&b.pp))?;
+            let mut scored = crate::community_screen::Scored::of(catalog, play.who, &play.more, true)?;
+            scored.map.beatmap = Some(1);
+            scored.map.stars = Some(5.84);
+            let others = [(0usize, 412.6f32, 98.34f32, 1_204u32, "S", &["HD"][..], 34i64), (2, 611.0, 99.21, 1_480, "SS", &["HD", "HR"][..], 18), (3, 402.2, 97.1, 1_101, "A", &[][..], 29), (4, 356.9, 95.12, 902, "A", &["DT"][..], 55)];
+            let mut rows: Vec<wire::BoardRow> = others
+                .into_iter()
+                .filter(|(who, ..)| *who != play.who)
+                .enumerate()
+                .filter_map(|(at, (who, pp, accuracy, combo, grade, mods, days))| {
+                    let person = catalog.people.get(who)?;
+                    Some(wire::BoardRow {
+                        who: person.id,
+                        name: person.name.clone(),
+                        country: person.country.clone(),
+                        you: person.you,
+                        play: wire::Play { id: Some(100 + at as u64), pp, accuracy, combo: Some(combo), grade: grade.to_owned(), mods: mods.iter().map(|m| (*m).to_owned()).collect(), score: (pp * 2_000.0) as u64, at: Some(NOON - days * 86_400), ..wire::Play::default() },
+                        ..wire::BoardRow::default()
+                    })
+                })
+                .collect();
+            rows.push(wire::BoardRow {
+                who: scored.who,
+                name: scored.name.clone(),
+                country: catalog.people[play.who].country.clone(),
+                play: wire::Play { id: play.more.id, pp: play.pp, accuracy: play.accuracy, combo: play.more.combo, grade: play.grade.clone(), mods: play.mods.clone(), score: play.more.score, at: Some(play.at), ..wire::Play::default() },
+                ..wire::BoardRow::default()
+            });
+            rows.sort_by(|a, b| b.play.pp.total_cmp(&a.play.pp));
+            for (at, row) in rows.iter_mut().enumerate() {
+                row.place = at as u32 + 1;
+            }
+            let about = wire::MapAbout { bpm: Some(172.0), length: Some(192), max_combo: Some(1_480), status: "ranked".into(), ..wire::MapAbout::default() };
+            Some((scored, wire::MapBoard { beatmap: 1, metric: "pp".into(), map: Some(about), plays: 23, players: 5, rows, ..wire::MapBoard::default() }))
+        });
+        if let Some((scored, board)) = staged {
+            main.map_boards.insert(1, board);
+            main.community_reading = Some(crate::community_screen::Reading::Score(scored));
+            main.read_fade = iced::Animation::new(true);
+            main.score_scale = scale;
+        }
+        main
+    };
+    let titled = |code: &str, picked: &str| {
+        let mut main = community(crate::community_screen::Section::Titles, None);
+        let who = main.community.as_ref().and_then(|catalog| catalog.people.iter().find(|person| person.name == picked).map(|person| person.id));
+        if let Some(catalog) = main.community.as_mut() {
+            for (at, person) in catalog.people.iter_mut().enumerate() {
+                if person.titles.iter().any(|held| held == code) {
+                    person.title_dates.insert(code.to_owned(), NOON - (20 + 31 * at as i64) * 86_400);
+                }
+            }
+        }
+        main.community_reading = Some(crate::community_screen::Reading::Title { code: code.to_owned(), who });
+        main.read_fade = iced::Animation::new(true);
+        main
+    };
     let mut signing = staged(Some(0));
     signing.pairing = crate::main_screen::Pairing::Waiting { code: "K7QN-M4XZ".into(), link: "https://t.me/bot?start=pair-K7QNM4XZ".into() };
     signing.qr = crate::first_run::qr_for("https://t.me/bot?start=pair-K7QNM4XZ");
@@ -746,69 +807,10 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
             main.read_fade = iced::Animation::new(true);
             main
         }),
-        ("main-community-score".to_owned(), {
-            use crate::community::wire;
-            let mut main = community(crate::community_screen::Section::Feed, None);
-            let staged = main.community.as_ref().and_then(|catalog| {
-                let play = catalog.live.iter().filter(|play| play.passed && catalog.people.get(play.who).is_some_and(|person| !person.you)).max_by(|a, b| a.pp.total_cmp(&b.pp))?;
-                let mut scored = crate::community_screen::Scored::of(catalog, play.who, &play.more, true)?;
-                scored.map.beatmap = Some(1);
-                let others = [(0usize, 412.6f32, 98.34f32, 1_204u32, "S", &["HD"][..]), (2, 611.0, 99.21, 1_480, "SS", &["HD", "HR"][..]), (3, 402.2, 97.1, 1_101, "A", &[][..]), (4, 356.9, 95.12, 902, "A", &["DT"][..])];
-                let mut rows: Vec<wire::BoardRow> = others
-                    .into_iter()
-                    .filter(|(who, ..)| *who != play.who)
-                    .enumerate()
-                    .filter_map(|(at, (who, pp, accuracy, combo, grade, mods))| {
-                        let person = catalog.people.get(who)?;
-                        Some(wire::BoardRow {
-                            who: person.id,
-                            name: person.name.clone(),
-                            country: person.country.clone(),
-                            you: person.you,
-                            play: wire::Play { id: Some(100 + at as u64), pp, accuracy, combo: Some(combo), grade: grade.to_owned(), mods: mods.iter().map(|m| (*m).to_owned()).collect(), score: (pp * 2_000.0) as u64, ..wire::Play::default() },
-                            ..wire::BoardRow::default()
-                        })
-                    })
-                    .collect();
-                rows.push(wire::BoardRow {
-                    who: scored.who,
-                    name: scored.name.clone(),
-                    country: catalog.people[play.who].country.clone(),
-                    play: wire::Play { id: play.more.id, pp: play.pp, accuracy: play.accuracy, combo: play.more.combo, grade: play.grade.clone(), mods: play.mods.clone(), score: play.more.score, ..wire::Play::default() },
-                    ..wire::BoardRow::default()
-                });
-                rows.sort_by(|a, b| b.play.pp.total_cmp(&a.play.pp));
-                for (at, row) in rows.iter_mut().enumerate() {
-                    row.place = at as u32 + 1;
-                }
-                let records = vec![
-                    wire::Record { name: "Mirrorwave".into(), pp: 611.0, score: 1_222_000, at: Some(NOON - 3 * 86_400) },
-                    wire::Record { name: "NaumRedlo".into(), pp: 412.6, score: 920_000, at: Some(NOON - 19 * 86_400) },
-                    wire::Record { name: "d1ce".into(), pp: 356.9, score: 640_000, at: Some(NOON - 40 * 86_400) },
-                ];
-                Some((scored, wire::MapBoard { beatmap: 1, metric: "pp".into(), plays: 23, players: 5, rows, records, ..wire::MapBoard::default() }))
-            });
-            if let Some((scored, board)) = staged {
-                main.map_boards.insert(1, board);
-                main.community_reading = Some(crate::community_screen::Reading::Score(scored));
-                main.read_fade = iced::Animation::new(true);
-            }
-            main
-        }),
-        ("main-community-title".to_owned(), {
-            let mut main = community(crate::community_screen::Section::Titles, None);
-            let who = main.community.as_ref().and_then(|catalog| catalog.people.iter().find(|person| person.name == "kotofey").map(|person| person.id));
-            if let Some(catalog) = main.community.as_mut() {
-                for (at, person) in catalog.people.iter_mut().enumerate() {
-                    if person.titles.iter().any(|code| code == "s_50") {
-                        person.title_dates.insert("s_50".into(), NOON - (20 + 31 * at as i64) * 86_400);
-                    }
-                }
-            }
-            main.community_reading = Some(crate::community_screen::Reading::Title { code: "s_50".into(), who });
-            main.read_fade = iced::Animation::new(true);
-            main
-        }),
+        ("main-community-score".to_owned(), scored(false)),
+        ("main-community-score-scale".to_owned(), scored(true)),
+        ("main-community-title".to_owned(), titled("ss_100", "ssnowy")),
+        ("main-community-title-earned".to_owned(), titled("combo_2000", "Mirrorwave")),
         ("main-community-clip".to_owned(), {
             let mut main = community(crate::community_screen::Section::Feed, None);
             main.clip = Some(crate::main_screen::Clip {

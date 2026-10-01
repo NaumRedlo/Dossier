@@ -434,35 +434,6 @@ fn me_into(maps: &mut Vec<MapRef>, me: &wire::Me) -> Me {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Placed {
-    Took { place: u32, of: u32 },
-    Would { place: u32, of: u32, best: u32 },
-    Failed { best: Option<u32>, of: u32 },
-}
-
-pub fn placed(board: &wire::MapBoard, who: i64, play: &Play, passed: bool) -> Placed {
-    let by_score = board.by_score();
-    let worth = |pp: f32, pp_if: Option<f32>, score: u64| match (by_score, pp > 0.0) {
-        (true, _) => score as f64,
-        (false, true) => f64::from(pp),
-        (false, false) => f64::from(pp_if.unwrap_or(0.0)),
-    };
-    let own = board.rows.iter().find(|row| row.who == who);
-    if !passed {
-        return Placed::Failed { best: own.map(|row| row.place), of: board.rows.len() as u32 };
-    }
-    let mine = worth(play.pp, play.pp_if, play.score);
-    let others: Vec<f64> = board.rows.iter().filter(|row| row.who != who).map(|row| worth(row.play.pp, row.play.pp_if, row.play.score)).collect();
-    let place = others.iter().filter(|theirs| **theirs > mine).count() as u32 + 1;
-    let of = others.len() as u32 + 1;
-    match own {
-        Some(own) if play.id.is_some() && own.play.id == play.id => Placed::Took { place: own.place, of },
-        Some(own) if worth(own.play.pp, own.play.pp_if, own.play.score) > mine + 0.005 => Placed::Would { place, of, best: own.place },
-        _ => Placed::Took { place, of },
-    }
-}
-
 pub const BACKDROP: u32 = 720;
 pub const POSTER: u32 = 721;
 pub const POSTER_SHAPE: f32 = 1.45;
@@ -1633,35 +1604,6 @@ pub mod wire {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn board_of(metric: &str, rows: &[(i64, u64, f32, u64)]) -> wire::MapBoard {
-        wire::MapBoard {
-            metric: metric.to_owned(),
-            rows: rows
-                .iter()
-                .enumerate()
-                .map(|(at, (who, id, pp, score))| wire::BoardRow { who: *who, place: at as u32 + 1, play: wire::Play { id: Some(*id), pp: *pp, score: *score, ..wire::Play::default() }, ..wire::BoardRow::default() })
-                .collect(),
-            ..wire::MapBoard::default()
-        }
-    }
-
-    #[test]
-    fn a_play_says_the_place_it_took_or_the_one_it_would_have() {
-        let board = board_of("pp", &[(1, 10, 412.0, 700_000), (2, 20, 380.0, 1_100_000), (3, 30, 300.0, 500_000)]);
-        let play = |id: u64, pp: f32, score: u64| Play { id: Some(id), pp, score, ..Play::default() };
-        assert_eq!(placed(&board, 2, &play(20, 380.0, 1_100_000), true), Placed::Took { place: 2, of: 3 });
-        assert_eq!(placed(&board, 2, &play(21, 310.0, 900_000), true), Placed::Would { place: 2, of: 3, best: 2 });
-        assert_eq!(placed(&board, 3, &play(31, 290.0, 1), true), Placed::Would { place: 3, of: 3, best: 3 });
-        assert_eq!(placed(&board, 9, &play(90, 400.0, 1), true), Placed::Took { place: 2, of: 4 }, "a play the board has not heard of took no place");
-        assert_eq!(placed(&board, 3, &play(32, 500.0, 1), true), Placed::Took { place: 1, of: 3 }, "a play better than the board knows stayed behind");
-        assert_eq!(placed(&board, 1, &play(11, 0.0, 9_000_000), false), Placed::Failed { best: Some(1), of: 3 });
-        assert_eq!(placed(&board, 9, &play(91, 0.0, 0), false), Placed::Failed { best: None, of: 3 });
-        let loved = board_of("score", &[(2, 20, 0.0, 1_100_000), (1, 10, 0.0, 700_000)]);
-        assert_eq!(placed(&loved, 1, &play(12, 0.0, 1_200_000), true), Placed::Took { place: 1, of: 2 });
-        let guessed = Play { id: Some(13), pp_if: Some(390.0), ..Play::default() };
-        assert_eq!(placed(&board, 9, &guessed, true), Placed::Took { place: 2, of: 4 }, "an estimate of pp was not used where the play gave none");
-    }
 
     #[test]
     fn the_bot_card_borrows_what_osu_says_of_its_plays() {

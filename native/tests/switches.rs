@@ -278,6 +278,18 @@ fn a_play_in_the_feed_opens_its_result_and_a_title_opens_its_holders() {
     let _ = main.update(M::MapBoard(8, false, Err("no connection".into())));
     assert!(main.map_boards.contains_key(&7) && main.map_boards_failed.contains(&8) && main.map_boards_waiting.is_empty());
 
+    let mut result = staged(Lang::En, "main-community-score", 980.0);
+    let mut ui = Simulator::with_size(dossier_native::settings(), Size::new(980.0, 720.0), gallery::main_frame(&result, &backdrop));
+    assert!(ui.find("Mirrorwave").is_ok() && ui.find("+117").is_err(), "the result opens on its table");
+    let bounds = ui.find("Scale").unwrap().bounds();
+    ui.point_at(Point::new(side + (bounds.center_x() - side) * 0.84, origin + (bounds.center_y() - origin) * 0.84));
+    ui.simulate(iced_test::simulator::click());
+    let messages: Vec<_> = ui.into_messages().collect();
+    assert!(messages.iter().any(|message| matches!(message, dossier_native::Message::Main(M::Community(C::ScoreScale(true))))), "{messages:?}");
+    let _ = result.update(M::Community(C::ScoreScale(true)));
+    let mut ui = Simulator::with_size(dossier_native::settings(), Size::new(980.0, 720.0), gallery::main_frame(&result, &backdrop));
+    assert!(ui.find("+117").is_ok(), "the scale says how far the play is from your best");
+
     let titles = staged(Lang::En, "main-community-titles", 980.0);
     let mut ui = Simulator::with_size(dossier_native::settings(), Size::new(980.0, 720.0), gallery::main_frame(&titles, &backdrop));
     let bounds = ui.find("WYSI").unwrap().bounds();

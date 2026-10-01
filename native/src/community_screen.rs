@@ -104,6 +104,7 @@ pub enum Message {
     Tap(iced::Point, Option<iced::Rectangle>),
     Read(Reading),
     TitleOf(String, Option<i64>),
+    ScoreScale(bool),
     Unread,
     PeopleFrom(PeopleFrom),
     Standing(Standing),
@@ -203,6 +204,7 @@ pub struct Ground<'a> {
     pub boards: &'a HashMap<u64, crate::community::wire::MapBoard>,
     pub boards_waiting: &'a std::collections::HashSet<u64>,
     pub boards_failed: &'a std::collections::HashSet<u64>,
+    pub score_scale: bool,
     pub clips_loading: &'a std::collections::HashSet<String>,
 }
 
@@ -681,6 +683,14 @@ fn blocks<'a>(list: &[news::Block], skip_image: Option<&str>, size: f32, picture
 fn reader<'a>(ground: &Ground<'a>, reading: &'a Reading) -> Element<'a, Message> {
     let w = ground.words;
     let k = ground.read_k;
+    if let Reading::Score(_) | Reading::Title { .. } = reading {
+        let sheet = ui::fading(ui::fade() * smooth(0.2, 1.0, k), || match reading {
+            Reading::Score(scored) => crate::sheets::score(ground, scored),
+            Reading::Title { code, who } => crate::sheets::title(ground, code, *who),
+            _ => Space::new().into(),
+        });
+        return crate::unfold::unfold(sheet, None, panel_from(ground), k, Message::Unread).wide(crate::sheets::WIDE).room(STAGE_ROOM).look(stage_look()).fit().into();
+    }
     let after = ui::fading(ui::fade() * smooth(0.2, 1.0, k), || -> Element<'a, Message> {
         let picture = |url: &str| -> Element<'a, Message> {
             match ground.pictures.get(&wide(url)) {
@@ -688,19 +698,8 @@ fn reader<'a>(ground: &Ground<'a>, reading: &'a Reading) -> Element<'a, Message>
                 None => container(ui::fine_hatch()).width(Length::Fill).height(220.0).into(),
             }
         };
-        let mut tint = FAINT;
-        let mut outside = Some((w.t("read-outside"), reading.url().to_owned()));
         let (source, title, meta, mut body): (String, String, String, Vec<Element<'a, Message>>) = match reading {
-            Reading::Score(scored) => {
-                let sheet = crate::sheets::score(ground, scored, &picture);
-                outside = sheet.outside;
-                (sheet.source, sheet.title, sheet.meta, sheet.body)
-            }
-            Reading::Title { code, who } => {
-                let sheet = crate::sheets::title(ground, code, *who);
-                (tint, outside) = (sheet.tint, sheet.outside);
-                (sheet.source, sheet.title, sheet.meta, sheet.body)
-            }
+            Reading::Score(_) | Reading::Title { .. } => (String::new(), String::new(), String::new(), Vec::new()),
             Reading::Story(story) => {
                 let story = ground.news.stories.iter().find(|fresh| fresh.url == story.url).unwrap_or(story);
                 let mut body: Vec<Element<'a, Message>> = Vec::new();
@@ -757,11 +756,9 @@ fn reader<'a>(ground: &Ground<'a>, reading: &'a Reading) -> Element<'a, Message>
                 (build.stream.clone(), format!("{} {}", build.stream, build.version), w.day(build.at, ground.now_unix), body)
             }
         };
-        if let Some((label, url)) = outside {
-            body.push(container(ui::primary(label, Some(Message::Open(url)))).padding(Padding::ZERO.top(8.0)).into());
-        }
+        body.push(container(ui::primary(w.t("read-outside"), Some(Message::Open(reading.url().to_owned())))).padding(Padding::ZERO.top(8.0)).into());
         let head = column![
-            row![ui::mono_small(source.to_uppercase(), tint), ui::grow(), button(text("✕").font(theme::SANS_SEMI).size(theme::LEAD).color(ui::faded(MUTED))).padding([2, 8]).style(ui::button_faded(theme::bare)).on_press(Message::Unread)].align_y(iced::Center),
+            row![ui::mono_small(source.to_uppercase(), FAINT), ui::grow(), button(text("✕").font(theme::SANS_SEMI).size(theme::LEAD).color(ui::faded(MUTED))).padding([2, 8]).style(ui::button_faded(theme::bare)).on_press(Message::Unread)].align_y(iced::Center),
             text(ui::settled(&title)).font(theme::SANS_SEMI).size(theme::TITLE).color(ui::faded(INK)),
             ui::mono_small(meta, FAINT),
         ]

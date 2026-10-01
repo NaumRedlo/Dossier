@@ -1118,7 +1118,7 @@ dependencies = [
 
 [[package]]
 name = "dossier-native"
-version = "0.94.0"
+version = "0.94.1"
 dependencies = [
  "chrono",
  "cpal",

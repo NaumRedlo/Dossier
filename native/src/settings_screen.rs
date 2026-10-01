@@ -31,6 +31,7 @@ pub enum Tile {
     Maps,
     Storage,
     Builds,
+    Witness,
     Account,
     Chats,
     Receive,
@@ -56,6 +57,7 @@ impl Tile {
             Tile::Maps => "maps",
             Tile::Storage => "storage",
             Tile::Builds => "builds",
+            Tile::Witness => "witness",
             Tile::Account => "account",
             Tile::Chats => "chats",
             Tile::Receive => "receive",
@@ -70,7 +72,7 @@ impl Tile {
     }
 }
 
-pub const APP: [Tile; 14] = [
+pub const APP: [Tile; 15] = [
     Tile::Render,
     Tile::Language,
     Tile::Look,
@@ -80,6 +82,7 @@ pub const APP: [Tile; 14] = [
     Tile::Play,
     Tile::Elements,
     Tile::Sources,
+    Tile::Witness,
     Tile::Skins,
     Tile::Videos,
     Tile::Maps,
@@ -151,6 +154,7 @@ pub struct Ground<'a> {
     pub accept_ready: bool,
     pub accept_unregistered: bool,
     pub share_replays: Option<&'a crate::mixed::State>,
+    pub witness: &'a crate::witness::Seen,
 }
 
 #[derive(Debug, Clone)]
@@ -172,6 +176,7 @@ pub enum Message {
     ExportedOnly(bool),
     AutoScale(bool),
     CloseToTray(bool),
+    Witness(bool),
     PeopleEveryone(bool),
     Pin(i64),
     Source(usize, bool),
@@ -508,6 +513,33 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
         ]
         .spacing(6)
         .into(),
+        Tile::Witness => {
+            use crate::witness::Status;
+            let seen = ground.witness;
+            let on = s.witness;
+            let said = match (&seen.status, on) {
+                (_, false) | (Status::Off, _) => String::new(),
+                (Status::Unavailable, _) => w.t("witness-missing"),
+                (Status::Absent, _) => w.t("witness-idle"),
+                (Status::Loading, _) => w.t("witness-loading"),
+                (Status::Watching, _) => w.t("witness-watching"),
+                (Status::Playing, _) => seen.state.as_ref().map_or_else(|| w.t("witness-watching"), |state| w.with("witness-playing", &[("map", state.map_line())])),
+            };
+            let mut panel = column![
+                head(w, "witness-tile"),
+                container(text(w.t("witness-about")).font(theme::SANS).size(11.0).color(ui::faded(MUTED))).width(300.0).padding(Padding::ZERO.bottom(8.0)),
+                pill(ground, "witness", w.t("witness-on"), on, Message::Witness(!on)),
+            ]
+            .spacing(2);
+            if !said.is_empty() {
+                let colour = if matches!(seen.status, Status::Unavailable) { theme::ACCENT } else { FAINT };
+                panel = panel.push(container(text(said).font(theme::SANS).size(11.0).color(ui::faded(colour))).width(300.0).padding(Padding::ZERO.top(8.0)));
+            }
+            if on && seen.kept > 0 {
+                panel = panel.push(container(text(w.with("witness-kept", &[("n", w.lang().group(u64::from(seen.kept)))])).font(theme::SANS).size(11.0).color(ui::faded(FAINT))).padding(Padding::ZERO.top(2.0)));
+            }
+            panel.into()
+        }
         Tile::Sources => {
             let mut rows = column![head(w, "sources")].spacing(2);
             for (at, source) in s.sources.iter().enumerate() {

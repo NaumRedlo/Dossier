@@ -158,6 +158,7 @@ pub enum Message {
     Sending(u64),
     Sent(Result<bot::Sent, String>),
     Sharing(sharing::Message),
+    Witness(crate::witness::Event),
     ToastHover(u64, bool),
     ToastClose(u64),
     OpenVideo(usize),
@@ -569,6 +570,8 @@ pub struct Main {
     pub score_scale: bool,
     pub read_fade: Animation<bool>,
     pub read_over_person: bool,
+    pub witness: crate::witness::Seen,
+    pub witness_control: Option<std::sync::Arc<crate::witness::Control>>,
     pub people_from: crate::community_screen::PeopleFrom,
     pub people_query: String,
     pub community_standing: crate::community_screen::Standing,
@@ -793,6 +796,8 @@ impl Main {
             score_scale: false,
             read_fade: Animation::new(false),
             read_over_person: false,
+            witness: crate::witness::Seen::default(),
+            witness_control: None,
             people_from: crate::community_screen::PeopleFrom::Chat,
             people_query: String::new(),
             community_standing: crate::community_screen::Standing::General,
@@ -863,11 +868,23 @@ impl Main {
             }
         }
         let pin = self.pin_task();
+        let witness = self.witness_task();
         if matches!(crate::updates::place(), crate::updates::Place::Source) {
             self.update = UpdateState::Source;
-            return Task::batch([version, pin]);
+            return Task::batch([version, pin, witness]);
         }
-        Task::batch([version, self.check_update(), pin])
+        Task::batch([version, self.check_update(), pin, witness])
+    }
+
+    pub fn witness_task(&mut self) -> Task<Message> {
+        if !self.settings.witness || self.gallery || self.witness_control.is_some() {
+            return Task::none();
+        }
+        let control = std::sync::Arc::new(crate::witness::Control::default());
+        self.witness_control = Some(control.clone());
+        self.witness = crate::witness::Seen { status: crate::witness::Status::Absent, ..crate::witness::Seen::default() };
+        let player = self.community.as_ref().and_then(|catalog| catalog.people.iter().find(|person| person.you)).map(|you| you.name.clone()).unwrap_or_default();
+        ui::streamed(move |push| crate::witness::run(control, player, &mut |event| push(Message::Witness(event))))
     }
 
     fn pin_task(&self) -> Task<Message> {
@@ -2784,6 +2801,19 @@ impl Main {
                 None => Task::none(),
             },
             Message::CommunityTick => self.community_task(false),
+            Message::Witness(event) => {
+                if self.witness_control.is_none() {
+                    return Task::none();
+                }
+                self.witness.take(&event);
+                if let crate::witness::Event::Kept(kept) = &event {
+                    if let Err(why) = crate::witness::keep(kept, &crate::witness::folder()) {
+                        self.announce(notices::Mark::Bad, self.words.t("witness-not-kept"), why, String::new(), String::new(), notices::Link::None);
+                    }
+                    return self.watch_task();
+                }
+                Task::none()
+            }
             Message::Sharing(message) => self.sharing_update(message),
             Message::FarmTick => self.farm_task(),
             Message::FarmHeard(farm) => {
@@ -5925,6 +5955,7 @@ impl Main {
             farm: self.farm.as_ref(),
             scale_draft: self.scale_draft,
             accept: self.sharing.accept,
+            witness: &self.witness,
             accept_ready: self.sharing.loaded && self.sharing.registered,
             accept_unregistered: self.sharing.loaded && !self.sharing.registered,
             share_replays: self.sharing.replays.as_ref(),
@@ -6086,6 +6117,19 @@ impl Main {
                 self.remember_mark("close-to-tray", on);
                 self.settings.close_to_tray = on;
                 keep(&self.settings);
+                Task::none()
+            }
+            P::Witness(on) => {
+                self.remember_mark("witness", on);
+                self.settings.witness = on;
+                keep(&self.settings);
+                if on {
+                    return self.witness_task();
+                }
+                if let Some(control) = self.witness_control.take() {
+                    std::thread::spawn(move || control.stop());
+                }
+                self.witness = crate::witness::Seen::default();
                 Task::none()
             }
             P::AutoScale(on) => {

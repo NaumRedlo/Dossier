@@ -11,8 +11,27 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  witness:
+    name: witness
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-gnu
+      - run: sudo apt-get update && sudo apt-get install -y gcc-mingw-w64-x86-64
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: witness
+      - run: cargo build --release -p dossier-witness --target x86_64-pc-windows-gnu --config profile.release.strip=true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: witness
+          path: target/x86_64-pc-windows-gnu/release/witness.exe
+
   build:
     name: build (${{ matrix.name }})
+    needs: witness
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -33,8 +52,14 @@ jobs:
         with:
           workspaces: native
           key: ${{ matrix.target }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: witness
+          path: witness-bin
       - run: cargo build --release --target ${{ matrix.target }}
         working-directory: native
+        env:
+          DOSSIER_WITNESS_EXE: ${{ github.workspace }}/witness-bin/witness.exe
       - name: pack
         shell: bash
         run: |
@@ -94,6 +119,7 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           path: dist
+          pattern: "*-*"
           merge-multiple: true
       - env:
           GH_TOKEN: ${{ github.token }}

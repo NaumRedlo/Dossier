@@ -108,6 +108,33 @@ Witness is built on the Mac for Windows and run in the bottle:
 labelled. The build needs `mingw-w64` and the `x86_64-pc-windows-gnu` target;
 the linker is named in `.cargo/config.toml`.
 
+## In the application
+
+*Свидетель* is a tile in the application's settings with one switch, off until
+the person turns it on: it reads another program's memory, and that is theirs
+to decide. While it is on the application keeps one Witness running beside the
+client and listens to it.
+
+- The program travels inside the application: the release builds
+  `witness.exe` once, for Windows, and every archive carries it; it is written
+  out to `~/.dossier/bin` when first needed. A build made without it says so in
+  the tile. `DOSSIER_WITNESS_EXE` names the program at build time,
+  `DOSSIER_WITNESS` at run time.
+- On Windows it is started directly and waits for the client itself. Elsewhere
+  the application looks for a running `osu!.exe` every four seconds and learns
+  the prefix from the folder the client works in — a CrossOver bottle is entered
+  through CrossOver's own `wine --bottle`, any other prefix with its loader and
+  `WINEPREFIX` — so no Wine is started for a client that is not there. Linux is
+  written the same way and has not been tried yet.
+- Witness speaks on its standard output, one JSON object a line: `waiting`,
+  `attached`, `loading`, `state` (the screen and the map under the cursor),
+  `playing` once a second, `kept` with the replay itself as hex, `gone`, and
+  `alive` so that a dead listener is noticed. Nothing is passed through files,
+  so the two sides need no path they both understand.
+- A kept play is checked to be a replay and written into `~/.dossier/Replays`,
+  Dossier's own source; the journal notices it the way it notices any new
+  replay, and announces it the same way.
+
 ## What is checked by a machine
 
 The reader is written against a `Memory` trait, and the tests build a small

@@ -24,6 +24,20 @@ jobs:
       - run: cargo build --release
       - run: cargo test --release
 
+  witness:
+    name: witness (windows program)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-gnu
+      - run: sudo apt-get update && sudo apt-get install -y gcc-mingw-w64-x86-64
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: witness
+      - run: cargo build --release -p dossier-witness --target x86_64-pc-windows-gnu
+
   tools:
     name: tools (python)
     runs-on: ubuntu-latest

@@ -703,6 +703,15 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
     let mut linking = prefs_osu.clone();
     linking.pairing = crate::main_screen::Pairing::Linking { code: "K7QN-M4XZ".into(), link: "https://t.me/bot?start=pair-K7QNM4XZ".into() };
     linking.qr = crate::first_run::qr_for("https://t.me/bot?start=pair-K7QNM4XZ");
+    let mut prefs_witness = prefs_app.clone();
+    prefs_witness.settings.tiles_app = vec!["witness".to_owned()];
+    prefs_witness.settings.witness = true;
+    prefs_witness.witness = crate::witness::Seen {
+        status: crate::witness::Status::Playing,
+        state: Some(crate::witness::State { mode: "Play".into(), artist: "xi".into(), title: "FREEDOM DiVE".into(), version: "FOUR DIMENSIONS".into(), ..crate::witness::State::default() }),
+        playing: Some(crate::witness::Progress { frames: 3886, score: 92_242, ..crate::witness::Progress::default() }),
+        kept: 3,
+    };
     let mut prefs_shared = prefs_app.clone();
     prefs_shared.settings.tiles_app = vec!["sources".to_owned()];
     prefs_shared.settings.sources.push(Source { replay_count: 37, ..crate::sources::shared(true) });
@@ -815,6 +824,7 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
         ("main-prefs".to_owned(), prefs_app),
         ("main-prefs-bot".to_owned(), prefs_bot),
         ("main-prefs-shared".to_owned(), prefs_shared),
+        ("main-prefs-witness".to_owned(), prefs_witness),
         ("main-prefs-bot-osu".to_owned(), prefs_osu),
         ("main-linking".to_owned(), linking),
         ("main-failure".to_owned(), failing),

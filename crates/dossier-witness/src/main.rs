@@ -4,6 +4,11 @@ fn main() {
     use dossier_witness::{stable, windows};
 
     let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.iter().any(|arg| arg == "--serve") {
+        let player = args.iter().position(|arg| arg == "--player").and_then(|at| args.get(at + 1)).cloned().unwrap_or_default();
+        serve(&player);
+        return;
+    }
     let rounds: usize = args.iter().position(|arg| arg == "--watch").and_then(|at| args.get(at + 1)).and_then(|said| said.parse().ok()).unwrap_or(1);
     let name = args.iter().position(|arg| arg == "--process").and_then(|at| args.get(at + 1)).cloned().unwrap_or_else(|| "osu!.exe".to_owned());
     let found = windows::processes_named(&name);
@@ -70,6 +75,87 @@ fn main() {
         }
         if round + 1 < rounds {
             std::thread::sleep(std::time::Duration::from_millis(500));
+        }
+    }
+}
+
+#[cfg(windows)]
+fn say(line: String) {
+    use std::io::Write;
+    let mut out = std::io::stdout().lock();
+    if writeln!(out, "{line}").and_then(|()| out.flush()).is_err() {
+        std::process::exit(0);
+    }
+}
+
+#[cfg(windows)]
+fn serve(player: &str) {
+    use dossier_witness::memory::Reads;
+    use dossier_witness::{osr, stable, windows, wire};
+    use std::time::{Duration, Instant};
+
+    const NAME: &str = "osu!.exe";
+    let mut idle_told = false;
+    loop {
+        let Some(process) = windows::processes_named(NAME).iter().find_map(|pid| windows::Process::open(*pid)) else {
+            say(wire::plain(if idle_told { "alive" } else { "waiting" }));
+            idle_told = true;
+            std::thread::sleep(Duration::from_secs(if idle_told { 3 } else { 1 }));
+            continue;
+        };
+        idle_told = false;
+        say(wire::attached(process.pid));
+        let mut loading_told = false;
+        let anchors = loop {
+            if let Ok(anchors) = stable::anchors(&process) {
+                break Some(anchors);
+            }
+            if !windows::processes_named(NAME).contains(&process.pid) {
+                break None;
+            }
+            say(wire::plain(if loading_told { "alive" } else { "loading" }));
+            loading_told = true;
+            std::thread::sleep(Duration::from_secs(2));
+        };
+        let Some(anchors) = anchors else {
+            say(wire::plain("gone"));
+            continue;
+        };
+        let mut recorder = stable::Recorder::default();
+        let mut last_state = String::new();
+        let mut told_at = Instant::now();
+        let mut alive_at = Instant::now();
+        loop {
+            if process.u32(anchors.status).is_none() {
+                say(wire::plain("gone"));
+                break;
+            }
+            let seen = stable::glance(&process, &anchors);
+            if let Some(seen) = &seen {
+                let said = wire::state(seen);
+                if said != last_state {
+                    say(said.clone());
+                    last_state = said;
+                }
+            }
+            if let Some(take) = recorder.poll(&process, &anchors) {
+                if take.frames.len() >= FRAMES_LEAST {
+                    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |since| since.as_secs() as i64);
+                    say(wire::kept(&take, &osr::file_name(&take, player, now), &osr::write(&take, player, now)));
+                }
+            }
+            if let (Some(take), Some(seen)) = (recorder.recording(), &seen) {
+                if told_at.elapsed() >= Duration::from_secs(1) {
+                    say(wire::playing(take, seen.time_ms));
+                    told_at = Instant::now();
+                    alive_at = Instant::now();
+                }
+            }
+            if alive_at.elapsed() >= Duration::from_secs(5) {
+                say(wire::plain("alive"));
+                alive_at = Instant::now();
+            }
+            std::thread::sleep(Duration::from_millis(100));
         }
     }
 }

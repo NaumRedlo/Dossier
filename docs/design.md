@@ -623,6 +623,13 @@ The feed's days turn at the person's own midnight, not UTC's: *Сегодня*
 and *Вчера* are counted in calendar days of the local zone, the way the
 times beside them are written.
 
+*Свидетель* (2026-10-01) is a tile among the application's settings: what it
+does in two sentences, one switch *Записывать каждую игру*, and under it one
+line saying where it stands — *osu! не запущен*, *osu! загружается*,
+*Подключён к osu!*, *Идёт игра: …* — and how many plays it has kept this
+session. It is off until asked for. What it is and how it works is in
+`docs/witness.md`.
+
 - *Лента* is a chronicle (2026-09-24), chosen from three drawn concepts
   over a board of panels and a daily digest: one stream of everything that
   happened — the group's plays, new top plays, titles and climbs, osu!'s

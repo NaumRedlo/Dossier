@@ -220,6 +220,7 @@ pub enum Message {
     SignOut,
     Accept(crate::inbox::Accept),
     ShareReplays(bool),
+    LinkTelegram,
     Moved(Tile, Option<Tile>),
 }
 
@@ -822,7 +823,9 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
                 .filter(|n| !n.is_empty())
                 .unwrap_or_else(|| s.linked_as.trim_start_matches('@').to_owned());
             let name = if name.is_empty() { w.t("signed-in") } else { name };
+            let apart = ground.account.is_some_and(|me| !me.telegram);
             let under = match ground.account {
+                Some(_) if apart => w.t("account-osu"),
                 Some(me) if !me.username.is_empty() => format!("@{}  ID {}", me.username, me.telegram_id),
                 Some(me) => format!("ID {}", me.telegram_id),
                 None => s.linked_as.clone(),
@@ -847,9 +850,11 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
             ]
             .spacing(10)
             .align_y(iced::Center);
-            column![head(w, "account"), who, container(deed(w.t("sign-out"), Message::SignOut, false)).padding(Padding::ZERO.top(6.0))]
-                .spacing(2)
-                .into()
+            let mut deeds = row![deed(w.t("sign-out"), Message::SignOut, false)].spacing(6);
+            if apart {
+                deeds = deeds.push(deed(w.t("link-telegram"), Message::LinkTelegram, false));
+            }
+            column![head(w, "account"), who, container(deeds).padding(Padding::ZERO.top(6.0))].spacing(2).into()
         }
         Tile::Chats => {
             let mut rows = column![head(w, "videos-go-to")].spacing(2);
@@ -859,7 +864,9 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
                 let face: Option<&iced::widget::image::Handle> = ground.chat_faces.get(&chat.id);
                 rows = rows.push(chat_line(ground, chat, face, under, Some(chat.id) == here, ("chat", Message::Chat(chat.id))));
             }
-            if ground.chats.is_empty() {
+            if ground.account.is_some_and(|me| !me.telegram) {
+                rows = rows.push(container(text(w.t("no-telegram-chats")).font(theme::SANS).size(11.0).color(ui::faded(FAINT))).width(Length::Fixed(196.0)));
+            } else if ground.chats.is_empty() {
                 let words = column![
                     text(s.linked_as.clone()).font(theme::SANS_SEMI).size(theme::CAPTION).wrapping(text::Wrapping::None).color(ui::faded(INK)),
                     text(w.t("private-chat")).font(theme::SANS).size(11.0).wrapping(text::Wrapping::None).color(ui::faded(MUTED)),

@@ -76,6 +76,7 @@ pub fn states(lang: Lang) -> Vec<(String, FirstRun)> {
     let waiting = Pairing::Waiting {
         code: "K7QN-M4XZ".into(),
         link: "https://t.me/onenineeightfour_bot?start=pair-K7QNM4XZ".into(),
+        osu: true,
     };
     let none: Vec<(Check, Option<Outcome>)> = Vec::new();
     let mut out = vec![
@@ -582,7 +583,7 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
     let mut received = with_videos.clone();
     received.settings.token = "staged".to_owned();
     received.settings.linked_as = "@naumredlo".to_owned();
-    received.account = Some(crate::bot::Me { telegram_id: 7, name: "Naum Redlo".into(), username: "naumredlo".into(), avatar: false });
+    received.account = Some(crate::bot::Me { telegram_id: 7, name: "Naum Redlo".into(), username: "naumredlo".into(), avatar: false, telegram: true, player: None });
     received.sharing.tab = crate::main_screen::sharing::Tab::Received;
     received.sharing.loaded = true;
     received.sharing.registered = true;
@@ -601,7 +602,7 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
     let mut share = playing.clone();
     share.settings.token = "staged".to_owned();
     share.settings.linked_as = "@naumredlo".to_owned();
-    share.account = Some(crate::bot::Me { telegram_id: 7, name: "Naum Redlo".into(), username: "naumredlo".into(), avatar: false });
+    share.account = Some(crate::bot::Me { telegram_id: 7, name: "Naum Redlo".into(), username: "naumredlo".into(), avatar: false, telegram: true, player: None });
     share.sharing.loaded = true;
     share.sharing.registered = true;
     share.sharing.receivers = Some(vec![
@@ -623,7 +624,7 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
     menu_feed.now_unix = NOON;
     menu_feed.settings.token = "staged".to_owned();
     menu_feed.settings.linked_as = "Naum Redlo".to_owned();
-    menu_feed.account = Some(crate::bot::Me { telegram_id: 7, name: "Naum Redlo".into(), username: "naumredlo".into(), avatar: false });
+    menu_feed.account = Some(crate::bot::Me { telegram_id: 7, name: "Naum Redlo".into(), username: "naumredlo".into(), avatar: false, telegram: true, player: None });
     menu_feed.menu_open = iced::Animation::new(true);
     menu_feed.menu = Some(crate::main_screen::Tab::Feed);
     menu_feed.rendering = Some(crate::main_screen::Rendering {
@@ -683,7 +684,7 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
     prefs_bot.side = crate::settings_screen::Side::Bot;
     prefs_bot.settings.token = "staged".to_owned();
     prefs_bot.settings.linked_as = "@naumredlo".to_owned();
-    prefs_bot.account = Some(crate::bot::Me { telegram_id: 7, name: "Naum Redlo".into(), username: "naumredlo".into(), avatar: false });
+    prefs_bot.account = Some(crate::bot::Me { telegram_id: 7, name: "Naum Redlo".into(), username: "naumredlo".into(), avatar: false, telegram: true, player: None });
     prefs_app.skins = vec![std::path::PathBuf::from("/skins/- # Seoul v11"), std::path::PathBuf::from("/skins/rafis 2019")];
     prefs_bot.chats = vec![
         crate::bot::Chat { id: 7, title: "Личный чат".into(), private: true, photo: false },
@@ -694,6 +695,14 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
     prefs_bot.sharing.loaded = true;
     prefs_bot.sharing.registered = true;
     prefs_bot.sharing.replays = Some(crate::mixed::State { on: true, name: "NaumRedlo".into(), count: 128, most: 300 });
+    let mut prefs_osu = prefs_bot.clone();
+    prefs_osu.account = Some(crate::bot::Me { telegram_id: 0, name: "NaumRedlo".into(), username: String::new(), avatar: false, telegram: false, player: Some(1) });
+    prefs_osu.settings.linked_as = "NaumRedlo".to_owned();
+    prefs_osu.chats = Vec::new();
+    prefs_osu.pin = None;
+    let mut linking = prefs_osu.clone();
+    linking.pairing = crate::main_screen::Pairing::Linking { code: "K7QN-M4XZ".into(), link: "https://t.me/bot?start=pair-K7QNM4XZ".into() };
+    linking.qr = crate::first_run::qr_for("https://t.me/bot?start=pair-K7QNM4XZ");
     let mut prefs_shared = prefs_app.clone();
     prefs_shared.settings.tiles_app = vec!["sources".to_owned()];
     prefs_shared.settings.sources.push(Source { replay_count: 37, ..crate::sources::shared(true) });
@@ -776,7 +785,7 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
         main
     };
     let mut signing = staged(Some(0));
-    signing.pairing = crate::main_screen::Pairing::Waiting { code: "K7QN-M4XZ".into(), link: "https://t.me/bot?start=pair-K7QNM4XZ".into() };
+    signing.pairing = crate::main_screen::Pairing::Waiting { code: "K7QN-M4XZ".into(), link: "https://t.me/bot?start=pair-K7QNM4XZ".into(), osu: true };
     signing.qr = crate::first_run::qr_for("https://t.me/bot?start=pair-K7QNM4XZ");
     let mut idle = staged(Some(0));
     idle.resting = iced::Animation::new(true);
@@ -806,6 +815,8 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
         ("main-prefs".to_owned(), prefs_app),
         ("main-prefs-bot".to_owned(), prefs_bot),
         ("main-prefs-shared".to_owned(), prefs_shared),
+        ("main-prefs-bot-osu".to_owned(), prefs_osu),
+        ("main-linking".to_owned(), linking),
         ("main-failure".to_owned(), failing),
         ("main-videos".to_owned(), with_videos),
         ("main-videos-received".to_owned(), received),

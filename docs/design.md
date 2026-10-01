@@ -510,6 +510,20 @@ person does not have still has its words, the map is fetched by the same
 button, and the render is the same render. Such replays never announce
 themselves as a new play and are never donated.
 
+Signing in does not need Telegram (2026-10-01). The sheet is *Войти*, and
+beside *Открыть Telegram* stands a quiet *Войти через osu!*: it opens
+`/render/pair/{code}/osu` in the browser, osu! asks for consent and sends the
+person back to the bot, and the application, still polling the same code, gets
+its token. The first run's bot step has the same second button. An account
+made this way is the osu! player and nothing else: the account tile says
+*аккаунт osu!* under the name and keeps *Привязать Telegram* beside *Выйти*; the
+tile of chats says that Telegram is needed to send videos; *Отправить в
+Telegram* and *Отправить игроку* open the linking sheet instead of sending, and
+a received video has no *Получить в Telegram*. The linking sheet is the sign-in
+sheet with other words — a code, the QR, *Открыть Telegram* — and closes itself
+when the bot says the account has Telegram; registering the same osu! account
+in a group with the bot links it as well.
+
 The player is a window, not a panel (reworked 2026-09-23, after the first
 build let the picture run to the card's edges); later the same day the card
 around it went too, so the title, the cross and the buttons stand in the air

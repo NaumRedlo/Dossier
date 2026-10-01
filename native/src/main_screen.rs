@@ -142,7 +142,10 @@ pub enum Message {
     SeenAll,
     ClearNotices,
     SignIn,
-    PairAsked(Result<(String, String), Refused>),
+    PairAsked(Result<(String, String, bool), Refused>),
+    OpenOsu,
+    LinkTelegram,
+    TelegramAsked(Result<(String, String), String>),
     Poll,
     Polled(Result<Paired, Refused>),
     OpenTelegram,
@@ -246,7 +249,8 @@ pub enum Tab {
 pub enum Pairing {
     Idle,
     Asking,
-    Waiting { code: String, link: String },
+    Waiting { code: String, link: String, osu: bool },
+    Linking { code: String, link: String },
     Unavailable,
 }
 
@@ -945,6 +949,10 @@ impl Main {
         !self.settings.token.is_empty()
     }
 
+    pub fn has_telegram(&self) -> bool {
+        self.account.as_ref().is_none_or(|me| me.telegram)
+    }
+
     fn watching(&self) -> bool {
         (self.player.is_some() || self.sharing.open.is_some()) && !self.leaving_player && !self.mini_player
     }
@@ -1094,7 +1102,7 @@ impl Main {
         if !moving && self.toasts.iter().any(|toast| toast.shown.value() && !toast.stays && !toast.hovered) {
             parts.push(iced::time::every(Duration::from_millis(250)).map(Message::Tick));
         }
-        if matches!(self.pairing, Pairing::Waiting { .. }) {
+        if matches!(self.pairing, Pairing::Waiting { .. } | Pairing::Linking { .. }) {
             parts.push(iced::time::every(Duration::from_secs(3)).map(|_| Message::Poll));
         }
         if self.overlay == Overlay::Community && !self.settings.token.is_empty() {
@@ -1567,7 +1575,7 @@ impl Main {
             Message::Escape => {
                 if self.error_shown.is_some() {
                     self.error_shown = None;
-                } else if matches!(self.pairing, Pairing::Asking | Pairing::Waiting { .. } | Pairing::Unavailable) {
+                } else if matches!(self.pairing, Pairing::Asking | Pairing::Waiting { .. } | Pairing::Linking { .. } | Pairing::Unavailable) {
                     self.pairing = Pairing::Idle;
                 } else if self.skin_delete.is_some() {
                     return self.prefs(prefs::Message::KeepSkin);
@@ -1675,16 +1683,43 @@ impl Main {
                 self.pairing = Pairing::Asking;
                 let server = self.settings.server.clone();
                 let name = self.settings.device.clone();
-                ui::in_thread(move || Message::PairAsked(bot::pair(&server, &name).map(|p| (p.code, p.link))))
+                ui::in_thread(move || Message::PairAsked(bot::pair(&server, &name).map(|p| (p.code, p.link, p.osu))))
             }
-            Message::PairAsked(Ok((code, link))) => {
+            Message::PairAsked(Ok((code, link, osu))) => {
                 let link = if link.is_empty() {
                     format!("https://t.me/OneNineEightFourGlobalBot?start=pair-{}", bot::tidy(&code))
                 } else {
                     link
                 };
                 self.qr = crate::first_run::qr_for(&link);
-                self.pairing = Pairing::Waiting { code: bot::pretty(&code), link };
+                self.pairing = Pairing::Waiting { code: bot::pretty(&code), link, osu };
+                Task::none()
+            }
+            Message::OpenOsu => {
+                if let Pairing::Waiting { code, osu: true, .. } = &self.pairing {
+                    let _ = open::that_detached(bot::osu_link(&self.settings.server, code));
+                }
+                Task::none()
+            }
+            Message::LinkTelegram => {
+                self.menu = None;
+                if !self.signed_in() {
+                    return self.update(Message::SignIn);
+                }
+                if self.has_telegram() || !matches!(self.pairing, Pairing::Idle) {
+                    return Task::none();
+                }
+                self.pairing = Pairing::Asking;
+                let (server, token, name) = (self.settings.server.clone(), self.settings.token.clone(), self.settings.device.clone());
+                ui::in_thread(move || Message::TelegramAsked(bot::link_telegram(&server, &token, &name).map(|p| (p.code, p.link)).map_err(|e| e.to_string())))
+            }
+            Message::TelegramAsked(Ok((code, link))) => {
+                self.qr = crate::first_run::qr_for(&link);
+                self.pairing = Pairing::Linking { code: bot::pretty(&code), link };
+                Task::none()
+            }
+            Message::TelegramAsked(Err(_)) => {
+                self.pairing = Pairing::Unavailable;
                 Task::none()
             }
             Message::PairAsked(Err(_)) => {
@@ -1697,6 +1732,7 @@ impl Main {
                     let code = bot::tidy(code);
                     ui::in_thread(move || Message::Polled(bot::paired(&server, &code)))
                 }
+                Pairing::Linking { .. } => self.ask_who(),
                 _ => Task::none(),
             },
             Message::Polled(Ok(Paired::Linked { token, who })) => {
@@ -1713,13 +1749,13 @@ impl Main {
             }
             Message::Polled(_) => Task::none(),
             Message::OpenTelegram => {
-                if let Pairing::Waiting { link, .. } = &self.pairing {
+                if let Pairing::Waiting { link, .. } | Pairing::Linking { link, .. } = &self.pairing {
                     let _ = open::that_detached(link);
                 }
                 Task::none()
             }
             Message::CopyLink => match &self.pairing {
-                Pairing::Waiting { link, .. } => iced::clipboard::write(link.clone()),
+                Pairing::Waiting { link, .. } | Pairing::Linking { link, .. } => iced::clipboard::write(link.clone()),
                 _ => Task::none(),
             },
             Message::LaterSignIn => {
@@ -1746,9 +1782,16 @@ impl Main {
                     self.settings.linked_as = said;
                     let _ = self.settings.save();
                 }
+                if matches!(self.pairing, Pairing::Linking { .. }) && me.telegram {
+                    self.pairing = Pairing::Idle;
+                    self.chats.clear();
+                    let words = self.words.t("telegram-linked");
+                    self.say(words);
+                }
+                let chats = if me.telegram { self.chats_task() } else { Task::none() };
                 self.account = Some(me);
                 self.offer_shared_source();
-                let inbox = Task::batch([self.inbox_task(true), self.replays_state_task(), self.replays_sync_task(true)]);
+                let inbox = Task::batch([self.inbox_task(true), self.replays_state_task(), self.replays_sync_task(true), chats]);
                 if !wants_avatar {
                     return inbox;
                 }
@@ -1769,6 +1812,9 @@ impl Main {
             Message::SendVideo => {
                 if !self.signed_in() {
                     return self.update(Message::SignIn);
+                }
+                if !self.has_telegram() {
+                    return self.update(Message::LinkTelegram);
                 }
                 if self.sending.as_ref().is_some_and(|s| s.over.is_none()) {
                     return Task::none();
@@ -6069,6 +6115,7 @@ impl Main {
                 Task::batch([sync, ui::in_thread(move || library::read(&sources)).map(Message::Loaded)])
             }
             P::ShareReplays(on) => self.sharing_update(sharing::Message::ShareReplays(on)),
+            P::LinkTelegram => self.update(Message::LinkTelegram),
             P::RemoveSource(at) => {
                 if at >= self.settings.sources.len() {
                     return Task::none();
@@ -6808,11 +6855,15 @@ impl Main {
             return Space::new().width(Length::Fill).height(Length::Fill).into();
         }
         let w = &self.words;
-        let mut left = column![ui::title(w.t("sign-in")), ui::why(w.t("sign-in-how"))].spacing(6).width(Length::Fill);
+        let linking = matches!(self.pairing, Pairing::Linking { .. });
+        let (title, how) = if linking { ("link-telegram", "link-telegram-how") } else { ("sign-in", "sign-in-how") };
+        let mut left = column![ui::title(w.t(title)), ui::why(w.t(how))].spacing(6).width(Length::Fill);
         match &self.pairing {
-            Pairing::Waiting { code, .. } => {
+            Pairing::Waiting { code, .. } | Pairing::Linking { code, .. } => {
                 left = left.push(container(text(code.clone()).font(theme::MONO_BOLD).size(26.0).color(ui::faded(INK))).padding(Padding::ZERO.top(12.0)));
-                left = left.push(ui::cap(w.t("code-lasts")));
+                if !linking {
+                    left = left.push(ui::cap(w.t("code-lasts")));
+                }
                 left = left.push(container(row![ui::dot(8.0), ui::mono_small(w.t("waiting-confirm"), MUTED)].spacing(8).align_y(iced::Center)).padding(Padding::ZERO.top(10.0)));
             }
             Pairing::Unavailable => {
@@ -6823,18 +6874,18 @@ impl Main {
             }
         }
         let mut sides = row![left].spacing(24).align_y(iced::Top);
-        if let (Some(qr), Pairing::Waiting { .. }) = (&self.qr, &self.pairing) {
+        if let (Some(qr), Pairing::Waiting { .. } | Pairing::Linking { .. }) = (&self.qr, &self.pairing) {
             sides = sides.push(ui::qr(qr));
         }
-        let waiting = matches!(self.pairing, Pairing::Waiting { .. });
-        let bottom = row![
-            ui::primary(w.t("open-telegram"), waiting.then_some(Message::OpenTelegram)),
-            ui::quiet(w.t("copy-link"), waiting.then_some(Message::CopyLink)),
-            ui::grow(),
-            ui::quiet(w.t("later-word"), Some(Message::LaterSignIn)),
-        ]
-        .spacing(4)
-        .align_y(iced::Center);
+        let waiting = matches!(self.pairing, Pairing::Waiting { .. } | Pairing::Linking { .. });
+        let mut bottom = row![ui::primary(w.t("open-telegram"), waiting.then_some(Message::OpenTelegram))].spacing(4).align_y(iced::Center);
+        if matches!(self.pairing, Pairing::Waiting { osu: true, .. }) {
+            bottom = bottom.push(ui::quiet(w.t("sign-in-osu"), Some(Message::OpenOsu)));
+        }
+        let bottom = bottom
+            .push(ui::quiet(w.t("copy-link"), waiting.then_some(Message::CopyLink)))
+            .push(ui::grow())
+            .push(ui::quiet(w.t("later-word"), Some(Message::LaterSignIn)));
         let card = ui::sheet(sides.into(), Some(bottom.into()));
         stack![
             mouse_area(ui::veil(theme::SCRIM)).on_press(Message::LaterSignIn),
@@ -7825,7 +7876,7 @@ mod tests {
     #[test]
     fn the_menu_names_the_chat_the_videos_go_to() {
         let (_, mut main) = crate::gallery::main_states(crate::lang::Lang::En).into_iter().next().expect("a staged screen");
-        main.account = Some(crate::bot::Me { telegram_id: 7, name: "Naum Redlo".into(), username: "naumredlo".into(), avatar: false });
+        main.account = Some(crate::bot::Me { telegram_id: 7, name: "Naum Redlo".into(), username: "naumredlo".into(), avatar: false, telegram: true, player: None });
         main.chats = vec![crate::bot::Chat { id: -100, title: "Osu Squad".into(), private: false, photo: false }];
         assert_eq!(main.chat_name(), "@naumredlo");
         main.settings.chat_id = Some(-100);

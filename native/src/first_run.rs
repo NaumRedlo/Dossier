@@ -45,7 +45,7 @@ impl Step {
 pub enum Pairing {
     Idle,
     Asking,
-    Waiting { code: String, link: String },
+    Waiting { code: String, link: String, osu: bool },
     Linked { who: String },
     Unavailable,
 }
@@ -73,7 +73,8 @@ pub enum Message {
     OwnFolder,
     OwnFolderMade(Result<Source, String>),
     Device(String),
-    PairAsked(Result<(String, String), Refused>),
+    PairAsked(Result<(String, String, bool), Refused>),
+    OpenOsu,
     Poll,
     Polled(Result<Paired, Refused>),
     OpenTelegram,
@@ -249,7 +250,7 @@ impl FirstRun {
         let server = self.settings.server.clone();
         let name = self.settings.device.clone();
         Task::perform(
-            async move { bot::pair(&server, &name).map(|p| (p.code, p.link)) },
+            async move { bot::pair(&server, &name).map(|p| (p.code, p.link, p.osu)) },
             Message::PairAsked,
         )
     }
@@ -345,14 +346,20 @@ impl FirstRun {
                 self.settings.device = name;
                 Task::none()
             }
-            Message::PairAsked(Ok((code, link))) => {
+            Message::PairAsked(Ok((code, link, osu))) => {
                 let link = if link.is_empty() {
                     format!("https://t.me/OneNineEightFourGlobalBot?start=pair-{}", bot::tidy(&code))
                 } else {
                     link
                 };
                 self.qr = qr_for(&link);
-                self.pairing = Pairing::Waiting { code: bot::pretty(&code), link };
+                self.pairing = Pairing::Waiting { code: bot::pretty(&code), link, osu };
+                Task::none()
+            }
+            Message::OpenOsu => {
+                if let Pairing::Waiting { code, osu: true, .. } = &self.pairing {
+                    let _ = open::that_detached(bot::osu_link(&self.settings.server, code));
+                }
                 Task::none()
             }
             Message::PairAsked(Err(_)) => {
@@ -731,10 +738,16 @@ impl FirstRun {
                         ui::cap(w.t("code-cap")),
                         text(code).font(theme::MONO_BOLD).size(theme::CODE).color(ui::faded(INK)),
                     ]);
-                    left = left.push(row![ui::primary(
+                    let mut ways = row![ui::primary(
                         w.t("open-telegram"),
                         matches!(self.pairing, Pairing::Waiting { .. }).then_some(Message::OpenTelegram)
-                    )]);
+                    )]
+                    .spacing(4)
+                    .align_y(iced::Center);
+                    if matches!(self.pairing, Pairing::Waiting { osu: true, .. }) {
+                        ways = ways.push(ui::quiet(w.t("sign-in-osu"), Some(Message::OpenOsu)));
+                    }
+                    left = left.push(ways);
                 }
                 let status = match &self.pairing {
                     Pairing::Linked { who } => row![

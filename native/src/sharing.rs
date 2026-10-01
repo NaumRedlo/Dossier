@@ -583,6 +583,9 @@ impl Main {
                 if !self.signed_in() {
                     return self.update(Outer::SignIn);
                 }
+                if !self.has_telegram() {
+                    return self.update(Outer::LinkTelegram);
+                }
                 let Some(video) = self.open_video.and_then(|at| self.store.videos.get(at)) else {
                     return Task::none();
                 };
@@ -941,6 +944,9 @@ impl Main {
         if got.replay {
             let free = self.sharing.drawing.is_none();
             buttons = buttons.push(ui::springy(ui::quiet(w.t("received-draw"), free.then_some(Outer::Sharing(Message::Draw))), 0.04));
+        }
+        if !self.has_telegram() {
+            return buttons.into();
         }
         let telegram = match (self.sharing.passed.contains(&got.id), self.sharing.passing.contains(&got.id)) {
             (true, _) => ui::primary(w.t("received-passed"), None),

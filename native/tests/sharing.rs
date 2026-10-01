@@ -209,3 +209,65 @@ fn the_replays_of_other_players_are_a_source_with_a_name_and_a_switch() {
         assert!(said.iter().any(|message| message.contains(&format!("Source({at}, false)"))), "{lang:?}: {said:?}");
     }
 }
+
+#[test]
+fn the_sign_in_sheet_offers_osu_beside_telegram() {
+    for lang in Lang::ALL {
+        let main = staged(lang, "main-signing");
+        let said = clicked(&main, &main.words.t("sign-in-osu"));
+        assert!(said.iter().any(|message| message.contains("OpenOsu")), "{lang:?}: {said:?}");
+        assert!(shows(&main, &main.words.t("open-telegram")));
+    }
+    assert_eq!(bot::osu_link("https://bot.example", "K7QN-M4XZ"), "https://bot.example/render/pair/K7QNM4XZ/osu");
+}
+
+#[test]
+fn an_account_without_telegram_is_asked_to_link_it_before_sending() {
+    use dossier_native::main_screen::Pairing;
+    for lang in Lang::ALL {
+        let mut main = staged(lang, "main-prefs-bot-osu");
+        assert!(!main.has_telegram());
+        assert!(shows(&main, &main.words.t("account-osu")));
+        assert!(shows(&main, &main.words.t("no-telegram-chats")));
+        let said = clicked(&main, &main.words.t("link-telegram"));
+        assert!(said.iter().any(|message| message.contains("LinkTelegram")), "{lang:?}: {said:?}");
+        let _ = main.update(M::SendVideo);
+        assert_eq!(main.pairing, Pairing::Asking);
+        assert!(main.sending.is_none());
+        let _ = main.update(M::TelegramAsked(Ok(("K7QNM4XZ".into(), "https://t.me/bot?start=pair-K7QNM4XZ".into()))));
+        assert!(matches!(main.pairing, Pairing::Linking { .. }));
+        assert!(shows(&main, &main.words.t("link-telegram-how")));
+        assert!(!shows(&main, &main.words.t("sign-in-osu")));
+        let linked = bot::Me { telegram_id: 7, name: "Naum".into(), username: "naumredlo".into(), avatar: false, telegram: true, player: Some(1) };
+        let _ = main.update(M::Known(Ok(linked)));
+        assert_eq!(main.pairing, Pairing::Idle);
+        assert!(main.has_telegram());
+        assert!(!shows(&main, &main.words.t("no-telegram-chats")));
+    }
+}
+
+#[test]
+fn a_received_video_is_not_offered_to_a_telegram_that_is_not_there() {
+    let mut main = staged(Lang::En, "main-videos-received-open");
+    assert!(shows(&main, &main.words.t("received-telegram")));
+    main.account = Some(bot::Me { telegram_id: 0, name: "NaumRedlo".into(), username: String::new(), avatar: false, telegram: false, player: Some(1) });
+    assert!(!shows(&main, &main.words.t("received-telegram")));
+    assert!(shows(&main, &main.words.t("received-draw")));
+    main.sharing.open = None;
+    main.open_video = Some(0);
+    let _ = main.update(M::Sharing(S::Pick));
+    assert!(main.sharing.picker.is_none());
+    assert_eq!(main.pairing, dossier_native::main_screen::Pairing::Asking);
+}
+
+#[test]
+fn what_the_bot_says_about_an_account_is_read_with_and_without_telegram() {
+    let old: bot::Me = serde_json::from_str(r#"{"telegram_id": 7, "name": "Naum", "username": "naumredlo", "avatar": true}"#).unwrap();
+    assert!(old.telegram && old.player.is_none());
+    let apart: bot::Me = serde_json::from_str(r#"{"telegram_id": 0, "name": "alice", "username": "", "avatar": false, "telegram": false, "player": 5}"#).unwrap();
+    assert!(!apart.telegram && apart.player == Some(5));
+    let pairing: bot::Pairing = serde_json::from_str(r#"{"code": "K7QN-M4XZ", "link": "", "expires_in": 600, "osu": true}"#).unwrap();
+    assert!(pairing.osu);
+    let before: bot::Pairing = serde_json::from_str(r#"{"code": "K7QN-M4XZ"}"#).unwrap();
+    assert!(!before.osu);
+}

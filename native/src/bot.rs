@@ -43,6 +43,12 @@ pub struct Pairing {
     pub link: String,
     #[serde(default)]
     pub expires_in: u64,
+    #[serde(default)]
+    pub osu: bool,
+}
+
+pub fn osu_link(server: &str, code: &str) -> String {
+    format!("{server}/render/pair/{}/osu", tidy(code))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
@@ -160,6 +166,24 @@ pub struct Me {
     pub username: String,
     #[serde(default)]
     pub avatar: bool,
+    #[serde(default = "yes")]
+    pub telegram: bool,
+    #[serde(default)]
+    pub player: Option<i64>,
+}
+
+fn yes() -> bool {
+    true
+}
+
+pub fn link_telegram(server: &str, token: &str, name: &str) -> Result<Pairing, Refused> {
+    let response = client()?
+        .post(format!("{server}/render/me/telegram"))
+        .header("X-Render-Worker", name)
+        .bearer_auth(token)
+        .send()
+        .map_err(|e| Refused::Network(e.to_string()))?;
+    status(response)?.json::<Pairing>().map_err(|e| Refused::Network(e.to_string()))
 }
 
 pub fn me(server: &str, token: &str, name: &str) -> Result<Me, Refused> {

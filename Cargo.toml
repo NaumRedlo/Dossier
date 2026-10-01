@@ -10,6 +10,7 @@ members = [
     "crates/dossier-audio",
     "crates/dossier-produce",
     "crates/dossier-cli",
+    "crates/dossier-witness",
 ]
 
 [workspace.package]

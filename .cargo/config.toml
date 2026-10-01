@@ -1,2 +1,5 @@
 [env]
 ICED_TEST_BACKEND = "tiny-skia"
+
+[target.x86_64-pc-windows-gnu]
+linker = "x86_64-w64-mingw32-gcc"

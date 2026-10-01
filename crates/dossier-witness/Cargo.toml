@@ -1,0 +1,14 @@
+[package]
+name = "dossier-witness"
+description = "Witness: reads what a running osu! client holds in memory, and writes nothing"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "dossier_witness"
+path = "src/lib.rs"
+
+[[bin]]
+name = "witness"
+path = "src/main.rs"

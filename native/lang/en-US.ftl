@@ -596,6 +596,7 @@ search-nothing = No replays match this search
 reading-maps = Reading maps…
 reading-replays = Reading replays…
 new-replay = New replay
+journal-shared = another player's replay
 new-replays = { $n ->
     [one] new replay
    *[other] new replays

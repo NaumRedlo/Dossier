@@ -1472,3 +1472,20 @@ video: every frame of 656 stayed for exactly two refreshes, none was lost.
 measures it again; `--open <folder> --flood <rate>` feeds the window pointer
 movements at a chosen rate while the frame journal (`DOSSIER_FRAMES`, and
 `DOSSIER_FRAMES_SLOW=0` to write down every update and view) is kept.
+
+Another player's replay is told apart in the journal (2026-10-02): replays the
+server brings from people who share theirs carry a small blue disc with the
+player's initial on their frame and beside the name in the bubble, and the
+heading of the chosen one says *реплей другого игрока* in the same blue after
+the date. Blue here means only that, the way red means the person's own.
+
+The profile panel of the feed (same day) lost its line of country place and
+level — both are in the profile itself — and its three panes are no longer
+grey boxes: over a cover each pane is frosted glass, the cover behind it
+blurred and dimmed, with a thin light edge; without a cover a pane is only its
+edge. The window has no way to blur what is behind a widget, so the glass is
+made beforehand: a small soft copy of the cover is kept beside the picture, and
+each pane is cut from it for the place it stands in, with its corners rounded
+in the picture itself and the dimming baked in, so it reads the same on the
+GPU and in the software renderer. The cuts are remembered by cover, width and
+pane.

@@ -155,6 +155,7 @@ pub struct Ground<'a> {
     pub compare_query: &'a str,
     pub news: &'a News,
     pub pictures: &'a HashMap<String, image::Handle>,
+    pub frosts: &'a HashMap<String, Frost>,
     pub loading: &'a std::collections::HashSet<String>,
     pub failed: &'a std::collections::HashSet<String>,
     pub channels: &'a [String],
@@ -890,6 +891,65 @@ fn spread<'a>(inside: Element<'a, Message>) -> Element<'a, Message> {
     crate::glide::brim(spread).into()
 }
 
+#[derive(Debug, Clone)]
+pub struct Frost {
+    pub width: u32,
+    pub height: u32,
+    pub pixels: std::sync::Arc<Vec<u8>>,
+}
+
+impl Frost {
+    pub fn of(bytes: &[u8]) -> Option<Frost> {
+        let picture = ::image::load_from_memory(bytes).ok()?;
+        let small = picture.resize(FROST_WIDE, u32::MAX, ::image::imageops::FilterType::Triangle).to_rgba8();
+        let soft = ::image::imageops::blur(&small, FROST_SOFT);
+        let (width, height) = soft.dimensions();
+        Some(Frost { width, height, pixels: std::sync::Arc::new(soft.into_raw()) })
+    }
+
+    fn at(&self, x: f32, y: f32) -> [f32; 3] {
+        let (x, y) = (x.clamp(0.0, self.width as f32 - 1.0), y.clamp(0.0, self.height as f32 - 1.0));
+        let (x0, y0) = (x.floor() as usize, y.floor() as usize);
+        let (x1, y1) = ((x0 + 1).min(self.width as usize - 1), (y0 + 1).min(self.height as usize - 1));
+        let (fx, fy) = (x - x0 as f32, y - y0 as f32);
+        let texel = |x: usize, y: usize, channel: usize| f32::from(self.pixels[(y * self.width as usize + x) * 4 + channel]);
+        std::array::from_fn(|channel| {
+            let top = texel(x0, y0, channel) * (1.0 - fx) + texel(x1, y0, channel) * fx;
+            let bottom = texel(x0, y1, channel) * (1.0 - fx) + texel(x1, y1, channel) * fx;
+            top * (1.0 - fy) + bottom * fy
+        })
+    }
+
+    pub fn pane(&self, pane: iced::Rectangle, card: iced::Size, round: f32) -> image::Handle {
+        let (wide, high) = (self.width.max(1) as f32, self.height.max(1) as f32);
+        let (room_wide, room_high) = ((card.width - 4.0).max(1.0), (card.height - 4.0).max(1.0));
+        let scale = (room_wide / wide).max(room_high / high);
+        let (left, top) = (2.0 + (room_wide - wide * scale) / 2.0, 2.0 + (room_high - high * scale) / 2.0);
+        let (out_wide, out_high) = (((pane.width * FROST_DENSE).round() as u32).max(1), ((pane.height * FROST_DENSE).round() as u32).max(1));
+        let round = round * FROST_DENSE;
+        let mut out = vec![0u8; (out_wide * out_high * 4) as usize];
+        for py in 0..out_high {
+            for px in 0..out_wide {
+                let (fx, fy) = (px as f32 + 0.5, py as f32 + 0.5);
+                let colour = self.at((pane.x + fx / FROST_DENSE - left) / scale - 0.5, (pane.y + fy / FROST_DENSE - top) / scale - 0.5);
+                let (dx, dy) = ((round - fx).max(fx - (out_wide as f32 - round)).max(0.0), (round - fy).max(fy - (out_high as f32 - round)).max(0.0));
+                let cover = (round + 0.5 - (dx * dx + dy * dy).sqrt()).clamp(0.0, 1.0);
+                let at = ((py * out_wide + px) * 4) as usize;
+                out[at] = (colour[0] * FROST_LIGHT) as u8;
+                out[at + 1] = (colour[1] * FROST_LIGHT) as u8;
+                out[at + 2] = (colour[2] * FROST_LIGHT) as u8;
+                out[at + 3] = (cover * 255.0) as u8;
+            }
+        }
+        image::Handle::from_rgba(out_wide, out_high, out)
+    }
+}
+
+const FROST_WIDE: u32 = 200;
+const FROST_SOFT: f32 = 5.0;
+const FROST_DENSE: f32 = 2.0;
+const FROST_LIGHT: f32 = 0.34;
+
 pub(crate) fn backdrop<'a>(handle: Option<&image::Handle>, high: f32, radius: f32, tint: Color, across: bool) -> Element<'a, Message> {
     let k = ui::fade();
     let angle = if across { std::f32::consts::FRAC_PI_2 } else { std::f32::consts::PI };
@@ -1416,6 +1476,33 @@ pub(crate) fn profile_panel<'a>(ground: &Ground<'a>, at: usize) -> Element<'a, M
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_frosted_pane_is_the_dimmed_cover_behind_it_with_round_corners() {
+        let mut picture = ::image::RgbaImage::new(400, 100);
+        for (x, _, pixel) in picture.enumerate_pixels_mut() {
+            *pixel = if x < 200 { ::image::Rgba([255, 0, 0, 255]) } else { ::image::Rgba([0, 0, 255, 255]) };
+        }
+        let mut bytes = Vec::new();
+        ::image::DynamicImage::ImageRgba8(picture).write_to(&mut std::io::Cursor::new(&mut bytes), ::image::ImageFormat::Png).unwrap();
+        let frost = Frost::of(&bytes).expect("a picture");
+        assert_eq!((frost.width, frost.height), (200, 50));
+        let card = iced::Size::new(404.0, 104.0);
+        let pane = |x: f32| match frost.pane(iced::Rectangle::new(iced::Point::new(x, 20.0), iced::Size::new(60.0, 40.0)), card, 10.0) {
+            image::Handle::Rgba { width, height, pixels, .. } => (width, height, pixels.to_vec()),
+            _ => panic!("not pixels"),
+        };
+        let (width, height, left) = pane(30.0);
+        assert_eq!((width, height), (120, 80), "a pane is drawn at twice its size for dense screens");
+        let at = |pixels: &[u8], x: u32, y: u32| -> [u8; 4] { std::array::from_fn(|channel| pixels[((y * width + x) * 4) as usize + channel]) };
+        assert_eq!(at(&left, 0, 0)[3], 0, "the corner is cut round");
+        assert_eq!(at(&left, 60, 40)[3], 255);
+        let middle = at(&left, 60, 40);
+        assert!(middle[0] > 60 && middle[0] <= 90 && middle[2] < 10, "the left of the cover is red and dimmed: {middle:?}");
+        let (_, _, right) = pane(310.0);
+        let middle = at(&right, 60, 40);
+        assert!(middle[2] > 60 && middle[0] < 10, "the right of the cover is blue: {middle:?}");
+    }
 
     #[test]
     fn the_adaptive_board_ranks_only_the_week_s_gains() {

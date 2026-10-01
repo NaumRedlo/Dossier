@@ -842,6 +842,26 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
         ("main-nomap".to_owned(), staged(Some(3))),
         ("main-worker".to_owned(), worker),
         ("main-community-feed".to_owned(), community(crate::community_screen::Section::Feed, None)),
+        ("main-community-feed-cover".to_owned(), {
+            let mut main = community(crate::community_screen::Section::Feed, None);
+            let cover = "cover://staged".to_owned();
+            let picture = Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("docs").join("mockups").join("main").join("bg-freedom.jpg");
+            if let Ok(bytes) = std::fs::read(&picture) {
+                if let (Some(handle), Some(frost)) = (crate::main_screen::fitted_bytes(&bytes, crate::community::COVER), crate::community_screen::Frost::of(&bytes)) {
+                    main.news_pictures.insert(cover.clone(), handle);
+                    main.news_frosts.insert(cover.clone(), frost);
+                }
+            }
+            if let Some(catalog) = main.community.as_mut() {
+                if let Some(me) = catalog.me.as_mut() {
+                    me.person.cover = cover.clone();
+                }
+                for person in catalog.people.iter_mut().filter(|person| person.you) {
+                    person.cover = cover.clone();
+                }
+            }
+            main
+        }),
         ("main-community-people".to_owned(), community(crate::community_screen::Section::People, None)),
         ("main-community-sidebar".to_owned(), {
             let mut main = community(crate::community_screen::Section::Feed, None);
@@ -937,7 +957,17 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
         ("main-rendering".to_owned(), rendering),
         ("main-queued".to_owned(), queued),
         ("main-rendered".to_owned(), rendered),
-        ("main-hover".to_owned(), hovering),
+        ("main-hover".to_owned(), hovering.clone()),
+        ("main-shared".to_owned(), {
+            let mut shared = hovering;
+            if let Some(library) = shared.library.as_mut() {
+                for entry in library.entries.iter_mut().take(2) {
+                    let name = entry.path.file_name().map(std::path::PathBuf::from).unwrap_or_default();
+                    entry.path = crate::sources::shared_root().join(name);
+                }
+            }
+            shared
+        }),
         ("main-fetching".to_owned(), {
             for job in &mut fetching.fetching {
                 job.shown = job.target().unwrap_or(0.0);

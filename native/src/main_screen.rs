@@ -52,6 +52,7 @@ const JOURNAL_RISE: f32 = 140.0;
 const BUBBLE_W: f32 = 340.0;
 const BUBBLE_H: f32 = 88.0;
 const CARET: f32 = 8.0;
+const SHARED_MARK: f32 = 16.0;
 const THUMB: (u32, u32) = (176, 100);
 const SCENE_WIDTH: u32 = 960;
 const REST_AFTER: Duration = Duration::from_secs(120);
@@ -77,6 +78,7 @@ pub enum Message {
     NewsThreads(Result<Vec<crate::news::Thread>, String>),
     NewsPosts(String, Result<Vec<crate::news::Post>, String>),
     NewsPicture(String, Option<image::Handle>),
+    NewsFrost(String, crate::community_screen::Frost),
     LiveArrive,
     CommunityArrived(Result<crate::community::wire::Community, String>),
     MapBoard(u64, bool, Result<crate::community::wire::MapBoard, String>),
@@ -232,6 +234,7 @@ pub enum Message {
 #[derive(Debug, Clone, Default)]
 pub struct Shown {
     pub date: String,
+    pub from: String,
     pub player: String,
     pub map: String,
     pub mods: Vec<String>,
@@ -557,6 +560,7 @@ pub struct Main {
     pub news: crate::news::News,
     news_loaded: bool,
     pub news_pictures: HashMap<String, image::Handle>,
+    pub news_frosts: HashMap<String, crate::community_screen::Frost>,
     news_asked: std::collections::HashSet<String>,
     pub news_loading: std::collections::HashSet<String>,
     pub news_failed: std::collections::HashSet<String>,
@@ -783,6 +787,7 @@ impl Main {
             news: crate::news::News::default(),
             news_loaded: false,
             news_pictures: HashMap::new(),
+            news_frosts: HashMap::new(),
             news_asked: std::collections::HashSet::new(),
             news_loading: std::collections::HashSet::new(),
             news_failed: std::collections::HashSet::new(),
@@ -1197,6 +1202,7 @@ impl Main {
         };
         Shown {
             date: format!("{}  {}  {}", w.day(entry.played_at, self.now_unix), w.clock(entry.played_at), entry.client.tag()),
+            from: if crate::mixed::is_shared(&entry.path) { w.t("journal-shared") } else { String::new() },
             player: entry.player.clone(),
             map: entry.map_line().unwrap_or_else(|| w.t("unknown-map")),
             mods: entry.mods.clone(),
@@ -2821,6 +2827,10 @@ impl Main {
                 }
                 Task::none()
             }
+            Message::NewsFrost(url, frost) => {
+                self.news_frosts.insert(url, frost);
+                Task::none()
+            }
             Message::ReadFirst => match self.news.stories.first().cloned() {
                 Some(story) => self.update(Message::Community(crate::community_screen::Message::Read(crate::community_screen::Reading::Story(story)))),
                 None => Task::none(),
@@ -4093,6 +4103,7 @@ impl Main {
         let w = &self.words;
         let retype = |from: &str, to: &str| if s < 1.0 { typed(from, to, s) } else { to.to_owned() };
         let date = retype(&was.date, &now.date);
+        let from = retype(&was.from, &now.from);
         let player = retype(&was.player, &now.player);
         let map = retype(&was.map, &now.map);
         let accuracy = retype(&was.accuracy, &now.accuracy);
@@ -4112,7 +4123,7 @@ impl Main {
         meta = meta.push(ui::mono(retype(&was.meta, &now.meta), MUTED));
         let action: Element<'_, Message> = if with_actions { self.action(entry) } else { Space::new().height(theme::CONTROL_HEIGHT).into() };
         let left = column![
-            text(date).font(theme::MONO).size(theme::CAPTION).color(ui::faded(MUTED)),
+            row![text(date).font(theme::MONO).size(theme::CAPTION).color(ui::faded(MUTED)), text(from).font(theme::MONO).size(theme::CAPTION).color(ui::faded(theme::SHARED))].spacing(14),
             text(player).font(theme::SANS_SEMI).size(30.0).color(ui::faded(INK)),
             text(map).font(theme::SANS).size(theme::BODY).color(ui::faded(MUTED)),
             container(meta).padding(Padding::ZERO.top(4.0)),
@@ -4534,6 +4545,12 @@ impl Main {
             (None, true) => Space::new().width(w - inner).height(h - inner).into(),
             (None, false) => container(ui::fine_hatch()).width(w - inner).height(h - inner).into(),
         };
+        let picture: Element<'_, Message> = match crate::mixed::is_shared(&entry.path) {
+            true => {
+                stack![picture, container(shared_mark(&entry.player)).padding(4)].into()
+            }
+            false => picture,
+        };
         let edge = if chosen { 2.0 } else { 1.0 };
         let pressed = button(ui::clipped(container(picture).width(w - 2.0 * edge).height(h - 2.0 * edge)))
             .padding(edge)
@@ -4601,8 +4618,9 @@ impl Main {
             format!("{}  {} {}", entry.client.tag(), w.day(entry.played_at, self.now_unix), w.clock(entry.played_at)),
             FAINT,
         ));
+        let whose: Element<'_, Message> = if crate::mixed::is_shared(&entry.path) { shared_mark(&entry.player) } else { Space::new().into() };
         let head = row![
-            text(ui::shortened(entry.player.clone(), 22)).font(theme::SANS_SEMI).size(theme::BODY).wrapping(text::Wrapping::None).color(ui::faded(INK)),
+            row![whose, text(ui::shortened(entry.player.clone(), 22)).font(theme::SANS_SEMI).size(theme::BODY).wrapping(text::Wrapping::None).color(ui::faded(INK))].spacing(7).align_y(iced::Center),
             ui::grow(),
             row![
                 text(entry.grade.letter()).font(theme::MONO_BOLD).size(theme::CAPTION).color(ui::faded(grade_colour(entry.grade))),
@@ -5711,7 +5729,13 @@ impl Main {
         }
         ui::streamed(move |push| {
             for (url, side) in wanted {
-                let handle = crate::news::picture(crate::community::fetched(&url)).and_then(|bytes| match side {
+                let bytes = crate::news::picture(crate::community::fetched(&url));
+                if let Some(frost) = bytes.as_deref().filter(|_| side == crate::community::COVER).and_then(crate::community_screen::Frost::of) {
+                    if !push(Message::NewsFrost(url.clone(), frost)) {
+                        return;
+                    }
+                }
+                let handle = bytes.and_then(|bytes| match side {
                     crate::community::BACKDROP => backdrop_bytes(&bytes, side),
                     crate::community::POSTER => poster_bytes(&bytes),
                     side if side <= 256 => covered_bytes(&bytes, side, side),
@@ -5731,7 +5755,7 @@ impl Main {
         let mut wanted: Vec<(String, u32)> = catalog.pictures();
         for dossier in self.people_dossiers.values() {
             if !dossier.person.avatar.is_empty() { wanted.push((dossier.person.avatar.clone(), 256)); }
-            if !dossier.person.cover.is_empty() { wanted.push((dossier.person.cover.clone(), 1400)); }
+            if !dossier.person.cover.is_empty() { wanted.push((dossier.person.cover.clone(), crate::community::COVER)); }
         }
         if let Some(card) = self.shown_card.clone().or_else(|| catalog.card_of()) {
             wanted.extend(card.pictures());
@@ -5755,7 +5779,13 @@ impl Main {
         let pictures = lanes.into_iter().filter(|lane| !lane.is_empty()).map(|lane| {
             ui::streamed(move |push| {
                 for (url, side) in lane {
-                    let handle = crate::news::picture(crate::community::fetched(&url)).and_then(|bytes| match side {
+                    let bytes = crate::news::picture(crate::community::fetched(&url));
+                    if let Some(frost) = bytes.as_deref().filter(|_| side == crate::community::COVER).and_then(crate::community_screen::Frost::of) {
+                        if !push(Message::NewsFrost(url.clone(), frost)) {
+                            return;
+                        }
+                    }
+                    let handle = bytes.and_then(|bytes| match side {
                         crate::community::BACKDROP => backdrop_bytes(&bytes, side),
                         crate::community::POSTER => poster_bytes(&bytes),
                         side if side <= 256 => covered_bytes(&bytes, side, side),
@@ -5870,6 +5900,7 @@ impl Main {
             now_unix: self.now_unix,
             news: &self.news,
             pictures: &self.news_pictures,
+            frosts: &self.news_frosts,
             loading: &self.news_loading,
             failed: &self.news_failed,
             channels: &self.settings.news_channels,
@@ -7084,6 +7115,19 @@ pub fn covered_bytes(bytes: &[u8], width: u32, height: u32) -> Option<image::Han
     Some(image::Handle::from_rgba(width, height, picture.into_raw()))
 }
 
+fn shared_mark<'a>(player: &str) -> Element<'a, Message> {
+    let (fill, ink) = (ui::faded(theme::SHARED), ui::faded(theme::GROUND));
+    let initial = player.chars().next().map(|first| first.to_uppercase().to_string()).unwrap_or_default();
+    container(text(initial).font(theme::MONO_BOLD).size(9.0).color(ink))
+        .center(SHARED_MARK)
+        .style(move |_| container::Style {
+            background: Some(iced::Background::Color(fill)),
+            border: iced::Border { radius: (SHARED_MARK / 2.0).into(), ..iced::Border::default() },
+            ..container::Style::default()
+        })
+        .into()
+}
+
 pub fn decoded_bytes(bytes: &[u8], side: u32) -> Option<image::Handle> {
     let picture = ::image::load_from_memory(bytes).ok()?;
     let picture = picture.resize_to_fill(side, side, ::image::imageops::FilterType::Lanczos3).to_rgba8();
@@ -7935,6 +7979,8 @@ mod tests {
         let _ = main.update(super::Message::Refreshed(library.clone()));
         assert_eq!(main.notices.notices.len(), before);
         assert!(main.entries().iter().any(|entry| entry.replay_hash == brought.replay_hash));
+        assert_eq!(main.shown(&brought).from, "another player's replay", "a replay from the server is not told apart in the journal");
+        assert_eq!(main.shown(&library.entries[1]).from, "");
         let mut own = brought;
         own.path = "/replays/own.osr".into();
         own.replay_hash = "e".repeat(32);

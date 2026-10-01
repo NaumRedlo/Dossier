@@ -615,6 +615,7 @@ search-nothing = По этому запросу реплеи не найдены
 reading-maps = Чтение карт…
 reading-replays = Чтение реплеев…
 new-replay = Новый реплей
+journal-shared = реплей другого игрока
 new-replays = { $n ->
     [one] новый реплей
     [few] новых реплея

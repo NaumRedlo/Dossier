@@ -314,6 +314,7 @@ pub const GRADE_B: Color = color!(0x58aefc);
 pub const GRADE_C: Color = color!(0xb06ce8);
 pub const GRADE_D: Color = ACCENT;
 pub const HIT_300: Color = GRADE_B;
+pub const SHARED: Color = color!(0x7fb6f2);
 pub const HIT_100: Color = GRADE_A;
 pub const HIT_50: Color = GRADE_S;
 

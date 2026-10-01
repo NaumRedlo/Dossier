@@ -845,22 +845,61 @@ impl<M> iced::widget::canvas::Program<M> for Arc {
     }
 }
 
-fn tile<'a>(value: String, label: String, delta: Option<(String, bool)>, colour: Color) -> Element<'a, Message> {
+const ME_HEAD: f32 = 62.0;
+const ME_PANE: f32 = 50.0;
+const ME_EDGE: f32 = 16.0;
+const ME_GAP: f32 = 14.0;
+const PANE_GAP: f32 = 8.0;
+const PANE_ROUND: f32 = 10.0;
+
+type Pane = (String, String, Option<(String, bool)>, Color);
+
+thread_local! {
+    static PANES: std::cell::RefCell<std::collections::HashMap<(String, u32, usize), iced::widget::image::Handle>> = std::cell::RefCell::new(std::collections::HashMap::new());
+}
+
+const PANES_KEPT: usize = 48;
+
+fn frosted(cover: &str, frost: &screen::Frost, at: usize, place: iced::Rectangle, card: iced::Size) -> iced::widget::image::Handle {
+    let key = (cover.to_owned(), (card.width * 2.0).round() as u32, at);
+    PANES.with(|panes| {
+        let mut panes = panes.borrow_mut();
+        if let Some(kept) = panes.get(&key) {
+            return kept.clone();
+        }
+        if panes.len() >= PANES_KEPT {
+            panes.clear();
+        }
+        let made = frost.pane(place, card, PANE_ROUND);
+        panes.insert(key, made.clone());
+        made
+    })
+}
+
+fn tile<'a>(said: Pane, behind: Option<iced::widget::image::Handle>) -> Element<'a, Message> {
     let k = ui::fade();
-    let mut under = row![ui::mono_small(label, FAINT)].spacing(5);
+    let (value, label, delta, colour) = said;
+    let frosted = behind.is_some();
+    let mut under = row![ui::mono_small(label, if frosted { MUTED } else { FAINT })].spacing(5);
     if let Some((delta, up)) = delta {
         under = under.push(ui::mono_small(delta, if up { GREEN } else { ACCENT }));
     }
-    container(column![text(value).font(theme::SANS_SEMI).size(15.0).wrapping(text::Wrapping::None).color(ui::faded(colour)), container(under).clip(true)].spacing(2))
+    let words = container(column![text(value).font(theme::SANS_SEMI).size(15.0).wrapping(text::Wrapping::None).color(ui::faded(colour)), container(under).clip(true)].spacing(2))
         .padding([8, 9])
-        .width(Length::FillPortion(1))
+        .width(Length::Fill)
+        .height(ME_PANE)
         .clip(true)
         .style(move |_| container::Style {
-            background: Some(Background::Color(Color::from_rgba(1.0, 1.0, 1.0, 0.022 * k))),
-            border: Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.07 * k), width: 1.0, radius: 10.0.into() },
+            border: Border { color: Color::from_rgba(1.0, 1.0, 1.0, if frosted { 0.16 } else { 0.07 } * k), width: 1.0, radius: PANE_ROUND.into() },
             ..container::Style::default()
-        })
-        .into()
+        });
+    match behind {
+        Some(handle) => stack![iced::widget::image(handle).content_fit(iced::ContentFit::Fill).width(Length::Fill).height(ME_PANE).opacity(k), words]
+        .width(Length::FillPortion(1))
+        .height(ME_PANE)
+        .into(),
+        None => container(words).width(Length::FillPortion(1)).height(ME_PANE).into(),
+    }
 }
 
 fn me_card<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
@@ -869,15 +908,7 @@ fn me_card<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
         return card(ui::mono_small(w.t("nothing-yet"), FAINT), 16).into();
     };
     let card_data = ground.card.cloned().or_else(|| ground.catalog.card_of());
-    let (level, share) = card_data.as_ref().map_or((you.level, 0.0), |c| (c.level as u32, (c.level_progress / 100.0) as f32));
-    let country_rank = card_data.as_ref().map_or(0.0, |c| c.country_rank);
-    let mut place: Vec<String> = Vec::new();
-    if country_rank > 0.0 {
-        place.push(format!("#{}", w.lang().group(country_rank as u64)));
-    }
-    if level > 0 {
-        place.push(format!("{} {level}", w.t("level-short")));
-    }
+    let share = card_data.as_ref().map_or(0.0, |c| (c.level_progress / 100.0) as f32);
     let signed = |value: f64, places: usize| -> Option<(String, bool)> {
         (value.abs() > 0.004).then(|| (format!("{}{}", if value > 0.0 { "+" } else { "−" }, screen::decimal(w, value.abs() as f32, places)), value > 0.0))
     };
@@ -892,12 +923,12 @@ fn me_card<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
             .spacing(7)
             .align_y(iced::Center),
             screen::title_line(ground, you, 12.0),
-            ui::marquee(ui::pieces(place, theme::MONO, 11.0, MUTED)),
         ]
         .spacing(3)
         .width(Length::Fill),
     ]
     .spacing(12)
+    .height(ME_HEAD)
     .align_y(iced::Center);
     if let Some(place) = in_group {
         head = head.push(
@@ -908,13 +939,28 @@ fn me_card<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
             .align_x(iced::alignment::Horizontal::Right),
         );
     }
-    let tiles = row![
-        tile(w.lang().group((f64::from(you.pp) * f).round() as u64), w.t("board-pp"), signed(you.gained[0], 0), coral),
-        tile(screen::rank_of(w, if you.rank > 0 { ((f64::from(you.rank) * f).round() as u32).max(1) } else { 0 }), w.t("metric-world"), None, INK),
-        tile(w.percent(f64::from(you.accuracy) * f), w.t("metric-accuracy-short"), signed(you.gained[1], 2), INK),
-    ]
-    .spacing(8);
+    let high = 208.0;
     let k = ui::fade();
+    let panes: [Pane; 3] = [
+        (w.lang().group((f64::from(you.pp) * f).round() as u64), w.t("board-pp"), signed(you.gained[0], 0), coral),
+        (screen::rank_of(w, if you.rank > 0 { ((f64::from(you.rank) * f).round() as u32).max(1) } else { 0 }), w.t("metric-world"), None, INK),
+        (w.percent(f64::from(you.accuracy) * f), w.t("metric-accuracy-short"), signed(you.gained[1], 2), INK),
+    ];
+    let frost = ground.frosts.get(&you.cover).filter(|_| ground.pictures.contains_key(&you.cover)).cloned();
+    let cover_named = you.cover.clone();
+    let tiles = iced::widget::responsive(move |room| {
+        let wide = ((room.width - PANE_GAP * 2.0) / 3.0).max(1.0);
+        let card = iced::Size::new(room.width + ME_EDGE * 2.0, high);
+        ui::fading(k, || {
+            let mut line = row![].spacing(PANE_GAP);
+            for (at, pane) in panes.iter().enumerate() {
+                let place = iced::Rectangle::new(iced::Point::new(ME_EDGE + at as f32 * (wide + PANE_GAP), ME_EDGE + ME_HEAD + ME_GAP), iced::Size::new(wide, ME_PANE));
+                line = line.push(tile(pane.clone(), frost.as_ref().map(|frost| frosted(&cover_named, frost, at, place, card))));
+            }
+            line.into()
+        })
+    });
+    let tiles = container(tiles).width(Length::Fill).height(ME_PANE);
     let mut foot = row![].spacing(8).align_y(iced::Center);
     if you.streak > 0 {
         let chip = container(
@@ -948,8 +994,7 @@ fn me_card<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
             ui::Glow::tile(8.0).edge(Color::from_rgba(1.0, 1.0, 1.0, 0.16)),
         ),
     );
-    let high = 208.0;
-    let inside = container(column![head, tiles, foot].spacing(14)).padding(16).width(Length::Fill).height(high);
+    let inside = container(column![head, tiles, foot].spacing(ME_GAP)).padding(ME_EDGE).width(Length::Fill).height(high);
     let cover = ground.pictures.get(&you.cover);
     container(stack![screen::backdrop(cover, high, 14.0, screen::avatar_colour(&you.name), false), inside].height(high))
         .width(Length::Fill)

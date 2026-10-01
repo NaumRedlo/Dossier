@@ -437,6 +437,7 @@ fn me_into(maps: &mut Vec<MapRef>, me: &wire::Me) -> Me {
 }
 
 pub const BACKDROP: u32 = 720;
+pub const COVER: u32 = 1400;
 pub const POSTER: u32 = 721;
 pub const POSTER_SHAPE: f32 = 1.45;
 
@@ -881,7 +882,7 @@ impl Catalog {
         };
         if let Some(me) = &self.me {
             want(&me.person.avatar, 256);
-            want(&me.person.cover, 1400);
+            want(&me.person.cover, COVER);
         }
         for person in &self.people {
             want(&person.avatar, 128);
@@ -1557,7 +1558,7 @@ pub mod wire {
                 wanted.push((self.avatar_url.clone(), 256));
             }
             if !self.cover_url.is_empty() {
-                wanted.push((self.cover_url.clone(), 1400));
+                wanted.push((self.cover_url.clone(), super::COVER));
             }
             wanted.extend(self.top_scores.iter().filter_map(Score::cover).map(|url| (url, 400)));
             wanted.extend(self.top_scores.iter().filter_map(Score::cover).map(|url| (super::poster_key(&url), super::POSTER)));

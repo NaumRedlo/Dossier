@@ -34,10 +34,29 @@ pub enum Standing {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct Scored {
+    pub who: i64,
+    pub name: String,
+    pub map: crate::community::MapRef,
+    pub play: crate::community::Play,
+    pub passed: bool,
+}
+
+impl Scored {
+    pub fn of(catalog: &Catalog, who: usize, play: &crate::community::Play, passed: bool) -> Option<Scored> {
+        let person = catalog.people.get(who)?;
+        let map = catalog.maps.get(play.map)?.clone();
+        Some(Scored { who: person.id, name: person.name.clone(), map, play: play.clone(), passed })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum Reading {
     Story(news::Story),
     Post(news::Post),
     Build(news::Build),
+    Score(Scored),
+    Title { code: String, who: Option<i64> },
 }
 
 impl Reading {
@@ -46,6 +65,7 @@ impl Reading {
             Reading::Story(story) => &story.url,
             Reading::Post(post) => &post.url,
             Reading::Build(build) => &build.url,
+            Reading::Score(_) | Reading::Title { .. } => "",
         }
     }
 
@@ -61,7 +81,8 @@ impl Reading {
                 }))
                 .collect(),
             Reading::Post(post) => post.images.iter().cloned().chain(post.image.iter().cloned()).chain(post.videos.iter().filter_map(|video| video.thumb.clone())).collect(),
-            Reading::Build(_) => Vec::new(),
+            Reading::Build(_) | Reading::Title { .. } => Vec::new(),
+            Reading::Score(scored) => scored.map.cover().into_iter().collect(),
         }
     }
 }
@@ -82,6 +103,7 @@ pub enum Fetch {
 pub enum Message {
     Tap(iced::Point, Option<iced::Rectangle>),
     Read(Reading),
+    TitleOf(String, Option<i64>),
     Unread,
     PeopleFrom(PeopleFrom),
     Standing(Standing),
@@ -178,6 +200,9 @@ pub struct Ground<'a> {
     pub grade_hover: Option<usize>,
     pub title_pick: Option<&'a str>,
     pub play_open: Option<usize>,
+    pub boards: &'a HashMap<u64, crate::community::wire::MapBoard>,
+    pub boards_waiting: &'a std::collections::HashSet<u64>,
+    pub boards_failed: &'a std::collections::HashSet<u64>,
     pub clips_loading: &'a std::collections::HashSet<String>,
 }
 
@@ -663,7 +688,19 @@ fn reader<'a>(ground: &Ground<'a>, reading: &'a Reading) -> Element<'a, Message>
                 None => container(ui::fine_hatch()).width(Length::Fill).height(220.0).into(),
             }
         };
+        let mut tint = FAINT;
+        let mut outside = Some((w.t("read-outside"), reading.url().to_owned()));
         let (source, title, meta, mut body): (String, String, String, Vec<Element<'a, Message>>) = match reading {
+            Reading::Score(scored) => {
+                let sheet = crate::sheets::score(ground, scored, &picture);
+                outside = sheet.outside;
+                (sheet.source, sheet.title, sheet.meta, sheet.body)
+            }
+            Reading::Title { code, who } => {
+                let sheet = crate::sheets::title(ground, code, *who);
+                (tint, outside) = (sheet.tint, sheet.outside);
+                (sheet.source, sheet.title, sheet.meta, sheet.body)
+            }
             Reading::Story(story) => {
                 let story = ground.news.stories.iter().find(|fresh| fresh.url == story.url).unwrap_or(story);
                 let mut body: Vec<Element<'a, Message>> = Vec::new();
@@ -720,9 +757,11 @@ fn reader<'a>(ground: &Ground<'a>, reading: &'a Reading) -> Element<'a, Message>
                 (build.stream.clone(), format!("{} {}", build.stream, build.version), w.day(build.at, ground.now_unix), body)
             }
         };
-        body.push(container(ui::primary(w.t("read-outside"), Some(Message::Open(reading.url().to_owned())))).padding(Padding::ZERO.top(8.0)).into());
+        if let Some((label, url)) = outside {
+            body.push(container(ui::primary(label, Some(Message::Open(url)))).padding(Padding::ZERO.top(8.0)).into());
+        }
         let head = column![
-            row![ui::mono_small(source.to_uppercase(), FAINT), ui::grow(), button(text("✕").font(theme::SANS_SEMI).size(theme::LEAD).color(ui::faded(MUTED))).padding([2, 8]).style(ui::button_faded(theme::bare)).on_press(Message::Unread)].align_y(iced::Center),
+            row![ui::mono_small(source.to_uppercase(), tint), ui::grow(), button(text("✕").font(theme::SANS_SEMI).size(theme::LEAD).color(ui::faded(MUTED))).padding([2, 8]).style(ui::button_faded(theme::bare)).on_press(Message::Unread)].align_y(iced::Center),
             text(ui::settled(&title)).font(theme::SANS_SEMI).size(theme::TITLE).color(ui::faded(INK)),
             ui::mono_small(meta, FAINT),
         ]
@@ -733,7 +772,7 @@ fn reader<'a>(ground: &Ground<'a>, reading: &'a Reading) -> Element<'a, Message>
     crate::unfold::unfold(after, None, panel_from(ground), k, Message::Unread).wide(READ_WIDE).room(STAGE_ROOM).look(stage_look()).fit().into()
 }
 
-fn figure<'a>(value: String, label: String, colour: Color) -> Element<'a, Message> {
+pub(crate) fn figure<'a>(value: String, label: String, colour: Color) -> Element<'a, Message> {
     column![
         text(value).font(theme::MONO_BOLD).size(16.0).wrapping(text::Wrapping::None).color(ui::faded(colour)),
         text(label).font(theme::SANS).size(11.5).wrapping(text::Wrapping::None).color(ui::faded(FAINT)),
@@ -1015,7 +1054,7 @@ pub(crate) fn movement<'a>(ground: &Ground<'a>, shift: Option<Option<i32>>) -> E
     }
 }
 
-fn row_style(you: bool, frame: Option<Color>) -> impl Fn(&Theme, button::Status) -> button::Style {
+pub(crate) fn row_style(you: bool, frame: Option<Color>) -> impl Fn(&Theme, button::Status) -> button::Style {
     move |_, status| {
         let lit = matches!(status, button::Status::Hovered | button::Status::Pressed);
         let edge = if you { ACCENT } else { frame.unwrap_or(Color::WHITE) };
@@ -1327,7 +1366,7 @@ fn title_card<'a>(ground: &Ground<'a>, title: &Title) -> Element<'a, Message> {
     if let Some(you) = ground.catalog.people.iter().find(|p| p.you) {
         foot = foot.push(crate::dossier::wear_button(ground, you, title));
     }
-    container(
+    let card = container(
         column![
             text(name).font(theme::SANS_SEMI).size(15.0).wrapping(text::Wrapping::None).color(ui::faded(colour)),
             text(about).font(theme::SANS).size(12.0).color(ui::faded(MUTED)),
@@ -1337,8 +1376,8 @@ fn title_card<'a>(ground: &Ground<'a>, title: &Title) -> Element<'a, Message> {
     )
     .padding([16, 18])
     .width(Length::Fill)
-    .style(ui::box_faded(theme::slab))
-    .into()
+    .style(ui::box_faded(theme::slab));
+    iced::widget::mouse_area(card).interaction(iced::mouse::Interaction::Pointer).on_press(Message::Read(Reading::Title { code: title.code.clone(), who: None })).into()
 }
 
 fn titles<'a>(ground: &Ground<'a>) -> Element<'a, Message> {

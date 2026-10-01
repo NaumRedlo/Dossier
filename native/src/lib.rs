@@ -33,6 +33,7 @@ pub mod scan;
 pub mod scores;
 pub mod settings;
 pub mod settings_screen;
+pub mod sheets;
 pub mod sidebar;
 pub mod sources;
 pub mod theme;

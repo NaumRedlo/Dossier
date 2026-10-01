@@ -39,6 +39,7 @@ const CARD_EVERY: Duration = Duration::from_secs(300);
 const COMMUNITY_SCALE: f32 = 0.84;
 const SIDE_OPEN: Duration = Duration::from_millis(220);
 const SIDE_WAIT: Duration = Duration::from_millis(70);
+const SIDE_DIM: f32 = 0.34;
 const HOVER_REST: Duration = Duration::from_millis(160);
 pub const LIVE_FADE: Duration = Duration::from_millis(640);
 pub const BRAND_WIDTH: f32 = 144.0;
@@ -75,6 +76,7 @@ pub enum Message {
     NewsPicture(String, Option<image::Handle>),
     LiveArrive,
     CommunityArrived(Result<crate::community::wire::Community, String>),
+    MapBoard(u64, bool, Result<crate::community::wire::MapBoard, String>),
     EveryoneArrived(Result<crate::community::wire::Everyone, String>),
     PinRead(Result<crate::community::wire::Pin, String>),
     Pinned(Result<crate::community::wire::Pin, String>),
@@ -550,6 +552,10 @@ pub struct Main {
     pub live_shown: usize,
     feed_arrivals: crate::chronicle::Arrivals,
     pub community_reading: Option<crate::community_screen::Reading>,
+    pub map_boards: HashMap<u64, crate::community::wire::MapBoard>,
+    pub map_boards_waiting: std::collections::HashSet<u64>,
+    pub map_boards_failed: std::collections::HashSet<u64>,
+    map_boards_fresh: std::collections::HashSet<u64>,
     pub read_fade: Animation<bool>,
     pub people_from: crate::community_screen::PeopleFrom,
     pub people_query: String,
@@ -767,6 +773,10 @@ impl Main {
             live_shown: LIVE_FIRST,
             feed_arrivals: crate::chronicle::Arrivals::default(),
             community_reading: None,
+            map_boards: HashMap::new(),
+            map_boards_waiting: std::collections::HashSet::new(),
+            map_boards_failed: std::collections::HashSet::new(),
+            map_boards_fresh: std::collections::HashSet::new(),
             read_fade: Animation::new(false),
             people_from: crate::community_screen::PeopleFrom::Chat,
             people_query: String::new(),
@@ -2374,10 +2384,23 @@ impl Main {
                     C::Tap(at, card) => self.community_tap = Some(card.unwrap_or(iced::Rectangle { x: at.x - 160.0, y: at.y - 100.0, width: 320.0, height: 200.0 })),
                     C::Read(reading) => {
                         let wanted = reading.pictures();
+                        let board = match &reading {
+                            crate::community_screen::Reading::Score(scored) => scored.map.beatmap,
+                            _ => None,
+                        };
                         self.community_reading = Some(reading);
                         self.panel_from = self.community_tap;
                         self.read_fade = Animation::new(false).duration(PANEL_SHOW).easing(Easing::EaseOutCubic).go(true, now);
-                        return self.wide_pictures_task(wanted);
+                        let pictures = self.wide_pictures_task(wanted);
+                        return match board {
+                            Some(beatmap) => Task::batch([pictures, self.map_board_task(beatmap, false)]),
+                            None => pictures,
+                        };
+                    }
+                    C::TitleOf(code, who) => {
+                        let moved = self.update(Message::Community(C::Section(crate::community_screen::Section::Titles)));
+                        let read = self.update(Message::Community(C::Read(crate::community_screen::Reading::Title { code, who })));
+                        return Task::batch([moved, read]);
                     }
                     C::Unread => self.read_fade.go_mut(false, now),
                     C::Standing(standing) => {
@@ -2781,6 +2804,27 @@ impl Main {
                     self.rank_due = now;
                 }
                 Task::none()
+            }
+            Message::MapBoard(beatmap, fresh, said) => {
+                self.map_boards_waiting.remove(&beatmap);
+                match said {
+                    Ok(board) => {
+                        self.map_boards_failed.remove(&beatmap);
+                        self.map_boards.insert(beatmap, board);
+                        if fresh {
+                            self.map_boards_fresh.insert(beatmap);
+                            Task::none()
+                        } else {
+                            self.map_board_task(beatmap, true)
+                        }
+                    }
+                    Err(_) => {
+                        if !self.map_boards.contains_key(&beatmap) {
+                            self.map_boards_failed.insert(beatmap);
+                        }
+                        Task::none()
+                    }
+                }
             }
             Message::CommunityArrived(Ok(said)) => {
                 let before = self.feed_keys();
@@ -5262,6 +5306,18 @@ impl Main {
         }
     }
 
+    fn map_board_task(&mut self, beatmap: u64, fresh: bool) -> Task<Message> {
+        let staged = self.community.as_ref().is_none_or(|catalog| catalog.staged);
+        if staged || self.settings.token.is_empty() || self.map_boards_waiting.contains(&beatmap) || (fresh && self.map_boards_fresh.contains(&beatmap)) {
+            return Task::none();
+        }
+        self.map_boards_waiting.insert(beatmap);
+        self.map_boards_failed.remove(&beatmap);
+        let (server, token, name) = (self.settings.server.clone(), self.settings.token.clone(), self.settings.device.clone());
+        let chat = self.community_chat().or_else(|| self.community.as_ref().and_then(|catalog| catalog.chat));
+        ui::in_thread(move || Message::MapBoard(beatmap, fresh, crate::bot::map_board(&server, &token, &name, chat, beatmap, fresh).map_err(|e| e.to_string())))
+    }
+
     fn community_task(&mut self, force: bool) -> Task<Message> {
         if self.settings.token.is_empty() {
             self.community_fetch = crate::community_screen::Fetch::Staged;
@@ -5575,12 +5631,14 @@ impl Main {
         ]
     }
 
-    fn sided<'a>(&'a self, entries: Vec<crate::sidebar::Entry<Message>>, body: Element<'a, Message>) -> Element<'a, Message> {
+    fn sided<'a>(&'a self, entries: Vec<crate::sidebar::Entry<Message>>, body: Element<'a, Message>, scale: f32) -> Element<'a, Message> {
         let entries = crate::sidebar::arranged(entries, &self.settings.side_order);
         let open = self.side_open.interpolate(0.0, 1.0, self.now);
+        let shrink = ((self.width - crate::sidebar::width_at(open)) / (self.width - crate::sidebar::NARROW)).clamp(0.3, 1.0);
         let side = ui::fading(ui::fade() * self.overlay_fade.interpolate(0.0, 1.0, self.now), || crate::sidebar::view(entries, open, Message::SideOpen, Message::SideMoved));
-        let room = row![Space::new().width(crate::sidebar::NARROW), body].height(Length::Fill);
-        column![Space::new().height(theme::CONTROL_HEIGHT + 4.0 + 22.0), stack![room, side].width(Length::Fill).height(Length::Fill)].width(Length::Fill).height(Length::Fill).into()
+        let body: Element<'a, Message> = ui::scaled(body, scale * shrink).into();
+        let dimmed = stack![body, ui::veil(Color { a: SIDE_DIM * open, ..theme::GROUND })].width(Length::Fill).height(Length::Fill);
+        column![Space::new().height(theme::CONTROL_HEIGHT + 4.0 + 22.0), row![side, dimmed].height(Length::Fill)].width(Length::Fill).height(Length::Fill).into()
     }
 
     fn community_view(&self, person_only: bool) -> Option<Element<'_, Message>> {
@@ -5645,6 +5703,9 @@ impl Main {
             grade_hover: self.grade_hover,
             title_pick: self.title_pick.as_deref(),
             play_open: self.play_open,
+            boards: &self.map_boards,
+            boards_waiting: &self.map_boards_waiting,
+            boards_failed: &self.map_boards_failed,
             clips_loading: &self.clips_loading,
             reading: self.community_reading.as_ref(),
             read_k: self.read_fade.interpolate(0.0, 1.0, self.now),
@@ -5677,8 +5738,7 @@ impl Main {
             _ => None,
         };
         let body: Element<'_, Message> = crate::community_screen::view(&ground).map(Message::Community);
-        let body: Element<'_, Message> = ui::scaled(body, COMMUNITY_SCALE).into();
-        let page = self.sided(self.community_entries(), body);
+        let page = self.sided(self.community_entries(), body, COMMUNITY_SCALE);
         let stage = stage.unwrap_or_else(|| Space::new().width(Length::Fill).height(Length::Fill).into());
         Some(stack![page, stage].width(Length::Fill).height(Length::Fill).into())
     }
@@ -5726,7 +5786,7 @@ impl Main {
             scale_draft: self.scale_draft,
         };
         let body: Element<'_, Message> = Element::from(prefs::view(&ground)).map(Message::Prefs);
-        self.sided(self.settings_entries(), body)
+        self.sided(self.settings_entries(), body, 1.0)
     }
 
     fn prefs(&mut self, message: prefs::Message) -> Task<Message> {

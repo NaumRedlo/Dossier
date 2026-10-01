@@ -245,3 +245,44 @@ fn a_lone_private_chat_leaves_the_chat_tile_beside_the_account() {
         assert!((account.y - chats.y).abs() < 1.0 && chats.x > account.x, "{lang:?}: the chat tile took a row of its own: {chats:?} beside {account:?}");
     }
 }
+
+#[test]
+fn a_play_in_the_feed_opens_its_result_and_a_title_opens_its_holders() {
+    use dossier_native::community_screen::{Reading, Scored};
+    let backdrop = dossier_native::ui::backdrop_handle();
+    let main = staged(Lang::En, "main-community-feed", 980.0);
+    let origin = dossier_native::theme::CONTROL_HEIGHT + 26.0;
+    let side = dossier_native::sidebar::NARROW;
+    let pressed = |label: &str| {
+        let mut ui = Simulator::with_size(dossier_native::settings(), Size::new(980.0, 720.0), gallery::main_frame(&main, &backdrop));
+        let bounds = ui.find(label).unwrap_or_else(|_| panic!("no {label} in the feed")).bounds();
+        ui.point_at(Point::new(side + (bounds.center_x() - side) * 0.84, origin + (bounds.center_y() - origin) * 0.84));
+        ui.simulate(iced_test::simulator::click());
+        ui.into_messages().collect::<Vec<_>>()
+    };
+    let play = pressed("14:33");
+    assert!(play.iter().any(|message| matches!(message, dossier_native::Message::Main(M::Community(C::Read(Reading::Score(scored)))) if scored.name == "kotofey" && scored.passed)), "{play:?}");
+    let title = pressed("13:25");
+    assert!(title.iter().any(|message| matches!(message, dossier_native::Message::Main(M::Community(C::TitleOf(code, Some(_)))) if code == "ss_streak_10")), "{title:?}");
+
+    let mut main = staged(Lang::En, "main-community-feed", 980.0);
+    let catalog = main.community.clone().unwrap();
+    let live = catalog.live.last().unwrap();
+    let scored = Scored::of(&catalog, live.who, &live.more, live.passed).unwrap();
+    let _ = main.update(M::Community(C::Read(Reading::Score(scored))));
+    assert!(matches!(main.community_reading, Some(Reading::Score(_))));
+    let _ = main.update(M::Community(C::TitleOf("wysi".into(), Some(catalog.people[0].id))));
+    assert_eq!(main.community_section, Section::Titles);
+    assert!(matches!(&main.community_reading, Some(Reading::Title { code, who: Some(_) }) if code == "wysi"));
+    let _ = main.update(M::MapBoard(7, false, Ok(dossier_native::community::wire::MapBoard { beatmap: 7, ..Default::default() })));
+    let _ = main.update(M::MapBoard(8, false, Err("no connection".into())));
+    assert!(main.map_boards.contains_key(&7) && main.map_boards_failed.contains(&8) && main.map_boards_waiting.is_empty());
+
+    let titles = staged(Lang::En, "main-community-titles", 980.0);
+    let mut ui = Simulator::with_size(dossier_native::settings(), Size::new(980.0, 720.0), gallery::main_frame(&titles, &backdrop));
+    let bounds = ui.find("WYSI").unwrap().bounds();
+    ui.point_at(Point::new(side + (bounds.center_x() - side) * 0.84, origin + (bounds.center_y() - origin) * 0.84));
+    ui.simulate(iced_test::simulator::click());
+    let messages: Vec<_> = ui.into_messages().collect();
+    assert!(messages.iter().any(|message| matches!(message, dossier_native::Message::Main(M::Community(C::Read(Reading::Title { code, who: None }))) if code == "wysi")), "{messages:?}");
+}

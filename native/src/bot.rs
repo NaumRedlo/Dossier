@@ -6,6 +6,7 @@ pub const PRERELEASE: bool = true;
 
 const PATIENCE: Duration = Duration::from_secs(8);
 const DONATE_PATIENCE: Duration = Duration::from_secs(60);
+const BOARD_PATIENCE: Duration = Duration::from_secs(60);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Refused {
@@ -183,6 +184,16 @@ pub fn avatar(server: &str, token: &str, name: &str) -> Result<Vec<u8>, Refused>
 
 pub fn community(server: &str, token: &str, name: &str, chat: Option<i64>) -> Result<crate::community::wire::Community, Refused> {
     let mut request = client()?.get(format!("{server}/render/community")).header("X-Render-Worker", name).bearer_auth(token);
+    if let Some(chat) = chat {
+        request = request.query(&[("chat", chat)]);
+    }
+    let response = request.send().map_err(|e| Refused::Network(e.to_string()))?;
+    status(response)?.json().map_err(|e| Refused::Network(e.to_string()))
+}
+
+pub fn map_board(server: &str, token: &str, name: &str, chat: Option<i64>, beatmap: u64, fresh: bool) -> Result<crate::community::wire::MapBoard, Refused> {
+    let asking = if fresh { long(BOARD_PATIENCE)? } else { client()? };
+    let mut request = asking.get(format!("{server}/render/maps/{beatmap}/board")).header("X-Render-Worker", name).bearer_auth(token).query(&[("sync", if fresh { "1" } else { "0" })]);
     if let Some(chat) = chat {
         request = request.query(&[("chat", chat)]);
     }

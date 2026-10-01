@@ -7,7 +7,7 @@ use iced::widget::{button, column, container, mouse_area, row, scrollable, stack
 use iced::{mouse, Background, Border, Color, Element, Length, Padding, Rectangle, Shadow, Size, Theme, Vector};
 
 use crate::community::{Board, Catalog, Happening, Kind, LivePlay, Person};
-use crate::community_screen::{self as screen, Ground, Message, Reading, Section};
+use crate::community_screen::{self as screen, Ground, Message, Reading, Scored, Section};
 use crate::glyphs::{glyph, Icon};
 use crate::lanes::{self, Lane};
 use crate::news::{self, News};
@@ -436,7 +436,8 @@ fn journal_row<'a>(ground: &Ground<'a>, event: &Event<'a>, table: Table) -> Opti
             catalog.people.get(play.who)?;
             let pp: Element<'a, Message> = if play.passed && play.pp >= 0.5 { words(screen::decimal(w, play.pp, 0), INK, true) } else { Space::new().width(0.0).into() };
             let grade = if play.passed { play.grade.clone() } else { "F".to_owned() };
-            (played_line(ground, event.at, table, play.who, play.map, Some(play.accuracy), &play.mods, pp, Some(grade)), Message::Person(Some(play.who)), None)
+            let press = Scored::of(catalog, play.who, &play.more, play.passed).map_or(Message::Person(Some(play.who)), |scored| Message::Read(Reading::Score(scored)));
+            (played_line(ground, event.at, table, play.who, play.map, Some(play.accuracy), &play.mods, pp, Some(grade)), press, None)
         }
         Item::Happened(happened) => {
             let person = catalog.people.get(happened.who)?;
@@ -451,12 +452,13 @@ fn journal_row<'a>(ground: &Ground<'a>, event: &Event<'a>, table: Table) -> Opti
                     let fold = ground.folds.get(&key).copied().unwrap_or(if ground.open_events.contains(&key) { 1.0 } else { 0.0 });
                     let details = (fold > 0.001).then(|| play.map(|play| (fold, counts_row(ground, play.counts, play.combo.zip(play.max_combo), play.stars)))).flatten();
                     let value = ui::mono_small(format!("{} pp  #{place}", screen::decimal(w, *pp, 0)), CORAL);
-                    (event_line(ground, event.at, table, Icon::Star, CORAL, person.name.clone(), w.t("event-top"), object(title_and_version(ground, map).0, INK, false), Some(value)), Message::Toggle(key), details)
+                    let press = play.and_then(|play| Scored::of(catalog, happened.who, play, true)).map_or(Message::Toggle(key), |scored| Message::Read(Reading::Score(scored)));
+                    (event_line(ground, event.at, table, Icon::Star, CORAL, person.name.clone(), w.t("event-top"), object(title_and_version(ground, map).0, INK, false), Some(value)), press, details)
                 }
                 Kind::Title(code) => {
                     let title = catalog.title_of(code)?;
                     let colour = title.rarity.colour();
-                    (event_line(ground, event.at, table, Icon::Trophy, colour, person.name.clone(), w.t("event-title"), object(title.name(w.lang()).to_owned(), colour, true), None), Message::Person(Some(happened.who)), None)
+                    (event_line(ground, event.at, table, Icon::Trophy, colour, person.name.clone(), w.t("event-title"), object(title.name(w.lang()).to_owned(), colour, true), None), Message::TitleOf(code.clone(), Some(person.id)), None)
                 }
                 Kind::Climb { board, from, to } => {
                     let value = ui::mono_small(format!("#{from} → #{to}"), GREEN);
@@ -582,6 +584,12 @@ fn shelf_card<'a>(ground: &Ground<'a>, icon: Icon, colour: Color, label: String,
     ui::hover(card, ui::Glow::card(14.0).edge(Color { a: 0.55, ..colour }).shadow(Color { a: 0.3, ..colour }))
 }
 
+fn top_press(ground: &Ground<'_>, who: usize, map: usize, pp: f32) -> Message {
+    let catalog = ground.catalog;
+    let play = catalog.people.get(who).and_then(|person| person.top.iter().find(|play| play.map == map && (play.pp - pp).abs() < 0.5));
+    play.and_then(|play| Scored::of(catalog, who, play, true)).map_or(Message::Person(Some(who)), |scored| Message::Read(Reading::Score(scored)))
+}
+
 fn shelf<'a>(ground: &Ground<'a>, seen: &[Event<'a>]) -> Option<Element<'a, Message>> {
     let w = ground.words;
     let catalog = ground.catalog;
@@ -592,7 +600,7 @@ fn shelf<'a>(ground: &Ground<'a>, seen: &[Event<'a>]) -> Option<Element<'a, Mess
     });
     if let Some(happened) = happened(|kind| matches!(kind, Kind::TopPlay { .. })) {
         if let (Kind::TopPlay { pp, place, .. }, Some(map)) = (&happened.kind, happened.map) {
-            cards.push(shelf_card(ground, Icon::Star, Color::from_rgb(0.941, 0.408, 0.408), w.t("kind-top"), Some(happened.who), format!("{} pp", screen::decimal(w, *pp, 0)), format!("{}  {}", w.n("top-place", u64::from(*place)), map_title(ground, map)), map_cover(ground, map), Message::Person(Some(happened.who))));
+            cards.push(shelf_card(ground, Icon::Star, Color::from_rgb(0.941, 0.408, 0.408), w.t("kind-top"), Some(happened.who), format!("{} pp", screen::decimal(w, *pp, 0)), format!("{}  {}", w.n("top-place", u64::from(*place)), map_title(ground, map)), map_cover(ground, map), top_press(ground, happened.who, map, *pp)));
         }
     }
     if let Some(happened) = happened(|kind| matches!(kind, Kind::Title(_))) {
@@ -601,7 +609,7 @@ fn shelf<'a>(ground: &Ground<'a>, seen: &[Event<'a>]) -> Option<Element<'a, Mess
             _ => None,
         } {
             let holders = catalog.holders(&title.code).len();
-            cards.push(shelf_card(ground, Icon::Trophy, title.rarity.colour(), w.t("kind-title"), Some(happened.who), title.name(w.lang()).to_owned(), format!("{}  {} {}", w.t(title.rarity.key()), w.t("held-by"), w.of(holders as u64, catalog.people.len() as u64)), None, Message::Person(Some(happened.who))));
+            cards.push(shelf_card(ground, Icon::Trophy, title.rarity.colour(), w.t("kind-title"), Some(happened.who), title.name(w.lang()).to_owned(), format!("{}  {} {}", w.t(title.rarity.key()), w.t("held-by"), w.of(holders as u64, catalog.people.len() as u64)), None, Message::TitleOf(title.code.clone(), catalog.people.get(happened.who).map(|person| person.id))));
         }
     }
     if let Some(happened) = happened(|kind| matches!(kind, Kind::Climb { .. })) {

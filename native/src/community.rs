@@ -58,6 +58,7 @@ pub struct Title {
     pub rarity: Rarity,
     pub name: [String; 2],
     pub about: [String; 2],
+    pub target: u32,
 }
 
 impl Title {
@@ -95,6 +96,18 @@ const STAGED_TITLES: &[(&str, Rarity, &str, &str, &str, &str)] = &[
     ("choke_95", Rarity::Secret, "Not This Time", "Попытка не пытка", "Break a full combo in the last 5% at 99% accuracy or above.", "Сорви комбо в последних 5% при точности 99% и выше."),
 ];
 
+fn staged_target(code: &str) -> u32 {
+    match code {
+        "s_50" => 50,
+        "broken_record" => 20,
+        "masks_5" => 5,
+        "ss_100" => 100,
+        "streak_30d" => 30,
+        "ss_streak_10" => 10,
+        _ => 1,
+    }
+}
+
 pub fn staged_titles() -> Vec<Title> {
     STAGED_TITLES
         .iter()
@@ -103,6 +116,7 @@ pub fn staged_titles() -> Vec<Title> {
             rarity: *rarity,
             name: [(*en).to_owned(), (*ru).to_owned()],
             about: [(*about_en).to_owned(), (*about_ru).to_owned()],
+            target: staged_target(code),
         })
         .collect()
 }
@@ -183,6 +197,9 @@ pub struct Play {
     pub max_combo: Option<u32>,
     pub stars: Option<f32>,
     pub counts: [Option<u32>; 4],
+    pub id: Option<u64>,
+    pub score: u64,
+    pub pp_if: Option<f32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -216,6 +233,7 @@ pub struct Person {
     pub app: bool,
     pub player: Option<i64>,
     pub outside: bool,
+    pub title_dates: std::collections::HashMap<String, i64>,
 }
 
 impl Person {
@@ -230,15 +248,20 @@ pub struct MapRef {
     pub line: String,
     pub set: Option<u64>,
     pub stars: Option<f32>,
+    pub beatmap: Option<u64>,
 }
 
 impl MapRef {
     pub fn local(hash: String, line: String) -> MapRef {
-        MapRef { hash, line, set: None, stars: None }
+        MapRef { hash, line, set: None, stars: None, beatmap: None }
     }
 
     pub fn card(&self) -> Option<String> {
         self.set.map(|set| format!("https://assets.ppy.sh/beatmaps/{set}/covers/card.jpg"))
+    }
+
+    pub fn cover(&self) -> Option<String> {
+        self.set.map(|set| format!("https://assets.ppy.sh/beatmaps/{set}/covers/cover.jpg"))
     }
 
     pub fn poster(&self) -> Option<String> {
@@ -262,7 +285,7 @@ pub struct Happening {
     pub at: i64,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct LivePlay {
     pub who: usize,
     pub map: usize,
@@ -272,6 +295,7 @@ pub struct LivePlay {
     pub grade: String,
     pub at: i64,
     pub passed: bool,
+    pub more: Play,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -315,6 +339,7 @@ pub struct Me {
     pub duels: [u32; 2],
     pub points: u32,
     pub title_dates: std::collections::HashMap<String, i64>,
+    pub title_progress: std::collections::HashMap<String, u32>,
     pub history: Vec<Week>,
     pub activity: Vec<(i64, u32)>,
 }
@@ -333,10 +358,13 @@ fn play_into(maps: &mut Vec<MapRef>, play: &wire::Play) -> Play {
     let at = match maps.iter().position(|kept| kept.set == play.map.set && kept.line == line) {
         Some(at) => at,
         None => {
-            maps.push(MapRef { hash: String::new(), line, set: play.map.set, stars: play.map.stars });
+            maps.push(MapRef { hash: String::new(), line, set: play.map.set, stars: play.map.stars, beatmap: play.map.beatmap });
             maps.len() - 1
         }
     };
+    if maps[at].beatmap.is_none() {
+        maps[at].beatmap = play.map.beatmap;
+    }
     Play {
         map: at,
         pp: play.pp,
@@ -349,6 +377,9 @@ fn play_into(maps: &mut Vec<MapRef>, play: &wire::Play) -> Play {
         max_combo: play.max_combo,
         stars: play.map.stars,
         counts: std::array::from_fn(|at| play.counts.get(at).copied().flatten()),
+        id: play.id,
+        score: play.score,
+        pp_if: play.pp_if,
     }
 }
 
@@ -383,18 +414,52 @@ fn person_into(maps: &mut Vec<MapRef>, said: &wire::Person) -> Person {
     app: said.app,
     player: said.player,
     outside: false,
+    title_dates: said.earned.iter().filter_map(|(code, at)| at.map(|at| (code.clone(), at))).collect(),
     }
 }
 
 fn me_into(maps: &mut Vec<MapRef>, me: &wire::Me) -> Me {
+    let title_dates: std::collections::HashMap<String, i64> = me.title_dates.iter().filter_map(|(code, at)| at.map(|at| (code.clone(), at))).collect();
+    let mut person = person_into(maps, &me.person);
+    person.title_dates = title_dates.clone();
     Me {
-        person: person_into(maps, &me.person),
+        person,
         recent: me.recent.iter().map(|play| play_into(maps, &play.play)).collect(),
         duels: [me.duels.first().copied().unwrap_or(0), me.duels.get(1).copied().unwrap_or(0)],
         points: me.points,
-        title_dates: me.title_dates.iter().filter_map(|(code, at)| at.map(|at| (code.clone(), at))).collect(),
+        title_dates,
+        title_progress: me.title_progress.clone(),
         history: me.history.iter().map(|week| Week { at: week.at.unwrap_or(0), pp: week.pp, accuracy: week.accuracy, plays: week.plays, hours: week.hours }).collect(),
         activity: me.activity.iter().filter_map(|day| crate::news::unix_of(&format!("{}T00:00:00Z", day.day)).map(|at| (at, day.n))).collect(),
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Placed {
+    Took { place: u32, of: u32 },
+    Would { place: u32, of: u32, best: u32 },
+    Failed { best: Option<u32>, of: u32 },
+}
+
+pub fn placed(board: &wire::MapBoard, who: i64, play: &Play, passed: bool) -> Placed {
+    let by_score = board.by_score();
+    let worth = |pp: f32, pp_if: Option<f32>, score: u64| match (by_score, pp > 0.0) {
+        (true, _) => score as f64,
+        (false, true) => f64::from(pp),
+        (false, false) => f64::from(pp_if.unwrap_or(0.0)),
+    };
+    let own = board.rows.iter().find(|row| row.who == who);
+    if !passed {
+        return Placed::Failed { best: own.map(|row| row.place), of: board.rows.len() as u32 };
+    }
+    let mine = worth(play.pp, play.pp_if, play.score);
+    let others: Vec<f64> = board.rows.iter().filter(|row| row.who != who).map(|row| worth(row.play.pp, row.play.pp_if, row.play.score)).collect();
+    let place = others.iter().filter(|theirs| **theirs > mine).count() as u32 + 1;
+    let of = others.len() as u32 + 1;
+    match own {
+        Some(own) if play.id.is_some() && own.play.id == play.id => Placed::Took { place: own.place, of },
+        Some(own) if worth(own.play.pp, own.play.pp_if, own.play.score) > mine + 0.005 => Placed::Would { place, of, best: own.place },
+        _ => Placed::Took { place, of },
     }
 }
 
@@ -429,6 +494,8 @@ pub struct Catalog {
     pub friends: Vec<Friend>,
     pub friends_state: Friends,
     pub titles: Vec<Title>,
+    pub held: std::collections::HashMap<String, u32>,
+    pub players: u32,
     pub me: Option<Me>,
     pub staged: bool,
 }
@@ -596,7 +663,10 @@ impl Catalog {
             Happening { who: 3, kind: Kind::Climb { board: Board::Accuracy, from: 2, to: 1 }, map: None, at: minutes(50 * 60) },
             Happening { who: 1, kind: Kind::Title("archivist".to_owned()), map: None, at: minutes(52 * 60) },
         ];
-        let live_play = |who: usize, map: usize, accuracy: f32, pp: f32, mods: &[&str], grade: &str| LivePlay { who, map: spot(map), accuracy, pp, mods: owned(mods), grade: grade.to_owned(), at: now, passed: true };
+        let live_play = |who: usize, map: usize, accuracy: f32, pp: f32, mods: &[&str], grade: &str| {
+            let more = Play { map: spot(map), pp, accuracy, mods: owned(mods), grade: grade.to_owned(), at: now, combo: Some(1_480 - 97 * who as u32), max_combo: Some(1_480), counts: [Some(980 + 37 * who as u32), Some(14), Some(1), Some(2)], id: Some(9_000 + who as u64), score: 412_000 + 96_000 * who as u64, ..Play::default() };
+            LivePlay { who, map: spot(map), accuracy, pp, mods: owned(mods), grade: grade.to_owned(), at: now, passed: true, more }
+        };
         let live = vec![
             live_play(4, 2, 94.12, 188.0, &["DT"], "A"),
             live_play(7, 5, 97.80, 64.2, &[], "S"),
@@ -660,7 +730,8 @@ impl Catalog {
             .into_iter()
             .map(|(code, back)| (code.to_owned(), now - back * day))
             .collect();
-        let me = Me { person: people[0].clone(), recent: Vec::new(), duels: [3, 1], points: 120, title_dates, history, activity };
+        let title_progress = [("ss_100", 45), ("broken_record", 13), ("streak_30d", 12), ("ss_streak_10", 4)].into_iter().map(|(code, value)| (code.to_owned(), value)).collect();
+        let me = Me { person: people[0].clone(), recent: Vec::new(), duels: [3, 1], points: 120, title_dates, title_progress, history, activity };
         Catalog {
             chat: None,
             group: "osu! RU".to_owned(),
@@ -674,6 +745,11 @@ impl Catalog {
             friends,
             friends_state: Friends::Staged,
             titles: staged_titles(),
+            held: [("registered", 43), ("graveyard", 17), ("account_2y", 31), ("s_50", 26), ("wysi", 9), ("broken_record", 14), ("masks_5", 19), ("ss_100", 6), ("dejavu", 3), ("archaeologist", 5), ("combo_2000", 8), ("heavy_hand", 4), ("fc_bpm_210", 3), ("ss_hdfl_5", 1), ("sr_10", 2), ("archivist", 1), ("streak_30d", 2), ("hdhr_fc7", 1), ("ss_8star", 1), ("ss_streak_10", 1), ("doublethink", 2), ("choke_95", 4)]
+                .into_iter()
+                .map(|(code, held)| (code.to_owned(), held))
+                .collect(),
+            players: 43,
             me: Some(me),
             staged: true,
         }
@@ -689,7 +765,7 @@ impl Catalog {
             .filter_map(|play| {
                 let who = index(play.who)?;
                 let made = play_into(&mut maps, &play.play);
-                Some(LivePlay { who, map: made.map, accuracy: made.accuracy, pp: made.pp, mods: made.mods, grade: made.grade, at: made.at, passed: play.passed })
+                Some(LivePlay { who, map: made.map, accuracy: made.accuracy, pp: made.pp, mods: made.mods.clone(), grade: made.grade.clone(), at: made.at, passed: play.passed, more: made })
             })
             .collect();
         live.sort_by_key(|play| play.at);
@@ -724,6 +800,7 @@ impl Catalog {
                 rarity: Rarity::of(&title.rarity),
                 name: [title.name.clone(), if title.name_ru.is_empty() { title.name.clone() } else { title.name_ru.clone() }],
                 about: [title.about.clone(), if title.about_ru.is_empty() { title.about.clone() } else { title.about_ru.clone() }],
+                target: title.target.unwrap_or(0),
             })
             .collect();
         Catalog {
@@ -739,6 +816,8 @@ impl Catalog {
             friends: Vec::new(),
             friends_state: Friends::Waiting,
             titles,
+            held: said.title_holders.held,
+            players: said.title_holders.players,
             me,
             staged: false,
         }
@@ -890,6 +969,12 @@ pub mod wire {
     #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
     pub struct Play {
         #[serde(default)]
+        pub id: Option<u64>,
+        #[serde(default)]
+        pub score: u64,
+        #[serde(default)]
+        pub pp_if: Option<f32>,
+        #[serde(default)]
         pub map: Map,
         #[serde(default)]
         pub pp: f32,
@@ -993,6 +1078,8 @@ pub mod wire {
         pub you: bool,
         #[serde(default)]
         pub app: bool,
+        #[serde(default)]
+        pub earned: std::collections::HashMap<String, Option<i64>>,
     }
 
     fn passed() -> bool {
@@ -1041,6 +1128,8 @@ pub mod wire {
         pub about: String,
         #[serde(default)]
         pub about_ru: String,
+        #[serde(default)]
+        pub target: Option<u32>,
     }
 
     #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -1063,6 +1152,8 @@ pub mod wire {
         pub points: u32,
         #[serde(default)]
         pub title_dates: std::collections::HashMap<String, Option<i64>>,
+        #[serde(default)]
+        pub title_progress: std::collections::HashMap<String, u32>,
         #[serde(default)]
         pub history: Vec<Week>,
         #[serde(default)]
@@ -1094,9 +1185,89 @@ pub mod wire {
         #[serde(default)]
         pub titles: Vec<Title>,
         #[serde(default)]
+        pub title_holders: TitleHolders,
+        #[serde(default)]
         pub me: Option<Me>,
         #[serde(default)]
         pub at: Option<i64>,
+    }
+
+    #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+    pub struct TitleHolders {
+        #[serde(default)]
+        pub players: u32,
+        #[serde(default)]
+        pub held: std::collections::HashMap<String, u32>,
+    }
+
+    #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+    pub struct MapAbout {
+        #[serde(flatten)]
+        pub map: Map,
+        #[serde(default)]
+        pub bpm: Option<f32>,
+        #[serde(default)]
+        pub length: Option<u32>,
+        #[serde(default)]
+        pub max_combo: Option<u32>,
+        #[serde(default)]
+        pub status: String,
+    }
+
+    #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+    pub struct BoardRow {
+        #[serde(default)]
+        pub who: i64,
+        #[serde(default)]
+        pub name: String,
+        #[serde(default)]
+        pub country: String,
+        #[serde(default)]
+        pub avatar: String,
+        #[serde(default)]
+        pub place: u32,
+        #[serde(default)]
+        pub you: bool,
+        #[serde(flatten)]
+        pub play: Play,
+    }
+
+    #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+    pub struct Record {
+        #[serde(default)]
+        pub name: String,
+        #[serde(default)]
+        pub pp: f32,
+        #[serde(default)]
+        pub score: u64,
+        #[serde(default)]
+        pub at: Option<i64>,
+    }
+
+    #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+    pub struct MapBoard {
+        #[serde(default)]
+        pub beatmap: u64,
+        #[serde(default)]
+        pub metric: String,
+        #[serde(default)]
+        pub map: Option<MapAbout>,
+        #[serde(default)]
+        pub plays: u32,
+        #[serde(default)]
+        pub players: u32,
+        #[serde(default)]
+        pub rows: Vec<BoardRow>,
+        #[serde(default)]
+        pub records: Vec<Record>,
+        #[serde(default)]
+        pub at: Option<i64>,
+    }
+
+    impl MapBoard {
+        pub fn by_score(&self) -> bool {
+            self.metric == "score"
+        }
     }
 
     #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -1462,6 +1633,35 @@ pub mod wire {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn board_of(metric: &str, rows: &[(i64, u64, f32, u64)]) -> wire::MapBoard {
+        wire::MapBoard {
+            metric: metric.to_owned(),
+            rows: rows
+                .iter()
+                .enumerate()
+                .map(|(at, (who, id, pp, score))| wire::BoardRow { who: *who, place: at as u32 + 1, play: wire::Play { id: Some(*id), pp: *pp, score: *score, ..wire::Play::default() }, ..wire::BoardRow::default() })
+                .collect(),
+            ..wire::MapBoard::default()
+        }
+    }
+
+    #[test]
+    fn a_play_says_the_place_it_took_or_the_one_it_would_have() {
+        let board = board_of("pp", &[(1, 10, 412.0, 700_000), (2, 20, 380.0, 1_100_000), (3, 30, 300.0, 500_000)]);
+        let play = |id: u64, pp: f32, score: u64| Play { id: Some(id), pp, score, ..Play::default() };
+        assert_eq!(placed(&board, 2, &play(20, 380.0, 1_100_000), true), Placed::Took { place: 2, of: 3 });
+        assert_eq!(placed(&board, 2, &play(21, 310.0, 900_000), true), Placed::Would { place: 2, of: 3, best: 2 });
+        assert_eq!(placed(&board, 3, &play(31, 290.0, 1), true), Placed::Would { place: 3, of: 3, best: 3 });
+        assert_eq!(placed(&board, 9, &play(90, 400.0, 1), true), Placed::Took { place: 2, of: 4 }, "a play the board has not heard of took no place");
+        assert_eq!(placed(&board, 3, &play(32, 500.0, 1), true), Placed::Took { place: 1, of: 3 }, "a play better than the board knows stayed behind");
+        assert_eq!(placed(&board, 1, &play(11, 0.0, 9_000_000), false), Placed::Failed { best: Some(1), of: 3 });
+        assert_eq!(placed(&board, 9, &play(91, 0.0, 0), false), Placed::Failed { best: None, of: 3 });
+        let loved = board_of("score", &[(2, 20, 0.0, 1_100_000), (1, 10, 0.0, 700_000)]);
+        assert_eq!(placed(&loved, 1, &play(12, 0.0, 1_200_000), true), Placed::Took { place: 1, of: 2 });
+        let guessed = Play { id: Some(13), pp_if: Some(390.0), ..Play::default() };
+        assert_eq!(placed(&board, 9, &guessed, true), Placed::Took { place: 2, of: 4 }, "an estimate of pp was not used where the play gave none");
+    }
 
     #[test]
     fn the_bot_card_borrows_what_osu_says_of_its_plays() {

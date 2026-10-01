@@ -1,19 +1,24 @@
-use iced::widget::{button, column, container, mouse_area, row, stack, text, Space};
-use iced::{Background, Border, Color, Element, Length, Padding, Shadow, Vector};
+use iced::widget::{button, column, container, mouse_area, row, text, Space};
+use iced::{Background, Border, Color, Element, Length, Padding};
 
 use crate::glyphs::{glyph, Icon};
-use crate::theme::{self, FAINT, INK, MUTED};
+use crate::theme::{self, INK, MUTED};
 use crate::ui;
 
-pub const WIDE: f32 = 212.0;
-pub const NARROW: f32 = 76.0;
+pub const WIDE: f32 = 244.0;
+pub const NARROW: f32 = 84.0;
 const EDGE: f32 = 16.0;
 const SLOT: f32 = NARROW - EDGE - 12.0;
-const ITEM: f32 = 40.0;
-const CAPTION: f32 = 30.0;
-const IDLE_ICON: f32 = 21.0;
-const OPEN_ICON: f32 = 17.0;
+const ITEM: f32 = 46.0;
+const CAPTION: f32 = 20.0;
+const IDLE_ICON: f32 = 24.0;
+const OPEN_ICON: f32 = 22.0;
 const PANEL: Color = Color::from_rgb(0.055, 0.025, 0.033);
+const SHADE: Color = Color::from_rgb(0.02, 0.008, 0.012);
+
+pub fn width_at(open: f32) -> f32 {
+    NARROW + (WIDE - NARROW) * open.clamp(0.0, 1.0)
+}
 
 pub enum Entry<Message> {
     Caption(String),
@@ -74,27 +79,18 @@ pub fn moved(groups: &[Vec<&'static str>], kept: &[String], what: &'static str, 
     shown.iter().cloned().chain(others).collect()
 }
 
-fn caption<'a, Message: 'a>(said: String, open: f32) -> Element<'a, Message> {
-    let words = ((open - 0.3) / 0.7).clamp(0.0, 1.0);
-    let line = container(Space::new().height(1.0)).width(Length::Fill).style(move |_| container::Style {
-        background: Some(Background::Color(Color::from_rgba(1.0, 1.0, 1.0, 0.07 * ui::fade() * (1.0 - words)))),
+fn divider<'a, Message: 'a>() -> Element<'a, Message> {
+    let line = container(Space::new().height(1.0)).width(Length::Fill).style(|_| container::Style {
+        background: Some(Background::Color(Color::from_rgba(1.0, 1.0, 1.0, 0.07 * ui::fade()))),
         ..container::Style::default()
     });
-    let mut layers = stack![container(line).padding([0, 10]).height(CAPTION).width(Length::Fill).align_y(iced::Center)];
-    if words > 0.0 {
-        let faint = ui::faded(FAINT);
-        let label = text(said).font(theme::SANS).size(12.0).wrapping(text::Wrapping::None).color(Color { a: faint.a * words, ..faint });
-        let chip = container(label).padding([3, 8]).style(move |_| tile(words * ui::fade(), 8.0));
-        layers = layers.push(container(chip).padding(Padding { top: 0.0, right: 0.0, bottom: 3.0, left: 4.0 }).height(CAPTION).width(Length::Fill).align_y(iced::Bottom).clip(true));
-    }
-    layers.into()
+    container(line).padding([0, 10]).height(CAPTION).width(Length::Fill).align_y(iced::Center).into()
 }
 
 fn tile(k: f32, radius: f32) -> container::Style {
     container::Style {
-        background: (k > 0.0).then_some(Background::Color(Color { a: k, ..PANEL })),
-        border: Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.07 * k), width: if k > 0.0 { 1.0 } else { 0.0 }, radius: radius.into() },
-        shadow: Shadow { color: Color::from_rgba(0.0, 0.0, 0.0, 0.4 * k), offset: Vector::new(0.0, 4.0), blur_radius: 14.0 },
+        background: (k > 0.0).then_some(Background::Color(Color::from_rgba(1.0, 1.0, 1.0, 0.045 * k))),
+        border: Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.09 * k), width: if k > 0.0 { 1.0 } else { 0.0 }, radius: radius.into() },
         ..container::Style::default()
     }
 }
@@ -106,14 +102,14 @@ fn item<'a, Message: Clone + 'a>(key: &'static str, icon: Icon, label: String, o
     let mut line = row![glyph(icon, size, colour)].spacing(12).align_y(iced::Center);
     if words > 0.0 {
         let faded = ui::faded(colour);
-        line = line.push(text(label).font(theme::SANS_SEMI).size(14.0).wrapping(text::Wrapping::None).color(Color { a: faded.a * words, ..faded }));
+        line = line.push(text(label).font(theme::SANS_SEMI).size(15.0).wrapping(text::Wrapping::None).color(Color { a: faded.a * words, ..faded }));
     }
     let inside = container(line).padding(Padding { top: 0.0, right: 0.0, bottom: 0.0, left: (SLOT - size) / 2.0 }).height(ITEM).width(Length::Fill).align_y(iced::Center).clip(true);
     let k = open * ui::fade();
     container(button(inside).padding(0).width(Length::Fill).style(ui::button_faded(ui::calm(theme::side(on)))).on_press(press))
         .id(iced::widget::Id::from(format!("side-{key}")))
         .width(Length::Fill)
-        .style(move |_| tile(k, 10.0))
+        .style(move |_| tile(k, 12.0))
         .into()
 }
 
@@ -126,8 +122,8 @@ pub fn view<'a, Message: Clone + 'a>(
     let open = open.clamp(0.0, 1.0);
     let mut list = column![].spacing(3);
     for (said, items) in split(entries) {
-        if let Some(said) = said {
-            list = list.push(caption(said, open));
+        if said.is_some() {
+            list = list.push(divider());
         }
         let pieces: Vec<(&'static str, Element<'a, Message>)> = items
             .into_iter()
@@ -137,10 +133,18 @@ pub fn view<'a, Message: Clone + 'a>(
             })
             .collect();
         if !pieces.is_empty() {
-            list = list.push(crate::board::board(pieces, 3.0, moved.clone()).anywhere().radius(10.0).solid(PANEL));
+            list = list.push(crate::board::board(pieces, 3.0, moved.clone()).anywhere().radius(12.0).solid(PANEL));
         }
     }
-    let panel = container(list).width(NARROW + (WIDE - NARROW) * open).padding(Padding { top: 30.0, right: 12.0, bottom: 0.0, left: EDGE });
+    let k = open * ui::fade();
+    let panel = container(list)
+        .width(width_at(open))
+        .padding(Padding { top: 30.0, right: 12.0, bottom: 14.0, left: EDGE })
+        .style(move |_| container::Style {
+            background: (k > 0.0).then_some(Background::Color(Color { a: 0.5 * k, ..SHADE })),
+            border: Border { radius: iced::border::Radius { top_left: 0.0, top_right: 18.0, bottom_right: 18.0, bottom_left: 0.0 }, ..Border::default() },
+            ..container::Style::default()
+        });
     mouse_area(panel).on_enter(hover(true)).on_exit(hover(false)).into()
 }
 

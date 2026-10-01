@@ -615,7 +615,7 @@ pub fn side(on: bool) -> impl Fn(&Theme, button::Status) -> button::Style {
         button::Style {
             background: background.map(Background::Color),
             text_color: INK,
-            border: border(edge, 10.0),
+            border: border(edge, 12.0),
             shadow: Shadow::default(),
             snap: true,
         }

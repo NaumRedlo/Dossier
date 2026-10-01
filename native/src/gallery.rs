@@ -705,12 +705,15 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
     linking.qr = crate::first_run::qr_for("https://t.me/bot?start=pair-K7QNM4XZ");
     let mut prefs_witness = prefs_app.clone();
     prefs_witness.settings.tiles_app = vec!["witness".to_owned()];
-    prefs_witness.settings.witness = true;
+    prefs_witness.settings.witness_keep = true;
     prefs_witness.witness = crate::witness::Seen {
         status: crate::witness::Status::Playing,
         state: Some(crate::witness::State { mode: "Play".into(), artist: "xi".into(), title: "FREEDOM DiVE".into(), version: "FOUR DIMENSIONS".into(), ..crate::witness::State::default() }),
         playing: Some(crate::witness::Progress { frames: 3886, score: 92_242, ..crate::witness::Progress::default() }),
-        kept: 3,
+        kept: 5,
+        written: 3,
+        told: 2,
+        untold: false,
     };
     let mut prefs_shared = prefs_app.clone();
     prefs_shared.settings.tiles_app = vec!["sources".to_owned()];
@@ -895,6 +898,13 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
         }),
         ("main-community-score".to_owned(), scored(false)),
         ("main-community-score-scale".to_owned(), scored(true)),
+        ("main-community-score-witnessed".to_owned(), {
+            let mut main = scored(false);
+            if let Some(crate::community_screen::Reading::Score(scored)) = main.community_reading.as_mut() {
+                scored.play = crate::community::Play { pp: 0.0, pp_if: Some(scored.play.pp), id: None, witnessed: true, ..scored.play.clone() };
+            }
+            main
+        }),
         ("main-community-title".to_owned(), titled("ss_100", "ssnowy")),
         ("main-community-title-earned".to_owned(), titled("combo_2000", "Mirrorwave")),
         ("main-community-clip".to_owned(), {

@@ -200,6 +200,7 @@ pub struct Play {
     pub id: Option<u64>,
     pub score: u64,
     pub pp_if: Option<f32>,
+    pub witnessed: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -380,6 +381,7 @@ fn play_into(maps: &mut Vec<MapRef>, play: &wire::Play) -> Play {
         id: play.id,
         score: play.score,
         pp_if: play.pp_if,
+        witnessed: play.witnessed,
     }
 }
 
@@ -965,6 +967,8 @@ pub mod wire {
         pub counts: Vec<Option<u32>>,
         #[serde(default)]
         pub at: Option<i64>,
+        #[serde(default)]
+        pub witnessed: bool,
     }
 
     #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]

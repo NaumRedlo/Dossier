@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 static BUNDLED: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/witness.exe"));
 
@@ -15,6 +15,8 @@ const AGAIN_AFTER: Duration = Duration::from_secs(3);
 const NAME_MOST: usize = 160;
 const LEASH: &str = "witness.alive";
 const LEASH_EVERY: Duration = Duration::from_secs(5);
+const TOLD_LEAST: u32 = 30;
+const NOT_PLAYED: u32 = 2048 | 4_194_304;
 
 #[derive(Debug, Clone, PartialEq, Default, Deserialize)]
 #[serde(default)]
@@ -68,6 +70,70 @@ pub struct Kept {
     pub score: i64,
     pub frames: u64,
     pub osr: String,
+    pub id: i64,
+    pub set: i64,
+    pub creator: String,
+    pub watched: Option<bool>,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize)]
+pub struct Told {
+    pub md5: String,
+    pub replay: String,
+    pub id: i64,
+    pub set: i64,
+    pub artist: String,
+    pub title: String,
+    pub version: String,
+    pub creator: String,
+    pub mods: u32,
+    pub score: i64,
+    pub max_combo: u32,
+    pub n300: u32,
+    pub n100: u32,
+    pub n50: u32,
+    pub geki: u32,
+    pub katu: u32,
+    pub miss: u32,
+    pub passed: bool,
+    pub ended: i64,
+}
+
+pub fn told(kept: &Kept, own: &str, now: i64) -> Option<Told> {
+    if kept.watched != Some(false) || own.trim().is_empty() {
+        return None;
+    }
+    let bytes = bytes_of(&kept.osr)?;
+    let replay = dossier_replay::Replay::heading(&bytes).ok()?;
+    let mods = replay.mods.raw();
+    let player = replay.player.trim().to_lowercase();
+    if replay.mode != dossier_replay::GameMode::Standard || mods & NOT_PLAYED != 0 || (!player.is_empty() && player != own.trim().to_lowercase()) {
+        return None;
+    }
+    if !kept.passed && replay.hits.total_hits() < TOLD_LEAST {
+        return None;
+    }
+    Some(Told {
+        md5: replay.beatmap_hash.to_lowercase(),
+        replay: replay.replay_hash.to_lowercase(),
+        id: kept.id.max(0),
+        set: kept.set.max(0),
+        artist: kept.artist.clone(),
+        title: kept.title.clone(),
+        version: kept.version.clone(),
+        creator: kept.creator.clone(),
+        mods,
+        score: i64::from(replay.score.max(0)),
+        max_combo: u32::from(replay.max_combo),
+        n300: u32::from(replay.hits.count_300),
+        n100: u32::from(replay.hits.count_100),
+        n50: u32::from(replay.hits.count_50),
+        geki: u32::from(replay.hits.count_geki),
+        katu: u32::from(replay.hits.count_katu),
+        miss: u32::from(replay.hits.count_miss),
+        passed: kept.passed,
+        ended: now,
+    })
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -111,13 +177,16 @@ pub struct Seen {
     pub state: Option<State>,
     pub playing: Option<Progress>,
     pub kept: u32,
+    pub written: u32,
+    pub told: u32,
+    pub untold: bool,
 }
 
 impl Seen {
     pub fn take(&mut self, event: &Event) {
         match event {
-            Event::Unavailable => *self = Seen { status: Status::Unavailable, kept: self.kept, ..Seen::default() },
-            Event::Waiting | Event::Gone | Event::Absent => *self = Seen { status: Status::Absent, kept: self.kept, ..Seen::default() },
+            Event::Unavailable => *self = Seen { status: Status::Unavailable, state: None, playing: None, ..self.clone() },
+            Event::Waiting | Event::Gone | Event::Absent => *self = Seen { status: Status::Absent, state: None, playing: None, ..self.clone() },
             Event::Attached { .. } | Event::Loading => {
                 self.status = Status::Loading;
                 self.state = None;
@@ -456,6 +525,32 @@ mod tests {
         assert!(keep(&Kept { osr: "zz".into(), ..kept.clone() }, &dir).is_err());
         assert!(keep(&Kept { osr: "00010203".into(), ..kept.clone() }, &dir).is_err(), "bytes that are not a replay were kept");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn only_a_play_that_was_really_played_by_the_person_is_told() {
+        let replay = include_bytes!("../tests/fixtures/witness.osr");
+        let heading = dossier_replay::Replay::heading(replay).expect("a replay");
+        let hex: String = replay.iter().map(|byte| format!("{byte:02x}")).collect();
+        let kept = Kept { osr: hex, passed: true, id: 129_891, set: 39_804, artist: "xi".into(), title: "FREEDOM DiVE".into(), version: "FOUR DIMENSIONS".into(), creator: "Nakagawa-Kanon".into(), watched: Some(false), ..Kept::default() };
+        let own = heading.player.to_uppercase();
+        let play = told(&kept, &own, 1_790_000_000).expect("a play to tell");
+        assert_eq!((play.md5.as_str(), play.replay.as_str()), (heading.beatmap_hash.as_str(), heading.replay_hash.as_str()));
+        assert_eq!((play.n300, play.n100, play.n50, play.miss), (u32::from(heading.hits.count_300), u32::from(heading.hits.count_100), u32::from(heading.hits.count_50), u32::from(heading.hits.count_miss)));
+        assert_eq!((play.id, play.set, play.passed, play.ended, play.mods), (129_891, 39_804, true, 1_790_000_000, heading.mods.raw()));
+        let said = serde_json::to_value(&play).expect("json");
+        assert_eq!((said["max_combo"].as_u64(), said["creator"].as_str()), (Some(u64::from(heading.max_combo)), Some("Nakagawa-Kanon")));
+        assert_eq!(told(&Kept { watched: Some(true), ..kept.clone() }, &own, 0), None, "a watched replay was told as a play");
+        assert_eq!(told(&Kept { watched: None, ..kept.clone() }, &own, 0), None, "a play nobody can vouch for was told");
+        assert_eq!(told(&kept, "someone else", 0), None, "another player's replay was told");
+        assert_eq!(told(&kept, " ", 0), None);
+        assert_eq!(told(&Kept { osr: "00".into(), ..kept.clone() }, &own, 0), None);
+        let left = told(&Kept { passed: false, ..kept.clone() }, &own, 0);
+        assert_eq!(left.is_some(), heading.hits.total_hits() >= TOLD_LEAST);
+        let event = read(r#"{"event":"kept","name":"a.osr","passed":true,"md5":"ab","id":7,"set":8,"artist":"xi","title":"t","version":"v","creator":"N","score":5,"frames":300,"watched":false,"osr":"00"}"#);
+        assert!(matches!(event, Some(Event::Kept(Kept { id: 7, set: 8, watched: Some(false), .. }))));
+        let old = read(r#"{"event":"kept","name":"a.osr","passed":true,"md5":"ab","artist":"xi","title":"t","version":"v","score":5,"frames":300,"osr":"00"}"#);
+        assert!(matches!(old, Some(Event::Kept(Kept { id: 0, watched: None, .. }))));
     }
 
     #[test]

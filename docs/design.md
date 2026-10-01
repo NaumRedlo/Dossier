@@ -624,11 +624,17 @@ and *Вчера* are counted in calendar days of the local zone, the way the
 times beside them are written.
 
 *Witness* (2026-10-01; the name is not translated) is a tile among the application's settings: what it
-does in two sentences, one switch *Записывать каждую игру*, and under it one
-line saying where it stands — *osu! не запущен*, *osu! загружается*,
-*Подключён к osu!*, *Идёт игра: …* — and how many plays it has kept this
-session. It is off until asked for. What it is and how it works is in
-`docs/witness.md`.
+does in two sentences, one line saying where it stands — *osu! не запущен*,
+*osu! загружается*, *Подключён к osu!*, *Идёт игра: …* — how many plays it
+has sent to the feed this session, and one switch, *Класть реплей каждой
+игры в журнал*, with the count of replays kept under it. Witness itself has
+no switch: it runs whenever the application does, because what the
+application is to grow into — a play in the chat's feed the moment it ends,
+and more between the people of a chat after that — stands on it. Only
+keeping the replays is the person's choice, and it is off until asked for.
+A play the server has from Witness and osu! has not confirmed yet says so in
+its sheet, in one faint line under the time. What it is and how it works is
+in `docs/witness.md`.
 
 - *Лента* is a chronicle (2026-09-24), chosen from three drawn concepts
   over a board of panels and a daily digest: one stream of everything that

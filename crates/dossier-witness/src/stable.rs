@@ -5,6 +5,7 @@ pub const BASE: &str = "F8 01 74 04 83 65";
 pub const STATUS: &str = "48 83 F8 04 73 1E";
 pub const PLAY_TIME: &str = "5E 5F 5D C3 A1 ?? ?? ?? ?? 89 ?? 04";
 pub const RULESETS: &str = "7D 15 A1 ?? ?? ?? ?? 85 C0";
+pub const REPLAY: &str = "55 8B EC 80 3D ?? ?? ?? ?? 00 75 26 80 3D";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Anchors {
@@ -12,6 +13,7 @@ pub struct Anchors {
     pub status: u64,
     pub play_time: u64,
     pub rulesets: u64,
+    pub replay: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -24,7 +26,23 @@ pub enum Lost {
 
 pub fn anchors(memory: &dyn Memory) -> Result<Anchors, Lost> {
     let seek = |said: &str, lost: Lost| Pattern::parse(said).and_then(|pattern| scan::find(memory, &pattern)).ok_or(lost);
-    Ok(Anchors { base: seek(BASE, Lost::Base)?, status: seek(STATUS, Lost::Status)?, play_time: seek(PLAY_TIME, Lost::PlayTime)?, rulesets: seek(RULESETS, Lost::Rulesets)? })
+    Ok(Anchors { base: seek(BASE, Lost::Base)?, status: seek(STATUS, Lost::Status)?, play_time: seek(PLAY_TIME, Lost::PlayTime)?, rulesets: seek(RULESETS, Lost::Rulesets)?, replay: seek(REPLAY, Lost::Rulesets).ok() })
+}
+
+pub fn watching(memory: &dyn Memory, anchors: &Anchors) -> Option<bool> {
+    match memory.u8(memory.pointer(anchors.replay? + 0x46)?)? {
+        0 => Some(false),
+        1 => Some(true),
+        _ => None,
+    }
+}
+
+fn watched(before: Option<bool>, now: Option<bool>) -> Option<bool> {
+    match (before, now) {
+        (Some(true), _) | (_, Some(true)) => Some(true),
+        (Some(false), Some(false)) => Some(false),
+        _ => None,
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -131,6 +149,7 @@ pub struct Glance {
     pub time_ms: i32,
     pub map: Option<Map>,
     pub play: Option<Play>,
+    pub watching: Option<bool>,
 }
 
 fn is_md5(said: &str) -> bool {
@@ -240,6 +259,7 @@ pub struct Take {
     pub frames: Vec<Frame>,
     pub life: Vec<(f32, f32)>,
     pub passed: bool,
+    pub watched: Option<bool>,
 }
 
 #[derive(Debug, Default)]
@@ -283,10 +303,11 @@ impl Recorder {
                 let restarted = self.current.as_ref().is_some_and(|take| count < take.frames.len() || !Recorder::continues(take, memory, score));
                 let finished = if restarted { self.current.take() } else { None };
                 if self.current.is_none() {
-                    self.current = Some(Take { score, map: seen.map.clone()?, play: Play::default(), frames: Vec::new(), life: Vec::new(), passed: false });
+                    self.current = Some(Take { score, map: seen.map.clone()?, play: Play::default(), frames: Vec::new(), life: Vec::new(), passed: false, watched: seen.watching });
                 }
                 if let Some(take) = self.current.as_mut() {
                     take.score = score;
+                    take.watched = watched(take.watched, seen.watching);
                     Recorder::refresh(take, memory, score);
                 }
                 finished
@@ -308,7 +329,7 @@ pub fn glance(memory: &dyn Memory, anchors: &Anchors) -> Option<Glance> {
     let raw_mode = memory.u32(memory.pointer(anchors.status - 0x4)?)?;
     let time_ms = memory.pointer(anchors.play_time + 0x5).and_then(|at| memory.i32(at)).unwrap_or(0);
     let mode = Mode::of(raw_mode);
-    Some(Glance { raw_mode, mode, time_ms, map: map(memory, anchors), play: if mode == Some(Mode::Play) || mode == Some(Mode::Rank) { play(memory, anchors) } else { None } })
+    Some(Glance { raw_mode, mode, time_ms, map: map(memory, anchors), play: if mode == Some(Mode::Play) || mode == Some(Mode::Rank) { play(memory, anchors) } else { None }, watching: watching(memory, anchors) })
 }
 
 #[cfg(test)]
@@ -328,9 +349,11 @@ mod tests {
         place(&mut code, 0x200, &[0x48, 0x83, 0xF8, 0x04, 0x73, 0x1E]);
         place(&mut code, 0x280, &[0x5E, 0x5F, 0x5D, 0xC3, 0xA1, 0, 0, 0, 0, 0x89, 0x46, 0x04]);
         place(&mut code, 0x300, &[0x7D, 0x15, 0xA1, 0, 0, 0, 0, 0x85, 0xC0]);
+        place(&mut code, 0x340, &[0x55, 0x8B, 0xEC, 0x80, 0x3D, 0, 0, 0, 0, 0x00, 0x75, 0x26, 0x80, 0x3D]);
         fake.put(CODE, &code, true);
         fake.room(DATA, 0x4000);
-        let anchors = Anchors { base: CODE + 0x100, status: CODE + 0x200, play_time: CODE + 0x280, rulesets: CODE + 0x300 };
+        let anchors = Anchors { base: CODE + 0x100, status: CODE + 0x200, play_time: CODE + 0x280, rulesets: CODE + 0x300, replay: Some(CODE + 0x340) };
+        fake.set_u32(CODE + 0x340 + 0x46, (DATA + 0x28) as u32);
 
         fake.set_u32(anchors.status - 0x4, (DATA + 0x10) as u32);
         fake.set_u32(DATA + 0x10, 2);
@@ -469,7 +492,25 @@ mod tests {
         fake.set_u32(score + 0x78, 2_000_000);
         fake.set_u32(DATA + 0x10, 7);
         let done = recorder.poll(&fake, &anchors).expect("the finished play");
-        assert_eq!((done.passed, done.frames.len(), done.play.score), (true, 5, 2_000_000));
+        assert_eq!((done.passed, done.frames.len(), done.play.score, done.watched), (true, 5, 2_000_000, Some(false)));
+    }
+
+    #[test]
+    fn a_replay_that_was_watched_is_not_taken_for_a_play() {
+        let (mut fake, anchors, _) = with_frames();
+        let mut recorder = Recorder::default();
+        assert_eq!(watching(&fake, &anchors), Some(false));
+        assert!(recorder.poll(&fake, &anchors).is_none());
+        fake.set_u32(DATA + 0x28, 1);
+        assert_eq!(watching(&fake, &anchors), Some(true));
+        assert!(recorder.poll(&fake, &anchors).is_none());
+        fake.set_u32(DATA + 0x28, 0);
+        fake.set_u32(DATA + 0x10, 0);
+        assert_eq!(recorder.poll(&fake, &anchors).expect("what was left").watched, Some(true));
+        fake.set_u32(DATA + 0x28, 7);
+        assert_eq!(watching(&fake, &anchors), None);
+        assert_eq!(watching(&fake, &Anchors { replay: None, ..anchors }), None);
+        assert_eq!((watched(Some(false), None), watched(None, Some(false)), watched(Some(false), Some(false))), (None, None, Some(false)));
     }
 
     #[test]

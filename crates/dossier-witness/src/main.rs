@@ -38,7 +38,7 @@ fn main() {
         }
     }
     if args.iter().any(|arg| arg == "--signatures") {
-        for (name, said) in [("base", stable::BASE), ("status", stable::STATUS), ("play time", stable::PLAY_TIME), ("rulesets", stable::RULESETS)] {
+        for (name, said) in [("base", stable::BASE), ("status", stable::STATUS), ("play time", stable::PLAY_TIME), ("rulesets", stable::RULESETS), ("replay", stable::REPLAY)] {
             let pattern = dossier_witness::scan::Pattern::parse(said).expect("a pattern");
             let code = dossier_witness::scan::find_all(&process, &pattern, true, 8);
             let anywhere = dossier_witness::scan::find_all(&process, &pattern, false, 8);

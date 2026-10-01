@@ -110,10 +110,11 @@ the linker is named in `.cargo/config.toml`.
 
 ## In the application
 
-*Witness* is a tile in the application's settings with one switch, off until
-the person turns it on: it reads another program's memory, and that is theirs
-to decide. While it is on the application keeps one Witness running beside the
-client and listens to it.
+Witness runs whenever the application does: it keeps one Witness beside the
+client and listens to it. The tile in the settings says where it stands and has
+one switch, for keeping every play's replay in the journal, off until the
+person turns it on. (Until 2026-10-01 that switch started Witness itself; a
+setting saved then is read as the new one.)
 
 - The program travels inside the application: the release builds
   `witness.exe` once, for Windows, and every archive carries it; it is written
@@ -131,7 +132,7 @@ client and listens to it.
   `playing` once a second, `kept` with the replay itself as hex, `gone`, and
   `alive` so that a dead listener is noticed. Nothing is passed through files,
   so the two sides need no path they both understand.
-- A kept play is checked to be a replay and written into `~/.dossier/Witnessed`,
+- With the switch on, a kept play is checked to be a replay and written into `~/.dossier/Witnessed`,
   a source of its own (*Записано Witness*) that is added and switched on
   with the tile's switch; the journal notices it the way it notices any new
   replay, and announces it the same way. The first version wrote into
@@ -142,6 +143,41 @@ client and listens to it.
   whose application had gone stayed for good. The application now touches
   `witness.alive` beside the program every five seconds, and a Witness started
   with `--leash` leaves when that file is twenty seconds old or gone.
+
+## The transmitter
+
+A play Witness saw end is told to the server at once, so the chat's feed does
+not wait for the live tracker to ask osu! about it. Witness itself still only
+reads and has no network: it says `kept`, and the application, which holds the
+person's token, sends the result — `POST /render/me/play` with the map's hash
+and id, the replay's hash, the mods, the score, the six counts, the combo and
+whether the play was passed. Nothing of the replay itself is sent.
+
+- Only the person's own plays are told. The `kept` line says whether the client
+  was showing a replay (`watched`), read from the client's replay-mode flag
+  (`[anchor + 0x46]` of a fifth pattern, taken from tosu like the other four);
+  a play is told only when that flag was read and said no for the whole play.
+  The name in the replay must be the person's or empty (an offline client has
+  none), autoplay is refused, and a play that was left is told only from thirty
+  judged objects on. **The flag has not been seen on the bench yet** — the
+  pattern is optional, and without it nothing is told and everything else works
+  as before.
+- The server keeps such a play in a table of its own (`witnessed_plays`): what
+  an application says about its own person is shown in the feed and in that
+  person's recent plays, and never enters the leaderboards, the records or the
+  titles — those stay with what osu! itself reports. Accuracy and the grade are
+  counted on the server from the counts.
+- The row is saved first and answered with; the map's stars, length and combo
+  (one cached lookup per map, checked against the hash) and the estimated pp
+  come a moment later.
+- When the live tracker brings the same play from osu! — same player, same map,
+  within a quarter of an hour, same score or same counts — the told one steps
+  aside and the confirmed one takes its place. A passed play also nudges the
+  tracker, as a saved replay always did.
+- What it costs the server: one small request a play, one row, three indexed
+  lookups; a player can tell one play in five seconds and six hundred a day,
+  and rows older than two weeks are dropped as new ones come. The feed asks one
+  more indexed question than before and reuses the plays it had already loaded.
 
 ## What is checked by a machine
 

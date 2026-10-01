@@ -89,6 +89,7 @@ mod tests {
             frames: vec![Frame { time: 0, x: 256.0, y: -500.0, keys: 0 }, Frame { time: -1, x: 256.0, y: -500.0, keys: 0 }, Frame { time: 1632, x: 245.73, y: 218.25, keys: 5 }, Frame { time: 1648, x: 240.5, y: 220.0, keys: 0 }],
             life: vec![(1632.0, 1.0), (3210.4, 0.87)],
             passed: true,
+            watched: Some(false),
         }
     }
 

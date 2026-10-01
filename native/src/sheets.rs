@@ -408,7 +408,9 @@ pub(crate) fn score<'a>(ground: &Ground<'a>, scored: &'a Scored) -> Element<'a, 
     let when = if play.at > 0 { format!("{} {}", w.day(play.at, ground.now_unix), w.clock(play.at)) } else { String::new() };
     let head = stack![
         cover_back(ground, scored),
-        container(mono(when, 12.0, MUTED, false)).center_x(Length::Fill).padding(Padding::ZERO.top(20.0)),
+        container(column![mono(when, 12.0, MUTED, false), mono(if play.witnessed { w.t("score-witnessed") } else { String::new() }, 11.0, FAINT, false)].spacing(4).align_x(iced::Center))
+            .center_x(Length::Fill)
+            .padding(Padding::ZERO.top(20.0)),
         container(row![ui::grow(), close()]).padding(Padding { top: 8.0, right: 10.0, bottom: 0.0, left: 0.0 }),
         container(row![Space::new().width(RING + 4.0), titles, right].spacing(18).align_y(iced::Bottom))
             .height(HEAD)

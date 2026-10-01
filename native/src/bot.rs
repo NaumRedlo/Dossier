@@ -248,6 +248,17 @@ pub fn played(server: &str, token: &str, name: &str) -> Result<(), Refused> {
     status(response).map(|_| ())
 }
 
+pub fn witnessed(server: &str, token: &str, name: &str, play: &crate::witness::Told) -> Result<(), Refused> {
+    let response = client()?
+        .post(format!("{server}/render/me/play"))
+        .header("X-Render-Worker", name)
+        .bearer_auth(token)
+        .json(play)
+        .send()
+        .map_err(|e| Refused::Network(e.to_string()))?;
+    status(response).map(|_| ())
+}
+
 pub fn wear_title(server: &str, token: &str, name: &str, chat: Option<i64>, code: Option<&str>) -> Result<(), Refused> {
     let response = client()?
         .post(format!("{server}/render/me/title"))

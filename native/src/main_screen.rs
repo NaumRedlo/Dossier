@@ -159,6 +159,7 @@ pub enum Message {
     Sent(Result<bot::Sent, String>),
     Sharing(sharing::Message),
     Witness(crate::witness::Event),
+    WitnessTold(bool),
     ToastHover(u64, bool),
     ToastClose(u64),
     OpenVideo(usize),
@@ -887,10 +888,10 @@ impl Main {
     }
 
     pub fn witness_task(&mut self) -> Task<Message> {
-        if !self.settings.witness || self.gallery || self.witness_control.is_some() {
+        if self.gallery || self.witness_control.is_some() {
             return Task::none();
         }
-        if !self.settings.sources.iter().any(|source| source.is_witnessed()) {
+        if self.settings.witness_keep && !self.settings.sources.iter().any(|source| source.is_witnessed()) {
             self.witness_source();
             let _ = self.settings.save();
         }
@@ -899,6 +900,16 @@ impl Main {
         self.witness = crate::witness::Seen { status: crate::witness::Status::Absent, ..crate::witness::Seen::default() };
         let player = self.community.as_ref().and_then(|catalog| catalog.people.iter().find(|person| person.you)).map(|you| you.name.clone()).unwrap_or_default();
         ui::streamed(move |push| crate::witness::run(control, player, &mut |event| push(Message::Witness(event))))
+    }
+
+    fn tell_task(&self, kept: &crate::witness::Kept) -> Option<Task<Message>> {
+        if self.settings.token.is_empty() {
+            return None;
+        }
+        let own = self.community.as_ref().and_then(|catalog| catalog.people.iter().find(|person| person.you)).map(|you| you.name.clone())?;
+        let play = crate::witness::told(kept, &own, unix_now())?;
+        let (server, token, name) = (self.settings.server.clone(), self.settings.token.clone(), self.settings.device.clone());
+        Some(ui::in_thread(move || Message::WitnessTold(crate::bot::witnessed(&server, &token, &name, &play).is_ok())))
     }
 
     fn pin_task(&self) -> Task<Message> {
@@ -2821,15 +2832,28 @@ impl Main {
                 }
                 self.witness.take(&event);
                 if let crate::witness::Event::Kept(kept) = &event {
-                    if let Err(why) = crate::witness::keep(kept, &crate::witness::folder()) {
-                        self.announce(notices::Mark::Bad, self.words.t("witness-not-kept"), why, String::new(), String::new(), notices::Link::None);
+                    let tell = self.tell_task(kept).unwrap_or_else(Task::none);
+                    if !self.settings.witness_keep {
+                        return tell;
+                    }
+                    match crate::witness::keep(kept, &crate::witness::folder()) {
+                        Ok(_) => self.witness.written += 1,
+                        Err(why) => self.announce(notices::Mark::Bad, self.words.t("witness-not-kept"), why, String::new(), String::new(), notices::Link::None),
                     }
                     if let Some(source) = self.settings.sources.iter_mut().find(|source| source.is_witnessed()) {
                         source.replay_count = crate::sources::witnessed(source.on).replay_count;
                     }
-                    return self.watch_task();
+                    return Task::batch([self.watch_task(), tell]);
                 }
                 Task::none()
+            }
+            Message::WitnessTold(reached) => {
+                self.witness.untold = !reached;
+                if !reached {
+                    return Task::none();
+                }
+                self.witness.told += 1;
+                self.community_task(true)
             }
             Message::Sharing(message) => self.sharing_update(message),
             Message::FarmTick => self.farm_task(),
@@ -6138,17 +6162,11 @@ impl Main {
             }
             P::Witness(on) => {
                 self.remember_mark("witness", on);
-                self.settings.witness = on;
-                keep(&self.settings);
+                self.settings.witness_keep = on;
                 if on {
                     self.witness_source();
-                    keep(&self.settings);
-                    return self.witness_task();
                 }
-                if let Some(control) = self.witness_control.take() {
-                    std::thread::spawn(move || control.stop());
-                }
-                self.witness = crate::witness::Seen::default();
+                keep(&self.settings);
                 Task::none()
             }
             P::AutoScale(on) => {
@@ -7678,6 +7696,29 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn a_play_witness_saw_is_told_only_by_a_paired_device_and_counted_when_it_arrives() {
+        let (_, mut main) = crate::gallery::main_states(crate::lang::Lang::En).into_iter().find(|(name, _)| name == "main-community-person").unwrap();
+        let replay = include_bytes!("../tests/fixtures/witness.osr");
+        let player = dossier_replay::Replay::heading(replay).unwrap().player;
+        let hex: String = replay.iter().map(|byte| format!("{byte:02x}")).collect();
+        let kept = crate::witness::Kept { osr: hex, passed: true, watched: Some(false), ..Default::default() };
+        main.settings.token.clear();
+        assert!(main.tell_task(&kept).is_none(), "an unpaired device told a play");
+        main.settings.token = "test-account".into();
+        for person in main.community.as_mut().unwrap().people.iter_mut().filter(|person| person.you) {
+            person.name = player.clone();
+        }
+        assert!(main.tell_task(&kept).is_some());
+        assert!(main.tell_task(&crate::witness::Kept { watched: Some(true), ..kept.clone() }).is_none());
+        let _ = main.update(super::Message::WitnessTold(false));
+        assert_eq!((main.witness.told, main.witness.untold), (0, true));
+        let _ = main.update(super::Message::WitnessTold(true));
+        assert_eq!((main.witness.told, main.witness.untold), (1, false));
+        main.witness.take(&crate::witness::Event::Gone);
+        assert_eq!((main.witness.told, main.witness.status.clone()), (1, crate::witness::Status::Absent));
     }
 
     #[test]

@@ -175,12 +175,19 @@ pub fn still(replay: &Path, map: &Path, map_hash: &str, skin_folder: Option<&Pat
     frame.encode_png().map_err(|e| e.to_string())
 }
 
-fn sample_pack(play: &Play, skin: Option<&Path>, map_samples: Option<&Path>, ffmpeg: &Path) -> dossier_audio::SamplePack {
+fn sample_pack(play: &Play, skin: Option<&Path>, map_samples: Option<&Path>, client: Option<&Path>, ffmpeg: &Path) -> dossier_audio::SamplePack {
     let pack = match skin.filter(|folder| play.skin_sounds && folder.is_dir()) {
-        Some(folder) => dossier_audio::SamplePack::load_with_ffmpeg(folder, ffmpeg),
+        Some(folder) => {
+            let pack = dossier_audio::SamplePack::load_with_ffmpeg(folder, ffmpeg);
+            match client {
+                Some(own) => pack.with_game_sounds_through(own, ffmpeg),
+                None => pack,
+            }
+        }
         None => dossier_audio::SamplePack::default(),
     };
     match map_samples.filter(|_| play.map_sounds) {
+        Some(folder) if play.skin_sounds => pack.with_beatmap(folder).with_the_skin_before_the_map(),
         Some(folder) => pack.with_beatmap(folder),
         None => pack,
     }
@@ -398,7 +405,8 @@ fn draw(ask: &Ask, tell: &Sender<Step>) -> Result<PathBuf, String> {
     let map_samples = ask.play.map_sounds
         && std::fs::create_dir_all(&from_map).is_ok()
         && locate::extract_samples(&found.origin, &from_map, &ffmpeg) > 0;
-    let samples = sample_pack(&ask.play, ask.skin.as_deref(), map_samples.then_some(from_map.as_path()), &ask.ffmpeg);
+    let client = crate::client_sounds::ready(&crate::settings::Settings::load().sources);
+    let samples = sample_pack(&ask.play, ask.skin.as_deref(), map_samples.then_some(from_map.as_path()), client.as_deref(), &ask.ffmpeg);
     let sounds = |plan: &video::Plan| -> Option<PathBuf> {
         let track = dossier_produce::hitsounds::build(
             &state,
@@ -507,20 +515,25 @@ mod tests {
     fn without_the_maps_sounds_its_hitsounds_are_played_by_the_skin() {
         use dossier_audio::{Found, SampleSet, Voice};
         let skin = folder_of_sounds("skin", &["soft-hitwhistle.wav", "drum-hitclap.wav"]);
-        let map = folder_of_sounds("map", &["soft-hitwhistle3.wav"]);
+        let map = folder_of_sounds("map", &["soft-hitwhistle3.wav", "normal-hitfinish3.wav"]);
         let both = Play::default();
+        let map_only = Play { skin_sounds: false, ..Play::default() };
         let skin_only = Play { map_sounds: false, ..Play::default() };
         let neither = Play { map_sounds: false, skin_sounds: false, ..Play::default() };
 
-        let pack = sample_pack(&both, Some(&skin), Some(&map), Path::new("ffmpeg"));
-        assert_eq!(pack.trace(SampleSet::Soft, Voice::Whistle, 3), Found::Beatmap(3));
+        let pack = sample_pack(&both, Some(&skin), Some(&map), None, Path::new("ffmpeg"));
+        assert_eq!(pack.trace(SampleSet::Soft, Voice::Whistle, 3), Found::SkinPlain, "with both switched on the skin's voice comes first");
         assert_eq!(pack.trace(SampleSet::Drum, Voice::Clap, 3), Found::SkinPlain);
+        assert_eq!(pack.trace(SampleSet::Normal, Voice::Finish, 3), Found::Beatmap(3), "what the skin has not got is still the map's");
 
-        let pack = sample_pack(&skin_only, Some(&skin), Some(&map), Path::new("ffmpeg"));
+        let pack = sample_pack(&map_only, Some(&skin), Some(&map), None, Path::new("ffmpeg"));
+        assert_eq!(pack.trace(SampleSet::Soft, Voice::Whistle, 3), Found::Beatmap(3));
+
+        let pack = sample_pack(&skin_only, Some(&skin), Some(&map), None, Path::new("ffmpeg"));
         assert_eq!(pack.trace(SampleSet::Soft, Voice::Whistle, 3), Found::SkinPlain, "the map's whistle is still heard, in the skin's voice");
         assert_eq!(pack.trace(SampleSet::Drum, Voice::Clap, 1), Found::SkinPlain);
 
-        let pack = sample_pack(&neither, Some(&skin), Some(&map), Path::new("ffmpeg"));
+        let pack = sample_pack(&neither, Some(&skin), Some(&map), None, Path::new("ffmpeg"));
         assert_eq!(pack.trace(SampleSet::Soft, Voice::Whistle, 3), Found::Synthesised);
 
         let _ = std::fs::remove_dir_all(&skin);

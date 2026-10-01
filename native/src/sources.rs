@@ -480,7 +480,7 @@ pub fn read(root: &Path) -> Option<Source> {
         .or_else(|| folder_at(root))
 }
 
-fn stable_roots() -> Vec<PathBuf> {
+pub fn stable_roots() -> Vec<PathBuf> {
     let home = home();
     let mut out = vec![
         home.join("osu!"),
@@ -494,8 +494,12 @@ fn stable_roots() -> Vec<PathBuf> {
             out.push(PathBuf::from(base).join("osu!"));
         }
     }
-    for wine in [".wine", ".local/share/wineprefixes/osu"] {
-        let users = home.join(wine).join("drive_c").join("users");
+    let mut prefixes = vec![home.join(".wine"), home.join(".local").join("share").join("wineprefixes").join("osu")];
+    if let Ok(bottles) = std::fs::read_dir(home.join("Library").join("Application Support").join("CrossOver").join("Bottles")) {
+        prefixes.extend(bottles.flatten().map(|bottle| bottle.path()));
+    }
+    for prefix in prefixes {
+        let users = prefix.join("drive_c").join("users");
         if let Ok(names) = std::fs::read_dir(&users) {
             for name in names.flatten() {
                 out.push(name.path().join("AppData").join("Local").join("osu!"));

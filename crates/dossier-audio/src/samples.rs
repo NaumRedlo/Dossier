@@ -38,6 +38,8 @@ pub struct SamplePack {
     banked_spinner: HashMap<(SampleSet, Voice), Vec<f32>>,
 
     lazer: bool,
+
+    skin_first: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -191,12 +193,19 @@ impl SamplePack {
             game: HashMap::new(),
             banked_spinner,
             lazer: false,
+            skin_first: false,
         }
     }
 
     #[must_use]
     pub fn looked_up_as_lazer(mut self) -> Self {
         self.lazer = true;
+        self
+    }
+
+    #[must_use]
+    pub fn with_the_skin_before_the_map(mut self) -> Self {
+        self.skin_first = true;
         self
     }
 
@@ -219,8 +228,12 @@ impl SamplePack {
         self
     }
 
-    pub fn with_game_sounds(mut self, folder: &Path) -> Self {
-        self.game = Self::load(folder).skin;
+    pub fn with_game_sounds(self, folder: &Path) -> Self {
+        self.with_game_sounds_through(folder, Path::new("ffmpeg"))
+    }
+
+    pub fn with_game_sounds_through(mut self, folder: &Path, ffmpeg: &Path) -> Self {
+        self.game = Self::load_with_ffmpeg(folder, ffmpeg).skin;
         self
     }
 
@@ -246,9 +259,11 @@ impl SamplePack {
         voice: Voice,
         index: u32,
     ) -> Vec<(&Banks, (SampleSet, Voice, u32), Found)> {
+        let (map, skin) = ((&self.beatmap, (set, voice, index), Found::Beatmap(index)), (&self.skin, (set, voice, 1), Found::SkinPlain));
+        let (first, second) = if self.skin_first { (skin, map) } else { (map, skin) };
         vec![
-            (&self.beatmap, (set, voice, index), Found::Beatmap(index)),
-            (&self.skin, (set, voice, 1), Found::SkinPlain),
+            first,
+            second,
             (&self.game, (set, voice, 1), Found::Game),
             (
                 &self.skin,
@@ -882,6 +897,17 @@ mod tests {
             1,
             "the skin's plain sound"
         );
+    }
+
+    #[test]
+    fn a_skin_put_before_the_map_keeps_its_own_voice_and_borrows_only_what_it_lacks() {
+        let map = skin(&[("soft-hitwhistle4", Some(&[4_000, 4_000, 4_000])), ("soft-hitclap4", Some(&[4_000, 4_000]))]);
+        let dressed = skin(&[("soft-hitwhistle", Some(&[4_000]))]);
+        let pack = SamplePack::load(&dressed).with_beatmap(&map).with_the_skin_before_the_map();
+        assert_eq!(pack.get(SampleSet::Soft, Voice::Whistle, 4).unwrap().len(), 1, "the map's sound was heard over the skin's");
+        assert_eq!(pack.trace(SampleSet::Soft, Voice::Whistle, 4), Found::SkinPlain);
+        assert_eq!(pack.get(SampleSet::Soft, Voice::Clap, 4).unwrap().len(), 2, "what the skin has not got still comes from the map");
+        assert_eq!(pack.trace(SampleSet::Soft, Voice::Clap, 4), Found::Beatmap(4));
     }
 
     #[test]

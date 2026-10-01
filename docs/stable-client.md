@@ -182,7 +182,17 @@ state, produced by whoever runs the engine from their own client:
 
 All twenty-one banked voices come out as plain WAVs and need nothing
 converting; `combobreak`, `sectionpass`, `sectionfail` and `failsound` are MP3
-in the client and this engine reads WAV, so those four stay the skin's.
+in the client and are read through ffmpeg like a skin's compressed sounds.
+
+The application does this by itself since 2026-10-02
+(`native/src/client_sounds.rs`): before a render it looks for
+`osu!gameplay.dll` in the person's stable folders — the sources, the usual
+places, Wine prefixes and CrossOver bottles — reads the sounds out of the
+library's resources and keeps them in `~/.dossier/osu-sounds`, again only when
+the library has changed. They lie under a chosen skin's sounds, so a skin with
+no `combobreak` breaks a combo with osu!'s, as it does in the client, and not
+with a synthesised one. The application's own skin keeps its own kit. Nothing
+of ppy's travels with the application; the files are the person's own.
 
 The lookup is now the game's, step for step — beatmap, skin, osu! — with the
 old normal-bank liberty left in place *below* the new step, where it only fires
@@ -378,8 +388,13 @@ re-encoded over itself rather than replaced by a sibling.
   folder the old liberty applies: a bank the skin has not got defers to
   `normal` rather than to osu!'s, and failing that a sound is synthesised. With
   the folder, neither happens.
-- `combobreak`, `sectionpass`, `sectionfail` and `failsound` are MP3 in the
-  client, so those four stay the skin's whatever folder is supplied.
+- The hitsound track is not scaled as a whole any more: until 2026-10-02 one
+  loud moment — a skin's full-scale combo break landing on a finish — turned
+  every hitsound of the video down with it. A limiter now holds down only the
+  moment itself (2 ms ahead of it, back to full within a twelfth of a second).
+- With the map's sounds and the skin's both switched on in the application the
+  skin is asked first and the map only for what the skin has not got; with the
+  map's alone the map comes first, as in the client.
 
 ### What is out of reach
 

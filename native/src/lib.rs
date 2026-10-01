@@ -2,6 +2,7 @@ pub mod board;
 pub mod bot;
 pub mod chronicle;
 pub mod checks;
+pub mod client_sounds;
 pub mod community;
 pub mod compare;
 pub mod community_screen;

@@ -21,6 +21,9 @@ pub struct Track {
 }
 
 const CONCURRENCY: usize = 6;
+const CEILING: f32 = 0.95;
+const LOOK_AHEAD: usize = (SAMPLE_RATE / 500) as usize;
+const RELEASE: usize = (SAMPLE_RATE / 12) as usize;
 
 #[derive(Debug, Clone, Copy)]
 struct Sounding {
@@ -232,18 +235,42 @@ impl Track {
         }
     }
 
-    pub fn to_pcm(&self) -> Vec<u8> {
-        let peak = self
-            .left
-            .iter()
-            .chain(&self.right)
-            .fold(0.0f32, |worst, s| worst.max(s.abs()));
-        let scale = if peak > 0.95 { 0.95 / peak } else { 1.0 };
+    fn held_down(&self) -> Vec<f32> {
+        let many = self.left.len();
+        let mut wanted: Vec<f32> = self.left.iter().zip(&self.right).map(|(l, r)| {
+            let loud = l.abs().max(r.abs());
+            if loud > CEILING { CEILING / loud } else { 1.0 }
+        }).collect();
+        if wanted.iter().all(|gain| *gain >= 1.0) {
+            return wanted;
+        }
+        let mut ahead: std::collections::VecDeque<usize> = std::collections::VecDeque::new();
+        let mut early = vec![1.0f32; many];
+        for at in (0..many).rev() {
+            while ahead.back().is_some_and(|&last| wanted[last] >= wanted[at]) {
+                ahead.pop_back();
+            }
+            ahead.push_back(at);
+            while ahead.front().is_some_and(|&first| first > at + LOOK_AHEAD) {
+                ahead.pop_front();
+            }
+            early[at] = ahead.front().map_or(1.0, |&first| wanted[first]);
+        }
+        let back = 1.0 / RELEASE as f32;
+        let mut gain = 1.0f32;
+        for (at, slot) in wanted.iter_mut().enumerate() {
+            gain = if early[at] < gain { early[at] } else { (gain + back).min(early[at]) };
+            *slot = gain;
+        }
+        wanted
+    }
 
+    pub fn to_pcm(&self) -> Vec<u8> {
+        let held = self.held_down();
         let mut out = Vec::with_capacity(self.left.len() * 4);
-        for (l, r) in self.left.iter().zip(&self.right) {
+        for ((l, r), gain) in self.left.iter().zip(&self.right).zip(&held) {
             for channel in [l, r] {
-                let value = (channel * scale * f32::from(i16::MAX)) as i16;
+                let value = (channel * gain * f32::from(i16::MAX)) as i16;
                 out.extend_from_slice(&value.to_le_bytes());
             }
         }
@@ -389,6 +416,30 @@ mod tests {
         track.strike(Voice::Normal, -1.0);
         assert!(track.to_pcm().iter().all(|&b| b == 0));
         assert!((track.seconds() - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn one_loud_moment_does_not_quieten_the_rest_of_the_track() {
+        let level = |track: &Track, at_seconds: f64| -> i32 {
+            let from = (at_seconds * f64::from(SAMPLE_RATE)) as usize * 4;
+            track.to_pcm()[from..from + 4 * 2_000].chunks(2).map(|s| i32::from(i16::from_le_bytes([s[0], s[1]])).abs()).max().unwrap_or(0)
+        };
+        let mut calm = Track::new(4.0, Kit::default());
+        let mut broken = Track::new(4.0, Kit::default());
+        for track in [&mut calm, &mut broken] {
+            for beat in 0..7 {
+                track.strike_with(Voice::Normal, 0.25 + 0.5 * f64::from(beat), SampleSet::Normal, 0.6);
+            }
+        }
+        for _ in 0..5 {
+            broken.strike_with(Voice::Miss, 2.25, SampleSet::Normal, 1.0);
+            broken.strike_with(Voice::Clap, 2.25, SampleSet::Normal, 1.0);
+        }
+        let loudest = broken.to_pcm().chunks(2).map(|s| i32::from(i16::from_le_bytes([s[0], s[1]])).abs()).max().unwrap_or(0);
+        assert!(loudest <= (0.951 * f32::from(i16::MAX)) as i32, "the loud moment clipped: {loudest}");
+        assert!(loudest > 20_000, "the loud moment was not loud: {loudest}");
+        assert_eq!(level(&calm, 0.25), level(&broken, 0.25), "a hit two seconds before the loud moment was turned down with it");
+        assert_eq!(level(&calm, 3.25), level(&broken, 3.25), "a hit a second after the loud moment was still turned down");
     }
 
     #[test]

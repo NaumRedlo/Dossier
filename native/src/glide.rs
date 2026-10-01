@@ -380,8 +380,11 @@ impl<'a, Message: 'a> From<Edged<'a, Message>> for Element<'a, Message> {
 
 pub const BRIM: f32 = 26.0;
 
+const BRIM_SOON: f32 = 8.0;
+const BRIM_STOPS: [(f32, f32); 7] = [(0.0, 1.0), (0.15, 0.961), (0.3, 0.84), (0.45, 0.656), (0.6, 0.439), (0.8, 0.16), (1.0, 0.0)];
+
 pub fn brim_strength(under: f32) -> f32 {
-    (under.abs() / BRIM).clamp(0.0, 1.0)
+    (under.abs() / BRIM_SOON).clamp(0.0, 1.0)
 }
 
 pub fn draw_brim(renderer: &mut Renderer, top: Rectangle, colour: iced::Color, k: f32) {
@@ -389,10 +392,7 @@ pub fn draw_brim(renderer: &mut Renderer, top: Rectangle, colour: iced::Color, k
     if k <= 0.003 || top.width <= 0.0 || top.height <= 0.0 {
         return;
     }
-    let shade = iced::gradient::Linear::new(iced::Radians(std::f32::consts::PI))
-        .add_stop(0.0, iced::Color { a: k, ..colour })
-        .add_stop(0.45, iced::Color { a: 0.62 * k, ..colour })
-        .add_stop(1.0, iced::Color { a: 0.0, ..colour });
+    let shade = BRIM_STOPS.iter().fold(iced::gradient::Linear::new(iced::Radians(std::f32::consts::PI)), |shade, (at, a)| shade.add_stop(*at, iced::Color { a: a * k, ..colour }));
     renderer.with_layer(top, |renderer| {
         renderer.fill_quad(renderer::Quad { bounds: top, ..renderer::Quad::default() }, iced::Background::Gradient(shade.into()));
     });
@@ -520,9 +520,11 @@ mod tests {
     #[test]
     fn the_top_edge_fades_only_once_something_has_scrolled_under_it() {
         assert_eq!(brim_strength(0.0), 0.0);
-        assert!(brim_strength(BRIM / 2.0) > 0.4 && brim_strength(BRIM / 2.0) < 0.6);
+        assert!(brim_strength(4.0) > 0.4 && brim_strength(4.0) < 0.6);
         assert_eq!(brim_strength(400.0), 1.0);
         assert_eq!(brim_strength(-400.0), 1.0);
+        assert!(BRIM_STOPS.windows(2).all(|pair| pair[0].0 < pair[1].0 && pair[0].1 > pair[1].1), "the fade does not thin out steadily");
+        assert!(BRIM_STOPS[0].1 == 1.0 && BRIM_STOPS[BRIM_STOPS.len() - 1].1 == 0.0);
     }
 
     #[test]

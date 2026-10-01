@@ -89,8 +89,8 @@ fn divider<'a, Message: 'a>() -> Element<'a, Message> {
 
 fn tile(k: f32, radius: f32) -> container::Style {
     container::Style {
-        background: (k > 0.0).then_some(Background::Color(Color::from_rgba(1.0, 1.0, 1.0, 0.045 * k))),
-        border: Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.09 * k), width: if k > 0.0 { 1.0 } else { 0.0 }, radius: radius.into() },
+        background: (k > 0.0).then_some(Background::Color(Color::from_rgba(0.0, 0.0, 0.0, 0.3 * k))),
+        border: Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.07 * k), width: if k > 0.0 { 1.0 } else { 0.0 }, radius: radius.into() },
         ..container::Style::default()
     }
 }

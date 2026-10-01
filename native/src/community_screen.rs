@@ -1374,7 +1374,8 @@ fn title_card<'a>(ground: &Ground<'a>, title: &Title) -> Element<'a, Message> {
     .padding([16, 18])
     .width(Length::Fill)
     .style(ui::box_faded(theme::slab));
-    iced::widget::mouse_area(card).interaction(iced::mouse::Interaction::Pointer).on_press(Message::Read(Reading::Title { code: title.code.clone(), who: None })).into()
+    let pressed = button(card).padding(0).width(Length::Fill).style(|_, _| button::Style { background: None, text_color: INK, border: Border::default(), shadow: Shadow::default(), snap: true });
+    ui::hover(pressed.on_press(Message::Read(Reading::Title { code: title.code.clone(), who: None })), ui::Glow::tile(16.0))
 }
 
 fn titles<'a>(ground: &Ground<'a>) -> Element<'a, Message> {

@@ -2401,6 +2401,7 @@ impl Main {
                     }
                     C::ScoreScale(on) => self.score_scale = on,
                     C::TitleOf(code, who) => {
+                        self.community_tap = None;
                         let moved = self.update(Message::Community(C::Section(crate::community_screen::Section::Titles)));
                         let read = self.update(Message::Community(C::Read(crate::community_screen::Reading::Title { code, who })));
                         return Task::batch([moved, read]);
@@ -5661,7 +5662,7 @@ impl Main {
             thumbs: &self.thumbs,
             section: self.community_section,
             board: self.community_board,
-            person: self.community_person,
+            person: self.community_person.filter(|_| self.person_fade.value() || self.person_fade.is_animating(self.now)),
             person_k: self.person_fade.interpolate(0.0, 1.0, self.now),
             person_card: self.community_person.and_then(|at| self.community.as_ref()?.people.get(at)).and_then(|person| self.people_cards.get(&person.name.to_lowercase())),
             person_dossier: self.community_person.and_then(|at| self.community.as_ref()?.people.get(at)).and_then(|person| self.people_dossiers.get(&person.id)),

@@ -23,10 +23,19 @@ const GOLD: Color = theme::GRADE_S;
 const GREEN: Color = theme::HIT_100;
 const BLUE: Color = theme::HIT_300;
 const YOURS: Color = Color::from_rgb(0.941, 0.439, 0.439);
+const COVER_SEEN: f32 = 0.1;
+const COVER_FADE: [(f32, f32); 6] = [(0.0, 0.0), (0.4, 0.0), (0.6, 0.3), (0.78, 0.7), (0.9, 0.93), (1.0, 1.0)];
 
 fn tinted(colour: Color, a: f32) -> Color {
     Color { a: a * ui::fade(), ..colour }
 }
+
+fn blend(over: Color, a: f32) -> Color {
+    let base = theme::SLAB_SOLID;
+    Color { r: base.r + (over.r - base.r) * a, g: base.g + (over.g - base.g) * a, b: base.b + (over.b - base.b) * a, a: ui::fade() }
+}
+
+const TRACK: Color = Color::from_rgb(0.122, 0.09, 0.098);
 
 fn well(k: f32, radius: f32) -> container::Style {
     container::Style {
@@ -74,7 +83,7 @@ fn bar<'a>(parts: &[(f32, Color)], high: f32) -> Element<'a, Message> {
     container(line)
         .width(Length::Fill)
         .height(high)
-        .style(move |_| container::Style { background: Some(Background::Color(Color::from_rgba(1.0, 1.0, 1.0, 0.07 * k))), border: Border { radius: (high / 2.0).into(), ..Border::default() }, ..container::Style::default() })
+        .style(move |_| container::Style { background: Some(Background::Color(Color { a: k, ..TRACK })), border: Border { radius: (high / 2.0).into(), ..Border::default() }, ..container::Style::default() })
         .into()
 }
 
@@ -237,7 +246,7 @@ fn scale<'a>(ground: &Ground<'a>, board: &'a wire::MapBoard, scored: &Scored) ->
     order.sort_by_key(|at| (Some(*at) == hero, Some(*at) == own, ends(*at)));
     let inset = Padding { top: 44.0, right: MARK / 2.0, bottom: 0.0, left: MARK / 2.0 };
     let line = container(Space::new().height(4.0)).width(Length::Fill).style(move |_| container::Style {
-        background: Some(Background::Color(Color::from_rgba(1.0, 1.0, 1.0, 0.1 * k))),
+        background: Some(Background::Color(Color { a: k, ..Color::from_rgb(0.165, 0.125, 0.133) })),
         border: Border { radius: 2.0.into(), ..Border::default() },
         ..container::Style::default()
     });
@@ -246,7 +255,7 @@ fn scale<'a>(ground: &Ground<'a>, board: &'a wire::MapBoard, scored: &Scored) ->
         let (from, to) = (share(values[own]).min(share(values[hero])), share(values[own]).max(share(values[hero])));
         if to - from > 0.002 {
             let lit = container(Space::new().height(4.0)).width(Length::FillPortion(((to - from) * 10_000.0).round().max(1.0) as u16)).style(move |_| container::Style {
-                background: Some(Background::Color(Color { a: 0.75 * k, ..Color::from_rgb(0.541, 0.455, 0.188) })),
+                background: Some(Background::Color(Color { a: k, ..Color::from_rgb(0.541, 0.455, 0.188) })),
                 ..container::Style::default()
             });
             let mut span = row![];
@@ -342,8 +351,10 @@ fn cover_back<'a>(ground: &Ground<'a>, scored: &Scored) -> Element<'a, Message> 
         border: Border { radius: top, ..Border::default() },
         ..container::Style::default()
     });
+    let into_body = COVER_FADE.iter().fold(iced::gradient::Linear::new(Radians(std::f32::consts::PI)), |shade, (at, a)| shade.add_stop(*at, Color { a: a * k, ..theme::SLAB_SOLID }));
+    let fade = container(Space::new().width(Length::Fill).height(HEAD)).style(move |_| container::Style { background: Some(Background::Gradient(into_body.into())), ..container::Style::default() });
     match scored.map.cover().and_then(|url| ground.pictures.get(&screen::wide(&url))) {
-        Some(handle) => stack![under, image(handle.clone()).content_fit(iced::ContentFit::Cover).width(Length::Fill).height(HEAD).border_radius(top).opacity(0.42 * k)].into(),
+        Some(handle) => stack![under, image(handle.clone()).content_fit(iced::ContentFit::Cover).width(Length::Fill).height(HEAD).border_radius(15.0).opacity(COVER_SEEN * k), fade].into(),
         None => under.into(),
     }
 }
@@ -492,12 +503,13 @@ pub(crate) fn score<'a>(ground: &Ground<'a>, scored: &'a Scored) -> Element<'a, 
     }
     body = body.push(deeds);
     let rolled = scrollable(container(body).padding(Padding { top: 24.0, right: SIDE, bottom: 22.0, left: SIDE })).direction(ui::hidden_bar()).height(Length::Shrink);
-    column![top, rolled].width(Length::Fill).into()
+    container(column![top, rolled]).padding(1).width(Length::Fill).into()
 }
 
 struct Dial {
     share: f32,
     colour: Color,
+    track: Color,
     disc: Color,
     band: f32,
 }
@@ -512,7 +524,7 @@ impl<M> canvas::Program<M> for Dial {
         let radius = outer - self.band / 2.0;
         frame.fill(&Path::circle(centre, outer), self.disc);
         let stroke = |colour: Color| Stroke::default().with_color(colour).with_width(self.band).with_line_cap(canvas::LineCap::Round);
-        frame.stroke(&Path::circle(centre, radius), stroke(Color { a: self.colour.a * 0.28, ..self.colour }));
+        frame.stroke(&Path::circle(centre, radius), stroke(self.track));
         let share = self.share.clamp(0.0, 1.0);
         if share > 0.002 {
             let start = -std::f32::consts::FRAC_PI_2;
@@ -590,12 +602,12 @@ pub(crate) fn title<'a>(ground: &Ground<'a>, code: &str, who: Option<i64>) -> El
     let (place, of) = rarity_place(catalog, code);
 
     let emblem = stack![
-        Canvas::new(Dial { share, colour: tinted(tint, 1.0), disc: Color { a: k, ..theme::SLAB_SOLID }, band: 6.0 }).width(RING).height(RING),
+        Canvas::new(Dial { share, colour: tinted(tint, 1.0), track: blend(tint, 0.3), disc: Color { a: k, ..theme::SLAB_SOLID }, band: 6.0 }).width(RING).height(RING),
         container(glyph(Icon::Trophy, 48.0, tint)).width(RING).height(RING).center(RING),
     ];
     let mut ticks = row![].spacing(3);
     for at in 1..=of {
-        let shade = tinted(tint, if at == place { 1.0 } else if at < place { 0.34 } else { 0.14 });
+        let shade = blend(tint, if at == place { 1.0 } else if at < place { 0.34 } else { 0.14 });
         ticks = ticks.push(container(Space::new().height(8.0)).width(Length::FillPortion(1)).style(move |_| container::Style { background: Some(Background::Color(shade)), border: Border { radius: 2.0.into(), ..Border::default() }, ..container::Style::default() }));
     }
     let left = column![
@@ -616,8 +628,8 @@ pub(crate) fn title<'a>(ground: &Ground<'a>, code: &str, who: Option<i64>) -> El
     .spacing(10)
     .align_x(iced::Center);
     let left = container(left).width(TITLE_LEFT).height(TITLE_HIGH).padding(Padding { top: 30.0, right: 24.0, bottom: 24.0, left: 24.0 }).style(move |_| container::Style {
-        background: Some(Background::Color(tinted(tint, 0.09))),
-        border: Border { color: tinted(tint, 0.3), width: 1.0, radius: iced::border::Radius { top_left: 15.0, top_right: 0.0, bottom_right: 0.0, bottom_left: 15.0 } },
+        background: Some(Background::Color(blend(tint, 0.09))),
+        border: Border { color: blend(tint, 0.3), width: 1.0, radius: iced::border::Radius { top_left: 15.0, top_right: 0.0, bottom_right: 0.0, bottom_left: 15.0 } },
         ..container::Style::default()
     });
 
@@ -654,7 +666,7 @@ pub(crate) fn title<'a>(ground: &Ground<'a>, code: &str, who: Option<i64>) -> El
             right = right.push(
                 container(row![column![text(since).font(theme::SANS_SEMI).size(14.0).color(ui::faded(INK)), caption(worn)].spacing(3).width(Length::Fill), crate::dossier::wear_button(ground, you, title)].spacing(14).align_y(iced::Center))
                     .padding([14, 16])
-                    .style(move |_| container::Style { background: Some(Background::Color(tinted(tint, 0.09))), border: Border { color: tinted(tint, 0.3), width: 1.0, radius: 14.0.into() }, ..container::Style::default() }),
+                    .style(move |_| container::Style { background: Some(Background::Color(blend(tint, 0.09))), border: Border { color: blend(tint, 0.3), width: 1.0, radius: 14.0.into() }, ..container::Style::default() }),
             );
         }
         (false, Some(_), Some(value)) if title.target > 1 => {
@@ -675,7 +687,7 @@ pub(crate) fn title<'a>(ground: &Ground<'a>, code: &str, who: Option<i64>) -> El
         _ => {}
     }
     let right = container(right).height(TITLE_HIGH).width(Length::Fill).padding(Padding { top: 14.0, right: 18.0, bottom: 22.0, left: 24.0 });
-    scrollable(row![left, right]).direction(ui::hidden_bar()).height(Length::Shrink).into()
+    container(scrollable(row![left, right]).direction(ui::hidden_bar()).height(Length::Shrink)).padding(1).into()
 }
 
 #[cfg(test)]

@@ -298,3 +298,18 @@ fn a_play_in_the_feed_opens_its_result_and_a_title_opens_its_holders() {
     let messages: Vec<_> = ui.into_messages().collect();
     assert!(messages.iter().any(|message| matches!(message, dossier_native::Message::Main(M::Community(C::Read(Reading::Title { code, who: None }))) if code == "wysi")), "{messages:?}");
 }
+
+#[test]
+fn a_closed_dossier_does_not_take_the_wear_buttons_away() {
+    let backdrop = dossier_native::ui::backdrop_handle();
+    let mut main = staged(Lang::En, "main-community-titles", 980.0);
+    let offered = |main: &Main| {
+        let mut ui = Simulator::with_size(dossier_native::settings(), Size::new(980.0, 720.0), gallery::main_frame(main, &backdrop));
+        ui.find("Wear").is_ok()
+    };
+    assert!(offered(&main), "the staged titles offer nothing to wear");
+    let _ = main.update(M::Community(C::Person(Some(1))));
+    let _ = main.update(M::Community(C::Person(None)));
+    main.now = std::time::Instant::now() + std::time::Duration::from_secs(3);
+    assert!(offered(&main), "a dossier that was opened and closed still hides the wear buttons");
+}

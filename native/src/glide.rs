@@ -378,9 +378,152 @@ impl<'a, Message: 'a> From<Edged<'a, Message>> for Element<'a, Message> {
     }
 }
 
+pub const BRIM: f32 = 26.0;
+
+pub fn brim_strength(under: f32) -> f32 {
+    (under.abs() / BRIM).clamp(0.0, 1.0)
+}
+
+pub fn draw_brim(renderer: &mut Renderer, top: Rectangle, colour: iced::Color, k: f32) {
+    use iced::advanced::Renderer as _;
+    if k <= 0.003 || top.width <= 0.0 || top.height <= 0.0 {
+        return;
+    }
+    let shade = iced::gradient::Linear::new(iced::Radians(std::f32::consts::PI))
+        .add_stop(0.0, iced::Color { a: k, ..colour })
+        .add_stop(0.45, iced::Color { a: 0.62 * k, ..colour })
+        .add_stop(1.0, iced::Color { a: 0.0, ..colour });
+    renderer.with_layer(top, |renderer| {
+        renderer.fill_quad(renderer::Quad { bounds: top, ..renderer::Quad::default() }, iced::Background::Gradient(shade.into()));
+    });
+}
+
+pub struct Brim<'a, Message> {
+    content: Element<'a, Message>,
+    colour: iced::Color,
+    fade: f32,
+}
+
+#[derive(Debug, Default)]
+struct BrimState {
+    under: f32,
+}
+
+pub fn brim<'a, Message: 'a>(content: impl Into<Element<'a, Message>>) -> Brim<'a, Message> {
+    Brim { content: content.into(), colour: crate::theme::GROUND, fade: crate::ui::fade() }
+}
+
+impl<Message> Brim<'_, Message> {
+    pub fn on(mut self, colour: iced::Color) -> Self {
+        self.colour = colour;
+        self
+    }
+}
+
+struct Scrolled(Option<f32>);
+
+impl Operation for Scrolled {
+    fn traverse(&mut self, operate: &mut dyn FnMut(&mut dyn Operation)) {
+        if self.0.is_none() {
+            operate(self);
+        }
+    }
+
+    fn scrollable(&mut self, _: Option<&iced::widget::Id>, _: Rectangle, _: Rectangle, translation: Vector, _: &mut dyn operation::Scrollable) {
+        if self.0.is_none() {
+            self.0 = Some(translation.y);
+        }
+    }
+}
+
+impl<Message> Widget<Message, Theme, Renderer> for Brim<'_, Message> {
+    fn tag(&self) -> tree::Tag {
+        tree::Tag::of::<BrimState>()
+    }
+
+    fn state(&self) -> tree::State {
+        tree::State::new(BrimState::default())
+    }
+
+    fn children(&self) -> Vec<Tree> {
+        vec![Tree::new(&self.content)]
+    }
+
+    fn diff(&self, tree: &mut Tree) {
+        tree.diff_children(std::slice::from_ref(&self.content));
+    }
+
+    fn size(&self) -> Size<Length> {
+        self.content.as_widget().size()
+    }
+
+    fn layout(&mut self, tree: &mut Tree, renderer: &Renderer, limits: &layout::Limits) -> Node {
+        self.content.as_widget_mut().layout(&mut tree.children[0], renderer, limits)
+    }
+
+    fn operate(&mut self, tree: &mut Tree, layout: Layout<'_>, renderer: &Renderer, operation: &mut dyn Operation) {
+        self.content.as_widget_mut().operate(&mut tree.children[0], layout, renderer, operation);
+    }
+
+    fn update(
+        &mut self,
+        tree: &mut Tree,
+        event: &iced::Event,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        renderer: &Renderer,
+        clipboard: &mut dyn Clipboard,
+        shell: &mut Shell<'_, Message>,
+        viewport: &Rectangle,
+    ) {
+        self.content.as_widget_mut().update(&mut tree.children[0], event, layout, cursor, renderer, clipboard, shell, viewport);
+        if let iced::Event::Window(iced::window::Event::RedrawRequested(_)) = event {
+            let mut found = Scrolled(None);
+            self.content.as_widget_mut().operate(&mut tree.children[0], layout, renderer, &mut found);
+            tree.state.downcast_mut::<BrimState>().under = found.0.unwrap_or(0.0);
+        }
+    }
+
+    fn mouse_interaction(&self, tree: &Tree, layout: Layout<'_>, cursor: mouse::Cursor, viewport: &Rectangle, renderer: &Renderer) -> mouse::Interaction {
+        self.content.as_widget().mouse_interaction(&tree.children[0], layout, cursor, viewport, renderer)
+    }
+
+    fn draw(&self, tree: &Tree, renderer: &mut Renderer, theme: &Theme, style: &renderer::Style, layout: Layout<'_>, cursor: mouse::Cursor, viewport: &Rectangle) {
+        self.content.as_widget().draw(&tree.children[0], renderer, theme, style, layout, cursor, viewport);
+        let bounds = layout.bounds();
+        let k = brim_strength(tree.state.downcast_ref::<BrimState>().under) * self.fade;
+        draw_brim(renderer, Rectangle { height: BRIM.min(bounds.height), ..bounds }, self.colour, k);
+    }
+
+    fn overlay<'b>(
+        &'b mut self,
+        tree: &'b mut Tree,
+        layout: Layout<'b>,
+        renderer: &Renderer,
+        viewport: &Rectangle,
+        translation: Vector,
+    ) -> Option<overlay::Element<'b, Message, Theme, Renderer>> {
+        self.content.as_widget_mut().overlay(&mut tree.children[0], layout, renderer, viewport, translation)
+    }
+}
+
+impl<'a, Message: 'a> From<Brim<'a, Message>> for Element<'a, Message> {
+    fn from(brim: Brim<'a, Message>) -> Element<'a, Message> {
+        Element::new(brim)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_top_edge_fades_only_once_something_has_scrolled_under_it() {
+        assert_eq!(brim_strength(0.0), 0.0);
+        assert!(brim_strength(BRIM / 2.0) > 0.4 && brim_strength(BRIM / 2.0) < 0.6);
+        assert_eq!(brim_strength(400.0), 1.0);
+        assert_eq!(brim_strength(-400.0), 1.0);
+    }
 
     #[test]
     fn a_wheel_notch_is_spread_over_frames_and_arrives_whole() {

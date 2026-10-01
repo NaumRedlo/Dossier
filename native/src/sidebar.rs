@@ -131,11 +131,10 @@ pub fn view<'a, Message: Clone + 'a>(
     let k = open * ui::fade();
     let panel = container(list)
         .width(NARROW + (WIDE - NARROW) * open)
-        .height(Length::Fill)
-        .padding(Padding { top: 30.0, right: 12.0, bottom: 0.0, left: EDGE })
+        .padding(Padding { top: 30.0, right: 12.0, bottom: 14.0, left: EDGE })
         .style(move |_| container::Style {
             background: (k > 0.0).then_some(Background::Color(Color { a: k, ..PANEL })),
-            border: Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.07 * k), width: if k > 0.0 { 1.0 } else { 0.0 }, radius: iced::border::Radius { top_left: 0.0, top_right: 16.0, bottom_right: 0.0, bottom_left: 0.0 } },
+            border: Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.07 * k), width: if k > 0.0 { 1.0 } else { 0.0 }, radius: iced::border::Radius { top_left: 0.0, top_right: 16.0, bottom_right: 16.0, bottom_left: 0.0 } },
             shadow: Shadow { color: Color::from_rgba(0.0, 0.0, 0.0, 0.45 * k), offset: Vector::new(10.0, 0.0), blur_radius: 30.0 },
             ..container::Style::default()
         });

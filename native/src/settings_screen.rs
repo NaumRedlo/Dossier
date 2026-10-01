@@ -226,7 +226,7 @@ pub fn view<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
         let pieces: Vec<(Tile, Element<'a, Message>)> = tiles
             .iter()
             .enumerate()
-            .map(|(at, tile)| (*tile, card(ground, *tile, (ground.came * 1.7 - 0.09 * at as f32).clamp(0.0, 1.0))))
+            .map(|(at, tile)| (*tile, card(ground, *tile, arrival(ground.came, at, tiles.len()))))
             .collect();
         Element::from(ui::grown(crate::board::board(pieces, 10.0, Message::Moved).solid(theme::SLAB_SOLID), iced::Point::new(0.5, 0.0), 0.0, 1.0).shifted((1.0 - swap) * 26.0 * ground.swap_from))
     });
@@ -235,10 +235,16 @@ pub fn view<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
         .id(iced::widget::Id::new("settings-tiles"))
         .anchor_y(iced::widget::scrollable::Anchor::Start)
         .style(ui::thin_scroll)
+        .direction(ui::hidden_bar())
         .width(Length::Fill)
         .height(Length::Fill);
-    let rolled = crate::glide::edged(rolled, iced::widget::Id::new("settings-tiles"));
+    let rolled = crate::glide::brim(crate::glide::edged(rolled, iced::widget::Id::new("settings-tiles")));
     column![rolled].width(Length::Fill).height(Length::Fill).into()
+}
+
+fn arrival(came: f32, at: usize, count: usize) -> f32 {
+    let step = if count > 1 { (0.7 / (count - 1) as f32).min(0.09) } else { 0.0 };
+    (came * 1.7 - step * at as f32).clamp(0.0, 1.0)
 }
 
 fn card<'a>(ground: &Ground<'a>, tile: Tile, late: f32) -> Element<'a, Message> {
@@ -837,7 +843,13 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
                 rows = rows.push(chat_line(ground, chat, face, under, Some(chat.id) == here, ("chat", Message::Chat(chat.id))));
             }
             if ground.chats.is_empty() {
-                rows = rows.push(line(ground, "chat-own", "@", s.linked_as.clone(), w.t("private-chat"), true, None));
+                let words = column![
+                    text(s.linked_as.clone()).font(theme::SANS_SEMI).size(theme::CAPTION).wrapping(text::Wrapping::None).color(ui::faded(INK)),
+                    text(w.t("private-chat")).font(theme::SANS).size(11.0).wrapping(text::Wrapping::None).color(ui::faded(MUTED)),
+                ]
+                .spacing(1);
+                let own = row![ui::mark("@", true, mark_at(ground, "chat-own", true), 28.0), words].spacing(10).align_y(iced::Center);
+                rows = rows.push(container(own).padding([2, 2]));
             }
             rows.into()
         }
@@ -1130,6 +1142,15 @@ pub const ACCENT_HINT: iced::Color = ACCENT;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_tile_has_fully_arrived_once_the_settings_have() {
+        for count in [1, 5, 14, 30] {
+            assert!((0..count).all(|at| arrival(1.0, at, count) == 1.0), "a tile of {count} stayed dim");
+            assert!((1..count).all(|at| arrival(0.4, at, count) <= arrival(0.4, at - 1, count)), "a later tile of {count} came first");
+        }
+        assert!(arrival(0.4, 0, 14) > arrival(0.4, 13, 14), "the tiles came all at once");
+    }
 
     #[test]
     fn a_moved_tile_keeps_the_others_in_order() {

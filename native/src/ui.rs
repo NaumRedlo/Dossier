@@ -724,16 +724,21 @@ pub fn ledger_with<'a, Message: Clone + 'a>(
     rows.into()
 }
 
-pub fn card<'a, Message: 'a>(top: Element<'a, Message>, bottom: Option<Element<'a, Message>>) -> Element<'a, Message> {
+fn halves<'a, Message: 'a>(top: Element<'a, Message>, bottom: Option<Element<'a, Message>>) -> iced::widget::Column<'a, Message> {
     let mut inside = column![container(top).padding([20, 24])];
     if let Some(bottom) = bottom {
         inside = inside.push(container(Space::new().height(1.0)).width(Length::Fill).style(theme::rule));
         inside = inside.push(container(bottom).padding(24));
     }
-    container(inside)
-        .width(Length::Fill)
-        .style(theme::card)
-        .into()
+    inside
+}
+
+pub fn card<'a, Message: 'a>(top: Element<'a, Message>, bottom: Option<Element<'a, Message>>) -> Element<'a, Message> {
+    container(halves(top, bottom)).width(Length::Fill).style(theme::card).into()
+}
+
+pub fn sheet<'a, Message: 'a>(top: Element<'a, Message>, bottom: Option<Element<'a, Message>>) -> Element<'a, Message> {
+    container(halves(top, bottom)).width(Length::Fill).style(box_faded(theme::sheet)).into()
 }
 
 pub fn title<'a, Message: 'a>(words: String) -> Element<'a, Message> {

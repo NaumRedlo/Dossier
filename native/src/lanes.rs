@@ -42,10 +42,11 @@ pub struct Lanes<'a, Message, K> {
     spacing: f32,
     top: f32,
     bottom: f32,
+    fade: f32,
 }
 
 pub fn lanes<'a, Message: 'a, K: Copy + Eq + Hash + 'static>(pieces: Vec<(K, Element<'a, Message>)>, plan: impl Fn(f32) -> Vec<Lane<K>> + 'a) -> Lanes<'a, Message, K> {
-    Lanes { pieces, plan: Box::new(plan), spacing: 12.0, top: 0.0, bottom: 0.0 }
+    Lanes { pieces, plan: Box::new(plan), spacing: 12.0, top: 0.0, bottom: 0.0, fade: crate::ui::fade() }
 }
 
 impl<'a, Message, K> Lanes<'a, Message, K> {
@@ -364,6 +365,10 @@ impl<Message, K: Copy + Eq + Hash + 'static> Widget<Message, Theme, Renderer> fo
                 });
             }
         });
+        for (lane, roll) in state.lanes.iter().zip(&state.rolls).filter(|(lane, _)| !lane.fill) {
+            let top = Rectangle::new(Point::new(bounds.x + lane.x, bounds.y), Size::new(lane.width, crate::glide::BRIM.min(bounds.height)));
+            crate::glide::draw_brim(renderer, top, crate::theme::GROUND, crate::glide::brim_strength(roll.at) * self.fade);
+        }
     }
 
     fn overlay<'b>(

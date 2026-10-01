@@ -3600,10 +3600,14 @@ impl Main {
                     .height(ROOM_TOP)
                     .align_y(iced::alignment::Vertical::Center)
                     .padding(Padding { top: 2.0, right: ROOM_SIDE - 7.0, bottom: 0.0, left: ROOM_SIDE + 6.0 }),
-                scrollable(container(grid).width(Length::Fill).padding(Padding { top: 0.0, right: ROOM_SIDE, bottom: ROOM_SIDE, left: ROOM_SIDE }))
-                    .anchor_y(scrollable::Anchor::Start)
-                    .style(ui::thin_scroll)
-                    .height(tall - ROOM_TOP),
+                crate::glide::brim(
+                    scrollable(container(grid).width(Length::Fill).padding(Padding { top: 0.0, right: ROOM_SIDE, bottom: ROOM_SIDE, left: ROOM_SIDE }))
+                        .anchor_y(scrollable::Anchor::Start)
+                        .style(ui::thin_scroll)
+                        .direction(ui::hidden_bar())
+                        .height(tall - ROOM_TOP),
+                )
+                .on(theme::ROOM_GROUND),
             ]
             .width(Length::Fill);
             let card = container(inside).width(wide).height(tall).style(ui::box_faded(theme::stage)).clip(true);
@@ -4433,7 +4437,7 @@ impl Main {
             Overlay::Community => (w.t("community"), w.t("community-why")),
             _ => (w.t("settings"), w.t("coming-later")),
         };
-        let card = ui::card(
+        let card = ui::sheet(
             column![ui::title(name), ui::cap(why)].spacing(6).into(),
             Some(row![ui::grow(), ui::quiet(w.t("back-to-replays"), Some(Message::Show(Overlay::None)))].into()),
         );
@@ -4520,10 +4524,7 @@ impl Main {
             for (at, video) in self.store.videos.iter().enumerate() {
                 rows = rows.push(self.video_row(at, video));
             }
-            scrollable(container(rows).padding(Padding { top: 34.0, right: 28.0, bottom: 24.0, left: 28.0 }))
-                .width(Length::Fill)
-                .height(Length::Fill)
-                .into()
+            crate::glide::brim(scrollable(container(rows).padding(Padding { top: 34.0, right: 28.0, bottom: 24.0, left: 28.0 })).direction(ui::hidden_bar()).width(Length::Fill).height(Length::Fill)).into()
         };
         let sheet = column![Space::new().height(theme::CONTROL_HEIGHT + 4.0 + 22.0), page].width(Length::Fill).height(Length::Fill);
         let opened = self.stage_open.interpolate(0.0, 1.0, self.now);
@@ -6575,7 +6576,7 @@ impl Main {
         if matches!(notice.link, notices::Link::RenderAgain(_)) {
             bottom = bottom.push(ui::primary(w.t("once-more"), Some(Message::ToastLink(notice.id))));
         }
-        let card = ui::card(lines.into(), Some(bottom.into()));
+        let card = ui::sheet(lines.into(), Some(bottom.into()));
         stack![
             mouse_area(ui::veil(theme::SCRIM)).on_press(Message::HideError),
             container(container(card).width(theme::COLUMN).padding(Padding::ZERO.top(180.0)))
@@ -6677,7 +6678,7 @@ impl Main {
         ]
         .spacing(4)
         .align_y(iced::Center);
-        let card = ui::card(sides.into(), Some(bottom.into()));
+        let card = ui::sheet(sides.into(), Some(bottom.into()));
         stack![
             mouse_area(ui::veil(theme::SCRIM)).on_press(Message::LaterSignIn),
             container(container(card).width(theme::COLUMN).padding(Padding::ZERO.top(180.0)))

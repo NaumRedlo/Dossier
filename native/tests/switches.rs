@@ -201,7 +201,8 @@ fn the_sidebar_gives_its_words_room_only_while_it_is_open() {
         assert!(open.x + open.width > dossier_native::sidebar::NARROW + 40.0 && open.x + open.width <= dossier_native::sidebar::WIDE + 1.0, "{lang:?}: an open sidebar is {open:?}");
         let words = ui.find(feed.as_str()).unwrap().bounds();
         assert!(words.x > open.x && words.x + words.width <= open.x + open.width, "{lang:?}: {feed} sits outside its item: {words:?} in {open:?}");
-        ui.point_at(Point::new(open.x + open.width - 10.0, 700.0));
+        let last = ui.find(iced::widget::Id::new("side-titles")).unwrap().bounds();
+        ui.point_at(Point::new(open.x + open.width - 10.0, last.y + last.height + 7.0));
         let _ = ui.simulate(iced_test::simulator::click());
         let messages: Vec<_> = ui.into_messages().filter(|message| !matches!(message, dossier_native::Message::Main(M::SideOpen(_)))).collect();
         assert!(messages.is_empty(), "{lang:?}: a click on the open sidebar reached the feed under it: {messages:?}");
@@ -230,4 +231,17 @@ fn a_sidebar_icon_is_dragged_above_its_neighbour_and_a_drag_is_not_a_click() {
     let messages: Vec<_> = ui.into_messages().collect();
     assert!(messages.iter().any(|message| matches!(message, dossier_native::Message::Main(M::SideMoved("feed", Some("profile"))))), "{messages:?}");
     assert!(!messages.iter().any(|message| matches!(message, dossier_native::Message::Main(M::Community(_)))), "the drag also pressed the icon: {messages:?}");
+}
+
+#[test]
+fn a_lone_private_chat_leaves_the_chat_tile_beside_the_account() {
+    let backdrop = dossier_native::ui::backdrop_handle();
+    for lang in Lang::ALL {
+        let mut main = staged(lang, "main-prefs-bot", 980.0);
+        main.chats.clear();
+        let mut ui = Simulator::with_size(dossier_native::settings(), Size::new(980.0, 720.0), gallery::main_frame(&main, &backdrop));
+        let account = ui.find(main.words.t("account").as_str()).unwrap().bounds();
+        let chats = ui.find(main.words.t("videos-go-to").as_str()).unwrap().bounds();
+        assert!((account.y - chats.y).abs() < 1.0 && chats.x > account.x, "{lang:?}: the chat tile took a row of its own: {chats:?} beside {account:?}");
+    }
 }

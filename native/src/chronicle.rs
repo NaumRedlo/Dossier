@@ -794,13 +794,13 @@ fn timeline<'a>(ground: &Ground<'a>, wide: f32) -> Element<'a, Message> {
         Stream::All => column![group_panel(wide - 12.0), news_panel(1)].spacing(14).into(),
     };
     page = page.push(body);
-    scrollable(container(page).padding(Padding { top: 2.0, right: 10.0, bottom: 28.0, left: 2.0 }))
+    let rolled = scrollable(container(page).padding(Padding { top: 2.0, right: 10.0, bottom: 28.0, left: 2.0 }))
         .id(iced::widget::Id::new("community-feed"))
         .style(ui::thin_scroll)
         .direction(ui::hidden_bar())
         .width(Length::Fill)
-        .height(Length::Fill)
-        .into()
+        .height(Length::Fill);
+    crate::glide::brim(rolled).into()
 }
 
 pub fn ring<'a>(ground: &Ground<'a>, you: &Person, side: f32, share: f32, band: f32) -> Element<'a, Message> {

@@ -127,6 +127,16 @@ pub fn card(_: &Theme) -> container::Style {
     }
 }
 
+pub fn sheet(_: &Theme) -> container::Style {
+    container::Style {
+        text_color: None,
+        background: Some(Background::Color(SLAB_SOLID)),
+        border: border(Color::from_rgba(1.0, 1.0, 1.0, 0.08), CARD_RADIUS),
+        shadow: Shadow { color: Color::from_rgba(0.0, 0.0, 0.0, 0.55), offset: iced::Vector::new(0.0, 12.0), blur_radius: 40.0 },
+        snap: true,
+    }
+}
+
 pub fn well(_: &Theme) -> container::Style {
     container::Style {
         text_color: None,

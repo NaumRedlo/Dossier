@@ -236,11 +236,11 @@ fn group_note<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
 }
 
 fn rolled<'a>(inside: Element<'a, Message>) -> Element<'a, Message> {
-    scrollable(container(inside).center_x(Length::Fill).padding(Padding { top: 12.0, right: 40.0, bottom: 28.0, left: 40.0 }))
+    let rolled = scrollable(container(inside).center_x(Length::Fill).padding(Padding { top: 12.0, right: 40.0, bottom: 28.0, left: 40.0 }))
         .style(ui::thin_scroll).direction(ui::hidden_bar())
         .width(Length::Fill)
-        .height(Length::Fill)
-        .into()
+        .height(Length::Fill);
+    crate::glide::brim(rolled).into()
 }
 
 pub(crate) fn video_tile<'a>(ground: &Ground<'a>, video: &news::Video, wide: bool, high: f32) -> Element<'a, Message> {
@@ -860,12 +860,12 @@ fn people<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
 }
 
 fn spread<'a>(inside: Element<'a, Message>) -> Element<'a, Message> {
-    scrollable(container(inside).width(Length::Fill).padding(Padding { top: 12.0, right: 40.0, bottom: 28.0, left: 40.0 }))
+    let spread = scrollable(container(inside).width(Length::Fill).padding(Padding { top: 12.0, right: 40.0, bottom: 28.0, left: 40.0 }))
         .style(ui::thin_scroll)
         .direction(ui::hidden_bar())
         .width(Length::Fill)
-        .height(Length::Fill)
-        .into()
+        .height(Length::Fill);
+    crate::glide::brim(spread).into()
 }
 
 pub(crate) fn backdrop<'a>(handle: Option<&image::Handle>, high: f32, radius: f32, tint: Color, across: bool) -> Element<'a, Message> {

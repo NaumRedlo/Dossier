@@ -110,7 +110,7 @@ the linker is named in `.cargo/config.toml`.
 
 ## In the application
 
-*Свидетель* is a tile in the application's settings with one switch, off until
+*Witness* is a tile in the application's settings with one switch, off until
 the person turns it on: it reads another program's memory, and that is theirs
 to decide. While it is on the application keeps one Witness running beside the
 client and listens to it.
@@ -132,7 +132,7 @@ client and listens to it.
   `alive` so that a dead listener is noticed. Nothing is passed through files,
   so the two sides need no path they both understand.
 - A kept play is checked to be a replay and written into `~/.dossier/Witnessed`,
-  a source of its own (*Записано Свидетелем*) that is added and switched on
+  a source of its own (*Записано Witness*) that is added and switched on
   with the tile's switch; the journal notices it the way it notices any new
   replay, and announces it the same way. The first version wrote into
   `~/.dossier/Replays`, which is only read by someone who has Dossier's own

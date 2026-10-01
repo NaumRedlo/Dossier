@@ -623,7 +623,7 @@ The feed's days turn at the person's own midnight, not UTC's: *Сегодня*
 and *Вчера* are counted in calendar days of the local zone, the way the
 times beside them are written.
 
-*Свидетель* (2026-10-01) is a tile among the application's settings: what it
+*Witness* (2026-10-01; the name is not translated) is a tile among the application's settings: what it
 does in two sentences, one switch *Записывать каждую игру*, and under it one
 line saying where it stands — *osu! не запущен*, *osu! загружается*,
 *Подключён к osu!*, *Идёт игра: …* — and how many plays it has kept this

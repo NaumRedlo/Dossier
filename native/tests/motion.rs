@@ -11,6 +11,7 @@ fn settle(flow: &mut FirstRun) {
 
 #[test]
 fn a_page_turn_moves_for_a_moment_and_then_rests() {
+    dossier_native::sources::stage();
     let (mut flow, _) = FirstRun::new();
     let _ = flow.update(Message::Looked(vec![]));
     let _ = flow.update(Message::Tick(Instant::now()));
@@ -26,6 +27,7 @@ fn a_page_turn_moves_for_a_moment_and_then_rests() {
 
 #[test]
 fn the_reveal_changes_the_picture_and_then_stops_changing_it() {
+    dossier_native::sources::stage();
     let (mut flow, _) = FirstRun::new();
     let _ = flow.update(Message::Looked(vec![]));
     let _ = flow.update(Message::Continue);

@@ -139,3 +139,17 @@ fn the_strip_is_dragged_by_its_frames_and_a_drag_is_not_a_click() {
         .fold(0.0f32, f32::max);
     assert!(furthest > 100.0, "the strip moved only {furthest}: {messages:?}");
 }
+
+#[test]
+fn a_staged_screen_saves_its_settings_away_from_the_real_ones() {
+    use dossier_native::main_screen::Message as M;
+    use dossier_native::settings_screen::{Message as P, Side};
+    let real = std::path::PathBuf::from(std::env::var_os("HOME").expect("a home")).join(".dossier");
+    let mut app = main_state("main-prefs");
+    let kept = dossier_native::settings::path();
+    assert!(!kept.starts_with(&real), "a staged screen keeps its settings in {}", kept.display());
+    let _ = app.update(M::Prefs(P::Side(Side::App)));
+    let _ = app.update(M::Prefs(P::Side(Side::Bot)));
+    let written = std::fs::read_to_string(&kept).expect("the staged settings were written");
+    assert!(written.contains("\"settings_tab\": \"bot\""), "{written}");
+}

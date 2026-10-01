@@ -51,7 +51,20 @@ pub fn shortened(path: &Path) -> String {
     }
 }
 
+static STAGE: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+
+pub fn stage() {
+    STAGE.get_or_init(|| {
+        let dir = std::env::temp_dir().join(format!("dossier-stage-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        dir
+    });
+}
+
 pub fn home() -> PathBuf {
+    if let Some(dir) = STAGE.get() {
+        return dir.clone();
+    }
     std::env::var_os("HOME")
         .or_else(|| std::env::var_os("USERPROFILE"))
         .map(PathBuf::from)

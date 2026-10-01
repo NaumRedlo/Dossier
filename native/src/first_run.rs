@@ -900,6 +900,7 @@ pub fn qr_for(link: &str) -> Option<ui::Qr> {
 
 impl FirstRun {
     pub fn staged(step: Step, lang: Lang, sources: Vec<Source>, pairing: Pairing, checks: Vec<(Check, Option<Outcome>)>) -> FirstRun {
+        crate::sources::stage();
         let mut settings = Settings::default();
         settings.lang = lang;
         settings.device = "MacBook Pro".to_owned();

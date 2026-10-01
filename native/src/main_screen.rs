@@ -929,6 +929,7 @@ impl Main {
     }
 
     pub fn staged(words: Words, settings: Settings, library: Library, chosen: Option<usize>) -> Main {
+        crate::sources::stage();
         let (mut made, _) = Main::new(words, settings);
         made.gallery = true;
         made.ffmpeg = Some(PathBuf::from("ffmpeg"));

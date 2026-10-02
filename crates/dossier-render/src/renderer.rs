@@ -471,7 +471,7 @@ impl<'a> Scene<'a> {
             let mut previous = 0u32;
             for event in judge.events() {
                 if event.combo_after != previous {
-                    combo_changes.push((event.time_ms, event.combo_after));
+                    combo_changes.push((event.scored_ms, event.combo_after));
                     previous = event.combo_after;
                 }
             }
@@ -498,11 +498,11 @@ impl<'a> Scene<'a> {
             let mut before = [0u32; 4];
             let mut shown = 0.0f64;
             for event in judge.events() {
-                let reached = judge.state_at(event.time_ms);
+                let reached = judge.state_at(event.scored_ms);
                 if let Some(&(at, target, was)) = accuracy_roll.last() {
-                    shown = target - (target - was) * (-(event.time_ms - at) / SCORE_ROLL_MS).exp();
+                    shown = target - (target - was) * (-(event.scored_ms - at) / SCORE_ROLL_MS).exp();
                 }
-                accuracy_roll.push((event.time_ms, reached.accuracy(), shown));
+                accuracy_roll.push((event.scored_ms, reached.accuracy(), shown));
 
                 let counts = reached.counts;
                 let now = [
@@ -513,7 +513,7 @@ impl<'a> Scene<'a> {
                 ];
                 for (index, value) in now.iter().enumerate() {
                     if *value != before[index] {
-                        tally_changes[index].push((event.time_ms, before[index]));
+                        tally_changes[index].push((event.scored_ms, before[index]));
                     }
                 }
                 before = now;

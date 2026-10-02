@@ -257,7 +257,7 @@ impl ScoreTrack {
                 + f64::from(accuracy).powi(10) * f64::from(hits) / f64::from(max_hits) * 300_000.0
                 + bonus)
                 * multiplier;
-            points.push((event.time_ms, total.round().max(0.0) as u64));
+            points.push((event.scored_ms, total.round().max(0.0) as u64));
         }
         Self {
             points,
@@ -289,7 +289,7 @@ impl ScoreTrack {
                 }
             }
             combo = event.combo_after;
-            points.push((event.time_ms, total));
+            points.push((event.scored_ms, total));
         }
         Self {
             points,
@@ -360,7 +360,7 @@ impl ScoreTrack {
             let total = (500_000.0 * accuracy * combo_progress
                 + 500_000.0 * accuracy.powi(5) * accuracy_progress)
                 * multiplier;
-            points.push((event.time_ms, total.round() as u64));
+            points.push((event.scored_ms, total.round() as u64));
         }
         Self {
             points,

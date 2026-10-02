@@ -5304,3 +5304,39 @@ Nothing got worse by a count. Twenty replays are left: eight stable ones a
 single object off (two of them Relax), five stable ones with every count right
 and the combo one out, and seven from lazer.
 
+## When a thing counts, and Relax
+
+Two smaller readings of the same update, after the slider (2026-10-02).
+
+**A tail counts when it is scored.** Nine replays had every count right and a
+combo one out, and the engine's own account of them named a slider each time,
+its head lost. A slider's tail is scored thirty-six milliseconds before the
+slider ends; its head, if nobody struck it, is written off when its fifty
+window has passed. On a slider a little longer than that window the tail comes
+first — one more on the run, then the break — and the engine, which stamped the
+tail with the slider's end, had the break first and the tail in the next run.
+The same slider read the other way round gave a run one too long. An event now
+carries two times: when it happened, which is still what its sound and its
+drawing go by, and when the client counted it, which is what the combo, the
+score and the health go by. A missed circle or head is likewise counted on the
+update that swept it — the frame the client forced for it, or the millisecond
+after the window where the replay carries no such frames.
+
+**Relax presses after the sweep.** Under Relax the client presses for the
+player from inside the play's own update, after the sweep, on every update in
+which some unstruck note is less than twelve milliseconds away — strictly, so
+from eleven. A note that was missed is therefore out of the way of that very
+press, where a real press on the same update would still be blocked.
+
+| | exact | count error | combo matches | score within 0.5% |
+|---|---|---|---|---|
+| before | 167 / 187 | 26 | 174 | 171 / 183 |
+| Relax as the client plays it | 168 | 24 | | |
+| a thing counts when the client counts it | **172** | **24** | **180** | **174** |
+
+Fifteen are left: six stable replays a single object off — where one could be
+pinned down it was a fast slider played as a tap, the cursor within two pixels
+of the follow circle's edge on the frame that decides; one ScoreV2 replay; one
+Relax replay; and seven from lazer, to which none of the frame evidence
+applies.
+

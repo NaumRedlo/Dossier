@@ -176,10 +176,15 @@ fn a_miss_is_recorded_when_its_window_shuts_not_when_it_was_due() {
     let map = beatmap(ONE_CIRCLE);
     let state = GameState::new(&map, &replay_with(Vec::new(), 0));
     let judge = state.judge().unwrap();
-    assert_eq!(judge.events()[0].time_ms, 1150.0);
+    assert_eq!(
+        judge.events()[0].time_ms,
+        1151.0,
+        "the client writes a note off once its window is strictly behind the clock, which is the millisecond after it shuts"
+    );
 
     assert_eq!(judge.state_at(1100.0).counts.count_miss, 0);
-    assert_eq!(judge.state_at(1150.0).counts.count_miss, 1);
+    assert_eq!(judge.state_at(1150.0).counts.count_miss, 0);
+    assert_eq!(judge.state_at(1151.0).counts.count_miss, 1);
 }
 
 #[test]
@@ -1392,7 +1397,7 @@ SliderMultiplier:1.4
         .find(|e| e.object_index == 1)
         .expect("the circle is judged");
     assert_eq!(
-        circle.time_ms, 1450.0,
+        circle.time_ms, 1451.0,
         "eaten at the press instead of running its window out: {circle:?}"
     );
 }
@@ -2251,4 +2256,40 @@ fn a_press_on_the_update_that_would_write_the_miss_is_still_blocked() {
         (SLIDERS_IN_A_ROW as u16 - 1, 1, 2),
         "the client takes the press before it sweeps its notes, so on the first update past the window the missed note is still in the way: {counts:?}"
     );
+}
+
+#[test]
+fn a_stable_tail_counts_when_it_is_scored_which_can_be_before_its_own_head_is_written_off() {
+    let map = beatmap(
+        "
+[Difficulty]
+CircleSize:5
+OverallDifficulty:5
+SliderMultiplier:1.4
+SliderTickRate:1
+
+[TimingPoints]
+0,500,4,2,0,60,1,0
+
+[HitObjects]
+100,100,500,1,0
+100,200,1000,2,0,L|200:200,1,47.6
+",
+    );
+    let mut frames = click(500, 100.0, 100.0);
+    frames.push(frame(900, 300.0, 300.0, Keys::K2));
+    frames.push(frame(990, 100.0, 200.0, Keys::K2));
+    for t in (1000..=1180).step_by(10) {
+        frames.push(frame(t, 100.0 + 0.28 * (t - 1000) as f32, 200.0, Keys::K2));
+    }
+    frames.push(frame(1200, 150.0, 200.0, 0));
+    let state = GameState::new(&map, &replay_with(frames, 0));
+    let score = state.judge().unwrap().final_state();
+
+    assert_eq!((score.counts.count_300, score.counts.count_100), (1, 1), "the head was never struck, the slide was held: {score:?}");
+    assert_eq!(
+        score.max_combo, 2,
+        "the tail scores at 1134 and the head is written off at 1151, so the run is the circle and the tail before it breaks"
+    );
+    assert_eq!(score.combo, 0);
 }

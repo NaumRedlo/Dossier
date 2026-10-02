@@ -76,7 +76,7 @@ impl Flashlight {
         let last = objects.iter().map(|object| object.end_ms).fold(f64::NEG_INFINITY, f64::max) + state.difficulty().hit_window_50() + 5.0;
         let rate = state.playback_rate().max(0.01);
         let change = CHANGE_MS * rate;
-        let judged: Vec<(f64, u32)> = state.judge().map(|judge| judge.events().iter().map(|event| (event.time_ms, event.combo_after)).collect()).unwrap_or_default();
+        let judged: Vec<(f64, u32)> = state.judge().map(|judge| judge.events().iter().map(|event| (event.scored_ms, event.combo_after)).collect()).unwrap_or_default();
         let target_at = |time_ms: f64| {
             let at = judged.partition_point(|(when, _)| *when <= time_ms);
             SIZE * at.checked_sub(1).map_or(1.0, |at| combo_scale(judged[at].1))

@@ -381,13 +381,13 @@ impl HealthTrack {
         for (index, event) in judge.events().iter().enumerate() {
             drain_between(
                 last,
-                event.time_ms,
+                event.scored_ms,
                 breaks,
                 rates.passive_drain * scale,
                 &mut meter,
                 &mut samples,
             );
-            last = event.time_ms;
+            last = event.scored_ms;
 
             let mut gain = stable_gain(event.part, event.result, difficulty.hp_drain);
             if scaled_by_normal(event.part, event.result) {
@@ -403,10 +403,10 @@ impl HealthTrack {
                     spare -= 1;
                     meter = Meter::full();
                 } else {
-                    failed_at = Some(event.time_ms);
+                    failed_at = Some(event.scored_ms);
                 }
             }
-            samples.push((event.time_ms, (meter.health / MAX_HP) as f32));
+            samples.push((event.scored_ms, (meter.health / MAX_HP) as f32));
         }
 
         Self {
@@ -437,7 +437,7 @@ impl HealthTrack {
                 let bonus = combo_ends
                     .get(&index)
                     .map_or(0.0, |_| lazer_combo_bonus(ComboEnd::Geki));
-                Some((event.time_ms, gain + bonus))
+                Some((event.scored_ms, gain + bonus))
             })
             .collect();
         let rate = lazer_drain_rate(&perfect, breaks, start, target);
@@ -450,13 +450,13 @@ impl HealthTrack {
         let mut break_index = 0usize;
 
         for (index, event) in judge.events().iter().enumerate() {
-            while break_index < breaks.len() && breaks[break_index].1 <= event.time_ms {
-                last = event.time_ms;
+            while break_index < breaks.len() && breaks[break_index].1 <= event.scored_ms {
+                last = event.scored_ms;
                 break_index += 1;
-                samples.push((event.time_ms, health as f32));
+                samples.push((event.scored_ms, health as f32));
             }
-            health -= (event.time_ms - last) * rate;
-            last = event.time_ms;
+            health -= (event.scored_ms - last) * rate;
+            last = event.scored_ms;
 
             let mut gain = lazer_gain(event.part, event.result, difficulty.hp_drain);
             if let Some(&end) = combo_ends.get(&index) {
@@ -471,10 +471,10 @@ impl HealthTrack {
                     spare -= 1;
                     health = 1.0;
                 } else {
-                    failed_at = Some(event.time_ms);
+                    failed_at = Some(event.scored_ms);
                 }
             }
-            samples.push((event.time_ms, health.max(0.0) as f32));
+            samples.push((event.scored_ms, health.max(0.0) as f32));
         }
 
         Self {

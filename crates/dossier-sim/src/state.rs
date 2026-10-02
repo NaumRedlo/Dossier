@@ -635,7 +635,7 @@ impl GameState {
                 if event.part.breaks_combo() {
                     chains.push(ComboChain {
                         length,
-                        ended_at_ms: event.time_ms,
+                        ended_at_ms: event.scored_ms,
                         object_index: event.object_index,
                         part: Some(event.part),
                     });
@@ -680,7 +680,7 @@ impl GameState {
                 }
                 run.clear();
             } else if event.part.adds_combo() {
-                run.push((event.object_index, event.time_ms));
+                run.push((event.object_index, event.scored_ms));
             }
         }
 

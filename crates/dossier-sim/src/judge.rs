@@ -144,6 +144,8 @@ pub struct PressTrace {
 pub struct Event {
     pub time_ms: f64,
 
+    pub scored_ms: f64,
+
     pub object_index: usize,
     pub part: Part,
     pub result: Judgement,
@@ -201,7 +203,7 @@ impl Judge {
             );
         }
 
-        events.sort_by(|a, b| a.time_ms.total_cmp(&b.time_ms));
+        events.sort_by(|a, b| a.scored_ms.total_cmp(&b.scored_ms));
 
         let mut state = ScoreState::default();
         let mut states = Vec::with_capacity(events.len());
@@ -237,7 +239,7 @@ impl Judge {
     }
 
     pub fn state_at(&self, time_ms: f64) -> ScoreState {
-        let i = self.events.partition_point(|e| e.time_ms <= time_ms);
+        let i = self.events.partition_point(|e| e.scored_ms <= time_ms);
         if i == 0 {
             ScoreState::default()
         } else {
@@ -319,6 +321,7 @@ pub(crate) struct Press {
     pub time_ms: f64,
     pub pos: Point,
     pub frame: Option<usize>,
+    pub after_the_sweep: bool,
 }
 
 const RELAX_LEAD_MS: f64 = 12.0;
@@ -329,31 +332,34 @@ fn relax_presses(
     window_50: f64,
     radius: f64,
     lazer: bool,
+    marked: bool,
 ) -> Vec<Press> {
     let mut out = Vec::new();
     if frames.is_empty() {
         return out;
     }
+    let time_of = |at: usize| f64::from(frames[at].time_ms as i32);
 
     let mut at = 0usize;
 
     let mut lock_until = f64::NEG_INFINITY;
+    let mut lock_from = 0usize;
     for object in objects {
         if object.is_spinner() {
             continue;
         }
 
-        let want = (object.start_ms - RELAX_LEAD_MS).max(lock_until);
+        let lead = if marked { RELAX_LEAD_MS - 1.0 } else { RELAX_LEAD_MS };
+        let want = (object.start_ms - lead).max(lock_until);
 
-        while at + 1 < frames.len() && f64::from(frames[at].time_ms as i32) < want {
+        while at + 1 < frames.len() && (time_of(at) < want || at < lock_from) {
             at += 1;
         }
 
         let mut when = at;
         let deadline = object.start_ms + window_50;
         while when < frames.len() {
-            let t = f64::from(frames[when].time_ms as i32);
-            if t > deadline {
+            if time_of(when) > deadline {
                 break;
             }
             let here = Point {
@@ -365,26 +371,29 @@ fn relax_presses(
             }
             when += 1;
         }
-        let landed = when < frames.len() && f64::from(frames[when].time_ms as i32) <= deadline;
-        lock_until = if landed || lazer {
-            f64::NEG_INFINITY
+        let landed = when < frames.len() && time_of(when) <= deadline;
+        if landed || lazer {
+            lock_until = f64::NEG_INFINITY;
+        } else if marked {
+            lock_until = f64::NEG_INFINITY;
+            lock_from = lock_from.max(frames.partition_point(|frame| f64::from(frame.time_ms as i32) <= deadline));
         } else {
-            deadline + 2.0
-        };
-        let frame = &frames[if landed { when } else { at }];
-        let now = f64::from(frame.time_ms as i32);
+            lock_until = deadline + 2.0;
+        }
+        let chosen = if landed { when } else { at };
+        let now = time_of(chosen);
         if now < want {
             continue;
         }
         let pos = Point {
-            x: f64::from(frame.x),
-            y: f64::from(frame.y),
+            x: f64::from(frames[chosen].x),
+            y: f64::from(frames[chosen].y),
         };
 
         if lazer && !landed {
             continue;
         }
-        out.push(Press { time_ms: now, pos, frame: None });
+        out.push(Press { time_ms: now, pos, frame: marked.then_some(chosen), after_the_sweep: true });
     }
     out
 }
@@ -406,6 +415,7 @@ pub(crate) fn presses(frames: &[ReplayFrame]) -> Vec<Press> {
                     y: f64::from(frame.y),
                 },
                 frame: Some(at),
+                after_the_sweep: false,
             });
         }
         previous = held;
@@ -435,6 +445,7 @@ fn judge_heads(timeline: &Timeline, cursor: &CursorTrack, ruleset: Ruleset, mark
             window,
             radius,
             ruleset.client() == crate::ruleset::Client::Lazer,
+            marked,
         )
     });
     let clicks = made.unwrap_or_else(|| presses(cursor.frames()));
@@ -445,7 +456,7 @@ fn judge_heads(timeline: &Timeline, cursor: &CursorTrack, ruleset: Ruleset, mark
             }
             let gone = match press.frame {
                 Some(frame) if marked && !object.is_spinner() && !object.is_slider() => {
-                    written_off_before(cursor.frames(), frame, object.start_ms + window)
+                    written_off_before(cursor.frames(), frame + usize::from(press.after_the_sweep), object.start_ms + window)
                 }
                 _ => past_it(object, press.time_ms, window),
             };
@@ -623,6 +634,23 @@ struct Heads {
     clicks: Vec<Press>,
 }
 
+fn swept_at(cursor: &CursorTrack, window_closes_ms: f64, marked: Option<f64>, ruleset: Ruleset) -> f64 {
+    if !ruleset.slider_runs_on_whole_ms() {
+        return window_closes_ms;
+    }
+    let next = window_closes_ms + 1.0;
+    let Some(period) = marked else {
+        return next;
+    };
+    let frames = cursor.frames();
+    let at = frames.partition_point(|frame| frame.time_ms as f64 <= window_closes_ms);
+    frames
+        .get(at)
+        .map(|frame| frame.time_ms as f64)
+        .filter(|written| written - window_closes_ms <= period)
+        .unwrap_or(next)
+}
+
 fn written_off_before(frames: &[ReplayFrame], press: usize, window_closes_ms: f64) -> bool {
     frames.partition_point(|frame| frame.time_ms as f64 <= window_closes_ms) < press
 }
@@ -656,13 +684,14 @@ fn build_events(
                     Some(error_ms),
                 ),
                 Head::Missed { at_ms } => (
-                    at_ms.unwrap_or(object.start_ms + difficulty.hit_window_50()),
+                    at_ms.unwrap_or_else(|| swept_at(cursor, object.start_ms + difficulty.hit_window_50(), window, ruleset)),
                     Judgement::Miss,
                     None,
                 ),
             };
             out.push(Event {
                 time_ms,
+                scored_ms: time_ms,
                 object_index: index,
                 part: Part::Circle,
                 result,
@@ -692,6 +721,7 @@ fn build_events(
                 };
                 out.push(Event {
                     time_ms: *at,
+                    scored_ms: *at,
                     object_index: index,
                     part,
                     result: Judgement::Great,
@@ -701,6 +731,7 @@ fn build_events(
             }
             out.push(Event {
                 time_ms: object.end_ms,
+                scored_ms: object.end_ms,
                 object_index: index,
                 part: Part::Spinner,
                 result: spinner_judgement(rotations, required, ruleset),
@@ -727,7 +758,7 @@ fn build_slider_events(
         Head::Hit { time_ms, error_ms } => (time_ms, Some(error_ms)),
 
         Head::Missed { at_ms } => (
-            at_ms.unwrap_or(object.start_ms + difficulty.hit_window_50()),
+            at_ms.unwrap_or_else(|| swept_at(cursor, object.start_ms + difficulty.hit_window_50(), window, ruleset)),
             None,
         ),
     };
@@ -743,6 +774,7 @@ fn build_slider_events(
 
     out.push(Event {
         time_ms: head_time,
+        scored_ms: head_time,
         object_index: index,
         part: Part::SliderHead,
         result: Judgement::from_flag(head_hit),
@@ -784,6 +816,11 @@ fn build_slider_events(
             } else {
                 time_ms
             },
+            scored_ms: if part == Part::SliderTail && !ruleset.slider_runs_on_whole_ms() && !hit {
+                object.end_ms
+            } else {
+                time_ms
+            },
             object_index: index,
             part,
             result: Judgement::from_flag(hit),
@@ -818,6 +855,7 @@ fn build_slider_events(
     };
     out.push(Event {
         time_ms: verdict_at,
+        scored_ms: verdict_at,
         object_index: index,
         part: Part::Slider,
         result,

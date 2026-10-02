@@ -55,9 +55,9 @@ impl HealthShow {
                 if event.result.is_miss() || event.part == Part::SliderTick {
                     continue;
                 }
-                bulges.push(event.time_ms);
-                if state.health_at(event.time_ms).unwrap_or(0.0) > BURST_ABOVE {
-                    bursts.push(event.time_ms);
+                bulges.push(event.scored_ms);
+                if state.health_at(event.scored_ms).unwrap_or(0.0) > BURST_ABOVE {
+                    bursts.push(event.scored_ms);
                 }
             }
         }

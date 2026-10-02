@@ -33,13 +33,20 @@ pub fn difficulty_range(value: f64, min: f64, mid: f64, max: f64) -> f64 {
     }
 }
 
+const FADE_IN_MS: f64 = 400.0;
+const PREEMPT_LEAST_MS: f64 = 450.0;
+
 impl Difficulty {
     pub fn preempt_ms(&self) -> f64 {
         difficulty_range(self.approach_rate, 1800.0, 1200.0, 450.0)
     }
 
     pub fn fade_in_ms(&self) -> f64 {
-        self.preempt_ms() * 2.0 / 3.0
+        FADE_IN_MS
+    }
+
+    pub fn fade_in_ms_in_lazer(&self) -> f64 {
+        FADE_IN_MS * (self.preempt_ms() / PREEMPT_LEAST_MS).min(1.0)
     }
 
     pub fn hit_window_300(&self) -> f64 {

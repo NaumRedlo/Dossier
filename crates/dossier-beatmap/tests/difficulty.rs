@@ -33,14 +33,11 @@ fn an_approach_rate_past_ten_keeps_going() {
 }
 
 #[test]
-fn the_fade_in_is_two_thirds_of_preempt() {
-    for (ar, fade) in [(0.0, 1200.0), (5.0, 800.0), (10.0, 300.0)] {
+fn a_note_fades_in_over_four_tenths_of_a_second_whatever_the_approach_rate() {
+    for (ar, in_lazer) in [(0.0, 400.0), (5.0, 400.0), (10.0, 400.0), (11.0, 400.0 * 300.0 / 450.0)] {
         let d = difficulty(&format!("ApproachRate:{ar}"));
-        assert!(
-            (d.fade_in_ms() - fade).abs() < 1e-9,
-            "AR {ar}: {} against {fade}",
-            d.fade_in_ms()
-        );
+        assert!((d.fade_in_ms() - 400.0).abs() < 1e-9, "AR {ar}: {}", d.fade_in_ms());
+        assert!((d.fade_in_ms_in_lazer() - in_lazer).abs() < 1e-9, "AR {ar} in lazer: {} against {in_lazer}", d.fade_in_ms_in_lazer());
     }
 }
 

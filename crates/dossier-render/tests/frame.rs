@@ -1624,32 +1624,71 @@ fn no_arrow_stands_under_the_head_while_the_first_slide_runs() {
 #[test]
 fn hidden_takes_the_note_away_before_it_is_due() {
     let map =
-        beatmap("[Difficulty]\nApproachRate:5\nCircleSize:4\n\n[HitObjects]\n256,192,2000,1,0\n");
+        beatmap("[Difficulty]\nApproachRate:5\nCircleSize:4\n\n[HitObjects]\n256,192,500,1,0\n256,192,5000,1,0\n");
 
-    assert!(drawn_with(&map, 1300.0, Mods::default()) > 0);
-    assert!(drawn_with(&map, 1300.0, Mods::new(bits::HIDDEN)) > 0);
+    assert!(drawn_with(&map, 4300.0, Mods::default()) > 0);
+    assert!(drawn_with(&map, 4300.0, Mods::new(bits::HIDDEN)) > 0);
 
     assert_eq!(
-        drawn_with(&map, 1700.0, Mods::new(bits::HIDDEN)),
+        drawn_with(&map, 4700.0, Mods::new(bits::HIDDEN)),
         0,
         "the note should be gone"
     );
     assert!(
-        drawn_with(&map, 1700.0, Mods::default()) > 0,
+        drawn_with(&map, 4700.0, Mods::default()) > 0,
         "and plainly visible without the mod"
     );
 }
 
 #[test]
-fn hidden_draws_no_approach_circle() {
+fn hidden_draws_an_approach_circle_for_the_first_note_and_no_other() {
     let map =
-        beatmap("[Difficulty]\nApproachRate:5\nCircleSize:4\n\n[HitObjects]\n256,192,2000,1,0\n");
-    let plain = drawn_with(&map, 1280.0, Mods::default());
-    let hidden = drawn_with(&map, 1280.0, Mods::new(bits::HIDDEN));
+        beatmap("[Difficulty]\nApproachRate:5\nCircleSize:4\n\n[HitObjects]\n256,192,2000,1,0\n256,192,6000,1,0\n");
+    let plain = drawn_with(&map, 5280.0, Mods::default());
+    let hidden = drawn_with(&map, 5280.0, Mods::new(bits::HIDDEN));
     assert!(
         plain > hidden,
         "the ring is missing from neither: {plain} against {hidden}"
     );
+    assert!(
+        drawn_with(&map, 1900.0, Mods::new(bits::HIDDEN)) > 0,
+        "the first note's ring is the one thing Hidden leaves, so the player can find the beat"
+    );
+}
+
+#[test]
+fn an_approach_circle_comes_in_more_slowly_than_its_note_and_never_whole() {
+    let map = beatmap("[Difficulty]\nApproachRate:5\nCircleSize:4\n\n[HitObjects]\n256,192,3000,1,0\n");
+    let state = GameState::from_beatmap(&map, Mods::default());
+    let skin = Skin::with_combo_colours(map.combo_colours());
+    let ring = skin.combo_colour(0);
+    let ground = skin.background;
+    let scene = Scene::new(&state, skin);
+    let layout = Layout::new(640, 480);
+    let brightest = |t: f64| {
+        let frame = scene.frame(t, &layout);
+        let (cx, cy) = layout.map(dossier_beatmap::Point::CENTRE);
+        let radius = layout.length(state.difficulty().circle_radius());
+        let mut best = 0u32;
+        for y in 0..frame.height() {
+            for x in 0..frame.width() {
+                let (dx, dy) = (x as f32 - cx, y as f32 - cy);
+                if (dx * dx + dy * dy).sqrt() < radius * 1.3 {
+                    continue;
+                }
+                let p = frame.pixel(x, y).expect("inside the frame");
+                best = best.max(u32::from(p.red()) + u32::from(p.green()) + u32::from(p.blue()));
+            }
+        }
+        best
+    };
+    let whole = f64::from(ring.red() + ring.green() + ring.blue()) * 255.0;
+    let under = f64::from(ground.red() + ground.green() + ground.blue()) * 255.0;
+    let (early, later, late) = (f64::from(brightest(1_800.0 + 400.0)), f64::from(brightest(1_800.0 + 800.0)), f64::from(brightest(2_700.0)));
+    let share = |seen: f64| (seen - under) / (whole - under);
+    assert!((share(early) - 0.45).abs() < 0.06, "at 400 ms the note is whole and its ring half way to nine tenths: {}", share(early));
+    assert!((share(later) - 0.9).abs() < 0.04, "the ring stops at nine tenths: {}", share(later));
+    assert!((share(late) - 0.9).abs() < 0.04, "and stays there: {}", share(late));
 }
 
 fn ball_pixel(map: &Beatmap, time_ms: f64, mods: Mods) -> (u8, u8, u8) {

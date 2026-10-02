@@ -31,6 +31,7 @@ const TICK_FIRST_LEAD: f64 = 0.66;
 const TICK_REPEAT_LEAD_MS: f64 = 200.0;
 
 const HIDDEN_FADE_IN: f64 = 0.4;
+const APPROACH_ALPHA: f32 = 0.9;
 const HIDDEN_FADE_OUT: f64 = 0.3;
 
 const HIT_FADE_MS: f64 = 240.0;

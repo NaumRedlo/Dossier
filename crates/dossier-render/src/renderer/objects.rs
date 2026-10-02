@@ -72,7 +72,7 @@ impl Scene<'_> {
         let fade_in = if self.hidden {
             self.state.difficulty().preempt_ms() * HIDDEN_FADE_IN
         } else {
-            self.state.difficulty().fade_in_ms()
+            self.fade_in_ms()
         }
         .max(1.0);
         let appearing = ((time_ms - annotation.spawn_ms) / fade_in).clamp(0.0, 1.0) as f32;
@@ -91,6 +91,26 @@ impl Scene<'_> {
             return appearing * leaving * hiding;
         }
         appearing * leaving
+    }
+
+    pub(super) fn fade_in_ms(&self) -> f64 {
+        if self.state.from_lazer() {
+            self.state.difficulty().fade_in_ms_in_lazer()
+        } else {
+            self.state.difficulty().fade_in_ms()
+        }
+    }
+
+    fn approach_alpha(&self, index: usize, time_ms: f64) -> f32 {
+        let annotation = &self.annotations[index];
+        if time_ms < annotation.spawn_ms || time_ms > annotation.gone_ms {
+            return 0.0;
+        }
+        let rising = (self.fade_in_ms() * 2.0).min(self.state.difficulty().preempt_ms()).max(1.0);
+        let most = if self.state.from_lazer() { 1.0 } else { APPROACH_ALPHA };
+        let appearing = ((time_ms - annotation.spawn_ms) / rising).clamp(0.0, 1.0) as f32;
+        let leaving = 1.0 - (((time_ms - (annotation.gone_ms - HIT_FADE_MS)) / HIT_FADE_MS).clamp(0.0, 1.0)) as f32;
+        most * appearing * leaving
     }
 
     fn alpha_through_hidden(&self, index: usize, time_ms: f64) -> f32 {
@@ -208,10 +228,10 @@ impl Scene<'_> {
     ) {
         let object = &self.state.timeline().objects[index];
 
-        if object.is_spinner() || time_ms >= object.start_ms || self.hidden {
+        if object.is_spinner() || time_ms >= object.start_ms || (self.hidden && index != 0) {
             return;
         }
-        let alpha = self.alpha_of(index, time_ms);
+        let alpha = self.approach_alpha(index, time_ms);
         if alpha <= 0.0 {
             return;
         }
@@ -2279,7 +2299,7 @@ impl Scene<'_> {
             return;
         }
         let objects = &self.state.timeline().objects;
-        let fade_in = self.state.difficulty().fade_in_ms().max(1.0);
+        let fade_in = self.fade_in_ms().max(1.0);
         let radius = self.state.difficulty().circle_radius();
 
         for index in self.candidates(time_ms) {

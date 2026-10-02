@@ -119,6 +119,24 @@ rather than stable's. It is still the right answer for the skins that need it �
 the ones whose `hit0` is twice their `hit300` — but the default is the case it
 must not break.
 
+### A note fades in over 400 ms, and its approach circle over twice that
+
+Read out of the hit circle's constructor (2026-10-02). The fade-in is a
+constant of the client, 400 ms, and not a share of the approach time: the
+circle, its overlay and its number go from nothing to whole between
+`start − preempt` and `start − preempt + 400`. The approach circle has
+transformations of its own — scale 4 to 1 over the whole approach, and alpha 0
+to **0.9** between `start − preempt` and `min(start, start − preempt + 800)` —
+so at 400 ms the note is whole and its ring is half way, and the ring is never
+quite opaque. The engine had the note's own alpha on the ring and two thirds of
+the approach time as the fade-in (800 ms at AR 5, 300 at AR 10); both are the
+client's now. lazer scales the fade-in down below a 450 ms approach
+(`400 × min(1, preempt / 450)`) and lets the ring reach 1.
+
+Under Hidden the ring is not added — except for the first object of the map
+while the client's "show the first approach circle" option is on, which it is
+by default. The engine drew none at all.
+
 ### A judgement plays at sixty frames a second
 
 The mark is a `pAnimation` built at scale 1 on the gamefield, looping once, and

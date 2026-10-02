@@ -352,15 +352,15 @@ pub fn glance(memory: &dyn Memory, anchors: &Anchors) -> Option<Glance> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::fake::Fake;
     use crate::memory::Reads;
 
     const CODE: u64 = 0x0100_0000;
-    const DATA: u64 = 0x0200_0000;
+    pub(crate) const DATA: u64 = 0x0200_0000;
 
-    fn staged() -> (Fake, Anchors) {
+    pub(crate) fn staged() -> (Fake, Anchors) {
         let mut fake = Fake::default();
         let mut code = vec![0x90u8; 0x400];
         let place = |code: &mut Vec<u8>, at: usize, bytes: &[u8]| code[at..at + bytes.len()].copy_from_slice(bytes);
@@ -451,7 +451,7 @@ mod tests {
         }
     }
 
-    fn with_frames() -> (Fake, Anchors, u64) {
+    pub(crate) fn with_frames() -> (Fake, Anchors, u64) {
         let (mut fake, anchors) = staged();
         fake.room(FRAMES, 0x4000);
         let score = DATA + 0x1400;
@@ -501,7 +501,7 @@ mod tests {
         assert!(recorder.recording().is_none() && recorder.poll(&fake, &anchors).is_none());
     }
 
-    fn set_health(fake: &mut Fake, health: f64) {
+    pub(crate) fn set_health(fake: &mut Fake, health: f64) {
         let bar = DATA + 0x2800;
         fake.set_u32(DATA + 0x1200 + 0x40, bar as u32);
         fake.write(bar + 0x1C, &health.to_le_bytes());

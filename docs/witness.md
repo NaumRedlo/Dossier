@@ -237,6 +237,16 @@ whether the play was passed. Nothing of the replay itself is sent.
   and rows older than two weeks are dropped as new ones come. The feed asks one
   more indexed question than before and reuses the plays it had already loaded.
 
+## Trying it where the author cannot
+
+`witness.exe --report [SECONDS]` prints a plain text about the client: where it
+runs from, its build and player, whether each of the five signatures is found,
+and then, once a second, what changed on the screen, in the health bar and in the
+replay flag, with a summary at the end. It is the one thing a person on Windows
+has to run and send back, and `docs/windows-check.md` tells them how. It reads
+the same things the serving mode does and prints nothing from the client's
+configuration but the build and the name.
+
 ## What is checked by a machine
 
 The reader is written against a `Memory` trait, and the tests build a small

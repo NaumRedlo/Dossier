@@ -45,6 +45,11 @@ fn main() {
             println!("witness: {name}: in code {code:x?}, anywhere {anywhere:x?}");
         }
     }
+    if let Some(at) = args.iter().position(|arg| arg == "--report") {
+        let seconds: u64 = args.get(at + 1).and_then(|said| said.parse().ok()).unwrap_or(60);
+        report(&process, seconds);
+        return;
+    }
     let anchors = match stable::anchors(&process) {
         Ok(anchors) => anchors,
         Err(lost) => {
@@ -77,6 +82,40 @@ fn main() {
         if round + 1 < rounds {
             std::thread::sleep(std::time::Duration::from_millis(500));
         }
+    }
+}
+
+#[cfg(windows)]
+fn report(process: &dossier_witness::windows::Process, seconds: u64) {
+    use dossier_witness::{report::Watch, scan, stable};
+
+    let client = client_of(process);
+    println!("witness report: this program is {}", std::env::current_exe().map_or_else(|_| "unknown".to_owned(), |path| path.display().to_string()));
+    println!("witness report: the client runs from {}", process.folder().map_or_else(|| "a folder the system did not name".to_owned(), |folder| folder.display().to_string()));
+    println!("witness report: the client's build is {}, its player {}", if client.build.is_empty() { "not told" } else { client.build.as_str() }, if client.player.is_empty() { "not told" } else { client.player.as_str() });
+    for (name, said) in [("base", stable::BASE), ("screen", stable::STATUS), ("play time", stable::PLAY_TIME), ("rulesets", stable::RULESETS), ("replay flag", stable::REPLAY)] {
+        let pattern = scan::Pattern::parse(said).expect("a pattern");
+        println!("witness report: signature {name}: {} found in code", scan::find_all(process, &pattern, true, 8).len());
+    }
+    let anchors = match stable::anchors(process) {
+        Ok(anchors) => anchors,
+        Err(lost) => {
+            println!("witness report: the client is not the one these signatures know: {lost:?} was not found");
+            println!("witness report: a client that has not got past its first window has not compiled the code the signatures sit in yet; try again once the menu is shown");
+            return;
+        }
+    };
+    println!("witness report: every anchor needed was found, the replay flag one {}", if anchors.replay.is_some() { "too" } else { "was not" });
+    println!("witness report: for {seconds} s, open song select, play a map for a while and let it fail, then watch any replay");
+    let mut watch = Watch::default();
+    for second in 0..seconds {
+        if let Some(line) = watch.observe(process, &anchors) {
+            println!("witness report: [{second:>3} s] {line}");
+        }
+        std::thread::sleep(std::time::Duration::from_secs(1));
+    }
+    for line in watch.summary() {
+        println!("witness report: {line}");
     }
 }
 

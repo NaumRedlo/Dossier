@@ -231,7 +231,7 @@ fn first_mistake(state: &GameState, from_ms: f64, to_ms: f64) -> Option<(f64, Po
     judge
         .events()
         .iter()
-        .filter(|event| event.result.is_miss() && event.part.breaks_combo())
+        .filter(|event| judge.breaks_combo(event))
         .filter(|event| event.time_ms >= from_ms && event.time_ms <= to_ms)
         .min_by(|a, b| a.time_ms.total_cmp(&b.time_ms))
         .and_then(|event| Some((event.time_ms, objects.get(event.object_index)?.pos)))

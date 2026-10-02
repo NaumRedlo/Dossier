@@ -632,7 +632,7 @@ impl GameState {
         let mut length = 0;
         for event in self.played_events(judge) {
             if event.result == Judgement::Miss {
-                if event.part.breaks_combo() {
+                if judge.breaks_combo(event) {
                     chains.push(ComboChain {
                         length,
                         ended_at_ms: event.scored_ms,
@@ -673,7 +673,7 @@ impl GameState {
         let mut run: Vec<(usize, f64)> = Vec::new();
         let mut longest_run = Vec::new();
         for event in self.played_events(judge) {
-            if event.result == Judgement::Miss && event.part.breaks_combo() {
+            if judge.breaks_combo(event) {
                 if event.object_index == longest.object_index {
                     longest_run = std::mem::take(&mut run);
                     break;

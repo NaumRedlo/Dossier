@@ -15,6 +15,7 @@ pub const TAIL_LENIENCE_MS: f64 = 36.0;
 const WHOLE_MS_DOUBT: f64 = 0.001;
 const FEWEST_PIECES_TO_READ_FRAMES: usize = 20;
 const FRAME_WAIT_SHARE: f64 = 0.98;
+const UPDATE_WAIT_SHARE: f64 = 0.9;
 const LONGEST_WAIT_FOR_A_FRAME_MS: f64 = 10.0;
 const FRAME_PERIOD_MS: f64 = 17.0;
 
@@ -154,6 +155,40 @@ pub struct Event {
     pub combo_after: u32,
 }
 
+const PASSES_TO_SETTLE_UNSEEN_MISSES: usize = 3;
+
+const SWEEP_COMES_LAST_MS: f64 = 0.5;
+
+fn after_the_rest_of_its_update(cursor: &CursorTrack, time_ms: f64) -> f64 {
+    let frames = cursor.frames();
+    let from = frames.partition_point(|frame| (frame.time_ms as f64) < time_ms);
+    let written = frames[from..]
+        .iter()
+        .take_while(|frame| frame.time_ms as f64 == time_ms)
+        .count();
+    if written > 1 {
+        time_ms
+    } else {
+        time_ms + SWEEP_COMES_LAST_MS
+    }
+}
+
+fn in_order(events: &mut [Event], missed_slider_breaks_combo: bool) -> Vec<ScoreState> {
+    events.sort_by(|a, b| {
+        a.scored_ms
+            .total_cmp(&b.scored_ms)
+            .then(a.object_index.cmp(&b.object_index))
+    });
+    let mut state = ScoreState::default();
+    let mut states = Vec::with_capacity(events.len());
+    for event in events {
+        accrue(&mut state, event, missed_slider_breaks_combo);
+        event.combo_after = state.combo;
+        states.push(state);
+    }
+    states
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct ScoreState {
     pub combo: u32,
@@ -178,11 +213,14 @@ pub struct Judge {
     clicks: Vec<Press>,
 
     states: Vec<ScoreState>,
+
+    missed_slider_breaks_combo: bool,
 }
 
 impl Judge {
     pub fn run(timeline: &Timeline, cursor: &CursorTrack, ruleset: Ruleset) -> Self {
-        let window = frame_window(timeline, cursor, ruleset);
+        let marks = frame_marks(timeline, cursor, ruleset);
+        let window = marks.map(|marks| marks.period_ms);
         let Heads {
             heads,
             shakes,
@@ -198,19 +236,35 @@ impl Judge {
                 object,
                 heads[index],
                 ruleset,
-                window,
+                marks,
                 &mut events,
             );
         }
 
-        events.sort_by(|a, b| a.scored_ms.total_cmp(&b.scored_ms));
-
-        let mut state = ScoreState::default();
-        let mut states = Vec::with_capacity(events.len());
-        for event in &mut events {
-            accrue(&mut state, event);
-            event.combo_after = state.combo;
-            states.push(state);
+        let missed_slider_breaks_combo = ruleset.missed_slider_breaks_combo();
+        let mut states = in_order(&mut events, missed_slider_breaks_combo);
+        if ruleset.slider_runs_on_whole_ms() {
+            for _ in 0..PASSES_TO_SETTLE_UNSEEN_MISSES {
+                let mut moved = false;
+                let mut carried = 0;
+                for event in &mut events {
+                    let swept = event.part == Part::SliderHead
+                        && event.result.is_miss()
+                        && event.scored_ms != event.time_ms;
+                    if swept && carried > 0 {
+                        let seen = after_the_rest_of_its_update(cursor, event.time_ms);
+                        if event.scored_ms != seen {
+                            event.scored_ms = seen;
+                            moved = true;
+                        }
+                    }
+                    carried = event.combo_after;
+                }
+                if !moved {
+                    break;
+                }
+                states = in_order(&mut events, missed_slider_breaks_combo);
+            }
         }
 
         Self {
@@ -219,6 +273,7 @@ impl Judge {
             trace,
             clicks,
             states,
+            missed_slider_breaks_combo,
         }
     }
 
@@ -247,6 +302,11 @@ impl Judge {
         }
     }
 
+    pub fn breaks_combo(&self, event: &Event) -> bool {
+        event.result.is_miss()
+            && (event.part.breaks_combo() || (self.missed_slider_breaks_combo && event.part == Part::Slider))
+    }
+
     pub fn final_state(&self) -> ScoreState {
         self.states.last().copied().unwrap_or_default()
     }
@@ -254,7 +314,7 @@ impl Judge {
     pub fn state_up_to_object(&self, objects: usize) -> ScoreState {
         let mut state = ScoreState::default();
         for event in self.events.iter().filter(|e| e.object_index < objects) {
-            accrue(&mut state, event);
+            accrue(&mut state, event, self.missed_slider_breaks_combo);
         }
         state
     }
@@ -290,9 +350,9 @@ impl Judge {
     }
 }
 
-fn accrue(state: &mut ScoreState, event: &Event) {
+fn accrue(state: &mut ScoreState, event: &Event, missed_slider_breaks_combo: bool) {
     if event.result.is_miss() {
-        if event.part.breaks_combo() {
+        if event.part.breaks_combo() || (missed_slider_breaks_combo && event.part == Part::Slider) {
             state.combo = 0;
         }
     } else if event.part.adds_combo() {
@@ -611,12 +671,16 @@ fn judge_heads(timeline: &Timeline, cursor: &CursorTrack, ruleset: Ruleset, mark
                 Verdict::TookItEarly { object: target }
             },
         });
-        if error_ms > -window {
-            heads[target] = Head::Hit {
+        heads[target] = if error_ms > -window {
+            Head::Hit {
                 time_ms: press.time_ms,
                 error_ms,
-            };
-        }
+            }
+        } else {
+            Head::Missed {
+                at_ms: Some(press.time_ms),
+            }
+        };
     }
 
     Heads {
@@ -670,10 +734,11 @@ fn build_events(
     object: &TimedObject,
     head: Head,
     ruleset: Ruleset,
-    window: Option<f64>,
+    marks: Option<Marks>,
     out: &mut Vec<Event>,
 ) {
     let difficulty = &timeline.difficulty;
+    let window = marks.map(|marks| marks.period_ms);
 
     match &object.kind {
         TimedKind::Circle => {
@@ -701,7 +766,7 @@ fn build_events(
         }
 
         TimedKind::Slider { .. } => {
-            build_slider_events(timeline, cursor, index, object, head, ruleset, window, out)
+            build_slider_events(timeline, cursor, index, object, head, ruleset, marks, out)
         }
 
         TimedKind::Spinner => {
@@ -710,7 +775,11 @@ fn build_events(
                 ..ruleset.spin()
             };
             let turns = spinner_spin_times(cursor, object.start_ms, object.end_ms, spin);
-            let rotations = spinner_half_turns(cursor, object.start_ms, object.end_ms, spin);
+            let rotations = if ruleset.spinner_counts_half_turns() {
+                turns.len() as f64
+            } else {
+                spinner_half_turns(cursor, object.start_ms, object.end_ms, spin)
+            };
             let required = required_half_turns(difficulty, object.duration_ms());
 
             let spare = spare_spins(difficulty, object.duration_ms()) as i64;
@@ -731,7 +800,11 @@ fn build_events(
             }
             out.push(Event {
                 time_ms: object.end_ms,
-                scored_ms: object.end_ms,
+                scored_ms: if ruleset.spinner_counts_half_turns() {
+                    after_the_rest_of_its_update(cursor, swept_at(cursor, object.end_ms.trunc(), window, ruleset))
+                } else {
+                    object.end_ms
+                },
                 object_index: index,
                 part: Part::Spinner,
                 result: spinner_judgement(rotations, required, ruleset),
@@ -749,18 +822,33 @@ fn build_slider_events(
     object: &TimedObject,
     head: Head,
     ruleset: Ruleset,
-    window: Option<f64>,
+    marks: Option<Marks>,
     out: &mut Vec<Event>,
 ) {
     let difficulty = &timeline.difficulty;
+    let window = marks.map(|marks| marks.period_ms);
+    let noticed = marks.map(|marks| marks.noticed_within_ms);
 
+    let closes = object.start_ms + difficulty.hit_window_50();
     let (head_time, head_error) = match head {
+        Head::Hit { time_ms, .. } if time_ms > closes && ruleset.slider_runs_on_whole_ms() => {
+            (swept_at(cursor, closes, window, ruleset), None)
+        }
         Head::Hit { time_ms, error_ms } => (time_ms, Some(error_ms)),
 
         Head::Missed { at_ms } => (
-            at_ms.unwrap_or_else(|| swept_at(cursor, object.start_ms + difficulty.hit_window_50(), window, ruleset)),
+            at_ms.unwrap_or_else(|| swept_at(cursor, closes, window, ruleset)),
             None,
         ),
+    };
+    let head_unseen = if ruleset.slider_runs_on_whole_ms() && head_time > closes {
+        if noticed.is_some_and(|within| head_time - closes <= within) {
+            after_the_rest_of_its_update(cursor, head_time)
+        } else {
+            closes + 1.0 + SWEEP_COMES_LAST_MS
+        }
+    } else {
+        head_time
     };
     let head_hit = match head {
         Head::Hit { error_ms, .. } => error_ms.abs() <= difficulty.hit_window_50(),
@@ -774,7 +862,7 @@ fn build_slider_events(
 
     out.push(Event {
         time_ms: head_time,
-        scored_ms: head_time,
+        scored_ms: head_unseen,
         object_index: index,
         part: Part::SliderHead,
         result: Judgement::from_flag(head_hit),
@@ -853,9 +941,14 @@ fn build_slider_events(
         Head::Hit { time_ms, .. } if ruleset.slider_verdict_from_head() => time_ms,
         _ => object.end_ms,
     };
+    let verdict_scored_at = if ruleset.slider_runs_on_whole_ms() && !ruleset.slider_verdict_from_head() {
+        after_the_rest_of_its_update(cursor, swept_at(cursor, object.end_ms.trunc() - 1.0, window, ruleset))
+    } else {
+        verdict_at
+    };
     out.push(Event {
         time_ms: verdict_at,
-        scored_ms: verdict_at,
+        scored_ms: verdict_scored_at,
         object_index: index,
         part: Part::Slider,
         result,
@@ -944,7 +1037,13 @@ fn slider_parts(object: &TimedObject, ruleset: Ruleset) -> (Vec<(f64, Part)>, Ve
     (parts, early)
 }
 
-fn frame_window(timeline: &Timeline, cursor: &CursorTrack, ruleset: Ruleset) -> Option<f64> {
+#[derive(Debug, Clone, Copy)]
+struct Marks {
+    period_ms: f64,
+    noticed_within_ms: f64,
+}
+
+fn frame_marks(timeline: &Timeline, cursor: &CursorTrack, ruleset: Ruleset) -> Option<Marks> {
     if !ruleset.slider_runs_on_whole_ms() {
         return None;
     }
@@ -969,8 +1068,11 @@ fn frame_window(timeline: &Timeline, cursor: &CursorTrack, ruleset: Ruleset) -> 
         return None;
     }
     waits.sort_by(f64::total_cmp);
-    let most = waits[((waits.len() as f64 * FRAME_WAIT_SHARE) as usize).min(waits.len() - 1)];
-    (most <= LONGEST_WAIT_FOR_A_FRAME_MS * timeline.rate()).then_some(FRAME_PERIOD_MS * timeline.rate())
+    let within = |share: f64| waits[((waits.len() as f64 * share) as usize).min(waits.len() - 1)];
+    (within(FRAME_WAIT_SHARE) <= LONGEST_WAIT_FOR_A_FRAME_MS * timeline.rate()).then_some(Marks {
+        period_ms: FRAME_PERIOD_MS * timeline.rate(),
+        noticed_within_ms: within(UPDATE_WAIT_SHARE),
+    })
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1359,6 +1461,8 @@ const SPIN_FRAME_MS: f64 = 50.0 / 3.0;
 
 const SPIN_FRAME_LENIENCE_MS: f64 = 17.333_332_697_550_457;
 
+const SIXTY_SHARE: f64 = 0.75;
+
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Spin {
     pub spun_out: bool,
@@ -1371,93 +1475,133 @@ pub fn spin_acceleration(duration_ms: f64) -> f64 {
     SPIN_BASE_ACCELERATION + ((SPIN_SHORT_SPINNER_MS - duration_ms) / 1_000.0 / 2_000.0).max(0.0)
 }
 
+const USUAL_WAITS_START_AT_SHARE: f64 = 0.1;
+
+fn shortest_usual_wait(waits: &mut [f64]) -> f64 {
+    if waits.is_empty() {
+        return f64::INFINITY;
+    }
+    waits.sort_by(f64::total_cmp);
+    waits[((waits.len() as f64 * USUAL_WAITS_START_AT_SHARE) as usize).min(waits.len() - 1)]
+}
+
 fn smoothed_sweep(cursor: &CursorTrack, start_ms: f64, end_ms: f64, spin: Spin) -> (f64, Vec<f64>) {
-    let acceleration = spin_acceleration(end_ms - start_ms);
+    let rate = if spin.rate > 0.0 { spin.rate } else { 1.0 };
+    let allowance = spin_acceleration(end_ms - start_ms) / rate;
+    let period = SPIN_FRAME_MS * rate;
     let centre = Point::CENTRE;
-    let mut turned = 0.0f64;
+    let frames = cursor.frames();
+
+    let mut turned = 0.0f32;
+    let mut counted = 0i64;
     let mut velocity = 0.0f64;
+    let mut observed = 0.0f64;
     let mut smoothed = SPIN_FRAME_MS;
     let mut idle = 0u32;
-    let mut observed = 0.0f64;
-    let mut previous: Option<(f64, f64)> = None;
+    let mut facing: Option<f64> = None;
+    let mut sampled: Option<f64> = None;
+    let mut stepped = start_ms.floor();
     let mut crossings = Vec::new();
+    let mut waits = Vec::new();
 
-    for sample in cursor.frames() {
+    let update = |to: f64, velocity: &mut f64, observed: f64, turned: &mut f32, stepped: &mut f64| {
+        let elapsed = to - *stepped;
+        *stepped = to;
+        if elapsed <= 0.0 || to <= start_ms || to >= end_ms {
+            return;
+        }
+        let allowance = allowance * elapsed;
+        if spin.spun_out {
+            *velocity = SPUN_OUT_RADIANS_PER_MS;
+        } else if observed > *velocity {
+            let most = if *velocity < 0.0 && spin.relax { allowance / 4.0 } else { allowance };
+            *velocity += (observed - *velocity).min(most);
+        } else {
+            let most = if *velocity > 0.0 && spin.relax { allowance / 4.0 } else { allowance };
+            *velocity += (observed - *velocity).max(-most);
+        }
+        *velocity = velocity.clamp(-SPIN_CEILING_RADIANS_PER_MS, SPIN_CEILING_RADIANS_PER_MS);
+        let swept = (*velocity * elapsed) as f32;
+        *turned += ((f64::from(swept) / PI) as f32).abs().min(1.0);
+    };
+
+    let first = frames.partition_point(|frame| (frame.time_ms as f64) < start_ms - period * 3.0);
+    let mut held = first.checked_sub(1).map(|before| frames[before].keys);
+    for sample in &frames[first..] {
         let at = sample.time_ms as f64;
-        if at < start_ms || at > end_ms {
+        if at > end_ms {
+            break;
+        }
+        let pressed_or_let_go = held.is_some_and(|keys| keys != sample.keys);
+        held = Some(sample.keys);
+        let on_the_beat = sampled.is_none_or(|last| {
+            at > last && (!pressed_or_let_go || at - last >= period * SIXTY_SHARE)
+        });
+        if !on_the_beat {
             continue;
         }
-        let (dx, dy) = (f64::from(sample.x) - centre.x, f64::from(sample.y) - centre.y);
-        if dx.hypot(dy) < 1e-9 {
+        let gap = sampled.map_or(SPIN_FRAME_MS, |last| at - last);
+        sampled = Some(at);
+        if at < start_ms {
             continue;
         }
-        let angle = dy.atan2(dx);
-        let Some((was_at, before)) = previous else {
-            previous = Some((at, angle));
-            continue;
-        };
-        previous = Some((at, angle));
+        waits.push(gap);
+        while stepped + 1.0 < at {
+            let to = stepped + 1.0;
+            update(to, &mut velocity, observed, &mut turned, &mut stepped);
+        }
 
-        let gap = (at - was_at).max(0.0);
-        let held = spin.relax || sample.keys.is_pressed();
+        let (dx, dy) = (f64::from(sample.x) - centre.x, f64::from(sample.y) - centre.y);
+        let angle = f64::from(dy as f32).atan2(f64::from(dx as f32));
+        let before = *facing.get_or_insert(angle);
         let mut step = angle - before;
-        while step > PI {
+        if step < -PI {
+            step += TAU;
+        } else if step > PI {
             step -= TAU;
         }
-        while step < -PI {
-            step += TAU;
-        }
-
-        let rate = if spin.rate > 0.0 { spin.rate } else { 1.0 };
         let decay = 0.999f64.powf(gap);
         smoothed = decay * smoothed + (1.0 - decay) * gap;
-
         if step == 0.0 {
             observed = if idle < 1 { observed / 3.0 } else { 0.0 };
             idle += 1;
         } else {
             idle = 0;
-            if !held {
+            if !(spin.relax || sample.keys.is_pressed()) {
                 step = 0.0;
             }
             observed = if step.abs() < PI {
-                let over = if smoothed / rate > SPIN_FRAME_LENIENCE_MS {
-                    gap / rate
+                if smoothed / rate > SPIN_FRAME_LENIENCE_MS {
+                    let over = gap / rate;
+                    if over > 0.0 { step / over } else { 0.0 }
                 } else {
-                    SPIN_FRAME_MS
-                };
-                if over > 0.0 {
-                    step / over
-                } else {
-                    0.0
+                    step / SPIN_FRAME_MS
                 }
             } else {
                 0.0
             };
         }
+        facing = Some(angle);
 
-        if spin.spun_out {
-            velocity = SPUN_OUT_RADIANS_PER_MS;
-        } else {
-            let allowance = acceleration * gap / rate;
-            velocity += (observed - velocity).clamp(-allowance, allowance);
+        if turned as i64 != counted {
+            counted = turned as i64;
+            crossings.push(at);
         }
-        velocity = velocity.clamp(-SPIN_CEILING_RADIANS_PER_MS, SPIN_CEILING_RADIANS_PER_MS);
-
-        let before_turn = turned;
-        turned += (velocity * gap).abs().min(PI) / PI;
-        let mut crossed = before_turn.floor() + 1.0;
-        while crossed <= turned {
-            let share = if turned > before_turn {
-                (crossed - before_turn) / (turned - before_turn)
-            } else {
-                0.0
-            };
-            crossings.push(was_at + (at - was_at) * share);
-            crossed += 1.0;
+        update(at, &mut velocity, observed, &mut turned, &mut stepped);
+    }
+    while stepped + 1.0 < end_ms {
+        let to = stepped + 1.0;
+        update(to, &mut velocity, observed, &mut turned, &mut stepped);
+    }
+    let ended = frames[frames.partition_point(|frame| frame.time_ms as f64 <= end_ms)..]
+        .first()
+        .map(|frame| frame.time_ms as f64);
+    if let (Some(ended), Some(last)) = (ended, sampled) {
+        if turned as i64 != counted && ended - last >= shortest_usual_wait(&mut waits) {
+            crossings.push(end_ms);
         }
     }
-    (turned, crossings)
+    (f64::from(turned), crossings)
 }
 
 fn spun_out_sweep(start_ms: f64, end_ms: f64) -> (f64, f64, Vec<f64>) {

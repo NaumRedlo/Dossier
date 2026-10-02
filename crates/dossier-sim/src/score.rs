@@ -9,12 +9,15 @@ fn takes_combo_multiplier(part: Part) -> bool {
 }
 
 pub fn stable_base_value(part: Part, result: Judgement) -> u32 {
+    if result.is_miss() {
+        return 0;
+    }
     match part {
         Part::SliderTick => 10,
 
         Part::SpinnerSpin => 0,
         Part::SpinnerPoints => 100,
-        Part::SpinnerBonus => 1000,
+        Part::SpinnerBonus => 1100,
         Part::SliderRepeat | Part::SliderTail | Part::SliderHead => 30,
         Part::Circle | Part::Slider | Part::Spinner => match result {
             Judgement::Great => 300,
@@ -49,10 +52,14 @@ fn round_half_to_even(x: f64) -> f64 {
     }
 }
 
+const DENSEST: f32 = 16.0;
+
 pub fn difficulty_multiplier(beatmap: &Beatmap, object_count: usize, drain_seconds: f64) -> u32 {
-    let d = &beatmap.difficulty;
+    let d = beatmap.difficulty.in_single_precision();
     let density = if drain_seconds > 0.0 {
-        (object_count as f64 / drain_seconds * 8.0).clamp(0.0, 16.0)
+        f64::from(((object_count as f64 / drain_seconds * 8.0) as f32).clamp(0.0, DENSEST))
+    } else if object_count > 0 {
+        f64::from(DENSEST)
     } else {
         0.0
     };
@@ -71,18 +78,15 @@ pub fn stable_mod_multiplier(mods: Mods) -> f64 {
         (bits::NO_FAIL, if v2 { 1.0 } else { 0.5 }),
         (bits::EASY, 0.5),
         (bits::HALF_TIME, 0.3),
-        (bits::HARD_ROCK, if v2 { 1.10 } else { 1.06 }),
         (bits::HIDDEN, 1.06),
+        (bits::HARD_ROCK, if v2 { 1.10 } else { 1.06 }),
+        (bits::DOUBLE_TIME | bits::NIGHTCORE, if v2 { 1.20 } else { 1.12 }),
         (bits::FLASHLIGHT, 1.12),
         (bits::SPUN_OUT, 0.9),
     ] {
         if mods.contains(bit) {
             m *= factor;
         }
-    }
-
-    if mods.contains(bits::DOUBLE_TIME) || mods.contains(bits::NIGHTCORE) {
-        m *= if v2 { 1.20 } else { 1.12 };
     }
     m
 }
@@ -91,13 +95,13 @@ pub fn drain_seconds(beatmap: &Beatmap) -> f64 {
     let (Some(first), Some(last)) = (beatmap.objects.first(), beatmap.objects.last()) else {
         return 0.0;
     };
-    let span = last.time_ms - first.time_ms;
+    let span = last.time_ms.trunc() - first.time_ms.trunc();
     let breaks: f64 = beatmap
         .breaks
         .iter()
-        .map(|&(from, to)| (to - from).max(0.0))
+        .map(|&(from, to)| to.trunc() - from.trunc())
         .sum();
-    ((span - breaks) / 1000.0).max(0.0)
+    ((span - breaks) / 1000.0).trunc().max(0.0)
 }
 
 pub fn stable_halves(judge: &Judge) -> (f64, f64) {

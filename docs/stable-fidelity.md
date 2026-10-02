@@ -5340,3 +5340,66 @@ of the follow circle's edge on the frame that decides; one ScoreV2 replay; one
 Relax replay; and seven from lazer, to which none of the frame evidence
 applies.
 
+
+## The score, to the point
+
+The counts had been the measure until now; the score was only asked to land
+within half a percent. On 2026-10-02 it was asked for exactly, on the 167
+stable replays whose every count already agreed, and it agreed on 22.
+
+**The map's multiplier and the missed pieces.** The first two were plain
+errors. The multiplier divides the objects by the map's length in *whole*
+seconds, in single precision, and takes the settings as the floats the client
+holds them in; ours used the fraction, and one map whose density sits on the
+clamp came out a whole step low — a fifth of its score. And a missed tick or
+tail was being paid its ten or thirty. With both right, 89 agreed, and every
+replay still out had a spinner in it and was short by a round number.
+
+**The bonus is eleven hundred.** The spinner was rewritten twice to the
+client's own two-clock model (see the client document) before the round
+numbers were read for what they were: a multiple of a hundred per bonus. The
+routine that turns a result into points pays 1100 for a bonus spin, not the
+1000 it draws. 148.
+
+**The half turn at the end.** Ten replays were then one spin or one bonus
+short, and in each the count had passed a whole number between the last
+scoring frame inside the spinner and its end. Five more had the same thing
+happen and agreed already. What tells them apart is the frame the client wrote
+when it ended the spinner: a full period after the one before in the first
+kind, a few milliseconds short of one in the second. The update that ends a
+spinner scores it first, and scores only on the sixty a second. 151.
+
+**The order inside an update.** What was left moved by odd amounts, each of
+them some hits' worth of one combo step — an event in the wrong place in the
+run. Four orderings, each read from the play's update and each checked against
+a replay that had been wrong and one that had been right:
+
+- a tail due on the update that writes its own head off scores first, since
+  scoring comes before the sweep;
+- a head is written off on the frame the client forced for it *only if the
+  combo was running* — otherwise nothing changed, no frame was written, and it
+  went a millisecond after its window, or on the next update the replay shows
+  if this client's updates are that far apart (the same waits that say whether
+  a replay marks its score also say how long this client takes to notice);
+- a press on that same update is taken before the sweep, unless the replay
+  holds two frames for that millisecond, the first of them the sweep's own;
+- a slider's verdict is given on the frame that ends it, after its head if
+  both go together, and a slider missed whole breaks the combo there.
+
+And a press on a slider head after its window has shut is not what misses it:
+it was written off already.
+
+| | score to the point, of 167 | exact counts, of 187 | combo |
+|---|---|---|---|
+| before | 22 | 172 | 180 |
+| the multiplier, the missed pieces | 89 | | |
+| the bonus | 148 | | |
+| the half turn at the end | 151 | | |
+| the order inside an update | **159** | **174** | **181** |
+
+Eight are left. Seven are a spinner one spin or one bonus short: the count
+there turns on a few hundredths of a half turn, which is what the size of this
+client's updates — unseen between the frames — is worth; a model that ran the
+spinner in chunks of a guessed size fixed two of them and broke a third, and
+was not kept. The eighth is thirty-two points, one hundred's worth of one
+combo step, on a map of several hundred short sliders.

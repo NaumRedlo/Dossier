@@ -1892,13 +1892,13 @@ fn easy_wins_over_hard_rock_the_way_the_game_settles_it() {
 }
 
 #[test]
-fn a_bonus_spin_is_worth_the_thousand_the_game_shows() {
+fn a_bonus_spin_pays_its_thousand_and_the_hundred_of_the_turn_it_is() {
     use dossier_sim::score::stable_base_value;
 
     assert_eq!(
         stable_base_value(dossier_sim::Part::SpinnerBonus, dossier_sim::Judgement::Great),
-        1_000,
-        "osu! writes 1000 times the bonus spin on screen and pays exactly that"
+        1_100,
+        "osu! writes 1000 on screen for a bonus spin and adds 1100 to the score"
     );
     assert_eq!(
         stable_base_value(dossier_sim::Part::SpinnerPoints, dossier_sim::Judgement::Great),
@@ -1910,6 +1910,16 @@ fn a_bonus_spin_is_worth_the_thousand_the_game_shows() {
         0,
         "the odd half turn is worth nothing"
     );
+}
+
+#[test]
+fn a_part_that_was_missed_pays_nothing() {
+    use dossier_sim::score::stable_base_value;
+
+    for part in [Part::SliderHead, Part::SliderTick, Part::SliderRepeat, Part::SliderTail] {
+        assert_eq!(stable_base_value(part, Judgement::Miss), 0, "{part:?}");
+        assert!(stable_base_value(part, Judgement::Great) > 0, "{part:?}");
+    }
 }
 
 #[test]
@@ -2292,4 +2302,242 @@ SliderTickRate:1
         "the tail scores at 1134 and the head is written off at 1151, so the run is the circle and the tail before it breaks"
     );
     assert_eq!(score.combo, 0);
+}
+
+fn spinner_parts_counted(turns: f64, ended_on_a_scoring_update: bool) -> usize {
+    let map = beatmap(SPINNER);
+    let mut frames: Vec<ReplayFrame> = spin_frames(1000, 3000, turns * 2.0)
+        .into_iter()
+        .filter(|f| f.time_ms <= 2100)
+        .collect();
+    if !ended_on_a_scoring_update {
+        let last_inside = *frames.iter().filter(|f| f.time_ms <= 2000).last().unwrap();
+        frames.push(frame(2001, last_inside.x, last_inside.y, Keys::K1));
+        frames.sort_by_key(|f| f.time_ms);
+    }
+    let state = GameState::new(&map, &replay_with(frames, 0));
+    state
+        .judge()
+        .unwrap()
+        .events()
+        .iter()
+        .filter(|e| matches!(e.part, Part::SpinnerSpin | Part::SpinnerPoints | Part::SpinnerBonus))
+        .count()
+}
+
+#[test]
+fn a_spinner_counts_once_more_when_the_update_that_ends_it_is_a_scoring_one() {
+    let mut told_apart = 0;
+    for step in 0..60 {
+        let turns = 2.0 + f64::from(step) * 0.05;
+        let on_the_beat = spinner_parts_counted(turns, true);
+        let off_it = spinner_parts_counted(turns, false);
+        assert!(
+            on_the_beat == off_it || on_the_beat == off_it + 1,
+            "at {turns} turns the last half turn is the only thing the ending update can add: {on_the_beat} against {off_it}"
+        );
+        told_apart += usize::from(on_the_beat > off_it);
+    }
+    assert!(
+        told_apart > 0,
+        "the last scoring frame inside the spinner is at 1986 and it ends at 2000; a half turn completed in between is counted when the update that ends it, at 2003, is one of the sixty a second, and lost when the spinner is ended by an update of its own at 2001"
+    );
+}
+
+fn an_untouched_short_slider_and_a_note_behind_it(frames: Vec<ReplayFrame>) -> GameState {
+    let map = beatmap(
+        "
+[Difficulty]
+CircleSize:5
+OverallDifficulty:5
+SliderMultiplier:1.4
+SliderTickRate:1
+
+[TimingPoints]
+0,500,4,2,0,60,1,0
+
+[HitObjects]
+100,100,500,1,0
+100,200,1000,2,0,L|200:200,1,28
+300,300,1160,1,0
+",
+    );
+    GameState::new(&map, &replay_with(frames, 0))
+}
+
+fn held_over_the_short_slider() -> Vec<ReplayFrame> {
+    let mut frames = click(500, 100.0, 100.0);
+    frames.push(frame(900, 400.0, 50.0, Keys::K2));
+    frames.push(frame(990, 100.0, 200.0, Keys::K2));
+    for t in (1000..=1100).step_by(10) {
+        frames.push(frame(t, 100.0 + 0.28 * (t - 1000) as f32, 200.0, Keys::K2));
+    }
+    frames.push(frame(1110, 300.0, 300.0, 0));
+    frames
+}
+
+#[test]
+fn a_press_on_the_update_that_writes_a_head_off_is_taken_first() {
+    let mut frames = held_over_the_short_slider();
+    frames.push(frame(1151, 300.0, 300.0, Keys::K1));
+    frames.push(frame(1170, 300.0, 300.0, 0));
+    let score = an_untouched_short_slider_and_a_note_behind_it(frames)
+        .judge()
+        .unwrap()
+        .final_state();
+
+    assert_eq!(
+        (score.counts.count_300, score.counts.count_100),
+        (2, 1),
+        "the circle, the note behind, and a slider held without its head: {score:?}"
+    );
+    assert_eq!(
+        (score.max_combo, score.combo),
+        (3, 0),
+        "the head's window shut at 1150 and the one update at 1151 took the press before it swept, so the note behind counts and then the run ends"
+    );
+}
+
+#[test]
+fn a_head_written_off_on_an_update_of_its_own_goes_before_a_press_in_the_same_millisecond() {
+    let mut frames = held_over_the_short_slider();
+    frames.push(frame(1151, 300.0, 300.0, 0));
+    frames.push(frame(1151, 300.0, 300.0, Keys::K1));
+    frames.push(frame(1170, 300.0, 300.0, 0));
+    let score = an_untouched_short_slider_and_a_note_behind_it(frames)
+        .judge()
+        .unwrap()
+        .final_state();
+
+    assert_eq!(
+        (score.max_combo, score.combo),
+        (2, 1),
+        "two frames at 1151: the client wrote one when the run broke and another for the press that came after: {score:?}"
+    );
+}
+
+#[test]
+fn a_stable_slider_missed_whole_breaks_the_run_when_it_ends() {
+    let mut frames = click(500, 100.0, 100.0);
+    frames.extend(click(1120, 300.0, 300.0));
+    frames.push(frame(1300, 300.0, 300.0, 0));
+    let state = an_untouched_short_slider_and_a_note_behind_it(frames);
+    let judge = state.judge().unwrap();
+
+    let slider = judge.events().iter().find(|e| e.part == Part::Slider).unwrap();
+    assert_eq!((slider.result, slider.combo_after), (Judgement::Miss, 0), "nothing of it was taken, and it ends at 1100");
+    let behind = judge.events().iter().find(|e| e.object_index == 2).unwrap();
+    assert_eq!(
+        (behind.result, behind.combo_after),
+        (Judgement::Great, 1),
+        "the note behind is struck at 1120, after the slider ended and before its head is written off at 1151, and it starts a new run"
+    );
+    assert_eq!(judge.final_state().combo, 0, "the head goes last and ends that run too");
+}
+
+#[test]
+fn a_tail_due_on_the_update_that_writes_its_head_off_scores_first() {
+    let map = beatmap(
+        "
+[Difficulty]
+CircleSize:5
+OverallDifficulty:5
+SliderMultiplier:1.4
+SliderTickRate:1
+
+[TimingPoints]
+0,500,4,2,0,60,1,0
+
+[HitObjects]
+100,100,500,1,0
+100,200,1000,2,0,L|200:200,1,52.5
+",
+    );
+    let mut frames = click(500, 100.0, 100.0);
+    frames.push(frame(900, 400.0, 50.0, Keys::K2));
+    frames.push(frame(990, 100.0, 200.0, Keys::K2));
+    for t in (1000..=1190).step_by(10) {
+        frames.push(frame(t, 100.0 + 0.28 * (t - 1000) as f32, 200.0, Keys::K2));
+    }
+    frames.push(frame(1210, 150.0, 200.0, 0));
+    let state = GameState::new(&map, &replay_with(frames, 0));
+    assert_eq!(dossier_sim::tail_check_whole_ms(&state.timeline().objects[1]), 1151.0);
+    let score = state.judge().unwrap().final_state();
+
+    assert_eq!(
+        (score.max_combo, score.combo),
+        (2, 0),
+        "the tail is due at 1151, the very update that finds the head's window shut; the client scores what is being held before it sweeps: {score:?}"
+    );
+}
+
+#[test]
+fn a_press_past_the_window_is_not_what_misses_a_slider_head() {
+    let map = beatmap(SHORT_SLIDER);
+    let start = map.objects[0].time_ms as i64;
+    let mut frames = vec![frame(start - 100, 0.0, 0.0, 0)];
+    frames.push(frame(start + 200, map.objects[0].pos.x as f32, map.objects[0].pos.y as f32, Keys::K1));
+    frames.push(frame(start + 220, map.objects[0].pos.x as f32, map.objects[0].pos.y as f32, 0));
+    let state = GameState::new(&map, &replay_with(frames, 0));
+    let judge = state.judge().unwrap();
+    let head = judge.events().iter().find(|e| e.part == Part::SliderHead).unwrap();
+
+    assert_eq!(head.result, Judgement::Miss);
+    assert_eq!(
+        head.time_ms,
+        start as f64 + 151.0,
+        "the window shut at +150 and the client wrote the head off on the next update; the press at +200 found it already gone"
+    );
+}
+
+#[test]
+fn a_head_written_off_with_no_run_to_break_leaves_no_frame_to_wait_for() {
+    let (_, replay) = a_row_of_sliders(true);
+    let mut body = String::from(
+        "
+[Difficulty]
+CircleSize:5
+OverallDifficulty:5
+SliderMultiplier:1.4
+SliderTickRate:1
+
+[TimingPoints]
+0,500,4,2,0,60,1,0
+
+[HitObjects]
+",
+    );
+    for index in 0..SLIDERS_IN_A_ROW {
+        let y = 50 + (index % 6) as i64 * 50;
+        body.push_str(&format!("100,{y},{},2,0,L|170:{y},1,70\n", 1000 + index as i64 * 1000));
+    }
+    body.push_str("400,300,30000,2,0,L|470:300,1,70\n400,100,31000,2,0,L|470:100,1,70\n");
+    let map = beatmap(&body);
+
+    let mut frames = replay.frames.clone();
+    for t in [30140, 30160, 30300, 31140, 31160, 31300] {
+        frames.push(frame(t, 0.0, 0.0, 0));
+    }
+    let state = GameState::new(&map, &replay_with(frames, 0));
+    let judge = state.judge().unwrap();
+    let head_of = |object: usize| {
+        *judge
+            .events()
+            .iter()
+            .find(|e| e.object_index == object && e.part == Part::SliderHead)
+            .unwrap()
+    };
+
+    let (first, second) = (head_of(SLIDERS_IN_A_ROW), head_of(SLIDERS_IN_A_ROW + 1));
+    assert_eq!((first.result, second.result), (Judgement::Miss, Judgement::Miss));
+    assert!(
+        first.scored_ms > 30160.0 && first.scored_ms < 30161.0,
+        "a run was going, so the client wrote a frame when the head broke it, and that frame is the one at 30160: {}",
+        first.scored_ms
+    );
+    assert!(
+        second.scored_ms > 31151.0 && second.scored_ms < 31152.0,
+        "by the second slider there is no run left; nothing changes when its head goes, no frame is written, and the first update past 31150 is when it went: {}",
+        second.scored_ms
+    );
 }

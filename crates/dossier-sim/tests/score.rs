@@ -317,3 +317,41 @@ fn lazers_combo_half_is_weighted_by_what_the_note_was_worth_at_best() {
     let expected = (500_000.0 / 3.0 + 500_000.0 * (1.0f64 / 3.0).powi(5)).round() as u64;
     assert_eq!(track.total(), expected);
 }
+
+#[test]
+fn the_length_a_map_is_played_over_is_counted_in_whole_seconds() {
+    let m = beatmap(
+        "[Events]\n2,20000,30999\n\n\
+         [Difficulty]\nHPDrainRate:5\nCircleSize:4\nOverallDifficulty:8\n\n\
+         [HitObjects]\n0,0,1000,1,0\n0,0,61999,1,0\n",
+    );
+    assert_eq!(
+        dossier_sim::score::drain_seconds(&m),
+        50.0,
+        "60 999 ms from the first note to the last, less a break of 10 999, is 50 000 and comes to fifty seconds, not 50.999"
+    );
+}
+
+#[test]
+fn a_map_with_no_length_to_speak_of_is_taken_at_its_densest() {
+    let m = beatmap(
+        "[Difficulty]\nHPDrainRate:6\nCircleSize:4\nOverallDifficulty:9\n\n\
+         [HitObjects]\n0,0,1000,1,0\n",
+    );
+    assert_eq!(
+        difficulty_multiplier(&m, 10, 0.0),
+        5,
+        "the client divides by its whole seconds, and a division by none of them is clamped to the densest the formula knows: (6 + 9 + 4 + 16) / 38 * 5 rounds to five"
+    );
+}
+
+#[test]
+fn the_mod_multipliers_are_taken_in_the_order_the_client_takes_them() {
+    let all = Mods::new(bits::HIDDEN | bits::HARD_ROCK | bits::DOUBLE_TIME | bits::FLASHLIGHT);
+    let as_the_client: f64 = 1.0 * 1.06 * 1.06 * 1.12 * 1.12;
+    assert_eq!(
+        stable_mod_multiplier(all).to_bits(),
+        as_the_client.to_bits(),
+        "Hidden, Hard Rock, Double Time, Flashlight: the same product bit for bit, because a combo of a thousand turns the last of those bits into a point"
+    );
+}

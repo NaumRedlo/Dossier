@@ -27,7 +27,7 @@ pub fn build(
         combo_before = event.combo_after;
 
         if event.result.is_miss() {
-            if event.part.breaks_combo() && run >= COMBO_BREAK_THRESHOLD {
+            if judge.breaks_combo(event) && run >= COMBO_BREAK_THRESHOLD {
                 track.strike_with(Voice::Miss, at_video(event.time_ms), SampleSet::Normal, 1.0);
             }
             continue;

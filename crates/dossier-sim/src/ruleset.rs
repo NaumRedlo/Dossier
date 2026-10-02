@@ -149,6 +149,10 @@ impl Ruleset {
         self.client == Client::Stable
     }
 
+    pub fn missed_slider_breaks_combo(self) -> bool {
+        self.client == Client::Stable && !self.head_carries_verdict
+    }
+
     pub fn slider_is_scored_by_its_head(self) -> bool {
         !self.whole_sliders
     }

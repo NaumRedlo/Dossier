@@ -822,3 +822,93 @@ not. A tick's time, and the time of every turn and of the end, is
 before that last one, or half the slider's length in whole milliseconds if
 that is later.
 
+
+## The spinner, and the score a spin is worth
+
+Read on 2026-10-02 from the spinner's two methods — the one the play calls for
+score and the one the object list calls every update — and from the routine
+that turns a result into points.
+
+### Two clocks
+
+The spinner keeps a velocity it *wants* and a velocity it *has*.
+
+```
+on a scoring frame, while the spinner is the object in hand:
+    elapsed  = this frame's time − the last scoring frame's time
+    angle    = atan2(cursor − centre)                       the centre is the playfield's
+    delta    = angle − last angle, unwrapped to (−π, π]     the first frame only sets the angle
+    spread   = 0.999^elapsed × spread + (1 − 0.999^elapsed) × elapsed      starts at 16.67
+    if delta == 0:   wanted = wanted / 3 the first time, 0 after
+    else:
+        if no button is down, or the time is outside the spinner: delta = 0
+        wanted = delta / 16.67              — or delta / elapsed once spread > 17.33
+    if (int) turned ≠ the count last seen:  count += 1, and that half turn is scored
+
+on every update, strictly inside the spinner, with time having moved:
+    has += clamp(wanted − has, ± acceleration × elapsed)
+    has  = clamp(has, ± 0.05)                               radians a millisecond
+    turned += min(1, |has × elapsed / π|)                   a float
+```
+
+`acceleration` is `0.00008 + max(0, (5000 − length) / 1000 / 2000)`, so a
+short spinner follows the hand at once and a long one takes half a second to.
+Times under Double Time and Half Time are divided by the rate where the code
+says `elapsed`. A scoring frame is one of the sixty a second the game counts
+off against its own clock — the first update past each tick — and it is the
+same flag that makes the recorder write a frame, so the frames of a replay
+inside a spinner *are* its scoring frames, less the ones a key change added.
+
+The count asks for `(int)(length / 1000f × rate)` half turns, the rate running
+3 – 5 – 7.5 with the overall difficulty. A half turn past `required + 3`, and
+every second one after it, is a bonus; an even one otherwise is a hundred; an
+odd one is nothing. The verdict at the end reads the count alone.
+
+### What happens at the end
+
+The play's update scores before it sweeps, and the sweep ends a spinner on the
+first update past its end. So on that one update the scoring method is asked
+once more — but it answers only on a scoring frame. A half turn completed
+between the last scoring frame inside the spinner and its end is therefore
+counted when the update that ends it happens to be one of the sixty, and lost
+when it is not. The replay says which: the update that ends a spinner changes
+the score and so always writes a frame, and that frame is a scoring one when
+it stands a full period after the one before.
+
+### What a result is worth
+
+| result | points | combo |
+|---|---|---|
+| slider tick | 10 | +1 |
+| slider turn, end, head | 30 | +1 |
+| slider's own 50 / 100 / 300 | that, × combo | none |
+| circle 50 / 100 / 300 | that, × combo | +1 |
+| spinner's 50 / 100 / 300 | that, × combo | +1 |
+| spin, odd half turn | 0 | none |
+| spin, even half turn | 100 | none |
+| spin, bonus | **1100** | none |
+| miss | 0 | to 0, and counted |
+| slider head or tick missed | 0 | to 0, not counted |
+| slider end missed | 0 | untouched |
+
+"× combo" is `value + (int)(max(0, combo − 1) × (value / 25 × multiplier))`,
+with the combo as it stood before the hit and `value / 25` in whole numbers.
+The multiplier is the map's — `round((HP + OD + CS + clamp(objects / seconds ×
+8, 0, 16)) / 38 × 5)`, the three settings as floats, the seconds whole, the
+division in single precision — times the mods', which are multiplied in a
+fixed order: No Fail, Easy, Half Time, Hidden, Hard Rock, Double Time,
+Flashlight, Spun Out. The bonus is written on screen as a thousand and paid as
+eleven hundred. A slider of which nothing at all was taken ends as a miss like
+any other and takes the combo with it *when it ends* — which, on a slider
+shorter than its head's window, is before that head is written off.
+
+### One update, in the order it happens
+
+Putting the three readings together, everything that can change the score in
+one update happens in this order: presses (struck or refused); the pieces of
+the slider in hand and the spins of the spinner in hand; then the sweep, object
+by object — a circle or a head past its window, a slider past its end, a
+spinner past its end. The recorder comes after all of it and writes one frame
+if anything it watches moved: the keys, the score, the count of misses, the
+combo, whether a slider is being followed. A head written off while the combo
+is already nothing moves none of those, and leaves no frame.

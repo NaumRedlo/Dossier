@@ -22,6 +22,48 @@ pub(crate) struct Arrivals {
     started: std::collections::HashMap<String, Instant>,
 }
 
+pub const PICTURE_FADE: f32 = 0.34;
+
+#[derive(Debug, Clone, Default)]
+pub(crate) struct Pictures {
+    came: std::collections::HashMap<String, Instant>,
+    lost: std::collections::HashMap<String, Instant>,
+}
+
+impl Pictures {
+    pub(crate) fn came(&mut self, url: &str, now: Instant) {
+        self.lost.remove(url);
+        self.came.insert(url.to_owned(), now);
+    }
+
+    pub(crate) fn lost(&mut self, url: &str, now: Instant) {
+        self.lost.entry(url.to_owned()).or_insert(now);
+    }
+
+    pub(crate) fn settle(&mut self, now: Instant) {
+        self.came.retain(|_, at| now.saturating_duration_since(*at).as_secs_f32() < PICTURE_FADE);
+    }
+
+    pub(crate) fn animating(&self, now: Instant) -> bool {
+        self.came.values().chain(self.lost.values()).any(|at| now.saturating_duration_since(*at).as_secs_f32() < PICTURE_FADE)
+    }
+
+    pub(crate) fn shown(&self, now: Instant) -> std::collections::HashMap<String, f32> {
+        self.came.iter().filter_map(|(url, at)| {
+            let age = now.saturating_duration_since(*at).as_secs_f32();
+            (age < PICTURE_FADE).then(|| (url.clone(), ui::appear(age, 0)))
+        }).collect()
+    }
+
+    pub(crate) fn shown_of(&self, url: &str, now: Instant) -> f32 {
+        self.came.get(url).map_or(1.0, |at| ui::appear(now.saturating_duration_since(*at).as_secs_f32(), 0))
+    }
+
+    pub(crate) fn room(&self, now: Instant) -> std::collections::HashMap<String, f32> {
+        self.lost.iter().map(|(url, at)| (url.clone(), 1.0 - ui::appear(now.saturating_duration_since(*at).as_secs_f32(), 0))).collect()
+    }
+}
+
 impl Arrivals {
     pub(crate) fn refresh(&mut self, before: &[String], current: &[String], now: Instant) {
         let before: std::collections::HashSet<&String> = before.iter().collect();
@@ -48,6 +90,10 @@ pub const RANK_EVERY: Duration = Duration::from_secs(6);
 pub const SPOT_SWAP: Duration = Duration::from_millis(450);
 pub const RANK_GROW: Duration = Duration::from_millis(900);
 
+const PAGE_GAP: f32 = 12.0;
+const NEWS_GAP: f32 = 12.0;
+const ROW_GAP: f32 = 1.0;
+const PAGE_BELOW: f32 = 28.0;
 const LEFT_WIDE: f32 = 268.0;
 const RIGHT_WIDE: f32 = 304.0;
 const CENTRE_MOST: f32 = 860.0;
@@ -366,9 +412,14 @@ fn player_cell<'a>(ground: &Ground<'a>, who: usize, table: Table) -> Element<'a,
 
 fn map_cell<'a>(ground: &Ground<'a>, map: usize, table: Table) -> Element<'a, Message> {
     let (wide, high) = table.thumb;
+    let shown = ground.catalog.map(Some(map)).filter(|map| !ground.thumbs.contains_key(&map.hash)).and_then(|map| map.card()).map_or(1.0, |card| ground.picture_shown(&card));
+    let waiting = || -> Element<'a, Message> { container(ui::fine_hatch()).width(wide).height(high).into() };
     let thumb: Element<'a, Message> = match map_cover(ground, map) {
-        Some(handle) => container(ui::framed(handle, wide, high, 5.0).opacity(ui::fade())).width(wide).height(high).clip(true).into(),
-        None => container(ui::fine_hatch()).width(wide).height(high).into(),
+        Some(handle) => {
+            let cover: Element<'a, Message> = container(ui::framed(handle, wide, high, 5.0).opacity(ui::fade() * shown)).width(wide).height(high).clip(true).into();
+            if shown >= 0.999 { cover } else { stack![waiting(), cover].into() }
+        }
+        None => waiting(),
     };
     let (title, version) = title_and_version(ground, map);
     let words = ui::marquee(vec![ui::piece(title, theme::SANS, 13.0, INK), ui::piece(version, theme::SANS, 13.0, MUTED)]);
@@ -481,6 +532,32 @@ fn journal_row<'a>(ground: &Ground<'a>, event: &Event<'a>, table: Table) -> Opti
     )
 }
 
+fn pictured<'a>(ground: &Ground<'a>, url: &str, high: f32) -> Option<Element<'a, Message>> {
+    let k = ui::fade();
+    let waiting = || -> Element<'a, Message> {
+        container(Space::new())
+            .width(Length::Fill)
+            .height(high)
+            .style(move |_| container::Style {
+                background: Some(Background::Color(Color::from_rgba(0.0, 0.0, 0.0, 0.22 * k))),
+                border: Border { radius: 10.0.into(), ..Border::default() },
+                ..container::Style::default()
+            })
+            .into()
+    };
+    match ground.pictures.get(url) {
+        Some(handle) => {
+            let shown = ground.picture_shown(url);
+            let picture = iced::widget::image(handle.clone()).content_fit(iced::ContentFit::Cover).width(Length::Fill).height(high).border_radius(10.0).opacity(k * shown);
+            Some(if shown >= 0.999 { picture.into() } else { stack![waiting(), picture].into() })
+        }
+        None => {
+            let room = ground.picture_room(url);
+            (room > 0.001).then(|| opening(waiting(), room))
+        }
+    }
+}
+
 fn news_card<'a>(ground: &Ground<'a>, event: &Event<'a>) -> Option<Element<'a, Message>> {
     let w = ground.words;
     let when = screen::since(ground, event.at);
@@ -490,7 +567,7 @@ fn news_card<'a>(ground: &Ground<'a>, event: &Event<'a>) -> Option<Element<'a, M
     let (media, header, body, press): (Option<Element<'a, Message>>, Element<'a, Message>, Element<'a, Message>, Message) = match event.item {
         Item::Post(post) => {
             let media: Option<Element<'a, Message>> = match (post.image.as_deref(), post.videos.first()) {
-                (Some(url), _) => ground.pictures.get(url).map(|handle| iced::widget::image(handle.clone()).content_fit(iced::ContentFit::Cover).width(Length::Fill).height(124.0).border_radius(10.0).opacity(ui::fade()).into()),
+                (Some(url), _) => pictured(ground, url, 124.0),
                 (None, Some(video)) => Some(screen::video_tile(ground, video, true, 124.0)),
                 (None, None) => None,
             };
@@ -502,7 +579,7 @@ fn news_card<'a>(ground: &Ground<'a>, event: &Event<'a>) -> Option<Element<'a, M
             (media, head(Icon::Send, LINK_BLUE, format!("@{}", post.channel)), container(words).max_height(88.0).clip(true).into(), Message::Read(Reading::Post(post.clone())))
         }
         Item::Story(story) => {
-            let media = story.image.as_deref().and_then(|url| ground.pictures.get(url)).map(|handle| iced::widget::image(handle.clone()).content_fit(iced::ContentFit::Cover).width(Length::Fill).height(110.0).border_radius(10.0).opacity(ui::fade()).into());
+            let media = story.image.as_deref().and_then(|url| pictured(ground, url, 110.0));
             let body = column![
                 text(ui::settled(&story.title)).font(theme::SANS_SEMI).size(13.5).color(ui::faded(INK)),
                 text(ui::shortened(ui::settled(&story.lead), 140)).font(theme::SANS).size(12.0).color(ui::faded(MUTED)),
@@ -666,25 +743,33 @@ fn glow_of(ground: &Ground<'_>, event: &Event<'_>) -> f32 {
     }
 }
 
+fn opened(ground: &Ground<'_>, event: &Event<'_>) -> f32 {
+    fresh_age(ground, event).map_or(1.0, |age| ui::appear(age, 0))
+}
+
+fn opening<'a>(made: Element<'a, Message>, open: f32) -> Element<'a, Message> {
+    if open >= 0.999 { made } else { ui::collapsing(made, open) }
+}
+
 fn by_day<'a>(ground: &Ground<'a>, list: &[Event<'a>], t: f32, from: usize, draw: impl Fn(&Event<'a>) -> Option<Element<'a, Message>>) -> Vec<Element<'a, Message>> {
     let day_of = |at: i64| ground.words.days_back(at, ground.now_unix);
+    let settled_days: std::collections::HashSet<i64> = list.iter().filter(|event| fresh_age(ground, event).is_none()).map(|event| day_of(event.at)).collect();
     let mut last: Option<i64> = None;
     let mut out = Vec::new();
     for event in list {
         let day = day_of(event.at);
+        let open = opened(ground, event);
+        let spaced = |made: Element<'a, Message>| -> Element<'a, Message> { container(made).padding(Padding::ZERO.bottom(ROW_GAP)).into() };
         if last != Some(day) {
             let index = from + out.len();
-            out.push(ui::appearing(ui::appear(t, index), 10.0, || day_divider(ground, event.at)));
+            let divider = spaced(ui::appearing(ui::appear(t, index), 10.0, || day_divider(ground, event.at)));
+            out.push(if settled_days.contains(&day) { divider } else { opening(divider, open) });
             last = Some(day);
         }
-        let k = if let Some(age) = fresh_age(ground, event) {
-            ui::appear(age, 0).min(ui::appear(t, from + out.len()))
-        } else {
-            ui::appear(t, from + out.len())
-        };
+        let k = open.min(ui::appear(t, from + out.len()));
         let made = if k >= 0.999 { draw(event) } else { ui::fading(ui::fade() * k, || draw(event)) };
         if let Some(made) = made {
-            out.push(ui::lifted(made, k, 10.0));
+            out.push(opening(spaced(ui::lifted(made, k, if open >= 0.999 { 10.0 } else { 0.0 })), open));
         }
     }
     out
@@ -721,11 +806,14 @@ fn timeline<'a>(ground: &Ground<'a>, wide: f32) -> Element<'a, Message> {
     let lately = ground.section_t.min(ground.stream_t);
     let group_lately = lately.min(ground.group_t);
     let news_lately = lately.min(ground.news_t);
-    let mut page = column![ui::appearing(ui::appear(ground.section_t, 0), 10.0, || top.into())].spacing(12);
+    let below = |made: Element<'a, Message>| -> Element<'a, Message> { container(made).padding(Padding::ZERO.bottom(PAGE_GAP)).into() };
+    let mut page = column![below(ui::appearing(ui::appear(ground.section_t, 0), 10.0, || top.into()))];
     let k = ui::appear(ground.section_t, 1);
-    if let Some(shelf) = if k >= 0.999 { shelf(ground, &seen) } else { ui::fading(ui::fade() * k, || shelf(ground, &seen)) } {
-        page = page.push(ui::lifted(shelf, k, 10.0));
-    }
+    let shelf = if k >= 0.999 { shelf(ground, &seen) } else { ui::fading(ui::fade() * k, || shelf(ground, &seen)) };
+    page = page.push(ui::smooth(match shelf {
+        Some(shelf) => below(ui::lifted(shelf, k, 10.0)),
+        None => Space::new().width(Length::Fill).height(0.0).into(),
+    }));
 
     let group_counts = |filter: Filter| group_all.iter().filter(|event| event.admitted(filter)).count();
     let news_counts = |source: Source| news_all.iter().filter(|event| event.sourced(source)).count();
@@ -741,9 +829,9 @@ fn timeline<'a>(ground: &Ground<'a>, wide: f32) -> Element<'a, Message> {
     };
     let group_panel = |room: f32| -> Element<'a, Message> {
         let table = Table::for_width(room);
-        let mut rows = column![].spacing(1);
+        let mut rows = column![];
         if group.is_empty() {
-            rows = rows.push(nothing());
+            rows = rows.push(container(nothing()).padding(Padding::ZERO.bottom(ROW_GAP)));
         } else {
             for made in by_day(ground, &group, group_lately, 4, |event| journal_row(ground, event, table)) {
                 rows = rows.push(made);
@@ -757,14 +845,12 @@ fn timeline<'a>(ground: &Ground<'a>, wide: f32) -> Element<'a, Message> {
     let news_list = |columns: usize| -> Element<'a, Message> {
         let mut cards: Vec<(f32, Element<'a, Message>)> = Vec::new();
         for event in &news {
-            let k = if let Some(age) = fresh_age(ground, event) {
-                ui::appear(age, 0).min(ui::appear(news_lately, 3 + cards.len()))
-            } else {
-                ui::appear(news_lately, 3 + cards.len())
-            };
+            let open = opened(ground, event);
+            let k = open.min(ui::appear(news_lately, 3 + cards.len()));
             let made = if k >= 0.999 { news_card(ground, event) } else { ui::fading(ui::fade() * k, || news_card(ground, event)) };
             if let Some(made) = made {
-                cards.push((news_weight(event), ui::lifted(made, k, 10.0)));
+                let spaced = container(ui::lifted(made, k, if open >= 0.999 { 10.0 } else { 0.0 })).padding(Padding::ZERO.bottom(NEWS_GAP));
+                cards.push((news_weight(event), opening(spaced.into(), open)));
             }
         }
         if cards.is_empty() {
@@ -778,7 +864,7 @@ fn timeline<'a>(ground: &Ground<'a>, wide: f32) -> Element<'a, Message> {
                 lightest.1.push(card);
             }
         }
-        let lanes: Vec<Element<'a, Message>> = stacks.into_iter().map(|(_, cards)| iced::widget::Column::with_children(cards).spacing(12).width(Length::FillPortion(1)).into()).collect();
+        let lanes: Vec<Element<'a, Message>> = stacks.into_iter().map(|(_, cards)| iced::widget::Column::with_children(cards).width(Length::FillPortion(1)).into()).collect();
         iced::widget::Row::with_children(lanes).spacing(12).into()
     };
     let news_panel = |columns: usize| -> Element<'a, Message> {
@@ -791,11 +877,12 @@ fn timeline<'a>(ground: &Ground<'a>, wide: f32) -> Element<'a, Message> {
     let body: Element<'a, Message> = match ground.stream {
         Stream::Group => group_panel(wide - 12.0),
         Stream::News => news_panel(if wide >= 560.0 { 2 } else { 1 }),
-        Stream::All if wide >= 620.0 => row![container(group_panel((wide - 26.0) * 0.6)).width(Length::FillPortion(3)), container(news_panel(1)).width(Length::FillPortion(2))].spacing(14).into(),
-        Stream::All => column![group_panel(wide - 12.0), news_panel(1)].spacing(14).into(),
+        Stream::All if wide >= 620.0 => row![container(group_panel((wide - 26.0) * 0.6)).padding(Padding::ZERO.bottom(NEWS_GAP - ROW_GAP)).width(Length::FillPortion(3)), container(news_panel(1)).width(Length::FillPortion(2))].spacing(14).into(),
+        Stream::All => column![group_panel(wide - 12.0), news_panel(1)].spacing(14.0 - ROW_GAP).into(),
     };
     page = page.push(body);
-    let rolled = scrollable(container(page).padding(Padding { top: 2.0, right: 10.0, bottom: 28.0, left: 2.0 }))
+    let under = if ground.stream == Stream::Group { PAGE_BELOW - ROW_GAP } else { PAGE_BELOW - NEWS_GAP };
+    let rolled = scrollable(container(page).padding(Padding { top: 2.0, right: 10.0, bottom: under, left: 2.0 }))
         .id(iced::widget::Id::new("community-feed"))
         .style(ui::thin_scroll)
         .direction(ui::hidden_bar())
@@ -1367,12 +1454,12 @@ pub fn view<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
         for (at, part) in lane.keys.iter().enumerate() {
             let k = ui::appear(t, stack + at);
             let card = match part {
-                Part::Me => ui::appearing(k, 12.0, || me_card(ground)),
-                Part::Channels => ui::appearing(k, 12.0, || channels_card(ground)),
-                Part::Future => ui::appearing(k, 12.0, || future_card(ground)),
-                Part::Spot => ui::appearing(k, 12.0, || spotlight(ground)),
-                Part::Friends => ui::appearing(k, 12.0, || friends_card(ground)),
-                Part::Leaders => ui::appearing(k, 12.0, || leaderboard(ground)),
+                Part::Me => ui::appearing(k, 12.0, || ui::smooth(me_card(ground))),
+                Part::Channels => ui::appearing(k, 12.0, || ui::smooth(channels_card(ground))),
+                Part::Future => ui::appearing(k, 12.0, || ui::smooth(future_card(ground))),
+                Part::Spot => ui::appearing(k, 12.0, || ui::smooth(spotlight(ground))),
+                Part::Friends => ui::appearing(k, 12.0, || ui::smooth(friends_card(ground))),
+                Part::Leaders => ui::appearing(k, 12.0, || ui::smooth(leaderboard(ground))),
                 Part::Timeline => continue,
             };
             pieces.push((*part, card));
@@ -1460,6 +1547,28 @@ mod tests {
         arrivals.refresh(&second, &second, later + Duration::from_millis(100));
         assert!((arrivals.ages(later + Duration::from_millis(100))["first"] - 0.3).abs() < 0.0001);
         assert!(!arrivals.animating(now + Duration::from_secs(5)));
+    }
+
+    #[test]
+    fn a_picture_fades_in_once_and_a_lost_one_gives_its_room_back() {
+        let now = Instant::now();
+        let mut pictures = Pictures::default();
+        pictures.came("cover", now);
+        assert_eq!(pictures.shown(now)["cover"], 0.0);
+        assert!(pictures.animating(now));
+        let half = pictures.shown(now + Duration::from_secs_f32(PICTURE_FADE / 2.0))["cover"];
+        assert!(half > 0.5 && half < 1.0, "{half}");
+        let after = now + Duration::from_secs_f32(PICTURE_FADE + 0.05);
+        pictures.settle(after);
+        assert!(pictures.shown(after).is_empty(), "a picture that has arrived is simply there");
+        assert!(!pictures.animating(after));
+
+        pictures.lost("gone", now);
+        assert_eq!(pictures.room(now)["gone"], 1.0);
+        pictures.lost("gone", after);
+        assert_eq!(pictures.room(after)["gone"], 0.0, "hearing of the loss again does not reopen the room");
+        pictures.came("gone", after);
+        assert!(!pictures.room(after).contains_key("gone"), "a picture that came after all is no longer lost");
     }
 
     #[test]

@@ -124,6 +124,14 @@ Numbers are tabular everywhere.
 - A line that finishes fades to `muted` and the list slides up; a new line
   fades in from below. Nothing pops in at full opacity.
 - A change of screen crossfades; the sidebar and the headline never move.
+- What arrives late takes its room gradually. A row or a card that comes into
+  a list after the list is on screen opens from nothing to its height while it
+  fades in, and its gap opens with it; whatever lies below is pushed, never
+  jumped. A picture that has been asked for has its box from the first frame
+  and fades into it; one that fails gives the box back the same way. A card
+  whose content changes size (friends found, a board loaded) eases to the new
+  height. An avatar or a thumbnail that arrives crossfades over what stood in
+  for it.
 - With reduced motion, every duration is zero. Nothing depends on an animation
   having happened.
 
@@ -1327,6 +1335,10 @@ it can be drawn without a window and compared with a picture that was approved.
   size is NaN.
 - `native --gallery <dir>` draws every screen in every state at every size to
   PNG, which is how the frames are reviewed before anyone runs the window.
+- Motion is checked the same way, without a window: a frame is drawn just
+  before something arrives, on the first update after, and once it has
+  settled. The first of those steps must be a small part of the whole — an
+  arrival that moves the screen in one frame fails.
 
 ## The stack this assumes
 

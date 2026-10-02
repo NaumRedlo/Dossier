@@ -3431,6 +3431,115 @@ impl<Message> iced::advanced::Widget<Message, Theme, Renderer> for Clipped<'_, M
     }
 }
 
+pub const RESIZE: f32 = 0.28;
+
+pub struct Smooth<'a, Message> {
+    content: Element<'a, Message>,
+}
+
+#[derive(Debug, Default)]
+struct Resizing {
+    to: Option<f32>,
+    from: f32,
+    since: Option<std::time::Instant>,
+    now: Option<std::time::Instant>,
+    due: bool,
+}
+
+impl Resizing {
+    fn high(&self) -> f32 {
+        let to = self.to.unwrap_or(0.0);
+        if self.due {
+            return self.from;
+        }
+        match (self.since, self.now) {
+            (Some(since), Some(now)) => {
+                let x = (now.saturating_duration_since(since).as_secs_f32() / RESIZE).clamp(0.0, 1.0);
+                self.from + (to - self.from) * (1.0 - (1.0 - x).powi(3))
+            }
+            _ => to,
+        }
+    }
+
+    fn aim(&mut self, high: f32) {
+        match self.to {
+            None => self.to = Some(high),
+            Some(to) if (to - high).abs() > 0.5 => {
+                self.from = self.high();
+                self.to = Some(high);
+                self.since = None;
+                self.due = true;
+            }
+            Some(_) => {}
+        }
+    }
+
+    fn step(&mut self, now: std::time::Instant) -> bool {
+        self.now = Some(now);
+        if self.due {
+            self.due = false;
+            self.since = Some(now);
+        }
+        match self.since {
+            Some(since) if now.saturating_duration_since(since).as_secs_f32() < RESIZE => true,
+            Some(_) => {
+                self.since = None;
+                false
+            }
+            None => false,
+        }
+    }
+}
+
+pub fn smooth<'a, Message: 'a>(content: impl Into<Element<'a, Message>>) -> Element<'a, Message> {
+    Element::new(Smooth { content: content.into() })
+}
+
+impl<Message> iced::advanced::Widget<Message, Theme, Renderer> for Smooth<'_, Message> {
+    fn tag(&self) -> iced::advanced::widget::tree::Tag { iced::advanced::widget::tree::Tag::of::<Resizing>() }
+    fn state(&self) -> iced::advanced::widget::tree::State { iced::advanced::widget::tree::State::new(Resizing::default()) }
+    fn children(&self) -> Vec<iced::advanced::widget::Tree> { vec![iced::advanced::widget::Tree::new(&self.content)] }
+    fn diff(&self, tree: &mut iced::advanced::widget::Tree) { tree.diff_children(std::slice::from_ref(&self.content)); }
+    fn size(&self) -> Size<Length> { Size { width: self.content.as_widget().size().width, height: Length::Shrink } }
+    fn layout(&mut self, tree: &mut iced::advanced::widget::Tree, renderer: &Renderer, limits: &iced::advanced::layout::Limits) -> iced::advanced::layout::Node {
+        let node = self.content.as_widget_mut().layout(&mut tree.children[0], renderer, limits);
+        let state = tree.state.downcast_mut::<Resizing>();
+        state.aim(node.size().height);
+        let size = Size::new(node.size().width, state.high());
+        iced::advanced::layout::Node::with_children(size, vec![node])
+    }
+    fn operate(&mut self, tree: &mut iced::advanced::widget::Tree, layout: iced::advanced::Layout<'_>, renderer: &Renderer, operation: &mut dyn iced::advanced::widget::Operation) {
+        if let Some(inner) = layout.children().next() { self.content.as_widget_mut().operate(&mut tree.children[0], inner, renderer, operation); }
+    }
+    fn update(&mut self, tree: &mut iced::advanced::widget::Tree, event: &iced::Event, layout: iced::advanced::Layout<'_>, cursor: mouse::Cursor, renderer: &Renderer, clipboard: &mut dyn iced::advanced::Clipboard, shell: &mut iced::advanced::Shell<'_, Message>, viewport: &Rectangle) {
+        if let iced::Event::Window(iced::window::Event::RedrawRequested(now)) = event {
+            if tree.state.downcast_mut::<Resizing>().step(*now) {
+                shell.invalidate_layout();
+                shell.request_redraw();
+            }
+        }
+        if let Some(inner) = layout.children().next() { self.content.as_widget_mut().update(&mut tree.children[0], event, inner, cursor, renderer, clipboard, shell, viewport); }
+    }
+    fn mouse_interaction(&self, tree: &iced::advanced::widget::Tree, layout: iced::advanced::Layout<'_>, cursor: mouse::Cursor, viewport: &Rectangle, renderer: &Renderer) -> mouse::Interaction {
+        layout.children().next().map_or(mouse::Interaction::None, |inner| self.content.as_widget().mouse_interaction(&tree.children[0], inner, cursor, viewport, renderer))
+    }
+    fn draw(&self, tree: &iced::advanced::widget::Tree, renderer: &mut Renderer, theme: &Theme, style: &iced::advanced::renderer::Style, layout: iced::advanced::Layout<'_>, cursor: mouse::Cursor, viewport: &Rectangle) {
+        use iced::advanced::Renderer as _;
+        let Some(inner) = layout.children().next() else {
+            return;
+        };
+        if (inner.bounds().height - layout.bounds().height).abs() <= 0.5 {
+            self.content.as_widget().draw(&tree.children[0], renderer, theme, style, inner, cursor, viewport);
+        } else if let Some(bounds) = layout.bounds().intersection(viewport) {
+            renderer.with_layer(bounds, |renderer| self.content.as_widget().draw(&tree.children[0], renderer, theme, style, inner, cursor, &bounds));
+        }
+    }
+    fn overlay<'b>(&'b mut self, tree: &'b mut iced::advanced::widget::Tree, layout: iced::advanced::Layout<'b>, renderer: &Renderer, viewport: &Rectangle, translation: iced::Vector) -> Option<iced::advanced::overlay::Element<'b, Message, Theme, Renderer>> {
+        let inner = layout.children().next()?;
+        self.content.as_widget_mut().overlay(&mut tree.children[0], inner, renderer, viewport, translation)
+    }
+}
+
 pub fn collapsing<'a, Message: 'a>(content: impl Into<Element<'a, Message>>, fraction: f32) -> Element<'a, Message> {
     Element::new(Collapsing { content: content.into(), fraction: fraction.clamp(0.0, 1.0) })
 }
@@ -4392,6 +4501,39 @@ mod tests {
         let settled = frame(&mut slide, &mut tree, half + std::time::Duration::from_secs(1));
         assert_eq!(settled, Rectangle { x: 272.0, y: 0.0, width: 90.0, height: 36.0 });
         assert_eq!(frame(&mut slide, &mut tree, half + std::time::Duration::from_secs(2)), settled);
+    }
+
+    #[test]
+    fn a_card_whose_content_grows_takes_its_new_height_gradually() {
+        use iced::advanced::{Widget, widget::Tree, layout::Limits, Layout, Shell, renderer::Headless};
+        let renderer = iced_test::futures::futures::executor::block_on(Renderer::new(theme::SANS, iced::Pixels(14.0), Some("tiny-skia"))).unwrap();
+        let of = |high: f32| Smooth::<()> { content: Space::new().width(200.0).height(high).into() };
+        let mut card = of(80.0);
+        let mut tree = Tree::new(&card as &dyn Widget<(), Theme, Renderer>);
+        let start = std::time::Instant::now();
+        let viewport = Rectangle::new(Point::ORIGIN, Size::new(400.0, 600.0));
+        let frame = |card: &mut Smooth<'_, ()>, tree: &mut Tree, now| {
+            let limits = Limits::new(Size::ZERO, viewport.size());
+            let node = card.layout(tree, &renderer, &limits);
+            let mut messages = Vec::new();
+            let mut shell = Shell::new(&mut messages);
+            card.update(tree, &iced::Event::Window(iced::window::Event::RedrawRequested(now)), Layout::new(&node), mouse::Cursor::Unavailable, &renderer, &mut iced::advanced::clipboard::Null, &mut shell, &viewport);
+            let asks = shell.is_layout_invalid();
+            (card.layout(tree, &renderer, &limits).size().height, asks)
+        };
+        assert_eq!(frame(&mut card, &mut tree, start), (80.0, false), "the first layout is the content's own height and asks for nothing");
+
+        card = of(160.0);
+        card.diff(&mut tree);
+        let later = start + std::time::Duration::from_secs(3);
+        assert_eq!(frame(&mut card, &mut tree, later), (80.0, true), "new content cannot take its room in one frame, however long the card sat still before");
+        let (half, moving) = frame(&mut card, &mut tree, later + std::time::Duration::from_secs_f32(RESIZE / 2.0));
+        assert!(half > 80.0 && half < 160.0 && moving, "{half}");
+        card = of(40.0);
+        card.diff(&mut tree);
+        let (turned, _) = frame(&mut card, &mut tree, later + std::time::Duration::from_secs_f32(RESIZE / 2.0));
+        assert_eq!(turned, half, "content that changes again mid-way is followed from the height on screen");
+        assert_eq!(frame(&mut card, &mut tree, later + std::time::Duration::from_secs(1)), (40.0, false), "and once it has arrived the card asks for no more frames");
     }
 
     #[test]

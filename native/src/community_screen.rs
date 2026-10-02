@@ -162,6 +162,9 @@ pub struct Ground<'a> {
     pub channel_draft: &'a str,
     pub live_shown: usize,
     pub arrivals: HashMap<String, f32>,
+    pub picture_came: HashMap<String, f32>,
+    pub picture_lost: HashMap<String, f32>,
+    pub pictures_asked: &'a std::collections::HashSet<String>,
     pub reading: Option<&'a Reading>,
     pub read_above: bool,
     pub read_k: f32,
@@ -208,6 +211,20 @@ pub struct Ground<'a> {
     pub boards_failed: &'a std::collections::HashSet<u64>,
     pub score_scale: bool,
     pub clips_loading: &'a std::collections::HashSet<String>,
+}
+
+impl Ground<'_> {
+    pub fn picture_shown(&self, url: &str) -> f32 {
+        self.picture_came.get(url).copied().unwrap_or(1.0)
+    }
+
+    pub fn picture_room(&self, url: &str) -> f32 {
+        match self.picture_lost.get(url) {
+            Some(left) => *left,
+            None if self.pictures_asked.contains(url) => 1.0,
+            None => 0.0,
+        }
+    }
 }
 
 const READ_WIDE: f32 = 760.0;
@@ -304,20 +321,25 @@ pub(crate) fn avatar_colour(name: &str) -> Color {
     Color::from_rgb(r, g, b)
 }
 
-pub(crate) fn round<'a>(handle: Option<&image::Handle>, initial: &str, side: f32) -> Element<'a, Message> {
+pub(crate) fn round<'a>(handle: Option<&image::Handle>, initial: &str, side: f32, shown: f32) -> Element<'a, Message> {
     match handle {
-        Some(handle) => image(handle.clone()).content_fit(iced::ContentFit::Cover).width(side).height(side).border_radius(side / 2.0).opacity(ui::fade()).into(),
+        Some(handle) => {
+            let picture = image(handle.clone()).content_fit(iced::ContentFit::Cover).width(side).height(side).border_radius(side / 2.0).opacity(ui::fade() * shown);
+            if shown >= 0.999 { picture.into() } else { stack![ui::disc(initial, false, side), picture].width(side).height(side).into() }
+        }
         None => ui::disc(initial, false, side),
     }
 }
 
 pub(crate) fn face<'a>(ground: &Ground<'a>, person: &Person, side: f32) -> Element<'a, Message> {
-    let handle = ground.pictures.get(&person.avatar).or(if person.you { ground.avatar } else { None });
-    round(handle, &person.initial(), side)
+    let fetched = ground.pictures.get(&person.avatar);
+    let shown = if fetched.is_some() { ground.picture_shown(&person.avatar) } else { 1.0 };
+    let handle = fetched.or(if person.you { ground.avatar } else { None });
+    round(handle, &person.initial(), side, shown)
 }
 
 pub(crate) fn friend_face<'a>(ground: &Ground<'a>, friend: &Friend, side: f32) -> Element<'a, Message> {
-    round(ground.pictures.get(&friend.avatar), &friend.initial(), side)
+    round(ground.pictures.get(&friend.avatar), &friend.initial(), side, ground.picture_shown(&friend.avatar))
 }
 
 pub(crate) fn mods<'a>(list: &[String]) -> Element<'a, Message> {
@@ -679,10 +701,10 @@ fn reader<'a>(ground: &Ground<'a>, reading: &'a Reading) -> Element<'a, Message>
     }
     let after = ui::fading(ui::fade() * sheet_seen(k), || -> Element<'a, Message> {
         let picture = |url: &str| -> Element<'a, Message> {
-            match ground.pictures.get(&wide(url)) {
-                Some(handle) => image(handle.clone()).width(Length::Fill).content_fit(iced::ContentFit::Contain).opacity(ui::fade()).into(),
-                None => container(ui::fine_hatch()).width(Length::Fill).height(220.0).into(),
-            }
+            ui::smooth(match ground.pictures.get(&wide(url)) {
+                Some(handle) => image(handle.clone()).width(Length::Fill).content_fit(iced::ContentFit::Contain).opacity(ui::fade() * ground.picture_shown(&wide(url))).into(),
+                None => Element::from(container(ui::fine_hatch()).width(Length::Fill).height(220.0)),
+            })
         };
         let (source, title, meta, mut body): (String, String, String, Vec<Element<'a, Message>>) = match reading {
             Reading::Score(_) | Reading::Title { .. } => (String::new(), String::new(), String::new(), Vec::new()),
@@ -824,8 +846,7 @@ fn person_card<'a>(ground: &Ground<'a>, at: usize, person: &Person, place: usize
             ..container::Style::default()
         });
     let inside = column![container(column![head, numbers].spacing(18)).padding(Padding { top: 18.0, right: 20.0, bottom: 0.0, left: 20.0 }), ui::grow_tall(), foot].height(high);
-    let cover = ground.pictures.get(&person.cover);
-    let card = button(stack![backdrop(cover, high, 16.0, avatar_colour(&person.name), false), inside].height(high))
+    let card = button(stack![cover_backdrop(ground, &person.cover, high, 16.0, avatar_colour(&person.name), false), inside].height(high))
         .padding(0)
         .width(Length::Fill)
         .style(ui::button_faded(ui::calm(lifted)))
@@ -949,6 +970,12 @@ const FROST_WIDE: u32 = 200;
 const FROST_SOFT: f32 = 5.0;
 const FROST_DENSE: f32 = 2.0;
 const FROST_LIGHT: f32 = 0.34;
+
+pub(crate) fn cover_backdrop<'a>(ground: &Ground<'a>, url: &str, high: f32, radius: f32, tint: Color, across: bool) -> Element<'a, Message> {
+    let cover = ground.pictures.get(url);
+    let shown = ground.picture_shown(url);
+    if shown >= 0.999 { backdrop(cover, high, radius, tint, across) } else { ui::fading(ui::fade() * shown, || backdrop(cover, high, radius, tint, across)) }
+}
 
 pub(crate) fn backdrop<'a>(handle: Option<&image::Handle>, high: f32, radius: f32, tint: Color, across: bool) -> Element<'a, Message> {
     let k = ui::fade();
@@ -1155,8 +1182,7 @@ fn podium_card<'a>(ground: &Ground<'a>, list: &Standings, place: usize, who: usi
         inside = inside.push(text(note).font(theme::SANS).size(11.5).wrapping(text::Wrapping::None).color(ui::faded(Color::from_rgb(0.941, 0.408, 0.408))));
     }
     let content = container(inside).width(Length::Fill).height(high).padding([16, 12]).center_x(Length::Fill).align_y(iced::alignment::Vertical::Bottom);
-    let cover = ground.pictures.get(&person.cover);
-    let card = button(stack![backdrop(cover, high, 14.0, colour, false), content])
+    let card = button(stack![cover_backdrop(ground, &person.cover, high, 14.0, colour, false), content])
         .padding(0)
         .width(Length::FillPortion(1))
         .style(ui::button_faded(ui::calm(row_style(person.you, Some(colour)))))
@@ -1194,8 +1220,7 @@ fn board_row<'a>(ground: &Ground<'a>, list: &Standings, place: Option<usize>, wh
     }
     line = line.push(container(numbers).width(170.0).align_x(iced::alignment::Horizontal::Right));
     let content = container(line).width(Length::Fill).height(high).padding([0, 16]).center_y(high);
-    let cover = ground.pictures.get(&person.cover);
-    let card = button(stack![backdrop(cover, high, 14.0, avatar_colour(&person.name), true), content])
+    let card = button(stack![cover_backdrop(ground, &person.cover, high, 14.0, avatar_colour(&person.name), true), content])
         .padding(0)
         .width(Length::Fill)
         .style(ui::button_faded(ui::calm(row_style(person.you, None))))

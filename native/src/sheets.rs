@@ -169,7 +169,7 @@ fn initial(name: &str) -> String {
 fn row_face<'a>(ground: &Ground<'a>, said: &wire::BoardRow, side: f32) -> Element<'a, Message> {
     match ground.catalog.people.iter().find(|person| person.id == said.who) {
         Some(person) => screen::face(ground, person, side),
-        None => screen::round(ground.pictures.get(&said.avatar), &initial(&said.name), side),
+        None => screen::round(ground.pictures.get(&said.avatar), &initial(&said.name), side, ground.picture_shown(&said.avatar)),
     }
 }
 
@@ -364,7 +364,10 @@ fn cover_back<'a>(ground: &Ground<'a>, scored: &Scored) -> Element<'a, Message> 
     let into_body = COVER_FADE.iter().fold(iced::gradient::Linear::new(Radians(std::f32::consts::PI)), |shade, (at, a)| shade.add_stop(*at, Color { a: a * k, ..theme::SLAB_SOLID }));
     let fade = container(Space::new().width(Length::Fill).height(HEAD)).style(move |_| container::Style { background: Some(Background::Gradient(into_body.into())), ..container::Style::default() });
     match scored.map.cover().and_then(|url| ground.pictures.get(&screen::wide(&url))) {
-        Some(handle) => stack![under, image(handle.clone()).content_fit(iced::ContentFit::Cover).width(Length::Fill).height(HEAD).border_radius(15.0).opacity(COVER_SEEN * k), fade].into(),
+        Some(handle) => {
+            let shown = scored.map.cover().map_or(1.0, |url| ground.picture_shown(&screen::wide(&url)));
+            stack![under, image(handle.clone()).content_fit(iced::ContentFit::Cover).width(Length::Fill).height(HEAD).border_radius(15.0).opacity(COVER_SEEN * k * shown), fade].into()
+        }
         None => under.into(),
     }
 }
@@ -421,7 +424,7 @@ pub(crate) fn score<'a>(ground: &Ground<'a>, scored: &'a Scored) -> Element<'a, 
 
     let face: Element<'a, Message> = match known {
         Some(at) => screen::face(ground, &ground.catalog.people[at], 28.0),
-        None => screen::round(None, &initial(&scored.name), 28.0),
+        None => screen::round(None, &initial(&scored.name), 28.0, 1.0),
     };
     let who = button(row![face, text(scored.name.clone()).font(theme::SANS_SEMI).size(16.0).wrapping(text::Wrapping::None).color(ui::faded(INK))].spacing(10).align_y(iced::Center))
         .padding([1, 2])
@@ -505,14 +508,14 @@ pub(crate) fn score<'a>(ground: &Ground<'a>, scored: &'a Scored) -> Element<'a, 
                 over = over.push(caption(w.t("score-board-refreshing")));
             }
             body = body.push(over.push(ui::grow()).push(switch(ground)));
-            body = body.push(match (board.rows.is_empty(), ground.score_scale) {
+            body = body.push(ui::smooth(match (board.rows.is_empty(), ground.score_scale) {
                 (true, _) => note(w.t("score-board-empty"), FAINT),
                 (false, true) => scale(ground, board, scored),
                 (false, false) => table(ground, board, scored),
-            });
+            }));
         }
-        (Some(beatmap), None) if ground.boards_failed.contains(&beatmap) => body = body.push(label()).push(note(w.t("score-board-failed"), ACCENT)),
-        (Some(_), None) if !ground.catalog.staged => body = body.push(label()).push(note(w.t("score-board-loading"), FAINT)),
+        (Some(beatmap), None) if ground.boards_failed.contains(&beatmap) => body = body.push(label()).push(ui::smooth(note(w.t("score-board-failed"), ACCENT))),
+        (Some(_), None) if !ground.catalog.staged => body = body.push(label()).push(ui::smooth(note(w.t("score-board-loading"), FAINT))),
         _ => {}
     }
     let mut deeds = row![].spacing(8);

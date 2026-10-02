@@ -568,6 +568,8 @@ pub struct Main {
     pub channel_draft: String,
     pub live_shown: usize,
     feed_arrivals: crate::chronicle::Arrivals,
+    feed_pictures: crate::chronicle::Pictures,
+    thumb_pictures: crate::chronicle::Pictures,
     pub community_reading: Option<crate::community_screen::Reading>,
     pub map_boards: HashMap<u64, crate::community::wire::MapBoard>,
     pub map_boards_waiting: std::collections::HashSet<u64>,
@@ -795,6 +797,8 @@ impl Main {
             channel_draft: String::new(),
             live_shown: LIVE_FIRST,
             feed_arrivals: crate::chronicle::Arrivals::default(),
+            feed_pictures: crate::chronicle::Pictures::default(),
+            thumb_pictures: crate::chronicle::Pictures::default(),
             community_reading: None,
             map_boards: HashMap::new(),
             map_boards_waiting: std::collections::HashSet::new(),
@@ -1066,6 +1070,8 @@ impl Main {
             || self.marks.values().any(|m| m.is_animating(self.now))
             || self.slides_settling()
             || (self.overlay == Overlay::Community && self.feed_arrivals.animating(self.now))
+            || (self.overlay == Overlay::Community && self.feed_pictures.animating(self.now))
+            || self.thumb_pictures.animating(self.now)
             || self.feed_fold_at.values().any(|at| self.now.saturating_duration_since(*at) < FOLD)
             || self.read_fade.is_animating(self.now)
             || self.person_fade.is_animating(self.now)
@@ -1577,6 +1583,7 @@ impl Main {
                 Task::none()
             }
             Message::Thumb(hash, handle) => {
+                self.thumb_pictures.came(&hash, Instant::now());
                 self.thumbs.insert(hash, handle);
                 Task::none()
             }
@@ -2825,8 +2832,12 @@ impl Main {
                 }
             }
             Message::NewsPicture(url, handle) => {
-                if let Some(handle) = handle {
-                    self.news_pictures.insert(url, handle);
+                match handle {
+                    Some(handle) => {
+                        self.feed_pictures.came(&url, Instant::now());
+                        self.news_pictures.insert(url, handle);
+                    }
+                    None => self.feed_pictures.lost(&url, Instant::now()),
                 }
                 Task::none()
             }
@@ -3494,6 +3505,8 @@ impl Main {
                     self.notices.remove(id);
                 }
                 self.arrivals.retain(|_, a| a.is_animating(now));
+                self.feed_pictures.settle(now);
+                self.thumb_pictures.settle(now);
                 if !self.read_fade.value() && !self.read_fade.is_animating(now) {
                     self.community_reading = None;
                 }
@@ -4546,7 +4559,7 @@ impl Main {
                 .width(w - inner)
                 .height(h - inner)
                 .border_radius(theme::FRAME_RADIUS - 2.0)
-                .opacity(ui::fade() * if chosen { 1.0 } else { 0.55 + 0.45 * rise })
+                .opacity(ui::fade() * self.thumb_pictures.shown_of(&entry.map_hash, self.now) * if chosen { 1.0 } else { 0.55 + 0.45 * rise })
                 .into(),
             (None, true) => Space::new().width(w - inner).height(h - inner).into(),
             (None, false) => container(ui::fine_hatch()).width(w - inner).height(h - inner).into(),
@@ -4854,15 +4867,20 @@ impl Main {
     fn video_row(&self, at: usize, video: &videos::Video) -> Element<'_, Message> {
         let w = &self.words;
         let chosen = self.open_video == Some(at);
+        let waiting = || -> Element<'_, Message> { container(ui::fine_hatch()).width(VIDEO_THUMB.0 as f32).height(VIDEO_THUMB.1 as f32).into() };
         let picture: Element<'_, Message> = match self.thumbs.get(&video.map_hash) {
-            Some(handle) => image(handle.clone())
-                .content_fit(ContentFit::Cover)
-                .width(VIDEO_THUMB.0 as f32)
-                .height(VIDEO_THUMB.1 as f32)
-                .border_radius(6.0)
-                .opacity(ui::fade() * if chosen { 1.0 } else { 0.85 })
-                .into(),
-            None => container(ui::fine_hatch()).width(VIDEO_THUMB.0 as f32).height(VIDEO_THUMB.1 as f32).into(),
+            Some(handle) => {
+                let shown = self.thumb_pictures.shown_of(&video.map_hash, self.now);
+                let still: Element<'_, Message> = image(handle.clone())
+                    .content_fit(ContentFit::Cover)
+                    .width(VIDEO_THUMB.0 as f32)
+                    .height(VIDEO_THUMB.1 as f32)
+                    .border_radius(6.0)
+                    .opacity(ui::fade() * shown * if chosen { 1.0 } else { 0.85 })
+                    .into();
+                if shown >= 0.999 { still } else { stack![waiting(), still].into() }
+            }
+            None => waiting(),
         };
         let stamp = w.compact_date(video.made_at, self.now_unix);
         let (day, time) = stamp.rsplit_once(' ').unwrap_or((&stamp, ""));
@@ -5994,6 +6012,9 @@ impl Main {
             chat: self.chat_name(),
             live_shown: self.live_shown,
             arrivals: self.feed_arrivals.ages(self.now),
+            picture_came: self.feed_pictures.shown(self.now),
+            picture_lost: self.feed_pictures.room(self.now),
+            pictures_asked: &self.news_asked,
         };
         if person_only {
             let at = ground.person.filter(|at| *at < catalog.people.len() && ground.person_k > 0.001)?;
@@ -7889,6 +7910,95 @@ mod tests {
             assert_eq!((main.news_at, main.group_at), (started, group));
             assert_eq!(main.feed_source, source);
         }
+    }
+
+    fn seen(main: &super::Main) -> ::image::RgbaImage {
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let shot = crate::gallery::snapshot_main(main, iced::Size::new(1180.0, 760.0)).expect("a frame");
+        let stem = std::env::temp_dir().join(format!("dossier-feed-motion-{}-{}", std::process::id(), NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)));
+        let file = crate::gallery::write_snapshot(&shot, &stem).expect("written");
+        let pixels = ::image::open(&file).expect("read back").to_rgba8();
+        let _ = std::fs::remove_file(file);
+        pixels
+    }
+
+    fn moved(a: &::image::RgbaImage, b: &::image::RgbaImage) -> (f64, u32) {
+        assert_eq!(a.dimensions(), b.dimensions());
+        let mut sum = 0u64;
+        let (mut top, mut bottom) = (u32::MAX, 0u32);
+        for (y, (one, other)) in a.rows().zip(b.rows()).enumerate() {
+            let row: u64 = one.zip(other).map(|(p, q)| p.0.iter().zip(q.0.iter()).map(|(x, y)| u64::from(x.abs_diff(*y))).sum::<u64>()).sum();
+            if row > 0 {
+                top = top.min(y as u32);
+                bottom = bottom.max(y as u32);
+            }
+            sum += row;
+        }
+        (sum as f64 / (f64::from(a.width()) * f64::from(a.height()) * 4.0), if top == u32::MAX { 0 } else { bottom - top + 1 })
+    }
+
+    fn feed_at_rest() -> super::Main {
+        let (_, mut main) = crate::gallery::main_states(crate::lang::Lang::En).into_iter().find(|(name, _)| name == "main-community-feed").unwrap();
+        main.now_unix = super::unix_now();
+        let _ = main.update(super::Message::Tick(std::time::Instant::now()));
+        main
+    }
+
+    fn after(main: &mut super::Main, wait: std::time::Duration) -> ::image::RgbaImage {
+        std::thread::sleep(wait);
+        let _ = main.update(super::Message::Tick(std::time::Instant::now()));
+        seen(main)
+    }
+
+    #[test]
+    fn a_play_arriving_in_the_feed_opens_its_row_instead_of_pushing_the_rest_down_at_once() {
+        let mut main = feed_at_rest();
+        let before = seen(&main);
+        let _ = main.update(super::Message::LiveArrive);
+        let just = after(&mut main, std::time::Duration::ZERO);
+        let settled = after(&mut main, std::time::Duration::from_secs_f32(crate::ui::APPEAR + 0.15));
+        let (jump, _) = moved(&before, &just);
+        let (whole, _) = moved(&before, &settled);
+        assert!(whole > 0.2, "the arrival is on screen: {whole}");
+        assert!(jump < whole * 0.25, "the first frame after the arrival moved {jump} of the {whole} it ends up moving");
+    }
+
+    #[test]
+    fn a_news_picture_has_its_room_before_it_arrives_and_fades_into_it() {
+        let mut main = feed_at_rest();
+        let url = "test://story-picture".to_owned();
+        main.news.stories[0].image = Some(url.clone());
+        let bare = seen(&main);
+        main.news_asked.insert(url.clone());
+        let waiting = seen(&main);
+        assert!(moved(&bare, &waiting).0 > 0.2, "a picture that was asked for is given its room at once");
+
+        let picture = iced::widget::image::Handle::from_rgba(192, 108, vec![200u8; 192 * 108 * 4]);
+        let _ = main.update(super::Message::NewsPicture(url, Some(picture)));
+        let just = after(&mut main, std::time::Duration::ZERO);
+        let settled = after(&mut main, std::time::Duration::from_secs_f32(crate::chronicle::PICTURE_FADE + 0.15));
+        let (jump, _) = moved(&waiting, &just);
+        let (whole, high) = moved(&waiting, &settled);
+        assert!(whole > 0.05, "the picture is on screen: {whole}");
+        assert!(jump < whole * 0.25, "the first frame after the picture came changed {jump} of {whole}");
+        let scale = settled.width() as f32 / 1180.0;
+        assert!((high as f32) < 150.0 * scale, "only the picture's own box changed, {high} rows of it; nothing below it moved");
+    }
+
+    #[test]
+    fn a_news_picture_that_never_comes_gives_its_room_back_gradually() {
+        let mut main = feed_at_rest();
+        let url = "test://lost-picture".to_owned();
+        main.news.stories[0].image = Some(url.clone());
+        main.news_asked.insert(url.clone());
+        let waiting = seen(&main);
+        let _ = main.update(super::Message::NewsPicture(url, None));
+        let just = after(&mut main, std::time::Duration::ZERO);
+        let settled = after(&mut main, std::time::Duration::from_secs_f32(crate::chronicle::PICTURE_FADE + 0.15));
+        let (jump, _) = moved(&waiting, &just);
+        let (whole, _) = moved(&waiting, &settled);
+        assert!(whole > 0.2, "the room is given back: {whole}");
+        assert!(jump < whole * 0.25, "the first frame after the loss moved {jump} of {whole}");
     }
 
     #[test]

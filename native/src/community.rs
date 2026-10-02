@@ -84,7 +84,7 @@ const STAGED_TITLES: &[(&str, Rarity, &str, &str, &str, &str)] = &[
     ("archaeologist", Rarity::Uncommon, "Archaeologist", "Археолог", "Pass a map ranked 12 years ago or earlier.", "Пройдите карту, ставшую рейтинговой 12 лет назад или ранее."),
     ("ss_100", Rarity::Rare, "Five Collector", "Отличник", "Earn 100 SS ranks.", "Получите 100 рангов SS."),
     ("combo_2000", Rarity::Rare, "Hardy", "Выносливый", "Get a 2000 combo or above on one score.", "Наберите комбо 2000 и больше за одну игру."),
-    ("ministry_accuracy", Rarity::Rare, "Ministry of Accuracy", "Министерство точности", "Finish 10 maps in a row with 98%+ accuracy.", "Завершите 10 карт подряд с точностью 98% и выше."),
+    ("ministry_accuracy", Rarity::Rare, "Ministry of Accuracy", "Министерство Точности", "Finish 10 maps in a row with 98%+ accuracy.", "Завершите 10 карт подряд с точностью 98% и выше."),
     ("heavy_hand", Rarity::Epic, "Heavy Hand", "Крепкая рука", "FC a map from 5* with AR 10.3 and above.", "Сделайте FC карты от 5* с AR 10.3 и выше."),
     ("fc_bpm_210", Rarity::Epic, "Rapid Fire", "Скорострел", "FC a map from 6* at 240 BPM or more.", "Сделайте FC карты от 6* при 240 BPM и больше."),
     ("archivist", Rarity::Epic, "Archivist", "Архивариус", "Hold the highest ranked score in the chat.", "Удерживайте наибольшее число рейтинговых очков в беседе."),

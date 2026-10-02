@@ -5169,3 +5169,86 @@ it says when the client gave the note up — which is the write-off boundary thi
 document could only bracket to within a millisecond and a half. That is the
 next thing to read.
 
+## A miss is a frame too, and the window was a millisecond long
+
+The section above ended on where to look next, and it was there. Two more
+things read out of the client, the same day, and neither works without the
+other:
+
+| | exact | count error |
+|---|---|---|
+| the slide on the replay's frames | 144 / 187 | 90 |
+| the difficulty in single precision, alone | 144 | 98 |
+| the write-off on the replay's frames, alone | 145 | 330 |
+| both | **157** | **46** |
+
+### Which update writes the miss
+
+The client's update has an order. The input manager runs first and hands the
+press to the play: the note under the cursor is found, the lock is asked, and
+the note is struck or shaken. Only afterwards does the play sweep its notes and
+write off any circle whose fifty window is behind the clock — strictly behind,
+`start + window < time`. And a miss moves the miss count, which forces a frame
+into the replay on that update.
+
+So a note that nobody hit stops blocking the notes after it on the update that
+sweeps it, and a press *on that update* still finds it in the way, because the
+press came first. The engine had this as a constant: a note is written off
+when `time - 1 > start + window`, a millisecond of grace found by sweeping the
+corpus, "a knife edge, not a basin", standing in for a clock it could not see.
+The replay shows the clock. The update that swept the note left a frame, and a
+press is blocked only when its own frame is the first one past the window:
+
+```
+avesemki, #1389 due 320032, fifty window 100, closes 320132
+
+320118  keys 10
+320133  keys 10      the sweep: nothing pressed, and a frame all the same
+320133  keys 15      the press, an update later in the same millisecond
+```
+
+The constant refused that press — its time was one past the window, which is
+inside the grace — and the refusal ran on through three more notes. This was
+"the two circles are the write-off boundary, and it is still where it was".
+The boundary was never a time. A replay that does not carry the client's marks
+keeps the constant.
+
+### Why it needed the other half
+
+On `week1-f5bbaebe8f725af9` the rule above, alone, turned an exact replay into
+one a hundred and fifty-eight counts off. The frames around one of its two
+disagreements:
+
+```
+#1562 due 263914, window 104, closes 264018
+
+264017  keys 5
+264018  keys 5       a frame forced on the window's last millisecond
+264020  keys 15      the press
+```
+
+A frame forced *at* the window's edge, not past it: the client had swept the
+note a millisecond before the engine thought it could. Its window was 103.
+
+`OverallDifficulty` is a `float` in the client, parsed with `float.Parse`, and
+the window is an `int` cast from double arithmetic on it. The map says 9.6;
+the float nearest to that is 9.600000381; `150 - 50 × (9.600000381 - 5) / 5`
+is 103.99999619; and the cast makes it 103. The engine parsed 9.6 into a
+double and got 104. The fifty window is the one this bites, because
+`200 - 10 × OD` is a whole number for every difficulty written to one decimal
+place, and so sits exactly on the cast: 9.1, 9.3, 9.6, 9.8 and their like lose
+a millisecond, 9.2, 9.4, 9.7, 9.9 do not. The hundred and three hundred
+windows are whole only at halves and wholes, which a float holds exactly.
+
+The four difficulty values now go through single precision before anything is
+computed from them — before the mods, since Hard Rock multiplies the float in
+double precision and the order shows at 6.5. With the old constant this is
+slightly *worse* by itself (98 against 90): the grace had been fitted with the
+longer window in it. Together they are thirteen replays and forty-four counts.
+
+### What is left now
+
+Thirty replays. Twenty-one differ by one object each — seven a piece too many,
+eight one too few, three lazer, and the three on the Relax replay — and nine
+have every count right and a combo one off. Nothing got worse at this step.
+

@@ -180,13 +180,13 @@ pub struct Judge {
 
 impl Judge {
     pub fn run(timeline: &Timeline, cursor: &CursorTrack, ruleset: Ruleset) -> Self {
+        let window = frame_window(timeline, cursor, ruleset);
         let Heads {
             heads,
             shakes,
             trace,
             clicks,
-        } = judge_heads(timeline, cursor, ruleset);
-        let window = frame_window(timeline, cursor, ruleset);
+        } = judge_heads(timeline, cursor, ruleset, window.is_some());
         let mut events = Vec::new();
         for (index, object) in timeline.objects.iter().enumerate() {
             build_events(
@@ -318,6 +318,7 @@ enum Head {
 pub(crate) struct Press {
     pub time_ms: f64,
     pub pos: Point,
+    pub frame: Option<usize>,
 }
 
 const RELAX_LEAD_MS: f64 = 12.0;
@@ -383,7 +384,7 @@ fn relax_presses(
         if lazer && !landed {
             continue;
         }
-        out.push(Press { time_ms: now, pos });
+        out.push(Press { time_ms: now, pos, frame: None });
     }
     out
 }
@@ -393,7 +394,7 @@ pub(crate) fn presses(frames: &[ReplayFrame]) -> Vec<Press> {
     let left = |k: u8| k & (Keys::M1 | Keys::K1) != 0;
     let right = |k: u8| k & (Keys::M2 | Keys::K2) != 0;
     let mut previous = 0u8;
-    for frame in frames {
+    for (at, frame) in frames.iter().enumerate() {
         let held = frame.keys.0 & CLICK_KEYS;
         let rising =
             u8::from(left(held) && !left(previous)) + u8::from(right(held) && !right(previous));
@@ -404,6 +405,7 @@ pub(crate) fn presses(frames: &[ReplayFrame]) -> Vec<Press> {
                     x: f64::from(frame.x),
                     y: f64::from(frame.y),
                 },
+                frame: Some(at),
             });
         }
         previous = held;
@@ -411,7 +413,7 @@ pub(crate) fn presses(frames: &[ReplayFrame]) -> Vec<Press> {
     out
 }
 
-fn judge_heads(timeline: &Timeline, cursor: &CursorTrack, ruleset: Ruleset) -> Heads {
+fn judge_heads(timeline: &Timeline, cursor: &CursorTrack, ruleset: Ruleset, marked: bool) -> Heads {
     let objects = &timeline.objects;
     let mut heads = vec![Head::Missed { at_ms: None }; objects.len()];
     let mut judged = vec![false; objects.len()];
@@ -441,7 +443,13 @@ fn judge_heads(timeline: &Timeline, cursor: &CursorTrack, ruleset: Ruleset) -> H
             if object.start_ms - preempt > press.time_ms {
                 break;
             }
-            if !judged[index] && past_it(object, press.time_ms, window) {
+            let gone = match press.frame {
+                Some(frame) if marked && !object.is_spinner() && !object.is_slider() => {
+                    written_off_before(cursor.frames(), frame, object.start_ms + window)
+                }
+                _ => past_it(object, press.time_ms, window),
+            };
+            if !judged[index] && gone {
                 judged[index] = true;
             }
         }
@@ -613,6 +621,10 @@ struct Heads {
     shakes: Vec<(usize, f64)>,
     trace: Vec<PressTrace>,
     clicks: Vec<Press>,
+}
+
+fn written_off_before(frames: &[ReplayFrame], press: usize, window_closes_ms: f64) -> bool {
+    frames.partition_point(|frame| frame.time_ms as f64 <= window_closes_ms) < press
 }
 
 fn past_it(object: &TimedObject, time_ms: f64, window_50: f64) -> bool {

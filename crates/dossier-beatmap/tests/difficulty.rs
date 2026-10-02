@@ -143,3 +143,22 @@ fn neither_mod_touches_the_slider_settings() {
         assert_eq!(scaled.slider_tick_rate, 2.0);
     }
 }
+
+#[test]
+fn the_client_keeps_its_difficulty_in_single_precision_and_the_windows_follow() {
+    let of = |overall_difficulty: f64| dossier_beatmap::Difficulty { overall_difficulty, ..dossier_beatmap::Difficulty::default() };
+    assert_eq!(of(9.6).hit_window_50(), 104.0, "in double precision 9.6 gives a hundred and four");
+    assert_eq!(
+        of(9.6).in_single_precision().hit_window_50(),
+        103.0,
+        "the client's 9.6 is a float a little over it, and the cast to int takes the window down one"
+    );
+    assert_eq!(of(9.2).in_single_precision().hit_window_50(), 108.0, "a float a little under leaves it alone");
+    assert_eq!(of(9.3).in_single_precision().hit_window_50(), 106.0);
+    assert_eq!(of(8.0).in_single_precision().hit_window_50(), 120.0, "a value a float holds exactly is unchanged");
+    assert_eq!(
+        of(6.5).in_single_precision().hard_rock().hit_window_50(),
+        109.0,
+        "Hard Rock multiplies the float in double precision, so the rounding comes before it and not after"
+    );
+}

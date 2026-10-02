@@ -158,7 +158,7 @@ impl Timeline {
     }
 
     pub fn tuned(beatmap: &Beatmap, mods: Mods, tuning: Tuning) -> Self {
-        let difficulty = tuning.stats(apply_mods(beatmap.difficulty, mods));
+        let difficulty = tuning.stats(apply_mods(beatmap.difficulty.in_single_precision(), mods));
         let mirror = Reflect {
             across: mods.contains(bits::HARD_ROCK) || tuning.reflect.across,
             along: tuning.reflect.along,

@@ -2197,3 +2197,58 @@ SliderTickRate:1
     assert!((objects[1].end_ms - 3047.619).abs() < 0.01, "{}", objects[1].end_ms);
     assert_eq!(dossier_sim::tail_check_whole_ms(&objects[1]), 3023.0, "a slider under seventy-two long is checked half way, in whole milliseconds: 47 / 2 is 23");
 }
+
+fn a_row_of_sliders_then_two_notes(swept_first: bool) -> HitCounts {
+    let (map, replay) = a_row_of_sliders(true);
+    let mut body = String::from(
+        "
+[Difficulty]
+CircleSize:5
+OverallDifficulty:5
+SliderMultiplier:1.4
+SliderTickRate:1
+
+[TimingPoints]
+0,500,4,2,0,60,1,0
+
+[HitObjects]
+",
+    );
+    for index in 0..SLIDERS_IN_A_ROW {
+        let y = 50 + (index % 6) as i64 * 50;
+        body.push_str(&format!("100,{y},{},2,0,L|170:{y},1,70\n", 1000 + index as i64 * 1000));
+    }
+    body.push_str("400,300,30000,1,0\n300,300,30200,1,0\n");
+    drop(map);
+    let map = beatmap(&body);
+
+    let mut frames = replay.frames.clone();
+    frames.push(frame(30100, 300.0, 300.0, 0));
+    if swept_first {
+        frames.push(frame(30151, 300.0, 300.0, 0));
+    }
+    frames.push(frame(30151, 300.0, 300.0, Keys::K1));
+    frames.push(frame(30180, 300.0, 300.0, 0));
+    frames.push(frame(30500, 300.0, 300.0, 0));
+    judged(&map, &replay_with(frames, 0))
+}
+
+#[test]
+fn a_missed_note_stops_blocking_on_the_frame_the_client_wrote_for_it() {
+    let counts = a_row_of_sliders_then_two_notes(true);
+    assert_eq!(
+        (counts.count_300, counts.count_100, counts.count_miss),
+        (SLIDERS_IN_A_ROW as u16, 1, 1),
+        "the window of the first note closed at 30150; the client wrote the miss on an update at 30151 and the press came on the next, in the same millisecond: {counts:?}"
+    );
+}
+
+#[test]
+fn a_press_on_the_update_that_would_write_the_miss_is_still_blocked() {
+    let counts = a_row_of_sliders_then_two_notes(false);
+    assert_eq!(
+        (counts.count_300, counts.count_100, counts.count_miss),
+        (SLIDERS_IN_A_ROW as u16 - 1, 1, 2),
+        "the client takes the press before it sweeps its notes, so on the first update past the window the missed note is still in the way: {counts:?}"
+    );
+}

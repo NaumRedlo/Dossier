@@ -73,6 +73,17 @@ impl Difficulty {
         difficulty_range(self.overall_difficulty, 250.0, 380.0, 430.0) / 60.0
     }
 
+    pub fn in_single_precision(&self) -> Self {
+        let single = |value: f64| f64::from(value as f32);
+        Self {
+            hp_drain: single(self.hp_drain),
+            circle_size: single(self.circle_size),
+            overall_difficulty: single(self.overall_difficulty),
+            approach_rate: single(self.approach_rate),
+            ..*self
+        }
+    }
+
     pub fn hard_rock(&self) -> Self {
         Self {
             hp_drain: (self.hp_drain * 1.4).min(10.0),

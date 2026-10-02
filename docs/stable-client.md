@@ -727,3 +727,30 @@ One thing was read and left alone: for one input handler — it keeps a
 calibration of four numbers and runs a thread of its own, so a tablet or a
 touch screen of some kind — the ball is looked up at the clock less a
 configured offset. No replay says which handler wrote it.
+
+## The order of one update, and what a float costs
+
+Two more things the play's own update says, both found while reading for the
+slider (2026-10-02).
+
+**The press comes before the sweep.** The input manager's update runs first
+and ends by running the handlers it queued; the play's handler for a press
+finds the object under the cursor — the first in the list that is hittable,
+which for a circle means `start - preempt <= time`, `start + window50 >= time`
+and not yet hit — asks the lock, and strikes or shakes. The lock is three
+lines: any earlier object not yet hit whose end is more than three
+milliseconds before this one's start refuses the press, and so does a press
+four hundred milliseconds or more from the object. Then the play's update
+scores the slider in hand, and only then sweeps: a circle with
+`start + window50 < time` is written off, a slider's head likewise, a slider
+itself once `end <= time`, a spinner once `end < time`. The recorder runs last.
+
+**The difficulty is single precision.** Hit points, circle size, overall
+difficulty and approach rate are `float` fields, clamped to 0…10 as they are
+parsed. The table of windows takes them as doubles, applies Easy (`/ 2`) or
+Hard Rock (`× 1.4`, capped at ten) in double precision, and casts the windows
+and the approach time to `int`. A difficulty that a float cannot hold exactly
+therefore lands a hair to one side of the value the map states, and a window
+that would have been a whole number is cut down by one when that side is the
+wrong one.
+

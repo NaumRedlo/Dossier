@@ -644,7 +644,7 @@ impl Scene<'_> {
         alpha: f32,
         layout: &Layout,
     ) {
-        self.draw_wide(pixmap, element, centre, width, alpha, layout, 0.0, 0);
+        self.draw_wide(pixmap, element, centre, width, alpha, layout, 0.0, 0, tiny_skia::BlendMode::SourceOver);
     }
 
     pub(super) fn draw_sprite_wide_turned(
@@ -657,7 +657,7 @@ impl Scene<'_> {
         layout: &Layout,
         degrees: f32,
     ) {
-        self.draw_wide(pixmap, element, centre, width, alpha, layout, degrees, 0);
+        self.draw_wide(pixmap, element, centre, width, alpha, layout, degrees, 0, tiny_skia::BlendMode::SourceOver);
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -672,9 +672,26 @@ impl Scene<'_> {
         degrees: f32,
         elapsed_ms: f64,
     ) {
+        self.draw_wide(pixmap, element, centre, width, alpha, layout, degrees, self.verdict_frame(element, elapsed_ms), tiny_skia::BlendMode::SourceOver);
+    }
+
+    fn verdict_frame(&self, element: Element, elapsed_ms: f64) -> usize {
         let count = self.skin.sprites.as_ref().map_or(1, |sprites| sprites.frame_count(element));
-        let frame = ((elapsed_ms.max(0.0) / VERDICT_FRAME_MS) as usize).min(count.saturating_sub(1));
-        self.draw_wide(pixmap, element, centre, width, alpha, layout, degrees, frame);
+        ((elapsed_ms.max(0.0) / VERDICT_FRAME_MS) as usize).min(count.saturating_sub(1))
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn draw_sprite_wide_lit_at(
+        &self,
+        pixmap: &mut Pixmap,
+        element: Element,
+        centre: Point,
+        width: f32,
+        alpha: f32,
+        layout: &Layout,
+        elapsed_ms: f64,
+    ) {
+        self.draw_wide(pixmap, element, centre, width, alpha, layout, 0.0, self.verdict_frame(element, elapsed_ms), tiny_skia::BlendMode::Plus);
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -688,6 +705,7 @@ impl Scene<'_> {
         layout: &Layout,
         degrees: f32,
         frame: usize,
+        blend_mode: tiny_skia::BlendMode,
     ) {
         let Some(sprites) = &self.skin.sprites else {
             return;
@@ -717,7 +735,7 @@ impl Scene<'_> {
             &PixmapPaint {
                 opacity: alpha.clamp(0.0, 1.0),
                 quality: tiny_skia::FilterQuality::Bilinear,
-                ..Default::default()
+                blend_mode,
             },
             transform,
             None,

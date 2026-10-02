@@ -190,6 +190,8 @@ pub enum Element {
 
     Verdict(Verdict),
 
+    Particle(Verdict),
+
     SpinnerCircle,
     SpinnerMiddle,
 
@@ -288,6 +290,15 @@ impl Verdict {
         }
     }
 
+    fn particle_stem(self) -> &'static str {
+        match self {
+            Self::Miss => "particle0",
+            Self::Fifty => "particle50",
+            Self::Hundred | Self::HundredKatu => "particle100",
+            Self::Three | Self::ThreeKatu | Self::ThreeGeki => "particle300",
+        }
+    }
+
     fn mark(self) -> (&'static str, f32) {
         match self {
             Self::Miss => ("×", 0.85),
@@ -324,6 +335,7 @@ impl Element {
             Self::CursorMiddle => "cursormiddle".to_owned(),
             Self::CursorTrail => "cursortrail".to_owned(),
             Self::Verdict(v) => v.stem().to_owned(),
+            Self::Particle(v) => v.particle_stem().to_owned(),
             Self::SpinnerApproachCircle => "spinner-approachcircle".to_owned(),
             Self::SpinnerCircle => "spinner-circle".to_owned(),
             Self::SpinnerMiddle => "spinner-middle".to_owned(),
@@ -422,6 +434,7 @@ impl Element {
             Self::CursorTrail => 64,
             Self::SpinnerApproachCircle => 384,
             Self::Verdict(_) | Self::Digit(_) => DIGIT_REFERENCE as u32,
+            Self::Particle(_) => 32,
         }
     }
 }
@@ -539,6 +552,7 @@ pub fn element(skin: &crate::skin::Skin, element: Element, size: u32) -> Option<
         | Element::SpinnerClear
         | Element::SectionPass
         | Element::SectionFail
+        | Element::Particle(_)
         | Element::WarningArrow => return None,
         Element::Verdict(_) | Element::Digit(_) => return lettered(skin, element, size),
     }

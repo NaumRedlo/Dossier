@@ -116,7 +116,66 @@ impl Scene<'_> {
         (1.0 - phase) * (1.0 - phase)
     }
 
-    pub(super) fn draw_verdicts(&self, pixmap: &mut Pixmap, time_ms: f64, layout: &Layout) {
+    fn sparked(&self, verdict: Judgement) -> Option<crate::elements::Element> {
+        if verdict == Judgement::Miss || (verdict == Judgement::Great && !self.skin.show_300) {
+            return None;
+        }
+        let kind = verdict_kind(verdict);
+        let particle = crate::elements::Element::Particle(kind);
+        let sprites = self.skin.sprites.as_ref()?;
+        (!sprites.draw_ourselves(crate::elements::Element::Verdict(kind)) && sprites.get(particle).is_some()).then_some(particle)
+    }
+
+    pub(super) fn draw_particles(&self, pixmap: &mut Pixmap, time_ms: f64, layout: &Layout) {
+        let Some(sprites) = self.skin.sprites.as_ref() else {
+            return;
+        };
+        let lazer = self.state.from_lazer();
+        let life = if lazer { PARTICLE_LIFE_MS_IN_LAZER } else { PARTICLE_LIFE_MS };
+        let unit = if lazer { self.state.difficulty().circle_radius() / NOTE_SPRITE_RADIUS } else { FIELD_SPRITE };
+        let reach = layout.length(PARTICLE_REACH * unit);
+        let mut stamps: Vec<(crate::elements::Element, Pixmap)> = Vec::new();
+
+        for index in self.candidates(time_ms) {
+            let annotation = &self.annotations[index];
+            let Some(particle) = annotation.verdict.and_then(|verdict| self.sparked(verdict)) else {
+                continue;
+            };
+            let age = time_ms - annotation.resolved_ms;
+            if !(0.0..life).contains(&age) {
+                continue;
+            }
+            if !stamps.iter().any(|(held, _)| *held == particle) {
+                let Some((art, per_osu_pixel)) = sprites.coloured(particle, 0) else {
+                    continue;
+                };
+                let scale = layout.length(unit) / per_osu_pixel;
+                let Some(stamp) = scaled(art, scale) else {
+                    continue;
+                };
+                stamps.push((particle, stamp));
+            }
+            let Some((_, stamp)) = stamps.iter().find(|(held, _)| *held == particle) else {
+                continue;
+            };
+            let object = &self.state.timeline().objects[index];
+            let (x, y) = layout.map(verdict_place(object, annotation.judged_before_the_end(object)));
+            let mut dice = Dice::of(index);
+            for _ in 0..PARTICLES {
+                let lasts = life * (PARTICLE_SHORTEST_SHARE + (1.0 - PARTICLE_SHORTEST_SHARE) * dice.roll());
+                let towards = dice.roll() * std::f64::consts::TAU;
+                let far = dice.roll() as f32 * reach;
+                let gone = (age / lasts) as f32;
+                if gone >= 1.0 {
+                    continue;
+                }
+                let (sin, cos) = towards.sin_cos();
+                add_onto(pixmap, stamp, x + cos as f32 * far * gone, y + sin as f32 * far * gone, 1.0 - gone);
+            }
+        }
+    }
+
+    pub(super) fn draw_verdicts(&self, pixmap: &mut Pixmap, time_ms: f64, layout: &Layout, tier: Option<Tier>) {
         let radius = self.state.difficulty().circle_radius();
 
         for index in self.candidates(time_ms) {
@@ -132,13 +191,9 @@ impl Scene<'_> {
                 continue;
             }
 
-            let element = crate::elements::Element::Verdict(match verdict {
-                Judgement::Great => crate::elements::Verdict::Three,
-                Judgement::Ok => crate::elements::Verdict::Hundred,
-                Judgement::Meh => crate::elements::Verdict::Fifty,
-                Judgement::Miss => crate::elements::Verdict::Miss,
-            });
-            let alpha = verdict_alpha(age);
+            let element = crate::elements::Element::Verdict(verdict_kind(verdict));
+            let sparked = self.sparked(verdict).is_some();
+            let alpha = if sparked && !self.state.from_lazer() { sparked_alpha(age) } else { verdict_alpha(age) };
 
             let (text, colour) = match verdict {
                 Judgement::Great => ("300", self.skin.verdict_300),
@@ -171,6 +226,8 @@ impl Scene<'_> {
                 1.0
             } else if missed {
                 miss_settle(age, lazer, fatal)
+            } else if sparked {
+                sparked_settle(age)
             } else {
                 verdict_settle(age)
             };
@@ -178,14 +235,23 @@ impl Scene<'_> {
                 let Some(sprite) = self.skin.sprites.as_ref().and_then(|sprites| sprites.get(element)) else {
                     continue;
                 };
-                let width = layout.length(f64::from(sprite.width()) * unit) * settle;
+                let own = layout.length(f64::from(sprite.width()) * unit);
                 let mut place = verdict_place(object, at_head);
                 let mut degrees = 0.0;
                 if missed && !animated {
                     place.y += drift;
                     degrees = miss_turn(index, age);
                 }
-                self.draw_sprite_wide_at(pixmap, element, place, width, alpha, layout, degrees, age);
+                if tier != Some(if sparked { Tier::Above } else { Tier::Beneath }) {
+                    self.draw_sprite_wide_at(pixmap, element, place, own * settle, alpha, layout, degrees, age);
+                }
+                if sparked && !object.is_spinner() && tier != Some(Tier::Beneath) {
+                    let glint = if animated { 1.0 } else { glint_settle(age) };
+                    self.draw_sprite_wide_lit_at(pixmap, element, place, own * glint, glint_alpha(age), layout, age);
+                }
+                continue;
+            }
+            if tier == Some(Tier::Beneath) {
                 continue;
             }
             let mut at = layout.map(verdict_place(object, at_head));
@@ -362,6 +428,94 @@ impl Scene<'_> {
         } else {
             self.draw_sprite(pixmap, element, 0, at, size, alpha, layout);
         }
+    }
+}
+
+fn verdict_kind(verdict: Judgement) -> crate::elements::Verdict {
+    match verdict {
+        Judgement::Great => crate::elements::Verdict::Three,
+        Judgement::Ok => crate::elements::Verdict::Hundred,
+        Judgement::Meh => crate::elements::Verdict::Fifty,
+        Judgement::Miss => crate::elements::Verdict::Miss,
+    }
+}
+
+struct Dice(u64);
+
+impl Dice {
+    fn of(index: usize) -> Self {
+        Self((index as u64).wrapping_add(1).wrapping_mul(0x9e37_79b9_7f4a_7c15))
+    }
+
+    fn roll(&mut self) -> f64 {
+        self.0 ^= self.0 << 13;
+        self.0 ^= self.0 >> 7;
+        self.0 ^= self.0 << 17;
+        (self.0 >> 11) as f64 / (1u64 << 53) as f64
+    }
+}
+
+fn scaled(art: &Pixmap, scale: f32) -> Option<Pixmap> {
+    let wide = (art.width() as f32 * scale).ceil().max(1.0) as u32;
+    let high = (art.height() as f32 * scale).ceil().max(1.0) as u32;
+    let mut out = Pixmap::new(wide, high)?;
+    let paint = tiny_skia::PixmapPaint { quality: tiny_skia::FilterQuality::Bilinear, ..Default::default() };
+    out.draw_pixmap(0, 0, art.as_ref(), &paint, Transform::from_scale(wide as f32 / art.width() as f32, high as f32 / art.height() as f32), None);
+    Some(out)
+}
+
+fn add_onto(onto: &mut Pixmap, stamp: &Pixmap, x: f32, y: f32, alpha: f32) {
+    let share = (alpha.clamp(0.0, 1.0) * 256.0) as u32;
+    if share == 0 {
+        return;
+    }
+    let (wide, high) = (stamp.width() as i64, stamp.height() as i64);
+    let (room_wide, room_high) = (onto.width() as i64, onto.height() as i64);
+    let left = (x - wide as f32 / 2.0).round() as i64;
+    let top = (y - high as f32 / 2.0).round() as i64;
+    let from = stamp.data();
+    let into = onto.data_mut();
+    for row in (-top).max(0)..high.min(room_high - top) {
+        for column in (-left).max(0)..wide.min(room_wide - left) {
+            let source = ((row * wide + column) * 4) as usize;
+            let target = (((top + row) * room_wide + left + column) * 4) as usize;
+            for channel in 0..4 {
+                let lit = u32::from(into[target + channel]) + ((u32::from(from[source + channel]) * share) >> 8);
+                into[target + channel] = lit.min(255) as u8;
+            }
+        }
+    }
+}
+
+fn sparked_alpha(age: f64) -> f32 {
+    if age < SPARKED_FADE_IN_MS {
+        (age / SPARKED_FADE_IN_MS) as f32
+    } else {
+        verdict_alpha(age.max(VERDICT_FADE_IN_MS))
+    }
+}
+
+fn sparked_settle(age: f64) -> f32 {
+    SPARKED_FROM + (SPARKED_TO - SPARKED_FROM) * (age / VERDICT_MS).clamp(0.0, 1.0) as f32
+}
+
+fn glint_settle(age: f64) -> f32 {
+    let step = VERDICT_FADE_IN_MS * 0.2;
+    if age < step * 4.0 {
+        0.6 + 0.5 * (age / (step * 4.0)).clamp(0.0, 1.0) as f32
+    } else if (step * 5.0..step * 6.0).contains(&age) {
+        1.1 - 0.2 * ((age - step * 5.0) / step) as f32
+    } else {
+        sparked_settle(age)
+    }
+}
+
+fn glint_alpha(age: f64) -> f32 {
+    if age < GLINT_FULL_MS {
+        let t = ((age - GLINT_FROM_MS) / (GLINT_FULL_MS - GLINT_FROM_MS)).clamp(0.0, 1.0) as f32;
+        GLINT_ALPHA * (1.0 - (1.0 - t) * (1.0 - t))
+    } else {
+        GLINT_ALPHA * (1.0 - (age - GLINT_FULL_MS) / (GLINT_GONE_MS - GLINT_FULL_MS)).clamp(0.0, 1.0) as f32
     }
 }
 
@@ -632,5 +786,61 @@ mod tests {
         assert!(verdict_settle(140.0) < 0.95, "then dips");
         assert!((verdict_settle(200.0) - 1.0).abs() < 0.001, "and is at rest long before it goes");
         assert!((verdict_settle(1000.0) - 1.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn a_mark_that_comes_with_particles_is_whole_sooner_and_grows_all_its_life() {
+        assert!((sparked_alpha(40.0) - 0.5).abs() < 0.001, "it fades in over eighty milliseconds, not a hundred and twenty");
+        assert_eq!(sparked_alpha(80.0), 1.0);
+        assert_eq!(sparked_alpha(100.0), 1.0, "and does not dip while the plain mark would still be arriving");
+        assert_eq!(sparked_alpha(800.0), verdict_alpha(800.0), "it leaves as every mark leaves");
+        assert!((sparked_settle(0.0) - 0.9).abs() < 0.001);
+        assert!((sparked_settle(VERDICT_MS) - 1.05).abs() < 0.001);
+        assert!(sparked_settle(400.0) > sparked_settle(200.0), "no spring: one slow swell");
+    }
+
+    #[test]
+    fn its_bright_copy_springs_as_a_plain_mark_does_and_is_gone_in_a_third_of_a_second() {
+        assert_eq!(glint_alpha(GLINT_FROM_MS), 0.0);
+        assert!((glint_alpha(GLINT_FULL_MS) - GLINT_ALPHA).abs() < 0.001, "half as bright as the mark at its fullest");
+        assert!(glint_alpha(0.0) > GLINT_ALPHA * 0.25, "already lit on the frame of the hit");
+        assert_eq!(glint_alpha(GLINT_GONE_MS), 0.0);
+        assert!((glint_settle(0.0) - 0.6).abs() < 0.001);
+        assert!(glint_settle(90.0) > 1.0, "it overshoots");
+        assert!((glint_settle(100.0) - sparked_settle(100.0)).abs() < 0.001, "between the client's two steps nothing holds it, and the slow swell shows through");
+        assert!((glint_settle(132.0) - 1.0).abs() < 0.001, "half way down the second step");
+        assert!((glint_settle(200.0) - sparked_settle(200.0)).abs() < 0.001);
+    }
+
+    #[test]
+    fn a_hit_throws_the_same_particles_every_time_it_is_drawn() {
+        let rolls = |index| {
+            let mut dice = Dice::of(index);
+            (0..6).map(|_| dice.roll()).collect::<Vec<_>>()
+        };
+        assert_eq!(rolls(7), rolls(7), "a frame drawn twice is the same frame");
+        assert_ne!(rolls(7), rolls(8), "and two hits do not burst alike");
+        assert!(rolls(0).iter().chain(rolls(123_456).iter()).all(|roll| (0.0..1.0).contains(roll)));
+    }
+
+    #[test]
+    fn a_particle_adds_its_light_and_is_cut_at_the_edge_of_the_frame() {
+        let mut onto = Pixmap::new(8, 8).unwrap();
+        onto.fill(Color::from_rgba8(100, 100, 100, 255));
+        let mut stamp = Pixmap::new(4, 4).unwrap();
+        stamp.fill(Color::from_rgba8(200, 200, 200, 255));
+
+        add_onto(&mut onto, &stamp, 4.0, 4.0, 0.5);
+        let lit = onto.pixel(4, 4).unwrap();
+        assert!(lit.red() > 190 && lit.red() < 210, "half of 200 on top of 100: {}", lit.red());
+        assert_eq!(onto.pixel(0, 0).unwrap().red(), 100, "nothing outside the stamp is touched");
+
+        add_onto(&mut onto, &stamp, 4.0, 4.0, 1.0);
+        assert_eq!(onto.pixel(4, 4).unwrap().red(), 255, "light adds up and stops at white");
+
+        add_onto(&mut onto, &stamp, -10.0, 100.0, 1.0);
+        add_onto(&mut onto, &stamp, 0.0, 0.0, 1.0);
+        assert_eq!(onto.pixel(0, 0).unwrap().red(), 255, "a stamp half off the frame lights the half that is on it");
+        assert_eq!(onto.pixel(7, 7).unwrap().red(), 100);
     }
 }

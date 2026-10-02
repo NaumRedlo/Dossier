@@ -176,11 +176,40 @@ its own mark, and neither the drop nor the turn for a skin's.
 
 Without `particle300`/`particle100`/`particle50` in the skin the mark is given
 the depth `0.8 + (end + 1996) % 6000000 / 30000000`, which is above every hit
-object: it is drawn over the notes still to come. With a particle picture it
-goes below them instead, fades in over 80 ms, grows 0.9 → 1.05 over its whole
-life, and gets an additive copy of itself and a burst of the particles.
-**The engine draws none of the particle variant** — a skin that ships those
-pictures gets the plain mark above the notes.
+object: it is drawn over the notes still to come.
+
+### The mark that comes with particles
+
+Read on 2026-10-02 from the same method. The particle picture is asked for by
+the hit's value alone — `particle300`, `particle100`, `particle50`, whatever
+the katu or geki of the mark — and *from the source the mark itself came
+from*: a skin that draws its own `hit300` and ships no `particle300` gets
+none, and so does one whose particle picture is transparent, which is how
+skins switch the default one off. When there is one, three things change for a
+hit (a miss is never touched):
+
+| | |
+|---|---|
+| the mark | goes *below* the notes still to come; fades in over 80 ms; a mark of one frame swells 0.9 → 1.05 in a straight line over its whole 1100 ms and never springs |
+| a second copy of the mark, additive, on top of everything | alpha 0 → 0.5 between −16 and +40 ms easing out, then 0.5 → 0 by 340 ms; scale 0.6 → 1.1 by 96 ms and 1.1 → 0.9 between 120 and 144 ms, the plain mark's spring — with the slow 0.9 → 1.05 showing through wherever neither step is running. Not given on a spinner |
+| the particles | 150 of them, additive, below every hit object |
+
+A sprite's transformations of one kind are tried in the order they were added
+and the first one running at that instant wins; that is why the copy's spring
+beats its slow swell for the first 96 ms and loses to it between 96 and 120.
+
+Each particle is the picture at its own size (a pixel of it is 0.625 of a
+playfield unit, as for the mark), thrown from where the mark stands in a
+direction picked at random, as far as a distance picked at random up to 70 of
+those pixels — 43.75 on the field — over a life picked at random between 400
+and 1200 ms. It moves and fades in a straight line: at a third of its life it
+is a third of the way out and a third gone. lazer's copy of this gives them
+1600 ms (so 533 to 1600) and the note's own scale, and fades the mark in over
+its usual 120.
+
+The engine draws all three since 2026-10-02, each client's numbers for a play
+from that client. Its particles are the same ones every time a frame is drawn:
+the dice are seeded by the object.
 
 ### A note fades in over 400 ms, and its approach circle over twice that
 

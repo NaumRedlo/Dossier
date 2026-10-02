@@ -3441,6 +3441,130 @@ CircleSize:{circle_size}
         .count()
 }
 
+fn struck_and_followed(dir: &std::path::Path, at_ms: f64) -> (tiny_skia::Pixmap, Layout) {
+    struck_with_the_next_at(dir, at_ms, "256,192")
+}
+
+fn struck_with_the_next_at(dir: &std::path::Path, at_ms: f64, next: &str) -> (tiny_skia::Pixmap, Layout) {
+    use dossier_render::elements::Element;
+    use dossier_render::elements::Verdict;
+    use dossier_render::imported::Sprites;
+
+    let map = beatmap(&format!(
+        "
+[Difficulty]
+ApproachRate:5
+OverallDifficulty:5
+CircleSize:5
+
+[TimingPoints]
+0,500,4,2,0,60,1,0
+
+[HitObjects]
+256,192,3000,5,0
+{next},3600,1,0
+"
+    ));
+    let frames = (0..40)
+        .map(|i| {
+            let at = 2000 + i64::from(i) * 100;
+            dossier_replay::ReplayFrame {
+                time_ms: at,
+                x: if at <= 3000 { 256.0 } else { 20.0 },
+                y: if at <= 3000 { 192.0 } else { 20.0 },
+                keys: dossier_replay::Keys(if at == 3000 { dossier_replay::Keys::K1 } else { 0 }),
+            }
+        })
+        .collect();
+    let replay = replay_over(frames);
+
+    let mut skin = Skin::with_combo_colours(map.combo_colours()).with_font(font());
+    let mut all: Vec<Element> = Verdict::ALL.iter().copied().map(Element::Verdict).collect();
+    all.extend([Verdict::Fifty, Verdict::Hundred, Verdict::Three].map(Element::Particle));
+    skin.sprites = Some(std::sync::Arc::new(Sprites::read(dir, &all).tint_for(&skin.combo_colours)));
+
+    let state = GameState::new(&map, &replay);
+    let layout = Layout::new(640, 480);
+    (Scene::new(&state, skin).frame(at_ms, &layout), layout)
+}
+
+fn white_beyond(frame: &tiny_skia::Pixmap, layout: &Layout, from: f32, to: f32) -> usize {
+    let (cx, cy) = layout.map(dossier_beatmap::Point::CENTRE);
+    let mut found = 0;
+    for y in 0..frame.height() {
+        for x in 0..frame.width() {
+            let far = (x as f32 - cx).hypot(y as f32 - cy);
+            let lit = frame.pixel(x, y).is_some_and(|p| p.red() > 150 && p.green() > 150 && p.blue() > 150);
+            if lit && far > from && far < to {
+                found += 1;
+            }
+        }
+    }
+    found
+}
+
+#[test]
+fn a_hit_scatters_the_particles_a_skin_ships_with_its_mark() {
+    let plain = skin_folder("particles-none");
+    write_ink(&plain, "hit300.png", 64, 24, 12);
+    let sparked = skin_folder("particles-with");
+    write_ink(&sparked, "hit300.png", 64, 24, 12);
+    write_ink(&sparked, "particle300.png", 8, 6, 6);
+
+    let (without, layout) = struck_with_the_next_at(&plain, 3300.0, "40,40");
+    let (with, _) = struck_with_the_next_at(&sparked, 3300.0, "40,40");
+    let reach = layout.length(70.0 * 0.625) + 6.0;
+    let near = |frame: &tiny_skia::Pixmap| white_beyond(frame, &layout, 0.0, reach);
+    let far = |frame: &tiny_skia::Pixmap| white_beyond(frame, &layout, reach, 2000.0);
+    assert!(near(&with) > near(&without) + 40, "three tenths of a second after the hit the particles are on their way out: {} against {}", near(&with), near(&without));
+    assert_eq!(far(&with), far(&without), "and none goes further than seventy pixels of the client's own, 43.75 on the field");
+
+    let (late, _) = struck_with_the_next_at(&sparked, 4250.0, "40,40");
+    let (late_without, _) = struck_with_the_next_at(&plain, 4250.0, "40,40");
+    assert_eq!(near(&late), near(&late_without), "the longest-lived of them is gone after twelve hundred milliseconds");
+}
+
+#[test]
+fn particles_come_only_with_a_mark_of_the_same_skin_and_a_blank_picture_is_none() {
+    let orphan = skin_folder("particles-orphan");
+    write_ink(&orphan, "particle300.png", 8, 6, 6);
+    let bare = skin_folder("particles-bare");
+    let (frame, layout) = struck_with_the_next_at(&orphan, 3300.0, "40,40");
+    let (own, _) = struck_with_the_next_at(&bare, 3300.0, "40,40");
+    let reach = layout.length(70.0 * 0.625) + 6.0;
+    assert_eq!(white_beyond(&frame, &layout, 0.0, reach), white_beyond(&own, &layout, 0.0, reach), "the mark is the engine's own here, and the client takes the particle from where it took the mark");
+
+    let blank = skin_folder("particles-blank");
+    write_ink(&blank, "hit300.png", 64, 24, 12);
+    write_ink(&blank, "particle300.png", 1, 0, 0);
+    let marked = skin_folder("particles-marked");
+    write_ink(&marked, "hit300.png", 64, 24, 12);
+    let (frame, _) = struck_with_the_next_at(&blank, 3300.0, "40,40");
+    let (plain, _) = struck_with_the_next_at(&marked, 3300.0, "40,40");
+    assert_eq!(white_beyond(&frame, &layout, 0.0, reach), white_beyond(&plain, &layout, 0.0, reach), "a transparent picture is how a skin says it wants none");
+}
+
+#[test]
+fn a_mark_that_comes_with_particles_lies_under_the_notes_still_to_come() {
+    let plain = skin_folder("particles-above");
+    write_ink(&plain, "hit300.png", 200, 120, 60);
+    let sparked = skin_folder("particles-beneath");
+    write_ink(&sparked, "hit300.png", 200, 120, 60);
+    write_ink(&sparked, "particle300.png", 8, 2, 2);
+
+    let beside_the_number = |frame: &tiny_skia::Pixmap, layout: &Layout| {
+        let (cx, cy) = layout.map(dossier_beatmap::Point::CENTRE);
+        let p = frame.pixel(cx as u32 + layout.length(20.0) as u32, cy as u32).expect("on the frame");
+        (p.red(), p.green(), p.blue())
+    };
+    let (over, layout) = struck_and_followed(&plain, 3450.0);
+    let (under, _) = struck_and_followed(&sparked, 3450.0);
+    let (r, g, b) = beside_the_number(&over, &layout);
+    assert!(r > 240 && g > 240 && b > 240, "a plain mark is drawn over the next note: {r} {g} {b}");
+    let (r, g, b) = beside_the_number(&under, &layout);
+    assert!(r < 230 || g < 230 || b < 230, "with particles the note covers the mark: {r} {g} {b}");
+}
+
 fn write_padded(dir: &std::path::Path, name: &str, canvas: u32, ink: u32) {
     write_ink(dir, name, canvas, ink, ink);
 }

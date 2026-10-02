@@ -178,6 +178,12 @@ const SPIN_CLEAR_REST_MS: f64 = 160.0;
 
 const SHAKE_MS: f64 = 120.0;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Tier {
+    Beneath,
+    Above,
+}
+
 const VERDICT_FADE_IN_MS: f64 = 120.0;
 const VERDICT_HOLD_MS: f64 = 500.0;
 const VERDICT_FADE_OUT_MS: f64 = 600.0;
@@ -214,11 +220,21 @@ const LIGHTING_GROWTH_MS: f64 = 600.0;
 const LIGHTING_FROM: f32 = 0.8;
 const LIGHTING_TO: f32 = 1.2;
 
-const AFTERLIFE_MS: f64 = if VERDICT_MS > LIGHTING_MS {
-    VERDICT_MS
-} else {
-    LIGHTING_MS
-};
+const PARTICLES: usize = 150;
+const PARTICLE_REACH: f64 = 70.0;
+const PARTICLE_LIFE_MS: f64 = 1200.0;
+const PARTICLE_LIFE_MS_IN_LAZER: f64 = 1600.0;
+const PARTICLE_SHORTEST_SHARE: f64 = 1.0 / 3.0;
+
+const SPARKED_FADE_IN_MS: f64 = 80.0;
+const SPARKED_FROM: f32 = 0.9;
+const SPARKED_TO: f32 = 1.05;
+const GLINT_FROM_MS: f64 = -16.0;
+const GLINT_FULL_MS: f64 = 40.0;
+const GLINT_GONE_MS: f64 = 340.0;
+const GLINT_ALPHA: f32 = 0.5;
+
+const AFTERLIFE_MS: f64 = PARTICLE_LIFE_MS_IN_LAZER;
 
 const BREAK_HUD_FADE_MS: f64 = 400.0;
 
@@ -843,7 +859,8 @@ impl<'a> Scene<'a> {
         }
         let mut over = Pixmap::new(layout.width, layout.height)
             .expect("a frame with a zero dimension was requested");
-        self.draw_verdicts(&mut over, time_ms, layout);
+        self.draw_particles(&mut over, time_ms, layout);
+        self.draw_verdicts(&mut over, time_ms, layout, None);
         self.draw_break_warning(&mut over, time_ms, layout);
         self.draw_section(&mut over, time_ms, layout);
         self.draw_overlay(&mut over, time_ms, layout);
@@ -923,7 +940,9 @@ impl<'a> Scene<'a> {
     fn draw_field(&self, pixmap: &mut Pixmap, time_ms: f64, layout: &Layout, close: &Layout) {
         self.draw_follow_points(pixmap, time_ms, close);
 
+        self.draw_particles(pixmap, time_ms, layout);
         self.draw_lighting(pixmap, time_ms, close);
+        self.draw_verdicts(pixmap, time_ms, layout, Some(Tier::Beneath));
 
         for index in self.candidates(time_ms).rev() {
             if self.alpha_of(index, time_ms) > 0.0 {
@@ -934,7 +953,7 @@ impl<'a> Scene<'a> {
         for index in self.candidates(time_ms).rev() {
             self.draw_approach(pixmap, index, time_ms, close);
         }
-        self.draw_verdicts(pixmap, time_ms, layout);
+        self.draw_verdicts(pixmap, time_ms, layout, Some(Tier::Above));
         self.draw_flashlight(pixmap, time_ms, close);
         self.draw_break_warning(pixmap, time_ms, layout);
         self.draw_section(pixmap, time_ms, layout);

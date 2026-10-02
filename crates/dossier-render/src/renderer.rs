@@ -33,7 +33,8 @@ const TICK_REPEAT_LEAD_MS: f64 = 200.0;
 const HIDDEN_FADE_IN: f64 = 0.4;
 const MARK_SHARE: f64 = 0.05;
 const MARK_SWELL: f32 = 0.12;
-const MARK_ALPHA: f32 = 0.55;
+const MARK_ALPHA: f32 = 0.5;
+const MARK_LIT_MS: f64 = 240.0;
 const MODS_SHARE: f64 = 0.046;
 const APPROACH_ALPHA: f32 = 0.9;
 const HIDDEN_FADE_OUT: f64 = 0.3;
@@ -344,6 +345,8 @@ pub struct Scene<'a> {
 
     keys: KeyTrack,
 
+    kiai: Vec<(f64, f64)>,
+
     bare: bool,
 
     backdrop: Option<Pixmap>,
@@ -535,6 +538,7 @@ impl<'a> Scene<'a> {
                 state.is_lazer(),
                 &KeyTrack::quiet_spans(state),
             ),
+            kiai: state.timeline().timing.kiai_spans(),
             bare: false,
             backdrop: None,
             backdrop_covers: false,

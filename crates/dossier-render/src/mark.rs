@@ -3,8 +3,6 @@ use std::sync::OnceLock;
 use tiny_skia::{Pixmap, PremultipliedColorU8};
 
 const MASK: &[u8] = include_bytes!("../../../native/assets/letter-mask.png");
-const TOP: (f32, f32, f32) = (0.886, 0.282, 0.282);
-const BOTTOM: (f32, f32, f32) = (0.788, 0.204, 0.184);
 const INK_FROM: u8 = 8;
 
 pub fn emblem() -> Option<&'static Pixmap> {
@@ -34,12 +32,9 @@ fn drawn() -> Option<Pixmap> {
     let mut out = Pixmap::new(out_wide, out_high)?;
     let pixels = out.pixels_mut();
     for y in 0..out_high {
-        let share = y as f32 / (out_high - 1).max(1) as f32;
-        let colour = [TOP.0 + (BOTTOM.0 - TOP.0) * share, TOP.1 + (BOTTOM.1 - TOP.1) * share, TOP.2 + (BOTTOM.2 - TOP.2) * share];
         for x in 0..out_wide {
-            let alpha = f32::from(ink(left + x, top + y)) / 255.0;
-            let channel = |value: f32| (value * alpha * 255.0).round() as u8;
-            if let Some(made) = PremultipliedColorU8::from_rgba(channel(colour[0]), channel(colour[1]), channel(colour[2]), (alpha * 255.0).round() as u8) {
+            let alpha = ink(left + x, top + y);
+            if let Some(made) = PremultipliedColorU8::from_rgba(alpha, alpha, alpha, alpha) {
                 pixels[(y * out_wide + x) as usize] = made;
             }
         }
@@ -52,13 +47,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_mark_is_the_letter_cut_close_and_red_from_top_to_bottom() {
+    fn the_mark_is_the_letter_cut_close_and_white() {
         let mark = emblem().expect("the mark");
         assert!(mark.width() > 100 && mark.height() > mark.width(), "{}x{}", mark.width(), mark.height());
         let solid = |y: u32| (0..mark.width()).filter_map(|x| mark.pixel(x, y)).find(|pixel| pixel.alpha() == 255).expect("ink on this row");
-        let (first, last) = (solid(2), solid(mark.height() - 3));
-        assert!(first.red() > 215 && first.green() < 90, "{first:?}");
-        assert!(last.red() < first.red() && last.red() > 180, "the letter deepens towards its foot: {last:?}");
+        for row in [2, mark.height() / 2, mark.height() - 3] {
+            let ink = solid(row);
+            assert_eq!((ink.red(), ink.green(), ink.blue()), (255, 255, 255), "row {row}");
+        }
         assert!((0..mark.width()).any(|x| mark.pixel(x, 0).is_some_and(|pixel| pixel.alpha() > 0)), "nothing empty is left above the letter");
     }
 }

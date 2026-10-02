@@ -1521,36 +1521,53 @@ fn the_spinner_ring_closes_onto_its_centre_mark() {
 }
 
 #[test]
-fn the_mark_in_the_corner_swells_on_the_maps_beat() {
-    let map = beatmap("[Difficulty]\nCircleSize:5\nApproachRate:5\n\n[TimingPoints]\n0,500,4,2,0,60,1,0\n\n[HitObjects]\n256,192,3000,1,0\n256,192,20000,1,0\n");
-    let replay = replay_over(Vec::new());
+fn the_mark_in_the_corner_is_white_lights_on_a_press_and_moves_only_in_kiai() {
+    let map = beatmap("[Difficulty]\nCircleSize:5\nApproachRate:5\n\n[TimingPoints]\n0,500,4,2,0,60,1,0\n10000,-100,4,2,0,60,0,1\n14000,-100,4,2,0,60,0,0\n\n[HitObjects]\n256,192,3000,1,0\n256,192,20000,1,0\n");
+    let held = |at: i64, keys: u8| dossier_replay::ReplayFrame { time_ms: at, x: 20.0, y: 20.0, keys: dossier_replay::Keys(keys) };
+    let replay = replay_over(vec![held(1_000, 0), held(6_000, dossier_replay::Keys::K1), held(6_060, 0), held(19_000, 0)]);
     let state = GameState::new(&map, &replay);
-    let skin = Skin::default().with_font(font());
+    let mut skin = Skin::default().with_font(font());
+    skin.keypad = false;
     let scene = Scene::new(&state, skin).signed_by(&replay);
     let layout = Layout::new(1280, 720);
-    let red = |t: f64| {
-        let frame = scene.frame(t, &layout);
+    let white = |frame: &tiny_skia::Pixmap| {
         let (mut ink, mut left, mut top, mut brightest) = (0usize, u32::MAX, u32::MAX, 0u8);
-        for y in 540..720 {
-            for x in 1100..1280 {
+        for y in 620..720 {
+            for x in 1180..1280 {
                 let p = frame.pixel(x, y).expect("inside the frame");
-                if p.red() > 90 && p.red() > p.green().saturating_mul(2) && p.red() > p.blue().saturating_mul(2) {
+                let (low, high) = (p.red().min(p.green()).min(p.blue()), p.red().max(p.green()).max(p.blue()));
+                if low > 90 && high - low < 12 {
                     ink += 1;
                     left = left.min(x);
                     top = top.min(y);
-                    brightest = brightest.max(p.red());
+                    brightest = brightest.max(low);
                 }
             }
         }
         (ink, left, top, brightest)
     };
-    let (on_beat, between) = (red(6_000.0), red(6_480.0));
-    assert!(between.0 > 300, "the mark is in the corner between beats too: {between:?}");
-    assert!(on_beat.0 > between.0 * 11 / 10, "it is larger on the beat: {} against {}", on_beat.0, between.0);
-    assert!(on_beat.3 > between.3, "and brighter: {} against {}", on_beat.3, between.3);
-    assert!(between.1 > 1280 - 110 && between.2 > 720 - 110, "it keeps to the corner: {between:?}");
-    let unsigned = Scene::new(&state, Skin::default().with_font(font())).frame(6_000.0, &layout);
-    assert!(!(540..720).any(|y| (1100..1280).any(|x| unsigned.pixel(x, y).is_some_and(|p| p.red() > 150 && p.green() < 90))), "an unsigned frame carries no mark");
+    let at = |t: f64| white(&scene.frame(t, &layout));
+
+    let (resting, on_beat) = (at(5_480.0), at(5_500.0));
+    assert!(resting.0 > 300, "the mark is in the corner: {resting:?}");
+    assert!(resting.1 > 1280 - 110 && resting.2 > 720 - 110, "it keeps to the corner: {resting:?}");
+    assert_eq!(resting, on_beat, "outside kiai a beat neither moves it nor lights it");
+
+    let pressed = at(6_010.0);
+    assert!(pressed.3 > resting.3 + 60, "a press lights it: {} against {}", pressed.3, resting.3);
+    assert_eq!((pressed.1, pressed.2), (resting.1, resting.2), "and does not move it");
+    assert_eq!(at(6_400.0), resting, "the light is gone a quarter of a second on");
+
+    let (kiai_beat, kiai_between) = (at(12_000.0), at(12_480.0));
+    assert!(kiai_beat.1 < resting.1 && kiai_beat.2 < resting.2, "in kiai it swells on the beat: {kiai_beat:?} against {resting:?}");
+    assert_eq!(kiai_beat.3, resting.3, "a beat does not light it");
+    assert!(kiai_between.1 >= resting.1 - 1 && kiai_between.1 > kiai_beat.1, "and is back between beats: {kiai_between:?}");
+    assert_eq!(at(15_000.0), resting, "when kiai is over it is still again");
+
+    let mut plain = Skin::default().with_font(font());
+    plain.keypad = false;
+    let unsigned = Scene::new(&state, plain).frame(6_010.0, &layout);
+    assert_eq!(white(&unsigned).0, 0, "an unsigned frame carries no mark");
 }
 
 #[test]

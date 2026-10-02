@@ -39,6 +39,15 @@ impl KeyTrack {
         (1.0 - (time_ms - up) / (KEYS_LIT_FADE_MS * rate)).clamp(0.0, 1.0) as f32
     }
 
+    pub(super) fn struck(&self, time_ms: f64, rate: f64) -> f32 {
+        let last = (0..self.holds.len())
+            .filter_map(|key| self.last_hold(key, time_ms))
+            .map(|(down, _)| down)
+            .fold(f64::NEG_INFINITY, f64::max);
+        let spent = ((time_ms - last) / (MARK_LIT_MS * rate)).clamp(0.0, 1.0) as f32;
+        (1.0 - spent) * (1.0 - spent)
+    }
+
     fn last_hold(&self, key: usize, time_ms: f64) -> Option<(f64, f64)> {
         let holds = &self.holds[key];
         let index = holds.partition_point(|(from, _)| *from <= time_ms);

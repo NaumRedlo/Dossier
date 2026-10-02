@@ -481,7 +481,12 @@ impl Scene<'_> {
         let margin = (height * EDGE_MARGIN) as f32;
         let bottom = layout.height as f32 - margin;
         if let Some(mark) = crate::mark::emblem() {
-            let kick = self.beat_kick(time_ms);
+            let kick = if self.kiai.iter().any(|&(from, to)| time_ms >= from && time_ms < to) {
+                self.beat_kick(time_ms)
+            } else {
+                0.0
+            };
+            let lit = self.keys.struck(time_ms, self.state.playback_rate().max(0.001));
             let high = (height * MARK_SHARE) as f32;
             let scale = high / mark.height() as f32 * (1.0 + MARK_SWELL * kick);
             let (wide, tall) = (mark.width() as f32 * scale, mark.height() as f32 * scale);
@@ -492,7 +497,7 @@ impl Scene<'_> {
                 0,
                 mark.as_ref(),
                 &tiny_skia::PixmapPaint {
-                    opacity: MARK_ALPHA + (1.0 - MARK_ALPHA) * kick,
+                    opacity: MARK_ALPHA + (1.0 - MARK_ALPHA) * lit,
                     quality: tiny_skia::FilterQuality::Bilinear,
                     ..Default::default()
                 },

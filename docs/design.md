@@ -1509,10 +1509,13 @@ shown), `pace` (the player's clock on every refresh), `player` and `window`
 lines; that is how the jump was found.
 
 A video is signed with the mark (2026-10-02): the striped D stands in the
-bottom right corner where the client's name and version used to be, at a
-twentieth of the frame's height and a little over half strength, and on every
-beat of the map's own timing it swells by an eighth and comes up to full,
-falling back before the next. The mods of the play moved the same day to the
+bottom right corner where the client's name and version used to be, white, at a
+twentieth of the frame's height and at half strength. It is lit by the player
+and moved by the map, and the two are kept apart: every press of a key brings
+it up to full and it falls back over a quarter of a second, without changing
+size; and it swells by an eighth on the beat only inside a kiai section, so
+outside one it does not move at all. The first version was red, and swelled and
+brightened on every beat of the map. The mods of the play moved the same day to the
 top right corner, in a row under the accuracy, where the client shows them; the
 counts of 300s, 100s, 50s and misses start lower by the height of that row, and
 only when there is one. A frame that is not signed carries neither.

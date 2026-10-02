@@ -59,7 +59,6 @@ pub struct Title {
     pub name: [String; 2],
     pub about: [String; 2],
     pub target: u32,
-    pub hidden: bool,
 }
 
 impl Title {
@@ -123,7 +122,6 @@ pub fn staged_titles() -> Vec<Title> {
             name: [(*en).to_owned(), (*ru).to_owned()],
             about: [(*about_en).to_owned(), (*about_ru).to_owned()],
             target: staged_target(code),
-            hidden: matches!(*code, "doublethink" | "choke_95" | "magic7"),
         })
         .collect()
 }
@@ -782,7 +780,6 @@ impl Catalog {
                 name: [title.name.clone(), if title.name_ru.is_empty() { title.name.clone() } else { title.name_ru.clone() }],
                 about: [title.about.clone(), if title.about_ru.is_empty() { title.about.clone() } else { title.about_ru.clone() }],
                 target: title.target.unwrap_or(0),
-                hidden: title.hidden,
             })
             .collect();
         Catalog {
@@ -1114,8 +1111,6 @@ pub mod wire {
         pub about_ru: String,
         #[serde(default)]
         pub target: Option<u32>,
-        #[serde(default)]
-        pub hidden: bool,
     }
 
     #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]

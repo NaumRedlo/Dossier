@@ -2,7 +2,7 @@ use iced::widget::canvas::{self, Canvas, Frame, Geometry, Path, Stroke};
 use iced::widget::{button, column, container, image, pin, row, scrollable, stack, text, Space};
 use iced::{mouse, Background, Border, Color, Element, Length, Padding, Point, Radians, Rectangle, Renderer, Shadow, Theme};
 
-use crate::community::{wire, Person, Rarity, Title};
+use crate::community::{wire, Person, Title};
 use crate::community_screen::{self as screen, Ground, Message, Scored};
 use crate::glyphs::{glyph, Icon};
 use crate::lang::Words;
@@ -606,11 +606,15 @@ impl<M> canvas::Program<M> for Dial {
     }
 }
 
-pub(crate) fn rarity_place(catalog: &crate::community::Catalog, code: &str) -> (usize, usize) {
+pub(crate) fn rarity_place(catalog: &crate::community::Catalog, code: &str) -> (usize, usize, usize) {
     let held = |title: &Title| catalog.held.get(&title.code).copied().unwrap_or(0).max(catalog.holders(&title.code).len() as u32);
-    let mut ranked: Vec<(u32, &str)> = catalog.titles.iter().map(|title| (held(title), title.code.as_str())).collect();
-    ranked.sort();
-    (ranked.iter().position(|(_, other)| *other == code).map_or(0, |at| at + 1), ranked.len())
+    let total = catalog.titles.len();
+    let Some(mine) = catalog.title_of(code).map(held) else {
+        return (0, 0, total);
+    };
+    let rarer = catalog.titles.iter().filter(|title| held(title) < mine).count();
+    let same = catalog.titles.iter().filter(|title| held(title) == mine).count();
+    (rarer + 1, rarer + same, total)
 }
 
 fn holder_card<'a>(ground: &Ground<'a>, at: usize, person: &'a Person, earned: Option<i64>, first: Option<i64>, chosen: bool) -> Element<'a, Message> {
@@ -659,8 +663,7 @@ pub(crate) fn title<'a>(ground: &Ground<'a>, code: &str, who: Option<i64>) -> El
         return container(row![caption(code.to_owned()), ui::grow(), close()]).padding(20).into();
     };
     let holders = catalog.holders(code);
-    let known = !holders.is_empty() || !title.hidden;
-    let tint = if known { title.rarity.colour() } else { FAINT };
+    let tint = title.rarity.colour();
     let earned = |person: &Person| -> Option<i64> {
         person.title_dates.get(code).copied().or_else(|| catalog.me.as_ref().filter(|me| me.person.id == person.id).and_then(|me| me.title_dates.get(code).copied()))
     };
@@ -670,7 +673,7 @@ pub(crate) fn title<'a>(ground: &Ground<'a>, code: &str, who: Option<i64>) -> El
     let server = catalog.held.get(code).copied().unwrap_or(0).max(holders.len() as u32);
     let everyone = catalog.players.max(catalog.people.len() as u32).max(1);
     let share = server as f32 / everyone as f32;
-    let (place, of) = rarity_place(catalog, code);
+    let (first_place, last_place, of) = rarity_place(catalog, code);
 
     let emblem = stack![
         Canvas::new(Dial { share, colour: tinted(tint, 1.0), track: blend(tint, 0.3), disc: Color { a: k, ..theme::SLAB_SOLID }, band: 6.0 }).width(RING).height(RING),
@@ -678,18 +681,18 @@ pub(crate) fn title<'a>(ground: &Ground<'a>, code: &str, who: Option<i64>) -> El
     ];
     let mut ticks = row![].spacing(3);
     for at in 1..=of {
-        let shade = blend(tint, if at == place { 1.0 } else if at < place { 0.34 } else { 0.14 });
+        let shade = blend(tint, if (first_place..=last_place).contains(&at) { 1.0 } else if at < first_place { 0.34 } else { 0.14 });
         ticks = ticks.push(container(Space::new().height(8.0)).width(Length::FillPortion(1)).style(move |_| container::Style { background: Some(Background::Color(shade)), border: Border { radius: 2.0.into(), ..Border::default() }, ..container::Style::default() }));
     }
     let left = column![
         emblem,
         container(mono(w.t(title.rarity.key()).to_uppercase(), 11.0, tint, false)).padding(Padding::ZERO.top(6.0)),
-        text(if known { title.name(w.lang()).to_owned() } else { "???".to_owned() }).font(theme::SANS_SEMI).size(26.0).color(ui::faded(INK)).align_x(iced::Center),
-        text(if known { title.about(w.lang()).to_owned() } else { w.t("secret-title") }).font(theme::SANS).size(14.0).color(ui::faded(MUTED)).align_x(iced::Center),
+        text(title.name(w.lang()).to_owned()).font(theme::SANS_SEMI).size(26.0).color(ui::faded(INK)).align_x(iced::Center),
+        text(title.about(w.lang()).to_owned()).font(theme::SANS).size(14.0).color(ui::faded(MUTED)).align_x(iced::Center),
         ui::grow_tall(),
         column![mono(format!("{:.0}%", share * 100.0), 22.0, tint, true), text(w.t("title-share-said")).font(theme::SANS).size(12.0).color(ui::faded(MUTED))].spacing(4).width(Length::Fill),
         column![
-            row![caption(w.with("title-rarity-among", &[("n", of.to_string())])), ui::grow(), mono(w.with("title-rarity-place", &[("n", place.to_string())]), 13.0, INK, false)].align_y(iced::Center),
+            caption(w.with("title-rarity-among", &[("n", of.to_string())])),
             ticks,
             row![text(w.t("title-rare-end")).font(theme::SANS).size(11.0).color(ui::faded(FAINT)), ui::grow(), text(w.t("title-common-end")).font(theme::SANS).size(11.0).color(ui::faded(FAINT))],
         ]
@@ -796,7 +799,35 @@ mod tests {
         let mut catalog = crate::community::Catalog::staged(Vec::new(), "NaumRedlo", 1_789_560_000);
         catalog.held = [("ss_8star", 1), ("archivist", 1), ("registered", 43)].into_iter().map(|(code, held)| (code.to_owned(), held)).collect();
         let of = catalog.titles.len();
-        assert_eq!(rarity_place(&catalog, "registered"), (of, of));
+        assert_eq!(rarity_place(&catalog, "registered"), (of, of, of));
         assert!(rarity_place(&catalog, "archivist").0 < rarity_place(&catalog, "registered").0);
+    }
+
+    #[test]
+    fn titles_held_by_as_many_share_their_place_instead_of_being_told_apart_by_their_names() {
+        let mut catalog = crate::community::Catalog::staged(Vec::new(), "NaumRedlo", 1_789_560_000);
+        let of = catalog.titles.len();
+        for person in &mut catalog.people {
+            person.titles.clear();
+        }
+        catalog.held = catalog.titles.iter().enumerate().map(|(at, title)| (title.code.clone(), if at < 3 { 2 } else if at < 5 { 7 } else { 40 })).collect();
+        let first = catalog.titles[0].code.clone();
+        assert_eq!(rarity_place(&catalog, &first), (1, 3, of), "three titles are equally rare and all three hold places one to three");
+        assert_eq!(rarity_place(&catalog, &catalog.titles[2].code), (1, 3, of));
+        assert_eq!(rarity_place(&catalog, &catalog.titles[3].code), (4, 5, of));
+        assert_eq!(rarity_place(&catalog, &catalog.titles[of - 1].code), (6, of, of), "and the commonest is shared with every title as common");
+        assert_eq!(rarity_place(&catalog, "no-such-title"), (0, 0, of));
+    }
+
+    #[test]
+    fn a_title_nobody_holds_is_as_rare_as_every_other_that_nobody_holds() {
+        let mut catalog = crate::community::Catalog::staged(Vec::new(), "NaumRedlo", 1_789_560_000);
+        let of = catalog.titles.len();
+        catalog.held = std::collections::HashMap::new();
+        for person in &mut catalog.people {
+            person.titles.clear();
+        }
+        let (first, last, total) = rarity_place(&catalog, &catalog.titles[of - 1].code);
+        assert_eq!((first, last, total), (1, of, of), "with no one holding anything every title shares the same place");
     }
 }

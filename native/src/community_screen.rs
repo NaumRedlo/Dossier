@@ -1426,10 +1426,9 @@ fn faces<'a>(ground: &Ground<'a>, holders: &[usize]) -> Element<'a, Message> {
 fn title_card<'a>(ground: &Ground<'a>, title: &Title) -> Element<'a, Message> {
     let w = ground.words;
     let holders = ground.catalog.holders(&title.code);
-    let known = !holders.is_empty() || !title.hidden;
     let colour = if holders.is_empty() { FAINT } else { title.rarity.colour() };
-    let name = if known { title.name(w.lang()).to_owned() } else { "???".to_owned() };
-    let about = if known { title.about(w.lang()).to_owned() } else { w.t("secret-title") };
+    let name = title.name(w.lang()).to_owned();
+    let about = title.about(w.lang()).to_owned();
     let mut foot = row![faces(ground, &holders), ui::grow()].align_y(iced::Center);
     if let Some(you) = ground.catalog.people.iter().find(|p| p.you) {
         foot = foot.push(crate::dossier::wear_button(ground, you, title));

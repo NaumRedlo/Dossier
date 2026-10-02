@@ -940,6 +940,7 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
             main
         }),
         ("main-community-title".to_owned(), titled("ss_100", "ssnowy")),
+        ("main-community-title-unheld".to_owned(), titled("combo_1984", "NaumRedlo")),
         ("main-community-title-earned".to_owned(), titled("combo_2000", "Mirrorwave")),
         ("main-community-clip".to_owned(), {
             let mut main = community(crate::community_screen::Section::Feed, None);

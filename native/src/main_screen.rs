@@ -36,6 +36,7 @@ const LIVE_EVERY: Duration = Duration::from_secs(6);
 const PANEL_SHOW: Duration = Duration::from_millis(420);
 const FOLD: Duration = Duration::from_millis(280);
 const COMMUNITY_EVERY: Duration = Duration::from_secs(30);
+const HISTORY_EVERY: Duration = Duration::from_secs(600);
 const COMPANION_DWELL: Duration = Duration::from_millis(900);
 const COMPANION_TICK: Duration = Duration::from_millis(250);
 const COMPANION_EDGE: f32 = 16.0;
@@ -169,6 +170,7 @@ pub enum Message {
     Witness(crate::witness::Event),
     WitnessTold(bool),
     WitnessSitting(bool),
+    HistoryTold(crate::history::Sent),
     CompanionTick,
     ToastHover(u64, bool),
     ToastClose(u64),
@@ -588,6 +590,8 @@ pub struct Main {
     pub witness: crate::witness::Seen,
     pub witness_control: Option<std::sync::Arc<crate::witness::Control>>,
     pub sittings: crate::witness::Sittings,
+    pub history_running: bool,
+    pub history_at: Option<Instant>,
     pub companion_fade: Animation<bool>,
     pub companion_at: Option<(u64, Instant)>,
     pub companion_asked: Option<u64>,
@@ -822,6 +826,8 @@ impl Main {
             witness: crate::witness::Seen::default(),
             witness_control: None,
             sittings: crate::witness::Sittings::default(),
+            history_running: false,
+            history_at: None,
             companion_fade: Animation::new(false).duration(PANEL_SHOW).easing(Easing::EaseOutCubic),
             companion_at: None,
             companion_asked: None,
@@ -926,7 +932,32 @@ impl Main {
         self.witness_control = Some(control.clone());
         self.witness = crate::witness::Seen { status: crate::witness::Status::Absent, ..crate::witness::Seen::default() };
         let player = self.community.as_ref().and_then(|catalog| catalog.people.iter().find(|person| person.you)).map(|you| you.name.clone()).unwrap_or_default();
-        ui::streamed(move |push| crate::witness::run(control, player, &mut |event| push(Message::Witness(event))))
+        let watching = ui::streamed(move |push| crate::witness::run(control, player, &mut |event| push(Message::Witness(event))));
+        Task::batch([watching, self.history_task(false)])
+    }
+
+    fn stable_root(&self) -> Option<std::path::PathBuf> {
+        self.settings.sources.iter().find(|source| source.kind == crate::sources::Kind::Stable && source.on).map(|source| source.root.clone())
+    }
+
+    fn history_task(&mut self, force: bool) -> Task<Message> {
+        if !self.settings.history_share || self.settings.token.is_empty() || self.gallery || self.history_running {
+            return Task::none();
+        }
+        let now = Instant::now();
+        if !force && self.history_at.is_some_and(|at| now.saturating_duration_since(at) < HISTORY_EVERY) {
+            return Task::none();
+        }
+        let Some(root) = self.stable_root() else {
+            return Task::none();
+        };
+        self.history_running = true;
+        self.history_at = Some(now);
+        let (server, token, name, after) = (self.settings.server.clone(), self.settings.token.clone(), self.settings.device.clone(), self.settings.history_sent);
+        ui::in_thread(move || {
+            let digest = crate::history::gather(&root, after);
+            Message::HistoryTold(crate::history::tell(&digest, |chunk| crate::bot::local_scores(&server, &token, &name, chunk).ok()))
+        })
     }
 
     fn sitting_task(&mut self, event: &crate::witness::Event) -> Task<Message> {
@@ -2918,9 +2949,11 @@ impl Main {
                 if self.witness_control.is_none() {
                     return Task::none();
                 }
+                let was_there = matches!(self.witness.status, crate::witness::Status::Loading | crate::witness::Status::Watching | crate::witness::Status::Playing);
                 self.witness.take(&event);
                 self.companion_follow();
-                let sitting = self.sitting_task(&event);
+                let leaving = was_there && matches!(event, crate::witness::Event::Gone | crate::witness::Event::Waiting | crate::witness::Event::Absent);
+                let sitting = Task::batch([self.sitting_task(&event), if leaving { self.history_task(false) } else { Task::none() }]);
                 if let crate::witness::Event::Kept(kept) = &event {
                     let tell = Task::batch([self.tell_task(kept).unwrap_or_else(Task::none), sitting]);
                     if !self.settings.witness_keep {
@@ -2938,6 +2971,16 @@ impl Main {
                 sitting
             }
             Message::WitnessSitting(_) => Task::none(),
+            Message::HistoryTold(sent) => {
+                self.history_running = false;
+                self.witness.history_told += sent.kept;
+                self.witness.history_failed = sent.failed;
+                if sent.through > self.settings.history_sent {
+                    self.settings.history_sent = sent.through;
+                    let _ = self.settings.save();
+                }
+                Task::none()
+            }
             Message::WitnessTold(reached) => {
                 self.witness.untold = !reached;
                 if !reached {
@@ -6332,6 +6375,16 @@ impl Main {
                 keep(&self.settings);
                 Task::none()
             }
+            P::WitnessHistory(on) => {
+                self.remember_mark("witness-history", on);
+                self.settings.history_share = on;
+                if on {
+                    self.settings.history_sent = 0;
+                    self.witness.history_failed = false;
+                }
+                keep(&self.settings);
+                if on { self.history_task(true) } else { Task::none() }
+            }
             P::WitnessCompanion(on) => {
                 self.remember_mark("witness-companion", on);
                 self.settings.witness_companion = on;
@@ -7963,6 +8016,37 @@ mod tests {
         main.settings.token.clear();
         let _ = main.update(super::Message::Witness(said("SelectPlay", 10)));
         assert!(main.companion_at.is_none(), "an unpaired device has no chat to ask");
+    }
+
+    #[test]
+    fn local_scores_go_to_the_bot_only_when_asked_for_once_at_a_time_and_from_where_the_last_left_off() {
+        let (_, mut main) = crate::gallery::main_states(crate::lang::Lang::En).into_iter().find(|(name, _)| name == "main-community-person").unwrap();
+        main.settings.token = "test-account".into();
+        main.settings.sources = vec![crate::sources::Source { kind: crate::sources::Kind::Stable, root: std::path::PathBuf::from("/no/such/client"), on: true, ..crate::sources::shared(true) }];
+        main.gallery = false;
+        let _ = main.history_task(true);
+        assert!(!main.history_running, "nothing is told unless the person asked for it");
+        let _ = main.update(super::Message::Prefs(crate::settings_screen::Message::WitnessHistory(true)));
+        assert!(main.settings.history_share && main.history_running && main.settings.history_sent == 0);
+        assert!(main.history_at.is_some());
+        let _ = main.history_task(true);
+        assert!(main.history_running, "a second sync does not start while one is going");
+        let _ = main.update(super::Message::HistoryTold(crate::history::Sent { kept: 40, through: 1_700_000_000, failed: false }));
+        assert!(!main.history_running);
+        assert_eq!((main.witness.history_told, main.settings.history_sent, main.witness.history_failed), (40, 1_700_000_000, false));
+        let _ = main.history_task(false);
+        assert!(!main.history_running, "a new sync waits for its turn");
+        let _ = main.history_task(true);
+        let _ = main.update(super::Message::HistoryTold(crate::history::Sent { kept: 0, through: 0, failed: true }));
+        assert_eq!((main.witness.history_failed, main.settings.history_sent), (true, 1_700_000_000), "a failure leaves the mark where it was");
+        let _ = main.update(super::Message::Prefs(crate::settings_screen::Message::WitnessHistory(false)));
+        main.history_at = None;
+        let _ = main.history_task(true);
+        assert!(!main.history_running && !main.settings.history_share);
+        main.settings.history_share = true;
+        main.settings.token.clear();
+        let _ = main.history_task(true);
+        assert!(!main.history_running, "an unpaired device tells nothing");
     }
 
     #[test]

@@ -259,6 +259,22 @@ pub fn witnessed(server: &str, token: &str, name: &str, play: &crate::witness::T
     status(response).map(|_| ())
 }
 
+pub fn local_scores(server: &str, token: &str, name: &str, scores: &[crate::history::LocalScore]) -> Result<u32, Refused> {
+    #[derive(serde::Deserialize)]
+    struct Kept {
+        kept: u32,
+    }
+    let response = client()?
+        .post(format!("{server}/render/me/history"))
+        .header("X-Render-Worker", name)
+        .bearer_auth(token)
+        .json(&serde_json::json!({ "scores": scores }))
+        .send()
+        .map_err(|e| Refused::Network(e.to_string()))?;
+    let kept: Kept = status(response)?.json().map_err(|e| Refused::Network(e.to_string()))?;
+    Ok(kept.kept)
+}
+
 pub fn witness_session(server: &str, token: &str, name: &str, sitting: &crate::witness::Sitting) -> Result<(), Refused> {
     let response = client()?
         .post(format!("{server}/render/me/session"))

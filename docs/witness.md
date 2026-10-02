@@ -223,6 +223,43 @@ five minutes, and at its end; the bot keeps one row per start and only lets it
 grow, so a repeated or late message does no harm. Nothing is told without a paired
 device, and the tile says that the time zone and the session lengths are told.
 
+### What the client knows of a map
+
+The client keeps a library of the maps it has seen in `osu!.db`, beside its
+program. For every map it holds the hash, the ids of the map and of its set, the
+name of the difficulty, the status, AR, CS, OD and HP, the timing points (the
+BPM is the one the map spends the longest in), the length, the number of objects
+and the star rating of osu!standard **for every combination of the mods that
+change difficulty** (EZ, HD, HR, DT, HT, FL and their pairs: 36 of them in the
+current client). `beatmaps.rs` reads it (versions before 20191106 have a size in
+front of each entry; stars are doubles before 20250107 and floats after) and
+says whether it read the whole file. The reader was checked on the bench's
+library (98 maps, the end of the file where it should be) and on libraries built
+in the tests.
+
+- **Live.** While the program is beside a client it looks maps up in that file by
+  the hash it reads from memory (the file is looked at again when it changes, at
+  most every thirty seconds). The state it tells and every kept play carry
+  `facts`: ids, status, the stars (with the play's mods for a kept play), the
+  stars without mods, AR, CS, OD, HP, BPM, length and objects. Nothing new is read
+  from the client's memory. A map not in the library simply has no `facts`.
+- **Told on.** The application hands `facts` on with the play it tells; the bot
+  keeps them as the play's stars, BPM, length and status until osu! says its own,
+  and keeps them for good when osu! does not know the map (a local or an
+  unsubmitted one).
+- **Local scores.** With the switch "Use local scores for titles" on (it is off
+  until the person turns it on) the application reads `scores.db` and `osu!.db`
+  of the client's folder, ties each score to the map its hash names and tells the
+  bot the scores of osu!standard with the difficulty of the map and the stars for
+  the mods the score was played with, 500 at a time, at
+  `POST /render/me/history`. A score whose map is not in the library, or has no
+  id (an unsubmitted map), is left out. It is told at the start of the
+  application, when the client closes, and at most every ten minutes, and from
+  where the last telling left off; the bot keeps one row for a play and ignores
+  what it has. `scores.db` holds passed plays only, so titles read these scores
+  where one play is enough (an FC, an SS, a pass of a hard map, the same score
+  twice, a day with an SS) and never for runs or fails.
+
 ## The transmitter
 
 A play Witness saw end is told to the server at once, so the chat's feed does

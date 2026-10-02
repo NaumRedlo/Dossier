@@ -10,6 +10,11 @@ fn main() {
         serve(&player, leash.as_deref());
         return;
     }
+    if let Some(at) = args.iter().position(|arg| arg == "--library") {
+        let md5 = args.iter().position(|arg| arg == "--md5").and_then(|at| args.get(at + 1));
+        library_report(args.get(at + 1), md5);
+        return;
+    }
     let rounds: usize = args.iter().position(|arg| arg == "--watch").and_then(|at| args.get(at + 1)).and_then(|said| said.parse().ok()).unwrap_or(1);
     let name = args.iter().position(|arg| arg == "--process").and_then(|at| args.get(at + 1)).cloned().unwrap_or_else(|| "osu!.exe".to_owned());
     let found = windows::processes_named(&name);
@@ -120,6 +125,30 @@ fn report(process: &dossier_witness::windows::Process, seconds: u64) {
 }
 
 #[cfg(windows)]
+fn library_report(path: Option<&String>, md5: Option<&String>) {
+    use dossier_witness::beatmaps::Library;
+
+    let Some(path) = path else {
+        println!("witness: --library wants the path of an osu!.db");
+        return;
+    };
+    let Some(library) = Library::open(std::path::Path::new(path)) else {
+        println!("witness: {path} is not a library this program can read");
+        return;
+    };
+    println!("witness: library version {}, player {}, {} of {} maps read, {}", library.version, library.player, library.len(), library.declared, if library.complete { "whole" } else { "cut short" });
+    let standard = library.maps().filter(|map| map.mode == 0).count();
+    let with_stars = library.maps().filter(|map| map.mode == 0 && !map.stars.is_empty()).count();
+    println!("witness: {standard} maps of osu!standard, {with_stars} of them with stars for the mods");
+    if let Some(md5) = md5 {
+        match library.get(md5) {
+            Some(map) => println!("witness: {md5} is {} [{}], {:?}", map.id, map.version, map.facts(0)),
+            None => println!("witness: {md5} is not in the library"),
+        }
+    }
+}
+
+#[cfg(windows)]
 fn say(line: String) {
     use std::io::Write;
     let mut out = std::io::stdout().lock();
@@ -171,6 +200,7 @@ fn serve(player: &str, leash: Option<&std::path::Path>) {
             say(wire::plain("gone"));
             continue;
         };
+        let mut shelf = process.folder().map(|folder| dossier_witness::beatmaps::Shelf::beside(&folder));
         let mut recorder = stable::Recorder::default();
         let mut last_state = String::new();
         let mut told_at = Instant::now();
@@ -187,7 +217,8 @@ fn serve(player: &str, leash: Option<&std::path::Path>) {
             }
             let seen = stable::glance(&process, &anchors);
             if let Some(seen) = &seen {
-                let said = wire::state(seen);
+                let facts = seen.map.as_ref().and_then(|map| shelf.as_mut()?.map(&map.md5).map(|known| known.facts(0)));
+                let said = wire::state(seen, facts.as_ref());
                 if said != last_state {
                     say(said.clone());
                     last_state = said;
@@ -196,7 +227,8 @@ fn serve(player: &str, leash: Option<&std::path::Path>) {
             if let Some(take) = recorder.poll(&process, &anchors) {
                 if take.frames.len() >= FRAMES_LEAST {
                     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |since| since.as_secs() as i64);
-                    say(wire::kept(&take, &osr::file_name(&take, &client, player, now), &osr::write(&take, &client, player, now)));
+                    let facts = shelf.as_mut().and_then(|shelf| shelf.map(&take.map.md5).map(|known| known.facts(take.play.mods)));
+                    say(wire::kept(&take, &osr::file_name(&take, &client, player, now), &osr::write(&take, &client, player, now), facts.as_ref()));
                 }
             }
             if let (Some(take), Some(seen)) = (recorder.recording(), &seen) {

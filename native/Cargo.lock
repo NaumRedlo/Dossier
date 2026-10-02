@@ -1129,6 +1129,7 @@ dependencies = [
  "dossier-render",
  "dossier-replay",
  "dossier-sim",
+ "dossier-witness",
  "fluent-bundle",
  "iana-time-zone",
  "iced",
@@ -1198,6 +1199,13 @@ version = "0.11.0"
 dependencies = [
  "dossier-beatmap",
  "dossier-replay",
+]
+
+[[package]]
+name = "dossier-witness"
+version = "0.11.0"
+dependencies = [
+ "lzma-rs",
 ]
 
 [[package]]

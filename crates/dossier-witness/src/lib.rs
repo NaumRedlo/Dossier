@@ -1,5 +1,7 @@
+pub mod beatmaps;
 pub mod client;
 pub mod fake;
+pub mod forge;
 pub mod leash;
 pub mod md5;
 pub mod memory;

@@ -33,6 +33,7 @@ pub mod player;
 mod playback_wake;
 pub mod render;
 pub mod scan;
+pub mod history;
 pub mod scores;
 pub mod settings;
 pub mod settings_screen;

@@ -18,6 +18,23 @@ const LEASH_EVERY: Duration = Duration::from_secs(5);
 const TOLD_LEAST: u32 = 30;
 const NOT_PLAYED: u32 = 2048 | 4_194_304;
 
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct MapFacts {
+    pub id: i64,
+    pub set: i64,
+    pub status: String,
+    pub stars: f64,
+    pub base_stars: f64,
+    pub ar: f64,
+    pub cs: f64,
+    pub od: f64,
+    pub hp: f64,
+    pub bpm: f64,
+    pub length: i64,
+    pub objects: u32,
+}
+
 #[derive(Debug, Clone, PartialEq, Default, Deserialize)]
 #[serde(default)]
 pub struct State {
@@ -29,6 +46,7 @@ pub struct State {
     pub title: String,
     pub version: String,
     pub creator: String,
+    pub facts: Option<MapFacts>,
 }
 
 impl State {
@@ -75,6 +93,7 @@ pub struct Kept {
     pub set: i64,
     pub creator: String,
     pub watched: Option<bool>,
+    pub facts: Option<MapFacts>,
 }
 
 const SITTING_MOST: i64 = 24 * 3600;
@@ -201,6 +220,8 @@ pub struct Told {
     pub miss: u32,
     pub passed: bool,
     pub ended: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub facts: Option<MapFacts>,
 }
 
 pub fn told(kept: &Kept, own: &str, now: i64) -> Option<Told> {
@@ -237,6 +258,7 @@ pub fn told(kept: &Kept, own: &str, now: i64) -> Option<Told> {
         miss: u32::from(replay.hits.count_miss),
         passed: kept.passed,
         ended: now,
+        facts: kept.facts.clone(),
     })
 }
 
@@ -290,6 +312,8 @@ pub struct Seen {
     pub untold: bool,
     pub build: String,
     pub player: String,
+    pub history_told: u32,
+    pub history_failed: bool,
 }
 
 impl Seen {
@@ -687,6 +711,28 @@ mod tests {
         assert!(sittings.current().is_none());
         let next = sittings.take(&playing(), 1_000 + SITTING_MOST + 1, "UTC").expect("a new one is told at once");
         assert_eq!(next.started_at, 1_000 + SITTING_MOST + 1);
+    }
+
+    #[test]
+    fn what_the_client_knows_of_the_map_comes_with_the_state_and_the_kept_play_and_goes_on_to_the_bot() {
+        let facts = r#""facts":{"id":7,"set":8,"status":"ranked","stars":6.25,"base_stars":4.5,"ar":9,"cs":4,"od":8.5,"hp":5,"bpm":180,"length":120,"objects":300}"#;
+        let Some(Event::State(state)) = read(&format!(r#"{{"event":"state","mode":"SelectPlay","md5":"ab","id":7,"set":8,{facts}}}"#)) else {
+            panic!("a state is read");
+        };
+        assert_eq!(state.facts.as_ref().map(|facts| (facts.status.as_str(), facts.stars, facts.bpm, facts.length)), Some(("ranked", 6.25, 180.0, 120)));
+        assert!(matches!(read(r#"{"event":"state","mode":"Menu"}"#), Some(Event::State(State { facts: None, .. }))), "a state without them is still read");
+        let replay = include_bytes!("../tests/fixtures/witness.osr");
+        let hex: String = replay.iter().map(|byte| format!("{byte:02x}")).collect();
+        let Some(Event::Kept(kept)) = read(&format!(r#"{{"event":"kept","passed":true,"watched":false,"osr":"{hex}",{facts}}}"#)) else {
+            panic!("a kept play is read");
+        };
+        let own = dossier_replay::Replay::heading(replay).expect("a replay").player;
+        let told = told(&kept, &own, 1_000).expect("a play of one's own is told");
+        assert_eq!(told.facts.as_ref().map(|facts| facts.stars), Some(6.25));
+        let said = serde_json::to_value(&told).expect("it says itself");
+        assert_eq!(said["facts"]["bpm"], 180.0);
+        let bare = serde_json::to_value(Told { facts: None, ..told }).expect("it says itself");
+        assert!(bare.get("facts").is_none());
     }
 
     #[test]

@@ -2091,3 +2091,109 @@ fn a_slider_head_outside_the_window_is_not_a_head_at_all() {
         "a press past it does not, however wide the range that let it through"
     );
 }
+
+const SLIDERS_IN_A_ROW: usize = 24;
+const LEFT_EARLY: usize = 10;
+
+fn a_row_of_sliders(marked: bool) -> (Beatmap, Replay) {
+    let mut body = String::from(
+        "
+[Difficulty]
+CircleSize:5
+OverallDifficulty:5
+SliderMultiplier:1.4
+SliderTickRate:1
+
+[TimingPoints]
+0,500,4,2,0,60,1,0
+
+[HitObjects]
+",
+    );
+    let row = |index: usize| 50 + (index % 6) as i64 * 50;
+    let start = |index: usize| 1000 + index as i64 * 1000;
+    for index in 0..SLIDERS_IN_A_ROW {
+        let y = row(index);
+        body.push_str(&format!("100,{y},{},2,0,L|170:{y},1,70\n", start(index)));
+    }
+    let map = beatmap(&body);
+
+    let mut frames = Vec::new();
+    let mut grid = 3i64;
+    for index in 0..SLIDERS_IN_A_ROW {
+        let (from, y) = (start(index), row(index) as f32);
+        let tail = from + 214;
+        let ball = |t: i64| 100.0 + 0.28 * (t - from) as f32;
+        let leaves = index == LEFT_EARLY;
+        while grid < from {
+            frames.push(frame(grid, 100.0, y, 0));
+            grid += 17;
+        }
+        frames.push(frame(from, 100.0, y, Keys::K1));
+        while grid <= from + 250 {
+            let covered = leaves && grid > tail - 8;
+            if grid > from && !covered {
+                frames.push(frame(grid, ball(grid), y, Keys::K1));
+            }
+            grid += 17;
+        }
+        if leaves {
+            frames.push(frame(tail - 8, ball(tail - 8), y, Keys::K1));
+            frames.push(frame(tail + 5, ball(tail + 5), y + 120.0, Keys::K1));
+        } else if marked {
+            frames.push(frame(tail, ball(tail), y, Keys::K1));
+        }
+        frames.push(frame(from + 260, 170.0, y, 0));
+    }
+    frames.sort_by_key(|f| f.time_ms);
+    (map, replay_with(frames, 0))
+}
+
+#[test]
+fn a_replay_marked_by_the_client_is_tracked_on_its_own_frames() {
+    let (map, replay) = a_row_of_sliders(true);
+    let counts = judged(&map, &replay);
+    assert_eq!(
+        (counts.count_300, counts.count_100),
+        (SLIDERS_IN_A_ROW as u16 - 1, 1),
+        "the cursor was on the ball eight milliseconds before the tail and gone five after it, and the client, which writes a frame the moment a tail scores, wrote none: {counts:?}"
+    );
+}
+
+#[test]
+fn a_replay_without_those_marks_is_still_read_between_its_frames() {
+    let (map, replay) = a_row_of_sliders(false);
+    let counts = judged(&map, &replay);
+    assert_eq!(
+        counts.count_300,
+        SLIDERS_IN_A_ROW as u16,
+        "nothing in this replay says its frames follow the score, so a straight line between two of them is the best reading there is: {counts:?}"
+    );
+}
+
+#[test]
+fn a_stable_tail_falls_on_a_whole_millisecond() {
+    let map = beatmap(
+        "
+[Difficulty]
+CircleSize:5
+OverallDifficulty:5
+SliderMultiplier:1.4
+SliderTickRate:1
+
+[TimingPoints]
+0,333.333333333333,4,2,0,60,1,0
+
+[HitObjects]
+0,0,1000,2,0,L|140:0,1,140
+0,100,3000,2,0,L|20:100,1,20
+",
+    );
+    let state = GameState::from_beatmap(&map, Mods::default());
+    let objects = &state.timeline().objects;
+    assert!((objects[0].end_ms - 1333.333).abs() < 0.01, "{}", objects[0].end_ms);
+    assert_eq!(dossier_sim::tail_check_whole_ms(&objects[0]), 1297.0, "thirty-six before the whole millisecond the slider ends on");
+    assert!((dossier_sim::tail_check_ms(&objects[0]) - 1297.333).abs() < 0.01, "lazer keeps the fraction");
+    assert!((objects[1].end_ms - 3047.619).abs() < 0.01, "{}", objects[1].end_ms);
+    assert_eq!(dossier_sim::tail_check_whole_ms(&objects[1]), 3023.0, "a slider under seventy-two long is checked half way, in whole milliseconds: 47 / 2 is 23");
+}

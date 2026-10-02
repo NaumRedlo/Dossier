@@ -67,6 +67,22 @@ impl TimedObject {
         path.position_at_slide(progress, *slides)
     }
 
+    pub fn ball_on_whole_ms(&self, time_ms: f64) -> Option<Point> {
+        let TimedKind::Slider {
+            path,
+            slides,
+            slide_duration_ms,
+            ..
+        } = &self.kind
+        else {
+            return None;
+        };
+        if time_ms < self.start_ms || time_ms > self.end_ms || *slide_duration_ms <= 0.0 {
+            return None;
+        }
+        path.position_on_whole_ms(self.start_ms, *slide_duration_ms, *slides, time_ms)
+    }
+
     pub fn tick_times(&self) -> Vec<f64> {
         let TimedKind::Slider {
             slides,

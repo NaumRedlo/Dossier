@@ -198,6 +198,43 @@ impl SliderPath {
         Some((start, interior, end))
     }
 
+    pub fn position_on_whole_ms(&self, start_ms: f64, slide_ms: f64, slides: u32, time_ms: f64) -> Option<Point> {
+        let first = *self.points.first()?;
+        let pieces = self.points.len() - 1;
+        if pieces == 0 || self.length <= 0.0 || slide_ms <= 0.0 {
+            return Some(first);
+        }
+        let slides = slides.max(1) as usize;
+        let piece = |at: usize| -> (f64, f64, Point, Point) {
+            let (slide, local) = (at / pieces, at % pieces);
+            let base = start_ms + slide as f64 * slide_ms;
+            let reach = |index: usize| self.cumulative[index] / self.length * slide_ms;
+            if slide % 2 == 0 {
+                (base + reach(local), base + reach(local + 1), self.points[local], self.points[local + 1])
+            } else {
+                let (from, to) = (pieces - local, pieces - local - 1);
+                (base + slide_ms - reach(from), base + slide_ms - reach(to), self.points[from], self.points[to])
+            }
+        };
+        let total = pieces * slides;
+        let (mut low, mut high) = (0usize, total - 1);
+        while low < high {
+            let middle = (low + high) / 2;
+            if piece(middle).1 >= time_ms {
+                high = middle;
+            } else {
+                low = middle + 1;
+            }
+        }
+        let (from_ms, to_ms, from, to) = piece(low);
+        let (from_ms, to_ms) = (from_ms.trunc(), to_ms.trunc());
+        if to_ms == from_ms {
+            return Some(to);
+        }
+        let done = 1.0 - (to_ms - time_ms) / (to_ms - from_ms);
+        Some(from.lerp(to, done))
+    }
+
     pub fn position_at_slide(&self, progress: f64, slides: u32) -> Option<Point> {
         let slides = slides.max(1) as f64;
         let p = progress.clamp(0.0, slides);
@@ -381,4 +418,43 @@ fn sample_count(span_length: f64) -> usize {
         return MIN_SPAN_SAMPLES;
     }
     ((span_length / 100.0 * SAMPLES_PER_100PX).ceil() as usize).max(MIN_SPAN_SAMPLES)
+}
+
+#[cfg(test)]
+mod whole_ms {
+    use super::*;
+
+    fn straight(length: f64) -> SliderPath {
+        SliderPath::new(CurveType::Linear, &[Point { x: 0.0, y: 0.0 }, Point { x: length, y: 0.0 }], Some(length))
+    }
+
+    #[test]
+    fn the_ball_runs_ahead_when_the_slide_ends_between_two_milliseconds() {
+        let path = straight(100.0);
+        let plain = path.position_at_slide(50.0 / 100.5, 1).expect("on the path");
+        let whole = path.position_on_whole_ms(1000.0, 100.5, 1, 1050.0).expect("on the path");
+        assert!((whole.x - 50.0).abs() < 1e-9, "the slide is taken to end at 1100, so half of a hundred milliseconds is half of the path: {}", whole.x);
+        assert!(whole.x > plain.x, "which is ahead of where the unrounded slide has it: {} against {}", whole.x, plain.x);
+    }
+
+    #[test]
+    fn a_piece_that_begins_and_ends_in_one_millisecond_is_at_its_end() {
+        let bent = SliderPath::new(
+            CurveType::Linear,
+            &[Point { x: 0.0, y: 0.0 }, Point { x: 0.4, y: 0.0 }, Point { x: 0.4, y: 0.4 }, Point { x: 100.0, y: 0.4 }],
+            None,
+        );
+        let at = bent.position_on_whole_ms(1000.0, bent.length(), 1, 1000.0).expect("on the path");
+        assert_eq!((at.x, at.y), (0.4, 0.0), "the first piece is over within the millisecond the slider starts in");
+    }
+
+    #[test]
+    fn a_slide_back_runs_the_pieces_the_other_way() {
+        let path = straight(100.0);
+        let out = path.position_on_whole_ms(0.0, 100.0, 2, 25.0).expect("on the path");
+        let back = path.position_on_whole_ms(0.0, 100.0, 2, 125.0).expect("on the path");
+        assert!((out.x - 25.0).abs() < 1e-9 && (back.x - 75.0).abs() < 1e-9, "{} then {}", out.x, back.x);
+        let turn = path.position_on_whole_ms(0.0, 100.0, 2, 100.0).expect("on the path");
+        assert!((turn.x - 100.0).abs() < 1e-9, "the turn belongs to the slide that reaches it: {}", turn.x);
+    }
 }

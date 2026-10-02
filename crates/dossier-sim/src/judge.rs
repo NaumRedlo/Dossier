@@ -12,6 +12,12 @@ pub const FOLLOW_CIRCLE_SCALE: f64 = 2.4;
 
 pub const TAIL_LENIENCE_MS: f64 = 36.0;
 
+const WHOLE_MS_DOUBT: f64 = 0.001;
+const FEWEST_PIECES_TO_READ_FRAMES: usize = 20;
+const FRAME_WAIT_SHARE: f64 = 0.98;
+const LONGEST_WAIT_FOR_A_FRAME_MS: f64 = 10.0;
+const FRAME_PERIOD_MS: f64 = 17.0;
+
 const CLICK_KEYS: u8 = Keys::M1 | Keys::M2 | Keys::K1 | Keys::K2;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -180,6 +186,7 @@ impl Judge {
             trace,
             clicks,
         } = judge_heads(timeline, cursor, ruleset);
+        let window = frame_window(timeline, cursor, ruleset);
         let mut events = Vec::new();
         for (index, object) in timeline.objects.iter().enumerate() {
             build_events(
@@ -189,6 +196,7 @@ impl Judge {
                 object,
                 heads[index],
                 ruleset,
+                window,
                 &mut events,
             );
         }
@@ -622,6 +630,7 @@ fn build_events(
     object: &TimedObject,
     head: Head,
     ruleset: Ruleset,
+    window: Option<f64>,
     out: &mut Vec<Event>,
 ) {
     let difficulty = &timeline.difficulty;
@@ -651,7 +660,7 @@ fn build_events(
         }
 
         TimedKind::Slider { .. } => {
-            build_slider_events(timeline, cursor, index, object, head, ruleset, out)
+            build_slider_events(timeline, cursor, index, object, head, ruleset, window, out)
         }
 
         TimedKind::Spinner => {
@@ -697,6 +706,7 @@ fn build_slider_events(
     object: &TimedObject,
     head: Head,
     ruleset: Ruleset,
+    window: Option<f64>,
     out: &mut Vec<Event>,
 ) {
     let difficulty = &timeline.difficulty;
@@ -731,28 +741,29 @@ fn build_slider_events(
     let mut parts_total = 1u32;
     let mut parts_hit = u32::from(head_hit);
 
-    let mut parts: Vec<(f64, Part)> = object
-        .tick_times()
-        .into_iter()
-        .map(|t| (t, Part::SliderTick))
-        .chain(
-            object
-                .repeat_times()
-                .into_iter()
-                .map(|t| (t, Part::SliderRepeat)),
-        )
-        .collect();
-    parts.sort_by(|a, b| a.0.total_cmp(&b.0));
-    parts.push((tail_check_ms(object), Part::SliderTail));
+    let (parts, early) = slider_parts(object, ruleset);
+    let tracked = match window {
+        Some(window) => track_slider_on_frames(
+            cursor,
+            object,
+            difficulty,
+            &parts,
+            &early,
+            head_time_for_tracking,
+            ruleset,
+            window,
+        ),
+        None => track_slider(
+            cursor,
+            object,
+            difficulty,
+            &parts,
+            head_time_for_tracking,
+            ruleset,
+        ),
+    };
 
-    for (time_ms, part, hit) in track_slider(
-        cursor,
-        object,
-        difficulty,
-        &parts,
-        head_time_for_tracking,
-        ruleset,
-    ) {
+    for (time_ms, part, hit) in tracked {
         parts_total += 1;
         parts_hit += u32::from(hit);
         out.push(Event {
@@ -854,6 +865,175 @@ pub fn tail_check_ms(object: &TimedObject) -> f64 {
         .max(object.start_ms)
 }
 
+fn slider_parts(object: &TimedObject, ruleset: Ruleset) -> (Vec<(f64, Part)>, Vec<bool>) {
+    let mut parts: Vec<(f64, Part)> = object
+        .tick_times()
+        .into_iter()
+        .map(|t| (t, Part::SliderTick))
+        .chain(
+            object
+                .repeat_times()
+                .into_iter()
+                .map(|t| (t, Part::SliderRepeat)),
+        )
+        .collect();
+    parts.sort_by(|a, b| a.0.total_cmp(&b.0));
+    parts.push((tail_check_ms(object), Part::SliderTail));
+    if !ruleset.slider_runs_on_whole_ms() {
+        let early = vec![false; parts.len()];
+        return (parts, early);
+    }
+    let on_the_edge = |raw: f64| raw - raw.trunc() < WHOLE_MS_DOUBT;
+    let last = parts.len() - 1;
+    let mut early: Vec<bool> = parts.iter().map(|&(raw, _)| on_the_edge(raw)).collect();
+    for part in &mut parts[..last] {
+        part.0 = part.0.trunc();
+    }
+    early[last] = on_the_edge(object.end_ms);
+    parts[last].0 = tail_check_whole_ms(object);
+    (parts, early)
+}
+
+fn frame_window(timeline: &Timeline, cursor: &CursorTrack, ruleset: Ruleset) -> Option<f64> {
+    if !ruleset.slider_runs_on_whole_ms() {
+        return None;
+    }
+    let frames = cursor.frames();
+    let mut waits = Vec::new();
+    for object in &timeline.objects {
+        if !matches!(object.kind, TimedKind::Slider { .. }) {
+            continue;
+        }
+        let (parts, early) = slider_parts(object, ruleset);
+        let swept = track_slider(cursor, object, &timeline.difficulty, &parts, None, ruleset);
+        for (at, (time_ms, _, landed)) in swept.into_iter().enumerate() {
+            if !landed {
+                continue;
+            }
+            let from = if early.get(at).copied().unwrap_or(false) { time_ms - 1.0 } else { time_ms };
+            let next = frames.partition_point(|frame| (frame.time_ms as f64) < from);
+            waits.push(frames.get(next).map_or(f64::INFINITY, |frame| (frame.time_ms as f64 - time_ms).max(0.0)));
+        }
+    }
+    if waits.len() < FEWEST_PIECES_TO_READ_FRAMES {
+        return None;
+    }
+    waits.sort_by(f64::total_cmp);
+    let most = waits[((waits.len() as f64 * FRAME_WAIT_SHARE) as usize).min(waits.len() - 1)];
+    (most <= LONGEST_WAIT_FOR_A_FRAME_MS * timeline.rate()).then_some(FRAME_PERIOD_MS * timeline.rate())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn track_slider_on_frames(
+    cursor: &CursorTrack,
+    object: &TimedObject,
+    difficulty: &dossier_beatmap::Difficulty,
+    parts: &[(f64, Part)],
+    early: &[bool],
+    head_hit_ms: Option<f64>,
+    ruleset: Ruleset,
+    window: f64,
+) -> Vec<(f64, Part, bool)> {
+    let radius = difficulty.circle_radius();
+    let follow = radius * FOLLOW_CIRCLE_SCALE;
+    let frames = cursor.frames();
+
+    let mut sliding = false;
+    let mut slide_start = f64::INFINITY;
+    let mut down_button = Side::NONE;
+    let mut head_seeded = false;
+    let mut judged = 0usize;
+    let mut out = Vec::with_capacity(parts.len());
+
+    let from = frames.partition_point(|frame| (frame.time_ms as f64) < object.start_ms);
+    for (index, frame) in frames.iter().enumerate().skip(from) {
+        let now = frame.time_ms as f64;
+        while let Some(&(time_ms, part)) = parts.get(judged) {
+            if now <= time_ms + window {
+                break;
+            }
+            out.push((time_ms, part, false));
+            judged += 1;
+        }
+        if judged == parts.len() {
+            break;
+        }
+
+        if let Some(at) = head_hit_ms {
+            if !head_seeded && now >= at {
+                head_seeded = true;
+                if let Some(b) = cursor.buttons_at(at) {
+                    down_button = if b.left_edge {
+                        Side::LEFT
+                    } else if b.right_edge {
+                        Side::RIGHT
+                    } else {
+                        b.down
+                    };
+                }
+            }
+        }
+
+        let acceptable = match cursor.buttons_on(index) {
+            Some(buttons) => {
+                let swap = buttons.down.any()
+                    && !(buttons.last == Side::BOTH && buttons.last2 == buttons.down);
+                let mut ok = false;
+                if buttons.down.any() {
+                    if down_button == Side::NONE || (buttons.down != Side::BOTH && swap) {
+                        down_button = if buttons.left_edge {
+                            Side::LEFT
+                        } else if buttons.right_edge {
+                            Side::RIGHT
+                        } else {
+                            buttons.down
+                        };
+                        ok = true;
+                    } else if buttons.down.overlaps(down_button) {
+                        ok = true;
+                    }
+                } else {
+                    down_button = Side::NONE;
+                }
+                ok || swap || ruleset.relax
+            }
+            None => ruleset.relax,
+        };
+        let tracking = object.ball_on_whole_ms(now).is_some_and(|ball| {
+            let at = dossier_beatmap::Point { x: f64::from(frame.x), y: f64::from(frame.y) };
+            acceptable && at.distance_to(ball) < if sliding { follow } else { radius }
+        });
+        if tracking && !sliding {
+            sliding = true;
+            slide_start = now;
+        }
+
+        while let Some(&(time_ms, part)) = parts.get(judged) {
+            let due = if early.get(judged).copied().unwrap_or(false) { time_ms - 1.0 } else { time_ms };
+            if now < due {
+                break;
+            }
+            out.push((time_ms, part, tracking && slide_start <= time_ms));
+            judged += 1;
+        }
+
+        if !tracking {
+            sliding = false;
+        }
+    }
+
+    for &(time_ms, part) in &parts[judged.min(parts.len())..] {
+        out.push((time_ms, part, false));
+    }
+    out
+}
+
+pub fn tail_check_whole_ms(object: &TimedObject) -> f64 {
+    let end = object.end_ms.trunc();
+    let half = object.start_ms + ((end - object.start_ms) / 2.0).trunc();
+    (end - TAIL_LENIENCE_MS).max(half)
+}
+
 pub fn required_half_turns(difficulty: &dossier_beatmap::Difficulty, duration_ms: f64) -> f64 {
     (difficulty.half_spins_per_second() * duration_ms / 1000.0).floor()
 }
@@ -928,6 +1108,7 @@ fn track_slider(
     ruleset: Ruleset,
 ) -> Vec<(f64, Part, bool)> {
     let tail_window = ruleset.slider_is_scored_by_its_head();
+    let whole_ms = ruleset.slider_runs_on_whole_ms();
     let relax = ruleset.relax;
     let forgiving = ruleset.a_late_head_forgives_what_it_swept_past();
     let radius = difficulty.circle_radius();
@@ -1009,14 +1190,20 @@ fn track_slider(
             }
             None => relax,
         };
-        let allowable = match (object.ball_at(now), cursor.sample(now)) {
+        let ball = if whole_ms && now.fract() == 0.0 {
+            object.ball_on_whole_ms(now)
+        } else {
+            object.ball_at(now)
+        };
+        let allowable = match (ball, cursor.sample(now)) {
             (Some(ball), Some(sample)) => {
                 let needed = if sliding || head_landing {
                     follow
                 } else {
                     radius
                 };
-                acceptable && sample.pos.distance_to(ball) <= needed
+                let apart = sample.pos.distance_to(ball);
+                acceptable && if whole_ms { apart < needed } else { apart <= needed }
             }
             _ => false,
         };

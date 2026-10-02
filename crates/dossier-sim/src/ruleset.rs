@@ -145,6 +145,10 @@ impl Ruleset {
         self.client == Client::Lazer
     }
 
+    pub fn slider_runs_on_whole_ms(self) -> bool {
+        self.client == Client::Stable
+    }
+
     pub fn slider_is_scored_by_its_head(self) -> bool {
         !self.whole_sliders
     }

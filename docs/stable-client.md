@@ -641,42 +641,89 @@ is the **cast** in front of the read, and that is the thing to check first.
 
 ## What this leaves open
 
-The rules are still out of reach: judgement, note lock, the scoring arithmetic,
-the slider tick logic. Those live in obfuscated IL behind encrypted strings, and
-[`stable-fidelity.md`](stable-fidelity.md)'s method — grade against danser and
-lazer, measure against a corpus of real replays — remains the way to settle
-them.
+With a whole decompilation the rules are no longer out of reach, and two of
+them have been read off it: the judgement marks, and the slider's tracking
+below. The names are still gone, so a method is found by a constant only it
+holds or by its shape, and what has not been read is most of it — the note
+lock's surroundings, the scoring arithmetic, the spinner's rotation count.
+[`stable-fidelity.md`](stable-fidelity.md)'s method — measure against a corpus
+of real replays — remains the way to know whether a reading is right.
 
-What the client answers is the other half: what stable *has*, at what size,
-under what name, and which decisions it lets a skin make. That is the half
-where a reimplementation can be checked against the thing itself rather than
-against another reimplementation.
+## The slider's tracking rule, read out of the client
 
-## The slider's tracking rule is not reachable this way
+An earlier pass at this section said the rule was out of reach: nothing in the
+gameplay path kept its name, and the test holds no constant to find it by. That
+was true of a metadata reader. A whole decompilation of `osu!.exe` (ILSpy,
+2026-10-02) has the method in it, and the handle was a constant after all — the
+follow circle's `2.4`, in the one method that multiplies the hit object radius
+by it. Everything below is that method and the three it leans on.
 
-`stable-fidelity.md` needed one thing from the client: whether stable stops
-tracking a slider when the player releases the button the slider was started
-with while still holding the other. danser says it does; three replays in the
-corpus say it does not. Both routes into `osu!.exe` were tried and neither
-reaches it.
+### The method, once per update
 
-**By name.** Of thirty thousand metadata names, eight and a half thousand
-survive, but the survivors are localisation keys, enum members and framework
-types. `Slider` matches twenty-five names and every one of them is an editor
-menu item or an AI-mod warning string. `Mouse`, `Button`, `Key` and `Follow` are
-the same. Nothing in the gameplay path kept its name.
+It is the slider's own scoring method, called by the manager once per update
+for the object in play, with the cursor's position. In order:
 
-**By constant.** The tracking test has no literal to find it by — it compares a
-distance against a radius and asks whether a button is down. The nearest handle
-is the follow circle's `2.4`, which appears in five methods; the two plausible
-ones turn out to be a hit-circle explosion animation (scale two to two point
-four over four hundred milliseconds — the four hundred is a duration, not the
-hittable range) and a piece of window layout in `Vector2`s. The rule itself
-holds no number that is not also a coordinate somewhere.
+1. Nothing happens before the slider's start time or after it is finished.
+2. **The button.** The input manager keeps three states — the buttons down
+   now, the set before the last change, and the set before that — and a flag
+   that is raised by a press and lowered when both sides are up. The slider
+   keeps the side that started it. The hold counts when the side is unset or a
+   swap is allowed (and is then set to the side pressed this update, or to
+   whatever is down), or when the side kept is still down. A swap is allowed
+   unless the last state was both sides and the one before it is what is down
+   now — which is the player letting the *second* finger go. The head writes
+   the side too, when it is struck by a press made on that update. This is
+   danser's rule to the line, and the engine's since August; the open question
+   in [`stable-fidelity.md`](stable-fidelity.md#where-danser-itself-parts-company-with-stable)
+   of whether danser had it right is closed: it had.
+3. **The distance.** The cursor is compared with the ball, strictly inside the
+   hit object radius, or 2.4 times it once the slide has begun.
+4. Tracking that begins on this update notes the time; that time is what the
+   pieces are compared with.
+5. **One piece** is retired per update: the first whose time is not after the
+   audio clock. It is taken when the player is tracking *and* began tracking at
+   or before the piece's own time, and dropped otherwise.
+6. Tracking that ends on this update is noted.
 
-This is what the opening of this document warned about, now specific: **static
-decompilation of the rules is not a short road**, and for slider tracking there
-is no marker to walk toward. Reaching it would mean reading `#=z...` calling
-`#=z...` outward from an entry point until the shape of a frame update appears —
-a different kind of exercise from anything here, and one that wants a debugger
-attached to a running client rather than a metadata reader.
+### Every time in it is a whole millisecond
+
+The audio clock is an `int`. So is every piece: a tick or a repeat is
+`(int)(start + length / velocity * 1000)`, the end of the slider is the `(int)`
+of the running sum of its segments' durations, and the tail is
+`max(start + (end - start) / 2, end - 36)` in integer arithmetic. The engine
+kept the fractions — a tail at `227138.7` — and asked about the piece at that
+instant.
+
+The ball is a list of movements, one per segment of the flattened path per
+slide, each with its two ends cast to `int`. Its position at a whole
+millisecond is found by the first movement whose integer span contains it, and
+within that movement by the integer times: a segment that really runs
+`100.6 … 103.2` is taken to run `100 … 103`, and one that begins and ends
+inside one millisecond puts the ball at its end. The ball is therefore up to a
+millisecond *ahead* of where its own arithmetic has it, on average half of one.
+
+### A frame is written whenever the score moves
+
+The find that mattered most is not in the slider at all. The replay recorder
+writes a frame on the sixtieth-of-a-second tick, when a button changes — and
+when a flag is raised, and three things raise it:
+
+- the slider's tracking beginning or ending, noticed around the call above;
+- the total score changing, or the miss count, or the play failing;
+- the spinner's state changing.
+
+Scoring runs before the recorder in the same update. So **a slider piece that
+scores leaves a frame at the update that scored it**, with the cursor where the
+client saw it, and so does every change of tracking. Measured over the corpus:
+of the pieces the engine keeps, 78% have a frame on their own millisecond, 92%
+within one and 97% within three; of the pieces it drops, the frames after them
+are spread evenly over the next sixteen. A replay written by the stable client
+carries its own slider verdicts in its frame times.
+
+What the engine does with all of this is in
+[`stable-fidelity.md`](stable-fidelity.md#the-replay-marks-its-own-score).
+
+One thing was read and left alone: for one input handler — it keeps a
+calibration of four numbers and runs a thread of its own, so a tablet or a
+touch screen of some kind — the ball is looked up at the clock less a
+configured offset. No replay says which handler wrote it.

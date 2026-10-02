@@ -5060,3 +5060,112 @@ Moving the tail from `end - 36` to something later would fix these four by
 splitting the difference with the average gap to a frame. That is a fitted
 constant wearing a rule's clothes, and the corpus is exactly the instrument that
 would fail to catch it. It stays where danser and lazer both write it.
+
+## The replay marks its own score
+
+Every earlier section about a slider's pieces was written against danser and
+lazer. This one is written against the client: the tracking method, the
+arithmetic of the pieces and the replay recorder were read out of a
+decompilation of `osu!.exe` on 2026-10-02, and
+[`stable-client.md`](stable-client.md#the-sliders-tracking-rule-read-out-of-the-client)
+has what they say. Three things came of it, measured in the order they were
+built, on a corpus that had meanwhile grown to 187:
+
+| | exact | count error | combo matches |
+|---|---|---|---|
+| before | 111 / 187 | 188 | 153 |
+| the pieces on whole milliseconds | 118 | 190 | |
+| …and the ball where the client's integer movements put it | 123 | 162 | 158 |
+| …and the slide read off the replay's own frames | **144** | **90** | **170** |
+
+### The piece is asked about a millisecond early
+
+A tick, a repeat and the tail are integers in the client, cut down from the
+same arithmetic the engine does in fractions. Truncating them was worth seven
+replays by itself, and the sweep around it is as sharp as the write-off
+boundary was: a millisecond later costs eleven replays and thirty-odd counts,
+a millisecond earlier seven and seventy. All of the old "we are stricter than
+the game" bucket went with it — twelve replays — and what it left was entirely
+one-sided, thirty-three replays crediting a piece the client dropped. A
+one-sided remainder is a missing rule, and there were two.
+
+### The ball is ahead of itself
+
+The first is small: the client moves the ball through segments whose ends are
+cast to `int`, which puts it up to a millisecond further along than the
+unrounded path. Half a millisecond of lead, applied flat, gave 122 exact and
+168; the client's own lookup, segment by segment, gives 123 and 162, and a full
+millisecond is worse than none. The Kona-Chan repeat that was "three tenths of
+a pixel outside a twenty-three pixel follow circle" is the size of thing this
+decides; that replay is not among the ones on this machine, so it has not been
+checked.
+
+### The slide is on the frames, and only on them
+
+The second is the recorder. It writes a frame whenever the score changes and
+whenever tracking begins or ends, in the same update that saw it. Two things
+follow, and between them they are the whole rule:
+
+- **tracking does not change between two recorded frames** — had it, there
+  would be a frame there;
+- **a piece that scored has a frame at the update that scored it** — so the
+  first frame at or after the piece's whole millisecond *is* the client's own
+  look at it, with the cursor where the client saw it.
+
+So for a replay the stable client wrote, the engine no longer sweeps the slide
+a millisecond at a time against a cursor drawn in a straight line between
+frames. It runs the client's method on the recorded frames and nowhere else,
+and retires each piece on the first frame at or after it. Nothing is
+interpolated.
+
+This is danser's "pieces retired on frames", which this document measured four
+times and rejected four times, at 42 exact of 176 against 107. The measurements
+were right and the reading of them was not. The engine's piece was at
+`227138.7`; the frame the client forced for it was at `227138`; and "the first
+frame at or after the piece" skipped it and landed on the next sixtieth, a
+flick away. Every one of those experiments was asking about the wrong frame by
+seven tenths of a millisecond.
+
+Two guards, both because a replay need not come from the stable client:
+
+- The frames are trusted only when the replay shows the mark. Before judging,
+  the old sweep is run once over every slider, and for each piece it keeps the
+  wait to the next frame is measured. When 98% of them are followed within ten
+  milliseconds (scaled by the rate), the replay is the client's and is read on
+  its frames; otherwise — a bot's replay, another program's, fewer than twenty
+  pieces to go by — the sweep's answer stands. No stable replay in the
+  corpus falls outside it: the longest such wait is seven.
+- A piece with no frame within a recording period after it is dropped.
+
+The fractions cut another way too. A slider snapped to the beat ends *on* a
+whole millisecond, and whether the client's sum of float segment lengths lands
+a hair above it or a hair below decides the tail by one. The engine does not
+reproduce that sum bit for bit, so a piece whose own arithmetic comes within a
+thousandth above a whole millisecond is allowed to have been cut to the one
+before: a frame there counts as its frame. In three replays every piece the
+sweep kept and no frame followed was this — a frame exactly one millisecond
+early.
+
+A window tighter than a recording period was tried, on the argument that a
+piece which scored must have its frame within one update: the 98% wait plus
+two milliseconds gives 141 exact and 108, plus six 145 and 92, a whole period
+144 and 90. An update is not always as short as the last one was, and a rule
+that needs no window is better than one that needs the right one.
+
+### What is left
+
+Forty-three replays, ninety counts, and for the first time no direction to
+them: eight credit a piece too many, seven one too few, and the rest are the
+write-off boundary, the spinners and the note lock, each already named above.
+Six replays that were exact are now off by one object, and the manifest says
+so. Tracking that *begins* between two frames was tried once more on the way
+(the client begins it on any update) and is still four counts worse than
+beginning it on a frame — which is now explained rather than measured: a
+beginning forces a frame.
+
+The same mark is on every other verdict. A circle that scores has its press;
+a miss is written the moment the miss count moves, and the frame that follows
+it says when the client gave the note up — which is the write-off boundary this
+document could only bracket to within a millisecond and a half. That is the
+next thing to read.
+

@@ -150,6 +150,10 @@ impl CursorTrack {
         Some(self.buttons[self.index_at(time_ms)])
     }
 
+    pub fn buttons_on(&self, index: usize) -> Option<Buttons> {
+        self.buttons.get(index).copied()
+    }
+
     pub fn is_empty(&self) -> bool {
         self.frames.is_empty()
     }

@@ -1,6 +1,9 @@
 use std::path::{Path, PathBuf};
 
 const LIBRARY: &str = "osu!gameplay.dll";
+const INTERFACE: &str = "osu!ui.dll";
+const MOD_ICON: &str = "selection-mod-";
+const PICTURE: &[u8] = b"\x89PNG\r\n\x1a\n";
 const STAMP: &str = "from.txt";
 const RESOURCES: u32 = 0xBEEF_CACE;
 const BYTES: u32 = 0x20;
@@ -8,6 +11,10 @@ const STREAM: u32 = 0x21;
 
 pub fn folder() -> PathBuf {
     crate::sources::own_root().join("osu-sounds")
+}
+
+pub fn icons_folder() -> PathBuf {
+    crate::sources::own_root().join("osu-icons")
 }
 
 fn u16_at(b: &[u8], at: usize) -> Option<usize> {
@@ -68,7 +75,7 @@ fn blobs(b: &[u8]) -> Vec<(usize, usize)> {
     found.unwrap_or_default()
 }
 
-fn items(b: &[u8], at: usize) -> Vec<(String, usize, usize)> {
+fn items(b: &[u8], at: usize) -> Vec<(String, usize, Option<usize>)> {
     let found = (|| {
         let mut i = at + 8;
         i += 4 + u32_at(b, i)?;
@@ -91,7 +98,9 @@ fn items(b: &[u8], at: usize) -> Vec<(String, usize, usize)> {
             let value = data + u32_at(b, name_at + length)?;
             let (kind, body) = seven_bit(b, value)?;
             if kind as u32 == BYTES || kind as u32 == STREAM {
-                out.push((String::from_utf16_lossy(&units), body + 4, u32_at(b, body)?));
+                out.push((String::from_utf16_lossy(&units), body + 4, Some(u32_at(b, body)?)));
+            } else {
+                out.push((String::from_utf16_lossy(&units), body, None));
             }
         }
         Some(out)
@@ -103,16 +112,56 @@ fn kind_of(sound: &[u8]) -> Option<&'static str> {
     [(&b"RIFF"[..], "wav"), (b"OggS", "ogg"), (b"ID3", "mp3"), (b"\xff\xfb", "mp3")].into_iter().find_map(|(magic, kind)| sound.starts_with(magic).then_some(kind))
 }
 
+fn plain(name: &str) -> bool {
+    !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '@')
+}
+
 pub fn sounds_in(library: &[u8]) -> Vec<(String, &'static str, &[u8])> {
     let mut out = Vec::new();
     for (blob, _) in blobs(library) {
         for (name, at, size) in items(library, blob) {
-            let Some(sound) = library.get(at..at + size) else {
+            let Some(sound) = size.and_then(|size| library.get(at..at + size)) else {
                 continue;
             };
-            let plain = !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
-            if let Some(kind) = kind_of(sound).filter(|_| plain) {
+            if let Some(kind) = kind_of(sound).filter(|_| plain(&name)) {
                 out.push((name, kind, sound));
+            }
+        }
+    }
+    out
+}
+
+fn picture_from(b: &[u8], from: usize, until: usize) -> Option<&[u8]> {
+    let room = b.get(from..until.min(b.len()))?;
+    let begins = from + room.windows(PICTURE.len()).position(|window| window == PICTURE)?;
+    let mut at = begins + PICTURE.len();
+    while at + 8 <= b.len() {
+        let length = u32::from_be_bytes(b.get(at..at + 4)?.try_into().ok()?) as usize;
+        let last = b.get(at + 4..at + 8)? == b"IEND";
+        at += 12 + length;
+        if last {
+            return b.get(begins..at);
+        }
+    }
+    None
+}
+
+pub fn mod_icons_in(library: &[u8]) -> Vec<(String, &'static str, &[u8])> {
+    let mut out = Vec::new();
+    for (blob, length) in blobs(library) {
+        let held = items(library, blob);
+        let mut starts: Vec<usize> = held.iter().map(|(_, at, _)| *at).collect();
+        starts.sort_unstable();
+        for (name, at, size) in &held {
+            if !name.starts_with(MOD_ICON) || !plain(name) {
+                continue;
+            }
+            let until = match size {
+                Some(size) => at + size,
+                None => starts.iter().copied().find(|start| start > at).unwrap_or(blob + length),
+            };
+            if let Some(picture) = picture_from(library, *at, until) {
+                out.push((name.clone(), "png", picture));
             }
         }
     }
@@ -125,11 +174,17 @@ fn stamp_of(library: &Path) -> Option<String> {
     Some(format!("{}\n{}\n{changed}\n", library.display(), meta.len()))
 }
 
+type Found<'a> = Vec<(String, &'static str, &'a [u8])>;
+
 pub fn take_from(library: &Path, into: &Path) -> Result<usize, String> {
+    take(library, into, sounds_in)
+}
+
+fn take(library: &Path, into: &Path, wanted: for<'a> fn(&'a [u8]) -> Found<'a>) -> Result<usize, String> {
     let bytes = std::fs::read(library).map_err(|why| format!("{}: {why}", library.display()))?;
-    let sounds = sounds_in(&bytes);
+    let sounds = wanted(&bytes);
     if sounds.is_empty() {
-        return Err(format!("{}: no sounds inside", library.display()));
+        return Err(format!("{}: nothing wanted inside", library.display()));
     }
     let fresh = into.with_extension("part");
     let _ = std::fs::remove_dir_all(&fresh);
@@ -143,28 +198,38 @@ pub fn take_from(library: &Path, into: &Path) -> Result<usize, String> {
     Ok(sounds.len())
 }
 
-pub fn libraries(sources: &[crate::sources::Source]) -> Vec<PathBuf> {
+fn named(sources: &[crate::sources::Source], leaf: &str) -> Vec<PathBuf> {
     let mut roots: Vec<PathBuf> = sources.iter().map(|source| source.root.clone()).collect();
     roots.extend(crate::sources::stable_roots());
     let mut seen = std::collections::HashSet::new();
-    roots.into_iter().map(|root| root.join(LIBRARY)).filter(|library| library.is_file() && seen.insert(library.clone())).collect()
+    roots.into_iter().map(|root| root.join(leaf)).filter(|library| library.is_file() && seen.insert(library.clone())).collect()
 }
 
-pub fn ready(sources: &[crate::sources::Source]) -> Option<PathBuf> {
-    let into = folder();
+pub fn libraries(sources: &[crate::sources::Source]) -> Vec<PathBuf> {
+    named(sources, LIBRARY)
+}
+
+fn kept(libraries: &[PathBuf], into: PathBuf, wanted: for<'a> fn(&'a [u8]) -> Found<'a>) -> Option<PathBuf> {
     let held = std::fs::read_to_string(into.join(STAMP)).ok();
-    let libraries = libraries(sources);
     if let Some(held) = &held {
         if libraries.is_empty() || libraries.iter().any(|library| stamp_of(library).as_deref() == Some(held.as_str())) {
             return Some(into);
         }
     }
-    for library in &libraries {
-        if take_from(library, &into).is_ok() {
+    for library in libraries {
+        if take(library, &into, wanted).is_ok() {
             return Some(into);
         }
     }
     held.map(|_| into)
+}
+
+pub fn ready(sources: &[crate::sources::Source]) -> Option<PathBuf> {
+    kept(&libraries(sources), folder(), sounds_in)
+}
+
+pub fn icons_ready(sources: &[crate::sources::Source]) -> Option<PathBuf> {
+    kept(&named(sources, INTERFACE), icons_folder(), mod_icons_in)
 }
 
 #[cfg(test)]
@@ -270,6 +335,24 @@ mod tests {
         assert!(take_from(&dir.join("absent.dll"), &into).is_err());
         assert!(into.join("combobreak.mp3").is_file(), "a failed reading took the sounds away");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_mod_icon_is_found_inside_whatever_the_library_wraps_it_in() {
+        let mut picture = PICTURE.to_vec();
+        picture.extend(13u32.to_be_bytes());
+        picture.extend(*b"IHDR");
+        picture.extend([0u8; 13 + 4]);
+        picture.extend(0u32.to_be_bytes());
+        picture.extend(*b"IEND");
+        picture.extend([1, 2, 3, 4]);
+        let mut wrapped = b"System.Drawing.Bitmap, a wrapper of some length".to_vec();
+        wrapped.extend(&picture);
+        wrapped.extend(*b"and a tail");
+        let made = library(&resources(&[("selection-mod-hidden", 0x41, &wrapped), ("selection-mod-easy@2x", BYTES, &picture), ("menu-back", 0x41, &wrapped), ("selection-mod-broken", 0x41, b"no picture here")]));
+        let found = mod_icons_in(&made);
+        assert_eq!(found.iter().map(|(name, kind, bytes)| (name.as_str(), *kind, bytes.len())).collect::<Vec<_>>(), vec![("selection-mod-hidden", "png", picture.len()), ("selection-mod-easy@2x", "png", picture.len())]);
+        assert!(found.iter().all(|(_, _, bytes)| bytes.starts_with(PICTURE) && bytes.ends_with(&[1, 2, 3, 4])));
     }
 
     #[test]

@@ -90,6 +90,17 @@ pub fn from_folder(mut skin: Skin, path: &Path, tint_ball: Option<bool>) -> Skin
     }
     skin.slider_body = ini.slider_track;
     skin.sprites = Some(std::sync::Arc::new(sprites.tint_for(&skin.combo_colours)));
+    with_mod_icons(skin, path)
+}
+
+pub fn with_mod_icons(mut skin: Skin, folder: &Path) -> Skin {
+    let found = dossier_render::mods::icons_in(folder);
+    if found.is_empty() {
+        return skin;
+    }
+    let mut held = (*skin.mod_icons).clone();
+    held.extend(found);
+    skin.mod_icons = std::sync::Arc::new(held);
     skin
 }
 

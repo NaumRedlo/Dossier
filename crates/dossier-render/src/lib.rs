@@ -3,6 +3,7 @@ pub mod elements;
 pub mod imported;
 mod layout;
 mod leaderboard;
+pub mod mark;
 pub mod mods;
 mod renderer;
 mod skin;

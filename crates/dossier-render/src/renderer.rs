@@ -31,6 +31,9 @@ const TICK_FIRST_LEAD: f64 = 0.66;
 const TICK_REPEAT_LEAD_MS: f64 = 200.0;
 
 const HIDDEN_FADE_IN: f64 = 0.4;
+const MARK_SHARE: f64 = 0.05;
+const MARK_SWELL: f32 = 0.12;
+const MARK_ALPHA: f32 = 0.55;
 const APPROACH_ALPHA: f32 = 0.9;
 const HIDDEN_FADE_OUT: f64 = 0.3;
 
@@ -947,7 +950,7 @@ impl<'a> Scene<'a> {
         self.draw_danger(pixmap, time_ms, layout);
         self.draw_keys(pixmap, time_ms, layout, self.hud_presence(time_ms));
         self.draw_leaderboard(pixmap, time_ms, layout);
-        self.draw_signature(pixmap, layout);
+        self.draw_signature(pixmap, time_ms, layout);
     }
 
     fn cannot_die(&self) -> bool {

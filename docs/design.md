@@ -1507,3 +1507,10 @@ its scroll position lives in the widget tree.
 The frame journal (`DOSSIER_FRAMES`) also writes `film` (each video frame
 shown), `pace` (the player's clock on every refresh), `player` and `window`
 lines; that is how the jump was found.
+
+A video is signed with the mark (2026-10-02): the striped D stands in the
+bottom right corner where the client's name and version used to be, at a
+twentieth of the frame's height and a little over half strength, and on every
+beat of the map's own timing it swells by an eighth and comes up to full,
+falling back before the next. The mods of the play stay above it. A frame that
+is not signed carries neither.

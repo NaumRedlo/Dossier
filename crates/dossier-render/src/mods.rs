@@ -144,6 +144,92 @@ pub fn icon(acronym: &str, high: u32) -> Option<Pixmap> {
     Some(out)
 }
 
+const GAME_NAMES: &[(&str, &str)] = &[
+    ("EZ", "easy"),
+    ("NF", "nofail"),
+    ("HT", "halftime"),
+    ("HR", "hardrock"),
+    ("SD", "suddendeath"),
+    ("PF", "perfect"),
+    ("DT", "doubletime"),
+    ("NC", "nightcore"),
+    ("HD", "hidden"),
+    ("FL", "flashlight"),
+    ("RX", "relax"),
+    ("AP", "relax2"),
+    ("SO", "spunout"),
+    ("AT", "autoplay"),
+    ("CN", "cinema"),
+    ("V2", "scorev2"),
+    ("TD", "touchdevice"),
+    ("TP", "target"),
+];
+
+const GAME_ICON_RISE: f32 = 1.45;
+
+pub type Icons = std::collections::HashMap<String, Pixmap>;
+
+pub fn game_name(acronym: &str) -> Option<&'static str> {
+    GAME_NAMES.iter().find(|(name, _)| name.eq_ignore_ascii_case(acronym)).map(|(_, stem)| *stem)
+}
+
+pub fn icons_in(folder: &std::path::Path) -> Icons {
+    let mut held: std::collections::HashMap<String, std::path::PathBuf> = std::collections::HashMap::new();
+    if let Ok(entries) = std::fs::read_dir(folder) {
+        for entry in entries.flatten() {
+            if let Some(name) = entry.file_name().to_str() {
+                held.insert(name.to_ascii_lowercase(), entry.path());
+            }
+        }
+    }
+    let mut out = Icons::new();
+    for (acronym, stem) in GAME_NAMES {
+        let found = [format!("selection-mod-{stem}@2x.png"), format!("selection-mod-{stem}.png")]
+            .iter()
+            .find_map(|name| held.get(name))
+            .and_then(|path| std::fs::read(path).ok())
+            .and_then(|bytes| Pixmap::decode_png(&bytes).ok())
+            .filter(|picture| picture.pixels().iter().any(|pixel| pixel.alpha() > 0));
+        if let Some(picture) = found {
+            out.insert((*acronym).to_owned(), picture);
+        }
+    }
+    out
+}
+
+fn sized(acronym: &str, high: u32, icons: &Icons) -> Option<(Pixmap, f32)> {
+    let Some(picture) = icons.get(&acronym.to_ascii_uppercase()) else {
+        return icon(acronym, high).map(|plate| (plate, 1.0));
+    };
+    let scale = high as f32 * GAME_ICON_RISE / picture.height().max(1) as f32;
+    Some((picture.clone(), scale))
+}
+
+pub fn row_with(acronyms: &[String], high: u32, icons: &Icons) -> Option<Pixmap> {
+    let wanted: Vec<(Pixmap, f32)> = acronyms.iter().filter(|one| known(one)).filter_map(|one| sized(one, high, icons)).collect();
+    if wanted.is_empty() {
+        return None;
+    }
+    let gap = high as f32 * GAP;
+    let wide: f32 = wanted.iter().map(|(picture, scale)| picture.width() as f32 * scale).sum::<f32>() + gap * (wanted.len() - 1) as f32;
+    let tall = wanted.iter().map(|(picture, scale)| picture.height() as f32 * scale).fold(0.0f32, f32::max);
+    let mut out = Pixmap::new(wide.ceil().max(1.0) as u32, tall.ceil().max(1.0) as u32)?;
+    let mut x = 0.0f32;
+    for (picture, scale) in &wanted {
+        let y = (tall - picture.height() as f32 * scale) / 2.0;
+        out.draw_pixmap(
+            0,
+            0,
+            picture.as_ref(),
+            &PixmapPaint { quality: tiny_skia::FilterQuality::Bilinear, ..PixmapPaint::default() },
+            Transform::from_scale(*scale, *scale).post_translate(x, y),
+            None,
+        );
+        x += picture.width() as f32 * scale + gap;
+    }
+    Some(out)
+}
+
 pub fn row_width(count: usize, high: u32) -> u32 {
     if count == 0 {
         return 0;
@@ -179,6 +265,36 @@ pub fn row(acronyms: &[String], high: u32) -> Option<Pixmap> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_games_own_icon_stands_in_the_row_where_there_is_one() {
+        let dir = std::env::temp_dir().join(format!("dossier-mod-icons-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut drawn = Pixmap::new(68, 66).unwrap();
+        drawn.fill(Color::from_rgba8(10, 200, 30, 255));
+        std::fs::write(dir.join("selection-mod-hidden.png"), drawn.encode_png().unwrap()).unwrap();
+        let mut twice = Pixmap::new(136, 132).unwrap();
+        twice.fill(Color::from_rgba8(200, 10, 30, 255));
+        std::fs::write(dir.join("Selection-Mod-DoubleTime@2x.png"), twice.encode_png().unwrap()).unwrap();
+        std::fs::write(dir.join("selection-mod-doubletime.png"), drawn.encode_png().unwrap()).unwrap();
+        std::fs::write(dir.join("selection-mod-easy.png"), Pixmap::new(68, 66).unwrap().encode_png().unwrap()).unwrap();
+        let icons = icons_in(&dir);
+        let mut names: Vec<&str> = icons.keys().map(String::as_str).collect();
+        names.sort_unstable();
+        assert_eq!(names, ["DT", "HD"], "a blank picture is no icon, and the sharper file wins");
+        assert_eq!(icons["DT"].width(), 136);
+        let mods = vec!["HD".to_owned(), "DT".to_owned(), "CL".to_owned()];
+        let strip = row_with(&mods, 20, &icons).expect("a row");
+        let pixel = |x: u32, y: u32| strip.pixel(x, y).unwrap();
+        assert_eq!(strip.height(), 29, "the game's icon stands taller than a plate");
+        assert!(pixel(5, 14).green() > 150 && pixel(5, 14).red() < 60, "the first is the game's green picture");
+        assert!(pixel(40, 14).red() > 150, "the second is the sharper red picture, drawn at the same height");
+        assert!(strip.width() > 29 * 2 + 20, "a mod the game has no picture for keeps its plate");
+        assert_eq!(row_with(&mods, 20, &Icons::new()).map(|plain| plain.height()), row(&mods, 20).map(|plain| plain.height()));
+        assert_eq!((game_name("hd"), game_name("CL")), (Some("hidden"), None));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn the_letters_are_there_to_draw_with() {

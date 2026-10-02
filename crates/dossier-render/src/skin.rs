@@ -14,6 +14,7 @@ pub enum ArrowShape {
 #[derive(Debug, Clone)]
 pub struct Skin {
     pub sprites: Option<std::sync::Arc<Sprites>>,
+    pub mod_icons: std::sync::Arc<crate::mods::Icons>,
 
     pub combo_colours: Vec<Color>,
     pub background: Color,
@@ -98,6 +99,7 @@ impl Default for Skin {
     fn default() -> Self {
         Self {
             sprites: None,
+            mod_icons: std::sync::Arc::default(),
             combo_colours: dossier_beatmap::DEFAULT_COMBO_COLOURS
                 .iter()
                 .map(|c| rgb(c.r, c.g, c.b))

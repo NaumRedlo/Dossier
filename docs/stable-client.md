@@ -109,6 +109,16 @@ or to export at.
 (196×149), the `ranking-*` panel and every `selection-mod-*` icon live in
 `osu!ui.dll` rather than in `osu!gameplay.dll`.
 
+### The mod icons are the client's, or the skin's
+
+Since 2026-10-02 a video shows a play's mods with the game's own pictures. The
+`selection-mod-*` icons live in `osu!ui.dll`; the application reads them out of
+the person's own client (`native/src/client_sounds.rs`, kept in
+`~/.dossier/osu-icons`), and a skin's own `selection-mod-*` files come over
+them, as they do in the client. A mod the client has no picture for — the ones
+lazer added — keeps the engine's plate. The application's own skin keeps its
+plates for every mod.
+
 ### The judgement marks are not one size
 
 103×60, 97×57, 71×57 and 65×65 — the 300 is the widest, the miss is the

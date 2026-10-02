@@ -1521,6 +1521,39 @@ fn the_spinner_ring_closes_onto_its_centre_mark() {
 }
 
 #[test]
+fn the_mark_in_the_corner_swells_on_the_maps_beat() {
+    let map = beatmap("[Difficulty]\nCircleSize:5\nApproachRate:5\n\n[TimingPoints]\n0,500,4,2,0,60,1,0\n\n[HitObjects]\n256,192,3000,1,0\n256,192,20000,1,0\n");
+    let replay = replay_over(Vec::new());
+    let state = GameState::new(&map, &replay);
+    let skin = Skin::default().with_font(font());
+    let scene = Scene::new(&state, skin).signed_by(&replay);
+    let layout = Layout::new(1280, 720);
+    let red = |t: f64| {
+        let frame = scene.frame(t, &layout);
+        let (mut ink, mut left, mut top, mut brightest) = (0usize, u32::MAX, u32::MAX, 0u8);
+        for y in 540..720 {
+            for x in 1100..1280 {
+                let p = frame.pixel(x, y).expect("inside the frame");
+                if p.red() > 90 && p.red() > p.green().saturating_mul(2) && p.red() > p.blue().saturating_mul(2) {
+                    ink += 1;
+                    left = left.min(x);
+                    top = top.min(y);
+                    brightest = brightest.max(p.red());
+                }
+            }
+        }
+        (ink, left, top, brightest)
+    };
+    let (on_beat, between) = (red(6_000.0), red(6_480.0));
+    assert!(between.0 > 300, "the mark is in the corner between beats too: {between:?}");
+    assert!(on_beat.0 > between.0 * 11 / 10, "it is larger on the beat: {} against {}", on_beat.0, between.0);
+    assert!(on_beat.3 > between.3, "and brighter: {} against {}", on_beat.3, between.3);
+    assert!(between.1 > 1280 - 110 && between.2 > 720 - 110, "it keeps to the corner: {between:?}");
+    let unsigned = Scene::new(&state, Skin::default().with_font(font())).frame(6_000.0, &layout);
+    assert!(!(540..720).any(|y| (1100..1280).any(|x| unsigned.pixel(x, y).is_some_and(|p| p.red() > 150 && p.green() < 90))), "an unsigned frame carries no mark");
+}
+
+#[test]
 fn our_own_spinner_grows_as_it_is_spun() {
     let map = beatmap(LONE_SPINNER);
     let widest = |spun: bool, t: f64| {

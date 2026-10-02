@@ -167,6 +167,9 @@ pub fn still(replay: &Path, map: &Path, map_hash: &str, skin_folder: Option<&Pat
     let mut skin = dossier_render::Skin::with_combo_colours(beatmap.combo_colours());
     skin = skin.with_font(hud_font());
     if let Some(folder) = skin_folder.filter(|folder| folder.is_dir()) {
+        if let Some(icons) = crate::client_sounds::icons_ready(&crate::settings::Settings::load().sources) {
+            skin = dossier_produce::skin::with_mod_icons(skin, &icons);
+        }
         skin = dossier_produce::skin::from_folder(skin, folder, None);
     }
     let scene = dossier_render::Scene::new(&state, skin).signed_by(&replay);
@@ -344,6 +347,9 @@ fn draw(ask: &Ask, tell: &Sender<Step>) -> Result<PathBuf, String> {
     let mut skin = dossier_render::Skin::with_combo_colours(beatmap.combo_colours());
     skin = skin.with_font(hud_font());
     if let Some(folder) = ask.skin.as_ref().filter(|folder| folder.is_dir()) {
+        if let Some(icons) = crate::client_sounds::icons_ready(&crate::settings::Settings::load().sources) {
+            skin = dossier_produce::skin::with_mod_icons(skin, &icons);
+        }
         skin = dossier_produce::skin::from_folder(skin, folder, None);
     }
     ask.play.dress(&mut skin);

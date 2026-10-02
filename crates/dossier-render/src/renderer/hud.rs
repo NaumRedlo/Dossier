@@ -472,38 +472,35 @@ impl Scene<'_> {
         }
     }
 
-    pub(super) fn draw_signature(&self, pixmap: &mut Pixmap, layout: &Layout) {
+    pub(super) fn draw_signature(&self, pixmap: &mut Pixmap, time_ms: f64, layout: &Layout) {
         let (Some(font), Some(signature)) = (&self.skin.font, &self.signature) else {
             return;
         };
         let height = f64::from(layout.height);
         let margin = (height * EDGE_MARGIN) as f32;
         let client_size = (height * 0.028) as f32;
-        let version_size = (height * 0.015) as f32;
 
         let bottom = layout.height as f32 - margin;
-        font.draw(
-            pixmap,
-            Label {
-                text: &signature.version,
-                x: layout.width as f32 - margin,
-                y: bottom,
-                size: version_size,
-                colour: with_alpha(self.skin.hud, 0.20),
-                align: Align::Right,
-            },
-        );
-        font.draw(
-            pixmap,
-            Label {
-                text: &signature.client,
-                x: layout.width as f32 - margin,
-                y: bottom - version_size * 1.15,
-                size: client_size,
-                colour: with_alpha(self.skin.hud, 0.30),
-                align: Align::Right,
-            },
-        );
+        if let Some(mark) = crate::mark::emblem() {
+            let kick = self.beat_kick(time_ms);
+            let high = (height * MARK_SHARE) as f32;
+            let scale = high / mark.height() as f32 * (1.0 + MARK_SWELL * kick);
+            let (wide, tall) = (mark.width() as f32 * scale, mark.height() as f32 * scale);
+            let rest_wide = mark.width() as f32 * high / mark.height() as f32;
+            let centre = (layout.width as f32 - margin - rest_wide / 2.0, bottom - high / 2.0);
+            pixmap.draw_pixmap(
+                0,
+                0,
+                mark.as_ref(),
+                &tiny_skia::PixmapPaint {
+                    opacity: MARK_ALPHA + (1.0 - MARK_ALPHA) * kick,
+                    quality: tiny_skia::FilterQuality::Bilinear,
+                    ..Default::default()
+                },
+                Transform::from_scale(scale, scale).post_translate(centre.0 - wide / 2.0, centre.1 - tall / 2.0),
+                None,
+            );
+        }
         let badges: Vec<String> = signature
             .badges
             .iter()
@@ -511,8 +508,8 @@ impl Scene<'_> {
             .cloned()
             .collect();
         let high = (client_size * 1.55).round().max(8.0) as u32;
-        if let Some(strip) = crate::mods::row(&badges, high) {
-            let top = bottom - version_size * 1.15 - client_size * 1.35 - strip.height() as f32;
+        if let Some(strip) = crate::mods::row_with(&badges, high, &self.skin.mod_icons) {
+            let top = bottom - (height * MARK_SHARE) as f32 * (1.0 + MARK_SWELL) - client_size * 0.6 - strip.height() as f32;
             pixmap.draw_pixmap(
                 0,
                 0,
@@ -534,7 +531,7 @@ impl Scene<'_> {
                 Label {
                     text: &signature.mods,
                     x: layout.width as f32 - margin,
-                    y: bottom - version_size * 1.15 - client_size * 1.35,
+                    y: bottom - (height * MARK_SHARE) as f32 * (1.0 + MARK_SWELL) - client_size * 0.6,
                     size: client_size * 1.35,
                     colour: with_alpha(self.skin.hud, 0.80),
                     align: Align::Right,

@@ -48,7 +48,10 @@ extern "system" {
     fn CreateToolhelp32Snapshot(flags: u32, pid: u32) -> isize;
     fn Process32FirstW(snapshot: isize, entry: *mut Entry) -> i32;
     fn Process32NextW(snapshot: isize, entry: *mut Entry) -> i32;
+    fn QueryFullProcessImageNameW(process: isize, flags: u32, name: *mut u16, size: *mut u32) -> i32;
 }
+
+const PATH_MOST: usize = 1024;
 
 pub fn processes_named(name: &str) -> Vec<u32> {
     let mut found = Vec::new();
@@ -79,6 +82,19 @@ impl Process {
     pub fn open(pid: u32) -> Option<Process> {
         let handle = unsafe { OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION, 0, pid) };
         (handle != 0 && handle != INVALID).then_some(Process { handle, pid })
+    }
+}
+
+impl Process {
+    pub fn folder(&self) -> Option<std::path::PathBuf> {
+        let mut name = [0u16; PATH_MOST];
+        let mut size = PATH_MOST as u32;
+        let found = unsafe { QueryFullProcessImageNameW(self.handle, 0, name.as_mut_ptr(), &mut size) };
+        if found == 0 || size == 0 {
+            return None;
+        }
+        let path = std::path::PathBuf::from(String::from_utf16_lossy(&name[..size as usize]));
+        path.parent().map(std::path::Path::to_path_buf)
     }
 }
 

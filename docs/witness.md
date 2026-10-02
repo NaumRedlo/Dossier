@@ -80,9 +80,48 @@ What the bench has shown (2026-10-01, stable 20251102 under CrossOver, offline):
   188, 89.73%).
 
 `witness --record DIR --player NAME` does this: it follows the client and
-writes every play of 120 frames or more as an `.osr` into the folder. The
-client's own name is used when it has one; offline it has none, and the name
-given is written instead.
+writes every play of 120 frames or more as an `.osr` into the folder. The name
+written is the one the score holds; offline the score has none, and then it is
+the one the client's configuration names, and the name given only after that.
+
+### The client's build and its player
+
+The client says both itself, in the configuration it keeps beside its program:
+`osu!.<user>.cfg`, where the user is the one at the machine (inside Wine, the
+prefix's). Witness asks the system where the client's program is, reads that
+file and takes two lines from it, `LastVersion` (`b20260924cuttingedge`) and
+`Username`. Nothing else in the file is read, kept or passed on; the file also
+holds what the person signs in with, and that is none of Witness's business.
+
+- The file is the one named after `USERNAME`; when there is none by that name,
+  the most recently written `osu!.*.cfg` other than the shared `osu!.cfg`.
+- The build's first eight digits are its date, and that number is written into
+  the replay as the client's version (until now every replay said 20250401). A
+  build that does not read as a date leaves the old number.
+- Both are told once, in `attached`, as `build` and `player`; the tile shows
+  the build under the state while a client is there.
+- A client without the file, or a system that will not name the program, means
+  an empty build and an empty name, and everything else works as before.
+
+### A play that was failed
+
+Leaving Play without reaching the results used to mean one thing, "not passed".
+The client's life bar tells a fail from a play that was left: the gameplay
+object of the rulesets anchor (+0x64) holds the bar (+0x40), and the bar its
+health as a double (+0x1C), from 0 to 200. Witness reads it with every glance
+at a play; health that was seen above nothing and then at nothing, without No
+Fail, Relax or Autopilot, marks the play as failed. The client fails a play on
+the same reading (health at nothing or below, and none of those mods).
+
+- A bar is at nothing until the client sets it for the play, so a bar never
+  seen filled has not run out.
+- `kept` says `failed` beside `passed`. A play that reached the results is not
+  failed, whatever the bar said on the way.
+- The life graph written into a failed replay ends with a sample at nothing, so
+  the replay itself says how it ended.
+- **The two offsets are taken from tosu and have not been seen on the bench
+  yet.** A read that makes no sense (not a number, below zero, above 200) is
+  no reading at all, and the play is then simply not passed, as before.
 
 The client also has a door of its own: `InterProcessOsu`, a .NET Remoting object
 whose `GetBulkClientData` tells the screen, the map's hash and id and the audio
@@ -159,9 +198,9 @@ whether the play was passed. Nothing of the replay itself is sent.
   a play is told only when that flag was read and said no for the whole play.
   The name in the replay must be the person's or empty (an offline client has
   none), autoplay is refused, and a play that was left is told only from thirty
-  judged objects on. **The flag has not been seen on the bench yet** — the
-  pattern is optional, and without it nothing is told and everything else works
-  as before.
+  judged objects on. The pattern is optional, and without it nothing is told
+  and everything else works as before; on a live client the flag was seen to
+  hold on 2026-10-02.
 - The server keeps such a play in a table of its own (`witnessed_plays`): what
   an application says about its own person is shown in the feed and in that
   person's recent plays, and never enters the leaderboards, the records or the

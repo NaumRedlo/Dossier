@@ -700,6 +700,7 @@ witness-idle = The osu! client is not running
 witness-loading = The osu! client is loading
 witness-watching = Connected to osu!
 witness-playing = Playing: { $map }
+witness-client = Client version: { $build }
 witness-kept = Replays saved this session: { $n }
 witness-not-kept = The replay could not be saved
 witness-told = Results sent to the feed this session: { $n }

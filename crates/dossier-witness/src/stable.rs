@@ -182,6 +182,17 @@ pub fn score_at(memory: &dyn Memory, anchors: &Anchors) -> Option<u64> {
     memory.pointer(gameplay + 0x38)
 }
 
+pub const HEALTH_MOST: f64 = 200.0;
+
+pub fn health(memory: &dyn Memory, anchors: &Anchors) -> Option<f64> {
+    let rulesets = memory.pointer(memory.pointer(anchors.rulesets - 0xB)? + 0x4)?;
+    let gameplay = memory.pointer(rulesets + 0x64)?;
+    let bar = memory.pointer(gameplay + 0x40)?;
+    memory.f64(bar + 0x1C).filter(|health| health.is_finite() && (0.0..=HEALTH_MOST).contains(health))
+}
+
+pub const NEVER_FAILS: u32 = 1 | 1 << 7 | 1 << 13;
+
 pub fn play(memory: &dyn Memory, anchors: &Anchors) -> Option<Play> {
     score_at(memory, anchors).map(|at| play_of(memory, at))
 }
@@ -259,12 +270,14 @@ pub struct Take {
     pub frames: Vec<Frame>,
     pub life: Vec<(f32, f32)>,
     pub passed: bool,
+    pub failed: bool,
     pub watched: Option<bool>,
 }
 
 #[derive(Debug, Default)]
 pub struct Recorder {
     current: Option<Take>,
+    filled: bool,
 }
 
 impl Recorder {
@@ -303,12 +316,17 @@ impl Recorder {
                 let restarted = self.current.as_ref().is_some_and(|take| count < take.frames.len() || !Recorder::continues(take, memory, score));
                 let finished = if restarted { self.current.take() } else { None };
                 if self.current.is_none() {
-                    self.current = Some(Take { score, map: seen.map.clone()?, play: Play::default(), frames: Vec::new(), life: Vec::new(), passed: false, watched: seen.watching });
+                    self.current = Some(Take { score, map: seen.map.clone()?, play: Play::default(), frames: Vec::new(), life: Vec::new(), passed: false, failed: false, watched: seen.watching });
+                    self.filled = false;
                 }
                 if let Some(take) = self.current.as_mut() {
                     take.score = score;
                     take.watched = watched(take.watched, seen.watching);
                     Recorder::refresh(take, memory, score);
+                    let read = health(memory, anchors);
+                    let emptied = self.filled && read.is_some_and(|health| health <= 0.0);
+                    self.filled |= read.is_some_and(|health| health > 0.0);
+                    take.failed |= emptied && take.play.mods & NEVER_FAILS == 0 && !take.frames.is_empty();
                 }
                 finished
             }
@@ -318,6 +336,7 @@ impl Recorder {
                     Recorder::refresh(&mut take, memory, score);
                 }
                 take.passed = true;
+                take.failed = false;
                 Some(take)
             }
             _ => self.current.take(),
@@ -480,6 +499,72 @@ mod tests {
         let left = recorder.poll(&fake, &anchors).expect("the play that was left");
         assert!(!left.passed && left.map.title == "FREEDOM DiVE");
         assert!(recorder.recording().is_none() && recorder.poll(&fake, &anchors).is_none());
+    }
+
+    fn set_health(fake: &mut Fake, health: f64) {
+        let bar = DATA + 0x2800;
+        fake.set_u32(DATA + 0x1200 + 0x40, bar as u32);
+        fake.write(bar + 0x1C, &health.to_le_bytes());
+    }
+
+    #[test]
+    fn a_play_whose_health_ran_out_is_a_fail_and_one_that_was_left_is_not() {
+        let (mut fake, anchors, _) = with_frames();
+        assert_eq!(health(&fake, &anchors), None, "a client that does not show the bar is not guessed at");
+        set_health(&mut fake, 140.0);
+        assert_eq!(health(&fake, &anchors), Some(140.0));
+
+        let mut recorder = Recorder::default();
+        assert!(recorder.poll(&fake, &anchors).is_none());
+        fake.set_u32(DATA + 0x10, 5);
+        let left = recorder.poll(&fake, &anchors).expect("the play that was left");
+        assert!(!left.passed && !left.failed, "health to spare when the screen was left");
+
+        fake.set_u32(DATA + 0x10, 2);
+        assert!(recorder.poll(&fake, &anchors).is_none());
+        set_health(&mut fake, 0.0);
+        assert!(recorder.poll(&fake, &anchors).is_none());
+        set_health(&mut fake, 35.0);
+        fake.set_u32(DATA + 0x10, 5);
+        let failed = recorder.poll(&fake, &anchors).expect("the play that failed");
+        assert!(failed.failed && !failed.passed, "it was seen at nothing once, whatever the bar did afterwards");
+
+        set_health(&mut fake, 999.0);
+        assert_eq!(health(&fake, &anchors), None, "a number the bar cannot hold is not a reading");
+    }
+
+    #[test]
+    fn a_bar_that_was_never_seen_filled_has_not_run_out() {
+        let (mut fake, anchors, _) = with_frames();
+        set_health(&mut fake, 0.0);
+        let mut recorder = Recorder::default();
+        assert!(recorder.poll(&fake, &anchors).is_none());
+        assert!(recorder.poll(&fake, &anchors).is_none());
+        fake.set_u32(DATA + 0x10, 5);
+        let left = recorder.poll(&fake, &anchors).expect("the play that was left");
+        assert!(!left.failed, "a bar not yet set for the play reads nothing, and that is not a fail");
+
+        fake.set_u32(DATA + 0x10, 2);
+        assert!(recorder.poll(&fake, &anchors).is_none());
+        set_health(&mut fake, 200.0);
+        assert!(recorder.poll(&fake, &anchors).is_none());
+        set_health(&mut fake, 0.0);
+        assert!(recorder.poll(&fake, &anchors).is_none());
+        fake.set_u32(DATA + 0x10, 5);
+        assert!(recorder.poll(&fake, &anchors).expect("the play that failed").failed, "filled and then emptied is a fail");
+    }
+
+    #[test]
+    fn health_at_nothing_under_no_fail_is_not_a_fail() {
+        let (mut fake, anchors, score) = with_frames();
+        fake.set_u32(DATA + 0x190C, 0x5A5A_0000 ^ 1);
+        set_health(&mut fake, 0.0);
+        let mut recorder = Recorder::default();
+        assert!(recorder.poll(&fake, &anchors).is_none());
+        fake.set_u32(DATA + 0x1000 + 0x38, score as u32);
+        fake.set_u32(DATA + 0x10, 7);
+        let done = recorder.poll(&fake, &anchors).expect("the finished play");
+        assert!(done.passed && !done.failed);
     }
 
     #[test]

@@ -714,6 +714,8 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
         written: 3,
         told: 2,
         untold: false,
+        build: "b20260924cuttingedge".to_owned(),
+        player: "NaumRedlo".to_owned(),
     };
     let mut prefs_shared = prefs_app.clone();
     prefs_shared.settings.tiles_app = vec!["sources".to_owned()];

@@ -63,6 +63,7 @@ pub struct Progress {
 pub struct Kept {
     pub name: String,
     pub passed: bool,
+    pub failed: bool,
     pub md5: String,
     pub artist: String,
     pub title: String,
@@ -146,6 +147,10 @@ pub enum Event {
     Attached {
         #[serde(default)]
         pid: u32,
+        #[serde(default)]
+        build: String,
+        #[serde(default)]
+        player: String,
     },
     State(State),
     Playing(Progress),
@@ -180,14 +185,23 @@ pub struct Seen {
     pub written: u32,
     pub told: u32,
     pub untold: bool,
+    pub build: String,
+    pub player: String,
 }
 
 impl Seen {
     pub fn take(&mut self, event: &Event) {
         match event {
-            Event::Unavailable => *self = Seen { status: Status::Unavailable, state: None, playing: None, ..self.clone() },
-            Event::Waiting | Event::Gone | Event::Absent => *self = Seen { status: Status::Absent, state: None, playing: None, ..self.clone() },
-            Event::Attached { .. } | Event::Loading => {
+            Event::Unavailable => *self = Seen { status: Status::Unavailable, state: None, playing: None, build: String::new(), player: String::new(), ..self.clone() },
+            Event::Waiting | Event::Gone | Event::Absent => *self = Seen { status: Status::Absent, state: None, playing: None, build: String::new(), player: String::new(), ..self.clone() },
+            Event::Attached { build, player, .. } => {
+                self.status = Status::Loading;
+                self.state = None;
+                self.playing = None;
+                self.build = build.clone();
+                self.player = player.clone();
+            }
+            Event::Loading => {
                 self.status = Status::Loading;
                 self.state = None;
                 self.playing = None;
@@ -495,7 +509,7 @@ mod tests {
     #[test]
     fn what_witness_says_is_read_line_by_line() {
         assert_eq!(read(r#"{"event":"waiting"}"#), Some(Event::Waiting));
-        assert_eq!(read(r#"{"event":"attached","pid":436}"#), Some(Event::Attached { pid: 436 }));
+        assert_eq!(read(r#"{"event":"attached","pid":436}"#), Some(Event::Attached { pid: 436, build: String::new(), player: String::new() }));
         let state = read(r#"{"event":"state","mode":"SelectPlay","md5":"0123456789abcdef0123456789abcdef","id":7,"set":8,"artist":"xi","title":"FREEDOM \"DiVE\"","version":"FOUR","creator":"N"}"#);
         let Some(Event::State(state)) = state else {
             panic!("not a state: {state:?}");
@@ -506,6 +520,21 @@ mod tests {
         assert!(matches!(playing, Some(Event::Playing(Progress { frames: 3886, score: 92_242, miss: 1, mods: 24, .. }))));
         assert_eq!(read("witness: something else"), None);
         assert_eq!(read(r#"{"event":"a new thing"}"#), None);
+    }
+
+    #[test]
+    fn the_client_tells_its_build_and_its_player_when_it_is_found() {
+        let mut seen = Seen::default();
+        seen.take(&read(r#"{"event":"attached","pid":436,"build":"b20260924cuttingedge","player":"NaumRedlo"}"#).expect("read"));
+        assert_eq!((seen.status.clone(), seen.build.as_str(), seen.player.as_str()), (Status::Loading, "b20260924cuttingedge", "NaumRedlo"));
+        seen.take(&read(r#"{"event":"loading"}"#).expect("read"));
+        assert_eq!(seen.build, "b20260924cuttingedge", "the build is kept while the same client loads");
+        seen.take(&read(r#"{"event":"gone"}"#).expect("read"));
+        assert!(seen.build.is_empty() && seen.player.is_empty(), "and forgotten with the client");
+        seen.take(&read(r#"{"event":"attached","pid":7}"#).expect("an older Witness says less"));
+        assert!(seen.build.is_empty());
+        let kept = read(r#"{"event":"kept","name":"a.osr","passed":false,"failed":true,"md5":"ab","osr":"00"}"#);
+        assert!(matches!(kept, Some(Event::Kept(Kept { failed: true, passed: false, .. }))));
     }
 
     #[test]

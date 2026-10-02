@@ -530,6 +530,9 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
             if !said.is_empty() {
                 panel = panel.push(line(said, if matches!(seen.status, Status::Unavailable) { theme::ACCENT } else { FAINT }, 8.0));
             }
+            if !seen.build.is_empty() && matches!(seen.status, Status::Loading | Status::Watching | Status::Playing) {
+                panel = panel.push(line(w.with("witness-client", &[("build", seen.build.clone())]), FAINT, 2.0));
+            }
             if seen.told > 0 {
                 panel = panel.push(line(w.with("witness-told", &[("n", w.lang().group(u64::from(seen.told)))]), FAINT, 2.0));
             }

@@ -721,6 +721,7 @@ witness-idle = Клиент osu! не запущен
 witness-loading = Клиент osu! загружается
 witness-watching = Подключение к osu! установлено
 witness-playing = Идёт игра: { $map }
+witness-client = Версия клиента: { $build }
 witness-kept = Сохранено реплеев за сеанс: { $n }
 witness-not-kept = Не удалось сохранить реплей
 witness-told = Передано результатов в ленту за сеанс: { $n }

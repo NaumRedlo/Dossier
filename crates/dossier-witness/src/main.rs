@@ -113,7 +113,8 @@ fn serve(player: &str, leash: Option<&std::path::Path>) {
             continue;
         };
         idle_told = false;
-        say(wire::attached(process.pid));
+        let client = client_of(&process);
+        say(wire::attached(process.pid, &client));
         let mut loading_told = false;
         let anchors = loop {
             if let Ok(anchors) = stable::anchors(&process) {
@@ -156,7 +157,7 @@ fn serve(player: &str, leash: Option<&std::path::Path>) {
             if let Some(take) = recorder.poll(&process, &anchors) {
                 if take.frames.len() >= FRAMES_LEAST {
                     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |since| since.as_secs() as i64);
-                    say(wire::kept(&take, &osr::file_name(&take, player, now), &osr::write(&take, player, now)));
+                    say(wire::kept(&take, &osr::file_name(&take, &client, player, now), &osr::write(&take, &client, player, now)));
                 }
             }
             if let (Some(take), Some(seen)) = (recorder.recording(), &seen) {
@@ -176,12 +177,20 @@ fn serve(player: &str, leash: Option<&std::path::Path>) {
 }
 
 #[cfg(windows)]
+fn client_of(process: &dossier_witness::windows::Process) -> dossier_witness::client::Client {
+    let user = std::env::var("USERNAME").unwrap_or_default();
+    process.folder().map_or_else(dossier_witness::client::Client::default, |folder| dossier_witness::client::Client::beside(&folder, &user))
+}
+
+#[cfg(windows)]
 const FRAMES_LEAST: usize = 120;
 
 #[cfg(windows)]
 fn record(process: &dossier_witness::windows::Process, anchors: &dossier_witness::stable::Anchors, out: &std::path::Path, player: &str) {
     use dossier_witness::{osr, stable};
     let _ = std::fs::create_dir_all(out);
+    let client = client_of(process);
+    println!("witness: the client is {} and its player {}", if client.build.is_empty() { "of an unknown build" } else { client.build.as_str() }, if client.player.is_empty() { "unnamed" } else { client.player.as_str() });
     let mut recorder = stable::Recorder::default();
     let mut told = 0usize;
     println!("witness: recording into {}", out.display());
@@ -195,9 +204,9 @@ fn record(process: &dossier_witness::windows::Process, anchors: &dossier_witness
             if take.frames.len() < FRAMES_LEAST {
                 println!("witness: a play of {} frames is too short to keep", take.frames.len());
             } else {
-                let file = out.join(osr::file_name(&take, player, now));
-                match std::fs::write(&file, osr::write(&take, player, now)) {
-                    Ok(()) => println!("witness: kept {} ({} frames, {} points, passed {})", file.display(), take.frames.len(), take.play.score, take.passed),
+                let file = out.join(osr::file_name(&take, &client, player, now));
+                match std::fs::write(&file, osr::write(&take, &client, player, now)) {
+                    Ok(()) => println!("witness: kept {} ({} frames, {} points, passed {}, failed {})", file.display(), take.frames.len(), take.play.score, take.passed, take.failed),
                     Err(why) => println!("witness: {} was not written: {why}", file.display()),
                 }
             }

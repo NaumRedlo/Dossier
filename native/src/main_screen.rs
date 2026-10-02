@@ -8185,6 +8185,18 @@ mod tests {
         main
     }
 
+    fn happen(main: &mut super::Main, message: super::Message) -> std::time::Instant {
+        let at = std::time::Instant::now();
+        let _ = main.update(super::Message::Tick(at));
+        let _ = main.update(message);
+        at
+    }
+
+    fn at_once(main: &mut super::Main, at: std::time::Instant) -> ::image::RgbaImage {
+        let _ = main.update(super::Message::Tick(at));
+        seen(main)
+    }
+
     fn after(main: &mut super::Main, wait: std::time::Duration) -> ::image::RgbaImage {
         std::thread::sleep(wait);
         let _ = main.update(super::Message::Tick(std::time::Instant::now()));
@@ -8195,8 +8207,8 @@ mod tests {
     fn a_play_arriving_in_the_feed_opens_its_row_instead_of_pushing_the_rest_down_at_once() {
         let mut main = feed_at_rest();
         let before = seen(&main);
-        let _ = main.update(super::Message::LiveArrive);
-        let just = after(&mut main, std::time::Duration::ZERO);
+        let at = happen(&mut main, super::Message::LiveArrive);
+        let just = at_once(&mut main, at);
         let settled = after(&mut main, std::time::Duration::from_secs_f32(crate::ui::APPEAR + 0.15));
         let (jump, _) = moved(&before, &just);
         let (whole, _) = moved(&before, &settled);
@@ -8215,8 +8227,8 @@ mod tests {
         assert!(moved(&bare, &waiting).0 > 0.2, "a picture that was asked for is given its room at once");
 
         let picture = iced::widget::image::Handle::from_rgba(192, 108, vec![200u8; 192 * 108 * 4]);
-        let _ = main.update(super::Message::NewsPicture(url, Some(picture)));
-        let just = after(&mut main, std::time::Duration::ZERO);
+        let at = happen(&mut main, super::Message::NewsPicture(url, Some(picture)));
+        let just = at_once(&mut main, at);
         let settled = after(&mut main, std::time::Duration::from_secs_f32(crate::chronicle::PICTURE_FADE + 0.15));
         let (jump, _) = moved(&waiting, &just);
         let (whole, high) = moved(&waiting, &settled);
@@ -8233,8 +8245,8 @@ mod tests {
         main.news.stories[0].image = Some(url.clone());
         main.news_asked.insert(url.clone());
         let waiting = seen(&main);
-        let _ = main.update(super::Message::NewsPicture(url, None));
-        let just = after(&mut main, std::time::Duration::ZERO);
+        let at = happen(&mut main, super::Message::NewsPicture(url, None));
+        let just = at_once(&mut main, at);
         let settled = after(&mut main, std::time::Duration::from_secs_f32(crate::chronicle::PICTURE_FADE + 0.15));
         let (jump, _) = moved(&waiting, &just);
         let (whole, _) = moved(&waiting, &settled);

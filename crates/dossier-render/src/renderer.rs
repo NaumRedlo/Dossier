@@ -34,6 +34,7 @@ const HIDDEN_FADE_IN: f64 = 0.4;
 const MARK_SHARE: f64 = 0.05;
 const MARK_SWELL: f32 = 0.12;
 const MARK_ALPHA: f32 = 0.55;
+const MODS_SHARE: f64 = 0.036;
 const APPROACH_ALPHA: f32 = 0.9;
 const HIDDEN_FADE_OUT: f64 = 0.3;
 

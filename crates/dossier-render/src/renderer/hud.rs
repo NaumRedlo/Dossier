@@ -439,8 +439,9 @@ impl Scene<'_> {
             (u32::from(counts.count_50), self.skin.verdict_50),
             (u32::from(counts.count_miss), self.skin.verdict_miss),
         ];
-        let mut y = top + accuracy_size + tally_size * 1.6;
         let right_edge = layout.width as f32 - margin;
+        let worn = self.draw_mods(pixmap, right_edge, top + accuracy_size + tally_size * 0.55, height, presence);
+        let mut y = top + accuracy_size + tally_size * 1.6 + if worn > 0.0 { worn + tally_size * 0.35 } else { 0.0 };
         for (which, (value, colour)) in tally.into_iter().enumerate() {
             let text = format!("{value}");
             self.draw_tally(pixmap, &text, right_edge, y, tally_size, colour, presence);
@@ -473,13 +474,11 @@ impl Scene<'_> {
     }
 
     pub(super) fn draw_signature(&self, pixmap: &mut Pixmap, time_ms: f64, layout: &Layout) {
-        let (Some(font), Some(signature)) = (&self.skin.font, &self.signature) else {
+        if self.skin.font.is_none() || self.signature.is_none() {
             return;
-        };
+        }
         let height = f64::from(layout.height);
         let margin = (height * EDGE_MARGIN) as f32;
-        let client_size = (height * 0.028) as f32;
-
         let bottom = layout.height as f32 - margin;
         if let Some(mark) = crate::mark::emblem() {
             let kick = self.beat_kick(time_ms);
@@ -501,43 +500,45 @@ impl Scene<'_> {
                 None,
             );
         }
-        let badges: Vec<String> = signature
-            .badges
-            .iter()
-            .filter(|one| crate::mods::known(one))
-            .cloned()
-            .collect();
-        let high = (client_size * 1.55).round().max(8.0) as u32;
+    }
+
+    fn draw_mods(&self, pixmap: &mut Pixmap, right: f32, top: f32, height: f64, presence: f32) -> f32 {
+        let (Some(font), Some(signature)) = (&self.skin.font, &self.signature) else {
+            return 0.0;
+        };
+        let badges: Vec<String> = signature.badges.iter().filter(|one| crate::mods::known(one)).cloned().collect();
+        let high = (height * MODS_SHARE).round().max(8.0) as u32;
         if let Some(strip) = crate::mods::row_with(&badges, high, &self.skin.mod_icons) {
-            let top = bottom - (height * MARK_SHARE) as f32 * (1.0 + MARK_SWELL) - client_size * 0.6 - strip.height() as f32;
             pixmap.draw_pixmap(
                 0,
                 0,
                 strip.as_ref(),
                 &tiny_skia::PixmapPaint {
-                    opacity: 0.9,
+                    opacity: 0.9 * presence,
                     quality: tiny_skia::FilterQuality::Bilinear,
                     ..Default::default()
                 },
-                Transform::from_translate(
-                    layout.width as f32 - margin - strip.width() as f32,
-                    top.max(0.0),
-                ),
+                Transform::from_translate(right - strip.width() as f32, top),
                 None,
             );
-        } else if !signature.mods.is_empty() {
-            font.draw(
-                pixmap,
-                Label {
-                    text: &signature.mods,
-                    x: layout.width as f32 - margin,
-                    y: bottom - (height * MARK_SHARE) as f32 * (1.0 + MARK_SWELL) - client_size * 0.6,
-                    size: client_size * 1.35,
-                    colour: with_alpha(self.skin.hud, 0.80),
-                    align: Align::Right,
-                },
-            );
+            return strip.height() as f32;
         }
+        if signature.mods.is_empty() {
+            return 0.0;
+        }
+        let size = high as f32 * 1.1;
+        font.draw(
+            pixmap,
+            Label {
+                text: &signature.mods,
+                x: right,
+                y: top + size,
+                size,
+                colour: with_alpha(self.skin.hud, 0.80 * presence),
+                align: Align::Right,
+            },
+        );
+        size
     }
 
     pub(super) fn hud_presence(&self, time_ms: f64) -> f32 {

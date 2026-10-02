@@ -123,11 +123,64 @@ plates for every mod.
 
 103×60, 97×57, 71×57 and 65×65 — the 300 is the widest, the miss is the
 squarest and the tallest, and no two share a height. A rule that brings every
-mark to one height is therefore *not* what the game does, and the ceiling in
-[`verdict_held`](../crates/dossier-render/src/renderer/overlay.rs) is ours
-rather than stable's. It is still the right answer for the skins that need it —
-the ones whose `hit0` is twice their `hit300` — but the default is the case it
-must not break.
+mark to one height is therefore *not* what the game does.
+
+### A mark is the size of its picture, whatever the circle size
+
+The mark is built on the gamefield at scale 1 and nothing scales it afterwards,
+so a pixel of the picture is a pixel of a 1024×768 window: **0.625** of a
+playfield unit, at every circle size. The default 300 is 64 units across — nine
+tenths of a note at CS 4, wider than the note from CS 6 up. lazer does scale
+it, by the note's own factor (`radius / 64`), and the two agree near CS 3.
+
+Until 2026-10-02 the engine took a picture pixel for a whole playfield unit,
+1.6 times the client's size, and that is what "the marks are very big" meant in
+August. The two ceilings added then (0.4 of a note in height, 0.5 in width,
+over the ink) were a cure for that error and not for a skin's taste: they
+brought a 100 down to about the size the client draws at CS 4, shrank it
+further on small circles where the client does not, and cut a miss drawn as a
+large picture to a quarter of its size. Both are gone, and so is the measuring
+of ink they needed. A skin's mark is now `width × 0.625` for a stable play and
+`width × radius / 64` for a lazer one, and nothing else.
+
+A skin's mark is also drawn at its full alpha. The engine's own marks keep
+their lighter 300 and 100; a skin's had been dimmed by the same factors, which
+the client knows nothing of.
+
+### What a mark does while it is there
+
+All of it out of the method that adds the mark, in the base hit object manager
+(the osu! mode overrides none of it):
+
+| | a hit | a miss |
+|---|---|---|
+| fade in | 0 → 1 over 120 ms | the same |
+| fade out | 1 → 0 from 500 to 1100 ms | the same |
+| scale, one frame | 0.6 → 1.1 by 96 ms, held to 120, 1.1 → 0.9 by 144, 0.95 → 1 by 168 | 2 → 1 over 120 ms, in a straight line |
+| scale, several frames | none | none |
+| turn, one frame | none | a random ±0.15 rad by 120 ms, twice that by the end, easing in |
+| move, one frame | none | from 5 above to 40 below over the whole 1100 ms, easing in, only for a skin past version 1 |
+
+The last two overlapping scale steps are the client's (0.9 → 1 is given the
+span 120…168 and loses the first half of it to the step before), and the
+0.95 is lazer's reading of what that leaves.
+
+Under Sudden Death, outside multiplayer, the miss does not settle: it goes
+2 → 6 over 600 ms and stays there.
+
+lazer lands a miss at 1.6 and settles it over 100 ms easing in, and its drop is
+75 pixels of the *picture*, so it scales with the note as the mark does. The
+engine uses each client's own numbers for a play from that client. It had
+lazer's landing for both, a drop of 80 playfield units at any circle size for
+its own mark, and neither the drop nor the turn for a skin's.
+
+Without `particle300`/`particle100`/`particle50` in the skin the mark is given
+the depth `0.8 + (end + 1996) % 6000000 / 30000000`, which is above every hit
+object: it is drawn over the notes still to come. With a particle picture it
+goes below them instead, fades in over 80 ms, grows 0.9 → 1.05 over its whole
+life, and gets an additive copy of itself and a burst of the particles.
+**The engine draws none of the particle variant** — a skin that ships those
+pictures gets the plain mark above the notes.
 
 ### A note fades in over 400 ms, and its approach circle over twice that
 
@@ -164,7 +217,8 @@ bool flag4 = obj4.FrameCount == 1;
 ```
 
 One texture pops — 0.6 → 1.1 → 0.9 → 1 for a hit, 2 → 1 for a miss — whether
-it was found as `hit0` or as a lone `hit0-0`. Two or more play at scale 1.
+it was found as `hit0` or as a lone `hit0-0`. Two or more play at scale 1, and
+a miss of several frames neither turns nor drops.
 
 ### The bar is new style
 

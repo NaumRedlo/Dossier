@@ -157,39 +157,40 @@ impl Scene<'_> {
 
             let object = &self.state.timeline().objects[index];
             let at_head = annotation.judged_before_the_end(object);
-            let mut at = layout.map(verdict_place(object, at_head));
-
-            if verdict == Judgement::Miss && self.skin_version() > 1.0 {
-                at.1 += layout.length(miss_drift(age));
-            }
+            let missed = verdict == Judgement::Miss;
+            let lazer = self.state.from_lazer();
+            let fatal = self.state.mods().contains(dossier_replay::bits::SUDDEN_DEATH) || self.state.mods().contains(dossier_replay::bits::PERFECT);
+            let unit = if lazer { radius / NOTE_SPRITE_RADIUS } else { FIELD_SPRITE };
+            let drift = if missed && self.skin_version() > 1.0 {
+                miss_drift(age, lazer.then_some(unit))
+            } else {
+                0.0
+            };
             let animated = self.skin.sprites.as_ref().is_some_and(|sprites| sprites.animated(element));
-            let settle = if animated { 1.0 } else { verdict_settle(age, verdict == Judgement::Miss) };
-            let size = layout.length(radius * scale) * settle;
+            let settle = if animated {
+                1.0
+            } else if missed {
+                miss_settle(age, lazer, fatal)
+            } else {
+                verdict_settle(age)
+            };
             if self.skin_speaks_for(element) {
-                let own = self
-                    .skin
-                    .sprites
-                    .as_ref()
-                    .and_then(|sprites| Some((sprites, sprites.get(element)?)))
-                    .map_or(0.0, |(sprites, sprite)| {
-                        let full = layout.length(f64::from(sprite.width()));
-
-                        full * verdict_held(sprites, element, radius) as f32
-                    });
-
-                if own > 0.0 {
-                    self.draw_sprite_wide_at(
-                        pixmap,
-                        element,
-                        verdict_place(object, at_head),
-                        own * settle,
-                        alpha * presence,
-                        layout,
-                        age,
-                    );
+                let Some(sprite) = self.skin.sprites.as_ref().and_then(|sprites| sprites.get(element)) else {
+                    continue;
+                };
+                let width = layout.length(f64::from(sprite.width()) * unit) * settle;
+                let mut place = verdict_place(object, at_head);
+                let mut degrees = 0.0;
+                if missed && !animated {
+                    place.y += drift;
+                    degrees = miss_turn(index, age);
                 }
+                self.draw_sprite_wide_at(pixmap, element, place, width, alpha, layout, degrees, age);
                 continue;
             }
+            let mut at = layout.map(verdict_place(object, at_head));
+            at.1 += layout.length(drift);
+            let size = layout.length(radius * scale) * settle;
             let Some(font) = &self.skin.font else {
                 continue;
             };
@@ -364,33 +365,6 @@ impl Scene<'_> {
     }
 }
 
-fn verdict_held(sprites: &crate::imported::Sprites, element: crate::elements::Element, radius: f64) -> f64 {
-    let ceiling = radius * 2.0 * VERDICT_INK_SHARE;
-    let held = |ink: f32| -> f64 {
-        let ink = f64::from(ink);
-        if ink > ceiling && ink > 0.0 {
-            ceiling / ink
-        } else {
-            1.0
-        }
-    };
-
-    let widest = crate::elements::Verdict::ALL
-        .iter()
-        .filter_map(|verdict| sprites.steady_ink(crate::elements::Element::Verdict(*verdict)))
-        .filter(|(wide, high)| *wide > 0.0 && *high > 0.0)
-        .map(|(wide, high)| f64::from(wide) * held(high))
-        .fold(0.0, f64::max);
-
-    let mine = sprites.steady_ink(element).map_or(1.0, |(_, high)| held(high));
-    let room = radius * 2.0 * VERDICT_WIDTH_SHARE;
-    if widest > room && widest > 0.0 {
-        mine * room / widest
-    } else {
-        mine
-    }
-}
-
 fn verdict_place(object: &dossier_sim::TimedObject, at_head: bool) -> Point {
     if at_head {
         return object.pos;
@@ -408,17 +382,39 @@ fn verdict_alpha(age: f64) -> f32 {
     }
 }
 
-fn miss_drift(age: f64) -> f64 {
+fn miss_drift(age: f64, in_lazer: Option<f64>) -> f64 {
     let t = (age / VERDICT_MS).clamp(0.0, 1.0);
-    MISS_DRIFT_FROM + MISS_DRIFT_BY * t * t
+    match in_lazer {
+        Some(unit) => (MISS_DRIFT_FROM + MISS_DRIFT_BY_IN_LAZER * t * t) * unit,
+        None => MISS_DRIFT_FROM + MISS_DRIFT_BY * t * t,
+    }
 }
 
-fn verdict_settle(age: f64, missed: bool) -> f32 {
-    let step = VERDICT_FADE_IN_MS * 0.2;
-    if missed {
-        let t = (age / 100.0).clamp(0.0, 1.0) as f32;
-        return 1.6 + (1.0 - 1.6) * t * t;
+fn miss_settle(age: f64, lazer: bool, fatal: bool) -> f32 {
+    if lazer {
+        let t = (age / MISS_SETTLE_MS_IN_LAZER).clamp(0.0, 1.0) as f32;
+        return MISS_LANDS_AT_IN_LAZER + (1.0 - MISS_LANDS_AT_IN_LAZER) * t * t;
     }
+    if fatal {
+        let t = (age / MISS_BURST_MS).clamp(0.0, 1.0) as f32;
+        return MISS_LANDS_AT + (MISS_BURSTS_TO - MISS_LANDS_AT) * t;
+    }
+    let t = (age / VERDICT_FADE_IN_MS).clamp(0.0, 1.0) as f32;
+    MISS_LANDS_AT + (1.0 - MISS_LANDS_AT) * t
+}
+
+fn miss_turn(index: usize, age: f64) -> f32 {
+    let dice = (index as u32).wrapping_add(1).wrapping_mul(2_654_435_761) >> 8;
+    let lean = MISS_TURN_DEGREES * (dice as f32 / (1u32 << 23) as f32 - 1.0);
+    if age < VERDICT_FADE_IN_MS {
+        return lean * (age / VERDICT_FADE_IN_MS).max(0.0) as f32;
+    }
+    let t = ((age - VERDICT_FADE_IN_MS) / (VERDICT_MS - VERDICT_FADE_IN_MS)).clamp(0.0, 1.0) as f32;
+    lean * (1.0 + t * t)
+}
+
+fn verdict_settle(age: f64) -> f32 {
+    let step = VERDICT_FADE_IN_MS * 0.2;
     let ease = |from: f32, to: f32, at: f64, over: f64| {
         from + (to - from) * (at / over).clamp(0.0, 1.0) as f32
     };
@@ -429,7 +425,7 @@ fn verdict_settle(age: f64, missed: bool) -> f32 {
     } else if age < step * 6.0 {
         ease(1.1, 0.9, age - step * 5.0, step)
     } else if age < step * 7.0 {
-        ease(0.9, 1.0, age - step * 6.0, step)
+        ease(0.95, 1.0, age - step * 6.0, step)
     } else {
         1.0
     }
@@ -573,52 +569,68 @@ mod tests {
 
     #[test]
     fn a_miss_hangs_where_it_landed_before_it_drops() {
+        assert!((miss_drift(0.0, None) - MISS_DRIFT_FROM).abs() < 1e-6, "five pixels above");
+        assert!(miss_drift(VERDICT_MS * 0.2, None) < 0.0, "still above the note");
+        assert!(miss_drift(VERDICT_MS * 0.5, None) < MISS_DRIFT_BY * 0.25, "a quarter at half");
         assert!(
-            (miss_drift(0.0) - MISS_DRIFT_FROM).abs() < 1e-6,
-            "five pixels above"
+            (miss_drift(VERDICT_MS, None) - 40.0).abs() < 1e-6,
+            "the client leaves it forty below by the time it is gone"
         );
-
-        assert!(miss_drift(VERDICT_MS * 0.2) < 0.0, "still above the note");
-        assert!(
-            miss_drift(VERDICT_MS * 0.5) < MISS_DRIFT_BY * 0.25,
-            "a quarter at half"
-        );
-        assert!(
-            (miss_drift(VERDICT_MS) - (MISS_DRIFT_FROM + MISS_DRIFT_BY)).abs() < 1e-6,
-            "and seventy-five below by the time it is gone"
-        );
-
-        assert!(miss_drift(VERDICT_MS) - miss_drift(VERDICT_MS * 0.9) > 5.0);
+        assert!(miss_drift(VERDICT_MS, None) - miss_drift(VERDICT_MS * 0.9, None) > 5.0);
     }
 
     #[test]
-    fn a_miss_lands_large_and_snaps_down_while_a_score_springs_up() {
-        assert!((verdict_settle(0.0, true) - 1.6).abs() < 0.001);
-        assert!((verdict_settle(100.0, true) - 1.0).abs() < 0.001);
-        assert!(verdict_settle(50.0, true) > 1.0, "on its way down, not up");
-
-        assert!((verdict_settle(0.0, false) - 0.6).abs() < 0.001);
-        assert!(
-            (verdict_settle(96.0, false) - 1.1).abs() < 0.001,
-            "overshoots"
-        );
-        assert!(
-            (verdict_settle(500.0, false) - 1.0).abs() < 0.001,
-            "and settles"
-        );
+    fn lazer_drops_a_miss_by_the_notes_own_measure() {
+        let small = miss_drift(VERDICT_MS, Some(0.25));
+        let large = miss_drift(VERDICT_MS, Some(0.5));
+        assert!((small - 75.0 * 0.25).abs() < 1e-6, "{small}");
+        assert!((large - small * 2.0).abs() < 1e-6, "a note twice the size drops it twice as far");
     }
 
     #[test]
-    fn both_are_at_rest_long_before_the_mark_goes() {
-        for missed in [true, false] {
-            assert!(
-                (verdict_settle(200.0, missed) - 1.0).abs() < 0.001,
-                "{missed}"
-            );
-            assert!(
-                (verdict_settle(1000.0, missed) - 1.0).abs() < 0.001,
-                "{missed}"
-            );
+    fn a_miss_lands_at_twice_its_size_and_is_whole_when_it_has_faded_in() {
+        assert!((miss_settle(0.0, false, false) - 2.0).abs() < 0.001);
+        assert!((miss_settle(60.0, false, false) - 1.5).abs() < 0.001, "in a straight line");
+        assert!((miss_settle(120.0, false, false) - 1.0).abs() < 0.001);
+        assert!((miss_settle(1000.0, false, false) - 1.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn the_miss_that_ends_a_sudden_death_play_bursts() {
+        assert!((miss_settle(0.0, false, true) - 2.0).abs() < 0.001);
+        assert!((miss_settle(300.0, false, true) - 4.0).abs() < 0.001);
+        assert!((miss_settle(900.0, false, true) - 6.0).abs() < 0.001, "and stays there");
+    }
+
+    #[test]
+    fn lazer_lands_a_miss_smaller_and_sooner() {
+        assert!((miss_settle(0.0, true, true) - 1.6).abs() < 0.001, "and knows nothing of sudden death");
+        assert!(miss_settle(50.0, true, false) > 1.4, "it eases in, so it is slow to start");
+        assert!((miss_settle(100.0, true, false) - 1.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn a_miss_leans_as_it_arrives_and_twice_as_far_by_the_time_it_is_gone() {
+        let mut either = (false, false);
+        for index in 0..40 {
+            let lean = miss_turn(index, VERDICT_FADE_IN_MS);
+            assert!(lean.abs() <= MISS_TURN_DEGREES, "{lean}");
+            assert_eq!(miss_turn(index, 0.0), 0.0, "upright as it lands");
+            assert!((miss_turn(index, 60.0) - lean / 2.0).abs() < 0.001);
+            assert!((miss_turn(index, VERDICT_MS) - lean * 2.0).abs() < 0.001);
+            assert_eq!(miss_turn(index, 700.0), miss_turn(index, 700.0), "the same lean at every frame");
+            either = (either.0 || lean > 1.0, either.1 || lean < -1.0);
         }
+        assert!(either.0 && either.1, "misses lean both ways");
+    }
+
+    #[test]
+    fn a_score_springs_up_past_its_size_and_settles() {
+        assert!((verdict_settle(0.0) - 0.6).abs() < 0.001);
+        assert!((verdict_settle(96.0) - 1.1).abs() < 0.001, "overshoots");
+        assert!((verdict_settle(110.0) - 1.1).abs() < 0.001, "and holds until it has faded in");
+        assert!(verdict_settle(140.0) < 0.95, "then dips");
+        assert!((verdict_settle(200.0) - 1.0).abs() < 0.001, "and is at rest long before it goes");
+        assert!((verdict_settle(1000.0) - 1.0).abs() < 0.001);
     }
 }

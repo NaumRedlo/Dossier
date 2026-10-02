@@ -2728,6 +2728,96 @@ CircleSize:{circle_size}
         .count()
 }
 
+fn miss_mark_ink(time_ms: f64, dir: &std::path::Path, version: &str) -> Vec<(u32, u32)> {
+    use dossier_render::elements::Element;
+    use dossier_render::elements::Verdict;
+    use dossier_render::imported::Sprites;
+
+    let map = beatmap(
+        "
+[Difficulty]
+ApproachRate:5
+OverallDifficulty:5
+CircleSize:4
+
+[TimingPoints]
+0,500,4,2,0,60,1,0
+
+[HitObjects]
+256,192,3000,5,0
+256,192,9000,5,0
+",
+    );
+    let replay = replay_over(
+        (0..40)
+            .map(|i| dossier_replay::ReplayFrame {
+                time_ms: 2000 + i64::from(i) * 100,
+                x: 20.0,
+                y: 20.0,
+                keys: dossier_replay::Keys(0),
+            })
+            .collect(),
+    );
+    std::fs::write(dir.join("skin.ini"), format!("[General]\nVersion: {version}\n")).expect("written");
+    let mut skin = Skin::with_combo_colours(map.combo_colours()).with_font(font());
+    let all: Vec<Element> = Verdict::ALL.iter().copied().map(Element::Verdict).collect();
+    let sprites = Sprites::read(dir, &all).tint_for(&skin.combo_colours);
+    skin.sprites = Some(std::sync::Arc::new(sprites));
+    skin.skin_version_as_written = true;
+
+    let state = GameState::new(&map, &replay);
+    let layout = Layout::new(640, 480);
+    let frame = Scene::new(&state, skin).frame(time_ms, &layout);
+    let (cx, cy) = layout.map(dossier_beatmap::Point::CENTRE);
+    let mut ink = Vec::new();
+    for y in 0..480u32 {
+        for x in 0..640u32 {
+            let lit = frame.pixel(x, y).is_some_and(|p| {
+                (i32::from(p.red()) - i32::from(FIELD.0)).abs()
+                    + (i32::from(p.green()) - i32::from(FIELD.1)).abs()
+                    + (i32::from(p.blue()) - i32::from(FIELD.2)).abs()
+                    > 40
+            });
+            if lit && x.abs_diff(cx as u32) < 120 && y.abs_diff(cy as u32) < 120 {
+                ink.push((x, y));
+            }
+        }
+    }
+    ink
+}
+
+#[test]
+fn a_skins_miss_falls_and_leans_as_the_clients_does() {
+    let dir = skin_folder("verdict-falls");
+    write_ink(&dir, "hit0.png", 128, 128, 8);
+    let middle = |ink: &[(u32, u32)]| ink.iter().map(|&(_, y)| f64::from(y)).sum::<f64>() / ink.len() as f64;
+    let tall = |ink: &[(u32, u32)]| {
+        let rows: Vec<u32> = ink.iter().map(|&(_, y)| y).collect();
+        rows.iter().max().expect("ink") - rows.iter().min().expect("ink") + 1
+    };
+
+    let landed = miss_mark_ink(3500.0, &dir, "2.0");
+    let leaving = miss_mark_ink(4000.0, &dir, "2.0");
+    assert!(!landed.is_empty() && !leaving.is_empty(), "the mark is drawn at both moments");
+    let fell = middle(&leaving) - middle(&landed);
+    assert!(
+        (15.0..30.0).contains(&fell),
+        "the client drops a miss forty-five field pixels over its life, and in this half second it fell {fell}"
+    );
+    assert!(
+        tall(&landed) >= 7,
+        "a bar five pixels tall is only taller than that when it leans, and this one is {}",
+        tall(&landed)
+    );
+
+    let old = skin_folder("verdict-stays");
+    write_ink(&old, "hit0.png", 128, 128, 8);
+    let fell = middle(&miss_mark_ink(4000.0, &old, "1.0")) - middle(&miss_mark_ink(3500.0, &old, "1.0"));
+    assert!(fell.abs() < 2.0, "a skin of the first version keeps its miss where it landed, and this one moved {fell}");
+    let _ = std::fs::remove_dir_all(&dir);
+    let _ = std::fs::remove_dir_all(&old);
+}
+
 #[test]
 fn a_judgement_below_the_ceiling_keeps_the_size_the_skin_drew() {
     let dir = skin_folder("verdict-ruler");
@@ -3351,24 +3441,24 @@ fn write_ink(dir: &std::path::Path, name: &str, canvas: u32, wide: u32, tall: u3
 }
 
 #[test]
-fn squat_lettering_is_held_by_its_width_too() {
+fn a_mark_is_as_wide_as_its_picture_however_tall_the_lettering() {
     let squat = skin_folder("verdict-squat");
     write_ink(&squat, "hit300.png", 200, 120, 28);
 
     let upright = skin_folder("verdict-upright");
     write_ink(&upright, "hit300.png", 200, 120, 80);
 
-    let held = scored_mark_width("6", &squat);
+    let low = scored_mark_width("6", &squat);
     let tall = scored_mark_width("6", &upright);
-    assert!(held > 0, "the mark is drawn at all");
+    assert!(low.abs_diff(75) <= 1, "a hundred and twenty pixels are seventy-five on the field, not {low}");
     assert!(
-        held.abs_diff(tall) <= 2,
-        "the same picture came out two sizes: {held} squat against {tall} upright"
+        low.abs_diff(tall) <= 1,
+        "the same picture came out two sizes: {low} squat against {tall} upright"
     );
 }
 
 #[test]
-fn the_widest_mark_brings_its_siblings_down_with_it() {
+fn each_mark_of_a_skin_is_its_own_size() {
     let together = skin_folder("verdict-set");
     write_ink(&together, "hit300.png", 200, 120, 28);
     write_ink(&together, "hit0.png", 200, 40, 28);
@@ -3380,17 +3470,34 @@ fn the_widest_mark_brings_its_siblings_down_with_it() {
     let short = miss_mark_width("6", &together);
     assert!(short > 0, "the compact mark is drawn at all");
     assert!(
-        long > short,
-        "the set was squeezed to a common width: {long} against {short}"
+        long.abs_diff(short * 3) <= 3,
+        "a mark three times as wide was not drawn three times as wide: {long} against {short}"
     );
-    assert!(
-        short < miss_mark_width("6", &alone),
-        "a mark whose sibling was held did not come down with it"
+    assert_eq!(
+        short,
+        miss_mark_width("6", &alone),
+        "a wide sibling changed the size of a mark"
     );
 }
 
 #[test]
-fn a_mark_past_the_ceiling_is_brought_down_to_it() {
+fn a_skins_mark_is_as_large_as_the_client_draws_it_whatever_the_circle_size() {
+    let dir = skin_folder("verdict-true-size");
+    write_ink(&dir, "hit300.png", 128, 40, 16);
+    write_ink(&dir, "hit0.png", 128, 40, 16);
+    for circle_size in ["3", "6"] {
+        let wide = scored_mark_width(circle_size, &dir);
+        assert!(
+            wide.abs_diff(25) <= 1,
+            "forty pixels of a skin's mark are twenty-five playfield units in the client, and came out {wide} at CS {circle_size}"
+        );
+        assert!(miss_mark_width(circle_size, &dir).abs_diff(25) <= 1, "the miss is sized by the same rule");
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_mark_larger_than_its_note_is_drawn_larger_than_its_note() {
     let dir = skin_folder("verdict-share");
     write_padded(&dir, "hit300.png", 200, 40);
     write_padded(&dir, "hit0.png", 200, 40);
@@ -3403,22 +3510,14 @@ fn a_mark_past_the_ceiling_is_brought_down_to_it() {
         scored_mark_width as fn(&str, &std::path::Path) -> usize,
         miss_mark_width as fn(&str, &std::path::Path) -> usize,
     ] {
-        let modest = measure("6", &dir);
-        let huge = measure("6", &big);
-        assert!(modest > 0, "the mark is drawn at all");
+        let modest = measure("7", &dir);
+        let huge = measure("7", &big);
+        assert!(modest.abs_diff(25) <= 2, "{modest}");
         assert!(
-            huge <= modest + 2,
-            "a mark twice as wide was not brought down: {huge} against {modest}"
+            huge.abs_diff(50) <= 3,
+            "the client holds no mark to its note, and a note of forty-six took a mark of {huge}"
         );
     }
-
-    let small = skin_folder("verdict-share-modest");
-    write_padded(&small, "hit300.png", 200, 8);
-    write_padded(&small, "hit0.png", 200, 8);
-    assert!(
-        scored_mark_width("6", &small) < scored_mark_width("6", &dir),
-        "a mark already inside the ceiling was resized anyway"
-    );
 }
 
 #[test]

@@ -204,45 +204,16 @@ pub fn tinted(pixmap: &Pixmap, tint: Color) -> Pixmap {
     out
 }
 
-const SEEN_ALPHA: u8 = 32;
-
 #[derive(Clone)]
 pub struct Sprite {
     pub pixmap: Pixmap,
 
     pub scale: f32,
-
-    pub ink_width: f32,
-    pub ink_height: f32,
 }
 
 impl Sprite {
     fn new(pixmap: Pixmap, scale: f32) -> Self {
-        let (mut left, mut right) = (pixmap.width(), 0u32);
-        let (mut top, mut bottom) = (pixmap.height(), 0u32);
-        for (index, pixel) in pixmap.pixels().iter().enumerate() {
-            if pixel.alpha() < SEEN_ALPHA {
-                continue;
-            }
-            let (x, y) = (index as u32 % pixmap.width(), index as u32 / pixmap.width());
-            left = left.min(x);
-            right = right.max(x);
-            top = top.min(y);
-            bottom = bottom.max(y);
-        }
-        let span = |from: u32, to: u32| {
-            if from > to {
-                0.0
-            } else {
-                (to - from + 1) as f32 / scale
-            }
-        };
-        Self {
-            ink_width: span(left, right),
-            ink_height: span(top, bottom),
-            pixmap,
-            scale,
-        }
+        Self { pixmap, scale }
     }
 
     pub fn width(&self) -> f32 {
@@ -372,23 +343,6 @@ impl Sprites {
 
     pub fn animated(&self, element: Element) -> bool {
         self.frames.get(&element).is_some_and(|strip| strip.len() > 1)
-    }
-
-    pub fn steady_ink(&self, element: Element) -> Option<(f32, f32)> {
-        let median = |mut values: Vec<f32>| -> f32 {
-            values.sort_by(f32::total_cmp);
-            values[values.len() / 2]
-        };
-        match self.frames.get(&element) {
-            Some(strip) if strip.len() > 1 => {
-                let inked: Vec<&Sprite> = strip.iter().filter(|s| s.ink_width > 0.0 && s.ink_height > 0.0).collect();
-                if inked.is_empty() {
-                    return None;
-                }
-                Some((median(inked.iter().map(|s| s.ink_width).collect()), median(inked.iter().map(|s| s.ink_height).collect())))
-            }
-            _ => self.have.get(&element).map(|s| (s.ink_width, s.ink_height)),
-        }
     }
 
     pub fn frame_count(&self, element: Element) -> usize {
@@ -679,21 +633,7 @@ mod tests {
     }
 
     #[test]
-    fn an_animations_size_is_its_settled_frames_not_its_burst() {
-        let dir = folder("burst");
-        write(&dir, "hit100-0.png", 100, 255);
-        for n in 1..=4 {
-            write(&dir, &format!("hit100-{n}.png"), 30, 255);
-        }
-        let sprites = Sprites::read(&dir, &[Element::Verdict(crate::elements::Verdict::Hundred)]);
-        let (wide, high) = sprites.steady_ink(Element::Verdict(crate::elements::Verdict::Hundred)).expect("measured");
-        assert_eq!((wide, high), (30.0, 30.0), "the flash on the first frame is not the mark's size");
-        assert!(sprites.animated(Element::Verdict(crate::elements::Verdict::Hundred)));
-        let _ = fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn a_single_numbered_frame_is_a_still_and_a_faint_haze_is_not_ink() {
+    fn a_single_numbered_frame_is_a_still() {
         let dir = folder("single-frame");
         write(&dir, "hit0-0@2x.png", 60, 255);
         write(&dir, "hit50.png", 80, 10);
@@ -701,8 +641,6 @@ mod tests {
         assert!(sprites.get(Element::Verdict(crate::elements::Verdict::Miss)).is_some(), "a lone -0 is read");
         assert!(!sprites.animated(Element::Verdict(crate::elements::Verdict::Miss)), "osu! pops a mark of one frame, numbered or not");
         assert!(!sprites.animated(Element::Verdict(crate::elements::Verdict::Fifty)));
-        let fifty = sprites.get(Element::Verdict(crate::elements::Verdict::Fifty)).expect("read");
-        assert_eq!((fifty.ink_width, fifty.ink_height), (0.0, 0.0), "a haze below what the eye sees is not ink");
         let _ = fs::remove_dir_all(&dir);
     }
 

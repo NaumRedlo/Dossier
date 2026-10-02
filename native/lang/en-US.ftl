@@ -695,6 +695,7 @@ title-see-holders = Holders
 witness-tile = Witness
 witness-about = Witness observes the running osu!stable client and sends each result to the chat feed as soon as the play ends. The client's memory is only read, never modified.
 witness-on = Save a replay of every play to the journal
+witness-companion = Show the chat at song select
 witness-missing = This build does not include Witness
 witness-idle = The osu! client is not running
 witness-loading = The osu! client is loading

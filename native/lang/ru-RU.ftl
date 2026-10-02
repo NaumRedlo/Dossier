@@ -715,6 +715,7 @@ open-result = Результат
 title-see-holders = Обладатели
 witness-tile = Witness
 witness-about = Witness наблюдает за запущенным клиентом osu!stable и передаёт результат в ленту беседы сразу после завершения игры. Память клиента используется только для чтения.
+witness-companion = Показывать беседу при выборе карты
 witness-on = Сохранять реплей каждой игры в журнале
 witness-missing = Эта сборка не содержит Witness
 witness-idle = Клиент osu! не запущен

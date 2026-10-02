@@ -77,6 +77,109 @@ pub struct Kept {
     pub watched: Option<bool>,
 }
 
+const SITTING_MOST: i64 = 24 * 3600;
+const SITTING_TELL_EVERY: i64 = 300;
+const PLAY_TICK_MOST: i64 = 5;
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize)]
+pub struct Sitting {
+    pub time_zone: String,
+    pub started_at: i64,
+    pub ended_at: i64,
+    pub play_seconds: i64,
+    pub plays: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Sittings {
+    open: Option<Sitting>,
+    told_at: i64,
+    ticked_at: Option<i64>,
+}
+
+impl Sittings {
+    pub fn current(&self) -> Option<&Sitting> {
+        self.open.as_ref()
+    }
+
+    pub fn take(&mut self, event: &Event, now: i64, zone: &str) -> Option<Sitting> {
+        match event {
+            Event::Attached { .. } => {
+                let closed = self.close(now);
+                self.begin(now, zone);
+                closed.or_else(|| self.tell(now))
+            }
+            Event::Waiting | Event::Gone | Event::Absent | Event::Unavailable => self.close(now),
+            Event::Playing(_) => {
+                self.begin_if_none(now, zone);
+                if let (Some(sitting), Some(before)) = (self.open.as_mut(), self.ticked_at) {
+                    sitting.play_seconds += (now - before).clamp(0, PLAY_TICK_MOST);
+                }
+                self.ticked_at = Some(now);
+                self.moved(now)
+            }
+            Event::Kept(_) => {
+                self.begin_if_none(now, zone);
+                if let Some(sitting) = self.open.as_mut() {
+                    sitting.plays += 1;
+                }
+                self.ticked_at = None;
+                self.moved(now)
+            }
+            Event::State(state) => {
+                if state.mode != "Play" {
+                    self.ticked_at = None;
+                }
+                self.begin_if_none(now, zone);
+                self.moved(now)
+            }
+            Event::Loading | Event::Alive => None,
+        }
+    }
+
+    fn begin(&mut self, now: i64, zone: &str) {
+        self.open = Some(Sitting { time_zone: zone.to_owned(), started_at: now, ended_at: now, ..Sitting::default() });
+        self.told_at = 0;
+        self.ticked_at = None;
+    }
+
+    fn begin_if_none(&mut self, now: i64, zone: &str) {
+        if self.open.is_none() {
+            self.begin(now, zone);
+        }
+    }
+
+    fn moved(&mut self, now: i64) -> Option<Sitting> {
+        let sitting = self.open.as_mut()?;
+        sitting.ended_at = now;
+        if now - sitting.started_at >= SITTING_MOST {
+            let done = self.open.take();
+            self.ticked_at = None;
+            return done;
+        }
+        self.tell(now)
+    }
+
+    fn tell(&mut self, now: i64) -> Option<Sitting> {
+        if self.told_at != 0 && now - self.told_at < SITTING_TELL_EVERY {
+            return None;
+        }
+        self.told_at = now;
+        self.open.clone()
+    }
+
+    fn close(&mut self, now: i64) -> Option<Sitting> {
+        self.ticked_at = None;
+        let mut sitting = self.open.take()?;
+        sitting.ended_at = now.max(sitting.started_at);
+        Some(sitting)
+    }
+}
+
+pub fn time_zone() -> String {
+    iana_time_zone::get_timezone().unwrap_or_default()
+}
+
 #[derive(Debug, Clone, PartialEq, Default, Serialize)]
 pub struct Told {
     pub md5: String,
@@ -520,6 +623,83 @@ mod tests {
         assert!(matches!(playing, Some(Event::Playing(Progress { frames: 3886, score: 92_242, miss: 1, mods: 24, .. }))));
         assert_eq!(read("witness: something else"), None);
         assert_eq!(read(r#"{"event":"a new thing"}"#), None);
+    }
+
+    fn playing() -> Event {
+        Event::Playing(Progress::default())
+    }
+
+    fn state(mode: &str) -> Event {
+        Event::State(State { mode: mode.into(), ..State::default() })
+    }
+
+    #[test]
+    fn a_session_is_told_when_the_client_is_found_and_again_when_it_goes() {
+        let mut sittings = Sittings::default();
+        let zone = "Europe/Moscow";
+        let began = sittings.take(&Event::Attached { pid: 1, build: String::new(), player: String::new() }, 1_000, zone).expect("the beginning is told");
+        assert_eq!((began.started_at, began.ended_at, began.play_seconds, began.plays, began.time_zone.as_str()), (1_000, 1_000, 0, 0, zone));
+        assert!(sittings.take(&Event::Alive, 1_001, zone).is_none() && sittings.take(&Event::Loading, 1_002, zone).is_none());
+        let ended = sittings.take(&Event::Gone, 2_000, zone).expect("the end is told");
+        assert_eq!((ended.started_at, ended.ended_at), (1_000, 2_000));
+        assert!(sittings.current().is_none());
+        assert!(sittings.take(&Event::Gone, 2_001, zone).is_none(), "nothing is told twice");
+    }
+
+    #[test]
+    fn only_the_time_spent_in_a_play_counts_as_play_time_and_a_gap_is_not_counted_whole() {
+        let mut sittings = Sittings::default();
+        sittings.take(&Event::Attached { pid: 1, build: String::new(), player: String::new() }, 1_000, "UTC");
+        sittings.take(&state("SelectPlay"), 1_010, "UTC");
+        for second in 1_020..1_030 {
+            sittings.take(&playing(), second, "UTC");
+        }
+        assert_eq!(sittings.current().map(|s| s.play_seconds), Some(9));
+        sittings.take(&playing(), 1_500, "UTC");
+        assert_eq!(sittings.current().map(|s| s.play_seconds), Some(14), "a silence of minutes adds at most a few seconds");
+        sittings.take(&state("SelectPlay"), 1_501, "UTC");
+        sittings.take(&playing(), 1_600, "UTC");
+        assert_eq!(sittings.current().map(|s| s.play_seconds), Some(14), "leaving the play and coming back does not bridge the gap");
+        sittings.take(&Event::Kept(Kept::default()), 1_601, "UTC");
+        sittings.take(&Event::Kept(Kept::default()), 1_602, "UTC");
+        assert_eq!(sittings.current().map(|s| s.plays), Some(2));
+    }
+
+    #[test]
+    fn a_running_session_is_told_again_only_every_five_minutes() {
+        let mut sittings = Sittings::default();
+        sittings.take(&Event::Attached { pid: 1, build: String::new(), player: String::new() }, 1_000, "UTC");
+        let mut told = 0;
+        for second in 1_001..1_700 {
+            if sittings.take(&playing(), second, "UTC").is_some() {
+                told += 1;
+            }
+        }
+        assert_eq!(told, 2, "once after five minutes and once more after ten");
+    }
+
+    #[test]
+    fn a_session_that_has_gone_on_for_a_day_is_closed_and_the_next_one_begins_afresh() {
+        let mut sittings = Sittings::default();
+        sittings.take(&Event::Attached { pid: 1, build: String::new(), player: String::new() }, 1_000, "UTC");
+        let long = sittings.take(&playing(), 1_000 + SITTING_MOST, "UTC").expect("the day-long one is handed over");
+        assert_eq!(long.ended_at - long.started_at, SITTING_MOST);
+        assert!(sittings.current().is_none());
+        let next = sittings.take(&playing(), 1_000 + SITTING_MOST + 1, "UTC").expect("a new one is told at once");
+        assert_eq!(next.started_at, 1_000 + SITTING_MOST + 1);
+    }
+
+    #[test]
+    fn a_session_is_told_to_the_bot_in_the_words_the_bot_reads() {
+        let said = serde_json::to_value(Sitting { time_zone: "Europe/Moscow".into(), started_at: 10, ended_at: 20, play_seconds: 5, plays: 2 }).expect("a session says itself");
+        assert_eq!(said, serde_json::json!({"time_zone": "Europe/Moscow", "started_at": 10, "ended_at": 20, "play_seconds": 5, "plays": 2}));
+    }
+
+    #[test]
+    fn a_client_met_in_the_middle_of_a_play_still_makes_a_session() {
+        let mut sittings = Sittings::default();
+        let first = sittings.take(&playing(), 500, "Asia/Tokyo").expect("begun by the first sign of play");
+        assert_eq!((first.started_at, first.time_zone.as_str()), (500, "Asia/Tokyo"));
     }
 
     #[test]

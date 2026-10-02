@@ -659,7 +659,7 @@ pub(crate) fn title<'a>(ground: &Ground<'a>, code: &str, who: Option<i64>) -> El
         return container(row![caption(code.to_owned()), ui::grow(), close()]).padding(20).into();
     };
     let holders = catalog.holders(code);
-    let known = !holders.is_empty() || title.rarity != Rarity::Secret;
+    let known = !holders.is_empty() || !title.hidden;
     let tint = if known { title.rarity.colour() } else { FAINT };
     let earned = |person: &Person| -> Option<i64> {
         person.title_dates.get(code).copied().or_else(|| catalog.me.as_ref().filter(|me| me.person.id == person.id).and_then(|me| me.title_dates.get(code).copied()))

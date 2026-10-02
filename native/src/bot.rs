@@ -259,6 +259,17 @@ pub fn witnessed(server: &str, token: &str, name: &str, play: &crate::witness::T
     status(response).map(|_| ())
 }
 
+pub fn witness_session(server: &str, token: &str, name: &str, sitting: &crate::witness::Sitting) -> Result<(), Refused> {
+    let response = client()?
+        .post(format!("{server}/render/me/session"))
+        .header("X-Render-Worker", name)
+        .bearer_auth(token)
+        .json(sitting)
+        .send()
+        .map_err(|e| Refused::Network(e.to_string()))?;
+    status(response).map(|_| ())
+}
+
 pub fn wear_title(server: &str, token: &str, name: &str, chat: Option<i64>, code: Option<&str>) -> Result<(), Refused> {
     let response = client()?
         .post(format!("{server}/render/me/title"))

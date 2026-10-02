@@ -342,7 +342,7 @@ rarity-rare = Rare
 rarity-epic = Epic
 rarity-legendary = Legendary
 rarity-mythic = Mythic
-rarity-secret = Secret
+rarity-anomaly = Anomaly
 streak-card = { $n ->
     [one] { $n }-day streak
    *[other] { $n }-day streak
@@ -693,7 +693,7 @@ no-telegram-chats = Link Telegram to send videos.
 open-result = Result
 title-see-holders = Holders
 witness-tile = Witness
-witness-about = Witness observes the running osu!stable client and sends each result to the chat feed as soon as the play ends. The client's memory is only read, never modified.
+witness-about = Witness observes the running osu!stable client and sends each result to the chat feed as soon as the play ends. The client's memory is only read, never modified. For titles the bot also learns the device's time zone and how long each game session lasted.
 witness-on = Save a replay of every play to the journal
 witness-companion = Show the chat at song select
 witness-missing = This build does not include Witness

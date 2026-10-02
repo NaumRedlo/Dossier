@@ -1130,6 +1130,7 @@ dependencies = [
  "dossier-replay",
  "dossier-sim",
  "fluent-bundle",
+ "iana-time-zone",
  "iced",
  "iced_test",
  "image",

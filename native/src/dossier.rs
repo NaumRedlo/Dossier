@@ -1348,7 +1348,7 @@ fn titles<'a>(ground: &Ground<'a>, whose: &Whose<'a>) -> Element<'a, Message> {
     let chosen_code = ground.title_pick.map(str::to_owned).or_else(|| you.title.clone()).or_else(|| owned.first().map(|t| t.code.clone()));
     let mut chips: Vec<Element<'a, Message>> = Vec::new();
     for (title, got) in owned.iter().map(|t| (*t, true)).chain(locked.iter().take(5).map(|t| (*t, false))) {
-        let secret = !got && title.rarity == Rarity::Secret;
+        let secret = !got && title.hidden;
         let name = if secret { "???".to_owned() } else { title.name(w.lang()).to_owned() };
         let on = chosen_code.as_deref() == Some(title.code.as_str());
         chips.push(ui::hover(
@@ -1362,7 +1362,7 @@ fn titles<'a>(ground: &Ground<'a>, whose: &Whose<'a>) -> Element<'a, Message> {
     let detail: Element<'a, Message> = match chosen_code.as_deref().and_then(|code| catalog.title_of(code)) {
         Some(title) => {
             let got = held(title);
-            let secret = !got && title.rarity == Rarity::Secret;
+            let secret = !got && title.hidden;
             let colour = title.rarity.colour();
             let when = match (got, whose.me.and_then(|me| me.title_dates.get(&title.code))) {
                 (true, Some(at)) => format!("{} {}", w.t("title-got"), w.day(*at, ground.now_unix)),

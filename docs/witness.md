@@ -202,6 +202,27 @@ when the client leaves song select, and the tile's second switch turns it off.
   enter it until osu! itself has confirmed them.
 - Without a paired device there is no chat to ask, and no card.
 
+### The device's time zone and the game sessions
+
+Titles in the bot need the player's own day (a first map of the day, a week of SS
+day by day) and the player's own sessions (maps in one session, hours of play in
+a day), and only the machine the client runs on knows them. So the application
+tells the bot, with the same token and in the same way as a witnessed play:
+
+- the device's time zone, by its IANA name (`Europe/Moscow`), once per session
+  and again on every report;
+- for each game session, `started_at`, `ended_at`, `play_seconds` and `plays`
+  (unix seconds and counts), at `POST /render/me/session`.
+
+A session begins when Witness finds the client (or sees its first sign of a play)
+and ends when the client goes or after twenty-four hours. `play_seconds` is the
+time the client was on the play screen, counted from the one-second reports and
+never more than five seconds for a gap between two of them; `plays` is the number
+of plays Witness saw end. A running session is told when it begins, then every
+five minutes, and at its end; the bot keeps one row per start and only lets it
+grow, so a repeated or late message does no harm. Nothing is told without a paired
+device, and the tile says that the time zone and the session lengths are told.
+
 ## The transmitter
 
 A play Witness saw end is told to the server at once, so the chat's feed does

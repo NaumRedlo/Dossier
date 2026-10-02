@@ -8,11 +8,11 @@ pub enum Rarity {
     Epic,
     Legendary,
     Mythic,
-    Secret,
+    Anomaly,
 }
 
 impl Rarity {
-    pub const ALL: [Rarity; 7] = [Rarity::Common, Rarity::Uncommon, Rarity::Rare, Rarity::Epic, Rarity::Legendary, Rarity::Mythic, Rarity::Secret];
+    pub const ALL: [Rarity; 7] = [Rarity::Common, Rarity::Uncommon, Rarity::Rare, Rarity::Epic, Rarity::Legendary, Rarity::Mythic, Rarity::Anomaly];
 
     pub fn colour(self) -> Color {
         let (r, g, b) = match self {
@@ -22,7 +22,7 @@ impl Rarity {
             Rarity::Epic => (171, 71, 188),
             Rarity::Legendary => (255, 179, 0),
             Rarity::Mythic => (229, 57, 53),
-            Rarity::Secret => (130, 96, 170),
+            Rarity::Anomaly => (38, 198, 218),
         };
         Color::from_rgb8(r, g, b)
     }
@@ -35,7 +35,7 @@ impl Rarity {
             Rarity::Epic => "rarity-epic",
             Rarity::Legendary => "rarity-legendary",
             Rarity::Mythic => "rarity-mythic",
-            Rarity::Secret => "rarity-secret",
+            Rarity::Anomaly => "rarity-anomaly",
         }
     }
 
@@ -46,7 +46,7 @@ impl Rarity {
             "epic" => Rarity::Epic,
             "legendary" => Rarity::Legendary,
             "mythic" => Rarity::Mythic,
-            "secret" => Rarity::Secret,
+            "anomaly" | "secret" => Rarity::Anomaly,
             _ => Rarity::Common,
         }
     }
@@ -59,6 +59,7 @@ pub struct Title {
     pub name: [String; 2],
     pub about: [String; 2],
     pub target: u32,
+    pub hidden: bool,
 }
 
 impl Title {
@@ -73,27 +74,30 @@ impl Title {
 
 const STAGED_TITLES: &[(&str, Rarity, &str, &str, &str, &str)] = &[
     ("registered", Rarity::Common, "It's Nice to Meet You", "Приятно познакомиться", "Sign up with the bot.", "Зарегистрируйтесь в боте."),
-    ("graveyard", Rarity::Common, "Necrotourist", "Некротурист", "Play a map with Graveyard status.", "Сыграйте карту со статусом Graveyard."),
+    ("graveyard", Rarity::Common, "Necrotourist", "Некротурист", "Play a map with Graveyard status.", "Сыграйте карту со статусом «кладбище»."),
     ("account_2y", Rarity::Common, "Citizen of Record", "Учтённый гражданин", "Have an account older than 2 years.", "Имейте аккаунт старше 2 лет."),
-    ("s_50", Rarity::Common, "Serial Performer", "Серийный исполнитель", "Earn 50 S-ranks.", "Получите 50 рангов S."),
+    ("daily_report", Rarity::Common, "Daily Report", "Ежедневный отчёт", "Play 10 ranked maps in a day.", "Сыграйте 10 рейтинговых карт за день."),
     ("wysi", Rarity::Uncommon, "WYSI", "WYSI", "Get a combo containing the number 727.", "Наберите комбо, содержащее число 727."),
     ("broken_record", Rarity::Uncommon, "On repeat!", "На повторе!", "Play one map 20 times.", "Сыграйте одну карту 20 раз."),
     ("masks_5", Rarity::Uncommon, "Wardrobe of Masks", "Ведущий маскарада", "Play maps with 5 different mods.", "Сыграйте карты с 5 разными модами."),
-    ("ss_100", Rarity::Uncommon, "Five Collector", "Отличник", "Earn 100 SS ranks.", "Получите 100 рангов SS."),
-    ("dejavu", Rarity::Rare, "Déjà Vu", "Дежавю", "Get the same score on two different maps.", "Наберите одинаковый счёт на двух разных картах."),
-    ("archaeologist", Rarity::Rare, "Archaeologist", "Археолог", "Pass a map ranked 12 years ago or earlier.", "Пройдите карту, получившую статус Ranked 12 лет назад или ранее."),
+    ("s_50", Rarity::Uncommon, "Serial Performer", "Серийный исполнитель", "Earn 50 S-ranks.", "Получите 50 рангов S."),
+    ("archaeologist", Rarity::Uncommon, "Archaeologist", "Археолог", "Pass a map ranked 12 years ago or earlier.", "Пройдите карту, ставшую рейтинговой 12 лет назад или ранее."),
+    ("ss_100", Rarity::Rare, "Five Collector", "Отличник", "Earn 100 SS ranks.", "Получите 100 рангов SS."),
     ("combo_2000", Rarity::Rare, "Hardy", "Выносливый", "Get a 2000 combo or above on one score.", "Наберите комбо 2000 и больше за одну игру."),
-    ("heavy_hand", Rarity::Rare, "Heavy Hand", "Крепкая рука", "FC a map from 5* with AR 10.3 and above.", "Сделайте FC карты от 5* с AR 10.3 и выше."),
-    ("fc_bpm_210", Rarity::Epic, "Rapid Fire", "Скорострел", "FC a map from 240 BPM.", "Сделайте FC карты от 240 BPM."),
-    ("ss_hdfl_5", Rarity::Epic, "Tunnel Vision", "Туннельное зрение", "Get an SS on a map from 5* with HDFL.", "Получите SS на карте от 5* с HDFL."),
-    ("sr_10", Rarity::Epic, "Double Digit Threat", "Двузначная угроза", "Pass a map of 10* or harder.", "Пройдите карту сложностью 10* или выше."),
-    ("archivist", Rarity::Legendary, "Archivist", "Архивариус", "Hold the highest ranked score in the chat.", "Удерживайте наибольшее число рейтинговых очков в беседе."),
-    ("streak_30d", Rarity::Legendary, "Sleepless Watch", "Бессонная вахта", "Stay active 30 days in a row.", "Сохраняйте активность 30 дней подряд."),
+    ("ministry_accuracy", Rarity::Rare, "Ministry of Accuracy", "Министерство точности", "Finish 10 maps in a row with 98%+ accuracy.", "Завершите 10 карт подряд с точностью 98% и выше."),
+    ("heavy_hand", Rarity::Epic, "Heavy Hand", "Крепкая рука", "FC a map from 5* with AR 10.3 and above.", "Сделайте FC карты от 5* с AR 10.3 и выше."),
+    ("fc_bpm_210", Rarity::Epic, "Rapid Fire", "Скорострел", "FC a map from 6* at 240 BPM or more.", "Сделайте FC карты от 6* при 240 BPM и больше."),
+    ("archivist", Rarity::Epic, "Archivist", "Архивариус", "Hold the highest ranked score in the chat.", "Удерживайте наибольшее число рейтинговых очков в беседе."),
+    ("streak_30d", Rarity::Epic, "Sleepless Watch", "Бессонная вахта", "Stay active 30 days in a row.", "Сохраняйте активность 30 дней подряд."),
+    ("ss_hdfl_5", Rarity::Legendary, "Tunnel Vision", "Туннельное зрение", "Get an SS on a map from 5* with HDFL.", "Получите SS на карте от 5* с HDFL."),
+    ("sr_10", Rarity::Legendary, "Double Digit Threat", "Двузначная угроза", "Pass a map of 10* or harder.", "Пройдите карту сложностью 10* или выше."),
     ("hdhr_fc7", Rarity::Legendary, "Double Sentence", "Двойной приговор", "FC a map from 7* with HDHR.", "Сделайте FC карты от 7* с HDHR."),
     ("ss_8star", Rarity::Mythic, "The Machine", "Киборг", "Get an SS on a map from 8.5*.", "Получите SS на карте от 8.5*."),
-    ("ss_streak_10", Rarity::Mythic, "Idealist", "Идеалист", "Get 10 SS ranks in a row.", "Получите 10 рангов SS подряд."),
-    ("doublethink", Rarity::Secret, "Doublethink", "Двоемыслие", "SS an EZ map up to 2* and pass a map from 7*.", "Получите SS на карте с EZ до 2* и пройдите карту от 7*."),
-    ("choke_95", Rarity::Secret, "Not This Time", "Попытка не пытка", "Break a full combo in the last 5% at 99% accuracy or above.", "Сорвите комбо в последних 5% при точности 99% и выше."),
+    ("ss_streak_10", Rarity::Mythic, "Idealist", "Идеалист", "Get 5 SS ranks in a row on ranked maps from 5*.", "Получите 5 рангов SS подряд на рейтинговых картах от 5*."),
+    ("dejavu", Rarity::Anomaly, "Déjà Vu", "Дежавю", "Get the same score on two different maps.", "Наберите одинаковый счёт на двух разных картах."),
+    ("combo_1984", Rarity::Anomaly, "1984", "1984", "Get exactly a 1984x combo.", "Наберите комбо ровно 1984x."),
+    ("doublethink", Rarity::Anomaly, "Doublethink", "Двоемыслие", "SS an EZ map up to 2* and pass a map from 7*.", "Получите SS на карте с EZ до 2* и пройдите карту от 7*."),
+    ("choke_95", Rarity::Anomaly, "Not This Time", "Попытка не пытка", "Break a full combo in the last 5% at 99% accuracy or above.", "Сорвите комбо в последних 5% при точности 99% и выше."),
 ];
 
 fn staged_target(code: &str) -> u32 {
@@ -103,7 +107,9 @@ fn staged_target(code: &str) -> u32 {
         "masks_5" => 5,
         "ss_100" => 100,
         "streak_30d" => 30,
-        "ss_streak_10" => 10,
+        "ss_streak_10" => 5,
+        "daily_report" => 10,
+        "ministry_accuracy" => 10,
         _ => 1,
     }
 }
@@ -117,6 +123,7 @@ pub fn staged_titles() -> Vec<Title> {
             name: [(*en).to_owned(), (*ru).to_owned()],
             about: [(*about_en).to_owned(), (*about_ru).to_owned()],
             target: staged_target(code),
+            hidden: matches!(*code, "doublethink" | "choke_95" | "magic7"),
         })
         .collect()
 }
@@ -775,6 +782,7 @@ impl Catalog {
                 name: [title.name.clone(), if title.name_ru.is_empty() { title.name.clone() } else { title.name_ru.clone() }],
                 about: [title.about.clone(), if title.about_ru.is_empty() { title.about.clone() } else { title.about_ru.clone() }],
                 target: title.target.unwrap_or(0),
+                hidden: title.hidden,
             })
             .collect();
         Catalog {
@@ -1106,6 +1114,8 @@ pub mod wire {
         pub about_ru: String,
         #[serde(default)]
         pub target: Option<u32>,
+        #[serde(default)]
+        pub hidden: bool,
     }
 
     #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]

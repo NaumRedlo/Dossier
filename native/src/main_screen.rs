@@ -168,6 +168,7 @@ pub enum Message {
     Sharing(sharing::Message),
     Witness(crate::witness::Event),
     WitnessTold(bool),
+    WitnessSitting(bool),
     CompanionTick,
     ToastHover(u64, bool),
     ToastClose(u64),
@@ -586,6 +587,7 @@ pub struct Main {
     pub read_over_person: bool,
     pub witness: crate::witness::Seen,
     pub witness_control: Option<std::sync::Arc<crate::witness::Control>>,
+    pub sittings: crate::witness::Sittings,
     pub companion_fade: Animation<bool>,
     pub companion_at: Option<(u64, Instant)>,
     pub companion_asked: Option<u64>,
@@ -819,6 +821,7 @@ impl Main {
             read_over_person: false,
             witness: crate::witness::Seen::default(),
             witness_control: None,
+            sittings: crate::witness::Sittings::default(),
             companion_fade: Animation::new(false).duration(PANEL_SHOW).easing(Easing::EaseOutCubic),
             companion_at: None,
             companion_asked: None,
@@ -924,6 +927,18 @@ impl Main {
         self.witness = crate::witness::Seen { status: crate::witness::Status::Absent, ..crate::witness::Seen::default() };
         let player = self.community.as_ref().and_then(|catalog| catalog.people.iter().find(|person| person.you)).map(|you| you.name.clone()).unwrap_or_default();
         ui::streamed(move |push| crate::witness::run(control, player, &mut |event| push(Message::Witness(event))))
+    }
+
+    fn sitting_task(&mut self, event: &crate::witness::Event) -> Task<Message> {
+        let told = self.sittings.take(event, unix_now(), &crate::witness::time_zone());
+        let Some(sitting) = told else {
+            return Task::none();
+        };
+        if self.gallery || self.settings.token.is_empty() {
+            return Task::none();
+        }
+        let (server, token, name) = (self.settings.server.clone(), self.settings.token.clone(), self.settings.device.clone());
+        ui::in_thread(move || Message::WitnessSitting(crate::bot::witness_session(&server, &token, &name, &sitting).is_ok()))
     }
 
     fn companion_map(&self) -> Option<u64> {
@@ -2905,8 +2920,9 @@ impl Main {
                 }
                 self.witness.take(&event);
                 self.companion_follow();
+                let sitting = self.sitting_task(&event);
                 if let crate::witness::Event::Kept(kept) = &event {
-                    let tell = self.tell_task(kept).unwrap_or_else(Task::none);
+                    let tell = Task::batch([self.tell_task(kept).unwrap_or_else(Task::none), sitting]);
                     if !self.settings.witness_keep {
                         return tell;
                     }
@@ -2919,8 +2935,9 @@ impl Main {
                     }
                     return Task::batch([self.watch_task(), tell]);
                 }
-                Task::none()
+                sitting
             }
+            Message::WitnessSitting(_) => Task::none(),
             Message::WitnessTold(reached) => {
                 self.witness.untold = !reached;
                 if !reached {
@@ -7911,6 +7928,7 @@ mod tests {
         let said = |mode: &str, id: i64| Event::State(State { mode: mode.into(), id, title: "Astral Quantization".into(), ..Default::default() });
         let _ = main.update(super::Message::Witness(Event::Attached { pid: 1, build: String::new(), player: String::new() }));
         assert!(main.companion_at.is_none() && !main.companion_fade.value(), "nothing is shown before song select");
+        assert!(main.sittings.current().is_some(), "a game session begins when the client is found");
 
         let _ = main.update(super::Message::Witness(said("SelectPlay", 7)));
         assert_eq!(main.companion_at.map(|(beatmap, _)| beatmap), Some(7));

@@ -283,9 +283,15 @@ fn parse_timing_point(line: &str, line_no: usize, timing: &mut Timing) -> Result
         } else {
             1.0
         };
+        let beat_multiplier = if beat_length < 0.0 {
+            ((-beat_length) as f32).clamp(10.0, 1000.0) / 100.0
+        } else {
+            1.0
+        };
         timing.inherited.push(VelocityPoint {
             time_ms: time,
             velocity,
+            beat_multiplier,
             kiai,
         });
     }

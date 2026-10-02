@@ -901,7 +901,7 @@ fn slider_parts(object: &TimedObject, ruleset: Ruleset) -> (Vec<(f64, Part)>, Ve
     for part in &mut parts[..last] {
         part.0 = part.0.trunc();
     }
-    early[last] = on_the_edge(object.end_ms);
+    early[last] = on_the_edge(object.last_point_ms());
     parts[last].0 = tail_check_whole_ms(object);
     (parts, early)
 }
@@ -1043,7 +1043,7 @@ fn track_slider_on_frames(
 pub fn tail_check_whole_ms(object: &TimedObject) -> f64 {
     let end = object.end_ms.trunc();
     let half = object.start_ms + ((end - object.start_ms) / 2.0).trunc();
-    (end - TAIL_LENIENCE_MS).max(half)
+    (object.last_point_ms().trunc() - TAIL_LENIENCE_MS).max(half)
 }
 
 pub fn required_half_turns(difficulty: &dossier_beatmap::Difficulty, duration_ms: f64) -> f64 {

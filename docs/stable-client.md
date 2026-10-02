@@ -754,3 +754,71 @@ therefore lands a hair to one side of the value the map states, and a window
 that would have been a whole number is cut down by one when that side is the
 wrong one.
 
+## How the client draws a slider, and how it times one
+
+Read on 2026-10-02 from the slider's own set-up method, which builds the list
+of line segments everything else walks: the body that is drawn, the ball's
+movements, the ticks and the end.
+
+### The curve, by type and by the map's format
+
+- **Linear** — one segment between each pair of control points.
+- **Catmull** — fifty segments to a span, whatever its length, with the missing
+  neighbour at either end made by reflection.
+- **Bezier** — the control points are cut into runs at a doubled point, and
+  each run is flattened. Which doubled points count, and how a run is
+  flattened, depends on the format version in the map's first line:
+
+  | version | a run ends at | a run is flattened by |
+  |---|---|---|
+  | 6 and under | a point equal to the one *before* it | the subdividing approximator |
+  | 7, 8 | a point equal to the one after it, unless it is one of the last two | the same |
+  | 9 | the same | fifty steps for every control point, never taking the last |
+  | 10 and over | the same | the subdividing approximator; a run of two points is one segment |
+
+  The approximator is the one lazer inherited: subdivide until every second
+  difference is under a quarter of a pixel squared, then emit as many points
+  as there are control points.
+- **Perfect curve** — with more than three points, a bezier; with three in a
+  line, linear; otherwise the circle through them, cut into
+  `(int)(arc length / 8)` chords. An arc in stable is a polygon with a corner
+  every eight pixels, and its length is the polygon's. lazer follows the arc
+  to a tenth of a pixel.
+
+All of it is `Vector2`, so single precision.
+
+### The length
+
+The segments' lengths are summed, and the excess over the length the map
+states is taken off the end: whole segments while they fit in the excess, then
+the last one shortened along its own direction. A curve that falls short is
+*lengthened* by the same line of code, since the excess is negative. A stated
+length of zero means the length of what was drawn.
+
+### The speed, the ticks and the turns
+
+```
+beat      = the beat length of the last red line whose whole millisecond is not after the start
+            × the multiplier of the last green line, likewise, if it comes after that red line
+multiplier= clamp((float) -beatLength, 10, 1000) / 100           a float
+velocity  = (100 × SliderMultiplier / TickRate) × TickRate × (1000 / beat)      pixels a second
+duration  = Σ over the segments of (double)(1000f × length) / velocity
+end       = (int)(start + duration × slides)
+```
+
+Two things in that are easy to lose. A timing point's offset is cast to `int`
+before it is compared, so a green line at 1000.7 governs a slider at 1000. And
+the multiplier is a float, so a slider that the map's arithmetic puts on a
+whole millisecond lands a few millionths to one side of it — which the cast to
+`int` then turns into a millisecond.
+
+Ticks are laid along the segments every `100 × SliderMultiplier / TickRate /
+multiplier` pixels (without the multiplier before version 8), and one that
+would fall within ten milliseconds' travel of the end of the slide is left
+out. On the way back the ticks are the same points — unless one was left out
+at the end, in which case the count starts again from the far end and they are
+not. A tick's time, and the time of every turn and of the end, is
+`(int)(start + (float)distance / velocity × 1000)`; the tail is thirty-six
+before that last one, or half the slider's length in whole milliseconds if
+that is later.
+

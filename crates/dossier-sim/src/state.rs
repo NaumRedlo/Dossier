@@ -213,7 +213,7 @@ impl GameState {
     }
 
     pub fn tuned(beatmap: &Beatmap, replay: &Replay, mods: Mods, tuning: crate::Tuning) -> Self {
-        let timeline = Timeline::tuned(beatmap, mods, tuning);
+        let timeline = Timeline::for_client(beatmap, mods, tuning, Ruleset::of_replay(replay).client());
         let cursor = CursorTrack::new(replay.frames.clone());
 
         let judge = Judge::run(&timeline, &cursor, Ruleset::of_replay(replay));

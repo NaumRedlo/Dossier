@@ -1,12 +1,5 @@
 use crate::hitobject::{CurveType, Point};
 
-const FLATNESS_TOLERANCE: f64 = 0.25;
-
-const MAX_SUBDIVISION_DEPTH: u32 = 16;
-
-const SAMPLES_PER_100PX: f64 = 25.0;
-const MIN_SPAN_SAMPLES: usize = 4;
-
 impl Point {
     fn add(self, other: Self) -> Self {
         Self {
@@ -46,6 +39,16 @@ impl Point {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Flattening {
+    Stable { format_version: u32 },
+    Lazer,
+}
+
+impl Flattening {
+    pub const LATEST_STABLE: Self = Self::Stable { format_version: 14 };
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct SliderPath {
     points: Vec<Point>,
@@ -60,8 +63,65 @@ impl SliderPath {
         control_points: &[Point],
         expected_length: Option<f64>,
     ) -> Self {
-        let points = flatten(curve_type, control_points);
-        Self::from_polyline(points, expected_length)
+        Self::flattened(curve_type, control_points, expected_length, Flattening::LATEST_STABLE)
+    }
+
+    pub fn flattened(
+        curve_type: CurveType,
+        control_points: &[Point],
+        expected_length: Option<f64>,
+        how: Flattening,
+    ) -> Self {
+        let control: Vec<Single> = control_points
+            .iter()
+            .filter(|p| p.is_finite())
+            .map(|p| Single { x: p.x as f32, y: p.y as f32 })
+            .collect();
+        match how {
+            Flattening::Stable { format_version } => {
+                let mut points = client::stable(curve_type, &control, format_version);
+                if let Some(target) = expected_length.filter(|target| target.is_finite() && *target > 0.0) {
+                    client::cut_as_stable(&mut points, target);
+                }
+                Self::in_single_precision(points)
+            }
+            Flattening::Lazer => {
+                let points = client::lazer(curve_type, &control);
+                Self::from_polyline(points.into_iter().map(Single::wide).collect(), expected_length)
+            }
+        }
+    }
+
+    fn in_single_precision(points: Vec<Single>) -> Self {
+        let mut cumulative = Vec::with_capacity(points.len());
+        let mut total = 0.0f64;
+        cumulative.push(0.0);
+        for pair in points.windows(2) {
+            total += f64::from(pair[0].distance(pair[1]));
+            cumulative.push(total);
+        }
+        if points.is_empty() {
+            cumulative.clear();
+        }
+        Self {
+            points: points.into_iter().map(Single::wide).collect(),
+            cumulative,
+            length: total,
+        }
+    }
+
+    pub fn piece_lengths(&self) -> Vec<f64> {
+        self.cumulative.windows(2).map(|pair| f64::from((pair[1] - pair[0]) as f32)).collect()
+    }
+
+    pub fn duration_ms(&self, pixels_per_second: f64) -> f64 {
+        if pixels_per_second <= 0.0 || !pixels_per_second.is_finite() {
+            return 0.0;
+        }
+        self.cumulative
+            .windows(2)
+            .map(|pair| f64::from(1000.0f32 * (pair[1] - pair[0]) as f32) / pixels_per_second)
+            .sum()
     }
 
     fn from_polyline(mut points: Vec<Point>, expected_length: Option<f64>) -> Self {
@@ -247,177 +307,351 @@ impl SliderPath {
     }
 }
 
-fn flatten(curve_type: CurveType, control: &[Point]) -> Vec<Point> {
-    let control: Vec<Point> = control.iter().copied().filter(|p| p.is_finite()).collect();
-    if control.len() < 2 {
-        return control;
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Single {
+    x: f32,
+    y: f32,
+}
+
+impl Single {
+    fn wide(self) -> Point {
+        Point { x: f64::from(self.x), y: f64::from(self.y) }
     }
 
-    match curve_type {
-        CurveType::Linear => control,
-        CurveType::PerfectCircle => {
-            circular_arc(&control).unwrap_or_else(|| bezier_chain(&control))
-        }
-        CurveType::Catmull => catmull_chain(&control),
-        CurveType::Bezier => bezier_chain(&control),
+    fn add(self, other: Self) -> Self {
+        Self { x: self.x + other.x, y: self.y + other.y }
+    }
+
+    fn sub(self, other: Self) -> Self {
+        Self { x: self.x - other.x, y: self.y - other.y }
+    }
+
+    fn scale(self, by: f32) -> Self {
+        Self { x: self.x * by, y: self.y * by }
+    }
+
+    fn length_squared(self) -> f32 {
+        self.x * self.x + self.y * self.y
+    }
+
+    fn length(self) -> f32 {
+        self.length_squared().sqrt()
+    }
+
+    fn distance(self, other: Self) -> f32 {
+        other.sub(self).length()
+    }
+
+    fn lerp(self, other: Self, amount: f32) -> Self {
+        Self { x: self.x + (other.x - self.x) * amount, y: self.y + (other.y - self.y) * amount }
     }
 }
 
-fn bezier_chain(control: &[Point]) -> Vec<Point> {
-    let mut out = vec![control[0]];
-    let mut start = 0;
+mod client {
+    use super::{CurveType, Single};
 
-    for i in 0..control.len() {
-        let is_last = i == control.len() - 1;
-        let is_repeat = !is_last && control[i] == control[i + 1];
-        if !(is_last || is_repeat) {
-            continue;
+    const CATMULL_STEPS: usize = 50;
+    const OLD_BEZIER_STEPS: usize = 50;
+    const BEZIER_FLAT: f32 = 0.25;
+    const STABLE_ARC_STEP: f64 = 0.125;
+    const STABLE_TURN: f64 = 6.283_185_482_025_146_5;
+    const LAZER_ARC_TOLERANCE: f32 = 0.1;
+    const CUT_SLACK: f64 = 0.0001;
+
+    pub(super) fn stable(curve_type: CurveType, control: &[Single], format_version: u32) -> Vec<Single> {
+        if control.len() < 2 {
+            return control.to_vec();
         }
-
-        let segment = &control[start..=i];
-        if segment.len() >= 2 {
-            approximate_bezier(segment, &mut out, 0);
+        match curve_type {
+            CurveType::Catmull => catmull(control),
+            CurveType::Bezier => stable_bezier(control, format_version),
+            CurveType::PerfectCircle => {
+                if control.len() > 3 {
+                    return stable_bezier(control, format_version);
+                }
+                if let [a, b, c] = *control {
+                    if !in_a_line(a, b, c) {
+                        return stable_arc(a, b, c);
+                    }
+                }
+                control.to_vec()
+            }
+            CurveType::Linear => control.to_vec(),
         }
-        start = i + 1;
-    }
-    out
-}
-
-fn approximate_bezier(control: &[Point], out: &mut Vec<Point>, depth: u32) {
-    if depth >= MAX_SUBDIVISION_DEPTH || is_flat(control) {
-        out.push(*control.last().expect("segment is non-empty"));
-        return;
     }
 
-    let (left, right) = split_bezier(control);
-    approximate_bezier(&left, out, depth + 1);
-    approximate_bezier(&right, out, depth + 1);
-}
+    pub(super) fn lazer(curve_type: CurveType, control: &[Single]) -> Vec<Single> {
+        if control.len() < 2 {
+            return control.to_vec();
+        }
+        match curve_type {
+            CurveType::Catmull => catmull(control),
+            CurveType::Bezier => bezier_runs(control, |at| at + 1 < control.len() && control[at] == control[at + 1]),
+            CurveType::PerfectCircle => match *control {
+                [a, b, c] => lazer_arc(a, b, c).unwrap_or_else(|| bezier(control)),
+                _ => bezier_runs(control, |at| at + 1 < control.len() && control[at] == control[at + 1]),
+            },
+            CurveType::Linear => control.to_vec(),
+        }
+    }
 
-fn is_flat(control: &[Point]) -> bool {
-    let (first, last) = (control[0], control[control.len() - 1]);
-    let chord = last.sub(first);
-    let chord_len = chord.length();
+    fn join(out: &mut Vec<Single>, piece: Vec<Single>) {
+        let skip = usize::from(!out.is_empty());
+        out.extend(piece.into_iter().skip(skip));
+    }
 
-    control[1..control.len().saturating_sub(1)].iter().all(|p| {
-        let offset = p.sub(first);
-        let distance = if chord_len > f64::EPSILON {
-            (chord.x * offset.y - chord.y * offset.x).abs() / chord_len
-        } else {
-            offset.length()
+    fn bezier_runs(control: &[Single], breaks_after: impl Fn(usize) -> bool) -> Vec<Single> {
+        let mut out = Vec::new();
+        let mut from = 0usize;
+        let mut at = 0usize;
+        while at < control.len() {
+            let breaks = breaks_after(at);
+            if breaks || at == control.len() - 1 {
+                join(&mut out, bezier(&control[from..=at]));
+                if breaks {
+                    at += 1;
+                }
+                from = at;
+            }
+            at += 1;
+        }
+        out
+    }
+
+    fn stable_bezier(control: &[Single], format_version: u32) -> Vec<Single> {
+        let count = control.len();
+        if format_version > 6 {
+            let breaks = |at: usize| at + 2 < count && control[at] == control[at + 1];
+            let mut out = Vec::new();
+            let mut from = 0usize;
+            let mut at = 0usize;
+            while at < count {
+                let broke = breaks(at);
+                if broke || at == count - 1 {
+                    let run = &control[from..=at];
+                    let piece = if format_version > 8 && run.len() == 2 {
+                        run.to_vec()
+                    } else if format_version > 8 && format_version < 10 {
+                        old_bezier(run)
+                    } else {
+                        bezier(run)
+                    };
+                    join(&mut out, piece);
+                    if broke {
+                        at += 1;
+                    }
+                    from = at;
+                }
+                at += 1;
+            }
+            return out;
+        }
+        let mut out = Vec::new();
+        let mut from = 0usize;
+        for at in 0..count {
+            if (at > 0 && control[at] == control[at - 1]) || at == count - 1 {
+                join(&mut out, bezier(&control[from..=at]));
+                from = at;
+            }
+        }
+        out
+    }
+
+    fn is_flat(control: &[Single]) -> bool {
+        (1..control.len().saturating_sub(1)).all(|at| {
+            control[at - 1].sub(control[at].scale(2.0)).add(control[at + 1]).length_squared() <= BEZIER_FLAT
+        })
+    }
+
+    fn halve(control: &[Single], left: &mut [Single], right: &mut [Single]) {
+        let count = control.len();
+        let mut middle = control.to_vec();
+        for at in 0..count {
+            left[at] = middle[0];
+            right[count - at - 1] = middle[count - at - 1];
+            for step in 0..count - at - 1 {
+                middle[step] = middle[step].add(middle[step + 1]).scale(0.5);
+            }
+        }
+    }
+
+    fn bezier(control: &[Single]) -> Vec<Single> {
+        let count = control.len();
+        let mut out = Vec::new();
+        if count == 0 {
+            return out;
+        }
+        let origin = Single { x: 0.0, y: 0.0 };
+        let mut waiting: Vec<Vec<Single>> = vec![control.to_vec()];
+        let mut left = vec![origin; count * 2 - 1];
+        while let Some(mut parent) = waiting.pop() {
+            if is_flat(&parent) {
+                let mut right = vec![origin; count];
+                halve(&parent, &mut left[..count], &mut right);
+                for at in 0..count - 1 {
+                    left[count + at] = right[at + 1];
+                }
+                out.push(parent[0]);
+                for at in 1..count - 1 {
+                    let middle = 2 * at;
+                    out.push(left[middle - 1].add(left[middle].scale(2.0)).add(left[middle + 1]).scale(0.25));
+                }
+                continue;
+            }
+            let mut right = vec![origin; count];
+            halve(&parent, &mut left[..count], &mut right);
+            parent.copy_from_slice(&left[..count]);
+            waiting.push(right);
+            waiting.push(parent);
+        }
+        out.push(control[count - 1]);
+        out
+    }
+
+    fn old_bezier(control: &[Single]) -> Vec<Single> {
+        let count = control.len();
+        let steps = OLD_BEZIER_STEPS * count;
+        (0..steps)
+            .map(|step| {
+                let mut work = control.to_vec();
+                let amount = step as f32 / steps as f32;
+                for level in 0..count {
+                    for at in 0..count - level - 1 {
+                        work[at] = work[at].lerp(work[at + 1], amount);
+                    }
+                }
+                work[0]
+            })
+            .collect()
+    }
+
+    fn catmull(control: &[Single]) -> Vec<Single> {
+        let mut out = Vec::new();
+        for at in 0..control.len() - 1 {
+            let before = if at >= 1 { control[at - 1] } else { control[at] };
+            let from = control[at];
+            let to = control[at + 1];
+            let after = if at + 2 < control.len() { control[at + 2] } else { to.add(to.sub(from)) };
+            let first = usize::from(!out.is_empty());
+            for step in first..=CATMULL_STEPS {
+                out.push(catmull_rom(before, from, to, after, step as f32 / CATMULL_STEPS as f32));
+            }
+        }
+        out
+    }
+
+    fn catmull_rom(a: Single, b: Single, c: Single, d: Single, amount: f32) -> Single {
+        let squared = amount * amount;
+        let cubed = amount * squared;
+        let axis = |a: f32, b: f32, c: f32, d: f32| {
+            0.5 * (2.0 * b + (-a + c) * amount + (2.0 * a - 5.0 * b + 4.0 * c - d) * squared + (-a + 3.0 * b - 3.0 * c + d) * cubed)
         };
-        distance <= FLATNESS_TOLERANCE
-    })
-}
+        Single { x: axis(a.x, b.x, c.x, d.x), y: axis(a.y, b.y, c.y, d.y) }
+    }
 
-fn split_bezier(control: &[Point]) -> (Vec<Point>, Vec<Point>) {
-    let n = control.len();
-    let mut scratch: Vec<Point> = control.to_vec();
-    let mut left = Vec::with_capacity(n);
-    let mut right = Vec::with_capacity(n);
+    fn in_a_line(a: Single, b: Single, c: Single) -> bool {
+        (b.x - a.x) * (c.y - a.y) - (c.x - a.x) * (b.y - a.y) == 0.0
+    }
 
-    left.push(scratch[0]);
-    right.push(scratch[n - 1]);
-    for level in 1..n {
-        for i in 0..(n - level) {
-            scratch[i] = scratch[i].lerp(scratch[i + 1], 0.5);
+    fn circle_through(a: Single, b: Single, c: Single) -> (Single, f32) {
+        let d = 2.0 * (a.x * (b.y - c.y) + b.x * (c.y - a.y) + c.x * (a.y - b.y));
+        let (sa, sb, sc) = (a.length_squared(), b.length_squared(), c.length_squared());
+        let centre = Single {
+            x: (sa * (b.y - c.y) + sb * (c.y - a.y) + sc * (a.y - b.y)) / d,
+            y: (sa * (c.x - b.x) + sb * (a.x - c.x) + sc * (b.x - a.x)) / d,
+        };
+        (centre, centre.distance(a))
+    }
+
+    fn stable_arc(a: Single, b: Single, c: Single) -> Vec<Single> {
+        let (centre, radius) = circle_through(a, b, c);
+        let angle_of = |p: Single| f64::from(p.y - centre.y).atan2(f64::from(p.x - centre.x));
+        let from = angle_of(a);
+        let mut through = angle_of(b);
+        let mut to = angle_of(c);
+        while through < from {
+            through += STABLE_TURN;
         }
-        left.push(scratch[0]);
-        right.push(scratch[n - level - 1]);
-    }
-    right.reverse();
-    (left, right)
-}
-
-fn circular_arc(control: &[Point]) -> Option<Vec<Point>> {
-    let [a, b, c] = control else { return None };
-    let (a, b, c) = (*a, *b, *c);
-
-    let d = 2.0 * (a.x * (b.y - c.y) + b.x * (c.y - a.y) + c.x * (a.y - b.y));
-    if d.abs() < 1e-6 {
-        return None;
-    }
-
-    let (sa, sb, sc) = (
-        a.x * a.x + a.y * a.y,
-        b.x * b.x + b.y * b.y,
-        c.x * c.x + c.y * c.y,
-    );
-    let centre = Point {
-        x: (sa * (b.y - c.y) + sb * (c.y - a.y) + sc * (a.y - b.y)) / d,
-        y: (sa * (c.x - b.x) + sb * (a.x - c.x) + sc * (b.x - a.x)) / d,
-    };
-    if !centre.is_finite() {
-        return None;
-    }
-
-    let radius = centre.distance(a);
-    let angle_of = |p: Point| (p.y - centre.y).atan2(p.x - centre.x);
-    let (start, end) = (angle_of(a), angle_of(c));
-
-    let cross = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
-    let mut sweep = end - start;
-    if cross < 0.0 {
-        while sweep > 0.0 {
-            sweep -= std::f64::consts::TAU;
+        while to < from {
+            to += STABLE_TURN;
         }
-    } else {
-        while sweep < 0.0 {
-            sweep += std::f64::consts::TAU;
+        if through > to {
+            to -= STABLE_TURN;
+        }
+        let long = ((to - from) * f64::from(radius)).abs();
+        let steps = (long * STABLE_ARC_STEP) as i64;
+        let mut out = vec![a];
+        for step in 1..steps {
+            let share = step as f64 / steps as f64;
+            let angle = to * share + from * (1.0 - share);
+            out.push(Single {
+                x: (angle.cos() * f64::from(radius)) as f32 + centre.x,
+                y: (angle.sin() * f64::from(radius)) as f32 + centre.y,
+            });
+        }
+        out.push(c);
+        out
+    }
+
+    fn lazer_arc(a: Single, b: Single, c: Single) -> Option<Vec<Single>> {
+        let lean = (b.y - a.y) * (c.x - a.x) - (b.x - a.x) * (c.y - a.y);
+        if lean.abs() <= 1e-3 {
+            return None;
+        }
+        let (centre, radius) = circle_through(a, b, c);
+        let (from_centre, to_centre) = (a.sub(centre), c.sub(centre));
+        let start = f64::from(from_centre.y).atan2(f64::from(from_centre.x));
+        let mut end = f64::from(to_centre.y).atan2(f64::from(to_centre.x));
+        while end < start {
+            end += std::f64::consts::TAU;
+        }
+        let mut direction = 1.0f64;
+        let mut range = end - start;
+        let across = c.sub(a);
+        let turned = Single { x: across.y, y: -across.x };
+        let towards = b.sub(a);
+        if turned.x * towards.x + turned.y * towards.y < 0.0 {
+            direction = -direction;
+            range = std::f64::consts::TAU - range;
+        }
+        let points = if 2.0 * radius <= LAZER_ARC_TOLERANCE {
+            2
+        } else {
+            let step = 2.0 * f64::from(1.0 - LAZER_ARC_TOLERANCE / radius).acos();
+            ((range / step).ceil() as usize).clamp(2, 1000)
+        };
+        Some(
+            (0..points)
+                .map(|at| {
+                    let angle = start + direction * (at as f64 / (points - 1) as f64) * range;
+                    Single { x: angle.cos() as f32 * radius + centre.x, y: angle.sin() as f32 * radius + centre.y }
+                })
+                .collect(),
+        )
+    }
+
+    pub(super) fn cut_as_stable(points: &mut Vec<Single>, target: f64) {
+        let total: f64 = points.windows(2).map(|pair| f64::from(pair[0].distance(pair[1]))).sum();
+        if total <= 0.0 {
+            return;
+        }
+        let mut over = total - target;
+        while points.len() >= 2 {
+            let (from, to) = (points[points.len() - 2], points[points.len() - 1]);
+            let long = from.distance(to);
+            if f64::from(long) > over + CUT_SLACK {
+                if to != from {
+                    let towards = to.sub(from);
+                    let unit = towards.scale(1.0 / towards.length());
+                    let last = points.len() - 1;
+                    points[last] = from.add(unit.scale(long - over as f32));
+                }
+                break;
+            }
+            points.pop();
+            over -= f64::from(long);
         }
     }
-
-    let arc_len = (radius * sweep).abs();
-    let steps = sample_count(arc_len);
-    let mut out = Vec::with_capacity(steps + 1);
-    for i in 0..=steps {
-        let t = i as f64 / steps as f64;
-        let angle = start + sweep * t;
-        out.push(Point {
-            x: centre.x + radius * angle.cos(),
-            y: centre.y + radius * angle.sin(),
-        });
-    }
-    Some(out)
-}
-
-fn catmull_chain(control: &[Point]) -> Vec<Point> {
-    let mut out = vec![control[0]];
-
-    for i in 0..control.len().saturating_sub(1) {
-        let p0 = control[i.saturating_sub(1)];
-        let p1 = control[i];
-        let p2 = control[i + 1];
-        let p3 = *control.get(i + 2).unwrap_or(&p2);
-
-        let steps = sample_count(p1.distance(p2));
-        for step in 1..=steps {
-            let t = step as f64 / steps as f64;
-            out.push(catmull_point(p0, p1, p2, p3, t));
-        }
-    }
-    out
-}
-
-fn catmull_point(p0: Point, p1: Point, p2: Point, p3: Point, t: f64) -> Point {
-    let (t2, t3) = (t * t, t * t * t);
-    let term = |a: f64, b: f64, c: f64, d: f64| {
-        0.5 * (2.0 * b
-            + (-a + c) * t
-            + (2.0 * a - 5.0 * b + 4.0 * c - d) * t2
-            + (-a + 3.0 * b - 3.0 * c + d) * t3)
-    };
-    Point {
-        x: term(p0.x, p1.x, p2.x, p3.x),
-        y: term(p0.y, p1.y, p2.y, p3.y),
-    }
-}
-
-fn sample_count(span_length: f64) -> usize {
-    if !span_length.is_finite() {
-        return MIN_SPAN_SAMPLES;
-    }
-    ((span_length / 100.0 * SAMPLES_PER_100PX).ceil() as usize).max(MIN_SPAN_SAMPLES)
 }
 
 #[cfg(test)]
@@ -445,7 +679,7 @@ mod whole_ms {
             None,
         );
         let at = bent.position_on_whole_ms(1000.0, bent.length(), 1, 1000.0).expect("on the path");
-        assert_eq!((at.x, at.y), (0.4, 0.0), "the first piece is over within the millisecond the slider starts in");
+        assert!((at.x - 0.4).abs() < 1e-6 && at.y == 0.0, "the first piece is over within the millisecond the slider starts in: {at:?}");
     }
 
     #[test]

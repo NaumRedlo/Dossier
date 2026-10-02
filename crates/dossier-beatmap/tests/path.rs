@@ -112,14 +112,14 @@ fn a_length_beyond_the_geometry_is_extrapolated_not_clamped() {
 }
 
 #[test]
-fn a_zero_length_slider_collapses_to_its_start() {
-    let path = SliderPath::new(
-        CurveType::Linear,
-        &[p(10.0, 10.0), p(90.0, 10.0)],
-        Some(0.0),
-    );
+fn a_zero_length_slider_collapses_to_its_start_in_lazer_and_runs_its_whole_curve_in_stable() {
+    let control = [p(10.0, 10.0), p(90.0, 10.0)];
+    let path = SliderPath::flattened(CurveType::Linear, &control, Some(0.0), dossier_beatmap::Flattening::Lazer);
     assert_eq!(path.length(), 0.0);
     assert_point_close(path.position_at(0.7).unwrap(), p(10.0, 10.0), EPS, "start");
+
+    let stable = SliderPath::new(CurveType::Linear, &control, Some(0.0));
+    assert_eq!(stable.length(), 80.0, "the client takes a length of nothing to mean the length of what was drawn");
 }
 
 #[test]
@@ -408,4 +408,79 @@ fn a_path_longer_than_its_authored_length_is_still_cut_to_it() {
 fn a_single_point_has_no_direction_to_stretch_along() {
     let path = SliderPath::new(CurveType::Linear, &[p(10.0, 10.0)], Some(65.0));
     assert_eq!(path.length(), 0.0);
+}
+
+mod as_the_client_draws_it {
+    use super::*;
+    use dossier_beatmap::Flattening;
+
+    fn stable(version: u32) -> Flattening {
+        Flattening::Stable { format_version: version }
+    }
+
+    #[test]
+    fn stable_cuts_an_arc_into_chords_of_eight_pixels() {
+        let control = [p(0.0, 0.0), p(50.0, 50.0), p(100.0, 0.0)];
+        let path = SliderPath::flattened(CurveType::PerfectCircle, &control, None, stable(14));
+        assert_eq!(path.points().len(), 20, "half a turn of radius fifty is 157 pixels, and 157 / 8 is nineteen chords");
+        for point in path.points() {
+            let from_centre = (point.x - 50.0).hypot(point.y);
+            assert!((from_centre - 50.0).abs() < 1e-3, "every corner is on the circle: {point:?}");
+        }
+        assert!(path.length() < std::f64::consts::PI * 50.0, "and the chords are shorter than the arc: {}", path.length());
+        assert!(path.length() > std::f64::consts::PI * 50.0 * 0.995);
+    }
+
+    #[test]
+    fn lazer_follows_the_same_arc_more_closely() {
+        let control = [p(0.0, 0.0), p(50.0, 50.0), p(100.0, 0.0)];
+        let stable = SliderPath::flattened(CurveType::PerfectCircle, &control, None, stable(14));
+        let lazer = SliderPath::flattened(CurveType::PerfectCircle, &control, None, Flattening::Lazer);
+        assert!(lazer.points().len() > stable.points().len(), "{} against {}", lazer.points().len(), stable.points().len());
+        assert!(lazer.length() > stable.length());
+        assert_point_close(*lazer.points().last().unwrap(), p(100.0, 0.0), 1e-3, "it ends on the third point");
+    }
+
+    #[test]
+    fn a_curve_is_cut_on_its_last_piece_and_a_short_one_is_run_on_in_a_straight_line() {
+        let control = [p(0.0, 0.0), p(100.0, 0.0)];
+        let cut = SliderPath::flattened(CurveType::Linear, &control, Some(60.0), stable(14));
+        assert_close(cut.length(), 60.0, 1e-4, "cut to the stated length");
+        assert_point_close(*cut.points().last().unwrap(), p(60.0, 0.0), 1e-4, "on the line");
+
+        let run_on = SliderPath::flattened(CurveType::Linear, &control, Some(130.0), stable(14));
+        assert_close(run_on.length(), 130.0, 1e-4, "run on to the stated length");
+        assert_point_close(*run_on.points().last().unwrap(), p(130.0, 0.0), 1e-4, "past the last control point");
+    }
+
+    #[test]
+    fn the_map_format_decides_how_a_bezier_is_drawn() {
+        let control = [p(0.0, 0.0), p(60.0, 80.0), p(120.0, 0.0)];
+        let latest = SliderPath::flattened(CurveType::Bezier, &control, None, stable(14));
+        let ninth = SliderPath::flattened(CurveType::Bezier, &control, None, stable(9));
+        assert_eq!(ninth.points().len(), 150, "version nine walks fifty steps for every control point");
+        assert!(latest.points().len() < 100, "later versions subdivide until the curve is flat: {}", latest.points().len());
+        let last = ninth.points().last().unwrap();
+        assert!(last.x < 120.0, "and version nine never takes the last step: {last:?}");
+        assert_point_close(*latest.points().last().unwrap(), p(120.0, 0.0), 1e-6, "the later ones end on the last point");
+    }
+
+    #[test]
+    fn a_doubled_point_breaks_a_bezier_but_not_at_its_very_end() {
+        let broken = [p(0.0, 0.0), p(50.0, 50.0), p(50.0, 50.0), p(100.0, 0.0)];
+        let path = SliderPath::flattened(CurveType::Bezier, &broken, None, stable(14));
+        assert_eq!(path.points().len(), 3, "two straight runs meeting at the doubled point");
+        assert_point_close(path.points()[1], p(50.0, 50.0), 1e-6, "the corner");
+
+        let doubled_end = [p(0.0, 0.0), p(50.0, 50.0), p(100.0, 0.0), p(100.0, 0.0)];
+        let whole = SliderPath::flattened(CurveType::Bezier, &doubled_end, None, stable(14));
+        assert!(whole.points().len() > 3, "the client looks for a break only before the last two points, so this is one curve of four");
+    }
+
+    #[test]
+    fn a_catmull_span_is_fifty_steps_whatever_its_length() {
+        let control = [p(0.0, 0.0), p(10.0, 5.0), p(20.0, 0.0)];
+        let path = SliderPath::flattened(CurveType::Catmull, &control, None, stable(14));
+        assert_eq!(path.points().len(), 101);
+    }
 }

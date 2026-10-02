@@ -5252,3 +5252,55 @@ Thirty replays. Twenty-one differ by one object each — seven a piece too many,
 eight one too few, three lazer, and the three on the Relax replay — and nine
 have every count right and a combo one off. Nothing got worse at this step.
 
+## The slider, drawn and timed as the client draws and times it
+
+What was left after the write-off was single objects, and the ones that could
+be pinned down were all the same shape: a slide that began, or failed to, with
+the cursor a few hundredths of a pixel from the edge of the note.
+
+```
+week2-2eb77 #552   radius 36.4950   cursor 36.517 from the ball on the head's frame
+Saki DragonForce #16      35.1504          35.203
+week2-c09bc #117          32.9095          32.934
+```
+
+In each the replay then shows the client scoring the tail — a forced frame on
+its millisecond — so the slide had begun. The engine's ball was two to five
+hundredths of a pixel from the client's, and that is not arithmetic noise. It
+is three separate things, all in how a slider is built:
+
+- **The path.** The engine flattened curves its own way. The client's arc is a
+  polygon with a corner every eight pixels; its bezier is a particular
+  subdivision; its catmull is fifty steps a span; and the result is cut to
+  length segment by segment in single precision. A ball walking a different
+  polyline is in a slightly different place at every instant.
+- **The speed.** A green line's multiplier is a float in the client, and a
+  timing point's offset is cast to `int` before it is compared with the
+  slider's start.
+- **The ticks and the turns.** Each is its own `(int)` of its own arithmetic,
+  not a share of the slide. The engine also left out a tick within an eighth
+  of the tick spacing of the end; the client's rule is ten milliseconds.
+
+All three are now the client's, and for a lazer replay lazer's
+([`stable-client.md`](stable-client.md#how-the-client-draws-a-slider-and-how-it-times-one)
+has the rules).
+
+| | exact | count error |
+|---|---|---|
+| before | 157 / 187 | 46 |
+| an ambiguous end decided by the frames around it | 158 | 44 |
+| the client's path, speed, ticks and turns | **167** | **26** |
+
+The middle row was built first and is gone. A slider whose end sits within a
+thousandth of a whole millisecond was given whichever end the replay had a
+frame for; it helped one replay, and once the arithmetic was the client's own
+it cost one — it stretched every turn of the slider to fit the chosen end, and
+the turns are not a share of the end. With the arithmetic right there is
+nothing left to decide. The smaller allowance survives: a piece whose own time
+comes within a thousandth above a whole millisecond may have its frame on the
+millisecond before.
+
+Nothing got worse by a count. Twenty replays are left: eight stable ones a
+single object off (two of them Relax), five stable ones with every count right
+and the combo one out, and seven from lazer.
+

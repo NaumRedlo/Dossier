@@ -1,4 +1,4 @@
-use dossier_beatmap::{Beatmap, Difficulty, HitObject, ObjectKind, Point, SliderPath};
+use dossier_beatmap::{Flattening, Beatmap, Difficulty, HitObject, ObjectKind, Point, SliderPath};
 use dossier_replay::{bits, Mods};
 
 #[derive(Debug, Clone)]
@@ -23,7 +23,9 @@ pub enum TimedKind {
 
         slide_duration_ms: f64,
 
-        tick_offsets_ms: Vec<f64>,
+        tick_times_ms: Vec<f64>,
+
+        turn_times_ms: Vec<f64>,
     },
     Spinner,
 }
@@ -84,31 +86,10 @@ impl TimedObject {
     }
 
     pub fn tick_times(&self) -> Vec<f64> {
-        let TimedKind::Slider {
-            slides,
-            slide_duration_ms,
-            tick_offsets_ms,
-            ..
-        } = &self.kind
-        else {
+        let TimedKind::Slider { tick_times_ms, .. } = &self.kind else {
             return Vec::new();
         };
-
-        let mut times = Vec::with_capacity(tick_offsets_ms.len() * *slides as usize);
-        for slide in 0..*slides {
-            let base = self.start_ms + f64::from(slide) * slide_duration_ms;
-            if slide % 2 == 0 {
-                times.extend(tick_offsets_ms.iter().map(|o| base + o));
-            } else {
-                times.extend(
-                    tick_offsets_ms
-                        .iter()
-                        .rev()
-                        .map(|o| base + slide_duration_ms - o),
-                );
-            }
-        }
-        times
+        tick_times_ms.iter().map(|after| self.start_ms + after).collect()
     }
 
     pub(crate) fn translate(&mut self, dx: f64, dy: f64) {
@@ -120,17 +101,20 @@ impl TimedObject {
     }
 
     pub fn repeat_times(&self) -> Vec<f64> {
-        let TimedKind::Slider {
-            slides,
-            slide_duration_ms,
-            ..
-        } = &self.kind
-        else {
+        let TimedKind::Slider { turn_times_ms, .. } = &self.kind else {
             return Vec::new();
         };
-        (1..*slides)
-            .map(|s| self.start_ms + f64::from(s) * slide_duration_ms)
-            .collect()
+        let turns = turn_times_ms.len().saturating_sub(1);
+        turn_times_ms[..turns].iter().map(|after| self.start_ms + after).collect()
+    }
+
+    pub fn last_point_ms(&self) -> f64 {
+        match &self.kind {
+            TimedKind::Slider { turn_times_ms, .. } => {
+                turn_times_ms.last().map_or(self.end_ms, |after| self.start_ms + after)
+            }
+            _ => self.end_ms,
+        }
     }
 }
 
@@ -158,6 +142,10 @@ impl Timeline {
     }
 
     pub fn tuned(beatmap: &Beatmap, mods: Mods, tuning: Tuning) -> Self {
+        Self::for_client(beatmap, mods, tuning, crate::Client::Stable)
+    }
+
+    pub fn for_client(beatmap: &Beatmap, mods: Mods, tuning: Tuning, client: crate::Client) -> Self {
         let difficulty = tuning.stats(apply_mods(beatmap.difficulty.in_single_precision(), mods));
         let mirror = Reflect {
             across: mods.contains(bits::HARD_ROCK) || tuning.reflect.across,
@@ -167,7 +155,7 @@ impl Timeline {
             .objects
             .iter()
             .enumerate()
-            .map(|(index, obj)| resolve(beatmap, &difficulty, index, obj, mirror))
+            .map(|(index, obj)| resolve(beatmap, &difficulty, index, obj, mirror, client))
             .collect();
 
         crate::stacking::apply(
@@ -285,6 +273,7 @@ fn resolve(
     index: usize,
     obj: &HitObject,
     mirror: Reflect,
+    client: crate::Client,
 ) -> TimedObject {
     let flip = |p: Point| {
         let p = if mirror.across { p.mirrored() } else { p };
@@ -300,16 +289,21 @@ fn resolve(
         ObjectKind::Spinner { end_time_ms } => (TimedKind::Spinner, *end_time_ms),
         ObjectKind::Slider(slider) => {
             let points: Vec<Point> = slider.points.iter().map(|p| flip(*p)).collect();
-            let path = SliderPath::new(slider.curve_type, &points, Some(slider.length));
+            let how = match client {
+                crate::Client::Stable => Flattening::Stable { format_version: beatmap.format_version },
+                crate::Client::Lazer => Flattening::Lazer,
+            };
+            let path = SliderPath::flattened(slider.curve_type, &points, Some(slider.length), how);
             let slides = slider.slides.max(1);
-            let slide_duration_ms = slide_duration(beatmap, difficulty, obj.time_ms, path.length());
-            let tick_offsets_ms = tick_offsets(beatmap, difficulty, obj.time_ms, slide_duration_ms);
+            let (slide_duration_ms, tick_times_ms, turn_times_ms) =
+                time_slider(beatmap, difficulty, obj.time_ms, &path, slides, slider.length, client);
             (
                 TimedKind::Slider {
                     path,
                     slides,
                     slide_duration_ms,
-                    tick_offsets_ms,
+                    tick_times_ms,
+                    turn_times_ms,
                 },
                 obj.time_ms + slide_duration_ms * f64::from(slides),
             )
@@ -328,46 +322,91 @@ fn resolve(
     }
 }
 
-fn slide_duration(beatmap: &Beatmap, difficulty: &Difficulty, time_ms: f64, length: f64) -> f64 {
-    let beat_length = beatmap
-        .timing
-        .timing_point_at(time_ms)
-        .map_or(0.0, |p| p.beat_length);
-    let pixels_per_beat =
-        difficulty.slider_multiplier * 100.0 * beatmap.timing.velocity_at(time_ms);
+const MOST_TICKS: usize = 10_000;
+const NO_TICK_THIS_CLOSE_TO_THE_END_MS: f64 = 10.0;
+const TICKS_FOLLOW_VELOCITY_FROM_VERSION: u32 = 8;
 
-    if beat_length <= 0.0 || pixels_per_beat <= 0.0 || !length.is_finite() {
-        return 0.0;
-    }
-    length / pixels_per_beat * beat_length
-}
-
-fn tick_offsets(
+fn time_slider(
     beatmap: &Beatmap,
     difficulty: &Difficulty,
     time_ms: f64,
-    slide_duration_ms: f64,
-) -> Vec<f64> {
-    let beat_length = beatmap
-        .timing
-        .timing_point_at(time_ms)
-        .map_or(0.0, |p| p.beat_length);
-    let spacing = beat_length / difficulty.slider_tick_rate.max(0.1);
+    path: &SliderPath,
+    slides: u32,
+    stated_length: f64,
+    client: crate::Client,
+) -> (f64, Vec<f64>, Vec<f64>) {
+    let nothing = (0.0, Vec::new(), vec![0.0; slides as usize]);
+    let Some((beat_length, multiplier)) = beatmap.timing.slider_beat_at(time_ms) else {
+        return nothing;
+    };
+    let rate = difficulty.slider_tick_rate.max(0.1);
+    let scoring = 100.0 * difficulty.slider_multiplier / rate;
+    let beat = beat_length * f64::from(multiplier);
+    if !(beat > 0.0) || !(scoring > 0.0) || !path.length().is_finite() {
+        return nothing;
+    }
+    let velocity = scoring * rate * (1000.0 / beat);
+    let stable = client == crate::Client::Stable;
+    let slide = if stable { path.duration_ms(velocity) } else { path.length() / velocity * 1000.0 };
+    if !(slide > 0.0) {
+        return nothing;
+    }
+    let evenly: Vec<f64> = (1..=slides).map(|turn| f64::from(turn) * slide).collect();
 
-    if spacing <= 0.0 || !spacing.is_finite() || slide_duration_ms <= 0.0 {
-        return Vec::new();
+    let follows = !stable || beatmap.format_version >= TICKS_FOLLOW_VELOCITY_FROM_VERSION;
+    let apart = if follows { scoring / f64::from(multiplier) } else { scoring };
+    let apart = if stated_length > 0.0 { apart.min(stated_length) } else { apart };
+    if !(apart > 0.0) || !apart.is_finite() {
+        return (slide, Vec::new(), evenly);
+    }
+    let too_close = NO_TICK_THIS_CLOSE_TO_THE_END_MS / 1000.0 * velocity;
+    let reached = |travelled: f64| f64::from(travelled as f32) / velocity * 1000.0;
+    let mut ticks = Vec::new();
+
+    if !stable {
+        let long = path.length();
+        for index in 0..slides {
+            let begins = f64::from(index) * slide;
+            let mut along = apart;
+            while along <= long && along < long - too_close && ticks.len() < MOST_TICKS {
+                let share = along / long;
+                let share = if index % 2 == 1 { 1.0 - share } else { share };
+                ticks.push(begins + share * slide);
+                along += apart;
+            }
+        }
+        ticks.sort_by(f64::total_cmp);
+        return (slide, ticks, evenly);
     }
 
-    let limit = slide_duration_ms - spacing / 8.0;
-    let mut offsets = Vec::new();
-    let mut t = spacing;
-    while t < limit {
-        offsets.push(t);
-        t += spacing;
-
-        if offsets.len() >= 10_000 {
-            break;
+    let pieces = path.piece_lengths();
+    let mut turns = Vec::with_capacity(slides as usize);
+    let (mut travelled, mut carried) = (0.0f64, 0.0f64);
+    for index in 0..slides {
+        let mut left = path.length();
+        let mut stopped = false;
+        let forward = index % 2 == 0;
+        for at in 0..pieces.len() {
+            carried += if forward { pieces[at] } else { pieces[pieces.len() - 1 - at] };
+            while carried >= apart && !stopped {
+                travelled += apart;
+                carried -= apart;
+                left -= apart;
+                stopped = left <= too_close || ticks.len() >= MOST_TICKS;
+                if stopped {
+                    break;
+                }
+                ticks.push(reached(travelled));
+            }
+        }
+        travelled += carried;
+        turns.push(reached(travelled));
+        if stopped {
+            carried = 0.0;
+        } else {
+            travelled -= apart - carried;
+            carried = apart - carried;
         }
     }
-    offsets
+    (slide, ticks, turns)
 }

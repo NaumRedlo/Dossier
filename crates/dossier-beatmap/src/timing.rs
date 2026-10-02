@@ -61,6 +61,7 @@ pub struct VelocityPoint {
     pub time_ms: f64,
 
     pub velocity: f64,
+    pub beat_multiplier: f32,
     pub kiai: bool,
 }
 
@@ -102,6 +103,19 @@ impl Timing {
             Some(red) if red > green.time_ms => 1.0,
             _ => green.velocity,
         }
+    }
+
+    pub fn slider_beat_at(&self, time_ms: f64) -> Option<(f64, f32)> {
+        let reached = |at: f64| at.trunc() <= time_ms;
+        let red = self.uninherited.partition_point(|p| reached(p.time_ms)).checked_sub(1);
+        let red = self.uninherited.get(red.unwrap_or(0))?;
+        let green = self
+            .inherited
+            .partition_point(|p| reached(p.time_ms))
+            .checked_sub(1)
+            .map(|at| &self.inherited[at])
+            .filter(|green| green.time_ms.trunc() >= red.time_ms.trunc());
+        Some((red.beat_length, green.map_or(1.0, |green| green.beat_multiplier)))
     }
 
     pub fn bpm_at(&self, time_ms: f64) -> f64 {

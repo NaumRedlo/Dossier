@@ -526,3 +526,93 @@ OverallDifficulty:8
     let plain = replay_with(frames, 0);
     assert!(GameState::new(&map, &plain).press_detail().is_empty());
 }
+
+fn first_slider(body: &str) -> dossier_sim::TimedObject {
+    let map = beatmap(body);
+    GameState::from_beatmap(&map, Mods::default()).timeline().objects[0].clone()
+}
+
+#[test]
+fn a_tick_ten_milliseconds_from_the_end_is_the_last_one_the_client_leaves_out() {
+    let ticked = |length: f64| {
+        first_slider(&format!(
+            "
+[Difficulty]
+SliderMultiplier:1
+SliderTickRate:1
+
+[TimingPoints]
+0,300,4,2,0,60,1,0
+
+[HitObjects]
+0,0,1000,2,0,L|400:0,1,{length}
+"
+        ))
+        .tick_times()
+    };
+    assert_eq!(ticked(106.0).len(), 1, "a tick eighteen milliseconds before the end is a tick");
+    assert!((ticked(106.0)[0] - 1300.0).abs() < 1e-3);
+    assert!(ticked(103.0).is_empty(), "one nine milliseconds before it is not");
+}
+
+#[test]
+fn a_green_line_a_fraction_of_a_millisecond_after_a_slider_still_sets_its_speed() {
+    let long = |green_at: &str| {
+        first_slider(&format!(
+            "
+[Difficulty]
+SliderMultiplier:1
+
+[TimingPoints]
+0,500,4,2,0,60,1,0
+{green_at},-50,4,2,0,60,0,0
+
+[HitObjects]
+0,0,1000,2,0,L|200:0,1,100
+"
+        ))
+        .duration_ms()
+    };
+    assert!((long("1000.7") - 250.0).abs() < 1e-3, "the client compares the whole millisecond of the line, so 1000.7 has begun at 1000: {}", long("1000.7"));
+    assert!((long("1001") - 500.0).abs() < 1e-3, "a line at the next millisecond has not: {}", long("1001"));
+}
+
+#[test]
+fn the_speed_of_a_green_line_is_held_in_single_precision() {
+    let slider = first_slider(
+        "
+[Difficulty]
+SliderMultiplier:1.8
+
+[TimingPoints]
+0,300,4,2,0,60,1,0
+0,-83.3333333333333,4,2,0,60,0,0
+
+[HitObjects]
+239,218,1000,2,0,L|180:224,1,59.9999981689454
+",
+    );
+    let exact = 59.9999981689454 / (100.0 * 1.8) * 300.0 * 0.833_333_333_333_333;
+    assert!((slider.duration_ms() - exact).abs() > 1e-7, "a double would give {exact}, and the client does not: {}", slider.duration_ms());
+    assert!((slider.duration_ms() - exact).abs() < 1e-4, "but it is the same slider to a tenth of a microsecond: {}", slider.duration_ms());
+}
+
+#[test]
+fn a_slider_that_turns_back_keeps_its_ticks_where_they_were() {
+    let slider = first_slider(
+        "
+[Difficulty]
+SliderMultiplier:1
+SliderTickRate:2
+
+[TimingPoints]
+0,400,4,2,0,60,1,0
+
+[HitObjects]
+0,0,1000,2,0,L|400:0,2,130
+",
+    );
+    let ticks: Vec<f64> = slider.tick_times().iter().map(|t| t.round()).collect();
+    assert_eq!(ticks, vec![1200.0, 1400.0, 1640.0, 1840.0], "out at fifty and a hundred pixels, and back over the same two");
+    assert_eq!(slider.repeat_times().iter().map(|t| t.round()).collect::<Vec<_>>(), vec![1520.0]);
+}

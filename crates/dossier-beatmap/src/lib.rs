@@ -13,5 +13,5 @@ pub use hitobject::{
     PLAYFIELD_WIDTH,
 };
 pub use parser::{Beatmap, Colour, Metadata, DEFAULT_COMBO_COLOURS};
-pub use path::SliderPath;
+pub use path::{Flattening, SliderPath};
 pub use timing::{SamplePoint, SampleSet, Timing, TimingPoint, VelocityPoint};

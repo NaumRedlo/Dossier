@@ -713,6 +713,7 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
         kept: 5,
         written: 3,
         told: 2,
+        pending: 0,
         untold: false,
         build: "b20260924cuttingedge".to_owned(),
         player: "NaumRedlo".to_owned(),

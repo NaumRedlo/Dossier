@@ -538,6 +538,9 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
             if seen.told > 0 {
                 panel = panel.push(line(w.with("witness-told", &[("n", w.lang().group(u64::from(seen.told)))]), FAINT, 2.0));
             }
+            if seen.pending > 0 {
+                panel = panel.push(line(w.with("witness-pending", &[("n", w.lang().group(u64::from(seen.pending)))]), FAINT, 2.0));
+            }
             if seen.untold {
                 panel = panel.push(line(w.t("witness-untold"), theme::ACCENT, 2.0));
             }

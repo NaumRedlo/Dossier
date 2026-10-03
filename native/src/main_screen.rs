@@ -168,8 +168,8 @@ pub enum Message {
     Sent(Result<bot::Sent, String>),
     Sharing(sharing::Message),
     Witness(crate::witness::Event),
-    WitnessTold(bool),
-    WitnessSitting(bool),
+    WitnessDelivered(crate::witness_delivery::Delivery, bool),
+    WitnessDeliveryTick,
     HistoryTold(crate::history::Sent),
     CompanionTick,
     ToastHover(u64, bool),
@@ -590,6 +590,7 @@ pub struct Main {
     pub witness: crate::witness::Seen,
     pub witness_control: Option<std::sync::Arc<crate::witness::Control>>,
     pub sittings: crate::witness::Sittings,
+    pub witness_delivery: crate::witness_delivery::Queue,
     pub history_running: bool,
     pub history_at: Option<Instant>,
     pub companion_fade: Animation<bool>,
@@ -826,6 +827,7 @@ impl Main {
             witness: crate::witness::Seen::default(),
             witness_control: None,
             sittings: crate::witness::Sittings::default(),
+            witness_delivery: crate::witness_delivery::Queue::own(),
             history_running: false,
             history_at: None,
             companion_fade: Animation::new(false).duration(PANEL_SHOW).easing(Easing::EaseOutCubic),
@@ -902,7 +904,7 @@ impl Main {
             }
         }
         let pin = self.pin_task();
-        let witness = self.witness_task();
+        let witness = Task::batch([self.witness_task(), self.delivery_task()]);
         if matches!(crate::updates::place(), crate::updates::Place::Source) {
             self.update = UpdateState::Source;
             return Task::batch([version, pin, witness]);
@@ -930,7 +932,10 @@ impl Main {
         }
         let control = std::sync::Arc::new(crate::witness::Control::default());
         self.witness_control = Some(control.clone());
+        let untold = self.witness.untold;
         self.witness = crate::witness::Seen { status: crate::witness::Status::Absent, ..crate::witness::Seen::default() };
+        self.witness.pending = self.witness_delivery.pending() as u32;
+        self.witness.untold = untold || self.witness_delivery.broken();
         let player = self.community.as_ref().and_then(|catalog| catalog.people.iter().find(|person| person.you)).map(|you| you.name.clone()).unwrap_or_default();
         let watching = ui::streamed(move |push| crate::witness::run(control, player, &mut |event| push(Message::Witness(event))));
         Task::batch([watching, self.history_task(false)])
@@ -968,8 +973,55 @@ impl Main {
         if self.gallery || self.settings.token.is_empty() {
             return Task::none();
         }
+        self.queue_delivery(crate::witness_delivery::Request::Session(sitting))
+    }
+
+    fn queue_delivery(&mut self, request: crate::witness_delivery::Request) -> Task<Message> {
+        let owner = crate::witness_delivery::owner(&self.settings.server, &self.settings.token);
+        if self.witness_delivery.enqueue(crate::witness_delivery::Delivery { owner, request }).is_err() {
+            self.witness.untold = true;
+            return Task::none();
+        }
+        self.witness.pending = self.witness_delivery.pending() as u32;
+        self.delivery_task()
+    }
+
+    fn delivery_task(&mut self) -> Task<Message> {
+        if self.gallery || self.settings.token.is_empty() {
+            return Task::none();
+        }
+        let owner = crate::witness_delivery::owner(&self.settings.server, &self.settings.token);
+        let Some(delivery) = self.witness_delivery.ready(&owner, Instant::now()) else {
+            return Task::none();
+        };
         let (server, token, name) = (self.settings.server.clone(), self.settings.token.clone(), self.settings.device.clone());
-        ui::in_thread(move || Message::WitnessSitting(crate::bot::witness_session(&server, &token, &name, &sitting).is_ok()))
+        ui::in_thread(move || {
+            let reached = match &delivery.request {
+                crate::witness_delivery::Request::Play(play) => crate::bot::witnessed(&server, &token, &name, play).is_ok(),
+                crate::witness_delivery::Request::Session(sitting) => crate::bot::witness_session(&server, &token, &name, sitting).is_ok(),
+                crate::witness_delivery::Request::Deferred { .. } => false,
+            };
+            Message::WitnessDelivered(delivery, reached)
+        })
+    }
+
+    fn resolve_witness(&mut self) -> Task<Message> {
+        if self.settings.token.is_empty() {
+            return Task::none();
+        }
+        let owner = crate::witness_delivery::owner(&self.settings.server, &self.settings.token);
+        if !self.witness_delivery.has_deferred(&owner) {
+            return self.delivery_task();
+        }
+        let Some(player) = self.community.as_ref().and_then(|catalog| catalog.people.iter().find(|person| person.you)).map(|you| you.name.clone()).filter(|name| !name.is_empty()) else {
+            return self.community_task(false);
+        };
+        if self.witness_delivery.resolve(&owner, &player).is_err() {
+            self.witness.untold = true;
+            return Task::none();
+        }
+        self.witness.pending = self.witness_delivery.pending() as u32;
+        self.delivery_task()
     }
 
     fn companion_map(&self) -> Option<u64> {
@@ -1003,14 +1055,16 @@ impl Main {
         }
     }
 
-    fn tell_task(&self, kept: &crate::witness::Kept) -> Option<Task<Message>> {
+    fn tell_task(&mut self, kept: &crate::witness::Kept) -> Option<Task<Message>> {
         if self.settings.token.is_empty() {
             return None;
         }
-        let own = self.community.as_ref().and_then(|catalog| catalog.people.iter().find(|person| person.you)).map(|you| you.name.clone())?;
-        let play = crate::witness::told(kept, &own, unix_now())?;
-        let (server, token, name) = (self.settings.server.clone(), self.settings.token.clone(), self.settings.device.clone());
-        Some(ui::in_thread(move || Message::WitnessTold(crate::bot::witnessed(&server, &token, &name, &play).is_ok())))
+        let request = match self.community.as_ref().and_then(|catalog| catalog.people.iter().find(|person| person.you)) {
+            Some(you) => crate::witness_delivery::Request::Play(crate::witness::told(kept, &you.name, unix_now())?),
+            None if kept.watched == Some(false) => crate::witness_delivery::Request::Deferred { kept: kept.clone(), ended: unix_now() },
+            None => return None,
+        };
+        Some(self.queue_delivery(request))
     }
 
     fn pin_task(&self) -> Task<Message> {
@@ -1223,6 +1277,9 @@ impl Main {
         })];
         if !self.settings.token.is_empty() && !self.gallery {
             parts.push(iced::time::every(sharing::EVERY).map(|_| Message::Sharing(sharing::Message::Tick)));
+            if self.witness_delivery.pending() > 0 {
+                parts.push(iced::time::every(Duration::from_secs(2)).map(|_| Message::WitnessDeliveryTick));
+            }
         }
         if self.minimized {
             parts.push(iced::time::every(MINIMIZED_POLL).map(|_| Message::PollMinimized));
@@ -2970,7 +3027,7 @@ impl Main {
                 }
                 sitting
             }
-            Message::WitnessSitting(_) => Task::none(),
+            Message::WitnessDeliveryTick => self.resolve_witness(),
             Message::HistoryTold(sent) => {
                 self.history_running = false;
                 self.witness.history_told += sent.kept;
@@ -2981,15 +3038,19 @@ impl Main {
                 }
                 Task::none()
             }
-            Message::WitnessTold(reached) => {
-                self.witness.untold = !reached;
-                if !reached {
-                    return Task::none();
-                }
-                self.witness.told += 1;
-                self.companion_asked = None;
-                self.map_boards_fresh.clear();
-                self.community_task(true)
+            Message::WitnessDelivered(delivery, reached) => {
+                let sent = self.witness_delivery.finish(&delivery, reached, Instant::now());
+                self.witness.pending = self.witness_delivery.pending() as u32;
+                self.witness.untold |= sent.is_err();
+                let fresh = if sent == Ok(true) && matches!(delivery.request, crate::witness_delivery::Request::Play(_)) {
+                    self.witness.told += 1;
+                    self.companion_asked = None;
+                    self.map_boards_fresh.clear();
+                    self.community_task(true)
+                } else {
+                    Task::none()
+                };
+                Task::batch([fresh, self.delivery_task()])
             }
             Message::CompanionTick => {
                 let Some((beatmap, since)) = self.companion_at else {
@@ -3161,7 +3222,7 @@ impl Main {
                 self.community_fetch = crate::community_screen::Fetch::Fresh(self.now_unix);
                 let card = self.card_task(false);
                 let friends = self.friends_task(false);
-                Task::batch([self.community_pictures_task(), friends, card, save, self.everyone_task()])
+                Task::batch([self.community_pictures_task(), friends, card, save, self.everyone_task(), self.resolve_witness()])
             }
             Message::EveryoneArrived(Ok(said)) => {
                 self.everyone = said.people;
@@ -7950,6 +8011,8 @@ mod tests {
     #[test]
     fn a_play_witness_saw_is_told_only_by_a_paired_device_and_counted_when_it_arrives() {
         let (_, mut main) = crate::gallery::main_states(crate::lang::Lang::En).into_iter().find(|(name, _)| name == "main-community-person").unwrap();
+        let queue_path = std::env::temp_dir().join(format!("dossier-witness-main-{}.json", std::process::id()));
+        main.witness_delivery = crate::witness_delivery::Queue::load(queue_path.clone());
         let replay = include_bytes!("../tests/fixtures/witness.osr");
         let player = dossier_replay::Replay::heading(replay).unwrap().player;
         let hex: String = replay.iter().map(|byte| format!("{byte:02x}")).collect();
@@ -7962,12 +8025,17 @@ mod tests {
         }
         assert!(main.tell_task(&kept).is_some());
         assert!(main.tell_task(&crate::witness::Kept { watched: Some(true), ..kept.clone() }).is_none());
-        let _ = main.update(super::Message::WitnessTold(false));
-        assert_eq!((main.witness.told, main.witness.untold), (0, true));
-        let _ = main.update(super::Message::WitnessTold(true));
-        assert_eq!((main.witness.told, main.witness.untold), (1, false));
+        let owner = crate::witness_delivery::owner(&main.settings.server, &main.settings.token);
+        let delivery = main.witness_delivery.ready(&owner, std::time::Instant::now()).unwrap();
+        let _ = main.update(super::Message::WitnessDelivered(delivery.clone(), false));
+        assert_eq!((main.witness.told, main.witness.pending, main.witness.untold), (0, 1, false));
+        let later = std::time::Instant::now() + std::time::Duration::from_secs(60);
+        assert_eq!(main.witness_delivery.ready(&owner, later), Some(delivery.clone()));
+        let _ = main.update(super::Message::WitnessDelivered(delivery, true));
+        assert_eq!((main.witness.told, main.witness.pending, main.witness.untold), (1, 0, false));
         main.witness.take(&crate::witness::Event::Gone);
         assert_eq!((main.witness.told, main.witness.status.clone()), (1, crate::witness::Status::Absent));
+        let _ = std::fs::remove_file(queue_path);
     }
 
     #[test]

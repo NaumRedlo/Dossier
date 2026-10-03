@@ -177,7 +177,6 @@ pub enum Message {
     AutoScale(bool),
     CloseToTray(bool),
     Witness(bool),
-    WitnessCompanion(bool),
     WitnessHistory(bool),
     PeopleEveryone(bool),
     Pin(i64),
@@ -544,8 +543,7 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
             if seen.untold {
                 panel = panel.push(line(w.t("witness-untold"), theme::ACCENT, 2.0));
             }
-            panel = panel.push(container(pill(ground, "witness-companion", w.t("witness-companion"), s.witness_companion, Message::WitnessCompanion(!s.witness_companion))).padding(Padding::ZERO.top(10.0)));
-            panel = panel.push(container(pill(ground, "witness-history", w.t("witness-history"), s.history_share, Message::WitnessHistory(!s.history_share))).padding(Padding::ZERO.top(4.0)));
+            panel = panel.push(container(pill(ground, "witness-history", w.t("witness-history"), s.history_share, Message::WitnessHistory(!s.history_share))).padding(Padding::ZERO.top(10.0)));
             panel = panel.push(container(pill(ground, "witness", w.t("witness-on"), on, Message::Witness(!on))).padding(Padding::ZERO.top(4.0)));
             if s.history_share && seen.history_told > 0 {
                 panel = panel.push(line(w.with("witness-history-told", &[("n", w.lang().group(u64::from(seen.history_told)))]), FAINT, 8.0));

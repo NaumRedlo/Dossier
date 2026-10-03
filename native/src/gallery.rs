@@ -930,16 +930,6 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
             }
             main
         }),
-        ("main-community-companion".to_owned(), {
-            let mut main = scored(false);
-            main.community_reading = None;
-            main.read_fade = iced::Animation::new(false);
-            let state = crate::witness::State { mode: "SelectPlay".into(), id: 1, artist: "Dj Grimoire".into(), title: "Astral Quantization".into(), version: "Nattu VN0TH3R".into(), ..Default::default() };
-            main.companion_shown = Some((1, state.map_line()));
-            main.companion_fade = iced::Animation::new(true);
-            main.witness = crate::witness::Seen { status: crate::witness::Status::Watching, state: Some(state), ..Default::default() };
-            main
-        }),
         ("main-community-title".to_owned(), titled("ss_100", "ssnowy")),
         ("main-community-title-unheld".to_owned(), titled("combo_1984", "NaumRedlo")),
         ("main-community-title-earned".to_owned(), titled("combo_2000", "Mirrorwave")),

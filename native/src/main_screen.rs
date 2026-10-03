@@ -37,11 +37,6 @@ const PANEL_SHOW: Duration = Duration::from_millis(420);
 const FOLD: Duration = Duration::from_millis(280);
 const COMMUNITY_EVERY: Duration = Duration::from_secs(30);
 const HISTORY_EVERY: Duration = Duration::from_secs(600);
-const COMPANION_DWELL: Duration = Duration::from_millis(900);
-const COMPANION_TICK: Duration = Duration::from_millis(250);
-const COMPANION_EDGE: f32 = 16.0;
-const COMPANION_BELOW: f32 = 24.0;
-const COMPANION_WIDE: f32 = 320.0;
 const NEWS_EVERY: Duration = Duration::from_secs(60);
 const FRIENDS_EVERY: Duration = Duration::from_secs(120);
 const CARD_EVERY: Duration = Duration::from_secs(300);
@@ -171,7 +166,6 @@ pub enum Message {
     WitnessDelivered(crate::witness_delivery::Delivery, Result<(), Refused>),
     WitnessDeliveryTick,
     HistoryTold(crate::history::Sent),
-    CompanionTick,
     ToastHover(u64, bool),
     ToastClose(u64),
     OpenVideo(usize),
@@ -593,10 +587,6 @@ pub struct Main {
     pub witness_delivery: crate::witness_delivery::Queue,
     pub history_running: bool,
     pub history_at: Option<Instant>,
-    pub companion_fade: Animation<bool>,
-    pub companion_at: Option<(u64, Instant)>,
-    pub companion_asked: Option<u64>,
-    pub companion_shown: Option<(u64, String)>,
     pub people_from: crate::community_screen::PeopleFrom,
     pub people_query: String,
     pub community_standing: crate::community_screen::Standing,
@@ -830,10 +820,6 @@ impl Main {
             witness_delivery: crate::witness_delivery::Queue::own(),
             history_running: false,
             history_at: None,
-            companion_fade: Animation::new(false).duration(PANEL_SHOW).easing(Easing::EaseOutCubic),
-            companion_at: None,
-            companion_asked: None,
-            companion_shown: None,
             people_from: crate::community_screen::PeopleFrom::Chat,
             people_query: String::new(),
             community_standing: crate::community_screen::Standing::General,
@@ -1024,37 +1010,6 @@ impl Main {
         self.delivery_task()
     }
 
-    fn companion_map(&self) -> Option<u64> {
-        if !self.settings.witness_companion || self.settings.token.is_empty() || !matches!(self.witness.status, crate::witness::Status::Watching) {
-            return None;
-        }
-        let state = self.witness.state.as_ref()?;
-        (state.mode == "SelectPlay" && state.id > 0).then_some(state.id as u64)
-    }
-
-    pub fn companion_follow(&mut self) {
-        let now = Instant::now();
-        match self.companion_map() {
-            Some(beatmap) => {
-                if self.companion_at.map(|(held, _)| held) != Some(beatmap) {
-                    self.companion_at = Some((beatmap, now));
-                }
-                if let Some(state) = self.witness.state.as_ref() {
-                    self.companion_shown = Some((beatmap, state.map_line()));
-                }
-                if !self.companion_fade.value() {
-                    self.companion_fade.go_mut(true, now);
-                }
-            }
-            None => {
-                self.companion_at = None;
-                if self.companion_fade.value() {
-                    self.companion_fade.go_mut(false, now);
-                }
-            }
-        }
-    }
-
     fn tell_task(&mut self, kept: &crate::witness::Kept) -> Option<Task<Message>> {
         if self.settings.token.is_empty() {
             return None;
@@ -1219,7 +1174,6 @@ impl Main {
             || self.thumb_pictures.animating(self.now)
             || self.feed_fold_at.values().any(|at| self.now.saturating_duration_since(*at) < FOLD)
             || self.read_fade.is_animating(self.now)
-            || self.companion_fade.is_animating(self.now)
             || self.person_fade.is_animating(self.now)
             || (self.overlay == Overlay::Community && [self.section_at, self.shift_at, self.stream_at, self.person_at, self.play_at, self.group_at, self.news_at].iter().any(|at| self.now.saturating_duration_since(*at).as_secs_f32() < ui::APPEAR_ALL))
             || (self.overlay == Overlay::Community && self.now.saturating_duration_since(self.spot_at) < crate::chronicle::SPOT_SWAP)
@@ -1315,9 +1269,6 @@ impl Main {
         }
         if self.overlay == Overlay::Community {
             parts.push(iced::time::every(NEWS_EVERY).map(|_| Message::NewsTick));
-        }
-        if matches!(self.companion_at, Some((beatmap, _)) if self.companion_asked != Some(beatmap)) {
-            parts.push(iced::time::every(COMPANION_TICK).map(|_| Message::CompanionTick));
         }
         if self.overlay == Overlay::Settings && self.side == Side::Bot && !self.settings.token.is_empty() {
             parts.push(iced::time::every(Duration::from_secs(10)).map(|_| Message::FarmTick));
@@ -3008,7 +2959,6 @@ impl Main {
                 }
                 let was_there = matches!(self.witness.status, crate::witness::Status::Loading | crate::witness::Status::Watching | crate::witness::Status::Playing);
                 self.witness.take(&event);
-                self.companion_follow();
                 let leaving = was_there && matches!(event, crate::witness::Event::Gone | crate::witness::Event::Waiting | crate::witness::Event::Absent);
                 let sitting = Task::batch([self.sitting_task(&event), if leaving { self.history_task(false) } else { Task::none() }]);
                 if let crate::witness::Event::Kept(kept) = &event {
@@ -3049,24 +2999,12 @@ impl Main {
                 self.witness.untold |= sent.is_err() || refused;
                 let fresh = if sent == Ok(true) && matches!(delivery.request, crate::witness_delivery::Request::Play(_)) {
                     self.witness.told += 1;
-                    self.companion_asked = None;
                     self.map_boards_fresh.clear();
                     self.community_task(true)
                 } else {
                     Task::none()
                 };
                 Task::batch([fresh, self.delivery_task()])
-            }
-            Message::CompanionTick => {
-                let Some((beatmap, since)) = self.companion_at else {
-                    return Task::none();
-                };
-                if Instant::now().saturating_duration_since(since) < COMPANION_DWELL {
-                    return Task::none();
-                }
-                self.companion_asked = Some(beatmap);
-                let known = self.map_boards.contains_key(&beatmap);
-                self.map_board_task(beatmap, known)
             }
             Message::Sharing(message) => self.sharing_update(message),
             Message::FarmTick => self.farm_task(),
@@ -4192,7 +4130,6 @@ impl Main {
             ui::fading(sheet * awake, || self.community_view(true).unwrap_or_else(blank))
         } else { blank() };
         let toasts = self.toast_layer();
-        let companion = self.companion_layer();
         let menu = self.menu_layer();
         let signing = self.sign_in_layer();
         let sharing = self.share_layer();
@@ -4214,7 +4151,7 @@ impl Main {
             stack![shield, mark].into()
         } else { blank() };
         let mini = self.mini_player_layer();
-        let layers = stack![scene_before, scene, live_before, live, body, bubble, ground, overlay, chrome_layer, crest, mini, person, room, ask, sharing, menu, signing, skin_ask, failure, companion, toasts, resting];
+        let layers = stack![scene_before, scene, live_before, live, body, bubble, ground, overlay, chrome_layer, crest, mini, person, room, ask, sharing, menu, signing, skin_ask, failure, toasts, resting];
         layers.width(Length::Fill).height(Length::Fill).into()
     }
 
@@ -6451,13 +6388,6 @@ impl Main {
                 keep(&self.settings);
                 if on { self.history_task(true) } else { Task::none() }
             }
-            P::WitnessCompanion(on) => {
-                self.remember_mark("witness-companion", on);
-                self.settings.witness_companion = on;
-                self.companion_follow();
-                keep(&self.settings);
-                Task::none()
-            }
             P::Witness(on) => {
                 self.remember_mark("witness", on);
                 self.settings.witness_keep = on;
@@ -7414,23 +7344,6 @@ impl Main {
         (((self.height - TOAST_TOP - 24.0) / (TOAST_MAX_H + 10.0)).floor() as usize).clamp(1, TOASTS_AT_MOST)
     }
 
-    fn companion_layer(&self) -> Element<'_, Message> {
-        let k = self.companion_fade.interpolate(0.0, 1.0, self.now);
-        let shown = self.companion_shown.as_ref().filter(|_| k > 0.001);
-        let (Some((beatmap, line)), Some(catalog)) = (shown, self.community.as_ref()) else {
-            return Space::new().width(Length::Fill).height(Length::Fill).into();
-        };
-        let ground = self.community_ground(catalog, false);
-        let card = crate::sheets::companion(&ground, *beatmap, line.clone(), COMPANION_WIDE).map(Message::Community);
-        let card = ui::fading(ui::fade() * k, || ui::grown(iced::widget::opaque(card), Point::new(0.0, 1.0), 0.0, 1.0).shifted((k - 1.0) * 24.0));
-        container(card)
-            .padding(Padding { top: 0.0, right: 0.0, bottom: COMPANION_BELOW, left: crate::sidebar::NARROW + COMPANION_EDGE })
-            .align_y(iced::alignment::Vertical::Bottom)
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .into()
-    }
-
     fn toast_layer(&self) -> Element<'_, Message> {
         let width = TOAST_W.min((self.width - 32.0).max(240.0));
         let home = (self.width - 40.0 - width).max(16.0);
@@ -8041,54 +7954,6 @@ mod tests {
         main.witness.take(&crate::witness::Event::Gone);
         assert_eq!((main.witness.told, main.witness.status.clone()), (1, crate::witness::Status::Absent));
         let _ = std::fs::remove_file(queue_path);
-    }
-
-    #[test]
-    fn the_companion_follows_the_map_under_the_cursor_at_song_select_and_asks_for_it_only_after_a_pause() {
-        use crate::witness::{Event, State};
-        let (_, mut main) = crate::gallery::main_states(crate::lang::Lang::En).into_iter().find(|(name, _)| name == "main-community-person").unwrap();
-        main.settings.token = "test-account".into();
-        main.settings.chat_id = Some(-42);
-        main.community.as_mut().unwrap().staged = false;
-        main.witness_control = Some(std::sync::Arc::new(crate::witness::Control::default()));
-        let said = |mode: &str, id: i64| Event::State(State { mode: mode.into(), id, title: "Astral Quantization".into(), ..Default::default() });
-        let _ = main.update(super::Message::Witness(Event::Attached { pid: 1, build: String::new(), player: String::new() }));
-        assert!(main.companion_at.is_none() && !main.companion_fade.value(), "nothing is shown before song select");
-        assert!(main.sittings.current().is_some(), "a game session begins when the client is found");
-
-        let _ = main.update(super::Message::Witness(said("SelectPlay", 7)));
-        assert_eq!(main.companion_at.map(|(beatmap, _)| beatmap), Some(7));
-        assert!(main.companion_fade.value());
-        assert_eq!(main.companion_shown.as_ref().map(|(beatmap, line)| (*beatmap, line.as_str())), Some((7, "Astral Quantization")));
-
-        let _ = main.update(super::Message::CompanionTick);
-        assert!(main.companion_asked.is_none() && main.map_boards_waiting.is_empty(), "a map scrolled past is not asked about");
-
-        main.companion_at = Some((7, std::time::Instant::now() - super::COMPANION_DWELL - std::time::Duration::from_millis(1)));
-        let _ = main.update(super::Message::CompanionTick);
-        assert_eq!(main.companion_asked, Some(7));
-        assert!(main.map_boards_waiting.contains(&7), "a map that stayed under the cursor is asked about");
-
-        let _ = main.update(super::Message::Witness(said("SelectPlay", 8)));
-        assert_eq!(main.companion_at.map(|(beatmap, _)| beatmap), Some(8), "the next map is the one followed");
-        assert!(!main.map_boards_waiting.contains(&8));
-
-        let _ = main.update(super::Message::Witness(said("Play", 8)));
-        assert!(main.companion_at.is_none() && !main.companion_fade.value(), "leaving song select puts the card away");
-
-        let _ = main.update(super::Message::Witness(said("SelectPlay", 0)));
-        assert!(main.companion_at.is_none(), "a map the server does not know has no board to show");
-
-        let _ = main.update(super::Message::Witness(said("SelectPlay", 9)));
-        assert!(main.companion_at.is_some());
-        let _ = main.update(super::Message::Prefs(crate::settings_screen::Message::WitnessCompanion(false)));
-        assert!(main.companion_at.is_none() && !main.settings.witness_companion, "the switch turns it off");
-        let _ = main.update(super::Message::Prefs(crate::settings_screen::Message::WitnessCompanion(true)));
-        assert_eq!(main.companion_at.map(|(beatmap, _)| beatmap), Some(9), "and on again, at the same map");
-
-        main.settings.token.clear();
-        let _ = main.update(super::Message::Witness(said("SelectPlay", 10)));
-        assert!(main.companion_at.is_none(), "an unpaired device has no chat to ask");
     }
 
     #[test]

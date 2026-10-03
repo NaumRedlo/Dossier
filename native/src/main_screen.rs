@@ -168,7 +168,7 @@ pub enum Message {
     Sent(Result<bot::Sent, String>),
     Sharing(sharing::Message),
     Witness(crate::witness::Event),
-    WitnessDelivered(crate::witness_delivery::Delivery, bool),
+    WitnessDelivered(crate::witness_delivery::Delivery, Result<(), Refused>),
     WitnessDeliveryTick,
     HistoryTold(crate::history::Sent),
     CompanionTick,
@@ -996,12 +996,12 @@ impl Main {
         };
         let (server, token, name) = (self.settings.server.clone(), self.settings.token.clone(), self.settings.device.clone());
         ui::in_thread(move || {
-            let reached = match &delivery.request {
-                crate::witness_delivery::Request::Play(play) => crate::bot::witnessed(&server, &token, &name, play).is_ok(),
-                crate::witness_delivery::Request::Session(sitting) => crate::bot::witness_session(&server, &token, &name, sitting).is_ok(),
-                crate::witness_delivery::Request::Deferred { .. } => false,
+            let result = match &delivery.request {
+                crate::witness_delivery::Request::Play(play) => crate::bot::witnessed(&server, &token, &name, play),
+                crate::witness_delivery::Request::Session(sitting) => crate::bot::witness_session(&server, &token, &name, sitting),
+                crate::witness_delivery::Request::Deferred { .. } => Err(Refused::Said("400".into())),
             };
-            Message::WitnessDelivered(delivery, reached)
+            Message::WitnessDelivered(delivery, result)
         })
     }
 
@@ -3038,10 +3038,15 @@ impl Main {
                 }
                 Task::none()
             }
-            Message::WitnessDelivered(delivery, reached) => {
-                let sent = self.witness_delivery.finish(&delivery, reached, Instant::now());
+            Message::WitnessDelivered(delivery, result) => {
+                let refused = match &result {
+                    Err(Refused::NotThere) => true,
+                    Err(Refused::Said(code)) => code.parse::<u16>().is_ok_and(|code| (400..500).contains(&code) && code != 429),
+                    _ => false,
+                };
+                let sent = self.witness_delivery.finish(&delivery, result.is_ok(), Instant::now());
                 self.witness.pending = self.witness_delivery.pending() as u32;
-                self.witness.untold |= sent.is_err();
+                self.witness.untold |= sent.is_err() || refused;
                 let fresh = if sent == Ok(true) && matches!(delivery.request, crate::witness_delivery::Request::Play(_)) {
                     self.witness.told += 1;
                     self.companion_asked = None;
@@ -8027,11 +8032,11 @@ mod tests {
         assert!(main.tell_task(&crate::witness::Kept { watched: Some(true), ..kept.clone() }).is_none());
         let owner = crate::witness_delivery::owner(&main.settings.server, &main.settings.token);
         let delivery = main.witness_delivery.ready(&owner, std::time::Instant::now()).unwrap();
-        let _ = main.update(super::Message::WitnessDelivered(delivery.clone(), false));
+        let _ = main.update(super::Message::WitnessDelivered(delivery.clone(), Err(crate::bot::Refused::Network("offline".into()))));
         assert_eq!((main.witness.told, main.witness.pending, main.witness.untold), (0, 1, false));
         let later = std::time::Instant::now() + std::time::Duration::from_secs(60);
         assert_eq!(main.witness_delivery.ready(&owner, later), Some(delivery.clone()));
-        let _ = main.update(super::Message::WitnessDelivered(delivery, true));
+        let _ = main.update(super::Message::WitnessDelivered(delivery, Ok(())));
         assert_eq!((main.witness.told, main.witness.pending, main.witness.untold), (1, 0, false));
         main.witness.take(&crate::witness::Event::Gone);
         assert_eq!((main.witness.told, main.witness.status.clone()), (1, crate::witness::Status::Absent));

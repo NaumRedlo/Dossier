@@ -27,11 +27,11 @@ Without any font the play still draws — the numbers simply do not.
 
 `JetBrainsMono-ExtraBold.ttf` is baked into the binary rather than read, because
 it letters the mod badges and a badge with no lettering on it is not a badge.
-`JetBrainsMono-Regular.ttf` is the application's monospace face, and
+`IBMPlexMono-Regular.ttf` is the application's monospace face, and
 `Commissioner-SemiBold.ttf` the weight its headings and buttons are set in; the
 application in `native/` bakes them in from here along with Commissioner,
-JetBrains Mono Bold and M PLUS, so there is one copy of every face in the
-repository and one licence beside it.
+IBM Plex Mono Bold and M PLUS. JetBrains Mono remains in the HUD fallback and
+the render engine's mod badges, with its own licence beside it.
 
 ### What was here before
 

@@ -780,7 +780,7 @@ fn reader<'a>(ground: &Ground<'a>, reading: &'a Reading) -> Element<'a, Message>
 
 pub(crate) fn figure<'a>(value: String, label: String, colour: Color) -> Element<'a, Message> {
     column![
-        text(value).font(theme::MONO_BOLD).size(16.0).wrapping(text::Wrapping::None).color(ui::faded(colour)),
+        text(value).font(theme::SANS_SEMI).size(16.0).wrapping(text::Wrapping::None).color(ui::faded(colour)),
         text(label).font(theme::SANS).size(11.5).wrapping(text::Wrapping::None).color(ui::faded(FAINT)),
     ]
     .spacing(2)

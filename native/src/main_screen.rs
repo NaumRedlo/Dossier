@@ -4278,7 +4278,7 @@ impl Main {
         .spacing(2);
         let outcome_colour = if entry.outcome.is_bad() { ACCENT } else { MUTED };
         let right = column![
-            text(accuracy).font(theme::MONO_BOLD).size(48.0).color(ui::faded(INK)),
+            text(accuracy).font(theme::SANS_SEMI).size(48.0).color(ui::faded(INK)),
             container(text(retype(&was.outcome, &now.outcome)).font(theme::MONO_BOLD).size(theme::CAPTION).color(ui::faded(outcome_colour)))
                 .width(Length::Fill)
                 .align_x(iced::alignment::Horizontal::Right),
@@ -6926,7 +6926,7 @@ impl Main {
     fn big(&self, value: String, key: String) -> Element<'_, Message> {
         self.card(
             column![
-                container(text(value).font(theme::MONO_BOLD).size(22.0).wrapping(text::Wrapping::None).color(ui::faded(INK)))
+                container(text(value).font(theme::SANS_SEMI).size(22.0).wrapping(text::Wrapping::None).color(ui::faded(INK)))
                     .width(Length::Fill)
                     .clip(true),
                 container(text(key).font(theme::SANS).size(11.0).wrapping(text::Wrapping::None).color(ui::faded(FAINT)))

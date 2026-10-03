@@ -398,7 +398,7 @@ fn pill<'a>(ground: &Ground<'a>, id: &str, name: String, on: bool, press: Messag
 
 fn figure<'a>(value: String, under: String) -> Element<'a, Message> {
     column![
-        text(value).font(theme::MONO_BOLD).size(22.0).wrapping(text::Wrapping::None).color(ui::faded(INK)),
+        text(value).font(theme::SANS_SEMI).size(22.0).wrapping(text::Wrapping::None).color(ui::faded(INK)),
         text(under).font(theme::SANS).size(11.0).wrapping(text::Wrapping::WordOrGlyph).color(ui::faded(FAINT)),
     ]
     .spacing(2)

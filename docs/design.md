@@ -88,8 +88,8 @@ else fades from one colour to another.
 
 | face | for |
 |---|---|
-| **Commissioner** 400 / 600 | everything that is a sentence: headlines, labels, buttons, captions |
-| **JetBrains Mono** 400 / 700 | everything that is a record: ledgers, numbers, names of files and devices, tags |
+| **Commissioner** 400 / 600 | headlines, labels, buttons, captions and large profile values |
+| **IBM Plex Mono** 400 / 700 | dates, codes, file names, devices and compact records |
 | **M PLUS Rounded 1c** | fallback for kana and kanji, via the text stack's own fallback |
 
 Varela Round leaves the application. It has no Cyrillic, and an interface in

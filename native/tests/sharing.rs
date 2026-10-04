@@ -77,6 +77,9 @@ fn the_switch_on_the_videos_page_turns_to_received_and_back() {
 #[test]
 fn a_received_row_opens_its_stage_with_what_can_be_done() {
     let mut main = staged(Lang::En, "main-videos-received");
+    for video in &mut main.sharing.videos {
+        video.storage = "telegram".to_owned();
+    }
     let said = clicked(&main, "xi — Blue Zenith [FOUR DIMENSIONS]");
     assert!(said.iter().any(|message| message.contains("Open(3)")), "{said:?}");
     let _ = main.update(M::Sharing(S::Open(3)));
@@ -249,6 +252,10 @@ fn an_account_without_telegram_is_asked_to_link_it_before_sending() {
 #[test]
 fn a_received_video_is_not_offered_to_a_telegram_that_is_not_there() {
     let mut main = staged(Lang::En, "main-videos-received-open");
+    assert!(!shows(&main, &main.words.t("received-telegram")), "a video kept in the application is not offered to Telegram");
+    for video in &mut main.sharing.videos {
+        video.storage = "telegram".to_owned();
+    }
     assert!(shows(&main, &main.words.t("received-telegram")));
     main.account = Some(bot::Me { telegram_id: 0, name: "NaumRedlo".into(), username: String::new(), avatar: false, telegram: false, player: Some(1) });
     assert!(!shows(&main, &main.words.t("received-telegram")));
@@ -256,8 +263,8 @@ fn a_received_video_is_not_offered_to_a_telegram_that_is_not_there() {
     main.sharing.open = None;
     main.open_video = Some(0);
     let _ = main.update(M::Sharing(S::Pick));
-    assert!(main.sharing.picker.is_none());
-    assert_eq!(main.pairing, dossier_native::main_screen::Pairing::Asking);
+    assert!(main.sharing.picker.is_some(), "a video goes through Dossier, so it does not wait for Telegram");
+    assert_ne!(main.pairing, dossier_native::main_screen::Pairing::Asking);
 }
 
 #[test]

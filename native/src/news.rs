@@ -198,9 +198,7 @@ impl News {
 }
 
 fn client() -> Result<reqwest::blocking::Client, String> {
-    let mut headers = reqwest::header::HeaderMap::new();
-    headers.insert(reqwest::header::ACCEPT, reqwest::header::HeaderValue::from_static("text/html,application/atom+xml,application/xml;q=0.9,*/*;q=0.8"));
-    reqwest::blocking::Client::builder().timeout(PATIENCE).user_agent(AGENT).default_headers(headers).build().map_err(|e| e.to_string())
+    crate::net::client(PATIENCE.as_secs(), PATIENCE.as_secs(), AGENT, Some("text/html,application/atom+xml,application/xml;q=0.9,*/*;q=0.8"))
 }
 
 pub fn page(url: &str) -> Result<String, String> {
@@ -258,7 +256,7 @@ fn fetch_picture(url: &str) -> Option<Vec<u8>> {
 }
 
 pub fn save_to(url: &str, path: &std::path::Path) -> Result<(), String> {
-    let client = reqwest::blocking::Client::builder().timeout(Duration::from_secs(300)).user_agent(AGENT).build().map_err(|e| e.to_string())?;
+    let client = crate::net::client(PATIENCE.as_secs(), 300, AGENT, None)?;
     let response = client.get(url).send().map_err(|e| e.to_string())?;
     if !response.status().is_success() {
         return Err(format!("{} answered {}", url, response.status().as_u16()));

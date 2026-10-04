@@ -142,7 +142,11 @@ fn every_state_keeps_its_buttons_on_screen() {
 fn every_main_screen_state_matches_its_approved_frame() {
     backend();
     let mut wrong = Vec::new();
+    let only = std::env::var("DOSSIER_ONLY_FRAMES").ok();
     for (name, main, size) in gallery::every_main_frame() {
+        if only.as_deref().is_some_and(|only| !only.split(',').any(|part| name.contains(part))) {
+            continue;
+        }
         let shot = gallery::snapshot_main(&main, size).expect("a frame");
         if let Err(why) = check_frame(shot, &name) { wrong.push(why); }
     }

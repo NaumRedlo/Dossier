@@ -1130,6 +1130,7 @@ dependencies = [
  "dossier-replay",
  "dossier-sim",
  "dossier-witness",
+ "flate2",
  "fluent-bundle",
  "iana-time-zone",
  "iced",

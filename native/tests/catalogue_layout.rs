@@ -2,7 +2,7 @@ use dossier_native::{gallery, lang::Lang};
 use iced::{widget::{button, container, Space}, Event, Padding, Point, Size};
 use iced_test::Simulator;
 
-fn community_point(bounds: iced::Rectangle, width: f32) -> Point {
+fn community_point(bounds: iced::Rectangle, _width: f32) -> Point {
     let side = dossier_native::sidebar::NARROW;
     let origin_y = dossier_native::theme::CONTROL_HEIGHT + 26.0;
     Point::new(side + (bounds.center_x() - side) * 0.84, origin_y + (bounds.center_y() - origin_y) * 0.84)
@@ -281,21 +281,21 @@ fn people_search_input_and_clear_have_their_own_messages() {
 }
 
 #[test]
-fn feed_stream_switches_preserve_highlight_pixels() {
-    use dossier_native::{chronicle::Stream, community_screen::Message as CommunityMessage, main_screen::Message as MainMessage};
+fn feed_filter_switches_preserve_the_profile_column_pixels() {
+    use dossier_native::{chronicle::Filter, community_screen::Message as CommunityMessage, main_screen::Message as MainMessage};
     let backdrop = dossier_native::ui::backdrop_handle();
     let states = gallery::main_states(Lang::Ru);
     let (_, base) = states.iter().find(|(name, _)| name == "main-community-feed").unwrap();
     let mut main = base.clone();
     main.width = 980.0;
     main.height = 440.0;
-    let mut highlights = Vec::new();
-    for (index, stream) in [Stream::All, Stream::Group, Stream::News].into_iter().enumerate() {
-        let _ = main.update(MainMessage::Community(CommunityMessage::Stream(stream)));
+    let mut columns = Vec::new();
+    for (index, filter) in [Filter::All, Filter::Plays, Filter::News].into_iter().enumerate() {
+        let _ = main.update(MainMessage::Community(CommunityMessage::Filter(filter)));
         main.now = std::time::Instant::now() + std::time::Duration::from_millis(20);
         let mut ui = Simulator::with_size(dossier_native::settings(), Size::new(main.width, main.height), gallery::main_frame(&main, &backdrop));
-        let heading = ui.find(main.words.t("highlights").to_uppercase()).unwrap().bounds();
-        let stem = std::env::temp_dir().join(format!("dossier-feed-highlights-{}-{index}", std::process::id()));
+        let heading = ui.find(main.words.t("my-profile-open")).unwrap().bounds();
+        let stem = std::env::temp_dir().join(format!("dossier-feed-profile-{}-{index}", std::process::id()));
         ui.snapshot(&dossier_native::theme::theme()).unwrap().matches_image(&stem).unwrap();
         let path = gallery::written_as(&stem);
         let image = image::open(&path).unwrap().to_rgba8();
@@ -303,12 +303,12 @@ fn feed_stream_switches_preserve_highlight_pixels() {
         let side = dossier_native::sidebar::NARROW;
         let x = ((side + (heading.x - side) * 0.84) * 2.0).ceil() as u32;
         let y = ((origin_y + (heading.y - origin_y) * 0.84) * 2.0).ceil() as u32;
-        let crop = image::imageops::crop_imm(&image, x, y, (300.0 * 0.84 * 2.0) as u32, ((heading.height + 8.0 + 146.0) * 0.84 * 2.0) as u32).to_image();
-        highlights.push(crop);
+        let crop = image::imageops::crop_imm(&image, x.saturating_sub(120), y.saturating_sub(160), (240.0 * 0.84 * 2.0) as u32, (200.0 * 0.84 * 2.0) as u32).to_image();
+        columns.push(crop);
         std::fs::remove_file(path).unwrap();
     }
-    assert!(highlights[0] == highlights[1], "switching to games must not fade or move highlights");
-    assert!(highlights[0] == highlights[2], "switching to news must not fade or move highlights");
+    assert!(columns[0] == columns[1], "switching to games must not fade or move the profile column");
+    assert!(columns[0] == columns[2], "switching to news must not fade or move the profile column");
 }
 
 #[test]
@@ -550,37 +550,33 @@ fn skin_preview_respects_slider_head_size_and_retina_density() {
 }
 
 #[test]
-fn weekly_leaders_keep_the_period_without_explanatory_metric_lines() {
-    use dossier_native::community::Board;
+fn the_right_column_is_a_profile_and_a_two_row_strip_and_the_group_label_needs_a_wide_column() {
     let backdrop = dossier_native::ui::backdrop_handle();
     for lang in Lang::ALL {
         let states = gallery::main_states(lang);
         let (_, base) = states.iter().find(|(name, _)| name == "main-community-feed").unwrap();
-        for (index, board) in Board::ALL.into_iter().enumerate() {
+        for width in [980.0, 1440.0] {
             let mut main = base.clone();
-            main.rank = index;
-            main.width = 1440.0;
+            main.width = width;
             main.height = 900.0;
-            let mut ui = Simulator::with_size(dossier_native::settings(), Size::new(1440.0, 900.0), gallery::main_frame(&main, &backdrop));
-            let label = if board == Board::HitsPerPlay { main.words.t("week-average") } else { main.words.with("week-gain", &[("metric", main.words.t(board.key()))]) };
-            assert!(ui.find(label).is_err());
-            let heading = ui.find(main.words.t("week-leaders").to_uppercase()).unwrap().bounds();
-            let period = ui.find(main.words.week_span(main.community.as_ref().unwrap().week_began)).unwrap().bounds();
-            assert!(period.y >= heading.y + heading.height);
-            assert!(!main.words.t("all-boards").contains('→'));
-            if index == 0 {
-                if let Ok(dir) = std::env::var("DOSSIER_PROFILE_REVIEW") {
-                    std::fs::create_dir_all(&dir).unwrap();
-                    let stem = std::path::Path::new(&dir).join(format!("weekly-{}", lang.tag()));
-                    ui.snapshot(&dossier_native::theme::theme()).unwrap().matches_image(&stem).unwrap();
-                }
+            main.now += std::time::Duration::from_secs(2);
+            let mut ui = Simulator::with_size(dossier_native::settings(), Size::new(width, 900.0), gallery::main_frame(&main, &backdrop));
+            assert!(ui.find(main.words.t("strip-friends")).is_ok(), "{width}");
+            assert!(ui.find(main.words.t("week-leaders")).is_ok(), "{width}");
+            for gone in ["spot-head", "friends-head", "news-future", "all-boards"] {
+                assert!(ui.find(main.words.t(gone)).is_err(), "{gone} {width}");
+                assert!(ui.find(main.words.t(gone).to_uppercase()).is_err(), "{gone} {width}");
             }
+            assert_eq!(ui.find(main.words.t("in-group")).is_ok(), width > 1000.0, "the label is for the wide column only, at {width}");
+            let friends = ui.find(main.words.t("strip-friends")).unwrap().bounds();
+            let leaders = ui.find(main.words.t("week-leaders")).unwrap().bounds();
+            assert!(leaders.y > friends.y + 40.0 && leaders.y < friends.y + 70.0, "two rows of one height: {friends:?} {leaders:?}");
         }
     }
 }
 
 #[test]
-fn community_channels_and_future_have_separate_panels_without_event_headers() {
+fn the_channels_card_stays_under_the_strip_in_the_same_column() {
     let backdrop = dossier_native::ui::backdrop_handle();
     for lang in Lang::ALL {
         let states = gallery::main_states(lang);
@@ -591,12 +587,11 @@ fn community_channels_and_future_have_separate_panels_without_event_headers() {
             main.height = 1100.0;
             main.now += std::time::Duration::from_secs(2);
             let mut ui = Simulator::with_size(dossier_native::settings(), Size::new(main.width, main.height), gallery::main_frame(&main, &backdrop));
+            let strip = ui.find(iced::widget::Id::new("community-strip-card")).unwrap().bounds();
             let channels = ui.find(iced::widget::Id::new("community-channels-card")).unwrap().bounds();
-            let future = ui.find(iced::widget::Id::new("community-future-card")).unwrap().bounds();
-            assert!(future.y >= channels.y + channels.height + 10.0, "{channels:?}, {future:?}");
-            assert!((future.x - channels.x).abs() < 1.0);
-            assert!((future.width - channels.width).abs() < 1.0);
-            assert!(future.height >= 90.0);
+            assert!(channels.y >= strip.y + strip.height + 10.0, "{strip:?}, {channels:?}");
+            assert!((channels.x - strip.x).abs() < 1.0);
+            assert!((channels.width - strip.width).abs() < 1.0);
             for key in ["journal-time", "journal-player", "journal-map"] {
                 assert!(ui.find(main.words.t(key).to_uppercase()).is_err());
             }
@@ -751,4 +746,42 @@ fn mini_player_keeps_the_same_video_across_sections_and_restores_its_home() {
         let _ = main.update(Message::Tick(std::time::Instant::now() + std::time::Duration::from_secs(1)));
         assert!(main.player.is_none(), "closing the mini player must release it");
     }
+}
+
+#[test]
+fn a_name_in_the_feed_opens_the_dossier_and_a_click_on_the_tile_or_its_cover_opens_the_result() {
+    use dossier_native::{community_screen::Message as CommunityMessage, main_screen::Message as MainMessage};
+    let backdrop = dossier_native::ui::backdrop_handle();
+    let mut main = gallery::main_states(Lang::En).into_iter().find(|(name, _)| name == "main-community-feed").unwrap().1;
+    main.width = 980.0;
+    main.height = 900.0;
+    let mut ui = Simulator::with_size(dossier_native::settings(), Size::new(main.width, main.height), gallery::main_frame(&main, &backdrop));
+    let name = ui.find("tarakan_3000").unwrap().bounds();
+    ui.point_at(community_point(name, main.width));
+    ui.simulate(iced_test::simulator::click());
+    let messages: Vec<_> = ui.into_messages().collect();
+    assert!(messages.iter().any(|message| matches!(message, dossier_native::Message::Main(MainMessage::Community(CommunityMessage::Person(Some(_)))))), "a click on the name opens the dossier: {messages:?}");
+    assert!(!messages.iter().any(|message| matches!(message, dossier_native::Message::Main(MainMessage::Community(CommunityMessage::Search(_) | CommunityMessage::Read(_))))), "{messages:?}");
+
+    for (aim, label) in [(-16.0 - 52.0, "the cover"), (260.0, "the tile beside the name")] {
+        let mut ui = Simulator::with_size(dossier_native::settings(), Size::new(main.width, main.height), gallery::main_frame(&main, &backdrop));
+        let name = ui.find("tarakan_3000").unwrap().bounds();
+        ui.point_at(community_point(iced::Rectangle { x: name.x + aim, y: name.y + 12.0, width: 1.0, height: name.height }, main.width));
+        ui.simulate(iced_test::simulator::click());
+        let messages: Vec<_> = ui.into_messages().collect();
+        assert!(messages.iter().any(|message| matches!(message, dossier_native::Message::Main(MainMessage::Community(CommunityMessage::Read(_))))), "a click on {label} opens the result: {messages:?}");
+        assert!(!messages.iter().any(|message| matches!(message, dossier_native::Message::Main(MainMessage::Community(CommunityMessage::Open(_) | CommunityMessage::Search(_) | CommunityMessage::Person(_))))), "{messages:?}");
+    }
+}
+
+#[test]
+fn events_within_the_hour_say_how_long_ago_and_older_ones_keep_the_clock() {
+    let backdrop = dossier_native::ui::backdrop_handle();
+    let mut main = gallery::main_states(Lang::En).into_iter().find(|(name, _)| name == "main-community-feed").unwrap().1;
+    main.width = 980.0;
+    main.height = 900.0;
+    let mut ui = Simulator::with_size(dossier_native::settings(), Size::new(main.width, main.height), gallery::main_frame(&main, &backdrop));
+    assert!(ui.find(main.words.n("minutes-ago", 18)).is_ok());
+    assert!(ui.find(main.words.n("minutes-ago", 27)).is_ok());
+    assert!(ui.find(main.words.n("minutes-ago", 90)).is_err(), "nothing is told in more than an hour of minutes");
 }

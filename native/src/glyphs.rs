@@ -29,6 +29,15 @@ pub enum Icon {
     Person,
     Chat,
     Circle,
+    Refresh,
+    Check,
+    Warn,
+    Right,
+    Plus,
+    Close,
+    Pool,
+    Copy,
+    File,
 }
 
 pub struct Glyph {
@@ -228,6 +237,47 @@ impl<Message> canvas::Program<Message> for Glyph {
             Icon::Flag => {
                 frame.stroke(&Path::line(at(4.0, 2.5), at(4.0, 17.5)), pen);
                 frame.stroke(&polyline(&[(4.0, 3.5), (15.5, 3.5), (13.0, 7.0), (15.5, 10.5), (4.0, 10.5)], false), pen);
+            }
+            Icon::Refresh => {
+                let arc: Vec<(f32, f32)> = (0..=22).map(|step| {
+                    let angle = (-50.0_f32 + step as f32 * 14.5).to_radians();
+                    (10.0 + 6.5 * angle.cos(), 10.0 + 6.5 * angle.sin())
+                }).collect();
+                frame.stroke(&polyline(&arc, false), pen);
+                let tip = arc[arc.len() - 1];
+                frame.stroke(&polyline(&[(tip.0 - 2.8, tip.1 - 2.8), tip, (tip.0 - 2.8, tip.1 + 2.8)], false), pen);
+            }
+            Icon::Right => {
+                frame.stroke(&polyline(&[(7.5, 4.0), (13.5, 10.0), (7.5, 16.0)], false), pen);
+            }
+            Icon::Plus => {
+                frame.stroke(&Path::line(at(10.0, 4.0), at(10.0, 16.0)), pen);
+                frame.stroke(&Path::line(at(4.0, 10.0), at(16.0, 10.0)), pen);
+            }
+            Icon::Close => {
+                frame.stroke(&Path::line(at(5.0, 5.0), at(15.0, 15.0)), pen);
+                frame.stroke(&Path::line(at(15.0, 5.0), at(5.0, 15.0)), pen);
+            }
+            Icon::Pool => {
+                frame.stroke(&Path::rounded_rectangle(at(3.0, 3.5), Size::new(14.0 * s, 4.0 * s), (1.5 * s).into()), pen);
+                frame.stroke(&Path::rounded_rectangle(at(3.0, 9.0), Size::new(14.0 * s, 3.0 * s), (1.2 * s).into()), pen);
+                frame.stroke(&Path::rounded_rectangle(at(3.0, 14.0), Size::new(9.0 * s, 3.0 * s), (1.2 * s).into()), pen);
+            }
+            Icon::Copy => {
+                frame.stroke(&Path::rounded_rectangle(at(7.0, 7.0), Size::new(9.5 * s, 9.5 * s), (2.0 * s).into()), pen);
+                frame.stroke(&polyline(&[(5.0, 13.0), (4.0, 13.0), (4.0, 4.0), (13.0, 4.0), (13.0, 5.0)], false), pen);
+            }
+            Icon::File => {
+                frame.stroke(&polyline(&[(5.0, 2.5), (11.5, 2.5), (15.5, 6.5), (15.5, 17.5), (5.0, 17.5)], true), pen);
+                frame.stroke(&polyline(&[(11.5, 2.5), (11.5, 6.5), (15.5, 6.5)], false), pen);
+            }
+            Icon::Check => {
+                frame.stroke(&polyline(&[(4.5, 10.5), (8.5, 14.5), (15.5, 5.5)], false), pen);
+            }
+            Icon::Warn => {
+                frame.stroke(&polyline(&[(10.0, 3.0), (17.5, 16.5), (2.5, 16.5)], true), pen);
+                frame.stroke(&Path::line(at(10.0, 8.0), at(10.0, 11.8)), pen);
+                frame.fill(&Path::circle(at(10.0, 14.2), 1.0 * s), ink);
             }
             Icon::Metronome => {
                 frame.stroke(&polyline(&[(7.2, 2.5), (12.8, 2.5), (16.5, 17.5), (3.5, 17.5)], true), pen);

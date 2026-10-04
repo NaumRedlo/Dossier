@@ -148,6 +148,7 @@ pub struct Ground<'a> {
     pub build: &'static str,
     pub pin: Option<&'a crate::community::wire::Pin>,
     pub now_unix: i64,
+    pub link: crate::bot::Link,
     pub farm: Option<&'a crate::bot::Farm>,
     pub scale_draft: Option<u32>,
     pub accept: crate::inbox::Accept,
@@ -961,11 +962,39 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
             ]
             .spacing(10)
             .align_y(iced::Center),
+            link_rows(ground),
             container(deed(w.t("unlink"), Message::Unlink, true)).padding(Padding::ZERO.top(6.0)),
         ]
         .spacing(2)
         .into(),
     }
+}
+
+fn link_rows<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
+    let w = ground.words;
+    let link = &ground.link;
+    let moment = |at: i64| format!("{} {}", w.day(at, ground.now_unix), w.clock(at));
+    let fact = |label: String, value: String, colour: iced::Color| -> Element<'a, Message> {
+        row![
+            text(label).font(theme::SANS).size(11.5).wrapping(text::Wrapping::None).color(ui::faded(MUTED)).width(Length::Fill),
+            text(value).font(theme::MONO).size(11.0).wrapping(text::Wrapping::None).color(ui::faded(colour)),
+        ]
+        .spacing(10)
+        .align_y(iced::Center)
+        .into()
+    };
+    let mut rows = column![fact(w.t("link-answered"), link.answered.map_or_else(|| w.t("link-never"), moment), INK)].spacing(4);
+    if let Some((at, refused)) = &link.refused {
+        let kind = match refused {
+            crate::bot::Refused::Network(_) => w.t("link-fault-network"),
+            crate::bot::Refused::Said(code) if code == "401" => w.t("link-fault-denied"),
+            crate::bot::Refused::Said(code) => w.with("link-fault-server", &[("code", code.clone())]),
+            crate::bot::Refused::NotThere => w.t("link-fault-gone"),
+        };
+        rows = rows.push(fact(w.t("link-refused"), kind, theme::ACCENT)).push(fact(w.t("link-refused-at"), moment(*at), MUTED));
+    }
+    rows = rows.push(fact(w.t("link-retries"), link.retries.to_string(), INK));
+    container(rows).padding(Padding { top: 8.0, right: 0.0, bottom: 2.0, left: 0.0 }).into()
 }
 
 pub fn worker_said(w: &Words, step: Option<&crate::worker::Step>, on: bool) -> (String, iced::Color) {

@@ -35,6 +35,7 @@ const FETCHES_AT_ONCE: usize = 3;
 const LIVE_EVERY: Duration = Duration::from_secs(6);
 const PANEL_SHOW: Duration = Duration::from_millis(420);
 const FOLD: Duration = Duration::from_millis(280);
+const NOTICE_FADE: Duration = Duration::from_millis(200);
 const COMMUNITY_EVERY: Duration = Duration::from_secs(30);
 const HISTORY_EVERY: Duration = Duration::from_secs(600);
 const COMPANION_DWELL: Duration = Duration::from_millis(900);
@@ -87,7 +88,9 @@ pub enum Message {
     NewsPicture(String, Option<image::Handle>),
     NewsFrost(String, crate::community_screen::Frost),
     LiveArrive,
-    CommunityArrived(Result<crate::community::wire::Community, String>),
+    CommunityArrived(Result<crate::community::wire::Community, crate::bot::Refused>),
+    Paste,
+    Undo,
     MapBoard(u64, bool, Result<crate::community::wire::MapBoard, String>),
     EveryoneArrived(Result<crate::community::wire::Everyone, String>),
     PinRead(Result<crate::community::wire::Pin, String>),
@@ -105,7 +108,6 @@ pub enum Message {
     UpdateGot(crate::updates::Step),
     UpdateIdle,
     NewsTick,
-    FeedClock,
     ClipFetched(String, Result<(PathBuf, videos::Probe), String>),
     OsuProfile(Result<crate::community::wire::Card, String>),
     PersonCard(String, Result<crate::community::wire::Card, String>),
@@ -577,6 +579,10 @@ pub struct Main {
     pub channel_draft: String,
     pub live_shown: usize,
     feed_arrivals: crate::chronicle::Arrivals,
+    feed_offset: f32,
+    feed_leaving: crate::chronicle::Leaving,
+    pub link_shown: Option<crate::bot::Link>,
+    pub feed_held: std::collections::HashSet<String>,
     feed_pictures: crate::chronicle::Pictures,
     thumb_pictures: crate::chronicle::Pictures,
     pub community_reading: Option<crate::community_screen::Reading>,
@@ -605,28 +611,16 @@ pub struct Main {
     flags_asked: std::collections::HashSet<String>,
     card_asked: Option<Instant>,
     pub feed_filter: crate::chronicle::Filter,
-    pub feed_source: crate::chronicle::Source,
-    pub feed_stream: crate::chronicle::Stream,
     pub feed_query: String,
     pub feed_open: std::collections::HashSet<String>,
     feed_fold_at: HashMap<String, Instant>,
     community_tap: Option<iced::Rectangle>,
     panel_from: Option<iced::Rectangle>,
-    pub spot: usize,
-    spot_at: Instant,
     pub(crate) section_at: Instant,
     pub(crate) shift_at: Instant,
     pub(crate) stream_at: Instant,
     pub(crate) person_at: Instant,
     pub(crate) play_at: Instant,
-    pub(crate) group_at: Instant,
-    pub(crate) news_at: Instant,
-    pub(crate) spot_due: Instant,
-    pub(crate) spot_held: Option<Instant>,
-    pub rank: usize,
-    rank_at: Instant,
-    pub(crate) rank_due: Instant,
-    pub(crate) rank_held: Option<Instant>,
     pub dossier_metric: crate::dossier::Metric,
     pub dossier_span: u32,
     pub grade_hover: Option<usize>,
@@ -638,6 +632,12 @@ pub struct Main {
     osu_asked: Option<Instant>,
     pub community_fetch: crate::community_screen::Fetch,
     community_asked: Option<Instant>,
+    pub pools: crate::pools_screen::State,
+    pool_covers_asked: std::collections::HashSet<String>,
+    refresh_asked: bool,
+    refresh_answered: Option<Instant>,
+    notice_fade: Animation<bool>,
+    notice_kept: Option<crate::community_screen::Notice>,
     friends_asked: Option<Instant>,
 }
 
@@ -813,6 +813,10 @@ impl Main {
             channel_draft: String::new(),
             live_shown: LIVE_FIRST,
             feed_arrivals: crate::chronicle::Arrivals::default(),
+            feed_offset: 0.0,
+            feed_leaving: crate::chronicle::Leaving::default(),
+            link_shown: None,
+            feed_held: std::collections::HashSet::new(),
             feed_pictures: crate::chronicle::Pictures::default(),
             thumb_pictures: crate::chronicle::Pictures::default(),
             community_reading: None,
@@ -841,28 +845,16 @@ impl Main {
             flags_asked: std::collections::HashSet::new(),
             card_asked: None,
             feed_filter: crate::chronicle::Filter::All,
-            feed_source: crate::chronicle::Source::All,
-            feed_stream: crate::chronicle::Stream::All,
             feed_query: String::new(),
             feed_open: std::collections::HashSet::new(),
             feed_fold_at: HashMap::new(),
             community_tap: None,
             panel_from: None,
-            spot: 0,
-            spot_at: Instant::now() - Duration::from_secs(3600),
             section_at: Instant::now() - Duration::from_secs(3600),
             shift_at: Instant::now() - Duration::from_secs(3600),
             stream_at: Instant::now() - Duration::from_secs(3600),
             person_at: Instant::now() - Duration::from_secs(3600),
             play_at: Instant::now() - Duration::from_secs(3600),
-            group_at: Instant::now() - Duration::from_secs(3600),
-            news_at: Instant::now() - Duration::from_secs(3600),
-            spot_due: Instant::now(),
-            spot_held: None,
-            rank: 0,
-            rank_at: Instant::now() - Duration::from_secs(3600),
-            rank_due: Instant::now(),
-            rank_held: None,
             dossier_metric: crate::dossier::Metric::Rank,
             dossier_span: 90,
             grade_hover: None,
@@ -874,6 +866,12 @@ impl Main {
             osu_asked: None,
             community_fetch: crate::community_screen::Fetch::Staged,
             community_asked: None,
+            pools: crate::pools_screen::State::new(crate::pools::pools_dir()),
+            pool_covers_asked: std::collections::HashSet::new(),
+            refresh_asked: false,
+            refresh_answered: None,
+            notice_fade: Animation::new(false).duration(NOTICE_FADE).easing(Easing::EaseOutCubic),
+            notice_kept: None,
             friends_asked: None,
         };
         let strays = videos::strays(&made.store.videos, &made.settings.renders_dir());
@@ -1162,14 +1160,14 @@ impl Main {
             || self.slides_settling()
             || (self.overlay == Overlay::Community && self.feed_arrivals.animating(self.now))
             || (self.overlay == Overlay::Community && self.feed_pictures.animating(self.now))
+            || (self.overlay == Overlay::Community && self.feed_leaving.animating(self.now))
+            || (self.overlay == Overlay::Community && (self.notice_fade.is_animating(self.now) || self.refresh_answered.is_some_and(|at| self.now.saturating_duration_since(at).as_secs_f32() < crate::community_screen::DONE_HOLD + 0.1)))
             || self.thumb_pictures.animating(self.now)
             || self.feed_fold_at.values().any(|at| self.now.saturating_duration_since(*at) < FOLD)
             || self.read_fade.is_animating(self.now)
             || self.companion_fade.is_animating(self.now)
             || self.person_fade.is_animating(self.now)
-            || (self.overlay == Overlay::Community && [self.section_at, self.shift_at, self.stream_at, self.person_at, self.play_at, self.group_at, self.news_at].iter().any(|at| self.now.saturating_duration_since(*at).as_secs_f32() < ui::APPEAR_ALL))
-            || (self.overlay == Overlay::Community && self.now.saturating_duration_since(self.spot_at) < crate::chronicle::SPOT_SWAP)
-            || (self.overlay == Overlay::Community && self.now.saturating_duration_since(self.rank_at) < crate::chronicle::RANK_GROW)
+            || (self.overlay == Overlay::Community && [self.section_at, self.shift_at, self.stream_at, self.person_at, self.play_at].iter().any(|at| self.now.saturating_duration_since(*at).as_secs_f32() < ui::APPEAR_ALL))
             || (self.community_reading.is_some() && !self.read_fade.value())
             || self.arrivals.values().any(|a| a.is_animating(self.now))
             || self.leaving.values().any(|a| a.is_animating(self.now))
@@ -1195,7 +1193,7 @@ impl Main {
             (iced::Event::Window(window::Event::Resized(size)), _) => Some(Message::Resized(size.width, size.height)),
             (iced::Event::Window(window::Event::Opened { size, .. }), _) => Some(Message::WindowOpened(id, size.width, size.height)),
             (iced::Event::Window(window::Event::Focused | window::Event::Unfocused), _) => Some(Message::CheckMinimized(id)),
-            (iced::Event::Keyboard(iced::keyboard::Event::KeyPressed { key, .. }), iced::event::Status::Ignored) => {
+            (iced::Event::Keyboard(iced::keyboard::Event::KeyPressed { key, modifiers, .. }), iced::event::Status::Ignored) => {
                 use iced::keyboard::key::{Key, Named};
                 match key.as_ref() {
                     Key::Named(Named::ArrowLeft) => Some(Message::Key(Named::ArrowLeft)),
@@ -1204,6 +1202,8 @@ impl Main {
                     Key::Named(Named::ArrowDown) => Some(Message::Key(Named::ArrowDown)),
                     Key::Named(Named::Space) => Some(Message::Key(Named::Space)),
                     Key::Named(Named::Escape) => Some(Message::Escape),
+                    Key::Character(letter) if modifiers.command() && letter.eq_ignore_ascii_case("v") => Some(Message::Paste),
+                    Key::Character(letter) if modifiers.command() && !modifiers.shift() && letter.eq_ignore_ascii_case("z") => Some(Message::Undo),
                     Key::Character(letter) => letter.chars().next().map(|c| Message::Typed(c.to_lowercase().next().unwrap_or(c))),
                     _ => None,
                 }
@@ -1264,9 +1264,6 @@ impl Main {
         }
         if self.overlay == Overlay::Settings && self.side == Side::Bot && !self.settings.token.is_empty() {
             parts.push(iced::time::every(Duration::from_secs(10)).map(|_| Message::FarmTick));
-        }
-        if self.overlay == Overlay::Community && self.community_section == crate::community_screen::Section::Feed {
-            parts.push(iced::time::every(Duration::from_millis(500)).map(|_| Message::FeedClock));
         }
         let live_waiting = self.community.as_ref().is_some_and(|catalog| self.live_shown < catalog.live.len());
         if self.overlay == Overlay::Community && self.community_section == crate::community_screen::Section::Feed && live_waiting {
@@ -1445,6 +1442,89 @@ impl Main {
         })
     }
 
+    fn pools_work(&mut self, effects: Vec<crate::pools_screen::Effect>) -> Task<Message> {
+        use crate::pools_screen::{Effect, Message as P};
+        let mut tasks: Vec<Task<Message>> = Vec::new();
+        for effect in effects {
+            match effect {
+                Effect::ReadSongs => {
+                    let songs = library::songs_of(&self.settings.sources);
+                    tasks.push(ui::in_thread(move || {
+                        let found = library::Index::load(&songs).by_hash;
+                        Message::Community(crate::community_screen::Message::Pools(P::Songs(std::sync::Arc::new(found))))
+                    }));
+                }
+                Effect::Measure(hash, map, mods) => {
+                    tasks.push(ui::in_thread(move || {
+                        let said = crate::pools::measure(&map, &hash, mods);
+                        Message::Community(crate::community_screen::Message::Pools(P::Measured(hash, mods, said)))
+                    }));
+                }
+                Effect::Resolve(target) => {
+                    tasks.push(ui::in_thread(move || Message::Community(crate::community_screen::Message::Pools(P::Resolved(crate::pool_links::resolve(&target))))));
+                }
+                Effect::Cover(url, set) => {
+                    tasks.push(ui::in_thread(move || {
+                        let handle = crate::news::picture(&url).and_then(|bytes| decoded_from(&bytes, THUMB.0, Some(THUMB)));
+                        Message::Community(crate::community_screen::Message::Pools(P::Cover(set, handle)))
+                    }));
+                }
+                Effect::Copy(text, key) => {
+                    let said = self.words.t(key);
+                    self.say(said);
+                    tasks.push(iced::clipboard::write(text));
+                }
+                Effect::SaveFile(name, bytes) => {
+                    tasks.push(Task::perform(
+                        async move {
+                            let picked = rfd::AsyncFileDialog::new().add_filter("Dossier pool", &["pool"]).set_file_name(name.as_str()).save_file().await;
+                            match picked {
+                                Some(file) => std::fs::write(file.path(), bytes).map(|()| Some(file.path().to_path_buf())).map_err(|why| why.to_string()),
+                                None => Ok(None),
+                            }
+                        },
+                        |said| Message::Community(crate::community_screen::Message::Pools(P::Saved(said))),
+                    ));
+                }
+                Effect::PickFile => {
+                    tasks.push(Task::perform(
+                        async {
+                            let picked = rfd::AsyncFileDialog::new().add_filter("Dossier pool", &["pool"]).pick_file().await?;
+                            Some(std::fs::read(picked.path()).map_err(|_| crate::pool_share::Refused::NotAPool).and_then(|bytes| crate::pool_share::from_file(&bytes, unix_now())))
+                        },
+                        |said| match said {
+                            Some(said) => Message::Community(crate::community_screen::Message::Pools(P::Imported(said))),
+                            None => Message::Community(crate::community_screen::Message::Pools(P::Saved(Ok(None)))),
+                        },
+                    ));
+                }
+                Effect::Fetch(hash, stop) => {
+                    let songs = crate::sources::own_root().join("Songs");
+                    let named = hash.clone();
+                    tasks.push(crate::maps::fetch(hash, songs, stop).map(move |step| Message::Community(crate::community_screen::Message::Pools(P::Step(named.clone(), step)))));
+                }
+            }
+        }
+        let wanted: Vec<(String, PathBuf)> = self
+            .pools
+            .covers()
+            .into_iter()
+            .filter(|(hash, _)| !self.thumbs.contains_key(hash) && self.pool_covers_asked.insert(hash.clone()))
+            .collect();
+        if !wanted.is_empty() {
+            tasks.push(ui::streamed(move |push| {
+                for (hash, path) in wanted {
+                    if let Some(handle) = decoded(&path, THUMB.0, Some(THUMB)) {
+                        if !push(Message::Thumb(hash, handle)) {
+                            return;
+                        }
+                    }
+                }
+            }));
+        }
+        Task::batch(tasks)
+    }
+
     fn thumbs_task(&self) -> Task<Message> {
         let wanted: Vec<(String, PathBuf)> = {
             let mut seen = std::collections::HashSet::new();
@@ -1534,7 +1614,7 @@ impl Main {
         if self.minimized && matches!(&message,
             Message::Tick(_) | Message::RestCheck(_) | Message::WatchTick | Message::AutoNext
             | Message::UpdateTick | Message::UpdateIdle | Message::Poll | Message::CommunityTick
-            | Message::NewsTick | Message::FarmTick | Message::FeedClock | Message::LiveArrive)
+            | Message::NewsTick | Message::FarmTick | Message::LiveArrive)
         {
             return Task::none();
         }
@@ -2375,6 +2455,18 @@ impl Main {
                 self.search = query;
                 Task::none()
             }
+            Message::Paste => {
+                if self.overlay == Overlay::Community && self.community_section == crate::community_screen::Section::Pools {
+                    return iced::clipboard::read().map(|text| Message::Community(crate::community_screen::Message::Pools(crate::pools_screen::Message::Pasted(text.unwrap_or_default()))));
+                }
+                Task::none()
+            }
+            Message::Undo => {
+                if self.overlay == Overlay::Community && self.community_section == crate::community_screen::Section::Pools {
+                    return self.update(Message::Community(crate::community_screen::Message::Pools(crate::pools_screen::Message::Undo)));
+                }
+                Task::none()
+            }
             Message::Typed(letter) => {
                 if self.player.is_none() {
                     if self.overlay == Overlay::None && self.menu.is_none() && self.library.is_some() && (letter.is_alphanumeric() || letter == '+') {
@@ -2518,6 +2610,10 @@ impl Main {
             }
             Message::Show(overlay) => {
                 let now = Instant::now();
+                if overlay != self.overlay {
+                    self.feed_offset = 0.0;
+                    self.release_held();
+                }
                 if overlay == Overlay::Settings {
                     self.side = match self.settings.settings_tab.as_str() {
                         "bot" => Side::Bot,
@@ -2647,16 +2743,50 @@ impl Main {
 
                     }
                     C::PeopleSearch(query) => self.people_query = query,
+                    C::Pools(inner) => {
+                        if let crate::pools_screen::Message::Saved(said) = &inner {
+                            match said {
+                                Ok(Some(path)) => {
+                                    let name = path.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default();
+                                    let said = self.words.with("pool-saved", &[("name", name)]);
+                                    self.say(said);
+                                }
+                                Err(_) => {
+                                    let said = self.words.t("pool-save-failed");
+                                    self.say(said);
+                                }
+                                Ok(None) => {}
+                            }
+                            return Task::none();
+                        }
+                        let effects = self.pools.update(inner, unix_now());
+                        return self.pools_work(effects);
+                    }
+                    C::Reconnect => {
+                        let shown = self.update(Message::Show(Overlay::Settings));
+                        let side = self.update(Message::Prefs(prefs::Message::Side(Side::Bot)));
+                        return Task::batch([shown, side]);
+                    }
                     C::Again => {
+                        let news = self.refresh_news(true);
+                        if self.settings.token.is_empty() {
+                            self.refresh_asked = false;
+                            self.refresh_answered = Some(Instant::now());
+                            return news;
+                        }
+                        self.refresh_asked = true;
+                        self.refresh_answered = None;
                         let friends = match self.people_from {
                             crate::community_screen::PeopleFrom::Game => self.friends_task(true),
                             crate::community_screen::PeopleFrom::Chat => Task::none(),
                         };
-                        return Task::batch([self.community_task(true), friends, self.card_task(true)]);
+                        return Task::batch([self.community_task(true), friends, self.card_task(true), news]);
                     }
                     C::Section(section) => {
                         if section != self.community_section {
                             self.section_at = now;
+                            self.feed_offset = 0.0;
+                            self.release_held();
                         }
                         if self.community_reading.is_some() && self.read_fade.value() {
                             self.read_fade.go_mut(false, now);
@@ -2665,6 +2795,10 @@ impl Main {
                             self.person_fade.go_mut(false, now);
                         }
                         self.community_section = section;
+                        if section == crate::community_screen::Section::Pools {
+                            let effects = self.pools.open();
+                            return self.pools_work(effects);
+                        }
                         if section == crate::community_screen::Section::Compare {
                             self.pool_players();
                             if self.compare.is_empty() {
@@ -2756,31 +2890,32 @@ impl Main {
                         return self.fetch_channel(name);
                     }
                     C::ChannelRemove(name) => {
+                        let before = self.feed_before();
                         self.settings.news_channels.retain(|kept| !kept.eq_ignore_ascii_case(&name));
                         let _ = self.settings.save();
                         self.news.take_posts(&name, Vec::new());
                         self.news.fetched.remove(&crate::news::channel_source(&name));
                         self.news.save();
+                        self.fresh_from(before);
                     }
                     C::Filter(filter) => {
                         if filter != self.feed_filter {
-                            self.group_at = now;
+                            self.stream_at = now;
                         }
                         self.feed_filter = filter;
                     }
-                    C::Source(source) => {
-                        if source != self.feed_source {
-                            self.news_at = now;
-                        }
-                        self.feed_source = source;
-                    }
-                    C::Stream(stream) => {
-                        if stream != self.feed_stream {
-                            self.stream_at = now;
-                        }
-                        self.feed_stream = stream;
-                    }
                     C::Search(query) => self.feed_query = query,
+                    C::FeedScrolled(offset) => {
+                        self.feed_offset = offset;
+                        if offset <= crate::chronicle::READING_BELOW {
+                            self.release_held();
+                        }
+                    }
+                    C::ShowNew => {
+                        self.feed_offset = 0.0;
+                        self.release_held();
+                        return iced::widget::operation::scroll_to(iced::widget::Id::new("community-feed"), iced::widget::scrollable::AbsoluteOffset { x: None, y: Some(0.0) });
+                    }
                     C::Toggle(key) => {
                         self.feed_fold_at.retain(|_, at| now.saturating_duration_since(*at) < FOLD);
                         self.feed_fold_at.insert(key.clone(), now);
@@ -2788,38 +2923,6 @@ impl Main {
                             self.feed_open.insert(key);
                         }
                     }
-                    C::Spot(index) => {
-                        if index != self.spot {
-                            self.spot = index;
-                            self.spot_at = now;
-                        }
-                        self.spot_due = now;
-                        self.spot_held = self.spot_held.map(|_| now);
-                    }
-                    C::SpotHold(held) => match (held, self.spot_held) {
-                        (true, None) => self.spot_held = Some(now),
-                        (false, Some(since)) => {
-                            self.spot_due += now.saturating_duration_since(since);
-                            self.spot_held = None;
-                        }
-                        _ => {}
-                    },
-                    C::Rank(index) => {
-                        if index != self.rank {
-                            self.rank = index;
-                            self.rank_at = now;
-                        }
-                        self.rank_due = now;
-                        self.rank_held = self.rank_held.map(|_| now);
-                    }
-                    C::RankHold(held) => match (held, self.rank_held) {
-                        (true, None) => self.rank_held = Some(now),
-                        (false, Some(since)) => {
-                            self.rank_due += now.saturating_duration_since(since);
-                            self.rank_held = None;
-                        }
-                        _ => {}
-                    },
                     C::Metric(metric) => self.dossier_metric = metric,
                     C::Span(span) => self.dossier_span = span,
                     C::GradeHover(hover) => self.grade_hover = hover,
@@ -2867,7 +2970,7 @@ impl Main {
                 self.news_loading.remove(source);
                 match result {
                     Ok(builds) => {
-                        let before = self.feed_keys();
+                        let before = self.feed_before();
                         self.news.builds = builds;
                         self.news_heard(source);
                         self.fresh_from(before);
@@ -2883,7 +2986,7 @@ impl Main {
                 self.news_loading.remove(source);
                 match result {
                     Ok(stories) => {
-                        let before = self.feed_keys();
+                        let before = self.feed_before();
                         self.news.stories = stories;
                         self.news_heard(source);
                         self.fresh_from(before);
@@ -2914,7 +3017,7 @@ impl Main {
                 self.news_loading.remove(&source);
                 match result {
                     Ok(posts) => {
-                        let before = self.feed_keys();
+                        let before = self.feed_before();
                         self.news.take_posts(&channel, posts);
                         self.news_heard(&source);
                         self.fresh_from(before);
@@ -3087,20 +3190,6 @@ impl Main {
                 }
                 Task::none()
             }
-            Message::FeedClock => {
-                let now = Instant::now();
-                if self.spot_held.is_none() && now.saturating_duration_since(self.spot_due) >= crate::chronicle::SPOT_EVERY {
-                    self.spot = self.spot.wrapping_add(1);
-                    self.spot_at = now;
-                    self.spot_due = now;
-                }
-                if self.rank_held.is_none() && now.saturating_duration_since(self.rank_due) >= crate::chronicle::RANK_EVERY {
-                    self.rank = (self.rank + 1) % crate::community::Board::ALL.len();
-                    self.rank_at = now;
-                    self.rank_due = now;
-                }
-                Task::none()
-            }
             Message::MapBoard(beatmap, fresh, said) => {
                 self.map_boards_waiting.remove(&beatmap);
                 match said {
@@ -3123,7 +3212,7 @@ impl Main {
                 }
             }
             Message::CommunityArrived(Ok(said)) => {
-                let before = self.feed_keys();
+                let before = self.feed_before();
                 let saved = said.clone();
                 let save = ui::in_thread(move || { crate::community::wire::save(&saved); Message::Nudged });
                 self.now_unix = unix_now();
@@ -3159,6 +3248,11 @@ impl Main {
                 self.fresh_from(before);
                 self.pool_players();
                 self.community_fetch = crate::community_screen::Fetch::Fresh(self.now_unix);
+                if self.refresh_asked {
+                    self.refresh_asked = false;
+                    self.refresh_answered = Some(Instant::now());
+                }
+                self.notice_fade.go_mut(false, Instant::now());
                 let card = self.card_task(false);
                 let friends = self.friends_task(false);
                 Task::batch([self.community_pictures_task(), friends, card, save, self.everyone_task()])
@@ -3197,11 +3291,18 @@ impl Main {
                 self.say(words);
                 Task::none()
             }
-            Message::CommunityArrived(Err(_)) => {
-                self.community_fetch = crate::community_screen::Fetch::Failed;
-                if self.community.as_ref().is_some_and(|catalog| !catalog.staged && catalog.people.is_empty() && catalog.me.is_none()) {
-                    self.community = Some(self.staged_community());
-                }
+            Message::CommunityArrived(Err(refused)) => {
+                use crate::community_screen::{Fault, Fetch};
+                let was = match self.community_fetch {
+                    Fetch::Fresh(at) => Some(at),
+                    Fetch::Failed(was, _) => was,
+                    _ => None,
+                };
+                let fault = Fault::of(&refused);
+                self.community_fetch = Fetch::Failed(was, fault);
+                self.refresh_asked = false;
+                self.notice_kept = Some((was, fault));
+                self.notice_fade.go_mut(true, Instant::now());
                 Task::none()
             }
             Message::CardArrived(Ok(mut card)) => {
@@ -3231,7 +3332,7 @@ impl Main {
             Message::LiveArrive => {
                 let pool = self.community.as_ref().map_or(0, |catalog| catalog.live.len());
                 if self.live_shown < pool {
-                    let before = self.feed_keys();
+                    let before = self.feed_before();
                     self.live_shown += 1;
                     self.fresh_from(before);
                 }
@@ -3629,6 +3730,7 @@ impl Main {
                 }
                 self.arrivals.retain(|_, a| a.is_animating(now));
                 self.feed_pictures.settle(now);
+                self.feed_leaving.settle(now);
                 self.thumb_pictures.settle(now);
                 if !self.read_fade.value() && !self.read_fade.is_animating(now) {
                     self.community_reading = None;
@@ -4257,7 +4359,8 @@ impl Main {
             (&now.mods, ((s - erasing) / (1.0 - erasing)).clamp(0.0, 1.0))
         };
         let mut meta = row![].spacing(8).align_y(iced::Center);
-        for acronym in badges {
+        let badges: Vec<&String> = badges.iter().filter(|acronym| crate::modicons::shown(acronym)).collect();
+        for acronym in &badges {
             meta = meta.push(ui::fading(ui::fade() * badge_alpha, || mod_badge(acronym)));
         }
         if !badges.is_empty() {
@@ -5017,7 +5120,7 @@ impl Main {
         ]
         .spacing(2);
         let mut mods = row![].spacing(4).align_y(iced::Center);
-        for acronym in &video.mods {
+        for acronym in video.mods.iter().filter(|acronym| crate::modicons::shown(acronym)) {
             mods = mods.push(mod_badge(acronym));
         }
         let line = row![
@@ -5253,7 +5356,7 @@ impl Main {
         let mut named = row![text(name).font(theme::SANS_SEMI).size(theme::LEAD).wrapping(text::Wrapping::None).color(ui::faded(INK))]
             .spacing(6)
             .align_y(iced::Center);
-        for acronym in mods {
+        for acronym in mods.iter().filter(|acronym| crate::modicons::shown(acronym)) {
             named = named.push(mod_badge(acronym));
         }
         let mut title = row![
@@ -5542,8 +5645,38 @@ impl Main {
         ui::in_thread(move || Message::FarmHeard(crate::bot::farm(&server, &token, &name).ok()))
     }
 
-    fn fresh_from(&mut self, before: Vec<String>) {
-        self.feed_arrivals.refresh(&before, &self.feed_keys(), Instant::now());
+    fn feed_before(&self) -> crate::chronicle::Before {
+        let frozen = (self.overlay == Overlay::Community && self.community_section == crate::community_screen::Section::Feed)
+            .then(|| self.community.as_ref().map(|catalog| crate::chronicle::Frozen::of(catalog, &self.news, &self.settings.news_channels, self.live_shown)))
+            .flatten();
+        crate::chronicle::Before { keys: self.feed_keys(), frozen }
+    }
+
+    fn fresh_from(&mut self, before: crate::chronicle::Before) {
+        let now = Instant::now();
+        let keys = self.feed_keys();
+        let known: std::collections::HashSet<&String> = before.keys.iter().collect();
+        if self.feed_offset > crate::chronicle::READING_BELOW && self.community_section == crate::community_screen::Section::Feed {
+            let arrived: Vec<String> = keys.iter().filter(|key| !known.contains(key)).cloned().collect();
+            self.feed_held.extend(arrived);
+            let shown: Vec<String> = keys.iter().filter(|key| !self.feed_held.contains(*key)).cloned().collect();
+            self.feed_arrivals.refresh(&before.keys, &shown, now);
+        } else {
+            self.feed_arrivals.refresh(&before.keys, &keys, now);
+        }
+        self.feed_leaving.start(before, &keys, &self.feed_held, now);
+        let present: std::collections::HashSet<&String> = keys.iter().collect();
+        self.feed_held.retain(|key| present.contains(key));
+    }
+
+    fn release_held(&mut self) {
+        if self.feed_held.is_empty() {
+            return;
+        }
+        let keys = self.feed_keys();
+        let shown: Vec<String> = keys.iter().filter(|key| !self.feed_held.contains(*key)).cloned().collect();
+        self.feed_held.clear();
+        self.feed_arrivals.refresh(&shown, &keys, Instant::now());
     }
 
     fn news_heard(&mut self, source: &str) {
@@ -5718,12 +5851,12 @@ impl Main {
             return Task::none();
         }
         self.community_asked = Some(now);
-        if !matches!(self.community_fetch, crate::community_screen::Fetch::Fresh(_)) {
+        if !matches!(self.community_fetch, crate::community_screen::Fetch::Fresh(_) | crate::community_screen::Fetch::Failed(..)) {
             self.community_fetch = crate::community_screen::Fetch::Loading;
         }
         let (server, token, name) = (self.settings.server.clone(), self.settings.token.clone(), self.settings.device.clone());
         let chat = self.community_chat();
-        ui::in_thread(move || Message::CommunityArrived(crate::bot::community(&server, &token, &name, chat).map_err(|e| e.to_string())))
+        ui::in_thread(move || Message::CommunityArrived(crate::bot::community(&server, &token, &name, chat)))
     }
 
     fn friends_task(&mut self, force: bool) -> Task<Message> {
@@ -6026,6 +6159,8 @@ impl Main {
             item("chat", Icon::Chat, w.t(if self.settings.people_everyone { "people-everyone-tab" } else { "people-chat" }), people(PeopleFrom::Chat), Section::People, Some(PeopleFrom::Chat)),
             item("game", Icon::Circle, w.t("people-game"), people(PeopleFrom::Game), Section::People, Some(PeopleFrom::Game)),
             item("compare", Icon::Compare, w.t("community-compare"), section == Section::Compare, Section::Compare, None),
+            Entry::Caption(w.t("community-play")),
+            item("pools", Icon::Pool, w.t("community-pools"), section == Section::Pools, Section::Pools, None),
             Entry::Caption(w.t("community-standing")),
             item("boards", Icon::Chart, w.t("community-boards"), section == Section::Boards, Section::Boards, None),
             item("titles", Icon::Trophy, w.t("community-titles"), section == Section::Titles, Section::Titles, None),
@@ -6053,6 +6188,15 @@ impl Main {
     }
 
     fn community_ground<'a>(&'a self, catalog: &'a crate::community::Catalog, person_only: bool) -> crate::community_screen::Ground<'a> {
+        let leaving = self.feed_leaving.shown(self.now);
+        let mut ground = self.ground_of(catalog, person_only, leaving);
+        if let Some(leave) = leaving {
+            ground.ghost = Some(Box::new(self.ground_of(&leave.frozen.catalog, person_only, None)));
+        }
+        ground
+    }
+
+    fn ground_of<'a>(&'a self, catalog: &'a crate::community::Catalog, person_only: bool, leaving: Option<crate::chronicle::Leave<'a>>) -> crate::community_screen::Ground<'a> {
         let folds: HashMap<String, f32> = self
             .feed_fold_at
             .iter()
@@ -6082,33 +6226,22 @@ impl Main {
             channels: &self.settings.news_channels,
             channel_draft: &self.channel_draft,
             fetch: self.community_fetch,
+            pools: &self.pools,
+            asked: self.refresh_asked,
+            answered_t: self.refresh_answered.map_or(f32::MAX, |at| self.now.saturating_duration_since(at).as_secs_f32()),
+            notice: self.notice_kept.filter(|_| self.notice_fade.value() || self.notice_fade.is_animating(self.now)),
+            notice_k: self.notice_fade.interpolate(0.0, 1.0, self.now),
             width: if person_only { self.width } else { self.width - crate::sidebar::NARROW } / COMMUNITY_SCALE,
             filter: self.feed_filter,
-            source: self.feed_source,
-            stream: self.feed_stream,
             query: &self.feed_query,
             open_events: &self.feed_open,
             folds,
             panel_from: self.panel_from,
-            spot: self.spot,
-            spot_k: {
-                let k = (self.now.saturating_duration_since(self.spot_at).as_secs_f32() / crate::chronicle::SPOT_SWAP.as_secs_f32()).clamp(0.0, 1.0);
-                1.0 - (1.0 - k).powi(3)
-            },
             section_t: self.now.saturating_duration_since(self.section_at).as_secs_f32().min(60.0),
             shift_t: self.now.saturating_duration_since(self.shift_at).as_secs_f32().min(60.0),
             stream_t: self.now.saturating_duration_since(self.stream_at).as_secs_f32().min(60.0),
             person_t: self.now.saturating_duration_since(self.person_at).as_secs_f32().min(60.0),
             play_t: self.now.saturating_duration_since(self.play_at).as_secs_f32().min(60.0),
-            group_t: self.now.saturating_duration_since(self.group_at).as_secs_f32().min(60.0),
-            news_t: self.now.saturating_duration_since(self.news_at).as_secs_f32().min(60.0),
-            rank: self.rank,
-            rank_k: {
-                let k = (self.now.saturating_duration_since(self.rank_at).as_secs_f32() / crate::chronicle::RANK_GROW.as_secs_f32()).clamp(0.0, 1.0);
-                1.0 - (1.0 - k).powi(3)
-            },
-            rank_started: self.rank_due,
-            rank_held: self.rank_held.map(|since| 1.0 - (since.saturating_duration_since(self.rank_due).as_secs_f32() / crate::chronicle::RANK_EVERY.as_secs_f32()).clamp(0.0, 1.0)),
             metric: self.dossier_metric,
             span: self.dossier_span,
             grade_hover: self.grade_hover,
@@ -6134,6 +6267,9 @@ impl Main {
             avatar: self.avatar.as_ref(),
             chat: self.chat_name(),
             live_shown: self.live_shown,
+            held: &self.feed_held,
+            leaving,
+            ghost: None,
             arrivals: self.feed_arrivals.ages(self.now),
             picture_came: self.feed_pictures.shown(self.now),
             picture_lost: self.feed_pictures.room(self.now),
@@ -6207,6 +6343,7 @@ impl Main {
             build: self.shown_build(),
             pin: self.pin.as_ref(),
             now_unix: self.now_unix,
+            link: self.link_shown.clone().unwrap_or_else(crate::bot::link_state),
             worker_back: self.worker_back,
             farm: self.farm.as_ref(),
             scale_draft: self.scale_draft,
@@ -7510,12 +7647,12 @@ pub fn mod_colour(acronym: &str) -> Color {
 }
 
 pub fn mod_badge<'a, Message: 'a>(acronym: &str) -> Element<'a, Message> {
-    let colour = mod_colour(acronym);
+    mod_badge_sized(acronym, 22.0)
+}
+
+pub fn mod_badge_sized<'a, Message: 'a>(acronym: &str, size: f32) -> Element<'a, Message> {
     let alpha = ui::fade();
-    let badge = container(text(acronym.to_owned()).font(theme::MONO_BOLD).size(10.0).color(ui::faded(theme::ON_ACCENT)))
-        .padding([1, 6])
-        .style(theme::badge(Color { a: colour.a * alpha, ..colour }));
-    ui::hover(badge, ui::Glow::tile(5.0).edge(Color { a: 0.35 * alpha, ..theme::ON_ACCENT }).lift(1.0).scale(1.06))
+    ui::hover(crate::modicons::badge(acronym, size, 1.0), ui::Glow::tile(size / 2.0).edge(Color { a: 0.35 * alpha, ..theme::ON_ACCENT }).lift(1.0).scale(1.06))
 }
 
 pub fn decoded(path: &Path, max_width: u32, cover: Option<(u32, u32)>) -> Option<image::Handle> {
@@ -8137,19 +8274,10 @@ mod tests {
         }
         for filter in crate::chronicle::Filter::ALL {
             let _ = main.update(super::Message::Community(C::Filter(filter)));
-            let started = main.group_at;
-            let news = main.news_at;
+            let started = main.stream_at;
             let _ = main.update(super::Message::Community(C::Filter(filter)));
-            assert_eq!((main.group_at, main.news_at), (started, news));
+            assert_eq!(main.stream_at, started);
             assert_eq!(main.feed_filter, filter);
-        }
-        for source in crate::chronicle::Source::ALL {
-            let _ = main.update(super::Message::Community(C::Source(source)));
-            let started = main.news_at;
-            let group = main.group_at;
-            let _ = main.update(super::Message::Community(C::Source(source)));
-            assert_eq!((main.news_at, main.group_at), (started, group));
-            assert_eq!(main.feed_source, source);
         }
     }
 
@@ -8178,6 +8306,24 @@ mod tests {
         (sum as f64 / (f64::from(a.width()) * f64::from(a.height()) * 4.0), if top == u32::MAX { 0 } else { bottom - top + 1 })
     }
 
+    #[test]
+    fn a_failed_refresh_keeps_the_data_shown_remembers_how_old_it_is_and_a_new_try_does_not_blink_the_notice_away() {
+        use crate::community_screen::Fetch;
+        let mut main = feed_at_rest();
+        main.settings.token = "token".into();
+        let shown = main.community.as_ref().unwrap().people.len();
+        main.community_fetch = Fetch::Fresh(1_000);
+        let _ = main.update(super::Message::CommunityArrived(Err(crate::bot::Refused::Network("offline".into()))));
+        assert_eq!(main.community_fetch, Fetch::Failed(Some(1_000), crate::community_screen::Fault::Offline));
+        assert_eq!(main.community.as_ref().unwrap().people.len(), shown);
+        let _ = main.update(super::Message::CommunityArrived(Err(crate::bot::Refused::Network("offline".into()))));
+        assert_eq!(main.community_fetch, Fetch::Failed(Some(1_000), crate::community_screen::Fault::Offline), "a second failure keeps the time of the last good answer");
+        let _ = main.community_task(true);
+        assert_eq!(main.community_fetch, Fetch::Failed(Some(1_000), crate::community_screen::Fault::Offline), "a new try does not hide the notice");
+        let _ = main.update(super::Message::CommunityArrived(Ok(crate::community::wire::Community { chat: Some(-42), ..Default::default() })));
+        assert!(matches!(main.community_fetch, Fetch::Fresh(_)));
+    }
+
     fn feed_at_rest() -> super::Main {
         let (_, mut main) = crate::gallery::main_states(crate::lang::Lang::En).into_iter().find(|(name, _)| name == "main-community-feed").unwrap();
         main.now_unix = super::unix_now();
@@ -8204,6 +8350,81 @@ mod tests {
     }
 
     #[test]
+    fn a_refused_device_is_told_apart_from_a_lost_connection_and_an_unwell_server() {
+        use crate::bot::Refused;
+        use crate::community_screen::Fault;
+        assert_eq!(Fault::of(&Refused::Network("timed out".into())), Fault::Offline);
+        assert_eq!(Fault::of(&Refused::Said("401".into())), Fault::Denied);
+        assert_eq!(Fault::of(&Refused::Said("500".into())), Fault::Server);
+        assert_eq!(Fault::of(&Refused::NotThere), Fault::Server);
+    }
+
+    #[test]
+    fn the_refresh_button_is_there_for_a_guest_too_and_does_not_stay_running() {
+        use crate::community_screen::{pulse, Pulse};
+        let mut main = feed_at_rest();
+        assert!(main.settings.token.is_empty());
+        let state = |main: &super::Main| pulse(&main.community_ground(main.community.as_ref().unwrap(), false));
+        assert_eq!(state(&main), Some(Pulse::Idle));
+        let _ = main.update(super::Message::Community(crate::community_screen::Message::Again));
+        assert!(!main.refresh_asked, "a guest has no answer to wait for");
+        main.now = std::time::Instant::now();
+        assert_eq!(state(&main), Some(Pulse::Done), "the word says it is done at once");
+        main.refresh_answered = Some(std::time::Instant::now() - std::time::Duration::from_secs(3));
+        main.now = std::time::Instant::now();
+        assert_eq!(state(&main), Some(Pulse::Idle), "and goes back to the resting one");
+    }
+
+    #[test]
+    fn the_refresh_button_goes_from_ready_to_running_to_done_and_back_and_a_refused_device_offers_to_connect() {
+        use crate::community_screen::{pulse, Fault, Fetch, Pulse};
+        let mut main = feed_at_rest();
+        main.settings.token = "token".into();
+        main.community.as_mut().unwrap().staged = false;
+        main.community_fetch = Fetch::Fresh(super::unix_now());
+        let state = |main: &super::Main| pulse(&main.community_ground(main.community.as_ref().unwrap(), false));
+        assert_eq!(state(&main), Some(Pulse::Idle));
+
+        let _ = main.update(super::Message::Community(crate::community_screen::Message::Again));
+        assert_eq!(state(&main), Some(Pulse::Running));
+
+        let _ = main.update(super::Message::CommunityArrived(Ok(crate::community::wire::Community { chat: Some(-42), ..Default::default() })));
+        assert_eq!(state(&main), Some(Pulse::Done));
+        main.refresh_answered = Some(std::time::Instant::now() - std::time::Duration::from_secs(3));
+        main.now = std::time::Instant::now();
+        assert_eq!(state(&main), Some(Pulse::Idle), "the word goes back to the resting one after two seconds");
+
+        let _ = main.update(super::Message::CommunityArrived(Ok(crate::community::wire::Community { chat: Some(-42), ..Default::default() })));
+        assert_eq!(state(&main), Some(Pulse::Idle), "a quiet poll does not flash the button");
+
+        let _ = main.update(super::Message::CommunityArrived(Err(crate::bot::Refused::Said("401".into()))));
+        assert_eq!(state(&main), Some(Pulse::Failed(Fault::Denied)));
+        assert_eq!(main.notice_kept.map(|(_, fault)| fault), Some(Fault::Denied));
+
+        let _ = main.update(super::Message::Community(crate::community_screen::Message::Reconnect));
+        assert_eq!(main.overlay, super::Overlay::Settings);
+        assert_eq!(main.side, super::Side::Bot);
+    }
+
+    #[test]
+    fn the_sidebar_keeps_pools_in_a_group_of_their_own_and_opening_them_loads_the_shelf() {
+        use crate::community_screen::{Message as C, Section};
+        use crate::sidebar::Entry;
+        let mut main = feed_at_rest();
+        main.pools.dir = std::env::temp_dir().join(format!("dossier-main-pools-{}", std::process::id()));
+        let entries = main.community_entries();
+        let at = entries.iter().position(|entry| matches!(entry, Entry::Item { key: "pools", .. })).expect("a pools entry");
+        assert!(matches!(&entries[at - 1], Entry::Caption(words) if *words == main.words.t("community-play")));
+        assert!(matches!(&entries[at + 1], Entry::Caption(words) if *words == main.words.t("community-standing")));
+        assert!(!main.pools.loaded);
+        let _ = main.update(super::Message::Community(C::Go(Section::Pools, None)));
+        assert_eq!(main.community_section, Section::Pools);
+        assert!(main.pools.loaded);
+        assert_eq!(main.pools.screen, crate::pools_screen::Screen::Shelf);
+        let _ = std::fs::remove_dir_all(&main.pools.dir);
+    }
+
+    #[test]
     fn a_play_arriving_in_the_feed_opens_its_row_instead_of_pushing_the_rest_down_at_once() {
         let mut main = feed_at_rest();
         let before = seen(&main);
@@ -8217,30 +8438,86 @@ mod tests {
     }
 
     #[test]
+    fn rows_that_leave_the_feed_close_gradually_instead_of_vanishing_at_once() {
+        use crate::community_screen::Message as C;
+        let mut main = feed_at_rest();
+        main.feed_filter = crate::chronicle::Filter::News;
+        let before = seen(&main);
+        let at = happen(&mut main, super::Message::Community(C::ChannelRemove("osunewsru".into())));
+        assert!(main.feed_leaving.busy(), "the removed channel's rows are kept to leave");
+        let just = at_once(&mut main, at);
+        let settled = after(&mut main, std::time::Duration::from_secs_f32(crate::ui::APPEAR + 0.15));
+        let (jump, _) = moved(&before, &just);
+        let (whole, _) = moved(&before, &settled);
+        assert!(whole > 0.1, "the rows are gone in the end: {whole}");
+        assert!(jump < whole * 0.25, "the first frame after the removal moved {jump} of the {whole} it ends up moving");
+        assert!(!main.feed_leaving.busy(), "the kept rows are let go once they have left");
+    }
+
+    #[test]
+    fn a_play_that_drops_out_of_the_answer_closes_with_its_own_player_and_map_even_when_the_people_are_reordered() {
+        let mut main = feed_at_rest();
+        let before_frame = seen(&main);
+        let before = main.feed_before();
+        let catalog = main.community.as_mut().unwrap();
+        catalog.live.remove(0);
+        catalog.people.reverse();
+        let count = catalog.people.len();
+        for play in &mut catalog.live {
+            play.who = count - 1 - play.who;
+        }
+        for happened in &mut catalog.feed {
+            happened.who = count - 1 - happened.who;
+        }
+        main.fresh_from(before);
+        assert!(main.feed_leaving.busy(), "the dropped play is kept to leave");
+        let at = std::time::Instant::now();
+        let just = at_once(&mut main, at);
+        let settled = after(&mut main, std::time::Duration::from_secs_f32(crate::ui::APPEAR + 0.15));
+        let (jump, _) = moved(&before_frame, &just);
+        let (whole, _) = moved(&before_frame, &settled);
+        assert!(whole > 0.05, "the row is gone in the end: {whole}");
+        assert!(jump < whole * 0.25, "the first frame moved {jump} of the {whole}");
+    }
+
+    #[test]
+    fn a_feed_that_only_gains_rows_keeps_none_to_leave() {
+        let mut main = feed_at_rest();
+        let _ = happen(&mut main, super::Message::LiveArrive);
+        assert!(!main.feed_leaving.busy());
+    }
+
+    #[test]
     fn a_news_picture_has_its_room_before_it_arrives_and_fades_into_it() {
         let mut main = feed_at_rest();
+        main.feed_filter = crate::chronicle::Filter::News;
+        main.news.stories[0].at = main.now_unix + 60;
         let url = "test://story-picture".to_owned();
         main.news.stories[0].image = Some(url.clone());
         let bare = seen(&main);
         main.news_asked.insert(url.clone());
         let waiting = seen(&main);
-        assert!(moved(&bare, &waiting).0 > 0.2, "a picture that was asked for is given its room at once");
+        let lower = (bare.height() as f32 * 0.5) as u32;
+        assert!((lower..bare.height()).all(|y| (0..bare.width()).all(|x| bare.get_pixel(x, y) == waiting.get_pixel(x, y))), "asking for a picture moves nothing: its slot is there from the first frame");
 
         let picture = iced::widget::image::Handle::from_rgba(192, 108, vec![200u8; 192 * 108 * 4]);
         let at = happen(&mut main, super::Message::NewsPicture(url, Some(picture)));
         let just = at_once(&mut main, at);
         let settled = after(&mut main, std::time::Duration::from_secs_f32(crate::chronicle::PICTURE_FADE + 0.15));
         let (jump, _) = moved(&waiting, &just);
-        let (whole, high) = moved(&waiting, &settled);
-        assert!(whole > 0.05, "the picture is on screen: {whole}");
+        let (whole, _) = moved(&waiting, &settled);
+        assert!(whole > 0.003, "the picture is on screen: {whole}");
         assert!(jump < whole * 0.25, "the first frame after the picture came changed {jump} of {whole}");
-        let scale = settled.width() as f32 / 1180.0;
-        assert!((high as f32) < 150.0 * scale, "only the picture's own box changed, {high} rows of it; nothing below it moved");
+        let below = (settled.height() as f32 * 0.58) as u32;
+        let unmoved = (below..settled.height()).all(|y| (0..settled.width()).all(|x| settled.get_pixel(x, y) == waiting.get_pixel(x, y)));
+        assert!(unmoved, "only the picture's own box and the highlight changed; nothing below the picture moved");
     }
 
     #[test]
-    fn a_news_picture_that_never_comes_gives_its_room_back_gradually() {
+    fn a_news_picture_that_never_comes_leaves_its_slot_where_it_was() {
         let mut main = feed_at_rest();
+        main.feed_filter = crate::chronicle::Filter::News;
+        main.news.stories[0].at = main.now_unix + 60;
         let url = "test://lost-picture".to_owned();
         main.news.stories[0].image = Some(url.clone());
         main.news_asked.insert(url.clone());
@@ -8248,29 +8525,27 @@ mod tests {
         let at = happen(&mut main, super::Message::NewsPicture(url, None));
         let just = at_once(&mut main, at);
         let settled = after(&mut main, std::time::Duration::from_secs_f32(crate::chronicle::PICTURE_FADE + 0.15));
-        let (jump, _) = moved(&waiting, &just);
-        let (whole, _) = moved(&waiting, &settled);
-        assert!(whole > 0.2, "the room is given back: {whole}");
-        assert!(jump < whole * 0.25, "the first frame after the loss moved {jump} of {whole}");
+        let lower = (waiting.height() as f32 * 0.5) as u32;
+        for frame in [&just, &settled] {
+            assert!((lower..waiting.height()).all(|y| (0..waiting.width()).all(|x| waiting.get_pixel(x, y) == frame.get_pixel(x, y))), "the rows below did not move");
+        }
     }
 
     #[test]
-    fn stream_switches_only_restart_the_timeline_transition() {
-        use crate::chronicle::Stream;
+    fn filter_switches_only_restart_the_timeline_transition() {
+        use crate::chronicle::Filter;
         use crate::community_screen::Message as CommunityMessage;
         let (_, mut main) = crate::gallery::main_states(crate::lang::Lang::En).into_iter().find(|(name, _)| name == "main-community-feed").unwrap();
         let section = main.section_at;
         let shift = main.shift_at;
-        let group = main.group_at;
-        let news = main.news_at;
-        for stream in [Stream::Group, Stream::News, Stream::All] {
+        for filter in [Filter::Plays, Filter::News, Filter::All] {
             let previous = main.stream_at;
-            let _ = main.update(super::Message::Community(CommunityMessage::Stream(stream)));
+            let _ = main.update(super::Message::Community(CommunityMessage::Filter(filter)));
             assert!(main.stream_at > previous);
-            assert_eq!((main.section_at, main.shift_at, main.group_at, main.news_at), (section, shift, group, news));
+            assert_eq!((main.section_at, main.shift_at), (section, shift));
             let same = main.stream_at;
-            let _ = main.update(super::Message::Community(CommunityMessage::Stream(stream)));
-            assert_eq!(main.stream_at, same, "clicking the selected stream must not replay its animation");
+            let _ = main.update(super::Message::Community(CommunityMessage::Filter(filter)));
+            assert_eq!(main.stream_at, same, "clicking the selected filter must not replay its animation");
         }
     }
 
@@ -8428,5 +8703,41 @@ mod tests {
         assert_eq!(main.chat_name(), "Osu Squad", "the title is remembered before the chats arrive");
         main.settings.chat_id = Some(7);
         assert_eq!(main.chat_name(), "@naumredlo");
+    }
+
+    #[test]
+    fn events_that_arrive_while_the_feed_is_read_below_wait_and_come_in_at_the_top() {
+        use crate::community_screen::Message as C;
+        let (_, mut main) = crate::gallery::main_states(crate::lang::Lang::En).into_iter().find(|(name, _)| name == "main-community-feed").unwrap();
+        let keys = main.feed_keys();
+        assert!(keys.len() > 3);
+        let _ = main.update(super::Message::Community(C::FeedScrolled(400.0)));
+        main.fresh_from(crate::chronicle::Before { keys: keys[2..].to_vec(), frozen: None });
+        assert_eq!(main.feed_held.len(), 2, "the two newest are held back while the reader is below");
+        assert!(main.feed_held.contains(&keys[0]) && main.feed_held.contains(&keys[1]));
+        assert!(main.feed_arrivals.ages(main.now).is_empty(), "nothing is animated while it is hidden");
+        let _ = main.update(super::Message::Community(C::FeedScrolled(40.0)));
+        assert!(main.feed_held.is_empty(), "back at the top they come in");
+        let ages = main.feed_arrivals.ages(main.now);
+        assert!(ages.contains_key(&keys[0]) && ages.contains_key(&keys[1]));
+    }
+
+    #[test]
+    fn the_new_events_pill_brings_them_in_and_a_reader_at_the_top_holds_nothing_back() {
+        use crate::community_screen::Message as C;
+        let (_, mut main) = crate::gallery::main_states(crate::lang::Lang::En).into_iter().find(|(name, _)| name == "main-community-feed").unwrap();
+        let keys = main.feed_keys();
+        main.fresh_from(crate::chronicle::Before { keys: keys[1..].to_vec(), frozen: None });
+        assert!(main.feed_held.is_empty(), "at the top new rows open at once");
+        let _ = main.update(super::Message::Community(C::FeedScrolled(500.0)));
+        main.fresh_from(crate::chronicle::Before { keys: keys[3..].to_vec(), frozen: None });
+        assert_eq!(main.feed_held.len(), 3);
+        let _ = main.update(super::Message::Community(C::ShowNew));
+        assert!(main.feed_held.is_empty());
+        assert_eq!(main.feed_offset, 0.0);
+        let _ = main.update(super::Message::Community(C::FeedScrolled(500.0)));
+        main.fresh_from(crate::chronicle::Before { keys: keys[1..].to_vec(), frozen: None });
+        let _ = main.update(super::Message::Community(C::Section(crate::community_screen::Section::People)));
+        assert!(main.feed_held.is_empty(), "leaving the feed lets the held rows go");
     }
 }

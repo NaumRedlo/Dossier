@@ -131,7 +131,12 @@ Numbers are tabular everywhere.
   and fades into it; one that fails gives the box back the same way. A card
   whose content changes size (friends found, a board loaded) eases to the new
   height. An avatar or a thumbnail that arrives crossfades over what stood in
-  for it.
+  for it. What leaves goes the same way backwards: a row that is missing from
+  a fresh answer, or whose channel was removed, is drawn once more from the
+  answer it came from and closes to nothing while it fades, so what lies below
+  slides up instead of jumping. Events are told apart by the player's id and
+  the map's hash, never by their place in a list, so a reordered list is not
+  a list of arrivals.
 - With reduced motion, every duration is zero. Nothing depends on an animation
   having happened.
 
@@ -840,6 +845,53 @@ in `docs/witness.md`.
   lead, a build's first three changes, with *Всё · osu! · Каналы ·
   Обновления*; *Новости* lays the cards two abreast. The filters left the
   side card, which keeps only the channels.
+  The feed was redrawn on 2026-10-04 (the first of three concepts drawn on a
+  canvas, *rows with covers*): one filter row and the search, then the days.
+  Every event is one row of about 70, whatever it is: the map's cover of
+  104 by 56 on the left with its grade as a small letter on the cover's
+  corner, the name with the flag and the time over the map's title, and on
+  the right the pp large over the accuracy and the mods. The mods are
+  the bot's round mod discs, and only S and SS grades keep a bright letter. A
+  top play, a title and a climb have a tile of their colour and glyph in the
+  cover's place; a video someone shared keeps the cover with a film glyph;
+  a news post, an article or a build is a row of the same rhythm, its
+  picture in the cover's place, its source and time over two lines of words.
+  A day's head names, at its right and in separate figures, how many plays,
+  records and titles the day holds. There is no *Главное* block and no
+  cards: the rows are the feed. Below 600 wide the cover is 88 by 48.
+  A cover is dimmed to what it is: its mean luminance is read once, a cover
+  brighter than 0.34 is darkened toward 0.34 by at most 45%, a dark one is
+  left as it is, so a pale cover does not outshine the rows around it. The
+  dimming is baked into the pixels together with the rounded corners, so the
+  two renderers agree. An event reads as a sentence: *поставил топ-плей на*
+  and the map with its version muted, *получил титул* and the title in its
+  colour, *поднялся на 2 места в рейтинге:* and the board. Within the hour
+  the time says *18 мин назад*, later it is the clock. A name is a button
+  that opens the player's dossier; the rest of the row, the cover included,
+  opens the result. A play puts its accuracy small beside the pp and its mods
+  under them; a rendered replay (the film glyph on its cover) has no pp, so
+  it puts its accuracy large at the top of the right side and its mods under
+  it. The refresh button is a square of 32 in the filter row, just before the
+  search, and says its state with a glyph and, under the pointer, in words
+  with the time of the last answer; it takes no row of its own. It stands
+  for a guest too, where it refreshes the news and says *Готово* at once,
+  and an empty feed offers *Обновить* under its words. The week's leaders in
+  the side strip carry their place as a ringed number at the corner of the
+  face, outside it, so it covers no letter.
+  Mods are drawn as the bot draws them (2026-10-04, `services/image/base.py`
+  `_draw_mod_badge`): a round disc of the colour of what the mod does to the
+  game (easier green `#b2ff66`, harder red `#ff6666`, conversion purple
+  `#8c66ff`, automation blue `#66ccff`, fun pink `#ff66ab`, system gold
+  `#ffcc22`, any other `#646478`) with a hair of dark outline, and the mod's
+  glyph from the bot's own set (`native/assets/mods`, fifty pictures, kept
+  with the bot's) at 78% of the disc, in the ink the bot picks: dark `#222222`
+  on a light disc, white on a dark one. A mod without a glyph shows its
+  letters in the same ink. *CL* and *NM* are left out of every list, as the
+  bot leaves them out. The disc is 24 in the feed, 22 beside a name, in the
+  replays and videos list, the player, the share card, the results sheet, the
+  poster and the pools' slots (NM, HD, HR, DT; the pool's FM and TB are not
+  game mods and keep their chips). The pictures are in the application, so
+  nothing is fetched and the gallery's frames show them.
 - *Профиль* is the dossier (2026-09-24): the ringed avatar with the level
   and its progress, the title worn, whether the person is online, the
   country with its rank, the years in osu!, the streak and the duels, *Открыть

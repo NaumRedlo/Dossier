@@ -98,7 +98,7 @@ fn series(ground: &Ground<'_>, whose: &Whose<'_>, metric: Metric, span: u32) -> 
 
 fn full(words: &crate::lang::Words, metric: Metric, value: f64) -> String {
     match metric {
-        Metric::Pp => format!("{} pp", words.lang().group(value.round() as u64)),
+        Metric::Pp => format!("{} PP", words.lang().group(value.round() as u64)),
         Metric::Rank | Metric::CountryRank => format!("#{}", words.lang().group(value.round() as u64)),
         Metric::Accuracy => words.percent(value),
         Metric::Plays => words.lang().group(value.round() as u64),
@@ -115,7 +115,7 @@ fn delta(words: &crate::lang::Words, metric: Metric, series: &Series) -> Option<
     let better = if series.lower_better { change < 0.0 } else { change > 0.0 };
     let size = change.abs();
     let said = match metric {
-        Metric::Pp => format!("{} pp", words.lang().group(size.round() as u64)),
+        Metric::Pp => format!("{} PP", words.lang().group(size.round() as u64)),
         Metric::Rank | Metric::CountryRank => words.lang().group(size.round() as u64),
         Metric::Accuracy => screen::decimal(words, size as f32, 2) + "%",
         Metric::Plays => words.lang().group(size.round() as u64),
@@ -740,7 +740,7 @@ fn metrics<'a>(ground: &Ground<'a>, whose: &Whose<'a>, room: f32, t: f32) -> Ele
             Metric::Plays => card.play_count,
             Metric::Hours => card.play_seconds / 3600.0,
         };
-        let value = if current > 0.0 { full(w, metric, (current * f).max(if metric.is_rank() { 1.0 } else { 0.0 })).replace(" pp", "") } else { "—".to_owned() };
+        let value = if current > 0.0 { full(w, metric, (current * f).max(if metric.is_rank() { 1.0 } else { 0.0 })).replace(" PP", "") } else { "—".to_owned() };
         let change = delta(w, metric, &series(ground, whose, metric, 90));
         let mut under = column![ui::mono_small(w.t(metric.key()).to_uppercase(), FAINT)].spacing(1);
         if let Some((said, better)) = change {
@@ -1078,7 +1078,7 @@ fn poster_card<'a>(ground: &Ground<'a>, index: usize, poster: &Poster<'a>, chose
         _ => Space::new().width(0.0).into(),
     };
     let body = column![
-        row![text(screen::decimal(w, (poster.pp * f) as f32, 0)).font(theme::SANS_SEMI).size(27.0).wrapping(text::Wrapping::None).color(ui::faded(INK)), text("pp").font(theme::SANS).size(13.0).color(ui::faded(MUTED))].spacing(4).align_y(iced::alignment::Vertical::Bottom),
+        row![text(screen::decimal(w, (poster.pp * f) as f32, 0)).font(theme::SANS_SEMI).size(27.0).wrapping(text::Wrapping::None).color(ui::faded(INK)), text("PP").font(theme::SANS).size(13.0).color(ui::faded(MUTED))].spacing(4).align_y(iced::alignment::Vertical::Bottom),
         container(
             column![
                 container(text(poster.title.clone()).font(theme::SANS_SEMI).size(13.5).color(ui::faded(INK))).max_height(36.0).clip(true),

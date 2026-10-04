@@ -3640,6 +3640,30 @@ impl Piece {
     }
 }
 
+pub fn text_width(words: &str, font: iced::Font, size: f32) -> f32 {
+    use iced::advanced::text::Paragraph as _;
+    Paragraph::with_text(iced::advanced::text::Text {
+        content: words,
+        bounds: Size::INFINITE,
+        size: iced::Pixels(size),
+        line_height: iced::widget::text::LineHeight::default(),
+        font,
+        align_x: iced::widget::text::Alignment::Left,
+        align_y: iced::alignment::Vertical::Top,
+        shaping: iced::widget::text::Shaping::default(),
+        wrapping: iced::widget::text::Wrapping::None,
+    })
+    .min_width()
+}
+
+pub fn fit_size(words: &str, font: iced::Font, base: f32, least: f32, room: f32) -> f32 {
+    let wide = text_width(words, font, base);
+    if wide <= room || wide <= 0.0 || room <= 0.0 {
+        return base;
+    }
+    (base * room / wide).max(least).min(base)
+}
+
 pub struct Marquee {
     pieces: Vec<Piece>,
     width: Length,
@@ -3668,6 +3692,7 @@ type Paragraph = <Renderer as iced::advanced::text::Renderer>::Paragraph;
 struct MarqueeState {
     laid: Vec<(String, u32, iced::Font)>,
     paragraphs: Vec<Paragraph>,
+    ellipses: Vec<Paragraph>,
     born: Option<std::time::Instant>,
     now: Option<std::time::Instant>,
 }
@@ -3734,6 +3759,23 @@ impl<M> iced::advanced::Widget<M, Theme, Renderer> for Marquee {
                     })
                 })
                 .collect();
+            state.ellipses = self
+                .pieces
+                .iter()
+                .map(|piece| {
+                    Paragraph::with_text(iced::advanced::text::Text {
+                        content: "\u{2026}",
+                        bounds: Size::INFINITE,
+                        size: iced::Pixels(piece.size),
+                        line_height: iced::widget::text::LineHeight::default(),
+                        font: piece.font,
+                        align_x: iced::widget::text::Alignment::Left,
+                        align_y: iced::alignment::Vertical::Top,
+                        shaping: iced::widget::text::Shaping::default(),
+                        wrapping: iced::widget::text::Wrapping::None,
+                    })
+                })
+                .collect();
             state.laid = key;
             state.born = None;
         }
@@ -3789,6 +3831,28 @@ impl<M> iced::advanced::Widget<M, Theme, Renderer> for Marquee {
         }
         let spent = state.now.zip(state.born).map_or(0.0, |(now, born)| now.saturating_duration_since(born).as_secs_f32());
         let (offset, _) = glide(over, spent);
+        if offset < 0.5 && !self.centred {
+            let last = self.pieces.len().saturating_sub(1);
+            let dots = state.ellipses.get(last).map_or(0.0, |dots| dots.min_width());
+            let limit = (bounds.width - dots).max(0.0);
+            let mut at = 0.0;
+            let mut cut = last;
+            for (index, (paragraph, piece)) in state.paragraphs.iter().zip(&self.pieces).enumerate() {
+                at += piece.gap + paragraph.min_width();
+                if at > limit {
+                    cut = index;
+                    break;
+                }
+            }
+            if let Some(kept) = (Rectangle { x: bounds.x, y: bounds.y, width: limit, height: bounds.height }).intersection(&visible) {
+                draw_at(renderer, bounds.x, 1.0, kept);
+            }
+            if let (Some(dots), Some(piece)) = (state.ellipses.get(cut), self.pieces.get(cut)) {
+                let y = bounds.y + (bounds.height - dots.min_height()) / 2.0;
+                renderer.fill_paragraph(dots, Point::new(bounds.x + limit, y), piece.colour, visible);
+            }
+            return;
+        }
         let start = bounds.x - offset;
         let edge = MARQUEE_EDGE.min(bounds.width / 3.0);
         let fade_left = (offset / edge).clamp(0.0, 1.0);

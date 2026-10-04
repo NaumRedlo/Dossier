@@ -199,7 +199,7 @@ pub fn read(sources: &[Source]) -> Library {
     read_with(sources, &mut |_| {})
 }
 
-pub fn read_with(sources: &[Source], report: &mut dyn FnMut(Reading)) -> Library {
+pub fn songs_of(sources: &[Source]) -> Vec<PathBuf> {
     let live: Vec<&Source> = sources.iter().filter(|s| s.on).collect();
     let mut songs: Vec<PathBuf> = live.iter().filter_map(|s| s.songs.clone()).collect();
     if live.iter().any(|s| s.kind == Kind::Found) {
@@ -209,6 +209,12 @@ pub fn read_with(sources: &[Source], report: &mut dyn FnMut(Reading)) -> Library
             }
         }
     }
+    songs
+}
+
+pub fn read_with(sources: &[Source], report: &mut dyn FnMut(Reading)) -> Library {
+    let live: Vec<&Source> = sources.iter().filter(|s| s.on).collect();
+    let songs = songs_of(sources);
     let mut maps = (0, 0);
     let index = Index::load_with(&songs, &mut |done, total| {
         maps = (done, total);

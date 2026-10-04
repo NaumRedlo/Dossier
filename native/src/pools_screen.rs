@@ -1,0 +1,2846 @@
+use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
+use std::sync::Arc;
+
+use iced::widget::{button, column, container, image, row, scrollable, text, text_input, Space};
+use iced::{Background, Border, Color, Element, Length, Padding};
+
+use crate::community_screen as screen;
+use crate::glyphs::{glyph, Icon};
+use crate::lang::Words;
+use crate::library::Map;
+use crate::pool_links::{self, Target, Why};
+use crate::pool_share;
+use crate::pools::{self, Balance, Frame, Measure, Measures, Mod, Pool, Skill, Slot};
+use crate::theme::{self, ACCENT, FAINT, INK, MUTED};
+use crate::ui;
+
+const ROW_HIGH: f32 = 56.0;
+const COVER_WIDE: f32 = 86.0;
+const COVER_HIGH: f32 = 48.0;
+const COVER_ROUND: f32 = 10.0;
+const TILE_ROUND: f32 = 12.0;
+const HERO_ROUND: f32 = 14.0;
+const THUMB_ROUND: f32 = 8.0;
+const PANEL_WIDE: f32 = 400.0;
+const PANEL_FROM: f32 = 900.0;
+const RESULTS_MOST: usize = 40;
+const STRIP_BAR: f32 = 64.0;
+const STRIP_HIGH: f32 = 72.0;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Panel {
+    Closed,
+    Slot,
+    Add,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Bulk {
+    Mod,
+    Shift,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Editor {
+    pub id: String,
+    pub selected: Option<usize>,
+    pub panel: Panel,
+    pub query: String,
+    pub untouched: bool,
+    pub replace: bool,
+    pub share: bool,
+    pub choosing: bool,
+    pub marked: Vec<usize>,
+    pub bulk: Option<Bulk>,
+    pub asking_delete: bool,
+}
+
+impl Editor {
+    pub fn at(id: String) -> Editor {
+        Editor { id, selected: None, panel: Panel::Closed, query: String::new(), untouched: false, replace: false, share: false, choosing: false, marked: Vec::new(), bulk: None, asking_delete: false }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Opening {
+    pub pool: Pool,
+    pub queue: Vec<String>,
+    pub total: usize,
+    pub step: Option<crate::maps::Step>,
+    pub stop: Arc<std::sync::atomic::AtomicBool>,
+    pub running: bool,
+    pub lost: usize,
+}
+
+#[derive(Debug, Clone)]
+pub enum Screen {
+    Shelf,
+    Editor(Editor),
+    Open(Opening),
+}
+
+impl PartialEq for Screen {
+    fn eq(&self, other: &Screen) -> bool {
+        match (self, other) {
+            (Screen::Shelf, Screen::Shelf) => true,
+            (Screen::Editor(a), Screen::Editor(b)) => a == b,
+            (Screen::Open(a), Screen::Open(b)) => a.pool.id == b.pool.id,
+            _ => false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Notice {
+    Already(usize),
+    NotALink,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Place {
+    Slot(usize),
+    End,
+    Replace(usize),
+}
+
+#[derive(Debug, Clone)]
+pub struct Candidate {
+    pub found: pool_links::Found,
+    pub choice: Option<usize>,
+    pub place: Place,
+    pub cover: Option<image::Handle>,
+}
+
+#[derive(Debug, Clone)]
+pub struct Fetching {
+    pub queue: Vec<String>,
+    pub total: usize,
+    pub step: Option<crate::maps::Step>,
+    pub place: Option<Place>,
+    pub stop: Arc<std::sync::atomic::AtomicBool>,
+}
+
+#[derive(Debug, Clone)]
+pub enum Finding {
+    Asking,
+    Found(Candidate),
+    Fetching(Fetching),
+    Refused(String),
+    Missing,
+    Silent(String),
+}
+
+#[derive(Debug, Clone)]
+pub enum Message {
+    Filter(Option<Frame>),
+    New,
+    Open(String),
+    Back,
+    Rename(String),
+    UseFrame(Frame),
+    Select(Option<usize>),
+    Replace,
+    SetMod(usize, Mod),
+    Clear(usize),
+    AddPanel(bool),
+    Query(String),
+    Put(String),
+    Note(usize, String),
+    Songs(Arc<HashMap<String, Map>>),
+    Measured(String, Mod, Result<Measure, String>),
+    Pasted(String),
+    Resolved(Result<pool_links::Found, Why>),
+    Cover(u64, Option<image::Handle>),
+    Choose(usize),
+    Aim(Place),
+    Confirm,
+    ConfirmAll,
+    Dismiss,
+    Retry,
+    Step(String, crate::maps::Step),
+    Share(bool),
+    CopyText,
+    CopyHash,
+    SaveFile,
+    OpenFile,
+    Imported(Result<Pool, pool_share::Refused>),
+    GetMissing,
+    Keep,
+    Saved(Result<Option<PathBuf>, String>),
+    Choosing(bool),
+    Mark(usize),
+    Bulk(Option<Bulk>),
+    BulkMod(Mod),
+    Shift(bool),
+    RemoveMarked,
+    Undo,
+    AskDelete(bool),
+    DeletePool,
+}
+
+#[derive(Debug, Clone)]
+pub enum Effect {
+    ReadSongs,
+    Measure(String, Map, Mod),
+    Resolve(Target),
+    Cover(String, u64),
+    Fetch(String, Arc<std::sync::atomic::AtomicBool>),
+    Copy(String, &'static str),
+    SaveFile(String, Vec<u8>),
+    PickFile,
+}
+
+#[derive(Clone)]
+pub struct State {
+    pub list: Vec<Pool>,
+    pub loaded: bool,
+    pub screen: Screen,
+    pub filter: Option<Frame>,
+    pub songs: Option<Arc<HashMap<String, Map>>>,
+    pub reading: bool,
+    pub measures: Measures,
+    pub asked: HashSet<(String, Mod)>,
+    pub notice: Option<Notice>,
+    pub finding: Option<Finding>,
+    pub fetched: HashMap<String, Map>,
+    pub refused: Option<pool_share::Refused>,
+    pub undo: Vec<(String, Pool)>,
+    pub dir: PathBuf,
+}
+
+impl State {
+    pub fn new(dir: PathBuf) -> State {
+        State {
+            list: Vec::new(),
+            loaded: false,
+            screen: Screen::Shelf,
+            filter: None,
+            songs: None,
+            reading: false,
+            measures: Measures::default(),
+            asked: HashSet::new(),
+            notice: None,
+            finding: None,
+            fetched: HashMap::new(),
+            refused: None,
+            undo: Vec::new(),
+            dir,
+        }
+    }
+
+    pub fn open(&mut self) -> Vec<Effect> {
+        if !self.loaded {
+            self.list = pools::load_all(&self.dir);
+            for pool in &mut self.list {
+                if pool.calc != pools::CALC_VERSION {
+                    pool.calc = pools::CALC_VERSION;
+                    for slot in &mut pool.slots {
+                        slot.measure = None;
+                    }
+                }
+            }
+            self.loaded = true;
+        }
+        self.screen = Screen::Shelf;
+        let mut effects = Vec::new();
+        if self.songs.is_none() && !self.reading && self.list.iter().any(|pool| pool.filled() > 0) {
+            self.reading = true;
+            effects.push(Effect::ReadSongs);
+        }
+        effects.extend(self.measure_effects());
+        effects
+    }
+
+    pub fn editing(&self) -> Option<&Pool> {
+        match &self.screen {
+            Screen::Editor(editor) => self.list.iter().find(|pool| pool.id == editor.id),
+            Screen::Shelf | Screen::Open(_) => None,
+        }
+    }
+
+    fn editing_at(&self) -> Option<usize> {
+        match &self.screen {
+            Screen::Editor(editor) => self.list.iter().position(|pool| pool.id == editor.id),
+            Screen::Shelf | Screen::Open(_) => None,
+        }
+    }
+
+    fn editor_mut(&mut self) -> Option<&mut Editor> {
+        match &mut self.screen {
+            Screen::Editor(editor) => Some(editor),
+            Screen::Shelf | Screen::Open(_) => None,
+        }
+    }
+
+    fn remember(&mut self, at: usize) {
+        if let Some(pool) = self.list.get(at) {
+            self.undo.push((pool.id.clone(), pool.clone()));
+            if self.undo.len() > 40 {
+                self.undo.remove(0);
+            }
+        }
+    }
+
+    fn marked_slots(&self) -> Vec<usize> {
+        match &self.screen {
+            Screen::Editor(editor) => {
+                let mut marked = editor.marked.clone();
+                marked.sort_unstable();
+                marked.dedup();
+                marked
+            }
+            _ => Vec::new(),
+        }
+    }
+
+    fn save(&mut self, at: usize, now: i64) {
+        if let Some(pool) = self.list.get_mut(at) {
+            pool.changed_at = now;
+            let _ = pools::save(&self.dir, pool);
+        }
+        self.list.sort_by(|a, b| b.changed_at.cmp(&a.changed_at).then_with(|| a.id.cmp(&b.id)));
+    }
+
+    fn save_quiet(&mut self, at: usize) {
+        if let Some(pool) = self.list.get(at) {
+            let _ = pools::save(&self.dir, pool);
+        }
+    }
+
+    fn measure_effects(&mut self) -> Vec<Effect> {
+        let Some(songs) = self.songs.clone() else {
+            return Vec::new();
+        };
+        let mut effects = Vec::new();
+        let draft = match &self.screen {
+            Screen::Open(opening) => Some(&opening.pool),
+            _ => None,
+        };
+        for pool in self.list.iter().chain(draft) {
+            for slot in &pool.slots {
+                let Some(hash) = slot.hash.as_deref() else { continue };
+                if slot.measure.is_some() || self.measures.has(hash, slot.mods) {
+                    continue;
+                }
+                let Some(map) = songs.get(hash) else { continue };
+                if self.asked.insert((hash.to_owned(), slot.mods)) {
+                    effects.push(Effect::Measure(hash.to_owned(), map.clone(), slot.mods));
+                }
+            }
+        }
+        effects
+    }
+
+    fn apply_measures(&mut self) {
+        let mut changed = Vec::new();
+        for (at, pool) in self.list.iter_mut().enumerate() {
+            let mut touched = false;
+            for slot in &mut pool.slots {
+                if slot.measure.is_some() {
+                    continue;
+                }
+                if let Some(hash) = slot.hash.as_deref() {
+                    if let Some(Ok(measure)) = self.measures.get(hash, slot.mods) {
+                        slot.measure = Some(*measure);
+                        touched = true;
+                    }
+                }
+            }
+            if touched {
+                changed.push(at);
+            }
+        }
+        for at in changed {
+            self.save_quiet(at);
+        }
+        if let Screen::Open(opening) = &mut self.screen {
+            for slot in &mut opening.pool.slots {
+                if slot.measure.is_some() {
+                    continue;
+                }
+                if let Some(hash) = slot.hash.as_deref() {
+                    if let Some(Ok(measure)) = self.measures.get(hash, slot.mods) {
+                        slot.measure = Some(*measure);
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn update(&mut self, message: Message, now: i64) -> Vec<Effect> {
+        let mut effects = Vec::new();
+        match message {
+            Message::Filter(frame) => self.filter = frame,
+            Message::New => {
+                let pool = Pool::new(Frame::Duel, "", now);
+                let id = pool.id.clone();
+                self.list.insert(0, pool);
+                self.save(0, now);
+                self.screen = Screen::Editor(Editor { id, selected: None, panel: Panel::Closed, query: String::new(), untouched: true, replace: false, share: false, choosing: false, marked: Vec::new(), bulk: None, asking_delete: false });
+            }
+            Message::Open(id) => {
+                if self.list.iter().any(|pool| pool.id == id) {
+                    self.screen = Screen::Editor(Editor { id, selected: None, panel: Panel::Closed, query: String::new(), untouched: false, replace: false, share: false, choosing: false, marked: Vec::new(), bulk: None, asking_delete: false });
+                    if self.songs.is_none() && !self.reading {
+                        self.reading = true;
+                        effects.push(Effect::ReadSongs);
+                    }
+                }
+            }
+            Message::Back => {
+                if let (Some(at), Screen::Editor(editor)) = (self.editing_at(), self.screen.clone()) {
+                    if editor.untouched && self.list[at].filled() == 0 && self.list[at].name.is_empty() {
+                        let id = self.list.remove(at).id;
+                        let _ = pools::remove(&self.dir, &id);
+                    }
+                }
+                if let Screen::Open(opening) = &self.screen {
+                    opening.stop.store(true, std::sync::atomic::Ordering::SeqCst);
+                }
+                self.screen = Screen::Shelf;
+                self.notice = None;
+                self.refused = None;
+            }
+            Message::Rename(name) => {
+                if let Some(at) = self.editing_at() {
+                    self.list[at].name = name;
+                    if let Some(editor) = self.editor_mut() {
+                        editor.untouched = false;
+                    }
+                    self.save(at, now);
+                }
+            }
+            Message::UseFrame(frame) => {
+                if let Some(at) = self.editing_at() {
+                    if self.list[at].filled() == 0 {
+                        self.list[at].frame = frame;
+                        self.list[at].slots = frame.mods().into_iter().map(Slot::empty).collect();
+                        if let Some(editor) = self.editor_mut() {
+                            editor.selected = None;
+                        }
+                        self.save(at, now);
+                    }
+                }
+            }
+            Message::Select(slot) => {
+                self.notice = None;
+                if let Some(editor) = self.editor_mut() {
+                    editor.selected = slot;
+                    editor.replace = false;
+                    editor.panel = if slot.is_some() { Panel::Slot } else { Panel::Closed };
+                }
+            }
+            Message::Replace => {
+                self.notice = None;
+                if let Some(editor) = self.editor_mut() {
+                    editor.replace = editor.selected.is_some();
+                    editor.panel = Panel::Add;
+                }
+                if self.songs.is_none() && !self.reading {
+                    self.reading = true;
+                    effects.push(Effect::ReadSongs);
+                }
+            }
+            Message::SetMod(slot, mods) => {
+                if let Some(at) = self.editing_at() {
+                    if let Some(entry) = self.list[at].slots.get_mut(slot) {
+                        if entry.mods != mods {
+                            entry.mods = mods;
+                            entry.measure = None;
+                            self.save(at, now);
+                            effects.extend(self.measure_effects());
+                        }
+                    }
+                }
+            }
+            Message::Clear(slot) => {
+                if let Some(at) = self.editing_at() {
+                    self.remember(at);
+                    let pool = &mut self.list[at];
+                    if slot < pool.slots.len() {
+                        if pool.frame == Frame::Free {
+                            pool.slots.remove(slot);
+                        } else {
+                            pool.slots[slot].clear();
+                        }
+                        if let Some(editor) = self.editor_mut() {
+                            editor.selected = None;
+                            editor.panel = Panel::Closed;
+                        }
+                        self.save(at, now);
+                    }
+                }
+            }
+            Message::AddPanel(open) => {
+                self.notice = None;
+                if let Some(editor) = self.editor_mut() {
+                    editor.replace = false;
+                    editor.panel = if open { Panel::Add } else if editor.selected.is_some() { Panel::Slot } else { Panel::Closed };
+                }
+                if open && self.songs.is_none() && !self.reading {
+                    self.reading = true;
+                    effects.push(Effect::ReadSongs);
+                }
+            }
+            Message::Query(query) => {
+                self.notice = None;
+                let text = query.trim().to_owned();
+                if let Some(editor) = self.editor_mut() {
+                    editor.query = query;
+                }
+                effects.extend(self.look_at(&text));
+            }
+            Message::Pasted(text) if pool_share::is_text(&text) => {
+                match pool_share::from_text(&text, now) {
+                    Ok(pool) => effects.extend(self.begin_open(pool)),
+                    Err(refused) => self.refused = Some(refused),
+                }
+            }
+            Message::Pasted(text) => {
+                let text = text.trim().to_owned();
+                let linkish = match pool_links::parse(&text) {
+                    Ok(_) | Err(pool_links::Refusal::Mode(_)) => true,
+                    Err(pool_links::Refusal::NotALink) => false,
+                };
+                if self.editing_at().is_none() {
+                    if !linkish {
+                        return effects;
+                    }
+                    self.update(Message::New, now);
+                }
+                if text.is_empty() {
+                    return effects;
+                }
+                self.notice = None;
+                if let Some(editor) = self.editor_mut() {
+                    editor.panel = Panel::Add;
+                    editor.replace = false;
+                    editor.query = text.clone();
+                }
+                if self.songs.is_none() && !self.reading {
+                    self.reading = true;
+                    effects.push(Effect::ReadSongs);
+                }
+                effects.extend(self.look_at(&text));
+            }
+            Message::Resolved(said) => {
+                if matches!(self.finding, Some(Finding::Asking)) {
+                    match said {
+                        Ok(found) => {
+                            let choice = found.picked.or_else(|| (found.difficulties.len() == 1).then_some(0));
+                            let place = self.default_place();
+                            effects.push(Effect::Cover(found.cover(), found.set));
+                            self.finding = Some(Finding::Found(Candidate { found, choice, place, cover: None }));
+                        }
+                        Err(Why::Nowhere) => self.finding = Some(Finding::Missing),
+                        Err(Why::Mode(mode)) => self.finding = Some(Finding::Refused(mode)),
+                        Err(Why::Silent(why)) => self.finding = Some(Finding::Silent(why)),
+                    }
+                }
+            }
+            Message::Cover(set, handle) => {
+                if let Some(Finding::Found(candidate)) = &mut self.finding {
+                    if candidate.found.set == set {
+                        candidate.cover = handle;
+                    }
+                }
+            }
+            Message::Choose(at) => {
+                if let Some(Finding::Found(candidate)) = &mut self.finding {
+                    if at < candidate.found.difficulties.len() {
+                        candidate.choice = Some(at);
+                    }
+                }
+            }
+            Message::Aim(place) => {
+                if let Some(Finding::Found(candidate)) = &mut self.finding {
+                    candidate.place = place;
+                }
+            }
+            Message::Confirm => effects.extend(self.confirm(false, now)),
+            Message::ConfirmAll => effects.extend(self.confirm(true, now)),
+            Message::Dismiss => {
+                if let Some(Finding::Fetching(fetching)) = &self.finding {
+                    fetching.stop.store(true, std::sync::atomic::Ordering::SeqCst);
+                }
+                self.finding = None;
+                self.notice = None;
+            }
+            Message::Retry => {
+                let text = match &self.screen {
+                    Screen::Editor(editor) => editor.query.trim().to_owned(),
+                    Screen::Shelf | Screen::Open(_) => String::new(),
+                };
+                self.finding = None;
+                effects.extend(self.look_at(&text));
+            }
+            Message::Step(hash, step) => effects.extend(self.stepped(&hash, step, now)),
+            Message::Share(open) => {
+                if let Some(editor) = self.editor_mut() {
+                    editor.share = open;
+                }
+            }
+            Message::CopyText => {
+                if let Some(pool) = self.editing() {
+                    effects.push(Effect::Copy(pool_share::to_text(pool), "pool-copied"));
+                }
+            }
+            Message::CopyHash => {
+                if let Some(pool) = self.editing() {
+                    effects.push(Effect::Copy(pool.fingerprint(), "pool-copied-hash"));
+                }
+            }
+            Message::SaveFile => {
+                if let Some(pool) = self.editing() {
+                    effects.push(Effect::SaveFile(file_name_of(pool), pool_share::to_file(pool)));
+                }
+            }
+            Message::OpenFile => effects.push(Effect::PickFile),
+            Message::Imported(said) => match said {
+                Ok(pool) => effects.extend(self.begin_open(pool)),
+                Err(refused) => self.refused = Some(refused),
+            },
+            Message::GetMissing => effects.extend(self.get_missing(now)),
+            Message::Keep => effects.extend(self.keep_opened(now)),
+            Message::Saved(_) => {}
+            Message::Choosing(on) => {
+                if let Some(editor) = self.editor_mut() {
+                    editor.choosing = on;
+                    editor.marked.clear();
+                    editor.bulk = None;
+                    if on {
+                        editor.panel = Panel::Closed;
+                        editor.selected = None;
+                    }
+                }
+            }
+            Message::Mark(slot) => {
+                if let Some(editor) = self.editor_mut() {
+                    match editor.marked.iter().position(|marked| *marked == slot) {
+                        Some(at) => {
+                            editor.marked.remove(at);
+                        }
+                        None => editor.marked.push(slot),
+                    }
+                    editor.bulk = None;
+                }
+            }
+            Message::Bulk(kind) => {
+                if let Some(editor) = self.editor_mut() {
+                    editor.bulk = if editor.bulk == kind { None } else { kind };
+                }
+            }
+            Message::BulkMod(mods) => {
+                let marked = self.marked_slots();
+                if let Some(at) = self.editing_at() {
+                    if !marked.is_empty() {
+                        self.remember(at);
+                        for slot in marked {
+                            if let Some(entry) = self.list[at].slots.get_mut(slot) {
+                                if entry.mods != mods {
+                                    entry.mods = mods;
+                                    entry.measure = None;
+                                }
+                            }
+                        }
+                        self.save(at, now);
+                        effects.extend(self.measure_effects());
+                    }
+                }
+                if let Some(editor) = self.editor_mut() {
+                    editor.bulk = None;
+                }
+            }
+            Message::Shift(down) => {
+                let marked = self.marked_slots();
+                if let Some(at) = self.editing_at() {
+                    let length = self.list[at].slots.len();
+                    if shifted(&marked, length, down) != marked {
+                        self.remember(at);
+                        let moved = shift_in(&mut self.list[at].slots, &marked, down);
+                        self.save(at, now);
+                        if let Some(editor) = self.editor_mut() {
+                            editor.marked = moved;
+                        }
+                    }
+                }
+            }
+            Message::RemoveMarked => {
+                let marked = self.marked_slots();
+                if let Some(at) = self.editing_at() {
+                    if !marked.is_empty() {
+                        self.remember(at);
+                        let free = self.list[at].frame == Frame::Free;
+                        for slot in marked.iter().rev() {
+                            if *slot < self.list[at].slots.len() {
+                                if free {
+                                    self.list[at].slots.remove(*slot);
+                                } else {
+                                    self.list[at].slots[*slot].clear();
+                                }
+                            }
+                        }
+                        self.save(at, now);
+                    }
+                }
+                if let Some(editor) = self.editor_mut() {
+                    editor.marked.clear();
+                    editor.bulk = None;
+                    editor.selected = None;
+                }
+            }
+            Message::Undo => {
+                let current = match &self.screen {
+                    Screen::Editor(editor) => Some(editor.id.clone()),
+                    _ => None,
+                };
+                if let Some(id) = current {
+                    if let Some(from) = self.undo.iter().rposition(|(pool, _)| *pool == id) {
+                        let (_, before) = self.undo.remove(from);
+                        if let Some(at) = self.list.iter().position(|pool| pool.id == id) {
+                            self.list[at] = before;
+                            let length = self.list[at].slots.len();
+                            self.save(at, now);
+                            if let Some(editor) = self.editor_mut() {
+                                editor.marked.retain(|slot| *slot < length);
+                                editor.selected = editor.selected.filter(|slot| *slot < length);
+                                if editor.selected.is_none() && editor.panel == Panel::Slot {
+                                    editor.panel = Panel::Closed;
+                                }
+                            }
+                            effects.extend(self.measure_effects());
+                        }
+                    }
+                }
+            }
+            Message::AskDelete(ask) => {
+                if let Some(editor) = self.editor_mut() {
+                    editor.asking_delete = ask;
+                }
+            }
+            Message::DeletePool => {
+                if let Some(at) = self.editing_at() {
+                    let id = self.list.remove(at).id;
+                    let _ = pools::remove(&self.dir, &id);
+                    self.undo.retain(|(pool, _)| *pool != id);
+                    self.screen = Screen::Shelf;
+                    self.notice = None;
+                }
+            }
+            Message::Put(hash) => effects.extend(self.put(&hash, now)),
+            Message::Note(slot, note) => {
+                if let Some(at) = self.editing_at() {
+                    if let Some(entry) = self.list[at].slots.get_mut(slot) {
+                        entry.note = note;
+                        self.save(at, now);
+                    }
+                }
+            }
+            Message::Songs(songs) => {
+                let mut songs = songs;
+                if !self.fetched.is_empty() {
+                    let merged = Arc::make_mut(&mut songs);
+                    for (hash, map) in &self.fetched {
+                        merged.entry(hash.clone()).or_insert_with(|| map.clone());
+                    }
+                }
+                self.songs = Some(songs);
+                self.reading = false;
+                effects.extend(self.measure_effects());
+            }
+            Message::Measured(hash, mods, said) => {
+                self.measures.put(&hash, mods, said);
+                self.apply_measures();
+            }
+        }
+        effects
+    }
+
+    fn put(&mut self, hash: &str, now: i64) -> Vec<Effect> {
+        let Some(map) = self.songs.as_ref().and_then(|songs| songs.get(hash)).cloned() else { return Vec::new() };
+        self.place_map(hash, map, None, now)
+    }
+
+    fn default_place(&self) -> Place {
+        match &self.screen {
+            Screen::Editor(editor) => match self.list.iter().find(|pool| pool.id == editor.id).and_then(|pool| target(pool, editor)) {
+                Some(slot) => Place::Slot(slot),
+                None => Place::End,
+            },
+            Screen::Shelf | Screen::Open(_) => Place::End,
+        }
+    }
+
+    fn place_map(&mut self, hash: &str, map: Map, place: Option<Place>, now: i64) -> Vec<Effect> {
+        let Some(at) = self.editing_at() else { return Vec::new() };
+        let aimed = match (&self.screen, place) {
+            (_, Some(Place::End)) => None,
+            (_, Some(Place::Slot(slot) | Place::Replace(slot))) if slot < self.list[at].slots.len() => Some(slot),
+            (Screen::Editor(editor), _) => target(&self.list[at], editor),
+            (Screen::Shelf | Screen::Open(_), _) => None,
+        };
+        if let Some(already) = self.list[at].slots.iter().position(|slot| slot.hash.as_deref() == Some(hash)) {
+            if aimed != Some(already) {
+                self.notice = Some(Notice::Already(already));
+                return Vec::new();
+            }
+        }
+        self.remember(at);
+        let pool = &mut self.list[at];
+        let slot = match aimed {
+            Some(slot) => slot,
+            None => {
+                pool.slots.push(Slot::empty(Mod::Nm));
+                pool.slots.len() - 1
+            }
+        };
+        pool.slots[slot].fill(hash, &map);
+        let cached = match self.measures.get(hash, pool.slots[slot].mods) {
+            Some(Ok(measure)) => Some(*measure),
+            _ => None,
+        };
+        pool.slots[slot].measure = cached;
+        self.notice = None;
+        if let Some(editor) = self.editor_mut() {
+            editor.untouched = false;
+            editor.replace = false;
+            editor.selected = Some(slot);
+        }
+        self.save(at, now);
+        self.measure_effects()
+    }
+
+    fn look_at(&mut self, text: &str) -> Vec<Effect> {
+        if !matches!(self.finding, Some(Finding::Fetching(_))) {
+            self.finding = None;
+        } else {
+            return Vec::new();
+        }
+        match pool_links::parse(text) {
+            Ok(target) => {
+                self.finding = Some(Finding::Asking);
+                vec![Effect::Resolve(target)]
+            }
+            Err(pool_links::Refusal::Mode(mode)) => {
+                self.finding = Some(Finding::Refused(mode));
+                Vec::new()
+            }
+            Err(pool_links::Refusal::NotALink) => {
+                if text.starts_with("http") || text.contains("ppy.sh") {
+                    self.notice = Some(Notice::NotALink);
+                }
+                Vec::new()
+            }
+        }
+    }
+
+    fn confirm(&mut self, all: bool, now: i64) -> Vec<Effect> {
+        let Some(Finding::Found(candidate)) = self.finding.take() else { return Vec::new() };
+        let queue: Vec<String> = if all {
+            candidate.found.difficulties.iter().map(|difficulty| difficulty.hash.clone()).collect()
+        } else {
+            match candidate.choice.and_then(|at| candidate.found.difficulties.get(at)) {
+                Some(difficulty) => vec![difficulty.hash.clone()],
+                None => {
+                    self.finding = Some(Finding::Found(candidate));
+                    return Vec::new();
+                }
+            }
+        };
+        let total = queue.len();
+        self.finding = Some(Finding::Fetching(Fetching { queue, total, step: None, place: Some(candidate.place), stop: Arc::new(std::sync::atomic::AtomicBool::new(false)) }));
+        self.advance(now)
+    }
+
+    fn advance(&mut self, now: i64) -> Vec<Effect> {
+        let mut effects = Vec::new();
+        loop {
+            let Some(Finding::Fetching(fetching)) = &mut self.finding else { return effects };
+            if fetching.queue.is_empty() {
+                self.finding = None;
+                if let Some(editor) = self.editor_mut() {
+                    editor.query.clear();
+                }
+                return effects;
+            }
+            let hash = fetching.queue.remove(0);
+            let place = fetching.place;
+            let stop = fetching.stop.clone();
+            fetching.step = None;
+            let known = self.songs.as_ref().and_then(|songs| songs.get(&hash)).or_else(|| self.fetched.get(&hash)).cloned();
+            match known {
+                Some(map) => {
+                    if let Some(Finding::Fetching(fetching)) = &mut self.finding {
+                        fetching.place = None;
+                    }
+                    effects.extend(self.place_map(&hash, map, place, now));
+                }
+                None => {
+                    effects.push(Effect::Fetch(hash, stop));
+                    return effects;
+                }
+            }
+        }
+    }
+
+    fn begin_open(&mut self, pool: Pool) -> Vec<Effect> {
+        self.refused = None;
+        self.finding = None;
+        self.screen = Screen::Open(Opening { pool, queue: Vec::new(), total: 0, step: None, stop: Arc::new(std::sync::atomic::AtomicBool::new(false)), running: false, lost: 0 });
+        let mut effects = Vec::new();
+        if self.songs.is_none() && !self.reading {
+            self.reading = true;
+            effects.push(Effect::ReadSongs);
+        }
+        effects.extend(self.measure_effects());
+        effects
+    }
+
+    pub fn missing(&self, pool: &Pool) -> Vec<String> {
+        let Some(songs) = &self.songs else { return Vec::new() };
+        let mut seen = HashSet::new();
+        pool.slots
+            .iter()
+            .filter_map(|slot| slot.hash.clone())
+            .filter(|hash| !songs.contains_key(hash) && !self.fetched.contains_key(hash))
+            .filter(|hash| seen.insert(hash.clone()))
+            .collect()
+    }
+
+    fn get_missing(&mut self, now: i64) -> Vec<Effect> {
+        let queue = match &self.screen {
+            Screen::Open(opening) if !opening.running => self.missing(&opening.pool),
+            _ => return Vec::new(),
+        };
+        if queue.is_empty() {
+            return Vec::new();
+        }
+        if let Screen::Open(opening) = &mut self.screen {
+            opening.total = queue.len();
+            opening.queue = queue;
+            opening.running = true;
+            opening.lost = 0;
+            opening.stop.store(false, std::sync::atomic::Ordering::SeqCst);
+        }
+        self.advance_open(now)
+    }
+
+    fn advance_open(&mut self, _now: i64) -> Vec<Effect> {
+        loop {
+            let Screen::Open(opening) = &mut self.screen else { return Vec::new() };
+            if opening.queue.is_empty() {
+                opening.running = false;
+                opening.step = None;
+                return self.measure_effects();
+            }
+            let hash = opening.queue.remove(0);
+            opening.step = None;
+            let stop = opening.stop.clone();
+            let known = self.songs.as_ref().is_some_and(|songs| songs.contains_key(&hash)) || self.fetched.contains_key(&hash);
+            if !known {
+                return vec![Effect::Fetch(hash, stop)];
+            }
+        }
+    }
+
+    fn keep_opened(&mut self, now: i64) -> Vec<Effect> {
+        let Screen::Open(opening) = std::mem::replace(&mut self.screen, Screen::Shelf) else { return Vec::new() };
+        opening.stop.store(true, std::sync::atomic::Ordering::SeqCst);
+        let mut pool = opening.pool;
+        pool.made_at = now;
+        pool.changed_at = now;
+        let id = pool.id.clone();
+        self.list.insert(0, pool);
+        self.save(0, now);
+        self.screen = Screen::Editor(Editor { id, selected: None, panel: Panel::Closed, query: String::new(), untouched: false, replace: false, share: false, choosing: false, marked: Vec::new(), bulk: None, asking_delete: false });
+        self.measure_effects()
+    }
+
+    fn stepped(&mut self, hash: &str, step: crate::maps::Step, now: i64) -> Vec<Effect> {
+        use crate::maps::Step;
+        if let Screen::Open(opening) = &mut self.screen {
+            opening.step = Some(step.clone());
+            return match step {
+                Step::Done(map) => {
+                    self.fetched.insert(hash.to_owned(), map.clone());
+                    if let Some(songs) = self.songs.as_mut() {
+                        Arc::make_mut(songs).insert(hash.to_owned(), map);
+                    }
+                    let mut effects = self.measure_effects();
+                    effects.extend(self.advance_open(now));
+                    effects
+                }
+                Step::Nowhere | Step::Failed(_) => {
+                    opening.lost += 1;
+                    self.advance_open(now)
+                }
+                Step::Stopped => {
+                    opening.queue.clear();
+                    opening.running = false;
+                    Vec::new()
+                }
+                Step::Looking | Step::Found(_) | Step::Downloading { .. } | Step::Unpacking | Step::Checking => Vec::new(),
+            };
+        }
+        let Some(Finding::Fetching(fetching)) = &mut self.finding else { return Vec::new() };
+        fetching.step = Some(step.clone());
+        match step {
+            Step::Done(map) => {
+                let place = fetching.place.take();
+                self.fetched.insert(hash.to_owned(), map.clone());
+                if let Some(songs) = self.songs.as_mut() {
+                    Arc::make_mut(songs).insert(hash.to_owned(), map.clone());
+                }
+                let mut effects = self.place_map(hash, map, place, now);
+                effects.extend(self.advance(now));
+                effects
+            }
+            Step::Nowhere => {
+                self.finding = Some(Finding::Missing);
+                Vec::new()
+            }
+            Step::Failed(why) => {
+                self.finding = Some(Finding::Silent(why));
+                Vec::new()
+            }
+            Step::Stopped => {
+                self.finding = None;
+                Vec::new()
+            }
+            Step::Looking | Step::Found(_) | Step::Downloading { .. } | Step::Unpacking | Step::Checking => Vec::new(),
+        }
+    }
+
+    pub fn search(&self, query: &str) -> Vec<(String, Map)> {
+        let Some(songs) = &self.songs else { return Vec::new() };
+        let words: Vec<String> = query.split_whitespace().map(str::to_lowercase).collect();
+        if words.is_empty() {
+            return Vec::new();
+        }
+        let mut found: Vec<(String, Map)> = songs
+            .iter()
+            .filter(|(_, map)| {
+                let line = map.line().to_lowercase();
+                words.iter().all(|word| line.contains(word))
+            })
+            .map(|(hash, map)| (hash.clone(), map.clone()))
+            .collect();
+        found.sort_by(|a, b| a.1.title.to_lowercase().cmp(&b.1.title.to_lowercase()).then_with(|| a.1.version.cmp(&b.1.version)).then_with(|| a.0.cmp(&b.0)));
+        found.truncate(RESULTS_MOST);
+        found
+    }
+
+    pub fn covers(&self) -> Vec<(String, PathBuf)> {
+        let Some(songs) = &self.songs else { return Vec::new() };
+        let mut seen = HashSet::new();
+        let mut wanted = Vec::new();
+        let mut add = |hash: &str| {
+            if let Some(path) = songs.get(hash).and_then(|map| map.background.clone()) {
+                if seen.insert(hash.to_owned()) {
+                    wanted.push((hash.to_owned(), path));
+                }
+            }
+        };
+        match &self.screen {
+            Screen::Shelf => {
+                for pool in &self.list {
+                    for slot in pool.slots.iter().filter_map(|slot| slot.hash.as_deref()).take(4) {
+                        add(slot);
+                    }
+                }
+            }
+            Screen::Open(opening) => {
+                for hash in opening.pool.slots.iter().filter_map(|slot| slot.hash.as_deref()) {
+                    add(hash);
+                }
+            }
+            Screen::Editor(editor) => {
+                if let Some(pool) = self.list.iter().find(|pool| pool.id == editor.id) {
+                    for hash in pool.slots.iter().filter_map(|slot| slot.hash.as_deref()) {
+                        add(hash);
+                    }
+                }
+                if editor.panel == Panel::Add {
+                    for (hash, _) in self.search(&editor.query).iter().take(12) {
+                        add(hash);
+                    }
+                }
+            }
+        }
+        wanted
+    }
+}
+
+fn shift_in<T>(items: &mut [T], marked: &[usize], down: bool) -> Vec<usize> {
+    let length = items.len();
+    let mut at: Vec<usize> = marked.to_vec();
+    at.sort_unstable();
+    if down {
+        for index in (0..at.len()).rev() {
+            let slot = at[index];
+            if slot + 1 < length && !at.contains(&(slot + 1)) {
+                items.swap(slot, slot + 1);
+                at[index] = slot + 1;
+            }
+        }
+    } else {
+        for index in 0..at.len() {
+            let slot = at[index];
+            if slot > 0 && !at.contains(&(slot - 1)) {
+                items.swap(slot, slot - 1);
+                at[index] = slot - 1;
+            }
+        }
+    }
+    at.sort_unstable();
+    at
+}
+
+fn shifted(marked: &[usize], length: usize, down: bool) -> Vec<usize> {
+    let mut placeholder = vec![(); length];
+    shift_in(&mut placeholder, marked, down)
+}
+
+fn file_name_of(pool: &Pool) -> String {
+    let name = crate::maps::tidy(&pool.name);
+    format!("{}.pool", if name.is_empty() { "pool".to_owned() } else { name })
+}
+
+pub fn target(pool: &Pool, editor: &Editor) -> Option<usize> {
+    match editor.selected {
+        Some(at) if at < pool.slots.len() && (pool.slots[at].is_empty() || editor.replace) => Some(at),
+        _ => pool.first_empty(),
+    }
+}
+
+fn faded_text<'a>(words: String, size: f32, colour: Color) -> Element<'a, Message> {
+    text(words).font(theme::SANS).size(size).wrapping(text::Wrapping::None).color(ui::faded(colour)).into()
+}
+
+fn para<'a>(words: String, size: f32, colour: Color) -> Element<'a, Message> {
+    text(words).font(theme::SANS).size(size).color(ui::faded(colour)).width(Length::Fill).into()
+}
+
+fn semi<'a>(words: String, size: f32, colour: Color) -> Element<'a, Message> {
+    text(words).font(theme::SANS_SEMI).size(size).wrapping(text::Wrapping::None).color(ui::faded(colour)).into()
+}
+
+fn mono<'a>(words: String, size: f32, colour: Color) -> Element<'a, Message> {
+    text(words).font(theme::MONO).size(size).wrapping(text::Wrapping::None).color(ui::faded(colour)).into()
+}
+
+fn stars_of(words: &Words, value: f64) -> String {
+    screen::decimal(words, value as f32, 2)
+}
+
+fn cover<'a>(thumbs: &HashMap<String, image::Handle>, hash: Option<&str>, wide: f32, high: f32, round: f32) -> Element<'a, Message> {
+    let k = ui::fade();
+    match hash.and_then(|hash| thumbs.get(hash)) {
+        Some(handle) => image(crate::crops::fitted(handle, wide, high, round)).content_fit(iced::ContentFit::Fill).width(wide).height(high).border_radius(round).opacity(k).into(),
+        None => container(Space::new())
+            .width(wide)
+            .height(high)
+            .style(move |_| container::Style {
+                background: Some(Background::Color(Color::from_rgba(1.0, 1.0, 1.0, 0.012 * k))),
+                border: Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.04 * k), width: 1.0, radius: round.into() },
+                ..container::Style::default()
+            })
+            .into(),
+    }
+}
+
+fn number_badge<'a>(number: usize, lit: bool) -> Element<'a, Message> {
+    let k = ui::fade();
+    container(text(number.to_string()).font(theme::MONO_BOLD).size(12.0).color(ui::faded(if lit { INK } else { MUTED })))
+        .width(28.0)
+        .height(28.0)
+        .center(28.0)
+        .style(move |_| container::Style {
+            background: Some(Background::Color(if lit { Color::from_rgba(0.886, 0.282, 0.282, 0.12 * k) } else { Color::from_rgba(1.0, 1.0, 1.0, 0.028 * k) })),
+            border: Border { radius: 14.0.into(), ..Border::default() },
+            ..container::Style::default()
+        })
+        .into()
+}
+
+fn mod_badge<'a>(mods: Mod, lit: bool) -> Element<'a, Message> {
+    if crate::modicons::has_glyph(mods.code()) {
+        return crate::modicons::badge(mods.code(), 24.0, if lit { 1.0 } else { 0.5 });
+    }
+    let k = ui::fade();
+    container(text(mods.code()).font(theme::MONO).size(11.0).color(ui::faded(if lit { INK } else { MUTED })))
+        .padding([4, 9])
+        .style(move |_| container::Style {
+            background: Some(Background::Color(if lit { Color::from_rgba(0.886, 0.282, 0.282, 0.09 * k) } else { Color::from_rgba(1.0, 1.0, 1.0, 0.02 * k) })),
+            border: Border { radius: 8.0.into(), ..Border::default() },
+            ..container::Style::default()
+        })
+        .into()
+}
+
+fn row_style(selected: bool) -> impl Fn(&iced::Theme, button::Status) -> button::Style {
+    move |_, status| {
+        let lit = matches!(status, button::Status::Hovered | button::Status::Pressed);
+        button::Style {
+            background: Some(Background::Color(if selected {
+                Color::from_rgba(0.886, 0.282, 0.282, 0.035)
+            } else if lit {
+                Color::from_rgba(1.0, 1.0, 1.0, 0.012)
+            } else {
+                Color::TRANSPARENT
+            })),
+            text_color: INK,
+            border: Border { color: if selected { Color::from_rgba(0.886, 0.282, 0.282, 0.6) } else { Color::TRANSPARENT }, width: 1.0, radius: 12.0.into() },
+            shadow: iced::Shadow::default(),
+            snap: true,
+        }
+    }
+}
+
+fn surface_style(lit: bool) -> impl Fn(&iced::Theme, button::Status) -> button::Style {
+    move |_, status| {
+        let hot = lit || matches!(status, button::Status::Hovered | button::Status::Pressed);
+        button::Style {
+            background: Some(Background::Color(Color::from_rgba(1.0, 1.0, 1.0, if hot { 0.016 } else { 0.008 }))),
+            text_color: INK,
+            border: Border { color: Color::from_rgba(1.0, 1.0, 1.0, if hot { 0.07 } else { 0.04 }), width: 1.0, radius: 14.0.into() },
+            shadow: iced::Shadow::default(),
+            snap: true,
+        }
+    }
+}
+
+fn panel_box<'a>(inside: Element<'a, Message>) -> Element<'a, Message> {
+    let k = ui::fade();
+    container(inside)
+        .padding(16)
+        .width(Length::Fill)
+        .style(move |_| container::Style {
+            background: Some(Background::Color(Color::from_rgba(1.0, 1.0, 1.0, 0.0077 * k))),
+            border: Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.0392 * k), width: 1.0, radius: 14.0.into() },
+            ..container::Style::default()
+        })
+        .into()
+}
+
+fn sheet_box<'a>(inside: Element<'a, Message>) -> Element<'a, Message> {
+    let k = ui::fade();
+    container(inside)
+        .padding(22)
+        .width(Length::Fill)
+        .style(move |_| container::Style {
+            background: Some(Background::Color(Color::from_rgba(0.075, 0.035, 0.045, k))),
+            border: Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.07 * k), width: 1.0, radius: 16.0.into() },
+            shadow: iced::Shadow { color: Color::from_rgba(0.0, 0.0, 0.0, 0.5 * k), offset: iced::Vector::new(0.0, 12.0), blur_radius: 32.0 },
+            ..container::Style::default()
+        })
+        .into()
+}
+
+fn primary_button<'a>(label: String, press: Message) -> Element<'a, Message> {
+    ui::primary(label, Some(press))
+}
+
+fn quiet_button<'a>(label: String, press: Message) -> Element<'a, Message> {
+    ui::quiet(label, Some(press))
+}
+
+fn crumbs<'a>(words: &Words, back: Option<Message>, title: Element<'a, Message>) -> Element<'a, Message> {
+    let first: Element<'a, Message> = match back {
+        Some(back) => button(text(words.t("pools-title")).font(theme::SANS).size(13.0).color(ui::faded(FAINT))).padding(0).style(ui::button_faded(theme::bare)).on_press(back).into(),
+        None => faded_text(words.t("pools-crumb"), 13.0, FAINT),
+    };
+    column![first, title].spacing(6).into()
+}
+
+fn kind_label(words: &Words, frame: Option<Frame>, all: usize) -> String {
+    match frame {
+        None => words.with("pools-filter-all", &[("n", all.to_string())]),
+        Some(Frame::Duel) => words.t("pools-kind-duel"),
+        Some(Frame::Stage) => words.t("pools-kind-stage"),
+        Some(Frame::Free) => words.t("pools-kind-free"),
+    }
+}
+
+fn bars<'a>(pool: &Pool) -> Element<'a, Message> {
+    let k = ui::fade();
+    let mut line = row![].spacing(2).align_y(iced::alignment::Vertical::Bottom);
+    let top = pool.slots.iter().filter_map(|slot| slot.measure.map(|m| m.stars)).fold(1.0_f64, f64::max);
+    for slot in &pool.slots {
+        let (stars, filled) = match slot.measure {
+            Some(measure) => (measure.stars, true),
+            None => (0.0, false),
+        };
+        let colour = if filled { crate::dossier::star_colour(stars as f32) } else { Color::from_rgba(1.0, 1.0, 1.0, 0.18) };
+        let high = if filled { 8.0 + (stars / top).clamp(0.0, 1.0) as f32 * 16.0 } else { 3.0 };
+        line = line.push(container(Space::new()).width(5.0).height(high).style(move |_| container::Style {
+            background: Some(Background::Color(Color { a: colour.a * k, ..colour })),
+            border: Border { radius: 1.5.into(), ..Border::default() },
+            ..container::Style::default()
+        }));
+    }
+    line.into()
+}
+
+fn pool_card<'a>(pool: &'a Pool, words: &'a Words, thumbs: &'a HashMap<String, image::Handle>, tile: f32) -> Element<'a, Message> {
+    let facts = pool.facts();
+    let mut collage = row![].spacing(6);
+    let mut shown = 0;
+    for slot in pool.slots.iter().filter(|slot| !slot.is_empty()).take(4) {
+        collage = collage.push(cover(thumbs, slot.hash.as_deref(), tile, 92.0, TILE_ROUND));
+        shown += 1;
+    }
+    while shown < 4 {
+        collage = collage.push(cover(thumbs, None, tile, 92.0, TILE_ROUND));
+        shown += 1;
+    }
+    let name = if pool.name.is_empty() { words.t("pool-untitled") } else { pool.name.clone() };
+    let line = row![
+        mono(words.n("pool-cards", facts.cards as u64), 12.0, MUTED),
+        mono(words.n("pool-minutes", facts.minutes.max(0) as u64), 12.0, MUTED),
+        ui::grow(),
+        bars(pool),
+    ]
+    .spacing(14)
+    .align_y(iced::alignment::Vertical::Bottom);
+    let inside = column![collage, semi(name, 17.0, INK), line].spacing(12);
+    button(container(inside).padding(14).width(Length::Fill))
+        .padding(0)
+        .width(Length::Fill)
+        .style(ui::button_faded(surface_style(false)))
+        .on_press(Message::Open(pool.id.clone()))
+        .into()
+}
+
+fn new_card<'a>(words: &Words) -> Element<'a, Message> {
+    let inside = column![glyph(Icon::Plus, 22.0, FAINT), faded_text(words.t("pools-new"), 14.0, MUTED)].spacing(8).align_x(iced::Center);
+    button(container(inside).width(Length::Fill).height(Length::Fill).center(Length::Fill))
+        .padding(0)
+        .width(Length::Fill)
+        .height(176.0)
+        .style(ui::button_faded(|_, status| {
+            let hot = matches!(status, button::Status::Hovered | button::Status::Pressed);
+            button::Style {
+                background: Some(Background::Color(Color::from_rgba(0.0, 0.0, 0.0, if hot { 0.2 } else { 0.12 }))),
+                text_color: INK,
+                border: Border { color: Color::from_rgba(1.0, 1.0, 1.0, if hot { 0.2 } else { 0.1 }), width: 1.0, radius: 14.0.into() },
+                shadow: iced::Shadow::default(),
+                snap: true,
+            }
+        }))
+        .on_press(Message::New)
+        .into()
+}
+
+fn grid_rows<'a>(cells: Vec<Element<'a, Message>>, columns: usize) -> Element<'a, Message> {
+    let columns = columns.max(1);
+    let mut rows = column![].spacing(14);
+    let mut cells = cells.into_iter();
+    loop {
+        let mut line = row![].spacing(14);
+        let mut taken = 0;
+        for cell in cells.by_ref().take(columns) {
+            line = line.push(container(cell).width(Length::FillPortion(1)));
+            taken += 1;
+        }
+        if taken == 0 {
+            break;
+        }
+        for _ in taken..columns {
+            line = line.push(Space::new().width(Length::FillPortion(1)));
+        }
+        rows = rows.push(line);
+        if taken < columns {
+            break;
+        }
+    }
+    rows.into()
+}
+
+fn refusal_line<'a>(refused: &pool_share::Refused, words: &Words) -> Element<'a, Message> {
+    let key = match refused {
+        pool_share::Refused::NotAPool => "pool-refused-not",
+        pool_share::Refused::Newer => "pool-refused-newer",
+        pool_share::Refused::Damaged => "pool-refused-damaged",
+    };
+    faded_text(words.t(key), 13.0, ACCENT)
+}
+
+fn empty_shelf<'a>(words: &Words, refused: Option<&pool_share::Refused>, t: f32) -> Element<'a, Message> {
+    let k = ui::fade();
+    let tile = container(glyph(Icon::Pool, 28.0, FAINT))
+        .width(72.0)
+        .height(72.0)
+        .center(72.0)
+        .style(move |_| container::Style {
+            border: Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.06 * k), width: 1.0, radius: 18.0.into() },
+            ..container::Style::default()
+        });
+    let inside = column![
+        tile,
+        semi(words.t("pools-empty-title"), 22.0, INK),
+        container(text(words.t("pools-empty-text")).font(theme::SANS).size(14.0).color(ui::faded(MUTED)).align_x(iced::alignment::Horizontal::Center)).max_width(440.0),
+        row![primary_button(words.t("pools-empty-make"), Message::New), quiet_button(words.t("pools-open"), Message::OpenFile)].spacing(10),
+        match refused {
+            Some(refused) => refusal_line(refused, words),
+            None => faded_text(words.t("pools-local"), 12.0, FAINT),
+        },
+    ]
+    .spacing(14)
+    .align_x(iced::Center);
+    ui::appearing(ui::appear(t, 0), 10.0, || container(inside).center_x(Length::Fill).padding(Padding::ZERO.top(90.0)).into())
+}
+
+fn shelf<'a>(state: &'a State, words: &'a Words, thumbs: &'a HashMap<String, image::Handle>, width: f32, t: f32) -> Element<'a, Message> {
+    if state.list.is_empty() {
+        return empty_shelf(words, state.refused.as_ref(), t);
+    }
+    let head = row![
+        crumbs(words, None, semi(words.t("pools-title"), 28.0, INK)),
+        ui::grow(),
+        quiet_button(words.t("pools-open"), Message::OpenFile),
+        primary_button(words.t("pools-new"), Message::New),
+    ]
+    .spacing(10)
+    .align_y(iced::alignment::Vertical::Bottom);
+    let mut chips = row![].spacing(8);
+    for frame in [None, Some(Frame::Duel), Some(Frame::Stage), Some(Frame::Free)] {
+        let present = frame.is_none() || state.list.iter().any(|pool| Some(pool.frame) == frame);
+        if !present {
+            continue;
+        }
+        chips = chips.push(
+            button(text(kind_label(words, frame, state.list.len())).font(theme::SANS_SEMI).size(13.5).wrapping(text::Wrapping::None))
+                .padding([8, 16])
+                .style(ui::button_faded(theme::filter_chip(state.filter == frame)))
+                .on_press(Message::Filter(frame)),
+        );
+    }
+    let shown: Vec<&Pool> = state.list.iter().filter(|pool| state.filter.is_none_or(|frame| pool.frame == frame)).collect();
+    let columns = (((width + 14.0) / (300.0 + 14.0)).floor() as usize).clamp(1, 4);
+    let card_wide = (width - 14.0 * (columns as f32 - 1.0)) / columns as f32;
+    let tile = ((card_wide - 28.0 - 18.0) / 4.0).floor().max(24.0);
+    let mut cells: Vec<Element<'a, Message>> = vec![new_card(words)];
+    cells.extend(shown.into_iter().map(|pool| pool_card(pool, words, thumbs, tile)));
+    let mut page = column![ui::appearing(ui::appear(t, 0), 10.0, || head.into())].spacing(18);
+    if let Some(refused) = &state.refused {
+        page = page.push(refusal_line(refused, words));
+    }
+    page.push(ui::appearing(ui::appear(t, 1), 10.0, || chips.into())).push(ui::appearing(ui::appear(t, 2), 10.0, || grid_rows(cells, columns))).into()
+}
+
+fn strip<'a>(pool: &Pool, selected: Option<usize>) -> Element<'a, Message> {
+    let k = ui::fade();
+    let top = pool.slots.iter().filter_map(|slot| slot.measure.map(|m| m.stars)).fold(1.0_f64, f64::max).max(6.0);
+    let mut line = row![].spacing(8).align_y(iced::alignment::Vertical::Bottom);
+    for (at, slot) in pool.slots.iter().enumerate() {
+        let lit = selected == Some(at);
+        let (high, colour) = match slot.measure {
+            Some(measure) => (10.0 + (measure.stars / top).clamp(0.0, 1.0) as f32 * (STRIP_HIGH - 10.0), crate::dossier::star_colour(measure.stars as f32)),
+            None => (3.0, Color::from_rgba(1.0, 1.0, 1.0, 0.16)),
+        };
+        let alpha = if slot.measure.is_none() { 1.0 } else if lit { 1.0 } else { 0.55 };
+        let bar = container(Space::new()).width(STRIP_BAR).height(high).style(move |_| container::Style {
+            background: Some(Background::Color(Color { a: colour.a * alpha * k, ..colour })),
+            border: Border { radius: 6.0.into(), ..Border::default() },
+            ..container::Style::default()
+        });
+        let label = container(mono(slot.mods.code().to_owned(), 11.0, if lit { INK } else { FAINT })).width(STRIP_BAR).center_x(STRIP_BAR);
+        let column = column![container(bar).height(STRIP_HIGH).align_y(iced::alignment::Vertical::Bottom), label].spacing(6);
+        line = line.push(button(column).padding(0).style(ui::button_faded(theme::bare)).on_press(Message::Select(Some(at))));
+    }
+    scrollable(line).direction(scrollable::Direction::Horizontal(scrollable::Scrollbar::hidden())).style(ui::thin_scroll).into()
+}
+
+fn check_box<'a>(on: bool) -> Element<'a, Message> {
+    let k = ui::fade();
+    let inside: Element<'a, Message> = if on { glyph(Icon::Check, 13.0, Color::WHITE) } else { Space::new().into() };
+    container(inside)
+        .width(22.0)
+        .height(22.0)
+        .center(22.0)
+        .style(move |_| container::Style {
+            background: on.then_some(Background::Color(Color { a: k, ..ACCENT })),
+            border: Border { color: if on { Color { a: k, ..ACCENT } } else { Color::from_rgba(1.0, 1.0, 1.0, 0.16 * k) }, width: 1.0, radius: 6.0.into() },
+            ..container::Style::default()
+        })
+        .into()
+}
+
+fn slot_row<'a>(pool: &'a Pool, at: usize, selected: bool, choosing: bool, words: &'a Words, thumbs: &'a HashMap<String, image::Handle>, songs: Option<&Arc<HashMap<String, Map>>>) -> Element<'a, Message> {
+    let slot = &pool.slots[at];
+    let mut left = row![].spacing(8).align_y(iced::Center);
+    if choosing {
+        left = left.push(check_box(selected));
+    }
+    let left = left.push(number_badge(at + 1, selected)).push(mod_badge(slot.mods, selected)).width(if choosing { 118.0 } else { 88.0 });
+    let inside: Element<'a, Message> = match slot.hash.as_deref() {
+        None => row![
+            left,
+            cover(thumbs, None, COVER_WIDE, COVER_HIGH, COVER_ROUND),
+            column![semi(words.t("pool-slot-empty"), 14.0, MUTED), mono(words.t("pool-slot-need"), 11.0, FAINT)].spacing(3).width(Length::Fill),
+        ]
+        .spacing(14)
+        .align_y(iced::Center)
+        .into(),
+        Some(hash) => {
+            let missing = songs.is_some_and(|songs| !songs.contains_key(hash));
+            let figures: Element<'a, Message> = match slot.measure {
+                Some(measure) => row![
+                    mono(format!("{:.0}", measure.bpm), 13.0, MUTED),
+                    mono(pools::clock(measure.length_ms), 13.0, MUTED),
+                    container(text(stars_of(words, measure.stars)).font(theme::MONO_BOLD).size(19.0).wrapping(text::Wrapping::None).color(ui::faded(crate::dossier::star_colour(measure.stars as f32)))).width(64.0).align_x(iced::alignment::Horizontal::Right),
+                ]
+                .spacing(24)
+                .align_y(iced::Center)
+                .into(),
+                None if missing => mono(words.t("pool-no-disk"), 12.0, ACCENT),
+                None => mono(words.t("pool-measuring"), 12.0, FAINT),
+            };
+            row![
+                left,
+                cover(thumbs, Some(hash), COVER_WIDE, COVER_HIGH, COVER_ROUND),
+                column![semi(slot.title.clone(), 14.0, INK), faded_text(slot.artist.clone(), 12.5, MUTED), mono(slot.version.clone(), 11.0, FAINT)].spacing(1).width(Length::Fill),
+                figures,
+            ]
+            .spacing(14)
+            .align_y(iced::Center)
+            .into()
+        }
+    };
+    button(container(inside).height(ROW_HIGH).align_y(iced::Center))
+        .padding([4, 10])
+        .width(Length::Fill)
+        .style(ui::button_faded(row_style(selected)))
+        .on_press(if choosing { Message::Mark(at) } else { Message::Select(Some(at)) })
+        .into()
+}
+
+fn mod_ribbon<'a>(words: &Words, slot: usize, current: Mod) -> Element<'a, Message> {
+    let mut ribbon = row![].spacing(8);
+    for mods in Mod::ALL {
+        ribbon = ribbon.push(
+            button(text(mods.code()).font(theme::SANS_SEMI).size(13.5))
+                .padding([8, 16])
+                .style(ui::button_faded(theme::filter_chip(mods == current)))
+                .on_press(Message::SetMod(slot, mods)),
+        );
+    }
+    column![ui::mono_small(words.t("pool-slot-mod"), FAINT), ribbon, faded_text(words.t(current.key()), 13.0, MUTED)].spacing(10).into()
+}
+
+fn figure<'a>(label: String, value: String, size: f32, colour: Color) -> Element<'a, Message> {
+    column![ui::mono_small(label, FAINT), text(value).font(theme::MONO_BOLD).size(size).wrapping(text::Wrapping::None).color(ui::faded(colour))].spacing(4).into()
+}
+
+struct Print {
+    shares: [f64; 4],
+    alpha: f32,
+}
+
+impl iced::widget::canvas::Program<Message> for Print {
+    type State = ();
+
+    fn draw(&self, _: &(), renderer: &iced::Renderer, _: &iced::Theme, bounds: iced::Rectangle, _: iced::mouse::Cursor) -> Vec<iced::widget::canvas::Geometry> {
+        use iced::widget::canvas::{Fill, Frame, Path, Stroke};
+        let mut frame = Frame::new(renderer, bounds.size());
+        let centre = iced::Point::new(bounds.width / 2.0, bounds.height / 2.0);
+        let reach = bounds.width.min(bounds.height) / 2.0 - 2.0;
+        let on_axis = |at: usize, length: f32| match at {
+            0 => iced::Point::new(centre.x, centre.y - length),
+            1 => iced::Point::new(centre.x + length, centre.y),
+            2 => iced::Point::new(centre.x, centre.y + length),
+            _ => iced::Point::new(centre.x - length, centre.y),
+        };
+        let frame_line = Path::new(|path| {
+            path.move_to(on_axis(0, reach));
+            for at in 1..4 {
+                path.line_to(on_axis(at, reach));
+            }
+            path.close();
+        });
+        frame.stroke(&frame_line, Stroke::default().with_color(Color::from_rgba(1.0, 1.0, 1.0, 0.12 * self.alpha)).with_width(1.0));
+        let figure = Path::new(|path| {
+            for (at, share) in self.shares.iter().enumerate() {
+                let length = reach * ((*share as f32) / 0.5).clamp(0.18, 1.0);
+                if at == 0 {
+                    path.move_to(on_axis(at, length));
+                } else {
+                    path.line_to(on_axis(at, length));
+                }
+            }
+            path.close();
+        });
+        frame.fill(&figure, Fill::from(Color { a: 0.18 * self.alpha, ..ACCENT }));
+        frame.stroke(&figure, Stroke::default().with_color(Color { a: self.alpha, ..ACCENT }).with_width(1.5).with_line_join(iced::widget::canvas::LineJoin::Round));
+        vec![frame.into_geometry()]
+    }
+}
+
+fn print_figure<'a>(shares: [f64; 4], side: f32) -> Element<'a, Message> {
+    iced::widget::Canvas::new(Print { shares, alpha: ui::fade() }).width(side).height(side).into()
+}
+
+fn balance_line<'a>(pool: &Pool, words: &Words) -> Option<Element<'a, Message>> {
+    let balance = pool.balance()?;
+    Some(match balance {
+        Balance::Even => faded_text(words.t("pool-even"), 15.0, INK),
+        Balance::Heavy(skill, percent) => row![faded_text(words.t(skill.outweighs_key()), 15.0, INK), mono(format!("{percent}%"), 12.0, MUTED)].spacing(12).align_y(iced::Center).into(),
+    })
+}
+
+fn profile_bars<'a>(measure: &Measure, words: &Words) -> Element<'a, Message> {
+    let k = ui::fade();
+    let percents = measure.percents();
+    let mut list = column![ui::mono_small(words.t("pool-slot-profile"), FAINT)].spacing(10);
+    for (at, skill) in Skill::ALL.into_iter().enumerate() {
+        let filled = percents[at].clamp(0, 100) as u16;
+        let track = container(
+            row![
+                container(Space::new().height(5.0)).width(Length::FillPortion(filled.max(1))).style(move |_| container::Style { background: Some(Background::Color(Color { a: k, ..ACCENT })), border: Border { radius: 2.5.into(), ..Border::default() }, ..container::Style::default() }),
+                Space::new().width(Length::FillPortion((100 - filled).max(1))),
+            ],
+        )
+        .width(Length::Fill)
+        .style(move |_| container::Style { background: Some(Background::Color(Color::from_rgba(1.0, 1.0, 1.0, 0.03 * k))), border: Border { radius: 2.5.into(), ..Border::default() }, ..container::Style::default() });
+        list = list.push(
+            row![
+                container(faded_text(words.t(skill.key()), 13.0, MUTED)).width(110.0),
+                track,
+                container(mono(format!("{}%", percents[at]), 12.0, MUTED)).width(40.0).align_x(iced::alignment::Horizontal::Right),
+            ]
+            .spacing(12)
+            .align_y(iced::Center),
+        );
+    }
+    list.into()
+}
+
+fn slot_panel<'a>(pool: &'a Pool, at: usize, words: &'a Words, thumbs: &'a HashMap<String, image::Handle>, songs: Option<&Arc<HashMap<String, Map>>>) -> Element<'a, Message> {
+    let slot = &pool.slots[at];
+    let mut body = column![].spacing(16);
+    match slot.hash.as_deref() {
+        None => {
+            body = body.push(semi(words.t("pool-slot-empty"), 18.0, INK));
+            body = body.push(faded_text(words.t("pool-slot-need"), 13.0, MUTED));
+            body = body.push(primary_button(words.t("pool-add"), Message::AddPanel(true)));
+        }
+        Some(hash) => {
+            body = body.push(cover(thumbs, Some(hash), PANEL_WIDE - 32.0, 150.0, HERO_ROUND));
+            body = body.push(column![semi(slot.title.clone(), 20.0, INK), faded_text(slot.artist.clone(), 14.0, MUTED), mono(slot.version.clone(), 12.0, FAINT)].spacing(3));
+            match slot.measure {
+                Some(measure) => {
+                    body = body.push(
+                        row![
+                            figure(words.t("pool-stars"), stars_of(words, measure.stars), 30.0, crate::dossier::star_colour(measure.stars as f32)),
+                            figure(words.t("pool-bpm"), format!("{:.0}", measure.bpm), 20.0, INK),
+                            figure(words.t("pool-length"), pools::clock(measure.length_ms), 20.0, INK),
+                            figure(words.t("pool-combo"), measure.max_combo.to_string(), 20.0, INK),
+                        ]
+                        .spacing(24)
+                        .align_y(iced::alignment::Vertical::Bottom),
+                    );
+                    let one = |value: f64| screen::decimal(words, value as f32, 1);
+                    body = body.push(
+                        row![
+                            figure("AR".to_owned(), one(measure.ar), 16.0, INK),
+                            figure("OD".to_owned(), one(measure.od), 16.0, INK),
+                            figure("CS".to_owned(), one(measure.cs), 16.0, INK),
+                            figure("HP".to_owned(), one(measure.hp), 16.0, INK),
+                        ]
+                        .spacing(24),
+                    );
+                    body = body.push(profile_bars(&measure, words));
+                }
+                None if songs.is_some_and(|songs| !songs.contains_key(hash)) => body = body.push(mono(words.t("pool-no-disk"), 12.0, ACCENT)),
+                None => body = body.push(mono(words.t("pool-measuring"), 12.0, FAINT)),
+            }
+        }
+    }
+    body = body.push(mod_ribbon(words, at, slot.mods));
+    if !slot.is_empty() {
+        body = body.push(
+            column![
+                ui::mono_small(words.t("pool-slot-note"), FAINT),
+                text_input("", &slot.note).on_input(move |note| Message::Note(at, note)).font(theme::SANS).size(13.0).padding([8, 12]).style(theme::field_faded(ui::fade())),
+            ]
+            .spacing(8),
+        );
+        body = body.push(
+            row![
+                quiet_button(words.t("pool-replace"), Message::Replace),
+                button(text(words.t("pool-remove")).font(theme::SANS_SEMI).size(13.0).color(ui::faded(MUTED))).padding([8, 12]).style(ui::button_faded(theme::bare)).on_press(Message::Clear(at)),
+            ]
+            .spacing(8)
+            .align_y(iced::Center),
+        );
+    }
+    panel_box(body.into())
+}
+
+fn finding_card<'a>(finding: &'a Finding, editor: &'a Editor, pool: &'a Pool, words: &'a Words) -> Element<'a, Message> {
+    match finding {
+        Finding::Asking => mono(words.t("pool-link-asking"), 12.0, FAINT),
+        Finding::Refused(mode) => {
+            let inside = column![
+                row![glyph(Icon::Warn, 16.0, ACCENT), semi(words.with("pool-mode-title", &[("mode", pool_links::mode_name(mode).to_owned())]), 14.5, INK)].spacing(10).align_y(iced::Center),
+                para(words.t("pool-mode-text"), 13.0, MUTED),
+                quiet_button(words.t("pool-got-it"), Message::Dismiss),
+            ]
+            .spacing(10);
+            panel_box(inside.into())
+        }
+        Finding::Missing => {
+            let inside = column![row![glyph(Icon::Warn, 16.0, ACCENT), semi(words.t("pool-missing"), 14.0, INK)].spacing(10).align_y(iced::Center), quiet_button(words.t("pool-got-it"), Message::Dismiss)].spacing(10);
+            panel_box(inside.into())
+        }
+        Finding::Silent(_) => {
+            let inside = column![row![glyph(Icon::Warn, 16.0, ACCENT), semi(words.t("pool-silent"), 14.0, INK)].spacing(10).align_y(iced::Center), quiet_button(words.t("pool-retry"), Message::Retry)].spacing(10);
+            panel_box(inside.into())
+        }
+        Finding::Fetching(fetching) => fetching_card(fetching, words),
+        Finding::Found(candidate) => candidate_card(candidate, editor, pool, words),
+    }
+}
+
+fn stage_of(step: Option<&crate::maps::Step>) -> usize {
+    use crate::maps::Step;
+    match step {
+        None | Some(Step::Looking) => 0,
+        Some(Step::Found(_) | Step::Downloading { .. }) => 1,
+        Some(Step::Unpacking) => 2,
+        Some(_) => 3,
+    }
+}
+
+fn fetching_card<'a>(fetching: &'a Fetching, words: &'a Words) -> Element<'a, Message> {
+    use crate::maps::Step;
+    let stage = stage_of(fetching.step.as_ref());
+    let done_n = fetching.total - fetching.queue.len();
+    let megabytes = |bytes: u64| screen::decimal(words, bytes as f32 / 1_048_576.0, 1);
+    let download = match &fetching.step {
+        Some(Step::Downloading { done, total: Some(total), .. }) => words.with("pool-step-download-of", &[("done", megabytes(*done)), ("total", megabytes(*total))]),
+        _ => words.t("pool-step-download"),
+    };
+    let lines = [
+        words.t(if stage == 0 { "pool-step-looking" } else { "pool-step-found" }),
+        download,
+        words.t("pool-step-unpack"),
+        words.t("pool-step-check"),
+    ];
+    let mut list = column![].spacing(8);
+    for (at, line) in lines.into_iter().enumerate() {
+        let mark: Element<'a, Message> = if at < stage {
+            glyph(Icon::Check, 14.0, ACCENT)
+        } else if at == stage {
+            container(container(Space::new()).width(7.0).height(7.0).style(|_| container::Style { background: Some(Background::Color(ui::faded(ACCENT))), border: Border { radius: 3.5.into(), ..Border::default() }, ..container::Style::default() })).center(14.0).into()
+        } else {
+            Space::new().width(14.0).into()
+        };
+        let colour = if at == stage { INK } else if at < stage { MUTED } else { FAINT };
+        list = list.push(row![mark, faded_text(line, 13.5, colour)].spacing(10).align_y(iced::Center));
+    }
+    let inside = column![
+        row![semi(words.with("pool-fetching", &[("n", (done_n + 1).min(fetching.total).to_string()), ("total", fetching.total.to_string())]), 14.5, INK), ui::grow(), button(glyph(Icon::Close, 14.0, FAINT)).padding([4, 6]).style(ui::button_faded(theme::bare)).on_press(Message::Dismiss)].align_y(iced::Center),
+        list,
+    ]
+    .spacing(12);
+    panel_box(inside.into())
+}
+
+fn candidate_card<'a>(candidate: &'a Candidate, editor: &'a Editor, pool: &'a Pool, words: &'a Words) -> Element<'a, Message> {
+    let found = &candidate.found;
+    let many = found.difficulties.len() > 1;
+    let title = if many { words.n("pool-link-set", found.difficulties.len() as u64) } else { words.t("pool-link-found") };
+    let heading = row![glyph(Icon::Chain, 15.0, ACCENT), semi(title, 14.5, INK)].spacing(10).align_y(iced::Center);
+    let thumb: Element<'a, Message> = match &candidate.cover {
+        Some(handle) => image(crate::crops::fitted(handle, PANEL_WIDE - 32.0, 110.0, 12.0)).content_fit(iced::ContentFit::Fill).width(PANEL_WIDE - 32.0).height(110.0).border_radius(12.0).opacity(ui::fade()).into(),
+        None => container(Space::new())
+            .width(PANEL_WIDE - 32.0)
+            .height(110.0)
+            .style(|_| container::Style { background: Some(Background::Color(Color::from_rgba(1.0, 1.0, 1.0, 0.012))), border: Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.04), width: 1.0, radius: 10.0.into() }, ..container::Style::default() })
+            .into(),
+    };
+    let names = column![semi(found.title.clone(), 17.0, INK), faded_text(found.artist.clone(), 13.5, MUTED)].spacing(2);
+    let mut list = column![].spacing(6);
+    for (at, difficulty) in found.difficulties.iter().enumerate() {
+        let lit = candidate.choice == Some(at);
+        let colour = crate::dossier::star_colour(difficulty.stars as f32);
+        let dot = container(Space::new()).width(9.0).height(9.0).style(move |_| container::Style { background: Some(Background::Color(colour)), border: Border { radius: 4.5.into(), ..Border::default() }, ..container::Style::default() });
+        let line = row![dot, semi(difficulty.version.clone(), 13.5, INK), ui::grow(), mono(stars_of(words, difficulty.stars), 13.0, colour)].spacing(10).align_y(iced::Center);
+        let made: Element<'a, Message> = if many {
+            button(line).padding([8, 12]).width(Length::Fill).style(ui::button_faded(row_style(lit))).on_press(Message::Choose(at)).into()
+        } else {
+            container(line).padding([4, 4]).into()
+        };
+        list = list.push(made);
+    }
+    let mut chips = row![].spacing(8);
+    let mut options: Vec<Place> = Vec::new();
+    if let Some(slot) = target(pool, editor) {
+        options.push(Place::Slot(slot));
+    }
+    options.push(Place::End);
+    if let Some(selected) = editor.selected.filter(|at| pool.slots.get(*at).is_some_and(|slot| !slot.is_empty())) {
+        options.push(Place::Replace(selected));
+    }
+    for place in options {
+        let label = match place {
+            Place::Slot(at) => words.with("pool-place-slot", &[("n", (at + 1).to_string()), ("mod", pool.slots.get(at).map_or("NM", |slot| slot.mods.code()).to_owned())]),
+            Place::End => words.t("pool-place-end"),
+            Place::Replace(at) => words.with("pool-place-replace", &[("n", (at + 1).to_string())]),
+        };
+        chips = chips.push(button(text(label).font(theme::SANS_SEMI).size(13.0).wrapping(text::Wrapping::None)).padding([7, 14]).style(ui::button_faded(theme::filter_chip(candidate.place == place))).on_press(Message::Aim(place)));
+    }
+    let mut actions = row![].spacing(8).align_y(iced::Center);
+    let put_label = match candidate.choice.and_then(|at| found.difficulties.get(at)) {
+        Some(difficulty) => match candidate.place {
+            Place::End => words.with("pool-link-put-end", &[("version", difficulty.version.clone())]),
+            Place::Slot(at) | Place::Replace(at) => words.with("pool-link-put-to", &[("version", difficulty.version.clone()), ("n", (at + 1).to_string())]),
+        },
+        None => words.t("pool-link-put"),
+    };
+    actions = actions.push(if candidate.choice.is_some() { primary_button(put_label, Message::Confirm) } else { ui::primary(put_label, None) });
+    if many {
+        actions = actions.push(quiet_button(words.t("pool-link-put-all"), Message::ConfirmAll));
+    }
+    actions = actions.push(button(text(words.t("pool-link-cancel")).font(theme::SANS_SEMI).size(13.0).color(ui::faded(MUTED))).padding([8, 12]).style(ui::button_faded(theme::bare)).on_press(Message::Dismiss));
+    let inside = column![
+        heading,
+        thumb,
+        names,
+        list,
+        ui::mono_small(words.t("pool-link-where"), FAINT),
+        ui::wrap(vec![chips.into()], 8.0),
+        actions,
+    ]
+    .spacing(12);
+    panel_box(inside.into())
+}
+
+fn add_panel<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, words: &'a Words, thumbs: &'a HashMap<String, image::Handle>) -> Element<'a, Message> {
+    let mut body = column![].spacing(14);
+    let tabs = row![
+        button(text(words.t("pool-tab-search")).font(theme::SANS_SEMI).size(13.5)).padding([8, 16]).style(ui::button_faded(theme::filter_chip(true))),
+        ui::grow(),
+        button(glyph(Icon::Close, 14.0, FAINT)).padding([6, 8]).style(ui::button_faded(theme::bare)).on_press(Message::AddPanel(false)),
+    ]
+    .spacing(8)
+    .align_y(iced::Center);
+    body = body.push(tabs);
+    match target(pool, editor).and_then(|at| pool.slots.get(at).map(|slot| (at, slot))) {
+        Some((at, slot)) => body = body.push(faded_text(words.with("pool-for-slot", &[("n", (at + 1).to_string()), ("mod", slot.mods.code().to_owned())]), 13.0, MUTED)),
+        None => body = body.push(faded_text(words.t("pool-for-end"), 13.0, MUTED)),
+    }
+    body = body.push(
+        text_input(&words.t("pool-search-hint"), &editor.query)
+            .id(iced::widget::Id::new("pool-search"))
+            .on_input(Message::Query)
+            .font(theme::SANS)
+            .size(13.5)
+            .padding([9, 12])
+            .style(theme::field_faded(ui::fade())),
+    );
+    if let Some(Notice::Already(at)) = &state.notice {
+        body = body.push(faded_text(words.with("pool-already", &[("n", (at + 1).to_string())]), 13.0, ACCENT));
+    }
+    if let Some(Notice::NotALink) = &state.notice {
+        body = body.push(para(words.t("pool-not-link"), 13.0, ACCENT));
+    }
+    if let Some(finding) = &state.finding {
+        body = body.push(finding_card(finding, editor, pool, words));
+    } else if state.songs.is_none() {
+        body = body.push(mono(words.t("pool-reading"), 12.0, FAINT));
+    } else if editor.query.trim().is_empty() {
+        body = body.push(para(words.t("pool-search-start"), 13.0, MUTED));
+    } else {
+        let found = state.search(&editor.query);
+        if found.is_empty() {
+            body = body.push(faded_text(words.t("pool-nothing"), 13.0, MUTED));
+        }
+        let mut list = column![].spacing(2);
+        for (hash, map) in found {
+            let inside = row![
+                cover(thumbs, Some(&hash), 56.0, 32.0, THUMB_ROUND),
+                column![semi(map.title.clone(), 13.5, INK), faded_text(map.artist.clone(), 12.0, MUTED), mono(map.version.clone(), 11.0, FAINT)].spacing(1).width(Length::Fill),
+                glyph(Icon::Plus, 16.0, MUTED),
+            ]
+            .spacing(12)
+            .align_y(iced::Center);
+            list = list.push(button(inside).padding([6, 8]).width(Length::Fill).style(ui::button_faded(ui::calm(theme::row(false)))).on_press(Message::Put(hash)));
+        }
+        body = body.push(scrollable(list).height(Length::Fixed(420.0)).direction(ui::hidden_bar()).style(ui::thin_scroll));
+    }
+    panel_box(body.into())
+}
+
+fn share_row<'a>(icon: Icon, title: String, hint: String, action: String, press: Option<Message>) -> Element<'a, Message> {
+    let k = ui::fade();
+    let tile = container(glyph(icon, 16.0, MUTED))
+        .width(38.0)
+        .height(38.0)
+        .center(38.0)
+        .style(move |_| container::Style { background: Some(Background::Color(Color::from_rgba(1.0, 1.0, 1.0, 0.012 * k))), border: Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.04 * k), width: 1.0, radius: 10.0.into() }, ..container::Style::default() });
+    let words = column![semi(title, 14.0, INK), container(mono(hint, 11.5, FAINT)).clip(true)].spacing(3).width(Length::Fill);
+    row![tile, words, match press {
+        Some(press) => quiet_button(action, press),
+        None => ui::quiet(action, None),
+    }]
+    .spacing(14)
+    .align_y(iced::Center)
+    .into()
+}
+
+fn share_modal<'a>(pool: &'a Pool, words: &'a Words) -> Element<'a, Message> {
+    let line = pool_share::to_text(pool);
+    let shown = if line.chars().count() > 46 { format!("{}…", line.chars().take(46).collect::<String>()) } else { line };
+    let hash = row![
+        ui::mono_small(words.t("pool-hash"), FAINT),
+        text(pool.fingerprint()).font(theme::MONO_BOLD).size(14.0).color(ui::faded(INK)),
+        button(glyph(Icon::Copy, 14.0, MUTED)).padding([4, 6]).style(ui::button_faded(theme::bare)).on_press(Message::CopyHash),
+    ]
+    .spacing(10)
+    .align_y(iced::Center);
+    let inside = column![
+        row![semi(words.t("pool-share-title"), 18.0, INK), ui::grow(), hash].align_y(iced::Center),
+        share_row(Icon::File, words.t("pool-share-file"), words.t("pool-share-file-hint"), words.t("pool-save"), Some(Message::SaveFile)),
+        share_row(Icon::Copy, words.t("pool-share-string"), shown, words.t("pool-copy"), Some(Message::CopyText)),
+        para(words.t("pool-share-note"), 12.5, MUTED),
+        row![ui::grow(), quiet_button(words.t("pool-close"), Message::Share(false))],
+    ]
+    .spacing(16);
+    let card = sheet_box(inside.into());
+    let veil = iced::widget::mouse_area(ui::veil(theme::SCRIM)).on_press(Message::Share(false));
+    iced::widget::stack![veil, container(container(card).max_width(620.0).padding(24)).center(Length::Fill)].into()
+}
+
+fn bulk_bar<'a>(editor: &'a Editor, words: &'a Words) -> Element<'a, Message> {
+    let count = editor.marked.len();
+    let mut buttons = row![
+        semi(words.n("pool-marked", count as u64), 14.0, INK),
+        quiet_button(words.t("pool-bulk-mod"), Message::Bulk(Some(Bulk::Mod))),
+        quiet_button(words.t("pool-bulk-shift"), Message::Bulk(Some(Bulk::Shift))),
+        quiet_button(words.t("pool-bulk-remove"), Message::RemoveMarked),
+        button(text(words.t("pool-bulk-clear")).font(theme::SANS_SEMI).size(13.0).color(ui::faded(MUTED))).padding([8, 12]).style(ui::button_faded(theme::bare)).on_press(Message::Choosing(false)),
+    ]
+    .spacing(12)
+    .align_y(iced::Center);
+    let mut inside = column![].spacing(12).align_x(iced::Center);
+    match editor.bulk {
+        Some(Bulk::Mod) => {
+            let mut pills = row![].spacing(8);
+            for mods in Mod::ALL {
+                pills = pills.push(button(text(mods.code()).font(theme::SANS_SEMI).size(13.5)).padding([7, 14]).style(ui::button_faded(theme::filter_chip(false))).on_press(Message::BulkMod(mods)));
+            }
+            inside = inside.push(pills);
+        }
+        Some(Bulk::Shift) => {
+            let pills = row![
+                button(text(words.t("pool-shift-up")).font(theme::SANS_SEMI).size(13.5)).padding([7, 14]).style(ui::button_faded(theme::filter_chip(false))).on_press(Message::Shift(false)),
+                button(text(words.t("pool-shift-down")).font(theme::SANS_SEMI).size(13.5)).padding([7, 14]).style(ui::button_faded(theme::filter_chip(false))).on_press(Message::Shift(true)),
+            ]
+            .spacing(8);
+            inside = inside.push(pills);
+        }
+        None => {}
+    }
+    buttons = buttons.align_y(iced::Center);
+    inside = inside.push(buttons);
+    let bar = sheet_box(inside.into());
+    container(container(bar).max_width(640.0)).width(Length::Fill).height(Length::Fill).align_x(iced::alignment::Horizontal::Center).align_y(iced::alignment::Vertical::Bottom).padding(24).into()
+}
+
+fn open_view<'a>(state: &'a State, opening: &'a Opening, words: &'a Words, thumbs: &'a HashMap<String, image::Handle>, t: f32) -> Element<'a, Message> {
+    let pool = &opening.pool;
+    let have: Vec<&Slot> = pool.slots.iter().filter(|slot| slot.hash.is_some()).collect();
+    let total = have.len();
+    let known = state.songs.is_some();
+    let missing = state.missing(pool);
+    let present = total.saturating_sub(missing.len());
+    let head = crumbs(words, Some(Message::Back), semi(words.t("pool-open-title"), 28.0, INK));
+    let name = if pool.name.is_empty() { words.t("pool-untitled") } else { pool.name.clone() };
+    let mark = |done: bool, active: bool| -> Element<'a, Message> {
+        if done {
+            glyph(Icon::Check, 14.0, ACCENT)
+        } else if active {
+            container(container(Space::new()).width(7.0).height(7.0).style(|_| container::Style { background: Some(Background::Color(ui::faded(ACCENT))), border: Border { radius: 3.5.into(), ..Border::default() }, ..container::Style::default() })).center(14.0).into()
+        } else {
+            Space::new().width(14.0).into()
+        }
+    };
+    let line = |done: bool, active: bool, said: String| -> Element<'a, Message> { row![mark(done, active), faded_text(said, 13.5, if active { INK } else if done { MUTED } else { FAINT })].spacing(10).align_y(iced::Center).into() };
+    let fetching_line = match &opening.step {
+        Some(crate::maps::Step::Downloading { done, total: Some(size), .. }) => {
+            let mb = |bytes: u64| screen::decimal(words, bytes as f32 / 1_048_576.0, 1);
+            words.with("pool-step-download-of", &[("done", mb(*done)), ("total", mb(*size))])
+        }
+        _ if opening.running => words.n("pool-open-fetching", (opening.total).saturating_sub(opening.queue.len()) as u64),
+        _ => words.t("pool-open-fetch-idle"),
+    };
+    let measured = pool.slots.iter().filter(|slot| slot.hash.is_some()).all(|slot| slot.measure.is_some()) && total > 0;
+    let mut ledger = column![
+        semi(words.with("pool-opening", &[("name", name)]), 15.0, INK),
+        line(true, false, words.t("pool-open-read")),
+        line(known, !known, if known { words.with("pool-open-found", &[("n", present.to_string()), ("total", total.to_string())]) } else { words.t("pool-reading") }),
+    ]
+    .spacing(10);
+    if !missing.is_empty() || opening.running || opening.lost > 0 {
+        ledger = ledger.push(line(!opening.running && missing.is_empty(), opening.running, fetching_line));
+    }
+    ledger = ledger.push(line(measured, known && !measured && missing.is_empty(), words.t("pool-open-measure")));
+    if opening.lost > 0 && !opening.running {
+        ledger = ledger.push(mono(words.n("pool-open-lost", opening.lost as u64), 12.0, ACCENT));
+    }
+    let mut actions = column![].spacing(10);
+    if known && !missing.is_empty() && !opening.running {
+        actions = actions.push(primary_button(words.t("pool-open-get"), Message::GetMissing));
+        actions = actions.push(quiet_button(words.t("pool-open-keep-bare"), Message::Keep));
+    } else if opening.running {
+        actions = actions.push(ui::primary(words.t("pool-open-keep"), None));
+    } else {
+        actions = actions.push(primary_button(words.t("pool-open-keep"), Message::Keep));
+    }
+    let left = panel_box(column![ledger, actions, para(words.t("pool-open-note"), 12.0, MUTED)].spacing(18).into());
+
+    let mut list = column![].spacing(4);
+    for (at, slot) in pool.slots.iter().enumerate() {
+        let gone = slot.hash.as_deref().is_some_and(|hash| known && !state.songs.as_ref().is_some_and(|songs| songs.contains_key(hash)));
+        let badges = row![number_badge(at + 1, false), mod_badge(slot.mods, false)].spacing(8).align_y(iced::Center).width(88.0);
+        let figure: Element<'a, Message> = match (&slot.measure, gone, slot.hash.is_some()) {
+            (Some(measure), _, _) => text(stars_of(words, measure.stars)).font(theme::MONO_BOLD).size(19.0).wrapping(text::Wrapping::None).color(ui::faded(crate::dossier::star_colour(measure.stars as f32))).into(),
+            (None, true, _) => mono(words.t("pool-gone"), 12.0, ACCENT),
+            _ => Space::new().width(0.0).into(),
+        };
+        let inner: Element<'a, Message> = if slot.hash.is_none() {
+            row![badges, cover(thumbs, None, COVER_WIDE, COVER_HIGH, COVER_ROUND), column![semi(words.t("pool-slot-empty"), 14.0, MUTED)].width(Length::Fill)].spacing(14).align_y(iced::Center).into()
+        } else {
+            row![
+                badges,
+                cover(thumbs, slot.hash.as_deref(), COVER_WIDE, COVER_HIGH, COVER_ROUND),
+                column![semi(slot.title.clone(), 14.0, INK), faded_text(slot.artist.clone(), 12.5, MUTED), mono(slot.version.clone(), 11.0, FAINT)].spacing(1).width(Length::Fill),
+                figure,
+            ]
+            .spacing(14)
+            .align_y(iced::Center)
+            .into()
+        };
+        list = list.push(container(inner).height(ROW_HIGH).align_y(iced::Center).padding([4, 10]));
+    }
+    let right = column![ui::mono_small(words.t("pool-open-body"), FAINT), list].spacing(10);
+    let body: Element<'a, Message> = row![container(left).width(Length::Fixed(PANEL_WIDE)), container(right).width(Length::Fill)].spacing(32).align_y(iced::alignment::Vertical::Top).into();
+    column![ui::appearing(ui::appear(t, 0), 10.0, || head.into()), ui::appearing(ui::appear(t, 1), 10.0, || body)].spacing(24).into()
+}
+
+fn editor_view<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, words: &'a Words, thumbs: &'a HashMap<String, image::Handle>, width: f32, t: f32) -> Element<'a, Message> {
+    let facts = pool.facts();
+    let name_wide = (pool.name.chars().count().max(10) as f32 * 15.5 + 24.0).clamp(240.0, 560.0);
+    let field = text_input(&words.t("pool-name-hint"), &pool.name)
+        .on_input(Message::Rename)
+        .font(theme::SANS_SEMI)
+        .size(28.0)
+        .padding(0)
+        .style(ui::bare_input(ui::fade()))
+        .width(name_wide);
+    let name: Element<'a, Message> = match pool.profile() {
+        Some(shares) => row![field, print_figure(shares, 30.0)].spacing(14).align_y(iced::Center).into(),
+        None => field.into(),
+    };
+    let mut buttons = row![].spacing(10).align_y(iced::Center);
+    if pool.filled() > 0 {
+        buttons = buttons.push(quiet_button(words.t("pool-share"), Message::Share(true)));
+    }
+    buttons = buttons.push(primary_button(words.t("pool-add"), Message::AddPanel(editor.panel != Panel::Add)));
+    let head = row![
+        container(crumbs(words, Some(Message::Back), name)).width(Length::Fill),
+        buttons,
+    ]
+    .align_y(iced::alignment::Vertical::Bottom)
+    .spacing(16);
+
+    let mut under = column![].spacing(14);
+    if pool.filled() == 0 {
+        let mut chips = row![].spacing(8);
+        for frame in Frame::ALL {
+            chips = chips.push(
+                button(text(words.t(frame.key())).font(theme::SANS_SEMI).size(13.5).wrapping(text::Wrapping::None))
+                    .padding([8, 16])
+                    .style(ui::button_faded(theme::filter_chip(pool.frame == frame)))
+                    .on_press(Message::UseFrame(frame)),
+            );
+        }
+        under = under.push(chips);
+    } else {
+        let mut line = row![mono(words.n("pool-cards", facts.cards as u64), 13.0, MUTED), mono(words.n("pool-minutes", facts.minutes.max(0) as u64), 13.0, MUTED)].spacing(20).align_y(iced::Center);
+        if let (Some(low), Some(high)) = (facts.low, facts.high) {
+            line = line.push(mono(words.with("pool-range", &[("low", stars_of(words, low)), ("high", stars_of(words, high))]), 13.0, MUTED));
+        }
+        let undoable = state.undo.iter().any(|(id, _)| *id == pool.id);
+        let mut tools = row![line, ui::grow()].spacing(12).align_y(iced::Center);
+        if undoable {
+            tools = tools.push(button(text(words.t("pool-undo")).font(theme::SANS_SEMI).size(13.0).color(ui::faded(MUTED))).padding([6, 10]).style(ui::button_faded(theme::bare)).on_press(Message::Undo));
+        }
+        tools = tools.push(button(text(words.t(if editor.choosing { "pool-choose-done" } else { "pool-choose" })).font(theme::SANS_SEMI).size(13.0).color(ui::faded(if editor.choosing { ACCENT } else { MUTED }))).padding([6, 10]).style(ui::button_faded(theme::bare)).on_press(Message::Choosing(!editor.choosing)));
+        under = under.push(tools);
+    }
+    if !pool.slots.is_empty() {
+        under = under.push(strip(pool, editor.selected));
+    }
+    if let Some(line) = balance_line(pool, words) {
+        under = under.push(line);
+    }
+
+    let songs = state.songs.as_ref();
+    let mut list = column![].spacing(4);
+    for at in 0..pool.slots.len() {
+        let lit = if editor.choosing { editor.marked.contains(&at) } else { editor.selected == Some(at) };
+        list = list.push(slot_row(pool, at, lit, editor.choosing, words, thumbs, songs));
+    }
+    if pool.slots.is_empty() {
+        list = list.push(container(faded_text(words.t("pool-free-empty"), 14.0, MUTED)).padding([24, 10]));
+    }
+
+    let side: Option<Element<'a, Message>> = match editor.panel {
+        Panel::Add => Some(add_panel(state, editor, pool, words, thumbs)),
+        Panel::Slot => editor.selected.filter(|at| *at < pool.slots.len()).map(|at| slot_panel(pool, at, words, thumbs, songs)),
+        Panel::Closed => None,
+    };
+    let body: Element<'a, Message> = match side {
+        Some(side) if width >= PANEL_FROM => row![container(list).width(Length::FillPortion(3)), container(side).width(Length::Fixed(PANEL_WIDE))].spacing(24).align_y(iced::alignment::Vertical::Top).into(),
+        Some(side) => column![side, list].spacing(18).into(),
+        None => list.into(),
+    };
+    let danger: Element<'a, Message> = if editor.asking_delete {
+        let name = if pool.name.is_empty() { words.t("pool-untitled") } else { pool.name.clone() };
+        row![
+            faded_text(words.with("pool-delete-ask", &[("name", name)]), 13.0, MUTED),
+            button(text(words.t("pool-delete-yes")).font(theme::SANS_SEMI).size(13.0)).padding([6, 12]).style(ui::button_faded(theme::danger_words)).on_press(Message::DeletePool),
+            quiet_button(words.t("pool-delete-no"), Message::AskDelete(false)),
+        ]
+        .spacing(14)
+        .align_y(iced::Center)
+        .into()
+    } else {
+        button(text(words.t("pool-delete")).font(theme::SANS).size(12.5).color(ui::faded(FAINT))).padding([6, 0]).style(ui::button_faded(theme::bare)).on_press(Message::AskDelete(true)).into()
+    };
+    column![
+        ui::appearing(ui::appear(t, 0), 10.0, || head.into()),
+        ui::appearing(ui::appear(t, 1), 10.0, || under.into()),
+        ui::appearing(ui::appear(t, 2), 10.0, || body),
+        container(danger).padding(Padding::ZERO.top(12.0)),
+    ]
+    .spacing(22)
+    .into()
+}
+
+pub fn view<'a>(state: &'a State, words: &'a Words, thumbs: &'a HashMap<String, image::Handle>, width: f32, t: f32) -> Element<'a, Message> {
+    let page = match &state.screen {
+        Screen::Open(opening) => open_view(state, opening, words, thumbs, t),
+        Screen::Shelf => shelf(state, words, thumbs, width.min(1180.0), t),
+        Screen::Editor(editor) => match state.list.iter().find(|pool| pool.id == editor.id) {
+            Some(pool) => editor_view(state, editor, pool, words, thumbs, width, t),
+            None => shelf(state, words, thumbs, width.min(1180.0), t),
+        },
+    };
+    let rolled = scrollable(container(container(page).max_width(1180.0)).center_x(Length::Fill).padding(Padding { top: 12.0, right: 40.0, bottom: 28.0, left: 40.0 }))
+        .style(ui::thin_scroll)
+        .direction(ui::hidden_bar())
+        .width(Length::Fill)
+        .height(Length::Fill);
+    let page: Element<'a, Message> = crate::glide::brim(rolled).into();
+    if let Screen::Editor(editor) = &state.screen {
+        if editor.choosing && !editor.marked.is_empty() {
+            return iced::widget::stack![page, bulk_bar(editor, words)].into();
+        }
+        if editor.share {
+            if let Some(pool) = state.list.iter().find(|pool| pool.id == editor.id) {
+                return iced::widget::stack![page, share_modal(pool, words)].into();
+            }
+        }
+    }
+    page
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn scratch(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("dossier-pools-screen-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        dir
+    }
+
+    fn map(title: &str, artist: &str, version: &str) -> Map {
+        Map { file: PathBuf::from(format!("/songs/{title}.osu")), artist: artist.to_owned(), title: title.to_owned(), version: version.to_owned(), background: Some(PathBuf::from(format!("/songs/{title}.jpg"))) }
+    }
+
+    fn state_with_songs(name: &str) -> State {
+        let mut state = State::new(scratch(name));
+        let mut songs = HashMap::new();
+        for (hash, title, artist, version) in [("a1", "Glass Orchard", "Nova Tide", "Garden"), ("b2", "Salt and Static", "Marrow", "Another"), ("c3", "Ninth Window", "Kite and Ash", "Hard"), ("d4", "Glass Harbour", "Nova Tide", "Expert")] {
+            songs.insert(hash.to_owned(), map(title, artist, version));
+        }
+        state.songs = Some(Arc::new(songs));
+        state.loaded = true;
+        state
+    }
+
+    fn measure(stars: f64) -> Measure {
+        Measure { stars, bpm: 180.0, length_ms: 120_000, ar: 9.0, od: 8.0, cs: 4.0, hp: 5.0, max_combo: 700, aim: 2.0, speed: 2.0, reading: 0.5, stamina: 1.0 }
+    }
+
+    fn open_new(state: &mut State) -> String {
+        state.update(Message::New, 1_790_000_000);
+        state.editing().expect("an editor").id.clone()
+    }
+
+    #[test]
+    fn a_new_pool_opens_in_the_editor_and_an_untouched_one_is_removed_on_leaving() {
+        let mut state = state_with_songs("untouched");
+        let id = open_new(&mut state);
+        assert_eq!(state.list.len(), 1);
+        assert_eq!(state.editing().unwrap().slots.len(), 7);
+        assert_eq!(pools::load_all(&state.dir).len(), 1, "it is on the disk at once");
+        state.update(Message::Back, 1_790_000_001);
+        assert!(state.list.is_empty());
+        assert!(pools::load_all(&state.dir).is_empty());
+        assert_eq!(state.screen, Screen::Shelf);
+        assert!(!state.dir.join(format!("{id}.pool")).exists());
+    }
+
+    #[test]
+    fn a_named_pool_stays_when_it_has_no_maps_yet() {
+        let mut state = state_with_songs("named");
+        open_new(&mut state);
+        state.update(Message::Rename("Spring".into()), 1_790_000_002);
+        state.update(Message::Back, 1_790_000_003);
+        assert_eq!(state.list.len(), 1);
+        assert_eq!(pools::load_all(&state.dir)[0].name, "Spring");
+    }
+
+    #[test]
+    fn the_frame_can_be_changed_only_while_the_pool_is_empty() {
+        let mut state = state_with_songs("frames");
+        open_new(&mut state);
+        state.update(Message::UseFrame(Frame::Stage), 1_790_000_002);
+        assert_eq!(state.editing().unwrap().slots.len(), 12);
+        state.update(Message::UseFrame(Frame::Free), 1_790_000_003);
+        assert!(state.editing().unwrap().slots.is_empty());
+        state.update(Message::Put("a1".into()), 1_790_000_004);
+        state.update(Message::UseFrame(Frame::Duel), 1_790_000_005);
+        assert_eq!(state.editing().unwrap().frame, Frame::Free, "a pool with a map keeps its frame");
+    }
+
+    #[test]
+    fn a_map_goes_to_the_first_empty_slot_then_to_the_selected_one() {
+        let mut state = state_with_songs("put");
+        open_new(&mut state);
+        state.update(Message::Put("a1".into()), 1_790_000_002);
+        state.update(Message::Put("b2".into()), 1_790_000_003);
+        let pool = state.editing().unwrap();
+        assert_eq!((pool.slots[0].hash.as_deref(), pool.slots[1].hash.as_deref()), (Some("a1"), Some("b2")));
+        assert_eq!(pool.slots[0].title, "Glass Orchard");
+        assert_eq!(state.editing().unwrap().filled(), 2, "the second map does not replace the first");
+        state.update(Message::Select(Some(0)), 1_790_000_004);
+        state.update(Message::Put("c3".into()), 1_790_000_004);
+        assert_eq!(state.editing().unwrap().slots[2].hash.as_deref(), Some("c3"), "a filled slot that is only selected is not replaced");
+        state.update(Message::Select(Some(0)), 1_790_000_005);
+        state.update(Message::Replace, 1_790_000_005);
+        state.update(Message::Put("d4".into()), 1_790_000_005);
+        let pool = state.editing().unwrap();
+        assert_eq!(pool.slots[0].hash.as_deref(), Some("d4"), "replacing is done on request");
+        assert_eq!(pool.filled(), 3);
+        assert_eq!(pools::load_all(&state.dir)[0].slots[0].hash.as_deref(), Some("d4"));
+    }
+
+    #[test]
+    fn a_map_already_in_the_pool_is_refused_with_its_slot() {
+        let mut state = state_with_songs("twice");
+        open_new(&mut state);
+        state.update(Message::Put("a1".into()), 1_790_000_002);
+        state.update(Message::Select(None), 1_790_000_003);
+        state.update(Message::Put("a1".into()), 1_790_000_004);
+        assert_eq!(state.notice, Some(Notice::Already(0)));
+        assert_eq!(state.editing().unwrap().filled(), 1);
+        state.update(Message::Query("g".into()), 1_790_000_005);
+        assert_eq!(state.notice, None, "typing clears the notice");
+    }
+
+    #[test]
+    fn a_full_frame_grows_by_a_slot_and_a_free_pool_grows_from_nothing() {
+        let mut state = state_with_songs("grow");
+        open_new(&mut state);
+        for (at, hash) in ["a1", "b2", "c3", "d4"].into_iter().enumerate() {
+            state.update(Message::Select(None), 1_790_000_002 + at as i64);
+            state.update(Message::Put(hash.into()), 1_790_000_010 + at as i64);
+        }
+        assert_eq!(state.editing().unwrap().filled(), 4);
+        let mut free = state_with_songs("free");
+        open_new(&mut free);
+        free.update(Message::UseFrame(Frame::Free), 1_790_000_002);
+        free.update(Message::Put("a1".into()), 1_790_000_003);
+        assert_eq!(free.editing().unwrap().slots.len(), 1);
+        assert_eq!(free.editing().unwrap().slots[0].mods, Mod::Nm);
+        free.update(Message::Clear(0), 1_790_000_004);
+        assert!(free.editing().unwrap().slots.is_empty(), "removing a map from a free pool removes its slot");
+    }
+
+    #[test]
+    fn clearing_a_slot_in_a_frame_keeps_the_slot_and_its_mod() {
+        let mut state = state_with_songs("clear");
+        open_new(&mut state);
+        state.update(Message::Put("a1".into()), 1_790_000_002);
+        state.update(Message::SetMod(0, Mod::Hd), 1_790_000_003);
+        state.update(Message::Clear(0), 1_790_000_004);
+        let pool = state.editing().unwrap();
+        assert_eq!(pool.slots.len(), 7);
+        assert!(pool.slots[0].is_empty());
+        assert_eq!(pool.slots[0].mods, Mod::Hd);
+    }
+
+    #[test]
+    fn a_measure_arriving_fills_the_slots_and_reaches_the_disk() {
+        let mut state = state_with_songs("measure");
+        open_new(&mut state);
+        let effects = state.update(Message::Put("a1".into()), 1_790_000_002);
+        assert!(matches!(effects.as_slice(), [Effect::Measure(hash, _, Mod::Nm)] if hash == "a1"));
+        assert!(state.editing().unwrap().slots[0].measure.is_none());
+        state.update(Message::Measured("a1".into(), Mod::Nm, Ok(measure(4.5))), 1_790_000_003);
+        assert_eq!(state.editing().unwrap().slots[0].measure, Some(measure(4.5)));
+        assert_eq!(pools::load_all(&state.dir)[0].slots[0].measure, Some(measure(4.5)));
+        let again = state.update(Message::Put("a1".into()), 1_790_000_004);
+        assert!(again.is_empty(), "a map measured once is not measured again");
+    }
+
+    #[test]
+    fn changing_the_mod_asks_for_a_new_measure_and_keeps_the_old_ones_cached() {
+        let mut state = state_with_songs("mods");
+        open_new(&mut state);
+        state.update(Message::Put("a1".into()), 1_790_000_002);
+        state.update(Message::Measured("a1".into(), Mod::Nm, Ok(measure(4.5))), 1_790_000_003);
+        let effects = state.update(Message::SetMod(0, Mod::Dt), 1_790_000_004);
+        assert!(matches!(effects.as_slice(), [Effect::Measure(_, _, Mod::Dt)]));
+        assert!(state.editing().unwrap().slots[0].measure.is_none());
+        state.update(Message::Measured("a1".into(), Mod::Dt, Ok(measure(5.6))), 1_790_000_005);
+        assert_eq!(state.editing().unwrap().slots[0].measure.unwrap().stars, 5.6);
+        let back = state.update(Message::SetMod(0, Mod::Nm), 1_790_000_006);
+        assert!(back.is_empty(), "the old measure comes from the cache");
+        state.update(Message::Measured("a1".into(), Mod::Nm, Ok(measure(4.5))), 1_790_000_007);
+        assert_eq!(state.editing().unwrap().slots[0].measure.unwrap().stars, 4.5);
+    }
+
+    #[test]
+    fn opening_the_shelf_reads_songs_once_and_a_pool_from_an_older_calculation_is_measured_again() {
+        let dir = scratch("old");
+        let mut pool = Pool::new(Frame::Duel, "Old", 1_790_000_000);
+        pool.slots[0].hash = Some("a1".into());
+        pool.slots[0].measure = Some(measure(3.0));
+        pool.calc = 0;
+        pools::save(&dir, &pool).unwrap();
+        let mut state = State::new(dir);
+        let first = state.open();
+        assert!(matches!(first.as_slice(), [Effect::ReadSongs]));
+        assert!(state.list[0].slots[0].measure.is_none());
+        assert_eq!(state.list[0].calc, pools::CALC_VERSION);
+        assert!(state.open().is_empty(), "reading is already under way");
+        let mut songs = HashMap::new();
+        songs.insert("a1".to_owned(), map("Glass Orchard", "Nova Tide", "Garden"));
+        let after = state.update(Message::Songs(Arc::new(songs)), 1_790_000_100);
+        assert!(matches!(after.as_slice(), [Effect::Measure(hash, _, Mod::Nm)] if hash == "a1"));
+    }
+
+    #[test]
+    fn search_needs_every_word_and_lists_at_most_forty_by_title() {
+        let state = state_with_songs("search");
+        let found: Vec<String> = state.search("nova  glass").into_iter().map(|(_, map)| map.title).collect();
+        assert_eq!(found, ["Glass Harbour", "Glass Orchard"]);
+        assert!(state.search("   ").is_empty());
+        assert!(state.search("zzz").is_empty());
+        let mut many = HashMap::new();
+        for at in 0..100 {
+            many.insert(format!("h{at:03}"), map(&format!("Song {at:03}"), "Artist", "Normal"));
+        }
+        let mut crowded = State::new(scratch("crowd"));
+        crowded.songs = Some(Arc::new(many));
+        let listed = crowded.search("song");
+        assert_eq!(listed.len(), RESULTS_MOST);
+        assert!(listed.windows(2).all(|pair| pair[0].1.title <= pair[1].1.title));
+    }
+
+    #[test]
+    fn covers_ask_for_the_first_four_maps_of_each_pool_on_the_shelf() {
+        let mut state = state_with_songs("covers");
+        open_new(&mut state);
+        for hash in ["a1", "b2", "c3", "d4"] {
+            state.update(Message::Select(None), 1_790_000_002);
+            state.update(Message::Put(hash.into()), 1_790_000_003);
+        }
+        state.update(Message::Rename("Four".into()), 1_790_000_004);
+        state.update(Message::Back, 1_790_000_005);
+        let wanted: Vec<String> = state.covers().into_iter().map(|(hash, _)| hash).collect();
+        assert_eq!(wanted.len(), 4);
+        assert!(wanted.contains(&"a1".to_owned()) && wanted.contains(&"d4".to_owned()));
+    }
+
+    #[test]
+    fn a_map_that_is_not_on_the_disk_keeps_its_label_and_has_no_measure() {
+        let mut state = state_with_songs("away");
+        open_new(&mut state);
+        state.update(Message::Put("a1".into()), 1_790_000_002);
+        state.update(Message::Measured("a1".into(), Mod::Nm, Err("gone".into())), 1_790_000_003);
+        let slot = &state.editing().unwrap().slots[0];
+        assert_eq!(slot.title, "Glass Orchard");
+        assert!(slot.measure.is_none());
+        assert!(matches!(state.measures.get("a1", Mod::Nm), Some(Err(_))));
+    }
+
+    fn found(hashes: &[&str], picked: Option<usize>) -> pool_links::Found {
+        pool_links::Found {
+            set: 77,
+            artist: "Nova Tide".into(),
+            title: "Glass Orchard".into(),
+            difficulties: hashes.iter().enumerate().map(|(at, hash)| pool_links::Difficulty { id: 100 + at as u64, hash: (*hash).into(), version: format!("Diff {at}"), stars: 3.0 + at as f64 }).collect(),
+            picked,
+        }
+    }
+
+    const LINK: &str = "https://osu.ppy.sh/beatmapsets/77#osu/100";
+
+    #[test]
+    fn a_link_pasted_on_the_shelf_makes_a_pool_opens_the_add_panel_and_asks_the_mirror() {
+        let mut state = state_with_songs("paste-shelf");
+        let effects = state.update(Message::Pasted(format!("  {LINK}\n")), 1_790_000_001);
+        assert!(matches!(effects.as_slice(), [Effect::Resolve(Target::Set { id: 77, beatmap: Some(100), .. })]), "{effects:?}");
+        let editor = match &state.screen {
+            Screen::Editor(editor) => editor.clone(),
+            Screen::Shelf | Screen::Open(_) => panic!("a pool was opened"),
+        };
+        assert_eq!(editor.panel, Panel::Add);
+        assert_eq!(editor.query, LINK);
+        assert!(matches!(state.finding, Some(Finding::Asking)));
+    }
+
+    #[test]
+    fn words_pasted_on_the_shelf_do_nothing_but_inside_a_pool_they_become_the_search() {
+        let mut state = state_with_songs("paste-words");
+        assert!(state.update(Message::Pasted("hello there".into()), 1_790_000_001).is_empty());
+        assert_eq!(state.screen, Screen::Shelf);
+        assert!(state.list.is_empty());
+        open_new(&mut state);
+        state.update(Message::Pasted("glass".into()), 1_790_000_002);
+        let Screen::Editor(editor) = &state.screen else { panic!("still in the editor") };
+        assert_eq!((editor.panel, editor.query.as_str()), (Panel::Add, "glass"));
+        assert!(state.finding.is_none());
+    }
+
+    #[test]
+    fn a_resolved_map_offers_the_automatic_slot_and_asks_for_its_cover() {
+        let mut state = state_with_songs("resolved");
+        open_new(&mut state);
+        state.update(Message::Pasted(LINK.into()), 1_790_000_002);
+        let effects = state.update(Message::Resolved(Ok(found(&["a1"], Some(0)))), 1_790_000_003);
+        assert!(matches!(effects.as_slice(), [Effect::Cover(url, 77)] if url.ends_with("/77/covers/cover.jpg")));
+        let Some(Finding::Found(candidate)) = &state.finding else { panic!("found") };
+        assert_eq!((candidate.choice, candidate.place), (Some(0), Place::Slot(0)));
+        state.update(Message::Cover(77, None), 1_790_000_004);
+        assert!(matches!(state.finding, Some(Finding::Found(_))));
+    }
+
+    #[test]
+    fn a_set_waits_for_a_choice_and_a_map_on_the_disk_is_placed_without_a_download() {
+        let mut state = state_with_songs("choice");
+        open_new(&mut state);
+        state.update(Message::Pasted("https://osu.ppy.sh/beatmapsets/77".into()), 1_790_000_002);
+        state.update(Message::Resolved(Ok(found(&["a1", "b2", "c3"], None))), 1_790_000_003);
+        let Some(Finding::Found(candidate)) = &state.finding else { panic!("found") };
+        assert_eq!(candidate.choice, None);
+        assert!(state.update(Message::Confirm, 1_790_000_004).is_empty(), "nothing is placed before a choice");
+        assert!(matches!(state.finding, Some(Finding::Found(_))), "the card stays");
+        state.update(Message::Choose(1), 1_790_000_005);
+        state.update(Message::Aim(Place::Slot(3)), 1_790_000_005);
+        let effects = state.update(Message::Confirm, 1_790_000_006);
+        assert!(effects.iter().all(|effect| !matches!(effect, Effect::Fetch(..))), "the map is already on the disk");
+        assert!(state.finding.is_none());
+        assert_eq!(state.editing().unwrap().slots[3].hash.as_deref(), Some("b2"));
+    }
+
+    #[test]
+    fn a_map_that_is_not_on_the_disk_is_fetched_step_by_step_and_then_placed() {
+        use crate::maps::Step;
+        let mut state = state_with_songs("fetch");
+        open_new(&mut state);
+        state.update(Message::Pasted(LINK.into()), 1_790_000_002);
+        state.update(Message::Resolved(Ok(found(&["zz9"], Some(0)))), 1_790_000_003);
+        state.update(Message::Aim(Place::Slot(2)), 1_790_000_004);
+        let effects = state.update(Message::Confirm, 1_790_000_005);
+        assert!(matches!(effects.as_slice(), [Effect::Fetch(hash, _)] if hash == "zz9"));
+        let Some(Finding::Fetching(fetching)) = &state.finding else { panic!("fetching") };
+        assert_eq!((fetching.total, fetching.queue.len()), (1, 0));
+        state.update(Message::Step("zz9".into(), Step::Downloading { from: "osu.direct", done: 3_000_000, total: Some(5_000_000) }), 1_790_000_006);
+        assert_eq!(stage_of(match &state.finding { Some(Finding::Fetching(f)) => f.step.as_ref(), _ => None }), 1);
+        let map = map("Fetched Song", "Artist", "Normal");
+        state.update(Message::Step("zz9".into(), Step::Done(map)), 1_790_000_007);
+        assert!(state.finding.is_none());
+        assert_eq!(state.editing().unwrap().slots[2].hash.as_deref(), Some("zz9"));
+        assert!(state.fetched.contains_key("zz9"));
+        assert!(state.songs.as_ref().unwrap().contains_key("zz9"));
+    }
+
+    #[test]
+    fn putting_all_places_what_is_on_the_disk_at_once_and_fetches_the_rest_into_the_next_slots() {
+        use crate::maps::Step;
+        let mut state = state_with_songs("all");
+        open_new(&mut state);
+        state.update(Message::Pasted("https://osu.ppy.sh/beatmapsets/77".into()), 1_790_000_002);
+        state.update(Message::Resolved(Ok(found(&["a1", "zz9", "c3"], None))), 1_790_000_003);
+        let effects = state.update(Message::ConfirmAll, 1_790_000_004);
+        let fetches: Vec<&Effect> = effects.iter().filter(|effect| matches!(effect, Effect::Fetch(..))).collect();
+        assert!(matches!(fetches.as_slice(), [Effect::Fetch(hash, _)] if hash == "zz9"), "the first is placed, the second is fetched: {effects:?}");
+        assert!(effects.iter().any(|effect| matches!(effect, Effect::Measure(hash, _, _) if hash == "a1")), "the map on the disk is measured");
+        assert_eq!(state.editing().unwrap().slots[0].hash.as_deref(), Some("a1"));
+        let Some(Finding::Fetching(fetching)) = &state.finding else { panic!("fetching") };
+        assert_eq!((fetching.total, fetching.queue.clone()), (3, vec!["c3".to_owned()]));
+        state.update(Message::Step("zz9".into(), Step::Done(map("Second", "Artist", "Hard"))), 1_790_000_005);
+        let pool = state.editing().unwrap();
+        assert_eq!((pool.slots[0].hash.as_deref(), pool.slots[1].hash.as_deref(), pool.slots[2].hash.as_deref()), (Some("a1"), Some("zz9"), Some("c3")));
+        assert!(state.finding.is_none());
+    }
+
+    #[test]
+    fn a_taiko_link_is_refused_and_a_not_a_map_link_is_told_under_the_field() {
+        let mut state = state_with_songs("refuse");
+        open_new(&mut state);
+        let effects = state.update(Message::Query("https://osu.ppy.sh/beatmapsets/5#taiko/6".into()), 1_790_000_002);
+        assert!(effects.is_empty());
+        assert!(matches!(&state.finding, Some(Finding::Refused(mode)) if mode == "taiko"));
+        state.update(Message::Dismiss, 1_790_000_003);
+        assert!(state.finding.is_none());
+        state.update(Message::Query("https://example.com/not-a-map".into()), 1_790_000_004);
+        assert_eq!(state.notice, Some(Notice::NotALink), "a foreign address is told to be no map link");
+        assert!(state.finding.is_none());
+        state.update(Message::Query("https://osu.ppy.sh/users/2".into()), 1_790_000_005);
+        assert_eq!(state.notice, Some(Notice::NotALink));
+        state.update(Message::Query("glass".into()), 1_790_000_006);
+        assert_eq!(state.notice, None);
+    }
+
+    #[test]
+    fn typing_ordinary_words_clears_an_old_finding_and_a_silent_mirror_can_be_retried() {
+        let mut state = state_with_songs("silent");
+        open_new(&mut state);
+        state.update(Message::Query(LINK.into()), 1_790_000_002);
+        assert!(matches!(state.finding, Some(Finding::Asking)));
+        state.update(Message::Resolved(Err(Why::Silent("down".into()))), 1_790_000_003);
+        assert!(matches!(state.finding, Some(Finding::Silent(_))));
+        let again = state.update(Message::Retry, 1_790_000_004);
+        assert!(matches!(again.as_slice(), [Effect::Resolve(_)]));
+        assert!(matches!(state.finding, Some(Finding::Asking)));
+        state.update(Message::Resolved(Err(Why::Nowhere)), 1_790_000_005);
+        assert!(matches!(state.finding, Some(Finding::Missing)));
+        state.update(Message::Query("glass".into()), 1_790_000_006);
+        assert!(state.finding.is_none());
+    }
+
+    #[test]
+    fn an_answer_that_arrives_after_the_card_was_closed_is_ignored() {
+        let mut state = state_with_songs("stale");
+        open_new(&mut state);
+        state.update(Message::Query(LINK.into()), 1_790_000_002);
+        state.update(Message::Dismiss, 1_790_000_003);
+        state.update(Message::Resolved(Ok(found(&["a1"], Some(0)))), 1_790_000_004);
+        assert!(state.finding.is_none());
+    }
+
+    #[test]
+    fn closing_a_download_stops_it_and_a_failed_or_empty_download_is_told() {
+        use crate::maps::Step;
+        let mut state = state_with_songs("stop");
+        open_new(&mut state);
+        state.update(Message::Query(LINK.into()), 1_790_000_002);
+        state.update(Message::Resolved(Ok(found(&["zz9"], Some(0)))), 1_790_000_003);
+        state.update(Message::Confirm, 1_790_000_004);
+        let stop = match &state.finding {
+            Some(Finding::Fetching(fetching)) => fetching.stop.clone(),
+            _ => panic!("fetching"),
+        };
+        state.update(Message::Dismiss, 1_790_000_005);
+        assert!(stop.load(std::sync::atomic::Ordering::SeqCst));
+        assert!(state.finding.is_none());
+        state.update(Message::Step("zz9".into(), Step::Stopped), 1_790_000_006);
+        assert!(state.finding.is_none(), "a late step changes nothing");
+
+        let mut failing = state_with_songs("fail");
+        open_new(&mut failing);
+        failing.update(Message::Query(LINK.into()), 1_790_000_002);
+        failing.update(Message::Resolved(Ok(found(&["zz9"], Some(0)))), 1_790_000_003);
+        failing.update(Message::Confirm, 1_790_000_004);
+        failing.update(Message::Step("zz9".into(), Step::Nowhere), 1_790_000_005);
+        assert!(matches!(failing.finding, Some(Finding::Missing)));
+        failing.update(Message::Dismiss, 1_790_000_006);
+        failing.update(Message::Query(LINK.into()), 1_790_000_007);
+        failing.update(Message::Resolved(Ok(found(&["zz9"], Some(0)))), 1_790_000_008);
+        failing.update(Message::Confirm, 1_790_000_009);
+        failing.update(Message::Step("zz9".into(), Step::Failed("no space".into())), 1_790_000_010);
+        assert!(matches!(&failing.finding, Some(Finding::Silent(why)) if why == "no space"));
+    }
+
+    #[test]
+    fn a_map_fetched_while_the_songs_are_still_being_read_survives_their_arrival() {
+        use crate::maps::Step;
+        let mut state = State::new(scratch("late"));
+        state.loaded = true;
+        state.update(Message::New, 1_790_000_001);
+        state.update(Message::Query(LINK.into()), 1_790_000_002);
+        state.update(Message::Resolved(Ok(found(&["zz9"], Some(0)))), 1_790_000_003);
+        state.update(Message::Confirm, 1_790_000_004);
+        let effects = state.update(Message::Step("zz9".into(), Step::Done(map("Fetched", "A", "N"))), 1_790_000_005);
+        assert!(effects.is_empty(), "no index yet, so nothing is measured yet");
+        assert_eq!(state.editing().unwrap().slots[0].hash.as_deref(), Some("zz9"));
+        let mut songs = HashMap::new();
+        songs.insert("a1".to_owned(), map("Other", "A", "N"));
+        let after = state.update(Message::Songs(Arc::new(songs)), 1_790_000_006);
+        assert!(state.songs.as_ref().unwrap().contains_key("zz9"), "the fetched map is merged into the index");
+        assert!(matches!(after.as_slice(), [Effect::Measure(hash, _, _)] if hash == "zz9"));
+    }
+
+    fn shared_pool(hashes: &[&str]) -> Pool {
+        let mut pool = Pool::new(Frame::Duel, "Cup: round/1", 1_790_000_000);
+        for (at, hash) in hashes.iter().enumerate() {
+            pool.slots[at].hash = Some((*hash).to_owned());
+            pool.slots[at].artist = "Artist".into();
+            pool.slots[at].title = format!("Song {at}");
+            pool.slots[at].version = "Normal".into();
+        }
+        pool
+    }
+
+    #[test]
+    fn sharing_offers_the_file_the_line_and_the_hash_and_closes() {
+        let mut state = state_with_songs("share");
+        open_new(&mut state);
+        state.update(Message::Put("a1".into()), 1_790_000_002);
+        state.update(Message::Rename("Cup: round/1".into()), 1_790_000_003);
+        state.update(Message::Share(true), 1_790_000_004);
+        assert!(matches!(&state.screen, Screen::Editor(editor) if editor.share));
+        let pool = state.editing().unwrap().clone();
+        let copied = state.update(Message::CopyText, 1_790_000_005);
+        assert!(matches!(copied.as_slice(), [Effect::Copy(text, "pool-copied")] if text == &pool_share::to_text(&pool)));
+        let hashed = state.update(Message::CopyHash, 1_790_000_006);
+        assert!(matches!(hashed.as_slice(), [Effect::Copy(text, "pool-copied-hash")] if text == &pool.fingerprint() && text.len() == 7));
+        let saved = state.update(Message::SaveFile, 1_790_000_007);
+        assert!(matches!(saved.as_slice(), [Effect::SaveFile(name, bytes)] if name == "Cup round 1.pool" && bytes == &pool_share::to_file(&pool)), "{saved:?}");
+        state.update(Message::Share(false), 1_790_000_008);
+        assert!(matches!(&state.screen, Screen::Editor(editor) if !editor.share));
+        assert_eq!(file_name_of(&Pool::new(Frame::Free, "", 1)), "pool.pool");
+    }
+
+    #[test]
+    fn a_pool_string_pasted_on_the_shelf_opens_the_pool_and_reads_the_songs() {
+        let mut state = State::new(scratch("open-string"));
+        state.loaded = true;
+        let text = pool_share::to_text(&shared_pool(&["a1", "zz9"]));
+        let effects = state.update(Message::Pasted(text), 1_790_000_001);
+        assert!(matches!(effects.as_slice(), [Effect::ReadSongs]), "{effects:?}");
+        let Screen::Open(opening) = &state.screen else { panic!("the open screen") };
+        assert_eq!(opening.pool.name, "Cup: round/1");
+        assert!(state.list.is_empty(), "nothing is saved before the person says so");
+    }
+
+    #[test]
+    fn a_cut_string_or_a_foreign_file_is_told_on_the_shelf() {
+        let mut state = state_with_songs("refused");
+        let text = pool_share::to_text(&shared_pool(&["a1"]));
+        state.update(Message::Pasted(text[..text.len() / 2].to_owned()), 1_790_000_001);
+        assert_eq!(state.refused, Some(pool_share::Refused::Damaged));
+        assert_eq!(state.screen, Screen::Shelf);
+        state.update(Message::Imported(Err(pool_share::Refused::NotAPool)), 1_790_000_002);
+        assert_eq!(state.refused, Some(pool_share::Refused::NotAPool));
+        state.update(Message::Imported(Ok(shared_pool(&["a1"]))), 1_790_000_003);
+        assert!(state.refused.is_none());
+        assert!(matches!(state.screen, Screen::Open(_)));
+    }
+
+    #[test]
+    fn the_missing_maps_are_downloaded_in_turn_and_measured_and_the_pool_is_kept() {
+        use crate::maps::Step;
+        let mut state = state_with_songs("open-flow");
+        state.update(Message::Imported(Ok(shared_pool(&["a1", "zz9", "yy8", "a1"]))), 1_790_000_001);
+        let Screen::Open(opening) = state.screen.clone() else { panic!("open") };
+        assert_eq!(state.missing(&opening.pool), vec!["zz9".to_owned(), "yy8".to_owned()], "each missing map is listed once");
+        let effects = state.update(Message::GetMissing, 1_790_000_002);
+        assert!(matches!(effects.as_slice(), [Effect::Fetch(hash, _)] if hash == "zz9"));
+        assert!(state.update(Message::GetMissing, 1_790_000_003).is_empty(), "a second press does not start a second run");
+        let next = state.update(Message::Step("zz9".into(), Step::Done(map("Fetched One", "A", "N"))), 1_790_000_004);
+        assert!(next.iter().any(|effect| matches!(effect, Effect::Measure(hash, _, _) if hash == "zz9")), "the arrived map is measured");
+        assert!(next.iter().any(|effect| matches!(effect, Effect::Fetch(hash, _) if hash == "yy8")), "the next one is asked for");
+        let after = state.update(Message::Step("yy8".into(), Step::Nowhere), 1_790_000_005);
+        assert!(after.iter().all(|effect| !matches!(effect, Effect::Fetch(..))));
+        let Screen::Open(opening) = state.screen.clone() else { panic!("open") };
+        assert_eq!((opening.running, opening.lost), (false, 1));
+        state.update(Message::Measured("zz9".into(), Mod::Nm, Ok(measure(5.5))), 1_790_000_006);
+        let Screen::Open(opening) = state.screen.clone() else { panic!("open") };
+        assert_eq!(opening.pool.slots[1].measure, Some(measure(5.5)));
+
+        let kept = state.update(Message::Keep, 1_790_000_007);
+        assert!(matches!(&state.screen, Screen::Editor(_)));
+        assert_eq!(state.list.len(), 1);
+        assert_eq!(state.list[0].made_at, 1_790_000_007);
+        assert_eq!(pools::load_all(&state.dir).len(), 1);
+        assert!(kept.iter().all(|effect| !matches!(effect, Effect::Fetch(..))));
+    }
+
+    #[test]
+    fn leaving_the_open_screen_stops_the_downloads_and_forgets_the_draft() {
+        let mut state = state_with_songs("open-leave");
+        state.update(Message::Imported(Ok(shared_pool(&["zz9"]))), 1_790_000_001);
+        state.update(Message::GetMissing, 1_790_000_002);
+        let stop = match &state.screen {
+            Screen::Open(opening) => opening.stop.clone(),
+            _ => panic!("open"),
+        };
+        state.update(Message::Back, 1_790_000_003);
+        assert!(stop.load(std::sync::atomic::Ordering::SeqCst));
+        assert_eq!(state.screen, Screen::Shelf);
+        assert!(state.list.is_empty());
+        assert!(pools::load_all(&state.dir).is_empty());
+    }
+
+    #[test]
+    fn nothing_is_asked_for_while_the_songs_are_still_being_read() {
+        let mut state = State::new(scratch("open-wait"));
+        state.loaded = true;
+        state.update(Message::Imported(Ok(shared_pool(&["zz9"]))), 1_790_000_001);
+        assert!(state.update(Message::GetMissing, 1_790_000_002).is_empty());
+        let Screen::Open(opening) = &state.screen else { panic!("open") };
+        assert!(state.missing(&opening.pool).is_empty(), "what is missing is not known yet");
+    }
+
+    fn pool_with_maps(name: &str, hashes: &[&str]) -> State {
+        let mut state = state_with_songs(name);
+        open_new(&mut state);
+        for (at, hash) in hashes.iter().enumerate() {
+            state.update(Message::Select(None), 1_790_000_002 + at as i64);
+            state.update(Message::Put((*hash).into()), 1_790_000_020 + at as i64);
+        }
+        state
+    }
+
+    fn hashes_of(state: &State) -> Vec<Option<String>> {
+        state.editing().unwrap().slots.iter().map(|slot| slot.hash.clone()).collect()
+    }
+
+    #[test]
+    fn marks_toggle_and_leaving_the_choosing_mode_clears_them() {
+        let mut state = pool_with_maps("marks", &["a1", "b2", "c3"]);
+        state.update(Message::Choosing(true), 1_790_000_100);
+        state.update(Message::Mark(0), 1_790_000_101);
+        state.update(Message::Mark(2), 1_790_000_102);
+        state.update(Message::Mark(0), 1_790_000_103);
+        assert_eq!(state.marked_slots(), vec![2]);
+        state.update(Message::Choosing(false), 1_790_000_104);
+        assert!(state.marked_slots().is_empty());
+        assert!(matches!(&state.screen, Screen::Editor(editor) if !editor.choosing));
+    }
+
+    #[test]
+    fn a_bulk_mod_change_reaches_every_marked_slot_and_can_be_undone() {
+        let mut state = pool_with_maps("bulk-mod", &["a1", "b2", "c3"]);
+        for (at, hash) in ["a1", "b2", "c3"].into_iter().enumerate() {
+            state.update(Message::Measured(hash.into(), Mod::Nm, Ok(measure(4.0 + at as f64))), 1_790_000_050);
+        }
+        state.update(Message::Choosing(true), 1_790_000_100);
+        state.update(Message::Mark(0), 1_790_000_101);
+        state.update(Message::Mark(1), 1_790_000_102);
+        state.update(Message::Bulk(Some(Bulk::Mod)), 1_790_000_103);
+        assert!(matches!(&state.screen, Screen::Editor(editor) if editor.bulk == Some(Bulk::Mod)));
+        let effects = state.update(Message::BulkMod(Mod::Dt), 1_790_000_104);
+        let pool = state.editing().unwrap();
+        assert_eq!((pool.slots[0].mods, pool.slots[1].mods), (Mod::Dt, Mod::Dt));
+        assert_ne!(pool.slots[2].mods, Mod::Dt, "an unmarked slot keeps its mod");
+        assert!(pool.slots[0].measure.is_none() && pool.slots[1].measure.is_none());
+        assert_eq!(effects.iter().filter(|effect| matches!(effect, Effect::Measure(_, _, Mod::Dt))).count(), 2);
+        assert!(matches!(&state.screen, Screen::Editor(editor) if editor.bulk.is_none()));
+        state.update(Message::Undo, 1_790_000_105);
+        let pool = state.editing().unwrap();
+        assert_eq!((pool.slots[0].mods, pool.slots[1].mods), (Mod::Nm, Mod::Nm));
+        assert!(pool.slots[0].measure.is_some(), "the old numbers come back with the slot");
+    }
+
+    #[test]
+    fn marked_slots_move_as_a_block_and_stop_at_the_ends() {
+        assert_eq!(shifted(&[1, 2], 5, false), vec![0, 1]);
+        assert_eq!(shifted(&[0, 1], 5, false), vec![0, 1], "the top is a wall");
+        assert_eq!(shifted(&[2, 4], 5, true), vec![3, 4], "a block at the bottom stays and the other moves up to it");
+        assert_eq!(shifted(&[3, 4], 5, true), vec![3, 4]);
+        let mut state = pool_with_maps("shift", &["a1", "b2", "c3", "d4"]);
+        state.update(Message::Choosing(true), 1_790_000_100);
+        state.update(Message::Mark(1), 1_790_000_101);
+        state.update(Message::Mark(2), 1_790_000_102);
+        state.update(Message::Shift(true), 1_790_000_103);
+        assert_eq!(&hashes_of(&state)[..4], [Some("a1".to_owned()), Some("d4".to_owned()), Some("b2".to_owned()), Some("c3".to_owned())]);
+        assert_eq!(state.marked_slots(), vec![2, 3], "the marks follow the maps");
+        state.update(Message::Shift(false), 1_790_000_104);
+        assert_eq!(&hashes_of(&state)[..4], [Some("a1".to_owned()), Some("b2".to_owned()), Some("c3".to_owned()), Some("d4".to_owned())]);
+        state.update(Message::Undo, 1_790_000_105);
+        assert_eq!(&hashes_of(&state)[..4], [Some("a1".to_owned()), Some("d4".to_owned()), Some("b2".to_owned()), Some("c3".to_owned())], "undo steps back one move at a time");
+        assert_eq!(pools::load_all(&state.dir)[0].slots[1].hash.as_deref(), Some("d4"));
+    }
+
+    #[test]
+    fn removing_the_marked_keeps_frame_slots_and_drops_free_ones_and_undo_brings_them_back() {
+        let mut state = pool_with_maps("remove", &["a1", "b2", "c3"]);
+        state.update(Message::Choosing(true), 1_790_000_100);
+        state.update(Message::Mark(0), 1_790_000_101);
+        state.update(Message::Mark(2), 1_790_000_102);
+        state.update(Message::RemoveMarked, 1_790_000_103);
+        let pool = state.editing().unwrap();
+        assert_eq!(pool.slots.len(), 7);
+        assert_eq!((pool.slots[0].hash.clone(), pool.slots[1].hash.clone(), pool.slots[2].hash.clone()), (None, Some("b2".to_owned()), None));
+        assert!(state.marked_slots().is_empty());
+        state.update(Message::Undo, 1_790_000_104);
+        assert_eq!(state.editing().unwrap().filled(), 3);
+
+        let mut free = state_with_songs("remove-free");
+        open_new(&mut free);
+        free.update(Message::UseFrame(Frame::Free), 1_790_000_002);
+        for hash in ["a1", "b2", "c3"] {
+            free.update(Message::Put(hash.into()), 1_790_000_003);
+            free.update(Message::Select(None), 1_790_000_004);
+        }
+        free.update(Message::Choosing(true), 1_790_000_100);
+        free.update(Message::Mark(1), 1_790_000_101);
+        free.update(Message::RemoveMarked, 1_790_000_102);
+        assert_eq!(hashes_of(&free), vec![Some("a1".to_owned()), Some("c3".to_owned())]);
+    }
+
+    #[test]
+    fn undo_steps_back_through_a_put_and_does_nothing_when_there_is_nothing_to_undo() {
+        let mut state = pool_with_maps("undo", &["a1", "b2"]);
+        assert_eq!(state.editing().unwrap().filled(), 2);
+        state.update(Message::Undo, 1_790_000_100);
+        assert_eq!(state.editing().unwrap().filled(), 1);
+        state.update(Message::Undo, 1_790_000_101);
+        assert_eq!(state.editing().unwrap().filled(), 0);
+        let before = state.editing().unwrap().clone();
+        state.update(Message::Undo, 1_790_000_102);
+        assert_eq!(state.editing().unwrap(), &before);
+    }
+
+    #[test]
+    fn deleting_a_pool_asks_first_removes_the_file_and_returns_to_the_shelf() {
+        let mut state = pool_with_maps("delete", &["a1"]);
+        let id = state.editing().unwrap().id.clone();
+        state.update(Message::AskDelete(true), 1_790_000_100);
+        assert!(matches!(&state.screen, Screen::Editor(editor) if editor.asking_delete));
+        state.update(Message::AskDelete(false), 1_790_000_101);
+        assert!(matches!(&state.screen, Screen::Editor(editor) if !editor.asking_delete));
+        assert!(state.dir.join(format!("{id}.pool")).exists());
+        state.update(Message::AskDelete(true), 1_790_000_102);
+        state.update(Message::DeletePool, 1_790_000_103);
+        assert_eq!(state.screen, Screen::Shelf);
+        assert!(state.list.is_empty());
+        assert!(!state.dir.join(format!("{id}.pool")).exists());
+        assert!(state.undo.iter().all(|(pool, _)| *pool != id), "nothing of a deleted pool stays in the undo steps");
+    }
+}

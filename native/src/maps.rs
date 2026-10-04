@@ -8,13 +8,14 @@ use crate::library::{self, Map};
 
 pub struct Mirror {
     pub name: &'static str,
+    pub api: &'static str,
     pub look_up: &'static str,
     pub download: &'static str,
 }
 
 pub const MIRRORS: [Mirror; 2] = [
-    Mirror { name: "osu.direct", look_up: "https://osu.direct/api/v2/md5/", download: "https://osu.direct/api/d/" },
-    Mirror { name: "catboy.best", look_up: "https://catboy.best/api/v2/md5/", download: "https://catboy.best/d/" },
+    Mirror { name: "osu.direct", api: "https://osu.direct/api/v2/", look_up: "https://osu.direct/api/v2/md5/", download: "https://osu.direct/api/d/" },
+    Mirror { name: "catboy.best", api: "https://catboy.best/api/v2/", look_up: "https://catboy.best/api/v2/md5/", download: "https://catboy.best/d/" },
 ];
 
 #[derive(Debug, Clone, PartialEq)]
@@ -187,12 +188,7 @@ fn hex(hash: &str) -> Result<String, String> {
 }
 
 fn client(seconds: u64) -> Result<reqwest::blocking::Client, String> {
-    reqwest::blocking::Client::builder()
-        .connect_timeout(Duration::from_secs(20))
-        .timeout(Duration::from_secs(seconds))
-        .user_agent(format!("Dossier/{}", crate::bot::BUILD))
-        .build()
-        .map_err(|e| e.to_string())
+    crate::net::client(20, seconds, &format!("Dossier/{}", crate::bot::BUILD), None)
 }
 
 fn said(value: &serde_json::Value, paths: &[&[&str]]) -> String {

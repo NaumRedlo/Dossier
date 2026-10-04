@@ -903,7 +903,7 @@ impl Main {
             named = named.push(ui::dot(7.0));
         }
         named = named.push(text(got.player.clone()).font(theme::SANS_SEMI).size(theme::LEAD).wrapping(text::Wrapping::None).color(ui::faded(INK)));
-        for acronym in &got.mods {
+        for acronym in got.mods.iter().filter(|acronym| crate::modicons::shown(acronym)) {
             named = named.push(mod_badge(acronym));
         }
         let who = column![named, text(ui::shortened(got.map_line(), 60)).font(theme::SANS).size(theme::BODY).wrapping(text::Wrapping::None).color(ui::faded(MUTED))].spacing(2);
@@ -1012,7 +1012,7 @@ impl Main {
             None => mouse_area(screen).interaction(iced::mouse::Interaction::Pointer).on_press(Outer::Sharing(Message::Watch)).into(),
         };
         let mut named = row![text(got.player.clone()).font(theme::SANS_SEMI).size(theme::LEAD).wrapping(text::Wrapping::None).color(ui::faded(INK))].spacing(6).align_y(iced::Center);
-        for acronym in &got.mods {
+        for acronym in got.mods.iter().filter(|acronym| crate::modicons::shown(acronym)) {
             named = named.push(mod_badge(acronym));
         }
         let title = row![

@@ -18,6 +18,7 @@ pub enum Section {
     Boards,
     Titles,
     Compare,
+    Pools,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -96,8 +97,37 @@ pub enum Fetch {
     Staged,
     Loading,
     Fresh(i64),
-    Failed,
+    Failed(Option<i64>, Fault),
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Fault {
+    Offline,
+    Server,
+    Denied,
+}
+
+impl Fault {
+    pub fn of(refused: &crate::bot::Refused) -> Fault {
+        match refused {
+            crate::bot::Refused::Network(_) => Fault::Offline,
+            crate::bot::Refused::Said(code) if code == "401" => Fault::Denied,
+            _ => Fault::Server,
+        }
+    }
+}
+
+pub const DONE_HOLD: f32 = 2.0;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Pulse {
+    Idle,
+    Running,
+    Done,
+    Failed(Fault),
+}
+
+pub type Notice = (Option<i64>, Fault);
 
 #[derive(Debug, Clone)]
 pub enum Message {
@@ -114,19 +144,17 @@ pub enum Message {
     Open(String),
     Refresh,
     Again,
+    Reconnect,
+    Pools(crate::pools_screen::Message),
     ChannelDraft(String),
     ChannelAdd,
     ChannelRemove(String),
     Filter(crate::chronicle::Filter),
-    Source(crate::chronicle::Source),
-    Stream(crate::chronicle::Stream),
     Search(String),
+    FeedScrolled(f32),
+    ShowNew,
     PeopleSearch(String),
     Toggle(String),
-    Spot(usize),
-    SpotHold(bool),
-    Rank(usize),
-    RankHold(bool),
     Metric(crate::dossier::Metric),
     Span(u32),
     GradeHover(Option<usize>),
@@ -161,6 +189,9 @@ pub struct Ground<'a> {
     pub channels: &'a [String],
     pub channel_draft: &'a str,
     pub live_shown: usize,
+    pub held: &'a std::collections::HashSet<String>,
+    pub leaving: Option<crate::chronicle::Leave<'a>>,
+    pub ghost: Option<Box<Ground<'a>>>,
     pub arrivals: HashMap<String, f32>,
     pub picture_came: HashMap<String, f32>,
     pub picture_lost: HashMap<String, f32>,
@@ -180,27 +211,22 @@ pub struct Ground<'a> {
     pub avatar: Option<&'a image::Handle>,
     pub chat: String,
     pub fetch: Fetch,
+    pub pools: &'a crate::pools_screen::State,
+    pub asked: bool,
+    pub answered_t: f32,
+    pub notice: Option<Notice>,
+    pub notice_k: f32,
     pub width: f32,
     pub filter: crate::chronicle::Filter,
-    pub source: crate::chronicle::Source,
-    pub stream: crate::chronicle::Stream,
     pub query: &'a str,
     pub open_events: &'a std::collections::HashSet<String>,
     pub folds: HashMap<String, f32>,
     pub panel_from: Option<iced::Rectangle>,
-    pub spot: usize,
-    pub spot_k: f32,
-    pub rank: usize,
-    pub rank_k: f32,
     pub section_t: f32,
     pub shift_t: f32,
     pub stream_t: f32,
     pub person_t: f32,
     pub play_t: f32,
-    pub group_t: f32,
-    pub news_t: f32,
-    pub rank_started: std::time::Instant,
-    pub rank_held: Option<f32>,
     pub metric: crate::dossier::Metric,
     pub span: u32,
     pub grade_hover: Option<usize>,
@@ -248,17 +274,81 @@ pub fn view<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
         Section::Boards => boards(ground),
         Section::Titles => titles(ground),
         Section::Compare => comparing(ground),
+        Section::Pools => crate::pools_screen::view(ground.pools, ground.words, ground.thumbs, ground.width - 80.0, ground.section_t).map(Message::Pools),
     };
     let mut page = column![].width(Length::Fill).height(Length::Fill);
-    if ground.fetch == Fetch::Failed {
-        let again = button(ui::mono_small(ground.words.t("news-failed"), ACCENT)).padding(0).style(ui::button_faded(theme::bare)).on_press(Message::Again);
-        page = page.push(container(again).center_x(Length::Fill).padding(Padding { top: 10.0, right: 0.0, bottom: 4.0, left: 0.0 }));
+    if let Some(banner) = notice_banner(ground) {
+        page = page.push(banner);
     }
     let mut layers: Vec<Element<'a, Message>> = vec![page.push(body).into()];
     if let Some(reading) = ground.reading.filter(|_| ground.read_k > 0.001 && !ground.read_above) {
         layers.push(reader(ground, reading));
     }
     ui::tapped(iced::widget::Stack::with_children(layers).width(Length::Fill).height(Length::Fill), Message::Tap)
+}
+
+pub(crate) fn pulse(ground: &Ground<'_>) -> Option<Pulse> {
+    match ground.fetch {
+        Fetch::Staged if ground.answered_t < DONE_HOLD => Some(Pulse::Done),
+        Fetch::Staged => Some(Pulse::Idle),
+        Fetch::Loading => Some(Pulse::Running),
+        _ if ground.asked => Some(Pulse::Running),
+        Fetch::Failed(_, fault) => Some(Pulse::Failed(fault)),
+        Fetch::Fresh(_) if ground.answered_t < DONE_HOLD => Some(Pulse::Done),
+        Fetch::Fresh(_) => Some(Pulse::Idle),
+    }
+}
+
+fn notice_banner<'a>(ground: &Ground<'a>) -> Option<Element<'a, Message>> {
+    let (was, fault) = ground.notice.filter(|(was, _)| was.is_some() || ground.section != Section::Feed).filter(|_| ground.notice_k > 0.001)?;
+    let w = ground.words;
+    let said = match (fault, was) {
+        (Fault::Denied, _) => w.t("community-denied"),
+        (Fault::Offline, _) => w.t("community-offline"),
+        (Fault::Server, Some(at)) => w.with("community-stale", &[("when", format!("{} {}", w.day(at, ground.now_unix), w.clock(at)))]),
+        (Fault::Server, None) => w.t("news-failed"),
+    };
+    let (action, press, strong) = match fault {
+        Fault::Denied => (w.t("community-connect"), Message::Reconnect, true),
+        _ => (w.t("community-retry"), Message::Again, false),
+    };
+    let dot: Element<'a, Message> = container(Space::new())
+        .width(8.0)
+        .height(8.0)
+        .style(move |_| container::Style {
+            background: strong.then_some(Background::Color(ACCENT)),
+            border: Border { color: ACCENT, width: if strong { 0.0 } else { 1.5 }, radius: 4.0.into() },
+            ..container::Style::default()
+        })
+        .into();
+    let action = button(container(text(action).font(theme::SANS_SEMI).size(12.0).wrapping(text::Wrapping::None).color(if strong { Color::WHITE } else { INK })).center_y(28.0))
+        .padding([0, 12])
+        .style(ui::button_faded(move |_, status| {
+            let lit = matches!(status, button::Status::Hovered | button::Status::Pressed);
+            button::Style {
+                background: Some(Background::Color(if strong { if lit { Color::from_rgb8(0xf0, 0x5e, 0x5e) } else { ACCENT } } else if lit { Color::from_rgba(1.0, 1.0, 1.0, 0.1) } else { Color::from_rgba(1.0, 1.0, 1.0, 0.05) })),
+                text_color: INK,
+                border: Border { color: Color::from_rgba(1.0, 1.0, 1.0, if strong { 0.0 } else { 0.12 }), width: 1.0, radius: 8.0.into() },
+                shadow: Shadow::default(),
+                snap: true,
+            }
+        }))
+        .on_press(press);
+    let line = container(
+        row![dot, text(said).font(theme::SANS).size(13.0).wrapping(text::Wrapping::None).color(ui::faded(INK)).width(Length::Fill), action].spacing(12).align_y(iced::Center),
+    )
+    .padding([0, 12])
+    .height(40.0)
+    .align_y(iced::Center)
+    .style(ui::box_faded(|_| container::Style {
+        background: Some(Background::Color(Color::from_rgba(0.886, 0.282, 0.282, 0.1))),
+        border: Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.07), width: 1.0, radius: 10.0.into() },
+        ..container::Style::default()
+    }));
+    let k = ground.notice_k.clamp(0.0, 1.0);
+    let shown: Element<'a, Message> = ui::fading(ui::fade() * k, || line.into());
+    let held = container(shown).padding(Padding { top: 10.0, right: 40.0, bottom: 4.0, left: 40.0 });
+    Some(ui::collapsing(held, k))
 }
 
 pub(crate) fn reading_above<'a>(ground: &Ground<'a>) -> Option<Element<'a, Message>> {
@@ -273,12 +363,13 @@ fn rolled<'a>(inside: Element<'a, Message>) -> Element<'a, Message> {
     crate::glide::brim(rolled).into()
 }
 
-pub(crate) fn video_tile<'a>(ground: &Ground<'a>, video: &news::Video, wide: bool, high: f32) -> Element<'a, Message> {
+pub(crate) fn video_tile<'a>(ground: &Ground<'a>, video: &news::Video, wide: bool, high: f32, across: f32) -> Element<'a, Message> {
     let w = ground.words;
     let k = ui::fade();
     let handle = video.thumb.as_deref().and_then(|url| if wide { ground.pictures.get(&self::wide(url)) } else { ground.pictures.get(url) });
-    let width = if wide { Length::Fill } else { Length::Fixed(high) };
+    let width = if across > 0.0 { Length::Fixed(across) } else if wide { Length::Fill } else { Length::Fixed(high) };
     let back: Element<'a, Message> = match handle {
+        Some(handle) if across > 0.0 => image(crate::crops::fitted(handle, across, high, 0.0)).content_fit(iced::ContentFit::Fill).width(width).height(high).border_radius(if wide { 12.0 } else { 6.0 }).opacity(k).into(),
         Some(handle) => image(handle.clone()).content_fit(iced::ContentFit::Cover).width(width).height(high).border_radius(if wide { 12.0 } else { 6.0 }).opacity(k).into(),
         None => container(ui::fine_hatch()).width(width).height(high).into(),
     };
@@ -308,7 +399,7 @@ pub(crate) fn video_tile<'a>(ground: &Ground<'a>, video: &news::Video, wide: boo
     };
     let front = stack![
         container(play).width(width).height(high).center(Length::Fill),
-        container(badge).width(width).height(high).padding(if wide { 10 } else { 4 }).align_x(iced::alignment::Horizontal::Right).align_y(iced::alignment::Vertical::Bottom),
+        container(badge).width(width).height(high).padding(if wide && across <= 0.0 { 10 } else { 4 }).align_x(iced::alignment::Horizontal::Right).align_y(iced::alignment::Vertical::Bottom),
     ];
     let tile = stack![back, front].width(width).height(high);
     button(tile).padding(0).style(ui::button_faded(theme::bare)).on_press(Message::PlayClip(video.src.clone(), video.link.clone())).into()
@@ -344,8 +435,16 @@ pub(crate) fn friend_face<'a>(ground: &Ground<'a>, friend: &Friend, side: f32) -
 
 pub(crate) fn mods<'a>(list: &[String]) -> Element<'a, Message> {
     let mut shown = row![].spacing(4).align_y(iced::Center);
-    for acronym in list {
+    for acronym in list.iter().filter(|acronym| crate::modicons::shown(acronym)) {
         shown = shown.push(crate::main_screen::mod_badge(acronym));
+    }
+    shown.into()
+}
+
+pub(crate) fn quiet_mods<'a>(list: &[String]) -> Element<'a, Message> {
+    let mut shown = row![].spacing(4).align_y(iced::Center);
+    for acronym in list.iter().filter(|acronym| crate::modicons::shown(acronym)) {
+        shown = shown.push(crate::modicons::badge(acronym, 24.0, 1.0));
     }
     shown.into()
 }
@@ -358,7 +457,7 @@ pub(crate) fn title_line<'a>(ground: &Ground<'a>, person: &Person, size: f32) ->
 }
 
 pub(crate) fn pp_of(words: &Words, pp: u32) -> String {
-    format!("{} pp", words.lang().group(u64::from(pp)))
+    format!("{} PP", words.lang().group(u64::from(pp)))
 }
 
 pub(crate) fn decimal(words: &Words, value: f32, places: usize) -> String {
@@ -731,7 +830,7 @@ fn reader<'a>(ground: &Ground<'a>, reading: &'a Reading) -> Element<'a, Message>
                     body.push(picture(url));
                 }
                 for video in &post.videos {
-                    body.push(video_tile(ground, video, true, 300.0));
+                    body.push(video_tile(ground, video, true, 300.0, 0.0));
                 }
                 if post.body.is_empty() {
                     body.push(rich(&[news::Span::plain(&post.text)], INK, theme::LEAD));
@@ -1050,7 +1149,7 @@ pub(crate) fn standings(catalog: &Catalog, board: Board, standing: Standing) -> 
 pub(crate) fn grown(words: &Words, board: Board, value: f64, plus: bool) -> String {
     let sign = if plus { "+" } else { "" };
     match board {
-        Board::Pp => format!("{sign}{} pp", words.lang().group(value.round() as u64)),
+        Board::Pp => format!("{sign}{} PP", words.lang().group(value.round() as u64)),
         Board::Accuracy => format!("{sign}{} {}", decimal(words, value as f32, 2), words.t("board-acc-unit")),
         Board::Plays | Board::Score => format!("{sign}{}", words.lang().group(value.round() as u64)),
         Board::Hours => {
@@ -1259,6 +1358,36 @@ pub(crate) fn segmented<'a>(parts: Vec<(String, bool, Message)>) -> Element<'a, 
         .into()
 }
 
+pub(crate) fn segmented_compact<'a>(parts: Vec<(String, bool, Message)>) -> Element<'a, Message> {
+    let k = ui::fade();
+    let mut line = row![].spacing(2);
+    let active = parts.iter().position(|(_, on, _)| *on).unwrap_or(0);
+    for (label, on, message) in parts {
+        line = line.push(ui::hover(
+            button(container(text(label).font(theme::SANS_SEMI).size(13.5).wrapping(text::Wrapping::None)).center_x(Length::Shrink))
+                .padding([8, 14])
+                .style(ui::button_faded(move |_, _| button::Style {
+                    background: None,
+                    text_color: if on { INK } else { MUTED },
+                    border: Border { radius: 10.0.into(), ..Border::default() },
+                    shadow: Shadow::default(),
+                    snap: true,
+                }))
+                .on_press(message),
+            ui::Glow::row(10.0),
+        ));
+    }
+    let pill = ui::Pill { fill: Color::from_rgba(0.886, 0.282, 0.282, 0.2), edge: Color::from_rgba(0.886, 0.282, 0.282, 0.5), radius: 10.0, underline: None };
+    container(ui::sliding(line, active, pill))
+        .padding(4)
+        .style(move |_| container::Style {
+            background: Some(Background::Color(Color::from_rgba(0.0, 0.0, 0.0, 0.3 * k))),
+            border: Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.06 * k), width: 1.0, radius: 13.0.into() },
+            ..container::Style::default()
+        })
+        .into()
+}
+
 fn boards<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
     let w = ground.words;
     let catalog = ground.catalog;
@@ -1352,7 +1481,7 @@ fn comparing<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
     let offered: Vec<Element<'a, Message>> = crate::compare::offered(ground.pool, ground.compare, ground.compare_query)
         .into_iter()
         .map(|person| {
-            let inside = row![face(ground, person, 22.0), text(person.name.clone()).font(theme::SANS_SEMI).size(13.0).color(ui::faded(INK)), ui::mono_small(format!("{} pp", w.lang().group(u64::from(person.pp))), MUTED)]
+            let inside = row![face(ground, person, 22.0), text(person.name.clone()).font(theme::SANS_SEMI).size(13.0).color(ui::faded(INK)), ui::mono_small(format!("{} PP", w.lang().group(u64::from(person.pp))), MUTED)]
                 .spacing(8)
                 .align_y(iced::Center);
             button(inside).padding([6, 12]).style(ui::button_faded(ui::calm(theme::filter_chip(false)))).on_press(Message::CompareAdd(person.id)).into()
@@ -1542,7 +1671,7 @@ mod tests {
     #[test]
     fn a_gain_reads_the_way_the_bot_writes_it() {
         let words = Words::new(crate::lang::Lang::Ru);
-        assert_eq!(grown(&words, Board::Pp, 74.4, true), "+74 pp");
+        assert_eq!(grown(&words, Board::Pp, 74.4, true), "+74 PP");
         assert_eq!(grown(&words, Board::Accuracy, 0.12, true), "+0,12 п.п.");
         assert_eq!(grown(&words, Board::Hours, 21.0 * 3600.0 + 5.0 * 60.0, true), "+21 ч 05 м");
         assert_eq!(grown(&words, Board::HitsPerPlay, 612.84, false), "612,8");

@@ -1,10 +1,15 @@
+use std::collections::HashMap;
 use std::time::Duration;
 
 pub const ENGINE: &str = concat!("dossier ", env!("CARGO_PKG_VERSION"));
 pub const BUILD: &str = env!("CARGO_PKG_VERSION");
 pub const PRERELEASE: bool = true;
 
-const PATIENCE: Duration = Duration::from_secs(8);
+const PATIENCE: Duration = Duration::from_secs(12);
+const CONNECT_PATIENCE: Duration = Duration::from_secs(5);
+const KEEP_ALIVE: Duration = Duration::from_secs(30);
+const IDLE_KEPT: Duration = Duration::from_secs(60);
+const RETRY_AFTER: Duration = if cfg!(test) { Duration::from_millis(20) } else { Duration::from_millis(1200) };
 const DONATE_PATIENCE: Duration = Duration::from_secs(60);
 const BOARD_PATIENCE: Duration = Duration::from_secs(60);
 
@@ -73,13 +78,15 @@ pub fn chat_avatar(server: &str, token: &str, name: &str, chat: i64) -> Result<V
 }
 
 pub fn chats(server: &str, token: &str, name: &str) -> Result<Vec<Chat>, Refused> {
-    let response = client()?
-        .get(format!("{server}/render/me/chats"))
-        .header("X-Render-Worker", name)
-        .bearer_auth(token)
-        .send()
-        .map_err(|e| Refused::Network(e.to_string()))?;
-    status(response)?.json::<Vec<Chat>>().map_err(|e| Refused::Network(e.to_string()))
+    twice(|| {
+        let response = client()?
+            .get(format!("{server}/render/me/chats"))
+            .header("X-Render-Worker", name)
+            .bearer_auth(token)
+            .send()
+            .map_err(|e| Refused::Network(e.to_string()))?;
+        status(response)?.json::<Vec<Chat>>().map_err(|e| Refused::Network(e.to_string()))
+    })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
@@ -96,11 +103,74 @@ pub enum Paired {
 }
 
 fn client() -> Result<reqwest::blocking::Client, Refused> {
-    reqwest::blocking::Client::builder()
-        .timeout(PATIENCE)
-        .user_agent(ENGINE)
-        .build()
-        .map_err(|e| Refused::Network(e.to_string()))
+    static SHARED: std::sync::OnceLock<Result<reqwest::blocking::Client, String>> = std::sync::OnceLock::new();
+    SHARED
+        .get_or_init(|| {
+            reqwest::blocking::Client::builder()
+                .connect_timeout(CONNECT_PATIENCE)
+                .timeout(PATIENCE)
+                .tcp_keepalive(KEEP_ALIVE)
+                .pool_idle_timeout(IDLE_KEPT)
+                .user_agent(ENGINE)
+                .build()
+                .map_err(|e| e.to_string())
+        })
+        .clone()
+        .map_err(Refused::Network)
+}
+
+fn transient(refused: &Refused) -> bool {
+    match refused {
+        Refused::Network(_) => true,
+        Refused::Said(code) => matches!(code.as_str(), "502" | "503" | "504"),
+        Refused::NotThere => false,
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Link {
+    pub answered: Option<i64>,
+    pub refused: Option<(i64, Refused)>,
+    pub retries: u32,
+    pub asked: u32,
+}
+
+fn link() -> &'static std::sync::Mutex<Link> {
+    static LINK: std::sync::OnceLock<std::sync::Mutex<Link>> = std::sync::OnceLock::new();
+    LINK.get_or_init(std::sync::Mutex::default)
+}
+
+pub fn link_state() -> Link {
+    link().lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone()
+}
+
+fn noted(change: impl FnOnce(&mut Link)) {
+    change(&mut link().lock().unwrap_or_else(|poisoned| poisoned.into_inner()));
+}
+
+fn clock() -> i64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |since| since.as_secs() as i64)
+}
+
+fn twice<T>(mut call: impl FnMut() -> Result<T, Refused>) -> Result<T, Refused> {
+    noted(|link| link.asked += 1);
+    let outcome = match call() {
+        Err(first) if transient(&first) => {
+            noted(|link| link.retries += 1);
+            std::thread::sleep(RETRY_AFTER);
+            call()
+        }
+        done => done,
+    };
+    match &outcome {
+        Ok(_) | Err(Refused::NotThere) => noted(|link| link.answered = Some(clock())),
+        Err(Refused::Said(code)) => noted(|link| {
+            link.answered = Some(clock());
+            link.refused = Some((clock(), Refused::Said(code.clone())));
+        }),
+        Err(refused) => noted(|link| link.refused = Some((clock(), refused.clone()))),
+    }
+    outcome
 }
 
 fn status(response: reqwest::blocking::Response) -> Result<reqwest::blocking::Response, Refused> {
@@ -206,13 +276,35 @@ pub fn avatar(server: &str, token: &str, name: &str) -> Result<Vec<u8>, Refused>
     status(response)?.bytes().map(|b| b.to_vec()).map_err(|e| Refused::Network(e.to_string()))
 }
 
+fn kept_community() -> &'static std::sync::Mutex<HashMap<String, (String, crate::community::wire::Community)>> {
+    static KEPT: std::sync::OnceLock<std::sync::Mutex<HashMap<String, (String, crate::community::wire::Community)>>> = std::sync::OnceLock::new();
+    KEPT.get_or_init(std::sync::Mutex::default)
+}
+
 pub fn community(server: &str, token: &str, name: &str, chat: Option<i64>) -> Result<crate::community::wire::Community, Refused> {
-    let mut request = client()?.get(format!("{server}/render/community")).header("X-Render-Worker", name).bearer_auth(token);
-    if let Some(chat) = chat {
-        request = request.query(&[("chat", chat)]);
-    }
-    let response = request.send().map_err(|e| Refused::Network(e.to_string()))?;
-    status(response)?.json().map_err(|e| Refused::Network(e.to_string()))
+    let whose = format!("{server}\n{token}\n{chat:?}");
+    twice(|| {
+        let mut request = client()?.get(format!("{server}/render/community")).header("X-Render-Worker", name).bearer_auth(token);
+        if let Some(chat) = chat {
+            request = request.query(&[("chat", chat)]);
+        }
+        let had = kept_community().lock().unwrap_or_else(|poisoned| poisoned.into_inner()).get(&whose).cloned();
+        if let Some((tag, _)) = &had {
+            request = request.header(reqwest::header::IF_NONE_MATCH, tag);
+        }
+        let response = request.send().map_err(|e| Refused::Network(e.to_string()))?;
+        if response.status() == reqwest::StatusCode::NOT_MODIFIED {
+            return had.map(|(_, body)| body).ok_or_else(|| Refused::Said("304".to_owned()));
+        }
+        let tag = response.headers().get(reqwest::header::ETAG).and_then(|tag| tag.to_str().ok()).map(str::to_owned);
+        let body: crate::community::wire::Community = status(response)?.json().map_err(|e| Refused::Network(e.to_string()))?;
+        let mut kept = kept_community().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        match tag {
+            Some(tag) => kept.insert(whose.clone(), (tag, body.clone())),
+            None => kept.remove(&whose),
+        };
+        Ok(body)
+    })
 }
 
 pub fn map_board(server: &str, token: &str, name: &str, chat: Option<i64>, beatmap: u64, fresh: bool) -> Result<crate::community::wire::MapBoard, Refused> {
@@ -298,12 +390,14 @@ pub fn wear_title(server: &str, token: &str, name: &str, chat: Option<i64>, code
 }
 
 pub fn card(server: &str, token: &str, name: &str, chat: Option<i64>) -> Result<crate::community::wire::Card, Refused> {
-    let mut request = client()?.get(format!("{server}/render/me/card")).header("X-Render-Worker", name).bearer_auth(token);
-    if let Some(chat) = chat {
-        request = request.query(&[("chat", chat)]);
-    }
-    let response = request.send().map_err(|e| Refused::Network(e.to_string()))?;
-    status(response)?.json().map_err(|e| Refused::Network(e.to_string()))
+    twice(|| {
+        let mut request = client()?.get(format!("{server}/render/me/card")).header("X-Render-Worker", name).bearer_auth(token);
+        if let Some(chat) = chat {
+            request = request.query(&[("chat", chat)]);
+        }
+        let response = request.send().map_err(|e| Refused::Network(e.to_string()))?;
+        status(response)?.json().map_err(|e| Refused::Network(e.to_string()))
+    })
 }
 
 pub fn share_card(server: &str, token: &str, name: &str, card: &crate::community::wire::Card) -> Result<(), Refused> {
@@ -323,44 +417,52 @@ pub fn share_card(server: &str, token: &str, name: &str, card: &crate::community
 }
 
 pub fn person(server: &str, token: &str, name: &str, chat: i64, id: i64) -> Result<crate::community::wire::Me, Refused> {
-    let response = client()?
-        .get(format!("{server}/render/community/person"))
-        .header("X-Render-Worker", name)
-        .bearer_auth(token)
-        .query(&[("chat", chat), ("id", id)])
-        .send()
-        .map_err(|e| Refused::Network(e.to_string()))?;
-    status(response)?.json().map_err(|e| Refused::Network(e.to_string()))
+    twice(|| {
+        let response = client()?
+            .get(format!("{server}/render/community/person"))
+            .header("X-Render-Worker", name)
+            .bearer_auth(token)
+            .query(&[("chat", chat), ("id", id)])
+            .send()
+            .map_err(|e| Refused::Network(e.to_string()))?;
+        status(response)?.json().map_err(|e| Refused::Network(e.to_string()))
+    })
 }
 
 pub fn players(server: &str, token: &str, name: &str) -> Result<crate::community::wire::Everyone, Refused> {
-    let response = client()?
-        .get(format!("{server}/render/players"))
-        .header("X-Render-Worker", name)
-        .bearer_auth(token)
-        .send()
-        .map_err(|e| Refused::Network(e.to_string()))?;
-    status(response)?.json().map_err(|e| Refused::Network(e.to_string()))
+    twice(|| {
+        let response = client()?
+            .get(format!("{server}/render/players"))
+            .header("X-Render-Worker", name)
+            .bearer_auth(token)
+            .send()
+            .map_err(|e| Refused::Network(e.to_string()))?;
+        status(response)?.json().map_err(|e| Refused::Network(e.to_string()))
+    })
 }
 
 pub fn player(server: &str, token: &str, name: &str, id: i64) -> Result<crate::community::wire::Me, Refused> {
-    let response = client()?
-        .get(format!("{server}/render/players/{id}"))
-        .header("X-Render-Worker", name)
-        .bearer_auth(token)
-        .send()
-        .map_err(|e| Refused::Network(e.to_string()))?;
-    status(response)?.json().map_err(|e| Refused::Network(e.to_string()))
+    twice(|| {
+        let response = client()?
+            .get(format!("{server}/render/players/{id}"))
+            .header("X-Render-Worker", name)
+            .bearer_auth(token)
+            .send()
+            .map_err(|e| Refused::Network(e.to_string()))?;
+        status(response)?.json().map_err(|e| Refused::Network(e.to_string()))
+    })
 }
 
 pub fn pinned(server: &str, token: &str, name: &str) -> Result<crate::community::wire::Pin, Refused> {
-    let response = client()?
-        .get(format!("{server}/render/me/pin"))
-        .header("X-Render-Worker", name)
-        .bearer_auth(token)
-        .send()
-        .map_err(|e| Refused::Network(e.to_string()))?;
-    status(response)?.json().map_err(|e| Refused::Network(e.to_string()))
+    twice(|| {
+        let response = client()?
+            .get(format!("{server}/render/me/pin"))
+            .header("X-Render-Worker", name)
+            .bearer_auth(token)
+            .send()
+            .map_err(|e| Refused::Network(e.to_string()))?;
+        status(response)?.json().map_err(|e| Refused::Network(e.to_string()))
+    })
 }
 
 pub fn pin(server: &str, token: &str, name: &str, chat: i64) -> Result<crate::community::wire::Pin, Refused> {
@@ -384,18 +486,20 @@ pub enum Friends {
 }
 
 pub fn friends(server: &str, token: &str, name: &str) -> Result<Friends, Refused> {
-    let response = client()?
-        .get(format!("{server}/render/me/friends"))
-        .header("X-Render-Worker", name)
-        .bearer_auth(token)
-        .send()
-        .map_err(|e| Refused::Network(e.to_string()))?;
-    if response.status().as_u16() == 409 {
-        let said: serde_json::Value = response.json().map_err(|e| Refused::Network(e.to_string()))?;
-        return Ok(Friends::Need(said.get("need").and_then(|need| need.as_str()).unwrap_or("link").to_owned()));
-    }
-    let said: crate::community::wire::Friends = status(response)?.json().map_err(|e| Refused::Network(e.to_string()))?;
-    Ok(Friends::Listed(said.friends))
+    twice(|| {
+        let response = client()?
+            .get(format!("{server}/render/me/friends"))
+            .header("X-Render-Worker", name)
+            .bearer_auth(token)
+            .send()
+            .map_err(|e| Refused::Network(e.to_string()))?;
+        if response.status().as_u16() == 409 {
+            let said: serde_json::Value = response.json().map_err(|e| Refused::Network(e.to_string()))?;
+            return Ok(Friends::Need(said.get("need").and_then(|need| need.as_str()).unwrap_or("link").to_owned()));
+        }
+        let said: crate::community::wire::Friends = status(response)?.json().map_err(|e| Refused::Network(e.to_string()))?;
+        Ok(Friends::Listed(said.friends))
+    })
 }
 
 struct Counted<R> {
@@ -857,6 +961,145 @@ pub fn tidy(code: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::{Read, Write};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+
+    const BUSY: &str = "HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+    const EMPTY_LIST: &str = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 2\r\nConnection: close\r\n\r\n[]";
+    const NOT_KNOWN: &str = "HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+    const NO_ONE: &str = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+
+    fn serve(answers: Vec<&'static str>) -> (String, Arc<AtomicUsize>) {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = format!("http://{}", listener.local_addr().unwrap());
+        let count = Arc::new(AtomicUsize::new(0));
+        let seen = count.clone();
+        std::thread::spawn(move || {
+            for answer in answers {
+                let Ok((mut stream, _)) = listener.accept() else { return };
+                let mut buffer = [0u8; 4096];
+                let _ = stream.read(&mut buffer);
+                seen.fetch_add(1, Ordering::SeqCst);
+                let _ = stream.write_all(answer.as_bytes());
+            }
+        });
+        (address, count)
+    }
+
+    #[test]
+    fn a_busy_server_is_asked_once_more_and_the_second_answer_is_taken() {
+        let (server, asked) = serve(vec![BUSY, EMPTY_LIST]);
+        let chats = chats(&server, "token", "device").unwrap();
+        assert!(chats.is_empty());
+        assert_eq!(asked.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn a_server_that_stays_busy_gives_up_after_the_second_try() {
+        let (server, asked) = serve(vec![BUSY, BUSY, EMPTY_LIST]);
+        assert_eq!(chats(&server, "token", "device"), Err(Refused::Said("503".into())));
+        assert_eq!(asked.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn an_answer_that_will_not_change_is_not_asked_for_again() {
+        let (server, asked) = serve(vec![NOT_KNOWN, EMPTY_LIST]);
+        assert_eq!(chats(&server, "token", "device"), Err(Refused::Said("401".into())));
+        assert_eq!(asked.load(Ordering::SeqCst), 1);
+        let (server, asked) = serve(vec![NO_ONE, EMPTY_LIST]);
+        assert_eq!(chats(&server, "token", "device"), Err(Refused::NotThere));
+        assert_eq!(asked.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn nobody_listening_is_a_network_failure_that_is_tried_twice_and_comes_back_quickly() {
+        let closed = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let server = format!("http://{}", closed.local_addr().unwrap());
+        drop(closed);
+        let started = std::time::Instant::now();
+        assert!(matches!(chats(&server, "token", "device"), Err(Refused::Network(_))));
+        assert!(started.elapsed() < Duration::from_secs(4));
+    }
+
+    fn serve_seen(answers: Vec<String>) -> (String, Arc<std::sync::Mutex<Vec<String>>>) {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = format!("http://{}", listener.local_addr().unwrap());
+        let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let heard = seen.clone();
+        std::thread::spawn(move || {
+            for answer in answers {
+                let Ok((mut stream, _)) = listener.accept() else { return };
+                let mut head = Vec::new();
+                let mut buffer = [0u8; 2048];
+                while !head.windows(4).any(|window| window == b"\r\n\r\n") {
+                    match stream.read(&mut buffer) {
+                        Ok(0) | Err(_) => break,
+                        Ok(read) => head.extend_from_slice(&buffer[..read]),
+                    }
+                }
+                heard.lock().unwrap().push(String::from_utf8_lossy(&head).to_string());
+                let _ = stream.write_all(answer.as_bytes());
+            }
+        });
+        (address, seen)
+    }
+
+    #[test]
+    fn an_unchanged_feed_is_asked_for_with_its_tag_and_the_kept_body_is_used_on_not_modified() {
+        let body = r#"{"week":7,"group":"Osu Squad"}"#;
+        let full = format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nETag: \"abc\"\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());
+        let same = "HTTP/1.1 304 Not Modified\r\nETag: \"abc\"\r\nConnection: close\r\n\r\n".to_owned();
+        let changed_body = r#"{"week":8,"group":"Osu Squad"}"#;
+        let changed = format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nETag: \"def\"\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{changed_body}", changed_body.len());
+        let (server, seen) = serve_seen(vec![full, same, changed]);
+        let first = community(&server, "token", "device", Some(-100)).unwrap();
+        assert_eq!(first.week, 7);
+        let second = community(&server, "token", "device", Some(-100)).unwrap();
+        assert_eq!(second, first, "a 304 gives back the body that was kept");
+        let third = community(&server, "token", "device", Some(-100)).unwrap();
+        assert_eq!(third.week, 8);
+        let seen = seen.lock().unwrap();
+        assert!(!seen[0].to_ascii_lowercase().contains("if-none-match"), "the first ask carries no tag: {}", seen[0]);
+        assert!(seen[1].to_ascii_lowercase().contains("if-none-match: \"abc\""), "{}", seen[1]);
+        assert!(seen[2].to_ascii_lowercase().contains("if-none-match: \"abc\""), "{}", seen[2]);
+    }
+
+    #[test]
+    fn a_tag_kept_for_one_chat_is_not_sent_for_another() {
+        let body = r#"{"week":1}"#;
+        let full = format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nETag: \"one\"\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());
+        let (server, seen) = serve_seen(vec![full.clone(), full]);
+        community(&server, "token", "device", Some(-1)).unwrap();
+        community(&server, "token", "device", Some(-2)).unwrap();
+        assert!(!seen.lock().unwrap()[1].to_ascii_lowercase().contains("if-none-match"));
+    }
+
+    #[test]
+    fn the_link_remembers_the_last_answer_the_last_refusal_and_the_retries() {
+        let before = link_state();
+        let (server, _) = serve(vec![BUSY, BUSY]);
+        let _ = chats(&server, "token", "device");
+        let after = link_state();
+        assert!(after.retries >= before.retries + 1);
+        assert!(after.asked >= before.asked + 1);
+        assert!(matches!(after.refused, Some((_, Refused::Said(ref code))) if code == "503"));
+        assert!(after.answered.is_some(), "a 503 is still an answer from the server");
+        let closed = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let gone = format!("http://{}", closed.local_addr().unwrap());
+        drop(closed);
+        let _ = chats(&gone, "token", "device");
+        assert!(matches!(link_state().refused, Some((_, Refused::Network(_)))));
+    }
+
+    #[test]
+    fn the_one_client_answers_request_after_request() {
+        let (server, asked) = serve(vec![EMPTY_LIST, EMPTY_LIST, EMPTY_LIST]);
+        for _ in 0..3 {
+            assert!(chats(&server, "token", "device").unwrap().is_empty());
+        }
+        assert_eq!(asked.load(Ordering::SeqCst), 3);
+    }
 
     #[test]
     fn job_download_limits_also_apply_without_a_content_length_header() {

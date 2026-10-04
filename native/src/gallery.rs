@@ -384,6 +384,119 @@ pub fn mock_library() -> crate::library::Library {
 
 pub const SHOWN_BUILD: &str = "0.92.3";
 
+fn pool_tint(seed: usize) -> iced::widget::image::Handle {
+    const HUES: [[f32; 3]; 6] = [[0.46, 0.28, 0.16], [0.16, 0.26, 0.42], [0.34, 0.16, 0.38], [0.38, 0.38, 0.14], [0.14, 0.34, 0.30], [0.42, 0.16, 0.22]];
+    let hue = HUES[seed % HUES.len()];
+    let (width, height) = (176u32, 100u32);
+    let mut pixels = Vec::with_capacity((width * height * 4) as usize);
+    for y in 0..height {
+        for x in 0..width {
+            let dx = (x as f32 / width as f32) - 0.62;
+            let dy = (y as f32 / height as f32) - 0.38;
+            let glow = (1.0 - (dx * dx + dy * dy).sqrt() * 1.6).clamp(0.0, 1.0);
+            let dark = 0.55 + 0.45 * (1.0 - y as f32 / height as f32);
+            for channel in hue {
+                pixels.push((255.0 * (channel * (0.55 + 0.9 * glow) * dark).clamp(0.0, 1.0)) as u8);
+            }
+            pixels.push(255);
+        }
+    }
+    iced::widget::image::Handle::from_rgba(width, height, pixels)
+}
+
+fn pool_sample() -> (Vec<crate::pools::Pool>, std::collections::HashMap<String, crate::library::Map>, Vec<(String, iced::widget::image::Handle)>) {
+    use crate::pools::{Frame, Measure, Mod, Pool, Slot};
+    let titles = [
+        ("Glass Orchard", "Nova Tide", "Garden", 172.0, 132_000, 4.52),
+        ("Salt and Static", "Marrow", "Another", 168.0, 160_000, 5.05),
+        ("Ninth Window", "Kite and Ash", "Hard", 150.0, 181_000, 4.92),
+        ("Velvet Gravity", "Linden", "Insane", 184.0, 140_000, 5.20),
+        ("Low Orbit", "Tessellate", "Expert", 300.0, 83_000, 5.65),
+        ("Cold Frequency", "Ostinato", "Extra", 210.0, 210_000, 6.35),
+        ("Tideline", "Sora Vale", "Normal", 160.0, 120_000, 4.95),
+        ("Lowlight", "Amber Field", "Hard", 175.0, 150_000, 5.15),
+        ("Marble Hours", "Ivy Row", "Insane", 190.0, 170_000, 4.83),
+        ("Quiet Machines", "Hollow Choir", "Expert", 200.0, 190_000, 5.69),
+    ];
+    let mut maps = std::collections::HashMap::new();
+    let mut covers = Vec::new();
+    let mut hashes = Vec::new();
+    for (at, (title, artist, version, ..)) in titles.iter().enumerate() {
+        let hash = format!("{at:032x}");
+        maps.insert(hash.clone(), crate::library::Map { file: PathBuf::from(format!("/songs/{at}/{version}.osu")), artist: (*artist).to_owned(), title: (*title).to_owned(), version: (*version).to_owned(), background: None });
+        covers.push((hash.clone(), pool_tint(at)));
+        hashes.push(hash);
+    }
+    let measure = |at: usize| {
+        let (_, _, _, bpm, length, stars) = titles[at];
+        Measure { stars, bpm, length_ms: length, ar: 9.3, od: 8.9, cs: 4.0, hp: 5.0, max_combo: 942, aim: 2.4, speed: 2.6, reading: 0.8, stamina: 1.2 }
+    };
+    let fill = |pool: &mut Pool, slot: usize, at: usize| {
+        pool.slots[slot].hash = Some(hashes[at].clone());
+        pool.slots[slot].artist = titles[at].1.to_owned();
+        pool.slots[slot].title = titles[at].0.to_owned();
+        pool.slots[slot].version = titles[at].2.to_owned();
+        pool.slots[slot].measure = Some(measure(at));
+    };
+    let mut spring = Pool::new(Frame::Duel, "Spring duel", NOON - 2 * DAY);
+    for (slot, at) in [(0, 0), (1, 1), (2, 2), (3, 3), (4, 4), (6, 5)] {
+        fill(&mut spring, slot, at);
+    }
+    spring.slots[1].mods = Mod::Nm;
+    spring.changed_at = NOON - 3600;
+    let mut stage = Pool::new(Frame::Stage, "Chat stage", NOON - 6 * DAY);
+    for slot in 0..10 {
+        fill(&mut stage, slot, slot);
+    }
+    stage.changed_at = NOON - 2 * DAY;
+    let mut weak = Pool::new(Frame::Free, "Weak spots", NOON - 8 * DAY);
+    for at in [6, 7, 8, 9, 3, 2] {
+        weak.slots.push(Slot::empty(Mod::Nm));
+        let slot = weak.slots.len() - 1;
+        fill(&mut weak, slot, at);
+    }
+    weak.changed_at = NOON - 3 * DAY;
+    let mut warm = Pool::new(Frame::Free, "Warm up", NOON - 9 * DAY);
+    for at in [2, 6, 8, 0, 1] {
+        warm.slots.push(Slot::empty(Mod::Nm));
+        let slot = warm.slots.len() - 1;
+        fill(&mut warm, slot, at);
+    }
+    warm.changed_at = NOON - 4 * DAY;
+    let mut speed = Pool::new(Frame::Free, "Speed and stamina", NOON - 10 * DAY);
+    for at in [3, 4, 5, 7, 9, 1, 0, 2] {
+        speed.slots.push(Slot::empty(Mod::Nm));
+        let slot = speed.slots.len() - 1;
+        fill(&mut speed, slot, at);
+    }
+    speed.changed_at = NOON - 5 * DAY;
+    (vec![spring, stage, weak, warm, speed], maps, covers)
+}
+
+fn pools_state(main: &mut crate::main_screen::Main, with: bool) {
+    let (list, maps, covers) = pool_sample();
+    let mut state = crate::pools_screen::State::new(std::env::temp_dir().join("dossier-gallery-pools"));
+    state.loaded = true;
+    if with {
+        state.list = list;
+        state.songs = Some(std::sync::Arc::new(maps));
+        for (hash, handle) in covers {
+            main.thumbs.insert(hash, handle);
+        }
+    }
+    main.pools = state;
+}
+
+macro_rules! frames {
+    ($out:ident; $(($name:expr, $state:expr)),+ $(,)?) => {
+        $( added(&mut $out, $name, || $state); )+
+    };
+}
+
+fn added(out: &mut Vec<(String, crate::main_screen::Main)>, name: String, build: impl FnOnce() -> crate::main_screen::Main) {
+    out.push((name, build()));
+}
+
 pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
     use crate::main_screen::{decoded, Main, Overlay};
     let mut settings = crate::settings::Settings::default();
@@ -722,6 +835,7 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
     let mut prefs_shared = prefs_app.clone();
     prefs_shared.settings.tiles_app = vec!["sources".to_owned()];
     prefs_shared.settings.sources.push(Source { replay_count: 37, ..crate::sources::shared(true) });
+    prefs_bot.link_shown = Some(crate::bot::Link { answered: Some(NOON - 120), refused: Some((NOON - 3_600, crate::bot::Refused::Network(String::new()))), retries: 2, asked: 41 });
     prefs_bot.pin = Some(crate::community::wire::Pin { chat: Some(-100), since: Some(NOON - 5 * DAY), free_at: Some(NOON + 25 * DAY), error: String::new() });
     let community = |section: crate::community_screen::Section, person: Option<usize>| {
         let mut main = staged(Some(0));
@@ -735,8 +849,6 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
         main.community_section = section;
         main.community_person = person;
         main.person_fade = iced::Animation::new(person.is_some());
-        main.spot_held = Some(main.spot_due);
-        main.rank_held = Some(main.rank_due);
         main
     };
     let scored = |scale: bool| {
@@ -819,7 +931,8 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
         toast.shown = iced::Animation::new(true);
         toast.born = notifications.now - std::time::Duration::from_secs(2);
     }
-    vec![
+    let mut states: Vec<(String, Main)> = Vec::new();
+    frames![states;
         ("main-rest".to_owned(), staged(Some(0))),
         ("main-idle".to_owned(), idle),
         ("main-notifications".to_owned(), notifications),
@@ -1003,7 +1116,163 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
         }),
         ("main-empty".to_owned(), empty),
         ("main-looking".to_owned(), looking),
-    ]
+    ];
+    states.extend(feed_states(&community));
+    states
+}
+
+fn feed_states(community: &dyn Fn(crate::community_screen::Section, Option<usize>) -> crate::main_screen::Main) -> Vec<(String, crate::main_screen::Main)> {
+    let hollow_feed = || {
+        let mut main = community(crate::community_screen::Section::Feed, None);
+        main.news = crate::news::News::default();
+        if let Some(catalog) = main.community.as_mut() {
+            catalog.people.clear();
+            catalog.live.clear();
+            catalog.feed.clear();
+            catalog.friends.clear();
+            catalog.group.clear();
+            catalog.staged = false;
+            catalog.me = None;
+        }
+        main
+    };
+    let mut states: Vec<(String, crate::main_screen::Main)> = Vec::new();
+    frames![states;
+        ("main-community-feed-loading".to_owned(), {
+            let mut main = hollow_feed();
+            main.community_fetch = crate::community_screen::Fetch::Loading;
+            main
+        }),
+        ("main-community-feed-failed".to_owned(), {
+            let mut main = hollow_feed();
+            main.community_fetch = crate::community_screen::Fetch::Failed(None, crate::community_screen::Fault::Offline);
+            main
+        }),
+        ("main-community-feed-quiet".to_owned(), {
+            let mut main = hollow_feed();
+            main.community_fetch = crate::community_screen::Fetch::Fresh(NOON - 30);
+            main
+        }),
+        ("main-community-feed-filter-empty".to_owned(), {
+            let mut main = community(crate::community_screen::Section::Feed, None);
+            main.news = crate::news::News::default();
+            main.feed_filter = crate::chronicle::Filter::News;
+            main
+        }),
+        ("main-community-feed-new".to_owned(), {
+            let mut main = community(crate::community_screen::Section::Feed, None);
+            let keys = main.community.as_ref().map(|catalog| crate::chronicle::event_keys(catalog, &main.news, &main.settings.news_channels, main.live_shown)).unwrap_or_default();
+            main.feed_held = keys.into_iter().take(3).collect();
+            main
+        }),
+        ("main-community-feed-wide".to_owned(), community(crate::community_screen::Section::Feed, None)),
+        ("main-community-feed-search-empty".to_owned(), {
+            let mut main = community(crate::community_screen::Section::Feed, None);
+            main.feed_query = "zzzqx".to_owned();
+            main
+        }),
+        ("main-pools-empty".to_owned(), {
+            let mut main = community(crate::community_screen::Section::Pools, None);
+            pools_state(&mut main, false);
+            main
+        }),
+        ("main-pools-shelf".to_owned(), {
+            let mut main = community(crate::community_screen::Section::Pools, None);
+            pools_state(&mut main, true);
+            main
+        }),
+        ("main-pools-editor".to_owned(), {
+            let mut main = community(crate::community_screen::Section::Pools, None);
+            pools_state(&mut main, true);
+            let id = main.pools.list[0].id.clone();
+            main.pools.screen = crate::pools_screen::Screen::Editor(crate::pools_screen::Editor { selected: Some(4), panel: crate::pools_screen::Panel::Slot, query: String::new(), untouched: false, ..crate::pools_screen::Editor::at(id) });
+            main
+        }),
+        ("main-pools-link".to_owned(), {
+            let mut main = community(crate::community_screen::Section::Pools, None);
+            pools_state(&mut main, true);
+            let id = main.pools.list[0].id.clone();
+            let url = "https://osu.ppy.sh/beatmapsets/2370103".to_owned();
+            main.pools.screen = crate::pools_screen::Screen::Editor(crate::pools_screen::Editor { selected: Some(5), panel: crate::pools_screen::Panel::Add, query: url, untouched: false, ..crate::pools_screen::Editor::at(id) });
+            let found = crate::pool_links::Found {
+                set: 2370103,
+                artist: "Nova Tide".to_owned(),
+                title: "Glass Orchard".to_owned(),
+                difficulties: [("Easy", 1.21), ("Normal", 2.04), ("Hard", 3.38), ("Insane", 4.52), ("Expert", 5.31), ("Extra", 6.02)]
+                    .into_iter()
+                    .enumerate()
+                    .map(|(at, (version, stars))| crate::pool_links::Difficulty { id: 100 + at as u64, hash: format!("{:032x}", 900 + at), version: version.to_owned(), stars })
+                    .collect(),
+                picked: None,
+            };
+            main.pools.finding = Some(crate::pools_screen::Finding::Found(crate::pools_screen::Candidate { found, choice: Some(4), place: crate::pools_screen::Place::Slot(5), cover: Some(pool_tint(1)) }));
+            main
+        }),
+        ("main-pools-fetching".to_owned(), {
+            let mut main = community(crate::community_screen::Section::Pools, None);
+            pools_state(&mut main, true);
+            let id = main.pools.list[0].id.clone();
+            main.pools.screen = crate::pools_screen::Screen::Editor(crate::pools_screen::Editor { selected: Some(5), panel: crate::pools_screen::Panel::Add, query: "https://osu.ppy.sh/beatmapsets/2370103#osu/5114204".to_owned(), untouched: false, ..crate::pools_screen::Editor::at(id) });
+            main.pools.finding = Some(crate::pools_screen::Finding::Fetching(crate::pools_screen::Fetching {
+                queue: vec!["x".to_owned()],
+                total: 3,
+                step: Some(crate::maps::Step::Downloading { from: "osu.direct", done: 3_250_000, total: Some(5_200_000) }),
+                place: None,
+                stop: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            }));
+            main
+        }),
+        ("main-pools-refused".to_owned(), {
+            let mut main = community(crate::community_screen::Section::Pools, None);
+            pools_state(&mut main, true);
+            let id = main.pools.list[0].id.clone();
+            main.pools.screen = crate::pools_screen::Screen::Editor(crate::pools_screen::Editor { selected: None, panel: crate::pools_screen::Panel::Add, query: "https://osu.ppy.sh/beatmapsets/5#taiko/6".to_owned(), untouched: false, ..crate::pools_screen::Editor::at(id) });
+            main.pools.finding = Some(crate::pools_screen::Finding::Refused("taiko".to_owned()));
+            main
+        }),
+        ("main-pools-choose".to_owned(), {
+            let mut main = community(crate::community_screen::Section::Pools, None);
+            pools_state(&mut main, true);
+            let id = main.pools.list[0].id.clone();
+            main.pools.screen = crate::pools_screen::Screen::Editor(crate::pools_screen::Editor { choosing: true, marked: vec![1, 2, 3], bulk: Some(crate::pools_screen::Bulk::Mod), ..crate::pools_screen::Editor::at(id) });
+            main
+        }),
+        ("main-pools-share".to_owned(), {
+            let mut main = community(crate::community_screen::Section::Pools, None);
+            pools_state(&mut main, true);
+            let id = main.pools.list[0].id.clone();
+            main.pools.screen = crate::pools_screen::Screen::Editor(crate::pools_screen::Editor { selected: None, panel: crate::pools_screen::Panel::Closed, query: String::new(), untouched: false, share: true, ..crate::pools_screen::Editor::at(id) });
+            main
+        }),
+        ("main-pools-open".to_owned(), {
+            let mut main = community(crate::community_screen::Section::Pools, None);
+            pools_state(&mut main, true);
+            let mut draft = main.pools.list[0].clone();
+            draft.name = "Spring duel".to_owned();
+            for at in [2, 4] {
+                draft.slots[at].hash = Some(format!("{:032x}", 700 + at));
+                draft.slots[at].measure = None;
+            }
+            main.pools.screen = crate::pools_screen::Screen::Open(crate::pools_screen::Opening {
+                pool: draft,
+                queue: Vec::new(),
+                total: 0,
+                step: None,
+                stop: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+                running: false,
+                lost: 0,
+            });
+            main
+        }),
+        ("main-pools-add".to_owned(), {
+            let mut main = community(crate::community_screen::Section::Pools, None);
+            pools_state(&mut main, true);
+            let id = main.pools.list[0].id.clone();
+            main.pools.screen = crate::pools_screen::Screen::Editor(crate::pools_screen::Editor { selected: Some(5), panel: crate::pools_screen::Panel::Add, query: "o".to_owned(), untouched: false, ..crate::pools_screen::Editor::at(id) });
+            main
+        }),
+    ];
+    states
 }
 
 fn sample_news() -> crate::news::News {
@@ -1071,11 +1340,11 @@ pub fn every_main_frame() -> Vec<(String, crate::main_screen::Main, Size)> {
     for lang in Lang::ALL {
         for (name, main) in main_states(lang) {
             for (label, size) in SIZES {
-                if label != SIZES[0].0 && name != "main-rest" && name != "main-idle" && name != "main-notifications" && name != "main-player-mini" && name != "main-community-clip-mini" {
+                if label != SIZES[0].0 && name != "main-rest" && name != "main-idle" && name != "main-notifications" && name != "main-player-mini" && name != "main-community-clip-mini" && name != "main-community-feed-wide" {
                     continue;
                 }
                 let mut frame = main.clone();
-                if name == "main-idle" || name == "main-notifications" || name == "main-player-mini" || name == "main-community-clip-mini" { frame.width = size.width; frame.height = size.height; }
+                if name == "main-idle" || name == "main-notifications" || name == "main-player-mini" || name == "main-community-clip-mini" || name == "main-community-feed-wide" { frame.width = size.width; frame.height = size.height; }
                 out.push((format!("{name}-{}-{label}", lang.tag()), frame, size));
             }
         }

@@ -160,6 +160,15 @@ rendered-notice = Видео готово
 render-failed = Не удалось завершить рендер
 map-fetched = Карта скачана
 signed-in = Вход выполнен
+link-answered = Последний ответ
+link-never = ещё не было
+link-refused = Последний отказ
+link-refused-at = Отказ был
+link-retries = Повторов за сеанс
+link-fault-network = Нет связи
+link-fault-server = Ошибка сервера { $code }
+link-fault-denied = Устройство не узнано
+link-fault-gone = Не найдено
 linked-status = Привязано
 not-signed-in = Вход не выполнен
 stays-here = Видео хранятся на этом устройстве
@@ -328,7 +337,7 @@ games = { $n ->
     [few] игры
    *[other] игр
 }
-board-pp = pp
+board-pp = PP
 board-accuracy = Точность
 board-plays = Игры
 board-hours = Время
@@ -361,6 +370,198 @@ streak-card = { $n ->
 panel-news = Новости osu!
 news-loading = Загрузка…
 news-failed = Не удалось загрузить. Попробуйте снова.
+community-stale = Не удалось обновить. Показано то, что было { $when }.
+community-offline = Нет связи с сервером. Попытки продолжаются, лента останется как есть.
+community-denied = Бот не узнал это устройство. Подключите его заново в разделе «Бот».
+community-retry = Повторить
+community-connect = Подключить
+strip-friends = Друзья в сети
+week-delta = { $value } за неделю
+community-play = Игра
+community-pools = Пулы
+pools-crumb = Игра
+pools-title = Пулы
+pools-new = Новый пул
+pools-filter-all = Все { $n }
+pools-kind-duel = Дуэли
+pools-kind-stage = Этапы
+pools-kind-free = Свободные
+pools-empty-title = Здесь появятся ваши пулы
+pools-empty-text = Пул это набор карт для дуэли, этапа или тренировки. Соберите его из папки Songs, коллекций osu! или лучших игр.
+pools-empty-make = Собрать первый пул
+pools-local = Всё хранится на этом компьютере
+pool-frame-duel = Дуэль, 7 слотов
+pool-frame-stage = Этап, 12 слотов
+pool-frame-free = Свободный
+pool-untitled = Новый пул
+pool-name-hint = Название пула
+pool-cards = { $n ->
+    [one] { $n } карта
+    [few] { $n } карты
+   *[other] { $n } карт
+}
+pool-minutes = { $n } мин
+pool-range = { $low } до { $high } ★
+pool-add = Добавить карты
+pool-replace = Заменить карту
+pool-remove = Убрать карту
+pool-slot-empty = Пустой слот
+pool-slot-need = Нужна карта под этот мод
+pool-slot-mod = Мод слота
+pool-slot-note = Заметка к слоту
+pool-mod-nm = Без мода
+pool-mod-hd = Скрытые объекты
+pool-mod-hr = Зеркало и жёсткие допуски
+pool-mod-dt = Скорость в полтора раза
+pool-mod-fm = Мод выбирает игрок
+pool-mod-tb = Решающая карта
+pool-stars = Звёзды
+pool-bpm = BPM
+pool-length = Длина
+pool-combo = Комбо
+pool-measuring = Считаю
+pool-no-disk = Карты нет на этом компьютере
+pool-tab-search = Поиск
+pool-search-hint = Название, исполнитель или сложность
+pool-search-start = Введите несколько букв, и карта найдётся в папке Songs
+pool-reading = Читаю папку Songs
+pool-nothing = Ничего не нашли
+pool-for-slot = Для слота { $n }, { $mod }
+pool-already = Эта карта уже лежит в слоте { $n }
+pool-for-end = Ляжет в конец пула
+pool-link-asking = Ищу карту
+pool-link-found = Нашли карту
+pool-link-set = { $n ->
+    [one] Нашли набор из { $n } сложности
+    [few] Нашли набор из { $n } сложностей
+   *[other] Нашли набор из { $n } сложностей
+}
+pool-link-where = Куда положить
+pool-place-slot = Слот { $n }, { $mod }
+pool-place-end = В конец
+pool-place-replace = Заменить слот { $n }
+pool-link-put = Положить
+pool-link-put-to = Положить { $version } в слот { $n }
+pool-link-put-end = Положить { $version } в конец
+pool-link-put-all = Положить все
+pool-link-cancel = Отмена
+pool-fetching = Скачиваю карту { $n } из { $total }
+pool-step-looking = Ищу на зеркале
+pool-step-found = Нашёл на зеркале
+pool-step-download = Скачиваю
+pool-step-download-of = Скачиваю { $done } из { $total } МБ
+pool-step-unpack = Кладу в Songs
+pool-step-check = Проверяю карту
+pool-not-link = Это не ссылка на карту osu!. Скопируйте адрес со страницы карты.
+pool-mode-title = Режим { $mode } не подходит
+pool-mode-text = Пул собирается только из карт osu!standard
+pool-got-it = Понятно
+pool-missing = Карты нет ни на одном зеркале
+pool-silent = Зеркало не отвечает
+pool-retry = Повторить
+pools-open = Открыть пул
+pool-open-title = Открыть пул
+pool-opening = Открываю { $name }
+pool-open-read = Пул прочитан
+pool-open-found = Нашёл на этом компьютере { $n } из { $total }
+pool-open-fetch-idle = Не хватает части карт
+pool-open-fetching = Скачиваю, готово { $n }
+pool-open-measure = Считаю сложность
+pool-open-lost = { $n ->
+    [one] { $n } карта не нашлась
+    [few] { $n } карты не нашлись
+   *[other] { $n } карт не нашлось
+}
+pool-open-get = Скачать недостающее
+pool-open-keep = Сохранить пул
+pool-open-keep-bare = Сохранить без недостающих
+pool-open-note = Числа считаются у вас и совпадают с автором, если версия расчёта та же
+pool-open-body = Состав пула
+pool-gone = нет на этом компьютере
+pool-share = Поделиться
+pool-share-title = Поделиться пулом
+pool-share-file = Файл пула
+pool-share-file-hint = Сохранить файл .pool на компьютер
+pool-share-string = Строка для вставки
+pool-share-note = Хэш нужен для сравнения пулов. Сам пул передаётся файлом или строкой.
+pool-hash = Хэш
+pool-save = Сохранить
+pool-copy = Копировать
+pool-close = Закрыть
+pool-copied = Строка скопирована
+pool-copied-hash = Хэш скопирован
+pool-saved = Сохранено: { $name }
+pool-save-failed = Не удалось сохранить файл
+pool-refused-not = Это не пул Dossier
+pool-refused-newer = Этот пул сделан в более новом Dossier. Обновите приложение, чтобы открыть его.
+pool-refused-damaged = Строка повреждена или обрезана
+pool-choose = Выбрать
+pool-choose-done = Готово
+pool-undo = Отменить
+pool-marked = { $n ->
+    [one] Выбран { $n } слот
+    [few] Выбрано { $n } слота
+   *[other] Выбрано { $n } слотов
+}
+pool-bulk-mod = Сменить мод
+pool-bulk-shift = Сдвинуть
+pool-bulk-remove = Убрать
+pool-bulk-clear = Снять выбор
+pool-shift-up = Выше
+pool-shift-down = Ниже
+pool-delete = Удалить пул
+pool-delete-ask = Удалить { $name }? Вернуть его будет нельзя.
+pool-delete-yes = Удалить
+pool-delete-no = Оставить
+pool-slot-profile = Профиль слота
+pool-skill-aim = Прицел
+pool-skill-speed = Скорость
+pool-skill-reading = Чтение
+pool-skill-stamina = Выносливость
+pool-heavy-aim = Прицел перевешивает
+pool-heavy-speed = Скорость перевешивает
+pool-heavy-reading = Чтение перевешивает
+pool-heavy-stamina = Выносливость перевешивает
+pool-even = Навыки в равновесии
+pool-free-empty = Добавьте карту, и она станет первым слотом
+feed-quiet-title = Пока тихо
+feed-quiet-text = Когда кто-то в беседе сыграет, здесь появится строка
+feed-filter-title = В этом фильтре пусто
+feed-filter-text = За последние дни таких событий нет
+feed-filter-action = Показать всё
+feed-search-title = Ничего не нашли
+feed-search-text = По запросу «{ $query }» нет игроков и карт
+feed-search-action = Сбросить поиск
+feed-failed-title = Не удалось загрузить ленту
+feed-failed-offline = Нет связи с сервером. Проверьте сеть и попробуйте снова.
+feed-failed-server = Сервер не ответил. Попробуйте снова.
+feed-new-n = { $n ->
+    [one] { $n } новое
+    [few] { $n } новых
+   *[many] { $n } новых
+}
+refresh-when = Обновлено { $when }
+day-plays-n = { $n ->
+    [one] { $n } игра
+    [few] { $n } игры
+   *[many] { $n } игр
+}
+day-records-n = { $n ->
+    [one] { $n } рекорд
+    [few] { $n } рекорда
+   *[many] { $n } рекордов
+}
+day-titles-n = { $n ->
+    [one] { $n } титул
+    [few] { $n } титула
+   *[many] { $n } титулов
+}
+refresh-idle = Обновить
+refresh-running = Обновление
+refresh-done = Готово
+refresh-failed = Ошибка
+refresh-offline = Нет сети
+refresh-denied = Подключить
 news-unreachable = Нет соединения. Попытка будет повторена позже.
 live-now = только что
 minutes-ago = { $n } мин назад
@@ -397,7 +598,6 @@ board-short-score = Очки
 board-short-hits = Попад.
 channels-head = Каналы
 news-future = Скоро здесь появятся новые возможности.
-climb-was = было
 community-standing = Зачёт
 community-compare = Сравнение
 compare-add = Добавить игрока по нику
@@ -419,11 +619,9 @@ days-long = { $n ->
 days-short = { $n }д
 filter-all = Всё
 filter-plays = Игры
-filter-top = Лучшие игры
 filter-titles = Титулы
 filter-ranks = Рейтинг
 filter-news = Новости
-filter-builds = Обновления
 friends-head = Друзья в игре
 friends-online = { $n } онлайн
 grade-a = A
@@ -437,19 +635,19 @@ country-rank = Рейтинг в стране
 info-duels = Дуэли
 info-since = В osu!
 info-since-from = с
-kind-climb = рейтинг
-kind-news = новость
-kind-title = титул
-kind-top = топ-плей
 journal-time = Время
 journal-player = Игрок
 journal-map = Карта
 journal-accuracy = Точн.
 journal-mods = Моды
-journal-pp = pp
-event-top = новый топ-плей
+journal-pp = PP
+event-top = поставил топ-плей на
 event-title = получил титул
-event-climb = поднялся в таблице
+event-climb-n = { $n ->
+    [one] поднялся на { $n } место в рейтинге:
+    [few] поднялся на { $n } места в рейтинге:
+   *[many] поднялся на { $n } мест в рейтинге:
+}
 less = меньше
 level-short = Ур.
 metric-accuracy-short = Точн.
@@ -469,12 +667,12 @@ plays-n = { $n ->
    *[other] { $n } игр
 }
 spot-head = В центре внимания
-spot-gain = Больше всех pp за неделю
+spot-gain = Больше всех PP за неделю
 spot-accuracy = Лучшая точность группы
 spot-title = Новый титул
 spot-streak = Самая длинная серия
-spot-top = Первый в группе по pp
-spot-you = Ваше место по pp
+spot-top = Первый в группе по PP
+spot-you = Ваше место по PP
 streak-best-n = лучшая { $n }
 title-got = получен
 title-not-yet = ещё не получен
@@ -513,10 +711,6 @@ board-not-played = ещё не играл на этой неделе
 board-acc-unit = п.п.
 minutes-short = м
 in-group = в группе
-stream-group = Группа
-source-osu = osu!
-source-channels = Каналы
-highlights = Главное
 feed-search = Игрок или карта
 events = { $n ->
     [one] событие

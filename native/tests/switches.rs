@@ -228,7 +228,7 @@ fn a_sidebar_icon_is_dragged_above_its_neighbour_and_a_drag_is_not_a_click() {
     }
     let _ = ui.simulate([Event::Window(window::Event::RedrawRequested(start + std::time::Duration::from_millis(600)))]);
     let _ = ui.simulate([Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left))]);
-    let messages: Vec<_> = ui.into_messages().collect();
+    let messages: Vec<_> = ui.into_messages().filter(|message| !matches!(message, dossier_native::Message::Main(M::Community(C::FeedScrolled(_))))).collect();
     assert!(messages.iter().any(|message| matches!(message, dossier_native::Message::Main(M::SideMoved("feed", Some("profile"))))), "{messages:?}");
     assert!(!messages.iter().any(|message| matches!(message, dossier_native::Message::Main(M::Community(_)))), "the drag also pressed the icon: {messages:?}");
 }
@@ -260,7 +260,7 @@ fn a_play_in_the_feed_opens_its_result_and_a_title_opens_its_holders() {
         ui.simulate(iced_test::simulator::click());
         ui.into_messages().collect::<Vec<_>>()
     };
-    let play = pressed("14:33");
+    let play = pressed(&main.words.n("minutes-ago", 27));
     assert!(play.iter().any(|message| matches!(message, dossier_native::Message::Main(M::Community(C::Read(Reading::Score(scored)))) if scored.name == "kotofey" && scored.passed)), "{play:?}");
     let title = pressed("13:25");
     assert!(title.iter().any(|message| matches!(message, dossier_native::Message::Main(M::Community(C::TitleOf(code, Some(_)))) if code == "ss_streak_10")), "{title:?}");

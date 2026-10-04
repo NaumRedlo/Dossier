@@ -156,6 +156,15 @@ rendered-notice = Video ready
 render-failed = The render could not be completed
 map-fetched = Map downloaded
 signed-in = Signed in
+link-answered = Last answer
+link-never = none yet
+link-refused = Last refusal
+link-refused-at = Refused at
+link-retries = Retries this session
+link-fault-network = No connection
+link-fault-server = Server error { $code }
+link-fault-denied = Device not recognised
+link-fault-gone = Not found
 linked-status = Linked
 not-signed-in = Not signed in
 stays-here = Videos are stored on this device
@@ -318,7 +327,7 @@ games = { $n ->
     [one] play
    *[other] plays
 }
-board-pp = pp
+board-pp = PP
 board-accuracy = Accuracy
 board-plays = Plays
 board-hours = Time
@@ -349,6 +358,187 @@ streak-card = { $n ->
 panel-news = osu! news
 news-loading = Loading…
 news-failed = Could not load. Try again.
+community-stale = Could not refresh. Showing the data from { $when }.
+community-offline = No connection to the server. Attempts continue, the feed stays as it is.
+community-denied = The bot did not recognise this device. Connect it again in the Bot section.
+community-retry = Retry
+community-connect = Connect
+strip-friends = Friends online
+week-delta = { $value } this week
+community-play = Play
+community-pools = Pools
+pools-crumb = Play
+pools-title = Pools
+pools-new = New pool
+pools-filter-all = All { $n }
+pools-kind-duel = Duels
+pools-kind-stage = Stages
+pools-kind-free = Free
+pools-empty-title = Your pools will appear here
+pools-empty-text = A pool is a set of maps for a duel, a stage or practice. Build it from the Songs folder, osu! collections or your best plays.
+pools-empty-make = Build the first pool
+pools-local = Everything is kept on this computer
+pool-frame-duel = Duel, 7 slots
+pool-frame-stage = Stage, 12 slots
+pool-frame-free = Free
+pool-untitled = New pool
+pool-name-hint = Pool name
+pool-cards = { $n ->
+    [one] { $n } map
+   *[other] { $n } maps
+}
+pool-minutes = { $n } min
+pool-range = { $low } to { $high } ★
+pool-add = Add maps
+pool-replace = Replace map
+pool-remove = Remove map
+pool-slot-empty = Empty slot
+pool-slot-need = A map is needed for this mod
+pool-slot-mod = Slot mod
+pool-slot-note = Slot note
+pool-mod-nm = No mod
+pool-mod-hd = Hidden objects
+pool-mod-hr = Mirror and harder windows
+pool-mod-dt = One and a half times faster
+pool-mod-fm = The player picks the mod
+pool-mod-tb = The deciding map
+pool-stars = Stars
+pool-bpm = BPM
+pool-length = Length
+pool-combo = Combo
+pool-measuring = Measuring
+pool-no-disk = The map is not on this computer
+pool-tab-search = Search
+pool-search-hint = Title, artist or difficulty
+pool-search-start = Type a few letters to find a map in your Songs folder
+pool-reading = Reading the Songs folder
+pool-nothing = Nothing found
+pool-for-slot = For slot { $n }, { $mod }
+pool-already = This map is already in slot { $n }
+pool-for-end = Goes to the end of the pool
+pool-link-asking = Looking for the map
+pool-link-found = Found the map
+pool-link-set = { $n ->
+    [one] Found a set with { $n } difficulty
+   *[other] Found a set with { $n } difficulties
+}
+pool-link-where = Where to put it
+pool-place-slot = Slot { $n }, { $mod }
+pool-place-end = At the end
+pool-place-replace = Replace slot { $n }
+pool-link-put = Put
+pool-link-put-to = Put { $version } in slot { $n }
+pool-link-put-end = Put { $version } at the end
+pool-link-put-all = Put all
+pool-link-cancel = Cancel
+pool-fetching = Downloading map { $n } of { $total }
+pool-step-looking = Looking on the mirror
+pool-step-found = Found on the mirror
+pool-step-download = Downloading
+pool-step-download-of = Downloading { $done } of { $total } MB
+pool-step-unpack = Putting into Songs
+pool-step-check = Checking the map
+pool-not-link = This is not a link to an osu! map. Copy the address from the map page.
+pool-mode-title = { $mode } does not fit
+pool-mode-text = A pool is built only from osu!standard maps
+pool-got-it = Got it
+pool-missing = No mirror has this map
+pool-silent = The mirror does not answer
+pool-retry = Retry
+pools-open = Open a pool
+pool-open-title = Open a pool
+pool-opening = Opening { $name }
+pool-open-read = The pool is read
+pool-open-found = Found on this computer { $n } of { $total }
+pool-open-fetch-idle = Some maps are missing
+pool-open-fetching = Downloading, { $n } done
+pool-open-measure = Measuring difficulty
+pool-open-lost = { $n ->
+    [one] { $n } map was not found
+   *[other] { $n } maps were not found
+}
+pool-open-get = Download the missing
+pool-open-keep = Save the pool
+pool-open-keep-bare = Save without the missing
+pool-open-note = Numbers are measured here and match the author when the calculation version is the same
+pool-open-body = Pool contents
+pool-gone = not on this computer
+pool-share = Share
+pool-share-title = Share the pool
+pool-share-file = Pool file
+pool-share-file-hint = Save a .pool file to this computer
+pool-share-string = Line to paste
+pool-share-note = The hash is for comparing pools. The pool itself goes as a file or a line.
+pool-hash = Hash
+pool-save = Save
+pool-copy = Copy
+pool-close = Close
+pool-copied = The line is copied
+pool-copied-hash = The hash is copied
+pool-saved = Saved { $name }
+pool-save-failed = Could not save the file
+pool-refused-not = This is not a Dossier pool
+pool-refused-newer = This pool was made by a newer Dossier. Update the app to open it.
+pool-refused-damaged = The line is damaged or cut
+pool-choose = Select
+pool-choose-done = Done
+pool-undo = Undo
+pool-marked = { $n ->
+    [one] { $n } slot selected
+   *[other] { $n } slots selected
+}
+pool-bulk-mod = Change mod
+pool-bulk-shift = Move
+pool-bulk-remove = Remove
+pool-bulk-clear = Clear selection
+pool-shift-up = Up
+pool-shift-down = Down
+pool-delete = Delete the pool
+pool-delete-ask = Delete { $name }? It cannot be brought back.
+pool-delete-yes = Delete
+pool-delete-no = Keep
+pool-slot-profile = Slot profile
+pool-skill-aim = Aim
+pool-skill-speed = Speed
+pool-skill-reading = Reading
+pool-skill-stamina = Stamina
+pool-heavy-aim = Aim outweighs
+pool-heavy-speed = Speed outweighs
+pool-heavy-reading = Reading outweighs
+pool-heavy-stamina = Stamina outweighs
+pool-even = Skills are in balance
+pool-free-empty = Add a map and it becomes the first slot
+feed-quiet-title = It is quiet
+feed-quiet-text = When someone in the chat plays, a row will appear here
+feed-filter-title = Nothing in this filter
+feed-filter-text = No such events in the last days
+feed-filter-action = Show all
+feed-search-title = Nothing found
+feed-search-text = No players or maps match "{ $query }"
+feed-search-action = Clear search
+feed-failed-title = Could not load the feed
+feed-failed-offline = No connection to the server. Check the network and try again.
+feed-failed-server = The server did not answer. Try again.
+feed-new-n = { $n } new
+refresh-when = Updated { $when }
+day-plays-n = { $n ->
+    [one] { $n } play
+   *[other] { $n } plays
+}
+day-records-n = { $n ->
+    [one] { $n } record
+   *[other] { $n } records
+}
+day-titles-n = { $n ->
+    [one] { $n } title
+   *[other] { $n } titles
+}
+refresh-idle = Refresh
+refresh-running = Updating
+refresh-done = Done
+refresh-failed = Error
+refresh-offline = Offline
+refresh-denied = Connect
 news-unreachable = No connection. Another attempt will be made later.
 live-now = just now
 minutes-ago = { $n } min ago
@@ -384,7 +574,6 @@ board-short-score = Score
 board-short-hits = Hits
 channels-head = Channels
 news-future = New features will appear here soon.
-climb-was = was
 community-standing = Standing
 community-compare = Compare
 compare-add = Add a player by name
@@ -405,11 +594,9 @@ days-long = { $n ->
 days-short = { $n }d
 filter-all = All
 filter-plays = Plays
-filter-top = Top plays
 filter-titles = Titles
 filter-ranks = Rankings
 filter-news = News
-filter-builds = Updates
 friends-head = Friends in game
 friends-online = { $n } online
 grade-a = A
@@ -423,19 +610,18 @@ country-rank = Country ranking
 info-duels = Duels
 info-since = In osu!
 info-since-from = since
-kind-climb = ranking
-kind-news = news
-kind-title = title
-kind-top = top play
 journal-time = Time
 journal-player = Player
 journal-map = Map
 journal-accuracy = Acc.
 journal-mods = Mods
-journal-pp = pp
-event-top = new top play
+journal-pp = PP
+event-top = set a top play on
 event-title = earned the title
-event-climb = climbed the board
+event-climb-n = { $n ->
+    [one] climbed { $n } place in the ranking:
+   *[other] climbed { $n } places in the ranking:
+}
 less = less
 level-short = Lv.
 metric-accuracy-short = Acc.
@@ -454,12 +640,12 @@ plays-n = { $n ->
    *[other] { $n } plays
 }
 spot-head = In the spotlight
-spot-gain = Most pp gained this week
+spot-gain = Most PP gained this week
 spot-accuracy = Best accuracy in the group
 spot-title = A new title
 spot-streak = The longest streak
-spot-top = First in the group by pp
-spot-you = Your place by pp
+spot-top = First in the group by PP
+spot-you = Your place by PP
 streak-best-n = best { $n }
 title-got = earned
 title-not-yet = not earned yet
@@ -496,10 +682,6 @@ board-not-played = has not played this week yet
 board-acc-unit = pct. points
 minutes-short = m
 in-group = in group
-stream-group = Group
-source-osu = osu!
-source-channels = Channels
-highlights = Highlights
 feed-search = Player or map
 events = { $n ->
     [one] event

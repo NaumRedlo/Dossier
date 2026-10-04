@@ -410,6 +410,17 @@ mod tests {
     }
 
     #[test]
+    fn a_climb_names_how_many_places_in_either_language() {
+        let ru = Words::new(Lang::Ru);
+        assert_eq!(ru.n("event-climb-n", 1), "поднялся на 1 место в рейтинге:");
+        assert_eq!(ru.n("event-climb-n", 2), "поднялся на 2 места в рейтинге:");
+        assert_eq!(ru.n("event-climb-n", 5), "поднялся на 5 мест в рейтинге:");
+        let en = Words::new(Lang::En);
+        assert_eq!(en.n("event-climb-n", 1), "climbed 1 place in the ranking:");
+        assert_eq!(en.n("event-climb-n", 3), "climbed 3 places in the ranking:");
+    }
+
+    #[test]
     fn english_counts_group_thousands() {
         let en = Words::new(Lang::En);
         assert_eq!(en.count("maps-label", 1), "1 map");

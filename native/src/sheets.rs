@@ -156,8 +156,8 @@ fn worth(play: &wire::Play, by_score: bool) -> f64 {
 fn worth_said(w: &Words, play: &wire::Play, by_score: bool) -> String {
     match (by_score, play.pp > 0.0, play.pp_if) {
         (true, _, _) => w.lang().group(play.score),
-        (false, true, _) => format!("{} pp", screen::decimal(w, play.pp, 0)),
-        (false, false, Some(guess)) => format!("≈{} pp", screen::decimal(w, guess, 0)),
+        (false, true, _) => format!("{} PP", screen::decimal(w, play.pp, 0)),
+        (false, false, Some(guess)) => format!("≈{} PP", screen::decimal(w, guess, 0)),
         (false, false, None) => "—".to_owned(),
     }
 }
@@ -438,8 +438,8 @@ pub(crate) fn score<'a>(ground: &Ground<'a>, scored: &'a Scored) -> Element<'a, 
         titles = titles.push(text(artist).font(theme::SANS).size(15.0).wrapping(text::Wrapping::None).color(ui::faded(MUTED)));
     }
     let pp = match (play.pp > 0.0, play.pp_if) {
-        (true, _) => format!("{} pp", screen::decimal(w, play.pp, 0)),
-        (false, Some(guess)) => format!("≈{} pp", screen::decimal(w, guess, 0)),
+        (true, _) => format!("{} PP", screen::decimal(w, play.pp, 0)),
+        (false, Some(guess)) => format!("≈{} PP", screen::decimal(w, guess, 0)),
         (false, None) => "—".to_owned(),
     };
     let mut facts = row![].spacing(14);

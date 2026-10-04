@@ -316,7 +316,9 @@ impl<Message> Widget<Message, Theme, Renderer> for Edged<'_, Message> {
         let state = tree.state.downcast_mut::<EdgeState>();
         match event {
             iced::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => state.held = true,
-            iced::Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => {
+            iced::Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left))
+            | iced::Event::Keyboard(iced::keyboard::Event::KeyPressed { key: iced::keyboard::Key::Named(iced::keyboard::key::Named::Escape), .. })
+            | iced::Event::Window(iced::window::Event::Unfocused) => {
                 state.held = false;
                 state.speed = 0.0;
                 state.last = None;
@@ -580,6 +582,41 @@ mod tests {
         assert!(frames > 20, "{frames} frames is still a jump");
         assert!(largest < LINE / 5.0, "one frame carried {largest} of {LINE}");
         assert!((travelled - LINE).abs() < 0.3);
+    }
+
+    #[test]
+    fn edge_scroll_stops_when_a_carried_row_is_cancelled_or_the_window_loses_focus() {
+        #[derive(Debug, Clone)]
+        enum Message { Scroll(f32), Move }
+        for escape in [true, false] {
+            let id = iced::widget::Id::unique();
+            let pieces = (0u8..20).map(|key| (key, iced::widget::Space::new().width(Length::Fill).height(64).into())).collect();
+            let rows = crate::board::board(pieces, 4.0, |_, _| Message::Move).across(1).anywhere();
+            let scrolled = iced::widget::scrollable(rows).id(id.clone()).width(Length::Fill).height(Length::Fill).on_scroll(|viewport| Message::Scroll(viewport.absolute_offset().y));
+            let mut screen = iced_test::Simulator::with_size(iced::Settings::default(), Size::new(500.0, 240.0), edged(scrolled, id));
+            screen.point_at(iced::Point::new(30.0, 30.0));
+            let _ = screen.simulate([iced::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left))]);
+            let position = iced::Point::new(30.0, 230.0);
+            screen.point_at(position);
+            let _ = screen.simulate([iced::Event::Mouse(mouse::Event::CursorMoved { position })]);
+            let mut now = Instant::now();
+            for _ in 0..40 {
+                now += std::time::Duration::from_millis(16);
+                let _ = screen.simulate([iced::Event::Window(iced::window::Event::RedrawRequested(now))]);
+            }
+            if escape { screen.tap_key(iced::keyboard::key::Named::Escape); }
+            else { let _ = screen.simulate([iced::Event::Window(iced::window::Event::Unfocused)]); }
+            for _ in 0..40 {
+                now += std::time::Duration::from_millis(16);
+                let _ = screen.simulate([iced::Event::Window(iced::window::Event::RedrawRequested(now))]);
+            }
+            let offsets: Vec<_> = screen.into_messages().map(|message| match message {
+                Message::Scroll(offset) => offset,
+                Message::Move => panic!("a cancelled drag must not reorder"),
+            }).collect();
+            assert!(offsets.len() > 10 && offsets.len() < 50, "scrolling must stop at cancellation: {offsets:?}");
+            assert!(offsets.last().is_some_and(|offset| *offset > 100.0 && *offset < 700.0), "the page scrolls without reaching the far end: {offsets:?}");
+        }
     }
 
     #[test]

@@ -5,6 +5,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use iced::widget::{button, column, container, image, row, scrollable, text, text_input, Space};
 use iced::{Background, Border, Color, Element, Length, Padding};
+use md5::{Digest, Md5};
 
 use crate::community_screen as screen;
 use crate::glyphs::{glyph, Icon};
@@ -30,6 +31,7 @@ const RESULTS_MOST: usize = 40;
 const COLLECTION_PAGE: usize = 80;
 const STRIP_BAR: f32 = 64.0;
 const STRIP_HIGH: f32 = 72.0;
+const SCROLL_ID: &str = "pools-scroll";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Panel {
@@ -165,6 +167,21 @@ pub enum Finding {
     Silent(String),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct SlotKey([u8; 16], usize);
+
+fn slot_keys(pool: &Pool) -> Vec<SlotKey> {
+    let mut seen = HashMap::new();
+    pool.slots.iter().map(|slot| {
+        let content = serde_json::to_vec(&(&slot.hash, slot.mods, &slot.note, &slot.artist, &slot.title, &slot.version, slot.set)).expect("slot identity");
+        let digest: [u8; 16] = Md5::digest(content).into();
+        let occurrence = seen.entry(digest).or_insert(0);
+        let key = SlotKey(digest, *occurrence);
+        *occurrence += 1;
+        key
+    }).collect()
+}
+
 #[derive(Debug, Clone)]
 pub enum Message {
     Filter(Option<Frame>),
@@ -219,6 +236,7 @@ pub enum Message {
     Bulk(Option<Bulk>),
     BulkMod(Mod),
     Shift(bool),
+    Move(String, Vec<SlotKey>, SlotKey, Option<SlotKey>),
     RemoveMarked,
     Undo,
     AskDelete(bool),
@@ -383,6 +401,45 @@ impl State {
                 marked
             }
             _ => Vec::new(),
+        }
+    }
+
+    fn reorder_slots(&mut self, at: usize, order: &[usize], now: i64) {
+        let fingerprint = self.list[at].fingerprint();
+        let slots = self.list[at].slots.clone();
+        self.list[at].slots = order.iter().map(|slot| slots[*slot].clone()).collect();
+        self.follow_order(order);
+        self.cancel_suggestion();
+        if let Some(importing) = self.importing.as_mut().filter(|importing| importing.pool == self.list[at].id && importing.fingerprint == fingerprint) {
+            importing.fingerprint = self.list[at].fingerprint();
+        }
+        self.save(at, now);
+    }
+
+    fn follow_order(&mut self, order: &[usize]) {
+        let position = |old: usize| order.iter().position(|slot| *slot == old);
+        let place = |place: &mut Place| {
+            match *place {
+                Place::Slot(old) => { if let Some(at) = position(old) { *place = Place::Slot(at); } }
+                Place::Replace(old) => { if let Some(at) = position(old) { *place = Place::Replace(at); } }
+                Place::End => {}
+            }
+        };
+        if let Some(editor) = self.editor_mut() {
+            editor.selected = editor.selected.and_then(position);
+            editor.marked = editor.marked.iter().filter_map(|at| position(*at)).collect();
+            editor.marked.sort_unstable();
+        }
+        match &mut self.finding {
+            Some(Finding::Found(candidate)) => place(&mut candidate.place),
+            Some(Finding::Fetching(fetching)) => { if let Some(target) = &mut fetching.place { place(target); } }
+            _ => {}
+        }
+        if let Some(importing) = &mut self.importing {
+            place(&mut importing.place);
+        }
+        if let Some(Notice::Already(old)) = &mut self.notice {
+            if let Some(at) = position(*old) { *old = at; }
         }
     }
 
@@ -984,17 +1041,25 @@ impl State {
                     editor.bulk = None;
                 }
             }
+            Message::Move(id, keys, key, before) => {
+                if let Some(at) = self.editing_at() {
+                    if self.list[at].id == id && slot_keys(&self.list[at]) == keys {
+                        if let Some(order) = moved_order(&keys, key, before) {
+                            self.remember(at);
+                            self.reorder_slots(at, &order, now);
+                        }
+                    }
+                }
+            }
             Message::Shift(down) => {
                 let marked = self.marked_slots();
                 if let Some(at) = self.editing_at() {
                     let length = self.list[at].slots.len();
                     if shifted(&marked, length, down) != marked {
                         self.remember(at);
-                        let moved = shift_in(&mut self.list[at].slots, &marked, down);
-                        self.save(at, now);
-                        if let Some(editor) = self.editor_mut() {
-                            editor.marked = moved;
-                        }
+                        let mut order: Vec<usize> = (0..length).collect();
+                        shift_in(&mut order, &marked, down);
+                        self.reorder_slots(at, &order, now);
                     }
                 }
             }
@@ -1031,6 +1096,15 @@ impl State {
                     if let Some(from) = self.undo.iter().rposition(|(pool, _)| *pool == id) {
                         let (_, before) = self.undo.remove(from);
                         if let Some(at) = self.list.iter().position(|pool| pool.id == id) {
+                            let current_keys = slot_keys(&self.list[at]);
+                            let restored_keys = slot_keys(&before);
+                            if current_keys.len() == restored_keys.len() && restored_keys.iter().all(|key| current_keys.contains(key)) {
+                                let order: Vec<usize> = restored_keys.iter().map(|key| current_keys.iter().position(|old| old == key).unwrap()).collect();
+                                self.follow_order(&order);
+                                if let Some(importing) = self.importing.as_mut().filter(|importing| importing.pool == id && importing.fingerprint == self.list[at].fingerprint()) {
+                                    importing.fingerprint = before.fingerprint();
+                                }
+                            }
                             self.list[at] = before;
                             let length = self.list[at].slots.len();
                             self.save(at, now);
@@ -1444,6 +1518,18 @@ impl State {
         }
         wanted
     }
+}
+
+fn moved_order(keys: &[SlotKey], key: SlotKey, before: Option<SlotKey>) -> Option<Vec<usize>> {
+    let from = keys.iter().position(|slot| *slot == key)?;
+    if before == Some(key) { return None; }
+    let mut order: Vec<usize> = (0..keys.len()).filter(|at| *at != from).collect();
+    let to = match before {
+        Some(before) => order.iter().position(|at| keys[*at] == before)?,
+        None => order.len(),
+    };
+    order.insert(to, from);
+    order.iter().enumerate().any(|(at, slot)| at != *slot).then_some(order)
 }
 
 fn shift_in<T>(items: &mut [T], marked: &[usize], down: bool) -> Vec<usize> {
@@ -2571,14 +2657,22 @@ fn editor_view<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, words: 
     }
 
     let songs = state.songs.as_ref();
-    let mut list = column![].spacing(4);
-    for at in 0..pool.slots.len() {
+    let keys = slot_keys(pool);
+    let pieces = keys.iter().enumerate().map(|(at, key)| {
         let lit = if editor.choosing { editor.marked.contains(&at) } else { editor.selected == Some(at) };
-        list = list.push(slot_row(pool, at, lit, editor.choosing, words, thumbs, songs));
-    }
-    if pool.slots.is_empty() {
-        list = list.push(container(faded_text(words.t("pool-free-empty"), 14.0, MUTED)).padding([24, 10]));
-    }
+        (*key, slot_row(pool, at, lit, editor.choosing, words, thumbs, songs))
+    }).collect();
+    let list: Element<'a, Message> = if pool.slots.is_empty() {
+        container(faded_text(words.t("pool-free-empty"), 14.0, MUTED)).padding([24, 10]).into()
+    } else {
+        crate::board::board(pieces, 4.0, move |key, before| Message::Move(pool.id.clone(), keys.clone(), key, before))
+            .identity(pool.id.clone())
+            .across(1)
+            .anywhere()
+            .radius(TILE_ROUND)
+            .solid(theme::GROUND)
+            .into()
+    };
 
     let side: Option<Element<'a, Message>> = match editor.panel {
         Panel::Add => Some(add_panel(state, editor, pool, words, thumbs)),
@@ -2623,11 +2717,12 @@ pub fn view<'a>(state: &'a State, words: &'a Words, thumbs: &'a HashMap<String, 
         },
     };
     let rolled = scrollable(container(container(page).max_width(1180.0)).center_x(Length::Fill).padding(Padding { top: 12.0, right: 40.0, bottom: 28.0, left: 40.0 }))
+        .id(iced::widget::Id::new(SCROLL_ID))
         .style(ui::thin_scroll)
         .direction(ui::hidden_bar())
         .width(Length::Fill)
         .height(Length::Fill);
-    let page: Element<'a, Message> = crate::glide::brim(rolled).into();
+    let page: Element<'a, Message> = crate::glide::brim(crate::glide::edged(rolled, iced::widget::Id::new(SCROLL_ID))).into();
     if let Screen::Editor(editor) = &state.screen {
         if editor.choosing && !editor.marked.is_empty() {
             return iced::widget::stack![page, bulk_bar(editor, words)].into();
@@ -3361,6 +3456,174 @@ mod tests {
 
     fn hashes_of(state: &State) -> Vec<Option<String>> {
         state.editing().unwrap().slots.iter().map(|slot| slot.hash.clone()).collect()
+    }
+
+    fn move_slot(state: &mut State, from: usize, before: Option<usize>, now: i64) {
+        let pool = state.editing().unwrap();
+        let keys = slot_keys(pool);
+        let message = Message::Move(pool.id.clone(), keys.clone(), keys[from], before.map(|at| keys[at]));
+        state.update(message, now);
+    }
+
+    #[test]
+    fn dragging_keeps_the_entire_slot_selection_and_marks_and_undo_restores_the_order() {
+        let mut state = pool_with_maps("drag", &["a1", "b2", "c3"]);
+        state.update(Message::Note(2, "Keep this chart".into()), 1_790_000_090);
+        state.update(Message::Measured("c3".into(), Mod::Hd, Ok(measure(5.5))), 1_790_000_091);
+        state.update(Message::Select(Some(1)), 1_790_000_092);
+        let before = state.editing().unwrap().slots.clone();
+        let count = state.undo.len();
+        move_slot(&mut state, 2, Some(0), 1_790_000_100);
+        assert_eq!(&hashes_of(&state)[..3], [Some("c3".into()), Some("a1".into()), Some("b2".into())]);
+        assert_eq!(state.editing().unwrap().slots[0], before[2], "mods, note and measures travel together");
+        assert!(matches!(&state.screen, Screen::Editor(editor) if editor.selected == Some(2)));
+        assert_eq!(state.undo.len(), count + 1);
+        assert_eq!(pools::load_all(&state.dir)[0].slots, state.editing().unwrap().slots);
+        state.update(Message::Undo, 1_790_000_101);
+        assert_eq!(state.editing().unwrap().slots, before);
+        assert!(matches!(&state.screen, Screen::Editor(editor) if editor.selected == Some(1)));
+        state.update(Message::Choosing(true), 1_790_000_102);
+        state.update(Message::Mark(0), 1_790_000_103);
+        state.update(Message::Mark(2), 1_790_000_104);
+        move_slot(&mut state, 0, None, 1_790_000_105);
+        assert_eq!(state.marked_slots(), vec![1, 6]);
+        state.update(Message::Undo, 1_790_000_106);
+        assert_eq!(state.marked_slots(), vec![0, 2]);
+    }
+
+    #[test]
+    fn a_drag_with_an_old_order_or_a_different_pool_is_ignored_and_noop_adds_no_undo() {
+        let mut state = pool_with_maps("drag-stale", &["a1", "b2", "c3"]);
+        let pool = state.editing().unwrap();
+        let keys = slot_keys(pool);
+        let message = Message::Move(pool.id.clone(), keys.clone(), keys[2], Some(keys[0]));
+        let count = state.undo.len();
+        move_slot(&mut state, 0, Some(1), 1_790_000_100);
+        move_slot(&mut state, 0, Some(0), 1_790_000_101);
+        assert_eq!(state.undo.len(), count);
+        state.update(Message::SetMod(0, Mod::Dt), 1_790_000_102);
+        let before = state.editing().unwrap().clone();
+        state.update(message.clone(), 1_790_000_103);
+        assert_eq!(state.editing().unwrap(), &before);
+        state.update(Message::New, 1_790_000_104);
+        let next = state.editing().unwrap().clone();
+        state.update(message, 1_790_000_105);
+        assert_eq!(state.editing().unwrap(), &next);
+    }
+
+    #[test]
+    fn an_empty_slot_moves_with_its_mod_and_an_inflight_file_import_follows_it() {
+        let mut state = pool_with_maps("drag-import", &["a1"]);
+        state.update(Message::Select(Some(3)), 1_790_000_100);
+        state.update(Message::Dropped(PathBuf::from("first.osu")), 1_790_000_101);
+        let request = state.importing.as_ref().unwrap().request;
+        move_slot(&mut state, 3, Some(0), 1_790_000_102);
+        assert_eq!(state.editing().unwrap().slots[0].mods, Mod::Hr);
+        assert_eq!(state.importing.as_ref().unwrap().place, Place::Slot(0));
+        state.update(Message::MapFile(request, Ok(("e5".into(), map("First", "A", "Hard")))), 1_790_000_103);
+        assert_eq!(state.editing().unwrap().slots[0].hash.as_deref(), Some("e5"));
+        assert_eq!(state.editing().unwrap().slots[0].mods, Mod::Hr);
+    }
+
+    #[test]
+    fn moving_slots_does_not_revive_an_import_invalidated_by_an_earlier_edit() {
+        let mut state = pool_with_maps("drag-stale-import", &["a1"]);
+        state.update(Message::Select(Some(3)), 1_790_000_100);
+        state.update(Message::Dropped(PathBuf::from("first.osu")), 1_790_000_101);
+        let request = state.importing.as_ref().unwrap().request;
+        state.update(Message::SetMod(3, Mod::Dt), 1_790_000_102);
+        move_slot(&mut state, 3, Some(0), 1_790_000_103);
+        state.update(Message::MapFile(request, Ok(("e5".into(), map("First", "A", "Hard")))), 1_790_000_104);
+        assert_eq!(state.editing().unwrap().filled(), 1);
+    }
+
+    #[test]
+    fn downloaded_maps_and_replacements_follow_their_target_when_it_moves() {
+        let mut state = pool_with_maps("drag-fetch", &["a1", "b2"]);
+        state.update(Message::Select(Some(3)), 1_790_000_100);
+        state.update(Message::Pasted(LINK.into()), 1_790_000_101);
+        state.update(Message::Resolved(Ok(found(&["zz9"], Some(0)))), 1_790_000_102);
+        state.update(Message::Aim(Place::Slot(3)), 1_790_000_103);
+        state.update(Message::Confirm, 1_790_000_104);
+        move_slot(&mut state, 3, Some(0), 1_790_000_105);
+        assert!(matches!(&state.finding, Some(Finding::Fetching(fetching)) if fetching.place == Some(Place::Slot(0))));
+        state.update(Message::Step("zz9".into(), crate::maps::Step::Done(map("Fetched", "A", "Hard"))), 1_790_000_106);
+        assert_eq!(state.editing().unwrap().slots[0].hash.as_deref(), Some("zz9"));
+        state.update(Message::Pasted(LINK.into()), 1_790_000_107);
+        state.update(Message::Resolved(Ok(found(&["c3"], Some(0)))), 1_790_000_108);
+        state.update(Message::Aim(Place::Replace(2)), 1_790_000_109);
+        move_slot(&mut state, 2, Some(0), 1_790_000_110);
+        assert!(matches!(&state.finding, Some(Finding::Found(candidate)) if candidate.place == Place::Replace(0)));
+        state.update(Message::Confirm, 1_790_000_111);
+        assert_eq!(state.editing().unwrap().slots[0].hash.as_deref(), Some("c3"));
+    }
+
+    #[test]
+    fn slot_keys_stay_unique_for_repeated_empty_slots_and_ignore_measurement_updates() {
+        let mut pool = Pool::new(Frame::Duel, "", 1_790_000_000);
+        let keys = slot_keys(&pool);
+        assert_eq!(keys.iter().collect::<HashSet<_>>().len(), pool.slots.len());
+        pool.slots[0].measure = Some(measure(5.0));
+        assert_eq!(slot_keys(&pool), keys);
+        pool.slots.swap(3, 4);
+        let after = slot_keys(&pool);
+        assert_eq!(after[4], keys[3]);
+        assert_eq!(after[3], keys[4]);
+    }
+
+    #[test]
+    fn dragging_in_the_editor_publishes_a_move_without_opening_the_slot() {
+        let state = pool_with_maps("drag-view", &["a1", "b2", "c3"]);
+        let words = Words::new(crate::lang::Lang::En);
+        let thumbs = HashMap::new();
+        let mut screen = iced_test::Simulator::with_size(crate::settings(), iced::Size::new(1000.0, 900.0), view(&state, &words, &thumbs, 1000.0, 1.0));
+        let first = screen.find("Glass Orchard").unwrap().visible_bounds().unwrap();
+        let third = screen.find("Ninth Window").unwrap().visible_bounds().unwrap();
+        screen.point_at(first.center());
+        let _ = screen.simulate([iced::Event::Mouse(iced::mouse::Event::ButtonPressed(iced::mouse::Button::Left))]);
+        let position = iced::Point::new(first.center_x(), third.y + third.height + 28.0);
+        screen.point_at(position);
+        let _ = screen.simulate([iced::Event::Mouse(iced::mouse::Event::CursorMoved { position })]);
+        if let Some(dir) = std::env::var_os("DOSSIER_POOL_DRAG_REVIEW").map(PathBuf::from) {
+            let mut now = std::time::Instant::now();
+            for _ in 0..12 {
+                now += std::time::Duration::from_millis(16);
+                let _ = screen.simulate([iced::Event::Window(iced::window::Event::RedrawRequested(now))]);
+            }
+            let shot = screen.snapshot(&theme::theme()).unwrap();
+            crate::gallery::write_snapshot(&shot, &dir.join("pool-dragging")).unwrap();
+        }
+        let _ = screen.simulate([iced::Event::Mouse(iced::mouse::Event::ButtonReleased(iced::mouse::Button::Left))]);
+        let keys = slot_keys(state.editing().unwrap());
+        let messages = screen.into_messages().collect::<Vec<_>>();
+        assert!(matches!(messages.as_slice(), [Message::Move(_, _, key, Some(before))] if *key == keys[0] && *before == keys[3]), "{messages:?}");
+    }
+
+    #[test]
+    fn carrying_a_slot_to_the_page_edge_scrolls_and_escape_stops_it() {
+        let mut state = pool_with_maps("drag-edge", &["a1", "b2", "c3", "d4"]);
+        state.editor_mut().unwrap().panel = Panel::Closed;
+        let words = Words::new(crate::lang::Lang::En);
+        let thumbs = HashMap::new();
+        let mut screen = iced_test::Simulator::with_size(crate::settings(), iced::Size::new(1000.0, 480.0), view(&state, &words, &thumbs, 1000.0, 1.0));
+        let first = screen.find("Glass Orchard").unwrap().visible_bounds().unwrap();
+        screen.point_at(first.center());
+        let _ = screen.simulate([iced::Event::Mouse(iced::mouse::Event::ButtonPressed(iced::mouse::Button::Left))]);
+        let position = iced::Point::new(first.center_x(), 470.0);
+        screen.point_at(position);
+        let _ = screen.simulate([iced::Event::Mouse(iced::mouse::Event::CursorMoved { position })]);
+        let mut now = std::time::Instant::now();
+        for _ in 0..40 {
+            now += std::time::Duration::from_millis(16);
+            let _ = screen.simulate([iced::Event::Window(iced::window::Event::RedrawRequested(now))]);
+        }
+        assert!(screen.find("Add maps").unwrap().visible_bounds().is_none(), "a carried slot must scroll the header off screen");
+        screen.tap_key(iced::keyboard::key::Named::Escape);
+        for _ in 0..40 {
+            now += std::time::Duration::from_millis(16);
+            let _ = screen.simulate([iced::Event::Window(iced::window::Event::RedrawRequested(now))]);
+        }
+        assert!(screen.into_messages().all(|message| !matches!(message, Message::Move(..) | Message::Select(..))));
     }
 
     #[test]

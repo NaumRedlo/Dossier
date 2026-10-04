@@ -232,7 +232,7 @@ fn flow<K: Copy + Eq + Hash>(order: &[K], sizes: &HashMap<K, Size>, width: f32, 
     (at, height)
 }
 
-fn aimed<K: Copy + Eq + Hash>(order: &[K], held: K, targets: &HashMap<K, Point>, sizes: &HashMap<K, Size>, pointer: Point) -> Option<Vec<K>> {
+fn aimed<K: Copy + Eq + Hash>(order: &[K], held: K, targets: &HashMap<K, Point>, sizes: &HashMap<K, Size>, pointer: Point, vertical: bool) -> Option<Vec<K>> {
     let others: Vec<K> = order.iter().copied().filter(|k| *k != held).collect();
     let rect = |key: &K| Some(Rectangle::new(*targets.get(key)?, *sizes.get(key)?));
     let placed = |at: usize| {
@@ -248,8 +248,14 @@ fn aimed<K: Copy + Eq + Hash>(order: &[K], held: K, targets: &HashMap<K, Point>,
             continue;
         };
         if bounds.contains(pointer) {
-            let after = pointer.x > bounds.center_x();
+            let after = if vertical { pointer.y > bounds.center_y() } else { pointer.x > bounds.center_x() };
             return Some(placed(at + usize::from(after)));
+        }
+    }
+    if vertical {
+        let top = others.iter().filter_map(|key| rect(key)).map(|bounds| bounds.y).reduce(f32::min);
+        if top.is_some_and(|top| pointer.y < top) {
+            return Some(placed(0));
         }
     }
     let row_end = others
@@ -265,14 +271,14 @@ fn aimed<K: Copy + Eq + Hash>(order: &[K], held: K, targets: &HashMap<K, Point>,
     (pointer.y > bottom && !others.is_empty()).then(|| placed(others.len()))
 }
 
-fn aim_at<K: Copy + Eq + Hash>(state: &mut State<K>, origin: Vector, fixed: Option<K>) {
+fn aim_at<K: Copy + Eq + Hash>(state: &mut State<K>, origin: Vector, fixed: Option<K>, vertical: bool) {
     let Some(held) = state.held.as_mut() else {
         return;
     };
     held.pointer = held.screen - origin;
     let (key, pointer) = (held.key, held.pointer);
     let order = state.shown_order();
-    match aimed(&order, key, &state.targets, &state.sizes, pointer) {
+    match aimed(&order, key, &state.targets, &state.sizes, pointer, vertical) {
         Some(mut next) if next != order => {
             if let Some(key) = fixed { next.retain(|item| *item != key); next.insert(0, key); }
             if next == order { state.pending = None; return; }
@@ -282,7 +288,7 @@ fn aim_at<K: Copy + Eq + Hash>(state: &mut State<K>, origin: Vector, fixed: Opti
             }
         }
         Some(_) => state.pending = None,
-        None => {}
+        None => state.pending = None,
     }
 }
 
@@ -413,10 +419,12 @@ impl<Message, K: Copy + Eq + Hash + 'static> Widget<Message, Theme, Renderer> fo
         let replaced = state.identity != self.identity;
         state.identity = self.identity.clone();
         let before = std::mem::replace(&mut state.keys, keys.clone());
-        if state.order.as_ref().is_some_and(|order| *order == keys) && state.held.is_none_or(|held| held.released) {
+        if state.held.is_none_or(|held| held.released) {
             state.order = None;
+            state.pending = None;
         }
-        if replaced || before.len() != keys.len() || !keys.iter().all(|k| before.contains(k)) {
+        let changed_while_held = before != keys && state.held.is_some_and(|held| !held.released);
+        if replaced || changed_while_held || before.len() != keys.len() || !keys.iter().all(|k| before.contains(k)) {
             state.order = None;
             state.held = None;
             state.press = None;
@@ -503,7 +511,7 @@ impl<Message, K: Copy + Eq + Hash + 'static> Widget<Message, Theme, Renderer> fo
                 if let (Some(held), Some(at)) = (state.held.as_mut(), cursor.land().position()) {
                     held.screen = at;
                 }
-                aim_at(state, origin_v, self.fixed_first);
+                aim_at(state, origin_v, self.fixed_first, self.across == Some(1));
             }
             if state.step(*now) {
                 shell.request_redraw();
@@ -519,18 +527,37 @@ impl<Message, K: Copy + Eq + Hash + 'static> Widget<Message, Theme, Renderer> fo
             state.window_shift = at - *position;
         }
         let dragging = state.held.is_some_and(|held| !held.released);
+        if matches!(event, iced::Event::Window(iced::window::Event::Unfocused)) {
+            state.press = None;
+        }
         match event {
             iced::Event::Mouse(mouse::Event::CursorMoved { .. }) if dragging => {
                 if let (Some(held), Some(at)) = (state.held.as_mut(), cursor.land().position()) {
                     held.screen = at;
                 }
-                aim_at(state, origin_v, self.fixed_first);
+                aim_at(state, origin_v, self.fixed_first, self.across == Some(1));
+                shell.capture_event();
+                shell.request_redraw();
+                return;
+            }
+            iced::Event::Keyboard(iced::keyboard::Event::KeyPressed { key: iced::keyboard::Key::Named(iced::keyboard::key::Named::Escape), .. })
+            | iced::Event::Window(iced::window::Event::Unfocused) if dragging => {
+                if let Some(held) = state.held.as_mut() {
+                    held.released = true;
+                }
+                state.order = None;
+                state.pending = None;
+                state.press = None;
+                shell.invalidate_layout();
                 shell.capture_event();
                 shell.request_redraw();
                 return;
             }
             iced::Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) if dragging => {
-                state.pending = None;
+                aim_at(state, origin_v, self.fixed_first, self.across == Some(1));
+                if let Some((order, _)) = state.pending.take() {
+                    state.order = Some(order);
+                }
                 let order = state.shown_order();
                 if let Some(held) = state.held.as_mut() {
                     held.released = true;
@@ -774,7 +801,7 @@ mod tests {
         state.sizes = [(0, Size::new(100.0, 100.0)), (1, Size::new(100.0, 100.0)), (2, Size::new(100.0, 100.0))].into();
         state.targets = flow(&state.keys, &state.sizes, 400.0, 10.0).0;
         state.held = Some(Held { key: 2, grab: Vector::ZERO, pointer: Point::new(10.0, 50.0), screen: Point::new(10.0, 50.0), released: false, lift: Spring::default() });
-        aim_at(&mut state, Vector::ZERO, Some(0));
+        aim_at(&mut state, Vector::ZERO, Some(0), false);
         assert_eq!(state.pending.as_ref().unwrap().0, vec![0, 2, 1]);
     }
 
@@ -794,6 +821,85 @@ mod tests {
         assert!(state.order.is_none());
         assert!(state.pending.is_none());
         assert_eq!(state.identity.as_deref(), Some("Beta"));
+    }
+
+    #[test]
+    fn the_model_order_wins_after_a_released_drag_even_when_it_was_rejected() {
+        for keys in [vec![0u8, 1, 2], vec![2, 0, 1]] {
+            let pieces = |keys: &[u8]| keys.iter().map(|key| (*key, Element::<()>::from(iced::widget::Space::new().width(100).height(64)))).collect();
+            let mut old = board(pieces(&[0, 1, 2]), 4.0, |_, _| ());
+            let mut tree = Tree::new(&mut old as &mut dyn Widget<(), Theme, Renderer>);
+            let state = tree.state.downcast_mut::<State<u8>>();
+            state.order = Some(vec![2, 0, 1]);
+            state.held = Some(Held { key: 2, grab: Vector::ZERO, pointer: Point::ORIGIN, screen: Point::ORIGIN, released: true, lift: Spring::default() });
+            let next = board(pieces(&keys), 4.0, |_, _| ());
+            next.diff(&mut tree);
+            let state = tree.state.downcast_ref::<State<u8>>();
+            assert_eq!(state.shown_order(), keys);
+            assert!(state.order.is_none());
+        }
+    }
+
+    #[test]
+    fn vertical_rows_use_the_upper_and_lower_halves_regardless_of_horizontal_position() {
+        let order = [1u8, 2, 3];
+        let sizes: HashMap<u8, Size> = order.iter().map(|key| (*key, Size::new(500.0, 64.0))).collect();
+        let (targets, _) = flow(&order, &sizes, 500.0, 4.0);
+        for x in [10.0, 490.0] {
+            assert_eq!(aimed(&order, 1, &targets, &sizes, Point::new(x, 140.0), true), Some(vec![2, 1, 3]));
+            assert_eq!(aimed(&order, 1, &targets, &sizes, Point::new(x, 190.0), true), Some(vec![2, 3, 1]));
+            assert_eq!(aimed(&order, 3, &targets, &sizes, Point::new(x, -10.0), true), Some(vec![3, 1, 2]));
+        }
+    }
+
+    #[derive(Debug, Clone, PartialEq)]
+    enum Action { Click(u8), Move(u8, Option<u8>) }
+
+    fn rows() -> Board<'static, Action, u8> {
+        let pieces = (0..3).map(|key| (key, iced::widget::button(iced::widget::Space::new().width(Length::Fill).height(56)).padding(4).on_press(Action::Click(key)).into())).collect();
+        board(pieces, 4.0, Action::Move).across(1).anywhere()
+    }
+
+    fn carry(screen: &mut iced_test::Simulator<'_, Action>) {
+        screen.point_at(Point::new(30.0, 30.0));
+        let _ = screen.simulate([iced::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left))]);
+        let position = Point::new(30.0, 190.0);
+        screen.point_at(position);
+        let _ = screen.simulate([iced::Event::Mouse(mouse::Event::CursorMoved { position })]);
+    }
+
+    #[test]
+    fn releasing_a_fast_drag_moves_a_row_and_does_not_click_it() {
+        let mut screen = iced_test::Simulator::with_size(iced::Settings::default(), Size::new(500.0, 240.0), rows());
+        carry(&mut screen);
+        let _ = screen.simulate([iced::Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left))]);
+        assert_eq!(screen.into_messages().collect::<Vec<_>>(), vec![Action::Move(0, None)]);
+    }
+
+    #[test]
+    fn a_small_pointer_motion_keeps_the_regular_click() {
+        let mut screen = iced_test::Simulator::with_size(iced::Settings::default(), Size::new(500.0, 240.0), rows());
+        screen.point_at(Point::new(30.0, 30.0));
+        let _ = screen.simulate([iced::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left))]);
+        let position = Point::new(32.0, 31.0);
+        screen.point_at(position);
+        let _ = screen.simulate([iced::Event::Mouse(mouse::Event::CursorMoved { position }), iced::Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left))]);
+        assert_eq!(screen.into_messages().collect::<Vec<_>>(), vec![Action::Click(0)]);
+    }
+
+    #[test]
+    fn escape_and_losing_focus_cancel_a_drag_without_moving_or_clicking() {
+        for escape in [true, false] {
+            let mut screen = iced_test::Simulator::with_size(iced::Settings::default(), Size::new(500.0, 240.0), rows());
+            carry(&mut screen);
+            if escape {
+                screen.tap_key(iced::keyboard::key::Named::Escape);
+            } else {
+                let _ = screen.simulate([iced::Event::Window(iced::window::Event::Unfocused)]);
+            }
+            let _ = screen.simulate([iced::Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left))]);
+            assert_eq!(screen.into_messages().collect::<Vec<_>>(), vec![]);
+        }
     }
 
     #[test]
@@ -828,11 +934,11 @@ mod tests {
         let sizes: HashMap<u8, Size> = [(1, Size::new(300.0, 100.0)), (2, Size::new(300.0, 100.0)), (3, Size::new(200.0, 100.0))].into();
         let order = [1, 2, 3];
         let (targets, _) = flow(&order, &sizes, 700.0, 10.0);
-        assert_eq!(aimed(&order, 1, &targets, &sizes, Point::new(100.0, 50.0)), None, "over its own place it stays");
-        assert_eq!(aimed(&order, 3, &targets, &sizes, Point::new(40.0, 50.0)), Some(vec![3, 1, 2]), "the left half of a tile puts it before");
-        assert_eq!(aimed(&order, 1, &targets, &sizes, Point::new(560.0, 50.0)), Some(vec![2, 1, 3]), "the right half puts it after");
-        assert_eq!(aimed(&order, 1, &targets, &sizes, Point::new(650.0, 150.0)), Some(vec![2, 3, 1]), "the empty end of a row puts it last in the row");
-        assert_eq!(aimed(&order, 3, &targets, &sizes, Point::new(100.0, 400.0)), Some(vec![1, 2, 3]), "below everything puts it last");
-        assert_eq!(aimed(&order, 1, &targets, &sizes, Point::new(305.0, 50.0)), None, "the gap between tiles changes nothing");
+        assert_eq!(aimed(&order, 1, &targets, &sizes, Point::new(100.0, 50.0), false), None, "over its own place it stays");
+        assert_eq!(aimed(&order, 3, &targets, &sizes, Point::new(40.0, 50.0), false), Some(vec![3, 1, 2]), "the left half of a tile puts it before");
+        assert_eq!(aimed(&order, 1, &targets, &sizes, Point::new(560.0, 50.0), false), Some(vec![2, 1, 3]), "the right half puts it after");
+        assert_eq!(aimed(&order, 1, &targets, &sizes, Point::new(650.0, 150.0), false), Some(vec![2, 3, 1]), "the empty end of a row puts it last in the row");
+        assert_eq!(aimed(&order, 3, &targets, &sizes, Point::new(100.0, 400.0), false), Some(vec![1, 2, 3]), "below everything puts it last");
+        assert_eq!(aimed(&order, 1, &targets, &sizes, Point::new(305.0, 50.0), false), None, "the gap between tiles changes nothing");
     }
 }

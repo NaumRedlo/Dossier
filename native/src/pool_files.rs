@@ -46,7 +46,16 @@ fn media(root: &Path, stage: &Path, name: &str, extensions: &[&str]) -> Result<(
     if !relative.extension().and_then(|ext| ext.to_str()).is_some_and(|ext| extensions.iter().any(|allowed| ext.eq_ignore_ascii_case(allowed))) {
         return Ok(());
     }
-    let Ok(source) = root.join(&relative).canonicalize() else { return Ok(()) };
+    let mut source = root.to_path_buf();
+    for part in relative.components() {
+        let Component::Normal(name) = part else { continue };
+        let exact = source.join(name);
+        source = if exact.exists() { exact } else {
+            let Some(found) = std::fs::read_dir(&source).ok().and_then(|entries| entries.flatten().find(|entry| entry.file_name().to_string_lossy().to_lowercase() == name.to_string_lossy().to_lowercase())) else { return Ok(()) };
+            found.path()
+        };
+    }
+    let Ok(source) = source.canonicalize() else { return Ok(()) };
     if !source.starts_with(root) {
         return Ok(());
     }
@@ -69,8 +78,13 @@ pub fn import_map(path: &Path, songs: &Path) -> Result<(String, Map), Refused> {
     let hash = library::md5_hex(&bytes);
     let folder = songs.join(format!("Dossier-{hash}"));
     let target = folder.join("map.osu");
-    if let Some((found, map)) = library::describe(&target).filter(|(found, _)| *found == hash) {
-        return Ok((found, map));
+    if library::describe(&target).is_some_and(|(found, _)| found == hash) {
+        let root = path.parent().unwrap_or(Path::new(".")).canonicalize().map_err(|_| Refused::Read)?;
+        media(&root, &folder, &parsed.audio_filename, &["mp3", "ogg", "wav", "flac", "m4a", "opus"])?;
+        if let Some(background) = &parsed.background {
+            media(&root, &folder, background, &["jpg", "jpeg", "png", "bmp", "gif", "webp"])?;
+        }
+        return library::describe(&target).ok_or(Refused::Map);
     }
     std::fs::create_dir_all(songs).map_err(|_| Refused::Save)?;
     static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
@@ -179,6 +193,25 @@ mod tests {
         std::fs::remove_dir_all(source).unwrap();
         assert!(crate::pools::measure(&map, &hash, crate::pools::Mod::Hr).is_ok());
         assert_eq!(library::describe(&map.file).unwrap().0, hash);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn reimporting_an_osu_file_recovers_media_with_different_filename_case() {
+        let root = scratch("recover-art");
+        let source = root.join("source");
+        std::fs::create_dir_all(&source).unwrap();
+        let chart = chart().lines().filter(|line| !line.starts_with("AudioFilename:") && !line.starts_with("0,0,")).collect::<Vec<_>>().join("\n")
+            .replace("[HitObjects]", "[Events]\n0,0,\"art/bg.jpg\",0,0\n[HitObjects]");
+        let path = source.join("chart.osu");
+        std::fs::write(&path, &chart).unwrap();
+        let songs = root.join("Songs");
+        let (_, first) = import_map(&path, &songs).unwrap();
+        assert!(first.background.is_none());
+        std::fs::create_dir_all(source.join("ART")).unwrap();
+        std::fs::write(source.join("ART/BG.JPG"), b"picture").unwrap();
+        let (_, repaired) = import_map(&path, &songs).unwrap();
+        assert_eq!(std::fs::read(repaired.background.unwrap()).unwrap(), b"picture");
         std::fs::remove_dir_all(root).unwrap();
     }
 

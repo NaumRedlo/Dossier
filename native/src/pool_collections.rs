@@ -1,7 +1,7 @@
 use std::collections::HashSet;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
-use crate::sources::{Kind, Source};
+use crate::sources::Source;
 
 const MAX_FILE: u64 = 64 * 1024 * 1024;
 const MAX_COLLECTIONS: usize = 10_000;
@@ -90,23 +90,41 @@ fn from_file(path: &Path) -> Option<Vec<Collection>> {
     parse(&std::fs::read(path).ok()?).ok()
 }
 
-pub fn read(sources: &[Source]) -> Vec<Collection> {
-    let mut paths = HashSet::new();
-    let mut collections = Vec::new();
-    for source in sources.iter().filter(|source| source.on && source.kind == Kind::Stable) {
-        let path = source.root.join("collection.db");
-        if paths.insert(path.clone()) {
-            if let Some(found) = from_file(&path) {
-                collections.extend(found);
+pub fn roots(sources: &[Source]) -> Vec<PathBuf> {
+    roots_with(sources, crate::sources::stable_roots())
+}
+
+fn roots_with(sources: &[Source], discovered: Vec<PathBuf>) -> Vec<PathBuf> {
+    let normalize = |path: &Path| path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    let mut candidates = discovered;
+    let mut disabled = HashSet::new();
+    for source in sources {
+        let mut paths = vec![source.root.clone()];
+        for path in [Some(&source.root), source.songs.as_ref(), source.replays.as_ref()].into_iter().flatten() {
+            if path.file_name().is_some_and(|name| ["songs", "replays"].iter().any(|folder| name.to_string_lossy().eq_ignore_ascii_case(folder))) {
+                if let Some(parent) = path.parent() { paths.push(parent.to_path_buf()); }
             }
         }
+        if source.on { candidates.extend(paths); } else { disabled.extend(paths.iter().map(|path| normalize(path))); }
     }
-    collections
+    let mut seen = HashSet::new();
+    candidates.into_iter().map(|path| normalize(&path)).filter(|root| {
+        !disabled.contains(root) && root.join("collection.db").is_file() && seen.insert(root.clone())
+    }).collect()
+}
+
+pub fn read(sources: &[Source]) -> Vec<Collection> {
+    read_roots(roots(sources))
+}
+
+fn read_roots(roots: Vec<PathBuf>) -> Vec<Collection> {
+    roots.into_iter().filter_map(|root| from_file(&root.join("collection.db"))).flatten().collect()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::sources::Kind;
 
     fn string(out: &mut Vec<u8>, value: &str) {
         out.push(11);
@@ -152,7 +170,7 @@ mod tests {
     }
 
     #[test]
-    fn only_enabled_stable_clients_supply_collections() {
+    fn collections_are_found_in_game_and_songs_folders_without_a_running_client() {
         let root = std::env::temp_dir().join(format!("dossier-collections-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).unwrap();
@@ -164,9 +182,13 @@ mod tests {
         string(&mut bytes, "0123456789abcdef0123456789abcdef");
         std::fs::write(root.join("collection.db"), bytes).unwrap();
         let source = Source { kind: Kind::Stable, root: root.clone(), ..crate::sources::shared(true) };
-        assert_eq!(read(&[source.clone(), source.clone()]).len(), 1);
-        assert!(read(&[Source { on: false, ..source.clone() }]).is_empty());
-        assert!(read(&[Source { kind: Kind::Lazer, ..source }]).is_empty());
+        assert_eq!(read_roots(roots_with(&[source.clone(), source.clone()], vec![root.clone()])).len(), 1);
+        assert!(roots_with(&[Source { on: false, ..source.clone() }], vec![root.clone()]).is_empty());
+        std::fs::create_dir_all(root.join("Songs")).unwrap();
+        let folder = Source { kind: Kind::Folder, root: root.join("Songs"), ..source.clone() };
+        assert_eq!(read_roots(roots_with(&[folder], Vec::new())).len(), 1);
+        assert_eq!(read_roots(roots_with(&[], vec![root.clone()])).len(), 1);
+        assert_eq!(read_roots(roots_with(&[Source { kind: Kind::Folder, ..source }], Vec::new())).len(), 1);
         let _ = std::fs::remove_dir_all(root);
     }
 }

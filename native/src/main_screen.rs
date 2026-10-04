@@ -57,6 +57,7 @@ const CARET: f32 = 8.0;
 const SHARED_MARK: f32 = 20.0;
 const SHARED_RING: f32 = 1.5;
 const THUMB: (u32, u32) = (176, 100);
+const POOL_COVER: (u32, u32) = (768, 432);
 const SCENE_WIDTH: u32 = 960;
 const REST_AFTER: Duration = Duration::from_secs(120);
 const REST_FADE: Duration = Duration::from_millis(600);
@@ -1464,7 +1465,12 @@ impl Main {
                     if !songs.contains(&own) {
                         songs.push(own);
                     }
+                    let sources = self.settings.sources.clone();
                     tasks.push(ui::in_thread(move || {
+                        for root in crate::pool_collections::roots(&sources) {
+                            let path = crate::sources::stable_at(&root).and_then(|source| source.songs).unwrap_or_else(|| root.join("Songs"));
+                            if path.is_dir() && !songs.contains(&path) { songs.push(path); }
+                        }
                         let found = library::Index::load(&songs).by_hash;
                         Message::Community(crate::community_screen::Message::Pools(P::Songs(std::sync::Arc::new(found))))
                     }));
@@ -1505,7 +1511,9 @@ impl Main {
                 }
                 Effect::Cover(url, set) => {
                     tasks.push(ui::in_thread(move || {
-                        let handle = crate::news::picture(&url).and_then(|bytes| decoded_from(&bytes, THUMB.0, Some(THUMB)));
+                        let handle = crate::news::picture(&url.replace("/covers/cover.jpg", "/covers/cover@2x.jpg"))
+                            .or_else(|| crate::news::picture(&url))
+                            .and_then(|bytes| decoded_from(&bytes, POOL_COVER.0, Some(POOL_COVER)));
                         Message::Community(crate::community_screen::Message::Pools(P::Cover(set, handle)))
                     }));
                 }
@@ -1590,16 +1598,22 @@ impl Main {
                 }
             }
         }
-        let wanted: Vec<(String, PathBuf)> = self
+        let wanted: Vec<(String, Option<PathBuf>)> = self
             .pools
             .covers()
             .into_iter()
-            .filter(|(hash, _)| !self.thumbs.contains_key(hash) && self.pool_covers_asked.insert(hash.clone()))
+            .filter(|(hash, _)| self.pool_covers_asked.insert(hash.clone()))
             .collect();
         if !wanted.is_empty() {
             tasks.push(ui::streamed(move |push| {
                 for (hash, path) in wanted {
-                    if let Some(handle) = decoded(&path, THUMB.0, Some(THUMB)) {
+                    let handle = path.as_deref().and_then(|path| decoded(path, POOL_COVER.0, Some(POOL_COVER))).or_else(|| {
+                        let known = crate::maps::known(&hash)?;
+                        let bytes = crate::news::picture(&known.cover().replace("/covers/cover.jpg", "/covers/cover@2x.jpg"))
+                            .or_else(|| crate::news::picture(&known.cover()))?;
+                        decoded_from(&bytes, POOL_COVER.0, Some(POOL_COVER))
+                    });
+                    if let Some(handle) = handle {
                         if !push(Message::Thumb(hash, handle)) {
                             return;
                         }
@@ -1844,7 +1858,13 @@ impl Main {
             }
             Message::Thumb(hash, handle) => {
                 self.thumb_pictures.came(&hash, Instant::now());
-                self.thumbs.insert(hash, handle);
+                let pixels = |handle: &image::Handle| match handle {
+                    image::Handle::Rgba { width, height, .. } => u64::from(*width) * u64::from(*height),
+                    _ => 0,
+                };
+                if self.thumbs.get(&hash).is_none_or(|held| pixels(&handle) >= pixels(held)) {
+                    self.thumbs.insert(hash, handle);
+                }
                 Task::none()
             }
             Message::Scene(hash, handle) => {
@@ -8500,6 +8520,18 @@ mod tests {
         let _ = main.update(super::Message::Community(C::Pools(crate::pools_screen::Message::Back)));
         assert!(main.pools.importing.is_none());
         let _ = std::fs::remove_dir_all(&main.pools.dir);
+    }
+
+    #[test]
+    fn a_late_journal_thumbnail_does_not_replace_a_sharp_pool_cover() {
+        let mut main = feed_at_rest();
+        let small = iced::widget::image::Handle::from_rgba(176, 100, vec![0; 176 * 100 * 4]);
+        let large = iced::widget::image::Handle::from_rgba(768, 432, vec![0; 768 * 432 * 4]);
+        let hash = "pool-cover".to_owned();
+        let _ = main.update(super::Message::Thumb(hash.clone(), small.clone()));
+        let _ = main.update(super::Message::Thumb(hash.clone(), large.clone()));
+        let _ = main.update(super::Message::Thumb(hash.clone(), small));
+        assert_eq!(main.thumbs[&hash].id(), large.id());
     }
 
     #[test]

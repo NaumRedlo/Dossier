@@ -387,7 +387,7 @@ pub const SHOWN_BUILD: &str = "0.92.3";
 fn pool_tint(seed: usize) -> iced::widget::image::Handle {
     const HUES: [[f32; 3]; 6] = [[0.46, 0.28, 0.16], [0.16, 0.26, 0.42], [0.34, 0.16, 0.38], [0.38, 0.38, 0.14], [0.14, 0.34, 0.30], [0.42, 0.16, 0.22]];
     let hue = HUES[seed % HUES.len()];
-    let (width, height) = (176u32, 100u32);
+    let (width, height) = (768u32, 432u32);
     let mut pixels = Vec::with_capacity((width * height * 4) as usize);
     for y in 0..height {
         for x in 0..width {
@@ -1387,11 +1387,11 @@ pub fn every_main_frame() -> Vec<(String, crate::main_screen::Main, Size)> {
     for lang in Lang::ALL {
         for (name, main) in main_states(lang) {
             for (label, size) in SIZES {
-                if label != SIZES[0].0 && name != "main-rest" && name != "main-idle" && name != "main-notifications" && name != "main-player-mini" && name != "main-community-clip-mini" && name != "main-community-feed-wide" && name != "main-pools-best" {
+                if label != SIZES[0].0 && name != "main-rest" && name != "main-idle" && name != "main-notifications" && name != "main-player-mini" && name != "main-community-clip-mini" && name != "main-community-feed-wide" && name != "main-pools-best" && name != "main-pools-editor" {
                     continue;
                 }
                 let mut frame = main.clone();
-                if name == "main-idle" || name == "main-notifications" || name == "main-player-mini" || name == "main-community-clip-mini" || name == "main-community-feed-wide" || name == "main-pools-best" { frame.width = size.width; frame.height = size.height; }
+                if name == "main-idle" || name == "main-notifications" || name == "main-player-mini" || name == "main-community-clip-mini" || name == "main-community-feed-wide" || name == "main-pools-best" || name == "main-pools-editor" { frame.width = size.width; frame.height = size.height; }
                 out.push((format!("{name}-{}-{label}", lang.tag()), frame, size));
             }
         }

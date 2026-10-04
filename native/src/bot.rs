@@ -413,7 +413,8 @@ impl<R: std::io::Read> std::io::Read for Counted<R> {
     }
 }
 
-pub fn send(
+fn upload(
+    route: &str,
     server: &str,
     token: &str,
     name: &str,
@@ -429,7 +430,7 @@ pub fn send(
         .user_agent(ENGINE)
         .build()
         .map_err(|e| Refused::Network(e.to_string()))?
-        .post(format!("{server}/render/videos"))
+        .post(format!("{server}/render/{route}"))
         .header("X-Render-Worker", name)
         .header("X-Render-Meta", meta.to_string())
         .header("Content-Type", "video/mp4")
@@ -441,6 +442,14 @@ pub fn send(
         return Err(Refused::Said("too large".to_owned()));
     }
     status(response)?.json().map_err(|e| Refused::Network(e.to_string()))
+}
+
+pub fn send(server: &str, token: &str, name: &str, file: &std::path::Path, meta: &serde_json::Value, tell: impl FnMut(u64) + Send + 'static) -> Result<Sent, Refused> {
+    upload("send", server, token, name, file, meta, tell)
+}
+
+pub fn share_upload(server: &str, token: &str, name: &str, file: &std::path::Path, meta: &serde_json::Value, tell: impl FnMut(u64) + Send + 'static) -> Result<Sent, Refused> {
+    upload("videos", server, token, name, file, meta, tell)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Deserialize)]

@@ -707,7 +707,7 @@ impl Main {
                                 let (tx, rx) = std::sync::mpsc::channel::<u64>();
                                 let (server, token, name, path, meta) = (server.clone(), token.clone(), name.clone(), video.path.clone(), meta.clone());
                                 let worker = std::thread::spawn(move || {
-                                    bot::send(&server, &token, &name, &path, &meta, move |done| {
+                                    bot::share_upload(&server, &token, &name, &path, &meta, move |done| {
                                         let _ = tx.send(done);
                                     })
                                 });

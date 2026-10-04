@@ -223,6 +223,8 @@ pub enum Message {
     CopyText,
     CopyHash,
     SaveFile,
+    SaveImage,
+    ImageSaved(u64, Result<Option<PathBuf>, String>),
     OpenFile,
     Imported(Result<Pool, pool_share::Refused>),
     Dropped(PathBuf),
@@ -255,6 +257,7 @@ pub enum Effect {
     Fetch(String, Arc<std::sync::atomic::AtomicBool>),
     Copy(String, &'static str),
     SaveFile(String, Vec<u8>),
+    SaveImage(u64, Pool),
     PickFile,
     ReadPool(u64, PathBuf),
     ImportMap(u64, PathBuf),
@@ -274,6 +277,8 @@ pub struct State {
     pub best: Option<Vec<crate::community::wire::Score>>,
     pub importing: Option<FileImport>,
     pub importing_pool: Option<u64>,
+    pub exporting: Option<u64>,
+    pub export_request: u64,
     pub dropped: VecDeque<PathBuf>,
     pub file_request: u64,
     pub suggestions: Option<Suggestions>,
@@ -303,6 +308,8 @@ impl State {
             best: None,
             importing: None,
             importing_pool: None,
+            exporting: None,
+            export_request: 0,
             dropped: VecDeque::new(),
             file_request: 0,
             suggestions: None,
@@ -924,6 +931,25 @@ impl State {
             Message::CopyHash => {
                 if let Some(pool) = self.editing() {
                     effects.push(Effect::Copy(pool.fingerprint(), "pool-copied-hash"));
+                }
+            }
+            Message::SaveImage => {
+                if self.exporting.is_none() {
+                    if let Some(pool) = self.editing().filter(|pool| pool.filled() > 0).cloned() {
+                        self.export_request = self.export_request.wrapping_add(1);
+                        self.exporting = Some(self.export_request);
+                        effects.push(Effect::SaveImage(self.export_request, pool));
+                    }
+                }
+            }
+            Message::ImageSaved(request, said) => {
+                if self.exporting == Some(request) {
+                    self.exporting = None;
+                    match said {
+                        Ok(Some(_)) => effects.push(Effect::Say("pool-image-saved")),
+                        Err(_) => effects.push(Effect::Say("pool-save-failed")),
+                        Ok(None) => {}
+                    }
                 }
             }
             Message::SaveFile => {
@@ -2466,7 +2492,7 @@ fn share_row<'a>(icon: Icon, title: String, hint: String, action: String, press:
     .into()
 }
 
-fn share_modal<'a>(pool: &'a Pool, words: &'a Words) -> Element<'a, Message> {
+fn share_modal<'a>(pool: &'a Pool, words: &'a Words, exporting: bool) -> Element<'a, Message> {
     let line = pool_share::to_text(pool);
     let shown = if line.chars().count() > 46 { format!("{}…", line.chars().take(46).collect::<String>()) } else { line };
     let hash = row![
@@ -2480,6 +2506,7 @@ fn share_modal<'a>(pool: &'a Pool, words: &'a Words) -> Element<'a, Message> {
         row![semi(words.t("pool-share-title"), 18.0, INK), ui::grow(), hash].align_y(iced::Center),
         share_row(Icon::File, words.t("pool-share-file"), words.t("pool-share-file-hint"), words.t("pool-save"), Some(Message::SaveFile)),
         share_row(Icon::Copy, words.t("pool-share-string"), shown, words.t("pool-copy"), Some(Message::CopyText)),
+        share_row(Icon::Pool, words.t("pool-share-image"), words.t("pool-share-image-hint"), words.t(if exporting { "pool-image-saving" } else { "pool-save" }), (!exporting).then_some(Message::SaveImage)),
         para(words.t("pool-share-note"), 12.5, MUTED),
         row![ui::grow(), quiet_button(words.t("pool-close"), Message::Share(false))],
     ]
@@ -2729,7 +2756,7 @@ pub fn view<'a>(state: &'a State, words: &'a Words, thumbs: &'a HashMap<String, 
         }
         if editor.share {
             if let Some(pool) = state.list.iter().find(|pool| pool.id == editor.id) {
-                return iced::widget::stack![page, share_modal(pool, words)].into();
+                return iced::widget::stack![page, share_modal(pool, words, state.exporting.is_some())].into();
             }
         }
     }
@@ -3341,6 +3368,41 @@ mod tests {
             pool.slots[at].version = "Normal".into();
         }
         pool
+    }
+
+    #[test]
+    fn image_export_uses_a_snapshot_blocks_duplicates_and_unlocks_after_success_cancel_or_failure() {
+        let mut state = pool_with_maps("image-export", &["a1", "b2"]);
+        state.update(Message::Rename("First name".into()), 1_790_000_100);
+        let effects = state.update(Message::SaveImage, 1_790_000_101);
+        let (request, exported) = match effects.as_slice() {
+            [Effect::SaveImage(request, pool)] => (*request, pool.clone()),
+            _ => panic!("export the current pool"),
+        };
+        assert_eq!(state.exporting, Some(request));
+        assert!(state.update(Message::SaveImage, 1_790_000_102).is_empty());
+        state.update(Message::Rename("Changed later".into()), 1_790_000_103);
+        assert_eq!(exported.name, "First name");
+        assert_eq!(exported.filled(), 2);
+        assert!(state.update(Message::ImageSaved(request + 1, Ok(None)), 1_790_000_104).is_empty());
+        assert_eq!(state.exporting, Some(request));
+        let effects = state.update(Message::ImageSaved(request, Ok(Some(PathBuf::from("pool.png")))), 1_790_000_105);
+        assert!(matches!(effects.as_slice(), [Effect::Say("pool-image-saved")]));
+        assert!(state.exporting.is_none());
+        state.update(Message::SaveImage, 1_790_000_106);
+        let cancelled = state.exporting.unwrap();
+        assert_ne!(cancelled, request);
+        assert!(state.update(Message::ImageSaved(request, Ok(None)), 1_790_000_107).is_empty());
+        assert_eq!(state.exporting, Some(cancelled));
+        assert!(state.update(Message::ImageSaved(cancelled, Ok(None)), 1_790_000_108).is_empty());
+        assert!(state.exporting.is_none());
+        state.update(Message::SaveImage, 1_790_000_109);
+        let failed = state.exporting.unwrap();
+        let effects = state.update(Message::ImageSaved(failed, Err("disk full".into())), 1_790_000_110);
+        assert!(matches!(effects.as_slice(), [Effect::Say("pool-save-failed")]));
+        assert!(state.exporting.is_none());
+        state.update(Message::Back, 1_790_000_111);
+        assert!(state.update(Message::SaveImage, 1_790_000_112).is_empty());
     }
 
     #[test]

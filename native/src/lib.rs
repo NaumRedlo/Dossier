@@ -37,6 +37,7 @@ mod playback_wake;
 pub mod pool_links;
 pub mod pool_collections;
 pub mod pool_files;
+pub mod pool_card;
 pub mod pool_share;
 pub mod pools;
 pub mod pools_screen;

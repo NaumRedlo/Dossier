@@ -152,3 +152,21 @@ fn every_main_screen_state_matches_its_approved_frame() {
     }
     assert!(wrong.is_empty(), "main-screen frames that no longer match their approved picture:\n{}", wrong.join("\n"));
 }
+
+#[test]
+fn every_exported_pool_card_matches_its_approved_frame() {
+    let (pools, _, covers) = gallery::pool_sample();
+    let covers = covers.into_iter().collect();
+    let review = std::env::var_os("DOSSIER_GOLDEN_REVIEW").map(PathBuf::from)
+        .unwrap_or_else(|| std::env::temp_dir().join(format!("dossier-golden-pool-cards-{}", std::process::id())));
+    std::fs::create_dir_all(&review).unwrap();
+    for lang in dossier_native::lang::Lang::ALL {
+        for (kind, pool) in ["duel", "stage", "free"].into_iter().zip(&pools) {
+            let name = format!("pool-card-{kind}-{}.png", lang.tag());
+            let bytes = dossier_native::pool_card::render(pool, &dossier_native::lang::Words::new(lang), &covers).unwrap();
+            let actual = review.join(&name);
+            std::fs::write(&actual, bytes).unwrap();
+            compare_files(&golden(&name), &actual).unwrap_or_else(|why| panic!("{name}: {why}; current frame: {}", actual.display()));
+        }
+    }
+}

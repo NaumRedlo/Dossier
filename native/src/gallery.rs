@@ -175,7 +175,7 @@ pub fn frame<'a>(flow: &'a FirstRun, backdrop: &iced::widget::image::Handle) -> 
 
 static FONTS_LOADED: std::sync::Once = std::sync::Once::new();
 
-fn settings_once() -> iced::Settings {
+pub(crate) fn settings_once() -> iced::Settings {
     let mut settings = crate::settings();
     FONTS_LOADED.call_once(|| {
         let mut fonts = iced::advanced::graphics::text::font_system().write().expect("the font system");
@@ -404,7 +404,7 @@ fn pool_tint(seed: usize) -> iced::widget::image::Handle {
     iced::widget::image::Handle::from_rgba(width, height, pixels)
 }
 
-fn pool_sample() -> (Vec<crate::pools::Pool>, std::collections::HashMap<String, crate::library::Map>, Vec<(String, iced::widget::image::Handle)>) {
+pub fn pool_sample() -> (Vec<crate::pools::Pool>, std::collections::HashMap<String, crate::library::Map>, Vec<(String, iced::widget::image::Handle)>) {
     use crate::pools::{Frame, Measure, Mod, Pool, Slot};
     let titles = [
         ("Glass Orchard", "Nova Tide", "Garden", 172.0, 132_000, 4.52),

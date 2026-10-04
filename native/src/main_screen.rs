@@ -1508,6 +1508,36 @@ impl Main {
                     self.say(said);
                     tasks.push(iced::clipboard::write(text));
                 }
+                Effect::SaveImage(request, pool) => {
+                    let name = crate::pool_card::file_name(&pool);
+                    let lang = self.words.lang();
+                    let paths: HashMap<String, PathBuf> = pool.slots.iter().filter_map(|slot| {
+                        let hash = slot.hash.as_ref()?;
+                        let path = self.pools.songs.as_ref()?.get(hash)?.background.as_ref()?;
+                        Some((hash.clone(), path.clone()))
+                    }).collect();
+                    let cached: HashMap<String, image::Handle> = pool.slots.iter().filter_map(|slot| {
+                        let hash = slot.hash.as_ref()?;
+                        self.thumbs.get(hash).map(|image| (hash.clone(), image.clone()))
+                    }).collect();
+                    tasks.push(Task::perform(
+                        async move { rfd::AsyncFileDialog::new().add_filter("PNG", &["png"]).set_file_name(&name).save_file().await.map(|file| file.path().to_path_buf()) },
+                        |path| path,
+                    ).then(move |path| match path {
+                        Some(path) => {
+                            let pool = pool.clone();
+                            let paths = paths.clone();
+                            let cached = cached.clone();
+                            ui::in_thread(move || {
+                                let covers = crate::pool_card::covers(&pool, &paths, &cached);
+                                let said = crate::pool_card::render(&pool, &crate::lang::Words::new(lang), &covers)
+                                    .and_then(|bytes| crate::pool_card::save(&path, &bytes)).map(|()| Some(path));
+                                Message::Community(crate::community_screen::Message::Pools(P::ImageSaved(request, said)))
+                            })
+                        }
+                        None => Task::done(Message::Community(crate::community_screen::Message::Pools(P::ImageSaved(request, Ok(None))))),
+                    }));
+                }
                 Effect::SaveFile(name, bytes) => {
                     tasks.push(Task::perform(
                         async move {

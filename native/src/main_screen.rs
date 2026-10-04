@@ -33,6 +33,7 @@ pub const LIFT: Duration = Duration::from_millis(200);
 const LIVE_FIRST: usize = 6;
 const FETCHES_AT_ONCE: usize = 3;
 const LIVE_EVERY: Duration = Duration::from_secs(6);
+const PRESENCE_EVERY: Duration = Duration::from_secs(5);
 const PANEL_SHOW: Duration = Duration::from_millis(420);
 const FOLD: Duration = Duration::from_millis(280);
 const NOTICE_FADE: Duration = Duration::from_millis(200);
@@ -156,6 +157,8 @@ pub enum Message {
     TelegramAsked(Result<(String, String), String>),
     Poll,
     Polled(Result<Paired, Refused>),
+    PresenceTick,
+    PresenceAnswered(Result<(), Refused>),
     OpenTelegram,
     CopyLink,
     LaterSignIn,
@@ -440,6 +443,7 @@ pub struct Main {
     pub store: videos::Store,
     pub player: Option<std::rc::Rc<std::cell::RefCell<player::Player>>>,
     minimized: bool,
+    presence_pending: bool,
     hidden: bool,
     window_id: Option<window::Id>,
     resume_player: Option<std::rc::Weak<std::cell::RefCell<player::Player>>>,
@@ -671,6 +675,7 @@ impl Main {
             store: videos::Store::load(),
             player: None,
             minimized: false,
+            presence_pending: false,
             hidden: false,
             window_id: None,
             resume_player: None,
@@ -1234,6 +1239,7 @@ impl Main {
             if active { Some(Message::UserInput(action.map(Box::new))) } else { action }
         })];
         if !self.settings.token.is_empty() && !self.gallery {
+            parts.push(iced::time::every(PRESENCE_EVERY).map(|_| Message::PresenceTick));
             parts.push(iced::time::every(sharing::EVERY).map(|_| Message::Sharing(sharing::Message::Tick)));
             if self.witness_delivery.pending() > 0 {
                 parts.push(iced::time::every(Duration::from_secs(2)).map(|_| Message::WitnessDeliveryTick));
@@ -2064,6 +2070,18 @@ impl Main {
             }
             Message::PairAsked(Err(_)) => {
                 self.pairing = Pairing::Unavailable;
+                Task::none()
+            }
+            Message::PresenceTick => {
+                if self.presence_pending || self.settings.token.is_empty() || self.gallery {
+                    return Task::none();
+                }
+                self.presence_pending = true;
+                let (server, token, name) = (self.settings.server.clone(), self.settings.token.clone(), self.settings.device.clone());
+                ui::in_thread(move || Message::PresenceAnswered(bot::presence(&server, &token, &name)))
+            }
+            Message::PresenceAnswered(_result) => {
+                self.presence_pending = false;
                 Task::none()
             }
             Message::Poll => match &self.pairing {
@@ -7831,6 +7849,31 @@ fn paste_shortcut(key: &iced::keyboard::Key, physical_key: iced::keyboard::key::
 #[cfg(test)]
 mod tests {
     use super::{slots, Slot, FRAME_GAP};
+
+    #[test]
+    fn presence_keeps_running_in_the_tray_without_overlapping_requests() {
+        let mut main = super::Main::staged(crate::lang::Words::new(crate::lang::Lang::En), crate::settings::Settings::default(), crate::library::Library::default(), None);
+        main.gallery = false;
+        main.set_minimized(true);
+        let _ = main.update(super::Message::PresenceTick);
+        assert!(!main.presence_pending);
+        let without_account = main.subscription().units();
+        main.settings.token = "token".into();
+        assert_eq!(main.subscription().units(), without_account + 2);
+        let _ = main.update(super::Message::PresenceTick);
+        assert!(main.presence_pending);
+        let _ = main.update(super::Message::PresenceTick);
+        assert!(main.presence_pending);
+        let _ = main.update(super::Message::PresenceAnswered(Err(super::Refused::Network("offline".into()))));
+        assert!(!main.presence_pending);
+        let _ = main.update(super::Message::PresenceTick);
+        assert!(main.presence_pending);
+        let _ = main.update(super::Message::PresenceAnswered(Ok(())));
+        assert!(!main.presence_pending);
+        main.gallery = true;
+        let _ = main.update(super::Message::PresenceTick);
+        assert!(!main.presence_pending);
+    }
 
     #[test]
     fn paste_shortcut_works_with_russian_layout_and_platform_modifiers() {

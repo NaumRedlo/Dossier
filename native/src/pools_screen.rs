@@ -923,9 +923,11 @@ impl State {
                 if text.is_empty() {
                     return effects;
                 }
+                self.cancel_suggestion();
                 self.notice = None;
                 if let Some(editor) = self.editor_mut() {
                     editor.panel = Panel::Add;
+                    editor.source = SourceTab::Search;
                     editor.replace = false;
                     editor.query = text.clone();
                 }
@@ -3414,6 +3416,37 @@ mod tests {
         assert_eq!(editor.panel, Panel::Add);
         assert_eq!(editor.query, LINK);
         assert!(matches!(state.finding, Some(Finding::Asking)));
+    }
+
+    #[test]
+    fn pasting_a_set_in_an_existing_pool_reveals_the_difficulty_picker_from_every_source() {
+        for source in [SourceTab::Search, SourceTab::Collections, SourceTab::Best, SourceTab::Suggest] {
+            let mut state = state_with_songs(&format!("paste-editor-{source:?}"));
+            state.update(Message::New, 100);
+            state.update(Message::Rename("My pool".into()), 101);
+            state.update(Message::Put("a1".into()), 102);
+            let before = state.editing().unwrap().clone();
+            state.update(Message::Source(source), 103);
+            state.update(Message::AddPanel(false), 104);
+            let effects = state.update(Message::Pasted("https://osu.ppy.sh/beatmapsets/77".into()), 105);
+            assert!(effects.iter().any(|effect| matches!(effect, Effect::Resolve(_, Target::Set { id: 77, beatmap: None, .. }))));
+            let Screen::Editor(editor) = &state.screen else { panic!("the same editor stays open") };
+            assert_eq!(editor.id, before.id);
+            assert_eq!(editor.panel, Panel::Add);
+            assert_eq!(editor.source, SourceTab::Search);
+            assert_eq!(state.editing().unwrap(), &before);
+            state.update(Message::Resolved(state.resolve_request, Ok(found(&["b2", "c3"], None))), 106);
+            let Some(Finding::Found(candidate)) = &state.finding else { panic!("difficulty selection is ready") };
+            assert_eq!(candidate.choice, None);
+            state.update(Message::Choose(1), 107);
+            state.update(Message::Confirm, 108);
+            let pool = state.editing().unwrap();
+            assert_eq!(pool.id, before.id);
+            assert_eq!(pool.name, before.name);
+            assert_eq!(pool.slots.len(), 2);
+            assert_eq!(pool.slots[0], before.slots[0]);
+            assert_eq!(pool.slots[1].hash.as_deref(), Some("c3"));
+        }
     }
 
     #[test]

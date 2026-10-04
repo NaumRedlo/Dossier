@@ -1202,8 +1202,11 @@ impl Main {
             (iced::Event::Window(window::Event::Resized(size)), _) => Some(Message::Resized(size.width, size.height)),
             (iced::Event::Window(window::Event::Opened { size, .. }), _) => Some(Message::WindowOpened(id, size.width, size.height)),
             (iced::Event::Window(window::Event::Focused | window::Event::Unfocused), _) => Some(Message::CheckMinimized(id)),
-            (iced::Event::Keyboard(iced::keyboard::Event::KeyPressed { key, modifiers, .. }), iced::event::Status::Ignored) => {
+            (iced::Event::Keyboard(iced::keyboard::Event::KeyPressed { key, physical_key, modifiers, .. }), iced::event::Status::Ignored) => {
                 use iced::keyboard::key::{Key, Named};
+                if paste_shortcut(&key, physical_key, modifiers) {
+                    return Some(Message::UserInput(Some(Box::new(Message::Paste))));
+                }
                 match key.as_ref() {
                     Key::Named(Named::ArrowLeft) => Some(Message::Key(Named::ArrowLeft)),
                     Key::Named(Named::ArrowUp) => Some(Message::Key(Named::ArrowUp)),
@@ -1211,7 +1214,6 @@ impl Main {
                     Key::Named(Named::ArrowDown) => Some(Message::Key(Named::ArrowDown)),
                     Key::Named(Named::Space) => Some(Message::Key(Named::Space)),
                     Key::Named(Named::Escape) => Some(Message::Escape),
-                    Key::Character(letter) if modifiers.command() && letter.eq_ignore_ascii_case("v") => Some(Message::Paste),
                     Key::Character(letter) if modifiers.command() && !modifiers.shift() && letter.eq_ignore_ascii_case("z") => Some(Message::Undo),
                     Key::Character(letter) => letter.chars().next().map(|c| Message::Typed(c.to_lowercase().next().unwrap_or(c))),
                     _ => None,
@@ -7800,9 +7802,27 @@ pub fn max_combo_of(path: &Path, map: Option<&library::Map>, hash: &str) -> Opti
     Some(dossier_assay::max_combo(&beatmap, replay.mods))
 }
 
+fn paste_shortcut(key: &iced::keyboard::Key, physical_key: iced::keyboard::key::Physical, modifiers: iced::keyboard::Modifiers) -> bool {
+    use iced::keyboard::key::{Code, Key, Physical};
+    (modifiers.command() || modifiers.control()) && !modifiers.alt()
+        && (physical_key == Physical::Code(Code::KeyV) || matches!(key.as_ref(), Key::Character(letter) if letter.eq_ignore_ascii_case("v")))
+}
+
 #[cfg(test)]
 mod tests {
     use super::{slots, Slot, FRAME_GAP};
+
+    #[test]
+    fn paste_shortcut_works_with_russian_layout_and_platform_modifiers() {
+        use iced::keyboard::{key::{Code, Key, Physical}, Modifiers};
+        for modifiers in [Modifiers::CTRL, Modifiers::COMMAND] {
+            assert!(super::paste_shortcut(&Key::Character("м".into()), Physical::Code(Code::KeyV), modifiers));
+            assert!(super::paste_shortcut(&Key::Character("v".into()), Physical::Code(Code::KeyV), modifiers));
+            assert!(!super::paste_shortcut(&Key::Character("с".into()), Physical::Code(Code::KeyC), modifiers));
+            assert!(!super::paste_shortcut(&Key::Character("м".into()), Physical::Code(Code::KeyV), modifiers | Modifiers::ALT));
+        }
+        assert!(!super::paste_shortcut(&Key::Character("м".into()), Physical::Code(Code::KeyV), Modifiers::empty()));
+    }
 
     #[test]
     fn minimizing_stops_periodic_work_and_restores_only_the_same_playing_video() {

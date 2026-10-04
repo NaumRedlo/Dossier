@@ -951,22 +951,24 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
         }
         Tile::Community => community_tile(ground),
         Tile::Worker => worker_tile(ground),
-        Tile::ThisDevice => column![
+        Tile::ThisDevice => container(column![
             head(w, "this-device"),
             row![
                 ui::badge(ground.machine, 28.0),
                 column![
-                    text(s.device.clone()).font(theme::SANS_SEMI).size(theme::CAPTION).wrapping(text::Wrapping::None).color(ui::faded(INK)),
+                    text(s.device.clone()).font(theme::SANS_SEMI).size(theme::CAPTION).wrapping(text::Wrapping::WordOrGlyph).color(ui::faded(INK)),
                     text(w.t("linked-status")).font(theme::SANS).size(11.0).wrapping(text::Wrapping::None).color(ui::faded(MUTED)),
                 ]
-                .spacing(1),
+                .spacing(1)
+                .width(Length::Fill),
             ]
             .spacing(10)
             .align_y(iced::Center),
             link_rows(ground),
             container(deed(w.t("unlink"), Message::Unlink, true)).padding(Padding::ZERO.top(6.0)),
         ]
-        .spacing(2)
+        .spacing(2))
+        .width(360.0)
         .into(),
     }
 }
@@ -977,14 +979,14 @@ fn link_rows<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
     let moment = |at: i64| format!("{} {}", w.day(at, ground.now_unix), w.clock(at));
     let fact = |label: String, value: String, colour: iced::Color| -> Element<'a, Message> {
         row![
-            text(label).font(theme::SANS).size(11.5).wrapping(text::Wrapping::None).color(ui::faded(MUTED)).width(Length::Fill),
-            text(value).font(theme::MONO).size(11.0).wrapping(text::Wrapping::None).color(ui::faded(colour)),
+            text(label).font(theme::SANS).size(11.5).wrapping(text::Wrapping::WordOrGlyph).color(ui::faded(MUTED)).width(132.0),
+            text(value).font(theme::MONO).size(11.0).wrapping(text::Wrapping::WordOrGlyph).color(ui::faded(colour)).width(Length::Fill),
         ]
         .spacing(10)
-        .align_y(iced::Center)
+        .align_y(iced::Top)
         .into()
     };
-    let mut rows = column![fact(w.t("link-answered"), link.answered.map_or_else(|| w.t("link-never"), moment), INK)].spacing(4);
+    let mut rows = column![fact(w.t("link-answered"), link.answered.map_or_else(|| w.t("link-never"), moment), INK)].spacing(7);
     if let Some((at, refused)) = &link.refused {
         let kind = match refused {
             crate::bot::Refused::Network(_) => w.t("link-fault-network"),

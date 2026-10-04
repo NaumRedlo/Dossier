@@ -840,6 +840,10 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
     prefs_shared.settings.tiles_app = vec!["sources".to_owned()];
     prefs_shared.settings.sources.push(Source { replay_count: 37, ..crate::sources::shared(true) });
     prefs_bot.link_shown = Some(crate::bot::Link { answered: Some(NOON - 120), refused: Some((NOON - 3_600, crate::bot::Refused::Network(String::new()))), retries: 2, asked: 41 });
+    let mut prefs_device = prefs_bot.clone();
+    prefs_device.settings.tiles_bot = vec!["this-device".to_owned()];
+    prefs_device.settings.device = "дрейк старший".to_owned();
+    prefs_device.link_shown = Some(crate::bot::Link { answered: Some(NOON - 120), refused: Some((NOON - 960, crate::bot::Refused::Said("502".to_owned()))), retries: 15, asked: 41 });
     prefs_bot.pin = Some(crate::community::wire::Pin { chat: Some(-100), since: Some(NOON - 5 * DAY), free_at: Some(NOON + 25 * DAY), error: String::new() });
     let community = |section: crate::community_screen::Section, person: Option<usize>| {
         let mut main = staged(Some(0));
@@ -947,6 +951,7 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
         ("main-signing".to_owned(), signing),
         ("main-prefs".to_owned(), prefs_app),
         ("main-prefs-bot".to_owned(), prefs_bot),
+        ("main-prefs-device".to_owned(), prefs_device),
         ("main-prefs-shared".to_owned(), prefs_shared),
         ("main-prefs-witness".to_owned(), prefs_witness),
         ("main-prefs-bot-osu".to_owned(), prefs_osu),
@@ -1387,11 +1392,11 @@ pub fn every_main_frame() -> Vec<(String, crate::main_screen::Main, Size)> {
     for lang in Lang::ALL {
         for (name, main) in main_states(lang) {
             for (label, size) in SIZES {
-                if label != SIZES[0].0 && name != "main-rest" && name != "main-idle" && name != "main-notifications" && name != "main-player-mini" && name != "main-community-clip-mini" && name != "main-community-feed-wide" && name != "main-pools-best" && name != "main-pools-editor" {
+                if label != SIZES[0].0 && name != "main-rest" && name != "main-idle" && name != "main-notifications" && name != "main-player-mini" && name != "main-community-clip-mini" && name != "main-community-feed-wide" && name != "main-pools-best" && name != "main-pools-editor" && name != "main-prefs-device" {
                     continue;
                 }
                 let mut frame = main.clone();
-                if name == "main-idle" || name == "main-notifications" || name == "main-player-mini" || name == "main-community-clip-mini" || name == "main-community-feed-wide" || name == "main-pools-best" || name == "main-pools-editor" { frame.width = size.width; frame.height = size.height; }
+                if name == "main-idle" || name == "main-notifications" || name == "main-player-mini" || name == "main-community-clip-mini" || name == "main-community-feed-wide" || name == "main-pools-best" || name == "main-pools-editor" || name == "main-prefs-device" { frame.width = size.width; frame.height = size.height; }
                 out.push((format!("{name}-{}-{label}", lang.tag()), frame, size));
             }
         }

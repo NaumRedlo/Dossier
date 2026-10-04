@@ -1456,7 +1456,11 @@ impl Main {
         for effect in effects {
             match effect {
                 Effect::ReadSongs => {
-                    let songs = library::songs_of(&self.settings.sources);
+                    let mut songs = library::songs_of(&self.settings.sources);
+                    let own = crate::sources::own_root().join("Songs");
+                    if !songs.contains(&own) {
+                        songs.push(own);
+                    }
                     tasks.push(ui::in_thread(move || {
                         let found = library::Index::load(&songs).by_hash;
                         Message::Community(crate::community_screen::Message::Pools(P::Songs(std::sync::Arc::new(found))))
@@ -1520,13 +1524,24 @@ impl Main {
                     tasks.push(Task::perform(
                         async {
                             let picked = rfd::AsyncFileDialog::new().add_filter("Dossier pool", &["pool"]).pick_file().await?;
-                            Some(std::fs::read(picked.path()).map_err(|_| crate::pool_share::Refused::NotAPool).and_then(|bytes| crate::pool_share::from_file(&bytes, unix_now())))
+                            Some(crate::pool_files::read_pool(picked.path(), unix_now()))
                         },
                         |said| match said {
                             Some(said) => Message::Community(crate::community_screen::Message::Pools(P::Imported(said))),
                             None => Message::Community(crate::community_screen::Message::Pools(P::Saved(Ok(None)))),
                         },
                     ));
+                }
+                Effect::ReadPool(request, path) => {
+                    tasks.push(ui::in_thread(move || Message::Community(crate::community_screen::Message::Pools(P::PoolFile(request, crate::pool_files::read_pool(&path, unix_now()))))));
+                }
+                Effect::ImportMap(request, path) => {
+                    let songs = crate::sources::own_root().join("Songs");
+                    tasks.push(ui::in_thread(move || Message::Community(crate::community_screen::Message::Pools(P::MapFile(request, crate::pool_files::import_map(&path, &songs))))));
+                }
+                Effect::Say(key) => {
+                    let said = self.words.t(key);
+                    self.say(said);
                 }
                 Effect::Fetch(hash, stop) => {
                     let songs = crate::sources::own_root().join("Songs");
@@ -3637,6 +3652,18 @@ impl Main {
             }
             Message::Dropped(path) => {
                 self.wake(Instant::now());
+                let pool = path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("pool"));
+                let chart = path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("osu"));
+                let in_pools = self.overlay == Overlay::Community && self.community_section == crate::community_screen::Section::Pools;
+                if pool || (chart && in_pools) {
+                    let mut tasks = Vec::new();
+                    if !in_pools {
+                        tasks.push(self.update(Message::Show(Overlay::Community)));
+                        tasks.push(self.update(Message::Community(crate::community_screen::Message::Go(crate::community_screen::Section::Pools, None))));
+                    }
+                    tasks.push(self.update(Message::Community(crate::community_screen::Message::Pools(crate::pools_screen::Message::Dropped(path)))));
+                    return Task::batch(tasks);
+                }
                 let skinnish = crate::settings::is_skin_file(&path) || (path.is_dir() && !crate::settings::skins_under(&path).is_empty());
                 if skinnish || (path.is_dir() && crate::settings::looks_like_skin(&path)) {
                     let named = crate::settings::skin_name(&path);
@@ -8367,6 +8394,26 @@ mod tests {
         let _ = main.update(super::Message::Community(crate::community_screen::Message::Reconnect));
         assert_eq!(main.overlay, super::Overlay::Settings);
         assert_eq!(main.side, super::Side::Bot);
+    }
+
+    #[test]
+    fn dropping_a_pool_opens_the_constructor_and_charts_are_routed_only_inside_it() {
+        use crate::community_screen::{Message as C, Section};
+        let mut main = feed_at_rest();
+        main.pools.loaded = true;
+        main.pools.dir = std::env::temp_dir().join(format!("dossier-pool-drop-main-{}", std::process::id()));
+        main.overlay = super::Overlay::None;
+        let _ = main.update(super::Message::Dropped(std::path::PathBuf::from("example.OSU")));
+        assert_eq!(main.overlay, super::Overlay::None);
+        assert!(main.pools.importing.is_none());
+        let _ = main.update(super::Message::Dropped(std::path::PathBuf::from("example.POOL")));
+        assert_eq!(main.overlay, super::Overlay::Community);
+        assert_eq!(main.community_section, Section::Pools);
+        let _ = main.update(super::Message::Dropped(std::path::PathBuf::from("example.osu")));
+        assert!(main.pools.importing.is_some());
+        let _ = main.update(super::Message::Community(C::Pools(crate::pools_screen::Message::Back)));
+        assert!(main.pools.importing.is_none());
+        let _ = std::fs::remove_dir_all(&main.pools.dir);
     }
 
     #[test]

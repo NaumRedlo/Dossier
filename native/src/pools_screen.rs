@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -148,6 +148,14 @@ pub struct Suggestions {
 }
 
 #[derive(Debug, Clone)]
+pub struct FileImport {
+    pub request: u64,
+    pub pool: String,
+    pub fingerprint: String,
+    pub place: Place,
+}
+
+#[derive(Debug, Clone)]
 pub enum Finding {
     Asking,
     Found(Candidate),
@@ -200,6 +208,9 @@ pub enum Message {
     SaveFile,
     OpenFile,
     Imported(Result<Pool, pool_share::Refused>),
+    Dropped(PathBuf),
+    MapFile(u64, Result<(String, Map), crate::pool_files::Refused>),
+    PoolFile(u64, Result<Pool, pool_share::Refused>),
     GetMissing,
     Keep,
     Saved(Result<Option<PathBuf>, String>),
@@ -227,6 +238,9 @@ pub enum Effect {
     Copy(String, &'static str),
     SaveFile(String, Vec<u8>),
     PickFile,
+    ReadPool(u64, PathBuf),
+    ImportMap(u64, PathBuf),
+    Say(&'static str),
 }
 
 #[derive(Clone)]
@@ -240,6 +254,10 @@ pub struct State {
     pub collections: Option<Vec<Collection>>,
     pub collecting: bool,
     pub best: Option<Vec<crate::community::wire::Score>>,
+    pub importing: Option<FileImport>,
+    pub importing_pool: Option<u64>,
+    pub dropped: VecDeque<PathBuf>,
+    pub file_request: u64,
     pub suggestions: Option<Suggestions>,
     pub pending_suggestion: Option<usize>,
     pub suggestion_request: u64,
@@ -265,6 +283,10 @@ impl State {
             collections: None,
             collecting: false,
             best: None,
+            importing: None,
+            importing_pool: None,
+            dropped: VecDeque::new(),
+            file_request: 0,
             suggestions: None,
             pending_suggestion: None,
             suggestion_request: 0,
@@ -280,6 +302,7 @@ impl State {
     }
 
     pub fn open(&mut self) -> Vec<Effect> {
+        self.cancel_import();
         if !self.loaded {
             self.list = pools::load_all(&self.dir);
             for pool in &mut self.list {
@@ -447,6 +470,23 @@ impl State {
         self.pending_suggestion = None;
     }
 
+    fn cancel_import(&mut self) {
+        self.importing = None;
+        self.importing_pool = None;
+        self.dropped.clear();
+    }
+
+    fn import_next(&mut self) -> Vec<Effect> {
+        if self.importing.is_some() || self.editing().is_none() {
+            return Vec::new();
+        }
+        let Some(path) = self.dropped.pop_front() else { return Vec::new() };
+        self.file_request = self.file_request.wrapping_add(1);
+        let pool = self.editing().unwrap();
+        self.importing = Some(FileImport { request: self.file_request, pool: pool.id.clone(), fingerprint: pool.fingerprint(), place: self.default_place() });
+        vec![Effect::ImportMap(self.file_request, path)]
+    }
+
     fn suggest_slot(&mut self, slot: usize) -> Vec<Effect> {
         let Some((id, fingerprint, mods, target, excluded, has_maps)) = self.editing().and_then(|pool| {
             let entry = pool.slots.get(slot)?;
@@ -503,6 +543,7 @@ impl State {
         match message {
             Message::Filter(frame) => self.filter = frame,
             Message::New => {
+                self.cancel_import();
                 let pool = Pool::new(Frame::Duel, "", now);
                 let id = pool.id.clone();
                 self.list.insert(0, pool);
@@ -511,6 +552,7 @@ impl State {
             }
             Message::Open(id) => {
                 if self.list.iter().any(|pool| pool.id == id) {
+                    self.cancel_import();
                     self.screen = Screen::Editor(Editor::at(id));
                     if self.songs.is_none() && !self.reading {
                         self.reading = true;
@@ -519,6 +561,7 @@ impl State {
                 }
             }
             Message::Back => {
+                self.cancel_import();
                 self.cancel_suggestion();
                 if let (Some(at), Screen::Editor(editor)) = (self.editing_at(), self.screen.clone()) {
                     if editor.untouched && self.list[at].filled() == 0 && self.list[at].name.is_empty() {
@@ -836,6 +879,60 @@ impl State {
                 Ok(pool) => effects.extend(self.begin_open(pool)),
                 Err(refused) => self.refused = Some(refused),
             },
+            Message::Dropped(path) => {
+                if path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("pool")) {
+                    if let Some(Finding::Fetching(fetching)) = &self.finding {
+                        fetching.stop.store(true, Ordering::SeqCst);
+                    }
+                    self.finding = None;
+                    self.update(Message::Back, now);
+                    self.file_request = self.file_request.wrapping_add(1);
+                    self.importing_pool = Some(self.file_request);
+                    effects.push(Effect::ReadPool(self.file_request, path));
+                } else if path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("osu")) {
+                    if matches!(self.screen, Screen::Open(_)) {
+                        effects.push(Effect::Say("pool-file-open-first"));
+                        return effects;
+                    }
+                    if self.editing().is_none() {
+                        self.update(Message::New, now);
+                    }
+                    self.dropped.push_back(path);
+                    effects.extend(self.import_next());
+                }
+            }
+            Message::MapFile(request, said) => {
+                let Some(importing) = self.importing.as_ref().filter(|importing| importing.request == request).cloned() else { return effects };
+                self.importing = None;
+                if !self.editing().is_some_and(|pool| pool.id == importing.pool && pool.fingerprint() == importing.fingerprint) {
+                    self.cancel_import();
+                    return effects;
+                }
+                match said {
+                    Ok((hash, map)) => {
+                        self.fetched.insert(hash.clone(), map.clone());
+                        Arc::make_mut(self.songs.get_or_insert_with(|| Arc::new(HashMap::new()))).insert(hash.clone(), map.clone());
+                        if let Some(Finding::Fetching(fetching)) = &self.finding {
+                            fetching.stop.store(true, Ordering::SeqCst);
+                        }
+                        self.finding = None;
+                        self.notice = None;
+                        effects.extend(self.place_map(&hash, map, Some(importing.place), now));
+                    }
+                    Err(why) => effects.push(Effect::Say(match why {
+                        crate::pool_files::Refused::Mode => "pool-file-mode",
+                        crate::pool_files::Refused::Save => "pool-file-save-failed",
+                        crate::pool_files::Refused::Read | crate::pool_files::Refused::Map => "pool-file-invalid",
+                    })),
+                }
+                effects.extend(self.import_next());
+            }
+            Message::PoolFile(request, said) => {
+                if self.importing_pool == Some(request) {
+                    self.importing_pool = None;
+                    effects.extend(self.update(Message::Imported(said), now));
+                }
+            }
             Message::GetMissing => effects.extend(self.get_missing(now)),
             Message::Keep => effects.extend(self.keep_opened(now)),
             Message::Saved(_) => {}
@@ -956,6 +1053,7 @@ impl State {
             }
             Message::DeletePool => {
                 if let Some(at) = self.editing_at() {
+                    self.cancel_import();
                     self.cancel_suggestion();
                     let id = self.list.remove(at).id;
                     let _ = pools::remove(&self.dir, &id);
@@ -1133,6 +1231,11 @@ impl State {
     }
 
     fn begin_open(&mut self, pool: Pool) -> Vec<Effect> {
+        self.cancel_import();
+        self.cancel_suggestion();
+        if let Some(Finding::Fetching(fetching)) = &self.finding {
+            fetching.stop.store(true, Ordering::SeqCst);
+        }
         self.refused = None;
         self.finding = None;
         self.screen = Screen::Open(Opening { pool, queue: Vec::new(), total: 0, step: None, stop: Arc::new(std::sync::atomic::AtomicBool::new(false)), running: false, lost: 0 });
@@ -2570,6 +2673,72 @@ mod tests {
     fn open_new(state: &mut State) -> String {
         state.update(Message::New, 1_790_000_000);
         state.editing().expect("an editor").id.clone()
+    }
+
+    #[test]
+    fn dropped_maps_are_queued_keep_the_slot_mods_and_survive_a_later_songs_read() {
+        let mut state = state_with_songs("dropped");
+        let id = open_new(&mut state);
+        state.update(Message::Select(Some(3)), 1_790_000_001);
+        let first = state.update(Message::Dropped(PathBuf::from("first.osu")), 1_790_000_002);
+        let request = match first.as_slice() {
+            [Effect::ImportMap(request, path)] if path == &PathBuf::from("first.osu") => *request,
+            _ => panic!("a chart is imported in the background"),
+        };
+        assert!(state.update(Message::Dropped(PathBuf::from("second.OSU")), 1_790_000_003).is_empty());
+        let next = state.update(Message::MapFile(request, Ok(("e5".into(), map("First", "A", "Hard")))), 1_790_000_004);
+        assert_eq!(state.editing().unwrap().slots[3].hash.as_deref(), Some("e5"));
+        assert_eq!(state.editing().unwrap().slots[3].mods, Mod::Hr);
+        assert!(next.iter().any(|effect| matches!(effect, Effect::Measure(hash, _, Mod::Hr) if hash == "e5")));
+        let request = next.iter().find_map(|effect| match effect { Effect::ImportMap(request, _) => Some(*request), _ => None }).unwrap();
+        state.update(Message::MapFile(request, Ok(("f6".into(), map("Second", "A", "Hard")))), 1_790_000_005);
+        assert_eq!(state.editing().unwrap().slots[0].hash.as_deref(), Some("f6"));
+        state.update(Message::Songs(Arc::new(HashMap::new())), 1_790_000_006);
+        assert!(state.songs.as_ref().unwrap().contains_key("e5"));
+        assert!(state.songs.as_ref().unwrap().contains_key("f6"));
+        let kept = pools::load_all(&state.dir);
+        assert_eq!(kept.iter().find(|pool| pool.id == id).unwrap().slots[3].hash.as_deref(), Some("e5"));
+        assert!(state.importing.is_none() && state.dropped.is_empty());
+    }
+
+    #[test]
+    fn an_import_answer_cannot_write_to_a_different_or_changed_pool() {
+        let mut state = state_with_songs("dropped-stale");
+        open_new(&mut state);
+        state.update(Message::Dropped(PathBuf::from("first.osu")), 1_790_000_001);
+        let request = state.importing.as_ref().unwrap().request;
+        state.update(Message::New, 1_790_000_002);
+        state.update(Message::MapFile(request, Ok(("e5".into(), map("First", "A", "Hard")))), 1_790_000_003);
+        assert_eq!(state.editing().unwrap().filled(), 0);
+        state.update(Message::Dropped(PathBuf::from("first.osu")), 1_790_000_004);
+        let request = state.importing.as_ref().unwrap().request;
+        state.update(Message::SetMod(0, Mod::Dt), 1_790_000_005);
+        state.update(Message::MapFile(request, Ok(("e5".into(), map("First", "A", "Hard")))), 1_790_000_006);
+        assert_eq!(state.editing().unwrap().filled(), 0);
+        assert!(state.importing.is_none());
+        assert!(matches!(state.update(Message::Dropped(PathBuf::from("pool.POOL")), 1_790_000_007).as_slice(), [Effect::ReadPool(_, _)]));
+        let request = state.importing_pool.unwrap();
+        state.update(Message::PoolFile(request, Err(pool_share::Refused::NotAPool)), 1_790_000_008);
+        assert!(matches!(state.screen, Screen::Shelf));
+        assert_eq!(state.refused, Some(pool_share::Refused::NotAPool));
+        state.update(Message::Dropped(PathBuf::from("pool.POOL")), 1_790_000_009);
+        let request = state.importing_pool.unwrap();
+        state.update(Message::New, 1_790_000_010);
+        state.update(Message::PoolFile(request, Ok(Pool::new(Frame::Duel, "Late", 1_790_000_011))), 1_790_000_011);
+        assert!(matches!(state.screen, Screen::Editor(_)));
+        assert_ne!(state.editing().unwrap().name, "Late");
+    }
+
+    #[test]
+    fn a_bad_dropped_map_reports_the_reason_and_continues_with_the_next_file() {
+        let mut state = state_with_songs("dropped-error");
+        state.screen = Screen::Shelf;
+        state.update(Message::Dropped(PathBuf::from("bad.osu")), 1_790_000_001);
+        let request = state.importing.as_ref().unwrap().request;
+        state.update(Message::Dropped(PathBuf::from("good.osu")), 1_790_000_002);
+        let next = state.update(Message::MapFile(request, Err(crate::pool_files::Refused::Mode)), 1_790_000_003);
+        assert!(matches!(next.as_slice(), [Effect::Say("pool-file-mode"), Effect::ImportMap(_, _)]));
+        assert_eq!(state.editing().unwrap().filled(), 0);
     }
 
     #[test]

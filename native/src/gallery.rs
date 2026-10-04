@@ -1265,6 +1265,18 @@ fn feed_states(community: &dyn Fn(crate::community_screen::Section, Option<usize
             main.pools.screen = crate::pools_screen::Screen::Editor(crate::pools_screen::Editor { selected: Some(5), panel: crate::pools_screen::Panel::Add, query: "o".to_owned(), untouched: false, ..crate::pools_screen::Editor::at(id) });
             main
         }),
+        ("main-pools-collection".to_owned(), {
+            let mut main = community(crate::community_screen::Section::Pools, None);
+            pools_state(&mut main, true);
+            let id = main.pools.list[0].id.clone();
+            let mut hashes: Vec<String> = main.pools.songs.as_ref().unwrap().keys().cloned().collect();
+            hashes.sort();
+            hashes.truncate(8);
+            hashes.push("0123456789abcdef0123456789abcdef".to_owned());
+            main.pools.collections = Some(vec![crate::pool_collections::Collection { name: "Tournament picks".to_owned(), hashes }]);
+            main.pools.screen = crate::pools_screen::Screen::Editor(crate::pools_screen::Editor { selected: Some(5), panel: crate::pools_screen::Panel::Add, source: crate::pools_screen::SourceTab::Collections, collection: Some(0), ..crate::pools_screen::Editor::at(id) });
+            main
+        }),
     ];
     states
 }

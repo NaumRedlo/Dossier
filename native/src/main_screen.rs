@@ -1462,6 +1462,13 @@ impl Main {
                         Message::Community(crate::community_screen::Message::Pools(P::Songs(std::sync::Arc::new(found))))
                     }));
                 }
+                Effect::ReadCollections => {
+                    let sources = self.settings.sources.clone();
+                    tasks.push(ui::in_thread(move || {
+                        let found = crate::pool_collections::read(&sources);
+                        Message::Community(crate::community_screen::Message::Pools(P::Collections(found)))
+                    }));
+                }
                 Effect::Measure(hash, map, mods) => {
                     tasks.push(ui::in_thread(move || {
                         let said = crate::pools::measure(&map, &hash, mods);

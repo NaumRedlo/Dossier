@@ -9,6 +9,7 @@ use crate::community_screen as screen;
 use crate::glyphs::{glyph, Icon};
 use crate::lang::Words;
 use crate::library::Map;
+use crate::pool_collections::Collection;
 use crate::pool_links::{self, Target, Why};
 use crate::pool_share;
 use crate::pools::{self, Balance, Frame, Measure, Measures, Mod, Pool, Skill, Slot};
@@ -25,6 +26,7 @@ const THUMB_ROUND: f32 = 8.0;
 const PANEL_WIDE: f32 = 400.0;
 const PANEL_FROM: f32 = 900.0;
 const RESULTS_MOST: usize = 40;
+const COLLECTION_PAGE: usize = 80;
 const STRIP_BAR: f32 = 64.0;
 const STRIP_HIGH: f32 = 72.0;
 
@@ -33,6 +35,12 @@ pub enum Panel {
     Closed,
     Slot,
     Add,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SourceTab {
+    Search,
+    Collections,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -47,6 +55,9 @@ pub struct Editor {
     pub selected: Option<usize>,
     pub panel: Panel,
     pub query: String,
+    pub source: SourceTab,
+    pub collection: Option<usize>,
+    pub collection_page: usize,
     pub untouched: bool,
     pub replace: bool,
     pub share: bool,
@@ -58,7 +69,7 @@ pub struct Editor {
 
 impl Editor {
     pub fn at(id: String) -> Editor {
-        Editor { id, selected: None, panel: Panel::Closed, query: String::new(), untouched: false, replace: false, share: false, choosing: false, marked: Vec::new(), bulk: None, asking_delete: false }
+        Editor { id, selected: None, panel: Panel::Closed, query: String::new(), source: SourceTab::Search, collection: None, collection_page: 0, untouched: false, replace: false, share: false, choosing: false, marked: Vec::new(), bulk: None, asking_delete: false }
     }
 }
 
@@ -144,6 +155,11 @@ pub enum Message {
     SetMod(usize, Mod),
     Clear(usize),
     AddPanel(bool),
+    Source(SourceTab),
+    Collection(Option<usize>),
+    CollectionPage(usize),
+    CollectionHash(String),
+    Collections(Vec<Collection>),
     Query(String),
     Put(String),
     Note(usize, String),
@@ -182,6 +198,7 @@ pub enum Message {
 #[derive(Debug, Clone)]
 pub enum Effect {
     ReadSongs,
+    ReadCollections,
     Measure(String, Map, Mod),
     Resolve(Target),
     Cover(String, u64),
@@ -199,6 +216,8 @@ pub struct State {
     pub filter: Option<Frame>,
     pub songs: Option<Arc<HashMap<String, Map>>>,
     pub reading: bool,
+    pub collections: Option<Vec<Collection>>,
+    pub collecting: bool,
     pub measures: Measures,
     pub asked: HashSet<(String, Mod)>,
     pub notice: Option<Notice>,
@@ -218,6 +237,8 @@ impl State {
             filter: None,
             songs: None,
             reading: false,
+            collections: None,
+            collecting: false,
             measures: Measures::default(),
             asked: HashSet::new(),
             notice: None,
@@ -377,11 +398,11 @@ impl State {
                 let id = pool.id.clone();
                 self.list.insert(0, pool);
                 self.save(0, now);
-                self.screen = Screen::Editor(Editor { id, selected: None, panel: Panel::Closed, query: String::new(), untouched: true, replace: false, share: false, choosing: false, marked: Vec::new(), bulk: None, asking_delete: false });
+                self.screen = Screen::Editor(Editor { untouched: true, ..Editor::at(id) });
             }
             Message::Open(id) => {
                 if self.list.iter().any(|pool| pool.id == id) {
-                    self.screen = Screen::Editor(Editor { id, selected: None, panel: Panel::Closed, query: String::new(), untouched: false, replace: false, share: false, choosing: false, marked: Vec::new(), bulk: None, asking_delete: false });
+                    self.screen = Screen::Editor(Editor::at(id));
                     if self.songs.is_none() && !self.reading {
                         self.reading = true;
                         effects.push(Effect::ReadSongs);
@@ -482,6 +503,48 @@ impl State {
                     self.reading = true;
                     effects.push(Effect::ReadSongs);
                 }
+            }
+            Message::Source(source) => {
+                if let Some(editor) = self.editor_mut() {
+                    editor.panel = Panel::Add;
+                    editor.source = source;
+                }
+                if let Some(Finding::Fetching(fetching)) = &self.finding {
+                    fetching.stop.store(true, std::sync::atomic::Ordering::SeqCst);
+                }
+                self.finding = None;
+                self.notice = None;
+                if source == SourceTab::Collections && self.collections.is_none() && !self.collecting {
+                    self.collecting = true;
+                    effects.push(Effect::ReadCollections);
+                }
+            }
+            Message::Collection(collection) => {
+                if let Some(editor) = self.editor_mut() {
+                    editor.collection = collection;
+                    editor.collection_page = 0;
+                }
+                if let Some(Finding::Fetching(fetching)) = &self.finding {
+                    fetching.stop.store(true, std::sync::atomic::Ordering::SeqCst);
+                }
+                self.finding = None;
+            }
+            Message::CollectionPage(page) => {
+                if let Some(editor) = self.editor_mut() {
+                    editor.collection_page = page;
+                }
+            }
+            Message::CollectionHash(hash) => {
+                if self.songs.as_ref().is_some_and(|songs| songs.contains_key(&hash)) {
+                    effects.extend(self.put(&hash, now));
+                } else if pool_links::parse(&hash).is_ok() {
+                    self.finding = Some(Finding::Asking);
+                    effects.push(Effect::Resolve(Target::Hash(hash)));
+                }
+            }
+            Message::Collections(collections) => {
+                self.collections = Some(collections);
+                self.collecting = false;
             }
             Message::Query(query) => {
                 self.notice = None;
@@ -953,7 +1016,7 @@ impl State {
         let id = pool.id.clone();
         self.list.insert(0, pool);
         self.save(0, now);
-        self.screen = Screen::Editor(Editor { id, selected: None, panel: Panel::Closed, query: String::new(), untouched: false, replace: false, share: false, choosing: false, marked: Vec::new(), bulk: None, asking_delete: false });
+        self.screen = Screen::Editor(Editor::at(id));
         self.measure_effects()
     }
 
@@ -1062,8 +1125,19 @@ impl State {
                     }
                 }
                 if editor.panel == Panel::Add {
-                    for (hash, _) in self.search(&editor.query).iter().take(12) {
-                        add(hash);
+                    match editor.source {
+                        SourceTab::Search => {
+                            for (hash, _) in self.search(&editor.query).iter().take(12) {
+                                add(hash);
+                            }
+                        }
+                        SourceTab::Collections => {
+                            if let Some(collection) = editor.collection.and_then(|at| self.collections.as_ref()?.get(at)) {
+                                for hash in collection.hashes.iter().skip(editor.collection_page * COLLECTION_PAGE).take(12) {
+                                    add(hash);
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -1822,7 +1896,8 @@ fn candidate_card<'a>(candidate: &'a Candidate, editor: &'a Editor, pool: &'a Po
 fn add_panel<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, words: &'a Words, thumbs: &'a HashMap<String, image::Handle>) -> Element<'a, Message> {
     let mut body = column![].spacing(14);
     let tabs = row![
-        button(text(words.t("pool-tab-search")).font(theme::SANS_SEMI).size(13.5)).padding([8, 16]).style(ui::button_faded(theme::filter_chip(true))),
+        button(text(words.t("pool-tab-search")).font(theme::SANS_SEMI).size(13.5)).padding([8, 16]).style(ui::button_faded(theme::filter_chip(editor.source == SourceTab::Search))).on_press(Message::Source(SourceTab::Search)),
+        button(text(words.t("pool-tab-collections")).font(theme::SANS_SEMI).size(13.5)).padding([8, 16]).style(ui::button_faded(theme::filter_chip(editor.source == SourceTab::Collections))).on_press(Message::Source(SourceTab::Collections)),
         ui::grow(),
         button(glyph(Icon::Close, 14.0, FAINT)).padding([6, 8]).style(ui::button_faded(theme::bare)).on_press(Message::AddPanel(false)),
     ]
@@ -1832,6 +1907,16 @@ fn add_panel<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, words: &'
     match target(pool, editor).and_then(|at| pool.slots.get(at).map(|slot| (at, slot))) {
         Some((at, slot)) => body = body.push(faded_text(words.with("pool-for-slot", &[("n", (at + 1).to_string()), ("mod", slot.mods.code().to_owned())]), 13.0, MUTED)),
         None => body = body.push(faded_text(words.t("pool-for-end"), 13.0, MUTED)),
+    }
+    if editor.source == SourceTab::Collections {
+        if let Some(Notice::Already(at)) = &state.notice {
+            body = body.push(faded_text(words.with("pool-already", &[("n", (at + 1).to_string())]), 13.0, ACCENT));
+        }
+        if let Some(finding) = &state.finding {
+            body = body.push(finding_card(finding, editor, pool, words));
+        }
+        body = body.push(collection_panel(state, editor, words, thumbs));
+        return panel_box(body.into());
     }
     body = body.push(
         text_input(&words.t("pool-search-hint"), &editor.query)
@@ -1873,6 +1958,74 @@ fn add_panel<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, words: &'
         body = body.push(scrollable(list).height(Length::Fixed(420.0)).direction(ui::hidden_bar()).style(ui::thin_scroll));
     }
     panel_box(body.into())
+}
+
+fn collection_panel<'a>(state: &'a State, editor: &'a Editor, words: &'a Words, thumbs: &'a HashMap<String, image::Handle>) -> Element<'a, Message> {
+    let Some(collections) = &state.collections else {
+        return para(words.t("pool-collections-reading"), 13.0, MUTED);
+    };
+    if collections.is_empty() {
+        return para(words.t("pool-collections-empty"), 13.0, MUTED);
+    }
+    if state.songs.is_none() {
+        return para(words.t("pool-reading"), 13.0, MUTED);
+    }
+    let songs = state.songs.as_ref();
+    let Some(collection) = editor.collection.and_then(|at| collections.get(at)) else {
+        let mut list = column![].spacing(4);
+        for (at, collection) in collections.iter().enumerate() {
+            let found = collection.hashes.iter().filter(|hash| songs.is_some_and(|songs| songs.contains_key(*hash))).count();
+            let info = words.with("pool-collection-local", &[("found", found.to_string()), ("total", collection.hashes.len().to_string())]);
+            list = list.push(button(column![semi(collection.name.clone(), 13.5, INK), mono(info, 11.5, MUTED)].spacing(3).width(Length::Fill)).padding([9, 10]).width(Length::Fill).style(ui::button_faded(ui::calm(theme::row(false)))).on_press(Message::Collection(Some(at))));
+        }
+        return scrollable(list).height(Length::Fixed(420.0)).direction(ui::hidden_bar()).style(ui::thin_scroll).into();
+    };
+    let found = collection.hashes.iter().filter(|hash| songs.is_some_and(|songs| songs.contains_key(*hash))).count();
+    let info = words.with("pool-collection-local", &[("found", found.to_string()), ("total", collection.hashes.len().to_string())]);
+    let heading = row![
+        quiet_button(words.t("pool-collection-back"), Message::Collection(None)),
+        ui::grow(),
+        mono(info, 11.5, MUTED),
+    ]
+    .spacing(8)
+    .align_y(iced::Center);
+    let pages = collection.hashes.len().div_ceil(COLLECTION_PAGE).max(1);
+    let page = editor.collection_page.min(pages - 1);
+    let mut list = column![].spacing(2);
+    for hash in collection.hashes.iter().skip(page * COLLECTION_PAGE).take(COLLECTION_PAGE) {
+        let row: Element<'a, Message> = match songs.and_then(|songs| songs.get(hash)) {
+            Some(map) => row![
+                cover(thumbs, Some(hash), 56.0, 32.0, THUMB_ROUND),
+                column![semi(map.title.clone(), 13.5, INK), faded_text(map.artist.clone(), 12.0, MUTED), mono(map.version.clone(), 11.0, FAINT)].spacing(1).width(Length::Fill),
+                glyph(Icon::Plus, 16.0, MUTED),
+            ]
+            .spacing(12)
+            .align_y(iced::Center)
+            .into(),
+            None => row![
+                cover(thumbs, None, 56.0, 32.0, THUMB_ROUND),
+                column![mono(hash.clone(), 11.0, MUTED), faded_text(words.t("pool-collection-missing"), 12.0, FAINT)].spacing(2).width(Length::Fill),
+                glyph(Icon::Plus, 16.0, MUTED),
+            ]
+            .spacing(12)
+            .align_y(iced::Center)
+            .into(),
+        };
+        list = list.push(button(row).padding([6, 8]).width(Length::Fill).style(ui::button_faded(ui::calm(theme::row(false)))).on_press(Message::CollectionHash(hash.clone())));
+    }
+    let mut body = column![heading, scrollable(list).height(Length::Fixed(420.0)).direction(ui::hidden_bar()).style(ui::thin_scroll)].spacing(10);
+    if pages > 1 {
+        let mut controls = row![].spacing(10).align_y(iced::Center);
+        if page > 0 {
+            controls = controls.push(quiet_button(words.t("pool-collection-prev"), Message::CollectionPage(page - 1)));
+        }
+        controls = controls.push(ui::grow()).push(mono(format!("{} / {}", page + 1, pages), 11.5, MUTED));
+        if page + 1 < pages {
+            controls = controls.push(quiet_button(words.t("pool-collection-next"), Message::CollectionPage(page + 1)));
+        }
+        body = body.push(controls);
+    }
+    body.into()
 }
 
 fn share_row<'a>(icon: Icon, title: String, hint: String, action: String, press: Option<Message>) -> Element<'a, Message> {
@@ -2193,6 +2346,22 @@ mod tests {
     fn open_new(state: &mut State) -> String {
         state.update(Message::New, 1_790_000_000);
         state.editing().expect("an editor").id.clone()
+    }
+
+    #[test]
+    fn collections_add_local_maps_and_resolve_missing_hashes() {
+        let mut state = state_with_songs("collections");
+        open_new(&mut state);
+        assert!(matches!(state.update(Message::AddPanel(true), 1_790_000_001).as_slice(), []));
+        assert!(matches!(state.update(Message::Source(SourceTab::Collections), 1_790_000_002).as_slice(), [Effect::ReadCollections]));
+        let missing = "0123456789abcdef0123456789abcdef".to_owned();
+        state.update(Message::Collections(vec![Collection { name: "Favorites".into(), hashes: vec!["a1".into(), missing.clone()] }]), 1_790_000_003);
+        state.update(Message::Collection(Some(0)), 1_790_000_004);
+        state.update(Message::CollectionHash("a1".into()), 1_790_000_005);
+        assert_eq!(state.editing().unwrap().slots[0].hash.as_deref(), Some("a1"));
+        let effects = state.update(Message::CollectionHash(missing.clone()), 1_790_000_006);
+        assert!(matches!(effects.as_slice(), [Effect::Resolve(Target::Hash(hash))] if hash == &missing));
+        assert!(matches!(state.finding, Some(Finding::Asking)));
     }
 
     #[test]

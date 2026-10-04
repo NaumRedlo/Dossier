@@ -85,6 +85,7 @@ pub enum Message {
     LiveArrive,
     CommunityArrived(Result<crate::community::wire::Community, crate::bot::Refused>),
     Paste,
+    PoolClipboard(String),
     Undo,
     MapBoard(u64, bool, Result<crate::community::wire::MapBoard, String>),
     EveryoneArrived(Result<crate::community::wire::Everyone, String>),
@@ -1473,6 +1474,9 @@ impl Main {
                         Message::Community(crate::community_screen::Message::Pools(P::Collections(found)))
                     }));
                 }
+                Effect::ReadPaste(id, input, contents) => {
+                    tasks.push(iced::clipboard::read().map(move |text| Message::Community(crate::community_screen::Message::Pools(P::PastedInto(id.clone(), input, contents.clone(), text.unwrap_or_default())))));
+                }
                 Effect::ReadBest(force) => {
                     tasks.push(self.card_task(force));
                     let connected = self.community_card.as_ref().is_some_and(|card| !card.username.trim().is_empty())
@@ -1494,8 +1498,8 @@ impl Main {
                         Message::Community(crate::community_screen::Message::Pools(P::Measured(hash, mods, said)))
                     }));
                 }
-                Effect::Resolve(target) => {
-                    tasks.push(ui::in_thread(move || Message::Community(crate::community_screen::Message::Pools(P::Resolved(crate::pool_links::resolve(&target))))));
+                Effect::Resolve(request, target) => {
+                    tasks.push(ui::in_thread(move || Message::Community(crate::community_screen::Message::Pools(P::Resolved(request, crate::pool_links::resolve(&target))))));
                 }
                 Effect::Cover(url, set) => {
                     tasks.push(ui::in_thread(move || {
@@ -1565,6 +1569,10 @@ impl Main {
                 Effect::ReadPool(request, path) => {
                     tasks.push(ui::in_thread(move || Message::Community(crate::community_screen::Message::Pools(P::PoolFile(request, crate::pool_files::read_pool(&path, unix_now()))))));
                 }
+                Effect::ImportArchive(request, path) => {
+                    let songs = crate::sources::own_root().join("Songs");
+                    tasks.push(ui::in_thread(move || Message::Community(crate::community_screen::Message::Pools(P::ArchiveFile(request, crate::pool_files::import_archive(&path, &songs))))));
+                }
                 Effect::ImportMap(request, path) => {
                     let songs = crate::sources::own_root().join("Songs");
                     tasks.push(ui::in_thread(move || Message::Community(crate::community_screen::Message::Pools(P::MapFile(request, crate::pool_files::import_map(&path, &songs))))));
@@ -1573,10 +1581,10 @@ impl Main {
                     let said = self.words.t(key);
                     self.say(said);
                 }
-                Effect::Fetch(hash, stop) => {
+                Effect::Fetch(request, hash, stop) => {
                     let songs = crate::sources::own_root().join("Songs");
                     let named = hash.clone();
-                    tasks.push(crate::maps::fetch(hash, songs, stop).map(move |step| Message::Community(crate::community_screen::Message::Pools(P::Step(named.clone(), step)))));
+                    tasks.push(crate::maps::fetch(hash, songs, stop).map(move |step| Message::Community(crate::community_screen::Message::Pools(P::Step(request, named.clone(), step)))));
                 }
             }
         }
@@ -2530,11 +2538,19 @@ impl Main {
                 self.search = query;
                 Task::none()
             }
-            Message::Paste => {
-                if self.overlay == Overlay::Community && self.community_section == crate::community_screen::Section::Pools {
-                    return iced::clipboard::read().map(|text| Message::Community(crate::community_screen::Message::Pools(crate::pools_screen::Message::Pasted(text.unwrap_or_default()))));
+            Message::Paste => iced::clipboard::read().map(|text| Message::PoolClipboard(text.unwrap_or_default())),
+            Message::PoolClipboard(text) => {
+                let in_pools = self.overlay == Overlay::Community && self.community_section == crate::community_screen::Section::Pools;
+                if !in_pools && !crate::pools_screen::is_paste(&text) {
+                    return Task::none();
                 }
-                Task::none()
+                let mut tasks = Vec::new();
+                if !in_pools {
+                    tasks.push(self.update(Message::Show(Overlay::Community)));
+                    tasks.push(self.update(Message::Community(crate::community_screen::Message::Go(crate::community_screen::Section::Pools, None))));
+                }
+                tasks.push(self.update(Message::Community(crate::community_screen::Message::Pools(crate::pools_screen::Message::Pasted(text)))));
+                Task::batch(tasks)
             }
             Message::Undo => {
                 if self.overlay == Overlay::Community && self.community_section == crate::community_screen::Section::Pools {
@@ -3683,9 +3699,9 @@ impl Main {
             Message::Dropped(path) => {
                 self.wake(Instant::now());
                 let pool = path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("pool"));
-                let chart = path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("osu"));
+                let chart = path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("osu") || ext.eq_ignore_ascii_case("osz"));
                 let in_pools = self.overlay == Overlay::Community && self.community_section == crate::community_screen::Section::Pools;
-                if pool || (chart && in_pools) {
+                if pool || chart {
                     let mut tasks = Vec::new();
                     if !in_pools {
                         tasks.push(self.update(Message::Show(Overlay::Community)));
@@ -8427,19 +8443,39 @@ mod tests {
     }
 
     #[test]
-    fn dropping_a_pool_opens_the_constructor_and_charts_are_routed_only_inside_it() {
+    fn pasting_a_map_link_outside_the_constructor_opens_a_free_pool() {
+        let mut main = feed_at_rest();
+        main.pools.loaded = true;
+        main.pools.dir = std::env::temp_dir().join(format!("dossier-pool-paste-main-{}", std::process::id()));
+        main.overlay = super::Overlay::None;
+        let _ = main.update(super::Message::PoolClipboard("ordinary text".into()));
+        assert_eq!(main.overlay, super::Overlay::None);
+        let _ = main.update(super::Message::PoolClipboard("https://osu.ppy.sh/beatmaps/123".into()));
+        assert_eq!(main.overlay, super::Overlay::Community);
+        assert_eq!(main.community_section, crate::community_screen::Section::Pools);
+        assert_eq!(main.pools.editing().unwrap().frame, crate::pools::Frame::Free);
+        assert!(matches!(main.pools.finding, Some(crate::pools_screen::Finding::Asking)));
+        let _ = std::fs::remove_dir_all(&main.pools.dir);
+    }
+
+    #[test]
+    fn dropping_a_chart_or_pool_opens_the_constructor() {
         use crate::community_screen::{Message as C, Section};
         let mut main = feed_at_rest();
         main.pools.loaded = true;
         main.pools.dir = std::env::temp_dir().join(format!("dossier-pool-drop-main-{}", std::process::id()));
         main.overlay = super::Overlay::None;
         let _ = main.update(super::Message::Dropped(std::path::PathBuf::from("example.OSU")));
-        assert_eq!(main.overlay, super::Overlay::None);
-        assert!(main.pools.importing.is_none());
+        assert_eq!(main.overlay, super::Overlay::Community);
+        assert_eq!(main.community_section, Section::Pools);
+        assert!(main.pools.importing.is_some());
         let _ = main.update(super::Message::Dropped(std::path::PathBuf::from("example.POOL")));
         assert_eq!(main.overlay, super::Overlay::Community);
         assert_eq!(main.community_section, Section::Pools);
-        let _ = main.update(super::Message::Dropped(std::path::PathBuf::from("example.osu")));
+        let _ = main.update(super::Message::Community(C::Pools(crate::pools_screen::Message::Back)));
+        main.overlay = super::Overlay::None;
+        let _ = main.update(super::Message::Dropped(std::path::PathBuf::from("example.OSZ")));
+        assert_eq!(main.overlay, super::Overlay::Community);
         assert!(main.pools.importing.is_some());
         let _ = main.update(super::Message::Community(C::Pools(crate::pools_screen::Message::Back)));
         assert!(main.pools.importing.is_none());

@@ -93,6 +93,56 @@ pub fn import_map(path: &Path, songs: &Path) -> Result<(String, Map), Refused> {
     result
 }
 
+pub fn import_archive(path: &Path, songs: &Path) -> Result<Vec<(String, Map)>, Refused> {
+    let file = std::fs::File::open(path).map_err(|_| Refused::Read)?;
+    if !file.metadata().map_err(|_| Refused::Read)?.is_file() || file.metadata().map_err(|_| Refused::Read)?.len() > MEDIA_LIMIT {
+        return Err(Refused::Read);
+    }
+    let mut archive = zip::ZipArchive::new(file).map_err(|_| Refused::Map)?;
+    if archive.len() > 4096 { return Err(Refused::Map); }
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let serial = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let stage = songs.parent().ok_or(Refused::Save)?.join(".pool-imports").join(format!("archive-{}-{serial}", std::process::id()));
+    std::fs::create_dir_all(&stage).map_err(|_| Refused::Save)?;
+    struct Staging(PathBuf);
+    impl Drop for Staging { fn drop(&mut self) { let _ = std::fs::remove_dir_all(&self.0); } }
+    let _staging = Staging(stage.clone());
+    let mut charts = Vec::new();
+    let mut total = 0u64;
+    for at in 0..archive.len() {
+        let mut entry = archive.by_index(at).map_err(|_| Refused::Map)?;
+        if entry.is_dir() { continue; }
+        let relative = relative(entry.name()).ok_or(Refused::Map)?;
+        if entry.unix_mode().is_some_and(|mode| mode & 0o170000 == 0o120000) { return Err(Refused::Map); }
+        let extension = relative.extension().and_then(|extension| extension.to_str()).unwrap_or_default().to_ascii_lowercase();
+        if !["osu", "jpg", "jpeg", "png", "bmp", "gif", "webp", "mp3", "ogg", "wav", "flac", "m4a", "opus"].contains(&extension.as_str()) { continue; }
+        let limit = if extension == "osu" { MAP_LIMIT } else { MEDIA_LIMIT };
+        total = total.checked_add(entry.size()).ok_or(Refused::Map)?;
+        if entry.size() > limit || total > 512 * 1024 * 1024 { return Err(Refused::Map); }
+        let target = stage.join(relative);
+        std::fs::create_dir_all(target.parent().ok_or(Refused::Save)?).map_err(|_| Refused::Save)?;
+        let mut out = std::fs::OpenOptions::new().write(true).create_new(true).open(&target).map_err(|_| Refused::Map)?;
+        let written = std::io::copy(&mut entry.by_ref().take(limit + 1), &mut out).map_err(|_| Refused::Save)?;
+        if written > limit { return Err(Refused::Map); }
+        if extension == "osu" { charts.push(target); }
+    }
+    charts.sort();
+    let mut maps = Vec::new();
+    let mut foreign = false;
+    let mut seen = std::collections::HashSet::new();
+    for chart in charts {
+        match import_map(&chart, songs) {
+            Ok((hash, map)) if seen.insert(hash.clone()) => maps.push((hash, map)),
+            Ok(_) | Err(Refused::Map) => {},
+            Err(Refused::Mode) => foreign = true,
+            Err(why) => return Err(why),
+        }
+    }
+    if maps.is_empty() { return Err(if foreign { Refused::Mode } else { Refused::Map }); }
+    maps.sort_by(|a, b| a.1.version.cmp(&b.1.version).then(a.0.cmp(&b.0)));
+    Ok(maps)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -129,6 +179,57 @@ mod tests {
         std::fs::remove_dir_all(source).unwrap();
         assert!(crate::pools::measure(&map, &hash, crate::pools::Mod::Hr).is_ok());
         assert_eq!(library::describe(&map.file).unwrap().0, hash);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    fn pack(path: &Path, files: &[(&str, &[u8])]) {
+        use std::io::Write;
+        let mut archive = zip::ZipWriter::new(std::fs::File::create(path).unwrap());
+        for (name, bytes) in files {
+            archive.start_file(*name, zip::write::SimpleFileOptions::default()).unwrap();
+            archive.write_all(bytes).unwrap();
+        }
+        archive.finish().unwrap();
+    }
+
+    #[test]
+    fn an_osz_imports_standard_difficulties_and_media_and_can_be_imported_again() {
+        let root = scratch("archive");
+        let path = root.join("set.OSZ");
+        let standard = chart().lines().filter(|line| !line.starts_with("AudioFilename:") && !line.starts_with("0,0,")).collect::<Vec<_>>().join("\n")
+            .replace("[HitObjects]", "[General]\nAudioFilename: song.mp3\n[Events]\n0,0,\"art/bg.jpg\",0,0\n[HitObjects]");
+        let second = format!("{standard}\n");
+        let foreign = format!("{standard}\n[General]\nMode: 3\n");
+        pack(&path, &[("first.osu", standard.as_bytes()), ("second.OSU", second.as_bytes()), ("mania.osu", foreign.as_bytes()), ("art/bg.jpg", b"picture"), ("song.mp3", b"audio"), ("personal.txt", b"private")]);
+        let songs = root.join("Songs");
+        let maps = import_archive(&path, &songs).unwrap();
+        assert_eq!(maps.len(), 2);
+        assert_eq!(import_archive(&path, &songs).unwrap(), maps);
+        for (hash, map) in &maps {
+            assert_eq!(std::fs::read(map.folder().join("song.mp3")).unwrap(), b"audio");
+            assert_eq!(std::fs::read(map.background.as_ref().unwrap()).unwrap(), b"picture");
+            assert!(!map.folder().join("personal.txt").exists());
+            assert!(crate::pools::measure(map, hash, crate::pools::Mod::Dt).is_ok());
+        }
+        assert_eq!(std::fs::read_dir(root.join(".pool-imports")).unwrap().count(), 0);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn malformed_empty_foreign_and_escaping_archives_leave_no_import_staging() {
+        let root = scratch("archive-refused");
+        let path = root.join("set.osz");
+        std::fs::write(&path, b"not a zip").unwrap();
+        assert_eq!(import_archive(&path, &root.join("Songs")), Err(Refused::Map));
+        pack(&path, &[("../escaped.osu", chart().as_bytes())]);
+        assert_eq!(import_archive(&path, &root.join("Songs")), Err(Refused::Map));
+        assert!(!root.join("escaped.osu").exists());
+        pack(&path, &[("picture.jpg", b"picture")]);
+        assert_eq!(import_archive(&path, &root.join("Songs")), Err(Refused::Map));
+        let foreign = format!("{}\n[General]\nMode: 3\n", chart());
+        pack(&path, &[("mania.osu", foreign.as_bytes())]);
+        assert_eq!(import_archive(&path, &root.join("Songs")), Err(Refused::Mode));
+        assert_eq!(std::fs::read_dir(root.join(".pool-imports")).unwrap().count(), 0);
         std::fs::remove_dir_all(root).unwrap();
     }
 

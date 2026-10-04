@@ -182,6 +182,13 @@ fn slot_keys(pool: &Pool) -> Vec<SlotKey> {
     }).collect()
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum Input {
+    Name,
+    Query,
+    Note(usize),
+}
+
 #[derive(Debug, Clone)]
 pub enum Message {
     Filter(Option<Frame>),
@@ -210,7 +217,9 @@ pub enum Message {
     Songs(Arc<HashMap<String, Map>>),
     Measured(String, Mod, Result<Measure, String>),
     Pasted(String),
-    Resolved(Result<pool_links::Found, Why>),
+    PasteInto(Input, String),
+    PastedInto(String, Input, String, String),
+    Resolved(u64, Result<pool_links::Found, Why>),
     Cover(u64, Option<image::Handle>),
     Choose(usize),
     Aim(Place),
@@ -218,7 +227,7 @@ pub enum Message {
     ConfirmAll,
     Dismiss,
     Retry,
-    Step(String, crate::maps::Step),
+    Step(u64, String, crate::maps::Step),
     Share(bool),
     CopyText,
     CopyHash,
@@ -229,6 +238,7 @@ pub enum Message {
     Imported(Result<Pool, pool_share::Refused>),
     Dropped(PathBuf),
     MapFile(u64, Result<(String, Map), crate::pool_files::Refused>),
+    ArchiveFile(u64, Result<Vec<(String, Map)>, crate::pool_files::Refused>),
     PoolFile(u64, Result<Pool, pool_share::Refused>),
     GetMissing,
     Keep,
@@ -250,17 +260,19 @@ pub enum Effect {
     ReadSongs,
     ReadCollections,
     ReadBest(bool),
+    ReadPaste(String, Input, String),
     Suggest(u64, Arc<HashMap<String, Map>>, Mod, f64, HashSet<String>, Arc<AtomicBool>),
     Measure(String, Map, Mod),
-    Resolve(Target),
+    Resolve(u64, Target),
     Cover(String, u64),
-    Fetch(String, Arc<std::sync::atomic::AtomicBool>),
+    Fetch(u64, String, Arc<std::sync::atomic::AtomicBool>),
     Copy(String, &'static str),
     SaveFile(String, Vec<u8>),
     SaveImage(u64, Pool),
     PickFile,
     ReadPool(u64, PathBuf),
     ImportMap(u64, PathBuf),
+    ImportArchive(u64, PathBuf),
     Say(&'static str),
 }
 
@@ -288,6 +300,9 @@ pub struct State {
     pub asked: HashSet<(String, Mod)>,
     pub notice: Option<Notice>,
     pub finding: Option<Finding>,
+    pub resolve_request: u64,
+    pub fetch_request: u64,
+    pub fetching: Option<(u64, String)>,
     pub fetched: HashMap<String, Map>,
     pub refused: Option<pool_share::Refused>,
     pub undo: Vec<(String, Pool)>,
@@ -319,6 +334,9 @@ impl State {
             asked: HashSet::new(),
             notice: None,
             finding: None,
+            resolve_request: 0,
+            fetch_request: 0,
+            fetching: None,
             fetched: HashMap::new(),
             refused: None,
             undo: Vec::new(),
@@ -327,6 +345,7 @@ impl State {
     }
 
     pub fn open(&mut self) -> Vec<Effect> {
+        self.cancel_network();
         self.cancel_import();
         if !self.loaded {
             self.list = pools::load_all(&self.dir);
@@ -468,6 +487,7 @@ impl State {
     }
 
     fn measure_effects(&mut self) -> Vec<Effect> {
+        self.apply_measures();
         let Some(songs) = self.songs.clone() else {
             return Vec::new();
         };
@@ -513,6 +533,11 @@ impl State {
         for at in changed {
             self.save_quiet(at);
         }
+        if let Some(Finding::Found(candidate)) = &mut self.finding {
+            for difficulty in &mut candidate.found.difficulties {
+                if let Some(Ok(measure)) = self.measures.get(&difficulty.hash, Mod::Nm) { difficulty.stars = measure.stars; }
+            }
+        }
         if let Screen::Open(opening) = &mut self.screen {
             for slot in &mut opening.pool.slots {
                 if slot.measure.is_some() {
@@ -534,6 +559,28 @@ impl State {
         self.pending_suggestion = None;
     }
 
+    fn resolve(&mut self, target: Target) -> Effect {
+        self.resolve_request = self.resolve_request.wrapping_add(1);
+        Effect::Resolve(self.resolve_request, target)
+    }
+
+    fn fetch(&mut self, hash: String, stop: Arc<AtomicBool>) -> Effect {
+        self.fetch_request = self.fetch_request.wrapping_add(1);
+        self.fetching = Some((self.fetch_request, hash.clone()));
+        Effect::Fetch(self.fetch_request, hash, stop)
+    }
+
+    fn cancel_network(&mut self) {
+        if let Some(Finding::Fetching(fetching)) = &self.finding {
+            fetching.stop.store(true, Ordering::SeqCst);
+        }
+        if let Screen::Open(opening) = &self.screen {
+            opening.stop.store(true, Ordering::SeqCst);
+        }
+        self.finding = None;
+        self.fetching = None;
+    }
+
     fn cancel_import(&mut self) {
         self.importing = None;
         self.importing_pool = None;
@@ -541,14 +588,18 @@ impl State {
     }
 
     fn import_next(&mut self) -> Vec<Effect> {
-        if self.importing.is_some() || self.editing().is_none() {
+        if self.importing.is_some() || self.editing().is_none() || matches!(self.finding, Some(Finding::Found(_) | Finding::Fetching(_))) {
             return Vec::new();
         }
         let Some(path) = self.dropped.pop_front() else { return Vec::new() };
         self.file_request = self.file_request.wrapping_add(1);
         let pool = self.editing().unwrap();
         self.importing = Some(FileImport { request: self.file_request, pool: pool.id.clone(), fingerprint: pool.fingerprint(), place: self.default_place() });
-        vec![Effect::ImportMap(self.file_request, path)]
+        if path.extension().is_some_and(|extension| extension.eq_ignore_ascii_case("osz")) {
+            vec![Effect::ImportArchive(self.file_request, path)]
+        } else {
+            vec![Effect::ImportMap(self.file_request, path)]
+        }
     }
 
     fn suggest_slot(&mut self, slot: usize) -> Vec<Effect> {
@@ -607,8 +658,10 @@ impl State {
         match message {
             Message::Filter(frame) => self.filter = frame,
             Message::New => {
+                self.cancel_network();
+                self.cancel_suggestion();
                 self.cancel_import();
-                let pool = Pool::new(Frame::Duel, "", now);
+                let pool = Pool::new(Frame::Free, "", now);
                 let id = pool.id.clone();
                 self.list.insert(0, pool);
                 self.save(0, now);
@@ -616,6 +669,8 @@ impl State {
             }
             Message::Open(id) => {
                 if self.list.iter().any(|pool| pool.id == id) {
+                    self.cancel_network();
+                    self.cancel_suggestion();
                     self.cancel_import();
                     self.screen = Screen::Editor(Editor::at(id));
                     if self.songs.is_none() && !self.reading {
@@ -625,6 +680,7 @@ impl State {
                 }
             }
             Message::Back => {
+                self.cancel_network();
                 self.cancel_import();
                 self.cancel_suggestion();
                 if let (Some(at), Screen::Editor(editor)) = (self.editing_at(), self.screen.clone()) {
@@ -683,13 +739,12 @@ impl State {
             }
             Message::SetMod(slot, mods) => {
                 if let Some(at) = self.editing_at() {
-                    if let Some(entry) = self.list[at].slots.get_mut(slot) {
-                        if entry.mods != mods {
-                            entry.mods = mods;
-                            entry.measure = None;
-                            self.save(at, now);
-                            effects.extend(self.measure_effects());
-                        }
+                    if self.list[at].slots.get(slot).is_some_and(|entry| entry.mods != mods) {
+                        self.remember(at);
+                        self.list[at].slots[slot].mods = mods;
+                        self.list[at].slots[slot].measure = None;
+                        self.save(at, now);
+                        effects.extend(self.measure_effects());
                     }
                 }
             }
@@ -775,7 +830,7 @@ impl State {
                     }
                     self.notice = None;
                     self.finding = Some(Finding::Asking);
-                    effects.push(Effect::Resolve(target));
+                    effects.push(self.resolve(target));
                 }
             }
             Message::Collection(collection) => {
@@ -798,7 +853,7 @@ impl State {
                     effects.extend(self.put(&hash, now));
                 } else if pool_links::parse(&hash).is_ok() {
                     self.finding = Some(Finding::Asking);
-                    effects.push(Effect::Resolve(Target::Hash(hash)));
+                    effects.push(self.resolve(Target::Hash(hash)));
                 }
             }
             Message::Collections(collections) => {
@@ -827,6 +882,25 @@ impl State {
                     editor.query = query;
                 }
                 effects.extend(self.look_at(&text));
+            }
+            Message::PasteInto(input, contents) => {
+                if let Some(pool) = self.editing() {
+                    effects.push(Effect::ReadPaste(pool.id.clone(), input, contents));
+                }
+            }
+            Message::PastedInto(id, input, contents, pasted) => {
+                if self.editing().is_some_and(|pool| pool.id == id) {
+                    let message = if is_paste(&pasted) {
+                        Message::Pasted(pasted)
+                    } else {
+                        match input {
+                            Input::Name => Message::Rename(contents),
+                            Input::Query => Message::Query(contents),
+                            Input::Note(slot) => Message::Note(slot, contents),
+                        }
+                    };
+                    effects.extend(self.update(message, now));
+                }
             }
             Message::Pasted(text) if pool_share::is_text(&text) => {
                 match pool_share::from_text(&text, now) {
@@ -861,8 +935,8 @@ impl State {
                 }
                 effects.extend(self.look_at(&text));
             }
-            Message::Resolved(said) => {
-                if matches!(self.finding, Some(Finding::Asking)) {
+            Message::Resolved(request, said) => {
+                if request == self.resolve_request && matches!(self.finding, Some(Finding::Asking)) {
                     match said {
                         Ok(found) => {
                             for score in self.best.iter_mut().flatten() {
@@ -903,11 +977,9 @@ impl State {
             Message::Confirm => effects.extend(self.confirm(false, now)),
             Message::ConfirmAll => effects.extend(self.confirm(true, now)),
             Message::Dismiss => {
-                if let Some(Finding::Fetching(fetching)) = &self.finding {
-                    fetching.stop.store(true, std::sync::atomic::Ordering::SeqCst);
-                }
-                self.finding = None;
+                self.cancel_network();
                 self.notice = None;
+                effects.extend(self.import_next());
             }
             Message::Retry => {
                 let text = match &self.screen {
@@ -917,7 +989,14 @@ impl State {
                 self.finding = None;
                 effects.extend(self.look_at(&text));
             }
-            Message::Step(hash, step) => effects.extend(self.stepped(&hash, step, now)),
+            Message::Step(request, hash, step) => {
+                if self.fetching.as_ref() == Some(&(request, hash.clone())) {
+                    if matches!(step, crate::maps::Step::Done(_) | crate::maps::Step::Nowhere | crate::maps::Step::Failed(_) | crate::maps::Step::Stopped) {
+                        self.fetching = None;
+                    }
+                    effects.extend(self.stepped(&hash, step, now));
+                }
+            }
             Message::Share(open) => {
                 if let Some(editor) = self.editor_mut() {
                     editor.share = open;
@@ -972,7 +1051,7 @@ impl State {
                     self.file_request = self.file_request.wrapping_add(1);
                     self.importing_pool = Some(self.file_request);
                     effects.push(Effect::ReadPool(self.file_request, path));
-                } else if path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("osu")) {
+                } else if path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("osu") || ext.eq_ignore_ascii_case("osz")) {
                     if matches!(self.screen, Screen::Open(_)) {
                         effects.push(Effect::Say("pool-file-open-first"));
                         return effects;
@@ -1009,6 +1088,55 @@ impl State {
                     })),
                 }
                 effects.extend(self.import_next());
+            }
+            Message::ArchiveFile(request, said) => {
+                let Some(importing) = self.importing.as_ref().filter(|importing| importing.request == request).cloned() else { return effects };
+                self.importing = None;
+                if !self.editing().is_some_and(|pool| pool.id == importing.pool && pool.fingerprint() == importing.fingerprint) {
+                    self.cancel_import();
+                    return effects;
+                }
+                match said {
+                    Ok(maps) if !maps.is_empty() => {
+                        self.cancel_network();
+                        let first = &maps[0].1;
+                        let found = pool_links::Found {
+                            set: 0,
+                            artist: first.artist.clone(),
+                            title: first.title.clone(),
+                            picked: (maps.len() == 1).then_some(0),
+                            difficulties: maps.iter().map(|(hash, map)| pool_links::Difficulty { id: 0, hash: hash.clone(), version: map.version.clone(), stars: 0.0 }).collect(),
+                        };
+                        for (hash, map) in maps {
+                            self.fetched.insert(hash.clone(), map.clone());
+                            Arc::make_mut(self.songs.get_or_insert_with(|| Arc::new(HashMap::new()))).insert(hash, map);
+                        }
+                        let choice = found.picked;
+                        self.finding = Some(Finding::Found(Candidate { found, choice, place: importing.place, cover: None }));
+                        if let Some(editor) = self.editor_mut() { editor.panel = Panel::Add; editor.source = SourceTab::Search; }
+                        effects.extend(self.measure_effects());
+                        if let Some(Finding::Found(candidate)) = &self.finding {
+                            for difficulty in &candidate.found.difficulties {
+                                if self.asked.insert((difficulty.hash.clone(), Mod::Nm)) {
+                                    let map = self.songs.as_ref().unwrap()[&difficulty.hash].clone();
+                                    effects.push(Effect::Measure(difficulty.hash.clone(), map, Mod::Nm));
+                                }
+                            }
+                        }
+                    }
+                    Err(why) => {
+                        effects.push(Effect::Say(match why {
+                            crate::pool_files::Refused::Mode => "pool-file-mode",
+                            crate::pool_files::Refused::Save => "pool-file-save-failed",
+                            crate::pool_files::Refused::Read | crate::pool_files::Refused::Map => "pool-file-invalid",
+                        }));
+                        effects.extend(self.import_next());
+                    }
+                    Ok(_) => {
+                        effects.push(Effect::Say("pool-file-invalid"));
+                        effects.extend(self.import_next());
+                    }
+                }
             }
             Message::PoolFile(request, said) => {
                 if self.importing_pool == Some(request) {
@@ -1153,6 +1281,7 @@ impl State {
             }
             Message::DeletePool => {
                 if let Some(at) = self.editing_at() {
+                    self.cancel_network();
                     self.cancel_import();
                     self.cancel_suggestion();
                     let id = self.list.remove(at).id;
@@ -1194,6 +1323,7 @@ impl State {
                 }
             }
         }
+        effects.extend(self.import_next());
         effects
     }
 
@@ -1266,7 +1396,7 @@ impl State {
         match pool_links::parse(text) {
             Ok(target) => {
                 self.finding = Some(Finding::Asking);
-                vec![Effect::Resolve(target)]
+                vec![self.resolve(target)]
             }
             Err(pool_links::Refusal::Mode(mode)) => {
                 self.finding = Some(Finding::Refused(mode));
@@ -1308,6 +1438,7 @@ impl State {
                 if let Some(editor) = self.editor_mut() {
                     editor.query.clear();
                 }
+                effects.extend(self.import_next());
                 return effects;
             }
             let hash = fetching.queue.remove(0);
@@ -1323,7 +1454,7 @@ impl State {
                     effects.extend(self.place_map(&hash, map, place, now));
                 }
                 None => {
-                    effects.push(Effect::Fetch(hash, stop));
+                    effects.push(self.fetch(hash, stop));
                     return effects;
                 }
             }
@@ -1331,6 +1462,7 @@ impl State {
     }
 
     fn begin_open(&mut self, pool: Pool) -> Vec<Effect> {
+        self.cancel_network();
         self.cancel_import();
         self.cancel_suggestion();
         if let Some(Finding::Fetching(fetching)) = &self.finding {
@@ -1390,12 +1522,13 @@ impl State {
             let stop = opening.stop.clone();
             let known = self.songs.as_ref().is_some_and(|songs| songs.contains_key(&hash)) || self.fetched.contains_key(&hash);
             if !known {
-                return vec![Effect::Fetch(hash, stop)];
+                return vec![self.fetch(hash, stop)];
             }
         }
     }
 
     fn keep_opened(&mut self, now: i64) -> Vec<Effect> {
+        self.cancel_network();
         let Screen::Open(opening) = std::mem::replace(&mut self.screen, Screen::Shelf) else { return Vec::new() };
         opening.stop.store(true, std::sync::atomic::Ordering::SeqCst);
         let mut pool = opening.pool;
@@ -1638,6 +1771,10 @@ fn semi<'a>(words: String, size: f32, colour: Color) -> Element<'a, Message> {
     text(words).font(theme::SANS_SEMI).size(size).wrapping(text::Wrapping::None).color(ui::faded(colour)).into()
 }
 
+pub fn is_paste(text: &str) -> bool {
+    pool_share::is_text(text) || matches!(pool_links::parse(text), Ok(_) | Err(pool_links::Refusal::Mode(_)))
+}
+
 fn mono<'a>(words: String, size: f32, colour: Color) -> Element<'a, Message> {
     text(words).font(theme::MONO).size(size).wrapping(text::Wrapping::None).color(ui::faded(colour)).into()
 }
@@ -1677,9 +1814,6 @@ fn number_badge<'a>(number: usize, lit: bool) -> Element<'a, Message> {
 }
 
 fn mod_badge<'a>(mods: Mod, lit: bool) -> Element<'a, Message> {
-    if crate::modicons::has_glyph(mods.code()) {
-        return crate::modicons::badge(mods.code(), 24.0, if lit { 1.0 } else { 0.5 });
-    }
     let k = ui::fade();
     container(text(mods.code()).font(theme::MONO).size(11.0).color(ui::faded(if lit { INK } else { MUTED })))
         .padding([4, 9])
@@ -2043,7 +2177,7 @@ fn mod_ribbon<'a>(words: &Words, slot: usize, current: Mod) -> Element<'a, Messa
                 .on_press(Message::SetMod(slot, mods)),
         );
     }
-    column![ui::mono_small(words.t("pool-slot-mod"), FAINT), ribbon, faded_text(words.t(current.key()), 13.0, MUTED)].spacing(10).into()
+    column![ui::mono_small(words.t("pool-slot-mod"), FAINT), ribbon].spacing(10).into()
 }
 
 fn figure<'a>(label: String, value: String, size: f32, colour: Color) -> Element<'a, Message> {
@@ -2131,7 +2265,7 @@ fn slot_panel<'a>(pool: &'a Pool, at: usize, words: &'a Words, thumbs: &'a HashM
         body = body.push(
             column![
                 ui::mono_small(words.t("pool-slot-note"), FAINT),
-                text_input("", &slot.note).on_input(move |note| Message::Note(at, note)).font(theme::SANS).size(13.0).padding([8, 12]).style(theme::field_faded(ui::fade())),
+                text_input("", &slot.note).on_input(move |note| Message::Note(at, note)).on_paste(move |contents| Message::PasteInto(Input::Note(at), contents)).font(theme::SANS).size(13.0).padding([8, 12]).style(theme::field_faded(ui::fade())),
             ]
             .spacing(8),
         );
@@ -2315,6 +2449,7 @@ fn add_panel<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, words: &'
         text_input(&words.t("pool-search-hint"), &editor.query)
             .id(iced::widget::Id::new("pool-search"))
             .on_input(Message::Query)
+            .on_paste(|contents| Message::PasteInto(Input::Query, contents))
             .font(theme::SANS)
             .size(13.5)
             .padding([9, 12])
@@ -2637,6 +2772,7 @@ fn editor_view<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, words: 
     let name_wide = (pool.name.chars().count().max(10) as f32 * 15.5 + 24.0).clamp(240.0, 560.0);
     let field = text_input(&words.t("pool-name-hint"), &pool.name)
         .on_input(Message::Rename)
+        .on_paste(|contents| Message::PasteInto(Input::Name, contents))
         .font(theme::SANS_SEMI)
         .size(28.0)
         .padding(0)
@@ -2656,18 +2792,7 @@ fn editor_view<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, words: 
     .spacing(16);
 
     let mut under = column![].spacing(14);
-    if pool.filled() == 0 {
-        let mut chips = row![].spacing(8);
-        for frame in Frame::ALL {
-            chips = chips.push(
-                button(text(words.t(frame.key())).font(theme::SANS_SEMI).size(13.5).wrapping(text::Wrapping::None))
-                    .padding([8, 16])
-                    .style(ui::button_faded(theme::filter_chip(pool.frame == frame)))
-                    .on_press(Message::UseFrame(frame)),
-            );
-        }
-        under = under.push(chips);
-    } else {
+    if pool.filled() > 0 {
         let undoable = state.undo.iter().any(|(id, _)| *id == pool.id);
         let mut tools = row![ui::grow()].spacing(12).align_y(iced::Center);
         if undoable {
@@ -2794,7 +2919,118 @@ mod tests {
 
     fn open_new(state: &mut State) -> String {
         state.update(Message::New, 1_790_000_000);
+        state.update(Message::UseFrame(Frame::Duel), 1_790_000_000);
         state.editing().expect("an editor").id.clone()
+    }
+
+    #[test]
+    fn a_new_pool_is_free_and_grows_without_a_preset() {
+        let mut state = state_with_songs("free-default");
+        state.update(Message::New, 100);
+        assert_eq!(state.editing().unwrap().frame, Frame::Free);
+        assert!(state.editing().unwrap().slots.is_empty());
+        state.update(Message::Put("a1".into()), 101);
+        state.update(Message::Put("b2".into()), 102);
+        assert_eq!(state.editing().unwrap().slots.len(), 2);
+        state.update(Message::Clear(0), 103);
+        assert_eq!(state.editing().unwrap().slots.len(), 1);
+        assert_eq!(pools::load_all(&state.dir)[0].slots[0].hash.as_deref(), Some("b2"));
+    }
+
+    #[test]
+    fn cached_measures_return_after_bulk_category_changes_without_a_new_answer() {
+        let mut state = pool_with_maps("bulk-cache", &["a1", "b2"]);
+        for hash in ["a1", "b2"] {
+            state.update(Message::Measured(hash.into(), Mod::Nm, Ok(measure(4.5))), 101);
+            state.update(Message::Measured(hash.into(), Mod::Dt, Ok(measure(5.6))), 102);
+        }
+        state.update(Message::Choosing(true), 103);
+        state.update(Message::Mark(0), 104);
+        state.update(Message::Mark(1), 105);
+        for (mods, stars) in [(Mod::Dt, 5.6), (Mod::Nm, 4.5), (Mod::Dt, 5.6)] {
+            assert!(state.update(Message::BulkMod(mods), 106).is_empty());
+            assert!(state.editing().unwrap().slots[..2].iter().all(|slot| slot.measure.unwrap().stars == stars));
+        }
+        state.update(Message::Undo, 107);
+        assert!(state.editing().unwrap().slots[..2].iter().all(|slot| slot.mods == Mod::Nm && slot.measure.unwrap().stars == 4.5));
+    }
+
+    #[test]
+    fn out_of_order_search_and_cancelled_downloads_cannot_replace_current_work() {
+        let mut state = state_with_songs("network-stale");
+        state.update(Message::New, 100);
+        state.update(Message::Query("https://osu.ppy.sh/beatmaps/1".into()), 101);
+        let old = state.resolve_request;
+        state.update(Message::Query("https://osu.ppy.sh/beatmaps/2".into()), 102);
+        state.update(Message::Resolved(old, Ok(found(&["wrong"], Some(0)))), 103);
+        assert!(matches!(state.finding, Some(Finding::Asking)));
+        state.update(Message::Resolved(state.resolve_request, Ok(found(&["zz9"], Some(0)))), 104);
+        state.update(Message::Confirm, 105);
+        let first = state.fetch_request;
+        let stop = match &state.finding { Some(Finding::Fetching(fetching)) => fetching.stop.clone(), _ => panic!("download") };
+        state.update(Message::Back, 106);
+        assert!(stop.load(Ordering::SeqCst));
+        state.update(Message::New, 107);
+        state.update(Message::Query(LINK.into()), 108);
+        state.update(Message::Resolved(state.resolve_request, Ok(found(&["zz9"], Some(0)))), 109);
+        state.update(Message::Confirm, 110);
+        let current = state.fetch_request;
+        assert_ne!(first, current);
+        state.update(Message::Step(first, "zz9".into(), crate::maps::Step::Done(map("Old", "A", "B"))), 111);
+        assert_eq!(state.editing().unwrap().filled(), 0);
+        assert!(matches!(state.finding, Some(Finding::Fetching(_))));
+        state.update(Message::Step(current, "wrong".into(), crate::maps::Step::Nowhere), 112);
+        assert!(matches!(state.finding, Some(Finding::Fetching(_))));
+        state.update(Message::Step(current, "zz9".into(), crate::maps::Step::Done(map("Current", "A", "B"))), 113);
+        assert_eq!(state.editing().unwrap().slots[0].title, "Current");
+    }
+
+    #[test]
+    fn pasting_links_over_focused_fields_keeps_their_text_and_uses_the_raw_link() {
+        let mut state = state_with_songs("paste-fields");
+        state.update(Message::New, 100);
+        state.update(Message::Rename("My pool".into()), 101);
+        state.update(Message::Put("a1".into()), 102);
+        let id = state.editing().unwrap().id.clone();
+        for input in [Input::Name, Input::Query, Input::Note(0)] {
+            state.update(Message::PastedInto(id.clone(), input, format!("Existing {LINK}"), LINK.into()), 103);
+            assert_eq!(state.editing().unwrap().name, "My pool");
+            assert!(state.editing().unwrap().slots[0].note.is_empty());
+            assert!(matches!(state.finding, Some(Finding::Asking)));
+            assert!(matches!(&state.screen, Screen::Editor(editor) if editor.query == LINK));
+        }
+        state.update(Message::PastedInto(id.clone(), Input::Name, "My pool updated".into(), " updated".into()), 104);
+        assert_eq!(state.editing().unwrap().name, "My pool updated");
+        state.update(Message::New, 105);
+        state.update(Message::PastedInto(id, Input::Name, "Wrong pool".into(), LINK.into()), 106);
+        assert!(state.editing().unwrap().name.is_empty());
+        assert!(state.finding.is_none());
+    }
+
+    #[test]
+    fn a_dropped_archive_offers_a_choice_and_waits_before_importing_the_next_file() {
+        let mut state = state_with_songs("archive-choice");
+        state.update(Message::New, 100);
+        let effects = state.update(Message::Dropped("set.OSZ".into()), 101);
+        let request = match effects.as_slice() { [Effect::ImportArchive(request, _)] => *request, _ => panic!("archive import") };
+        state.update(Message::Dropped("next.osu".into()), 102);
+        state.update(Message::ArchiveFile(request, Ok(vec![("e5".into(), map("Set", "Artist", "Easy")), ("f6".into(), map("Set", "Artist", "Hard"))])), 103);
+        assert!(matches!(&state.finding, Some(Finding::Found(candidate)) if candidate.choice.is_none() && candidate.found.difficulties.len() == 2));
+        assert!(state.importing.is_none());
+        assert_eq!(state.dropped.len(), 1);
+        state.update(Message::Measured("f6".into(), Mod::Nm, Ok(measure(5.6))), 104);
+        assert!(matches!(&state.finding, Some(Finding::Found(candidate)) if candidate.found.difficulties[1].stars == 5.6));
+        state.update(Message::Choose(1), 105);
+        let next = state.update(Message::Confirm, 106);
+        assert_eq!(state.editing().unwrap().filled(), 1);
+        assert_eq!(state.editing().unwrap().slots[0].hash.as_deref(), Some("f6"));
+        assert_eq!(state.editing().unwrap().slots[0].measure.unwrap().stars, 5.6);
+        assert!(next.iter().any(|effect| matches!(effect, Effect::ImportMap(_, _))));
+        state.update(Message::Back, 107);
+        state.update(Message::New, 108);
+        state.update(Message::ArchiveFile(request, Ok(vec![("old".into(), map("Old", "Artist", "Easy"))])), 109);
+        assert!(state.finding.is_none());
+        assert_eq!(state.editing().unwrap().filled(), 0);
     }
 
     #[test]
@@ -2830,6 +3066,7 @@ mod tests {
         state.update(Message::Dropped(PathBuf::from("first.osu")), 1_790_000_001);
         let request = state.importing.as_ref().unwrap().request;
         state.update(Message::New, 1_790_000_002);
+        state.update(Message::UseFrame(Frame::Duel), 1_790_000_002);
         state.update(Message::MapFile(request, Ok(("e5".into(), map("First", "A", "Hard")))), 1_790_000_003);
         assert_eq!(state.editing().unwrap().filled(), 0);
         state.update(Message::Dropped(PathBuf::from("first.osu")), 1_790_000_004);
@@ -2880,18 +3117,18 @@ mod tests {
         state.update(Message::Best(0), 1_790_000_003);
         assert_eq!(state.notice, Some(Notice::Already(0)));
         let effects = state.update(Message::Best(1), 1_790_000_004);
-        assert!(matches!(effects.as_slice(), [Effect::Resolve(Target::Beatmap { id: 2, .. })]));
+        assert!(matches!(effects.as_slice(), [Effect::Resolve(_, Target::Beatmap { id: 2, .. })]));
         assert!(matches!(&state.screen, Screen::Editor(editor) if editor.query == "https://osu.ppy.sh/beatmaps/2"));
-        state.update(Message::Resolved(Err(Why::Silent("offline".into()))), 1_790_000_005);
-        assert!(matches!(state.update(Message::Retry, 1_790_000_006).as_slice(), [Effect::Resolve(Target::Beatmap { id: 2, .. })]));
+        state.update(Message::Resolved(state.resolve_request, Err(Why::Silent("offline".into()))), 1_790_000_005);
+        assert!(matches!(state.update(Message::Retry, 1_790_000_006).as_slice(), [Effect::Resolve(_, Target::Beatmap { id: 2, .. })]));
         let downloaded = "fedcba9876543210fedcba9876543210";
-        state.update(Message::Resolved(Ok(pool_links::Found {
+        state.update(Message::Resolved(state.resolve_request, Ok(pool_links::Found {
             set: 10, artist: "B".into(), title: "A".into(), picked: Some(0),
             difficulties: vec![pool_links::Difficulty { id: 2, hash: downloaded.into(), version: "C".into(), stars: 5.0 }],
         })), 1_790_000_007);
         assert_eq!(state.best.as_ref().unwrap()[1].hash, downloaded);
-        assert!(matches!(state.update(Message::Confirm, 1_790_000_008).as_slice(), [Effect::Fetch(hash, _)] if hash == downloaded));
-        state.update(Message::Step(downloaded.into(), crate::maps::Step::Done(map("A", "B", "C"))), 1_790_000_009);
+        assert!(matches!(state.update(Message::Confirm, 1_790_000_008).as_slice(), [Effect::Fetch(_, hash, _)] if hash == downloaded));
+        state.update(Message::Step(state.fetch_request, downloaded.into(), crate::maps::Step::Done(map("A", "B", "C"))), 1_790_000_009);
         assert_eq!(state.editing().unwrap().slots[1].hash.as_deref(), Some(downloaded));
         assert!(state.update(Message::Best(1), 1_790_000_010).is_empty());
         assert_eq!(state.notice, Some(Notice::Already(1)));
@@ -2912,7 +3149,7 @@ mod tests {
         state.update(Message::CollectionHash("a1".into()), 1_790_000_005);
         assert_eq!(state.editing().unwrap().slots[0].hash.as_deref(), Some("a1"));
         let effects = state.update(Message::CollectionHash(missing.clone()), 1_790_000_006);
-        assert!(matches!(effects.as_slice(), [Effect::Resolve(Target::Hash(hash))] if hash == &missing));
+        assert!(matches!(effects.as_slice(), [Effect::Resolve(_, Target::Hash(hash))] if hash == &missing));
         assert!(matches!(state.finding, Some(Finding::Asking)));
     }
 
@@ -3081,8 +3318,11 @@ mod tests {
         assert_eq!(state.editing().unwrap().slots[0].measure.unwrap().stars, 5.6);
         let back = state.update(Message::SetMod(0, Mod::Nm), 1_790_000_006);
         assert!(back.is_empty(), "the old measure comes from the cache");
-        state.update(Message::Measured("a1".into(), Mod::Nm, Ok(measure(4.5))), 1_790_000_007);
         assert_eq!(state.editing().unwrap().slots[0].measure.unwrap().stars, 4.5);
+        assert_eq!(pools::load_all(&state.dir)[0].slots[0].measure.unwrap().stars, 4.5);
+        state.update(Message::Undo, 1_790_000_007);
+        assert_eq!(state.editing().unwrap().slots[0].mods, Mod::Dt);
+        assert_eq!(state.editing().unwrap().slots[0].measure.unwrap().stars, 5.6);
     }
 
     #[test]
@@ -3166,7 +3406,7 @@ mod tests {
     fn a_link_pasted_on_the_shelf_makes_a_pool_opens_the_add_panel_and_asks_the_mirror() {
         let mut state = state_with_songs("paste-shelf");
         let effects = state.update(Message::Pasted(format!("  {LINK}\n")), 1_790_000_001);
-        assert!(matches!(effects.as_slice(), [Effect::Resolve(Target::Set { id: 77, beatmap: Some(100), .. })]), "{effects:?}");
+        assert!(matches!(effects.as_slice(), [Effect::Resolve(_, Target::Set { id: 77, beatmap: Some(100), .. })]), "{effects:?}");
         let editor = match &state.screen {
             Screen::Editor(editor) => editor.clone(),
             Screen::Shelf | Screen::Open(_) => panic!("a pool was opened"),
@@ -3194,7 +3434,7 @@ mod tests {
         let mut state = state_with_songs("resolved");
         open_new(&mut state);
         state.update(Message::Pasted(LINK.into()), 1_790_000_002);
-        let effects = state.update(Message::Resolved(Ok(found(&["a1"], Some(0)))), 1_790_000_003);
+        let effects = state.update(Message::Resolved(state.resolve_request, Ok(found(&["a1"], Some(0)))), 1_790_000_003);
         assert!(matches!(effects.as_slice(), [Effect::Cover(url, 77)] if url.ends_with("/77/covers/cover.jpg")));
         let Some(Finding::Found(candidate)) = &state.finding else { panic!("found") };
         assert_eq!((candidate.choice, candidate.place), (Some(0), Place::Slot(0)));
@@ -3207,7 +3447,7 @@ mod tests {
         let mut state = state_with_songs("choice");
         open_new(&mut state);
         state.update(Message::Pasted("https://osu.ppy.sh/beatmapsets/77".into()), 1_790_000_002);
-        state.update(Message::Resolved(Ok(found(&["a1", "b2", "c3"], None))), 1_790_000_003);
+        state.update(Message::Resolved(state.resolve_request, Ok(found(&["a1", "b2", "c3"], None))), 1_790_000_003);
         let Some(Finding::Found(candidate)) = &state.finding else { panic!("found") };
         assert_eq!(candidate.choice, None);
         assert!(state.update(Message::Confirm, 1_790_000_004).is_empty(), "nothing is placed before a choice");
@@ -3226,16 +3466,16 @@ mod tests {
         let mut state = state_with_songs("fetch");
         open_new(&mut state);
         state.update(Message::Pasted(LINK.into()), 1_790_000_002);
-        state.update(Message::Resolved(Ok(found(&["zz9"], Some(0)))), 1_790_000_003);
+        state.update(Message::Resolved(state.resolve_request, Ok(found(&["zz9"], Some(0)))), 1_790_000_003);
         state.update(Message::Aim(Place::Slot(2)), 1_790_000_004);
         let effects = state.update(Message::Confirm, 1_790_000_005);
-        assert!(matches!(effects.as_slice(), [Effect::Fetch(hash, _)] if hash == "zz9"));
+        assert!(matches!(effects.as_slice(), [Effect::Fetch(_, hash, _)] if hash == "zz9"));
         let Some(Finding::Fetching(fetching)) = &state.finding else { panic!("fetching") };
         assert_eq!((fetching.total, fetching.queue.len()), (1, 0));
-        state.update(Message::Step("zz9".into(), Step::Downloading { from: "osu.direct", done: 3_000_000, total: Some(5_000_000) }), 1_790_000_006);
+        state.update(Message::Step(state.fetch_request, "zz9".into(), Step::Downloading { from: "osu.direct", done: 3_000_000, total: Some(5_000_000) }), 1_790_000_006);
         assert_eq!(stage_of(match &state.finding { Some(Finding::Fetching(f)) => f.step.as_ref(), _ => None }), 1);
         let map = map("Fetched Song", "Artist", "Normal");
-        state.update(Message::Step("zz9".into(), Step::Done(map)), 1_790_000_007);
+        state.update(Message::Step(state.fetch_request, "zz9".into(), Step::Done(map)), 1_790_000_007);
         assert!(state.finding.is_none());
         assert_eq!(state.editing().unwrap().slots[2].hash.as_deref(), Some("zz9"));
         assert!(state.fetched.contains_key("zz9"));
@@ -3248,15 +3488,15 @@ mod tests {
         let mut state = state_with_songs("all");
         open_new(&mut state);
         state.update(Message::Pasted("https://osu.ppy.sh/beatmapsets/77".into()), 1_790_000_002);
-        state.update(Message::Resolved(Ok(found(&["a1", "zz9", "c3"], None))), 1_790_000_003);
+        state.update(Message::Resolved(state.resolve_request, Ok(found(&["a1", "zz9", "c3"], None))), 1_790_000_003);
         let effects = state.update(Message::ConfirmAll, 1_790_000_004);
         let fetches: Vec<&Effect> = effects.iter().filter(|effect| matches!(effect, Effect::Fetch(..))).collect();
-        assert!(matches!(fetches.as_slice(), [Effect::Fetch(hash, _)] if hash == "zz9"), "the first is placed, the second is fetched: {effects:?}");
+        assert!(matches!(fetches.as_slice(), [Effect::Fetch(_, hash, _)] if hash == "zz9"), "the first is placed, the second is fetched: {effects:?}");
         assert!(effects.iter().any(|effect| matches!(effect, Effect::Measure(hash, _, _) if hash == "a1")), "the map on the disk is measured");
         assert_eq!(state.editing().unwrap().slots[0].hash.as_deref(), Some("a1"));
         let Some(Finding::Fetching(fetching)) = &state.finding else { panic!("fetching") };
         assert_eq!((fetching.total, fetching.queue.clone()), (3, vec!["c3".to_owned()]));
-        state.update(Message::Step("zz9".into(), Step::Done(map("Second", "Artist", "Hard"))), 1_790_000_005);
+        state.update(Message::Step(state.fetch_request, "zz9".into(), Step::Done(map("Second", "Artist", "Hard"))), 1_790_000_005);
         let pool = state.editing().unwrap();
         assert_eq!((pool.slots[0].hash.as_deref(), pool.slots[1].hash.as_deref(), pool.slots[2].hash.as_deref()), (Some("a1"), Some("zz9"), Some("c3")));
         assert!(state.finding.is_none());
@@ -3286,12 +3526,12 @@ mod tests {
         open_new(&mut state);
         state.update(Message::Query(LINK.into()), 1_790_000_002);
         assert!(matches!(state.finding, Some(Finding::Asking)));
-        state.update(Message::Resolved(Err(Why::Silent("down".into()))), 1_790_000_003);
+        state.update(Message::Resolved(state.resolve_request, Err(Why::Silent("down".into()))), 1_790_000_003);
         assert!(matches!(state.finding, Some(Finding::Silent(_))));
         let again = state.update(Message::Retry, 1_790_000_004);
-        assert!(matches!(again.as_slice(), [Effect::Resolve(_)]));
+        assert!(matches!(again.as_slice(), [Effect::Resolve(_, _)]));
         assert!(matches!(state.finding, Some(Finding::Asking)));
-        state.update(Message::Resolved(Err(Why::Nowhere)), 1_790_000_005);
+        state.update(Message::Resolved(state.resolve_request, Err(Why::Nowhere)), 1_790_000_005);
         assert!(matches!(state.finding, Some(Finding::Missing)));
         state.update(Message::Query("glass".into()), 1_790_000_006);
         assert!(state.finding.is_none());
@@ -3303,7 +3543,7 @@ mod tests {
         open_new(&mut state);
         state.update(Message::Query(LINK.into()), 1_790_000_002);
         state.update(Message::Dismiss, 1_790_000_003);
-        state.update(Message::Resolved(Ok(found(&["a1"], Some(0)))), 1_790_000_004);
+        state.update(Message::Resolved(state.resolve_request, Ok(found(&["a1"], Some(0)))), 1_790_000_004);
         assert!(state.finding.is_none());
     }
 
@@ -3313,7 +3553,7 @@ mod tests {
         let mut state = state_with_songs("stop");
         open_new(&mut state);
         state.update(Message::Query(LINK.into()), 1_790_000_002);
-        state.update(Message::Resolved(Ok(found(&["zz9"], Some(0)))), 1_790_000_003);
+        state.update(Message::Resolved(state.resolve_request, Ok(found(&["zz9"], Some(0)))), 1_790_000_003);
         state.update(Message::Confirm, 1_790_000_004);
         let stop = match &state.finding {
             Some(Finding::Fetching(fetching)) => fetching.stop.clone(),
@@ -3322,21 +3562,21 @@ mod tests {
         state.update(Message::Dismiss, 1_790_000_005);
         assert!(stop.load(std::sync::atomic::Ordering::SeqCst));
         assert!(state.finding.is_none());
-        state.update(Message::Step("zz9".into(), Step::Stopped), 1_790_000_006);
+        state.update(Message::Step(state.fetch_request, "zz9".into(), Step::Stopped), 1_790_000_006);
         assert!(state.finding.is_none(), "a late step changes nothing");
 
         let mut failing = state_with_songs("fail");
         open_new(&mut failing);
         failing.update(Message::Query(LINK.into()), 1_790_000_002);
-        failing.update(Message::Resolved(Ok(found(&["zz9"], Some(0)))), 1_790_000_003);
+        failing.update(Message::Resolved(failing.resolve_request, Ok(found(&["zz9"], Some(0)))), 1_790_000_003);
         failing.update(Message::Confirm, 1_790_000_004);
-        failing.update(Message::Step("zz9".into(), Step::Nowhere), 1_790_000_005);
+        failing.update(Message::Step(failing.fetch_request, "zz9".into(), Step::Nowhere), 1_790_000_005);
         assert!(matches!(failing.finding, Some(Finding::Missing)));
         failing.update(Message::Dismiss, 1_790_000_006);
         failing.update(Message::Query(LINK.into()), 1_790_000_007);
-        failing.update(Message::Resolved(Ok(found(&["zz9"], Some(0)))), 1_790_000_008);
+        failing.update(Message::Resolved(failing.resolve_request, Ok(found(&["zz9"], Some(0)))), 1_790_000_008);
         failing.update(Message::Confirm, 1_790_000_009);
-        failing.update(Message::Step("zz9".into(), Step::Failed("no space".into())), 1_790_000_010);
+        failing.update(Message::Step(failing.fetch_request, "zz9".into(), Step::Failed("no space".into())), 1_790_000_010);
         assert!(matches!(&failing.finding, Some(Finding::Silent(why)) if why == "no space"));
     }
 
@@ -3347,9 +3587,9 @@ mod tests {
         state.loaded = true;
         state.update(Message::New, 1_790_000_001);
         state.update(Message::Query(LINK.into()), 1_790_000_002);
-        state.update(Message::Resolved(Ok(found(&["zz9"], Some(0)))), 1_790_000_003);
+        state.update(Message::Resolved(state.resolve_request, Ok(found(&["zz9"], Some(0)))), 1_790_000_003);
         state.update(Message::Confirm, 1_790_000_004);
-        let effects = state.update(Message::Step("zz9".into(), Step::Done(map("Fetched", "A", "N"))), 1_790_000_005);
+        let effects = state.update(Message::Step(state.fetch_request, "zz9".into(), Step::Done(map("Fetched", "A", "N"))), 1_790_000_005);
         assert!(effects.is_empty(), "no index yet, so nothing is measured yet");
         assert_eq!(state.editing().unwrap().slots[0].hash.as_deref(), Some("zz9"));
         let mut songs = HashMap::new();
@@ -3459,12 +3699,12 @@ mod tests {
         let Screen::Open(opening) = state.screen.clone() else { panic!("open") };
         assert_eq!(state.missing(&opening.pool), vec!["zz9".to_owned(), "yy8".to_owned()], "each missing map is listed once");
         let effects = state.update(Message::GetMissing, 1_790_000_002);
-        assert!(matches!(effects.as_slice(), [Effect::Fetch(hash, _)] if hash == "zz9"));
+        assert!(matches!(effects.as_slice(), [Effect::Fetch(_, hash, _)] if hash == "zz9"));
         assert!(state.update(Message::GetMissing, 1_790_000_003).is_empty(), "a second press does not start a second run");
-        let next = state.update(Message::Step("zz9".into(), Step::Done(map("Fetched One", "A", "N"))), 1_790_000_004);
+        let next = state.update(Message::Step(state.fetch_request, "zz9".into(), Step::Done(map("Fetched One", "A", "N"))), 1_790_000_004);
         assert!(next.iter().any(|effect| matches!(effect, Effect::Measure(hash, _, _) if hash == "zz9")), "the arrived map is measured");
-        assert!(next.iter().any(|effect| matches!(effect, Effect::Fetch(hash, _) if hash == "yy8")), "the next one is asked for");
-        let after = state.update(Message::Step("yy8".into(), Step::Nowhere), 1_790_000_005);
+        assert!(next.iter().any(|effect| matches!(effect, Effect::Fetch(_, hash, _) if hash == "yy8")), "the next one is asked for");
+        let after = state.update(Message::Step(state.fetch_request, "yy8".into(), Step::Nowhere), 1_790_000_005);
         assert!(after.iter().all(|effect| !matches!(effect, Effect::Fetch(..))));
         let Screen::Open(opening) = state.screen.clone() else { panic!("open") };
         assert_eq!((opening.running, opening.lost), (false, 1));
@@ -3604,15 +3844,15 @@ mod tests {
         let mut state = pool_with_maps("drag-fetch", &["a1", "b2"]);
         state.update(Message::Select(Some(3)), 1_790_000_100);
         state.update(Message::Pasted(LINK.into()), 1_790_000_101);
-        state.update(Message::Resolved(Ok(found(&["zz9"], Some(0)))), 1_790_000_102);
+        state.update(Message::Resolved(state.resolve_request, Ok(found(&["zz9"], Some(0)))), 1_790_000_102);
         state.update(Message::Aim(Place::Slot(3)), 1_790_000_103);
         state.update(Message::Confirm, 1_790_000_104);
         move_slot(&mut state, 3, Some(0), 1_790_000_105);
         assert!(matches!(&state.finding, Some(Finding::Fetching(fetching)) if fetching.place == Some(Place::Slot(0))));
-        state.update(Message::Step("zz9".into(), crate::maps::Step::Done(map("Fetched", "A", "Hard"))), 1_790_000_106);
+        state.update(Message::Step(state.fetch_request, "zz9".into(), crate::maps::Step::Done(map("Fetched", "A", "Hard"))), 1_790_000_106);
         assert_eq!(state.editing().unwrap().slots[0].hash.as_deref(), Some("zz9"));
         state.update(Message::Pasted(LINK.into()), 1_790_000_107);
-        state.update(Message::Resolved(Ok(found(&["c3"], Some(0)))), 1_790_000_108);
+        state.update(Message::Resolved(state.resolve_request, Ok(found(&["c3"], Some(0)))), 1_790_000_108);
         state.update(Message::Aim(Place::Replace(2)), 1_790_000_109);
         move_slot(&mut state, 2, Some(0), 1_790_000_110);
         assert!(matches!(&state.finding, Some(Finding::Found(candidate)) if candidate.place == Place::Replace(0)));

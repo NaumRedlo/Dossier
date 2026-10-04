@@ -1175,6 +1175,15 @@ fn feed_states(community: &dyn Fn(crate::community_screen::Section, Option<usize
             pools_state(&mut main, true);
             main
         }),
+        ("main-pools-new".to_owned(), {
+            let mut main = community(crate::community_screen::Section::Pools, None);
+            pools_state(&mut main, false);
+            let pool = crate::pools::Pool::new(crate::pools::Frame::Free, "", NOON);
+            let id = pool.id.clone();
+            main.pools.list.push(pool);
+            main.pools.screen = crate::pools_screen::Screen::Editor(crate::pools_screen::Editor::at(id));
+            main
+        }),
         ("main-pools-editor".to_owned(), {
             let mut main = community(crate::community_screen::Section::Pools, None);
             pools_state(&mut main, true);

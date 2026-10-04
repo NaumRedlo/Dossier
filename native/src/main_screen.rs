@@ -1469,6 +1469,15 @@ impl Main {
                         Message::Community(crate::community_screen::Message::Pools(P::Collections(found)))
                     }));
                 }
+                Effect::ReadBest(force) => {
+                    tasks.push(self.card_task(force));
+                    let connected = self.community_card.as_ref().is_some_and(|card| !card.username.trim().is_empty())
+                        || self.osu_card.as_ref().is_some_and(|card| !card.username.trim().is_empty())
+                        || self.community.as_ref().is_some_and(|catalog| !catalog.staged && catalog.you().is_some());
+                    if connected {
+                        tasks.push(self.osu_task(force));
+                    }
+                }
                 Effect::Suggest(request, songs, mods, target, excluded, stop) => {
                     tasks.push(ui::in_thread(move || {
                         let found = crate::pools::suggest(&songs, mods, target, &excluded, &stop);
@@ -3151,7 +3160,8 @@ impl Main {
                 self.remerge();
                 self.dress_staged_you();
                 let pictures = self.community_pictures_task();
-                Task::batch([pictures, self.share_task()])
+                let pools = self.pools_work(Vec::new());
+                Task::batch([pictures, pools, self.share_task()])
             }
             Message::OsuProfile(Err(_)) => Task::none(),
             Message::PersonCard(name, said) => {
@@ -3327,7 +3337,8 @@ impl Main {
                 crate::community::wire::save_card(&card);
                 self.community_card = Some(card);
                 self.remerge();
-                self.community_pictures_task()
+                let pictures = self.community_pictures_task();
+                Task::batch([pictures, self.pools_work(Vec::new())])
             }
             Message::CardArrived(Err(_)) => Task::none(),
             Message::Flag(code, bytes) => {
@@ -5937,6 +5948,7 @@ impl Main {
 
     pub fn remerge(&mut self) {
         self.shown_card = crate::community::wire::enriched(self.community_card.as_ref(), self.osu_card.as_ref());
+        self.pools.set_best(self.shown_card.as_ref().map(|card| card.top_scores.as_slice()));
     }
 
     fn sync_dossiers(&mut self) {
@@ -8355,6 +8367,21 @@ mod tests {
         let _ = main.update(super::Message::Community(crate::community_screen::Message::Reconnect));
         assert_eq!(main.overlay, super::Overlay::Settings);
         assert_eq!(main.side, super::Side::Bot);
+    }
+
+    #[test]
+    fn pool_best_plays_follow_the_own_profile_and_clear_when_it_is_removed() {
+        let mut main = feed_at_rest();
+        main.osu_card = None;
+        main.community_card = Some(crate::community::wire::Card {
+            top_scores: vec![crate::community::wire::Score { beatmap_id: 42.0, pp: 100.0, ..Default::default() }],
+            ..Default::default()
+        });
+        main.remerge();
+        assert_eq!(main.pools.best.as_ref().unwrap()[0].beatmap_id, 42.0);
+        main.community_card = None;
+        main.remerge();
+        assert!(main.pools.best.is_none());
     }
 
     #[test]

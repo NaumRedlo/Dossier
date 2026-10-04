@@ -42,6 +42,7 @@ pub enum Panel {
 pub enum SourceTab {
     Search,
     Collections,
+    Best,
     Suggest,
 }
 
@@ -174,6 +175,8 @@ pub enum Message {
     CollectionPage(usize),
     CollectionHash(String),
     Collections(Vec<Collection>),
+    Best(usize),
+    RefreshBest,
     Suggest(usize),
     Suggested(u64, Vec<(String, Measure)>),
     Query(String),
@@ -215,6 +218,7 @@ pub enum Message {
 pub enum Effect {
     ReadSongs,
     ReadCollections,
+    ReadBest(bool),
     Suggest(u64, Arc<HashMap<String, Map>>, Mod, f64, HashSet<String>, Arc<AtomicBool>),
     Measure(String, Map, Mod),
     Resolve(Target),
@@ -235,6 +239,7 @@ pub struct State {
     pub reading: bool,
     pub collections: Option<Vec<Collection>>,
     pub collecting: bool,
+    pub best: Option<Vec<crate::community::wire::Score>>,
     pub suggestions: Option<Suggestions>,
     pub pending_suggestion: Option<usize>,
     pub suggestion_request: u64,
@@ -259,6 +264,7 @@ impl State {
             reading: false,
             collections: None,
             collecting: false,
+            best: None,
             suggestions: None,
             pending_suggestion: None,
             suggestion_request: 0,
@@ -301,6 +307,25 @@ impl State {
             Screen::Editor(editor) => self.list.iter().find(|pool| pool.id == editor.id),
             Screen::Shelf | Screen::Open(_) => None,
         }
+    }
+
+    pub fn set_best(&mut self, scores: Option<&[crate::community::wire::Score]>) {
+        self.best = scores.map(|scores| {
+            let mut scores: Vec<_> = scores.iter().filter(|score| score.pp.is_finite() && score_target(score).is_some()).cloned().collect();
+            scores.sort_by(|a, b| b.pp.total_cmp(&a.pp));
+            let mut ids = HashSet::new();
+            let mut hashes = HashSet::new();
+            scores.retain(|score| {
+                let repeated_id = score_id(score).is_some_and(|id| !ids.insert(id));
+                let repeated_hash = match score_target(score) {
+                    Some(Target::Hash(hash)) => !hashes.insert(hash),
+                    _ => false,
+                };
+                !repeated_id && !repeated_hash
+            });
+            scores.truncate(100);
+            scores
+        });
     }
 
     fn editing_at(&self) -> Option<usize> {
@@ -617,6 +642,34 @@ impl State {
                     self.collecting = true;
                     effects.push(Effect::ReadCollections);
                 }
+                if source == SourceTab::Best && self.best.is_none() {
+                    effects.push(Effect::ReadBest(false));
+                }
+            }
+            Message::RefreshBest => effects.push(Effect::ReadBest(true)),
+            Message::Best(at) => {
+                if matches!(self.finding, Some(Finding::Fetching(_))) {
+                    return effects;
+                }
+                let Some(score) = self.best.as_ref().and_then(|scores| scores.get(at)).cloned() else { return effects };
+                let Some(target) = score_target(&score) else { return effects };
+                let hash = score.hash.to_ascii_lowercase();
+                if self.songs.as_ref().is_some_and(|songs| songs.contains_key(&hash)) {
+                    self.finding = None;
+                    effects.extend(self.put(&hash, now));
+                } else {
+                    let query = match &target {
+                        Target::Hash(hash) => hash.clone(),
+                        Target::Beatmap { id, .. } => format!("https://osu.ppy.sh/beatmaps/{id}"),
+                        Target::Set { .. } => unreachable!(),
+                    };
+                    if let Some(editor) = self.editor_mut() {
+                        editor.query = query;
+                    }
+                    self.notice = None;
+                    self.finding = Some(Finding::Asking);
+                    effects.push(Effect::Resolve(target));
+                }
             }
             Message::Collection(collection) => {
                 if let Some(editor) = self.editor_mut() {
@@ -705,6 +758,11 @@ impl State {
                 if matches!(self.finding, Some(Finding::Asking)) {
                     match said {
                         Ok(found) => {
+                            for score in self.best.iter_mut().flatten() {
+                                if let Some(difficulty) = found.difficulties.iter().find(|difficulty| score_id(score) == Some(difficulty.id)) {
+                                    score.hash = difficulty.hash.clone();
+                                }
+                            }
                             let choice = found.picked.or_else(|| (found.difficulties.len() == 1).then_some(0));
                             let place = self.default_place();
                             effects.push(Effect::Cover(found.cover(), found.set));
@@ -1272,6 +1330,11 @@ impl State {
                                 }
                             }
                         }
+                        SourceTab::Best => {
+                            for score in self.best.iter().flatten().take(12) {
+                                add(&score.hash.to_ascii_lowercase());
+                            }
+                        }
                     }
                 }
             }
@@ -1321,6 +1384,18 @@ fn suggestion_target(pool: &Pool, slot: usize) -> Option<f64> {
             let measured: Vec<f64> = pool.slots.iter().filter_map(valid).collect();
             (!measured.is_empty()).then(|| measured.iter().sum::<f64>() / measured.len() as f64)
         }
+    }
+}
+
+fn score_id(score: &crate::community::wire::Score) -> Option<u64> {
+    let id = score.beatmap_id;
+    (id.is_finite() && id > 0.0 && id < u64::MAX as f64 && id.fract() == 0.0).then_some(id as u64)
+}
+
+fn score_target(score: &crate::community::wire::Score) -> Option<Target> {
+    match pool_links::parse(&score.hash) {
+        Ok(Target::Hash(hash)) => Some(Target::Hash(hash)),
+        _ => score_id(score).map(|id| Target::Beatmap { id, mode: Some("osu".into()) }),
     }
 }
 
@@ -1999,24 +2074,22 @@ fn candidate_card<'a>(candidate: &'a Candidate, editor: &'a Editor, pool: &'a Po
 
 fn add_panel<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, words: &'a Words, thumbs: &'a HashMap<String, image::Handle>) -> Element<'a, Message> {
     let mut body = column![].spacing(14);
+    let sources = [(SourceTab::Search, "pool-tab-search"), (SourceTab::Collections, "pool-tab-collections"), (SourceTab::Best, "pool-tab-best"), (SourceTab::Suggest, "pool-tab-suggest")];
     let tabs = row![
-        button(text(words.t("pool-tab-search")).font(theme::SANS_SEMI).size(13.5)).padding([8, 16]).style(ui::button_faded(theme::filter_chip(editor.source == SourceTab::Search))).on_press(Message::Source(SourceTab::Search)),
-        button(text(words.t("pool-tab-collections")).font(theme::SANS_SEMI).size(13.5)).padding([8, 16]).style(ui::button_faded(theme::filter_chip(editor.source == SourceTab::Collections))).on_press(Message::Source(SourceTab::Collections)),
-        button(text(words.t("pool-tab-suggest")).font(theme::SANS_SEMI).size(13.5)).padding([8, 16]).style(ui::button_faded(theme::filter_chip(editor.source == SourceTab::Suggest))).on_press(Message::Source(SourceTab::Suggest)),
-        ui::grow(),
+        ui::wrap(sources.into_iter().map(|(source, key)| button(text(words.t(key)).font(theme::SANS_SEMI).size(13.5).wrapping(text::Wrapping::None)).padding([8, 12]).style(ui::button_faded(theme::filter_chip(editor.source == source))).on_press(Message::Source(source)).into()).collect(), 6.0),
         button(glyph(Icon::Close, 14.0, FAINT)).padding([6, 8]).style(ui::button_faded(theme::bare)).on_press(Message::AddPanel(false)),
     ]
     .spacing(8)
     .align_y(iced::Center);
     body = body.push(tabs);
-    if editor.source == SourceTab::Collections {
+    if matches!(editor.source, SourceTab::Collections | SourceTab::Best) {
         if let Some(Notice::Already(at)) = &state.notice {
             body = body.push(faded_text(words.with("pool-already", &[("n", (at + 1).to_string())]), 13.0, ACCENT));
         }
         if let Some(finding) = &state.finding {
             body = body.push(finding_card(finding, editor, pool, words));
         }
-        body = body.push(collection_panel(state, editor, words, thumbs));
+        body = body.push(if editor.source == SourceTab::Best { best_panel(state, words, thumbs) } else { collection_panel(state, editor, words, thumbs) });
         return panel_box(body.into());
     }
     if editor.source == SourceTab::Suggest {
@@ -2063,6 +2136,37 @@ fn add_panel<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, words: &'
         body = body.push(scrollable(list).height(Length::Fixed(420.0)).direction(ui::hidden_bar()).style(ui::thin_scroll));
     }
     panel_box(body.into())
+}
+
+fn best_panel<'a>(state: &'a State, words: &'a Words, thumbs: &'a HashMap<String, image::Handle>) -> Element<'a, Message> {
+    let refresh = quiet_button(words.t("pool-best-refresh"), Message::RefreshBest);
+    let Some(scores) = &state.best else {
+        return column![para(words.t("pool-best-no-profile"), 13.0, MUTED), refresh].spacing(12).into();
+    };
+    if scores.is_empty() {
+        return column![para(words.t("pool-best-empty"), 13.0, MUTED), refresh].spacing(12).into();
+    }
+    if state.songs.is_none() {
+        return para(words.t("pool-reading"), 13.0, MUTED);
+    }
+    let mut list = column![].spacing(2);
+    for (at, score) in scores.iter().enumerate() {
+        let hash = score.hash.to_ascii_lowercase();
+        let local = state.songs.as_ref().is_some_and(|songs| songs.contains_key(&hash));
+        let mut names = column![semi(score.title.clone(), 13.5, INK), faded_text(score.artist.clone(), 12.0, MUTED), mono(score.version.clone(), 11.0, FAINT)].spacing(1).width(Length::Fill);
+        if !local {
+            names = names.push(faded_text(words.t("pool-best-missing"), 11.5, FAINT));
+        }
+        let inside = row![
+            cover(thumbs, Some(&hash), 56.0, 32.0, THUMB_ROUND),
+            names,
+            mono(format!("{} pp", words.lang().group(score.pp.max(0.0).round() as u64)), 12.0, MUTED),
+        ]
+        .spacing(12)
+        .align_y(iced::Center);
+        list = list.push(button(inside).padding([6, 8]).width(Length::Fill).style(ui::button_faded(ui::calm(theme::row(false)))).on_press(Message::Best(at)));
+    }
+    column![refresh, scrollable(list).height(Length::Fixed(420.0)).direction(ui::hidden_bar()).style(ui::thin_scroll)].spacing(10).into()
 }
 
 fn suggestion_panel<'a>(state: &'a State, words: &'a Words, thumbs: &'a HashMap<String, image::Handle>) -> Element<'a, Message> {
@@ -2466,6 +2570,43 @@ mod tests {
     fn open_new(state: &mut State) -> String {
         state.update(Message::New, 1_790_000_000);
         state.editing().expect("an editor").id.clone()
+    }
+
+    #[test]
+    fn best_plays_keep_one_play_per_map_and_choose_local_or_remote_maps() {
+        let mut state = state_with_songs("best");
+        let hash = "0123456789abcdef0123456789abcdef";
+        Arc::make_mut(state.songs.as_mut().unwrap()).insert(hash.into(), map("A", "B", "C"));
+        let score = |id, pp, hash: &str| crate::community::wire::Score { beatmap_id: id, pp, hash: hash.into(), ..Default::default() };
+        state.set_best(Some(&[
+            score(1.0, 200.0, &hash.to_ascii_uppercase()), score(1.0, 100.0, hash), score(0.0, 80.0, hash), score(2.0, 150.0, ""), score(0.0, 500.0, ""), score(3.5, 500.0, ""), score(4.0, f64::NAN, ""),
+        ]));
+        assert_eq!(state.best.as_ref().unwrap().len(), 2);
+        open_new(&mut state);
+        assert!(state.update(Message::Source(SourceTab::Best), 1_790_000_001).is_empty());
+        state.update(Message::Best(0), 1_790_000_002);
+        assert_eq!(state.editing().unwrap().slots[0].hash.as_deref(), Some(hash));
+        state.update(Message::Best(0), 1_790_000_003);
+        assert_eq!(state.notice, Some(Notice::Already(0)));
+        let effects = state.update(Message::Best(1), 1_790_000_004);
+        assert!(matches!(effects.as_slice(), [Effect::Resolve(Target::Beatmap { id: 2, .. })]));
+        assert!(matches!(&state.screen, Screen::Editor(editor) if editor.query == "https://osu.ppy.sh/beatmaps/2"));
+        state.update(Message::Resolved(Err(Why::Silent("offline".into()))), 1_790_000_005);
+        assert!(matches!(state.update(Message::Retry, 1_790_000_006).as_slice(), [Effect::Resolve(Target::Beatmap { id: 2, .. })]));
+        let downloaded = "fedcba9876543210fedcba9876543210";
+        state.update(Message::Resolved(Ok(pool_links::Found {
+            set: 10, artist: "B".into(), title: "A".into(), picked: Some(0),
+            difficulties: vec![pool_links::Difficulty { id: 2, hash: downloaded.into(), version: "C".into(), stars: 5.0 }],
+        })), 1_790_000_007);
+        assert_eq!(state.best.as_ref().unwrap()[1].hash, downloaded);
+        assert!(matches!(state.update(Message::Confirm, 1_790_000_008).as_slice(), [Effect::Fetch(hash, _)] if hash == downloaded));
+        state.update(Message::Step(downloaded.into(), crate::maps::Step::Done(map("A", "B", "C"))), 1_790_000_009);
+        assert_eq!(state.editing().unwrap().slots[1].hash.as_deref(), Some(downloaded));
+        assert!(state.update(Message::Best(1), 1_790_000_010).is_empty());
+        assert_eq!(state.notice, Some(Notice::Already(1)));
+        state.set_best(None);
+        assert!(matches!(state.update(Message::Source(SourceTab::Best), 1_790_000_011).as_slice(), [Effect::ReadBest(false)]));
+        assert!(matches!(state.update(Message::RefreshBest, 1_790_000_012).as_slice(), [Effect::ReadBest(true)]));
     }
 
     #[test]

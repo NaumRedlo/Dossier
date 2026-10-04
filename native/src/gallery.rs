@@ -1295,6 +1295,20 @@ fn feed_states(community: &dyn Fn(crate::community_screen::Section, Option<usize
             main.pools.screen = crate::pools_screen::Screen::Editor(crate::pools_screen::Editor { selected: Some(5), panel: crate::pools_screen::Panel::Add, source: crate::pools_screen::SourceTab::Suggest, ..crate::pools_screen::Editor::at(id) });
             main
         }),
+        ("main-pools-best".to_owned(), {
+            let mut main = community(crate::community_screen::Section::Pools, None);
+            pools_state(&mut main, true);
+            let id = main.pools.list[0].id.clone();
+            let mut maps: Vec<_> = main.pools.songs.as_ref().unwrap().iter().collect();
+            maps.sort_by_key(|(hash, _)| *hash);
+            let mut scores: Vec<_> = maps.into_iter().take(6).enumerate().map(|(at, (hash, map))| crate::community::wire::Score {
+                hash: hash.clone(), artist: map.artist.clone(), title: map.title.clone(), version: map.version.clone(), pp: 410.0 - at as f64 * 23.0, beatmap_id: 1000.0 + at as f64, ..Default::default()
+            }).collect();
+            scores.push(crate::community::wire::Score { title: "FREEDOM DiVE".into(), artist: "xi".into(), version: "FOUR DIMENSIONS".into(), beatmap_id: 129891.0, pp: 239.0, ..Default::default() });
+            main.pools.set_best(Some(&scores));
+            main.pools.screen = crate::pools_screen::Screen::Editor(crate::pools_screen::Editor { selected: Some(5), panel: crate::pools_screen::Panel::Add, source: crate::pools_screen::SourceTab::Best, ..crate::pools_screen::Editor::at(id) });
+            main
+        }),
     ];
     states
 }
@@ -1364,11 +1378,11 @@ pub fn every_main_frame() -> Vec<(String, crate::main_screen::Main, Size)> {
     for lang in Lang::ALL {
         for (name, main) in main_states(lang) {
             for (label, size) in SIZES {
-                if label != SIZES[0].0 && name != "main-rest" && name != "main-idle" && name != "main-notifications" && name != "main-player-mini" && name != "main-community-clip-mini" && name != "main-community-feed-wide" {
+                if label != SIZES[0].0 && name != "main-rest" && name != "main-idle" && name != "main-notifications" && name != "main-player-mini" && name != "main-community-clip-mini" && name != "main-community-feed-wide" && name != "main-pools-best" {
                     continue;
                 }
                 let mut frame = main.clone();
-                if name == "main-idle" || name == "main-notifications" || name == "main-player-mini" || name == "main-community-clip-mini" || name == "main-community-feed-wide" { frame.width = size.width; frame.height = size.height; }
+                if name == "main-idle" || name == "main-notifications" || name == "main-player-mini" || name == "main-community-clip-mini" || name == "main-community-feed-wide" || name == "main-pools-best" { frame.width = size.width; frame.height = size.height; }
                 out.push((format!("{name}-{}-{label}", lang.tag()), frame, size));
             }
         }

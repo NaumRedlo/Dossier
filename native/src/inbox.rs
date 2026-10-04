@@ -100,12 +100,20 @@ pub struct Received {
     #[serde(default)]
     pub replay: bool,
     #[serde(default)]
+    pub storage: String,
+    #[serde(default = "yes")]
+    pub available: bool,
+    #[serde(default)]
+    pub expires_at: Option<i64>,
+    #[serde(default)]
     pub settings: Option<Look>,
     #[serde(default)]
     pub sent_at: i64,
     #[serde(default)]
     pub seen: bool,
 }
+
+fn yes() -> bool { true }
 
 impl Received {
     pub fn map_line(&self) -> String {

@@ -81,17 +81,17 @@ pub const SANS_SEMI: Font = Font {
     weight: font::Weight::Semibold,
     ..Font::with_name("Commissioner")
 };
-pub const MONO: Font = Font::with_name("JetBrains Mono");
+pub const MONO: Font = Font::with_name("IBM Plex Mono");
 pub const MONO_BOLD: Font = Font {
     weight: font::Weight::Bold,
-    ..Font::with_name("JetBrains Mono")
+    ..Font::with_name("IBM Plex Mono")
 };
 
 pub const FONTS: [&[u8]; 5] = [
     include_bytes!("../../assets/fonts/Commissioner-Regular.ttf"),
     include_bytes!("../../assets/fonts/Commissioner-SemiBold.ttf"),
-    include_bytes!("../../assets/fonts/JetBrainsMono-Regular.ttf"),
-    include_bytes!("../../assets/fonts/JetBrainsMono-Bold.ttf"),
+    include_bytes!("../../assets/fonts/IBMPlexMono-Regular.ttf"),
+    include_bytes!("../../assets/fonts/IBMPlexMono-Bold.ttf"),
     include_bytes!("../../assets/fonts/MPLUSRounded1c-Regular.ttf"),
 ];
 

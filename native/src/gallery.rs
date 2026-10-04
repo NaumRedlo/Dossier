@@ -688,6 +688,9 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
             height: 1080,
             thumb: true,
             replay: true,
+            storage: "app".to_owned(),
+            available: true,
+            expires_at: None,
             settings: None,
             sent_at: NOON - ago,
             seen,
@@ -826,6 +829,7 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
         kept: 5,
         written: 3,
         told: 2,
+        pending: 0,
         untold: false,
         build: "b20260924cuttingedge".to_owned(),
         player: "NaumRedlo".to_owned(),
@@ -1040,16 +1044,6 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
             if let Some(crate::community_screen::Reading::Score(scored)) = main.community_reading.as_mut() {
                 scored.play = crate::community::Play { pp: 0.0, pp_if: Some(scored.play.pp), id: None, witnessed: true, ..scored.play.clone() };
             }
-            main
-        }),
-        ("main-community-companion".to_owned(), {
-            let mut main = scored(false);
-            main.community_reading = None;
-            main.read_fade = iced::Animation::new(false);
-            let state = crate::witness::State { mode: "SelectPlay".into(), id: 1, artist: "Dj Grimoire".into(), title: "Astral Quantization".into(), version: "Nattu VN0TH3R".into(), ..Default::default() };
-            main.companion_shown = Some((1, state.map_line()));
-            main.companion_fade = iced::Animation::new(true);
-            main.witness = crate::witness::Seen { status: crate::witness::Status::Watching, state: Some(state), ..Default::default() };
             main
         }),
         ("main-community-title".to_owned(), titled("ss_100", "ssnowy")),

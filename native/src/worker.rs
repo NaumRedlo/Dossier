@@ -210,9 +210,9 @@ fn steps(
         fps: job.settings.fps.clamp(24, 240),
         crf: 20,
         skin,
-        music_level: 1.0,
-        hitsound_level: 1.0,
-        play: render::Play { map_sounds: false, ..render::Play::default() },
+        music_level: job.settings.music,
+        hitsound_level: job.settings.hitsounds,
+        play: job.settings.play.unwrap_or(render::Play { map_sounds: false, ..render::Play::default() }),
     };
     DRAWING.store(true, Ordering::SeqCst);
     let started = Instant::now();

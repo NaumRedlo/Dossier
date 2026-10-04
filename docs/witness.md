@@ -16,8 +16,6 @@ program can serve the application, overlays and whatever comes after them.
   play enters the local ranking. The client records the frames of the current
   play into the score it holds while the play runs — fails included — so a play
   can be written out as a replay the moment it ends, and rendered later.
-- **The chat beside song select.** The map under the cursor is known at once, so
-  the application shows how the chat did on it without being asked (below).
 - **The client's own verdicts.** Hits, misses and hit errors as the client
   counted them, to set beside what the engine's simulation says and find the
   first object where they part (ENG-04).
@@ -182,25 +180,6 @@ setting saved then is read as the new one.)
   whose application had gone stayed for good. The application now touches
   `witness.alive` beside the program every five seconds, and a Witness started
   with `--leash` leaves when that file is twenty seconds old or gone.
-
-### The chat beside song select
-
-While the client is at song select and the map under the cursor has an id on the
-server's side, the application puts a small card at the bottom left of its
-window: the chat's scores on that map, the first three places and the person's
-own place when it is lower, and how many players there are. The card goes away
-when the client leaves song select, and the tile's second switch turns it off.
-
-- The state line already says the screen (`SelectPlay`) and the map; nothing new
-  is read from the client.
-- A map that is only scrolled past is not asked about: the application asks the
-  bot for its board once the map has stayed under the cursor for 0.9 s, and what
-  was asked before is shown at once from the cache. A map with no id (a local
-  one) has no board and no card.
-- It is the same board as the one under a play's score sheet, so what the chat
-  did on the map is counted by the bot the same way: plays witnessed here do not
-  enter it until osu! itself has confirmed them.
-- Without a paired device there is no chat to ask, and no card.
 
 ### The device's time zone and the game sessions
 

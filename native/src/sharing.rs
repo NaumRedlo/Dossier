@@ -43,6 +43,8 @@ pub enum Message {
     Getting(u64, u64, u64),
     Got(u64, Result<(PathBuf, videos::Probe), String>),
     StopGetting,
+    Restore,
+    Restored(u64, Result<bot::Restore, String>),
     ToTelegram,
     Passed(u64, Result<(), String>),
     Draw,
@@ -92,6 +94,7 @@ pub struct State {
     pub thumbs_asked: HashSet<u64>,
     pub open: Option<u64>,
     pub getting: Option<Getting>,
+    pub restoring: HashSet<u64>,
     pub passing: HashSet<u64>,
     pub passed: HashSet<u64>,
     pub drawing: Option<u64>,
@@ -266,6 +269,16 @@ impl Main {
         })
     }
 
+    fn restore_task(&self, id: u64, start: bool) -> Task<Outer> {
+        let (server, token, name) = self.bot_keys();
+        ui::in_thread(move || {
+            if !start {
+                std::thread::sleep(Duration::from_secs(5));
+            }
+            Outer::Sharing(Message::Restored(id, bot::inbox_restore(&server, &token, &name, id, start).map_err(|e| e.to_string())))
+        })
+    }
+
     fn play_received(&mut self, path: PathBuf, media: videos::Probe) {
         let Some(ffmpeg) = self.ffmpeg.clone() else {
             return;
@@ -413,6 +426,9 @@ impl Main {
                 if let Some(path) = got.cached() {
                     return self.probe_received(got.id, path);
                 }
+                if got.storage == "app" && !got.available {
+                    return self.sharing_update(Message::Restore);
+                }
                 let stop = Arc::new(AtomicBool::new(false));
                 self.sharing.getting = Some(Getting { id: got.id, done: 0, total: got.size, stop: stop.clone() });
                 let (server, token, name) = self.bot_keys();
@@ -461,6 +477,7 @@ impl Main {
                         }
                     }
                     Err(why) if why == STOPPED => {}
+                    Err(why) if why == "410" => return self.sharing_update(Message::Restore),
                     Err(why) => {
                         let (detail, hash) = self.sharing.of(id).map(|got| (format!("{} — {}", got.player, got.map_line()), got.map_hash.clone())).unwrap_or_default();
                         self.announce(notices::Mark::Bad, self.words.t("received-failed"), detail, why, hash, notices::Link::Received(id));
@@ -471,6 +488,42 @@ impl Main {
             Message::StopGetting => {
                 if let Some(getting) = &self.sharing.getting {
                     getting.stop.store(true, Ordering::SeqCst);
+                }
+                Task::none()
+            }
+            Message::Restore => {
+                let Some(got) = self.sharing.opened().filter(|got| got.storage == "app") else {
+                    return Task::none();
+                };
+                let id = got.id;
+                if !self.sharing.restoring.insert(id) {
+                    return Task::none();
+                }
+                self.restore_task(id, true)
+            }
+            Message::Restored(id, outcome) => {
+                if !self.sharing.restoring.contains(&id) {
+                    return Task::none();
+                }
+                match outcome {
+                    Ok(reply) if reply.state == "ready" => {
+                        self.sharing.restoring.remove(&id);
+                        if let Some(video) = self.sharing.videos.iter_mut().find(|video| video.id == id) {
+                            video.available = true;
+                        }
+                        if self.sharing.open == Some(id) {
+                            return self.sharing_update(Message::Watch);
+                        }
+                    }
+                    Ok(reply) if reply.state == "rendering" => return self.restore_task(id, false),
+                    Ok(_) => {
+                        self.sharing.restoring.remove(&id);
+                        self.say(self.words.t("received-restore-failed"));
+                    }
+                    Err(why) => {
+                        self.sharing.restoring.remove(&id);
+                        self.announce(notices::Mark::Bad, self.words.t("received-restore-failed"), String::new(), why, String::new(), notices::Link::Received(id));
+                    }
                 }
                 Task::none()
             }
@@ -583,9 +636,6 @@ impl Main {
                 if !self.signed_in() {
                     return self.update(Outer::SignIn);
                 }
-                if !self.has_telegram() {
-                    return self.update(Outer::LinkTelegram);
-                }
                 let Some(video) = self.open_video.and_then(|at| self.store.videos.get(at)) else {
                     return Task::none();
                 };
@@ -647,7 +697,7 @@ impl Main {
                 let meta = self.send_meta(&video, None);
                 let (server, token, name) = self.bot_keys();
                 ui::streamed(move |push| {
-                    let mut remote = video.remote;
+                    let mut remote = video.remote.filter(|id| bot::video_ready(&server, &token, &name, *id).unwrap_or(false));
                     let mut uploaded = false;
                     let outcome = loop {
                         let id = match remote {
@@ -657,7 +707,7 @@ impl Main {
                                 let (tx, rx) = std::sync::mpsc::channel::<u64>();
                                 let (server, token, name, path, meta) = (server.clone(), token.clone(), name.clone(), video.path.clone(), meta.clone());
                                 let worker = std::thread::spawn(move || {
-                                    bot::send(&server, &token, &name, &path, &meta, move |done| {
+                                    bot::share_upload(&server, &token, &name, &path, &meta, move |done| {
                                         let _ = tx.send(done);
                                     })
                                 });
@@ -683,12 +733,17 @@ impl Main {
                                 }
                             }
                         };
-                        if let Ok(bytes) = std::fs::read(&video.replay) {
-                            let _ = bot::video_replay(&server, &token, &name, id, bytes);
+                        let bytes = match std::fs::read(&video.replay) {
+                            Ok(bytes) => bytes,
+                            Err(why) => break Err(why.to_string()),
+                        };
+                        if let Err(why) = bot::video_replay(&server, &token, &name, id, bytes) {
+                            break Err(why.to_string());
                         }
                         match bot::share(&server, &token, &name, id, &to) {
                             Ok(shared) => break Ok(shared),
                             Err(bot::Refused::NotThere) if !uploaded => remote = None,
+                            Err(bot::Refused::Said(code)) if code == "410" && !uploaded => remote = None,
                             Err(why) => break Err(why.to_string()),
                         }
                     };
@@ -702,7 +757,7 @@ impl Main {
                 if let Some(sending) = self.sending.as_mut().filter(|sending| sending.path == path && sending.over.is_none()) {
                     let bytes = sending.total;
                     sending.over = Some(outcome.as_ref().map(|_| 0).map_err(Clone::clone));
-                    if uploaded && remote.is_some() {
+                    if uploaded && remote.is_some() && outcome.as_ref().is_ok_and(|shared| !shared.sent.is_empty()) {
                         self.store.mark_sent(&path, unix_now(), bytes);
                     }
                 }
@@ -945,7 +1000,7 @@ impl Main {
             let free = self.sharing.drawing.is_none();
             buttons = buttons.push(ui::springy(ui::quiet(w.t("received-draw"), free.then_some(Outer::Sharing(Message::Draw))), 0.04));
         }
-        if !self.has_telegram() {
+        if !self.has_telegram() || got.storage == "app" {
             return buttons.into();
         }
         let telegram = match (self.sharing.passed.contains(&got.id), self.sharing.passing.contains(&got.id)) {
@@ -1003,6 +1058,8 @@ impl Main {
                 .align_x(iced::Center)
                 .into()
             }
+            None if self.sharing.restoring.contains(&got.id) => ui::body(w.t("received-restoring"), INK),
+            None if got.storage == "app" && !got.available && got.cached().is_none() => ui::body(w.t("received-restore"), INK),
             None => ui::halo(ui::Control::Play, 72.0, 1.0),
         };
         let inside = stack![picture, container(middle).width(Length::Fill).height(Length::Fill).center(Length::Fill)].width(screen_w).height(screen_h);

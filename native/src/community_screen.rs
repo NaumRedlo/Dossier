@@ -879,7 +879,7 @@ fn reader<'a>(ground: &Ground<'a>, reading: &'a Reading) -> Element<'a, Message>
 
 pub(crate) fn figure<'a>(value: String, label: String, colour: Color) -> Element<'a, Message> {
     column![
-        text(value).font(theme::MONO_BOLD).size(16.0).wrapping(text::Wrapping::None).color(ui::faded(colour)),
+        text(value).font(theme::SANS_SEMI).size(16.0).wrapping(text::Wrapping::None).color(ui::faded(colour)),
         text(label).font(theme::SANS).size(11.5).wrapping(text::Wrapping::None).color(ui::faded(FAINT)),
     ]
     .spacing(2)
@@ -1617,7 +1617,7 @@ pub(crate) fn profile_panel<'a>(ground: &Ground<'a>, at: usize) -> Element<'a, M
             let key = if me.is_some() || ground.person_card.is_some() { "dossier-refreshing" } else { "news-loading" };
             ui::mono_small(w.t(key), FAINT)
         } else { Space::new().width(0.0).into() };
-        let head = row![ui::mono_small(w.t("dossier-of").to_uppercase(), FAINT), ui::mono_small(person.name.clone(), MUTED), status, ui::grow(), close].spacing(10).align_y(iced::Center);
+        let head = row![status, ui::grow(), close].spacing(10).align_y(iced::Center);
         container(column![head, crate::dossier::columns(ground, &whose, wide - 44.0, ground.person_t)].spacing(10)).padding(Padding { top: 12.0, right: 22.0, bottom: 16.0, left: 22.0 }).width(Length::Fill).height(Length::Fill).into()
     });
     let mut look = stage_look();

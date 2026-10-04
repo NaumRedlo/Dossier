@@ -218,53 +218,6 @@ fn table_line<'a>(ground: &Ground<'a>, said: &'a wire::BoardRow, by_score: bool,
     }
 }
 
-const COMPANION_ROWS: usize = 3;
-
-fn companion_line<'a>(ground: &Ground<'a>, said: &'a wire::BoardRow, by_score: bool) -> Element<'a, Message> {
-    let w = ground.words;
-    let mut name = row![text(said.name.clone()).font(theme::SANS_SEMI).size(13.0).wrapping(text::Wrapping::None).color(ui::faded(INK))].spacing(6).align_y(iced::Center);
-    if said.you {
-        name = name.push(chip(w.t("score-you"), YOURS));
-    }
-    row![
-        container(mono(format!("#{}", said.place), 12.0, screen::medal(said.place as usize).unwrap_or(FAINT), true)).width(30.0),
-        row_face(ground, said, 22.0),
-        container(name).width(Length::Fill).clip(true),
-        mono(worth_said(w, &said.play, by_score), 13.0, INK, true),
-    ]
-    .spacing(10)
-    .align_y(iced::Center)
-    .into()
-}
-
-pub(crate) fn companion<'a>(ground: &Ground<'a>, beatmap: u64, line: String, width: f32) -> Element<'a, Message> {
-    let w = ground.words;
-    let note = |words: String, colour: Color| -> Element<'a, Message> { text(words).font(theme::SANS).size(12.0).color(ui::faded(colour)).into() };
-    let board = ground.boards.get(&beatmap);
-    let mut head = row![mono(w.t("score-board").to_uppercase(), 11.0, FAINT, false), ui::grow()].align_y(iced::Center);
-    if let Some(board) = board.filter(|board| board.players > 0) {
-        head = head.push(mono(w.count("players", u64::from(board.players)), 11.0, FAINT, false));
-    }
-    let map = container(ui::marquee(vec![ui::piece(line, theme::SANS_SEMI, 13.0, INK)])).width(Length::Fill).clip(true);
-    let body: Element<'a, Message> = match board {
-        Some(board) if board.rows.is_empty() => note(w.t("score-board-empty"), FAINT),
-        Some(board) => {
-            let by_score = board.by_score();
-            let mut lines = column![].spacing(6);
-            for said in board.rows.iter().take(COMPANION_ROWS) {
-                lines = lines.push(companion_line(ground, said, by_score));
-            }
-            if let Some(own) = board.rows.iter().skip(COMPANION_ROWS).find(|said| said.you) {
-                lines = lines.push(companion_line(ground, own, by_score));
-            }
-            lines.into()
-        }
-        None if ground.boards_failed.contains(&beatmap) => note(w.t("score-board-failed"), ACCENT),
-        None => note(w.t("score-board-loading"), FAINT),
-    };
-    container(column![head, map, body].spacing(8)).padding([12, 14]).width(width).style(ui::box_faded(theme::notification(false))).into()
-}
-
 fn table<'a>(ground: &Ground<'a>, board: &'a wire::MapBoard, scored: &Scored) -> Element<'a, Message> {
     let mut lines = column![].spacing(GAP);
     for said in &board.rows {

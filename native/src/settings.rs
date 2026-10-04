@@ -83,8 +83,6 @@ pub struct Settings {
     pub donate_replays: bool,
     #[serde(default, alias = "witness")]
     pub witness_keep: bool,
-    #[serde(default = "yes")]
-    pub witness_companion: bool,
     #[serde(default)]
     pub history_share: bool,
     #[serde(default)]
@@ -994,7 +992,6 @@ impl Default for Settings {
             worker_on: false,
             donate_replays: false,
             witness_keep: false,
-            witness_companion: true,
             history_share: false,
             history_sent: 0,
             worker_done: 0,

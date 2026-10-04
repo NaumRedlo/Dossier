@@ -517,7 +517,8 @@ impl<R: std::io::Read> std::io::Read for Counted<R> {
     }
 }
 
-pub fn send(
+fn upload(
+    route: &str,
     server: &str,
     token: &str,
     name: &str,
@@ -533,7 +534,7 @@ pub fn send(
         .user_agent(ENGINE)
         .build()
         .map_err(|e| Refused::Network(e.to_string()))?
-        .post(format!("{server}/render/send"))
+        .post(format!("{server}/render/{route}"))
         .header("X-Render-Worker", name)
         .header("X-Render-Meta", meta.to_string())
         .header("Content-Type", "video/mp4")
@@ -547,12 +548,34 @@ pub fn send(
     status(response)?.json().map_err(|e| Refused::Network(e.to_string()))
 }
 
+pub fn send(server: &str, token: &str, name: &str, file: &std::path::Path, meta: &serde_json::Value, tell: impl FnMut(u64) + Send + 'static) -> Result<Sent, Refused> {
+    upload("send", server, token, name, file, meta, tell)
+}
+
+pub fn share_upload(server: &str, token: &str, name: &str, file: &std::path::Path, meta: &serde_json::Value, tell: impl FnMut(u64) + Send + 'static) -> Result<Sent, Refused> {
+    upload("videos", server, token, name, file, meta, tell)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Deserialize)]
 pub struct Sent {
     #[serde(default, rename = "message_id")]
     pub message: i64,
     #[serde(default)]
     pub video: Option<u64>,
+}
+
+pub fn video_ready(server: &str, token: &str, name: &str, video: u64) -> Result<bool, Refused> {
+    let response = long(INBOX_PATIENCE)?
+        .get(format!("{server}/render/videos/{video}"))
+        .header("X-Render-Worker", name)
+        .bearer_auth(token)
+        .send()
+        .map_err(|e| Refused::Network(e.to_string()))?;
+    match response.status().as_u16() {
+        200 => Ok(true),
+        404 | 410 => Ok(false),
+        _ => Err(Refused::Said(response.status().to_string())),
+    }
 }
 
 const INBOX_PATIENCE: Duration = Duration::from_secs(20);
@@ -632,6 +655,8 @@ pub fn inbox_replay(server: &str, token: &str, name: &str, id: u64) -> Result<Ve
 }
 
 pub fn inbox_video(server: &str, token: &str, name: &str, id: u64, into: &std::path::Path, mut tell: impl FnMut(u64, u64) -> bool) -> Result<u64, Refused> {
+    use sha2::{Digest, Sha256};
+
     let mut response = status(
         long(VIDEO_PATIENCE)?
             .get(format!("{server}/render/inbox/{id}/video"))
@@ -641,6 +666,7 @@ pub fn inbox_video(server: &str, token: &str, name: &str, id: u64, into: &std::p
             .map_err(|e| Refused::Network(e.to_string()))?,
     )?;
     let total = response.content_length().unwrap_or(0);
+    let expected = response.headers().get("x-content-sha256").and_then(|value| value.to_str().ok()).unwrap_or("").to_owned();
     if let Some(folder) = into.parent() {
         std::fs::create_dir_all(folder).map_err(|e| Refused::Network(e.to_string()))?;
     }
@@ -649,6 +675,7 @@ pub fn inbox_video(server: &str, token: &str, name: &str, id: u64, into: &std::p
         use std::io::{Read, Write};
         let mut out = std::fs::File::create(&part).map_err(|e| Refused::Network(e.to_string()))?;
         let mut written = 0u64;
+        let mut digest = Sha256::new();
         let mut bytes = vec![0u8; 256 * 1024];
         loop {
             let count = response.read(&mut bytes).map_err(|e| Refused::Network(e.to_string()))?;
@@ -656,6 +683,7 @@ pub fn inbox_video(server: &str, token: &str, name: &str, id: u64, into: &std::p
                 break;
             }
             out.write_all(&bytes[..count]).map_err(|e| Refused::Network(e.to_string()))?;
+            digest.update(&bytes[..count]);
             written += count as u64;
             if !tell(written, total) {
                 return Err(Refused::Said("stopped".to_owned()));
@@ -663,6 +691,9 @@ pub fn inbox_video(server: &str, token: &str, name: &str, id: u64, into: &std::p
         }
         if written == 0 || (total > 0 && written < total) {
             return Err(Refused::Network("the video came short".to_owned()));
+        }
+        if !expected.is_empty() && format!("{:x}", digest.finalize()) != expected {
+            return Err(Refused::Network("the video checksum does not match".to_owned()));
         }
         out.sync_all().map_err(|e| Refused::Network(e.to_string()))?;
         drop(out);
@@ -673,6 +704,24 @@ pub fn inbox_video(server: &str, token: &str, name: &str, id: u64, into: &std::p
         let _ = std::fs::remove_file(&part);
     }
     copied
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct Restore {
+    pub state: String,
+}
+
+pub fn inbox_restore(server: &str, token: &str, name: &str, id: u64, start: bool) -> Result<Restore, Refused> {
+    let request = if start {
+        long(INBOX_PATIENCE)?.post(format!("{server}/render/inbox/{id}/restore"))
+    } else {
+        long(INBOX_PATIENCE)?.get(format!("{server}/render/inbox/{id}/restore"))
+    };
+    let response = request.header("X-Render-Worker", name)
+        .bearer_auth(token)
+        .send()
+        .map_err(|e| Refused::Network(e.to_string()))?;
+    status(response)?.json().map_err(|e| Refused::Network(e.to_string()))
 }
 
 pub fn replays_state(server: &str, token: &str, name: &str) -> Result<crate::mixed::State, Refused> {
@@ -781,7 +830,15 @@ pub struct JobLook {
     pub fps: u32,
     #[serde(default)]
     pub loudness: f64,
+    #[serde(default = "one")]
+    pub music: f32,
+    #[serde(default = "one")]
+    pub hitsounds: f32,
+    #[serde(default)]
+    pub play: Option<crate::render::Play>,
 }
+
+fn one() -> f32 { 1.0 }
 
 #[derive(Debug, Clone, PartialEq, serde::Deserialize)]
 pub struct JobSkin {

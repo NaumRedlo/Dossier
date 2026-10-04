@@ -908,7 +908,7 @@ pub fn tag<'a, Message: 'a>(words: String) -> Element<'a, Message> {
 pub fn tile<'a, Message: 'a>(value: String, label: String) -> Element<'a, Message> {
     container(
         column![
-            text(value).font(theme::MONO_BOLD).size(theme::TITLE).color(faded(INK)),
+            text(value).font(theme::SANS_SEMI).size(theme::TITLE).color(faded(INK)),
             text(label).font(theme::SANS).size(theme::CAPTION).color(faded(MUTED)),
         ]
         .spacing(2),

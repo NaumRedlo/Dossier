@@ -76,7 +76,7 @@ pub struct Progress {
     pub mods: u32,
 }
 
-#[derive(Debug, Clone, PartialEq, Default, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Kept {
     pub name: String,
@@ -100,7 +100,7 @@ const SITTING_MOST: i64 = 24 * 3600;
 const SITTING_TELL_EVERY: i64 = 300;
 const PLAY_TICK_MOST: i64 = 5;
 
-#[derive(Debug, Clone, PartialEq, Default, Serialize)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct Sitting {
     pub time_zone: String,
     pub started_at: i64,
@@ -199,7 +199,7 @@ pub fn time_zone() -> String {
     iana_time_zone::get_timezone().unwrap_or_default()
 }
 
-#[derive(Debug, Clone, PartialEq, Default, Serialize)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct Told {
     pub md5: String,
     pub replay: String,
@@ -309,6 +309,7 @@ pub struct Seen {
     pub kept: u32,
     pub written: u32,
     pub told: u32,
+    pub pending: u32,
     pub untold: bool,
     pub build: String,
     pub player: String,

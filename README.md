@@ -138,8 +138,8 @@ The code is **AGPL-3.0-only**. See [LICENSE](LICENSE).
 Some files in this repository are somebody else's work and keep their own
 terms:
 
-- **The typefaces.** Varela Round, Commissioner, M PLUS Rounded 1c and JetBrains
-  Mono, all under the SIL Open Font License 1.1, each with its licence text
+- **The typefaces.** Varela Round, Commissioner, IBM Plex Mono, M PLUS Rounded 1c
+  and JetBrains Mono, all under the SIL Open Font License 1.1, each with its licence text
   beside it in `assets/fonts/`.
 - **The application's marks.** The system logos from Simple Icons (CC0 1.0), the
   flags from flag-icons (MIT) and the player's glyphs from Lucide (ISC), each

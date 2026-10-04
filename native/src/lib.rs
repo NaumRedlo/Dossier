@@ -54,6 +54,7 @@ pub mod updates;
 pub mod ui;
 pub mod videos;
 pub mod witness;
+pub mod witness_delivery;
 pub mod worker;
 
 use iced::widget::{image, stack};

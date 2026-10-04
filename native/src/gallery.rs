@@ -1277,6 +1277,24 @@ fn feed_states(community: &dyn Fn(crate::community_screen::Section, Option<usize
             main.pools.screen = crate::pools_screen::Screen::Editor(crate::pools_screen::Editor { selected: Some(5), panel: crate::pools_screen::Panel::Add, source: crate::pools_screen::SourceTab::Collections, collection: Some(0), ..crate::pools_screen::Editor::at(id) });
             main
         }),
+        ("main-pools-suggest".to_owned(), {
+            let mut main = community(crate::community_screen::Section::Pools, None);
+            pools_state(&mut main, true);
+            let pool = &main.pools.list[0];
+            let id = pool.id.clone();
+            let fingerprint = pool.fingerprint();
+            let used: std::collections::HashSet<String> = pool.slots.iter().filter_map(|slot| slot.hash.clone()).collect();
+            let mut hashes: Vec<String> = main.pools.songs.as_ref().unwrap().keys().filter(|hash| !used.contains(*hash)).cloned().collect();
+            hashes.sort();
+            let maps = hashes.into_iter().take(4).enumerate().map(|(at, hash)| {
+                let mut measure = pool.slots[0].measure.unwrap();
+                measure.stars = 4.76 + at as f64 * 0.13;
+                (hash, measure)
+            }).collect();
+            main.pools.suggestions = Some(crate::pools_screen::Suggestions { request: 1, pool: id.clone(), fingerprint, slot: 5, mods: crate::pools::Mod::Fm, target: Some(4.9), maps: Some(maps), stop: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)) });
+            main.pools.screen = crate::pools_screen::Screen::Editor(crate::pools_screen::Editor { selected: Some(5), panel: crate::pools_screen::Panel::Add, source: crate::pools_screen::SourceTab::Suggest, ..crate::pools_screen::Editor::at(id) });
+            main
+        }),
     ];
     states
 }

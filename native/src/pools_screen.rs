@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use iced::widget::{button, column, container, image, row, scrollable, text, text_input, Space};
 use iced::{Background, Border, Color, Element, Length, Padding};
@@ -41,6 +42,7 @@ pub enum Panel {
 pub enum SourceTab {
     Search,
     Collections,
+    Suggest,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -133,6 +135,18 @@ pub struct Fetching {
 }
 
 #[derive(Debug, Clone)]
+pub struct Suggestions {
+    pub request: u64,
+    pub pool: String,
+    pub fingerprint: String,
+    pub slot: usize,
+    pub mods: Mod,
+    pub target: Option<f64>,
+    pub maps: Option<Vec<(String, Measure)>>,
+    pub stop: Arc<AtomicBool>,
+}
+
+#[derive(Debug, Clone)]
 pub enum Finding {
     Asking,
     Found(Candidate),
@@ -160,6 +174,8 @@ pub enum Message {
     CollectionPage(usize),
     CollectionHash(String),
     Collections(Vec<Collection>),
+    Suggest(usize),
+    Suggested(u64, Vec<(String, Measure)>),
     Query(String),
     Put(String),
     Note(usize, String),
@@ -199,6 +215,7 @@ pub enum Message {
 pub enum Effect {
     ReadSongs,
     ReadCollections,
+    Suggest(u64, Arc<HashMap<String, Map>>, Mod, f64, HashSet<String>, Arc<AtomicBool>),
     Measure(String, Map, Mod),
     Resolve(Target),
     Cover(String, u64),
@@ -218,6 +235,9 @@ pub struct State {
     pub reading: bool,
     pub collections: Option<Vec<Collection>>,
     pub collecting: bool,
+    pub suggestions: Option<Suggestions>,
+    pub pending_suggestion: Option<usize>,
+    pub suggestion_request: u64,
     pub measures: Measures,
     pub asked: HashSet<(String, Mod)>,
     pub notice: Option<Notice>,
@@ -239,6 +259,9 @@ impl State {
             reading: false,
             collections: None,
             collecting: false,
+            suggestions: None,
+            pending_suggestion: None,
+            suggestion_request: 0,
             measures: Measures::default(),
             asked: HashSet::new(),
             notice: None,
@@ -316,6 +339,9 @@ impl State {
     }
 
     fn save(&mut self, at: usize, now: i64) {
+        if self.suggestions.as_ref().is_some_and(|suggestion| self.list.get(at).is_some_and(|pool| pool.id == suggestion.pool && pool.fingerprint() != suggestion.fingerprint)) {
+            self.cancel_suggestion();
+        }
         if let Some(pool) = self.list.get_mut(at) {
             pool.changed_at = now;
             let _ = pools::save(&self.dir, pool);
@@ -389,6 +415,64 @@ impl State {
         }
     }
 
+    fn cancel_suggestion(&mut self) {
+        if let Some(suggestion) = self.suggestions.take() {
+            suggestion.stop.store(true, Ordering::SeqCst);
+        }
+        self.pending_suggestion = None;
+    }
+
+    fn suggest_slot(&mut self, slot: usize) -> Vec<Effect> {
+        let Some((id, fingerprint, mods, target, excluded, has_maps)) = self.editing().and_then(|pool| {
+            let entry = pool.slots.get(slot)?;
+            entry.is_empty().then(|| (
+                pool.id.clone(),
+                pool.fingerprint(),
+                entry.mods,
+                suggestion_target(pool, slot),
+                pool.slots.iter().filter_map(|slot| slot.hash.clone()).collect::<HashSet<_>>(),
+                pool.filled() > 0,
+            ))
+        }) else { return Vec::new() };
+        self.cancel_suggestion();
+        if let Some(Finding::Fetching(fetching)) = &self.finding {
+            fetching.stop.store(true, Ordering::SeqCst);
+        }
+        self.finding = None;
+        self.notice = None;
+        if let Some(editor) = self.editor_mut() {
+            editor.selected = Some(slot);
+            editor.panel = Panel::Add;
+            editor.source = SourceTab::Suggest;
+        }
+        self.suggestion_request = self.suggestion_request.wrapping_add(1);
+        let request = self.suggestion_request;
+        let stop = Arc::new(AtomicBool::new(false));
+        self.suggestions = Some(Suggestions { request, pool: id, fingerprint, slot, mods, target, maps: target.is_none().then(Vec::new), stop: stop.clone() });
+        let Some(target) = target else {
+            if has_maps && self.songs.is_none() {
+                self.pending_suggestion = Some(slot);
+                if !self.reading {
+                    self.reading = true;
+                    return vec![Effect::ReadSongs];
+                }
+            }
+            return Vec::new();
+        };
+        match self.songs.clone() {
+            Some(songs) => vec![Effect::Suggest(request, songs, mods, target, excluded, stop)],
+            None => {
+                self.pending_suggestion = Some(slot);
+                if !self.reading {
+                    self.reading = true;
+                    vec![Effect::ReadSongs]
+                } else {
+                    Vec::new()
+                }
+            }
+        }
+    }
+
     pub fn update(&mut self, message: Message, now: i64) -> Vec<Effect> {
         let mut effects = Vec::new();
         match message {
@@ -410,6 +494,7 @@ impl State {
                 }
             }
             Message::Back => {
+                self.cancel_suggestion();
                 if let (Some(at), Screen::Editor(editor)) = (self.editing_at(), self.screen.clone()) {
                     if editor.untouched && self.list[at].filled() == 0 && self.list[at].name.is_empty() {
                         let id = self.list.remove(at).id;
@@ -445,6 +530,7 @@ impl State {
                 }
             }
             Message::Select(slot) => {
+                self.cancel_suggestion();
                 self.notice = None;
                 if let Some(editor) = self.editor_mut() {
                     editor.selected = slot;
@@ -494,6 +580,9 @@ impl State {
                 }
             }
             Message::AddPanel(open) => {
+                if !open {
+                    self.cancel_suggestion();
+                }
                 self.notice = None;
                 if let Some(editor) = self.editor_mut() {
                     editor.replace = false;
@@ -505,6 +594,16 @@ impl State {
                 }
             }
             Message::Source(source) => {
+                if source == SourceTab::Suggest {
+                    if let Some(slot) = self.editing().and_then(|pool| match &self.screen {
+                        Screen::Editor(editor) => editor.selected.filter(|slot| pool.slots.get(*slot).is_some_and(Slot::is_empty)).or_else(|| pool.first_empty()),
+                        _ => None,
+                    }) {
+                        effects.extend(self.suggest_slot(slot));
+                    }
+                } else {
+                    self.cancel_suggestion();
+                }
                 if let Some(editor) = self.editor_mut() {
                     editor.panel = Panel::Add;
                     editor.source = source;
@@ -545,6 +644,21 @@ impl State {
             Message::Collections(collections) => {
                 self.collections = Some(collections);
                 self.collecting = false;
+            }
+            Message::Suggest(slot) => effects.extend(self.suggest_slot(slot)),
+            Message::Suggested(request, maps) => {
+                let current = self.suggestions.as_ref().filter(|suggestion| suggestion.request == request).map(|suggestion| (suggestion.pool.clone(), suggestion.fingerprint.clone(), suggestion.slot, suggestion.mods));
+                if let Some((id, fingerprint, slot, mods)) = current {
+                    let valid = self.editing().is_some_and(|pool| pool.id == id && pool.fingerprint() == fingerprint && pool.slots.get(slot).is_some_and(|entry| entry.is_empty() && entry.mods == mods));
+                    if valid {
+                        for (hash, measure) in &maps {
+                            self.measures.put(hash, mods, Ok(*measure));
+                        }
+                        if let Some(suggestion) = &mut self.suggestions {
+                            suggestion.maps = Some(maps);
+                        }
+                    }
+                }
             }
             Message::Query(query) => {
                 self.notice = None;
@@ -784,6 +898,7 @@ impl State {
             }
             Message::DeletePool => {
                 if let Some(at) = self.editing_at() {
+                    self.cancel_suggestion();
                     let id = self.list.remove(at).id;
                     let _ = pools::remove(&self.dir, &id);
                     self.undo.retain(|(pool, _)| *pool != id);
@@ -811,10 +926,16 @@ impl State {
                 self.songs = Some(songs);
                 self.reading = false;
                 effects.extend(self.measure_effects());
+                if let Some(slot) = self.pending_suggestion.take() {
+                    effects.extend(self.suggest_slot(slot));
+                }
             }
             Message::Measured(hash, mods, said) => {
                 self.measures.put(&hash, mods, said);
                 self.apply_measures();
+                if let Some(slot) = self.suggestions.as_ref().filter(|suggestion| suggestion.target.is_none()).map(|suggestion| suggestion.slot) {
+                    effects.extend(self.suggest_slot(slot));
+                }
             }
         }
         effects
@@ -849,6 +970,8 @@ impl State {
                 return Vec::new();
             }
         }
+        let picked_suggestion = matches!(&self.screen, Screen::Editor(editor) if editor.source == SourceTab::Suggest);
+        self.cancel_suggestion();
         self.remember(at);
         let pool = &mut self.list[at];
         let slot = match aimed {
@@ -869,6 +992,10 @@ impl State {
             editor.untouched = false;
             editor.replace = false;
             editor.selected = Some(slot);
+            if picked_suggestion {
+                editor.panel = Panel::Slot;
+                editor.source = SourceTab::Search;
+            }
         }
         self.save(at, now);
         self.measure_effects()
@@ -1138,6 +1265,13 @@ impl State {
                                 }
                             }
                         }
+                        SourceTab::Suggest => {
+                            if let Some(maps) = self.suggestions.as_ref().and_then(|suggestion| suggestion.maps.as_ref()) {
+                                for (hash, _) in maps {
+                                    add(hash);
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -1174,6 +1308,20 @@ fn shift_in<T>(items: &mut [T], marked: &[usize], down: bool) -> Vec<usize> {
 fn shifted(marked: &[usize], length: usize, down: bool) -> Vec<usize> {
     let mut placeholder = vec![(); length];
     shift_in(&mut placeholder, marked, down)
+}
+
+fn suggestion_target(pool: &Pool, slot: usize) -> Option<f64> {
+    let valid = |entry: &Slot| entry.measure.map(|measure| measure.stars).filter(|stars| stars.is_finite() && *stars > 0.0);
+    let left = pool.slots.get(..slot)?.iter().rev().find_map(valid);
+    let right = pool.slots.get(slot + 1..)?.iter().find_map(valid);
+    match (left, right) {
+        (Some(left), Some(right)) => Some((left + right) / 2.0),
+        (Some(stars), None) | (None, Some(stars)) => Some(stars),
+        (None, None) => {
+            let measured: Vec<f64> = pool.slots.iter().filter_map(valid).collect();
+            (!measured.is_empty()).then(|| measured.iter().sum::<f64>() / measured.len() as f64)
+        }
+    }
 }
 
 fn file_name_of(pool: &Pool) -> String {
@@ -1583,12 +1731,16 @@ fn slot_row<'a>(pool: &'a Pool, at: usize, selected: bool, choosing: bool, words
             .into()
         }
     };
-    button(container(inside).height(ROW_HIGH).align_y(iced::Center))
+    let row_button = button(container(inside).height(ROW_HIGH).align_y(iced::Center))
         .padding([4, 10])
         .width(Length::Fill)
         .style(ui::button_faded(row_style(selected)))
-        .on_press(if choosing { Message::Mark(at) } else { Message::Select(Some(at)) })
-        .into()
+        .on_press(if choosing { Message::Mark(at) } else { Message::Select(Some(at)) });
+    if slot.is_empty() && !choosing {
+        row![row_button, quiet_button(words.t("pool-suggest"), Message::Suggest(at))].spacing(8).align_y(iced::Center).into()
+    } else {
+        row_button.into()
+    }
 }
 
 fn mod_ribbon<'a>(words: &Words, slot: usize, current: Mod) -> Element<'a, Message> {
@@ -1606,54 +1758,6 @@ fn mod_ribbon<'a>(words: &Words, slot: usize, current: Mod) -> Element<'a, Messa
 
 fn figure<'a>(label: String, value: String, size: f32, colour: Color) -> Element<'a, Message> {
     column![ui::mono_small(label, FAINT), text(value).font(theme::MONO_BOLD).size(size).wrapping(text::Wrapping::None).color(ui::faded(colour))].spacing(4).into()
-}
-
-struct Print {
-    shares: [f64; 4],
-    alpha: f32,
-}
-
-impl iced::widget::canvas::Program<Message> for Print {
-    type State = ();
-
-    fn draw(&self, _: &(), renderer: &iced::Renderer, _: &iced::Theme, bounds: iced::Rectangle, _: iced::mouse::Cursor) -> Vec<iced::widget::canvas::Geometry> {
-        use iced::widget::canvas::{Fill, Frame, Path, Stroke};
-        let mut frame = Frame::new(renderer, bounds.size());
-        let centre = iced::Point::new(bounds.width / 2.0, bounds.height / 2.0);
-        let reach = bounds.width.min(bounds.height) / 2.0 - 2.0;
-        let on_axis = |at: usize, length: f32| match at {
-            0 => iced::Point::new(centre.x, centre.y - length),
-            1 => iced::Point::new(centre.x + length, centre.y),
-            2 => iced::Point::new(centre.x, centre.y + length),
-            _ => iced::Point::new(centre.x - length, centre.y),
-        };
-        let frame_line = Path::new(|path| {
-            path.move_to(on_axis(0, reach));
-            for at in 1..4 {
-                path.line_to(on_axis(at, reach));
-            }
-            path.close();
-        });
-        frame.stroke(&frame_line, Stroke::default().with_color(Color::from_rgba(1.0, 1.0, 1.0, 0.12 * self.alpha)).with_width(1.0));
-        let figure = Path::new(|path| {
-            for (at, share) in self.shares.iter().enumerate() {
-                let length = reach * ((*share as f32) / 0.5).clamp(0.18, 1.0);
-                if at == 0 {
-                    path.move_to(on_axis(at, length));
-                } else {
-                    path.line_to(on_axis(at, length));
-                }
-            }
-            path.close();
-        });
-        frame.fill(&figure, Fill::from(Color { a: 0.18 * self.alpha, ..ACCENT }));
-        frame.stroke(&figure, Stroke::default().with_color(Color { a: self.alpha, ..ACCENT }).with_width(1.5).with_line_join(iced::widget::canvas::LineJoin::Round));
-        vec![frame.into_geometry()]
-    }
-}
-
-fn print_figure<'a>(shares: [f64; 4], side: f32) -> Element<'a, Message> {
-    iced::widget::Canvas::new(Print { shares, alpha: ui::fade() }).width(side).height(side).into()
 }
 
 fn balance_line<'a>(pool: &Pool, words: &Words) -> Option<Element<'a, Message>> {
@@ -1898,16 +2002,13 @@ fn add_panel<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, words: &'
     let tabs = row![
         button(text(words.t("pool-tab-search")).font(theme::SANS_SEMI).size(13.5)).padding([8, 16]).style(ui::button_faded(theme::filter_chip(editor.source == SourceTab::Search))).on_press(Message::Source(SourceTab::Search)),
         button(text(words.t("pool-tab-collections")).font(theme::SANS_SEMI).size(13.5)).padding([8, 16]).style(ui::button_faded(theme::filter_chip(editor.source == SourceTab::Collections))).on_press(Message::Source(SourceTab::Collections)),
+        button(text(words.t("pool-tab-suggest")).font(theme::SANS_SEMI).size(13.5)).padding([8, 16]).style(ui::button_faded(theme::filter_chip(editor.source == SourceTab::Suggest))).on_press(Message::Source(SourceTab::Suggest)),
         ui::grow(),
         button(glyph(Icon::Close, 14.0, FAINT)).padding([6, 8]).style(ui::button_faded(theme::bare)).on_press(Message::AddPanel(false)),
     ]
     .spacing(8)
     .align_y(iced::Center);
     body = body.push(tabs);
-    match target(pool, editor).and_then(|at| pool.slots.get(at).map(|slot| (at, slot))) {
-        Some((at, slot)) => body = body.push(faded_text(words.with("pool-for-slot", &[("n", (at + 1).to_string()), ("mod", slot.mods.code().to_owned())]), 13.0, MUTED)),
-        None => body = body.push(faded_text(words.t("pool-for-end"), 13.0, MUTED)),
-    }
     if editor.source == SourceTab::Collections {
         if let Some(Notice::Already(at)) = &state.notice {
             body = body.push(faded_text(words.with("pool-already", &[("n", (at + 1).to_string())]), 13.0, ACCENT));
@@ -1916,6 +2017,10 @@ fn add_panel<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, words: &'
             body = body.push(finding_card(finding, editor, pool, words));
         }
         body = body.push(collection_panel(state, editor, words, thumbs));
+        return panel_box(body.into());
+    }
+    if editor.source == SourceTab::Suggest {
+        body = body.push(suggestion_panel(state, words, thumbs));
         return panel_box(body.into());
     }
     body = body.push(
@@ -1960,6 +2065,39 @@ fn add_panel<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, words: &'
     panel_box(body.into())
 }
 
+fn suggestion_panel<'a>(state: &'a State, words: &'a Words, thumbs: &'a HashMap<String, image::Handle>) -> Element<'a, Message> {
+    let Some(suggestion) = &state.suggestions else {
+        return para(words.t("pool-suggest-no-slot"), 13.0, MUTED);
+    };
+    let Some(target) = suggestion.target else {
+        return para(words.t("pool-suggest-needs-map"), 13.0, MUTED);
+    };
+    let Some(maps) = &suggestion.maps else {
+        return para(words.t("pool-suggest-running"), 13.0, MUTED);
+    };
+    if maps.is_empty() {
+        return para(words.t("pool-suggest-empty"), 13.0, MUTED);
+    }
+    let mut list = column![].spacing(2);
+    for (hash, measure) in maps {
+        let Some(map) = state.songs.as_ref().and_then(|songs| songs.get(hash)) else { continue };
+        let inside = row![
+            cover(thumbs, Some(hash), 56.0, 32.0, THUMB_ROUND),
+            column![semi(map.title.clone(), 13.5, INK), faded_text(map.artist.clone(), 12.0, MUTED), mono(map.version.clone(), 11.0, FAINT)].spacing(1).width(Length::Fill),
+            mono(stars_of(words, measure.stars), 12.5, crate::dossier::star_colour(measure.stars as f32)),
+        ]
+        .spacing(12)
+        .align_y(iced::Center);
+        list = list.push(button(inside).padding([6, 8]).width(Length::Fill).style(ui::button_faded(ui::calm(theme::row(false)))).on_press(Message::Put(hash.clone())));
+    }
+    column![
+        faded_text(words.with("pool-suggest-target", &[("stars", stars_of(words, target))]), 12.5, MUTED),
+        scrollable(list).height(Length::Fixed(420.0)).direction(ui::hidden_bar()).style(ui::thin_scroll),
+    ]
+    .spacing(12)
+    .into()
+}
+
 fn collection_panel<'a>(state: &'a State, editor: &'a Editor, words: &'a Words, thumbs: &'a HashMap<String, image::Handle>) -> Element<'a, Message> {
     let Some(collections) = &state.collections else {
         return para(words.t("pool-collections-reading"), 13.0, MUTED);
@@ -1974,21 +2112,11 @@ fn collection_panel<'a>(state: &'a State, editor: &'a Editor, words: &'a Words, 
     let Some(collection) = editor.collection.and_then(|at| collections.get(at)) else {
         let mut list = column![].spacing(4);
         for (at, collection) in collections.iter().enumerate() {
-            let found = collection.hashes.iter().filter(|hash| songs.is_some_and(|songs| songs.contains_key(*hash))).count();
-            let info = words.with("pool-collection-local", &[("found", found.to_string()), ("total", collection.hashes.len().to_string())]);
-            list = list.push(button(column![semi(collection.name.clone(), 13.5, INK), mono(info, 11.5, MUTED)].spacing(3).width(Length::Fill)).padding([9, 10]).width(Length::Fill).style(ui::button_faded(ui::calm(theme::row(false)))).on_press(Message::Collection(Some(at))));
+            list = list.push(button(semi(collection.name.clone(), 13.5, INK)).padding([9, 10]).width(Length::Fill).style(ui::button_faded(ui::calm(theme::row(false)))).on_press(Message::Collection(Some(at))));
         }
         return scrollable(list).height(Length::Fixed(420.0)).direction(ui::hidden_bar()).style(ui::thin_scroll).into();
     };
-    let found = collection.hashes.iter().filter(|hash| songs.is_some_and(|songs| songs.contains_key(*hash))).count();
-    let info = words.with("pool-collection-local", &[("found", found.to_string()), ("total", collection.hashes.len().to_string())]);
-    let heading = row![
-        quiet_button(words.t("pool-collection-back"), Message::Collection(None)),
-        ui::grow(),
-        mono(info, 11.5, MUTED),
-    ]
-    .spacing(8)
-    .align_y(iced::Center);
+    let heading = quiet_button(words.t("pool-collection-back"), Message::Collection(None));
     let pages = collection.hashes.len().div_ceil(COLLECTION_PAGE).max(1);
     let page = editor.collection_page.min(pages - 1);
     let mut list = column![].spacing(2);
@@ -2186,7 +2314,6 @@ fn open_view<'a>(state: &'a State, opening: &'a Opening, words: &'a Words, thumb
 }
 
 fn editor_view<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, words: &'a Words, thumbs: &'a HashMap<String, image::Handle>, width: f32, t: f32) -> Element<'a, Message> {
-    let facts = pool.facts();
     let name_wide = (pool.name.chars().count().max(10) as f32 * 15.5 + 24.0).clamp(240.0, 560.0);
     let field = text_input(&words.t("pool-name-hint"), &pool.name)
         .on_input(Message::Rename)
@@ -2195,10 +2322,7 @@ fn editor_view<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, words: 
         .padding(0)
         .style(ui::bare_input(ui::fade()))
         .width(name_wide);
-    let name: Element<'a, Message> = match pool.profile() {
-        Some(shares) => row![field, print_figure(shares, 30.0)].spacing(14).align_y(iced::Center).into(),
-        None => field.into(),
-    };
+    let name: Element<'a, Message> = field.into();
     let mut buttons = row![].spacing(10).align_y(iced::Center);
     if pool.filled() > 0 {
         buttons = buttons.push(quiet_button(words.t("pool-share"), Message::Share(true)));
@@ -2224,12 +2348,8 @@ fn editor_view<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, words: 
         }
         under = under.push(chips);
     } else {
-        let mut line = row![mono(words.n("pool-cards", facts.cards as u64), 13.0, MUTED), mono(words.n("pool-minutes", facts.minutes.max(0) as u64), 13.0, MUTED)].spacing(20).align_y(iced::Center);
-        if let (Some(low), Some(high)) = (facts.low, facts.high) {
-            line = line.push(mono(words.with("pool-range", &[("low", stars_of(words, low)), ("high", stars_of(words, high))]), 13.0, MUTED));
-        }
         let undoable = state.undo.iter().any(|(id, _)| *id == pool.id);
-        let mut tools = row![line, ui::grow()].spacing(12).align_y(iced::Center);
+        let mut tools = row![ui::grow()].spacing(12).align_y(iced::Center);
         if undoable {
             tools = tools.push(button(text(words.t("pool-undo")).font(theme::SANS_SEMI).size(13.0).color(ui::faded(MUTED))).padding([6, 10]).style(ui::button_faded(theme::bare)).on_press(Message::Undo));
         }
@@ -2362,6 +2482,40 @@ mod tests {
         let effects = state.update(Message::CollectionHash(missing.clone()), 1_790_000_006);
         assert!(matches!(effects.as_slice(), [Effect::Resolve(Target::Hash(hash))] if hash == &missing));
         assert!(matches!(state.finding, Some(Finding::Asking)));
+    }
+
+    #[test]
+    fn suggestions_match_neighbours_ignore_stale_answers_and_fill_the_empty_slot() {
+        let mut state = state_with_songs("suggestions");
+        open_new(&mut state);
+        state.update(Message::Put("a1".into()), 1_790_000_001);
+        state.update(Message::Measured("a1".into(), Mod::Nm, Ok(measure(5.0))), 1_790_000_002);
+        let effects = state.update(Message::Suggest(1), 1_790_000_003);
+        let request = match effects.as_slice() {
+            [Effect::Suggest(request, _, Mod::Nm, target, excluded, _)] if *target == 5.0 && excluded.contains("a1") => *request,
+            _ => panic!("the empty slot needs a background suggestion scan"),
+        };
+        state.update(Message::Suggested(request + 1, vec![("b2".into(), measure(5.1))]), 1_790_000_004);
+        assert!(state.suggestions.as_ref().unwrap().maps.is_none());
+        state.update(Message::Suggested(request, vec![("b2".into(), measure(5.1))]), 1_790_000_005);
+        assert_eq!(state.suggestions.as_ref().unwrap().maps.as_ref().unwrap().len(), 1);
+        state.update(Message::Put("b2".into()), 1_790_000_006);
+        assert_eq!(state.editing().unwrap().slots[1].hash.as_deref(), Some("b2"));
+        assert_eq!(state.editing().unwrap().slots[1].measure.unwrap().stars, 5.1);
+        assert!(state.suggestions.is_none());
+        assert!(matches!(state.screen, Screen::Editor(Editor { panel: Panel::Slot, .. })));
+    }
+
+    #[test]
+    fn suggestion_target_uses_the_nearest_maps_on_both_sides() {
+        let mut pool = Pool::new(Frame::Duel, "Test", 1);
+        pool.slots[0].measure = Some(measure(4.0));
+        pool.slots[2].measure = Some(measure(6.0));
+        pool.slots[5].measure = Some(measure(8.0));
+        assert_eq!(suggestion_target(&pool, 1), Some(5.0));
+        assert_eq!(suggestion_target(&pool, 3), Some(7.0));
+        assert_eq!(suggestion_target(&pool, 6), Some(8.0));
+        assert_eq!(suggestion_target(&Pool::new(Frame::Duel, "Empty", 1), 1), None);
     }
 
     #[test]

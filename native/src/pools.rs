@@ -1,5 +1,6 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use dossier_replay::{bits, Mods};
 
@@ -411,6 +412,34 @@ pub fn measure(map: &Map, hash: &str, mods: Mod) -> Result<Measure, String> {
     measure_text(&found.text, mods)
 }
 
+pub fn suggest(songs: &HashMap<String, Map>, mods: Mod, target: f64, excluded: &HashSet<String>, stop: &AtomicBool) -> Vec<(String, Measure)> {
+    let mut best: Vec<(String, Measure)> = Vec::new();
+    for (hash, map) in songs {
+        if stop.load(Ordering::Relaxed) {
+            return Vec::new();
+        }
+        if excluded.contains(hash) {
+            continue;
+        }
+        let Ok(measure) = measure(map, hash, mods) else { continue };
+        if !measure.stars.is_finite() {
+            continue;
+        }
+        keep_closest(&mut best, hash.clone(), measure, target);
+    }
+    best
+}
+
+fn keep_closest(best: &mut Vec<(String, Measure)>, hash: String, measure: Measure, target: f64) {
+    let place = best.partition_point(|(other_hash, other)| {
+        (other.stars - target).abs().total_cmp(&(measure.stars - target).abs()).then_with(|| other_hash.cmp(&hash)).is_lt()
+    });
+    if place < 8 {
+        best.insert(place, (hash, measure));
+        best.truncate(8);
+    }
+}
+
 #[derive(Debug, Default, Clone)]
 pub struct Measures {
     done: HashMap<(String, Mod), Result<Measure, String>>,
@@ -469,6 +498,33 @@ mod tests {
         assert_eq!(a.first_empty(), Some(0));
         assert_ne!(a.id, b.id);
         assert_eq!(a.facts(), Facts { cards: 0, minutes: 0, low: None, high: None });
+    }
+
+    #[test]
+    fn closest_candidates_stay_sorted_and_bounded() {
+        let base = measure_text(&corpus(), Mod::Nm).unwrap();
+        let mut best = Vec::new();
+        for (hash, stars) in [("far", 8.0), ("b", 5.2), ("a", 4.8), ("near", 5.01), ("c", 5.4), ("d", 5.5), ("e", 5.6), ("f", 5.7), ("g", 5.8), ("h", 5.9)] {
+            keep_closest(&mut best, hash.to_owned(), Measure { stars, ..base }, 5.0);
+        }
+        assert_eq!(best.len(), 8);
+        assert_eq!(best[0].0, "near");
+        assert_eq!((best[1].0.as_str(), best[2].0.as_str()), ("a", "b"));
+        assert!(!best.iter().any(|(hash, _)| hash == "far"));
+    }
+
+    #[test]
+    fn suggestion_scan_measures_local_maps_and_honours_exclusion_and_cancellation() {
+        let file = Path::new(env!("CARGO_MANIFEST_DIR")).join("../crates/dossier-assay/corpus/maps/5114204.osu");
+        let hash = library::md5_hex(&std::fs::read(&file).unwrap());
+        let songs = HashMap::from([(hash.clone(), Map { file, artist: "A".into(), title: "B".into(), version: "C".into(), background: None })]);
+        let stop = AtomicBool::new(false);
+        let found = suggest(&songs, Mod::Nm, 5.0, &HashSet::new(), &stop);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].0, hash);
+        assert!(suggest(&songs, Mod::Nm, 5.0, &HashSet::from([hash]), &stop).is_empty());
+        stop.store(true, Ordering::Relaxed);
+        assert!(suggest(&songs, Mod::Nm, 5.0, &HashSet::new(), &stop).is_empty());
     }
 
     #[test]

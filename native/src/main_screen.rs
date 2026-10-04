@@ -1469,6 +1469,12 @@ impl Main {
                         Message::Community(crate::community_screen::Message::Pools(P::Collections(found)))
                     }));
                 }
+                Effect::Suggest(request, songs, mods, target, excluded, stop) => {
+                    tasks.push(ui::in_thread(move || {
+                        let found = crate::pools::suggest(&songs, mods, target, &excluded, &stop);
+                        Message::Community(crate::community_screen::Message::Pools(P::Suggested(request, found)))
+                    }));
+                }
                 Effect::Measure(hash, map, mods) => {
                     tasks.push(ui::in_thread(move || {
                         let said = crate::pools::measure(&map, &hash, mods);

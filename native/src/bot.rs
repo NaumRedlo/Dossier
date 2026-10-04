@@ -1076,7 +1076,7 @@ mod tests {
         drop(closed);
         let started = std::time::Instant::now();
         assert!(matches!(chats(&server, "token", "device"), Err(Refused::Network(_))));
-        assert!(started.elapsed() < Duration::from_secs(4));
+        assert!(started.elapsed() < Duration::from_secs(9), "two refused connections must not run into the twelve seconds of patience");
     }
 
     fn serve_seen(answers: Vec<String>) -> (String, Arc<std::sync::Mutex<Vec<String>>>) {

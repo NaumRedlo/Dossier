@@ -67,7 +67,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: native
-      - run: cargo test --release
+      - run: cargo test --release --no-fail-fast
         working-directory: native
       - if: failure()
         uses: actions/upload-artifact@v4

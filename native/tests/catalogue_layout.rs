@@ -477,7 +477,7 @@ fn profile_country_rank_selects_the_chart_and_title_has_no_holder_fraction() {
             assert_eq!(main.dossier_metric, dossier_native::dossier::Metric::CountryRank);
             let mut ui = Simulator::with_size(dossier_native::settings(), Size::new(width, 900.0), gallery::main_frame(&main, &backdrop));
             let heading = format!("{}  {}", main.words.t("metric-country"), main.words.n("days-long", 90)).to_uppercase();
-            assert!(ui.find(heading).is_ok());
+            assert!(ui.find(heading).is_err());
             if let Ok(dir) = std::env::var("DOSSIER_PROFILE_REVIEW") {
                 std::fs::create_dir_all(&dir).unwrap();
                 let stem = std::path::Path::new(&dir).join(format!("profile-{}-{}", lang.tag(), width as u32));

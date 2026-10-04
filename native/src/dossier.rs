@@ -812,7 +812,7 @@ fn chart<'a>(ground: &Ground<'a>, whose: &Whose<'a>, t: f32) -> Element<'a, Mess
     let k = ui::fade();
     let ranges = ui::sliding(ranges, if ground.span == 30 { 0 } else { 1 }, ui::Pill { fill: Color::from_rgba(1.0, 1.0, 1.0, 0.06), edge: Color::TRANSPARENT, radius: 6.0, underline: None });
     let control = container(ranges).padding(2).style(move |_| container::Style { background: Some(Background::Color(Color::from_rgba(0.0, 0.0, 0.0, 0.25 * k))), border: Border { radius: 8.0.into(), ..Border::default() }, ..container::Style::default() });
-    let mut head = row![caption(format!("{}  {}", w.t(metric.key()), w.n("days-long", u64::from(ground.span))))].spacing(10).align_y(iced::Center);
+    let mut head = row![].spacing(10).align_y(iced::Center);
     if let Some((said, better)) = delta(w, metric, &data) {
         head = head.push(change(metric, said, better));
     }
@@ -989,6 +989,37 @@ fn badge_pill<'a>(inside: Element<'a, Message>, fill: Color) -> Element<'a, Mess
         .into()
 }
 
+struct PosterCorners {
+    alpha: f32,
+}
+
+impl canvas::Program<Message> for PosterCorners {
+    type State = ();
+
+    fn draw(&self, _: &(), renderer: &Renderer, _: &Theme, bounds: Rectangle, _: mouse::Cursor) -> Vec<Geometry> {
+        let mut frame = Frame::new(renderer, bounds.size());
+        let radius = 14.0_f32.min(bounds.width / 2.0).min(bounds.height);
+        let bend = radius * 0.552_284_8;
+        let left = Path::new(|path| {
+            path.move_to(Point::ORIGIN);
+            path.line_to(Point::new(radius, 0.0));
+            path.bezier_curve_to(Point::new(radius - bend, 0.0), Point::new(0.0, radius - bend), Point::new(0.0, radius));
+            path.close();
+        });
+        let right = Path::new(|path| {
+            path.move_to(Point::new(bounds.width - radius, 0.0));
+            path.line_to(Point::new(bounds.width, 0.0));
+            path.line_to(Point::new(bounds.width, radius));
+            path.bezier_curve_to(Point::new(bounds.width, radius - bend), Point::new(bounds.width - radius + bend, 0.0), Point::new(bounds.width - radius, 0.0));
+            path.close();
+        });
+        let fill = Color::from_rgba(0.055, 0.025, 0.033, self.alpha);
+        frame.fill(&left, fill);
+        frame.fill(&right, fill);
+        vec![frame.into_geometry()]
+    }
+}
+
 fn poster_card<'a>(ground: &Ground<'a>, index: usize, poster: &Poster<'a>, chosen: bool, wide: f32, f: f64) -> Element<'a, Message> {
     let w = ground.words;
     let colour = screen::grade_colour(&poster.grade);
@@ -1003,13 +1034,13 @@ fn poster_card<'a>(ground: &Ground<'a>, index: usize, poster: &Poster<'a>, chose
     let (high, picture): (f32, Element<'a, Message>) = match poster.art.or(poster.cover.filter(fits)) {
         Some(handle) => {
             let high = (wide / shape(handle)).clamp(86.0, 150.0);
-            let picture = ui::framed(handle, wide, high, 13.0).opacity(k);
+            let picture = iced::widget::image(handle.clone()).width(Length::Fill).height(high).content_fit(iced::ContentFit::Fill).border_radius(13.0).opacity(k);
             (high, container(picture).width(Length::Fill).height(high).clip(true).into())
         }
         None => {
             let high = (wide / crate::community::POSTER_SHAPE).clamp(86.0, 150.0);
             let picture: Element<'a, Message> = match poster.cover {
-                Some(handle) => container(ui::framed(handle, wide, high, 13.0).opacity(k)).width(Length::Fill).height(high).clip(true).into(),
+                Some(handle) => container(iced::widget::image(handle.clone()).width(Length::Fill).height(high).content_fit(iced::ContentFit::Fill).border_radius(13.0).opacity(k)).width(Length::Fill).height(high).clip(true).into(),
                 None => container(ui::fine_hatch()).width(Length::Fill).height(high).into(),
             };
             (high, picture)
@@ -1066,6 +1097,7 @@ fn poster_card<'a>(ground: &Ground<'a>, index: usize, poster: &Poster<'a>, chose
     let foot = row![mods, ui::grow(), seal].align_y(iced::alignment::Vertical::Bottom);
     let top = stack![
         picture,
+        Canvas::new(PosterCorners { alpha: k }).width(Length::Fill).height(high),
         shade,
         dusk,
         container(head).padding(Padding { top: 2.0, right: 8.0, bottom: 0.0, left: 12.0 }).width(Length::Fill).height(high),
@@ -1091,7 +1123,7 @@ fn poster_card<'a>(ground: &Ground<'a>, index: usize, poster: &Poster<'a>, chose
     ]
     .spacing(6)
     .padding(Padding { top: 0.0, right: 12.0, bottom: 12.0, left: 12.0 });
-    let card = container(column![top, body].spacing(0)).width(Length::Fill).style(move |_| container::Style {
+    let card = container(column![top, body].spacing(0)).width(Length::Fill).clip(true).style(move |_| container::Style {
         background: Some(Background::Color(Color { a: k, ..ground_colour })),
         border: Border { radius: 14.0.into(), ..Border::default() },
         shadow: if chosen { Shadow { color: Color { a: 0.28 * k, ..colour }, offset: Vector::ZERO, blur_radius: 24.0 } } else { Shadow::default() },

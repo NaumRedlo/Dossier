@@ -72,7 +72,7 @@ pub const WINDOW: Size = Size::new(980.0, 720.0);
 pub const MINIMUM: Size = Size::new(760.0, 560.0);
 
 pub fn minimum_window(chosen: u32) -> Size {
-    if chosen == 0 { MINIMUM } else { ui::viewport_at(MINIMUM, ui::scale_of(chosen), 1.0) }
+    ui::viewport_at(MINIMUM, ui::scale_of(chosen), 1.0)
 }
 
 pub fn refit_window<T: Send + 'static>(fit: Option<Size>, minimum: Size) -> Task<T> {
@@ -338,7 +338,6 @@ impl App {
             }
             Message::Opened(size) => {
                 self.viewport = size;
-                ui::set_auto_scale(ui::auto_scale_for(size));
                 self.opened = true;
                 self.keep_tray();
                 self.handle(Message::Measure)
@@ -380,17 +379,19 @@ impl App {
             Message::Viewport(size) => {
                 if size.width <= 0.0 || size.height <= 0.0 { return Task::none(); }
                 self.viewport = size;
-                ui::set_auto_scale(ui::auto_scale_for(size));
                 Task::none()
             }
             Message::Monitor(None) => Task::none(),
             Message::Monitor(Some(monitor)) => {
+                let auto = ui::auto_scale_for(monitor.height);
                 let first = !self.measured;
                 self.measured = true;
-                if !first { return Task::none(); }
+                if !first && auto == ui::auto_scale() { return Task::none(); }
+                ui::set_auto_scale(auto);
                 let room = Size::new(monitor.width * 0.94, monitor.height * 0.9);
-                let fit = Size::new(self.viewport.width.min(room.width), self.viewport.height.min(room.height));
-                refit_window((fit != self.viewport).then_some(fit), minimum_window(self.chosen_scale()))
+                let minimum = minimum_window(self.chosen_scale());
+                let fit = Size::new(self.viewport.width.max(minimum.width.min(room.width)).min(room.width), self.viewport.height.max(minimum.height.min(room.height)).min(room.height));
+                refit_window((fit != self.viewport).then_some(fit), minimum)
             }
             Message::Snap => iced::window::oldest().map(Message::Snapped),
             Message::Snapped(Some(id)) => iced::window::screenshot(id).map(Message::Shot),
@@ -494,11 +495,12 @@ mod workspace_tests {
         ui::set_auto_scale(100);
         let main = Main::staged(Words::new(lang::Lang::En), Settings::default(), library::Library::default(), None);
         let mut app = App { screen: Screen::Main(main), backdrop: image::Handle::from_rgba(1, 1, vec![0, 0, 0, 255]), viewport: WINDOW, measured: false, opened: false, tray: None, hidden: false };
+        let _ = app.update(Message::Monitor(Some(Size::new(1920.0, 1080.0))));
         for window in [Size::new(1512.0, 840.0), Size::new(1920.0, 1080.0), Size::new(2560.0, 1440.0), WINDOW] {
             for _ in 0..3 {
                 let _ = app.update(Message::Viewport(window));
                 let factor = app.scale_factor();
-                assert_eq!(factor, ui::auto_scale_for(window) as f32 / 100.0);
+                assert_eq!(factor, 1.0);
                 assert_eq!(minimum_window(0), MINIMUM);
                 assert_eq!(app.viewport, window);
                 let Screen::Main(main) = &app.screen else { panic!("main") };
@@ -506,6 +508,11 @@ mod workspace_tests {
                 assert_eq!((main.width, main.height), (viewport.width, viewport.height));
             }
         }
+        let _ = app.update(Message::Monitor(Some(Size::new(2560.0, 1440.0))));
+        assert_eq!(app.scale_factor(), 1.2);
+        let minimum = minimum_window(0);
+        assert!((minimum.width - 912.0).abs() < 0.001);
+        assert!((minimum.height - 672.0).abs() < 0.001);
         let Screen::Main(main) = &mut app.screen else { panic!("main") };
         main.settings.ui_scale = 125;
         let window = Size::new(1920.0, 1080.0);
@@ -534,7 +541,7 @@ mod workspace_tests {
             let _ = app.update(Message::Opened(size));
             let _ = app.update(Message::Viewport(size));
             let _ = app.update(Message::Monitor(Some(Size::new(1512.0, 982.0))));
-            assert_eq!(app.scale_factor(), 1.17);
+            assert_eq!(app.scale_factor(), 0.95);
             assert_eq!(app.viewport, size);
         }
         let mut screen = iced_test::Simulator::with_size(settings(), size, app.view());

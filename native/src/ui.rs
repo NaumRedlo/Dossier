@@ -479,9 +479,9 @@ pub fn set_auto_scale(percent: u32) {
     AUTO_SCALE.store(percent, std::sync::atomic::Ordering::Relaxed);
 }
 
-pub fn auto_scale_for(size: Size) -> u32 {
-    let fit = (size.width / 1280.0).min(size.height / 720.0).max(1.0);
-    (fit * 100.0).round().clamp(100.0, 300.0) as u32
+pub fn auto_scale_for(logical_height: f32) -> u32 {
+    let k = (logical_height / 1080.0).max(0.1).powf(0.7);
+    ((k * 20.0).round() * 5.0).clamp(80.0, 160.0) as u32
 }
 
 pub fn viewport_at(size: Size, before: f32, after: f32) -> Size {
@@ -4663,15 +4663,12 @@ mod tests {
     }
 
     #[test]
-    fn the_scale_keeps_the_workspace_proportions_and_the_window_grows_only_when_it_must() {
-        assert_eq!(auto_scale_for(Size::new(980.0, 720.0)), 100);
-        assert_eq!(auto_scale_for(Size::new(1280.0, 720.0)), 100);
-        assert_eq!(auto_scale_for(Size::new(1920.0, 1080.0)), 150);
-        assert_eq!(auto_scale_for(Size::new(2560.0, 1440.0)), 200);
-        assert_eq!(auto_scale_for(Size::new(3840.0, 2160.0)), 300);
-        assert_eq!(auto_scale_for(Size::new(3440.0, 720.0)), 100);
-        assert_eq!(auto_scale_for(Size::new(760.0, 560.0)), 100);
-        assert_eq!(auto_scale_for(Size::ZERO), 100);
+    fn the_scale_follows_the_monitor_and_the_window_grows_only_when_it_must() {
+        assert_eq!(auto_scale_for(1080.0), 100);
+        assert_eq!(auto_scale_for(1440.0), 120);
+        assert_eq!(auto_scale_for(768.0), 80);
+        assert_eq!(auto_scale_for(982.0), 95);
+        assert_eq!(auto_scale_for(4320.0), 160);
         let least = Size::new(980.0, 720.0);
         assert_eq!(refit(Size::new(980.0, 720.0), 1.0, 1.2, least), Some(least));
         assert_eq!(refit(Size::new(1600.0, 1000.0), 1.0, 1.2, least), None);
@@ -4682,13 +4679,13 @@ mod tests {
     #[test]
     fn repeated_resize_events_do_not_compound_the_automatic_scale() {
         let mut scale = 1.0;
-        for window in [Size::new(1920.0, 1080.0), Size::new(1280.0, 720.0), Size::new(2560.0, 1440.0), Size::new(980.0, 720.0)] {
+        for (height, window) in [(1080.0, Size::new(1920.0, 1080.0)), (768.0, Size::new(1280.0, 720.0)), (1440.0, Size::new(2560.0, 1440.0)), (982.0, Size::new(980.0, 720.0))] {
             let event = viewport_at(window, 1.0, scale);
-            let next = auto_scale_for(viewport_at(event, scale, 1.0)) as f32 / 100.0;
+            let next = auto_scale_for(height) as f32 / 100.0;
             let mut viewport = viewport_at(event, scale, next);
             scale = next;
             for _ in 0..20 {
-                let next = auto_scale_for(viewport_at(viewport, scale, 1.0)) as f32 / 100.0;
+                let next = auto_scale_for(height) as f32 / 100.0;
                 assert_eq!(next, scale);
                 viewport = viewport_at(viewport, scale, next);
             }

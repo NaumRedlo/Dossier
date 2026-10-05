@@ -272,7 +272,7 @@ pub fn snapshot_main(main: &crate::main_screen::Main, size: Size) -> Result<iced
     struct Restore(u32);
     impl Drop for Restore { fn drop(&mut self) { ui::set_auto_scale(self.0); } }
     let _restore = Restore(ui::auto_scale());
-    ui::set_auto_scale(ui::auto_scale_for(size));
+    ui::set_auto_scale(ui::auto_scale_for(1080.0));
     let backdrop = ui::backdrop_handle();
     let factor = ui::scale_of(main.settings.ui_scale);
     let mut frame = main.clone();

@@ -3736,6 +3736,16 @@ pub fn marquee(pieces: Vec<Piece>) -> Marquee {
     Marquee { pieces, width: Length::Fill, centred: false }
 }
 
+pub const SCROLL_LONG_TEXT: bool = true;
+
+pub fn moving_text<'a, Message: 'a>(words: String, font: iced::Font, size: f32, colour: Color) -> Element<'a, Message> {
+    if SCROLL_LONG_TEXT {
+        marquee(vec![piece(words, font, size, colour)]).into()
+    } else {
+        text(words).font(font).size(size).color(faded(colour)).width(Length::Fill).into()
+    }
+}
+
 impl Marquee {
     pub fn width(mut self, width: impl Into<Length>) -> Marquee {
         self.width = width.into();
@@ -3787,6 +3797,10 @@ fn glide(over: f32, spent: f32) -> (f32, f32) {
 }
 
 impl<M> iced::advanced::Widget<M, Theme, Renderer> for Marquee {
+    fn operate(&mut self, _: &mut iced::advanced::widget::Tree, layout: iced::advanced::Layout<'_>, _: &Renderer, operation: &mut dyn iced::advanced::widget::Operation) {
+        for piece in &self.pieces { operation.text(None, layout.bounds(), &piece.words); }
+    }
+
     fn tag(&self) -> iced::advanced::widget::tree::Tag {
         iced::advanced::widget::tree::Tag::of::<MarqueeState>()
     }

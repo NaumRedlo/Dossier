@@ -613,6 +613,7 @@ pub struct Main {
     feed_fold_at: HashMap<String, Instant>,
     community_tap: Option<iced::Rectangle>,
     panel_from: Option<iced::Rectangle>,
+    person_from: Option<iced::Rectangle>,
     pub(crate) section_at: Instant,
     pub(crate) shift_at: Instant,
     pub(crate) stream_at: Instant,
@@ -845,6 +846,7 @@ impl Main {
             feed_fold_at: HashMap::new(),
             community_tap: None,
             panel_from: None,
+            person_from: None,
             section_at: Instant::now() - Duration::from_secs(3600),
             shift_at: Instant::now() - Duration::from_secs(3600),
             stream_at: Instant::now() - Duration::from_secs(3600),
@@ -1837,7 +1839,7 @@ impl Main {
                         self.announce(notices::Mark::Done, words, detail, String::new(), newest.map_hash.clone(), notices::Link::Replay(newest.path.clone()));
                     }
                 }
-                Task::batch([self.thumbs_task(), self.covers_task(), nudge, self.donate_task(), self.replays_give_task()])
+                Task::batch([self.thumbs_task(), self.covers_task(), nudge, self.donate_task(), self.replays_give_task(), self.shared_faces_task()])
             }
             Message::Loaded(library) => {
                 self.wake(Instant::now());
@@ -1851,7 +1853,7 @@ impl Main {
                 self.enter = Animation::new(false).duration(ENTER).easing(Easing::EaseOutCubic).go(true, Instant::now());
                 let first = self.visible().first().copied();
                 self.chosen = first;
-                Task::batch([self.fetch_for_chosen(), self.thumbs_task(), self.covers_task(), self.start_live(), self.watch_task(), self.donate_task(), self.replays_give_task()])
+                Task::batch([self.fetch_for_chosen(), self.thumbs_task(), self.covers_task(), self.start_live(), self.watch_task(), self.donate_task(), self.replays_give_task(), self.shared_faces_task()])
             }
             Message::MapKnown(hash, known) => {
                 if let Some(library) = self.library.as_mut() {
@@ -2972,10 +2974,14 @@ impl Main {
                         self.person_at = now;
                         self.community_person = Some(at);
                         self.panel_from = self.community_tap;
+                        self.person_from = self.community_tap;
                         self.person_fade = Animation::new(false).duration(PANEL_SHOW).easing(Easing::EaseOutCubic).go(true, now);
                         return self.person_task(at);
                     }
-                    C::Person(None) => self.person_fade.go_mut(false, now),
+                    C::Person(None) => {
+                        self.panel_from = self.person_from;
+                        self.person_fade.go_mut(false, now);
+                    }
                     C::CompareWith(at) => {
                         let Some(catalog) = self.community.as_ref() else {
                             return Task::none();
@@ -4953,7 +4959,25 @@ impl Main {
     fn shared_avatar(&self, player: &str) -> Option<&str> {
         let wanted = player.to_lowercase();
         let known = self.community.as_ref().and_then(|catalog| catalog.people.iter().find(|person| person.name.to_lowercase() == wanted).map(|person| person.avatar.as_str()));
-        known.or_else(|| self.everyone.iter().find(|person| person.name.to_lowercase() == wanted).map(|person| person.avatar.as_str())).filter(|avatar| !avatar.is_empty())
+        known.filter(|avatar| !avatar.is_empty())
+            .or_else(|| self.everyone.iter().find(|person| person.name.to_lowercase() == wanted).map(|person| person.avatar.as_str()).filter(|avatar| !avatar.is_empty()))
+            .or_else(|| self.people_cards.get(&wanted).map(|card| card.avatar_url.as_str()).filter(|avatar| !avatar.is_empty()))
+    }
+
+    fn shared_faces_task(&mut self) -> Task<Message> {
+        let mut players: Vec<String> = self.entries().iter().filter(|entry| crate::mixed::is_shared(&entry.path)).map(|entry| entry.player.to_lowercase()).collect();
+        players.sort_unstable();
+        players.dedup();
+        let wanted = players.iter().filter_map(|player| self.shared_avatar(player).map(|url| (url.to_owned(), 128))).collect();
+        let pictures = self.pictures_task(wanted);
+        let missing: Vec<_> = players.into_iter().filter(|player| self.shared_avatar(player).is_none() && self.people_asked.insert(format!("card:{player}"))).collect();
+        if missing.is_empty() { return pictures; }
+        Task::batch([pictures, ui::streamed(move |push| {
+            for player in missing {
+                let card = crate::osu_profile::load_player(&player).filter(|card| !card.avatar_url.is_empty()).map(Ok).unwrap_or_else(|| crate::osu_profile::fetch(&player));
+                if !push(Message::PersonCard(player, card)) { return; }
+            }
+        })])
     }
 
     fn shared_mark(&self, player: &str) -> Element<'_, Message> {
@@ -8209,6 +8233,33 @@ mod tests {
             assert!(!main.resting.value(), "{name}");
             assert_eq!(main.last_input, began + REST_AFTER * 2, "time in a panel does not consume the next idle interval");
         }
+    }
+
+    #[test]
+    fn closing_title_holders_keeps_the_original_dossier_return_point() {
+        use crate::community_screen::Message as C;
+        let (_, mut main) = crate::gallery::main_states(crate::lang::Lang::En).into_iter().find(|(name, _)| name == "main-community-person").unwrap();
+        let original = iced::Rectangle { x: 120.0, y: 200.0, width: 320.0, height: 100.0 };
+        main.community_tap = Some(original);
+        let at = main.community_person.unwrap();
+        let _ = main.update(super::Message::Community(C::Person(Some(at))));
+        main.community_tap = Some(iced::Rectangle { x: 600.0, ..original });
+        let _ = main.update(super::Message::Community(C::TitleOf("supporter".into(), None)));
+        assert!(main.panel_from.is_none());
+        let _ = main.update(super::Message::Community(C::Unread));
+        let _ = main.update(super::Message::Community(C::Person(None)));
+        assert_eq!(main.panel_from, Some(original));
+        assert!(!main.person_fade.value());
+    }
+
+    #[test]
+    fn shared_replay_avatars_use_cached_profiles_without_a_community_catalogue() {
+        let (_, mut main) = crate::gallery::main_states(crate::lang::Lang::En).into_iter().find(|(name, _)| name == "main-community-person").unwrap();
+        main.community = None;
+        main.everyone.clear();
+        main.people_cards.insert("guest".into(), crate::community::wire::Card { username: "Guest".into(), avatar_url: "https://a.ppy.sh/123".into(), ..Default::default() });
+        assert_eq!(main.shared_avatar("GUEST"), Some("https://a.ppy.sh/123"));
+        assert_eq!(main.shared_avatar("Unknown"), None);
     }
 
     #[test]

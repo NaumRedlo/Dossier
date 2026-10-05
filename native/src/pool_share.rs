@@ -20,6 +20,8 @@ struct Shared {
     version: u32,
     name: String,
     #[serde(default)]
+    authors: Vec<String>,
+    #[serde(default)]
     note: String,
     frame: Frame,
     calc: u32,
@@ -30,6 +32,10 @@ struct Shared {
 struct SharedSlot {
     hash: Option<String>,
     mods: Mod,
+    #[serde(default)]
+    category: String,
+    #[serde(default)]
+    colour: Option<[u8; 3]>,
     #[serde(default)]
     artist: String,
     #[serde(default)]
@@ -47,13 +53,14 @@ fn shared(pool: &Pool) -> Shared {
         format: FORMAT.to_owned(),
         version: VERSION,
         name: pool.name.clone(),
+        authors: pool.authors.clone(),
         note: pool.note.clone(),
         frame: pool.frame,
         calc: pool.calc,
         slots: pool
             .slots
             .iter()
-            .map(|slot| SharedSlot { hash: slot.hash.clone(), mods: slot.mods, artist: slot.artist.clone(), title: slot.title.clone(), version: slot.version.clone(), set: slot.set, note: slot.note.clone() })
+            .map(|slot| SharedSlot { hash: slot.hash.clone(), mods: slot.mods, category: slot.category.clone(), colour: slot.colour, artist: slot.artist.clone(), title: slot.title.clone(), version: slot.version.clone(), set: slot.set, note: slot.note.clone() })
             .collect(),
     }
 }
@@ -67,13 +74,14 @@ fn pool_of(shared: Shared, now: i64) -> Result<Pool, Refused> {
     }
     let mut pool = Pool::new(shared.frame, &shared.name, now);
     pool.note = shared.note;
+    pool.authors = shared.authors;
     pool.calc = CALC_VERSION;
     pool.slots = shared
         .slots
         .into_iter()
         .map(|slot| {
             let hash = slot.hash.map(|hash| hash.to_ascii_lowercase()).filter(|hash| hash.len() == 32 && hash.bytes().all(|byte| byte.is_ascii_hexdigit()));
-            Slot { hash, mods: slot.mods, artist: slot.artist, title: slot.title, version: slot.version, set: slot.set, note: slot.note, measure: None }
+            Slot { hash, mods: slot.mods, category: slot.category, colour: slot.colour, artist: slot.artist, title: slot.title, version: slot.version, set: slot.set, note: slot.note, measure: None }
         })
         .collect();
     Ok(pool)
@@ -164,6 +172,24 @@ mod tests {
         }
         pool.slots[1].mods = Mod::Dt;
         pool
+    }
+
+    #[test]
+    fn authors_and_custom_categories_survive_sharing_and_old_files_still_open() {
+        let mut pool = sample();
+        pool.authors = vec!["Mapper A".into(), "Mapper B".into()];
+        pool.slots[0].category = "Aim".into();
+        pool.slots[0].colour = Some([94, 194, 208]);
+        for back in [from_file(&to_file(&pool), 200).unwrap(), from_text(&to_text(&pool), 200).unwrap()] {
+            assert_eq!(back.authors, pool.authors);
+            assert_eq!(back.slots[0].category, "Aim");
+            assert_eq!(back.slots[0].colour, Some([94, 194, 208]));
+        }
+        let mut old: serde_json::Value = serde_json::from_slice(&to_file(&pool)).unwrap();
+        old.as_object_mut().unwrap().remove("authors");
+        for slot in old["slots"].as_array_mut().unwrap() { slot.as_object_mut().unwrap().remove("category"); slot.as_object_mut().unwrap().remove("colour"); }
+        let back = from_file(&serde_json::to_vec(&old).unwrap(), 201).unwrap();
+        assert!(back.authors.is_empty() && back.slots.iter().all(|slot| slot.category.is_empty() && slot.colour.is_none()));
     }
 
     #[test]

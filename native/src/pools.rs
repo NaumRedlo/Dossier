@@ -185,6 +185,10 @@ pub struct Slot {
     pub hash: Option<String>,
     pub mods: Mod,
     #[serde(default)]
+    pub category: String,
+    #[serde(default)]
+    pub colour: Option<[u8; 3]>,
+    #[serde(default)]
     pub artist: String,
     #[serde(default)]
     pub title: String,
@@ -200,7 +204,7 @@ pub struct Slot {
 
 impl Slot {
     pub fn empty(mods: Mod) -> Slot {
-        Slot { hash: None, mods, artist: String::new(), title: String::new(), version: String::new(), set: None, note: String::new(), measure: None }
+        Slot { hash: None, mods, category: String::new(), colour: None, artist: String::new(), title: String::new(), version: String::new(), set: None, note: String::new(), measure: None }
     }
 
     pub fn is_empty(&self) -> bool {
@@ -218,7 +222,11 @@ impl Slot {
     }
 
     pub fn clear(&mut self) {
+        let category = self.category.clone();
+        let colour = self.colour;
         *self = Slot::empty(self.mods);
+        self.category = category;
+        self.colour = colour;
     }
 }
 
@@ -226,6 +234,8 @@ impl Slot {
 pub struct Pool {
     pub id: String,
     pub name: String,
+    #[serde(default)]
+    pub authors: Vec<String>,
     #[serde(default)]
     pub note: String,
     pub frame: Frame,
@@ -248,6 +258,7 @@ impl Pool {
         Pool {
             id: fresh_id(now),
             name: name.to_owned(),
+            authors: Vec::new(),
             note: String::new(),
             frame,
             slots: frame.mods().into_iter().map(Slot::empty).collect(),

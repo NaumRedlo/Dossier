@@ -79,22 +79,6 @@ pub fn moved(groups: &[Vec<&'static str>], kept: &[String], what: &'static str, 
     shown.iter().cloned().chain(others).collect()
 }
 
-fn divider<'a, Message: 'a>() -> Element<'a, Message> {
-    let line = container(Space::new().height(1.0)).width(Length::Fill).style(|_| container::Style {
-        background: Some(Background::Color(Color::from_rgba(1.0, 1.0, 1.0, 0.07 * ui::fade()))),
-        ..container::Style::default()
-    });
-    container(line).padding([0, 10]).height(CAPTION).width(Length::Fill).align_y(iced::Center).into()
-}
-
-fn tile(k: f32, radius: f32) -> container::Style {
-    container::Style {
-        background: (k > 0.0).then_some(Background::Color(Color::from_rgba(0.0, 0.0, 0.0, 0.3 * k))),
-        border: Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.07 * k), width: if k > 0.0 { 1.0 } else { 0.0 }, radius: radius.into() },
-        ..container::Style::default()
-    }
-}
-
 fn item<'a, Message: Clone + 'a>(key: &'static str, icon: Icon, label: String, on: bool, press: Message, open: f32) -> Element<'a, Message> {
     let colour = if on { INK } else { MUTED };
     let size = IDLE_ICON + (OPEN_ICON - IDLE_ICON) * open;
@@ -105,11 +89,17 @@ fn item<'a, Message: Clone + 'a>(key: &'static str, icon: Icon, label: String, o
         line = line.push(text(label).font(theme::SANS_SEMI).size(15.0).wrapping(text::Wrapping::None).color(Color { a: faded.a * words, ..faded }));
     }
     let inside = container(line).padding(Padding { top: 0.0, right: 0.0, bottom: 0.0, left: (SLOT - size) / 2.0 }).height(ITEM).width(Length::Fill).align_y(iced::Center).clip(true);
-    let k = open * ui::fade();
-    container(button(inside).padding(0).width(Length::Fill).style(ui::button_faded(ui::calm(theme::side(on)))).on_press(press))
+    container(button(inside).padding(0).width(Length::Fill).style(ui::button_faded(move |theme, status| {
+        if open < 0.5 { return theme::side(on)(theme, status); }
+        button::Style {
+            background: matches!(status, button::Status::Hovered | button::Status::Pressed).then_some(Background::Color(Color::from_rgb(0.18, 0.18, 0.18))),
+            text_color: colour,
+            border: Border { radius: 10.0.into(), ..Border::default() },
+            ..button::Style::default()
+        }
+    })).on_press(press))
         .id(iced::widget::Id::from(format!("side-{key}")))
         .width(Length::Fill)
-        .style(move |_| tile(k, 12.0))
         .into()
 }
 
@@ -122,8 +112,11 @@ pub fn view<'a, Message: Clone + 'a>(
     let open = open.clamp(0.0, 1.0);
     let mut list = column![].spacing(3);
     for (said, items) in split(entries) {
-        if said.is_some() {
-            list = list.push(divider());
+        if let Some(said) = said {
+            let caption: Element<'a, Message> = if open > 0.3 {
+                text(said).font(theme::SANS_SEMI).size(11.0).color(Color { a: ui::fade() * ((open - 0.3) / 0.7), ..MUTED }).into()
+            } else { Space::new().into() };
+            list = list.push(container(caption).height(CAPTION).padding([0, 10]).align_y(iced::Center));
         }
         let pieces: Vec<(&'static str, Element<'a, Message>)> = items
             .into_iter()

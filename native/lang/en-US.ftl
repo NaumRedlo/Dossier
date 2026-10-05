@@ -1,4 +1,7 @@
 app-name = Dossier
+pool-authors = Pool authors, separated by commas
+pool-custom-category = Custom category (optional)
+pool-category-colour = Border colour
 
 setting-up = Setting up
 checking = Checking…
@@ -407,7 +410,7 @@ pool-mod-tb = The deciding map
 pool-stars = Stars
 pool-bpm = BPM
 pool-length = Length
-pool-combo = Combo
+pool-combo = Full combo
 pool-measuring = Measuring
 pool-no-disk = The map is not on this computer
 pool-tab-search = Search

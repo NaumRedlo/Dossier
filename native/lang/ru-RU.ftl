@@ -1,4 +1,7 @@
 app-name = Dossier
+pool-authors = Авторы пула через запятую
+pool-custom-category = Своя категория (необязательно)
+pool-category-colour = Цвет рамки
 
 setting-up = Настройка
 checking = Проверка
@@ -420,7 +423,7 @@ pool-mod-tb = Решающая карта
 pool-stars = Звёзды
 pool-bpm = BPM
 pool-length = Длина
-pool-combo = Комбо
+pool-combo = Фулл-комбо
 pool-measuring = Считаю
 pool-no-disk = Карты нет на этом компьютере
 pool-tab-search = Поиск

@@ -1037,7 +1037,7 @@ impl Main {
 
     fn rescaled(&self, before: f32) -> Task<Message> {
         let after = ui::scale_of(self.settings.ui_scale);
-        crate::refit_window(ui::refit(iced::Size::new(self.width, self.height), before, after, crate::WINDOW))
+        crate::refit_window(ui::refit(iced::Size::new(self.width, self.height), before, after, crate::WINDOW), crate::minimum_window(self.settings.ui_scale))
     }
 
     fn check_update(&mut self) -> Task<Message> {
@@ -1205,7 +1205,6 @@ impl Main {
             }
             let action = match (event, status) {
             (iced::Event::Window(window::Event::FileDropped(path)), _) => Some(Message::Dropped(path)),
-            (iced::Event::Window(window::Event::Resized(size)), _) => Some(Message::Resized(size.width, size.height)),
             (iced::Event::Window(window::Event::Opened { size, .. }), _) => Some(Message::WindowOpened(id, size.width, size.height)),
             (iced::Event::Window(window::Event::Focused | window::Event::Unfocused), _) => Some(Message::CheckMinimized(id)),
             (iced::Event::Keyboard(iced::keyboard::Event::KeyPressed { key, physical_key, modifiers, .. }), iced::event::Status::Ignored) => {

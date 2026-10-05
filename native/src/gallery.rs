@@ -269,8 +269,19 @@ pub fn main_frame<'a>(main: &'a crate::main_screen::Main, backdrop: &iced::widge
 }
 
 pub fn snapshot_main(main: &crate::main_screen::Main, size: Size) -> Result<iced_test::simulator::Snapshot, iced_test::Error> {
+    struct Restore(u32);
+    impl Drop for Restore { fn drop(&mut self) { ui::set_auto_scale(self.0); } }
+    let _restore = Restore(ui::auto_scale());
+    ui::set_auto_scale(ui::auto_scale_for(size));
     let backdrop = ui::backdrop_handle();
-    let mut ui = Simulator::with_size(settings_once(), size, main_frame(main, &backdrop));
+    let factor = ui::scale_of(main.settings.ui_scale);
+    let mut frame = main.clone();
+    if (factor - 1.0).abs() > 0.001 {
+        let viewport = ui::viewport_at(size, 1.0, factor);
+        frame.width = viewport.width;
+        frame.height = viewport.height;
+    }
+    let mut ui = Simulator::with_size(settings_once(), size, ui::scaled(main_frame(&frame, &backdrop), factor));
     ui.snapshot(&crate::theme::theme())
 }
 
@@ -1183,7 +1194,8 @@ fn feed_states(community: &dyn Fn(crate::community_screen::Section, Option<usize
         ("main-pools-new".to_owned(), {
             let mut main = community(crate::community_screen::Section::Pools, None);
             pools_state(&mut main, false);
-            let pool = crate::pools::Pool::new(crate::pools::Frame::Free, "", NOON);
+            let mut pool = crate::pools::Pool::new(crate::pools::Frame::Free, "", NOON);
+            pool.slots = vec![crate::pools::Slot::empty(crate::pools::Mod::Nm); 4];
             let id = pool.id.clone();
             main.pools.list.push(pool);
             main.pools.screen = crate::pools_screen::Screen::Editor(crate::pools_screen::Editor::at(id));
@@ -1399,11 +1411,11 @@ pub fn every_main_frame() -> Vec<(String, crate::main_screen::Main, Size)> {
     for lang in Lang::ALL {
         for (name, main) in main_states(lang) {
             for (label, size) in SIZES {
-                if label != SIZES[0].0 && name != "main-rest" && name != "main-idle" && name != "main-notifications" && name != "main-player-mini" && name != "main-community-clip-mini" && name != "main-community-feed-wide" && name != "main-pools-best" && name != "main-pools-editor" && name != "main-pools-grouped" && name != "main-prefs-device" {
+                if label != SIZES[0].0 && name != "main-rest" && name != "main-idle" && name != "main-notifications" && name != "main-player-mini" && name != "main-community-clip-mini" && name != "main-community-feed-wide" && name != "main-pools-best" && name != "main-pools-editor" && name != "main-pools-grouped" && name != "main-pools-new" && name != "main-prefs-device" {
                     continue;
                 }
                 let mut frame = main.clone();
-                if name == "main-idle" || name == "main-notifications" || name == "main-player-mini" || name == "main-community-clip-mini" || name == "main-community-feed-wide" || name == "main-pools-best" || name == "main-pools-editor" || name == "main-pools-grouped" || name == "main-prefs-device" { frame.width = size.width; frame.height = size.height; }
+                if name == "main-idle" || name == "main-notifications" || name == "main-player-mini" || name == "main-community-clip-mini" || name == "main-community-feed-wide" || name == "main-pools-best" || name == "main-pools-editor" || name == "main-pools-grouped" || name == "main-pools-new" || name == "main-prefs-device" { frame.width = size.width; frame.height = size.height; }
                 out.push((format!("{name}-{}-{label}", lang.tag()), frame, size));
             }
         }

@@ -71,7 +71,11 @@ use settings::Settings;
 pub const WINDOW: Size = Size::new(980.0, 720.0);
 pub const MINIMUM: Size = Size::new(760.0, 560.0);
 
-pub fn refit_window<T: Send + 'static>(fit: Option<Size>) -> Task<T> {
+pub fn minimum_window(chosen: u32) -> Size {
+    if chosen == 0 { ui::viewport_at(MINIMUM, 1.0, ui::scale_of(0)) } else { MINIMUM }
+}
+
+pub fn refit_window<T: Send + 'static>(fit: Option<Size>, minimum: Size) -> Task<T> {
     iced::window::oldest().and_then(move |id| {
         iced::window::is_maximized(id).then(move |maximized| {
             if maximized {
@@ -81,7 +85,7 @@ pub fn refit_window<T: Send + 'static>(fit: Option<Size>) -> Task<T> {
                 if mode != iced::window::Mode::Windowed {
                     return Task::none();
                 }
-                let floor = iced::window::set_min_size(id, Some(MINIMUM));
+                let floor = iced::window::set_min_size(id, Some(minimum));
                 match fit {
                     Some(size) => floor.chain(iced::window::resize(id, size)),
                     None => floor,
@@ -278,6 +282,17 @@ impl App {
     }
 
     pub fn update(&mut self, message: Message) -> Task<Message> {
+        let before = self.scale_factor();
+        let task = self.update_inner(message);
+        self.viewport = ui::viewport_at(self.viewport, before, self.scale_factor());
+        if let Screen::Main(main) = &mut self.screen {
+            main.width = self.viewport.width;
+            main.height = self.viewport.height;
+        }
+        task
+    }
+
+    fn update_inner(&mut self, message: Message) -> Task<Message> {
         if !frames::on() {
             return self.handle(message);
         }
@@ -324,6 +339,7 @@ impl App {
             }
             Message::Opened(size) => {
                 self.viewport = size;
+                ui::set_auto_scale(ui::auto_scale_for(ui::viewport_at(size, self.scale_factor(), 1.0)));
                 self.opened = true;
                 self.keep_tray();
                 self.handle(Message::Measure)
@@ -360,13 +376,15 @@ impl App {
             Message::Tray(tray::Said::Quit) => iced::exit(),
             Message::Measure => iced::window::oldest().and_then(iced::window::monitor_size).map(Message::Monitor),
             Message::Viewport(size) => {
+                if size.width <= 0.0 || size.height <= 0.0 { return Task::none(); }
                 self.viewport = size;
+                ui::set_auto_scale(ui::auto_scale_for(ui::viewport_at(size, self.scale_factor(), 1.0)));
                 Task::none()
             }
             Message::Monitor(None) => Task::none(),
             Message::Monitor(Some(monitor)) => {
                 let now = self.scale_factor();
-                let auto = ui::auto_scale_for(monitor.height * now);
+                let auto = ui::auto_scale_for(ui::viewport_at(self.viewport, now, 1.0));
                 let first = !self.measured;
                 self.measured = true;
                 if auto == ui::auto_scale() && !first {
@@ -377,7 +395,7 @@ impl App {
                 let room = Size::new(monitor.width * now / after * 0.94, monitor.height * now / after * 0.9);
                 let least = Size::new(WINDOW.width.min(room.width), WINDOW.height.min(room.height));
                 let fit = if first { Some(least) } else { ui::refit(self.viewport, now, after, least) };
-                refit_window(fit)
+                refit_window(fit, minimum_window(self.chosen_scale()))
             }
             Message::Snap => iced::window::oldest().map(Message::Snapped),
             Message::Snapped(Some(id)) => iced::window::screenshot(id).map(Message::Shot),
@@ -443,11 +461,14 @@ impl App {
     }
 
     pub fn scale_factor(&self) -> f32 {
-        let chosen = match &self.screen {
+        ui::scale_of(self.chosen_scale())
+    }
+
+    fn chosen_scale(&self) -> u32 {
+        match &self.screen {
             Screen::FirstRun(flow) => flow.settings.ui_scale,
             Screen::Main(main) => main.settings.ui_scale,
-        };
-        ui::scale_of(chosen)
+        }
     }
 
     pub fn theme(&self) -> Theme {
@@ -462,6 +483,45 @@ pub fn settings() -> iced::Settings {
         default_text_size: theme::BODY.into(),
         antialiasing: true,
         ..iced::Settings::default()
+    }
+}
+
+#[cfg(test)]
+mod workspace_tests {
+    use super::*;
+
+    #[test]
+    fn resizing_keeps_main_and_rendering_in_the_same_coordinate_space() {
+        struct Restore(u32);
+        impl Drop for Restore { fn drop(&mut self) { ui::set_auto_scale(self.0); } }
+        let _restore = Restore(ui::auto_scale());
+        ui::set_auto_scale(100);
+        let main = Main::staged(Words::new(lang::Lang::En), Settings::default(), library::Library::default(), None);
+        let mut app = App { screen: Screen::Main(main), backdrop: image::Handle::from_rgba(1, 1, vec![0, 0, 0, 255]), viewport: WINDOW, measured: false, opened: false, tray: None, hidden: false };
+        for window in [Size::new(1920.0, 1080.0), Size::new(2560.0, 1440.0), WINDOW] {
+            for _ in 0..3 {
+                let before = app.scale_factor();
+                let event = ui::viewport_at(window, 1.0, before);
+                let _ = app.update(Message::Viewport(event));
+                let factor = app.scale_factor();
+                assert_eq!(factor, ui::auto_scale_for(window) as f32 / 100.0);
+                let minimum = ui::viewport_at(minimum_window(0), factor, 1.0);
+                assert!((minimum.width - MINIMUM.width).abs() < 0.001);
+                assert!((minimum.height - MINIMUM.height).abs() < 0.001);
+                assert_eq!(app.viewport, ui::viewport_at(window, 1.0, factor));
+                let Screen::Main(main) = &app.screen else { panic!("main") };
+                assert_eq!((main.width, main.height), (app.viewport.width, app.viewport.height));
+            }
+        }
+        let Screen::Main(main) = &mut app.screen else { panic!("main") };
+        main.settings.ui_scale = 125;
+        let window = Size::new(1920.0, 1080.0);
+        let _ = app.update(Message::Viewport(ui::viewport_at(window, 1.0, 1.25)));
+        assert_eq!(app.scale_factor(), 1.25);
+        assert_eq!(minimum_window(125), MINIMUM);
+        assert_eq!(app.viewport, Size::new(1536.0, 864.0));
+        let _ = app.update(Message::Viewport(Size::ZERO));
+        assert_eq!(app.viewport, Size::new(1536.0, 864.0));
     }
 }
 

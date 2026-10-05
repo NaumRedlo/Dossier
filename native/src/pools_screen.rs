@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use iced::widget::{button, column, container, image, row, scrollable, text, text_input, Space};
+use iced::widget::{button, checkbox, column, container, image, pick_list, row, scrollable, text, text_input, Space};
 use iced::{Background, Border, Color, Element, Length, Padding};
 use md5::{Digest, Md5};
 
@@ -68,11 +68,12 @@ pub struct Editor {
     pub marked: Vec<usize>,
     pub bulk: Option<Bulk>,
     pub asking_delete: bool,
+    pub grouped: bool,
 }
 
 impl Editor {
     pub fn at(id: String) -> Editor {
-        Editor { id, selected: None, panel: Panel::Closed, query: String::new(), source: SourceTab::Search, collection: None, collection_page: 0, untouched: false, replace: false, share: false, choosing: false, marked: Vec::new(), bulk: None, asking_delete: false }
+        Editor { id, selected: None, panel: Panel::Closed, query: String::new(), source: SourceTab::Search, collection: None, collection_page: 0, untouched: false, replace: false, share: false, choosing: false, marked: Vec::new(), bulk: None, asking_delete: false, grouped: false }
     }
 }
 
@@ -180,6 +181,13 @@ fn slot_keys(pool: &Pool) -> Vec<SlotKey> {
     }).collect()
 }
 
+fn slot_groups(pool: &Pool) -> Vec<(Mod, Vec<usize>)> {
+    Mod::ALL.into_iter().filter_map(|mods| {
+        let slots: Vec<usize> = pool.slots.iter().enumerate().filter_map(|(at, slot)| (slot.mods == mods).then_some(at)).collect();
+        (!slots.is_empty()).then_some((mods, slots))
+    }).collect()
+}
+
 #[derive(Debug, Clone, Copy)]
 pub enum Input {
     Name,
@@ -196,6 +204,8 @@ pub enum Message {
     UseFrame(Frame),
     Select(Option<usize>),
     Replace,
+    ReplaceAt(usize),
+    Grouped(bool),
     SetMod(usize, Mod),
     Clear(usize),
     AddPanel(bool),
@@ -729,6 +739,17 @@ impl State {
                 if self.songs.is_none() && !self.reading {
                     self.reading = true;
                     effects.push(Effect::ReadSongs);
+                }
+            }
+            Message::ReplaceAt(slot) => {
+                if self.editing().is_some_and(|pool| slot < pool.slots.len()) {
+                    effects.extend(self.update(Message::Select(Some(slot)), now));
+                    effects.extend(self.update(Message::Replace, now));
+                }
+            }
+            Message::Grouped(on) => {
+                if let Some(editor) = self.editor_mut() {
+                    editor.grouped = on;
                 }
             }
             Message::SetMod(slot, mods) => {
@@ -2088,7 +2109,9 @@ fn slot_row<'a>(pool: &'a Pool, at: usize, selected: bool, choosing: bool, words
     if choosing {
         left = left.push(check_box(selected));
     }
-    let left = left.push(number_badge(at + 1, selected)).push(mod_badge(slot.mods, selected)).width(36.0);
+    left = left.push(number_badge(at + 1, selected));
+    if choosing { left = left.push(mod_badge(slot.mods, selected)); }
+    let left = left.width(36.0);
     let inside: Element<'a, Message> = match slot.hash.as_deref() {
         None => row![
             left,
@@ -2134,13 +2157,44 @@ fn slot_row<'a>(pool: &'a Pool, at: usize, selected: bool, choosing: bool, words
     let row_button = button(container(inside).height(ROW_HIGH).align_y(iced::Center))
         .padding([8, 12])
         .width(Length::Fill)
-        .style(ui::button_faded(row_style(selected)))
+        .style(ui::button_faded(move |theme, status| {
+            if choosing { row_style(selected)(theme, status) } else { theme::bare(theme, status) }
+        }))
         .on_press(if choosing { Message::Mark(at) } else { Message::Select(Some(at)) });
-    if slot.is_empty() && !choosing {
-        row![row_button, quiet_button(words.t("pool-suggest"), Message::Suggest(at))].spacing(8).align_y(iced::Center).into()
-    } else {
-        row_button.into()
+    if choosing { return row_button.into(); }
+    let category = pick_list(Mod::ALL.map(Mod::code), Some(slot.mods.code()), move |code| {
+        Message::SetMod(at, Mod::ALL.into_iter().find(|mods| mods.code() == code).unwrap())
+    })
+        .font(theme::MONO)
+        .text_size(12.0)
+        .padding([5, 8])
+        .width(70.0)
+        .menu_style(|_| iced::widget::overlay::menu::Style {
+            background: Background::Color(theme::GROUND),
+            border: Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.12), width: 1.0, radius: 7.0.into() },
+            text_color: INK, selected_text_color: INK,
+            selected_background: Background::Color(Color::from_rgba(0.886, 0.282, 0.282, 0.22)),
+            shadow: iced::Shadow::default(),
+        })
+        .style(|_, status| pick_list::Style {
+            text_color: ui::faded(INK), placeholder_color: ui::faded(MUTED), handle_color: ui::faded(MUTED),
+            background: Background::Color(Color::from_rgba(1.0, 1.0, 1.0, if matches!(status, pick_list::Status::Hovered | pick_list::Status::Opened { .. }) { 0.08 } else { 0.03 })),
+            border: Border { color: ui::faded(Color::from_rgba(1.0, 1.0, 1.0, 0.08)), width: 1.0, radius: 7.0.into() },
+        });
+    let mut actions = row![category, ui::grow()].spacing(8).align_y(iced::Center);
+    if slot.is_empty() {
+        actions = actions.push(quiet_button(words.t("pool-suggest"), Message::Suggest(at)));
     }
+    actions = actions
+        .push(quiet_button(words.t(if slot.is_empty() { "pool-add" } else { "pool-replace-short" }), Message::ReplaceAt(at)))
+        .push(quiet_button(words.t("pool-remove-short"), Message::Clear(at)));
+    container(column![row_button, container(actions).padding(Padding::ZERO.left(12.0).right(12.0).bottom(10.0))].spacing(2))
+        .width(Length::Fill)
+        .style(move |theme| {
+            let style = row_style(selected)(theme, button::Status::Active);
+            container::Style { background: style.background.or(Some(Background::Color(Color::from_rgba(1.0, 1.0, 1.0, 0.012)))), border: style.border, ..container::Style::default() }
+        })
+        .into()
 }
 
 fn mod_ribbon<'a>(words: &Words, slot: usize, current: Mod) -> Element<'a, Message> {
@@ -2752,6 +2806,7 @@ fn editor_view<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, words: 
             tools = tools.push(button(text(words.t("pool-undo")).font(theme::SANS_SEMI).size(13.0).color(ui::faded(MUTED))).padding([6, 10]).style(ui::button_faded(theme::bare)).on_press(Message::Undo));
         }
         tools = tools.push(button(text(words.t(if editor.choosing { "pool-choose-done" } else { "pool-choose" })).font(theme::SANS_SEMI).size(13.0).color(ui::faded(if editor.choosing { ACCENT } else { MUTED }))).padding([6, 10]).style(ui::button_faded(theme::bare)).on_press(Message::Choosing(!editor.choosing)));
+        tools = tools.push(checkbox(editor.grouped).label(words.t("pool-grouped")).text_size(13.0).size(16.0).spacing(7.0).on_toggle(Message::Grouped));
     }
     let actions = row![tools, ui::grow(), buttons].align_y(iced::Center).spacing(12);
     let head = column![crumbs(words, Some(Message::Back), name), actions].spacing(18);
@@ -2761,20 +2816,32 @@ fn editor_view<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, words: 
     let list_width = width - if side_by_side { PANEL_WIDE + 24.0 } else { 0.0 };
     let columns = if list_width >= 1100.0 { 2 } else { 1 };
     let keys = slot_keys(pool);
-    let pieces = keys.iter().enumerate().map(|(at, key)| {
-        let lit = if editor.choosing { editor.marked.contains(&at) } else { editor.selected == Some(at) };
-        (*key, slot_row(pool, at, lit, editor.choosing, words, thumbs, songs))
-    }).collect();
-    let list: Element<'a, Message> = if pool.slots.is_empty() {
-        container(faded_text(words.t("pool-free-empty"), 14.0, MUTED)).padding([24, 10]).into()
-    } else {
-        crate::board::board(pieces, 10.0, move |key, before| Message::Move(pool.id.clone(), keys.clone(), key, before))
-            .identity(pool.id.clone())
+    let board = |slots: Vec<usize>, group: Option<Mod>| -> Element<'a, Message> {
+        let pieces = slots.iter().map(|at| {
+            let lit = if editor.choosing { editor.marked.contains(at) } else { editor.selected == Some(*at) };
+            (keys[*at], slot_row(pool, *at, lit, editor.choosing, words, thumbs, songs))
+        }).collect();
+        let next = group.and_then(|_| slots.last()).and_then(|last| keys.get(last + 1)).copied();
+        let snapshot = keys.clone();
+        crate::board::board(pieces, 10.0, move |key, before| Message::Move(pool.id.clone(), snapshot.clone(), key, before.or(next)))
+            .identity(format!("{}:{}", pool.id, group.map_or("order", Mod::code)))
             .across(columns)
             .anywhere()
+            .grab_high(ROW_HIGH + 16.0)
             .radius(TILE_ROUND)
             .solid(theme::GROUND)
             .into()
+    };
+    let list: Element<'a, Message> = if pool.slots.is_empty() {
+        container(faded_text(words.t("pool-free-empty"), 14.0, MUTED)).padding([24, 10]).into()
+    } else if editor.grouped {
+        let mut sections = column![].spacing(24);
+        for (mods, slots) in slot_groups(pool) {
+            sections = sections.push(column![container(semi(mods.code().into(), 15.0, MUTED)).padding([0, 12]), board(slots, Some(mods))].spacing(10));
+        }
+        sections.into()
+    } else {
+        board((0..pool.slots.len()).collect(), None)
     };
 
     let side: Option<Element<'a, Message>> = match editor.panel {
@@ -3794,6 +3861,126 @@ mod tests {
         state.editing().unwrap().slots.iter().map(|slot| slot.hash.clone()).collect()
     }
 
+    #[test]
+    fn grouping_only_changes_the_view_and_keeps_selection_and_saved_order() {
+        let mut state = pool_with_maps("group-view", &["a1", "b2", "c3"]);
+        state.update(Message::SetMod(1, Mod::Hr), 1_790_000_100);
+        state.update(Message::Select(Some(1)), 1_790_000_101);
+        let pool = state.editing().unwrap().clone();
+        let undo = state.undo.len();
+        state.update(Message::Grouped(true), 1_790_000_102);
+        let groups = slot_groups(state.editing().unwrap());
+        assert_eq!(groups[0], (Mod::Nm, vec![0]));
+        assert!(groups.iter().find(|(mods, _)| *mods == Mod::Hr).unwrap().1.contains(&1));
+        assert_eq!(state.editing().unwrap().slots, pool.slots);
+        assert_eq!(pools::load_all(&state.dir)[0].slots, pool.slots);
+        assert_eq!(state.undo.len(), undo);
+        assert!(matches!(&state.screen, Screen::Editor(editor) if editor.grouped && editor.selected == Some(1)));
+        state.update(Message::Grouped(false), 1_790_000_103);
+        assert_eq!(state.editing().unwrap().slots, pool.slots);
+    }
+
+    #[test]
+    fn replacing_from_a_tile_targets_that_tile_and_undo_restores_its_map() {
+        let mut state = pool_with_maps("inline-replace", &["a1", "b2"]);
+        state.update(Message::Note(1, "Keep this role".into()), 1_790_000_100);
+        let before = state.editing().unwrap().slots.clone();
+        state.update(Message::Select(Some(0)), 1_790_000_101);
+        state.update(Message::ReplaceAt(1), 1_790_000_102);
+        assert!(matches!(&state.screen, Screen::Editor(editor) if editor.selected == Some(1) && editor.replace && editor.panel == Panel::Add));
+        state.update(Message::Put("c3".into()), 1_790_000_103);
+        assert_eq!(state.editing().unwrap().slots[0], before[0]);
+        assert_eq!(state.editing().unwrap().slots[1].hash.as_deref(), Some("c3"));
+        assert_eq!(state.editing().unwrap().slots[1].mods, before[1].mods);
+        state.update(Message::Undo, 1_790_000_104);
+        assert_eq!(state.editing().unwrap().slots, before);
+        state.update(Message::ReplaceAt(usize::MAX), 1_790_000_105);
+        assert_eq!(state.editing().unwrap().slots, before);
+    }
+
+    #[test]
+    fn inline_controls_do_not_open_the_details_or_start_a_drag() {
+        let mut state = pool_with_maps("inline-controls", &["a1", "b2", "c3"]);
+        state.editor_mut().unwrap().panel = Panel::Closed;
+        let words = Words::new(crate::lang::Lang::En);
+        let thumbs = HashMap::new();
+        for (label, replacing) in [("pool-replace-short", true), ("pool-remove-short", false)] {
+            let mut screen = iced_test::Simulator::with_size(crate::settings(), iced::Size::new(1000.0, 900.0), view(&state, &words, &thumbs, 1000.0, 1.0));
+            let _ = screen.click(words.t(label)).unwrap();
+            let messages: Vec<_> = screen.into_messages().collect();
+            assert!(matches!(messages.as_slice(), [Message::ReplaceAt(0)]) && replacing || matches!(messages.as_slice(), [Message::Clear(0)]) && !replacing, "{messages:?}");
+        }
+        let mut screen = iced_test::Simulator::with_size(crate::settings(), iced::Size::new(1000.0, 900.0), view(&state, &words, &thumbs, 1000.0, 1.0));
+        let bounds = screen.find(words.t("pool-replace-short")).unwrap().visible_bounds().unwrap();
+        screen.point_at(bounds.center());
+        let _ = screen.simulate([iced::Event::Mouse(iced::mouse::Event::ButtonPressed(iced::mouse::Button::Left))]);
+        let position = bounds.center() + iced::Vector::new(0.0, 100.0);
+        screen.point_at(position);
+        let _ = screen.simulate([iced::Event::Mouse(iced::mouse::Event::CursorMoved { position })]);
+        let _ = screen.simulate([iced::Event::Mouse(iced::mouse::Event::ButtonReleased(iced::mouse::Button::Left))]);
+        assert!(screen.into_messages().all(|message| !matches!(message, Message::Move(..) | Message::Select(..))));
+    }
+
+    #[test]
+    fn the_category_menu_changes_only_its_tile_and_replaces_the_old_measure() {
+        let mut state = pool_with_maps("inline-category", &["a1", "b2"]);
+        state.editor_mut().unwrap().panel = Panel::Closed;
+        state.update(Message::Measured("a1".into(), Mod::Nm, Ok(measure(4.0))), 1_790_000_100);
+        let before = state.editing().unwrap().slots.clone();
+        let words = Words::new(crate::lang::Lang::En);
+        let thumbs = HashMap::new();
+        let mut screen = iced_test::Simulator::with_size(crate::settings(), iced::Size::new(1000.0, 900.0), view(&state, &words, &thumbs, 1000.0, 1.0));
+        let title = screen.find("Glass Orchard").unwrap().visible_bounds().unwrap();
+        let category = iced::Point::new(title.x - 180.0, title.y + ROW_HIGH + 12.0);
+        screen.point_at(category);
+        let _ = screen.simulate(iced_test::simulator::click());
+        if let Some(dir) = std::env::var_os("DOSSIER_POOL_MENU_REVIEW").map(PathBuf::from) {
+            let shot = screen.snapshot(&theme::theme()).unwrap();
+            crate::gallery::write_snapshot(&shot, &dir.join("pool-category-menu")).unwrap();
+        }
+        let position = category + iced::Vector::new(0.0, 100.0);
+        screen.point_at(position);
+        let _ = screen.simulate([iced::Event::Mouse(iced::mouse::Event::CursorMoved { position })]);
+        let _ = screen.simulate(iced_test::simulator::click());
+        let messages: Vec<_> = screen.into_messages().collect();
+        assert!(matches!(messages.as_slice(), [Message::SetMod(0, Mod::Dt)]), "{messages:?}");
+        for message in messages { state.update(message, 1_790_000_101); }
+        assert_eq!(state.editing().unwrap().slots[0].mods, Mod::Dt);
+        assert!(state.editing().unwrap().slots[0].measure.is_none());
+        assert_eq!(&state.editing().unwrap().slots[1..], &before[1..]);
+        state.update(Message::Measured("a1".into(), Mod::Dt, Ok(measure(6.0))), 1_790_000_102);
+        assert_eq!(state.editing().unwrap().slots[0].measure.unwrap().stars, 6.0);
+        state.update(Message::Undo, 1_790_000_103);
+        assert_eq!(state.editing().unwrap().slots, before);
+    }
+
+    #[test]
+    fn dragging_to_the_end_of_a_category_keeps_the_next_category_in_place() {
+        let mut state = pool_with_maps("group-drag", &["a1", "b2", "c3"]);
+        state.editor_mut().unwrap().panel = Panel::Closed;
+        state.update(Message::Grouped(true), 1_790_000_100);
+        let before = state.editing().unwrap().slots.clone();
+        let words = Words::new(crate::lang::Lang::En);
+        let thumbs = HashMap::new();
+        let mut screen = iced_test::Simulator::with_size(crate::settings(), iced::Size::new(1000.0, 900.0), view(&state, &words, &thumbs, 1000.0, 1.0));
+        let first = screen.find("Glass Orchard").unwrap().visible_bounds().unwrap();
+        let second = screen.find("Salt and Static").unwrap().visible_bounds().unwrap();
+        screen.point_at(first.center());
+        let _ = screen.simulate([iced::Event::Mouse(iced::mouse::Event::ButtonPressed(iced::mouse::Button::Left))]);
+        let position = iced::Point::new(first.center_x(), second.y + ROW_HIGH + 50.0);
+        screen.point_at(position);
+        let _ = screen.simulate([iced::Event::Mouse(iced::mouse::Event::CursorMoved { position })]);
+        let _ = screen.simulate([iced::Event::Mouse(iced::mouse::Event::ButtonReleased(iced::mouse::Button::Left))]);
+        let messages: Vec<_> = screen.into_messages().collect();
+        let keys = slot_keys(state.editing().unwrap());
+        assert!(matches!(messages.as_slice(), [Message::Move(_, _, key, Some(next))] if *key == keys[0] && *next == keys[2]), "{messages:?}");
+        for message in messages { state.update(message, 1_790_000_101); }
+        assert_eq!(&state.editing().unwrap().slots[..2], &[before[1].clone(), before[0].clone()]);
+        assert_eq!(&state.editing().unwrap().slots[2..], &before[2..]);
+        state.update(Message::Undo, 1_790_000_102);
+        assert_eq!(state.editing().unwrap().slots, before);
+    }
+
     fn move_slot(state: &mut State, from: usize, before: Option<usize>, now: i64) {
         let pool = state.editing().unwrap();
         let keys = slot_keys(pool);
@@ -3946,7 +4133,7 @@ mod tests {
         let third = screen.find("Ninth Window").unwrap().visible_bounds().unwrap();
         screen.point_at(first.center());
         let _ = screen.simulate([iced::Event::Mouse(iced::mouse::Event::ButtonPressed(iced::mouse::Button::Left))]);
-        let position = iced::Point::new(first.center_x(), third.y + third.height + 28.0);
+        let position = iced::Point::new(first.center_x(), third.y + ROW_HIGH + 50.0);
         screen.point_at(position);
         let _ = screen.simulate([iced::Event::Mouse(iced::mouse::Event::CursorMoved { position })]);
         if let Some(dir) = std::env::var_os("DOSSIER_POOL_DRAG_REVIEW").map(PathBuf::from) {

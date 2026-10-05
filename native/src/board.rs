@@ -321,6 +321,7 @@ pub struct Board<'a, Message, K> {
     on_move: Option<Box<dyn Fn(K, Option<K>) -> Message + 'a>>,
     across: Option<usize>,
     anywhere: bool,
+    grab_high: Option<f32>,
     radius: f32,
     on_tap: Option<Box<dyn Fn(K, Rectangle) -> Message + 'a>>,
     fade: f32,
@@ -335,11 +336,11 @@ pub fn board<'a, Message: 'a, K: Copy + Eq + Hash + 'static>(
     spacing: f32,
     on_move: impl Fn(K, Option<K>) -> Message + 'a,
 ) -> Board<'a, Message, K> {
-    Board { pieces, spacing, on_move: Some(Box::new(on_move)), on_tap: None, across: None, anywhere: false, radius: RADIUS, fade: crate::ui::fade(), solid: None, hidden: None, fixed_first: None, identity: None }
+    Board { pieces, spacing, on_move: Some(Box::new(on_move)), on_tap: None, across: None, anywhere: false, grab_high: None, radius: RADIUS, fade: crate::ui::fade(), solid: None, hidden: None, fixed_first: None, identity: None }
 }
 
 pub fn flowing<'a, Message: 'a, K: Copy + Eq + Hash + 'static>(pieces: Vec<(K, Element<'a, Message>)>, spacing: f32) -> Board<'a, Message, K> {
-    Board { pieces, spacing, on_move: None, on_tap: None, across: None, anywhere: false, radius: RADIUS, fade: crate::ui::fade(), solid: None, hidden: None, fixed_first: None, identity: None }
+    Board { pieces, spacing, on_move: None, on_tap: None, across: None, anywhere: false, grab_high: None, radius: RADIUS, fade: crate::ui::fade(), solid: None, hidden: None, fixed_first: None, identity: None }
 }
 
 impl<'a, Message, K: Copy + Eq + Hash + 'static> Board<'a, Message, K> {
@@ -355,6 +356,11 @@ impl<'a, Message, K: Copy + Eq + Hash + 'static> Board<'a, Message, K> {
 
     pub fn anywhere(mut self) -> Self {
         self.anywhere = true;
+        self
+    }
+
+    pub fn grab_high(mut self, high: f32) -> Self {
+        self.grab_high = Some(high.max(0.0));
         self
     }
 
@@ -620,7 +626,8 @@ impl<Message, K: Copy + Eq + Hash + 'static> Widget<Message, Theme, Renderer> fo
                     let spot = state.spots.get(key)?.point();
                     let size = state.sizes.get(key)?;
                     let rect = Rectangle::new(spot + origin_v, *size);
-                    rect.contains(at).then_some((*key, rect))
+                    let grab = Rectangle { height: self.grab_high.map_or(rect.height, |high| high.min(rect.height)), ..rect };
+                    grab.contains(at).then_some((*key, rect))
                 });
                 match hit {
                     Some((key, rect)) => {

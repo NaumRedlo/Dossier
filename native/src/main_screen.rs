@@ -1037,7 +1037,7 @@ impl Main {
 
     fn rescaled(&self, before: f32) -> Task<Message> {
         let after = ui::scale_of(self.settings.ui_scale);
-        crate::refit_window(ui::refit(iced::Size::new(self.width, self.height), before, after, crate::WINDOW), crate::minimum_window(self.settings.ui_scale))
+        crate::refit_window(ui::refit(iced::Size::new(self.width, self.height), before, after, crate::WINDOW).map(|size| ui::viewport_at(size, after, 1.0)), crate::minimum_window(self.settings.ui_scale))
     }
 
     fn check_update(&mut self) -> Task<Message> {

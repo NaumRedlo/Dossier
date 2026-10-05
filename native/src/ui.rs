@@ -3384,6 +3384,64 @@ impl<Message> iced::advanced::Widget<Message, Theme, Renderer> for Scaled<'_, Me
             self.content.as_widget().draw(tree, renderer, theme, style, inner, cursor, &seen);
         });
     }
+
+    fn overlay<'b>(&'b mut self, tree: &'b mut iced::advanced::widget::Tree, layout: iced::advanced::Layout<'b>, renderer: &Renderer, viewport: &Rectangle, translation: iced::Vector) -> Option<iced::advanced::overlay::Element<'b, Message, Theme, Renderer>> {
+        let inner = layout.children().next()?;
+        let origin = layout.bounds().position();
+        let translation = iced::Vector::new((origin.x + translation.x) / self.factor - origin.x, (origin.y + translation.y) / self.factor - origin.y);
+        let seen = *viewport * iced::Transformation::scale(self.factor).inverse();
+        let content = self.content.as_widget_mut().overlay(tree, inner, renderer, &seen, translation)?;
+        Some(iced::advanced::overlay::Element::new(Box::new(ScaledOverlay { content, factor: self.factor })))
+    }
+}
+
+struct ScaledOverlay<'a, Message> {
+    content: iced::advanced::overlay::Element<'a, Message, Theme, Renderer>,
+    factor: f32,
+}
+
+impl<Message> iced::advanced::Overlay<Message, Theme, Renderer> for ScaledOverlay<'_, Message> {
+    fn layout(&mut self, renderer: &Renderer, bounds: Size) -> iced::advanced::layout::Node {
+        let inner = self.content.as_overlay_mut().layout(renderer, bounds * (1.0 / self.factor));
+        let position = inner.bounds().position();
+        let scaled = Point::new(position.x * self.factor, position.y * self.factor);
+        let size = inner.size() * self.factor;
+        iced::advanced::layout::Node::with_children(size, vec![inner.move_to(Point::new(position.x - scaled.x, position.y - scaled.y))]).move_to(scaled)
+    }
+
+    fn draw(&self, renderer: &mut Renderer, theme: &Theme, style: &iced::advanced::renderer::Style, layout: iced::advanced::Layout<'_>, cursor: mouse::Cursor) {
+        use iced::advanced::Renderer as _;
+        if let Some(inner) = layout.children().next() {
+            let cursor = cursor * iced::Transformation::scale(self.factor).inverse();
+            renderer.with_transformation(iced::Transformation::scale(self.factor), |renderer| self.content.as_overlay().draw(renderer, theme, style, inner, cursor));
+        }
+    }
+
+    fn operate(&mut self, layout: iced::advanced::Layout<'_>, renderer: &Renderer, operation: &mut dyn iced::advanced::widget::Operation) {
+        if let Some(inner) = layout.children().next() { self.content.as_overlay_mut().operate(inner, renderer, operation); }
+    }
+
+    fn update(&mut self, event: &iced::Event, layout: iced::advanced::Layout<'_>, cursor: mouse::Cursor, renderer: &Renderer, clipboard: &mut dyn iced::advanced::Clipboard, shell: &mut iced::advanced::Shell<'_, Message>) {
+        if let Some(inner) = layout.children().next() {
+            let event = match event {
+                iced::Event::Mouse(mouse::Event::CursorMoved { position }) => iced::Event::Mouse(mouse::Event::CursorMoved { position: Point::new(position.x / self.factor, position.y / self.factor) }),
+                other => other.clone(),
+            };
+            self.content.as_overlay_mut().update(&event, inner, cursor * iced::Transformation::scale(self.factor).inverse(), renderer, clipboard, shell);
+        }
+    }
+
+    fn mouse_interaction(&self, layout: iced::advanced::Layout<'_>, cursor: mouse::Cursor, renderer: &Renderer) -> mouse::Interaction {
+        layout.children().next().map_or(mouse::Interaction::None, |inner| self.content.as_overlay().mouse_interaction(inner, cursor * iced::Transformation::scale(self.factor).inverse(), renderer))
+    }
+
+    fn overlay<'a>(&'a mut self, layout: iced::advanced::Layout<'a>, renderer: &Renderer) -> Option<iced::advanced::overlay::Element<'a, Message, Theme, Renderer>> {
+        let inner = layout.children().next()?;
+        let content = self.content.as_overlay_mut().overlay(inner, renderer)?;
+        Some(iced::advanced::overlay::Element::new(Box::new(ScaledOverlay { content, factor: self.factor })))
+    }
+
+    fn index(&self) -> f32 { self.content.as_overlay().index() }
 }
 
 impl<'a, Message: 'a> From<Scaled<'a, Message>> for Element<'a, Message> {
@@ -4638,6 +4696,33 @@ mod tests {
             assert!((restored.width - window.width).abs() < 0.001);
             assert!((restored.height - window.height).abs() < 0.001);
         }
+    }
+
+    #[test]
+    fn scaled_dropdowns_open_at_the_control_and_accept_the_visible_choice() {
+        use iced::widget::{container, pick_list};
+        for factor in [0.85, 1.17, 1.5, 2.0, 3.0] {
+            let menu = pick_list(["NM", "HD", "DT"], Some("NM"), str::to_owned).text_size(16.0).text_line_height(text::LineHeight::Relative(1.25)).padding(8).width(120.0);
+            let content = container(menu).padding([44, 63]);
+            let mut screen = iced_test::Simulator::with_size(crate::settings(), Size::new(1280.0, 720.0), scaled(content, factor));
+            screen.point_at(Point::new(83.0 * factor, 62.0 * factor));
+            let _ = screen.simulate(iced_test::simulator::click());
+            let position = Point::new(83.0 * factor, 170.0 * factor);
+            screen.point_at(position);
+            let _ = screen.simulate([iced::Event::Mouse(mouse::Event::CursorMoved { position })]);
+            let _ = screen.simulate(iced_test::simulator::click());
+            assert_eq!(screen.into_messages().collect::<Vec<_>>(), ["DT"]);
+        }
+        let menu = pick_list(["NM", "HD", "DT"], Some("NM"), str::to_owned).text_size(16.0).text_line_height(text::LineHeight::Relative(1.25)).padding(8).width(120.0);
+        let content = container(scaled(container(menu).padding([44, 63]), 0.95)).padding([25, 31]);
+        let mut screen = iced_test::Simulator::with_size(crate::settings(), Size::new(1280.0, 720.0), scaled(content, 1.5));
+        screen.point_at(Point::new((31.0 + 83.0 * 0.95) * 1.5, (25.0 + 62.0 * 0.95) * 1.5));
+        let _ = screen.simulate(iced_test::simulator::click());
+        let position = Point::new((31.0 + 83.0 * 0.95) * 1.5, (25.0 + 170.0 * 0.95) * 1.5);
+        screen.point_at(position);
+        let _ = screen.simulate([iced::Event::Mouse(mouse::Event::CursorMoved { position })]);
+        let _ = screen.simulate(iced_test::simulator::click());
+        assert_eq!(screen.into_messages().collect::<Vec<_>>(), ["DT"]);
     }
 
     #[test]

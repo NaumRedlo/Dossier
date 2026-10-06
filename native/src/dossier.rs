@@ -977,6 +977,16 @@ pub(crate) fn star_colour(stars: f32) -> Color {
     Color::from_rgb(mix(0), mix(1), mix(2))
 }
 
+pub(crate) fn star_pill<'a, M: 'a>(label: String, stars: f32, size: f32) -> Element<'a, M> {
+    let colour = star_colour(stars);
+    let luminance = 0.299 * colour.r + 0.587 * colour.g + 0.114 * colour.b;
+    let ink = if stars >= 6.5 { Color::from_rgb8(255, 204, 64) } else if luminance > 150.0 / 255.0 { Color::from_rgb8(20, 20, 24) } else { Color::WHITE };
+    let scale = size / 15.0;
+    container(row![glyph(Icon::Star, 12.0 * scale, ink), text(label).font(theme::STAR_RATING).size(size).color(ui::faded(ink))].spacing(5.0 * scale).align_y(iced::Center))
+        .padding([7.0 * scale, 10.0 * scale])
+        .style(move |_| container::Style { background: Some(Background::Color(ui::faded(colour))), border: Border { color: ui::faded(colour), width: 1.0, radius: 30.0.into() }, ..container::Style::default() }).into()
+}
+
 fn badge_pill<'a>(inside: Element<'a, Message>, fill: Color) -> Element<'a, Message> {
     let k = ui::fade();
     container(inside)
@@ -1075,12 +1085,7 @@ fn poster_card<'a>(ground: &Ground<'a>, index: usize, poster: &Poster<'a>, chose
     });
     let mut rating = row![].spacing(5).align_y(iced::Center);
     if let Some(stars) = poster.stars {
-        let tint = star_colour(stars);
-        let ink = if stars >= 6.5 { Color::from_rgb8(0xff, 0xd9, 0x66) } else { Color::from_rgba(0.0, 0.0, 0.0, 0.8) };
-        rating = rating.push(badge_pill(
-            row![glyph(Icon::Star, 10.0, ink), text(screen::decimal(w, stars, 2)).font(theme::MONO_BOLD).size(11.0).color(ui::faded(ink))].spacing(3).align_y(iced::Center).into(),
-            tint,
-        ));
+        rating = rating.push(star_pill(screen::decimal(w, stars, 2), stars, 11.0));
     }
     let head = row![place, ui::grow(), container(rating).padding(Padding::ZERO.top(6.0))].align_y(iced::alignment::Vertical::Top);
     let seal = container(text(poster.grade.clone()).font(theme::SANS_SEMI).size(20.0).color(ui::faded(colour)))

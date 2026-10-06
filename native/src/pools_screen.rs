@@ -2521,10 +2521,7 @@ fn slot_row<'a>(pool: &'a Pool, at: usize, selected: bool, choosing: bool, words
                 figures,
             ].spacing(4).width(Length::Fill);
             let stars: Element<'a, Message> = slot.measure.map(|measure| {
-                let colour = crate::dossier::star_colour(measure.stars as f32);
-                let luminance = 0.299 * colour.r + 0.587 * colour.g + 0.114 * colour.b;
-                let ink = if measure.stars >= 6.5 { Color::from_rgb8(255, 204, 64) } else if luminance > 150.0 / 255.0 { Color::from_rgb8(20, 20, 24) } else { Color::WHITE };
-                container(row![glyph(Icon::Star, 12.0, ink), text(stars_of(words, measure.stars)).font(theme::STAR_RATING).size(15.0).color(ui::faded(ink))].spacing(5).align_y(iced::Center)).padding([7, 10]).style(move |_| container::Style { background: Some(Background::Color(ui::faded(colour))), border: Border { color: ui::faded(colour), width: 1.0, radius: 30.0.into() }, ..container::Style::default() }).into()
+                crate::dossier::star_pill(stars_of(words, measure.stars), measure.stars as f32, 15.0)
             }).unwrap_or_else(|| Space::new().into());
             row![
                 left,

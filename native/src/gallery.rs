@@ -1189,6 +1189,10 @@ fn feed_states(community: &dyn Fn(crate::community_screen::Section, Option<usize
         ("main-pools-shelf".to_owned(), {
             let mut main = community(crate::community_screen::Section::Pools, None);
             pools_state(&mut main, true);
+            main.pools.list[0].authors = vec!["NaumRedlo".into(), "kotofey".into()];
+            main.pools.list[0].compiler = "NaumRedlo".into();
+            main.pools.faces.insert("naumredlo".into(), iced::widget::image::Handle::from_rgba(96, 96, [80, 130, 210, 255].repeat(96 * 96)));
+            main.pools.faces.insert("kotofey".into(), iced::widget::image::Handle::from_rgba(96, 96, [160, 80, 190, 255].repeat(96 * 96)));
             main
         }),
         ("main-pools-new".to_owned(), {
@@ -1199,6 +1203,34 @@ fn feed_states(community: &dyn Fn(crate::community_screen::Section, Option<usize
             let id = pool.id.clone();
             main.pools.list.push(pool);
             main.pools.screen = crate::pools_screen::Screen::Editor(crate::pools_screen::Editor::at(id));
+            main
+        }),
+        ("main-pools-catalogue".to_owned(), {
+            let mut main = community(crate::community_screen::Section::Pools, None);
+            pools_state(&mut main, false);
+            let mut pool = pool_sample().0.remove(0);
+            pool.authors = vec!["NaumRedlo".into()];
+            main.pools.faces.insert("naumredlo".into(), iced::widget::image::Handle::from_rgba(96, 96, [80, 130, 210, 255].repeat(96 * 96)));
+            main.pools.publications.push(crate::bot::Publication { id: "published-pool".into(), kind: "pool".into(), local_id: "draft".into(), revision: 1, name: pool.name.clone(), content: serde_json::from_slice(&crate::pool_share::to_file(&pool)).unwrap(), mine: false });
+            main
+        }),
+        ("main-pools-collections".to_owned(), {
+            let mut main = community(crate::community_screen::Section::Pools, None);
+            pools_state(&mut main, true);
+            main.pools.collection_shelf = true;
+            main.pools.list[0].collection = true;
+            main.pools.list[0].name = "Favorites".into();
+            main.pools.publications.push(crate::bot::Publication { id: "published-collection".into(), kind: "collection".into(), local_id: "favorites".into(), revision: 2, name: "Weekend practice".into(), content: serde_json::json!({"name": "Weekend practice", "hashes": []}), mine: true });
+            main
+        }),
+        ("main-pools-category".to_owned(), {
+            let mut main = community(crate::community_screen::Section::Pools, None);
+            pools_state(&mut main, true);
+            let pool = &mut main.pools.list[0];
+            pool.authors = vec!["NaumRedlo".into(), "kotofey".into()];
+            pool.compiler = "NaumRedlo".into();
+            let id = pool.id.clone();
+            main.pools.screen = crate::pools_screen::Screen::Editor(crate::pools_screen::Editor { selected: Some(0), panel: crate::pools_screen::Panel::Slot, category_creator: true, category_draft: "AI".into(), colour_draft: "#5ec2d0".into(), editing_authors: false, editing_compiler: false, ..crate::pools_screen::Editor::at(id) });
             main
         }),
         ("main-pools-editor".to_owned(), {

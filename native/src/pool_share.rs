@@ -20,7 +20,15 @@ struct Shared {
     version: u32,
     name: String,
     #[serde(default)]
+    collection: bool,
+    #[serde(default)]
     authors: Vec<String>,
+    #[serde(default)]
+    categories: std::collections::BTreeMap<String, [u8; 3]>,
+    #[serde(default)]
+    category_order: Vec<String>,
+    #[serde(default)]
+    compiler: String,
     #[serde(default)]
     note: String,
     frame: Frame,
@@ -53,7 +61,11 @@ fn shared(pool: &Pool) -> Shared {
         format: FORMAT.to_owned(),
         version: VERSION,
         name: pool.name.clone(),
+        collection: pool.collection,
         authors: pool.authors.clone(),
+        categories: pool.categories.clone(),
+        category_order: pool.category_order.clone(),
+        compiler: pool.compiler.clone(),
         note: pool.note.clone(),
         frame: pool.frame,
         calc: pool.calc,
@@ -73,8 +85,12 @@ fn pool_of(shared: Shared, now: i64) -> Result<Pool, Refused> {
         return Err(Refused::Newer);
     }
     let mut pool = Pool::new(shared.frame, &shared.name, now);
+    pool.collection = shared.collection;
     pool.note = shared.note;
     pool.authors = shared.authors;
+    pool.categories = shared.categories;
+    pool.category_order = shared.category_order;
+    pool.compiler = shared.compiler;
     pool.calc = CALC_VERSION;
     pool.slots = shared
         .slots

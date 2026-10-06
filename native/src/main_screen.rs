@@ -1466,6 +1466,38 @@ impl Main {
         let mut tasks: Vec<Task<Message>> = Vec::new();
         for effect in effects {
             match effect {
+                Effect::OwnCompiler(id) => {
+                    let name = self.osu_card.as_ref().map(|card| card.username.clone()).or_else(|| self.community_card.as_ref().map(|card| card.username.clone())).unwrap_or_default();
+                    tasks.push(Task::done(Message::Community(crate::community_screen::Message::Pools(P::OwnCompiler(id, name)))));
+                }
+                Effect::Faces(names) => {
+                    let names: Vec<_> = names.into_iter().filter(|name| !self.pools.faces.contains_key(&name.to_lowercase())).collect();
+                    tasks.push(ui::streamed(move |push| {
+                        for name in names {
+                            let card = crate::osu_profile::load_player(&name).or_else(|| crate::osu_profile::fetch(&name).ok());
+                            let face = card.and_then(|card| crate::news::picture(&card.avatar_url)).and_then(|bytes| decoded_from(&bytes, 96, Some((96, 96))));
+                            if !push(Message::Community(crate::community_screen::Message::Pools(P::Face(name, face)))) { return; }
+                        }
+                    }));
+                }
+                Effect::Catalogue(collections, offset) => {
+                    let (server, token, device) = (self.settings.server.clone(), self.settings.token.clone(), self.settings.device.clone());
+                    tasks.push(ui::in_thread(move || Message::Community(crate::community_screen::Message::Pools(P::CatalogueLoaded(collections, offset > 0, crate::bot::publications(&server, &token, &device, if collections { "collection" } else { "pool" }, offset).map_err(|e| e.to_string()))))));
+                }
+                Effect::Publish(pool) => {
+                    let (server, token, device) = (self.settings.server.clone(), self.settings.token.clone(), self.settings.device.clone());
+                    tasks.push(ui::in_thread(move || { let result = crate::bot::publish(&server, &token, &device, &pool).map_err(|e| e.to_string()); Message::Community(crate::community_screen::Message::Pools(P::Published(pool.id, result))) }));
+                }
+                Effect::Author(name) => {
+                    if let Some(catalog) = self.community.as_mut() {
+                        let at = catalog.people.iter().position(|person| person.name.eq_ignore_ascii_case(&name)).unwrap_or_else(|| {
+                            let person = self.everyone.iter().find(|person| person.name.eq_ignore_ascii_case(&name)).map(|person| crate::community::Person { id: person.id, player: person.player, name: person.name.clone(), avatar: person.avatar.clone(), outside: true, ..Default::default() }).unwrap_or_else(|| crate::community::Person { id: -9_000_000 - catalog.people.len() as i64, name: name.clone(), outside: true, ..Default::default() });
+                            catalog.people.push(person);
+                            catalog.people.len() - 1
+                        });
+                        tasks.push(self.update(Message::Community(crate::community_screen::Message::Person(Some(at)))));
+                    }
+                }
                 Effect::ReadSongs => {
                     let mut songs = library::songs_of(&self.settings.sources);
                     let own = crate::sources::own_root().join("Songs");
@@ -4515,15 +4547,15 @@ impl Main {
         let action: Element<'_, Message> = if with_actions { self.action(entry) } else { Space::new().height(theme::CONTROL_HEIGHT).into() };
         let left = column![
             row![text(date).font(theme::MONO).size(theme::CAPTION).color(ui::faded(MUTED)), text(from).font(theme::MONO).size(theme::CAPTION).color(ui::faded(theme::SHARED))].spacing(14),
-            text(player).font(theme::SANS_SEMI).size(30.0).color(ui::faded(INK)),
-            text(map).font(theme::SANS).size(theme::BODY).color(ui::faded(MUTED)),
+            ui::moving_text(player, theme::SANS_SEMI, 30.0, INK),
+            ui::moving_text(map, theme::SANS, theme::BODY, MUTED),
             container(meta).padding(Padding::ZERO.top(4.0)),
             container(action).padding(Padding::ZERO.top(14.0)),
         ]
-        .spacing(2);
+        .spacing(2).width(Length::Fill);
         let outcome_colour = if entry.outcome.is_bad() { ACCENT } else { MUTED };
         let right = column![
-            text(accuracy).font(theme::SANS_SEMI).size(48.0).color(ui::faded(INK)),
+            text(accuracy).font(theme::SANS_SEMI).size(48.0).wrapping(text::Wrapping::None).color(ui::faded(INK)),
             container(text(retype(&was.outcome, &now.outcome)).font(theme::MONO_BOLD).size(theme::CAPTION).color(ui::faded(outcome_colour)))
                 .width(Length::Fill)
                 .align_x(iced::alignment::Horizontal::Right),
@@ -4531,7 +4563,7 @@ impl Main {
         .spacing(2)
         .align_x(iced::alignment::Horizontal::Right);
         let _ = w;
-        row![left, ui::grow(), right].align_y(iced::alignment::Vertical::Bottom).into()
+        row![left, container(right).width(220.0)].spacing(20).align_y(iced::alignment::Vertical::Bottom).into()
     }
 
     fn action(&self, entry: &Entry) -> Element<'_, Message> {
@@ -8250,6 +8282,23 @@ mod tests {
         let _ = main.update(super::Message::Community(C::Person(None)));
         assert_eq!(main.panel_from, Some(original));
         assert!(!main.person_fade.value());
+    }
+
+    #[test]
+    fn long_replay_labels_leave_room_for_the_whole_accuracy() {
+        let (_, main) = crate::gallery::main_states(crate::lang::Lang::Ru).into_iter().find(|(name, _)| name == "main-rest").unwrap();
+        let entry = main.chosen_entry().unwrap();
+        let mut shown = main.shown(entry);
+        shown.player = "A player with a very long name".repeat(3);
+        shown.map = "Mega Ultra Cool Collab Extra".repeat(10);
+        shown.accuracy = "100,00%".into();
+        for width in [480.0, 720.0, 1000.0] {
+            let mut screen = iced_test::Simulator::with_size(crate::settings(), iced::Size::new(width, 400.0), main.block(entry, &shown, &shown, 1.0, true));
+            let accuracy = screen.find("100,00%").unwrap().bounds();
+            let map = screen.find(shown.map.clone()).unwrap().bounds();
+            assert!(accuracy.x >= 0.0 && accuracy.x + accuracy.width <= width, "{accuracy:?}");
+            assert!(map.x + map.width <= accuracy.x, "{map:?} {accuracy:?}");
+        }
     }
 
     #[test]

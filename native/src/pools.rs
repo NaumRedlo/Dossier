@@ -233,6 +233,16 @@ impl Slot {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Pool {
     pub id: String,
+    #[serde(default)]
+    pub collection: bool,
+    #[serde(default)]
+    pub published_revision: u64,
+    #[serde(default)]
+    pub categories: std::collections::BTreeMap<String, [u8; 3]>,
+    #[serde(default)]
+    pub category_order: Vec<String>,
+    #[serde(default)]
+    pub compiler: String,
     pub name: String,
     #[serde(default)]
     pub authors: Vec<String>,
@@ -257,6 +267,11 @@ impl Pool {
     pub fn new(frame: Frame, name: &str, now: i64) -> Pool {
         Pool {
             id: fresh_id(now),
+            collection: false,
+            published_revision: 0,
+            categories: Default::default(),
+            category_order: Vec::new(),
+            compiler: String::new(),
             name: name.to_owned(),
             authors: Vec::new(),
             note: String::new(),

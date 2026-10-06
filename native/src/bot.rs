@@ -13,6 +13,33 @@ const RETRY_AFTER: Duration = if cfg!(test) { Duration::from_millis(20) } else {
 const DONATE_PATIENCE: Duration = Duration::from_secs(60);
 const BOARD_PATIENCE: Duration = Duration::from_secs(60);
 
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct Publication {
+    pub id: String,
+    pub kind: String,
+    pub local_id: String,
+    pub revision: u64,
+    pub name: String,
+    pub content: serde_json::Value,
+    pub mine: bool,
+}
+
+pub fn publications(server: &str, token: &str, device: &str, kind: &str, offset: usize) -> Result<Vec<Publication>, Refused> {
+    let reply = client()?.get(format!("{server}/render/catalog/{kind}"))
+        .query(&[("offset", offset)]).header("X-Render-Worker", device).bearer_auth(token).send().map_err(|e| Refused::Network(e.to_string()))?;
+    status(reply)?.json().map_err(|e| Refused::Network(e.to_string()))
+}
+
+pub fn publish(server: &str, token: &str, device: &str, pool: &crate::pools::Pool) -> Result<Publication, Refused> {
+    let content = if pool.collection {
+        serde_json::json!({"name": pool.name, "hashes": pool.slots.iter().filter_map(|slot| slot.hash.clone()).collect::<Vec<_>>()})
+    } else { serde_json::from_slice(&crate::pool_share::to_file(pool)).map_err(|e| Refused::Said(e.to_string()))? };
+    let kind = if pool.collection { "collection" } else { "pool" };
+    let reply = client()?.put(format!("{server}/render/catalog/{kind}/{}", pool.id)).header("X-Render-Worker", device).bearer_auth(token)
+        .json(&serde_json::json!({"content": content, "revision": pool.published_revision})).send().map_err(|e| Refused::Network(e.to_string()))?;
+    status(reply)?.json().map_err(|e| Refused::Network(e.to_string()))
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Refused {
     Network(String),

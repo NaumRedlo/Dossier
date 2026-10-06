@@ -75,11 +75,16 @@ pub struct Editor {
     pub colour_draft: String,
     pub last_category: String,
     pub last_colour: Option<[u8; 3]>,
+    pub category_creator: bool,
+    pub category_draft: String,
+    pub compiler_draft: String,
+    pub editing_authors: bool,
+    pub editing_compiler: bool,
 }
 
 impl Editor {
     pub fn at(id: String) -> Editor {
-        Editor { id, selected: None, panel: Panel::Closed, query: String::new(), source: SourceTab::Search, collection: None, collection_page: 0, untouched: false, replace: false, share: false, choosing: false, marked: Vec::new(), bulk: None, asking_delete: false, grouped: true, last_mod: Mod::Nm, authors: String::new(), colour_draft: String::new(), last_category: String::new(), last_colour: None }
+        Editor { id, selected: None, panel: Panel::Closed, query: String::new(), source: SourceTab::Search, collection: None, collection_page: 0, untouched: false, replace: false, share: false, choosing: false, marked: Vec::new(), bulk: None, asking_delete: false, grouped: true, last_mod: Mod::Nm, authors: String::new(), colour_draft: String::new(), last_category: String::new(), last_colour: None, category_creator: false, category_draft: String::new(), compiler_draft: String::new(), editing_authors: true, editing_compiler: true }
     }
 }
 
@@ -187,6 +192,7 @@ fn slot_keys(pool: &Pool) -> Vec<SlotKey> {
     }).collect()
 }
 
+#[cfg(test)]
 fn slot_groups(pool: &Pool) -> Vec<(Mod, Vec<usize>)> {
     Mod::ALL.into_iter().filter_map(|mods| {
         let slots: Vec<usize> = pool.slots.iter().enumerate().filter_map(|(at, slot)| (slot.mods == mods).then_some(at)).collect();
@@ -203,11 +209,31 @@ pub enum Input {
 
 #[derive(Debug, Clone)]
 pub enum Message {
+    Catalogue(bool),
+    CatalogueMore,
+    CatalogueLoaded(bool, bool, Result<Vec<crate::bot::Publication>, String>),
+    OpenPublication(String),
+    ImportCollection(usize),
+    Publish,
+    Published(String, Result<crate::bot::Publication, String>),
     New,
     Open(String),
     Back,
     Rename(String),
     Authors(String),
+    AuthorsDraft(String),
+    ApplyAuthors,
+    EditAuthors,
+    CompilerDraft(String),
+    ApplyCompiler,
+    EditCompiler,
+    OwnCompiler(String, String),
+    Face(String, Option<image::Handle>),
+    MoveCategory(String, bool),
+    Author(String),
+    CreateCategory(bool),
+    CategoryDraft(String),
+    SaveCategory(usize),
     Category(usize, String),
     Colour(usize, String),
     UseFrame(Frame),
@@ -274,6 +300,11 @@ pub enum Message {
 
 #[derive(Debug, Clone)]
 pub enum Effect {
+    Faces(Vec<String>),
+    OwnCompiler(String),
+    Catalogue(bool, usize),
+    Publish(Pool),
+    Author(String),
     ReadSongs,
     ReadCollections,
     ReadBest(bool),
@@ -295,6 +326,13 @@ pub enum Effect {
 
 #[derive(Clone)]
 pub struct State {
+    pub faces: HashMap<String, image::Handle>,
+    pub collection_shelf: bool,
+    pub publications: Vec<crate::bot::Publication>,
+    pub catalogue_loading: bool,
+    pub catalogue_more: bool,
+    pub publishing: bool,
+    pub catalogue_error: Option<String>,
     pub list: Vec<Pool>,
     pub loaded: bool,
     pub screen: Screen,
@@ -328,6 +366,13 @@ pub struct State {
 impl State {
     pub fn new(dir: PathBuf) -> State {
         State {
+            faces: HashMap::new(),
+            collection_shelf: false,
+            publications: Vec::new(),
+            catalogue_loading: false,
+            catalogue_more: false,
+            publishing: false,
+            catalogue_error: None,
             list: Vec::new(),
             loaded: false,
             screen: Screen::Shelf,
@@ -381,6 +426,9 @@ impl State {
             effects.push(Effect::ReadSongs);
         }
         effects.extend(self.measure_effects());
+        let names: Vec<_> = self.list.iter().flat_map(|pool| pool.authors.iter().chain(std::iter::once(&pool.compiler))).filter(|name| !name.is_empty() && !self.faces.contains_key(&name.to_lowercase())).cloned().collect();
+        if !names.is_empty() { effects.push(Effect::Faces(names)); }
+        if !self.catalogue_loading { self.catalogue_loading = true; effects.push(Effect::Catalogue(self.collection_shelf, 0)); }
         effects
     }
 
@@ -671,15 +719,131 @@ impl State {
     pub fn update(&mut self, message: Message, now: i64) -> Vec<Effect> {
         let mut effects = Vec::new();
         match message {
+            Message::AuthorsDraft(said) => {
+                let apply = said.ends_with(char::is_whitespace) && said.chars().filter(|ch| *ch == '"').count() % 2 == 0;
+                if let Some(editor) = self.editor_mut() { editor.authors = said; }
+                if apply { effects.extend(self.update(Message::ApplyAuthors, now)); }
+            }
+            Message::ApplyAuthors => { if let Screen::Editor(editor) = &self.screen { effects.extend(self.update(Message::Authors(editor.authors.clone()), now)); } if let Some(editor) = self.editor_mut() { editor.editing_authors = false; } }
+            Message::EditAuthors => { if let Some(editor) = self.editor_mut() { editor.editing_authors = true; } }
+            Message::EditCompiler => { if let Some(editor) = self.editor_mut() { editor.editing_compiler = true; } }
+            Message::CompilerDraft(said) => {
+                let apply = said.ends_with(char::is_whitespace) && said.chars().filter(|ch| *ch == '"').count() % 2 == 0;
+                if let Some(editor) = self.editor_mut() { editor.compiler_draft = said; }
+                if apply { effects.extend(self.update(Message::ApplyCompiler, now)); }
+            }
+            Message::ApplyCompiler => {
+                if let Some(at) = self.editing_at() {
+                    let compiler = match &self.screen { Screen::Editor(editor) => editor.compiler_draft.trim().trim_matches('"').to_owned(), _ => String::new() };
+                    self.list[at].compiler = compiler.clone(); self.save(at, now);
+                    if let Some(editor) = self.editor_mut() { editor.editing_compiler = false; }
+                    if !compiler.is_empty() { effects.push(Effect::Faces(vec![compiler])); }
+                }
+            }
+            Message::OwnCompiler(id, name) => {
+                if let Some(at) = self.list.iter().position(|pool| pool.id == id && pool.compiler.is_empty()) {
+                    self.list[at].compiler = name.clone(); self.save(at, now);
+                    if let Some(editor) = self.editor_mut().filter(|editor| editor.id == id) { editor.compiler_draft = name.clone(); editor.editing_compiler = name.is_empty(); }
+                    if !name.is_empty() { effects.push(Effect::Faces(vec![name])); }
+                }
+            }
+            Message::Face(name, face) => { if let Some(face) = face { self.faces.insert(name.to_lowercase(), face); } }
+            Message::MoveCategory(name, down) => {
+                if let Some(at) = self.editing_at() {
+                    let mut order = category_order(&self.list[at]);
+                    if let Some(from) = order.iter().position(|key| key == &name) {
+                        let to = if down { from.saturating_add(1) } else { from.saturating_sub(1) };
+                        if to < order.len() && to != from { self.remember(at); order.swap(from, to); self.list[at].category_order = order; self.save(at, now); }
+                    }
+                }
+            }
+            Message::Catalogue(collections) => {
+                self.collection_shelf = collections;
+                self.screen = Screen::Shelf;
+                self.publications.clear();
+                self.catalogue_error = None;
+                self.catalogue_loading = true;
+                effects.push(Effect::Catalogue(collections, 0));
+                if collections && self.collections.is_none() && !self.collecting { self.collecting = true; effects.push(Effect::ReadCollections); }
+                if collections && self.songs.is_none() && !self.reading { self.reading = true; effects.push(Effect::ReadSongs); }
+            }
+            Message::CatalogueMore => {
+                if !self.catalogue_loading { self.catalogue_loading = true; effects.push(Effect::Catalogue(self.collection_shelf, self.publications.len())); }
+            }
+            Message::CatalogueLoaded(collections, append, result) => {
+                if collections == self.collection_shelf {
+                    self.catalogue_loading = false;
+                    match result {
+                        Ok(rows) => {
+                            let names: Vec<_> = rows.iter().flat_map(publication_authors).filter(|name| !self.faces.contains_key(&name.to_lowercase())).collect();
+                            if !names.is_empty() { effects.push(Effect::Faces(names)); }
+                            self.catalogue_more = rows.len() == 100; if !append { self.publications.clear(); } self.publications.extend(rows); self.catalogue_error = None;
+                        }
+                        Err(why) => self.catalogue_error = Some(why),
+                    }
+                }
+            }
+            Message::Publish => {
+                if !self.publishing {
+                    if let Some(pool) = self.editing().filter(|pool| !pool.name.trim().is_empty() && pool.filled() > 0).cloned() {
+                        self.publishing = true;
+                        self.catalogue_error = None;
+                        effects.push(Effect::Publish(pool));
+                    }
+                }
+            }
+            Message::Published(id, result) => {
+                self.publishing = false;
+                match result {
+                    Ok(publication) => {
+                        if let Some(at) = self.list.iter().position(|pool| pool.id == id) { self.list[at].published_revision = publication.revision; self.save(at, now); }
+                        self.publications.retain(|p| p.id != publication.id);
+                        self.publications.insert(0, publication);
+                        self.catalogue_error = None;
+                    }
+                    Err(why) => self.catalogue_error = Some(why),
+                }
+            }
+            Message::OpenPublication(id) => {
+                if let Some(publication) = self.publications.iter().find(|row| row.id == id).cloned() {
+                    let parsed = if publication.kind == "collection" {
+                        let collection = Collection { name: publication.name.clone(), hashes: publication.content["hashes"].as_array().into_iter().flatten().filter_map(|h| h.as_str().map(str::to_owned)).collect() };
+                        Some(collection_pool(&collection, self.songs.as_deref(), now))
+                    } else { serde_json::to_vec(&publication.content).ok().and_then(|bytes| pool_share::from_file(&bytes, now).ok()) };
+                    if let Some(mut pool) = parsed {
+                        if publication.mine { pool.id = publication.local_id; pool.published_revision = publication.revision; }
+                        if let Some(at) = self.list.iter().position(|item| item.id == pool.id && item.published_revision != pool.published_revision) {
+                            let mut draft = self.list[at].clone();
+                            draft.id = Pool::new(Frame::Free, "", now).id;
+                            draft.published_revision = 0;
+                            self.list.push(draft);
+                            self.save(self.list.len() - 1, now);
+                            self.list[at] = pool.clone();
+                            self.save(at, now);
+                        }
+                        if let Some(existing) = self.list.iter().find(|item| item.id == pool.id) { effects.extend(self.update(Message::Open(existing.id.clone()), now)); }
+                        else { let id = pool.id.clone(); self.list.push(pool); self.save(self.list.len() - 1, now); effects.extend(self.update(Message::Open(id), now)); }
+                    }
+                }
+            }
+            Message::ImportCollection(at) => {
+                if let Some(collection) = self.collections.as_ref().and_then(|collections| collections.get(at)) {
+                    let pool = collection_pool(collection, self.songs.as_deref(), now);
+                    let id = pool.id.clone(); self.list.push(pool); self.save(self.list.len() - 1, now);
+                    effects.extend(self.update(Message::Open(id), now));
+                }
+            }
             Message::New => {
                 self.cancel_network();
                 self.cancel_suggestion();
                 self.cancel_import();
                 let mut pool = Pool::new(Frame::Free, "", now);
+                pool.collection = self.collection_shelf;
                 pool.slots = vec![Slot::empty(Mod::Nm); 4];
                 let id = pool.id.clone();
                 self.list.insert(0, pool);
                 self.save(0, now);
+                effects.push(Effect::OwnCompiler(id.clone()));
                 self.screen = Screen::Editor(Editor { untouched: true, ..Editor::at(id) });
             }
             Message::Open(id) => {
@@ -688,8 +852,11 @@ impl State {
                     self.cancel_suggestion();
                     self.cancel_import();
                     self.screen = Screen::Editor(Editor::at(id));
-                    let authors = self.editing().map(|pool| pool.authors.join(", ")).unwrap_or_default();
-                    if let Some(editor) = self.editor_mut() { editor.authors = authors; }
+                    let authors = self.editing().map(|pool| pool.authors.iter().map(|name| if name.contains(' ') { format!("\"{name}\"") } else { name.clone() }).collect::<Vec<_>>().join(" ")).unwrap_or_default();
+                    if let Some(editor) = self.editor_mut() { editor.editing_authors = authors.is_empty(); editor.authors = authors; }
+                    let compiler = self.editing().map(|pool| pool.compiler.clone()).unwrap_or_default();
+                    if let Some(editor) = self.editor_mut() { editor.editing_compiler = compiler.is_empty(); editor.compiler_draft = compiler; }
+                    if let Some(pool) = self.editing() { effects.push(Effect::Faces(pool.authors.iter().cloned().chain(std::iter::once(pool.compiler.clone())).filter(|name| !name.is_empty()).collect())); }
                     if self.songs.is_none() && !self.reading {
                         self.reading = true;
                         effects.push(Effect::ReadSongs);
@@ -725,27 +892,52 @@ impl State {
             Message::Authors(said) => {
                 if let Some(at) = self.editing_at() {
                     let mut authors = Vec::new();
-                    for author in said.split([',', ';']).map(str::trim).filter(|author| !author.is_empty()) {
-                        if !authors.iter().any(|known: &String| known.eq_ignore_ascii_case(author)) { authors.push(author.to_owned()); }
+                    for author in author_names(&said) {
+                        if !authors.iter().any(|known: &String| known.eq_ignore_ascii_case(&author)) { authors.push(author); }
                     }
                     self.list[at].authors = authors;
+                    effects.push(Effect::Faces(self.list[at].authors.clone()));
                     if let Some(editor) = self.editor_mut() { editor.authors = said; editor.untouched = false; }
                     self.save(at, now);
                 }
             }
             Message::Category(slot, name) => {
+                if let Some(at) = self.editing_at() {
+                    let colour = self.list[at].categories.get(&name).copied().or_else(|| self.list[at].slots.iter().find(|slot| slot.category == name).and_then(|slot| slot.colour));
+                    if let Some(editor) = self.editor_mut() { editor.last_category = name.clone(); editor.last_colour = colour; }
+                }
                 if let Some(at) = self.editing_at().filter(|at| slot < self.list[*at].slots.len()) {
                     self.remember(at);
                     self.list[at].slots[slot].category = name.clone();
+                    if let Some(colour) = self.list[at].categories.get(&name).copied().or_else(|| self.list[at].slots.iter().find(|item| item.category == name && item.colour.is_some()).and_then(|item| item.colour)) { self.list[at].slots[slot].colour = Some(colour); }
                     if let Some(editor) = self.editor_mut() { editor.last_category = name; }
                     self.save(at, now);
                 }
             }
+            Message::Author(name) => effects.push(Effect::Author(name)),
+            Message::CreateCategory(open) => {
+                if let Some(editor) = self.editor_mut() { editor.category_creator = open; editor.category_draft.clear(); editor.colour_draft = "#5ec2d0".into(); }
+            }
+            Message::CategoryDraft(name) => {
+                if let Some(editor) = self.editor_mut() { editor.category_draft = name.chars().filter(|c| c.is_alphabetic()).flat_map(char::to_uppercase).take(2).collect(); }
+            }
+            Message::SaveCategory(slot) => {
+                let draft = match &self.screen { Screen::Editor(editor) => Some((editor.category_draft.clone(), editor.colour_draft.clone())), _ => None };
+                if let Some((name, colour)) = draft.filter(|(name, colour)| !name.is_empty() && !Mod::ALL.iter().any(|m| m.code() == name) && parse_colour(colour).is_some()) {
+                    if let Some(at) = self.editing_at() { self.remember(at); self.list[at].categories.insert(name.clone(), parse_colour(&colour).unwrap()); self.save(at, now); }
+                    if let Some(editor) = self.editor_mut() { editor.category_creator = false; }
+                    effects.extend(self.update(Message::Category(slot, name), now));
+                    effects.extend(self.update(Message::Colour(slot, colour), now));
+                    if let Some(editor) = self.editor_mut() { editor.category_creator = false; }
+                }
+            }
             Message::Colour(slot, value) => {
                 if let Some(editor) = self.editor_mut() { editor.colour_draft = value.clone(); }
+                if matches!(&self.screen, Screen::Editor(editor) if editor.category_creator) { return effects; }
                 if let (Some(at), Some(colour)) = (self.editing_at(), parse_colour(&value)) {
                     if let Some(category) = self.list[at].slots.get(slot).map(|slot| slot.category.clone()).filter(|category| !category.is_empty()) {
                         self.remember(at);
+                        self.list[at].categories.insert(category.clone(), colour);
                         for slot in &mut self.list[at].slots { if slot.category == category { slot.colour = Some(colour); } }
                         if let Some(editor) = self.editor_mut() { editor.last_colour = Some(colour); }
                         self.save(at, now);
@@ -1432,6 +1624,15 @@ impl State {
                     }
                 }
                 self.songs = Some(songs);
+                for pool in &mut self.list {
+                    if pool.collection {
+                        for slot in &mut pool.slots {
+                            if let Some(hash) = slot.hash.clone() {
+                                if let Some(map) = self.songs.as_ref().and_then(|songs| songs.get(&hash)) { slot.fill(&hash, map); }
+                            }
+                        }
+                    }
+                }
                 self.reading = false;
                 effects.extend(self.measure_effects());
                 if let Some(slot) = self.pending_suggestion.take() {
@@ -1914,6 +2115,43 @@ fn category_number(pool: &Pool, at: usize) -> usize {
     pool.slots[..=at].iter().filter(|slot| slot.category == target.category && (!target.category.is_empty() || slot.mods == target.mods)).count()
 }
 
+fn category_order(pool: &Pool) -> Vec<String> {
+    let present: HashSet<String> = pool.slots.iter().map(|slot| if slot.category.is_empty() { slot.mods.code().to_owned() } else { slot.category.clone() }).collect();
+    let mut order = Vec::new();
+    let mut custom: Vec<_> = present.iter().filter(|name| !Mod::ALL.iter().any(|mods| mods.code() == name.as_str())).cloned().collect();
+    custom.sort();
+    for name in pool.category_order.iter().cloned().chain(Mod::ALL.iter().map(|mods| mods.code().to_owned())).chain(custom) {
+        if present.contains(&name) && !order.contains(&name) { order.push(name); }
+    }
+    order
+}
+
+fn author_names(said: &str) -> Vec<String> {
+    let mut names = Vec::new();
+    let mut name = String::new();
+    let mut quoted = false;
+    for c in said.chars() {
+        if c == '"' { quoted = !quoted; }
+        else if !quoted && (c.is_whitespace() || c == ',' || c == ';') {
+            if !name.is_empty() { names.push(std::mem::take(&mut name)); }
+        } else { name.push(c); }
+    }
+    if !name.is_empty() { names.push(name); }
+    names
+}
+
+fn collection_pool(collection: &Collection, songs: Option<&HashMap<String, Map>>, now: i64) -> Pool {
+    let mut pool = Pool::new(Frame::Free, &collection.name, now);
+    pool.collection = true;
+    pool.slots = collection.hashes.iter().map(|hash| {
+        let mut slot = Slot::empty(Mod::Nm);
+        if let Some(map) = songs.and_then(|songs| songs.get(hash)) { slot.fill(hash, map); }
+        else { slot.hash = Some(hash.clone()); slot.title = hash.clone(); }
+        slot
+    }).collect();
+    pool
+}
+
 fn slot_colour(slot: &Slot) -> Color {
     let rgb = if !slot.category.is_empty() { slot.colour } else { None }.unwrap_or(match slot.mods {
         Mod::Nm => [0x5e, 0xc2, 0xd0], Mod::Dt => [0x61, 0x2d, 0x9b], Mod::Hr => [0xb4, 0x14, 0x18],
@@ -2085,7 +2323,7 @@ fn bars<'a>(pool: &Pool) -> Element<'a, Message> {
     line.into()
 }
 
-fn pool_card<'a>(pool: &'a Pool, words: &'a Words, thumbs: &'a HashMap<String, image::Handle>, tile: f32) -> Element<'a, Message> {
+fn pool_card<'a>(state: &'a State, pool: &'a Pool, words: &'a Words, thumbs: &'a HashMap<String, image::Handle>, tile: f32) -> Element<'a, Message> {
     let mut collage = row![].spacing(6);
     let mut shown = 0;
     for slot in pool.slots.iter().filter(|slot| !slot.is_empty()).take(4) {
@@ -2101,7 +2339,9 @@ fn pool_card<'a>(pool: &'a Pool, words: &'a Words, thumbs: &'a HashMap<String, i
     .spacing(14)
     .align_y(iced::alignment::Vertical::Bottom);
     let mut inside = column![collage, wrapped_semi(name, 17.0, INK)].spacing(12);
-    if !pool.authors.is_empty() { inside = inside.push(ui::moving_text(pool.authors.join(", "), theme::SANS, 12.0, MUTED)); }
+    let mut people = pool.authors.clone();
+    if !pool.compiler.is_empty() && !people.iter().any(|name| name.eq_ignore_ascii_case(&pool.compiler)) { people.push(pool.compiler.clone()); }
+    if !people.is_empty() { inside = inside.push(row(people.iter().map(|name| author_identity(state, name)).collect::<Vec<_>>()).spacing(6).wrap()); }
     let inside = inside.push(line);
     button(container(inside).padding(14).width(Length::Fill))
         .padding(0)
@@ -2111,8 +2351,8 @@ fn pool_card<'a>(pool: &'a Pool, words: &'a Words, thumbs: &'a HashMap<String, i
         .into()
 }
 
-fn new_card<'a>(words: &Words) -> Element<'a, Message> {
-    let inside = column![glyph(Icon::Plus, 22.0, FAINT), faded_text(words.t("pools-new"), 14.0, MUTED)].spacing(8).align_x(iced::Center);
+fn new_card<'a>(words: &Words, collection: bool) -> Element<'a, Message> {
+    let inside = column![glyph(Icon::Plus, 22.0, FAINT), faded_text(words.t(if collection { "collections-new" } else { "pools-new" }), 14.0, MUTED)].spacing(8).align_x(iced::Center);
     button(container(inside).width(Length::Fill).height(Length::Fill).center(Length::Fill))
         .padding(0)
         .width(Length::Fill)
@@ -2165,53 +2405,67 @@ fn refusal_line<'a>(refused: &pool_share::Refused, words: &Words) -> Element<'a,
     faded_text(words.t(key), 13.0, ACCENT)
 }
 
-fn empty_shelf<'a>(words: &Words, refused: Option<&pool_share::Refused>, t: f32) -> Element<'a, Message> {
-    let k = ui::fade();
-    let tile = container(glyph(Icon::Pool, 28.0, FAINT))
-        .width(72.0)
-        .height(72.0)
-        .center(72.0)
-        .style(move |_| container::Style {
-            border: Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.06 * k), width: 1.0, radius: 18.0.into() },
-            ..container::Style::default()
-        });
-    let inside = column![
-        tile,
-        semi(words.t("pools-empty-title"), 22.0, INK),
-        container(text(words.t("pools-empty-text")).font(theme::SANS).size(14.0).color(ui::faded(MUTED)).align_x(iced::alignment::Horizontal::Center)).max_width(440.0),
-        row![primary_button(words.t("pools-empty-make"), Message::New), quiet_button(words.t("pools-open"), Message::OpenFile)].spacing(10),
-        match refused {
-            Some(refused) => refusal_line(refused, words),
-            None => faded_text(words.t("pools-local"), 12.0, FAINT),
-        },
-    ]
-    .spacing(14)
-    .align_x(iced::Center);
-    ui::appearing(ui::appear(t, 0), 10.0, || container(inside).center_x(Length::Fill).padding(Padding::ZERO.top(90.0)).into())
-}
-
 fn shelf<'a>(state: &'a State, words: &'a Words, thumbs: &'a HashMap<String, image::Handle>, width: f32, t: f32) -> Element<'a, Message> {
-    if state.list.is_empty() {
-        return empty_shelf(words, state.refused.as_ref(), t);
-    }
-    let head = row![
-        crumbs(words, None, semi(words.t("pools-title"), 28.0, INK)),
-        ui::grow(),
-        quiet_button(words.t("pools-open"), Message::OpenFile),
-        primary_button(words.t("pools-new"), Message::New),
-    ]
-    .spacing(10)
-    .align_y(iced::alignment::Vertical::Bottom);
+    let mut actions = row![quiet_button(words.t("pools-title"), Message::Catalogue(false)), quiet_button(words.t("catalogue-collections"), Message::Catalogue(true)), ui::grow()].spacing(10).align_y(iced::Center);
+    if !state.collection_shelf { actions = actions.push(quiet_button(words.t("pools-open"), Message::OpenFile)); }
+    let actions = actions.push(primary_button(words.t("catalogue-new"), Message::New));
+    let head = column![
+        container(semi(words.t(if state.collection_shelf { "catalogue-collections" } else { "pools-title" }), 28.0, INK)).center_x(Length::Fill),
+        actions,
+    ].spacing(18);
     let columns = (((width + 14.0) / (300.0 + 14.0)).floor() as usize).clamp(1, 4);
     let card_wide = (width - 14.0 * (columns as f32 - 1.0)) / columns as f32;
     let tile = ((card_wide - 28.0 - 18.0) / 4.0).floor().max(24.0);
-    let mut cells: Vec<Element<'a, Message>> = vec![new_card(words)];
-    cells.extend(state.list.iter().map(|pool| pool_card(pool, words, thumbs, tile)));
+    let mut cells: Vec<Element<'a, Message>> = vec![new_card(words, state.collection_shelf)];
+    cells.extend(state.list.iter().filter(|pool| pool.collection == state.collection_shelf).map(|pool| pool_card(state, pool, words, thumbs, tile)));
     let mut page = column![ui::appearing(ui::appear(t, 0), 10.0, || head.into())].spacing(18);
     if let Some(refused) = &state.refused {
         page = page.push(refusal_line(refused, words));
     }
-    page.push(ui::appearing(ui::appear(t, 2), 10.0, || grid_rows(cells, columns))).into()
+    page = page.push(ui::mono_small(words.t("catalogue-drafts"), MUTED)).push(ui::appearing(ui::appear(t, 2), 10.0, || grid_rows(cells, columns)));
+    if state.collection_shelf {
+        if let Some(collections) = &state.collections {
+            page = page.push(ui::mono_small(words.t("catalogue-game-collections"), MUTED));
+            for (at, collection) in collections.iter().enumerate() { page = page.push(quiet_button(collection.name.clone(), Message::ImportCollection(at))); }
+        }
+    }
+    page = page.push(row![semi(words.t("catalogue-published"), 20.0, INK), ui::grow(), quiet_button(words.t("catalogue-refresh"), Message::Catalogue(state.collection_shelf))].align_y(iced::Center));
+    if state.catalogue_loading { page = page.push(faded_text(words.t("catalogue-loading"), 13.0, MUTED)); }
+    if state.publications.is_empty() && !state.catalogue_loading { page = page.push(faded_text(words.t("catalogue-empty"), 13.0, MUTED)); }
+    if let Some(error) = &state.catalogue_error { page = page.push(catalogue_error(error, words)); }
+    let remote = state.publications.iter().filter(|item| (item.kind == "collection") == state.collection_shelf).map(|item| {
+        let label = if item.mine { "catalogue-edit" } else { "catalogue-copy" };
+        let mut info = column![wrapped_semi(item.name.clone(), 17.0, INK), faded_text(words.t(label), 12.0, MUTED)].spacing(10);
+        info = info.push(row(publication_authors(item).iter().map(|name| author_identity(state, name)).collect::<Vec<_>>()).spacing(6).wrap());
+        button(info).padding(18).width(Length::Fill).style(ui::button_faded(theme::row(false))).on_press(Message::OpenPublication(item.id.clone())).into()
+    }).collect();
+    page = page.push(grid_rows(remote, columns));
+    if state.catalogue_more { page = page.push(quiet_button(words.t("catalogue-more"), Message::CatalogueMore)); }
+    page.into()
+}
+
+fn catalogue_error<'a>(error: &str, words: &Words) -> Element<'a, Message> {
+    faded_text(words.t(match error { "401" | "403" => "catalogue-sign-in", "409" => "catalogue-conflict", "400" => "catalogue-invalid", _ => "catalogue-unavailable" }), 13.0, ACCENT)
+}
+
+fn publication_authors(item: &crate::bot::Publication) -> Vec<String> {
+    let mut names: Vec<String> = item.content["authors"].as_array().into_iter().flatten().filter_map(|name| name.as_str().map(str::to_owned)).collect();
+    if let Some(compiler) = item.content["compiler"].as_str().filter(|name| !name.is_empty()) {
+        if !names.iter().any(|name| name.eq_ignore_ascii_case(compiler)) { names.push(compiler.to_owned()); }
+    }
+    names
+}
+
+fn author_identity<'a>(state: &'a State, name: &str) -> Element<'a, Message> {
+    let face: Element<'a, Message> = match state.faces.get(&name.to_lowercase()) {
+        Some(face) => image(crate::crops::fitted(face, 26.0, 26.0, 13.0)).width(26.0).height(26.0).content_fit(iced::ContentFit::Fill).into(),
+        None => container(glyph(Icon::Person, 18.0, MUTED)).center(26.0).into(),
+    };
+    row![face, ui::moving_text(name.to_owned(), theme::SANS_SEMI, 13.0, INK)].spacing(7).align_y(iced::Center).width(162.0).into()
+}
+
+fn author_chip<'a>(state: &'a State, name: &str) -> Element<'a, Message> {
+    button(author_identity(state, name)).padding([5, 9]).width(180.0).style(ui::button_faded(theme::bare)).on_press(Message::Author(name.to_owned())).into()
 }
 
 fn check_box<'a>(on: bool) -> Element<'a, Message> {
@@ -2235,7 +2489,7 @@ fn slot_row<'a>(pool: &'a Pool, at: usize, selected: bool, choosing: bool, words
     if choosing {
         left = left.push(check_box(selected));
     }
-    let category = if choosing { mod_badge(slot.mods, selected) } else { category_menu(at, slot.mods) };
+    let category = if pool.collection { Space::new().into() } else if choosing { mod_badge(slot.mods, selected) } else { category_menu(pool, at) };
     let left: Element<'a, Message> = left.push(number_badge(category_number(pool, at), selected)).push(category).width(70.0).into();
     let inside: Element<'a, Message> = match slot.hash.as_deref() {
         None => row![
@@ -2250,10 +2504,11 @@ fn slot_row<'a>(pool: &'a Pool, at: usize, selected: bool, choosing: bool, words
             let missing = songs.is_some_and(|songs| !songs.contains_key(hash));
             let figures: Element<'a, Message> = match slot.measure {
                 Some(measure) => row![
-                    mono(format!("{:.0} BPM", measure.bpm), 11.5, MUTED),
+                    row![glyph(Icon::Metronome, 12.0, FAINT), mono(format!("{:.0}", measure.bpm), 11.5, MUTED)].spacing(4).align_y(iced::Center),
                     row![glyph(Icon::Clock, 12.0, ui::faded(FAINT)), mono(pools::clock(measure.length_ms), 11.5, MUTED)].spacing(5).align_y(iced::Center),
+                    row![glyph(Icon::Chain, 12.0, FAINT), mono(format!("{}x", measure.max_combo), 11.5, MUTED)].spacing(4).align_y(iced::Center),
                 ]
-                .spacing(14)
+                .spacing(8)
                 .align_y(iced::Center)
                 .into(),
                 None if missing => mono(words.t("pool-no-disk"), 12.0, ACCENT),
@@ -2266,35 +2521,52 @@ fn slot_row<'a>(pool: &'a Pool, at: usize, selected: bool, choosing: bool, words
                 figures,
             ].spacing(4).width(Length::Fill);
             let stars: Element<'a, Message> = slot.measure.map(|measure| {
-                column![figure(words.t("pool-stars"), stars_of(words, measure.stars), 21.0, crate::dossier::star_colour(measure.stars as f32)), mono(format!("FC {}x", measure.max_combo), 10.5, MUTED)].spacing(6).into()
+                let colour = crate::dossier::star_colour(measure.stars as f32);
+                let luminance = 0.299 * colour.r + 0.587 * colour.g + 0.114 * colour.b;
+                let ink = if measure.stars >= 6.5 { Color::from_rgb8(255, 204, 64) } else if luminance > 150.0 / 255.0 { Color::from_rgb8(20, 20, 24) } else { Color::WHITE };
+                container(row![glyph(Icon::Star, 12.0, ink), text(stars_of(words, measure.stars)).font(theme::STAR_RATING).size(15.0).color(ui::faded(ink))].spacing(5).align_y(iced::Center)).padding([7, 10]).style(move |_| container::Style { background: Some(Background::Color(ui::faded(colour))), border: Border { color: ui::faded(colour), width: 1.0, radius: 30.0.into() }, ..container::Style::default() }).into()
             }).unwrap_or_else(|| Space::new().into());
             row![
                 left,
                 cover(thumbs, Some(hash), COVER_WIDE, COVER_HIGH, COVER_ROUND),
                 container(details).width(Length::Fill).clip(true),
-                container(stars).width(76.0),
+                container(stars).width(78.0),
             ]
             .spacing(14)
             .align_y(iced::Center)
             .into()
         }
     };
-    let colour = slot_colour(slot);
+    let colour = if pool.collection { Color::from_rgb8(95, 95, 95) } else { slot_colour(slot) };
     let row_button = button(container(inside).height(if slot.is_empty() && !choosing { 72.0 } else { ROW_HIGH }).align_y(iced::Center))
         .padding([8, 12])
         .width(Length::Fill)
         .style(ui::button_faded(move |theme, status| {
             let mut style = row_style(selected)(theme, status);
+            style.background = None;
             style.border.color = ui::faded(colour);
-            style.border.width = if selected { 1.5 } else { 0.7 };
+            style.border.width = if selected || matches!(status, button::Status::Hovered | button::Status::Pressed) { 2.0 } else { 0.7 };
             style
         }))
         .on_press(if choosing { Message::Mark(at) } else { Message::Select(Some(at)) });
-    ui::hover(row_button, ui::Glow::tile(TILE_ROUND))
+    row_button.into()
 }
 
-fn category_menu<'a>(at: usize, mods: Mod) -> Element<'a, Message> {
-    mod_menu(mods, move |mods| Message::SetMod(at, mods))
+fn category_menu<'a>(pool: &Pool, at: usize) -> Element<'a, Message> {
+    let length = pool.slots.len();
+    let mut categories: Vec<String> = Mod::ALL.iter().map(|mods| mods.code().to_owned()).chain(pool.categories.keys().cloned()).chain(pool.slots.iter().filter(|slot| !slot.category.is_empty()).map(|slot| slot.category.clone())).collect();
+    categories.sort();
+    categories.dedup();
+    let selected = pool.slots.get(at).map(|slot| if slot.category.is_empty() { slot.mods.code().to_owned() } else { slot.category.clone() }).unwrap_or_else(|| "NM".into());
+    pick_list(categories, Some(selected), move |name| {
+        match Mod::ALL.into_iter().find(|mods| mods.code() == name) {
+            Some(mods) if at < length => Message::SetMod(at, mods),
+            Some(mods) => Message::AddMod(mods),
+            None => Message::Category(at, name),
+        }
+    }).font(theme::MONO).text_size(12.0).padding([5, 8]).width(70.0)
+        .menu_style(|_| iced::widget::overlay::menu::Style { background: Background::Color(theme::GROUND), border: Border { color: MUTED, width: 1.0, radius: 7.0.into() }, text_color: INK, selected_text_color: INK, selected_background: Background::Color(Color::from_rgb8(65, 30, 32)), shadow: iced::Shadow::default() })
+        .style(|_, status| pick_list::Style { text_color: ui::faded(INK), placeholder_color: ui::faded(MUTED), handle_color: ui::faded(MUTED), background: Background::Color(Color::from_rgba(1.0, 1.0, 1.0, if matches!(status, pick_list::Status::Hovered | pick_list::Status::Opened { .. }) { 0.08 } else { 0.03 })), border: Border { color: ui::faded(Color::from_rgba(1.0, 1.0, 1.0, 0.08)), width: 1.0, radius: 7.0.into() } }).into()
 }
 
 fn mod_menu<'a>(mods: Mod, change: impl Fn(Mod) -> Message + 'a) -> Element<'a, Message> {
@@ -2352,19 +2624,21 @@ fn profile_bars<'a>(measure: &Measure, words: &Words) -> Element<'a, Message> {
 }
 
 fn category_fields<'a>(pool: &'a Pool, editor: &'a Editor, at: usize, words: &'a Words) -> Element<'a, Message> {
-    let slot = &pool.slots[at];
-    let name = text_input(&words.t("pool-custom-category"), &slot.category).on_input(move |name| Message::Category(at, name)).font(theme::SANS).size(12.0).padding([7, 10]).style(theme::field_faded(ui::fade()));
+    if pool.collection { return Space::new().into(); }
+    if !editor.category_creator { return quiet_button(words.t("pool-create-category"), Message::CreateCategory(true)); }
+    let name = text_input(&words.t("pool-custom-category"), &editor.category_draft).on_input(Message::CategoryDraft).font(theme::SANS).size(12.0).padding([7, 10]).style(theme::field_faded(ui::fade()));
     let mut fields = column![name].spacing(8);
-    if !slot.category.is_empty() {
-        fields = fields.push(row![ui::mono_small(words.t("pool-category-colour"), MUTED), text_input("#5ec2d0", &editor.colour_draft).on_input(move |value| Message::Colour(at, value)).font(theme::MONO).size(12.0).padding([7, 10]).style(theme::field_faded(ui::fade())).width(120.0)].spacing(12).align_y(iced::Center));
-    }
+    fields = fields.push(row![ui::mono_small(words.t("pool-category-colour"), MUTED), text_input("#5ec2d0", &editor.colour_draft).on_input(move |value| Message::Colour(at, value)).font(theme::MONO).size(12.0).padding([7, 10]).style(theme::field_faded(ui::fade())).width(120.0)].spacing(12).align_y(iced::Center));
+    let valid = !editor.category_draft.is_empty() && !Mod::ALL.iter().any(|m| m.code() == editor.category_draft) && parse_colour(&editor.colour_draft).is_some();
+    fields = fields.push(row![ui::primary(words.t("pool-create-category"), valid.then_some(Message::SaveCategory(at))), quiet_button(words.t("pool-delete-no"), Message::CreateCategory(false))].spacing(8));
     fields.into()
 }
 
 fn slot_panel<'a>(pool: &'a Pool, editor: &'a Editor, at: usize, words: &'a Words, thumbs: &'a HashMap<String, image::Handle>, songs: Option<&Arc<HashMap<String, Map>>>) -> Element<'a, Message> {
     let slot = &pool.slots[at];
     let close = button(glyph(Icon::Close, 14.0, FAINT)).padding(6).style(ui::button_faded(theme::bare)).on_press(Message::Select(None));
-    let mut body = column![row![number_badge(category_number(pool, at), true), category_menu(at, slot.mods), ui::grow(), close].spacing(10).align_y(iced::Center)].spacing(16);
+    let category = if pool.collection { Space::new().into() } else { category_menu(pool, at) };
+    let mut body = column![row![number_badge(category_number(pool, at), true), category, ui::grow(), close].spacing(10).align_y(iced::Center)].spacing(16);
     body = body.push(category_fields(pool, editor, at, words));
     match slot.hash.as_deref() {
         None => {
@@ -2546,13 +2820,14 @@ fn add_panel<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, words: &'
     }
     let mut heading = row![].spacing(10).align_y(iced::Center);
     if let Some(at) = target(pool, editor) {
-        heading = heading.push(number_badge(category_number(pool, at), true)).push(category_menu(at, pool.slots[at].mods));
+        heading = heading.push(number_badge(category_number(pool, at), true));
+        if !pool.collection { heading = heading.push(category_menu(pool, at)); }
     } else {
-        heading = heading.push(mod_menu(editor.last_mod, Message::AddMod));
+        if !pool.collection { heading = heading.push(mod_menu(editor.last_mod, Message::AddMod)); }
     }
     heading = heading.push(ui::grow()).push(button(glyph(Icon::Close, 14.0, FAINT)).padding([8, 6]).style(ui::button_faded(theme::bare)).on_press(Message::Select(None)));
     body = body.push(heading).push(tabs);
-    if let Some(at) = target(pool, editor) { body = body.push(category_fields(pool, editor, at, words)); }
+    body = body.push(category_fields(pool, editor, target(pool, editor).unwrap_or(pool.slots.len()), words));
     if matches!(editor.source, SourceTab::Collections | SourceTab::Best) {
         if let Some(Notice::Already(at)) = &state.notice {
             body = body.push(faded_text(words.with("pool-already", &[("n", (at + 1).to_string())]), 13.0, ACCENT));
@@ -2891,31 +3166,34 @@ fn open_view<'a>(state: &'a State, opening: &'a Opening, words: &'a Words, thumb
 }
 
 fn editor_view<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, words: &'a Words, thumbs: &'a HashMap<String, image::Handle>, width: f32, t: f32) -> Element<'a, Message> {
-    let name_wide = (pool.name.chars().count().max(10) as f32 * 15.5 + 24.0).clamp(240.0, (width - 340.0).clamp(240.0, 560.0));
-    let field = text_input(&words.t("pool-name-hint"), &pool.name)
-        .on_input(Message::Rename)
-        .on_paste(|contents| Message::PasteInto(Input::Name, contents))
-        .font(theme::SANS_SEMI)
-        .size(28.0)
-        .padding(0)
-        .style(ui::bare_input(ui::fade()))
-        .width(name_wide);
-    let name: Element<'a, Message> = field.into();
-    let mut buttons = row![].spacing(6).align_y(iced::Center);
-    if pool.filled() > 0 {
-        buttons = buttons.push(quiet_button(words.t("pool-share"), Message::Share(true)));
-    }
+    let field = text_input(&words.t(if pool.collection { "collection-name-hint" } else { "pool-name-hint" }), &pool.name).on_input(Message::Rename)
+        .on_paste(|contents| Message::PasteInto(Input::Name, contents)).font(theme::SANS_SEMI).size(28.0)
+        .padding(0).style(ui::bare_input(ui::fade())).align_x(iced::alignment::Horizontal::Center).width(Length::Fill);
+    let authors = text_input(&words.t("pool-authors"), &editor.authors).on_input(Message::AuthorsDraft).on_submit(Message::ApplyAuthors).font(theme::SANS).size(13.0).padding([5, 0]).style(ui::bare_input(ui::fade())).align_x(iced::alignment::Horizontal::Center).width(Length::Fill);
+    let mut credits = row![].spacing(8).align_y(iced::Center);
+    for author in &pool.authors { credits = credits.push(author_chip(state, author)); }
+    let compiler = text_input(&words.t("pool-compiler"), &editor.compiler_draft).on_input(Message::CompilerDraft).on_submit(Message::ApplyCompiler).font(theme::SANS).size(13.0).padding([5, 0]).style(ui::bare_input(ui::fade())).align_x(iced::alignment::Horizontal::Center).width(240.0);
+    let mut compiled = row![].spacing(8).align_y(iced::Center);
+    if editor.editing_compiler { compiled = compiled.push(compiler); }
+    else { if !pool.compiler.is_empty() { compiled = compiled.push(author_chip(state, &pool.compiler)); } compiled = compiled.push(button(glyph(Icon::Gear, 14.0, MUTED)).padding(6).style(ui::button_faded(theme::bare)).on_press(Message::EditCompiler)); }
+    let mut heading = column![field].spacing(4);
+    if editor.editing_authors { heading = heading.push(authors); }
+    else { credits = credits.push(button(glyph(Icon::Gear, 14.0, MUTED)).padding(6).style(ui::button_faded(theme::bare)).on_press(Message::EditAuthors)); }
+    let heading = heading.push(container(credits.wrap()).center_x(Length::Fill)).push(container(compiled).center_x(Length::Fill));
+    let mut buttons = row![].spacing(8).align_y(iced::Center);
+    buttons = buttons.push(ui::quiet(words.t(if state.publishing { "catalogue-saving" } else if pool.published_revision > 0 { "catalogue-update" } else { "catalogue-publish" }), (!state.publishing && pool.filled() > 0 && !pool.name.trim().is_empty()).then_some(Message::Publish)));
+    if pool.filled() > 0 { buttons = buttons.push(quiet_button(words.t("pool-share"), Message::Share(true))); }
+    let danger: Element<'a, Message> = if editor.asking_delete {
+        row![primary_button(words.t("pool-delete-yes"), Message::DeletePool), quiet_button(words.t("pool-delete-no"), Message::AskDelete(false))].spacing(8).into()
+    } else {
+        button(text(words.t(if pool.collection { "collection-delete" } else { "pool-delete" })).font(theme::SANS_SEMI).size(14.0)).padding([10, 14]).style(ui::button_faded(theme::danger_words)).on_press(Message::AskDelete(true)).into()
+    };
+    buttons = buttons.push(danger);
     buttons = buttons.push(primary_button(words.t("pool-add"), Message::AddPanel(editor.panel != Panel::Add)));
-    let mut tools = row![].spacing(6).align_y(iced::Center);
-    if pool.filled() > 0 {
-        let undoable = state.undo.iter().any(|(id, _)| *id == pool.id);
-        if undoable {
-            tools = tools.push(button(text(words.t("pool-undo")).font(theme::SANS_SEMI).size(13.0).color(ui::faded(MUTED))).padding([6, 10]).style(ui::button_faded(theme::bare)).on_press(Message::Undo));
-        }
-    }
-    let actions = row![tools, ui::grow(), buttons].align_y(iced::Center).spacing(12);
-    let authors = text_input(&words.t("pool-authors"), &editor.authors).on_input(Message::Authors).font(theme::SANS).size(13.0).padding([5, 0]).style(ui::bare_input(ui::fade())).width(Length::Fill);
-    let head = column![crumbs(words, Some(Message::Back), name), authors, actions].spacing(10);
+    let mut tools = row![button(text(words.t(if pool.collection { "collection-back" } else { "pool-back" })).font(theme::SANS_SEMI).size(14.0)).padding([12, 18]).style(ui::button_faded(|_, status| button::Style { background: Some(Background::Color(Color::from_rgb8(32, 25, 26))), text_color: INK, border: Border { color: if matches!(status, button::Status::Hovered | button::Status::Pressed) { ACCENT } else { Color::from_rgb8(80, 62, 64) }, width: 1.0, radius: 12.0.into() }, ..button::Style::default() })).on_press(Message::Back)].spacing(8);
+    if state.undo.iter().any(|(id, _)| *id == pool.id) { tools = tools.push(quiet_button(words.t("pool-undo"), Message::Undo)); }
+    let mut head = column![row![tools, ui::grow(), buttons].spacing(12).align_y(iced::Center), heading].spacing(16);
+    if let Some(error) = &state.catalogue_error { head = head.push(catalogue_error(error, words)); }
 
     let songs = state.songs.as_ref();
     let columns = ((width + 10.0) / 510.0).floor().clamp(1.0, 3.0) as usize;
@@ -2939,17 +3217,17 @@ fn editor_view<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, words: 
     };
     let list: Element<'a, Message> = if pool.slots.is_empty() {
         container(faded_text(words.t("pool-free-empty"), 14.0, MUTED)).padding([24, 10]).into()
-    } else if editor.grouped {
+    } else if editor.grouped && !pool.collection {
         let mut sections = column![].spacing(24);
-        for (mods, slots) in slot_groups(pool) {
-            let slots: Vec<_> = slots.into_iter().filter(|at| pool.slots[*at].category.is_empty()).collect();
-            if !slots.is_empty() { sections = sections.push(column![container(semi(mods.code().into(), 15.0, MUTED)).padding([0, 12]), board(slots, Some(mods))].spacing(10)); }
-        }
         let mut custom = std::collections::BTreeMap::<&str, Vec<usize>>::new();
-        for (at, slot) in pool.slots.iter().enumerate().filter(|(_, slot)| !slot.category.is_empty()) { custom.entry(&slot.category).or_default().push(at); }
-        for (name, slots) in custom {
+        for (at, slot) in pool.slots.iter().enumerate() { custom.entry(if slot.category.is_empty() { slot.mods.code() } else { &slot.category }).or_default().push(at); }
+        let order = category_order(pool);
+        for (at, name) in order.iter().enumerate() {
+            let Some(slots) = custom.remove(name.as_str()) else { continue };
             let mods = pool.slots[slots[0]].mods;
-            sections = sections.push(column![container(semi(name.into(), 15.0, MUTED)).padding([0, 12]), board(slots, Some(mods))].spacing(10));
+            let up = button(glyph(Icon::Up, 13.0, MUTED)).padding(5).style(ui::button_faded(theme::bare)).on_press_maybe((at > 0).then_some(Message::MoveCategory(name.clone(), false)));
+            let down = button(glyph(Icon::Down, 13.0, MUTED)).padding(5).style(ui::button_faded(theme::bare)).on_press_maybe((at + 1 < order.len()).then_some(Message::MoveCategory(name.clone(), true)));
+            sections = sections.push(column![container(row![semi(name.clone(), 15.0, MUTED), up, down].spacing(8).align_y(iced::Center)).padding([0, 12]), board(slots, Some(mods))].spacing(10));
         }
         sections.into()
     } else {
@@ -2957,23 +3235,9 @@ fn editor_view<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, words: 
     };
 
     let body = list;
-    let danger: Element<'a, Message> = if editor.asking_delete {
-        let name = if pool.name.is_empty() { words.t("pool-untitled") } else { pool.name.clone() };
-        row![
-            faded_text(words.with("pool-delete-ask", &[("name", name)]), 13.0, MUTED),
-            button(text(words.t("pool-delete-yes")).font(theme::SANS_SEMI).size(13.0)).padding([6, 12]).style(ui::button_faded(theme::danger_words)).on_press(Message::DeletePool),
-            quiet_button(words.t("pool-delete-no"), Message::AskDelete(false)),
-        ]
-        .spacing(14)
-        .align_y(iced::Center)
-        .into()
-    } else {
-        button(text(words.t("pool-delete")).font(theme::SANS).size(12.5).color(ui::faded(FAINT))).padding([6, 0]).style(ui::button_faded(theme::bare)).on_press(Message::AskDelete(true)).into()
-    };
     column![
         ui::appearing(ui::appear(t, 0), 10.0, || head.into()),
         ui::appearing(ui::appear(t, 2), 10.0, || body),
-        container(danger).padding(Padding::ZERO.top(12.0)),
     ]
     .spacing(22)
     .into()
@@ -3145,7 +3409,95 @@ mod tests {
         let id = saved.id;
         state.update(Message::Back, 110);
         state.update(Message::Open(id), 111);
-        assert!(matches!(&state.screen, Screen::Editor(editor) if editor.authors == "Alice, Bob" && editor.grouped));
+        assert!(matches!(&state.screen, Screen::Editor(editor) if editor.authors == "Alice Bob" && editor.grouped));
+    }
+
+    #[test]
+    fn author_spaces_and_category_creation_preserve_named_profiles_and_definitions() {
+        let mut state = state_with_songs("category-creation");
+        state.update(Message::New, 100);
+        state.update(Message::Authors("Alice \"Mapper One\" Bob alice".into()), 101);
+        assert_eq!(state.editing().unwrap().authors, ["Alice", "Mapper One", "Bob"]);
+        state.update(Message::CreateCategory(true), 102);
+        state.update(Message::CategoryDraft("aim 123".into()), 103);
+        state.update(Message::Colour(0, "#abcdef".into()), 104);
+        assert!(state.editing().unwrap().slots[0].category.is_empty());
+        state.update(Message::SaveCategory(0), 105);
+        assert_eq!(state.editing().unwrap().slots[0].category, "AI");
+        assert_eq!(state.editing().unwrap().slots[0].colour, Some([171, 205, 239]));
+        state.update(Message::SetMod(0, Mod::Hr), 106);
+        assert_eq!(state.editing().unwrap().categories["AI"], [171, 205, 239]);
+        state.update(Message::Category(1, "AI".into()), 107);
+        assert_eq!(state.editing().unwrap().slots[1].colour, Some([171, 205, 239]));
+        let saved = pools::load_all(&state.dir).remove(0);
+        assert_eq!(saved.categories["AI"], [171, 205, 239]);
+        let shared = pool_share::from_file(&pool_share::to_file(&saved), 108).unwrap();
+        assert_eq!(shared.categories, saved.categories);
+    }
+
+    #[test]
+    fn collection_publication_keeps_its_kind_and_failed_saves_keep_the_draft() {
+        let mut state = state_with_songs("collection-publication");
+        state.collections = Some(vec![Collection { name: "Favorites".into(), hashes: vec!["a1".into(), "b2".into()] }]);
+        state.update(Message::ImportCollection(0), 100);
+        let id = state.editing().unwrap().id.clone();
+        assert!(state.editing().unwrap().collection);
+        let actions = state.update(Message::Publish, 101);
+        assert!(matches!(actions.as_slice(), [Effect::Publish(pool)] if pool.collection && pool.filled() == 2));
+        assert!(state.update(Message::Publish, 102).is_empty());
+        state.update(Message::Published(id, Err("409".into())), 103);
+        assert!(!state.publishing);
+        assert_eq!(state.editing().unwrap().filled(), 2);
+        assert_eq!(state.catalogue_error.as_deref(), Some("409"));
+        let shared = pool_share::from_file(&pool_share::to_file(state.editing().unwrap()), 104).unwrap();
+        assert!(shared.collection);
+    }
+
+    #[test]
+    fn categories_start_in_tournament_order_and_manual_order_survives_sharing() {
+        let mut state = state_with_songs("tournament-order");
+        state.update(Message::New, 100);
+        state.list[0].slots = Mod::ALL.iter().map(|mods| Slot::empty(*mods)).collect();
+        assert_eq!(category_order(&state.list[0]), ["NM", "HD", "HR", "DT", "FM", "TB"]);
+        state.update(Message::MoveCategory("DT".into(), false), 101);
+        assert_eq!(category_order(&state.list[0]), ["NM", "HD", "DT", "HR", "FM", "TB"]);
+        let saved = pool_share::from_file(&pool_share::to_file(&state.list[0]), 102).unwrap();
+        assert_eq!(category_order(&saved), category_order(&state.list[0]));
+    }
+
+    #[test]
+    fn author_and_compiler_names_apply_only_after_confirmation() {
+        let mut state = state_with_songs("confirmed-credits");
+        state.update(Message::New, 100);
+        state.update(Message::AuthorsDraft("Alice Bob".into()), 101);
+        assert!(state.editing().unwrap().authors.is_empty());
+        let effects = state.update(Message::ApplyAuthors, 102);
+        assert_eq!(state.editing().unwrap().authors, ["Alice", "Bob"]);
+        assert!(effects.iter().any(|effect| matches!(effect, Effect::Faces(names) if names == &["Alice", "Bob"])));
+        state.update(Message::CompilerDraft("Mapper One".into()), 103);
+        assert!(state.editing().unwrap().compiler.is_empty());
+        state.update(Message::ApplyCompiler, 104);
+        assert_eq!(state.editing().unwrap().compiler, "Mapper One");
+        let shared = pool_share::from_file(&pool_share::to_file(state.editing().unwrap()), 105).unwrap();
+        assert_eq!(shared.compiler, "Mapper One");
+    }
+
+    #[test]
+    fn a_space_confirms_names_and_the_shelf_requests_their_avatars() {
+        let mut state = state_with_songs("space-credits");
+        state.update(Message::New, 100);
+        let effects = state.update(Message::AuthorsDraft("Alice ".into()), 101);
+        assert_eq!(state.editing().unwrap().authors, ["Alice"]);
+        assert!(effects.iter().any(|effect| matches!(effect, Effect::Faces(names) if names == &["Alice"])));
+        state.update(Message::EditAuthors, 102);
+        state.update(Message::AuthorsDraft("Alice \"Mapper ".into()), 103);
+        assert_eq!(state.editing().unwrap().authors, ["Alice"]);
+        state.update(Message::AuthorsDraft("Alice \"Mapper One\" ".into()), 104);
+        assert_eq!(state.editing().unwrap().authors, ["Alice", "Mapper One"]);
+        state.update(Message::CompilerDraft("Builder ".into()), 105);
+        assert_eq!(state.editing().unwrap().compiler, "Builder");
+        let effects = state.open();
+        assert!(effects.iter().any(|effect| matches!(effect, Effect::Faces(names) if names.contains(&"Alice".into()) && names.contains(&"Builder".into()))));
     }
 
     #[test]
@@ -3629,7 +3981,7 @@ mod tests {
         pools::save(&dir, &pool).unwrap();
         let mut state = State::new(dir);
         let first = state.open();
-        assert!(matches!(first.as_slice(), [Effect::ReadSongs]));
+        assert!(matches!(first.as_slice(), [Effect::ReadSongs, Effect::Catalogue(false, 0)]));
         assert!(state.list[0].slots[0].measure.is_none());
         assert_eq!(state.list[0].calc, pools::CALC_VERSION);
         assert!(state.open().is_empty(), "reading is already under way");
@@ -4164,12 +4516,12 @@ mod tests {
         let _ = screen.simulate([iced::Event::Mouse(iced::mouse::Event::CursorMoved { position })]);
         let _ = screen.simulate(iced_test::simulator::click());
         let messages: Vec<_> = screen.into_messages().collect();
-        assert!(matches!(messages.as_slice(), [Message::SetMod(0, Mod::Dt)]), "{messages:?}");
+        assert!(matches!(messages.as_slice(), [Message::SetMod(0, Mod::Hr)]), "{messages:?}");
         for message in messages { state.update(message, 1_790_000_101); }
-        assert_eq!(state.editing().unwrap().slots[0].mods, Mod::Dt);
+        assert_eq!(state.editing().unwrap().slots[0].mods, Mod::Hr);
         assert!(state.editing().unwrap().slots[0].measure.is_none());
         assert_eq!(&state.editing().unwrap().slots[1..], &before[1..]);
-        state.update(Message::Measured("a1".into(), Mod::Dt, Ok(measure(6.0))), 1_790_000_102);
+        state.update(Message::Measured("a1".into(), Mod::Hr, Ok(measure(6.0))), 1_790_000_102);
         assert_eq!(state.editing().unwrap().slots[0].measure.unwrap().stars, 6.0);
         state.update(Message::Undo, 1_790_000_103);
         assert_eq!(state.editing().unwrap().slots, before);

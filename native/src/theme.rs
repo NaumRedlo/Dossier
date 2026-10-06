@@ -87,7 +87,10 @@ pub const MONO_BOLD: Font = Font {
     ..Font::with_name("IBM Plex Mono")
 };
 
-pub const FONTS: [&[u8]; 5] = [
+pub const STAR_RATING: Font = Font { weight: font::Weight::ExtraBold, ..Font::with_name("Nunito") };
+
+pub const FONTS: [&[u8]; 6] = [
+    include_bytes!("../../assets/fonts/Nunito-ExtraBold.ttf"),
     include_bytes!("../../assets/fonts/Commissioner-Regular.ttf"),
     include_bytes!("../../assets/fonts/Commissioner-SemiBold.ttf"),
     include_bytes!("../../assets/fonts/IBMPlexMono-Regular.ttf"),

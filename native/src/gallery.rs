@@ -1230,7 +1230,7 @@ fn feed_states(community: &dyn Fn(crate::community_screen::Section, Option<usize
             pool.authors = vec!["NaumRedlo".into(), "kotofey".into()];
             pool.compiler = "NaumRedlo".into();
             let id = pool.id.clone();
-            main.pools.screen = crate::pools_screen::Screen::Editor(crate::pools_screen::Editor { selected: Some(0), panel: crate::pools_screen::Panel::Slot, category_creator: true, category_draft: "AI".into(), colour_draft: "#5ec2d0".into(), editing_authors: false, editing_compiler: false, ..crate::pools_screen::Editor::at(id) });
+            main.pools.screen = crate::pools_screen::Screen::Editor(crate::pools_screen::Editor { selected: Some(0), panel: crate::pools_screen::Panel::Slot, category_creator: true, category_draft: "AI".into(), colour_draft: "#5ec2d0".into(), editing_authors: false, ..crate::pools_screen::Editor::at(id) });
             main
         }),
         ("main-pools-editor".to_owned(), {
@@ -1253,7 +1253,18 @@ fn feed_states(community: &dyn Fn(crate::community_screen::Section, Option<usize
             main.pools.list[0].authors = vec!["Lopuhh".to_owned(), "-legusshhka-".to_owned()];
             main.pools.list[0].compiler = "NaumRedlo".to_owned();
             let id = main.pools.list[0].id.clone();
-            main.pools.screen = crate::pools_screen::Screen::Editor(crate::pools_screen::Editor { selected: None, panel: crate::pools_screen::Panel::Closed, query: String::new(), untouched: false, editing_authors: false, editing_compiler: false, ..crate::pools_screen::Editor::at(id) });
+            main.pools.screen = crate::pools_screen::Screen::Editor(crate::pools_screen::Editor { selected: None, panel: crate::pools_screen::Panel::Closed, query: String::new(), untouched: false, editing_authors: false, ..crate::pools_screen::Editor::at(id) });
+            main
+        }),
+        ("main-pools-collected".to_owned(), {
+            let mut main = community(crate::community_screen::Section::Pools, None);
+            pools_state(&mut main, true);
+            main.pools.collection_shelf = true;
+            main.pools.list[0].collection = true;
+            main.pools.list[0].authors = vec!["Lopuhh".to_owned()];
+            main.pools.list[0].compiler = "NaumRedlo".to_owned();
+            let id = main.pools.list[0].id.clone();
+            main.pools.screen = crate::pools_screen::Screen::Editor(crate::pools_screen::Editor { selected: None, panel: crate::pools_screen::Panel::Closed, query: String::new(), untouched: false, editing_authors: false, ..crate::pools_screen::Editor::at(id) });
             main
         }),
         ("main-pools-link".to_owned(), {

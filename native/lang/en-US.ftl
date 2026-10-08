@@ -1,6 +1,5 @@
 app-name = Dossier
 pool-authors = Username
-pool-compiler = Username
 pool-compiled-by = Compiled by
 pool-mappoolers = Mappoolers
 pool-publisher = Publisher

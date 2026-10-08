@@ -9121,4 +9121,29 @@ mod tests {
         assert!(!main.pools_marks.animating(main.now), "and it stops asking once the screen is in");
         let _ = std::fs::remove_dir_all(&main.pools.dir);
     }
+
+    #[test]
+    fn a_closed_pool_panel_keeps_the_frames_coming_until_it_has_faded_and_then_it_is_gone() {
+        use crate::community_screen::Message as C;
+        use crate::pools_screen::Message as P;
+        let (_, mut main) = crate::gallery::main_states(crate::lang::Lang::En).into_iter().find(|(name, _)| name == "main-pools-shelf").unwrap();
+        main.pools.dir = std::env::temp_dir().join(format!("dossier-main-pools-leaving-{}", std::process::id()));
+        let _ = main.update(super::Message::Tick(std::time::Instant::now()));
+        let _ = main.update(super::Message::Community(C::Pools(P::New)));
+        let _ = main.update(super::Message::Community(C::Pools(P::AddPanel(true))));
+        assert_eq!(main.pools.panel_key(), "panel");
+        assert_eq!(main.pools_marks.clocks(std::time::Instant::now()).gone, crate::pools_screen::SETTLED);
+        let before = std::time::Instant::now();
+        let _ = main.update(super::Message::Community(C::Pools(P::Select(None))));
+        let after = std::time::Instant::now();
+        assert_eq!(main.pools.panel_key(), "none");
+        assert!(main.moving(), "the fade needs frames, or the panel stays on screen as it was");
+        let fading = main.pools_marks.clocks(after + std::time::Duration::from_millis(150)).gone;
+        assert!(fading >= 0.15 && fading <= 0.15 + after.duration_since(before).as_secs_f32() + 0.001, "the clock of the fade started when the panel was closed: {fading}");
+        assert!(fading < crate::ui::APPEAR);
+        assert!(main.pools_marks.clocks(after + std::time::Duration::from_millis(600)).gone >= crate::ui::APPEAR, "and after its time nothing of it is drawn");
+        assert!(main.pools_marks.animating(after + std::time::Duration::from_millis(600)));
+        assert!(!main.pools_marks.animating(after + std::time::Duration::from_secs(4)), "and the frames stop");
+        let _ = std::fs::remove_dir_all(&main.pools.dir);
+    }
 }

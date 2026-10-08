@@ -1,6 +1,5 @@
 app-name = Dossier
 pool-authors = Ник
-pool-compiler = Ник
 pool-compiled-by = Собрал
 pool-mappoolers = Маппулеры
 pool-publisher = Автор публикации

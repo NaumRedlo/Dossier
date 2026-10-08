@@ -124,6 +124,11 @@ Numbers are tabular everywhere.
 - A line that finishes fades to `muted` and the list slides up; a new line
   fades in from below. Nothing pops in at full opacity.
 - A change of screen crossfades; the sidebar and the headline never move.
+- A panel that closes leaves the way it came, backwards, over the same 340 ms:
+  the screen remembers what the panel showed, draws it fading and takes no
+  clicks on it, while what lies under it answers again at once. A scrim under
+  an open panel is opaque to the pointer: nothing behind it lights up or
+  answers, and a press on it closes the panel.
 - A screen or a panel that opens starts its own entrance clock, stamped in
   `update` (never while drawing) and counted in `moving()`, so the frames keep
   coming until it has settled; the first look at a screen is already settled.

@@ -3978,11 +3978,21 @@ pub fn appearing<'a, M: 'a>(k: f32, rise: f32, build: impl FnOnce() -> Element<'
 }
 
 pub fn lifted<'a, M: 'a>(content: Element<'a, M>, k: f32, rise: f32) -> Element<'a, M> {
-    Element::new(Lift { content, dy: if k >= 0.999 { 0.0 } else { (1.0 - k) * rise } })
+    Element::new(Lift { content, dx: 0.0, dy: if k >= 0.999 { 0.0 } else { (1.0 - k) * rise } })
+}
+
+pub fn slid<'a, M: 'a>(content: Element<'a, M>, k: f32, run: f32) -> Element<'a, M> {
+    Element::new(Lift { content, dx: if k >= 0.999 { 0.0 } else { (1.0 - k) * run }, dy: 0.0 })
+}
+
+pub fn sliding_in<'a, M: 'a>(k: f32, run: f32, build: impl FnOnce() -> Element<'a, M>) -> Element<'a, M> {
+    let content = if k >= 0.999 { build() } else { fading(fade() * k, build) };
+    slid(content, k, run)
 }
 
 pub struct Lift<'a, Message> {
     content: Element<'a, Message>,
+    dx: f32,
     dy: f32,
 }
 
@@ -4039,12 +4049,12 @@ impl<Message> iced::advanced::Widget<Message, Theme, Renderer> for Lift<'_, Mess
         cursor: mouse::Cursor,
         viewport: &Rectangle,
     ) {
-        if self.dy.abs() < 0.01 {
+        if self.dy.abs() < 0.01 && self.dx.abs() < 0.01 {
             self.content.as_widget().draw(&tree.children[0], renderer, theme, style, layout, cursor, viewport);
             return;
         }
         use iced::advanced::Renderer as _;
-        let shift = iced::Vector::new(0.0, self.dy);
+        let shift = iced::Vector::new(self.dx, self.dy);
         let seen = *viewport - shift;
         renderer.with_translation(shift, |renderer| {
             self.content.as_widget().draw(&tree.children[0], renderer, theme, style, layout, cursor, &seen);

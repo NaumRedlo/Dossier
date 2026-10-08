@@ -212,6 +212,7 @@ pub struct Ground<'a> {
     pub chat: String,
     pub fetch: Fetch,
     pub pools: &'a crate::pools_screen::State,
+    pub pools_clocks: crate::pools_screen::Clocks,
     pub asked: bool,
     pub answered_t: f32,
     pub notice: Option<Notice>,
@@ -274,7 +275,7 @@ pub fn view<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
         Section::Boards => boards(ground),
         Section::Titles => titles(ground),
         Section::Compare => comparing(ground),
-        Section::Pools => crate::pools_screen::view(ground.pools, ground.words, ground.thumbs, ground.width - 80.0, ground.section_t).map(Message::Pools),
+        Section::Pools => crate::pools_screen::view(ground.pools, ground.words, ground.thumbs, ground.width - 80.0, ground.section_t, &ground.pools_clocks).map(Message::Pools),
     };
     let mut page = column![].width(Length::Fill).height(Length::Fill);
     if let Some(banner) = notice_banner(ground) {
@@ -1460,7 +1461,8 @@ fn boards<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
     }
     let you_out = catalog.people.iter().position(|p| p.you).filter(|you| !list.order.iter().any(|(who, _)| who == you));
     if let Some(you) = you_out {
-        rows = rows.push(container(board_row(ground, &list, None, you, 0.0)).padding(Padding::ZERO.top(8.0)));
+        let last = list.order.len();
+        rows = rows.push(container(ui::appearing(ui::appear(ground.section_t.min(ground.shift_t), last), 10.0, || board_row(ground, &list, None, you, 0.0))).padding(Padding::ZERO.top(8.0)));
     }
     page = page.push(rows);
     rolled(page.into())

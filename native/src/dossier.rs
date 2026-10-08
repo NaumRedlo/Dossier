@@ -981,10 +981,11 @@ pub(crate) fn star_pill<'a, M: 'a>(label: String, stars: f32, size: f32) -> Elem
     let colour = star_colour(stars);
     let luminance = 0.299 * colour.r + 0.587 * colour.g + 0.114 * colour.b;
     let ink = if stars >= 6.5 { Color::from_rgb8(255, 204, 64) } else if luminance > 150.0 / 255.0 { Color::from_rgb8(20, 20, 24) } else { Color::WHITE };
+    let size = size * 0.9;
     let scale = size / 15.0;
     container(row![glyph(Icon::Star, 12.0 * scale, ink), text(label).font(theme::STAR_RATING).size(size).color(ui::faded(ink))].spacing(5.0 * scale).align_y(iced::Center))
-        .padding([7.0 * scale, 10.0 * scale])
-        .style(move |_| container::Style { background: Some(Background::Color(ui::faded(colour))), border: Border { color: ui::faded(colour), width: 1.0, radius: 30.0.into() }, ..container::Style::default() }).into()
+        .padding([4.0 * scale, 8.0 * scale])
+        .style({ let fill = ui::faded(colour); move |_| container::Style { background: Some(Background::Color(fill)), border: Border { color: fill, width: 1.0, radius: 30.0.into() }, ..container::Style::default() } }).into()
 }
 
 fn badge_pill<'a>(inside: Element<'a, Message>, fill: Color) -> Element<'a, Message> {

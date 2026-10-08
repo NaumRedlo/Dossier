@@ -772,6 +772,16 @@ pub fn screen(_: &Theme) -> container::Style {
     }
 }
 
+pub fn screen_bare(_: &Theme) -> container::Style {
+    container::Style {
+        text_color: None,
+        background: Some(Background::Color(color!(0x050203))),
+        border: Border { radius: 10.0.into(), ..Border::default() },
+        shadow: Shadow::default(),
+        snap: true,
+    }
+}
+
 pub fn stage(_: &Theme) -> container::Style {
     container::Style {
         text_color: None,

@@ -1247,6 +1247,15 @@ fn feed_states(community: &dyn Fn(crate::community_screen::Section, Option<usize
             main.pools.screen = crate::pools_screen::Screen::Editor(crate::pools_screen::Editor { grouped: true, ..crate::pools_screen::Editor::at(id) });
             main
         }),
+        ("main-pools-head".to_owned(), {
+            let mut main = community(crate::community_screen::Section::Pools, None);
+            pools_state(&mut main, true);
+            main.pools.list[0].authors = vec!["Lopuhh".to_owned(), "-legusshhka-".to_owned()];
+            main.pools.list[0].compiler = "NaumRedlo".to_owned();
+            let id = main.pools.list[0].id.clone();
+            main.pools.screen = crate::pools_screen::Screen::Editor(crate::pools_screen::Editor { selected: None, panel: crate::pools_screen::Panel::Closed, query: String::new(), untouched: false, editing_authors: false, editing_compiler: false, ..crate::pools_screen::Editor::at(id) });
+            main
+        }),
         ("main-pools-link".to_owned(), {
             let mut main = community(crate::community_screen::Section::Pools, None);
             pools_state(&mut main, true);
@@ -1443,11 +1452,11 @@ pub fn every_main_frame() -> Vec<(String, crate::main_screen::Main, Size)> {
     for lang in Lang::ALL {
         for (name, main) in main_states(lang) {
             for (label, size) in SIZES {
-                if label != SIZES[0].0 && name != "main-rest" && name != "main-idle" && name != "main-notifications" && name != "main-player-mini" && name != "main-community-clip-mini" && name != "main-community-feed-wide" && name != "main-pools-best" && name != "main-pools-editor" && name != "main-pools-grouped" && name != "main-pools-new" && name != "main-prefs-device" {
+                if label != SIZES[0].0 && name != "main-rest" && name != "main-idle" && name != "main-notifications" && name != "main-player-mini" && name != "main-community-clip-mini" && name != "main-community-feed-wide" && name != "main-pools-best" && name != "main-pools-editor" && name != "main-pools-head" && name != "main-pools-grouped" && name != "main-pools-new" && name != "main-prefs-device" {
                     continue;
                 }
                 let mut frame = main.clone();
-                if name == "main-idle" || name == "main-notifications" || name == "main-player-mini" || name == "main-community-clip-mini" || name == "main-community-feed-wide" || name == "main-pools-best" || name == "main-pools-editor" || name == "main-pools-grouped" || name == "main-pools-new" || name == "main-prefs-device" { frame.width = size.width; frame.height = size.height; }
+                if name == "main-idle" || name == "main-notifications" || name == "main-player-mini" || name == "main-community-clip-mini" || name == "main-community-feed-wide" || name == "main-pools-best" || name == "main-pools-editor" || name == "main-pools-head" || name == "main-pools-grouped" || name == "main-pools-new" || name == "main-prefs-device" { frame.width = size.width; frame.height = size.height; }
                 out.push((format!("{name}-{}-{label}", lang.tag()), frame, size));
             }
         }

@@ -124,6 +124,12 @@ Numbers are tabular everywhere.
 - A line that finishes fades to `muted` and the list slides up; a new line
   fades in from below. Nothing pops in at full opacity.
 - A change of screen crossfades; the sidebar and the headline never move.
+- A screen or a panel that opens starts its own entrance clock, stamped in
+  `update` (never while drawing) and counted in `moving()`, so the frames keep
+  coming until it has settled; the first look at a screen is already settled.
+  A translucent fill or outline inside a `.style` closure takes its fade from a
+  value read before the closure, because the closure runs when drawing and the
+  fade is only known while building.
 - What arrives late takes its room gradually. A row or a card that comes into
   a list after the list is on screen opens from nothing to its height while it
   fades in, and its gap opens with it; whatever lies below is pushed, never
@@ -456,7 +462,10 @@ the player's name large, the map under it, and a small mono line of
 mods · length · resolution · fps · size · when — with the buttons
 *В Telegram · В папке · Удалить* at the right; Esc or a click outside
 returns to the list. Space pauses, the arrows step five seconds, a
-double click fills the screen; while it plays, the scrubber and the time
+double click fills the screen; while a frame is on the video's glass the
+glass has no outline of its own (`screen_bare`), because the picture is
+drawn into physical pixels and the outline's last row and column would
+show beside it as grey lines; while it plays, the scrubber and the time
 stay and the rest dims a little. Sending to Telegram happens only here,
 with the same one-word progress button (*Отправляю*, the fill following
 the bytes) and the ring on the avatar; done, the button returns and the

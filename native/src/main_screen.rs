@@ -580,6 +580,7 @@ pub struct Main {
     pub live_shown: usize,
     feed_arrivals: crate::chronicle::Arrivals,
     feed_offset: f32,
+    pools_marks: crate::pools_screen::Marks,
     feed_leaving: crate::chronicle::Leaving,
     pub link_shown: Option<crate::bot::Link>,
     pub feed_held: std::collections::HashSet<String>,
@@ -813,6 +814,7 @@ impl Main {
             live_shown: LIVE_FIRST,
             feed_arrivals: crate::chronicle::Arrivals::default(),
             feed_offset: 0.0,
+            pools_marks: crate::pools_screen::Marks::default(),
             feed_leaving: crate::chronicle::Leaving::default(),
             link_shown: None,
             feed_held: std::collections::HashSet::new(),
@@ -1179,6 +1181,7 @@ impl Main {
             || (self.overlay == Overlay::Community && self.feed_arrivals.animating(self.now))
             || (self.overlay == Overlay::Community && self.feed_pictures.animating(self.now))
             || (self.overlay == Overlay::Community && self.feed_leaving.animating(self.now))
+            || (self.overlay == Overlay::Community && self.community_section == crate::community_screen::Section::Pools && self.pools_marks.animating(self.now))
             || (self.overlay == Overlay::Community && (self.notice_fade.is_animating(self.now) || self.refresh_answered.is_some_and(|at| self.now.saturating_duration_since(at).as_secs_f32() < crate::community_screen::DONE_HOLD + 0.1)))
             || self.thumb_pictures.animating(self.now)
             || self.feed_fold_at.values().any(|at| self.now.saturating_duration_since(*at) < FOLD)
@@ -1749,6 +1752,18 @@ impl Main {
     }
 
     pub fn update(&mut self, message: Message) -> Task<Message> {
+        let task = self.handle(message);
+        self.watch_pools();
+        task
+    }
+
+    fn watch_pools(&mut self) {
+        if self.overlay == Overlay::Community && self.community_section == crate::community_screen::Section::Pools {
+            self.pools_marks.observe(&self.pools, Instant::now());
+        }
+    }
+
+    fn handle(&mut self, message: Message) -> Task<Message> {
         if self.minimized && matches!(&message,
             Message::Tick(_) | Message::RestCheck(_) | Message::WatchTick | Message::AutoNext
             | Message::UpdateTick | Message::UpdateIdle | Message::Poll | Message::CommunityTick
@@ -5178,7 +5193,7 @@ impl Main {
                 None => container(ui::fine_hatch()).width(Length::Fill).height(Length::Fill).into(),
             },
         };
-        let picture = mouse_area(container(picture).width(wide).height(picture_h).style(theme::screen).clip(true))
+        let picture = mouse_area(container(picture).width(wide).height(picture_h).style(if player.frame.is_some() { theme::screen_bare } else { theme::screen }).clip(true))
             .on_press(Message::PlayerRestore);
         let title = column![
             text(ui::shortened(name, 28)).font(theme::SANS_SEMI).size(theme::BODY).wrapping(text::Wrapping::None).color(ui::faded(INK)),
@@ -5530,11 +5545,12 @@ impl Main {
             false => Space::new().width(Length::Fill).height(Length::Fill).into(),
         };
         let hidden_pointer = playing && out < 0.01 && !self.asking_delete;
+        let on_air = player.frame.is_some();
         let screen = mouse_area(
             container(stack![picture, mark, hint, controls].width(screen_w).height(screen_h))
                 .width(screen_w)
                 .height(screen_h)
-                .style(ui::box_faded(theme::screen))
+                .style(ui::box_faded(if on_air { theme::screen_bare } else { theme::screen }))
                 .clip(true),
         )
         .interaction(if hidden_pointer { iced::mouse::Interaction::Hidden } else { iced::mouse::Interaction::Idle })
@@ -6386,6 +6402,9 @@ impl Main {
     fn community_ground<'a>(&'a self, catalog: &'a crate::community::Catalog, person_only: bool) -> crate::community_screen::Ground<'a> {
         let leaving = self.feed_leaving.shown(self.now);
         let mut ground = self.ground_of(catalog, person_only, leaving);
+        if self.community_section == crate::community_screen::Section::Pools {
+            ground.pools_clocks = self.pools_marks.clocks(self.now);
+        }
         if let Some(leave) = leaving {
             ground.ghost = Some(Box::new(self.ground_of(&leave.frozen.catalog, person_only, None)));
         }
@@ -6423,6 +6442,7 @@ impl Main {
             channel_draft: &self.channel_draft,
             fetch: self.community_fetch,
             pools: &self.pools,
+            pools_clocks: crate::pools_screen::Clocks::settled(),
             asked: self.refresh_asked,
             answered_t: self.refresh_answered.map_or(f32::MAX, |at| self.now.saturating_duration_since(at).as_secs_f32()),
             notice: self.notice_kept.filter(|_| self.notice_fade.value() || self.notice_fade.is_animating(self.now)),
@@ -9024,5 +9044,81 @@ mod tests {
         main.fresh_from(crate::chronicle::Before { keys: keys[1..].to_vec(), frozen: None });
         let _ = main.update(super::Message::Community(C::Section(crate::community_screen::Section::People)));
         assert!(main.feed_held.is_empty(), "leaving the feed lets the held rows go");
+    }
+
+
+    fn bright_in_the_page(image: &::image::RgbaImage) -> Vec<(u32, u32, [u8; 4])> {
+        let (width, height) = image.dimensions();
+        let (left, top) = ((width as f32 * 0.09) as u32, (height as f32 * 0.11) as u32);
+        let mut found = Vec::new();
+        for y in top..height {
+            for x in left..width {
+                let pixel = image.get_pixel(x, y).0;
+                if pixel[0] > 36 || pixel[1] > 36 || pixel[2] > 36 {
+                    found.push((x, y, pixel));
+                    if found.len() > 5 {
+                        return found;
+                    }
+                }
+            }
+        }
+        found
+    }
+
+    #[test]
+    fn nothing_of_the_pool_editor_is_shown_before_its_entrance_has_begun() {
+        let (_, mut main) = crate::gallery::main_states(crate::lang::Lang::En).into_iter().find(|(name, _)| name == "main-pools-editor").unwrap();
+        if let crate::pools_screen::Screen::Editor(editor) = &mut main.pools.screen {
+            editor.panel = crate::pools_screen::Panel::Closed;
+            editor.selected = None;
+        }
+        main.now = std::time::Instant::now();
+        main.section_at = main.now;
+        let hidden = seen(&main);
+        let lit = bright_in_the_page(&hidden);
+        assert!(lit.is_empty(), "something is drawn at full strength at the first instant: {lit:?}");
+
+        main.section_at = main.now - std::time::Duration::from_secs(5);
+        let settled = seen(&main);
+        assert!(!bright_in_the_page(&settled).is_empty(), "and the settled page is not empty");
+    }
+
+    #[test]
+    fn the_week_s_own_tile_comes_in_with_the_others_instead_of_standing_there_already() {
+        let (_, mut main) = crate::gallery::main_states(crate::lang::Lang::En).into_iter().find(|(name, _)| name == "main-community-adaptive").unwrap();
+        for person in main.community.as_mut().unwrap().people.iter_mut().filter(|person| person.you) {
+            person.gained = Default::default();
+        }
+        main.now = std::time::Instant::now();
+        main.section_at = main.now;
+        main.shift_at = main.now;
+        let hidden = seen(&main);
+        let lit = bright_in_the_page(&hidden);
+        assert!(lit.is_empty(), "the board is empty at the first instant, the own tile included: {lit:?}");
+        main.section_at = main.now - std::time::Duration::from_secs(5);
+        main.shift_at = main.section_at;
+        let settled = seen(&main);
+        let (width, height) = settled.dimensions();
+        let lower = ((height as f32 * 0.55) as u32, height);
+        let own_tile_lit = (lower.0..lower.1).any(|y| ((width as f32 * 0.2) as u32..(width as f32 * 0.9) as u32).any(|x| settled.get_pixel(x, y).0[0] > 60));
+        assert!(own_tile_lit, "the own tile is on the page when it has settled");
+    }
+
+
+    #[test]
+    fn the_pool_screens_ask_for_frames_while_they_come_in_and_stop_asking_when_they_are_in() {
+        use crate::community_screen::Message as C;
+        let (_, mut main) = crate::gallery::main_states(crate::lang::Lang::En).into_iter().find(|(name, _)| name == "main-pools-shelf").unwrap();
+        main.pools.dir = std::env::temp_dir().join(format!("dossier-main-pools-motion-{}", std::process::id()));
+        let _ = main.update(super::Message::Tick(std::time::Instant::now()));
+        assert!(!main.pools_marks.animating(main.now), "what is on screen when the section is looked at is not moving");
+        let _ = main.update(super::Message::Community(C::Pools(crate::pools_screen::Message::New)));
+        assert!(matches!(main.pools.screen, crate::pools_screen::Screen::Editor(_)));
+        assert!(main.moving(), "a new screen must keep the ticks coming, or its clock stands still and it stays invisible");
+        let clocks = main.pools_marks.clocks(main.now);
+        assert!(clocks.screen < 0.5, "the clock of the new screen is young: {}", clocks.screen);
+        main.now = std::time::Instant::now() + std::time::Duration::from_secs(4);
+        assert!(!main.pools_marks.animating(main.now), "and it stops asking once the screen is in");
+        let _ = std::fs::remove_dir_all(&main.pools.dir);
     }
 }

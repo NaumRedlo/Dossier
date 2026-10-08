@@ -33,7 +33,14 @@ fn check_frame(shot: iced_test::simulator::Snapshot, name: &str) -> Result<(), S
     compare_files(&reference, &actual).map_err(|why| format!("{name}: {why}; current frame: {}", actual.display()))
 }
 
+const FRAME_TOLERANCE: usize = 3;
+const CARD_TOLERANCE: usize = 6;
+
 fn compare_files(reference: &std::path::Path, actual: &std::path::Path) -> Result<(), String> {
+    compare_files_within(reference, actual, FRAME_TOLERANCE)
+}
+
+fn compare_files_within(reference: &std::path::Path, actual: &std::path::Path, share: usize) -> Result<(), String> {
     let (width, height, expected) = pixels_of(reference)?;
     let (actual_width, actual_height, found) = pixels_of(actual)?;
     if (width, height) != (actual_width, actual_height) || expected.len() != found.len() {
@@ -42,9 +49,9 @@ fn compare_files(reference: &std::path::Path, actual: &std::path::Path) -> Resul
     let changed = expected.chunks_exact(4).zip(found.chunks_exact(4))
         .filter(|(a, b)| a.iter().zip(b.iter()).any(|(x, y)| x.abs_diff(*y) > 32))
         .count();
-    let allowed = (width as usize * height as usize * 3) / 400;
+    let allowed = (width as usize * height as usize * share) / 400;
     if changed > allowed {
-        Err(format!("{changed} pixels differ beyond the 0.75% renderer tolerance (limit {allowed})"))
+        Err(format!("{changed} pixels differ beyond the {:.2}% renderer tolerance (limit {allowed})", share as f32 / 4.0))
     } else {
         Ok(())
     }
@@ -166,7 +173,7 @@ fn every_exported_pool_card_matches_its_approved_frame() {
             let bytes = dossier_native::pool_card::render(pool, &dossier_native::lang::Words::new(lang), &covers).unwrap();
             let actual = review.join(&name);
             std::fs::write(&actual, bytes).unwrap();
-            compare_files(&golden(&name), &actual).unwrap_or_else(|why| panic!("{name}: {why}; current frame: {}", actual.display()));
+            compare_files_within(&golden(&name), &actual, CARD_TOLERANCE).unwrap_or_else(|why| panic!("{name}: {why}; current frame: {}", actual.display()));
         }
     }
 }

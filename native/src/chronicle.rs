@@ -839,7 +839,7 @@ fn empty_card<'a>(ground: &Ground<'a>, icon: Icon, title: String, said: String, 
     container(
         container(inside)
             .padding([32, 20])
-            .style(move |_| container::Style { border: Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.1 * k), width: 1.0, radius: 12.0.into() }, ..container::Style::default() }),
+            .style(move |_| container::Style { border: Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.04 * k), width: 1.0, radius: 12.0.into() }, ..container::Style::default() }),
     )
     .center_x(Length::Fill)
     .padding(Padding { top: 18.0, right: 0.0, bottom: 18.0, left: 0.0 })

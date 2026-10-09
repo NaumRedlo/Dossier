@@ -29,6 +29,7 @@ pub enum Message {
     Poll,
     AskCancel(bool),
     Again,
+    Change(bool),
     Cancel,
     Cancelled(Result<Subscription, Trouble>),
 }
@@ -37,7 +38,7 @@ pub enum Message {
 pub enum Effect {
     Plans,
     Status,
-    Checkout(String, String),
+    Checkout(String, String, bool),
     Cancel,
     Browse(String),
     Remember(String),
@@ -52,6 +53,9 @@ pub enum Fault {
     Exists,
     Plan,
     Account,
+    Same,
+    Lower,
+    Unknown,
 }
 
 impl Fault {
@@ -64,8 +68,18 @@ impl Fault {
             Fault::Exists => "billing-fault-exists",
             Fault::Plan => "billing-fault-plan",
             Fault::Account => "billing-fault-account",
+            Fault::Same => "billing-fault-same",
+            Fault::Lower => "billing-fault-lower",
+            Fault::Unknown => "billing-fault-unknown",
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Step {
+    Held,
+    Lower,
+    Up,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -91,6 +105,7 @@ pub struct State {
     pub cancelling: bool,
     pub asking: bool,
     pub again: bool,
+    pub changing: bool,
     pub fault: Option<Fault>,
 }
 
@@ -110,6 +125,7 @@ impl State {
             cancelling: false,
             asking: false,
             again: false,
+            changing: false,
             fault: None,
         }
     }
@@ -118,8 +134,56 @@ impl State {
         self.held.as_ref().and_then(|held| held.as_ref())
     }
 
+    pub fn awaited(&self) -> Option<&Subscription> {
+        let held = self.subscription()?;
+        if matches!(held.state.as_str(), "pending" | "creating" | "unknown") {
+            return Some(held);
+        }
+        held.change.as_deref().filter(|coming| matches!(coming.state.as_str(), "pending" | "creating" | "unknown"))
+    }
+
     pub fn waiting(&self) -> bool {
-        self.subscription().is_some_and(|held| matches!(held.state.as_str(), "pending" | "creating" | "unknown"))
+        self.awaited().is_some()
+    }
+
+    pub fn may_change(&self) -> bool {
+        self.subscription().is_some_and(|held| held.access) && !self.waiting()
+    }
+
+    fn day_price(&self, offer: &str, period: &str, currency: &str) -> Option<f64> {
+        let plan = self.listed().iter().find(|plan| offer_of(plan) == offer && plan.periodicity == period && plan.currency == currency)?;
+        day_of(plan)
+    }
+
+    pub fn step(&self, plan: &Plan) -> Step {
+        let Some(held) = self.subscription() else { return Step::Up };
+        if held.plan.id == plan.id {
+            return Step::Held;
+        }
+        let (old, new) = (offer_of(&held.plan), offer_of(plan));
+        if old == new {
+            return Step::Up;
+        }
+        let spots = [(plan.periodicity.as_str(), plan.currency.as_str()), (held.plan.periodicity.as_str(), held.plan.currency.as_str())];
+        for (period, currency) in spots {
+            if let (Some(before), Some(after)) = (self.day_price(old, period, currency), self.day_price(new, period, currency)) {
+                return if after < before { Step::Lower } else { Step::Up };
+            }
+        }
+        Step::Up
+    }
+
+    pub fn carried(&self, plan: &Plan, now: i64) -> Option<i64> {
+        let held = self.subscription()?;
+        let mut paid = day_of(&held.plan)?;
+        let wanted = day_of(plan)?;
+        if held.plan.currency != plan.currency {
+            let old = offer_of(&held.plan);
+            paid = paid * self.day_price(old, &held.plan.periodicity, &plan.currency)? / self.day_price(old, &held.plan.periodicity, &held.plan.currency)?;
+        }
+        let tail = if held.state == "active" { held.carried_seconds } else { 0 };
+        let left = (unix_of(&held.paid_until)? + tail - now).max(0) as f64;
+        Some((left * (paid / wanted).min(50.0) / 86_400.0).floor() as i64)
     }
 
     pub fn animating(&self, now: Instant) -> bool {
@@ -162,6 +226,7 @@ impl State {
             }
             Message::Status(Ok(held)) => {
                 self.held = Some(held);
+                self.changing = self.changing && self.may_change();
             }
             Message::Status(Err(_)) => {}
             Message::Choose(tier) => {
@@ -189,15 +254,34 @@ impl State {
                     self.fault = None;
                     let email = self.email.trim().to_owned();
                     effects.push(Effect::Remember(email.clone()));
-                    effects.push(Effect::Checkout(self.chosen().map(|plan| plan.id.clone()).unwrap_or_default(), email));
+                    effects.push(Effect::Checkout(self.chosen().map(|plan| plan.id.clone()).unwrap_or_default(), email, self.changing));
                 }
             }
-            Message::Paid(Ok(held)) => {
+            Message::Change(on) => {
+                self.changing = on && self.may_change();
+                self.asking = false;
+                self.fault = None;
+                if self.changing {
+                    if let Some(held) = self.subscription() {
+                        let (offer, period, currency) = (offer_of(&held.plan).to_owned(), held.plan.periodicity.clone(), held.plan.currency.clone());
+                        (self.period, self.currency) = (period, currency);
+                        self.fit();
+                        let above = self.tiers().into_iter().map(|(tier, _)| tier).skip_while(|tier| *tier != offer).nth(1);
+                        self.tier = above.filter(|tier| self.offered(tier).is_some()).or(Some(offer));
+                    }
+                }
+            }
+            Message::Paid(Ok(new)) => {
                 self.paying = false;
-                if let Some(url) = held.payment_url.clone() {
+                if let Some(url) = new.payment_url.clone() {
                     effects.push(Effect::Browse(url));
                 }
-                self.held = Some(Some(held));
+                let over = self.changing && new.state != "active";
+                self.changing = false;
+                match self.held.as_mut().and_then(|held| held.as_mut()).filter(|held| over && held.access) {
+                    Some(held) => held.change = Some(Box::new(new)),
+                    None => self.held = Some(Some(new)),
+                }
             }
             Message::Paid(Err(trouble)) => {
                 self.paying = false;
@@ -211,7 +295,7 @@ impl State {
                 }
             }
             Message::OpenPage => {
-                if let Some(url) = self.subscription().filter(|held| held.state == "pending").and_then(|held| held.payment_url.clone()) {
+                if let Some(url) = self.awaited().filter(|held| held.state == "pending").and_then(|held| held.payment_url.clone()) {
                     effects.push(Effect::Browse(url));
                 }
             }
@@ -314,7 +398,8 @@ impl State {
     }
 
     pub fn can_pay(&self) -> bool {
-        !self.paying && self.chosen().is_some() && valid_email(&self.email) && self.subscription().is_none_or(|held| !held.access && !self.waiting())
+        let free = if self.changing { self.may_change() && self.chosen().is_some_and(|plan| self.step(plan) == Step::Up) } else { self.subscription().is_none_or(|held| !held.access && !self.waiting()) };
+        !self.paying && self.chosen().is_some() && valid_email(&self.email) && free
     }
 }
 
@@ -332,6 +417,9 @@ fn fault_of(trouble: &Trouble) -> Fault {
         (401 | 403, _) => Fault::Account,
         (404, _) => Fault::Plan,
         (409, "exists") => Fault::Exists,
+        (409, "same") => Fault::Same,
+        (409, "lower") => Fault::Lower,
+        (409, "unknown") => Fault::Unknown,
         (409, _) => Fault::Busy,
         _ => Fault::Provider,
     }
@@ -374,6 +462,11 @@ pub fn days_of(period: &str) -> Option<i64> {
         "PERIOD_YEAR" => Some(365),
         _ => None,
     }
+}
+
+pub fn day_of(plan: &Plan) -> Option<f64> {
+    let amount: f64 = plan.amount.parse().ok()?;
+    (amount > 0.0).then_some(amount / days_of(&plan.periodicity)? as f64)
 }
 
 pub fn money(amount: f64, currency: &str, words: &Words) -> String {
@@ -503,11 +596,13 @@ fn tier_card<'a>(state: &'a State, tier: &str, name: String, words: &'a Words) -
         return container(ui::dashed(container(inside).padding(16).width(Length::Fill).height(TIER_HIGH), 16.0, Color::from_rgba(1.0, 1.0, 1.0, 0.2 * k))).width(Length::FillPortion(1)).into();
     };
     let chosen = state.tier.as_deref() == Some(tier);
+    let own = state.changing && state.subscription().is_some_and(|held| offer_of(&held.plan) == tier);
     let mut title = row![crate::glyphs::glyph(crate::glyphs::Icon::Heart, 14.0, tint), container(text(name).font(theme::SANS_SEMI).size(16.0).color(ui::faded(INK))).width(Length::Fill)].spacing(8).align_y(iced::Center);
     if chosen {
         title = title.push(container(crate::glyphs::glyph(crate::glyphs::Icon::Check, 12.0, Color::from_rgb(0.07, 0.03, 0.04))).center(20.0).style(move |_| container::Style { background: Some(Background::Color(Color { a: k, ..tint })), border: Border { radius: 10.0.into(), ..Border::default() }, ..container::Style::default() }));
     }
-    let mut inside = column![title, Space::new().height(Length::Fill), text(price(plan, words)).font(theme::SANS_SEMI).size(26.0).wrapping(text::Wrapping::None).color(ui::faded(INK)), text(period(plan, words)).font(theme::SANS).size(14.0).color(ui::faded(MUTED))].spacing(2);
+    let caption: Element<'a, Message> = if own { container(text(words.t("billing-change-now")).font(theme::MONO).size(12.0).color(ui::faded(MUTED))).padding(Padding::ZERO.left(22.0).top(2.0)).into() } else { Space::new().height(0.0).into() };
+    let mut inside = column![title, caption, Space::new().height(Length::Fill), text(price(plan, words)).font(theme::SANS_SEMI).size(26.0).wrapping(text::Wrapping::None).color(ui::faded(INK)), text(period(plan, words)).font(theme::SANS).size(14.0).color(ui::faded(MUTED))].spacing(2);
     if let (Some(months), Ok(amount)) = (months_of(&plan.periodicity).filter(|months| *months > 1.0), plan.amount.parse::<f64>()) {
         inside = inside.push(container(text(words.with("billing-each-month", &[("price", money((amount / months).round(), &plan.currency, words))])).font(theme::MONO_BOLD).size(13.0).color(ui::faded(Color::from_rgb(0.94, 0.77, 0.77)))).padding(Padding::ZERO.top(6.0)));
     }
@@ -584,7 +679,7 @@ pub fn warm(state: &State, signed_in: bool) -> bool {
 }
 
 pub fn wide(state: &State, signed_in: bool) -> bool {
-    signed_in && !lapsed(state) && state.subscription().is_none_or(|held| !held.access && !state.waiting()) && state.plans.as_ref().is_some_and(|plans| !plans.is_empty())
+    signed_in && !lapsed(state) && (state.changing || state.subscription().is_none_or(|held| !held.access && !state.waiting())) && state.plans.as_ref().is_some_and(|plans| !plans.is_empty())
 }
 
 fn head<'a>(state: &State, held: &'a Subscription, words: &'a Words) -> Element<'a, Message> {
@@ -617,12 +712,15 @@ pub fn sheet<'a>(state: &'a State, words: &'a Words, signed_in: bool, now: i64) 
         return container(body).padding(28).into();
     }
     match state.subscription() {
-        Some(held) if held.access => {
+        Some(held) if held.access && !state.changing && !state.waiting() => {
             let active = held.state == "active";
             body = body.push(head(state, held, words));
             body = body.push(told(words.with(if active { "billing-paid-renews" } else { "billing-ends-cancelled" }, &[("date", until(held, words, now))])));
             if let Some(span) = span(held, words, now) {
                 body = body.push(span);
+            }
+            if active && held.carried_seconds >= 86_400 {
+                body = body.push(text(words.n("billing-carried", (held.carried_seconds / 86_400) as u64)).font(theme::SANS).size(14.0).color(ui::faded(MUTED)));
             }
             let mut foot = row![].spacing(8).align_y(iced::Center);
             if active && state.asking {
@@ -630,20 +728,27 @@ pub fn sheet<'a>(state: &'a State, words: &'a Words, signed_in: bool, now: i64) 
             } else if active {
                 foot = foot.push(button(text(words.t("billing-cancel")).font(theme::SANS_SEMI).size(14.0)).padding([10, 14]).style(ui::button_faded(theme::danger_words)).on_press(Message::AskCancel(true)));
             }
+            if !state.asking && state.plans.as_ref().is_some_and(|plans| !plans.is_empty()) {
+                foot = foot.push(outlined(words.t("billing-change"), Some(Message::Change(true))));
+            }
             body = body.push(foot.push(ui::grow()).push(close()));
         }
-        Some(held) if state.waiting() => {
+        Some(_) if state.waiting() => {
+            let Some(held) = state.awaited() else { return container(body).padding(28).into() };
             let k = ui::fade();
             let dot = container(Space::new().width(11.0).height(11.0)).style(move |_| container::Style { background: Some(Background::Color(Color { a: k, ..ACCENT })), border: Border { radius: 5.5.into(), ..Border::default() }, ..container::Style::default() });
             body = body.push(row![dot, text(words.t("billing-waiting")).font(theme::SANS_SEMI).size(26.0).color(ui::faded(INK)), ui::grow(), text(price(&held.plan, words)).font(theme::MONO_BOLD).size(16.0).color(ui::faded(INK)), text(period(&held.plan, words)).font(theme::SANS).size(14.0).color(ui::faded(MUTED))].spacing(12).align_y(iced::Center));
             body = body.push(told(words.t("billing-waiting-how")));
+            if let Some(old) = state.subscription().filter(|old| old.access) {
+                body = body.push(text(words.with("billing-change-keeps", &[("name", plan_name(&old.plan))])).font(theme::SANS).size(14.0).color(ui::faded(MUTED)));
+            }
             let mut foot = row![].spacing(8).align_y(iced::Center);
             if held.state == "pending" && held.payment_url.is_some() {
                 foot = foot.push(ui::primary(words.t("billing-open-page"), Some(Message::OpenPage)));
             }
             body = body.push(foot.push(ui::grow()).push(close()));
         }
-        Some(held) if lapsed(state) => {
+        Some(held) if lapsed(state) && !state.changing => {
             body = body.push(head(state, held, words));
             body = body.push(told(match (held.state.as_str(), until(held, words, now)) {
                 ("failed", date) if !date.is_empty() => words.with("billing-failed-since", &[("date", date)]),
@@ -653,8 +758,8 @@ pub fn sheet<'a>(state: &'a State, words: &'a Words, signed_in: bool, now: i64) 
             body = body.push(row![ui::primary(words.t("billing-again"), Some(Message::Again)), ui::grow(), close()].align_y(iced::Center));
         }
         _ => {
-            let shut = button(crate::glyphs::glyph(crate::glyphs::Icon::Close, 16.0, MUTED)).padding(12).style(ui::button_faded(theme::bare)).on_press(Message::Close);
-            let title = text(words.t("billing-heading")).font(theme::SANS_SEMI).size(26.0).color(ui::faded(INK));
+            let shut = button(crate::glyphs::glyph(crate::glyphs::Icon::Close, 16.0, MUTED)).padding(12).style(ui::button_faded(theme::bare)).on_press(if state.changing { Message::Change(false) } else { Message::Close });
+            let title = text(words.t(if state.changing { "billing-change-heading" } else { "billing-heading" })).font(theme::SANS_SEMI).size(26.0).color(ui::faded(INK));
             match (&state.plans, state.plans_failed) {
                 (Some(plans), _) if !plans.is_empty() => {
                     let periods = state.periods().into_iter().map(|period| (period_name(&period, words), period == state.period, Message::Period(period.clone()))).collect();
@@ -676,14 +781,25 @@ pub fn sheet<'a>(state: &'a State, words: &'a Words, signed_in: bool, now: i64) 
                         .padding([12, 14])
                         .width(340.0)
                         .style(theme::field_faded(ui::fade()));
+                    let step = state.chosen().filter(|_| state.changing).map(|plan| state.step(plan));
+                    let why = match (step, state.chosen(), state.subscription()) {
+                        (Some(Step::Held), _, _) => words.t("billing-change-same"),
+                        (Some(Step::Lower), _, Some(held)) => words.with("billing-change-lower", &[("date", until(held, words, now))]),
+                        (Some(Step::Up), Some(plan), _) => match state.carried(plan, now).filter(|days| *days > 0) {
+                            Some(days) => format!("{} {}", words.t("billing-change-note"), words.n("billing-change-days", days as u64)),
+                            None => words.t("billing-change-note"),
+                        },
+                        _ => words.t("billing-email-why"),
+                    };
                     let label = match (state.paying, state.chosen()) {
                         (true, _) => words.t("billing-creating"),
+                        (false, Some(plan)) if state.changing => words.with("billing-change-pay", &[("price", price(plan, words))]),
                         (false, Some(plan)) => words.with("billing-pay", &[("price", price(plan, words))]),
                         (false, None) => words.t("billing-pay-plain"),
                     };
                     body = body.push(row![
                         column![ui::mono_small(words.t("billing-email").to_uppercase(), MUTED), field].spacing(8),
-                        container(text(words.t("billing-email-why")).font(theme::SANS).size(14.0).color(ui::faded(MUTED))).width(Length::Fill),
+                        container(text(why).font(theme::SANS).size(14.0).color(ui::faded(MUTED))).width(Length::Fill),
                         ui::primary(label, state.can_pay().then_some(Message::Pay)),
                     ].spacing(18).align_y(iced::Bottom));
                 }
@@ -727,7 +843,7 @@ mod tests {
     }
 
     fn held(state: &str, access: bool, until: Option<&str>) -> Subscription {
-        Subscription { state: state.into(), access, plan: plan("b", "MONTHLY", "RUB", "240.0"), paid_until: until.map(str::to_owned), cancelled_at: None, created_at: None, payment_url: (state == "pending").then(|| "https://pay.example/1".to_owned()) }
+        Subscription { state: state.into(), access, plan: plan("b", "MONTHLY", "RUB", "240.0"), paid_until: until.map(str::to_owned), cancelled_at: None, created_at: None, payment_url: (state == "pending").then(|| "https://pay.example/1".to_owned()), carried_seconds: 0, change: None }
     }
 
     fn open() -> State {
@@ -787,7 +903,7 @@ mod tests {
             assert!(!state.can_pay(), "{bad}");
         }
         state.update(Message::Email("  me@example.org ".into()), Instant::now());
-        assert_eq!(state.update(Message::Pay, Instant::now()), vec![Effect::Remember("me@example.org".into()), Effect::Checkout("a:RUB:MONTHLY".into(), "me@example.org".into())]);
+        assert_eq!(state.update(Message::Pay, Instant::now()), vec![Effect::Remember("me@example.org".into()), Effect::Checkout("a:RUB:MONTHLY".into(), "me@example.org".into(), false)]);
         assert!(state.update(Message::Pay, Instant::now()).is_empty());
         let effects = state.update(Message::Paid(Ok(held("pending", false, None))), Instant::now());
         assert_eq!(effects, vec![Effect::Browse("https://pay.example/1".into())]);
@@ -882,4 +998,56 @@ mod tests {
             assert!(!badge(&held, &words).0.contains("billing-"));
         }
     }
+    #[test]
+    fn a_held_subscription_changes_to_a_higher_tier_and_shows_what_is_carried_over() {
+        let mut state = open();
+        let now = chrono::DateTime::parse_from_rfc3339("2026-10-01T12:00:00Z").unwrap().timestamp();
+        state.email = "me@example.org".into();
+        state.update(Message::Status(Ok(Some(Subscription { plan: plan("a", "MONTHLY", "RUB", "90.0"), ..held("active", true, Some("2026-10-21T12:00:00Z")) }))), Instant::now());
+        assert!(state.may_change() && !state.can_pay());
+        state.update(Message::Change(true), Instant::now());
+        assert!(state.changing && state.tier.as_deref() == Some("b") && state.period == "MONTHLY" && state.currency == "RUB");
+        let up = state.chosen().unwrap().clone();
+        assert_eq!(state.step(&up), Step::Up);
+        assert_eq!(state.carried(&up, now), Some(7), "twenty days at 90 are seven whole days at 240");
+        assert_eq!(state.update(Message::Pay, Instant::now()), vec![Effect::Remember("me@example.org".into()), Effect::Checkout("b:RUB:MONTHLY".into(), "me@example.org".into(), true)]);
+        let coming = Subscription { plan: up.clone(), ..held("pending", false, None) };
+        assert_eq!(state.update(Message::Paid(Ok(coming)), Instant::now()), vec![Effect::Browse("https://pay.example/1".into())]);
+        assert!(!state.changing && state.waiting());
+        assert_eq!(state.subscription().map(|held| held.plan.id.as_str()), Some("a:RUB:MONTHLY"), "the held tier stays until the payment passes");
+        assert_eq!(state.awaited().map(|held| held.plan.id.as_str()), Some("b:RUB:MONTHLY"));
+        assert_eq!(state.update(Message::OpenPage, Instant::now()), vec![Effect::Browse("https://pay.example/1".into())]);
+        assert_eq!(state.update(Message::Poll, Instant::now()), vec![Effect::Status]);
+        state.update(Message::Status(Ok(Some(Subscription { carried_seconds: 7 * 86_400, ..held("active", true, Some("2026-11-01T12:00:00Z")) }))), Instant::now());
+        assert!(!state.waiting() && state.subscription().is_some_and(|held| held.carried_seconds == 7 * 86_400));
+    }
+
+    #[test]
+    fn the_held_plan_and_a_lower_tier_cannot_be_paid_as_a_change() {
+        let mut state = open();
+        state.email = "me@example.org".into();
+        state.update(Message::Status(Ok(Some(held("active", true, Some("2026-10-21T12:00:00Z"))))), Instant::now());
+        state.update(Message::Change(true), Instant::now());
+        assert_eq!(state.tier.as_deref(), Some("b"), "with no tier above, the held one stays picked");
+        assert_eq!(state.step(&state.chosen().unwrap().clone()), Step::Held);
+        assert!(!state.can_pay());
+        state.update(Message::Choose("a".into()), Instant::now());
+        assert_eq!(state.step(&state.chosen().unwrap().clone()), Step::Lower);
+        assert!(!state.can_pay());
+        state.update(Message::Choose("b".into()), Instant::now());
+        state.update(Message::Period("PERIOD_YEAR".into()), Instant::now());
+        assert_eq!(state.step(&state.chosen().unwrap().clone()), Step::Up, "another term of the same tier is a change");
+        assert!(state.can_pay());
+        state.update(Message::Currency("USD".into()), Instant::now());
+        let now = chrono::DateTime::parse_from_rfc3339("2026-10-01T12:00:00Z").unwrap().timestamp();
+        let wanted = state.chosen().unwrap().clone();
+        assert_eq!(state.carried(&wanted, now), Some((20.0_f64 * (7.0 / 30.0) / (70.0 / 365.0)).floor() as i64), "the paid price is weighed in the new currency through the catalogue");
+        state.update(Message::Change(false), Instant::now());
+        assert!(!state.changing && !state.can_pay());
+        for (reason, fault) in [("same", Fault::Same), ("lower", Fault::Lower), ("unknown", Fault::Unknown)] {
+            state.update(Message::Paid(Err(Trouble { status: 409, reason: reason.into(), subscription: None })), Instant::now());
+            assert_eq!(state.fault, Some(fault));
+        }
+    }
+
 }

@@ -7406,10 +7406,10 @@ impl Main {
             match effect {
                 E::Plans if online => tasks.push(self.billing_asks(true)),
                 E::Status if online => tasks.push(self.billing_asks(false)),
-                E::Checkout(plan, email) if online => {
+                E::Checkout(plan, email, change) if online => {
                     let epoch = self.billing_epoch;
                     let (server, token, device) = (server.clone(), token.clone(), device.clone());
-                    tasks.push(ui::in_thread(move || Message::BillingReply(epoch, B::Paid(crate::bot::checkout(&server, &token, &device, &plan, &email)))));
+                    tasks.push(ui::in_thread(move || Message::BillingReply(epoch, B::Paid(crate::bot::checkout(&server, &token, &device, &plan, &email, change)))));
                 }
                 E::Cancel if online => {
                     let epoch = self.billing_epoch;

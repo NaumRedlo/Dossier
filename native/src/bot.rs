@@ -75,6 +75,10 @@ pub struct Subscription {
     pub created_at: Option<String>,
     #[serde(default)]
     pub payment_url: Option<String>,
+    #[serde(default)]
+    pub carried_seconds: i64,
+    #[serde(default)]
+    pub change: Option<Box<Subscription>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -124,10 +128,10 @@ fn held(reply: reqwest::blocking::Response) -> Result<Subscription, Trouble> {
     Err(Trouble { status: code, reason: said.error, subscription: said.subscription })
 }
 
-pub fn checkout(server: &str, token: &str, device: &str, plan: &str, email: &str) -> Result<Subscription, Trouble> {
+pub fn checkout(server: &str, token: &str, device: &str, plan: &str, email: &str, change: bool) -> Result<Subscription, Trouble> {
     let network = |e: Refused| Trouble { status: 0, reason: e.to_string(), subscription: None };
     let reply = client().map_err(network)?.post(format!("{server}/render/billing/checkout")).header("X-Render-Worker", device).bearer_auth(token)
-        .json(&serde_json::json!({"plan": plan, "email": email})).send().map_err(|e| network(Refused::Network(e.to_string())))?;
+        .json(&serde_json::json!({"plan": plan, "email": email, "change": change})).send().map_err(|e| network(Refused::Network(e.to_string())))?;
     held(reply)
 }
 

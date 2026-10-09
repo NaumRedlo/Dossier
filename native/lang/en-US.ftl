@@ -319,6 +319,25 @@ billing-paid-renews = Paid until { $date }. Renews automatically.
 billing-ends-cancelled = The subscription is cancelled. Access stays until { $date }.
 billing-failed-since = The last payment did not go through and access ended { $date }. You can subscribe again.
 billing-again = Subscribe again
+billing-change = Change tier
+billing-change-heading = Change tier
+billing-change-now = current
+billing-change-pay = Switch for { $price }
+billing-change-note = Your current subscription is cancelled automatically once the payment goes through. Unused days are recalculated at the new price and added to the end of the subscription.
+billing-change-days = { $n ->
+    [one] That is { $n } more day.
+   *[other] That is { $n } more days.
+}
+billing-change-same = This is your current tier. Pick another tier, term or currency.
+billing-change-lower = You can move to a lower tier after { $date }: cancel the subscription, keep access until the end of the term, then subscribe again.
+billing-change-keeps = { $name } stays active until the payment goes through.
+billing-carried = { $n ->
+    [one] { $n } day was carried over from your previous tier and is added to the end of the subscription.
+   *[other] { $n } days were carried over from your previous tier and are added to the end of the subscription.
+}
+billing-fault-same = You already have this tier.
+billing-fault-lower = A lower tier is available after the paid term ends.
+billing-fault-unknown = The tiers could not be compared. Try again later.
 esc-close = Press Escape to close the menu.
 all-read = All read
 clear-feed = Clear feed

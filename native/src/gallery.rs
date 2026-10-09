@@ -794,6 +794,8 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
         cancelled_at: None,
         created_at: None,
         payment_url: url.map(str::to_owned),
+        carried_seconds: 0,
+        change: None,
     };
     let mut plans = vec![tier("a", "Сторонник", "MONTHLY", "RUB", "90.0"), tier("a", "Сторонник", "MONTHLY", "USD", "5.0")];
     for (offer, name, rub, usd) in [("b", "Делегат", [240.0, 690.0, 1320.0, 2400.0], [7.0, 20.0, 38.0, 70.0]), ("c", "Комиссар", [490.0, 1400.0, 2690.0, 4900.0], [12.0, 34.0, 65.0, 120.0]), ("d", "Советник", [990.0, 2820.0, 5450.0, 9900.0], [24.0, 68.0, 130.0, 240.0]), ("e", "Член Президиума", [1990.0, 5670.0, 10950.0, 19900.0], [48.0, 135.0, 260.0, 480.0])] {
@@ -826,6 +828,15 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
     billing_waiting.billing.held = Some(Some(held("pending", false, None, Some("https://pay.example/1"))));
     let mut billing_active = billing_plans.clone();
     billing_active.billing.held = Some(Some(held("active", true, Some(UNTIL), None)));
+    let mut billing_change = billing_active.clone();
+    billing_change.billing.changing = true;
+    billing_change.billing.tier = Some("c".to_owned());
+    let mut billing_changing = billing_active.clone();
+    if let Some(Some(old)) = billing_changing.billing.held.as_mut() {
+        let mut coming = held("pending", false, None, Some("https://app.lava.top/checkout"));
+        coming.plan = tier("c", "Комиссар", "MONTHLY", "RUB", "490.0");
+        old.change = Some(Box::new(coming));
+    }
     let mut billing_cancelled = billing_plans.clone();
     billing_cancelled.billing.held = Some(Some(held("cancelled", true, Some(UNTIL), None)));
     let mut billing_failed = billing_plans.clone();
@@ -1008,6 +1019,8 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
         ("main-billing-failed".to_owned(), billing_failed),
         ("main-billing-waiting".to_owned(), billing_waiting),
         ("main-billing-active".to_owned(), billing_active),
+        ("main-billing-change".to_owned(), billing_change),
+        ("main-billing-changing".to_owned(), billing_changing),
         ("main-billing-cancelled".to_owned(), billing_cancelled),
         ("main-billing-guest".to_owned(), billing_guest),
         ("main-signing".to_owned(), signing),

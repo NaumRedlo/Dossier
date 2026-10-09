@@ -107,6 +107,7 @@ pub struct State {
     pub again: bool,
     pub changing: bool,
     pub fault: Option<Fault>,
+    pub said: String,
 }
 
 impl State {
@@ -127,6 +128,7 @@ impl State {
             again: false,
             changing: false,
             fault: None,
+            said: String::new(),
         }
     }
 
@@ -286,6 +288,7 @@ impl State {
             Message::Paid(Err(trouble)) => {
                 self.paying = false;
                 self.fault = Some(fault_of(&trouble));
+                self.said = said_of(&trouble);
                 if let Some(held) = trouble.subscription {
                     self.held = Some(Some(held));
                 }
@@ -326,6 +329,7 @@ impl State {
                 self.cancelling = false;
                 self.asking = false;
                 self.fault = Some(fault_of(&trouble));
+                self.said = said_of(&trouble);
             }
         }
         effects
@@ -408,6 +412,15 @@ pub fn valid_email(value: &str) -> bool {
     let mut parts = value.split('@');
     let (Some(local), Some(domain), None) = (parts.next(), parts.next(), parts.next()) else { return false };
     value.len() <= 254 && !local.is_empty() && domain.contains('.') && !domain.starts_with('.') && !domain.ends_with('.') && !value.chars().any(char::is_whitespace)
+}
+
+pub fn said_of(trouble: &Trouble) -> String {
+    let reason: String = trouble.reason.chars().filter(|c| !c.is_control()).take(80).collect();
+    match (trouble.status, reason.trim()) {
+        (0, _) => String::new(),
+        (status, "") => status.to_string(),
+        (status, reason) => format!("{status} {reason}"),
+    }
 }
 
 fn fault_of(trouble: &Trouble) -> Fault {
@@ -623,8 +636,9 @@ fn tier_card<'a>(state: &'a State, tier: &str, name: String, words: &'a Words) -
         .into()
 }
 
-fn fault_line<'a>(fault: Fault, words: &Words) -> Element<'a, Message> {
-    row![crate::glyphs::glyph(crate::glyphs::Icon::Warn, 14.0, ACCENT), text(words.t(fault.key())).font(theme::SANS).size(14.0).color(ui::faded(ACCENT))]
+fn fault_line<'a>(fault: Fault, said: &str, words: &Words) -> Element<'a, Message> {
+    let note = if fault == Fault::Provider { said.to_owned() } else { String::new() };
+    row![crate::glyphs::glyph(crate::glyphs::Icon::Warn, 14.0, ACCENT), text(words.t(fault.key())).font(theme::SANS).size(14.0).color(ui::faded(ACCENT)), text(note).font(theme::MONO).size(12.0).color(ui::faded(MUTED))]
         .spacing(8)
         .align_y(iced::Center)
         .into()
@@ -810,7 +824,7 @@ pub fn sheet<'a>(state: &'a State, words: &'a Words, signed_in: bool, now: i64) 
         }
     }
     if let Some(fault) = state.fault {
-        body = body.push(fault_line(fault, words));
+        body = body.push(fault_line(fault, &state.said, words));
     }
     container(body).padding(28).into()
 }
@@ -1048,6 +1062,16 @@ mod tests {
             state.update(Message::Paid(Err(Trouble { status: 409, reason: reason.into(), subscription: None })), Instant::now());
             assert_eq!(state.fault, Some(fault));
         }
+    }
+
+    #[test]
+    fn an_unexplained_refusal_keeps_what_the_server_said_for_the_fault_line() {
+        let mut state = open();
+        state.update(Message::Paid(Err(Trouble { status: 500, reason: "checkout failed".into(), subscription: None })), Instant::now());
+        assert_eq!((state.fault, state.said.as_str()), (Some(Fault::Provider), "500 checkout failed"));
+        assert_eq!(said_of(&Trouble { status: 504, reason: String::new(), subscription: None }), "504");
+        assert_eq!(said_of(&Trouble { status: 0, reason: "timed out".into(), subscription: None }), "");
+        assert_eq!(said_of(&Trouble { status: 201, reason: "invalid answer".into(), subscription: None }), "201 invalid answer");
     }
 
 }

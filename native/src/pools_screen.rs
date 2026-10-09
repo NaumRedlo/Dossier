@@ -1168,8 +1168,8 @@ impl State {
             }
             Message::SavePublication(id) => {
                 let held = self.list.iter().any(|pool| pool.saved.as_ref().is_some_and(|saved| saved.id == id));
-                if let Some(publication) = self.publications.iter().find(|row| row.id == id && row.kind == "pool" && !row.mine).filter(|_| !held).cloned() {
-                    if let Some(mut pool) = serde_json::to_vec(&publication.content).ok().and_then(|bytes| pool_share::from_file(&bytes, now).ok()) {
+                if let Some(publication) = self.publications.iter().find(|row| row.id == id && !row.mine).filter(|_| !held).cloned() {
+                    if let Some(mut pool) = published_pool(&publication, self.songs.as_deref(), now) {
                         pool.published_revision = 0;
                         pool.saved = Some(pools::Saved { id: publication.id.clone(), code: publication.code.clone(), revision: publication.revision, publisher: pool.compiler.clone(), collected: false });
                         self.list.push(pool);
@@ -1191,7 +1191,7 @@ impl State {
                 let busy = self.pull.as_ref().is_some_and(|pull| pull.pool == id && pull.running());
                 if let Some(at) = self.list.iter().position(|pool| pool.id == id).filter(|_| !busy) {
                     let fresh = self.newer_of(&self.list[at]).cloned();
-                    if let Some((publication, mut pool)) = fresh.and_then(|publication| serde_json::to_vec(&publication.content).ok().and_then(|bytes| pool_share::from_file(&bytes, now).ok()).map(|pool| (publication, pool))) {
+                    if let Some((publication, mut pool)) = fresh.and_then(|publication| published_pool(&publication, self.songs.as_deref(), now).map(|pool| (publication, pool))) {
                         pool.id = id.clone();
                         pool.published_revision = 0;
                         pool.made_at = self.list[at].made_at;
@@ -2451,7 +2451,7 @@ impl State {
 
     pub fn newer_of(&self, pool: &Pool) -> Option<&crate::bot::Publication> {
         let saved = pool.saved.as_ref()?;
-        self.publications.iter().find(|item| item.id == saved.id && item.kind == "pool" && item.revision > saved.revision)
+        self.publications.iter().find(|item| item.id == saved.id && item.revision > saved.revision)
     }
 
     fn pull_next(&mut self) -> Vec<Effect> {
@@ -2605,7 +2605,7 @@ impl State {
         }
         match &self.screen {
             Screen::Shelf if !self.collection_shelf => {
-                for pool in self.list.iter().filter(|pool| !pool.collection && pool.saved.is_some() == (self.shelf == Shelf::Saved)) {
+                for pool in self.list.iter().filter(|pool| if self.shelf == Shelf::Saved { pool.saved.is_some() } else { !pool.collection && pool.saved.is_none() }) {
                     for slot in pool.slots.iter().filter_map(|slot| slot.hash.as_deref()).take(HERO_COVERS) {
                         add(slot);
                     }
@@ -2619,7 +2619,7 @@ impl State {
                 }
             }
             Screen::Shelf => {
-                for pool in self.list.iter().filter(|pool| pool.collection) {
+                for pool in self.list.iter().filter(|pool| pool.collection && pool.saved.is_none()) {
                     for slot in pool.slots.iter().filter_map(|slot| slot.hash.as_deref()).take(MOSAIC) {
                         add(slot);
                     }
@@ -2804,6 +2804,14 @@ fn author_names(said: &str) -> Vec<String> {
     }
     if !name.is_empty() { names.push(name); }
     names
+}
+
+fn published_pool(publication: &crate::bot::Publication, songs: Option<&HashMap<String, Map>>, now: i64) -> Option<Pool> {
+    if publication.kind == "collection" {
+        let hashes: Vec<String> = publication.content["hashes"].as_array().into_iter().flatten().filter_map(|hash| hash.as_str().map(str::to_owned)).collect();
+        return (!hashes.is_empty()).then(|| collection_pool(&Collection { name: publication.name.clone(), hashes }, songs, now));
+    }
+    serde_json::to_vec(&publication.content).ok().and_then(|bytes| pool_share::from_file(&bytes, now).ok())
 }
 
 fn collection_pool(collection: &Collection, songs: Option<&HashMap<String, Map>>, now: i64) -> Pool {
@@ -3720,7 +3728,7 @@ fn collections_showcase<'a>(state: &'a State, mut page: iced::widget::Column<'a,
     let wide = ((width - CARD_GAP * (across as f32 - 1.0)) / across as f32).floor();
     let caption = |key: &str| -> Element<'a, Message> { container(ui::mono_small(words.t(key).to_uppercase(), MUTED)).padding(Padding { top: 6.0, ..Padding::ZERO }).into() };
     let note = |key: &str| -> Element<'a, Message> { container(faded_text(words.t(key), 14.0, MUTED)).padding([6, 2]).into() };
-    let mine: Vec<&Pool> = state.list.iter().filter(|pool| pool.collection).collect();
+    let mine: Vec<&Pool> = state.list.iter().filter(|pool| pool.collection && pool.saved.is_none()).collect();
     page = page.push(ui::appearing(ui::appear(t, 1), 8.0, || caption("shelf-own-collections")));
     if mine.is_empty() {
         page = page.push(ui::appearing(ui::appear(t, 1), 8.0, || note("shelf-empty-collections")));
@@ -3748,12 +3756,19 @@ fn collections_showcase<'a>(state: &'a State, mut page: iced::widget::Column<'a,
     let cards = items.iter().enumerate().map(|(at, item)| {
         let hashes = published_hashes(item);
         let shown = Shown { title: item.name.clone(), makers: Vec::new(), cards: hashes.len(), hashes, length: 0, low: None, high: None, mods: Vec::new(), when: format!("#{}", item.revision), plain: true };
-        let action = crate::billing::outlined(words.t(if item.mine { "ledger-edit" } else { "catalogue-copy" }), Some(Message::OpenPublication(item.id.clone())));
+        let held = state.list.iter().any(|pool| pool.saved.as_ref().is_some_and(|saved| saved.id == item.id));
+        let action: Element<'a, Message> = if item.mine {
+            crate::billing::outlined(words.t("ledger-edit"), Some(Message::OpenPublication(item.id.clone())))
+        } else if held {
+            plate(text(words.t("shelf-saved-mark")).font(theme::SANS_SEMI).size(12.0).color(ui::faded(Color::from_rgb(0.765, 0.831, 0.651))).into())
+        } else {
+            crate::billing::outlined(words.t("shelf-save"), Some(Message::SavePublication(item.id.clone())))
+        };
         let owner: Element<'a, Message> = if item.mine { faded_text(words.t("shelf-yours"), 13.0, MUTED) } else { Space::new().into() };
         let foot = row![container(owner).width(Length::Fill), action].spacing(8).align_y(iced::Center);
         let mark = if item.code.is_empty() { Space::new().into() } else { plate(text(item.code.clone()).font(theme::MONO_BOLD).size(12.0).color(ui::faded(INK)).into()) };
         let seen = t.min(clocks.of(&item.id));
-        ui::appearing(ui::appear(seen, 5 + at / across), 10.0, || pool_card(state, shown, mark, Some(foot.into()), Some(Message::OpenPublication(item.id.clone())), wide, words, thumbs))
+        ui::appearing(ui::appear(seen, 5 + at / across), 10.0, || pool_card(state, shown, mark, Some(foot.into()), item.mine.then(|| Message::OpenPublication(item.id.clone())), wide, words, thumbs))
     }).collect();
     page = page.push(tiled(cards, across));
     if let Some(error) = &state.catalogue_error {
@@ -3848,7 +3863,7 @@ fn showcase<'a>(state: &'a State, mut page: iced::widget::Column<'a, Message>, w
             }
         }
         Shelf::Saved => {
-            let saved: Vec<&Pool> = state.list.iter().filter(|pool| !pool.collection && pool.saved.is_some()).collect();
+            let saved: Vec<&Pool> = state.list.iter().filter(|pool| pool.saved.is_some()).collect();
             let mark_of = |pool: &Pool| -> Element<'a, Message> {
                 match state.newer_of(pool) {
                     Some(item) => {
@@ -5857,6 +5872,52 @@ mod tests {
         assert_eq!(state.list.iter().filter(|pool| pool.saved.is_some()).count(), 1, "the pool is renewed in place");
         assert!(state.newer_of(pool).is_none());
         assert!(pools::load_all(&state.dir).iter().any(|pool| pool.id == id && pool.filled() == 3));
+    }
+
+    #[test]
+    fn a_published_collection_is_saved_downloaded_and_renewed_like_a_pool() {
+        let words = Words::new(crate::lang::Lang::En);
+        let thumbs = HashMap::new();
+        let mut state = state_with_songs("saved-collection");
+        let issue = |hashes: &[&str], revision: u64| crate::bot::Publication { code: "C0LLECT1".into(), id: "their-collection".into(), kind: "collection".into(), local_id: "x".into(), revision, name: "Weekend practice".into(), content: serde_json::json!({"name": "Weekend practice", "hashes": hashes}), mine: false };
+        state.collection_shelf = true;
+        state.publications = vec![issue(&["a1", "zz8"], 1)];
+        {
+            let mut screen = look(&state, &words, &thumbs);
+            assert!(screen.find("C0LLECT1").is_ok());
+            screen.click(words.t("shelf-save")).unwrap();
+            assert!(matches!(screen.into_messages().collect::<Vec<_>>().as_slice(), [Message::SavePublication(id)] if id == "their-collection"));
+        }
+        state.update(Message::SavePublication("their-collection".into()), 100);
+        state.update(Message::SavePublication("their-collection".into()), 101);
+        let saved: Vec<Pool> = state.list.iter().filter(|pool| pool.saved.is_some()).cloned().collect();
+        assert_eq!(saved.len(), 1);
+        assert!(saved[0].collection && saved[0].name == "Weekend practice" && saved[0].filled() == 2);
+        let id = saved[0].id.clone();
+        {
+            let mut screen = look(&state, &words, &thumbs);
+            assert!(screen.find(words.t("shelf-saved-mark")).is_ok() && screen.find(words.t("shelf-own-collections").to_uppercase()).is_ok());
+            assert!(screen.find(words.t("shelf-empty-collections")).is_ok(), "a saved collection is not one of my own");
+        }
+        state.collection_shelf = false;
+        state.shelf = Shelf::Saved;
+        assert!(state.covers().iter().any(|(hash, _)| hash == "zz8"));
+        {
+            let mut screen = look(&state, &words, &thumbs);
+            assert!(screen.find("Weekend practice").is_ok() && screen.find(words.n("shelf-missing", 1)).is_ok() && screen.find(words.t("shelf-pull")).is_ok());
+        }
+        let effects = state.update(Message::Pull(id.clone()), 102);
+        let Some(Effect::Fetch(request, hash, _)) = effects.iter().find(|effect| matches!(effect, Effect::Fetch(..))).cloned() else { panic!("{effects:?}") };
+        assert_eq!(hash, "zz8");
+        let effects = state.update(Message::Step(request, "zz8".into(), crate::maps::Step::Done(map("Found", "A", "B"))), 103);
+        assert!(matches!(effects.iter().find(|effect| matches!(effect, Effect::Collect(..))), Some(Effect::Collect(_, name, hashes)) if name == "Weekend practice" && hashes.len() == 2), "{effects:?}");
+        state.update(Message::Collected(id.clone(), Ok(2)), 104);
+        state.publications = vec![issue(&["a1", "zz8", "b2"], 2)];
+        assert!(state.newer_of(state.list.iter().find(|pool| pool.id == id).unwrap()).is_some());
+        state.update(Message::Renew(id.clone()), 105);
+        let pool = state.list.iter().find(|pool| pool.id == id).unwrap();
+        assert!(pool.collection && pool.filled() == 3);
+        assert_eq!(pool.saved.as_ref().map(|saved| (saved.revision, saved.collected)), Some((2, false)));
     }
 
     fn saved_count(state: &State) -> u64 {

@@ -14,7 +14,7 @@ collection-delete = Удалить коллекцию
 collection-back = К коллекциям
 catalogue-new = Создать
 catalogue-drafts = Мои черновики
-catalogue-game-collections = Коллекции из игры · открыть копию для публикации
+catalogue-game-collections = Коллекции из игры
 catalogue-published = Опубликованные
 catalogue-refresh = Обновить
 catalogue-loading = Загружаем каталог…
@@ -1214,4 +1214,12 @@ shelf-renew-added = { $n ->
     [one] Автор обновил пул: { $n } новая карта
     [few] Автор обновил пул: { $n } новые карты
    *[other] Автор обновил пул: { $n } новых карт
+}
+shelf-own-collections = Мои коллекции
+shelf-empty-collections = Своих коллекций пока нет. Нажмите «Создать» или возьмите коллекцию из игры ниже.
+shelf-yours = Ваша публикация
+shelf-maps = { $n ->
+    [one] { $n } карта
+    [few] { $n } карты
+   *[other] { $n } карт
 }

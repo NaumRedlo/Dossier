@@ -14,7 +14,7 @@ collection-delete = Delete collection
 collection-back = Back to collections
 catalogue-new = Create
 catalogue-drafts = My drafts
-catalogue-game-collections = Game collections · open a copy to publish
+catalogue-game-collections = Collections from the game
 catalogue-published = Published
 catalogue-refresh = Refresh
 catalogue-loading = Loading catalogue…
@@ -1175,4 +1175,11 @@ shelf-renew-changed = The author updated the pool
 shelf-renew-added = { $n ->
     [one] The author updated the pool: { $n } new map
    *[other] The author updated the pool: { $n } new maps
+}
+shelf-own-collections = My collections
+shelf-empty-collections = No collections of your own yet. Press “Create” or take one from the game below.
+shelf-yours = Your publication
+shelf-maps = { $n ->
+    [one] { $n } map
+   *[other] { $n } maps
 }

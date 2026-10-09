@@ -2619,18 +2619,19 @@ impl State {
                 }
             }
             Screen::Shelf => {
-                let kind = self.collection_shelf;
-                let most = if self.roomy_drafts() { STRIP_MOST } else { 3 };
-                for pool in self.list.iter().filter(|pool| pool.collection == kind) {
-                    for slot in pool.slots.iter().filter_map(|slot| slot.hash.as_deref()).take(most) {
+                for pool in self.list.iter().filter(|pool| pool.collection) {
+                    for slot in pool.slots.iter().filter_map(|slot| slot.hash.as_deref()).take(MOSAIC) {
                         add(slot);
                     }
                 }
-                if self.roomy_published() {
-                    for item in self.publications.iter().filter(|item| (item.kind == "collection") == kind) {
-                        for hash in published_hashes(item).into_iter().flatten().take(STRIP_MOST) {
-                            add(&hash);
-                        }
+                for found in self.collections.iter().flatten().take(GAME_MOST) {
+                    for hash in found.hashes.iter().take(4) {
+                        add(hash);
+                    }
+                }
+                for item in self.publications.iter().filter(|item| item.kind == "collection") {
+                    for hash in published_hashes(item).into_iter().flatten().take(MOSAIC) {
+                        add(&hash);
                     }
                 }
             }
@@ -3403,6 +3404,9 @@ fn shelf<'a>(state: &'a State, words: &'a Words, thumbs: &'a HashMap<String, ima
     if !collection {
         return showcase(state, page, words, thumbs, width, t, clocks);
     }
+    if collection {
+        return collections_showcase(state, page, words, thumbs, width, t, clocks);
+    }
     let drafts_head = || -> Element<'a, Message> {
         let mut parts = vec![(Col::Fill, words.t("catalogue-drafts"))];
         if let Some(wide) = shape.makers { parts.push((Col::Wide(wide), words.t("pool-mappoolers"))); }
@@ -3457,6 +3461,7 @@ fn shelf<'a>(state: &'a State, words: &'a Words, thumbs: &'a HashMap<String, ima
 }
 
 const MOSAIC: usize = 8;
+const GAME_MOST: usize = 60;
 const HERO_COVERS: usize = 15;
 const CARD_GAP: f32 = 16.0;
 const CARD_TOP: f32 = 128.0;
@@ -3472,13 +3477,14 @@ struct Shown {
     high: Option<f64>,
     mods: Vec<(Mod, usize)>,
     when: String,
+    plain: bool,
 }
 
 fn shown_of(pool: &Pool, words: &Words, when: String) -> Shown {
     let facts = pool.facts();
     let filled: Vec<&Slot> = pool.slots.iter().filter(|slot| !slot.is_empty()).collect();
     Shown {
-        title: if pool.name.is_empty() { words.t("pool-untitled") } else { pool.name.clone() },
+        title: if pool.name.is_empty() { words.t(if pool.collection { "collections-new" } else { "pool-untitled" }) } else { pool.name.clone() },
         makers: pool.authors.clone(),
         hashes: filled.iter().map(|slot| slot.hash.clone()).collect(),
         cards: facts.cards,
@@ -3487,6 +3493,7 @@ fn shown_of(pool: &Pool, words: &Words, when: String) -> Shown {
         high: facts.high,
         mods: Mod::ALL.into_iter().map(|mods| (mods, filled.iter().filter(|slot| slot.mods == mods).count())).filter(|(_, count)| *count > 0).collect(),
         when,
+        plain: pool.collection,
     }
 }
 
@@ -3606,7 +3613,7 @@ fn pool_card<'a>(state: &'a State, shown: Shown, mark: Element<'a, Message>, foo
         facts = facts.push(fact(words.length(shown.length), words.t("shelf-length")));
     }
     facts = facts.push(ui::grow()).push(stars_span(words, shown.low, shown.high));
-    let mut body = column![makers_line(state, &shown.makers, words, 14.0), facts, mod_strip(&shown.mods, true)].spacing(12);
+    let mut body = if shown.plain { column![facts].spacing(12) } else { column![makers_line(state, &shown.makers, words, 14.0), facts, mod_strip(&shown.mods, true)].spacing(12) };
     if let Some(foot) = foot {
         let line = container(Space::new().height(1.0)).width(Length::Fill).style(move |_| container::Style { background: Some(Background::Color(Color::from_rgba(1.0, 1.0, 1.0, 0.08 * k))), ..container::Style::default() });
         body = body.push(column![line, foot].spacing(10));
@@ -3693,6 +3700,69 @@ fn tiled<'a>(cards: Vec<Element<'a, Message>>, across: usize) -> Element<'a, Mes
 fn missing_of(state: &State, pool: &Pool) -> Option<usize> {
     let songs = state.songs.as_ref()?;
     Some(pool.slots.iter().filter_map(|slot| slot.hash.as_ref()).filter(|hash| !songs.contains_key(*hash)).count())
+}
+
+fn game_tile<'a>(found: &'a Collection, at: usize, words: &'a Words, thumbs: &'a HashMap<String, image::Handle>, wide: f32) -> Element<'a, Message> {
+    let covers: Vec<Option<String>> = found.hashes.iter().take(4).cloned().map(Some).collect();
+    let name = if found.name.is_empty() { words.t("collections-new") } else { found.name.clone() };
+    let inside = row![
+        container(mosaic(thumbs, &covers, 2, 2, 84.0, 52.0, 2.0, 4.0)).width(84.0),
+        column![container(text(name).font(theme::SANS_SEMI).size(15.0).color(ui::faded(INK)).wrapping(text::Wrapping::None)).width(Length::Fill).clip(true), faded_text(words.n("shelf-maps", found.hashes.len() as u64), 13.0, MUTED)].spacing(3).width(Length::Fill),
+    ]
+    .spacing(12)
+    .align_y(iced::Center);
+    let _ = wide;
+    button(container(inside).padding([10, 12])).padding(1).width(Length::FillPortion(1)).style(ui::button_faded(card_style)).on_press(Message::ImportCollection(at)).into()
+}
+
+fn collections_showcase<'a>(state: &'a State, mut page: iced::widget::Column<'a, Message>, words: &'a Words, thumbs: &'a HashMap<String, image::Handle>, width: f32, t: f32, clocks: &Clocks) -> Element<'a, Message> {
+    let across = if width >= 960.0 { 3 } else if width >= 620.0 { 2 } else { 1 };
+    let wide = ((width - CARD_GAP * (across as f32 - 1.0)) / across as f32).floor();
+    let caption = |key: &str| -> Element<'a, Message> { container(ui::mono_small(words.t(key).to_uppercase(), MUTED)).padding(Padding { top: 6.0, ..Padding::ZERO }).into() };
+    let note = |key: &str| -> Element<'a, Message> { container(faded_text(words.t(key), 14.0, MUTED)).padding([6, 2]).into() };
+    let mine: Vec<&Pool> = state.list.iter().filter(|pool| pool.collection).collect();
+    page = page.push(ui::appearing(ui::appear(t, 1), 8.0, || caption("shelf-own-collections")));
+    if mine.is_empty() {
+        page = page.push(ui::appearing(ui::appear(t, 1), 8.0, || note("shelf-empty-collections")));
+    }
+    let cards = mine.iter().enumerate().map(|(at, pool)| {
+        let mark = match pool.published_revision {
+            0 => word_plate(words.t("shelf-draft")),
+            revision => code_plate(state.publications.iter().find(|item| item.mine && item.local_id == pool.id).map(|item| item.code.as_str()).unwrap_or_default(), revision),
+        };
+        ui::appearing(ui::appear(t, 2 + at / across), 10.0, || pool_card(state, shown_of(pool, words, words.day(pool.changed_at, clocks.today)), mark, None, Some(Message::Open(pool.id.clone())), wide, words, thumbs))
+    }).collect();
+    page = page.push(tiled(cards, across));
+    if let Some(found) = state.collections.as_ref().filter(|found| !found.is_empty()) {
+        page = page.push(ui::appearing(ui::appear(t, 3), 8.0, || caption("catalogue-game-collections")));
+        let tiles = found.iter().enumerate().take(GAME_MOST).map(|(at, found)| ui::appearing(ui::appear(t, 3 + at / across), 8.0, || game_tile(found, at, words, thumbs, wide))).collect();
+        page = page.push(tiled(tiles, across));
+    }
+    page = page.push(ui::appearing(ui::appear(t, 4), 8.0, || row![caption("catalogue-published"), ui::grow(), quiet_button(words.t("catalogue-refresh"), Message::Catalogue(true))].align_y(iced::Center).into()));
+    let items: Vec<&crate::bot::Publication> = state.publications.iter().filter(|item| item.kind == "collection").collect();
+    if state.catalogue_loading && items.is_empty() {
+        page = page.push(ui::appearing(ui::appear(t, 5), 8.0, || note("catalogue-loading")));
+    } else if items.is_empty() {
+        page = page.push(ui::appearing(ui::appear(t, 5), 8.0, || note("catalogue-empty")));
+    }
+    let cards = items.iter().enumerate().map(|(at, item)| {
+        let hashes = published_hashes(item);
+        let shown = Shown { title: item.name.clone(), makers: Vec::new(), cards: hashes.len(), hashes, length: 0, low: None, high: None, mods: Vec::new(), when: format!("#{}", item.revision), plain: true };
+        let action = crate::billing::outlined(words.t(if item.mine { "ledger-edit" } else { "catalogue-copy" }), Some(Message::OpenPublication(item.id.clone())));
+        let owner: Element<'a, Message> = if item.mine { faded_text(words.t("shelf-yours"), 13.0, MUTED) } else { Space::new().into() };
+        let foot = row![container(owner).width(Length::Fill), action].spacing(8).align_y(iced::Center);
+        let mark = if item.code.is_empty() { Space::new().into() } else { plate(text(item.code.clone()).font(theme::MONO_BOLD).size(12.0).color(ui::faded(INK)).into()) };
+        let seen = t.min(clocks.of(&item.id));
+        ui::appearing(ui::appear(seen, 5 + at / across), 10.0, || pool_card(state, shown, mark, Some(foot.into()), Some(Message::OpenPublication(item.id.clone())), wide, words, thumbs))
+    }).collect();
+    page = page.push(tiled(cards, across));
+    if let Some(error) = &state.catalogue_error {
+        page = page.push(ui::appearing(ui::appear(t, 5), 8.0, || catalogue_error(error, words)));
+    }
+    if state.catalogue_more {
+        page = page.push(quiet_button(words.t("catalogue-more"), Message::CatalogueMore));
+    }
+    page.into()
 }
 
 fn small_primary<'a>(label: String, press: Option<Message>) -> Element<'a, Message> {

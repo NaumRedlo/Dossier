@@ -147,6 +147,9 @@ pub enum Message {
     HideError,
     Circle,
     MenuTab(Tab),
+    Billing(crate::billing::Message),
+    BillingReply(u64, crate::billing::Message),
+    RetryPictures,
     MenuClose,
     SeenAll,
     ClearNotices,
@@ -221,6 +224,8 @@ pub enum Message {
     OpenOut,
     ShowOut,
     GetMap,
+    AutoFetch,
+    FetchMap(String),
     PickMap,
     MapPicked(Option<PathBuf>),
     StopFetch(u64),
@@ -256,9 +261,8 @@ pub struct Shown {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tab {
-    Account,
-    Feed,
-    Stats,
+    Head,
+    Bell,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -437,6 +441,7 @@ pub struct Main {
     pub hover_bounds: Option<iced::Rectangle>,
     pub thumbs: HashMap<String, image::Handle>,
     pub scenes: HashMap<String, image::Handle>,
+    pub auto_fetched: std::collections::HashSet<String>,
     pub scene_before: Option<Option<image::Handle>>,
     pub lengths: HashMap<PathBuf, i64>,
     pub combos: HashMap<PathBuf, Option<u32>>,
@@ -476,6 +481,7 @@ pub struct Main {
     pub avatar: Option<image::Handle>,
     pub menu: Option<Tab>,
     pub error_shown: Option<u64>,
+    pub error_fade: Animation<bool>,
     pub arrivals: HashMap<u64, Animation<bool>>,
     pub scenes_due: bool,
     pub leaving: HashMap<u64, Animation<bool>>,
@@ -508,9 +514,11 @@ pub struct Main {
     pub ffmpeg_version: Option<String>,
     pub retype: Animation<bool>,
     pub menu_open: Animation<bool>,
-    pub tab_fade: Animation<bool>,
-    pub seg_from: Tab,
-    pub seg_slide: Animation<bool>,
+    pub billing: crate::billing::State,
+    billing_epoch: u64,
+    billing_status_pending: bool,
+    billing_plans_pending: bool,
+    pub bell_flash: Animation<bool>,
     pub pairing: Pairing,
     pub qr: Option<ui::Qr>,
     pub sending: Option<Sending>,
@@ -574,6 +582,7 @@ pub struct Main {
     pub news_pictures: HashMap<String, image::Handle>,
     pub news_frosts: HashMap<String, crate::community_screen::Frost>,
     news_asked: std::collections::HashSet<String>,
+    news_picture_failures: HashMap<String, Instant>,
     pub news_loading: std::collections::HashSet<String>,
     pub news_failed: std::collections::HashSet<String>,
     pub channel_draft: String,
@@ -653,6 +662,9 @@ fn unix_now() -> i64 {
 impl Main {
     pub fn new(words: Words, settings: Settings) -> (Main, Task<Message>) {
         let worker_done = settings.worker_done;
+        let pool_guide = settings.pool_guide;
+        let billing_email = settings.billing_email.clone();
+        let billing_currency = if words.lang() == crate::lang::Lang::Ru { "RUB" } else { "USD" };
         crate::donate::allow(settings.donate_replays);
         let donated = crate::donate::given(&crate::donate::ledger()).len();
         let worker_back = settings.worker_back;
@@ -671,6 +683,7 @@ impl Main {
             hover_bounds: None,
             thumbs: HashMap::new(),
             scenes: HashMap::new(),
+            auto_fetched: std::collections::HashSet::new(),
             scene_before: None,
             lengths: HashMap::new(),
             combos: HashMap::new(),
@@ -710,6 +723,7 @@ impl Main {
             avatar: None,
             menu: None,
             error_shown: None,
+            error_fade: Animation::new(false).duration(crate::billing::FADE).easing(Easing::EaseOutCubic),
             arrivals: HashMap::new(),
             scenes_due: false,
             leaving: HashMap::new(),
@@ -742,9 +756,11 @@ impl Main {
             ffmpeg_version: None,
             retype: Animation::new(true),
             menu_open: Animation::new(false).duration(MENU_OPEN).easing(Easing::EaseOutCubic),
-            tab_fade: Animation::new(true).duration(TAB_FADE).easing(Easing::EaseOutCubic),
-            seg_from: Tab::Account,
-            seg_slide: Animation::new(true).duration(TAB_FADE).easing(Easing::EaseOutCubic),
+            billing: crate::billing::State::new(billing_email, billing_currency),
+            billing_epoch: 0,
+            billing_status_pending: false,
+            billing_plans_pending: false,
+            bell_flash: Animation::new(false).duration(BELL_FLASH).easing(Easing::EaseOutCubic),
             pairing: Pairing::Idle,
             qr: None,
             sending: None,
@@ -808,6 +824,7 @@ impl Main {
             news_pictures: HashMap::new(),
             news_frosts: HashMap::new(),
             news_asked: std::collections::HashSet::new(),
+            news_picture_failures: HashMap::new(),
             news_loading: std::collections::HashSet::new(),
             news_failed: std::collections::HashSet::new(),
             channel_draft: String::new(),
@@ -865,7 +882,7 @@ impl Main {
             osu_asked: None,
             community_fetch: crate::community_screen::Fetch::Staged,
             community_asked: None,
-            pools: crate::pools_screen::State::new(crate::pools::pools_dir()),
+            pools: crate::pools_screen::State::new(crate::pools::pools_dir()).guided(pool_guide),
             pool_covers_asked: std::collections::HashSet::new(),
             refresh_asked: false,
             refresh_answered: None,
@@ -1191,8 +1208,9 @@ impl Main {
             || (self.community_reading.is_some() && !self.read_fade.value())
             || self.arrivals.values().any(|a| a.is_animating(self.now))
             || self.leaving.values().any(|a| a.is_animating(self.now))
-            || self.tab_fade.is_animating(self.now)
-            || self.seg_slide.is_animating(self.now)
+            || self.billing.animating(self.now)
+            || self.bell_flash.is_animating(self.now)
+            || self.error_fade.is_animating(self.now)
             || self.sending.as_ref().is_some_and(|s| s.over.is_none())
     }
 
@@ -1243,11 +1261,20 @@ impl Main {
             if active { Some(Message::UserInput(action.map(Box::new))) } else { action }
         })];
         if !self.settings.token.is_empty() && !self.gallery {
+            if self.billing.waiting() {
+                parts.push(iced::time::every(crate::billing::EVERY).map(|_| Message::Billing(crate::billing::Message::Poll)));
+            }
             parts.push(iced::time::every(PRESENCE_EVERY).map(|_| Message::PresenceTick));
             parts.push(iced::time::every(sharing::EVERY).map(|_| Message::Sharing(sharing::Message::Tick)));
             if self.witness_delivery.pending() > 0 {
                 parts.push(iced::time::every(Duration::from_secs(2)).map(|_| Message::WitnessDeliveryTick));
             }
+        }
+        if self.pools.has_unsaved() {
+            parts.push(iced::time::every(Duration::from_millis(250)).map(|_| Message::Community(crate::community_screen::Message::Pools(crate::pools_screen::Message::FlushSaves))));
+        }
+        if !self.gallery && !self.news_picture_failures.is_empty() {
+            parts.push(iced::time::every(Duration::from_secs(30)).map(|_| Message::RetryPictures));
         }
         if self.minimized {
             parts.push(iced::time::every(MINIMIZED_POLL).map(|_| Message::PollMinimized));
@@ -1261,6 +1288,9 @@ impl Main {
         }
         if self.library.is_some() && !self.refreshing {
             parts.push(iced::time::every(Duration::from_secs(4)).map(|_| Message::WatchTick));
+            if self.settings.auto_fetch_maps && !self.gallery {
+                parts.push(iced::time::every(Duration::from_secs(3)).map(|_| Message::AutoFetch));
+            }
         }
         if self.settings.auto_flip && self.library.is_some() && self.overlay == Overlay::None && self.player.is_none() {
             parts.push(iced::time::every(AUTO_EVERY).map(|_| Message::AutoNext));
@@ -1491,6 +1521,10 @@ impl Main {
                     let (server, token, device) = (self.settings.server.clone(), self.settings.token.clone(), self.settings.device.clone());
                     tasks.push(ui::in_thread(move || { let result = crate::bot::publish(&server, &token, &device, &pool).map_err(|e| e.to_string()); Message::Community(crate::community_screen::Message::Pools(P::Published(pool.id, result))) }));
                 }
+                Effect::Withdraw(pool) => {
+                    let (server, token, device) = (self.settings.server.clone(), self.settings.token.clone(), self.settings.device.clone());
+                    tasks.push(ui::in_thread(move || { let result = crate::bot::withdraw(&server, &token, &device, &pool).map_err(|e| e.to_string()); Message::Community(crate::community_screen::Message::Pools(P::Withdrawn(pool.id, result))) }));
+                }
                 Effect::Author(name) => {
                     if let Some(catalog) = self.community.as_mut() {
                         let at = catalog.people.iter().position(|person| person.name.eq_ignore_ascii_case(&name)).unwrap_or_else(|| {
@@ -1633,6 +1667,10 @@ impl Main {
                     let said = self.words.t(key);
                     self.say(said);
                 }
+                Effect::Guide(guide) => {
+                    self.settings.pool_guide = guide;
+                    let _ = self.settings.save();
+                }
                 Effect::Fetch(request, hash, stop) => {
                     let songs = crate::sources::own_root().join("Songs");
                     let named = hash.clone();
@@ -1726,6 +1764,12 @@ impl Main {
     pub fn set_hidden(&mut self, hidden: bool) {
         self.hidden = hidden;
         self.set_minimized(hidden);
+    }
+
+    pub fn prepare_exit(&mut self) -> bool {
+        if self.pools.flush_saves(true) { return true; }
+        self.announce(notices::Mark::Bad, self.words.t("pool-unsaved"), String::new(), String::new(), String::new(), notices::Link::None);
+        false
     }
 
     fn set_minimized(&mut self, minimized: bool) {
@@ -1967,12 +2011,14 @@ impl Main {
                 }
             }
             Message::Escape => {
-                if self.error_shown.is_some() {
-                    self.error_shown = None;
+                if self.error_shown.is_some() && self.error_fade.value() {
+                    self.error_fade.go_mut(false, Instant::now());
                 } else if matches!(self.pairing, Pairing::Asking | Pairing::Waiting { .. } | Pairing::Linking { .. } | Pairing::Unavailable) {
                     self.pairing = Pairing::Idle;
                 } else if self.skin_delete.is_some() {
                     return self.prefs(prefs::Message::KeepSkin);
+                } else if self.billing.shown && self.billing.fade.value() {
+                    return self.billing_step(crate::billing::Message::Close);
                 } else if self.menu.is_some() {
                     return self.update(Message::MenuClose);
                 } else if self.skin_room {
@@ -2004,51 +2050,35 @@ impl Main {
                 Task::none()
             }
             Message::Circle => {
-                match self.menu {
-                    Some(_) => self.update(Message::MenuClose),
-                    None => {
-                        let last = match self.settings.menu_tab.as_str() {
-                            "feed" => Tab::Feed,
-                            "stats" => Tab::Stats,
-                            _ => Tab::Account,
-                        };
-                        self.update(Message::MenuTab(last))
-                    }
-                }
+                self.update(Message::MenuTab(Tab::Head))
             }
             Message::MenuTab(tab) => {
                 let now = Instant::now();
-                let opening = self.menu.is_none();
-                match self.menu {
-                    Some(was) if was != tab => {
-                        self.seg_from = was;
-                        self.seg_slide = Animation::new(false).duration(TAB_FADE).easing(Easing::EaseOutCubic).go(true, now);
-                        self.tab_fade = Animation::new(false).duration(TAB_FADE).easing(Easing::EaseOutCubic).go(true, now);
-                    }
-                    Some(_) => {}
-                    None => {
-                        self.seg_from = tab;
-                        self.seg_slide = Animation::new(true);
-                        self.tab_fade = Animation::new(true);
-                        self.menu_open = Animation::new(false).duration(MENU_OPEN).easing(Easing::EaseOutCubic).go(true, now);
-                    }
+                if self.menu == Some(tab) && self.menu_open.value() {
+                    return self.update(Message::MenuClose);
                 }
+                self.menu_open = Animation::new(false).duration(MENU_OPEN).easing(Easing::EaseOutCubic).go(true, now);
                 self.menu = Some(tab);
-                let name = match tab {
-                    Tab::Account => "account",
-                    Tab::Feed => "feed",
-                    Tab::Stats => "stats",
-                };
-                if self.settings.menu_tab != name {
-                    self.settings.menu_tab = name.to_owned();
-                    let _ = self.settings.save();
+                for toast in self.toasts.iter_mut().filter(|toast| toast.shown.value()) {
+                    toast.shown.go_mut(false, now);
                 }
-                let chats = if opening { self.chats_task() } else { Task::none() };
-                if tab == Tab::Feed {
+                if tab == Tab::Bell {
                     self.notices.see_all();
-                    return Task::batch([self.scenes_for_notices(), chats]);
+                    return self.scenes_for_notices();
                 }
-                chats
+                return self.billing_asks(false);
+            }
+            Message::Billing(message) => return self.billing_step(message),
+            Message::BillingReply(epoch, message) => {
+                if epoch != self.billing_epoch || self.settings.token.is_empty() {
+                    return Task::none();
+                }
+                match &message {
+                    crate::billing::Message::Status(_) => self.billing_status_pending = false,
+                    crate::billing::Message::Plans(_) => self.billing_plans_pending = false,
+                    _ => {}
+                }
+                return self.billing_step(message);
             }
             Message::MenuClose => {
                 if self.menu_open.value() {
@@ -2061,11 +2091,17 @@ impl Main {
                 Task::none()
             }
             Message::ClearNotices => {
-                self.notices.clear();
-                self.leaving.clear();
-                self.arrivals.clear();
-                self.toasts.clear();
+                let now = Instant::now();
                 self.error_shown = None;
+                for toast in self.toasts.iter_mut() {
+                    toast.shown.go_mut(false, now);
+                }
+                let ids: Vec<u64> = self.notices.notices.iter().map(|notice| notice.id).collect();
+                for (at, id) in ids.into_iter().enumerate() {
+                    let wait = CLEAR_STEP * at.min(CLEAR_STEPS) as u32;
+                    self.leaving.insert(id, Animation::new(true).duration(CLEAR_LEAVE).delay(wait).easing(Easing::EaseOutCubic).go(false, now));
+                }
+                self.arrivals.clear();
                 Task::none()
             }
             Message::SignIn => {
@@ -2142,6 +2178,7 @@ impl Main {
                 _ => Task::none(),
             },
             Message::Polled(Ok(Paired::Linked { token, who })) => {
+                self.reset_billing();
                 self.settings.token = token;
                 self.sync_dossiers();
                 self.settings.linked_as = who;
@@ -2169,6 +2206,7 @@ impl Main {
                 Task::none()
             }
             Message::SignOut => {
+                self.reset_billing();
                 self.settings.token.clear();
                 self.dossier_cache.clear();
                 self.people_dossiers.clear();
@@ -2938,7 +2976,11 @@ impl Main {
                             }
                             return Task::none();
                         }
+                        let failed = self.pools.save_failed();
                         let effects = self.pools.update(inner, unix_now());
+                        if !failed && self.pools.save_failed() {
+                            self.say(self.words.t("pool-unsaved"));
+                        }
                         return self.pools_work(effects);
                     }
                     C::Reconnect => {
@@ -3215,12 +3257,27 @@ impl Main {
             Message::NewsPicture(url, handle) => {
                 match handle {
                     Some(handle) => {
+                        self.news_picture_failures.remove(&url);
                         self.feed_pictures.came(&url, Instant::now());
                         self.news_pictures.insert(url, handle);
                     }
-                    None => self.feed_pictures.lost(&url, Instant::now()),
+                    None => {
+                        self.news_picture_failures.insert(url.clone(), Instant::now());
+                        self.feed_pictures.lost(&url, Instant::now());
+                    }
                 }
                 Task::none()
+            }
+            Message::RetryPictures => {
+                let wide = self.community_reading.as_ref().map(|reading| reading.pictures()).unwrap_or_default();
+                let tasks = [self.news_pictures_task(), self.community_pictures_task(), self.wide_pictures_task(wide)];
+                let now = Instant::now();
+                let dormant: Vec<_> = self.news_picture_failures.iter().filter(|(_, failed)| now.saturating_duration_since(**failed) >= Duration::from_secs(30)).map(|(url, _)| url.clone()).collect();
+                for url in dormant {
+                    self.news_picture_failures.remove(&url);
+                    self.news_asked.remove(&url);
+                }
+                Task::batch(tasks)
             }
             Message::NewsFrost(url, frost) => {
                 self.news_frosts.insert(url, frost);
@@ -3564,6 +3621,22 @@ impl Main {
                     return Task::none();
                 };
                 let hash = entry.map_hash.clone();
+                self.fetch_map(hash)
+            }
+            Message::AutoFetch => {
+                if !self.settings.auto_fetch_maps || !self.fetch_room() {
+                    return Task::none();
+                }
+                let wanted = self.entries().iter().find(|entry| entry.map.is_none() && !entry.map_hash.is_empty() && !self.auto_fetched.contains(&entry.map_hash) && self.fetch_of(&entry.map_hash).is_none()).map(|entry| entry.map_hash.clone());
+                match wanted {
+                    Some(hash) => {
+                        self.auto_fetched.insert(hash.clone());
+                        self.fetch_map(hash)
+                    }
+                    None => Task::none(),
+                }
+            }
+            Message::FetchMap(hash) => {
                 if !self.fetch_room() || self.fetch_of(&hash).is_some_and(|f| !f.is_over()) {
                     return Task::none();
                 }
@@ -3914,6 +3987,10 @@ impl Main {
                 if self.menu.is_some() && !self.menu_open.value() && !self.menu_open.is_animating(now) {
                     self.menu = None;
                 }
+                self.billing.settle(now);
+                if self.error_shown.is_some() && !self.error_fade.value() && !self.error_fade.is_animating(now) {
+                    self.error_shown = None;
+                }
                 let gone: Vec<u64> = self.leaving.iter().filter(|(_, a)| !a.value() && !a.is_animating(now)).map(|(id, _)| *id).collect();
                 for id in gone {
                     self.leaving.remove(&id);
@@ -3957,10 +4034,11 @@ impl Main {
             }
             Message::ShowError(id) => {
                 self.error_shown = Some(id);
+                self.error_fade = Animation::new(false).duration(crate::billing::FADE).easing(Easing::EaseOutCubic).go(true, Instant::now());
                 Task::none()
             }
             Message::HideError => {
-                self.error_shown = None;
+                self.error_fade.go_mut(false, Instant::now());
                 Task::none()
             }
             Message::UpdateTick => self.check_update(),
@@ -4304,7 +4382,8 @@ impl Main {
     pub fn write_notice(&mut self, mark: notices::Mark, words: String, detail: String, note: String, map_hash: String, link: notices::Link) -> u64 {
         let id = self.notices.push(mark, words, detail, note, map_hash, link);
         self.scenes_due = true;
-        if self.menu == Some(Tab::Feed) {
+        self.bell_flash = Animation::new(true).duration(BELL_FLASH).easing(Easing::EaseOutCubic).go(false, Instant::now());
+        if self.menu == Some(Tab::Bell) {
             self.arrivals.insert(id, Animation::new(false).duration(NOTICE_ARRIVE).easing(Easing::EaseOutCubic).go(true, Instant::now()));
         }
         id
@@ -4313,8 +4392,9 @@ impl Main {
     pub fn announce(&mut self, mark: notices::Mark, words: String, detail: String, note: String, map_hash: String, link: notices::Link) {
         let id = self.notices.push(mark, words, detail, note, map_hash, link);
         self.scenes_due = true;
+        self.bell_flash = Animation::new(true).duration(BELL_FLASH).easing(Easing::EaseOutCubic).go(false, Instant::now());
         let now = Instant::now();
-        if self.menu == Some(Tab::Feed) {
+        if self.menu == Some(Tab::Bell) {
             self.arrivals.insert(id, Animation::new(false).duration(NOTICE_ARRIVE).easing(Easing::EaseOutCubic).go(true, now));
         }
         while self.toasts.iter().filter(|t| t.shown.value()).count() >= self.toast_capacity() {
@@ -4423,6 +4503,7 @@ impl Main {
         let toasts = self.toast_layer();
         let menu = self.menu_layer();
         let signing = self.sign_in_layer();
+        let billing = self.billing_layer();
         let sharing = self.share_layer();
         let failure = self.error_layer();
         let ask: Element<'_, Message> = if self.asking_delete || self.ask_fade.is_animating(self.now) {
@@ -4442,7 +4523,7 @@ impl Main {
             stack![shield, mark].into()
         } else { blank() };
         let mini = self.mini_player_layer();
-        let layers = stack![scene_before, scene, live_before, live, body, bubble, ground, overlay, chrome_layer, crest, mini, person, room, ask, sharing, menu, signing, skin_ask, failure, toasts, resting];
+        let layers = stack![scene_before, scene, live_before, live, body, bubble, ground, overlay, chrome_layer, crest, mini, person, room, ask, sharing, menu, billing, signing, skin_ask, failure, toasts, resting];
         layers.width(Length::Fill).height(Length::Fill).into()
     }
 
@@ -4504,7 +4585,7 @@ impl Main {
         .spacing(22)
         .align_y(iced::Center);
         let nav = ui::sliding(nav, chosen, ui::Pill { fill: Color { a: 0.85, ..ACCENT }, edge: Color::TRANSPARENT, radius: 1.0, underline: Some(0.0) });
-        let words = row![nav, self.circle(CIRCLE_SIDE, true)].spacing(22).align_y(iced::Center);
+        let words = row![nav, self.bell_button(), self.circle(CIRCLE_SIDE, true)].spacing(22).align_y(iced::Center);
         let top = row![Space::new().width(BRAND_WIDTH)].align_y(iced::Center).height(theme::CONTROL_HEIGHT + 4.0);
         container(top.push(ui::grow()).push(words))
         .padding(Padding { top: 22.0, right: 40.0, bottom: 0.0, left: 40.0 })
@@ -4787,6 +4868,10 @@ impl Main {
         self.fetching.iter().any(|fetching| !fetching.is_over())
     }
 
+    fn fetch_map(&mut self, hash: String) -> Task<Message> {
+        self.update(Message::FetchMap(hash))
+    }
+
     fn fetch_room(&self) -> bool {
         self.fetching.iter().filter(|fetching| !fetching.is_over()).count() < FETCHES_AT_ONCE
     }
@@ -4935,7 +5020,11 @@ impl Main {
                 .center_y(theme::FRAME_H + 4.0 + 17.0)
                 .into()
         } else {
-            strip.into()
+            let (before, after) = match self.strip_view {
+                Some((offset, content, shown)) => (offset / ui::SIDE_FADE, (content - shown - offset) / ui::SIDE_FADE),
+                None => (0.0, 0.0),
+            };
+            ui::side_fades(strip.into(), before, after)
         };
         container(column![rail, container(strip).padding(Padding::ZERO.top(8.0))].spacing(2))
             .padding(Padding { top: 0.0, right: 40.0, bottom: 10.0, left: 40.0 })
@@ -5927,8 +6016,9 @@ impl Main {
         let mut wanted: Vec<(String, (u32, u32))> = Vec::new();
         let stories = self.news.stories.iter().take(4).filter_map(|story| story.image.clone()).map(|url| (url, (192, 108)));
         let posts = self.news.posts.iter().take(12).filter_map(|post| post.cover().map(str::to_owned)).map(|url| (url, (128, 128)));
-        for (url, size) in stories.chain(posts) {
-            if !self.news_pictures.contains_key(&url) && self.news_asked.insert(url.clone()) {
+        let candidates: Vec<_> = stories.chain(posts).collect();
+        for (url, size) in candidates {
+            if self.ask_picture(&url, Instant::now()) {
                 wanted.push((url, size));
             }
         }
@@ -6240,8 +6330,18 @@ impl Main {
         ui::in_thread(move || Message::CardShared(crate::bot::share_card(&server, &token, &device, &card).map_err(|e| e.to_string())))
     }
 
+    fn ask_picture(&mut self, url: &str, now: Instant) -> bool {
+        if url.is_empty() || self.news_pictures.contains_key(url) { return false; }
+        if let Some(failed) = self.news_picture_failures.get(url) {
+            if now.saturating_duration_since(*failed) < Duration::from_secs(30) { return false; }
+            self.news_picture_failures.remove(url);
+            self.news_asked.remove(url);
+        }
+        self.news_asked.insert(url.to_owned())
+    }
+
     fn pictures_task(&mut self, wanted: Vec<(String, u32)>) -> Task<Message> {
-        let wanted: Vec<(String, u32)> = wanted.into_iter().filter(|(url, _)| !url.is_empty() && !self.news_pictures.contains_key(url) && self.news_asked.insert(url.clone())).collect();
+        let wanted: Vec<(String, u32)> = wanted.into_iter().filter(|(url, _)| self.ask_picture(url, Instant::now())).collect();
         if wanted.is_empty() {
             return Task::none();
         }
@@ -6282,7 +6382,7 @@ impl Main {
         sharing.sort_unstable();
         sharing.dedup();
         wanted.extend(sharing.into_iter().filter_map(|player| self.shared_avatar(player)).map(|avatar| (avatar.to_owned(), 128)));
-        let wanted: Vec<(String, u32)> = wanted.into_iter().filter(|(url, _)| !self.news_pictures.contains_key(url) && self.news_asked.insert(url.clone())).collect();
+        let wanted: Vec<(String, u32)> = wanted.into_iter().filter(|(url, _)| self.ask_picture(url, Instant::now())).collect();
         let flag = self.flag_task();
         if wanted.is_empty() {
             return flag;
@@ -6323,7 +6423,7 @@ impl Main {
     }
 
     fn wide_pictures_task(&mut self, urls: Vec<String>) -> Task<Message> {
-        let wanted: Vec<String> = urls.into_iter().filter(|url| self.news_asked.insert(crate::community_screen::wide(url))).collect();
+        let wanted: Vec<String> = urls.into_iter().filter(|url| self.ask_picture(&crate::community_screen::wide(url), Instant::now())).collect();
         if wanted.is_empty() {
             return Task::none();
         }
@@ -6404,6 +6504,8 @@ impl Main {
         let mut ground = self.ground_of(catalog, person_only, leaving);
         if self.community_section == crate::community_screen::Section::Pools {
             ground.pools_clocks = self.pools_marks.clocks(self.now);
+            ground.pools_clocks.today = self.now_unix;
+            ground.pools_clocks.high = (self.height - 150.0) / COMMUNITY_SCALE;
         }
         if let Some(leave) = leaving {
             ground.ghost = Some(Box::new(self.ground_of(&leave.frozen.catalog, person_only, None)));
@@ -6721,6 +6823,20 @@ impl Main {
                 }
                 let (server, token, name) = (self.settings.server.clone(), self.settings.token.clone(), self.settings.device.clone());
                 ui::in_thread(move || Message::Pinned(crate::bot::pin(&server, &token, &name, chat).map_err(|e| e.to_string())))
+            }
+            P::AutoFetchMaps(on) => {
+                self.remember_mark("auto-fetch-maps", on);
+                self.settings.auto_fetch_maps = on;
+                keep(&self.settings);
+                Task::none()
+            }
+            P::PoolHints(on) => {
+                self.remember_mark("pool-hints", on);
+                let guide = if on { crate::pools::Guide::default() } else { crate::pools::Guide { on: false, ..self.settings.pool_guide } };
+                self.settings.pool_guide = guide;
+                self.pools.guide = guide;
+                keep(&self.settings);
+                Task::none()
             }
             P::CloseToTray(on) => {
                 self.remember_mark("close-to-tray", on);
@@ -7082,15 +7198,24 @@ const VIDEO_ROW: f32 = 72.0;
 const VIDEO_DATE_W: f32 = 80.0;
 const CIRCLE_SIDE: f32 = 28.0;
 const AVATAR_SIDE: u32 = 80;
-const MENU_W: f32 = 400.0;
+const BILLING_WIDE: f32 = 1500.0;
+const BILLING_SHEET: f32 = 1060.0;
+const BILLING_GROWTH: f32 = 1.3;
+const MENU_W: f32 = 420.0;
+const BELL_W: f32 = 432.0;
+const BELL_BADGE: f32 = 16.0;
+const CLEAR_LEAVE: Duration = Duration::from_millis(180);
+const CLEAR_STEP: Duration = Duration::from_millis(28);
+const CLEAR_STEPS: usize = 8;
+const BELL_FLASH: Duration = Duration::from_millis(650);
 const MENU_TOP: f32 = 80.0;
 const BADGE: f32 = 18.0;
 const BADGE_OUT: f32 = 4.0;
-const CORNER_OUT: f32 = 6.0;
 
 impl Main {
     fn circle(&self, side: f32, pressable: bool) -> Element<'_, Message> {
-        let ring = if pressable && self.busy() { 1.0 } else { 0.0 };
+        let ring = 0.0;
+        let _ = pressable;
         let face: Element<'_, Message> = match (&self.avatar, self.signed_in()) {
             (Some(handle), _) => image(handle.clone()).content_fit(ContentFit::Cover).width(side).height(side).border_radius(side / 2.0).opacity(ui::fade()).into(),
             (None, true) => {
@@ -7116,57 +7241,198 @@ impl Main {
         }
     }
 
+    fn glass_picture(&self) -> Option<image::Handle> {
+        if self.overlay != Overlay::None || self.player.is_some() {
+            return None;
+        }
+        self.chosen_entry().and_then(|entry| self.scenes.get(&entry.map_hash)).cloned()
+    }
+
+    fn bell_button(&self) -> Element<'_, Message> {
+        let open = self.menu == Some(Tab::Bell) && self.menu_open.value();
+        let unseen = self.notices.unseen();
+        let flash = self.bell_flash.interpolate(0.0, 1.0, self.now);
+        let busy = self.busy();
+        let face = button(container(crate::glyphs::glyph(crate::glyphs::Icon::Bell, 16.0, if open { Color::WHITE } else { INK })).center(CIRCLE_SIDE))
+            .padding(0)
+            .width(CIRCLE_SIDE)
+            .height(CIRCLE_SIDE)
+            .style(ui::button_faded(move |_: &iced::Theme, status: button::Status| {
+                let lit = matches!(status, button::Status::Hovered | button::Status::Pressed);
+                button::Style {
+                    background: Some(iced::Background::Color(if open { Color { a: 0.3, ..ACCENT } } else if flash > 0.001 { Color { a: 0.05 + 0.6 * flash, ..ACCENT } } else { Color::from_rgba(1.0, 1.0, 1.0, if lit { 0.12 } else { 0.05 }) })),
+                    text_color: INK,
+                    border: iced::Border { color: if open || busy || flash > 0.001 { Color { a: (0.7_f32).max(flash), ..ACCENT } } else { Color::from_rgba(1.0, 1.0, 1.0, 0.12) }, width: 1.0, radius: (CIRCLE_SIDE / 2.0).into() },
+                    shadow: iced::Shadow::default(),
+                    snap: true,
+                }
+            }))
+            .on_press(Message::MenuTab(Tab::Bell));
+        let face: Element<'_, Message> = ui::grown(face, Point::new(0.5, 0.5), 0.0, 1.0 + 0.16 * flash).into();
+        if unseen == 0 || open {
+            return face;
+        }
+        let count = if unseen > 9 { "9+".to_owned() } else { unseen.to_string() };
+        let badge = container(text(count).font(theme::MONO_BOLD).size(9.0).wrapping(text::Wrapping::None).color(ui::faded(Color::WHITE)))
+            .center_x(BELL_BADGE)
+            .center_y(14.0)
+            .style(ui::box_faded(|_| container::Style {
+                background: Some(iced::Background::Color(ACCENT)),
+                border: iced::Border { radius: 7.0.into(), ..iced::Border::default() },
+                ..container::Style::default()
+            }));
+        stack![face, pin(badge).x(CIRCLE_SIDE - BELL_BADGE + 6.0).y(-5.0)].width(CIRCLE_SIDE + 6.0).height(CIRCLE_SIDE).into()
+    }
+
     fn menu_layer(&self) -> Element<'_, Message> {
         let Some(tab) = self.menu else {
             return Space::new().width(Length::Fill).height(Length::Fill).into();
         };
         let open = self.menu_open.interpolate(0.0, 1.0, self.now);
-        let opening = self.menu_open.value();
-        let swap = self.tab_fade.interpolate(0.0, 1.0, self.now);
-        let order = |t: Tab| -> f32 {
-            match t {
-                Tab::Account => 0.0,
-                Tab::Feed => 1.0,
-                Tab::Stats => 2.0,
-            }
+        let window = iced::Size::new(self.width, self.height);
+        let (panel, wide, right) = match tab {
+            Tab::Head => (self.menu_head(), MENU_W, 40.0),
+            Tab::Bell => (self.bell_panel(), BELL_W, 40.0 + CIRCLE_SIDE + 22.0),
         };
-        let gap = order(tab) - order(self.seg_from);
-        let direction = if gap == 0.0 { 0.0 } else { gap.signum() };
-        let slide = (1.0 - swap) * 28.0 * direction;
-        let late = |i: f32| if opening { (open * 1.4 - 0.2 * i).clamp(0.0, 1.0) } else { open };
-        let mut stackup = column![].spacing(8).width(MENU_W + CORNER_OUT);
-        let k0 = late(0.0);
-        stackup = stackup.push(ui::fading(ui::fade() * k0, || ui::grown(self.menu_head(), Point::new(1.0, 0.0), 0.0, 0.9 + 0.1 * k0)));
-        let k1 = late(1.0);
-        stackup = stackup.push(ui::fading(ui::fade() * k1, || ui::grown(self.menu_segments(tab), Point::new(1.0, 0.0), 0.0, 0.9 + 0.1 * k1)));
-        let k2 = late(2.0) * swap;
-        let tiles = ui::fading(ui::fade() * k2, || {
-            let content = match tab {
-                Tab::Account => self.account_tiles(),
-                Tab::Feed => self.feed_tiles(),
-                Tab::Stats => self.stats_tiles(),
-            };
-            let mut list = column![].spacing(if tab == Tab::Feed { 0 } else { 8 }).width(MENU_W);
-            for tile in content {
-                list = list.push(tile);
-            }
-            let list: Element<'_, Message> = if tab == Tab::Feed {
-                let height = (self.height - MENU_TOP - 120.0 - 24.0).max(140.0);
-                let scroll: Element<'_, Message> = scrollable(container(list).padding(Padding::ZERO.bottom(16.0)))
-                    .direction(ui::hidden_bar()).height(height).width(MENU_W).into();
-                ui::scroll_fades(scroll, MENU_W, height)
-            } else { list.into() };
-            ui::grown(list, Point::new(1.0, 0.0), 0.0, 0.9 + 0.1 * late(2.0)).shifted(slide)
+        let whole = ui::fading(ui::fade() * (open * 2.5).min(1.0), || {
+            let framed = iced::widget::opaque(ui::glass(container(panel).width(wide), self.glass_picture(), window));
+            let icon = 22.0 + (theme::CONTROL_HEIGHT + 4.0) / 2.0;
+            ui::grown(framed, Point::new(1.0 - (CIRCLE_SIDE / 2.0) / wide, 0.0), (1.0 - open) * (MENU_TOP - icon), 0.02 + 0.98 * open)
         });
-        stackup = stackup.push(tiles);
-        let x = (self.width - 40.0 - MENU_W).max(16.0);
-        let whole = ui::grown(stackup, Point::new(1.0, 0.0), -(1.0 - open) * 14.0, 1.0);
+        let x = (self.width - right - wide).max(16.0);
         let backdrop: Element<'_, Message> = if self.menu_open.value() {
             mouse_area(Space::new().width(Length::Fill).height(Length::Fill)).on_press(Message::MenuClose).into()
         } else {
             Space::new().width(Length::Fill).height(Length::Fill).into()
         };
         stack![backdrop, pin(whole).x(x).y(MENU_TOP)].width(Length::Fill).height(Length::Fill).into()
+    }
+
+    fn tile<'a>(&'a self, inside: Element<'a, Message>) -> Element<'a, Message> {
+        container(inside)
+            .padding([12, 14])
+            .width(Length::Fill)
+            .style(ui::box_faded(|_| container::Style {
+                background: Some(iced::Background::Color(Color::from_rgba(0.0, 0.0, 0.0, 0.24))),
+                border: iced::Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.08), width: 1.0, radius: 12.0.into() },
+                ..container::Style::default()
+            }))
+            .into()
+    }
+
+    fn bell_panel(&self) -> Element<'_, Message> {
+        let w = &self.words;
+        let mut head = row![text(w.t("bell-title")).font(theme::SANS_SEMI).size(16.0).color(ui::faded(INK)), ui::grow()].align_y(iced::Center);
+        if !self.notices.notices.is_empty() {
+            head = head.push(ui::quiet(w.t("bell-clear"), Some(Message::ClearNotices)));
+        }
+        let mut list = column![].spacing(0).width(Length::Fill);
+        for tile in self.bell_tiles() {
+            list = list.push(tile);
+        }
+        let height = (self.height - MENU_TOP - 110.0).max(140.0);
+        let scroll = scrollable(list).direction(ui::hidden_bar()).height(Length::Shrink).width(Length::Fill);
+        column![container(head).height(36.0).align_y(iced::Center), container(scroll).max_height(height)].spacing(10).padding(16).into()
+    }
+
+    fn billing_layer(&self) -> Element<'_, Message> {
+        if !self.billing.shown {
+            return Space::new().width(Length::Fill).height(Length::Fill).into();
+        }
+        let k = self.billing.fade.interpolate(0.0, 1.0, self.now);
+        ui::fading(ui::fade() * k, || {
+            let card = crate::billing::sheet(&self.billing, &self.words, self.signed_in(), self.now_unix).map(Message::Billing);
+            stack![
+                iced::widget::opaque(mouse_area(ui::veil(theme::SCRIM)).on_press(Message::Billing(crate::billing::Message::Close))),
+                container(ui::scaled(container(iced::widget::opaque(if crate::billing::warm(&self.billing, self.signed_in()) { ui::glass_warm(card, self.glass_picture(), iced::Size::new(self.width, self.height)) } else { ui::glass_deep(card, self.glass_picture(), iced::Size::new(self.width, self.height)) })).width(if crate::billing::wide(&self.billing, self.signed_in()) { (self.width - 80.0).clamp(theme::COLUMN, BILLING_SHEET) } else { theme::COLUMN }), (self.width / BILLING_WIDE).clamp(1.0, BILLING_GROWTH)))
+                    .padding(Padding::ZERO.top(120.0))
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+                    .center_x(Length::Fill),
+            ]
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .into()
+        })
+    }
+
+    fn invalidate_billing_requests(&mut self) {
+        self.billing_epoch = self.billing_epoch.wrapping_add(1);
+        self.billing_status_pending = false;
+        self.billing_plans_pending = false;
+    }
+
+    fn reset_billing(&mut self) {
+        self.invalidate_billing_requests();
+        self.billing = crate::billing::State::new(String::new(), &self.billing.currency);
+        self.settings.billing_email.clear();
+    }
+
+    fn billing_asks(&mut self, plans: bool) -> Task<Message> {
+        if self.settings.token.is_empty() || (!plans && (self.billing.paying || self.billing.cancelling)) {
+            return Task::none();
+        }
+        let pending = if plans { &mut self.billing_plans_pending } else { &mut self.billing_status_pending };
+        if *pending { return Task::none(); }
+        *pending = true;
+        let epoch = self.billing_epoch;
+        let (server, token, device) = (self.settings.server.clone(), self.settings.token.clone(), self.settings.device.clone());
+        if plans {
+            ui::in_thread(move || Message::BillingReply(epoch, crate::billing::Message::Plans(crate::bot::plans(&server, &token, &device).map_err(|e| e.to_string()))))
+        } else {
+            ui::in_thread(move || Message::BillingReply(epoch, crate::billing::Message::Status(crate::bot::subscription(&server, &token, &device).map_err(|e| e.to_string()))))
+        }
+    }
+
+    fn billing_step(&mut self, message: crate::billing::Message) -> Task<Message> {
+        use crate::billing::{Effect as E, Message as B};
+        let waited = self.billing.waiting();
+        let opened = matches!(message, B::Open);
+        let sign_in = matches!(message, B::SignIn);
+        let effects = self.billing.update(message, Instant::now());
+        if effects.iter().any(|effect| matches!(effect, E::Checkout(..) | E::Cancel)) {
+            self.invalidate_billing_requests();
+        }
+        let online = !self.settings.token.is_empty();
+        let (server, token, device) = (self.settings.server.clone(), self.settings.token.clone(), self.settings.device.clone());
+        let mut tasks = Vec::new();
+        if opened && self.menu.is_some() {
+            tasks.push(self.update(Message::MenuClose));
+        }
+        if sign_in {
+            tasks.push(self.update(Message::SignIn));
+        }
+        for effect in effects {
+            match effect {
+                E::Plans if online => tasks.push(self.billing_asks(true)),
+                E::Status if online => tasks.push(self.billing_asks(false)),
+                E::Checkout(plan, email) if online => {
+                    let epoch = self.billing_epoch;
+                    let (server, token, device) = (server.clone(), token.clone(), device.clone());
+                    tasks.push(ui::in_thread(move || Message::BillingReply(epoch, B::Paid(crate::bot::checkout(&server, &token, &device, &plan, &email)))));
+                }
+                E::Cancel if online => {
+                    let epoch = self.billing_epoch;
+                    let (server, token, device) = (server.clone(), token.clone(), device.clone());
+                    tasks.push(ui::in_thread(move || Message::BillingReply(epoch, B::Cancelled(crate::bot::cancel(&server, &token, &device)))));
+                }
+                E::Browse(url) => {
+                    if url.starts_with("https://") {
+                        let _ = open::that_detached(url);
+                    }
+                }
+                E::Remember(email) => {
+                    self.settings.billing_email = email;
+                    let _ = self.settings.save();
+                }
+                _ => {}
+            }
+        }
+        if waited && !self.billing.waiting() && self.billing.subscription().is_some_and(|held| held.access) {
+            let done = self.words.t("billing-thanks");
+            self.announce(notices::Mark::Done, done, String::new(), String::new(), String::new(), notices::Link::None);
+        }
+        Task::batch(tasks)
     }
 
     fn background_for(&self, map_hash: &str) -> Option<PathBuf> {
@@ -7208,6 +7474,7 @@ impl Main {
     }
 
     fn menu_head(&self) -> Element<'_, Message> {
+        use crate::billing;
         let w = &self.words;
         let name = self.account.as_ref().map(|a| a.name.clone()).filter(|n| !n.is_empty()).unwrap_or_else(|| self.settings.linked_as.trim_start_matches('@').to_owned());
         let handle = self.account.as_ref().map(|a| a.username.clone()).filter(|u| !u.is_empty()).map(|u| format!("@{u}"));
@@ -7221,93 +7488,50 @@ impl Main {
         } else {
             (w.t("not-signed-in"), w.t("stays-here"))
         };
-        let mut head = row![
-            self.circle(40.0, false),
+        let mut top = row![
+            self.circle(48.0, false),
             column![
-                text(title).font(theme::SANS_SEMI).size(15.0).wrapping(text::Wrapping::None).color(ui::faded(INK)),
-                ui::mono_small(under, FAINT),
+                text(title).font(theme::SANS_SEMI).size(17.0).wrapping(text::Wrapping::None).color(ui::faded(INK)),
+                ui::mono_small(under, MUTED),
             ]
-            .spacing(2),
-            ui::grow(),
+            .spacing(3)
+            .width(Length::Fill),
         ]
-        .spacing(12)
+        .spacing(14)
         .align_y(iced::Center);
-        if self.signed_in() {
-            head = head.push(ui::link(w.t("sign-out"), Message::SignOut));
-        }
-        self.card(head.into(), false)
-    }
-
-    fn menu_segments(&self, tab: Tab) -> Element<'_, Message> {
-        let w = &self.words;
-        let active = match tab {
-            Tab::Account => 0,
-            Tab::Feed => 1,
-            Tab::Stats => 2,
-        };
-        let mut words = row![].spacing(4).width(Length::Fill);
-        for (key, this) in [("account", Tab::Account), ("feed", Tab::Feed), ("stats", Tab::Stats)] {
-            words = words.push(
-                button(container(text(w.t(key)).font(theme::SANS_SEMI).size(theme::CAPTION)).center_x(Length::Fill).center_y(28.0))
-                    .width(Length::FillPortion(1))
-                    .padding(0)
-                    .style(ui::button_faded(theme::segment(tab == this)))
-                    .on_press(Message::MenuTab(this)),
-            );
-        }
-        let face = ui::sliding(words, active, ui::Pill {
-            fill: Color::from_rgba(1.0, 1.0, 1.0, 0.08), edge: Color::TRANSPARENT, radius: 8.0, underline: None,
-        });
-        container(face).padding(4).width(MENU_W).height(36.0).style(ui::box_faded(theme::notification(false))).into()
-    }
-
-    fn kv(&self, key: String, value: String) -> Element<'_, Message> {
-        row![
-            text(key).font(theme::SANS).size(theme::CAPTION).color(ui::faded(MUTED)),
-            ui::grow(),
-            text(value).font(theme::MONO).size(theme::CAPTION).color(ui::faded(INK)),
-        ]
-        .spacing(12)
-        .align_y(iced::Center)
-        .height(26.0)
-        .into()
-    }
-
-    fn big(&self, value: String, key: String) -> Element<'_, Message> {
-        self.card(
-            column![
-                container(text(value).font(theme::SANS_SEMI).size(22.0).wrapping(text::Wrapping::None).color(ui::faded(INK)))
-                    .width(Length::Fill)
-                    .clip(true),
-                container(text(key).font(theme::SANS).size(11.0).wrapping(text::Wrapping::None).color(ui::faded(FAINT)))
-                    .width(Length::Fill)
-                    .clip(true),
-            ]
-            .spacing(2)
-            .into(),
-            false,
-        )
-    }
-
-    fn pair<'a>(&'a self, left: Element<'a, Message>, right: Element<'a, Message>) -> Element<'a, Message> {
-        row![container(left).width(Length::Fill), container(right).width(Length::Fill)].spacing(8).into()
-    }
-
-    fn account_tiles(&self) -> Vec<Element<'_, Message>> {
-        let w = &self.words;
         if !self.signed_in() {
-            let ask = column![
-                text(w.t("why-sign-in")).font(theme::SANS).size(theme::CAPTION).color(ui::faded(MUTED)),
-                container(ui::primary(w.t("sign-in"), Some(Message::SignIn))).padding(Padding::ZERO.top(6.0)),
-            ]
-            .spacing(6);
-            return vec![
-                self.card(ask.into(), false),
-                self.big(self.entries().len().to_string(), w.t("replays-in-journal")),
-            ];
+            top = top.push(ui::primary(w.t("sign-in"), Some(Message::SignIn)));
+            return container(top).padding(22).into();
         }
-        let rows = column![self.kv(w.t("videos-go-to"), self.chat_name()), self.kv(w.t("worker"), prefs::worker_said(w, self.worker_step.as_ref(), self.settings.worker_on).0)].spacing(2);
-        vec![self.card(rows.into(), false)]
+        top = top.push(ui::link(w.t("sign-out"), Message::SignOut));
+        let open = Message::Billing(billing::Message::Open);
+        let mut lines = column![top].spacing(16);
+        match self.billing.subscription() {
+            Some(held) if held.access => {
+                let (said, ink, fill) = billing::badge(held, w);
+                let k = ui::fade();
+                let badge = container(text(said).font(theme::SANS_SEMI).size(12.5).color(ui::faded(ink)))
+                    .padding([3, 10])
+                    .style(move |_| container::Style { background: Some(iced::Background::Color(Color { a: fill.a * k, ..fill })), border: iced::Border { radius: 12.0.into(), ..iced::Border::default() }, ..container::Style::default() });
+                let mut head = row![crate::glyphs::glyph(crate::glyphs::Icon::Heart, 18.0, self.billing.tint_of(&held.plan)), text(billing::plan_name(&held.plan)).font(theme::SANS_SEMI).size(20.0).color(ui::faded(INK)), badge, ui::grow()].spacing(10).align_y(iced::Center);
+                let left = billing::left(held, self.now_unix);
+                if let Some((days, _)) = left {
+                    head = head.push(text(w.n("billing-days", days as u64)).font(theme::MONO_BOLD).size(13.0).color(ui::faded(INK)));
+                }
+                lines = lines.push(head);
+                if let Some((_, fraction)) = left {
+                    lines = lines.push(billing::bar(fraction, if held.state == "active" { theme::NOTICE_SUCCESS } else { theme::NOTICE_INFO }));
+                }
+                let told = w.with(if held.state == "active" { "billing-paid-until" } else { "billing-ends" }, &[("date", billing::until(held, w, self.now_unix))]);
+                lines = lines.push(row![container(text(told).font(theme::SANS).size(14.0).color(ui::faded(INK))).width(Length::Fill), billing::outlined(w.t("billing-manage"), Some(open))].spacing(10).align_y(iced::Center));
+            }
+            _ => {
+                let (said, tone) = billing::line(&self.billing, w, self.now_unix);
+                let action = if self.billing.waiting() { billing::outlined(w.t("billing-manage"), Some(open)) } else { ui::primary(w.t("billing-subscribe"), Some(open)) };
+                lines = lines.push(row![container(text(said).font(theme::SANS_SEMI).size(16.0).color(ui::faded(if tone == billing::Tone::Bad { ACCENT } else { INK }))).width(Length::Fill), action].spacing(10).align_y(iced::Center));
+            }
+        }
+        container(lines).padding(22).into()
     }
 
     fn chats_task(&self) -> Task<Message> {
@@ -7374,7 +7598,7 @@ impl Main {
         }
     }
 
-    fn feed_tiles(&self) -> Vec<Element<'_, Message>> {
+    fn bell_tiles(&self) -> Vec<Element<'_, Message>> {
         let w = &self.words;
         let mut tiles = Vec::new();
         let job = |words: String, detail: String, fraction: f32| -> Element<'_, Message> {
@@ -7383,6 +7607,7 @@ impl Main {
                     ui::dot(8.0),
                     text(words).font(theme::SANS_SEMI).size(theme::CAPTION).color(ui::faded(INK)),
                     container(text(detail.to_owned()).font(theme::SANS).size(theme::CAPTION).wrapping(text::Wrapping::None).color(ui::faded(MUTED))).width(Length::Fill).clip(true),
+                    text(format!("{:.0}%", fraction * 100.0)).font(theme::MONO_BOLD).size(theme::CAPTION).color(ui::faded(INK)),
                 ]
                 .spacing(8)
                 .align_y(iced::Center)
@@ -7394,21 +7619,21 @@ impl Main {
         };
         if let Some(rendering) = self.rendering.as_ref().filter(|r| !r.is_over()) {
             let who = self.entries().iter().find(|e| e.path == rendering.path).map(|e| e.title().unwrap_or_default()).unwrap_or_default();
-            tiles.push(self.card(job(w.t("drawing"), who, self.progress_shown), false));
+            tiles.push(self.tile(job(w.t("drawing"), who, self.progress_shown)));
         }
         for queued in &self.queued {
             let who = self.entries().iter().find(|e| e.path == queued.path).map(|e| e.title().unwrap_or_default()).unwrap_or_default();
-            tiles.push(self.card(job(w.t("render-queued"), who, 0.0), false));
+            tiles.push(self.tile(job(w.t("render-queued"), who, 0.0)));
         }
         for fetching in self.fetching.iter().filter(|f| !f.is_over()) {
             let title = self.entries().iter().find(|e| e.map_hash == fetching.hash).map(|e| e.title().unwrap_or_default()).unwrap_or_default();
-            tiles.push(self.card(job(w.t("fetch-downloading"), title, fetching.shown), false));
+            tiles.push(self.tile(job(w.t("fetch-downloading"), title, fetching.shown)));
         }
         if let Some(sending) = self.sending.as_ref().filter(|s| s.over.is_none()) {
             let title = self.store.videos.iter().find(|v| v.path == sending.path).map(|v| v.map_line()).unwrap_or_default();
-            tiles.push(self.card(job(w.t("sending"), title, self.progress_shown), false));
+            tiles.push(self.tile(job(w.t("sending"), title, self.progress_shown)));
         }
-        if self.notices.notices.len() > 5 {
+        if false {
             let clear = row![
                 Space::new().width(Length::Fill),
                 ui::quiet(w.t("clear-feed"), Some(Message::ClearNotices)),
@@ -7424,10 +7649,13 @@ impl Main {
                 _ => 1.0,
             };
             let tile = ui::fading(ui::fade() * alive, || {
-                ui::grown(self.notification_card(notice, None, MENU_W), Point::new(1.0, 0.5), 0.0, 1.0).shifted((1.0 - alive) * 24.0)
+                ui::grown(self.notification_card(notice, None, BELL_W - 32.0), Point::new(1.0, 0.5), 0.0, 1.0).shifted((1.0 - alive) * 24.0)
             });
             let going = self.leaving.contains_key(&notice.id);
             tiles.push(ui::collapsing(container(tile).padding(Padding::ZERO.bottom(8.0)), if going { alive } else { 1.0 }));
+        }
+        if tiles.is_empty() {
+            tiles.push(self.tile(text(w.t("bell-empty")).font(theme::SANS).size(14.0).color(ui::faded(MUTED)).into()));
         }
         tiles
     }
@@ -7437,26 +7665,43 @@ impl Main {
             return Space::new().width(Length::Fill).height(Length::Fill).into();
         };
         let w = &self.words;
-        let mut lines = column![ui::title(notice.words.clone()), ui::why(notice.detail.clone())].spacing(6);
-        if !notice.note.is_empty() {
-            lines = lines.push(container(ui::mono(notice.note.clone(), MUTED)).padding(Padding::ZERO.top(8.0)));
-        }
-        lines = lines.push(container(ui::cap(format!("{}  {}", w.day(notice.at, self.now_unix), w.clock(notice.at)))).padding(Padding::ZERO.top(4.0)));
-        let mut bottom = row![ui::grow(), ui::quiet(w.t("close"), Some(Message::HideError))].spacing(4).align_y(iced::Center);
-        if matches!(notice.link, notices::Link::RenderAgain(_)) {
-            bottom = bottom.push(ui::primary(w.t("once-more"), Some(Message::ToastLink(notice.id))));
-        }
-        let card = ui::sheet(lines.into(), Some(bottom.into()));
-        stack![
-            mouse_area(ui::veil(theme::SCRIM)).on_press(Message::HideError),
-            container(container(card).width(theme::COLUMN).padding(Padding::ZERO.top(180.0)))
-                .width(Length::Fill)
-                .height(Length::Fill)
-                .center_x(Length::Fill),
-        ]
-        .width(Length::Fill)
-        .height(Length::Fill)
-        .into()
+        let k = self.error_fade.interpolate(0.0, 1.0, self.now);
+        ui::fading(ui::fade() * k, || {
+            let fade = ui::fade();
+            let mark = container(text("!").font(theme::MONO_BOLD).size(20.0).color(ui::faded(Color::WHITE)))
+                .center(40.0)
+                .style(move |_| container::Style { background: Some(iced::Background::Color(Color { a: fade, ..ACCENT })), border: iced::Border { radius: 20.0.into(), ..iced::Border::default() }, ..container::Style::default() });
+            let mut head = column![text(notice.words.clone()).font(theme::SANS_SEMI).size(20.0).color(ui::faded(INK))].spacing(4).width(Length::Fill);
+            if !notice.detail.is_empty() {
+                head = head.push(text(notice.detail.clone()).font(theme::SANS).size(15.0).color(ui::faded(MUTED)));
+            }
+            let mut lines = column![row![mark, head].spacing(16).align_y(iced::Center)].spacing(18);
+            if !notice.note.is_empty() {
+                lines = lines.push(
+                    container(text(notice.note.clone()).font(theme::MONO).size(14.0).color(ui::faded(INK)))
+                        .padding([12, 14])
+                        .width(Length::Fill)
+                        .style(move |_| container::Style { background: Some(iced::Background::Color(Color::from_rgba(0.0, 0.0, 0.0, 0.3 * fade))), border: iced::Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.08 * fade), width: 1.0, radius: 10.0.into() }, ..container::Style::default() }),
+                );
+            }
+            let mut bottom = row![ui::mono_small(format!("{}  {}", w.day(notice.at, self.now_unix), w.clock(notice.at)), FAINT), ui::grow()].spacing(8).align_y(iced::Center);
+            if matches!(notice.link, notices::Link::RenderAgain(_)) {
+                bottom = bottom.push(ui::primary(w.t("once-more"), Some(Message::ToastLink(notice.id))));
+            }
+            bottom = bottom.push(crate::billing::outlined(w.t("close"), Some(Message::HideError)));
+            let card = ui::glass_warm(container(lines.push(bottom)).padding(26), self.glass_picture(), iced::Size::new(self.width, self.height));
+            let card = ui::grown(iced::widget::opaque(card), Point::new(0.5, 0.0), -(1.0 - k) * 12.0, 0.96 + 0.04 * k);
+            stack![
+                iced::widget::opaque(mouse_area(ui::veil(theme::SCRIM)).on_press(Message::HideError)),
+                container(container(card).width(theme::COLUMN).padding(Padding::ZERO.top(180.0)))
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+                    .center_x(Length::Fill),
+            ]
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .into()
+        })
     }
 
     fn notice_mark(&self, notice: &notices::Notice, side: f32) -> Element<'_, Message> {
@@ -7496,24 +7741,6 @@ impl Main {
         .width(reach)
         .height(reach)
         .into()
-    }
-
-    fn stats_tiles(&self) -> Vec<Element<'_, Message>> {
-        let w = &self.words;
-        let (sent, _) = self.store.delivery_totals();
-        let heading = |key: &str| container(ui::mono_small(w.t(key).to_uppercase(), FAINT)).padding(Padding::ZERO.bottom(8.0));
-        let delivered = self.farm.as_ref().and_then(|farm| farm.workers.iter().find(|worker| worker.mine)).map_or(self.worker_done as u64, |mine| mine.delivered as u64);
-        let worker = column![heading("as-worker"), self.kv(w.t("jobs-done"), delivered.to_string())].spacing(0);
-        let device = column![
-            heading("on-this-device"),
-            self.pair(
-                self.big(self.entries().len().to_string(), w.t("replays-in-journal")),
-                self.big(self.library.as_ref().map_or(0, |library| library.maps).to_string(), w.t("maps-in-library")),
-            ),
-            self.pair(self.big(sent.to_string(), w.t("sent-count")), self.big(self.shown_build().to_owned(), w.t("build"))),
-        ]
-        .spacing(8);
-        vec![self.card(worker.into(), false), self.card(device.into(), false)]
     }
 
     fn sign_in_layer(&self) -> Element<'_, Message> {
@@ -7702,7 +7929,7 @@ impl Main {
             let Some(notice) = self.notices.get(toast.id) else { continue; };
             let k = toast.shown.interpolate(0.0, 1.0, self.now);
             let sensed = ui::fading(ui::fade() * k, || {
-                ui::grown(mouse_area(self.notification_card(notice, Some(toast), width))
+                ui::grown(mouse_area(iced::widget::opaque(self.notification_card(notice, Some(toast), width)))
                     .on_enter(Message::ToastHover(toast.id, true)).on_exit(Message::ToastHover(toast.id, false)),
                     Point::new(1.0, 0.5), 0.0, 1.0).shifted((1.0 - k) * 24.0)
             });
@@ -7732,8 +7959,12 @@ impl Main {
         let top = row![self.notice_mark(notice, 40.0), copy].spacing(10).align_y(iced::Center);
         let action = |label: String, message, primary| button(text(label).font(theme::SANS_SEMI).size(theme::CAPTION))
             .padding([3, 7]).style(ui::button_faded(theme::notice_action(primary))).on_press(message);
-        let mut footer = row![Space::new().width(Length::Fill)].spacing(4).align_y(iced::Center).height(24.0);
-        if bad {
+        let listed = toast.is_none();
+        let solid = |label: String, message: Message, primary: bool| -> Element<'_, Message> {
+            if primary { ui::primary(label, Some(message)) } else { crate::billing::outlined(label, Some(message)) }
+        };
+        let mut footer = if listed { row![Space::new().width(50.0)].spacing(8).align_y(iced::Center) } else { row![Space::new().width(Length::Fill)].spacing(4).align_y(iced::Center).height(24.0) };
+        if bad && !listed {
             footer = footer.push(action(self.words.t("notice-details"), Message::ShowError(notice.id), false));
         }
         let link = match notice.link {
@@ -7743,12 +7974,23 @@ impl Main {
             notices::Link::Page(_) => Some("whats-new"),
             notices::Link::None => None,
         };
-        if let Some(key) = link { footer = footer.push(action(self.words.t(key), Message::ToastLink(notice.id), true)); }
-        let mut content = column![top].spacing(2);
+        if let Some(key) = link {
+            footer = if listed { footer.push(solid(self.words.t(key), Message::ToastLink(notice.id), true)) } else { footer.push(action(self.words.t(key), Message::ToastLink(notice.id), true)) };
+        }
+        if bad && listed {
+            footer = footer.push(solid(self.words.t("notice-details"), Message::ShowError(notice.id), false));
+        }
+        let mut content = column![top].spacing(if listed { 8 } else { 2 });
         if bad || link.is_some() { content = content.push(footer); }
+        let hovered = toast.is_some_and(|t| t.hovered);
+        let floating = toast.is_some();
         let face = container(content).padding([8, 10]).width(width).max_height(TOAST_MAX_H);
         let card = container(face)
-            .width(width).max_height(TOAST_MAX_H).style(ui::box_faded(theme::notification(toast.is_some_and(|t| t.hovered)))).clip(true);
+            .width(width).max_height(TOAST_MAX_H).style(ui::box_faded(move |theme| match (floating, bad) {
+                (true, _) => theme::notification(hovered)(theme),
+                (false, true) => container::Style { background: Some(iced::Background::Color(Color { a: 0.14, ..ACCENT })), border: iced::Border { color: Color { a: 0.4, ..ACCENT }, width: 1.0, radius: 12.0.into() }, ..container::Style::default() },
+                (false, false) => container::Style { background: Some(iced::Background::Color(Color::from_rgba(0.0, 0.0, 0.0, 0.24))), border: iced::Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.08), width: 1.0, radius: 12.0.into() }, ..container::Style::default() },
+            })).clip(true);
         card.id(iced::widget::Id::new(if toast.is_some() { "toast-card" } else { "notice-card" })).into()
     }
 }
@@ -8991,8 +9233,198 @@ mod tests {
             main.menu = None;
             let _ = main.update(super::Message::Show(overlay));
             let _ = main.update(super::Message::Circle);
-            assert_eq!(main.menu, Some(super::Tab::Account));
+            assert_eq!(main.menu, Some(super::Tab::Head));
         }
+    }
+
+    fn signed(name: &str) -> super::Main {
+        let (_, mut main) = crate::gallery::main_states(crate::lang::Lang::En).into_iter().find(|(state, _)| state == name).expect("a staged screen");
+        main.settings.token = "staged".into();
+        main
+    }
+
+    #[test]
+    fn opening_a_menu_puts_away_the_toasts_and_clearing_lets_every_notification_fade_before_it_goes() {
+        let mut main = signed("main-menu-feed");
+        main.menu = None;
+        main.menu_open = iced::Animation::new(false);
+        main.announce(crate::notices::Mark::Plain, "One more".into(), String::new(), String::new(), String::new(), crate::notices::Link::None);
+        assert!(main.toasts.iter().any(|toast| toast.shown.value()));
+        assert!(main.bell_flash.is_animating(std::time::Instant::now()), "a new notification flashes the bell");
+        let _ = main.update(super::Message::Circle);
+        assert!(main.toasts.iter().all(|toast| !toast.shown.value()), "the account menu takes the place of the toasts");
+        let count = main.notices.notices.len();
+        assert!(count > 1);
+        let _ = main.update(super::Message::ClearNotices);
+        assert_eq!(main.notices.notices.len(), count, "nothing vanishes at once");
+        assert_eq!(main.leaving.len(), count);
+        assert!(main.leaving.values().all(|going| !going.value()));
+    }
+
+    #[test]
+    fn the_bell_and_the_avatar_open_two_separate_panels_and_only_the_bell_reads_the_notifications() {
+        let mut main = signed("main-menu-account");
+        main.menu = None;
+        main.menu_open = iced::Animation::new(false);
+        assert!(main.notices.unseen() > 0);
+        let _ = main.update(super::Message::Circle);
+        assert_eq!(main.menu, Some(super::Tab::Head));
+        assert!(main.notices.unseen() > 0, "the account menu does not read the notifications");
+        let _ = main.update(super::Message::MenuTab(super::Tab::Bell));
+        assert_eq!(main.menu, Some(super::Tab::Bell));
+        assert!(main.menu_open.value());
+        assert_eq!(main.notices.unseen(), 0);
+        let _ = main.update(super::Message::MenuTab(super::Tab::Bell));
+        assert!(!main.menu_open.value(), "a second press on the bell closes its list");
+        let _ = main.update(super::Message::Circle);
+        assert_eq!(main.menu, Some(super::Tab::Head));
+        let _ = main.update(super::Message::Circle);
+        assert!(!main.menu_open.value());
+    }
+
+    #[test]
+    fn the_bell_stands_left_of_the_avatar_and_the_menu_holds_the_account_and_the_subscription_in_one_panel() {
+        let words = crate::lang::Words::new(crate::lang::Lang::En);
+        let size = iced::Size::new(980.0, 720.0);
+        let backdrop = crate::ui::backdrop_handle();
+        let main = signed("main-menu-account");
+        let mut ui = iced_test::Simulator::with_size(crate::settings(), size, crate::gallery::main_frame(&main, &backdrop));
+        for gone in ["Account", "Feed", "Stats", "Maps in the library"] {
+            assert!(ui.find(gone).is_err(), "{gone}");
+        }
+        for key in ["sign-out", "billing-manage", "billing-badge-active"] {
+            assert!(ui.find(words.t(key)).is_ok(), "{key}");
+        }
+        assert!(ui.find(words.t("bell-title")).is_err(), "the notifications are not part of the account menu");
+        let quiet = signed("main-menu-quiet");
+        let mut ui = iced_test::Simulator::with_size(crate::settings(), size, crate::gallery::main_frame(&quiet, &backdrop));
+        ui.click(words.t("billing-subscribe").as_str()).unwrap();
+        assert!(ui.into_messages().any(|message| matches!(message, crate::Message::Main(super::Message::Billing(crate::billing::Message::Open)))));
+        let mut bell = signed("main-menu-feed");
+        {
+            let mut ui = iced_test::Simulator::with_size(crate::settings(), size, crate::gallery::main_frame(&bell, &backdrop));
+            assert!(ui.find(words.t("bell-title")).is_ok() && ui.find(words.t("bell-clear")).is_ok());
+            assert!(ui.find(words.t("sign-out")).is_err());
+        }
+        bell.notices.clear();
+        bell.rendering = None;
+        let mut ui = iced_test::Simulator::with_size(crate::settings(), size, crate::gallery::main_frame(&bell, &backdrop));
+        assert!(ui.find(words.t("bell-empty")).is_ok() && ui.find(words.t("bell-clear")).is_err());
+    }
+
+    #[test]
+    fn regression_billing_rejects_replies_from_a_previous_account() {
+        let mut main = signed("main-menu-waiting");
+        let old = main.billing.subscription().cloned().unwrap();
+        let epoch = main.billing_epoch;
+        main.billing.email = "previous@example.org".into();
+        main.billing.paying = true;
+        main.billing_status_pending = true;
+        main.reset_billing();
+        assert!(main.billing.subscription().is_none());
+        assert!(main.billing.email.is_empty() && !main.billing.paying && !main.billing.shown);
+        assert!(!main.billing_status_pending);
+        main.settings.token = "next-account".into();
+        let notices = main.notices.notices.len();
+        for reply in [crate::billing::Message::Status(Ok(Some(old.clone()))), crate::billing::Message::Paid(Ok(old.clone())), crate::billing::Message::Cancelled(Ok(old))] {
+            assert_eq!(main.update(super::Message::BillingReply(epoch, reply)).units(), 0);
+            assert!(main.billing.subscription().is_none());
+        }
+        assert_eq!(main.notices.notices.len(), notices);
+    }
+
+    #[test]
+    fn regression_billing_fetches_each_resource_once_until_it_answers() {
+        let mut main = signed("main-menu-waiting");
+        main.menu = None;
+        main.billing.plans = None;
+        assert_eq!(main.billing_step(crate::billing::Message::Open).units(), 2);
+        assert_eq!(main.billing_step(crate::billing::Message::Open).units(), 0);
+        assert_eq!(main.billing_step(crate::billing::Message::Poll).units(), 0);
+        let epoch = main.billing_epoch;
+        let _ = main.update(super::Message::BillingReply(epoch, crate::billing::Message::Status(Err("offline".into()))));
+        assert_eq!(main.billing_step(crate::billing::Message::Poll).units(), 1);
+        assert_eq!(main.billing_asks(true).units(), 0);
+    }
+
+    #[test]
+    fn regression_an_old_status_cannot_undo_cancellation() {
+        let mut main = signed("main-menu-waiting");
+        let old = main.billing.subscription().cloned().unwrap();
+        let epoch = main.billing_epoch;
+        let _ = main.billing_asks(false);
+        main.billing.asking = true;
+        assert_eq!(main.billing_step(crate::billing::Message::Cancel).units(), 1);
+        assert_ne!(main.billing_epoch, epoch);
+        assert_eq!(main.billing_asks(false).units(), 0);
+        let mut cancelled = old.clone();
+        cancelled.state = "cancelled".into();
+        let _ = main.update(super::Message::BillingReply(main.billing_epoch, crate::billing::Message::Cancelled(Ok(cancelled))));
+        let _ = main.update(super::Message::BillingReply(epoch, crate::billing::Message::Status(Ok(Some(old)))));
+        assert_eq!(main.billing.subscription().unwrap().state, "cancelled");
+    }
+
+    #[test]
+    fn regression_failed_pictures_retry_after_a_delay_without_duplicates() {
+        let mut main = signed("main-menu-waiting");
+        let url = "test://retry-avatar".to_owned();
+        let now = std::time::Instant::now();
+        assert!(main.ask_picture(&url, now));
+        assert!(!main.ask_picture(&url, now));
+        let _ = main.update(super::Message::NewsPicture(url.clone(), None));
+        assert!(!main.ask_picture(&url, now + std::time::Duration::from_secs(10)));
+        assert!(main.ask_picture(&url, now + std::time::Duration::from_secs(31)));
+        assert!(!main.ask_picture(&url, now + std::time::Duration::from_secs(32)));
+        let image = iced::widget::image::Handle::from_rgba(1, 1, vec![255; 4]);
+        let _ = main.update(super::Message::NewsPicture(url.clone(), Some(image)));
+        assert!(main.news_picture_failures.is_empty());
+        assert!(!main.ask_picture(&url, now + std::time::Duration::from_secs(60)));
+        let dormant = "test://closed-picture".to_owned();
+        main.news_asked.insert(dormant.clone());
+        main.news_picture_failures.insert(dormant.clone(), now - std::time::Duration::from_secs(31));
+        let _ = main.update(super::Message::RetryPictures);
+        assert!(!main.news_picture_failures.contains_key(&dormant));
+        assert!(!main.news_asked.contains(&dormant));
+    }
+
+    #[test]
+    fn the_subscription_line_opens_the_sheet_closes_the_menu_and_asks_the_server_only_when_signed_in() {
+        let mut main = signed("main-menu-account");
+        assert!(main.menu_open.value());
+        let _ = main.update(super::Message::Billing(crate::billing::Message::Open));
+        assert!(main.billing.shown && main.billing.fade.value());
+        assert!(!main.menu_open.value(), "the menu steps aside for the sheet");
+        let _ = main.update(super::Message::Escape);
+        assert!(!main.billing.fade.value(), "escape closes the sheet first");
+        let mut guest = signed("main-billing-guest");
+        guest.settings.token.clear();
+        let _ = guest.update(super::Message::Billing(crate::billing::Message::SignIn));
+        assert!(!guest.billing.fade.value());
+    }
+
+    #[test]
+    fn a_payment_that_goes_through_while_waiting_says_so_once() {
+        let mut main = signed("main-menu-waiting");
+        let before = main.notices.notices.len();
+        let mut paid = main.billing.subscription().cloned().unwrap();
+        paid.state = "active".into();
+        paid.access = true;
+        paid.paid_until = Some("2999-01-01T00:00:00Z".into());
+        paid.payment_url = None;
+        let _ = main.update(super::Message::Billing(crate::billing::Message::Status(Ok(Some(paid.clone())))));
+        assert_eq!(main.notices.notices.len(), before + 1);
+        assert_eq!(main.notices.notices[0].words, crate::lang::Words::new(crate::lang::Lang::En).t("billing-thanks"));
+        let _ = main.update(super::Message::Billing(crate::billing::Message::Status(Ok(Some(paid)))));
+        assert_eq!(main.notices.notices.len(), before + 1);
+    }
+
+    #[test]
+    fn the_email_used_to_pay_is_remembered_for_next_time() {
+        let mut main = signed("main-billing-plans");
+        main.billing.email = "me@example.org".into();
+        let _ = main.update(super::Message::Billing(crate::billing::Message::Pay));
+        assert_eq!(main.settings.billing_email, "me@example.org");
+        assert!(main.billing.paying);
     }
 
     #[test]

@@ -1,3 +1,4 @@
+pub mod billing;
 pub mod board;
 pub mod bot;
 pub mod chronicle;
@@ -226,9 +227,8 @@ impl App {
                     .chain(Task::perform(async { tokio_sleep(std::time::Duration::from_millis(1200)).await }, move |_| Message::Main(main_screen::Message::OpenVideo(at))))
             } else if let Some(tab) = rehearsal.menu.clone() {
                 let tab = match tab.as_str() {
-                    "feed" => main_screen::Tab::Feed,
-                    "stats" => main_screen::Tab::Stats,
-                    _ => main_screen::Tab::Account,
+                    "bell" | "feed" => main_screen::Tab::Bell,
+                    _ => main_screen::Tab::Head,
                 };
                 Task::perform(async { tokio_sleep(std::time::Duration::from_millis(1500)).await }, move |_| Message::Main(main_screen::Message::MenuTab(tab)))
             } else if rehearsal.swap {
@@ -311,6 +311,15 @@ impl App {
         task
     }
 
+    fn quit(&mut self) -> Task<Message> {
+        if let Screen::Main(main) = &mut self.screen {
+            if !main.prepare_exit() {
+                return self.handle(Message::Tray(tray::Said::Show));
+            }
+        }
+        iced::exit()
+    }
+
     fn handle(&mut self, message: Message) -> Task<Message> {
         match message {
             Message::FirstRun(inner) => {
@@ -354,7 +363,7 @@ impl App {
                         hidden
                     }
                 }
-                _ => iced::exit(),
+                _ => self.quit(),
             },
             Message::Tray(tray::Said::Show) => {
                 if let Screen::Main(main) = &mut self.screen {
@@ -371,7 +380,7 @@ impl App {
                     shown.chain(iced::window::gain_focus(id))
                 })
             }
-            Message::Tray(tray::Said::Quit) => iced::exit(),
+            Message::Tray(tray::Said::Quit) => self.quit(),
             Message::Measure => iced::window::oldest().and_then(|id| Task::batch([
                 iced::window::monitor_size(id).map(Message::Monitor),
                 iced::window::size(id).map(Message::Viewport),

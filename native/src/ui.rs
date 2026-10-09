@@ -1853,6 +1853,37 @@ impl<Message> canvas::Program<Message> for ScrollEdgeFade {
     }
 }
 
+pub struct SideFade {
+    pub alpha: f32,
+    pub left: f32,
+    pub right: f32,
+}
+
+pub const SIDE_FADE: f32 = 64.0;
+
+impl<Message> canvas::Program<Message> for SideFade {
+    type State = ();
+
+    fn draw(&self, _: &(), renderer: &Renderer, _: &Theme, bounds: Rectangle, _: mouse::Cursor) -> Vec<Geometry> {
+        let mut frame = Frame::new(renderer, bounds.size());
+        let edge = SIDE_FADE.min(bounds.width / 3.0);
+        let dark = |a: f32| Color { a: 0.94 * self.alpha * a, ..theme::GROUND };
+        if self.left > 0.001 {
+            let shade = canvas::gradient::Linear::new(Point::new(0.0, 0.0), Point::new(edge, 0.0)).add_stop(0.0, dark(self.left)).add_stop(1.0, dark(0.0));
+            frame.fill(&Path::rectangle(Point::ORIGIN, Size::new(edge, bounds.height)), canvas::Fill { style: canvas::Style::Gradient(shade.into()), ..canvas::Fill::default() });
+        }
+        if self.right > 0.001 {
+            let shade = canvas::gradient::Linear::new(Point::new(bounds.width - edge, 0.0), Point::new(bounds.width, 0.0)).add_stop(0.0, dark(0.0)).add_stop(1.0, dark(self.right));
+            frame.fill(&Path::rectangle(Point::new(bounds.width - edge, 0.0), Size::new(edge, bounds.height)), canvas::Fill { style: canvas::Style::Gradient(shade.into()), ..canvas::Fill::default() });
+        }
+        vec![frame.into_geometry()]
+    }
+}
+
+pub fn side_fades<'a, Message: 'a>(content: Element<'a, Message>, left: f32, right: f32) -> Element<'a, Message> {
+    iced::widget::stack![content, Canvas::new(SideFade { alpha: fade(), left: left.clamp(0.0, 1.0), right: right.clamp(0.0, 1.0) }).width(Length::Fill).height(Length::Fill)].into()
+}
+
 const FADE_TAIL: f32 = 34.0;
 
 pub fn shortened(words: String, at_most: usize) -> String {
@@ -3493,6 +3524,212 @@ impl<Message> iced::advanced::Widget<Message, Theme, Renderer> for Clipped<'_, M
     }
 }
 
+pub struct Glass<'a, Message> {
+    content: Element<'a, Message>,
+    picture: Option<image::Handle>,
+    window: Size,
+    tint: Color,
+    edge: Color,
+    radius: f32,
+    alpha: f32,
+}
+
+pub fn glass<'a, Message: 'a>(content: impl Into<Element<'a, Message>>, picture: Option<image::Handle>, window: Size) -> Element<'a, Message> {
+    glass_of(content, picture, window, 0.74)
+}
+
+pub fn glass_deep<'a, Message: 'a>(content: impl Into<Element<'a, Message>>, picture: Option<image::Handle>, window: Size) -> Element<'a, Message> {
+    glass_of(content, picture, window, 0.86)
+}
+
+pub fn frosted(picture: &image::Handle) -> Option<image::Handle> {
+    static KEPT: std::sync::Mutex<Vec<(iced::advanced::image::Id, Option<image::Handle>)>> = std::sync::Mutex::new(Vec::new());
+    let mut kept = KEPT.lock().ok()?;
+    if let Some((_, made)) = kept.iter().find(|(id, _)| *id == picture.id()) {
+        return made.clone();
+    }
+    let made = match picture {
+        image::Handle::Rgba { width, height, pixels, .. } => ::image::RgbaImage::from_raw(*width, *height, pixels.to_vec()).map(|full| {
+            let wide = 96u32;
+            let high = ((*height as f32 / (*width).max(1) as f32) * wide as f32).round().max(1.0) as u32;
+            let small = ::image::imageops::resize(&full, wide, high, ::image::imageops::FilterType::Triangle);
+            let soft = ::image::imageops::blur(&small, 5.0);
+            image::Handle::from_rgba(soft.width(), soft.height(), soft.into_raw())
+        }),
+        _ => None,
+    };
+    if kept.len() > 32 {
+        kept.clear();
+    }
+    kept.push((picture.id(), made.clone()));
+    made
+}
+
+fn glass_of<'a, Message: 'a>(content: impl Into<Element<'a, Message>>, picture: Option<image::Handle>, window: Size, depth: f32) -> Element<'a, Message> {
+    let picture = picture.as_ref().and_then(frosted);
+    let depth = if picture.is_some() { depth } else { 0.95 };
+    let alpha = fade();
+    Element::new(Glass {
+        content: content.into(),
+        picture,
+        window,
+        tint: Color::from_rgba(0.086, 0.039, 0.059, depth * alpha),
+        edge: Color::from_rgba(1.0, 1.0, 1.0, 0.14 * alpha),
+        radius: 18.0,
+        alpha,
+    })
+}
+
+pub fn glass_piece(pixels: &[u8], wide: u32, high: u32, bounds: Rectangle, window: Size, radius: f32) -> Option<(u32, u32, Vec<u8>)> {
+    if wide == 0 || high == 0 || pixels.len() < (wide as usize) * (high as usize) * 4 || bounds.width < 1.0 || bounds.height < 1.0 {
+        return None;
+    }
+    let out_wide = (bounds.width.round() as u32).clamp(1, 4096);
+    let out_high = (bounds.height.round() as u32).clamp(1, 4096);
+    let cover = glass_cover(Size::new(wide as f32, high as f32), window);
+    let r = radius.min(bounds.width / 2.0).min(bounds.height / 2.0).max(0.0);
+    let along = |count: u32, length: f32, start: f32, origin: f32, span: f32, size: u32| -> Vec<(usize, usize, f32, f32)> {
+        (0..count)
+            .map(|at| {
+                let local = (at as f32 + 0.5) * length / count as f32;
+                let source = ((start + local - origin) / span.max(1.0) * size as f32 - 0.5).clamp(0.0, size as f32 - 1.0);
+                let low = source.floor() as usize;
+                (low, (low + 1).min(size as usize - 1), source - low as f32, local.min(length - local))
+            })
+            .collect()
+    };
+    let columns = along(out_wide, bounds.width, bounds.x, cover.x, cover.width, wide);
+    let rows = along(out_high, bounds.height, bounds.y, cover.y, cover.height, high);
+    let mut out = Vec::with_capacity(out_wide as usize * out_high as usize * 4);
+    let line = wide as usize * 4;
+    for (top, bottom, down, near_y) in &rows {
+        for (left, right, across, near_x) in &columns {
+            for channel in 0..3 {
+                let a = pixels[top * line + left * 4 + channel] as f32;
+                let b = pixels[top * line + right * 4 + channel] as f32;
+                let c = pixels[bottom * line + left * 4 + channel] as f32;
+                let d = pixels[bottom * line + right * 4 + channel] as f32;
+                let upper = a + (b - a) * across;
+                let lower = c + (d - c) * across;
+                out.push((upper + (lower - upper) * down).round() as u8);
+            }
+            let inside = if *near_x < r && *near_y < r { (r - ((r - near_x).powi(2) + (r - near_y).powi(2)).sqrt() - 0.5).clamp(0.0, 1.0) } else { (near_x.min(*near_y) - 0.5).clamp(0.0, 1.0) };
+            out.push((inside * 255.0).round() as u8);
+        }
+    }
+    Some((out_wide, out_high, out))
+}
+
+type GlassCut = (iced::advanced::image::Id, [i32; 7]);
+
+fn glass_cut(picture: &image::Handle, bounds: Rectangle, window: Size, radius: f32) -> Option<image::Handle> {
+    static KEPT: std::sync::Mutex<Vec<(GlassCut, image::Handle)>> = std::sync::Mutex::new(Vec::new());
+    let half = |value: f32| (value * 2.0).round() as i32;
+    let key: GlassCut = (picture.id(), [half(bounds.x), half(bounds.y), half(bounds.width), half(bounds.height), half(window.width), half(window.height), half(radius)]);
+    let mut kept = KEPT.lock().ok()?;
+    if let Some((_, made)) = kept.iter().find(|(other, _)| *other == key) {
+        return Some(made.clone());
+    }
+    let image::Handle::Rgba { width, height, pixels, .. } = picture else {
+        return None;
+    };
+    let (wide, high, cut) = glass_piece(pixels, *width, *height, bounds, window, radius)?;
+    let made = image::Handle::from_rgba(wide, high, cut);
+    if kept.len() >= 24 {
+        kept.remove(0);
+    }
+    kept.push((key, made.clone()));
+    Some(made)
+}
+
+pub fn glass_cover(picture: Size, window: Size) -> Rectangle {
+    let scale = (window.width / picture.width.max(1.0)).max(window.height / picture.height.max(1.0));
+    let size = Size::new(picture.width * scale, picture.height * scale);
+    Rectangle::new(Point::new((window.width - size.width) / 2.0, (window.height - size.height) / 2.0), size)
+}
+
+impl<Message> iced::advanced::Widget<Message, Theme, Renderer> for Glass<'_, Message> {
+    fn tag(&self) -> iced::advanced::widget::tree::Tag { self.content.as_widget().tag() }
+    fn state(&self) -> iced::advanced::widget::tree::State { self.content.as_widget().state() }
+    fn children(&self) -> Vec<iced::advanced::widget::Tree> { self.content.as_widget().children() }
+    fn diff(&self, tree: &mut iced::advanced::widget::Tree) { self.content.as_widget().diff(tree); }
+    fn size(&self) -> Size<Length> { self.content.as_widget().size() }
+
+    fn layout(&mut self, tree: &mut iced::advanced::widget::Tree, renderer: &Renderer, limits: &iced::advanced::layout::Limits) -> iced::advanced::layout::Node {
+        self.content.as_widget_mut().layout(tree, renderer, limits)
+    }
+
+    fn operate(&mut self, tree: &mut iced::advanced::widget::Tree, layout: iced::advanced::Layout<'_>, renderer: &Renderer, operation: &mut dyn iced::advanced::widget::Operation) {
+        self.content.as_widget_mut().operate(tree, layout, renderer, operation);
+    }
+
+    fn update(&mut self, tree: &mut iced::advanced::widget::Tree, event: &iced::Event, layout: iced::advanced::Layout<'_>, cursor: mouse::Cursor, renderer: &Renderer, clipboard: &mut dyn iced::advanced::Clipboard, shell: &mut iced::advanced::Shell<'_, Message>, viewport: &Rectangle) {
+        self.content.as_widget_mut().update(tree, event, layout, cursor, renderer, clipboard, shell, viewport);
+    }
+
+    fn mouse_interaction(&self, tree: &iced::advanced::widget::Tree, layout: iced::advanced::Layout<'_>, cursor: mouse::Cursor, viewport: &Rectangle, renderer: &Renderer) -> mouse::Interaction {
+        self.content.as_widget().mouse_interaction(tree, layout, cursor, viewport, renderer)
+    }
+
+    fn draw(&self, tree: &iced::advanced::widget::Tree, renderer: &mut Renderer, theme: &Theme, style: &iced::advanced::renderer::Style, layout: iced::advanced::Layout<'_>, cursor: mouse::Cursor, viewport: &Rectangle) {
+        use iced::advanced::image::Renderer as _;
+        use iced::advanced::Renderer as _;
+        let bounds = layout.bounds();
+        let solid = Color { a: self.alpha, ..theme::GROUND };
+        if self.picture.is_some() {
+            renderer.with_layer(bounds, |renderer| {
+                renderer.fill_quad(iced::advanced::renderer::Quad { bounds, border: iced::Border { radius: self.radius.into(), ..iced::Border::default() }, ..iced::advanced::renderer::Quad::default() }, solid);
+            });
+        }
+        if let Some(piece) = self.picture.as_ref().and_then(|picture| glass_cut(picture, bounds, self.window, self.radius)) {
+            renderer.with_layer(bounds, |renderer| {
+                renderer.draw_image(
+                    iced::advanced::image::Image { handle: piece, filter_method: image::FilterMethod::Linear, rotation: iced::Radians(0.0), border_radius: 0.0.into(), opacity: self.alpha, snap: true },
+                    bounds,
+                    bounds,
+                );
+            });
+        }
+        renderer.with_layer(bounds, |renderer| {
+            renderer.fill_quad(
+                iced::advanced::renderer::Quad { bounds, border: iced::Border { color: self.edge, width: 1.0, radius: self.radius.into() }, ..iced::advanced::renderer::Quad::default() },
+                self.tint,
+            );
+            self.content.as_widget().draw(tree, renderer, theme, style, layout, cursor, viewport);
+        });
+    }
+
+    fn overlay<'b>(&'b mut self, tree: &'b mut iced::advanced::widget::Tree, layout: iced::advanced::Layout<'b>, renderer: &Renderer, viewport: &Rectangle, translation: iced::Vector) -> Option<iced::advanced::overlay::Element<'b, Message, Theme, Renderer>> {
+        self.content.as_widget_mut().overlay(tree, layout, renderer, viewport, translation)
+    }
+}
+
+pub struct Dashes {
+    pub radius: f32,
+    pub colour: Color,
+}
+
+impl<Message> canvas::Program<Message> for Dashes {
+    type State = ();
+
+    fn draw(&self, _: &(), renderer: &Renderer, _: &Theme, bounds: Rectangle, _: mouse::Cursor) -> Vec<Geometry> {
+        let mut frame = Frame::new(renderer, bounds.size());
+        let path = Path::rounded_rectangle(Point::new(0.75, 0.75), Size::new(bounds.width - 1.5, bounds.height - 1.5), self.radius.into());
+        frame.stroke(&path, canvas::Stroke { style: canvas::Style::Solid(self.colour), width: 1.0, line_dash: canvas::LineDash { segments: &[4.0, 4.0], offset: 0 }, ..canvas::Stroke::default() });
+        vec![frame.into_geometry()]
+    }
+}
+
+pub fn dashed<'a, Message: 'a>(content: impl Into<Element<'a, Message>>, radius: f32, colour: Color) -> Element<'a, Message> {
+    iced::widget::stack![content.into(), Canvas::new(Dashes { radius, colour: faded(colour) }).width(Length::Fill).height(Length::Fill)].into()
+}
+
+pub fn glass_warm<'a, Message: 'a>(content: impl Into<Element<'a, Message>>, picture: Option<image::Handle>, window: Size) -> Element<'a, Message> {
+    let picture = picture.as_ref().and_then(frosted);
+    let alpha = fade();
+    Element::new(Glass { content: content.into(), picture, window, tint: Color::from_rgba(0.16, 0.04, 0.055, 0.86 * alpha), edge: Color::from_rgba(0.886, 0.282, 0.282, 0.45 * alpha), radius: 18.0, alpha })
+}
+
 pub const RESIZE: f32 = 0.28;
 
 pub struct Smooth<'a, Message> {
@@ -4159,6 +4396,149 @@ impl<Message> iced::advanced::Widget<Message, Theme, Renderer> for Inert<'_, Mes
             return None;
         }
         self.content.as_widget_mut().overlay(&mut tree.children[0], layout, renderer, viewport, translation)
+    }
+}
+
+pub struct Under<'a, Message> {
+    anchor: Element<'a, Message>,
+    sheet: Option<Element<'a, Message>>,
+    gap: f32,
+    dismiss: Message,
+}
+
+pub fn under<'a, Message: Clone + 'a>(anchor: impl Into<Element<'a, Message>>, sheet: Option<Element<'a, Message>>, dismiss: Message) -> Element<'a, Message> {
+    Element::new(Under { anchor: anchor.into(), sheet, gap: 6.0, dismiss })
+}
+
+const UNDER_EDGE: f32 = 8.0;
+
+pub(crate) fn under_place(anchor: Rectangle, sheet: Size, window: Size, gap: f32) -> Point {
+    let x = anchor.x.min(window.width - sheet.width - UNDER_EDGE).max(UNDER_EDGE);
+    let below = anchor.y + anchor.height + gap;
+    let y = if below + sheet.height <= window.height - UNDER_EDGE { below } else { (anchor.y - gap - sheet.height).max(UNDER_EDGE) };
+    Point::new(x, y)
+}
+
+impl<Message: Clone> iced::advanced::Widget<Message, Theme, Renderer> for Under<'_, Message> {
+    fn children(&self) -> Vec<iced::advanced::widget::Tree> {
+        vec![iced::advanced::widget::Tree::new(&self.anchor), self.sheet.as_ref().map_or_else(iced::advanced::widget::Tree::empty, iced::advanced::widget::Tree::new)]
+    }
+
+    fn diff(&self, tree: &mut iced::advanced::widget::Tree) {
+        if tree.children.len() != 2 {
+            tree.children = self.children();
+            return;
+        }
+        tree.children[0].diff(&self.anchor);
+        match &self.sheet {
+            Some(sheet) => tree.children[1].diff(sheet),
+            None => tree.children[1] = iced::advanced::widget::Tree::empty(),
+        }
+    }
+
+    fn size(&self) -> Size<Length> {
+        self.anchor.as_widget().size()
+    }
+
+    fn size_hint(&self) -> Size<Length> {
+        self.anchor.as_widget().size_hint()
+    }
+
+    fn layout(&mut self, tree: &mut iced::advanced::widget::Tree, renderer: &Renderer, limits: &iced::advanced::layout::Limits) -> iced::advanced::layout::Node {
+        self.anchor.as_widget_mut().layout(&mut tree.children[0], renderer, limits)
+    }
+
+    fn operate(&mut self, tree: &mut iced::advanced::widget::Tree, layout: iced::advanced::Layout<'_>, renderer: &Renderer, operation: &mut dyn iced::advanced::widget::Operation) {
+        self.anchor.as_widget_mut().operate(&mut tree.children[0], layout, renderer, operation);
+    }
+
+    fn update(
+        &mut self,
+        tree: &mut iced::advanced::widget::Tree,
+        event: &iced::Event,
+        layout: iced::advanced::Layout<'_>,
+        cursor: mouse::Cursor,
+        renderer: &Renderer,
+        clipboard: &mut dyn iced::advanced::Clipboard,
+        shell: &mut iced::advanced::Shell<'_, Message>,
+        viewport: &Rectangle,
+    ) {
+        self.anchor.as_widget_mut().update(&mut tree.children[0], event, layout, cursor, renderer, clipboard, shell, viewport);
+    }
+
+    fn mouse_interaction(&self, tree: &iced::advanced::widget::Tree, layout: iced::advanced::Layout<'_>, cursor: mouse::Cursor, viewport: &Rectangle, renderer: &Renderer) -> mouse::Interaction {
+        self.anchor.as_widget().mouse_interaction(&tree.children[0], layout, cursor, viewport, renderer)
+    }
+
+    fn draw(
+        &self,
+        tree: &iced::advanced::widget::Tree,
+        renderer: &mut Renderer,
+        theme: &Theme,
+        style: &iced::advanced::renderer::Style,
+        layout: iced::advanced::Layout<'_>,
+        cursor: mouse::Cursor,
+        viewport: &Rectangle,
+    ) {
+        self.anchor.as_widget().draw(&tree.children[0], renderer, theme, style, layout, cursor, viewport);
+    }
+
+    fn overlay<'b>(
+        &'b mut self,
+        tree: &'b mut iced::advanced::widget::Tree,
+        layout: iced::advanced::Layout<'b>,
+        renderer: &Renderer,
+        viewport: &Rectangle,
+        translation: iced::Vector,
+    ) -> Option<iced::advanced::overlay::Element<'b, Message, Theme, Renderer>> {
+        let (first, second) = tree.children.split_at_mut(1);
+        match self.sheet.as_mut() {
+            Some(sheet) => Some(iced::advanced::overlay::Element::new(Box::new(UnderSheet { sheet, tree: &mut second[0], anchor: layout.bounds() + translation, gap: self.gap, dismiss: self.dismiss.clone() }))),
+            None => self.anchor.as_widget_mut().overlay(&mut first[0], layout, renderer, viewport, translation),
+        }
+    }
+}
+
+struct UnderSheet<'a, 'b, Message> {
+    sheet: &'b mut Element<'a, Message>,
+    tree: &'b mut iced::advanced::widget::Tree,
+    anchor: Rectangle,
+    gap: f32,
+    dismiss: Message,
+}
+
+impl<Message: Clone> iced::advanced::Overlay<Message, Theme, Renderer> for UnderSheet<'_, '_, Message> {
+    fn layout(&mut self, renderer: &Renderer, bounds: Size) -> iced::advanced::layout::Node {
+        let limits = iced::advanced::layout::Limits::new(Size::ZERO, Size::new((bounds.width - 2.0 * UNDER_EDGE).max(0.0), (bounds.height - 2.0 * UNDER_EDGE).max(0.0)));
+        let node = self.sheet.as_widget_mut().layout(self.tree, renderer, &limits);
+        let at = under_place(self.anchor, node.size(), bounds, self.gap);
+        node.move_to(at)
+    }
+
+    fn draw(&self, renderer: &mut Renderer, theme: &Theme, style: &iced::advanced::renderer::Style, layout: iced::advanced::Layout<'_>, cursor: mouse::Cursor) {
+        self.sheet.as_widget().draw(self.tree, renderer, theme, style, layout, cursor, &layout.bounds());
+    }
+
+    fn operate(&mut self, layout: iced::advanced::Layout<'_>, renderer: &Renderer, operation: &mut dyn iced::advanced::widget::Operation) {
+        self.sheet.as_widget_mut().operate(self.tree, layout, renderer, operation);
+    }
+
+    fn update(&mut self, event: &iced::Event, layout: iced::advanced::Layout<'_>, cursor: mouse::Cursor, renderer: &Renderer, clipboard: &mut dyn iced::advanced::Clipboard, shell: &mut iced::advanced::Shell<'_, Message>) {
+        let viewport = layout.bounds();
+        self.sheet.as_widget_mut().update(self.tree, event, layout, cursor, renderer, clipboard, shell, &viewport);
+        if let iced::Event::Mouse(mouse::Event::ButtonPressed(_)) = event {
+            if cursor.is_over(viewport) {
+                shell.capture_event();
+            } else if !cursor.is_over(self.anchor) {
+                shell.publish(self.dismiss.clone());
+                shell.capture_event();
+            }
+        }
+    }
+
+    fn mouse_interaction(&self, layout: iced::advanced::Layout<'_>, cursor: mouse::Cursor, renderer: &Renderer) -> mouse::Interaction {
+        let inside = self.sheet.as_widget().mouse_interaction(self.tree, layout, cursor, &layout.bounds(), renderer);
+        if inside == mouse::Interaction::None && cursor.is_over(layout.bounds()) { mouse::Interaction::Idle } else { inside }
     }
 }
 
@@ -4931,5 +5311,68 @@ impl<Message> iced::advanced::Widget<Message, Theme, Renderer> for Flip<'_, Mess
 impl<'a, Message: 'a> From<Flip<'a, Message>> for Element<'a, Message> {
     fn from(flip: Flip<'a, Message>) -> Element<'a, Message> {
         Element::new(flip)
+    }
+}
+
+#[cfg(test)]
+mod glass_tests {
+    use super::*;
+
+    #[test]
+    fn the_picture_in_a_glass_panel_is_cut_to_its_rounded_shape_and_taken_from_where_the_panel_stands() {
+        let (wide, high) = (96u32, 60u32);
+        let mut pixels = Vec::with_capacity((wide * high * 4) as usize);
+        for _ in 0..high {
+            for x in 0..wide {
+                pixels.extend_from_slice(if x < wide / 2 { &[200, 20, 20, 255] } else { &[20, 20, 200, 255] });
+            }
+        }
+        let window = Size::new(1280.0, 800.0);
+        let at = |cut: &(u32, u32, Vec<u8>), x: u32, y: u32| -> [u8; 4] {
+            let from = ((y * cut.0 + x) * 4) as usize;
+            [cut.2[from], cut.2[from + 1], cut.2[from + 2], cut.2[from + 3]]
+        };
+        let left = glass_piece(&pixels, wide, high, Rectangle::new(Point::new(40.0, 84.0), Size::new(420.0, 200.0)), window, 18.0).unwrap();
+        assert_eq!((left.0, left.1, left.2.len()), (420, 200, 420 * 200 * 4), "one picture point for each point of the panel");
+        for corner in [(0, 0), (419, 0), (0, 199), (419, 199)] {
+            assert_eq!(at(&left, corner.0, corner.1)[3], 0, "the very corner at {corner:?} is outside the rounded shape");
+        }
+        for inside in [(210, 1), (1, 100), (418, 100), (210, 198), (18, 18), (401, 181), (6, 6)] {
+            assert_eq!(at(&left, inside.0, inside.1)[3], 255, "{inside:?} is inside the rounded shape");
+        }
+        let edge = at(&left, 6, 5);
+        assert!(edge[3] > 0 && edge[3] < 255 && edge[0] > 150, "the edge of the corner is soft and keeps its colour: {edge:?}");
+        assert_eq!((at(&left, 5, 5)[3], at(&left, 210, 0)[3], at(&left, 419, 100)[3]), (0, 0, 0), "the picture ends a point inside the edge line, so nothing of it shows outside the panel");
+        assert!(at(&left, 210, 100)[0] > 150 && at(&left, 210, 100)[2] < 60, "a panel on the left shows the left of the scene");
+        let right = glass_piece(&pixels, wide, high, Rectangle::new(Point::new(820.0, 84.0), Size::new(420.0, 200.0)), window, 18.0).unwrap();
+        assert!(at(&right, 210, 100)[2] > 150 && at(&right, 210, 100)[0] < 60, "a panel on the right shows the right of the scene");
+        let across = glass_piece(&pixels, wide, high, Rectangle::new(Point::new(430.0, 84.0), Size::new(420.0, 200.0)), window, 18.0).unwrap();
+        assert!(at(&across, 40, 100)[0] > 150 && at(&across, 380, 100)[2] > 150, "a panel over the middle shows both");
+        let small = glass_piece(&pixels, wide, high, Rectangle::new(Point::ORIGIN, Size::new(20.0, 10.0)), window, 18.0).unwrap();
+        assert_eq!((small.0, small.1), (20, 10));
+        assert_eq!(at(&small, 10, 5)[3], 255, "a panel smaller than its rounding still has a middle");
+        assert!(glass_piece(&pixels, wide, high, Rectangle::new(Point::ORIGIN, Size::new(0.0, 10.0)), window, 18.0).is_none());
+        assert!(glass_piece(&pixels[..16], wide, high, Rectangle::new(Point::ORIGIN, Size::new(20.0, 10.0)), window, 18.0).is_none());
+        let cover = glass_cover(Size::new(96.0, 54.0), Size::new(1280.0, 800.0));
+        assert!(cover.width >= 1280.0 && cover.height >= 800.0 && cover.x <= 0.0 && cover.y <= 0.0, "the picture covers the window like the scene behind it");
+    }
+}
+
+#[cfg(test)]
+mod under_tests {
+    use super::*;
+
+    #[test]
+    fn a_sheet_hangs_under_its_anchor_stays_in_the_window_and_goes_above_when_there_is_no_room_below() {
+        let window = Size::new(1000.0, 600.0);
+        let sheet = Size::new(300.0, 200.0);
+        let under = under_place(Rectangle::new(Point::new(100.0, 100.0), Size::new(80.0, 30.0)), sheet, window, 6.0);
+        assert_eq!(under, Point::new(100.0, 136.0));
+        let right = under_place(Rectangle::new(Point::new(900.0, 100.0), Size::new(80.0, 30.0)), sheet, window, 6.0);
+        assert_eq!(right.x, 1000.0 - 300.0 - 8.0);
+        let low = under_place(Rectangle::new(Point::new(100.0, 500.0), Size::new(80.0, 30.0)), sheet, window, 6.0);
+        assert_eq!(low.y, 500.0 - 6.0 - 200.0);
+        let cramped = under_place(Rectangle::new(Point::new(-40.0, 120.0), Size::new(80.0, 30.0)), Size::new(300.0, 590.0), window, 6.0);
+        assert_eq!(cramped, Point::new(8.0, 8.0));
     }
 }

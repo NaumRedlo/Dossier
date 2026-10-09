@@ -86,12 +86,16 @@ pub fn scores_from(json: &str) -> Vec<Score> {
         .collect()
 }
 
+pub fn profile_url(name: &str) -> String {
+    format!("{SITE}/users/@{}", name.trim().trim_start_matches('@').replace(' ', "%20"))
+}
+
 pub fn fetch(name: &str) -> Result<Card, String> {
     let name = name.trim().trim_start_matches('@');
     if name.is_empty() {
         return Err("no name".to_owned());
     }
-    let page = crate::news::page(&format!("{SITE}/users/{}", name.replace(' ', "%20")))?;
+    let page = crate::news::page(&profile_url(name))?;
     let mut card = card_from_page(&page).ok_or("the profile page carries no profile")?;
     if card.osu_id > 0.0 {
         if let Ok(json) = crate::news::page(&format!("{SITE}/users/{}/scores/best?mode=osu&limit=5", card.osu_id as u64)) {
@@ -148,6 +152,8 @@ mod tests {
         let page = format!("<div class=\"js-react\" data-initial-data=\"{}\"></div>", user.replace('"', "&quot;"));
         let card = card_from_page(&page).expect("a card");
         assert_eq!(card.username, "NaumRedlo");
+        assert_eq!(profile_url("1011"), format!("{SITE}/users/@1011"), "a name made of digits is still asked for as a name, not as a player number");
+        assert_eq!(profile_url(" @Naum Redlo "), format!("{SITE}/users/@Naum%20Redlo"));
         assert_eq!(card.osu_id, 17_397_924.0);
         assert_eq!(card.global_rank, 52_567.0);
         assert_eq!(card.country_rank, 5_101.0);

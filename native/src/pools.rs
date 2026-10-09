@@ -121,6 +121,24 @@ impl Skill {
         }
     }
 
+    pub fn pick_key(self) -> &'static str {
+        match self {
+            Skill::Aim => "pool-balance-pick-aim",
+            Skill::Speed => "pool-balance-pick-speed",
+            Skill::Reading => "pool-balance-pick-reading",
+            Skill::Stamina => "pool-balance-pick-stamina",
+        }
+    }
+
+    pub fn lean_key(self) -> &'static str {
+        match self {
+            Skill::Aim => "pool-suggest-lean-aim",
+            Skill::Speed => "pool-suggest-lean-speed",
+            Skill::Reading => "pool-suggest-lean-reading",
+            Skill::Stamina => "pool-suggest-lean-stamina",
+        }
+    }
+
     pub fn outweighs_key(self) -> &'static str {
         match self {
             Skill::Aim => "pool-heavy-aim",
@@ -128,6 +146,36 @@ impl Skill {
             Skill::Reading => "pool-heavy-reading",
             Skill::Stamina => "pool-heavy-stamina",
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Guide {
+    #[serde(default = "shown")]
+    pub on: bool,
+    #[serde(default)]
+    pub modded: bool,
+    #[serde(default)]
+    pub moved: bool,
+    #[serde(default)]
+    pub shared: bool,
+}
+
+fn shown() -> bool {
+    true
+}
+
+impl Default for Guide {
+    fn default() -> Guide {
+        Guide { on: true, modded: false, moved: false, shared: false }
+    }
+}
+
+impl Guide {
+    pub const STEPS: [&'static str; 5] = ["guide-name", "guide-map", "guide-mod", "guide-move", "guide-share"];
+
+    pub fn steps(&self, pool: &Pool) -> [bool; 5] {
+        [!pool.name.trim().is_empty(), pool.filled() > 0, self.modded, self.moved, self.shared]
     }
 }
 
@@ -460,9 +508,33 @@ fn keep_closest(best: &mut Vec<(String, Measure)>, hash: String, measure: Measur
     let place = best.partition_point(|(other_hash, other)| {
         (other.stars - target).abs().total_cmp(&(measure.stars - target).abs()).then_with(|| other_hash.cmp(&hash)).is_lt()
     });
-    if place < 8 {
+    if place < SUGGESTED_WIDE {
         best.insert(place, (hash, measure));
-        best.truncate(8);
+        best.truncate(SUGGESTED_WIDE);
+    }
+}
+
+pub const SUGGESTED: usize = 8;
+pub const SUGGESTED_WIDE: usize = 24;
+
+pub fn leaning(mut maps: Vec<(String, Measure)>, lean: Option<Skill>) -> Vec<(String, Measure)> {
+    if let Some(skill) = lean {
+        let at = Skill::ALL.iter().position(|other| *other == skill).unwrap_or(0);
+        maps.sort_by(|a, b| b.1.shares()[at].total_cmp(&a.1.shares()[at]));
+    }
+    maps.truncate(SUGGESTED);
+    maps
+}
+
+impl Pool {
+    pub fn weakest(&self) -> Option<Skill> {
+        let profile = self.profile()?;
+        let (at, _) = profile.iter().enumerate().min_by(|a, b| a.1.total_cmp(b.1))?;
+        Some(Skill::ALL[at])
+    }
+
+    pub fn measured(&self) -> usize {
+        self.slots.iter().filter(|slot| slot.measure.is_some()).count()
     }
 }
 
@@ -533,10 +605,36 @@ mod tests {
         for (hash, stars) in [("far", 8.0), ("b", 5.2), ("a", 4.8), ("near", 5.01), ("c", 5.4), ("d", 5.5), ("e", 5.6), ("f", 5.7), ("g", 5.8), ("h", 5.9)] {
             keep_closest(&mut best, hash.to_owned(), Measure { stars, ..base }, 5.0);
         }
-        assert_eq!(best.len(), 8);
+        assert_eq!(best.len(), 10);
         assert_eq!(best[0].0, "near");
         assert_eq!((best[1].0.as_str(), best[2].0.as_str()), ("a", "b"));
+        assert_eq!(best.last().unwrap().0, "far");
+        for at in 0..40 {
+            keep_closest(&mut best, format!("more{at}"), Measure { stars: 5.0 + at as f64 * 0.01, ..base }, 5.0);
+        }
+        assert_eq!(best.len(), SUGGESTED_WIDE);
         assert!(!best.iter().any(|(hash, _)| hash == "far"));
+        let plain = leaning(best.clone(), None);
+        assert_eq!(plain.len(), SUGGESTED);
+        assert_eq!(plain[0].0, best[0].0, "without a leaning the closest come first as before");
+    }
+
+    #[test]
+    fn a_leaning_puts_the_maps_of_that_skill_first_and_the_weakest_skill_is_named() {
+        let base = measure_text(&corpus(), Mod::Nm).unwrap();
+        let of = |aim: f64, reading: f64| Measure { aim, speed: 1.0, reading, stamina: 1.0, ..base };
+        let maps: Vec<(String, Measure)> = (0..12).map(|at| (format!("m{at}"), of(3.0, at as f64 * 0.2))).collect();
+        let reading = leaning(maps.clone(), Some(Skill::Reading));
+        assert_eq!(reading.len(), SUGGESTED);
+        assert_eq!(reading[0].0, "m11");
+        assert!(reading.windows(2).all(|pair| pair[0].1.shares()[2] >= pair[1].1.shares()[2]));
+        let mut pool = Pool::new(Frame::Duel, "Weak", 0);
+        assert_eq!(pool.weakest(), None);
+        pool.slots[0].measure = Some(of(3.0, 0.2));
+        pool.slots[1].measure = Some(of(2.5, 0.4));
+        assert_eq!(pool.measured(), 2);
+        assert_eq!(pool.weakest(), Some(Skill::Reading));
+        assert_eq!(Skill::Reading.pick_key(), "pool-balance-pick-reading");
     }
 
     #[test]

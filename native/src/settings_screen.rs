@@ -177,6 +177,8 @@ pub enum Message {
     ExportedOnly(bool),
     AutoScale(bool),
     CloseToTray(bool),
+    PoolHints(bool),
+    AutoFetchMaps(bool),
     Witness(bool),
     WitnessHistory(bool),
     PeopleEveryone(bool),
@@ -487,6 +489,8 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
             if ground.tray {
                 panel = panel.push(container(pill(ground, "close-to-tray", w.t("close-to-tray"), s.close_to_tray, Message::CloseToTray(!s.close_to_tray))).padding(Padding::ZERO.top(10.0)));
             }
+            panel = panel.push(container(pill(ground, "pool-hints", w.t("pool-hints"), s.pool_guide.on, Message::PoolHints(!s.pool_guide.on))).padding(Padding::ZERO.top(10.0)));
+            panel = panel.push(container(pill(ground, "auto-fetch-maps", w.t("auto-fetch-maps"), s.auto_fetch_maps, Message::AutoFetchMaps(!s.auto_fetch_maps))).padding(Padding::ZERO.top(10.0)));
             panel.into()
         }
         Tile::Device => column![

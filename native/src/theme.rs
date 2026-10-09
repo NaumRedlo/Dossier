@@ -677,8 +677,8 @@ pub fn corner(bad: bool) -> impl Fn(&Theme, button::Status) -> button::Style {
 pub fn notification(hovered: bool) -> impl Fn(&Theme) -> container::Style {
     move |theme| {
         let mut style = bubble(theme);
-        style.background = Some(Background::Color(if hovered { color!(0x2a242b) } else { color!(0x211b22) }));
-        style.border = border(Color::from_rgba(1.0, 1.0, 1.0, if hovered { 0.12 } else { 0.06 }), CARD_RADIUS);
+        style.background = Some(Background::Color(Color::from_rgba(0.075, 0.035, 0.05, if hovered { 0.92 } else { 0.8 })));
+        style.border = border(Color::from_rgba(1.0, 1.0, 1.0, if hovered { 0.18 } else { 0.1 }), CARD_RADIUS);
         style.shadow = Shadow { color: Color::from_rgba(0.0, 0.0, 0.0, 0.28), offset: iced::Vector::new(0.0, 5.0), blur_radius: 16.0 };
         style
     }

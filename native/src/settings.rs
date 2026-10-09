@@ -38,7 +38,9 @@ pub struct Settings {
     pub token: String,
     pub linked_as: String,
     #[serde(default)]
-    pub menu_tab: String,
+    pub billing_email: String,
+    #[serde(default)]
+    pub auto_fetch_maps: bool,
     #[serde(default = "yes")]
     pub live_scene: bool,
     #[serde(default = "yes")]
@@ -47,6 +49,8 @@ pub struct Settings {
     pub auto_flip: bool,
     #[serde(default = "yes")]
     pub close_to_tray: bool,
+    #[serde(default)]
+    pub pool_guide: crate::pools::Guide,
     #[serde(default)]
     pub people_everyone: bool,
     #[serde(default = "default_height")]
@@ -969,11 +973,13 @@ impl Default for Settings {
             server: DEFAULT_SERVER.to_owned(),
             token: String::new(),
             linked_as: String::new(),
-            menu_tab: String::new(),
+            billing_email: String::new(),
+            auto_fetch_maps: false,
             live_scene: true,
             pause_unfocused: true,
             auto_flip: true,
             close_to_tray: true,
+            pool_guide: crate::pools::Guide::default(),
             people_everyone: false,
             render_height: 1080,
             render_fps: 60,
@@ -1052,12 +1058,37 @@ impl Settings {
     }
 
     pub fn save(&self) -> Result<(), String> {
-        let file = path();
+        self.save_to(&path())
+    }
+
+    fn save_to(&self, file: &Path) -> Result<(), String> {
+        use std::io::Write;
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static NEXT: AtomicU64 = AtomicU64::new(0);
         if let Some(dir) = file.parent() {
             std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
         }
         let text = serde_json::to_string_pretty(self).map_err(|e| e.to_string())?;
-        std::fs::write(&file, text).map_err(|e| e.to_string())
+        let (staging, mut output) = loop {
+            let staging = file.with_extension(format!("json.{}.{}.part", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)));
+            let mut options = std::fs::OpenOptions::new();
+            options.write(true).create_new(true);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::OpenOptionsExt;
+                options.mode(0o600);
+            }
+            match options.open(&staging) {
+                Ok(output) => break (staging, output),
+                Err(why) if why.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(why) => return Err(why.to_string()),
+            }
+        };
+        let written = output.write_all(text.as_bytes()).and_then(|_| output.sync_all());
+        drop(output);
+        let result = written.and_then(|_| std::fs::rename(&staging, file));
+        if result.is_err() { let _ = std::fs::remove_file(&staging); }
+        result.map_err(|e| e.to_string())
     }
 }
 
@@ -1078,6 +1109,27 @@ pub fn device_name() -> String {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn regression_settings_replace_complete_files_and_clean_failed_staging() {
+        let dir = std::env::temp_dir().join(format!("dossier-settings-atomic-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.join("settings.json");
+        let mut settings = super::Settings::default();
+        settings.token = "first".into();
+        settings.save_to(&path).unwrap();
+        settings.token = "second".into();
+        settings.save_to(&path).unwrap();
+        let loaded: super::Settings = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(loaded.token, "second");
+        let blocked = dir.join("blocked.json");
+        std::fs::create_dir(&blocked).unwrap();
+        std::fs::write(blocked.join("keep"), "original").unwrap();
+        assert!(settings.save_to(&blocked).is_err());
+        assert_eq!(std::fs::read_to_string(blocked.join("keep")).unwrap(), "original");
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 2);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     #[test]
     fn skin_order_survives_serialization_and_rescans() {

@@ -11,7 +11,7 @@ type Renderer = iced::Renderer;
 const LINE: f32 = 84.0;
 const RATE: f32 = 13.0;
 const SLOP: f32 = 6.0;
-const FLING: f32 = 0.22;
+const FLING: f32 = 0.34;
 
 pub struct Glide<'a, Message> {
     content: Element<'a, Message>,

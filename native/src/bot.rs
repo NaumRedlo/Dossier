@@ -40,6 +40,104 @@ pub fn publish(server: &str, token: &str, device: &str, pool: &crate::pools::Poo
     status(reply)?.json().map_err(|e| Refused::Network(e.to_string()))
 }
 
+pub fn withdraw(server: &str, token: &str, device: &str, pool: &crate::pools::Pool) -> Result<(), Refused> {
+    let kind = if pool.collection { "collection" } else { "pool" };
+    let reply = client()?.delete(format!("{server}/render/catalog/{kind}/{}", pool.id)).header("X-Render-Worker", device).bearer_auth(token).send().map_err(|e| Refused::Network(e.to_string()))?;
+    status(reply).map(|_| ())
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Deserialize)]
+pub struct Plan {
+    pub id: String,
+    #[serde(default)]
+    pub offer_id: String,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub description: String,
+    pub currency: String,
+    pub periodicity: String,
+    pub amount: String,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Deserialize)]
+pub struct Subscription {
+    pub state: String,
+    pub access: bool,
+    pub plan: Plan,
+    #[serde(default)]
+    pub paid_until: Option<String>,
+    #[serde(default)]
+    pub cancelled_at: Option<String>,
+    #[serde(default)]
+    pub created_at: Option<String>,
+    #[serde(default)]
+    pub payment_url: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Trouble {
+    pub status: u16,
+    pub reason: String,
+    pub subscription: Option<Subscription>,
+}
+
+#[derive(serde::Deserialize)]
+struct Plans {
+    plans: Vec<Plan>,
+}
+
+#[derive(serde::Deserialize)]
+struct Held {
+    subscription: Option<Subscription>,
+}
+
+#[derive(serde::Deserialize)]
+struct Failure {
+    #[serde(default)]
+    error: String,
+    #[serde(default)]
+    subscription: Option<Subscription>,
+}
+
+pub fn plans(server: &str, token: &str, device: &str) -> Result<Vec<Plan>, Refused> {
+    let reply = client()?.get(format!("{server}/render/billing/plans")).header("X-Render-Worker", device).bearer_auth(token).send().map_err(|e| Refused::Network(e.to_string()))?;
+    Ok(status(reply)?.json::<Plans>().map_err(|e| Refused::Network(e.to_string()))?.plans)
+}
+
+pub fn subscription(server: &str, token: &str, device: &str) -> Result<Option<Subscription>, Refused> {
+    let reply = client()?.get(format!("{server}/render/billing/status")).header("X-Render-Worker", device).bearer_auth(token).send().map_err(|e| Refused::Network(e.to_string()))?;
+    Ok(status(reply)?.json::<Held>().map_err(|e| Refused::Network(e.to_string()))?.subscription)
+}
+
+fn held(reply: reqwest::blocking::Response) -> Result<Subscription, Trouble> {
+    let code = reply.status().as_u16();
+    if reply.status().is_success() {
+        return match reply.json::<Held>() {
+            Ok(Held { subscription: Some(subscription) }) => Ok(subscription),
+            _ => Err(Trouble { status: code, reason: "invalid answer".into(), subscription: None }),
+        };
+    }
+    let said = reply.json::<Failure>().unwrap_or(Failure { error: String::new(), subscription: None });
+    Err(Trouble { status: code, reason: said.error, subscription: said.subscription })
+}
+
+pub fn checkout(server: &str, token: &str, device: &str, plan: &str, email: &str) -> Result<Subscription, Trouble> {
+    let network = |e: Refused| Trouble { status: 0, reason: e.to_string(), subscription: None };
+    let reply = client().map_err(network)?.post(format!("{server}/render/billing/checkout")).header("X-Render-Worker", device).bearer_auth(token)
+        .json(&serde_json::json!({"plan": plan, "email": email})).send().map_err(|e| network(Refused::Network(e.to_string())))?;
+    held(reply)
+}
+
+pub fn cancel(server: &str, token: &str, device: &str) -> Result<Subscription, Trouble> {
+    let network = |e: Refused| Trouble { status: 0, reason: e.to_string(), subscription: None };
+    let reply = client().map_err(network)?.post(format!("{server}/render/billing/cancel")).header("X-Render-Worker", device).bearer_auth(token)
+        .send().map_err(|e| network(Refused::Network(e.to_string())))?;
+    held(reply)
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Refused {
     Network(String),

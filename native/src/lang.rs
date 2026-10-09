@@ -158,6 +158,13 @@ impl Words {
         self.say("n-of", Some(&args))
     }
 
+    pub fn n_of(&self, key: &str, n: u64, total: u64) -> String {
+        let mut args = FluentArgs::new();
+        args.set("n", FluentValue::from(n));
+        args.set("total", FluentValue::from(total));
+        self.say(key, Some(&args))
+    }
+
     pub fn who(&self, key: &str, who: &str) -> String {
         let mut args = FluentArgs::new();
         args.set("who", FluentValue::from(who));

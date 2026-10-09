@@ -573,7 +573,7 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
     queued.rendering = rendering.rendering.clone();
     queued.progress_shown = rendering.progress_shown;
     queued.menu_open = iced::Animation::new(true);
-    queued.menu = Some(crate::main_screen::Tab::Feed);
+    queued.menu = Some(crate::main_screen::Tab::Bell);
     queued.queued = [1, 2]
         .into_iter()
         .map(|at| crate::main_screen::Queued {
@@ -746,14 +746,14 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
     playing_wide.widened = iced::Animation::new(true);
     let mut menu_guest = staged(Some(0));
     menu_guest.menu_open = iced::Animation::new(true);
-    menu_guest.menu = Some(crate::main_screen::Tab::Account);
+    menu_guest.menu = Some(crate::main_screen::Tab::Head);
     let mut menu_feed = staged(Some(0));
     menu_feed.now_unix = NOON;
     menu_feed.settings.token = "staged".to_owned();
     menu_feed.settings.linked_as = "Naum Redlo".to_owned();
     menu_feed.account = Some(crate::bot::Me { telegram_id: 7, name: "Naum Redlo".into(), username: "naumredlo".into(), avatar: false, telegram: true, player: None });
     menu_feed.menu_open = iced::Animation::new(true);
-    menu_feed.menu = Some(crate::main_screen::Tab::Feed);
+    menu_feed.menu = Some(crate::main_screen::Tab::Bell);
     menu_feed.rendering = Some(crate::main_screen::Rendering {
         path: library.entries[0].path.clone(),
         reached: vec![crate::render::Step::Judged, crate::render::Step::Drawing { frames: 8_400, of: 13_860, left_seconds: 18.0 }],
@@ -782,19 +782,63 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
             }
         }
     }
+    const UNTIL: &str = "2026-10-07T12:00:00Z";
+    let tier = |offer: &str, name: &str, period: &str, currency: &str, amount: &str| crate::bot::Plan {
+        id: format!("{offer}:{currency}:{period}"), offer_id: offer.into(), title: "Subscription naumredlo".into(), name: name.into(), description: String::new(), currency: currency.into(), periodicity: period.into(), amount: amount.into(),
+    };
+    let held = |state: &str, access: bool, until: Option<&str>, url: Option<&str>| crate::bot::Subscription {
+        state: state.to_owned(),
+        access,
+        plan: tier("b", "Делегат", "MONTHLY", "RUB", "240.0"),
+        paid_until: until.map(str::to_owned),
+        cancelled_at: None,
+        created_at: None,
+        payment_url: url.map(str::to_owned),
+    };
+    let mut plans = vec![tier("a", "Сторонник", "MONTHLY", "RUB", "90.0"), tier("a", "Сторонник", "MONTHLY", "USD", "5.0")];
+    for (offer, name, rub, usd) in [("b", "Делегат", [240.0, 690.0, 1320.0, 2400.0], [7.0, 20.0, 38.0, 70.0]), ("c", "Комиссар", [490.0, 1400.0, 2690.0, 4900.0], [12.0, 34.0, 65.0, 120.0]), ("d", "Советник", [990.0, 2820.0, 5450.0, 9900.0], [24.0, 68.0, 130.0, 240.0]), ("e", "Член Президиума", [1990.0, 5670.0, 10950.0, 19900.0], [48.0, 135.0, 260.0, 480.0])] {
+        for (at, period) in crate::billing::PERIODS.iter().enumerate() {
+            plans.push(tier(offer, name, period, "RUB", &format!("{:.1}", rub[at])));
+            plans.push(tier(offer, name, period, "USD", &format!("{:.1}", usd[at])));
+            plans.push(tier(offer, name, period, "EUR", &format!("{:.1}", (usd[at] * 0.92_f64).round())));
+        }
+    }
     let mut menu_account = menu_feed.clone();
     menu_account.menu_open = iced::Animation::new(true);
-    menu_account.menu = Some(crate::main_screen::Tab::Account);
+    menu_account.menu = Some(crate::main_screen::Tab::Head);
     menu_account.rendering = None;
-    let mut menu_stats = menu_account.clone();
-    menu_stats.menu_open = iced::Animation::new(true);
-    menu_stats.menu = Some(crate::main_screen::Tab::Stats);
-    menu_stats.store.videos = with_videos.store.videos.clone();
-    menu_stats.store.videos[1].sent_at = Some(NOON);
+    menu_account.billing.held = Some(Some(held("active", true, Some(UNTIL), None)));
+    let mut menu_quiet = menu_account.clone();
+    menu_quiet.billing.held = Some(None);
+    let mut menu_waiting = menu_account.clone();
+    menu_waiting.billing.held = Some(Some(held("pending", false, None, Some("https://pay.example/1"))));
+    let mut billing_plans = menu_quiet.clone();
+    billing_plans.menu = None;
+    billing_plans.menu_open = iced::Animation::new(false);
+    billing_plans.billing.plans = Some(plans);
+    billing_plans.billing.currency = "RUB".into();
+    billing_plans.billing.period = "PERIOD_YEAR".into();
+    billing_plans.billing.tier = Some("c".into());
+    billing_plans.billing.email = "naum@example.org".into();
+    billing_plans.billing.shown = true;
+    billing_plans.billing.fade = iced::Animation::new(true);
+    let mut billing_waiting = billing_plans.clone();
+    billing_waiting.billing.held = Some(Some(held("pending", false, None, Some("https://pay.example/1"))));
+    let mut billing_active = billing_plans.clone();
+    billing_active.billing.held = Some(Some(held("active", true, Some(UNTIL), None)));
+    let mut billing_cancelled = billing_plans.clone();
+    billing_cancelled.billing.held = Some(Some(held("cancelled", true, Some(UNTIL), None)));
+    let mut billing_failed = billing_plans.clone();
+    billing_failed.billing.period = "MONTHLY".into();
+    billing_failed.billing.held = Some(Some(held("failed", false, Some("2026-09-01T12:00:00Z"), None)));
+    let mut billing_guest = staged(Some(0));
+    billing_guest.billing.shown = true;
+    billing_guest.billing.fade = iced::Animation::new(true);
     let mut failing = menu_feed.clone();
     failing.menu = None;
     failing.menu_open = iced::Animation::new(false);
     failing.error_shown = failing.notices.notices.iter().find(|n| n.mark == crate::notices::Mark::Bad).map(|n| n.id);
+    failing.error_fade = iced::Animation::new(true);
     let mut prefs_app = staged(Some(0));
     prefs_app.now_unix = NOON;
     prefs_app.overlay = crate::main_screen::Overlay::Settings;
@@ -957,8 +1001,15 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
         ("main-notifications".to_owned(), notifications),
         ("main-menu-guest".to_owned(), menu_guest),
         ("main-menu-account".to_owned(), menu_account),
+        ("main-menu-quiet".to_owned(), menu_quiet),
+        ("main-menu-waiting".to_owned(), menu_waiting),
         ("main-menu-feed".to_owned(), menu_feed),
-        ("main-menu-stats".to_owned(), menu_stats),
+        ("main-billing-plans".to_owned(), billing_plans),
+        ("main-billing-failed".to_owned(), billing_failed),
+        ("main-billing-waiting".to_owned(), billing_waiting),
+        ("main-billing-active".to_owned(), billing_active),
+        ("main-billing-cancelled".to_owned(), billing_cancelled),
+        ("main-billing-guest".to_owned(), billing_guest),
         ("main-signing".to_owned(), signing),
         ("main-prefs".to_owned(), prefs_app),
         ("main-prefs-bot".to_owned(), prefs_bot),
@@ -1205,6 +1256,16 @@ fn feed_states(community: &dyn Fn(crate::community_screen::Section, Option<usize
             main.pools.screen = crate::pools_screen::Screen::Editor(crate::pools_screen::Editor::at(id));
             main
         }),
+        ("main-pools-start".to_owned(), {
+            let mut main = community(crate::community_screen::Section::Pools, None);
+            pools_state(&mut main, false);
+            let mut pool = crate::pools::Pool::new(crate::pools::Frame::Free, "", NOON);
+            pool.slots = vec![crate::pools::Slot::empty(crate::pools::Mod::Nm); 4];
+            let id = pool.id.clone();
+            main.pools.list.push(pool);
+            main.pools.screen = crate::pools_screen::Screen::Editor(crate::pools_screen::Editor { untouched: true, starting: true, ..crate::pools_screen::Editor::at(id) });
+            main
+        }),
         ("main-pools-catalogue".to_owned(), {
             let mut main = community(crate::community_screen::Section::Pools, None);
             pools_state(&mut main, false);
@@ -1238,6 +1299,47 @@ fn feed_states(community: &dyn Fn(crate::community_screen::Section, Option<usize
             pools_state(&mut main, true);
             let id = main.pools.list[0].id.clone();
             main.pools.screen = crate::pools_screen::Screen::Editor(crate::pools_screen::Editor { selected: Some(4), panel: crate::pools_screen::Panel::Slot, query: String::new(), untouched: false, ..crate::pools_screen::Editor::at(id) });
+            main
+        }),
+        ("main-pools-guide".to_owned(), {
+            let mut main = community(crate::community_screen::Section::Pools, None);
+            pools_state(&mut main, true);
+            main.pools.guide = crate::pools::Guide::default();
+            let id = main.pools.list[0].id.clone();
+            main.pools.screen = crate::pools_screen::Screen::Editor(crate::pools_screen::Editor { grouped: true, editing_authors: false, ..crate::pools_screen::Editor::at(id) });
+            main
+        }),
+        ("main-pools-conflict".to_owned(), {
+            let mut main = community(crate::community_screen::Section::Pools, None);
+            pools_state(&mut main, true);
+            main.pools.list[0].compiler = "NaumRedlo".into();
+            main.pools.list[0].published_revision = 3;
+            let id = main.pools.list[0].id.clone();
+            main.pools.publications = vec![crate::bot::Publication { id: "remote".into(), kind: "pool".into(), local_id: id.clone(), revision: 4, name: "Spring duel".into(), content: serde_json::json!({}), mine: true }];
+            main.pools.conflict = Some(id.clone());
+            main.pools.screen = crate::pools_screen::Screen::Editor(crate::pools_screen::Editor { grouped: true, editing_authors: false, ..crate::pools_screen::Editor::at(id) });
+            main
+        }),
+        ("main-pools-balance".to_owned(), {
+            let mut main = community(crate::community_screen::Section::Pools, None);
+            pools_state(&mut main, true);
+            for slot in &mut main.pools.list[0].slots {
+                if let Some(measure) = &mut slot.measure {
+                    measure.aim *= 2.4;
+                }
+            }
+            let id = main.pools.list[0].id.clone();
+            main.pools.screen = crate::pools_screen::Screen::Editor(crate::pools_screen::Editor { grouped: true, editing_authors: false, ..crate::pools_screen::Editor::at(id) });
+            main
+        }),
+        ("main-pools-publish".to_owned(), {
+            let mut main = community(crate::community_screen::Section::Pools, None);
+            pools_state(&mut main, true);
+            main.pools.list[0].compiler = "NaumRedlo".into();
+            main.pools.list[0].published_revision = 3;
+            main.pools.list[0].slots.push(crate::pools::Slot::empty(crate::pools::Mod::Tb));
+            let id = main.pools.list[0].id.clone();
+            main.pools.screen = crate::pools_screen::Screen::Editor(crate::pools_screen::Editor { publish: true, editing_authors: false, ..crate::pools_screen::Editor::at(id) });
             main
         }),
         ("main-pools-grouped".to_owned(), {
@@ -1463,11 +1565,11 @@ pub fn every_main_frame() -> Vec<(String, crate::main_screen::Main, Size)> {
     for lang in Lang::ALL {
         for (name, main) in main_states(lang) {
             for (label, size) in SIZES {
-                if label != SIZES[0].0 && name != "main-rest" && name != "main-idle" && name != "main-notifications" && name != "main-player-mini" && name != "main-community-clip-mini" && name != "main-community-feed-wide" && name != "main-pools-best" && name != "main-pools-editor" && name != "main-pools-head" && name != "main-pools-grouped" && name != "main-pools-new" && name != "main-prefs-device" {
+                if label != SIZES[0].0 && name != "main-rest" && name != "main-idle" && name != "main-notifications" && name != "main-player-mini" && name != "main-community-clip-mini" && name != "main-community-feed-wide" && name != "main-pools-best" && name != "main-pools-editor" && name != "main-pools-head" && name != "main-pools-grouped" && name != "main-pools-new" && name != "main-pools-start" && name != "main-billing-plans" && name != "main-billing-active" && name != "main-menu-feed" && name != "main-pools-conflict" && name != "main-pools-guide" && name != "main-pools-balance" && name != "main-pools-publish" && name != "main-prefs-device" {
                     continue;
                 }
                 let mut frame = main.clone();
-                if name == "main-idle" || name == "main-notifications" || name == "main-player-mini" || name == "main-community-clip-mini" || name == "main-community-feed-wide" || name == "main-pools-best" || name == "main-pools-editor" || name == "main-pools-head" || name == "main-pools-grouped" || name == "main-pools-new" || name == "main-prefs-device" { frame.width = size.width; frame.height = size.height; }
+                if name == "main-idle" || name == "main-notifications" || name == "main-player-mini" || name == "main-community-clip-mini" || name == "main-community-feed-wide" || name == "main-pools-best" || name == "main-pools-editor" || name == "main-pools-head" || name == "main-pools-grouped" || name == "main-pools-new" || name == "main-pools-start" || name == "main-billing-plans" || name == "main-billing-active" || name == "main-menu-feed" || name == "main-pools-conflict" || name == "main-pools-guide" || name == "main-pools-balance" || name == "main-pools-publish" || name == "main-prefs-device" { frame.width = size.width; frame.height = size.height; }
                 out.push((format!("{name}-{}-{label}", lang.tag()), frame, size));
             }
         }

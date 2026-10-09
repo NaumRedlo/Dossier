@@ -38,6 +38,9 @@ pub enum Icon {
     Pool,
     Copy,
     File,
+    Shapes,
+    Medal,
+    Bell,
 }
 
 pub struct Glyph {
@@ -266,6 +269,35 @@ impl<Message> canvas::Program<Message> for Glyph {
             Icon::Copy => {
                 frame.stroke(&Path::rounded_rectangle(at(7.0, 7.0), Size::new(9.5 * s, 9.5 * s), (2.0 * s).into()), pen);
                 frame.stroke(&polyline(&[(5.0, 13.0), (4.0, 13.0), (4.0, 4.0), (13.0, 4.0), (13.0, 5.0)], false), pen);
+            }
+            Icon::Bell => {
+                let body = Path::new(|b| {
+                    b.move_to(at(5.0, 6.7));
+                    b.bezier_curve_to(at(5.0, 3.9), at(7.2, 1.7), at(10.0, 1.7));
+                    b.bezier_curve_to(at(12.8, 1.7), at(15.0, 3.9), at(15.0, 6.7));
+                    b.bezier_curve_to(at(15.0, 12.5), at(17.5, 14.2), at(17.5, 14.2));
+                    b.line_to(at(2.5, 14.2));
+                    b.bezier_curve_to(at(2.5, 14.2), at(5.0, 12.5), at(5.0, 6.7));
+                    b.close();
+                });
+                frame.stroke(&body, pen);
+                let clapper = Path::new(|b| {
+                    b.move_to(at(8.5, 17.5));
+                    b.quadratic_curve_to(at(10.0, 19.4), at(11.5, 17.5));
+                });
+                frame.stroke(&clapper, pen);
+            }
+            Icon::Shapes => {
+                frame.stroke(&polyline(&[(10.0, 2.4), (13.9, 8.4), (6.1, 8.4)], true), pen);
+                frame.stroke(&Path::rounded_rectangle(at(2.6, 11.6), Size::new(5.8 * s, 5.8 * s), (0.9 * s).into()), pen);
+                frame.stroke(&Path::circle(at(14.6, 14.6), 2.9 * s), pen);
+            }
+            Icon::Medal => {
+                frame.stroke(&polyline(&[(6.0, 11.4), (2.6, 5.6), (4.4, 2.4), (15.6, 2.4), (17.4, 5.6), (14.0, 11.4)], false), pen);
+                frame.stroke(&Path::line(at(9.1, 9.9), at(4.7, 2.6)), pen);
+                frame.stroke(&Path::line(at(10.9, 9.9), at(15.3, 2.6)), pen);
+                frame.stroke(&Path::line(at(6.7, 5.8), at(13.3, 5.8)), pen);
+                frame.stroke(&Path::circle(at(10.0, 14.1), 4.1 * s), pen);
             }
             Icon::File => {
                 frame.stroke(&polyline(&[(5.0, 2.5), (11.5, 2.5), (15.5, 6.5), (15.5, 17.5), (5.0, 17.5)], true), pen);

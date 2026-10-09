@@ -737,8 +737,8 @@ pub fn sheet<'a>(state: &'a State, words: &'a Words, signed_in: bool, now: i64) 
             let Some(held) = state.awaited() else { return container(body).padding(28).into() };
             let k = ui::fade();
             let dot = container(Space::new().width(11.0).height(11.0)).style(move |_| container::Style { background: Some(Background::Color(Color { a: k, ..ACCENT })), border: Border { radius: 5.5.into(), ..Border::default() }, ..container::Style::default() });
-            body = body.push(row![dot, text(words.t("billing-waiting")).font(theme::SANS_SEMI).size(26.0).color(ui::faded(INK)), ui::grow(), text(price(&held.plan, words)).font(theme::MONO_BOLD).size(16.0).color(ui::faded(INK)), text(period(&held.plan, words)).font(theme::SANS).size(14.0).color(ui::faded(MUTED))].spacing(12).align_y(iced::Center));
-            body = body.push(told(words.t("billing-waiting-how")));
+            body = body.push(row![dot, text(words.t(if held.state == "pending" { "billing-waiting" } else { "billing-unsure" })).font(theme::SANS_SEMI).size(26.0).color(ui::faded(INK)), ui::grow(), text(price(&held.plan, words)).font(theme::MONO_BOLD).size(16.0).color(ui::faded(INK)), text(period(&held.plan, words)).font(theme::SANS).size(14.0).color(ui::faded(MUTED))].spacing(12).align_y(iced::Center));
+            body = body.push(told(words.t(if held.state == "pending" { "billing-waiting-how" } else { "billing-unsure-how" })));
             if let Some(old) = state.subscription().filter(|old| old.access) {
                 body = body.push(text(words.with("billing-change-keeps", &[("name", plan_name(&old.plan))])).font(theme::SANS).size(14.0).color(ui::faded(MUTED)));
             }

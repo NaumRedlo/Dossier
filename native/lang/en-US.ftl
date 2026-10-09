@@ -1169,3 +1169,10 @@ shelf-collect-running = Close osu! and press again: the game rewrites its collec
 shelf-collect-none = No osu!stable folder with collection.db was found.
 shelf-collect-empty = None of the pool's maps are in the game, so there is nothing to collect.
 shelf-collect-failed = The collection could not be written.
+shelf-out = #{ $n } is out
+shelf-renew = Update
+shelf-renew-changed = The author updated the pool
+shelf-renew-added = { $n ->
+    [one] The author updated the pool: { $n } new map
+   *[other] The author updated the pool: { $n } new maps
+}

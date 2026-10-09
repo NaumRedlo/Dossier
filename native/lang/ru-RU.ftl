@@ -1207,3 +1207,11 @@ shelf-collect-running = Закройте osu! и нажмите ещё раз: �
 shelf-collect-none = Не найдена папка osu!stable с файлом collection.db.
 shelf-collect-empty = Ни одной карты пула нет в игре, коллекцию не из чего собрать.
 shelf-collect-failed = Не удалось записать коллекцию.
+shelf-out = Вышло #{ $n }
+shelf-renew = Обновить
+shelf-renew-changed = Автор обновил пул
+shelf-renew-added = { $n ->
+    [one] Автор обновил пул: { $n } новая карта
+    [few] Автор обновил пул: { $n } новые карты
+   *[other] Автор обновил пул: { $n } новых карт
+}

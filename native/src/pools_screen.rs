@@ -274,6 +274,7 @@ pub enum Message {
     Shelf(Shelf),
     SavePublication(String),
     Pull(String),
+    Renew(String),
     StopPull,
     Collected(String, Result<usize, String>),
     Makers(Option<String>),
@@ -1184,6 +1185,22 @@ impl State {
                     let queue = self.missing(pool);
                     self.pull = Some(Pull { pool: id, total: queue.len(), queue, lost: 0, current: None, step: None, stop: Arc::new(AtomicBool::new(false)), over: None });
                     effects.extend(self.pull_next());
+                }
+            }
+            Message::Renew(id) => {
+                let busy = self.pull.as_ref().is_some_and(|pull| pull.pool == id && pull.running());
+                if let Some(at) = self.list.iter().position(|pool| pool.id == id).filter(|_| !busy) {
+                    let fresh = self.newer_of(&self.list[at]).cloned();
+                    if let Some((publication, mut pool)) = fresh.and_then(|publication| serde_json::to_vec(&publication.content).ok().and_then(|bytes| pool_share::from_file(&bytes, now).ok()).map(|pool| (publication, pool))) {
+                        pool.id = id.clone();
+                        pool.published_revision = 0;
+                        pool.made_at = self.list[at].made_at;
+                        pool.saved = Some(pools::Saved { id: publication.id.clone(), code: publication.code.clone(), revision: publication.revision, publisher: pool.compiler.clone(), collected: false });
+                        self.list[at] = pool;
+                        if self.pull.as_ref().is_some_and(|pull| pull.pool == id) { self.pull = None; }
+                        self.save(at, now);
+                        effects.extend(self.measure_effects());
+                    }
                 }
             }
             Message::StopPull => {
@@ -2430,6 +2447,11 @@ impl State {
         self.save(0, now);
         self.screen = Screen::Editor(Editor::at(id));
         self.measure_effects()
+    }
+
+    pub fn newer_of(&self, pool: &Pool) -> Option<&crate::bot::Publication> {
+        let saved = pool.saved.as_ref()?;
+        self.publications.iter().find(|item| item.id == saved.id && item.kind == "pool" && item.revision > saved.revision)
     }
 
     fn pull_next(&mut self) -> Vec<Effect> {
@@ -3698,7 +3720,14 @@ fn saved_foot<'a>(state: &'a State, pool: &'a Pool, words: &'a Words) -> Element
     let pull = state.pull.as_ref().filter(|pull| pull.pool == pool.id);
     let free = state.fetching.is_none() && !state.pull.as_ref().is_some_and(Pull::running);
     let again = |label: &str| crate::billing::outlined(words.t(label), free.then(|| Message::Pull(pool.id.clone())));
+    let newer = state.newer_of(pool);
     let line: iced::widget::Row<'a, Message> = match (pull, missing_of(state, pool)) {
+        (running, _) if newer.is_some() && !running.is_some_and(Pull::running) => {
+            let held: HashSet<&str> = pool.slots.iter().filter_map(|slot| slot.hash.as_deref()).collect();
+            let added = newer.map_or(0, |item| published_hashes(item).into_iter().flatten().filter(|hash| !held.contains(hash.as_str())).count());
+            let told = if added > 0 { words.n("shelf-renew-added", added as u64) } else { words.t("shelf-renew-changed") };
+            row![said(told, INK), small_primary(words.t("shelf-renew"), Some(Message::Renew(pool.id.clone())))]
+        }
         (Some(pull), _) if pull.running() => {
             let part = match &pull.step {
                 Some(crate::maps::Step::Downloading { done, total: Some(total), .. }) if *total > 0 => Some((*done as f32 / *total as f32, format!("{} / {} {}", megabytes(words, *done), megabytes(words, *total), words.t("shelf-megabytes")))),
@@ -3750,6 +3779,18 @@ fn showcase<'a>(state: &'a State, mut page: iced::widget::Column<'a, Message>, w
         }
         Shelf::Saved => {
             let saved: Vec<&Pool> = state.list.iter().filter(|pool| !pool.collection && pool.saved.is_some()).collect();
+            let mark_of = |pool: &Pool| -> Element<'a, Message> {
+                match state.newer_of(pool) {
+                    Some(item) => {
+                        let k = ui::fade();
+                        let out = container(text(words.with("shelf-out", &[("n", item.revision.to_string())])).font(theme::MONO_BOLD).size(12.0).color(ui::faded(Color::from_rgb(1.0, 0.85, 0.66))))
+                            .padding([3, 10])
+                            .style(move |_| container::Style { background: Some(Background::Color(Color::from_rgba(0.84, 0.537, 0.31, 0.34 * k))), border: Border { radius: 11.0.into(), ..Border::default() }, ..container::Style::default() });
+                        row![mark_of(pool), out].spacing(6).align_y(iced::Center).into()
+                    }
+                    None => mark_of(pool),
+                }
+            };
             if saved.is_empty() {
                 page = page.push(ui::appearing(ui::appear(t, 1), 8.0, || note("shelf-empty-saved")));
             }
@@ -5704,6 +5745,48 @@ mod tests {
         state.update(Message::Collected(id.clone(), Ok(3)), 110);
         assert!(state.list.iter().find(|pool| pool.id == id).unwrap().saved.as_ref().unwrap().collected);
         assert!(pools::load_all(&state.dir).iter().any(|pool| pool.id == id && pool.saved.as_ref().is_some_and(|saved| saved.collected)), "and it is remembered on disk");
+    }
+
+    #[test]
+    fn a_saved_pool_tells_of_a_newer_issue_and_takes_it_on_request() {
+        let words = Words::new(crate::lang::Lang::En);
+        let thumbs = HashMap::new();
+        let mut state = state_with_songs("renew");
+        let mut theirs = Pool::new(Frame::Free, "Winter Cup", 1_790_000_000);
+        theirs.compiler = "Builder".into();
+        theirs.slots = vec![Slot::empty(Mod::Nm), Slot::empty(Mod::Hd)];
+        theirs.slots[0].hash = Some("a".repeat(32));
+        theirs.slots[1].hash = Some("b".repeat(32));
+        let issue = |pool: &Pool, revision: u64| crate::bot::Publication { code: "XQIS43GB".into(), id: "theirs".into(), kind: "pool".into(), local_id: "x".into(), revision, name: pool.name.clone(), content: serde_json::from_slice(&pool_share::to_file(pool)).unwrap(), mine: false };
+        state.publications = vec![issue(&theirs, 3)];
+        state.update(Message::SavePublication("theirs".into()), 100);
+        let id = state.list.iter().find(|pool| pool.saved.is_some()).unwrap().id.clone();
+        state.update(Message::Collected(id.clone(), Ok(2)), 101);
+        state.shelf = Shelf::Saved;
+        assert!(state.newer_of(&state.list[0]).is_none());
+        {
+            let mut screen = look(&state, &words, &thumbs);
+            assert!(screen.find(words.t("shelf-renew")).is_err() && screen.find(words.with("shelf-out", &[("n", "4".into())])).is_err());
+        }
+        assert!(state.update(Message::Renew(id.clone()), 102).is_empty(), "with nothing newer nothing changes");
+        theirs.name = "Winter Cup, finals".into();
+        theirs.slots.push(Slot::empty(Mod::Hr));
+        theirs.slots[2].hash = Some("c".repeat(32));
+        state.publications = vec![issue(&theirs, 4)];
+        {
+            let mut screen = look(&state, &words, &thumbs);
+            assert!(screen.find(words.with("shelf-out", &[("n", "4".into())])).is_ok());
+            assert!(screen.find(words.n("shelf-renew-added", 1)).is_ok());
+            screen.click(words.t("shelf-renew")).unwrap();
+            assert!(matches!(screen.into_messages().collect::<Vec<_>>().as_slice(), [Message::Renew(renew)] if *renew == id));
+        }
+        state.update(Message::Renew(id.clone()), 103);
+        let pool = state.list.iter().find(|pool| pool.id == id).unwrap();
+        assert_eq!((pool.name.as_str(), pool.filled()), ("Winter Cup, finals", 3));
+        assert_eq!(pool.saved, Some(pools::Saved { id: "theirs".into(), code: "XQIS43GB".into(), revision: 4, publisher: "Builder".into(), collected: false }), "the collection has to be written again");
+        assert_eq!(state.list.iter().filter(|pool| pool.saved.is_some()).count(), 1, "the pool is renewed in place");
+        assert!(state.newer_of(pool).is_none());
+        assert!(pools::load_all(&state.dir).iter().any(|pool| pool.id == id && pool.filled() == 3));
     }
 
     fn saved_count(state: &State) -> u64 {

@@ -1306,6 +1306,8 @@ fn feed_states(community: &dyn Fn(crate::community_screen::Section, Option<usize
                     songs.remove(&hash);
                 }
             }
+            let newer = main.pools.list[1].clone();
+            main.pools.publications.push(crate::bot::Publication { code: "B2T8LX5C".into(), id: "saved-1".into(), kind: "pool".into(), local_id: "x".into(), revision: 4, name: newer.name.clone(), content: serde_json::from_slice(&crate::pool_share::to_file(&newer)).unwrap(), mine: false });
             main.pools.shelf = crate::pools_screen::Shelf::Saved;
             main
         }),

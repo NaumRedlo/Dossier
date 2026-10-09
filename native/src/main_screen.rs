@@ -1551,6 +1551,13 @@ impl Main {
                         Message::Community(crate::community_screen::Message::Pools(P::Songs(std::sync::Arc::new(found))))
                     }));
                 }
+                Effect::Collect(id, name, hashes) => {
+                    let sources = self.settings.sources.clone();
+                    tasks.push(ui::in_thread(move || {
+                        let result = crate::pool_collections::add_to_game(&sources, &name, &hashes).map_err(|refused| refused.code());
+                        Message::Community(crate::community_screen::Message::Pools(P::Collected(id, result)))
+                    }));
+                }
                 Effect::ReadCollections => {
                     let sources = self.settings.sources.clone();
                     tasks.push(ui::in_thread(move || {

@@ -1154,3 +1154,18 @@ shelf-missing = { $n ->
 }
 shelf-empty-mine = No drafts yet. Press “New pool”.
 shelf-empty-saved = No saved pools yet. Find a pool under “Published” and press “Save”.
+shelf-pull = Download to the game
+shelf-collect = Create collection
+shelf-again = Try again
+shelf-stop = Stop
+shelf-megabytes = MB
+shelf-collected = All maps and the collection are in the game
+shelf-collecting = Writing the collection…
+shelf-lost = { $n ->
+    [one] { $n } map is on no mirror, the rest are in the game
+   *[other] { $n } maps are on no mirror, the rest are in the game
+}
+shelf-collect-running = Close osu! and press again: the game rewrites its collections when it exits.
+shelf-collect-none = No osu!stable folder with collection.db was found.
+shelf-collect-empty = None of the pool's maps are in the game, so there is nothing to collect.
+shelf-collect-failed = The collection could not be written.

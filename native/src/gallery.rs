@@ -1298,7 +1298,13 @@ fn feed_states(community: &dyn Fn(crate::community_screen::Section, Option<usize
             main.pools.list.truncate(3);
             for (at, pool) in main.pools.list.iter_mut().enumerate() {
                 pool.compiler = "kotofey".into();
-                pool.saved = Some(crate::pools::Saved { id: format!("saved-{at}"), code: ["R9F3WQ6H", "B2T8LX5C", "H4N6VZ1J"][at].into(), revision: at as u64 + 1, publisher: "kotofey".into() });
+                pool.saved = Some(crate::pools::Saved { id: format!("saved-{at}"), code: ["R9F3WQ6H", "B2T8LX5C", "H4N6VZ1J"][at].into(), revision: at as u64 + 1, publisher: "kotofey".into(), collected: at == 0 });
+            }
+            if let Some(songs) = main.pools.songs.as_mut() {
+                let songs = std::sync::Arc::make_mut(songs);
+                for hash in main.pools.list[2].slots.iter().filter_map(|slot| slot.hash.clone()).take(2) {
+                    songs.remove(&hash);
+                }
             }
             main.pools.shelf = crate::pools_screen::Shelf::Saved;
             main

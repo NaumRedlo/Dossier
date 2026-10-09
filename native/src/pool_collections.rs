@@ -83,6 +83,118 @@ pub fn parse(bytes: &[u8]) -> Result<Vec<Collection>, String> {
     Ok(collections)
 }
 
+fn put_string(out: &mut Vec<u8>, value: &str) {
+    if value.is_empty() {
+        out.push(0);
+        return;
+    }
+    out.push(11);
+    let mut length = value.len();
+    loop {
+        let byte = (length & 127) as u8;
+        length >>= 7;
+        if length == 0 {
+            out.push(byte);
+            break;
+        }
+        out.push(byte | 128);
+    }
+    out.extend_from_slice(value.as_bytes());
+}
+
+pub fn compose(version: [u8; 4], collections: &[Collection]) -> Vec<u8> {
+    let mut out = version.to_vec();
+    out.extend_from_slice(&(collections.len() as i32).to_le_bytes());
+    for collection in collections {
+        put_string(&mut out, &collection.name);
+        out.extend_from_slice(&(collection.hashes.len() as i32).to_le_bytes());
+        for hash in &collection.hashes {
+            put_string(&mut out, hash);
+        }
+    }
+    out
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Refused {
+    NoGame,
+    Running,
+    Failed(String),
+}
+
+impl Refused {
+    pub fn code(&self) -> String {
+        match self {
+            Refused::NoGame => "none".to_owned(),
+            Refused::Running => "running".to_owned(),
+            Refused::Failed(why) => format!("failed: {why}"),
+        }
+    }
+}
+
+pub fn add(root: &Path, name: &str, hashes: &[String]) -> Result<usize, String> {
+    let file = root.join("collection.db");
+    if file.metadata().map_err(|why| why.to_string())?.len() > MAX_FILE {
+        return Err("collection.db is too large".to_owned());
+    }
+    let bytes = std::fs::read(&file).map_err(|why| why.to_string())?;
+    let version: [u8; 4] = bytes.get(..4).and_then(|head| head.try_into().ok()).ok_or("collection.db is damaged")?;
+    let mut collections = parse(&bytes)?;
+    let mut seen = HashSet::new();
+    let wanted: Vec<String> = hashes.iter().map(|hash| hash.to_ascii_lowercase()).filter(|hash| hash.len() == 32 && hash.bytes().all(|byte| byte.is_ascii_hexdigit()) && seen.insert(hash.clone())).collect();
+    if wanted.is_empty() || name.trim().is_empty() || name.len() > MAX_NAME {
+        return Err("nothing to write".to_owned());
+    }
+    match collections.iter_mut().find(|collection| collection.name == name) {
+        Some(held) => held.hashes = wanted.clone(),
+        None => {
+            if collections.len() >= MAX_COLLECTIONS {
+                return Err("too many collections".to_owned());
+            }
+            collections.push(Collection { name: name.to_owned(), hashes: wanted.clone() });
+        }
+    }
+    let composed = compose(version, &collections);
+    if parse(&composed)? != collections {
+        return Err("the new file does not read back".to_owned());
+    }
+    let backup = root.join("collection.db.dossier-backup");
+    if !backup.exists() {
+        std::fs::copy(&file, &backup).map_err(|why| why.to_string())?;
+    }
+    let staging = root.join(format!("collection.db.{}.part", std::process::id()));
+    let written = std::fs::write(&staging, &composed).and_then(|_| std::fs::rename(&staging, &file));
+    if written.is_err() {
+        let _ = std::fs::remove_file(&staging);
+    }
+    written.map_err(|why| why.to_string())?;
+    Ok(wanted.len())
+}
+
+pub fn game_runs(listed: &str) -> bool {
+    listed.lines().any(|line| {
+        let line = line.to_lowercase();
+        line.contains("osu!.exe") && !line.contains("witness")
+    })
+}
+
+pub fn game_running() -> bool {
+    let listed = if cfg!(windows) {
+        std::process::Command::new("tasklist").args(["/FI", "IMAGENAME eq osu!.exe", "/NH"]).output()
+    } else {
+        std::process::Command::new("/bin/ps").args(["-axo", "pid=,command="]).output()
+    };
+    listed.ok().is_some_and(|out| game_runs(&String::from_utf8_lossy(&out.stdout)))
+}
+
+pub fn add_to_game(sources: &[Source], name: &str, hashes: &[String]) -> Result<usize, Refused> {
+    let root = roots(sources).into_iter().next().ok_or(Refused::NoGame)?;
+    if game_running() {
+        return Err(Refused::Running);
+    }
+    add(&root, name, hashes).map_err(Refused::Failed)
+}
+
 fn from_file(path: &Path) -> Option<Vec<Collection>> {
     if path.metadata().ok()?.len() > MAX_FILE {
         return None;
@@ -191,4 +303,45 @@ mod tests {
         assert_eq!(read_roots(roots_with(&[Source { kind: Kind::Folder, ..source }], Vec::new())).len(), 1);
         let _ = std::fs::remove_dir_all(root);
     }
+    #[test]
+    fn a_pool_is_written_into_the_game_file_beside_what_is_there_and_reads_back() {
+        let root = std::env::temp_dir().join(format!("dossier-collection-write-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let (first, second, third) = ("a".repeat(32), "b".repeat(32), "c".repeat(32));
+        let held = vec![Collection { name: "Избранное".into(), hashes: vec![first.clone()] }, Collection { name: String::new(), hashes: Vec::new() }];
+        let version = 20_150_203_i32.to_le_bytes();
+        let original = compose(version, &held);
+        assert_eq!(parse(&original).unwrap(), held);
+        std::fs::write(root.join("collection.db"), &original).unwrap();
+        assert_eq!(add(&root, "Winter Cup", &[second.to_uppercase(), second.clone(), "junk".into(), third.clone()]), Ok(2));
+        let bytes = std::fs::read(root.join("collection.db")).unwrap();
+        assert_eq!(&bytes[..4], &version, "the version of the file is kept");
+        let read = parse(&bytes).unwrap();
+        assert_eq!(read.len(), 3);
+        assert_eq!(read[..2], held[..], "what was there is untouched");
+        assert_eq!(read[2], Collection { name: "Winter Cup".into(), hashes: vec![second.clone(), third.clone()] });
+        assert_eq!(std::fs::read(root.join("collection.db.dossier-backup")).unwrap(), original, "the first state is kept aside");
+        assert_eq!(add(&root, "Winter Cup", &[first.clone()]), Ok(1));
+        let again = parse(&std::fs::read(root.join("collection.db")).unwrap()).unwrap();
+        assert_eq!((again.len(), again[2].hashes.clone()), (3, vec![first.clone()]), "the same name is replaced, not doubled");
+        assert_eq!(std::fs::read(root.join("collection.db.dossier-backup")).unwrap(), original, "the backup is the state before Dossier touched the file");
+        assert!(add(&root, "Empty", &["junk".into()]).is_err() && add(&root, " ", &[first.clone()]).is_err());
+        assert_eq!(std::fs::read_dir(&root).unwrap().count(), 2, "no staging file is left");
+        std::fs::write(root.join("collection.db"), b"\x01\x02").unwrap();
+        assert!(add(&root, "Winter Cup", &[first]).is_err());
+        assert_eq!(std::fs::read(root.join("collection.db")).unwrap(), b"\x01\x02", "a damaged file is left as it is");
+        let long = "я".repeat(200);
+        assert_eq!(parse(&compose(version, &[Collection { name: long.clone(), hashes: Vec::new() }])).unwrap()[0].name, long);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_running_game_is_told_from_the_process_list() {
+        assert!(game_runs("10625 C:\\users\\crossover\\AppData\\Local\\osu!\\osu!.exe \n"));
+        assert!(game_runs("osu!.exe                     10625 Console                    1    512,000 K"));
+        assert!(!game_runs("  501 /usr/bin/something\n10700 Z:\\tmp\\witness.exe --client osu!.exe\n"));
+        assert!(!game_runs("INFO: No tasks are running which match the specified criteria."));
+    }
+
 }

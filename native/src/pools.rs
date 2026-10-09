@@ -287,6 +287,8 @@ pub struct Saved {
     pub revision: u64,
     #[serde(default)]
     pub publisher: String,
+    #[serde(default)]
+    pub collected: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]

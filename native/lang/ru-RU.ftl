@@ -1192,3 +1192,18 @@ shelf-missing = { $n ->
 }
 shelf-empty-mine = Черновиков пока нет. Нажмите «Новый пул».
 shelf-empty-saved = Сохранённых пулов пока нет. Найдите пул во вкладке «Опубликованные» и нажмите «Сохранить».
+shelf-pull = Скачать в игру
+shelf-collect = Создать коллекцию
+shelf-again = Ещё раз
+shelf-stop = Стоп
+shelf-megabytes = МБ
+shelf-collected = Все карты и коллекция в игре
+shelf-collecting = Записываем коллекцию…
+shelf-lost = { $n ->
+    [one] { $n } карты нет на зеркалах, остальные в игре
+   *[other] { $n } карт нет на зеркалах, остальные в игре
+}
+shelf-collect-running = Закройте osu! и нажмите ещё раз: при выходе игра перезапишет коллекции.
+shelf-collect-none = Не найдена папка osu!stable с файлом collection.db.
+shelf-collect-empty = Ни одной карты пула нет в игре, коллекцию не из чего собрать.
+shelf-collect-failed = Не удалось записать коллекцию.

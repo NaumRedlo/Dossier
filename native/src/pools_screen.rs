@@ -128,6 +128,28 @@ pub struct Opening {
     pub lost: usize,
 }
 
+#[derive(Debug, Clone)]
+pub struct Pull {
+    pub pool: String,
+    pub queue: Vec<String>,
+    pub total: usize,
+    pub lost: usize,
+    pub current: Option<String>,
+    pub step: Option<crate::maps::Step>,
+    pub stop: Arc<std::sync::atomic::AtomicBool>,
+    pub over: Option<Result<usize, String>>,
+}
+
+impl Pull {
+    pub fn running(&self) -> bool {
+        self.current.is_some() || !self.queue.is_empty()
+    }
+
+    pub fn done(&self) -> usize {
+        self.total.saturating_sub(self.queue.len() + usize::from(self.current.is_some()))
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Shelf {
     #[default]
@@ -251,6 +273,9 @@ pub enum Message {
     Catalogue(bool),
     Shelf(Shelf),
     SavePublication(String),
+    Pull(String),
+    StopPull,
+    Collected(String, Result<usize, String>),
     Makers(Option<String>),
     Begin(Start),
     PublishSheet(bool),
@@ -357,6 +382,7 @@ pub enum Effect {
     Author(String),
     ReadSongs,
     ReadCollections,
+    Collect(String, String, Vec<String>),
     ReadBest(bool),
     ReadPaste(String, Input, String),
     Suggest(u64, Arc<HashMap<String, Map>>, Mod, f64, HashSet<String>, Arc<AtomicBool>),
@@ -456,6 +482,7 @@ pub struct State {
     pub makers: Option<String>,
     pub collection_shelf: bool,
     pub shelf: Shelf,
+    pub pull: Option<Pull>,
     pub publications: Vec<crate::bot::Publication>,
     pub catalogue_loading: bool,
     pub catalogue_more: bool,
@@ -531,6 +558,7 @@ impl State {
             makers: None,
             collection_shelf: false,
             shelf: Shelf::Mine,
+            pull: None,
             publications: Vec::new(),
             catalogue_loading: false,
             catalogue_more: false,
@@ -1142,12 +1170,42 @@ impl State {
                 if let Some(publication) = self.publications.iter().find(|row| row.id == id && row.kind == "pool" && !row.mine).filter(|_| !held).cloned() {
                     if let Some(mut pool) = serde_json::to_vec(&publication.content).ok().and_then(|bytes| pool_share::from_file(&bytes, now).ok()) {
                         pool.published_revision = 0;
-                        pool.saved = Some(pools::Saved { id: publication.id.clone(), code: publication.code.clone(), revision: publication.revision, publisher: pool.compiler.clone() });
+                        pool.saved = Some(pools::Saved { id: publication.id.clone(), code: publication.code.clone(), revision: publication.revision, publisher: pool.compiler.clone(), collected: false });
                         self.list.push(pool);
                         self.save(self.list.len() - 1, now);
                         effects.extend(self.measure_effects());
                         if self.songs.is_none() && !self.reading { self.reading = true; effects.push(Effect::ReadSongs); }
                     }
+                }
+            }
+            Message::Pull(id) => {
+                let busy = self.fetching.is_some() || self.pull.as_ref().is_some_and(Pull::running);
+                if let Some(pool) = self.list.iter().find(|pool| pool.id == id && pool.saved.is_some()).filter(|_| !busy && self.songs.is_some()) {
+                    let queue = self.missing(pool);
+                    self.pull = Some(Pull { pool: id, total: queue.len(), queue, lost: 0, current: None, step: None, stop: Arc::new(AtomicBool::new(false)), over: None });
+                    effects.extend(self.pull_next());
+                }
+            }
+            Message::StopPull => {
+                if let Some(pull) = self.pull.as_mut().filter(|pull| pull.running()) {
+                    pull.stop.store(true, Ordering::SeqCst);
+                    pull.queue.clear();
+                    if pull.current.is_none() {
+                        self.pull = None;
+                    }
+                }
+            }
+            Message::Collected(id, result) => {
+                if let Some(at) = self.list.iter().position(|pool| pool.id == id) {
+                    if result.is_ok() {
+                        if let Some(saved) = self.list[at].saved.as_mut() {
+                            saved.collected = true;
+                        }
+                        self.save_quiet(at);
+                    }
+                }
+                if let Some(pull) = self.pull.as_mut().filter(|pull| pull.pool == id) {
+                    pull.over = Some(result);
                 }
             }
             Message::CatalogueMore => {
@@ -2374,8 +2432,63 @@ impl State {
         self.measure_effects()
     }
 
+    fn pull_next(&mut self) -> Vec<Effect> {
+        loop {
+            let Some(pull) = self.pull.as_mut() else { return Vec::new() };
+            pull.current = None;
+            pull.step = None;
+            if pull.queue.is_empty() {
+                let id = pull.pool.clone();
+                let Some(pool) = self.list.iter().find(|pool| pool.id == id) else { self.pull = None; return Vec::new() };
+                let held: Vec<String> = pool.slots.iter().filter_map(|slot| slot.hash.clone()).filter(|hash| self.songs.as_ref().is_some_and(|songs| songs.contains_key(hash)) || self.fetched.contains_key(hash)).collect();
+                if held.is_empty() {
+                    if let Some(pull) = self.pull.as_mut() { pull.over = Some(Err("empty".to_owned())); }
+                    return Vec::new();
+                }
+                let name = pool.name.clone();
+                let mut effects = self.measure_effects();
+                effects.push(Effect::Collect(id, name, held));
+                return effects;
+            }
+            let hash = pull.queue.remove(0);
+            let stop = pull.stop.clone();
+            let known = self.songs.as_ref().is_some_and(|songs| songs.contains_key(&hash)) || self.fetched.contains_key(&hash);
+            if !known {
+                if let Some(pull) = self.pull.as_mut() { pull.current = Some(hash.clone()); }
+                return vec![self.fetch(hash, stop)];
+            }
+        }
+    }
+
+    fn pull_stepped(&mut self, hash: &str, step: crate::maps::Step) -> Vec<Effect> {
+        use crate::maps::Step;
+        let Some(pull) = self.pull.as_mut() else { return Vec::new() };
+        pull.step = Some(step.clone());
+        match step {
+            Step::Done(map) => {
+                self.fetched.insert(hash.to_owned(), map.clone());
+                if let Some(songs) = self.songs.as_mut() {
+                    Arc::make_mut(songs).insert(hash.to_owned(), map);
+                }
+                self.pull_next()
+            }
+            Step::Nowhere | Step::Failed(_) => {
+                pull.lost += 1;
+                self.pull_next()
+            }
+            Step::Stopped => {
+                self.pull = None;
+                Vec::new()
+            }
+            Step::Looking | Step::Found(_) | Step::Downloading { .. } | Step::Unpacking | Step::Checking => Vec::new(),
+        }
+    }
+
     fn stepped(&mut self, hash: &str, step: crate::maps::Step, now: i64) -> Vec<Effect> {
         use crate::maps::Step;
+        if self.pull.as_ref().is_some_and(|pull| pull.current.as_deref() == Some(hash)) {
+            return self.pull_stepped(hash, step);
+        }
         if let Screen::Open(opening) = &mut self.screen {
             opening.step = Some(step.clone());
             return match step {
@@ -3560,6 +3673,58 @@ fn missing_of(state: &State, pool: &Pool) -> Option<usize> {
     Some(pool.slots.iter().filter_map(|slot| slot.hash.as_ref()).filter(|hash| !songs.contains_key(*hash)).count())
 }
 
+fn small_primary<'a>(label: String, press: Option<Message>) -> Element<'a, Message> {
+    let made = button(container(text(label).font(theme::SANS_SEMI).size(14.0).wrapping(text::Wrapping::None)).center_y(36.0))
+        .padding([0, 14])
+        .style(ui::button_faded(|_: &iced::Theme, status: button::Status| {
+            let lit = matches!(status, button::Status::Hovered | button::Status::Pressed);
+            let quiet = matches!(status, button::Status::Disabled);
+            button::Style { background: Some(Background::Color(if quiet { Color::from_rgba(1.0, 1.0, 1.0, 0.08) } else if lit { ACCENT } else { Color::from_rgb(0.788, 0.227, 0.227) })), text_color: if quiet { FAINT } else { Color::WHITE }, border: Border { radius: 8.0.into(), ..Border::default() }, shadow: iced::Shadow::default(), snap: true }
+        }));
+    match press {
+        Some(press) => made.on_press(press).into(),
+        None => made.into(),
+    }
+}
+
+fn megabytes(words: &Words, bytes: u64) -> String {
+    let value = format!("{:.1}", bytes as f64 / 1_048_576.0);
+    if words.lang() == crate::lang::Lang::Ru { value.replace('.', ",") } else { value }
+}
+
+fn saved_foot<'a>(state: &'a State, pool: &'a Pool, words: &'a Words) -> Element<'a, Message> {
+    let good = Color::from_rgb(0.765, 0.831, 0.651);
+    let said = |line: String, ink: Color| -> Element<'a, Message> { container(text(line).font(theme::SANS).size(13.0).color(ui::faded(ink))).width(Length::Fill).into() };
+    let pull = state.pull.as_ref().filter(|pull| pull.pool == pool.id);
+    let free = state.fetching.is_none() && !state.pull.as_ref().is_some_and(Pull::running);
+    let again = |label: &str| crate::billing::outlined(words.t(label), free.then(|| Message::Pull(pool.id.clone())));
+    let line: iced::widget::Row<'a, Message> = match (pull, missing_of(state, pool)) {
+        (Some(pull), _) if pull.running() => {
+            let part = match &pull.step {
+                Some(crate::maps::Step::Downloading { done, total: Some(total), .. }) if *total > 0 => Some((*done as f32 / *total as f32, format!("{} / {} {}", megabytes(words, *done), megabytes(words, *total), words.t("shelf-megabytes")))),
+                _ => None,
+            };
+            let fraction = ((pull.done() as f32 + part.as_ref().map_or(0.0, |(part, _)| *part)) / pull.total.max(1) as f32).clamp(0.02, 1.0);
+            let mut line = row![text(words.of(pull.done() as u64 + 1, pull.total as u64)).font(theme::MONO_BOLD).size(13.0).color(ui::faded(INK)), container(crate::billing::bar(fraction, ACCENT)).width(Length::Fill)];
+            if let Some((_, bytes)) = part {
+                line = line.push(text(bytes).font(theme::MONO).size(12.0).color(ui::faded(MUTED)));
+            }
+            line.push(crate::billing::outlined(words.t("shelf-stop"), Some(Message::StopPull)))
+        }
+        (Some(Pull { over: Some(Err(why)), .. }), _) => {
+            let key = match why.as_str() { "running" => "shelf-collect-running", "none" => "shelf-collect-none", "empty" => "shelf-collect-empty", _ => "shelf-collect-failed" };
+            row![said(words.t(key), Color::from_rgb(1.0, 0.61, 0.61)), again("shelf-again")]
+        }
+        (Some(Pull { over: Some(Ok(_)), lost, .. }), _) if *lost > 0 => row![said(words.n("shelf-lost", *lost as u64), Color::from_rgb(1.0, 0.61, 0.61)), again("shelf-again")],
+        (Some(Pull { over: None, .. }), _) => row![said(words.t("shelf-collecting"), MUTED)],
+        (_, None) => row![said(words.t("shelf-checking"), FAINT)],
+        (_, Some(0)) if pool.saved.as_ref().is_some_and(|saved| saved.collected) => row![glyph(Icon::Check, 13.0, good), said(words.t("shelf-collected"), good)],
+        (_, Some(0)) => row![glyph(Icon::Check, 13.0, good), said(words.t("shelf-all-here"), good), again("shelf-collect")],
+        (_, Some(missing)) => row![said(words.n("shelf-missing", missing as u64), MUTED), small_primary(words.t("shelf-pull"), free.then(|| Message::Pull(pool.id.clone())))],
+    };
+    row![Space::new().height(36.0), container(line.spacing(10).align_y(iced::Center)).width(Length::Fill)].align_y(iced::Center).into()
+}
+
 fn showcase<'a>(state: &'a State, mut page: iced::widget::Column<'a, Message>, words: &'a Words, thumbs: &'a HashMap<String, image::Handle>, width: f32, t: f32, clocks: &Clocks) -> Element<'a, Message> {
     let across = if width >= 960.0 { 3 } else if width >= 620.0 { 2 } else { 1 };
     let wide = ((width - CARD_GAP * (across as f32 - 1.0)) / across as f32).floor();
@@ -3589,12 +3754,8 @@ fn showcase<'a>(state: &'a State, mut page: iced::widget::Column<'a, Message>, w
                 page = page.push(ui::appearing(ui::appear(t, 1), 8.0, || note("shelf-empty-saved")));
             }
             let cards = saved.iter().enumerate().map(|(at, pool)| {
-                let foot: Element<'a, Message> = match missing_of(state, pool) {
-                    Some(0) => row![glyph(Icon::Check, 13.0, Color::from_rgb(0.765, 0.831, 0.651)), faded_text(words.t("shelf-all-here"), 13.0, Color::from_rgb(0.765, 0.831, 0.651))].spacing(8).align_y(iced::Center).into(),
-                    Some(missing) => faded_text(words.n("shelf-missing", missing as u64), 13.0, MUTED),
-                    None => faded_text(words.t("shelf-checking"), 13.0, FAINT),
-                };
-                ui::appearing(ui::appear(t, 1 + at / across), 10.0, || pool_card(state, shown_of(pool, words, words.day(pool.changed_at, clocks.today)), mark_of(pool), Some(container(foot).height(30.0).center_y(30.0).into()), Some(Message::Open(pool.id.clone())), wide, words, thumbs))
+                let foot = saved_foot(state, pool, words);
+                ui::appearing(ui::appear(t, 1 + at / across), 10.0, || pool_card(state, shown_of(pool, words, words.day(pool.changed_at, clocks.today)), mark_of(pool), Some(foot), Some(Message::Open(pool.id.clone())), wide, words, thumbs))
             }).collect();
             page = page.push(tiled(cards, across));
         }
@@ -5472,7 +5633,7 @@ mod tests {
         state.update(Message::SavePublication("ours".into()), 1_790_000_003);
         assert_eq!(state.list.len(), before + 1, "saved once, and one's own publication is not saved as a copy");
         let saved = state.list.iter().find(|pool| pool.saved.is_some()).unwrap().clone();
-        assert_eq!(saved.saved, Some(pools::Saved { id: "theirs".into(), code: "XQIS43GB".into(), revision: 3, publisher: "Builder".into() }));
+        assert_eq!(saved.saved, Some(pools::Saved { id: "theirs".into(), code: "XQIS43GB".into(), revision: 3, publisher: "Builder".into(), collected: false }));
         assert_eq!(saved.published_revision, 0);
         assert_eq!(pools::load_all(&state.dir).iter().filter(|pool| pool.saved.is_some()).count(), 1, "the mark survives on disk");
         {
@@ -5499,6 +5660,50 @@ mod tests {
 
     fn look<'a>(state: &'a State, words: &'a Words, thumbs: &'a HashMap<String, image::Handle>) -> iced_test::Simulator<'a, Message> {
         iced_test::Simulator::with_size(crate::settings(), iced::Size::new(1400.0, 900.0), view(state, words, thumbs, 1400.0, 1.0, &Clocks::settled()))
+    }
+
+    #[test]
+    fn a_saved_pool_downloads_what_is_missing_and_then_asks_for_its_collection() {
+        let mut state = state_with_songs("pull");
+        let mut pool = Pool::new(Frame::Free, "Winter Cup", 1_790_000_000);
+        pool.slots = vec![Slot::empty(Mod::Nm), Slot::empty(Mod::Hd), Slot::empty(Mod::Hr)];
+        for (slot, hash) in pool.slots.iter_mut().zip(["a1", "zz8", "zz9"]) {
+            slot.hash = Some(hash.to_owned());
+        }
+        pool.saved = Some(pools::Saved { id: "theirs".into(), code: "XQIS43GB".into(), revision: 1, publisher: "Builder".into(), collected: false });
+        let id = pool.id.clone();
+        state.list.push(pool);
+        assert!(state.update(Message::Pull("no such pool".into()), 100).is_empty() && state.pull.is_none());
+        let effects = state.update(Message::Pull(id.clone()), 101);
+        let Some(Effect::Fetch(first, hash, _)) = effects.iter().find(|effect| matches!(effect, Effect::Fetch(..))).cloned() else { panic!("{effects:?}") };
+        assert_eq!(hash, "zz8", "the map that is already in the game is not asked for");
+        let pull = state.pull.as_ref().unwrap();
+        assert_eq!((pull.total, pull.done(), pull.running()), (2, 0, true));
+        assert!(state.update(Message::Pull(id.clone()), 102).is_empty(), "a second press while it runs starts nothing");
+        let effects = state.update(Message::Step(first, "zz8".into(), crate::maps::Step::Done(map("Found", "A", "B"))), 103);
+        let Some(Effect::Fetch(second, hash, _)) = effects.iter().find(|effect| matches!(effect, Effect::Fetch(..))).cloned() else { panic!("{effects:?}") };
+        assert_eq!((hash.as_str(), state.pull.as_ref().unwrap().done()), ("zz9", 1));
+        let effects = state.update(Message::Step(second, "zz9".into(), crate::maps::Step::Nowhere), 104);
+        let Some(Effect::Collect(pool_id, name, hashes)) = effects.iter().find(|effect| matches!(effect, Effect::Collect(..))).cloned() else { panic!("{effects:?}") };
+        assert_eq!((pool_id.as_str(), name.as_str(), hashes), (id.as_str(), "Winter Cup", vec!["a1".to_owned(), "zz8".to_owned()]));
+        let pull = state.pull.as_ref().unwrap();
+        assert_eq!((pull.lost, pull.running(), pull.over.clone()), (1, false, None));
+        state.update(Message::Collected(id.clone(), Err("running".into())), 105);
+        assert!(!state.list.iter().find(|pool| pool.id == id).unwrap().saved.as_ref().unwrap().collected);
+        assert_eq!(state.pull.as_ref().unwrap().over, Some(Err("running".into())));
+        let effects = state.update(Message::Pull(id.clone()), 106);
+        assert!(effects.iter().any(|effect| matches!(effect, Effect::Fetch(_, hash, _) if hash == "zz9")), "the lost map is tried again: {effects:?}");
+        state.update(Message::StopPull, 107);
+        let request = state.fetching.as_ref().unwrap().0;
+        state.update(Message::Step(request, "zz9".into(), crate::maps::Step::Stopped), 108);
+        assert!(state.pull.is_none());
+        state.fetching = None;
+        if let Some(songs) = state.songs.as_mut() { Arc::make_mut(songs).insert("zz9".into(), map("Late", "A", "B")); }
+        let effects = state.update(Message::Pull(id.clone()), 109);
+        assert!(matches!(effects.iter().find(|effect| matches!(effect, Effect::Collect(..))), Some(Effect::Collect(_, _, hashes)) if hashes.len() == 3), "with nothing missing the collection is asked for at once: {effects:?}");
+        state.update(Message::Collected(id.clone(), Ok(3)), 110);
+        assert!(state.list.iter().find(|pool| pool.id == id).unwrap().saved.as_ref().unwrap().collected);
+        assert!(pools::load_all(&state.dir).iter().any(|pool| pool.id == id && pool.saved.as_ref().is_some_and(|saved| saved.collected)), "and it is remembered on disk");
     }
 
     fn saved_count(state: &State) -> u64 {

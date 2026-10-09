@@ -1223,3 +1223,4 @@ shelf-maps = { $n ->
     [few] { $n } карты
    *[other] { $n } карт
 }
+shelf-collection = Коллекция

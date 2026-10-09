@@ -3871,8 +3871,13 @@ fn showcase<'a>(state: &'a State, mut page: iced::widget::Column<'a, Message>, w
                         let out = container(text(words.with("shelf-out", &[("n", item.revision.to_string())])).font(theme::MONO_BOLD).size(12.0).color(ui::faded(Color::from_rgb(1.0, 0.85, 0.66))))
                             .padding([3, 10])
                             .style(move |_| container::Style { background: Some(Background::Color(Color::from_rgba(0.84, 0.537, 0.31, 0.34 * k))), border: Border { radius: 11.0.into(), ..Border::default() }, ..container::Style::default() });
-                        row![mark_of(pool), out].spacing(6).align_y(iced::Center).into()
+                        let mut marks = row![mark_of(pool), out].spacing(6).align_y(iced::Center);
+                        if pool.collection {
+                            marks = marks.push(word_plate(words.t("shelf-collection")));
+                        }
+                        marks.into()
                     }
+                    None if pool.collection => row![mark_of(pool), word_plate(words.t("shelf-collection"))].spacing(6).align_y(iced::Center).into(),
                     None => mark_of(pool),
                 }
             };

@@ -610,7 +610,7 @@ fn tier_card<'a>(state: &'a State, tier: &str, name: String, words: &'a Words) -
     };
     let chosen = state.tier.as_deref() == Some(tier);
     let own = state.changing && state.subscription().is_some_and(|held| offer_of(&held.plan) == tier);
-    let mut title = row![crate::glyphs::glyph(crate::glyphs::Icon::Heart, 14.0, tint), container(text(name).font(theme::SANS_SEMI).size(16.0).color(ui::faded(INK))).width(Length::Fill)].spacing(8).align_y(iced::Center);
+    let mut title = row![crate::glyphs::glyph(crate::glyphs::Icon::Heart, 14.0, tint), container(text(name.clone()).font(theme::SANS_SEMI).size(match name.chars().count() { 0..=10 => 16.0, 11..=12 => 14.0, _ => 12.5 }).wrapping(text::Wrapping::None).color(ui::faded(INK))).width(Length::Fill).clip(true)].spacing(8).align_y(iced::Center);
     if chosen {
         title = title.push(container(crate::glyphs::glyph(crate::glyphs::Icon::Check, 12.0, Color::from_rgb(0.07, 0.03, 0.04))).center(20.0).style(move |_| container::Style { background: Some(Background::Color(Color { a: k, ..tint })), border: Border { radius: 10.0.into(), ..Border::default() }, ..container::Style::default() }));
     }

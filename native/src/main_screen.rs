@@ -4389,7 +4389,7 @@ impl Main {
     pub fn write_notice(&mut self, mark: notices::Mark, words: String, detail: String, note: String, map_hash: String, link: notices::Link) -> u64 {
         let id = self.notices.push(mark, words, detail, note, map_hash, link);
         self.scenes_due = true;
-        self.bell_flash = Animation::new(true).duration(BELL_FLASH).easing(Easing::EaseOutCubic).go(false, Instant::now());
+        self.bell_flash = Animation::new(true).duration(BELL_FLASH).easing(Easing::Linear).go(false, Instant::now());
         if self.menu == Some(Tab::Bell) {
             self.arrivals.insert(id, Animation::new(false).duration(NOTICE_ARRIVE).easing(Easing::EaseOutCubic).go(true, Instant::now()));
         }
@@ -4399,7 +4399,7 @@ impl Main {
     pub fn announce(&mut self, mark: notices::Mark, words: String, detail: String, note: String, map_hash: String, link: notices::Link) {
         let id = self.notices.push(mark, words, detail, note, map_hash, link);
         self.scenes_due = true;
-        self.bell_flash = Animation::new(true).duration(BELL_FLASH).easing(Easing::EaseOutCubic).go(false, Instant::now());
+        self.bell_flash = Animation::new(true).duration(BELL_FLASH).easing(Easing::Linear).go(false, Instant::now());
         let now = Instant::now();
         if self.menu == Some(Tab::Bell) {
             self.arrivals.insert(id, Animation::new(false).duration(NOTICE_ARRIVE).easing(Easing::EaseOutCubic).go(true, now));
@@ -4458,7 +4458,7 @@ impl Main {
             _ => blank(),
         };
         let live: Element<'_, Message> = match (entry, &self.live, &self.trail) {
-            (Some(entry), Some(live), _) if live.for_path == entry.path && self.overlay == Overlay::None => match &live.frame {
+            (Some(entry), Some(live), _) if live.for_path == entry.path && (self.overlay == Overlay::None || self.ground_fade.is_animating(self.now)) => match &live.frame {
                 Some(frame) => {
                     let seen = live.fade.interpolate(0.0, 1.0, self.now);
                     let opacity = alpha * seen;
@@ -4530,7 +4530,7 @@ impl Main {
             stack![shield, mark].into()
         } else { blank() };
         let mini = self.mini_player_layer();
-        let layers = stack![scene_before, scene, live_before, live, body, bubble, ground, overlay, chrome_layer, crest, mini, person, room, ask, sharing, menu, billing, signing, skin_ask, failure, toasts, resting];
+        let layers = stack![scene_before, scene, live_before, live, body, bubble, ground, overlay, chrome_layer, crest, mini, person, room, ask, sharing, toasts, menu, billing, signing, skin_ask, failure, resting];
         layers.width(Length::Fill).height(Length::Fill).into()
     }
 
@@ -7214,7 +7214,7 @@ const BELL_BADGE: f32 = 16.0;
 const CLEAR_LEAVE: Duration = Duration::from_millis(180);
 const CLEAR_STEP: Duration = Duration::from_millis(28);
 const CLEAR_STEPS: usize = 8;
-const BELL_FLASH: Duration = Duration::from_millis(650);
+const BELL_FLASH: Duration = Duration::from_millis(900);
 const MENU_TOP: f32 = 80.0;
 const BADGE: f32 = 18.0;
 const BADGE_OUT: f32 = 4.0;
@@ -7258,7 +7258,7 @@ impl Main {
     fn bell_button(&self) -> Element<'_, Message> {
         let open = self.menu == Some(Tab::Bell) && self.menu_open.value();
         let unseen = self.notices.unseen();
-        let flash = self.bell_flash.interpolate(0.0, 1.0, self.now);
+        let flash = (std::f32::consts::PI * self.bell_flash.interpolate(0.0, 1.0, self.now)).sin().max(0.0);
         let busy = self.busy();
         let face = button(container(crate::glyphs::glyph(crate::glyphs::Icon::Bell, 16.0, if open { Color::WHITE } else { INK })).center(CIRCLE_SIDE))
             .padding(0)
@@ -7267,15 +7267,15 @@ impl Main {
             .style(ui::button_faded(move |_: &iced::Theme, status: button::Status| {
                 let lit = matches!(status, button::Status::Hovered | button::Status::Pressed);
                 button::Style {
-                    background: Some(iced::Background::Color(if open { Color { a: 0.3, ..ACCENT } } else if flash > 0.001 { Color { a: 0.05 + 0.6 * flash, ..ACCENT } } else { Color::from_rgba(1.0, 1.0, 1.0, if lit { 0.12 } else { 0.05 }) })),
+                    background: Some(iced::Background::Color(if open { Color { a: 0.3, ..ACCENT } } else if flash > 0.001 { Color { a: 0.06 + 0.44 * flash, ..ACCENT } } else { Color::from_rgba(1.0, 1.0, 1.0, if lit { 0.12 } else { 0.05 }) })),
                     text_color: INK,
-                    border: iced::Border { color: if open || busy || flash > 0.001 { Color { a: (0.7_f32).max(flash), ..ACCENT } } else { Color::from_rgba(1.0, 1.0, 1.0, 0.12) }, width: 1.0, radius: (CIRCLE_SIDE / 2.0).into() },
+                    border: iced::Border { color: if open || busy || flash > 0.001 { Color { a: if open || busy { 0.7 } else { 0.12 + 0.7 * flash }, ..if open || busy { ACCENT } else { ui::mix(Color::WHITE, ACCENT, flash.min(1.0)) } } } else { Color::from_rgba(1.0, 1.0, 1.0, 0.12) }, width: 1.0, radius: (CIRCLE_SIDE / 2.0).into() },
                     shadow: iced::Shadow::default(),
                     snap: true,
                 }
             }))
             .on_press(Message::MenuTab(Tab::Bell));
-        let face: Element<'_, Message> = ui::grown(face, Point::new(0.5, 0.5), 0.0, 1.0 + 0.16 * flash).into();
+        let face: Element<'_, Message> = face.into();
         if unseen == 0 || open {
             return face;
         }

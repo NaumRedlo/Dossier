@@ -3532,6 +3532,7 @@ pub struct Glass<'a, Message> {
     edge: Color,
     radius: f32,
     alpha: f32,
+    depth: f32,
 }
 
 pub fn glass<'a, Message: 'a>(content: impl Into<Element<'a, Message>>, picture: Option<image::Handle>, window: Size) -> Element<'a, Message> {
@@ -3577,10 +3578,11 @@ fn glass_of<'a, Message: 'a>(content: impl Into<Element<'a, Message>>, picture: 
         edge: Color::from_rgba(1.0, 1.0, 1.0, 0.14 * alpha),
         radius: 18.0,
         alpha,
+        depth,
     })
 }
 
-pub fn glass_piece(pixels: &[u8], wide: u32, high: u32, bounds: Rectangle, window: Size, radius: f32) -> Option<(u32, u32, Vec<u8>)> {
+pub fn glass_piece(pixels: &[u8], wide: u32, high: u32, bounds: Rectangle, window: Size, radius: f32, tint: [f32; 3], depth: f32) -> Option<(u32, u32, Vec<u8>)> {
     if wide == 0 || high == 0 || pixels.len() < (wide as usize) * (high as usize) * 4 || bounds.width < 1.0 || bounds.height < 1.0 {
         return None;
     }
@@ -3611,7 +3613,8 @@ pub fn glass_piece(pixels: &[u8], wide: u32, high: u32, bounds: Rectangle, windo
                 let d = pixels[bottom * line + right * 4 + channel] as f32;
                 let upper = a + (b - a) * across;
                 let lower = c + (d - c) * across;
-                out.push((upper + (lower - upper) * down).round() as u8);
+                let seen = upper + (lower - upper) * down;
+                out.push((seen * (1.0 - depth) + tint[channel] * 255.0 * depth).round().clamp(0.0, 255.0) as u8);
             }
             let inside = if *near_x < r && *near_y < r { (r - ((r - near_x).powi(2) + (r - near_y).powi(2)).sqrt() - 0.5).clamp(0.0, 1.0) } else { (near_x.min(*near_y) - 0.5).clamp(0.0, 1.0) };
             out.push((inside * 255.0).round() as u8);
@@ -3620,12 +3623,12 @@ pub fn glass_piece(pixels: &[u8], wide: u32, high: u32, bounds: Rectangle, windo
     Some((out_wide, out_high, out))
 }
 
-type GlassCut = (iced::advanced::image::Id, [i32; 7]);
+type GlassCut = (iced::advanced::image::Id, [i32; 11]);
 
-fn glass_cut(picture: &image::Handle, bounds: Rectangle, window: Size, radius: f32) -> Option<image::Handle> {
+fn glass_cut(picture: &image::Handle, bounds: Rectangle, window: Size, radius: f32, tint: [f32; 3], depth: f32) -> Option<image::Handle> {
     static KEPT: std::sync::Mutex<Vec<(GlassCut, image::Handle)>> = std::sync::Mutex::new(Vec::new());
     let half = |value: f32| (value * 2.0).round() as i32;
-    let key: GlassCut = (picture.id(), [half(bounds.x), half(bounds.y), half(bounds.width), half(bounds.height), half(window.width), half(window.height), half(radius)]);
+    let key: GlassCut = (picture.id(), [half(bounds.x), half(bounds.y), half(bounds.width), half(bounds.height), half(window.width), half(window.height), half(radius), half(tint[0] * 500.0), half(tint[1] * 500.0), half(tint[2] * 500.0), half(depth * 500.0)]);
     let mut kept = KEPT.lock().ok()?;
     if let Some((_, made)) = kept.iter().find(|(other, _)| *other == key) {
         return Some(made.clone());
@@ -3633,7 +3636,7 @@ fn glass_cut(picture: &image::Handle, bounds: Rectangle, window: Size, radius: f
     let image::Handle::Rgba { width, height, pixels, .. } = picture else {
         return None;
     };
-    let (wide, high, cut) = glass_piece(pixels, *width, *height, bounds, window, radius)?;
+    let (wide, high, cut) = glass_piece(pixels, *width, *height, bounds, window, radius, tint, depth)?;
     let made = image::Handle::from_rgba(wide, high, cut);
     if kept.len() >= 24 {
         kept.remove(0);
@@ -3681,7 +3684,9 @@ impl<Message> iced::advanced::Widget<Message, Theme, Renderer> for Glass<'_, Mes
                 renderer.fill_quad(iced::advanced::renderer::Quad { bounds, border: iced::Border { radius: self.radius.into(), ..iced::Border::default() }, ..iced::advanced::renderer::Quad::default() }, solid);
             });
         }
-        if let Some(piece) = self.picture.as_ref().and_then(|picture| glass_cut(picture, bounds, self.window, self.radius)) {
+        let baked = self.picture.as_ref().and_then(|picture| glass_cut(picture, bounds, self.window, self.radius, [self.tint.r, self.tint.g, self.tint.b], self.depth.clamp(0.0, 1.0)));
+        let fill = if baked.is_some() { Color::TRANSPARENT } else { self.tint };
+        if let Some(piece) = baked {
             renderer.with_layer(bounds, |renderer| {
                 renderer.draw_image(
                     iced::advanced::image::Image { handle: piece, filter_method: image::FilterMethod::Linear, rotation: iced::Radians(0.0), border_radius: 0.0.into(), opacity: self.alpha, snap: true },
@@ -3693,7 +3698,7 @@ impl<Message> iced::advanced::Widget<Message, Theme, Renderer> for Glass<'_, Mes
         renderer.with_layer(bounds, |renderer| {
             renderer.fill_quad(
                 iced::advanced::renderer::Quad { bounds, border: iced::Border { color: self.edge, width: 1.0, radius: self.radius.into() }, ..iced::advanced::renderer::Quad::default() },
-                self.tint,
+                fill,
             );
             self.content.as_widget().draw(tree, renderer, theme, style, layout, cursor, viewport);
         });
@@ -3727,7 +3732,7 @@ pub fn dashed<'a, Message: 'a>(content: impl Into<Element<'a, Message>>, radius:
 pub fn glass_warm<'a, Message: 'a>(content: impl Into<Element<'a, Message>>, picture: Option<image::Handle>, window: Size) -> Element<'a, Message> {
     let picture = picture.as_ref().and_then(frosted);
     let alpha = fade();
-    Element::new(Glass { content: content.into(), picture, window, tint: Color::from_rgba(0.16, 0.04, 0.055, 0.86 * alpha), edge: Color::from_rgba(0.886, 0.282, 0.282, 0.45 * alpha), radius: 18.0, alpha })
+    Element::new(Glass { content: content.into(), picture, window, tint: Color::from_rgba(0.16, 0.04, 0.055, 0.86 * alpha), edge: Color::from_rgba(0.886, 0.282, 0.282, 0.45 * alpha), radius: 18.0, alpha, depth: 0.86 })
 }
 
 pub const RESIZE: f32 = 0.28;
@@ -5332,7 +5337,7 @@ mod glass_tests {
             let from = ((y * cut.0 + x) * 4) as usize;
             [cut.2[from], cut.2[from + 1], cut.2[from + 2], cut.2[from + 3]]
         };
-        let left = glass_piece(&pixels, wide, high, Rectangle::new(Point::new(40.0, 84.0), Size::new(420.0, 200.0)), window, 18.0).unwrap();
+        let left = glass_piece(&pixels, wide, high, Rectangle::new(Point::new(40.0, 84.0), Size::new(420.0, 200.0)), window, 18.0, [0.0, 0.0, 0.0], 0.0).unwrap();
         assert_eq!((left.0, left.1, left.2.len()), (420, 200, 420 * 200 * 4), "one picture point for each point of the panel");
         for corner in [(0, 0), (419, 0), (0, 199), (419, 199)] {
             assert_eq!(at(&left, corner.0, corner.1)[3], 0, "the very corner at {corner:?} is outside the rounded shape");
@@ -5344,15 +5349,18 @@ mod glass_tests {
         assert!(edge[3] > 0 && edge[3] < 255 && edge[0] > 150, "the edge of the corner is soft and keeps its colour: {edge:?}");
         assert_eq!((at(&left, 5, 5)[3], at(&left, 210, 0)[3], at(&left, 419, 100)[3]), (0, 0, 0), "the picture ends a point inside the edge line, so nothing of it shows outside the panel");
         assert!(at(&left, 210, 100)[0] > 150 && at(&left, 210, 100)[2] < 60, "a panel on the left shows the left of the scene");
-        let right = glass_piece(&pixels, wide, high, Rectangle::new(Point::new(820.0, 84.0), Size::new(420.0, 200.0)), window, 18.0).unwrap();
+        let right = glass_piece(&pixels, wide, high, Rectangle::new(Point::new(820.0, 84.0), Size::new(420.0, 200.0)), window, 18.0, [0.0, 0.0, 0.0], 0.0).unwrap();
         assert!(at(&right, 210, 100)[2] > 150 && at(&right, 210, 100)[0] < 60, "a panel on the right shows the right of the scene");
-        let across = glass_piece(&pixels, wide, high, Rectangle::new(Point::new(430.0, 84.0), Size::new(420.0, 200.0)), window, 18.0).unwrap();
+        let across = glass_piece(&pixels, wide, high, Rectangle::new(Point::new(430.0, 84.0), Size::new(420.0, 200.0)), window, 18.0, [0.0, 0.0, 0.0], 0.0).unwrap();
         assert!(at(&across, 40, 100)[0] > 150 && at(&across, 380, 100)[2] > 150, "a panel over the middle shows both");
-        let small = glass_piece(&pixels, wide, high, Rectangle::new(Point::ORIGIN, Size::new(20.0, 10.0)), window, 18.0).unwrap();
+        let small = glass_piece(&pixels, wide, high, Rectangle::new(Point::ORIGIN, Size::new(20.0, 10.0)), window, 18.0, [0.0, 0.0, 0.0], 0.0).unwrap();
         assert_eq!((small.0, small.1), (20, 10));
         assert_eq!(at(&small, 10, 5)[3], 255, "a panel smaller than its rounding still has a middle");
-        assert!(glass_piece(&pixels, wide, high, Rectangle::new(Point::ORIGIN, Size::new(0.0, 10.0)), window, 18.0).is_none());
-        assert!(glass_piece(&pixels[..16], wide, high, Rectangle::new(Point::ORIGIN, Size::new(20.0, 10.0)), window, 18.0).is_none());
+        assert!(glass_piece(&pixels, wide, high, Rectangle::new(Point::ORIGIN, Size::new(0.0, 10.0)), window, 18.0, [0.0, 0.0, 0.0], 0.0).is_none());
+        assert!(glass_piece(&pixels[..16], wide, high, Rectangle::new(Point::ORIGIN, Size::new(20.0, 10.0)), window, 18.0, [0.0, 0.0, 0.0], 0.0).is_none());
+        let dark = glass_piece(&pixels, wide, high, Rectangle::new(Point::new(40.0, 84.0), Size::new(420.0, 200.0)), window, 18.0, [0.086, 0.039, 0.059], 0.74).unwrap();
+        let seen = at(&dark, 210, 100);
+        assert!(seen[0] > 55 && seen[0] < 80 && seen[2] < 30 && seen[3] == 255, "the dark tint is mixed into the picture itself, so no renderer can lighten it: {seen:?}");
         let cover = glass_cover(Size::new(96.0, 54.0), Size::new(1280.0, 800.0));
         assert!(cover.width >= 1280.0 && cover.height >= 800.0 && cover.x <= 0.0 && cover.y <= 0.0, "the picture covers the window like the scene behind it");
     }

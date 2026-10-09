@@ -1183,3 +1183,4 @@ shelf-maps = { $n ->
     [one] { $n } map
    *[other] { $n } maps
 }
+shelf-collection = Collection

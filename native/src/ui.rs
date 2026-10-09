@@ -966,6 +966,7 @@ pub struct Hatch {
     pub stroke: f32,
     pub step: f32,
     pub alpha: f32,
+    pub ink: f32,
 }
 
 impl<Message> canvas::Program<Message> for Hatch {
@@ -979,7 +980,7 @@ impl<Message> canvas::Program<Message> for Hatch {
             let line = Path::line(Point::new(x, bounds.height), Point::new(x + bounds.height, 0.0));
             frame.stroke(
                 &line,
-                Stroke::default().with_width(self.stroke).with_color(Color::from_rgba(1.0, 1.0, 1.0, 0.03 * self.alpha.clamp(0.0, 1.0))),
+                Stroke::default().with_width(self.stroke).with_color(Color::from_rgba(1.0, 1.0, 1.0, self.ink * self.alpha.clamp(0.0, 1.0))),
             );
             x += self.step;
         }
@@ -988,11 +989,15 @@ impl<Message> canvas::Program<Message> for Hatch {
 }
 
 pub fn hatch<'a, Message: 'a>() -> Element<'a, Message> {
-    Canvas::new(Hatch { stroke: 8.0, step: 18.0, alpha: fade() }).width(Length::Fill).height(Length::Fill).into()
+    Canvas::new(Hatch { stroke: 8.0, step: 18.0, alpha: fade(), ink: 0.03 }).width(Length::Fill).height(Length::Fill).into()
+}
+
+pub fn band_hatch<'a, Message: 'a>() -> Element<'a, Message> {
+    Canvas::new(Hatch { stroke: 6.0, step: 17.0, alpha: fade(), ink: 0.05 }).width(Length::Fill).height(Length::Fill).into()
 }
 
 pub fn fine_hatch<'a, Message: 'a>() -> Element<'a, Message> {
-    Canvas::new(Hatch { stroke: 1.5, step: 5.0, alpha: fade() }).width(Length::Fill).height(Length::Fill).into()
+    Canvas::new(Hatch { stroke: 1.5, step: 5.0, alpha: fade(), ink: 0.03 }).width(Length::Fill).height(Length::Fill).into()
 }
 
 pub fn in_thread<T>(work: impl FnOnce() -> T + Send + 'static) -> iced::Task<T>
@@ -4408,17 +4413,32 @@ pub struct Under<'a, Message> {
     anchor: Element<'a, Message>,
     sheet: Option<Element<'a, Message>>,
     gap: f32,
+    lean: Lean,
     dismiss: Message,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Lean {
+    Left(f32),
+    Right,
+}
+
 pub fn under<'a, Message: Clone + 'a>(anchor: impl Into<Element<'a, Message>>, sheet: Option<Element<'a, Message>>, dismiss: Message) -> Element<'a, Message> {
-    Element::new(Under { anchor: anchor.into(), sheet, gap: 6.0, dismiss })
+    Element::new(Under { anchor: anchor.into(), sheet, gap: 6.0, lean: Lean::Left(0.0), dismiss })
+}
+
+pub fn under_leaning<'a, Message: Clone + 'a>(anchor: impl Into<Element<'a, Message>>, sheet: Option<Element<'a, Message>>, dismiss: Message, lean: Lean, gap: f32) -> Element<'a, Message> {
+    Element::new(Under { anchor: anchor.into(), sheet, gap, lean, dismiss })
 }
 
 const UNDER_EDGE: f32 = 8.0;
 
-pub(crate) fn under_place(anchor: Rectangle, sheet: Size, window: Size, gap: f32) -> Point {
-    let x = anchor.x.min(window.width - sheet.width - UNDER_EDGE).max(UNDER_EDGE);
+pub(crate) fn under_place(anchor: Rectangle, sheet: Size, window: Size, gap: f32, lean: Lean) -> Point {
+    let from = match lean {
+        Lean::Left(shift) => anchor.x + shift,
+        Lean::Right => anchor.x + anchor.width - sheet.width,
+    };
+    let x = from.min(window.width - sheet.width - UNDER_EDGE).max(UNDER_EDGE);
     let below = anchor.y + anchor.height + gap;
     let y = if below + sheet.height <= window.height - UNDER_EDGE { below } else { (anchor.y - gap - sheet.height).max(UNDER_EDGE) };
     Point::new(x, y)
@@ -4498,7 +4518,7 @@ impl<Message: Clone> iced::advanced::Widget<Message, Theme, Renderer> for Under<
     ) -> Option<iced::advanced::overlay::Element<'b, Message, Theme, Renderer>> {
         let (first, second) = tree.children.split_at_mut(1);
         match self.sheet.as_mut() {
-            Some(sheet) => Some(iced::advanced::overlay::Element::new(Box::new(UnderSheet { sheet, tree: &mut second[0], anchor: layout.bounds() + translation, gap: self.gap, dismiss: self.dismiss.clone() }))),
+            Some(sheet) => Some(iced::advanced::overlay::Element::new(Box::new(UnderSheet { sheet, tree: &mut second[0], anchor: layout.bounds() + translation, gap: self.gap, lean: self.lean, dismiss: self.dismiss.clone() }))),
             None => self.anchor.as_widget_mut().overlay(&mut first[0], layout, renderer, viewport, translation),
         }
     }
@@ -4509,6 +4529,7 @@ struct UnderSheet<'a, 'b, Message> {
     tree: &'b mut iced::advanced::widget::Tree,
     anchor: Rectangle,
     gap: f32,
+    lean: Lean,
     dismiss: Message,
 }
 
@@ -4516,7 +4537,7 @@ impl<Message: Clone> iced::advanced::Overlay<Message, Theme, Renderer> for Under
     fn layout(&mut self, renderer: &Renderer, bounds: Size) -> iced::advanced::layout::Node {
         let limits = iced::advanced::layout::Limits::new(Size::ZERO, Size::new((bounds.width - 2.0 * UNDER_EDGE).max(0.0), (bounds.height - 2.0 * UNDER_EDGE).max(0.0)));
         let node = self.sheet.as_widget_mut().layout(self.tree, renderer, &limits);
-        let at = under_place(self.anchor, node.size(), bounds, self.gap);
+        let at = under_place(self.anchor, node.size(), bounds, self.gap, self.lean);
         node.move_to(at)
     }
 
@@ -5374,13 +5395,16 @@ mod under_tests {
     fn a_sheet_hangs_under_its_anchor_stays_in_the_window_and_goes_above_when_there_is_no_room_below() {
         let window = Size::new(1000.0, 600.0);
         let sheet = Size::new(300.0, 200.0);
-        let under = under_place(Rectangle::new(Point::new(100.0, 100.0), Size::new(80.0, 30.0)), sheet, window, 6.0);
+        let under = under_place(Rectangle::new(Point::new(100.0, 100.0), Size::new(80.0, 30.0)), sheet, window, 6.0, Lean::Left(0.0));
         assert_eq!(under, Point::new(100.0, 136.0));
-        let right = under_place(Rectangle::new(Point::new(900.0, 100.0), Size::new(80.0, 30.0)), sheet, window, 6.0);
+        let right = under_place(Rectangle::new(Point::new(900.0, 100.0), Size::new(80.0, 30.0)), sheet, window, 6.0, Lean::Left(0.0));
         assert_eq!(right.x, 1000.0 - 300.0 - 8.0);
-        let low = under_place(Rectangle::new(Point::new(100.0, 500.0), Size::new(80.0, 30.0)), sheet, window, 6.0);
+        let low = under_place(Rectangle::new(Point::new(100.0, 500.0), Size::new(80.0, 30.0)), sheet, window, 6.0, Lean::Left(0.0));
         assert_eq!(low.y, 500.0 - 6.0 - 200.0);
-        let cramped = under_place(Rectangle::new(Point::new(-40.0, 120.0), Size::new(80.0, 30.0)), Size::new(300.0, 590.0), window, 6.0);
+        let cramped = under_place(Rectangle::new(Point::new(-40.0, 120.0), Size::new(80.0, 30.0)), Size::new(300.0, 590.0), window, 6.0, Lean::Left(0.0));
         assert_eq!(cramped, Point::new(8.0, 8.0));
+        let anchor = Rectangle::new(Point::new(500.0, 100.0), Size::new(200.0, 30.0));
+        assert_eq!(under_place(anchor, sheet, window, 32.0, Lean::Right), Point::new(400.0, 162.0), "its right edge meets the anchor's");
+        assert_eq!(under_place(anchor, sheet, window, 4.0, Lean::Left(60.0)), Point::new(560.0, 134.0), "it stands shifted from the anchor's left edge");
     }
 }

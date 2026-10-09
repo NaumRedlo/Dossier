@@ -89,6 +89,9 @@ pub enum Message {
     Paste,
     PoolClipboard(String),
     Undo,
+    Redo,
+    PoolCommands,
+    PoolHot(crate::pools_screen::Hot),
     MapBoard(u64, bool, Result<crate::community::wire::MapBoard, String>),
     EveryoneArrived(Result<crate::community::wire::Everyone, String>),
     PinRead(Result<crate::community::wire::Pin, String>),
@@ -1243,6 +1246,12 @@ impl Main {
                     Key::Named(Named::Space) => Some(Message::Key(Named::Space)),
                     Key::Named(Named::Escape) => Some(Message::Escape),
                     Key::Character(letter) if modifiers.command() && !modifiers.shift() && letter.eq_ignore_ascii_case("z") => Some(Message::Undo),
+                    Key::Character(letter) if modifiers.command() && modifiers.shift() && letter.eq_ignore_ascii_case("z") => Some(Message::Redo),
+                    Key::Character(letter) if modifiers.command() && letter.eq_ignore_ascii_case("k") => Some(Message::PoolCommands),
+                    Key::Character(letter) if modifiers.command() && modifiers.shift() && letter.eq_ignore_ascii_case("c") => Some(Message::PoolHot(crate::pools_screen::Hot::Text)),
+                    Key::Character(letter) if modifiers.command() && letter.eq_ignore_ascii_case("c") => Some(Message::PoolHot(crate::pools_screen::Hot::Copy)),
+                    Key::Character(letter) if modifiers.command() && letter.eq_ignore_ascii_case("d") => Some(Message::PoolHot(crate::pools_screen::Hot::Double)),
+                    Key::Named(Named::Delete) => Some(Message::PoolHot(crate::pools_screen::Hot::Remove)),
                     Key::Character(letter) => letter.chars().next().map(|c| Message::Typed(c.to_lowercase().next().unwrap_or(c))),
                     _ => None,
                 }
@@ -1646,6 +1655,18 @@ impl Main {
                         },
                         |said| Message::Community(crate::community_screen::Message::Pools(P::Saved(said))),
                     ));
+                }
+                Effect::PickBackdrop => {
+                    tasks.push(Task::perform(
+                        async { rfd::AsyncFileDialog::new().add_filter("JPG, PNG", &["jpg", "jpeg", "png"]).pick_file().await.map(|file| file.path().to_path_buf()) },
+                        |picked| Message::Community(crate::community_screen::Message::Pools(P::BackdropPicked(picked))),
+                    ));
+                }
+                Effect::LoadBackdrop(key, path, blur) => {
+                    tasks.push(ui::in_thread(move || {
+                        let picture = decoded(&path, 1600, None).and_then(|picture| if blur { ui::frosted(&picture) } else { Some(picture) });
+                        Message::Community(crate::community_screen::Message::Pools(P::BackdropLoaded(key, picture)))
+                    }));
                 }
                 Effect::PickFile => {
                     tasks.push(Task::perform(
@@ -2691,7 +2712,32 @@ impl Main {
                 }
                 Task::none()
             }
+            Message::PoolHot(hot) => {
+                if self.overlay == Overlay::Community && self.community_section == crate::community_screen::Section::Pools {
+                    return self.update(Message::Community(crate::community_screen::Message::Pools(crate::pools_screen::Message::Hot(hot))));
+                }
+                Task::none()
+            }
+            Message::PoolCommands => {
+                if self.overlay == Overlay::Community && self.community_section == crate::community_screen::Section::Pools {
+                    return self.update(Message::Community(crate::community_screen::Message::Pools(crate::pools_screen::Message::Palette(true))));
+                }
+                Task::none()
+            }
+            Message::Redo => {
+                if self.overlay == Overlay::Community && self.community_section == crate::community_screen::Section::Pools {
+                    return self.update(Message::Community(crate::community_screen::Message::Pools(crate::pools_screen::Message::Redo)));
+                }
+                Task::none()
+            }
             Message::Typed(letter) => {
+                if self.player.is_none() && self.overlay == Overlay::Community && self.community_section == crate::community_screen::Section::Pools {
+                    return match letter {
+                        'n' | 'т' => self.update(Message::PoolHot(crate::pools_screen::Hot::Note)),
+                        'r' | 'к' => self.update(Message::PoolHot(crate::pools_screen::Hot::Replace)),
+                        _ => Task::none(),
+                    };
+                }
                 if self.player.is_none() {
                     if self.overlay == Overlay::None && self.menu.is_none() && self.library.is_some() && (letter.is_alphanumeric() || letter == '+') {
                         self.sorting();
@@ -6512,7 +6558,7 @@ impl Main {
         if self.community_section == crate::community_screen::Section::Pools {
             ground.pools_clocks = self.pools_marks.clocks(self.now);
             ground.pools_clocks.today = self.now_unix;
-            ground.pools_clocks.high = (self.height - 150.0) / COMMUNITY_SCALE;
+            ground.pools_clocks.high = (self.height - 62.0) / COMMUNITY_SCALE;
         }
         if let Some(leave) = leaving {
             ground.ghost = Some(Box::new(self.ground_of(&leave.frozen.catalog, person_only, None)));
@@ -6647,6 +6693,7 @@ impl Main {
             ffmpeg: self.ffmpeg_version.clone(),
             ffmpeg_found: self.ffmpeg.is_some(),
             account: self.account.as_ref(),
+            badge: self.billing.badge(),
             avatar: self.avatar.as_ref(),
             chats: &self.chats,
             chat_faces: &self.chat_faces,
@@ -6837,6 +6884,15 @@ impl Main {
                 keep(&self.settings);
                 Task::none()
             }
+            P::ShowBadge(on) => {
+                self.remember_mark("show-badge", on);
+                self.billing_step(crate::billing::Message::Wear(Some(on), None, None))
+            }
+            P::ShowTitle(on) => {
+                self.remember_mark("show-title", on);
+                self.billing_step(crate::billing::Message::Wear(None, Some(on), None))
+            }
+            P::WearTitle(offer) => self.billing_step(crate::billing::Message::Wear(None, None, Some(offer))),
             P::PoolHints(on) => {
                 self.remember_mark("pool-hints", on);
                 let guide = if on { crate::pools::Guide::default() } else { crate::pools::Guide { on: false, ..self.settings.pool_guide } };
@@ -7418,6 +7474,11 @@ impl Main {
                     let (server, token, device) = (server.clone(), token.clone(), device.clone());
                     tasks.push(ui::in_thread(move || Message::BillingReply(epoch, B::Paid(crate::bot::checkout(&server, &token, &device, &plan, &email, change)))));
                 }
+                E::Wear(show_badge, show_title, title) if online => {
+                    let epoch = self.billing_epoch;
+                    let (server, token, device) = (server.clone(), token.clone(), device.clone());
+                    tasks.push(ui::in_thread(move || Message::BillingReply(epoch, B::Worn(crate::bot::wear(&server, &token, &device, show_badge, show_title, title).map_err(|e| e.to_string())))));
+                }
                 E::Cancel if online => {
                     let epoch = self.billing_epoch;
                     let (server, token, device) = (server.clone(), token.clone(), device.clone());
@@ -7497,12 +7558,18 @@ impl Main {
         };
         let mut top = row![
             self.circle(48.0, false),
-            column![
-                text(title).font(theme::SANS_SEMI).size(17.0).wrapping(text::Wrapping::None).color(ui::faded(INK)),
-                ui::mono_small(under, MUTED),
-            ]
-            .spacing(3)
-            .width(Length::Fill),
+            {
+                let worn = self.billing.badge().filter(|_| self.signed_in());
+                let mut named = row![text(title).font(theme::SANS_SEMI).size(17.0).wrapping(text::Wrapping::None).color(ui::faded(INK))].spacing(5).align_y(iced::Center);
+                if let Some(badge) = worn.filter(|badge| badge.show_badge) {
+                    named = named.push(crate::badge::mark(badge.tier.rank, badge.stage, 20.0));
+                }
+                let mut lines = column![named].spacing(3).width(Length::Fill);
+                if let Some(badge) = worn.filter(|badge| badge.show_title && !badge.title.name.is_empty()) {
+                    lines = lines.push(text(badge.title.name.clone()).font(theme::SANS_SEMI).size(12.5).wrapping(text::Wrapping::None).color(ui::faded(crate::badge::title_colour(badge.title.rank, badge.stage))));
+                }
+                lines.push(ui::mono_small(under, MUTED))
+            },
         ]
         .spacing(14)
         .align_y(iced::Center);

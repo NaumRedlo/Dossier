@@ -1224,3 +1224,81 @@ shelf-maps = { $n ->
    *[other] { $n } карт
 }
 shelf-collection = Коллекция
+badge-heading = Значок подписчика
+badge-seen = Так вас видят другие
+badge-show = Показывать значок
+badge-show-title = Показывать титул под ником
+badge-wear = Какой титул носить
+pool-find = Найти в пуле
+pool-foot-saved = сохранено
+pool-foot-unsaved = не сохранено
+pool-commands = Команды
+pool-command-hint = Что сделать
+pool-command-none = Такой команды нет
+pool-command-paste = Вставить ссылки на карты
+pool-command-undo = Отменить
+pool-command-redo = Вернуть
+pool-command-choose = Выбрать несколько слотов
+pool-command-choose-off = Закончить выбор слотов
+pool-command-sort = Расставить по звёздам внутри категории
+pool-command-empty = Показать только пустые слоты
+pool-command-all = Показать все слоты
+pool-command-text = Скопировать пул списком для беседы
+pool-command-image = Сохранить картинку пула
+pool-command-share = Поделиться
+pool-command-publish = Опубликовать
+pool-command-delete = Удалить пул
+pool-menu-note = Заметка к слоту
+pool-menu-replace = Заменить карту
+pool-menu-double = Дублировать слот
+pool-menu-copy = Скопировать ссылку на карту
+pool-menu-remove = Убрать карту
+guide-step-of = шаг { $n } из { $total }
+guide-mod-here = Мод слота меняется здесь
+guide-mod-how = Нажмите на метку, выберите HD, HR, DT, FM или TB. Звёзды, BPM и длина пересчитаются сразу.
+guide-got = Понятно
+pool-foot-saved-now = сохранено только что
+pool-foot-saved-minutes = { $n ->
+    [one] сохранено минуту назад
+    [few] сохранено { $n } минуты назад
+   *[other] сохранено { $n } минут назад
+}
+pool-foot-saved-hours = { $n ->
+    [one] сохранено час назад
+    [few] сохранено { $n } часа назад
+   *[other] сохранено { $n } часов назад
+}
+pool-foot-saved-on = сохранено { $date }
+pool-menu-category = Перенести в другую категорию
+pool-command-missing = Скачать недостающие карты
+pool-command-history = История версий
+pool-command-authors = Указать маппулеров
+pool-command-shift = Shift и щелчок
+pool-copied-link = Ссылка скопирована
+pool-history-back = К командам
+pool-history-line = Версия { $n }, { $date }
+pool-stray-profile = Это ссылка на профиль, а не на карту
+pool-stray-fits = Подойдёт ссылка на карту, на набор или md5 карты
+catalogue-unavailable-now = Каталог сейчас недоступен
+catalogue-draft-kept = Черновик сохранён на этом компьютере
+catalogue-retry = Повторить
+pool-backdrop-short = Фон
+pool-backdrop-title = Фон пула
+pool-backdrop-optional = по желанию
+pool-backdrop-from = Откуда
+pool-backdrop-file = Свой файл
+pool-backdrop-best = лучший размер
+pool-backdrop-shape = пропорции
+pool-backdrop-weight = 8 МБ
+pool-backdrop-kinds = JPG или PNG
+pool-backdrop-small = Картинка меньше 1280 × 720 будет выглядеть размытой. Другие пропорции обрежутся по центру.
+pool-backdrop-refused = Этот файл не подошёл: нужен JPG или PNG не больше 8 МБ.
+pool-backdrop-dim = Затемнение
+pool-backdrop-blur = Размыть
+pool-backdrop-card = Показывать на карточке пула для беседы
+pool-backdrop-note = Текст поверх фона всегда читается: затемнение не опускается ниже 30%. С публикацией уходит уменьшенная копия картинки.
+pool-backdrop-done = Готово
+pool-backdrop-drop = Убрать фон
+pool-backdrop-tag = фон пула
+pool-fetch-size = { $done } из { $total } МБ
+pool-fetch-cancel = Отменить

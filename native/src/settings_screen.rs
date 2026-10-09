@@ -126,6 +126,7 @@ pub struct Ground<'a> {
     pub ffmpeg: Option<String>,
     pub ffmpeg_found: bool,
     pub account: Option<&'a crate::bot::Me>,
+    pub badge: Option<&'a crate::bot::Badge>,
     pub avatar: Option<&'a iced::widget::image::Handle>,
     pub chats: &'a [crate::bot::Chat],
     pub chat_faces: &'a std::collections::HashMap<i64, iced::widget::image::Handle>,
@@ -179,6 +180,9 @@ pub enum Message {
     CloseToTray(bool),
     PoolHints(bool),
     AutoFetchMaps(bool),
+    ShowBadge(bool),
+    ShowTitle(bool),
+    WearTitle(String),
     Witness(bool),
     WitnessHistory(bool),
     PeopleEveryone(bool),
@@ -491,6 +495,40 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
             }
             panel = panel.push(container(pill(ground, "pool-hints", w.t("pool-hints"), s.pool_guide.on, Message::PoolHints(!s.pool_guide.on))).padding(Padding::ZERO.top(10.0)));
             panel = panel.push(container(pill(ground, "auto-fetch-maps", w.t("auto-fetch-maps"), s.auto_fetch_maps, Message::AutoFetchMaps(!s.auto_fetch_maps))).padding(Padding::ZERO.top(10.0)));
+            if let Some(badge) = ground.badge {
+                let mut seen = row![text(w.t("badge-seen")).font(theme::SANS).size(theme::CAPTION).color(ui::faded(MUTED))].spacing(6).align_y(iced::Center);
+                if badge.show_badge {
+                    seen = seen.push(crate::badge::mark(badge.tier.rank, badge.stage, 20.0));
+                }
+                if badge.show_title && !badge.title.name.is_empty() {
+                    seen = seen.push(text(badge.title.name.clone()).font(theme::SANS_SEMI).size(theme::CAPTION).color(ui::faded(crate::badge::title_colour(badge.title.rank, badge.stage))));
+                }
+                panel = panel.push(container(ui::mono_small(w.t("badge-heading").to_uppercase(), MUTED)).padding(Padding::ZERO.top(18.0)));
+                panel = panel.push(container(seen).padding(Padding::ZERO.top(8.0)));
+                panel = panel.push(container(pill(ground, "show-badge", w.t("badge-show"), badge.show_badge, Message::ShowBadge(!badge.show_badge))).padding(Padding::ZERO.top(10.0)));
+                panel = panel.push(container(pill(ground, "show-title", w.t("badge-show-title"), badge.show_title, Message::ShowTitle(!badge.show_title))).padding(Padding::ZERO.top(10.0)));
+                if badge.owned.len() > 1 {
+                    let mut choice = row![].spacing(8);
+                    for tier in &badge.owned {
+                        let on = tier.offer == badge.title.offer;
+                        let ink = crate::badge::title_colour(tier.rank, if on { badge.stage } else { 1 });
+                        choice = choice.push(
+                            button(text(tier.name.clone()).font(theme::SANS_SEMI).size(theme::CAPTION).color(ui::faded(ink)))
+                                .padding([7, 12])
+                                .style(ui::button_faded(move |_: &iced::Theme, _| button::Style {
+                                    background: on.then_some(iced::Background::Color(iced::Color { a: 0.16, ..ink })),
+                                    text_color: ink,
+                                    border: iced::Border { color: if on { iced::Color { a: 0.6, ..ink } } else { iced::Color::from_rgba(1.0, 1.0, 1.0, 0.14) }, width: 1.0, radius: 8.0.into() },
+                                    shadow: iced::Shadow::default(),
+                                    snap: true,
+                                }))
+                                .on_press(Message::WearTitle(tier.offer.clone())),
+                        );
+                    }
+                    panel = panel.push(container(text(w.t("badge-wear")).font(theme::SANS).size(theme::CAPTION).color(ui::faded(MUTED))).padding(Padding::ZERO.top(12.0)));
+                    panel = panel.push(container(choice.wrap()).padding(Padding::ZERO.top(8.0)));
+                }
+            }
             panel.into()
         }
         Tile::Device => column![

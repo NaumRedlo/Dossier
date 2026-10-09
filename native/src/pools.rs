@@ -278,6 +278,30 @@ impl Slot {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum BackdropFrom {
+    Map(String),
+    File(std::path::PathBuf),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Backdrop {
+    pub from: BackdropFrom,
+    pub dim: u8,
+    pub blur: bool,
+    pub on_card: bool,
+}
+
+impl Backdrop {
+    pub const LEAST_DIM: u8 = 30;
+    pub const MOST_DIM: u8 = 90;
+    pub const MOST_BYTES: u64 = 8 * 1024 * 1024;
+
+    pub fn of(from: BackdropFrom) -> Backdrop {
+        Backdrop { from, dim: 60, blur: true, on_card: true }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub struct Saved {
     pub id: String,
@@ -316,6 +340,8 @@ pub struct Pool {
     pub changed_at: i64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub saved: Option<Saved>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub backdrop: Option<Backdrop>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -344,6 +370,7 @@ impl Pool {
             made_at: now,
             changed_at: now,
             saved: None,
+            backdrop: None,
         }
     }
 
@@ -440,6 +467,28 @@ pub fn save(dir: &Path, pool: &Pool) -> Result<(), String> {
     let staging = dir.join(format!("{}.pool.part", pool.id));
     std::fs::write(&staging, text).map_err(|why| format!("{}: {why}", staging.display()))?;
     std::fs::rename(&staging, &target).map_err(|why| format!("{}: {why}", target.display()))
+}
+
+pub fn keep_version(dir: &Path, pool: &Pool) -> Result<(), String> {
+    let folder = dir.join("history").join(&pool.id);
+    std::fs::create_dir_all(&folder).map_err(|why| format!("{}: {why}", folder.display()))?;
+    let text = serde_json::to_string_pretty(pool).map_err(|why| why.to_string())?;
+    let target = folder.join(format!("{}.pool", pool.published_revision));
+    std::fs::write(&target, text).map_err(|why| format!("{}: {why}", target.display()))
+}
+
+pub fn versions(dir: &Path, id: &str) -> Vec<Pool> {
+    let mut held: Vec<Pool> = std::fs::read_dir(dir.join("history").join(id))
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "pool"))
+        .filter_map(|entry| std::fs::read_to_string(entry.path()).ok())
+        .filter_map(|text| serde_json::from_str::<Pool>(&text).ok())
+        .filter(|pool| pool.id == id)
+        .collect();
+    held.sort_by(|a, b| b.published_revision.cmp(&a.published_revision));
+    held
 }
 
 pub fn remove(dir: &Path, id: &str) -> Result<(), String> {

@@ -796,6 +796,7 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
         payment_url: url.map(str::to_owned),
         carried_seconds: 0,
         change: None,
+        badge: None,
     };
     let mut plans = vec![tier("a", "Сторонник", "MONTHLY", "RUB", "90.0"), tier("a", "Сторонник", "MONTHLY", "USD", "5.0")];
     for (offer, name, rub, usd) in [("b", "Делегат", [240.0, 690.0, 1320.0, 2400.0], [7.0, 20.0, 38.0, 70.0]), ("c", "Комиссар", [490.0, 1400.0, 2690.0, 4900.0], [12.0, 34.0, 65.0, 120.0]), ("d", "Советник", [990.0, 2820.0, 5450.0, 9900.0], [24.0, 68.0, 130.0, 240.0]), ("e", "Член Президиума", [1990.0, 5670.0, 10950.0, 19900.0], [48.0, 135.0, 260.0, 480.0])] {
@@ -810,6 +811,10 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
     menu_account.menu = Some(crate::main_screen::Tab::Head);
     menu_account.rendering = None;
     menu_account.billing.held = Some(Some(held("active", true, Some(UNTIL), None)));
+    if let Some(Some(worn)) = menu_account.billing.held.as_mut() {
+        let level = |offer: &str, name: &str, rank: usize| crate::bot::BadgeTier { offer: offer.into(), name: name.into(), rank: Some(rank) };
+        worn.badge = Some(crate::bot::Badge { tier: level("b", "Делегат", 1), title: level("b", "Делегат", 1), owned: vec![level("a", "Сторонник", 0), level("b", "Делегат", 1)], stage: 4, served_days: 800, show_badge: true, show_title: true, active: true });
+    }
     let mut menu_quiet = menu_account.clone();
     menu_quiet.billing.held = Some(None);
     let mut menu_waiting = menu_account.clone();
@@ -828,6 +833,10 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
     billing_waiting.billing.held = Some(Some(held("pending", false, None, Some("https://pay.example/1"))));
     let mut billing_active = billing_plans.clone();
     billing_active.billing.held = Some(Some(held("active", true, Some(UNTIL), None)));
+    if let Some(Some(held)) = billing_active.billing.held.as_mut() {
+        let tier = |offer: &str, name: &str, rank: usize| crate::bot::BadgeTier { offer: offer.into(), name: name.into(), rank: Some(rank) };
+        held.badge = Some(crate::bot::Badge { tier: tier("b", "Делегат", 1), title: tier("b", "Делегат", 1), owned: vec![tier("a", "Сторонник", 0), tier("b", "Делегат", 1)], stage: 3, served_days: 400, show_badge: true, show_title: true, active: true });
+    }
     let mut billing_change = billing_active.clone();
     billing_change.billing.changing = true;
     billing_change.billing.tier = Some("c".to_owned());
@@ -1337,12 +1346,75 @@ fn feed_states(community: &dyn Fn(crate::community_screen::Section, Option<usize
             main.pools.screen = crate::pools_screen::Screen::Editor(crate::pools_screen::Editor { selected: Some(4), panel: crate::pools_screen::Panel::Slot, query: String::new(), untouched: false, ..crate::pools_screen::Editor::at(id) });
             main
         }),
+        ("main-pools-tools".to_owned(), {
+            let mut main = community(crate::community_screen::Section::Pools, None);
+            pools_state(&mut main, true);
+            let id = main.pools.list[0].id.clone();
+            main.pools.screen = crate::pools_screen::Screen::Editor(crate::pools_screen::Editor { palette: true, untouched: false, ..crate::pools_screen::Editor::at(id) });
+            main
+        }),
+        ("main-pools-slot-menu".to_owned(), {
+            let mut main = community(crate::community_screen::Section::Pools, None);
+            pools_state(&mut main, true);
+            let id = main.pools.list[0].id.clone();
+            main.pools.screen = crate::pools_screen::Screen::Editor(crate::pools_screen::Editor { menu: Some(1), find: "a".into(), untouched: false, ..crate::pools_screen::Editor::at(id) });
+            main
+        }),
+        ("main-pools-backdrop".to_owned(), {
+            let mut main = community(crate::community_screen::Section::Pools, None);
+            pools_state(&mut main, true);
+            main.pools.guide.on = false;
+            let id = main.pools.list[0].id.clone();
+            let hash = main.pools.list[0].slots.iter().filter_map(|slot| slot.hash.clone()).nth(2).unwrap_or_default();
+            main.pools.list[0].backdrop = Some(crate::pools::Backdrop::of(crate::pools::BackdropFrom::Map(hash.clone())));
+            main.pools.screen = crate::pools_screen::Screen::Editor(crate::pools_screen::Editor { backdrop: true, untouched: false, ..crate::pools_screen::Editor::at(id) });
+            if let Some(songs) = main.pools.songs.as_mut() {
+                if let Some(map) = std::sync::Arc::make_mut(songs).get_mut(&hash) {
+                    map.background = Some(std::path::PathBuf::from("backdrop.png"));
+                }
+            }
+            if let (Some((key, _, _)), Some(picture)) = (main.pools.backdrop_key(), main.thumbs.get(&hash).cloned()) {
+                main.pools.backdrop = Some((key, picture));
+            }
+            main
+        }),
         ("main-pools-guide".to_owned(), {
             let mut main = community(crate::community_screen::Section::Pools, None);
             pools_state(&mut main, true);
             main.pools.guide = crate::pools::Guide::default();
             let id = main.pools.list[0].id.clone();
             main.pools.screen = crate::pools_screen::Screen::Editor(crate::pools_screen::Editor { grouped: true, editing_authors: false, ..crate::pools_screen::Editor::at(id) });
+            main
+        }),
+        ("main-pools-errors".to_owned(), {
+            let mut main = community(crate::community_screen::Section::Pools, None);
+            pools_state(&mut main, true);
+            main.pools.guide.on = false;
+            let id = main.pools.list[0].id.clone();
+            let hashes: Vec<String> = main.pools.list[0].slots.iter().filter_map(|slot| slot.hash.clone()).collect();
+            if let Some(songs) = main.pools.songs.as_mut() {
+                let songs = std::sync::Arc::make_mut(songs);
+                songs.remove(&hashes[1]);
+                songs.remove(&hashes[2]);
+            }
+            main.thumbs.remove(&hashes[1]);
+            main.thumbs.remove(&hashes[2]);
+            main.pools.fetching = Some((1, hashes[2].clone()));
+            main.pools.finding = Some(crate::pools_screen::Finding::Fetching(crate::pools_screen::Fetching {
+                queue: Vec::new(),
+                total: 1,
+                step: Some(crate::maps::Step::Downloading { from: "osu.direct", done: 4_300_000, total: Some(10_276_000) }),
+                place: None,
+                stop: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            }));
+            let mods = main.pools.list[0].slots[3].mods;
+            main.pools.list[0].slots[1].measure = None;
+            main.pools.list[0].slots[2].measure = None;
+            main.pools.list[0].slots[3].measure = None;
+            main.pools.measures.put(&hashes[3], mods, Err("broken".into()));
+            main.pools.stray = Some("osu.ppy.sh/users/12345678".into());
+            main.pools.catalogue_error = Some("503".into());
+            main.pools.screen = crate::pools_screen::Screen::Editor(crate::pools_screen::Editor { untouched: false, ..crate::pools_screen::Editor::at(id) });
             main
         }),
         ("main-pools-conflict".to_owned(), {
@@ -1601,11 +1673,11 @@ pub fn every_main_frame() -> Vec<(String, crate::main_screen::Main, Size)> {
     for lang in Lang::ALL {
         for (name, main) in main_states(lang) {
             for (label, size) in SIZES {
-                if label != SIZES[0].0 && name != "main-rest" && name != "main-idle" && name != "main-notifications" && name != "main-player-mini" && name != "main-community-clip-mini" && name != "main-community-feed-wide" && name != "main-pools-best" && name != "main-pools-editor" && name != "main-pools-head" && name != "main-pools-grouped" && name != "main-pools-new" && name != "main-pools-start" && name != "main-billing-plans" && name != "main-billing-active" && name != "main-menu-feed" && name != "main-pools-conflict" && name != "main-pools-guide" && name != "main-pools-balance" && name != "main-pools-publish" && name != "main-prefs-device" {
+                if label != SIZES[0].0 && name != "main-rest" && name != "main-idle" && name != "main-notifications" && name != "main-player-mini" && name != "main-community-clip-mini" && name != "main-community-feed-wide" && name != "main-pools-best" && name != "main-pools-backdrop" && name != "main-pools-errors" && name != "main-pools-tools" && name != "main-pools-slot-menu" && name != "main-pools-editor" && name != "main-pools-head" && name != "main-pools-grouped" && name != "main-pools-new" && name != "main-pools-start" && name != "main-billing-plans" && name != "main-billing-active" && name != "main-menu-feed" && name != "main-pools-conflict" && name != "main-pools-guide" && name != "main-pools-balance" && name != "main-pools-publish" && name != "main-prefs-device" {
                     continue;
                 }
                 let mut frame = main.clone();
-                if name == "main-idle" || name == "main-notifications" || name == "main-player-mini" || name == "main-community-clip-mini" || name == "main-community-feed-wide" || name == "main-pools-best" || name == "main-pools-editor" || name == "main-pools-head" || name == "main-pools-grouped" || name == "main-pools-new" || name == "main-pools-start" || name == "main-billing-plans" || name == "main-billing-active" || name == "main-menu-feed" || name == "main-pools-conflict" || name == "main-pools-guide" || name == "main-pools-balance" || name == "main-pools-publish" || name == "main-prefs-device" { frame.width = size.width; frame.height = size.height; }
+                if name == "main-idle" || name == "main-notifications" || name == "main-player-mini" || name == "main-community-clip-mini" || name == "main-community-feed-wide" || name == "main-pools-best" || name == "main-pools-editor" || name == "main-pools-head" || name == "main-pools-grouped" || name == "main-pools-new" || name == "main-pools-start" || name == "main-pools-backdrop" || name == "main-pools-errors" || name == "main-pools-tools" || name == "main-pools-slot-menu" || name == "main-billing-plans" || name == "main-billing-active" || name == "main-menu-feed" || name == "main-pools-conflict" || name == "main-pools-guide" || name == "main-pools-balance" || name == "main-pools-publish" || name == "main-prefs-device" { frame.width = size.width; frame.height = size.height; }
                 out.push((format!("{name}-{}-{label}", lang.tag()), frame, size));
             }
         }

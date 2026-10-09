@@ -64,6 +64,36 @@ pub struct Plan {
     pub amount: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Default, serde::Deserialize)]
+pub struct BadgeTier {
+    #[serde(default)]
+    pub offer: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub rank: Option<usize>,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, serde::Deserialize)]
+pub struct Badge {
+    #[serde(default)]
+    pub tier: BadgeTier,
+    #[serde(default)]
+    pub title: BadgeTier,
+    #[serde(default)]
+    pub owned: Vec<BadgeTier>,
+    #[serde(default)]
+    pub stage: u8,
+    #[serde(default)]
+    pub served_days: i64,
+    #[serde(default)]
+    pub show_badge: bool,
+    #[serde(default)]
+    pub show_title: bool,
+    #[serde(default)]
+    pub active: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Deserialize)]
 pub struct Subscription {
     pub state: String,
@@ -81,6 +111,8 @@ pub struct Subscription {
     pub carried_seconds: i64,
     #[serde(default)]
     pub change: Option<Box<Subscription>>,
+    #[serde(default)]
+    pub badge: Option<Badge>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -97,7 +129,10 @@ struct Plans {
 
 #[derive(serde::Deserialize)]
 struct Held {
+    #[serde(default)]
     subscription: Option<Subscription>,
+    #[serde(default)]
+    badge: Option<Badge>,
 }
 
 #[derive(serde::Deserialize)]
@@ -115,14 +150,21 @@ pub fn plans(server: &str, token: &str, device: &str) -> Result<Vec<Plan>, Refus
 
 pub fn subscription(server: &str, token: &str, device: &str) -> Result<Option<Subscription>, Refused> {
     let reply = client()?.get(format!("{server}/render/billing/status")).header("X-Render-Worker", device).bearer_auth(token).send().map_err(|e| Refused::Network(e.to_string()))?;
-    Ok(status(reply)?.json::<Held>().map_err(|e| Refused::Network(e.to_string()))?.subscription)
+    let held = status(reply)?.json::<Held>().map_err(|e| Refused::Network(e.to_string()))?;
+    Ok(held.subscription.map(|subscription| Subscription { badge: held.badge, ..subscription }))
+}
+
+pub fn wear(server: &str, token: &str, device: &str, show_badge: Option<bool>, show_title: Option<bool>, title: Option<String>) -> Result<Badge, Refused> {
+    let reply = client()?.post(format!("{server}/render/billing/badge")).header("X-Render-Worker", device).bearer_auth(token)
+        .json(&serde_json::json!({"show_badge": show_badge, "show_title": show_title, "title": title})).send().map_err(|e| Refused::Network(e.to_string()))?;
+    status(reply)?.json::<Held>().map_err(|e| Refused::Network(e.to_string()))?.badge.ok_or_else(|| Refused::Said("no badge".into()))
 }
 
 fn held(reply: reqwest::blocking::Response) -> Result<Subscription, Trouble> {
     let code = reply.status().as_u16();
     if reply.status().is_success() {
         return match reply.json::<Held>() {
-            Ok(Held { subscription: Some(subscription) }) => Ok(subscription),
+            Ok(Held { subscription: Some(subscription), .. }) => Ok(subscription),
             _ => Err(Trouble { status: code, reason: "invalid answer".into(), subscription: None }),
         };
     }

@@ -41,6 +41,9 @@ pub enum Icon {
     Shapes,
     Medal,
     Bell,
+    Undo,
+    Redo,
+    Link,
 }
 
 pub struct Glyph {
@@ -188,9 +191,27 @@ impl<Message> canvas::Program<Message> for Glyph {
                 frame.stroke(&flame, pen);
             }
             Icon::Swords => {
-                for (a, b) in [((3.0, 3.0), (11.0, 11.0)), ((17.0, 3.0), (9.0, 11.0)), ((3.0, 17.0), (6.0, 14.0)), ((17.0, 17.0), (14.0, 14.0)), ((5.5, 12.5), (7.5, 14.5)), ((14.5, 12.5), (12.5, 14.5))] {
-                    frame.stroke(&Path::line(at(a.0, a.1), at(b.0, b.1)), pen);
+                let u = 20.0 / 24.0;
+                let scaled = |points: &[(f32, f32)]| points.iter().map(|(x, y)| (x * u, y * u)).collect::<Vec<_>>();
+                frame.stroke(&polyline(&scaled(&[(14.5, 17.5), (3.0, 6.0), (3.0, 3.0), (6.0, 3.0), (17.5, 14.5)]), false), pen);
+                frame.stroke(&polyline(&scaled(&[(14.5, 6.5), (18.0, 3.0), (21.0, 3.0), (21.0, 6.0), (17.5, 9.5)]), false), pen);
+                for (a, b) in [((13.0, 19.0), (19.0, 13.0)), ((16.0, 16.0), (20.0, 20.0)), ((19.0, 21.0), (21.0, 19.0)), ((5.0, 14.0), (9.0, 18.0)), ((7.0, 17.0), (4.0, 20.0)), ((3.0, 19.0), (5.0, 21.0))] {
+                    frame.stroke(&Path::line(at(a.0 * u, a.1 * u), at(b.0 * u, b.1 * u)), pen);
                 }
+            }
+            Icon::Link => {
+                let u = 20.0 / 24.0;
+                for side in [-1.0_f32, 1.0] {
+                    let centre = 12.0 + side * 5.0;
+                    let mut bend = vec![((12.0 + side * 3.0) * u, 17.0 * u)];
+                    for step in 0..=10 {
+                        let turn = std::f32::consts::FRAC_PI_2 - side * std::f32::consts::PI * step as f32 / 10.0;
+                        bend.push(((centre + 5.0 * turn.cos()) * u, (12.0 + 5.0 * turn.sin()) * u));
+                    }
+                    bend.push(((12.0 + side * 3.0) * u, 7.0 * u));
+                    frame.stroke(&polyline(&bend, false), pen);
+                }
+                frame.stroke(&Path::line(at(8.0 * u, 12.0 * u), at(16.0 * u, 12.0 * u)), pen);
             }
             Icon::External => {
                 frame.stroke(&polyline(&[(11.0, 3.0), (17.0, 3.0), (17.0, 9.0)], false), pen);
@@ -286,6 +307,17 @@ impl<Message> canvas::Program<Message> for Glyph {
                     b.quadratic_curve_to(at(10.0, 19.4), at(11.5, 17.5));
                 });
                 frame.stroke(&clapper, pen);
+            }
+            Icon::Undo | Icon::Redo => {
+                let flip = |x: f32| if matches!(self.icon, Icon::Redo) { 20.0 - x } else { x };
+                frame.stroke(&polyline(&[(flip(7.5), 11.5), (flip(3.5), 7.5), (flip(7.5), 3.5)], false), pen);
+                let mut bend = vec![(flip(3.5), 7.5), (flip(11.5), 7.5)];
+                for step in 1..=8 {
+                    let turn = -std::f32::consts::FRAC_PI_2 + std::f32::consts::PI * step as f32 / 8.0;
+                    bend.push((flip(11.5 + 4.5 * turn.cos()), 12.0 + 4.5 * turn.sin()));
+                }
+                bend.push((flip(8.5), 16.5));
+                frame.stroke(&polyline(&bend, false), pen);
             }
             Icon::Shapes => {
                 frame.stroke(&polyline(&[(10.0, 2.4), (13.9, 8.4), (6.1, 8.4)], true), pen);

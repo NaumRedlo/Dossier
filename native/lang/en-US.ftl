@@ -1184,3 +1184,79 @@ shelf-maps = { $n ->
    *[other] { $n } maps
 }
 shelf-collection = Collection
+badge-heading = Subscriber badge
+badge-seen = How others see you
+badge-show = Show the badge
+badge-show-title = Show the title under the name
+badge-wear = Which title to wear
+pool-find = Find in the pool
+pool-foot-saved = saved
+pool-foot-unsaved = not saved
+pool-commands = Commands
+pool-command-hint = What to do
+pool-command-none = No such command
+pool-command-paste = Paste map links
+pool-command-undo = Undo
+pool-command-redo = Redo
+pool-command-choose = Select several slots
+pool-command-choose-off = Finish selecting slots
+pool-command-sort = Order by stars within each category
+pool-command-empty = Show only empty slots
+pool-command-all = Show all slots
+pool-command-text = Copy the pool as a list for chat
+pool-command-image = Save the pool picture
+pool-command-share = Share
+pool-command-publish = Publish
+pool-command-delete = Delete the pool
+pool-menu-note = Slot note
+pool-menu-replace = Replace the map
+pool-menu-double = Duplicate the slot
+pool-menu-copy = Copy the map link
+pool-menu-remove = Remove the map
+guide-step-of = step { $n } of { $total }
+guide-mod-here = The slot's mod is changed here
+guide-mod-how = Press the label and pick HD, HR, DT, FM or TB. Stars, BPM and length are recounted at once.
+guide-got = Got it
+pool-foot-saved-now = saved just now
+pool-foot-saved-minutes = { $n ->
+    [one] saved a minute ago
+   *[other] saved { $n } minutes ago
+}
+pool-foot-saved-hours = { $n ->
+    [one] saved an hour ago
+   *[other] saved { $n } hours ago
+}
+pool-foot-saved-on = saved { $date }
+pool-menu-category = Move to another category
+pool-command-missing = Download missing maps
+pool-command-history = Version history
+pool-command-authors = Name the mappoolers
+pool-command-shift = Shift and click
+pool-copied-link = Link copied
+pool-history-back = Back to commands
+pool-history-line = Version { $n }, { $date }
+pool-stray-profile = This is a profile link, not a map link
+pool-stray-fits = A map link, a set link or a map's md5 will do
+catalogue-unavailable-now = The catalogue is unavailable right now
+catalogue-draft-kept = The draft is saved on this computer
+catalogue-retry = Try again
+pool-backdrop-short = Backdrop
+pool-backdrop-title = Pool backdrop
+pool-backdrop-optional = optional
+pool-backdrop-from = From
+pool-backdrop-file = Own file
+pool-backdrop-best = best size
+pool-backdrop-shape = proportions
+pool-backdrop-weight = 8 MB
+pool-backdrop-kinds = JPG or PNG
+pool-backdrop-small = A picture smaller than 1280 × 720 will look blurry. Other proportions are cropped to the centre.
+pool-backdrop-refused = This file did not fit: a JPG or PNG of at most 8 MB is needed.
+pool-backdrop-dim = Dimming
+pool-backdrop-blur = Blur
+pool-backdrop-card = Show on the pool card for chat
+pool-backdrop-note = Text over the backdrop stays readable: dimming never goes below 30%. A reduced copy of the picture goes with the publication.
+pool-backdrop-done = Done
+pool-backdrop-drop = Remove backdrop
+pool-backdrop-tag = pool backdrop
+pool-fetch-size = { $done } of { $total } MB
+pool-fetch-cancel = Cancel

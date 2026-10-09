@@ -4,7 +4,7 @@ use iced::animation::Easing;
 use iced::widget::{button, column, container, row, text, text_input, Space};
 use iced::{Animation, Background, Border, Color, Element, Length, Padding};
 
-use crate::bot::{Plan, Subscription, Trouble};
+use crate::bot::{Badge, Plan, Subscription, Trouble};
 use crate::lang::Words;
 use crate::theme::{self, ACCENT, FAINT, INK, MUTED};
 use crate::ui;
@@ -30,6 +30,8 @@ pub enum Message {
     AskCancel(bool),
     Again,
     Change(bool),
+    Wear(Option<bool>, Option<bool>, Option<String>),
+    Worn(Result<Badge, String>),
     Cancel,
     Cancelled(Result<Subscription, Trouble>),
 }
@@ -39,6 +41,7 @@ pub enum Effect {
     Plans,
     Status,
     Checkout(String, String, bool),
+    Wear(Option<bool>, Option<bool>, Option<String>),
     Cancel,
     Browse(String),
     Remember(String),
@@ -134,6 +137,10 @@ impl State {
 
     pub fn subscription(&self) -> Option<&Subscription> {
         self.held.as_ref().and_then(|held| held.as_ref())
+    }
+
+    pub fn badge(&self) -> Option<&Badge> {
+        self.subscription().and_then(|held| held.badge.as_ref())
     }
 
     pub fn awaited(&self) -> Option<&Subscription> {
@@ -258,6 +265,22 @@ impl State {
                     effects.push(Effect::Remember(email.clone()));
                     effects.push(Effect::Checkout(self.chosen().map(|plan| plan.id.clone()).unwrap_or_default(), email, self.changing));
                 }
+            }
+            Message::Wear(show_badge, show_title, title) => {
+                if let Some(badge) = self.held.as_mut().and_then(|held| held.as_mut()).and_then(|held| held.badge.as_mut()) {
+                    if let Some(on) = show_badge { badge.show_badge = on; }
+                    if let Some(on) = show_title { badge.show_title = on; }
+                    if let Some(tier) = title.as_ref().and_then(|offer| badge.owned.iter().find(|tier| tier.offer == *offer)).cloned() { badge.title = tier; }
+                    effects.push(Effect::Wear(show_badge, show_title, title));
+                }
+            }
+            Message::Worn(Ok(badge)) => {
+                if let Some(held) = self.held.as_mut().and_then(|held| held.as_mut()) {
+                    held.badge = Some(badge);
+                }
+            }
+            Message::Worn(Err(_)) => {
+                effects.push(Effect::Status);
             }
             Message::Change(on) => {
                 self.changing = on && self.may_change();
@@ -857,7 +880,7 @@ mod tests {
     }
 
     fn held(state: &str, access: bool, until: Option<&str>) -> Subscription {
-        Subscription { state: state.into(), access, plan: plan("b", "MONTHLY", "RUB", "240.0"), paid_until: until.map(str::to_owned), cancelled_at: None, created_at: None, payment_url: (state == "pending").then(|| "https://pay.example/1".to_owned()), carried_seconds: 0, change: None }
+        Subscription { state: state.into(), access, plan: plan("b", "MONTHLY", "RUB", "240.0"), paid_until: until.map(str::to_owned), cancelled_at: None, created_at: None, payment_url: (state == "pending").then(|| "https://pay.example/1".to_owned()), carried_seconds: 0, change: None, badge: None }
     }
 
     fn open() -> State {
@@ -1072,6 +1095,23 @@ mod tests {
         assert_eq!(said_of(&Trouble { status: 504, reason: String::new(), subscription: None }), "504");
         assert_eq!(said_of(&Trouble { status: 0, reason: "timed out".into(), subscription: None }), "");
         assert_eq!(said_of(&Trouble { status: 201, reason: "invalid answer".into(), subscription: None }), "201 invalid answer");
+    }
+
+    #[test]
+    fn the_badge_comes_with_the_subscription_and_its_switches_are_sent_and_shown_at_once() {
+        let mut state = open();
+        let tier = |offer: &str, rank: usize| crate::bot::BadgeTier { offer: offer.into(), name: offer.to_uppercase(), rank: Some(rank) };
+        let badge = Badge { tier: tier("b", 1), title: tier("b", 1), owned: vec![tier("a", 0), tier("b", 1)], stage: 2, served_days: 100, show_badge: true, show_title: true, active: true };
+        assert!(state.badge().is_none() && state.update(Message::Wear(Some(false), None, None), Instant::now()).is_empty(), "nothing to wear before a subscription");
+        state.update(Message::Status(Ok(Some(Subscription { badge: Some(badge.clone()), ..held("active", true, Some("2026-10-21T12:00:00Z")) }))), Instant::now());
+        assert_eq!(state.badge(), Some(&badge));
+        assert_eq!(state.update(Message::Wear(Some(false), None, Some("a".into())), Instant::now()), vec![Effect::Wear(Some(false), None, Some("a".into()))]);
+        assert_eq!(state.badge().map(|badge| (badge.show_badge, badge.show_title, badge.title.offer.as_str())), Some((false, true, "a")));
+        state.update(Message::Wear(None, None, Some("never bought".into())), Instant::now());
+        assert_eq!(state.badge().map(|badge| badge.title.offer.as_str()), Some("a"), "a tier that was not bought cannot be worn");
+        state.update(Message::Worn(Ok(Badge { stage: 3, ..badge.clone() })), Instant::now());
+        assert_eq!(state.badge().map(|badge| (badge.stage, badge.show_badge)), Some((3, true)), "the server has the last word");
+        assert_eq!(state.update(Message::Worn(Err("offline".into())), Instant::now()), vec![Effect::Status]);
     }
 
 }

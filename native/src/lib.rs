@@ -1,3 +1,4 @@
+pub mod badge;
 pub mod billing;
 pub mod board;
 pub mod bot;

@@ -278,6 +278,17 @@ impl Slot {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+pub struct Saved {
+    pub id: String,
+    #[serde(default)]
+    pub code: String,
+    #[serde(default)]
+    pub revision: u64,
+    #[serde(default)]
+    pub publisher: String,
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Pool {
     pub id: String,
@@ -301,6 +312,8 @@ pub struct Pool {
     pub calc: u32,
     pub made_at: i64,
     pub changed_at: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub saved: Option<Saved>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -328,6 +341,7 @@ impl Pool {
             calc: CALC_VERSION,
             made_at: now,
             changed_at: now,
+            saved: None,
         }
     }
 

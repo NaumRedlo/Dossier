@@ -1133,3 +1133,24 @@ witness-untold = Some Witness results need attention
 witness-pending = Waiting to send: { $n }
 source-witnessed = Witness replays
 source-witnessed-how = a replay of every play is saved here
+shelf-mine = Mine
+shelf-saved = Saved
+shelf-draft = Draft
+shelf-latest = Latest draft
+shelf-open = Open
+shelf-cards = maps
+shelf-length = length
+shelf-stars = stars, from and to
+shelf-changed = changed
+shelf-no-makers = No mappoolers listed
+shelf-save = Save
+shelf-saved-mark = Saved
+shelf-published-by = Published by
+shelf-all-here = All maps are in the game
+shelf-checking = Checking maps…
+shelf-missing = { $n ->
+    [one] { $n } map is missing
+   *[other] { $n } maps are missing
+}
+shelf-empty-mine = No drafts yet. Press “New pool”.
+shelf-empty-saved = No saved pools yet. Find a pool under “Published” and press “Save”.

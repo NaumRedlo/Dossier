@@ -1171,3 +1171,24 @@ witness-untold = Некоторые результаты Witness требуют 
 witness-pending = Ожидают отправки: { $n }
 source-witnessed = Реплеи Witness
 source-witnessed-how = здесь сохраняется реплей каждой сыгранной игры
+shelf-mine = Мои
+shelf-saved = Сохранённые
+shelf-draft = Черновик
+shelf-latest = Последний черновик
+shelf-open = Открыть
+shelf-cards = карт
+shelf-length = длина
+shelf-stars = звёзды, от и до
+shelf-changed = изменён
+shelf-no-makers = Маппулеры не указаны
+shelf-save = Сохранить
+shelf-saved-mark = Сохранён
+shelf-published-by = Опубликовал
+shelf-all-here = Все карты в игре
+shelf-checking = Проверяем карты…
+shelf-missing = { $n ->
+    [one] Нет { $n } карты
+   *[other] Нет { $n } карт
+}
+shelf-empty-mine = Черновиков пока нет. Нажмите «Новый пул».
+shelf-empty-saved = Сохранённых пулов пока нет. Найдите пул во вкладке «Опубликованные» и нажмите «Сохранить».

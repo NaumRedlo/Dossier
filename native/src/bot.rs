@@ -15,6 +15,8 @@ const BOARD_PATIENCE: Duration = Duration::from_secs(60);
 
 #[derive(Debug, Clone, serde::Deserialize)]
 pub struct Publication {
+    #[serde(default)]
+    pub code: String,
     pub id: String,
     pub kind: String,
     pub local_id: String,

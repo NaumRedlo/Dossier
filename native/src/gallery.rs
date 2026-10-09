@@ -1285,7 +1285,22 @@ fn feed_states(community: &dyn Fn(crate::community_screen::Section, Option<usize
             let mut pool = pool_sample().0.remove(0);
             pool.authors = vec!["NaumRedlo".into()];
             main.pools.faces.insert("naumredlo".into(), iced::widget::image::Handle::from_rgba(96, 96, [80, 130, 210, 255].repeat(96 * 96)));
-            main.pools.publications.push(crate::bot::Publication { id: "published-pool".into(), kind: "pool".into(), local_id: "draft".into(), revision: 1, name: pool.name.clone(), content: serde_json::from_slice(&crate::pool_share::to_file(&pool)).unwrap(), mine: false });
+            pool.compiler = "NaumRedlo".into();
+            let content: serde_json::Value = serde_json::from_slice(&crate::pool_share::to_file(&pool)).unwrap();
+            main.pools.publications.push(crate::bot::Publication { code: "XQIS43GB".into(), id: "published-pool".into(), kind: "pool".into(), local_id: "draft".into(), revision: 3, name: pool.name.clone(), content: content.clone(), mine: false });
+            main.pools.publications.push(crate::bot::Publication { code: "K7M2PD4T".into(), id: "published-own".into(), kind: "pool".into(), local_id: "own".into(), revision: 2, name: "Autumn stage".into(), content, mine: true });
+            main.pools.shelf = crate::pools_screen::Shelf::Published;
+            main
+        }),
+        ("main-pools-saved".to_owned(), {
+            let mut main = community(crate::community_screen::Section::Pools, None);
+            pools_state(&mut main, true);
+            main.pools.list.truncate(3);
+            for (at, pool) in main.pools.list.iter_mut().enumerate() {
+                pool.compiler = "kotofey".into();
+                pool.saved = Some(crate::pools::Saved { id: format!("saved-{at}"), code: ["R9F3WQ6H", "B2T8LX5C", "H4N6VZ1J"][at].into(), revision: at as u64 + 1, publisher: "kotofey".into() });
+            }
+            main.pools.shelf = crate::pools_screen::Shelf::Saved;
             main
         }),
         ("main-pools-collections".to_owned(), {
@@ -1294,7 +1309,7 @@ fn feed_states(community: &dyn Fn(crate::community_screen::Section, Option<usize
             main.pools.collection_shelf = true;
             main.pools.list[0].collection = true;
             main.pools.list[0].name = "Favorites".into();
-            main.pools.publications.push(crate::bot::Publication { id: "published-collection".into(), kind: "collection".into(), local_id: "favorites".into(), revision: 2, name: "Weekend practice".into(), content: serde_json::json!({"name": "Weekend practice", "hashes": []}), mine: true });
+            main.pools.publications.push(crate::bot::Publication { code: String::new(), id: "published-collection".into(), kind: "collection".into(), local_id: "favorites".into(), revision: 2, name: "Weekend practice".into(), content: serde_json::json!({"name": "Weekend practice", "hashes": []}), mine: true });
             main
         }),
         ("main-pools-category".to_owned(), {
@@ -1328,7 +1343,7 @@ fn feed_states(community: &dyn Fn(crate::community_screen::Section, Option<usize
             main.pools.list[0].compiler = "NaumRedlo".into();
             main.pools.list[0].published_revision = 3;
             let id = main.pools.list[0].id.clone();
-            main.pools.publications = vec![crate::bot::Publication { id: "remote".into(), kind: "pool".into(), local_id: id.clone(), revision: 4, name: "Spring duel".into(), content: serde_json::json!({}), mine: true }];
+            main.pools.publications = vec![crate::bot::Publication { code: String::new(), id: "remote".into(), kind: "pool".into(), local_id: id.clone(), revision: 4, name: "Spring duel".into(), content: serde_json::json!({}), mine: true }];
             main.pools.conflict = Some(id.clone());
             main.pools.screen = crate::pools_screen::Screen::Editor(crate::pools_screen::Editor { grouped: true, editing_authors: false, ..crate::pools_screen::Editor::at(id) });
             main

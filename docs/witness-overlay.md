@@ -73,6 +73,17 @@ hits change, but not more often than every quarter of a second; one calculation
 took at most 6 ms on the maps it was timed on. A map whose file cannot be read
 has neither value.
 
+`gameplay.pp_record` followed: the best PP among the player's own local scores on
+the map, read from the client's `scores.db` (scores under another name are left
+out when the client's configuration names the player) and valued the same way.
+It is read when a play starts and again on a retry. A record that exists only
+online is not known here.
+
+`snapshot.meter` is no longer fixed at the attach: the configuration file is
+looked at every two seconds and read again when it has been written. Whether
+stable writes it as soon as a setting changes, and not only on leaving, has not
+been confirmed on a running client.
+
 `Mailbox` holds one latest snapshot. Its render-side `try_view` never waits for
 its mutex: if the receiver is busy, the host gets no view for that frame. Data
 expires two seconds after receipt, even if no explicit disconnection arrived.

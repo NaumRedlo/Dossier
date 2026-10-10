@@ -23,6 +23,7 @@ fn view(screen: Screen) -> View {
                 resting: None,
                 pp: None,
                 pp_clean: None,
+                pp_record: None,
             }),
             watching_replay: Some(false),
             meter: None,

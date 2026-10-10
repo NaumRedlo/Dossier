@@ -43,6 +43,37 @@ impl Pace {
         &self.part.as_ref().expect("the passed part was just measured").1
     }
 
+    pub fn best(text: &str, scores: &[crate::scores::Held]) -> Option<f64> {
+        let map = Beatmap::parse(text).ok().filter(|map| map.mode == 0 && !map.objects.is_empty())?;
+        let mut measured: Vec<(u32, Attributes)> = Vec::new();
+        let mut best = None::<f64>;
+        for held in scores {
+            let mods = Mods::new(held.mods);
+            if !measured.iter().any(|(known, _)| *known == held.mods) {
+                measured.push((held.mods, attributes(&map, mods)));
+            }
+            let whole = &measured.iter().find(|(known, _)| *known == held.mods)?.1;
+            let mut score = Score {
+                max_combo: u32::from(held.max_combo).min(whole.max_combo),
+                great: u32::from(held.counts.n300),
+                ok: u32::from(held.counts.n100),
+                meh: u32::from(held.counts.n50),
+                miss: u32::from(held.counts.miss),
+                slider_tail_hit: whole.slider_count,
+                large_tick_miss: 0,
+                classic: true,
+                legacy_total_score: None,
+                accuracy: None,
+            };
+            score.accuracy = Some(score.accuracy());
+            let pp = performance(&score, whole, mods).pp;
+            if pp.is_finite() && pp > 0.0 {
+                best = Some(best.map_or(pp, |known| known.max(pp)));
+            }
+        }
+        best
+    }
+
     pub fn clean(&self, counts: Counts) -> f64 {
         let objects = self.objects() as u32;
         let (ok, meh) = (u32::from(counts.n100).min(objects), u32::from(counts.n50).min(objects));

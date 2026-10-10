@@ -55,6 +55,8 @@ pub struct Gameplay {
     pub pp: Option<f64>,
     #[serde(default)]
     pub pp_clean: Option<f64>,
+    #[serde(default)]
+    pub pp_record: Option<f64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -129,7 +131,7 @@ impl Frame {
                     || game
                         .accuracy
                         .is_some_and(|value| !value.is_finite() || !(0.0..=100.0).contains(&value))
-                    || [game.unstable_rate, game.pp, game.pp_clean]
+                    || [game.unstable_rate, game.pp, game.pp_clean, game.pp_record]
                         .into_iter()
                         .flatten()
                         .any(|value| !value.is_finite() || value < 0.0)
@@ -352,6 +354,7 @@ mod tests {
                         resting: Some(false),
                         pp: Some(312.4),
                         pp_clean: Some(421.0),
+                        pp_record: Some(398.0),
                     }),
                 },
             },

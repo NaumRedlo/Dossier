@@ -272,7 +272,7 @@ fn serve(player: &str, leash: Option<&std::path::Path>, overlay_mode: bool, hud:
         idle_told = false;
         session += 1;
         let client = client_of(&process);
-        let mut overlay = dossier_witness::overlay::Publisher::new(session).knowing(client.meter(), process.folder().map(|folder| client.songs_in(&folder)));
+        let mut overlay = dossier_witness::overlay::Publisher::new(session).knowing(client.meter(), process.folder().map(|folder| client.songs_in(&folder))).watching(process.folder().and_then(|folder| dossier_witness::client::config_of(&folder, &std::env::var("USERNAME").unwrap_or_default())), process.folder().map(|folder| folder.join("scores.db")), &client.player);
         if overlay_mode { emit(overlay.hello(process.pid, &client.build)); }
         legacy(wire::attached(process.pid, &client));
         let mut loading_told = false;

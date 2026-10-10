@@ -138,8 +138,20 @@ pub struct Context {
 pub struct Stage {
     pub unfold: f32,
     pub rate: Option<f32>,
+    pub pp: Option<f32>,
     pub pulse: f32,
     last: Option<Instant>,
+}
+
+fn chased(shown: Option<f32>, wanted: Option<f32>, seconds: f32, near: f32) -> Option<f32> {
+    match (shown, wanted) {
+        (Some(shown), Some(aim)) => {
+            let keep = 0.5f32.powf(seconds / RATE_HALF_LIFE);
+            let next = aim + (shown - aim) * keep;
+            Some(if (next - aim).abs() < near { aim } else { next })
+        }
+        (_, aim) => aim,
+    }
 }
 
 pub fn told(view: &View, context: &mut Context) {
@@ -154,6 +166,9 @@ pub fn told(view: &View, context: &mut Context) {
     play.pp = game.pp;
     if game.pp_clean.is_some() {
         play.clean = game.pp_clean;
+    }
+    if game.pp_record.is_some() {
+        play.record = game.pp_record;
     }
     play.meter = view
         .snapshot
@@ -178,6 +193,7 @@ impl Stage {
                 .as_ref()
                 .and_then(|play| play.unstable_rate)
                 .map(|rate| rate as f32),
+            pp: context.play.as_ref().and_then(|play| play.pp).map(|pp| pp as f32),
             pulse: 0.0,
             last: None,
         }
@@ -204,14 +220,9 @@ impl Stage {
             .filter(|_| live(view))
             .and_then(|play| play.unstable_rate)
             .map(|rate| rate as f32);
-        self.rate = match (self.rate, wanted) {
-            (Some(shown), Some(aim)) => {
-                let keep = 0.5f32.powf(dt / RATE_HALF_LIFE);
-                let next = aim + (shown - aim) * keep;
-                Some(if (next - aim).abs() < 0.05 { aim } else { next })
-            }
-            (_, aim) => aim,
-        };
+        self.rate = chased(self.rate, wanted, dt, 0.05);
+        let reached = context.play.as_ref().filter(|_| live(view)).and_then(|play| play.pp).map(|pp| pp as f32);
+        self.pp = chased(self.pp, reached, dt, 0.3);
     }
 
     pub fn moving(&self, view: Option<&View>, context: &Context) -> bool {
@@ -329,7 +340,8 @@ pub fn plan(view: Option<&View>, context: &Context, stage: &Stage) -> Vec<Placed
         Screen::Playing if playing => {
             if let Some(play) = &context.play {
                 if let Some(pp) = play.pp {
-                    corner.push(("pp", plates::reach(play, pp, lang, stage.eased())));
+                    let shown = stage.pp.map_or(pp, f64::from);
+                    corner.push(("pp", plates::reach(play, shown, lang, stage.eased())));
                 }
                 if let (Some(meter), Some(rate)) = (play.meter, stage.rate) {
                     let node = plates::rate(rate, lang, meter.scale);
@@ -714,6 +726,27 @@ mod tests {
             None,
             "a meter that is off is no meter"
         );
+    }
+
+    #[test]
+    fn the_pp_counter_runs_to_a_new_value_instead_of_jumping() {
+        let (view, mut context) = frame("play");
+        context.play.as_mut().unwrap().pp = Some(100.0);
+        let mut stage = Stage::settled(Some(&view), &context);
+        assert_eq!(stage.pp, Some(100.0));
+        let from = Instant::now();
+        stage.advance(Some(&view), &context, from);
+        context.play.as_mut().unwrap().pp = Some(140.0);
+        stage.advance(Some(&view), &context, from + Duration::from_millis(60));
+        let midway = stage.pp.unwrap();
+        assert!(midway > 105.0 && midway < 135.0, "{midway}");
+        for step in 2..40 {
+            stage.advance(Some(&view), &context, from + Duration::from_millis(60) * step);
+        }
+        assert_eq!(stage.pp, Some(140.0));
+        context.play.as_mut().unwrap().pp = None;
+        stage.advance(Some(&view), &context, from + Duration::from_secs(4));
+        assert_eq!(stage.pp, None);
     }
 
     #[test]

@@ -57,7 +57,8 @@ Dossier.
 `Stage::advance` is called once per drawn frame. It moves the fold between the
 playing and the break form in `UNFOLD_SECONDS`, pulls the shown unstable rate
 towards the latest value with a half-life of `RATE_HALF_LIFE`, and runs the pulse
-of the recording dot. `Stage::moving` tells whether another frame is needed.
+of the recording dot. The PP counter runs to each new value the same way (`Stage::pp`).
+`Stage::moving` tells whether another frame is needed.
 `Stage::settled` gives the resting state for a still picture.
 
 ## Sizes

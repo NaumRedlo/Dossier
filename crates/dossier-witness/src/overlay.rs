@@ -9,6 +9,7 @@ use crate::pace::{Pace, Reach};
 use crate::stable::{Counts, Glance, Map, Mode, Play};
 
 const PACE_GAP: Duration = Duration::from_millis(250);
+const CONFIG_GAP: Duration = Duration::from_secs(2);
 
 struct Chart {
     md5: String,
@@ -16,6 +17,13 @@ struct Chart {
     rests: Option<Rests>,
     pace: Option<(u32, Option<Pace>)>,
     reach: Option<(Instant, Counts, u32, Reach)>,
+    record: Option<Option<f64>>,
+}
+
+struct Config {
+    file: PathBuf,
+    written: Option<std::time::SystemTime>,
+    looked: Instant,
 }
 
 pub struct Publisher {
@@ -25,6 +33,11 @@ pub struct Publisher {
     songs: Option<PathBuf>,
     chart: Option<Chart>,
     pace_gap: Duration,
+    config: Option<Config>,
+    config_gap: Duration,
+    scores: Option<PathBuf>,
+    player: String,
+    began: Option<i32>,
 }
 
 pub fn clock_rate(mods: u32) -> f64 {
@@ -46,6 +59,11 @@ impl Publisher {
             songs: None,
             chart: None,
             pace_gap: PACE_GAP,
+            config: None,
+            config_gap: CONFIG_GAP,
+            scores: None,
+            player: String::new(),
+            began: None,
         }
     }
 
@@ -53,6 +71,38 @@ impl Publisher {
         self.meter = meter;
         self.songs = songs;
         self
+    }
+
+    pub fn watching(mut self, config: Option<PathBuf>, scores: Option<PathBuf>, player: &str) -> Self {
+        self.config = config.map(|file| Config { written: std::fs::metadata(&file).and_then(|held| held.modified()).ok(), file, looked: Instant::now() });
+        self.scores = scores;
+        self.player = player.to_owned();
+        self
+    }
+
+    fn meter_now(&mut self) -> Option<Meter> {
+        let gap = self.config_gap;
+        if let Some(config) = self.config.as_mut().filter(|config| config.looked.elapsed() >= gap) {
+            config.looked = Instant::now();
+            let written = std::fs::metadata(&config.file).and_then(|held| held.modified()).ok();
+            if written != config.written {
+                config.written = written;
+                if let Some(meter) = std::fs::read(&config.file).ok().and_then(|bytes| crate::client::Client::said_in(&String::from_utf8_lossy(&bytes)).meter()) {
+                    self.meter = Some(meter);
+                }
+            }
+        }
+        self.meter
+    }
+
+    fn record_of(&mut self, map: &Map, fresh: bool) -> Option<f64> {
+        let (scores, player) = (self.scores.clone()?, self.player.clone());
+        let chart = self.chart_of(map);
+        if fresh || chart.record.is_none() {
+            let held = crate::scores::on_map(&scores, &map.md5, &player);
+            chart.record = Some(chart.text.as_deref().filter(|_| !held.is_empty()).and_then(|text| Pace::best(text, &held)));
+        }
+        chart.record.flatten()
     }
 
     fn chart_of(&mut self, map: &Map) -> &mut Chart {
@@ -69,6 +119,7 @@ impl Publisher {
                 text,
                 pace: None,
                 reach: None,
+                record: None,
             });
         }
         self.chart.as_mut().expect("the chart was just read")
@@ -141,6 +192,13 @@ impl Publisher {
             .filter(|play| play.ruleset == 0)
             .zip(seen.map.as_ref())
             .and_then(|(play, map)| self.reach_of(map, play));
+        let starting = seen.time_ms < self.began.unwrap_or(i32::MAX);
+        self.began = playing.map(|_| seen.time_ms);
+        let record = playing
+            .filter(|play| play.ruleset == 0)
+            .zip(seen.map.as_ref())
+            .and_then(|(_, map)| self.record_of(map, starting));
+        let meter = self.meter_now();
         let gameplay = playing
             .map(|play| {
                 let c = play.counts;
@@ -166,6 +224,7 @@ impl Publisher {
                     resting,
                     pp: reach.map(|reach| reach.now),
                     pp_clean: reach.map(|reach| reach.clean),
+                    pp_record: record,
                 }
             });
         self.next(Message::Snapshot {
@@ -179,7 +238,7 @@ impl Publisher {
                 }),
                 gameplay,
                 watching_replay: seen.watching,
-                meter: self.meter,
+                meter,
             },
         })
     }
@@ -415,5 +474,62 @@ mod tests {
         let again = publisher.reach_of(&map, &play(0)).unwrap();
         assert_eq!(again.now, 0.0, "a retry starts from nothing at once");
         let _ = std::fs::remove_dir_all(&songs);
+    }
+
+    #[test]
+    fn the_record_on_the_map_comes_from_the_player_s_local_scores_and_is_read_again_on_a_retry() {
+        let songs = std::env::temp_dir().join(format!("dossier-witness-record-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&songs);
+        std::fs::create_dir_all(songs.join("set")).unwrap();
+        let corpus = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../dossier-assay/corpus/maps/5114204.osu");
+        std::fs::copy(corpus, songs.join("set").join("map.osu")).unwrap();
+        let scores = songs.join("scores.db");
+        let held = |n100: u16, miss: u16, mods: u32, player: &str| crate::scores::Held { md5: "f".repeat(32), player: player.to_owned(), counts: Counts { n300: 400, n100, miss, ..Counts::default() }, max_combo: if miss > 0 { 200 } else { 600 }, mods };
+        std::fs::write(&scores, crate::scores::written(&[held(30, 5, 0, "Me"), held(2, 0, DT, "Guest")])).unwrap();
+        let mut publisher = Publisher::new(1).knowing(None, Some(songs.clone())).watching(None, Some(scores.clone()), "Me");
+        let mut seen = Glance {
+            raw_mode: 2,
+            mode: Some(Mode::Play),
+            time_ms: 500,
+            map: Some(Map { md5: "f".repeat(32), folder: "set".into(), file: "map.osu".into(), ..Map::default() }),
+            watching: Some(false),
+            play: Some(Play::default()),
+        };
+        let told = |publisher: &mut Publisher, seen: &Glance| {
+            let Message::Snapshot { snapshot } = publisher.snapshot(seen).message else {
+                panic!()
+            };
+            snapshot.gameplay.unwrap()
+        };
+        let first = told(&mut publisher, &seen).pp_record.expect("the player has a score here");
+        assert!(first > 1.0 && first < told(&mut publisher, &seen).pp_clean.unwrap());
+        std::fs::write(&scores, crate::scores::written(&[held(30, 5, 0, "Me"), held(1, 0, 0, "Me")])).unwrap();
+        seen.time_ms = 9000;
+        assert_eq!(told(&mut publisher, &seen).pp_record, Some(first), "a play in progress does not read the file again");
+        seen.time_ms = 300;
+        assert!(told(&mut publisher, &seen).pp_record.unwrap() > first, "a retry sees the score just set");
+        seen.map.as_mut().unwrap().md5 = "0".repeat(32);
+        assert_eq!(told(&mut publisher, &seen).pp_record, None, "a map without a score has no record");
+        let _ = std::fs::remove_dir_all(&songs);
+    }
+
+    #[test]
+    fn a_change_of_the_meter_in_the_client_s_configuration_is_seen_while_it_runs() {
+        let file = std::env::temp_dir().join(format!("dossier-witness-config-{}.cfg", std::process::id()));
+        std::fs::write(&file, "ScoreMeter = Error\nScoreMeterScale = 1\n").unwrap();
+        let mut publisher = Publisher::new(1).knowing(Some(Meter { shown: true, scale: 1.0 }), None).watching(Some(file.clone()), None, "");
+        publisher.config_gap = Duration::ZERO;
+        let seen = Glance { raw_mode: 0, mode: Some(Mode::Menu), time_ms: 0, map: None, watching: None, play: None };
+        let meter = |publisher: &mut Publisher| {
+            let Message::Snapshot { snapshot } = publisher.snapshot(&seen).message else {
+                panic!()
+            };
+            snapshot.meter
+        };
+        assert_eq!(meter(&mut publisher), Some(Meter { shown: true, scale: 1.0 }));
+        std::thread::sleep(Duration::from_millis(1100));
+        std::fs::write(&file, "ScoreMeter = None\nScoreMeterScale = 1.6\n").unwrap();
+        assert_eq!(meter(&mut publisher), Some(Meter { shown: false, scale: 1.6 }));
+        let _ = std::fs::remove_file(&file);
     }
 }

@@ -125,6 +125,7 @@ mod tests {
             resting: Some(resting),
             pp: Some(41.5),
             pp_clean: Some(120.0),
+            pp_record: None,
         });
         Frame::new(1, sequence, Message::Snapshot { snapshot: Snapshot { screen, beatmap: None, gameplay, watching_replay: Some(false), meter: Some(Meter { shown: true, scale: 1.0 }) } })
     }

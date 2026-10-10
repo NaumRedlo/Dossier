@@ -63,6 +63,15 @@ writes six sample frames over a made-up backdrop. `cargo test -p dossier-hud`
 compares the same frames with the approved pictures in `tests/golden`; set
 `DOSSIER_HUD_REVIEW` to a folder to get the current ones.
 
+## The send key
+
+The sample offer shows Tab: it lies under the left hand and stable does not use it
+on the results screen, while F8 opens the chat there. Whoever listens for the key
+must count only a bare press: no Alt, Ctrl, Shift or Win held, the game window in
+front both when the key goes down and when it comes up, and the result sent on the
+release. Alt+Tab then sends nothing, because Alt is held and the game loses the
+front before the key comes up.
+
 ## Not done
 
 No host draws these sprites inside a client. Nothing reads the unstable rate, the

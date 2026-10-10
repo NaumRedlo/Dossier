@@ -178,6 +178,7 @@ pub struct Ground<'a> {
     pub person: Option<usize>,
     pub now_unix: i64,
     pub everyone: bool,
+    pub worn: &'a HashMap<i64, crate::bot::Worn>,
     pub pool: &'a [Person],
     pub compare: &'a [i64],
     pub compare_query: &'a str,
@@ -450,7 +451,21 @@ pub(crate) fn quiet_mods<'a>(list: &[String]) -> Element<'a, Message> {
     shown.into()
 }
 
+pub(crate) fn worn_of<'a>(ground: &Ground<'a>, person: &Person) -> Option<&'a crate::bot::Worn> {
+    ground.worn.get(&person.player?)
+}
+
+pub(crate) fn with_mark<'a>(ground: &Ground<'a>, person: &Person, name: impl Into<Element<'a, Message>>, size: f32) -> Element<'a, Message> {
+    match worn_of(ground, person).filter(|worn| worn.rank.is_some()) {
+        Some(worn) => row![name.into(), crate::badge::mark(worn.rank, worn.stage, size)].spacing(5).align_y(iced::Center).into(),
+        None => name.into(),
+    }
+}
+
 pub(crate) fn title_line<'a>(ground: &Ground<'a>, person: &Person, size: f32) -> Element<'a, Message> {
+    if let Some((worn, title)) = worn_of(ground, person).and_then(|worn| worn.title.as_ref().filter(|title| !title.name.is_empty()).map(|title| (worn, title))) {
+        return text(title.name.clone()).font(theme::SANS_SEMI).size(size).wrapping(text::Wrapping::None).color(ui::faded(crate::badge::title_colour(title.rank, worn.stage))).into();
+    }
     match ground.catalog.shown_title(person) {
         Some(title) => text(title.name(ground.words.lang()).to_owned()).font(theme::SANS).size(size).wrapping(text::Wrapping::None).color(ui::faded(title.rarity.colour())).into(),
         None => text(ground.words.t("no-title")).font(theme::SANS).size(size).wrapping(text::Wrapping::None).color(ui::faded(FAINT)).into(),
@@ -897,7 +912,7 @@ fn person_card<'a>(ground: &Ground<'a>, at: usize, person: &Person, place: usize
         ringed(ground, person, 54.0, medal(place).unwrap_or(Color::from_rgba(1.0, 1.0, 1.0, 0.22))),
         column![
             row![
-                ui::marquee(vec![ui::piece(person.name.clone(), theme::SANS_SEMI, 18.0, INK)]).width(Length::Shrink),
+                with_mark(ground, person, ui::marquee(vec![ui::piece(person.name.clone(), theme::SANS_SEMI, 18.0, INK)]).width(Length::Shrink), 18.0),
                 flag(ground, &person.country, 13.0),
             ]
             .spacing(8)
@@ -1268,7 +1283,7 @@ fn podium_card<'a>(ground: &Ground<'a>, list: &Standings, place: usize, who: usi
         });
     let mut inside = column![
         stack![ringed(ground, person, side, colour), container(badge).width(side + 8.0).height(side + 8.0).align_x(iced::alignment::Horizontal::Right).align_y(iced::alignment::Vertical::Bottom)],
-        row![ui::marquee(vec![ui::piece(person.name.clone(), theme::SANS_SEMI, 16.0, INK)]).width(Length::Shrink), flag(ground, &person.country, 11.0)].spacing(6).align_y(iced::Center),
+        row![with_mark(ground, person, ui::marquee(vec![ui::piece(person.name.clone(), theme::SANS_SEMI, 16.0, INK)]).width(Length::Shrink), 16.0), flag(ground, &person.country, 11.0)].spacing(6).align_y(iced::Center),
         title_line(ground, person, 11.5),
         Space::new().height(4.0),
         row![text(said.value).font(theme::SANS_SEMI).size(if place == 1 { 22.0 } else { 19.0 }).wrapping(text::Wrapping::None).color(ui::faded(value_colour)), movement(ground, said.moved)].spacing(8).align_y(iced::Center),
@@ -1305,7 +1320,7 @@ fn board_row<'a>(ground: &Ground<'a>, list: &Standings, place: Option<usize>, wh
     let mut line = row![
         container(text(place.map_or_else(|| "—".to_owned(), |p| p.to_string())).font(theme::MONO_BOLD).size(14.0).color(ui::faded(if person.you { ACCENT } else { MUTED }))).width(30.0).align_x(iced::alignment::Horizontal::Center),
         ringed(ground, person, 36.0, if person.you { ACCENT } else { Color::from_rgba(1.0, 1.0, 1.0, 0.16) }),
-        container(column![row![ui::marquee(vec![ui::piece(person.name.clone(), theme::SANS_SEMI, 15.0, if person.you { Color::from_rgb(0.941, 0.408, 0.408) } else { INK })]).width(Length::Shrink), flag(ground, &person.country, 11.0)].spacing(7).align_y(iced::Center), under].spacing(2))
+        container(column![row![with_mark(ground, person, ui::marquee(vec![ui::piece(person.name.clone(), theme::SANS_SEMI, 15.0, if person.you { Color::from_rgb(0.941, 0.408, 0.408) } else { INK })]).width(Length::Shrink), 15.0), flag(ground, &person.country, 11.0)].spacing(7).align_y(iced::Center), under].spacing(2))
             .width(Length::Fill)
             .clip(true),
     ]
@@ -1508,7 +1523,7 @@ fn comparing<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
         let remove = button(text("✕").size(11.0).color(ui::faded(FAINT))).padding([2, 4]).style(ui::button_faded(theme::bare)).on_press(Message::CompareRemove(person.id));
         let whose = column![
             ringed(ground, person, 52.0, if person.you { theme::ACCENT } else { Color::from_rgba(1.0, 1.0, 1.0, 0.22) }),
-            row![ui::marquee(vec![ui::piece(person.name.clone(), theme::SANS_SEMI, 15.0, INK)]).width(Length::Shrink), flag(ground, &person.country, 11.0)].spacing(6).align_y(iced::Center),
+            row![with_mark(ground, person, ui::marquee(vec![ui::piece(person.name.clone(), theme::SANS_SEMI, 15.0, INK)]).width(Length::Shrink), 15.0), flag(ground, &person.country, 11.0)].spacing(6).align_y(iced::Center),
             remove,
         ]
         .spacing(6)

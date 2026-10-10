@@ -94,6 +94,7 @@ pub enum Message {
     PoolHot(crate::pools_screen::Hot),
     MapBoard(u64, bool, Result<crate::community::wire::MapBoard, String>),
     EveryoneArrived(Result<crate::community::wire::Everyone, String>),
+    WornArrived(std::collections::HashMap<i64, crate::bot::Worn>),
     PinRead(Result<crate::community::wire::Pin, String>),
     Pinned(Result<crate::community::wire::Pin, String>),
     FriendsArrived(Result<crate::bot::Friends, String>),
@@ -495,6 +496,7 @@ pub struct Main {
     pub renaming: Option<String>,
     pub chats: Vec<crate::bot::Chat>,
     everyone: Vec<crate::community::wire::Person>,
+    pub worn: std::collections::HashMap<i64, crate::bot::Worn>,
     pub pin: Option<crate::community::wire::Pin>,
     pub compare: Vec<i64>,
     pub compare_query: String,
@@ -736,6 +738,7 @@ impl Main {
             side: Side::App,
             renaming: None,
             everyone: Vec::new(),
+            worn: std::collections::HashMap::new(),
             pin: None,
             compare: Vec::new(),
             compare_query: String::new(),
@@ -3555,13 +3558,17 @@ impl Main {
                 self.notice_fade.go_mut(false, Instant::now());
                 let card = self.card_task(false);
                 let friends = self.friends_task(false);
-                Task::batch([self.community_pictures_task(), friends, card, save, self.everyone_task(), self.resolve_witness()])
+                Task::batch([self.community_pictures_task(), friends, card, save, self.everyone_task(), self.resolve_witness(), self.worn_task()])
             }
             Message::EveryoneArrived(Ok(said)) => {
                 self.everyone = said.people;
                 self.welcome_everyone();
                 self.pool_players();
-                self.community_pictures_task()
+                Task::batch([self.community_pictures_task(), self.worn_task()])
+            }
+            Message::WornArrived(worn) => {
+                self.worn.extend(worn);
+                Task::none()
             }
             Message::EveryoneArrived(Err(_)) => Task::none(),
             Message::PinRead(Ok(pin)) => {
@@ -6638,6 +6645,7 @@ impl Main {
             read_k: self.read_fade.interpolate(0.0, 1.0, self.now),
             people_from: self.people_from,
             everyone: self.settings.people_everyone,
+            worn: &self.worn,
             pool: &self.compare_pool,
             compare: &self.compare,
             compare_query: &self.compare_query,
@@ -7642,6 +7650,20 @@ impl Main {
         self.compare_pool = pool;
         let known: Vec<i64> = self.compare_pool.iter().map(|person| person.id).collect();
         self.compare.retain(|id| known.contains(id));
+    }
+
+    fn worn_task(&self) -> Task<Message> {
+        if self.settings.token.is_empty() {
+            return Task::none();
+        }
+        let mut players: Vec<i64> = self.community.iter().flat_map(|catalog| catalog.people.iter().filter_map(|person| person.player)).chain(self.everyone.iter().filter_map(|person| person.player)).filter(|player| !self.worn.contains_key(player)).collect();
+        players.sort_unstable();
+        players.dedup();
+        if players.is_empty() {
+            return Task::none();
+        }
+        let (server, token, name) = (self.settings.server.clone(), self.settings.token.clone(), self.settings.device.clone());
+        ui::in_thread(move || Message::WornArrived(crate::bot::badges(&server, &token, &name, &players).unwrap_or_default()))
     }
 
     fn everyone_task(&self) -> Task<Message> {

@@ -485,7 +485,7 @@ fn name_line<'a>(ground: &Ground<'a>, person: &Person, who: usize, at: i64) -> E
             snap: true,
         }))
         .on_press(Message::Person(Some(who)));
-    row![name, screen::flag(ground, &person.country, 10.0), ui::mono_small(when_text(ground, at), FAINT)].spacing(8).align_y(iced::Center).into()
+    row![screen::with_mark(ground, person, name, 14.0), screen::flag(ground, &person.country, 10.0), ui::mono_small(when_text(ground, at), FAINT)].spacing(8).align_y(iced::Center).into()
 }
 
 const SPACE: f32 = 4.0;

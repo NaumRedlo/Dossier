@@ -1073,6 +1073,18 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
             main
         }),
         ("main-community-people".to_owned(), community(crate::community_screen::Section::People, None)),
+        ("main-community-people-worn".to_owned(), {
+            let mut main = community(crate::community_screen::Section::People, None);
+            if let Some(catalog) = main.community.as_mut() {
+                for (at, person) in catalog.people.iter_mut().enumerate().take(3) {
+                    person.player = Some(at as i64 + 1);
+                }
+            }
+            main.worn.insert(1, crate::bot::Worn { rank: Some(3), stage: 4, title: Some(crate::bot::BadgeTier { offer: "d".into(), name: "Советник".into(), rank: Some(3) }) });
+            main.worn.insert(2, crate::bot::Worn { rank: Some(1), stage: 2, title: None });
+            main.worn.insert(3, crate::bot::Worn { rank: None, stage: 1, title: Some(crate::bot::BadgeTier { offer: "a".into(), name: "Сторонник".into(), rank: Some(0) }) });
+            main
+        }),
         ("main-community-sidebar".to_owned(), {
             let mut main = community(crate::community_screen::Section::Feed, None);
             main.side_open = iced::Animation::new(true);

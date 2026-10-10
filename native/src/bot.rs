@@ -163,6 +163,36 @@ pub fn subscription(server: &str, token: &str, device: &str) -> Result<Option<Su
     Ok(held.subscription.map(|subscription| Subscription { badge: held.badge, ..subscription }))
 }
 
+#[derive(Debug, Clone, PartialEq, Default, serde::Deserialize)]
+pub struct Worn {
+    #[serde(default)]
+    pub rank: Option<usize>,
+    #[serde(default)]
+    pub stage: u8,
+    #[serde(default)]
+    pub title: Option<BadgeTier>,
+}
+
+#[derive(Debug, Default, serde::Deserialize)]
+struct WornList {
+    #[serde(default)]
+    badges: std::collections::HashMap<String, Worn>,
+}
+
+pub fn worn_of(text: &str) -> std::collections::HashMap<i64, Worn> {
+    serde_json::from_str::<WornList>(text).map(|list| list.badges.into_iter().filter_map(|(player, worn)| Some((player.parse().ok()?, worn))).collect()).unwrap_or_default()
+}
+
+pub fn badges(server: &str, token: &str, device: &str, players: &[i64]) -> Result<std::collections::HashMap<i64, Worn>, Refused> {
+    if players.is_empty() {
+        return Ok(std::collections::HashMap::new());
+    }
+    let wanted = players.iter().take(200).map(i64::to_string).collect::<Vec<_>>().join(",");
+    let reply = client()?.get(format!("{server}/render/billing/badges")).query(&[("players", wanted)]).header("X-Render-Worker", device).bearer_auth(token).send().map_err(|e| Refused::Network(e.to_string()))?;
+    let text = status(reply)?.text().map_err(|e| Refused::Network(e.to_string()))?;
+    Ok(worn_of(&text))
+}
+
 pub fn wear(server: &str, token: &str, device: &str, show_badge: Option<bool>, show_title: Option<bool>, title: Option<String>) -> Result<Badge, Refused> {
     let reply = client()?.post(format!("{server}/render/billing/badge")).header("X-Render-Worker", device).bearer_auth(token)
         .json(&serde_json::json!({"show_badge": show_badge, "show_title": show_title, "title": title})).send().map_err(|e| Refused::Network(e.to_string()))?;
@@ -1211,6 +1241,15 @@ pub fn tidy(code: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn other_players_badges_are_read_by_player_and_a_broken_answer_gives_none() {
+        let worn = worn_of(r#"{"badges": {"7": {"rank": 2, "stage": 3, "title": {"offer": "x", "name": "Комиссар", "rank": 2}}, "9": {"rank": null, "stage": 1, "title": null}, "oops": {"rank": 1}}}"#);
+        assert_eq!(worn.len(), 2);
+        assert_eq!((worn[&7].rank, worn[&7].stage, worn[&7].title.as_ref().map(|title| title.name.as_str())), (Some(2), 3, Some("Комиссар")));
+        assert!(worn[&9].rank.is_none() && worn[&9].title.is_none());
+        assert!(worn_of("not json").is_empty());
+    }
     use std::io::{Read, Write};
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;

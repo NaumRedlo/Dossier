@@ -19,7 +19,7 @@ dark fill with a light edge.
 - **Menu:** «Результаты за день» (PP gained, world rank and its movement, the
   best play of the day, plays, time in game, new records) and up to two Dossier
   notices.
-- **Song select:** one compact card with the pool slot of the map, its stars and
+- **Song select:** one compact card with the pool the map is in, its stars and
   three places «в беседе».
 - **Playing:** the PP reached so far and the unstable rate above the game's own
   hit error meter. While notes are played the PP plate is only a live counter and
@@ -37,7 +37,7 @@ the counter nor the rate.
 is not drawn. The overlay protocol does not carry it yet. `Play::resting` (the map
 is in a break), `Play::unstable_rate`, `Play::meter` (the game shows its hit error
 meter, and at which scale) and `Play::pp` have to be supplied by whoever reads the
-client; the day, the pool slot, the chat places and the outcome come from Dossier.
+client; the day, the pool, the chat places and the outcome come from Dossier.
 
 ## Animation
 

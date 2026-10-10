@@ -1,8 +1,6 @@
 use dossier_overlay::{Client, Gameplay, Screen, Snapshot, View};
 
-use crate::{
-    Best, Card, Context, Day, Lang, Meter, Notice, Outcome, Place, Play, Sent, Slot, Tone,
-};
+use crate::{Best, Card, Context, Day, Lang, Meter, Notice, Outcome, Place, Play, Sent, Tone};
 
 fn view(screen: Screen) -> View {
     View {
@@ -24,14 +22,6 @@ fn view(screen: Screen) -> View {
             }),
             watching_replay: Some(false),
         },
-    }
-}
-
-fn slot() -> Slot {
-    Slot {
-        code: "HD 2".into(),
-        pool: "Winter BlyatCup 2026".into(),
-        colour: None,
     }
 }
 
@@ -105,7 +95,7 @@ pub fn frames(lang: Lang) -> Vec<(&'static str, View, Context)> {
             view(Screen::Selection),
             Context {
                 card: Some(Card {
-                    slot: Some(slot()),
+                    pool: Some("Winter BlyatCup 2026".into()),
                     stars: Some(6.25),
                     places: vec![
                         Place {

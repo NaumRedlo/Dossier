@@ -1,6 +1,6 @@
 use crate::draw::{fitted, mix, rgb, Face, Rgba};
 use crate::node::{col, row, text, Cross, Node, Shell};
-use crate::{Best, Card, Day, Lang, Notice, Place, Play, Sent, Slot, Tone};
+use crate::{Best, Card, Day, Lang, Notice, Place, Play, Sent, Tone};
 
 const INK: Rgba = rgb(0xece7e2, 1.0);
 const MUTED: Rgba = rgb(0xc9aaa6, 1.0);
@@ -169,18 +169,8 @@ fn mod_colour(code: &str) -> Rgba {
     }
 }
 
-fn chip(code: &str, colour: Option<[u8; 3]>) -> Node {
-    let base = colour.map_or_else(
-        || mod_colour(code),
-        |[r, g, b]| {
-            [
-                f32::from(r) / 255.0,
-                f32::from(g) / 255.0,
-                f32::from(b) / 255.0,
-                1.0,
-            ]
-        },
-    );
+fn chip(code: &str) -> Node {
+    let base = mod_colour(code);
     plate(
         Shell {
             side: 8.0,
@@ -402,14 +392,11 @@ fn best(best: &Best, lang: Lang) -> Node {
             row(
                 8.0,
                 vec![
-                    chip(
-                        if best.mods.is_empty() {
-                            "NM"
-                        } else {
-                            &best.mods
-                        },
-                        None,
-                    ),
+                    chip(if best.mods.is_empty() {
+                        "NM"
+                    } else {
+                        &best.mods
+                    }),
                     text(
                         format!("{}%", decimal(best.accuracy, 2, lang)),
                         Face::MonoBold,
@@ -567,17 +554,16 @@ fn place(place: &Place, lang: Lang) -> Node {
 }
 
 pub fn card(card: &Card, lang: Lang) -> Option<Node> {
-    if card.slot.is_none() && card.places.is_empty() {
+    if card.pool.is_none() && card.places.is_empty() {
         return None;
     }
     let mut head = vec![Node::Logo {
         side: 16.0,
         colour: ACCENT,
     }];
-    if let Some(Slot { code, pool, colour }) = &card.slot {
-        head.push(chip(code, *colour));
+    if let Some(pool) = &card.pool {
         head.push(text(
-            fitted(pool, Face::Semi, 13.0, 250.0),
+            fitted(pool, Face::Semi, 13.0, 300.0),
             Face::Semi,
             13.0,
             INK,
@@ -680,14 +666,11 @@ pub fn sent(sent: &Sent, lang: Lang) -> Node {
                                         12.0,
                                         MUTED,
                                     ),
-                                    chip(
-                                        if sent.mods.is_empty() {
-                                            "NM"
-                                        } else {
-                                            &sent.mods
-                                        },
-                                        None,
-                                    ),
+                                    chip(if sent.mods.is_empty() {
+                                        "NM"
+                                    } else {
+                                        &sent.mods
+                                    }),
                                 ],
                             ),
                             row(

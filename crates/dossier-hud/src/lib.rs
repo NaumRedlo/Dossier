@@ -58,14 +58,6 @@ pub struct Day {
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(default)]
-pub struct Slot {
-    pub code: String,
-    pub pool: String,
-    pub colour: Option<[u8; 3]>,
-}
-
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-#[serde(default)]
 pub struct Place {
     pub place: u32,
     pub name: String,
@@ -76,7 +68,7 @@ pub struct Place {
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Card {
-    pub slot: Option<Slot>,
+    pub pool: Option<String>,
     pub stars: Option<f64>,
     pub places: Vec<Place>,
 }

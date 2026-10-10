@@ -646,7 +646,7 @@ pub fn run(control: Arc<Control>, player: String, push: &mut dyn FnMut(Event) ->
             while !holder.stopped() {
                 let _ = std::fs::write(&leash, b"held");
                 let packet = holder.context.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone();
-                if let Some(mut packet) = packet {
+                if let Some(mut packet) = packet.filter(|_| holder.overlay().is_some()) {
                     packet.at_ms = dossier_hud::context::now_ms();
                     let _ = dossier_hud::context::write(&context_path(), &packet);
                 } else { let _ = std::fs::remove_file(context_path()); }

@@ -11,7 +11,7 @@ use asdf_overlay_client::{
     inject,
 };
 use asdf_overlay_surface_util::surface::OverlaySurface;
-use dossier_overlay::{Mailbox, read_frame};
+use dossier_overlay::{Glimpse, Mailbox, read_frame};
 use std::{
     collections::HashMap,
     path::PathBuf,
@@ -140,7 +140,9 @@ pub async fn run() -> anyhow::Result<()> {
                 _ = tick.tick() => {
                     if ended.load(Ordering::Acquire) { break; }
                     let now = Instant::now();
-                    let view = mailbox.try_view(now)?;
+                    let Glimpse::Seen(view) = mailbox.glimpse(now)? else {
+                        continue;
+                    };
                     if context_read_at.is_none_or(|at| now.duration_since(at) >= Duration::from_secs(1)) {
                         context_packet = context_path.as_ref().and_then(|path| dossier_hud::context::read(path).ok());
                         context_read_at = Some(now);

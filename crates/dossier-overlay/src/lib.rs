@@ -251,6 +251,12 @@ impl Receiver {
     }
 }
 
+#[derive(Debug, Clone)]
+pub enum Glimpse {
+    Busy,
+    Seen(Option<View>),
+}
+
 #[derive(Clone, Default)]
 pub struct Mailbox(Arc<Mutex<Receiver>>);
 
@@ -268,6 +274,14 @@ impl Mailbox {
             .lock()
             .map_err(|_| invalid("overlay receiver unavailable"))? = Receiver::default();
         Ok(())
+    }
+
+    pub fn glimpse(&self, now: Instant) -> io::Result<Glimpse> {
+        match self.0.try_lock() {
+            Ok(receiver) => Ok(Glimpse::Seen(receiver.visible(now).cloned())),
+            Err(TryLockError::WouldBlock) => Ok(Glimpse::Busy),
+            Err(TryLockError::Poisoned(_)) => Err(invalid("overlay receiver unavailable")),
+        }
     }
 
     pub fn try_view(&self, now: Instant) -> io::Result<Option<View>> {
@@ -402,6 +416,20 @@ mod tests {
         assert!(receiver.visible(now).is_none());
         receiver.accept(snapshot(2, 2), now).unwrap();
         assert_eq!(receiver.visible(now).unwrap().client, Client::Lazer);
+    }
+
+    #[test]
+    fn a_busy_mailbox_is_told_apart_from_one_with_nothing_to_show() {
+        let mailbox = Mailbox::default();
+        let now = Instant::now();
+        assert!(matches!(mailbox.glimpse(now).unwrap(), Glimpse::Seen(None)));
+        mailbox.accept(hello(1, Client::Stable), now).unwrap();
+        mailbox.accept(snapshot(1, 2), now).unwrap();
+        assert!(matches!(mailbox.glimpse(now).unwrap(), Glimpse::Seen(Some(_))));
+        let held = mailbox.0.lock().unwrap();
+        assert!(matches!(mailbox.glimpse(now).unwrap(), Glimpse::Busy));
+        drop(held);
+        assert!(matches!(mailbox.glimpse(now).unwrap(), Glimpse::Seen(Some(_))));
     }
 
     #[test]

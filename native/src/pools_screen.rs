@@ -455,6 +455,7 @@ pub const SETTLED: f32 = 60.0;
 
 #[derive(Debug, Clone)]
 pub struct Clocks {
+    pub page: f32,
     pub screen: f32,
     pub panel: f32,
     pub gone: f32,
@@ -465,7 +466,7 @@ pub struct Clocks {
 
 impl Clocks {
     pub fn settled() -> Clocks {
-        Clocks { screen: SETTLED, panel: SETTLED, gone: SETTLED, today: 0, high: 0.0, remote: HashMap::new() }
+        Clocks { page: SETTLED, screen: SETTLED, panel: SETTLED, gone: SETTLED, today: 0, high: 0.0, remote: HashMap::new() }
     }
 
     fn of(&self, id: &str) -> f32 {
@@ -475,6 +476,7 @@ impl Clocks {
 
 #[derive(Debug, Clone, Default)]
 pub struct Marks {
+    page: Option<(String, Instant)>,
     screen: Option<(String, Instant)>,
     panel: Option<(&'static str, Instant)>,
     gone: Option<Instant>,
@@ -494,6 +496,13 @@ impl Marks {
             None => long_ago,
         };
         self.screen = Some((screen, screen_at));
+        let page = state.page_key();
+        let page_at = match &self.page {
+            Some((was, at)) if *was == page => *at,
+            Some(_) => now,
+            None => long_ago,
+        };
+        self.page = Some((page, page_at));
         let panel = state.panel_key();
         let panel_at = match self.panel {
             Some((was, at)) if was == panel => at,
@@ -515,7 +524,7 @@ impl Marks {
     pub fn clocks(&self, now: Instant) -> Clocks {
         let age = |at: Instant| now.saturating_duration_since(at).as_secs_f32().min(SETTLED);
         match (&self.screen, &self.panel) {
-            (Some((_, screen)), Some((_, panel))) => Clocks { screen: age(*screen), panel: age(*panel), gone: self.gone.map_or(SETTLED, age), today: 0, high: 0.0, remote: self.remote.iter().map(|(id, at)| (id.clone(), age(*at))).collect() },
+            (Some((_, screen)), Some((_, panel))) => Clocks { page: self.page.as_ref().map_or(SETTLED, |(_, at)| age(*at)), screen: age(*screen), panel: age(*panel), gone: self.gone.map_or(SETTLED, age), today: 0, high: 0.0, remote: self.remote.iter().map(|(id, at)| (id.clone(), age(*at))).collect() },
             _ => Clocks::settled(),
         }
     }
@@ -587,6 +596,14 @@ impl State {
     pub fn screen_key(&self) -> String {
         match &self.screen {
             Screen::Shelf => format!("shelf:{}:{:?}", self.collection_shelf, self.shelf),
+            Screen::Editor(editor) => format!("editor:{}", editor.id),
+            Screen::Open(_) => "open".to_owned(),
+        }
+    }
+
+    pub fn page_key(&self) -> String {
+        match &self.screen {
+            Screen::Shelf => "shelf".to_owned(),
             Screen::Editor(editor) => format!("editor:{}", editor.id),
             Screen::Open(_) => "open".to_owned(),
         }
@@ -3791,7 +3808,7 @@ fn refusal_line<'a>(refused: &pool_share::Refused, words: &Words) -> Element<'a,
     faded_text(words.t(key), 13.0, ACCENT)
 }
 
-fn shelf<'a>(state: &'a State, words: &'a Words, thumbs: &'a HashMap<String, image::Handle>, width: f32, t: f32, clocks: &Clocks) -> Element<'a, Message> {
+fn shelf<'a>(state: &'a State, words: &'a Words, thumbs: &'a HashMap<String, image::Handle>, width: f32, t: f32, head_t: f32, clocks: &Clocks) -> Element<'a, Message> {
     let collection = state.collection_shelf;
     let shape = shape(width, collection);
     let room = (width - 2.0 * LEDGER_PAD - 2.0).max(120.0);
@@ -3818,7 +3835,7 @@ fn shelf<'a>(state: &'a State, words: &'a Words, thumbs: &'a HashMap<String, ima
         }
         line.push(primary_button(words.t(if collection { "catalogue-new" } else { "pools-new" }), Message::New)).into()
     };
-    let mut page = column![ui::appearing(ui::appear(t, 0), 10.0, head)].spacing(18);
+    let mut page = column![ui::appearing(ui::appear(head_t, 0), 10.0, head)].spacing(18);
     if let Some(refused) = &state.refused {
         page = page.push(ui::appearing(ui::appear(t, 1), 8.0, || refusal_line(refused, words)));
     }
@@ -4783,7 +4800,7 @@ fn add_drop<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, words: &'a
 }
 
 fn add_box<'a>(inside: Element<'a, Message>) -> Element<'a, Message> {
-    menu_box(container(scrollable(inside).style(ui::thin_scroll).direction(ui::hidden_bar())).max_height(ADD_HIGH).into(), ADD_WIDE, 14.0, 14.0, Color::from_rgb(0.071, 0.027, 0.039))
+    menu_box(ui::smooth(container(scrollable(inside).style(ui::thin_scroll).direction(ui::hidden_bar())).max_height(ADD_HIGH)), ADD_WIDE, 14.0, 14.0, Color::from_rgb(0.071, 0.027, 0.039))
 }
 
 const ADD_WIDE: f32 = 560.0;
@@ -5246,6 +5263,9 @@ pub fn commands(state: &State, editor: &Editor, pool: &Pool) -> Vec<(&'static st
     let missing = state.missing(pool).len();
     let versions = state.versions.iter().filter(|held| held.id == pool.id).count();
     let mut list = vec![
+        ("pool-command-add", String::new(), Some(Message::AddPanel(true))),
+        ("pool-command-backdrop", String::new(), (filled && !pool.collection).then_some(Message::BackdropPanel(!editor.backdrop))),
+        ("pool-command-share", String::new(), filled.then_some(Message::Share(true))),
         ("pool-command-paste", "Ctrl V".to_owned(), Some(Message::Begin(Start::Links))),
         ("pool-command-undo", "Ctrl Z".to_owned(), state.undo.iter().any(|(id, _)| *id == pool.id).then_some(Message::Undo)),
         ("pool-command-redo", "Ctrl Shift Z".to_owned(), state.redo.iter().any(|(id, _)| *id == pool.id).then_some(Message::Redo)),
@@ -5260,7 +5280,6 @@ pub fn commands(state: &State, editor: &Editor, pool: &Pool) -> Vec<(&'static st
     if !pool.collection {
         list.push(("pool-command-authors", String::new(), Some(Message::EditAuthors)));
     }
-    list.push(("pool-command-delete", String::new(), Some(Message::AskDelete(true))));
     list
 }
 
@@ -5287,7 +5306,7 @@ fn palette<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, words: &'a 
     for (key, hint, press) in commands(state, editor, pool) {
         let label = words.t(key);
         if wanted.is_empty() || label.to_lowercase().contains(&wanted) {
-            let ink = if key == "pool-command-delete" { WARNED } else { INK };
+            let ink = INK;
             let hint = if hint == "pool-command-shift" { words.t("pool-command-shift") } else { hint };
             lines = lines.push(menu_line(label, hint, ink, press, shown == 0, 40.0));
             shown += 1;
@@ -5363,49 +5382,32 @@ fn editor_toolbar<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, word
     if state.unsaved.contains_key(&pool.id) && !state.save_errors.contains_key(&pool.id) {
         left = left.push(text(words.t("pool-saving")).size(12).color(MUTED));
     }
-    let mut buttons = row![].spacing(8).align_y(iced::Center);
-    if !editor.starting && !pool.collection && pool.filled() > 0 {
-        let k = ui::fade();
-        let open = editor.backdrop;
-        buttons = buttons.push(
-            button(container(text(words.t("pool-backdrop-short")).font(theme::SANS_SEMI).size(theme::BODY).color(ui::faded(if open { INK } else { MUTED }))).center_y(theme::CONTROL_HEIGHT - 2.0))
-                .padding([0, 12])
-                .style(ui::button_faded(move |_: &iced::Theme, status: button::Status| {
-                    let hot = matches!(status, button::Status::Hovered | button::Status::Pressed);
-                    button::Style { background: if open { Some(Background::Color(tinted(ACCENT, 0.16, k))) } else { hot.then_some(Background::Color(soft(0.06, 1.0))) }, text_color: INK, border: Border { color: if open { tinted(ACCENT, 0.4, 1.0) } else { Color::TRANSPARENT }, width: 1.0, radius: 8.0.into() }, shadow: iced::Shadow::default(), snap: true }
-                }))
-                .on_press(Message::BackdropPanel(!open)),
-        );
-    }
-    buttons = buttons.push(ui::quiet(
+    let publish = ui::primary(
         words.t(if state.publishing { "catalogue-saving" } else if pool.published_revision > 0 { "catalogue-update" } else { "catalogue-publish" }),
         (!state.publishing && !editor.starting).then_some(Message::PublishSheet(true)),
-    ));
-    if pool.filled() > 0 {
-        buttons = buttons.push(quiet_button(words.t("pool-share"), Message::Share(true)));
-    }
+    );
     let danger: Element<'a, Message> = if editor.asking_delete {
-        row![primary_button(words.t("pool-delete-yes"), Message::DeletePool), quiet_button(words.t("pool-delete-no"), Message::AskDelete(false))].spacing(8).into()
-    } else if editor.starting {
-        button(container(text(words.t(if pool.collection { "collection-delete" } else { "pool-delete" })).font(theme::SANS_SEMI).size(14.0)).center_y(CONTROL)).padding([0, 12]).style(ui::button_faded(theme::danger_words)).on_press(Message::AskDelete(true)).into()
+        row![outlined(words.t("pool-delete-yes"), Some(Message::DeletePool)), quiet_button(words.t("pool-delete-no"), Message::AskDelete(false))].spacing(8).into()
     } else {
+        button(container(text(words.t(if pool.collection { "collection-delete" } else { "pool-delete" })).font(theme::SANS_SEMI).size(14.0)).center_y(CONTROL)).padding([0, 12]).style(ui::button_faded(theme::danger_words)).on_press(Message::AskDelete(true)).into()
+    };
+    let mut buttons = row![].spacing(8).align_y(iced::Center);
+    if !editor.starting {
         let k = ui::fade();
         let open = editor.palette;
-        let knob = button(container(text(words.t("pool-commands")).font(theme::SANS_SEMI).size(theme::BODY).color(ui::faded(INK))).center_y(theme::CONTROL_HEIGHT - 2.0))
-            .padding([0, 12])
-            .style(ui::button_faded(move |_: &iced::Theme, status: button::Status| {
-                let lit = open || matches!(status, button::Status::Hovered | button::Status::Pressed);
-                button::Style { background: Some(Background::Color(tinted(ACCENT, if lit { 0.26 } else { 0.16 }, k))), text_color: INK, border: Border { color: tinted(ACCENT, 0.4, 1.0), width: 1.0, radius: 8.0.into() }, shadow: iced::Shadow::default(), snap: true }
-            }))
-            .on_press(Message::Palette(!open));
-        let pair = row![knob, primary_button(words.t("pool-add"), Message::AddPanel(editor.panel != Panel::Add))].spacing(8).align_y(iced::Center);
-        ui::under_leaning(pair, open.then(|| palette(state, editor, pool, words)), Message::Palette(false), ui::Lean::Right, 32.0)
-    };
-    buttons = buttons.push(danger);
-    if editor.asking_delete && !editor.starting {
-        buttons = buttons.push(primary_button(words.t("pool-add"), Message::AddPanel(editor.panel != Panel::Add)));
+        buttons = buttons.push(
+            button(container(row![text(words.t("pool-actions")).font(theme::SANS_SEMI).size(theme::BODY).color(ui::faded(INK)), glyph(Icon::Down, 12.0, MUTED)].spacing(8).align_y(iced::Center)).center_y(CONTROL))
+                .padding([0, 12])
+                .style(ui::button_faded(move |_: &iced::Theme, status: button::Status| {
+                    let lit = open || matches!(status, button::Status::Hovered | button::Status::Pressed);
+                    button::Style { background: Some(Background::Color(tinted(ACCENT, if lit { 0.26 } else { 0.16 }, k))), text_color: INK, border: Border { color: tinted(ACCENT, 0.4, 1.0), width: 1.0, radius: 8.0.into() }, shadow: iced::Shadow::default(), snap: true }
+                }))
+                .on_press(Message::Palette(!open)),
+        );
     }
-    row![left.width(Length::Fill), buttons].spacing(12).align_y(iced::Center).into()
+    buttons = buttons.push(publish).push(danger);
+    let right: Element<'a, Message> = if editor.starting { buttons.into() } else { ui::under_leaning(buttons, editor.palette.then(|| palette(state, editor, pool, words)), Message::Palette(false), ui::Lean::Right, 12.0) };
+    row![left.width(Length::Fill), right].spacing(12).align_y(iced::Center).into()
 }
 
 fn editor_title<'a>(pool: &'a Pool, words: &'a Words) -> Element<'a, Message> {
@@ -5736,7 +5738,7 @@ fn editor_view<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, words: 
             };
             let made = if editor.menu == Some(*at) { ui::under_leaning(made, Some(slot_menu(*at, words)), Message::SlotMenu(None), ui::Lean::Left(260.0), 4.0) } else { made };
             let made: Element<'a, Message> = match step.filter(|_| pointed == Some(*at) && !adding) {
-                Some(step) => column![made, coach(step, words)].spacing(8).into(),
+                Some(step) => ui::smooth(column![made, coach(step, words)].spacing(8)),
                 None => made,
             };
             (keys[*at], made)
@@ -5835,10 +5837,10 @@ pub fn view<'a>(state: &'a State, words: &'a Words, thumbs: &'a HashMap<String, 
     let content_width = (width - 48.0).min(max_width);
     let page = match &state.screen {
         Screen::Open(opening) => open_view(state, opening, words, thumbs, t),
-        Screen::Shelf => shelf(state, words, thumbs, content_width, t, clocks),
+        Screen::Shelf => shelf(state, words, thumbs, content_width, t, section_t.min(clocks.page), clocks),
         Screen::Editor(editor) => match state.list.iter().find(|pool| pool.id == editor.id) {
             Some(pool) => editor_view(state, editor, pool, words, thumbs, content_width, clocks.high, t),
-            None => shelf(state, words, thumbs, content_width, t, clocks),
+            None => shelf(state, words, thumbs, content_width, t, section_t.min(clocks.page), clocks),
         },
     };
     let page: Element<'a, Message> = if !state.save_errors.is_empty() {
@@ -6698,11 +6700,12 @@ mod tests {
             assert!(editor.palette && editor.command == "stars");
             let listed = commands(&state, editor, state.editing().unwrap());
             let keys: Vec<&str> = listed.iter().map(|(key, _, _)| *key).collect();
-            assert_eq!(&keys[..10], ["pool-command-paste", "pool-command-undo", "pool-command-redo", "pool-command-choose", "pool-command-sort", "pool-command-empty", "pool-command-text", "pool-command-image", "pool-command-missing", "pool-command-history"], "the list stands in the order of the mock-up");
+            assert_eq!(&keys[..3], ["pool-command-add", "pool-command-backdrop", "pool-command-share"], "what left the toolbar leads the list");
+            assert_eq!(&keys[3..13], ["pool-command-paste", "pool-command-undo", "pool-command-redo", "pool-command-choose", "pool-command-sort", "pool-command-empty", "pool-command-text", "pool-command-image", "pool-command-missing", "pool-command-history"], "the list stands in the order of the mock-up");
             let free = |key: &str| listed.iter().find(|(held, _, _)| *held == key).is_some_and(|(_, _, press)| press.is_some());
-            assert!(free("pool-command-undo") && !free("pool-command-redo") && !free("pool-command-history") && free("pool-command-delete"), "what cannot be done now is listed but does not answer");
+            assert!(free("pool-command-undo") && !free("pool-command-redo") && !free("pool-command-history") && free("pool-command-add") && keys.iter().all(|key| *key != "pool-command-delete"), "what cannot be done now is listed but does not answer");
             let mut screen = iced_test::Simulator::with_size(crate::settings(), iced::Size::new(1400.0, 900.0), view(&state, &words, &thumbs, 1400.0, 1.0, &Clocks::settled()));
-            assert!(screen.find(words.t("pool-command-sort")).is_ok() && screen.find(words.t("pool-command-delete")).is_err(), "the list follows what is typed");
+            assert!(screen.find(words.t("pool-command-sort")).is_ok() && screen.find(words.t("pool-command-image")).is_err(), "the list follows what is typed");
         }
         state.update(Message::Chosen(Box::new(Message::OnlyEmpty)), 405);
         assert!(matches!(&state.screen, Screen::Editor(editor) if editor.only_empty && !editor.palette && editor.command.is_empty()));
@@ -8681,7 +8684,7 @@ mod tests {
             now += std::time::Duration::from_millis(16);
             let _ = screen.simulate([iced::Event::Window(iced::window::Event::RedrawRequested(now))]);
         }
-        assert!(screen.find("Add map").unwrap().visible_bounds().is_none(), "a carried slot must scroll the header off screen");
+        assert!(screen.find("Actions").unwrap().visible_bounds().is_none(), "a carried slot must scroll the header off screen");
         screen.tap_key(iced::keyboard::key::Named::Escape);
         for _ in 0..40 {
             now += std::time::Duration::from_millis(16);

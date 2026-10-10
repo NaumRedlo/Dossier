@@ -1322,3 +1322,7 @@ tour-done = Готово
 pool-actions = Действия
 pool-command-add = Добавить карту
 pool-command-backdrop = Фон пула
+unit-hour = ч
+unit-minute = мин
+unit-second = с
+publish-issue = версия { $n }

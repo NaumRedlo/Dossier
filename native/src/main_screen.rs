@@ -1248,12 +1248,14 @@ impl Main {
                     Key::Named(Named::ArrowDown) => Some(Message::Key(Named::ArrowDown)),
                     Key::Named(Named::Space) => Some(Message::Key(Named::Space)),
                     Key::Named(Named::Escape) => Some(Message::Escape),
-                    Key::Character(letter) if modifiers.command() && !modifiers.shift() && letter.eq_ignore_ascii_case("z") => Some(Message::Undo),
-                    Key::Character(letter) if modifiers.command() && modifiers.shift() && letter.eq_ignore_ascii_case("z") => Some(Message::Redo),
-                    Key::Character(letter) if modifiers.command() && letter.eq_ignore_ascii_case("k") => Some(Message::PoolCommands),
-                    Key::Character(letter) if modifiers.command() && modifiers.shift() && letter.eq_ignore_ascii_case("c") => Some(Message::PoolHot(crate::pools_screen::Hot::Text)),
-                    Key::Character(letter) if modifiers.command() && letter.eq_ignore_ascii_case("c") => Some(Message::PoolHot(crate::pools_screen::Hot::Copy)),
-                    Key::Character(letter) if modifiers.command() && letter.eq_ignore_ascii_case("d") => Some(Message::PoolHot(crate::pools_screen::Hot::Double)),
+                    Key::Character(letter) if modifiers.command() && !modifiers.shift() && latin(letter) == Some('z') => Some(Message::Undo),
+                    Key::Character(letter) if modifiers.command() && modifiers.shift() && latin(letter) == Some('z') => Some(Message::Redo),
+                    Key::Character(letter) if modifiers.command() && latin(letter) == Some('k') => Some(Message::PoolCommands),
+                    Key::Character(letter) if modifiers.command() && latin(letter) == Some('n') => Some(Message::PoolHot(crate::pools_screen::Hot::Add)),
+                    Key::Character(letter) if modifiers.command() && modifiers.shift() && latin(letter) == Some('c') => Some(Message::PoolHot(crate::pools_screen::Hot::Text)),
+                    Key::Character(letter) if modifiers.command() && latin(letter) == Some('c') => Some(Message::PoolHot(crate::pools_screen::Hot::Copy)),
+                    Key::Character(letter) if modifiers.command() && latin(letter) == Some('d') => Some(Message::PoolHot(crate::pools_screen::Hot::Double)),
+                    Key::Named(Named::Backspace) if modifiers.command() => Some(Message::PoolHot(crate::pools_screen::Hot::Remove)),
                     Key::Named(Named::Delete) => Some(Message::PoolHot(crate::pools_screen::Hot::Remove)),
                     Key::Character(letter) => letter.chars().next().map(|c| Message::Typed(c.to_lowercase().next().unwrap_or(c))),
                     _ => None,
@@ -1314,7 +1316,7 @@ impl Main {
         if moving {
             parts.push(window::frames().map(Message::Tick));
         }
-        if !moving && self.toasts.iter().any(|toast| toast.shown.value() && !toast.stays && !toast.hovered) {
+        if !moving && self.toasts.iter().any(|toast| toast.shown.value() && !toast.hovered) {
             parts.push(iced::time::every(Duration::from_millis(250)).map(Message::Tick));
         }
         if matches!(self.pairing, Pairing::Waiting { .. } | Pairing::Linking { .. }) {
@@ -4038,7 +4040,7 @@ impl Main {
                     self.words.settle();
                 }
                 for toast in &mut self.toasts {
-                    if toast.shown.value() && !toast.stays && !toast.hovered && toast.age(now) > TOAST_STAY {
+                    if toast.shown.value() && !toast.hovered && toast.age(now) > if toast.stays { TOAST_STAY_BAD } else { TOAST_STAY } {
                         toast.shown.go_mut(false, now);
                     }
                 }
@@ -4466,6 +4468,7 @@ impl Main {
         let now = Instant::now();
         if self.menu == Some(Tab::Bell) {
             self.arrivals.insert(id, Animation::new(false).duration(NOTICE_ARRIVE).easing(Easing::EaseOutCubic).go(true, now));
+            return;
         }
         while self.toasts.iter().filter(|t| t.shown.value()).count() >= self.toast_capacity() {
             if let Some(oldest) = self.toasts.iter_mut().find(|t| t.shown.value()) {
@@ -7334,6 +7337,7 @@ impl Main {
         let unseen = self.notices.unseen();
         let flash = (std::f32::consts::PI * self.bell_flash.interpolate(0.0, 1.0, self.now)).sin().max(0.0);
         let busy = self.busy();
+        let beat = 0.5 - 0.5 * (std::f32::consts::TAU * self.now.saturating_duration_since(self.section_at).as_secs_f32() / BELL_PULSE).cos();
         let face = button(container(crate::glyphs::glyph(crate::glyphs::Icon::Bell, 16.0, if open { Color::WHITE } else { INK })).center(CIRCLE_SIDE))
             .padding(0)
             .width(CIRCLE_SIDE)
@@ -7343,7 +7347,7 @@ impl Main {
                 button::Style {
                     background: Some(iced::Background::Color(if open { Color { a: 0.3, ..ACCENT } } else if flash > 0.001 { Color { a: 0.06 + 0.44 * flash, ..ACCENT } } else { Color::from_rgba(1.0, 1.0, 1.0, if lit { 0.12 } else { 0.05 }) })),
                     text_color: INK,
-                    border: iced::Border { color: if open || busy || flash > 0.001 { Color { a: if open || busy { 0.7 } else { 0.12 + 0.7 * flash }, ..if open || busy { ACCENT } else { ui::mix(Color::WHITE, ACCENT, flash.min(1.0)) } } } else { Color::from_rgba(1.0, 1.0, 1.0, 0.12) }, width: 1.0, radius: (CIRCLE_SIDE / 2.0).into() },
+                    border: iced::Border { color: if open || busy || flash > 0.001 { Color { a: if open { 0.7 } else if busy { 0.3 + 0.6 * beat } else { 0.12 + 0.7 * flash }, ..if open || busy { ACCENT } else { ui::mix(Color::WHITE, ACCENT, flash.min(1.0)) } } } else { Color::from_rgba(1.0, 1.0, 1.0, 0.12) }, width: 1.0, radius: (CIRCLE_SIDE / 2.0).into() },
                     shadow: iced::Shadow::default(),
                     snap: true,
                 }
@@ -7422,15 +7426,16 @@ impl Main {
             return Space::new().width(Length::Fill).height(Length::Fill).into();
         }
         let k = self.billing.fade.interpolate(0.0, 1.0, self.now);
+        let eased = 1.0 - (1.0 - k).powi(3);
         ui::fading(ui::fade() * k, || {
             let card = crate::billing::sheet(&self.billing, &self.words, self.signed_in(), self.now_unix).map(Message::Billing);
             stack![
                 iced::widget::opaque(mouse_area(ui::veil(theme::SCRIM)).on_press(Message::Billing(crate::billing::Message::Close))),
-                container(ui::scaled(container(iced::widget::opaque(if crate::billing::warm(&self.billing, self.signed_in()) { ui::glass_warm(card, self.glass_picture(), iced::Size::new(self.width, self.height)) } else { ui::glass_deep(card, self.glass_picture(), iced::Size::new(self.width, self.height)) })).width(if crate::billing::wide(&self.billing, self.signed_in()) { (self.width - 80.0).clamp(theme::COLUMN, BILLING_SHEET) } else { theme::COLUMN }), (self.width / BILLING_WIDE).clamp(1.0, BILLING_GROWTH)))
+                ui::grown(container(ui::scaled(container(iced::widget::opaque(if crate::billing::warm(&self.billing, self.signed_in()) { ui::glass_warm(card, self.glass_picture(), iced::Size::new(self.width, self.height)) } else { ui::glass_deep(card, self.glass_picture(), iced::Size::new(self.width, self.height)) })).width(if crate::billing::wide(&self.billing, self.signed_in()) { (self.width - 80.0).clamp(theme::COLUMN, BILLING_SHEET) } else { theme::COLUMN }), (self.width / BILLING_WIDE).clamp(1.0, BILLING_GROWTH)))
                     .padding(Padding::ZERO.top(120.0))
                     .width(Length::Fill)
                     .height(Length::Fill)
-                    .center_x(Length::Fill),
+                    .center_x(Length::Fill), Point::new(0.5, 0.2), (1.0 - eased) * 26.0, 0.965 + 0.035 * eased),
             ]
             .width(Length::Fill)
             .height(Length::Fill)
@@ -8020,7 +8025,23 @@ pub const STAGE_OPEN: Duration = Duration::from_millis(280);
 pub const CONTROLS_STAY: Duration = Duration::from_secs(3);
 pub const OVERLAY_FADE: Duration = Duration::from_millis(220);
 pub const GROUND_UP: Duration = Duration::from_millis(110);
+pub fn latin(letter: &str) -> Option<char> {
+    let sign = letter.chars().next()?.to_lowercase().next()?;
+    Some(match sign {
+        'я' => 'z',
+        'л' => 'k',
+        'т' => 'n',
+        'с' => 'c',
+        'в' => 'd',
+        'к' => 'r',
+        'м' => 'v',
+        other => other,
+    })
+}
+
 pub const TOAST_STAY: Duration = Duration::from_secs(6);
+pub const TOAST_STAY_BAD: Duration = Duration::from_secs(12);
+const BELL_PULSE: f32 = 1.6;
 const TOASTS_AT_MOST: usize = 3;
 
 impl Main {
@@ -8542,12 +8563,13 @@ mod tests {
         let _ = main.update(super::Message::Tick(now));
         assert!(!main.moving(), "the staged screen must be settled before checking toast work");
         main.toasts.push(super::Toast { id: 1, shown: iced::Animation::new(true), born: now, hovered: false, paused_at: None, stays: true });
-        assert!(!main.moving(), "a persistent error needs no continuous redraw once it is visible");
-        main.toasts[0].stays = false;
+        assert!(!main.moving(), "a shown error needs no continuous redraw");
         let _ = main.update(super::Message::Tick(now + Duration::from_secs(7)));
-        assert!(!main.toasts[0].shown.value());
+        assert!(main.toasts[0].shown.value(), "an error is given longer than an ordinary notification");
+        let _ = main.update(super::Message::Tick(now + Duration::from_secs(13)));
+        assert!(!main.toasts[0].shown.value(), "and then goes away as well");
         assert!(main.moving(), "the dismissal animation still needs frames");
-        let _ = main.update(super::Message::Tick(now + Duration::from_secs(8)));
+        let _ = main.update(super::Message::Tick(now + Duration::from_secs(14)));
         assert!(main.toasts.is_empty());
         assert!(!main.moving());
     }
@@ -8565,10 +8587,10 @@ mod tests {
     }
 
     #[test]
-    fn notification_errors_stay_and_closing_a_popup_keeps_its_history() {
+    fn notification_errors_stay_longer_and_closing_a_popup_keeps_its_history() {
         let (_, mut main) = crate::gallery::main_states(crate::lang::Lang::En).into_iter().find(|(name, _)| name == "main-notifications").unwrap();
         let bad = main.toasts.iter().find(|toast| toast.stays).unwrap().id;
-        let _ = main.update(super::Message::Tick(main.now + std::time::Duration::from_secs(20)));
+        let _ = main.update(super::Message::Tick(main.now + std::time::Duration::from_secs(8)));
         assert!(main.toasts.iter().find(|toast| toast.id == bad).unwrap().shown.value());
         assert!(main.toasts.iter().filter(|toast| !toast.stays).all(|toast| !toast.shown.value()));
         let _ = main.update(super::Message::ToastClose(bad));

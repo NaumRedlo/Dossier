@@ -75,6 +75,8 @@ fn dim(pixels: &mut [u8]) {
 
 const SUNK_KEPT: usize = 6;
 const SUNK_LEVEL: f32 = 0.4;
+const SUNK_SIDE: f32 = 0.08;
+const SUNK_TOP: f32 = 0.16;
 
 thread_local! {
     static SUNK: std::cell::RefCell<Vec<((Id, u32, u32, u8, [u8; 3]), Handle)>> = const { std::cell::RefCell::new(Vec::new()) };
@@ -85,8 +87,13 @@ pub fn sink(pixels: &mut [u8], width: u32, height: u32, shade: f32, ground: [u8;
         let down = (row as f32 + 0.5) / height.max(1) as f32;
         let fall = ((down - SUNK_LEVEL) / (1.0 - SUNK_LEVEL)).clamp(0.0, 1.0);
         let cover = if row + 1 == height { 1.0 } else { shade + (1.0 - shade) * fall * fall * (3.0 - 2.0 * fall) };
+        let risen = (down / SUNK_TOP).clamp(0.0, 1.0);
+        let cover = 1.0 - (1.0 - cover) * risen * risen * (3.0 - 2.0 * risen);
         let from = (row * width * 4) as usize;
-        for pixel in pixels[from..from + (width * 4) as usize].chunks_exact_mut(4) {
+        let edge = (width as f32 * SUNK_SIDE).max(1.0);
+        for (column, pixel) in pixels[from..from + (width * 4) as usize].chunks_exact_mut(4).enumerate() {
+            let near = (column.min((width as usize).saturating_sub(1 + column)) as f32 / edge).clamp(0.0, 1.0);
+            let cover = 1.0 - (1.0 - cover) * near * near * (3.0 - 2.0 * near);
             for (channel, base) in pixel[..3].iter_mut().zip(ground) {
                 *channel = (f32::from(*channel) * (1.0 - cover) + f32::from(base) * cover).round() as u8;
             }
@@ -176,11 +183,14 @@ mod tests {
 
     #[test]
     fn a_sunk_picture_is_dimmed_at_the_top_and_ends_in_the_ground_colour() {
-        let (width, height) = (4u32, 100u32);
+        let (width, height) = (400u32, 100u32);
         let mut pixels = vec![255u8; (width * height * 4) as usize];
         sink(&mut pixels, width, height, 0.6, [13, 5, 8]);
-        assert_eq!(&pixels[..4], &[110, 105, 107, 255], "the top keeps the chosen share of the picture");
-        let middle = (50 * width * 4) as usize;
+        let centre = ((25 * width + 200) * 4) as usize;
+        assert_eq!(&pixels[centre..centre + 4], &[110, 105, 107, 255], "under the soft top edge the chosen share of the picture is kept");
+        assert!(pixels[200 * 4] < 30, "the top edge rises out of the ground instead of being cut by the bar above");
+        assert_eq!(&pixels[..4], &[13, 5, 8, 255], "the sides melt into the ground, no edge is cut");
+        let middle = ((50 * width + 200) * 4) as usize;
         assert!(pixels[middle] < 110 && pixels[middle] > 13, "below the level line it goes down");
         let last = ((height - 1) * width * 4) as usize;
         assert_eq!(&pixels[last..last + 4], &[13, 5, 8, 255], "the last row is the ground itself, so no edge is left");

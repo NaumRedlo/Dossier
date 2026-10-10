@@ -142,6 +142,17 @@ pub fn faded(colour: Color) -> Color {
     }
 }
 
+pub fn keys_for(text: &str, mac: bool) -> String {
+    if !mac {
+        return text.to_owned();
+    }
+    text.replace("Ctrl Shift ", "⇧⌘").replace("Ctrl ", "⌘").replace("Delete", "⌫")
+}
+
+pub fn keys(text: &str) -> String {
+    keys_for(text, cfg!(target_os = "macos"))
+}
+
 pub fn mix(from: Color, to: Color, k: f32) -> Color {
     let k = k.clamp(0.0, 1.0);
     Color {
@@ -4489,6 +4500,22 @@ pub fn under_staying<'a, Message: Clone + 'a>(anchor: impl Into<Element<'a, Mess
 }
 
 const UNDER_EDGE: f32 = 8.0;
+const DROP_TIME: f32 = 0.18;
+const DROP_RISE: f32 = 10.0;
+
+#[derive(Debug, Default)]
+struct Dropping {
+    since: Option<std::time::Instant>,
+    shown: Option<f32>,
+    was_shut: bool,
+}
+
+impl Dropping {
+    fn eased(&self) -> f32 {
+        let x = self.shown.unwrap_or(1.0).clamp(0.0, 1.0);
+        1.0 - (1.0 - x).powi(3)
+    }
+}
 
 pub(crate) fn under_place(anchor: Rectangle, sheet: Size, window: Size, gap: f32, lean: Lean) -> Point {
     let from = match lean {
@@ -4502,6 +4529,14 @@ pub(crate) fn under_place(anchor: Rectangle, sheet: Size, window: Size, gap: f32
 }
 
 impl<Message: Clone> iced::advanced::Widget<Message, Theme, Renderer> for Under<'_, Message> {
+    fn tag(&self) -> iced::advanced::widget::tree::Tag {
+        iced::advanced::widget::tree::Tag::of::<Dropping>()
+    }
+
+    fn state(&self) -> iced::advanced::widget::tree::State {
+        iced::advanced::widget::tree::State::new(Dropping::default())
+    }
+
     fn children(&self) -> Vec<iced::advanced::widget::Tree> {
         vec![iced::advanced::widget::Tree::new(&self.anchor), self.sheet.as_ref().map_or_else(iced::advanced::widget::Tree::empty, iced::advanced::widget::Tree::new)]
     }
@@ -4573,10 +4608,15 @@ impl<Message: Clone> iced::advanced::Widget<Message, Theme, Renderer> for Under<
         viewport: &Rectangle,
         translation: iced::Vector,
     ) -> Option<iced::advanced::overlay::Element<'b, Message, Theme, Renderer>> {
-        let (first, second) = tree.children.split_at_mut(1);
+        let iced::advanced::widget::Tree { state, children, .. } = tree;
+        let dropping = state.downcast_mut::<Dropping>();
+        let (first, second) = children.split_at_mut(1);
         match self.sheet.as_mut() {
-            Some(sheet) => Some(iced::advanced::overlay::Element::new(Box::new(UnderSheet { sheet, tree: &mut second[0], anchor: layout.bounds() + translation, gap: self.gap, lean: self.lean, dismiss: self.dismiss.clone() }))),
-            None => self.anchor.as_widget_mut().overlay(&mut first[0], layout, renderer, viewport, translation),
+            Some(sheet) => Some(iced::advanced::overlay::Element::new(Box::new(UnderSheet { sheet, tree: &mut second[0], dropping, anchor: layout.bounds() + translation, gap: self.gap, lean: self.lean, dismiss: self.dismiss.clone() }))),
+            None => {
+                *dropping = Dropping { was_shut: true, ..Dropping::default() };
+                self.anchor.as_widget_mut().overlay(&mut first[0], layout, renderer, viewport, translation)
+            }
         }
     }
 }
@@ -4584,6 +4624,7 @@ impl<Message: Clone> iced::advanced::Widget<Message, Theme, Renderer> for Under<
 struct UnderSheet<'a, 'b, Message> {
     sheet: &'b mut Element<'a, Message>,
     tree: &'b mut iced::advanced::widget::Tree,
+    dropping: &'b mut Dropping,
     anchor: Rectangle,
     gap: f32,
     lean: Lean,
@@ -4599,7 +4640,21 @@ impl<Message: Clone> iced::advanced::Overlay<Message, Theme, Renderer> for Under
     }
 
     fn draw(&self, renderer: &mut Renderer, theme: &Theme, style: &iced::advanced::renderer::Style, layout: iced::advanced::Layout<'_>, cursor: mouse::Cursor) {
-        self.sheet.as_widget().draw(self.tree, renderer, theme, style, layout, cursor, &layout.bounds());
+        use iced::advanced::Renderer as _;
+        let eased = self.dropping.eased();
+        if eased >= 0.999 {
+            self.sheet.as_widget().draw(self.tree, renderer, theme, style, layout, cursor, &layout.bounds());
+            return;
+        }
+        let bounds = layout.bounds();
+        let below = bounds.y >= self.anchor.y;
+        let shift = (1.0 - eased) * DROP_RISE * if below { -1.0 } else { 1.0 };
+        renderer.with_translation(iced::Vector::new(0.0, shift), |renderer| {
+            self.sheet.as_widget().draw(self.tree, renderer, theme, style, layout, cursor, &bounds);
+            renderer.with_layer(bounds, |renderer| {
+                renderer.fill_quad(iced::advanced::renderer::Quad { bounds, border: iced::Border { radius: 14.0.into(), ..iced::Border::default() }, ..iced::advanced::renderer::Quad::default() }, Color { a: 1.0 - eased, ..theme::GROUND });
+            });
+        });
     }
 
     fn operate(&mut self, layout: iced::advanced::Layout<'_>, renderer: &Renderer, operation: &mut dyn iced::advanced::widget::Operation) {
@@ -4607,6 +4662,14 @@ impl<Message: Clone> iced::advanced::Overlay<Message, Theme, Renderer> for Under
     }
 
     fn update(&mut self, event: &iced::Event, layout: iced::advanced::Layout<'_>, cursor: mouse::Cursor, renderer: &Renderer, clipboard: &mut dyn iced::advanced::Clipboard, shell: &mut iced::advanced::Shell<'_, Message>) {
+        if let (true, iced::Event::Window(iced::window::Event::RedrawRequested(now))) = (self.dropping.was_shut, event) {
+            let since = *self.dropping.since.get_or_insert(*now);
+            let shown = (now.saturating_duration_since(since).as_secs_f32() / DROP_TIME).min(1.0);
+            self.dropping.shown = Some(shown);
+            if shown < 1.0 {
+                shell.request_redraw();
+            }
+        }
         let viewport = layout.bounds();
         self.sheet.as_widget_mut().update(self.tree, event, layout, cursor, renderer, clipboard, shell, &viewport);
         if let iced::Event::Mouse(mouse::Event::ButtonPressed(_)) = event {
@@ -5460,6 +5523,9 @@ mod under_tests {
         assert_eq!(low.y, 500.0 - 6.0 - 200.0);
         let cramped = under_place(Rectangle::new(Point::new(-40.0, 120.0), Size::new(80.0, 30.0)), Size::new(300.0, 590.0), window, 6.0, Lean::Left(0.0));
         assert_eq!(cramped, Point::new(8.0, 8.0));
+        assert_eq!(keys_for("Ctrl Shift Z", true), "⇧⌘Z");
+        assert_eq!(keys_for("Нажмите Ctrl K или Delete", true), "Нажмите ⌘K или ⌫");
+        assert_eq!(keys_for("Ctrl D", false), "Ctrl D");
         let whole = dash_period(1003.0);
         assert!((1003.0 / whole - (1003.0 / whole).round()).abs() < 0.001 && (whole - 8.0).abs() < 0.1, "dashes go round a frame a whole number of times, so the march has no seam");
         let anchor = Rectangle::new(Point::new(500.0, 100.0), Size::new(200.0, 30.0));

@@ -3,6 +3,7 @@ use iced::{mouse, Color, Element, Point, Rectangle, Renderer, Size, Theme};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Icon {
+    Chevron,
     Target,
     Keys,
     Chain,
@@ -247,6 +248,9 @@ impl<Message> canvas::Program<Message> for Glyph {
             Icon::Search => {
                 frame.stroke(&Path::circle(at(9.0, 9.0), 5.5 * s), pen);
                 frame.stroke(&Path::line(at(13.0, 13.0), at(17.0, 17.0)), pen);
+            }
+            Icon::Chevron => {
+                frame.stroke(&polyline(&[(5.5, 8.0), (10.0, 12.5), (14.5, 8.0)], false), pen);
             }
             Icon::Down => {
                 frame.stroke(&Path::line(at(10.0, 4.0), at(10.0, 16.0)), pen);

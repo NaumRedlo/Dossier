@@ -1280,3 +1280,7 @@ tour-done = Done
 pool-actions = Actions
 pool-command-add = Add a map
 pool-command-backdrop = Pool backdrop
+unit-hour = h
+unit-minute = min
+unit-second = s
+publish-issue = version { $n }

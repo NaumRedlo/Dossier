@@ -186,11 +186,12 @@ mod tests {
             let info = reader.next_frame(&mut pixels).unwrap();
             (info.width as usize, pixels)
         };
-        let white = image::Handle::from_rgba(64, 36, [255u8, 255, 255, 255].repeat(64 * 36));
+        let white = image::Handle::from_rgba(640, 360, [255u8, 255, 255, 255].repeat(640 * 360));
         let mut pool = pools[0].clone();
         pool.backdrop = Some(crate::pools::Backdrop { from: crate::pools::BackdropFrom::Map("x".into()), dim: 60, blur: false, on_card: true });
         let (width, backed) = decode(render(&pool, &words, &covers, Some(&white)).unwrap());
-        assert_eq!(&backed[8 * 4..8 * 4 + 4], &[110, 105, 107, 255], "the top shows the picture under the chosen darkening");
+        let middle = ((BACKING_HIGH as usize / 2) * width + width / 2) * 4;
+        assert_eq!(&backed[middle..middle + 4], &[110, 105, 107, 255], "the top shows the picture under the chosen darkening");
         let low = (BACKING_HIGH as usize * 2 + 8) * width * 4 + 8 * 4;
         assert_eq!(&backed[low..low + 4], &[13, 5, 8, 255], "below the head the ground is clean");
         let plain = render(&pools[0], &words, &covers, None).unwrap();

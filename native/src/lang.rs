@@ -286,6 +286,19 @@ impl Words {
         format!("{}:{:02}", seconds / 60, seconds % 60)
     }
 
+    pub fn length_said(&self, ms: i64) -> String {
+        let seconds = (ms.max(0) / 1000) as u64;
+        let (hours, minutes, rest) = (seconds / 3600, seconds % 3600 / 60, seconds % 60);
+        let (hour, minute, second) = (self.t("unit-hour"), self.t("unit-minute"), self.t("unit-second"));
+        match (hours, minutes) {
+            (0, 0) => format!("{rest} {second}"),
+            (0, _) if rest == 0 => format!("{minutes} {minute}"),
+            (0, _) => format!("{minutes} {minute} {rest} {second}"),
+            (_, 0) => format!("{hours} {hour}"),
+            _ => format!("{hours} {hour} {minutes} {minute}"),
+        }
+    }
+
     fn say(&self, key: &str, args: Option<&FluentArgs>) -> String {
         let now = said_by(&self.bundle, key, args);
         match &self.before {

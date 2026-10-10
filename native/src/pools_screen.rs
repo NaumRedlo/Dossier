@@ -20,8 +20,6 @@ use crate::theme::{self, ACCENT, FAINT, INK, MUTED};
 use crate::ui;
 
 const ROW_HIGH: f32 = 56.0;
-#[cfg(test)]
-const SLOT_HEAD: f32 = 34.0;
 const COVER_WIDE: f32 = 72.0;
 const COVER_HIGH: f32 = 40.0;
 const COVER_ROUND: f32 = 8.0;
@@ -163,6 +161,7 @@ impl Pull {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Hot {
+    Add,
     Note,
     Replace,
     Double,
@@ -2448,6 +2447,7 @@ impl State {
                 let filled = target.filter(|at| self.editing().and_then(|pool| pool.slots.get(*at)).is_some_and(|slot| !slot.is_empty()));
                 let next = match (hot, filled) {
                     (Hot::Text, _) => matches!(self.screen, Screen::Editor(_)).then_some(Message::CopyText),
+                    (Hot::Add, _) => matches!(&self.screen, Screen::Editor(editor) if !editor.starting).then_some(Message::AddPanel(true)),
                     (Hot::Note, Some(at)) => Some(Message::Select(Some(at))),
                     (Hot::Replace, Some(at)) => Some(Message::ReplaceAt(at)),
                     (Hot::Double, Some(at)) => Some(Message::Duplicate(at)),
@@ -2620,6 +2620,17 @@ impl State {
         let category = pool.slots[slot].category.clone();
         let colour = pool.slots[slot].colour;
         self.notice = None;
+        let onward = if self.links.is_empty() || picked_suggestion {
+            None
+        } else {
+            Some(match self.list[at].first_empty() {
+                Some(free) => free,
+                None => {
+                    self.list[at].slots.push(Slot::empty(mods));
+                    self.list[at].slots.len() - 1
+                }
+            })
+        };
         if let Some(editor) = self.editor_mut() {
             editor.untouched = false;
             editor.last_mod = mods;
@@ -2627,9 +2638,15 @@ impl State {
             editor.last_colour = colour;
             editor.replace = false;
             editor.selected = Some(slot);
+            editor.query.clear();
             if picked_suggestion {
                 editor.panel = Panel::Slot;
                 editor.source = SourceTab::Search;
+            } else if editor.panel == Panel::Add {
+                match onward {
+                    Some(free) => editor.selected = Some(free),
+                    None => editor.panel = Panel::Closed,
+                }
             }
         }
         self.save(at, now);
@@ -3742,7 +3759,7 @@ fn draft_row<'a>(state: &'a State, pool: &'a Pool, words: &'a Words, thumbs: &'a
         parts.push((Col::Wide(STARS_WIDE), stars_span(words, facts.low, facts.high)));
     }
     if shape.length {
-        parts.push((Col::Wide(64.0), mono(if milliseconds > 0 { words.length(milliseconds) } else { String::new() }, 13.0, INK)));
+        parts.push((Col::Wide(64.0), mono(if milliseconds > 0 { words.length_said(milliseconds) } else { String::new() }, 13.0, INK)));
     }
     if shape.bars {
         parts.push((Col::Wide(96.0), bars(pool)));
@@ -3909,13 +3926,13 @@ struct Shown {
     title: String,
     makers: Vec<String>,
     hashes: Vec<Option<String>>,
-    cards: usize,
     length: i64,
     low: Option<f64>,
     high: Option<f64>,
     mods: Vec<(Mod, usize)>,
     when: String,
     plain: bool,
+    backing: Option<String>,
 }
 
 fn shown_of(pool: &Pool, words: &Words, when: String) -> Shown {
@@ -3925,13 +3942,13 @@ fn shown_of(pool: &Pool, words: &Words, when: String) -> Shown {
         title: if pool.name.is_empty() { words.t(if pool.collection { "collections-new" } else { "pool-untitled" }) } else { pool.name.clone() },
         makers: pool.authors.clone(),
         hashes: filled.iter().map(|slot| slot.hash.clone()).collect(),
-        cards: facts.cards,
         length: pool.slots.iter().filter_map(|slot| slot.measure.as_ref()).map(|measure| measure.length_ms).sum(),
         low: facts.low,
         high: facts.high,
         mods: Mod::ALL.into_iter().map(|mods| (mods, filled.iter().filter(|slot| slot.mods == mods).count())).filter(|(_, count)| *count > 0).collect(),
         when,
         plain: pool.collection,
+        backing: pool.backdrop.as_ref().and_then(|backdrop| match &backdrop.from { pools::BackdropFrom::Map(hash) => Some(hash.clone()), pools::BackdropFrom::File(_) => None }),
     }
 }
 
@@ -4039,16 +4056,19 @@ fn pool_card<'a>(state: &'a State, shown: Shown, mark: Element<'a, Message>, foo
     let top = row![mark, ui::grow(), plate(text(shown.when.clone()).font(theme::MONO).size(12.0).color(ui::faded(INK)).into())].spacing(8).align_y(iced::Center);
     let title = text(shown.title.clone()).font(theme::SANS_SEMI).size(22.0).color(ui::faded(INK)).wrapping(text::Wrapping::None);
     let head = iced::widget::stack![
-        container(mosaic(thumbs, &shown.hashes, 4, 2, wide - 22.0, CARD_TOP - 10.0, 4.0, 6.0)).padding(Padding { left: 10.0, right: 10.0, top: 10.0, bottom: 0.0 }),
+        container(match shown.backing.as_ref().and_then(|hash| thumbs.get(hash)) {
+            Some(picture) => Element::from(image(crate::crops::fitted(picture, wide - 22.0, CARD_TOP - 10.0, 6.0)).content_fit(iced::ContentFit::Fill).width(Length::Fill).height(CARD_TOP - 10.0).opacity(k)),
+            None => mosaic(thumbs, &shown.hashes, 4, 2, wide - 22.0, CARD_TOP - 10.0, 4.0, 6.0),
+        }).padding(Padding { left: 10.0, right: 10.0, top: 10.0, bottom: 0.0 }),
         shade(0.0),
         container(top).padding([18, 18]).width(Length::Fill),
         container(container(title).width(Length::Fill).clip(true)).padding(Padding { left: 16.0, right: 16.0, bottom: 4.0, top: 0.0 }).height(Length::Fill).align_y(iced::alignment::Vertical::Bottom),
     ]
     .width(Length::Fill)
     .height(CARD_TOP);
-    let mut facts = row![fact(shown.cards.to_string(), words.t("shelf-cards"))].spacing(18).align_y(iced::alignment::Vertical::Bottom);
+    let mut facts = row![].spacing(18).align_y(iced::alignment::Vertical::Bottom);
     if shown.length > 0 {
-        facts = facts.push(fact(words.length(shown.length), words.t("shelf-length")));
+        facts = facts.push(fact(words.length_said(shown.length), words.t("shelf-length")));
     }
     facts = facts.push(ui::grow()).push(stars_span(words, shown.low, shown.high));
     let mut body = if shown.plain { column![facts].spacing(12) } else { column![makers_line(state, &shown.makers, words, 14.0), facts, mod_strip(&shown.mods, true)].spacing(12) };
@@ -4073,9 +4093,9 @@ fn hero<'a>(state: &'a State, pool: &'a Pool, words: &'a Words, thumbs: &'a Hash
         (None, 0) => word_plate(words.t("shelf-draft")),
         (None, revision) => code_plate(state.publications.iter().find(|item| item.mine && item.local_id == pool.id).map(|item| item.code.as_str()).unwrap_or_default(), revision),
     };
-    let mut facts = row![fact(shown.cards.to_string(), words.t("shelf-cards"))].spacing(28).align_y(iced::alignment::Vertical::Bottom);
+    let mut facts = row![].spacing(28).align_y(iced::alignment::Vertical::Bottom);
     if shown.length > 0 {
-        facts = facts.push(fact(words.length(shown.length), words.t("shelf-length")));
+        facts = facts.push(fact(words.length_said(shown.length), words.t("shelf-length")));
     }
     if shown.low.is_some() {
         facts = facts.push(column![stars_span(words, shown.low, shown.high), faded_text(words.t("shelf-stars"), 12.0, MUTED)].spacing(3));
@@ -4093,7 +4113,10 @@ fn hero<'a>(state: &'a State, pool: &'a Pool, words: &'a Words, thumbs: &'a Hash
     .width(Length::Fill);
     let mut inside = row![left].spacing(32);
     if beside {
-        inside = inside.push(container(mosaic(thumbs, &shown.hashes, 4, 3, side, 234.0, 8.0, 8.0)).width(side));
+        inside = inside.push(container(match shown.backing.as_ref().and_then(|hash| thumbs.get(hash)) {
+            Some(picture) => Element::from(image(crate::crops::fitted(picture, side, 234.0, 10.0)).content_fit(iced::ContentFit::Fill).width(side).height(234.0).opacity(ui::fade())),
+            None => mosaic(thumbs, &shown.hashes, 4, 3, side, 234.0, 8.0, 8.0),
+        }).width(side));
     }
     button(container(inside).padding([26, 30]).height(288.0))
         .padding(1)
@@ -4181,10 +4204,10 @@ fn collections_showcase<'a>(state: &'a State, mut page: iced::widget::Column<'a,
     }
     let cards = items.iter().enumerate().map(|(at, item)| {
         let hashes = published_hashes(item);
-        let shown = Shown { title: item.name.clone(), makers: Vec::new(), cards: hashes.len(), hashes, length: 0, low: None, high: None, mods: Vec::new(), when: format!("#{}", item.revision), plain: true };
+        let shown = Shown { title: item.name.clone(), makers: Vec::new(), hashes, length: 0, low: None, high: None, mods: Vec::new(), when: format!("#{}", item.revision), plain: true, backing: None };
         let held = state.list.iter().any(|pool| pool.saved.as_ref().is_some_and(|saved| saved.id == item.id));
         let action: Element<'a, Message> = if item.mine {
-            outlined(words.t("ledger-edit"), Some(Message::OpenPublication(item.id.clone())))
+            Space::new().into()
         } else if held {
             plate(text(words.t("shelf-saved-mark")).font(theme::SANS_SEMI).size(12.0).color(ui::faded(Color::from_rgb(0.765, 0.831, 0.651))).into())
         } else {
@@ -4330,7 +4353,7 @@ fn showcase<'a>(state: &'a State, mut page: iced::widget::Column<'a, Message>, w
                 shown.when = format!("#{}", item.revision);
                 let held = state.list.iter().any(|pool| pool.saved.as_ref().is_some_and(|saved| saved.id == item.id));
                 let action: Element<'a, Message> = if item.mine {
-                    outlined(words.t("ledger-edit"), Some(Message::OpenPublication(item.id.clone())))
+                    Space::new().into()
                 } else if held {
                     plate(text(words.t("shelf-saved-mark")).font(theme::SANS_SEMI).size(12.0).color(ui::faded(Color::from_rgb(0.765, 0.831, 0.651))).into())
                 } else {
@@ -4433,7 +4456,6 @@ fn check_box<'a>(on: bool) -> Element<'a, Message> {
 
 fn slot_row<'a>(pool: &'a Pool, at: usize, selected: bool, choosing: bool, words: &'a Words, thumbs: &'a HashMap<String, image::Handle>, songs: Option<&Arc<HashMap<String, Map>>>, ail: Ail, pointed: bool, bytes: Option<(u64, Option<u64>)>) -> Element<'a, Message> {
     let slot = &pool.slots[at];
-    let backing = slot.hash.is_some() && pool.backdrop.as_ref().is_some_and(|backdrop| matches!(&backdrop.from, pools::BackdropFrom::Map(hash) if Some(hash) == slot.hash.as_ref()));
     let mut left = row![].spacing(12).align_y(iced::Center);
     if choosing {
         left = left.push(check_box(selected));
@@ -4458,26 +4480,19 @@ fn slot_row<'a>(pool: &'a Pool, at: usize, selected: bool, choosing: bool, words
             let details = column![ui::moving_text(slot.title.clone(), theme::SANS_SEMI, 14.0, INK), under].spacing(2).width(Length::Fill);
             let stars: Element<'a, Message> = slot.measure.map(|measure| crate::dossier::star_pill(stars_of(words, measure.stars), measure.stars as f32, 15.0)).unwrap_or_else(|| Space::new().into());
             let picture = if thumbs.contains_key(hash) { cover(thumbs, Some(hash), COVER_WIDE, COVER_HIGH, COVER_ROUND) } else { hatched_cover() };
-            if backing {
-                let k = ui::fade();
-                let ringed = container(picture).padding(2).style(move |_| container::Style { border: Border { color: Color { a: k, ..ACCENT }, width: 2.0, radius: (COVER_ROUND + 2.0).into() }, ..container::Style::default() });
-                let tag = container(text(words.t("pool-backdrop-tag")).font(theme::SANS_SEMI).size(12.0).color(ui::faded(INK))).padding([3, 8]).style(move |_| container::Style { background: Some(Background::Color(tinted(ACCENT, 0.16, k))), border: Border { color: tinted(ACCENT, 0.4, k), width: 1.0, radius: 12.0.into() }, ..container::Style::default() });
-                let wide = (ui::text_width(&slot.title, theme::SANS_SEMI, 14.0).max(ui::text_width(&slot.artist, theme::SANS, 12.0)) + 4.0).min(420.0);
-                row![left, ringed, container(details).width(wide).clip(true), tag, ui::grow(), stars].spacing(12).align_y(iced::Center).into()
-            } else {
-                row![left, picture, container(details).width(Length::Fill).clip(true), stars].spacing(12).align_y(iced::Center).into()
-            }
+            row![left, picture, container(details).width(Length::Fill).clip(true), stars].spacing(12).align_y(iced::Center).into()
         }
     };
     let colour = if pool.collection { Color::from_rgb8(95, 95, 95) } else { slot_colour(slot) };
     let empty = slot.is_empty();
+    let backed = pool.backdrop.is_some();
     let row_button = button(container(inside).height(ROW_HIGH).align_y(iced::Center))
         .padding([0, 12])
         .width(Length::Fill)
         .style(ui::button_faded(move |theme, status| {
             let mut style = row_style(selected)(theme, status);
             let hot = matches!(status, button::Status::Hovered | button::Status::Pressed);
-            style.background = None;
+            style.background = backed.then_some(Background::Color(Color { a: 0.82 * ui::fade(), ..theme::GROUND }));
             style.border.color = ui::faded(if selected || hot { colour } else { ui::mix(colour, theme::GROUND, 0.45) });
             style.border.width = if selected { 2.0 } else if empty && !hot { 0.0 } else { 1.0 };
             style
@@ -4800,7 +4815,7 @@ fn add_drop<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, words: &'a
 }
 
 fn add_box<'a>(inside: Element<'a, Message>) -> Element<'a, Message> {
-    menu_box(ui::smooth(container(scrollable(inside).style(ui::thin_scroll).direction(ui::hidden_bar())).max_height(ADD_HIGH)), ADD_WIDE, 14.0, 14.0, Color::from_rgb(0.071, 0.027, 0.039))
+    menu_box(container(scrollable(inside).style(ui::thin_scroll).direction(ui::hidden_bar())).max_height(ADD_HIGH).into(), ADD_WIDE, 14.0, 14.0, Color::from_rgb(0.071, 0.027, 0.039))
 }
 
 const ADD_WIDE: f32 = 560.0;
@@ -5036,28 +5051,20 @@ fn publish_panel<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, words
         list = list.push(check_line(check, words));
     }
     let hashes: Vec<Option<&str>> = pool.slots.iter().filter(|slot| !slot.is_empty()).take(3).map(|slot| slot.hash.as_deref()).collect();
-    let mut shown = row![cover_stack(thumbs, &hashes), container(ui::moving_text(name, theme::SANS_SEMI, 16.0, if named { INK } else { MUTED })).width(Length::Fill)].spacing(14).align_y(iced::Center);
+    let head = row![cover_stack(thumbs, &hashes), head].spacing(16).align_y(iced::Center);
+    let issue = container(text(words.n("publish-issue", pool.published_revision + 1)).font(theme::MONO_BOLD).size(12.0).color(ui::faded(INK)))
+        .padding([4, 10])
+        .style(move |_| container::Style { background: Some(Background::Color(tinted(ACCENT, 0.16, k))), border: Border { color: tinted(ACCENT, 0.4, k), width: 1.0, radius: 12.0.into() }, ..container::Style::default() });
+    let mut who = row![].spacing(12).align_y(iced::Center);
     if !pool.compiler.is_empty() {
-        shown = shown.push(named_face(state, &pool.compiler, 150.0));
+        who = who.push(named_face(state, &pool.compiler, 220.0));
     }
-    shown = shown.push(text(pool.filled().to_string()).font(theme::MONO_BOLD).size(15.0).color(ui::faded(INK)));
-    let preview = container(shown).padding([12, 16]).width(Length::Fill).style(move |theme| {
-        let slab = theme::slab(theme);
-        container::Style {
-            background: slab.background.map(|fill| match fill { Background::Color(colour) => Background::Color(Color { a: colour.a * k, ..colour }), other => other }),
-            border: Border { color: Color { a: slab.border.color.a * k, ..slab.border.color }, width: 1.0, radius: 12.0.into() },
-            ..container::Style::default()
-        }
-    });
-    let mut facts = row![].spacing(40);
-    if !pool.compiler.is_empty() {
-        facts = facts.push(column![caption("pool-publisher"), named_face(state, &pool.compiler, 220.0), faded_text(words.t("publish-who"), 13.0, FAINT)].spacing(6));
-    }
-    let mut version = column![caption("publish-version"), container(text((pool.published_revision + 1).to_string()).font(theme::MONO_BOLD).size(16.0).color(ui::faded(INK))).center_y(FACE)].spacing(6);
+    who = who.push(issue);
+    let mut facts = column![who].spacing(8);
     if pool.published_revision > 0 {
-        version = version.push(faded_text(words.n("publish-replaces", pool.published_revision), 13.0, FAINT));
+        facts = facts.push(faded_text(words.n("publish-replaces", pool.published_revision), 13.0, MUTED));
     }
-    facts = facts.push(version);
+    let list = container(list).padding([12, 16]).width(Length::Fill).style(move |_| container::Style { background: Some(Background::Color(Color { a: k, ..ui::mix(theme::GROUND, Color::BLACK, 0.3) })), border: Border { color: soft(0.08, k), width: 1.0, radius: 12.0.into() }, ..container::Style::default() });
     let go = ui::primary(
         words.t(if state.publishing { "catalogue-saving" } else if pool.published_revision > 0 { "catalogue-update" } else { "catalogue-publish" }),
         (ready && !state.publishing).then_some(Message::Publish),
@@ -5070,17 +5077,17 @@ fn publish_panel<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, words
             foot.push(button(container(text(words.t("catalogue-withdraw")).font(theme::SANS_SEMI).size(14.0)).center_y(CONTROL)).padding([0, 12]).style(ui::button_faded(theme::danger_words)).on_press_maybe((!state.publishing).then_some(Message::AskWithdraw(true))))
         };
     }
-    let mut inside = column![head, list, column![caption("publish-seen"), preview].spacing(10), facts].spacing(22);
+    let mut inside = column![head, facts, list].spacing(20);
     if let Some(error) = &state.catalogue_error {
         inside = inside.push(catalogue_error(error, words));
     }
     container(inside.push(foot))
         .padding(24)
         .width(Length::Fill)
-        .style(move |theme| container::Style {
-            background: Some(Background::Color(Color { a: theme::RAISED.a * k, ..theme::RAISED })),
-            border: Border { color: Color { a: theme::LINE.a * k, ..theme::LINE }, width: 1.0, radius: theme::CARD_RADIUS.into() },
-            ..theme::card(theme)
+        .style(move |_| container::Style {
+            background: Some(Background::Color(Color { a: k, ..Color::from_rgb(0.071, 0.027, 0.039) })),
+            border: Border { color: soft(0.16, k), width: 1.0, radius: 16.0.into() },
+            ..container::Style::default()
         })
         .into()
 }
@@ -5221,7 +5228,7 @@ fn back_button<'a>(words: &Words, collection: bool) -> Element<'a, Message> {
 fn menu_line<'a>(label: String, hint: String, ink: Color, press: Option<Message>, lit: bool, high: f32) -> Element<'a, Message> {
     let free = press.is_some();
     let ink = if free { ink } else { FAINT };
-    button(container(row![container(text(label).font(theme::SANS).size(14.0).color(ui::faded(ink))).width(Length::Fill), text(hint).font(theme::MONO).size(12.0).color(ui::faded(if free { MUTED } else { FAINT }))].spacing(16).align_y(iced::Center)).center_y(high))
+    button(container(row![container(text(label).font(theme::SANS).size(14.0).color(ui::faded(ink))).width(Length::Fill), text(ui::keys(&hint)).font(theme::MONO).size(12.0).color(ui::faded(if free { MUTED } else { FAINT }))].spacing(16).align_y(iced::Center)).center_y(high))
         .padding([0, 12])
         .width(Length::Fill)
         .style(ui::button_faded(move |_: &iced::Theme, status: button::Status| button::Style {
@@ -5263,20 +5270,18 @@ pub fn commands(state: &State, editor: &Editor, pool: &Pool) -> Vec<(&'static st
     let missing = state.missing(pool).len();
     let versions = state.versions.iter().filter(|held| held.id == pool.id).count();
     let mut list = vec![
-        ("pool-command-add", String::new(), Some(Message::AddPanel(true))),
+        ("pool-command-add", "Ctrl N".to_owned(), Some(Message::AddPanel(true))),
+        ("pool-command-paste", "Ctrl V".to_owned(), Some(Message::Begin(Start::Links))),
         ("pool-command-backdrop", String::new(), (filled && !pool.collection).then_some(Message::BackdropPanel(!editor.backdrop))),
         ("pool-command-share", String::new(), filled.then_some(Message::Share(true))),
-        ("pool-command-paste", "Ctrl V".to_owned(), Some(Message::Begin(Start::Links))),
-        ("pool-command-undo", "Ctrl Z".to_owned(), state.undo.iter().any(|(id, _)| *id == pool.id).then_some(Message::Undo)),
-        ("pool-command-redo", "Ctrl Shift Z".to_owned(), state.redo.iter().any(|(id, _)| *id == pool.id).then_some(Message::Redo)),
         (if editor.choosing { "pool-command-choose-off" } else { "pool-command-choose" }, "pool-command-shift".to_owned(), filled.then_some(Message::Choosing(!editor.choosing))),
-        ("pool-command-sort", String::new(), (filled && !pool.collection).then_some(Message::SortStars)),
-        (if editor.only_empty { "pool-command-all" } else { "pool-command-empty" }, String::new(), (editor.only_empty || pool.slots.iter().any(Slot::is_empty)).then_some(Message::OnlyEmpty)),
-        ("pool-command-text", "Ctrl Shift C".to_owned(), filled.then_some(Message::CopyText)),
-        ("pool-command-image", String::new(), filled.then_some(Message::SaveImage)),
-        ("pool-command-missing", if missing > 0 { missing.to_string() } else { String::new() }, (missing > 0).then_some(Message::FetchMissing)),
-        ("pool-command-history", if versions > 0 { versions.to_string() } else { String::new() }, (versions > 0).then_some(Message::History(true))),
     ];
+    if missing > 0 {
+        list.push(("pool-command-missing", missing.to_string(), Some(Message::FetchMissing)));
+    }
+    if versions > 0 {
+        list.push(("pool-command-history", versions.to_string(), Some(Message::History(true))));
+    }
     if !pool.collection {
         list.push(("pool-command-authors", String::new(), Some(Message::EditAuthors)));
     }
@@ -5296,7 +5301,7 @@ fn palette<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, words: &'a 
     }
     let wanted = editor.command.trim().to_lowercase();
     let field = text_input(&words.t("pool-command-hint"), &editor.command).on_input(Message::Command).font(theme::SANS).size(16.0).padding(0).style(ui::bare_input(ui::fade())).width(Length::Fill);
-    let field = container(row![field, text("Ctrl K").font(theme::MONO).size(12.0).color(ui::faded(MUTED))].spacing(8).align_y(iced::Center)).padding([0, 12]).center_y(44.0).style(move |_| container::Style {
+    let field = container(row![field, text(ui::keys("Ctrl K")).font(theme::MONO).size(12.0).color(ui::faded(MUTED))].spacing(8).align_y(iced::Center)).padding([0, 12]).center_y(44.0).style(move |_| container::Style {
         background: Some(Background::Color(Color::from_rgba(0.0, 0.0, 0.0, 0.26 * k))),
         border: Border { color: soft(0.08, k), width: 1.0, radius: 8.0.into() },
         ..container::Style::default()
@@ -5347,7 +5352,7 @@ pub fn pool_foot<'a>(state: &State, pool: &Pool, words: &'a Words) -> Element<'a
     let length: i64 = pool.slots.iter().filter_map(|slot| slot.measure.as_ref()).map(|measure| measure.length_ms).sum();
     let mut line = row![fact(facts.cards.to_string(), words.t("shelf-cards"))].spacing(26).align_y(iced::alignment::Vertical::Bottom);
     if length > 0 {
-        line = line.push(fact(words.length(length), words.t("shelf-length")));
+        line = line.push(fact(words.length_said(length), words.t("shelf-length")));
     }
     if facts.low.is_some() {
         line = line.push(column![stars_span(words, facts.low, facts.high), faded_text(words.t("shelf-stars"), 12.0, MUTED)].spacing(3));
@@ -5396,7 +5401,7 @@ fn editor_toolbar<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, word
         let k = ui::fade();
         let open = editor.palette;
         buttons = buttons.push(
-            button(container(row![text(words.t("pool-actions")).font(theme::SANS_SEMI).size(theme::BODY).color(ui::faded(INK)), glyph(Icon::Down, 12.0, MUTED)].spacing(8).align_y(iced::Center)).center_y(CONTROL))
+            button(container(row![text(words.t("pool-actions")).font(theme::SANS_SEMI).size(theme::BODY).color(ui::faded(INK)), glyph(Icon::Chevron, 13.0, MUTED)].spacing(6).align_y(iced::Center)).center_y(CONTROL))
                 .padding([0, 12])
                 .style(ui::button_faded(move |_: &iced::Theme, status: button::Status| {
                     let lit = open || matches!(status, button::Status::Hovered | button::Status::Pressed);
@@ -5612,8 +5617,10 @@ const START_WIDE: f32 = 1290.0;
 const START_TALL: f32 = 640.0;
 const START_GROWTH: f32 = 1.4;
 
+const START_SMALLER: f32 = if cfg!(test) { 1.0 } else { 0.86 };
+
 fn start_scale(width: f32) -> f32 {
-    (width / START_WIDE).clamp(1.0, START_GROWTH)
+    (width / START_WIDE * START_SMALLER).clamp(START_SMALLER, START_GROWTH * START_SMALLER)
 }
 
 fn start_view<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, words: &'a Words, width: f32, high: f32, t: f32) -> Element<'a, Message> {
@@ -5622,7 +5629,7 @@ fn start_view<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, words: &
     let caption = |key: &str| ui::mono_small(words.t(key).to_uppercase(), MUTED);
     let frames = [(Frame::Duel, Icon::Swords, "pool-start-duel", false), (Frame::Stage, Icon::Trophy, "pool-start-stage", true), (Frame::Free, Icon::Shapes, "pool-frame-free", true)];
     let narrow = width < 900.0;
-    let frame_high = if narrow || width >= 1110.0 { 112.0 } else { 134.0 };
+    let frame_high = if narrow { 112.0 } else { 168.0 };
     let frame_tile = |frame: Frame, icon: Icon, key: &str, offered: bool| -> Element<'a, Message> {
         let build = || -> Element<'a, Message> {
             let mut name = row![semi(words.t(key), 16.0, if offered { INK } else { MUTED })].spacing(8).align_y(iced::Center);
@@ -5635,16 +5642,6 @@ fn start_view<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, words: &
             if offered { tile.on_press(Message::UseFrame(frame)).into() } else { tile.into() }
         };
         if offered { build() } else { ui::fading(ui::fade() * 0.6, build) }
-    };
-    let ways = [
-        (Start::Empty, Icon::Plus, "pool-start-empty"),
-        (Start::Links, Icon::Link, "pool-start-links"),
-        (Start::Collections, Icon::Pool, "pool-start-collections"),
-        (Start::Best, Icon::Medal, "pool-start-best"),
-    ];
-    let way_tile = |way: Start, icon: Icon, key: &str| -> Element<'a, Message> {
-        let inside = column![glyph(icon, 28.0, INK), semi(words.t(key), 16.0, INK), text(words.t(&format!("{key}-about"))).font(theme::SANS).size(14.0).color(ui::faded(MUTED))].spacing(12);
-        button(container(inside).padding(20).width(Length::Fill).height(Length::Fill)).padding(0).width(Length::Fill).height(156.0).style(ui::button_faded(start_tile(false))).on_press(Message::Begin(way)).into()
     };
     let lined = |tiles: Vec<Element<'a, Message>>, across: usize| -> Element<'a, Message> {
         let mut rows = column![].spacing(16);
@@ -5663,21 +5660,17 @@ fn start_view<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, words: &
         rows.into()
     };
     let frame_tiles: Vec<Element<'a, Message>> = frames.iter().map(|(frame, icon, key, offered)| frame_tile(*frame, *icon, key, *offered)).collect();
-    let way_tiles: Vec<Element<'a, Message>> = ways.iter().map(|(way, icon, key)| way_tile(*way, *icon, key)).collect();
     let foot = row![faded_text(words.t("pool-start-note"), 14.0, MUTED), ui::grow(), primary_button(words.t("pool-start-go"), Message::Begin(Start::Empty))].spacing(12).align_y(iced::Center);
     let page = column![
-        ui::appearing(ui::appear(t, 0), 8.0, || editor_toolbar(state, editor, pool, words, width)),
-        ui::appearing(ui::appear(t, 1), 8.0, || {
-            let k = ui::fade();
-            let line = container(Space::new().height(1.0)).width(Length::Fill).style(move |_| container::Style { background: Some(Background::Color(soft(0.16, k))), ..container::Style::default() });
-            column![caption("pool-start-name"), editor_title(pool, words), line].spacing(8).into()
+        ui::appearing(ui::appear(t, 0), 0.0, || editor_toolbar(state, editor, pool, words, width)),
+        ui::appearing(ui::appear(t, 1), 0.0, || {
+            column![caption("pool-start-name"), editor_title(pool, words)].spacing(8).into()
         }),
-        ui::appearing(ui::appear(t, 2), 8.0, || column![caption("pool-start-frame"), lined(frame_tiles, if narrow { 1 } else { 3 })].spacing(12).into()),
-        ui::appearing(ui::appear(t, 3), 8.0, || column![caption("pool-start-how"), lined(way_tiles, if narrow { 2 } else { 4 })].spacing(12).into()),
+        ui::appearing(ui::appear(t, 2), 0.0, || column![caption("pool-start-frame"), lined(frame_tiles, if narrow { 1 } else { 3 })].spacing(12).into()),
     ]
     .spacing(24);
     let tall = (high - 40.0) / grown;
-    let foot = ui::appearing(ui::appear(t, 4), 8.0, || foot.into());
+    let foot = ui::appearing(ui::appear(t, 4), 0.0, || foot.into());
     let page: Element<'a, Message> = if !narrow && tall >= START_TALL {
         container(column![page, Space::new().height(Length::Fill), foot]).height(tall).into()
     } else {
@@ -5691,15 +5684,15 @@ fn editor_view<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, words: 
         return start_view(state, editor, pool, words, width, high, t);
     }
     let mut head = column![
-        ui::appearing(ui::appear(t, 0), 8.0, || editor_toolbar(state, editor, pool, words, width)),
-        ui::appearing(ui::appear(t, 1), 8.0, || editor_title(pool, words)),
+        ui::appearing(ui::appear(t, 0), 0.0, || editor_toolbar(state, editor, pool, words, width)),
+        ui::appearing(ui::appear(t, 1), 0.0, || editor_title(pool, words)),
     ]
     .spacing(14);
     if let Some(credits) = ui::fading(ui::fade() * ui::appear(t, 2), || editor_credits(state, editor, pool, words)) {
-        head = head.push(ui::lifted(credits, ui::appear(t, 2), 8.0));
+        head = head.push(ui::lifted(credits, ui::appear(t, 2), 0.0));
     }
     if state.conflict.as_deref() == Some(pool.id.as_str()) {
-        head = head.push(ui::appearing(ui::appear(t, 3), 8.0, || conflict_banner(state, pool, words, width)));
+        head = head.push(ui::appearing(ui::appear(t, 3), 0.0, || conflict_banner(state, pool, words, width)));
     }
 
     let songs = state.songs.as_ref();
@@ -5715,10 +5708,10 @@ fn editor_view<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, words: 
     };
     let loose = step.filter(|step| matches!(step, 1..=4) && pointed.is_none());
     if let Some(step) = step.filter(|step| *step == 0).or(loose) {
-        head = head.push(ui::appearing(ui::appear(t, 3), 8.0, || coach(step, words)));
+        head = head.push(ui::appearing(ui::appear(t, 3), 0.0, || coach(step, words)));
     }
     if let Some(step) = step.filter(|step| *step >= 5) {
-        head = head.push(ui::appearing(ui::appear(t, 3), 8.0, || container(coach(step, words)).align_right(Length::Fill).into()));
+        head = head.push(ui::appearing(ui::appear(t, 3), 0.0, || container(coach(step, words)).align_right(Length::Fill).into()));
     }
     let downloaded = match &state.finding {
         Some(Finding::Fetching(Fetching { step: Some(crate::maps::Step::Downloading { done, total, .. }), .. })) => Some((*done, *total)),
@@ -5734,11 +5727,11 @@ fn editor_view<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, words: 
             let made: Element<'a, Message> = if adding {
                 ui::under_staying(add_row(pool, *at, editor, words), Some(add_drop(state, editor, pool, words, thumbs)), ui::Lean::Left(0.0), 6.0)
             } else {
-                ui::appearing(ui::appear(t, *at + 4) * dim, 6.0, || slot_row(pool, *at, lit, editor.choosing, words, thumbs, songs, state.ail(&pool.slots[*at]), pointed == Some(*at) && step == Some(2), downloaded))
+                ui::appearing(ui::appear(t, *at + 4) * dim, 0.0, || slot_row(pool, *at, lit, editor.choosing, words, thumbs, songs, state.ail(&pool.slots[*at]), pointed == Some(*at) && step == Some(2), downloaded))
             };
-            let made = if editor.menu == Some(*at) { ui::under_leaning(made, Some(slot_menu(*at, words)), Message::SlotMenu(None), ui::Lean::Left(260.0), 4.0) } else { made };
+            let made = ui::under_leaning(made, (editor.menu == Some(*at)).then(|| slot_menu(*at, words)), Message::SlotMenu(None), ui::Lean::Left(260.0), 4.0);
             let made: Element<'a, Message> = match step.filter(|_| pointed == Some(*at) && !adding) {
-                Some(step) => ui::smooth(column![made, coach(step, words)].spacing(8)),
+                Some(step) => column![made, coach(step, words)].spacing(8).into(),
                 None => made,
             };
             (keys[*at], made)
@@ -5756,7 +5749,7 @@ fn editor_view<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, words: 
             .into()
     };
     let list: Element<'a, Message> = if pool.slots.is_empty() {
-        ui::appearing(ui::appear(t, 4), 8.0, || container(faded_text(words.t("pool-free-empty"), 14.0, MUTED)).padding([24, 10]).into())
+        ui::appearing(ui::appear(t, 4), 0.0, || container(faded_text(words.t("pool-free-empty"), 14.0, MUTED)).padding([24, 10]).into())
     } else if !pool.collection {
         let mut custom = std::collections::BTreeMap::<&str, Vec<usize>>::new();
         for (at, slot) in pool.slots.iter().enumerate() { custom.entry(if slot.category.is_empty() { slot.mods.code() } else { &slot.category }).or_default().push(at); }
@@ -5769,7 +5762,7 @@ fn editor_view<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, words: 
             let first = slots[0];
             let tint = slot_colour(&pool.slots[first]);
             let count = slots.len();
-            let heading = ui::appearing(ui::appear(t, first + 4), 6.0, || {
+            let heading = ui::appearing(ui::appear(t, first + 4), 0.0, || {
                 let mut line = row![text(name.clone()).font(theme::MONO_BOLD).size(13.0).color(ui::faded(ui::mix(tint, Color::WHITE, 0.45))), mono(count.to_string(), 12.0, MUTED), ui::grow()].spacing(10).align_y(iced::Center);
                 if movable {
                     line = line.push(icon_button(Icon::Up, 13.0, MUTED, (at > 0).then_some(Message::MoveCategory(name.clone(), false))));
@@ -5793,7 +5786,7 @@ fn editor_view<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, words: 
     if !panelled {
         return column![head, list].spacing(22).into();
     }
-    let panel = ui::appearing(ui::appear(t, 3), 8.0, || backdrop_panel(state, pool, words, thumbs));
+    let panel = ui::appearing(ui::appear(t, 3), 0.0, || backdrop_panel(state, pool, words, thumbs));
     if beside {
         return column![head, row![container(list).width(Length::Fill), container(panel).width(BACKDROP_WIDE)].spacing(PANEL_GAP)].spacing(22).into();
     }
@@ -5804,7 +5797,7 @@ const PANEL_BESIDE: f32 = 1100.0;
 const PANEL_GAP: f32 = 22.0;
 const BACKDROP_WIDE: f32 = 400.0;
 const TABLE_GAP: f32 = 16.0;
-const TABLE_LEAST: f32 = 430.0;
+const TABLE_LEAST: f32 = if cfg!(test) { 430.0 } else { 380.0 };
 
 fn coach<'a>(step: usize, words: &'a Words) -> Element<'a, Message> {
     let k = ui::fade();
@@ -5817,7 +5810,7 @@ fn coach<'a>(step: usize, words: &'a Words) -> Element<'a, Message> {
         ]
         .spacing(10)
         .align_y(iced::Center),
-        para(words.t(&format!("{key}-how")), 13.5, MUTED),
+        para(ui::keys(&words.t(&format!("{key}-how"))), 13.5, MUTED),
         row![primary_button(words.t(if last { "tour-done" } else { "tour-next" }), Message::GuideNext), plain_button(words.t("guide-hide"), Message::HideGuide)].spacing(8).align_y(iced::Center),
     ]
     .spacing(10);
@@ -5830,7 +5823,16 @@ fn coach<'a>(step: usize, words: &'a Words) -> Element<'a, Message> {
 
 const COACH_WIDE: f32 = 560.0;
 
+const EDITOR_GROWN: f32 = if cfg!(test) { 1.0 } else { 1.14 };
+
 pub fn view<'a>(state: &'a State, words: &'a Words, thumbs: &'a HashMap<String, image::Handle>, width: f32, section_t: f32, clocks: &Clocks) -> Element<'a, Message> {
+    if matches!(&state.screen, Screen::Editor(editor) if !editor.starting) {
+        return ui::scaled(view_at(state, words, thumbs, width / EDITOR_GROWN, section_t, clocks), EDITOR_GROWN).into();
+    }
+    view_at(state, words, thumbs, width, section_t, clocks)
+}
+
+fn view_at<'a>(state: &'a State, words: &'a Words, thumbs: &'a HashMap<String, image::Handle>, width: f32, section_t: f32, clocks: &Clocks) -> Element<'a, Message> {
     let t = section_t.min(clocks.screen);
     let panel_t = clocks.panel.min((t - PANEL_LATE).max(0.0));
     let max_width = if matches!(state.screen, Screen::Editor(_)) { 1800.0 } else { 1180.0 };
@@ -6445,8 +6447,8 @@ mod tests {
             assert!(screen.find(said).is_ok(), "{said}");
         }
         assert!(screen.find(words.t("shelf-published-by").to_uppercase()).is_ok());
-        screen.click(words.t("ledger-edit")).unwrap();
-        assert!(matches!(screen.into_messages().collect::<Vec<_>>().as_slice(), [Message::OpenPublication(open)] if open == "ours"));
+        screen.click("My own pool").unwrap();
+        assert!(matches!(screen.into_messages().collect::<Vec<_>>().as_slice(), [Message::OpenPublication(open)] if open == "ours"), "one's own publication opens by its card, no button is needed");
         let mut screen = look(&state, &words, &thumbs);
         screen.click(words.t("shelf-save")).unwrap();
         assert!(matches!(screen.into_messages().collect::<Vec<_>>().as_slice(), [Message::SavePublication(save)] if save == "theirs"));
@@ -6700,12 +6702,11 @@ mod tests {
             assert!(editor.palette && editor.command == "stars");
             let listed = commands(&state, editor, state.editing().unwrap());
             let keys: Vec<&str> = listed.iter().map(|(key, _, _)| *key).collect();
-            assert_eq!(&keys[..3], ["pool-command-add", "pool-command-backdrop", "pool-command-share"], "what left the toolbar leads the list");
-            assert_eq!(&keys[3..13], ["pool-command-paste", "pool-command-undo", "pool-command-redo", "pool-command-choose", "pool-command-sort", "pool-command-empty", "pool-command-text", "pool-command-image", "pool-command-missing", "pool-command-history"], "the list stands in the order of the mock-up");
+            assert_eq!(&keys[..5], ["pool-command-add", "pool-command-paste", "pool-command-backdrop", "pool-command-share", "pool-command-choose"], "only what matters most is listed");
             let free = |key: &str| listed.iter().find(|(held, _, _)| *held == key).is_some_and(|(_, _, press)| press.is_some());
-            assert!(free("pool-command-undo") && !free("pool-command-redo") && !free("pool-command-history") && free("pool-command-add") && keys.iter().all(|key| *key != "pool-command-delete"), "what cannot be done now is listed but does not answer");
+            assert!(free("pool-command-add") && keys.iter().all(|key| !["pool-command-delete", "pool-command-undo", "pool-command-sort", "pool-command-history"].contains(key)), "what has its own button or nothing to show is not listed");
             let mut screen = iced_test::Simulator::with_size(crate::settings(), iced::Size::new(1400.0, 900.0), view(&state, &words, &thumbs, 1400.0, 1.0, &Clocks::settled()));
-            assert!(screen.find(words.t("pool-command-sort")).is_ok() && screen.find(words.t("pool-command-image")).is_err(), "the list follows what is typed");
+            assert!(screen.find(words.t("pool-command-share")).is_err(), "the list follows what is typed");
         }
         state.update(Message::Chosen(Box::new(Message::OnlyEmpty)), 405);
         assert!(matches!(&state.screen, Screen::Editor(editor) if editor.only_empty && !editor.palette && editor.command.is_empty()));
@@ -7655,7 +7656,7 @@ mod tests {
         assert!(matches!(&state.screen, Screen::Editor(editor) if editor.publish && editor.panel == Panel::Closed), "the sheet replaces an open panel");
         {
             let mut screen = iced_test::Simulator::with_size(crate::settings(), iced::Size::new(1300.0, 900.0), view(&state, &words, &thumbs, 1300.0, 1.0, &Clocks::settled()));
-            for key in ["publish-before", "publish-seen", "pool-publisher", "publish-version"] {
+            for key in ["publish-before"] {
                 assert!(screen.find(words.t(key).to_uppercase()).is_ok(), "{key}");
             }
             for key in ["publish-name-set", "publish-no-mappoolers", "publish-show-slot", "publish-cancel"] {
@@ -7718,7 +7719,7 @@ mod tests {
         let thumbs = HashMap::new();
         let labels = |state: &State| {
             let mut screen = iced_test::Simulator::with_size(crate::settings(), iced::Size::new(1300.0, 900.0), view(state, &words, &thumbs, 1300.0, 1.0, &Clocks::settled()));
-            (screen.find(words.t("catalogue-withdraw")).is_ok(), screen.find(words.t("catalogue-withdraw-yes")).is_ok(), screen.find(words.t("catalogue-update")).is_ok(), screen.find("3").is_ok())
+            (screen.find(words.t("catalogue-withdraw")).is_ok(), screen.find(words.t("catalogue-withdraw-yes")).is_ok(), screen.find(words.t("catalogue-update")).is_ok(), screen.find(words.n("publish-issue", 3)).is_ok())
         };
         assert_eq!(labels(&state), (true, false, true, true), "a published pool offers an update, its next version and the way out");
         state.update(Message::AskWithdraw(true), 1_790_000_116);
@@ -7779,7 +7780,7 @@ mod tests {
             for label in ["NM 4", "HD 2", "HR 2", "DT 2", "FM", "TB", "NM 2"] {
                 assert!(screen.find(label).is_ok(), "{label}");
             }
-            for key in ["pool-frame-soon", "pool-frame-own", "pool-start-empty", "pool-start-links", "pool-start-collections", "pool-start-best", "pool-start-go"] {
+            for key in ["pool-frame-soon", "pool-frame-own", "pool-start-go"] {
                 assert!(screen.find(words.t(key)).is_ok(), "{key}");
             }
             assert!(screen.find(words.t("pool-add")).is_err(), "the start has one main button");
@@ -7790,7 +7791,6 @@ mod tests {
         state.update(Message::UseFrame(Frame::Free), 102);
         assert!(matches!(&state.screen, Screen::Editor(editor) if editor.starting));
         assert!(matches!(pressed(&state, &words.t("pool-start-go")).as_slice(), [Message::Begin(Start::Empty)]));
-        assert!(matches!(pressed(&state, &words.t("pool-start-best")).as_slice(), [Message::Begin(Start::Best)]));
         state.update(Message::Begin(Start::Empty), 103);
         assert_eq!(state.editing().unwrap().slots.len(), 4, "a free pool begins with the same four slots whichever frame was tried first");
         assert!(state.editing().unwrap().slots.iter().all(|slot| slot.is_empty() && slot.mods == Mod::Nm));

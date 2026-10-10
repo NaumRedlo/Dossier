@@ -8,6 +8,7 @@ license.workspace = true
 [dependencies]
 lzma-rs.workspace = true
 dossier-overlay = { path = "../dossier-overlay" }
+dossier-hud = { path = "../dossier-hud" }
 dossier-beatmap = { path = "../dossier-beatmap" }
 dossier-assay = { path = "../dossier-assay" }
 dossier-replay = { path = "../dossier-replay" }

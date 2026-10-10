@@ -262,6 +262,7 @@ version = "0.11.0"
 dependencies = [
  "dossier-assay",
  "dossier-beatmap",
+ "dossier-hud",
  "dossier-overlay",
  "dossier-replay",
  "lzma-rs",

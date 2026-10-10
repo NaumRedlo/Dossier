@@ -50,8 +50,10 @@ of the recording dot. `Stage::moving` tells whether another frame is needed.
 
 ## Sizes
 
-Plates are laid out for a window 720 high and scaled by `height / 720`. The
-`scale` of the viewport is not used yet. The height of the game's hit error meter
+Plates are laid out for a window 720 high and scaled by `height / 720 * SIZE`.
+`SIZE` is 0.86: the first size looked slightly too big over the real game (the
+user's word, 10 October 2026), and the sketches on the canvas were reduced by
+the same share. The `scale` of the viewport is not used yet. The height of the game's hit error meter
 (`METER_HIGH`) is a guess that needs measuring in the real clients.
 
 ## Trying it
@@ -115,9 +117,38 @@ toolchain (its hooks link Frida's devkit, which does not link with MinGW), so it
 cannot be built here either. Nothing was loaded into the game for this
 measurement.
 
+## Shown by Witness, without entering the game
+
+`witness.exe --serve --hud` shows the plates over the game from outside it.
+Nothing is loaded into the client: every plate is a small window of Witness's own
+that is layered, lets clicks through, never takes the focus and stays above
+other windows (`crates/dossier-witness/src/panes.rs`). A plate's window is
+redrawn only when its picture or place changes; all of them are hidden while
+the game's window is not the one in front, and follow its picture area when it
+moves or changes size. The state behind them is `crates/dossier-witness/src/hud.rs`:
+it takes the same snapshots the overlay protocol carries, so the PP, the unstable
+rate, the rests and the meter are the live ones.
+
+- `--lang en` turns the wording to English.
+- `--offer` shows the offer to send after a passed play that was kept, and reads
+  the hold of Tab by the rule above (`dossier_hud::hold`), asking the system for
+  the state of the keys, with no hook. A full hold takes the offer away and
+  writes a line to the error stream; nothing is sent yet.
+- What the HUD does is told on the error stream in lines that begin with
+  `witness hud:`; the ordinary lines for Dossier stay on the output.
+
+The outcome of a play lives until the player leaves the results screen, so an
+older score opened from song select is not offered.
+
+Not known until it is tried on Windows: whether these windows are seen over a
+game in exclusive full screen (over a window and a borderless window they
+should be), and whether they cost the game any frames. In the CrossOver bottle
+they were drawn but, by the user's report, were not seen over the game.
+
 ## Not done
 
-No host draws these sprites inside a client. Dossier does not build a `Context`,
-so the record a play is compared with is not known yet. Sending a result to the chat is only
-drawn: no key is listened for and the bot has no such request. Avatars and map
-covers are placeholders.
+No host draws these sprites inside a client: Witness shows them from outside.
+Dossier does not build a `Context`, so the day, the pool, the chat places and the
+record a play is compared with are not shown yet. The send key is read, but the
+bot has no request for posting a result. Avatars and map covers are
+placeholders.

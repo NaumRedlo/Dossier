@@ -4,10 +4,13 @@ fn main() {
     use dossier_witness::{stable, windows};
 
     let args: Vec<String> = std::env::args().skip(1).collect();
-    if args.iter().any(|arg| arg == "--serve" || arg == "--overlay") {
+    if args.iter().any(|arg| arg == "--serve" || arg == "--overlay" || arg == "--hud") {
         let player = args.iter().position(|arg| arg == "--player").and_then(|at| args.get(at + 1)).cloned().unwrap_or_default();
         let leash = args.iter().any(|arg| arg == "--leash").then(|| std::env::current_exe().ok().and_then(|program| dossier_witness::leash::beside(&program))).flatten();
-        serve(&player, leash.as_deref(), args.iter().any(|arg| arg == "--overlay"));
+        let overlay_mode = args.iter().any(|arg| arg == "--overlay");
+        let english = args.iter().position(|arg| arg == "--lang").and_then(|at| args.get(at + 1)).is_some_and(|said| said == "en");
+        let hud = (!overlay_mode && args.iter().any(|arg| arg == "--hud")).then(|| (if english { dossier_hud::Lang::En } else { dossier_hud::Lang::Ru }, args.iter().any(|arg| arg == "--offer")));
+        serve(&player, leash.as_deref(), overlay_mode, hud);
         return;
     }
     if let Some(at) = args.iter().position(|arg| arg == "--library") {
@@ -165,7 +168,86 @@ fn let_go(leash: Option<&std::path::Path>) {
 }
 
 #[cfg(windows)]
-fn serve(player: &str, leash: Option<&std::path::Path>, overlay_mode: bool) {
+struct Shown {
+    hud: dossier_witness::hud::Hud,
+    panes: dossier_witness::panes::Panes,
+    pid: u32,
+    window: Option<isize>,
+    fresh: bool,
+    place: Option<(i32, i32, i32, i32)>,
+    said: String,
+}
+
+#[cfg(windows)]
+impl Shown {
+    fn new(pid: u32, lang: dossier_hud::Lang, offers: bool) -> Shown {
+        Shown { hud: dossier_witness::hud::Hud::new(lang, offers), panes: dossier_witness::panes::Panes::new(), pid, window: None, fresh: true, place: None, said: String::new() }
+    }
+
+    fn told(&mut self, frame: &dossier_overlay::Frame) {
+        self.hud.told(frame, self.pid);
+        self.fresh = true;
+    }
+
+    fn kept(&mut self, passed: bool) {
+        self.hud.kept(passed);
+        self.fresh = true;
+    }
+
+    fn frame(&mut self) {
+        use dossier_witness::panes;
+        self.panes.pump();
+        if self.window.is_none_or(|window| panes::area(window).is_none()) {
+            self.window = panes::game_window(self.pid);
+        }
+        let keys = self.window.map_or_else(Default::default, panes::keys);
+        if self.hud.step(keys, std::time::Instant::now()) {
+            eprintln!("witness hud: the send key was held for its time; nothing is sent yet");
+            self.fresh = true;
+        }
+        let place = self.window.and_then(panes::area).filter(|_| keys.front);
+        let said = match place {
+            Some((x, y, wide, high)) => {
+                if self.fresh || self.place != place || self.hud.moving() {
+                    let sprites = self.hud.sprites(dossier_overlay::Viewport { width: wide as u32, height: high as u32, scale: 1.0 });
+                    self.panes.show((x, y), &sprites);
+                    self.fresh = false;
+                }
+                format!("{} plates over the game, its picture is {wide}x{high} at {x}, {y}", self.panes.count())
+            }
+            None => {
+                self.panes.hide();
+                self.fresh = true;
+                if self.window.is_some() { "hidden: the game is not in front".to_owned() } else { "hidden: the game has no window yet".to_owned() }
+            }
+        };
+        self.place = place;
+        if said != self.said {
+            eprintln!("witness hud: {said}");
+            self.said = said;
+        }
+    }
+}
+
+#[cfg(windows)]
+fn rest(shown: Option<&mut Shown>, time: std::time::Duration) {
+    let Some(shown) = shown else {
+        std::thread::sleep(time);
+        return;
+    };
+    let until = std::time::Instant::now() + time;
+    loop {
+        shown.frame();
+        let now = std::time::Instant::now();
+        if now >= until {
+            return;
+        }
+        std::thread::sleep((until - now).min(std::time::Duration::from_millis(if shown.hud.moving() { 16 } else { 50 })));
+    }
+}
+
+#[cfg(windows)]
+fn serve(player: &str, leash: Option<&std::path::Path>, overlay_mode: bool, hud: Option<(dossier_hud::Lang, bool)>) {
     use dossier_witness::memory::Reads;
     use dossier_witness::{osr, stable, windows, wire};
     use std::time::{Duration, Instant};
@@ -211,6 +293,7 @@ fn serve(player: &str, leash: Option<&std::path::Path>, overlay_mode: bool) {
         };
         let mut shelf = process.folder().map(|folder| dossier_witness::beatmaps::Shelf::beside(&folder));
         let mut recorder = stable::Recorder::default();
+        let mut shown = hud.map(|(lang, offers)| Shown::new(process.pid, lang, offers));
         let mut last_state = String::new();
         let mut told_at = Instant::now();
         let mut alive_at = Instant::now();
@@ -231,6 +314,9 @@ fn serve(player: &str, leash: Option<&std::path::Path>, overlay_mode: bool) {
                 std::thread::sleep(Duration::from_millis(100));
                 continue;
             }
+            if let (Some(shown), Some(seen)) = (shown.as_mut(), &seen) {
+                shown.told(&overlay.snapshot(seen));
+            }
             if let Some(seen) = &seen {
                 let facts = seen.map.as_ref().and_then(|map| shelf.as_mut()?.map(&map.md5).map(|known| known.facts(0)));
                 let said = wire::state(seen, facts.as_ref());
@@ -244,6 +330,9 @@ fn serve(player: &str, leash: Option<&std::path::Path>, overlay_mode: bool) {
                     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |since| since.as_secs() as i64);
                     let facts = shelf.as_mut().and_then(|shelf| shelf.map(&take.map.md5).map(|known| known.facts(take.play.mods)));
                     legacy(wire::kept(&take, &osr::file_name(&take, &client, player, now), &osr::write(&take, &client, player, now), facts.as_ref()));
+                    if let Some(shown) = shown.as_mut() {
+                        shown.kept(take.passed && take.watched != Some(true));
+                    }
                 }
             }
             if let (Some(take), Some(seen)) = (recorder.recording(), &seen) {
@@ -257,7 +346,7 @@ fn serve(player: &str, leash: Option<&std::path::Path>, overlay_mode: bool) {
                 legacy(wire::plain("alive"));
                 alive_at = Instant::now();
             }
-            std::thread::sleep(Duration::from_millis(100));
+            rest(shown.as_mut(), Duration::from_millis(100));
         }
     }
 }

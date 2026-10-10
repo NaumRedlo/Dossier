@@ -1,4 +1,5 @@
 pub mod draw;
+pub mod hold;
 pub mod node;
 mod plates;
 pub mod sample;
@@ -12,6 +13,7 @@ pub use node::Node;
 
 pub const REFERENCE_HIGH: f32 = 720.0;
 pub const EDGE: f32 = 24.0;
+pub const SIZE: f32 = 0.86;
 pub const UNFOLD_SECONDS: f32 = 0.22;
 pub const RATE_HALF_LIFE: f32 = 0.12;
 pub const PULSE_SECONDS: f32 = 1.6;
@@ -335,7 +337,7 @@ pub fn plan(view: Option<&View>, context: &Context, stage: &Stage) -> Vec<Placed
                         key: "rate",
                         anchor: Anchor::BottomCentre,
                         x: -wide / 2.0,
-                        y: METER_HIGH * meter.scale.clamp(0.5, 3.0) + 6.0,
+                        y: METER_HIGH / SIZE * meter.scale.clamp(0.5, 3.0) + 6.0,
                         node,
                     });
                 }
@@ -378,7 +380,7 @@ pub struct Sprite {
 }
 
 pub fn unit(viewport: Viewport) -> f32 {
-    (viewport.height as f32 / REFERENCE_HIGH).clamp(0.6, 4.0)
+    (viewport.height as f32 / REFERENCE_HIGH * SIZE).clamp(0.5, 4.0)
 }
 
 pub fn paint(placed: &Placed, viewport: Viewport) -> Option<Sprite> {

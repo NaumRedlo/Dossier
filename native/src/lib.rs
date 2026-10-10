@@ -22,6 +22,7 @@ pub mod glide;
 pub mod glyphs;
 pub mod icon;
 pub mod inbox;
+pub mod instance;
 pub mod lanes;
 pub mod lang;
 pub mod library;
@@ -83,18 +84,35 @@ pub fn refit_window<T: Send + 'static>(fit: Option<Size>, minimum: Size) -> Task
             if maximized {
                 return Task::none();
             }
-            iced::window::mode(id).then(move |mode| {
-                if mode != iced::window::Mode::Windowed {
+            iced::window::is_minimized(id).then(move |minimized| {
+                if minimized == Some(true) {
                     return Task::none();
                 }
-                let floor = iced::window::set_min_size(id, Some(minimum));
-                match fit {
-                    Some(size) => floor.chain(iced::window::resize(id, size)),
-                    None => floor,
-                }
+                iced::window::mode(id).then(move |mode| {
+                    if mode != iced::window::Mode::Windowed {
+                        return Task::none();
+                    }
+                    let floor = iced::window::set_min_size(id, Some(minimum));
+                    match fit {
+                        Some(size) => floor.chain(iced::window::resize(id, size)),
+                        None => floor,
+                    }
+                })
             })
         })
     })
+}
+
+pub fn may_measure(measured: bool, focused: bool, hidden: bool) -> bool {
+    !measured || (focused && !hidden)
+}
+
+pub fn room_on(monitor: Size) -> Size {
+    Size::new(monitor.width * 0.94, monitor.height * 0.9)
+}
+
+pub fn floor_in(minimum: Size, room: Size) -> Size {
+    Size::new(minimum.width.min(room.width), minimum.height.min(room.height))
 }
 
 pub enum Screen {
@@ -110,6 +128,7 @@ pub struct App {
     opened: bool,
     tray: Option<tray::Tray>,
     hidden: bool,
+    focused: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -122,6 +141,8 @@ pub enum Message {
     Opened(Size),
     CloseAsked(iced::window::Id),
     Tray(tray::Said),
+    Instance(instance::Said),
+    Focus(bool),
     Measure,
     Monitor(Option<Size>),
     Viewport(Size),
@@ -269,16 +290,16 @@ impl App {
                 }),
                 None => Task::none(),
             };
-            return (App { screen: Screen::Main(main), backdrop, viewport: WINDOW, measured: false, opened: false, tray: None, hidden: false }, Task::batch([task.map(Message::Main), snap, press, flood]));
+            return (App { screen: Screen::Main(main), backdrop, viewport: WINDOW, measured: false, opened: false, tray: None, hidden: false, focused: true }, Task::batch([task.map(Message::Main), snap, press, flood]));
         }
         if settings::first_run() {
             let (flow, task) = FirstRun::new();
-            (App { screen: Screen::FirstRun(flow), backdrop, viewport: WINDOW, measured: false, opened: false, tray: None, hidden: false }, task.map(Message::FirstRun))
+            (App { screen: Screen::FirstRun(flow), backdrop, viewport: WINDOW, measured: false, opened: false, tray: None, hidden: false, focused: true }, task.map(Message::FirstRun))
         } else {
             let said = Settings::load();
             let (mut main, task) = Main::new(Words::new(said.lang), said);
             let launched = main.launched();
-            (App { screen: Screen::Main(main), backdrop, viewport: WINDOW, measured: false, opened: false, tray: None, hidden: false }, Task::batch([task, launched]).map(Message::Main))
+            (App { screen: Screen::Main(main), backdrop, viewport: WINDOW, measured: false, opened: false, tray: None, hidden: false, focused: true }, Task::batch([task, launched]).map(Message::Main))
         }
     }
 
@@ -381,11 +402,34 @@ impl App {
                     shown.chain(iced::window::gain_focus(id))
                 })
             }
-            Message::Tray(tray::Said::Quit) => self.quit(),
-            Message::Measure => iced::window::oldest().and_then(|id| Task::batch([
-                iced::window::monitor_size(id).map(Message::Monitor),
-                iced::window::size(id).map(Message::Viewport),
-            ])),
+            Message::Tray(tray::Said::Quit) | Message::Instance(instance::Said::Quit) => self.quit(),
+            Message::Instance(instance::Said::Show) => {
+                let shown = self.handle(Message::Tray(tray::Said::Show));
+                shown.chain(iced::window::oldest().and_then(|id| iced::window::minimize(id, false).chain(iced::window::gain_focus(id))))
+            }
+            Message::Focus(focused) => {
+                self.focused = focused;
+                frames::mark("window", std::time::Instant::now(), if focused { "in front" } else { "behind" });
+                if !focused {
+                    return Task::none();
+                }
+                let later = |after: u64| Task::perform(async move { tokio_sleep(std::time::Duration::from_millis(after)).await }, |_| Message::Measure);
+                Task::batch([later(300), later(1500)])
+            }
+            Message::Measure => {
+                if !may_measure(self.measured, self.focused, self.hidden) {
+                    return Task::none();
+                }
+                iced::window::oldest().and_then(|id| iced::window::is_minimized(id).then(move |minimized| {
+                    if minimized == Some(true) {
+                        return Task::none();
+                    }
+                    Task::batch([
+                        iced::window::monitor_size(id).map(Message::Monitor),
+                        iced::window::size(id).map(Message::Viewport),
+                    ])
+                }))
+            }
             Message::Viewport(size) => {
                 if size.width <= 0.0 || size.height <= 0.0 { return Task::none(); }
                 self.viewport = size;
@@ -393,13 +437,17 @@ impl App {
             }
             Message::Monitor(None) => Task::none(),
             Message::Monitor(Some(monitor)) => {
+                if !may_measure(self.measured, self.focused, self.hidden) || monitor.width <= 0.0 || monitor.height <= 0.0 {
+                    return Task::none();
+                }
                 let auto = ui::auto_scale_for(monitor.height);
                 let first = !self.measured;
                 self.measured = true;
                 if !first && auto == ui::auto_scale() { return Task::none(); }
                 ui::set_auto_scale(auto);
-                let room = Size::new(monitor.width * 0.94, monitor.height * 0.9);
-                let minimum = minimum_window(self.chosen_scale());
+                frames::mark("window", std::time::Instant::now(), &format!("monitor {}x{}", monitor.width, monitor.height));
+                let room = room_on(monitor);
+                let minimum = floor_in(minimum_window(self.chosen_scale()), room);
                 let fit = Size::new(self.viewport.width.max(minimum.width.min(room.width)).min(room.width), self.viewport.height.max(minimum.height.min(room.height)).min(room.height));
                 refit_window((fit != self.viewport).then_some(fit), minimum)
             }
@@ -442,6 +490,8 @@ impl App {
             iced::Event::Window(iced::window::Event::Opened { size, .. }) => Some(Message::Opened(size)),
             iced::Event::Window(iced::window::Event::Moved(_) | iced::window::Event::Rescaled(_)) => Some(Message::Measure),
             iced::Event::Window(iced::window::Event::Resized(size)) => Some(Message::Viewport(size)),
+            iced::Event::Window(iced::window::Event::Focused) => Some(Message::Focus(true)),
+            iced::Event::Window(iced::window::Event::Unfocused) => Some(Message::Focus(false)),
             _ => None,
         });
         let closing = iced::window::close_requests().map(Message::CloseAsked);
@@ -449,7 +499,7 @@ impl App {
             Some(_) => Subscription::run(tray::events).map(Message::Tray),
             None => Subscription::none(),
         };
-        Subscription::batch([screen, window, closing, tray])
+        Subscription::batch([screen, window, closing, tray, Subscription::run(instance::events).map(Message::Instance)])
     }
 
     fn keep_tray(&mut self) {
@@ -504,7 +554,7 @@ mod workspace_tests {
         let _restore = Restore(ui::auto_scale());
         ui::set_auto_scale(100);
         let main = Main::staged(Words::new(lang::Lang::En), Settings::default(), library::Library::default(), None);
-        let mut app = App { screen: Screen::Main(main), backdrop: image::Handle::from_rgba(1, 1, vec![0, 0, 0, 255]), viewport: WINDOW, measured: false, opened: false, tray: None, hidden: false };
+        let mut app = App { screen: Screen::Main(main), backdrop: image::Handle::from_rgba(1, 1, vec![0, 0, 0, 255]), viewport: WINDOW, measured: false, opened: false, tray: None, hidden: false, focused: true };
         let _ = app.update(Message::Monitor(Some(Size::new(1920.0, 1080.0))));
         for window in [Size::new(1512.0, 840.0), Size::new(1920.0, 1080.0), Size::new(2560.0, 1440.0), WINDOW] {
             for _ in 0..3 {
@@ -537,6 +587,42 @@ mod workspace_tests {
     }
 
     #[test]
+    fn a_window_that_is_behind_or_hidden_does_not_take_a_passing_screen_for_its_own() {
+        let _lock = SCALE_TEST.lock().unwrap();
+        struct Restore(u32);
+        impl Drop for Restore { fn drop(&mut self) { ui::set_auto_scale(self.0); } }
+        let _restore = Restore(ui::auto_scale());
+        ui::set_auto_scale(100);
+        let main = Main::staged(Words::new(lang::Lang::En), Settings::default(), library::Library::default(), None);
+        let mut app = App { screen: Screen::Main(main), backdrop: image::Handle::from_rgba(1, 1, vec![0, 0, 0, 255]), viewport: WINDOW, measured: false, opened: false, tray: None, hidden: false, focused: false };
+        let _ = app.update(Message::Monitor(Some(Size::new(2560.0, 1440.0))));
+        assert_eq!(app.scale_factor(), 1.2, "the first measurement counts even before the window is in front");
+        let _ = app.update(Message::Monitor(Some(Size::new(1280.0, 720.0))));
+        assert_eq!(app.scale_factor(), 1.2, "a game's own screen mode seen from behind changes nothing");
+        let _ = app.update(Message::Focus(true));
+        let _ = app.update(Message::Monitor(Some(Size::ZERO)));
+        assert_eq!(app.scale_factor(), 1.2, "a screen without a size is not a screen");
+        app.hidden = true;
+        let _ = app.update(Message::Monitor(Some(Size::new(1280.0, 720.0))));
+        assert_eq!(app.scale_factor(), 1.2, "nor does it while the window sits in the tray");
+        app.hidden = false;
+        let _ = app.update(Message::Monitor(Some(Size::new(1280.0, 720.0))));
+        assert!(app.scale_factor() < 1.2, "in front, the screen the window is on is the one that counts");
+        let _ = app.update(Message::Focus(false));
+        let _ = app.update(Message::Monitor(Some(Size::new(2560.0, 1440.0))));
+        assert!(app.scale_factor() < 1.2);
+    }
+
+    #[test]
+    fn the_least_window_never_asks_for_more_than_the_screen_has() {
+        let room = room_on(Size::new(1024.0, 600.0));
+        assert_eq!(floor_in(Size::new(950.0, 700.0), room), Size::new(950.0, 540.0));
+        assert_eq!(floor_in(MINIMUM, room_on(Size::new(1920.0, 1080.0))), MINIMUM);
+        assert!(may_measure(false, false, true) && may_measure(true, true, false));
+        assert!(!may_measure(true, false, false) && !may_measure(true, true, true));
+    }
+
+    #[test]
     fn queued_window_events_keep_navigation_within_the_retina_window() {
         let _lock = SCALE_TEST.lock().unwrap();
         struct Restore(u32);
@@ -546,7 +632,7 @@ mod workspace_tests {
         let said = Settings { close_to_tray: false, ..Settings::default() };
         let main = Main::staged(Words::new(lang::Lang::Ru), said, library::Library::default(), None);
         let size = Size::new(1512.0, 840.0);
-        let mut app = App { screen: Screen::Main(main), backdrop: image::Handle::from_rgba(1, 1, vec![0, 0, 0, 255]), viewport: WINDOW, measured: false, opened: false, tray: None, hidden: false };
+        let mut app = App { screen: Screen::Main(main), backdrop: image::Handle::from_rgba(1, 1, vec![0, 0, 0, 255]), viewport: WINDOW, measured: false, opened: false, tray: None, hidden: false, focused: true };
         for _ in 0..4 {
             let _ = app.update(Message::Opened(size));
             let _ = app.update(Message::Viewport(size));

@@ -56,6 +56,30 @@ With the client still open and Dossier running:
 4. Turn on "Save a replay of every play to the journal", fail a map and then
    find the replay in the journal. Its player must be your name.
 
+## Part three: the window (from 0.95.0)
+
+Two faults were reported on Windows and answered without a Windows machine, so
+both need a look.
+
+1. **One Dossier at a time.** With "Minimize to tray on close" on, close the
+   window so that Dossier stays in the tray, then start Dossier again from its
+   shortcut. The window of the one already running must come back, and the tray
+   must still hold one icon. Starting it a third time while the window is open
+   must only bring that window to the front.
+2. **Alt+Tab.** Run osu!stable in full screen, best with a resolution other
+   than the desktop's, and switch between the game and Dossier with Alt+Tab a
+   dozen times, also with Dossier minimised and with Dossier maximised. The
+   minimise, maximise and close buttons of Dossier's window must stay where they
+   are, and the tabs in its header must answer every click. If they do not, say
+   how many monitors there are, their resolutions and scaling (125 %, 150 %),
+   the game's resolution, and start Dossier once like this so that it writes
+   what it saw of its window:
+
+       set DOSSIER_FRAMES=%USERPROFILE%\dossier-frames.txt
+       "path\to\dossier.exe"
+
+   then repeat the fault and send the file.
+
 ## What to send back
 
 The text of the report, and for each step of part two whether it worked. If

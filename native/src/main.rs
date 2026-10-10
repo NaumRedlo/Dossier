@@ -168,6 +168,11 @@ fn main() -> iced::Result {
     if dossier_native::REHEARSAL.get().is_none() && !settings::first_run() && dossier_native::updates::on_launch(settings::Settings::load().quiet_updates) {
         return Ok(());
     }
+    let _alone = match (dossier_native::REHEARSAL.get().is_none() && std::env::var_os("DOSSIER_BESIDE").is_none()).then(dossier_native::instance::claim) {
+        Some(dossier_native::instance::Claim::Theirs) => return Ok(()),
+        Some(dossier_native::instance::Claim::Ours(guard)) => Some(guard),
+        None => None,
+    };
     iced::application(App::boot, App::update, App::view)
         .title("Dossier")
         .settings(settings())

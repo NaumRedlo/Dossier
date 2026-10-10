@@ -1117,8 +1117,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "dossier-hud"
+version = "0.11.0"
+dependencies = [
+ "dossier-overlay",
+ "fontdue",
+ "png 0.17.16",
+ "serde",
+ "tiny-skia",
+]
+
+[[package]]
 name = "dossier-native"
-version = "0.94.5"
+version = "0.95.0"
 dependencies = [
  "chrono",
  "cpal",
@@ -1214,7 +1225,11 @@ dependencies = [
 name = "dossier-witness"
 version = "0.11.0"
 dependencies = [
+ "dossier-assay",
+ "dossier-beatmap",
+ "dossier-hud",
  "dossier-overlay",
+ "dossier-replay",
  "lzma-rs",
 ]
 

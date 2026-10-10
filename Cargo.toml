@@ -11,6 +11,8 @@ members = [
     "crates/dossier-produce",
     "crates/dossier-cli",
     "crates/dossier-witness",
+    "crates/dossier-overlay",
+    "crates/dossier-hud",
 ]
 
 [workspace.package]

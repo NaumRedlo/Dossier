@@ -291,3 +291,9 @@ false memory — code with the patterns in it, objects laid out the way the
 runtime lays them — and read it back: patterns across the seam of two reads, a
 glance at a play, a broken hash refused. No test can start the client; what the
 tests cannot say is said by the bench.
+
+## Overlay foundation
+
+The opt-in `--overlay` stream and shared host contract are described in
+[Witness overlay foundation](witness-overlay.md). This prepares in-client
+integration for stable and lazer; it does not yet render an overlay in either.

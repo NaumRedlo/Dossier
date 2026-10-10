@@ -4,10 +4,10 @@ fn main() {
     use dossier_witness::{stable, windows};
 
     let args: Vec<String> = std::env::args().skip(1).collect();
-    if args.iter().any(|arg| arg == "--serve") {
+    if args.iter().any(|arg| arg == "--serve" || arg == "--overlay") {
         let player = args.iter().position(|arg| arg == "--player").and_then(|at| args.get(at + 1)).cloned().unwrap_or_default();
         let leash = args.iter().any(|arg| arg == "--leash").then(|| std::env::current_exe().ok().and_then(|program| dossier_witness::leash::beside(&program))).flatten();
-        serve(&player, leash.as_deref());
+        serve(&player, leash.as_deref(), args.iter().any(|arg| arg == "--overlay"));
         return;
     }
     if let Some(at) = args.iter().position(|arg| arg == "--library") {
@@ -165,24 +165,32 @@ fn let_go(leash: Option<&std::path::Path>) {
 }
 
 #[cfg(windows)]
-fn serve(player: &str, leash: Option<&std::path::Path>) {
+fn serve(player: &str, leash: Option<&std::path::Path>, overlay_mode: bool) {
     use dossier_witness::memory::Reads;
     use dossier_witness::{osr, stable, windows, wire};
     use std::time::{Duration, Instant};
 
+    let legacy = |line| { if !overlay_mode { say(line); } };
+    let emit = |frame: dossier_overlay::Frame| {
+        if let Ok(line) = frame.encode() { say(line.trim_end().to_owned()); }
+    };
+    let mut session = 0u64;
     const NAME: &str = "osu!.exe";
     let mut idle_told = false;
     loop {
         let_go(leash);
         let Some(process) = windows::processes_named(NAME).iter().find_map(|pid| windows::Process::open(*pid)) else {
-            say(wire::plain(if idle_told { "alive" } else { "waiting" }));
+            legacy(wire::plain(if idle_told { "alive" } else { "waiting" }));
             idle_told = true;
             std::thread::sleep(Duration::from_secs(if idle_told { 3 } else { 1 }));
             continue;
         };
         idle_told = false;
+        session += 1;
+        let mut overlay = dossier_witness::overlay::Publisher::new(session);
         let client = client_of(&process);
-        say(wire::attached(process.pid, &client));
+        if overlay_mode { emit(overlay.hello(process.pid, &client.build)); }
+        legacy(wire::attached(process.pid, &client));
         let mut loading_told = false;
         let anchors = loop {
             if let Ok(anchors) = stable::anchors(&process) {
@@ -192,12 +200,13 @@ fn serve(player: &str, leash: Option<&std::path::Path>) {
                 break None;
             }
             let_go(leash);
-            say(wire::plain(if loading_told { "alive" } else { "loading" }));
+            legacy(wire::plain(if loading_told { "alive" } else { "loading" }));
             loading_told = true;
             std::thread::sleep(Duration::from_secs(2));
         };
         let Some(anchors) = anchors else {
-            say(wire::plain("gone"));
+            if overlay_mode { emit(overlay.disconnected()); }
+            legacy(wire::plain("gone"));
             continue;
         };
         let mut shelf = process.folder().map(|folder| dossier_witness::beatmaps::Shelf::beside(&folder));
@@ -212,15 +221,21 @@ fn serve(player: &str, leash: Option<&std::path::Path>) {
                 checked_at = Instant::now();
             }
             if process.u32(anchors.status).is_none() {
-                say(wire::plain("gone"));
+                if overlay_mode { emit(overlay.disconnected()); }
+                legacy(wire::plain("gone"));
                 break;
             }
             let seen = stable::glance(&process, &anchors);
+            if overlay_mode {
+                if let Some(seen) = &seen { emit(overlay.snapshot(seen)); }
+                std::thread::sleep(Duration::from_millis(100));
+                continue;
+            }
             if let Some(seen) = &seen {
                 let facts = seen.map.as_ref().and_then(|map| shelf.as_mut()?.map(&map.md5).map(|known| known.facts(0)));
                 let said = wire::state(seen, facts.as_ref());
                 if said != last_state {
-                    say(said.clone());
+                    legacy(said.clone());
                     last_state = said;
                 }
             }
@@ -228,18 +243,18 @@ fn serve(player: &str, leash: Option<&std::path::Path>) {
                 if take.frames.len() >= FRAMES_LEAST {
                     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |since| since.as_secs() as i64);
                     let facts = shelf.as_mut().and_then(|shelf| shelf.map(&take.map.md5).map(|known| known.facts(take.play.mods)));
-                    say(wire::kept(&take, &osr::file_name(&take, &client, player, now), &osr::write(&take, &client, player, now), facts.as_ref()));
+                    legacy(wire::kept(&take, &osr::file_name(&take, &client, player, now), &osr::write(&take, &client, player, now), facts.as_ref()));
                 }
             }
             if let (Some(take), Some(seen)) = (recorder.recording(), &seen) {
                 if told_at.elapsed() >= Duration::from_secs(1) {
-                    say(wire::playing(take, seen.time_ms));
+                    legacy(wire::playing(take, seen.time_ms));
                     told_at = Instant::now();
                     alive_at = Instant::now();
                 }
             }
             if alive_at.elapsed() >= Duration::from_secs(5) {
-                say(wire::plain("alive"));
+                legacy(wire::plain("alive"));
                 alive_at = Instant::now();
             }
             std::thread::sleep(Duration::from_millis(100));

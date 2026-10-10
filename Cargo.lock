@@ -194,6 +194,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "dossier-hud"
+version = "0.11.0"
+dependencies = [
+ "dossier-overlay",
+ "fontdue",
+ "png",
+ "serde",
+ "serde_json",
+ "tiny-skia",
+]
+
+[[package]]
+name = "dossier-overlay"
+version = "0.11.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "dossier-produce"
 version = "0.11.0"
 dependencies = [
@@ -240,6 +260,7 @@ dependencies = [
 name = "dossier-witness"
 version = "0.11.0"
 dependencies = [
+ "dossier-overlay",
  "dossier-replay",
  "lzma-rs",
 ]
@@ -414,6 +435,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4148590afebada386688f18773da617792bf2ef03ffc1e4cbd2b1d45b023e0ba"
 dependencies = [
  "serde_core",
+ "serde_derive",
 ]
 
 [[package]]

@@ -1,0 +1,16 @@
+[package]
+name = "dossier-hud"
+description = "Lays out and paints the plates of the Witness overlay"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+dossier-overlay = { path = "../dossier-overlay" }
+serde = { version = "1", features = ["derive"] }
+tiny-skia = "0.11"
+fontdue = "0.9"
+png = "0.17"
+
+[dev-dependencies]
+serde_json = "1"

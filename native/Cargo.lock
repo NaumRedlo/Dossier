@@ -1160,6 +1160,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "dossier-overlay"
+version = "0.11.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "dossier-produce"
 version = "0.11.0"
 dependencies = [
@@ -1206,6 +1214,7 @@ dependencies = [
 name = "dossier-witness"
 version = "0.11.0"
 dependencies = [
+ "dossier-overlay",
  "lzma-rs",
 ]
 

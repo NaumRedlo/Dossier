@@ -7598,7 +7598,7 @@ impl Main {
                 let badge = container(text(said).font(theme::SANS_SEMI).size(12.5).color(ui::faded(ink)))
                     .padding([3, 10])
                     .style(move |_| container::Style { background: Some(iced::Background::Color(Color { a: fill.a * k, ..fill })), border: iced::Border { radius: 12.0.into(), ..iced::Border::default() }, ..container::Style::default() });
-                let mut head = row![crate::glyphs::glyph(crate::glyphs::Icon::Heart, 18.0, self.billing.tint_of(&held.plan)), text(billing::plan_name(&held.plan)).font(theme::SANS_SEMI).size(20.0).color(ui::faded(INK)), badge, ui::grow()].spacing(10).align_y(iced::Center);
+                let mut head = row![crate::badge::mark(Some(self.billing.rank_of(&held.plan)), self.billing.stage(), 22.0), text(billing::plan_name(&held.plan)).font(theme::SANS_SEMI).size(20.0).color(ui::faded(INK)), badge, ui::grow()].spacing(10).align_y(iced::Center);
                 let left = billing::left(held, self.now_unix);
                 if let Some((days, _)) = left {
                     head = head.push(text(w.n("billing-days", days as u64)).font(theme::MONO_BOLD).size(13.0).color(ui::faded(INK)));

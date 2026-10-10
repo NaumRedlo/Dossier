@@ -4467,7 +4467,7 @@ pub struct Under<'a, Message> {
     sheet: Option<Element<'a, Message>>,
     gap: f32,
     lean: Lean,
-    dismiss: Message,
+    dismiss: Option<Message>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -4477,11 +4477,15 @@ pub enum Lean {
 }
 
 pub fn under<'a, Message: Clone + 'a>(anchor: impl Into<Element<'a, Message>>, sheet: Option<Element<'a, Message>>, dismiss: Message) -> Element<'a, Message> {
-    Element::new(Under { anchor: anchor.into(), sheet, gap: 6.0, lean: Lean::Left(0.0), dismiss })
+    Element::new(Under { anchor: anchor.into(), sheet, gap: 6.0, lean: Lean::Left(0.0), dismiss: Some(dismiss) })
 }
 
 pub fn under_leaning<'a, Message: Clone + 'a>(anchor: impl Into<Element<'a, Message>>, sheet: Option<Element<'a, Message>>, dismiss: Message, lean: Lean, gap: f32) -> Element<'a, Message> {
-    Element::new(Under { anchor: anchor.into(), sheet, gap, lean, dismiss })
+    Element::new(Under { anchor: anchor.into(), sheet, gap, lean, dismiss: Some(dismiss) })
+}
+
+pub fn under_staying<'a, Message: Clone + 'a>(anchor: impl Into<Element<'a, Message>>, sheet: Option<Element<'a, Message>>, lean: Lean, gap: f32) -> Element<'a, Message> {
+    Element::new(Under { anchor: anchor.into(), sheet, gap, lean, dismiss: None })
 }
 
 const UNDER_EDGE: f32 = 8.0;
@@ -4583,7 +4587,7 @@ struct UnderSheet<'a, 'b, Message> {
     anchor: Rectangle,
     gap: f32,
     lean: Lean,
-    dismiss: Message,
+    dismiss: Option<Message>,
 }
 
 impl<Message: Clone> iced::advanced::Overlay<Message, Theme, Renderer> for UnderSheet<'_, '_, Message> {
@@ -4608,8 +4612,8 @@ impl<Message: Clone> iced::advanced::Overlay<Message, Theme, Renderer> for Under
         if let iced::Event::Mouse(mouse::Event::ButtonPressed(_)) = event {
             if cursor.is_over(viewport) {
                 shell.capture_event();
-            } else if !cursor.is_over(self.anchor) {
-                shell.publish(self.dismiss.clone());
+            } else if let Some(dismiss) = self.dismiss.clone().filter(|_| !cursor.is_over(self.anchor)) {
+                shell.publish(dismiss);
                 shell.capture_event();
             }
         }

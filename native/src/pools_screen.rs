@@ -303,6 +303,7 @@ pub enum Message {
     PublishSheet(bool),
     Conflict(Keep),
     HideGuide,
+    GuideNext,
     GuideGot,
     RetryCatalogue,
     Lean(Skill),
@@ -1164,7 +1165,7 @@ impl State {
         let mut effects = std::mem::take(&mut self.pending);
         effects.extend(self.handle(message, now));
         self.depth -= 1;
-        if self.guide.on && self.editing().is_some_and(|pool| !pool.collection && self.guide.steps(pool).iter().all(|done| *done)) {
+        if self.guide.on && self.editing().is_some_and(|pool| !pool.collection && self.guide.current(pool).is_none()) {
             self.guide.on = false;
         }
         if self.depth == 0 && self.guide != before {
@@ -1352,6 +1353,12 @@ impl State {
                 }
             }
             Message::HideGuide => self.guide.on = false,
+            Message::GuideNext => {
+                match self.editing().and_then(|pool| self.guide.current(pool)) {
+                    Some(step) => self.guide.at = step as u8 + 1,
+                    None => self.guide.on = false,
+                }
+            }
             Message::Lean(skill) => {
                 effects.extend(self.update(Message::AddPanel(true), now));
                 if let Some(editor) = self.editor_mut() {
@@ -3330,7 +3337,7 @@ fn hatched_cover<'a>() -> Element<'a, Message> {
         .height(COVER_HIGH)
         .style(move |_| container::Style {
             background: Some(Background::Color(Color { a: k, ..base })),
-            border: Border { color: tinted(Color::WHITE, 0.035, k), width: 1.0, radius: COVER_ROUND.into() },
+            border: Border { color: soft(0.035, k), width: 1.0, radius: COVER_ROUND.into() },
             ..container::Style::default()
         });
     frame.into()
@@ -3340,6 +3347,12 @@ fn tinted(colour: Color, share: f32, k: f32) -> Color {
     Color { a: k, ..ui::mix(theme::GROUND, colour, share) }
 }
 
+const WARM: Color = Color::from_rgb(0.98, 0.80, 0.80);
+
+fn soft(share: f32, k: f32) -> Color {
+    tinted(WARM, share * 0.8, k)
+}
+
 fn number_badge<'a>(number: usize, lit: bool) -> Element<'a, Message> {
     let k = ui::fade();
     container(text(number.to_string()).font(theme::MONO_BOLD).size(12.0).color(ui::faded(INK)))
@@ -3347,7 +3360,7 @@ fn number_badge<'a>(number: usize, lit: bool) -> Element<'a, Message> {
         .height(28.0)
         .center(28.0)
         .style(move |_| container::Style {
-            background: Some(Background::Color(if lit { tinted(ACCENT, 0.2, k) } else { tinted(Color::WHITE, 0.08, k) })),
+            background: Some(Background::Color(if lit { tinted(ACCENT, 0.2, k) } else { soft(0.08, k) })),
             border: Border { radius: 14.0.into(), ..Border::default() },
             ..container::Style::default()
         })
@@ -3423,7 +3436,7 @@ fn sheet_box<'a>(inside: Element<'a, Message>) -> Element<'a, Message> {
         .width(Length::Fill)
         .style(move |_| container::Style {
             background: Some(Background::Color(Color::from_rgba(0.075, 0.035, 0.045, k))),
-            border: Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.07 * k), width: 1.0, radius: 16.0.into() },
+            border: Border { color: soft(0.07, k), width: 1.0, radius: 16.0.into() },
             shadow: iced::Shadow { color: Color::from_rgba(0.0, 0.0, 0.0, 0.5 * k), offset: iced::Vector::new(0.0, 12.0), blur_radius: 32.0 },
             ..container::Style::default()
         })
@@ -3444,9 +3457,9 @@ fn outlined<'a>(label: String, press: Option<Message>) -> Element<'a, Message> {
         .style(ui::button_faded(|_: &iced::Theme, status: button::Status| {
             let lit = matches!(status, button::Status::Hovered | button::Status::Pressed);
             button::Style {
-                background: lit.then_some(Background::Color(tinted(Color::WHITE, 0.08, 1.0))),
+                background: lit.then_some(Background::Color(soft(0.08, 1.0))),
                 text_color: if matches!(status, button::Status::Disabled) { FAINT } else { INK },
-                border: Border { color: tinted(Color::WHITE, 0.16, 1.0), width: 1.0, radius: 8.0.into() },
+                border: Border { color: soft(0.16, 1.0), width: 1.0, radius: 8.0.into() },
                 shadow: iced::Shadow::default(),
                 snap: true,
             }
@@ -3480,7 +3493,7 @@ fn bars<'a>(pool: &Pool) -> Element<'a, Message> {
             Some(measure) => (measure.stars, true),
             None => (0.0, false),
         };
-        let colour = if filled { crate::dossier::star_colour(stars as f32) } else { Color::from_rgba(1.0, 1.0, 1.0, 0.18) };
+        let colour = if filled { crate::dossier::star_colour(stars as f32) } else { soft(0.18, 1.0) };
         let high = if filled { 8.0 + (stars / top).clamp(0.0, 1.0) as f32 * 16.0 } else { 3.0 };
         line = line.push(container(Space::new()).width(5.0).height(high).style(move |_| container::Style {
             background: Some(Background::Color(Color { a: colour.a * k, ..colour })),
@@ -3637,7 +3650,7 @@ fn makers_sheet<'a>(state: &'a State, names: &[String], words: &'a Words) -> Ele
         .padding([14, 7])
         .style(move |_| container::Style {
             background: Some(Background::Color(Color { a: k, ..Color::from_rgb8(0x1d, 0x0b, 0x0f) })),
-            border: Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.16 * k), width: 1.0, radius: 12.0.into() },
+            border: Border { color: soft(0.16, k), width: 1.0, radius: 12.0.into() },
             shadow: iced::Shadow { color: Color::from_rgba(0.0, 0.0, 0.0, 0.45 * k), offset: iced::Vector::new(0.0, 16.0), blur_radius: 40.0 },
             ..container::Style::default()
         })
@@ -3658,7 +3671,7 @@ fn makers_cell<'a>(state: &'a State, key: String, names: &[String], wide: f32, w
         let k = ui::fade();
         line = line.push(container(mono(format!("+{}", names.len() - FACES_MOST), 11.5, INK)).padding([2, 7]).style(move |_| container::Style {
             background: Some(Background::Color(Color::from_rgba(1.0, 1.0, 1.0, 0.03 * k))),
-            border: Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.1 * k), width: 1.0, radius: 11.0.into() },
+            border: Border { color: soft(0.1, k), width: 1.0, radius: 11.0.into() },
             ..container::Style::default()
         }));
     }
@@ -3733,7 +3746,7 @@ fn new_row<'a>(words: &Words, collection: bool) -> Element<'a, Message> {
     let k = ui::fade();
     let plus = container(glyph(Icon::Plus, 18.0, MUTED)).center(40.0).style(move |_| container::Style {
         background: Some(Background::Color(Color::from_rgba(0.0, 0.0, 0.0, 0.14 * k))),
-        border: Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.08 * k), width: 1.0, radius: THUMB_ROUND.into() },
+        border: Border { color: soft(0.08, k), width: 1.0, radius: THUMB_ROUND.into() },
         ..container::Style::default()
     });
     let label = text(words.t(if collection { "collections-new" } else { "pools-new" })).font(theme::SANS_SEMI).size(15.0).color(ui::faded(MUTED));
@@ -3989,7 +4002,7 @@ fn card_style(_: &iced::Theme, status: button::Status) -> button::Style {
     button::Style {
         background: Some(Background::Color(CARD_FILL)),
         text_color: INK,
-        border: Border { color: Color::from_rgba(1.0, 1.0, 1.0, if hot { 0.3 } else { 0.12 }), width: 1.0, radius: 16.0.into() },
+        border: Border { color: soft(if hot { 0.3 } else { 0.12 }, 1.0), width: 1.0, radius: 16.0.into() },
         shadow: iced::Shadow::default(),
         snap: true,
     }
@@ -4023,7 +4036,7 @@ fn pool_card<'a>(state: &'a State, shown: Shown, mark: Element<'a, Message>, foo
     facts = facts.push(ui::grow()).push(stars_span(words, shown.low, shown.high));
     let mut body = if shown.plain { column![facts].spacing(12) } else { column![makers_line(state, &shown.makers, words, 14.0), facts, mod_strip(&shown.mods, true)].spacing(12) };
     if let Some(foot) = foot {
-        let line = container(Space::new().height(1.0)).width(Length::Fill).style(move |_| container::Style { background: Some(Background::Color(Color::from_rgba(1.0, 1.0, 1.0, 0.08 * k))), ..container::Style::default() });
+        let line = container(Space::new().height(1.0)).width(Length::Fill).style(move |_| container::Style { background: Some(Background::Color(soft(0.08, k))), ..container::Style::default() });
         body = body.push(column![line, foot].spacing(10));
     }
     let inside = column![container(head).clip(true), container(body).padding(Padding { left: 16.0, right: 16.0, top: 8.0, bottom: 14.0 })];
@@ -4035,10 +4048,9 @@ fn pool_card<'a>(state: &'a State, shown: Shown, mark: Element<'a, Message>, foo
 }
 
 fn hero<'a>(state: &'a State, pool: &'a Pool, words: &'a Words, thumbs: &'a HashMap<String, image::Handle>, width: f32, today: i64) -> Element<'a, Message> {
-    let k = ui::fade();
     let shown = shown_of(pool, words, words.day(pool.changed_at, today));
     let beside = width >= 900.0;
-    let side = if beside { (width * 0.34).clamp(280.0, 420.0) } else { 0.0 };
+    let side = if beside { (width * 0.4).clamp(320.0, 520.0) } else { 0.0 };
     let mark: Element<'a, Message> = match (&pool.saved, pool.published_revision) {
         (Some(saved), _) => code_plate(&saved.code, saved.revision),
         (None, 0) => word_plate(words.t("shelf-draft")),
@@ -4064,10 +4076,7 @@ fn hero<'a>(state: &'a State, pool: &'a Pool, words: &'a Words, thumbs: &'a Hash
     .width(Length::Fill);
     let mut inside = row![left].spacing(32);
     if beside {
-        let open = container(text(words.t("shelf-open")).font(theme::SANS_SEMI).size(15.0).color(ui::faded(INK)))
-            .padding([10, 18])
-            .style(move |_| container::Style { background: Some(Background::Color(Color::from_rgba(1.0, 1.0, 1.0, 0.14 * k))), border: Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.2 * k), width: 1.0, radius: 10.0.into() }, ..container::Style::default() });
-        inside = inside.push(column![mosaic(thumbs, &shown.hashes, 5, 3, side, side * 0.36, 6.0, 6.0), Space::new().height(Length::Fill), container(open).align_right(Length::Fill)].width(side));
+        inside = inside.push(container(mosaic(thumbs, &shown.hashes, 4, 3, side, 234.0, 8.0, 8.0)).width(side));
     }
     button(container(inside).padding([26, 30]).height(288.0))
         .padding(1)
@@ -4077,7 +4086,7 @@ fn hero<'a>(state: &'a State, pool: &'a Pool, words: &'a Words, thumbs: &'a Hash
             let fade = iced::gradient::Linear::new(iced::Radians(std::f32::consts::FRAC_PI_2))
                 .add_stop(0.0, Color::from_rgb(0.105, 0.043, 0.062))
                 .add_stop(1.0, Color::from_rgb(0.20, 0.07, 0.10));
-            button::Style { background: Some(Background::Gradient(fade.into())), text_color: INK, border: Border { color: Color::from_rgba(1.0, 1.0, 1.0, if hot { 0.3 } else { 0.12 }), width: 1.0, radius: 20.0.into() }, shadow: iced::Shadow::default(), snap: true }
+            button::Style { background: Some(Background::Gradient(fade.into())), text_color: INK, border: Border { color: soft(if hot { 0.3 } else { 0.12 }, 1.0), width: 1.0, radius: 20.0.into() }, shadow: iced::Shadow::default(), snap: true }
         }))
         .on_press(Message::Open(pool.id.clone()))
         .into()
@@ -4186,7 +4195,7 @@ fn small_primary<'a>(label: String, press: Option<Message>) -> Element<'a, Messa
         .style(ui::button_faded(|_: &iced::Theme, status: button::Status| {
             let lit = matches!(status, button::Status::Hovered | button::Status::Pressed);
             let quiet = matches!(status, button::Status::Disabled);
-            button::Style { background: Some(Background::Color(if quiet { Color::from_rgba(1.0, 1.0, 1.0, 0.08) } else if lit { ACCENT } else { Color::from_rgb(0.788, 0.227, 0.227) })), text_color: if quiet { FAINT } else { Color::WHITE }, border: Border { radius: 8.0.into(), ..Border::default() }, shadow: iced::Shadow::default(), snap: true }
+            button::Style { background: Some(Background::Color(if quiet { soft(0.08, 1.0) } else if lit { ACCENT } else { Color::from_rgb(0.788, 0.227, 0.227) })), text_color: if quiet { FAINT } else { Color::WHITE }, border: Border { radius: 8.0.into(), ..Border::default() }, shadow: iced::Shadow::default(), snap: true }
         }));
     match press {
         Some(press) => made.on_press(press).into(),
@@ -4399,7 +4408,7 @@ fn check_box<'a>(on: bool) -> Element<'a, Message> {
         .center(22.0)
         .style(move |_| container::Style {
             background: on.then_some(Background::Color(Color { a: k, ..ACCENT })),
-            border: Border { color: if on { Color { a: k, ..ACCENT } } else { Color::from_rgba(1.0, 1.0, 1.0, 0.16 * k) }, width: 1.0, radius: 6.0.into() },
+            border: Border { color: if on { Color { a: k, ..ACCENT } } else { soft(0.16, k) }, width: 1.0, radius: 6.0.into() },
             ..container::Style::default()
         })
         .into()
@@ -4458,7 +4467,7 @@ fn slot_row<'a>(pool: &'a Pool, at: usize, selected: bool, choosing: bool, words
         }))
         .on_press(if choosing { Message::Mark(at) } else { Message::Select(Some(at)) });
     let row_button: Element<'a, Message> = if empty && !selected {
-        ui::dashed(row_button, TILE_ROUND, tinted(Color::WHITE, 0.16, 1.0))
+        ui::dashed(row_button, TILE_ROUND, soft(0.16, 1.0))
     } else if choosing || empty {
         row_button.into()
     } else {
@@ -4500,29 +4509,6 @@ fn category_menu<'a>(pool: &Pool, at: usize, lit: bool) -> Element<'a, Message> 
     }).font(theme::MONO_BOLD).text_size(12.0).padding([4, 8]).handle(pick_list::Handle::None).width(wide)
         .menu_style(|_| iced::widget::overlay::menu::Style { background: Background::Color(theme::GROUND), border: Border { color: MUTED, width: 1.0, radius: 7.0.into() }, text_color: INK, selected_text_color: INK, selected_background: Background::Color(Color::from_rgb8(65, 30, 32)), shadow: iced::Shadow::default() })
         .style(move |_, status| pick_list::Style { text_color: ink, placeholder_color: muted, handle_color: muted, background: Background::Color(tinted(base, if matches!(status, pick_list::Status::Hovered | pick_list::Status::Opened { .. }) { 0.28 } else { 0.16 }, k)), border: Border { color: if lit { Color { a: k, ..ACCENT } } else { Color::TRANSPARENT }, width: if lit { 2.0 } else { 0.0 }, radius: 6.0.into() } }).into()
-}
-
-fn mod_menu<'a>(mods: Mod, change: impl Fn(Mod) -> Message + 'a) -> Element<'a, Message> {
-    pick_list(Mod::ALL.map(Mod::code), Some(mods.code()), move |code| {
-        change(Mod::ALL.into_iter().find(|mods| mods.code() == code).unwrap())
-    })
-        .font(theme::MONO)
-        .text_size(12.0)
-        .padding([5, 8])
-        .width(70.0)
-        .menu_style(|_| iced::widget::overlay::menu::Style {
-            background: Background::Color(theme::GROUND),
-            border: Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.12), width: 1.0, radius: 7.0.into() },
-            text_color: INK, selected_text_color: INK,
-            selected_background: Background::Color(Color::from_rgba(0.886, 0.282, 0.282, 0.22)),
-            shadow: iced::Shadow::default(),
-        })
-        .style(|_, status| pick_list::Style {
-            text_color: ui::faded(INK), placeholder_color: ui::faded(MUTED), handle_color: ui::faded(MUTED),
-            background: Background::Color(Color::from_rgba(1.0, 1.0, 1.0, if matches!(status, pick_list::Status::Hovered | pick_list::Status::Opened { .. }) { 0.08 } else { 0.03 })),
-            border: Border { color: ui::faded(Color::from_rgba(1.0, 1.0, 1.0, 0.08)), width: 1.0, radius: 7.0.into() },
-        })
-        .into()
 }
 
 fn figure<'a>(label: String, value: String, size: f32, colour: Color) -> Element<'a, Message> {
@@ -4737,7 +4723,7 @@ fn candidate_card<'a>(candidate: &'a Candidate, _editor: &'a Editor, _pool: &'a 
     panel_box(inside.into())
 }
 
-fn add_panel<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, words: &'a Words, thumbs: &'a HashMap<String, image::Handle>) -> Element<'a, Message> {
+fn add_drop<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, words: &'a Words, thumbs: &'a HashMap<String, image::Handle>) -> Element<'a, Message> {
     let mut body = column![].spacing(14);
     let sources = [(SourceTab::Search, "pool-tab-search"), (SourceTab::Collections, "pool-tab-collections"), (SourceTab::Best, "pool-tab-best"), (SourceTab::Suggest, "pool-tab-suggest")];
     let buttons = row(sources.iter().map(|(source, key)| {
@@ -4747,15 +4733,7 @@ fn add_panel<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, words: &'
     })).spacing(6);
     let active = sources.iter().position(|(source, _)| *source == editor.source).unwrap_or(0);
     let tabs = ui::sliding(buttons, active, ui::Pill { fill: Color::from_rgba(0.886, 0.282, 0.282, 0.15), edge: Color::from_rgba(0.886, 0.282, 0.282, 0.4), radius: 8.0, underline: None });
-    let mut heading = row![].spacing(10).align_y(iced::Center);
-    if let Some(at) = target(pool, editor) {
-        heading = heading.push(number_badge(category_number(pool, at), true));
-        if !pool.collection { heading = heading.push(category_menu(pool, at, false)); }
-    } else {
-        if !pool.collection { heading = heading.push(mod_menu(editor.last_mod, Message::AddMod)); }
-    }
-    heading = heading.push(ui::grow()).push(icon_button(Icon::Close, 14.0, FAINT, Some(Message::Select(None))));
-    body = body.push(heading).push(tabs);
+    body = body.push(tabs);
     body = body.push(category_fields(pool, editor, target(pool, editor).unwrap_or(pool.slots.len()), words));
     if matches!(editor.source, SourceTab::Collections | SourceTab::Best) {
         if let Some(Notice::Already(at)) = &state.notice {
@@ -4765,22 +4743,12 @@ fn add_panel<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, words: &'
             body = body.push(finding_card(finding, editor, pool, words, thumbs));
         }
         body = body.push(if editor.source == SourceTab::Best { best_panel(state, words, thumbs) } else { collection_panel(state, editor, words, thumbs) });
-        return ui::smooth(panel_box(body.into()));
+        return add_box(body.into());
     }
     if editor.source == SourceTab::Suggest {
         body = body.push(suggestion_panel(state, words, thumbs));
-        return ui::smooth(panel_box(body.into()));
+        return add_box(body.into());
     }
-    body = body.push(
-        text_input(&words.t("pool-search-hint"), &editor.query)
-            .id(iced::widget::Id::new("pool-search"))
-            .on_input(Message::Query)
-            .on_paste(|contents| Message::PasteInto(Input::Query, contents))
-            .font(theme::SANS)
-            .size(13.5)
-            .padding([9, 12])
-            .style(theme::field_faded(ui::fade())),
-    );
     if let Some(Notice::Already(at)) = &state.notice {
         body = body.push(faded_text(words.with("pool-already", &[("n", (at + 1).to_string())]), 13.0, ACCENT));
     }
@@ -4811,7 +4779,40 @@ fn add_panel<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, words: &'
         }
         body = body.push(results_list(list));
     }
-    ui::smooth(panel_box(body.into()))
+    add_box(body.into())
+}
+
+fn add_box<'a>(inside: Element<'a, Message>) -> Element<'a, Message> {
+    menu_box(container(scrollable(inside).style(ui::thin_scroll).direction(ui::hidden_bar())).max_height(ADD_HIGH).into(), ADD_WIDE, 14.0, 14.0, Color::from_rgb(0.071, 0.027, 0.039))
+}
+
+const ADD_WIDE: f32 = 560.0;
+const ADD_HIGH: f32 = 330.0;
+
+fn add_row<'a>(pool: &'a Pool, at: usize, editor: &'a Editor, words: &'a Words) -> Element<'a, Message> {
+    let k = ui::fade();
+    let colour = if pool.collection { Color::from_rgb8(95, 95, 95) } else { pool.slots.get(at).map_or(ACCENT, slot_colour) };
+    let mut left = row![number_badge(category_number(pool, at), true)].spacing(12).align_y(iced::Center);
+    if !pool.collection {
+        left = left.push(category_menu(pool, at, false));
+    }
+    let field = text_input(&words.t("pool-search-hint"), &editor.query)
+        .id(iced::widget::Id::new("pool-search"))
+        .on_input(Message::Query)
+        .on_paste(|contents| Message::PasteInto(Input::Query, contents))
+        .font(theme::SANS)
+        .size(14.0)
+        .padding(0)
+        .style(ui::bare_input(ui::fade()))
+        .width(Length::Fill);
+    let inside = row![left, glyph(Icon::Search, 14.0, MUTED), field, icon_button(Icon::Close, 14.0, FAINT, Some(Message::Select(None)))].spacing(12).align_y(iced::Center);
+    container(inside)
+        .height(ROW_HIGH)
+        .align_y(iced::Center)
+        .padding([0, 12])
+        .width(Length::Fill)
+        .style(move |_| container::Style { background: Some(Background::Color(tinted(colour, 0.08, k))), border: Border { color: Color { a: k, ..colour }, width: 2.0, radius: TILE_ROUND.into() }, ..container::Style::default() })
+        .into()
 }
 
 fn best_panel<'a>(state: &'a State, words: &'a Words, thumbs: &'a HashMap<String, image::Handle>) -> Element<'a, Message> {
@@ -4978,156 +4979,6 @@ fn share_modal<'a>(pool: &'a Pool, words: &'a Words, exporting: bool) -> Element
     let card = sheet_box(inside.into());
     let veil = iced::widget::mouse_area(ui::veil(theme::SCRIM)).on_press(Message::Share(false));
     iced::widget::stack![veil, container(container(card).max_width(620.0).padding(24)).center(Length::Fill)].into()
-}
-
-const BALANCE_WIDE: f32 = 380.0;
-const BALANCE_BESIDE: f32 = 1100.0;
-const BALANCE_GAP: f32 = 22.0;
-const BALANCE_FROM: usize = 2;
-const CALM_BAR: Color = Color::from_rgb(0.635, 0.227, 0.227);
-
-fn balance_bar<'a>(share: f64, lead: bool) -> Element<'a, Message> {
-    let k = ui::fade();
-    let filled = ((share * 200.0).round() as u16).clamp(1, 100);
-    let ink = if lead { ACCENT } else { CALM_BAR };
-    container(row![
-        container(Space::new().height(6.0)).width(Length::FillPortion(filled)).style(move |_| container::Style { background: Some(Background::Color(Color { a: k, ..ink })), border: Border { radius: 3.0.into(), ..Border::default() }, ..container::Style::default() }),
-        Space::new().width(Length::FillPortion((100 - filled).max(1))),
-    ])
-    .width(Length::Fill)
-    .style(move |_| container::Style { background: Some(Background::Color(Color::from_rgba(1.0, 1.0, 1.0, 0.05 * k))), border: Border { radius: 3.0.into(), ..Border::default() }, ..container::Style::default() })
-    .into()
-}
-
-fn balance_block<'a>(pool: &'a Pool, words: &'a Words, beside: bool) -> Option<Element<'a, Message>> {
-    if pool.collection || pool.measured() < BALANCE_FROM {
-        return None;
-    }
-    let profile = pool.profile()?;
-    let percents = pools::whole_percents(profile);
-    let balance = pool.balance()?;
-    let lead = match balance {
-        pools::Balance::Heavy(skill, _) => Skill::ALL.iter().position(|other| *other == skill),
-        pools::Balance::Even => None,
-    };
-    let caption = ui::mono_small(words.t("pool-balance").to_uppercase(), MUTED);
-    let verdict = semi(match balance { pools::Balance::Heavy(skill, _) => words.t(skill.outweighs_key()), pools::Balance::Even => words.t("pool-even") }, 16.0, INK);
-    let share: Option<Element<'a, Message>> = match balance {
-        pools::Balance::Heavy(_, percent) => Some(text(format!("{percent}%")).font(theme::MONO_BOLD).size(22.0).color(ui::faded(INK)).into()),
-        pools::Balance::Even => None,
-    };
-    let pick = match balance {
-        pools::Balance::Heavy(..) => pool.weakest().map(|skill| outlined(words.t(skill.pick_key()), Some(Message::Lean(skill)))),
-        pools::Balance::Even => None,
-    };
-    let k = ui::fade();
-    let plate = move |theme: &iced::Theme| {
-        let slab = theme::slab(theme);
-        container::Style {
-            background: slab.background.map(|fill| match fill { Background::Color(colour) => Background::Color(Color { a: colour.a * k, ..colour }), other => other }),
-            border: Border { color: Color { a: slab.border.color.a * k, ..slab.border.color }, width: 1.0, radius: 14.0.into() },
-            ..container::Style::default()
-        }
-    };
-    if beside {
-        let mut bars = column![].spacing(12);
-        for (at, skill) in Skill::ALL.into_iter().enumerate() {
-            let ink = if lead == Some(at) { INK } else { MUTED };
-            bars = bars.push(row![container(faded_text(words.t(skill.key()), 14.0, ink)).width(116.0), balance_bar(profile[at], lead == Some(at)), container(mono(percents[at].to_string(), 14.0, ink)).width(34.0).align_x(iced::alignment::Horizontal::Right)].spacing(12).align_y(iced::Center));
-        }
-        let mut head = row![container(verdict).width(Length::Fill)].spacing(12).align_y(iced::Center);
-        if let Some(share) = share {
-            head = head.push(share);
-        }
-        let mut inside = column![caption, head, bars].spacing(16);
-        if let Some(pick) = pick {
-            inside = inside.push(pick);
-        }
-        return Some(container(inside).padding(22).width(BALANCE_WIDE).style(plate).into());
-    }
-    let mut told = row![verdict].spacing(14).align_y(iced::Center);
-    if let Some(share) = share {
-        told = told.push(share);
-    }
-    let mut head = row![column![caption, told].spacing(6), ui::grow()].spacing(16).align_y(iced::Center);
-    if let Some(pick) = pick {
-        head = head.push(pick);
-    }
-    let mut bars = row![].spacing(22);
-    for (at, skill) in Skill::ALL.into_iter().enumerate() {
-        let ink = if lead == Some(at) { INK } else { MUTED };
-        bars = bars.push(column![row![faded_text(words.t(skill.key()), 14.0, ink), ui::grow(), mono(percents[at].to_string(), 14.0, ink)].align_y(iced::Center), balance_bar(profile[at], lead == Some(at))].spacing(8).width(Length::FillPortion(1)));
-    }
-    Some(container(column![head, bars].spacing(16)).padding([18, 22]).width(Length::Fill).style(plate).into())
-}
-
-fn guide_block<'a>(state: &State, editor: &Editor, pool: &'a Pool, words: &'a Words, beside: bool) -> Option<Element<'a, Message>> {
-    if !state.guide.on || pool.collection || editor.starting {
-        return None;
-    }
-    let steps = state.guide.steps(pool);
-    let done = steps.iter().filter(|step| **step).count();
-    let current = steps.iter().position(|step| !*step)?;
-    let k = ui::fade();
-    let step = |at: usize| -> Element<'a, Message> {
-        let mark: Element<'a, Message> = if steps[at] {
-            glyph(Icon::Check, 16.0, ACCENT)
-        } else if at == current {
-            let ring = container(container(Space::new().width(8.0).height(8.0)).style(move |_| container::Style { background: Some(Background::Color(Color { a: k, ..ACCENT })), border: Border { radius: 4.0.into(), ..Border::default() }, ..container::Style::default() }))
-                .center(16.0)
-                .style(move |_| container::Style { background: Some(Background::Color(Color { a: 0.16 * k, ..ACCENT })), border: Border { radius: 8.0.into(), ..Border::default() }, ..container::Style::default() });
-            ring.into()
-        } else {
-            container(container(Space::new().width(6.0).height(6.0)).style(move |_| container::Style { background: Some(Background::Color(Color::from_rgba(1.0, 1.0, 1.0, 0.16 * k))), border: Border { radius: 3.0.into(), ..Border::default() }, ..container::Style::default() })).center(16.0).into()
-        };
-        let (font, ink) = if steps[at] { (theme::MONO, MUTED) } else if at == current { (theme::MONO_BOLD, INK) } else { (theme::MONO, FAINT) };
-        row![mark, text(words.t(pools::Guide::STEPS[at])).font(font).size(14.0).color(ui::faded(ink))].spacing(12).align_y(iced::Center).into()
-    };
-    let caption = ui::mono_small(words.t("guide-title").to_uppercase(), MUTED);
-    let count = text(words.of(done as u64, steps.len() as u64)).font(theme::MONO_BOLD).size(14.0).color(ui::faded(INK));
-    let about: Option<Element<'a, Message>> = (current != GUIDE_MOD || pool.filled() == 0).then(|| para(words.t(&format!("{}-about", pools::Guide::STEPS[current])), 14.0, INK));
-    let hide = outlined(words.t("guide-hide"), Some(Message::HideGuide));
-    let plate = move |theme: &iced::Theme| {
-        let slab = theme::slab(theme);
-        container::Style {
-            background: slab.background.map(|fill| match fill { Background::Color(colour) => Background::Color(Color { a: colour.a * k, ..colour }), other => other }),
-            border: Border { color: Color { a: slab.border.color.a * k, ..slab.border.color }, width: 1.0, radius: 16.0.into() },
-            ..container::Style::default()
-        }
-    };
-    if beside {
-        let list = column((0..steps.len()).map(step).collect::<Vec<_>>()).spacing(12);
-        let mut inside = column![row![caption, ui::grow(), count].align_y(iced::Center), list].spacing(16);
-        if let Some(about) = about {
-            inside = inside.push(about);
-        }
-        inside = inside.push(row![hide]).push(para(words.t("guide-back"), 12.0, MUTED));
-        return Some(container(inside).padding(24).width(BALANCE_WIDE).style(plate).into());
-    }
-    let list = row((0..steps.len()).map(step).collect::<Vec<_>>()).spacing(22).wrap();
-    let mut inside = column![row![caption, count, ui::grow(), hide].spacing(14).align_y(iced::Center), list].spacing(14);
-    if let Some(about) = about {
-        inside = inside.push(about);
-    }
-    Some(container(inside).padding([18, 22]).width(Length::Fill).style(plate).into())
-}
-
-const GUIDE_MOD: usize = 2;
-
-fn guide_bubble<'a>(words: &'a Words) -> Element<'a, Message> {
-    let k = ui::fade();
-    let inside = column![
-        text(words.t("guide-mod-here")).font(theme::SANS_SEMI).size(14.0).color(ui::faded(INK)),
-        para(words.t("guide-mod-how"), 14.0, MUTED),
-        row![text(words.with("guide-step-of", &[("n", (GUIDE_MOD + 1).to_string()), ("total", pools::Guide::STEPS.len().to_string())])).font(theme::MONO).size(12.0).color(ui::faded(MUTED)), ui::grow(), outlined(words.t("guide-got"), Some(Message::GuideGot))].align_y(iced::Center),
-    ]
-    .spacing(8);
-    let card = container(inside).padding(16).width(360.0).style(move |_| container::Style {
-        background: Some(Background::Color(Color { a: k, ..Color::from_rgb(0.114, 0.043, 0.059) })),
-        border: Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.16 * k), width: 1.0, radius: 12.0.into() },
-        ..container::Style::default()
-    });
-    container(card).padding(Padding { left: 40.0, top: 8.0, ..Padding::ZERO }).into()
 }
 
 const WARNED: Color = Color::from_rgb(1.0, 0.61, 0.61);
@@ -5340,9 +5191,9 @@ fn back_button<'a>(words: &Words, collection: bool) -> Element<'a, Message> {
         .style(ui::button_faded(|_, status| {
             let hot = matches!(status, button::Status::Hovered | button::Status::Pressed);
             button::Style {
-                background: Some(Background::Color(tinted(Color::WHITE, if hot { 0.09 } else { 0.045 }, 1.0))),
+                background: Some(Background::Color(soft(if hot { 0.09 } else { 0.045 }, 1.0))),
                 text_color: INK,
-                border: Border { color: tinted(Color::WHITE, if hot { 0.2 } else { 0.08 }, 1.0), width: 1.0, radius: 8.0.into() },
+                border: Border { color: soft(if hot { 0.2 } else { 0.08 }, 1.0), width: 1.0, radius: 8.0.into() },
                 ..button::Style::default()
             }
         }))
@@ -5357,7 +5208,7 @@ fn menu_line<'a>(label: String, hint: String, ink: Color, press: Option<Message>
         .padding([0, 12])
         .width(Length::Fill)
         .style(ui::button_faded(move |_: &iced::Theme, status: button::Status| button::Style {
-            background: if lit && free { Some(Background::Color(Color { a: 0.16, ..ACCENT })) } else { matches!(status, button::Status::Hovered | button::Status::Pressed).then_some(Background::Color(Color::from_rgba(1.0, 1.0, 1.0, 0.08))) },
+            background: if lit && free { Some(Background::Color(Color { a: 0.16, ..ACCENT })) } else { matches!(status, button::Status::Hovered | button::Status::Pressed).then_some(Background::Color(soft(0.08, 1.0))) },
             text_color: INK,
             border: Border { radius: 8.0.into(), ..Border::default() },
             shadow: iced::Shadow::default(),
@@ -5371,7 +5222,7 @@ fn menu_box<'a>(inside: Element<'a, Message>, wide: f32, pad: f32, round: f32, f
     let k = ui::fade();
     iced::widget::opaque(container(inside).padding(pad).width(wide).style(move |_| container::Style {
         background: Some(Background::Color(Color { a: k, ..fill })),
-        border: Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.16 * k), width: 1.0, radius: round.into() },
+        border: Border { color: soft(0.16, k), width: 1.0, radius: round.into() },
         ..container::Style::default()
     }))
 }
@@ -5428,7 +5279,7 @@ fn palette<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, words: &'a 
     let field = text_input(&words.t("pool-command-hint"), &editor.command).on_input(Message::Command).font(theme::SANS).size(16.0).padding(0).style(ui::bare_input(ui::fade())).width(Length::Fill);
     let field = container(row![field, text("Ctrl K").font(theme::MONO).size(12.0).color(ui::faded(MUTED))].spacing(8).align_y(iced::Center)).padding([0, 12]).center_y(44.0).style(move |_| container::Style {
         background: Some(Background::Color(Color::from_rgba(0.0, 0.0, 0.0, 0.26 * k))),
-        border: Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.08 * k), width: 1.0, radius: 8.0.into() },
+        border: Border { color: soft(0.08, k), width: 1.0, radius: 8.0.into() },
         ..container::Style::default()
     });
     let mut lines = column![].spacing(2);
@@ -5500,7 +5351,7 @@ fn editor_toolbar<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, word
             let field = text_input(&words.t("pool-find"), &editor.find).on_input(Message::Find).font(theme::SANS).size(14.0).padding(0).style(ui::bare_input(ui::fade())).width(Length::Fill);
             left = left.push(container(row![glyph(Icon::Search, 14.0, MUTED), field].spacing(8).align_y(iced::Center)).padding([0, 12]).width((width - 730.0).clamp(140.0, 260.0)).center_y(CONTROL).style(move |_| container::Style {
                 background: Some(Background::Color(Color { a: k, ..ui::mix(theme::GROUND, Color::BLACK, 0.26) })),
-                border: Border { color: tinted(Color::WHITE, 0.08, k), width: 1.0, radius: 8.0.into() },
+                border: Border { color: soft(0.08, k), width: 1.0, radius: 8.0.into() },
                 ..container::Style::default()
             }));
             if !editor.find.trim().is_empty() {
@@ -5521,7 +5372,7 @@ fn editor_toolbar<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, word
                 .padding([0, 12])
                 .style(ui::button_faded(move |_: &iced::Theme, status: button::Status| {
                     let hot = matches!(status, button::Status::Hovered | button::Status::Pressed);
-                    button::Style { background: if open { Some(Background::Color(tinted(ACCENT, 0.16, k))) } else { hot.then_some(Background::Color(tinted(Color::WHITE, 0.06, 1.0))) }, text_color: INK, border: Border { color: if open { tinted(ACCENT, 0.4, 1.0) } else { Color::TRANSPARENT }, width: 1.0, radius: 8.0.into() }, shadow: iced::Shadow::default(), snap: true }
+                    button::Style { background: if open { Some(Background::Color(tinted(ACCENT, 0.16, k))) } else { hot.then_some(Background::Color(soft(0.06, 1.0))) }, text_color: INK, border: Border { color: if open { tinted(ACCENT, 0.4, 1.0) } else { Color::TRANSPARENT }, width: 1.0, radius: 8.0.into() }, shadow: iced::Shadow::default(), snap: true }
                 }))
                 .on_press(Message::BackdropPanel(!open)),
         );
@@ -5610,7 +5461,7 @@ fn backdrop_panel<'a>(state: &'a State, pool: &'a Pool, words: &'a Words, thumbs
             .height(44.0)
             .style(ui::button_faded(move |_: &iced::Theme, status: button::Status| {
                 let hot = matches!(status, button::Status::Hovered | button::Status::Pressed);
-                button::Style { background: Some(Background::Color(Color::from_rgb(0.051, 0.02, 0.031))), text_color: INK, border: Border { color: if on { ACCENT } else { Color::from_rgba(1.0, 1.0, 1.0, if hot { 0.3 } else { 0.12 }) }, width: if on { 2.0 } else { 1.0 }, radius: 8.0.into() }, shadow: iced::Shadow::default(), snap: true }
+                button::Style { background: Some(Background::Color(Color::from_rgb(0.051, 0.02, 0.031))), text_color: INK, border: Border { color: if on { ACCENT } else { soft(if hot { 0.3 } else { 0.12 }, 1.0) }, width: if on { 2.0 } else { 1.0 }, radius: 8.0.into() }, shadow: iced::Shadow::default(), snap: true }
             }))
             .on_press(press)
             .into()
@@ -5626,7 +5477,7 @@ fn backdrop_panel<'a>(state: &'a State, pool: &'a Pool, words: &'a Words, thumbs
         .padding([0, 12])
         .style(ui::button_faded(move |_: &iced::Theme, status: button::Status| {
             let hot = matches!(status, button::Status::Hovered | button::Status::Pressed);
-            button::Style { background: hot.then_some(Background::Color(Color::from_rgba(1.0, 1.0, 1.0, 0.08))), text_color: INK, border: Border { color: if own { ACCENT } else { Color::from_rgba(1.0, 1.0, 1.0, 0.12) }, width: if own { 2.0 } else { 1.0 }, radius: 8.0.into() }, shadow: iced::Shadow::default(), snap: true }
+            button::Style { background: hot.then_some(Background::Color(soft(0.08, 1.0))), text_color: INK, border: Border { color: if own { ACCENT } else { soft(0.12, 1.0) }, width: if own { 2.0 } else { 1.0 }, radius: 8.0.into() }, shadow: iced::Shadow::default(), snap: true }
         }))
         .on_press(Message::BackdropPick);
     let mut from = column![
@@ -5661,7 +5512,7 @@ fn backdrop_panel<'a>(state: &'a State, pool: &'a Pool, words: &'a Words, thumbs
     .spacing(20);
     container(inside).padding(24).width(400.0).style(move |_| container::Style {
         background: Some(Background::Color(Color { a: k, ..Color::from_rgb(0.071, 0.027, 0.039) })),
-        border: Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.08 * k), width: 1.0, radius: 14.0.into() },
+        border: Border { color: soft(0.08, k), width: 1.0, radius: 14.0.into() },
         ..container::Style::default()
     }).into()
 }
@@ -5677,7 +5528,7 @@ fn stray_card<'a>(link: &'a str, words: &'a Words) -> Element<'a, Message> {
     .align_y(iced::Center);
     container(inside).padding([18, 24]).width(Length::Fill).style(move |_| container::Style {
         background: Some(Background::Color(Color::from_rgba(0.0, 0.0, 0.0, 0.22 * k))),
-        border: Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.08 * k), width: 1.0, radius: 14.0.into() },
+        border: Border { color: soft(0.08, k), width: 1.0, radius: 14.0.into() },
         ..container::Style::default()
     }).into()
 }
@@ -5731,7 +5582,7 @@ fn frame_tags<'a>(frame: Frame, words: &Words) -> Element<'a, Message> {
         }
     }
     if counted.is_empty() {
-        return ui::dashed(container(text(words.t("pool-frame-own")).font(theme::MONO_BOLD).size(11.5).color(ui::faded(MUTED))).padding([4, 8]), 6.0, Color::from_rgba(1.0, 1.0, 1.0, 0.2));
+        return ui::dashed(container(text(words.t("pool-frame-own")).font(theme::MONO_BOLD).size(11.5).color(ui::faded(MUTED))).padding([4, 8]), 6.0, soft(0.2, 1.0));
     }
     row(counted.into_iter().map(|(mods, count)| {
         let base = slot_colour(&Slot::empty(mods));
@@ -5747,9 +5598,9 @@ fn start_tile(lit: bool) -> impl Fn(&iced::Theme, button::Status) -> button::Sty
     move |_, status| {
         let hot = matches!(status, button::Status::Hovered | button::Status::Pressed);
         let (fill, edge) = match (lit, hot) {
-            (true, _) => (Color::from_rgba(0.886, 0.282, 0.282, 0.16), Color::from_rgba(0.886, 0.282, 0.282, 0.4)),
-            (false, true) => (Color::from_rgba(1.0, 1.0, 1.0, 0.07), Color::from_rgba(1.0, 1.0, 1.0, 0.16)),
-            (false, false) => (Color::from_rgba(1.0, 1.0, 1.0, 0.045), Color::from_rgba(1.0, 1.0, 1.0, 0.08)),
+            (true, _) => (tinted(ACCENT, 0.16, 1.0), tinted(ACCENT, 0.4, 1.0)),
+            (false, true) => (soft(0.07, 1.0), soft(0.16, 1.0)),
+            (false, false) => (soft(0.045, 1.0), soft(0.08, 1.0)),
         };
         button::Style { background: Some(Background::Color(fill)), text_color: INK, border: Border { color: edge, width: 1.0, radius: 12.0.into() }, shadow: iced::Shadow::default(), snap: true }
     }
@@ -5775,7 +5626,7 @@ fn start_view<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, words: &
             let mut name = row![semi(words.t(key), 16.0, if offered { INK } else { MUTED })].spacing(8).align_y(iced::Center);
             if !offered {
                 let k = ui::fade();
-                name = name.push(container(mono(words.t("pool-frame-soon"), 11.0, MUTED)).padding([1, 7]).style(move |_| container::Style { border: Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.16 * k), width: 1.0, radius: 9.0.into() }, ..container::Style::default() }));
+                name = name.push(container(mono(words.t("pool-frame-soon"), 11.0, MUTED)).padding([1, 7]).style(move |_| container::Style { border: Border { color: soft(0.16, k), width: 1.0, radius: 9.0.into() }, ..container::Style::default() }));
             }
             let inside = row![glyph(icon, 32.0, if offered { INK } else { FAINT }), column![name, frame_tags(frame, words)].spacing(10).width(Length::Fill)].spacing(16);
             let tile = button(container(inside).padding(16).width(Length::Fill).height(Length::Fill)).padding(0).width(Length::Fill).height(frame_high).style(ui::button_faded(start_tile(offered && pool.frame == frame)));
@@ -5816,7 +5667,7 @@ fn start_view<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, words: &
         ui::appearing(ui::appear(t, 0), 8.0, || editor_toolbar(state, editor, pool, words, width)),
         ui::appearing(ui::appear(t, 1), 8.0, || {
             let k = ui::fade();
-            let line = container(Space::new().height(1.0)).width(Length::Fill).style(move |_| container::Style { background: Some(Background::Color(Color::from_rgba(1.0, 1.0, 1.0, 0.16 * k))), ..container::Style::default() });
+            let line = container(Space::new().height(1.0)).width(Length::Fill).style(move |_| container::Style { background: Some(Background::Color(soft(0.16, k))), ..container::Style::default() });
             column![caption("pool-start-name"), editor_title(pool, words), line].spacing(8).into()
         }),
         ui::appearing(ui::appear(t, 2), 8.0, || column![caption("pool-start-frame"), lined(frame_tiles, if narrow { 1 } else { 3 })].spacing(12).into()),
@@ -5850,37 +5701,51 @@ fn editor_view<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, words: 
     }
 
     let songs = state.songs.as_ref();
-    let beside = width >= BALANCE_BESIDE;
-    let guide = ui::fading(ui::fade() * ui::appear(t, 3), || guide_block(state, editor, pool, words, beside)).map(|block| ui::lifted(block, ui::appear(t, 3), 8.0));
-    let balance = ui::fading(ui::fade() * ui::appear(t, 3), || balance_block(pool, words, beside)).map(|block| ui::lifted(block, ui::appear(t, 3), 8.0));
+    let beside = width >= PANEL_BESIDE;
     let panelled = editor.backdrop && !pool.collection;
-    let extras: Vec<Element<'a, Message>> = if panelled { vec![ui::appearing(ui::appear(t, 3), 8.0, || backdrop_panel(state, pool, words, thumbs))] } else { guide.into_iter().chain(balance).collect() };
-    let side_wide = if panelled { 400.0 } else { BALANCE_WIDE };
-    let board_wide = if beside && !extras.is_empty() { width - side_wide - BALANCE_GAP } else { width };
-    let columns = ((board_wide + 10.0) / 700.0).floor().clamp(1.0, 3.0) as usize;
-    let pointing = state.guide.on && !pool.collection && pool.filled() > 0 && state.guide.steps(pool).iter().position(|step| !*step) == Some(GUIDE_MOD);
-    let pointed = pointing.then(|| editor.selected.filter(|at| pool.slots.get(*at).is_some_and(|slot| !slot.is_empty())).or_else(|| pool.slots.iter().position(|slot| !slot.is_empty()))).flatten();
+    let board_wide = if beside && panelled { width - BACKDROP_WIDE - PANEL_GAP } else { width };
+    let columns = ((board_wide + TABLE_GAP) / (TABLE_LEAST + TABLE_GAP)).floor().clamp(1.0, 3.0) as usize;
+    let step = if pool.collection || editor.choosing { None } else { state.guide.current(pool) };
+    let pointed = match step {
+        Some(1) => pool.first_empty(),
+        Some(2..=4) => pool.slots.iter().position(|slot| !slot.is_empty()),
+        _ => None,
+    };
+    let loose = step.filter(|step| matches!(step, 1..=4) && pointed.is_none());
+    if let Some(step) = step.filter(|step| *step == 0).or(loose) {
+        head = head.push(ui::appearing(ui::appear(t, 3), 8.0, || coach(step, words)));
+    }
+    if let Some(step) = step.filter(|step| *step >= 5) {
+        head = head.push(ui::appearing(ui::appear(t, 3), 8.0, || container(coach(step, words)).align_right(Length::Fill).into()));
+    }
     let downloaded = match &state.finding {
         Some(Finding::Fetching(Fetching { step: Some(crate::maps::Step::Downloading { done, total, .. }), .. })) => Some((*done, *total)),
         _ => None,
     };
-    let headed = !pool.categories.is_empty() || pool.slots.iter().any(|slot| !slot.category.is_empty());
     let keys = slot_keys(pool);
-    let board = |slots: Vec<usize>, group: Option<Mod>| -> Element<'a, Message> {
+    let board = |slots: Vec<usize>, group: Option<Mod>, across: usize| -> Element<'a, Message> {
         let pieces = slots.iter().map(|at| {
             let lit = if editor.choosing { editor.marked.contains(at) } else { editor.selected == Some(*at) };
             let shown = slot_found(&pool.slots[*at], &editor.find) && (!editor.only_empty || pool.slots[*at].is_empty());
             let dim = if shown { 1.0 } else { 0.28 };
-            let made = ui::appearing(ui::appear(t, *at + 4) * dim, 6.0, || slot_row(pool, *at, lit, editor.choosing, words, thumbs, songs, state.ail(&pool.slots[*at]), pointed == Some(*at), downloaded));
+            let adding = editor.panel == Panel::Add && editor.selected == Some(*at) && !editor.choosing;
+            let made: Element<'a, Message> = if adding {
+                ui::under_staying(add_row(pool, *at, editor, words), Some(add_drop(state, editor, pool, words, thumbs)), ui::Lean::Left(0.0), 6.0)
+            } else {
+                ui::appearing(ui::appear(t, *at + 4) * dim, 6.0, || slot_row(pool, *at, lit, editor.choosing, words, thumbs, songs, state.ail(&pool.slots[*at]), pointed == Some(*at) && step == Some(2), downloaded))
+            };
             let made = if editor.menu == Some(*at) { ui::under_leaning(made, Some(slot_menu(*at, words)), Message::SlotMenu(None), ui::Lean::Left(260.0), 4.0) } else { made };
-            let made: Element<'a, Message> = if pointed == Some(*at) && !editor.choosing { column![made, guide_bubble(words)].into() } else { made };
+            let made: Element<'a, Message> = match step.filter(|_| pointed == Some(*at) && !adding) {
+                Some(step) => column![made, coach(step, words)].spacing(8).into(),
+                None => made,
+            };
             (keys[*at], made)
         }).collect();
         let next = group.and_then(|_| slots.last()).and_then(|last| keys.get(last + 1)).copied();
         let snapshot = keys.clone();
         crate::board::board(pieces, 8.0, move |key, before| Message::Move(pool.id.clone(), snapshot.clone(), key, before.or(next)))
             .identity(format!("{}:{}:{:?}", pool.id, group.map_or("order", Mod::code), slots.first()))
-            .across(columns)
+            .across(across)
             .anywhere()
             .grab_from(0.0)
             .grab_high(ROW_HIGH + 16.0)
@@ -5890,43 +5755,78 @@ fn editor_view<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, words: 
     };
     let list: Element<'a, Message> = if pool.slots.is_empty() {
         ui::appearing(ui::appear(t, 4), 8.0, || container(faded_text(words.t("pool-free-empty"), 14.0, MUTED)).padding([24, 10]).into())
-    } else if editor.grouped && !pool.collection {
-        let mut sections = column![].spacing(if headed { 24 } else { 8 });
+    } else if !pool.collection {
         let mut custom = std::collections::BTreeMap::<&str, Vec<usize>>::new();
         for (at, slot) in pool.slots.iter().enumerate() { custom.entry(if slot.category.is_empty() { slot.mods.code() } else { &slot.category }).or_default().push(at); }
         let order = category_order(pool);
+        let movable = custom.len() > 1 && (!pool.categories.is_empty() || pool.slots.iter().any(|slot| !slot.category.is_empty()));
+        let mut tables: Vec<(usize, Vec<Element<'a, Message>>)> = (0..columns).map(|_| (0, Vec::new())).collect();
         for (at, name) in order.iter().enumerate() {
             let Some(slots) = custom.remove(name.as_str()) else { continue };
             let mods = pool.slots[slots[0]].mods;
             let first = slots[0];
+            let tint = slot_colour(&pool.slots[first]);
+            let count = slots.len();
             let heading = ui::appearing(ui::appear(t, first + 4), 6.0, || {
-                let up = button(glyph(Icon::Up, 13.0, MUTED)).padding(5).style(ui::button_faded(theme::bare)).on_press_maybe((at > 0).then_some(Message::MoveCategory(name.clone(), false)));
-                let down = button(glyph(Icon::Down, 13.0, MUTED)).padding(5).style(ui::button_faded(theme::bare)).on_press_maybe((at + 1 < order.len()).then_some(Message::MoveCategory(name.clone(), true)));
-                container(row![semi(name.clone(), 15.0, MUTED), up, down].spacing(8).align_y(iced::Center)).padding([0, 12]).into()
+                let mut line = row![text(name.clone()).font(theme::MONO_BOLD).size(13.0).color(ui::faded(ui::mix(tint, Color::WHITE, 0.45))), mono(count.to_string(), 12.0, MUTED), ui::grow()].spacing(10).align_y(iced::Center);
+                if movable {
+                    line = line.push(icon_button(Icon::Up, 13.0, MUTED, (at > 0).then_some(Message::MoveCategory(name.clone(), false))));
+                    line = line.push(icon_button(Icon::Down, 13.0, MUTED, (at + 1 < order.len()).then_some(Message::MoveCategory(name.clone(), true))));
+                }
+                container(line).padding([0, 12]).height(CONTROL).align_y(iced::Center).into()
             });
-            sections = sections.push(if headed { Element::from(column![heading, board(slots, Some(mods))].spacing(10)) } else { board(slots, Some(mods)) });
+            let shortest = (0..columns).min_by_key(|column| tables[*column].0).unwrap_or(0);
+            tables[shortest].0 += count + 1;
+            tables[shortest].1.push(column![heading, board(slots, Some(mods), 1)].spacing(6).into());
         }
-        sections.into()
+        row(tables.into_iter().map(|(_, blocks)| column(blocks).spacing(22).width(Length::FillPortion(1)).into())).spacing(TABLE_GAP).into()
     } else {
-        board((0..pool.slots.len()).collect(), None)
+        board((0..pool.slots.len()).collect(), None, columns)
     };
 
     let list: Element<'a, Message> = match &state.stray {
         Some(link) => column![list, stray_card(link, words)].spacing(24).into(),
         None => list,
     };
-    if extras.is_empty() {
+    if !panelled {
         return column![head, list].spacing(22).into();
     }
+    let panel = ui::appearing(ui::appear(t, 3), 8.0, || backdrop_panel(state, pool, words, thumbs));
     if beside {
-        return column![head, row![container(list).width(Length::Fill), column(extras).spacing(BALANCE_GAP).width(side_wide)].spacing(BALANCE_GAP)].spacing(22).into();
+        return column![head, row![container(list).width(Length::Fill), container(panel).width(BACKDROP_WIDE)].spacing(PANEL_GAP)].spacing(22).into();
     }
-    let mut page = column![head].spacing(22);
-    for block in extras {
-        page = page.push(block);
-    }
-    page.push(list).into()
+    column![head, panel, list].spacing(22).into()
 }
+
+const PANEL_BESIDE: f32 = 1100.0;
+const PANEL_GAP: f32 = 22.0;
+const BACKDROP_WIDE: f32 = 400.0;
+const TABLE_GAP: f32 = 16.0;
+const TABLE_LEAST: f32 = 430.0;
+
+fn coach<'a>(step: usize, words: &'a Words) -> Element<'a, Message> {
+    let k = ui::fade();
+    let key = pools::Guide::TOUR[step.min(pools::Guide::TOUR.len() - 1)];
+    let last = step + 1 >= pools::Guide::TOUR.len();
+    let inside = column![
+        row![
+            text(words.with("guide-step-of", &[("n", (step + 1).to_string()), ("total", pools::Guide::TOUR.len().to_string())])).font(theme::MONO).size(12.0).color(ui::faded(ACCENT)),
+            text(words.t(key)).font(theme::SANS_SEMI).size(14.0).color(ui::faded(INK)),
+        ]
+        .spacing(10)
+        .align_y(iced::Center),
+        para(words.t(&format!("{key}-how")), 13.5, MUTED),
+        row![primary_button(words.t(if last { "tour-done" } else { "tour-next" }), Message::GuideNext), plain_button(words.t("guide-hide"), Message::HideGuide)].spacing(8).align_y(iced::Center),
+    ]
+    .spacing(10);
+    container(inside)
+        .padding([14, 16])
+        .max_width(COACH_WIDE)
+        .style(move |_| container::Style { background: Some(Background::Color(tinted(ACCENT, 0.10, k))), border: Border { color: tinted(ACCENT, 0.45, k), width: 1.0, radius: 12.0.into() }, ..container::Style::default() })
+        .into()
+}
+
+const COACH_WIDE: f32 = 560.0;
 
 pub fn view<'a>(state: &'a State, words: &'a Words, thumbs: &'a HashMap<String, image::Handle>, width: f32, section_t: f32, clocks: &Clocks) -> Element<'a, Message> {
     let t = section_t.min(clocks.screen);
@@ -5991,14 +5891,13 @@ pub fn view<'a>(state: &'a State, words: &'a Words, thumbs: &'a HashMap<String, 
             if let Some((shown, sheet)) = open.or(leaving) {
                 let close = match sheet {
                     Sheet::Publish => Message::PublishSheet(false),
-                    Sheet::Add | Sheet::Slot(_) => Message::Select(None),
+                    Sheet::Slot(_) => Message::Select(None),
                 };
                 let veil = ui::fading(ui::fade() * k, || iced::widget::opaque(iced::widget::mouse_area(ui::veil(theme::SCRIM)).on_press(close)));
                 let wide = PANEL_WIDE.min((width - 32.0).max(280.0));
                 let sheet = ui::appearing(k, PANEL_RISE, || {
                     let side = match sheet {
                         Sheet::Slot(at) => slot_panel(pool, shown, at, wide, words, thumbs, state.songs.as_ref()),
-                        Sheet::Add => add_panel(state, shown, pool, words, thumbs),
                         Sheet::Publish => publish_panel(state, shown, pool, words, thumbs),
                     };
                     let seen = ui::fade();
@@ -6020,7 +5919,6 @@ pub fn view<'a>(state: &'a State, words: &'a Words, thumbs: &'a HashMap<String, 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Sheet {
     Publish,
-    Add,
     Slot(usize),
 }
 
@@ -6029,7 +5927,7 @@ fn sheet_of(editor: &Editor, pool: &Pool) -> Option<Sheet> {
         return Some(Sheet::Publish);
     }
     match (editor.panel, editor.selected.filter(|at| *at < pool.slots.len())) {
-        (Panel::Add, _) => Some(Sheet::Add),
+        (Panel::Add, _) => None,
         (Panel::Slot, Some(at)) => Some(Sheet::Slot(at)),
         _ => None,
     }
@@ -6389,7 +6287,7 @@ mod tests {
     }
 
     #[test]
-    fn the_panel_stands_in_the_middle_of_the_window_and_its_four_sources_share_one_line() {
+    fn a_map_is_searched_right_in_its_slot_and_the_four_sources_hang_under_it_on_one_line() {
         let words = Words::new(crate::lang::Lang::En);
         let thumbs = HashMap::new();
         let mut state = state_with_songs("centred-panel");
@@ -6399,14 +6297,11 @@ mod tests {
         for width in [980.0f32, 1400.0, 1920.0] {
             let size = iced::Size::new(width, 900.0);
             let mut screen = iced_test::Simulator::with_size(crate::settings(), size, view(&state, &words, &thumbs, width, 1.0, &Clocks::settled()));
+            let field = screen.find(words.t("pool-search-hint")).unwrap().visible_bounds().unwrap();
             let tabs: Vec<iced::Rectangle> = ["pool-tab-search", "pool-tab-collections", "pool-tab-best", "pool-tab-suggest"].iter().map(|key| screen.find(words.t(key)).unwrap().visible_bounds().unwrap()).collect();
             assert!(tabs.iter().all(|tab| (tab.center().y - tabs[0].center().y).abs() < 0.5), "{width}: {tabs:?}");
             assert!(tabs.windows(2).all(|pair| pair[0].x + pair[0].width <= pair[1].x), "{width}: {tabs:?}");
-            let grown = sheet_scale(width);
-            let left = width / 2.0 - PANEL_WIDE * grown / 2.0;
-            let middle = left + ((tabs[0].x + tabs[3].x + tabs[3].width) / 2.0 - left) * grown;
-            assert!((middle - width / 2.0).abs() < 3.0, "{width}: the sources are centred on {middle}");
-            assert!(tabs[3].x + tabs[3].width - tabs[0].x > 380.0, "{width}: {tabs:?}");
+            assert!(tabs[0].y > field.y + field.height && tabs[0].y - field.y < 90.0, "{width}: the sources hang right under the slot, {field:?} {tabs:?}");
         }
     }
 
@@ -6450,11 +6345,10 @@ mod tests {
         let away = iced::Point::new(6.0, 6.0);
         let at = |gone: f32| Clocks { gone, ..Clocks::settled() };
         let far = |a: &::image::RgbaImage, b: &::image::RgbaImage, by: i32| a.pixels().zip(b.pixels()).filter(|(x, y)| (0..3).any(|c| (x.0[c] as i32 - y.0[c] as i32).abs() > by)).count();
-        for (name, slot) in [("slab-slot", Some(1)), ("slab-add", None)] {
+        for (name, slot) in [("slab-slot", Some(1usize))] {
             let mut state = pool_with_maps(name, &["a1", "b2"]);
-            match slot {
-                Some(slot) => { state.update(Message::Select(Some(slot)), 1_790_000_100); }
-                None => { state.update(Message::AddPanel(true), 1_790_000_100); }
+            if let Some(slot) = slot {
+                state.update(Message::Select(Some(slot)), 1_790_000_100);
             }
             assert_eq!(state.panel_key(), "panel");
             let open = picture(&state, &words, size, away, &Clocks::settled(), &format!("{name}-open"));
@@ -6467,7 +6361,7 @@ mod tests {
             let scale = open.width() as f32 / size.width;
             let inside = |image: &::image::RgbaImage| ::image::imageops::crop_imm(image, (420.0 * scale) as u32, (300.0 * scale) as u32, (560.0 * scale) as u32, (300.0 * scale) as u32).to_image();
             assert!(far(&inside(&start), &inside(&open), 12) < 800, "{name}: the fade starts from what was open, {} pixels moved", far(&inside(&start), &inside(&open), 12));
-            assert!(far(&inside(&open), &inside(&rest), 12) > 10_000, "{name}: the panel covers that part of the page");
+            assert!(far(&inside(&open), &inside(&rest), 12) > 2_000, "{name}: the panel covers that part of the page");
             assert_eq!(far(&nearly, &rest, 12), 0, "{name}: nothing of the panel is left at the end of the fade");
             assert!(over == rest, "{name}: after the fade the page is as if the panel had never been");
         }
@@ -6500,7 +6394,7 @@ mod tests {
         state.list.push(other);
         let clocks = Clocks { today: 1_790_000_000, ..Clocks::settled() };
         let mut screen = iced_test::Simulator::with_size(crate::settings(), iced::Size::new(1400.0, 900.0), view(&state, &words, &thumbs, 1400.0, 1.0, &clocks));
-        for label in ["shelf-mine", "shelf-saved", "catalogue-published", "catalogue-collections", "shelf-open", "shelf-changed"] {
+        for label in ["shelf-mine", "shelf-saved", "catalogue-published", "catalogue-collections", "shelf-changed"] {
             assert!(screen.find(words.t(label)).is_ok(), "{label}");
         }
         assert!(screen.find(words.t("shelf-latest").to_uppercase()).is_ok());
@@ -7039,26 +6933,26 @@ mod tests {
         let words = Words::new(crate::lang::Lang::En);
         let thumbs = HashMap::new();
         let mut screen = iced_test::Simulator::with_size(crate::settings(), iced::Size::new(1000.0, 1000.0), view(&state, &words, &thumbs, 1000.0, 1.0, &Clocks::settled()));
-        let number = screen.find("4").unwrap().visible_bounds().unwrap();
+        let number = screen.find("3").unwrap().visible_bounds().unwrap();
         screen.point_at(number.center() + iced::Vector::new(320.0, 0.0));
         let _ = screen.simulate(iced_test::simulator::click());
         let messages: Vec<_> = screen.into_messages().collect();
-        assert!(matches!(messages.as_slice(), [Message::Select(Some(3))]), "{messages:?}");
+        assert!(matches!(messages.as_slice(), [Message::Select(Some(2))]), "{messages:?}");
         for message in messages { state.update(message, 101); }
-        assert!(matches!(&state.screen, Screen::Editor(editor) if editor.panel == Panel::Add && editor.selected == Some(3)));
-        assert!(matches!(&state.finding, Some(Finding::Found(candidate)) if candidate.place == Place::Slot(3)));
+        assert!(matches!(&state.screen, Screen::Editor(editor) if editor.panel == Panel::Add && editor.selected == Some(2)));
+        assert!(matches!(&state.finding, Some(Finding::Found(candidate)) if candidate.place == Place::Slot(2)));
         let mut screen = iced_test::Simulator::with_size(crate::settings(), iced::Size::new(1500.0, 1000.0), view(&state, &words, &thumbs, 1500.0, 1.0, &Clocks::settled()));
         assert!(screen.find(words.t("pool-link-put-all")).is_err());
         assert!(screen.find(words.t("pool-place-end")).is_err());
         drop(screen);
-        state.update(Message::SetMod(3, Mod::Hr), 102);
+        state.update(Message::SetMod(2, Mod::Hr), 102);
         state.update(Message::Confirm, 103);
-        assert!(state.editing().unwrap().slots[..3].iter().all(Slot::is_empty));
-        assert_eq!(state.editing().unwrap().slots[3].hash.as_deref(), Some("a1"));
-        assert_eq!(state.editing().unwrap().slots[3].mods, Mod::Hr);
+        assert!(state.editing().unwrap().slots[..2].iter().all(Slot::is_empty));
+        assert_eq!(state.editing().unwrap().slots[2].hash.as_deref(), Some("a1"));
+        assert_eq!(state.editing().unwrap().slots[2].mods, Mod::Hr);
         state.update(Message::Undo, 104);
         assert!(state.editing().unwrap().slots.iter().all(Slot::is_empty));
-        assert_eq!(pools::load_all(&state.dir)[0].slots[3].mods, Mod::Hr);
+        assert_eq!(pools::load_all(&state.dir)[0].slots[2].mods, Mod::Hr);
     }
 
     #[test]
@@ -7610,98 +7504,74 @@ mod tests {
     }
 
     #[test]
-    fn the_first_steps_follow_what_was_done_and_end_when_all_five_are() {
+    fn the_tour_follows_what_was_done_waits_at_the_told_steps_and_ends_with_sharing() {
         let mut state = state_with_songs("guide-steps");
         state.guide = pools::Guide::default();
         state.update(Message::New, 100);
         state.update(Message::Begin(Start::Empty), 100);
-        let steps = |state: &State| state.guide.steps(state.editing().unwrap());
-        assert_eq!(steps(&state), [false; 5]);
+        let step = |state: &State| state.guide.current(state.editing().unwrap());
+        assert_eq!(step(&state), Some(0));
         let effects = state.update(Message::Rename("Spring duel".into()), 101);
         assert!(effects.iter().all(|effect| !matches!(effect, Effect::Guide(_))), "a name is read from the pool, nothing is kept for it");
+        assert_eq!(step(&state), Some(1));
         state.update(Message::Put("a1".into()), 102);
         state.update(Message::Put("b2".into()), 103);
-        assert_eq!(steps(&state), [true, true, false, false, false]);
+        assert_eq!(step(&state), Some(2));
         let effects = state.update(Message::SetMod(0, Mod::Hd), 104);
         assert!(matches!(effects.iter().filter(|effect| matches!(effect, Effect::Guide(_))).collect::<Vec<_>>().as_slice(), [Effect::Guide(guide)] if guide.modded && guide.on), "{effects:?}");
         let keys = slot_keys(state.editing().unwrap());
         let id = state.editing().unwrap().id.clone();
         let effects = state.update(Message::Move(id, keys.clone(), keys[1], Some(keys[0])), 105);
         assert!(effects.iter().any(|effect| matches!(effect, Effect::Guide(guide) if guide.moved)));
-        assert_eq!(steps(&state), [true, true, true, true, false]);
-        let effects = state.update(Message::Share(true), 106);
-        assert!(effects.iter().any(|effect| matches!(effect, Effect::Guide(guide) if guide.shared && !guide.on)), "the fifth step ends the hints: {effects:?}");
+        assert_eq!(step(&state), Some(4), "the menu, the tools and the backdrop are told, not done");
+        for told in [5, 6, 7] {
+            let effects = state.update(Message::GuideNext, 106);
+            assert!(effects.iter().any(|effect| matches!(effect, Effect::Guide(_))), "the place in the tour is kept");
+            assert_eq!(step(&state), Some(told));
+        }
+        let effects = state.update(Message::Share(true), 107);
+        assert!(effects.iter().any(|effect| matches!(effect, Effect::Guide(guide) if guide.shared && !guide.on)), "sharing ends the hints: {effects:?}");
         assert!(!state.guide.on);
-        assert!(state.update(Message::Share(false), 107).iter().all(|effect| !matches!(effect, Effect::Guide(_))));
+        assert!(state.update(Message::Share(false), 108).iter().all(|effect| !matches!(effect, Effect::Guide(_))));
     }
 
     #[test]
-    fn the_first_steps_show_in_a_pool_only_while_they_are_wanted_and_can_be_hidden() {
+    fn the_tour_hint_stands_on_the_screen_beside_what_it_tells_about_and_can_be_hidden() {
         let words = Words::new(crate::lang::Lang::En);
         let thumbs = HashMap::new();
         let mut state = pool_with_maps("guide-card", &["a1", "b2"]);
         state.update(Message::Select(None), 1_790_000_100);
         let seen = |state: &State, width: f32, label: &str| iced_test::Simulator::with_size(crate::settings(), iced::Size::new(width, 900.0), view(state, &words, &thumbs, width, 1.0, &Clocks::settled())).find(label).is_ok();
-        let caption = words.t("guide-title").to_uppercase();
-        assert!(!seen(&state, 1300.0, &caption), "hints are off until the settings say otherwise");
+        assert!(!seen(&state, 1300.0, &words.t("tour-name")), "hints are off until the settings say otherwise");
         state.guide = pools::Guide::default();
-        for width in [980.0, 1300.0, 1500.0, 2096.0] {
-            assert!(seen(&state, width, &caption), "{width}");
-            for key in pools::Guide::STEPS {
-                assert!(seen(&state, width, &words.t(key)), "{width}: {key}");
-            }
-            assert!(seen(&state, width, &words.t("guide-name-about")), "{width}: the step in hand is explained");
-            assert!(seen(&state, width, &words.of(1, 5)), "{width}");
+        for width in [980.0, 1300.0, 2096.0] {
+            assert!(seen(&state, width, &words.t("tour-name")) && seen(&state, width, &words.t("tour-name-how")), "{width}");
+            assert!(seen(&state, width, &words.with("guide-step-of", &[("n", "1".into()), ("total", "8".into())])), "{width}");
+            assert!(!seen(&state, width, &words.t("tour-mod")), "{width}: one hint at a time");
         }
-        assert!(seen(&state, 1500.0, &words.t("guide-back")));
         state.update(Message::Rename("Spring duel".into()), 1_790_000_101);
-        assert!(seen(&state, 1300.0, &words.t("guide-mod-here")) && seen(&state, 1300.0, &words.t("guide-got")) && !seen(&state, 1300.0, &words.t("guide-name-about")), "the mod step is explained by a hint under the slot");
+        let mut screen = iced_test::Simulator::with_size(crate::settings(), iced::Size::new(1300.0, 900.0), view(&state, &words, &thumbs, 1300.0, 1.0, &Clocks::settled()));
+        let row = screen.find("Glass Orchard").unwrap().visible_bounds().unwrap();
+        let hint = screen.find(words.t("tour-mod")).unwrap().visible_bounds().unwrap();
+        assert!(hint.y > row.y && hint.y - row.y < 90.0, "the hint about the mod stands right under the first map: {row:?} {hint:?}");
+        screen.click(words.t("tour-next").as_str()).unwrap();
+        assert!(matches!(screen.into_messages().collect::<Vec<_>>().as_slice(), [Message::GuideNext]));
         let at = state.editing_at().unwrap();
         state.list[at].collection = true;
-        assert!(!seen(&state, 1300.0, &caption), "a collection has no first steps");
+        assert!(!seen(&state, 1300.0, &words.t("tour-mod")), "a collection has no tour");
         state.list[at].collection = false;
         let mut screen = iced_test::Simulator::with_size(crate::settings(), iced::Size::new(1300.0, 900.0), view(&state, &words, &thumbs, 1300.0, 1.0, &Clocks::settled()));
         screen.click(words.t("guide-hide").as_str()).unwrap();
         assert!(matches!(screen.into_messages().collect::<Vec<_>>().as_slice(), [Message::HideGuide]));
         let effects = state.update(Message::HideGuide, 1_790_000_102);
         assert!(matches!(effects.as_slice(), [Effect::Guide(guide)] if !guide.on));
-        assert!(!seen(&state, 1300.0, &caption));
+        assert!(!seen(&state, 1300.0, &words.t("tour-mod")));
     }
 
     fn skilled(aim: f64, speed: f64, reading: f64, stamina: f64) -> Measure {
         Measure { aim, speed, reading, stamina, ..measure(5.0) }
     }
 
-    #[test]
-    fn the_pool_balance_shows_from_two_measured_maps_and_offers_a_map_for_the_weakest_skill() {
-        let words = Words::new(crate::lang::Lang::En);
-        let thumbs = HashMap::new();
-        let mut state = pool_with_maps("balance", &["a1", "b2", "c3"]);
-        state.update(Message::Select(None), 1_790_000_100);
-        let at = state.editing_at().unwrap();
-        let seen = |state: &State, width: f32, label: &str| iced_test::Simulator::with_size(crate::settings(), iced::Size::new(width, 900.0), view(state, &words, &thumbs, width, 1.0, &Clocks::settled())).find(label).is_ok();
-        let caption = words.t("pool-balance").to_uppercase();
-        state.list[at].slots[0].measure = Some(skilled(4.0, 1.0, 0.3, 0.7));
-        assert!(!seen(&state, 1300.0, &caption), "one map is not a balance yet");
-        state.list[at].slots[1].measure = Some(skilled(3.6, 1.2, 0.4, 0.8));
-        for width in [980.0, 1300.0, 1500.0, 2096.0] {
-            assert!(seen(&state, width, &caption), "{width}");
-            assert!(seen(&state, width, &words.t("pool-heavy-aim")), "{width}");
-            assert!(seen(&state, width, &words.t("pool-balance-pick-reading")), "{width}");
-            for skill in Skill::ALL {
-                assert!(seen(&state, width, &words.t(skill.key())), "{width}: {skill:?}");
-            }
-        }
-        let mut screen = iced_test::Simulator::with_size(crate::settings(), iced::Size::new(1300.0, 900.0), view(&state, &words, &thumbs, 1300.0, 1.0, &Clocks::settled()));
-        screen.click(words.t("pool-balance-pick-reading").as_str()).unwrap();
-        assert!(matches!(screen.into_messages().collect::<Vec<_>>().as_slice(), [Message::Lean(Skill::Reading)]));
-        state.list[at].slots[0].measure = Some(skilled(1.0, 1.0, 1.0, 1.0));
-        state.list[at].slots[1].measure = Some(skilled(1.0, 1.0, 1.0, 1.0));
-        assert!(seen(&state, 1300.0, &words.t("pool-even")));
-        assert!(!seen(&state, 1300.0, &words.t("pool-balance-pick-aim")) && !seen(&state, 1300.0, &words.t("pool-balance-pick-reading")), "an even pool asks for nothing");
-        state.list[at].collection = true;
-        assert!(!seen(&state, 1300.0, &caption), "a collection has no balance");
-    }
 
     #[test]
     fn asking_for_a_map_of_a_skill_opens_the_suggestions_ordered_by_that_skill() {
@@ -8712,18 +8582,24 @@ mod tests {
     }
 
     #[test]
-    fn editor_tiles_use_two_columns_only_when_the_window_has_room() {
+    fn categories_stand_as_tables_side_by_side_when_the_window_has_room() {
         let mut state = pool_with_maps("responsive-view", &["a1", "b2", "c3"]);
         state.editor_mut().unwrap().panel = Panel::Closed;
+        let at = state.editing_at().unwrap();
+        state.list[at].slots[1].mods = Mod::Hd;
+        state.list[at].slots[2].mods = Mod::Hr;
         let words = Words::new(crate::lang::Lang::En);
         let thumbs = HashMap::new();
-        for (width, columns) in [(980.0, 1), (1280.0, 1), (1920.0, 2)] {
+        for (width, across) in [(480.0, 1), (980.0, 2), (1920.0, 3)] {
             let mut screen = iced_test::Simulator::with_size(crate::settings(), iced::Size::new(width, 900.0), view(&state, &words, &thumbs, width, 1.0, &Clocks::settled()));
             let first = screen.find("Glass Orchard").unwrap().visible_bounds().unwrap();
             let second = screen.find("Salt and Static").unwrap().visible_bounds().unwrap();
-            if columns == 1 { assert!(second.y > first.y); }
-            else { assert!((first.y - second.y).abs() < 1.0 && second.x > first.x); }
-            assert!(first.width > 100.0 && second.width > 100.0);
+            let third = screen.find("Ninth Window").unwrap().visible_bounds().unwrap();
+            match across {
+                1 => assert!(second.y > first.y && third.y > second.y, "{width}"),
+                2 => assert!((first.y - second.y).abs() < 1.0 && second.x > first.x && third.y > first.y, "{width}"),
+                _ => assert!((first.y - second.y).abs() < 1.0 && (first.y - third.y).abs() < 1.0 && third.x > second.x && second.x > first.x, "{width}"),
+            }
         }
     }
 
@@ -8736,28 +8612,25 @@ mod tests {
         let mut screen = iced_test::Simulator::with_size(crate::settings(), iced::Size::new(980.0, 600.0), view(&state, &words, &thumbs, 980.0, 1.0, &Clocks::settled()));
         for key in ["pool-tab-search", "pool-tab-collections", "pool-tab-best", "pool-tab-suggest"] {
             let bounds = screen.find(words.t(key)).unwrap().visible_bounds().unwrap();
-            assert!(bounds.x > 190.0 && bounds.x + bounds.width < 790.0 && bounds.y > 16.0 && bounds.y + bounds.height < 600.0, "{key}: {bounds:?}");
+            assert!(bounds.x > 0.0 && bounds.x + bounds.width < 980.0 && bounds.y > 0.0 && bounds.y + bounds.height < 600.0, "{key}: {bounds:?}");
         }
     }
 
     #[test]
-    fn empty_search_stays_compact_and_the_panel_blocks_background_clicks_at_every_width() {
+    fn empty_search_stays_compact_and_its_answer_hangs_under_the_slot_at_every_width() {
         let mut state = pool_with_maps("compact-add-panel", &["a1", "b2"]);
         state.update(Message::AddPanel(true), 101);
         state.update(Message::Query("nothing matches this".into()), 102);
         let words = Words::new(crate::lang::Lang::En);
         let thumbs = HashMap::new();
         let Screen::Editor(editor) = &state.screen else { panic!("editor") };
-        let mut panel = iced_test::Simulator::with_size(crate::settings(), iced::Size::new(PANEL_WIDE, 800.0), iced::widget::column![add_panel(&state, editor, state.editing().unwrap(), &words, &thumbs), text("end-of-panel")]);
+        let mut panel = iced_test::Simulator::with_size(crate::settings(), iced::Size::new(PANEL_WIDE, 800.0), iced::widget::column![add_drop(&state, editor, state.editing().unwrap(), &words, &thumbs), text("end-of-panel")]);
         let bottom = panel.find("end-of-panel").unwrap().visible_bounds().unwrap();
         assert!(bottom.y < 300.0, "{bottom:?}");
         for width in [980.0, 1280.0, 1920.0] {
             let mut screen = iced_test::Simulator::with_size(crate::settings(), iced::Size::new(width, 800.0), view(&state, &words, &thumbs, width, 1.0, &Clocks::settled()));
             assert!(screen.find(words.t("pool-grouped")).is_err());
-            screen.point_at(iced::Point::new(180.0, 300.0));
-            let _ = screen.simulate(iced_test::simulator::click());
-            let messages: Vec<_> = screen.into_messages().collect();
-            assert!(matches!(messages.as_slice(), [Message::Select(None)]), "{width}: {messages:?}");
+            assert!(screen.find(words.t("pool-nothing")).is_ok(), "{width}: the answer hangs under the slot");
         }
     }
 
@@ -8769,7 +8642,7 @@ mod tests {
         let thumbs = HashMap::new();
         let mut screen = iced_test::Simulator::with_size(crate::settings(), iced::Size::new(1000.0, 900.0), view(&state, &words, &thumbs, 1000.0, 1.0, &Clocks::settled()));
         let first = screen.find("Glass Orchard").unwrap().visible_bounds().unwrap();
-        let third = screen.find("Ninth Window").unwrap().visible_bounds().unwrap();
+        let third = screen.find("Salt and Static").unwrap().visible_bounds().unwrap();
         screen.point_at(first.center());
         let _ = screen.simulate([iced::Event::Mouse(iced::mouse::Event::ButtonPressed(iced::mouse::Button::Left))]);
         let position = iced::Point::new(first.center_x(), third.y + ROW_HIGH + 20.0);
@@ -8787,7 +8660,7 @@ mod tests {
         let _ = screen.simulate([iced::Event::Mouse(iced::mouse::Event::ButtonReleased(iced::mouse::Button::Left))]);
         let keys = slot_keys(state.editing().unwrap());
         let messages = screen.into_messages().collect::<Vec<_>>();
-        assert!(matches!(messages.as_slice(), [Message::Move(_, _, key, Some(before))] if *key == keys[0] && *before == keys[3]), "{messages:?}");
+        assert!(matches!(messages.as_slice(), [Message::Move(_, _, key, Some(before))] if *key == keys[0] && *before == keys[2]), "{messages:?}");
     }
 
     #[test]

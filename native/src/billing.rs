@@ -380,6 +380,15 @@ impl State {
         tiers
     }
 
+    pub fn rank_of(&self, plan: &Plan) -> usize {
+        let offer = offer_of(plan);
+        self.tiers().iter().position(|(tier, _)| tier == offer).unwrap_or(0)
+    }
+
+    pub fn stage(&self) -> u8 {
+        self.badge().map_or(1, |badge| badge.stage.max(1))
+    }
+
     pub fn tint_of(&self, plan: &Plan) -> Color {
         let offer = offer_of(plan);
         tint_at(self.tiers().iter().position(|(tier, _)| tier == offer).unwrap_or(0))
@@ -626,18 +635,19 @@ const TIER_HIGH: f32 = 172.0;
 
 fn tier_card<'a>(state: &'a State, tier: &str, name: String, words: &'a Words) -> Element<'a, Message> {
     let k = ui::fade();
-    let tint = tint_at(state.tiers().iter().position(|(other, _)| other == tier).unwrap_or(0));
+    let rank = state.tiers().iter().position(|(other, _)| other == tier).unwrap_or(0);
+    let tint = tint_at(rank);
     let Some(plan) = state.offered(tier) else {
-        let inside = column![row![crate::glyphs::glyph(crate::glyphs::Icon::Heart, 14.0, Color { a: 0.5, ..tint }), text(name).font(theme::SANS_SEMI).size(16.0).color(ui::faded(FAINT))].spacing(8).align_y(iced::Center), Space::new().height(Length::Fill), text(words.t("billing-month-only")).font(theme::SANS).size(14.0).color(ui::faded(FAINT))];
+        let inside = column![row![ui::fading(0.5 * ui::fade(), || crate::badge::mark(Some(rank), 1, 18.0)), text(name).font(theme::SANS_SEMI).size(16.0).color(ui::faded(FAINT))].spacing(8).align_y(iced::Center), Space::new().height(Length::Fill), text(words.t("billing-month-only")).font(theme::SANS).size(14.0).color(ui::faded(FAINT))];
         return container(ui::dashed(container(inside).padding(16).width(Length::Fill).height(TIER_HIGH), 16.0, Color::from_rgba(1.0, 1.0, 1.0, 0.2 * k))).width(Length::FillPortion(1)).into();
     };
     let chosen = state.tier.as_deref() == Some(tier);
     let own = state.changing && state.subscription().is_some_and(|held| offer_of(&held.plan) == tier);
-    let mut title = row![crate::glyphs::glyph(crate::glyphs::Icon::Heart, 14.0, tint), container(text(name.clone()).font(theme::SANS_SEMI).size(match name.chars().count() { 0..=10 => 16.0, 11..=12 => 14.0, _ => 12.5 }).wrapping(text::Wrapping::None).color(ui::faded(INK))).width(Length::Fill).clip(true)].spacing(8).align_y(iced::Center);
+    let mut title = row![crate::badge::mark(Some(rank), state.stage(), 18.0), container(text(name.clone()).font(theme::SANS_SEMI).size(match name.chars().count() { 0..=10 => 16.0, 11..=12 => 14.0, _ => 12.5 }).wrapping(text::Wrapping::None).color(ui::faded(INK))).width(Length::Fill).clip(true)].spacing(8).align_y(iced::Center);
     if chosen {
         title = title.push(container(crate::glyphs::glyph(crate::glyphs::Icon::Check, 12.0, Color::from_rgb(0.07, 0.03, 0.04))).center(20.0).style(move |_| container::Style { background: Some(Background::Color(Color { a: k, ..tint })), border: Border { radius: 10.0.into(), ..Border::default() }, ..container::Style::default() }));
     }
-    let caption: Element<'a, Message> = if own { container(text(words.t("billing-change-now")).font(theme::MONO).size(12.0).color(ui::faded(MUTED))).padding(Padding::ZERO.left(22.0).top(2.0)).into() } else { Space::new().height(0.0).into() };
+    let caption: Element<'a, Message> = if own { container(text(words.t("billing-change-now")).font(theme::MONO).size(12.0).color(ui::faded(MUTED))).padding(Padding::ZERO.left(26.0).top(2.0)).into() } else { Space::new().height(0.0).into() };
     let mut inside = column![title, caption, Space::new().height(Length::Fill), text(price(plan, words)).font(theme::SANS_SEMI).size(26.0).wrapping(text::Wrapping::None).color(ui::faded(INK)), text(period(plan, words)).font(theme::SANS).size(14.0).color(ui::faded(MUTED))].spacing(2);
     if let (Some(months), Ok(amount)) = (months_of(&plan.periodicity).filter(|months| *months > 1.0), plan.amount.parse::<f64>()) {
         inside = inside.push(container(text(words.with("billing-each-month", &[("price", money((amount / months).round(), &plan.currency, words))])).font(theme::MONO_BOLD).size(13.0).color(ui::faded(Color::from_rgb(0.94, 0.77, 0.77)))).padding(Padding::ZERO.top(6.0)));
@@ -721,7 +731,7 @@ pub fn wide(state: &State, signed_in: bool) -> bool {
 
 fn head<'a>(state: &State, held: &'a Subscription, words: &'a Words) -> Element<'a, Message> {
     let (said, ink, fill) = badge(held, words);
-    let mut line = row![crate::glyphs::glyph(crate::glyphs::Icon::Heart, 20.0, state.tint_of(&held.plan)), text(plan_name(&held.plan)).font(theme::SANS_SEMI).size(26.0).color(ui::faded(INK)), pill(said, ink, fill), ui::grow()].spacing(12).align_y(iced::Center);
+    let mut line = row![crate::badge::mark(Some(state.rank_of(&held.plan)), state.stage(), 26.0), text(plan_name(&held.plan)).font(theme::SANS_SEMI).size(26.0).color(ui::faded(INK)), pill(said, ink, fill), ui::grow()].spacing(12).align_y(iced::Center);
     if held.access {
         line = line.push(text(price(&held.plan, words)).font(theme::MONO_BOLD).size(16.0).color(ui::faded(INK))).push(text(period(&held.plan, words)).font(theme::SANS).size(14.0).color(ui::faded(MUTED)));
     }

@@ -159,6 +159,8 @@ pub struct Guide {
     pub moved: bool,
     #[serde(default)]
     pub shared: bool,
+    #[serde(default)]
+    pub at: u8,
 }
 
 fn shown() -> bool {
@@ -167,12 +169,22 @@ fn shown() -> bool {
 
 impl Default for Guide {
     fn default() -> Guide {
-        Guide { on: true, modded: false, moved: false, shared: false }
+        Guide { on: true, modded: false, moved: false, shared: false, at: 0 }
     }
 }
 
 impl Guide {
     pub const STEPS: [&'static str; 5] = ["guide-name", "guide-map", "guide-mod", "guide-move", "guide-share"];
+
+    pub const TOUR: [&'static str; 8] = ["tour-name", "tour-add", "tour-mod", "tour-move", "tour-menu", "tour-tools", "tour-backdrop", "tour-share"];
+
+    pub fn current(&self, pool: &Pool) -> Option<usize> {
+        if !self.on {
+            return None;
+        }
+        let done = [!pool.name.trim().is_empty(), pool.filled() > 0, self.modded, self.moved, false, false, false, self.shared];
+        (usize::from(self.at)..done.len()).find(|at| !done[*at])
+    }
 
     pub fn steps(&self, pool: &Pool) -> [bool; 5] {
         [!pool.name.trim().is_empty(), pool.filled() > 0, self.modded, self.moved, self.shared]

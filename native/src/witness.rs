@@ -12,6 +12,7 @@ static BUNDLED: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/witness.exe"))
 const CLIENT: &str = "osu!.exe";
 const LOOK_EVERY: Duration = Duration::from_secs(4);
 const AGAIN_AFTER: Duration = Duration::from_secs(3);
+const PROGRAM_AGAIN: Duration = Duration::from_secs(2);
 const NAME_MOST: usize = 160;
 const LEASH: &str = "witness.alive";
 const LEASH_EVERY: Duration = Duration::from_secs(5);
@@ -634,9 +635,20 @@ pub fn follow(lines: impl BufRead, control: &Control, push: &mut dyn FnMut(Event
 }
 
 pub fn run(control: Arc<Control>, player: String, push: &mut dyn FnMut(Event) -> bool) {
-    let Some(program) = program() else {
-        let _ = push(Event::Unavailable);
-        return;
+    let mut waiting_told = false;
+    let program = loop {
+        if let Some(program) = program() {
+            break program;
+        }
+        if !bundled() || control.stopped() {
+            let _ = push(Event::Unavailable);
+            return;
+        }
+        if !waiting_told && !push(Event::Absent) {
+            return;
+        }
+        waiting_told = true;
+        control.rest(PROGRAM_AGAIN);
     };
     let leash = program.parent().map(|dir| dir.join(LEASH));
     if let Some(leash) = leash.clone() {

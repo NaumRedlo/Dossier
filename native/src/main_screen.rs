@@ -1124,6 +1124,9 @@ impl Main {
         match crate::updates::apply(&staged, &place).and_then(|what| crate::updates::launch(&what, quiet)) {
             Ok(()) => {
                 crate::worker::stop();
+                if let Some(control) = &self.witness_control {
+                    control.stop();
+                }
                 iced::exit()
             }
             Err(why) => {

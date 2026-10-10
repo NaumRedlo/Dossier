@@ -134,8 +134,18 @@ rate, the rests and the meter are the live ones.
   the hold of Tab by the rule above (`dossier_hud::hold`), asking the system for
   the state of the keys, with no hook. A full hold takes the offer away and
   writes a line to the error stream; nothing is sent yet.
+- `--keeps` says that whoever started Witness keeps the replays, so the tile may
+  say «Игра сохранена» after a play; without it (and without `--offer`) a kept
+  take changes nothing on the screen.
 - What the HUD does is told on the error stream in lines that begin with
   `witness hud:`; the ordinary lines for Dossier stay on the output.
+
+In Dossier this is the switch «Оверлей в игре» in the Witness tile of the
+settings, marked «эксперимент» and off by default (`Settings::witness_overlay`).
+When it is on, Dossier starts Witness with `--hud`, with `--lang en` for the
+English interface and with `--keeps` when replays are saved to the journal;
+changing any of the three starts Witness again. Dossier never passes `--offer`:
+nothing can be sent yet.
 
 The outcome of a play lives until the player leaves the results screen, so an
 older score opened from song select is not offered.

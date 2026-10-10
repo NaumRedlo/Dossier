@@ -505,7 +505,13 @@ pub fn launch() -> Option<Launch> {
     None
 }
 
-pub fn command(launch: &Launch, program: &Path, player: &str) -> Command {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Overlay {
+    pub english: bool,
+    pub keeps: bool,
+}
+
+pub fn command(launch: &Launch, program: &Path, player: &str, overlay: Option<Overlay>) -> Command {
     let mut command = match launch {
         Launch::Direct => Command::new(program),
         Launch::CrossOver { wine, bottle } => {
@@ -523,6 +529,15 @@ pub fn command(launch: &Launch, program: &Path, player: &str) -> Command {
     if !player.is_empty() {
         command.arg("--player").arg(player);
     }
+    if let Some(overlay) = overlay {
+        command.arg("--hud");
+        if overlay.english {
+            command.arg("--lang").arg("en");
+        }
+        if overlay.keeps {
+            command.arg("--keeps");
+        }
+    }
     command.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null());
     #[cfg(windows)]
     {
@@ -536,6 +551,7 @@ pub fn command(launch: &Launch, program: &Path, player: &str) -> Command {
 pub struct Control {
     stop: AtomicBool,
     child: Mutex<Option<Child>>,
+    overlay: Mutex<Option<Overlay>>,
 }
 
 impl Control {
@@ -545,6 +561,24 @@ impl Control {
             let _ = child.kill();
             let _ = child.wait();
         }
+    }
+
+    pub fn overlay(&self) -> Option<Overlay> {
+        *self.overlay.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    pub fn show(&self, overlay: Option<Overlay>) -> bool {
+        let mut held = self.overlay.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        if *held == overlay {
+            return false;
+        }
+        *held = overlay;
+        drop(held);
+        if let Some(mut child) = self.child.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+        true
     }
 
     pub fn stopped(&self) -> bool {
@@ -606,7 +640,7 @@ pub fn run(control: Arc<Control>, player: String, push: &mut dyn FnMut(Event) ->
             continue;
         };
         absent_told = false;
-        let Ok(mut child) = command(&launch, &program, &player).spawn() else {
+        let Ok(mut child) = command(&launch, &program, &player, control.overlay()).spawn() else {
             if !push(Event::Unavailable) {
                 return;
             }
@@ -825,14 +859,29 @@ mod tests {
     }
 
     #[test]
+    fn the_overlay_is_asked_for_only_when_it_is_switched_on_and_a_change_restarts_witness() {
+        let program = Path::new("/home/none/.dossier/bin/witness.exe");
+        let args = |overlay: Option<Overlay>| command(&Launch::Direct, program, "", overlay).get_args().map(|arg| arg.to_string_lossy().into_owned()).collect::<Vec<_>>();
+        assert_eq!(args(None), ["--serve", "--leash"]);
+        assert_eq!(args(Some(Overlay::default())), ["--serve", "--leash", "--hud"]);
+        assert_eq!(args(Some(Overlay { english: true, keeps: true })), ["--serve", "--leash", "--hud", "--lang", "en", "--keeps"]);
+        let control = Control::default();
+        assert_eq!(control.overlay(), None);
+        assert!(control.show(Some(Overlay::default())), "a change is told so that the program is started again");
+        assert!(!control.show(Some(Overlay::default())), "the same word twice changes nothing");
+        assert_eq!(control.overlay(), Some(Overlay::default()));
+        assert!(control.show(None));
+    }
+
+    #[test]
     fn witness_is_started_inside_the_client_s_own_prefix() {
         let program = Path::new("/home/none/.dossier/bin/witness.exe");
         let args = |command: &Command| command.get_args().map(|arg| arg.to_string_lossy().into_owned()).collect::<Vec<_>>();
-        let direct = command(&Launch::Direct, program, "NaumRedlo");
+        let direct = command(&Launch::Direct, program, "NaumRedlo", None);
         assert_eq!((direct.get_program(), args(&direct)), (program.as_os_str(), vec!["--serve".to_owned(), "--leash".to_owned(), "--player".to_owned(), "NaumRedlo".to_owned()]));
-        let bottle = command(&Launch::CrossOver { wine: PathBuf::from("/cx/bin/wine"), bottle: "osu-stable".into() }, program, "");
+        let bottle = command(&Launch::CrossOver { wine: PathBuf::from("/cx/bin/wine"), bottle: "osu-stable".into() }, program, "", None);
         assert_eq!(args(&bottle), vec!["--bottle", "osu-stable", "/home/none/.dossier/bin/witness.exe", "--serve", "--leash"]);
-        let wine = command(&Launch::Wine { loader: PathBuf::from("/opt/wine/bin/wine"), prefix: PathBuf::from("/home/none/prefix") }, program, "");
+        let wine = command(&Launch::Wine { loader: PathBuf::from("/opt/wine/bin/wine"), prefix: PathBuf::from("/home/none/prefix") }, program, "", None);
         assert_eq!(wine.get_program(), "/opt/wine/bin/wine");
         assert!(wine.get_envs().any(|(key, value)| key == "WINEPREFIX" && value == Some(std::ffi::OsStr::new("/home/none/prefix"))));
     }

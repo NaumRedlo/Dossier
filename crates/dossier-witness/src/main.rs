@@ -9,7 +9,8 @@ fn main() {
         let leash = args.iter().any(|arg| arg == "--leash").then(|| std::env::current_exe().ok().and_then(|program| dossier_witness::leash::beside(&program))).flatten();
         let overlay_mode = args.iter().any(|arg| arg == "--overlay");
         let english = args.iter().position(|arg| arg == "--lang").and_then(|at| args.get(at + 1)).is_some_and(|said| said == "en");
-        let hud = (!overlay_mode && args.iter().any(|arg| arg == "--hud")).then(|| (if english { dossier_hud::Lang::En } else { dossier_hud::Lang::Ru }, args.iter().any(|arg| arg == "--offer")));
+        let offers = args.iter().any(|arg| arg == "--offer");
+        let hud = (!overlay_mode && args.iter().any(|arg| arg == "--hud")).then(|| (if english { dossier_hud::Lang::En } else { dossier_hud::Lang::Ru }, offers, offers || args.iter().any(|arg| arg == "--keeps")));
         serve(&player, leash.as_deref(), overlay_mode, hud);
         return;
     }
@@ -247,7 +248,7 @@ fn rest(shown: Option<&mut Shown>, time: std::time::Duration) {
 }
 
 #[cfg(windows)]
-fn serve(player: &str, leash: Option<&std::path::Path>, overlay_mode: bool, hud: Option<(dossier_hud::Lang, bool)>) {
+fn serve(player: &str, leash: Option<&std::path::Path>, overlay_mode: bool, hud: Option<(dossier_hud::Lang, bool, bool)>) {
     use dossier_witness::memory::Reads;
     use dossier_witness::{osr, stable, windows, wire};
     use std::time::{Duration, Instant};
@@ -293,7 +294,8 @@ fn serve(player: &str, leash: Option<&std::path::Path>, overlay_mode: bool, hud:
         };
         let mut shelf = process.folder().map(|folder| dossier_witness::beatmaps::Shelf::beside(&folder));
         let mut recorder = stable::Recorder::default();
-        let mut shown = hud.map(|(lang, offers)| Shown::new(process.pid, lang, offers));
+        let mut shown = hud.map(|(lang, offers, _)| Shown::new(process.pid, lang, offers));
+        let keeps = hud.is_some_and(|(_, _, keeps)| keeps);
         let mut last_state = String::new();
         let mut told_at = Instant::now();
         let mut alive_at = Instant::now();
@@ -330,7 +332,7 @@ fn serve(player: &str, leash: Option<&std::path::Path>, overlay_mode: bool, hud:
                     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |since| since.as_secs() as i64);
                     let facts = shelf.as_mut().and_then(|shelf| shelf.map(&take.map.md5).map(|known| known.facts(take.play.mods)));
                     legacy(wire::kept(&take, &osr::file_name(&take, &client, player, now), &osr::write(&take, &client, player, now), facts.as_ref()));
-                    if let Some(shown) = shown.as_mut() {
+                    if let Some(shown) = shown.as_mut().filter(|_| keeps) {
                         shown.kept(take.passed && take.watched != Some(true));
                     }
                 }

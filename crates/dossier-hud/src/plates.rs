@@ -41,8 +41,8 @@ fn said(lang: Lang, key: &str) -> &'static str {
         (Lang::En, "clean") => "without misses",
         (Lang::Ru, "offer") => "Отправить результат в беседу",
         (Lang::En, "offer") => "Send the result to the chat",
-        (Lang::Ru, "offer-about") => "бот пришлёт готовую карточку игры",
-        (Lang::En, "offer-about") => "the bot will post a ready card of the play",
+        (Lang::Ru, "offer-about") => "удерживайте клавишу, бот пришлёт карточку игры",
+        (Lang::En, "offer-about") => "hold the key, the bot will post a card of the play",
         (Lang::Ru, "sent") => "Отправлено в беседу",
         (Lang::En, "sent") => "Sent to the chat",
         (Lang::Ru, "hour") => "ч",
@@ -599,22 +599,29 @@ fn key_cap(key: &str) -> Node {
     )
 }
 
-pub fn offer(key: &str, lang: Lang) -> Node {
+pub fn offer(key: &str, holding: f32, lang: Lang) -> Node {
+    let words = row(
+        12.0,
+        vec![
+            key_cap(key),
+            col(
+                1.0,
+                vec![
+                    text(said(lang, "offer"), Face::Semi, 14.0, INK),
+                    text(said(lang, "offer-about"), Face::Sans, 12.0, MUTED),
+                ],
+            ),
+        ],
+    );
+    let wide = words.measure().0;
+    let bar = Node::Track {
+        share: holding,
+        mark: None,
+        fill: ACCENT,
+    };
     plate(
         glass(14.0, 10.0, 10.0, 12.0),
-        row(
-            12.0,
-            vec![
-                key_cap(key),
-                col(
-                    1.0,
-                    vec![
-                        text(said(lang, "offer"), Face::Semi, 14.0, INK),
-                        text(said(lang, "offer-about"), Face::Sans, 12.0, MUTED),
-                    ],
-                ),
-            ],
-        ),
+        col(6.0, vec![words, bar]).wide(wide),
     )
 }
 

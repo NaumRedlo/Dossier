@@ -16,6 +16,7 @@ pub const UNFOLD_SECONDS: f32 = 0.22;
 pub const RATE_HALF_LIFE: f32 = 0.12;
 pub const PULSE_SECONDS: f32 = 1.6;
 pub const METER_HIGH: f32 = 30.0;
+pub const HOLD_SECONDS: f32 = 0.5;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -106,6 +107,7 @@ pub struct Sent {
 pub struct Outcome {
     pub saved: bool,
     pub offer: Option<String>,
+    pub holding: f32,
     pub sent: Option<Sent>,
 }
 
@@ -322,7 +324,7 @@ pub fn plan(view: Option<&View>, context: &Context, stage: &Stage) -> Vec<Placed
                 if let Some(sent) = &outcome.sent {
                     corner.push(("sent", plates::sent(sent, lang)));
                 } else if let Some(key) = outcome.offer.as_deref().filter(|_| outcome.saved) {
-                    corner.push(("offer", plates::offer(key, lang)));
+                    corner.push(("offer", plates::offer(key, outcome.holding, lang)));
                 }
             }
         }
@@ -476,8 +478,10 @@ mod tests {
         assert_eq!(keys(&view, &context), ["card", "tile"]);
         let (view, context) = frame("play");
         assert_eq!(keys(&view, &context), ["rate", "tile", "pp"]);
-        let (view, context) = frame("results");
-        assert_eq!(keys(&view, &context), ["tile", "offer"]);
+        for name in ["results", "hold"] {
+            let (view, context) = frame(name);
+            assert_eq!(keys(&view, &context), ["tile", "offer"], "{name}");
+        }
         let (view, context) = frame("sent");
         assert_eq!(
             keys(&view, &context),
@@ -498,6 +502,35 @@ mod tests {
             ["tile"],
             "a watched replay gets neither the counter nor the rate"
         );
+    }
+
+    #[test]
+    fn the_offer_fills_its_bar_while_the_key_is_held_and_keeps_its_size() {
+        let (view, resting) = frame("results");
+        let (_, held) = frame("hold");
+        let viewport = Viewport {
+            width: 1280,
+            height: 720,
+            scale: 1.0,
+        };
+        let offer = |context: &Context| {
+            sprites(
+                Some(&view),
+                context,
+                &Stage::settled(Some(&view), context),
+                viewport,
+            )
+            .into_iter()
+            .find(|sprite| sprite.key == "offer")
+            .unwrap()
+        };
+        let (still, filling) = (offer(&resting), offer(&held));
+        assert_eq!(
+            (still.x, still.y, still.width, still.height),
+            (filling.x, filling.y, filling.width, filling.height),
+            "the plate does not jump when the hold begins"
+        );
+        assert_ne!(still.pixels, filling.pixels);
     }
 
     #[test]

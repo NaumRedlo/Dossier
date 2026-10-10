@@ -65,12 +65,13 @@ compares the same frames with the approved pictures in `tests/golden`; set
 
 ## The send key
 
-The sample offer shows Tab: it lies under the left hand and stable does not use it
-on the results screen, while F8 opens the chat there. Whoever listens for the key
-must count only a bare press: no Alt, Ctrl, Shift or Win held, the game window in
-front both when the key goes down and when it comes up, and the result sent on the
-release. Alt+Tab then sends nothing, because Alt is held and the game loses the
-front before the key comes up.
+The user chose holding Tab on 10 October 2026: it lies under the left hand, stable
+does not use it on the results screen, and F8 opens the chat there. The result is
+sent after the key has been held for `HOLD_SECONDS`; the offer shows the hold as a
+bar filling up (`Outcome::holding`, from 0 to 1). Whoever listens for the key must
+count only a bare hold: no Alt, Ctrl, Shift or Win down, and the game window in
+front for the whole time. A short press, Alt+Tab and a nickname completed in the
+chat then send nothing.
 
 ## Not done
 

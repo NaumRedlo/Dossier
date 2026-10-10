@@ -144,6 +144,20 @@ pub fn frames(lang: Lang) -> Vec<(&'static str, View, Context)> {
                 outcome: Some(Outcome {
                     saved: true,
                     offer: Some("Tab".into()),
+                    holding: 0.0,
+                    sent: None,
+                }),
+                ..base.clone()
+            },
+        ),
+        (
+            "hold",
+            view(Screen::Results),
+            Context {
+                outcome: Some(Outcome {
+                    saved: true,
+                    offer: Some("Tab".into()),
+                    holding: 0.6,
                     sent: None,
                 }),
                 ..base.clone()
@@ -156,6 +170,7 @@ pub fn frames(lang: Lang) -> Vec<(&'static str, View, Context)> {
                 outcome: Some(Outcome {
                     saved: true,
                     offer: Some("Tab".into()),
+                    holding: 0.0,
                     sent: Some(sent()),
                 }),
                 ..base

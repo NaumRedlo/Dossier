@@ -7,6 +7,7 @@ pub mod md5;
 pub mod memory;
 pub mod osr;
 pub mod overlay;
+pub mod pace;
 pub mod report;
 pub mod scan;
 pub mod stable;

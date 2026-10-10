@@ -62,6 +62,17 @@ or its outro; unknown when the map's file could not be read) and
 configuration said when Witness attached; a change made in the client's settings
 is not seen until the next attach). The rules live in `dossier_overlay::live`.
 
+Two more followed the same day, again optional and only for osu!standard:
+`gameplay.pp` is the play so far, valued over the part of the map that has been
+judged (the difficulty of the map cut at the last judged object, the hits and
+the best combo as they stand), and `gameplay.pp_clean` is the whole map with a
+full combo, the misses turned into hits and the hundreds and fifties kept. Both
+are worked out by `dossier-assay` in `crates/dossier-witness/src/pace.rs`, as a
+classic score without its total. The value so far is worked out again when the
+hits change, but not more often than every quarter of a second; one calculation
+took at most 6 ms on the maps it was timed on. A map whose file cannot be read
+has neither value.
+
 `Mailbox` holds one latest snapshot. Its render-side `try_view` never waits for
 its mutex: if the receiver is busy, the host gets no view for that frame. Data
 expires two seconds after receipt, even if no explicit disconnection arrived.

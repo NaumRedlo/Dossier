@@ -21,6 +21,8 @@ fn view(screen: Screen) -> View {
                 mods: Vec::new(),
                 unstable_rate: None,
                 resting: None,
+                pp: None,
+                pp_clean: None,
             }),
             watching_replay: Some(false),
             meter: None,

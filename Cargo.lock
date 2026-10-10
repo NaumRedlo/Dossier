@@ -260,6 +260,8 @@ dependencies = [
 name = "dossier-witness"
 version = "0.11.0"
 dependencies = [
+ "dossier-assay",
+ "dossier-beatmap",
  "dossier-overlay",
  "dossier-replay",
  "lzma-rs",

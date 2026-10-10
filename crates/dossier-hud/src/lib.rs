@@ -148,6 +148,10 @@ pub fn told(view: &View, context: &mut Context) {
         play.resting = resting;
     }
     play.unstable_rate = game.unstable_rate;
+    play.pp = game.pp;
+    if game.pp_clean.is_some() {
+        play.clean = game.pp_clean;
+    }
     play.meter = view
         .snapshot
         .meter
@@ -690,6 +694,13 @@ mod tests {
             ["rate", "tile"],
             "the rate is shown, the counter waits for PP"
         );
+        let game = view.snapshot.gameplay.as_mut().unwrap();
+        game.pp = Some(212.4);
+        game.pp_clean = Some(388.0);
+        told(&view, &mut context);
+        let play = context.play.clone().unwrap();
+        assert_eq!((play.pp, play.clean), (Some(212.4), Some(388.0)));
+        assert_eq!(keys(&view, &context), ["rate", "tile", "pp"]);
         view.snapshot.meter = Some(dossier_overlay::Meter {
             shown: false,
             scale: 1.5,

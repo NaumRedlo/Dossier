@@ -51,6 +51,10 @@ pub struct Gameplay {
     pub unstable_rate: Option<f64>,
     #[serde(default)]
     pub resting: Option<bool>,
+    #[serde(default)]
+    pub pp: Option<f64>,
+    #[serde(default)]
+    pub pp_clean: Option<f64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -125,9 +129,10 @@ impl Frame {
                     || game
                         .accuracy
                         .is_some_and(|value| !value.is_finite() || !(0.0..=100.0).contains(&value))
-                    || game
-                        .unstable_rate
-                        .is_some_and(|value| !value.is_finite() || value < 0.0)
+                    || [game.unstable_rate, game.pp, game.pp_clean]
+                        .into_iter()
+                        .flatten()
+                        .any(|value| !value.is_finite() || value < 0.0)
                 {
                     return Err(invalid("invalid gameplay values"));
                 }
@@ -331,6 +336,8 @@ mod tests {
                         }],
                         unstable_rate: Some(84.2),
                         resting: Some(false),
+                        pp: Some(312.4),
+                        pp_clean: Some(421.0),
                     }),
                 },
             },

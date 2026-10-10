@@ -1,17 +1,30 @@
 use std::path::PathBuf;
+use std::time::{Duration, Instant};
 
 use dossier_overlay::live::{unstable_rate, Rests};
 use dossier_overlay::{Beatmap, Client, Frame, Gameplay, Message, Meter, Screen, Snapshot};
 
 use crate::beatmaps::{DT, HT, NC};
-use crate::stable::{Glance, Map, Mode};
+use crate::pace::{Pace, Reach};
+use crate::stable::{Counts, Glance, Map, Mode, Play};
+
+const PACE_GAP: Duration = Duration::from_millis(250);
+
+struct Chart {
+    md5: String,
+    text: Option<String>,
+    rests: Option<Rests>,
+    pace: Option<(u32, Option<Pace>)>,
+    reach: Option<(Instant, Counts, u32, Reach)>,
+}
 
 pub struct Publisher {
     session: u64,
     sequence: u64,
     meter: Option<Meter>,
     songs: Option<PathBuf>,
-    rests: Option<(String, Option<Rests>)>,
+    chart: Option<Chart>,
+    pace_gap: Duration,
 }
 
 pub fn clock_rate(mods: u32) -> f64 {
@@ -31,7 +44,8 @@ impl Publisher {
             sequence: 0,
             meter: None,
             songs: None,
-            rests: None,
+            chart: None,
+            pace_gap: PACE_GAP,
         }
     }
 
@@ -41,17 +55,53 @@ impl Publisher {
         self
     }
 
-    fn rests_of(&mut self, map: &Map) -> Option<&Rests> {
-        if self.rests.as_ref().is_none_or(|(md5, _)| *md5 != map.md5) {
-            let read = self
+    fn chart_of(&mut self, map: &Map) -> &mut Chart {
+        if self.chart.as_ref().is_none_or(|chart| chart.md5 != map.md5) {
+            let text = self
                 .songs
                 .as_ref()
                 .filter(|_| !map.folder.is_empty() && !map.file.is_empty())
                 .and_then(|songs| std::fs::read(songs.join(&map.folder).join(&map.file)).ok())
-                .and_then(|bytes| Rests::parse(&String::from_utf8_lossy(&bytes)));
-            self.rests = Some((map.md5.clone(), read));
+                .map(|bytes| String::from_utf8_lossy(&bytes).into_owned());
+            self.chart = Some(Chart {
+                md5: map.md5.clone(),
+                rests: text.as_deref().and_then(Rests::parse),
+                text,
+                pace: None,
+                reach: None,
+            });
         }
-        self.rests.as_ref().and_then(|(_, rests)| rests.as_ref())
+        self.chart.as_mut().expect("the chart was just read")
+    }
+
+    fn reach_of(&mut self, map: &Map, play: &Play) -> Option<Reach> {
+        let gap = self.pace_gap;
+        let chart = self.chart_of(map);
+        if chart.pace.as_ref().is_none_or(|(mods, _)| *mods != play.mods) {
+            chart.pace = Some((
+                play.mods,
+                chart.text.as_deref().and_then(|text| Pace::of(text, play.mods)),
+            ));
+            chart.reach = None;
+        }
+        let pace = chart.pace.as_mut()?.1.as_mut()?;
+        let combo = u32::from(play.max_combo.max(play.combo));
+        let stale = match &chart.reach {
+            None => true,
+            Some((at, counts, best, _)) => {
+                (*counts != play.counts || *best != combo)
+                    && (pace.judged(play.counts) == 0 || at.elapsed() >= gap)
+            }
+        };
+        if stale {
+            chart.reach = Some((
+                Instant::now(),
+                play.counts,
+                combo,
+                pace.reach(play.counts, combo),
+            ));
+        }
+        chart.reach.map(|(.., reach)| reach)
     }
 
     fn next(&mut self, message: Message) -> Frame {
@@ -71,7 +121,7 @@ impl Publisher {
         let resting = seen
             .map
             .as_ref()
-            .and_then(|map| self.rests_of(map))
+            .and_then(|map| self.chart_of(map).rests.as_ref())
             .map(|rests| rests.resting(f64::from(seen.time_ms)));
         let screen = match seen.mode {
             Some(Mode::Menu) => Screen::Menu,
@@ -82,11 +132,16 @@ impl Publisher {
             }
             _ => Screen::Other,
         };
-        let gameplay = seen
+        let playing = seen
             .play
             .as_ref()
             .filter(|_| screen == Screen::Playing)
-            .filter(|p| (0..=3).contains(&p.ruleset))
+            .filter(|p| (0..=3).contains(&p.ruleset));
+        let reach = playing
+            .filter(|play| play.ruleset == 0)
+            .zip(seen.map.as_ref())
+            .and_then(|(play, map)| self.reach_of(map, play));
+        let gameplay = playing
             .map(|play| {
                 let c = play.counts;
                 let total =
@@ -109,6 +164,8 @@ impl Publisher {
                     mods: Vec::new(),
                     unstable_rate: unstable_rate(&play.errors, clock_rate(play.mods)),
                     resting,
+                    pp: reach.map(|reach| reach.now),
+                    pp_clean: reach.map(|reach| reach.clean),
                 }
             });
         self.next(Message::Snapshot {
@@ -139,7 +196,6 @@ fn short(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::stable::{Counts, Play};
 
     #[test]
     fn stable_snapshots_have_accuracy_and_do_not_keep_gameplay_in_menus() {
@@ -258,6 +314,106 @@ mod tests {
         assert_eq!(lost.resting, None, "a map that cannot be read leaves the rest unknown");
         seen.play.as_mut().unwrap().errors = vec![3];
         assert_eq!(told(&mut publisher, &seen).gameplay.unwrap().unstable_rate, None);
+        let _ = std::fs::remove_dir_all(&songs);
+    }
+
+    #[test]
+    fn a_standard_play_tells_the_pp_reached_and_the_pp_of_a_clean_play() {
+        let songs = std::env::temp_dir().join(format!("dossier-witness-pace-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&songs);
+        std::fs::create_dir_all(songs.join("set")).unwrap();
+        let corpus = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../dossier-assay/corpus/maps/5114204.osu");
+        std::fs::copy(corpus, songs.join("set").join("map.osu")).unwrap();
+        let mut publisher = Publisher::new(1).knowing(None, Some(songs.clone()));
+        publisher.pace_gap = Duration::ZERO;
+        let mut seen = Glance {
+            raw_mode: 2,
+            mode: Some(Mode::Play),
+            time_ms: 1000,
+            map: Some(Map {
+                md5: "c".repeat(32),
+                folder: "set".into(),
+                file: "map.osu".into(),
+                ..Map::default()
+            }),
+            watching: Some(false),
+            play: Some(Play::default()),
+        };
+        let told = |publisher: &mut Publisher, seen: &Glance| {
+            let frame = publisher.snapshot(seen);
+            assert!(frame.encode().is_ok());
+            let Message::Snapshot { snapshot } = frame.message else {
+                panic!()
+            };
+            snapshot.gameplay
+        };
+        let start = told(&mut publisher, &seen).unwrap();
+        assert_eq!(start.pp, Some(0.0), "nothing is hit yet");
+        let whole = start.pp_clean.unwrap();
+        assert!(whole > 10.0, "{whole}");
+
+        let hits = |seen: &mut Glance, n300: u16, miss: u16, combo: u16| {
+            let play = seen.play.as_mut().unwrap();
+            play.counts = Counts { n300, miss, ..Counts::default() };
+            play.combo = combo;
+            play.max_combo = combo;
+        };
+        hits(&mut seen, 120, 0, 150);
+        let early = told(&mut publisher, &seen).unwrap();
+        hits(&mut seen, 300, 0, 380);
+        let later = told(&mut publisher, &seen).unwrap();
+        assert!(early.pp.unwrap() > 0.0 && later.pp.unwrap() > early.pp.unwrap(), "{early:?} then {later:?}");
+        assert!(later.pp.unwrap() < whole);
+        assert_eq!(later.pp_clean, Some(whole), "a clean play keeps its ceiling");
+
+        hits(&mut seen, 294, 6, 90);
+        let missed = told(&mut publisher, &seen).unwrap();
+        assert!(missed.pp.unwrap() < later.pp.unwrap());
+
+        seen.play.as_mut().unwrap().mods = DT;
+        let faster = told(&mut publisher, &seen).unwrap();
+        assert!(faster.pp_clean.unwrap() > whole * 1.3, "other mods are another calculation");
+
+        seen.play.as_mut().unwrap().ruleset = 3;
+        let mania = told(&mut publisher, &seen).unwrap();
+        assert_eq!((mania.pp, mania.pp_clean), (None, None), "only osu!standard is calculated");
+
+        seen.play.as_mut().unwrap().ruleset = 0;
+        seen.map.as_mut().unwrap().md5 = "d".repeat(32);
+        seen.map.as_mut().unwrap().file = "missing.osu".into();
+        let lost = told(&mut publisher, &seen).unwrap();
+        assert_eq!((lost.pp, lost.pp_clean), (None, None), "a map that cannot be read has no PP");
+        let _ = std::fs::remove_dir_all(&songs);
+    }
+
+    #[test]
+    fn pp_is_not_recalculated_more_often_than_the_gap_allows() {
+        let songs = std::env::temp_dir().join(format!("dossier-witness-gap-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&songs);
+        std::fs::create_dir_all(songs.join("set")).unwrap();
+        let corpus = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../dossier-assay/corpus/maps/5114204.osu");
+        std::fs::copy(corpus, songs.join("set").join("map.osu")).unwrap();
+        let mut publisher = Publisher::new(1).knowing(None, Some(songs.clone()));
+        publisher.pace_gap = Duration::from_secs(3600);
+        let map = Map {
+            md5: "e".repeat(32),
+            folder: "set".into(),
+            file: "map.osu".into(),
+            ..Map::default()
+        };
+        let play = |n300: u16| Play {
+            counts: Counts { n300, ..Counts::default() },
+            max_combo: n300,
+            ..Play::default()
+        };
+        let first = publisher.reach_of(&map, &play(100)).unwrap();
+        let held = publisher.reach_of(&map, &play(200)).unwrap();
+        assert_eq!(held, first, "the value waits for the gap");
+        publisher.pace_gap = Duration::ZERO;
+        let moved = publisher.reach_of(&map, &play(200)).unwrap();
+        assert!(moved.now > first.now);
+        let again = publisher.reach_of(&map, &play(0)).unwrap();
+        assert_eq!(again.now, 0.0, "a retry starts from nothing at once");
         let _ = std::fs::remove_dir_all(&songs);
     }
 }

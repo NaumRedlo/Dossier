@@ -34,10 +34,11 @@ the counter nor the rate.
 ## Context
 
 `Context` is plain serde data, every part optional; a missing part means its plate
-is not drawn. `told` fills `Play::resting`, `Play::unstable_rate` and `Play::meter`
-from what Witness tells in a snapshot. `Play::pp` is still nobody's: without it the
-PP plate is not drawn. The day, the pool, the chat places and the outcome come
-from Dossier.
+is not drawn. `told` fills `Play::resting`, `Play::unstable_rate`, `Play::meter`,
+`Play::pp` and `Play::clean` from what Witness tells in a snapshot; without PP
+(another ruleset, a map whose file could not be read) the PP plate is not drawn.
+`Play::record`, the day, the pool, the chat places and the outcome come from
+Dossier.
 
 ## Animation
 
@@ -89,15 +90,15 @@ tosu is the reference for how the whole thing works (the user's word, 10 October
   and block the game's input. tosu fills the surface from an off-screen browser.
 
 What follows for Dossier: Witness is the process beside the game and should
-supply `Play` the same way (the unstable rate, the rests and the meter already
-come with a snapshot); the plates painted by this crate take the place of tosu's
+supply `Play` the same way (the unstable rate, the rests, the meter and both PP
+values already come with a snapshot); the plates painted by this crate take the place of tosu's
 browser and go into one shared surface; loading a DLL into the game is a new
 step for Witness, which until now only read memory, and `docs/witness.md` has to
 say so before it ships.
 
 ## Not done
 
-No host draws these sprites inside a client. Nothing computes PP during play, and the
-values Witness now tells have not been checked against a running client. Dossier does not build a `Context`. Sending a result to the chat is only
+No host draws these sprites inside a client. Dossier does not build a `Context`,
+so the record a play is compared with is not known yet. Sending a result to the chat is only
 drawn: no key is listened for and the bot has no such request. Avatars and map
 covers are placeholders.

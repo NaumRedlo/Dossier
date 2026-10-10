@@ -965,8 +965,7 @@ pub fn sized(w: f32, h: f32) -> Size {
 pub struct Hatch {
     pub stroke: f32,
     pub step: f32,
-    pub alpha: f32,
-    pub ink: f32,
+    pub colour: Color,
 }
 
 impl<Message> canvas::Program<Message> for Hatch {
@@ -980,7 +979,7 @@ impl<Message> canvas::Program<Message> for Hatch {
             let line = Path::line(Point::new(x, bounds.height), Point::new(x + bounds.height, 0.0));
             frame.stroke(
                 &line,
-                Stroke::default().with_width(self.stroke).with_color(Color::from_rgba(1.0, 1.0, 1.0, self.ink * self.alpha.clamp(0.0, 1.0))),
+                Stroke::default().with_width(self.stroke).with_color(self.colour),
             );
             x += self.step;
         }
@@ -989,15 +988,15 @@ impl<Message> canvas::Program<Message> for Hatch {
 }
 
 pub fn hatch<'a, Message: 'a>() -> Element<'a, Message> {
-    Canvas::new(Hatch { stroke: 8.0, step: 18.0, alpha: fade(), ink: 0.03 }).width(Length::Fill).height(Length::Fill).into()
+    Canvas::new(Hatch { stroke: 8.0, step: 18.0, colour: Color::from_rgba(1.0, 1.0, 1.0, 0.03 * fade().clamp(0.0, 1.0)) }).width(Length::Fill).height(Length::Fill).into()
 }
 
-pub fn band_hatch<'a, Message: 'a>() -> Element<'a, Message> {
-    Canvas::new(Hatch { stroke: 6.0, step: 17.0, alpha: fade(), ink: 0.05 }).width(Length::Fill).height(Length::Fill).into()
+pub fn band_hatch<'a, Message: 'a>(colour: Color) -> Element<'a, Message> {
+    Canvas::new(Hatch { stroke: 6.0, step: 17.0, colour: faded(colour) }).width(Length::Fill).height(Length::Fill).into()
 }
 
 pub fn fine_hatch<'a, Message: 'a>() -> Element<'a, Message> {
-    Canvas::new(Hatch { stroke: 1.5, step: 5.0, alpha: fade(), ink: 0.03 }).width(Length::Fill).height(Length::Fill).into()
+    Canvas::new(Hatch { stroke: 1.5, step: 5.0, colour: Color::from_rgba(1.0, 1.0, 1.0, 0.03 * fade().clamp(0.0, 1.0)) }).width(Length::Fill).height(Length::Fill).into()
 }
 
 pub fn in_thread<T>(work: impl FnOnce() -> T + Send + 'static) -> iced::Task<T>
@@ -3719,15 +3718,69 @@ pub struct Dashes {
     pub colour: Color,
 }
 
-impl<Message> canvas::Program<Message> for Dashes {
-    type State = ();
+#[derive(Debug, Default)]
+pub struct March {
+    since: Option<std::time::Instant>,
+    shift: f32,
+}
 
-    fn draw(&self, _: &(), renderer: &Renderer, _: &Theme, bounds: Rectangle, _: mouse::Cursor) -> Vec<Geometry> {
+const MARCH_SPEED: f32 = 9.0;
+const MARCH_EVERY: f32 = 1.0 / 30.0;
+const DASH: f32 = 8.0;
+
+pub(crate) fn dash_period(around: f32) -> f32 {
+    if around <= DASH { DASH } else { around / (around / DASH).round().max(1.0) }
+}
+
+impl<Message> canvas::Program<Message> for Dashes {
+    type State = March;
+
+    fn update(&self, state: &mut March, event: &iced::Event, _: Rectangle, _: mouse::Cursor) -> Option<canvas::Action<Message>> {
+        if let iced::Event::Window(iced::window::Event::RedrawRequested(now)) = event {
+            let since = *state.since.get_or_insert(*now);
+            state.shift = now.saturating_duration_since(since).as_secs_f32() * MARCH_SPEED;
+            return Some(canvas::Action::request_redraw_at(*now + std::time::Duration::from_secs_f32(MARCH_EVERY)));
+        }
+        None
+    }
+
+    fn draw(&self, state: &March, renderer: &Renderer, _: &Theme, bounds: Rectangle, _: mouse::Cursor) -> Vec<Geometry> {
         let mut frame = Frame::new(renderer, bounds.size());
-        let path = Path::rounded_rectangle(Point::new(0.75, 0.75), Size::new(bounds.width - 1.5, bounds.height - 1.5), self.radius.into());
-        frame.stroke(&path, canvas::Stroke { style: canvas::Style::Solid(self.colour), width: 1.0, line_dash: canvas::LineDash { segments: &[4.0, 4.0], offset: 0 }, ..canvas::Stroke::default() });
+        let (left, top, right, bottom) = (0.75, 0.75, bounds.width - 0.75, bounds.height - 0.75);
+        if right <= left || bottom <= top {
+            return vec![frame.into_geometry()];
+        }
+        let round = self.radius.min((right - left) / 2.0).min((bottom - top) / 2.0).max(0.0);
+        let flat = right - left - 2.0 * round;
+        let period = dash_period(2.0 * flat + 2.0 * (bottom - top - 2.0 * round) + std::f32::consts::TAU * round);
+        let lead = (state.shift % period).min(flat.max(0.0));
+        let path = Path::new(|path| {
+            path.move_to(Point::new(left + round + lead, top));
+            path.line_to(Point::new(right - round, top));
+            path.arc_to(Point::new(right, top), Point::new(right, top + round), round);
+            path.line_to(Point::new(right, bottom - round));
+            path.arc_to(Point::new(right, bottom), Point::new(right - round, bottom), round);
+            path.line_to(Point::new(left + round, bottom));
+            path.arc_to(Point::new(left, bottom), Point::new(left, bottom - round), round);
+            path.line_to(Point::new(left, top + round));
+            path.arc_to(Point::new(left, top), Point::new(left + round, top), round);
+            path.line_to(Point::new(left + round + lead, top));
+        });
+        frame.stroke(&path, canvas::Stroke { style: canvas::Style::Solid(self.colour), width: 1.0, line_dash: canvas::LineDash { segments: &[period / 2.0, period / 2.0], offset: 0 }, ..canvas::Stroke::default() });
         vec![frame.into_geometry()]
     }
+}
+
+const RISE_STEPS: usize = 7;
+
+pub fn rise<'a, Message: 'a>(colour: Color, high: f32) -> Element<'a, Message> {
+    let k = fade();
+    let bands = (1..=RISE_STEPS).map(|step| {
+        let wanted = step as f32 / (RISE_STEPS + 1) as f32;
+        let cover = (1.0 - (1.0 - wanted).powf(2.2)) * k;
+        iced::widget::container(iced::widget::Space::new()).width(Length::Fill).height(high / RISE_STEPS as f32).style(move |_| iced::widget::container::Style { background: Some(iced::Background::Color(Color { a: cover, ..colour })), ..iced::widget::container::Style::default() }).into()
+    });
+    iced::widget::Column::with_children(bands).width(Length::Fill).into()
 }
 
 pub fn dashed<'a, Message: 'a>(content: impl Into<Element<'a, Message>>, radius: f32, colour: Color) -> Element<'a, Message> {
@@ -5403,6 +5456,8 @@ mod under_tests {
         assert_eq!(low.y, 500.0 - 6.0 - 200.0);
         let cramped = under_place(Rectangle::new(Point::new(-40.0, 120.0), Size::new(80.0, 30.0)), Size::new(300.0, 590.0), window, 6.0, Lean::Left(0.0));
         assert_eq!(cramped, Point::new(8.0, 8.0));
+        let whole = dash_period(1003.0);
+        assert!((1003.0 / whole - (1003.0 / whole).round()).abs() < 0.001 && (whole - 8.0).abs() < 0.1, "dashes go round a frame a whole number of times, so the march has no seam");
         let anchor = Rectangle::new(Point::new(500.0, 100.0), Size::new(200.0, 30.0));
         assert_eq!(under_place(anchor, sheet, window, 32.0, Lean::Right), Point::new(400.0, 162.0), "its right edge meets the anchor's");
         assert_eq!(under_place(anchor, sheet, window, 4.0, Lean::Left(60.0)), Point::new(560.0, 134.0), "it stands shifted from the anchor's left edge");

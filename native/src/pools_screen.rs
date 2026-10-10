@@ -33,6 +33,8 @@ const OPEN_WIDE: f32 = 400.0;
 const RESULTS_MOST: usize = 40;
 const COLLECTION_PAGE: usize = 80;
 const SCROLL_ID: &str = "pools-scroll";
+const BACKDROP_HIGH: f32 = 420.0;
+const CONTROL: f32 = theme::CONTROL_HEIGHT - 2.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Panel {
@@ -3319,15 +3321,20 @@ fn cover<'a>(thumbs: &HashMap<String, image::Handle>, hash: Option<&str>, wide: 
 
 fn hatched_cover<'a>() -> Element<'a, Message> {
     let k = ui::fade();
-    let frame = container(container(ui::band_hatch()).width(Length::Fill).height(Length::Fill).padding(2.0))
+    let base = ui::mix(theme::GROUND, Color::BLACK, 0.26);
+    let frame = container(container(ui::band_hatch(ui::mix(base, Color::WHITE, 0.05))).width(Length::Fill).height(Length::Fill).padding(2.0))
         .width(COVER_WIDE)
         .height(COVER_HIGH)
         .style(move |_| container::Style {
-            background: Some(Background::Color(Color::from_rgba(0.0, 0.0, 0.0, 0.26 * k))),
-            border: Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.035 * k), width: 1.0, radius: COVER_ROUND.into() },
+            background: Some(Background::Color(Color { a: k, ..base })),
+            border: Border { color: tinted(Color::WHITE, 0.035, k), width: 1.0, radius: COVER_ROUND.into() },
             ..container::Style::default()
         });
     frame.into()
+}
+
+fn tinted(colour: Color, share: f32, k: f32) -> Color {
+    Color { a: k, ..ui::mix(theme::GROUND, colour, share) }
 }
 
 fn number_badge<'a>(number: usize, lit: bool) -> Element<'a, Message> {
@@ -3337,7 +3344,7 @@ fn number_badge<'a>(number: usize, lit: bool) -> Element<'a, Message> {
         .height(28.0)
         .center(28.0)
         .style(move |_| container::Style {
-            background: Some(Background::Color(if lit { Color::from_rgba(0.886, 0.282, 0.282, 0.2 * k) } else { Color::from_rgba(1.0, 1.0, 1.0, 0.08 * k) })),
+            background: Some(Background::Color(if lit { tinted(ACCENT, 0.2, k) } else { tinted(Color::WHITE, 0.08, k) })),
             border: Border { radius: 14.0.into(), ..Border::default() },
             ..container::Style::default()
         })
@@ -3350,7 +3357,7 @@ fn mod_badge<'a>(mods: Mod, lit: bool) -> Element<'a, Message> {
     container(text(mods.code()).font(theme::MONO_BOLD).size(12.0).color(ui::faded(ui::mix(base, Color::WHITE, 0.45))))
         .padding([4, 8])
         .style(move |_| container::Style {
-            background: Some(Background::Color(Color { a: if lit { 0.28 } else { 0.16 } * k, ..base })),
+            background: Some(Background::Color(tinted(base, if lit { 0.28 } else { 0.16 }, k))),
             border: Border { radius: 6.0.into(), ..Border::default() },
             ..container::Style::default()
         })
@@ -3426,6 +3433,31 @@ fn primary_button<'a>(label: String, press: Message) -> Element<'a, Message> {
 
 fn quiet_button<'a>(label: String, press: Message) -> Element<'a, Message> {
     ui::quiet(label, Some(press))
+}
+
+fn outlined<'a>(label: String, press: Option<Message>) -> Element<'a, Message> {
+    button(container(text(label).font(theme::SANS_SEMI).size(theme::BODY).wrapping(text::Wrapping::None)).center_y(CONTROL))
+        .padding([0, 12])
+        .style(ui::button_faded(|_: &iced::Theme, status: button::Status| {
+            let lit = matches!(status, button::Status::Hovered | button::Status::Pressed);
+            button::Style {
+                background: lit.then_some(Background::Color(tinted(Color::WHITE, 0.08, 1.0))),
+                text_color: if matches!(status, button::Status::Disabled) { FAINT } else { INK },
+                border: Border { color: tinted(Color::WHITE, 0.16, 1.0), width: 1.0, radius: 8.0.into() },
+                shadow: iced::Shadow::default(),
+                snap: true,
+            }
+        }))
+        .on_press_maybe(press)
+        .into()
+}
+
+fn plain_button<'a>(label: String, press: Message) -> Element<'a, Message> {
+    button(container(text(label).font(theme::SANS_SEMI).size(theme::BODY).color(ui::faded(MUTED))).center_y(CONTROL)).padding([0, 12]).style(ui::button_faded(theme::bare)).on_press(press).into()
+}
+
+fn icon_button<'a>(icon: Icon, size: f32, ink: Color, press: Option<Message>) -> Element<'a, Message> {
+    button(container(glyph(icon, size, ink)).center(CONTROL)).padding(0).style(ui::button_faded(theme::bare)).on_press_maybe(press).into()
 }
 
 fn crumbs<'a>(words: &Words, back: Option<Message>, title: Element<'a, Message>) -> Element<'a, Message> {
@@ -3751,7 +3783,7 @@ fn shelf<'a>(state: &'a State, words: &'a Words, thumbs: &'a HashMap<String, ima
     let published_room = state.roomy_published().then_some(room);
     let head = move || -> Element<'a, Message> {
         let tab = |label: String, lit: bool, press: Message| -> Element<'a, Message> {
-            button(text(label).font(theme::SANS_SEMI).size(13.5).color(ui::faded(if lit { INK } else { MUTED }))).padding([7, 14]).style(ui::button_faded(theme::bare)).on_press(press).into()
+            button(container(text(label).font(theme::SANS_SEMI).size(13.5).color(ui::faded(if lit { INK } else { MUTED }))).center_y(CONTROL)).padding([0, 14]).style(ui::button_faded(theme::bare)).on_press(press).into()
         };
         let at = if collection { 3 } else { match state.shelf { Shelf::Mine => 0, Shelf::Saved => 1, Shelf::Published => 2 } };
         let tabs = ui::sliding(
@@ -4123,11 +4155,11 @@ fn collections_showcase<'a>(state: &'a State, mut page: iced::widget::Column<'a,
         let shown = Shown { title: item.name.clone(), makers: Vec::new(), cards: hashes.len(), hashes, length: 0, low: None, high: None, mods: Vec::new(), when: format!("#{}", item.revision), plain: true };
         let held = state.list.iter().any(|pool| pool.saved.as_ref().is_some_and(|saved| saved.id == item.id));
         let action: Element<'a, Message> = if item.mine {
-            crate::billing::outlined(words.t("ledger-edit"), Some(Message::OpenPublication(item.id.clone())))
+            outlined(words.t("ledger-edit"), Some(Message::OpenPublication(item.id.clone())))
         } else if held {
             plate(text(words.t("shelf-saved-mark")).font(theme::SANS_SEMI).size(12.0).color(ui::faded(Color::from_rgb(0.765, 0.831, 0.651))).into())
         } else {
-            crate::billing::outlined(words.t("shelf-save"), Some(Message::SavePublication(item.id.clone())))
+            outlined(words.t("shelf-save"), Some(Message::SavePublication(item.id.clone())))
         };
         let owner: Element<'a, Message> = if item.mine { faded_text(words.t("shelf-yours"), 13.0, MUTED) } else { Space::new().into() };
         let foot = row![container(owner).width(Length::Fill), action].spacing(8).align_y(iced::Center);
@@ -4146,8 +4178,8 @@ fn collections_showcase<'a>(state: &'a State, mut page: iced::widget::Column<'a,
 }
 
 fn small_primary<'a>(label: String, press: Option<Message>) -> Element<'a, Message> {
-    let made = button(container(text(label).font(theme::SANS_SEMI).size(14.0).wrapping(text::Wrapping::None)).center_y(36.0))
-        .padding([0, 14])
+    let made = button(container(text(label).font(theme::SANS_SEMI).size(14.0).wrapping(text::Wrapping::None)).center_y(CONTROL))
+        .padding([0, 12])
         .style(ui::button_faded(|_: &iced::Theme, status: button::Status| {
             let lit = matches!(status, button::Status::Hovered | button::Status::Pressed);
             let quiet = matches!(status, button::Status::Disabled);
@@ -4169,7 +4201,7 @@ fn saved_foot<'a>(state: &'a State, pool: &'a Pool, words: &'a Words) -> Element
     let said = |line: String, ink: Color| -> Element<'a, Message> { container(text(line).font(theme::SANS).size(13.0).color(ui::faded(ink))).width(Length::Fill).into() };
     let pull = state.pull.as_ref().filter(|pull| pull.pool == pool.id);
     let free = state.fetching.is_none() && !state.pull.as_ref().is_some_and(Pull::running);
-    let again = |label: &str| crate::billing::outlined(words.t(label), free.then(|| Message::Pull(pool.id.clone())));
+    let again = |label: &str| outlined(words.t(label), free.then(|| Message::Pull(pool.id.clone())));
     let newer = state.newer_of(pool);
     let line: iced::widget::Row<'a, Message> = match (pull, missing_of(state, pool)) {
         (running, _) if newer.is_some() && !running.is_some_and(Pull::running) => {
@@ -4188,7 +4220,7 @@ fn saved_foot<'a>(state: &'a State, pool: &'a Pool, words: &'a Words) -> Element
             if let Some((_, bytes)) = part {
                 line = line.push(text(bytes).font(theme::MONO).size(12.0).color(ui::faded(MUTED)));
             }
-            line.push(crate::billing::outlined(words.t("shelf-stop"), Some(Message::StopPull)))
+            line.push(outlined(words.t("shelf-stop"), Some(Message::StopPull)))
         }
         (Some(Pull { over: Some(Err(why)), .. }), _) => {
             let key = match why.as_str() { "running" => "shelf-collect-running", "none" => "shelf-collect-none", "empty" => "shelf-collect-empty", _ => "shelf-collect-failed" };
@@ -4269,11 +4301,11 @@ fn showcase<'a>(state: &'a State, mut page: iced::widget::Column<'a, Message>, w
                 shown.when = format!("#{}", item.revision);
                 let held = state.list.iter().any(|pool| pool.saved.as_ref().is_some_and(|saved| saved.id == item.id));
                 let action: Element<'a, Message> = if item.mine {
-                    crate::billing::outlined(words.t("ledger-edit"), Some(Message::OpenPublication(item.id.clone())))
+                    outlined(words.t("ledger-edit"), Some(Message::OpenPublication(item.id.clone())))
                 } else if held {
                     plate(text(words.t("shelf-saved-mark")).font(theme::SANS_SEMI).size(12.0).color(ui::faded(Color::from_rgb(0.765, 0.831, 0.651))).into())
                 } else {
-                    crate::billing::outlined(words.t("shelf-save"), Some(Message::SavePublication(item.id.clone())))
+                    outlined(words.t("shelf-save"), Some(Message::SavePublication(item.id.clone())))
                 };
                 let publisher: Element<'a, Message> = match pool.compiler.as_str() {
                     "" => Space::new().width(Length::Fill).into(),
@@ -4317,8 +4349,8 @@ fn conflict_banner<'a>(state: &State, pool: &Pool, words: &'a Words, width: f32)
         told = told.push(mono(words.with("catalogue-conflict-versions", &[("theirs", theirs.to_string()), ("mine", pool.published_revision.to_string())]), 13.0, INK));
     }
     let actions = row![
-        crate::billing::outlined(words.t("catalogue-conflict-theirs"), (!busy).then_some(Message::Conflict(Keep::Theirs))),
-        crate::billing::outlined(words.t("catalogue-conflict-mine"), (!busy).then_some(Message::Conflict(Keep::Mine))),
+        outlined(words.t("catalogue-conflict-theirs"), (!busy).then_some(Message::Conflict(Keep::Theirs))),
+        outlined(words.t("catalogue-conflict-mine"), (!busy).then_some(Message::Conflict(Keep::Mine))),
     ]
     .spacing(8);
     let said = row![glyph(Icon::Close, 16.0, WARNED), container(told).width(Length::Fill)].spacing(14).align_y(iced::Center);
@@ -4400,7 +4432,7 @@ fn slot_row<'a>(pool: &'a Pool, at: usize, selected: bool, choosing: bool, words
             if backing {
                 let k = ui::fade();
                 let ringed = container(picture).padding(2).style(move |_| container::Style { border: Border { color: Color { a: k, ..ACCENT }, width: 2.0, radius: (COVER_ROUND + 2.0).into() }, ..container::Style::default() });
-                let tag = container(text(words.t("pool-backdrop-tag")).font(theme::SANS_SEMI).size(12.0).color(ui::faded(INK))).padding([3, 8]).style(move |_| container::Style { background: Some(Background::Color(Color { a: 0.16 * k, ..ACCENT })), border: Border { color: Color { a: 0.4 * k, ..ACCENT }, width: 1.0, radius: 12.0.into() }, ..container::Style::default() });
+                let tag = container(text(words.t("pool-backdrop-tag")).font(theme::SANS_SEMI).size(12.0).color(ui::faded(INK))).padding([3, 8]).style(move |_| container::Style { background: Some(Background::Color(tinted(ACCENT, 0.16, k))), border: Border { color: tinted(ACCENT, 0.4, k), width: 1.0, radius: 12.0.into() }, ..container::Style::default() });
                 let wide = (ui::text_width(&slot.title, theme::SANS_SEMI, 14.0).max(ui::text_width(&slot.artist, theme::SANS, 12.0)) + 4.0).min(420.0);
                 row![left, ringed, container(details).width(wide).clip(true), tag, ui::grow(), stars].spacing(12).align_y(iced::Center).into()
             } else {
@@ -4423,15 +4455,15 @@ fn slot_row<'a>(pool: &'a Pool, at: usize, selected: bool, choosing: bool, words
         }))
         .on_press(if choosing { Message::Mark(at) } else { Message::Select(Some(at)) });
     let row_button: Element<'a, Message> = if empty && !selected {
-        ui::dashed(row_button, TILE_ROUND, Color::from_rgba(1.0, 1.0, 1.0, 0.16))
+        ui::dashed(row_button, TILE_ROUND, tinted(Color::WHITE, 0.16, 1.0))
     } else if choosing || empty {
         row_button.into()
     } else {
         iced::widget::mouse_area(row_button).on_right_press(Message::SlotMenu(Some(at))).into()
     };
     let action: Option<Element<'a, Message>> = match (ail, choosing) {
-        (Ail::Missing, false) => Some(crate::billing::outlined(words.t("pool-find-mirror"), Some(Message::FetchSlot(at)))),
-        (Ail::Unmeasured, false) => Some(crate::billing::outlined(words.t("pool-fetch-again"), Some(Message::FetchSlot(at)))),
+        (Ail::Missing, false) => Some(outlined(words.t("pool-find-mirror"), Some(Message::FetchSlot(at)))),
+        (Ail::Unmeasured, false) => Some(outlined(words.t("pool-fetch-again"), Some(Message::FetchSlot(at)))),
         (Ail::Fetching, false) => {
             let cancel = quiet_button(words.t("pool-fetch-cancel"), Message::Dismiss);
             Some(match bytes {
@@ -4464,7 +4496,7 @@ fn category_menu<'a>(pool: &Pool, at: usize, lit: bool) -> Element<'a, Message> 
         }
     }).font(theme::MONO_BOLD).text_size(12.0).padding([4, 8]).handle(pick_list::Handle::None).width(wide)
         .menu_style(|_| iced::widget::overlay::menu::Style { background: Background::Color(theme::GROUND), border: Border { color: MUTED, width: 1.0, radius: 7.0.into() }, text_color: INK, selected_text_color: INK, selected_background: Background::Color(Color::from_rgb8(65, 30, 32)), shadow: iced::Shadow::default() })
-        .style(move |_, status| pick_list::Style { text_color: ink, placeholder_color: muted, handle_color: muted, background: Background::Color(Color { a: k * if matches!(status, pick_list::Status::Hovered | pick_list::Status::Opened { .. }) { 0.28 } else { 0.16 }, ..base }), border: Border { color: if lit { Color { a: k, ..ACCENT } } else { Color::TRANSPARENT }, width: if lit { 2.0 } else { 0.0 }, radius: 6.0.into() } }).into()
+        .style(move |_, status| pick_list::Style { text_color: ink, placeholder_color: muted, handle_color: muted, background: Background::Color(tinted(base, if matches!(status, pick_list::Status::Hovered | pick_list::Status::Opened { .. }) { 0.28 } else { 0.16 }, k)), border: Border { color: if lit { Color { a: k, ..ACCENT } } else { Color::TRANSPARENT }, width: if lit { 2.0 } else { 0.0 }, radius: 6.0.into() } }).into()
 }
 
 fn mod_menu<'a>(mods: Mod, change: impl Fn(Mod) -> Message + 'a) -> Element<'a, Message> {
@@ -4534,7 +4566,7 @@ fn category_fields<'a>(pool: &'a Pool, editor: &'a Editor, at: usize, words: &'a
 
 fn slot_panel<'a>(pool: &'a Pool, editor: &'a Editor, at: usize, wide: f32, words: &'a Words, thumbs: &'a HashMap<String, image::Handle>, songs: Option<&Arc<HashMap<String, Map>>>) -> Element<'a, Message> {
     let slot = &pool.slots[at];
-    let close = button(glyph(Icon::Close, 14.0, FAINT)).padding(6).style(ui::button_faded(theme::bare)).on_press(Message::Select(None));
+    let close = icon_button(Icon::Close, 14.0, FAINT, Some(Message::Select(None)));
     let category = if pool.collection { Space::new().into() } else { category_menu(pool, at, false) };
     let mut body = column![row![number_badge(category_number(pool, at), true), category, ui::grow(), close].spacing(10).align_y(iced::Center)].spacing(16);
     body = body.push(category_fields(pool, editor, at, words));
@@ -4587,7 +4619,7 @@ fn slot_panel<'a>(pool: &'a Pool, editor: &'a Editor, at: usize, wide: f32, word
         body = body.push(
             row![
                 quiet_button(words.t("pool-replace"), Message::Replace),
-                button(text(words.t("pool-remove")).font(theme::SANS_SEMI).size(13.0).color(ui::faded(MUTED))).padding([8, 12]).style(ui::button_faded(theme::bare)).on_press(Message::Clear(at)),
+                plain_button(words.t("pool-remove"), Message::Clear(at)),
             ]
             .spacing(8)
             .align_y(iced::Center),
@@ -4659,7 +4691,7 @@ fn fetching_card<'a>(fetching: &'a Fetching, words: &'a Words) -> Element<'a, Me
         list = list.push(row![mark, faded_text(line, 13.5, colour)].spacing(10).align_y(iced::Center));
     }
     let inside = column![
-        row![semi(words.with("pool-fetching", &[("n", (done_n + 1).min(fetching.total).to_string()), ("total", fetching.total.to_string())]), 14.5, INK), ui::grow(), button(glyph(Icon::Close, 14.0, FAINT)).padding([4, 6]).style(ui::button_faded(theme::bare)).on_press(Message::Dismiss)].align_y(iced::Center),
+        row![semi(words.with("pool-fetching", &[("n", (done_n + 1).min(fetching.total).to_string()), ("total", fetching.total.to_string())]), 14.5, INK), ui::grow(), icon_button(Icon::Close, 14.0, FAINT, Some(Message::Dismiss))].align_y(iced::Center),
         list,
     ]
     .spacing(12);
@@ -4697,7 +4729,7 @@ fn candidate_card<'a>(candidate: &'a Candidate, _editor: &'a Editor, _pool: &'a 
     let mut actions = row![].spacing(8).align_y(iced::Center);
     let put_label = words.t("pool-link-put");
     actions = actions.push(if candidate.choice.is_some() { primary_button(put_label, Message::Confirm) } else { ui::primary(put_label, None) });
-    actions = actions.push(button(text(words.t("pool-link-cancel")).font(theme::SANS_SEMI).size(13.0).color(ui::faded(MUTED))).padding([8, 12]).style(ui::button_faded(theme::bare)).on_press(Message::Dismiss));
+    actions = actions.push(plain_button(words.t("pool-link-cancel"), Message::Dismiss));
     let inside = column![heading, thumb, names, list, actions].spacing(12);
     panel_box(inside.into())
 }
@@ -4719,7 +4751,7 @@ fn add_panel<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, words: &'
     } else {
         if !pool.collection { heading = heading.push(mod_menu(editor.last_mod, Message::AddMod)); }
     }
-    heading = heading.push(ui::grow()).push(button(glyph(Icon::Close, 14.0, FAINT)).padding([8, 6]).style(ui::button_faded(theme::bare)).on_press(Message::Select(None)));
+    heading = heading.push(ui::grow()).push(icon_button(Icon::Close, 14.0, FAINT, Some(Message::Select(None))));
     body = body.push(heading).push(tabs);
     body = body.push(category_fields(pool, editor, target(pool, editor).unwrap_or(pool.slots.len()), words));
     if matches!(editor.source, SourceTab::Collections | SourceTab::Best) {
@@ -4927,7 +4959,7 @@ fn share_modal<'a>(pool: &'a Pool, words: &'a Words, exporting: bool) -> Element
     let hash = row![
         ui::mono_small(words.t("pool-hash"), FAINT),
         text(pool.fingerprint()).font(theme::MONO_BOLD).size(14.0).color(ui::faded(INK)),
-        button(glyph(Icon::Copy, 14.0, MUTED)).padding([4, 6]).style(ui::button_faded(theme::bare)).on_press(Message::CopyHash),
+        icon_button(Icon::Copy, 14.0, MUTED, Some(Message::CopyHash)),
     ]
     .spacing(10)
     .align_y(iced::Center);
@@ -4982,7 +5014,7 @@ fn balance_block<'a>(pool: &'a Pool, words: &'a Words, beside: bool) -> Option<E
         pools::Balance::Even => None,
     };
     let pick = match balance {
-        pools::Balance::Heavy(..) => pool.weakest().map(|skill| crate::billing::outlined(words.t(skill.pick_key()), Some(Message::Lean(skill)))),
+        pools::Balance::Heavy(..) => pool.weakest().map(|skill| outlined(words.t(skill.pick_key()), Some(Message::Lean(skill)))),
         pools::Balance::Even => None,
     };
     let k = ui::fade();
@@ -5051,7 +5083,7 @@ fn guide_block<'a>(state: &State, editor: &Editor, pool: &'a Pool, words: &'a Wo
     let caption = ui::mono_small(words.t("guide-title").to_uppercase(), MUTED);
     let count = text(words.of(done as u64, steps.len() as u64)).font(theme::MONO_BOLD).size(14.0).color(ui::faded(INK));
     let about: Option<Element<'a, Message>> = (current != GUIDE_MOD || pool.filled() == 0).then(|| para(words.t(&format!("{}-about", pools::Guide::STEPS[current])), 14.0, INK));
-    let hide = crate::billing::outlined(words.t("guide-hide"), Some(Message::HideGuide));
+    let hide = outlined(words.t("guide-hide"), Some(Message::HideGuide));
     let plate = move |theme: &iced::Theme| {
         let slab = theme::slab(theme);
         container::Style {
@@ -5084,7 +5116,7 @@ fn guide_bubble<'a>(words: &'a Words) -> Element<'a, Message> {
     let inside = column![
         text(words.t("guide-mod-here")).font(theme::SANS_SEMI).size(14.0).color(ui::faded(INK)),
         para(words.t("guide-mod-how"), 14.0, MUTED),
-        row![text(words.with("guide-step-of", &[("n", (GUIDE_MOD + 1).to_string()), ("total", pools::Guide::STEPS.len().to_string())])).font(theme::MONO).size(12.0).color(ui::faded(MUTED)), ui::grow(), crate::billing::outlined(words.t("guide-got"), Some(Message::GuideGot))].align_y(iced::Center),
+        row![text(words.with("guide-step-of", &[("n", (GUIDE_MOD + 1).to_string()), ("total", pools::Guide::STEPS.len().to_string())])).font(theme::MONO).size(12.0).color(ui::faded(MUTED)), ui::grow(), outlined(words.t("guide-got"), Some(Message::GuideGot))].align_y(iced::Center),
     ]
     .spacing(8);
     let card = container(inside).padding(16).width(360.0).style(move |_| container::Style {
@@ -5110,7 +5142,7 @@ fn check_line<'a>(check: &Check, words: &Words) -> Element<'a, Message> {
     };
     let mut line = row![mark, container(said).width(Length::Fill)].spacing(12).align_y(iced::Center);
     if let Some(slot) = check.slot {
-        line = line.push(crate::billing::outlined(words.t("publish-show-slot"), Some(Message::ShowSlot(slot))));
+        line = line.push(outlined(words.t("publish-show-slot"), Some(Message::ShowSlot(slot))));
     }
     container(line).center_y(34.0).into()
 }
@@ -5122,7 +5154,7 @@ fn publish_panel<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, words
     let name = if named { pool.name.clone() } else { words.t(if pool.collection { "collection-name-hint" } else { "pool-name-hint" }) };
     let head = row![
         column![caption("publish-title"), semi(name.clone(), 21.0, if named { INK } else { MUTED })].spacing(5).width(Length::Fill),
-        button(glyph(Icon::Close, 16.0, MUTED)).padding(12).style(ui::button_faded(theme::bare)).on_press(Message::PublishSheet(false)),
+        icon_button(Icon::Close, 16.0, MUTED, Some(Message::PublishSheet(false))),
     ]
     .spacing(12)
     .align_y(iced::Center);
@@ -5159,12 +5191,12 @@ fn publish_panel<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, words
         words.t(if state.publishing { "catalogue-saving" } else if pool.published_revision > 0 { "catalogue-update" } else { "catalogue-publish" }),
         (ready && !state.publishing).then_some(Message::Publish),
     );
-    let mut foot = row![go, crate::billing::outlined(words.t("publish-cancel"), Some(Message::PublishSheet(false))), ui::grow()].spacing(8).align_y(iced::Center);
+    let mut foot = row![go, outlined(words.t("publish-cancel"), Some(Message::PublishSheet(false))), ui::grow()].spacing(8).align_y(iced::Center);
     if pool.published_revision > 0 {
         foot = if editor.asking_withdraw {
             foot.push(primary_button(words.t("catalogue-withdraw-yes"), Message::Withdraw)).push(quiet_button(words.t("pool-delete-no"), Message::AskWithdraw(false)))
         } else {
-            foot.push(button(text(words.t("catalogue-withdraw")).font(theme::SANS_SEMI).size(14.0)).padding([10, 14]).style(ui::button_faded(theme::danger_words)).on_press_maybe((!state.publishing).then_some(Message::AskWithdraw(true))))
+            foot.push(button(container(text(words.t("catalogue-withdraw")).font(theme::SANS_SEMI).size(14.0)).center_y(CONTROL)).padding([0, 12]).style(ui::button_faded(theme::danger_words)).on_press_maybe((!state.publishing).then_some(Message::AskWithdraw(true))))
         };
     }
     let mut inside = column![head, list, column![caption("publish-seen"), preview].spacing(10), facts].spacing(22);
@@ -5189,7 +5221,7 @@ fn bulk_bar<'a>(editor: &'a Editor, words: &'a Words) -> Element<'a, Message> {
         quiet_button(words.t("pool-bulk-mod"), Message::Bulk(Some(Bulk::Mod))),
         quiet_button(words.t("pool-bulk-shift"), Message::Bulk(Some(Bulk::Shift))),
         quiet_button(words.t("pool-bulk-remove"), Message::RemoveMarked),
-        button(text(words.t("pool-bulk-clear")).font(theme::SANS_SEMI).size(13.0).color(ui::faded(MUTED))).padding([8, 12]).style(ui::button_faded(theme::bare)).on_press(Message::Choosing(false)),
+        plain_button(words.t("pool-bulk-clear"), Message::Choosing(false)),
     ]
     .spacing(12)
     .align_y(iced::Center);
@@ -5198,14 +5230,14 @@ fn bulk_bar<'a>(editor: &'a Editor, words: &'a Words) -> Element<'a, Message> {
         Some(Bulk::Mod) => {
             let mut pills = row![].spacing(8);
             for mods in Mod::ALL {
-                pills = pills.push(button(text(mods.code()).font(theme::SANS_SEMI).size(13.5)).padding([7, 14]).style(ui::button_faded(theme::filter_chip(false))).on_press(Message::BulkMod(mods)));
+                pills = pills.push(button(container(text(mods.code()).font(theme::SANS_SEMI).size(13.5)).center_y(CONTROL)).padding([0, 14]).style(ui::button_faded(theme::filter_chip(false))).on_press(Message::BulkMod(mods)));
             }
             inside = inside.push(pills);
         }
         Some(Bulk::Shift) => {
             let pills = row![
-                button(text(words.t("pool-shift-up")).font(theme::SANS_SEMI).size(13.5)).padding([7, 14]).style(ui::button_faded(theme::filter_chip(false))).on_press(Message::Shift(false)),
-                button(text(words.t("pool-shift-down")).font(theme::SANS_SEMI).size(13.5)).padding([7, 14]).style(ui::button_faded(theme::filter_chip(false))).on_press(Message::Shift(true)),
+                button(container(text(words.t("pool-shift-up")).font(theme::SANS_SEMI).size(13.5)).center_y(CONTROL)).padding([0, 14]).style(ui::button_faded(theme::filter_chip(false))).on_press(Message::Shift(false)),
+                button(container(text(words.t("pool-shift-down")).font(theme::SANS_SEMI).size(13.5)).center_y(CONTROL)).padding([0, 14]).style(ui::button_faded(theme::filter_chip(false))).on_press(Message::Shift(true)),
             ]
             .spacing(8);
             inside = inside.push(pills);
@@ -5305,9 +5337,9 @@ fn back_button<'a>(words: &Words, collection: bool) -> Element<'a, Message> {
         .style(ui::button_faded(|_, status| {
             let hot = matches!(status, button::Status::Hovered | button::Status::Pressed);
             button::Style {
-                background: Some(Background::Color(Color::from_rgba(1.0, 1.0, 1.0, if hot { 0.09 } else { 0.045 }))),
+                background: Some(Background::Color(tinted(Color::WHITE, if hot { 0.09 } else { 0.045 }, 1.0))),
                 text_color: INK,
-                border: Border { color: Color::from_rgba(1.0, 1.0, 1.0, if hot { 0.2 } else { 0.08 }), width: 1.0, radius: 8.0.into() },
+                border: Border { color: tinted(Color::WHITE, if hot { 0.2 } else { 0.08 }, 1.0), width: 1.0, radius: 8.0.into() },
                 ..button::Style::default()
             }
         }))
@@ -5455,7 +5487,7 @@ fn editor_toolbar<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, word
     let mut left = row![back_button(words, pool.collection)].spacing(8).align_y(iced::Center);
     let step = |icon: Icon, press: Option<Message>| -> Element<'a, Message> {
         let ink = if press.is_some() { INK } else { FAINT };
-        button(container(glyph(icon, 18.0, ink)).center_x(44.0).center_y(theme::CONTROL_HEIGHT)).padding(0).style(ui::button_faded(theme::bare)).on_press_maybe(press).into()
+        icon_button(icon, 18.0, ink, press)
     };
     if !editor.starting {
         left = left.push(step(Icon::Undo, state.undo.iter().any(|(id, _)| *id == pool.id).then_some(Message::Undo)));
@@ -5463,9 +5495,9 @@ fn editor_toolbar<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, word
         if pool.filled() > 1 {
             let k = ui::fade();
             let field = text_input(&words.t("pool-find"), &editor.find).on_input(Message::Find).font(theme::SANS).size(14.0).padding(0).style(ui::bare_input(ui::fade())).width(Length::Fill);
-            left = left.push(container(row![glyph(Icon::Search, 14.0, MUTED), field].spacing(8).align_y(iced::Center)).padding([0, 12]).width((width - 730.0).clamp(140.0, 260.0)).center_y(theme::CONTROL_HEIGHT).style(move |_| container::Style {
-                background: Some(Background::Color(Color::from_rgba(0.0, 0.0, 0.0, 0.26 * k))),
-                border: Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.08 * k), width: 1.0, radius: 8.0.into() },
+            left = left.push(container(row![glyph(Icon::Search, 14.0, MUTED), field].spacing(8).align_y(iced::Center)).padding([0, 12]).width((width - 730.0).clamp(140.0, 260.0)).center_y(CONTROL).style(move |_| container::Style {
+                background: Some(Background::Color(Color { a: k, ..ui::mix(theme::GROUND, Color::BLACK, 0.26) })),
+                border: Border { color: tinted(Color::WHITE, 0.08, k), width: 1.0, radius: 8.0.into() },
                 ..container::Style::default()
             }));
             if !editor.find.trim().is_empty() {
@@ -5486,7 +5518,7 @@ fn editor_toolbar<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, word
                 .padding([0, 12])
                 .style(ui::button_faded(move |_: &iced::Theme, status: button::Status| {
                     let hot = matches!(status, button::Status::Hovered | button::Status::Pressed);
-                    button::Style { background: if open { Some(Background::Color(Color { a: 0.16 * k, ..ACCENT })) } else { hot.then_some(Background::Color(Color::from_rgba(1.0, 1.0, 1.0, 0.06))) }, text_color: INK, border: Border { color: if open { Color { a: 0.4, ..ACCENT } } else { Color::TRANSPARENT }, width: 1.0, radius: 8.0.into() }, shadow: iced::Shadow::default(), snap: true }
+                    button::Style { background: if open { Some(Background::Color(tinted(ACCENT, 0.16, k))) } else { hot.then_some(Background::Color(tinted(Color::WHITE, 0.06, 1.0))) }, text_color: INK, border: Border { color: if open { tinted(ACCENT, 0.4, 1.0) } else { Color::TRANSPARENT }, width: 1.0, radius: 8.0.into() }, shadow: iced::Shadow::default(), snap: true }
                 }))
                 .on_press(Message::BackdropPanel(!open)),
         );
@@ -5501,7 +5533,7 @@ fn editor_toolbar<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, word
     let danger: Element<'a, Message> = if editor.asking_delete {
         row![primary_button(words.t("pool-delete-yes"), Message::DeletePool), quiet_button(words.t("pool-delete-no"), Message::AskDelete(false))].spacing(8).into()
     } else if editor.starting {
-        button(text(words.t(if pool.collection { "collection-delete" } else { "pool-delete" })).font(theme::SANS_SEMI).size(14.0)).padding([10, 14]).style(ui::button_faded(theme::danger_words)).on_press(Message::AskDelete(true)).into()
+        button(container(text(words.t(if pool.collection { "collection-delete" } else { "pool-delete" })).font(theme::SANS_SEMI).size(14.0)).center_y(CONTROL)).padding([0, 12]).style(ui::button_faded(theme::danger_words)).on_press(Message::AskDelete(true)).into()
     } else {
         let k = ui::fade();
         let open = editor.palette;
@@ -5509,7 +5541,7 @@ fn editor_toolbar<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, word
             .padding([0, 12])
             .style(ui::button_faded(move |_: &iced::Theme, status: button::Status| {
                 let lit = open || matches!(status, button::Status::Hovered | button::Status::Pressed);
-                button::Style { background: Some(Background::Color(Color { a: if lit { 0.26 } else { 0.16 } * k, ..ACCENT })), text_color: INK, border: Border { color: Color { a: 0.4, ..ACCENT }, width: 1.0, radius: 8.0.into() }, shadow: iced::Shadow::default(), snap: true }
+                button::Style { background: Some(Background::Color(tinted(ACCENT, if lit { 0.26 } else { 0.16 }, k))), text_color: INK, border: Border { color: tinted(ACCENT, 0.4, 1.0), width: 1.0, radius: 8.0.into() }, shadow: iced::Shadow::default(), snap: true }
             }))
             .on_press(Message::Palette(!open));
         let pair = row![knob, primary_button(words.t("pool-add"), Message::AddPanel(editor.panel != Panel::Add))].spacing(8).align_y(iced::Center);
@@ -5621,7 +5653,7 @@ fn backdrop_panel<'a>(state: &'a State, pool: &'a Pool, words: &'a Words, thumbs
         tick(held.is_some_and(|backdrop| backdrop.blur), words.t("pool-backdrop-blur"), Message::BackdropBlur(!held.is_some_and(|backdrop| backdrop.blur))),
         tick(held.is_some_and(|backdrop| backdrop.on_card), words.t("pool-backdrop-card"), Message::BackdropCard(!held.is_some_and(|backdrop| backdrop.on_card))),
         para(words.t("pool-backdrop-note"), 12.0, FAINT),
-        row![primary_button(words.t("pool-backdrop-done"), Message::BackdropPanel(false)), crate::billing::outlined(words.t("pool-backdrop-drop"), live.then_some(Message::BackdropFrom(None)))].spacing(8),
+        row![primary_button(words.t("pool-backdrop-done"), Message::BackdropPanel(false)), outlined(words.t("pool-backdrop-drop"), live.then_some(Message::BackdropFrom(None)))].spacing(8),
     ]
     .spacing(20);
     container(inside).padding(24).width(400.0).style(move |_| container::Style {
@@ -5634,7 +5666,7 @@ fn backdrop_panel<'a>(state: &'a State, pool: &'a Pool, words: &'a Words, thumbs
 fn stray_card<'a>(link: &'a str, words: &'a Words) -> Element<'a, Message> {
     let k = ui::fade();
     let inside = row![
-        button(glyph(Icon::Close, 14.0, WARNED)).padding(6).style(ui::button_faded(theme::bare)).on_press(Message::DropStray),
+        icon_button(Icon::Close, 14.0, WARNED, Some(Message::DropStray)),
         column![text(words.t("pool-stray-profile")).font(theme::SANS).size(15.0).color(ui::faded(WARNED)), text(link).font(theme::MONO).size(13.0).color(ui::faded(INK))].spacing(4).width(Length::Fill),
         text(words.t("pool-stray-fits")).font(theme::SANS).size(15.0).color(ui::faded(MUTED)),
     ]
@@ -5653,7 +5685,7 @@ fn catalogue_toast<'a>(error: &str, words: &'a Words) -> Element<'a, Message> {
     let inside = row![
         glyph(Icon::Close, 14.0, WARNED),
         column![text(said).font(theme::SANS).size(15.0).color(ui::faded(WARNED)), text(words.t("catalogue-draft-kept")).font(theme::SANS).size(13.0).color(ui::faded(MUTED))].spacing(4).width(Length::Fill),
-        crate::billing::outlined(words.t("catalogue-retry"), Some(Message::RetryCatalogue)),
+        outlined(words.t("catalogue-retry"), Some(Message::RetryCatalogue)),
     ]
     .spacing(14)
     .align_y(iced::Center);
@@ -5913,7 +5945,7 @@ pub fn view<'a>(state: &'a State, words: &'a Words, thumbs: &'a HashMap<String, 
         Screen::Editor(editor) if !editor.starting => state.list.iter().find(|pool| pool.id == editor.id).filter(|pool| pool.filled() > 0),
         _ => None,
     };
-    let rolled = scrollable(container(container(page).max_width(max_width)).center_x(Length::Fill).padding(Padding { top: 12.0, right: 24.0, bottom: if footed.is_some() { 96.0 } else { 28.0 }, left: 24.0 }))
+    let rolled = scrollable(container(container(page).max_width(max_width)).center_x(Length::Fill).padding(Padding { top: 12.0, right: 24.0, bottom: if footed.is_some() { 108.0 } else { 28.0 }, left: 24.0 }))
         .id(iced::widget::Id::new(SCROLL_ID))
         .style(ui::thin_scroll)
         .direction(ui::hidden_bar())
@@ -5926,22 +5958,18 @@ pub fn view<'a>(state: &'a State, words: &'a Words, thumbs: &'a HashMap<String, 
         let mut layers = vec![page];
         if let Some((picture, dim)) = state.backdrop_shown().filter(|_| !editor.starting) {
             let k = ui::fade() * ui::appear(t, 0);
-            let shade = dim as f32 / 100.0;
-            let fall = iced::gradient::Linear::new(iced::Radians(std::f32::consts::PI))
-                .add_stop(0.0, Color { a: shade * k, ..theme::GROUND })
-                .add_stop(0.4, Color { a: shade * k, ..theme::GROUND })
-                .add_stop(1.0, Color { a: k, ..theme::GROUND });
-            let shown = iced::widget::stack![
-                image(crate::crops::fitted(picture, width.max(1.0), 420.0, 0.0)).content_fit(iced::ContentFit::Fill).width(Length::Fill).height(Length::Fill).opacity(k),
-                container(Space::new()).width(Length::Fill).height(Length::Fill).style(move |_| container::Style { background: Some(Background::Gradient(fall.into())), ..container::Style::default() }),
-            ];
-            layers.insert(0, column![container(shown).width(Length::Fill).height(420.0).clip(true), Space::new().height(Length::Fill)].into());
+            let picture = picture.clone();
+            let ground = theme::GROUND.into_rgba8();
+            let shown = iced::widget::responsive(move |size| {
+                image(crate::crops::sunk(&picture, size.width.max(1.0), BACKDROP_HIGH, dim, [ground[0], ground[1], ground[2]])).content_fit(iced::ContentFit::Fill).width(Length::Fill).height(BACKDROP_HIGH).opacity(k).into()
+            });
+            layers.insert(0, column![container(shown).width(Length::Fill).height(BACKDROP_HIGH), Space::new().height(Length::Fill)].into());
         }
         if let Some(pool) = footed.filter(|_| !(editor.choosing && !editor.marked.is_empty())) {
             let k = ui::fade() * ui::appear(t, 5);
             layers.push(ui::fading(k, || {
-                let strip = container(container(pool_foot(state, pool, words)).max_width(max_width)).center_x(Length::Fill).padding(Padding { top: 14.0, right: 24.0, bottom: 18.0, left: 24.0 }).style(move |_| container::Style { background: Some(Background::Color(Color { a: 0.94 * k, ..theme::GROUND })), ..container::Style::default() });
-                container(strip).height(Length::Fill).align_y(iced::alignment::Vertical::Bottom).into()
+                let strip = container(container(pool_foot(state, pool, words)).max_width(max_width)).center_x(Length::Fill).padding(Padding { top: 8.0, right: 24.0, bottom: 18.0, left: 24.0 }).style(move |_| container::Style { background: Some(Background::Color(Color { a: k, ..theme::GROUND })), ..container::Style::default() });
+                container(column![ui::rise(theme::GROUND, 28.0), strip]).height(Length::Fill).align_y(iced::alignment::Vertical::Bottom).into()
             }));
         }
         if let Some(error) = state.catalogue_error.as_ref().filter(|_| state.conflict.is_none() && !editor.publish) {

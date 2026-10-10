@@ -73,6 +73,57 @@ fn dim(pixels: &mut [u8]) {
     }
 }
 
+const SUNK_KEPT: usize = 6;
+const SUNK_LEVEL: f32 = 0.4;
+
+thread_local! {
+    static SUNK: std::cell::RefCell<Vec<((Id, u32, u32, u8, [u8; 3]), Handle)>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+pub fn sink(pixels: &mut [u8], width: u32, height: u32, shade: f32, ground: [u8; 3]) {
+    for row in 0..height {
+        let down = (row as f32 + 0.5) / height.max(1) as f32;
+        let fall = ((down - SUNK_LEVEL) / (1.0 - SUNK_LEVEL)).clamp(0.0, 1.0);
+        let cover = if row + 1 == height { 1.0 } else { shade + (1.0 - shade) * fall * fall * (3.0 - 2.0 * fall) };
+        let from = (row * width * 4) as usize;
+        for pixel in pixels[from..from + (width * 4) as usize].chunks_exact_mut(4) {
+            for (channel, base) in pixel[..3].iter_mut().zip(ground) {
+                *channel = (f32::from(*channel) * (1.0 - cover) + f32::from(base) * cover).round() as u8;
+            }
+            pixel[3] = 255;
+        }
+    }
+}
+
+pub fn sunk(handle: &Handle, wide: f32, high: f32, dim: u8, ground: [u8; 3]) -> Handle {
+    let Handle::Rgba { id, width, height, pixels } = handle else {
+        return handle.clone();
+    };
+    if wide < 1.0 || high < 1.0 {
+        return handle.clone();
+    }
+    let key = (*id, (wide / 16.0).round() as u32, high.round() as u32, dim, ground);
+    if let Some(kept) = SUNK.with(|kept| kept.borrow().iter().find(|(held, _)| *held == key).map(|(_, made)| made.clone())) {
+        return kept;
+    }
+    let (left, top, cut_wide, cut_high) = region((*width, *height), wide, high);
+    let mut cut = Vec::with_capacity((cut_wide * cut_high * 4) as usize);
+    for row in top..top + cut_high {
+        let from = ((row * width + left) * 4) as usize;
+        cut.extend_from_slice(&pixels[from..from + (cut_wide * 4) as usize]);
+    }
+    sink(&mut cut, cut_wide, cut_high, f32::from(dim.min(100)) / 100.0, ground);
+    let made = Handle::from_rgba(cut_wide, cut_high, cut);
+    SUNK.with(|kept| {
+        let mut kept = kept.borrow_mut();
+        if kept.len() >= SUNK_KEPT {
+            kept.remove(0);
+        }
+        kept.push((key, made.clone()));
+    });
+    made
+}
+
 pub fn fitted(handle: &Handle, wide: f32, high: f32, round: f32) -> Handle {
     cut(handle, wide, high, round, false)
 }
@@ -122,6 +173,18 @@ fn cut(handle: &Handle, wide: f32, high: f32, round: f32, calmed: bool) -> Handl
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_sunk_picture_is_dimmed_at_the_top_and_ends_in_the_ground_colour() {
+        let (width, height) = (4u32, 100u32);
+        let mut pixels = vec![255u8; (width * height * 4) as usize];
+        sink(&mut pixels, width, height, 0.6, [13, 5, 8]);
+        assert_eq!(&pixels[..4], &[110, 105, 107, 255], "the top keeps the chosen share of the picture");
+        let middle = (50 * width * 4) as usize;
+        assert!(pixels[middle] < 110 && pixels[middle] > 13, "below the level line it goes down");
+        let last = ((height - 1) * width * 4) as usize;
+        assert_eq!(&pixels[last..last + 4], &[13, 5, 8, 255], "the last row is the ground itself, so no edge is left");
+    }
 
     #[test]
     fn a_wider_target_keeps_the_whole_width_and_cuts_rows_from_both_ends() {

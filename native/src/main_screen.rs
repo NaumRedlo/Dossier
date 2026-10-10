@@ -7266,7 +7266,7 @@ const BILLING_SHEET: f32 = 1060.0;
 const BILLING_GROWTH: f32 = 1.3;
 const MENU_W: f32 = 420.0;
 const BELL_W: f32 = 432.0;
-const BELL_BADGE: f32 = 16.0;
+const BELL_BADGE: f32 = 18.0;
 const CLEAR_LEAVE: Duration = Duration::from_millis(180);
 const CLEAR_STEP: Duration = Duration::from_millis(28);
 const CLEAR_STEPS: usize = 8;
@@ -7336,15 +7336,16 @@ impl Main {
             return face;
         }
         let count = if unseen > 9 { "9+".to_owned() } else { unseen.to_string() };
-        let badge = container(text(count).font(theme::MONO_BOLD).size(9.0).wrapping(text::Wrapping::None).color(ui::faded(Color::WHITE)))
-            .center_x(BELL_BADGE)
-            .center_y(14.0)
+        let wide = (ui::text_width(&count, theme::MONO_BOLD, 11.0).ceil() + 10.0).max(BELL_BADGE);
+        let badge = container(text(count).font(theme::MONO_BOLD).size(11.0).line_height(iced::widget::text::LineHeight::Absolute(BELL_BADGE.into())).wrapping(text::Wrapping::None).color(ui::faded(Color::WHITE)))
+            .center_x(wide)
+            .center_y(BELL_BADGE)
             .style(ui::box_faded(|_| container::Style {
                 background: Some(iced::Background::Color(ACCENT)),
-                border: iced::Border { radius: 7.0.into(), ..iced::Border::default() },
+                border: iced::Border { radius: (BELL_BADGE / 2.0).into(), ..iced::Border::default() },
                 ..container::Style::default()
             }));
-        stack![face, pin(badge).x(CIRCLE_SIDE - BELL_BADGE + 6.0).y(-5.0)].width(CIRCLE_SIDE + 6.0).height(CIRCLE_SIDE).into()
+        stack![face, pin(badge).x(CIRCLE_SIDE + 4.0 - wide).y(-4.0)].width(CIRCLE_SIDE + 6.0).height(CIRCLE_SIDE).into()
     }
 
     fn menu_layer(&self) -> Element<'_, Message> {

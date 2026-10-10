@@ -73,10 +73,31 @@ count only a bare hold: no Alt, Ctrl, Shift or Win down, and the game window in
 front for the whole time. A short press, Alt+Tab and a nickname completed in the
 chat then send nothing.
 
+## The model: tosu
+
+tosu is the reference for how the whole thing works (the user's word, 10 October
+2026). What was read from its repository and documents on that day:
+
+- One process beside the game reads its memory and works everything else out
+  itself: PP for the hits made so far and PP for a full combo, the unstable rate
+  from the list of hit errors, the game's own settings such as the type and size
+  of the score meter.
+- Its in-game overlay is a separate part built on the asdf-overlay library (Rust,
+  MIT or Apache-2.0). That library loads a signed DLL into the game process,
+  finds the renderer by itself (OpenGL and DirectX 9 for stable, DirectX 11 and
+  OpenGL for lazer) and shows a surface shared on the GPU; it can also listen to
+  and block the game's input. tosu fills the surface from an off-screen browser.
+
+What follows for Dossier: Witness is the process beside the game and should
+supply `Play` the same way (`live::unstable_rate` and `live::resting` are the
+first two pieces); the plates painted by this crate take the place of tosu's
+browser and go into one shared surface; loading a DLL into the game is a new
+step for Witness, which until now only read memory, and `docs/witness.md` has to
+say so before it ships.
+
 ## Not done
 
-No host draws these sprites inside a client. Nothing reads the unstable rate, the
-break state or the meter settings from a client, and nothing computes PP during
-play. Dossier does not build a `Context`. Sending a result to the chat is only
+No host draws these sprites inside a client. Nothing reads the hit errors or the meter settings from a client, nothing
+loads the map to know its breaks, and nothing computes PP during play. Dossier does not build a `Context`. Sending a result to the chat is only
 drawn: no key is listened for and the bot has no such request. Avatars and map
 covers are placeholders.

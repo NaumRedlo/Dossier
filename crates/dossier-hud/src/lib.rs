@@ -1,5 +1,4 @@
 pub mod draw;
-pub mod live;
 pub mod node;
 mod plates;
 pub mod sample;
@@ -83,7 +82,7 @@ pub struct Meter {
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Play {
-    pub pp: f64,
+    pub pp: Option<f64>,
     pub record: Option<f64>,
     pub clean: Option<f64>,
     pub resting: bool,
@@ -138,6 +137,22 @@ pub struct Stage {
     pub rate: Option<f32>,
     pub pulse: f32,
     last: Option<Instant>,
+}
+
+pub fn told(view: &View, context: &mut Context) {
+    let Some(game) = &view.snapshot.gameplay else {
+        return;
+    };
+    let play = context.play.get_or_insert_with(Play::default);
+    if let Some(resting) = game.resting {
+        play.resting = resting;
+    }
+    play.unstable_rate = game.unstable_rate;
+    play.meter = view
+        .snapshot
+        .meter
+        .filter(|meter| meter.shown)
+        .map(|meter| Meter { scale: meter.scale });
 }
 
 fn live(view: Option<&View>) -> bool {
@@ -306,7 +321,9 @@ pub fn plan(view: Option<&View>, context: &Context, stage: &Stage) -> Vec<Placed
         }
         Screen::Playing if playing => {
             if let Some(play) = &context.play {
-                corner.push(("pp", plates::reach(play, lang, stage.eased())));
+                if let Some(pp) = play.pp {
+                    corner.push(("pp", plates::reach(play, pp, lang, stage.eased())));
+                }
                 if let (Some(meter), Some(rate)) = (play.meter, stage.rate) {
                     let node = plates::rate(rate, lang, meter.scale);
                     let wide = node.measure().0;
@@ -649,6 +666,40 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn what_the_reader_tells_fills_the_play_and_a_play_without_pp_shows_no_counter() {
+        let (mut view, _) = frame("play");
+        let game = view.snapshot.gameplay.as_mut().unwrap();
+        game.unstable_rate = Some(91.5);
+        game.resting = Some(true);
+        view.snapshot.meter = Some(dossier_overlay::Meter {
+            shown: true,
+            scale: 1.5,
+        });
+        let mut context = Context::default();
+        told(&view, &mut context);
+        let play = context.play.clone().unwrap();
+        assert_eq!(
+            (play.resting, play.unstable_rate, play.meter, play.pp),
+            (true, Some(91.5), Some(Meter { scale: 1.5 }), None)
+        );
+        assert_eq!(
+            keys(&view, &context),
+            ["rate", "tile"],
+            "the rate is shown, the counter waits for PP"
+        );
+        view.snapshot.meter = Some(dossier_overlay::Meter {
+            shown: false,
+            scale: 1.5,
+        });
+        told(&view, &mut context);
+        assert_eq!(
+            context.play.unwrap().meter,
+            None,
+            "a meter that is off is no meter"
+        );
     }
 
     #[test]

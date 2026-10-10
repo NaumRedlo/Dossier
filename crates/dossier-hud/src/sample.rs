@@ -19,15 +19,18 @@ fn view(screen: Screen) -> View {
                 misses: 0,
                 legacy_mods: Some(8),
                 mods: Vec::new(),
+                unstable_rate: None,
+                resting: None,
             }),
             watching_replay: Some(false),
+            meter: None,
         },
     }
 }
 
 fn play(resting: bool) -> Play {
     Play {
-        pp: 312.0,
+        pp: Some(312.0),
         record: Some(398.0),
         clean: Some(421.0),
         resting,

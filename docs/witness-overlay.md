@@ -54,6 +54,14 @@ for osu!standard; other rulesets report it as unknown rather than applying the
 standard formula. No replay frames, account tokens or process addresses cross
 this protocol. Map text is capped by the stable publisher.
 
+Three values were added on 10 October 2026 without a new version, all optional:
+`gameplay.unstable_rate` (ten times the spread of the hit errors, at the played
+speed, from two hits on), `gameplay.resting` (the map is in its lead-in, a break
+or its outro; unknown when the map's file could not be read) and
+`snapshot.meter` with `shown` and `scale` (the client's hit error meter, as its
+configuration said when Witness attached; a change made in the client's settings
+is not seen until the next attach). The rules live in `dossier_overlay::live`.
+
 `Mailbox` holds one latest snapshot. Its render-side `try_view` never waits for
 its mutex: if the receiver is busy, the host gets no view for that frame. Data
 expires two seconds after receipt, even if no explicit disconnection arrived.

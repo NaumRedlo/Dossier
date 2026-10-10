@@ -140,6 +140,7 @@ pub struct Play {
     pub max_combo: u16,
     pub counts: Counts,
     pub hit_errors: usize,
+    pub errors: Vec<i32>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -202,7 +203,16 @@ pub fn result_at(memory: &dyn Memory, anchors: &Anchors) -> Option<u64> {
     memory.pointer(rulesets + 0x38)
 }
 
+pub fn errors_of(memory: &dyn Memory, at: u64) -> Vec<i32> {
+    let Some((items, size)) = memory.pointer(at + 0x38).and_then(|list| memory.list(list)) else { return Vec::new() };
+    if size == 0 {
+        return Vec::new();
+    }
+    memory.bytes(items, size * 4).map_or_else(Vec::new, |raw| raw.chunks_exact(4).map(|held| i32::from_le_bytes([held[0], held[1], held[2], held[3]])).collect())
+}
+
 pub fn play_of(memory: &dyn Memory, at: u64) -> Play {
+    let errors = errors_of(memory, at);
     let mods = memory.pointer(at + 0x1C).and_then(|held| Some(memory.u32(held + 0xC)? ^ memory.u32(held + 0x8)?)).unwrap_or(0);
     let short = |offset: u64| memory.u16(at + offset).unwrap_or(0);
     Play {
@@ -215,6 +225,7 @@ pub fn play_of(memory: &dyn Memory, at: u64) -> Play {
         max_combo: short(0x68),
         counts: Counts { n100: short(0x88), n300: short(0x8A), n50: short(0x8C), geki: short(0x8E), katu: short(0x90), miss: short(0x92) },
         hit_errors: memory.pointer(at + 0x38).and_then(|list| memory.list(list)).map_or(0, |(_, size)| size),
+        errors,
     }
 }
 
@@ -430,6 +441,7 @@ pub(crate) mod tests {
         assert_eq!((map.md5.as_str(), map.id, map.set, map.title.as_str(), map.version.as_str()), ("0123456789abcdef0123456789abcdef", 129_891, 39_804, "FREEDOM DiVE", "FOUR DIMENSIONS"));
         let play = seen.play.expect("the play");
         assert_eq!((play.player.as_str(), play.mods, play.score, play.combo, play.max_combo, play.hit_errors), ("NaumRedlo", 24, 1_234_567, 733, 1800, 3));
+        assert_eq!(play.errors.len(), play.hit_errors, "the errors themselves are read, not only counted");
         assert_eq!(play.counts, Counts { n300: 1017, n100: 14, n50: 1, geki: 210, katu: 9, miss: 2 });
     }
 

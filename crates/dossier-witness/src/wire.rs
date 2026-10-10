@@ -148,7 +148,7 @@ mod tests {
         assert_eq!(plain("waiting"), "{\"event\":\"waiting\"}");
         assert_eq!(attached(436, &Client::default()), "{\"event\":\"attached\",\"pid\":436,\"build\":\"\",\"player\":\"\"}");
         assert_eq!(
-            attached(436, &Client { build: "b20260924cuttingedge".into(), player: "Naum \"N\" Redlo".into() }),
+            attached(436, &Client { build: "b20260924cuttingedge".into(), player: "Naum \"N\" Redlo".into(), ..Client::default() }),
             "{\"event\":\"attached\",\"pid\":436,\"build\":\"b20260924cuttingedge\",\"player\":\"Naum \\\"N\\\" Redlo\"}"
         );
     }

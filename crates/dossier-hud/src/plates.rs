@@ -297,8 +297,8 @@ pub fn tile_recording(lang: Lang, shown: f32, glow: f32) -> Node {
     }
 }
 
-pub fn reach(play: &Play, lang: Lang, shown: f32) -> Node {
-    let now = decimal(play.pp.max(0.0).round(), 0, lang);
+pub fn reach(play: &Play, pp: f64, lang: Lang, shown: f32) -> Node {
+    let now = decimal(pp.max(0.0).round(), 0, lang);
     let counter = row(
         5.0,
         vec![
@@ -311,7 +311,7 @@ pub fn reach(play: &Play, lang: Lang, shown: f32) -> Node {
         .record
         .into_iter()
         .chain(play.clean)
-        .fold(play.pp, f64::max)
+        .fold(pp, f64::max)
         .max(1.0);
     let head = vec![
         text(now, Face::MonoBold, 26.0, INK),
@@ -320,7 +320,7 @@ pub fn reach(play: &Play, lang: Lang, shown: f32) -> Node {
     let mut lines = vec![
         row(6.0, head).crossed(Cross::End),
         Node::Track {
-            share: (play.pp / top) as f32,
+            share: (pp / top) as f32,
             mark: play.record.map(|record| (record / top) as f32),
             fill: ACCENT,
         },

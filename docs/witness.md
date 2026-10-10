@@ -87,9 +87,12 @@ the one the client's configuration names, and the name given only after that.
 The client says both itself, in the configuration it keeps beside its program:
 `osu!.<user>.cfg`, where the user is the one at the machine (inside Wine, the
 prefix's). Witness asks the system where the client's program is, reads that
-file and takes two lines from it, `LastVersion` (`b20260924cuttingedge`) and
-`Username`. Nothing else in the file is read, kept or passed on; the file also
-holds what the person signs in with, and that is none of Witness's business.
+file and takes five lines from it: `LastVersion` (`b20260924cuttingedge`),
+`Username`, and for the overlay `ScoreMeter`, `ScoreMeterScale` (whether the
+client shows its hit error meter and how large) and `BeatmapDirectory` (where
+its maps lie). Nothing else in the file is read, kept or passed on; the file
+also holds what the person signs in with, and that is none of Witness's
+business.
 
 - The file is the one named after `USERNAME`; when there is none by that name,
   the most recently written `osu!.*.cfg` other than the shared `osu!.cfg`.

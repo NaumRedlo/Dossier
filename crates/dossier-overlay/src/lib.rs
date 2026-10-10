@@ -4,6 +4,8 @@ use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
+pub mod live;
+
 pub const VERSION: u16 = 1;
 pub const MAX_FRAME_BYTES: usize = 16 * 1024;
 pub const STALE_AFTER: Duration = Duration::from_secs(2);
@@ -45,6 +47,10 @@ pub struct Gameplay {
     pub legacy_mods: Option<u32>,
     #[serde(default)]
     pub mods: Vec<Mod>,
+    #[serde(default)]
+    pub unstable_rate: Option<f64>,
+    #[serde(default)]
+    pub resting: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -54,12 +60,20 @@ pub struct Mod {
     pub settings: std::collections::BTreeMap<String, serde_json::Value>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct Meter {
+    pub shown: bool,
+    pub scale: f32,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Snapshot {
     pub screen: Screen,
     pub beatmap: Option<Beatmap>,
     pub gameplay: Option<Gameplay>,
     pub watching_replay: Option<bool>,
+    #[serde(default)]
+    pub meter: Option<Meter>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -111,9 +125,17 @@ impl Frame {
                     || game
                         .accuracy
                         .is_some_and(|value| !value.is_finite() || !(0.0..=100.0).contains(&value))
+                    || game
+                        .unstable_rate
+                        .is_some_and(|value| !value.is_finite() || value < 0.0)
                 {
                     return Err(invalid("invalid gameplay values"));
                 }
+            }
+            if snapshot.meter.is_some_and(|meter| {
+                !meter.scale.is_finite() || !(0.1..=10.0).contains(&meter.scale)
+            }) {
+                return Err(invalid("invalid meter scale"));
             }
         }
         Ok(())
@@ -290,6 +312,10 @@ mod tests {
                     screen: Screen::Playing,
                     beatmap: None,
                     watching_replay: Some(false),
+                    meter: Some(Meter {
+                        shown: true,
+                        scale: 1.5,
+                    }),
                     gameplay: Some(Gameplay {
                         ruleset: 0,
                         time_ms: 1500,
@@ -303,6 +329,8 @@ mod tests {
                             acronym: "DT".into(),
                             settings: [("speed_change".into(), serde_json::json!(1.2))].into(),
                         }],
+                        unstable_rate: Some(84.2),
+                        resting: Some(false),
                     }),
                 },
             },

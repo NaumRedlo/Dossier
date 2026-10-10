@@ -1,10 +1,27 @@
-use dossier_overlay::{Beatmap, Client, Frame, Gameplay, Message, Screen, Snapshot};
+use std::path::PathBuf;
 
-use crate::stable::{Glance, Mode};
+use dossier_overlay::live::{unstable_rate, Rests};
+use dossier_overlay::{Beatmap, Client, Frame, Gameplay, Message, Meter, Screen, Snapshot};
+
+use crate::beatmaps::{DT, HT, NC};
+use crate::stable::{Glance, Map, Mode};
 
 pub struct Publisher {
     session: u64,
     sequence: u64,
+    meter: Option<Meter>,
+    songs: Option<PathBuf>,
+    rests: Option<(String, Option<Rests>)>,
+}
+
+pub fn clock_rate(mods: u32) -> f64 {
+    if mods & (DT | NC) != 0 {
+        1.5
+    } else if mods & HT != 0 {
+        0.75
+    } else {
+        1.0
+    }
 }
 
 impl Publisher {
@@ -12,7 +29,29 @@ impl Publisher {
         Self {
             session,
             sequence: 0,
+            meter: None,
+            songs: None,
+            rests: None,
         }
+    }
+
+    pub fn knowing(mut self, meter: Option<Meter>, songs: Option<PathBuf>) -> Self {
+        self.meter = meter;
+        self.songs = songs;
+        self
+    }
+
+    fn rests_of(&mut self, map: &Map) -> Option<&Rests> {
+        if self.rests.as_ref().is_none_or(|(md5, _)| *md5 != map.md5) {
+            let read = self
+                .songs
+                .as_ref()
+                .filter(|_| !map.folder.is_empty() && !map.file.is_empty())
+                .and_then(|songs| std::fs::read(songs.join(&map.folder).join(&map.file)).ok())
+                .and_then(|bytes| Rests::parse(&String::from_utf8_lossy(&bytes)));
+            self.rests = Some((map.md5.clone(), read));
+        }
+        self.rests.as_ref().and_then(|(_, rests)| rests.as_ref())
     }
 
     fn next(&mut self, message: Message) -> Frame {
@@ -29,6 +68,11 @@ impl Publisher {
     }
 
     pub fn snapshot(&mut self, seen: &Glance) -> Frame {
+        let resting = seen
+            .map
+            .as_ref()
+            .and_then(|map| self.rests_of(map))
+            .map(|rests| rests.resting(f64::from(seen.time_ms)));
         let screen = match seen.mode {
             Some(Mode::Menu) => Screen::Menu,
             Some(Mode::SelectPlay | Mode::SelectMulti) => Screen::Selection,
@@ -63,6 +107,8 @@ impl Publisher {
                     misses: u32::from(c.miss),
                     legacy_mods: Some(play.mods),
                     mods: Vec::new(),
+                    unstable_rate: unstable_rate(&play.errors, clock_rate(play.mods)),
+                    resting,
                 }
             });
         self.next(Message::Snapshot {
@@ -76,6 +122,7 @@ impl Publisher {
                 }),
                 gameplay,
                 watching_replay: seen.watching,
+                meter: self.meter,
             },
         })
     }
@@ -156,5 +203,61 @@ mod tests {
         };
         assert!(snapshot.gameplay.unwrap().accuracy.is_none());
         assert_eq!(snapshot.beatmap.unwrap().title.chars().count(), 256);
+    }
+
+    #[test]
+    fn a_play_tells_its_unstable_rate_its_rests_and_the_meter_the_client_shows() {
+        let songs = std::env::temp_dir().join(format!("dossier-witness-rests-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&songs);
+        std::fs::create_dir_all(songs.join("set")).unwrap();
+        std::fs::write(
+            songs.join("set").join("map.osu"),
+            "[Events]\n2,20000,28000\n[HitObjects]\n256,192,1500,1,0\n256,192,90000,1,0\n",
+        )
+        .unwrap();
+        let meter = Meter {
+            shown: true,
+            scale: 1.5,
+        };
+        let mut publisher = Publisher::new(1).knowing(Some(meter), Some(songs.clone()));
+        let mut seen = Glance {
+            raw_mode: 2,
+            mode: Some(Mode::Play),
+            time_ms: 24_000,
+            map: Some(Map {
+                md5: "a".repeat(32),
+                folder: "set".into(),
+                file: "map.osu".into(),
+                ..Map::default()
+            }),
+            watching: Some(false),
+            play: Some(Play {
+                mods: DT,
+                errors: vec![-10, 10, -10, 10],
+                ..Play::default()
+            }),
+        };
+        let told = |publisher: &mut Publisher, seen: &Glance| {
+            let frame = publisher.snapshot(seen);
+            assert!(frame.encode().is_ok());
+            let Message::Snapshot { snapshot } = frame.message else {
+                panic!()
+            };
+            snapshot
+        };
+        let snapshot = told(&mut publisher, &seen);
+        assert_eq!(snapshot.meter, Some(meter));
+        let game = snapshot.gameplay.unwrap();
+        assert!((game.unstable_rate.unwrap() - 100.0 / 1.5).abs() < 1e-9);
+        assert_eq!(game.resting, Some(true), "the map is in its break");
+        seen.time_ms = 30_000;
+        assert_eq!(told(&mut publisher, &seen).gameplay.unwrap().resting, Some(false));
+        seen.map.as_mut().unwrap().md5 = "b".repeat(32);
+        seen.map.as_mut().unwrap().file = "missing.osu".into();
+        let lost = told(&mut publisher, &seen).gameplay.unwrap();
+        assert_eq!(lost.resting, None, "a map that cannot be read leaves the rest unknown");
+        seen.play.as_mut().unwrap().errors = vec![3];
+        assert_eq!(told(&mut publisher, &seen).gameplay.unwrap().unstable_rate, None);
+        let _ = std::fs::remove_dir_all(&songs);
     }
 }

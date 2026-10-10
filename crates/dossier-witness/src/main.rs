@@ -187,8 +187,8 @@ fn serve(player: &str, leash: Option<&std::path::Path>, overlay_mode: bool) {
         };
         idle_told = false;
         session += 1;
-        let mut overlay = dossier_witness::overlay::Publisher::new(session);
         let client = client_of(&process);
+        let mut overlay = dossier_witness::overlay::Publisher::new(session).knowing(client.meter(), process.folder().map(|folder| client.songs_in(&folder)));
         if overlay_mode { emit(overlay.hello(process.pid, &client.build)); }
         legacy(wire::attached(process.pid, &client));
         let mut loading_told = false;

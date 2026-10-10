@@ -137,7 +137,7 @@ mod tests {
 
     #[test]
     fn the_replay_carries_the_build_and_the_name_the_client_itself_gave() {
-        let client = Client { build: "b20260924cuttingedge".into(), player: "From Config".into() };
+        let client = Client { build: "b20260924cuttingedge".into(), player: "From Config".into(), ..Client::default() };
         let read = dossier_replay::Replay::parse(&write(&taken(), &client, "From Dossier", 7)).expect("the replay reads");
         assert_eq!((read.game_version, read.player.as_str()), (20_260_924, "From Config"), "an offline score has no name; the client's own configuration is asked before the application is");
 

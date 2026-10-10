@@ -65,7 +65,6 @@ pub fn view<'a>(pool: &'a Pool, words: &'a Words, covers: &'a HashMap<String, im
     let name = if pool.name.trim().is_empty() { words.t("pool-untitled") } else { pool.name.clone() };
     let header = row![image(crate::ui::letter_red().clone()).width(22).height(26), text("Dossier").font(theme::SANS_SEMI).size(18).color(INK)].spacing(12).align_y(iced::Center);
     let title = container(text(name).font(theme::SANS_SEMI).size(30).color(INK).wrapping(text::Wrapping::None).width(Length::Fill)).height(40).clip(true);
-    let frame = text(words.t(pool.frame.key())).font(theme::SANS).size(12).color(FAINT);
     let mut grid = column![].spacing(GAP);
     for (offset, slots) in pool.slots.chunks(COLUMNS).enumerate() {
         let mut band = row![].spacing(GAP);
@@ -74,13 +73,8 @@ pub fn view<'a>(pool: &'a Pool, words: &'a Words, covers: &'a HashMap<String, im
         }
         grid = grid.push(band);
     }
-    let balance = match pool.balance() {
-        Some(crate::pools::Balance::Heavy(skill, percent)) => format!("{}  {percent}%", words.t(skill.outweighs_key())),
-        Some(crate::pools::Balance::Even) => words.t("pool-even"),
-        None => words.t("pool-image-no-measures"),
-    };
-    let footer = container(row![line(balance, theme::SANS, 12.0, FAINT), text(pool.fingerprint()).font(theme::MONO).size(12).color(FAINT)].spacing(16).align_y(iced::Center)).padding(iced::Padding::ZERO.top(8));
-    let page = container(column![header, title, frame, grid, footer].spacing(16)).padding(PADDING).width(Length::Fill).height(Length::Fill);
+    let footer = container(text(pool.fingerprint()).font(theme::MONO).size(12).color(FAINT)).align_right(Length::Fill).padding(iced::Padding::ZERO.top(8));
+    let page = container(column![header, title, grid, footer].spacing(16)).padding(PADDING).width(Length::Fill).height(Length::Fill);
     let ground = container(match pool.backdrop.as_ref().filter(|chosen| chosen.on_card).zip(backing) {
         Some((chosen, picture)) => {
             let base = theme::GROUND.into_rgba8();

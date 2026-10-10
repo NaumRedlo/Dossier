@@ -232,6 +232,22 @@ fn flow<K: Copy + Eq + Hash>(order: &[K], sizes: &HashMap<K, Size>, width: f32, 
     (at, height)
 }
 
+fn centre<K: Copy + Eq + Hash>(targets: &mut HashMap<K, Point>, sizes: &HashMap<K, Size>, width: f32) {
+    let mut rows: Vec<(f32, f32)> = Vec::new();
+    for (key, at) in targets.iter() {
+        let right = at.x + sizes.get(key).map_or(0.0, |size| size.width);
+        match rows.iter_mut().find(|(y, _)| (*y - at.y).abs() < 0.5) {
+            Some((_, most)) => *most = most.max(right),
+            None => rows.push((at.y, right)),
+        }
+    }
+    for at in targets.values_mut() {
+        if let Some((_, most)) = rows.iter().find(|(y, _)| (*y - at.y).abs() < 0.5) {
+            at.x += ((width - most) / 2.0).max(0.0);
+        }
+    }
+}
+
 fn aimed<K: Copy + Eq + Hash>(order: &[K], held: K, targets: &HashMap<K, Point>, sizes: &HashMap<K, Size>, pointer: Point, vertical: bool) -> Option<Vec<K>> {
     let others: Vec<K> = order.iter().copied().filter(|k| *k != held).collect();
     let rect = |key: &K| Some(Rectangle::new(*targets.get(key)?, *sizes.get(key)?));
@@ -330,6 +346,7 @@ pub struct Board<'a, Message, K> {
     hidden: Option<K>,
     fixed_first: Option<K>,
     identity: Option<String>,
+    centred: bool,
 }
 
 pub fn board<'a, Message: 'a, K: Copy + Eq + Hash + 'static>(
@@ -337,11 +354,11 @@ pub fn board<'a, Message: 'a, K: Copy + Eq + Hash + 'static>(
     spacing: f32,
     on_move: impl Fn(K, Option<K>) -> Message + 'a,
 ) -> Board<'a, Message, K> {
-    Board { pieces, spacing, on_move: Some(Box::new(on_move)), on_tap: None, across: None, anywhere: false, grab_high: None, grab_from: 0.0, radius: RADIUS, fade: crate::ui::fade(), solid: None, hidden: None, fixed_first: None, identity: None }
+    Board { pieces, spacing, on_move: Some(Box::new(on_move)), on_tap: None, across: None, anywhere: false, grab_high: None, grab_from: 0.0, radius: RADIUS, fade: crate::ui::fade(), solid: None, hidden: None, fixed_first: None, identity: None, centred: false }
 }
 
 pub fn flowing<'a, Message: 'a, K: Copy + Eq + Hash + 'static>(pieces: Vec<(K, Element<'a, Message>)>, spacing: f32) -> Board<'a, Message, K> {
-    Board { pieces, spacing, on_move: None, on_tap: None, across: None, anywhere: false, grab_high: None, grab_from: 0.0, radius: RADIUS, fade: crate::ui::fade(), solid: None, hidden: None, fixed_first: None, identity: None }
+    Board { pieces, spacing, on_move: None, on_tap: None, across: None, anywhere: false, grab_high: None, grab_from: 0.0, radius: RADIUS, fade: crate::ui::fade(), solid: None, hidden: None, fixed_first: None, identity: None, centred: false }
 }
 
 impl<'a, Message, K: Copy + Eq + Hash + 'static> Board<'a, Message, K> {
@@ -352,6 +369,11 @@ impl<'a, Message, K: Copy + Eq + Hash + 'static> Board<'a, Message, K> {
 
     pub fn across(mut self, columns: usize) -> Self {
         self.across = Some(columns.max(1));
+        self
+    }
+
+    pub fn centred(mut self) -> Self {
+        self.centred = true;
         self
     }
 
@@ -480,7 +502,10 @@ impl<Message, K: Copy + Eq + Hash + 'static> Widget<Message, Theme, Renderer> fo
         let state = tree.state.downcast_mut::<State<K>>();
         state.sizes = self.pieces.iter().zip(&nodes).map(|((key, _), node)| (*key, node.size())).collect();
         state.width = width;
-        let (targets, height) = flow(&state.shown_order(), &state.sizes, width, self.spacing);
+        let (mut targets, height) = flow(&state.shown_order(), &state.sizes, width, self.spacing);
+        if self.centred {
+            centre(&mut targets, &state.sizes, width);
+        }
         for (key, target) in &targets {
             state.spots.entry(*key).or_insert_with(|| Spot::at(*target));
         }

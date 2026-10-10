@@ -178,3 +178,28 @@
 3. **Где хранить пулы.** Решено: `~/.dossier/pools/`, один файл на пул.
 4. **Первый экран.** Решено: пока пулов нет, показывается пустое состояние с кнопками
    «Собрать первый пул» и «Открыть пул», потом полка.
+
+## 11 October 2026
+
+Decided by the user after using the editor:
+
+- Categories stand one under another in their order, and the tiles of one
+  category stand in rows of up to three; a row that is not full stands in the
+  middle, as in the tournament client.
+- There is no «Действия» menu. What it listed are buttons of their own under the
+  toolbar: «Карта», «Ссылки», «Выбрать», «Категории», «Фон», «Поделиться», and
+  «Скачать N» and «Версии» when there is something behind them.
+- «Категории» opens a panel with the pool's own categories: a colour is picked
+  from ten ready swatches, a category is made (two letters, it comes with one
+  free slot) and removed (its slots return to their mod).
+- Mappoolers are a row that is always there: a name is typed and added with
+  Enter or a comma, each name has a cross. A name with a space stays one name.
+- Shift and a click mark the whole run of slots between the last one and the
+  clicked one.
+- Escape backs out of what is open one step at a time; Enter confirms a
+  deletion, a withdrawal, a publication and a found map.
+- The pool picture carries neither the frame nor the balance.
+- A new map goes to a free slot of the category last worked in before any other
+  free slot.
+- Every error notice is also written as one line to `~/.dossier/errors.log`
+  (set aside as `errors.old.log` past 512 KB).

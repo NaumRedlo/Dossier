@@ -110,8 +110,61 @@ impl Queue {
     }
 }
 
+pub const LOG_MOST: u64 = 512 * 1024;
+
+pub fn log_path() -> std::path::PathBuf {
+    crate::sources::own_root().join("errors.log")
+}
+
+pub fn log_line(at_secs: u64, words: &str, detail: &str, note: &str) -> String {
+    let flat = |said: &str| said.split_whitespace().collect::<Vec<_>>().join(" ");
+    let mut line = format!("{at_secs} {}", flat(words));
+    for part in [detail, note] {
+        if !part.trim().is_empty() {
+            line.push_str(" | ");
+            line.push_str(&flat(part));
+        }
+    }
+    line
+}
+
+pub fn log_to(file: &std::path::Path, line: &str) {
+    use std::io::Write;
+    if std::fs::metadata(file).is_ok_and(|held| held.len() > LOG_MOST) {
+        let _ = std::fs::rename(file, file.with_extension("old.log"));
+    }
+    if let Some(dir) = file.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    if let Ok(mut out) = std::fs::OpenOptions::new().create(true).append(true).open(file) {
+        let _ = writeln!(out, "{line}");
+    }
+}
+
+pub fn log(words: &str, detail: &str, note: &str) {
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |since| since.as_secs());
+    log_to(&log_path(), &log_line(now, words, detail, note));
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn an_error_becomes_one_line_of_the_log_and_an_overgrown_log_is_set_aside() {
+        assert_eq!(super::log_line(1_790_000_000, "Could not send the video", "Sayuri - Heikousen\n[Meg's Taboo]", "not there"), "1790000000 Could not send the video | Sayuri - Heikousen [Meg's Taboo] | not there");
+        assert_eq!(super::log_line(5, "Saved badly", "", " "), "5 Saved badly");
+        let file = std::env::temp_dir().join(format!("dossier-errors-{}.log", std::process::id()));
+        let _ = std::fs::remove_file(&file);
+        super::log_to(&file, "1 first");
+        super::log_to(&file, "2 second");
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "1 first\n2 second\n");
+        std::fs::write(&file, vec![b'x'; super::LOG_MOST as usize + 1]).unwrap();
+        super::log_to(&file, "3 third");
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "3 third\n");
+        assert!(file.with_extension("old.log").is_file());
+        let _ = std::fs::remove_file(&file);
+        let _ = std::fs::remove_file(file.with_extension("old.log"));
+    }
+
     use super::*;
 
     #[test]

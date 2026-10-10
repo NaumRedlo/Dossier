@@ -92,6 +92,7 @@ pub enum Message {
     Redo,
     PoolCommands,
     PoolHot(crate::pools_screen::Hot),
+    PoolHeld(bool),
     MapBoard(u64, bool, Result<crate::community::wire::MapBoard, String>),
     EveryoneArrived(Result<crate::community::wire::Everyone, String>),
     WornArrived(std::collections::HashMap<i64, crate::bot::Worn>),
@@ -1250,6 +1251,7 @@ impl Main {
             (iced::Event::Window(window::Event::FileDropped(path)), _) => Some(Message::Dropped(path)),
             (iced::Event::Window(window::Event::Opened { size, .. }), _) => Some(Message::WindowOpened(id, size.width, size.height)),
             (iced::Event::Window(window::Event::Focused | window::Event::Unfocused), _) => Some(Message::CheckMinimized(id)),
+            (iced::Event::Keyboard(iced::keyboard::Event::ModifiersChanged(modifiers)), _) => Some(Message::PoolHeld(modifiers.shift())),
             (iced::Event::Keyboard(iced::keyboard::Event::KeyPressed { key, physical_key, modifiers, .. }), iced::event::Status::Ignored) => {
                 use iced::keyboard::key::{Key, Named};
                 if paste_shortcut(&key, physical_key, modifiers) {
@@ -1262,6 +1264,7 @@ impl Main {
                     Key::Named(Named::ArrowDown) => Some(Message::Key(Named::ArrowDown)),
                     Key::Named(Named::Space) => Some(Message::Key(Named::Space)),
                     Key::Named(Named::Escape) => Some(Message::Escape),
+                    Key::Named(Named::Enter) => Some(Message::PoolHot(crate::pools_screen::Hot::Confirm)),
                     Key::Character(letter) if modifiers.command() && !modifiers.shift() && latin(letter) == Some('z') => Some(Message::Undo),
                     Key::Character(letter) if modifiers.command() && modifiers.shift() && latin(letter) == Some('z') => Some(Message::Redo),
                     Key::Character(letter) if modifiers.command() && latin(letter) == Some('k') => Some(Message::PoolCommands),
@@ -2097,6 +2100,8 @@ impl Main {
                     self.sorting();
                     self.search.clear();
                     return iced::advanced::widget::operate(iced::advanced::widget::operation::focusable::unfocus::<Message>());
+                } else if self.overlay == Overlay::Community && self.community_section == crate::community_screen::Section::Pools && self.pools.cancel_next().is_some() {
+                    return self.update(Message::PoolHot(crate::pools_screen::Hot::Cancel));
                 } else if self.overlay == Overlay::Community {
                     self.feed_query.clear();
                     self.channel_draft.clear();
@@ -2739,6 +2744,10 @@ impl Main {
                 if self.overlay == Overlay::Community && self.community_section == crate::community_screen::Section::Pools {
                     return self.update(Message::Community(crate::community_screen::Message::Pools(crate::pools_screen::Message::Undo)));
                 }
+                Task::none()
+            }
+            Message::PoolHeld(held) => {
+                self.pools.shift = held;
                 Task::none()
             }
             Message::PoolHot(hot) => {
@@ -4469,6 +4478,9 @@ impl Main {
     }
 
     pub fn write_notice(&mut self, mark: notices::Mark, words: String, detail: String, note: String, map_hash: String, link: notices::Link) -> u64 {
+        if mark == notices::Mark::Bad && !self.gallery {
+            crate::notices::log(&words, &detail, &note);
+        }
         let id = self.notices.push(mark, words, detail, note, map_hash, link);
         self.scenes_due = true;
         self.bell_flash = Animation::new(true).duration(BELL_FLASH).easing(Easing::Linear).go(false, Instant::now());

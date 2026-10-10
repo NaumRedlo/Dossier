@@ -1528,7 +1528,15 @@ impl Main {
                 }
                 Effect::Publish(pool) => {
                     let (server, token, device) = (self.settings.server.clone(), self.settings.token.clone(), self.settings.device.clone());
-                    tasks.push(ui::in_thread(move || { let result = crate::bot::publish(&server, &token, &device, &pool).map_err(|e| e.to_string()); Message::Community(crate::community_screen::Message::Pools(P::Published(pool.id, result))) }));
+                    let source = pool.backdrop.as_ref().filter(|_| !pool.collection).and_then(|backdrop| match &backdrop.from {
+                        crate::pools::BackdropFrom::Map(hash) => self.pools.songs.as_ref()?.get(hash)?.background.clone(),
+                        crate::pools::BackdropFrom::File(path) => Some(path.clone()),
+                    });
+                    tasks.push(ui::in_thread(move || {
+                        let picture = source.and_then(|path| crate::pools::backdrop_copy(&path));
+                        let result = crate::bot::publish(&server, &token, &device, &pool, picture.as_deref()).map_err(|e| e.to_string());
+                        Message::Community(crate::community_screen::Message::Pools(P::Published(pool.id, result)))
+                    }));
                 }
                 Effect::Withdraw(pool) => {
                     let (server, token, device) = (self.settings.server.clone(), self.settings.token.clone(), self.settings.device.clone());
@@ -1617,6 +1625,7 @@ impl Main {
                 Effect::SaveImage(request, pool) => {
                     let name = crate::pool_card::file_name(&pool);
                     let lang = self.words.lang();
+                    let backing = self.pools.backdrop.as_ref().filter(|(key, _)| key.starts_with(&format!("{}:", pool.id))).map(|(_, picture)| picture.clone());
                     let paths: HashMap<String, PathBuf> = pool.slots.iter().filter_map(|slot| {
                         let hash = slot.hash.as_ref()?;
                         let path = self.pools.songs.as_ref()?.get(hash)?.background.as_ref()?;
@@ -1634,9 +1643,10 @@ impl Main {
                             let pool = pool.clone();
                             let paths = paths.clone();
                             let cached = cached.clone();
+                            let backing = backing.clone();
                             ui::in_thread(move || {
                                 let covers = crate::pool_card::covers(&pool, &paths, &cached);
-                                let said = crate::pool_card::render(&pool, &crate::lang::Words::new(lang), &covers)
+                                let said = crate::pool_card::render(&pool, &crate::lang::Words::new(lang), &covers, backing.as_ref())
                                     .and_then(|bytes| crate::pool_card::save(&path, &bytes)).map(|()| Some(path));
                                 Message::Community(crate::community_screen::Message::Pools(P::ImageSaved(request, said)))
                             })

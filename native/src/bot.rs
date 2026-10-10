@@ -32,10 +32,19 @@ pub fn publications(server: &str, token: &str, device: &str, kind: &str, offset:
     status(reply)?.json().map_err(|e| Refused::Network(e.to_string()))
 }
 
-pub fn publish(server: &str, token: &str, device: &str, pool: &crate::pools::Pool) -> Result<Publication, Refused> {
-    let content = if pool.collection {
-        serde_json::json!({"name": pool.name, "hashes": pool.slots.iter().filter_map(|slot| slot.hash.clone()).collect::<Vec<_>>()})
-    } else { serde_json::from_slice(&crate::pool_share::to_file(pool)).map_err(|e| Refused::Said(e.to_string()))? };
+pub fn published_content(pool: &crate::pools::Pool, backdrop: Option<&[u8]>) -> Result<serde_json::Value, String> {
+    if pool.collection {
+        return Ok(serde_json::json!({"name": pool.name, "hashes": pool.slots.iter().filter_map(|slot| slot.hash.clone()).collect::<Vec<_>>()}));
+    }
+    let mut content: serde_json::Value = serde_json::from_slice(&crate::pool_share::to_file(pool)).map_err(|e| e.to_string())?;
+    if let (Some(chosen), Some(picture), Some(fields)) = (pool.backdrop.as_ref(), backdrop, content.as_object_mut()) {
+        fields.insert("backdrop".into(), crate::pools::sent_backdrop(chosen, picture));
+    }
+    Ok(content)
+}
+
+pub fn publish(server: &str, token: &str, device: &str, pool: &crate::pools::Pool, backdrop: Option<&[u8]>) -> Result<Publication, Refused> {
+    let content = published_content(pool, backdrop).map_err(Refused::Said)?;
     let kind = if pool.collection { "collection" } else { "pool" };
     let reply = client()?.put(format!("{server}/render/catalog/{kind}/{}", pool.id)).header("X-Render-Worker", device).bearer_auth(token)
         .json(&serde_json::json!({"content": content, "revision": pool.published_revision})).send().map_err(|e| Refused::Network(e.to_string()))?;

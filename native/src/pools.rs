@@ -469,6 +469,50 @@ pub fn save(dir: &Path, pool: &Pool) -> Result<(), String> {
     std::fs::rename(&staging, &target).map_err(|why| format!("{}: {why}", target.display()))
 }
 
+pub const SENT_WIDE: u32 = 960;
+pub const SENT_HIGH: u32 = 540;
+pub const SENT_MOST: usize = 240 * 1024;
+
+pub fn backdrop_copy(path: &Path) -> Option<Vec<u8>> {
+    let picture = ::image::ImageReader::open(path).ok()?.with_guessed_format().ok()?.decode().ok()?;
+    let small = picture.resize_to_fill(SENT_WIDE, SENT_HIGH, ::image::imageops::FilterType::Triangle).to_rgb8();
+    for quality in [78u8, 62, 46, 30] {
+        let mut bytes = Vec::new();
+        ::image::codecs::jpeg::JpegEncoder::new_with_quality(&mut bytes, quality).encode_image(&small).ok()?;
+        if bytes.len() <= SENT_MOST {
+            return Some(bytes);
+        }
+    }
+    None
+}
+
+pub fn sent_backdrop(backdrop: &Backdrop, picture: &[u8]) -> serde_json::Value {
+    serde_json::json!({"dim": backdrop.dim.clamp(Backdrop::LEAST_DIM, Backdrop::MOST_DIM), "blur": backdrop.blur, "picture": crate::pool_share::encode(picture)})
+}
+
+pub fn held_backdrop(dir: &Path, id: &str, content: &serde_json::Value) -> Option<Backdrop> {
+    let said = content.get("backdrop")?;
+    let text = said.get("picture")?.as_str()?;
+    if text.len() > SENT_MOST * 4 / 3 + 8 || id.is_empty() || !id.chars().all(|sign| sign.is_ascii_alphanumeric() || sign == '-' || sign == '_') {
+        return None;
+    }
+    let bytes = crate::pool_share::decode(text)?;
+    let reader = ::image::ImageReader::new(std::io::Cursor::new(&bytes)).with_guessed_format().ok()?;
+    if reader.format() != Some(::image::ImageFormat::Jpeg) {
+        return None;
+    }
+    let (wide, high) = reader.into_dimensions().ok()?;
+    if wide == 0 || high == 0 || wide > 1920 || high > 1080 {
+        return None;
+    }
+    let folder = dir.join("backdrops");
+    std::fs::create_dir_all(&folder).ok()?;
+    let target = folder.join(format!("{id}.jpg"));
+    std::fs::write(&target, &bytes).ok()?;
+    let dim = said.get("dim").and_then(serde_json::Value::as_u64).map_or(60, |dim| dim.clamp(u64::from(Backdrop::LEAST_DIM), u64::from(Backdrop::MOST_DIM)) as u8);
+    Some(Backdrop { from: BackdropFrom::File(target), dim, blur: said.get("blur").and_then(serde_json::Value::as_bool).unwrap_or(true), on_card: true })
+}
+
 pub fn keep_version(dir: &Path, pool: &Pool) -> Result<(), String> {
     let folder = dir.join("history").join(&pool.id);
     std::fs::create_dir_all(&folder).map_err(|why| format!("{}: {why}", folder.display()))?;
@@ -630,6 +674,32 @@ pub fn clock(length_ms: i64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_backdrop_travels_with_a_publication_as_a_small_jpeg_and_lands_in_the_receivers_folder() {
+        let dir = std::env::temp_dir().join(format!("dossier-backdrop-sent-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let source = dir.join("big.png");
+        ::image::RgbImage::from_fn(1920, 1200, |x, y| ::image::Rgb([(x % 256) as u8, (y % 256) as u8, 90])).save(&source).unwrap();
+        let copy = backdrop_copy(&source).expect("a copy");
+        assert!(copy.len() <= SENT_MOST && copy.starts_with(&[0xff, 0xd8, 0xff]));
+        let chosen = Backdrop { from: BackdropFrom::File(source.clone()), dim: 75, blur: false, on_card: true };
+        let mut pool = Pool::new(Frame::Free, "Cup", 100);
+        pool.backdrop = Some(chosen.clone());
+        pool.slots.push(Slot::empty(Mod::Nm));
+        let content = crate::bot::published_content(&pool, Some(&copy)).unwrap();
+        assert!(content["backdrop"]["picture"].as_str().is_some_and(|text| text.starts_with("_9j_")));
+        assert!(crate::bot::published_content(&pool, None).unwrap().get("backdrop").is_none(), "no picture, no backdrop in the publication");
+        let held = held_backdrop(&dir, "theirs-1", &content).expect("kept");
+        assert_eq!((held.dim, held.blur, held.on_card), (75, false, true));
+        let BackdropFrom::File(path) = &held.from else { panic!("a file") };
+        assert_eq!(::image::image_dimensions(path).unwrap(), (SENT_WIDE, SENT_HIGH));
+        assert!(held_backdrop(&dir, "../outside", &content).is_none(), "the name of the file never leaves the folder");
+        let png = serde_json::json!({"backdrop": {"dim": 60, "blur": true, "picture": crate::pool_share::encode(&std::fs::read(&source).unwrap()[..2000])}});
+        assert!(held_backdrop(&dir, "theirs-2", &png).is_none(), "only a JPEG is taken");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     fn corpus() -> String {
         let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../crates/dossier-assay/corpus/maps/5114204.osu");

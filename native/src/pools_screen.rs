@@ -1273,6 +1273,7 @@ impl State {
                 if let Some(publication) = self.publications.iter().find(|row| row.id == id && !row.mine).filter(|_| !held).cloned() {
                     if let Some(mut pool) = published_pool(&publication, self.songs.as_deref(), now) {
                         pool.published_revision = 0;
+                        pool.backdrop = pools::held_backdrop(&self.dir, &pool.id, &publication.content);
                         pool.saved = Some(pools::Saved { id: publication.id.clone(), code: publication.code.clone(), revision: publication.revision, publisher: pool.compiler.clone(), collected: false });
                         self.list.push(pool);
                         self.save(self.list.len() - 1, now);
@@ -1297,6 +1298,7 @@ impl State {
                         pool.id = id.clone();
                         pool.published_revision = 0;
                         pool.made_at = self.list[at].made_at;
+                        pool.backdrop = pools::held_backdrop(&self.dir, &pool.id, &publication.content);
                         pool.saved = Some(pools::Saved { id: publication.id.clone(), code: publication.code.clone(), revision: publication.revision, publisher: pool.compiler.clone(), collected: false });
                         self.list[at] = pool;
                         if self.pull.as_ref().is_some_and(|pull| pull.pool == id) { self.pull = None; }
@@ -1462,6 +1464,7 @@ impl State {
                     } else { serde_json::to_vec(&publication.content).ok().and_then(|bytes| pool_share::from_file(&bytes, now).ok()) };
                     if let Some(mut pool) = parsed {
                         if publication.mine { pool.id = publication.local_id; pool.published_revision = publication.revision; }
+                        pool.backdrop = self.list.iter().find(|item| item.id == pool.id).and_then(|item| item.backdrop.clone()).or_else(|| pools::held_backdrop(&self.dir, &pool.id, &publication.content));
                         if let Some(at) = self.list.iter().position(|item| item.id == pool.id && item.published_revision != pool.published_revision) {
                             let mut draft = self.list[at].clone();
                             draft.id = Pool::new(Frame::Free, "", now).id;

@@ -170,7 +170,7 @@ fn every_exported_pool_card_matches_its_approved_frame() {
     for lang in dossier_native::lang::Lang::ALL {
         for (kind, pool) in ["duel", "stage", "free"].into_iter().zip(&pools) {
             let name = format!("pool-card-{kind}-{}.png", lang.tag());
-            let bytes = dossier_native::pool_card::render(pool, &dossier_native::lang::Words::new(lang), &covers).unwrap();
+            let bytes = dossier_native::pool_card::render(pool, &dossier_native::lang::Words::new(lang), &covers, None).unwrap();
             let actual = review.join(&name);
             std::fs::write(&actual, bytes).unwrap();
             compare_files_within(&golden(&name), &actual, CARD_TOLERANCE).unwrap_or_else(|why| panic!("{name}: {why}; current frame: {}", actual.display()));

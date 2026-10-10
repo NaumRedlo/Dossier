@@ -17,6 +17,7 @@ const GAP: f32 = 12.0;
 const PADDING: f32 = 36.0;
 const COLUMNS: usize = 3;
 const MAX_PIXELS: u64 = 32_000_000;
+const BACKING_HIGH: f32 = 300.0;
 
 fn size(pool: &Pool) -> Result<Size, String> {
     let rows = pool.slots.len().max(1).div_ceil(COLUMNS);
@@ -60,7 +61,7 @@ fn tile<'a>(slot: &'a Slot, at: usize, words: &'a Words, covers: &'a HashMap<Str
         }).into()
 }
 
-pub fn view<'a>(pool: &'a Pool, words: &'a Words, covers: &'a HashMap<String, image::Handle>) -> Element<'a, ()> {
+pub fn view<'a>(pool: &'a Pool, words: &'a Words, covers: &'a HashMap<String, image::Handle>, backing: Option<&image::Handle>) -> Element<'a, ()> {
     let name = if pool.name.trim().is_empty() { words.t("pool-untitled") } else { pool.name.clone() };
     let header = row![image(crate::ui::letter_red().clone()).width(22).height(26), text("Dossier").font(theme::SANS_SEMI).size(18).color(INK)].spacing(12).align_y(iced::Center);
     let title = container(text(name).font(theme::SANS_SEMI).size(30).color(INK).wrapping(text::Wrapping::None).width(Length::Fill)).height(40).clip(true);
@@ -79,15 +80,25 @@ pub fn view<'a>(pool: &'a Pool, words: &'a Words, covers: &'a HashMap<String, im
         None => words.t("pool-image-no-measures"),
     };
     let footer = container(row![line(balance, theme::SANS, 12.0, FAINT), text(pool.fingerprint()).font(theme::MONO).size(12).color(FAINT)].spacing(16).align_y(iced::Center)).padding(iced::Padding::ZERO.top(8));
-    container(column![header, title, frame, grid, footer].spacing(16)).padding(PADDING).width(Length::Fill).height(Length::Fill)
-        .style(|_| container::Style { background: Some(Background::Color(theme::GROUND)), ..container::Style::default() }).into()
+    let page = container(column![header, title, frame, grid, footer].spacing(16)).padding(PADDING).width(Length::Fill).height(Length::Fill);
+    let ground = container(match pool.backdrop.as_ref().filter(|chosen| chosen.on_card).zip(backing) {
+        Some((chosen, picture)) => {
+            let base = theme::GROUND.into_rgba8();
+            Element::from(column![image(crate::crops::sunk(picture, WIDTH, BACKING_HIGH, chosen.dim, [base[0], base[1], base[2]])).content_fit(iced::ContentFit::Fill).width(Length::Fill).height(BACKING_HIGH), Space::new().height(Length::Fill)])
+        }
+        None => Space::new().into(),
+    })
+    .width(Length::Fill)
+    .height(Length::Fill)
+    .style(|_| container::Style { background: Some(Background::Color(theme::GROUND)), ..container::Style::default() });
+    iced::widget::stack![ground, page].into()
 }
 
-pub fn render(pool: &Pool, words: &Words, covers: &HashMap<String, image::Handle>) -> Result<Vec<u8>, String> {
+pub fn render(pool: &Pool, words: &Words, covers: &HashMap<String, image::Handle>, backing: Option<&image::Handle>) -> Result<Vec<u8>, String> {
     let size = size(pool)?;
     let settings = crate::gallery::settings_once();
     let mut renderer = iced::futures::executor::block_on(<iced::Renderer as Headless>::new(settings.default_font, settings.default_text_size, Some("tiny-skia"))).ok_or("Could not create image renderer")?;
-    let mut element = crate::ui::fading(1.0, || view(pool, words, covers));
+    let mut element = crate::ui::fading(1.0, || view(pool, words, covers, backing));
     let mut tree = Tree::new(&element);
     let node = element.as_widget_mut().layout(&mut tree, &renderer, &layout::Limits::new(size, size));
     let viewport = Rectangle::with_size(size);
@@ -146,7 +157,7 @@ mod tests {
         let covers: HashMap<_, _> = covers.into_iter().collect();
         for lang in Lang::ALL {
             for (kind, pool) in ["duel", "stage", "free"].into_iter().zip(&pools) {
-                let bytes = render(pool, &Words::new(lang), &covers).unwrap();
+                let bytes = render(pool, &Words::new(lang), &covers, None).unwrap();
                 let decoder = png::Decoder::new(bytes.as_slice());
                 let mut reader = decoder.read_info().unwrap();
                 let mut pixels = vec![0; reader.output_buffer_size()];
@@ -165,6 +176,29 @@ mod tests {
     }
 
     #[test]
+    fn the_pool_backdrop_stands_behind_the_head_of_the_picture_only_when_the_pool_asks_for_it() {
+        let (pools, _, covers) = crate::gallery::pool_sample();
+        let covers: HashMap<_, _> = covers.into_iter().collect();
+        let words = Words::new(Lang::En);
+        let decode = |bytes: Vec<u8>| {
+            let mut reader = png::Decoder::new(bytes.as_slice()).read_info().unwrap();
+            let mut pixels = vec![0; reader.output_buffer_size()];
+            let info = reader.next_frame(&mut pixels).unwrap();
+            (info.width as usize, pixels)
+        };
+        let white = image::Handle::from_rgba(64, 36, [255u8, 255, 255, 255].repeat(64 * 36));
+        let mut pool = pools[0].clone();
+        pool.backdrop = Some(crate::pools::Backdrop { from: crate::pools::BackdropFrom::Map("x".into()), dim: 60, blur: false, on_card: true });
+        let (width, backed) = decode(render(&pool, &words, &covers, Some(&white)).unwrap());
+        assert_eq!(&backed[8 * 4..8 * 4 + 4], &[110, 105, 107, 255], "the top shows the picture under the chosen darkening");
+        let low = (BACKING_HIGH as usize * 2 + 8) * width * 4 + 8 * 4;
+        assert_eq!(&backed[low..low + 4], &[13, 5, 8, 255], "below the head the ground is clean");
+        let plain = render(&pools[0], &words, &covers, None).unwrap();
+        pool.backdrop.as_mut().unwrap().on_card = false;
+        assert_eq!(render(&pool, &words, &covers, Some(&white)).unwrap(), plain, "switched off, the picture is the usual one");
+    }
+
+    #[test]
     fn long_labels_and_oversized_covers_cannot_paint_outside_their_tile() {
         let (pools, _, covers) = crate::gallery::pool_sample();
         let mut covers: HashMap<_, _> = covers.into_iter().collect();
@@ -175,14 +209,14 @@ mod tests {
             let info = reader.next_frame(&mut pixels).unwrap();
             (info.width as usize, pixels)
         };
-        let (width, before) = decode(render(&pools[0], &words, &covers).unwrap());
+        let (width, before) = decode(render(&pools[0], &words, &covers, None).unwrap());
         let mut pool = pools[0].clone();
         pool.slots[0].title = "A long title ".repeat(60);
         pool.slots[0].artist = "An artist name ".repeat(60);
         pool.slots[0].version = "A difficulty name ".repeat(60);
         let pixels = [255u8, 20, 10, 255].repeat(900 * 100);
         covers.insert(pool.slots[0].hash.clone().unwrap(), image::Handle::from_rgba(900, 100, pixels));
-        let (_, after) = decode(render(&pool, &words, &covers).unwrap());
+        let (_, after) = decode(render(&pool, &words, &covers, None).unwrap());
         for (at, (before, after)) in before.chunks_exact(4).zip(after.chunks_exact(4)).enumerate() {
             let (x, y) = (at % width, at / width);
             if !(72..728).contains(&x) || !(320..760).contains(&y) {
@@ -195,7 +229,7 @@ mod tests {
     fn images_too_large_to_render_are_refused_before_allocating_pixels() {
         let mut pool = Pool::new(Frame::Free, "Large", 0);
         pool.slots = vec![Slot::empty(Mod::Nm); 1000];
-        assert!(render(&pool, &Words::new(Lang::En), &HashMap::new()).is_err());
+        assert!(render(&pool, &Words::new(Lang::En), &HashMap::new(), None).is_err());
     }
 
     #[test]

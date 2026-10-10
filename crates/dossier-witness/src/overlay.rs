@@ -268,7 +268,7 @@ mod tests {
         std::fs::create_dir_all(songs.join("set")).unwrap();
         std::fs::write(
             songs.join("set").join("map.osu"),
-            "[Events]\n2,20000,28000\n[HitObjects]\n256,192,1500,1,0\n256,192,90000,1,0\n",
+            "osu file format v14\n[Events]\n2,20000,28000\n[HitObjects]\n256,192,1500,1,0\n256,192,90000,1,0\n",
         )
         .unwrap();
         let meter = Meter {

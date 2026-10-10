@@ -1,5 +1,16 @@
 # Witness overlay plates
 
+The experimental in-process Windows transport lives in
+[`tools/overlay-host`](../tools/overlay-host/README.md). It composites the common
+tile and available live PP/UR plates into one cropped transparent texture, with
+persistent animations and no uploads for unchanged static scenes. It is separate
+from the external `--hud` windows below. An optional context file produced by
+Dossier supplies language and the matching loaded pool; it expires after 15
+seconds and is scoped to the process and map. Day summaries have a transport field
+but no producer yet. Saved replay outcomes are not yet transported to this host.
+The external HUD now consumes the protocol receiver: expired telemetry, disconnect
+and a new session clear the visible state and any pending send-key hold.
+
 `crates/dossier-hud` turns what the overlay knows into pictures. It takes the
 current `dossier_overlay::View`, a `Context` with what Dossier knows beyond the
 snapshot, and a `Stage` that holds the animation, and returns sprites: small

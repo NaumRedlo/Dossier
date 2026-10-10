@@ -3373,6 +3373,9 @@ impl Main {
                 }
                 let was_there = matches!(self.witness.status, crate::witness::Status::Loading | crate::witness::Status::Watching | crate::witness::Status::Playing);
                 self.witness.take(&event);
+                if let Some(control) = &self.witness_control {
+                    control.context(&event, self.witness.state.as_ref(), &self.pools.list, self.settings.lang == crate::lang::Lang::En);
+                }
                 let leaving = was_there && matches!(event, crate::witness::Event::Gone | crate::witness::Event::Waiting | crate::witness::Event::Absent);
                 let sitting = Task::batch([self.sitting_task(&event), if leaving { self.history_task(false) } else { Task::none() }]);
                 if let crate::witness::Event::Kept(kept) = &event {

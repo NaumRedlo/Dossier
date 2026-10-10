@@ -209,6 +209,9 @@ dependencies = [
 name = "dossier-overlay"
 version = "0.11.0"
 dependencies = [
+ "dossier-beatmap",
+ "dossier-replay",
+ "dossier-sim",
  "serde",
  "serde_json",
 ]

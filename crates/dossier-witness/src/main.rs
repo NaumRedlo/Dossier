@@ -186,7 +186,7 @@ impl Shown {
     }
 
     fn told(&mut self, frame: &dossier_overlay::Frame) {
-        self.hud.told(frame, self.pid);
+        self.hud.told(frame);
         self.fresh = true;
     }
 
@@ -206,6 +206,7 @@ impl Shown {
             eprintln!("witness hud: the send key was held for its time; nothing is sent yet");
             self.fresh = true;
         }
+        self.fresh |= self.hud.take_dirty();
         let place = self.window.and_then(panes::area).filter(|_| keys.front);
         let said = match place {
             Some((x, y, wide, high)) => {
@@ -295,6 +296,7 @@ fn serve(player: &str, leash: Option<&std::path::Path>, overlay_mode: bool, hud:
         let mut shelf = process.folder().map(|folder| dossier_witness::beatmaps::Shelf::beside(&folder));
         let mut recorder = stable::Recorder::default();
         let mut shown = hud.map(|(lang, offers, _)| Shown::new(process.pid, lang, offers));
+        if let Some(shown) = shown.as_mut() { shown.told(&overlay.hello(process.pid, &client.build)); }
         let keeps = hud.is_some_and(|(_, _, keeps)| keeps);
         let mut last_state = String::new();
         let mut told_at = Instant::now();

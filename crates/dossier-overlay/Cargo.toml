@@ -8,3 +8,7 @@ license.workspace = true
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+
+dossier-beatmap = { path = "../dossier-beatmap" }
+dossier-sim = { path = "../dossier-sim" }
+dossier-replay = { path = "../dossier-replay" }

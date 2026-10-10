@@ -552,9 +552,30 @@ pub struct Control {
     stop: AtomicBool,
     child: Mutex<Option<Child>>,
     overlay: Mutex<Option<Overlay>>,
+    context: Mutex<Option<dossier_hud::context::Packet>>,
+    pid: std::sync::atomic::AtomicU32,
 }
 
+pub fn context_path() -> PathBuf { crate::sources::own_root().join("witness-context.json") }
+
 impl Control {
+    pub fn context(&self, event: &Event, state: Option<&State>, pools: &[crate::pools::Pool], english: bool) {
+        if let Event::Attached { pid, .. } = event { self.pid.store(*pid, Ordering::SeqCst); }
+        let absent = matches!(event, Event::Gone | Event::Waiting | Event::Absent | Event::Unavailable);
+        if absent { self.pid.store(0, Ordering::SeqCst); }
+        let pid = self.pid.load(Ordering::SeqCst);
+        let mut held = self.context.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        *held = (pid != 0 && !matches!(event, Event::Loading)).then(|| {
+            let map_md5 = state.map(|state| state.md5.clone()).filter(|hash| !hash.is_empty());
+            let card = map_md5.as_ref().and_then(|hash| pools.iter().filter(|pool| !pool.collection).find_map(|pool| {
+                pool.slots.iter().find(|slot| slot.hash.as_ref().is_some_and(|known| known.eq_ignore_ascii_case(hash))).map(|slot| dossier_hud::Card {
+                    pool: Some(pool.name.clone()), stars: slot.measure.as_ref().filter(|_| slot.mods == crate::pools::Mod::Nm).map(|measure| measure.stars), places: Vec::new(),
+                })
+            }));
+            dossier_hud::context::Packet { version: 1, pid, at_ms: 0, lang: if english { dossier_hud::Lang::En } else { dossier_hud::Lang::Ru }, map_md5, card, day: None }
+        });
+    }
+
     pub fn stop(&self) {
         self.stop.store(true, Ordering::SeqCst);
         if let Some(mut child) = self.child.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).take() {
@@ -624,9 +645,15 @@ pub fn run(control: Arc<Control>, player: String, push: &mut dyn FnMut(Event) ->
         std::thread::spawn(move || {
             while !holder.stopped() {
                 let _ = std::fs::write(&leash, b"held");
+                let packet = holder.context.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone();
+                if let Some(mut packet) = packet {
+                    packet.at_ms = dossier_hud::context::now_ms();
+                    let _ = dossier_hud::context::write(&context_path(), &packet);
+                } else { let _ = std::fs::remove_file(context_path()); }
                 holder.rest(LEASH_EVERY);
             }
             let _ = std::fs::remove_file(&leash);
+            let _ = std::fs::remove_file(context_path());
         });
     }
     let mut absent_told = false;
@@ -667,6 +694,41 @@ pub fn run(control: Arc<Control>, player: String, push: &mut dyn FnMut(Event) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn overlay_context_tracks_attachment_loading_and_disconnect() {
+        let control = Control::default();
+        let attached = Event::Attached { pid: 42, build: String::new(), player: String::new() };
+        control.context(&attached, None, &[], true);
+        assert_eq!(control.context.lock().unwrap().as_ref().unwrap().pid, 42);
+        control.context(&Event::Loading, None, &[], true);
+        assert!(control.context.lock().unwrap().is_none());
+        let state = State { md5: "a".repeat(32), ..State::default() };
+        control.context(&Event::State(state.clone()), Some(&state), &[], true);
+        let packet = control.context.lock().unwrap().clone().unwrap();
+        assert_eq!(packet.pid, 42);
+        assert_eq!(packet.map_md5, Some("a".repeat(32)));
+        assert_eq!(packet.lang, dossier_hud::Lang::En);
+        assert!(packet.day.is_none() && packet.card.is_none());
+        control.context(&Event::Gone, None, &[], true);
+        assert!(control.context.lock().unwrap().is_none());
+    }
+
+    #[test]
+    fn overlay_pool_card_matches_the_map_and_excludes_collections() {
+        let control = Control::default();
+        let mut pool = crate::pools::Pool::new(crate::pools::Frame::Free, "Cup", 0);
+        let mut slot = crate::pools::Slot::empty(crate::pools::Mod::Nm);
+        slot.hash = Some("a".repeat(32));
+        pool.slots.push(slot);
+        let state = State { md5: "A".repeat(32), ..State::default() };
+        let attached = Event::Attached { pid: 42, build: String::new(), player: String::new() };
+        control.context(&attached, Some(&state), &[pool.clone()], false);
+        assert_eq!(control.context.lock().unwrap().as_ref().unwrap().card.as_ref().unwrap().pool.as_deref(), Some("Cup"));
+        pool.collection = true;
+        control.context(&Event::State(state.clone()), Some(&state), &[pool], false);
+        assert!(control.context.lock().unwrap().as_ref().unwrap().card.is_none());
+    }
 
     #[test]
     fn what_witness_says_is_read_line_by_line() {

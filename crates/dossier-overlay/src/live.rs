@@ -21,57 +21,17 @@ pub struct Rests {
 
 impl Rests {
     pub fn parse(text: &str) -> Option<Rests> {
-        let mut section = "";
-        let mut found = Rests::default();
-        let mut objects = 0usize;
-        for line in text.lines() {
-            let line = line.trim();
-            if line.starts_with('[') && line.ends_with(']') {
-                section = line;
-                continue;
-            }
-            if line.is_empty() || line.starts_with("//") {
-                continue;
-            }
-            let fields: Vec<&str> = line.split(',').map(str::trim).collect();
-            match section {
-                "[Events]" if matches!(fields.first(), Some(&"2") | Some(&"Break")) => {
-                    let from = fields.get(1).and_then(|field| field.parse::<f64>().ok());
-                    let to = fields.get(2).and_then(|field| field.parse::<f64>().ok());
-                    if let (Some(from), Some(to)) = (from, to) {
-                        if from.is_finite() && to.is_finite() && to > from {
-                            found.breaks.push((from, to));
-                        }
-                    }
-                }
-                "[HitObjects]" => {
-                    let Some(time) = fields.get(2).and_then(|field| field.parse::<f64>().ok())
-                    else {
-                        continue;
-                    };
-                    let spins = fields
-                        .get(3)
-                        .and_then(|field| field.parse::<u32>().ok())
-                        .is_some_and(|kind| kind & 8 != 0);
-                    let end = if spins {
-                        fields
-                            .get(5)
-                            .and_then(|field| field.split(':').next())
-                            .and_then(|field| field.parse::<f64>().ok())
-                            .unwrap_or(time)
-                    } else {
-                        time
-                    };
-                    if objects == 0 {
-                        found.first = time;
-                    }
-                    found.last = found.last.max(end.max(time));
-                    objects += 1;
-                }
-                _ => {}
-            }
+        let map = dossier_beatmap::Beatmap::parse(text).ok()?;
+        if map.mode != 0 || map.objects.is_empty() {
+            return None;
         }
-        (objects > 0).then_some(found)
+        let timeline = dossier_sim::Timeline::build(&map, dossier_replay::Mods::new(0));
+        let first = timeline.objects.iter().map(|object| object.start_ms).reduce(f64::min)?;
+        let last = timeline.objects.iter().map(|object| object.end_ms).reduce(f64::max)?;
+        if !first.is_finite() || !last.is_finite() {
+            return None;
+        }
+        Some(Self { first, last, breaks: map.breaks })
     }
 
     pub fn resting(&self, time_ms: f64) -> bool {
@@ -126,5 +86,20 @@ mod tests {
             None,
             "a file with no notes says nothing"
         );
+    }
+}
+
+#[cfg(test)]
+mod slider_tests {
+    use super::*;
+
+    #[test]
+    fn a_final_repeated_slider_finishes_after_all_spans_with_inherited_velocity() {
+        let map = "osu file format v14\n[General]\nMode:0\n[Difficulty]\nSliderMultiplier:1\nSliderTickRate:1\n[TimingPoints]\n0,500,4,2,0,100,1,0\n0,-50,4,2,0,100,0,0\n[HitObjects]\n100,100,1000,2,0,L|300:100,2,200\n";
+        let rests = Rests::parse(map).unwrap();
+        assert!((rests.last - 2000.0).abs() < 1.0, "{}", rests.last);
+        assert!(!rests.resting(1500.0));
+        assert!(!rests.resting(rests.last));
+        assert!(rests.resting(rests.last + 1.0));
     }
 }

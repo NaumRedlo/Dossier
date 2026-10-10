@@ -1124,6 +1124,7 @@ dependencies = [
  "fontdue",
  "png 0.17.16",
  "serde",
+ "serde_json",
  "tiny-skia",
 ]
 
@@ -1136,6 +1137,7 @@ dependencies = [
  "dossier-assay",
  "dossier-audio",
  "dossier-beatmap",
+ "dossier-hud",
  "dossier-produce",
  "dossier-render",
  "dossier-replay",
@@ -1174,6 +1176,9 @@ dependencies = [
 name = "dossier-overlay"
 version = "0.11.0"
 dependencies = [
+ "dossier-beatmap",
+ "dossier-replay",
+ "dossier-sim",
  "serde",
  "serde_json",
 ]

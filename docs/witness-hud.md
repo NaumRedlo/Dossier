@@ -96,6 +96,25 @@ browser and go into one shared surface; loading a DLL into the game is a new
 step for Witness, which until now only read memory, and `docs/witness.md` has to
 say so before it ships.
 
+## What the Mac cannot show
+
+Measured on 10 October 2026 in the CrossOver 26.3 bottle with osu! stable, by a
+small program that asked for the two things asdf-overlay stands on, as a 64-bit
+and as a 32-bit process:
+
+- A Direct3D 11 device is made and a texture marked as shared is created, but
+  asking for its shared handle answers `E_NOTIMPL` (0x80004001), with and
+  without a keyed mutex. A surface cannot pass from one process to another.
+- The game's OpenGL (Apple's 2.1 over Metal) has neither
+  `GL_EXT_memory_object_win32` nor `WGL_NV_DX_interop2`, the two ways
+  asdf-overlay brings that surface into an OpenGL game.
+
+So an overlay drawn inside the game through asdf-overlay cannot be seen on this
+machine at all: it can only be tried on Windows. Its DLL also needs the MSVC
+toolchain (its hooks link Frida's devkit, which does not link with MinGW), so it
+cannot be built here either. Nothing was loaded into the game for this
+measurement.
+
 ## Not done
 
 No host draws these sprites inside a client. Dossier does not build a `Context`,

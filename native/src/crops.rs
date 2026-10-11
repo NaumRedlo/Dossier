@@ -102,6 +102,21 @@ pub fn sink(pixels: &mut [u8], width: u32, height: u32, shade: f32, ground: [u8;
     }
 }
 
+pub fn tone(handle: &Handle) -> Option<[u8; 3]> {
+    let Handle::Rgba { pixels, .. } = handle else {
+        return None;
+    };
+    let step = (pixels.len() / 4 / 4096).max(1) * 4;
+    let (mut sum, mut count) = ([0u64; 3], 0u64);
+    for pixel in pixels.chunks_exact(4).step_by(step / 4) {
+        for channel in 0..3 {
+            sum[channel] += u64::from(pixel[channel]);
+        }
+        count += 1;
+    }
+    (count > 0).then(|| [(sum[0] / count) as u8, (sum[1] / count) as u8, (sum[2] / count) as u8])
+}
+
 pub fn sunk(handle: &Handle, wide: f32, high: f32, dim: u8, ground: [u8; 3]) -> Handle {
     let Handle::Rgba { id, width, height, pixels } = handle else {
         return handle.clone();
@@ -179,6 +194,16 @@ fn cut(handle: &Handle, wide: f32, high: f32, round: f32, calmed: bool) -> Handl
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_tone_of_a_picture_is_its_average_colour() {
+        let mut pixels = Vec::new();
+        for at in 0..64 {
+            pixels.extend_from_slice(if at % 2 == 0 { &[200, 100, 0, 255] } else { &[100, 100, 200, 255] });
+        }
+        assert_eq!(super::tone(&super::Handle::from_rgba(8, 8, pixels)), Some([150, 100, 100]));
+        assert_eq!(super::tone(&super::Handle::from_path("nowhere.png")), None);
+    }
+
     use super::*;
 
     #[test]

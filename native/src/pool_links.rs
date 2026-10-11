@@ -44,6 +44,9 @@ pub fn parse(text: &str) -> Result<Target, Refusal> {
     if text.is_empty() || text.contains(char::is_whitespace) {
         return Err(Refusal::NotALink);
     }
+    if (3..=10).contains(&text.len()) && text.bytes().all(|byte| byte.is_ascii_digit()) {
+        return parse(&format!("https://osu.ppy.sh/b/{text}"));
+    }
     if text.len() == 32 && text.bytes().all(|byte| byte.is_ascii_hexdigit()) {
         return Ok(Target::Hash(text.to_ascii_lowercase()));
     }
@@ -216,6 +219,14 @@ pub fn resolve_with(bases: &[&str], target: &Target) -> Result<Found, Why> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_bare_number_is_the_id_of_one_difficulty() {
+        assert_eq!(parse("5114204"), parse("https://osu.ppy.sh/b/5114204"));
+        assert!(parse("5114204").is_ok());
+        assert_eq!(parse("42"), Err(Refusal::NotALink), "two digits are still words to search for");
+        assert_eq!(parse("12345678901"), Err(Refusal::NotALink));
+    }
 
     #[test]
     fn a_beatmap_page_with_a_difficulty_names_the_set_and_the_difficulty() {

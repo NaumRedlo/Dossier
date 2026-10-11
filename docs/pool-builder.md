@@ -203,3 +203,26 @@ Decided by the user after using the editor:
   free slot.
 - Every error notice is also written as one line to `~/.dossier/errors.log`
   (set aside as `errors.old.log` past 512 KB).
+
+Later the same day, again by the user's word:
+
+- No headings stand above the categories; their order is changed in the
+  «Категории» sheet, which lists every category of the pool and drops from its
+  button.
+- The buttons «Карта», «Ссылки» and «Выбрать» are gone: a tile with a plus under
+  the last category adds a slot, links are pasted, several slots are taken with
+  Shift.
+- A free slot can be removed in any pool, with its cross or Delete.
+- A pool saved from someone else's publication is read-only, and opening such a
+  publication from «Опубликованные» saves it and opens the saved pool.
+- Cards carry neither the publication code nor the issue number, nor the length;
+  the line «Последний черновик» is gone.
+- A card shows the backdrop the pool really has, from a map or from a file; the
+  picture is keyed by its source, and the draft's picture stands on a plate
+  tinted by it.
+- In the «Коллекции» source the difficulties of one map set are one row with a
+  button for each difficulty, filtered by what is typed in the slot.
+- The «Лучшие игры» source is gone. A bare number typed or pasted is the ID of
+  one difficulty.
+- The skills are called Аим, Скорость, Ридинг, Стамина; the category colours
+  are stronger.

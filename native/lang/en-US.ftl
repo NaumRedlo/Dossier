@@ -1296,3 +1296,6 @@ pool-tool-categories = Categories
 pool-tool-backdrop = Backdrop
 pool-tool-missing = Download { $n }
 pool-tool-history = Versions
+pool-fetch-short = Download
+shelf-mark-saved = Saved
+shelf-mark-published = Published

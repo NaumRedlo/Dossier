@@ -32,6 +32,27 @@ pub fn publications(server: &str, token: &str, device: &str, kind: &str, offset:
     status(reply)?.json().map_err(|e| Refused::Network(e.to_string()))
 }
 
+#[derive(Debug, Clone, PartialEq, serde::Deserialize)]
+pub struct Offered {
+    pub id: u64,
+    #[serde(default)]
+    pub artist: String,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub version: String,
+    #[serde(default)]
+    pub stars: f64,
+    #[serde(default)]
+    pub md5: String,
+}
+
+pub fn suggested(server: &str, token: &str, device: &str, low: f64, high: f64, mods: &str) -> Result<Vec<Offered>, Refused> {
+    let reply = client()?.get(format!("{server}/render/pools/suggest"))
+        .query(&[("low", format!("{low:.2}")), ("high", format!("{high:.2}")), ("mod", mods.to_owned())]).header("X-Render-Worker", device).bearer_auth(token).send().map_err(|e| Refused::Network(e.to_string()))?;
+    status(reply)?.json().map_err(|e| Refused::Network(e.to_string()))
+}
+
 pub fn published_content(pool: &crate::pools::Pool, backdrop: Option<&[u8]>) -> Result<serde_json::Value, String> {
     if pool.collection {
         return Ok(serde_json::json!({"name": pool.name, "hashes": pool.slots.iter().filter_map(|slot| slot.hash.clone()).collect::<Vec<_>>()}));

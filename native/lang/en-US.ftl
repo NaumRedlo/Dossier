@@ -1299,3 +1299,4 @@ pool-tool-history = Versions
 pool-fetch-short = Download
 shelf-mark-saved = Saved
 shelf-mark-published = Published
+pool-suggest-online = From the osu! database

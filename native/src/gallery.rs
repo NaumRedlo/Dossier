@@ -1598,7 +1598,7 @@ fn feed_states(community: &dyn Fn(crate::community_screen::Section, Option<usize
                 measure.stars = 4.76 + at as f64 * 0.13;
                 (hash, measure)
             }).collect();
-            main.pools.suggestions = Some(crate::pools_screen::Suggestions { request: 1, pool: id.clone(), fingerprint, slot: 5, mods: crate::pools::Mod::Fm, target: Some(4.9), maps: Some(maps), stop: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)) });
+            main.pools.suggestions = Some(crate::pools_screen::Suggestions { request: 1, pool: id.clone(), fingerprint, slot: 5, mods: crate::pools::Mod::Fm, target: Some(4.9), maps: Some(maps), offered: Some(Ok(Vec::new())), stop: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)) });
             main.pools.screen = crate::pools_screen::Screen::Editor(crate::pools_screen::Editor { selected: Some(5), panel: crate::pools_screen::Panel::Add, source: crate::pools_screen::SourceTab::Suggest, ..crate::pools_screen::Editor::at(id) });
             main
         }),

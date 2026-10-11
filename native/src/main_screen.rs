@@ -1544,6 +1544,14 @@ impl Main {
                         }
                     }));
                 }
+                Effect::SuggestRemote(request, mods, low, high) => {
+                    let (server, token, device) = (self.settings.server.clone(), self.settings.token.clone(), self.settings.device.clone());
+                    let offline = token.is_empty() || self.gallery;
+                    tasks.push(ui::in_thread(move || {
+                        let found = if offline { Err("offline".to_owned()) } else { crate::bot::suggested(&server, &token, &device, low, high, mods.code()).map_err(|e| e.to_string()) };
+                        Message::Community(crate::community_screen::Message::Pools(P::Offered(request, found)))
+                    }));
+                }
                 Effect::Catalogue(collections, offset) => {
                     let (server, token, device) = (self.settings.server.clone(), self.settings.token.clone(), self.settings.device.clone());
                     tasks.push(ui::in_thread(move || Message::Community(crate::community_screen::Message::Pools(P::CatalogueLoaded(collections, offset > 0, crate::bot::publications(&server, &token, &device, if collections { "collection" } else { "pool" }, offset).map_err(|e| e.to_string()))))));

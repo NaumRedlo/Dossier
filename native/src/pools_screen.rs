@@ -177,6 +177,8 @@ pub enum Hot {
 
 pub const SWATCHES: [[u8; 3]; 10] = [[0x5e, 0xc2, 0xd0], [0xc9, 0x87, 0x3f], [0xe0, 0x48, 0x4c], [0x8c, 0x5a, 0xd0], [0xc0, 0x48, 0x7a], [0xa0, 0x5a, 0x5c], [0x7f, 0xb0, 0x69], [0xd9, 0xc0, 0x4a], [0x4a, 0x8f, 0xd9], [0x9a, 0xa0, 0xa6]];
 
+pub const OFFER_SPAN: f64 = 0.2;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Shelf {
     #[default]
@@ -242,6 +244,7 @@ pub struct Suggestions {
     pub mods: Mod,
     pub target: Option<f64>,
     pub maps: Option<Vec<(String, Measure)>>,
+    pub offered: Option<Result<Vec<crate::bot::Offered>, String>>,
     pub stop: Arc<AtomicBool>,
 }
 
@@ -365,6 +368,8 @@ pub enum Message {
     RefreshBest,
     Suggest(usize),
     Suggested(u64, Vec<(String, Measure)>),
+    Offered(u64, Result<Vec<crate::bot::Offered>, String>),
+    TakeOffered(u64),
     Query(String),
     Put(String),
     Note(usize, String),
@@ -464,6 +469,7 @@ pub enum Effect {
     ReadBest(bool),
     ReadPaste(String, Input, String),
     Suggest(u64, Arc<HashMap<String, Map>>, Mod, f64, HashSet<String>, Arc<AtomicBool>),
+    SuggestRemote(u64, Mod, f64, f64),
     Measure(String, Map, Mod),
     Resolve(u64, Target),
     Cover(String, u64),
@@ -1220,7 +1226,7 @@ impl State {
         self.suggestion_request = self.suggestion_request.wrapping_add(1);
         let request = self.suggestion_request;
         let stop = Arc::new(AtomicBool::new(false));
-        self.suggestions = Some(Suggestions { request, pool: id, fingerprint, slot, mods, target, maps: target.is_none().then(Vec::new), stop: stop.clone() });
+        self.suggestions = Some(Suggestions { request, pool: id, fingerprint, slot, mods, target, maps: target.is_none().then(Vec::new), offered: None, stop: stop.clone() });
         let Some(target) = target else {
             if has_maps && self.songs.is_none() {
                 self.pending_suggestion = Some(slot);
@@ -1231,18 +1237,19 @@ impl State {
             }
             return Vec::new();
         };
+        let custom = self.editing().and_then(|pool| pool.slots.get(slot)).is_some_and(|entry| !entry.category.is_empty());
+        let mut effects = if custom { Vec::new() } else { vec![Effect::SuggestRemote(request, mods, (target - OFFER_SPAN).max(0.0), target + OFFER_SPAN)] };
         match self.songs.clone() {
-            Some(songs) => vec![Effect::Suggest(request, songs, mods, target, excluded, stop)],
+            Some(songs) => effects.push(Effect::Suggest(request, songs, mods, target, excluded, stop)),
             None => {
                 self.pending_suggestion = Some(slot);
                 if !self.reading {
                     self.reading = true;
-                    vec![Effect::ReadSongs]
-                } else {
-                    Vec::new()
+                    effects.push(Effect::ReadSongs);
                 }
             }
         }
+        effects
     }
 
     pub fn update(&mut self, message: Message, now: i64) -> Vec<Effect> {
@@ -2045,6 +2052,14 @@ impl State {
                 self.collecting = false;
             }
             Message::Suggest(slot) => effects.extend(self.suggest_slot(slot)),
+            Message::Offered(request, found) => {
+                if let Some(suggestion) = self.suggestions.as_mut().filter(|suggestion| suggestion.request == request) {
+                    suggestion.offered = Some(found);
+                }
+            }
+            Message::TakeOffered(id) => {
+                effects.extend(self.look_at(&format!("https://osu.ppy.sh/b/{id}")));
+            }
             Message::Suggested(request, maps) => {
                 let current = self.suggestions.as_ref().filter(|suggestion| suggestion.request == request).map(|suggestion| (suggestion.pool.clone(), suggestion.fingerprint.clone(), suggestion.slot, suggestion.mods));
                 if let Some((id, fingerprint, slot, mods)) = current {
@@ -5096,8 +5111,13 @@ fn suggestion_panel<'a>(state: &'a State, words: &'a Words, thumbs: &'a HashMap<
     let Some(maps) = &suggestion.maps else {
         return para(words.t("pool-suggest-running"), 13.0, MUTED);
     };
-    if maps.is_empty() {
-        return para(words.t("pool-suggest-empty"), 13.0, MUTED);
+    let known: HashSet<&str> = maps.iter().map(|(hash, _)| hash.as_str()).collect();
+    let fresh: Vec<&crate::bot::Offered> = match &suggestion.offered {
+        Some(Ok(found)) => found.iter().filter(|item| !known.contains(item.md5.as_str()) && state.songs.as_ref().is_none_or(|songs| !songs.contains_key(&item.md5))).take(12).collect(),
+        _ => Vec::new(),
+    };
+    if maps.is_empty() && fresh.is_empty() {
+        return para(words.t(if suggestion.offered.is_none() { "pool-suggest-running" } else { "pool-suggest-empty" }), 13.0, MUTED);
     }
     let mut list = column![].spacing(2);
     for (hash, measure) in maps {
@@ -5113,6 +5133,18 @@ fn suggestion_panel<'a>(state: &'a State, words: &'a Words, thumbs: &'a HashMap<
         }
         inside = inside.push(mono(stars_of(words, measure.stars), 12.5, crate::dossier::star_colour(measure.stars as f32)));
         list = list.push(button(inside).padding([6, 8]).width(Length::Fill).style(ui::button_faded(ui::calm(theme::row(false)))).on_press(Message::Put(hash.clone())));
+    }
+    if !fresh.is_empty() {
+        list = list.push(container(ui::mono_small(words.t("pool-suggest-online").to_uppercase(), MUTED)).padding([8, 8]));
+    }
+    for item in fresh {
+        let inside = row![
+            column![semi(item.title.clone(), 13.5, INK), faded_text(item.artist.clone(), 12.0, MUTED), mono(item.version.clone(), 11.0, FAINT)].spacing(1).width(Length::Fill),
+            mono(stars_of(words, item.stars), 12.5, crate::dossier::star_colour(item.stars as f32)),
+        ]
+        .spacing(12)
+        .align_y(iced::Center);
+        list = list.push(button(inside).padding([6, 8]).width(Length::Fill).style(ui::button_faded(ui::calm(theme::row(false)))).on_press(Message::TakeOffered(item.id)));
     }
     let mut told = column![faded_text(words.with("pool-suggest-target", &[("stars", stars_of(words, target))]), 12.5, MUTED)].spacing(4);
     if let Some(skill) = lean {
@@ -7498,7 +7530,7 @@ mod tests {
         state.update(Message::Measured("a1".into(), Mod::Nm, Ok(measure(5.0))), 1_790_000_002);
         let effects = state.update(Message::Suggest(1), 1_790_000_003);
         let request = match effects.as_slice() {
-            [Effect::Suggest(request, _, Mod::Nm, target, excluded, _)] if *target == 5.0 && excluded.contains("a1") => *request,
+            [Effect::SuggestRemote(..), Effect::Suggest(request, _, Mod::Nm, target, excluded, _)] if *target == 5.0 && excluded.contains("a1") => *request,
             _ => panic!("the empty slot needs a background suggestion scan"),
         };
         state.update(Message::Suggested(request + 1, vec![("b2".into(), measure(5.1))]), 1_790_000_004);
@@ -8941,6 +8973,29 @@ mod tests {
         assert_ne!(backing_key(&state.list[at]), backing_key(&pool), "another picture is another key, so an old one is never shown for it");
         state.list[at].backdrop = None;
         assert!(backing_key(&state.list[at]).is_none() && !state.covers().iter().any(|(key, _)| key.starts_with("backdrop:")));
+    }
+
+    #[test]
+    fn a_suggestion_also_asks_the_osu_database_and_a_pick_from_it_is_looked_up_by_its_id() {
+        let mut state = pool_with_maps("suggest-online", &["a1", "b2"]);
+        let at = state.editing_at().unwrap();
+        state.list[at].slots[0].measure = Some(measure(5.0));
+        state.list[at].slots[1].measure = Some(measure(5.4));
+        let free = state.editing().unwrap().first_empty().unwrap();
+        let effects = state.update(Message::Suggest(free), 1000);
+        let (request, low, high) = effects.iter().find_map(|effect| match effect { Effect::SuggestRemote(request, _, low, high) => Some((*request, *low, *high)), _ => None }).expect("the server is asked too");
+        assert!(high - low > 0.39 && high - low < 0.41);
+        let offered = crate::bot::Offered { id: 5114204, artist: "Marrow".into(), title: "Far Shore".into(), version: "Extra".into(), stars: 5.3, md5: "z9".into() };
+        state.update(Message::Offered(request + 1, Ok(vec![offered.clone()])), 1001);
+        assert!(state.suggestions.as_ref().unwrap().offered.is_none(), "an answer to an older question is dropped");
+        state.update(Message::Offered(request, Ok(vec![offered])), 1002);
+        assert_eq!(state.suggestions.as_ref().unwrap().offered.as_ref().unwrap().as_ref().unwrap().len(), 1);
+        let effects = state.update(Message::TakeOffered(5114204), 1003);
+        assert!(matches!(effects.as_slice(), [Effect::Resolve(..)]), "{effects:?}");
+        state.list[at].slots[free].category = "FS".into();
+        state.update(Message::Select(None), 1004);
+        let effects = state.update(Message::Suggest(free), 1005);
+        assert!(!effects.iter().any(|effect| matches!(effect, Effect::SuggestRemote(..))), "a custom category has no star range to ask for");
     }
 
     #[test]

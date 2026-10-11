@@ -1341,3 +1341,4 @@ pool-tool-history = Версии
 pool-fetch-short = Скачать
 shelf-mark-saved = Сохранён
 shelf-mark-published = Опубликован
+pool-suggest-online = Из базы osu!

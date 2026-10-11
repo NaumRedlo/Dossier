@@ -226,3 +226,7 @@ Later the same day, again by the user's word:
   one difficulty.
 - The skills are called Аим, Скорость, Ридинг, Стамина; the category colours
   are stronger.
+- «Подбор» also asks the bot's server (`GET /render/pools/suggest`) for maps
+  from the osu! database within 0.2 stars of the slot's target, for the slot's
+  mod; they stand under the local ones as «Из базы osu!», and a pick is looked
+  up by its ID like a pasted link. A slot of a custom category is not asked for.

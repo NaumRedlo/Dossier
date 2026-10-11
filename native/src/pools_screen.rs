@@ -496,11 +496,12 @@ pub struct Clocks {
     pub today: i64,
     pub high: f32,
     pub remote: HashMap<String, f32>,
+    pub shut: Option<(&'static str, f32)>,
 }
 
 impl Clocks {
     pub fn settled() -> Clocks {
-        Clocks { page: SETTLED, screen: SETTLED, panel: SETTLED, gone: SETTLED, today: 0, high: 0.0, remote: HashMap::new() }
+        Clocks { page: SETTLED, screen: SETTLED, panel: SETTLED, gone: SETTLED, today: 0, high: 0.0, remote: HashMap::new(), shut: None }
     }
 
     fn of(&self, id: &str) -> f32 {
@@ -516,6 +517,8 @@ pub struct Marks {
     gone: Option<Instant>,
     remote: HashMap<String, Instant>,
     began: bool,
+    sheet: Option<&'static str>,
+    shut: Option<(&'static str, Instant)>,
 }
 
 const WINDOW: f32 = 1.8;
@@ -549,6 +552,12 @@ impl Marks {
             _ => {}
         }
         self.panel = Some((panel, panel_at));
+        let sheet = state.sheet_key();
+        match self.sheet {
+            Some(was) if was != sheet => self.shut = (was != "none").then_some((was, now)),
+            _ => {}
+        }
+        self.sheet = Some(sheet);
         for item in &state.publications {
             self.remote.entry(item.id.clone()).or_insert(if self.began { now } else { long_ago });
         }
@@ -558,14 +567,14 @@ impl Marks {
     pub fn clocks(&self, now: Instant) -> Clocks {
         let age = |at: Instant| now.saturating_duration_since(at).as_secs_f32().min(SETTLED);
         match (&self.screen, &self.panel) {
-            (Some((_, screen)), Some((_, panel))) => Clocks { page: self.page.as_ref().map_or(SETTLED, |(_, at)| age(*at)), screen: age(*screen), panel: age(*panel), gone: self.gone.map_or(SETTLED, age), today: 0, high: 0.0, remote: self.remote.iter().map(|(id, at)| (id.clone(), age(*at))).collect() },
+            (Some((_, screen)), Some((_, panel))) => Clocks { page: self.page.as_ref().map_or(SETTLED, |(_, at)| age(*at)), screen: age(*screen), panel: age(*panel), gone: self.gone.map_or(SETTLED, age), today: 0, high: 0.0, remote: self.remote.iter().map(|(id, at)| (id.clone(), age(*at))).collect(), shut: self.shut.map(|(name, at)| (name, age(at))) },
             _ => Clocks::settled(),
         }
     }
 
     pub fn animating(&self, now: Instant) -> bool {
         let young = |at: &Instant| now.saturating_duration_since(*at).as_secs_f32() < WINDOW;
-        self.screen.iter().any(|(_, at)| young(at)) || self.panel.iter().any(|(_, at)| young(at)) || self.gone.iter().any(young) || self.remote.values().any(young)
+        self.screen.iter().any(|(_, at)| young(at)) || self.panel.iter().any(|(_, at)| young(at)) || self.gone.iter().any(young) || self.remote.values().any(young) || self.shut.iter().any(|(_, at)| young(at))
     }
 }
 
@@ -641,6 +650,13 @@ impl State {
             Screen::Shelf => "shelf".to_owned(),
             Screen::Editor(editor) => format!("editor:{}", editor.id),
             Screen::Open(_) => "open".to_owned(),
+        }
+    }
+
+    pub fn sheet_key(&self) -> &'static str {
+        match &self.screen {
+            Screen::Editor(editor) if editor.categories => "categories",
+            _ => "none",
         }
     }
 
@@ -5727,7 +5743,9 @@ fn categories_panel<'a>(pool: &'a Pool, editor: &'a Editor, words: &'a Words) ->
     column![ui::mono_small(words.t("pool-tool-categories").to_uppercase(), MUTED), lines].spacing(12).into()
 }
 
-fn editor_tools<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, words: &'a Words) -> Element<'a, Message> {
+const SHEET_OUT: f32 = 0.16;
+
+fn editor_tools<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, words: &'a Words, shut: Option<(&'static str, f32)>) -> Element<'a, Message> {
     let filled = pool.filled() > 0;
     let missing = state.missing(pool).len();
     let versions = state.versions.iter().filter(|held| held.id == pool.id).count();
@@ -5747,7 +5765,15 @@ fn editor_tools<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, words:
     if editor.history {
         return ui::under_leaning(line, Some(palette(state, editor, pool, words)), Message::History(false), ui::Lean::Left(0.0), 8.0);
     }
-    let sheet = (editor.categories && !pool.collection).then(|| menu_box(categories_panel(pool, editor, words), 560.0, 16.0, 14.0, Color::from_rgb(0.071, 0.027, 0.039)));
+    let made = || menu_box(categories_panel(pool, editor, words), 560.0, 16.0, 14.0, Color::from_rgb(0.071, 0.027, 0.039));
+    let leaving = shut.filter(|(name, age)| *name == "categories" && *age < SHEET_OUT && !editor.categories).map(|(_, age)| 1.0 - age / SHEET_OUT);
+    let sheet = if pool.collection {
+        None
+    } else if editor.categories {
+        Some(made())
+    } else {
+        leaving.map(|k| ui::appearing(k * k, -10.0, made))
+    };
     ui::under_leaning(line, sheet, Message::Categories(false), ui::Lean::Left(0.0), 8.0)
 }
 
@@ -6015,13 +6041,13 @@ fn start_view<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, words: &
     ui::scaled(page, grown).into()
 }
 
-fn editor_view<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, words: &'a Words, thumbs: &'a HashMap<String, image::Handle>, width: f32, high: f32, t: f32) -> Element<'a, Message> {
+fn editor_view<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, words: &'a Words, thumbs: &'a HashMap<String, image::Handle>, width: f32, high: f32, t: f32, shut: Option<(&'static str, f32)>) -> Element<'a, Message> {
     if editor.starting {
         return start_view(state, editor, pool, words, width, high, t);
     }
     let mut head = column![
         ui::appearing(ui::appear(t, 0), 0.0, || editor_toolbar(state, editor, pool, words, width)),
-        ui::appearing(ui::appear(t, 1), 0.0, || if pool.saved.is_some() { Space::new().into() } else { editor_tools(state, editor, pool, words) }),
+        ui::appearing(ui::appear(t, 1), 0.0, || if pool.saved.is_some() { Space::new().into() } else { editor_tools(state, editor, pool, words, shut) }),
         ui::appearing(ui::appear(t, 1), 0.0, || editor_title(pool, words)),
     ]
     .spacing(14);
@@ -6180,7 +6206,7 @@ fn view_at<'a>(state: &'a State, words: &'a Words, thumbs: &'a HashMap<String, i
         Screen::Open(opening) => open_view(state, opening, words, thumbs, t),
         Screen::Shelf => shelf(state, words, thumbs, content_width, t, section_t.min(clocks.page), clocks),
         Screen::Editor(editor) => match state.list.iter().find(|pool| pool.id == editor.id) {
-            Some(pool) => editor_view(state, editor, pool, words, thumbs, content_width, clocks.high, t),
+            Some(pool) => editor_view(state, editor, pool, words, thumbs, content_width, clocks.high, t, clocks.shut),
             None => shelf(state, words, thumbs, content_width, t, section_t.min(clocks.page), clocks),
         },
     };
@@ -8996,6 +9022,32 @@ mod tests {
         state.update(Message::Select(None), 1004);
         let effects = state.update(Message::Suggest(free), 1005);
         assert!(!effects.iter().any(|effect| matches!(effect, Effect::SuggestRemote(..))), "a custom category has no star range to ask for");
+    }
+
+    #[test]
+    fn a_shut_sheet_is_still_drawn_for_a_moment_on_its_way_back_into_its_button() {
+        let words = Words::new(crate::lang::Lang::En);
+        let thumbs = HashMap::new();
+        let mut state = pool_with_maps("sheet-leaves", &["a1"]);
+        state.update(Message::Select(None), 1100);
+        let mut marks = Marks::default();
+        let began = Instant::now();
+        marks.observe(&state, began);
+        state.update(Message::Categories(true), 1101);
+        marks.observe(&state, began + Duration::from_millis(500));
+        assert!(marks.clocks(began + Duration::from_millis(600)).shut.is_none());
+        state.update(Message::Categories(false), 1102);
+        let closed = began + Duration::from_secs(1);
+        marks.observe(&state, closed);
+        assert!(marks.animating(closed + Duration::from_millis(40)), "frames keep coming while it leaves");
+        let seen = |clocks: &Clocks| {
+            let mut screen = iced_test::Simulator::with_size(crate::settings(), iced::Size::new(1400.0, 900.0), view(&state, &words, &thumbs, 1400.0, 1.0, clocks));
+            screen.find(words.t("pool-category-add")).is_ok()
+        };
+        let leaving = marks.clocks(closed + Duration::from_millis(60));
+        assert!(matches!(leaving.shut, Some(("categories", age)) if age > 0.05 && age < 0.07));
+        assert!(seen(&leaving), "the sheet is on its way out");
+        assert!(!seen(&marks.clocks(closed + Duration::from_millis(400))), "and then it is gone");
     }
 
     #[test]

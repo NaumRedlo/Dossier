@@ -6055,7 +6055,7 @@ fn start_view<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, words: &
     ui::scaled(page, grown).into()
 }
 
-fn editor_view<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, words: &'a Words, thumbs: &'a HashMap<String, image::Handle>, width: f32, high: f32, t: f32, shut: &[(&'static str, f32)], backdrop_age: f32) -> Element<'a, Message> {
+fn editor_view<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, words: &'a Words, thumbs: &'a HashMap<String, image::Handle>, width: f32, high: f32, t: f32, shut: &[(&'static str, f32)], backdrop_age: f32, gone_age: f32) -> Element<'a, Message> {
     if editor.starting {
         return start_view(state, editor, pool, words, width, high, t);
     }
@@ -6103,10 +6103,18 @@ fn editor_view<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, words: 
             let shown = slot_found(&pool.slots[*at], &editor.find) && (!editor.only_empty || pool.slots[*at].is_empty());
             let dim = if shown { 1.0 } else { 0.28 };
             let adding = editor.panel == Panel::Add && editor.selected == Some(*at) && !editor.choosing;
+            let left = editor.gone.as_deref().filter(|was| !adding && editor.panel != Panel::Add && was.panel == Panel::Add && was.selected == Some(*at) && gone_age < SHEET_OUT);
             let made: Element<'a, Message> = if adding {
                 ui::under_staying(add_row(pool, *at, editor, words), Some(add_drop(state, editor, pool, words, thumbs)), ui::Lean::Left(0.0), 6.0)
             } else {
                 ui::appearing(ui::appear(t, *at + 4) * dim, 0.0, || slot_row(pool, *at, lit, editor.choosing, words, thumbs, songs, state.ail(&pool.slots[*at]), pointed == Some(*at) && step == Some(2), downloaded))
+            };
+            let made: Element<'a, Message> = match left {
+                Some(was) => {
+                    let k = 1.0 - gone_age / SHEET_OUT;
+                    ui::under_staying(made, Some(ui::appearing(k * k, -10.0, || add_drop(state, was, pool, words, thumbs))), ui::Lean::Left(0.0), 6.0)
+                }
+                None => made,
             };
             let made = ui::under_leaning(made, (editor.menu == Some(*at)).then(|| slot_menu(*at, words)), Message::SlotMenu(None), ui::Lean::Left(260.0), 4.0);
             let made: Element<'a, Message> = match step.filter(|_| pointed == Some(*at) && !adding) {
@@ -6224,7 +6232,7 @@ fn view_at<'a>(state: &'a State, words: &'a Words, thumbs: &'a HashMap<String, i
         Screen::Open(opening) => open_view(state, opening, words, thumbs, t),
         Screen::Shelf => shelf(state, words, thumbs, content_width, t, section_t.min(clocks.page), clocks),
         Screen::Editor(editor) => match state.list.iter().find(|pool| pool.id == editor.id) {
-            Some(pool) => editor_view(state, editor, pool, words, thumbs, content_width, clocks.high, t, &clocks.shut, clocks.opened.iter().find(|(name, _)| *name == "backdrop").map_or(SETTLED, |(_, age)| *age)),
+            Some(pool) => editor_view(state, editor, pool, words, thumbs, content_width, clocks.high, t, &clocks.shut, clocks.opened.iter().find(|(name, _)| *name == "backdrop").map_or(SETTLED, |(_, age)| *age), clocks.gone),
             None => shelf(state, words, thumbs, content_width, t, section_t.min(clocks.page), clocks),
         },
     };

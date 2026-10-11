@@ -448,11 +448,16 @@ pub fn bar(_: &Theme) -> container::Style {
     }
 }
 
+pub fn pressed() -> Color {
+    Color::from_rgba(0.886, 0.282, 0.282, 0.06)
+}
+
 pub fn row(chosen: bool) -> impl Fn(&Theme, button::Status) -> button::Style {
     move |_, status| {
         let background = match (chosen, status) {
             (true, _) => Some(Color::from_rgba(0.886, 0.282, 0.282, 0.08)),
             (false, button::Status::Hovered) => Some(RAISED),
+            (false, button::Status::Pressed) => Some(pressed()),
             _ => None,
         };
         button::Style {
@@ -470,6 +475,7 @@ pub fn slot_choice(chosen: bool) -> impl Fn(&Theme, button::Status) -> button::S
         let background = match (chosen, status) {
             (true, _) => Some(Color::from_rgba(0.886, 0.282, 0.282, 0.1)),
             (false, button::Status::Hovered) => Some(RAISED),
+            (false, button::Status::Pressed) => Some(pressed()),
             _ => None,
         };
         button::Style {

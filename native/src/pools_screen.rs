@@ -496,12 +496,17 @@ pub struct Clocks {
     pub today: i64,
     pub high: f32,
     pub remote: HashMap<String, f32>,
-    pub shut: Option<(&'static str, f32)>,
+    pub shut: Vec<(&'static str, f32)>,
+    pub opened: Vec<(&'static str, f32)>,
+}
+
+fn leaving(shut: &[(&'static str, f32)], name: &str) -> Option<f32> {
+    shut.iter().find(|(held, age)| *held == name && *age < SHEET_OUT).map(|(_, age)| 1.0 - age / SHEET_OUT)
 }
 
 impl Clocks {
     pub fn settled() -> Clocks {
-        Clocks { page: SETTLED, screen: SETTLED, panel: SETTLED, gone: SETTLED, today: 0, high: 0.0, remote: HashMap::new(), shut: None }
+        Clocks { page: SETTLED, screen: SETTLED, panel: SETTLED, gone: SETTLED, today: 0, high: 0.0, remote: HashMap::new(), shut: Vec::new(), opened: Vec::new() }
     }
 
     fn of(&self, id: &str) -> f32 {
@@ -517,11 +522,14 @@ pub struct Marks {
     gone: Option<Instant>,
     remote: HashMap<String, Instant>,
     began: bool,
-    sheet: Option<&'static str>,
-    shut: Option<(&'static str, Instant)>,
+    sheets: Option<[bool; 3]>,
+    shut: Vec<(&'static str, Instant)>,
+    opened: Vec<(&'static str, Instant)>,
 }
 
 const WINDOW: f32 = 1.8;
+const SHEET_OUT: f32 = 0.16;
+const SHEETS: [&str; 3] = ["categories", "backdrop", "share"];
 
 impl Marks {
     pub fn observe(&mut self, state: &State, now: Instant) {
@@ -552,12 +560,21 @@ impl Marks {
             _ => {}
         }
         self.panel = Some((panel, panel_at));
-        let sheet = state.sheet_key();
-        match self.sheet {
-            Some(was) if was != sheet => self.shut = (was != "none").then_some((was, now)),
-            _ => {}
+        let sheets = state.sheets();
+        if let Some(were) = self.sheets {
+            for (at, name) in SHEETS.iter().enumerate() {
+                if were[at] != sheets[at] {
+                    self.shut.retain(|(held, _)| held != name);
+                    self.opened.retain(|(held, _)| held != name);
+                    if were[at] {
+                        self.shut.push((name, now));
+                    } else {
+                        self.opened.push((name, now));
+                    }
+                }
+            }
         }
-        self.sheet = Some(sheet);
+        self.sheets = Some(sheets);
         for item in &state.publications {
             self.remote.entry(item.id.clone()).or_insert(if self.began { now } else { long_ago });
         }
@@ -567,14 +584,14 @@ impl Marks {
     pub fn clocks(&self, now: Instant) -> Clocks {
         let age = |at: Instant| now.saturating_duration_since(at).as_secs_f32().min(SETTLED);
         match (&self.screen, &self.panel) {
-            (Some((_, screen)), Some((_, panel))) => Clocks { page: self.page.as_ref().map_or(SETTLED, |(_, at)| age(*at)), screen: age(*screen), panel: age(*panel), gone: self.gone.map_or(SETTLED, age), today: 0, high: 0.0, remote: self.remote.iter().map(|(id, at)| (id.clone(), age(*at))).collect(), shut: self.shut.map(|(name, at)| (name, age(at))) },
+            (Some((_, screen)), Some((_, panel))) => Clocks { page: self.page.as_ref().map_or(SETTLED, |(_, at)| age(*at)), screen: age(*screen), panel: age(*panel), gone: self.gone.map_or(SETTLED, age), today: 0, high: 0.0, remote: self.remote.iter().map(|(id, at)| (id.clone(), age(*at))).collect(), shut: self.shut.iter().map(|(name, at)| (*name, age(*at))).collect(), opened: self.opened.iter().map(|(name, at)| (*name, age(*at))).collect() },
             _ => Clocks::settled(),
         }
     }
 
     pub fn animating(&self, now: Instant) -> bool {
         let young = |at: &Instant| now.saturating_duration_since(*at).as_secs_f32() < WINDOW;
-        self.screen.iter().any(|(_, at)| young(at)) || self.panel.iter().any(|(_, at)| young(at)) || self.gone.iter().any(young) || self.remote.values().any(young) || self.shut.iter().any(|(_, at)| young(at))
+        self.screen.iter().any(|(_, at)| young(at)) || self.panel.iter().any(|(_, at)| young(at)) || self.gone.iter().any(young) || self.remote.values().any(young) || self.shut.iter().any(|(_, at)| young(at)) || self.opened.iter().any(|(_, at)| young(at))
     }
 }
 
@@ -653,10 +670,10 @@ impl State {
         }
     }
 
-    pub fn sheet_key(&self) -> &'static str {
+    pub fn sheets(&self) -> [bool; 3] {
         match &self.screen {
-            Screen::Editor(editor) if editor.categories => "categories",
-            _ => "none",
+            Screen::Editor(editor) => [editor.categories, editor.backdrop, editor.share],
+            _ => [false; 3],
         }
     }
 
@@ -5743,9 +5760,7 @@ fn categories_panel<'a>(pool: &'a Pool, editor: &'a Editor, words: &'a Words) ->
     column![ui::mono_small(words.t("pool-tool-categories").to_uppercase(), MUTED), lines].spacing(12).into()
 }
 
-const SHEET_OUT: f32 = 0.16;
-
-fn editor_tools<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, words: &'a Words, shut: Option<(&'static str, f32)>) -> Element<'a, Message> {
+fn editor_tools<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, words: &'a Words, shut: &[(&'static str, f32)]) -> Element<'a, Message> {
     let filled = pool.filled() > 0;
     let missing = state.missing(pool).len();
     let versions = state.versions.iter().filter(|held| held.id == pool.id).count();
@@ -5766,13 +5781,12 @@ fn editor_tools<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, words:
         return ui::under_leaning(line, Some(palette(state, editor, pool, words)), Message::History(false), ui::Lean::Left(0.0), 8.0);
     }
     let made = || menu_box(categories_panel(pool, editor, words), 560.0, 16.0, 14.0, Color::from_rgb(0.071, 0.027, 0.039));
-    let leaving = shut.filter(|(name, age)| *name == "categories" && *age < SHEET_OUT && !editor.categories).map(|(_, age)| 1.0 - age / SHEET_OUT);
     let sheet = if pool.collection {
         None
     } else if editor.categories {
         Some(made())
     } else {
-        leaving.map(|k| ui::appearing(k * k, -10.0, made))
+        leaving(shut, "categories").map(|k| ui::appearing(k * k, -10.0, made))
     };
     ui::under_leaning(line, sheet, Message::Categories(false), ui::Lean::Left(0.0), 8.0)
 }
@@ -6041,7 +6055,7 @@ fn start_view<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, words: &
     ui::scaled(page, grown).into()
 }
 
-fn editor_view<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, words: &'a Words, thumbs: &'a HashMap<String, image::Handle>, width: f32, high: f32, t: f32, shut: Option<(&'static str, f32)>) -> Element<'a, Message> {
+fn editor_view<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, words: &'a Words, thumbs: &'a HashMap<String, image::Handle>, width: f32, high: f32, t: f32, shut: &[(&'static str, f32)], backdrop_age: f32) -> Element<'a, Message> {
     if editor.starting {
         return start_view(state, editor, pool, words, width, high, t);
     }
@@ -6061,7 +6075,8 @@ fn editor_view<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, words: 
 
     let songs = state.songs.as_ref();
     let beside = width >= PANEL_BESIDE;
-    let panelled = editor.backdrop && !pool.collection;
+    let backdrop_out = leaving(shut, "backdrop").filter(|_| !editor.backdrop);
+    let panelled = (editor.backdrop || backdrop_out.is_some()) && !pool.collection;
     let board_wide = if beside && panelled { width - BACKDROP_WIDE - PANEL_GAP } else { width };
     let columns = ((board_wide + TABLE_GAP) / (TABLE_LEAST + TABLE_GAP)).floor().clamp(1.0, 3.0) as usize;
     let step = if pool.collection || editor.choosing { None } else { state.guide.current(pool) };
@@ -6151,7 +6166,10 @@ fn editor_view<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, words: 
     if !panelled {
         return column![head, list].spacing(22).into();
     }
-    let panel = ui::appearing(ui::appear(t, 3), 0.0, || backdrop_panel(state, pool, words, thumbs));
+    let panel = match backdrop_out {
+        Some(k) => ui::appearing(k * k, -10.0, || backdrop_panel(state, pool, words, thumbs)),
+        None => ui::appearing(ui::appear(t, 3).min(ui::appear(backdrop_age, 0)), -10.0, || backdrop_panel(state, pool, words, thumbs)),
+    };
     if beside {
         return column![head, row![container(list).width(Length::Fill), container(panel).width(BACKDROP_WIDE)].spacing(PANEL_GAP)].spacing(22).into();
     }
@@ -6206,7 +6224,7 @@ fn view_at<'a>(state: &'a State, words: &'a Words, thumbs: &'a HashMap<String, i
         Screen::Open(opening) => open_view(state, opening, words, thumbs, t),
         Screen::Shelf => shelf(state, words, thumbs, content_width, t, section_t.min(clocks.page), clocks),
         Screen::Editor(editor) => match state.list.iter().find(|pool| pool.id == editor.id) {
-            Some(pool) => editor_view(state, editor, pool, words, thumbs, content_width, clocks.high, t, clocks.shut),
+            Some(pool) => editor_view(state, editor, pool, words, thumbs, content_width, clocks.high, t, &clocks.shut, clocks.opened.iter().find(|(name, _)| *name == "backdrop").map_or(SETTLED, |(_, age)| *age)),
             None => shelf(state, words, thumbs, content_width, t, section_t.min(clocks.page), clocks),
         },
     };
@@ -6252,6 +6270,8 @@ fn view_at<'a>(state: &'a State, words: &'a Words, thumbs: &'a HashMap<String, i
             layers.push(ui::appearing(k, 18.0, || bulk_bar(editor, words)));
         } else if let (true, Some(pool)) = (editor.share, pool) {
             layers.push(ui::fading(ui::fade() * k, || share_modal(pool, words, state.exporting.is_some())));
+        } else if let (Some(out), Some(pool)) = (leaving(&clocks.shut, "share"), pool) {
+            layers.push(ui::fading(ui::fade() * out * out, || share_modal(pool, words, false)));
         } else if let (false, Some(pool)) = (editor.choosing, pool) {
             let open = sheet_of(editor, pool).map(|sheet| (editor, sheet));
             let leaving = editor.gone.as_deref().filter(|_| open.is_none() && clocks.gone < ui::APPEAR).and_then(|was| sheet_of(was, pool).map(|sheet| (was, sheet)));
@@ -9035,7 +9055,7 @@ mod tests {
         marks.observe(&state, began);
         state.update(Message::Categories(true), 1101);
         marks.observe(&state, began + Duration::from_millis(500));
-        assert!(marks.clocks(began + Duration::from_millis(600)).shut.is_none());
+        assert!(marks.clocks(began + Duration::from_millis(600)).shut.is_empty());
         state.update(Message::Categories(false), 1102);
         let closed = began + Duration::from_secs(1);
         marks.observe(&state, closed);
@@ -9045,7 +9065,7 @@ mod tests {
             screen.find(words.t("pool-category-add")).is_ok()
         };
         let leaving = marks.clocks(closed + Duration::from_millis(60));
-        assert!(matches!(leaving.shut, Some(("categories", age)) if age > 0.05 && age < 0.07));
+        assert!(matches!(leaving.shut.as_slice(), [("categories", age)] if *age > 0.05 && *age < 0.07));
         assert!(seen(&leaving), "the sheet is on its way out");
         assert!(!seen(&marks.clocks(closed + Duration::from_millis(400))), "and then it is gone");
     }

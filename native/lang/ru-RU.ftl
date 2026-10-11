@@ -1342,3 +1342,5 @@ pool-fetch-short = Скачать
 shelf-mark-saved = Сохранён
 shelf-mark-published = Опубликован
 pool-suggest-online = Из базы osu!
+share-upload-broken = Соединение оборвалось во время загрузки. Приложение уже попробовало ещё раз; проверьте сеть и повторите отправку.
+share-too-large = Видео слишком большое для отправки.

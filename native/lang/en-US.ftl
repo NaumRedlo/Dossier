@@ -1300,3 +1300,5 @@ pool-fetch-short = Download
 shelf-mark-saved = Saved
 shelf-mark-published = Published
 pool-suggest-online = From the osu! database
+share-upload-broken = The connection was lost during the upload. The app has already tried once more; check the network and send it again.
+share-too-large = The video is too large to send.

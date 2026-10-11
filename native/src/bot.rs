@@ -761,6 +761,9 @@ impl<R: std::io::Read> std::io::Read for Counted<R> {
     }
 }
 
+pub const UPLOAD_BROKEN: &str = "connection lost during upload";
+const UPLOAD_AGAIN: Duration = Duration::from_secs(3);
+
 fn upload(
     route: &str,
     server: &str,
@@ -770,26 +773,42 @@ fn upload(
     meta: &serde_json::Value,
     tell: impl FnMut(u64) + Send + 'static,
 ) -> Result<Sent, Refused> {
-    let opened = std::fs::File::open(file).map_err(|e| Refused::Network(e.to_string()))?;
-    let size = opened.metadata().map(|m| m.len()).unwrap_or(0);
-    let body = reqwest::blocking::Body::sized(Counted { inner: opened, done: 0, tell: Box::new(tell) }, size);
-    let response = reqwest::blocking::Client::builder()
-        .timeout(Duration::from_secs(1800))
-        .user_agent(ENGINE)
-        .build()
-        .map_err(|e| Refused::Network(e.to_string()))?
-        .post(format!("{server}/render/{route}"))
-        .header("X-Render-Worker", name)
-        .header("X-Render-Meta", meta.to_string())
-        .header("Content-Type", "video/mp4")
-        .bearer_auth(token)
-        .body(body)
-        .send()
-        .map_err(|e| Refused::Network(e.to_string()))?;
-    if response.status().as_u16() == 413 {
-        return Err(Refused::Said("too large".to_owned()));
+    let tell = std::sync::Arc::new(std::sync::Mutex::new(tell));
+    let mut tries = 0;
+    loop {
+        tries += 1;
+        let opened = std::fs::File::open(file).map_err(|e| Refused::Network(e.to_string()))?;
+        let size = opened.metadata().map(|m| m.len()).unwrap_or(0);
+        let told = tell.clone();
+        let body = reqwest::blocking::Body::sized(Counted { inner: opened, done: 0, tell: Box::new(move |done| (told.lock().unwrap_or_else(|poisoned| poisoned.into_inner()))(done)) }, size);
+        let sent = reqwest::blocking::Client::builder()
+            .timeout(Duration::from_secs(1800))
+            .user_agent(ENGINE)
+            .build()
+            .map_err(|e| Refused::Network(e.to_string()))?
+            .post(format!("{server}/render/{route}"))
+            .header("X-Render-Worker", name)
+            .header("X-Render-Meta", meta.to_string())
+            .header("Content-Type", "video/mp4")
+            .bearer_auth(token)
+            .body(body)
+            .send();
+        let response = match sent {
+            Ok(response) => response,
+            Err(broken) if (broken.is_body() || broken.is_request()) && !broken.is_timeout() => {
+                if tries < 2 {
+                    std::thread::sleep(UPLOAD_AGAIN);
+                    continue;
+                }
+                return Err(Refused::Network(UPLOAD_BROKEN.to_owned()));
+            }
+            Err(other) => return Err(Refused::Network(other.to_string())),
+        };
+        if response.status().as_u16() == 413 {
+            return Err(Refused::Said("too large".to_owned()));
+        }
+        return status(response)?.json().map_err(|e| Refused::Network(e.to_string()));
     }
-    status(response)?.json().map_err(|e| Refused::Network(e.to_string()))
 }
 
 pub fn send(server: &str, token: &str, name: &str, file: &std::path::Path, meta: &serde_json::Value, tell: impl FnMut(u64) + Send + 'static) -> Result<Sent, Refused> {

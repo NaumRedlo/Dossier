@@ -787,7 +787,15 @@ impl Main {
                         }
                         self.sharing.picker = None;
                     }
-                    Err(why) => self.announce(notices::Mark::Bad, self.words.t("send-failed"), detail, why, hash, notices::Link::None),
+                    Err(why) => {
+                        let said = match why.as_str() {
+                            why if why.contains(bot::UPLOAD_BROKEN) => self.words.t("share-upload-broken"),
+                            "too large" => self.words.t("share-too-large"),
+                            "not registered" | "not there" => self.words.t("share-not-registered"),
+                            _ => why,
+                        };
+                        self.announce(notices::Mark::Bad, self.words.t("send-failed"), detail, said, hash, notices::Link::None)
+                    }
                 }
                 Task::none()
             }

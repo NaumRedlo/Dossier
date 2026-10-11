@@ -447,6 +447,8 @@ pub struct Main {
     pub thumbs: HashMap<String, image::Handle>,
     pub scenes: HashMap<String, image::Handle>,
     pub auto_fetched: std::collections::HashSet<String>,
+    pub missed: maps::Missed,
+    missed_read: bool,
     pub scene_before: Option<Option<image::Handle>>,
     pub lengths: HashMap<PathBuf, i64>,
     pub combos: HashMap<PathBuf, Option<u32>>,
@@ -690,6 +692,8 @@ impl Main {
             thumbs: HashMap::new(),
             scenes: HashMap::new(),
             auto_fetched: std::collections::HashSet::new(),
+            missed: maps::Missed::default(),
+            missed_read: false,
             scene_before: None,
             lengths: HashMap::new(),
             combos: HashMap::new(),
@@ -3733,7 +3737,12 @@ impl Main {
                 if !self.settings.auto_fetch_maps || !self.fetch_room() {
                     return Task::none();
                 }
-                let wanted = self.entries().iter().find(|entry| entry.map.is_none() && !entry.map_hash.is_empty() && !self.auto_fetched.contains(&entry.map_hash) && self.fetch_of(&entry.map_hash).is_none()).map(|entry| entry.map_hash.clone());
+                if !self.missed_read && !self.gallery {
+                    self.missed_read = true;
+                    self.missed = maps::Missed::load(&maps::Missed::file());
+                }
+                let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |since| since.as_secs() as i64);
+                let wanted = self.entries().iter().find(|entry| entry.map.is_none() && !entry.map_hash.is_empty() && !self.auto_fetched.contains(&entry.map_hash) && !self.missed.rests(&entry.map_hash, now) && self.fetch_of(&entry.map_hash).is_none()).map(|entry| entry.map_hash.clone());
                 match wanted {
                     Some(hash) => {
                         self.auto_fetched.insert(hash.clone());
@@ -3790,6 +3799,20 @@ impl Main {
                     return Task::none();
                 };
                 let hash = self.fetching[at].hash.clone();
+                if !self.gallery {
+                    if !self.missed_read {
+                        self.missed_read = true;
+                        self.missed = maps::Missed::load(&maps::Missed::file());
+                    }
+                    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |since| since.as_secs() as i64);
+                    let changed = match &step {
+                        maps::Step::Done(_) => self.missed.forget(&hash),
+                        other => self.missed.note(&hash, other, now),
+                    };
+                    if changed {
+                        self.missed.save(&maps::Missed::file());
+                    }
+                }
                 if let maps::Step::Done(map) = &step {
                     let map = map.clone();
                     self.fetching.remove(at);

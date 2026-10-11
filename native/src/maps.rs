@@ -365,6 +365,52 @@ fn difficulty_in(folder: &Path, hash: &str) -> Option<Map> {
 
 pub const NOT_THIS_MAP: &str = "not this map";
 
+pub const MISSED_LASTING: i64 = 30 * 24 * 3600;
+pub const MISSED_PASSING: i64 = 24 * 3600;
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Missed {
+    #[serde(default)]
+    maps: std::collections::HashMap<String, (i64, bool)>,
+}
+
+impl Missed {
+    pub fn file() -> PathBuf {
+        crate::sources::own_root().join("maps-missed.json")
+    }
+
+    pub fn load(file: &Path) -> Missed {
+        std::fs::read_to_string(file).ok().and_then(|text| serde_json::from_str(&text).ok()).unwrap_or_default()
+    }
+
+    pub fn save(&self, file: &Path) {
+        if let Some(dir) = file.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        if let Ok(text) = serde_json::to_string(self) {
+            let _ = std::fs::write(file, text);
+        }
+    }
+
+    pub fn note(&mut self, hash: &str, step: &Step, now: i64) -> bool {
+        let lasting = match step {
+            Step::Nowhere => true,
+            Step::Failed(why) => why == NOT_THIS_MAP,
+            _ => return false,
+        };
+        self.maps.insert(hash.to_owned(), (now, lasting));
+        true
+    }
+
+    pub fn forget(&mut self, hash: &str) -> bool {
+        self.maps.remove(hash).is_some()
+    }
+
+    pub fn rests(&self, hash: &str, now: i64) -> bool {
+        self.maps.get(hash).is_some_and(|(at, lasting)| now - at < if *lasting { MISSED_LASTING } else { MISSED_PASSING })
+    }
+}
+
 fn copy_all(from: &Path, to: &Path) -> std::io::Result<()> {
     if from.is_dir() {
         std::fs::create_dir_all(to)?;
@@ -504,6 +550,25 @@ pub fn bring(hash: &str, songs: &Path, stop: &AtomicBool, report: &mut dyn FnMut
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_map_that_could_not_be_had_is_left_alone_for_a_while_and_then_tried_again() {
+        let mut missed = super::Missed::default();
+        assert!(!missed.rests("a", 100));
+        assert!(missed.note("a", &super::Step::Nowhere, 100));
+        assert!(missed.note("b", &super::Step::Failed("the mirror timed out".into()), 100));
+        assert!(missed.note("c", &super::Step::Failed(super::NOT_THIS_MAP.into()), 100));
+        assert!(!missed.note("d", &super::Step::Stopped, 100), "a download the person stopped is not a failure");
+        assert!(missed.rests("a", 100 + super::MISSED_PASSING + 1) && missed.rests("c", 100 + super::MISSED_PASSING + 1));
+        assert!(missed.rests("b", 100 + super::MISSED_PASSING - 1) && !missed.rests("b", 100 + super::MISSED_PASSING), "a passing fault is tried again the next day");
+        assert!(!missed.rests("a", 100 + super::MISSED_LASTING) && !missed.rests("d", 101));
+        let file = std::env::temp_dir().join(format!("dossier-missed-{}.json", std::process::id()));
+        missed.save(&file);
+        assert_eq!(super::Missed::load(&file), missed);
+        assert!(missed.forget("a") && !missed.rests("a", 101));
+        assert_eq!(super::Missed::load(&file.with_extension("none")), super::Missed::default());
+        let _ = std::fs::remove_file(&file);
+    }
+
     use super::*;
 
     #[test]

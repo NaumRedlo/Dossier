@@ -11,10 +11,6 @@ as a video.
 [![licence](https://img.shields.io/badge/licence-AGPL--3.0-blue)](LICENSE)
 ![platforms](https://img.shields.io/badge/runs%20on-Windows%20%C2%B7%20macOS%20%C2%B7%20Linux%20%C2%B7%20ARM-lightgrey)
 
-> **Рендерите реплеи для бота?** Пошаговая инструкция на русском —
-> [onenineeightfour.ignorelist.com/guide](https://onenineeightfour.ignorelist.com/guide).
-> Всё остальное здесь по-английски, но по той ссылке этого знать не нужно.
-
 Nothing here wraps the game. The replay parser, the beatmap parser, the
 hit-object simulation, the judgement, the renderer and the audio mixer are all
 in this repository, in Rust, with no native dependencies at all — which is why
@@ -126,7 +122,7 @@ dossier skin    [OPTIONS] -o <folder>        write the skin out for osu! itself
 ```
 
 Video encoding shells out to `ffmpeg`; frames are piped to it already converted
-to YUV, never touching the disk. The rest is 55 crates deep and not one of them
+to YUV, never touching the disk. The rest is 57 crates deep and not one of them
 builds C — no `-sys`, no `cc`, no `nasm`, no `pkg-config` — which is the whole
 of why the claim above about a Raspberry Pi is a fact rather than a hope.
 
@@ -156,6 +152,13 @@ osu!:
   [`docs/witness.md`](docs/witness.md) says exactly what it reads.
 
 The interface is in English and Russian.
+
+| | |
+|---|---|
+| ![The feed of a chat: live plays and what happened this week](docs/screens/feed.png) | ![The pools page: drafts as cards](docs/screens/pools.png) |
+| ![The pool editor: categories one under another, tiles in rows](docs/screens/pool-editor.png) | ![A frame of a rendered replay](docs/render.png) |
+
+The pictures show sample data the application draws for its own tests.
 
 ## Rendering for the bot
 

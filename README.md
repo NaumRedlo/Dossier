@@ -7,9 +7,11 @@ as a video.
 ![A frame the engine drew, with nothing behind it but its own HUD](docs/render.png)
 
 [![ci](https://github.com/NaumRedlo/Dossier/actions/workflows/ci.yml/badge.svg)](https://github.com/NaumRedlo/Dossier/actions/workflows/ci.yml)
-[![release](https://img.shields.io/github/v/release/NaumRedlo/Dossier?label=release)](https://github.com/NaumRedlo/Dossier/releases/latest)
+[![release](https://img.shields.io/github/v/release/NaumRedlo/Dossier?include_prereleases&label=release)](https://github.com/NaumRedlo/Dossier/releases)
+[![downloads](https://img.shields.io/github/downloads/NaumRedlo/Dossier/total?label=downloads)](https://github.com/NaumRedlo/Dossier/releases)
+[![last commit](https://img.shields.io/github/last-commit/NaumRedlo/Dossier/global?label=last%20commit)](https://github.com/NaumRedlo/Dossier/commits/global)
 [![licence](https://img.shields.io/badge/licence-AGPL--3.0-blue)](LICENSE)
-![platforms](https://img.shields.io/badge/runs%20on-Windows%20%C2%B7%20macOS%20%C2%B7%20Linux%20%C2%B7%20ARM-lightgrey)
+![platforms](https://img.shields.io/badge/runs%20on-Windows%2C%20macOS%2C%20Linux%2C%20ARM-lightgrey)
 
 Nothing here wraps the game. The replay parser, the beatmap parser, the
 hit-object simulation, the judgement, the renderer and the audio mixer are all
@@ -79,7 +81,7 @@ that remain are written down.
 
 ## Getting it
 
-**A build to run.** [The latest release](https://github.com/NaumRedlo/Dossier/releases/latest)
+**A build to run.** [The newest release](https://github.com/NaumRedlo/Dossier/releases)
 is a folder rather than an installer — Windows, macOS on ARM and on Intel, Linux on x64.
 `ffmpeg` is the one thing still to install.
 
@@ -128,30 +130,32 @@ of why the claim above about a Raspberry Pi is a fact rather than a hope.
 
 ## The application
 
-`native/` is what most people run. It finds the replays on the device, plays
-them back and turns them into videos, and around that it is a companion for
-osu!:
+`native/` is what most people actually run. It finds the replays on your
+machine, plays them back and turns them into videos. Around that it has grown
+into a companion for osu!:
 
-- **Sign in** through Telegram or through osu! alone. Without Telegram a person
-  still has a profile, titles, pools, news and videos exchanged with other
-  Dossier users; a chat adds its feed and ratings.
-- **Community** — the people of your chat and other Dossier users, live plays,
-  what happened this week, ratings, titles and a comparison of players.
-- **Pools** — an editor for tournament map pools and collections: slots by
-  category, maps from links, IDs, the game's collections or suggestions,
-  publishing under a code, saving other people's pools and writing them into
-  the game as collections.
-- **Videos** — send a finished video to a chat or to another player, and
-  receive theirs.
-- **News** — osu!'s own news and changelog, r/osugame, and public Telegram
-  channels.
-- **Witness** — a separate small program that watches a running osu!stable
-  client by reading its memory, never writing to it: it tells results to the
-  chat feed as soon as a play ends, can keep a replay of every play, and has an
-  experimental overlay drawn in its own windows on top of the game.
-  [`docs/witness.md`](docs/witness.md) says exactly what it reads.
+- **Signing in** takes a Telegram account or just an osu! one. You do not need
+  Telegram to have a profile, titles, pools, news, or to trade videos with
+  other Dossier users; a chat with the bot adds its feed and its ratings on
+  top.
+- **Community** is where the people are: your chat and everyone else who uses
+  Dossier, what they are playing right now, what happened this week, who
+  climbed, who earned which title, and a side-by-side comparison of any few
+  players.
+- **Pools** is an editor for tournament map pools and plain collections. Drop
+  in links, beatmap IDs or the game's own collections, let it suggest a map for
+  an empty slot, publish the result under a short code, save somebody else's
+  pool and write it straight into the game as a collection.
+- **Videos** go to a chat or to another player, and theirs come back to you.
+- **News** gathers osu!'s own news and changelog, r/osugame and any public
+  Telegram channel you add.
+- **Witness** is a small separate program that watches a running osu!stable
+  client. It only ever reads the client's memory. It can tell your chat about a
+  play the moment it ends, keep a replay of every play, and draw an
+  experimental overlay in its own windows over the game.
+  [`docs/witness.md`](docs/witness.md) lists exactly what it reads.
 
-The interface is in English and Russian.
+Everything is in English and in Russian.
 
 | | |
 |---|---|

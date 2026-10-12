@@ -499,7 +499,13 @@ pub fn me(server: &str, token: &str, name: &str) -> Result<Me, Refused> {
     status(response)?.json::<Me>().map_err(|e| Refused::Network(e.to_string()))
 }
 
-pub fn presence(server: &str, token: &str, name: &str) -> Result<(), Refused> {
+#[derive(Debug, Default, serde::Deserialize)]
+struct Present {
+    #[serde(default)]
+    online: Option<u32>,
+}
+
+pub fn presence(server: &str, token: &str, name: &str) -> Result<Option<u32>, Refused> {
     let response = client()?
         .post(format!("{server}/render/me/presence"))
         .header("X-Render-Worker", name)
@@ -507,7 +513,8 @@ pub fn presence(server: &str, token: &str, name: &str) -> Result<(), Refused> {
         .timeout(Duration::from_secs(4))
         .send()
         .map_err(|e| Refused::Network(e.to_string()))?;
-    status(response).map(|_| ())
+    let text = status(response)?.text().unwrap_or_default();
+    Ok(serde_json::from_str::<Present>(&text).unwrap_or_default().online)
 }
 
 pub fn avatar(server: &str, token: &str, name: &str) -> Result<Vec<u8>, Refused> {
@@ -1319,7 +1326,7 @@ mod tests {
     #[test]
     fn presence_accepts_an_empty_acknowledgement_and_does_not_retry_a_failed_beat() {
         let (server, asked) = serve(vec!["HTTP/1.1 204 No Content\r\nConnection: close\r\n\r\n"]);
-        assert_eq!(presence(&server, "token", "device"), Ok(()));
+        assert_eq!(presence(&server, "token", "device"), Ok(None));
         assert_eq!(asked.load(Ordering::SeqCst), 1);
         let (server, asked) = serve(vec![BUSY]);
         assert_eq!(presence(&server, "token", "device"), Err(Refused::Said("503".into())));

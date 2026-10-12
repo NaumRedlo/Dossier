@@ -166,7 +166,7 @@ pub enum Message {
     Poll,
     Polled(Result<Paired, Refused>),
     PresenceTick,
-    PresenceAnswered(Result<(), Refused>),
+    PresenceAnswered(Result<Option<u32>, Refused>),
     OpenTelegram,
     CopyLink,
     LaterSignIn,
@@ -448,6 +448,7 @@ pub struct Main {
     pub scenes: HashMap<String, image::Handle>,
     pub auto_fetched: std::collections::HashSet<String>,
     pub missed: maps::Missed,
+    pub online: Option<u32>,
     missed_read: bool,
     pub scene_before: Option<Option<image::Handle>>,
     pub lengths: HashMap<PathBuf, i64>,
@@ -693,6 +694,7 @@ impl Main {
             scenes: HashMap::new(),
             auto_fetched: std::collections::HashSet::new(),
             missed: maps::Missed::default(),
+            online: None,
             missed_read: false,
             scene_before: None,
             lengths: HashMap::new(),
@@ -2238,8 +2240,11 @@ impl Main {
                 let (server, token, name) = (self.settings.server.clone(), self.settings.token.clone(), self.settings.device.clone());
                 ui::in_thread(move || Message::PresenceAnswered(bot::presence(&server, &token, &name)))
             }
-            Message::PresenceAnswered(_result) => {
+            Message::PresenceAnswered(result) => {
                 self.presence_pending = false;
+                if let Ok(Some(online)) = result {
+                    self.online = Some(online);
+                }
                 Task::none()
             }
             Message::Poll => match &self.pairing {
@@ -7661,7 +7666,11 @@ impl Main {
                 if let Some(badge) = worn.filter(|badge| badge.show_title && !badge.title.name.is_empty()) {
                     lines = lines.push(text(badge.title.name.clone()).font(theme::SANS_SEMI).size(12.5).wrapping(text::Wrapping::None).color(ui::faded(crate::badge::title_colour(badge.title.rank, badge.stage))));
                 }
-                lines.push(ui::mono_small(under, MUTED))
+                let lines = lines.push(ui::mono_small(under, MUTED));
+                match self.online.filter(|_| self.signed_in()) {
+                    Some(online) => lines.push(row![ui::dot(7.0), ui::mono_small(w.n("online-now", u64::from(online)), MUTED)].spacing(6).align_y(iced::Center)),
+                    None => lines,
+                }
             },
         ]
         .spacing(14)
@@ -8382,7 +8391,8 @@ mod tests {
         assert!(!main.presence_pending);
         let _ = main.update(super::Message::PresenceTick);
         assert!(main.presence_pending);
-        let _ = main.update(super::Message::PresenceAnswered(Ok(())));
+        let _ = main.update(super::Message::PresenceAnswered(Ok(Some(7))));
+        assert_eq!(main.online, Some(7), "the answer carries how many people are online");
         assert!(!main.presence_pending);
         main.gallery = true;
         let _ = main.update(super::Message::PresenceTick);

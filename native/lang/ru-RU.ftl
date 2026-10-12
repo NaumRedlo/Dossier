@@ -1350,3 +1350,4 @@ months = { $n ->
    *[other] { $n } месяцев
 }
 under-a-month = меньше месяца
+online-now = в сети { $n }

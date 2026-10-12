@@ -508,7 +508,14 @@ fn numeric_date(at: i64) -> String {
 }
 
 fn years(words: &crate::lang::Words, joined: i64, now: i64) -> Option<String> {
-    (joined > 0).then(|| words.n("years", ((now - joined) / (365 * DAY)).max(0) as u64))
+    (joined > 0).then(|| {
+        let days = ((now - joined) / DAY).max(0);
+        match (days / 365, days / 30) {
+            (0, 0) => words.t("under-a-month"),
+            (0, months) => words.n("months", months.min(11) as u64),
+            (years, _) => words.n("years", years as u64),
+        }
+    })
 }
 
 fn cover_picture(handle: Option<&iced::widget::image::Handle>, wide: f32, tint: Color) -> iced::widget::image::Handle {
@@ -1662,5 +1669,21 @@ mod chart_tests {
         for image in &images[1..] {
             assert_eq!(image::imageops::crop_imm(image, 0, 180 * scale, image.width(), 20 * scale).to_image(), image::imageops::crop_imm(&images[0], 0, 180 * scale, image.width(), 20 * scale).to_image());
         }
+    }
+}
+
+#[cfg(test)]
+mod age_tests {
+    #[test]
+    fn a_young_account_is_told_in_months_and_never_as_zero_years() {
+        let words = crate::lang::Words::new(crate::lang::Lang::Ru);
+        let now = 2_000_000_000;
+        let day = super::DAY;
+        assert_eq!(super::years(&words, 0, now), None);
+        assert_eq!(super::years(&words, now - 5 * day, now), Some(words.t("under-a-month")));
+        assert_eq!(super::years(&words, now - 95 * day, now), Some(words.n("months", 3)));
+        assert_eq!(super::years(&words, now - 364 * day, now), Some(words.n("months", 11)));
+        assert_eq!(super::years(&words, now - 800 * day, now), Some(words.n("years", 2)));
+        assert_eq!(words.n("months", 3), "3 месяца");
     }
 }

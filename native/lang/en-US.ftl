@@ -1302,3 +1302,8 @@ shelf-mark-published = Published
 pool-suggest-online = From the osu! database
 share-upload-broken = The connection was lost during the upload. The app has already tried once more; check the network and send it again.
 share-too-large = The video is too large to send.
+months = { $n ->
+    [one] { $n } month
+   *[other] { $n } months
+}
+under-a-month = under a month

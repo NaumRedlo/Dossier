@@ -20,7 +20,7 @@ it builds on a Raspberry Pi as readily as on a laptop.
 
 ## What is in here
 
-| | |
+| Where | What is there |
 |---|---|
 | `crates/dossier-replay` | `.osr` — the compressed cursor track and what was pressed |
 | `crates/dossier-beatmap` | `.osu` and `.osz` — hit objects, timing, slider curves, storyboards |
@@ -43,7 +43,7 @@ is the difference between rendering a replay and animating a beatmap.
 
 ## What it models
 
-| Piece | |
+| Piece | What is modelled |
 |---|---|
 | **Judgement** | Note lock, hit windows, slider heads, ticks, reverses and tails, combo and accuracy — for stable and for lazer, which disagree about several of these |
 | **Scoring** | Stable v1 and v2, lazer's own, the difficulty multiplier, and the mod multipliers as they stand after the June 2026 change |
@@ -157,10 +157,13 @@ into a companion for osu!:
 
 Everything is in English and in Russian.
 
-| | |
+| The feed of a chat | The pools page |
 |---|---|
-| ![The feed of a chat: live plays and what happened this week](docs/screens/feed.png) | ![The pools page: drafts as cards](docs/screens/pools.png) |
-| ![The pool editor: categories one under another, tiles in rows](docs/screens/pool-editor.png) | ![A frame of a rendered replay](docs/render.png) |
+| ![Live plays and what happened this week](docs/screens/feed.png) | ![Drafts as cards](docs/screens/pools.png) |
+
+| The pool editor | A rendered frame |
+|---|---|
+| ![Categories one under another, tiles in rows](docs/screens/pool-editor.png) | ![A frame of a rendered replay](docs/render.png) |
 
 The pictures show sample data the application draws for its own tests.
 

@@ -45,6 +45,8 @@ impl Metric {
     }
 }
 
+const RANK_LEAP: f64 = 10.0;
+
 struct Series {
     points: Vec<(i64, f64)>,
     lower_better: bool,
@@ -110,6 +112,9 @@ fn delta(words: &crate::lang::Words, metric: Metric, series: &Series) -> Option<
     let (first, last) = (series.points.first()?.1, series.points.last()?.1);
     let change = last - first;
     if change.abs() < 1e-6 || series.points.len() < 2 {
+        return None;
+    }
+    if metric.is_rank() && first > last * RANK_LEAP {
         return None;
     }
     let better = if series.lower_better { change < 0.0 } else { change > 0.0 };
@@ -1674,6 +1679,16 @@ mod chart_tests {
 
 #[cfg(test)]
 mod age_tests {
+    #[test]
+    fn a_climb_from_the_bottom_of_a_new_account_is_not_told_as_a_movement() {
+        let words = crate::lang::Words::new(crate::lang::Lang::En);
+        let from = |first: f64, last: f64| super::Series { points: vec![(0, first), (1, last)], lower_better: true };
+        assert!(super::delta(&words, super::Metric::Rank, &from(23_681_434.0, 932_068.0)).is_none());
+        assert!(super::delta(&words, super::Metric::CountryRank, &from(400_000.0, 9_000.0)).is_none());
+        assert_eq!(super::delta(&words, super::Metric::Rank, &from(950_000.0, 932_068.0)).map(|(_, better)| better), Some(true));
+        assert_eq!(super::delta(&words, super::Metric::Rank, &from(900_000.0, 932_068.0)).map(|(_, better)| better), Some(false));
+    }
+
     #[test]
     fn a_young_account_is_told_in_months_and_never_as_zero_years() {
         let words = crate::lang::Words::new(crate::lang::Lang::Ru);

@@ -291,6 +291,22 @@ pub fn fetch_posts(channel: &str) -> Result<Vec<Post>, String> {
     Ok(posts_from(&name, &fetched(&format!("https://t.me/s/{name}"))?))
 }
 
+pub fn fetch_posts_through(server: &str, token: &str, device: &str, channel: &str) -> Result<Vec<Post>, String> {
+    let direct = fetch_posts(channel);
+    if direct.as_ref().is_ok_and(|posts| !posts.is_empty()) || token.is_empty() {
+        return direct;
+    }
+    let name = channel_name(channel).ok_or_else(|| format!("{channel} is not a channel name"))?;
+    let reply = client()?.get(format!("{server}/render/news/channel/{name}")).header("X-Render-Worker", device).bearer_auth(token).send().map_err(|e| e.to_string());
+    match reply {
+        Ok(reply) if reply.status().is_success() => match reply.text() {
+            Ok(page) => Ok(posts_from(&name, &page)),
+            Err(_) => direct,
+        },
+        _ => direct,
+    }
+}
+
 pub fn channel_name(said: &str) -> Option<String> {
     let said = said.trim();
     let said = said.strip_prefix("https://").or_else(|| said.strip_prefix("http://")).unwrap_or(said);

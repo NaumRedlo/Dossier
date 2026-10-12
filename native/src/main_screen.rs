@@ -6126,7 +6126,8 @@ impl Main {
 
     fn fetch_channel(&mut self, channel: String) -> Task<Message> {
         self.news_loading.insert(crate::news::channel_source(&channel));
-        ui::in_thread(move || Message::NewsPosts(channel.clone(), crate::news::fetch_posts(&channel)))
+        let (server, token, device) = (self.settings.server.clone(), self.settings.token.clone(), self.settings.device.clone());
+        ui::in_thread(move || Message::NewsPosts(channel.clone(), crate::news::fetch_posts_through(&server, &token, &device, &channel)))
     }
 
     fn refresh_news(&mut self, every: bool) -> Task<Message> {

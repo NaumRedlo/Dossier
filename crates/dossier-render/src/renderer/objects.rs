@@ -20,6 +20,24 @@ const BORDER_PORTION: f32 = 0.1875;
 
 const SHADOW_ALPHA: f32 = 0.25;
 
+fn spinner_bonus_at<'a>(
+    events: impl Iterator<Item = &'a dossier_sim::Event>,
+    time_ms: f64,
+) -> Option<(u32, f64)> {
+    let mut awarded = 0;
+    let mut latest: Option<f64> = None;
+    for event in events {
+        if event.part == dossier_sim::Part::SpinnerBonus
+            && event.result != dossier_sim::Judgement::Miss
+            && event.time_ms <= time_ms
+        {
+            awarded += SPINNER_BONUS_STEP;
+            latest = Some(latest.map_or(event.time_ms, |at| at.max(event.time_ms)));
+        }
+    }
+    latest.map(|at| (awarded, at))
+}
+
 fn tube_shade(
     towards: f32,
     border: Color,
@@ -1252,7 +1270,7 @@ impl Scene<'_> {
         self.draw_spinner_approach(pixmap, elapsed, alpha, layout);
         self.draw_spin_word(pixmap, index, object, time_ms, alpha, layout);
         self.draw_spin_clear(pixmap, index, object, time_ms, alpha, layout);
-        self.draw_spin_bonus(pixmap, index, object, time_ms, alpha, layout);
+        self.draw_spin_bonus(pixmap, index, time_ms, alpha, layout);
     }
 
     fn draw_our_spinner(&self, pixmap: &mut Pixmap, filled: f32, alpha: f32, layout: &Layout) {
@@ -1319,7 +1337,11 @@ impl Scene<'_> {
     }
 
     fn spun_share(&self, object: &TimedObject, time_ms: f64) -> f32 {
-        let required = dossier_sim::required_half_turns(self.state.difficulty(), object.duration_ms());
+        let required = if self.state.is_lazer() {
+            dossier_sim::required_spins(self.state.difficulty(), object.duration_ms()) * 2.0
+        } else {
+            dossier_sim::required_half_turns(self.state.difficulty(), object.duration_ms())
+        };
         if required <= 0.0 {
             return 1.0;
         }
@@ -1351,7 +1373,12 @@ impl Scene<'_> {
     }
 
     fn spun_clear_at(&self, index: usize, object: &TimedObject) -> Option<f64> {
-        let required = dossier_sim::required_half_turns(self.state.difficulty(), object.duration_ms());
+        // Stable emits one event per half turn; lazer emits one per full turn.
+        let required = if self.state.is_lazer() {
+            dossier_sim::required_spins(self.state.difficulty(), object.duration_ms())
+        } else {
+            dossier_sim::required_half_turns(self.state.difficulty(), object.duration_ms())
+        };
         if required <= 0.0 {
             return Some(object.start_ms);
         }
@@ -1657,23 +1684,18 @@ impl Scene<'_> {
         &self,
         pixmap: &mut Pixmap,
         index: usize,
-        object: &TimedObject,
         time_ms: f64,
         alpha: f32,
         layout: &Layout,
     ) {
-        let required = dossier_sim::required_half_turns(self.state.difficulty(), object.duration_ms());
-        let turns = self.spun_turns(index);
-        let bonus: Vec<f64> = turns
-            .into_iter()
-            .enumerate()
-            .filter(|(turn, _)| *turn as f64 + 1.0 > required + 3.0)
-            .map(|(_, at)| at)
-            .collect();
-        let Some(latest) = bonus.iter().copied().rfind(|at| *at <= time_ms) else {
+        let Some(judge) = self.state.judge() else {
             return;
         };
-        let awarded = bonus.iter().filter(|at| **at <= time_ms).count() as u32;
+        // The judgement stream already applies the client's bonus threshold and cadence.
+        // Counting half turns here pays twice as often in stable and misreads lazer ticks.
+        let Some((awarded, latest)) = spinner_bonus_at(judge.events_for(index), time_ms) else {
+            return;
+        };
 
         let age = time_ms - latest;
         let eased = 1.0 - (1.0 - (age / SPINNER_BONUS_MS).clamp(0.0, 1.0)).powi(3);
@@ -1694,7 +1716,7 @@ impl Scene<'_> {
         let size = (layout.scale() * swell * glyph) as f32;
         let (x, y) = layout.map(spin_place(0.0, SPIN_BONUS_AT));
 
-        let text = format!("{}", awarded * SPINNER_BONUS_STEP);
+        let text = format!("{awarded}");
         if self.draw_hud_text(pixmap, &text, x, y + size / 2.0, size, Align::Centre, shown) {
             return;
         }
@@ -2075,6 +2097,55 @@ fn body_path(object: &TimedObject, (from, to): (f64, f64)) -> Option<tiny_skia::
     }
     builder.line_to(end.x as f32, end.y as f32);
     builder.finish()
+}
+
+#[cfg(test)]
+mod spinner_bonus {
+    use super::*;
+    use dossier_sim::{Event, Judgement, Part};
+
+    fn event(at: f64, part: Part) -> Event {
+        Event {
+            time_ms: at,
+            scored_ms: at,
+            object_index: 0,
+            part,
+            result: Judgement::Great,
+            error_ms: None,
+            combo_after: 0,
+        }
+    }
+
+    #[test]
+    fn half_turns_do_not_inflate_or_restart_the_bonus() {
+        let events = [
+            event(100.0, Part::SpinnerPoints),
+            event(200.0, Part::SpinnerSpin),
+            event(300.0, Part::SpinnerBonus),
+            event(400.0, Part::SpinnerSpin),
+            event(500.0, Part::SpinnerBonus),
+        ];
+        assert_eq!(spinner_bonus_at(events.iter(), 299.0), None);
+        assert_eq!(spinner_bonus_at(events.iter(), 300.0), Some((1000, 300.0)));
+        assert_eq!(spinner_bonus_at(events.iter(), 400.0), Some((1000, 300.0)));
+        assert_eq!(spinner_bonus_at(events.iter(), 500.0), Some((2000, 500.0)));
+        // Seeking backwards must not carry the previous frame's accumulated bonus.
+        assert_eq!(spinner_bonus_at(events.iter(), 300.0), Some((1000, 300.0)));
+    }
+
+    #[test]
+    fn bonus_ticks_need_no_reconstructed_half_turn_threshold() {
+        // Lazer only emits scoring full turns; counting their indices as half turns
+        // used to delay or entirely hide bonuses already awarded by the judge.
+        let events = [
+            event(100.0, Part::SpinnerPoints),
+            event(200.0, Part::SpinnerBonus),
+        ];
+        assert_eq!(spinner_bonus_at(events.iter(), 200.0), Some((1000, 200.0)));
+        let mut missed = event(300.0, Part::SpinnerBonus);
+        missed.result = Judgement::Miss;
+        assert_eq!(spinner_bonus_at(std::iter::once(&missed), 300.0), None);
+    }
 }
 
 #[cfg(test)]

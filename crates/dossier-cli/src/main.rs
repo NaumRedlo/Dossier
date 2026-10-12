@@ -60,7 +60,7 @@ last step down from a total that disagrees to the one verdict responsible.
 
 `corpus` is the measurement every change is judged by: one line per replay
 that disagrees, and a total. With `--strict <n>` it fails when that total is
-worse than n, which is what makes it a check rather than a report.
+worse than n, or any replay cannot be measured.
 
 `--expect tools/corpus.tsv` goes further: that file names which replays the
 corpus is, by hash, and what each one is expected to do. It catches what a
@@ -68,6 +68,8 @@ total cannot — a replay that got worse while another got better, a replay
 this machine does not have, the same file counted twice from two folders.
 `--update-expect` writes what this run measured into it, leaving the rows for
 replays it did not see alone; `--prune` is how one of those rows leaves.
+Failed measurements prevent updates. With `--strict` (with or without a
+number), every replay named in the expectation file must be present.
 
 `sliders` and `errors` are for when `judge` disagrees with the replay and the
 question is where. The first breaks slider verdicts down by which part was
@@ -172,9 +174,10 @@ OPTIONS (judge):
                          video/frame: the player's own avatar and cover, which
                          no rival line can carry.
         --expect <tsv>   corpus: the file naming the corpus and what each
-                         replay in it does. Fails on any replay that got worse,
+                         replay in it does. Fails on failed measurements or regressions,
                          and with --strict on any that is missing here.
         --update-expect  corpus: write what this run measured into that file.
+                         Refuses updates if any measurement failed.
                          A replay it did not see keeps the row it had — the
                          corpus is a list of replays this machine may or may
                          not be holding today, and a partial run is not news
@@ -1447,7 +1450,7 @@ fn corpus(options: Options) -> ExitCode {
         md5: String,
         beatmap_md5: String,
     }
-    let mut skipped = 0usize;
+    let mut failures: Vec<(PathBuf, String)> = Vec::new();
 
     let expected = match &options.expect {
         Some(path) if options.update_expect && !path.exists() => Some(BTreeMap::new()),
@@ -1468,8 +1471,8 @@ fn corpus(options: Options) -> ExitCode {
     for replay_path in &options.replays {
         let md5 = match std::fs::read(replay_path) {
             Ok(bytes) => locate::md5_hex(&bytes),
-            Err(_) => {
-                skipped += 1;
+            Err(error) => {
+                failures.push((replay_path.clone(), error.to_string()));
                 continue;
             }
         };
@@ -1485,21 +1488,24 @@ fn corpus(options: Options) -> ExitCode {
         .unwrap_or_else(default_measurers)
         .clamp(1, queue.len().max(1));
     let next = std::sync::atomic::AtomicUsize::new(0);
-    let measured: Vec<(Vec<(usize, Row)>, usize)> = std::thread::scope(|scope| {
+    let measured: Vec<(Vec<(usize, Row)>, Vec<(PathBuf, String)>)> = std::thread::scope(|scope| {
         let threads: Vec<_> = (0..workers)
             .map(|_| {
                 let (next, queue, options) = (&next, &queue, &options);
                 scope.spawn(move || {
                     let mut mine: Vec<(usize, Row)> = Vec::new();
-                    let mut missed = 0usize;
+                    let mut missed = Vec::new();
                     loop {
                         let at = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                         let Some((md5, replay_path)) = queue.get(at) else {
                             break;
                         };
-                        let Ok(report) = run_one(replay_path, options) else {
-                            missed += 1;
-                            continue;
+                        let report = match run_one(replay_path, options) {
+                            Ok(report) => report,
+                            Err(error) => {
+                                missed.push(((*replay_path).clone(), error.to_string()));
+                                continue;
+                            }
                         };
                         let check = &report.check;
                         let (ours, theirs) = (check.ours, check.theirs);
@@ -1543,12 +1549,17 @@ fn corpus(options: Options) -> ExitCode {
 
     let mut ordered: Vec<(usize, Row)> = Vec::with_capacity(queue.len());
     for (mine, missed) in measured {
-        skipped += missed;
+        failures.extend(missed);
         ordered.extend(mine);
     }
     ordered.sort_unstable_by_key(|(at, _)| *at);
     let mut rows: Vec<Row> = ordered.into_iter().map(|(_, row)| row).collect();
 
+    failures.sort_by(|a, b| a.0.cmp(&b.0));
+    for (path, error) in &failures {
+        eprintln!("   FAILED {}: {error}", path.display());
+    }
+    let skipped = failures.len();
     let total: u32 = rows.iter().map(|r| r.error).sum();
     let exact = rows.iter().filter(|r| r.error == 0 && r.combo == 0).count();
     let lazer = rows.iter().filter(|r| r.client == "lazer").count();
@@ -1597,6 +1608,15 @@ fn corpus(options: Options) -> ExitCode {
 
     if duplicates > 0 {
         println!("{duplicates} duplicate replay file(s) counted once");
+    }
+
+    // An incomplete run must never bless a new baseline or pass a check.
+    if rows.is_empty() || (skipped > 0 && options.update_expect) {
+        eprintln!(
+            "dossier: incomplete corpus: {} measured, {skipped} failed; expectations unchanged",
+            rows.len()
+        );
+        return ExitCode::FAILURE;
     }
 
     let mut regressed = 0usize;
@@ -1661,21 +1681,28 @@ fn corpus(options: Options) -> ExitCode {
                 }
             }
             println!(
-                "\nagainst {}: {} of {} rows present, {absent} absent, {unlisted} not listed, \
+                "\nagainst {}: {} of {} rows present, {} measured, {absent} absent, {unlisted} not listed, \
                  {regressed} worse",
                 path.display(),
                 expected.len() - absent,
-                expected.len()
+                expected.len(),
+                rows.iter()
+                    .filter(|row| expected.contains_key(&row.md5))
+                    .count()
             );
         }
     }
 
+    if skipped > 0 && (options.strict || options.corpus_ceiling.is_some() || options.expect.is_some()) {
+        eprintln!("dossier: {skipped} replay(s) could not be measured; corpus check is incomplete");
+        return ExitCode::FAILURE;
+    }
     if regressed > 0 {
         eprintln!("dossier: {regressed} replay(s) got worse than the corpus says they are");
         return ExitCode::FAILURE;
     }
 
-    if absent > 0 && options.strict {
+    if absent > 0 && (options.strict || options.corpus_ceiling.is_some()) {
         eprintln!("dossier: {absent} replay(s) of the corpus are not on this machine");
         return ExitCode::FAILURE;
     }

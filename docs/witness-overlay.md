@@ -113,3 +113,14 @@ there is no input capture or game-control command in the protocol.
 Next integration tests must cover fullscreen/windowed rendering, DPI/resize,
 context loss, client restart, a stalled/disconnected transport and host unloading
 without affecting gameplay. Protocol tests cannot establish those properties.
+
+
+## macOS stock lazer: current source boundary (2026-10-11)
+
+`tools/macos-overlay` follows runtime-log screen transitions and optionally
+connects to the stock client's localhost WebSocket API, enabled per launch with
+`OSU_WEBSOCKET_SERVER=1`. The installed 2026.1005.1.0 client publishes map metadata
+and user activity, including map maximum PP/combo and mods. It does not publish
+current combo, accuracy or hit offsets in these messages. This is not a gameplay
+producer for protocol version 1: map limits must never be mapped into `Gameplay`.
+See `tools/macos-overlay/README.md` for launch steps and validation limits.

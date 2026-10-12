@@ -216,6 +216,12 @@ impl ScoreTrack {
         let (mut combo_part_max, mut max_hits) = (0.0f64, 0u32);
         let mut perfect_combo = 0u32;
         for event in judge.events() {
+            // Spinner turns are added separately, above the million-point base.
+            // Including them only in this denominator makes extra spins reduce
+            // the normalized combo score, even for a perfect play.
+            if event.part.is_bonus() {
+                continue;
+            }
             let value = f64::from(v2_value(event.part, Judgement::Great));
             if event.part.adds_combo() {
                 perfect_combo += 1;

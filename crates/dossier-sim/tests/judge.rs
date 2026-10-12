@@ -369,6 +369,86 @@ fn ball_x(t: i64, start: f64, duration: f64) -> f32 {
 }
 
 #[test]
+fn lazer_can_hit_a_short_slider_head_after_the_path_has_ended() {
+    let map = beatmap(&SHORT_SLIDER.replace("L|140:0,1,140", "L|14:0,1,14"));
+    for (version, press_at, expected) in [
+        (30_000_019, 1080, Judgement::Ok),
+        (30_000_019, 1160, Judgement::Miss),
+        (20_260_101, 1080, Judgement::Miss),
+    ] {
+        let mut replay = replay_with(click(press_at, 0.0, 0.0), 0);
+        replay.game_version = version;
+        let state = GameState::new(&map, &replay);
+        assert_eq!(state.timeline().objects[0].end_ms, 1050.0);
+        let verdict = state.judge().unwrap().events().iter()
+            .find(|e| e.part == Part::Slider).unwrap();
+        assert_eq!(verdict.result, expected, "client {version}");
+    }
+}
+
+#[test]
+fn lazer_can_resume_tracking_between_recorded_frames() {
+    let map = beatmap(SHORT_SLIDER);
+    let frames = frames_over(
+        900,
+        1600,
+        |t| (ball_x(t, 1000.0, 500.0), if (1450..1490).contains(&t) { 60.0 } else { 0.0 }),
+        |t| t >= 1000 && !(1450..1480).contains(&t),
+    );
+    let mut replay = replay_with(frames, 0);
+    replay.game_version = 30_000_019;
+    let state = GameState::new(&map, &replay);
+    let tail = state.judge().unwrap().events().iter()
+        .find(|e| e.part == Part::SliderTail).unwrap();
+    assert_eq!(tail.result, Judgement::Great);
+    // The held cursor crosses the normal radius between the recorded samples
+    // at 1480 and 1490. Simulation must not wait for the latter sample.
+    assert_eq!(tail.scored_ms, 1485.0);
+}
+
+#[test]
+fn losing_lazer_tracking_requires_reentering_the_ball() {
+    let map = beatmap(SHORT_SLIDER);
+    for (return_distance, expected) in [(60.0, Judgement::Miss), (10.0, Judgement::Great)] {
+        let frames = frames_over(
+            900,
+            1600,
+            |t| (ball_x(t, 1000.0, 500.0), if t >= 1450 { return_distance } else { 0.0 }),
+            |t| t >= 1000 && !(1450..1480).contains(&t),
+        );
+        let mut replay = replay_with(frames, 0);
+        replay.game_version = 30_000_019;
+        let state = GameState::new(&map, &replay);
+        let tail = state.judge().unwrap().events().iter()
+            .find(|e| e.part == Part::SliderTail).unwrap();
+        assert_eq!(tail.result, expected, "return distance: {return_distance}");
+    }
+}
+
+#[test]
+fn a_recovered_lazer_tail_counts_after_an_intervening_miss() {
+    let map = beatmap(&format!("{SHORT_SLIDER}400,300,1320,1,0\n"));
+    let frames = frames_over(
+        900,
+        1600,
+        |t| (ball_x(t, 1000.0, 500.0), 0.0),
+        |t| t >= 1000 && !(1450..1480).contains(&t),
+    );
+    let mut replay = replay_with(frames, 0);
+    replay.game_version = 30_000_019;
+    let state = GameState::new(&map, &replay);
+    let judge = state.judge().unwrap();
+    let tail = judge.events().iter().find(|e| e.part == Part::SliderTail).unwrap();
+    assert_eq!(tail.result, Judgement::Great);
+    assert_eq!(tail.time_ms, 1500.0, "drawing still follows the slider end");
+    assert_eq!(tail.scored_ms, 1480.0, "the tail lands when tracking resumes");
+    assert_eq!(judge.state_at(1465.0).combo, 1, "no credit before recovery");
+    assert_eq!(judge.state_at(1475.0).combo, 0, "the neighbouring circle missed");
+    assert_eq!(judge.final_state().combo, 1, "the recovered tail starts a new combo");
+    assert_eq!(judge.final_state().max_combo, 1);
+}
+
+#[test]
 fn a_fully_tracked_slider_is_a_three_hundred() {
     let map = beatmap(SHORT_SLIDER);
     let frames = frames_over(
@@ -602,6 +682,34 @@ OverallDifficulty:5
 ";
 
 const SIXTY_A_SECOND_MS: i64 = 17;
+
+#[test]
+fn lazer_rounds_spinner_completion_to_full_turns() {
+    let map = beatmap(SPINNER);
+    // OD5, one second: lazer requires two full rotations, stable five half turns.
+    let mut replay = replay_with(spin_frames(1000, 2000, 2.1), 0);
+    replay.game_version = 30_000_016;
+    assert_eq!(judged(&map, &replay).count_300, 1);
+    replay.game_version = 20_260_101;
+    assert_eq!(judged(&map, &replay).count_300, 0);
+
+    let short = beatmap(&SPINNER.replace("0,2000", "0,1350"));
+    replay.game_version = 30_000_016;
+    replay.frames = frames_over(900, 1500, |_| (256.0, 100.0), |_| false);
+    assert_eq!(judged(&short, &replay).count_300, 1,
+        "a lazer spinner requiring zero full turns clears without rotation");
+}
+
+#[test]
+fn lazer_spinner_thresholds_allow_duration_roundoff() {
+    let difficulty = dossier_beatmap::Difficulty::default();
+    assert_eq!(dossier_sim::required_spins(&difficulty, 399.99), 1.0);
+    assert_eq!(dossier_sim::required_spins(&difficulty, 399.9), 0.0);
+    assert_eq!(dossier_sim::required_half_turns(&difficulty, 399.99), 1.0);
+    // At OD5 the full-score rate is 380 RPM; keep a just-below-integer tick.
+    let duration = 6.0 / difficulty.full_score_spins_per_second() * 1000.0 - 0.001;
+    assert_eq!(dossier_sim::spare_spins(&difficulty, duration), 2.0);
+}
 
 fn spin_frames(from: i64, to: i64, turns: f64) -> Vec<ReplayFrame> {
     let span = (to - from) as f64;
@@ -1554,6 +1662,26 @@ fn score_v2_makes_a_stable_slider_worth_what_its_head_was_worth() {
 
     let v2 = score_v2_slider(60, 1600, dossier_replay::bits::SCORE_V2);
     assert_eq!((v2.count_300, v2.count_100), (0, 1), "{v2:?}");
+}
+
+#[test]
+fn score_v2_does_not_reveal_a_future_slider_break_at_the_head_press() {
+    let map = beatmap(SHORT_SLIDER);
+    for (hold_until, expected) in [(1200, Judgement::Ok), (1600, Judgement::Great)] {
+        let frames = frames_over(900, 1600,
+            |t| (ball_x(t, 1000.0, 500.0), 0.0),
+            |t| (1000..hold_until).contains(&t));
+        let replay = replay_with(frames, dossier_replay::bits::SCORE_V2);
+        let state = GameState::new(&map, &replay);
+        let judge = state.judge().unwrap();
+        assert_eq!(judge.state_at(1100.0).counts, HitCounts::default(),
+            "the two plays have identical input so far; neither has a slider grade yet");
+        assert_eq!(judge.state_at(1100.0).combo, 1, "the head itself still adds combo immediately");
+        let verdict = judge.events().iter().find(|e| e.part == Part::Slider).unwrap();
+        assert_eq!(verdict.time_ms, 1500.0);
+        assert!(verdict.scored_ms > 1464.0, "the verdict follows the tail check");
+        assert_eq!(verdict.result, expected);
+    }
 }
 
 #[test]

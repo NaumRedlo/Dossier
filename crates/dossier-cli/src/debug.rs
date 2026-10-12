@@ -46,6 +46,25 @@ pub fn narrate(
 
     out.push_str(&format!("\n   {from:.0}ms … {to:.0}ms\n\n"));
     out.push_str(&timeline_lines(state, window));
+    if let Some(judge) = state.judge() {
+        let events: Vec<_> = judge.events().iter()
+            .filter(|event| event.scored_ms >= from && event.scored_ms <= to)
+            .collect();
+        if !events.is_empty() {
+            out.push_str("\n   scoring order (time / object / part / result / combo after):\n");
+            for event in events {
+                out.push_str(&format!(
+                    "   {:10.3}ms  #{:<5} {:<14?} {:<5?}  combo {}",
+                    event.scored_ms, event.object_index, event.part, event.result,
+                    event.combo_after,
+                ));
+                if event.time_ms != event.scored_ms {
+                    out.push_str(&format!("  (drawn at {:.3}ms)", event.time_ms));
+                }
+                out.push('\n');
+            }
+        }
+    }
     out.push_str(&stuck_notes(state, window));
     out
 }

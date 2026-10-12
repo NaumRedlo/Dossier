@@ -1,3 +1,4 @@
+pub mod lazer;
 use dossier_hud::{Context, Sprite, Stage};
 use dossier_overlay::{Client, View, Viewport};
 use std::time::Instant;
@@ -325,6 +326,7 @@ mod tests {
             resting: Some(false),
             pp: Some(42.0),
             pp_clean: Some(100.0),
+            pp_record: None,
         });
         view.snapshot.meter = Some(Meter {
             shown: true,

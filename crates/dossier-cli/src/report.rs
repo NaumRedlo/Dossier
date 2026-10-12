@@ -310,10 +310,10 @@ impl Report {
         if !self.combo_suspects.is_empty() {
             if generous > 1 {
                 out.push_str(&format!(
-                    "   we scored {generous} objects above the game, so it may have broken more\n   than once — these two are only the answer if it broke once:\n"
+                    "   we have {generous} more 300s than the replay; aggregate counts do not locate the difference.\n   Candidate boundaries under a single-extra-break hypothesis:\n"
                 ));
             } else {
-                out.push_str("   the game's break has to be at one of:\n");
+                out.push_str("   Candidate boundaries if one extra break explains the difference:\n");
             }
             for s in &self.combo_suspects {
                 let click = match (s.press_dt_ms, s.press_distance_px) {
@@ -355,14 +355,14 @@ impl Report {
             .filter(|c| c.ended_at_ms < longest.ended_at_ms)
             .max_by(|a, b| a.ended_at_ms.total_cmp(&b.ended_at_ms));
         let mut out = format!(
-            "   we broke {} time(s) the game did not — our longest run is {ours} to its {theirs}.\n",
+            "   our longest run is {ours} to its {theirs} ({} combo short).\n   This does not determine the number of breaks; missing combo credit or event order may also explain it.\n",
             theirs - ours
         );
         if theirs - ours == 1 && self.check.counts_match() {
             match before {
                 Some(before) => {
                     out.push_str(
-                        "   If their run covers ours, the extra break is at one of its ends:\n",
+                        "   If their run covers ours and an extra break is responsible, inspect these boundaries:\n",
                     );
                     out.push_str(&format!("      ours ended on {}\n", describe(longest)));
                     out.push_str(&format!(
@@ -372,7 +372,7 @@ impl Report {
                 }
                 None => {
                     out.push_str(&format!(
-                        "   Ours runs from the first object, so the break is where it ended:\n      {}\n",
+                        "   Ours runs from the first object; inspect its end as one candidate:\n      {}\n",
                         describe(longest)
                     ));
                 }
@@ -689,6 +689,25 @@ mod tests {
             window_50: 150.0,
             parts: Vec::new(),
             score_error: None,
+        }
+    }
+
+    #[test]
+    fn a_combo_deficit_does_not_claim_a_number_of_extra_breaks() {
+        let mut report = sample();
+        for deficit in [1, 5] {
+            report.check.their_max_combo = report.check.our_max_combo + deficit;
+            report.combo_chains = vec![dossier_sim::ComboChain {
+                length: report.check.our_max_combo,
+                ended_at_ms: 1000.0,
+                object_index: 9,
+                part: Some(dossier_sim::Part::Circle),
+            }];
+            let text = report.early_break();
+            assert!(text.contains(&format!("{deficit} combo short")), "{text}");
+            assert!(text.contains("does not determine the number of breaks"), "{text}");
+            assert!(!text.contains("we broke"), "{text}");
+            assert!(!text.contains("the break is where"), "{text}");
         }
     }
 

@@ -518,7 +518,7 @@ fn judge_heads(timeline: &Timeline, cursor: &CursorTrack, ruleset: Ruleset, mark
                 Some(frame) if marked && !object.is_spinner() && !object.is_slider() => {
                     written_off_before(cursor.frames(), frame + usize::from(press.after_the_sweep), object.start_ms + window)
                 }
-                _ => past_it(object, press.time_ms, window),
+                _ => past_it(object, press.time_ms, window, ruleset),
             };
             if !judged[index] && gone {
                 judged[index] = true;
@@ -719,8 +719,10 @@ fn written_off_before(frames: &[ReplayFrame], press: usize, window_closes_ms: f6
     frames.partition_point(|frame| frame.time_ms as f64 <= window_closes_ms) < press
 }
 
-fn past_it(object: &TimedObject, time_ms: f64, window_50: f64) -> bool {
-    if object.is_spinner() || object.is_slider() {
+fn past_it(object: &TimedObject, time_ms: f64, window_50: f64, ruleset: Ruleset) -> bool {
+    // A lazer slider head keeps its own hit window even when the path is
+    // shorter than that window. Stable's slider lifetime remains end-based.
+    if object.is_spinner() || (object.is_slider() && ruleset.slider_runs_on_whole_ms()) {
         time_ms > object.end_ms
     } else {
         time_ms - 1.0 > object.start_ms + window_50
@@ -780,7 +782,11 @@ fn build_events(
             } else {
                 spinner_half_turns(cursor, object.start_ms, object.end_ms, spin)
             };
-            let required = required_half_turns(difficulty, object.duration_ms());
+            let required = if ruleset.spinner_counts_half_turns() {
+                required_half_turns(difficulty, object.duration_ms())
+            } else {
+                required_spins(difficulty, object.duration_ms()) * 2.0
+            };
 
             let spare = spare_spins(difficulty, object.duration_ms()) as i64;
             for (turn, at) in turns.iter().enumerate() {
@@ -937,11 +943,14 @@ fn build_slider_events(
         slider_judgement(parts_hit, parts_total)
     };
 
+    // Stable ScoreV2 combines head accuracy with the pieces, so its verdict
+    // cannot be awarded at the head press (before those pieces are played).
     let verdict_at = match head {
-        Head::Hit { time_ms, .. } if ruleset.slider_verdict_from_head() => time_ms,
+        Head::Hit { time_ms, .. } if ruleset.slider_verdict_from_head()
+            && !ruleset.slider_verdict_also_needs_its_pieces() => time_ms,
         _ => object.end_ms,
     };
-    let verdict_scored_at = if ruleset.slider_runs_on_whole_ms() && !ruleset.slider_verdict_from_head() {
+    let verdict_scored_at = if ruleset.slider_runs_on_whole_ms() {
         after_the_rest_of_its_update(cursor, swept_at(cursor, object.end_ms.trunc() - 1.0, window, ruleset))
     } else {
         verdict_at
@@ -1190,6 +1199,12 @@ pub fn required_half_turns(difficulty: &dossier_beatmap::Difficulty, duration_ms
     (difficulty.half_spins_per_second() * duration_ms / 1000.0).floor()
 }
 
+/// Lazer rounds the completion requirement to full rotations, with the same
+/// floating-point allowance used when constructing its nested spinner ticks.
+pub fn required_spins(difficulty: &dossier_beatmap::Difficulty, duration_ms: f64) -> f64 {
+    (difficulty.half_spins_per_second() / 2.0 * duration_ms / 1000.0 + 0.0001).floor()
+}
+
 const LAZER_BONUS_GAP: i64 = 2;
 
 fn spinner_turn(turn: i64, required: i64, spare: i64, ruleset: Ruleset) -> Option<Part> {
@@ -1218,8 +1233,8 @@ fn spinner_turn(turn: i64, required: i64, spare: i64, ruleset: Ruleset) -> Optio
 }
 
 pub fn spare_spins(difficulty: &dossier_beatmap::Difficulty, duration_ms: f64) -> f64 {
-    let full = (difficulty.full_score_spins_per_second() * duration_ms / 1000.0).floor();
-    let required = (required_half_turns(difficulty, duration_ms) / 2.0).floor();
+    let full = (difficulty.full_score_spins_per_second() * duration_ms / 1000.0 + 0.0001).floor();
+    let required = required_spins(difficulty, duration_ms);
     (full - required - LAZER_BONUS_GAP as f64).max(0.0)
 }
 
@@ -1278,6 +1293,7 @@ fn track_slider(
 
     let mut tail_pending: Option<f64> = None;
     let mut tail_hit = false;
+    let mut tail_scored_at = None;
 
     let swept_past = forgiving
         && head_hit_ms.is_some_and(|at| {
@@ -1300,7 +1316,9 @@ fn track_slider(
     instants.sort_by(f64::total_cmp);
 
     for now in instants {
-        let head_landing = tail_window && head_hit_ms.is_some_and(|at| now >= at) && !sliding;
+        // Only the head press grants the expanded follow area. Once tracking
+        // is lost, returning requires entering the ball's normal radius.
+        let head_landing = tail_window && !head_seeded && head_hit_ms.is_some_and(|at| now >= at);
 
         if let Some(at) = head_press_ms {
             if !head_seeded && now >= at {
@@ -1361,7 +1379,7 @@ fn track_slider(
         };
 
         let on_a_frame = now.fract() == 0.0 && frames.contains(&(now as i64));
-        if allowable && !sliding && on_a_frame {
+        if allowable && !sliding && (on_a_frame || !whole_ms) {
             sliding = true;
             slide_start = now;
         }
@@ -1374,6 +1392,7 @@ fn track_slider(
                 if tail_window && part == Part::SliderTail {
                     tail_pending = Some(time_ms);
                     tail_hit = landed;
+                    tail_scored_at = landed.then_some(now);
                 } else {
                     out.push((time_ms, part, landed));
                 }
@@ -1382,7 +1401,10 @@ fn track_slider(
         }
         if let Some(at) = tail_pending {
             if now > at && now <= object.end_ms {
-                tail_hit |= allowable && slide_start <= now;
+                if !tail_hit && allowable && slide_start <= now {
+                    tail_hit = true;
+                    tail_scored_at = Some(now);
+                }
             }
         }
 
@@ -1392,7 +1414,9 @@ fn track_slider(
     }
 
     if let Some(at) = tail_pending {
-        out.push((at, Part::SliderTail, tail_hit));
+        // Lazer may recover a tail during its lenience window. Awarding it at
+        // the window's start moves it ahead of intervening hits/combo breaks.
+        out.push((tail_scored_at.unwrap_or(at), Part::SliderTail, tail_hit));
     }
 
     for &(time_ms, part) in &parts[judged.min(parts.len())..] {

@@ -24,7 +24,7 @@ impl Expectation {
         if error > self.error {
             return Some(format!("count error {} → {error}", self.error));
         }
-        if combo.abs() > self.combo.abs() {
+        if combo.unsigned_abs() > self.combo.unsigned_abs() {
             return Some(format!("combo {:+} → {combo:+}", self.combo));
         }
 
@@ -41,6 +41,10 @@ impl Expectation {
 
 pub fn read(path: &Path) -> Result<BTreeMap<String, Expectation>, String> {
     let text = std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    parse(&text, path)
+}
+
+fn parse(text: &str, path: &Path) -> Result<BTreeMap<String, Expectation>, String> {
     let mut rows = BTreeMap::new();
     for (number, line) in text.lines().enumerate() {
         let line = line.trim_end_matches(['\r', '\n']);
@@ -57,21 +61,37 @@ pub fn read(path: &Path) -> Result<BTreeMap<String, Expectation>, String> {
             ));
         };
         let at = |what: &str| format!("{}:{}: bad {what}", path.display(), number + 1);
+        for (field, value) in [("replay hash", replay_md5), ("beatmap hash", beatmap_md5)] {
+            if value.len() != 32 || !value.bytes().all(|b| b.is_ascii_hexdigit()) {
+                return Err(at(field));
+            }
+        }
+        let replay_md5 = replay_md5.to_ascii_lowercase();
+        if rows.contains_key(&replay_md5) {
+            return Err(at("duplicate replay hash"));
+        }
+        let score = match score {
+            "-" => None,
+            off => {
+                let value: f64 = off.parse().map_err(|_| at("score"))?;
+                if !value.is_finite() {
+                    return Err(at("non-finite score"));
+                }
+                Some(value)
+            }
+        };
         rows.insert(
-            replay_md5.to_owned(),
+            replay_md5.clone(),
             Expectation {
                 replay_md5: replay_md5.to_owned(),
-                beatmap_md5: beatmap_md5.to_owned(),
+                beatmap_md5: beatmap_md5.to_ascii_lowercase(),
                 beatmap_id: match beatmap_id {
                     "-" => None,
                     id => Some(id.parse().map_err(|_| at("beatmap id"))?),
                 },
                 error: error.parse().map_err(|_| at("count error"))?,
                 combo: combo.parse().map_err(|_| at("combo"))?,
-                score: match score {
-                    "-" => None,
-                    off => Some(off.parse().map_err(|_| at("score"))?),
-                },
+                score,
                 name: name.to_owned(),
             },
         );
@@ -135,6 +155,27 @@ pub fn write(path: &Path, rows: &BTreeMap<String, Expectation>) -> Result<(), St
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn corrupt_baselines_cannot_hide_cases_or_bypass_comparison() {
+        let valid = format!(
+            "{}\t{}\t-\t0\t0\t0.00\tcase.osr\n",
+            "a".repeat(32),
+            "b".repeat(32)
+        );
+        let path = Path::new("corpus.tsv");
+        assert!(parse(&valid, path).is_ok());
+        for invalid in [
+            valid.replacen(&"a".repeat(32), "short", 1),
+            valid.replace("0.00", "NaN"),
+            valid.replace("0.00", "inf"),
+            format!("{valid}{valid}"),
+            format!("{valid}{}", valid.replace(&"a".repeat(32), &"A".repeat(32))),
+        ] {
+            assert!(parse(&invalid, path).is_err(), "{invalid}");
+        }
+        assert!(row().worse_than(4, i64::MIN, Some(0.12)).is_some());
+    }
 
     fn row() -> Expectation {
         Expectation {

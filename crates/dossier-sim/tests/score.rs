@@ -53,6 +53,27 @@ fn click(time_ms: i64, x: f32, y: f32) -> Vec<ReplayFrame> {
 }
 
 #[test]
+fn score_v2_spinner_bonus_does_not_reduce_the_perfect_base_score() {
+    let map = beatmap("[Difficulty]\nOverallDifficulty:5\n\n[HitObjects]\n256,192,1000,12,0,5000\n");
+    let mut previous = 1_000_000;
+    for turns in [20.0, 25.0] {
+        let frames = (1000..=5000).step_by(10).map(|time_ms| {
+            let angle = (time_ms - 1000) as f64 / 4000.0 * turns * std::f64::consts::TAU;
+            ReplayFrame { time_ms, x: (256.0 + 100.0 * angle.cos()) as f32,
+                y: (192.0 + 100.0 * angle.sin()) as f32, keys: Keys(Keys::K1) }
+        }).collect();
+        let replay = replay_with(frames, bits::SCORE_V2);
+        let state = GameState::new(&map, &replay);
+        let judge = state.judge().unwrap();
+        assert_eq!(judge.final_state().counts.count_300, 1);
+        let score = ScoreTrack::build(judge, &map, replay.mods, Ruleset::of_replay_version(replay.game_version));
+        assert!(score.total() > previous,
+            "a perfect spinner earns the million-point base, and more rotations add bonus: got {} after {previous} for {turns} turns", score.total());
+        previous = score.total();
+    }
+}
+
+#[test]
 fn a_multiplier_landing_on_a_half_rounds_to_the_even_side() {
     let m = beatmap(
         "[Difficulty]\nHPDrainRate:5\nCircleSize:4\nOverallDifficulty:9.2\n\n\

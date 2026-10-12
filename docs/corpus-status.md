@@ -31,9 +31,11 @@ passing regression comparison does not mean the engine is fully accurate.
 
 ## Restored maps
 
-Three map files were recovered from the official osu! map endpoint and verified
+Three map files were historically recovered from the official osu! map endpoint and verified
 against the exact hashes expected by the replays before copying them into the
 local corpus. No existing files or expectation rows were replaced.
+This historical retrieval method was prohibited by osu! support on 2026-10-12
+and has been removed. Future recovery uses local files or verified mirror archives.
 
 | Map ID | Expected MD5 |
 | --- | --- |

@@ -3215,39 +3215,19 @@ twelve maps "not on the mirror" and thirteen fetches that had failed. That is
 the worst state a replay can be in. A replay that disagrees with us is a
 question; a replay that is not measured at all is not even that.
 
-The bot the fetching was modelled on (`Airkek/osubot-telegram`) does not use a
-mirror for the file at all:
+The historical recovery used direct requests to osu! production file links.
+On 2026-10-12 osu! support explicitly prohibited this use. That download path
+has been removed from `tools/fetch-maps.py`; do not reproduce it.
 
-```csharp
-// performance-server/src/OsuPerformanceServer/Program.cs
-string baseUrl = builder.Configuration["BEATMAP_DOWNLOAD_BASE_URL"]
-    ?? "https://osu.ppy.sh/osu/";
-```
+The current tool checks local `.osu` and `.osz` files first, then asks mirror
+indexes for the beatmapset and downloads a mirror archive. It keeps an archive
+only when a contained `.osu` matches the replay's MD5. If no mirror has that
+revision, it reports the map as missing; there is no production-site fallback.
+The `--with-audio` option additionally replaces bare local maps with matching
+mirror archives, while missing maps always use archives.
 
-`https://osu.ppy.sh/osu/<id>` is the official raw `.osu`, no key required. A
-mirror has what somebody uploaded to it; ppy has what exists. "Not on the
-mirror" was never the same statement as "gone", and treating the two as one is
-what cost twelve maps.
-
-What a mirror *is* needed for is the step ppy has no endpoint for: turning an
-MD5 into an id. A replay names its map by hash alone. Two mirrors are asked,
-because their indexes differ — catboy answers for ranked and loved and 404s on
-everything else, while osu.direct also carries graveyard, which is most of what
-a replay from a friend is played on. Four of the last six came back from that
-second lookup.
-
-Cheaper than either: a server-downloaded replay is named
-`solo-replay-osu_<beatmap>_<score>`. The id is in the filename and no third
-party is involved at all. Nine of sixteen were resolved that way.
-
-`tools/fetch-maps.py` does this, and checks three things before keeping a file,
-following osu!'s own `BeatmapStore`: the header must read `osu file format v`,
-the size must be under 50MB, and **the MD5 must be the one the replay asked
-for**. The last is not paranoia. ppy serves the map as it is *now*, and a map
-revised since the replay was set comes back a different file that would be
-judged against the wrong notes without ever looking wrong. Two responses were
-rejected on other grounds and one class of failure is worth naming: ppy answers
-`200` with a zero-byte body for a map deleted since it was played.
+The measurements below describe the historical corpus, not permission to use
+the historical retrieval method.
 
 | | before | after |
 |---|---|---|
@@ -3341,12 +3321,11 @@ the real numbers to 72 exact of 128 with a total of 260 — from 79 of 137 at
 | total count error | 278 | **260** |
 
 The replays themselves are not in the repository and will not be — they are
-other people's plays. The maps are public, though, and the manifest is enough
-to fetch every one of them: `tools/fetch-maps.py --manifest tools/corpus.tsv`
-rebuilt all 117 into an empty directory from the pinned ids alone, and the
-corpus measured identically against it. The ids are pinned for exactly that
-reason — with an id the map comes straight from ppy, and no mirror has to still
-be answering hash lookups a year from now.
+other people's plays. Historically the manifest rebuilt all 117 maps into an
+empty directory. After the support-requested removal of production downloads,
+`tools/fetch-maps.py --manifest tools/corpus.tsv` depends on mirror availability
+and exact MD5 matches; pinned map IDs no longer guarantee recovery. Missing
+revisions must be supplied from local files or matching mirror archives.
 
 One bug fell out of writing it. `trim_end()` on a manifest line takes the tab
 off a row whose last field is empty, leaving six fields where there are seven —

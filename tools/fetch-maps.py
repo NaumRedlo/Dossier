@@ -14,7 +14,6 @@ import urllib.request
 import zipfile
 
 MAX_BEATMAP_BYTES = 50 * 1024 * 1024
-PPY_RAW = "https://osu.ppy.sh/osu/{id}"
 MIRRORS_MD5 = (
     "https://catboy.best/api/v2/md5/{hash}",
     "https://osu.direct/api/v2/md5/{hash}",
@@ -168,25 +167,6 @@ def beatmap_id(want_hash, replays):
             return int(entry["id"]), host
     return None, "hash on no mirror" if unknown else "mirrors unreachable"
 
-def keep(content, want_hash, into):
-    if len(content) > MAX_BEATMAP_BYTES:
-        return f"over {MAX_BEATMAP_BYTES // (1024 * 1024)}MB"
-    if not content:
-
-        return "deleted from ppy"
-    header = content[:64].decode("utf-8-sig", "replace").lstrip()
-    if not header.startswith("osu file format v"):
-        return "not a .osu file"
-    got = hashlib.md5(content).hexdigest()
-    if got != want_hash:
-
-        return f"revised since ({got[:12]}…)"
-
-    temporary = into.with_suffix(".osu.part")
-    temporary.write_bytes(content)
-    os.replace(temporary, into)
-    return None
-
 def read_manifest(path):
     rows = []
     for line in path.read_text().splitlines():
@@ -225,7 +205,10 @@ def write_manifest(path, resolved):
     return filled
 
 def main():
-    parser = argparse.ArgumentParser(add_help=True)
+    parser = argparse.ArgumentParser(
+        description="Recover missing maps from mirror beatmapset archives, verified by MD5.",
+        add_help=True,
+    )
     parser.add_argument("replays", nargs="*", type=pathlib.Path)
     parser.add_argument(
         "--manifest",
@@ -247,9 +230,8 @@ def main():
     parser.add_argument(
         "--with-audio",
         action="store_true",
-        help="fetch whole beatmapsets from mirrors as <hash>.osz instead of bare .osu "
-        "files, so renders have the map's music. Replaces any bare .osu already on "
-        "disk, which the engine would otherwise keep preferring.",
+        help="also replace existing bare .osu files with mirror beatmapsets containing audio. "
+        "Missing maps are always fetched as .osz archives from mirrors.",
     )
     parser.add_argument("--dry-run", action="store_true", help="say what is missing, fetch nothing")
     options = parser.parse_args()
@@ -309,32 +291,13 @@ def main():
             found, how = beatmap_id(want_hash, for_replays)
             if found is not None:
                 resolved[want_hash] = found
-        if found is None:
-            failed.append((want_hash, name, how))
-            print(f"  !! {want_hash}  {how}")
-            continue
-        if options.with_audio:
-            why = fetch_set(want_hash, songs)
-            if why:
-                failed.append((want_hash, name, why))
-                print(f"  !! {want_hash}  {why}")
-            else:
-                fetched += 1
-                print(f"  ok {want_hash}  set with audio")
-            continue
-        try:
-            content = get(PPY_RAW.format(id=found))
-        except (urllib.error.URLError, OSError, TimeoutError) as error:
-            failed.append((want_hash, name, str(error)))
-            print(f"  !! {want_hash}  id {found}: {error}")
-            continue
-        why = keep(content, want_hash, songs / f"{want_hash}.osu")
+        why = fetch_set(want_hash, songs)
         if why:
             failed.append((want_hash, name, why))
-            print(f"  !! {want_hash}  id {found}: {why}")
+            print(f"  !! {want_hash}  {why}")
         else:
             fetched += 1
-            print(f"  ok {want_hash}  id {found} ({how})")
+            print(f"  ok {want_hash}  mirror set with audio")
 
     if options.dry_run:
         return 0

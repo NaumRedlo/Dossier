@@ -1308,3 +1308,7 @@ months = { $n ->
 }
 under-a-month = under a month
 online-now = { $n } online
+people-filter-all = Everyone
+people-filter-chat = Chat
+people-filter-dossier = Dossier
+people-filter-online = Online

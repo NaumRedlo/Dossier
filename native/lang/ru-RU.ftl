@@ -1351,3 +1351,7 @@ months = { $n ->
 }
 under-a-month = меньше месяца
 online-now = в сети { $n }
+people-filter-all = Все
+people-filter-chat = Беседа
+people-filter-dossier = Dossier
+people-filter-online = В сети

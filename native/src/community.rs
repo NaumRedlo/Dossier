@@ -237,6 +237,7 @@ pub struct Person {
     pub top: Vec<Play>,
     pub you: bool,
     pub app: bool,
+    pub online: bool,
     pub player: Option<i64>,
     pub outside: bool,
     pub title_dates: std::collections::HashMap<String, i64>,
@@ -419,6 +420,7 @@ fn person_into(maps: &mut Vec<MapRef>, said: &wire::Person) -> Person {
     top: said.top.iter().map(|play| play_into(maps, play)).collect(),
     you: said.you,
     app: said.app,
+    online: said.online,
     player: said.player,
     outside: false,
     title_dates: said.earned.iter().filter_map(|(code, at)| at.map(|at| (code.clone(), at))).collect(),
@@ -486,8 +488,22 @@ impl Catalog {
         order
     }
 
+    pub fn marked(&mut self, everyone: &[wire::Person]) {
+        for person in &mut self.people {
+            let said = everyone.iter().find(|said| match (person.player, said.player) {
+                (Some(ours), Some(theirs)) => ours == theirs,
+                _ => person.name.trim().eq_ignore_ascii_case(said.name.trim()),
+            });
+            if let Some(said) = said {
+                person.app = said.app;
+                person.online = said.online;
+            }
+        }
+    }
+
     pub fn welcome(&mut self, everyone: &[wire::Person]) {
         self.people.retain(|person| !person.outside);
+        self.marked(everyone);
         let here = |said: &wire::Person| {
             self.people.iter().any(|person| match (person.player, said.player) {
                 (Some(ours), Some(theirs)) => ours == theirs,
@@ -1059,6 +1075,8 @@ pub mod wire {
         pub you: bool,
         #[serde(default)]
         pub app: bool,
+        #[serde(default)]
+        pub online: bool,
         #[serde(default)]
         pub earned: std::collections::HashMap<String, Option<i64>>,
     }

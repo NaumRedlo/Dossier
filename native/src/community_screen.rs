@@ -21,6 +21,37 @@ pub enum Section {
     Pools,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PeopleFilter {
+    #[default]
+    All,
+    Chat,
+    Dossier,
+    Online,
+}
+
+impl PeopleFilter {
+    pub const ALL: [PeopleFilter; 4] = [PeopleFilter::All, PeopleFilter::Chat, PeopleFilter::Dossier, PeopleFilter::Online];
+
+    pub fn key(self) -> &'static str {
+        match self {
+            PeopleFilter::All => "people-filter-all",
+            PeopleFilter::Chat => "people-filter-chat",
+            PeopleFilter::Dossier => "people-filter-dossier",
+            PeopleFilter::Online => "people-filter-online",
+        }
+    }
+
+    pub fn takes(self, person: &Person) -> bool {
+        match self {
+            PeopleFilter::All => true,
+            PeopleFilter::Chat => !person.outside,
+            PeopleFilter::Dossier => person.app,
+            PeopleFilter::Online => person.online,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PeopleFrom {
     Chat,
@@ -154,6 +185,7 @@ pub enum Message {
     FeedScrolled(f32),
     ShowNew,
     PeopleSearch(String),
+    PeopleFilter(PeopleFilter),
     Toggle(String),
     Metric(crate::dossier::Metric),
     Span(u32),
@@ -202,6 +234,7 @@ pub struct Ground<'a> {
     pub read_k: f32,
     pub people_from: PeopleFrom,
     pub people_query: &'a str,
+    pub people_filter: PeopleFilter,
     pub standing: Standing,
     pub person_k: f32,
     pub person_card: Option<&'a crate::community::wire::Card>,
@@ -924,8 +957,18 @@ fn person_card<'a>(ground: &Ground<'a>, at: usize, person: &Person, place: usize
         column![
             text(format!("#{place}")).font(theme::SANS_SEMI).size(30.0).wrapping(text::Wrapping::None).color(ui::faded(place_colour)),
             ui::mono_small(w.t(if person.outside { "on-server" } else { "in-group" }), FAINT),
+            {
+                let mut marks = row![].spacing(6).align_y(iced::Center);
+                if person.online {
+                    marks = marks.push(ui::dot(7.0));
+                }
+                if person.app {
+                    marks = marks.push(ui::tag("Dossier".to_owned()));
+                }
+                marks
+            },
         ]
-        .spacing(0)
+        .spacing(2)
         .align_x(iced::alignment::Horizontal::Right),
     ]
     .spacing(14)
@@ -975,7 +1018,7 @@ fn people<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
     let found = if ground.people_from == PeopleFrom::Game {
         ground.catalog.friends.iter().filter(|friend| people_match(&friend.name, ground.people_query)).count()
     } else {
-        ground.catalog.people.iter().filter(|person| people_match(&person.name, ground.people_query)).count()
+        ground.catalog.people.iter().filter(|person| people_match(&person.name, ground.people_query) && ground.people_filter.takes(person)).count()
     };
     let mut search = row![text_input(&w.t("people-search"), ground.people_query).id(iced::widget::Id::new("community-people-search"))
         .on_input(Message::PeopleSearch).font(theme::SANS).size(13.0).padding([8, 12]).width(Length::Fill).style(theme::field_faded(ui::fade()))].spacing(8).align_y(iced::Center);
@@ -986,6 +1029,13 @@ fn people<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
         container(search).id(iced::widget::Id::new("people-search-box")).width(300),
         container(ui::mono_small(w.of(found as u64, total as u64), FAINT)).width(Length::FillPortion(1)).align_x(iced::alignment::Horizontal::Right)
     ].spacing(14).align_y(iced::Center)].spacing(12);
+    let controls = if ground.people_from == PeopleFrom::Game {
+        controls
+    } else {
+        controls.push(container(row(PeopleFilter::ALL.iter().map(|filter| {
+            button(text(w.t(filter.key())).font(theme::SANS_SEMI).size(12.5)).padding([6, 12]).style(ui::button_faded(theme::filter_chip(ground.people_filter == *filter))).on_press(Message::PeopleFilter(*filter)).into()
+        })).spacing(8)).center_x(Length::Fill))
+    };
     let no_results = || container(empty(w.t("people-no-results"))).height(160.0).width(Length::Fill).into();
     if ground.people_from == PeopleFrom::Game {
         let body: Element<'a, Message> = match friends_said(ground) {
@@ -1013,7 +1063,7 @@ fn people<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
     let order = ground.catalog.ranked(Board::Pp);
     let t = ground.section_t.min(ground.shift_t);
     let across = columns_for(ground, 420.0).max(1);
-    let cards: Vec<Element<'a, Message>> = order.iter().enumerate().filter(|(_, at)| people_match(&ground.catalog.people[**at].name, ground.people_query))
+    let cards: Vec<Element<'a, Message>> = order.iter().enumerate().filter(|(_, at)| people_match(&ground.catalog.people[**at].name, ground.people_query) && ground.people_filter.takes(&ground.catalog.people[**at]))
         .enumerate().map(|(shown, (place, at))| ui::appearing(ui::appear(t, shown / across), 12.0, || person_card(ground, *at, &ground.catalog.people[*at], place + 1))).collect();
     spread(column![controls, grid(cards, across, 14.0)].spacing(16).into())
 }

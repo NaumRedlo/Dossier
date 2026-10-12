@@ -620,6 +620,7 @@ pub struct Main {
     pub history_at: Option<Instant>,
     pub people_from: crate::community_screen::PeopleFrom,
     pub people_query: String,
+    pub people_filter: crate::community_screen::PeopleFilter,
     pub community_standing: crate::community_screen::Standing,
     pub community_card: Option<crate::community::wire::Card>,
     pub shown_card: Option<crate::community::wire::Card>,
@@ -866,6 +867,7 @@ impl Main {
             history_at: None,
             people_from: crate::community_screen::PeopleFrom::Chat,
             people_query: String::new(),
+            people_filter: crate::community_screen::PeopleFilter::All,
             community_standing: crate::community_screen::Standing::General,
             community_card: None,
             shown_card: None,
@@ -3068,6 +3070,7 @@ impl Main {
 
                     }
                     C::PeopleSearch(query) => self.people_query = query,
+                    C::PeopleFilter(filter) => self.people_filter = filter,
                     C::Pools(inner) => {
                         if let crate::pools_screen::Message::Saved(said) = &inner {
                             match said {
@@ -6719,6 +6722,7 @@ impl Main {
             compare: &self.compare,
             compare_query: &self.compare_query,
             people_query: &self.people_query,
+            people_filter: self.people_filter,
             standing: self.community_standing,
             card: self.shown_card.as_ref(),
             flags: &self.flags,
@@ -7752,8 +7756,7 @@ impl Main {
 
     fn everyone_task(&self) -> Task<Message> {
         let staged = self.community.as_ref().is_none_or(|catalog| catalog.staged);
-        let wanted = self.settings.people_everyone || self.community_section == crate::community_screen::Section::Compare;
-        if !wanted || self.settings.token.is_empty() || staged {
+        if self.settings.token.is_empty() || staged {
             return Task::none();
         }
         let (server, token, name) = (self.settings.server.clone(), self.settings.token.clone(), self.settings.device.clone());
@@ -7768,7 +7771,10 @@ impl Main {
         if self.settings.people_everyone {
             catalog.welcome(&self.everyone);
         } else {
+            let users: Vec<crate::community::wire::Person> = self.everyone.iter().filter(|said| said.app).cloned().collect();
             catalog.farewell();
+            catalog.welcome(&users);
+            catalog.marked(&self.everyone);
         }
         self.community_person = selected.and_then(|id| catalog.people.iter().position(|person| person.id == id));
         self.pool_players();

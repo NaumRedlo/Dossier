@@ -1044,6 +1044,14 @@ fn default_channels() -> Vec<String> {
     vec!["osunewsru".to_owned()]
 }
 
+pub fn channels_for(lang: crate::lang::Lang, held: Vec<String>) -> Vec<String> {
+    if lang == crate::lang::Lang::En && held == default_channels() {
+        Vec::new()
+    } else {
+        held
+    }
+}
+
 pub fn path() -> PathBuf {
     crate::sources::home().join(".dossier").join("dossier.json")
 }
@@ -1112,6 +1120,14 @@ pub fn device_name() -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_person_who_reads_english_does_not_start_with_the_russian_channel() {
+        use crate::lang::Lang;
+        assert!(super::channels_for(Lang::En, super::default_channels()).is_empty());
+        assert_eq!(super::channels_for(Lang::Ru, super::default_channels()), super::default_channels());
+        assert_eq!(super::channels_for(Lang::En, vec!["osugame".to_owned()]), ["osugame"], "a channel the person chose is kept");
+    }
+
 
     #[test]
     fn regression_settings_replace_complete_files_and_clean_failed_staging() {

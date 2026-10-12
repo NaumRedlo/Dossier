@@ -349,7 +349,8 @@ impl App {
                     return Task::none();
                 };
                 let (task, done) = flow.update(inner);
-                if let first_run::Done::Finished(said) = done {
+                if let first_run::Done::Finished(mut said) = done {
+                    said.news_channels = settings::channels_for(said.lang, std::mem::take(&mut said.news_channels));
                     let _ = said.save();
                     let (mut main, task) = Main::new(Words::new(said.lang), said);
                     let launched = main.launched();

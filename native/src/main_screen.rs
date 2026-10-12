@@ -167,6 +167,7 @@ pub enum Message {
     Polled(Result<Paired, Refused>),
     PresenceTick,
     PresenceAnswered(Result<Option<u32>, Refused>),
+    EveryoneAgain,
     OpenTelegram,
     CopyLink,
     LaterSignIn,
@@ -449,6 +450,7 @@ pub struct Main {
     pub auto_fetched: std::collections::HashSet<String>,
     pub missed: maps::Missed,
     pub online: Option<u32>,
+    everyone_tries: u8,
     missed_read: bool,
     pub scene_before: Option<Option<image::Handle>>,
     pub lengths: HashMap<PathBuf, i64>,
@@ -696,6 +698,7 @@ impl Main {
             auto_fetched: std::collections::HashSet::new(),
             missed: maps::Missed::default(),
             online: None,
+            everyone_tries: 0,
             missed_read: false,
             scene_before: None,
             lengths: HashMap::new(),
@@ -3570,6 +3573,10 @@ impl Main {
                 let mut fresh = crate::community::Catalog::from_wire(said);
                 if self.settings.people_everyone {
                     fresh.welcome(&self.everyone);
+                } else {
+                    let users: Vec<crate::community::wire::Person> = self.everyone.iter().filter(|said| said.app).cloned().collect();
+                    fresh.welcome(&users);
+                    fresh.marked(&self.everyone);
                 }
                 let previous = self.community.take();
                 let selected = self.community_person.and_then(|at| previous.as_ref()?.people.get(at)).map(|person| person.id);
@@ -3609,6 +3616,7 @@ impl Main {
                 Task::batch([self.community_pictures_task(), friends, card, save, self.everyone_task(), self.resolve_witness(), self.worn_task()])
             }
             Message::EveryoneArrived(Ok(said)) => {
+                self.everyone_tries = 0;
                 self.everyone = said.people;
                 self.welcome_everyone();
                 self.pool_players();
@@ -3618,7 +3626,17 @@ impl Main {
                 self.worn.extend(worn);
                 Task::none()
             }
-            Message::EveryoneArrived(Err(_)) => Task::none(),
+            Message::EveryoneArrived(Err(_)) => {
+                if self.everyone_tries >= EVERYONE_TRIES {
+                    return Task::none();
+                }
+                self.everyone_tries += 1;
+                ui::in_thread(|| {
+                    std::thread::sleep(EVERYONE_AGAIN);
+                    Message::EveryoneAgain
+                })
+            }
+            Message::EveryoneAgain => self.everyone_task(),
             Message::PinRead(Ok(pin)) => {
                 let before = self.community_chat();
                 self.pin = Some(pin);
@@ -8126,6 +8144,8 @@ pub fn latin(letter: &str) -> Option<char> {
 
 pub const TOAST_STAY: Duration = Duration::from_secs(6);
 pub const TOAST_STAY_BAD: Duration = Duration::from_secs(12);
+const EVERYONE_TRIES: u8 = 4;
+const EVERYONE_AGAIN: Duration = Duration::from_secs(20);
 const BELL_PULSE: f32 = 1.6;
 const TOASTS_AT_MOST: usize = 3;
 

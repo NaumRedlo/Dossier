@@ -468,6 +468,7 @@ pub struct Main {
     pub skin_room: bool,
     pub skin_delete: Option<PathBuf>,
     pub skin_deleting: bool,
+    pub witness_asking: bool,
     pub room_fade: Animation<bool>,
     pub skin_scenes: HashMap<PathBuf, image::Handle>,
     pub cinema: Animation<bool>,
@@ -716,6 +717,7 @@ impl Main {
             skin_room: false,
             skin_delete: None,
             skin_deleting: false,
+            witness_asking: false,
             room_fade: Animation::new(false).duration(CINEMA).easing(Easing::EaseOutCubic),
             skin_scenes: HashMap::new(),
             cinema: Animation::new(false).duration(CINEMA).easing(Easing::EaseOutCubic),
@@ -963,7 +965,7 @@ impl Main {
     }
 
     pub fn witness_task(&mut self) -> Task<Message> {
-        if self.gallery || self.witness_control.is_some() {
+        if self.gallery || self.witness_control.is_some() || !self.settings.witness_on {
             return Task::none();
         }
         if self.settings.witness_keep && !self.settings.sources.iter().any(|source| source.is_witnessed()) {
@@ -2096,6 +2098,8 @@ impl Main {
                     self.pairing = Pairing::Idle;
                 } else if self.skin_delete.is_some() {
                     return self.prefs(prefs::Message::KeepSkin);
+                } else if self.witness_asking {
+                    return self.prefs(prefs::Message::WitnessDecline);
                 } else if self.billing.shown && self.billing.fade.value() {
                     return self.billing_step(crate::billing::Message::Close);
                 } else if self.menu.is_some() {
@@ -4397,6 +4401,24 @@ impl Main {
         })
     }
 
+    fn witness_ask_layer(&self) -> Element<'_, Message> {
+        if !self.witness_asking {
+            return Space::new().into();
+        }
+        let w = &self.words;
+        let note = |key: &str| text(w.t(key)).font(theme::SANS).size(13.0).wrapping(text::Wrapping::WordOrGlyph).color(MUTED);
+        let body = column![
+            text(w.t("witness-ask-title")).font(theme::SANS_SEMI).size(20.0).wrapping(text::Wrapping::WordOrGlyph).color(INK),
+            note("witness-ask-what"),
+            note("witness-ask-support"),
+            note("witness-ask-yours"),
+            row![ui::quiet(w.t("witness-ask-no"), Some(Message::Prefs(prefs::Message::WitnessDecline))), container(ui::primary(w.t("witness-ask-yes"), Some(Message::Prefs(prefs::Message::WitnessAgree)))).id(iced::widget::Id::new("witness-ask-confirm"))].spacing(8),
+        ].spacing(14);
+        let card = mouse_area(container(body).padding(24).width(480).style(theme::stage)).on_press(Message::Prefs(prefs::Message::WitnessAskTap));
+        let veil = mouse_area(ui::veil(theme::DEEP_SCRIM)).on_press(Message::Prefs(prefs::Message::WitnessDecline));
+        stack![veil, container(card).width(Length::Fill).height(Length::Fill).center(Length::Fill)].into()
+    }
+
     fn skin_delete_layer(&self) -> Element<'_, Message> {
         let Some(folder) = &self.skin_delete else { return Space::new().into(); };
         let w = &self.words;
@@ -4672,6 +4694,7 @@ impl Main {
         };
         let room = self.skin_room_layer();
         let skin_ask = self.skin_delete_layer();
+        let witness_ask = self.witness_ask_layer();
         let resting: Element<'_, Message> = if rest > 0.001 || self.resting.value() {
             let mark = container(ui::fading(rest, || ui::brand_scaled(REST_BRAND_SCALE))).id(iced::widget::Id::new("rest-mark"));
             let mark = pin(mark).x(CREST_HOME.0).y((self.height - 40.0 - ui::EMBLEM * REST_BRAND_SCALE).max(24.0));
@@ -4682,7 +4705,7 @@ impl Main {
             stack![shield, mark].into()
         } else { blank() };
         let mini = self.mini_player_layer();
-        let layers = stack![scene_before, scene, live_before, live, body, bubble, ground, overlay, chrome_layer, crest, mini, person, room, ask, sharing, toasts, menu, billing, signing, skin_ask, failure, resting];
+        let layers = stack![scene_before, scene, live_before, live, body, bubble, ground, overlay, chrome_layer, crest, mini, person, room, ask, sharing, toasts, menu, billing, signing, skin_ask, witness_ask, failure, resting];
         layers.width(Length::Fill).height(Length::Fill).into()
     }
 
@@ -7027,6 +7050,38 @@ impl Main {
                 keep(&self.settings);
                 if on { self.history_task(true) } else { Task::none() }
             }
+            P::WitnessRun(true) => {
+                self.witness_asking = true;
+                Task::none()
+            }
+            P::WitnessRun(false) => {
+                self.remember_mark("witness-run", false);
+                self.witness_asking = false;
+                self.settings.witness_on = false;
+                keep(&self.settings);
+                if let Some(control) = self.witness_control.take() {
+                    control.stop();
+                }
+                self.witness.status = crate::witness::Status::Off;
+                self.witness.state = None;
+                self.witness.playing = None;
+                Task::none()
+            }
+            P::WitnessAgree => {
+                if !self.witness_asking {
+                    return Task::none();
+                }
+                self.witness_asking = false;
+                self.remember_mark("witness-run", true);
+                self.settings.witness_on = true;
+                keep(&self.settings);
+                self.witness_task()
+            }
+            P::WitnessDecline => {
+                self.witness_asking = false;
+                Task::none()
+            }
+            P::WitnessAskTap => Task::none(),
             P::Witness(on) => {
                 self.remember_mark("witness", on);
                 self.settings.witness_keep = on;

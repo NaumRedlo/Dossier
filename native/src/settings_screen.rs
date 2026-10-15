@@ -183,6 +183,10 @@ pub enum Message {
     ShowBadge(bool),
     ShowTitle(bool),
     WearTitle(String),
+    WitnessRun(bool),
+    WitnessAgree,
+    WitnessDecline,
+    WitnessAskTap,
     Witness(bool),
     WitnessOverlay(bool),
     WitnessHistory(bool),
@@ -573,6 +577,7 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
         Tile::Witness => {
             use crate::witness::Status;
             let seen = ground.witness;
+            let running = s.witness_on;
             let on = s.witness_keep;
             let said = match &seen.status {
                 Status::Off => String::new(),
@@ -584,10 +589,13 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
             };
             let line = |said: String, colour: iced::Color, top: f32| container(text(said).font(theme::SANS).size(11.0).color(ui::faded(colour))).width(300.0).padding(Padding::ZERO.top(top));
             let mut panel = column![head(w, "witness-tile")].spacing(2);
-            if !said.is_empty() {
+            if !running {
+                panel = panel.push(line(w.t("witness-off-note"), FAINT, 0.0));
+            }
+            if running && !said.is_empty() {
                 panel = panel.push(line(said, if matches!(seen.status, Status::Unavailable) { theme::ACCENT } else { FAINT }, 0.0));
             }
-            if !seen.build.is_empty() && matches!(seen.status, Status::Loading | Status::Watching | Status::Playing) {
+            if running && !seen.build.is_empty() && matches!(seen.status, Status::Loading | Status::Watching | Status::Playing) {
                 panel = panel.push(line(w.with("witness-client", &[("build", seen.build.clone())]), FAINT, 2.0));
             }
             if seen.told > 0 {
@@ -599,16 +607,19 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
             if seen.untold {
                 panel = panel.push(line(w.t("witness-untold"), theme::ACCENT, 2.0));
             }
-            panel = panel.push(container(pill(ground, "witness-history", w.t("witness-history"), s.history_share, Message::WitnessHistory(!s.history_share))).padding(Padding::ZERO.top(10.0)));
-            panel = panel.push(container(pill(ground, "witness", w.t("witness-on"), on, Message::Witness(!on))).padding(Padding::ZERO.top(4.0)));
-            panel = panel.push(container(pill_tagged(ground, "witness-overlay", w.t("witness-overlay"), w.t("witness-experimental"), s.witness_overlay, Message::WitnessOverlay(!s.witness_overlay))).padding(Padding::ZERO.top(4.0)));
+            panel = panel.push(container(pill_tagged(ground, "witness-run", w.t("witness-run"), w.t("witness-risk"), running, Message::WitnessRun(!running))).padding(Padding::ZERO.top(10.0)));
+            if running {
+                panel = panel.push(container(pill(ground, "witness", w.t("witness-on"), on, Message::Witness(!on))).padding(Padding::ZERO.top(4.0)));
+                panel = panel.push(container(pill_tagged(ground, "witness-overlay", w.t("witness-overlay"), w.t("witness-experimental"), s.witness_overlay, Message::WitnessOverlay(!s.witness_overlay))).padding(Padding::ZERO.top(4.0)));
+            }
+            panel = panel.push(container(pill(ground, "witness-history", w.t("witness-history"), s.history_share, Message::WitnessHistory(!s.history_share))).padding(Padding::ZERO.top(4.0)));
             if s.history_share && seen.history_told > 0 {
                 panel = panel.push(line(w.with("witness-history-told", &[("n", w.lang().group(u64::from(seen.history_told)))]), FAINT, 8.0));
             }
             if s.history_share && seen.history_failed {
                 panel = panel.push(line(w.t("witness-history-failed"), theme::ACCENT, 2.0));
             }
-            if on && seen.written > 0 {
+            if running && on && seen.written > 0 {
                 panel = panel.push(line(w.with("witness-kept", &[("n", w.lang().group(u64::from(seen.written)))]), FAINT, 8.0));
             }
             panel.into()

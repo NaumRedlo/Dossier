@@ -896,6 +896,7 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
     linking.qr = crate::first_run::qr_for("https://t.me/bot?start=pair-K7QNM4XZ");
     let mut prefs_witness = prefs_app.clone();
     prefs_witness.settings.tiles_app = vec!["witness".to_owned()];
+    prefs_witness.settings.witness_on = true;
     prefs_witness.settings.witness_keep = true;
     prefs_witness.witness = crate::witness::Seen {
         status: crate::witness::Status::Playing,
@@ -911,6 +912,9 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
         history_told: 0,
         history_failed: false,
     };
+    let mut witness_ask = prefs_app.clone();
+    witness_ask.settings.tiles_app = vec!["witness".to_owned()];
+    witness_ask.witness_asking = true;
     let mut prefs_shared = prefs_app.clone();
     prefs_shared.settings.tiles_app = vec!["sources".to_owned()];
     prefs_shared.settings.sources.push(Source { replay_count: 37, ..crate::sources::shared(true) });
@@ -1038,6 +1042,7 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
         ("main-prefs-device".to_owned(), prefs_device),
         ("main-prefs-shared".to_owned(), prefs_shared),
         ("main-prefs-witness".to_owned(), prefs_witness),
+        ("main-prefs-witness-ask".to_owned(), witness_ask),
         ("main-prefs-bot-osu".to_owned(), prefs_osu),
         ("main-linking".to_owned(), linking),
         ("main-failure".to_owned(), failing),

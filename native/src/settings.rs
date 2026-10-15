@@ -85,6 +85,8 @@ pub struct Settings {
     pub worker_on: bool,
     #[serde(default)]
     pub donate_replays: bool,
+    #[serde(default)]
+    pub witness_on: bool,
     #[serde(default, alias = "witness")]
     pub witness_keep: bool,
     #[serde(default)]
@@ -999,6 +1001,7 @@ impl Default for Settings {
             skin: None,
             worker_on: false,
             donate_replays: false,
+            witness_on: false,
             witness_keep: false,
             witness_overlay: false,
             history_share: false,

@@ -481,6 +481,29 @@ pub fn qr<'a, Message: 'a>(code: &Qr) -> Element<'a, Message> {
 }
 
 static AUTO_SCALE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(100);
+static DEVICE_SCALE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+thread_local! {
+    static DRAWN_SCALE: std::cell::Cell<(f32, f32)> = const { std::cell::Cell::new((1.0, 0.0)) };
+}
+
+pub fn set_device_scale(scale: f32) {
+    DEVICE_SCALE.store(scale.to_bits(), std::sync::atomic::Ordering::Relaxed);
+}
+
+fn device_scale() -> f32 {
+    f32::from_bits(DEVICE_SCALE.load(std::sync::atomic::Ordering::Relaxed))
+}
+
+fn on_pixel(y: f32) -> f32 {
+    let device = device_scale();
+    let (scale, shift) = DRAWN_SCALE.with(std::cell::Cell::get);
+    if device <= 0.0 || scale <= 0.0 {
+        return y.round();
+    }
+    let physical = (device * (scale * y + shift)).round();
+    (physical / device - shift) / scale
+}
 
 pub fn auto_scale() -> u32 {
     AUTO_SCALE.load(std::sync::atomic::Ordering::Relaxed)
@@ -3426,9 +3449,12 @@ impl<Message> iced::advanced::Widget<Message, Theme, Renderer> for Scaled<'_, Me
         let transformation = self.transformation(origin);
         let seen = *viewport * transformation.inverse();
         let cursor = self.inward(origin, cursor);
+        let (outer, shift) = DRAWN_SCALE.with(std::cell::Cell::get);
+        DRAWN_SCALE.with(|scale| scale.set((outer * self.factor, outer * origin.y * (1.0 - self.factor) + shift)));
         renderer.with_transformation(transformation, |renderer| {
             self.content.as_widget().draw(tree, renderer, theme, style, inner, cursor, &seen);
         });
+        DRAWN_SCALE.with(|scale| scale.set((outer, shift)));
     }
 
     fn overlay<'b>(&'b mut self, tree: &'b mut iced::advanced::widget::Tree, layout: iced::advanced::Layout<'b>, renderer: &Renderer, viewport: &Rectangle, translation: iced::Vector) -> Option<iced::advanced::overlay::Element<'b, Message, Theme, Renderer>> {
@@ -3536,6 +3562,64 @@ impl<Message> iced::advanced::Widget<Message, Theme, Renderer> for Clipped<'_, M
 
     fn overlay<'b>(&'b mut self, tree: &'b mut iced::advanced::widget::Tree, layout: iced::advanced::Layout<'b>, renderer: &Renderer, viewport: &Rectangle, translation: iced::Vector) -> Option<iced::advanced::overlay::Element<'b, Message, Theme, Renderer>> {
         self.content.as_widget_mut().overlay(tree, layout, renderer, viewport, translation)
+    }
+}
+
+pub struct Band<'a, Message> {
+    content: Element<'a, Message>,
+    from: f32,
+    tall: f32,
+}
+
+pub fn band<'a, Message: 'a>(content: impl Into<Element<'a, Message>>, from: f32, to: f32) -> Element<'a, Message> {
+    Element::new(Band { content: content.into(), from, tall: (to - from).max(0.0) })
+}
+
+impl<Message> Band<'_, Message> {
+    fn inside(layout: iced::advanced::Layout<'_>, cursor: mouse::Cursor) -> mouse::Cursor {
+        if cursor.is_over(layout.bounds()) { cursor } else { mouse::Cursor::Unavailable }
+    }
+}
+
+impl<Message> iced::advanced::Widget<Message, Theme, Renderer> for Band<'_, Message> {
+    fn tag(&self) -> iced::advanced::widget::tree::Tag { self.content.as_widget().tag() }
+    fn state(&self) -> iced::advanced::widget::tree::State { self.content.as_widget().state() }
+    fn children(&self) -> Vec<iced::advanced::widget::Tree> { self.content.as_widget().children() }
+    fn diff(&self, tree: &mut iced::advanced::widget::Tree) { self.content.as_widget().diff(tree); }
+    fn size(&self) -> Size<Length> { Size::new(Length::Fill, Length::Fixed(self.tall)) }
+
+    fn layout(&mut self, tree: &mut iced::advanced::widget::Tree, renderer: &Renderer, limits: &iced::advanced::layout::Limits) -> iced::advanced::layout::Node {
+        let open = iced::advanced::layout::Limits::new(Size::ZERO, Size::new(limits.max().width, f32::INFINITY));
+        let inner = self.content.as_widget_mut().layout(tree, renderer, &open).move_to(Point::new(0.0, -self.from));
+        iced::advanced::layout::Node::with_children(Size::new(limits.max().width, self.tall), vec![inner])
+    }
+
+    fn operate(&mut self, tree: &mut iced::advanced::widget::Tree, layout: iced::advanced::Layout<'_>, renderer: &Renderer, operation: &mut dyn iced::advanced::widget::Operation) {
+        if let Some(inner) = layout.children().next() {
+            self.content.as_widget_mut().operate(tree, inner, renderer, operation);
+        }
+    }
+
+    fn update(&mut self, tree: &mut iced::advanced::widget::Tree, event: &iced::Event, layout: iced::advanced::Layout<'_>, cursor: mouse::Cursor, renderer: &Renderer, clipboard: &mut dyn iced::advanced::Clipboard, shell: &mut iced::advanced::Shell<'_, Message>, viewport: &Rectangle) {
+        if let Some(inner) = layout.children().next() {
+            self.content.as_widget_mut().update(tree, event, inner, Self::inside(layout, cursor), renderer, clipboard, shell, viewport);
+        }
+    }
+
+    fn mouse_interaction(&self, tree: &iced::advanced::widget::Tree, layout: iced::advanced::Layout<'_>, cursor: mouse::Cursor, viewport: &Rectangle, renderer: &Renderer) -> mouse::Interaction {
+        layout.children().next().map_or(mouse::Interaction::None, |inner| self.content.as_widget().mouse_interaction(tree, inner, Self::inside(layout, cursor), viewport, renderer))
+    }
+
+    fn draw(&self, tree: &iced::advanced::widget::Tree, renderer: &mut Renderer, theme: &Theme, style: &iced::advanced::renderer::Style, layout: iced::advanced::Layout<'_>, cursor: mouse::Cursor, viewport: &Rectangle) {
+        use iced::advanced::Renderer as _;
+        let own = layout.bounds();
+        let (top, bottom) = (on_pixel(own.y), on_pixel(own.y + own.height));
+        let snapped = Rectangle { y: top, height: bottom - top, ..own };
+        let (Some(inner), Some(bounds)) = (layout.children().next(), snapped.intersection(viewport)) else {
+            return;
+        };
+        let cursor = Self::inside(layout, cursor);
+        renderer.with_layer(bounds, |renderer| self.content.as_widget().draw(tree, renderer, theme, style, inner, cursor, &bounds));
     }
 }
 
@@ -4027,6 +4111,20 @@ pub fn text_width(words: &str, font: iced::Font, size: f32) -> f32 {
         wrapping: iced::widget::text::Wrapping::None,
     })
     .min_width()
+}
+
+pub fn fitted(words: &str, font: iced::Font, size: f32, room: f32) -> String {
+    if text_width(words, font, size) <= room {
+        return words.to_owned();
+    }
+    let chars: Vec<char> = words.chars().collect();
+    let (mut low, mut high) = (0, chars.len());
+    while low < high {
+        let mid = (low + high).div_ceil(2);
+        let tried: String = chars[..mid].iter().collect::<String>().trim_end().to_owned() + "…";
+        if text_width(&tried, font, size) <= room { low = mid } else { high = mid - 1 }
+    }
+    chars[..low].iter().collect::<String>().trim_end().to_owned() + "…"
 }
 
 pub fn fit_size(words: &str, font: iced::Font, base: f32, least: f32, room: f32) -> f32 {
@@ -5231,6 +5329,16 @@ impl<Message> iced::advanced::Widget<Message, Theme, Renderer> for Reveal<'_, Me
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_long_name_is_cut_to_its_room_with_an_ellipsis_and_a_short_one_is_kept() {
+        let long = "Shatter the Shackles of Your Agonizing Past, Search for Your Unwavering Ideal";
+        let cut = fitted(long, theme::SANS_SEMI, 14.0, 240.0);
+        assert!(cut.ends_with('…') && cut.len() < long.len());
+        assert!(text_width(&cut, theme::SANS_SEMI, 14.0) <= 240.0);
+        assert!(text_width(&format!("{}…", long.chars().take(cut.chars().count()).collect::<String>().trim_end()), theme::SANS_SEMI, 14.0) > 240.0 || cut.chars().count() == long.chars().count());
+        assert_eq!(fitted("Insane", theme::SANS_SEMI, 14.0, 240.0), "Insane");
+    }
 
     #[test]
     fn sliding_highlight_retargets_from_the_visible_position_and_settles_after_resize() {

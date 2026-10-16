@@ -50,13 +50,36 @@ pub enum Fit {
 }
 
 pub fn show<'a, Message: 'a>(frame: &Frame, fit: Fit, opacity: f32) -> Element<'a, Message> {
-    shader::Shader::new(Showing { frame: frame.clone(), fit, opacity }).width(Length::Fill).height(Length::Fill).into()
+    show_rounded(frame, fit, opacity, 0.0)
+}
+
+pub fn show_rounded<'a, Message: 'a>(frame: &Frame, fit: Fit, opacity: f32, radius: f32) -> Element<'a, Message> {
+    shader::Shader::new(Showing { frame: frame.clone(), fit, opacity, radius: radius.max(0.0), shade: None }).width(Length::Fill).height(Length::Fill).into()
+}
+
+pub fn show_rounded_right<'a, Message: 'a>(frame: &Frame, fit: Fit, opacity: f32, radius: f32) -> Element<'a, Message> {
+    shader::Shader::new(Showing { frame: frame.clone(), fit, opacity, radius: -radius.abs(), shade: None }).width(Length::Fill).height(Length::Fill).into()
+}
+
+pub fn show_cover<'a, Message: 'a>(frame: &Frame, opacity: f32, radius: f32, shade: iced::Color, floor: f32) -> Element<'a, Message> {
+    shader::Shader::new(Showing { frame: frame.clone(), fit: Fit::Cover, opacity, radius: -radius.abs(), shade: Some((shade, floor)) }).width(Length::Fill).height(Length::Fill).into()
+}
+
+impl Frame {
+    pub fn of_handle(reel: u64, handle: &iced::widget::image::Handle) -> Option<Frame> {
+        match handle {
+            iced::widget::image::Handle::Rgba { width, height, pixels, .. } => Some(Frame::new(reel, *width, *height, pixels.to_vec())),
+            _ => None,
+        }
+    }
 }
 
 struct Showing {
     frame: Frame,
     fit: Fit,
     opacity: f32,
+    radius: f32,
+    shade: Option<(iced::Color, f32)>,
 }
 
 impl<Message> shader::Program<Message> for Showing {
@@ -64,7 +87,7 @@ impl<Message> shader::Program<Message> for Showing {
     type Primitive = Shown;
 
     fn draw(&self, _state: &(), _cursor: mouse::Cursor, _bounds: Rectangle) -> Shown {
-        Shown { frame: self.frame.clone(), fit: self.fit, opacity: self.opacity.clamp(0.0, 1.0) }
+        Shown { frame: self.frame.clone(), fit: self.fit, opacity: self.opacity.clamp(0.0, 1.0), radius: self.radius, shade: self.shade, turn: next() }
     }
 }
 
@@ -73,6 +96,9 @@ pub struct Shown {
     frame: Frame,
     fit: Fit,
     opacity: f32,
+    radius: f32,
+    shade: Option<(iced::Color, f32)>,
+    turn: u64,
 }
 
 fn placed(fit: Fit, bounds: (f32, f32), image: (f32, f32)) -> ([f32; 4], [f32; 4]) {
@@ -95,10 +121,15 @@ fn placed(fit: Fit, bounds: (f32, f32), image: (f32, f32)) -> ([f32; 4], [f32; 4
 impl shader::Primitive for Shown {
     type Pipeline = Projector;
 
-    fn prepare(&self, pipeline: &mut Projector, device: &wgpu::Device, queue: &wgpu::Queue, bounds: &Rectangle, _viewport: &Viewport) {
+    fn prepare(&self, pipeline: &mut Projector, device: &wgpu::Device, queue: &wgpu::Queue, bounds: &Rectangle, viewport: &Viewport) {
         let (dest, uv) = placed(self.fit, (bounds.width, bounds.height), (self.frame.width as f32, self.frame.height as f32));
+        let scale = viewport.scale_factor() as f32;
+        let shape = [self.radius * scale, bounds.width * dest[2] * scale, bounds.height * dest[3] * scale];
         pipeline.load(device, queue, &self.frame);
-        pipeline.place(queue, self.frame.reel, dest, uv, self.opacity);
+        let linear = pipeline.texels.is_srgb();
+        let channel = |c: f32| if linear { if c <= 0.04045 { c / 12.92 } else { ((c + 0.055) / 1.055).powf(2.4) } } else { c };
+        let shade = self.shade.map_or([0.0; 4], |(c, floor)| [channel(c.r), channel(c.g), channel(c.b), floor.max(0.01)]);
+        pipeline.place(device, queue, self.frame.reel, self.turn, dest, uv, self.opacity, shape, shade);
     }
 
     fn draw(&self, pipeline: &Projector, render_pass: &mut wgpu::RenderPass<'_>) -> bool {
@@ -106,7 +137,10 @@ impl shader::Primitive for Shown {
             return true;
         };
         render_pass.set_pipeline(&pipeline.pipeline);
-        render_pass.set_bind_group(0, &reel.bind_group, &[]);
+        let Some((_, bind_group)) = reel.slots.get(&self.turn).and_then(|slot| reel.uses.get(*slot)) else {
+            return true;
+        };
+        render_pass.set_bind_group(0, bind_group, &[]);
         render_pass.draw(0..4, 0..1);
         true
     }
@@ -114,8 +148,11 @@ impl shader::Primitive for Shown {
 
 struct Reel {
     texture: wgpu::Texture,
-    bind_group: wgpu::BindGroup,
-    place: wgpu::Buffer,
+    view: wgpu::TextureView,
+    uses: Vec<(wgpu::Buffer, wgpu::BindGroup)>,
+    used: usize,
+    used_at: u64,
+    slots: HashMap<u64, usize>,
     size: (u32, u32),
     number: u64,
     seen: u64,
@@ -135,6 +172,7 @@ struct Place {
     dest: vec4<f32>,
     uv: vec4<f32>,
     look: vec4<f32>,
+    shade: vec4<f32>,
 };
 
 @group(0) @binding(0) var picture: texture_2d<f32>;
@@ -144,6 +182,7 @@ struct Place {
 struct Out {
     @builtin(position) at: vec4<f32>,
     @location(0) uv: vec2<f32>,
+    @location(1) local: vec2<f32>,
 };
 
 @vertex
@@ -153,13 +192,24 @@ fn vs(@builtin(vertex_index) i: u32) -> Out {
     var out: Out;
     out.at = vec4<f32>(spot.x * 2.0 - 1.0, 1.0 - spot.y * 2.0, 0.0, 1.0);
     out.uv = place.uv.xy + corner * place.uv.zw;
+    out.local = corner;
     return out;
 }
 
 @fragment
 fn fs(input: Out) -> @location(0) vec4<f32> {
     let colour = textureSample(picture, soft, input.uv);
-    return vec4<f32>(colour.rgb, colour.a * place.look.x);
+    let size = place.look.zw;
+    let right_only = place.look.y < 0.0 && input.local.x < 0.5;
+    let radius = select(min(abs(place.look.y), min(size.x, size.y) * 0.5), 0.0, right_only);
+    let half = size * 0.5;
+    let away = abs(input.local * size - half) - (half - vec2<f32>(radius, radius));
+    let edge = length(max(away, vec2<f32>(0.0, 0.0))) - radius;
+    let inside = select(1.0, clamp(0.5 - edge, 0.0, 1.0), radius > 0.0);
+    let t = clamp(input.local.x, 0.0, 1.0);
+    let darkness = select(0.0, mix(0.94, place.shade.w, smoothstep(0.15, 1.0, t)), place.shade.w > 0.0);
+    let kept = pow(1.0 - darkness, 2.2);
+    return vec4<f32>(colour.rgb, colour.a * place.look.x * inside * kept);
 }
 ";
 
@@ -282,23 +332,8 @@ impl Projector {
                 usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
                 view_formats: &[],
             });
-            let place = device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("dossier film"),
-                size: std::mem::size_of::<[f32; 12]>() as u64,
-                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            });
             let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-            let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("dossier film"),
-                layout: &self.layout,
-                entries: &[
-                    wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&view) },
-                    wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(&self.sampler) },
-                    wgpu::BindGroupEntry { binding: 2, resource: place.as_entire_binding() },
-                ],
-            });
-            self.reels.insert(frame.reel, Reel { texture, bind_group, place, size, number: 0, seen: self.tick });
+            self.reels.insert(frame.reel, Reel { texture, view, uses: Vec::new(), used: 0, used_at: self.tick, slots: HashMap::new(), size, number: 0, seen: self.tick });
         }
         let Some(reel) = self.reels.get_mut(&frame.reel) else {
             return;
@@ -321,13 +356,39 @@ impl Projector {
         );
     }
 
-    fn place(&mut self, queue: &wgpu::Queue, reel: u64, dest: [f32; 4], uv: [f32; 4], opacity: f32) {
-        let Some(reel) = self.reels.get(&reel) else {
+    fn place(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, reel: u64, turn: u64, dest: [f32; 4], uv: [f32; 4], opacity: f32, shape: [f32; 3], shade: [f32; 4]) {
+        let tick = self.tick;
+        let Some(reel) = self.reels.get_mut(&reel) else {
             return;
         };
-        let values: [f32; 12] = [dest[0], dest[1], dest[2], dest[3], uv[0], uv[1], uv[2], uv[3], opacity, 0.0, 0.0, 0.0];
+        if reel.used_at != tick {
+            reel.used_at = tick;
+            reel.used = 0;
+            reel.slots.clear();
+        }
+        if reel.uses.len() <= reel.used {
+            let place = device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("dossier film"),
+                size: std::mem::size_of::<[f32; 16]>() as u64,
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+            let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("dossier film"),
+                layout: &self.layout,
+                entries: &[
+                    wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&reel.view) },
+                    wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(&self.sampler) },
+                    wgpu::BindGroupEntry { binding: 2, resource: place.as_entire_binding() },
+                ],
+            });
+            reel.uses.push((place, bind_group));
+        }
+        let values: [f32; 16] = [dest[0], dest[1], dest[2], dest[3], uv[0], uv[1], uv[2], uv[3], opacity, shape[0], shape[1], shape[2], shade[0], shade[1], shade[2], shade[3]];
         let bytes: Vec<u8> = values.iter().flat_map(|v| v.to_le_bytes()).collect();
-        queue.write_buffer(&reel.place, 0, &bytes);
+        queue.write_buffer(&reel.uses[reel.used].0, 0, &bytes);
+        reel.slots.insert(turn, reel.used);
+        reel.used += 1;
     }
 }
 

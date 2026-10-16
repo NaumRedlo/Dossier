@@ -524,6 +524,10 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
                 }
             }
         }
+        for (at, entry) in library.entries.iter().enumerate() {
+            let step = at as f64;
+            main.ratings.known.insert(entry.replay_hash.clone(), crate::rating::Rating { stars: 4.2 + (step * 0.73) % 3.6, pp: 120.0 + (step * 37.0) % 300.0, max_combo: u32::from(entry.combo) + 260, pp_fc: 146.0 + (step * 41.0) % 320.0, pp_ss: 188.0 + (step * 43.0) % 340.0 });
+        }
         if let Some(entry) = chosen.and_then(|c| library.entries.get(c)) {
             if let Some(bg) = entry.map.as_ref().and_then(|m| m.background.as_deref()) {
                 if let Some(handle) = decoded(bg, 640, None) {
@@ -1186,6 +1190,22 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
         ("main-queued".to_owned(), queued),
         ("main-rendered".to_owned(), rendered),
         ("main-hover".to_owned(), hovering.clone()),
+        ("main-select-menu".to_owned(), {
+            let mut opened = hovering.clone();
+            opened.filters_open = true;
+            opened
+        }),
+        ("main-select-players".to_owned(), {
+            let mut players = hovering.clone();
+            players.group = crate::carousel::Group::Players;
+            players
+        }),
+        ("main-select-empty".to_owned(), {
+            let mut nothing = hovering.clone();
+            nothing.filters_open = true;
+            nothing.filter.witness = true;
+            nothing
+        }),
         ("main-shared".to_owned(), {
             let mut shared = hovering;
             if let Some(library) = shared.library.as_mut() {
@@ -1690,11 +1710,11 @@ pub fn every_main_frame() -> Vec<(String, crate::main_screen::Main, Size)> {
     for lang in Lang::ALL {
         for (name, main) in main_states(lang) {
             for (label, size) in SIZES {
-                if label != SIZES[0].0 && name != "main-rest" && name != "main-idle" && name != "main-notifications" && name != "main-player-mini" && name != "main-community-clip-mini" && name != "main-community-feed-wide" && name != "main-pools-best" && name != "main-pools-backdrop" && name != "main-pools-errors" && name != "main-pools-tools" && name != "main-pools-slot-menu" && name != "main-pools-editor" && name != "main-pools-head" && name != "main-pools-grouped" && name != "main-pools-new" && name != "main-pools-start" && name != "main-billing-plans" && name != "main-billing-active" && name != "main-menu-feed" && name != "main-pools-conflict" && name != "main-pools-guide" && name != "main-pools-balance" && name != "main-pools-publish" && name != "main-prefs-device" {
+                if label != SIZES[0].0 && name != "main-rest" && name != "main-idle" && name != "main-notifications" && name != "main-player-mini" && name != "main-community-clip-mini" && name != "main-community-feed-wide" && name != "main-pools-best" && name != "main-pools-backdrop" && name != "main-pools-errors" && name != "main-pools-tools" && name != "main-pools-slot-menu" && name != "main-pools-editor" && name != "main-pools-head" && name != "main-pools-grouped" && name != "main-pools-new" && name != "main-pools-start" && name != "main-billing-plans" && name != "main-billing-active" && name != "main-menu-feed" && name != "main-pools-conflict" && name != "main-pools-guide" && name != "main-pools-balance" && name != "main-pools-publish" && name != "main-prefs-device" && name != "main-hover" {
                     continue;
                 }
                 let mut frame = main.clone();
-                if name == "main-idle" || name == "main-notifications" || name == "main-player-mini" || name == "main-community-clip-mini" || name == "main-community-feed-wide" || name == "main-pools-best" || name == "main-pools-editor" || name == "main-pools-head" || name == "main-pools-grouped" || name == "main-pools-new" || name == "main-pools-start" || name == "main-pools-backdrop" || name == "main-pools-errors" || name == "main-pools-tools" || name == "main-pools-slot-menu" || name == "main-billing-plans" || name == "main-billing-active" || name == "main-menu-feed" || name == "main-pools-conflict" || name == "main-pools-guide" || name == "main-pools-balance" || name == "main-pools-publish" || name == "main-prefs-device" { frame.width = size.width; frame.height = size.height; }
+                if name == "main-idle" || name == "main-notifications" || name == "main-player-mini" || name == "main-community-clip-mini" || name == "main-community-feed-wide" || name == "main-pools-best" || name == "main-pools-editor" || name == "main-pools-head" || name == "main-pools-grouped" || name == "main-pools-new" || name == "main-pools-start" || name == "main-pools-backdrop" || name == "main-pools-errors" || name == "main-pools-tools" || name == "main-pools-slot-menu" || name == "main-billing-plans" || name == "main-billing-active" || name == "main-menu-feed" || name == "main-pools-conflict" || name == "main-pools-guide" || name == "main-pools-balance" || name == "main-pools-publish" || name == "main-prefs-device" || name == "main-hover" { frame.width = size.width; frame.height = size.height; }
                 out.push((format!("{name}-{}-{label}", lang.tag()), frame, size));
             }
         }

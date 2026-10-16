@@ -1684,6 +1684,7 @@ mod age_tests {
         let words = crate::lang::Words::new(crate::lang::Lang::En);
         let from = |first: f64, last: f64| super::Series { points: vec![(0, first), (1, last)], lower_better: true };
         assert!(super::delta(&words, super::Metric::Rank, &from(23_681_434.0, 932_068.0)).is_none());
+        assert!(super::delta(&words, super::Metric::Rank, &from(23_681_434.0, 829_422.0)).is_none());
         assert!(super::delta(&words, super::Metric::CountryRank, &from(400_000.0, 9_000.0)).is_none());
         assert_eq!(super::delta(&words, super::Metric::Rank, &from(950_000.0, 932_068.0)).map(|(_, better)| better), Some(true));
         assert_eq!(super::delta(&words, super::Metric::Rank, &from(900_000.0, 932_068.0)).map(|(_, better)| better), Some(false));

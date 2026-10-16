@@ -583,12 +583,18 @@ pub fn ghost(_: &Theme, status: button::Status) -> button::Style {
 }
 
 pub const SLAB_SOLID: Color = Color::from_rgb(0.055, 0.025, 0.033);
+pub const GLASS: Color = Color::from_rgba(0.051, 0.02, 0.031, 0.66);
+pub const GLASS_LIT: Color = Color::from_rgba(0.075, 0.03, 0.043, 0.78);
+pub const GLASS_EDGE: Color = Color::from_rgba(1.0, 1.0, 1.0, 0.12);
+pub const GLASS_EDGE_LIT: Color = Color::from_rgba(1.0, 1.0, 1.0, 0.22);
+pub const GLASS_PICKED: Color = Color::from_rgba(0.231, 0.071, 0.086, 0.82);
+pub const GROUND_VEIL: Color = Color::from_rgba(0.051, 0.02, 0.031, 0.88);
 
 pub fn slab(_: &Theme) -> container::Style {
     container::Style {
         text_color: None,
-        background: Some(Background::Color(Color::from_rgba(0.055, 0.025, 0.033, 0.96))),
-        border: border(Color::from_rgba(1.0, 1.0, 1.0, 0.07), 16.0),
+        background: Some(Background::Color(GLASS)),
+        border: border(GLASS_EDGE, 16.0),
         shadow: Shadow::default(),
         snap: true,
     }

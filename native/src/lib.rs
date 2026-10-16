@@ -1,6 +1,7 @@
 pub mod badge;
 pub mod billing;
 pub mod board;
+pub mod carousel;
 pub mod bot;
 pub mod chronicle;
 pub mod checks;
@@ -44,6 +45,7 @@ pub mod pool_card;
 pub mod pool_share;
 pub mod pools;
 pub mod pools_screen;
+pub mod rating;
 pub mod render;
 pub mod scan;
 pub mod history;

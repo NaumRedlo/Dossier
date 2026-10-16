@@ -1,7 +1,7 @@
-use iced::widget::canvas::{self, Canvas, Frame, Geometry, Path, Stroke};
-use iced::{mouse, Color, Element, Point, Rectangle, Renderer, Size, Theme};
+use iced::widget::svg;
+use iced::{Color, Element};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Icon {
     Chevron,
     Target,
@@ -45,315 +45,83 @@ pub enum Icon {
     Undo,
     Redo,
     Link,
+    Sliders,
 }
 
-pub struct Glyph {
-    pub icon: Icon,
-    pub alpha: f32,
-    pub colour: Color,
+fn drawn(icon: Icon) -> &'static [u8] {
+    match icon {
+        Icon::Chevron => include_bytes!("../assets/icons/chevron-down.svg"),
+        Icon::Target => include_bytes!("../assets/icons/target.svg"),
+        Icon::Keys => include_bytes!("../assets/icons/keyboard.svg"),
+        Icon::Chain => include_bytes!("../assets/icons/link-2.svg"),
+        Icon::Play => include_bytes!("../assets/icons/play.svg"),
+        Icon::Star => include_bytes!("../assets/icons/star-filled.svg"),
+        Icon::Clock => include_bytes!("../assets/icons/clock.svg"),
+        Icon::Heart => include_bytes!("../assets/icons/heart-filled.svg"),
+        Icon::Trophy => include_bytes!("../assets/icons/trophy.svg"),
+        Icon::Chart => include_bytes!("../assets/icons/chart-line.svg"),
+        Icon::News => include_bytes!("../assets/icons/newspaper.svg"),
+        Icon::Send => include_bytes!("../assets/icons/send.svg"),
+        Icon::Gear => include_bytes!("../assets/icons/settings.svg"),
+        Icon::Calendar => include_bytes!("../assets/icons/calendar.svg"),
+        Icon::Flame => include_bytes!("../assets/icons/flame.svg"),
+        Icon::Swords => include_bytes!("../assets/icons/swords.svg"),
+        Icon::External => include_bytes!("../assets/icons/external-link.svg"),
+        Icon::Compare => include_bytes!("../assets/icons/arrow-up-down.svg"),
+        Icon::Up => include_bytes!("../assets/icons/arrow-up.svg"),
+        Icon::Down => include_bytes!("../assets/icons/arrow-down.svg"),
+        Icon::Search => include_bytes!("../assets/icons/search.svg"),
+        Icon::Film => include_bytes!("../assets/icons/film.svg"),
+        Icon::Flag => include_bytes!("../assets/icons/flag.svg"),
+        Icon::Metronome => include_bytes!("../assets/icons/metronome.svg"),
+        Icon::Person => include_bytes!("../assets/icons/user.svg"),
+        Icon::Chat => include_bytes!("../assets/icons/message-square.svg"),
+        Icon::Circle => include_bytes!("../assets/icons/circle-dot.svg"),
+        Icon::Refresh => include_bytes!("../assets/icons/refresh-cw.svg"),
+        Icon::Check => include_bytes!("../assets/icons/check.svg"),
+        Icon::Warn => include_bytes!("../assets/icons/triangle-alert.svg"),
+        Icon::Right => include_bytes!("../assets/icons/chevron-right.svg"),
+        Icon::Plus => include_bytes!("../assets/icons/plus.svg"),
+        Icon::Close => include_bytes!("../assets/icons/x.svg"),
+        Icon::Pool => include_bytes!("../assets/icons/layers.svg"),
+        Icon::Copy => include_bytes!("../assets/icons/copy.svg"),
+        Icon::File => include_bytes!("../assets/icons/file.svg"),
+        Icon::Shapes => include_bytes!("../assets/icons/shapes.svg"),
+        Icon::Medal => include_bytes!("../assets/icons/medal.svg"),
+        Icon::Bell => include_bytes!("../assets/icons/bell.svg"),
+        Icon::Undo => include_bytes!("../assets/icons/undo-2.svg"),
+        Icon::Redo => include_bytes!("../assets/icons/redo-2.svg"),
+        Icon::Link => include_bytes!("../assets/icons/link.svg"),
+        Icon::Sliders => include_bytes!("../assets/icons/sliders-horizontal.svg"),
+    }
+}
+
+fn handle(icon: Icon) -> svg::Handle {
+    static HELD: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<Icon, svg::Handle>>> = std::sync::OnceLock::new();
+    let held = HELD.get_or_init(Default::default);
+    let mut held = held.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    held.entry(icon).or_insert_with(|| svg::Handle::from_memory(drawn(icon))).clone()
 }
 
 pub fn glyph<'a, Message: 'a>(icon: Icon, side: f32, colour: Color) -> Element<'a, Message> {
-    Canvas::new(Glyph { icon, alpha: crate::ui::fade(), colour }).width(side).height(side).into()
+    let alpha = crate::ui::fade();
+    svg(handle(icon))
+        .width(side)
+        .height(side)
+        .opacity(colour.a * alpha)
+        .style(move |_, _| svg::Style { color: Some(Color { a: 1.0, ..colour }) })
+        .into()
 }
 
-fn line(colour: Color, width: f32) -> Stroke<'static> {
-    Stroke::default().with_color(colour).with_width(width).with_line_cap(canvas::LineCap::Round).with_line_join(canvas::LineJoin::Round)
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-impl<Message> canvas::Program<Message> for Glyph {
-    type State = ();
-
-    fn draw(&self, _: &(), renderer: &Renderer, _: &Theme, bounds: Rectangle, _: mouse::Cursor) -> Vec<Geometry> {
-        let mut frame = Frame::new(renderer, bounds.size());
-        let s = bounds.width.min(bounds.height) / 20.0;
-        let at = |x: f32, y: f32| Point::new(x * s, y * s);
-        let ink = Color { a: self.colour.a * self.alpha, ..self.colour };
-        let pen = line(ink, 1.7 * s);
-        let polyline = |points: &[(f32, f32)], close: bool| {
-            Path::new(|b| {
-                for (index, (x, y)) in points.iter().enumerate() {
-                    if index == 0 {
-                        b.move_to(at(*x, *y));
-                    } else {
-                        b.line_to(at(*x, *y));
-                    }
-                }
-                if close {
-                    b.close();
-                }
-            })
-        };
-        match self.icon {
-            Icon::Target => {
-                frame.stroke(&Path::circle(at(10.0, 10.0), 8.0 * s), pen);
-                frame.stroke(&Path::circle(at(10.0, 10.0), 4.5 * s), pen);
-                frame.fill(&Path::circle(at(10.0, 10.0), 1.6 * s), ink);
-                frame.stroke(&Path::line(at(10.0, 10.0), at(17.5, 2.5)), pen);
-            }
-            Icon::Keys => {
-                frame.stroke(&Path::rounded_rectangle(at(1.5, 4.5), Size::new(17.0 * s, 11.0 * s), (2.5 * s).into()), pen);
-                for (x, y) in [(5.0, 8.0), (8.3, 8.0), (11.7, 8.0), (15.0, 8.0)] {
-                    frame.fill(&Path::circle(at(x, y), 1.0 * s), ink);
-                }
-                frame.stroke(&Path::line(at(6.0, 12.0), at(14.0, 12.0)), pen);
-            }
-            Icon::Chain => {
-                frame.stroke(&Path::rounded_rectangle(at(2.0, 8.5), Size::new(9.0 * s, 5.5 * s), (2.75 * s).into()), pen);
-                frame.stroke(&Path::rounded_rectangle(at(9.0, 6.0), Size::new(9.0 * s, 5.5 * s), (2.75 * s).into()), pen);
-            }
-            Icon::Play => {
-                frame.stroke(&Path::circle(at(10.0, 10.0), 8.0 * s), pen);
-                frame.fill(&polyline(&[(8.0, 6.3), (14.0, 10.0), (8.0, 13.7)], true), ink);
-            }
-            Icon::Star => {
-                let star = Path::new(|b| {
-                    for point in 0..10 {
-                        let reach = if point % 2 == 0 { 8.8 } else { 3.9 };
-                        let angle = -std::f32::consts::FRAC_PI_2 + point as f32 * std::f32::consts::PI / 5.0;
-                        let p = at(10.0 + reach * angle.cos(), 10.6 + reach * angle.sin());
-                        if point == 0 {
-                            b.move_to(p);
-                        } else {
-                            b.line_to(p);
-                        }
-                    }
-                    b.close();
-                });
-                frame.fill(&star, ink);
-            }
-            Icon::Clock => {
-                frame.stroke(&Path::circle(at(10.0, 10.0), 8.0 * s), pen);
-                frame.stroke(&polyline(&[(10.0, 5.2), (10.0, 10.0), (13.5, 12.2)], false), pen);
-            }
-            Icon::Heart => {
-                let heart = Path::new(|b| {
-                    b.move_to(at(10.0, 17.5));
-                    b.bezier_curve_to(at(3.0, 12.5), at(0.5, 8.5), at(3.0, 4.6));
-                    b.bezier_curve_to(at(5.2, 1.6), at(9.0, 2.2), at(10.0, 5.6));
-                    b.bezier_curve_to(at(11.0, 2.2), at(14.8, 1.6), at(17.0, 4.6));
-                    b.bezier_curve_to(at(19.5, 8.5), at(17.0, 12.5), at(10.0, 17.5));
-                    b.close();
-                });
-                frame.fill(&heart, ink);
-            }
-            Icon::Trophy => {
-                let cup = Path::new(|b| {
-                    b.move_to(at(6.0, 3.0));
-                    b.line_to(at(14.0, 3.0));
-                    b.line_to(at(14.0, 8.0));
-                    b.bezier_curve_to(at(14.0, 10.5), at(12.2, 12.0), at(10.0, 12.0));
-                    b.bezier_curve_to(at(7.8, 12.0), at(6.0, 10.5), at(6.0, 8.0));
-                    b.close();
-                });
-                frame.stroke(&cup, pen);
-                frame.stroke(&polyline(&[(6.0, 5.0), (3.0, 5.0), (3.0, 6.5), (5.5, 9.0)], false), pen);
-                frame.stroke(&polyline(&[(14.0, 5.0), (17.0, 5.0), (17.0, 6.5), (14.5, 9.0)], false), pen);
-                frame.stroke(&Path::line(at(10.0, 12.0), at(10.0, 15.0)), pen);
-                frame.stroke(&Path::line(at(7.0, 17.5), at(13.0, 17.5)), pen);
-            }
-            Icon::Chart => {
-                frame.stroke(&Path::line(at(3.0, 16.5), at(17.0, 16.5)), pen);
-                frame.stroke(&polyline(&[(5.0, 13.0), (8.5, 9.0), (11.5, 11.5), (16.0, 5.0)], false), pen);
-            }
-            Icon::News => {
-                frame.stroke(&Path::rounded_rectangle(at(2.5, 3.5), Size::new(15.0 * s, 13.0 * s), (2.0 * s).into()), pen);
-                for (from, to, y) in [(6.0, 14.0, 7.5), (6.0, 14.0, 10.5), (6.0, 11.0, 13.5)] {
-                    frame.stroke(&Path::line(at(from, y), at(to, y)), pen);
-                }
-            }
-            Icon::Send => {
-                frame.stroke(&polyline(&[(3.0, 10.0), (17.0, 3.5), (12.0, 17.0), (9.5, 11.5)], true), pen);
-            }
-            Icon::Gear => {
-                frame.stroke(&Path::circle(at(10.0, 10.0), 2.8 * s), pen);
-                for (a, b) in [((10.0, 2.5), (10.0, 4.7)), ((10.0, 15.3), (10.0, 17.5)), ((17.5, 10.0), (15.3, 10.0)), ((4.7, 10.0), (2.5, 10.0)), ((15.3, 4.7), (13.7, 6.3)), ((6.3, 13.7), (4.7, 15.3)), ((15.3, 15.3), (13.7, 13.7)), ((6.3, 6.3), (4.7, 4.7))] {
-                    frame.stroke(&Path::line(at(a.0, a.1), at(b.0, b.1)), pen);
-                }
-            }
-            Icon::Calendar => {
-                frame.stroke(&Path::rounded_rectangle(at(2.5, 4.0), Size::new(15.0 * s, 13.5 * s), (2.5 * s).into()), pen);
-                frame.stroke(&Path::line(at(2.5, 8.5), at(17.5, 8.5)), pen);
-                frame.stroke(&Path::line(at(6.5, 2.0), at(6.5, 6.0)), pen);
-                frame.stroke(&Path::line(at(13.5, 2.0), at(13.5, 6.0)), pen);
-            }
-            Icon::Flame => {
-                let flame = Path::new(|b| {
-                    b.move_to(at(10.0, 18.0));
-                    b.bezier_curve_to(at(13.6, 18.0), at(16.0, 15.6), at(16.0, 12.4));
-                    b.bezier_curve_to(at(16.0, 9.2), at(13.6, 7.4), at(12.6, 4.8));
-                    b.bezier_curve_to(at(12.2, 6.6), at(11.2, 7.6), at(10.0, 8.2));
-                    b.bezier_curve_to(at(10.2, 5.6), at(9.2, 3.4), at(7.0, 2.0));
-                    b.bezier_curve_to(at(7.4, 5.0), at(5.4, 6.6), at(4.4, 8.4));
-                    b.bezier_curve_to(at(3.6, 10.0), at(4.0, 11.2), at(4.0, 12.4));
-                    b.bezier_curve_to(at(4.0, 15.6), at(6.4, 18.0), at(10.0, 18.0));
-                    b.close();
-                });
-                frame.stroke(&flame, pen);
-            }
-            Icon::Swords => {
-                let u = 20.0 / 24.0;
-                let scaled = |points: &[(f32, f32)]| points.iter().map(|(x, y)| (x * u, y * u)).collect::<Vec<_>>();
-                frame.stroke(&polyline(&scaled(&[(14.5, 17.5), (3.0, 6.0), (3.0, 3.0), (6.0, 3.0), (17.5, 14.5)]), false), pen);
-                frame.stroke(&polyline(&scaled(&[(14.5, 6.5), (18.0, 3.0), (21.0, 3.0), (21.0, 6.0), (17.5, 9.5)]), false), pen);
-                for (a, b) in [((13.0, 19.0), (19.0, 13.0)), ((16.0, 16.0), (20.0, 20.0)), ((19.0, 21.0), (21.0, 19.0)), ((5.0, 14.0), (9.0, 18.0)), ((7.0, 17.0), (4.0, 20.0)), ((3.0, 19.0), (5.0, 21.0))] {
-                    frame.stroke(&Path::line(at(a.0 * u, a.1 * u), at(b.0 * u, b.1 * u)), pen);
-                }
-            }
-            Icon::Link => {
-                let u = 20.0 / 24.0;
-                for side in [-1.0_f32, 1.0] {
-                    let centre = 12.0 + side * 5.0;
-                    let mut bend = vec![((12.0 + side * 3.0) * u, 17.0 * u)];
-                    for step in 0..=10 {
-                        let turn = std::f32::consts::FRAC_PI_2 - side * std::f32::consts::PI * step as f32 / 10.0;
-                        bend.push(((centre + 5.0 * turn.cos()) * u, (12.0 + 5.0 * turn.sin()) * u));
-                    }
-                    bend.push(((12.0 + side * 3.0) * u, 7.0 * u));
-                    frame.stroke(&polyline(&bend, false), pen);
-                }
-                frame.stroke(&Path::line(at(8.0 * u, 12.0 * u), at(16.0 * u, 12.0 * u)), pen);
-            }
-            Icon::External => {
-                frame.stroke(&polyline(&[(11.0, 3.0), (17.0, 3.0), (17.0, 9.0)], false), pen);
-                frame.stroke(&Path::line(at(17.0, 3.0), at(9.0, 11.0)), pen);
-                frame.stroke(&polyline(&[(14.0, 11.5), (14.0, 16.0), (13.0, 17.5), (4.5, 17.5), (3.0, 16.0), (3.0, 7.5), (4.5, 6.0), (9.0, 6.0)], false), pen);
-            }
-            Icon::Person => {
-                frame.stroke(&Path::circle(at(10.0, 6.8), 3.3 * s), pen);
-                let shoulders = Path::new(|b| {
-                    b.move_to(at(3.8, 17.2));
-                    b.bezier_curve_to(at(4.4, 12.2), at(15.6, 12.2), at(16.2, 17.2));
-                });
-                frame.stroke(&shoulders, pen);
-            }
-            Icon::Chat => {
-                frame.stroke(&Path::rounded_rectangle(at(2.5, 3.5), Size::new(15.0 * s, 10.5 * s), (3.0 * s).into()), pen);
-                frame.stroke(&polyline(&[(6.5, 14.0), (5.8, 17.5), (10.0, 14.0)], false), pen);
-            }
-            Icon::Circle => {
-                frame.stroke(&Path::circle(at(10.0, 10.0), 7.5 * s), pen);
-                frame.stroke(&Path::circle(at(10.0, 10.0), 3.6 * s), pen);
-            }
-            Icon::Compare => {
-                frame.stroke(&Path::line(at(6.0, 3.0), at(6.0, 17.0)), pen);
-                frame.stroke(&Path::line(at(14.0, 3.0), at(14.0, 17.0)), pen);
-                frame.stroke(&polyline(&[(3.0, 7.0), (6.0, 3.0), (9.0, 7.0)], false), pen);
-                frame.stroke(&polyline(&[(11.0, 13.0), (14.0, 17.0), (17.0, 13.0)], false), pen);
-            }
-            Icon::Up => {
-                frame.stroke(&Path::line(at(10.0, 16.0), at(10.0, 4.0)), pen);
-                frame.stroke(&polyline(&[(5.0, 9.0), (10.0, 4.0), (15.0, 9.0)], false), pen);
-            }
-            Icon::Search => {
-                frame.stroke(&Path::circle(at(9.0, 9.0), 5.5 * s), pen);
-                frame.stroke(&Path::line(at(13.0, 13.0), at(17.0, 17.0)), pen);
-            }
-            Icon::Chevron => {
-                frame.stroke(&polyline(&[(5.5, 8.0), (10.0, 12.5), (14.5, 8.0)], false), pen);
-            }
-            Icon::Down => {
-                frame.stroke(&Path::line(at(10.0, 4.0), at(10.0, 16.0)), pen);
-                frame.stroke(&polyline(&[(5.0, 11.0), (10.0, 16.0), (15.0, 11.0)], false), pen);
-            }
-            Icon::Film => {
-                frame.stroke(&Path::rounded_rectangle(at(2.5, 4.0), Size::new(15.0 * s, 12.0 * s), (2.0 * s).into()), pen);
-                for (a, b) in [((6.5, 4.0), (6.5, 16.0)), ((13.5, 4.0), (13.5, 16.0)), ((2.5, 8.0), (6.5, 8.0)), ((2.5, 12.0), (6.5, 12.0)), ((13.5, 8.0), (17.5, 8.0)), ((13.5, 12.0), (17.5, 12.0))] {
-                    frame.stroke(&Path::line(at(a.0, a.1), at(b.0, b.1)), pen);
-                }
-            }
-            Icon::Flag => {
-                frame.stroke(&Path::line(at(4.0, 2.5), at(4.0, 17.5)), pen);
-                frame.stroke(&polyline(&[(4.0, 3.5), (15.5, 3.5), (13.0, 7.0), (15.5, 10.5), (4.0, 10.5)], false), pen);
-            }
-            Icon::Refresh => {
-                let arc: Vec<(f32, f32)> = (0..=22).map(|step| {
-                    let angle = (-50.0_f32 + step as f32 * 14.5).to_radians();
-                    (10.0 + 6.5 * angle.cos(), 10.0 + 6.5 * angle.sin())
-                }).collect();
-                frame.stroke(&polyline(&arc, false), pen);
-                let tip = arc[arc.len() - 1];
-                frame.stroke(&polyline(&[(tip.0 - 2.8, tip.1 - 2.8), tip, (tip.0 - 2.8, tip.1 + 2.8)], false), pen);
-            }
-            Icon::Right => {
-                frame.stroke(&polyline(&[(7.5, 4.0), (13.5, 10.0), (7.5, 16.0)], false), pen);
-            }
-            Icon::Plus => {
-                frame.stroke(&Path::line(at(10.0, 4.0), at(10.0, 16.0)), pen);
-                frame.stroke(&Path::line(at(4.0, 10.0), at(16.0, 10.0)), pen);
-            }
-            Icon::Close => {
-                frame.stroke(&Path::line(at(5.0, 5.0), at(15.0, 15.0)), pen);
-                frame.stroke(&Path::line(at(15.0, 5.0), at(5.0, 15.0)), pen);
-            }
-            Icon::Pool => {
-                frame.stroke(&Path::rounded_rectangle(at(3.0, 3.5), Size::new(14.0 * s, 4.0 * s), (1.5 * s).into()), pen);
-                frame.stroke(&Path::rounded_rectangle(at(3.0, 9.0), Size::new(14.0 * s, 3.0 * s), (1.2 * s).into()), pen);
-                frame.stroke(&Path::rounded_rectangle(at(3.0, 14.0), Size::new(9.0 * s, 3.0 * s), (1.2 * s).into()), pen);
-            }
-            Icon::Copy => {
-                frame.stroke(&Path::rounded_rectangle(at(7.0, 7.0), Size::new(9.5 * s, 9.5 * s), (2.0 * s).into()), pen);
-                frame.stroke(&polyline(&[(5.0, 13.0), (4.0, 13.0), (4.0, 4.0), (13.0, 4.0), (13.0, 5.0)], false), pen);
-            }
-            Icon::Bell => {
-                let body = Path::new(|b| {
-                    b.move_to(at(5.0, 6.7));
-                    b.bezier_curve_to(at(5.0, 3.9), at(7.2, 1.7), at(10.0, 1.7));
-                    b.bezier_curve_to(at(12.8, 1.7), at(15.0, 3.9), at(15.0, 6.7));
-                    b.bezier_curve_to(at(15.0, 12.5), at(17.5, 14.2), at(17.5, 14.2));
-                    b.line_to(at(2.5, 14.2));
-                    b.bezier_curve_to(at(2.5, 14.2), at(5.0, 12.5), at(5.0, 6.7));
-                    b.close();
-                });
-                frame.stroke(&body, pen);
-                let clapper = Path::new(|b| {
-                    b.move_to(at(8.5, 17.5));
-                    b.quadratic_curve_to(at(10.0, 19.4), at(11.5, 17.5));
-                });
-                frame.stroke(&clapper, pen);
-            }
-            Icon::Undo | Icon::Redo => {
-                let flip = |x: f32| if matches!(self.icon, Icon::Redo) { 20.0 - x } else { x };
-                frame.stroke(&polyline(&[(flip(7.5), 11.5), (flip(3.5), 7.5), (flip(7.5), 3.5)], false), pen);
-                let mut bend = vec![(flip(3.5), 7.5), (flip(11.5), 7.5)];
-                for step in 1..=8 {
-                    let turn = -std::f32::consts::FRAC_PI_2 + std::f32::consts::PI * step as f32 / 8.0;
-                    bend.push((flip(11.5 + 4.5 * turn.cos()), 12.0 + 4.5 * turn.sin()));
-                }
-                bend.push((flip(8.5), 16.5));
-                frame.stroke(&polyline(&bend, false), pen);
-            }
-            Icon::Shapes => {
-                frame.stroke(&polyline(&[(10.0, 2.4), (13.9, 8.4), (6.1, 8.4)], true), pen);
-                frame.stroke(&Path::rounded_rectangle(at(2.6, 11.6), Size::new(5.8 * s, 5.8 * s), (0.9 * s).into()), pen);
-                frame.stroke(&Path::circle(at(14.6, 14.6), 2.9 * s), pen);
-            }
-            Icon::Medal => {
-                frame.stroke(&polyline(&[(6.0, 11.4), (2.6, 5.6), (4.4, 2.4), (15.6, 2.4), (17.4, 5.6), (14.0, 11.4)], false), pen);
-                frame.stroke(&Path::line(at(9.1, 9.9), at(4.7, 2.6)), pen);
-                frame.stroke(&Path::line(at(10.9, 9.9), at(15.3, 2.6)), pen);
-                frame.stroke(&Path::line(at(6.7, 5.8), at(13.3, 5.8)), pen);
-                frame.stroke(&Path::circle(at(10.0, 14.1), 4.1 * s), pen);
-            }
-            Icon::File => {
-                frame.stroke(&polyline(&[(5.0, 2.5), (11.5, 2.5), (15.5, 6.5), (15.5, 17.5), (5.0, 17.5)], true), pen);
-                frame.stroke(&polyline(&[(11.5, 2.5), (11.5, 6.5), (15.5, 6.5)], false), pen);
-            }
-            Icon::Check => {
-                frame.stroke(&polyline(&[(4.5, 10.5), (8.5, 14.5), (15.5, 5.5)], false), pen);
-            }
-            Icon::Warn => {
-                frame.stroke(&polyline(&[(10.0, 3.0), (17.5, 16.5), (2.5, 16.5)], true), pen);
-                frame.stroke(&Path::line(at(10.0, 8.0), at(10.0, 11.8)), pen);
-                frame.fill(&Path::circle(at(10.0, 14.2), 1.0 * s), ink);
-            }
-            Icon::Metronome => {
-                frame.stroke(&polyline(&[(7.2, 2.5), (12.8, 2.5), (16.5, 17.5), (3.5, 17.5)], true), pen);
-                frame.stroke(&Path::line(at(4.6, 13.2), at(15.4, 13.2)), pen);
-                frame.stroke(&Path::line(at(10.0, 13.2), at(14.8, 4.2)), pen);
-                frame.fill(&Path::circle(at(12.9, 7.8), 1.5 * s), ink);
-            }
+    #[test]
+    fn every_icon_is_a_stroked_svg_from_the_set() {
+        for icon in [Icon::Chevron, Icon::Target, Icon::Keys, Icon::Chain, Icon::Play, Icon::Star, Icon::Clock, Icon::Heart, Icon::Trophy, Icon::Chart, Icon::News, Icon::Send, Icon::Gear, Icon::Calendar, Icon::Flame, Icon::Swords, Icon::External, Icon::Compare, Icon::Up, Icon::Down, Icon::Search, Icon::Film, Icon::Flag, Icon::Metronome, Icon::Person, Icon::Chat, Icon::Circle, Icon::Refresh, Icon::Check, Icon::Warn, Icon::Right, Icon::Plus, Icon::Close, Icon::Pool, Icon::Copy, Icon::File, Icon::Shapes, Icon::Medal, Icon::Bell, Icon::Undo, Icon::Redo, Icon::Link, Icon::Sliders] {
+            let said = std::str::from_utf8(drawn(icon)).unwrap();
+            assert!(said.contains("<svg") && said.contains("stroke=\"currentColor\""), "{icon:?}");
         }
-        vec![frame.into_geometry()]
     }
 }

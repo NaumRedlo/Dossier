@@ -35,3 +35,75 @@ fn open_folder(path: &Path) -> Result<(), String> {
     }
     result.map_err(|e| e.to_string())
 }
+
+pub const APP_ID: &str = "dossier";
+
+pub fn window(settings: iced::window::Settings) -> iced::window::Settings {
+    #[cfg(target_os = "linux")]
+    let settings = iced::window::Settings {
+        platform_specific: iced::window::settings::PlatformSpecific { application_id: APP_ID.to_owned(), ..Default::default() },
+        ..settings
+    };
+    settings
+}
+
+pub fn entry(exe: &Path, icon: &Path) -> String {
+    let quoted = |path: &Path| {
+        let mut out = String::from("\"");
+        for c in path.to_string_lossy().chars() {
+            if matches!(c, '"' | '`' | '$' | '\\') {
+                out.push_str("\\\\");
+            }
+            out.push(c);
+        }
+        out.push('"');
+        out
+    };
+    format!(
+        "[Desktop Entry]\nType=Application\nName=Dossier\nComment=osu! replays, videos and pools\nExec={}\nIcon={}\nTerminal=false\nCategories=Game;\nStartupWMClass={APP_ID}\n",
+        quoted(exe),
+        icon.to_string_lossy(),
+    )
+}
+
+#[cfg(target_os = "linux")]
+pub fn register() -> Result<(), String> {
+    let data = std::env::var_os("XDG_DATA_HOME")
+        .filter(|dir| !dir.is_empty())
+        .map(std::path::PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|home| Path::new(&home).join(".local/share")))
+        .ok_or("no home folder")?;
+    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    let icon = data.join("icons/hicolor/512x512/apps").join(format!("{APP_ID}.png"));
+    let picture: &[u8] = include_bytes!("../assets/icon/dossier-512.png");
+    if std::fs::read(&icon).ok().as_deref() != Some(picture) {
+        std::fs::create_dir_all(icon.parent().ok_or("no icon folder")?).map_err(|e| e.to_string())?;
+        std::fs::write(&icon, picture).map_err(|e| e.to_string())?;
+    }
+    let file = data.join("applications").join(format!("{APP_ID}.desktop"));
+    let text = entry(&exe, &icon);
+    if std::fs::read_to_string(&file).ok().as_deref() != Some(text.as_str()) {
+        std::fs::create_dir_all(file.parent().ok_or("no applications folder")?).map_err(|e| e.to_string())?;
+        std::fs::write(&file, text).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[cfg(not(target_os = "linux"))]
+pub fn register() -> Result<(), String> {
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_entry_names_the_window_class_and_quotes_the_program() {
+        let text = entry(Path::new("/home/a b/Dossier $1/dossier"), Path::new("/home/a b/.local/share/icons/hicolor/512x512/apps/dossier.png"));
+        assert!(text.starts_with("[Desktop Entry]\n"));
+        assert!(text.contains("\nStartupWMClass=dossier\n"));
+        assert!(text.contains("\nExec=\"/home/a b/Dossier \\\\$1/dossier\"\n"));
+        assert!(text.contains("\nIcon=/home/a b/.local/share/icons/hicolor/512x512/apps/dossier.png\n"));
+    }
+}

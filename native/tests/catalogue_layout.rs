@@ -184,8 +184,9 @@ fn notification_height_tracks_text_and_stays_bounded() {
 }
 
 #[test]
-fn people_search_keeps_original_member_ids_and_filters_game_friends() {
-    use dossier_native::{community_screen::{Message as CommunityMessage, PeopleFrom}, main_screen::Message as MainMessage, Message};
+fn people_search_keeps_original_member_ids_and_shows_friends_in_one_list() {
+    use dossier_native::community_screen::{Message as CommunityMessage, PeopleFilter};
+    use dossier_native::{main_screen::Message as MainMessage, Message};
     let backdrop = dossier_native::ui::backdrop_handle();
     for lang in Lang::ALL {
         let states = gallery::main_states(lang);
@@ -195,36 +196,14 @@ fn people_search_keeps_original_member_ids_and_filters_game_friends() {
             main.width = width;
             main.height = 900.0;
             let at = main.community.as_ref().unwrap().people.iter().position(|person| person.name == "d1ce").unwrap();
-            let order = main.community.as_ref().unwrap().ranked(dossier_native::community::Board::Pp);
-            let place = order.iter().position(|index| *index == at).unwrap() + 1;
-            let other_place = order.iter().position(|index| *index != at).unwrap() + 1;
             let _ = main.update(MainMessage::Community(CommunityMessage::PeopleSearch("  D1CE  ".into())));
             {
                 let mut ui = Simulator::with_size(dossier_native::settings(), Size::new(main.width, main.height), gallery::main_frame(&main, &backdrop));
-                let target = ui.find(format!("#{place}")).unwrap().bounds();
-                assert!(ui.find(format!("#{other_place}")).is_err());
-                assert!(ui.find(main.words.of(1, main.community.as_ref().unwrap().people.len() as u64)).is_ok());
+                assert!(ui.find("quietstorm").is_err(), "the search hides everyone else");
+                let target = ui.find("d1ce").unwrap().bounds();
                 ui.point_at(community_point(target, main.width));
                 ui.simulate(iced_test::simulator::click());
                 assert!(ui.into_messages().any(|message| matches!(message, Message::Main(MainMessage::Community(CommunityMessage::Person(Some(index)))) if index == at)), "filtered position must not replace the player's catalogue index");
-            }
-            let mut friend = main.community.as_ref().unwrap().friends[0].clone();
-            friend.name = "D1CE".into();
-            friend.rank = 1234;
-            main.community.as_mut().unwrap().friends.push(friend);
-            let _ = main.update(MainMessage::Community(CommunityMessage::PeopleFrom(PeopleFrom::Game)));
-            assert_eq!(main.people_query, "  D1CE  ");
-            main.now = std::time::Instant::now() + std::time::Duration::from_secs(2);
-            {
-                let mut ui = Simulator::with_size(dossier_native::settings(), Size::new(main.width, main.height), gallery::main_frame(&main, &backdrop));
-                assert!(ui.find("quietstorm").is_err());
-                assert!(ui.find(format!("#{}", main.words.lang().group(1234))).is_ok());
-                assert!(ui.find(main.words.t("metric-world")).is_ok());
-                assert!(ui.find(main.words.t("people-open-dossier")).is_ok());
-                let target = ui.find("D1CE").unwrap().bounds();
-                ui.point_at(community_point(target, main.width));
-                ui.simulate(iced_test::simulator::click());
-                assert!(ui.into_messages().any(|message| matches!(message, Message::Main(MainMessage::Community(CommunityMessage::Person(Some(index)))) if index == at)));
             }
             let _ = main.update(MainMessage::Community(CommunityMessage::PeopleSearch("not-a-player-xyz".into())));
             {
@@ -232,20 +211,15 @@ fn people_search_keeps_original_member_ids_and_filters_game_friends() {
                 assert!(ui.find(main.words.t("people-no-results")).is_ok());
             }
             let _ = main.update(MainMessage::Community(CommunityMessage::PeopleSearch(String::new())));
+            let _ = main.update(MainMessage::Community(CommunityMessage::PeopleFilter(PeopleFilter::Friends)));
+            main.now = std::time::Instant::now() + std::time::Duration::from_secs(2);
             let mut ui = Simulator::with_size(dossier_native::settings(), Size::new(main.width, main.height), gallery::main_frame(&main, &backdrop));
-            assert!(ui.find("quietstorm").is_ok());
-            assert!(ui.find(main.words.t("open-osu")).is_ok());
+            assert!(ui.find("quietstorm").is_ok(), "a friend from osu! is in the list");
+            assert!(ui.find("Mirrorwave").is_err(), "a player who is no friend is not among friends");
             let target = ui.find("quietstorm").unwrap().bounds();
             ui.point_at(community_point(target, main.width));
             ui.simulate(iced_test::simulator::click());
             assert!(ui.into_messages().any(|message| matches!(message, Message::Main(MainMessage::Community(CommunityMessage::Open(url))) if url.ends_with("/quietstorm"))));
-            if let Ok(dir) = std::env::var("DOSSIER_PEOPLE_REVIEW") {
-                if (lang == Lang::Ru && width == 980.0) || (lang == Lang::En && width == 1440.0) {
-                    std::fs::create_dir_all(&dir).unwrap();
-                    let mut ui = Simulator::with_size(dossier_native::settings(), Size::new(main.width, main.height), gallery::main_frame(&main, &backdrop));
-                    ui.snapshot(&dossier_native::theme::theme()).unwrap().matches_image(std::path::Path::new(&dir).join(format!("people-{}-{}", lang.tag(), width as u32))).unwrap();
-                }
-            }
         }
     }
 }
@@ -261,9 +235,6 @@ fn people_search_input_and_clear_have_their_own_messages() {
     {
         let mut ui = Simulator::with_size(dossier_native::settings(), Size::new(main.width, main.height), gallery::main_frame(&main, &backdrop));
         let input = ui.find(iced::widget::Id::new("community-people-search")).unwrap().bounds();
-        let search = ui.find(iced::widget::Id::new("people-search-box")).unwrap().bounds();
-        assert_eq!(search.width, 300.0);
-        assert!((community_point(search, main.width).x - content_middle(main.width)).abs() < 1.0, "search must stay centered: {search:?}");
         ui.point_at(community_point(input, main.width));
         ui.simulate(iced_test::simulator::click());
         ui.typewrite("k");
@@ -342,25 +313,6 @@ fn journal_anchor_follows_scroll_without_consumed_mouse_events() {
     let anchors: Vec<_> = messages.iter().filter_map(|message| match message { Message::Enter(bounds) => Some(bounds.x), _ => None }).collect();
     assert_eq!(anchors, vec![110.0, 100.0, 90.0], "{messages:?}");
     assert!(!messages.iter().any(|message| matches!(message, Message::Exit)));
-}
-
-#[test]
-fn journal_bubble_does_not_interrupt_hover_across_the_frame() {
-    use dossier_native::{main_screen::Message as MainMessage, Message};
-    let backdrop = dossier_native::ui::backdrop_handle();
-    let states = gallery::main_states(Lang::Ru);
-    let (_, main) = states.iter().find(|(name, _)| name == "main-hover").unwrap();
-    let mut ui = Simulator::with_size(dossier_native::settings(), Size::new(main.width, main.height), gallery::main_frame(main, &backdrop));
-    let bounds = main.hover_bounds.unwrap();
-    for (x, y) in [(0.5, 0.5), (0.1, 0.1), (0.9, 0.8), (0.3, 0.2), (0.7, 0.6), (0.5, -0.03), (0.5, 0.5)] {
-        let point = Point::new(bounds.x + bounds.width * x, bounds.y + bounds.height * y);
-        ui.point_at(point);
-        ui.simulate([Event::Mouse(iced::mouse::Event::CursorMoved { position: point }), Event::Window(iced::window::Event::RedrawRequested(std::time::Instant::now()))]);
-    }
-    let messages: Vec<_> = ui.into_messages().collect();
-    let anchors: Vec<_> = messages.iter().filter_map(|message| match message { Message::Main(MainMessage::Over(1, bounds)) => Some(*bounds), _ => None }).collect();
-    assert_eq!(anchors.len(), 1, "{messages:?}");
-    assert!(!messages.iter().any(|message| matches!(message, Message::Main(MainMessage::HoverLeft(1)))), "{messages:?}");
 }
 
 #[test]

@@ -173,10 +173,17 @@ fn main() -> iced::Result {
         Some(dossier_native::instance::Claim::Ours(guard)) => Some(guard),
         None => None,
     };
+    if _alone.is_some() {
+        std::thread::spawn(|| {
+            if let Err(why) = dossier_native::desktop::register() {
+                eprintln!("dossier: desktop entry: {why}");
+            }
+        });
+    }
     iced::application(App::boot, App::update, App::view)
         .title("Dossier")
         .settings(settings())
-        .window(window::Settings {
+        .window(dossier_native::desktop::window(window::Settings {
             size: std::env::var("DOSSIER_WINDOW")
                 .ok()
                 .and_then(|said| {
@@ -189,7 +196,7 @@ fn main() -> iced::Result {
             position: window::Position::Centered,
             exit_on_close_request: false,
             ..window::Settings::default()
-        })
+        }))
         .theme(App::theme)
         .subscription(App::subscription)
         .run()

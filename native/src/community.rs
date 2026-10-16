@@ -225,6 +225,8 @@ pub struct Person {
     pub s: u32,
     pub joined: i64,
     pub supporter: bool,
+    pub support_level: u8,
+    pub osu_id: Option<i64>,
     pub title: Option<String>,
     pub titles: Vec<String>,
     pub streak: u32,
@@ -305,8 +307,17 @@ pub struct LivePlay {
     pub more: Play,
 }
 
+pub const CREATORS: [i64; 1] = [17_397_924];
+
+pub fn creator(osu_id: Option<i64>) -> bool {
+    osu_id.is_some_and(|id| CREATORS.contains(&id))
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Friend {
+    pub osu_id: Option<i64>,
+    pub supporter: bool,
+    pub support_level: u8,
     pub name: String,
     pub country: String,
     pub pp: u32,
@@ -408,6 +419,8 @@ fn person_into(maps: &mut Vec<MapRef>, said: &wire::Person) -> Person {
     s: said.s,
     joined: said.joined.unwrap_or(0),
     supporter: said.supporter,
+    support_level: said.support_level,
+    osu_id: said.osu_id,
     title: said.title.clone().filter(|code| !code.is_empty()),
     titles: said.titles.clone(),
     streak: said.streak,
@@ -600,6 +613,11 @@ impl Catalog {
             person.id = at as i64 + 1;
         }
         people[0].you = true;
+        people[0].osu_id = Some(CREATORS[0]);
+        people[0].supporter = true;
+        people[0].support_level = 3;
+        people[1].supporter = true;
+        people[1].support_level = 1;
         people[0].level = 101;
         people[0].ss = 214;
         people[0].s = 1_388;
@@ -684,6 +702,9 @@ impl Catalog {
             play.at = now - (pool - at as i64) * 180;
         }
         let friend = |name: &str, country: &str, pp: u32, rank: u32, online: bool, away: i64| Friend {
+            osu_id: None,
+            supporter: name == "Riv3r",
+            support_level: if name == "Riv3r" { 2 } else { 0 },
             name: name.to_owned(),
             country: country.to_owned(),
             pp,
@@ -825,7 +846,7 @@ impl Catalog {
     pub fn take_friends(&mut self, listed: Vec<wire::Friend>) {
         self.friends = listed
             .into_iter()
-            .map(|friend| Friend { name: friend.name, country: friend.country, pp: friend.pp, rank: friend.rank, online: friend.online, seen: friend.seen, avatar: friend.avatar })
+            .map(|friend| Friend { osu_id: friend.osu_id, supporter: friend.supporter, support_level: friend.support_level, name: friend.name, country: friend.country, pp: friend.pp, rank: friend.rank, online: friend.online, seen: friend.seen, avatar: friend.avatar })
             .collect();
         self.friends_state = Friends::Ready;
     }
@@ -1051,6 +1072,8 @@ pub mod wire {
         pub joined: Option<i64>,
         #[serde(default)]
         pub supporter: bool,
+        #[serde(default)]
+        pub support_level: u8,
         #[serde(default)]
         pub title: Option<String>,
         #[serde(default)]
@@ -1307,6 +1330,10 @@ pub mod wire {
         pub seen: Option<i64>,
         #[serde(default)]
         pub avatar: String,
+        #[serde(default)]
+        pub supporter: bool,
+        #[serde(default)]
+        pub support_level: u8,
     }
 
     #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]

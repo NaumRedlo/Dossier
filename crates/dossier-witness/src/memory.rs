@@ -71,7 +71,7 @@ pub trait Reads: Memory {
         }
         let raw = self.bytes(object + 8, len as usize * 2)?;
         let units: Vec<u16> = raw.chunks_exact(2).map(|pair| u16::from_le_bytes([pair[0], pair[1]])).collect();
-        String::from_utf16(&units).ok()
+        String::from_utf16(&units).ok().map(|said| said.chars().filter(|c| !c.is_control()).collect())
     }
 
     fn string_at(&self, field: u64) -> Option<String> {

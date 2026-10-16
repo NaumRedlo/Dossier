@@ -259,6 +259,14 @@ impl Words {
         when.format(format).to_string()
     }
 
+    pub fn decimal(&self, value: f64, places: usize) -> String {
+        let text = format!("{value:.places$}");
+        match self.lang {
+            Lang::En => text,
+            Lang::Ru => text.replace('.', ","),
+        }
+    }
+
     pub fn percent(&self, value: f64) -> String {
         let text = format!("{value:.2}%");
         match self.lang {

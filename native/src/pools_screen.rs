@@ -307,6 +307,7 @@ pub enum Message {
     Renew(String),
     StopPull,
     Collected(String, Result<usize, String>),
+    Uncollected(String, Result<bool, String>),
     Makers(Option<String>),
     Begin(Start),
     PublishSheet(bool),
@@ -419,6 +420,7 @@ pub enum Message {
     Command(String),
     Chosen(Box<Message>),
     CopySlot(usize),
+    CopySlotId(usize),
     SortStars,
     OnlyEmpty,
     FetchMissing,
@@ -464,6 +466,7 @@ pub enum Effect {
     ReadSongs,
     ReadCollections,
     Collect(String, String, Vec<String>),
+    Uncollect(String, String),
     PickBackdrop,
     LoadBackdrop(String, PathBuf, bool),
     ReadBest(bool),
@@ -603,6 +606,7 @@ pub struct State {
     pub collection_shelf: bool,
     pub shelf: Shelf,
     pub pull: Option<Pull>,
+    pub uncollect_refused: bool,
     pub publications: Vec<crate::bot::Publication>,
     pub catalogue_loading: bool,
     pub catalogue_more: bool,
@@ -700,6 +704,7 @@ impl State {
             collection_shelf: false,
             shelf: Shelf::Mine,
             pull: None,
+            uncollect_refused: false,
             publications: Vec::new(),
             catalogue_loading: false,
             catalogue_more: false,
@@ -879,6 +884,22 @@ impl State {
         });
         let placed = self.spread_best(self.clock);
         self.pending.extend(placed);
+    }
+
+    fn drop_pool(&mut self, at: usize) {
+        self.cancel_network();
+        self.cancel_import();
+        self.cancel_suggestion();
+        let id = self.list.remove(at).id;
+        let _ = pools::remove(&self.dir, &id);
+        self.unsaved.remove(&id);
+        self.save_errors.remove(&id);
+        self.undo.retain(|(pool, _)| *pool != id);
+        self.uncollect_refused = false;
+        if matches!(&self.screen, Screen::Editor(editor) if editor.id == id) {
+            self.screen = Screen::Shelf;
+        }
+        self.notice = None;
     }
 
     fn editing_at(&self) -> Option<usize> {
@@ -2567,6 +2588,14 @@ impl State {
                     }
                 }
             }
+            Message::CopySlotId(slot) => {
+                if let Some(hash) = self.editing().and_then(|pool| pool.slots.get(slot)).and_then(|slot| slot.hash.clone()) {
+                    match self.songs.as_ref().and_then(|songs| songs.get(&hash)).and_then(|map| map_id(&map.file)) {
+                        Some(id) => effects.push(Effect::Copy(id.to_string(), "pool-copied-id")),
+                        None => effects.push(Effect::Copy(hash, "pool-copied-hash")),
+                    }
+                }
+            }
             Message::DropStray => self.stray = None,
             Message::BackdropPanel(open) => {
                 if let Some(editor) = self.editor_mut() {
@@ -2741,22 +2770,27 @@ impl State {
                 }
             }
             Message::AskDelete(ask) => {
+                self.uncollect_refused = false;
                 if let Some(editor) = self.editor_mut() {
                     editor.asking_delete = ask;
                 }
             }
             Message::DeletePool => {
                 if let Some(at) = self.editing_at() {
-                    self.cancel_network();
-                    self.cancel_import();
-                    self.cancel_suggestion();
-                    let id = self.list.remove(at).id;
-                    let _ = pools::remove(&self.dir, &id);
-                    self.unsaved.remove(&id);
-                    self.save_errors.remove(&id);
-                    self.undo.retain(|(pool, _)| *pool != id);
-                    self.screen = Screen::Shelf;
-                    self.notice = None;
+                    let pool = &self.list[at];
+                    if pool.saved.as_ref().is_some_and(|saved| saved.collected) {
+                        effects.push(Effect::Uncollect(pool.id.clone(), pool.name.clone()));
+                    } else {
+                        self.drop_pool(at);
+                    }
+                }
+            }
+            Message::Uncollected(id, result) => {
+                if result.as_ref().is_err_and(|code| code == "running") {
+                    self.uncollect_refused = true;
+                } else if let Some(at) = self.list.iter().position(|pool| pool.id == id) {
+                    self.drop_pool(at);
+                    effects.push(Effect::ReadCollections);
                 }
             }
             Message::Put(hash) => effects.extend(self.put(&hash, now)),
@@ -5555,6 +5589,7 @@ fn slot_menu<'a>(at: usize, words: &'a Words) -> Element<'a, Message> {
         line("pool-menu-double", "Ctrl D", INK, Message::Duplicate(at)),
         line("pool-menu-category", "", INK, Message::Select(Some(at))),
         line("pool-menu-copy", "Ctrl C", INK, Message::CopySlot(at)),
+        line("pool-menu-copy-id", "", INK, Message::CopySlotId(at)),
         line("pool-menu-remove", "Delete", WARNED, Message::Clear(at)),
     ]
     .spacing(2);
@@ -5684,7 +5719,11 @@ fn editor_toolbar<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, word
         (!state.publishing && !editor.starting && pool.saved.is_none()).then_some(Message::PublishSheet(true)),
     );
     let danger: Element<'a, Message> = if editor.asking_delete {
-        row![outlined(words.t("pool-delete-yes"), Some(Message::DeletePool)), quiet_button(words.t("pool-delete-no"), Message::AskDelete(false))].spacing(8).into()
+        let mut asking = row![outlined(words.t("pool-delete-yes"), Some(Message::DeletePool)), quiet_button(words.t("pool-delete-no"), Message::AskDelete(false))].spacing(8).align_y(iced::Center);
+        if state.uncollect_refused {
+            asking = asking.push(text(words.t("collection-delete-running")).size(12).color(WARNED));
+        }
+        asking.into()
     } else {
         button(container(text(words.t(if pool.collection { "collection-delete" } else { "pool-delete" })).font(theme::SANS_SEMI).size(14.0)).center_y(CONTROL)).padding([0, 12]).style(ui::button_faded(theme::danger_words)).on_press(Message::AskDelete(true)).into()
     };
@@ -5934,11 +5973,15 @@ fn catalogue_toast<'a>(error: &str, words: &'a Words) -> Element<'a, Message> {
 }
 
 pub fn map_link(file: &std::path::Path) -> Option<String> {
+    map_id(file).map(|id| format!("https://osu.ppy.sh/b/{id}"))
+}
+
+pub fn map_id(file: &std::path::Path) -> Option<u64> {
     use std::io::{BufRead, BufReader};
     let lines = BufReader::new(std::fs::File::open(file).ok()?).lines().take(120);
     for line in lines.map_while(Result::ok) {
         if let Some(said) = line.trim().strip_prefix("BeatmapID:") {
-            return said.trim().parse::<u64>().ok().filter(|id| *id > 0).map(|id| format!("https://osu.ppy.sh/b/{id}"));
+            return said.trim().parse::<u64>().ok().filter(|id| *id > 0);
         }
     }
     None
@@ -6882,6 +6925,51 @@ mod tests {
     }
 
     #[test]
+    fn a_saved_collection_can_be_deleted_from_its_page() {
+        let words = Words::new(crate::lang::Lang::Ru);
+        let thumbs = HashMap::new();
+        let mut state = state_with_songs("drop-saved");
+        let mut pool = Pool::new(Frame::Free, "Their collection", 1_790_000_000);
+        pool.collection = true;
+        pool.compiler = "Builder".into();
+        pool.slots = vec![Slot::empty(Mod::Nm)];
+        pool.slots[0].hash = Some("a".repeat(32));
+        pool.saved = Some(pools::Saved { id: "theirs".into(), code: "XQIS43GB".into(), revision: 1, publisher: "Builder".into(), collected: true });
+        let id = pool.id.clone();
+        state.list.push(pool);
+        state.save(state.list.len() - 1, 1_790_000_000);
+        state.flush_saves(true);
+        state.update(Message::Open(id.clone()), 1_790_000_001);
+        let asked = {
+            let mut screen = look(&state, &words, &thumbs);
+            screen.click(words.t("collection-delete")).expect("the delete button is on the page");
+            screen.into_messages().collect::<Vec<_>>()
+        };
+        for message in asked {
+            state.update(message, 1_790_000_002);
+        }
+        let confirmed = {
+            let mut screen = look(&state, &words, &thumbs);
+            screen.click(words.t("pool-delete-yes")).expect("the confirmation is on the page");
+            screen.into_messages().collect::<Vec<_>>()
+        };
+        let mut effects = Vec::new();
+        for message in confirmed {
+            effects.extend(state.update(message, 1_790_000_003));
+        }
+        assert!(effects.iter().any(|effect| matches!(effect, Effect::Uncollect(pool, name) if *pool == id && name == "Their collection")), "the game's copy is taken out first: {effects:?}");
+        state.update(Message::Uncollected(id.clone(), Err("running".into())), 1_790_000_004);
+        assert!(state.list.iter().any(|pool| pool.id == id), "with osu! open the collection stays");
+        {
+            let mut screen = look(&state, &words, &thumbs);
+            assert!(screen.find(words.t("collection-delete-running")).is_ok(), "and the player is asked to close the game");
+        }
+        state.update(Message::Uncollected(id.clone(), Ok(true)), 1_790_000_005);
+        assert!(state.list.iter().all(|pool| pool.id != id), "the collection is gone from the list");
+        assert!(pools::load_all(&state.dir).iter().all(|pool| pool.id != id), "and from the disk");
+    }
+
+    #[test]
     fn a_saved_pool_downloads_what_is_missing_and_then_asks_for_its_collection() {
         let mut state = state_with_songs("pull");
         let mut pool = Pool::new(Frame::Free, "Winter Cup", 1_790_000_000);
@@ -7076,7 +7164,7 @@ mod tests {
         assert!(matches!(&state.screen, Screen::Editor(editor) if editor.menu == Some(1)));
         {
             let mut screen = iced_test::Simulator::with_size(crate::settings(), iced::Size::new(1400.0, 900.0), view(&state, &words, &thumbs, 1400.0, 1.0, &Clocks::settled()));
-            for key in ["pool-menu-note", "pool-menu-replace", "pool-menu-double", "pool-menu-category", "pool-menu-copy", "pool-menu-remove"] {
+            for key in ["pool-menu-note", "pool-menu-replace", "pool-menu-double", "pool-menu-category", "pool-menu-copy", "pool-menu-copy-id", "pool-menu-remove"] {
                 assert!(screen.find(words.t(key)).is_ok(), "{key}");
             }
             screen.click(words.t("pool-menu-double")).unwrap();
@@ -7088,6 +7176,7 @@ mod tests {
         assert!(matches!(&state.screen, Screen::Editor(editor) if editor.menu.is_none()), "an action closes the menu");
         let hash = state.editing().unwrap().slots[0].hash.clone().unwrap();
         assert!(matches!(state.update(Message::Chosen(Box::new(Message::CopySlot(0))), 402).as_slice(), [Effect::Copy(copied, _)] if *copied == hash));
+        assert!(matches!(state.update(Message::Chosen(Box::new(Message::CopySlotId(0))), 403).as_slice(), [Effect::Copy(copied, "pool-copied-hash")] if *copied == hash), "without a map id the hash is copied");
         {
             let mut screen = iced_test::Simulator::with_size(crate::settings(), iced::Size::new(1400.0, 900.0), view(&state, &words, &thumbs, 1400.0, 1.0, &Clocks::settled()));
             for key in ["pool-tool-categories", "pool-tool-backdrop", "pool-command-share"] {
@@ -7201,6 +7290,7 @@ mod tests {
         let file = folder.join("map.osu");
         std::fs::write(&file, "osu file format v14\n\n[Metadata]\nTitle:Song\nBeatmapID:4242\nBeatmapSetID:7\n").unwrap();
         assert_eq!(map_link(&file), Some("https://osu.ppy.sh/b/4242".into()));
+        assert_eq!(map_id(&file), Some(4242));
         std::fs::write(&file, "[Metadata]\nBeatmapID:0\n").unwrap();
         assert_eq!(map_link(&file), None, "a map that was never uploaded has no link");
     }

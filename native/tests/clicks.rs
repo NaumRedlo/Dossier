@@ -82,13 +82,9 @@ fn the_three_words_and_the_frames_answer_to_clicks() {
     assert!(messages.iter().any(|m| matches!(m, dossier_native::Message::Main(M::Show(Overlay::Settings)))), "{messages:?}");
 
     let mut ui = Simulator::with_size(dossier_native::settings(), iced::Size::new(980.0, 720.0), gallery::main_frame(&staged, &backdrop));
-    ui.point_at(Point::new(40.0 + 88.0 + 6.0 + 44.0 + 22.0 + 8.0, 720.0 - 10.0 - 18.0 - 4.0 - 25.0));
-    let _ = ui.simulate(iced_test::simulator::click());
+    let _ = ui.click("FREEDOM DiVE").expect("clicked");
     let messages: Vec<_> = ui.into_messages().collect();
-    assert!(
-        messages.iter().any(|m| matches!(m, dossier_native::Message::Main(M::Choose(_)) | dossier_native::Message::Main(M::Hover(_)))),
-        "a click on the strip produced {messages:?}"
-    );
+    assert!(messages.iter().any(|m| matches!(m, dossier_native::Message::Main(M::Choose(_)))), "a click on a map set produced {messages:?}");
 }
 
 #[test]
@@ -111,33 +107,17 @@ fn the_worker_is_a_tile_of_the_bot_settings_and_its_switch_answers() {
 }
 
 #[test]
-fn the_strip_is_dragged_by_its_frames_and_a_drag_is_not_a_click() {
+fn the_wheel_over_the_carousel_walks_the_replays() {
     use dossier_native::main_screen::Message as M;
     use iced::mouse;
     let staged = main_state("main-rest");
     let backdrop = dossier_native::ui::backdrop_handle();
-    let size = iced::Size::new(760.0, 560.0);
+    let size = iced::Size::new(980.0, 720.0);
     let mut ui = Simulator::with_size(dossier_native::settings(), size, gallery::main_frame(&staged, &backdrop));
-    let from = Point::new(560.0, size.height - 10.0 - 18.0 - 4.0 - 25.0);
-    ui.point_at(from);
-    let mut events = vec![iced::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left))];
-    for step in 1..=12 {
-        events.push(iced::Event::Mouse(mouse::Event::CursorMoved { position: Point::new(from.x - 30.0 * step as f32, from.y) }));
-        events.push(iced::Event::Window(iced::window::Event::RedrawRequested(std::time::Instant::now())));
-    }
-    events.push(iced::Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)));
-    events.push(iced::Event::Window(iced::window::Event::RedrawRequested(std::time::Instant::now())));
-    let _ = ui.simulate(events);
+    ui.point_at(Point::new(160.0, 520.0));
+    let _ = ui.simulate(vec![iced::Event::Mouse(mouse::Event::WheelScrolled { delta: mouse::ScrollDelta::Lines { x: 0.0, y: -1.0 } })]);
     let messages: Vec<_> = ui.into_messages().collect();
-    assert!(!messages.iter().any(|m| matches!(m, dossier_native::Message::Main(M::Choose(_)))), "a drag chose a replay: {messages:?}");
-    let furthest = messages
-        .iter()
-        .filter_map(|m| match m {
-            dossier_native::Message::Main(M::Strip(viewport)) => Some(viewport.absolute_offset().x),
-            _ => None,
-        })
-        .fold(0.0f32, f32::max);
-    assert!(furthest > 100.0, "the strip moved only {furthest}: {messages:?}");
+    assert!(messages.iter().any(|m| matches!(m, dossier_native::Message::Main(M::Wheel(lines)) if *lines < 0.0)), "the wheel produced {messages:?}");
 }
 
 #[test]

@@ -136,7 +136,7 @@ impl State {
     }
 
     pub fn subscription(&self) -> Option<&Subscription> {
-        self.held.as_ref().and_then(|held| held.as_ref())
+        self.held.as_ref().and_then(|held| held.as_ref()).filter(|held| !never_paid(held))
     }
 
     pub fn badge(&self) -> Option<&Badge> {
@@ -576,6 +576,10 @@ fn unix_of(value: &Option<String>) -> Option<i64> {
 
 pub fn until(held: &Subscription, words: &Words, now: i64) -> String {
     unix_of(&held.paid_until).map(|at| words.day(at, now)).unwrap_or_default()
+}
+
+pub fn never_paid(held: &Subscription) -> bool {
+    held.state == "expired" && !held.access && held.paid_until.is_none() && held.carried_seconds == 0
 }
 
 pub fn line(state: &State, words: &Words, now: i64) -> (String, Tone) {
@@ -1037,13 +1041,17 @@ mod tests {
         let mut state = State::new(String::new(), "USD");
         state.held = Some(None);
         assert_eq!(line(&state, &words, 0), (words.t("billing-none"), Tone::Quiet));
-        for (held, tone) in [(held("pending", false, None), Tone::Wait), (held("failed", false, None), Tone::Bad), (held("expired", false, None), Tone::Quiet), (held("active", true, Some("2999-01-01T00:00:00Z")), Tone::Good)] {
+        for (held, tone) in [(held("pending", false, None), Tone::Wait), (held("failed", false, None), Tone::Bad), (held("expired", false, Some("2026-09-01T00:00:00Z")), Tone::Quiet), (held("active", true, Some("2999-01-01T00:00:00Z")), Tone::Good)] {
             state.held = Some(Some(held.clone()));
             let (said, got) = line(&state, &words, 0);
             assert_eq!(got, tone, "{held:?}");
             assert!(!said.is_empty() && !said.contains("billing-"), "{said}");
             assert!(!badge(&held, &words).0.contains("billing-"));
         }
+        state.held = Some(Some(held("expired", false, None)));
+        assert_eq!(line(&state, &words, 0).0, words.t("billing-none"), "a checkout that was never paid is no ended subscription");
+        state.held = Some(Some(held("expired", false, Some("2026-09-01T00:00:00Z"))));
+        assert_eq!(line(&state, &words, 0).0, words.t("billing-line-expired"), "one that was paid once has ended");
     }
     #[test]
     fn a_held_subscription_changes_to_a_higher_tier_and_shows_what_is_carried_over() {

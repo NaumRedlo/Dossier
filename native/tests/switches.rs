@@ -32,8 +32,7 @@ fn navigation_and_section_tabs_fit_and_route_in_both_languages() {
                     vec![
                         ("profile", M::Community(C::Go(Section::Profile, None))),
                         ("feed", M::Community(C::Go(Section::Feed, None))),
-                        ("chat", M::Community(C::Go(Section::People, Some(PeopleFrom::Chat)))),
-                        ("game", M::Community(C::Go(Section::People, Some(PeopleFrom::Game)))),
+                        ("people", M::Community(C::Go(Section::People, Some(PeopleFrom::Chat)))),
                         ("compare", M::Community(C::Go(Section::Compare, None))),
                         ("boards", M::Community(C::Go(Section::Boards, None))),
                         ("titles", M::Community(C::Go(Section::Titles, None))),

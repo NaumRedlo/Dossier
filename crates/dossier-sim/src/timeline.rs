@@ -285,6 +285,7 @@ fn resolve(
     };
 
     let (kind, end_ms) = match &obj.kind {
+        ObjectKind::Hold { .. } => panic!("mania holds require mania::Timeline"),
         ObjectKind::Circle => (TimedKind::Circle, obj.time_ms),
         ObjectKind::Spinner { end_time_ms } => (TimedKind::Spinner, *end_time_ms),
         ObjectKind::Slider(slider) => {

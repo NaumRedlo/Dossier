@@ -318,7 +318,12 @@ fn parse_hit_object(line: &str, line_no: usize) -> Result<HitObject> {
 
     let hit_sound: u8 = parts.get(4).and_then(|s| s.parse().ok()).unwrap_or(0);
 
-    let hit_sample = HitSample::parse(parts.last().filter(|s| s.contains(':')));
+    let hold_sample = parts.get(5).and_then(|s| s.split_once(':')).map(|(_, sample)| sample);
+    let hit_sample = if type_field & type_bits::MANIA_HOLD != 0 {
+        HitSample::parse(hold_sample.as_ref())
+    } else {
+        HitSample::parse(parts.last().filter(|s| s.contains(':')))
+    };
 
     let kind = if type_field & type_bits::SLIDER != 0 {
         let spec = parts.get(5).ok_or_else(bad)?;
@@ -356,7 +361,14 @@ fn parse_hit_object(line: &str, line_no: usize) -> Result<HitObject> {
         ObjectKind::Spinner {
             end_time_ms: parts.get(5).and_then(|s| s.parse().ok()).ok_or_else(bad)?,
         }
-    } else if type_field & (type_bits::CIRCLE | type_bits::MANIA_HOLD) != 0 {
+    } else if type_field & type_bits::MANIA_HOLD != 0 {
+        let end_time_ms: f64 = parts.get(5).and_then(|s| s.split(':').next())
+            .and_then(|s| s.parse().ok()).ok_or_else(bad)?;
+        if !time_ms.is_finite() || !end_time_ms.is_finite() || end_time_ms < time_ms {
+            return Err(bad());
+        }
+        ObjectKind::Hold { end_time_ms }
+    } else if type_field & type_bits::CIRCLE != 0 {
         ObjectKind::Circle
     } else {
         return Err(BeatmapError::UnknownObjectType {

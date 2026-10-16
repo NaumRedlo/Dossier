@@ -437,6 +437,29 @@ fn lazers_own_judgement_counts_come_through() {
 }
 
 #[test]
+fn recorded_unmodified_score_preserves_zero_but_rejects_invalid_values() {
+    for (value, expected) in [
+        ("0", Some(0)),
+        ("977267", Some(977267)),
+        ("-1", None),
+        ("null", None),
+        ("\"0\"", None),
+    ] {
+        let json = format!("{{\"total_score_without_mods\":{value}}}");
+        let replay = Replay::parse(&build(Spec {
+            version: 30_000_016,
+            score_info: Some(&json),
+            ..Spec::default()
+        }))
+        .unwrap();
+        assert_eq!(
+            replay.score_info.unwrap().total_score_without_mods,
+            expected
+        );
+    }
+}
+
+#[test]
 fn a_stable_replay_has_no_block_and_says_so_quietly() {
     let replay = Replay::parse(&build(Spec::default())).unwrap();
     assert!(replay.score_info.is_none());

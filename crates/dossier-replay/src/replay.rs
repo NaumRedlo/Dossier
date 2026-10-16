@@ -322,7 +322,7 @@ fn read_score_info(r: &mut Reader) -> Option<ScoreInfo> {
         total_score_without_mods: root
             .get("total_score_without_mods")
             .and_then(crate::json::Value::as_i64)
-            .filter(|n| *n > 0),
+            .filter(|n| *n >= 0),
     })
 }
 

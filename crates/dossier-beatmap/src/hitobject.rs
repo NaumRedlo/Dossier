@@ -73,6 +73,7 @@ pub struct Slider {
 #[derive(Debug, Clone, PartialEq)]
 pub enum ObjectKind {
     Circle,
+    Hold { end_time_ms: f64 },
     Slider(Slider),
     Spinner { end_time_ms: f64 },
 }
@@ -135,7 +136,7 @@ impl HitObject {
 
     pub fn end_time_ms(&self) -> f64 {
         match &self.kind {
-            ObjectKind::Spinner { end_time_ms } => *end_time_ms,
+            ObjectKind::Spinner { end_time_ms } | ObjectKind::Hold { end_time_ms } => *end_time_ms,
             _ => self.time_ms,
         }
     }

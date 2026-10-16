@@ -1,4 +1,5 @@
 mod cursor;
+pub mod mania;
 pub mod health;
 pub mod judge;
 pub mod multiplier;

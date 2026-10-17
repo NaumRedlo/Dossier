@@ -3,6 +3,7 @@ use std::time::Duration;
 
 pub const ENGINE: &str = concat!("dossier ", env!("CARGO_PKG_VERSION"));
 pub const BUILD: &str = env!("CARGO_PKG_VERSION");
+pub const DRAWN_RULESETS: [u8; 2] = [0, 3];
 pub const PRERELEASE: bool = true;
 
 const PATIENCE: Duration = Duration::from_secs(12);
@@ -1149,7 +1150,7 @@ pub fn claim(server: &str, token: &str, name: &str, take: bool) -> Result<Option
         .post(format!("{server}/render/claim"))
         .header("X-Render-Worker", name)
         .bearer_auth(token)
-        .json(&serde_json::json!({"build": BUILD, "take": take}))
+        .json(&serde_json::json!({"build": BUILD, "take": take, "rulesets": DRAWN_RULESETS}))
         .send()
         .map_err(|e| Refused::Network(e.to_string()))?;
     if response.status().as_u16() == 204 {

@@ -64,6 +64,32 @@ impl PeopleFilter {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TitleScope {
+    #[default]
+    Chat,
+    Server,
+}
+
+impl TitleScope {
+    pub const ALL: [TitleScope; 2] = [TitleScope::Chat, TitleScope::Server];
+
+    pub fn key(self) -> &'static str {
+        match self {
+            TitleScope::Chat => "titles-scope-chat",
+            TitleScope::Server => "titles-scope-server",
+        }
+    }
+
+    pub fn takes(self, person: &Person) -> bool {
+        self == TitleScope::Server || !person.outside
+    }
+}
+
+pub(crate) fn scoped_holders(ground: &Ground<'_>, code: &str) -> Vec<usize> {
+    ground.catalog.holders(code).into_iter().filter(|at| ground.title_scope.takes(&ground.catalog.people[*at])).collect()
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PeopleOrder {
     #[default]
     Pp,
@@ -219,6 +245,7 @@ pub enum Message {
     ShowNew,
     PeopleSearch(String),
     PeopleFilter(PeopleFilter),
+    TitleScope(TitleScope),
     PeopleOrder(PeopleOrder),
     PeopleOrders(bool),
     Toggle(String),
@@ -270,6 +297,7 @@ pub struct Ground<'a> {
     pub people_from: PeopleFrom,
     pub people_query: &'a str,
     pub people_filter: PeopleFilter,
+    pub title_scope: TitleScope,
     pub people_order: PeopleOrder,
     pub people_orders_open: bool,
     pub standing: Standing,
@@ -414,7 +442,7 @@ fn notice_banner<'a>(ground: &Ground<'a>) -> Option<Element<'a, Message>> {
     .align_y(iced::Center)
     .style(ui::box_faded(|_| container::Style {
         background: Some(Background::Color(Color::from_rgba(0.886, 0.282, 0.282, 0.1))),
-        border: Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.07), width: 1.0, radius: 10.0.into() },
+        border: Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.045), width: 1.0, radius: 10.0.into() },
         ..container::Style::default()
     }));
     let k = ground.notice_k.clamp(0.0, 1.0);
@@ -1107,14 +1135,16 @@ fn someone_card<'a>(ground: &Ground<'a>, one: &Someone<'a>, place: Option<usize>
     let under = container(under).width(Length::Fill).clip(true);
     let mut marks = row![].spacing(6).align_y(iced::Center);
     if let Someone::Member(_, person) = one {
-        marks = marks.push(ui::tag(w.t(if person.outside { "people-mark-server" } else { "people-mark-chat" })));
+        if !person.outside {
+            marks = marks.push(ui::tag(w.t("people-mark-chat")));
+        }
     }
     if friend {
         marks = marks.push(ui::tag(w.t("people-mark-friend")));
     }
     if let Someone::Member(_, person) = one {
         if person.app {
-            marks = marks.push(ui::tag("Dossier".to_owned()));
+            marks = marks.push(ui::tag(w.t("people-mark-app")));
         }
     }
     let words = column![name, under, marks].spacing(5).width(Length::Fill);
@@ -1546,7 +1576,7 @@ fn boards<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
                     .padding([8, 16])
                     .style(ui::button_faded(ui::calm(theme::filter_chip(ground.board == board))))
                     .on_press(Message::Board(board)),
-                ui::Glow::tile(15.0).edge(Color::from_rgba(1.0, 1.0, 1.0, 0.14)),
+                ui::Glow::tile(15.0).edge(Color::from_rgba(1.0, 1.0, 1.0, 0.085)),
             ));
         }
         let title = w.t(if adaptive { "board-title-adaptive" } else { "board-title-general" });
@@ -1700,7 +1730,7 @@ fn faces<'a>(ground: &Ground<'a>, holders: &[usize]) -> Element<'a, Message> {
 
 fn title_card<'a>(ground: &Ground<'a>, title: &Title) -> Element<'a, Message> {
     let w = ground.words;
-    let holders = ground.catalog.holders(&title.code);
+    let holders = scoped_holders(ground, &title.code);
     let colour = if holders.is_empty() { FAINT } else { title.rarity.colour() };
     let name = title.name(w.lang()).to_owned();
     let about = title.about(w.lang()).to_owned();
@@ -1725,7 +1755,8 @@ fn title_card<'a>(ground: &Ground<'a>, title: &Title) -> Element<'a, Message> {
 
 fn titles<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
     let w = ground.words;
-    let mut list = column![].spacing(22).width(Length::Fill);
+    let scopes = segmented_compact(TitleScope::ALL.iter().map(|scope| (w.t(scope.key()), ground.title_scope == *scope, Message::TitleScope(*scope))).collect());
+    let mut list = column![row![scopes]].spacing(22).width(Length::Fill);
     let mut shown = 0;
     let t = ground.section_t;
     for rarity in Rarity::ALL {

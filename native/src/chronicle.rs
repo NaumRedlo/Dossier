@@ -825,8 +825,13 @@ fn refresh_button<'a>(ground: &Ground<'a>) -> Option<Element<'a, Message>> {
 
 fn empty_card<'a>(ground: &Ground<'a>, icon: Icon, title: String, said: String, action: Option<(String, Message, bool)>) -> Element<'a, Message> {
     let k = ui::fade();
+    let disc = container(glyph(icon, 22.0, MUTED)).center(52.0).style(move |_| container::Style {
+        background: Some(Background::Color(Color { a: 0.9 * k, ..theme::GLASS })),
+        border: Border { color: Color { a: theme::GLASS_EDGE.a * k, ..theme::GLASS_EDGE }, width: 1.0, radius: 26.0.into() },
+        ..container::Style::default()
+    });
     let mut inside = column![
-        glyph(icon, 28.0, FAINT),
+        disc,
         text(title).font(theme::SANS_SEMI).size(15.0).color(ui::faded(INK)),
         container(text(said).font(theme::SANS).size(12.0).color(ui::faded(MUTED)).align_x(iced::alignment::Horizontal::Center)).max_width(260.0),
     ]
@@ -838,8 +843,12 @@ fn empty_card<'a>(ground: &Ground<'a>, icon: Icon, title: String, said: String, 
     let _ = ground;
     container(
         container(inside)
-            .padding([32, 20])
-            .style(move |_| container::Style { border: Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.04 * k), width: 1.0, radius: 12.0.into() }, ..container::Style::default() }),
+            .padding([28, 36])
+            .style(move |_| container::Style {
+                background: Some(Background::Color(Color { a: theme::GLASS.a * k, ..theme::GLASS })),
+                border: Border { color: Color { a: theme::GLASS_EDGE.a * k, ..theme::GLASS_EDGE }, width: 1.0, radius: 16.0.into() },
+                ..container::Style::default()
+            }),
     )
     .center_x(Length::Fill)
     .padding(Padding { top: 18.0, right: 0.0, bottom: 18.0, left: 0.0 })
@@ -927,11 +936,12 @@ fn timeline<'a>(ground: &Ground<'a>, wide: f32) -> Element<'a, Message> {
             .spacing(8)
             .align_y(iced::Center),
         )
-        .padding([6, 10])
-        .width(if wide < 640.0 { 130.0 } else { 200.0 })
+        .padding([0, 12])
+        .center_y(36.0)
+        .width(if wide < 640.0 { 140.0 } else { 220.0 })
         .style(ui::box_faded(|_| container::Style {
-            background: Some(Background::Color(Color::from_rgba(0.0, 0.0, 0.0, 0.25))),
-            border: Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.07), width: 1.0, radius: 8.0.into() },
+            background: Some(Background::Color(theme::GLASS)),
+            border: Border { color: theme::GLASS_EDGE, width: 1.0, radius: 12.0.into() },
             ..container::Style::default()
         })),
     );
@@ -940,6 +950,15 @@ fn timeline<'a>(ground: &Ground<'a>, wide: f32) -> Element<'a, Message> {
     let mut page = column![below(ui::appearing(ui::appear(ground.section_t, 0), 10.0, || top.into()))];
 
     let table = Table::for_width(wide - 12.0);
+    let loading = all.is_empty() && matches!(ground.fetch, screen::Fetch::Loading);
+    if list.is_empty() && !loading {
+        let empty = ui::appearing(ui::appear(lately, 1), 10.0, || empty_rows(ground, all.is_empty(), table));
+        return column![page, container(empty).center_x(Length::Fill).center_y(Length::Fill).padding(Padding { top: 0.0, right: 10.0, bottom: 96.0, left: 2.0 })]
+            .padding(Padding { top: 2.0, right: 0.0, bottom: 0.0, left: 0.0 })
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .into();
+    }
     let mut rows = column![];
     if list.is_empty() {
         rows = rows.push(empty_rows(ground, all.is_empty(), table));
@@ -1097,7 +1116,7 @@ fn me_card<'a>(ground: &Ground<'a>, wide: f32) -> Element<'a, Message> {
             .width(Length::Fill)
             .style(ui::button_faded(ui::calm(framed)))
             .on_press(Message::Section(Section::Profile)),
-        ui::Glow::tile(8.0).edge(Color::from_rgba(1.0, 1.0, 1.0, 0.16)),
+        ui::Glow::tile(8.0).edge(Color::from_rgba(1.0, 1.0, 1.0, 0.08)),
     );
     card(column![head, weekly, facts, open].spacing(16), 16).into()
 }

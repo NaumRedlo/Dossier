@@ -2882,7 +2882,7 @@ impl<Message> canvas::Program<Message> for Mark {
         let side = bounds.width.min(bounds.height);
         let centre = Point::new(bounds.width / 2.0, bounds.height / 2.0);
         let k = self.k.clamp(0.0, 1.0);
-        let ground = Color::from_rgba(1.0, 1.0, 1.0, 0.1);
+        let ground = Color::from_rgba(0.13, 0.06, 0.085, 0.92);
         let colour = Color {
             r: ground.r + (ACCENT.r - ground.r) * k,
             g: ground.g + (ACCENT.g - ground.g) * k,
@@ -2890,6 +2890,7 @@ impl<Message> canvas::Program<Message> for Mark {
             a: ground.a + (ACCENT.a - ground.a) * k,
         };
         frame.fill(&Path::circle(centre, side / 2.0), dim(colour, self.alpha));
+        frame.stroke(&Path::circle(centre, side / 2.0 - 0.5), Stroke::default().with_width(1.0).with_color(dim(Color::from_rgba(1.0, 1.0, 1.0, 0.08 * (1.0 - k)), self.alpha)));
         if self.glyph.is_empty() {
             let r = side * 0.3;
             let stroke = |width: f32, colour: Color| {
@@ -2941,6 +2942,42 @@ impl<Message> canvas::Program<Message> for Mark {
         }
         vec![frame.into_geometry()]
     }
+}
+
+pub struct Track {
+    pub k: f32,
+    pub alpha: f32,
+}
+
+impl<Message> canvas::Program<Message> for Track {
+    type State = ();
+
+    fn draw(&self, _: &(), renderer: &Renderer, _: &Theme, bounds: Rectangle, _: mouse::Cursor) -> Vec<Geometry> {
+        let mut frame = Frame::new(renderer, bounds.size());
+        let k = self.k.clamp(0.0, 1.0);
+        let high = bounds.height;
+        let off = Color::from_rgba(0.0, 0.0, 0.0, 0.45);
+        let lane = Color {
+            r: off.r + (ACCENT.r - off.r) * k,
+            g: off.g + (ACCENT.g - off.g) * k,
+            b: off.b + (ACCENT.b - off.b) * k,
+            a: off.a + (0.92 - off.a) * k,
+        };
+        let inset = 1.0;
+        let body = Path::rounded_rectangle(Point::new(inset, inset), Size::new(bounds.width - 2.0 * inset, high - 2.0 * inset), (high / 2.0 - inset).into());
+        frame.fill(&body, dim(lane, self.alpha));
+        frame.stroke(&body, Stroke::default().with_width(1.0).with_color(dim(Color::from_rgba(1.0, 1.0, 1.0, 0.14 * (1.0 - k)), self.alpha)));
+        let gap = 4.0;
+        let r = high / 2.0 - gap;
+        let x = gap + r + (bounds.width - 2.0 * (gap + r)) * (1.0 - (1.0 - k).powi(3));
+        let knob = Color { a: 0.55 + 0.45 * k, ..Color::WHITE };
+        frame.fill(&Path::circle(Point::new(x, high / 2.0), r), dim(knob, self.alpha));
+        vec![frame.into_geometry()]
+    }
+}
+
+pub fn track<'a, Message: 'a>(k: f32) -> Element<'a, Message> {
+    Canvas::new(Track { k, alpha: fade() }).width(36.0).height(22.0).into()
 }
 
 pub fn mark<'a, Message: 'a>(glyph: &str, on: bool, k: f32, side: f32) -> Element<'a, Message> {
@@ -3288,7 +3325,7 @@ impl<Message> canvas::Program<Message> for Rim {
         let mut frame = Frame::new(renderer, bounds.size());
         let side = bounds.width.min(bounds.height);
         let centre = Point::new(bounds.width / 2.0, bounds.height / 2.0);
-        let edge = if self.on { Color { a: 0.85, ..ACCENT } } else { Color::from_rgba(1.0, 1.0, 1.0, 0.14) };
+        let edge = if self.on { Color { a: 0.85, ..ACCENT } } else { Color::from_rgba(1.0, 1.0, 1.0, 0.085) };
         frame.stroke(
             &Path::circle(centre, side / 2.0 - 0.75),
             Stroke::default().with_width(1.5 + 1.0 * self.k).with_color(dim(edge, self.alpha)),
@@ -3642,6 +3679,10 @@ pub fn glass_deep<'a, Message: 'a>(content: impl Into<Element<'a, Message>>, pic
     glass_of(content, picture, window, 0.86)
 }
 
+pub fn glass_dense<'a, Message: 'a>(content: impl Into<Element<'a, Message>>, picture: Option<image::Handle>, window: Size) -> Element<'a, Message> {
+    glass_of(content, picture, window, 0.93)
+}
+
 pub fn frosted(picture: &image::Handle) -> Option<image::Handle> {
     static KEPT: std::sync::Mutex<Vec<(iced::advanced::image::Id, Option<image::Handle>)>> = std::sync::Mutex::new(Vec::new());
     let mut kept = KEPT.lock().ok()?;
@@ -3673,8 +3714,8 @@ fn glass_of<'a, Message: 'a>(content: impl Into<Element<'a, Message>>, picture: 
         content: content.into(),
         picture,
         window,
-        tint: Color::from_rgba(0.086, 0.039, 0.059, depth * alpha),
-        edge: Color::from_rgba(1.0, 1.0, 1.0, 0.14 * alpha),
+        tint: Color::from_rgba(0.06, 0.024, 0.038, depth * alpha),
+        edge: Color::from_rgba(1.0, 1.0, 1.0, 0.07 * alpha),
         radius: 18.0,
         alpha,
         depth,
@@ -4798,7 +4839,7 @@ pub struct Glow {
 
 impl Glow {
     pub fn card(radius: f32) -> Glow {
-        Glow { radius, edge: Color::from_rgba(1.0, 1.0, 1.0, 0.16), wash: Color::TRANSPARENT, shadow: Color::from_rgba(0.0, 0.0, 0.0, 0.45), lift: 3.0, scale: 1.0 }
+        Glow { radius, edge: Color::from_rgba(1.0, 1.0, 1.0, 0.08), wash: Color::TRANSPARENT, shadow: Color::from_rgba(0.0, 0.0, 0.0, 0.45), lift: 3.0, scale: 1.0 }
     }
 
     pub fn row(radius: f32) -> Glow {
@@ -4806,7 +4847,7 @@ impl Glow {
     }
 
     pub fn tile(radius: f32) -> Glow {
-        Glow { radius, edge: Color::from_rgba(1.0, 1.0, 1.0, 0.1), wash: Color::from_rgba(1.0, 1.0, 1.0, 0.025), shadow: Color::TRANSPARENT, lift: 0.0, scale: 1.0 }
+        Glow { radius, edge: Color::from_rgba(1.0, 1.0, 1.0, 0.06), wash: Color::from_rgba(1.0, 1.0, 1.0, 0.025), shadow: Color::TRANSPARENT, lift: 0.0, scale: 1.0 }
     }
 
     pub fn edge(mut self, colour: Color) -> Glow {

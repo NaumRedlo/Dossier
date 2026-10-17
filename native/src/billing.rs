@@ -710,7 +710,7 @@ pub fn outlined<'a, M: Clone + 'a>(label: String, press: Option<M>) -> Element<'
             button::Style {
                 background: Some(Background::Color(Color::from_rgba(1.0, 1.0, 1.0, if lit { 0.08 } else { 0.0 }))),
                 text_color: if matches!(status, button::Status::Disabled) { FAINT } else { INK },
-                border: Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.16), width: 1.0, radius: 8.0.into() },
+                border: Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.09), width: 1.0, radius: 8.0.into() },
                 shadow: iced::Shadow::default(),
                 snap: true,
             }

@@ -458,7 +458,7 @@ impl Main {
         let window = iced::Size::new(self.width, self.height);
         let found = text(w.count("replays-count", laid.order.len() as u64)).font(theme::MONO).size(theme::CAPTION).wrapping(text::Wrapping::None).color(ui::faded(MUTED));
         let escape = container(text("Esc").font(theme::MONO).size(11.0).color(ui::faded(FAINT))).padding([1, 6]).style(|_| container::Style {
-            border: Border { color: paint(Color::from_rgba(1.0, 1.0, 1.0, 0.14)), width: 1.0, radius: 6.0.into() },
+            border: Border { color: paint(Color::from_rgba(1.0, 1.0, 1.0, 0.085)), width: 1.0, radius: 6.0.into() },
             ..container::Style::default()
         });
         let open = self.filters_open;
@@ -468,7 +468,7 @@ impl Main {
             .height(SEARCH_H - 10.0)
             .style(ui::button_faded(toggle_style(open)))
             .on_press(Message::FiltersPanel(!open));
-        let line = ui::glass(container(row![
+        let line = ui::glass_dense(container(row![
             crate::glyphs::glyph(crate::glyphs::Icon::Search, 15.0, FAINT),
             search,
             found,
@@ -485,7 +485,7 @@ impl Main {
         let filter = &self.filter;
         let bar = canvas(StarBar { low: filter.low, high: filter.high, alpha: ui::fade() }).width(Length::Fill).height(BAR_H);
         let stars = |value: f64| if value >= carousel::STARS_TOP { "∞".to_owned() } else { w.decimal(value, 1) };
-        let caption = |key: &str| text(w.t(key)).font(theme::SANS_SEMI).size(13.0).color(ui::faded(FAINT));
+        let caption = |key: &str| text(w.t(key)).font(theme::MONO).size(12.0).color(ui::faded(MUTED));
         let stars_row = column![
             row![caption("filter-stars"), ui::grow(), text(format!("{} {} {}", stars(filter.low), "–", stars(filter.high))).font(theme::MONO).size(theme::CAPTION).wrapping(text::Wrapping::None).color(ui::faded(INK))].align_y(iced::Center),
             bar,
@@ -510,7 +510,7 @@ impl Main {
         .wrap()
         .vertical_spacing(6);
         let reset = row![ui::grow(), ui::quiet(w.t("filters-reset"), Some(Message::FiltersReset))];
-        let panel = ui::glass(container(column![
+        let panel = ui::glass_dense(container(column![
             stars_row,
             column![caption("filter-sort"), sorts].spacing(8),
             column![caption("filter-group"), groups].spacing(8),
@@ -888,7 +888,7 @@ impl Main {
         };
         let screen = container(ui::clipped(screen)).padding(1).width(wide).height(tall).style(|_| container::Style {
             background: Some(Background::Color(paint(PANEL))),
-            border: Border { color: paint(Color::from_rgba(1.0, 1.0, 1.0, 0.08)), width: 1.0, radius: theme::CARD_RADIUS.into() },
+            border: Border { color: paint(Color::from_rgba(1.0, 1.0, 1.0, 0.05)), width: 1.0, radius: theme::CARD_RADIUS.into() },
             ..container::Style::default()
         });
         let rating = self.ratings.known.get(&entry.replay_hash).copied();
@@ -902,7 +902,10 @@ impl Main {
             let song = row![].spacing(8).align_y(iced::Center).push(container(text(entry.song().unwrap_or_else(|| w.t("unknown-map"))).font(theme::SANS).size(theme::BODY * grow).wrapping(text::Wrapping::None).color(ui::faded(MUTED))).width(Length::Fill).clip(true));
             let when = row![
                 text(format!("{} {}", w.day(entry.played_at, self.now_unix), w.clock(entry.played_at))).font(theme::MONO).size(theme::CAPTION * grow).color(ui::faded(FAINT)),
-                text(self.client_said(entry)).font(theme::MONO).size(theme::CAPTION * grow).color(ui::faded(FAINT)),
+                text(self.client_said(entry)).font(theme::MONO).size(theme::CAPTION * grow).color(ui::faded(match entry.client {
+                    crate::library::Client::Stable => theme::SHARED,
+                    crate::library::Client::Lazer => ACCENT,
+                })),
             ]
             .spacing(12);
             let identity = container(column![name, song, when].spacing(2.0 * grow)).padding(iced::Padding { top: rise, bottom: 0.0, left: 0.0, right: 0.0 }).width(Length::Fill);
@@ -933,17 +936,18 @@ impl Main {
         }
         let combo_bar = canvas(ComboBar { share: combo_share, full, alpha: ui::fade() }).width(Length::Fill).height(3.0);
         let [c300, c100, c50, miss] = entry.counts;
+        let hit_size = if entry.mania.is_some() { HIT_SIZE * 0.82 } else { HIT_SIZE } * grow;
         let hit = |label: &str, colour: Color, count: u16| row![
-            text(label.to_owned()).font(theme::MONO).size(HIT_SIZE * grow).color(ui::faded(colour)),
-            text(count.to_string()).font(theme::MONO_BOLD).size(HIT_SIZE * grow).color(ui::faded(INK)),
-        ].spacing(8);
+            text(label.to_owned()).font(theme::MONO).size(hit_size).wrapping(text::Wrapping::None).color(ui::faded(colour)),
+            text(count.to_string()).font(theme::MONO_BOLD).size(hit_size).wrapping(text::Wrapping::None).color(ui::faded(INK)),
+        ].spacing(6);
         let hits = match entry.mania {
             Some(mania) => row![
                 column![hit("MAX", theme::GRADE_SS, mania.max), hit("300", theme::HIT_300, c300)].spacing(10.0 * grow),
                 column![hit("200", theme::HIT_100, mania.good), hit("100", theme::GRADE_C, c100)].spacing(10.0 * grow),
                 column![hit("50", theme::HIT_50, c50), hit("×", ACCENT, miss)].spacing(10.0 * grow),
             ]
-            .spacing(14.0 * grow),
+            .spacing(12.0 * grow),
             None => row![
                 column![hit("300", theme::HIT_300, c300), hit("100", theme::HIT_100, c100)].spacing(10.0 * grow),
                 column![hit("50", theme::HIT_50, c50), hit("×", ACCENT, miss)].spacing(10.0 * grow),
@@ -959,7 +963,7 @@ impl Main {
                 .height(STATS_H * grow)
                 .style(|_| container::Style {
                     background: Some(Background::Color(paint(CARD))),
-                    border: Border { color: paint(Color::from_rgba(1.0, 1.0, 1.0, 0.08)), width: 1.0, radius: theme::CARD_RADIUS.into() },
+                    border: Border { color: paint(Color::from_rgba(1.0, 1.0, 1.0, 0.05)), width: 1.0, radius: theme::CARD_RADIUS.into() },
                     ..container::Style::default()
                 })
                 .into()
@@ -967,11 +971,13 @@ impl Main {
         let spread = |top: Element<'a, Message>, middle: Element<'a, Message>, bottom: Element<'a, Message>| -> Element<'a, Message> {
             column![top, Space::new().height(Length::Fill), middle, Space::new().height(Length::Fill), bottom].height(Length::Fill).into()
         };
+        let hits_share = if entry.mania.is_some() { 4 } else { 3 };
         let accuracy = tile(spread(label("stat-accuracy").into(), value(w.percent(entry.accuracy)).into(), accuracy_bar.into()), 3);
         let badge = move |words: String, tint: Color| -> Element<'a, Message> {
             let k = ui::fade();
-            container(text(words).font(theme::MONO_BOLD).size(11.0 * grow).wrapping(text::Wrapping::None).color(Color { a: k, ..Color::WHITE }))
-                .padding([1.0 * grow, 6.0 * grow])
+            let scale = grow.min(1.12);
+            container(text(words).font(theme::MONO_BOLD).size(11.0 * scale).wrapping(text::Wrapping::None).color(Color { a: k, ..Color::WHITE }))
+                .padding([1.0 * scale, 6.0 * scale])
                 .style(move |_| container::Style {
                     background: Some(Background::Color(Color { a: k, ..tint })),
                     border: Border { radius: (5.0 * grow).into(), ..Border::default() },
@@ -987,11 +993,11 @@ impl Main {
             extra = extra.push(badge(if entry.accuracy >= 100.0 { "SS".to_owned() } else { format!("SS {}", worth(rating.pp_ss)) }, PP_SS));
         }
         let pp_line: Element<'a, Message> = row![value(pp), extra].spacing(10.0 * grow).align_y(iced::Center).into();
-        let pp = tile(spread(label("stat-pp").into(), pp_line, Space::new().height(3.0).into()), 3);
+        let pp = tile(spread(label("stat-pp").into(), pp_line, Space::new().height(3.0).into()), if narrow { 2 } else { 3 });
         let combo = tile(spread(label("stat-combo").into(), combo_line.into(), combo_bar.into()), 3);
-        let hits = tile(container(hits).center_x(Length::Fill).center_y(Length::Fill).into(), 3);
+        let hits = tile(container(hits).center_x(Length::Fill).center_y(Length::Fill).into(), hits_share);
         if narrow {
-            return column![row![accuracy, pp].spacing(STATS_GAP * grow), row![combo, hits].spacing(STATS_GAP * grow)].spacing(STATS_GAP * grow).width(wide).into();
+            return column![row![accuracy, combo].spacing(STATS_GAP * grow), row![pp, hits].spacing(STATS_GAP * grow)].spacing(STATS_GAP * grow).width(wide).into();
         }
         row![accuracy, pp, combo, hits].spacing(STATS_GAP * grow).width(wide).into()
     }
@@ -1023,7 +1029,7 @@ impl Main {
         }
         let menu = container(list).padding(4).width(240.0).style(|_| container::Style {
             background: Some(Background::Color(Color { a: ui::fade(), ..Color::from_rgb(0.09, 0.027, 0.043) })),
-            border: Border { color: paint(Color::from_rgba(1.0, 1.0, 1.0, 0.12)), width: 1.0, radius: 10.0.into() },
+            border: Border { color: paint(Color::from_rgba(1.0, 1.0, 1.0, 0.07)), width: 1.0, radius: 10.0.into() },
             shadow: iced::Shadow { color: Color::from_rgba(0.0, 0.0, 0.0, 0.45 * ui::fade()), offset: Vector::new(0.0, 16.0), blur_radius: 40.0 },
             ..container::Style::default()
         });
@@ -1096,12 +1102,12 @@ fn toggle_style(on: bool) -> impl Fn(&Theme, button::Status) -> button::Style {
         let (fill, edge, ink) = if on {
             (PICKED, Color { a: 0.7, ..ACCENT }, INK)
         } else {
-            (if lit { CARD_LIT } else { CARD }, Color::from_rgba(1.0, 1.0, 1.0, 0.12), MUTED)
+            (if lit { CARD_LIT } else { CARD }, theme::GLASS_EDGE, MUTED)
         };
         button::Style {
             background: Some(Background::Color(fill)),
             text_color: ink,
-            border: Border { color: edge, width: 1.0, radius: theme::CONTROL_RADIUS.into() },
+            border: Border { color: edge, width: 1.0, radius: ((SEARCH_H - 10.0) / 2.0).into() },
             ..button::Style::default()
         }
     }

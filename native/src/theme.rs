@@ -56,7 +56,7 @@ mod secondary_contrast {
     }
 }
 
-pub const RAISED: Color = Color::from_rgba(1.0, 1.0, 1.0, 0.0077);
+pub const RAISED: Color = Color::from_rgba(0.051, 0.02, 0.031, 0.55);
 pub const SUNK: Color = Color::from_rgba(0.0, 0.0, 0.0, 0.4844);
 pub const LINE: Color = Color::from_rgba(1.0, 1.0, 1.0, 0.0154);
 pub const LINE_HIGH: Color = Color::from_rgba(1.0, 1.0, 1.0, 0.0392);
@@ -134,7 +134,7 @@ pub fn sheet(_: &Theme) -> container::Style {
     container::Style {
         text_color: None,
         background: Some(Background::Color(SLAB_SOLID)),
-        border: border(Color::from_rgba(1.0, 1.0, 1.0, 0.08), CARD_RADIUS),
+        border: border(Color::from_rgba(1.0, 1.0, 1.0, 0.05), CARD_RADIUS),
         shadow: Shadow { color: Color::from_rgba(0.0, 0.0, 0.0, 0.55), offset: iced::Vector::new(0.0, 12.0), blur_radius: 40.0 },
         snap: true,
     }
@@ -383,7 +383,7 @@ pub fn frame(chosen: bool, lit: bool) -> impl Fn(&Theme, button::Status) -> butt
         let edge = if chosen {
             Border { color: ACCENT, width: 2.0, radius: FRAME_RADIUS.into() }
         } else if lit {
-            Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.08), width: 1.0, radius: FRAME_RADIUS.into() }
+            Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.05), width: 1.0, radius: FRAME_RADIUS.into() }
         } else {
             Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.02), width: 1.0, radius: FRAME_RADIUS.into() }
         };
@@ -585,8 +585,8 @@ pub fn ghost(_: &Theme, status: button::Status) -> button::Style {
 pub const SLAB_SOLID: Color = Color::from_rgb(0.055, 0.025, 0.033);
 pub const GLASS: Color = Color::from_rgba(0.051, 0.02, 0.031, 0.66);
 pub const GLASS_LIT: Color = Color::from_rgba(0.075, 0.03, 0.043, 0.78);
-pub const GLASS_EDGE: Color = Color::from_rgba(1.0, 1.0, 1.0, 0.12);
-pub const GLASS_EDGE_LIT: Color = Color::from_rgba(1.0, 1.0, 1.0, 0.22);
+pub const GLASS_EDGE: Color = Color::from_rgba(1.0, 1.0, 1.0, 0.045);
+pub const GLASS_EDGE_LIT: Color = Color::from_rgba(1.0, 1.0, 1.0, 0.1);
 pub const GLASS_PICKED: Color = Color::from_rgba(0.231, 0.071, 0.086, 0.82);
 pub const GROUND_VEIL: Color = Color::from_rgba(0.051, 0.02, 0.031, 0.88);
 
@@ -597,6 +597,19 @@ pub fn slab(_: &Theme) -> container::Style {
         border: border(GLASS_EDGE, 16.0),
         shadow: Shadow::default(),
         snap: true,
+    }
+}
+
+pub fn switch_row() -> impl Fn(&Theme, button::Status) -> button::Style {
+    move |_, status| {
+        let lit = matches!(status, button::Status::Hovered | button::Status::Pressed);
+        button::Style {
+            background: Some(Background::Color(Color { a: if lit { 0.82 } else { 0.62 }, ..GLASS })),
+            text_color: INK,
+            border: border(if lit { GLASS_EDGE_LIT } else { GLASS_EDGE }, 12.0),
+            shadow: Shadow::default(),
+            snap: true,
+        }
     }
 }
 
@@ -642,16 +655,16 @@ pub fn filter_chip(on: bool) -> impl Fn(&Theme, button::Status) -> button::Style
     move |_, status| {
         let lit = matches!(status, button::Status::Hovered | button::Status::Pressed);
         let (background, edge) = match (on, lit) {
-            (true, true) => (color!(0x4a1c20), color!(0xb0403f)),
-            (true, false) => (color!(0x3b171a), color!(0x8f3234)),
-            (false, true) => (color!(0x2a1c20), color!(0x4a383d)),
-            (false, false) => (color!(0x1c1215), color!(0x322428)),
+            (true, true) => (Color::from_rgba(0.886, 0.282, 0.282, 0.3), Color::from_rgba(0.886, 0.282, 0.282, 0.7)),
+            (true, false) => (Color::from_rgba(0.886, 0.282, 0.282, 0.2), Color::from_rgba(0.886, 0.282, 0.282, 0.5)),
+            (false, true) => (Color { a: 0.82, ..GLASS }, GLASS_EDGE_LIT),
+            (false, false) => (Color { a: 0.6, ..GLASS }, GLASS_EDGE),
         };
         button::Style {
             background: Some(Background::Color(background)),
             text_color: INK,
-            border: border(edge, 15.0),
-            shadow: if on { Shadow { color: Color::from_rgba(0.886, 0.282, 0.282, 0.07), offset: iced::Vector::ZERO, blur_radius: 8.0 } } else { Shadow::default() },
+            border: border(edge, 12.0),
+            shadow: Shadow::default(),
             snap: true,
         }
     }
@@ -673,7 +686,7 @@ pub fn small_hot(_: &Theme, status: button::Status) -> button::Style {
 
 pub fn corner(bad: bool) -> impl Fn(&Theme, button::Status) -> button::Style {
     move |_, status| {
-        let edge = if bad { Color::from_rgba(0.886, 0.282, 0.282, 0.22) } else { Color::from_rgba(1.0, 1.0, 1.0, 0.1) };
+        let edge = if bad { Color::from_rgba(0.886, 0.282, 0.282, 0.22) } else { Color::from_rgba(1.0, 1.0, 1.0, 0.06) };
         let ground = if bad { Color::from_rgba(0.18, 0.05, 0.06, 1.0) } else { Color::from_rgba(0.047, 0.02, 0.027, 1.0) };
         let lit = matches!(status, button::Status::Hovered | button::Status::Pressed);
         button::Style {
@@ -749,7 +762,7 @@ pub fn asking(_: &Theme) -> container::Style {
     container::Style {
         text_color: None,
         background: Some(Background::Color(color!(0x170e11))),
-        border: border(Color::from_rgba(1.0, 1.0, 1.0, 0.1), CARD_RADIUS),
+        border: border(Color::from_rgba(1.0, 1.0, 1.0, 0.06), CARD_RADIUS),
         shadow: Shadow { color: Color::from_rgba(0.0, 0.0, 0.0, 0.55), offset: iced::Vector::new(0.0, 24.0), blur_radius: 60.0 },
         snap: true,
     }
@@ -778,7 +791,7 @@ pub fn screen(_: &Theme) -> container::Style {
     container::Style {
         text_color: None,
         background: Some(Background::Color(color!(0x050203))),
-        border: border(Color::from_rgba(1.0, 1.0, 1.0, 0.07), 10.0),
+        border: border(Color::from_rgba(1.0, 1.0, 1.0, 0.045), 10.0),
         shadow: Shadow::default(),
         snap: true,
     }
@@ -798,7 +811,7 @@ pub fn stage(_: &Theme) -> container::Style {
     container::Style {
         text_color: None,
         background: Some(Background::Color(color!(0x0c0507))),
-        border: border(Color::from_rgba(1.0, 1.0, 1.0, 0.08), CARD_RADIUS),
+        border: border(Color::from_rgba(1.0, 1.0, 1.0, 0.05), CARD_RADIUS),
         shadow: Shadow { color: Color::from_rgba(0.0, 0.0, 0.0, 0.6), offset: iced::Vector::new(0.0, 30.0), blur_radius: 80.0 },
         snap: true,
     }
@@ -808,7 +821,7 @@ pub fn bubble(_: &Theme) -> container::Style {
     container::Style {
         text_color: None,
         background: Some(Background::Color(Color::from_rgba(0.047, 0.02, 0.027, 0.97))),
-        border: border(Color::from_rgba(1.0, 1.0, 1.0, 0.1), 10.0),
+        border: border(Color::from_rgba(1.0, 1.0, 1.0, 0.06), 10.0),
         shadow: Shadow { color: Color::from_rgba(0.0, 0.0, 0.0, 0.45), offset: iced::Vector::new(0.0, 8.0), blur_radius: 24.0 },
         snap: true,
     }

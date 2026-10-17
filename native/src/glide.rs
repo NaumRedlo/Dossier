@@ -444,18 +444,17 @@ pub fn ahead(viewport: f32, content: f32, under: f32) -> f32 {
     (content - viewport - under).max(0.0)
 }
 
-struct Scrolled(Option<(f32, f32)>);
+struct Scrolled(Option<(f32, f32, f32)>);
 
 impl Operation for Scrolled {
     fn traverse(&mut self, operate: &mut dyn FnMut(&mut dyn Operation)) {
-        if self.0.is_none() {
-            operate(self);
-        }
+        operate(self);
     }
 
     fn scrollable(&mut self, _: Option<&iced::widget::Id>, bounds: Rectangle, content: Rectangle, translation: Vector, _: &mut dyn operation::Scrollable) {
-        if self.0.is_none() {
-            self.0 = Some((translation.y, ahead(bounds.height, content.height, translation.y)));
+        let area = bounds.width * bounds.height;
+        if self.0.is_none_or(|(kept, _, _)| area > kept) {
+            self.0 = Some((area, translation.y, ahead(bounds.height, content.height, translation.y)));
         }
     }
 }
@@ -504,7 +503,7 @@ impl<Message> Widget<Message, Theme, Renderer> for Brim<'_, Message> {
         if let iced::Event::Window(iced::window::Event::RedrawRequested(_)) = event {
             let mut found = Scrolled(None);
             self.content.as_widget_mut().operate(&mut tree.children[0], layout, renderer, &mut found);
-            let (under, ahead) = found.0.unwrap_or((0.0, 0.0));
+            let (_, under, ahead) = found.0.unwrap_or((0.0, 0.0, 0.0));
             let state = tree.state.downcast_mut::<BrimState>();
             state.under = under;
             state.ahead = ahead;
@@ -520,7 +519,9 @@ impl<Message> Widget<Message, Theme, Renderer> for Brim<'_, Message> {
         let bounds = layout.bounds();
         let state = tree.state.downcast_ref::<BrimState>();
         let high = self.high.min(bounds.height);
-        draw_brim(renderer, Rectangle { height: high, ..bounds }, self.colour, brim_strength(state.under) * self.fade);
+        let top = brim_strength(state.under) * self.fade;
+        draw_brim(renderer, Rectangle { height: high, ..bounds }, self.colour, top);
+        draw_edge(renderer, Rectangle { y: bounds.y - high * 2.0, height: high * 2.0, ..bounds }, self.colour, top, true);
         if self.foot {
             draw_edge(renderer, Rectangle { y: bounds.y + bounds.height - high, height: high, ..bounds }, self.colour, brim_strength(state.ahead) * self.fade, true);
         }

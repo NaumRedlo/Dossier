@@ -199,7 +199,7 @@ fn sharing_own_replays_is_switched_on_the_bot_tab_and_falls_back_when_refused() 
         assert!(main.sharing.replays.as_ref().unwrap().on);
         let fresh = dossier_native::mixed::State { on: true, name: "NaumRedlo".into(), count: 3, most: 300 };
         let _ = main.update(M::Sharing(S::Replays(Ok(fresh))));
-        assert!(shows(&main, &main.words.with("share-replays-count", &[("n", "3".to_owned()), ("most", "300".to_owned())])));
+        assert!(!shows(&main, &main.words.t("share-replays-about")), "the explanation leaves once sharing is on");
     }
 }
 

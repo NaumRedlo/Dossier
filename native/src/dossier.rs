@@ -727,9 +727,9 @@ fn metric_style(on: bool) -> impl Fn(&Theme, button::Status) -> button::Style {
     move |_, status| {
         let lit = matches!(status, button::Status::Hovered | button::Status::Pressed);
         button::Style {
-            background: Some(Background::Color(if on { Color::from_rgba(0.886, 0.282, 0.282, 0.1) } else if lit { Color::from_rgba(1.0, 1.0, 1.0, 0.016) } else { theme::RAISED })),
+            background: Some(Background::Color(if on { Color::from_rgba(0.886, 0.282, 0.282, 0.1) } else if lit { Color { a: 0.8, ..theme::GLASS } } else { theme::RAISED })),
             text_color: INK,
-            border: Border { color: if on { Color::from_rgba(0.886, 0.282, 0.282, 0.55) } else if lit { Color::from_rgba(1.0, 1.0, 1.0, 0.07) } else { theme::LINE }, width: 1.0, radius: 12.0.into() },
+            border: Border { color: if on { Color::from_rgba(0.886, 0.282, 0.282, 0.55) } else if lit { Color::from_rgba(1.0, 1.0, 1.0, 0.045) } else { theme::LINE }, width: 1.0, radius: 12.0.into() },
             shadow: if on { Shadow { color: Color::from_rgba(0.886, 0.282, 0.282, 0.07), offset: Vector::ZERO, blur_radius: 8.0 } } else { Shadow::default() },
             snap: true,
         }
@@ -822,7 +822,7 @@ fn chart<'a>(ground: &Ground<'a>, whose: &Whose<'a>, t: f32) -> Element<'a, Mess
         ranges = ranges.push(button(text(w.n("days-short", u64::from(span))).font(theme::MONO_BOLD).size(11.0)).padding([4, 10]).style(ui::button_faded(segment(ground.span == span))).on_press(Message::Span(span)));
     }
     let k = ui::fade();
-    let ranges = ui::sliding(ranges, if ground.span == 30 { 0 } else { 1 }, ui::Pill { fill: Color::from_rgba(1.0, 1.0, 1.0, 0.06), edge: Color::TRANSPARENT, radius: 6.0, underline: None });
+    let ranges = ui::sliding(ranges, if ground.span == 30 { 0 } else { 1 }, ui::Pill { fill: Color::from_rgba(1.0, 1.0, 1.0, 0.04), edge: Color::TRANSPARENT, radius: 6.0, underline: None });
     let control = container(ranges).padding(2).style(move |_| container::Style { background: Some(Background::Color(Color::from_rgba(0.0, 0.0, 0.0, 0.25 * k))), border: Border { radius: 8.0.into(), ..Border::default() }, ..container::Style::default() });
     let mut head = row![].spacing(10).align_y(iced::Center);
     if let Some((said, better)) = delta(w, metric, &data) {
@@ -1535,6 +1535,19 @@ enum Block {
     Best,
 }
 
+fn plan_outside(width: f32) -> Vec<Lane<Block>> {
+    plan(width)
+        .into_iter()
+        .map(|mut lane| {
+            lane.keys.retain(|key| *key != Block::Activity);
+            if let Some(at) = lane.keys.iter().position(|key| *key == Block::Places) {
+                lane.keys[at] = Block::Activity;
+            }
+            lane
+        })
+        .collect()
+}
+
 fn plan(width: f32) -> Vec<Lane<Block>> {
     use Block::*;
     let room = width.min(1880.0);
@@ -1551,7 +1564,8 @@ fn plan(width: f32) -> Vec<Lane<Block>> {
 }
 
 pub fn columns<'a>(ground: &Ground<'a>, whose: &Whose<'a>, room: f32, t: f32) -> Element<'a, Message> {
-    let planned = plan(room);
+    let shape: fn(f32) -> Vec<Lane<Block>> = if whose.person.outside { plan_outside } else { plan };
+    let planned = shape(room);
     let mut pieces = Vec::new();
     for (index, lane) in planned.iter().enumerate() {
         let wide = lane.width;
@@ -1570,7 +1584,7 @@ pub fn columns<'a>(ground: &Ground<'a>, whose: &Whose<'a>, room: f32, t: f32) ->
             pieces.push((*block, piece));
         }
     }
-    lanes::lanes(pieces, plan).spacing(14.0).room(2.0, 28.0).into()
+    lanes::lanes(pieces, shape).spacing(14.0).room(2.0, 28.0).into()
 }
 
 pub fn view<'a>(ground: &Ground<'a>) -> Element<'a, Message> {

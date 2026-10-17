@@ -559,6 +559,35 @@ impl<M> canvas::Program<M> for Dial {
     }
 }
 
+struct RarityStrip {
+    first: usize,
+    last: usize,
+    of: usize,
+    tint: Color,
+    alpha: f32,
+}
+
+impl<M> canvas::Program<M> for RarityStrip {
+    type State = ();
+
+    fn draw(&self, _: &(), renderer: &Renderer, _: &Theme, bounds: Rectangle, _: mouse::Cursor) -> Vec<Geometry> {
+        let mut frame = Frame::new(renderer, bounds.size());
+        let (wide, high) = (bounds.width, bounds.height);
+        let lane = 6.0;
+        let top = (high - lane) / 2.0;
+        let paint = |a: f32| Color { a: a * self.alpha, ..self.tint };
+        frame.fill(&Path::rounded_rectangle(Point::new(0.0, top), iced::Size::new(wide, lane), (lane / 2.0).into()), paint(0.22));
+        let of = self.of.max(1) as f32;
+        if self.first > 0 {
+            let from = (self.first - 1) as f32 / of * wide;
+            let to = (self.last as f32 / of * wide).max(from + lane);
+            frame.fill(&Path::rounded_rectangle(Point::new(0.0, top), iced::Size::new(to, lane), (lane / 2.0).into()), paint(0.45));
+            frame.fill(&Path::rounded_rectangle(Point::new(from, 0.0), iced::Size::new(to - from, high), (high / 2.0).min((to - from) / 2.0).into()), paint(1.0));
+        }
+        vec![frame.into_geometry()]
+    }
+}
+
 pub(crate) fn rarity_place(catalog: &crate::community::Catalog, code: &str) -> (usize, usize, usize) {
     let held = |title: &Title| catalog.held.get(&title.code).copied().unwrap_or(0).max(catalog.holders(&title.code).len() as u32);
     let total = catalog.titles.len();
@@ -578,11 +607,11 @@ fn holder_card<'a>(ground: &Ground<'a>, at: usize, person: &'a Person, earned: O
     }
     let second: Element<'a, Message> = match (earned, first) {
         (Some(mine), Some(first)) if mine == first => chip(w.t("title-first"), GOLD),
-        (Some(mine), Some(first)) => caption(w.with("title-later", &[("days", w.n("days-long", ((mine - first).max(0) as u64).div_ceil(86_400).max(1)))])),
+        (Some(mine), Some(first)) => caption(w.with("title-later", &[("days", w.span_days(((mine - first).max(0) as u64).div_ceil(86_400)))])),
         _ => Space::new().height(15.0).into(),
     };
     let when = earned.map_or(String::new(), |at| w.day(at, ground.now_unix));
-    let inside = column![screen::face(ground, person, 52.0), container(name).clip(true), second, mono(when, 12.0, MUTED, false)].spacing(6).align_x(iced::Center).width(Length::Fill);
+    let inside = column![screen::face(ground, person, 52.0), container(name).clip(true), second, text(when).font(theme::SANS).size(12.5).color(ui::faded(MUTED))].spacing(6).align_x(iced::Center).width(Length::Fill);
     let (edge, fill, wide) = match chosen {
         true => (GOLD, Some(Color::from_rgb(0.09, 0.071, 0.039)), 2.0),
         false => framed(false, person.you),
@@ -615,7 +644,7 @@ pub(crate) fn title<'a>(ground: &Ground<'a>, code: &str, who: Option<i64>) -> El
     let Some(title) = catalog.title_of(code) else {
         return container(row![caption(code.to_owned()), ui::grow(), close()]).padding(20).into();
     };
-    let holders = catalog.holders(code);
+    let holders = screen::scoped_holders(ground, code);
     let tint = title.rarity.colour();
     let earned = |person: &Person| -> Option<i64> {
         person.title_dates.get(code).copied().or_else(|| catalog.me.as_ref().filter(|me| me.person.id == person.id).and_then(|me| me.title_dates.get(code).copied()))
@@ -632,11 +661,8 @@ pub(crate) fn title<'a>(ground: &Ground<'a>, code: &str, who: Option<i64>) -> El
         Canvas::new(Dial { share, colour: tinted(tint, 1.0), track: blend(tint, 0.3), disc: Color { a: k, ..theme::SLAB_SOLID }, band: 6.0 }).width(RING).height(RING),
         container(glyph(Icon::Trophy, 48.0, tint)).width(RING).height(RING).center(RING),
     ];
-    let mut ticks = row![].spacing(3);
-    for at in 1..=of {
-        let shade = blend(tint, if (first_place..=last_place).contains(&at) { 1.0 } else if at < first_place { 0.34 } else { 0.14 });
-        ticks = ticks.push(container(Space::new().height(8.0)).width(Length::FillPortion(1)).style(move |_| container::Style { background: Some(Background::Color(shade)), border: Border { radius: 2.0.into(), ..Border::default() }, ..container::Style::default() }));
-    }
+    let ticks = Canvas::new(RarityStrip { first: first_place, last: last_place, of, tint, alpha: k }).width(Length::Fill).height(12.0);
+    let place = if first_place == last_place { format!("#{first_place}") } else { format!("#{first_place}–{last_place}") };
     let left = column![
         emblem,
         container(mono(w.t(title.rarity.key()).to_uppercase(), 11.0, tint, false)).padding(Padding::ZERO.top(6.0)),
@@ -645,7 +671,7 @@ pub(crate) fn title<'a>(ground: &Ground<'a>, code: &str, who: Option<i64>) -> El
         ui::grow_tall(),
         column![mono(format!("{:.0}%", share * 100.0), 22.0, tint, true), text(w.t("title-share-said")).font(theme::SANS).size(12.0).color(ui::faded(MUTED))].spacing(4).width(Length::Fill),
         column![
-            caption(w.with("title-rarity-among", &[("n", of.to_string())])),
+            row![caption(w.with("title-rarity-among", &[("n", of.to_string())])), ui::grow(), mono(w.with("title-rarity-place", &[("n", place)]), 13.0, INK, false)].align_y(iced::Center),
             ticks,
             row![text(w.t("title-rare-end")).font(theme::SANS).size(11.0).color(ui::faded(FAINT)), ui::grow(), text(w.t("title-common-end")).font(theme::SANS).size(11.0).color(ui::faded(FAINT))],
         ]
@@ -668,7 +694,7 @@ pub(crate) fn title<'a>(ground: &Ground<'a>, code: &str, who: Option<i64>) -> El
     if let (Some(you), false) = (you, yours) {
         cards.push(waiting_card(ground, you, progress.filter(|_| title.target > 1).map(|value| title.target.saturating_sub(value))));
     }
-    let waiting: Vec<&Person> = catalog.people.iter().filter(|person| !person.you && !person.titles.iter().any(|held| held == code)).collect();
+    let waiting: Vec<&Person> = catalog.people.iter().filter(|person| ground.title_scope.takes(person) && !person.you && !person.titles.iter().any(|held| held == code)).collect();
     let mut list = column![screen::grid(cards, 3, 10.0)].spacing(14);
     if !waiting.is_empty() {
         let mut faces = row![].spacing(4).align_y(iced::Center);
@@ -683,7 +709,7 @@ pub(crate) fn title<'a>(ground: &Ground<'a>, code: &str, who: Option<i64>) -> El
         );
     }
     let mut right = column![
-        row![mono(w.t("title-holders").to_uppercase(), 11.0, FAINT, false), ui::grow(), close()].align_y(iced::Center),
+        row![mono(w.t(if ground.title_scope == screen::TitleScope::Server { "title-holders-server" } else { "title-holders" }).to_uppercase(), 11.0, FAINT, false), ui::grow(), close()].align_y(iced::Center),
         edged(scrollable(list).direction(ui::hidden_bar()).height(Length::Fill)),
     ]
     .spacing(10);

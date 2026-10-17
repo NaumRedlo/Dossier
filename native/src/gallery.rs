@@ -900,7 +900,7 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
     linking.pairing = crate::main_screen::Pairing::Linking { code: "K7QN-M4XZ".into(), link: "https://t.me/bot?start=pair-K7QNM4XZ".into() };
     linking.qr = crate::first_run::qr_for("https://t.me/bot?start=pair-K7QNM4XZ");
     let mut prefs_witness = prefs_app.clone();
-    prefs_witness.settings.tiles_app = vec!["witness".to_owned(), "overlay".to_owned()];
+    prefs_witness.settings.tiles_app = vec!["witness".to_owned()];
     prefs_witness.settings.witness_on = true;
     prefs_witness.settings.witness_keep = true;
     prefs_witness.settings.witness_overlay = true;

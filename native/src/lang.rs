@@ -232,6 +232,20 @@ impl Words {
         }
     }
 
+    pub fn span_days(&self, days: u64) -> String {
+        match days {
+            0..60 => self.n("days-long", days.max(1)),
+            60..365 => self.n("months", (days + 15) / 30),
+            _ => {
+                let (years, months) = (days / 365, (days % 365) / 30);
+                match months {
+                    0 => self.n("years", years),
+                    _ => format!("{} {}", self.n("years", years), self.n("months", months)),
+                }
+            }
+        }
+    }
+
     pub fn days_back(&self, unix: i64, now: i64) -> i64 {
         match (self.local(unix), self.local(now)) {
             (Some(when), Some(today)) => (today.date_naive() - when.date_naive()).num_days().max(0),
@@ -522,6 +536,15 @@ mod tests {
         assert_eq!(ru.compact_date(utc(2026, 9, 26, 22, 15), now), "сегодня 01:15");
         assert_eq!(ru.compact_date(utc(2026, 9, 25, 18, 5), now), "25.09 21:05");
         assert_eq!(ru.compact_date(utc(2025, 12, 1, 9, 0), now), "01.12.25 12:00");
+    }
+
+    #[test]
+    fn a_long_gap_is_told_in_months_and_years() {
+        let w = Words::new(Lang::Ru);
+        assert_eq!(w.span_days(3), "3 дня");
+        assert_eq!(w.span_days(102), "3 месяца");
+        assert_eq!(w.span_days(400), "1 год 1 месяц");
+        assert_eq!(w.span_days(730), "2 года");
     }
 
     #[test]

@@ -664,6 +664,7 @@ pub struct Main {
     pub people_from: crate::community_screen::PeopleFrom,
     pub people_query: String,
     pub people_filter: crate::community_screen::PeopleFilter,
+    pub title_scope: crate::community_screen::TitleScope,
     pub people_order: crate::community_screen::PeopleOrder,
     pub people_orders_open: bool,
     pub community_standing: crate::community_screen::Standing,
@@ -942,6 +943,7 @@ impl Main {
             people_from: crate::community_screen::PeopleFrom::Chat,
             people_query: String::new(),
             people_filter: crate::community_screen::PeopleFilter::All,
+            title_scope: crate::community_screen::TitleScope::Chat,
             people_order: crate::community_screen::PeopleOrder::Pp,
             people_orders_open: false,
             community_standing: crate::community_screen::Standing::General,
@@ -3423,6 +3425,7 @@ impl Main {
                     }
                     C::PeopleSearch(query) => self.people_query = query,
                     C::PeopleFilter(filter) => self.people_filter = filter,
+                    C::TitleScope(scope) => self.title_scope = scope,
                     C::PeopleOrder(order) => {
                         self.people_order = order;
                         self.people_orders_open = false;
@@ -6855,6 +6858,7 @@ impl Main {
             compare_query: &self.compare_query,
             people_query: &self.people_query,
             people_filter: self.people_filter,
+            title_scope: self.title_scope,
             people_order: self.people_order,
             people_orders_open: self.people_orders_open,
             standing: self.community_standing,
@@ -7592,7 +7596,7 @@ impl Main {
                 button::Style {
                     background: Some(iced::Background::Color(if open { Color { a: 0.3, ..ACCENT } } else if flash > 0.001 { Color { a: 0.06 + 0.44 * flash, ..ACCENT } } else { Color::from_rgba(1.0, 1.0, 1.0, if lit { 0.12 } else { 0.05 }) })),
                     text_color: INK,
-                    border: iced::Border { color: if open || busy || flash > 0.001 { Color { a: if open { 0.7 } else if busy { 0.3 + 0.6 * beat } else { 0.12 + 0.7 * flash }, ..if open || busy { ACCENT } else { ui::mix(Color::WHITE, ACCENT, flash.min(1.0)) } } } else { Color::from_rgba(1.0, 1.0, 1.0, 0.12) }, width: 1.0, radius: (CIRCLE_SIDE / 2.0).into() },
+                    border: iced::Border { color: if open || busy || flash > 0.001 { Color { a: if open { 0.7 } else if busy { 0.3 + 0.6 * beat } else { 0.12 + 0.7 * flash }, ..if open || busy { ACCENT } else { ui::mix(Color::WHITE, ACCENT, flash.min(1.0)) } } } else { Color::from_rgba(1.0, 1.0, 1.0, 0.07) }, width: 1.0, radius: (CIRCLE_SIDE / 2.0).into() },
                     shadow: iced::Shadow::default(),
                     snap: true,
                 }
@@ -7645,7 +7649,7 @@ impl Main {
             .width(Length::Fill)
             .style(ui::box_faded(|_| container::Style {
                 background: Some(iced::Background::Color(Color::from_rgba(0.0, 0.0, 0.0, 0.24))),
-                border: iced::Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.08), width: 1.0, radius: 12.0.into() },
+                border: iced::Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.05), width: 1.0, radius: 12.0.into() },
                 ..container::Style::default()
             }))
             .into()
@@ -8372,7 +8376,7 @@ impl Main {
             .width(width).max_height(TOAST_MAX_H).style(ui::box_faded(move |theme| match (floating, bad) {
                 (true, _) => theme::notification(hovered)(theme),
                 (false, true) => container::Style { background: Some(iced::Background::Color(Color { a: 0.14, ..ACCENT })), border: iced::Border { color: Color { a: 0.4, ..ACCENT }, width: 1.0, radius: 12.0.into() }, ..container::Style::default() },
-                (false, false) => container::Style { background: Some(iced::Background::Color(Color::from_rgba(0.0, 0.0, 0.0, 0.24))), border: iced::Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.08), width: 1.0, radius: 12.0.into() }, ..container::Style::default() },
+                (false, false) => container::Style { background: Some(iced::Background::Color(Color::from_rgba(0.0, 0.0, 0.0, 0.24))), border: iced::Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.05), width: 1.0, radius: 12.0.into() }, ..container::Style::default() },
             })).clip(true);
         card.id(iced::widget::Id::new(if toast.is_some() { "toast-card" } else { "notice-card" })).into()
     }

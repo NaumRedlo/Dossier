@@ -80,8 +80,21 @@ eight are higher than recorded (`5dc9d270` +4 with differing counts, `63e1605f`
 +2, and `b51f3ac5`, `4a891973`, `cc980bbd`, `d3b6e5d3`, `b45dd299`, `738c4fd7`
 +1 each). No value is lower. Excluding a tick at the release instant matches 40
 of 51 stable maps, and phasing ticks from the note start matches 23; both were
-rejected. The residual is consistent with stable's update scheduling dropping an
-occasional tick, which this model does not reconstruct.
+rejected. Client update scheduling is one possible explanation of the remaining
+1–4 tick differences, not a verified cause. No header-derived correction is used.
+
+The [official migration guide](https://osu.ppy.sh/wiki/en/Help_centre/Upgrading_to_lazer#hold-note-ticks-are-removed)
+documents stable's 100 ms combo ticks. The grab-relative phase, map-time clock and
+boundary ordering above remain experimental; that guide does not specify them.
+The model clips each held interval at the note tail, restarts its phase on
+re-grab, and resets combo on a body drop or missed head. An expired old tail must
+not close a newer hold in the same lane. Ticks do not create extra judgements.
+
+Intervals and reset/result checkpoints support backward seeking without storing
+one event per tick. Memory grows with input transitions and objects, not hold
+duration. A synthetic billion-tick hold verifies this path; totals beyond the
+32-bit Combo range return unavailable instead of wrapping. The implementation's
+range guard does not infer how stable handles legacy header overflow.
 The stored expected value is the legacy header's 16-bit maximum, as written by
 the [official legacy encoder](https://github.com/ppy/osu/blob/bdfabf93c77483bb471dfde8c900fa9176a9d531/osu.Game/Scoring/Legacy/LegacyScoreEncoder.cs).
 This corpus does not approach that format limit; general overflow handling is
@@ -317,6 +330,56 @@ come from the score model or event order/grades; they are not automatically 14
 new gameplay bugs. Engine `final_score()` and `score_at()` still return `None`
 for stable. The ordinary judgement baseline remains 161/204 matching counts.
 
+### Equal-time score bounds and the remaining evidence gap
+
+The stable audit now appends four more columns: `stable_equal_time_order`,
+`stable_order_min_score`, `stable_order_max_score`, and
+`stable_order_score_relation` (31 columns in total). It computes the minimum
+and maximum NoMod model score over **every permutation of grades sharing an
+exact timestamp**, preserving order between distinct timestamps. Original
+frame/column restrictions are relaxed, so these are optimistic bounds, not a
+reconstruction of client scheduling. `within-bounds` does not establish that a
+particular integer score is reachable.
+
+Dynamic programming retains the lowest and highest accumulated scores for each
+remaining grade multiset and integer bonus value. Future contributions depend
+only on that bonus. The reference score is compared only after the bounds are
+complete. A limit of 2,000,000 transitions per replay and 50,000 states per layer
+returns `indeterminate-limit` with blank bounds; it never converts an incomplete
+search into exclusion. Invalid streams and unsupported mods remain separate.
+Tests independently enumerate 576 two-group permutations, including duplicate
+grades, verify unreachable values inside the interval, and cover chronology,
+empty/invalid inputs and exhausted budgets.
+
+All 50 NoMod rows complete within those limits. All **14 remaining recorded
+scores lie outside** their equal-time bounds: 13 above and one below. Thus
+same-timestamp reordering alone cannot explain these differences under the
+current grades and formula. The original 27 report fields are unchanged.
+Examples are `39aecf6b` (recorded 934345, bounds 929346–929346) and `63ac67c9`
+(recorded 909228, bounds 908123–908341). This does not exclude delayed client
+updates that reorder events with different analytical timestamps, different
+per-object grades hidden by matching totals, or inaccuracies in the formula.
+
+For hold combo, inspecting the eight residual traces finds no exact 100 ms
+interval boundary at all in four of them (`5dc9d270`, `d3b6e5d3`, `b45dd299`,
+`738c4fd7`). Merely changing inclusion at such a boundary cannot fix these four.
+An early [first-hand report](https://osu.ppy.sh/community/forums/topics/110785)
+also describes combo varying with FPS, but it is not a timing specification for
+the 2025 corpus builds. No fixed frame-rate adjustment is inferred from it.
+
+A deterministic 512-input-stream regression checks unique object results,
+monotone counts/achieved maxima, current combo bounds, EOF completion and
+agreement between traced and ordinary playback across four mixed tap/hold lanes.
+These checks verify internal consistency, not stable parity. Verification now
+passes 420 beatmap/simulation tests, 25 corpus-audit tests and workspace checking.
+
+At this point full precision is **not achieved**. The next independent evidence
+is live replay output from stable, including per-object observations for the two
+pre-head-release candidates. Five prioritized cases, exact hashes and observation
+times are prepared in [mania-reference-checks.md](mania-reference-checks.md).
+No guessed grades, tick subtraction or header-dependent result overrides are
+applied. The 41 lazer timing witnesses remain counterfactual, not exact results.
+
 ### Stable simultaneous-result ordering
 
 The previous merge sorted equal timestamps by column, losing both object order
@@ -361,7 +424,7 @@ combined holds, invalid streams, modifier exclusion and reference independence.
 The diagnostic introduction passed 23 audit tests and the workspace check; its
 default and rounding reports were byte-identical to the preceding increment.
 The later combo/ordering increment changes only the fields documented above.
-Malformed-replay rows retain their 21/27-column schemas and mutually exclusive
+Malformed-replay rows retain the selected report schema and mutually exclusive
 audit flags fail before output.
 
 ## Expanded lazer coverage
@@ -549,12 +612,15 @@ provenance and budget exhaustion.
 
 ## Reproduce
 
-Verification: the combo/ordering increment passes 414 beatmap/simulation tests,
-all 23 corpus-audit tests, and the workspace check. All three reports retain 204
-rows: ordinary/rounding reports change only 18 stable combo observations and
-errors; the stable audit additionally changes six model scores and errors.
-The original 21 fields agree across all three reports. No lazer result, stable
-grade vector, or timing witness changes. The earlier score increment also passed
+Verification: the hold-combo increment passes 419 beatmap/simulation tests,
+all 23 corpus-audit tests, and the workspace check. Five added regressions cover
+hold boundaries, breaks/re-grabs, delayed expiry of a previous hold, backward
+queries against an explicit two-lane tick stream, and huge duration/range limits.
+Ordinary and traced judging return the same combo snapshots.
+All three reports retain 204 rows and change only the 33 previously unavailable
+stable hold combo observations and errors. The original 21 fields agree across
+all three reports. No lazer result, stable grade vector, diagnostic stable score,
+or timing witness changes. The earlier score increment also passed
 35 replay-parser tests; parser code is unchanged in this increment.
 The preceding diagnostic increment traced all 50 NoMod stable replays: result counts match ordinary
 judging, each object has one result, all trace rows have 12 fields and finite

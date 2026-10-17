@@ -156,7 +156,12 @@ Stable holds add one combo per 100 ms held, phased from each grab or re-grab in
 map time, plus one for a successful combined Hold result. A tick at the release
 instant counts and precedes results at that instant. The head adds nothing;
 releasing the body, releasing before the head, or a missed or forced head resets
-the streak. Stable numeric score remains unavailable, including on tap-only maps.
+the streak. Held intervals stop at the note tail even when a key stays pressed.
+A delayed old-tail expiry cannot stop a newer hold in the same lane.
+Intervals and checkpoints avoid allocating individual ticks; storage depends on
+objects and grabs, not hold duration. Unrepresentable 32-bit totals return `None`.
+The tick phase and input-boundary ordering are experimental, not reconstructed
+client update times. Stable numeric score remains unavailable, including on tap-only maps.
 
 Maximum combo matches all 153 lazer replays and 43 of 51 stable replays: all 18
 tap-only maps and 25 of 33 maps with holds. The other eight stable values are
@@ -267,7 +272,7 @@ Lazer currently emits no state rows. This makes pre-head release/re-grab cases
 inspectable without altering their grades to fit replay headers.
 
 `--audit-stable` runs those transitions across the corpus and compares a separate
-NoMod ScoreV1 formula model against recorded header scores. It appends six
+NoMod ScoreV1 formula model against recorded header scores. It appends ten
 columns to the ordinary report without changing its original fields or events.
 The model currently matches 36/50 NoMod scores; 12 of the remaining 14 already
 have matching count vectors. The experimental stable merge preserves original
@@ -281,6 +286,15 @@ This audit is not exposed through the engine's stable score queries: update
 order, body-break effects and numeric fidelity need more evidence first.
 The same report lists pre-head release counts and original object IDs to guide
 reference-client checks. The corpus status document records the limitations.
+
+Four of those columns bound the score over all equal-time grade permutations.
+The calculation retains per-bonus extrema and preserves distinct-time order;
+it relaxes original frame ordering and never feeds the recorded score into the
+model. All 14 residual NoMod scores lie outside these bounds. Being inside the
+interval would not prove reachability. Searches exceeding 2,000,000 transitions
+or 50,000 states per layer return unavailable bounds (`indeterminate-limit`).
+The [reference checklist](mania-reference-checks.md) identifies the stable
+observations needed before altering remaining grade/score/combo rules.
 
 ## Next increments, in order
 

@@ -854,3 +854,56 @@ fn hold_combo_does_not_expand_billions_of_ticks_or_wrap_its_counter() {
     assert_eq!(unrepresentable.combo_at(1100.), None);
     assert_eq!(unrepresentable.events().len(), 1);
 }
+
+#[test]
+fn mixed_lane_input_preserves_object_and_combo_invariants() {
+    let objects = [64, 192, 320, 448]
+        .into_iter()
+        .flat_map(|x| {
+            [
+                format!("{x},192,1000,128,0,1200:0:0:0:0:"),
+                format!("{x},192,1250,1,0"),
+                format!("{x},192,1300,128,0,1800:0:0:0:0:"),
+                format!("{x},192,1900,1,0"),
+            ]
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let notes = timeline(&objects);
+    let rules = StableRules::native_no_mod(5.).unwrap();
+    for seed in 1..=512u64 {
+        let mut rng = seed;
+        let edges = (700..=2300)
+            .step_by(25)
+            .map(|t| {
+                rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1);
+                (t, (rng >> 32) as u32 & 15)
+            })
+            .collect::<Vec<_>>();
+        let keys = input(&edges);
+        let j = rules.judge(&notes, &keys).unwrap();
+        let (traced, _) = rules.judge_with_trace(&notes, &keys).unwrap();
+        assert_eq!(j.events(), traced.events(), "seed {seed}");
+        let ids = j
+            .events()
+            .iter()
+            .map(|e| e.object_index)
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(ids.len(), 16, "seed {seed}");
+        assert_eq!(j.final_counts().total(), 16);
+        let mut previous_max = 0;
+        let mut previous_count = 0;
+        for time in (700..=2300).step_by(5) {
+            let combo = j.combo_at(time as f64).unwrap();
+            assert!(combo.current <= combo.maximum, "seed {seed}, time {time}");
+            assert!(combo.maximum >= previous_max, "seed {seed}, time {time}");
+            let count = j.counts_at(time as f64).total();
+            assert!(count >= previous_count && count <= 16);
+            previous_max = combo.maximum;
+            previous_count = count;
+        }
+        assert_eq!(j.combo_at(2300.), j.final_combo());
+        assert_eq!(j.combo_at(700.), Some(Combo::default()));
+        assert_eq!(j.final_combo(), traced.final_combo());
+    }
+}

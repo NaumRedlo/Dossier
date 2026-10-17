@@ -159,7 +159,7 @@ impl Sittings {
                 self.begin_if_none(now, zone);
                 self.moved(now)
             }
-            Event::Loading | Event::Alive | Event::Overlay(_) => None,
+            Event::Loading | Event::Alive | Event::Overlay(_) | Event::Screen(_) => None,
         }
     }
 
@@ -293,6 +293,8 @@ pub enum Event {
     Unavailable,
     #[serde(skip)]
     Overlay(bool),
+    #[serde(skip)]
+    Screen(Option<String>),
 }
 
 pub fn read(line: &str) -> Option<Event> {
@@ -325,6 +327,7 @@ pub struct Seen {
     pub history_told: u32,
     pub history_failed: bool,
     pub overlay: bool,
+    pub screen: Option<String>,
 }
 
 impl Seen {
@@ -363,6 +366,7 @@ impl Seen {
                 }
             }
             Event::Overlay(on) => self.overlay = *on,
+            Event::Screen(screen) => self.screen = screen.clone(),
             Event::Alive => {}
         }
     }
@@ -588,6 +592,15 @@ pub fn overlay_command(launch: &Launch, program: &Path, overlay: Overlay) -> Com
     command
 }
 
+fn screen_of(line: &str) -> Option<Option<String>> {
+    if !line.contains("\"snapshot\"") {
+        return None;
+    }
+    let frame: serde_json::Value = serde_json::from_str(line).ok()?;
+    let snapshot = frame.get("snapshot")?;
+    Some(snapshot.get("display").and_then(|display| display.as_str()).map(str::to_owned))
+}
+
 pub fn overlay_log() -> std::path::PathBuf {
     crate::sources::own_root().join("witness-overlay.log")
 }
@@ -631,6 +644,7 @@ pub struct Control {
     hello: Mutex<Option<String>>,
     launch: Mutex<Option<Launch>>,
     overlay_tried: Mutex<Option<Instant>>,
+    screen: Mutex<Option<String>>,
     context: Mutex<Option<dossier_hud::context::Packet>>,
     pid: std::sync::atomic::AtomicU32,
 }
@@ -671,6 +685,16 @@ impl Control {
     }
 
     fn forward(&self, line: &str, push: &mut dyn FnMut(Event) -> bool) -> bool {
+        if let Some(screen) = screen_of(line) {
+            let mut held = self.screen.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+            if *held != screen {
+                held.clone_from(&screen);
+                drop(held);
+                if !push(Event::Screen(screen)) {
+                    return false;
+                }
+            }
+        }
         let hello = line.contains(HELLO_KIND);
         if hello {
             *self.hello.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(line.to_owned());

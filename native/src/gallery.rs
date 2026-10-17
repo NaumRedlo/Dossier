@@ -918,6 +918,7 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
         history_told: 0,
         history_failed: false,
         overlay: true,
+        screen: None,
     };
     let mut witness_ask = prefs_app.clone();
     witness_ask.settings.tiles_app = vec!["witness".to_owned()];
@@ -1062,6 +1063,11 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
         ("main-prefs-bot".to_owned(), prefs_bot),
         ("main-prefs-device".to_owned(), prefs_device),
         ("main-prefs-shared".to_owned(), prefs_shared),
+        ("main-prefs-witness-full".to_owned(), {
+            let mut full = prefs_witness.clone();
+            full.witness.screen = Some("full".to_owned());
+            full
+        }),
         ("main-prefs-witness".to_owned(), prefs_witness),
         ("main-prefs-witness-ask".to_owned(), witness_ask),
         ("main-prefs-bot-osu".to_owned(), prefs_osu),

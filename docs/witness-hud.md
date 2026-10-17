@@ -199,24 +199,30 @@ reaches the screen:
 | `Fullscreen` | `CompatibilityContext` | What the client does | Plates over it |
 |---|---|---|---|
 | 0 | any | A framed window; one at least as large as the screen loses its frame and is made one pixel taller than the screen | Yes |
-| 1 | 0 | OpenGL in a frameless window exactly the size of the screen, the display mode changed with `ChangeDisplaySettingsEx` when the resolution differs; the window is made topmost whenever the game is active | Yes, kept above it |
-| 1 | 1 | ANGLE over Direct3D 9 in true exclusive full screen, left for a window on Alt+Tab through ppy's own `eglToggleWindowed` | No |
+| 1 | 0 | OpenGL in a frameless window exactly the size of the screen, the display mode changed with `ChangeDisplaySettingsEx` when the resolution differs; the window is made topmost whenever the game is active | No with NVIDIA |
+| 1 | 1 | ANGLE over Direct3D 9, left for a window on Alt+Tab through ppy's own `eglToggleWindowed` | Yes |
 
 The client sets its window topmost only when that state changes, so a plate
 raised above it once stays above until the game is activated again.
 
+What a tester saw on 17 October 2026 (Windows 10 Pro 22H2, build 19045.5965,
+NVIDIA RTX 3070) turned the guess around: the plates were seen in every case
+but full screen without compatibility mode. ANGLE's Direct3D 9 full screen is
+composed by Windows like any other window, while NVIDIA's OpenGL driver sends a
+window that covers the screen straight to the display, past the composition,
+so no window over it can be seen however often it is raised.
+
 What Witness Overlay does with this: every frame it looks whether the game's window
 lies above a shown plate and, if so, raises the plate again without taking
-the focus (`Panes::keep_above`), saying so on the error stream. The core
-reads the two keys when the configuration changes and sends them as
-`display`; the overlay shows nothing in the exclusive case, where a
-window over the game could only push it out of full screen; the error stream
-says why the plates are hidden.
+the focus (`Panes::keep_above`), saying so on the error stream. It no longer
+hides itself in any mode. The core reads the two keys when the configuration
+changes and sends them as `display`; Dossier reads `display` from the frames it
+forwards, and while the overlay is on and the game runs OpenGL full screen it
+says under the switch to turn on compatibility mode or windowed mode.
 
-Not known until it is tried on Windows: whether the plates over the OpenGL full
-screen cost the game frames by making the system compose it (PresentMon's
-present mode tells), and whether the plates stay above the game with every
-driver. In the CrossOver bottle the plates were drawn but, by
+Not known yet: whether AMD and Intel drivers hide the plates over OpenGL full
+screen as NVIDIA's does, and whether the plates cost the game frames where
+they are seen (PresentMon's present mode tells). In the CrossOver bottle the plates were drawn but, by
 the user's report, were not seen over the game, which ran in a window there.
 
 ## Not done

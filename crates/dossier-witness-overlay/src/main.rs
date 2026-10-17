@@ -38,7 +38,7 @@ mod shown {
                 Message::Snapshot { snapshot } if snapshot.display != self.display => {
                     eprintln!("witness overlay: the game says {}", match snapshot.display {
                         Some(Display::Window) => "it runs in a window",
-                        Some(Display::Full) => "it runs full screen with OpenGL",
+                        Some(Display::Full) => "it runs full screen with OpenGL, where a graphics driver may keep windows over it from being seen",
                         Some(Display::Exclusive) => "it runs full screen in compatibility mode",
                         None => "nothing about its screen",
                     });
@@ -71,8 +71,7 @@ mod shown {
                 self.fresh = true;
             }
             self.fresh |= self.hud.take_dirty();
-            let exclusive = self.display == Some(Display::Exclusive);
-            let place = self.window.and_then(panes::area).filter(|_| keys.front && !exclusive);
+            let place = self.window.and_then(panes::area).filter(|_| keys.front);
             let said = match (place, self.window) {
                 (Some((x, y, wide, high)), Some(window)) => {
                     if self.fresh || self.place != place || self.hud.moving() {
@@ -93,9 +92,7 @@ mod shown {
                 _ => {
                     self.panes.hide();
                     self.fresh = true;
-                    if exclusive {
-                        "hidden: the game runs full screen in compatibility mode, where nothing can be shown over it".to_owned()
-                    } else if self.window.is_some() {
+                    if self.window.is_some() {
                         "hidden: the game is not in front".to_owned()
                     } else {
                         "hidden: the game has no window yet".to_owned()

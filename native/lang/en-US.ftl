@@ -1162,6 +1162,7 @@ witness-overlay = In-game overlay
 witness-experimental = experimental
 overlay-running = Plates are drawn over the game
 overlay-waiting = Starts once Witness sees the game
+overlay-full-screen = The overlay can't be seen in this full screen mode. Turn on compatibility mode or windowed mode in osu!.
 witness-missing = This build does not include Witness
 witness-idle = The osu! client is not running
 witness-loading = The osu! client is loading

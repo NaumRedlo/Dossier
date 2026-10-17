@@ -1200,6 +1200,7 @@ witness-overlay = Оверлей в игре
 witness-experimental = эксперимент
 overlay-running = Плашки рисуются поверх игры
 overlay-waiting = Запустится, когда Witness увидит игру
+overlay-full-screen = В этом полноэкранном режиме оверлей не виден. Включите в osu! режим совместимости или оконный режим.
 witness-missing = Эта сборка не содержит Witness
 witness-idle = Клиент osu! не запущен
 witness-loading = Клиент osu! загружается

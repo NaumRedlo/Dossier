@@ -657,7 +657,11 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
             let press = running.then_some(Message::WitnessOverlay(!s.witness_overlay));
             panel = panel.push(container(switch_row(ground, "witness-overlay", w.t("witness-overlay"), Some(w.t("witness-experimental")), s.witness_overlay, press)).padding(Padding::ZERO.top(10.0)));
             if running && s.witness_overlay {
-                panel = panel.push(line(w.t(if ground.witness.overlay { "overlay-running" } else { "overlay-waiting" }), FAINT, 4.0));
+                if ground.witness.screen.as_deref() == Some("full") {
+                    panel = panel.push(line(w.t("overlay-full-screen"), theme::ACCENT, 4.0));
+                } else {
+                    panel = panel.push(line(w.t(if ground.witness.overlay { "overlay-running" } else { "overlay-waiting" }), FAINT, 4.0));
+                }
             }
             panel.into()
         }

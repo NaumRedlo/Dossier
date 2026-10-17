@@ -637,7 +637,7 @@ impl Main {
         container(list).width(Length::Fill).height(Length::Fill).into()
     }
 
-    fn head_card<'a>(&'a self, title: &str, under: &str, first: usize, count: usize, marks: &[Option<f64>], open: bool, cover: Option<&str>, live: bool, height: f32) -> Element<'a, Message> {
+    fn head_card<'a>(&'a self, title: &str, under: &str, first: usize, count: usize, marks: &[crate::carousel::Mark], open: bool, cover: Option<&str>, live: bool, height: f32) -> Element<'a, Message> {
         let w = &self.words;
         let shaded = cover.and_then(|hash| self.cover_frame(hash));
         let picture: Element<'_, Message> = match (shaded, cover.and_then(|hash| self.thumbs.get(hash))) {
@@ -683,13 +683,14 @@ impl Main {
             let tint = |stars: Option<f64>| stars.map_or(MUTED, |stars| crate::dossier::star_colour(stars as f32));
             let mut icons = row![].spacing(3).align_y(iced::Center);
             if marks.len() <= MARKS_ONE_BY_ONE {
-                for stars in marks {
-                    icons = icons.push(canvas(ModeMark { colour: tint(*stars), alpha: ui::fade() }).width(MARK).height(MARK));
+                for mark in marks {
+                    icons = icons.push(canvas(ModeMark { colour: tint(mark.stars), mania: mark.mania, alpha: ui::fade() }).width(MARK).height(MARK));
                 }
             } else {
-                let top = marks.iter().flatten().copied().fold(None, |best: Option<f64>, stars| Some(best.map_or(stars, |best| best.max(stars))));
+                let top = marks.iter().filter_map(|mark| mark.stars).fold(None, |best: Option<f64>, stars| Some(best.map_or(stars, |best| best.max(stars))));
+                let mania = marks.iter().all(|mark| mark.mania);
                 icons = icons
-                    .push(canvas(ModeMark { colour: tint(top), alpha: ui::fade() }).width(MARK).height(MARK))
+                    .push(canvas(ModeMark { colour: tint(top), mania, alpha: ui::fade() }).width(MARK).height(MARK))
                     .push(text(format!("×{}", marks.len())).font(theme::MONO_BOLD).size(11.0).color(ui::faded(INK)));
             }
             container(icons)
@@ -764,7 +765,7 @@ impl Main {
         let mut inside = row![rank, container(column![name, sub].spacing(2)).width(Length::Fill).clip(true)].spacing(14).align_y(iced::Center);
         if self.group != Group::Maps {
             let colour = rating.map_or(MUTED, |r| crate::dossier::star_colour(r.stars as f32));
-            let mark = container(canvas(ModeMark { colour, alpha: ui::fade() }).width(MARK).height(MARK)).padding(5).style(|_| container::Style {
+            let mark = container(canvas(ModeMark { colour, mania: entry.mania.is_some(), alpha: ui::fade() }).width(MARK).height(MARK)).padding(5).style(|_| container::Style {
                 background: Some(Background::Color(paint(Color { a: 0.92, ..PANEL }))),
                 border: Border { radius: 14.0.into(), ..Border::default() },
                 ..container::Style::default()
@@ -936,11 +937,19 @@ impl Main {
             text(label.to_owned()).font(theme::MONO).size(HIT_SIZE * grow).color(ui::faded(colour)),
             text(count.to_string()).font(theme::MONO_BOLD).size(HIT_SIZE * grow).color(ui::faded(INK)),
         ].spacing(8);
-        let hits = row![
-            column![hit("300", theme::HIT_300, c300), hit("100", theme::HIT_100, c100)].spacing(10.0 * grow),
-            column![hit("50", theme::HIT_50, c50), hit("×", ACCENT, miss)].spacing(10.0 * grow),
-        ]
-        .spacing(20.0 * grow);
+        let hits = match entry.mania {
+            Some(mania) => row![
+                column![hit("MAX", theme::GRADE_SS, mania.max), hit("300", theme::HIT_300, c300)].spacing(10.0 * grow),
+                column![hit("200", theme::HIT_100, mania.good), hit("100", theme::GRADE_C, c100)].spacing(10.0 * grow),
+                column![hit("50", theme::HIT_50, c50), hit("×", ACCENT, miss)].spacing(10.0 * grow),
+            ]
+            .spacing(14.0 * grow),
+            None => row![
+                column![hit("300", theme::HIT_300, c300), hit("100", theme::HIT_100, c100)].spacing(10.0 * grow),
+                column![hit("50", theme::HIT_50, c50), hit("×", ACCENT, miss)].spacing(10.0 * grow),
+            ]
+            .spacing(20.0 * grow),
+        };
         let pp = rating.map(|r| (r.pp.round() as u64).to_string()).unwrap_or_else(|| "—".to_owned());
         let accuracy_bar = canvas(ComboBar { share: (entry.accuracy as f32 / 100.0).clamp(0.0, 1.0), full: false, alpha: ui::fade() }).width(Length::Fill).height(3.0);
         let tile = move |inside: Element<'a, Message>, share: u16| -> Element<'a, Message> {
@@ -1247,6 +1256,7 @@ impl<M> canvas::Program<M> for RankGlow {
 
 struct ModeMark {
     colour: Color,
+    mania: bool,
     alpha: f32,
 }
 
@@ -1258,8 +1268,18 @@ impl<M> canvas::Program<M> for ModeMark {
         let side = bounds.width.min(bounds.height);
         let centre = Point::new(bounds.width / 2.0, bounds.height / 2.0);
         let ink = Color { a: self.alpha, ..self.colour };
-        frame.stroke(&canvas::Path::circle(centre, side / 2.0 - 1.2), canvas::Stroke::default().with_width(2.0).with_color(ink));
-        frame.fill(&canvas::Path::circle(centre, side * 0.2), ink);
+        let ring = side / 2.0;
+        let stroke = (ring * 0.16).max(1.6);
+        frame.stroke(&canvas::Path::circle(centre, ring - stroke / 2.0), canvas::Stroke::default().with_width(stroke).with_color(ink));
+        if self.mania {
+            let wide = ring * 0.21;
+            for (dx, half) in [(0.0, ring * 0.63), (-ring * 0.33, ring * 0.33), (ring * 0.33, ring * 0.33)] {
+                let bar = canvas::Path::rounded_rectangle(Point::new(centre.x + dx - wide / 2.0, centre.y - half), iced::Size::new(wide, half * 2.0), (wide / 2.0).into());
+                frame.fill(&bar, ink);
+            }
+        } else {
+            frame.fill(&canvas::Path::circle(centre, ring * 0.5), ink);
+        }
         vec![frame.into_geometry()]
     }
 }

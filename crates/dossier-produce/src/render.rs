@@ -107,17 +107,40 @@ pub struct ManiaJob<'a> {
     pub settings: video::Settings,
 }
 
-pub fn render_mania(job: ManiaJob<'_>) -> Result<PathBuf, String> {
-    let ManiaJob { beatmap, replay, origin, font, behind, settings } = job;
+pub struct ManiaJudged {
+    pub playback: dossier_sim::mania::Playback,
+    pub judge: dossier_sim::mania::judge::Judge,
+    pub trace: Option<Vec<dossier_sim::mania::stable::TraceEvent>>,
+}
+
+fn judged_by(playback: dossier_sim::mania::Playback, od: f64, stable: bool) -> Result<ManiaJudged, dossier_sim::mania::Error> {
+    if stable {
+        let (judge, trace) = playback.trace_stable_with(playback.stable_rules(od)?)?;
+        Ok(ManiaJudged { playback, judge, trace: Some(trace) })
+    } else {
+        let judge = playback.judge_with(playback.lazer_rules(od)?)?;
+        Ok(ManiaJudged { playback, judge, trace: None })
+    }
+}
+
+pub fn judge_mania(beatmap: &Beatmap, replay: &Replay) -> Result<ManiaJudged, String> {
+    if beatmap.mode != 3 {
+        return Err("this osu!mania replay was played on a map converted from another mode, which cannot be shown yet".to_owned());
+    }
     let unshown = |why: dossier_sim::mania::Error| format!("this osu!mania replay cannot be shown yet: {why}");
     let playback = dossier_sim::mania::Playback::new(beatmap, replay).map_err(unshown)?;
-    let od = beatmap.difficulty.overall_difficulty;
-    let (judge, trace) = if replay.game_version < LAZER_FROM {
-        let (judge, trace) = playback.trace_stable_with(playback.stable_rules(od).map_err(unshown)?).map_err(unshown)?;
-        (judge, Some(trace))
-    } else {
-        (playback.judge_with(playback.lazer_rules(od).map_err(unshown)?).map_err(unshown)?, None)
-    };
+    judged_by(playback, beatmap.difficulty.overall_difficulty, replay.game_version < LAZER_FROM).map_err(unshown)
+}
+
+pub fn mania_max_combo(beatmap: &Beatmap, replay: &Replay) -> Option<u32> {
+    let playback = dossier_sim::mania::Playback::new(beatmap, replay).ok()?.perfect().ok()?;
+    let judged = judged_by(playback, beatmap.difficulty.overall_difficulty, replay.game_version < LAZER_FROM).ok()?;
+    judged.judge.final_combo().map(|combo| combo.maximum)
+}
+
+pub fn render_mania(job: ManiaJob<'_>) -> Result<PathBuf, String> {
+    let ManiaJob { beatmap, replay, origin, font, behind, settings } = job;
+    let ManiaJudged { playback, judge, trace } = judge_mania(beatmap, replay)?;
     let background = scenery::backdrop(&behind, beatmap, origin, &Skin::default());
     let mut scene = dossier_render::mania::Mania::new(&playback, &judge, trace.as_deref())
         .titled(format!("{} - {}", beatmap.metadata.artist, beatmap.metadata.title), beatmap.metadata.version.clone(), replay.player.clone())

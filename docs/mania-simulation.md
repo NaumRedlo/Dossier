@@ -310,10 +310,34 @@ judge's score. It scales from a 1080p reference to any frame size.
 replay's client version and encodes through the same `video::encode` as
 osu!standard (any `dossier_render::Picture` can be encoded). `dossier video`
 and the application's render path (and so the render farm's workers) send
-osu!mania replays there. The application's own replay list still shows
-osu!standard only. Not drawn yet: skins, hitsounds, scroll speed changes (SV),
+osu!mania replays there. Not drawn yet: skins, hitsounds, scroll speed changes (SV),
 HP and failure, storyboards and map videos. Replays the simulation does not
 support are refused with the reason rather than drawn wrongly.
+
+## In the application
+
+The replay list takes osu!mania replays beside osu!standard ones. A mania
+entry carries its MAX and 200 counts (`library::ManiaHits`); its accuracy is
+stable's (MAX and 300 both worth 300) and its grade follows accuracy alone
+(SS at 100%, then above 95, 90, 80 and 70). A row and a map's head card draw
+the mode as osu!'s own ruleset icon (`select::ModeMark`): a ring with a disc
+for osu!standard, a ring with three bars for osu!mania. The details show the
+six counts. The live scene behind the details plays the replay through
+`Mania::bare`, which leaves out the side panel, the title and the progress bar.
+
+Stars and PP come from `dossier_assay::mania`, a port of osu!'s
+`ManiaDifficultyCalculator` (strain skill, 400 ms sections, decay weight 0.9,
+multiplier 0.018, objects ordered by .NET's legacy introsort on rounded start
+times) and `ManiaPerformanceCalculator` (accuracy with MAX worth 320, NF ×0.75,
+EZ ×0.5). On 17 October 2026 its stars matched the mirror's for 37 corpus maps
+to within 0.0005. The longest combo a map allows is what the judge gives a
+replay built from the map's own notes, every head pressed on time and every
+hold kept to its end (`Playback::perfect`); for stable this counts every hold
+tick, so a real full combo can stay a few short of it.
+
+Replays on maps converted from osu!standard are listed and searchable, but get
+no stars, PP or picture: conversion is not ported. No osu!mania replay is given
+to the bot's shared replays, which keep osu!standard only.
 
 ## Next increments, in order
 

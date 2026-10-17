@@ -8505,6 +8505,9 @@ pub fn max_combo_of(path: &Path, map: Option<&library::Map>, hash: &str) -> Opti
     let replay = dossier_replay::Replay::parse(&bytes).ok()?;
     let found = dossier_produce::locate::load_map(&map.file, hash).ok()?;
     let beatmap = dossier_beatmap::Beatmap::parse(&found.text).ok()?;
+    if replay.mode == dossier_replay::GameMode::Mania {
+        return dossier_produce::render::mania_max_combo(&beatmap, &replay);
+    }
     Some(dossier_assay::max_combo(&beatmap, replay.mods))
 }
 

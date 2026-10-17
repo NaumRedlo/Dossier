@@ -29,6 +29,9 @@ pub fn rate(path: &Path, map: &crate::library::Map, hash: &str) -> Option<Rating
     let replay = dossier_replay::Replay::parse(&bytes).ok()?;
     let found = dossier_produce::locate::load_map(&map.file, hash).ok()?;
     let beatmap = dossier_beatmap::Beatmap::parse(&found.text).ok()?;
+    if replay.mode == dossier_replay::GameMode::Mania {
+        return rate_mania(&beatmap, &replay);
+    }
     if beatmap.mode != 0 {
         return None;
     }
@@ -61,6 +64,35 @@ pub fn rate(path: &Path, map: &crate::library::Map, hash: &str) -> Option<Rating
         max_combo: attributes.max_combo,
         pp_fc: worth(pp_fc),
         pp_ss: worth(pp_ss),
+    })
+}
+
+fn rate_mania(beatmap: &dossier_beatmap::Beatmap, replay: &dossier_replay::Replay) -> Option<Rating> {
+    use dossier_assay::mania::{performance, stars, Hits};
+    if beatmap.mode != 3 {
+        return None;
+    }
+    let clock = dossier_sim::mania::Playback::new(beatmap, replay).map_or_else(|_| replay.mods.speed_multiplier(), |playback| playback.clock_rate());
+    let stars = stars(beatmap, clock);
+    let hits = replay.hits;
+    let played = Hits {
+        perfect: u32::from(hits.count_geki),
+        great: u32::from(hits.count_300),
+        good: u32::from(hits.count_katu),
+        ok: u32::from(hits.count_100),
+        meh: u32::from(hits.count_50),
+        miss: u32::from(hits.count_miss),
+    };
+    let (no_fail, easy) = (replay.mods.contains(dossier_replay::bits::NO_FAIL), replay.mods.contains(dossier_replay::bits::EASY));
+    let worth_of = |hits: Hits| worth(performance(stars, hits, no_fail, easy));
+    let full = Hits { great: played.great + played.miss, miss: 0, ..played };
+    let perfect = Hits { perfect: played.total(), ..Hits::default() };
+    Some(Rating {
+        stars,
+        pp: worth_of(played),
+        max_combo: dossier_produce::render::mania_max_combo(beatmap, replay).unwrap_or(0),
+        pp_fc: worth_of(full),
+        pp_ss: worth_of(perfect),
     })
 }
 

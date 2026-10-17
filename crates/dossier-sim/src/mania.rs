@@ -329,6 +329,38 @@ impl Playback {
             options,
         })
     }
+    pub fn perfect(&self) -> Result<Self, Error> {
+        let columns = self.timeline.columns();
+        let mut edges: Vec<(i64, u8, bool)> = Vec::new();
+        for column in 0..columns {
+            let notes = self.timeline.notes(column).unwrap_or(&[]);
+            for (at, note) in notes.iter().enumerate() {
+                let press = note.start_ms.round() as i64;
+                let next = notes.get(at + 1).map(|next| next.start_ms.round() as i64);
+                let release = if note.hold { note.end_ms.round() as i64 } else { press + 30 };
+                let release = next.map_or(release, |next| release.min(next - 1)).max(press + 1);
+                edges.push((press, column, true));
+                edges.push((release, column, false));
+            }
+        }
+        edges.sort_by_key(|&(time, column, pressed)| (time, pressed, column));
+        let mut frames = Vec::with_capacity(edges.len());
+        let mut down = 0u32;
+        for (time_ms, column, pressed) in edges {
+            if pressed {
+                down |= 1 << column;
+            } else {
+                down &= !(1 << column);
+            }
+            frames.push(ReplayFrame { time_ms, x: down as f32, y: 0.0, keys: dossier_replay::Keys(0) });
+        }
+        Ok(Self {
+            timeline: self.timeline.clone(),
+            input: InputTrack::new(&frames, columns)?,
+            options: self.options,
+        })
+    }
+
     pub fn at(&self, time_ms: f64, approach_ms: f64) -> Result<Snapshot, Error> {
         Ok(Snapshot {
             time_ms,

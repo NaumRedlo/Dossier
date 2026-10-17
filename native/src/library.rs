@@ -27,6 +27,24 @@ impl Grade {
         }
     }
 
+    pub fn of_mania(accuracy: f64, failed: bool) -> Grade {
+        if failed {
+            Grade::F
+        } else if accuracy >= 100.0 {
+            Grade::Ss
+        } else if accuracy > 95.0 {
+            Grade::S
+        } else if accuracy > 90.0 {
+            Grade::A
+        } else if accuracy > 80.0 {
+            Grade::B
+        } else if accuracy > 70.0 {
+            Grade::C
+        } else {
+            Grade::D
+        }
+    }
+
     pub fn of(counts: [u16; 4], failed: bool) -> Grade {
         if failed {
             return Grade::F;
@@ -121,6 +139,12 @@ impl Client {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ManiaHits {
+    pub max: u16,
+    pub good: u16,
+}
+
 #[derive(Debug, Clone)]
 pub struct Entry {
     pub path: PathBuf,
@@ -132,6 +156,7 @@ pub struct Entry {
     pub mods: Vec<String>,
     pub combo: u16,
     pub counts: [u16; 4],
+    pub mania: Option<ManiaHits>,
     pub accuracy: f64,
     pub grade: Grade,
     pub outcome: Outcome,
@@ -167,6 +192,7 @@ impl Entry {
             hay.push(line.to_lowercase());
         }
         hay.extend(mods.iter().cloned());
+        hay.push(if self.mania.is_some() { "mania" } else { "osu" }.to_owned());
         match self.outcome {
             Outcome::FullCombo => hay.push("fc".to_owned()),
             Outcome::Misses(_) => hay.push("miss".to_owned()),
@@ -297,11 +323,14 @@ fn entry(path: &Path, kind: Kind, index: &Index) -> Option<Entry> {
 }
 
 fn entry_of(replay: &dossier_replay::Replay, path: &Path, kind: Kind, index: &Index) -> Option<Entry> {
-    if replay.mode != dossier_replay::GameMode::Standard {
-        return None;
-    }
+    let mania = match replay.mode {
+        dossier_replay::GameMode::Standard => None,
+        dossier_replay::GameMode::Mania => Some(ManiaHits { max: replay.hits.count_geki, good: replay.hits.count_katu }),
+        _ => return None,
+    };
     let counts = [replay.hits.count_300, replay.hits.count_100, replay.hits.count_50, replay.hits.count_miss];
     let failed = failed(&replay.life_bar);
+    let accuracy = if mania.is_some() { mania_accuracy(replay.hits) } else { replay.hits.accuracy_std() };
     let outcome = if failed {
         Outcome::Fail
     } else if replay.hits.count_miss > 0 {
@@ -333,13 +362,23 @@ fn entry_of(replay: &dossier_replay::Replay, path: &Path, kind: Kind, index: &In
         mods,
         combo: replay.max_combo,
         counts,
-        accuracy: replay.hits.accuracy_std(),
-        grade: Grade::of(counts, failed),
+        mania,
+        accuracy,
+        grade: if mania.is_some() { Grade::of_mania(accuracy, failed) } else { Grade::of(counts, failed) },
         outcome,
         played_at,
         named: path.file_stem().and_then(|s| named(&s.to_string_lossy())),
         map: index.by_hash.get(&replay.beatmap_hash).cloned(),
     })
+}
+
+pub fn mania_accuracy(hits: dossier_replay::HitCounts) -> f64 {
+    let total = u32::from(hits.count_geki) + u32::from(hits.count_300) + u32::from(hits.count_katu) + u32::from(hits.count_100) + u32::from(hits.count_50) + u32::from(hits.count_miss);
+    if total == 0 {
+        return 100.0;
+    }
+    let weighted = 300.0 * f64::from(u32::from(hits.count_geki) + u32::from(hits.count_300)) + 200.0 * f64::from(hits.count_katu) + 100.0 * f64::from(hits.count_100) + 50.0 * f64::from(hits.count_50);
+    weighted / (300.0 * f64::from(total)) * 100.0
 }
 
 fn failed(life_bar: &str) -> bool {
@@ -639,6 +678,18 @@ mod tests {
     }
 
     #[test]
+    fn a_mania_play_counts_max_as_three_hundred_and_is_graded_by_accuracy() {
+        let hits = dossier_replay::HitCounts { count_geki: 900, count_300: 80, count_katu: 10, count_100: 6, count_50: 2, count_miss: 2 };
+        let accuracy = mania_accuracy(hits);
+        assert!((accuracy - (300.0 * 980.0 + 200.0 * 10.0 + 100.0 * 6.0 + 50.0 * 2.0) / (300.0 * 1000.0) * 100.0).abs() < 1e-9);
+        assert_eq!(Grade::of_mania(accuracy, false), Grade::S);
+        assert_eq!(Grade::of_mania(100.0, false), Grade::Ss);
+        assert_eq!(Grade::of_mania(93.0, false), Grade::A);
+        assert_eq!(Grade::of_mania(99.0, true), Grade::F);
+        assert_eq!(mania_accuracy(dossier_replay::HitCounts::default()), 100.0);
+    }
+
+    #[test]
     fn search_reads_the_player_the_map_the_mods_and_the_outcome() {
         let entry = Entry {
             path: PathBuf::from("a.osr"),
@@ -650,6 +701,7 @@ mod tests {
             mods: vec!["HD".into(), "DT".into()],
             combo: 1,
             counts: [1, 0, 0, 0],
+            mania: None,
             accuracy: 1.0,
             grade: Grade::Ss,
             outcome: Outcome::FullCombo,

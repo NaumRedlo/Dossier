@@ -363,6 +363,7 @@ fn mock_entry(
         mods: mods.iter().map(|m| (*m).to_owned()).collect(),
         combo,
         counts,
+        mania: None,
         accuracy,
         grade: Grade::of(counts, false),
         outcome,
@@ -1024,9 +1025,23 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
         toast.shown = iced::Animation::new(true);
         toast.born = notifications.now - std::time::Duration::from_secs(2);
     }
+    let mut mania = staged(Some(0));
+    if let Some(shelf) = mania.library.as_mut() {
+        let entry = &mut shelf.entries[0];
+        let hits = dossier_replay::HitCounts { count_geki: 1412, count_300: 391, count_katu: 64, count_100: 18, count_50: 5, count_miss: 3 };
+        entry.mods = Vec::new();
+        entry.counts = [hits.count_300, hits.count_100, hits.count_50, hits.count_miss];
+        entry.mania = Some(crate::library::ManiaHits { max: hits.count_geki, good: hits.count_katu });
+        entry.accuracy = crate::library::mania_accuracy(hits);
+        entry.grade = crate::library::Grade::of_mania(entry.accuracy, false);
+        entry.combo = 1208;
+        entry.outcome = crate::library::Outcome::Misses(3);
+        mania.ratings.known.insert(entry.replay_hash.clone(), crate::rating::Rating { stars: 4.36, pp: 318.0, max_combo: 2306, pp_fc: 329.0, pp_ss: 371.0 });
+    }
     let mut states: Vec<(String, Main)> = Vec::new();
     frames![states;
         ("main-rest".to_owned(), staged(Some(0))),
+        ("main-mania".to_owned(), mania),
         ("main-idle".to_owned(), idle),
         ("main-notifications".to_owned(), notifications),
         ("main-menu-guest".to_owned(), menu_guest),

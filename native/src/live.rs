@@ -96,6 +96,9 @@ fn run(ask: &Ask, control: &Control, push: &mut dyn FnMut(Frame) -> bool) -> Res
     let replay = dossier_replay::Replay::parse(&bytes).map_err(|e| e.to_string())?;
     let found = locate::load_map(&ask.map, &ask.map_hash)?;
     let beatmap = dossier_beatmap::Beatmap::parse(&found.text).map_err(|e| e.to_string())?;
+    if replay.mode == dossier_replay::GameMode::Mania {
+        return run_mania(&replay, &beatmap, &found.origin, control, push);
+    }
     let state = dossier_sim::GameState::new(&beatmap, &replay);
 
     let mut skin = dossier_render::Skin::with_combo_colours(beatmap.combo_colours());
@@ -121,7 +124,38 @@ fn run(ask: &Ask, control: &Control, push: &mut dyn FnMut(Frame) -> bool) -> Res
     let layout = dossier_render::Layout::new(SIZE.0, SIZE.1);
 
     let (from_ms, to_ms) = state.span_ms();
-    let rate = state.playback_rate().max(0.01);
+    roll(control, push, (from_ms, to_ms), state.playback_rate(), |at_ms| scene.frame(at_ms, &layout))
+}
+
+fn run_mania(replay: &dossier_replay::Replay, beatmap: &dossier_beatmap::Beatmap, origin: &locate::Origin, control: &Control, push: &mut dyn FnMut(Frame) -> bool) -> Result<(), String> {
+    let judged = dossier_produce::render::judge_mania(beatmap, replay)?;
+    let behind = scenery::Behind {
+        background: true,
+        storyboard: false,
+        video: false,
+        dim: None,
+        blur: None,
+        ffmpeg: "",
+        size: SIZE,
+        at_ms: None,
+        scratch: None,
+    };
+    let background = scenery::backdrop(&behind, beatmap, origin, &dossier_render::Skin::default());
+    let scene = dossier_render::mania::Mania::new(&judged.playback, &judged.judge, judged.trace.as_deref())
+        .with_font(crate::render::hud_font())
+        .over(background)
+        .bare();
+    let layout = dossier_render::Layout::new(SIZE.0, SIZE.1);
+    let span = scene.span_ms();
+    roll(control, push, span, judged.playback.clock_rate(), |at_ms| {
+        let mut pixmap = dossier_render::Pixmap::new(SIZE.0, SIZE.1).expect("a live frame has a size");
+        dossier_render::Picture::draw_into(&scene, &mut pixmap, at_ms, &layout, None);
+        pixmap
+    })
+}
+
+fn roll(control: &Control, push: &mut dyn FnMut(Frame) -> bool, (from_ms, to_ms): (f64, f64), rate: f64, draw: impl Fn(f64) -> dossier_render::Pixmap) -> Result<(), String> {
+    let rate = rate.max(0.01);
     let step = Duration::from_secs_f64(1.0 / FPS);
     let mut at_ms = from_ms;
     let mut tick = Instant::now();
@@ -172,7 +206,7 @@ fn run(ask: &Ask, control: &Control, push: &mut dyn FnMut(Frame) -> bool) -> Res
             continue;
         }
         drawn = Some(now);
-        let pixmap = scene.frame(at_ms, &layout);
+        let pixmap = draw(at_ms);
         let rgba = pixmap.take();
         let frame = crate::film::Frame::new(reel, SIZE.0, SIZE.1, rgba);
         if !push(Frame::Picture { frame, at_ms, from_ms, to_ms }) {
@@ -188,6 +222,9 @@ pub fn trace(replay: &std::path::Path) -> Vec<(f64, f32, f32)> {
     let Ok(parsed) = dossier_replay::Replay::parse(&bytes) else {
         return Vec::new();
     };
+    if parsed.mode != dossier_replay::GameMode::Standard {
+        return Vec::new();
+    }
     parsed
         .frames
         .iter()

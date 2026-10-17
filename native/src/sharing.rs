@@ -163,7 +163,7 @@ impl Main {
         let plays: Vec<mixed::Play> = self
             .entries()
             .iter()
-            .filter(|entry| !mixed::is_shared(&entry.path) && entry.player.to_lowercase() == own)
+            .filter(|entry| entry.mania.is_none() && !mixed::is_shared(&entry.path) && entry.player.to_lowercase() == own)
             .take(state.most.max(1) as usize)
             .map(|entry| {
                 let (artist, title, version) = match (&entry.map, &entry.named) {

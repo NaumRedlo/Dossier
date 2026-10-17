@@ -80,9 +80,15 @@ impl Filter {
 pub const HEAD_OPEN: f32 = 80.0;
 pub const HEAD_CLOSED: f32 = 64.0;
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Mark {
+    pub stars: Option<f64>,
+    pub mania: bool,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Row {
-    Head { title: String, under: String, first: usize, count: usize, open: bool, cover: Option<String>, marks: Vec<Option<f64>> },
+    Head { title: String, under: String, first: usize, count: usize, open: bool, cover: Option<String>, marks: Vec<Mark> },
     Difficulty { version: String, stars: Option<f64>, first: usize },
     Replay { at: usize, chosen: bool },
 }
@@ -231,14 +237,14 @@ pub fn lay(entries: &[Entry], filter: &Filter, sort: Sort, group: Group, chosen:
             Group::Days => (key.clone(), String::new(), Some(lead.map_hash.clone())),
             Group::Flat => unreachable!(),
         };
-        let mut marks: Vec<Option<f64>> = Vec::new();
+        let mut marks: Vec<Mark> = Vec::new();
         if group == Group::Maps {
             let mut seen: Vec<String> = Vec::new();
             for at in &members {
                 let (_, _, version) = song(&entries[*at]);
                 if !seen.contains(&version) {
                     seen.push(version);
-                    marks.push(rating(context, &entries[*at]).map(|r| r.stars));
+                    marks.push(Mark { stars: rating(context, &entries[*at]).map(|r| r.stars), mania: entries[*at].mania.is_some() });
                 }
             }
         }
@@ -347,6 +353,7 @@ mod tests {
             mods: Vec::new(),
             combo: 100,
             counts: [100, 2, 0, miss],
+            mania: None,
             accuracy,
             grade: Grade::A,
             outcome: if miss > 0 { Outcome::Misses(miss) } else { Outcome::FullCombo },

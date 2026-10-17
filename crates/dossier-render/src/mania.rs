@@ -33,6 +33,7 @@ pub struct Mania<'a> {
     fates: HashMap<usize, Fate>,
     hits: Vec<Vec<f64>>,
     stable: bool,
+    bare: bool,
     font: Option<Font>,
     background: Option<Pixmap>,
     title: String,
@@ -187,6 +188,7 @@ impl<'a> Mania<'a> {
             fates: fates(playback, judge, trace),
             hits,
             stable: trace.is_some(),
+            bare: false,
             font: None,
             background: None,
             title: String::new(),
@@ -199,6 +201,11 @@ impl<'a> Mania<'a> {
 
     pub fn titled(mut self, title: String, version: String, player: String) -> Self {
         (self.title, self.version, self.player) = (title, version, player);
+        self
+    }
+
+    pub fn bare(mut self) -> Self {
+        self.bare = true;
         self
     }
 
@@ -318,8 +325,10 @@ impl<'a> Mania<'a> {
         }
 
         self.draw_feedback(pixmap, time, left + field / 2.0, s);
-        self.draw_panel(pixmap, time, left + field + 60.0 * s, s);
-        self.draw_header(pixmap, time, left - 96.0 * s, s);
+        if !self.bare {
+            self.draw_panel(pixmap, time, left + field + 60.0 * s, s);
+            self.draw_header(pixmap, time, left - 96.0 * s, s);
+        }
     }
 
     fn draw_feedback(&self, pixmap: &mut Pixmap, time: f64, centre: f32, s: f32) {

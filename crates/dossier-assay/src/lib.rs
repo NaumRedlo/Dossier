@@ -1,6 +1,7 @@
 pub mod aim;
 pub mod flashlight;
 pub mod legacy;
+pub mod mania;
 pub mod performance;
 pub mod preprocessing;
 pub mod reading;

@@ -1698,10 +1698,13 @@ impl Main {
             let mut seen = std::collections::HashSet::new();
             self.entries()
                 .iter()
-                .filter(|e| e.map.is_none() && !self.thumbs.contains_key(&e.map_hash) && !self.covers_asked.contains(&e.map_hash))
-                .filter(|e| seen.insert(e.map_hash.clone()))
+                .filter(|e| e.map.is_none())
+                .map(|e| &e.map_hash)
+                .chain(self.sharing.videos.iter().map(|video| &video.map_hash))
+                .filter(|hash| !hash.is_empty() && !self.thumbs.contains_key(*hash) && !self.covers_asked.contains(*hash))
+                .filter(|hash| seen.insert((*hash).clone()))
                 .take(COVERS_AT_ONCE)
-                .map(|e| e.map_hash.clone())
+                .cloned()
                 .collect()
         };
         if wanted.is_empty() {

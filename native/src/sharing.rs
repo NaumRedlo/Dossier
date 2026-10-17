@@ -366,7 +366,7 @@ impl Main {
                     let _ = self.settings.save();
                 }
                 let faces: Vec<String> = self.sharing.videos.iter().filter_map(|video| video.from.as_ref()).map(|face| face.avatar.clone()).collect();
-                Task::batch([self.inbox_thumbs_task(), self.faces_task(faces)])
+                Task::batch([self.inbox_thumbs_task(), self.faces_task(faces), self.covers_task()])
             }
             Message::Thumb(id, handle) => {
                 if let Some(handle) = handle {

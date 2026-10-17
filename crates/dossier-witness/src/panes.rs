@@ -14,6 +14,10 @@ const HIDE: i32 = 0;
 const SHOW_NO_ACTIVATE: i32 = 4;
 const BY_ALPHA: u32 = 2;
 const REMOVE: u32 = 1;
+const ABOVE: u32 = 3;
+const ON_TOP: isize = -1;
+const KEEP_PLACE: u32 = 0x0001 | 0x0002 | 0x0010 | 0x0200;
+const LOOKED_AT_MOST: usize = 4096;
 const TAB: i32 = 0x09;
 const OTHERS: [i32; 5] = [0x10, 0x11, 0x12, 0x5B, 0x5C];
 
@@ -94,6 +98,22 @@ extern "system" {
     fn GetWindowThreadProcessId(window: isize, pid: *mut u32) -> u32;
     fn IsWindowVisible(window: isize) -> i32;
     fn SetProcessDPIAware() -> i32;
+    fn GetWindow(window: isize, relation: u32) -> isize;
+    fn SetWindowPos(window: isize, after: isize, x: i32, y: i32, wide: i32, high: i32, flags: u32) -> i32;
+}
+
+fn lies_above(window: isize, other: isize) -> bool {
+    let mut next = window;
+    for _ in 0..LOOKED_AT_MOST {
+        next = unsafe { GetWindow(next, ABOVE) };
+        if next == 0 {
+            return false;
+        }
+        if next == other {
+            return true;
+        }
+    }
+    false
 }
 
 #[link(name = "gdi32")]
@@ -272,6 +292,16 @@ impl Panes {
 
     pub fn count(&self) -> usize {
         self.held.values().filter(|pane| pane.shown).count()
+    }
+
+    pub fn keep_above(&self, game: isize) -> usize {
+        let mut raised = 0;
+        for pane in self.held.values().filter(|pane| pane.shown) {
+            if lies_above(pane.window, game) && unsafe { SetWindowPos(pane.window, ON_TOP, 0, 0, 0, 0, KEEP_PLACE) } != 0 {
+                raised += 1;
+            }
+        }
+        raised
     }
 
     pub fn pump(&self) {

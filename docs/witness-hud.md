@@ -163,10 +163,34 @@ nothing can be sent yet.
 The outcome of a play lives until the player leaves the results screen, so an
 older score opened from song select is not offered.
 
-Not known until it is tried on Windows: whether these windows are seen over a
-game in exclusive full screen (over a window and a borderless window they
-should be), and whether they cost the game any frames. In the CrossOver bottle
-they were drawn but, by the user's report, were not seen over the game.
+### How stable shows itself
+
+Read from the decompiled client of 1 October 2026 (ILSpy; the source stays
+outside the repository). The game window is an ordinary WinForms form holding
+an OpenTK context, and two keys of the player's `osu!.<user>.cfg` decide how it
+reaches the screen:
+
+| `Fullscreen` | `CompatibilityContext` | What the client does | Plates over it |
+|---|---|---|---|
+| 0 | any | A framed window; one at least as large as the screen loses its frame and is made one pixel taller than the screen | Yes |
+| 1 | 0 | OpenGL in a frameless window exactly the size of the screen, the display mode changed with `ChangeDisplaySettingsEx` when the resolution differs; the window is made topmost whenever the game is active | Yes, kept above it |
+| 1 | 1 | ANGLE over Direct3D 9 in true exclusive full screen, left for a window on Alt+Tab through ppy's own `eglToggleWindowed` | No |
+
+The client sets its window topmost only when that state changes, so a plate
+raised above it once stays above until the game is activated again.
+
+What Witness does with this: every frame it looks whether the game's window
+lies above a shown plate and, if so, raises the plate again without taking
+the focus (`Panes::keep_above`), saying so on the error stream. It reads the
+two keys every two seconds and shows nothing in the exclusive case, where a
+window over the game could only push it out of full screen; the error stream
+says why the plates are hidden.
+
+Not known until it is tried on Windows: whether the plates over the OpenGL full
+screen cost the game frames by making the system compose it (PresentMon's
+present mode tells), and whether the plates stay above the game with every
+driver. In the CrossOver bottle the plates were drawn but, by
+the user's report, were not seen over the game, which ran in a window there.
 
 ## Not done
 

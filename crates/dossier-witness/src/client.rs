@@ -7,6 +7,15 @@ pub struct Client {
     pub score_meter: String,
     pub score_meter_scale: String,
     pub songs: String,
+    pub fullscreen: String,
+    pub compatibility: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Screen {
+    Window,
+    Full,
+    Exclusive,
 }
 
 const DATE_DIGITS: usize = 8;
@@ -29,6 +38,8 @@ impl Client {
                 "ScoreMeter" => found.score_meter = value.trim().to_owned(),
                 "ScoreMeterScale" => found.score_meter_scale = value.trim().to_owned(),
                 "BeatmapDirectory" => found.songs = value.trim().to_owned(),
+                "Fullscreen" => found.fullscreen = value.trim().to_owned(),
+                "CompatibilityContext" => found.compatibility = value.trim().to_owned(),
                 _ => {}
             }
         }
@@ -41,6 +52,19 @@ impl Client {
         }
         let scale = self.score_meter_scale.replace(',', ".").parse::<f32>().ok().filter(|scale| scale.is_finite() && (0.1..=10.0).contains(scale)).unwrap_or(1.0);
         Some(dossier_overlay::Meter { shown: self.score_meter.eq_ignore_ascii_case("Error"), scale })
+    }
+
+    pub fn screen(&self) -> Option<Screen> {
+        let full = match self.fullscreen.as_str() {
+            "1" => true,
+            "0" => false,
+            _ => return None,
+        };
+        Some(match (full, self.compatibility == "1") {
+            (false, _) => Screen::Window,
+            (true, false) => Screen::Full,
+            (true, true) => Screen::Exclusive,
+        })
     }
 
     pub fn songs_in(&self, folder: &Path) -> PathBuf {
@@ -108,6 +132,18 @@ mod tests {
         assert_eq!(client.songs_in(folder), folder.join("Songs"));
         assert_eq!(Client::default().songs_in(folder), folder.join("Songs"));
         assert_eq!(Client::said_in("BeatmapDirectory = D:\\Maps\n").songs_in(folder), PathBuf::from("D:\\Maps"));
+    }
+
+    #[test]
+    fn only_full_screen_in_compatibility_mode_is_exclusive() {
+        let screen = |text: &str| Client::said_in(text).screen();
+        assert_eq!(screen("Fullscreen = 0\r\nCompatibilityContext = 0\r\n"), Some(Screen::Window));
+        assert_eq!(screen("Fullscreen = 0\nCompatibilityContext = 1\n"), Some(Screen::Window));
+        assert_eq!(screen("Fullscreen = 1\nCompatibilityContext = 0\n"), Some(Screen::Full));
+        assert_eq!(screen("Fullscreen = 1\n"), Some(Screen::Full), "without the line the client draws with OpenGL");
+        assert_eq!(screen("Fullscreen = 1\nCompatibilityContext = 1\n"), Some(Screen::Exclusive));
+        assert_eq!(screen("CompatibilityContext = 1\n"), None, "a configuration that does not say leaves it unknown");
+        assert_eq!(screen("Fullscreen = yes\n"), None);
     }
 
     #[test]

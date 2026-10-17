@@ -177,12 +177,34 @@ struct Shown {
     fresh: bool,
     place: Option<(i32, i32, i32, i32)>,
     said: String,
+    config: Option<std::path::PathBuf>,
+    screen: Option<dossier_witness::client::Screen>,
+    read_at: Option<std::time::Instant>,
 }
 
 #[cfg(windows)]
 impl Shown {
-    fn new(pid: u32, lang: dossier_hud::Lang, offers: bool) -> Shown {
-        Shown { hud: dossier_witness::hud::Hud::new(lang, offers), panes: dossier_witness::panes::Panes::new(), pid, window: None, fresh: true, place: None, said: String::new() }
+    fn new(pid: u32, lang: dossier_hud::Lang, offers: bool, config: Option<std::path::PathBuf>) -> Shown {
+        Shown { hud: dossier_witness::hud::Hud::new(lang, offers), panes: dossier_witness::panes::Panes::new(), pid, window: None, fresh: true, place: None, said: String::new(), config, screen: None, read_at: None }
+    }
+
+    fn reread(&mut self) {
+        let now = std::time::Instant::now();
+        if self.read_at.is_some_and(|at| now.duration_since(at) < std::time::Duration::from_secs(2)) {
+            return;
+        }
+        self.read_at = Some(now);
+        let screen = self.config.as_ref().and_then(|file| std::fs::read(file).ok()).and_then(|bytes| dossier_witness::client::Client::said_in(&String::from_utf8_lossy(&bytes)).screen());
+        if screen != self.screen {
+            eprintln!("witness hud: the game's configuration says {}", match screen {
+                Some(dossier_witness::client::Screen::Window) => "it runs in a window",
+                Some(dossier_witness::client::Screen::Full) => "it runs full screen with OpenGL",
+                Some(dossier_witness::client::Screen::Exclusive) => "it runs full screen in compatibility mode",
+                None => "nothing about its screen",
+            });
+            self.screen = screen;
+            self.fresh = true;
+        }
     }
 
     fn told(&mut self, frame: &dossier_overlay::Frame) {
@@ -207,20 +229,32 @@ impl Shown {
             self.fresh = true;
         }
         self.fresh |= self.hud.take_dirty();
-        let place = self.window.and_then(panes::area).filter(|_| keys.front);
-        let said = match place {
-            Some((x, y, wide, high)) => {
+        self.reread();
+        let exclusive = self.screen == Some(dossier_witness::client::Screen::Exclusive);
+        let place = self.window.and_then(panes::area).filter(|_| keys.front && !exclusive);
+        let said = match (place, self.window) {
+            (Some((x, y, wide, high)), Some(window)) => {
                 if self.fresh || self.place != place || self.hud.moving() {
                     let sprites = self.hud.sprites(dossier_overlay::Viewport { width: wide as u32, height: high as u32, scale: 1.0 });
                     self.panes.show((x, y), &sprites);
                     self.fresh = false;
                 }
+                let raised = self.panes.keep_above(window);
+                if raised > 0 {
+                    eprintln!("witness hud: the game's window rose over {raised} plates; they were put back above it");
+                }
                 format!("{} plates over the game, its picture is {wide}x{high} at {x}, {y}", self.panes.count())
             }
-            None => {
+            _ => {
                 self.panes.hide();
                 self.fresh = true;
-                if self.window.is_some() { "hidden: the game is not in front".to_owned() } else { "hidden: the game has no window yet".to_owned() }
+                if exclusive {
+                    "hidden: the game runs full screen in compatibility mode, where nothing can be shown over it".to_owned()
+                } else if self.window.is_some() {
+                    "hidden: the game is not in front".to_owned()
+                } else {
+                    "hidden: the game has no window yet".to_owned()
+                }
             }
         };
         self.place = place;
@@ -295,7 +329,7 @@ fn serve(player: &str, leash: Option<&std::path::Path>, overlay_mode: bool, hud:
         };
         let mut shelf = process.folder().map(|folder| dossier_witness::beatmaps::Shelf::beside(&folder));
         let mut recorder = stable::Recorder::default();
-        let mut shown = hud.map(|(lang, offers, _)| Shown::new(process.pid, lang, offers));
+        let mut shown = hud.map(|(lang, offers, _)| Shown::new(process.pid, lang, offers, process.folder().and_then(|folder| dossier_witness::client::config_of(&folder, &std::env::var("USERNAME").unwrap_or_default()))));
         if let Some(shown) = shown.as_mut() { shown.told(&overlay.hello(process.pid, &client.build)); }
         let keeps = hud.is_some_and(|(_, _, keeps)| keeps);
         let mut last_state = String::new();

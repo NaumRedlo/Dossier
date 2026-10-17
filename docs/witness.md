@@ -145,8 +145,9 @@ Witness is built on the Mac for Windows and run in the bottle:
     wine --bottle osu-stable target/x86_64-pc-windows-gnu/release/witness.exe --watch 20
 
 `--process NAME` reads another process, `--regions` tells how its memory is
-labelled. `--serve --hud` also shows the overlay plates over the game in windows
-of Witness's own (see `docs/witness-hud.md`). The build needs `mingw-w64` and the `x86_64-pc-windows-gnu` target;
+labelled. The plates over the game are a separate program, Witness Overlay
+(`witness-overlay.exe`), fed by Dossier with the frames `--serve --frames` writes
+(see `docs/witness-hud.md`). The build needs `mingw-w64` and the `x86_64-pc-windows-gnu` target;
 the linker is named in `.cargo/config.toml`.
 
 ## In the application

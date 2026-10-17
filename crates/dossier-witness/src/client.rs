@@ -1,5 +1,7 @@
 use std::path::{Path, PathBuf};
 
+use dossier_overlay::Display;
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Client {
     pub build: String,
@@ -9,13 +11,6 @@ pub struct Client {
     pub songs: String,
     pub fullscreen: String,
     pub compatibility: String,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Screen {
-    Window,
-    Full,
-    Exclusive,
 }
 
 const DATE_DIGITS: usize = 8;
@@ -54,16 +49,16 @@ impl Client {
         Some(dossier_overlay::Meter { shown: self.score_meter.eq_ignore_ascii_case("Error"), scale })
     }
 
-    pub fn screen(&self) -> Option<Screen> {
+    pub fn display(&self) -> Option<Display> {
         let full = match self.fullscreen.as_str() {
             "1" => true,
             "0" => false,
             _ => return None,
         };
         Some(match (full, self.compatibility == "1") {
-            (false, _) => Screen::Window,
-            (true, false) => Screen::Full,
-            (true, true) => Screen::Exclusive,
+            (false, _) => Display::Window,
+            (true, false) => Display::Full,
+            (true, true) => Display::Exclusive,
         })
     }
 
@@ -136,12 +131,12 @@ mod tests {
 
     #[test]
     fn only_full_screen_in_compatibility_mode_is_exclusive() {
-        let screen = |text: &str| Client::said_in(text).screen();
-        assert_eq!(screen("Fullscreen = 0\r\nCompatibilityContext = 0\r\n"), Some(Screen::Window));
-        assert_eq!(screen("Fullscreen = 0\nCompatibilityContext = 1\n"), Some(Screen::Window));
-        assert_eq!(screen("Fullscreen = 1\nCompatibilityContext = 0\n"), Some(Screen::Full));
-        assert_eq!(screen("Fullscreen = 1\n"), Some(Screen::Full), "without the line the client draws with OpenGL");
-        assert_eq!(screen("Fullscreen = 1\nCompatibilityContext = 1\n"), Some(Screen::Exclusive));
+        let screen = |text: &str| Client::said_in(text).display();
+        assert_eq!(screen("Fullscreen = 0\r\nCompatibilityContext = 0\r\n"), Some(Display::Window));
+        assert_eq!(screen("Fullscreen = 0\nCompatibilityContext = 1\n"), Some(Display::Window));
+        assert_eq!(screen("Fullscreen = 1\nCompatibilityContext = 0\n"), Some(Display::Full));
+        assert_eq!(screen("Fullscreen = 1\n"), Some(Display::Full), "without the line the client draws with OpenGL");
+        assert_eq!(screen("Fullscreen = 1\nCompatibilityContext = 1\n"), Some(Display::Exclusive));
         assert_eq!(screen("CompatibilityContext = 1\n"), None, "a configuration that does not say leaves it unknown");
         assert_eq!(screen("Fullscreen = yes\n"), None);
     }

@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use dossier_overlay::live::{unstable_rate, Rests};
-use dossier_overlay::{Beatmap, Client, Frame, Gameplay, Message, Meter, Screen, Snapshot};
+use dossier_overlay::{Beatmap, Client, Display, Frame, Gameplay, Message, Meter, Screen, Snapshot};
 
 use crate::beatmaps::{DT, HT, NC};
 use crate::pace::{Pace, Reach};
@@ -30,6 +30,7 @@ pub struct Publisher {
     session: u64,
     sequence: u64,
     meter: Option<Meter>,
+    display: Option<Display>,
     songs: Option<PathBuf>,
     chart: Option<Chart>,
     pace_gap: Duration,
@@ -56,6 +57,7 @@ impl Publisher {
             session,
             sequence: 0,
             meter: None,
+            display: None,
             songs: None,
             chart: None,
             pace_gap: PACE_GAP,
@@ -73,6 +75,11 @@ impl Publisher {
         self
     }
 
+    pub fn shown(mut self, display: Option<Display>) -> Self {
+        self.display = display;
+        self
+    }
+
     pub fn watching(mut self, config: Option<PathBuf>, scores: Option<PathBuf>, player: &str) -> Self {
         self.config = config.map(|file| Config { written: std::fs::metadata(&file).and_then(|held| held.modified()).ok(), file, looked: Instant::now() });
         self.scores = scores;
@@ -80,19 +87,24 @@ impl Publisher {
         self
     }
 
-    fn meter_now(&mut self) -> Option<Meter> {
+    fn configured(&mut self) -> (Option<Meter>, Option<Display>) {
         let gap = self.config_gap;
         if let Some(config) = self.config.as_mut().filter(|config| config.looked.elapsed() >= gap) {
             config.looked = Instant::now();
             let written = std::fs::metadata(&config.file).and_then(|held| held.modified()).ok();
             if written != config.written {
                 config.written = written;
-                if let Some(meter) = std::fs::read(&config.file).ok().and_then(|bytes| crate::client::Client::said_in(&String::from_utf8_lossy(&bytes)).meter()) {
-                    self.meter = Some(meter);
+                if let Some(client) = std::fs::read(&config.file).ok().map(|bytes| crate::client::Client::said_in(&String::from_utf8_lossy(&bytes))) {
+                    if let Some(meter) = client.meter() {
+                        self.meter = Some(meter);
+                    }
+                    if let Some(display) = client.display() {
+                        self.display = Some(display);
+                    }
                 }
             }
         }
-        self.meter
+        (self.meter, self.display)
     }
 
     fn record_of(&mut self, map: &Map, fresh: bool) -> Option<f64> {
@@ -198,7 +210,7 @@ impl Publisher {
             .filter(|play| play.ruleset == 0)
             .zip(seen.map.as_ref())
             .and_then(|(_, map)| self.record_of(map, starting));
-        let meter = self.meter_now();
+        let (meter, display) = self.configured();
         let gameplay = playing
             .map(|play| {
                 let c = play.counts;
@@ -239,8 +251,13 @@ impl Publisher {
                 gameplay,
                 watching_replay: seen.watching,
                 meter,
+                display,
             },
         })
+    }
+
+    pub fn kept(&mut self, passed: bool) -> Frame {
+        self.next(Message::Kept { passed })
     }
 
     pub fn disconnected(&mut self) -> Frame {
@@ -514,22 +531,36 @@ mod tests {
     }
 
     #[test]
-    fn a_change_of_the_meter_in_the_client_s_configuration_is_seen_while_it_runs() {
+    fn a_change_of_the_meter_or_the_screen_in_the_client_s_configuration_is_seen_while_it_runs() {
         let file = std::env::temp_dir().join(format!("dossier-witness-config-{}.cfg", std::process::id()));
-        std::fs::write(&file, "ScoreMeter = Error\nScoreMeterScale = 1\n").unwrap();
-        let mut publisher = Publisher::new(1).knowing(Some(Meter { shown: true, scale: 1.0 }), None).watching(Some(file.clone()), None, "");
+        std::fs::write(&file, "ScoreMeter = Error\nScoreMeterScale = 1\nFullscreen = 0\n").unwrap();
+        let mut publisher = Publisher::new(1).knowing(Some(Meter { shown: true, scale: 1.0 }), None).shown(Some(Display::Window)).watching(Some(file.clone()), None, "");
         publisher.config_gap = Duration::ZERO;
         let seen = Glance { raw_mode: 0, mode: Some(Mode::Menu), time_ms: 0, map: None, watching: None, play: None };
-        let meter = |publisher: &mut Publisher| {
+        let said = |publisher: &mut Publisher| {
             let Message::Snapshot { snapshot } = publisher.snapshot(&seen).message else {
                 panic!()
             };
-            snapshot.meter
+            (snapshot.meter, snapshot.display)
         };
-        assert_eq!(meter(&mut publisher), Some(Meter { shown: true, scale: 1.0 }));
+        assert_eq!(said(&mut publisher), (Some(Meter { shown: true, scale: 1.0 }), Some(Display::Window)));
         std::thread::sleep(Duration::from_millis(1100));
-        std::fs::write(&file, "ScoreMeter = None\nScoreMeterScale = 1.6\n").unwrap();
-        assert_eq!(meter(&mut publisher), Some(Meter { shown: false, scale: 1.6 }));
+        std::fs::write(&file, "ScoreMeter = None\nScoreMeterScale = 1.6\nFullscreen = 1\nCompatibilityContext = 1\n").unwrap();
+        assert_eq!(said(&mut publisher), (Some(Meter { shown: false, scale: 1.6 }), Some(Display::Exclusive)));
         let _ = std::fs::remove_file(&file);
+    }
+
+    #[test]
+    fn a_kept_play_is_told_in_the_session_s_order() {
+        let mut publisher = Publisher::new(3);
+        let hello = publisher.hello(7, "stable");
+        let kept = publisher.kept(true);
+        assert_eq!((kept.session, kept.sequence), (3, hello.sequence + 1));
+        assert_eq!(kept.message, Message::Kept { passed: true });
+        let mut receiver = dossier_overlay::Receiver::default();
+        let now = Instant::now();
+        receiver.accept(hello, now).unwrap();
+        receiver.accept(Frame::decode(kept.encode().unwrap().as_bytes()).unwrap(), now).unwrap();
+        assert!(receiver.visible(now).is_none(), "a kept play is not a view of the game");
     }
 }

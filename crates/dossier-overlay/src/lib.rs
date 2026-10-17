@@ -27,6 +27,14 @@ pub enum Screen {
     Other,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Display {
+    Window,
+    Full,
+    Exclusive,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Beatmap {
     pub md5: String,
@@ -80,6 +88,8 @@ pub struct Snapshot {
     pub watching_replay: Option<bool>,
     #[serde(default)]
     pub meter: Option<Meter>,
+    #[serde(default)]
+    pub display: Option<Display>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -92,6 +102,9 @@ pub enum Message {
     },
     Snapshot {
         snapshot: Snapshot,
+    },
+    Kept {
+        passed: bool,
     },
     Disconnected,
 }
@@ -236,6 +249,7 @@ impl Receiver {
                     now,
                 ))
             }
+            Message::Kept { .. } => {}
             Message::Disconnected => {
                 self.latest = None;
                 self.closed = true;
@@ -337,6 +351,7 @@ mod tests {
                         shown: true,
                         scale: 1.5,
                     }),
+                    display: Some(Display::Full),
                     gameplay: Some(Gameplay {
                         ruleset: 0,
                         time_ms: 1500,

@@ -899,9 +899,10 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
     linking.pairing = crate::main_screen::Pairing::Linking { code: "K7QN-M4XZ".into(), link: "https://t.me/bot?start=pair-K7QNM4XZ".into() };
     linking.qr = crate::first_run::qr_for("https://t.me/bot?start=pair-K7QNM4XZ");
     let mut prefs_witness = prefs_app.clone();
-    prefs_witness.settings.tiles_app = vec!["witness".to_owned()];
+    prefs_witness.settings.tiles_app = vec!["witness".to_owned(), "overlay".to_owned()];
     prefs_witness.settings.witness_on = true;
     prefs_witness.settings.witness_keep = true;
+    prefs_witness.settings.witness_overlay = true;
     prefs_witness.witness = crate::witness::Seen {
         status: crate::witness::Status::Playing,
         state: Some(crate::witness::State { mode: "Play".into(), artist: "xi".into(), title: "FREEDOM DiVE".into(), version: "FOUR DIMENSIONS".into(), ..crate::witness::State::default() }),
@@ -915,6 +916,7 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
         player: "NaumRedlo".to_owned(),
         history_told: 0,
         history_failed: false,
+        overlay: true,
     };
     let mut witness_ask = prefs_app.clone();
     witness_ask.settings.tiles_app = vec!["witness".to_owned()];

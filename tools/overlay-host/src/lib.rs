@@ -190,6 +190,7 @@ mod tests {
                 gameplay: None,
                 watching_replay: None,
                 meter: None,
+                display: None,
             },
         }
     }

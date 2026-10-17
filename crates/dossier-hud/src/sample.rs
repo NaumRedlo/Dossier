@@ -27,6 +27,7 @@ fn view(screen: Screen) -> View {
             }),
             watching_replay: Some(false),
             meter: None,
+            display: None,
         },
     }
 }

@@ -2,7 +2,7 @@ use std::time::Instant;
 
 use dossier_hud::hold::{Hold, Keys};
 use dossier_hud::{Context, Lang, Outcome, Sprite, Stage};
-use dossier_overlay::{Frame, Receiver, Screen, View, Viewport};
+use dossier_overlay::{Frame, Message, Receiver, Screen, View, Viewport};
 
 pub const SEND_KEY: &str = "Tab";
 
@@ -27,7 +27,7 @@ impl Hud {
     }
 
     pub fn told_at(&mut self, frame: &Frame, now: Instant) -> bool {
-        if self.receiver.accept(frame.clone(), now).is_err() {
+        if self.receiver.accept(frame.clone(), now).is_err() || matches!(frame.message, Message::Kept { .. }) {
             return false;
         }
         self.dirty = true;
@@ -127,7 +127,7 @@ mod tests {
             pp_clean: Some(120.0),
             pp_record: None,
         });
-        Frame::new(1, sequence, Message::Snapshot { snapshot: Snapshot { screen, beatmap: None, gameplay, watching_replay: Some(false), meter: Some(Meter { shown: true, scale: 1.0 }) } })
+        Frame::new(1, sequence, Message::Snapshot { snapshot: Snapshot { screen, beatmap: None, gameplay, watching_replay: Some(false), meter: Some(Meter { shown: true, scale: 1.0 }), display: None } })
     }
 
     fn connected(lang: Lang, offers: bool) -> Hud {

@@ -32,6 +32,7 @@ pub enum Tile {
     Storage,
     Builds,
     Witness,
+    Overlay,
     Account,
     Chats,
     Receive,
@@ -58,6 +59,7 @@ impl Tile {
             Tile::Storage => "storage",
             Tile::Builds => "builds",
             Tile::Witness => "witness",
+            Tile::Overlay => "overlay",
             Tile::Account => "account",
             Tile::Chats => "chats",
             Tile::Receive => "receive",
@@ -72,7 +74,7 @@ impl Tile {
     }
 }
 
-pub const APP: [Tile; 15] = [
+pub const APP: [Tile; 16] = [
     Tile::Render,
     Tile::Language,
     Tile::Look,
@@ -83,6 +85,7 @@ pub const APP: [Tile; 15] = [
     Tile::Elements,
     Tile::Sources,
     Tile::Witness,
+    Tile::Overlay,
     Tile::Skins,
     Tile::Videos,
     Tile::Maps,
@@ -610,7 +613,6 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
             panel = panel.push(container(pill_tagged(ground, "witness-run", w.t("witness-run"), w.t("witness-risk"), running, Message::WitnessRun(!running))).padding(Padding::ZERO.top(10.0)));
             if running {
                 panel = panel.push(container(pill(ground, "witness", w.t("witness-on"), on, Message::Witness(!on))).padding(Padding::ZERO.top(4.0)));
-                panel = panel.push(container(pill_tagged(ground, "witness-overlay", w.t("witness-overlay"), w.t("witness-experimental"), s.witness_overlay, Message::WitnessOverlay(!s.witness_overlay))).padding(Padding::ZERO.top(4.0)));
             }
             panel = panel.push(container(pill(ground, "witness-history", w.t("witness-history"), s.history_share, Message::WitnessHistory(!s.history_share))).padding(Padding::ZERO.top(4.0)));
             if s.history_share && seen.history_told > 0 {
@@ -622,6 +624,15 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
             if running && on && seen.written > 0 {
                 panel = panel.push(line(w.with("witness-kept", &[("n", w.lang().group(u64::from(seen.written)))]), FAINT, 8.0));
             }
+            panel.into()
+        }
+        Tile::Overlay => {
+            let line = |said: String, top: f32| container(text(said).font(theme::SANS).size(11.0).color(ui::faded(FAINT))).width(300.0).padding(Padding::ZERO.top(top));
+            let mut panel = column![head(w, "overlay-tile"), line(w.t("overlay-alone"), 0.0)].spacing(2);
+            if s.witness_on && s.witness_overlay {
+                panel = panel.push(line(w.t(if ground.witness.overlay { "overlay-running" } else { "overlay-waiting" }), 2.0));
+            }
+            panel = panel.push(container(pill_tagged(ground, "witness-overlay", w.t("witness-overlay"), w.t("witness-experimental"), s.witness_overlay, Message::WitnessOverlay(!s.witness_overlay))).padding(Padding::ZERO.top(10.0)));
             panel.into()
         }
         Tile::Sources => {

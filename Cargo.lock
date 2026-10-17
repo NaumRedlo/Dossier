@@ -265,10 +265,17 @@ version = "0.11.0"
 dependencies = [
  "dossier-assay",
  "dossier-beatmap",
- "dossier-hud",
  "dossier-overlay",
  "dossier-replay",
  "lzma-rs",
+]
+
+[[package]]
+name = "dossier-witness-overlay"
+version = "0.11.0"
+dependencies = [
+ "dossier-hud",
+ "dossier-overlay",
 ]
 
 [[package]]

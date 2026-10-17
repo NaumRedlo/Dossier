@@ -11,6 +11,7 @@ members = [
     "crates/dossier-produce",
     "crates/dossier-cli",
     "crates/dossier-witness",
+    "crates/dossier-witness-overlay",
     "crates/dossier-overlay",
     "crates/dossier-hud",
 ]

@@ -36,7 +36,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: witness
-      - run: cargo build --release -p dossier-witness --target x86_64-pc-windows-gnu
+      - run: cargo build --release -p dossier-witness -p dossier-witness-overlay --target x86_64-pc-windows-gnu
 
   tools:
     name: tools (python)

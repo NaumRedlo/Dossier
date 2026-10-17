@@ -4,7 +4,7 @@ The experimental in-process Windows transport lives in
 [`tools/overlay-host`](../tools/overlay-host/README.md). It composites the common
 tile and available live PP/UR plates into one cropped transparent texture, with
 persistent animations and no uploads for unchanged static scenes. It is separate
-from the external `--hud` windows below. An optional context file produced by
+from Witness Overlay's windows below. An optional context file produced by
 Dossier supplies language and the matching loaded pool; it expires after 15
 seconds and is scoped to the process and map; Dossier writes it only while the
 overlay switch is on. Day summaries have a transport field
@@ -130,17 +130,39 @@ toolchain (its hooks link Frida's devkit, which does not link with MinGW), so it
 cannot be built here either. Nothing was loaded into the game for this
 measurement.
 
-## Shown by Witness, without entering the game
+## Witness Overlay, apart from the core
 
-`witness.exe --serve --hud` shows the plates over the game from outside it.
-Nothing is loaded into the client: every plate is a small window of Witness's own
-that is layered, lets clicks through, never takes the focus and stays above
-other windows (`crates/dossier-witness/src/panes.rs`). A plate's window is
-redrawn only when its picture or place changes; all of them are hidden while
-the game's window is not the one in front, and follow its picture area when it
-moves or changes size. The state behind them is `crates/dossier-witness/src/hud.rs`:
-it takes the same snapshots the overlay protocol carries, so the PP, the unstable
-rate, the rests and the meter are the live ones.
+Witness is two programs. **Witness Core** (`witness.exe`, crate
+`dossier-witness`) reads the game, keeps replays and talks to Dossier. **Witness
+Overlay** (`witness-overlay.exe`, crate `dossier-witness-overlay`) shows the
+plates over the game from outside it and never opens the game's process: it
+finds the game's window by the PID the frames name, asks the system which keys
+are down, and draws. Nothing is loaded into the client.
+
+With `--frames` the core writes the overlay protocol's frames on its output
+beside the lines meant for Dossier: the greeting, a snapshot each tick, `kept`
+when a replay is saved and `disconnected` when the game is gone. A frame's line
+begins with `{"event":"overlay"`, which is how Dossier tells the two apart.
+Each snapshot carries `display`, read by the core from the two configuration
+keys described below, so the overlay does not read the game's files either.
+`--overlay` alone still writes frames only, for `tools/overlay-host`.
+
+Dossier always starts the core with `--frames`, and while the overlay switch is
+on it starts Witness Overlay and hands it the frames on its input: the
+session's greeting first when the overlay starts mid-session, then each frame
+as it comes. A writer thread with a short queue stands between them, so an
+overlay that falls behind loses frames rather than holding up the core. Closing
+the overlay's input is how it is stopped; it hides its plates and leaves, and
+is ended by force only if it is still there two seconds later. A failed start
+is tried again after five seconds. Switching the overlay never restarts the
+core.
+
+Every plate is a small window of the overlay's own that is layered, lets clicks
+through, never takes the focus and stays above other windows
+(`crates/dossier-witness-overlay/src/panes.rs`). A plate's window is redrawn
+only when its picture or place changes; all of them are hidden while the game's
+window is not the one in front, and follow its picture area when it moves or
+changes size. The state behind them is `crates/dossier-witness-overlay/src/hud.rs`.
 
 - `--lang en` turns the wording to English.
 - `--offer` shows the offer to send after a passed play that was kept, and reads
@@ -150,14 +172,15 @@ rate, the rests and the meter are the live ones.
 - `--keeps` says that whoever started Witness keeps the replays, so the tile may
   say «Игра сохранена» after a play; without it (and without `--offer`) a kept
   take changes nothing on the screen.
-- What the HUD does is told on the error stream in lines that begin with
-  `witness hud:`; the ordinary lines for Dossier stay on the output.
+- What the overlay does is told on its error stream in lines that begin with
+  `witness overlay:`.
 
-In Dossier this is the switch «Оверлей в игре» in the Witness tile of the
-settings, marked «эксперимент» and off by default (`Settings::witness_overlay`).
-When it is on, Dossier starts Witness with `--hud`, with `--lang en` for the
-English interface and with `--keeps` when replays are saved to the journal;
-changing any of the three starts Witness again. Dossier never passes `--offer`:
+In Dossier the overlay has its own tile in the settings, «Witness Overlay»,
+with the switch «Оверлей в игре», marked «эксперимент» and off by default
+(`Settings::witness_overlay`). It says whether the plates are being drawn or
+the overlay waits for Witness to see the game. Dossier passes `--lang en` for
+the English interface and `--keeps` when replays are saved to the journal; a
+change of either starts the overlay again. Dossier never passes `--offer`:
 nothing can be sent yet.
 
 The outcome of a play lives until the player leaves the results screen, so an
@@ -179,10 +202,11 @@ reaches the screen:
 The client sets its window topmost only when that state changes, so a plate
 raised above it once stays above until the game is activated again.
 
-What Witness does with this: every frame it looks whether the game's window
+What Witness Overlay does with this: every frame it looks whether the game's window
 lies above a shown plate and, if so, raises the plate again without taking
-the focus (`Panes::keep_above`), saying so on the error stream. It reads the
-two keys every two seconds and shows nothing in the exclusive case, where a
+the focus (`Panes::keep_above`), saying so on the error stream. The core
+reads the two keys when the configuration changes and sends them as
+`display`; the overlay shows nothing in the exclusive case, where a
 window over the game could only push it out of full screen; the error stream
 says why the plates are hidden.
 

@@ -342,6 +342,10 @@ fn draw(ask: &Ask, tell: &Sender<Step>) -> Result<PathBuf, String> {
     let beatmap = dossier_beatmap::Beatmap::parse(&found.text).map_err(|e| e.to_string())?;
     let _ = tell.send(Step::MapOnDisk);
 
+    if replay.mode == dossier_replay::GameMode::Mania {
+        return draw_mania(ask, tell, &replay, &beatmap, &found);
+    }
+
     let state = dossier_sim::GameState::new(&beatmap, &replay);
     let _ = tell.send(Step::Judged);
     let mut skin = dossier_render::Skin::with_combo_colours(beatmap.combo_colours());
@@ -432,6 +436,57 @@ fn draw(ask: &Ask, tell: &Sender<Step>) -> Result<PathBuf, String> {
     };
 
     let drawn = render::render(job, &sounds);
+    let _ = std::fs::remove_dir_all(&scratch);
+    drawn
+}
+
+fn draw_mania(ask: &Ask, tell: &Sender<Step>, replay: &dossier_replay::Replay, beatmap: &dossier_beatmap::Beatmap, found: &locate::FoundMap) -> Result<PathBuf, String> {
+    let scratch = std::env::temp_dir().join(format!("dossier-native-{}", std::process::id()));
+    std::fs::create_dir_all(&scratch).map_err(|e| e.to_string())?;
+    if let Some(dir) = ask.out.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
+    let _ = tell.send(Step::Judged);
+    let ffmpeg = ask.ffmpeg.display().to_string();
+    let settings = video::Settings {
+        out: ask.out.clone(),
+        fps: ask.fps as f64,
+        size: ask.size,
+        from_ms: None,
+        to_ms: None,
+        ffmpeg: ffmpeg.clone(),
+        crf: ask.crf,
+        preset: "medium".to_owned(),
+        music_level: ask.music_level,
+        hitsound_level: ask.hitsound_level,
+        threads: threads().0,
+        encoder_threads: threads().1,
+        audio: locate::extract_audio(&found.origin, &beatmap.audio_filename, &scratch),
+        video: None,
+        hitsounds: None,
+        events: events::Events::wanted(true),
+        slow_at_ms: None,
+        slow_focus: None,
+    };
+    let job = render::ManiaJob {
+        beatmap,
+        replay,
+        origin: &found.origin,
+        font: Some(hud_font()),
+        behind: scenery::Behind {
+            background: true,
+            storyboard: false,
+            video: false,
+            dim: Some(ask.play.dim.min(100)),
+            blur: Some(ask.play.blur.min(100)),
+            ffmpeg: &ffmpeg,
+            size: ask.size,
+            at_ms: None,
+            scratch: Some(&scratch),
+        },
+        settings,
+    };
+    let drawn = render::render_mania(job);
     let _ = std::fs::remove_dir_all(&scratch);
     drawn
 }

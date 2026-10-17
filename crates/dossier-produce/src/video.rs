@@ -2,7 +2,7 @@ use std::io::Write;
 use std::path::Path;
 use std::process::{Child, Stdio};
 
-use dossier_render::{Layout, Scene};
+use dossier_render::{Layout, Picture};
 use tiny_skia::Pixmap;
 
 #[derive(Debug, Clone)]
@@ -302,7 +302,7 @@ fn ramp_schedule(from_ms: f64, to_ms: f64, map_end: f64, rate: f64, at: f64) -> 
 }
 
 pub fn encode(
-    scene: &Scene<'_>,
+    scene: &impl Picture,
     span: (f64, f64),
     rate: f64,
     settings: &Settings,

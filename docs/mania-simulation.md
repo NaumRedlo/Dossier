@@ -296,6 +296,25 @@ or 50,000 states per layer return unavailable bounds (`indeterminate-limit`).
 The [reference checklist](mania-reference-checks.md) identifies the stable
 observations needed before altering remaining grade/score/combo rules.
 
+## Rendering
+
+`dossier_render::mania::Mania` draws a replay from `Playback` and its `Judge`:
+lanes over the map's dimmed background, notes and hold bodies at a constant
+scroll, a hold's body stopping at the line while it is held, pressed columns,
+a flash at the receptor on each hit, the latest grade, combo, accuracy and the
+six counts. Stable grades are named MAX/300/200/100/50/MISS, lazer ones by their
+lazer names; stable accuracy comes from the counts, lazer accuracy from the
+judge's score. It scales from a 1080p reference to any frame size.
+
+`dossier_produce::render::render_mania` picks stable or lazer rules by the
+replay's client version and encodes through the same `video::encode` as
+osu!standard (any `dossier_render::Picture` can be encoded). `dossier video`
+and the application's render path (and so the render farm's workers) send
+osu!mania replays there. The application's own replay list still shows
+osu!standard only. Not drawn yet: skins, hitsounds, scroll speed changes (SV),
+HP and failure, storyboards and map videos. Replays the simulation does not
+support are refused with the reason rather than drawn wrongly.
+
 ## Next increments, in order
 
 1. **Reference fixtures.** Pin local 4K and 7K maps/replays with taps, chords,

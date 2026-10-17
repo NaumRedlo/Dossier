@@ -96,6 +96,41 @@ pub fn render(job: Job<'_>, hitsounds: &Hitsounds<'_>) -> Result<PathBuf, String
     Ok(settings.out)
 }
 
+pub const LAZER_FROM: i32 = 30_000_000;
+
+pub struct ManiaJob<'a> {
+    pub beatmap: &'a Beatmap,
+    pub replay: &'a Replay,
+    pub origin: &'a locate::Origin,
+    pub font: Option<dossier_render::Font>,
+    pub behind: scenery::Behind<'a>,
+    pub settings: video::Settings,
+}
+
+pub fn render_mania(job: ManiaJob<'_>) -> Result<PathBuf, String> {
+    let ManiaJob { beatmap, replay, origin, font, behind, settings } = job;
+    let unshown = |why: dossier_sim::mania::Error| format!("this osu!mania replay cannot be shown yet: {why}");
+    let playback = dossier_sim::mania::Playback::new(beatmap, replay).map_err(unshown)?;
+    let od = beatmap.difficulty.overall_difficulty;
+    let (judge, trace) = if replay.game_version < LAZER_FROM {
+        let (judge, trace) = playback.trace_stable_with(playback.stable_rules(od).map_err(unshown)?).map_err(unshown)?;
+        (judge, Some(trace))
+    } else {
+        (playback.judge_with(playback.lazer_rules(od).map_err(unshown)?).map_err(unshown)?, None)
+    };
+    let background = scenery::backdrop(&behind, beatmap, origin, &Skin::default());
+    let mut scene = dossier_render::mania::Mania::new(&playback, &judge, trace.as_deref())
+        .titled(format!("{} - {}", beatmap.metadata.artist, beatmap.metadata.title), beatmap.metadata.version.clone(), replay.player.clone())
+        .over(background);
+    if let Some(font) = font {
+        scene = scene.with_font(font);
+    }
+    video::encode(&scene, scene.span_ms(), playback.clock_rate(), &settings, None)?;
+    let size = std::fs::metadata(&settings.out).map(|written| written.len()).unwrap_or(0);
+    settings.events.wrote(&settings.out, size);
+    Ok(settings.out)
+}
+
 pub fn check_output(path: &Path) -> Result<(), String> {
     video::check_output(path)
 }

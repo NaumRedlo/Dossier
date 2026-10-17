@@ -2780,6 +2780,10 @@ fn video_command(options: Options) -> ExitCode {
         }
     };
 
+    if replay.mode == GameMode::Mania {
+        return mania_video(&options, &beatmap, &replay, &origin, out);
+    }
+
     let state = GameState::new(&beatmap, &replay);
     let mut skin = options.look(&beatmap);
 
@@ -2872,6 +2876,58 @@ fn video_command(options: Options) -> ExitCode {
     };
 
     match produce::render::render(job, &track) {
+        Ok(_) => ExitCode::SUCCESS,
+        Err(message) => {
+            eprintln!("dossier: {message}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn mania_video(options: &Options, beatmap: &Beatmap, replay: &Replay, origin: &locate::Origin, out: PathBuf) -> ExitCode {
+    let font = match load_font(options.font.as_deref()) {
+        Ok(font) => font,
+        Err(message) => {
+            eprintln!("dossier: {message}");
+            return ExitCode::FAILURE;
+        }
+    };
+    if font.is_none() {
+        eprintln!("dossier: no font found — drawing without numbers");
+    }
+    let scratch = Scratch::new();
+    let audio = if options.mute {
+        None
+    } else {
+        let found = scratch.as_ref().and_then(|dir| locate::extract_audio(origin, &beatmap.audio_filename, dir));
+        if found.is_none() {
+            eprintln!("dossier: no audio track found — rendering silent");
+        }
+        found
+    };
+    eprintln!("{} — {} [{}], osu!mania, {} · {}", replay.player, beatmap.metadata.title, beatmap.metadata.version, replay.mods, out.display());
+    let settings = video::Settings {
+        out,
+        fps: options.fps,
+        size: options.size,
+        from_ms: options.from_ms,
+        to_ms: options.to_ms,
+        ffmpeg: options.ffmpeg.clone(),
+        crf: options.crf,
+        preset: options.preset.clone(),
+        music_level: options.levels().0,
+        hitsound_level: options.levels().1,
+        threads: options.threads,
+        encoder_threads: options.encoder_threads,
+        audio,
+        video: None,
+        hitsounds: None,
+        events: events::Events::wanted(options.events),
+        slow_at_ms: None,
+        slow_focus: None,
+    };
+    let job = produce::render::ManiaJob { beatmap, replay, origin, font, behind: options.behind(None, scratch.as_ref()), settings };
+    match produce::render::render_mania(job) {
         Ok(_) => ExitCode::SUCCESS,
         Err(message) => {
             eprintln!("dossier: {message}");

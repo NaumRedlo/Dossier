@@ -3,6 +3,7 @@ pub mod elements;
 pub mod imported;
 mod layout;
 mod leaderboard;
+pub mod mania;
 pub mod mark;
 pub mod mods;
 mod renderer;
@@ -17,3 +18,13 @@ pub use skin::{ArrowShape, Effects, Skin};
 pub use text::{Align, Font, Label};
 
 pub use tiny_skia::Pixmap;
+
+pub trait Picture: Sync {
+    fn draw_into(&self, pixmap: &mut Pixmap, time_ms: f64, layout: &Layout, camera: Option<Camera>);
+}
+
+impl Picture for Scene<'_> {
+    fn draw_into(&self, pixmap: &mut Pixmap, time_ms: f64, layout: &Layout, camera: Option<Camera>) {
+        Scene::draw_into(self, pixmap, time_ms, layout, camera);
+    }
+}

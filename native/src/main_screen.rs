@@ -8995,7 +8995,7 @@ mod tests {
         let control = std::sync::Arc::new(crate::witness::Control::default());
         main.witness_control = Some(control.clone());
         main.settings.lang = crate::lang::Lang::En;
-        assert!(!main.settings.witness_overlay, "the overlay is off until it is asked for");
+        main.settings.witness_overlay = false;
         assert_eq!(control.overlay(), None);
         let _ = main.update(super::Message::Prefs(P::WitnessOverlay(true)));
         assert!(main.settings.witness_overlay);

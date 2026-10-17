@@ -1089,7 +1089,7 @@ dependencies = [
 
 [[package]]
 name = "dossier-assay"
-version = "0.11.0"
+version = "0.96.0"
 dependencies = [
  "dossier-beatmap",
  "dossier-replay",
@@ -1098,18 +1098,18 @@ dependencies = [
 
 [[package]]
 name = "dossier-audio"
-version = "0.11.0"
+version = "0.96.0"
 
 [[package]]
 name = "dossier-beatmap"
-version = "0.11.0"
+version = "0.96.0"
 dependencies = [
  "thiserror 2.0.20",
 ]
 
 [[package]]
 name = "dossier-exhibit"
-version = "0.11.0"
+version = "0.96.0"
 dependencies = [
  "dossier-beatmap",
  "dossier-replay",
@@ -1118,7 +1118,7 @@ dependencies = [
 
 [[package]]
 name = "dossier-hud"
-version = "0.11.0"
+version = "0.96.0"
 dependencies = [
  "dossier-overlay",
  "fontdue",
@@ -1130,7 +1130,7 @@ dependencies = [
 
 [[package]]
 name = "dossier-native"
-version = "0.95.2"
+version = "0.96.0"
 dependencies = [
  "chrono",
  "cpal",
@@ -1174,7 +1174,7 @@ dependencies = [
 
 [[package]]
 name = "dossier-overlay"
-version = "0.11.0"
+version = "0.96.0"
 dependencies = [
  "dossier-beatmap",
  "dossier-replay",
@@ -1185,7 +1185,7 @@ dependencies = [
 
 [[package]]
 name = "dossier-produce"
-version = "0.11.0"
+version = "0.96.0"
 dependencies = [
  "dossier-audio",
  "dossier-beatmap",
@@ -1200,7 +1200,7 @@ dependencies = [
 
 [[package]]
 name = "dossier-render"
-version = "0.11.0"
+version = "0.96.0"
 dependencies = [
  "dossier-beatmap",
  "dossier-replay",
@@ -1212,7 +1212,7 @@ dependencies = [
 
 [[package]]
 name = "dossier-replay"
-version = "0.11.0"
+version = "0.96.0"
 dependencies = [
  "lzma-rs",
  "thiserror 2.0.20",
@@ -1220,7 +1220,7 @@ dependencies = [
 
 [[package]]
 name = "dossier-sim"
-version = "0.11.0"
+version = "0.96.0"
 dependencies = [
  "dossier-beatmap",
  "dossier-replay",
@@ -1228,7 +1228,7 @@ dependencies = [
 
 [[package]]
 name = "dossier-witness"
-version = "0.11.0"
+version = "0.96.0"
 dependencies = [
  "dossier-assay",
  "dossier-beatmap",

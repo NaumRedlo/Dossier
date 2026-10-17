@@ -173,7 +173,10 @@ changes size. The state behind them is `crates/dossier-witness-overlay/src/hud.r
   say «Игра сохранена» after a play; without it (and without `--offer`) a kept
   take changes nothing on the screen.
 - What the overlay does is told on its error stream in lines that begin with
-  `witness overlay:`.
+  `witness overlay:`. Dossier writes that stream to `witness-overlay.log` in
+  its own folder, anew at every start of the overlay, so a tester can send it.
+  The note that the game's window rose over the plates is written the first
+  time and then at most once every 30 seconds, with a count.
 
 In Dossier the overlay has its own tile in the settings, «Witness Overlay»,
 with the switch «Оверлей в игре», marked «эксперимент» and off by default

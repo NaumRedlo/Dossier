@@ -583,8 +583,13 @@ pub fn overlay_command(launch: &Launch, program: &Path, overlay: Overlay) -> Com
     if overlay.keeps {
         command.arg("--keeps");
     }
-    command.stdin(Stdio::piped()).stdout(Stdio::null()).stderr(Stdio::null());
+    let told = std::fs::File::create(overlay_log()).map_or_else(|_| Stdio::null(), Stdio::from);
+    command.stdin(Stdio::piped()).stdout(Stdio::null()).stderr(told);
     command
+}
+
+pub fn overlay_log() -> std::path::PathBuf {
+    crate::sources::own_root().join("witness-overlay.log")
 }
 
 #[derive(Debug)]

@@ -16,11 +16,13 @@ mod shown {
         fresh: bool,
         place: Option<(i32, i32, i32, i32)>,
         said: String,
+        raised: u64,
+        raised_told: Option<Instant>,
     }
 
     impl Shown {
         pub fn new(lang: dossier_hud::Lang, offers: bool, keeps: bool) -> Shown {
-            Shown { hud: Hud::new(lang, offers), panes: Panes::new(), keeps, pid: None, window: None, display: None, fresh: true, place: None, said: String::new() }
+            Shown { hud: Hud::new(lang, offers), panes: Panes::new(), keeps, pid: None, window: None, display: None, fresh: true, place: None, said: String::new(), raised: 0, raised_told: None }
         }
 
         pub fn take(&mut self, frame: &Frame) {
@@ -80,7 +82,11 @@ mod shown {
                     }
                     let raised = self.panes.keep_above(window);
                     if raised > 0 {
-                        eprintln!("witness overlay: the game's window rose over {raised} plates; they were put back above it");
+                        self.raised += 1;
+                        if self.raised_told.is_none_or(|at| at.elapsed() >= Duration::from_secs(30)) {
+                            eprintln!("witness overlay: the game's window rose over {raised} plates and they were put back above it ({} times so far)", self.raised);
+                            self.raised_told = Some(Instant::now());
+                        }
                     }
                     format!("{} plates over the game, its picture is {wide}x{high} at {x}, {y}", self.panes.count())
                 }

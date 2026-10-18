@@ -23,18 +23,20 @@ pub const SPRING: f32 = 80.0;
 pub const DAMPING: f32 = 18.0;
 pub const WHEEL_STEP: f32 = 72.0;
 pub const SPEED_MOST: f32 = 5000.0;
+pub const VERSION_ROOM: f32 = 150.0;
+pub const FLING: f32 = 0.22;
+pub const BACKING_FOOT: f32 = 10.0;
+pub const BACKING_SHORT: f32 = 30.0;
 pub const SPRING_STEP: f32 = 1.0 / 240.0;
 pub const SQUEEZED: f32 = 0.72;
 pub const TOP_FADE: f32 = 64.0;
 pub const TOP_FADE_ONSET: f32 = 12.0;
-pub const TAB_ROOM: f32 = 150.0;
 pub const STATS_GAP: f32 = 10.0;
 pub const HIT_SIZE: f32 = 17.0;
 pub const PANEL_WIDE: f32 = 380.0;
 const PP_FC: Color = Color::from_rgb(0.235, 0.549, 0.235);
 const PP_SS: Color = Color::from_rgb(0.627, 0.529, 0.039);
 pub const ACTIONS_SCALE: f32 = 1.25;
-pub const TAB_PILL: f32 = 76.0;
 pub const TOP_SLICES: usize = 64;
 pub const SPRING_LAG: f32 = 0.1;
 pub const HEAD_FLOOR: f32 = 0.3;
@@ -89,8 +91,8 @@ fn pulses(_grade: Grade) -> bool {
 
 const CARD: Color = theme::GLASS;
 const CARD_LIT: Color = theme::GLASS_LIT;
-const TAB: Color = Color::from_rgba(0.051, 0.02, 0.031, 0.76);
 const PICKED: Color = theme::GLASS_PICKED;
+const BACKING: Color = Color::from_rgba(0.024, 0.008, 0.016, 0.72);
 const SCRIM: Color = theme::GROUND;
 const PANEL: Color = Color::from_rgb(0.055, 0.022, 0.031);
 
@@ -114,8 +116,6 @@ fn eased(k: f32) -> f32 {
 
 #[derive(Debug, Clone, Copy)]
 pub struct SceneLayout {
-    pub x: f32,
-    pub y: f32,
     pub wide: f32,
     pub tall: f32,
     pub narrow: bool,
@@ -188,13 +188,25 @@ pub fn top_faded<'a>(at: f32, full: f32, reach: f32, place: impl Fn(f32) -> Elem
     strips.into()
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Focus {
+    Head(usize),
+    Replay(usize),
+}
+
+pub fn focus_of(row: &Row) -> Option<Focus> {
+    match row {
+        Row::Head { first, .. } => Some(Focus::Head(*first)),
+        Row::Replay { at, .. } => Some(Focus::Replay(*at)),
+    }
+}
+
 pub(super) fn shown_tops(rows: &[Row], factors: &[f32]) -> Vec<f32> {
-    let joins = carousel::joins(rows);
     let mut top = 0.0;
     (0..rows.len())
         .map(|i| {
             let here = top;
-            top += rows[i].height() * factors[i] + if joins.get(i + 1).copied().unwrap_or(false) { 0.0 } else { carousel::GAP * gap_factor(rows, factors, i + 1) };
+            top += rows[i].height() * factors[i] + carousel::GAP * gap_factor(rows, factors, i + 1);
             here
         })
         .collect()
@@ -256,7 +268,7 @@ impl Main {
         Filter { query: self.search.clone(), ..self.filter.clone() }
     }
 
-    pub(super) fn laid(&self) -> std::rc::Rc<Laid> {
+    pub(crate) fn laid(&self) -> std::rc::Rc<Laid> {
         let key = LaidKey {
             filter: self.filter(),
             sort: self.sort,
@@ -379,8 +391,51 @@ impl Main {
         out.into_iter().map(|(_, hash, path)| (hash, path)).collect()
     }
 
-    pub(super) fn visible_replays(&self) -> Vec<usize> {
-        self.laid().rows.iter().filter_map(|row| match row { Row::Replay { at, .. } => Some(*at), _ => None }).collect()
+    pub(super) fn focused(&self) -> Option<Focus> {
+        let laid = self.laid();
+        self.focus
+            .filter(|focus| laid.rows.iter().any(|row| focus_of(row) == Some(*focus)))
+            .or_else(|| self.chosen.map(Focus::Replay))
+    }
+
+    pub(super) fn step_focus(&mut self, by: i32) {
+        let laid = self.laid();
+        let marks: Vec<Focus> = laid.rows.iter().filter_map(focus_of).collect();
+        if marks.is_empty() {
+            return;
+        }
+        let here = self.focused().and_then(|focus| marks.iter().position(|mark| *mark == focus));
+        let next = match here {
+            Some(at) => (at as i64 + i64::from(by)).clamp(0, marks.len() as i64 - 1) as usize,
+            None => 0,
+        };
+        self.focus = Some(marks[next]);
+        let shown = self.display(&laid);
+        let Some(at) = shown.rows.iter().enumerate().position(|(i, row)| !shown.ghost[i] && focus_of(row) == Some(marks[next])) else {
+            return;
+        };
+        let top = shown_top(&shown.rows, &shown.factors, at);
+        let tall = shown.rows[at].height() * shown.factors[at];
+        self.free = Some((self.list_height() / 2.0 - top - tall / 2.0).round());
+        self.free = Some(self.carousel_target());
+        self.banners_waiting = true;
+    }
+
+    pub(super) fn drag_carousel(&mut self, by: f32) {
+        let base = self.free.unwrap_or_else(|| self.carousel_target());
+        self.free = Some(base + by);
+        let held = self.carousel_target();
+        self.free = Some(held);
+        self.scroll = Some(held);
+        self.scroll_speed = 0.0;
+        self.banners_waiting = true;
+    }
+
+    pub(super) fn drop_carousel(&mut self, speed: f32) {
+        let base = self.free.unwrap_or_else(|| self.carousel_target());
+        self.free = Some(base + speed.clamp(-SPEED_MOST, SPEED_MOST) * FLING);
+        self.free = Some(self.carousel_target());
+        self.banners_waiting = true;
     }
 
     pub(super) fn glide_now(&self, target: f32) -> f32 {
@@ -554,7 +609,9 @@ impl Main {
         let shift = self.glide_now(target);
         let shown = self.display(laid);
         let rows = &shown.rows;
-        let joins = carousel::joins(rows);
+        let focus = self.focus.and_then(|_| self.focused());
+        let mut backs: Vec<(f32, f32, f32)> = Vec::new();
+        let mut back: Option<(f32, f32, f32)> = None;
         let mut top = shift;
         let reach = (-shift / TOP_FADE_ONSET).clamp(0.0, 1.0);
         let mut list = column![].width(Length::Fill);
@@ -562,12 +619,16 @@ impl Main {
             let unfold = shown.factors[index];
             let ghost = shown.ghost[index];
             let head = matches!(row, Row::Head { .. });
-            if index > 0 && !joins[index] {
+            if index > 0 {
                 let gap = carousel::GAP * gap_factor(rows, &shown.factors, index);
                 list = list.push(Space::new().width(Length::Fill).height(gap));
                 top += gap;
             }
             if top >= height {
+                if let Some((from, bottom, right)) = back.take() {
+                    let reaches = if row.depth() > 0.0 { height + BACKING_FOOT } else { bottom };
+                    backs.push((from, reaches, right));
+                }
                 break;
             }
             let full = row.height();
@@ -576,28 +637,33 @@ impl Main {
             let unfold = if head { 1.0 } else { unfold };
             let seen = top + tall > 0.0 && top < height;
             let whole = !ghost && top >= -2.0 && top + tall <= height + 2.0;
-            let centre = match (row, rows.get(index + 1)) {
-                (Row::Difficulty { .. }, Some(next)) => top + tall + next.height() * shown.factors[index + 1] / 2.0,
-                _ => top + tall / 2.0,
-            };
+            let centre = top + tall / 2.0;
             let away = ((centre - height / 2.0).abs() / ARC_SPAN).min(carousel::ARC_STEPS as f32);
             let inset = carousel::NESTED.min(row.depth()) + away * carousel::ARC_STEP;
-            let joined = matches!(row, Row::Replay { .. }) && matches!(index.checked_sub(1).and_then(|before| rows.get(before)), Some(Row::Difficulty { .. }));
             let lower = if top + tall > height { eased(((height - top) / tall.max(1.0)).clamp(0.0, 1.0)) } else { 1.0 };
             let upper = if top < 0.0 { eased(((top + tall) / tall.max(1.0)).clamp(0.0, 1.0)) } else { 1.0 };
             let squeeze = lower.min(upper);
             let toward = if upper < lower { 0.0 } else { 1.0 };
             let at = top;
             top += tall;
+            if head {
+                if let Some(done) = back.take() {
+                    backs.push(done);
+                }
+                if rows.get(index + 1).is_some_and(|next| next.depth() > 0.0) {
+                    back = Some((at, at + tall, inset));
+                }
+            } else if let Some(open) = back.as_mut() {
+                open.1 = at + tall;
+            }
             if !seen {
                 list = list.push(Space::new().width(Length::Fill).height(tall));
                 continue;
             }
             let build = || -> Element<'_, Message> {
                 match row {
-                    Row::Head { title, under, first, count, open, cover, marks } => self.head_card(title, under, *first, *count, marks, *open, cover.as_deref(), whole, body),
-                    Row::Difficulty { version, stars, first } => self.difficulty_card(version, *stars, *first, whole),
-                    Row::Replay { at, chosen } => self.replay_card(*at, &entries[*at], *chosen, whole, joined),
+                    Row::Head { title, under, first, count, open, cover, marks } => self.head_card(title, under, *first, *count, marks, *open, cover.as_deref(), whole, body, !ghost && focus == Some(Focus::Head(*first))),
+                    Row::Replay { at, chosen } => self.replay_card(*at, &entries[*at], *chosen, whole, !ghost && focus == Some(Focus::Replay(*at))),
                 }
             };
             let place = |alpha: f32| -> Element<'_, Message> {
@@ -609,7 +675,6 @@ impl Main {
                     built
                 };
                 let placed = container(built).padding(Padding { top: 0.0, right: inset, bottom: 0.0, left: 0.0 }).width(Length::Fill).height(body);
-                let placed = if matches!(row, Row::Difficulty { .. }) { placed.align_x(iced::alignment::Horizontal::Right) } else { placed };
                 placed.into()
             };
             let placed = if unfold >= 1.0 && at < TOP_FADE && reach > 0.01 { top_faded(at, body, reach, place) } else { place(1.0) };
@@ -619,8 +684,23 @@ impl Main {
                 placed
             });
         }
+        if let Some(done) = back.take() {
+            backs.push(done);
+        }
+        let mut trays = iced::widget::Stack::new().width(Length::Fill).height(Length::Fill);
+        for (from, bottom, right) in backs {
+            let tall = (bottom - from - BACKING_SHORT).max(0.0);
+            let tray = container(Space::new().width(Length::Fill).height(tall)).width(Length::Fill).height(tall).style(|_| container::Style {
+                background: Some(Background::Color(paint(BACKING))),
+                border: Border { radius: iced::border::Radius { top_left: 0.0, top_right: 12.0, bottom_right: 12.0, bottom_left: 0.0 }, ..Border::default() },
+                ..container::Style::default()
+            });
+            let tray = container(tray).padding(Padding { top: 0.0, right, bottom: 0.0, left: 0.0 }).width(Length::Fill);
+            trays = trays.push(iced::widget::pin(tray).width(Length::Fill).height(Length::Fill).x(-1.0).y(from));
+        }
         let moved = iced::widget::pin(list).width(Length::Fill).height(Length::Fill).x(-1.0).y(shift);
-        let scroll_list = mouse_area(ui::clipped(container(moved).width(Length::Fill).height(Length::Fill)))
+        let grabbed = ui::grab(ui::clipped(container(stack![trays, moved]).width(Length::Fill).height(Length::Fill)), Message::CarouselDrag, Message::CarouselDrop);
+        let scroll_list = mouse_area(grabbed)
             .on_scroll(|delta| {
                 let lines = match delta {
                     mouse::ScrollDelta::Lines { y, .. } => y,
@@ -655,7 +735,7 @@ impl Main {
         container(list).width(Length::Fill).height(Length::Fill).into()
     }
 
-    fn head_card<'a>(&'a self, title: &str, under: &str, first: usize, count: usize, marks: &[crate::carousel::Mark], open: bool, cover: Option<&str>, live: bool, height: f32) -> Element<'a, Message> {
+    fn head_card<'a>(&'a self, title: &str, under: &str, first: usize, count: usize, marks: &[crate::carousel::Mark], open: bool, cover: Option<&str>, live: bool, height: f32, focused: bool) -> Element<'a, Message> {
         let w = &self.words;
         let shaded = cover.and_then(|hash| self.cover_frame(hash));
         let picture: Element<'_, Message> = match (shaded, cover.and_then(|hash| self.thumbs.get(hash))) {
@@ -727,28 +807,12 @@ impl Main {
             .padding(0)
             .width(Length::Fill)
             .height(height)
-            .style(ui::button_faded(card_style(open, false)))
+            .style(ui::button_faded(card_style(open, false, focused)))
             .on_press_maybe(live.then_some(Message::Choose(first)))
             .into()
     }
 
-    fn difficulty_card<'a>(&'a self, version: &str, stars: Option<f64>, first: usize, live: bool) -> Element<'a, Message> {
-        let mut inside = row![].spacing(10).align_y(iced::Center);
-        if let Some(stars) = stars {
-            inside = inside.push(crate::dossier::star_pill(self.words.decimal(stars, 2), stars as f32, 12.0));
-        }
-        let room = self.carousel_width() - TAB_ROOM - if stars.is_some() { TAB_PILL } else { 0.0 };
-        let version = ui::fitted(version, theme::SANS_SEMI, theme::BODY, room.max(60.0));
-        inside = inside.push(text(version).font(theme::SANS_SEMI).size(theme::BODY).wrapping(text::Wrapping::None).color(ui::faded(INK)));
-        button(container(inside).padding([0.0, 16.0]).center_y(36.0))
-            .padding(0)
-            .height(36.0)
-            .style(ui::button_faded(frame_style()))
-            .on_press_maybe(live.then_some(Message::Choose(first)))
-            .into()
-    }
-
-    fn replay_card<'a>(&'a self, at: usize, entry: &'a Entry, chosen: bool, live: bool, joined: bool) -> Element<'a, Message> {
+    fn replay_card<'a>(&'a self, at: usize, entry: &'a Entry, chosen: bool, live: bool, focused: bool) -> Element<'a, Message> {
         let w = &self.words;
         let height = 60.0;
         let title = match self.group {
@@ -773,12 +837,23 @@ impl Main {
         }
         let rating = self.ratings.known.get(&entry.replay_hash);
         let pp = rating.map(|r| format!("{}pp", r.pp.round() as i64)).unwrap_or_else(|| "—".to_owned());
-        let numbers = column![
-            text(pp).font(theme::MONO_BOLD).size(theme::BODY).color(ui::faded(INK)),
-            text(w.percent(entry.accuracy)).font(theme::MONO).size(theme::CAPTION).color(ui::faded(MUTED)),
-        ]
-        .spacing(2)
-        .align_x(iced::alignment::Horizontal::Right);
+        let numbers: Element<'_, Message> = match (self.group, entry.map.as_ref()) {
+            (Group::Maps, Some(map)) => {
+                let version = ui::fitted(&map.version, theme::SANS_SEMI, theme::CAPTION, VERSION_ROOM);
+                let mut said = column![].spacing(4).align_x(iced::alignment::Horizontal::Right);
+                if let Some(stars) = rating.map(|r| r.stars) {
+                    said = said.push(crate::dossier::star_pill(w.decimal(stars, 2), stars as f32, 12.0));
+                }
+                said.push(text(version).font(theme::SANS_SEMI).size(theme::CAPTION).wrapping(text::Wrapping::None).color(ui::faded(MUTED))).into()
+            }
+            _ => column![
+                text(pp).font(theme::MONO_BOLD).size(theme::BODY).color(ui::faded(INK)),
+                text(w.percent(entry.accuracy)).font(theme::MONO).size(theme::CAPTION).color(ui::faded(MUTED)),
+            ]
+            .spacing(2)
+            .align_x(iced::alignment::Horizontal::Right)
+            .into(),
+        };
         let rank = self.rank_tile(entry.grade, RANK_SMALL, true);
         let mut inside = row![rank, container(column![name, sub].spacing(2)).width(Length::Fill).clip(true)].spacing(14).align_y(iced::Center);
         if self.group != Group::Maps {
@@ -804,7 +879,7 @@ impl Main {
             .padding(0)
             .width(Length::Fill)
             .height(height)
-            .style(ui::button_faded(card_style_joined(chosen, true, joined)))
+            .style(ui::button_faded(card_style(chosen, true, focused)))
             .on_press_maybe(live.then_some(Message::Choose(at)))
             .into()
     }
@@ -841,32 +916,6 @@ impl Main {
         stack![base, glow].width(side).height(side).into()
     }
 
-    pub(super) fn rest_scene(&self, rest: f32) -> Element<'_, Message> {
-        let blank = || Space::new().width(Length::Fill).height(Length::Fill).into();
-        let Some(entry) = self.chosen_entry().filter(|_| rest > 0.001 && self.overlay == Overlay::None) else {
-            return blank();
-        };
-        let Some((live, frame)) = self.live.as_ref().filter(|live| live.for_path == entry.path).and_then(|live| live.frame.as_ref().map(|frame| (live, frame))) else {
-            return blank();
-        };
-        let from = self.scene_layout();
-        let full_wide = self.width.min(self.height * 16.0 / 9.0);
-        let full_tall = full_wide * 9.0 / 16.0;
-        let k = rest;
-        let lerp = |a: f32, b: f32| a + (b - a) * k;
-        let wide = lerp(from.wide - 2.0, full_wide).round();
-        let tall = lerp(from.tall - 2.0, full_tall).round();
-        let x = lerp(from.x + 1.0, (self.width - full_wide) / 2.0).round();
-        let y = lerp(from.y + 1.0, (self.height - full_tall) / 2.0).round();
-        let seen = live.fade.interpolate(0.0, 1.0, self.now);
-        let shown = container(crate::film::show_rounded(frame, crate::film::Fit::Cover, seen, (theme::CARD_RADIUS - 1.0) * (1.0 - k))).width(wide).height(tall);
-        let veil = container(Space::new().width(Length::Fill).height(Length::Fill)).style(move |_| container::Style {
-            background: Some(Background::Color(Color { a: k, ..theme::GROUND })),
-            ..container::Style::default()
-        });
-        stack![veil, iced::widget::pin(shown).x(x).y(y)].width(Length::Fill).height(Length::Fill).into()
-    }
-
     pub(super) fn scene_layout(&self) -> SceneLayout {
         let room = (self.width - self.carousel_width() - 80.0).max(200.0);
         let narrow = room < 640.0;
@@ -875,7 +924,7 @@ impl Main {
         let tall = (room * 9.0 / 16.0).min(height - below).max(120.0);
         let wide = tall * 16.0 / 9.0;
         let grow = ((height - tall) / below).min(wide / GROW_WIDTH).clamp(1.0, GROW_MOST);
-        SceneLayout { x: self.carousel_width() + 40.0, y: TOP, wide, tall, narrow, grow }
+        SceneLayout { wide, tall, narrow, grow }
     }
 
     fn scene_panel(&self) -> Element<'_, Message> {
@@ -1068,35 +1117,18 @@ impl Main {
     }
 }
 
-fn card_style(on: bool, replay: bool) -> impl Fn(&Theme, button::Status) -> button::Style {
-    card_style_joined(on, replay, false)
-}
-
-fn card_style_joined(on: bool, replay: bool, joined: bool) -> impl Fn(&Theme, button::Status) -> button::Style {
+fn card_style(on: bool, replay: bool, focused: bool) -> impl Fn(&Theme, button::Status) -> button::Style {
     move |_, status| {
-        let lit = matches!(status, button::Status::Hovered | button::Status::Pressed);
+        let lit = focused || matches!(status, button::Status::Hovered | button::Status::Pressed);
         let (fill, edge) = match (on, replay) {
             (true, true) => (PICKED, Color { a: 0.7, ..ACCENT }),
-            (true, false) => (CARD, Color::from_rgba(1.0, 1.0, 1.0, 0.24)),
-            (false, true) => (if lit { CARD_LIT } else { CARD }, Color::from_rgba(1.0, 1.0, 1.0, if lit { 0.24 } else { 0.09 })),
-            (false, false) => (CARD, Color::from_rgba(1.0, 1.0, 1.0, if lit { 0.24 } else { 0.09 })),
+            _ => (if lit { CARD_LIT } else { CARD }, Color::TRANSPARENT),
         };
+        let (edge, width) = if focused { (ACCENT, 2.0) } else { (edge, 1.0) };
         button::Style {
             background: Some(Background::Color(fill)),
             text_color: INK,
-            border: Border { color: edge, width: 1.0, radius: iced::border::Radius { top_left: 0.0, top_right: if joined { 0.0 } else if replay { 10.0 } else { 12.0 }, bottom_right: if replay { 10.0 } else { 12.0 }, bottom_left: 0.0 } },
-            ..button::Style::default()
-        }
-    }
-}
-
-fn frame_style() -> impl Fn(&Theme, button::Status) -> button::Style {
-    move |_, status| {
-        let lit = matches!(status, button::Status::Hovered | button::Status::Pressed);
-        button::Style {
-            background: Some(Background::Color(if lit { CARD_LIT } else { TAB })),
-            text_color: INK,
-            border: Border { color: Color::from_rgba(1.0, 1.0, 1.0, if lit { 0.24 } else { 0.12 }), width: 1.0, radius: iced::border::Radius { top_left: 10.0, top_right: 10.0, bottom_right: 0.0, bottom_left: 0.0 } },
+            border: Border { color: edge, width, radius: iced::border::Radius { top_left: 0.0, top_right: if replay { 10.0 } else { 12.0 }, bottom_right: if replay { 10.0 } else { 12.0 }, bottom_left: 0.0 } },
             ..button::Style::default()
         }
     }

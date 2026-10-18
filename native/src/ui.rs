@@ -3375,6 +3375,159 @@ pub fn frame_mark<'a, Message: 'a>(k: f32, side: f32) -> Element<'a, Message> {
     Canvas::new(FrameMark { k, alpha: fade() }).width(side).height(side).into()
 }
 
+pub const GRAB_SLOP: f32 = 6.0;
+
+pub struct Grab<'a, Message> {
+    content: Element<'a, Message>,
+    on_drag: Box<dyn Fn(f32) -> Message + 'a>,
+    on_drop: Box<dyn Fn(f32) -> Message + 'a>,
+}
+
+pub fn grab<'a, Message: 'a>(content: impl Into<Element<'a, Message>>, on_drag: impl Fn(f32) -> Message + 'a, on_drop: impl Fn(f32) -> Message + 'a) -> Grab<'a, Message> {
+    Grab { content: content.into(), on_drag: Box::new(on_drag), on_drop: Box::new(on_drop) }
+}
+
+#[derive(Debug, Default)]
+struct Held {
+    from: Option<Point>,
+    last: f32,
+    at: Option<std::time::Instant>,
+    dragging: bool,
+    speed: f32,
+}
+
+impl<Message> iced::advanced::Widget<Message, Theme, Renderer> for Grab<'_, Message> {
+    fn tag(&self) -> iced::advanced::widget::tree::Tag {
+        iced::advanced::widget::tree::Tag::of::<Held>()
+    }
+
+    fn state(&self) -> iced::advanced::widget::tree::State {
+        iced::advanced::widget::tree::State::new(Held::default())
+    }
+
+    fn children(&self) -> Vec<iced::advanced::widget::Tree> {
+        vec![iced::advanced::widget::Tree::new(&self.content)]
+    }
+
+    fn diff(&self, tree: &mut iced::advanced::widget::Tree) {
+        tree.diff_children(std::slice::from_ref(&self.content));
+    }
+
+    fn size(&self) -> Size<Length> {
+        self.content.as_widget().size()
+    }
+
+    fn layout(&mut self, tree: &mut iced::advanced::widget::Tree, renderer: &Renderer, limits: &iced::advanced::layout::Limits) -> iced::advanced::layout::Node {
+        let node = self.content.as_widget_mut().layout(&mut tree.children[0], renderer, limits);
+        iced::advanced::layout::Node::with_children(node.size(), vec![node])
+    }
+
+    fn operate(&mut self, tree: &mut iced::advanced::widget::Tree, layout: iced::advanced::Layout<'_>, renderer: &Renderer, operation: &mut dyn iced::advanced::widget::Operation) {
+        if let Some(inner) = layout.children().next() {
+            self.content.as_widget_mut().operate(&mut tree.children[0], inner, renderer, operation);
+        }
+    }
+
+    fn update(
+        &mut self,
+        tree: &mut iced::advanced::widget::Tree,
+        event: &iced::Event,
+        layout: iced::advanced::Layout<'_>,
+        cursor: mouse::Cursor,
+        renderer: &Renderer,
+        clipboard: &mut dyn iced::advanced::Clipboard,
+        shell: &mut iced::advanced::Shell<'_, Message>,
+        viewport: &Rectangle,
+    ) {
+        let Some(inner) = layout.children().next() else {
+            return;
+        };
+        let held = tree.state.downcast_mut::<Held>();
+        let mut hidden = held.dragging;
+        match event {
+            iced::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
+                if let Some(at) = cursor.position_over(layout.bounds()) {
+                    *held = Held { from: Some(at), last: at.y, at: Some(std::time::Instant::now()), dragging: false, speed: 0.0 };
+                }
+            }
+            iced::Event::Mouse(mouse::Event::CursorMoved { position }) => {
+                if let Some(from) = held.from {
+                    if !held.dragging && (position.y - from.y).abs() > GRAB_SLOP {
+                        held.dragging = true;
+                        held.last = from.y;
+                    }
+                    if held.dragging {
+                        let now = std::time::Instant::now();
+                        let moved = position.y - held.last;
+                        let gap = held.at.map_or(0.0, |at| now.saturating_duration_since(at).as_secs_f32());
+                        if gap > 0.0 {
+                            held.speed = 0.6 * held.speed + 0.4 * moved / gap.max(1.0 / 240.0);
+                        }
+                        held.last = position.y;
+                        held.at = Some(now);
+                        shell.publish((self.on_drag)(moved));
+                        hidden = true;
+                    }
+                }
+            }
+            iced::Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => {
+                let was = held.dragging;
+                let stale = held.at.is_some_and(|at| at.elapsed().as_secs_f32() > 0.08);
+                let speed = if stale { 0.0 } else { held.speed };
+                *held = Held::default();
+                if was {
+                    shell.publish((self.on_drop)(speed));
+                    hidden = true;
+                }
+            }
+            _ => {}
+        }
+        let cursor = if hidden { mouse::Cursor::Unavailable } else { cursor };
+        self.content.as_widget_mut().update(&mut tree.children[0], event, inner, cursor, renderer, clipboard, shell, viewport);
+        if hidden {
+            shell.capture_event();
+        }
+    }
+
+    fn mouse_interaction(&self, tree: &iced::advanced::widget::Tree, layout: iced::advanced::Layout<'_>, cursor: mouse::Cursor, viewport: &Rectangle, renderer: &Renderer) -> mouse::Interaction {
+        if tree.state.downcast_ref::<Held>().dragging {
+            return mouse::Interaction::Grabbing;
+        }
+        let Some(inner) = layout.children().next() else {
+            return mouse::Interaction::default();
+        };
+        self.content.as_widget().mouse_interaction(&tree.children[0], inner, cursor, viewport, renderer)
+    }
+
+    fn draw(
+        &self,
+        tree: &iced::advanced::widget::Tree,
+        renderer: &mut Renderer,
+        theme: &Theme,
+        style: &iced::advanced::renderer::Style,
+        layout: iced::advanced::Layout<'_>,
+        cursor: mouse::Cursor,
+        viewport: &Rectangle,
+    ) {
+        let Some(inner) = layout.children().next() else {
+            return;
+        };
+        let cursor = if tree.state.downcast_ref::<Held>().dragging { mouse::Cursor::Unavailable } else { cursor };
+        self.content.as_widget().draw(&tree.children[0], renderer, theme, style, inner, cursor, viewport);
+    }
+
+    fn overlay<'b>(&'b mut self, tree: &'b mut iced::advanced::widget::Tree, layout: iced::advanced::Layout<'b>, renderer: &Renderer, viewport: &Rectangle, translation: iced::Vector) -> Option<iced::advanced::overlay::Element<'b, Message, Theme, Renderer>> {
+        let inner = layout.children().next()?;
+        self.content.as_widget_mut().overlay(&mut tree.children[0], inner, renderer, viewport, translation)
+    }
+}
+
+impl<'a, Message: 'a> From<Grab<'a, Message>> for Element<'a, Message> {
+    fn from(grab: Grab<'a, Message>) -> Self {
+        Element::new(grab)
+    }
+}
+
 pub struct Scaled<'a, Message> {
     content: Element<'a, Message>,
     factor: f32,

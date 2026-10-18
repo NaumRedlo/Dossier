@@ -18,6 +18,7 @@ pub mod desktop;
 pub mod ffmpeg;
 pub mod film;
 pub mod first_run;
+pub mod intro;
 pub mod gallery;
 pub mod glide;
 pub mod glyphs;
@@ -131,6 +132,7 @@ pub struct App {
     tray: Option<tray::Tray>,
     hidden: bool,
     focused: bool,
+    intro: Option<intro::Intro>,
 }
 
 #[derive(Debug, Clone)]
@@ -148,6 +150,7 @@ pub enum Message {
     Measure,
     Monitor(Option<Size>),
     Viewport(Size),
+    IntroTick(std::time::Instant),
 }
 
 pub struct Rehearsal {
@@ -292,16 +295,17 @@ impl App {
                 }),
                 None => Task::none(),
             };
-            return (App { screen: Screen::Main(main), backdrop, viewport: WINDOW, measured: false, opened: false, tray: None, hidden: false, focused: true }, Task::batch([task.map(Message::Main), snap, press, flood]));
+            return (App { screen: Screen::Main(main), backdrop, viewport: WINDOW, measured: false, opened: false, tray: None, hidden: false, focused: true, intro: None }, Task::batch([task.map(Message::Main), snap, press, flood]));
         }
+        let intro = Some(intro::Intro::new(std::time::Instant::now()));
         if settings::first_run() {
             let (flow, task) = FirstRun::new();
-            (App { screen: Screen::FirstRun(flow), backdrop, viewport: WINDOW, measured: false, opened: false, tray: None, hidden: false, focused: true }, task.map(Message::FirstRun))
+            (App { screen: Screen::FirstRun(flow), backdrop, viewport: WINDOW, measured: false, opened: false, tray: None, hidden: false, focused: true, intro }, task.map(Message::FirstRun))
         } else {
             let said = Settings::load();
             let (mut main, task) = Main::new(Words::new(said.lang), said);
             let launched = main.launched();
-            (App { screen: Screen::Main(main), backdrop, viewport: WINDOW, measured: false, opened: false, tray: None, hidden: false, focused: true }, Task::batch([task, launched]).map(Message::Main))
+            (App { screen: Screen::Main(main), backdrop, viewport: WINDOW, measured: false, opened: false, tray: None, hidden: false, focused: true, intro }, Task::batch([task, launched]).map(Message::Main))
         }
     }
 
@@ -454,6 +458,26 @@ impl App {
                 let fit = Size::new(self.viewport.width.max(minimum.width.min(room.width)).min(room.width), self.viewport.height.max(minimum.height.min(room.height)).min(room.height));
                 refit_window((fit != self.viewport).then_some(fit), minimum)
             }
+            Message::IntroTick(now) => {
+                let ready = match &self.screen {
+                    Screen::Main(main) => main.library.is_some(),
+                    Screen::FirstRun(_) => true,
+                };
+                let Some(intro) = self.intro.as_mut() else {
+                    return Task::none();
+                };
+                intro.now = intro.now.max(now);
+                if intro.may_leave(ready) {
+                    intro.leaving = Some(intro.now);
+                    if let Screen::Main(main) = &mut self.screen {
+                        main.unveil(now);
+                    }
+                }
+                if intro.done() {
+                    self.intro = None;
+                }
+                Task::none()
+            }
             Message::Snap => iced::window::oldest().map(Message::Snapped),
             Message::Snapped(Some(id)) => iced::window::screenshot(id).map(Message::Shot),
             Message::Snapped(None) => iced::exit(),
@@ -479,7 +503,11 @@ impl App {
             };
             frames::slow("view", from, &label);
         }
-        ui::scaled(stack![ui::backdrop(&self.backdrop), front]
+        let intro: Element<'_, Message> = match &self.intro {
+            Some(intro) => intro.view(Message::IntroTick(intro.now)),
+            None => iced::widget::Space::new().width(Length::Fill).height(Length::Fill).into(),
+        };
+        ui::scaled(stack![ui::backdrop(&self.backdrop), front, intro]
             .width(Length::Fill)
             .height(Length::Fill), self.scale_factor()).into()
     }
@@ -502,7 +530,11 @@ impl App {
             Some(_) => Subscription::run(tray::events).map(Message::Tray),
             None => Subscription::none(),
         };
-        Subscription::batch([screen, window, closing, tray, Subscription::run(instance::events).map(Message::Instance)])
+        let intro = match self.intro {
+            Some(_) => iced::window::frames().map(Message::IntroTick),
+            None => Subscription::none(),
+        };
+        Subscription::batch([screen, window, closing, tray, intro, Subscription::run(instance::events).map(Message::Instance)])
     }
 
     fn keep_tray(&mut self) {
@@ -557,7 +589,7 @@ mod workspace_tests {
         let _restore = Restore(ui::auto_scale());
         ui::set_auto_scale(100);
         let main = Main::staged(Words::new(lang::Lang::En), Settings::default(), library::Library::default(), None);
-        let mut app = App { screen: Screen::Main(main), backdrop: image::Handle::from_rgba(1, 1, vec![0, 0, 0, 255]), viewport: WINDOW, measured: false, opened: false, tray: None, hidden: false, focused: true };
+        let mut app = App { screen: Screen::Main(main), backdrop: image::Handle::from_rgba(1, 1, vec![0, 0, 0, 255]), viewport: WINDOW, measured: false, opened: false, tray: None, hidden: false, focused: true, intro: None };
         let _ = app.update(Message::Monitor(Some(Size::new(1920.0, 1080.0))));
         for window in [Size::new(1512.0, 840.0), Size::new(1920.0, 1080.0), Size::new(2560.0, 1440.0), WINDOW] {
             for _ in 0..3 {
@@ -597,7 +629,7 @@ mod workspace_tests {
         let _restore = Restore(ui::auto_scale());
         ui::set_auto_scale(100);
         let main = Main::staged(Words::new(lang::Lang::En), Settings::default(), library::Library::default(), None);
-        let mut app = App { screen: Screen::Main(main), backdrop: image::Handle::from_rgba(1, 1, vec![0, 0, 0, 255]), viewport: WINDOW, measured: false, opened: false, tray: None, hidden: false, focused: false };
+        let mut app = App { screen: Screen::Main(main), backdrop: image::Handle::from_rgba(1, 1, vec![0, 0, 0, 255]), viewport: WINDOW, measured: false, opened: false, tray: None, hidden: false, focused: false, intro: None };
         let _ = app.update(Message::Monitor(Some(Size::new(2560.0, 1440.0))));
         assert_eq!(app.scale_factor(), 1.2, "the first measurement counts even before the window is in front");
         let _ = app.update(Message::Monitor(Some(Size::new(1280.0, 720.0))));
@@ -635,7 +667,7 @@ mod workspace_tests {
         let said = Settings { close_to_tray: false, ..Settings::default() };
         let main = Main::staged(Words::new(lang::Lang::Ru), said, library::Library::default(), None);
         let size = Size::new(1512.0, 840.0);
-        let mut app = App { screen: Screen::Main(main), backdrop: image::Handle::from_rgba(1, 1, vec![0, 0, 0, 255]), viewport: WINDOW, measured: false, opened: false, tray: None, hidden: false, focused: true };
+        let mut app = App { screen: Screen::Main(main), backdrop: image::Handle::from_rgba(1, 1, vec![0, 0, 0, 255]), viewport: WINDOW, measured: false, opened: false, tray: None, hidden: false, focused: true, intro: None };
         for _ in 0..4 {
             let _ = app.update(Message::Opened(size));
             let _ = app.update(Message::Viewport(size));

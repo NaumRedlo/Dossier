@@ -1205,6 +1205,14 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
         ("main-queued".to_owned(), queued),
         ("main-rendered".to_owned(), rendered),
         ("main-hover".to_owned(), hovering.clone()),
+        ("main-focus".to_owned(), {
+            let mut lit = hovering.clone();
+            lit.hover = None;
+            lit.hover_since = None;
+            let heads: Vec<usize> = lit.laid().rows.iter().filter_map(|row| match row { crate::carousel::Row::Head { first, open: false, .. } => Some(*first), _ => None }).collect();
+            lit.focus = heads.get(1).map(|first| crate::main_screen::select::Focus::Head(*first));
+            lit
+        }),
         ("main-select-menu".to_owned(), {
             let mut opened = hovering.clone();
             opened.filters_open = true;

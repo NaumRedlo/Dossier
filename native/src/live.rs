@@ -73,6 +73,7 @@ impl Control {
 pub enum Frame {
     Picture { frame: crate::film::Frame, at_ms: f64, from_ms: f64, to_ms: f64 },
     Failed(String),
+    Ended,
 }
 
 #[derive(Debug, Clone)]
@@ -81,6 +82,8 @@ pub struct Ask {
     pub map: PathBuf,
     pub map_hash: String,
     pub skin: Option<PathBuf>,
+    pub start: f64,
+    pub once: bool,
 }
 
 pub fn play(ask: Ask, control: Arc<Control>) -> iced::Task<Frame> {
@@ -97,7 +100,7 @@ fn run(ask: &Ask, control: &Control, push: &mut dyn FnMut(Frame) -> bool) -> Res
     let found = locate::load_map(&ask.map, &ask.map_hash)?;
     let beatmap = dossier_beatmap::Beatmap::parse(&found.text).map_err(|e| e.to_string())?;
     if replay.mode == dossier_replay::GameMode::Mania {
-        return run_mania(&replay, &beatmap, &found.origin, control, push);
+        return run_mania(&replay, &beatmap, &found.origin, (ask.start, ask.once), control, push);
     }
     let state = dossier_sim::GameState::new(&beatmap, &replay);
 
@@ -124,10 +127,10 @@ fn run(ask: &Ask, control: &Control, push: &mut dyn FnMut(Frame) -> bool) -> Res
     let layout = dossier_render::Layout::new(SIZE.0, SIZE.1);
 
     let (from_ms, to_ms) = state.span_ms();
-    roll(control, push, (from_ms, to_ms), state.playback_rate(), |at_ms| scene.frame(at_ms, &layout))
+    roll(control, push, (from_ms, to_ms), state.playback_rate(), (ask.start, ask.once), |at_ms| scene.frame(at_ms, &layout))
 }
 
-fn run_mania(replay: &dossier_replay::Replay, beatmap: &dossier_beatmap::Beatmap, origin: &locate::Origin, control: &Control, push: &mut dyn FnMut(Frame) -> bool) -> Result<(), String> {
+fn run_mania(replay: &dossier_replay::Replay, beatmap: &dossier_beatmap::Beatmap, origin: &locate::Origin, reach: (f64, bool), control: &Control, push: &mut dyn FnMut(Frame) -> bool) -> Result<(), String> {
     let judged = dossier_produce::render::judge_mania(beatmap, replay)?;
     let behind = scenery::Behind {
         background: true,
@@ -147,17 +150,17 @@ fn run_mania(replay: &dossier_replay::Replay, beatmap: &dossier_beatmap::Beatmap
         .bare();
     let layout = dossier_render::Layout::new(SIZE.0, SIZE.1);
     let span = scene.span_ms();
-    roll(control, push, span, judged.playback.clock_rate(), |at_ms| {
+    roll(control, push, span, judged.playback.clock_rate(), reach, |at_ms| {
         let mut pixmap = dossier_render::Pixmap::new(SIZE.0, SIZE.1).expect("a live frame has a size");
         dossier_render::Picture::draw_into(&scene, &mut pixmap, at_ms, &layout, None);
         pixmap
     })
 }
 
-fn roll(control: &Control, push: &mut dyn FnMut(Frame) -> bool, (from_ms, to_ms): (f64, f64), rate: f64, draw: impl Fn(f64) -> dossier_render::Pixmap) -> Result<(), String> {
+fn roll(control: &Control, push: &mut dyn FnMut(Frame) -> bool, (from_ms, to_ms): (f64, f64), rate: f64, (start, once): (f64, bool), draw: impl Fn(f64) -> dossier_render::Pixmap) -> Result<(), String> {
     let rate = rate.max(0.01);
     let step = Duration::from_secs_f64(1.0 / FPS);
-    let mut at_ms = from_ms;
+    let mut at_ms = from_ms + (to_ms - from_ms) * start.clamp(0.0, 1.0);
     let mut tick = Instant::now();
     let mut speed = 1.0f64;
     let mut eased_since: Option<(Instant, f64, bool)> = None;
@@ -196,6 +199,10 @@ fn roll(control: &Control, push: &mut dyn FnMut(Frame) -> bool, (from_ms, to_ms)
         at_ms += now.duration_since(tick).as_secs_f64() * 1000.0 * rate * speed;
         tick = now;
         if at_ms > to_ms {
+            if once {
+                push(Frame::Ended);
+                return Ok(());
+            }
             at_ms = from_ms;
         }
         if speed <= 0.0 {

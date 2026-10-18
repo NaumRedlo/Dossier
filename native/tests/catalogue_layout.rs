@@ -68,8 +68,8 @@ fn resting_hides_main_controls_and_waking_cannot_click_through_them() {
             assert!(ui.find(settings.as_str()).is_err());
             assert!(ui.find(main.words.t("replays")).is_err());
             let mark = ui.find(iced::widget::Id::new("rest-mark")).unwrap().bounds();
-            assert!((mark.x - 40.0).abs() < 1.0 && (mark.y + mark.height - (main.height - 40.0)).abs() < 1.0);
-            assert!((mark.height - dossier_native::ui::EMBLEM * 1.5).abs() < 1.0);
+            assert!((mark.center_x() - width / 2.0).abs() < 2.0 && (mark.center_y() - main.height / 2.0).abs() < 2.0, "the logo stands in the middle: {mark:?}");
+            assert!((mark.height - dossier_native::ui::EMBLEM * dossier_native::main_screen::reel::LOGO).abs() < 1.0);
             assert!(ui.find("Dossier").is_ok(), "resting keeps the name beside the enlarged emblem");
             if let Ok(dir) = std::env::var("DOSSIER_REST_REVIEW") {
                 if lang == Lang::Ru {

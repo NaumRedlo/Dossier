@@ -89,7 +89,6 @@ pub struct Mark {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Row {
     Head { title: String, under: String, first: usize, count: usize, open: bool, cover: Option<String>, marks: Vec<Mark> },
-    Difficulty { version: String, stars: Option<f64>, first: usize },
     Replay { at: usize, chosen: bool },
 }
 
@@ -98,7 +97,6 @@ impl Row {
         match self {
             Row::Head { open: true, .. } => HEAD_OPEN,
             Row::Head { .. } => HEAD_CLOSED,
-            Row::Difficulty { .. } => 36.0,
             Row::Replay { .. } => 60.0,
         }
     }
@@ -106,7 +104,7 @@ impl Row {
     pub fn depth(&self) -> f32 {
         match self {
             Row::Head { .. } => 0.0,
-            Row::Difficulty { .. } | Row::Replay { .. } => NESTED,
+            Row::Replay { .. } => NESTED,
         }
     }
 }
@@ -252,16 +250,7 @@ pub fn lay(entries: &[Entry], filter: &Filter, sort: Sort, group: Group, chosen:
         if !open {
             continue;
         }
-        let mut last_version: Option<String> = None;
         for at in &members {
-            let entry = &entries[*at];
-            if group == Group::Maps {
-                let (_, _, version) = song(entry);
-                if last_version.as_ref() != Some(&version) {
-                    rows.push(Row::Difficulty { version: version.clone(), stars: rating(context, entry).map(|r| r.stars), first: *at });
-                    last_version = Some(version);
-                }
-            }
             rows.push(Row::Replay { at: *at, chosen: Some(*at) == chosen });
         }
     }
@@ -276,26 +265,8 @@ pub fn insets(rows: &[Row]) -> Vec<f32> {
         .collect()
 }
 
-pub fn joins(rows: &[Row]) -> Vec<bool> {
-    let mut under = false;
-    rows.iter()
-        .map(|row| match row {
-            Row::Replay { .. } => under,
-            Row::Difficulty { .. } => {
-                under = true;
-                false
-            }
-            Row::Head { .. } => {
-                under = false;
-                false
-            }
-        })
-        .collect()
-}
-
 pub fn top_of(rows: &[Row], at: usize) -> f32 {
-    let joins = joins(rows);
-    (0..at).map(|i| rows[i].height() + if joins.get(i + 1).copied().unwrap_or(false) { 0.0 } else { GAP }).sum()
+    (0..at).map(|i| rows[i].height() + GAP).sum()
 }
 
 pub fn offset(rows: &[Row], height: f32) -> f32 {
@@ -388,11 +359,10 @@ mod tests {
         let laid = with(&HashMap::new(), |c| lay(&entries, &Filter::default(), Sort::Date, Group::Maps, Some(0), c));
         let kinds: Vec<String> = laid.rows.iter().map(|row| match row {
             Row::Head { title, count, open, marks, .. } => format!("head {title} {count} {open} {}", marks.len()),
-            Row::Difficulty { version, .. } => format!("diff {version}"),
             Row::Replay { at, chosen } => format!("replay {at} {chosen}"),
         }).collect();
         assert_eq!(kinds, vec![
-            "head Blue Zenith 3 true 2", "diff FOUR DIMENSIONS", "replay 0 true", "replay 3 false", "diff Another", "replay 2 false",
+            "head Blue Zenith 3 true 2", "replay 0 true", "replay 3 false", "replay 2 false",
             "head FREEDOM DiVE 1 false 1",
         ]);
         assert_eq!(laid.order, vec![0, 3, 2, 1]);
@@ -444,19 +414,6 @@ mod tests {
         assert_eq!(insets(&rows), vec![12.0, 30.0, 24.0, 6.0]);
         assert_eq!(offset(&rows, 600.0), 0.0);
         assert_eq!(offset(&rows, 200.0), (100.0 - (80.0 + GAP + 60.0 + GAP) - 30.0).round());
-    }
-
-    #[test]
-    fn replays_under_a_difficulty_sit_flush_against_it_and_heads_keep_their_gap() {
-        let rows = vec![
-            Row::Head { title: "a".into(), under: String::new(), first: 0, count: 2, open: true, cover: None, marks: Vec::new() },
-            Row::Difficulty { version: "x".into(), stars: None, first: 0 },
-            Row::Replay { at: 0, chosen: false },
-            Row::Replay { at: 1, chosen: true },
-            Row::Head { title: "b".into(), under: String::new(), first: 2, count: 1, open: false, cover: None, marks: Vec::new() },
-        ];
-        assert_eq!(joins(&rows), vec![false, false, true, true, false]);
-        assert_eq!(top_of(&rows, 3), 80.0 + GAP + 36.0 + 60.0);
     }
 
     #[test]

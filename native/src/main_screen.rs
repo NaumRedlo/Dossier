@@ -27,6 +27,8 @@ use crate::updates::State as UpdateState;
 pub mod sharing;
 #[path = "select.rs"]
 pub(crate) mod select;
+#[path = "reel.rs"]
+pub mod reel;
 
 pub const ENTER: Duration = Duration::from_millis(1200);
 pub const ARRIVE: Duration = Duration::from_millis(450);
@@ -58,7 +60,7 @@ const POOL_COVER: (u32, u32) = (768, 432);
 const SCENE_WIDTH: u32 = 960;
 const REST_AFTER: Duration = Duration::from_secs(120);
 const REST_FADE: Duration = Duration::from_millis(800);
-const REST_BRAND_SCALE: f32 = 1.5;
+const REST_BRAND_SCALE: f32 = reel::LOGO;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Overlay {
@@ -73,6 +75,7 @@ pub enum Message {
     UserInput(Option<Box<Message>>),
     PointerActivity(Point),
     RestCheck(Instant),
+    Reel(u64, live::Frame),
     Community(crate::community_screen::Message),
     NewsBuilds(Result<Vec<crate::news::Build>, String>),
     NewsStories(Result<Vec<crate::news::Story>, String>),
@@ -222,6 +225,8 @@ pub enum Message {
     OpenFolder,
     SortBy(crate::carousel::Sort),
     GroupBy(crate::carousel::Group),
+    CarouselDrag(f32),
+    CarouselDrop(f32),
     StarsAt(f32, bool),
     StarsDone,
     FilterToggle(select::Toggle),
@@ -499,6 +504,9 @@ pub struct Main {
     pub(crate) search_open: bool,
     folding: Vec<select::Fold>,
     spring_at: Option<Instant>,
+    pub(crate) focus: Option<select::Focus>,
+    pub(crate) reel: reel::Reel,
+    live_rested: bool,
     laid_cache: std::cell::RefCell<Option<(select::LaidKey, std::rc::Rc<crate::carousel::Laid>)>>,
     glow_epoch: Instant,
     share_open: bool,
@@ -778,6 +786,9 @@ impl Main {
             search_open: false,
             folding: Vec::new(),
             spring_at: None,
+            focus: None,
+            reel: reel::Reel::default(),
+            live_rested: false,
             laid_cache: std::cell::RefCell::new(None),
             glow_epoch: Instant::now(),
             share_open: false,
@@ -1271,6 +1282,7 @@ impl Main {
             || self.player.as_ref().is_some_and(|p| !p.borrow().paused)
             || self.cinema.is_animating(self.now)
             || self.resting.is_animating(self.now)
+            || self.reel.fading(self.now)
             || self.cinema.value() != self.watching()
             || self.stage_open.is_animating(self.now)
             || self.leaving_player
@@ -1471,6 +1483,7 @@ impl Main {
     }
 
     fn choose(&mut self, at: usize) -> Task<Message> {
+        self.focus = None;
         if self.chosen == Some(at) {
             return Task::none();
         }
@@ -1517,6 +1530,8 @@ impl Main {
                 map: map.file.clone(),
                 map_hash: entry.map_hash.clone(),
                 skin: self.settings.skin.clone(),
+                start: 0.0,
+                once: false,
             })
         }) else {
             if let Some(entry) = self.chosen_entry() {
@@ -2032,10 +2047,23 @@ impl Main {
             && !matches!(self.looking, Some(scan::Step::Looking { .. }))
     }
 
+    pub fn unveil(&mut self, now: Instant) {
+        self.arrive = Animation::new(false).duration(ARRIVE).easing(Easing::EaseOutCubic).go(true, now);
+        if self.library.is_some() {
+            self.enter = Animation::new(false).duration(ENTER).easing(Easing::EaseOutCubic).go(true, now);
+        }
+    }
+
     fn wake(&mut self, now: Instant) {
         self.last_input = now;
         if self.resting.value() {
             self.resting.go_mut(false, now);
+        }
+        self.reel_stop();
+        if std::mem::take(&mut self.live_rested) {
+            if let Some(live) = &self.live {
+                live.control.pause(false);
+            }
         }
     }
 
@@ -2044,6 +2072,10 @@ impl Main {
             self.wake(now);
         } else if !self.resting.value() && now.saturating_duration_since(self.last_input) >= REST_AFTER {
             self.resting.go_mut(true, now);
+            if let Some(live) = self.live.as_ref().filter(|live| !live.control.paused()) {
+                live.control.pause(true);
+                self.live_rested = true;
+            }
             self.hover = None;
             self.hover_bounds = None;
             self.hover_since = None;
@@ -2150,7 +2182,17 @@ impl Main {
             Message::RestCheck(now) => {
                 self.check_rest(now);
                 self.now = now;
+                if self.resting.value() && !self.reel.running() {
+                    return self.reel_next();
+                }
                 Task::none()
+            }
+            Message::Reel(serial, frame) => {
+                if !self.resting.value() {
+                    self.reel_stop();
+                    return Task::none();
+                }
+                self.reel_frame(serial, frame)
             }
             Message::Reading(reading) => {
                 self.reading = Some(reading);
@@ -2284,10 +2326,18 @@ impl Main {
                 Task::none()
             }
             Message::Choose(at) => self.choose(at),
-            Message::Step(by) => match crate::carousel::step(&self.visible_replays(), self.chosen, by) {
-                Some(at) => self.choose(at),
-                None => Task::none(),
-            },
+            Message::Step(by) => {
+                self.step_focus(by);
+                Task::none()
+            }
+            Message::CarouselDrag(by) => {
+                self.drag_carousel(by);
+                Task::none()
+            }
+            Message::CarouselDrop(speed) => {
+                self.drop_carousel(speed);
+                Task::none()
+            }
             Message::Wheel(lines) => {
                 let base = self.carousel_target();
                 self.free = Some(base + lines * select::WHEEL_STEP);
@@ -3111,6 +3161,13 @@ impl Main {
                 self.pools.shift = held;
                 Task::none()
             }
+            Message::PoolHot(crate::pools_screen::Hot::Confirm) if self.overlay == Overlay::None && self.focus.is_some() => match self.focused() {
+                Some(select::Focus::Head(first)) | Some(select::Focus::Replay(first)) => {
+                    self.focus = None;
+                    self.choose(first)
+                }
+                None => Task::none(),
+            },
             Message::PoolHot(hot) => {
                 if self.overlay == Overlay::Community && self.community_section == crate::community_screen::Section::Pools {
                     return self.update(Message::Community(crate::community_screen::Message::Pools(crate::pools_screen::Message::Hot(hot))));
@@ -4292,6 +4349,7 @@ impl Main {
                         live.control.stop();
                         self.live = None;
                     }
+                    live::Frame::Ended => {}
                 }
                 Task::none()
             }
@@ -5029,7 +5087,7 @@ impl Main {
         let share_menu: Element<'_, Message> = if loaded && self.overlay == Overlay::None { self.share_layer_menu() } else { blank() };
         let resting: Element<'_, Message> = if rest > 0.001 || self.resting.value() {
             let mark = container(ui::fading(rest, || ui::brand_scaled(REST_BRAND_SCALE))).id(iced::widget::Id::new("rest-mark"));
-            let mark = pin(mark).x(CREST_HOME.0).y((self.height - 40.0 - ui::EMBLEM * REST_BRAND_SCALE).max(24.0));
+            let mark = container(mark).width(Length::Fill).height(Length::Fill).center(Length::Fill);
             let shield = iced::widget::opaque(mouse_area(Space::new().width(Length::Fill).height(Length::Fill))
                 .on_press(Message::UserInput(None)).on_right_press(Message::UserInput(None))
                 .on_middle_press(Message::UserInput(None)).on_scroll(|_| Message::UserInput(None))
@@ -5037,7 +5095,7 @@ impl Main {
             stack![shield, mark].into()
         } else { blank() };
         let mini = self.mini_player_layer();
-        let rest_scene = if loaded { self.rest_scene(rest) } else { blank() };
+        let rest_scene = if loaded { self.reel_view(rest) } else { blank() };
         let layers = stack![scene_before, scene, body, share_menu, bubble, ground, overlay, chrome_layer, crest, mini, person, room, ask, sharing, toasts, menu, billing, signing, skin_ask, witness_ask, failure, rest_scene, resting];
         layers.width(Length::Fill).height(Length::Fill).into()
     }
@@ -9433,6 +9491,39 @@ mod tests {
     }
 
     #[test]
+    fn arrows_light_heads_and_replays_without_opening_anything_and_enter_opens() {
+        use super::select::Focus;
+        let (_, mut main) = crate::gallery::main_states(crate::lang::Lang::En).into_iter().find(|(name, _)| name == "main-hover").unwrap();
+        main.gallery = false;
+        main.group = crate::carousel::Group::Maps;
+        let rows = main.laid().rows.clone();
+        let chosen = main.chosen;
+        let heads: Vec<usize> = rows.iter().filter_map(|row| match row { crate::carousel::Row::Head { first, open: false, .. } => Some(*first), _ => None }).collect();
+        for _ in 0..rows.len() {
+            let _ = main.update(super::Message::Step(1));
+        }
+        assert_eq!(main.laid().rows, rows, "no group opened on the way");
+        assert_eq!(main.chosen, chosen);
+        assert_eq!(main.focus, Some(Focus::Head(*heads.last().unwrap())), "the light rests on the last row");
+        let _ = main.update(super::Message::PoolHot(crate::pools_screen::Hot::Confirm));
+        assert_eq!(main.chosen, heads.last().copied(), "enter opens the lit group");
+        assert_eq!(main.focus, None);
+    }
+
+    #[test]
+    fn dragging_the_carousel_moves_it_with_the_pointer_and_a_fling_carries_on() {
+        let (_, mut main) = crate::gallery::main_states(crate::lang::Lang::En).into_iter().find(|(name, _)| name == "main-hover").unwrap();
+        main.gallery = false;
+        main.height = 360.0;
+        main.group = crate::carousel::Group::Flat;
+        let start = main.carousel_target();
+        let _ = main.update(super::Message::CarouselDrag(-40.0));
+        assert_eq!(main.scroll, Some(start - 40.0));
+        let _ = main.update(super::Message::CarouselDrop(-400.0));
+        assert!(main.carousel_target() < start - 40.0, "a fling goes further than the hand");
+    }
+
+    #[test]
     fn stepping_keeps_the_chosen_row_in_place_and_then_glides() {
         use super::{select, Main};
         use std::time::{Duration, Instant};
@@ -9452,10 +9543,12 @@ mod tests {
         let before_next = {
             let laid = main.laid();
             let shown = main.display(&laid);
-            let next = crate::carousel::step(&main.visible_replays(), main.chosen, 1).unwrap();
+            let next = crate::carousel::step(&main.laid().order, main.chosen, 1).unwrap();
             main.scroll.unwrap() + select::row_top(&shown.rows, &shown.factors, Some(next)).unwrap()
         };
         let _ = main.update(super::Message::Step(1));
+        assert_eq!(main.focus, Some(select::Focus::Replay(crate::carousel::step(&main.laid().order, main.chosen, 1).unwrap())), "the arrow only moves the light");
+        let _ = main.update(super::Message::PoolHot(crate::pools_screen::Hot::Confirm));
         assert!((place(&main) - before_next).abs() < 0.5, "the newly chosen row jumped from {before_next} to {}", place(&main));
         let mut at = start + Duration::from_secs(2);
         let mut seen = Vec::new();

@@ -148,7 +148,7 @@ dependencies = [
 
 [[package]]
 name = "dossier-assay"
-version = "0.96.0"
+version = "0.96.1"
 dependencies = [
  "dossier-beatmap",
  "dossier-replay",
@@ -158,18 +158,18 @@ dependencies = [
 
 [[package]]
 name = "dossier-audio"
-version = "0.96.0"
+version = "0.96.1"
 
 [[package]]
 name = "dossier-beatmap"
-version = "0.96.0"
+version = "0.96.1"
 dependencies = [
  "thiserror",
 ]
 
 [[package]]
 name = "dossier-cli"
-version = "0.96.0"
+version = "0.96.1"
 dependencies = [
  "dossier-assay",
  "dossier-audio",
@@ -186,7 +186,7 @@ dependencies = [
 
 [[package]]
 name = "dossier-exhibit"
-version = "0.96.0"
+version = "0.96.1"
 dependencies = [
  "dossier-beatmap",
  "dossier-replay",
@@ -195,7 +195,7 @@ dependencies = [
 
 [[package]]
 name = "dossier-hud"
-version = "0.96.0"
+version = "0.96.1"
 dependencies = [
  "dossier-overlay",
  "fontdue",
@@ -207,7 +207,7 @@ dependencies = [
 
 [[package]]
 name = "dossier-overlay"
-version = "0.96.0"
+version = "0.96.1"
 dependencies = [
  "dossier-beatmap",
  "dossier-replay",
@@ -218,7 +218,7 @@ dependencies = [
 
 [[package]]
 name = "dossier-produce"
-version = "0.96.0"
+version = "0.96.1"
 dependencies = [
  "dossier-audio",
  "dossier-beatmap",
@@ -233,7 +233,7 @@ dependencies = [
 
 [[package]]
 name = "dossier-render"
-version = "0.96.0"
+version = "0.96.1"
 dependencies = [
  "dossier-beatmap",
  "dossier-replay",
@@ -245,7 +245,7 @@ dependencies = [
 
 [[package]]
 name = "dossier-replay"
-version = "0.96.0"
+version = "0.96.1"
 dependencies = [
  "lzma-rs",
  "thiserror",
@@ -253,7 +253,7 @@ dependencies = [
 
 [[package]]
 name = "dossier-sim"
-version = "0.96.0"
+version = "0.96.1"
 dependencies = [
  "dossier-beatmap",
  "dossier-replay",
@@ -261,7 +261,7 @@ dependencies = [
 
 [[package]]
 name = "dossier-witness"
-version = "0.96.0"
+version = "0.96.1"
 dependencies = [
  "dossier-assay",
  "dossier-beatmap",
@@ -272,7 +272,7 @@ dependencies = [
 
 [[package]]
 name = "dossier-witness-overlay"
-version = "0.96.0"
+version = "0.96.1"
 dependencies = [
  "dossier-hud",
  "dossier-overlay",

@@ -43,6 +43,7 @@ dossier-audio = { path = "../crates/dossier-audio" }
 dossier-produce = { path = "../crates/dossier-produce" }
 dossier-assay = { path = "../crates/dossier-assay" }
 dossier-witness = { path = "../crates/dossier-witness" }
+dossier-hud = { path = "../crates/dossier-hud" }
 
 
 [target.'cfg(target_os = "macos")'.dependencies]

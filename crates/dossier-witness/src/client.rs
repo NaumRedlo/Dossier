@@ -1,9 +1,16 @@
 use std::path::{Path, PathBuf};
 
+use dossier_overlay::Display;
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Client {
     pub build: String,
     pub player: String,
+    pub score_meter: String,
+    pub score_meter_scale: String,
+    pub songs: String,
+    pub fullscreen: String,
+    pub compatibility: String,
 }
 
 const DATE_DIGITS: usize = 8;
@@ -23,10 +30,42 @@ impl Client {
             match key.trim() {
                 "LastVersion" => found.build = value.trim().to_owned(),
                 "Username" => found.player = value.trim().to_owned(),
+                "ScoreMeter" => found.score_meter = value.trim().to_owned(),
+                "ScoreMeterScale" => found.score_meter_scale = value.trim().to_owned(),
+                "BeatmapDirectory" => found.songs = value.trim().to_owned(),
+                "Fullscreen" => found.fullscreen = value.trim().to_owned(),
+                "CompatibilityContext" => found.compatibility = value.trim().to_owned(),
                 _ => {}
             }
         }
         found
+    }
+
+    pub fn meter(&self) -> Option<dossier_overlay::Meter> {
+        if self.score_meter.is_empty() {
+            return None;
+        }
+        let scale = self.score_meter_scale.replace(',', ".").parse::<f32>().ok().filter(|scale| scale.is_finite() && (0.1..=10.0).contains(scale)).unwrap_or(1.0);
+        Some(dossier_overlay::Meter { shown: self.score_meter.eq_ignore_ascii_case("Error"), scale })
+    }
+
+    pub fn display(&self) -> Option<Display> {
+        let full = match self.fullscreen.as_str() {
+            "1" => true,
+            "0" => false,
+            _ => return None,
+        };
+        Some(match (full, self.compatibility == "1") {
+            (false, _) => Display::Window,
+            (true, false) => Display::Full,
+            (true, true) => Display::Exclusive,
+        })
+    }
+
+    pub fn songs_in(&self, folder: &Path) -> PathBuf {
+        let named = if self.songs.is_empty() { "Songs" } else { self.songs.as_str() };
+        let held = PathBuf::from(named.replace('\\', std::path::MAIN_SEPARATOR_STR));
+        if held.is_absolute() || named.contains(':') { PathBuf::from(named) } else { folder.join(held) }
     }
 
     pub fn beside(folder: &Path, user: &str) -> Client {
@@ -74,6 +113,32 @@ mod tests {
         assert_eq!(of("b2025"), None, "too short to be a date");
         assert_eq!(of("20251102"), None, "not a build name");
         assert_eq!(of(""), None);
+    }
+
+    #[test]
+    fn the_client_says_whether_its_hit_error_meter_is_on_how_large_it_is_and_where_its_maps_lie() {
+        let client = Client::said_in("ScoreMeter = Error\r\nScoreMeterScale = 1,5\r\nBeatmapDirectory = Songs\r\n");
+        assert_eq!(client.meter(), Some(dossier_overlay::Meter { shown: true, scale: 1.5 }));
+        assert_eq!(Client::said_in("ScoreMeter = Colour\nScoreMeterScale = 2\n").meter(), Some(dossier_overlay::Meter { shown: false, scale: 2.0 }));
+        assert_eq!(Client::said_in("ScoreMeter = None\n").meter().map(|meter| meter.shown), Some(false));
+        assert_eq!(Client::said_in("ScoreMeter = Error\nScoreMeterScale = nonsense\n").meter().map(|meter| meter.scale), Some(1.0));
+        assert_eq!(Client::default().meter(), None, "a configuration that does not say leaves it unknown");
+        let folder = Path::new("/games/osu");
+        assert_eq!(client.songs_in(folder), folder.join("Songs"));
+        assert_eq!(Client::default().songs_in(folder), folder.join("Songs"));
+        assert_eq!(Client::said_in("BeatmapDirectory = D:\\Maps\n").songs_in(folder), PathBuf::from("D:\\Maps"));
+    }
+
+    #[test]
+    fn only_full_screen_in_compatibility_mode_is_exclusive() {
+        let screen = |text: &str| Client::said_in(text).display();
+        assert_eq!(screen("Fullscreen = 0\r\nCompatibilityContext = 0\r\n"), Some(Display::Window));
+        assert_eq!(screen("Fullscreen = 0\nCompatibilityContext = 1\n"), Some(Display::Window));
+        assert_eq!(screen("Fullscreen = 1\nCompatibilityContext = 0\n"), Some(Display::Full));
+        assert_eq!(screen("Fullscreen = 1\n"), Some(Display::Full), "without the line the client draws with OpenGL");
+        assert_eq!(screen("Fullscreen = 1\nCompatibilityContext = 1\n"), Some(Display::Exclusive));
+        assert_eq!(screen("CompatibilityContext = 1\n"), None, "a configuration that does not say leaves it unknown");
+        assert_eq!(screen("Fullscreen = yes\n"), None);
     }
 
     #[test]

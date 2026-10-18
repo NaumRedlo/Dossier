@@ -8,7 +8,7 @@ not take part.
 It is a program of its own (`witness.exe`, crate `crates/dossier-witness`), not
 code inside the window: it has to run where the client runs, a crash or an
 antivirus's opinion of it must not take the application down, and one small
-program can serve the application and whatever comes after it.
+program can serve the application, overlays and whatever comes after them.
 
 ## What it is for
 
@@ -20,7 +20,7 @@ program can serve the application and whatever comes after it.
   counted them, to set beside what the engine's simulation says and find the
   first object where they part (ENG-04).
 - Later: a live "playing now", watching another Dossier player through the
-  engine's own renderer.
+  engine's own renderer, overlays for streams.
 
 ## Where it can work
 
@@ -87,8 +87,10 @@ the one the client's configuration names, and the name given only after that.
 The client says both itself, in the configuration it keeps beside its program:
 `osu!.<user>.cfg`, where the user is the one at the machine (inside Wine, the
 prefix's). Witness asks the system where the client's program is, reads that
-file and takes two lines from it: `LastVersion` (`b20260924cuttingedge`) and
-`Username`. Nothing else in the file is read, kept or passed on; the file
+file and takes five lines from it: `LastVersion` (`b20260924cuttingedge`),
+`Username`, and for the overlay `ScoreMeter`, `ScoreMeterScale` (whether the
+client shows its hit error meter and how large) and `BeatmapDirectory` (where
+its maps lie). Nothing else in the file is read, kept or passed on; the file
 also holds what the person signs in with, and that is none of Witness's
 business.
 
@@ -143,7 +145,9 @@ Witness is built on the Mac for Windows and run in the bottle:
     wine --bottle osu-stable target/x86_64-pc-windows-gnu/release/witness.exe --watch 20
 
 `--process NAME` reads another process, `--regions` tells how its memory is
-labelled. The build needs `mingw-w64` and the `x86_64-pc-windows-gnu` target;
+labelled. The plates over the game are a separate program, Witness Overlay
+(`witness-overlay.exe`), fed by Dossier with the frames `--serve --frames` writes
+(see `docs/witness-hud.md`). The build needs `mingw-w64` and the `x86_64-pc-windows-gnu` target;
 the linker is named in `.cargo/config.toml`.
 
 ## In the application
@@ -292,3 +296,9 @@ false memory — code with the patterns in it, objects laid out the way the
 runtime lays them — and read it back: patterns across the seam of two reads, a
 glance at a play, a broken hash refused. No test can start the client; what the
 tests cannot say is said by the bench.
+
+## Overlay foundation
+
+The opt-in `--overlay` stream and shared host contract are described in
+[Witness overlay foundation](witness-overlay.md). This prepares in-client
+integration for stable and lazer; it does not yet render an overlay in either.

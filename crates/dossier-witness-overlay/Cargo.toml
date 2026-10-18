@@ -1,0 +1,18 @@
+[package]
+name = "dossier-witness-overlay"
+description = "Witness Overlay: shows Witness's plates over the game from frames it is given, and never opens the game's process"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+dossier-overlay = { path = "../dossier-overlay" }
+dossier-hud = { path = "../dossier-hud" }
+
+[lib]
+name = "dossier_witness_overlay"
+path = "src/lib.rs"
+
+[[bin]]
+name = "witness-overlay"
+path = "src/main.rs"

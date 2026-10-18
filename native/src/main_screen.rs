@@ -1038,6 +1038,16 @@ impl Main {
         }
     }
 
+    fn witness_overlay(&self) -> Option<crate::witness::Overlay> {
+        self.settings.witness_overlay.then(|| crate::witness::Overlay { english: self.settings.lang == crate::lang::Lang::En, keeps: self.settings.witness_keep })
+    }
+
+    fn witness_shown(&self) {
+        if let Some(control) = &self.witness_control {
+            control.show(self.witness_overlay());
+        }
+    }
+
     pub fn witness_task(&mut self) -> Task<Message> {
         if self.gallery || self.witness_control.is_some() || !self.settings.witness_on {
             return Task::none();
@@ -1047,6 +1057,7 @@ impl Main {
             let _ = self.settings.save();
         }
         let control = std::sync::Arc::new(crate::witness::Control::default());
+        control.show(self.witness_overlay());
         self.witness_control = Some(control.clone());
         let untold = self.witness.untold;
         self.witness = crate::witness::Seen { status: crate::witness::Status::Absent, ..crate::witness::Seen::default() };
@@ -3811,6 +3822,9 @@ impl Main {
                 }
                 let was_there = matches!(self.witness.status, crate::witness::Status::Loading | crate::witness::Status::Watching | crate::witness::Status::Playing);
                 self.witness.take(&event);
+                if let Some(control) = &self.witness_control {
+                    control.context(&event, self.witness.state.as_ref(), &self.pools.list, self.settings.lang == crate::lang::Lang::En);
+                }
                 let leaving = was_there && matches!(event, crate::witness::Event::Gone | crate::witness::Event::Waiting | crate::witness::Event::Absent);
                 let sitting = Task::batch([self.sitting_task(&event), if leaving { self.history_task(false) } else { Task::none() }]);
                 if let crate::witness::Event::Kept(kept) = &event {
@@ -7039,6 +7053,7 @@ impl Main {
                 }
                 self.settings.lang = lang;
                 keep(&self.settings);
+                self.witness_shown();
                 self.words = Words::new(lang);
                 self.retype = Animation::new(true);
                 let now = Instant::now();
@@ -7229,6 +7244,14 @@ impl Main {
                     self.witness_source();
                 }
                 keep(&self.settings);
+                self.witness_shown();
+                Task::none()
+            }
+            P::WitnessOverlay(on) => {
+                self.remember_mark("witness-overlay", on);
+                self.settings.witness_overlay = on;
+                keep(&self.settings);
+                self.witness_shown();
                 Task::none()
             }
             P::AutoScale(on) => {
@@ -9027,6 +9050,27 @@ mod tests {
         main.witness.take(&crate::witness::Event::Gone);
         assert_eq!((main.witness.told, main.witness.status.clone()), (1, crate::witness::Status::Absent));
         let _ = std::fs::remove_file(queue_path);
+    }
+
+    #[test]
+    fn the_overlay_switch_reaches_the_running_witness_with_the_language_and_the_journal() {
+        use crate::settings_screen::Message as P;
+        use crate::witness::Overlay;
+        let (_, mut main) = crate::gallery::main_states(crate::lang::Lang::En).into_iter().find(|(name, _)| name == "main-prefs-witness").unwrap();
+        let control = std::sync::Arc::new(crate::witness::Control::default());
+        main.witness_control = Some(control.clone());
+        main.settings.lang = crate::lang::Lang::En;
+        main.settings.witness_overlay = false;
+        assert_eq!(control.overlay(), None);
+        let _ = main.update(super::Message::Prefs(P::WitnessOverlay(true)));
+        assert!(main.settings.witness_overlay);
+        assert_eq!(control.overlay(), Some(Overlay { english: true, keeps: true }));
+        let _ = main.update(super::Message::Prefs(P::Witness(false)));
+        assert_eq!(control.overlay(), Some(Overlay { english: true, keeps: false }), "the tile may not say a play was saved");
+        let _ = main.update(super::Message::Prefs(P::PickLang(crate::lang::Lang::Ru)));
+        assert_eq!(control.overlay(), Some(Overlay { english: false, keeps: false }));
+        let _ = main.update(super::Message::Prefs(P::WitnessOverlay(false)));
+        assert_eq!(control.overlay(), None);
     }
 
     #[test]

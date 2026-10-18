@@ -1,13 +1,14 @@
-use std::io::BufRead;
+use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
 static BUNDLED: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/witness.exe"));
+static BUNDLED_OVERLAY: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/witness-overlay.exe"));
 
 const CLIENT: &str = "osu!.exe";
 const LOOK_EVERY: Duration = Duration::from_secs(4);
@@ -18,6 +19,12 @@ const LEASH: &str = "witness.alive";
 const LEASH_EVERY: Duration = Duration::from_secs(5);
 const TOLD_LEAST: u32 = 30;
 const NOT_PLAYED: u32 = 2048 | 4_194_304;
+const OVERLAY_AGAIN: Duration = Duration::from_secs(5);
+const OVERLAY_QUEUE: usize = 32;
+const OVERLAY_GRACE: Duration = Duration::from_secs(2);
+const FRAME_LINE: &str = "{\"event\":\"overlay\"";
+const HELLO_KIND: &str = "\"kind\":\"hello\"";
+
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct MapFacts {
@@ -152,7 +159,7 @@ impl Sittings {
                 self.begin_if_none(now, zone);
                 self.moved(now)
             }
-            Event::Loading | Event::Alive => None,
+            Event::Loading | Event::Alive | Event::Overlay(_) | Event::Screen(_) => None,
         }
     }
 
@@ -284,6 +291,10 @@ pub enum Event {
     Absent,
     #[serde(skip)]
     Unavailable,
+    #[serde(skip)]
+    Overlay(bool),
+    #[serde(skip)]
+    Screen(Option<String>),
 }
 
 pub fn read(line: &str) -> Option<Event> {
@@ -315,6 +326,8 @@ pub struct Seen {
     pub player: String,
     pub history_told: u32,
     pub history_failed: bool,
+    pub overlay: bool,
+    pub screen: Option<String>,
 }
 
 impl Seen {
@@ -352,6 +365,8 @@ impl Seen {
                     self.status = Status::Watching;
                 }
             }
+            Event::Overlay(on) => self.overlay = *on,
+            Event::Screen(screen) => self.screen = screen.clone(),
             Event::Alive => {}
         }
     }
@@ -369,6 +384,16 @@ pub fn program() -> Option<PathBuf> {
         return None;
     }
     installed("witness.exe", BUNDLED)
+}
+
+pub fn overlay_program() -> Option<PathBuf> {
+    if let Some(given) = std::env::var_os("DOSSIER_WITNESS_OVERLAY").map(PathBuf::from).filter(|path| path.is_file()) {
+        return Some(given);
+    }
+    if BUNDLED_OVERLAY.is_empty() {
+        return None;
+    }
+    installed("witness-overlay.exe", BUNDLED_OVERLAY)
 }
 
 fn installed(name: &str, bytes: &[u8]) -> Option<PathBuf> {
@@ -509,6 +534,12 @@ pub fn launch() -> Option<Launch> {
     None
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Overlay {
+    pub english: bool,
+    pub keeps: bool,
+}
+
 fn launched(launch: &Launch, program: &Path) -> Command {
     let command = match launch {
         Launch::Direct => Command::new(program),
@@ -540,7 +571,7 @@ fn quiet(command: Command) -> Command {
 
 pub fn command(launch: &Launch, program: &Path, player: &str) -> Command {
     let mut command = launched(launch, program);
-    command.arg("--serve").arg("--leash");
+    command.arg("--serve").arg("--leash").arg("--frames");
     if !player.is_empty() {
         command.arg("--player").arg(player);
     }
@@ -548,19 +579,180 @@ pub fn command(launch: &Launch, program: &Path, player: &str) -> Command {
     command
 }
 
+pub fn overlay_command(launch: &Launch, program: &Path, overlay: Overlay) -> Command {
+    let mut command = launched(launch, program);
+    if overlay.english {
+        command.arg("--lang").arg("en");
+    }
+    if overlay.keeps {
+        command.arg("--keeps");
+    }
+    let told = std::fs::File::create(overlay_log()).map_or_else(|_| Stdio::null(), Stdio::from);
+    command.stdin(Stdio::piped()).stdout(Stdio::null()).stderr(told);
+    command
+}
+
+fn screen_of(line: &str) -> Option<Option<String>> {
+    if !line.contains("\"snapshot\"") {
+        return None;
+    }
+    let frame: serde_json::Value = serde_json::from_str(line).ok()?;
+    let snapshot = frame.get("snapshot")?;
+    Some(snapshot.get("display").and_then(|display| display.as_str()).map(str::to_owned))
+}
+
+pub fn overlay_log() -> std::path::PathBuf {
+    crate::sources::own_root().join("witness-overlay.log")
+}
+
+#[derive(Debug)]
+struct Shown {
+    child: Child,
+    frames: std::sync::mpsc::SyncSender<String>,
+}
+
+fn write_frames(mut input: ChildStdin, frames: std::sync::mpsc::Receiver<String>) {
+    while let Ok(line) = frames.recv() {
+        if input.write_all(line.as_bytes()).and_then(|()| input.write_all(b"\n")).is_err() {
+            return;
+        }
+    }
+}
+
+fn close(shown: Shown) {
+    let Shown { mut child, frames } = shown;
+    drop(frames);
+    std::thread::spawn(move || {
+        let until = Instant::now() + OVERLAY_GRACE;
+        while Instant::now() < until {
+            if child.try_wait().ok().flatten().is_some() {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        let _ = child.kill();
+        let _ = child.wait();
+    });
+}
+
 #[derive(Debug, Default)]
 pub struct Control {
     stop: AtomicBool,
     child: Mutex<Option<Child>>,
+    overlay: Mutex<Option<Overlay>>,
+    shown: Mutex<Option<Shown>>,
+    hello: Mutex<Option<String>>,
+    launch: Mutex<Option<Launch>>,
+    overlay_tried: Mutex<Option<Instant>>,
+    screen: Mutex<Option<String>>,
+    context: Mutex<Option<dossier_hud::context::Packet>>,
+    pid: std::sync::atomic::AtomicU32,
 }
 
+pub fn context_path() -> PathBuf { crate::sources::own_root().join("witness-context.json") }
+
 impl Control {
+    pub fn context(&self, event: &Event, state: Option<&State>, pools: &[crate::pools::Pool], english: bool) {
+        if let Event::Attached { pid, .. } = event { self.pid.store(*pid, Ordering::SeqCst); }
+        let absent = matches!(event, Event::Gone | Event::Waiting | Event::Absent | Event::Unavailable);
+        if absent { self.pid.store(0, Ordering::SeqCst); }
+        let pid = self.pid.load(Ordering::SeqCst);
+        let mut held = self.context.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        *held = (pid != 0 && !matches!(event, Event::Loading)).then(|| {
+            let map_md5 = state.map(|state| state.md5.clone()).filter(|hash| !hash.is_empty());
+            let card = map_md5.as_ref().and_then(|hash| pools.iter().filter(|pool| !pool.collection).find_map(|pool| {
+                pool.slots.iter().find(|slot| slot.hash.as_ref().is_some_and(|known| known.eq_ignore_ascii_case(hash))).map(|slot| dossier_hud::Card {
+                    pool: Some(pool.name.clone()), stars: slot.measure.as_ref().filter(|_| slot.mods == crate::pools::Mod::Nm).map(|measure| measure.stars), places: Vec::new(),
+                })
+            }));
+            dossier_hud::context::Packet { version: 1, pid, at_ms: 0, lang: if english { dossier_hud::Lang::En } else { dossier_hud::Lang::Ru }, map_md5, card, day: None }
+        });
+    }
+
     pub fn stop(&self) {
         self.stop.store(true, Ordering::SeqCst);
+        self.close_overlay();
         if let Some(mut child) = self.child.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).take() {
             let _ = child.kill();
             let _ = child.wait();
         }
+    }
+
+    fn close_overlay(&self) -> bool {
+        let shown = self.shown.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).take();
+        *self.overlay_tried.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
+        shown.map(close).is_some()
+    }
+
+    fn forward(&self, line: &str, push: &mut dyn FnMut(Event) -> bool) -> bool {
+        if let Some(screen) = screen_of(line) {
+            let mut held = self.screen.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+            if *held != screen {
+                held.clone_from(&screen);
+                drop(held);
+                if !push(Event::Screen(screen)) {
+                    return false;
+                }
+            }
+        }
+        let hello = line.contains(HELLO_KIND);
+        if hello {
+            *self.hello.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(line.to_owned());
+        }
+        let Some(overlay) = self.overlay() else {
+            return true;
+        };
+        let mut said = None;
+        {
+            let mut shown = self.shown.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+            if shown.is_none() {
+                let mut tried = self.overlay_tried.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+                let launch = self.launch.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone();
+                if tried.is_none_or(|at| at.elapsed() >= OVERLAY_AGAIN) {
+                    *tried = Some(Instant::now());
+                    *shown = overlay_program().zip(launch).and_then(|(program, launch)| overlay_command(&launch, &program, overlay).spawn().ok()).and_then(|mut child| {
+                        let Some(input) = child.stdin.take() else {
+                            let _ = child.kill();
+                            let _ = child.wait();
+                            return None;
+                        };
+                        let (frames, queue) = std::sync::mpsc::sync_channel(OVERLAY_QUEUE);
+                        std::thread::spawn(move || write_frames(input, queue));
+                        if let Some(first) = self.hello.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone().filter(|_| !hello) {
+                            let _ = frames.try_send(first);
+                        }
+                        Some(Shown { child, frames })
+                    });
+                    if shown.is_some() {
+                        said = Some(true);
+                    }
+                }
+            }
+            if let Some(held) = shown.as_ref() {
+                if let Err(std::sync::mpsc::TrySendError::Disconnected(_)) = held.frames.try_send(line.to_owned()) {
+                    if let Some(gone) = shown.take() {
+                        close(gone);
+                    }
+                    said = Some(false);
+                }
+            }
+        }
+        said.is_none_or(|on| push(Event::Overlay(on)))
+    }
+
+    pub fn overlay(&self) -> Option<Overlay> {
+        *self.overlay.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    pub fn show(&self, overlay: Option<Overlay>) -> bool {
+        let mut held = self.overlay.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        if *held == overlay {
+            return false;
+        }
+        *held = overlay;
+        drop(held);
+        self.close_overlay();
+        true
     }
 
     pub fn stopped(&self) -> bool {
@@ -585,6 +777,12 @@ pub fn follow(lines: impl BufRead, control: &Control, push: &mut dyn FnMut(Event
         if control.stopped() {
             return false;
         }
+        if line.starts_with(FRAME_LINE) {
+            if !control.forward(&line, push) {
+                return false;
+            }
+            continue;
+        }
         if let Some(event) = read(&line) {
             if !matches!(event, Event::Alive) && !push(event) {
                 return false;
@@ -595,10 +793,6 @@ pub fn follow(lines: impl BufRead, control: &Control, push: &mut dyn FnMut(Event
 }
 
 pub fn run(control: Arc<Control>, player: String, push: &mut dyn FnMut(Event) -> bool) {
-    let own = crate::sources::own_root();
-    for left in [own.join("bin").join("witness-overlay.exe"), own.join("witness-overlay.log"), own.join("witness-context.json")] {
-        let _ = std::fs::remove_file(left);
-    }
     let mut waiting_told = false;
     let program = loop {
         if let Some(program) = program() {
@@ -621,9 +815,15 @@ pub fn run(control: Arc<Control>, player: String, push: &mut dyn FnMut(Event) ->
         std::thread::spawn(move || {
             while !holder.stopped() {
                 let _ = std::fs::write(&leash, b"held");
+                let packet = holder.context.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone();
+                if let Some(mut packet) = packet.filter(|_| holder.overlay().is_some()) {
+                    packet.at_ms = dossier_hud::context::now_ms();
+                    let _ = dossier_hud::context::write(&context_path(), &packet);
+                } else { let _ = std::fs::remove_file(context_path()); }
                 holder.rest(LEASH_EVERY);
             }
             let _ = std::fs::remove_file(&leash);
+            let _ = std::fs::remove_file(context_path());
         });
     }
     let mut absent_told = false;
@@ -637,6 +837,7 @@ pub fn run(control: Arc<Control>, player: String, push: &mut dyn FnMut(Event) ->
             continue;
         };
         absent_told = false;
+        *control.launch.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(launch.clone());
         let Ok(mut child) = command(&launch, &program, &player).spawn() else {
             if !push(Event::Unavailable) {
                 return;
@@ -654,6 +855,10 @@ pub fn run(control: Arc<Control>, player: String, push: &mut dyn FnMut(Event) ->
             let _ = child.kill();
             let _ = child.wait();
         }
+        *control.hello.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
+        if control.close_overlay() && !push(Event::Overlay(false)) {
+            return;
+        }
         if !going {
             return;
         }
@@ -664,6 +869,41 @@ pub fn run(control: Arc<Control>, player: String, push: &mut dyn FnMut(Event) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn overlay_context_tracks_attachment_loading_and_disconnect() {
+        let control = Control::default();
+        let attached = Event::Attached { pid: 42, build: String::new(), player: String::new() };
+        control.context(&attached, None, &[], true);
+        assert_eq!(control.context.lock().unwrap().as_ref().unwrap().pid, 42);
+        control.context(&Event::Loading, None, &[], true);
+        assert!(control.context.lock().unwrap().is_none());
+        let state = State { md5: "a".repeat(32), ..State::default() };
+        control.context(&Event::State(state.clone()), Some(&state), &[], true);
+        let packet = control.context.lock().unwrap().clone().unwrap();
+        assert_eq!(packet.pid, 42);
+        assert_eq!(packet.map_md5, Some("a".repeat(32)));
+        assert_eq!(packet.lang, dossier_hud::Lang::En);
+        assert!(packet.day.is_none() && packet.card.is_none());
+        control.context(&Event::Gone, None, &[], true);
+        assert!(control.context.lock().unwrap().is_none());
+    }
+
+    #[test]
+    fn overlay_pool_card_matches_the_map_and_excludes_collections() {
+        let control = Control::default();
+        let mut pool = crate::pools::Pool::new(crate::pools::Frame::Free, "Cup", 0);
+        let mut slot = crate::pools::Slot::empty(crate::pools::Mod::Nm);
+        slot.hash = Some("a".repeat(32));
+        pool.slots.push(slot);
+        let state = State { md5: "A".repeat(32), ..State::default() };
+        let attached = Event::Attached { pid: 42, build: String::new(), player: String::new() };
+        control.context(&attached, Some(&state), &[pool.clone()], false);
+        assert_eq!(control.context.lock().unwrap().as_ref().unwrap().card.as_ref().unwrap().pool.as_deref(), Some("Cup"));
+        pool.collection = true;
+        control.context(&Event::State(state.clone()), Some(&state), &[pool], false);
+        assert!(control.context.lock().unwrap().as_ref().unwrap().card.is_none());
+    }
 
     #[test]
     fn what_witness_says_is_read_line_by_line() {
@@ -856,13 +1096,44 @@ mod tests {
     }
 
     #[test]
+    fn the_overlay_runs_apart_with_its_own_words_and_its_switch_leaves_witness_running() {
+        let program = Path::new("/home/none/.dossier/bin/witness-overlay.exe");
+        let args = |overlay: Overlay| overlay_command(&Launch::Direct, program, overlay).get_args().map(|arg| arg.to_string_lossy().into_owned()).collect::<Vec<_>>();
+        assert!(args(Overlay::default()).is_empty());
+        assert_eq!(args(Overlay { english: true, keeps: true }), ["--lang", "en", "--keeps"]);
+        let control = Control::default();
+        assert_eq!(control.overlay(), None);
+        assert!(control.show(Some(Overlay::default())), "a change is told");
+        assert!(!control.show(Some(Overlay::default())), "the same word twice changes nothing");
+        assert_eq!(control.overlay(), Some(Overlay::default()));
+        assert!(control.show(None));
+        assert!(!control.stopped(), "switching the overlay does not stop Witness");
+    }
+
+    #[test]
+    fn frames_go_past_the_events_and_the_session_s_greeting_is_remembered() {
+        let hello = r#"{"event":"overlay","version":1,"session":1,"sequence":1,"kind":"hello","client":"stable","pid":7,"build":"b1"}"#;
+        let snapshot = r#"{"event":"overlay","version":1,"session":1,"sequence":2,"kind":"snapshot","snapshot":{"screen":"menu","beatmap":null,"gameplay":null,"watching_replay":null}}"#;
+        let said = format!("{hello}\n{snapshot}\n{{\"event\":\"state\",\"mode\":\"Menu\"}}\n");
+        let control = Control::default();
+        let mut pushed = Vec::new();
+        assert!(follow(std::io::Cursor::new(said), &control, &mut |event| {
+            pushed.push(event);
+            true
+        }));
+        assert_eq!(pushed, [Event::State(State { mode: "Menu".into(), ..State::default() })]);
+        assert_eq!(control.hello.lock().unwrap().as_deref(), Some(hello));
+        assert!(control.shown.lock().unwrap().is_none(), "no overlay is started while it is switched off");
+    }
+
+    #[test]
     fn witness_is_started_inside_the_client_s_own_prefix() {
         let program = Path::new("/home/none/.dossier/bin/witness.exe");
         let args = |command: &Command| command.get_args().map(|arg| arg.to_string_lossy().into_owned()).collect::<Vec<_>>();
         let direct = command(&Launch::Direct, program, "NaumRedlo");
-        assert_eq!((direct.get_program(), args(&direct)), (program.as_os_str(), vec!["--serve".to_owned(), "--leash".to_owned(), "--player".to_owned(), "NaumRedlo".to_owned()]));
+        assert_eq!((direct.get_program(), args(&direct)), (program.as_os_str(), vec!["--serve".to_owned(), "--leash".to_owned(), "--frames".to_owned(), "--player".to_owned(), "NaumRedlo".to_owned()]));
         let bottle = command(&Launch::CrossOver { wine: PathBuf::from("/cx/bin/wine"), bottle: "osu-stable".into() }, program, "");
-        assert_eq!(args(&bottle), vec!["--bottle", "osu-stable", "/home/none/.dossier/bin/witness.exe", "--serve", "--leash"]);
+        assert_eq!(args(&bottle), vec!["--bottle", "osu-stable", "/home/none/.dossier/bin/witness.exe", "--serve", "--leash", "--frames"]);
         let wine = command(&Launch::Wine { loader: PathBuf::from("/opt/wine/bin/wine"), prefix: PathBuf::from("/home/none/prefix") }, program, "");
         assert_eq!(wine.get_program(), "/opt/wine/bin/wine");
         assert!(wine.get_envs().any(|(key, value)| key == "WINEPREFIX" && value == Some(std::ffi::OsStr::new("/home/none/prefix"))));

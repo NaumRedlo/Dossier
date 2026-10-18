@@ -32,8 +32,10 @@ it builds on a Raspberry Pi as readily as on a laptop.
 | `crates/dossier-exhibit` | picking the moments worth showing |
 | `crates/dossier-cli` | the `dossier` program |
 | `crates/dossier-witness` | Witness: reads what a running osu! client holds in memory, and writes nothing |
+| `crates/dossier-overlay` | the messages Witness tells an overlay with, and the rules for live values |
+| `crates/dossier-hud` | lays out and paints the overlay's plates |
 | `native/` | the application — the engine linked in, with a window |
-| `tools/` | the harnesses: danser's own judge, and the corpus check |
+| `tools/` | the harnesses: danser's own judge, the corpus check, and experimental overlay hosts |
 
 A replay file records where the cursor was and which buttons were down. It does
 **not** record what each click hit — that has to be reconstructed, and doing so
@@ -149,7 +151,8 @@ into a companion for osu!:
   Telegram channel you add.
 - **Witness** is a small separate program that watches a running osu!stable
   client. It only ever reads the client's memory. It can tell your chat about a
-  play the moment it ends and keep a replay of every play.
+  play the moment it ends, keep a replay of every play, and draw an
+  experimental overlay in its own windows over the game.
   [`docs/witness.md`](docs/witness.md) lists exactly what it reads.
 
 Everything is in English and in Russian.

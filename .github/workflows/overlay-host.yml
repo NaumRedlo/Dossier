@@ -1,0 +1,52 @@
+name: overlay host
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  ASDF_OVERLAY_REV: c057c2a4b469d8079dbce39f41fdfeedf5060f86
+
+jobs:
+  build:
+    name: build (windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/checkout@v5
+        with:
+          repository: storycraft/asdf-overlay
+          ref: ${{ env.ASDF_OVERLAY_REV }}
+          path: asdf-overlay
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          targets: x86_64-pc-windows-msvc,i686-pc-windows-msvc,aarch64-pc-windows-msvc
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: overlay-host
+          workspaces: |
+            asdf-overlay
+            tools/overlay-host
+            .
+      - name: Overlay DLLs
+        working-directory: asdf-overlay
+        run: cargo xtask build-dll --out ../bundle -- --release
+      - name: Host
+        run: cargo build --manifest-path tools/overlay-host/Cargo.toml --locked --release --target x86_64-pc-windows-msvc
+      - name: Witness
+        run: cargo build --release -p dossier-witness --target x86_64-pc-windows-msvc
+      - name: Bundle
+        shell: bash
+        run: |
+          cp tools/overlay-host/target/x86_64-pc-windows-msvc/release/dossier-overlay-host.exe bundle/
+          cp target/x86_64-pc-windows-msvc/release/witness.exe bundle/
+          cp tools/overlay-host/README.md bundle/
+          ls -la bundle
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dossier-overlay-host
+          path: bundle

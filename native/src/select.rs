@@ -188,10 +188,20 @@ pub fn top_faded<'a>(at: f32, full: f32, reach: f32, place: impl Fn(f32) -> Elem
     strips.into()
 }
 
+pub(super) fn shown_tops(rows: &[Row], factors: &[f32]) -> Vec<f32> {
+    let joins = carousel::joins(rows);
+    let mut top = 0.0;
+    (0..rows.len())
+        .map(|i| {
+            let here = top;
+            top += rows[i].height() * factors[i] + if joins.get(i + 1).copied().unwrap_or(false) { 0.0 } else { carousel::GAP * gap_factor(rows, factors, i + 1) };
+            here
+        })
+        .collect()
+}
+
 pub(super) fn shown_top(rows: &[Row], factors: &[f32], at: usize) -> f32 {
-    (0..at)
-        .map(|i| rows[i].height() * factors[i] + if carousel::attached(rows, i + 1) { 0.0 } else { carousel::GAP * gap_factor(rows, factors, i + 1) })
-        .sum()
+    shown_tops(rows, factors)[at]
 }
 
 fn gap_factor(rows: &[Row], factors: &[f32], at: usize) -> f32 {
@@ -246,7 +256,7 @@ impl Main {
         Filter { query: self.search.clone(), ..self.filter.clone() }
     }
 
-    pub(super) fn laid(&self) -> Laid {
+    pub(super) fn laid(&self) -> std::rc::Rc<Laid> {
         let key = LaidKey {
             filter: self.filter(),
             sort: self.sort,
@@ -262,7 +272,7 @@ impl Main {
                 return laid.clone();
             }
         }
-        let laid = self.lay_fresh();
+        let laid = std::rc::Rc::new(self.lay_fresh());
         *self.laid_cache.borrow_mut() = Some((key, laid.clone()));
         laid
     }
@@ -277,12 +287,12 @@ impl Main {
     }
 
     pub(super) fn jump_group(&self, by: i32) -> Option<usize> {
+        let laid = self.laid();
         let me = self.own_name();
         let root = crate::sources::witnessed_root();
         let witnessed = |entry: &Entry| entry.path.starts_with(&root);
         let day = |at: i64| self.words.day(at, self.now_unix);
         let context = carousel::Context { ratings: &self.ratings.known, me: &me, witnessed: &witnessed, day: &day };
-        let laid = carousel::lay(self.entries(), &self.filter(), self.sort, self.group, self.chosen, &context);
         carousel::jump(&laid, self.entries(), self.group, &context, by)
     }
 
@@ -345,14 +355,18 @@ impl Main {
         let shift = self.glide_now(self.carousel_target());
         let entries = self.entries();
         let mut out: Vec<(f32, String, std::path::PathBuf)> = Vec::new();
+        let tops = shown_tops(&laid.rows, &vec![1.0; laid.rows.len()]);
         for (index, row) in laid.rows.iter().enumerate() {
+            let top = shift + tops[index];
+            if top > 2.0 * height {
+                break;
+            }
             let (first, hash) = match row {
                 Row::Head { first, cover: Some(hash), .. } => (first, hash),
                 Row::Replay { at, .. } if self.group != Group::Maps => (at, &entries[*at].map_hash),
                 _ => continue,
             };
-            let top = shift + shown_top(&laid.rows, &vec![1.0; laid.rows.len()], index);
-            if top + row.height() < -height || top > 2.0 * height {
+            if top + row.height() < -height {
                 continue;
             }
             if let Some(path) = entries.get(*first).and_then(|entry| entry.map.as_ref()).and_then(|map| map.background.clone()) {
@@ -540,6 +554,7 @@ impl Main {
         let shift = self.glide_now(target);
         let shown = self.display(laid);
         let rows = &shown.rows;
+        let joins = carousel::joins(rows);
         let mut top = shift;
         let reach = (-shift / TOP_FADE_ONSET).clamp(0.0, 1.0);
         let mut list = column![].width(Length::Fill);
@@ -547,10 +562,13 @@ impl Main {
             let unfold = shown.factors[index];
             let ghost = shown.ghost[index];
             let head = matches!(row, Row::Head { .. });
-            if index > 0 && !carousel::attached(rows, index) {
+            if index > 0 && !joins[index] {
                 let gap = carousel::GAP * gap_factor(rows, &shown.factors, index);
                 list = list.push(Space::new().width(Length::Fill).height(gap));
                 top += gap;
+            }
+            if top >= height {
+                break;
             }
             let full = row.height();
             let tall = full * unfold;

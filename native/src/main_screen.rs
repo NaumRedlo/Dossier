@@ -499,7 +499,7 @@ pub struct Main {
     pub(crate) search_open: bool,
     folding: Vec<select::Fold>,
     spring_at: Option<Instant>,
-    laid_cache: std::cell::RefCell<Option<(select::LaidKey, crate::carousel::Laid)>>,
+    laid_cache: std::cell::RefCell<Option<(select::LaidKey, std::rc::Rc<crate::carousel::Laid>)>>,
     glow_epoch: Instant,
     share_open: bool,
     low_held: bool,
@@ -1452,7 +1452,7 @@ impl Main {
     }
 
     pub fn visible(&self) -> Vec<usize> {
-        self.laid().order
+        self.laid().order.clone()
     }
 
     pub fn chosen_entry(&self) -> Option<&Entry> {

@@ -276,22 +276,26 @@ pub fn insets(rows: &[Row]) -> Vec<f32> {
         .collect()
 }
 
-pub fn attached(rows: &[Row], at: usize) -> bool {
-    if !matches!(rows.get(at), Some(Row::Replay { .. })) {
-        return false;
-    }
-    for row in rows[..at].iter().rev() {
-        match row {
-            Row::Replay { .. } => continue,
-            Row::Difficulty { .. } => return true,
-            Row::Head { .. } => return false,
-        }
-    }
-    false
+pub fn joins(rows: &[Row]) -> Vec<bool> {
+    let mut under = false;
+    rows.iter()
+        .map(|row| match row {
+            Row::Replay { .. } => under,
+            Row::Difficulty { .. } => {
+                under = true;
+                false
+            }
+            Row::Head { .. } => {
+                under = false;
+                false
+            }
+        })
+        .collect()
 }
 
 pub fn top_of(rows: &[Row], at: usize) -> f32 {
-    (0..at).map(|i| rows[i].height() + if attached(rows, i + 1) { 0.0 } else { GAP }).sum()
+    let joins = joins(rows);
+    (0..at).map(|i| rows[i].height() + if joins.get(i + 1).copied().unwrap_or(false) { 0.0 } else { GAP }).sum()
 }
 
 pub fn offset(rows: &[Row], height: f32) -> f32 {
@@ -451,8 +455,7 @@ mod tests {
             Row::Replay { at: 1, chosen: true },
             Row::Head { title: "b".into(), under: String::new(), first: 2, count: 1, open: false, cover: None, marks: Vec::new() },
         ];
-        let flush: Vec<bool> = (0..rows.len()).map(|i| attached(&rows, i)).collect();
-        assert_eq!(flush, vec![false, false, true, true, false]);
+        assert_eq!(joins(&rows), vec![false, false, true, true, false]);
         assert_eq!(top_of(&rows, 3), 80.0 + GAP + 36.0 + 60.0);
     }
 

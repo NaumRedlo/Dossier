@@ -1279,6 +1279,10 @@ impl Main {
 
     pub fn moving(&self) -> bool {
         if self.minimized { return false; }
+        if self.resting.value() {
+            return self.resting.is_animating(self.now) || self.reel.fading(self.now)
+                || self.live.as_ref().is_some_and(|live| !live.control.settled());
+        }
         self.rendering.as_ref().is_some_and(|r| !r.is_over())
             || self.fetch_running()
             || matches!(self.looking, Some(scan::Step::Looking { .. }))
@@ -1434,7 +1438,9 @@ impl Main {
             parts.push(iced::time::every(Duration::from_secs(5)).map(|_| Message::UpdateIdle));
         }
         let moving = self.moving();
-        if moving {
+        if self.resting.value() && (moving || self.reel.running()) {
+            parts.push(iced::time::every(Duration::from_millis(33)).map(Message::Tick));
+        } else if moving {
             parts.push(window::frames().map(Message::Tick));
         }
         if !moving && self.toasts.iter().any(|toast| toast.shown.value() && !toast.hovered) {
@@ -1552,6 +1558,7 @@ impl Main {
             return Task::none();
         };
         let control = std::sync::Arc::new(live::Control::default());
+        control.suspend(self.minimized);
         self.live = Some(Live {
             control: control.clone(),
             for_path: ask.replay.clone(),
@@ -2078,7 +2085,7 @@ impl Main {
         }
     }
 
-    fn check_rest(&mut self, now: Instant) {
+    fn check_rest(&mut self, now: Instant) -> Task<Message> {
         if !self.can_rest() {
             self.wake(now);
         } else if !self.resting.value() && now.saturating_duration_since(self.last_input) >= REST_AFTER {
@@ -2093,6 +2100,11 @@ impl Main {
             for lift in self.lifts.values_mut() {
                 lift.go_mut(false, now);
             }
+        }
+        if self.resting.value() && !self.reel.running() {
+            self.reel_next()
+        } else {
+            Task::none()
         }
     }
 
@@ -2111,6 +2123,8 @@ impl Main {
         if self.minimized == minimized { return; }
         crate::frames::mark("window", Instant::now(), if minimized { "minimized" } else { "restored" });
         self.minimized = minimized;
+        if let Some(live) = &self.live { live.control.suspend(minimized); }
+        if let Some((_, live)) = &self.reel.now { live.control.suspend(minimized); }
         if minimized {
             self.resume_player = self.player.as_ref().and_then(|player| {
                 (!player.borrow().paused).then(|| std::rc::Rc::downgrade(player))
@@ -2191,12 +2205,8 @@ impl Main {
                 if hidden { Task::none() } else { action.map_or_else(Task::none, |message| self.update(*message)) }
             }
             Message::RestCheck(now) => {
-                self.check_rest(now);
                 self.now = now;
-                if self.resting.value() && !self.reel.running() {
-                    return self.reel_next();
-                }
-                Task::none()
+                self.check_rest(now)
             }
             Message::Reel(serial, frame) => {
                 if !self.resting.value() {
@@ -2476,8 +2486,12 @@ impl Main {
                     (Named::Space, true) => self.update(Message::PlayerToggle),
                     (Named::ArrowUp, false) => self.update(Message::Step(-1)),
                     (Named::ArrowDown, false) => self.update(Message::Step(1)),
-                    (Named::ArrowLeft, false) => self.update(Message::Jump(-1)),
-                    (Named::ArrowRight, false) => self.update(Message::Jump(1)),
+                    (Named::ArrowLeft | Named::ArrowRight, false) if self.overlay == Overlay::None => {
+                        match self.focused() {
+                            Some(select::Focus::Head(at)) if self.laid().rows.iter().any(|row| matches!(row, crate::carousel::Row::Head { first, open: false, .. } if *first == at)) => self.choose(at),
+                            _ => Task::none(),
+                        }
+                    }
                     _ => Task::none(),
                 }
             }
@@ -4478,13 +4492,13 @@ impl Main {
                 Task::none()
             }
             Message::Tick(now) => {
-                self.check_rest(now);
+                let rest = self.check_rest(now);
                 let dt = now.saturating_duration_since(self.now).as_secs_f32().min(1.0 / 30.0);
                 if self.scenes_due {
                     self.scenes_due = false;
                     let load = self.scenes_for_notices();
                     self.now = now;
-                    return load.chain(self.update(Message::Tick(now)));
+                    return Task::batch([rest, load.chain(self.update(Message::Tick(now)))]);
                 }
                 if let Some(player) = &self.player {
                     let mut player = player.borrow_mut();
@@ -4522,6 +4536,9 @@ impl Main {
                     if !(live.control.paused() && live.control.settled()) {
                         live.control.request();
                     }
+                }
+                if self.resting.value() {
+                    if let Some((_, live)) = &self.reel.now { live.control.request(); }
                 }
                 match self.progress_target() {
                     Some(target) => self.progress_shown = ui::toward(self.progress_shown, target, 0.12, dt),
@@ -4577,7 +4594,7 @@ impl Main {
                     self.community_reading = None;
                 }
                 let banners = self.banners_task(now);
-                Task::batch([self.combo_for_rested(now), banners])
+                Task::batch([rest, self.combo_for_rested(now), banners])
             }
             Message::Banner(hash, handle) => {
                 if let Some(handle) = handle {
@@ -5022,6 +5039,9 @@ impl Main {
     }
 
     pub fn view(&self) -> Element<'_, Message> {
+        if self.minimized {
+            return Space::new().width(Length::Fill).height(Length::Fill).into();
+        }
         let k = self.enter.interpolate(0.0, 1.0, self.now);
         let rest = self.resting.interpolate(0.0, 1.0, self.now);
         let awake = 1.0 - rest;
@@ -8621,6 +8641,27 @@ mod tests {
     }
 
     #[test]
+    fn tray_suspends_both_live_renderers_without_changing_manual_pause() {
+        let mut main = super::Main::staged(crate::lang::Words::new(crate::lang::Lang::En), crate::settings::Settings::default(), crate::library::Library::default(), None);
+        let make_live = || super::Live {
+            control: std::sync::Arc::new(crate::live::Control::default()),
+            for_path: "sample.osr".into(), frame: None, at_ms: 0.0,
+            fade: iced::Animation::new(true), rest: iced::Animation::new(false),
+        };
+        main.live = Some(make_live());
+        main.live.as_ref().unwrap().control.pause(true);
+        main.reel.now = Some((0, make_live()));
+        main.set_hidden(true);
+        assert!(main.live.as_ref().unwrap().control.suspended());
+        assert!(main.reel.now.as_ref().unwrap().1.control.suspended());
+        assert!(!main.moving());
+        main.set_hidden(false);
+        assert!(!main.live.as_ref().unwrap().control.suspended());
+        assert!(main.live.as_ref().unwrap().control.paused());
+        assert!(!main.reel.now.as_ref().unwrap().1.control.suspended());
+    }
+
+    #[test]
     fn minimizing_stops_periodic_work_and_restores_only_the_same_playing_video() {
         let mut main = super::Main::staged(crate::lang::Words::new(crate::lang::Lang::En), crate::settings::Settings::default(), crate::library::Library::default(), None);
         main.window_id = Some(iced::window::Id::unique());
@@ -8904,6 +8945,57 @@ mod tests {
         assert_eq!(main.last_input, last_input);
         let _ = main.update(super::Message::PointerActivity(iced::Point::new(101.0, 100.0)));
         assert!(!main.resting.value());
+    }
+
+    #[test]
+    fn idle_reel_starts_from_both_timer_and_animation_ticks() {
+        use super::{Message, REST_AFTER};
+        let (_, base) = crate::gallery::main_states(crate::lang::Lang::En).into_iter().find(|(name, _)| name == "main-rest").unwrap();
+        for (animation, scenes_due) in [(false, false), (true, false), (true, true)] {
+            let mut main = base.clone();
+            main.gallery = false;
+            main.settings.live_scene = true;
+            main.scenes_due = scenes_due;
+            let began = std::time::Instant::now();
+            main.now = began;
+            main.last_input = began;
+            let message = |now| if animation { Message::Tick(now) } else { Message::RestCheck(now) };
+            let task = main.update(message(began + REST_AFTER));
+            assert!(main.resting.value());
+            assert!(main.reel.running(), "animation={animation}, scenes_due={scenes_due}");
+            assert!(task.units() > 0, "the renderer task must reach the runtime");
+            let serial = main.reel.serial;
+            let _ = main.update(message(began + REST_AFTER + std::time::Duration::from_millis(16)));
+            assert_eq!(main.reel.serial, serial, "later ticks must not restart the renderer");
+            let _ = main.update(Message::UserInput(None));
+            assert!(!main.resting.value());
+            assert!(!main.reel.running());
+        }
+    }
+
+    #[test]
+    fn horizontal_arrows_open_the_focused_carousel_group() {
+        use super::{Message, Overlay, select::Focus};
+        use iced::keyboard::key::Named;
+        let (_, base) = crate::gallery::main_states(crate::lang::Lang::En).into_iter().find(|(name, _)| name == "main-rest").unwrap();
+        for key in [Named::ArrowLeft, Named::ArrowRight] {
+            let mut main = base.clone();
+            let at = main.laid().rows.iter().find_map(|row| match row {
+                crate::carousel::Row::Head { first, open: false, .. } => Some(*first),
+                _ => None,
+            }).unwrap();
+            main.focus = Some(Focus::Head(at));
+            main.overlay = Overlay::Settings;
+            let before = main.chosen;
+            let _ = main.update(Message::Key(key.clone()));
+            assert_eq!(main.chosen, before, "panels must not change carousel selection");
+            main.overlay = Overlay::None;
+            let _ = main.update(Message::Key(key.clone()));
+            assert_eq!(main.chosen, Some(at));
+            assert!(main.laid().rows.iter().any(|row| matches!(row, crate::carousel::Row::Head { first, open: true, .. } if *first == at)));
+            let _ = main.update(Message::Key(key));
+            assert_eq!(main.chosen, Some(at), "an open group stays selected");
+        }
     }
 
     #[test]

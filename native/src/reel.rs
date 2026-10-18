@@ -68,7 +68,7 @@ pub fn start_at(roll: u64) -> f64 {
 impl Main {
     pub(super) fn reel_next(&mut self) -> Task {
         self.reel.halt();
-        if self.reel.failed >= GIVE_UP || !self.settings.live_scene || self.gallery {
+        if self.reel.failed >= GIVE_UP || !self.settings.live_scene || self.gallery || self.minimized {
             return iced::Task::none();
         }
         let candidates: Vec<usize> = self.entries().iter().enumerate().filter(|(_, entry)| entry.map.is_some()).map(|(at, _)| at).collect();

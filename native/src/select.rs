@@ -26,7 +26,7 @@ pub const SPEED_MOST: f32 = 5000.0;
 pub const VERSION_ROOM: f32 = 150.0;
 pub const FLING: f32 = 0.22;
 pub const BACKING_FOOT: f32 = 10.0;
-pub const BACKING_SHORT: f32 = 30.0;
+const BACKING_BOTTOM: f32 = 3.0;
 pub const SPRING_STEP: f32 = 1.0 / 240.0;
 pub const SQUEEZED: f32 = 0.72;
 pub const TOP_FADE: f32 = 64.0;
@@ -640,6 +640,7 @@ impl Main {
             let centre = top + tall / 2.0;
             let away = ((centre - height / 2.0).abs() / ARC_SPAN).min(carousel::ARC_STEPS as f32);
             let inset = carousel::NESTED.min(row.depth()) + away * carousel::ARC_STEP;
+            let inset = if head { inset } else { back.map_or(inset, |(_, _, right)| right) };
             let lower = if top + tall > height { eased(((height - top) / tall.max(1.0)).clamp(0.0, 1.0)) } else { 1.0 };
             let upper = if top < 0.0 { eased(((top + tall) / tall.max(1.0)).clamp(0.0, 1.0)) } else { 1.0 };
             let squeeze = lower.min(upper);
@@ -689,7 +690,7 @@ impl Main {
         }
         let mut trays = iced::widget::Stack::new().width(Length::Fill).height(Length::Fill);
         for (from, bottom, right) in backs {
-            let tall = (bottom - from - BACKING_SHORT).max(0.0);
+            let tall = (bottom - from + BACKING_BOTTOM).max(0.0);
             let tray = container(Space::new().width(Length::Fill).height(tall)).width(Length::Fill).height(tall).style(|_| container::Style {
                 background: Some(Background::Color(paint(BACKING))),
                 border: Border { radius: iced::border::Radius { top_left: 0.0, top_right: 12.0, bottom_right: 12.0, bottom_left: 0.0 }, ..Border::default() },

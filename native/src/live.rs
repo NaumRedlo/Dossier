@@ -13,6 +13,7 @@ pub const EASE: Duration = Duration::from_millis(700);
 pub struct Control {
     stop: AtomicBool,
     paused: AtomicBool,
+    suspended: AtomicBool,
     settled: AtomicBool,
     seek: Mutex<Option<f64>>,
     wanted: Mutex<bool>,
@@ -27,10 +28,21 @@ fn ease(k: f64) -> f64 {
 impl Control {
     pub fn stop(&self) {
         self.stop.store(true, Ordering::SeqCst);
+        self.request();
     }
 
     pub fn pause(&self, paused: bool) {
         self.paused.store(paused, Ordering::SeqCst);
+        self.request();
+    }
+
+    pub fn suspend(&self, suspended: bool) {
+        self.suspended.store(suspended, Ordering::SeqCst);
+        self.request();
+    }
+
+    pub fn suspended(&self) -> bool {
+        self.suspended.load(Ordering::SeqCst)
     }
 
     pub fn paused(&self) -> bool {
@@ -55,11 +67,10 @@ impl Control {
         self.knock.notify_one();
     }
 
-    fn await_request(&self, at_most: Duration) -> bool {
+    fn await_request(&self) -> bool {
         let mut wanted = self.wanted.lock().expect("the request");
-        if !*wanted {
-            let (guard, _) = self.knock.wait_timeout(wanted, at_most).expect("the request");
-            wanted = guard;
+        while !*wanted && !self.stopped() {
+            wanted = self.knock.wait(wanted).expect("the request");
         }
         std::mem::replace(&mut *wanted, false)
     }
@@ -172,10 +183,17 @@ fn roll(control: &Control, push: &mut dyn FnMut(Frame) -> bool, (from_ms, to_ms)
         if control.stopped() {
             return Ok(());
         }
-        let asked = first || control.await_request(step * 4);
+        let suspended = control.suspended();
+        let asked = first || control.await_request();
         first = false;
         if control.stopped() {
             return Ok(());
+        }
+        if suspended || control.suspended() {
+            tick = Instant::now();
+            if control.suspended() {
+                continue;
+            }
         }
         if let Some(delta) = control.take_seek() {
             at_ms = (at_ms + delta).clamp(from_ms, to_ms);
@@ -258,6 +276,24 @@ pub fn dim_at(t: f32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn suspended_renderer_waits_for_resume_and_stop_wakes_the_worker() {
+        let control = Arc::new(Control::default());
+        control.suspend(true);
+        let worker_control = control.clone();
+        let (sent, received) = std::sync::mpsc::channel();
+        let worker = std::thread::spawn(move || roll(&worker_control, &mut |frame| sent.send(frame).is_ok(), (0.0, 60_000.0), 1.0, (0.0, false), |_| dossier_render::Pixmap::new(SIZE.0, SIZE.1).unwrap()));
+        assert!(received.recv_timeout(Duration::from_millis(100)).is_err());
+        control.request();
+        assert!(received.recv_timeout(Duration::from_millis(100)).is_err(), "even queued frame requests must not render in the tray");
+        control.suspend(false);
+        let Frame::Picture { at_ms, .. } = received.recv_timeout(Duration::from_secs(2)).unwrap() else { panic!("a frame"); };
+        assert!(at_ms < 100.0, "time in the tray must not advance playback: {at_ms}");
+        assert!(received.recv_timeout(Duration::from_millis(100)).is_err(), "no rendering without a new request");
+        control.stop();
+        worker.join().unwrap().unwrap();
+    }
 
     #[test]
     fn resting_lowers_the_journal_shade_without_losing_the_bottom_edge() {

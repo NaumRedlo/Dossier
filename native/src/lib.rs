@@ -491,6 +491,9 @@ impl App {
     }
 
     pub fn view(&self) -> Element<'_, Message> {
+        if self.hidden {
+            return iced::widget::Space::new().width(iced::Length::Fill).height(iced::Length::Fill).into();
+        }
         let from = std::time::Instant::now();
         let front: Element<'_, Message> = match &self.screen {
             Screen::FirstRun(flow) => flow.view().map(Message::FirstRun),
@@ -530,9 +533,9 @@ impl App {
             Some(_) => Subscription::run(tray::events).map(Message::Tray),
             None => Subscription::none(),
         };
-        let intro = match self.intro {
-            Some(_) => iced::window::frames().map(Message::IntroTick),
-            None => Subscription::none(),
+        let intro = match (&self.intro, self.hidden) {
+            (Some(_), false) => iced::window::frames().map(Message::IntroTick),
+            _ => Subscription::none(),
         };
         Subscription::batch([screen, window, closing, tray, intro, Subscription::run(instance::events).map(Message::Instance)])
     }

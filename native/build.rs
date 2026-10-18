@@ -2,7 +2,6 @@ fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=assets/icon/dossier.ico");
     bundle("witness.exe", "DOSSIER_WITNESS_EXE");
-    bundle("witness-overlay.exe", "DOSSIER_WITNESS_OVERLAY_EXE");
     #[cfg(windows)]
     {
         let mut resource = winresource::WindowsResource::new();

@@ -189,7 +189,6 @@ pub enum Message {
     WitnessDecline,
     WitnessAskTap,
     Witness(bool),
-    WitnessOverlay(bool),
     WitnessHistory(bool),
     PeopleEveryone(bool),
     Pin(i64),
@@ -653,15 +652,6 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
             }
             if running && on && seen.written > 0 {
                 panel = panel.push(line(w.with("witness-kept", &[("n", w.lang().group(u64::from(seen.written)))]), FAINT, 8.0));
-            }
-            let press = running.then_some(Message::WitnessOverlay(!s.witness_overlay));
-            panel = panel.push(container(switch_row(ground, "witness-overlay", w.t("witness-overlay"), Some(w.t("witness-experimental")), s.witness_overlay, press)).padding(Padding::ZERO.top(10.0)));
-            if running && s.witness_overlay {
-                if ground.witness.screen.as_deref() == Some("full") {
-                    panel = panel.push(line(w.t("overlay-full-screen"), theme::ACCENT, 4.0));
-                } else {
-                    panel = panel.push(line(w.t(if ground.witness.overlay { "overlay-running" } else { "overlay-waiting" }), FAINT, 4.0));
-                }
             }
             panel.into()
         }

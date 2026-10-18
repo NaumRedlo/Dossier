@@ -23,13 +23,11 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: witness
-      - run: cargo build --release -p dossier-witness -p dossier-witness-overlay --target x86_64-pc-windows-gnu --config profile.release.strip=true
+      - run: cargo build --release -p dossier-witness --target x86_64-pc-windows-gnu --config profile.release.strip=true
       - uses: actions/upload-artifact@v4
         with:
           name: witness
-          path: |
-            target/x86_64-pc-windows-gnu/release/witness.exe
-            target/x86_64-pc-windows-gnu/release/witness-overlay.exe
+          path: target/x86_64-pc-windows-gnu/release/witness.exe
 
   build:
     name: build (${{ matrix.name }})
@@ -62,7 +60,6 @@ jobs:
         working-directory: native
         env:
           DOSSIER_WITNESS_EXE: ${{ github.workspace }}/witness-bin/witness.exe
-          DOSSIER_WITNESS_OVERLAY_EXE: ${{ github.workspace }}/witness-bin/witness-overlay.exe
       - name: pack
         shell: bash
         run: |

@@ -87,6 +87,7 @@ impl Main {
         };
         let ask = live::Ask { replay: entry.path.clone(), map: map.file.clone(), map_hash: entry.map_hash.clone(), skin: self.settings.skin.clone(), start, once: true };
         let control = std::sync::Arc::new(live::Control::default());
+        control.request();
         self.reel.serial += 1;
         let serial = self.reel.serial;
         self.reel.now = Some((at, Live {
@@ -113,7 +114,8 @@ impl Main {
             live::Frame::Picture { frame, at_ms, .. } => {
                 if let Some((_, live)) = self.reel.now.as_mut() {
                     if live.frame.is_none() {
-                        live.fade.go_mut(true, Instant::now());
+                        if self.rest_waiting { live.fade = Animation::new(true); }
+                        else { live.fade.go_mut(true, Instant::now()); }
                     }
                     live.frame = Some(frame);
                     live.at_ms = at_ms;
@@ -121,6 +123,8 @@ impl Main {
                 self.reel.failed = 0;
                 iced::Task::none()
             }
+            live::Frame::Ended if !self.resting.value() && !self.rest_waiting => iced::Task::none(),
+            live::Frame::Failed(_) if !self.resting.value() && !self.rest_waiting => iced::Task::none(),
             live::Frame::Ended => self.reel_next(),
             live::Frame::Failed(_) => {
                 self.reel.failed += 1;

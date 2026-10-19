@@ -130,14 +130,12 @@ pub fn view<'a, Message: Clone + 'a>(
         }
     }
     let k = open * ui::fade();
-    let panel = container(list)
+    let content = container(list)
         .width(width_at(open))
-        .padding(Padding { top: 30.0, right: 12.0, bottom: 14.0, left: EDGE })
-        .style(move |_| container::Style {
-            background: (k > 0.0).then_some(Background::Color(Color { a: 0.5 * k, ..SHADE })),
-            border: Border { radius: iced::border::Radius { top_left: 0.0, top_right: 18.0, bottom_right: 18.0, bottom_left: 0.0 }, ..Border::default() },
-            ..container::Style::default()
-        });
+        .padding(Padding { top: 30.0, right: 12.0, bottom: 24.0, left: EDGE });
+    let panel = iced::widget::stack![content].push_under(
+        iced::widget::canvas(crate::ui::PanelShade { colour: SHADE, alpha: 0.5 * k }).width(Length::Fill).height(Length::Fill),
+    ).width(width_at(open));
     mouse_area(panel).on_enter(hover(true)).on_exit(hover(false)).into()
 }
 

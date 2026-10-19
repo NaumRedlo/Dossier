@@ -19,14 +19,14 @@ pub const TOP: f32 = 76.0;
 pub const SEARCH_H: f32 = 40.0;
 pub const SEARCH_GAP: f32 = 12.0;
 pub const BAR_H: f32 = 28.0;
-pub const SPRING: f32 = 80.0;
-pub const DAMPING: f32 = 18.0;
+pub const SPRING: f32 = 100.0;
+pub const DAMPING: f32 = 20.0;
 pub const WHEEL_STEP: f32 = 72.0;
 pub const SPEED_MOST: f32 = 5000.0;
 pub const VERSION_ROOM: f32 = 150.0;
 pub const FLING: f32 = 0.22;
 pub const BACKING_FOOT: f32 = 10.0;
-const BACKING_BOTTOM: f32 = 3.0;
+const BACKING_BOTTOM: f32 = 0.0;
 pub const SPRING_STEP: f32 = 1.0 / 240.0;
 pub const SQUEEZED: f32 = 0.72;
 pub const TOP_FADE: f32 = 64.0;
@@ -52,7 +52,8 @@ pub fn banner_of(path: &std::path::Path) -> Option<iced::widget::image::Handle> 
     let filled = picture.resize_to_fill(BANNER.0, BANNER.1, ::image::imageops::FilterType::CatmullRom).to_rgba8();
     Some(iced::widget::image::Handle::from_rgba(BANNER.0, BANNER.1, filled.into_raw()))
 }
-pub const UNFOLD: f32 = 0.26;
+pub const UNFOLD: f32 = 0.18;
+const FOLD: f32 = 0.26;
 pub const PANEL_OUT: f32 = 16.0;
 pub const SKELETON_ROWS: usize = 9;
 pub const TRACK_H: f32 = 10.0;
@@ -144,7 +145,7 @@ pub struct Fold {
 
 impl Fold {
     pub fn left(&self, now: std::time::Instant) -> f32 {
-        self.from * (1.0 - gently(now.saturating_duration_since(self.at).as_secs_f32() / UNFOLD))
+        self.from * (1.0 - gently(now.saturating_duration_since(self.at).as_secs_f32() / FOLD))
     }
 }
 
@@ -309,7 +310,7 @@ impl Main {
     }
 
     pub(super) fn list_top(&self) -> f32 {
-        TOP + if self.search_shown() { SEARCH_H + SEARCH_GAP } else { 0.0 }
+        TOP + (SEARCH_H + SEARCH_GAP) * self.search_amount()
     }
 
     pub(super) fn list_height(&self) -> f32 {
@@ -494,8 +495,11 @@ impl Main {
         let laid = self.laid();
         let list = if self.star_drag { self.skeleton() } else { self.carousel(&laid) };
         let list = container(list).padding(Padding { top: self.list_top(), right: 0.0, bottom: 0.0, left: 0.0 }).width(wide).height(Length::Fill);
-        let left: Element<'_, Message> = if self.search_shown() {
-            let search = container(ui::clipped(self.filters(&laid))).padding(Padding { top: TOP, right: 0.0, bottom: 0.0, left: 0.0 }).width(wide);
+        let search_k = self.search_amount();
+        let left: Element<'_, Message> = if search_k > 0.001 || self.search_shown() {
+            let search = ui::fading(ui::fade() * search_k, || self.filters(&laid));
+            let search = ui::grown(search, Point::new(0.5, 0.0), 0.0, 0.97 + 0.03 * search_k).shifted(-8.0 * (1.0 - search_k));
+            let search = container(search).padding(Padding { top: TOP, right: 0.0, bottom: 0.0, left: 0.0 }).width(wide);
             stack![list, search].width(wide).height(Length::Fill).into()
         } else {
             list.into()
@@ -508,6 +512,10 @@ impl Main {
         let body = row![left, right].width(Length::Fill).height(Length::Fill);
         let _ = k;
         stack![shade, body].width(Length::Fill).height(Length::Fill).into()
+    }
+
+    fn search_amount(&self) -> f32 {
+        if self.gallery { if self.search_shown() { 1.0 } else { 0.0 } } else { self.search_fade.interpolate(0.0, 1.0, self.now) }
     }
 
     pub(super) fn search_shown(&self) -> bool {
@@ -524,10 +532,9 @@ impl Main {
             .padding(Padding { top: 9.0, right: 8.0, bottom: 9.0, left: 0.0 })
             .width(Length::Fill)
             .style(ui::bare_input(ui::fade()));
-        let window = iced::Size::new(self.width, self.height);
         let found = text(w.count("replays-count", laid.order.len() as u64)).font(theme::MONO).size(theme::CAPTION).wrapping(text::Wrapping::None).color(ui::faded(MUTED));
         let escape = container(text("Esc").font(theme::MONO).size(11.0).color(ui::faded(FAINT))).padding([1, 6]).style(|_| container::Style {
-            border: Border { color: paint(Color::from_rgba(1.0, 1.0, 1.0, 0.085)), width: 1.0, radius: 6.0.into() },
+            border: Border { color: crate::theme::outline(paint(Color::from_rgba(1.0, 1.0, 1.0, 0.085))), width: 1.0, radius: 6.0.into() },
             ..container::Style::default()
         });
         let open = self.filters_open;
@@ -537,7 +544,7 @@ impl Main {
             .height(SEARCH_H - 10.0)
             .style(ui::button_faded(toggle_style(open)))
             .on_press(Message::FiltersPanel(!open));
-        let line = ui::glass_dense(container(row![
+        let line = ui::glass_clear(container(row![
             crate::glyphs::glyph(crate::glyphs::Icon::Search, 15.0, FAINT),
             search,
             found,
@@ -547,8 +554,9 @@ impl Main {
         .padding(Padding { top: 0.0, right: 5.0, bottom: 0.0, left: 15.0 })
         .height(SEARCH_H)
         .center_y(SEARCH_H)
-        .width(Length::Fill), self.glass_picture(), window);
-        if !open {
+        .width(Length::Fill));
+        let panel_k = if self.gallery { if open { 1.0 } else { 0.0 } } else { self.filters_fade.interpolate(0.0, 1.0, self.now) };
+        if panel_k <= 0.001 && !open {
             return container(line).padding(Padding { top: 0.0, right: PANEL_OUT, bottom: 0.0, left: PANEL_OUT }).width(Length::Fill).into();
         }
         let filter = &self.filter;
@@ -579,7 +587,7 @@ impl Main {
         .wrap()
         .vertical_spacing(6);
         let reset = row![ui::grow(), ui::quiet(w.t("filters-reset"), Some(Message::FiltersReset))];
-        let panel = ui::glass_dense(container(column![
+        let panel = ui::fading(ui::fade() * panel_k, || ui::glass_clear(container(column![
             stars_row,
             column![caption("filter-sort"), sorts].spacing(8),
             column![caption("filter-group"), groups].spacing(8),
@@ -587,8 +595,9 @@ impl Main {
             reset,
         ].spacing(16))
         .padding(18)
-        .width(PANEL_WIDE.min(self.carousel_width() - 2.0 * PANEL_OUT)), self.glass_picture(), window);
-        container(column![line, panel].spacing(8)).padding(Padding { top: 0.0, right: PANEL_OUT, bottom: 0.0, left: PANEL_OUT }).width(Length::Fill).into()
+        .width(PANEL_WIDE.min(self.carousel_width() - 2.0 * PANEL_OUT))));
+        let panel = ui::collapsing(panel, panel_k);
+        container(column![line, panel].spacing(8.0 * panel_k)).padding(Padding { top: 0.0, right: PANEL_OUT, bottom: 0.0, left: PANEL_OUT }).width(Length::Fill).into()
     }
 
     fn carousel(&self, laid: &Laid) -> Element<'_, Message> {
@@ -728,7 +737,7 @@ impl Main {
                 .width(Length::Fill)
                 .style(move |_| container::Style {
                     background: Some(Background::Color(paint(Color { a: 0.9 * fade, ..CARD }))),
-                    border: Border { color: paint(Color::from_rgba(1.0, 1.0, 1.0, 0.07 * fade)), width: 1.0, radius: iced::border::Radius { top_left: 0.0, top_right: 12.0, bottom_right: 12.0, bottom_left: 0.0 } },
+                    border: Border { color: crate::theme::outline(paint(Color::from_rgba(1.0, 1.0, 1.0, 0.07 * fade))), width: 1.0, radius: iced::border::Radius { top_left: 0.0, top_right: 12.0, bottom_right: 12.0, bottom_left: 0.0 } },
                     ..container::Style::default()
                 });
             list = list.push(container(card).padding(Padding { top: 0.0, right: away * carousel::ARC_STEP, bottom: 0.0, left: 0.0 }).width(Length::Fill));
@@ -819,12 +828,14 @@ impl Main {
         let title = match self.group {
             Group::Players => entry.title().map(|title| match &entry.map { Some(map) => format!("{title} [{}]", map.version), None => title }).unwrap_or_else(|| w.t("unknown-map")),
             Group::Maps => entry.player.clone(),
-            Group::Days | Group::Flat => format!("{}  {}", entry.player, entry.title().unwrap_or_default()),
+            Group::Flat => entry.title().unwrap_or_else(|| w.t("unknown-map")),
+            Group::Days => format!("{}  {}", entry.player, entry.title().unwrap_or_default()),
         };
         let when = match self.group {
             Group::Days => w.clock(entry.played_at),
             _ => format!("{} {}", w.day(entry.played_at, self.now_unix), w.clock(entry.played_at)),
         };
+        let when = if self.group == Group::Flat { format!("{} · {}", entry.player, when) } else { when };
         let sub = text(when).font(theme::MONO).size(theme::CAPTION).wrapping(text::Wrapping::None).color(ui::faded(MUTED));
         let title = text(title).font(theme::SANS_SEMI).size(theme::BODY).wrapping(text::Wrapping::None).color(ui::faded(INK));
         let mut name = match self.group {
@@ -866,7 +877,7 @@ impl Main {
             });
             inside = inside.push(mark);
         }
-        let inside = inside.push(numbers);
+        let inside = if self.group == Group::Flat { inside } else { inside.push(numbers) };
         let content = container(inside).padding(Padding { top: 0.0, right: 20.0, bottom: 0.0, left: 24.0 }).center_y(height - 2.0).width(Length::Fill);
         let face: Element<'_, Message> = match (self.group != Group::Maps).then(|| self.cover_frame(&entry.map_hash)).flatten() {
             Some(frame) => stack![
@@ -907,7 +918,7 @@ impl Main {
         let letter = text(grade.letter()).font(theme::MONO_BOLD).size(side * 0.5).color(ui::faded(colour));
         let base = container(letter).center(side).style(move |_| container::Style {
             background: Some(Background::Color(paint(tinted(colour, 0.14)))),
-            border: Border { color: paint(tinted(colour, if side >= RANK_LARGE { 0.4 } else { 0.0 })), width: 1.0, radius: radius.into() },
+            border: Border { color: crate::theme::outline(paint(tinted(colour, if side >= RANK_LARGE { 0.4 } else { 0.0 }))), width: 1.0, radius: radius.into() },
             ..container::Style::default()
         });
         if !live || !pulses(grade) {
@@ -934,15 +945,14 @@ impl Main {
             return self.viewer(1.0);
         };
         let SceneLayout { wide, tall, narrow, grow, .. } = self.scene_layout();
-        let resting = self.resting.interpolate(0.0, 1.0, self.now) > 0.001;
-        let before = self.live_before.as_ref().filter(|_| !resting);
+        let before = self.live_before.as_ref();
         let behind = |seen: f32| -> Element<'_, Message> {
             match before.filter(|_| seen < 0.999) {
                 Some(frame) => crate::film::show_rounded(frame, crate::film::Fit::Cover, ui::fade() * (1.0 - seen), theme::CARD_RADIUS - 1.0),
                 None => Space::new().width(Length::Fill).height(Length::Fill).into(),
             }
         };
-        let screen: Element<'_, Message> = match self.live.as_ref().filter(|live| live.for_path == entry.path && !resting).and_then(|live| live.frame.as_ref().map(|frame| (live, frame))) {
+        let screen: Element<'_, Message> = match self.live.as_ref().filter(|live| live.for_path == entry.path).and_then(|live| live.frame.as_ref().map(|frame| (live, frame))) {
             Some((live, frame)) => {
                 let seen = live.fade.interpolate(0.0, 1.0, self.now);
                 let now = crate::film::show_rounded(frame, crate::film::Fit::Cover, ui::fade() * seen, theme::CARD_RADIUS - 1.0);
@@ -956,7 +966,7 @@ impl Main {
         };
         let screen = container(ui::clipped(screen)).padding(1).width(wide).height(tall).style(|_| container::Style {
             background: Some(Background::Color(paint(PANEL))),
-            border: Border { color: paint(Color::from_rgba(1.0, 1.0, 1.0, 0.05)), width: 1.0, radius: theme::CARD_RADIUS.into() },
+            border: Border { color: crate::theme::outline(paint(Color::from_rgba(1.0, 1.0, 1.0, 0.05))), width: 1.0, radius: theme::CARD_RADIUS.into() },
             ..container::Style::default()
         });
         let rating = self.ratings.known.get(&entry.replay_hash).copied();
@@ -1031,7 +1041,7 @@ impl Main {
                 .height(STATS_H * grow)
                 .style(|_| container::Style {
                     background: Some(Background::Color(paint(CARD))),
-                    border: Border { color: paint(Color::from_rgba(1.0, 1.0, 1.0, 0.05)), width: 1.0, radius: theme::CARD_RADIUS.into() },
+                    border: Border { color: crate::theme::outline(paint(Color::from_rgba(1.0, 1.0, 1.0, 0.05))), width: 1.0, radius: theme::CARD_RADIUS.into() },
                     ..container::Style::default()
                 })
                 .into()
@@ -1097,7 +1107,7 @@ impl Main {
         }
         let menu = container(list).padding(4).width(240.0).style(|_| container::Style {
             background: Some(Background::Color(Color { a: ui::fade(), ..Color::from_rgb(0.09, 0.027, 0.043) })),
-            border: Border { color: paint(Color::from_rgba(1.0, 1.0, 1.0, 0.07)), width: 1.0, radius: 10.0.into() },
+            border: Border { color: crate::theme::outline(paint(Color::from_rgba(1.0, 1.0, 1.0, 0.07))), width: 1.0, radius: 10.0.into() },
             shadow: iced::Shadow { color: Color::from_rgba(0.0, 0.0, 0.0, 0.45 * ui::fade()), offset: Vector::new(0.0, 16.0), blur_radius: 40.0 },
             ..container::Style::default()
         });
@@ -1158,7 +1168,7 @@ fn toggle_style(on: bool) -> impl Fn(&Theme, button::Status) -> button::Style {
         button::Style {
             background: Some(Background::Color(fill)),
             text_color: ink,
-            border: Border { color: edge, width: 1.0, radius: ((SEARCH_H - 10.0) / 2.0).into() },
+            border: Border { color: crate::theme::outline(edge), width: 1.0, radius: ((SEARCH_H - 10.0) / 2.0).into() },
             ..button::Style::default()
         }
     }

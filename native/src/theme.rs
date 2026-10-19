@@ -6,7 +6,9 @@ pub const GROUND_TOP: Color = color!(0x3a1015);
 pub const INK: Color = color!(0xece7e2);
 pub const MUTED: Color = color!(0xc9aaa6);
 pub const FAINT: Color = color!(0xa98689);
-pub const ACCENT: Color = color!(0xe24848);
+pub const ACCENT: Color = color!(0xe93240);
+pub const CONTROL_FILL: Color = color!(0xc62b38);
+pub const CONTROL_FILL_HOVER: Color = color!(0xd52f3d);
 pub const ON_ACCENT: Color = color!(0xffffff);
 pub const DANGER: Color = ACCENT;
 pub const NOTICE_SUCCESS: Color = color!(0xa2b485);
@@ -113,11 +115,16 @@ pub fn theme() -> Theme {
 }
 
 fn border(color: Color, radius: f32) -> Border {
+    let color = outline(color);
     Border {
         color,
-        width: 1.0,
+        width: if color.a > 0.0 { 1.0 } else { 0.0 },
         radius: radius.into(),
     }
+}
+
+pub fn outline(color: Color) -> Color {
+    if color.r == color.g && color.g == color.b { Color::TRANSPARENT } else { color }
 }
 
 pub fn card(_: &Theme) -> container::Style {
@@ -191,7 +198,7 @@ pub fn tag(_: &Theme) -> container::Style {
 pub fn rule(_: &Theme) -> container::Style {
     container::Style {
         text_color: None,
-        background: Some(Background::Color(LINE)),
+        background: Some(Background::Color(Color::from_rgba(1.0, 1.0, 1.0, 0.004))),
         border: Border::default(),
         shadow: Shadow::default(),
         snap: true,
@@ -201,7 +208,7 @@ pub fn rule(_: &Theme) -> container::Style {
 pub fn rule_high(_: &Theme) -> container::Style {
     container::Style {
         text_color: None,
-        background: Some(Background::Color(LINE_HIGH)),
+        background: Some(Background::Color(Color::from_rgba(1.0, 1.0, 1.0, 0.008))),
         border: Border::default(),
         shadow: Shadow::default(),
         snap: true,
@@ -234,8 +241,8 @@ fn plain(background: Option<Color>, text_color: Color, edge: Color) -> button::S
 
 pub fn primary(_: &Theme, status: button::Status) -> button::Style {
     match status {
-        button::Status::Hovered => plain(Some(color!(0xea5a5a)), ON_ACCENT, Color::TRANSPARENT),
-        button::Status::Pressed => plain(Some(color!(0xd13f3f)), ON_ACCENT, Color::TRANSPARENT),
+        button::Status::Hovered => plain(Some(color!(0xf34250)), ON_ACCENT, Color::TRANSPARENT),
+        button::Status::Pressed => plain(Some(CONTROL_FILL), ON_ACCENT, Color::TRANSPARENT),
         button::Status::Disabled => plain(Some(ACCENT_SOFT), FAINT, Color::TRANSPARENT),
         button::Status::Active => plain(Some(ACCENT), ON_ACCENT, Color::TRANSPARENT),
     }
@@ -277,7 +284,7 @@ pub fn link(_: &Theme, status: button::Status) -> button::Style {
 
 pub fn field(_: &Theme, status: text_input::Status) -> text_input::Style {
     let edge = match status {
-        text_input::Status::Focused { .. } => LINE_HIGH,
+        text_input::Status::Focused { .. } => ACCENT,
         text_input::Status::Hovered => LINE_HIGH,
         _ => LINE,
     };
@@ -382,13 +389,11 @@ pub fn frame(chosen: bool, lit: bool) -> impl Fn(&Theme, button::Status) -> butt
         let lit = lit || matches!(status, button::Status::Hovered);
         let edge = if chosen {
             Border { color: ACCENT, width: 2.0, radius: FRAME_RADIUS.into() }
-        } else if lit {
-            Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.05), width: 1.0, radius: FRAME_RADIUS.into() }
         } else {
-            Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.02), width: 1.0, radius: FRAME_RADIUS.into() }
+            Border { radius: FRAME_RADIUS.into(), ..Border::default() }
         };
         button::Style {
-            background: Some(Background::Color(Color::from_rgb(0.04, 0.02, 0.03))),
+            background: Some(Background::Color(if lit { Color::from_rgb(0.09, 0.07, 0.08) } else { Color::from_rgb(0.04, 0.02, 0.03) })),
             text_color: INK,
             border: edge,
             shadow: Shadow::default(),
@@ -527,12 +532,14 @@ pub fn tile_bad(_: &Theme) -> container::Style {
 
 pub fn small(_: &Theme, status: button::Status) -> button::Style {
     let background = match status {
-        button::Status::Hovered | button::Status::Pressed => Color::from_rgba(1.0, 1.0, 1.0, 0.12),
-        _ => Color::from_rgba(1.0, 1.0, 1.0, 0.07),
+        button::Status::Hovered => color!(0x493137),
+        button::Status::Pressed => color!(0x251b1f),
+        button::Status::Disabled => color!(0x211c1e),
+        button::Status::Active => color!(0x30262a),
     };
     button::Style {
         background: Some(Background::Color(background)),
-        text_color: INK,
+        text_color: if matches!(status, button::Status::Disabled) { FAINT } else { INK },
         border: border(Color::TRANSPARENT, 7.0),
         shadow: Shadow::default(),
         snap: true,
@@ -585,8 +592,8 @@ pub fn ghost(_: &Theme, status: button::Status) -> button::Style {
 pub const SLAB_SOLID: Color = Color::from_rgb(0.055, 0.025, 0.033);
 pub const GLASS: Color = Color::from_rgba(0.051, 0.02, 0.031, 0.66);
 pub const GLASS_LIT: Color = Color::from_rgba(0.075, 0.03, 0.043, 0.78);
-pub const GLASS_EDGE: Color = Color::from_rgba(1.0, 1.0, 1.0, 0.045);
-pub const GLASS_EDGE_LIT: Color = Color::from_rgba(1.0, 1.0, 1.0, 0.1);
+pub const GLASS_EDGE: Color = Color::TRANSPARENT;
+pub const GLASS_EDGE_LIT: Color = Color::TRANSPARENT;
 pub const GLASS_PICKED: Color = Color::from_rgba(0.231, 0.071, 0.086, 0.82);
 pub const GROUND_VEIL: Color = Color::from_rgba(0.051, 0.02, 0.031, 0.88);
 

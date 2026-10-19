@@ -411,6 +411,7 @@ pub struct Brim<'a, Message> {
     fade: f32,
     foot: bool,
     high: f32,
+    header: bool,
 }
 
 #[derive(Debug, Default)]
@@ -420,10 +421,16 @@ struct BrimState {
 }
 
 pub fn brim<'a, Message: 'a>(content: impl Into<Element<'a, Message>>) -> Brim<'a, Message> {
-    Brim { content: content.into(), colour: crate::theme::GROUND, fade: crate::ui::fade(), foot: false, high: BRIM }
+    Brim { content: content.into(), colour: crate::theme::GROUND, fade: crate::ui::fade(), foot: false, high: BRIM, header: false }
 }
 
 impl<Message> Brim<'_, Message> {
+    pub fn header(mut self) -> Self {
+        self.header = true;
+        self.high = 100.0;
+        self
+    }
+
     pub fn on(mut self, colour: iced::Color) -> Self {
         self.colour = colour;
         self
@@ -520,8 +527,16 @@ impl<Message> Widget<Message, Theme, Renderer> for Brim<'_, Message> {
         let state = tree.state.downcast_ref::<BrimState>();
         let high = self.high.min(bounds.height);
         let top = brim_strength(state.under) * self.fade;
-        draw_brim(renderer, Rectangle { height: high, ..bounds }, self.colour, top);
-        draw_edge(renderer, Rectangle { y: bounds.y - high * 2.0, height: high * 2.0, ..bounds }, self.colour, top, true);
+        if self.header {
+            use iced::advanced::Renderer as _;
+            let shade = iced::gradient::Linear::new(iced::Radians(std::f32::consts::PI))
+                .add_stop(0.0, iced::Color { a: top * 0.94, ..self.colour })
+                .add_stop(0.6, iced::Color { a: top * 0.94, ..self.colour })
+                .add_stop(1.0, iced::Color { a: 0.0, ..self.colour });
+            renderer.fill_quad(renderer::Quad { bounds: Rectangle { height: high, ..bounds }, ..renderer::Quad::default() }, iced::Background::Gradient(shade.into()));
+        } else {
+            draw_brim(renderer, Rectangle { height: high, ..bounds }, self.colour, top);
+        }
         if self.foot {
             draw_edge(renderer, Rectangle { y: bounds.y + bounds.height - high, height: high, ..bounds }, self.colour, brim_strength(state.ahead) * self.fade, true);
         }

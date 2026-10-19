@@ -631,7 +631,7 @@ fn segments<'a>(items: Vec<(String, bool, Message)>) -> Element<'a, Message> {
     }
     container(inside)
         .padding(4)
-        .style(move |_| container::Style { background: Some(Background::Color(Color::from_rgba(0.0, 0.0, 0.0, 0.3 * k))), border: Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.1 * k), width: 1.0, radius: 10.0.into() }, ..container::Style::default() })
+        .style(move |_| container::Style { background: Some(Background::Color(Color::from_rgba(0.0, 0.0, 0.0, 0.3 * k))), border: Border { color: crate::theme::outline(Color::from_rgba(1.0, 1.0, 1.0, 0.1 * k)), width: 1.0, radius: 10.0.into() }, ..container::Style::default() })
         .into()
 }
 
@@ -667,7 +667,7 @@ fn tier_card<'a>(state: &'a State, tier: &str, name: String, words: &'a Words) -
                 (false, true) => (Color { a: 0.16, ..tint }, Color { a: 0.7, ..tint }, 1.0),
                 (false, false) => (Color { a: 0.08, ..tint }, Color { a: 0.4, ..tint }, 1.0),
             };
-            button::Style { background: Some(Background::Color(fill)), text_color: INK, border: Border { color: edge, width: wide, radius: 16.0.into() }, shadow: iced::Shadow::default(), snap: true }
+            button::Style { background: Some(Background::Color(fill)), text_color: INK, border: Border { color: crate::theme::outline(edge), width: wide, radius: 16.0.into() }, shadow: iced::Shadow::default(), snap: true }
         }))
         .on_press(Message::Choose(tier.to_owned()))
         .into()
@@ -710,7 +710,7 @@ pub fn outlined<'a, M: Clone + 'a>(label: String, press: Option<M>) -> Element<'
             button::Style {
                 background: Some(Background::Color(Color::from_rgba(1.0, 1.0, 1.0, if lit { 0.08 } else { 0.0 }))),
                 text_color: if matches!(status, button::Status::Disabled) { FAINT } else { INK },
-                border: Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.09), width: 1.0, radius: 8.0.into() },
+                border: Border { color: crate::theme::outline(Color::from_rgba(1.0, 1.0, 1.0, 0.09)), width: 1.0, radius: 8.0.into() },
                 shadow: iced::Shadow::default(),
                 snap: true,
             }

@@ -266,7 +266,7 @@ pub fn view<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
         .direction(ui::hidden_bar())
         .width(Length::Fill)
         .height(Length::Fill);
-    let rolled = crate::glide::brim(crate::glide::edged(rolled, iced::widget::Id::new("settings-tiles")));
+    let rolled = crate::glide::brim(crate::glide::edged(rolled, iced::widget::Id::new("settings-tiles"))).both();
     column![rolled].width(Length::Fill).height(Length::Fill).into()
 }
 
@@ -568,7 +568,7 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
                                 .style(ui::button_faded(move |_: &iced::Theme, _| button::Style {
                                     background: on.then_some(iced::Background::Color(iced::Color { a: 0.16, ..ink })),
                                     text_color: ink,
-                                    border: iced::Border { color: if on { iced::Color { a: 0.6, ..ink } } else { iced::Color::from_rgba(1.0, 1.0, 1.0, 0.085) }, width: 1.0, radius: 8.0.into() },
+                                    border: iced::Border { color: crate::theme::outline(if on { iced::Color { a: 0.6, ..ink } } else { iced::Color::from_rgba(1.0, 1.0, 1.0, 0.085) }), width: 1.0, radius: 8.0.into() },
                                     shadow: iced::Shadow::default(),
                                     snap: true,
                                 }))

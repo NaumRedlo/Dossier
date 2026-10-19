@@ -137,7 +137,7 @@ pub fn badge<'a, Message: 'a>(acronym: &str, size: f32, strength: f32) -> Elemen
         .center_y(size)
         .style(move |_| container::Style {
             background: Some(Background::Color(Color { a: k, ..Color::from_rgb8(fill[0], fill[1], fill[2]) })),
-            border: Border { color: Color::from_rgba(0.0, 0.0, 0.0, 80.0 / 255.0 * k), width: 1.0, radius: (size / 2.0).into() },
+            border: Border { color: crate::theme::outline(Color::from_rgba(0.0, 0.0, 0.0, 80.0 / 255.0 * k)), width: 1.0, radius: (size / 2.0).into() },
             ..container::Style::default()
         })
         .into()

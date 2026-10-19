@@ -818,7 +818,7 @@ pub fn switch<'a, Message: Clone + 'a>(sides: Vec<(String, Option<String>, bool,
         .padding(3)
         .style(move |_| container::Style {
             background: Some(iced::Background::Color(Color { a: k, ..Color::from_rgb(0.035, 0.016, 0.022) })),
-            border: iced::Border { color: Color { a: k, ..Color::from_rgb(0.118, 0.094, 0.102) }, width: 1.0, radius: 10.0.into() },
+            border: iced::Border { radius: 10.0.into(), ..iced::Border::default() },
             ..container::Style::default()
         })
         .into()
@@ -883,7 +883,7 @@ fn dimmed(style: impl Fn(&Theme, button::Status) -> button::Style + 'static, k: 
         made.text_color = theme::secondary_on(made.text_color, background);
         made.text_color = Color { a: made.text_color.a * k, ..made.text_color };
         made.background = made.background.map(|background| dim_background(background, k));
-        made.border.color = Color { a: made.border.color.a * k, ..made.border.color };
+        made.border.color = theme::outline(Color { a: made.border.color.a * k, ..made.border.color });
         made.shadow.color = Color { a: made.shadow.color.a * k, ..made.shadow.color };
         made
     }
@@ -893,7 +893,7 @@ fn dimmed_box(style: impl Fn(&Theme) -> container::Style + 'static, k: f32) -> i
     move |theme| {
         let mut made = style(theme);
         made.background = made.background.map(|background| dim_background(background, k));
-        made.border.color = Color { a: made.border.color.a * k, ..made.border.color };
+        made.border.color = theme::outline(Color { a: made.border.color.a * k, ..made.border.color });
         made.shadow.color = Color { a: made.shadow.color.a * k, ..made.shadow.color };
         made.text_color = made.text_color.map(|colour| Color { a: colour.a * k, ..colour });
         made
@@ -1607,6 +1607,10 @@ impl<Message> Grown<'_, Message> {
 }
 
 impl<Message> iced::advanced::Widget<Message, Theme, Renderer> for Grown<'_, Message> {
+    fn overlay<'b>(&'b mut self, tree: &'b mut iced::advanced::widget::Tree, layout: iced::advanced::Layout<'b>, renderer: &Renderer, viewport: &Rectangle, translation: iced::Vector) -> Option<iced::advanced::overlay::Element<'b, Message, Theme, Renderer>> {
+        self.content.as_widget_mut().overlay(tree, layout, renderer, viewport, translation)
+    }
+
     fn tag(&self) -> iced::advanced::widget::tree::Tag {
         self.content.as_widget().tag()
     }
@@ -1886,6 +1890,31 @@ impl<Message> canvas::Program<Message> for ScrollEdgeFade {
                 .add_stop(1.0, Color { a: 0.92 * self.alpha, ..theme::GROUND });
             frame.fill(&Path::rectangle(Point::new(0.0, bounds.height - edge), Size::new(bounds.width, edge)),
                 canvas::Fill { style: canvas::Style::Gradient(bottom.into()), ..canvas::Fill::default() });
+        }
+        vec![frame.into_geometry()]
+    }
+}
+
+pub struct PanelShade {
+    pub colour: Color,
+    pub alpha: f32,
+}
+
+impl<Message> canvas::Program<Message> for PanelShade {
+    type State = ();
+    fn draw(&self, _: &(), renderer: &Renderer, _: &Theme, bounds: Rectangle, _: mouse::Cursor) -> Vec<Geometry> {
+        let mut frame = Frame::new(renderer, bounds.size());
+        let edge = 28.0_f32.min(bounds.width / 2.0).min(bounds.height / 2.0);
+        let solid = (bounds.height - edge).max(0.0);
+        let bands = edge.ceil() as usize;
+        for band in 0..=bands {
+            let (y, height, a) = if band == 0 { (0.0, solid, 1.0) } else {
+                (solid + (band - 1) as f32, 1.0, (1.0 - band as f32 / (bands + 1) as f32).clamp(0.0, 1.0))
+            };
+            let shade = canvas::gradient::Linear::new(Point::new((bounds.width - edge).max(0.0), 0.0), Point::new(bounds.width, 0.0))
+                .add_stop(0.0, Color { a: self.alpha * a * a * (3.0 - 2.0 * a), ..self.colour })
+                .add_stop(1.0, Color { a: 0.0, ..self.colour });
+            frame.fill(&Path::rectangle(Point::new(0.0, y), Size::new(bounds.width, height)), canvas::Fill { style: canvas::Style::Gradient(shade.into()), ..canvas::Fill::default() });
         }
         vec![frame.into_geometry()]
     }
@@ -2768,12 +2797,12 @@ impl<Message> canvas::Program<Message> for Steps<'_, Message> {
         let lit = state.grabbed || cursor.is_over(bounds);
         frame.fill(
             &Path::rounded_rectangle(Point::ORIGIN, Size::new(w, h), 7.0.into()),
-            dim(Color::from_rgba(1.0, 1.0, 1.0, if lit { 0.055 } else { 0.04 }), self.alpha),
+            dim(Color::from_rgba(1.0, 1.0, 1.0, if lit { 0.012 } else { 0.006 }), self.alpha),
         );
         if at > 0.004 && x > STEP_INSET + 2.0 {
             frame.fill(
                 &Path::rounded_rectangle(Point::ORIGIN, Size::new(x, h), 7.0.into()),
-                dim(Color::from_rgba(0.886, 0.282, 0.282, if lit { 0.2 } else { 0.15 }), self.alpha),
+                dim(if lit { theme::CONTROL_FILL_HOVER } else { theme::CONTROL_FILL }, self.alpha),
             );
         }
         let on_stop = if state.grabbed { 0.0 } else { self.snap.clamp(0.0, 1.0) };
@@ -2966,7 +2995,6 @@ impl<Message> canvas::Program<Message> for Track {
         let inset = 1.0;
         let body = Path::rounded_rectangle(Point::new(inset, inset), Size::new(bounds.width - 2.0 * inset, high - 2.0 * inset), (high / 2.0 - inset).into());
         frame.fill(&body, dim(lane, self.alpha));
-        frame.stroke(&body, Stroke::default().with_width(1.0).with_color(dim(Color::from_rgba(1.0, 1.0, 1.0, 0.14 * (1.0 - k)), self.alpha)));
         let gap = 4.0;
         let r = high / 2.0 - gap;
         let x = gap + r + (bounds.width - 2.0 * (gap + r)) * (1.0 - (1.0 - k).powi(3));
@@ -3325,7 +3353,7 @@ impl<Message> canvas::Program<Message> for Rim {
         let mut frame = Frame::new(renderer, bounds.size());
         let side = bounds.width.min(bounds.height);
         let centre = Point::new(bounds.width / 2.0, bounds.height / 2.0);
-        let edge = if self.on { Color { a: 0.85, ..ACCENT } } else { Color::from_rgba(1.0, 1.0, 1.0, 0.085) };
+        let edge = if self.on { Color { a: 0.85, ..ACCENT } } else { Color::TRANSPARENT };
         frame.stroke(
             &Path::circle(centre, side / 2.0 - 0.75),
             Stroke::default().with_width(1.5 + 1.0 * self.k).with_color(dim(edge, self.alpha)),
@@ -3366,7 +3394,7 @@ impl<Message> canvas::Program<Message> for FrameMark {
             a: (0.1 + 0.8 * k) * self.alpha,
             ..if k > 0.02 { ACCENT } else { Color::WHITE }
         };
-        frame.stroke(&edge, Stroke::default().with_width(1.0 + 1.5 * k).with_color(colour));
+        frame.stroke(&edge, Stroke::default().with_width(1.0 + 1.5 * k).with_color(theme::outline(colour)));
         vec![frame.into_geometry()]
     }
 }
@@ -3832,6 +3860,16 @@ pub fn glass_deep<'a, Message: 'a>(content: impl Into<Element<'a, Message>>, pic
     glass_of(content, picture, window, 0.86)
 }
 
+pub fn glass_clear<'a, Message: 'a>(content: impl Into<Element<'a, Message>>) -> Element<'a, Message> {
+    let alpha = fade();
+    container(content).style(move |_| container::Style {
+        background: Some(iced::Background::Color(Color::from_rgba(0.06, 0.024, 0.038, 0.97 * alpha))),
+        border: iced::Border { radius: 18.0.into(), ..iced::Border::default() },
+        shadow: iced::Shadow { color: Color::from_rgba(0.0, 0.0, 0.0, 0.2 * alpha), offset: iced::Vector::new(0.0, 4.0), blur_radius: 16.0 },
+        ..container::Style::default()
+    }).into()
+}
+
 pub fn glass_dense<'a, Message: 'a>(content: impl Into<Element<'a, Message>>, picture: Option<image::Handle>, window: Size) -> Element<'a, Message> {
     glass_of(content, picture, window, 0.93)
 }
@@ -3868,7 +3906,7 @@ fn glass_of<'a, Message: 'a>(content: impl Into<Element<'a, Message>>, picture: 
         picture,
         window,
         tint: Color::from_rgba(0.06, 0.024, 0.038, depth * alpha),
-        edge: Color::from_rgba(1.0, 1.0, 1.0, 0.07 * alpha),
+        edge: Color::TRANSPARENT,
         radius: 18.0,
         alpha,
         depth,
@@ -5039,7 +5077,7 @@ pub struct Hover<'a, Message> {
 pub fn hover<'a, Message: 'a>(content: impl Into<Element<'a, Message>>, glow: Glow) -> Element<'a, Message> {
     let k = fade();
     let dim = |colour: Color| Color { a: colour.a * k, ..colour };
-    Element::new(Hover { content: content.into(), glow: Glow { edge: dim(glow.edge), wash: dim(glow.wash), shadow: dim(glow.shadow), ..glow } })
+    Element::new(Hover { content: content.into(), glow: Glow { edge: theme::outline(dim(glow.edge)), wash: dim(glow.wash), shadow: dim(glow.shadow), ..glow } })
 }
 
 #[derive(Debug, Default)]
@@ -5206,7 +5244,7 @@ pub struct Slide<'a, Message> {
 
 pub fn sliding<'a, Message: 'a>(content: impl Into<Element<'a, Message>>, active: usize, pill: Pill) -> Element<'a, Message> {
     let k = fade();
-    let pill = Pill { fill: Color { a: pill.fill.a * k, ..pill.fill }, edge: Color { a: pill.edge.a * k, ..pill.edge }, ..pill };
+    let pill = Pill { fill: Color { a: pill.fill.a * k, ..pill.fill }, edge: theme::outline(Color { a: pill.edge.a * k, ..pill.edge }), ..pill };
     Element::new(Slide { content: content.into(), active, pill })
 }
 

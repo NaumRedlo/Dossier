@@ -42,7 +42,7 @@ const TRACK: Color = Color::from_rgb(0.122, 0.09, 0.098);
 fn well(k: f32, radius: f32) -> container::Style {
     container::Style {
         background: Some(Background::Color(Color::from_rgba(0.0, 0.0, 0.0, 0.26 * k))),
-        border: Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.06 * k), width: 1.0, radius: radius.into() },
+        border: Border { color: crate::theme::outline(Color::from_rgba(1.0, 1.0, 1.0, 0.06 * k)), width: 1.0, radius: radius.into() },
         ..container::Style::default()
     }
 }
@@ -93,7 +93,7 @@ fn chip<'a>(words: String, colour: Color) -> Element<'a, Message> {
     let edge = tinted(colour, 0.55);
     container(mono(words, 11.0, colour, false))
         .padding([1, 7])
-        .style(move |_| container::Style { border: Border { color: edge, width: 1.0, radius: 6.0.into() }, ..container::Style::default() })
+        .style(move |_| container::Style { border: Border { color: crate::theme::outline(edge), width: 1.0, radius: 6.0.into() }, ..container::Style::default() })
         .into()
 }
 
@@ -177,7 +177,7 @@ fn line_style(edge: Color, fill: Option<Color>, wide: f32, radius: f32) -> impl 
     move |_, status| {
         let lit = matches!(status, button::Status::Hovered | button::Status::Pressed);
         let wash = fill.or(lit.then_some(Color::from_rgba(1.0, 1.0, 1.0, 0.04)));
-        button::Style { background: wash.map(Background::Color), text_color: INK, border: Border { color: edge, width: wide, radius: radius.into() }, shadow: Shadow::default(), snap: true }
+        button::Style { background: wash.map(Background::Color), text_color: INK, border: Border { color: crate::theme::outline(edge), width: wide, radius: radius.into() }, shadow: Shadow::default(), snap: true }
     }
 }
 
@@ -297,7 +297,7 @@ fn scale<'a>(ground: &Ground<'a>, board: &'a wire::MapBoard, scored: &Scored) ->
             .width(side)
             .height(side)
             .center(side)
-            .style(move |_| container::Style { border: Border { color: ring, width: band, radius: (side / 2.0).into() }, ..container::Style::default() });
+            .style(move |_| container::Style { border: Border { color: crate::theme::outline(ring), width: band, radius: (side / 2.0).into() }, ..container::Style::default() });
         let below: Element<'a, Message> = match told {
             true => mono(if by_score { short(values[at]) } else { format!("{:.0}", values[at]) }, if is_hero { 13.0 } else { 12.0 }, if is_hero || is_own { colour } else { FAINT }, is_hero),
             false => Space::new().into(),
@@ -444,7 +444,7 @@ pub(crate) fn score<'a>(ground: &Ground<'a>, scored: &'a Scored) -> Element<'a, 
     let rim = tinted(shade, 1.0);
     let ring = container(text(grade).font(theme::MONO_BOLD).size(68.0).color(ui::faded(shade))).width(RING).height(RING).center(RING).style(move |_| container::Style {
         background: Some(Background::Color(Color { a: k, ..theme::SLAB_SOLID })),
-        border: Border { color: rim, width: 5.0, radius: (RING / 2.0).into() },
+        border: Border { color: crate::theme::outline(rim), width: 5.0, radius: (RING / 2.0).into() },
         ..container::Style::default()
     });
     let top = stack![column![head, strip], pin(ring).x(SIDE).y(HEAD + STRIP - RING)].height(HEAD + STRIP);
@@ -633,7 +633,7 @@ fn waiting_card<'a>(ground: &Ground<'a>, you: &'a Person, left: Option<u32>) -> 
     container(inside)
         .padding([14, 10])
         .width(Length::Fill)
-        .style(move |_| container::Style { border: Border { color: Color::from_rgba(0.353, 0.137, 0.149, k), width: 1.0, radius: 14.0.into() }, ..container::Style::default() })
+        .style(move |_| container::Style { border: Border { color: crate::theme::outline(Color::from_rgba(0.353, 0.137, 0.149, k)), width: 1.0, radius: 14.0.into() }, ..container::Style::default() })
         .into()
 }
 
@@ -683,7 +683,7 @@ pub(crate) fn title<'a>(ground: &Ground<'a>, code: &str, who: Option<i64>) -> El
     let (wash, edge) = (blend(tint, 0.09), blend(tint, 0.3));
     let left = container(left).width(TITLE_LEFT).height(TITLE_HIGH).padding(Padding { top: 30.0, right: 24.0, bottom: 24.0, left: 24.0 }).style(move |_| container::Style {
         background: Some(Background::Color(wash)),
-        border: Border { color: edge, width: 1.0, radius: iced::border::Radius { top_left: 15.0, top_right: 0.0, bottom_right: 0.0, bottom_left: 15.0 } },
+        border: Border { color: crate::theme::outline(edge), width: 1.0, radius: iced::border::Radius { top_left: 15.0, top_right: 0.0, bottom_right: 0.0, bottom_left: 15.0 } },
         ..container::Style::default()
     });
 
@@ -705,7 +705,7 @@ pub(crate) fn title<'a>(ground: &Ground<'a>, code: &str, who: Option<i64>) -> El
             container(row![faces, text(w.count("players", waiting.len() as u64)).font(theme::SANS_SEMI).size(13.0).color(ui::faded(INK)), caption(w.t("title-others-wait"))].spacing(12).align_y(iced::Center))
                 .padding([10, 14])
                 .width(Length::Fill)
-                .style(move |_| container::Style { border: Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.07 * k), width: 1.0, radius: 12.0.into() }, ..container::Style::default() }),
+                .style(move |_| container::Style { border: Border { color: crate::theme::outline(Color::from_rgba(1.0, 1.0, 1.0, 0.07 * k)), width: 1.0, radius: 12.0.into() }, ..container::Style::default() }),
         );
     }
     let mut right = column![
@@ -720,7 +720,7 @@ pub(crate) fn title<'a>(ground: &Ground<'a>, code: &str, who: Option<i64>) -> El
             right = right.push(
                 container(row![column![text(since).font(theme::SANS_SEMI).size(14.0).color(ui::faded(INK)), caption(worn)].spacing(3).width(Length::Fill), crate::dossier::wear_button_anywhere(ground, you, title)].spacing(14).align_y(iced::Center))
                     .padding([14, 16])
-                    .style(move |_| container::Style { background: Some(Background::Color(wash)), border: Border { color: edge, width: 1.0, radius: 14.0.into() }, ..container::Style::default() }),
+                    .style(move |_| container::Style { background: Some(Background::Color(wash)), border: Border { color: crate::theme::outline(edge), width: 1.0, radius: 14.0.into() }, ..container::Style::default() }),
             );
         }
         (false, Some(_), Some(value)) if title.target > 1 => {
@@ -735,7 +735,7 @@ pub(crate) fn title<'a>(ground: &Ground<'a>, code: &str, who: Option<i64>) -> El
             right = right.push(
                 container(column![head, steps, marks].spacing(10))
                     .padding([14, 16])
-                    .style(move |_| container::Style { border: Border { color: Color::from_rgba(0.353, 0.137, 0.149, k), width: 1.0, radius: 14.0.into() }, ..container::Style::default() }),
+                    .style(move |_| container::Style { border: Border { color: crate::theme::outline(Color::from_rgba(0.353, 0.137, 0.149, k)), width: 1.0, radius: 14.0.into() }, ..container::Style::default() }),
             );
         }
         _ => {}

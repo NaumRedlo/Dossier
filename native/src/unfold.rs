@@ -220,7 +220,7 @@ impl<Message: Clone> Widget<Message, Theme, Renderer> for Unfold<'_, Message> {
         renderer.fill_quad(
             renderer::Quad {
                 bounds: shown,
-                border: Border { color: Color { a: self.look.line.a * body, ..self.look.line }, width: 1.0, radius: radius.into() },
+                border: Border { color: crate::theme::outline(Color { a: self.look.line.a * body, ..self.look.line }), width: 1.0, radius: radius.into() },
                 shadow: Shadow { color: Color::from_rgba(0.0, 0.0, 0.0, 0.55 * k), offset: Vector::new(0.0, 24.0 * k), blur_radius: 60.0 * k },
                 snap: true,
             },

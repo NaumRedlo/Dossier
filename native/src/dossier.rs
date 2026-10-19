@@ -502,7 +502,7 @@ fn outline(_: &Theme, status: button::Status) -> button::Style {
     button::Style {
         background: Some(Background::Color(if lit { Color::from_rgba(1.0, 1.0, 1.0, 0.03) } else { Color::TRANSPARENT })),
         text_color: INK,
-        border: Border { color: Color::from_rgba(1.0, 1.0, 1.0, if lit { 0.1 } else { 0.05 }), width: 1.0, radius: 10.0.into() },
+        border: Border { color: crate::theme::outline(Color::from_rgba(1.0, 1.0, 1.0, if lit { 0.1 } else { 0.05 })), width: 1.0, radius: 10.0.into() },
         shadow: Shadow::default(),
         snap: true,
     }
@@ -729,7 +729,7 @@ fn metric_style(on: bool) -> impl Fn(&Theme, button::Status) -> button::Style {
         button::Style {
             background: Some(Background::Color(if on { Color::from_rgba(0.886, 0.282, 0.282, 0.1) } else if lit { Color { a: 0.8, ..theme::GLASS } } else { theme::RAISED })),
             text_color: INK,
-            border: Border { color: if on { Color::from_rgba(0.886, 0.282, 0.282, 0.55) } else if lit { Color::from_rgba(1.0, 1.0, 1.0, 0.045) } else { theme::LINE }, width: 1.0, radius: 12.0.into() },
+            border: Border { color: crate::theme::outline(if on { Color::from_rgba(0.886, 0.282, 0.282, 0.55) } else if lit { Color::from_rgba(1.0, 1.0, 1.0, 0.045) } else { theme::LINE }), width: 1.0, radius: 12.0.into() },
             shadow: if on { Shadow { color: Color::from_rgba(0.886, 0.282, 0.282, 0.07), offset: Vector::ZERO, blur_radius: 8.0 } } else { Shadow::default() },
             snap: true,
         }
@@ -997,7 +997,7 @@ pub(crate) fn star_pill<'a, M: 'a>(label: String, stars: f32, size: f32) -> Elem
     let scale = size / 15.0;
     container(row![glyph(Icon::Star, 12.0 * scale, ink), text(label).font(theme::STAR_RATING).size(size).color(ui::faded(ink))].spacing(5.0 * scale).align_y(iced::Center))
         .padding([4.0 * scale, 8.0 * scale])
-        .style({ let fill = ui::faded(colour); move |_| container::Style { background: Some(Background::Color(fill)), border: Border { color: fill, width: 1.0, radius: 30.0.into() }, ..container::Style::default() } }).into()
+        .style({ let fill = ui::faded(colour); move |_| container::Style { background: Some(Background::Color(fill)), border: Border { color: crate::theme::outline(fill), width: 1.0, radius: 30.0.into() }, ..container::Style::default() } }).into()
 }
 
 fn badge_pill<'a>(inside: Element<'a, Message>, fill: Color) -> Element<'a, Message> {
@@ -1107,7 +1107,7 @@ fn poster_card<'a>(ground: &Ground<'a>, index: usize, poster: &Poster<'a>, chose
         .center(44.0)
         .style(move |_| container::Style {
             background: Some(Background::Color(Color { a: k, ..ground_colour })),
-            border: Border { color: Color { a: k, ..colour }, width: 2.0, radius: 22.0.into() },
+            border: Border { color: crate::theme::outline(Color { a: k, ..colour }), width: 2.0, radius: 22.0.into() },
             shadow: Shadow { color: Color { a: 0.45 * k, ..colour }, offset: Vector::ZERO, blur_radius: 16.0 },
             ..container::Style::default()
         });
@@ -1154,7 +1154,7 @@ fn poster_card<'a>(ground: &Ground<'a>, index: usize, poster: &Poster<'a>, chose
         .style(move |_, _| button::Style {
             background: None,
             text_color: INK,
-            border: Border { color: if chosen { Color { a: k, ..colour } } else { Color::from_rgba(1.0, 1.0, 1.0, 0.08 * k) }, width: if chosen { 1.5 } else { 1.0 }, radius: 14.0.into() },
+            border: Border { color: crate::theme::outline(if chosen { Color { a: k, ..colour } } else { Color::from_rgba(1.0, 1.0, 1.0, 0.08 * k) }), width: if chosen { 1.5 } else { 1.0 }, radius: 14.0.into() },
             shadow: Shadow::default(),
             snap: true,
         })
@@ -1195,7 +1195,7 @@ fn judgement_bar<'a>(ground: &Ground<'a>, counts: [Option<u32>; 4], f: f64) -> O
                     .clip(true)
                     .style(move |_| container::Style {
                         background: Some(Background::Color(Color { a: k, ..Color::from_rgb8(0x12, 0x09, 0x0c) })),
-                        border: Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.07 * k), width: 1.0, radius: 9.0.into() },
+                        border: Border { color: crate::theme::outline(Color::from_rgba(1.0, 1.0, 1.0, 0.07 * k)), width: 1.0, radius: 9.0.into() },
                         ..container::Style::default()
                     }),
             );
@@ -1285,7 +1285,7 @@ fn poster_detail<'a>(ground: &Ground<'a>, poster: &Poster<'a>, f: f64) -> Elemen
         .width(Length::Fill)
         .style(move |_| container::Style {
             background: Some(Background::Color(Color { a: k, ..Color::from_rgb8(0x16, 0x0c, 0x0f) })),
-            border: Border { color: Color { a: 0.35 * k, ..colour }, width: 1.0, radius: 14.0.into() },
+            border: Border { color: crate::theme::outline(Color { a: 0.35 * k, ..colour }), width: 1.0, radius: 14.0.into() },
             ..container::Style::default()
         })
         .into()
@@ -1334,7 +1334,7 @@ fn grades<'a>(ground: &Ground<'a>, card: &wire::Card) -> Element<'a, Message> {
             .center_x(Length::Fill)
             .style(move |_| container::Style {
                 background: Some(Background::Color(if on { Color { a: 0.1 * k, ..colour } } else { Color::from_rgba(0.0, 0.0, 0.0, 0.18 * k) })),
-                border: Border { color: if on { Color { a: 0.5 * k, ..colour } } else { Color::from_rgba(1.0, 1.0, 1.0, 0.012 * k) }, width: 1.0, radius: 10.0.into() },
+                border: Border { color: crate::theme::outline(if on { Color { a: 0.5 * k, ..colour } } else { Color::from_rgba(1.0, 1.0, 1.0, 0.012 * k) }), width: 1.0, radius: 10.0.into() },
                 shadow: if on { Shadow { color: Color { a: 0.3 * k, ..colour }, offset: Vector::ZERO, blur_radius: 14.0 } } else { Shadow::default() },
                 ..container::Style::default()
             })
@@ -1360,7 +1360,7 @@ fn chip_style(colour: Color, held: bool, on: bool) -> impl Fn(&Theme, button::St
         button::Style {
             background: Some(Background::Color(if held { Color { a: if lit { 0.2 } else { 0.1 }, ..colour } } else { Color::TRANSPARENT })),
             text_color: if held { colour } else { FAINT },
-            border: Border { color: Color { a: if lit { 0.9 } else if held { 0.4 } else { 0.25 }, ..colour }, width: 1.0, radius: 8.0.into() },
+            border: Border { color: crate::theme::outline(Color { a: if lit { 0.9 } else if held { 0.4 } else { 0.25 }, ..colour }), width: 1.0, radius: 8.0.into() },
             shadow: if on { Shadow { color: Color { a: 0.35, ..colour }, offset: Vector::ZERO, blur_radius: 12.0 } } else { Shadow::default() },
             snap: true,
         }

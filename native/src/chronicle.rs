@@ -464,7 +464,7 @@ fn tile<'a>(wide: f32, high: f32, colour: Color, icon: Icon) -> Element<'a, Mess
         .center_y(high)
         .style(move |_| container::Style {
             background: Some(Background::Color(blend(colour, 0.13, k))),
-            border: Border { color: blend(colour, 0.3, k), width: 1.0, radius: COVER_RADIUS.into() },
+            border: Border { color: crate::theme::outline(blend(colour, 0.3, k)), width: 1.0, radius: COVER_RADIUS.into() },
             ..container::Style::default()
         })
         .into()
@@ -593,7 +593,7 @@ fn row_card<'a>(ground: &Ground<'a>, event: &Event<'a>, inside: Element<'a, Mess
     container(row)
         .style(move |_| container::Style {
             background: (glow > 0.001).then_some(Background::Color(Color { a: 0.09 * glow, ..ACCENT })),
-            border: Border { color: Color { a: 0.35 * glow, ..ACCENT }, width: if glow > 0.001 { 1.0 } else { 0.0 }, radius: ROW_RADIUS.into() },
+            border: Border { color: crate::theme::outline(Color { a: 0.35 * glow, ..ACCENT }), width: if glow > 0.001 { 1.0 } else { 0.0 }, radius: ROW_RADIUS.into() },
             ..container::Style::default()
         })
         .into()
@@ -763,7 +763,7 @@ fn refresh_look(pulse: screen::Pulse) -> impl Fn(&Theme, button::Status) -> butt
         button::Style {
             background: Some(Background::Color(fill)),
             text_color: INK,
-            border: Border { color: line, width: 1.0, radius: 9.0.into() },
+            border: Border { color: crate::theme::outline(line), width: 1.0, radius: 9.0.into() },
             shadow: Shadow::default(),
             snap: true,
         }
@@ -817,7 +817,7 @@ fn refresh_button<'a>(ground: &Ground<'a>) -> Option<Element<'a, Message>> {
     }
     let tip = container(told).padding([6, 10]).style(|_| container::Style {
         background: Some(Background::Color(Color::from_rgb8(0x1d, 0x12, 0x16))),
-        border: Border { color: Color::from_rgb8(0x36, 0x27, 0x2b), width: 1.0, radius: 8.0.into() },
+        border: Border { color: crate::theme::outline(Color::from_rgb8(0x36, 0x27, 0x2b)), width: 1.0, radius: 8.0.into() },
         ..container::Style::default()
     });
     Some(iced::widget::tooltip(made, tip, iced::widget::tooltip::Position::Bottom).gap(6).into())
@@ -827,7 +827,7 @@ fn empty_card<'a>(ground: &Ground<'a>, icon: Icon, title: String, said: String, 
     let k = ui::fade();
     let disc = container(glyph(icon, 22.0, MUTED)).center(52.0).style(move |_| container::Style {
         background: Some(Background::Color(Color { a: 0.9 * k, ..theme::GLASS })),
-        border: Border { color: Color { a: theme::GLASS_EDGE.a * k, ..theme::GLASS_EDGE }, width: 1.0, radius: 26.0.into() },
+        border: Border { color: crate::theme::outline(Color { a: theme::GLASS_EDGE.a * k, ..theme::GLASS_EDGE }), width: 1.0, radius: 26.0.into() },
         ..container::Style::default()
     });
     let mut inside = column![
@@ -846,7 +846,7 @@ fn empty_card<'a>(ground: &Ground<'a>, icon: Icon, title: String, said: String, 
             .padding([28, 36])
             .style(move |_| container::Style {
                 background: Some(Background::Color(Color { a: theme::GLASS.a * k, ..theme::GLASS })),
-                border: Border { color: Color { a: theme::GLASS_EDGE.a * k, ..theme::GLASS_EDGE }, width: 1.0, radius: 16.0.into() },
+                border: Border { color: crate::theme::outline(Color { a: theme::GLASS_EDGE.a * k, ..theme::GLASS_EDGE }), width: 1.0, radius: 16.0.into() },
                 ..container::Style::default()
             }),
     )
@@ -941,7 +941,7 @@ fn timeline<'a>(ground: &Ground<'a>, wide: f32) -> Element<'a, Message> {
         .width(if wide < 640.0 { 140.0 } else { 220.0 })
         .style(ui::box_faded(|_| container::Style {
             background: Some(Background::Color(theme::GLASS)),
-            border: Border { color: theme::GLASS_EDGE, width: 1.0, radius: 12.0.into() },
+            border: Border { color: crate::theme::outline(theme::GLASS_EDGE), width: 1.0, radius: 12.0.into() },
             ..container::Style::default()
         })),
     );
@@ -992,7 +992,7 @@ fn timeline<'a>(ground: &Ground<'a>, wide: f32) -> Element<'a, Message> {
             button::Style {
                 background: Some(Background::Color(if lit { Color::from_rgb8(0xf0, 0x5e, 0x5e) } else { ACCENT })),
                 text_color: Color::WHITE,
-                border: Border { color: Color::TRANSPARENT, width: 0.0, radius: 15.0.into() },
+                border: Border { color: crate::theme::outline(Color::TRANSPARENT), width: 0.0, radius: 15.0.into() },
                 shadow: Shadow { color: Color::from_rgba(0.0, 0.0, 0.0, 0.4), offset: Vector::new(0.0, 4.0), blur_radius: 14.0 },
                 snap: true,
             }
@@ -1126,7 +1126,7 @@ fn framed(_: &Theme, status: button::Status) -> button::Style {
     button::Style {
         background: Some(Background::Color(if lit { Color::from_rgb8(0x2c, 0x1d, 0x21) } else { Color::from_rgb8(0x1d, 0x12, 0x16) })),
         text_color: INK,
-        border: Border { color: if lit { Color::from_rgb8(0x55, 0x40, 0x45) } else { Color::from_rgb8(0x36, 0x27, 0x2b) }, width: 1.0, radius: 8.0.into() },
+        border: Border { color: crate::theme::outline(if lit { Color::from_rgb8(0x55, 0x40, 0x45) } else { Color::from_rgb8(0x36, 0x27, 0x2b) }), width: 1.0, radius: 8.0.into() },
         shadow: Shadow::default(),
         snap: true,
     }
@@ -1169,7 +1169,7 @@ fn empty_ring<'a>(side: f32) -> Element<'a, Message> {
     container(Space::new())
         .width(side)
         .height(side)
-        .style(move |_| container::Style { border: Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.18 * k), width: 1.0, radius: (side / 2.0).into() }, ..container::Style::default() })
+        .style(move |_| container::Style { border: Border { color: crate::theme::outline(Color::from_rgba(1.0, 1.0, 1.0, 0.18 * k)), width: 1.0, radius: (side / 2.0).into() }, ..container::Style::default() })
         .into()
 }
 
@@ -1203,7 +1203,7 @@ fn strip_card<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
                 .height(15.0)
                 .padding(nudge)
                 .center(15.0)
-                .style(move |_| container::Style { background: Some(Background::Color(Color { a: k, ..colour })), border: Border { color: Color { a: k, ..ring }, width: 1.5, radius: 7.5.into() }, ..container::Style::default() });
+                .style(move |_| container::Style { background: Some(Background::Color(Color { a: k, ..colour })), border: Border { color: crate::theme::outline(Color { a: k, ..ring }), width: 1.5, radius: 7.5.into() }, ..container::Style::default() });
             faces = faces.push(
                 stack![container(screen::face(ground, &catalog.people[*who], 26.0)).padding(Padding { left: 0.0, top: 0.0, right: 0.0, bottom: 0.0 }), container(badge).width(34.0).height(32.0).align_x(iced::alignment::Horizontal::Right).align_y(iced::alignment::Vertical::Bottom)]
                     .width(34.0)

@@ -3643,7 +3643,7 @@ fn cover<'a>(thumbs: &HashMap<String, image::Handle>, hash: Option<&str>, wide: 
             .height(high)
             .style(move |_| container::Style {
                 background: Some(Background::Color(Color::from_rgba(1.0, 1.0, 1.0, 0.012 * k))),
-                border: Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.04 * k), width: 1.0, radius: round.into() },
+                border: Border { color: crate::theme::outline(Color::from_rgba(1.0, 1.0, 1.0, 0.04 * k)), width: 1.0, radius: round.into() },
                 ..container::Style::default()
             })
             .into(),
@@ -3658,7 +3658,7 @@ fn hatched_cover<'a>() -> Element<'a, Message> {
         .height(COVER_HIGH)
         .style(move |_| container::Style {
             background: Some(Background::Color(Color { a: k, ..base })),
-            border: Border { color: soft(0.035, k), width: 1.0, radius: COVER_ROUND.into() },
+            border: Border { color: crate::theme::outline(soft(0.035, k)), width: 1.0, radius: COVER_ROUND.into() },
             ..container::Style::default()
         });
     frame.into()
@@ -3713,7 +3713,7 @@ fn row_style(selected: bool) -> impl Fn(&iced::Theme, button::Status) -> button:
                 Color::TRANSPARENT
             })),
             text_color: INK,
-            border: Border { color: if selected { Color::from_rgba(0.886, 0.282, 0.282, 0.6) } else { Color::TRANSPARENT }, width: 1.0, radius: 12.0.into() },
+            border: Border { color: crate::theme::outline(if selected { Color::from_rgba(0.886, 0.282, 0.282, 0.6) } else { Color::TRANSPARENT }), width: 1.0, radius: 12.0.into() },
             shadow: iced::Shadow::default(),
             snap: true,
         }
@@ -3726,7 +3726,7 @@ fn surface_style(lit: bool) -> impl Fn(&iced::Theme, button::Status) -> button::
         button::Style {
             background: Some(Background::Color(Color::from_rgba(1.0, 1.0, 1.0, if hot { 0.016 } else { 0.008 }))),
             text_color: INK,
-            border: Border { color: Color::from_rgba(1.0, 1.0, 1.0, if hot { 0.07 } else { 0.04 }), width: 1.0, radius: 14.0.into() },
+            border: Border { color: crate::theme::outline(Color::from_rgba(1.0, 1.0, 1.0, if hot { 0.07 } else { 0.04 })), width: 1.0, radius: 14.0.into() },
             shadow: iced::Shadow::default(),
             snap: true,
         }
@@ -3740,7 +3740,7 @@ fn panel_box<'a>(inside: Element<'a, Message>) -> Element<'a, Message> {
         .width(Length::Fill)
         .style(move |theme| container::Style {
             background: Some(Background::Color(Color { a: theme::RAISED.a * k, ..theme::RAISED })),
-            border: Border { color: Color { a: theme::LINE.a * k, ..theme::LINE }, width: 1.0, radius: theme::CARD_RADIUS.into() },
+            border: Border { color: crate::theme::outline(Color { a: theme::LINE.a * k, ..theme::LINE }), width: 1.0, radius: theme::CARD_RADIUS.into() },
             ..theme::card(theme)
         })
         .into()
@@ -3757,7 +3757,7 @@ fn sheet_box<'a>(inside: Element<'a, Message>) -> Element<'a, Message> {
         .width(Length::Fill)
         .style(move |_| container::Style {
             background: Some(Background::Color(Color::from_rgba(0.075, 0.035, 0.045, k))),
-            border: Border { color: soft(0.07, k), width: 1.0, radius: 16.0.into() },
+            border: Border { color: crate::theme::outline(soft(0.07, k)), width: 1.0, radius: 16.0.into() },
             shadow: iced::Shadow { color: Color::from_rgba(0.0, 0.0, 0.0, 0.5 * k), offset: iced::Vector::new(0.0, 12.0), blur_radius: 32.0 },
             ..container::Style::default()
         })
@@ -3780,7 +3780,7 @@ fn outlined<'a>(label: String, press: Option<Message>) -> Element<'a, Message> {
             button::Style {
                 background: lit.then_some(Background::Color(soft(0.08, 1.0))),
                 text_color: if matches!(status, button::Status::Disabled) { FAINT } else { INK },
-                border: Border { color: soft(0.16, 1.0), width: 1.0, radius: 8.0.into() },
+                border: Border { color: crate::theme::outline(soft(0.16, 1.0)), width: 1.0, radius: 8.0.into() },
                 shadow: iced::Shadow::default(),
                 snap: true,
             }
@@ -3898,7 +3898,7 @@ fn ledger_box<'a>(inside: Element<'a, Message>) -> Element<'a, Message> {
             let slab = theme::slab(theme);
             container::Style {
                 background: slab.background.map(|fill| match fill { Background::Color(colour) => Background::Color(Color { a: colour.a * k, ..colour }), other => other }),
-                border: Border { color: Color { a: slab.border.color.a * k, ..slab.border.color }, width: 1.0, radius: 14.0.into() },
+                border: Border { color: crate::theme::outline(Color { a: slab.border.color.a * k, ..slab.border.color }), width: 1.0, radius: 14.0.into() },
                 ..container::Style::default()
             }
         })
@@ -3971,7 +3971,7 @@ fn makers_sheet<'a>(state: &'a State, names: &[String], words: &'a Words) -> Ele
         .padding([14, 7])
         .style(move |_| container::Style {
             background: Some(Background::Color(Color { a: k, ..Color::from_rgb8(0x1d, 0x0b, 0x0f) })),
-            border: Border { color: soft(0.16, k), width: 1.0, radius: 12.0.into() },
+            border: Border { color: crate::theme::outline(soft(0.16, k)), width: 1.0, radius: 12.0.into() },
             shadow: iced::Shadow { color: Color::from_rgba(0.0, 0.0, 0.0, 0.45 * k), offset: iced::Vector::new(0.0, 16.0), blur_radius: 40.0 },
             ..container::Style::default()
         })
@@ -3992,7 +3992,7 @@ fn makers_cell<'a>(state: &'a State, key: String, names: &[String], wide: f32, w
         let k = ui::fade();
         line = line.push(container(mono(format!("+{}", names.len() - FACES_MOST), 11.5, INK)).padding([2, 7]).style(move |_| container::Style {
             background: Some(Background::Color(Color::from_rgba(1.0, 1.0, 1.0, 0.03 * k))),
-            border: Border { color: soft(0.1, k), width: 1.0, radius: 11.0.into() },
+            border: Border { color: crate::theme::outline(soft(0.1, k)), width: 1.0, radius: 11.0.into() },
             ..container::Style::default()
         }));
     }
@@ -4067,7 +4067,7 @@ fn new_row<'a>(words: &Words, collection: bool) -> Element<'a, Message> {
     let k = ui::fade();
     let plus = container(glyph(Icon::Plus, 18.0, MUTED)).center(40.0).style(move |_| container::Style {
         background: Some(Background::Color(Color::from_rgba(0.0, 0.0, 0.0, 0.14 * k))),
-        border: Border { color: soft(0.08, k), width: 1.0, radius: THUMB_ROUND.into() },
+        border: Border { color: crate::theme::outline(soft(0.08, k)), width: 1.0, radius: THUMB_ROUND.into() },
         ..container::Style::default()
     });
     let label = text(words.t(if collection { "collections-new" } else { "pools-new" })).font(theme::SANS_SEMI).size(15.0).color(ui::faded(MUTED));
@@ -4320,7 +4320,7 @@ fn card_style(_: &iced::Theme, status: button::Status) -> button::Style {
     button::Style {
         background: Some(Background::Color(CARD_FILL)),
         text_color: INK,
-        border: Border { color: soft(if hot { 0.3 } else { 0.12 }, 1.0), width: 1.0, radius: 16.0.into() },
+        border: Border { color: crate::theme::outline(soft(if hot { 0.3 } else { 0.12 }, 1.0)), width: 1.0, radius: 16.0.into() },
         shadow: iced::Shadow::default(),
         snap: true,
     }
@@ -4410,7 +4410,7 @@ fn hero<'a>(state: &'a State, pool: &'a Pool, words: &'a Words, thumbs: &'a Hash
             let fade = iced::gradient::Linear::new(iced::Radians(std::f32::consts::FRAC_PI_2))
                 .add_stop(0.0, Color::from_rgb(0.105, 0.043, 0.062))
                 .add_stop(1.0, Color::from_rgb(0.20, 0.07, 0.10));
-            button::Style { background: Some(Background::Gradient(fade.into())), text_color: INK, border: Border { color: soft(if hot { 0.3 } else { 0.12 }, 1.0), width: 1.0, radius: 20.0.into() }, shadow: iced::Shadow::default(), snap: true }
+            button::Style { background: Some(Background::Gradient(fade.into())), text_color: INK, border: Border { color: crate::theme::outline(soft(if hot { 0.3 } else { 0.12 }, 1.0)), width: 1.0, radius: 20.0.into() }, shadow: iced::Shadow::default(), snap: true }
         }))
         .on_press(Message::Open(pool.id.clone()))
         .into()
@@ -4671,7 +4671,7 @@ fn catalogue_error<'a>(error: &str, words: &Words) -> Element<'a, Message> {
         .padding([8, 14])
         .style(move |_| container::Style {
             background: Some(Background::Color(Color::from_rgba(0.886, 0.282, 0.282, 0.018 * k))),
-            border: Border { color: Color::from_rgba(0.886, 0.282, 0.282, 0.16 * k), width: 1.0, radius: 10.0.into() },
+            border: Border { color: crate::theme::outline(Color::from_rgba(0.886, 0.282, 0.282, 0.16 * k)), width: 1.0, radius: 10.0.into() },
             ..container::Style::default()
         })
         .into()
@@ -4696,7 +4696,7 @@ fn conflict_banner<'a>(state: &State, pool: &Pool, words: &'a Words, width: f32)
         .width(Length::Fill)
         .style(move |_| container::Style {
             background: Some(Background::Color(Color::from_rgba(0.886, 0.282, 0.282, 0.05 * k))),
-            border: Border { color: Color::from_rgba(0.886, 0.282, 0.282, 0.4 * k), width: 1.0, radius: 12.0.into() },
+            border: Border { color: crate::theme::outline(Color::from_rgba(0.886, 0.282, 0.282, 0.4 * k)), width: 1.0, radius: 12.0.into() },
             ..container::Style::default()
         })
         .into()
@@ -4732,7 +4732,7 @@ fn check_box<'a>(on: bool) -> Element<'a, Message> {
         .center(22.0)
         .style(move |_| container::Style {
             background: on.then_some(Background::Color(Color { a: k, ..ACCENT })),
-            border: Border { color: if on { Color { a: k, ..ACCENT } } else { soft(0.16, k) }, width: 1.0, radius: 6.0.into() },
+            border: Border { color: crate::theme::outline(if on { Color { a: k, ..ACCENT } } else { soft(0.16, k) }), width: 1.0, radius: 6.0.into() },
             ..container::Style::default()
         })
         .into()
@@ -4829,8 +4829,8 @@ fn category_menu<'a>(pool: &Pool, at: usize, lit: bool) -> Element<'a, Message> 
             None => Message::Category(at, name),
         }
     }).font(theme::MONO_BOLD).text_size(12.0).padding([4, 8]).handle(pick_list::Handle::None).width(wide)
-        .menu_style(|_| iced::widget::overlay::menu::Style { background: Background::Color(theme::GROUND), border: Border { color: MUTED, width: 1.0, radius: 7.0.into() }, text_color: INK, selected_text_color: INK, selected_background: Background::Color(Color::from_rgb8(65, 30, 32)), shadow: iced::Shadow::default() })
-        .style(move |_, status| pick_list::Style { text_color: ink, placeholder_color: muted, handle_color: muted, background: Background::Color(tinted(base, if matches!(status, pick_list::Status::Hovered | pick_list::Status::Opened { .. }) { 0.28 } else { 0.16 }, k)), border: Border { color: if lit { Color { a: k, ..ACCENT } } else { Color::TRANSPARENT }, width: if lit { 2.0 } else { 0.0 }, radius: 6.0.into() } }).into()
+        .menu_style(|_| iced::widget::overlay::menu::Style { background: Background::Color(theme::GROUND), border: Border { color: crate::theme::outline(MUTED), width: 1.0, radius: 7.0.into() }, text_color: INK, selected_text_color: INK, selected_background: Background::Color(Color::from_rgb8(65, 30, 32)), shadow: iced::Shadow::default() })
+        .style(move |_, status| pick_list::Style { text_color: ink, placeholder_color: muted, handle_color: muted, background: Background::Color(tinted(base, if matches!(status, pick_list::Status::Hovered | pick_list::Status::Opened { .. }) { 0.28 } else { 0.16 }, k)), border: Border { color: crate::theme::outline(if lit { Color { a: k, ..ACCENT } } else { Color::TRANSPARENT }), width: if lit { 2.0 } else { 0.0 }, radius: 6.0.into() } }).into()
 }
 
 fn figure<'a>(label: String, value: String, size: f32, colour: Color) -> Element<'a, Message> {
@@ -5020,7 +5020,7 @@ fn candidate_card<'a>(candidate: &'a Candidate, _editor: &'a Editor, _pool: &'a 
         None => container(Space::new())
             .width(Length::Fill)
             .height(110.0)
-            .style(|_| container::Style { background: Some(Background::Color(Color::from_rgba(1.0, 1.0, 1.0, 0.012))), border: Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.04), width: 1.0, radius: 10.0.into() }, ..container::Style::default() })
+            .style(|_| container::Style { background: Some(Background::Color(Color::from_rgba(1.0, 1.0, 1.0, 0.012))), border: Border { color: crate::theme::outline(Color::from_rgba(1.0, 1.0, 1.0, 0.04)), width: 1.0, radius: 10.0.into() }, ..container::Style::default() })
             .into(),
     };
     let names = column![wrapped_semi(found.title.clone(), 17.0, INK), ui::moving_text(found.artist.clone(), theme::SANS, 13.5, MUTED)].spacing(2).width(Length::Fill);
@@ -5132,7 +5132,7 @@ fn add_row<'a>(pool: &'a Pool, at: usize, editor: &'a Editor, words: &'a Words) 
         .align_y(iced::Center)
         .padding([0, 12])
         .width(Length::Fill)
-        .style(move |_| container::Style { background: Some(Background::Color(tinted(colour, 0.08, k))), border: Border { color: Color { a: k, ..colour }, width: 2.0, radius: TILE_ROUND.into() }, ..container::Style::default() })
+        .style(move |_| container::Style { background: Some(Background::Color(tinted(colour, 0.08, k))), border: Border { color: crate::theme::outline(Color { a: k, ..colour }), width: 2.0, radius: TILE_ROUND.into() }, ..container::Style::default() })
         .into()
 }
 
@@ -5308,7 +5308,7 @@ fn share_row<'a>(icon: Icon, title: String, hint: String, action: String, press:
         .width(38.0)
         .height(38.0)
         .center(38.0)
-        .style(move |_| container::Style { background: Some(Background::Color(Color::from_rgba(1.0, 1.0, 1.0, 0.012 * k))), border: Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.04 * k), width: 1.0, radius: 10.0.into() }, ..container::Style::default() });
+        .style(move |_| container::Style { background: Some(Background::Color(Color::from_rgba(1.0, 1.0, 1.0, 0.012 * k))), border: Border { color: crate::theme::outline(Color::from_rgba(1.0, 1.0, 1.0, 0.04 * k)), width: 1.0, radius: 10.0.into() }, ..container::Style::default() });
     let words = column![semi(title, 14.0, INK), container(mono(hint, 11.5, FAINT)).clip(true)].spacing(3).width(Length::Fill);
     row![tile, words, match press {
         Some(press) => quiet_button(action, press),
@@ -5384,7 +5384,7 @@ fn publish_panel<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, words
     let head = row![cover_stack(thumbs, &hashes), head].spacing(16).align_y(iced::Center);
     let issue = container(text(words.n("publish-issue", pool.published_revision + 1)).font(theme::MONO_BOLD).size(12.0).color(ui::faded(INK)))
         .padding([4, 10])
-        .style(move |_| container::Style { background: Some(Background::Color(tinted(ACCENT, 0.16, k))), border: Border { color: tinted(ACCENT, 0.4, k), width: 1.0, radius: 12.0.into() }, ..container::Style::default() });
+        .style(move |_| container::Style { background: Some(Background::Color(tinted(ACCENT, 0.16, k))), border: Border { color: crate::theme::outline(tinted(ACCENT, 0.4, k)), width: 1.0, radius: 12.0.into() }, ..container::Style::default() });
     let mut who = row![].spacing(12).align_y(iced::Center);
     if !pool.compiler.is_empty() {
         who = who.push(named_face(state, &pool.compiler, 220.0));
@@ -5394,7 +5394,7 @@ fn publish_panel<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, words
     if pool.published_revision > 0 {
         facts = facts.push(faded_text(words.n("publish-replaces", pool.published_revision), 13.0, MUTED));
     }
-    let list = container(list).padding([12, 16]).width(Length::Fill).style(move |_| container::Style { background: Some(Background::Color(Color { a: k, ..ui::mix(theme::GROUND, Color::BLACK, 0.3) })), border: Border { color: soft(0.08, k), width: 1.0, radius: 12.0.into() }, ..container::Style::default() });
+    let list = container(list).padding([12, 16]).width(Length::Fill).style(move |_| container::Style { background: Some(Background::Color(Color { a: k, ..ui::mix(theme::GROUND, Color::BLACK, 0.3) })), border: Border { color: crate::theme::outline(soft(0.08, k)), width: 1.0, radius: 12.0.into() }, ..container::Style::default() });
     let go = ui::primary(
         words.t(if state.publishing { "catalogue-saving" } else if pool.published_revision > 0 { "catalogue-update" } else { "catalogue-publish" }),
         (ready && !state.publishing).then_some(Message::Publish),
@@ -5416,7 +5416,7 @@ fn publish_panel<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, words
         .width(Length::Fill)
         .style(move |_| container::Style {
             background: Some(Background::Color(Color { a: k, ..Color::from_rgb(0.071, 0.027, 0.039) })),
-            border: Border { color: soft(0.16, k), width: 1.0, radius: 16.0.into() },
+            border: Border { color: crate::theme::outline(soft(0.16, k)), width: 1.0, radius: 16.0.into() },
             ..container::Style::default()
         })
         .into()
@@ -5547,7 +5547,7 @@ fn back_button<'a>(words: &Words, collection: bool) -> Element<'a, Message> {
             button::Style {
                 background: Some(Background::Color(soft(if hot { 0.09 } else { 0.045 }, 1.0))),
                 text_color: INK,
-                border: Border { color: soft(if hot { 0.2 } else { 0.08 }, 1.0), width: 1.0, radius: 8.0.into() },
+                border: Border { color: crate::theme::outline(soft(if hot { 0.2 } else { 0.08 }, 1.0)), width: 1.0, radius: 8.0.into() },
                 ..button::Style::default()
             }
         }))
@@ -5576,7 +5576,7 @@ fn menu_box<'a>(inside: Element<'a, Message>, wide: f32, pad: f32, round: f32, f
     let k = ui::fade();
     iced::widget::opaque(container(inside).padding(pad).width(wide).style(move |_| container::Style {
         background: Some(Background::Color(Color { a: k, ..fill })),
-        border: Border { color: soft(0.16, k), width: 1.0, radius: round.into() },
+        border: Border { color: crate::theme::outline(soft(0.16, k)), width: 1.0, radius: round.into() },
         ..container::Style::default()
     }))
 }
@@ -5634,7 +5634,7 @@ fn palette<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, words: &'a 
     let field = text_input(&words.t("pool-command-hint"), &editor.command).on_input(Message::Command).font(theme::SANS).size(16.0).padding(0).style(ui::bare_input(ui::fade())).width(Length::Fill);
     let field = container(row![field, text(ui::keys("Ctrl K")).font(theme::MONO).size(12.0).color(ui::faded(MUTED))].spacing(8).align_y(iced::Center)).padding([0, 12]).center_y(44.0).style(move |_| container::Style {
         background: Some(Background::Color(Color::from_rgba(0.0, 0.0, 0.0, 0.26 * k))),
-        border: Border { color: soft(0.08, k), width: 1.0, radius: 8.0.into() },
+        border: Border { color: crate::theme::outline(soft(0.08, k)), width: 1.0, radius: 8.0.into() },
         ..container::Style::default()
     });
     let mut lines = column![].spacing(2);
@@ -5702,7 +5702,7 @@ fn editor_toolbar<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, word
             let field = text_input(&words.t("pool-find"), &editor.find).on_input(Message::Find).font(theme::SANS).size(14.0).padding(0).style(ui::bare_input(ui::fade())).width(Length::Fill);
             left = left.push(container(row![glyph(Icon::Search, 14.0, MUTED), field].spacing(8).align_y(iced::Center)).padding([0, 12]).width((width - 730.0).clamp(140.0, 260.0)).center_y(CONTROL).style(move |_| container::Style {
                 background: Some(Background::Color(Color { a: k, ..ui::mix(theme::GROUND, Color::BLACK, 0.26) })),
-                border: Border { color: soft(0.08, k), width: 1.0, radius: 8.0.into() },
+                border: Border { color: crate::theme::outline(soft(0.08, k)), width: 1.0, radius: 8.0.into() },
                 ..container::Style::default()
             }));
             if !editor.find.trim().is_empty() {
@@ -5740,7 +5740,7 @@ fn swatches<'a>(chosen: Option<[u8; 3]>, press: impl Fn([u8; 3]) -> Message + 'a
             .padding(0)
             .style(move |_: &iced::Theme, status: button::Status| {
                 let hot = lit || matches!(status, button::Status::Hovered | button::Status::Pressed);
-                button::Style { background: Some(Background::Color(Color { a: k, ..fill })), text_color: INK, border: Border { color: if hot { Color { a: k, ..INK } } else { Color::TRANSPARENT }, width: 2.0, radius: 11.0.into() }, shadow: iced::Shadow::default(), snap: true }
+                button::Style { background: Some(Background::Color(Color { a: k, ..fill })), text_color: INK, border: Border { color: crate::theme::outline(if hot { Color { a: k, ..INK } } else { Color::TRANSPARENT }), width: 2.0, radius: 11.0.into() }, shadow: iced::Shadow::default(), snap: true }
             })
             .on_press(press(*colour))
             .into()
@@ -5883,7 +5883,7 @@ fn backdrop_panel<'a>(state: &'a State, pool: &'a Pool, words: &'a Words, thumbs
             .height(44.0)
             .style(ui::button_faded(move |_: &iced::Theme, status: button::Status| {
                 let hot = matches!(status, button::Status::Hovered | button::Status::Pressed);
-                button::Style { background: Some(Background::Color(Color::from_rgb(0.051, 0.02, 0.031))), text_color: INK, border: Border { color: if on { ACCENT } else { soft(if hot { 0.3 } else { 0.12 }, 1.0) }, width: if on { 2.0 } else { 1.0 }, radius: 8.0.into() }, shadow: iced::Shadow::default(), snap: true }
+                button::Style { background: Some(Background::Color(Color::from_rgb(0.051, 0.02, 0.031))), text_color: INK, border: Border { color: crate::theme::outline(if on { ACCENT } else { soft(if hot { 0.3 } else { 0.12 }, 1.0) }), width: if on { 2.0 } else { 1.0 }, radius: 8.0.into() }, shadow: iced::Shadow::default(), snap: true }
             }))
             .on_press(press)
             .into()
@@ -5899,7 +5899,7 @@ fn backdrop_panel<'a>(state: &'a State, pool: &'a Pool, words: &'a Words, thumbs
         .padding([0, 12])
         .style(ui::button_faded(move |_: &iced::Theme, status: button::Status| {
             let hot = matches!(status, button::Status::Hovered | button::Status::Pressed);
-            button::Style { background: hot.then_some(Background::Color(soft(0.08, 1.0))), text_color: INK, border: Border { color: if own { ACCENT } else { soft(0.12, 1.0) }, width: if own { 2.0 } else { 1.0 }, radius: 8.0.into() }, shadow: iced::Shadow::default(), snap: true }
+            button::Style { background: hot.then_some(Background::Color(soft(0.08, 1.0))), text_color: INK, border: Border { color: crate::theme::outline(if own { ACCENT } else { soft(0.12, 1.0) }), width: if own { 2.0 } else { 1.0 }, radius: 8.0.into() }, shadow: iced::Shadow::default(), snap: true }
         }))
         .on_press(Message::BackdropPick);
     let mut from = column![
@@ -5934,7 +5934,7 @@ fn backdrop_panel<'a>(state: &'a State, pool: &'a Pool, words: &'a Words, thumbs
     .spacing(20);
     container(inside).padding(24).width(400.0).style(move |_| container::Style {
         background: Some(Background::Color(Color { a: k, ..Color::from_rgb(0.071, 0.027, 0.039) })),
-        border: Border { color: soft(0.08, k), width: 1.0, radius: 14.0.into() },
+        border: Border { color: crate::theme::outline(soft(0.08, k)), width: 1.0, radius: 14.0.into() },
         ..container::Style::default()
     }).into()
 }
@@ -5950,7 +5950,7 @@ fn stray_card<'a>(link: &'a str, words: &'a Words) -> Element<'a, Message> {
     .align_y(iced::Center);
     container(inside).padding([18, 24]).width(Length::Fill).style(move |_| container::Style {
         background: Some(Background::Color(Color::from_rgba(0.0, 0.0, 0.0, 0.22 * k))),
-        border: Border { color: soft(0.08, k), width: 1.0, radius: 14.0.into() },
+        border: Border { color: crate::theme::outline(soft(0.08, k)), width: 1.0, radius: 14.0.into() },
         ..container::Style::default()
     }).into()
 }
@@ -5967,7 +5967,7 @@ fn catalogue_toast<'a>(error: &str, words: &'a Words) -> Element<'a, Message> {
     .align_y(iced::Center);
     iced::widget::opaque(container(inside).padding([18, 18]).width(400.0).style(move |_| container::Style {
         background: Some(Background::Color(Color { a: k, ..Color::from_rgb(0.114, 0.043, 0.059) })),
-        border: Border { color: Color::from_rgba(0.886, 0.282, 0.282, 0.4 * k), width: 1.0, radius: 14.0.into() },
+        border: Border { color: crate::theme::outline(Color::from_rgba(0.886, 0.282, 0.282, 0.4 * k)), width: 1.0, radius: 14.0.into() },
         ..container::Style::default()
     }))
 }
@@ -6028,7 +6028,7 @@ fn start_tile(lit: bool) -> impl Fn(&iced::Theme, button::Status) -> button::Sty
             (false, true) => (soft(0.07, 1.0), soft(0.16, 1.0)),
             (false, false) => (soft(0.045, 1.0), soft(0.08, 1.0)),
         };
-        button::Style { background: Some(Background::Color(fill)), text_color: INK, border: Border { color: edge, width: 1.0, radius: 12.0.into() }, shadow: iced::Shadow::default(), snap: true }
+        button::Style { background: Some(Background::Color(fill)), text_color: INK, border: Border { color: crate::theme::outline(edge), width: 1.0, radius: 12.0.into() }, shadow: iced::Shadow::default(), snap: true }
     }
 }
 
@@ -6054,7 +6054,7 @@ fn start_view<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, words: &
             let mut name = row![semi(words.t(key), 16.0, if offered { INK } else { MUTED })].spacing(8).align_y(iced::Center);
             if !offered {
                 let k = ui::fade();
-                name = name.push(container(mono(words.t("pool-frame-soon"), 11.0, MUTED)).padding([1, 7]).style(move |_| container::Style { border: Border { color: soft(0.16, k), width: 1.0, radius: 9.0.into() }, ..container::Style::default() }));
+                name = name.push(container(mono(words.t("pool-frame-soon"), 11.0, MUTED)).padding([1, 7]).style(move |_| container::Style { border: Border { color: crate::theme::outline(soft(0.16, k)), width: 1.0, radius: 9.0.into() }, ..container::Style::default() }));
             }
             let inside = row![glyph(icon, 32.0, if offered { INK } else { FAINT }), column![name, frame_tags(frame, words)].spacing(10).width(Length::Fill)].spacing(16);
             let tile = button(container(inside).padding(16).width(Length::Fill).height(Length::Fill)).padding(0).width(Length::Fill).height(frame_high).style(ui::button_faded(start_tile(offered && pool.frame == frame)));
@@ -6199,7 +6199,7 @@ fn editor_view<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, words: 
                     .width(180.0)
                     .style(ui::button_faded(move |_: &iced::Theme, status: button::Status| {
                         let hot = matches!(status, button::Status::Hovered | button::Status::Pressed);
-                        button::Style { background: Some(Background::Color(soft(if hot { 0.08 } else { 0.03 }, k))), text_color: INK, border: Border { color: soft(0.14, k), width: 1.0, radius: TILE_ROUND.into() }, shadow: iced::Shadow::default(), snap: true }
+                        button::Style { background: Some(Background::Color(soft(if hot { 0.08 } else { 0.03 }, k))), text_color: INK, border: Border { color: crate::theme::outline(soft(0.14, k)), width: 1.0, radius: TILE_ROUND.into() }, shadow: iced::Shadow::default(), snap: true }
                     }))
                     .on_press(Message::AddPanel(true));
                 container(more).center_x(Length::Fill).into()
@@ -6251,7 +6251,7 @@ fn coach<'a>(step: usize, words: &'a Words) -> Element<'a, Message> {
     container(inside)
         .padding([14, 16])
         .max_width(COACH_WIDE)
-        .style(move |_| container::Style { background: Some(Background::Color(tinted(ACCENT, 0.10, k))), border: Border { color: tinted(ACCENT, 0.45, k), width: 1.0, radius: 12.0.into() }, ..container::Style::default() })
+        .style(move |_| container::Style { background: Some(Background::Color(tinted(ACCENT, 0.10, k))), border: Border { color: crate::theme::outline(tinted(ACCENT, 0.45, k)), width: 1.0, radius: 12.0.into() }, ..container::Style::default() })
         .into()
 }
 

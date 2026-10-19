@@ -502,6 +502,8 @@ pub struct Main {
     star_drag: bool,
     pub(crate) filters_open: bool,
     pub(crate) search_open: bool,
+    pub(crate) search_fade: Animation<bool>,
+    pub(crate) filters_fade: Animation<bool>,
     folding: Vec<select::Fold>,
     spring_at: Option<Instant>,
     pub(crate) focus: Option<select::Focus>,
@@ -521,6 +523,7 @@ pub struct Main {
     pub skin_scenes: HashMap<PathBuf, image::Handle>,
     pub cinema: Animation<bool>,
     pub resting: Animation<bool>,
+    rest_waiting: bool,
     last_input: Instant,
     input_pointer: Option<Point>,
     pub widened: Animation<bool>,
@@ -784,6 +787,8 @@ impl Main {
             star_drag: false,
             filters_open: false,
             search_open: false,
+            search_fade: Animation::new(false).duration(Duration::from_millis(150)).easing(Easing::EaseOutCubic),
+            filters_fade: Animation::new(false).duration(Duration::from_millis(150)).easing(Easing::EaseOutCubic),
             folding: Vec::new(),
             spring_at: None,
             focus: None,
@@ -803,6 +808,7 @@ impl Main {
             skin_scenes: HashMap::new(),
             cinema: Animation::new(false).duration(CINEMA).easing(Easing::EaseOutCubic),
             resting: Animation::new(false).duration(REST_FADE).easing(Easing::EaseInOutCubic),
+            rest_waiting: false,
             last_input: Instant::now(),
             input_pointer: None,
             widened: Animation::new(false).duration(WIDEN).easing(Easing::EaseOutCubic),
@@ -1317,6 +1323,10 @@ impl Main {
             || self.retype.is_animating(self.now)
             || self.side_fade.is_animating(self.now)
             || self.side_open.is_animating(self.now)
+            || self.search_fade.value() != self.search_shown()
+            || self.filters_fade.value() != self.filters_open
+            || self.search_fade.is_animating(self.now)
+            || self.filters_fade.is_animating(self.now)
             || self.marks.values().any(|m| m.is_animating(self.now))
             || self.slides_settling()
             || (self.overlay == Overlay::Community && self.feed_arrivals.animating(self.now))
@@ -2074,10 +2084,14 @@ impl Main {
 
     fn wake(&mut self, now: Instant) {
         self.last_input = now;
+        self.rest_waiting = false;
         if self.resting.value() {
             self.resting.go_mut(false, now);
         }
-        self.reel_stop();
+        if !self.resting.is_animating(now) {
+            self.reel_stop();
+            self.reel.before = None;
+        }
         if std::mem::take(&mut self.live_rested) {
             if let Some(live) = &self.live {
                 live.control.pause(false);
@@ -2085,27 +2099,33 @@ impl Main {
         }
     }
 
+    fn begin_rest(&mut self, now: Instant) {
+        self.rest_waiting = false;
+        self.resting.go_mut(true, now);
+        if let Some(live) = self.live.as_ref().filter(|live| !live.control.paused()) {
+            live.control.pause(true);
+            self.live_rested = true;
+        }
+        self.hover = None;
+        self.hover_bounds = None;
+        self.hover_since = None;
+        for lift in self.lifts.values_mut() { lift.go_mut(false, now); }
+    }
+
     fn check_rest(&mut self, now: Instant) -> Task<Message> {
+        if !self.resting.value() && !self.rest_waiting && !self.resting.is_animating(now) {
+            self.reel_stop();
+            self.reel.before = None;
+        }
         if !self.can_rest() {
             self.wake(now);
-        } else if !self.resting.value() && now.saturating_duration_since(self.last_input) >= REST_AFTER {
-            self.resting.go_mut(true, now);
-            if let Some(live) = self.live.as_ref().filter(|live| !live.control.paused()) {
-                live.control.pause(true);
-                self.live_rested = true;
-            }
-            self.hover = None;
-            self.hover_bounds = None;
-            self.hover_since = None;
-            for lift in self.lifts.values_mut() {
-                lift.go_mut(false, now);
-            }
+        } else if !self.resting.value() && !self.rest_waiting && now.saturating_duration_since(self.last_input) >= REST_AFTER {
+            self.rest_waiting = true;
+            let task = self.reel_next();
+            if !self.reel.running() { self.begin_rest(now); }
+            return task;
         }
-        if self.resting.value() && !self.reel.running() {
-            self.reel_next()
-        } else {
-            Task::none()
-        }
+        if self.resting.value() && !self.reel.running() { self.reel_next() } else { Task::none() }
     }
 
     pub fn set_hidden(&mut self, hidden: bool) {
@@ -2209,11 +2229,16 @@ impl Main {
                 self.check_rest(now)
             }
             Message::Reel(serial, frame) => {
-                if !self.resting.value() {
+                if !self.resting.value() && !self.rest_waiting && !self.resting.is_animating(Instant::now()) {
                     self.reel_stop();
+                    self.reel.before = None;
                     return Task::none();
                 }
-                self.reel_frame(serial, frame)
+                let task = self.reel_frame(serial, frame);
+                if self.rest_waiting && (self.reel.now.as_ref().is_some_and(|(_, live)| live.frame.is_some()) || !self.reel.running()) {
+                    self.begin_rest(Instant::now());
+                }
+                task
             }
             Message::Reading(reading) => {
                 self.reading = Some(reading);
@@ -2360,10 +2385,7 @@ impl Main {
                 Task::none()
             }
             Message::Wheel(lines) => {
-                let base = self.carousel_target();
-                self.free = Some(base + lines * select::WHEEL_STEP);
-                self.free = Some(self.carousel_target());
-                self.banners_waiting = true;
+                self.drag_carousel(lines * select::WHEEL_STEP);
                 Task::none()
             }
             Message::Jump(by) => match self.jump_group(by) {
@@ -2489,7 +2511,7 @@ impl Main {
                     (Named::ArrowLeft | Named::ArrowRight, false) if self.overlay == Overlay::None => {
                         match self.focused() {
                             Some(select::Focus::Head(at)) if self.laid().rows.iter().any(|row| matches!(row, crate::carousel::Row::Head { first, open: false, .. } if *first == at)) => self.choose(at),
-                            _ => Task::none(),
+                            _ => self.update(Message::Jump(if key == Named::ArrowLeft { -1 } else { 1 })),
                         }
                     }
                     _ => Task::none(),
@@ -3160,7 +3182,13 @@ impl Main {
                 self.glide_from_here();
                 self.search = query;
                 self.regroup();
-                self.keep_choice()
+                let task = self.keep_choice();
+                self.folding.clear();
+                self.unfold_at = None;
+                self.free = None;
+                self.scroll = Some(self.carousel_target());
+                self.scroll_speed = 0.0;
+                task
             }
             Message::Paste => iced::clipboard::read().map(|text| Message::PoolClipboard(text.unwrap_or_default())),
             Message::PoolClipboard(text) => {
@@ -3221,12 +3249,11 @@ impl Main {
                 }
                 if self.player.is_none() {
                     if self.overlay == Overlay::None && self.menu.is_none() && self.library.is_some() && (letter.is_alphanumeric() || letter == '+') {
-                        self.sorting();
                         self.search_open = true;
-                        self.search.push(letter);
+                        let task = self.update(Message::Search(format!("{}{letter}", self.search)));
                         let id = self.search_id.clone();
-                        return iced::advanced::widget::operate(iced::advanced::widget::operation::focusable::focus::<Message>(id.clone()))
-                            .chain(iced::advanced::widget::operate(iced::advanced::widget::operation::text_input::move_cursor_to_end::<Message>(id)));
+                        return Task::batch([task, iced::advanced::widget::operate(iced::advanced::widget::operation::focusable::focus::<Message>(id.clone()))
+                            .chain(iced::advanced::widget::operate(iced::advanced::widget::operation::text_input::move_cursor_to_end::<Message>(id)))]);
                     }
                     return Task::none();
                 }
@@ -4492,6 +4519,8 @@ impl Main {
                 Task::none()
             }
             Message::Tick(now) => {
+                self.search_fade.go_mut(self.search_shown(), now);
+                self.filters_fade.go_mut(self.filters_open, now);
                 let rest = self.check_rest(now);
                 let dt = now.saturating_duration_since(self.now).as_secs_f32().min(1.0 / 30.0);
                 if self.scenes_due {
@@ -4537,7 +4566,7 @@ impl Main {
                         live.control.request();
                     }
                 }
-                if self.resting.value() {
+                if self.resting.value() || self.rest_waiting || self.resting.is_animating(now) {
                     if let Some((_, live)) = &self.reel.now { live.control.request(); }
                 }
                 match self.progress_target() {
@@ -6850,8 +6879,17 @@ impl Main {
         let shrink = ((self.width - crate::sidebar::width_at(open)) / (self.width - crate::sidebar::NARROW)).clamp(0.3, 1.0);
         let side = ui::fading(ui::fade() * self.overlay_fade.interpolate(0.0, 1.0, self.now), || crate::sidebar::view(entries, open, Message::SideOpen, Message::SideMoved));
         let body: Element<'a, Message> = ui::scaled(body, scale * shrink).into();
-        let dimmed = stack![body, ui::veil(Color { a: SIDE_DIM * open, ..theme::GROUND })].width(Length::Fill).height(Length::Fill);
-        column![Space::new().height(theme::CONTROL_HEIGHT + 4.0 + 22.0), row![side, dimmed].height(Length::Fill)].width(Length::Fill).height(Length::Fill).into()
+        let edge = (28.0 / (self.width - crate::sidebar::width_at(open)).max(28.0)).min(1.0);
+        let dim = container(Space::new().width(Length::Fill).height(Length::Fill)).style(move |_| container::Style {
+            background: Some(iced::Background::Gradient(iced::gradient::Linear::new(iced::Radians(std::f32::consts::FRAC_PI_2))
+                .add_stop(0.0, Color { a: 0.0, ..theme::GROUND })
+                .add_stop(edge, Color { a: SIDE_DIM * open, ..theme::GROUND })
+                .add_stop(1.0, Color { a: SIDE_DIM * open, ..theme::GROUND }).into())),
+            ..container::Style::default()
+        });
+        let dimmed = stack![body, dim].width(Length::Fill).height(Length::Fill);
+        let workspace = column![Space::new().height(theme::CONTROL_HEIGHT + 4.0 + 22.0), row![side, dimmed].height(Length::Fill)].width(Length::Fill).height(Length::Fill);
+        crate::glide::brim(ui::side_fades(workspace.into(), 1.0, 0.35)).header().into()
     }
 
     fn community_ground<'a>(&'a self, catalog: &'a crate::community::Catalog, person_only: bool) -> crate::community_screen::Ground<'a> {
@@ -7674,7 +7712,7 @@ impl Main {
                 button::Style {
                     background: Some(iced::Background::Color(if open { Color { a: 0.3, ..ACCENT } } else if flash > 0.001 { Color { a: 0.06 + 0.44 * flash, ..ACCENT } } else { Color::from_rgba(1.0, 1.0, 1.0, if lit { 0.12 } else { 0.05 }) })),
                     text_color: INK,
-                    border: iced::Border { color: if open || busy || flash > 0.001 { Color { a: if open { 0.7 } else if busy { 0.3 + 0.6 * beat } else { 0.12 + 0.7 * flash }, ..if open || busy { ACCENT } else { ui::mix(Color::WHITE, ACCENT, flash.min(1.0)) } } } else { Color::from_rgba(1.0, 1.0, 1.0, 0.07) }, width: 1.0, radius: (CIRCLE_SIDE / 2.0).into() },
+                    border: iced::Border { color: crate::theme::outline(if open || busy || flash > 0.001 { Color { a: if open { 0.7 } else if busy { 0.3 + 0.6 * beat } else { 0.12 + 0.7 * flash }, ..if open || busy { ACCENT } else { ui::mix(Color::WHITE, ACCENT, flash.min(1.0)) } } } else { Color::from_rgba(1.0, 1.0, 1.0, 0.07) }), width: 1.0, radius: (CIRCLE_SIDE / 2.0).into() },
                     shadow: iced::Shadow::default(),
                     snap: true,
                 }
@@ -7727,7 +7765,7 @@ impl Main {
             .width(Length::Fill)
             .style(ui::box_faded(|_| container::Style {
                 background: Some(iced::Background::Color(Color::from_rgba(0.0, 0.0, 0.0, 0.24))),
-                border: iced::Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.05), width: 1.0, radius: 12.0.into() },
+                border: iced::Border { color: crate::theme::outline(Color::from_rgba(1.0, 1.0, 1.0, 0.05)), width: 1.0, radius: 12.0.into() },
                 ..container::Style::default()
             }))
             .into()
@@ -8126,7 +8164,7 @@ impl Main {
                     container(text(notice.note.clone()).font(theme::MONO).size(14.0).color(ui::faded(INK)))
                         .padding([12, 14])
                         .width(Length::Fill)
-                        .style(move |_| container::Style { background: Some(iced::Background::Color(Color::from_rgba(0.0, 0.0, 0.0, 0.3 * fade))), border: iced::Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.08 * fade), width: 1.0, radius: 10.0.into() }, ..container::Style::default() }),
+                        .style(move |_| container::Style { background: Some(iced::Background::Color(Color::from_rgba(0.0, 0.0, 0.0, 0.3 * fade))), border: iced::Border { color: crate::theme::outline(Color::from_rgba(1.0, 1.0, 1.0, 0.08 * fade)), width: 1.0, radius: 10.0.into() }, ..container::Style::default() }),
                 );
             }
             let mut bottom = row![ui::mono_small(format!("{}  {}", w.day(notice.at, self.now_unix), w.clock(notice.at)), FAINT), ui::grow()].spacing(8).align_y(iced::Center);
@@ -8453,8 +8491,8 @@ impl Main {
         let card = container(face)
             .width(width).max_height(TOAST_MAX_H).style(ui::box_faded(move |theme| match (floating, bad) {
                 (true, _) => theme::notification(hovered)(theme),
-                (false, true) => container::Style { background: Some(iced::Background::Color(Color { a: 0.14, ..ACCENT })), border: iced::Border { color: Color { a: 0.4, ..ACCENT }, width: 1.0, radius: 12.0.into() }, ..container::Style::default() },
-                (false, false) => container::Style { background: Some(iced::Background::Color(Color::from_rgba(0.0, 0.0, 0.0, 0.24))), border: iced::Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.05), width: 1.0, radius: 12.0.into() }, ..container::Style::default() },
+                (false, true) => container::Style { background: Some(iced::Background::Color(Color { a: 0.14, ..ACCENT })), border: iced::Border { color: crate::theme::outline(Color { a: 0.4, ..ACCENT }), width: 1.0, radius: 12.0.into() }, ..container::Style::default() },
+                (false, false) => container::Style { background: Some(iced::Background::Color(Color::from_rgba(0.0, 0.0, 0.0, 0.24))), border: iced::Border { color: crate::theme::outline(Color::from_rgba(1.0, 1.0, 1.0, 0.05)), width: 1.0, radius: 12.0.into() }, ..container::Style::default() },
             })).clip(true);
         card.id(iced::widget::Id::new(if toast.is_some() { "toast-card" } else { "notice-card" })).into()
     }
@@ -8961,7 +8999,7 @@ mod tests {
             main.last_input = began;
             let message = |now| if animation { Message::Tick(now) } else { Message::RestCheck(now) };
             let task = main.update(message(began + REST_AFTER));
-            assert!(main.resting.value());
+            assert!(main.rest_waiting && !main.resting.value(), "the screen stays visible until the first scene frame");
             assert!(main.reel.running(), "animation={animation}, scenes_due={scenes_due}");
             assert!(task.units() > 0, "the renderer task must reach the runtime");
             let serial = main.reel.serial;
@@ -8971,6 +9009,34 @@ mod tests {
             assert!(!main.resting.value());
             assert!(!main.reel.running());
         }
+    }
+
+    #[test]
+    fn idle_scene_waits_for_a_frame_and_keeps_it_until_waking_finishes() {
+        use super::{Message, REST_AFTER, REST_FADE};
+        let (_, mut main) = crate::gallery::main_states(crate::lang::Lang::En).into_iter().find(|(name, _)| name == "main-rest").unwrap();
+        main.gallery = false;
+        main.settings.live_scene = true;
+        let now = std::time::Instant::now();
+        main.last_input = now - REST_AFTER;
+        let _ = main.update(Message::RestCheck(now));
+        assert!(main.rest_waiting && !main.resting.value());
+        let serial = main.reel.serial;
+        let frame = crate::live::Frame::Picture { frame: crate::film::Frame::new(1, 1, 1, vec![255; 4]), at_ms: 1000.0, from_ms: 0.0, to_ms: 2000.0 };
+        let _ = main.update(Message::Reel(serial, frame.clone()));
+        assert!(!main.rest_waiting && main.resting.value());
+        let awake_at = std::time::Instant::now() + REST_FADE;
+        main.now = awake_at;
+        main.wake(awake_at);
+        assert!(!main.resting.value());
+        assert!(main.reel.running(), "the scene and its caption survive the outgoing fade");
+        let _ = main.check_rest(awake_at + REST_FADE / 2);
+        assert!(main.reel.running());
+        let _ = main.check_rest(awake_at + REST_FADE);
+        assert!(!main.reel.running());
+        assert!(main.reel.before.is_none(), "release scene memory when it is invisible");
+        let _ = main.update(Message::Reel(serial, frame));
+        assert!(!main.resting.value() && !main.reel.running(), "late frames cannot restart the idle scene");
     }
 
     #[test]
@@ -8993,8 +9059,9 @@ mod tests {
             let _ = main.update(Message::Key(key.clone()));
             assert_eq!(main.chosen, Some(at));
             assert!(main.laid().rows.iter().any(|row| matches!(row, crate::carousel::Row::Head { first, open: true, .. } if *first == at)));
+            let expected = main.jump_group(if key == Named::ArrowLeft { -1 } else { 1 });
             let _ = main.update(Message::Key(key));
-            assert_eq!(main.chosen, Some(at), "an open group stays selected");
+            assert_eq!(main.chosen, expected.or(Some(at)), "an open group switches in the arrow's direction");
         }
     }
 
@@ -9647,6 +9714,22 @@ mod tests {
     }
 
     #[test]
+    fn wheel_moves_the_carousel_immediately_and_can_reverse_without_inertia() {
+        let (_, mut main) = crate::gallery::main_states(crate::lang::Lang::En).into_iter().find(|(name, _)| name == "main-hover").unwrap();
+        main.gallery = false;
+        main.height = 360.0;
+        main.group = crate::carousel::Group::Flat;
+        let start = main.carousel_target();
+        main.scroll = Some(start);
+        let _ = main.update(super::Message::Wheel(-1.0));
+        assert_eq!(main.scroll, Some(start - super::select::WHEEL_STEP));
+        assert_eq!(main.scroll_speed, 0.0);
+        let _ = main.update(super::Message::Wheel(1.0));
+        assert_eq!(main.scroll, Some(start));
+        assert_eq!(main.scroll_speed, 0.0);
+    }
+
+    #[test]
     fn dragging_the_carousel_moves_it_with_the_pointer_and_a_fling_carries_on() {
         let (_, mut main) = crate::gallery::main_states(crate::lang::Lang::En).into_iter().find(|(name, _)| name == "main-hover").unwrap();
         main.gallery = false;
@@ -9750,6 +9833,8 @@ mod tests {
         assert!(!main.search_shown());
         let _ = main.update(super::Message::Typed('a'));
         assert!(main.search_shown() && main.search == "a", "a letter opens the line and goes into it");
+        assert_eq!(main.scroll, Some(main.carousel_target()), "typing focuses a matching row immediately");
+        assert_eq!(main.scroll_speed, 0.0);
         let _ = main.update(super::Message::FiltersPanel(true));
         assert!(main.filters_open);
         let _ = main.update(super::Message::Escape);
@@ -9758,6 +9843,31 @@ mod tests {
         assert!(!main.search_shown() && main.search.is_empty(), "the second one clears and hides the line");
         let _ = main.update(super::Message::SearchLine(true));
         assert!(main.search_shown() && main.search.is_empty(), "the line can be opened empty");
+    }
+
+    #[test]
+    fn search_and_filters_finish_opening_and_closing() {
+        use super::Message;
+        use std::time::Duration;
+        let (_, mut main) = crate::gallery::main_states(crate::lang::Lang::En).into_iter().find(|(name, _)| name == "main-hover").unwrap();
+        main.gallery = false;
+        let start = main.now;
+        for (open, offset) in [(true, 0), (false, 300)] {
+            let _ = main.update(Message::SearchLine(open));
+            let _ = main.update(Message::FiltersPanel(open));
+            for elapsed in [0, 75, 160] {
+                let now = start + Duration::from_millis(offset + elapsed);
+                let _ = main.update(Message::Tick(now));
+                if elapsed == 75 {
+                    let k = main.search_fade.interpolate(0.0_f32, 1.0, now);
+                    assert!(k > 0.0 && k < 1.0);
+                }
+            }
+            assert_eq!(main.search_fade.interpolate(0.0, 1.0, main.now), if open { 1.0 } else { 0.0 });
+            assert_eq!(main.filters_fade.interpolate(0.0, 1.0, main.now), if open { 1.0 } else { 0.0 });
+            assert!(!main.search_fade.is_animating(main.now));
+            assert!(!main.filters_fade.is_animating(main.now));
+        }
     }
 
     #[test]

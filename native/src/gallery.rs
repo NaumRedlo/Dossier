@@ -1226,6 +1226,11 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
             opened.filters_open = true;
             opened
         }),
+        ("main-select-flat".to_owned(), {
+            let mut flat = hovering.clone();
+            flat.group = crate::carousel::Group::Flat;
+            flat
+        }),
         ("main-select-players".to_owned(), {
             let mut players = hovering.clone();
             players.group = crate::carousel::Group::Players;

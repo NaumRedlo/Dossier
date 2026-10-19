@@ -417,7 +417,7 @@ fn notice_banner<'a>(ground: &Ground<'a>) -> Option<Element<'a, Message>> {
         .height(8.0)
         .style(move |_| container::Style {
             background: strong.then_some(Background::Color(ACCENT)),
-            border: Border { color: ACCENT, width: if strong { 0.0 } else { 1.5 }, radius: 4.0.into() },
+            border: Border { color: crate::theme::outline(ACCENT), width: if strong { 0.0 } else { 1.5 }, radius: 4.0.into() },
             ..container::Style::default()
         })
         .into();
@@ -428,7 +428,7 @@ fn notice_banner<'a>(ground: &Ground<'a>) -> Option<Element<'a, Message>> {
             button::Style {
                 background: Some(Background::Color(if strong { if lit { Color::from_rgb8(0xf0, 0x5e, 0x5e) } else { ACCENT } } else if lit { Color::from_rgba(1.0, 1.0, 1.0, 0.1) } else { Color::from_rgba(1.0, 1.0, 1.0, 0.05) })),
                 text_color: INK,
-                border: Border { color: Color::from_rgba(1.0, 1.0, 1.0, if strong { 0.0 } else { 0.12 }), width: 1.0, radius: 8.0.into() },
+                border: Border { color: crate::theme::outline(Color::from_rgba(1.0, 1.0, 1.0, if strong { 0.0 } else { 0.12 })), width: 1.0, radius: 8.0.into() },
                 shadow: Shadow::default(),
                 snap: true,
             }
@@ -442,7 +442,7 @@ fn notice_banner<'a>(ground: &Ground<'a>) -> Option<Element<'a, Message>> {
     .align_y(iced::Center)
     .style(ui::box_faded(|_| container::Style {
         background: Some(Background::Color(Color::from_rgba(0.886, 0.282, 0.282, 0.1))),
-        border: Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.045), width: 1.0, radius: 10.0.into() },
+        border: Border { color: crate::theme::outline(Color::from_rgba(1.0, 1.0, 1.0, 0.045)), width: 1.0, radius: 10.0.into() },
         ..container::Style::default()
     }));
     let k = ground.notice_k.clamp(0.0, 1.0);
@@ -478,7 +478,7 @@ pub(crate) fn video_tile<'a>(ground: &Ground<'a>, video: &news::Video, wide: boo
     let (icon, inset) = if video.src.is_some() { (crate::glyphs::Icon::Play, 0.55) } else { (crate::glyphs::Icon::External, 0.42) };
     let play = container(crate::glyphs::glyph(icon, circle * inset, Color::WHITE)).width(circle).height(circle).center(circle).style(move |_| container::Style {
         background: Some(Background::Color(Color::from_rgba(0.047, 0.027, 0.035, 0.6 * k))),
-        border: Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.2 * k), width: 1.0, radius: (circle / 2.0).into() },
+        border: Border { color: crate::theme::outline(Color::from_rgba(1.0, 1.0, 1.0, 0.2 * k)), width: 1.0, radius: (circle / 2.0).into() },
         ..container::Style::default()
     });
     let said = if loading {
@@ -652,7 +652,7 @@ pub(crate) fn flag<'a>(ground: &Ground<'a>, code: &str, high: f32) -> Element<'a
         .center_y(high)
         .style(move |_| container::Style {
             background: Some(Background::Color(Color::from_rgba(1.0, 1.0, 1.0, 0.06 * k))),
-            border: Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.08 * k), width: 1.0, radius: (high * 0.2).into() },
+            border: Border { color: crate::theme::outline(Color::from_rgba(1.0, 1.0, 1.0, 0.08 * k)), width: 1.0, radius: (high * 0.2).into() },
             ..container::Style::default()
         })
         .into()
@@ -1168,7 +1168,7 @@ fn someone_card<'a>(ground: &Ground<'a>, one: &Someone<'a>, place: Option<usize>
             button::Style {
                 background: Some(Background::Color({ let glass = if lit { theme::GLASS_LIT } else { theme::GLASS }; Color { a: glass.a * k, ..glass } })),
                 text_color: INK,
-                border: Border { color: { let edge = if lit { theme::GLASS_EDGE_LIT } else { theme::GLASS_EDGE }; Color { a: edge.a * k, ..edge } }, width: 1.0, radius: 18.0.into() },
+                border: Border { color: crate::theme::outline({ let edge = if lit { theme::GLASS_EDGE_LIT } else { theme::GLASS_EDGE }; Color { a: edge.a * k, ..edge } }), width: 1.0, radius: 18.0.into() },
                 shadow: Shadow::default(),
                 snap: true,
             }
@@ -1296,7 +1296,7 @@ pub(crate) fn ringed<'a>(ground: &Ground<'a>, person: &Person, side: f32, ring: 
     container(face(ground, person, side))
         .padding(2)
         .style(move |_| container::Style {
-            border: Border { color: Color { a: ring.a * k, ..ring }, width: 2.0, radius: (side / 2.0 + 2.0).into() },
+            border: Border { color: crate::theme::outline(Color { a: ring.a * k, ..ring }), width: 2.0, radius: (side / 2.0 + 2.0).into() },
             ..container::Style::default()
         })
         .into()
@@ -1413,7 +1413,7 @@ pub(crate) fn row_style(you: bool, frame: Option<Color>) -> impl Fn(&Theme, butt
         button::Style {
             background: Some(Background::Color(Color::from_rgba(0.055, 0.025, 0.033, 0.96))),
             text_color: INK,
-            border: Border { color: Color { a: strength, ..edge }, width: if you { 1.5 } else { 1.0 }, radius: 14.0.into() },
+            border: Border { color: crate::theme::outline(Color { a: strength, ..edge }), width: if you { 1.5 } else { 1.0 }, radius: 14.0.into() },
             shadow: match (frame.or(you.then_some(ACCENT)), lit) {
                 (Some(glow), true) => Shadow { color: Color { a: 0.1, ..glow }, offset: iced::Vector::ZERO, blur_radius: 14.0 },
                 (Some(glow), false) if frame.is_some() => Shadow { color: Color { a: 0.045, ..glow }, offset: iced::Vector::ZERO, blur_radius: 10.0 },
@@ -1527,7 +1527,7 @@ pub(crate) fn segmented<'a>(parts: Vec<(String, bool, Message)>) -> Element<'a, 
         .padding(4)
         .style(move |_| container::Style {
             background: Some(Background::Color(Color::from_rgba(0.0, 0.0, 0.0, 0.3 * k))),
-            border: Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.06 * k), width: 1.0, radius: 13.0.into() },
+            border: Border { color: crate::theme::outline(Color::from_rgba(1.0, 1.0, 1.0, 0.06 * k)), width: 1.0, radius: 13.0.into() },
             ..container::Style::default()
         })
         .into()
@@ -1557,7 +1557,7 @@ pub(crate) fn segmented_compact<'a>(parts: Vec<(String, bool, Message)>) -> Elem
         .padding(4)
         .style(move |_| container::Style {
             background: Some(Background::Color(Color::from_rgba(0.0, 0.0, 0.0, 0.3 * k))),
-            border: Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.06 * k), width: 1.0, radius: 13.0.into() },
+            border: Border { color: crate::theme::outline(Color::from_rgba(1.0, 1.0, 1.0, 0.06 * k)), width: 1.0, radius: 13.0.into() },
             ..container::Style::default()
         })
         .into()

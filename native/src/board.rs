@@ -766,43 +766,6 @@ impl<Message, K: Copy + Eq + Hash + 'static> Widget<Message, Theme, Renderer> fo
             });
         }
 
-        let Some(held) = held else {
-            return;
-        };
-        let found = self.pieces.iter().zip(tree.children.iter()).zip(layout.children()).find(|(((key, _), _), _)| *key == held.key);
-        let Some((((_, piece), child), place)) = found else {
-            return;
-        };
-        let lift = held.lift.x.clamp(0.0, 1.2);
-        let at = state.spots.get(&held.key).map_or(place.bounds().position(), |s| s.point() + origin_v);
-        let by = at - place.bounds().position();
-        let lifted = Rectangle::new(at, place.bounds().size());
-        let scale = 1.0 + 0.035 * lift;
-        renderer.with_layer(*viewport, |renderer| {
-            renderer.with_transformation(about(lifted, scale), |renderer| {
-                renderer.fill_quad(
-                    renderer::Quad {
-                        bounds: lifted,
-                        border: Border { radius: self.radius.into(), ..Border::default() },
-                        shadow: Shadow {
-                            color: Color::from_rgba(0.0, 0.0, 0.0, 0.55 * lift * fade),
-                            offset: Vector::new(0.0, 6.0 + 10.0 * lift),
-                            blur_radius: 12.0 + 28.0 * lift,
-                        },
-                        ..renderer::Quad::default()
-                    },
-                    Background::Color(Color::TRANSPARENT),
-                );
-                self.backing(renderer, lifted);
-            });
-            let transformation = about(lifted, scale) * Transformation::translate(by.x, by.y);
-            renderer.with_transformation(transformation, |renderer| {
-                piece.as_widget().draw(child, renderer, theme, style, place, mouse::Cursor::Unavailable, &(*viewport * transformation.inverse()));
-            });
-            renderer.with_transformation(about(lifted, scale), |renderer| {
-                outline(renderer, lifted, self.radius, 1.0, Color::from_rgba(1.0, 1.0, 1.0, 0.13 * lift * fade));
-            });
-        });
     }
 
     fn overlay<'b>(
@@ -813,6 +776,21 @@ impl<Message, K: Copy + Eq + Hash + 'static> Widget<Message, Theme, Renderer> fo
         viewport: &Rectangle,
         translation: Vector,
     ) -> Option<overlay::Element<'b, Message, Theme, Renderer>> {
+        let state = tree.state.downcast_ref::<State<K>>();
+        if let Some(held) = state.held {
+            let origin = layout.bounds().position();
+            let origin_v = Vector::new(origin.x, origin.y);
+            if let Some(index) = self.pieces.iter().position(|(key, _)| *key == held.key) {
+                let piece = &self.pieces[index].1;
+                let child = &tree.children[index];
+                let place = layout.children().nth(index)?;
+                let at = state.spots.get(&held.key).map_or(place.bounds().position(), |spot| spot.point() + origin_v);
+                return Some(overlay::Element::new(Box::new(DragPreview {
+                    piece, child, place, at: at + translation,
+                    lift: held.lift.x.clamp(0.0, 1.2), fade: self.fade, radius: self.radius, solid: self.solid,
+                })));
+            }
+        }
         let overlays: Vec<_> = self
             .pieces
             .iter_mut()
@@ -828,6 +806,44 @@ impl<'a, Message: 'a, K: Copy + Eq + Hash + 'static> From<Board<'a, Message, K>>
     fn from(board: Board<'a, Message, K>) -> Element<'a, Message> {
         Element::new(board)
     }
+}
+
+struct DragPreview<'a, Message> {
+    piece: &'a Element<'a, Message>,
+    child: &'a Tree,
+    place: Layout<'a>,
+    at: Point,
+    lift: f32,
+    fade: f32,
+    radius: f32,
+    solid: Option<Color>,
+}
+
+impl<Message> overlay::Overlay<Message, Theme, Renderer> for DragPreview<'_, Message> {
+    fn layout(&mut self, _: &Renderer, bounds: Size) -> Node {
+        Node::new(bounds)
+    }
+
+    fn draw(&self, renderer: &mut Renderer, theme: &Theme, style: &renderer::Style, layout: Layout<'_>, _: mouse::Cursor) {
+        use iced::advanced::Renderer as _;
+        let lifted = Rectangle::new(self.at, self.place.bounds().size());
+        let scale = 1.0 + 0.035 * self.lift;
+        renderer.with_transformation(about(lifted, scale), |renderer| {
+            renderer.fill_quad(renderer::Quad {
+                bounds: lifted,
+                border: Border { radius: self.radius.into(), ..Border::default() },
+                shadow: Shadow { color: Color::from_rgba(0.0, 0.0, 0.0, 0.55 * self.lift * self.fade), offset: Vector::new(0.0, 6.0 + 10.0 * self.lift), blur_radius: 12.0 + 28.0 * self.lift },
+                ..renderer::Quad::default()
+            }, self.solid.map_or(Color::TRANSPARENT, |colour| Color { a: colour.a * self.fade, ..colour }));
+        });
+        let by = self.at - self.place.bounds().position();
+        let transform = about(lifted, scale) * Transformation::translate(by.x, by.y);
+        renderer.with_transformation(transform, |renderer| {
+            self.piece.as_widget().draw(self.child, renderer, theme, style, self.place, mouse::Cursor::Unavailable, &(layout.bounds() * transform.inverse()));
+        });
+    }
+
+    fn index(&self) -> f32 { 100.0 }
 }
 
 #[cfg(test)]
@@ -913,6 +929,35 @@ mod tests {
         carry(&mut screen);
         let _ = screen.simulate([iced::Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left))]);
         assert_eq!(screen.into_messages().collect::<Vec<_>>(), vec![Action::Move(0, None)]);
+    }
+
+    #[test]
+    fn a_dragged_tile_is_drawn_outside_its_scroll_viewport() {
+        use iced::widget::{container, scrollable, Space};
+        let tile = container(Space::new().width(120).height(60)).style(|_| container::Style {
+            background: Some(Color::from_rgb(1.0, 0.0, 0.0).into()), ..container::Style::default()
+        });
+        let tiles = board(vec![(0u8, tile.into())], 4.0, Action::Move).anywhere();
+        let wrapped = crate::ui::grown(tiles, Point::ORIGIN, 0.0, 1.0);
+        let content = container(scrollable(wrapped).width(140).height(100))
+            .padding(iced::Padding { left: 100.0, top: 20.0, ..iced::Padding::ZERO });
+        let mut screen = iced_test::Simulator::with_size(iced::Settings::default(), Size::new(500.0, 400.0), content);
+        screen.point_at(Point::new(130.0, 40.0));
+        screen.simulate([iced::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left))]);
+        let position = Point::new(30.0, 220.0);
+        screen.point_at(position);
+        screen.simulate([iced::Event::Mouse(mouse::Event::CursorMoved { position })]);
+        let start = Instant::now();
+        for frame in 0..60 {
+            screen.simulate([iced::Event::Window(iced::window::Event::RedrawRequested(start + Duration::from_millis(frame * 16)))]);
+        }
+        let shot = screen.snapshot(&crate::theme::theme()).unwrap();
+        let stem = std::env::temp_dir().join(format!("dossier-drag-outside-{}", std::process::id()));
+        let file = crate::gallery::write_snapshot(&shot, &stem).unwrap();
+        let pixels = image::open(&file).unwrap().into_rgba8();
+        let _ = std::fs::remove_file(file);
+        let pixel = pixels.get_pixel(40, 430);
+        assert!(pixel[0] > 240 && pixel[1] < 10 && pixel[2] < 10, "the red tile must remain visible beyond both viewport edges: {pixel:?}");
     }
 
     #[test]

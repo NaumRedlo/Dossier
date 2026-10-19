@@ -56,7 +56,7 @@ fn tile<'a>(slot: &'a Slot, at: usize, words: &'a Words, covers: &'a HashMap<Str
     container(column![heading, cover, line(title, theme::SANS_SEMI, 15.0, INK), line(slot.artist.clone(), theme::SANS, 11.5, MUTED), bottom].spacing(6))
         .padding(12).width(TILE_WIDTH).height(TILE_HEIGHT).clip(true).style(|_| container::Style {
             background: Some(Background::Color(Color::from_rgb(0.073, 0.034, 0.043))),
-            border: Border { color: Color::from_rgba(1.0, 1.0, 1.0, 0.09), width: 1.0, radius: 12.0.into() },
+            border: Border { color: crate::theme::outline(Color::from_rgba(1.0, 1.0, 1.0, 0.09)), width: 1.0, radius: 12.0.into() },
             ..container::Style::default()
         }).into()
 }

@@ -12,6 +12,18 @@ use crate::skin::{darken, with_alpha, ArrowShape};
 
 const SKIN_CIRCLE_PIXELS: f32 = 128.0;
 
+fn visible_tube_axis(origin: f32, extent: f32, viewport: u32) -> Option<(f32, u32)> {
+    if !origin.is_finite() || !extent.is_finite() || extent <= 0.0 {
+        return None;
+    }
+    let pixel = f64::from(origin).floor();
+    let skip = (-pixel).max(0.0);
+    let count = (f64::from(extent).ceil() - skip).min(f64::from(viewport) - pixel - skip);
+    if count <= 0.0 { return None; }
+    // Crop by whole texels so fractional placement and antialiasing stay unchanged.
+    Some(((f64::from(origin) + skip) as f32, count as u32))
+}
+
 const DIGIT_SCALE: f32 = 0.8;
 const DIGIT_MAX_PIXELS: f32 = 64.0 * 2.0 / DIGIT_SCALE;
 
@@ -1105,13 +1117,22 @@ impl Scene<'_> {
     }
 
     fn keep_body(&self, index: usize, time_ms: f64, layout: &Layout, tube: std::sync::Arc<Pixmap>, at: (i32, i32)) {
+        const CACHE_BYTES: usize = 64 * 1024 * 1024;
+        if tube.data().len() > CACHE_BYTES { return; }
         let Ok(mut bodies) = self.bodies.lock() else {
             return;
         };
         bodies.retain(|_, body| body.shown_ms.0 - BODY_KEPT_AROUND_MS <= time_ms && time_ms <= body.shown_ms.1 + BODY_KEPT_AROUND_MS);
         let start = self.state.timeline().objects[index].start_ms;
-        let shown_ms = (start - self.state.difficulty().preempt_ms(), start + self.longest_life_ms);
+        let shown_ms = (start - self.state.difficulty().preempt_ms(), self.annotations[index].gone_ms + AFTERLIFE_MS);
         bodies.insert(index, Body { layout: *layout, shown_ms, tube, at });
+        let mut bytes: usize = bodies.values().map(|body| body.tube.data().len()).sum();
+        while bytes > CACHE_BYTES {
+            let oldest = bodies.iter().filter(|(key, _)| **key != index)
+                .min_by(|a, b| a.1.shown_ms.1.total_cmp(&b.1.shown_ms.1)).map(|(key, _)| *key);
+            let Some(oldest) = oldest else { break };
+            if let Some(body) = bodies.remove(&oldest) { bytes -= body.tube.data().len(); }
+        }
     }
 
     fn slider_tube(
@@ -1139,10 +1160,9 @@ impl Scene<'_> {
             y: f64::from(bounds.bottom()),
         });
         let margin = half * 2.0 + 4.0;
-        let (left, top) = (x0.min(x1) - margin, y0.min(y1) - margin);
-        let width = ((x1 - x0).abs() + margin * 2.0).ceil() as u32;
-        let height = ((y1 - y0).abs() + margin * 2.0).ceil() as u32;
-        let mut tube = Pixmap::new(width.max(1), height.max(1))?;
+        let (left, width) = visible_tube_axis(x0.min(x1) - margin, (x1 - x0).abs() + margin * 2.0, layout.width)?;
+        let (top, height) = visible_tube_axis(y0.min(y1) - margin, (y1 - y0).abs() + margin * 2.0, layout.height)?;
+        let mut tube = Pixmap::new(width, height)?;
         let into_tube = Transform::from_translate(-left, -top).pre_concat(layout.transform());
 
         let steps = ((half / 2.0).ceil() as usize).clamp(8, 48);
@@ -2301,6 +2321,34 @@ mod exits {
 #[cfg(test)]
 mod cost {
     use super::*;
+
+    #[test]
+    fn slider_buffers_are_clipped_without_shifting_subpixels() {
+        assert_eq!(visible_tube_axis(10.25, 30.1, 100), Some((10.25, 31)));
+        assert_eq!(visible_tube_axis(-10.25, 30.1, 100), Some((0.75, 20)));
+        assert_eq!(visible_tube_axis(90.25, 30.1, 100), Some((90.25, 10)));
+        assert_eq!(visible_tube_axis(-1_000_000.0, 2_000_000.0, 1920), Some((0.0, 1920)));
+        assert_eq!(visible_tube_axis(101.0, 20.0, 100), None);
+        assert_eq!(visible_tube_axis(-30.0, 20.0, 100), None);
+        assert_eq!(visible_tube_axis(f32::NAN, 20.0, 100), None);
+    }
+
+
+    #[test]
+    fn slider_cache_evicts_within_a_memory_budget() {
+        let notes = (0..20).map(|_| "256,192,5000,1,0\n").collect::<String>();
+        let map = dossier_beatmap::Beatmap::parse(&format!("osu file format v14\n[HitObjects]\n{notes}")).unwrap();
+        let state = GameState::from_beatmap(&map, dossier_replay::Mods::default());
+        let scene = Scene::new(&state, Skin::default());
+        let layout = Layout::new(1024, 1024);
+        for index in 0..20 {
+            scene.keep_body(index, 5000.0, &layout, std::sync::Arc::new(Pixmap::new(1024, 1024).unwrap()), (0, 0));
+        }
+        let bodies = scene.bodies.lock().unwrap();
+        assert!(bodies.values().map(|body| body.tube.data().len()).sum::<usize>() <= 64 * 1024 * 1024);
+        assert!(bodies.contains_key(&19));
+        assert!(bodies.len() < 20);
+    }
 
     #[test]
     #[ignore = "a measurement, not an assertion"]

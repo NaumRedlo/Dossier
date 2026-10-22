@@ -212,19 +212,30 @@ pub fn remove(root: &Path, name: &str) -> Result<bool, String> {
 }
 
 pub fn remove_from_game(sources: &[Source], name: &str) -> Result<bool, Refused> {
-    let Some(root) = roots(sources).into_iter().next() else {
-        return Ok(false);
-    };
     if game_running() {
         return Err(Refused::Running);
     }
-    remove(&root, name).map_err(Refused::Failed)
+    remove_from_roots(roots(sources), name).map_err(Refused::Failed)
+}
+
+fn remove_from_roots(roots: Vec<PathBuf>, name: &str) -> Result<bool, String> {
+    for root in roots {
+        if remove(&root, name)? {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 pub fn game_runs(listed: &str) -> bool {
     listed.lines().any(|line| {
-        let line = line.to_lowercase();
-        line.contains("osu!.exe") && !line.contains("witness")
+        let line = line.trim().to_lowercase();
+        // tasklist starts with the image name; ps comm contains only the executable.
+        if line.split_whitespace().next() == Some("osu!.exe") {
+            return true;
+        }
+        let executable = line.trim_start_matches(|c: char| c.is_ascii_digit() || c.is_whitespace());
+        executable.rsplit(['/', '\\']).next() == Some("osu!.exe")
     })
 }
 
@@ -232,7 +243,7 @@ pub fn game_running() -> bool {
     let listed = if cfg!(windows) {
         std::process::Command::new("tasklist").args(["/FI", "IMAGENAME eq osu!.exe", "/NH"]).output()
     } else {
-        std::process::Command::new("/bin/ps").args(["-axww", "-o", "pid=,command="]).output()
+        std::process::Command::new("/bin/ps").args(["-axww", "-o", "pid=,comm="]).output()
     };
     listed.ok().is_some_and(|out| game_runs(&String::from_utf8_lossy(&out.stdout)))
 }
@@ -429,11 +440,28 @@ mod tests {
     }
 
     #[test]
+    fn removal_finds_the_collection_in_a_second_game_installation() {
+        let base = std::env::temp_dir().join(format!("dossier-collection-second-{}", std::process::id()));
+        let roots = vec![base.join("empty"), base.join("bottle")];
+        for root in &roots { std::fs::create_dir_all(root).unwrap(); }
+        let version = 20250101_i32.to_le_bytes();
+        std::fs::write(roots[0].join("collection.db"), compose(version, &[])).unwrap();
+        std::fs::write(roots[1].join("collection.db"), compose(version, &[Collection { name: "Tournament".into(), hashes: vec!["a".repeat(32)] }])).unwrap();
+        assert_eq!(remove_from_roots(roots.clone(), "Tournament"), Ok(true));
+        assert!(read_roots(roots).is_empty());
+        std::fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
     fn a_running_game_is_told_from_the_process_list() {
         assert!(game_runs("10625 C:\\users\\crossover\\AppData\\Local\\osu!\\osu!.exe \n"));
         assert!(game_runs("osu!.exe                     10625 Console                    1    512,000 K"));
         assert!(!game_runs("  501 /usr/bin/something\n10700 Z:\\tmp\\witness.exe --client osu!.exe\n"));
         assert!(!game_runs("INFO: No tasks are running which match the specified criteria."));
+        assert!(!game_runs(" 501 /bin/sh -c wine osu!.exe"));
+        assert!(!game_runs(" 502 /Applications/CrossOver.app/Contents/MacOS/wine --start osu!.exe"));
+        assert!(!game_runs(" 503 /tmp/osu!.exe-backup"));
+        assert!(game_runs(" 504 /Games/osu!/osu!.exe"));
     }
 
 }

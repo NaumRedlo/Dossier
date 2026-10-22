@@ -308,7 +308,7 @@ pub fn skin_allowed(path: &Path, removed: &[PathBuf], root: &Path) -> bool {
 }
 
 pub fn skins_in_except(sources: &[Source], own: &[PathBuf], removed: &[PathBuf]) -> Vec<PathBuf> {
-    let mut roots: Vec<PathBuf> = sources.iter().filter_map(|source| source.skins.clone()).collect();
+    let mut roots: Vec<PathBuf> = sources.iter().filter(|source| source.on).filter_map(|source| source.skins.clone()).collect();
     for found in crate::sources::find() {
         if let Some(skins) = found.skins {
             roots.push(skins);
@@ -512,7 +512,7 @@ pub fn hunt_skins_except(sources: &[Source], own: &[PathBuf], removed: &[PathBuf
     let _ = adopt_skin_files_except(&root, removed);
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(8);
     let mut walked = 0usize;
-    let roots = hunt_roots();
+    let roots = hunt_roots(sources, own);
     let mut queue: std::collections::VecDeque<(PathBuf, u32)> = roots.iter().cloned().map(|at| (at, 0)).collect();
     while let Some((folder, deep)) = queue.pop_front() {
         if walked > 20_000 || std::time::Instant::now() > deadline {
@@ -546,28 +546,13 @@ pub fn hunt_skins_except(sources: &[Source], own: &[PathBuf], removed: &[PathBuf
     skins_in_except(sources, own, removed)
 }
 
-fn hunt_roots() -> Vec<PathBuf> {
-    let home = crate::sources::home();
-    let mut roots = vec![home.clone()];
-    for near in ["Downloads", "Desktop", "Documents", "Games", "osu!"] {
-        let path = home.join(near);
-        if path.is_dir() {
-            roots.push(path);
-        }
+fn hunt_roots(sources: &[Source], own: &[PathBuf]) -> Vec<PathBuf> {
+    let mut roots = vec![skins_root()];
+    for source in sources.iter().filter(|source| source.on) {
+        roots.extend(source.skins.iter().cloned());
+        if source.kind == crate::sources::Kind::Lazer { roots.push(source.root.join("exports")); }
     }
-    if let Ok(read) = std::fs::read_dir("/Volumes") {
-        for entry in read.flatten() {
-            if entry.file_type().map(|kind| kind.is_dir()).unwrap_or(false) {
-                roots.push(entry.path());
-            }
-        }
-    }
-    for letter in 'D'..='H' {
-        let drive = PathBuf::from(format!("{letter}:\\"));
-        if drive.is_dir() {
-            roots.push(drive);
-        }
-    }
+    roots.extend(own.iter().filter(|path| path.is_dir()).cloned());
     roots.sort();
     roots.dedup();
     roots
@@ -1123,6 +1108,16 @@ pub fn device_name() -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn automatic_skin_search_stays_inside_connected_sources() {
+        let mut source = crate::sources::Source { kind: crate::sources::Kind::Stable, root: PathBuf::from("/chosen/osu"), skins: Some(PathBuf::from("/chosen/osu/Skins")), songs: None, replays: None, maps: None, skin_count: 0, replay_count: 0, scores: 0, on: true };
+        assert_eq!(hunt_roots(&[source.clone()], &[]).len(), 2);
+        assert!(hunt_roots(&[source.clone()], &[]).contains(source.skins.as_ref().unwrap()));
+        source.on = false;
+        assert_eq!(hunt_roots(&[source], &[]), vec![skins_root()]);
+        assert_eq!(hunt_roots(&[], &[]), vec![skins_root()], "no home, photos, desktop or removable drives are scanned implicitly");
+    }
+
     #[test]
     fn a_person_who_reads_english_does_not_start_with_the_russian_channel() {
         use crate::lang::Lang;

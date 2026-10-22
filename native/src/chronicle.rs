@@ -1197,11 +1197,9 @@ fn strip_card<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
             let k = ui::fade();
             let colour = screen::medal(place).unwrap_or(INK);
             let ring = Color::from_rgb(0.071, 0.039, 0.047);
-            let nudge = Padding { top: 1.0, right: 0.0, bottom: 0.0, left: if place == 1 { 2.0 } else { 0.0 } };
-            let badge = container(text(place.to_string()).font(theme::MONO_BOLD).size(9.0).wrapping(text::Wrapping::None).color(Color { a: k, ..Color::from_rgb(0.08, 0.04, 0.05) }))
+            let badge = container(text(place.to_string()).font(theme::MONO_BOLD).size(9.0).line_height(1.0).wrapping(text::Wrapping::None).color(Color { a: k, ..Color::from_rgb(0.08, 0.04, 0.05) }))
                 .width(15.0)
                 .height(15.0)
-                .padding(nudge)
                 .center(15.0)
                 .style(move |_| container::Style { background: Some(Background::Color(Color { a: k, ..colour })), border: Border { color: crate::theme::outline(Color { a: k, ..ring }), width: 1.5, radius: 7.5.into() }, ..container::Style::default() });
             faces = faces.push(
@@ -1212,18 +1210,11 @@ fn strip_card<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
         }
         faces.into()
     };
-    let divider = container(Space::new()).width(Length::Fill).height(1.0).style(|_| container::Style { background: Some(Background::Color(Color::from_rgba(1.0, 1.0, 1.0, 0.07))), ..container::Style::default() });
-    card(
-        column![
-            strip_row(friends, w.t("strip-friends"), online.is_empty(), Message::Go(Section::People, Some(screen::PeopleFrom::Game))),
-            divider,
-            strip_row(leaders, w.t("week-leaders"), catalog.collecting || list.order.is_empty(), Message::Section(Section::Boards)),
-        ],
-        0,
-    )
-    .clip(true)
-    .id(iced::widget::Id::new("community-strip-card"))
-    .into()
+    container(column![
+        card(strip_row(friends, w.t("strip-friends"), online.is_empty(), Message::Go(Section::People, Some(screen::PeopleFrom::Game))), 0).clip(true),
+        card(strip_row(leaders, w.t("week-leaders"), catalog.collecting || list.order.is_empty(), Message::Section(Section::Boards)), 0).clip(true),
+    ].spacing(10).width(Length::Fill)).id(iced::widget::Id::new("community-strip-card")).into()
+
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

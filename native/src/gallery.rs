@@ -1550,6 +1550,16 @@ fn feed_states(community: &dyn Fn(crate::community_screen::Section, Option<usize
             main.pools.screen = crate::pools_screen::Screen::Editor(crate::pools_screen::Editor { selected: None, panel: crate::pools_screen::Panel::Closed, query: String::new(), untouched: false, editing_authors: false, ..crate::pools_screen::Editor::at(id) });
             main
         }),
+        ("main-pools-delete".to_owned(), {
+            let mut main = community(crate::community_screen::Section::Pools, None);
+            pools_state(&mut main, true);
+            let pool = &mut main.pools.list[0];
+            pool.saved = Some(crate::pools::Saved { id: "shared".into(), code: "ABC123".into(), revision: 1, publisher: "Lopuhh".into(), collected: true });
+            let id = pool.id.clone();
+            main.pools.screen = crate::pools_screen::Screen::Editor(crate::pools_screen::Editor { asking_delete: true, ..crate::pools_screen::Editor::at(id) });
+            main.pools.uncollect_refused = true;
+            main
+        }),
         ("main-pools-link".to_owned(), {
             let mut main = community(crate::community_screen::Section::Pools, None);
             pools_state(&mut main, true);

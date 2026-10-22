@@ -333,7 +333,8 @@ impl graphics::Compositor for Compositor {
                 height,
                 alpha_mode: self.alpha_mode,
                 view_formats: vec![],
-                desired_maximum_frame_latency: 1,
+                // Keep CPU preparation overlapped with GPU presentation, including Metal windows.
+                desired_maximum_frame_latency: 2,
             },
         );
     }

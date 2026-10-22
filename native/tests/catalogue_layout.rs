@@ -68,7 +68,7 @@ fn resting_hides_main_controls_and_waking_cannot_click_through_them() {
             assert!(ui.find(settings.as_str()).is_err());
             assert!(ui.find(main.words.t("replays")).is_err());
             let mark = ui.find(iced::widget::Id::new("rest-mark")).unwrap().bounds();
-            assert!((mark.center_x() - width / 2.0).abs() < 2.0 && (mark.center_y() - main.height / 2.0).abs() < 2.0, "the logo stands in the middle: {mark:?}");
+            assert!(mark.x < 40.0 && mark.y > main.height - 100.0, "the logo stays in the bottom-left corner: {mark:?}");
             assert!((mark.height - dossier_native::ui::EMBLEM * dossier_native::main_screen::reel::LOGO).abs() < 1.0);
             assert!(ui.find("Dossier").is_ok(), "resting keeps the name beside the enlarged emblem");
             if let Ok(dir) = std::env::var("DOSSIER_REST_REVIEW") {
@@ -736,4 +736,31 @@ fn events_within_the_hour_say_how_long_ago_and_older_ones_keep_the_clock() {
     assert!(ui.find(main.words.n("minutes-ago", 18)).is_ok());
     assert!(ui.find(main.words.n("minutes-ago", 27)).is_ok());
     assert!(ui.find(main.words.n("minutes-ago", 90)).is_err(), "nothing is told in more than an hour of minutes");
+}
+
+#[test]
+fn mini_player_captures_hover_and_clicks_above_the_catalogue() {
+    use dossier_native::main_screen::Message as M;
+    let (_, main) = gallery::main_states(Lang::En).into_iter().find(|(name, _)| name == "main-player-mini").unwrap();
+    let backdrop = dossier_native::ui::backdrop_handle();
+    let mut ui = Simulator::with_size(dossier_native::settings(), Size::new(main.width, main.height), gallery::main_frame(&main, &backdrop));
+    let bounds = ui.find(iced::widget::Id::new("mini-player")).unwrap().bounds();
+    assert!((bounds.height - bounds.width * 9.0 / 16.0).abs() < 1.0, "no panel below the video");
+    let point = bounds.center();
+    ui.point_at(point);
+    ui.simulate([Event::Mouse(iced::mouse::Event::CursorMoved { position: point }), Event::Mouse(iced::mouse::Event::ButtonPressed(iced::mouse::Button::Left)), Event::Mouse(iced::mouse::Event::ButtonReleased(iced::mouse::Button::Left))]);
+    let messages: Vec<_> = ui.into_messages().collect();
+    assert!(messages.iter().any(|m| matches!(m, dossier_native::Message::Main(M::ControlsHover(true)))));
+    assert!(messages.iter().any(|m| matches!(m, dossier_native::Message::Main(M::PlayerToggle))));
+    assert!(!messages.iter().any(|m| matches!(m, dossier_native::Message::Main(M::OpenVideo(_)))));
+}
+
+#[test]
+fn filters_align_with_the_right_edge_of_the_search() {
+    let (_, mut main) = gallery::main_states(Lang::En).into_iter().find(|(name, _)| name == "main-select-menu").unwrap();
+    main.width = 1440.0;
+    let backdrop = dossier_native::ui::backdrop_handle();
+    let mut ui = Simulator::with_size(dossier_native::settings(), Size::new(main.width, main.height), gallery::main_frame(&main, &backdrop));
+    let filters = ui.find(iced::widget::Id::new("search-filters")).unwrap().bounds();
+    assert!(filters.x > 16.0, "panel aligns to the right, not the left");
 }

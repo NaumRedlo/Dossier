@@ -15,12 +15,6 @@ pub const HEIGHT: u32 = 540;
 pub const RATES: [f32; 6] = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
 
 const AHEAD: usize = 4;
-const SOUND_WAIT: Duration = Duration::from_millis(500);
-const HEARD_FOR: f64 = 150.0;
-const SNAP: f64 = 200.0;
-const SETTLE: Duration = Duration::from_millis(700);
-const FOLLOW: f64 = 0.02;
-const SLEW: f64 = 0.08;
 
 fn epoch() -> Instant {
     static EPOCH: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
@@ -31,109 +25,8 @@ fn micros(at: Instant) -> i64 {
     at.saturating_duration_since(epoch()).as_micros() as i64
 }
 
-#[derive(Debug, Clone, Copy, Default)]
-pub struct Pace {
-    from_ms: f64,
-    rate: f64,
-    frame_ms: f64,
-    began: Option<Instant>,
-    asked: Option<Instant>,
-    paused_at: Option<Instant>,
-    resumed_at: Option<Instant>,
-    held: Duration,
-    offset: f64,
-    synced: bool,
-    far_since: Option<Instant>,
-    bias: f64,
-    last: Option<Instant>,
-    gap_ms: f64,
-    tick_ms: f64,
-}
-
-impl Pace {
-    pub fn new(from_ms: i64, rate: f32, shown_fps: f64, held: bool, now: Instant) -> Pace {
-        Pace { from_ms: from_ms as f64, rate: rate as f64, frame_ms: 1000.0 / shown_fps.max(1.0), paused_at: held.then_some(now), ..Pace::default() }
-    }
-
-    pub fn pause(&mut self, now: Instant) {
-        if self.paused_at.is_none() {
-            self.paused_at = Some(now);
-        }
-    }
-
-    pub fn resume(&mut self, now: Instant) {
-        if let Some(since) = self.paused_at.take() {
-            if self.began.is_some_and(|began| since >= began) {
-                self.held += now.saturating_duration_since(since);
-            }
-            self.resumed_at = Some(now);
-            self.last = None;
-        }
-    }
-
-    fn wall(&self, now: Instant) -> Option<f64> {
-        let began = self.began?;
-        let now = self.paused_at.map_or(now, |paused| paused.max(began));
-        Some(self.from_ms + now.saturating_duration_since(began).saturating_sub(self.held).as_secs_f64() * 1000.0 * self.rate)
-    }
-
-    pub fn at(&mut self, now: Instant, heard: Option<(f64, Instant)>, sound: bool, ready: bool) -> Option<f64> {
-        if self.paused_at.is_some() {
-            return self.wall(now).map(|wall| wall + self.offset + self.bias);
-        }
-        let asked = *self.asked.get_or_insert(now);
-        if self.began.is_none() {
-            let waited = now.saturating_duration_since(asked) >= SOUND_WAIT;
-            if !ready || (sound && heard.is_none() && !waited) {
-                return None;
-            }
-            self.began = Some(now);
-        }
-        if let Some(before) = self.last.replace(now) {
-            let gap = now.saturating_duration_since(before).as_secs_f64() * 1000.0;
-            if gap > 0.5 && gap < 50.0 {
-                if (gap - self.gap_ms).abs() < 1.5 {
-                    self.tick_ms = (gap + self.gap_ms) / 2.0;
-                }
-                self.gap_ms = gap;
-            }
-        }
-        let wall = self.wall(now)?;
-        if let Some((at, stamp)) = heard.filter(|(_, stamp)| self.resumed_at.is_none_or(|resumed| *stamp >= resumed)) {
-            let since = now.saturating_duration_since(stamp).as_secs_f64() * 1000.0 * self.rate;
-            if since <= HEARD_FOR {
-                let off = at + since - (wall + self.offset);
-                if !self.synced {
-                    self.offset += off;
-                    self.synced = true;
-                } else if off.abs() <= SNAP {
-                    self.far_since = None;
-                    self.offset += (off * FOLLOW).clamp(-SLEW, SLEW);
-                } else if now.saturating_duration_since(*self.far_since.get_or_insert(now)) >= SETTLE {
-                    self.offset += off;
-                    self.far_since = None;
-                }
-            }
-        }
-        Some(wall + self.offset + self.bias)
-    }
-
-    pub fn shown(&mut self, at: f64, frame_at: f64) {
-        let tick = self.tick_ms;
-        let shown_for = self.frame_ms / self.rate.max(0.01);
-        if tick <= 0.0 || tick > shown_for * 1.03 {
-            return;
-        }
-        let ticks = shown_for / tick;
-        if (ticks - ticks.round()).abs() > 0.03 {
-            return;
-        }
-        let late = (at - frame_at) / self.rate.max(0.01);
-        if late < tick * 0.25 || late > tick * 0.75 {
-            self.bias = (self.bias + (tick * 0.5 - late) * self.rate).clamp(-tick * self.rate, tick * self.rate);
-        }
-    }
-}
+mod clock;
+pub use clock::Pace;
 
 #[derive(Debug)]
 struct Heard {
@@ -188,8 +81,23 @@ pub struct Player {
     wake: Option<crate::playback_wake::PlaybackWake>,
 }
 
+#[derive(Clone)]
+pub struct Prepared(pub Arc<Mutex<Option<Player>>>);
+
+impl std::fmt::Debug for Prepared {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { f.write_str("Prepared video") }
+}
+
+struct SoundFinished(Arc<Heard>);
+
+impl Drop for SoundFinished {
+    fn drop(&mut self) {
+        self.0.at_us.store(OVER, Ordering::Relaxed);
+    }
+}
+
 struct Sound {
-    _stream: cpal::Stream,
+    commands: std::sync::mpsc::Sender<bool>,
     heard: Arc<Heard>,
 }
 
@@ -311,7 +219,8 @@ impl Player {
         if self.next.is_none() {
             self.next = self.frames.try_recv().ok();
         }
-        let at = self.pace.at(now, heard, self.sound.is_some(), self.next.is_some() || !self.fresh);
+        let sound_pending = self.sound.as_ref().is_some_and(|sound| sound.heard.at_us.load(Ordering::Relaxed) != OVER);
+        let at = self.pace.at(now, heard, sound_pending, self.next.is_some() || !self.fresh);
         let mut latest: Option<(i64, Vec<u8>)> = None;
         loop {
             if self.next.is_none() {
@@ -326,7 +235,7 @@ impl Player {
                     }
                 }
             }
-            let due = self.next.as_ref().is_some_and(|(frame_at, _)| (self.fresh && latest.is_none()) || at.is_some_and(|at| *frame_at as f64 <= at));
+            let due = self.next.as_ref().is_some_and(|(frame_at, _)| (self.fresh && latest.is_none() && (self.paused || at.is_some())) || at.is_some_and(|at| *frame_at as f64 <= at));
             if !due || (self.paused && !self.fresh) {
                 break;
             }
@@ -355,7 +264,7 @@ impl Player {
             self.paused = true;
             self.pace.pause(Instant::now());
             if let Some(sound) = &self.sound {
-                let _ = sound._stream.pause();
+                let _ = sound.commands.send(true);
             }
         }
     }
@@ -374,9 +283,9 @@ impl Player {
         self.keep_awake(!self.paused);
         if let Some(sound) = &self.sound {
             if self.paused {
-                let _ = sound._stream.pause();
+                let _ = sound.commands.send(true);
             } else {
-                let _ = sound._stream.play();
+                let _ = sound.commands.send(false);
             }
         }
     }
@@ -488,108 +397,126 @@ impl Player {
     }
 
     fn spawn_sound(&self, from_ms: i64, held: bool) -> Option<Sound> {
-        let host = cpal::default_host();
-        let device = host.default_output_device()?;
-        let config = device.default_output_config().ok()?;
-        let rate = config.sample_rate();
-        let channels = config.channels() as usize;
-        let mut args: Vec<String> = ["-hide_banner", "-loglevel", "error", "-ss"].iter().map(|s| s.to_string()).collect();
-        args.push(seconds(from_ms));
-        args.push("-i".to_owned());
-        args.push(self.path.to_string_lossy().into_owned());
-        if (self.rate - 1.0).abs() > 0.001 {
-            args.push("-af".to_owned());
-            args.push(format!("atempo={:.3}", self.rate));
-        }
-        for part in ["-vn", "-f", "f32le", "-acodec", "pcm_f32le", "-ac"] {
-            args.push(part.to_owned());
-        }
-        args.push(channels.to_string());
-        args.push("-ar".to_owned());
-        args.push(rate.0.to_string());
-        args.push("-".to_owned());
-        let mut child = crate::checks::quiet(&self.ffmpeg)
-            .args(&args)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .stdin(Stdio::null())
-            .spawn()
-            .ok()?;
-        let mut out = child.stdout.take()?;
-        if let Ok(mut procs) = self.procs.lock() {
-            procs.push(child);
-        }
-        let (tx, rx) = sync_channel::<Vec<f32>>(16);
-        let stop = self.stop.clone();
-        thread::spawn(move || {
-            let mut bytes = vec![0u8; 4096 * 4];
-            loop {
-                if stop.load(Ordering::Relaxed) {
-                    return;
-                }
-                let read = match out.read(&mut bytes) {
-                    Ok(0) | Err(_) => return,
-                    Ok(n) => n,
-                };
-                let samples: Vec<f32> = bytes[..read - read % 4].chunks_exact(4).map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]])).collect();
-                if tx.send(samples).is_err() {
-                    return;
-                }
-            }
-        });
-        let leftover: Arc<Mutex<(Vec<f32>, usize)>> = Arc::new(Mutex::new((Vec::new(), 0)));
-        let rx = Mutex::new(rx);
-        let level = self.level.clone();
-        let muted = self.muted.clone();
+        let (commands, receiver) = std::sync::mpsc::channel();
         let heard = Arc::new(Heard { at_us: AtomicI64::new(NOT_YET), stamp_us: AtomicI64::new(0) });
-        let output_clock = heard.clone();
-        let speed = self.rate as f64;
-        let mut rendered_samples = 0i64;
-        let stream = device
-            .build_output_stream(
-                &config.into(),
-                move |data: &mut [f32], _| {
-                    let gain = if muted.load(Ordering::Relaxed) { 0.0 } else { f32::from_bits(level.load(Ordering::Relaxed)) };
-                    let mut left = leftover.lock().unwrap();
-                    let rx = rx.lock().unwrap();
-                    for sample in data.iter_mut() {
-                        if left.1 >= left.0.len() {
-                            match rx.try_recv() {
-                                Ok(chunk) => {
-                                    left.0 = chunk;
-                                    left.1 = 0;
-                                }
-                                Err(TryRecvError::Disconnected) => {
-                                    output_clock.at_us.store(OVER, Ordering::Relaxed);
-                                    *sample = 0.0;
-                                    continue;
-                                }
-                                Err(TryRecvError::Empty) => {
-                                    *sample = 0.0;
-                                    continue;
+        let sound = Sound { commands, heard: heard.clone() };
+        let ffmpeg = self.ffmpeg.clone();
+        let path = self.path.clone();
+        let procs = self.procs.clone();
+        let stop_flag = self.stop.clone();
+        let level_setting = self.level.clone();
+        let muted_setting = self.muted.clone();
+        let speed_setting = self.rate;
+        thread::spawn(move || {
+            let _finished = SoundFinished(heard.clone());
+            let host = cpal::default_host();
+            let device = host.default_output_device()?;
+            let config = device.default_output_config().ok()?;
+            let rate = config.sample_rate();
+            let channels = config.channels() as usize;
+            let mut args: Vec<String> = ["-hide_banner", "-loglevel", "error", "-ss"].iter().map(|s| s.to_string()).collect();
+            args.push(seconds(from_ms));
+            args.push("-i".to_owned());
+            args.push(path.to_string_lossy().into_owned());
+            if (speed_setting - 1.0).abs() > 0.001 {
+                args.push("-af".to_owned());
+                args.push(format!("atempo={:.3}", speed_setting));
+            }
+            for part in ["-vn", "-f", "f32le", "-acodec", "pcm_f32le", "-ac"] {
+                args.push(part.to_owned());
+            }
+            args.push(channels.to_string());
+            args.push("-ar".to_owned());
+            args.push(rate.0.to_string());
+            args.push("-".to_owned());
+            let mut child = crate::checks::quiet(&ffmpeg)
+                .args(&args)
+                .stdout(Stdio::piped())
+                .stderr(Stdio::null())
+                .stdin(Stdio::null())
+                .spawn()
+                .ok()?;
+            let mut out = child.stdout.take()?;
+            if let Ok(mut procs) = procs.lock() {
+                if stop_flag.load(Ordering::Relaxed) { let _ = child.kill(); let _ = child.wait(); return None; }
+                procs.push(child);
+            }
+            let (tx, rx) = sync_channel::<Vec<f32>>(16);
+            let stop = stop_flag.clone();
+            thread::spawn(move || {
+                let mut bytes = vec![0u8; 4096 * 4];
+                loop {
+                    if stop.load(Ordering::Relaxed) {
+                        return;
+                    }
+                    let read = match out.read(&mut bytes) {
+                        Ok(0) | Err(_) => return,
+                        Ok(n) => n,
+                    };
+                    let samples: Vec<f32> = bytes[..read - read % 4].chunks_exact(4).map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]])).collect();
+                    if tx.send(samples).is_err() {
+                        return;
+                    }
+                }
+            });
+            let leftover: Arc<Mutex<(Vec<f32>, usize)>> = Arc::new(Mutex::new((Vec::new(), 0)));
+            let rx = Mutex::new(rx);
+            let level = level_setting.clone();
+            let muted = muted_setting.clone();
+            let output_clock = heard.clone();
+            let error_clock = heard.clone();
+            let speed = speed_setting as f64;
+            let mut rendered_samples = 0i64;
+            let stream = device
+                .build_output_stream(
+                    &config.into(),
+                    move |data: &mut [f32], _| {
+                        let gain = if muted.load(Ordering::Relaxed) { 0.0 } else { f32::from_bits(level.load(Ordering::Relaxed)) };
+                        let mut left = leftover.lock().unwrap();
+                        let rx = rx.lock().unwrap();
+                        for sample in data.iter_mut() {
+                            if left.1 >= left.0.len() {
+                                match rx.try_recv() {
+                                    Ok(chunk) => {
+                                        left.0 = chunk;
+                                        left.1 = 0;
+                                    }
+                                    Err(TryRecvError::Disconnected) => {
+                                        output_clock.at_us.store(OVER, Ordering::Relaxed);
+                                        *sample = 0.0;
+                                        continue;
+                                    }
+                                    Err(TryRecvError::Empty) => {
+                                        *sample = 0.0;
+                                        continue;
+                                    }
                                 }
                             }
+                            *sample = left.0[left.1] * gain;
+                            left.1 += 1;
+                            rendered_samples += 1;
                         }
-                        *sample = left.0[left.1] * gain;
-                        left.1 += 1;
-                        rendered_samples += 1;
-                    }
-                    if rendered_samples > 0 && output_clock.at_us.load(Ordering::Relaxed) != OVER {
-                        let before = (data.len() / channels.max(1)) as f64 / rate.0 as f64;
-                        let at = from_ms as f64 + (rendered_samples as f64 / channels as f64 / rate.0 as f64 - before).max(0.0) * speed * 1000.0;
-                        output_clock.stamp_us.store(micros(Instant::now()), Ordering::Relaxed);
-                        output_clock.at_us.store((at * 1000.0) as i64, Ordering::Relaxed);
-                    }
-                },
-                |_| {},
-                None,
-            )
-            .ok()?;
-        match held {
-            true => stream.pause().ok()?,
-            false => stream.play().ok()?,
-        }
-        Some(Sound { _stream: stream, heard })
+                        if rendered_samples > 0 && output_clock.at_us.load(Ordering::Relaxed) != OVER {
+                            let before = (data.len() / channels.max(1)) as f64 / rate.0 as f64;
+                            let at = from_ms as f64 + (rendered_samples as f64 / channels as f64 / rate.0 as f64 - before).max(0.0) * speed * 1000.0;
+                            output_clock.stamp_us.store(micros(Instant::now()), Ordering::Relaxed);
+                            output_clock.at_us.store((at * 1000.0) as i64, Ordering::Relaxed);
+                        }
+                    },
+                    move |_| { error_clock.at_us.store(OVER, Ordering::Relaxed); },
+                    None,
+                )
+                .ok()?;
+            match held {
+                true => stream.pause().ok()?,
+                false => stream.play().ok()?,
+            }
+            while let Ok(paused) = receiver.recv() {
+                if paused { let _ = stream.pause(); } else { let _ = stream.play(); }
+            }
+            Some(())
+        });
+        Some(sound)
     }
 }
 
@@ -624,6 +551,78 @@ pub fn next_rate(rate: f32, by: i32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn first_frame_waits_for_delayed_audio_but_paused_seek_can_preview() {
+        let now = Instant::now();
+        let mut player = Player::still(Path::new("pending.mp4"), 10_000, 0);
+        player.paused = false;
+        player.fresh = true;
+        player.size = (1, 1);
+        player.pace = Pace::new(0, 1.0, 60.0, false, now);
+        let (tx, rx) = sync_channel(2);
+        player.frames = rx;
+        tx.send((0, vec![0; 4])).unwrap();
+        let heard = Arc::new(Heard { at_us: AtomicI64::new(NOT_YET), stamp_us: AtomicI64::new(0) });
+        player.sound = Some(Sound { commands: std::sync::mpsc::channel().0, heard: heard.clone() });
+        assert!(!player.pull(now));
+        assert!(!player.pull(now + Duration::from_secs(3)));
+        assert!(player.frame.is_none());
+        heard.stamp_us.store(micros(now + Duration::from_secs(3)), Ordering::Relaxed);
+        heard.at_us.store(0, Ordering::Relaxed);
+        assert!(player.pull(now + Duration::from_secs(3)));
+        assert_eq!(player.at_ms(), 0);
+
+        player.paused = true;
+        player.fresh = true;
+        player.pace = Pace::new(800, 1.0, 60.0, true, now);
+        heard.at_us.store(NOT_YET, Ordering::Relaxed);
+        tx.send((800, vec![0; 4])).unwrap();
+        assert!(player.pull(now));
+        assert_eq!(player.at_ms(), 800);
+    }
+
+    #[test]
+    fn audio_worker_failure_releases_pending_video() {
+        let heard = Arc::new(Heard { at_us: AtomicI64::new(NOT_YET), stamp_us: AtomicI64::new(0) });
+        {
+            let _worker = SoundFinished(heard.clone());
+            assert_eq!(heard.at_us.load(Ordering::Relaxed), NOT_YET);
+        }
+        assert_eq!(heard.at_us.load(Ordering::Relaxed), OVER);
+        assert!(heard.said().is_none());
+    }
+
+    #[test]
+    #[ignore = "requires ffmpeg and an audio device"]
+    fn background_open_can_play_pause_seek_and_close() {
+        let ffmpeg = crate::checks::ffmpeg_on_path().expect("ffmpeg installed");
+        let path = std::env::temp_dir().join(format!("dossier-player-async-{}.mp4", std::process::id()));
+        assert!(crate::checks::quiet(&ffmpeg).args(["-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=60", "-f", "lavfi", "-i", "sine=frequency=440", "-t", "2", "-c:v", "libx264", "-preset", "ultrafast", "-c:a", "aac"]).arg(&path).status().unwrap().success());
+        let source = path.clone();
+        let mut player = thread::spawn(move || {
+            let media = crate::videos::probe(&ffmpeg, &source).unwrap();
+            Player::open(&ffmpeg, &source, media, Manner { muted: true, ..Manner::default() })
+        }).join().unwrap();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while player.frame.is_none() && Instant::now() < deadline {
+            player.pull(Instant::now());
+            thread::sleep(Duration::from_millis(10));
+        }
+        assert!(player.frame.is_some());
+        player.toggle();
+        assert!(player.paused);
+        let at = player.at_ms();
+        thread::sleep(Duration::from_millis(30));
+        player.pull(Instant::now());
+        assert_eq!(player.at_ms(), at);
+        player.seek(800);
+        assert!(player.paused);
+        player.toggle();
+        assert!(!player.paused);
+        player.close();
+        std::fs::remove_file(path).unwrap();
+    }
 
     #[test]
     #[ignore = "requires ffmpeg with the libx264 encoder"]
@@ -770,7 +769,9 @@ mod tests {
         assert_eq!(silent, Some(0.0), "a video without sound starts at once");
         let mut deaf = Pace::new(0, 1.0, 60.0, false, began);
         assert_eq!(deaf.at(ms(0.0), None, true, true), None);
-        assert!(deaf.at(ms(600.0), None, true, true).is_some(), "a sound that never begins does not hold the picture for good");
+        assert_eq!(deaf.at(ms(600.0), None, true, true), None);
+        assert_eq!(deaf.at(ms(5_000.0), None, true, true), None);
+        assert_eq!(deaf.at(ms(5_010.0), None, false, true), Some(0.0), "an unavailable audio stream releases the video clock");
         let mut still = Pace::new(700, 1.0, 60.0, true, began);
         assert_eq!(still.at(ms(50.0), None, true, true), None, "a video opened paused does not run");
     }

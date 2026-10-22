@@ -1361,3 +1361,7 @@ people-mark-app = From Dossier
 people-mark-friend = From friends
 people-in-world = worldwide
 people-online = online
+
+video-open-failed = Could not open the video. Check that the file is available.
+
+pool-delete-failed = Could not delete. Check folder access and try again.

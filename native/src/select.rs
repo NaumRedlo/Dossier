@@ -595,9 +595,9 @@ impl Main {
             reset,
         ].spacing(16))
         .padding(18)
-        .width(PANEL_WIDE.min(self.carousel_width() - 2.0 * PANEL_OUT))));
+        .width(PANEL_WIDE.min(self.carousel_width() - 2.0 * PANEL_OUT)).id(iced::widget::Id::new("search-filters"))));
         let panel = ui::collapsing(panel, panel_k);
-        container(column![line, panel].spacing(8.0 * panel_k)).padding(Padding { top: 0.0, right: PANEL_OUT, bottom: 0.0, left: PANEL_OUT }).width(Length::Fill).into()
+        container(column![line, container(panel).width(Length::Fill).align_x(iced::alignment::Horizontal::Right)].spacing(8.0 * panel_k)).padding(Padding { top: 0.0, right: PANEL_OUT, bottom: 0.0, left: PANEL_OUT }).width(Length::Fill).into()
     }
 
     fn carousel(&self, laid: &Laid) -> Element<'_, Message> {

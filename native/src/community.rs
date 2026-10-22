@@ -1836,7 +1836,7 @@ mod tests {
         assert!(weekly.order.iter().all(|(who, _)| !catalog.people[*who].outside), "a player without a week in this chat is ranked for the week");
         let general = crate::community_screen::standings(&catalog, Board::Pp, crate::community_screen::Standing::General);
         assert_eq!(catalog.people[general.order[0].0].name, "kotofey");
-        assert!(general.order.iter().any(|(who, _)| catalog.people[*who].name == "Mirrorwave"), "the server's players are left out of the ranking");
+        assert!(general.order.iter().all(|(who, _)| !catalog.people[*who].outside), "the chat ranking must exclude server-only players");
 
         catalog.welcome(&everyone);
         assert_eq!(catalog.people.len(), 4, "welcoming twice doubled the outsiders");

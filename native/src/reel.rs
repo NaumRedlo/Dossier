@@ -2,8 +2,8 @@ use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
 use iced::animation::Easing;
-use iced::widget::{column, container, stack, text, Space};
-use iced::{Animation, Background, Color, Element, Length, Padding};
+use iced::widget::{container, stack, Space};
+use iced::{Animation, Background, Color, Element, Length};
 
 use super::{Live, Main, Message};
 use crate::{live, theme};
@@ -13,7 +13,7 @@ pub const RECENT: usize = 12;
 pub const GIVE_UP: u32 = 8;
 pub const START_LEAST: f64 = 0.05;
 pub const START_MOST: f64 = 0.55;
-pub const LOGO: f32 = 2.2;
+pub const LOGO: f32 = 1.0;
 pub const SHADE: f32 = 0.5;
 
 #[derive(Debug, Clone, Default)]
@@ -161,17 +161,6 @@ impl Main {
             ..container::Style::default()
         });
         layers = layers.push(shade);
-        if let Some((at, _, seen)) = current {
-            if let Some(entry) = self.entries().get(at) {
-                let song = entry.song().unwrap_or_else(|| self.words.t("unknown-map"));
-                let caption = column![
-                    text(entry.player.clone()).font(theme::SANS_SEMI).size(theme::BODY).color(Color { a: rest * seen, ..theme::INK }),
-                    text(song).font(theme::SANS).size(theme::CAPTION).color(Color { a: rest * seen * 0.7, ..theme::INK }),
-                ]
-                .spacing(2);
-                layers = layers.push(container(caption).padding(Padding { top: 0.0, right: 40.0, bottom: 36.0, left: 40.0 }).width(Length::Fill).height(Length::Fill).align_y(iced::alignment::Vertical::Bottom));
-            }
-        }
         layers.into()
     }
 }

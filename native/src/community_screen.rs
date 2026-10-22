@@ -1310,11 +1310,11 @@ pub(crate) fn standings(catalog: &Catalog, board: Board, standing: Standing) -> 
     let at = board.index();
     match standing {
         Standing::General => {
-            let order: Vec<(usize, f64)> = catalog.ranked(board).into_iter().map(|who| (who, board.value(&catalog.people[who]))).filter(|(_, value)| *value > 0.0).collect();
+            let order: Vec<(usize, f64)> = catalog.ranked(board).into_iter().filter(|who| !catalog.people[*who].outside).map(|who| (who, board.value(&catalog.people[who]))).filter(|(_, value)| *value > 0.0).collect();
             Standings { order }
         }
         Standing::Adaptive => {
-            let mut order: Vec<(usize, f64)> = (0..catalog.people.len()).map(|who| (who, catalog.people[who].gained[at])).filter(|(_, gained)| *gained > 0.0).collect();
+            let mut order: Vec<(usize, f64)> = (0..catalog.people.len()).filter(|who| !catalog.people[*who].outside).map(|who| (who, catalog.people[who].gained[at])).filter(|(_, gained)| *gained > 0.0).collect();
             order.sort_by(|a, b| b.1.total_cmp(&a.1).then_with(|| board.value(&catalog.people[b.0]).total_cmp(&board.value(&catalog.people[a.0]))));
             Standings { order }
         }
@@ -1633,7 +1633,7 @@ fn boards<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
     for (at, (who, value)) in list.order.iter().enumerate().skip(3) {
         rows = rows.push(ui::appearing(ui::appear(ground.section_t.min(ground.shift_t), at), 10.0, || board_row(ground, &list, Some(at + 1), *who, *value)));
     }
-    let you_out = catalog.people.iter().position(|p| p.you).filter(|you| !list.order.iter().any(|(who, _)| who == you));
+    let you_out = catalog.people.iter().position(|p| p.you && !p.outside).filter(|you| !list.order.iter().any(|(who, _)| who == you));
     if let Some(you) = you_out {
         let last = list.order.len();
         rows = rows.push(container(ui::appearing(ui::appear(ground.section_t.min(ground.shift_t), last), 10.0, || board_row(ground, &list, None, you, 0.0))).padding(Padding::ZERO.top(8.0)));

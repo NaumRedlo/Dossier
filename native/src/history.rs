@@ -8,6 +8,7 @@ pub const CHUNK: usize = 500;
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct LocalScore {
+    pub player: String,
     pub md5: String,
     pub id: i64,
     pub set: i64,
@@ -38,6 +39,7 @@ pub struct LocalScore {
 pub struct Digest {
     pub scores: Vec<LocalScore>,
     pub unknown: usize,
+    pub others: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -47,10 +49,15 @@ pub struct Sent {
     pub failed: bool,
 }
 
-pub fn digest(replays: &[Replay], library: &Library, after: i64) -> Digest {
+pub fn digest(replays: &[Replay], library: &Library, after: i64, player: &str) -> Digest {
     let mut scores = Vec::new();
     let mut unknown = 0;
+    let mut others = 0;
     for replay in replays {
+        if player.trim().is_empty() || !replay.player.trim().eq_ignore_ascii_case(player.trim()) {
+            others += 1;
+            continue;
+        }
         let played = replay.played_at_unix();
         if played <= 0 || (after > 0 && played < after) {
             continue;
@@ -62,6 +69,7 @@ pub fn digest(replays: &[Replay], library: &Library, after: i64) -> Digest {
         };
         let facts = map.facts(mods);
         scores.push(LocalScore {
+            player: replay.player.trim().to_owned(),
             md5: replay.beatmap_hash.to_ascii_lowercase(),
             id: i64::from(map.id),
             set: i64::from(map.set),
@@ -89,17 +97,17 @@ pub fn digest(replays: &[Replay], library: &Library, after: i64) -> Digest {
         });
     }
     scores.sort_by_key(|score| (score.played, score.md5.clone()));
-    Digest { scores, unknown }
+    Digest { scores, unknown, others }
 }
 
-pub fn gather(root: &Path, after: i64) -> Digest {
+pub fn gather(root: &Path, after: i64, player: &str) -> Digest {
     let replays = crate::scores::in_folder(root);
     if replays.is_empty() {
         return Digest::default();
     }
     match Library::open(&root.join("osu!.db")) {
-        Some(library) => digest(&replays, &library, after),
-        None => Digest { scores: Vec::new(), unknown: replays.len() },
+        Some(library) => digest(&replays, &library, after, player),
+        None => Digest { scores: Vec::new(), unknown: replays.len(), others: 0 },
     }
 }
 
@@ -163,7 +171,7 @@ mod tests {
 
     #[test]
     fn a_local_score_is_given_the_difficulty_of_the_map_its_hash_names() {
-        let digest = digest(&[score(KNOWN, 1_700_000_100, 64)], &library(), 0);
+        let digest = digest(&[score(KNOWN, 1_700_000_100, 64)], &library(), 0, "NaumRedlo");
         assert_eq!(digest.unknown, 0);
         let one = &digest.scores[0];
         assert_eq!((one.id, one.set, one.played, one.score, one.combo, one.mods), (11, 5, 1_700_000_100, 1_234_567, 640, 64));
@@ -173,24 +181,40 @@ mod tests {
 
     #[test]
     fn what_cannot_be_tied_to_a_map_osu_knows_is_counted_and_left_out() {
-        let digest = digest(&[score("0000000000000000000000000000000f", 1_700_000_001, 0), score(LOCAL, 1_700_000_002, 0), score(OTHER, 1_700_000_003, 0), score(KNOWN, 1_700_000_004, 0)], &library(), 0);
+        let digest = digest(&[score("0000000000000000000000000000000f", 1_700_000_001, 0), score(LOCAL, 1_700_000_002, 0), score(OTHER, 1_700_000_003, 0), score(KNOWN, 1_700_000_004, 0)], &library(), 0, "NaumRedlo");
         assert_eq!((digest.scores.len(), digest.unknown), (1, 3), "a map not in the library, a map osu! has no id for and a map of another mode");
+    }
+
+    #[test]
+    fn only_the_player_s_own_scores_are_told_and_others_on_the_same_machine_are_counted() {
+        let mut guest = score(KNOWN, 1_700_000_200, 0);
+        guest.player = "Guest".to_owned();
+        let mut shouted = score(KNOWN, 1_700_000_300, 0);
+        shouted.player = " naumredlo ".to_owned();
+        let digest = digest(&[score(KNOWN, 1_700_000_100, 0), guest.clone(), shouted], &library(), 0, "NaumRedlo");
+        assert_eq!((digest.scores.len(), digest.others), (2, 1));
+        assert!(digest.scores.iter().all(|one| one.player.eq_ignore_ascii_case("NaumRedlo")));
+        assert!(digest_of_nobody(&guest).scores.is_empty(), "without a name nothing is told");
+    }
+
+    fn digest_of_nobody(replay: &Replay) -> Digest {
+        digest(std::slice::from_ref(replay), &library(), 0, "")
     }
 
     #[test]
     fn only_what_is_newer_than_what_was_sent_is_told_and_in_the_order_it_was_played() {
         let replays = [score(KNOWN, 300, 0), score(KNOWN, 100, 0), score(KNOWN, 200, 0)];
-        let all = digest(&replays, &library(), 0);
+        let all = digest(&replays, &library(), 0, "NaumRedlo");
         assert_eq!(all.scores.iter().map(|s| s.played).collect::<Vec<_>>(), [100, 200, 300]);
-        let later = digest(&replays, &library(), 200);
+        let later = digest(&replays, &library(), 200, "NaumRedlo");
         assert_eq!(later.scores.iter().map(|s| s.played).collect::<Vec<_>>(), [200, 300], "the second the last one went at is told again, the server keeps one");
-        assert!(digest(&[score(KNOWN, 0, 0)], &library(), 0).scores.is_empty(), "a score with no time is not believed");
+        assert!(digest(&[score(KNOWN, 0, 0)], &library(), 0, "NaumRedlo").scores.is_empty(), "a score with no time is not believed");
     }
 
     #[test]
     fn a_digest_goes_in_chunks_and_a_failure_keeps_what_got_through() {
         let replays: Vec<Replay> = (1..=(CHUNK as i64 * 2 + 10)).map(|at| score(KNOWN, at, 0)).collect();
-        let all = digest(&replays, &library(), 0);
+        let all = digest(&replays, &library(), 0, "NaumRedlo");
         let mut chunks = 0;
         let whole = tell(&all, |chunk| {
             chunks += 1;
@@ -210,15 +234,15 @@ mod tests {
         let root = std::env::temp_dir().join(format!("dossier-history-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).expect("a folder");
-        assert_eq!(gather(&root, 0), Digest::default());
+        assert_eq!(gather(&root, 0, "NaumRedlo"), Digest::default());
         let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
     fn a_score_tells_itself_in_the_words_the_bot_reads() {
-        let digest = digest(&[score(KNOWN, 1_700_000_100, 8)], &library(), 0);
+        let digest = digest(&[score(KNOWN, 1_700_000_100, 8)], &library(), 0, "NaumRedlo");
         let said = serde_json::to_value(&digest.scores[0]).expect("it says itself");
-        for key in ["md5", "id", "set", "played", "score", "combo", "n300", "n100", "n50", "geki", "katu", "miss", "perfect", "mods", "stars", "base_stars", "ar", "cs", "od", "hp", "bpm", "length", "objects", "status"] {
+        for key in ["player", "md5", "id", "set", "played", "score", "combo", "n300", "n100", "n50", "geki", "katu", "miss", "perfect", "mods", "stars", "base_stars", "ar", "cs", "od", "hp", "bpm", "length", "objects", "status"] {
             assert!(said.get(key).is_some(), "{key}");
         }
         assert_eq!(said["md5"], KNOWN);

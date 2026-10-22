@@ -1099,11 +1099,14 @@ impl Main {
         let Some(root) = self.stable_root() else {
             return Task::none();
         };
+        let Some(player) = self.community.as_ref().and_then(|catalog| catalog.people.iter().find(|person| person.you)).map(|you| you.name.clone()).filter(|name| !name.trim().is_empty()) else {
+            return Task::none();
+        };
         self.history_running = true;
         self.history_at = Some(now);
         let (server, token, name, after) = (self.settings.server.clone(), self.settings.token.clone(), self.settings.device.clone(), self.settings.history_sent);
         ui::in_thread(move || {
-            let digest = crate::history::gather(&root, after);
+            let digest = crate::history::gather(&root, after, &player);
             Message::HistoryTold(crate::history::tell(&digest, |chunk| crate::bot::local_scores(&server, &token, &name, chunk).ok()))
         })
     }
@@ -2258,7 +2261,7 @@ impl Main {
                 if self.refreshing || self.library.is_none() {
                     return Task::none();
                 }
-                self.watch_task()
+                Task::batch([self.watch_task(), self.history_task(false)])
             }
             Message::Watched(sig) => {
                 if self.refreshing || self.watch_sig == 0 || sig == self.watch_sig {

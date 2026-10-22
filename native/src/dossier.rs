@@ -1309,12 +1309,12 @@ fn best_plays<'a>(ground: &Ground<'a>, whose: &Whose<'a>, wide: f32, t: f32) -> 
 fn grades<'a>(ground: &Ground<'a>, card: &wire::Card) -> Element<'a, Message> {
     let w = ground.words;
     let g = &card.grade_counts;
-    let entries = [("A", g.a, Color::from_rgb8(80, 200, 80), "grade-a"), ("S", g.s, Color::from_rgb8(255, 215, 0), "grade-s"), ("S", g.sh, Color::from_rgb8(220, 220, 240), "grade-sh"), ("SS", g.ss, Color::from_rgb8(255, 215, 0), "grade-ss"), ("SS", g.ssh, Color::from_rgb8(220, 220, 240), "grade-ssh")];
+    let entries = [("A", g.a, Color::from_rgb8(80, 200, 80)), ("S", g.s, Color::from_rgb8(255, 215, 0)), ("S", g.sh, Color::from_rgb8(220, 220, 240)), ("SS", g.ss, Color::from_rgb8(255, 215, 0)), ("SS", g.ssh, Color::from_rgb8(220, 220, 240))];
     let total: f64 = entries.iter().map(|e| e.1.max(0.0)).sum();
     let share = |n: f64| screen::decimal(w, (n / total.max(1.0) * 100.0) as f32, 1) + "%";
     let mut tiles = row![].spacing(5);
     let mut bar = row![].spacing(2).height(8.0);
-    for (index, (letter, n, colour, _)) in entries.iter().enumerate() {
+    for (index, (letter, n, colour)) in entries.iter().enumerate() {
         let on = ground.grade_hover == Some(index);
         let dim = ground.grade_hover.is_some() && !on;
         let k = ui::fade() * if dim { 0.5 } else { 1.0 };
@@ -1346,11 +1346,7 @@ fn grades<'a>(ground: &Ground<'a>, card: &wire::Card) -> Element<'a, Message> {
             bar = bar.push(container(Space::new().height(8.0)).width(Length::FillPortion((*n as u16).max(1))).style(move |_| container::Style { background: Some(Background::Color(Color { a: alpha, ..colour })), border: Border { radius: 4.0.into(), ..Border::default() }, ..container::Style::default() }));
         }
     }
-    let said = match ground.grade_hover.and_then(|index| entries.get(index)) {
-        Some((_, n, colour, key)) => ui::mono_small(format!("{}  {} {}", w.t(key), share(*n), w.t("of-all-grades")), *colour),
-        None => Space::new().width(0.0).into(),
-    };
-    let body = column![row![caption(w.t("card-grades")), ui::grow(), said].align_y(iced::Center), tiles, bar.width(Length::Fill)].spacing(10);
+    let body = column![caption(w.t("card-grades")), tiles, bar.width(Length::Fill)].spacing(10);
     mouse_area(slab(body, [14, 16])).on_exit(Message::GradeHover(None)).into()
 }
 

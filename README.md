@@ -10,7 +10,7 @@ as a video.
 [![release](https://img.shields.io/github/v/release/NaumRedlo/Dossier?include_prereleases&label=release)](https://github.com/NaumRedlo/Dossier/releases)
 [![downloads](https://img.shields.io/github/downloads/NaumRedlo/Dossier/total?label=downloads)](https://github.com/NaumRedlo/Dossier/releases)
 [![last commit](https://img.shields.io/github/last-commit/NaumRedlo/Dossier/global?label=last%20commit)](https://github.com/NaumRedlo/Dossier/commits/global)
-[![licence](https://img.shields.io/badge/licence-AGPL--3.0-blue)](LICENSE)
+[![licence](https://img.shields.io/badge/licence-MIT-blue)](LICENSE)
 ![platforms](https://img.shields.io/badge/runs%20on-Windows%2C%20macOS%2C%20Linux%2C%20ARM-lightgrey)
 
 Nothing here wraps the game. The replay parser, the beatmap parser, the
@@ -176,7 +176,7 @@ machine offers itself as a worker.
 
 ## Licence, and what in here is not ours
 
-The code is **AGPL-3.0-only**. See [LICENSE](LICENSE).
+The code is under the **MIT** licence. See [LICENSE](LICENSE).
 
 Some files in this repository are somebody else's work and keep their own
 terms:

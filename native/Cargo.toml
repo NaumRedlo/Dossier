@@ -4,7 +4,7 @@
 name = "dossier-native"
 version = "0.96.3"
 edition = "2021"
-license = "AGPL-3.0-only"
+license = "MIT"
 description = "The Dossier desktop application"
 
 [[bin]]

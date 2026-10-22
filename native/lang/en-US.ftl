@@ -544,7 +544,6 @@ streak-card = { $n ->
    *[other] { $n }-day streak
 }
 panel-news = osu! news
-news-loading = Loading…
 news-failed = Could not load. Try again.
 community-stale = Could not refresh. Showing the data from { $when }.
 community-offline = No connection to the server, trying again.
@@ -822,7 +821,7 @@ days-ago = { $n ->
    *[other] { $n } days ago
 }
 read-outside = Open in the browser
-card-grades = GRADES
+card-grades = Grades
 card-no-data = Not enough data
 friends-link = Link osu! in the bot to see your friends
 friends-relink = Update your osu! link in the bot’s account settings to see friends
@@ -1002,9 +1001,6 @@ farm-ready = waiting for a task
 farm-resting = paused
 more-changes-n = and { $n } more
 dossier-of = Dossier
-dossier-refreshing = Updating data…
-mapped-by = mapped by
-open-map = Map
 storage = Storage
 storage-app = Application
 storage-videos = Videos
@@ -1047,13 +1043,13 @@ take-off-title = Take off
 title-not-worn = Could not change the title
 pick-map = Choose the map…
 not-this-map = Map mismatch: the replay was recorded on a different map.
-score-board-loading = Looking up the chat's scores on this map…
-score-board-refreshing = checking osu! for new scores…
 score-board-failed = Could not load the leaderboard for this map.
 score-board-empty = Nobody in the chat has passed this map yet.
-score-open-map = Open the map in osu!
+score-open-map = Open in browser
 score-accuracy = Accuracy
 score-combo = Combo
+score-points = Score
+score-misses = Misses
 score-you = you
 score-witnessed = received from Witness, awaiting confirmation from osu!
 title-first = first
@@ -1063,15 +1059,6 @@ titles-scope-server = Whole server
 title-holders-server = Holders on the server
 title-nobody = Nobody in the chat holds it yet.
 title-progress = Your progress
-score-board = The chat on this map
-score-table = Table
-score-scale = Scale
-score-hits = Hits
-score-miss = { $n ->
-    [one] miss
-   *[other] misses
-}
-score-open-player = Player's dossier
 title-share-said = of the server's players have earned it
 title-rarity-among = Rarity among { $n } titles
 title-rarity-place = place { $n }
@@ -1136,7 +1123,6 @@ link-telegram-how = Open the bot in Telegram and confirm linking this account.
 telegram-linked = Telegram is linked
 account-osu = osu! account
 no-telegram-chats = Link Telegram to send videos.
-open-result = Result
 title-see-holders = Holders
 witness-tile = Witness
 witness-run = Turn on Witness

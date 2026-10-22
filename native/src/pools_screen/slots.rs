@@ -480,7 +480,7 @@ pub(super) fn suggestion_panel<'a>(state: &'a State, words: &'a Words, thumbs: &
         list = list.push(button(inside).padding([6, 8]).width(Length::Fill).style(ui::button_faded(ui::calm(theme::row(false)))).on_press(Message::Put(hash.clone())));
     }
     if !fresh.is_empty() {
-        list = list.push(container(ui::mono_small(words.t("pool-suggest-online").to_uppercase(), MUTED)).padding([8, 8]));
+        list = list.push(container(ui::label(words.t("pool-suggest-online"), MUTED)).padding([8, 8]));
     }
     for item in fresh {
         let inside = row![

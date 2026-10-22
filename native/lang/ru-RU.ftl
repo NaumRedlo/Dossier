@@ -561,7 +561,6 @@ streak-card = { $n ->
    *[other] { $n } дней подряд
 }
 panel-news = Новости osu!
-news-loading = Загрузка…
 news-failed = Не удалось загрузить. Попробуйте снова.
 community-stale = Не удалось обновить. Показано то, что было { $when }.
 community-offline = Нет связи с сервером, пробуем снова.
@@ -851,7 +850,7 @@ days-ago = { $n ->
    *[other] { $n } дней назад
 }
 read-outside = Открыть в браузере
-card-grades = ОЦЕНКИ
+card-grades = Оценки
 card-no-data = Недостаточно данных
 friends-link = Привяжите osu! в боте, чтобы видеть друзей
 friends-relink = Обновите привязку osu! в настройках аккаунта бота, чтобы видеть друзей
@@ -1038,9 +1037,6 @@ farm-ready = ожидает задачу
 farm-resting = приостановлено
 more-changes-n = и ещё { $n }
 dossier-of = Досье
-dossier-refreshing = Обновление данных…
-mapped-by = автор карты
-open-map = Карта
 storage = Хранилище
 storage-app = Приложение
 storage-videos = Видео
@@ -1084,13 +1080,13 @@ take-off-title = Снять
 title-not-worn = Не удалось сменить титул
 pick-map = Указать карту…
 not-this-map = Карта не подходит: реплей записан на другой карте.
-score-board-loading = Поиск результатов беседы на этой карте…
-score-board-refreshing = проверка новых результатов в osu!…
 score-board-failed = Не удалось загрузить таблицу этой карты.
 score-board-empty = В беседе эту карту ещё никто не прошёл.
-score-open-map = Открыть карту в osu!
+score-open-map = Открыть в браузере
 score-accuracy = Точность
 score-combo = Комбо
+score-points = Очки
+score-misses = Промахи
 score-you = вы
 score-witnessed = получено от Witness, ожидает подтверждения osu!
 title-first = первый
@@ -1100,16 +1096,6 @@ titles-scope-server = Весь сервер
 title-holders-server = Обладатели на сервере
 title-nobody = В беседе этот титул пока никто не получил.
 title-progress = Ваш прогресс
-score-board = Беседа на этой карте
-score-table = Таблица
-score-scale = Шкала
-score-hits = Попадания
-score-miss = { $n ->
-    [one] промах
-    [few] промаха
-   *[other] промахов
-}
-score-open-player = Досье игрока
 title-share-said = игроков сервера получили этот титул
 title-rarity-among = Редкость среди { $n } титулов
 title-rarity-place = { $n } место
@@ -1174,7 +1160,6 @@ link-telegram-how = Откройте бота в Telegram и подтверди�
 telegram-linked = Telegram привязан
 account-osu = аккаунт osu!
 no-telegram-chats = Привяжите Telegram, чтобы отправлять видео.
-open-result = Результат
 title-see-holders = Обладатели
 witness-tile = Witness
 witness-run = Включить Witness

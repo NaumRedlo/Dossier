@@ -67,7 +67,7 @@ fn the_switch_on_the_videos_page_turns_to_received_and_back() {
         let said = clicked(&main, &mine);
         assert!(said.iter().any(|message| message.contains("Tab(Mine)")), "{lang:?}: {said:?}");
         let _ = main.update(M::Sharing(S::Tab(Tab::Mine)));
-        assert!(!shows(&main, &main.words.t("from-whom").to_uppercase()));
+        assert!(!shows(&main, &main.words.t("from-whom")));
         let received = main.words.t("videos-received");
         let said = clicked(&main, &received);
         assert!(said.iter().any(|message| message.contains("Tab(Received)")), "{lang:?}: {said:?}");

@@ -849,7 +849,7 @@ pub fn sheet<'a>(state: &'a State, words: &'a Words, signed_in: bool, now: i64) 
                         (false, None) => words.t("billing-pay-plain"),
                     };
                     body = body.push(row![
-                        column![ui::mono_small(words.t("billing-email").to_uppercase(), MUTED), field].spacing(8),
+                        column![ui::label(words.t("billing-email"), MUTED), field].spacing(8),
                         container(text(why).font(theme::SANS).size(14.0).color(ui::faded(MUTED))).width(Length::Fill),
                         ui::primary(label, state.can_pay().then_some(Message::Pay)),
                     ].spacing(18).align_y(iced::Bottom));

@@ -64,7 +64,7 @@ pub(super) fn check_line<'a>(check: &Check, words: &Words) -> Element<'a, Messag
 
 pub(super) fn publish_panel<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, words: &'a Words, thumbs: &'a HashMap<String, image::Handle>) -> Element<'a, Message> {
     let k = ui::fade();
-    let caption = |key: &str| ui::mono_small(words.t(key).to_uppercase(), MUTED);
+    let caption = |key: &str| ui::section(words.t(key));
     let named = !pool.name.trim().is_empty();
     let name = if named { pool.name.clone() } else { words.t(if pool.collection { "collection-name-hint" } else { "pool-name-hint" }) };
     let head = row![

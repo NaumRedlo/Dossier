@@ -105,15 +105,15 @@ impl Main {
 
     pub(super) fn video_head(&self) -> Element<'_, Message> {
         let w = &self.words;
-        let cell = |key: &str, width: f32| container(ui::mono_small(w.t(key).to_uppercase(), FAINT)).width(width).align_x(iced::alignment::Horizontal::Center);
-        let grow = |key: &str| container(ui::mono_small(w.t(key).to_uppercase(), FAINT)).width(Length::Fill);
-        let right = |key: &str, width: f32| container(ui::mono_small(w.t(key).to_uppercase(), FAINT)).width(width).align_x(iced::alignment::Horizontal::Right);
+        let cell = |key: &str, width: f32| container(ui::label(w.t(key), FAINT)).width(width).align_x(iced::alignment::Horizontal::Center);
+        let grow = |key: &str| container(ui::label(w.t(key), FAINT)).width(Length::Fill);
+        let right = |key: &str, width: f32| container(ui::label(w.t(key), FAINT)).width(width).align_x(iced::alignment::Horizontal::Right);
         container(
             row![
                 Space::new().width(VIDEO_THUMB.0 as f32),
                 cell("when", VIDEO_DATE_W),
                 grow("who-and-map"),
-                container(ui::mono_small(w.t("mods").to_uppercase(), FAINT)).width(110.0),
+                container(ui::label(w.t("mods"), FAINT)).width(110.0),
                 right("length", 56.0),
                 right("size", 84.0),
             ]
@@ -248,7 +248,7 @@ impl Main {
             },
         };
         let mark: Element<'_, Message> = if self.video_request.is_some() || (!player.paused && player.frame.is_none()) {
-            container(ui::cap(w.t("news-loading"))).center(Length::Fill).into()
+            container(ui::turning(28.0)).center(Length::Fill).into()
         } else if player.paused && !self.asking_delete {
             let kind = if player.ended() { ui::Control::Again } else { ui::Control::Play };
             container(ui::halo(kind, 72.0, 1.0))

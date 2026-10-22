@@ -265,21 +265,21 @@ fn a_collection_names_only_its_publisher_and_nobody_can_retype_that_name() {
     };
     let collection = shown(true);
     let mut screen = iced_test::Simulator::with_size(crate::settings(), iced::Size::new(1200.0, 900.0), view(&collection, &words, &thumbs, 1200.0, 1.0, &Clocks::settled()));
-    assert!(screen.find(words.t("pool-mappoolers").to_uppercase()).is_err());
+    assert!(screen.find(words.t("pool-mappoolers")).is_err());
     assert!(screen.find("Alice").is_err());
-    assert!(screen.find(words.t("pool-publisher").to_uppercase()).is_ok());
+    assert!(screen.find(words.t("pool-publisher")).is_ok());
     screen.click("Builder").unwrap();
     assert!(matches!(screen.into_messages().collect::<Vec<_>>().as_slice(), [Message::Author(name)] if name == "Builder"));
     let pool = shown(false);
     let mut screen = iced_test::Simulator::with_size(crate::settings(), iced::Size::new(1200.0, 900.0), view(&pool, &words, &thumbs, 1200.0, 1.0, &Clocks::settled()));
-    assert!(screen.find(words.t("pool-mappoolers").to_uppercase()).is_ok());
+    assert!(screen.find(words.t("pool-mappoolers")).is_ok());
     assert!(screen.find("Alice").is_ok());
     assert!(screen.find("Builder").is_err(), "a pool names its publisher on the publication sheet, not in the head");
     let mut signed_out = shown(true);
     let at = signed_out.editing_at().unwrap();
     signed_out.list[at].compiler.clear();
     let mut screen = iced_test::Simulator::with_size(crate::settings(), iced::Size::new(1200.0, 900.0), view(&signed_out, &words, &thumbs, 1200.0, 1.0, &Clocks::settled()));
-    assert!(screen.find(words.t("pool-publisher").to_uppercase()).is_err());
+    assert!(screen.find(words.t("pool-publisher")).is_err());
 }
 
 #[test]
@@ -450,7 +450,7 @@ fn the_latest_draft_is_a_wide_card_with_its_facts_and_the_others_are_tiles() {
     for label in ["shelf-mine", "shelf-saved", "catalogue-published", "catalogue-collections", "shelf-changed"] {
         assert!(screen.find(words.t(label)).is_ok(), "{label}");
     }
-    assert!(screen.find(words.t("shelf-latest").to_uppercase()).is_err());
+    assert!(screen.find(words.t("shelf-latest")).is_err());
     assert!(screen.find("Spring duel").is_ok() && screen.find("Second pool").is_ok());
     assert!(screen.find("Alice, Bob").is_ok());
     assert!(screen.find("4.52").is_ok() && screen.find("6.35").is_ok());
@@ -495,7 +495,7 @@ fn a_published_pool_shows_its_code_and_is_saved_once_into_its_own_tab() {
     for said in ["Someone's pool", "My own pool", "XQIS43GB", "K7M2PD4T", "#3", "#2", "Builder"] {
         assert!(screen.find(said).is_ok(), "{said}");
     }
-    assert!(screen.find(words.t("shelf-published-by").to_uppercase()).is_ok());
+    assert!(screen.find(words.t("shelf-published-by")).is_ok());
     screen.click("My own pool").unwrap();
     assert!(matches!(screen.into_messages().collect::<Vec<_>>().as_slice(), [Message::OpenPublication(open)] if open == "ours"), "one's own publication opens by its card, no button is needed");
     let mut screen = look(&state, &words, &thumbs);
@@ -726,7 +726,7 @@ fn a_published_collection_is_saved_downloaded_and_renewed_like_a_pool() {
     let id = saved[0].id.clone();
     {
         let mut screen = look(&state, &words, &thumbs);
-        assert!(screen.find(words.t("shelf-saved-mark")).is_ok() && screen.find(words.t("shelf-own-collections").to_uppercase()).is_ok());
+        assert!(screen.find(words.t("shelf-saved-mark")).is_ok() && screen.find(words.t("shelf-own-collections")).is_ok());
         assert!(screen.find(words.t("shelf-empty-collections")).is_ok(), "a saved collection is not one of my own");
     }
     state.collection_shelf = false;
@@ -1786,7 +1786,7 @@ fn the_publication_sheet_opens_from_the_toolbar_sends_only_a_ready_pool_and_clos
     {
         let mut screen = iced_test::Simulator::with_size(crate::settings(), iced::Size::new(1300.0, 900.0), view(&state, &words, &thumbs, 1300.0, 1.0, &Clocks::settled()));
         for key in ["publish-before"] {
-            assert!(screen.find(words.t(key).to_uppercase()).is_ok(), "{key}");
+            assert!(screen.find(words.t(key)).is_ok(), "{key}");
         }
         for key in ["publish-name-set", "publish-no-mappoolers", "publish-show-slot", "publish-cancel"] {
             assert!(screen.find(words.t(key)).is_ok(), "{key}");

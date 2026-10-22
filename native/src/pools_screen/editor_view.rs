@@ -90,7 +90,7 @@ pub(super) fn palette<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, 
             let label = words.with("pool-history-line", &[("n", held.published_revision.to_string()), ("date", words.day(held.changed_at, state.clock))]);
             lines = lines.push(menu_line(label, words.n("shelf-maps", held.filled() as u64), INK, Some(Message::OpenVersion(held.published_revision)), false, 40.0));
         }
-        return menu_box(column![container(ui::mono_small(words.t("pool-command-history").to_uppercase(), MUTED)).padding([6, 12]), lines].spacing(8).into(), 440.0, 16.0, 14.0, ground);
+        return menu_box(column![container(ui::section(words.t("pool-command-history"))).padding([6, 12]), lines].spacing(8).into(), 440.0, 16.0, 14.0, ground);
     }
     let wanted = editor.command.trim().to_lowercase();
     let field = text_input(&words.t("pool-command-hint"), &editor.command).on_input(Message::Command).font(theme::SANS).size(16.0).padding(0).style(ui::bare_input(ui::fade())).width(Length::Fill);
@@ -254,7 +254,7 @@ pub(super) fn categories_panel<'a>(pool: &'a Pool, editor: &'a Editor, words: &'
     let taken = Mod::ALL.iter().any(|mods| mods.code() == editor.category_draft) || pool.categories.contains_key(&editor.category_draft);
     let name = text_input(&words.t("pool-category-new"), &editor.category_draft).on_input(Message::CategoryDraft).on_submit(Message::NewCategory).font(theme::MONO).size(14.0).padding([7, 10]).style(theme::field_faded(ui::fade())).width(150.0);
     lines = lines.push(row![name, swatches(Some(editor.tint), |colour| Message::Tint(None, colour)), ui::grow(), outlined(words.t("pool-category-add"), (!editor.category_draft.is_empty() && !taken).then_some(Message::NewCategory))].spacing(12).align_y(iced::Center));
-    column![ui::mono_small(words.t("pool-tool-categories").to_uppercase(), MUTED), lines].spacing(12).into()
+    column![ui::section(words.t("pool-tool-categories")), lines].spacing(12).into()
 }
 
 pub(super) fn editor_tools<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, words: &'a Words, shut: &[(&'static str, f32)]) -> Element<'a, Message> {
@@ -301,7 +301,7 @@ pub(super) fn editor_title<'a>(pool: &'a Pool, words: &'a Words) -> Element<'a, 
 }
 
 pub(super) fn credit_group<'a>(label: String, body: Element<'a, Message>) -> Element<'a, Message> {
-    row![ui::mono_small(label.to_uppercase(), MUTED), body].spacing(10).align_y(iced::Center).into()
+    row![ui::label(label, MUTED), body].spacing(10).align_y(iced::Center).into()
 }
 
 pub(super) fn editor_credits<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, words: &'a Words) -> Option<Element<'a, Message>> {
@@ -361,7 +361,7 @@ pub(super) fn backdrop_panel<'a>(state: &'a State, pool: &'a Pool, words: &'a Wo
         }))
         .on_press(Message::BackdropPick);
     let mut from = column![
-        ui::mono_small(words.t("pool-backdrop-from").to_uppercase(), MUTED),
+        ui::label(words.t("pool-backdrop-from"), MUTED),
         tiles,
         row![file],
         row![figure("1920 × 1080", words.t("pool-backdrop-best")), figure("16:9", words.t("pool-backdrop-shape")), figure(&words.t("pool-backdrop-weight"), words.t("pool-backdrop-kinds"))].spacing(24),
@@ -503,7 +503,7 @@ pub(super) fn start_scale(width: f32) -> f32 {
 pub(super) fn start_view<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, words: &'a Words, width: f32, high: f32, t: f32) -> Element<'a, Message> {
     let grown = start_scale(width);
     let width = width / grown;
-    let caption = |key: &str| ui::mono_small(words.t(key).to_uppercase(), MUTED);
+    let caption = |key: &str| ui::section(words.t(key));
     let frames = [(Frame::Duel, Icon::Swords, "pool-start-duel", false), (Frame::Stage, Icon::Trophy, "pool-start-stage", true), (Frame::Free, Icon::Shapes, "pool-frame-free", true)];
     let narrow = width < 900.0;
     let frame_high = if narrow { 112.0 } else { 168.0 };

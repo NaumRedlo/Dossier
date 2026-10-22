@@ -369,7 +369,7 @@ fn slide<'a>(ground: &Ground<'a>, id: &'static str, label: String, value: String
 }
 
 fn head<'a>(w: &Words, key: &str) -> Element<'a, Message> {
-    container(text(w.t(key)).font(theme::MONO).size(12.0).color(ui::faded(INK)))
+    container(ui::section(w.t(key)))
         .padding(Padding { top: 2.0, right: 0.0, bottom: 12.0, left: 1.0 })
         .into()
 }
@@ -553,7 +553,7 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
                 if badge.show_title && !badge.title.name.is_empty() {
                     seen = seen.push(text(badge.title.name.clone()).font(theme::SANS_SEMI).size(theme::CAPTION).color(ui::faded(crate::badge::title_colour(badge.title.rank, badge.stage))));
                 }
-                panel = panel.push(container(ui::mono_small(w.t("badge-heading").to_uppercase(), MUTED)).padding(Padding::ZERO.top(18.0)));
+                panel = panel.push(container(ui::section(w.t("badge-heading"))).padding(Padding::ZERO.top(18.0)));
                 panel = panel.push(container(seen).padding(Padding::ZERO.top(8.0)));
                 panel = panel.push(container(pill(ground, "show-badge", w.t("badge-show"), badge.show_badge, Message::ShowBadge(!badge.show_badge))).padding(Padding::ZERO.top(10.0)));
                 panel = panel.push(container(pill(ground, "show-title", w.t("badge-show-title"), badge.show_title, Message::ShowTitle(!badge.show_title))).padding(Padding::ZERO.top(10.0)));

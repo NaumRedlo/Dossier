@@ -852,6 +852,16 @@ pub fn body<'a, Message: 'a>(words: String, colour: Color) -> Element<'a, Messag
     text(words).font(theme::SANS).size(theme::BODY).color(faded(colour)).into()
 }
 
+pub const HEADING: f32 = 15.0;
+
+pub fn section<'a, Message: 'a>(words: String) -> Element<'a, Message> {
+    text(words).font(theme::SANS_SEMI).size(HEADING).wrapping(text::Wrapping::None).color(faded(INK)).into()
+}
+
+pub fn label<'a, Message: 'a>(words: String, colour: Color) -> Element<'a, Message> {
+    text(words).font(theme::SANS).size(12.0).wrapping(text::Wrapping::None).color(faded(colour)).into()
+}
+
 pub fn mono_small<'a, Message: 'a>(words: String, colour: Color) -> Element<'a, Message> {
     text(words).font(theme::MONO).size(11.0).color(faded(colour)).into()
 }
@@ -3401,6 +3411,37 @@ impl<Message> canvas::Program<Message> for FrameMark {
 
 pub fn frame_mark<'a, Message: 'a>(k: f32, side: f32) -> Element<'a, Message> {
     Canvas::new(FrameMark { k, alpha: fade() }).width(side).height(side).into()
+}
+
+pub struct Turning {
+    alpha: f32,
+}
+
+#[derive(Debug, Default)]
+pub struct Turned {
+    born: Option<std::time::Instant>,
+    seconds: f32,
+}
+
+impl<Message> canvas::Program<Message> for Turning {
+    type State = Turned;
+
+    fn update(&self, state: &mut Turned, event: &iced::Event, _: Rectangle, _: mouse::Cursor) -> Option<canvas::Action<Message>> {
+        let iced::Event::Window(iced::window::Event::RedrawRequested(now)) = event else {
+            return None;
+        };
+        let born = *state.born.get_or_insert(*now);
+        state.seconds = now.saturating_duration_since(born).as_secs_f32();
+        Some(canvas::Action::request_redraw())
+    }
+
+    fn draw(&self, state: &Turned, renderer: &Renderer, _: &Theme, bounds: Rectangle, _: mouse::Cursor) -> Vec<Geometry> {
+        vec![crate::intro::arc(renderer, bounds, state.seconds, self.alpha, (bounds.width / 9.0).clamp(1.5, 3.0))]
+    }
+}
+
+pub fn turning<'a, Message: 'a>(side: f32) -> Element<'a, Message> {
+    Canvas::new(Turning { alpha: fade() }).width(side).height(side).into()
 }
 
 pub const GRAB_SLOP: f32 = 6.0;

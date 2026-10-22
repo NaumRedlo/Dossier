@@ -924,14 +924,14 @@ impl Main {
 
     pub(super) fn received_head(&self) -> Element<'_, Outer> {
         let w = &self.words;
-        let cell = |key: &str, width: f32| container(ui::mono_small(w.t(key).to_uppercase(), FAINT)).width(width).align_x(iced::alignment::Horizontal::Center);
-        let right = |key: &str, width: f32| container(ui::mono_small(w.t(key).to_uppercase(), FAINT)).width(width).align_x(iced::alignment::Horizontal::Right);
+        let cell = |key: &str, width: f32| container(ui::label(w.t(key), FAINT)).width(width).align_x(iced::alignment::Horizontal::Center);
+        let right = |key: &str, width: f32| container(ui::label(w.t(key), FAINT)).width(width).align_x(iced::alignment::Horizontal::Right);
         container(
             row![
                 Space::new().width(VIDEO_THUMB.0 as f32),
                 cell("when", VIDEO_DATE_W),
-                container(ui::mono_small(w.t("who-and-map").to_uppercase(), FAINT)).width(Length::Fill),
-                container(ui::mono_small(w.t("from-whom").to_uppercase(), FAINT)).width(FROM_W),
+                container(ui::label(w.t("who-and-map"), FAINT)).width(Length::Fill),
+                container(ui::label(w.t("from-whom"), FAINT)).width(FROM_W),
                 right("length", 56.0),
                 right("size", 84.0),
             ]

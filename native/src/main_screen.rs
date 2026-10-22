@@ -672,7 +672,7 @@ pub struct Main {
     pub map_boards_waiting: std::collections::HashSet<u64>,
     pub map_boards_failed: std::collections::HashSet<u64>,
     map_boards_fresh: std::collections::HashSet<u64>,
-    pub score_scale: bool,
+    pub score_pick: Option<i64>,
     pub read_fade: Animation<bool>,
     pub read_over_person: bool,
     pub witness: crate::witness::Seen,
@@ -704,12 +704,10 @@ pub struct Main {
     pub(crate) shift_at: Instant,
     pub(crate) stream_at: Instant,
     pub(crate) person_at: Instant,
-    pub(crate) play_at: Instant,
     pub dossier_metric: crate::dossier::Metric,
     pub dossier_span: u32,
     pub grade_hover: Option<usize>,
     pub title_pick: Option<String>,
-    pub play_open: Option<usize>,
     clips_loading: std::collections::HashSet<String>,
     pub clip: Option<Clip>,
     pub osu_card: Option<crate::community::wire::Card>,
@@ -958,7 +956,7 @@ impl Main {
             map_boards_waiting: std::collections::HashSet::new(),
             map_boards_failed: std::collections::HashSet::new(),
             map_boards_fresh: std::collections::HashSet::new(),
-            score_scale: false,
+            score_pick: None,
             read_fade: Animation::new(false),
             read_over_person: false,
             witness: crate::witness::Seen::default(),
@@ -990,12 +988,10 @@ impl Main {
             shift_at: Instant::now() - Duration::from_secs(3600),
             stream_at: Instant::now() - Duration::from_secs(3600),
             person_at: Instant::now() - Duration::from_secs(3600),
-            play_at: Instant::now() - Duration::from_secs(3600),
             dossier_metric: crate::dossier::Metric::Rank,
             dossier_span: 90,
             grade_hover: None,
             title_pick: None,
-            play_open: None,
             clips_loading: std::collections::HashSet::new(),
             clip: None,
             osu_card: None,
@@ -1335,7 +1331,7 @@ impl Main {
             || self.feed_fold_at.values().any(|at| self.now.saturating_duration_since(*at) < FOLD)
             || self.read_fade.is_animating(self.now)
             || self.person_fade.is_animating(self.now)
-            || (self.overlay == Overlay::Community && [self.section_at, self.shift_at, self.stream_at, self.person_at, self.play_at].iter().any(|at| self.now.saturating_duration_since(*at).as_secs_f32() < ui::APPEAR_ALL))
+            || (self.overlay == Overlay::Community && [self.section_at, self.shift_at, self.stream_at, self.person_at].iter().any(|at| self.now.saturating_duration_since(*at).as_secs_f32() < ui::APPEAR_ALL))
             || (self.community_reading.is_some() && !self.read_fade.value())
             || self.arrivals.values().any(|a| a.is_animating(self.now))
             || self.leaving.values().any(|a| a.is_animating(self.now))
@@ -3046,6 +3042,7 @@ impl Main {
                 match inner {
                     C::Tap(at, card) => self.community_tap = Some(card.unwrap_or(iced::Rectangle { x: at.x - 160.0, y: at.y - 100.0, width: 320.0, height: 200.0 })),
                     C::Read(reading) => {
+                        self.score_pick = None;
                         let wanted = reading.pictures();
                         let board = match &reading {
                             crate::community_screen::Reading::Score(scored) => scored.map.beatmap,
@@ -3061,7 +3058,7 @@ impl Main {
                             None => pictures,
                         };
                     }
-                    C::ScoreScale(on) => self.score_scale = on,
+                    C::ScorePick(who) => self.score_pick = Some(who),
                     C::TitleOf(code, who) => return self.update(Message::Community(C::Read(crate::community_screen::Reading::Title { code, who }))),
                     C::Unread => self.read_fade.go_mut(false, now),
                     C::Standing(standing) => {
@@ -3287,10 +3284,6 @@ impl Main {
                         }
                         let (server, token, name) = (self.settings.server.clone(), self.settings.token.clone(), self.settings.device.clone());
                         return ui::in_thread(move || Message::Worn(crate::bot::wear_title(&server, &token, &name, chat, code.as_deref()).map_err(|e| e.to_string())));
-                    }
-                    C::PlayOpen(index) => {
-                        self.play_at = now;
-                        self.play_open = if self.play_open == Some(index) { None } else { Some(index) };
                     }
                     C::PlayClip(src, link) => {
                         let Some(src) = src else {
@@ -5797,16 +5790,14 @@ impl Main {
             shift_t: self.now.saturating_duration_since(self.shift_at).as_secs_f32().min(60.0),
             stream_t: self.now.saturating_duration_since(self.stream_at).as_secs_f32().min(60.0),
             person_t: self.now.saturating_duration_since(self.person_at).as_secs_f32().min(60.0),
-            play_t: self.now.saturating_duration_since(self.play_at).as_secs_f32().min(60.0),
             metric: self.dossier_metric,
             span: self.dossier_span,
             grade_hover: self.grade_hover,
             title_pick: self.title_pick.as_deref(),
-            play_open: self.play_open,
             boards: &self.map_boards,
             boards_waiting: &self.map_boards_waiting,
             boards_failed: &self.map_boards_failed,
-            score_scale: self.score_scale,
+            score_pick: self.score_pick,
             clips_loading: &self.clips_loading,
             reading: self.community_reading.as_ref(),
             read_above: self.read_over_person,

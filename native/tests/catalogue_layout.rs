@@ -415,10 +415,8 @@ fn profile_country_rank_selects_the_chart_and_title_has_no_holder_fraction() {
             main.height = 900.0;
             let mut ui = Simulator::with_size(dossier_native::settings(), Size::new(width, 900.0), gallery::main_frame(&main, &backdrop));
             let country = ui.find(main.words.t("info-country")).unwrap().bounds();
-            let ranking = ui.find(main.words.t("metric-country").to_uppercase()).unwrap().bounds();
-            let world = ui.find(main.words.t("metric-world").to_uppercase()).unwrap().bounds();
-            assert!((ranking.y - world.y).abs() < 1.0);
-            assert!(ranking.y < country.y);
+            let ranking = ui.find("#412").unwrap().bounds();
+            assert!(ranking.y < country.y, "{ranking:?} {country:?}");
             assert!(ui.find("#412").is_ok());
             assert!(ui.find(main.words.t("held-by")).is_err());
             ui.point_at(community_point(ranking, width));
@@ -428,7 +426,7 @@ fn profile_country_rank_selects_the_chart_and_title_has_no_holder_fraction() {
             let _ = main.update(dossier_native::main_screen::Message::Community(dossier_native::community_screen::Message::Metric(dossier_native::dossier::Metric::CountryRank)));
             assert_eq!(main.dossier_metric, dossier_native::dossier::Metric::CountryRank);
             let mut ui = Simulator::with_size(dossier_native::settings(), Size::new(width, 900.0), gallery::main_frame(&main, &backdrop));
-            let heading = format!("{}  {}", main.words.t("metric-country"), main.words.n("days-long", 90)).to_uppercase();
+            let heading = format!("{}  {}", main.words.t("metric-country"), main.words.n("days-long", 90));
             assert!(ui.find(heading).is_err());
             if let Ok(dir) = std::env::var("DOSSIER_PROFILE_REVIEW") {
                 std::fs::create_dir_all(&dir).unwrap();
@@ -517,7 +515,6 @@ fn the_right_column_is_a_profile_and_a_two_row_strip_and_the_group_label_needs_a
             assert!(ui.find(main.words.t("week-leaders")).is_ok(), "{width}");
             for gone in ["spot-head", "friends-head", "news-future", "all-boards"] {
                 assert!(ui.find(main.words.t(gone)).is_err(), "{gone} {width}");
-                assert!(ui.find(main.words.t(gone).to_uppercase()).is_err(), "{gone} {width}");
             }
             assert_eq!(ui.find(main.words.t("in-group")).is_ok(), width > 1000.0, "the label is for the wide column only, at {width}");
             let friends = ui.find(main.words.t("strip-friends")).unwrap().bounds();
@@ -545,7 +542,7 @@ fn the_channels_card_stays_under_the_strip_in_the_same_column() {
             assert!((channels.x - strip.x).abs() < 1.0);
             assert!((channels.width - strip.width).abs() < 1.0);
             for key in ["journal-time", "journal-player", "journal-map"] {
-                assert!(ui.find(main.words.t(key).to_uppercase()).is_err());
+                assert!(ui.find(main.words.t(key)).is_err());
             }
             if let Ok(dir) = std::env::var("DOSSIER_COMMUNITY_REVIEW") {
                 std::fs::create_dir_all(&dir).unwrap();

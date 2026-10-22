@@ -96,30 +96,33 @@ impl<Message> canvas::Program<Message> for Spinner {
     type State = ();
 
     fn draw(&self, _: &(), renderer: &Renderer, _: &Theme, bounds: Rectangle, _: mouse::Cursor) -> Vec<Geometry> {
-        let mut frame = Frame::new(renderer, bounds.size());
-        if self.alpha <= 0.001 {
-            return vec![frame.into_geometry()];
-        }
-        let width = 3.0;
-        let centre = Point::new(bounds.width / 2.0, bounds.height / 2.0);
-        let radius = bounds.width.min(bounds.height) / 2.0 - width;
-        let tau = std::f32::consts::TAU;
-        let turn = self.seconds * tau * 0.85;
-        let sweep = tau * (0.22 + 0.42 * (0.5 - 0.5 * (self.seconds * std::f32::consts::PI * 0.9).cos()));
-        for piece in 0..TRAIL {
-            let from = piece as f32 / TRAIL as f32;
-            let to = (piece + 1) as f32 / TRAIL as f32;
-            let start = turn - sweep * (1.0 - from);
-            let end = turn - sweep * (1.0 - to);
-            let arc = Path::new(|path| {
-                path.arc(canvas::path::Arc { center: centre, radius, start_angle: iced::Radians(start), end_angle: iced::Radians(end) });
-            });
-            let shade = to.powf(1.6);
-            let cap = if piece + 1 == TRAIL { canvas::LineCap::Round } else { canvas::LineCap::Butt };
-            frame.stroke(&arc, Stroke::default().with_width(width).with_line_cap(cap).with_color(Color { a: shade * self.alpha, ..theme::ACCENT }));
-        }
-        vec![frame.into_geometry()]
+        vec![arc(renderer, bounds, self.seconds, self.alpha, 3.0)]
     }
+}
+
+pub fn arc(renderer: &Renderer, bounds: Rectangle, seconds: f32, alpha: f32, width: f32) -> Geometry {
+    let mut frame = Frame::new(renderer, bounds.size());
+    if alpha <= 0.001 {
+        return frame.into_geometry();
+    }
+    let centre = Point::new(bounds.width / 2.0, bounds.height / 2.0);
+    let radius = bounds.width.min(bounds.height) / 2.0 - width;
+    let tau = std::f32::consts::TAU;
+    let turn = seconds * tau * 0.85;
+    let sweep = tau * (0.22 + 0.42 * (0.5 - 0.5 * (seconds * std::f32::consts::PI * 0.9).cos()));
+    for piece in 0..TRAIL {
+        let from = piece as f32 / TRAIL as f32;
+        let to = (piece + 1) as f32 / TRAIL as f32;
+        let start = turn - sweep * (1.0 - from);
+        let end = turn - sweep * (1.0 - to);
+        let path = Path::new(|path| {
+            path.arc(canvas::path::Arc { center: centre, radius, start_angle: iced::Radians(start), end_angle: iced::Radians(end) });
+        });
+        let shade = to.powf(1.6);
+        let cap = if piece + 1 == TRAIL { canvas::LineCap::Round } else { canvas::LineCap::Butt };
+        frame.stroke(&path, Stroke::default().with_width(width).with_line_cap(cap).with_color(Color { a: shade * alpha, ..theme::ACCENT }));
+    }
+    frame.into_geometry()
 }
 
 #[cfg(test)]

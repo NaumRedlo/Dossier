@@ -224,7 +224,7 @@ pub enum Message {
     Tap(iced::Point, Option<iced::Rectangle>),
     Read(Reading),
     TitleOf(String, Option<i64>),
-    ScoreScale(bool),
+    ScorePick(i64),
     Unread,
     PeopleFrom(PeopleFrom),
     Standing(Standing),
@@ -254,7 +254,6 @@ pub enum Message {
     GradeHover(Option<usize>),
     TitlePick(String),
     Wear(Option<String>),
-    PlayOpen(usize),
     PlayClip(Option<String>, String),
     Go(Section, Option<PeopleFrom>),
     CompareWith(usize),
@@ -326,16 +325,14 @@ pub struct Ground<'a> {
     pub shift_t: f32,
     pub stream_t: f32,
     pub person_t: f32,
-    pub play_t: f32,
     pub metric: crate::dossier::Metric,
     pub span: u32,
     pub grade_hover: Option<usize>,
     pub title_pick: Option<&'a str>,
-    pub play_open: Option<usize>,
     pub boards: &'a HashMap<u64, crate::community::wire::MapBoard>,
     pub boards_waiting: &'a std::collections::HashSet<u64>,
     pub boards_failed: &'a std::collections::HashSet<u64>,
-    pub score_scale: bool,
+    pub score_pick: Option<i64>,
     pub clips_loading: &'a std::collections::HashSet<String>,
 }
 
@@ -354,6 +351,8 @@ impl Ground<'_> {
 }
 
 const READ_WIDE: f32 = 760.0;
+const TURNING: f32 = 16.0;
+const TURNING_LARGE: f32 = 26.0;
 const GRID_GAP: f32 = 10.0;
 const STAGE_ROOM: Padding = Padding { top: 8.0, right: 40.0, bottom: 28.0, left: 40.0 };
 
@@ -476,13 +475,14 @@ pub(crate) fn video_tile<'a>(ground: &Ground<'a>, video: &news::Video, wide: boo
     let loading = ground.clips_loading.contains(&video.link);
     let circle = if wide { 54.0 } else { 30.0 };
     let (icon, inset) = if video.src.is_some() { (crate::glyphs::Icon::Play, 0.55) } else { (crate::glyphs::Icon::External, 0.42) };
-    let play = container(crate::glyphs::glyph(icon, circle * inset, Color::WHITE)).width(circle).height(circle).center(circle).style(move |_| container::Style {
+    let mark: Element<'a, Message> = if loading { ui::turning(circle * 0.6) } else { crate::glyphs::glyph(icon, circle * inset, Color::WHITE) };
+    let play = container(mark).width(circle).height(circle).center(circle).style(move |_| container::Style {
         background: Some(Background::Color(Color::from_rgba(0.047, 0.027, 0.035, 0.6 * k))),
         border: Border { color: crate::theme::outline(Color::from_rgba(1.0, 1.0, 1.0, 0.2 * k)), width: 1.0, radius: (circle / 2.0).into() },
         ..container::Style::default()
     });
     let said = if loading {
-        w.t("news-loading")
+        String::new()
     } else if video.src.is_none() {
         w.t("act-telegram")
     } else {
@@ -531,14 +531,6 @@ pub(crate) fn face<'a>(ground: &Ground<'a>, person: &Person, side: f32) -> Eleme
 
 pub(crate) fn friend_face<'a>(ground: &Ground<'a>, friend: &Friend, side: f32) -> Element<'a, Message> {
     round(ground.pictures.get(&friend.avatar), &friend.initial(), side, ground.picture_shown(&friend.avatar))
-}
-
-pub(crate) fn mods<'a>(list: &[String]) -> Element<'a, Message> {
-    let mut shown = row![].spacing(4).align_y(iced::Center);
-    for acronym in list.iter().filter(|acronym| crate::modicons::shown(acronym)) {
-        shown = shown.push(crate::main_screen::mod_badge(acronym));
-    }
-    shown.into()
 }
 
 pub(crate) fn quiet_mods<'a>(list: &[String]) -> Element<'a, Message> {
@@ -673,7 +665,7 @@ pub(crate) fn source_state<'a>(ground: &Ground<'a>, source: &str) -> Element<'a,
         button(ui::mono_small(words, colour)).padding(0).style(ui::button_faded(theme::bare)).on_press(Message::Refresh).into()
     };
     if ground.loading.contains(source) {
-        return ui::mono_small(w.t("news-loading"), FAINT);
+        return ui::turning(TURNING);
     }
     if ground.failed.contains(source) {
         return quiet(w.t("news-failed"), ACCENT);
@@ -742,7 +734,7 @@ pub(crate) fn friends_said<'a>(ground: &Ground<'a>) -> Option<Element<'a, Messag
     match &ground.catalog.friends_state {
         Friends::Staged | Friends::Ready if ground.catalog.friends.is_empty() => Some(empty(w.t("nothing-yet"))),
         Friends::Staged | Friends::Ready => None,
-        Friends::Waiting => Some(empty(w.t("news-loading"))),
+        Friends::Waiting => Some(container(ui::turning(TURNING_LARGE)).width(Length::Fill).height(Length::Fill).center(Length::Fill).into()),
         Friends::Need(need) => Some(empty(w.t(if need == "friends" { "friends-relink" } else { "friends-link" }))),
         Friends::Failed => Some(
             container(button(ui::mono_small(w.t("news-failed"), ACCENT)).padding(0).style(ui::button_faded(theme::bare)).on_press(Message::Again))
@@ -907,7 +899,7 @@ fn reader<'a>(ground: &Ground<'a>, reading: &'a Reading) -> Element<'a, Message>
                     }
                 }
                 for category in categories {
-                    body.push(ui::mono_small(category.to_uppercase(), FAINT));
+                    body.push(ui::section(category.to_owned()));
                     for change in build.changes.iter().filter(|change| change.category == category) {
                         body.push(
                             row![
@@ -924,7 +916,7 @@ fn reader<'a>(ground: &Ground<'a>, reading: &'a Reading) -> Element<'a, Message>
         };
         body.push(container(ui::primary(w.t("read-outside"), Some(Message::Open(reading.url().to_owned())))).padding(Padding::ZERO.top(8.0)).into());
         let head = column![
-            row![ui::mono_small(source.to_uppercase(), FAINT), ui::grow(), button(text("✕").font(theme::SANS_SEMI).size(theme::LEAD).color(ui::faded(MUTED))).padding([2, 8]).style(ui::button_faded(theme::bare)).on_press(Message::Unread)].align_y(iced::Center),
+            row![ui::label(source.clone(), FAINT), ui::grow(), button(text("✕").font(theme::SANS_SEMI).size(theme::LEAD).color(ui::faded(MUTED))).padding([2, 8]).style(ui::button_faded(theme::bare)).on_press(Message::Unread)].align_y(iced::Center),
             text(ui::settled(&title)).font(theme::SANS_SEMI).size(theme::TITLE).color(ui::faded(INK)),
             ui::mono_small(meta, FAINT),
         ]
@@ -1776,7 +1768,6 @@ fn titles<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
 }
 
 pub(crate) fn profile_panel<'a>(ground: &Ground<'a>, at: usize) -> Element<'a, Message> {
-    let w = ground.words;
     let k = ground.person_k;
     let person = &ground.catalog.people[at];
     let wide = (ground.width - STAGE_ROOM.left - STAGE_ROOM.right).clamp(640.0, 1560.0);
@@ -1790,10 +1781,7 @@ pub(crate) fn profile_panel<'a>(ground: &Ground<'a>, at: usize) -> Element<'a, M
             .padding(0)
             .style(ui::button_faded(theme::bare))
             .on_press(Message::Person(None));
-        let status: Element<'a, Message> = if ground.person_loading {
-            let key = if me.is_some() || ground.person_card.is_some() { "dossier-refreshing" } else { "news-loading" };
-            ui::mono_small(w.t(key), FAINT)
-        } else { Space::new().width(0.0).into() };
+        let status: Element<'a, Message> = if ground.person_loading { ui::turning(TURNING) } else { Space::new().width(0.0).into() };
         let head = row![status, ui::grow(), close].spacing(10).align_y(iced::Center);
         container(column![head, crate::dossier::columns(ground, &whose, wide - 44.0, ground.person_t)].spacing(10)).padding(Padding { top: 12.0, right: 22.0, bottom: 16.0, left: 22.0 }).width(Length::Fill).height(Length::Fill).into()
     });

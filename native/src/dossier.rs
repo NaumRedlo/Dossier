@@ -12,6 +12,12 @@ use crate::ui;
 
 const DAY: i64 = 86_400;
 const CORAL: Color = Color::from_rgb(0.941, 0.408, 0.408);
+const AMBER: Color = Color::from_rgb(0.918, 0.651, 0.306);
+const ROW_HIGH: f32 = 60.0;
+const ROW_ROOMY: f32 = 620.0;
+const ROW_MOD: f32 = 18.0;
+const THUMB_WIDE: f32 = 68.0;
+const THUMB_HIGH: f32 = 38.0;
 const GREEN: Color = theme::HIT_100;
 const LEFT: f32 = 300.0;
 const RIGHT: f32 = 296.0;
@@ -463,7 +469,7 @@ impl canvas::Program<Message> for Heat {
 }
 
 fn caption<'a>(words: String) -> Element<'a, Message> {
-    ui::mono_small(words.to_uppercase(), FAINT)
+    ui::section(words)
 }
 
 fn info_line<'a>(icon: Element<'a, Message>, label: String, value: Element<'a, Message>) -> Element<'a, Message> {
@@ -696,7 +702,7 @@ fn places<'a>(ground: &Ground<'a>, whose: &Whose<'a>, t: f32) -> Element<'a, Mes
         tiles.push(ui::hover(
             button(
                 column![
-                    row![container(ui::mono_small(w.t(board.short_key()).to_uppercase(), FAINT)).width(Length::Fill).clip(true), shift(moved)].spacing(4).align_y(iced::Center),
+                    row![container(ui::label(w.t(board.short_key()), FAINT)).width(Length::Fill).clip(true), shift(moved)].spacing(4).align_y(iced::Center),
                     text(format!("#{}", ((place as f64 * f).round() as usize).max(1))).font(theme::SANS_SEMI).size(22.0).wrapping(text::Wrapping::None).color(ui::faded(colour)),
                     standing(share, if place <= 3 { colour } else { ACCENT }),
                 ]
@@ -754,7 +760,7 @@ fn metrics<'a>(ground: &Ground<'a>, whose: &Whose<'a>, room: f32, t: f32) -> Ele
         };
         let value = if current > 0.0 { full(w, metric, (current * f).max(if metric.is_rank() { 1.0 } else { 0.0 })).replace(" PP", "") } else { "—".to_owned() };
         let change = delta(w, metric, &series(ground, whose, metric, 90));
-        let mut under = column![ui::mono_small(w.t(metric.key()).to_uppercase(), FAINT)].spacing(1);
+        let mut under = column![ui::label(w.t(metric.key()), FAINT)].spacing(1);
         if let Some((said, better)) = change {
             under = under.push(self::change(metric, said, better));
         }
@@ -844,12 +850,8 @@ struct Poster<'a> {
     combo: Option<u32>,
     most: Option<u32>,
     stars: Option<f32>,
-    bpm: Option<f64>,
-    length: Option<f64>,
-    played: Option<i64>,
     cover: Option<&'a iced::widget::image::Handle>,
     art: Option<&'a iced::widget::image::Handle>,
-    set: Option<u64>,
     scored: Option<screen::Scored>,
 }
 
@@ -918,12 +920,8 @@ fn posters_of<'a>(ground: &Ground<'a>, whose: &Whose<'a>) -> Vec<Poster<'a>> {
                     combo,
                     most,
                     stars,
-                    bpm: (score.bpm > 0.0).then_some(score.bpm),
-                    length: (score.length > 0.0).then_some(score.length),
-                    played,
                     cover: score.cover().and_then(|url| ground.pictures.get(&url)).or_else(|| ground.thumbs.get(&score.hash)),
                     art: score.cover().and_then(|url| ground.pictures.get(&crate::community::poster_key(&url))),
-                    set,
                     scored: Some(scored),
                 }
             })
@@ -955,12 +953,8 @@ fn posters_of<'a>(ground: &Ground<'a>, whose: &Whose<'a>) -> Vec<Poster<'a>> {
                 combo: play.combo,
                 most: play.max_combo,
                 stars: play.stars,
-                bpm: None,
-                length: None,
-                played: (play.at > 0).then_some(play.at),
                 cover: map.and_then(|map| ground.thumbs.get(&map.hash).or_else(|| map.card().and_then(|card| ground.pictures.get(&card)))),
                 art: map.and_then(|map| map.poster()).and_then(|key| ground.pictures.get(&key)),
-                set: map.and_then(|map| map.set),
                 scored: screen::Scored::of(ground.catalog, whose.at, play, true),
             }
         })
@@ -1012,283 +1006,88 @@ fn badge_pill<'a>(inside: Element<'a, Message>, fill: Color) -> Element<'a, Mess
         .into()
 }
 
-struct PosterCorners {
-    alpha: f32,
-}
-
-impl canvas::Program<Message> for PosterCorners {
-    type State = ();
-
-    fn draw(&self, _: &(), renderer: &Renderer, _: &Theme, bounds: Rectangle, _: mouse::Cursor) -> Vec<Geometry> {
-        let mut frame = Frame::new(renderer, bounds.size());
-        let radius = 14.0_f32.min(bounds.width / 2.0).min(bounds.height);
-        let bend = radius * 0.552_284_8;
-        let left = Path::new(|path| {
-            path.move_to(Point::ORIGIN);
-            path.line_to(Point::new(radius, 0.0));
-            path.bezier_curve_to(Point::new(radius - bend, 0.0), Point::new(0.0, radius - bend), Point::new(0.0, radius));
-            path.close();
-        });
-        let right = Path::new(|path| {
-            path.move_to(Point::new(bounds.width - radius, 0.0));
-            path.line_to(Point::new(bounds.width, 0.0));
-            path.line_to(Point::new(bounds.width, radius));
-            path.bezier_curve_to(Point::new(bounds.width, radius - bend), Point::new(bounds.width - radius + bend, 0.0), Point::new(bounds.width - radius, 0.0));
-            path.close();
-        });
-        let fill = Color::from_rgba(0.055, 0.025, 0.033, self.alpha);
-        frame.fill(&left, fill);
-        frame.fill(&right, fill);
-        vec![frame.into_geometry()]
+fn combo_marks<'a>(poster: &Poster<'a>) -> Element<'a, Message> {
+    let mut marks = column![].spacing(3).align_x(iced::alignment::Horizontal::Right);
+    match poster.misses() {
+        Some(misses) if misses > 0 => marks = marks.push(badge_pill(text(format!("{misses} ✕")).font(theme::MONO_BOLD).size(10.5).color(ui::faded(CORAL)).into(), Color::from_rgb8(70, 26, 29))),
+        Some(_) if poster.full() => marks = marks.push(badge_pill(text("FC").font(theme::MONO_BOLD).size(10.5).color(ui::faded(GREEN)).into(), Color::from_rgb8(38, 62, 44))),
+        Some(_) => marks = marks.push(badge_pill(text("SB").font(theme::MONO_BOLD).size(10.5).color(ui::faded(AMBER)).into(), Color::from_rgb8(61, 42, 20))),
+        None => {}
     }
+    marks.into()
 }
 
-fn poster_card<'a>(ground: &Ground<'a>, index: usize, poster: &Poster<'a>, chosen: bool, wide: f32, f: f64) -> Element<'a, Message> {
+fn play_row<'a>(ground: &Ground<'a>, index: usize, poster: &Poster<'a>, wide: f32, f: f64) -> Element<'a, Message> {
     let w = ground.words;
-    let colour = screen::grade_colour(&poster.grade);
     let k = ui::fade();
-    let ground_colour = Color::from_rgb8(0x17, 0x0d, 0x10);
-    let top_round = iced::border::Radius { top_left: 13.0, top_right: 13.0, bottom_right: 0.0, bottom_left: 0.0 };
-    let shape = |handle: &iced::widget::image::Handle| match handle {
-        iced::widget::image::Handle::Rgba { width, height, .. } if *height > 0 => *width as f32 / *height as f32,
-        _ => crate::community::POSTER_SHAPE,
+    let colour = screen::grade_colour(&poster.grade);
+    let thumb: Element<'a, Message> = match poster.cover.or(poster.art) {
+        Some(handle) => iced::widget::image(handle.clone()).width(THUMB_WIDE).height(THUMB_HIGH).content_fit(iced::ContentFit::Cover).border_radius(7.0).opacity(k).into(),
+        None => container(ui::fine_hatch()).width(THUMB_WIDE).height(THUMB_HIGH).clip(true).into(),
     };
-    let fits = |handle: &&iced::widget::image::Handle| shape(handle) < 2.2;
-    let (high, picture): (f32, Element<'a, Message>) = match poster.art.or(poster.cover.filter(fits)) {
-        Some(handle) => {
-            let high = (wide / shape(handle)).clamp(86.0, 150.0);
-            let picture = iced::widget::image(handle.clone()).width(Length::Fill).height(high).content_fit(iced::ContentFit::Fill).border_radius(13.0).opacity(k);
-            (high, container(picture).width(Length::Fill).height(high).clip(true).into())
-        }
-        None => {
-            let high = (wide / crate::community::POSTER_SHAPE).clamp(86.0, 150.0);
-            let picture: Element<'a, Message> = match poster.cover {
-                Some(handle) => container(iced::widget::image(handle.clone()).width(Length::Fill).height(high).content_fit(iced::ContentFit::Fill).border_radius(13.0).opacity(k)).width(Length::Fill).height(high).clip(true).into(),
-                None => container(ui::fine_hatch()).width(Length::Fill).height(high).into(),
-            };
-            (high, picture)
-        }
-    };
-    let reach = (high - 4.0) / (high + 20.0);
-    let shade = container(Space::new().width(Length::Fill).height(high + 20.0)).style(move |_| container::Style {
-        background: Some(Background::Gradient(iced::Gradient::Linear(
-            iced::gradient::Linear::new(iced::Radians(std::f32::consts::PI))
-                .add_stop(0.0, Color { a: 0.0, ..ground_colour })
-                .add_stop(0.45 * reach, Color { a: 0.3 * k, ..ground_colour })
-                .add_stop(0.78 * reach, Color { a: 0.86 * k, ..ground_colour })
-                .add_stop(reach, Color { a: k, ..ground_colour })
-                .add_stop(1.0, Color { a: k, ..ground_colour }),
-        ))),
-        border: Border { radius: top_round, ..Border::default() },
-        ..container::Style::default()
-    });
-    let numeral = |colour: Color| text((index + 1).to_string()).font(theme::SANS_SEMI).size(34.0).wrapping(text::Wrapping::None).color(colour);
-    let place = stack![
-        container(numeral(Color { a: 0.6 * k, ..Color::BLACK })).padding(Padding { top: 2.0, right: 0.0, bottom: 0.0, left: 1.5 }),
-        numeral(Color { a: 0.97 * k, ..Color::WHITE }),
-    ];
-    let dusk = container(Space::new().width(Length::Fill).height(high)).style(move |_| container::Style {
-        background: Some(Background::Gradient(iced::Gradient::Linear(
-            iced::gradient::Linear::new(iced::Radians(std::f32::consts::FRAC_PI_4 * 3.0))
-                .add_stop(0.0, Color { a: 0.62 * k, ..ground_colour })
-                .add_stop(0.38, Color { a: 0.0, ..ground_colour }),
-        ))),
-        border: Border { radius: top_round, ..Border::default() },
-        ..container::Style::default()
-    });
-    let mut rating = row![].spacing(5).align_y(iced::Center);
-    if let Some(stars) = poster.stars {
-        rating = rating.push(star_pill(screen::decimal(w, stars, 2), stars, 11.0));
+    let mut song = row![text(poster.title.clone()).font(theme::SANS_SEMI).size(14.0).wrapping(text::Wrapping::None).color(ui::faded(INK))].spacing(8).align_y(iced::alignment::Vertical::Bottom);
+    if !poster.version.is_empty() {
+        song = song.push(text(poster.version.clone()).font(theme::SANS).size(12.5).wrapping(text::Wrapping::None).color(ui::faded(MUTED)));
     }
-    let head = row![place, ui::grow(), container(rating).padding(Padding::ZERO.top(6.0))].align_y(iced::alignment::Vertical::Top);
-    let seal = container(text(poster.grade.clone()).font(theme::SANS_SEMI).size(20.0).color(ui::faded(colour)))
-        .width(44.0)
-        .height(44.0)
-        .center(44.0)
-        .style(move |_| container::Style {
-            background: Some(Background::Color(Color { a: k, ..ground_colour })),
-            border: Border { color: crate::theme::outline(Color { a: k, ..colour }), width: 2.0, radius: 22.0.into() },
-            shadow: Shadow { color: Color { a: 0.45 * k, ..colour }, offset: Vector::ZERO, blur_radius: 16.0 },
-            ..container::Style::default()
-        });
-    let mods: Element<'a, Message> = if poster.mods.is_empty() { Space::new().width(0.0).height(0.0).into() } else { screen::mods(&poster.mods) };
-    let foot = row![mods, ui::grow(), seal].align_y(iced::alignment::Vertical::Bottom);
-    let top = stack![
-        picture,
-        Canvas::new(PosterCorners { alpha: k }).width(Length::Fill).height(high),
-        shade,
-        dusk,
-        container(head).padding(Padding { top: 2.0, right: 8.0, bottom: 0.0, left: 12.0 }).width(Length::Fill).height(high),
-        container(foot).padding(Padding { top: 0.0, right: 10.0, bottom: 0.0, left: 10.0 }).width(Length::Fill).height(high + 20.0).align_y(iced::alignment::Vertical::Bottom),
+    let mut names = column![container(song).clip(true)].spacing(3);
+    let mut credit = row![].spacing(10).align_y(iced::Center);
+    if !poster.artist.is_empty() {
+        credit = credit.push(text(poster.artist.clone()).font(theme::SANS).size(12.0).wrapping(text::Wrapping::None).color(ui::faded(MUTED)));
+    }
+    if !poster.mapper.is_empty() {
+        credit = credit.push(row![glyph(Icon::Mapper, 13.0, FAINT), text(poster.mapper.clone()).font(theme::SANS).size(12.0).wrapping(text::Wrapping::None).color(ui::faded(MUTED))].spacing(4).align_y(iced::Center));
+    }
+    if !poster.artist.is_empty() || !poster.mapper.is_empty() {
+        names = names.push(container(credit).clip(true));
+    }
+    let mut mods = row![].spacing(3).align_y(iced::Center);
+    for acronym in poster.mods.iter().filter(|acronym| crate::modicons::shown(acronym)) {
+        mods = mods.push(crate::modicons::badge(acronym, ROW_MOD, 1.0));
+    }
+    let mut line = row![
+        container(text(poster.grade.clone()).font(theme::SANS_SEMI).size(18.0).color(ui::faded(colour))).width(22.0).center_x(22.0),
+        thumb,
+        container(names).width(Length::Fill).clip(true),
+        mods,
     ]
-    .height(high + 20.0);
-    let tail: Element<'a, Message> = match (poster.full(), poster.misses()) {
-        (true, _) => badge_pill(text("FC").font(theme::MONO_BOLD).size(10.5).color(ui::faded(GREEN)).into(), Color::from_rgb8(38, 62, 44)),
-        (false, Some(misses)) if misses > 0 => badge_pill(text(format!("{misses} ✕")).font(theme::MONO_BOLD).size(10.5).color(ui::faded(CORAL)).into(), Color::from_rgb8(70, 26, 29)),
-        _ => Space::new().width(0.0).into(),
-    };
-    let body = column![
-        row![text(screen::decimal(w, (poster.pp * f) as f32, 0)).font(theme::SANS_SEMI).size(27.0).wrapping(text::Wrapping::None).color(ui::faded(INK)), text("PP").font(theme::SANS).size(13.0).color(ui::faded(MUTED))].spacing(4).align_y(iced::alignment::Vertical::Bottom),
-        container(
-            column![
-                container(text(poster.title.clone()).font(theme::SANS_SEMI).size(13.5).color(ui::faded(INK))).max_height(36.0).clip(true),
-                ui::marquee(vec![ui::piece(poster.version.clone(), theme::SANS, 11.5, MUTED)]),
+    .spacing(14)
+    .align_y(iced::Center);
+    if wide >= ROW_ROOMY {
+        if let Some(stars) = poster.stars {
+            line = line.push(star_pill(screen::decimal(w, stars, 2), stars, 11.0));
+        }
+        line = line.push(container(ui::mono_small(w.percent(poster.accuracy * f), MUTED)).width(58.0).align_x(iced::alignment::Horizontal::Right));
+    }
+    let line = line
+        .push(container(combo_marks(poster)).width(46.0).align_x(iced::alignment::Horizontal::Right))
+        .push(
+            container(row![
+                text(screen::decimal(w, (poster.pp * f) as f32, 0)).font(theme::SANS_SEMI).size(17.0).wrapping(text::Wrapping::None).color(ui::faded(INK)),
+                text("PP").font(theme::SANS).size(11.0).color(ui::faded(MUTED)),
             ]
-            .spacing(2),
-        )
-        .height(54.0),
-        row![ui::mono_small(w.percent(poster.accuracy * f), INK), ui::grow(), tail].align_y(iced::Center),
-    ]
-    .spacing(6)
-    .padding(Padding { top: 0.0, right: 12.0, bottom: 12.0, left: 12.0 });
-    let card = container(column![top, body].spacing(0)).width(Length::Fill).clip(true).style(move |_| container::Style {
-        background: Some(Background::Color(Color { a: k, ..ground_colour })),
-        border: Border { radius: 14.0.into(), ..Border::default() },
-        shadow: if chosen { Shadow { color: Color { a: 0.28 * k, ..colour }, offset: Vector::ZERO, blur_radius: 24.0 } } else { Shadow::default() },
-        ..container::Style::default()
-    });
-    let frame = button(Space::new().width(Length::Fill).height(Length::Fill))
+            .spacing(4)
+            .align_y(iced::alignment::Vertical::Bottom))
+            .width(72.0)
+            .align_x(iced::alignment::Horizontal::Right),
+        );
+    let pressed = button(container(line).padding([0, 12]).height(ROW_HIGH).center_y(ROW_HIGH))
         .padding(0)
         .width(Length::Fill)
-        .height(Length::Fill)
-        .style(move |_, _| button::Style {
-            background: None,
-            text_color: INK,
-            border: Border { color: crate::theme::outline(if chosen { Color { a: k, ..colour } } else { Color::from_rgba(1.0, 1.0, 1.0, 0.08 * k) }), width: if chosen { 1.5 } else { 1.0 }, radius: 14.0.into() },
-            shadow: Shadow::default(),
-            snap: true,
-        })
-        .on_press(match (chosen, &poster.scored) {
-            (true, Some(scored)) => Message::Read(screen::Reading::Score(scored.clone())),
-            _ => Message::PlayOpen(index),
+        .style(move |_, status| {
+            let lit = matches!(status, button::Status::Hovered | button::Status::Pressed);
+            button::Style {
+                background: Some(Background::Color(Color::from_rgba(0.055, 0.025, 0.033, if lit { 0.9 } else { 0.5 } * k))),
+                text_color: INK,
+                border: Border { radius: 10.0.into(), ..Border::default() },
+                shadow: Shadow::default(),
+                snap: true,
+            }
         });
-    let glow = if chosen { ui::Glow::card(14.0).edge(Color::TRANSPARENT).shadow(Color::TRANSPARENT) } else { ui::Glow::card(14.0).edge(Color::from_rgba(1.0, 1.0, 1.0, 0.3)).shadow(Color::from_rgba(0.0, 0.0, 0.0, 0.5)) };
-    ui::hover(container(stack![card, frame]).width(Length::FillPortion(1)), glow)
-}
-
-fn judgement_bar<'a>(ground: &Ground<'a>, counts: [Option<u32>; 4], f: f64) -> Option<Element<'a, Message>> {
-    let w = ground.words;
-    let k = ui::fade();
-    let shades = [theme::HIT_300, theme::HIT_100, theme::HIT_50, ACCENT];
-    let labels = ["300", "100", "50", "✕"];
-    let total: u32 = counts.iter().flatten().sum();
-    if total == 0 {
-        return None;
+    let _ = index;
+    match &poster.scored {
+        Some(scored) => pressed.on_press(Message::Read(screen::Reading::Score(scored.clone()))).into(),
+        None => pressed.into(),
     }
-    let mut bar = row![].spacing(2).height(5.0);
-    for (count, colour) in counts.iter().zip(shades) {
-        if let Some(n) = count.filter(|n| *n > 0) {
-            bar = bar.push(container(Space::new().height(5.0)).width(Length::FillPortion((n.clamp(1, 65_000)) as u16)).style(move |_| container::Style {
-                background: Some(Background::Color(Color { a: k, ..colour })),
-                border: Border { radius: 3.0.into(), ..Border::default() },
-                ..container::Style::default()
-            }));
-        }
-    }
-    let mut tiles = row![].spacing(6);
-    for ((count, colour), label) in counts.iter().zip(shades).zip(labels) {
-        if let Some(n) = count {
-            tiles = tiles.push(
-                container(column![ui::mono_small(label.to_owned(), colour), text(w.lang().group((f64::from(*n) * f).round() as u64)).font(theme::SANS_SEMI).size(15.0).wrapping(text::Wrapping::None).color(ui::faded(INK))].spacing(1))
-                    .padding([6, 10])
-                    .width(Length::FillPortion(1))
-                    .clip(true)
-                    .style(move |_| container::Style {
-                        background: Some(Background::Color(Color { a: k, ..Color::from_rgb8(0x12, 0x09, 0x0c) })),
-                        border: Border { color: crate::theme::outline(Color::from_rgba(1.0, 1.0, 1.0, 0.07 * k)), width: 1.0, radius: 9.0.into() },
-                        ..container::Style::default()
-                    }),
-            );
-        }
-    }
-    Some(column![bar.width(Length::Fill), tiles].spacing(8).into())
-}
-
-fn fact_pill<'a>(inside: Element<'a, Message>) -> Element<'a, Message> {
-    let k = ui::fade();
-    container(inside)
-        .padding(Padding { top: 3.0, right: 9.0, bottom: 3.0, left: 9.0 })
-        .style(move |_| container::Style {
-            background: Some(Background::Color(Color { a: k, ..Color::from_rgb8(0x24, 0x18, 0x1b) })),
-            border: Border { radius: 11.0.into(), ..Border::default() },
-            ..container::Style::default()
-        })
-        .into()
-}
-
-fn poster_detail<'a>(ground: &Ground<'a>, poster: &Poster<'a>, f: f64) -> Element<'a, Message> {
-    let w = ground.words;
-    let mut facts: Vec<Element<'a, Message>> = Vec::new();
-    let combo_said = match (poster.combo, poster.most) {
-        (Some(combo), Some(most)) => Some(format!("{} / {}x", w.lang().group(u64::from(combo)), w.lang().group(u64::from(most)))),
-        (Some(combo), None) => Some(format!("{}x", w.lang().group(u64::from(combo)))),
-        _ => None,
-    };
-    if let Some(said) = combo_said {
-        let full = poster.full();
-        let colour = if full { GREEN } else { MUTED };
-        let said = if full { format!("{said}  FC") } else { poster.misses().filter(|n| *n > 0).map_or(said.clone(), |n| format!("{said}  {n} ✕")) };
-        facts.push(fact_pill(row![glyph(Icon::Chain, 12.0, colour), ui::mono_small(said, colour)].spacing(5).align_y(iced::Center).into()));
-    }
-    if let Some(bpm) = poster.bpm {
-        facts.push(fact_pill(row![glyph(Icon::Metronome, 12.0, MUTED), ui::mono_small(format!("{} BPM", bpm.round() as u32), MUTED)].spacing(5).align_y(iced::Center).into()));
-    }
-    if let Some(length) = poster.length {
-        facts.push(fact_pill(row![glyph(Icon::Clock, 12.0, MUTED), ui::mono_small(format!("{}:{:02}", length as u32 / 60, length as u32 % 60), MUTED)].spacing(5).align_y(iced::Center).into()));
-    }
-    if let Some(at) = poster.played {
-        facts.push(fact_pill(row![glyph(Icon::Calendar, 12.0, MUTED), ui::mono_small(w.day(at, ground.now_unix), MUTED)].spacing(5).align_y(iced::Center).into()));
-    }
-    if !poster.mods.is_empty() {
-        facts.push(screen::mods(&poster.mods));
-    }
-    let mut under = vec![format!("[{}]", poster.version)];
-    if !poster.mapper.is_empty() {
-        under.push(format!("{} {}", w.t("mapped-by"), poster.mapper));
-    }
-    let mut left = column![].spacing(4).width(Length::FillPortion(13));
-    if !poster.artist.is_empty() {
-        left = left.push(ui::marquee(vec![ui::piece(poster.artist.clone(), theme::SANS, 12.5, MUTED)]));
-    }
-    let left = left
-        .push(ui::marquee(vec![ui::piece(poster.title.clone(), theme::SANS_SEMI, 19.0, INK)]))
-        .push(ui::marquee(ui::pieces(under, theme::SANS, 12.5, MUTED)))
-        .push(container(ui::wrap(facts, 6.0)).padding(Padding::ZERO.top(6.0)));
-    let mut right = column![].spacing(12).width(Length::FillPortion(10));
-    if let Some(bar) = judgement_bar(ground, poster.counts, f) {
-        right = right.push(bar);
-    }
-    let deed = |icon: Icon, words: String, press: Message| {
-        ui::hover(
-            button(row![glyph(icon, 13.0, MUTED), text(words).font(theme::SANS_SEMI).size(12.5).color(ui::faded(MUTED))].spacing(6).align_y(iced::Center))
-                .padding([7, 12])
-                .style(ui::button_faded(ui::calm(outline)))
-                .on_press(press),
-            ui::Glow::tile(10.0),
-        )
-    };
-    let mut deeds = row![ui::grow()].spacing(8);
-    if let Some(scored) = &poster.scored {
-        deeds = deeds.push(deed(Icon::Chart, w.t("open-result"), Message::Read(screen::Reading::Score(scored.clone()))));
-    }
-    if let Some(set) = poster.set {
-        deeds = deeds.push(deed(Icon::External, w.t("open-map"), Message::Open(format!("https://osu.ppy.sh/beatmapsets/{set}"))));
-    }
-    if poster.scored.is_some() || poster.set.is_some() {
-        right = right.push(deeds);
-    }
-    let k = ui::fade();
-    let high = 156.0;
-    let colour = screen::grade_colour(&poster.grade);
-    let content = container(row![left, right].spacing(20).align_y(iced::Center)).padding([14, 18]).width(Length::Fill).height(high).center_y(high);
-    container(stack![screen::backdrop(poster.cover, high, 14.0, colour, true), content].height(high))
-        .width(Length::Fill)
-        .style(move |_| container::Style {
-            background: Some(Background::Color(Color { a: k, ..Color::from_rgb8(0x16, 0x0c, 0x0f) })),
-            border: Border { color: crate::theme::outline(Color { a: 0.35 * k, ..colour }), width: 1.0, radius: 14.0.into() },
-            ..container::Style::default()
-        })
-        .into()
 }
 
 fn best_plays<'a>(ground: &Ground<'a>, whose: &Whose<'a>, wide: f32, t: f32) -> Element<'a, Message> {
@@ -1298,12 +1097,11 @@ fn best_plays<'a>(ground: &Ground<'a>, whose: &Whose<'a>, wide: f32, t: f32) -> 
     if posters.is_empty() {
         return slab(column![head, ui::mono_small(w.t("nothing-yet"), FAINT)].spacing(10), [14, 16]).into();
     }
-    let chosen = ground.play_open.filter(|at| *at < posters.len()).unwrap_or(0);
-    let columns = if wide >= 720.0 { 5 } else { 3 };
-    let each = (wide - 32.0 - 10.0 * (columns as f32 - 1.0)) / columns as f32;
-    let cards: Vec<Element<'a, Message>> = posters.iter().enumerate().map(|(at, poster)| poster_card(ground, at, poster, at == chosen, each, ui::tally(t, 0.2 + 0.05 * at as f32))).collect();
-    let detail = ui::appearing(ui::appear(ground.play_t, 0), 8.0, || poster_detail(ground, &posters[chosen], ui::tally(ground.play_t.min(t), 0.1)));
-    slab(column![head, screen::grid(cards, columns, 10.0), detail].spacing(12), [14, 16]).into()
+    let mut list = column![head].spacing(6);
+    for (at, poster) in posters.iter().enumerate() {
+        list = list.push(play_row(ground, at, poster, wide, ui::tally(t, 0.2 + 0.05 * at as f32)));
+    }
+    slab(list, [14, 16]).into()
 }
 
 fn grades<'a>(ground: &Ground<'a>, card: &wire::Card) -> Element<'a, Message> {

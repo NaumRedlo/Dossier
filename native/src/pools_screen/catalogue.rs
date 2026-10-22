@@ -76,7 +76,7 @@ pub(super) fn ledger_row(_: &iced::Theme, status: button::Status) -> button::Sty
 }
 
 pub(super) fn ledger_head<'a>(parts: Vec<(Col, String)>) -> Element<'a, Message> {
-    container(cells(parts.into_iter().map(|(col, label)| (col, ui::mono_small(label.to_uppercase(), MUTED))).collect())).padding([8.0, LEDGER_PAD]).into()
+    container(cells(parts.into_iter().map(|(col, label)| (col, ui::label(label, MUTED))).collect())).padding([8.0, LEDGER_PAD]).into()
 }
 
 pub(super) fn ringed<'a>(inside: Element<'a, Message>, round: f32) -> Element<'a, Message> {
@@ -124,7 +124,7 @@ pub(super) fn makers_sheet<'a>(state: &'a State, names: &[String], words: &'a Wo
     for pair in names.chunks(2) {
         list = list.push(row(pair.iter().map(|name| container(author_chip(state, name)).width(Length::FillPortion(1)).into()).collect::<Vec<Element<'a, Message>>>()).spacing(4));
     }
-    let head = row![ui::mono_small(words.t("pool-mappoolers").to_uppercase(), MUTED), ui::grow(), mono(names.len().to_string(), 13.0, INK)].align_y(iced::Center);
+    let head = row![ui::section(words.t("pool-mappoolers")), ui::grow(), mono(names.len().to_string(), 13.0, INK)].align_y(iced::Center);
     container(column![container(head).padding([0, 9]), list].spacing(8))
         .width(340.0)
         .padding([14, 7])
@@ -333,10 +333,10 @@ pub(super) fn shelf<'a>(state: &'a State, words: &'a Words, thumbs: &'a HashMap<
         }
     }
     let published_head = || -> Element<'a, Message> {
-        let mut parts: Vec<(Col, Element<'a, Message>)> = vec![(Col::Fill, ui::mono_small(words.t("catalogue-published").to_uppercase(), MUTED))];
-        if let Some(wide) = shape.makers { parts.push((Col::Wide(wide), ui::mono_small(words.t("pool-mappoolers").to_uppercase(), MUTED))); }
-        if shape.publisher { parts.push((Col::Wide(190.0), ui::mono_small(words.t("pool-publisher").to_uppercase(), MUTED))); }
-        parts.push((Col::Wide(44.0), ui::mono_small(words.t("ledger-cards").to_uppercase(), MUTED)));
+        let mut parts: Vec<(Col, Element<'a, Message>)> = vec![(Col::Fill, ui::label(words.t("catalogue-published"), MUTED))];
+        if let Some(wide) = shape.makers { parts.push((Col::Wide(wide), ui::label(words.t("pool-mappoolers"), MUTED))); }
+        if shape.publisher { parts.push((Col::Wide(190.0), ui::label(words.t("pool-publisher"), MUTED))); }
+        parts.push((Col::Wide(44.0), ui::label(words.t("ledger-cards"), MUTED)));
         parts.push((Col::End(132.0), quiet_button(words.t("catalogue-refresh"), Message::Catalogue(collection))));
         container(cells(parts)).padding([2.0, LEDGER_PAD]).into()
     };
@@ -618,7 +618,7 @@ pub(super) fn game_tile<'a>(found: &'a Collection, at: usize, words: &'a Words, 
 pub(super) fn collections_showcase<'a>(state: &'a State, mut page: iced::widget::Column<'a, Message>, words: &'a Words, thumbs: &'a HashMap<String, image::Handle>, width: f32, t: f32, clocks: &Clocks) -> Element<'a, Message> {
     let across = if width >= 960.0 { 3 } else if width >= 620.0 { 2 } else { 1 };
     let wide = ((width - CARD_GAP * (across as f32 - 1.0)) / across as f32).floor();
-    let caption = |key: &str| -> Element<'a, Message> { container(ui::mono_small(words.t(key).to_uppercase(), MUTED)).padding(Padding { top: 6.0, ..Padding::ZERO }).into() };
+    let caption = |key: &str| -> Element<'a, Message> { container(ui::section(words.t(key))).padding(Padding { top: 6.0, ..Padding::ZERO }).into() };
     let note = |key: &str| -> Element<'a, Message> { container(faded_text(words.t(key), 14.0, MUTED)).padding([6, 2]).into() };
     let mine: Vec<&Pool> = state.list.iter().filter(|pool| pool.collection && pool.saved.is_none()).collect();
     page = page.push(ui::appearing(ui::appear(t, 1), 8.0, || caption("shelf-own-collections")));
@@ -804,7 +804,7 @@ pub(super) fn showcase<'a>(state: &'a State, mut page: iced::widget::Column<'a, 
                 };
                 let publisher: Element<'a, Message> = match pool.compiler.as_str() {
                     "" => Space::new().width(Length::Fill).into(),
-                    name => row![ui::mono_small(words.t("shelf-published-by").to_uppercase(), MUTED), container(named_face(state, name, 120.0)).width(Length::Fill).clip(true)].spacing(8).align_y(iced::Center).width(Length::Fill).into(),
+                    name => row![ui::label(words.t("shelf-published-by"), MUTED), container(named_face(state, name, 120.0)).width(Length::Fill).clip(true)].spacing(8).align_y(iced::Center).width(Length::Fill).into(),
                 };
                 let foot = row![publisher, action].spacing(8).align_y(iced::Center);
                 let mark = if item.code.is_empty() { Space::new().into() } else { plate(text(item.code.clone()).font(theme::MONO_BOLD).size(12.0).color(ui::faded(INK)).into()) };

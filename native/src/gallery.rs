@@ -946,13 +946,14 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
         main.person_fade = iced::Animation::new(person.is_some());
         main
     };
-    let scored = |scale: bool| {
+    let scored = |picks: bool| {
         use crate::community::wire;
         let mut main = community(crate::community_screen::Section::Feed, None);
         let staged = main.community.as_ref().and_then(|catalog| {
             let play = catalog.live.iter().filter(|play| play.passed && catalog.people.get(play.who).is_some_and(|person| !person.you)).max_by(|a, b| a.pp.total_cmp(&b.pp))?;
             let mut scored = crate::community_screen::Scored::of(catalog, play.who, &play.more, true)?;
             scored.map.beatmap = Some(1);
+            scored.map.set = Some(1);
             scored.map.stars = Some(5.84);
             let others = [(0usize, 412.6f32, 98.34f32, 1_204u32, "S", &["HD"][..], 34i64), (2, 611.0, 99.21, 1_480, "SS", &["HD", "HR"][..], 18), (3, 402.2, 97.1, 1_101, "A", &[][..], 29), (4, 356.9, 95.12, 902, "A", &["DT"][..], 55)];
             let mut rows: Vec<wire::BoardRow> = others
@@ -966,7 +967,7 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
                         name: person.name.clone(),
                         country: person.country.clone(),
                         you: person.you,
-                        play: wire::Play { id: Some(100 + at as u64), pp, accuracy, combo: Some(combo), grade: grade.to_owned(), mods: mods.iter().map(|m| (*m).to_owned()).collect(), score: (pp * 2_000.0) as u64, at: Some(NOON - days * 86_400), ..wire::Play::default() },
+                        play: wire::Play { id: Some(100 + at as u64), pp, accuracy, combo: Some(combo), grade: grade.to_owned(), mods: mods.iter().map(|m| (*m).to_owned()).collect(), score: (pp * 2_000.0) as u64, at: Some(NOON - days * 86_400), counts: vec![Some(1_000 - at as u32 * 40), Some(20 + at as u32 * 6), Some(at as u32), Some(at as u32)], ..wire::Play::default() },
                         ..wire::BoardRow::default()
                     })
                 })
@@ -982,14 +983,18 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
             for (at, row) in rows.iter_mut().enumerate() {
                 row.place = at as u32 + 1;
             }
-            let about = wire::MapAbout { bpm: Some(172.0), length: Some(192), max_combo: Some(1_480), status: "ranked".into(), ..wire::MapAbout::default() };
+            let about = wire::MapAbout { map: wire::Map { creator: "Mapper".into(), ..wire::Map::default() }, bpm: Some(172.0), length: Some(192), max_combo: Some(1_480), status: "ranked".into() };
             Some((scored, wire::MapBoard { beatmap: 1, metric: "pp".into(), map: Some(about), plays: 23, players: 5, rows, ..wire::MapBoard::default() }))
         });
         if let Some((scored, board)) = staged {
+            let scored_who = scored.who;
+            if let Some((cover, picture)) = scored.map.cover().zip(crate::main_screen::decoded(&Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("docs").join("mockups").join("main").join("bg-nevermind.jpg"), 1280, None)) {
+                main.news_pictures.insert(crate::community_screen::wide(&cover), picture);
+            }
             main.map_boards.insert(1, board);
             main.community_reading = Some(crate::community_screen::Reading::Score(scored));
             main.read_fade = iced::Animation::new(true);
-            main.score_scale = scale;
+            main.score_pick = picks.then(|| main.map_boards.get(&1).and_then(|board| board.rows.iter().find(|row| row.who != scored_who).map(|row| row.who))).flatten();
         }
         main
     };
@@ -1171,7 +1176,7 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
             main
         }),
         ("main-community-score".to_owned(), scored(false)),
-        ("main-community-score-scale".to_owned(), scored(true)),
+        ("main-community-score-picked".to_owned(), scored(true)),
         ("main-community-score-witnessed".to_owned(), {
             let mut main = scored(false);
             if let Some(crate::community_screen::Reading::Score(scored)) = main.community_reading.as_mut() {

@@ -314,7 +314,7 @@ pub fn card<'a>(inside: impl Into<Element<'a, Message>>, padding: impl Into<Padd
 }
 
 fn caption<'a>(words: String) -> Element<'a, Message> {
-    ui::mono_small(words.to_uppercase(), FAINT)
+    ui::section(words)
 }
 
 fn day_divider<'a>(ground: &Ground<'a>, at: i64, counts: [usize; 3]) -> Element<'a, Message> {

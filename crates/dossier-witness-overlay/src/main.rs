@@ -5,6 +5,7 @@ mod shown {
     use dossier_overlay::{Display, Frame, Message, Viewport};
     use dossier_witness_overlay::hud::Hud;
     use dossier_witness_overlay::panes::{self, Panes};
+    use dossier_witness_overlay::system;
 
     pub struct Shown {
         hud: Hud,
@@ -18,11 +19,13 @@ mod shown {
         said: String,
         raised: u64,
         raised_told: Option<Instant>,
+        window_told: String,
+        monitors_told: Vec<String>,
     }
 
     impl Shown {
         pub fn new(lang: dossier_hud::Lang, offers: bool, keeps: bool) -> Shown {
-            Shown { hud: Hud::new(lang, offers), panes: Panes::new(), keeps, pid: None, window: None, display: None, fresh: true, place: None, said: String::new(), raised: 0, raised_told: None }
+            Shown { hud: Hud::new(lang, offers), panes: Panes::new(), keeps, pid: None, window: None, display: None, fresh: true, place: None, said: String::new(), raised: 0, raised_told: None, window_told: String::new(), monitors_told: system::current_monitors() }
         }
 
         pub fn take(&mut self, frame: &Frame) {
@@ -99,10 +102,30 @@ mod shown {
                     }
                 }
             };
+            if place != self.place {
+                self.tell_window();
+            }
             self.place = place;
             if said != self.said {
                 eprintln!("witness overlay: {said}");
                 self.said = said;
+            }
+        }
+
+        fn tell_window(&mut self) {
+            let Some(line) = self.window.and_then(system::window) else {
+                return;
+            };
+            if line != self.window_told {
+                eprintln!("witness overlay: {line}");
+                self.window_told = line;
+            }
+            let monitors = system::current_monitors();
+            if monitors != self.monitors_told {
+                for line in &monitors {
+                    eprintln!("witness overlay: now {}", line.trim_start_matches("system: "));
+                }
+                self.monitors_told = monitors;
             }
         }
 
@@ -147,6 +170,9 @@ fn main() {
     let english = args.iter().position(|arg| arg == "--lang").and_then(|at| args.get(at + 1)).is_some_and(|said| said == "en");
     let offers = args.iter().any(|arg| arg == "--offer");
     let keeps = offers || args.iter().any(|arg| arg == "--keeps");
+    for line in dossier_witness_overlay::system::lines() {
+        eprintln!("witness overlay: {line}");
+    }
     let (tell, told) = std::sync::mpsc::channel();
     std::thread::spawn(move || listen(tell));
     let mut shown = shown::Shown::new(if english { dossier_hud::Lang::En } else { dossier_hud::Lang::Ru }, offers, keeps);

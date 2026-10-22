@@ -177,6 +177,18 @@ changes size. The state behind them is `crates/dossier-witness-overlay/src/hud.r
   its own folder, anew at every start of the overlay, so a tester can send it.
   The note that the game's window rose over the plates is written the first
   time and then at most once every 30 seconds, with a count.
+- At its start the log names the machine, because whether windows over a full
+  screen game are seen depends on it (one tester sees the plates in OpenGL full
+  screen, another does not): the Windows edition and build, each graphics
+  adapter with its driver version and date, each monitor with its link,
+  resolution, position, refresh rate and HDR, the full screen optimization,
+  game mode, graphics and GPU scheduling settings from the registry, and the
+  compatibility flags and graphics preference set for `osu!.exe`. When the
+  game's window is found or moves, a line tells whether it is borderless or has
+  a title bar, whether it is kept on top, and whether it covers its monitor
+  exactly; if the monitors' modes changed meanwhile (a full screen game may
+  change the resolution), they are written again. All of it is read from the
+  system and the window; the game's process is still not opened.
 
 In Dossier the overlay has its own tile in the settings, «Witness Overlay»,
 with the switch «Оверлей в игре», marked «эксперимент» and off by default
